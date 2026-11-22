@@ -250,3 +250,22 @@ The Environment DO reads both at each CLI spawn and carries them with the start 
 budget rides the lease request (§7); a carried value that is absent or out of bounds reads as its default. The count
 applies at the next start: lowering it ends no running process, and new starts are refused, naming the setting, until
 fewer run. The reclaim delay is kept with each process, so a change applies to processes started after it.
+
+## Refinement (SPI-1315, 2026-11-22): the Turn limit
+
+The fixed 2 h turn cap was a cost policy, not a platform limit, and the Durable agent's (`TURN_DEADLINE_MS`) and the CLI
+agents' (`TURN_CAP_MS`, ADR-0015) were two constants that had to agree. Both are now one Environment setting, not a
+Harness setting (it bounds the CLI agents too): `turnLimitMinutes`, 120 by default, 1 to `MAX_TIMED_MINUTES` (ADR-0048
+§2: t3flare times it with its own alarm and timer), tier `down-free`, in the Containers row. Its consequence is stated
+once, in its description (ADR-0048 §6): "A turn longer than this is ended (a CLI agent's process with it). Each minute of
+a turn can spend model tokens and hold a Container."
+
+It applies at each thread's next turn; a running turn keeps the limit it started with. The Environment DO reads it at
+each turn's start (`EnvironmentServices.turnLimitMs`, as `agentsReadDotfiles` is read). The CLI wrapper sleeps the limit
+it read and ends the process at it. The Durable agent's adapter carries it with `submitTurn` (`turnLimitMs`), and the
+Session keeps it on the turn's record (`TurnState.turnLimitMs`): its alarm ends each turn at its start plus its own
+limit, where it once recomputed one deadline for every live turn at each alarm. A start or a record without one reads
+as the default. The deploy's `T3FLARE_TURN_DEADLINE_MS` (tests and the stage's deadline check) still wins over both.
+
+The Workspace DO's process backstop (`BACKSTOP_MS`, 130 minutes) stays fixed and does not follow the limit: it applies
+only to a process out of a turn, where the Turn limit bounds nothing.

@@ -10,7 +10,8 @@
 // - t3's tools through the MCP relay (SPI-1039, `relayedMcp.ts`; OD-3 lifted); MCP apps and feedback uploads (to the
 //   vendor) are gone.
 // - The turn's state reaches the Workspace (`processTurn`): the Container's hold (review F7).
-// - The 2 h turn cap (ADR-0015): a turn still running then ends its process, and with it the session.
+// - The Turn limit (ADR-0015, SPI-1315: `turnLimitMinutes`, read at each turn's start): a turn still running at the
+//   limit it started with ends its process, and with it the session.
 // - Events can be filtered (pi's "t3-code MCP unavailable" notice, review F10).
 // - The thread's Workspace takes the Environment skill set before each turn (SPI-1153).
 // - A tool call the MCP relay asks about (ADR-0028) is raised as t3's approval card on the thread's live turn: the
@@ -45,14 +46,12 @@ import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 
+import { turnLimitMsNow } from "../../agents/bindings.ts";
 import type { ChannelProcess } from "../../agents/processChannel.ts";
 import { type CliAnswer, type CliAsk, registerCliAsker } from "./cliAsk.ts";
 import { takeEnvironmentSkillsAt } from "./environmentSkillsTake.ts";
 import { failureOf, withRelayFailure } from "./relayFailure.ts";
 import { workersLog } from "../../platform/workersLog.ts";
-
-/** ADR-0015: a CLI turn longer than this ends its process. */
-export const TURN_CAP_MS = 2 * 60 * 60_000;
 
 /** What t3flare knows of one CLI provider session: its process (the client factory's) and the thread's policy. */
 export interface CliSession {
@@ -113,6 +112,11 @@ export interface WrapOptions {
    * (`takeEnvironmentSkillsAt`) unless a test replaces it: every CLI driver gets it without asking.
    */
   readonly takeEnvironmentSkills?: (cwd: string | null) => Effect.Effect<void>;
+  /**
+   * SPI-1315 (ADR-0015): the Turn limit in ms, read at each turn's start; a turn longer than the limit it started with
+   * ends its process. Default: the Environment's `turnLimitMinutes` (`turnLimitMsNow`).
+   */
+  readonly turnLimitMs?: () => number;
   /** SPI-1172: the clock a usage limit's reset is held against (tests). */
   readonly now?: () => number;
   /** SPI-1172: the session's process's last model relay failure this turn. Default: asked of its Workspace DO. */
@@ -191,6 +195,7 @@ export const wrapCliAdapter = (adapter: ProviderAdapter.ProviderAdapterV2["Servi
   const { sessions } = options;
   const takeEnvironmentSkills = options.takeEnvironmentSkills ?? ((cwd: string | null) => takeEnvironmentSkillsAt(cwd));
   const now = options.now ?? Date.now;
+  const turnLimitMs = options.turnLimitMs ?? turnLimitMsNow;
   const relayFailure = options.relayFailure ?? (async (session: CliSession) => (await session.process?.modelFailure()) ?? null);
   /** SPI-1172: a failed turn's terminal or error item, with the relay's classification of the process's last answer. */
   const relayedEvent = (session: CliSession, event: ProviderAdapter.ProviderAdapterV2Event): Effect.Effect<ProviderAdapter.ProviderAdapterV2Event> =>
@@ -362,7 +367,9 @@ export const wrapCliAdapter = (adapter: ProviderAdapter.ProviderAdapterV2["Servi
               live = { threadId: turn.threadId, runId: turn.runId, rootNodeId: turn.rootNodeId, providerThreadId: turn.providerThread.id, providerTurnId: undefined, ordinal: turn.providerTurnOrdinal * 100 };
               session.process?.turn(true);
               if (session.capFiber !== undefined) yield* Fiber.interrupt(session.capFiber);
-              session.capFiber = yield* Effect.sleep(TURN_CAP_MS).pipe(
+              // The Turn limit as it is now, kept by this turn's timer: a change reaches only the thread's next turn. At
+              // most MAX_TIMED_MINUTES (7 days), under the 24.8 days past which a JS timer overflows.
+              session.capFiber = yield* Effect.sleep(turnLimitMs()).pipe(
                 Effect.andThen(
                   Effect.sync(() => {
                     workersLog("warn", { t3flare: "cli-turn-cap", providerSessionId: input.providerSessionId, key: session.process?.key ?? null });

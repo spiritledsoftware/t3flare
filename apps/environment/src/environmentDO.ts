@@ -227,6 +227,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       sweep: () => sweepSettingsOf(resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()), env.T3FLARE_SWEEP_GRACE_MS),
       // Read at each CLI spawn (ADR-0047 §9): a change applies at each CLI agent's next start.
       agentsReadDotfiles: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).agentsReadDotfiles,
+      // Read at each turn's start (SPI-1315): a change applies at each thread's next turn; a running turn keeps its limit.
+      turnLimitMs: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).turnLimitMinutes * 60_000,
       // The deletion wake's Layer (`t3/deletionWake.ts`, ADR-0043 §5) asks for a Sweep here.
       wakeSweep: () => this.wakeSweep(),
       marks: { has: (key) => ctx.storage.kv.get(key) !== undefined, set: (key) => ctx.storage.kv.put(key, Date.now()) },

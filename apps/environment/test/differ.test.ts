@@ -382,12 +382,13 @@ describe("differ", () => {
     expect(errors[0]!.ordinal).toBe(ingested.ordinal);
   });
 
-  it("a turn the Session aborted at the 2 h cap ends failed, with the deadline's reason", () => {
+  it("a turn the Session aborted at its Turn limit ends failed, with the limit's reason and the limit it started with", () => {
     const turnId = Object.keys(state.turns)[0]!;
     const differ = withTurns();
-    const events = diff(differ, { ...state, entries: [], turns: { [turnId]: { ...state.turns[turnId]!, status: "aborted", reason: "turn_deadline" } } }, now);
-    const terminal = events.find((event) => event.type === "turn.terminal") as { status: string; failure: { code: string } | null } | undefined;
+    const events = diff(differ, { ...state, entries: [], turns: { [turnId]: { ...state.turns[turnId]!, status: "aborted", reason: "turn_deadline", turnLimitMs: 45 * 60_000 } } }, now);
+    const terminal = events.find((event) => event.type === "turn.terminal") as { status: string; failure: { code: string; message: string } | null } | undefined;
     expect(terminal?.status).toBe("failed");
     expect(terminal?.failure?.code).toBe("turn_deadline");
+    expect(terminal?.failure?.message).toBe("The turn ran past its Turn limit (45 minutes) and was stopped.");
   });
 });

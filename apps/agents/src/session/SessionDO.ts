@@ -6,7 +6,7 @@
 //
 // The Session pushes its committed state to the Environment DO over DO RPC (`sessionPush`), coalesced to about 300 ms
 // while streaming and at least every 60 s while a turn is live; the Environment's adapter diffs it into t3's events.
-// One alarm, computed in one place (`#arm`): the heartbeat, the turn deadline, the liveness push, a push retry, and
+// One alarm, computed in one place (`#arm`): the heartbeat, each turn's Turn limit, the liveness push, a push retry, and
 // every push, which goes out from the alarm so it never nests in the Environment's last call (`alarmPlan.ts`).
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import {
@@ -52,7 +52,6 @@ import {
   type SubmitTurnInput,
   sessionNameOf,
   type ThinkingLevel,
-  TURN_DEADLINE_MS,
   type ProxyRecord,
   type TurnState,
 } from "@t3flare/session-protocol";
@@ -98,6 +97,7 @@ import { FORK_PAGE_BYTES, forkPage, forkPoint, freshConversation, rewind, rollba
 import type { WorkspaceDO } from "../workspace/WorkspaceDO.ts";
 import { liveOf, pushedEntry, turnDetail, turnOfEntry, usageOf } from "./state.ts";
 import { alarmWork, nextAlarm } from "./alarmPlan.ts";
+import { pastTurnLimit, turnLimitAt, turnLimitEndsAt } from "./turnLimit.ts";
 
 export interface SessionEnv {
   readonly ENVIRONMENT: DurableObjectNamespace<EnvironmentDO>;
@@ -105,7 +105,7 @@ export interface SessionEnv {
   readonly WORKSPACES: DurableObjectNamespace<WorkspaceDO>;
   /** "1" on a test stage (never prod): the model fault route is accepted. */
   readonly T3FLARE_FAULTS?: string;
-  /** Overrides TURN_DEADLINE_MS (tests and the stage's deadline check). */
+  /** Overrides every turn's Turn limit, the setting's and the default (tests and the stage's deadline check). */
   readonly T3FLARE_TURN_DEADLINE_MS?: string;
   /** Code mode's sandbox objects (ADR-0027), from the codemode Worker; absent in a deploy's bootstrap pass. */
   readonly CODEMODE_SANDBOX?: CodemodeSandboxNamespace;
@@ -667,11 +667,6 @@ export class SessionDO extends DurableObject<SessionEnv> {
     this.ctx.storage.kv.put(PROXY_KEY, proxy);
   }
 
-  #deadlineMs(): number {
-    const value = Number(this.env.T3FLARE_TURN_DEADLINE_MS);
-    return Number.isFinite(value) && value > 0 ? value : TURN_DEADLINE_MS;
-  }
-
   /** The Workspace DO of the thread's Workspace, also computer's `ComputerWorkspaceStub`; undefined without one. */
   #workspaceStub(): DurableObjectStub<WorkspaceDO> | undefined {
     const id = this.#meta()?.workspaceId;
@@ -767,7 +762,8 @@ export class SessionDO extends DurableObject<SessionEnv> {
     const candidates: Array<number> = [];
     if (turns.length > 0) {
       candidates.push(now + Math.min(HEARTBEAT_MS, LIVENESS_PUSH_MS));
-      for (const turn of turns) candidates.push(turn.startedAt + this.#deadlineMs());
+      // Each turn by the limit it started with (SPI-1315): a lowered setting reaches only the next turn.
+      for (const turn of turns) candidates.push(turnLimitEndsAt(turn, this.env.T3FLARE_TURN_DEADLINE_MS));
     }
     const retry = this.ctx.storage.kv.get<number>(RETRY_KEY);
     if (retry !== undefined) candidates.push(retry);
@@ -815,7 +811,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
     harness.resume();
     const turns = this.#turns();
     for (const [providerTurnId, turn] of Object.entries(turns)) {
-      if (isLive(turn) && now - turn.startedAt >= this.#deadlineMs()) {
+      if (isLive(turn) && pastTurnLimit(turn, now, this.env.T3FLARE_TURN_DEADLINE_MS)) {
         console.warn(JSON.stringify({ t3flare: "turn-deadline", providerTurnId }));
         await this.#abortTurn(providerTurnId, "turn_deadline");
       }
@@ -875,7 +871,9 @@ export class SessionDO extends DurableObject<SessionEnv> {
     const startedAt = Date.now();
     // Recorded with a placeholder before the submit, so the alarm armed below covers it if the process dies after it.
     const turns = this.#turns();
-    turns[input.providerTurnId] = { submissionId: "", runId: input.runId, attemptId: input.attemptId, status: "queued", startedAt };
+    // SPI-1315: the Turn limit the start carried, kept with the turn, so a setting changed while it runs never moves it.
+    const turnLimitMs = turnLimitAt(input.turnLimitMs, this.env.T3FLARE_TURN_DEADLINE_MS);
+    turns[input.providerTurnId] = { submissionId: "", runId: input.runId, attemptId: input.attemptId, status: "queued", startedAt, turnLimitMs };
     this.#saveTurns(turns);
     await this.#arm();
     const submission = await conversation.submit(

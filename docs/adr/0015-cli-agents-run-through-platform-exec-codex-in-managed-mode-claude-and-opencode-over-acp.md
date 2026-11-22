@@ -119,3 +119,9 @@ that SDK's `claudeCodeVersion`), proves it on the `bump` stage, and lands it thr
 provider-update button starts one for the pi CLI, Codex or Claude Code (`t3flare-cli-update <cli>`, answered by the
 process router). OpenCode's pin still moves by hand. A running Container keeps its CLI until it restarts: Containers
 take the image at start.
+
+## Refinement (SPI-1315, 2026-11-22): the Turn limit is a setting
+
+The 2-hour turn above is now the Turn limit, an Environment setting (`turnLimitMinutes`, 120 minutes by default) shared
+with the Durable agent and read at each turn's start: [ADR-0032](0032-environment-settings-and-harness-settings-are-separate-entities-edited-on-one-owner-page.md)'s
+SPI-1315 refinement.

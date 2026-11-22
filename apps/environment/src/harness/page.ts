@@ -386,7 +386,7 @@ const environmentSection = (environment: ResolvedEnvironment, costs: ContainerCo
   return `<section id="environment" aria-labelledby="environment-title">
 <div class="section-head"><h2 id="environment-title">${icon("container")}Environment</h2></div>
 <p class="section-desc">What every Workspace's Container gets. A change applies at each Workspace's next Container start unless its setting says otherwise; a running Container keeps what it started with, and a lower budget stops none.</p>
-<form class="group" data-environment aria-labelledby="environment-title" novalidate><div class="row"><div><div class="row-title"><h3>Containers</h3><span class="ident">revision ${environment.revision}</span></div><p class="desc">Their size, how long one may sit idle, how many may run at once, and how many CLI agents' processes each may run.</p></div>
+<form class="group" data-environment aria-labelledby="environment-title" novalidate><div class="row"><div><div class="row-title"><h3>Containers</h3><span class="ident">revision ${environment.revision}</span></div><p class="desc">Their size, how long one may sit idle, how many may run at once, how many CLI agents' processes each may run, and how long an agent's turn may run.</p></div>
 <div class="row-extra"><div class="fields">${fields.join("")}</div></div></div>${dotfiles}${lists.join("")}${save}</form>
 <dl class="group kv"><div><dt>Running now</dt><dd>${
     running === null || running === undefined

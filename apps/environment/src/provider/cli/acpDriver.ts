@@ -5,7 +5,7 @@
 // the Workspace's Container through 4a's process channel. Readiness is the image's version and the Model endpoints whose
 // API the CLI speaks (it needs setup without one, SPI-1176), never a spawning probe; t3's MCP credential is withheld
 // (OD-3); text generation is Pi Durable's; 4a's wrapper runs around the adapter (one process per session, the hold, the
-// 2 h cap).
+// Turn limit).
 import { type ChatAttachment, type ProviderDriverKind, type ProviderInstanceId, type ServerProvider } from "@t3tools/contracts";
 import { defaultProviderContinuationIdentity, type ProviderInstance } from "@t3tools/provider-core/server/driver";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";

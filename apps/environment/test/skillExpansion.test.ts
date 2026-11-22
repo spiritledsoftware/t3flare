@@ -146,7 +146,7 @@ describe("the caller's switch", () => {
     expect(await rewrite("claude")).toBe("(no rewrite)");
   });
 
-  it("the Pi Durable adapter expands the thread's skills for a new turn and a steer, and carries the Environment skill set's hash on the turn (SPI-1148)", async () => {
+  it("the Pi Durable adapter expands the thread's skills for a new turn and a steer, and carries the Environment skill set's hash and the Turn limit (SPI-1315) on the turn (SPI-1148)", async () => {
     const submitted: Array<SubmitTurnInput> = [];
     const steered: Array<SteerInput> = [];
     const session: Partial<SessionRpc> = {
@@ -157,6 +157,7 @@ describe("the caller's switch", () => {
     bindEnvironmentServices({
       agents: { SESSIONS: { idFromName: (name: string) => name, get: () => session } },
       sql: { exec: () => ({ toArray: () => [] }) },
+      turnLimitMs: () => 45 * 60_000,
     } as unknown as EnvironmentServices);
     const mcpSessions = { read: () => Effect.undefined } as unknown as McpProviderSessions.McpProviderSessions["Service"];
     const instanceId = ProviderInstanceId.make("piDurable");
@@ -180,8 +181,8 @@ describe("the caller's switch", () => {
         });
       }).pipe(Effect.scoped),
     );
-    expect(submitted.map(({ text, environmentSkillsHash }) => ({ text, environmentSkillsHash }))).toEqual([
-      { text: `what is it? $fruit-code\n\n${fruitBlock}`, environmentSkillsHash: "env-hash" },
+    expect(submitted.map(({ text, environmentSkillsHash, turnLimitMs }) => ({ text, environmentSkillsHash, turnLimitMs }))).toEqual([
+      { text: `what is it? $fruit-code\n\n${fruitBlock}`, environmentSkillsHash: "env-hash", turnLimitMs: 45 * 60_000 },
     ]);
     expect(steered.map(({ text }) => text)).toEqual([`and $veg\n\n${vegBlock}`]);
   });

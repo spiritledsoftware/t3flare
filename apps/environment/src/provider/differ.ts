@@ -811,6 +811,14 @@ const inSetupState = (): boolean => {
  * A model error, classified (step 2a part 2 plan, section 3): the Session's record of the endpoint's answer first (its
  * credential, then its classified failure), else the error's HTTP status.
  */
+/** What t3 shows for a turn the Turn limit ended (SPI-1315): the limit it started with, when the Session kept it. */
+const turnLimitMessage = (turnLimitMs: number | undefined): string => {
+  if (turnLimitMs === undefined) return "The turn ran past its Turn limit and was stopped.";
+  const minutes = Math.round(turnLimitMs / 60_000);
+  const span = minutes >= 1 ? `${minutes} minute${minutes === 1 ? "" : "s"}` : `${Math.round(turnLimitMs / 1000)} seconds`;
+  return `The turn ran past its Turn limit (${span}) and was stopped.`;
+};
+
 export const failureOf = (turn: TurnState, now: DateTime.Utc, setup: () => boolean = inSetupState): OrchestrationV2ProviderFailure => {
   const reason = turn.reason ?? "unknown";
   const detail = turn.detail ?? "";
@@ -842,7 +850,7 @@ export const failureOf = (turn: TurnState, now: DateTime.Utc, setup: () => boole
     return makeProviderFailure({ class: "provider_error", message: `${which} is not available: its Model endpoint was removed or no longer lists it. Pick another model.`, code: reason });
   }
   const messages: Record<string, string> = {
-    turn_deadline: "The turn ran longer than 2 hours and was stopped.",
+    turn_deadline: turnLimitMessage(turn.turnLimitMs),
     restart_limit: "The agent's session was cut off too many times in a row.",
     faulted: "The agent's session failed.",
     orphaned: "The agent's session could not run this turn.",
@@ -914,7 +922,7 @@ export const diff = (
   }
 
   for (const [providerTurnId, pushedTurn] of Object.entries(pushed.turns)) {
-    // The 2 h cap aborts the run in the Session; t3 shows it as a failed turn, not a Stop (step 2a plan, section 3).
+    // The Turn limit aborts the run in the Session; t3 shows it as a failed turn, not a Stop (step 2a plan, section 3).
     const turnState: TurnState =
       pushedTurn.status === "aborted" && pushedTurn.reason === "turn_deadline" ? { ...pushedTurn, status: "failed" } : pushedTurn;
     const turn = state.turns.get(providerTurnId);
