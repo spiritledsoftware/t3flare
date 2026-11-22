@@ -70,36 +70,35 @@ const lastBytes = (text: string, maxBytes: number): string => {
  * The last `keptBytes` of the wrapper's `window` with every value of `secrets` blanked. The cut is taken on the raw
  * window, never on blanked text (blanking shrinks it): everything before its last `keptBytes` is dropped. The wrapper
  * answers `SECRET_MARGIN_BYTES` more than is kept, at least any one value's length, so a copy the window's own start
- * split lies wholly in the dropped head; a value that crosses the cut is blanked whole, its blank kept. The longest value
- * is matched first, so a value that holds another is blanked whole.
+ * split lies wholly in the dropped head; a value that crosses the cut is blanked whole, its blank kept. Copies that
+ * overlap (of one value or of two) are blanked as one, so no part of either shows.
  */
 export const blankSecrets = (window: string, secrets: ReadonlyArray<string>, keptBytes: number): string => {
-  const values = [...new Set(secrets)].filter((value) => value !== "").sort((a, b) => b.length - a.length);
+  const values = [...new Set(secrets)].filter((value) => value !== "");
   const kept = lastBytes(window, keptBytes);
   if (values.length === 0) return kept;
   const cut = window.length - kept.length;
-  let shown = "";
-  let at = 0;
-  // Each value's next copy at or after `at` (-1: none left), searched again only once passed.
-  const found = values.map((value) => window.indexOf(value));
-  // Every copy in the window, left to right (the longest of those that start first); text only from the cut on, and a
-  // copy that crosses the cut blanked whole.
-  while (at < window.length) {
-    let next = window.length;
-    let value: string | undefined;
-    values.forEach((candidate, index) => {
-      if (found[index] !== -1 && found[index]! < at) found[index] = window.indexOf(candidate, at);
-      const position = found[index]!;
-      if (position !== -1 && position < next) {
-        next = position;
-        value = candidate;
-      }
-    });
-    if (next > cut) shown += window.slice(Math.max(at, cut), next);
-    if (value === undefined) break;
-    if (next + value.length > cut) shown += BLANK;
-    at = next + value.length;
+  // Every copy of every value, overlapping ones included, as [start, end) ranges; ranges that overlap merge into one, so
+  // no part of any value shows between two blanks.
+  const ranges: Array<[number, number]> = [];
+  for (const value of values) for (let at = window.indexOf(value); at !== -1; at = window.indexOf(value, at + 1)) ranges.push([at, at + value.length]);
+  ranges.sort((a, b) => a[0] - b[0]);
+  const merged: Array<[number, number]> = [];
+  for (const [start, end] of ranges) {
+    const last = merged.at(-1);
+    if (last !== undefined && start < last[1]) last[1] = Math.max(last[1], end);
+    else merged.push([start, end]);
   }
+  // Text only from the cut on; a blanked range that crosses the cut is blanked whole.
+  let shown = "";
+  let at = cut;
+  for (const [start, end] of merged) {
+    if (end <= cut) continue;
+    if (start > at) shown += window.slice(at, start);
+    shown += BLANK;
+    at = end;
+  }
+  shown += window.slice(at);
   // A blank longer than a short value it replaced can grow the text past what is kept.
   return lastBytes(shown, keptBytes);
 };

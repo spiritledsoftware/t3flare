@@ -137,6 +137,13 @@ describe("blankSecrets", () => {
     expect(blankSecrets("ab abc abcd", ["abc", "abcd", ""], 100)).toBe("ab *** ***");
   });
 
+  it("blanks overlapping secrets as one: no part of either shows", () => {
+    expect(blankSecrets("abcdefgh", ["abc", "bcdefgh"], 100)).toBe("***");
+    expect(blankSecrets("xx abcdefgh yy", ["abc", "bcdefgh"], 100)).toBe("xx *** yy");
+    // A value overlapping itself, and two copies side by side, each blanked whole.
+    expect(blankSecrets("aaaa-tok tok", ["aaa", "tok"], 100)).toBe("***-*** ***");
+  });
+
   it("never cuts a character in two", () => {
     const shown = blankSecrets(`€${"x".repeat(9)}`, [], 10);
     expect(shown).toBe("x".repeat(9));
