@@ -70,6 +70,8 @@ describe("the Test base build's record in the Environment DO", () => {
     expect(store.noteTestBaseBuild(base)).toBe(false);
     // The newest only: a late report does not replace it.
     expect(store.noteTestBaseBuild({ ...building, at: NOW - 1 })).toBe(false);
+    // A test's digest of the text it ran is hex SHA-256, or the record is dropped.
+    expect(store.noteTestBaseBuild({ ...failedTest, setup: "not-a-digest", at: NOW + 1 })).toBe(false);
     expect(store.lastTestBaseBuild()).toEqual(failedTest);
   });
 });
@@ -149,9 +151,12 @@ describe("the Test beside the Image setup", () => {
 
   it("shows a pass with its size and time, and a test under way for the script to follow", async () => {
     const { store, deps } = setup({ testBase: async () => building });
-    store.noteTestBaseBuild(passed);
+    store.noteTestBaseBuild({ ...passed, setup: "d".repeat(64) });
     const row = imageSetupRow(await page(deps));
     expect(row).toContain('<span class="pill pill-ok" data-test-pill>Passed</span>');
+    // The tested text's digest, for the script to say when the box holds another text.
+    expect(row).toContain(`data-test-setup="${"d".repeat(64)}"`);
+    expect(row).toMatch(/<p[^>]*data-test-stale hidden>This result is for an earlier text/);
     expect(row).toContain("1.2 MB, took 1 min 35 s");
     store.noteTestBaseBuild({ ...building, at: NOW + 1 });
     expect(imageSetupRow(await page(deps))).toContain('data-test-state="building"');

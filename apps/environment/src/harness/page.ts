@@ -363,9 +363,10 @@ const environmentSection = (environment: ResolvedEnvironment, costs: ContainerCo
     .filter(([, setting]) => ownRow(setting))
     .map(([key, setting]) => {
       const joined = joining(key);
-      // The Image setup's Test (SPI-1334) sits under its text area: it tests the text in the box, unsaved.
+      // The Image setup's Test (SPI-1334) spans its row, under its text area: it tests the text in the box, unsaved. Stacked
+      // on a phone, it comes right after the text area, before the settings that join the row.
       const beside = key === "imageSetup" ? testBuildBlock(test) : "";
-      return `<div class="row"><div class="row-title"><h3>${escapeHtml(setting.title)}</h3></div><div class="row-extra"><div class="fields list">${field("environment", key, setting, values[key])}${beside}</div>${joined.length === 0 ? "" : `<div class="fields">${joined.join("")}</div>`}</div></div>`;
+      return `<div class="row"><div class="row-title"><h3>${escapeHtml(setting.title)}</h3></div><div class="row-extra"><div class="fields list">${field("environment", key, setting, values[key])}</div>${joined.length === 0 ? "" : `<div class="fields">${joined.join("")}</div>`}${beside}</div></div>`;
     });
   const save = `<div class="row"><div class="save"><span class="save-note" data-save-note aria-live="polite"></span><button type="submit" class="btn btn-sm" data-save disabled>Save</button></div></div>`;
   return `<section id="environment" aria-labelledby="environment-title">
@@ -722,6 +723,8 @@ export interface TestBuildView {
   /** A failed test's output, every secret value blanked; null when it did not fail. */
   readonly output: string | null;
   readonly outputSummary: string;
+  /** The SHA-256 (hex) of the Image setup the test ran: the script marks the result stale when the box no longer holds it. */
+  readonly setup: string | null;
 }
 
 export const testBuildView = (record: BaseBuildRecord | undefined): TestBuildView => {
@@ -729,7 +732,7 @@ export const testBuildView = (record: BaseBuildRecord | undefined): TestBuildVie
   const pill: TestBuildView["pill"] =
     state === "building" ? { label: "Testing", tone: "warn" } : state === "ready" ? { label: "Passed", tone: "ok" } : state === "failed" ? { label: "Failed", tone: "err" } : { label: "None", tone: "" };
   const output = record?.failure === undefined ? null : record.failure.output;
-  return { state, pill, line: record === undefined ? "no test yet" : describeTestBaseBuild(record), output, outputSummary: outputSummary(output ?? "") };
+  return { state, pill, line: record === undefined ? "no test yet" : describeTestBaseBuild(record), output, outputSummary: outputSummary(output ?? ""), setup: record?.setup ?? null };
 };
 
 interface TestBlockInput {
@@ -747,7 +750,7 @@ const testBuildBlock = (input: TestBlockInput): string => {
   const view = testBuildView(input.record);
   const output = view.output ?? "";
   const button = input.canTest ? `<button type="button" class="btn btn-sm" data-base-test aria-describedby="base-test-hint">${icon("play")}Test</button>` : "";
-  return `<div class="test-build" data-base-test-block data-test-state="${view.state}" role="group" aria-labelledby="base-test-title"><div class="test-build-head"><div><div class="row-title"><h4 id="base-test-title">Test base build</h4><span class="pill${view.pill.tone === "" ? "" : ` pill-${view.pill.tone}`}" data-test-pill>${escapeHtml(view.pill.label)}</span></div><p class="desc" data-test-status>${timedLine(view.line)}</p><p class="desc" id="base-test-hint">Test runs the Image setup in the box, unsaved, in a Builder of its own with the saved Global mise config, Variables and limits, as a Base build would; its snapshot is never used. A new test cancels one under way.</p><p class="desc" data-base-test-result role="status" aria-live="polite"></p></div>${button}</div><details class="tools" data-test-output${view.output === null ? " hidden" : ""}${view.state === "failed" ? " open" : ""}><summary>${icon("chevron")}Output<span data-test-output-summary>${escapeHtml(view.outputSummary)}</span></summary><pre class="text" tabindex="0" aria-label="The Test base build's output" data-test-output-text>${escapeHtml(output)}</pre></details></div>`;
+  return `<div class="test-build" data-base-test-block data-test-state="${view.state}"${view.setup === null ? "" : ` data-test-setup="${view.setup}"`} role="group" aria-labelledby="base-test-title"><div class="test-build-head"><div><div class="row-title"><h4 id="base-test-title">Test base build</h4><span class="pill${view.pill.tone === "" ? "" : ` pill-${view.pill.tone}`}" data-test-pill>${escapeHtml(view.pill.label)}</span></div><p class="desc" data-test-status>${timedLine(view.line)}</p><p class="desc test-build-stale" data-test-stale hidden>This result is for an earlier text of the Image setup; Test again to check the text above.</p><p class="desc test-build-hint" id="base-test-hint">Test runs the Image setup above, unsaved, in a Builder of its own with the saved Global mise config, Variables and limits; its snapshot is never used. A new test cancels one under way.</p><p class="desc" data-base-test-result role="status" aria-live="polite"></p></div>${button}</div><details class="tools" data-test-output${view.output === null ? " hidden" : ""}${view.state === "failed" ? " open" : ""}><summary>${icon("chevron")}Output<span data-test-output-summary>${escapeHtml(view.outputSummary)}</span></summary><pre class="text" tabindex="0" role="region" aria-label="The Test base build's output" data-test-output-text${output === "" ? " hidden" : ""}>${escapeHtml(output)}</pre></details></div>`;
 };
 
 /** The Base snapshot's state as a pill (SPI-1332). */

@@ -79,9 +79,12 @@ section{display:flex;flex-direction:column;gap:.625rem;scroll-margin-top:1.5rem}
 .row-extra{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.75rem 2rem;align-items:start;padding-top:.25rem}
 .fields{display:flex;flex-direction:column;gap:.875rem;max-width:30rem}
 .fields.list{max-width:44rem}
-.test-build{border:1px solid var(--border);border-radius:var(--radius);background:var(--card)}
+.test-build{grid-column:1/-1;border:1px solid var(--border);border-radius:var(--radius);background:var(--card)}
+.test-build .test-build-hint{margin-top:.375rem}
+.test-build .test-build-stale{margin-top:.375rem;color:var(--warn)}
+.test-build>details>summary{flex-wrap:wrap;row-gap:0}
 .test-build-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:.5rem 1rem;padding:.625rem .75rem}
-.test-build h4{font-size:.8125rem;font-weight:550}
+.test-build h4{margin:0;font-size:.8125rem;font-weight:550}
 .test-build>details{border-top:1px solid var(--row-border)}
 .test-build>details>pre{margin:0 .75rem .75rem}
 .variables{display:flex;flex-direction:column;gap:.5rem}
@@ -262,6 +265,10 @@ select.sel-sm{height:2.25rem;font-size:16px}
 .row>.row-control:has(.switch){position:absolute;right:1rem;top:.875rem}
 .row:has(>.row-control .switch){position:relative;padding-right:4.25rem}
 .row-extra{grid-template-columns:minmax(0,1fr)}
+.row-extra>.test-build{order:1}
+.row-extra:has(>.test-build)>.fields:not(.list){order:2}
+.test-build-head{grid-template-columns:minmax(0,1fr)}
+.test-build-head>.btn{justify-self:start}
 .save{padding-top:0}
 .fields{max-width:none}
 .fields.list{max-width:none}

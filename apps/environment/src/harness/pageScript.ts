@@ -72,18 +72,37 @@ for (const block of document.querySelectorAll("[data-base-test-block]")) {
   const pill = block.querySelector("[data-test-pill]");
   const status = block.querySelector("[data-test-status]");
   const output = block.querySelector("[data-test-output]");
+  const stale = block.querySelector("[data-test-stale]");
+  // A result is the tested text's: once the box holds another text, it says so (the digest the test Builder kept).
+  const checkStale = async () => {
+    const tested = block.dataset.testSetup;
+    const ended = block.dataset.testState === "ready" || block.dataset.testState === "failed";
+    if (box === null || tested === undefined || !ended || !(window.crypto && crypto.subtle)) { stale.hidden = true; return; }
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(box.value));
+    const hexed = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    stale.hidden = hexed === tested;
+  };
   const when = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   const timed = (line) => line.replace(/\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d\\.\\d{3}Z/g, (iso) => when.format(new Date(iso)));
   let polling;
   const show = (view) => {
+    // A test that ends while the page follows it is said in the live region, so its outcome is heard too.
+    if (block.dataset.testState === "building" && view.state !== "building") {
+      result.textContent = view.state === "ready" ? "The test passed." : view.state === "failed" ? "The test failed; its output is below." : "";
+    }
     block.dataset.testState = view.state;
+    if (view.setup === null) delete block.dataset.testSetup;
+    else block.dataset.testSetup = view.setup;
     pill.className = "pill" + (view.pill.tone === "" ? "" : " pill-" + view.pill.tone);
     pill.textContent = view.pill.label;
     status.textContent = timed(view.line);
     output.hidden = view.output === null;
     output.open = view.state === "failed";
     output.querySelector("[data-test-output-summary]").textContent = view.outputSummary;
-    output.querySelector("[data-test-output-text]").textContent = view.output === null ? "" : view.output;
+    const text = output.querySelector("[data-test-output-text]");
+    text.textContent = view.output === null ? "" : view.output;
+    text.hidden = view.output === null || view.output === "";
+    checkStale();
     clearTimeout(polling);
     if (view.state === "building") polling = setTimeout(follow, 5000);
   };
@@ -95,6 +114,8 @@ for (const block of document.querySelectorAll("[data-base-test-block]")) {
     polling = setTimeout(follow, 15000);
   };
   if (block.dataset.testState === "building") polling = setTimeout(follow, 5000);
+  if (box !== null) box.addEventListener("input", checkStale);
+  checkStale();
   if (button === null || box === null) continue;
   button.addEventListener("click", async () => {
     result.textContent = "Asking the test Builder…";
@@ -106,8 +127,10 @@ for (const block of document.querySelectorAll("[data-base-test-block]")) {
       button.focus();
       return;
     }
-    result.textContent = "Testing the Image setup in the box; this shows its result when it ends.";
+    result.textContent = "Testing the Image setup above; this shows its result when it ends.";
     show((await answer.response.json()).view);
+    // The button was disabled while it asked: focus goes back to it, not to the page's top.
+    button.focus();
   });
 }
 for (const button of document.querySelectorAll("button[data-mcp]")) {

@@ -709,6 +709,9 @@ describe("a Test base build", () => {
     const test = tester();
     const started = await test.test(PROPOSED, "the Owner's Test");
     expect(started).toMatchObject({ test: true, state: "building", reason: "the Owner's Test" });
+    // The text it ran, by its digest: the page tells a result from an edited text's.
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(PROPOSED)));
+    expect(started.setup).toBe([...digest].map((byte) => byte.toString(16).padStart(2, "0")).join(""));
     expect(container.starts[0]).toEqual({ from: { image: IMAGE }, entrypoint: ["sleep", "infinity"], instance: "standard-2" });
     expect(container.files.get(BUILDER_FILES.setup)).toBe(PROPOSED);
     expect(container.files.get(BUILDER_FILES.mise)).toBe(settings.globalMiseConfig);

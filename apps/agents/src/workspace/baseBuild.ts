@@ -172,8 +172,9 @@ export const BUILDER_KEYS = {
   refused: "t3flare:builder:refused",
   /** Builds of one key that failed in a row (`{ key, count }`): the retry's backoff. */
   failures: "t3flare:builder:failures",
-  /** The proposed Image setup a Test base build runs (SPI-1334), in place of the saved one. */
+  /** The proposed Image setup a Test base build runs (SPI-1334), in place of the saved one, and its SHA-256 (hex). */
   proposal: "t3flare:builder:proposal",
+  proposalDigest: "t3flare:builder:proposal-digest",
 } as const;
 
 export const DAY_MS = 24 * 60 * 60_000;
@@ -286,7 +287,8 @@ export class BaseBuild {
     const { storage, now } = this.#deps;
     const current = storage.get<Current>(BUILDER_KEYS.current);
     const build = storage.get<Build>(BUILDER_KEYS.build);
-    const base = { test: true as const, key: build?.key ?? null, good: null, at: now() };
+    const setup = storage.get<string>(BUILDER_KEYS.proposalDigest);
+    const base = { test: true as const, key: build?.key ?? null, ...(setup === undefined ? {} : { setup }), good: null, at: now() };
     if (current?.nothingToBuild === true) return { ...base, key: current.key, state: "none", nothingToBuild: true };
     if (isRunning(build)) {
       return { ...base, state: "building", phase: build.phase, since: build.startedAt, reason: build.reason, ...(build.waitingForBudget === true ? { waitingForBudget: true } : {}) };
@@ -347,6 +349,7 @@ export class BaseBuild {
       const inputs = await this.#inputs(imageSetup);
       const current = await this.#currentOf(inputs);
       storage.put(BUILDER_KEYS.proposal, imageSetup);
+      storage.put(BUILDER_KEYS.proposalDigest, await sha256Hex(imageSetup));
       storage.put(BUILDER_KEYS.current, current);
       const build = storage.get<Build>(BUILDER_KEYS.build);
       if (isRunning(build)) await this.#end(build, "canceled");

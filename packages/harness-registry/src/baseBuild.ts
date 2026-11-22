@@ -58,6 +58,8 @@ export interface BaseBuildRecord {
    * no Container ever starts from. A Base build's record never carries it, so neither is ever kept as the other.
    */
   readonly test?: true;
+  /** A test's: the SHA-256 (hex) of the Image setup it ran, so a page can tell a result from an edited text's. */
+  readonly setup?: string;
   /** The key of the settings the Builder last read (`baseKey`); null before it read any. */
   readonly key: string | null;
   /** What the Base snapshot is for `key`: none, being built, ready (`good` is for it), or its last build failed. */
@@ -102,6 +104,7 @@ export const baseBuildRecord = (value: unknown): BaseBuildRecord | undefined => 
   if (!isObject(value)) return undefined;
   const ok =
     (value.test === undefined || value.test === true) &&
+    (value.setup === undefined || (typeof value.setup === "string" && /^[0-9a-f]{64}$/.test(value.setup))) &&
     (value.key === null || isText(value.key, 128)) &&
     ["none", "building", "ready", "failed"].includes(value.state as string) &&
     (value.nothingToBuild === undefined || typeof value.nothingToBuild === "boolean") &&
