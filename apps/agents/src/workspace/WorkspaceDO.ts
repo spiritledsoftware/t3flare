@@ -472,6 +472,8 @@ export class WorkspaceDO extends ContainerHost {
         return environmentStub(this.env.ENVIRONMENT).terminalOutput({ workspace: id, ...push });
       },
       baseEnv: terminalEnv,
+      // ADR-0047 §9: as the running Container started (its launch), so a change applies at its next start.
+      readBashrc: () => ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY)?.terminalsReadBashrc !== false,
       filesMayHaveChanged: (why) => this.#terminalSync.changed(why),
       remember: (markers) => ctx.storage.kv.put(TERMINAL_MARKERS_KEY, [...markers]),
       remembered: () => ctx.storage.kv.get<ReadonlyArray<string>>(TERMINAL_MARKERS_KEY) ?? [],

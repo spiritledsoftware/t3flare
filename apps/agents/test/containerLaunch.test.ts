@@ -89,8 +89,13 @@ describe("launchOf", () => {
       budget: 4,
       revision: 3,
       variables: {},
+      terminalsReadBashrc: true,
     });
-    expect(launchOf({ settings: DEFAULTS, source: "environment" })).toEqual({ size: "cpu-1", instance: CPU_1, idleMs: 120_000, budget: 3, revision: 0, variables: {} });
+    expect(launchOf({ settings: DEFAULTS, source: "environment" })).toEqual({ size: "cpu-1", instance: CPU_1, idleMs: 120_000, budget: 3, revision: 0, variables: {}, terminalsReadBashrc: true });
+  });
+
+  it("keeps whether its Terminals read ~/.bashrc (ADR-0047 §9): a running Container's Terminals keep what it started with", () => {
+    expect(launchOf({ settings: { ...DEFAULTS, terminalsReadBashrc: false }, source: "kept" }).terminalsReadBashrc).toBe(false);
   });
 
   it("carries no budget unless it was read fresh: a kept copy or the defaults never overwrite the owner's", () => {

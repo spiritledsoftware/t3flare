@@ -4,8 +4,9 @@
 //
 // The wrapper makes t3's path of the Workspace (`/w/<id>`) the repo itself (a bind mount, else a symlink), links a
 // worktree's project-root view at the project's path, writes the rc file, `cd`s to t3's cwd and becomes an interactive
-// bash. The rc file activates mise as the agent's commands do, keeps the history in the synced harness directory, and
-// prints two markers the Workspace DO strips from the output (review F1):
+// bash. The rc file activates mise as the agent's commands do, keeps the history in the synced harness directory, reads
+// the Owner's `~/.bashrc` when the Environment says so (ADR-0047 §9), and prints two markers the Workspace DO strips
+// from the output (review F1):
 //
 // - `BUSY` from `PS0`: bash read a command and runs it (the foreground is not the prompt);
 // - `PROMPT` from `PROMPT_COMMAND`: the prompt is back (nothing runs in the foreground).
@@ -40,10 +41,19 @@ export interface TerminalCommandInput {
    * becoming an interactive bash. The repo's own path (`/workspace/repo`) as `t3Path` links nothing.
    */
   readonly command?: string;
+  /**
+   * Whether the interactive shell sources `~/.bashrc` (the Environment's `terminalsReadBashrc`, as its Container started).
+   * Absent: it does, the setting's default.
+   */
+  readonly readBashrc?: boolean;
 }
 
-/** The rc file: no `BASH_ENV`, mise, history, a short prompt and the two markers. */
-export const terminalRc = (): string =>
+/**
+ * The rc file: no `BASH_ENV`, mise, history, a short prompt, then the Owner's `~/.bashrc` unless `readBashrc` is false
+ * (ADR-0047 §9: their dotfiles' own, so whatever it sets, the prompt and history included, wins over t3flare's), and last
+ * the two markers, put in front of any `PS0` and `PROMPT_COMMAND` the bashrc set, so the Workspace DO still sees them.
+ */
+export const terminalRc = (options: { readonly readBashrc?: boolean } = {}): string =>
   [
     "unset BASH_ENV",
     "[ -r /etc/bash.bashrc ] && . /etc/bash.bashrc",
@@ -53,7 +63,8 @@ export const terminalRc = (): string =>
     "HISTFILESIZE=20000",
     "shopt -s histappend",
     "PS1='\\[\\e[1;34m\\]\\w\\[\\e[0m\\] \\$ '",
-    `PS0=$'\\e]6973;b\\a'`,
+    ...(options.readBashrc !== false ? ["[ -r ~/.bashrc ] && . ~/.bashrc"] : []),
+    `PS0=$'\\e]6973;b\\a'"\${PS0:-}"`,
     `__t3flare_prompt() { local s=$?; printf '\\e]6973;p\\a'; history -a; return $s; }`,
     'PROMPT_COMMAND="__t3flare_prompt${PROMPT_COMMAND:+;$PROMPT_COMMAND}"',
   ].join("\n");
@@ -90,7 +101,7 @@ export const terminalCommand = (input: TerminalCommandInput): string => {
           `printf '\\033[2mt3flare: %s holds the project'"'"'s untracked files only (%s)\\033[0m\\r\\n' ${quote(input.projectRoot.t3Path)} "\${files:-none}"`,
         ]),
     `cat > ${rc} <<'T3FLARE_RC'`,
-    terminalRc(),
+    terminalRc({ readBashrc: input.readBashrc !== false }),
     "T3FLARE_RC",
     `cd -- ${quote(input.cwd)} 2>/dev/null || cd -- ${quote(input.t3Path)}`,
     `exec bash --rcfile ${rc} -i`,

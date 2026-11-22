@@ -59,7 +59,7 @@ describe("Claude Code's profile", () => {
     // SPI-1153: the Environment skill set as Claude Code's user-level Skill root, linked, never copied.
     expect(answer.links).toEqual([
       { path: "/var/lib/t3flare/cli/proc-7/claude/projects", target: CLAUDE_PROJECTS },
-      { path: "/var/lib/t3flare/cli/proc-7/claude/skills", target: "/workspace/.agents/skills" },
+      { path: "/var/lib/t3flare/cli/proc-7/claude/skills", target: "/workspace/.agents/skills", merge: true },
     ]);
     expect(CLAUDE_PROJECTS).toBe("/workspace/.t3flare/claude/projects");
   });
@@ -202,7 +202,7 @@ describe("OpenCode's profile", () => {
     // The synced snapshot's path, which the image's own launcher (apps/sandbox-image/image/t3flare-opencode) spells out too.
     expect(OPENCODE_SNAPSHOT_DIR).toBe("/workspace/.t3flare/opencode");
     // SPI-1153: the Environment skill set as OpenCode's user-level Skill root, linked, never copied.
-    expect(answer.links).toEqual([{ path: "/var/lib/t3flare/cli/proc-7/config/opencode/skills", target: "/workspace/.agents/skills" }]);
+    expect(answer.links).toEqual([{ path: "/var/lib/t3flare/cli/proc-7/config/opencode/skills", target: "/workspace/.agents/skills", merge: true }]);
   });
 
   it("writes system configuration with its endpoint's provider, the project's own config honoured, and asking agents (M0 P2)", () => {

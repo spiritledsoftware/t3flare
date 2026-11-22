@@ -63,6 +63,13 @@ export const MAX_GRACE_DAYS = 3650;
  */
 export const SWEEP_SETTING_KEYS = ["sweepPurges", "graceDays"] as const;
 
+/**
+ * The dotfiles toggles (ADR-0047 §9): whether the Owner's own config in their home reaches Terminals and CLI agents. The
+ * Settings page shows them in a row of their own. `terminalsReadBashrc` applies at a Container start (the Workspace DO
+ * keeps it with the launch); `agentsReadDotfiles` at each CLI agent's start (the Environment DO reads it at the spawn).
+ */
+export const DOTFILES_SETTING_KEYS = ["terminalsReadBashrc", "agentsReadDotfiles"] as const;
+
 /** A Container's resources, as `ctx.container.start({ instance })` takes a custom size. */
 export interface ContainerResources {
   readonly vcpu: number;
@@ -151,7 +158,7 @@ export const ENVIRONMENT_SETTINGS = {
   globalMiseConfig: {
     title: "Global mise config",
     description:
-      "A mise.toml every Container's commands get, under a repository's own and over the image's base tools. Laid down and installed at each Workspace's next Container start; a running Container keeps what it started with. Kept only if git and gh still run under it. disable_tools and disable_backends are ignored. Agents can read this file: put no secret in it, [env] included.",
+      "A mise.toml every Container's commands get, under a repository's own and over the image's base tools. Laid down and installed at each Workspace's next Container start; a running Container keeps what it started with. Kept only if git and gh still run under it. Left empty, mise uses your dotfiles' ~/.config/mise/config.toml instead, if git and gh still run under that; the Dotfiles toggles don't change this. disable_tools and disable_backends are ignored. Agents can read this file: put no secret in it, [env] included.",
     schema: { type: "file", maxBytes: MAX_GLOBAL_MISE_BYTES, default: "" },
   },
   containerSetup: {
@@ -218,6 +225,20 @@ export const ENVIRONMENT_SETTINGS = {
     description: `Builds the Base snapshot again this many days after the last good one, so the Image setup's downloads stay current. 0 is off. At most ${MAX_REBUILD_DAYS}: a Base snapshot expires 30 days after it was made.`,
     schema: { type: "integer", minimum: 0, maximum: MAX_REBUILD_DAYS, default: 0 },
     row: "imageSetup",
+  },
+  terminalsReadBashrc: {
+    title: "Terminals read ~/.bashrc",
+    description:
+      "A Terminal's shell runs your ~/.bashrc, so your aliases, functions and prompt are there. Off, it starts with t3flare's shell setup alone. Applies at each Workspace's next Container start.",
+    schema: { type: "boolean", default: true },
+    tier: "down-free",
+  },
+  agentsReadDotfiles: {
+    title: "CLI agents read your dotfiles",
+    description:
+      "Each CLI agent starts with a copy of your config for it (~/.claude and ~/.claude.json, ~/.codex, ~/.config/opencode, ~/.pi/agent, except its auth.json): your instructions, settings, hooks, skills and plugins. t3flare's model routing and managed settings still win, and Codex's shells get t3flare's environment (its inherit, exclude and include_only). An Environment skill wins over one of yours of the same name in Claude Code, OpenCode and pi; Codex shows both skills. Off, an agent starts with t3flare's config alone. Applies at each CLI agent's next start.",
+    schema: { type: "boolean", default: true },
+    tier: "down-free",
   },
   sweepPurges: {
     title: "Purge after the Grace",

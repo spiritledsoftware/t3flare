@@ -10,7 +10,11 @@ import { CLI_ROOTS, directoriesUp, SKILLS_MOUNT } from "@t3flare/skills";
 import { HARNESS_ROOT, normalize, REPO_ROOT, toWorkspace } from "@t3flare/workspace-client";
 
 import { codexModelRoute, type CodexRouteEndpoint } from "../provider/cli/codexGuard.ts";
+import { OWNER_HOME } from "@t3flare/sandbox-image/env";
+import type { ProcessCheck, ProcessFile, ProcessLink, ProcessSeed } from "@t3flare/sandbox-image/process";
+
 import { acpProfileLaunch, type ClaudeRelay, environmentSkillsLink, type OpenCodeRelay } from "./acpProfiles.ts";
+import { dotfilesLaunch, dotfilesOn } from "./dotfiles.ts";
 
 /**
  * The CLIs the channel runs; `probe` is M1's test program (stages only). Step 4b: Claude Code and OpenCode over ACP. A
@@ -67,6 +71,11 @@ export interface ProfileContext {
   readonly opencodeRelay?: OpenCodeRelay;
   /** SPI-1170: pi on the endpoints through the model relay (`piRelayOf`). Absent: refused. */
   readonly piRelay?: PiRelay;
+  /**
+   * SPI-1331 (ADR-0047 §9): the Environment's `agentsReadDotfiles` at the spawn: the CLI's home is first filled from the
+   * Owner's own config for it in their home (`dotfiles.ts`). Absent: on, the setting's default.
+   */
+  readonly dotfiles?: boolean;
 }
 
 /**
@@ -86,8 +95,12 @@ export const relayUrl = (server: string): string => `http://computer.internal${M
 export interface Launch {
   readonly argv: ReadonlyArray<string>;
   readonly env: Readonly<Record<string, string>>;
-  readonly files?: ReadonlyArray<{ readonly path: string; readonly text: string; readonly mode?: number }>;
-  readonly links?: ReadonlyArray<{ readonly path: string; readonly target: string }>;
+  /** Copies of the Owner's config for the CLI from their home, made before the files (ADR-0047 §9, `dotfiles.ts`). */
+  readonly seed?: ReadonlyArray<ProcessSeed>;
+  /** A check of what the seed copied, before the start (Codex's `config.toml`). */
+  readonly check?: ProcessCheck;
+  readonly files?: ReadonlyArray<ProcessFile>;
+  readonly links?: ReadonlyArray<ProcessLink>;
   readonly prune?: ReadonlyArray<{ readonly dir: string; readonly days: number }>;
   readonly thread?: string;
   /** The Model endpoints the process reaches through the relay (SPI-1167): the Workspace DO gives it a handle for these. */
@@ -182,6 +195,12 @@ export const codexOverrides = (key: string, endpoints: ReadonlyArray<RelayedEndp
     // Review F4: the handles stay out of Codex's shells; the marker stays in them (part 2's kill script).
     `shell_environment_policy.exclude=[${tomlString(TOOL_HANDLE_ENV)},${tomlString(MODEL_HANDLE_ENV)}]`,
     `shell_environment_policy.set.T3FLARE_EXEC=${tomlString(key)}`,
+    // ADR-0047 §9: Codex's shells inherit the whole process environment (Codex's default), whatever an Owner's kept
+    // config.toml says: `core` or `none` would drop COMMAND_ENV's MISE_* and the Variables, and mise with them.
+    `shell_environment_policy.inherit="all"`,
+    // ADR-0047 §9: no filter after it. Codex applies `include_only` after `set`, so an Owner's `include_only` in their
+    // kept config.toml would drop the marker from Codex's shells, and the kill script would miss their children.
+    "shell_environment_policy.include_only=[]",
   ];
 };
 
@@ -199,6 +218,20 @@ export const codexExecArgs = (model: string, schemaPath: string): ReadonlyArray<
   schemaPath,
   "-",
 ];
+
+/** The Owner's ~/.codex for a Codex process's home, when the Environment says so (ADR-0047 §9). */
+const codexDotfiles = (home: string, context: ProfileContext, overrides: ReadonlyArray<string>): Pick<Launch, "seed" | "check"> =>
+  dotfilesLaunch("codex", home, context.dotfiles, { bin: `${CLI_BIN}/codex`, overrides });
+
+/**
+ * Codex's `config.toml`: t3flare's placeholder, every setting of its own being a `-c` override, which wins over the
+ * file. With the dotfiles, the Owner's own file is kept instead: their keys, t3flare's on top (ADR-0047 §9).
+ */
+const codexConfig = (home: string, context: ProfileContext): ProcessFile => ({
+  path: `${home}/codex/config.toml`,
+  text: "# t3flare: every setting comes from the command line (-c)\n",
+  ...(dotfilesOn(context.dotfiles) ? { keep: true } : {}),
+});
 
 /** Codex's refusal without an OpenAI Responses endpoint (SPI-1176). */
 const NO_CODEX_ENDPOINT = noEndpointFor("Codex", "OpenAI Responses");
@@ -228,11 +261,9 @@ const codexExecLaunch = (input: LaunchInput, context: ProfileContext): LaunchAns
   const asCodexNames = codexModelRoute(model, endpoints, endpointProviderId).model;
   return {
     argv: [`${CLI_BIN}/codex`, ...overrides.flatMap((value) => ["-c", value]), ...expected.slice(0, 7), asCodexNames, expected[8]!, `${home}/output-schema.json`, "-"],
-    env: { HOME: "/root", LANG: "C.UTF-8", CODEX_HOME: `${home}/codex`, CODEX_SQLITE_HOME: `${home}/sqlite` },
-    files: [
-      { path: `${home}/codex/config.toml`, text: "# t3flare: every setting comes from the command line (-c)\n" },
-      { path: `${home}/output-schema.json`, text: schema },
-    ],
+    env: { HOME: OWNER_HOME, LANG: "C.UTF-8", CODEX_HOME: `${home}/codex`, CODEX_SQLITE_HOME: `${home}/sqlite` },
+    ...codexDotfiles(home, context, overrides),
+    files: [codexConfig(home, context), { path: `${home}/output-schema.json`, text: schema }],
     modelRelay: endpoints.map((endpoint) => endpoint.id),
     droppedEnv: dropped(input.env),
   };
@@ -246,10 +277,12 @@ const codexLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer 
   const home = homeOf(input.key);
   const thread = input.env.T3CODE_THREAD_ID;
   const relay = context.relay;
+  const overrides = [...codexOverrides(input.key, endpoints, context.model), ...codexRelayOverrides(relay?.servers ?? [])];
   return {
-    argv: [`${CLI_BIN}/codex`, "app-server", ...[...codexOverrides(input.key, endpoints, context.model), ...codexRelayOverrides(relay?.servers ?? [])].flatMap((value) => ["-c", value])],
-    env: { HOME: "/root", LANG: "C.UTF-8", CODEX_HOME: `${home}/codex`, CODEX_SQLITE_HOME: `${home}/sqlite`, ...(relay === undefined ? {} : { [TOOL_HANDLE_ENV]: relay.handle }) },
-    files: [{ path: `${home}/codex/config.toml`, text: "# t3flare: every setting comes from the command line (-c)\n" }],
+    argv: [`${CLI_BIN}/codex`, "app-server", ...overrides.flatMap((value) => ["-c", value])],
+    env: { HOME: OWNER_HOME, LANG: "C.UTF-8", CODEX_HOME: `${home}/codex`, CODEX_SQLITE_HOME: `${home}/sqlite`, ...(relay === undefined ? {} : { [TOOL_HANDLE_ENV]: relay.handle }) },
+    ...codexDotfiles(home, context, overrides),
+    files: [codexConfig(home, context)],
     links: [{ path: `${home}/codex/sessions`, target: CODEX_SESSIONS }, environmentSkillsLink(`${home}/${CODEX_ENVIRONMENT_SKILLS}`)],
     ...(thread === undefined ? {} : { thread }),
     modelRelay: endpoints.map((endpoint) => endpoint.id),
@@ -428,7 +461,7 @@ const piLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer => 
     { path: `${home}/agent/settings.json`, text: piRelaySettings(piRelay) },
   ];
   const env: Record<string, string> = {
-    HOME: "/root",
+    HOME: OWNER_HOME,
     LANG: "C.UTF-8",
     PI_CODING_AGENT_DIR: `${home}/agent`,
     PI_CODING_AGENT_SESSION_DIR: PI_SESSIONS,
@@ -472,6 +505,8 @@ const piLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer => 
   return {
     argv: [`${CLI_BIN}/pi`, "--mode", "rpc", ...rest, ...extensionArgs, ...piRepoResourceArgs(input.cwd), "--no-approve"],
     env,
+    // ADR-0047 §9: the Owner's user directory first; t3flare's models.json, settings.json and mcp.json over it.
+    ...dotfilesLaunch("pi", home, context.dotfiles),
     files,
     prune: [{ dir: PI_SESSIONS, days: PI_SESSION_RETENTION_DAYS }],
     ...(thread === undefined ? {} : { thread }),
@@ -496,7 +531,7 @@ export const PROBE_SCRIPT = [
 const probeLaunch = (input: LaunchInput): LaunchAnswer => {
   if (!input.allowProbe) return { refused: "the probe program runs on test stages only" };
   const home = homeOf(input.key);
-  return { argv: ["/bin/bash", `${home}/probe.sh`], env: { HOME: "/root", LANG: "C.UTF-8" }, files: [{ path: `${home}/probe.sh`, text: PROBE_SCRIPT, mode: 0o700 }], droppedEnv: dropped(input.env) };
+  return { argv: ["/bin/bash", `${home}/probe.sh`], env: { HOME: OWNER_HOME, LANG: "C.UTF-8" }, files: [{ path: `${home}/probe.sh`, text: PROBE_SCRIPT, mode: 0o700 }], droppedEnv: dropped(input.env) };
 };
 
 /** The launch of a CLI t3 asked for, or why it is refused. */

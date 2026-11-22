@@ -69,6 +69,11 @@ export interface TerminalHostDeps {
    * not the rc file's prompt, so its input goes at once (SPI-1057).
    */
   readonly holdFirstInput?: boolean;
+  /**
+   * Whether a shell sources `~/.bashrc` (ADR-0047 §9): the running Container's launch's `terminalsReadBashrc`, read at
+   * each open. Absent: it does, the setting's default (an agent's Terminal runs a command, not the rc file, either way).
+   */
+  readonly readBashrc?: () => boolean;
 }
 
 interface Terminal {
@@ -201,6 +206,7 @@ export class TerminalHost {
         cwd: input.cwd,
         ...(input.projectRoot === undefined ? {} : { projectRoot: { t3Path: input.projectRoot, view: this.#deps.projectRootView } }),
         ...(input.command === undefined ? {} : { command: input.command }),
+        readBashrc: this.#deps.readBashrc?.() !== false,
       });
       const process = await this.#deps.spawn(["bash", "-c", command], {
         cols: input.cols,

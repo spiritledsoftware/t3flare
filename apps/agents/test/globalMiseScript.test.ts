@@ -6,7 +6,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import { spawnSync } from "node:child_process";
 
-import { GLOBAL_MISE_CONFIG, GLOBAL_MISE_DIR } from "@t3flare/sandbox-image/env";
+import { DOTFILES_MISE_CONFIG, GLOBAL_MISE_CONFIG, GLOBAL_MISE_DIR } from "@t3flare/sandbox-image/env";
 import { GLOBAL_MISE_BOUNDS, GLOBAL_MISE_SCRIPT, parseGlobalMiseAnswer, SYSTEM_GITCONFIG } from "@t3flare/sandbox-image/globalMise";
 import { beforeAll, describe, expect, it, type TestContext } from "vitest";
 
@@ -59,6 +59,7 @@ const run = (cases: ReadonlyArray<{ readonly text: string; readonly revision?: n
 printf %s '${Buffer.from(text).toString("base64")}' | base64 -d > /t/in
 echo "ANSWER ${index} $(${env} bash -c "$SCRIPT" t3flare-global-mise ${revision} $(sha256sum /t/in | cut -c1-64) environment < /t/in 2>/dev/null | tail -n 1)"
 echo "GLOBAL ${index} $([ -f ${GLOBAL_MISE_CONFIG} ] && base64 -w0 ${GLOBAL_MISE_CONFIG} || echo -)"
+echo "LINK ${index} $(readlink ${GLOBAL_MISE_CONFIG} || echo -)"
 echo "STAGED ${index} $(ls ${GLOBAL_MISE_DIR} | grep -c '^config\\..*\\.toml$')"`,
     )
     .join("\n");
@@ -79,6 +80,7 @@ echo "CALLS $(base64 -w0 < /t/calls 2>/dev/null)"
       const value = field("GLOBAL", index);
       return value === "-" ? null : Buffer.from(value, "base64").toString("utf8");
     }),
+    links: cases.map((_, index) => (field("LINK", index) === "-" ? null : field("LINK", index))),
     staged: cases.map((_, index) => Number(field("STAGED", index))),
     calls: Buffer.from(lines.find((line) => line.startsWith("CALLS "))?.slice(6) ?? "", "base64").toString("utf8").trim().split("\n"),
     stderr: result.stderr,
@@ -155,11 +157,50 @@ describe.skipIf(!docker)("the Global mise config's lay-down script", { timeout: 
     expect(result.globals[3]).toBe(`${NODE}# more\n`);
   });
 
-  withImage("with no text, lays nothing down and installs nothing", () => {
+  withImage("with no text and no dotfiles' mise config, lays nothing down and installs nothing", () => {
     const result = run([{ text: "" }]);
-    expect(result.answers[0]).toMatchObject({ laid: false, install: null, bytes: 0 });
+    expect(result.answers[0]).toMatchObject({ laid: false, install: null, bytes: 0, dotfiles: false });
     expect(result.globals[0]).toBeNull();
     expect(result.calls).toEqual([""]);
+  });
+
+  /** The dotfiles' own mise config (ADR-0047 §10), as a dotfiles manager writes it. */
+  const dotfiles = (text: string) => `mkdir -p ${DOTFILES_MISE_CONFIG.replace(/\/[^/]*$/, "")} && printf %s '${Buffer.from(text).toString("base64")}' | base64 -d > ${DOTFILES_MISE_CONFIG}`;
+
+  withImage("with no text, makes the dotfiles' mise config mise's global config, a link to it, when git and gh run under it", () => {
+    const result = run([{ text: "", before: dotfiles(NODE) }]);
+    expect(result.answers[0]).toMatchObject({ laid: true, install: 0, timedOut: false, bytes: NODE.length, dotfiles: true });
+    expect(result.links[0]).toBe(DOTFILES_MISE_CONFIG);
+    expect(result.globals[0]).toBe(NODE);
+    expect(result.staged[0]).toBe(0);
+    expect(result.calls).toEqual([`mise install global=[tools] node = "24.11.1" `, "git auto=false/false/false", "gh auto=false/false/false"]);
+  });
+
+  withImage("points mise back at t3flare's own file when the dotfiles' mise config breaks git or gh", () => {
+    for (const marker of ["BREAK_GIT", "BREAK_GH"]) {
+      const result = run([{ text: "", before: dotfiles(`# ${marker}\n${NODE}`) }]);
+      expect(result.answers[0]).toMatchObject({ laid: false, install: 0, dotfiles: true });
+      expect(result.globals[0]).toBeNull();
+      expect(result.links[0]).toBeNull();
+      expect(result.staged[0]).toBe(0);
+    }
+  });
+
+  withImage("checks the dotfiles' mise config again on every run: it may be new since the last (a Base snapshot's lay-down ran before the Image setup)", () => {
+    const result = run([{ text: "" }, { text: "", before: dotfiles(NODE) }, { text: "", before: dotfiles(`# BREAK_GIT\n${NODE}`) }]);
+    expect(result.answers.map((answer) => [answer?.laid, answer?.dotfiles])).toEqual([
+      [false, false],
+      [true, true],
+      [false, true],
+    ]);
+    expect(result.links).toEqual([null, DOTFILES_MISE_CONFIG, null]);
+  });
+
+  withImage("lays down a Global mise config with text over the dotfiles' own", () => {
+    const result = run([{ text: NODE, before: dotfiles("# BREAK_GIT\n") }]);
+    expect(result.answers[0]).toMatchObject({ laid: true, dotfiles: false });
+    expect(result.links[0]).toBeNull();
+    expect(result.globals[0]).toBe(NODE);
   });
 
   withImage("answers locked when another lay-down holds the lock past its bound", () => {
@@ -196,8 +237,9 @@ describe("parseGlobalMiseAnswer", () => {
   it("reads the last line of stdout, and nothing from text that is not an answer", () => {
     const good = { revision: 1, sha256: "a".repeat(64), source: "default", laid: false, install: null, timedOut: false, ms: 3, bytes: 0 };
     expect(parseGlobalMiseAnswer(`noise\n${JSON.stringify(good)}\n`)).toEqual(good);
+    expect(parseGlobalMiseAnswer(JSON.stringify({ ...good, dotfiles: true }))).toEqual({ ...good, dotfiles: true });
     // Every field is checked, not only \`laid\`.
-    for (const bad of [{ sha256: "x" }, { revision: -1 }, { install: "0" }, { timedOut: "no" }, { ms: 1.5 }, { bytes: undefined }, { locked: 1 }]) {
+    for (const bad of [{ sha256: "x" }, { revision: -1 }, { install: "0" }, { timedOut: "no" }, { ms: 1.5 }, { bytes: undefined }, { locked: 1 }, { dotfiles: "yes" }]) {
       expect(parseGlobalMiseAnswer(JSON.stringify({ ...good, ...bad }))).toBeUndefined();
     }
     expect(parseGlobalMiseAnswer("[true]")).toBeUndefined();

@@ -20,9 +20,24 @@ export const CONTAINER_SETUP_DIR = "/var/lib/t3flare/container-setup";
 
 /**
  * mise's global config: the owner's Global mise config, laid down at each Container start when git and gh run under it
- * (`globalMise.ts`, ADR-0032's Global mise config refinement). Absent when there is none, and mise then resolves as from the base file alone.
+ * (`globalMise.ts`, ADR-0032's Global mise config refinement). With no Global mise config it is a link to the dotfiles'
+ * own (`DOTFILES_MISE_CONFIG`, ADR-0047 §10), made under the same check. Absent when neither is laid down, and mise
+ * then resolves as from the base file alone.
  */
 export const GLOBAL_MISE_CONFIG = `${GLOBAL_MISE_DIR}/config.toml`;
+
+/**
+ * The Owner's home in a Container, where their dotfiles are (ADR-0047 §9, §10). Fixed by constraint: every command, the
+ * Image and Container setups and every CLI profile run as root with `HOME=/root` (computerd passes that HOME; the
+ * profiles pin it), so this is the one `~` there is.
+ */
+export const OWNER_HOME = "/root";
+
+/**
+ * The dotfiles' own mise config: mise's default global config under `MISE_CONFIG_DIR`, as a dotfiles manager (chezmoi)
+ * writes it. mise reads it only through `GLOBAL_MISE_CONFIG`'s link (`MISE_GLOBAL_CONFIG_FILE` names that file).
+ */
+export const DOTFILES_MISE_CONFIG = `${OWNER_HOME}/.config/mise/config.toml`;
 
 /**
  * What every Container command's environment carries besides PATH (computerd passes only PATH and HOME): mise's configs,

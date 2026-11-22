@@ -18,7 +18,7 @@ export interface SettingsTool {
 
 /** What the server covers, said the same to both doors (plan D17). */
 const SETTINGS_SCOPE =
-  "t3flare's own settings: the Harness settings (Pi Durable's extensions and the MCP server set), the Environment settings (Container size, idle time, budget, Variables, Global mise config, the Grace) and the Environment skills; and the Workspaces, which list_workspaces reads and purge_workspace asks to purge (their files only: a Workspace something in t3 references is refused, and deleting a project or thread stays t3's). These are not t3's preferences (t3_environment_preferences_update). Read tools run.";
+  "t3flare's own settings: the Harness settings (Pi Durable's extensions and the MCP server set), the Environment settings (Container size, idle time, budget, Variables, Global mise config, whether Terminals and CLI agents read the Owner's dotfiles, the Grace) and the Environment skills; and the Workspaces, which list_workspaces reads and purge_workspace asks to purge (their files only: a Workspace something in t3 references is refused, and deleting a project or thread stays t3's). These are not t3's preferences (t3_environment_preferences_update). Read tools run.";
 
 /** What both doors say of a Purge (ADR-0044 §5). */
 const PURGE_NOTE = "A Purge (purge_workspace) names no revision and always waits for the owner's answer, in every mode.";
@@ -97,7 +97,7 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
     name: "get_settings",
     class: "read",
     description:
-      "Reads the Harness settings (entity harness: each Pi Durable extension's switch and settings) or the Environment settings (entity environment: Container size, idle time, budget, Variables, Global mise config, with the running Containers and costs): the revision, every setting resolved, its limits and its Change tier rule.",
+      "Reads the Harness settings (entity harness: each Pi Durable extension's switch and settings) or the Environment settings (entity environment: Container size, idle time, budget, Variables, Global mise config, the dotfiles toggles terminalsReadBashrc and agentsReadDotfiles, with the running Containers and costs): the revision, every setting resolved, its limits and its Change tier rule.",
     inputSchema: { type: "object", required: ["entity"], properties: { entity: { type: "string", enum: ["harness", "environment"] } }, additionalProperties: false },
   },
   {
@@ -232,7 +232,7 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
   {
     name: "change_environment",
     class: "write",
-    description: `Changes some of the Environment settings. The Container settings apply when each Workspace's Container next starts, not in one running now; the Grace (sweepPurges, graceDays) applies at the next Sweep. ${ASKED_NOTE}`,
+    description: `Changes some of the Environment settings. The Container settings apply when each Workspace's Container next starts, not in one running now (terminalsReadBashrc too); agentsReadDotfiles applies at each CLI agent's next start; the Grace (sweepPurges, graceDays) applies at the next Sweep. ${ASKED_NOTE}`,
     inputSchema: {
       type: "object",
       required: ["expectedRevision", "settings"],

@@ -223,8 +223,8 @@ _Avoid_: harness config, settings (alone)
 
 **Environment settings**:
 What the Cloud Environment gives every Workspace and its Container, and how long it keeps one: the Container size, idle
-time and budget, the Global mise config, the Image setup and the Container setup, the Environment skills, the Variables
-and the Grace. t3flare's own, not t3's server settings.
+time and budget, the Global mise config, the Image setup and the Container setup, the Environment skills, the Variables,
+whether Terminals and CLI agents read the Owner's dotfiles, and the Grace. t3flare's own, not t3's server settings.
 _Avoid_: environment config, server settings, Container settings
 
 **Variable**:
@@ -233,7 +233,8 @@ stock t3's environment variables are: a string with a Secret toggle. A secret on
 _Avoid_: env var, environment variable (it reads as the Environment's own)
 
 **Global mise config**:
-The Owner's mise configuration that every Container's commands get, under a repository's own.
+The Owner's mise configuration that every Container's commands get, under a repository's own. With none, they get
+the dotfiles' own.
 _Avoid_: Toolchains (for this config), global tools
 
 **Container size**:

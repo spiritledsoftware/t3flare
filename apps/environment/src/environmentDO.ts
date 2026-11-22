@@ -221,6 +221,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       sql: ctx.storage.sql,
       // Read at each use (ADR-0043 §2–3): a change to the Grace applies at the next Sweep, without a reset.
       sweep: () => sweepSettingsOf(resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()), env.T3FLARE_SWEEP_GRACE_MS),
+      // Read at each CLI spawn (ADR-0047 §9): a change applies at each CLI agent's next start.
+      agentsReadDotfiles: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).agentsReadDotfiles,
       // The deletion wake's Layer (`t3/deletionWake.ts`, ADR-0043 §5) asks for a Sweep here.
       wakeSweep: () => this.wakeSweep(),
       marks: { has: (key) => ctx.storage.kv.get(key) !== undefined, set: (key) => ctx.storage.kv.put(key, Date.now()) },

@@ -4,7 +4,7 @@
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off
 import { Script } from "node:vm";
 
-import { applyToolsChange, BUILTIN_TOOLS, EMPTY_HARNESS, resolveHarness } from "@t3flare/harness-registry";
+import { applyToolsChange, BUILTIN_TOOLS, EMPTY_ENVIRONMENT, EMPTY_HARNESS, resolveEnvironment, resolveHarness } from "@t3flare/harness-registry";
 import { describe, expect, it } from "vitest";
 
 import { escapeHtml, type McpRow, renderPage, type SkillsView } from "../src/harness/page.ts";
@@ -332,6 +332,34 @@ describe("the Settings server's row", () => {
       expect(html).not.toContain(escapeHtml('"op":"remove"'));
       expect(html).not.toContain(escapeHtml('"op":"class"'));
     }
+  });
+});
+
+// The Environment section's dotfiles row (ADR-0047 §9): the two toggles, on by default, each saying when it applies.
+describe("the Environment section's dotfiles", () => {
+  const sectionOf = (html: string) => html.slice(html.indexOf('<section id="environment"'), html.indexOf("</section>", html.indexOf('<section id="environment"')));
+
+  it("draws both toggles in a row of their own, checked by default, outside the Containers row, each saying when it applies", () => {
+    const section = sectionOf(renderPage(fixturePage()));
+    const tags = tagsOf(section);
+    const boxes = tags.filter((tag) => tag.name === "input" && tag.attrs.type === "checkbox" && tag.attrs["data-setting"] !== undefined);
+    expect(boxes.map((tag) => [tag.attrs["data-setting"], tag.attrs.checked !== undefined])).toEqual([
+      ["terminalsReadBashrc", true],
+      ["agentsReadDotfiles", true],
+    ]);
+    const containers = section.slice(0, section.indexOf('<h3 id="environment-dotfiles-title">Dotfiles</h3>'));
+    expect(section).toContain('<h3 id="environment-dotfiles-title">Dotfiles</h3>');
+    expect(containers).not.toContain('data-setting="terminalsReadBashrc"');
+    expect(section).toContain("Applies at each Workspace&#39;s next Container start");
+    expect(section).toContain("Applies at each CLI agent&#39;s next start");
+    const group = tags.find((tag) => tag.attrs.role === "group");
+    expect(group?.attrs).toMatchObject({ "aria-labelledby": "environment-dotfiles-title", "aria-describedby": "environment-dotfiles-desc" });
+  });
+
+  it("draws a toggle the Owner turned off unchecked", () => {
+    const section = sectionOf(renderPage({ ...fixturePage(), environment: { ...resolveEnvironment(EMPTY_ENVIRONMENT), agentsReadDotfiles: false } }));
+    const box = tagsOf(section).find((tag) => tag.attrs["data-setting"] === "agentsReadDotfiles");
+    expect(box?.attrs.checked).toBeUndefined();
   });
 });
 

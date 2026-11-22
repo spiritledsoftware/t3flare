@@ -260,10 +260,20 @@ export interface ProcessStartInput {
   readonly argv: ReadonlyArray<string>;
   /** The profile's allowlisted environment; the host adds `T3FLARE_EXEC` and the key nonce. */
   readonly env: Readonly<Record<string, string>>;
-  /** Files the profile writes on the Container's own disk before the start (the CLI's home), by absolute path. */
-  readonly files?: ReadonlyArray<{ readonly path: string; readonly text: string; readonly mode?: number }>;
-  /** Symbolic links made before the start (Codex's `sessions/` into the synced directory). */
-  readonly links?: ReadonlyArray<{ readonly path: string; readonly target: string }>;
+  /**
+   * Copies of the Owner's config for the CLI from their home into its home, made first (ADR-0047 §9; `process.ts`
+   * `ProcessSeed`): a directory's entries but `skip`, or a file.
+   */
+  readonly seed?: ReadonlyArray<{ readonly from: string; readonly to: string; readonly skip?: ReadonlyArray<string>; readonly shadow?: { readonly dir: string; readonly by: string } }>;
+  /**
+   * A check of what the seed copied (`process.ts` `ProcessCheck`): when `when` exists, `argv` runs first, and its failure
+   * ends the launch with `failure` on stderr.
+   */
+  readonly check?: { readonly when: string; readonly argv: ReadonlyArray<string>; readonly failure: string };
+  /** Files the profile writes on the Container's own disk before the start (the CLI's home), by absolute path; `keep`: only where the seed left none. */
+  readonly files?: ReadonlyArray<{ readonly path: string; readonly text: string; readonly mode?: number; readonly keep?: boolean }>;
+  /** Symbolic links made before the start (Codex's `sessions/` into the synced directory); `merge`: into a seeded directory, entry by entry. */
+  readonly links?: ReadonlyArray<{ readonly path: string; readonly target: string; readonly merge?: boolean }>;
   /** Session retention: files under `dir` untouched for `days` are removed before the start. */
   readonly prune?: ReadonlyArray<{ readonly dir: string; readonly days: number }>;
   /** t3's thread, for the MCP relay and the logs. */

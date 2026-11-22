@@ -11,6 +11,7 @@ import {
   BUILTIN_TOOLS,
   builtinTool,
   EMPTY_ENVIRONMENT,
+  DOTFILES_SETTING_KEYS,
   ENVIRONMENT_SETTINGS,
   type Exposure,
   EXPOSURES,
@@ -346,11 +347,17 @@ const environmentSection = (environment: ResolvedEnvironment, costs: ContainerCo
   const values: Readonly<Record<string, unknown>> = { ...environment };
   // The Grace (ADR-0043) applies at the next Sweep, not at a Container start: the Workspaces section shows it (ADR-0044 §1).
   const entries = Object.entries(ENVIRONMENT_SETTINGS as Readonly<Record<string, EnvironmentSettingEntry>>).filter(([key]) => !(SWEEP_SETTING_KEYS as ReadonlyArray<string>).includes(key));
-  // The scalar settings share the Containers row; a list (the Variables) and a file (the Global mise config, the
-  // Container setup) each get a row of their own, which the settings that name it as their `row` join. One form, one Save.
+  // The scalar settings share the Containers row. The dotfiles toggles (ADR-0047 §9) share a Dotfiles row; a list (the
+  // Variables) and a file (the Global mise config, the Container setup) each get a row of their own, which the settings
+  // that name it as their `row` join. One form, one Save.
+  const dotfilesKey = (key: string) => (DOTFILES_SETTING_KEYS as ReadonlyArray<string>).includes(key);
   const ownRow = (setting: EnvironmentSettingEntry) => setting.schema.type === "variables" || setting.schema.type === "file";
-  const fields = entries.filter(([, setting]) => !ownRow(setting) && setting.row === undefined).map(([key, setting]) => field("environment", key, setting, values[key]));
+  const fields = entries.filter(([key, setting]) => !ownRow(setting) && setting.row === undefined && !dotfilesKey(key)).map(([key, setting]) => field("environment", key, setting, values[key]));
   const joining = (row: string) => entries.filter(([, setting]) => setting.row === row).map(([key, setting]) => field("environment", key, setting, values[key]));
+  const dotfiles = `<div class="row"><div><div class="row-title"><h3 id="environment-dotfiles-title">Dotfiles</h3></div><p class="desc" id="environment-dotfiles-desc">Whether your own config in ~ (/root), from your Image setup or Container setup, reaches Terminals and CLI agents.</p></div><div class="row-extra"><div class="fields" role="group" aria-labelledby="environment-dotfiles-title" aria-describedby="environment-dotfiles-desc">${entries
+    .filter(([key]) => dotfilesKey(key))
+    .map(([key, setting]) => field("environment", key, setting, values[key]))
+    .join("")}</div></div></div>`;
   const lists = entries
     .filter(([, setting]) => ownRow(setting))
     .map(([key, setting]) => {
@@ -360,9 +367,9 @@ const environmentSection = (environment: ResolvedEnvironment, costs: ContainerCo
   const save = `<div class="row"><div class="save"><span class="save-note" data-save-note aria-live="polite"></span><button type="submit" class="btn btn-sm" data-save disabled>Save</button></div></div>`;
   return `<section id="environment" aria-labelledby="environment-title">
 <div class="section-head"><h2 id="environment-title">${icon("container")}Environment</h2></div>
-<p class="section-desc">What every Workspace's Container gets. A change applies at each Workspace's next Container start; a running Container keeps its size, idle time, Variables, Global mise config and Container setup, and a lower budget stops none.</p>
+<p class="section-desc">What every Workspace's Container gets. A change applies at each Workspace's next Container start unless its setting says otherwise; a running Container keeps what it started with, and a lower budget stops none.</p>
 <form class="group" data-environment aria-labelledby="environment-title" novalidate><div class="row"><div><div class="row-title"><h3>Containers</h3><span class="ident">revision ${environment.revision}</span></div><p class="desc">Their size, how long one may sit idle, and how many may run at once.</p></div>
-<div class="row-extra"><div class="fields">${fields.join("")}</div></div></div>${lists.join("")}${save}</form>
+<div class="row-extra"><div class="fields">${fields.join("")}</div></div></div>${dotfiles}${lists.join("")}${save}</form>
 <dl class="group kv"><div><dt>Running now</dt><dd>${
     running === null || running === undefined
       ? "unknown"

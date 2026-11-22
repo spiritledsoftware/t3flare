@@ -111,15 +111,10 @@ const layDown = async (
   run: RunStep,
 ): Promise<GlobalMiseState> => {
   const known = deps.launch();
-  // A launch from before SPI-1150 (no Global mise config recorded) runs the script with no text: it lays nothing down.
+  // A launch from before SPI-1150 (no Global mise config recorded) runs the script with no text, as a launch with none
+  // does: it lays down the dotfiles' own mise config when git and gh run under it (ADR-0047 §10), else nothing.
   const launch = known ?? { text: "", bytes: 0, sha256: EMPTY_SHA, revision: 0, source: "default" as const };
   const started = deps.now();
-  // No text in a known launch on a known Container: nothing to lay down, nothing run (its disk has no global file);
-  // reported all the same, so Status stops showing an older start's file once the owner clears it.
-  if (known !== undefined && known.text === "" && runtime !== "") {
-    deps.report({ workspace: deps.workspace(), runtime, revision: known.revision, sha256: known.sha256, bytes: 0, source: known.source, outcome: "none", install: null, timedOut: false, ms: 0, at: started });
-    return { runtime, outcome: "none", attempts: attemptsBefore + 1, at: started };
-  }
   const result = await run(globalMiseArgv(launch.revision, launch.sha256, launch.source), launch.text, deps.deadlineMs);
   let outcome: GlobalMiseOutcome = "exec-failed";
   let answer: GlobalMiseAnswer | undefined;
@@ -128,7 +123,8 @@ const layDown = async (
   else if (result.ended === "failed") error = result.error;
   else {
     answer = parseGlobalMiseAnswer(result.stdout);
-    outcome = answer === undefined || answer.locked === true ? "exec-failed" : answer.laid ? "laid" : "not-laid";
+    // No file at all (no text, no dotfiles' config: nothing installed) is `none`.
+    outcome = answer === undefined || answer.locked === true ? "exec-failed" : answer.laid ? "laid" : answer.install === null && !answer.timedOut ? "none" : "not-laid";
     if (answer === undefined) error = `no answer (exit ${String(result.exitCode)})`;
   }
   const at = deps.now();
@@ -138,11 +134,13 @@ const layDown = async (
     runtime: runtime === "" ? "unknown" : runtime,
     revision: launch.revision,
     sha256: launch.sha256,
-    bytes: launch.bytes,
+    // The dotfiles' file's size, when it was the one checked (the launch's text is empty then).
+    bytes: answer?.dotfiles === true ? answer.bytes : launch.bytes,
     source: launch.source,
     outcome,
     install: answer?.install ?? null,
     timedOut: answer?.timedOut ?? outcome === "deadline",
+    ...(answer?.dotfiles === true ? { dotfiles: true } : {}),
     ms: Math.max(0, at - started),
     at,
   };

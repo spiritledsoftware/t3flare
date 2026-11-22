@@ -157,10 +157,23 @@ describe("GlobalMise", () => {
     expect(broken.due("r1")).toBe(false);
   });
 
-  it("reports a Container started with no text, so Status no longer shows an older start's file", async () => {
-    const t = setup([], { launch: { ...LAUNCH, text: "", bytes: 0, sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" } });
+  const EMPTY = { ...LAUNCH, text: "", bytes: 0, sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" };
+
+  it("reports a Container started with no text and no dotfiles' mise config as none, so Status no longer shows an older start's file", async () => {
+    const t = setup([{ stdout: answer(false, { install: null, bytes: 0, dotfiles: false }) }], { launch: EMPTY });
     expect(await t.mise.ensure("r1")).toMatchObject({ outcome: "none" });
-    expect(t.calls).toHaveLength(0);
+    expect(t.calls).toHaveLength(1);
+    expect(t.calls[0]!.stdin).toBe("");
     expect(t.reports).toMatchObject([{ outcome: "none", install: null, bytes: 0, revision: 4 }]);
+    expect(t.reports[0]!.dotfiles).toBeUndefined();
+  });
+
+  it("with no text, runs the script for the dotfiles' mise config (ADR-0047 §10) and reports what it did with it", async () => {
+    const laid = setup([{ stdout: answer(true, { bytes: 30, dotfiles: true }) }], { launch: EMPTY });
+    expect(await laid.mise.ensure("r1")).toMatchObject({ outcome: "laid" });
+    expect(laid.reports).toMatchObject([{ outcome: "laid", install: 0, bytes: 30, dotfiles: true }]);
+    const refused = setup([{ stdout: answer(false, { bytes: 30, dotfiles: true }) }], { launch: EMPTY });
+    expect(await refused.mise.ensure("r1")).toMatchObject({ outcome: "not-laid" });
+    expect(refused.reports).toMatchObject([{ outcome: "not-laid", install: 0, dotfiles: true }]);
   });
 });

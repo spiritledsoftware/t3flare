@@ -22,11 +22,13 @@
 // SPI-1176: without such an endpoint, either is refused, saying so.
 import { type EndpointApi, type ModelEndpoint, parseEndpointSlug } from "@t3flare/models/endpoints";
 import { endpointProviderId, modelRelayUrl, modelRoutedRelayUrl } from "@t3flare/models/relay";
+import { OWNER_HOME } from "@t3flare/sandbox-image/env";
 import { CLI_HOMES } from "@t3flare/sandbox-image/process";
 import { SKILLS_MOUNT } from "@t3flare/skills";
 import { HARNESS_ROOT } from "@t3flare/workspace-client";
 
 import { type Launch, type LaunchAnswer, type LaunchInput, noEndpointFor, type ProfileContext } from "./cliProfiles.ts";
+import { dotfilesLaunch, dotfilesOn } from "./dotfiles.ts";
 
 /** The image's CLI binaries (`cliProfiles.ts` `CLI_BIN`, restated: that module imports this one). */
 const CLI_BIN = "/opt/t3flare/bin";
@@ -37,9 +39,10 @@ const homeOf = (key: string) => `${CLI_HOMES}/${key}`;
  * copied, so a CLI process lists the set the Workspace holds when it starts (all four CLIs list skills only at process
  * start; a running Claude Code or OpenCode keeps serving what it cached). The launcher makes the link in the process's fresh home;
  * nothing writes through it (the mount is read-only from the Container's first command, SPI-1148's lock). Every
- * profile's (`cliProfiles.ts` imports it from here).
+ * profile's (`cliProfiles.ts` imports it from here). `merge` (ADR-0047 §9): over the Owner's own Skills the seed copied
+ * there, each Environment skill linked in by name, so it wins a name clash.
  */
-export const environmentSkillsLink = (path: string) => ({ path, target: SKILLS_MOUNT });
+export const environmentSkillsLink = (path: string, merge = false) => ({ path, target: SKILLS_MOUNT, ...(merge ? { merge } : {}) });
 
 /** Claude's session files, synced (resume after the Container sleeps, M0 P5). */
 export const CLAUDE_PROJECTS = `${HARNESS_ROOT}/claude/projects`;
@@ -238,7 +241,7 @@ const claudeLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer
   return {
     argv: [`${CLI_BIN}/claude-agent-acp`],
     env: {
-      HOME: "/root",
+      HOME: OWNER_HOME,
       LANG: "C.UTF-8",
       CLAUDE_CONFIG_DIR: `${home}/claude`,
       CLAUDE_AGENT_ACP_EXPERIMENTAL_V2: "1",
@@ -247,9 +250,11 @@ const claudeLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer
       CLAUDE_CODE_API_KEY_HELPER_TTL_MS: String(24 * 3_600_000),
       ...claudeSwitches(mode),
     },
+    // ADR-0047 §9: the Owner's ~/.claude and ~/.claude.json first. The managed settings stay outside it, on top.
+    ...dotfilesLaunch("claude", home, context.dotfiles),
     files: [{ path: `${home}/managed-settings.json`, text: `${JSON.stringify(claudeManagedSettings(mode, relayNames(context)), null, 1)}\n` }],
     // SPI-1153: the Environment skill set as Claude Code's user-level root (`$CLAUDE_CONFIG_DIR/skills`).
-    links: [{ path: `${home}/claude/projects`, target: CLAUDE_PROJECTS }, environmentSkillsLink(`${home}/claude/skills`)],
+    links: [{ path: `${home}/claude/projects`, target: CLAUDE_PROJECTS }, environmentSkillsLink(`${home}/claude/skills`, dotfilesOn(context.dotfiles))],
     ...(thread === undefined ? {} : { thread }),
     // SPI-1168: the Workspace DO gives the process a model handle for these endpoints, in its environment only.
     modelRelay: [...mode.endpoints],
@@ -354,7 +359,7 @@ const opencodeLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnsw
   return {
     argv: [`${CLI_BIN}/opencode`, "acp"],
     env: {
-      HOME: "/root",
+      HOME: OWNER_HOME,
       LANG: "C.UTF-8",
       XDG_CONFIG_HOME: `${home}/config`,
       XDG_DATA_HOME: `${home}/data`,
@@ -366,9 +371,11 @@ const opencodeLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnsw
       OPENCODE_DISABLE_CLAUDE_CODE: "1",
       OPENCODE_DISABLE_LSP_DOWNLOAD: "1",
     },
+    // ADR-0047 §9: the Owner's ~/.config/opencode first; the system configuration (/etc/opencode) outranks it.
+    ...dotfilesLaunch("opencode", home, context.dotfiles),
     files: [{ path: `${home}/opencode.json`, text: `${JSON.stringify(opencodeConfig(mode, relayNames(context)), null, 1)}\n` }],
     // SPI-1153: the Environment skill set as OpenCode's user-level root (`$XDG_CONFIG_HOME/opencode/skills`).
-    links: [environmentSkillsLink(`${home}/config/opencode/skills`)],
+    links: [environmentSkillsLink(`${home}/config/opencode/skills`, dotfilesOn(context.dotfiles))],
     ...(thread === undefined ? {} : { thread }),
     // SPI-1169: the Workspace DO gives the process a model handle for these endpoints, in its environment only.
     modelRelay: mode.relay.endpoints.filter(opencodeServes).map((endpoint) => endpoint.id),

@@ -20,7 +20,8 @@ export const digestOf = async (text: string): Promise<TextDigest> => {
 
 /**
  * How one lay-down ended: `laid` (the owner's file is mise's global config), `not-laid` (git or gh failed under it, or
- * its install timed out), `none` (the start had no Global mise config: nothing to lay down), `exec-failed` (the
+ * its install timed out), `none` (the start had no Global mise config and the dotfiles had no mise config of their
+ * own: nothing to lay down; with one, the report's `dotfiles` says it was the file laid or not, ADR-0047 §10), `exec-failed` (the
  * platform's exec refused or broke; retried) or `deadline` (the Workspace DO stopped waiting; final for that Container).
  */
 export const GLOBAL_MISE_OUTCOMES = ["laid", "not-laid", "none", "exec-failed", "deadline"] as const;
@@ -45,6 +46,8 @@ export interface GlobalMiseReport {
   readonly install: number | null;
   /** The install or a check was cut off by its timeout (exit 124, or 137 after the KILL). */
   readonly timedOut: boolean;
+  /** With no text, the file was the dotfiles' own mise config (ADR-0047 §10). Absent: the text's, or none. */
+  readonly dotfiles?: boolean;
   readonly ms: number;
   readonly at: number;
 }
@@ -66,6 +69,7 @@ export const globalMiseReport = (value: unknown): GlobalMiseReport | undefined =
     (GLOBAL_MISE_OUTCOMES as ReadonlyArray<unknown>).includes(report.outcome) &&
     (report.install === null || (typeof report.install === "number" && Number.isInteger(report.install))) &&
     typeof report.timedOut === "boolean" &&
+    (report.dotfiles === undefined || typeof report.dotfiles === "boolean") &&
     count(report.ms) &&
     count(report.at);
   if (!ok) return undefined;
@@ -79,6 +83,7 @@ export const globalMiseReport = (value: unknown): GlobalMiseReport | undefined =
     outcome: report.outcome as GlobalMiseOutcome,
     install: report.install as number | null,
     timedOut: report.timedOut as boolean,
+    ...(report.dotfiles === undefined ? {} : { dotfiles: report.dotfiles as boolean }),
     ms: report.ms as number,
     at: report.at as number,
   };
@@ -89,9 +94,17 @@ export const describeGlobalMise = (report: GlobalMiseReport): string => {
   // A run with no text installs nothing (`install` null): no Global mise config, whatever outcome it was given.
   const noText = report.outcome === "none" || (report.outcome === "not-laid" && report.install === null && !report.timedOut);
   let what: string;
-  if (noText) what = "no Global mise config";
+  const why = report.timedOut ? "timed out" : report.install === 0 ? "git or gh did not run under it" : `mise install exit ${report.install}`;
+  if (report.dotfiles === true && (report.outcome === "laid" || report.outcome === "not-laid")) {
+    // ADR-0047 §10: with no text, the dotfiles' own file, kept under the same check as a text.
+    const dotfiles = "no Global mise config; the dotfiles' ~/.config/mise/config.toml";
+    what =
+      report.outcome === "laid"
+        ? `${dotfiles} is mise's global config${report.install === 0 || report.install === null ? "" : ` (mise install exit ${report.install})`}`
+        : `${dotfiles} is not used (${why}), so mise uses t3flare's own`;
+  } else if (noText) what = "no Global mise config";
   else if (report.outcome === "laid") what = `laid down${report.install === 0 || report.install === null ? "" : ` (mise install exit ${report.install})`}`;
-  else if (report.outcome === "not-laid") what = `not laid down (${report.timedOut ? "timed out" : report.install === 0 ? "git or gh did not run under it" : `mise install exit ${report.install}`})`;
+  else if (report.outcome === "not-laid") what = `not laid down (${why})`;
   else if (report.outcome === "exec-failed") what = "not laid down (the Container's exec failed; tried again)";
   else what = "not laid down (no answer within the deadline)";
   return `${report.workspace ?? "a Workspace"} at revision ${report.revision}: ${what}, ${new Date(report.at).toISOString()}`;
