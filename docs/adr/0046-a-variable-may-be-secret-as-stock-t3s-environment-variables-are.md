@@ -18,7 +18,9 @@ protects the Owner from their own choice.
 1. **Shape.** Each Variable is a name, a string value and `secret`. A secret value is sealed with the Stage's
    credentials key, as a Model endpoint's key is (`apps/environment/src/credentials/sealed.ts`), and no read returns it:
    the Settings page and the Settings server show it as set, as t3 shows a redacted value. The audit log records a
-   secret Variable's name only, and Workers Logs never carry a value.
+   secret Variable's name and fingerprint only, and Workers Logs never carry a value. Only the Workspace DO's read at a
+   Container start opens it, and the Workspace DO keeps that opened copy with the launch it starts, as it keeps every
+   Variable: the agents Worker holds no credentials key.
 2. **Reach.** Unchanged from ADR-0032's Variables §5, secret or not: every command on the Container or the Worker Shell,
    Terminals, CLI agent processes, a Durable agent's Container commands, and the Image setup and the Container setup.
    Any agent can read a secret Variable, as on stock t3.
