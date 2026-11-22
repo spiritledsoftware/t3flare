@@ -122,7 +122,7 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
   {
     name: "get_status",
     class: "read",
-    description: "The Settings page's Status (which revisions Sessions and Workspaces took, skills, the Base snapshot), the Base snapshot's record (baseSnapshot: its state, a failed build's output), the Settings server's access switch, and this caller's open changes.",
+    description: "The Settings page's Status (which revisions Sessions and Workspaces took, skills, the Base snapshot), the Base snapshot's record (baseSnapshot: its state, a failed build's output), the last Test base build's (testBaseBuild), the Settings server's access switch, and this caller's open changes.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
@@ -271,6 +271,18 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
     description:
       "Asks the Builder to build the Base snapshot again from the saved Environment settings (the Image setup, the Global mise config, the Variables), as the Settings page's Rebuild does. Free; a build under way goes on. get_status shows its state as baseSnapshot. A change to those settings, and each deploy, builds a new one on its own.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "test_base_build",
+    class: "write",
+    description:
+      "Tests a proposed Image setup before you ask to save it: the test Builder runs this text in place of the saved one, with the saved Global mise config, Variables (secret ones included) and limits, exactly as a Base build would, and proves a start from its snapshot. Free; nothing is saved, its snapshot is never used, and a new test cancels one under way. It takes minutes: get_status shows its result as testBaseBuild (state, exit code, the end of its output with secret values blanked, size and time), kept until the next test.",
+    inputSchema: {
+      type: "object",
+      required: ["imageSetup"],
+      properties: { imageSetup: { type: "string", description: "The whole proposed Image setup: a bash script of at most 256 KiB." } },
+      additionalProperties: false,
+    },
   },
   {
     name: "purge_workspace",

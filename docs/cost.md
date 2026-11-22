@@ -73,13 +73,17 @@ What moves the total:
   on a change to the Image setup, the Global mise config or the Variables, at each deploy whose image or settings
   changed the key, on a Rebuild, and on the scheduled rebuild when the Owner sets one; with no Image setup and no
   Global mise config there is nothing to build.
-- **Container snapshots cannot be listed or deleted.** Each Base build, each Test base build and a destroyed Stage leave
-  theirs to expire 30 days after their creation or last restore. A Container snapshot holds only the changes over the
+- **A Test base build (SPI-1334) costs what a Base build does:** a Container in the test Builder, at the Builder size and
+  under the same budget setting, for its minutes; each Test, the Owner's or `test_base_build`'s, starts one, and a new
+  test ends the one under way. Its snapshot cannot be deleted (there is no API) and no Container ever starts from it,
+  so it expires 30 days after its creation.
+- **Container snapshots cannot be listed or deleted.** Each Base build and a destroyed Stage leave theirs to expire 30
+  days after their creation or last restore. A Container snapshot holds only the changes over the
   image (34.5 MB for one apt package on the spike, 33.5 MB on a Stage).
 - **Price.** Container snapshots are a public beta: free during it, the price after it unannounced. When Cloudflare
   prices them, count a Container snapshot per Base build for 30 days.
 - **`base-build`, `base-build-ready`, `base-build-failed`** (agents Worker logs): each phase of a build, its size and time
-  taken (`tookMs`) when ready.
+  taken (`tookMs`) when ready; a Test base build's lines carry `test: true`.
 
 ## When to act
 

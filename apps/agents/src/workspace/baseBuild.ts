@@ -23,6 +23,11 @@
 // The scheduled rebuild fires before the snapshot expires, and one that fails is retried on a backoff. Every step is
 // bounded by its time limit, a step that keeps throwing included. Unit tests drive it over a fake container
 // (apps/agents/test/baseBuild.test.ts).
+//
+// A Test base build (SPI-1334, ADR-0047 §8) is the same machine with `test` on, in the second Builder (`BUILDERS.test`,
+// its own object, storage and Container, so a test never touches a real build): it runs a proposed Image setup, kept
+// in its storage, with the saved rest of the settings. Its proved snapshot is its result alone, never the Base snapshot;
+// it has no schedule, no backoff and no pokes, and a new test cancels one under way.
 import {
   BASE_BUILD_CAPS,
   type BaseBuildFailure,
@@ -167,6 +172,9 @@ export const BUILDER_KEYS = {
   refused: "t3flare:builder:refused",
   /** Builds of one key that failed in a row (`{ key, count }`): the retry's backoff. */
   failures: "t3flare:builder:failures",
+  /** The proposed Image setup a Test base build runs (SPI-1334), in place of the saved one, and its SHA-256 (hex). */
+  proposal: "t3flare:builder:proposal",
+  proposalDigest: "t3flare:builder:proposal-digest",
 } as const;
 
 export const DAY_MS = 24 * 60 * 60_000;
@@ -217,18 +225,35 @@ type Trigger = "rebuild" | "automatic" | "scheduled";
 const ENDED: ReadonlyArray<Build["phase"]> = ["ready", "failed", "canceled"];
 export const isRunning = (build: Build | undefined): build is Build & { readonly phase: BaseBuildPhase } => build !== undefined && !ENDED.includes(build.phase);
 
+/** A build's proved snapshot as a record carries it: the Base snapshot's, or a test's result. */
+const goodOf = (build: Build, snapshot: NonNullable<Build["snapshot"]>, builtAt: number): BaseSnapshot => ({
+  id: snapshot.id,
+  size: snapshot.size,
+  key: build.key,
+  imageDigest: build.image,
+  builtAt,
+  tookMs: builtAt - build.startedAt,
+});
+
+const NOT_BASE = "t3flare: the test Builder runs only a Test base build";
+
 const errorText = (error: unknown): string => String(error instanceof Error ? error.message : error).slice(0, BASE_BUILD_CAPS.message);
 
 export class BaseBuild {
   readonly #deps: BaseBuildDeps;
   readonly #runEnv: RunEnv;
+  /** A Test base build's machine (SPI-1334): a proposed Image setup, its snapshot never the Base snapshot. */
+  readonly #test: boolean;
   /** This object instance: a snapshot call or a `monitor()` handler of another one never answers here. */
   readonly #epoch: string;
   /** One tick at a time: the alarm and an RPC may both drive the machine. */
   #queue: Promise<unknown> = Promise.resolve();
 
-  constructor(deps: BaseBuildDeps, runEnv: RunEnv) {
-    this.#deps = deps;
+  constructor(deps: BaseBuildDeps, runEnv: RunEnv, options: { readonly test?: boolean } = {}) {
+    this.#test = options.test === true;
+    // A test's log lines say so, beside a real build's.
+    const log = deps.log;
+    this.#deps = this.#test && log !== undefined ? { ...deps, log: (event) => log({ ...event, test: true }) } : deps;
     this.#runEnv = runEnv;
     this.#epoch = hex(deps.random(8));
   }
@@ -250,6 +275,7 @@ export class BaseBuild {
   }
 
   record(): BaseBuildRecord {
+    if (this.#test) return this.#testRecord();
     const { storage, now } = this.#deps;
     const current = storage.get<Current>(BUILDER_KEYS.current);
     const build = storage.get<Build>(BUILDER_KEYS.build);
@@ -266,6 +292,25 @@ export class BaseBuild {
     return { ...base, state: "none" };
   }
 
+  /** The last test's result, kept until the next test: its proved snapshot is `good`, never a Base snapshot. */
+  #testRecord(): BaseBuildRecord {
+    const { storage, now } = this.#deps;
+    const current = storage.get<Current>(BUILDER_KEYS.current);
+    const build = storage.get<Build>(BUILDER_KEYS.build);
+    const setup = storage.get<string>(BUILDER_KEYS.proposalDigest);
+    const base = { test: true as const, key: build?.key ?? null, ...(setup === undefined ? {} : { setup }), good: null, at: now() };
+    if (current?.nothingToBuild === true) return { ...base, key: current.key, state: "none", nothingToBuild: true };
+    if (isRunning(build)) {
+      return { ...base, state: "building", phase: build.phase, since: build.startedAt, reason: build.reason, ...(build.waitingForBudget === true ? { waitingForBudget: true } : {}) };
+    }
+    if (build?.phase === "ready" && build.snapshot !== undefined) {
+      const builtAt = build.endedAt ?? build.phaseAt;
+      return { ...base, state: "ready", good: goodOf(build, build.snapshot, builtAt) };
+    }
+    if (build?.phase === "failed" && build.failure !== undefined) return { ...base, state: "failed", failure: build.failure };
+    return { ...base, state: "none" };
+  }
+
   #report(): void {
     this.#deps.report(this.record());
   }
@@ -279,6 +324,7 @@ export class BaseBuild {
    * worked and is gone (expired or refused): `force` (Rebuild) runs it.
    */
   poke(reason: string, options: { readonly force?: boolean } = {}): Promise<BaseBuildRecord> {
+    if (this.#test) return Promise.reject(new Error(NOT_BASE));
     return this.#serial(async () => {
       await this.#settleLate();
       await this.#poke(reason, options.force === true ? "rebuild" : "automatic");
@@ -289,6 +335,7 @@ export class BaseBuild {
 
   /** A Workspace's start found the Base snapshot `id` refused (missing or expired): it is gone, and built again. */
   refused(id: string, reason: string): Promise<BaseBuildRecord> {
+    if (this.#test) return Promise.reject(new Error(NOT_BASE));
     return this.#serial(async () => {
       const kept = this.#deps.storage.get<KeptSnapshot>(BUILDER_KEYS.good);
       if (kept?.id === id) this.#deps.storage.put<KeptSnapshot>(BUILDER_KEYS.good, { ...kept, gone: true });
@@ -299,9 +346,44 @@ export class BaseBuild {
     });
   }
 
+  /**
+   * A Test base build (SPI-1334): runs `imageSetup` in place of the saved one, with the saved rest of the settings read as
+   * a Base build reads them. A test under way is canceled; one that ended is replaced. Never waits on a failing key's
+   * backoff, nor skips a script that failed: the caller asked for this run.
+   */
+  test(imageSetup: string, reason: string): Promise<BaseBuildRecord> {
+    if (!this.#test) return Promise.reject(new Error("t3flare: only the test Builder runs a Test base build"));
+    return this.#serial(async () => {
+      const { storage } = this.#deps;
+      await this.#settleLate();
+      const inputs = await this.#inputs(imageSetup);
+      const current = await this.#currentOf(inputs);
+      storage.put(BUILDER_KEYS.proposal, imageSetup);
+      storage.put(BUILDER_KEYS.proposalDigest, await sha256Hex(imageSetup));
+      storage.put(BUILDER_KEYS.current, current);
+      const build = storage.get<Build>(BUILDER_KEYS.build);
+      if (isRunning(build)) await this.#end(build, "canceled");
+      if (current.nothingToBuild) {
+        this.#report();
+        return this.record();
+      }
+      this.#begin(inputs, current.key, reason, false);
+      await this.#tick();
+      return this.record();
+    });
+  }
+
   /** The alarm: the next step of the build under way, or the scheduled rebuild. */
   alarm(): Promise<void> {
     return this.#serial(() => this.#tick());
+  }
+
+  /** The inputs a build reads: a test's with its proposed Image setup (`proposal`, else the one it kept) in place of the saved one. */
+  async #inputs(proposal?: string): Promise<BuilderInputs> {
+    const inputs = await this.#deps.inputs();
+    if (!this.#test) return inputs;
+    const imageSetup = proposal ?? this.#deps.storage.get<string>(BUILDER_KEYS.proposal) ?? "";
+    return { ...inputs, settings: { ...inputs.settings, imageSetup } };
   }
 
   async #currentOf(inputs: BuilderInputs): Promise<Current> {
@@ -316,7 +398,8 @@ export class BaseBuild {
       },
       this.#hmacKey(),
     );
-    return { key, nothingToBuild: settings.imageSetup === "" && settings.globalMiseConfig === "", rebuildEveryDays: settings.rebuildEveryDays, at: this.#deps.now() };
+    // A test has no schedule.
+    return { key, nothingToBuild: settings.imageSetup === "" && settings.globalMiseConfig === "", rebuildEveryDays: this.#test ? 0 : settings.rebuildEveryDays, at: this.#deps.now() };
   }
 
   #hmacKey(): Uint8Array {
@@ -351,7 +434,7 @@ export class BaseBuild {
   async #poke(reason: string, trigger: Trigger): Promise<void> {
     const force = trigger !== "automatic";
     const { storage } = this.#deps;
-    const inputs = await this.#deps.inputs();
+    const inputs = await this.#inputs();
     const current = await this.#currentOf(inputs);
     storage.put(BUILDER_KEYS.current, current);
     const build = storage.get<Build>(BUILDER_KEYS.build);
@@ -538,7 +621,7 @@ export class BaseBuild {
     );
     if (!ready) return setAlarm(now() + POLL_MS.starting);
     // The settings again, now that the Container is up: one that moved since the build began is a new key.
-    const inputs = await this.#deps.inputs();
+    const inputs = await this.#inputs();
     const current = await this.#currentOf(inputs);
     if (current.key !== build.key) {
       this.#deps.storage.put(BUILDER_KEYS.current, current);
@@ -593,7 +676,7 @@ export class BaseBuild {
       void this.#deps.setAlarm(this.#deps.now()).catch(() => undefined);
     };
     this.#deps.waitUntil(
-      container.snapshot(`t3flare-base-${build.key.slice(0, 12)}-${build.id}`).then(
+      container.snapshot(`t3flare-${this.#test ? "test" : "base"}-${build.key.slice(0, 12)}-${build.id}`).then(
         (snapshot) => done({ ok: true, id: snapshot.id, size: snapshot.size }),
         (error: unknown) => done({ ok: false, error: errorText(error) }),
       ),
@@ -691,8 +774,9 @@ export class BaseBuild {
     );
     if (proved && build.snapshot !== undefined) {
       const at = now();
-      const good: BaseSnapshot = { id: build.snapshot.id, size: build.snapshot.size, key: build.key, imageDigest: build.image, builtAt: at, tookMs: at - build.startedAt };
-      storage.put(BUILDER_KEYS.good, good);
+      const good = goodOf(build, build.snapshot, at);
+      // A test's snapshot is its result alone (kept in its build): never the Base snapshot.
+      if (!this.#test) storage.put(BUILDER_KEYS.good, good);
       this.#deps.log?.({ t3flare: "base-build-ready", build: build.id, size: good.size, tookMs: good.tookMs });
       return this.#end(build, "ready");
     }

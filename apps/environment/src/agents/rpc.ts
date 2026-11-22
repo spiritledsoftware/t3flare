@@ -97,6 +97,8 @@ export interface WorkspaceRpc {
   builderRecord(): Promise<BaseBuildRecord>;
   builderPoke(input: { readonly reason: string }): Promise<BaseBuildRecord>;
   builderRebuild(input: { readonly reason: string }): Promise<BaseBuildRecord>;
+  /** The test Builder's (SPI-1334): a Test base build of a proposed Image setup. */
+  builderTest(input: { readonly imageSetup: string; readonly reason: string }): Promise<BaseBuildRecord>;
   /** A tombstone: no later start, a start under way waited out, then stopped and released; throws if it still runs. */
   closeContainer(): Promise<{ readonly stopped: true }>;
   /** A tombstone restored: its Container may start again. */

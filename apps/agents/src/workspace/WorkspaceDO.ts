@@ -47,7 +47,7 @@ import { BUDGET_NAME, type ContainerBudget, RENEW_EVERY_MS } from "../budget.ts"
 import { type EnvironmentDO, environmentStub } from "../environment.ts";
 import { BASE_BUILD_CAPS, type BaseBuildRecord, BUILDERS, EMPTY_ENVIRONMENT, fitVariableEnv, type McpRelayAnswer, type ResolvedEnvironment, resolveEnvironment } from "@t3flare/harness-registry";
 import { BaseBuild } from "./baseBuild.ts";
-import { platformContainer, workspaceImage } from "./builder.ts";
+import { type BuilderKind, builderKindOf, builderMark, platformContainer, proposedSetup, workspaceImage } from "./builder.ts";
 import { changedBetween, currentRevision, repoFileSizes } from "./changeLog.ts";
 import { type ContainerLaunch, ENVIRONMENT_READ_MS, launchOf, secretValuesOf, shownLaunch, takeEnvironment, withContainerSteps } from "./containerLaunch.ts";
 import { ContainerSetup, type ContainerSetupState } from "./containerSetup.ts";
@@ -196,7 +196,7 @@ export { CREDENTIAL_HELPER, CREDENTIAL_PATH };
 const WORKSPACE_ID_KEY = "t3flare:workspace-id";
 /** A trigger's reason as the Builder keeps it (`BASE_BUILD_CAPS.reason`). */
 const reasonOf = (input: { readonly reason: unknown }): string => String(input.reason).slice(0, BASE_BUILD_CAPS.reason);
-/** Set on the Builder's object (SPI-1332): its alarm drives the Base build, never a Workspace's idle stop. */
+/** Set on a Builder's object (SPI-1332; `builderMark`): its alarm drives the build, never a Workspace's idle stop. */
 const BUILDER_MARK_KEY = "t3flare:builder";
 /** A cached token is renewed this long before it expires. */
 const TOKEN_RENEW_MS = 5 * 60_000;
@@ -2161,24 +2161,32 @@ export class WorkspaceDO extends ContainerHost {
 
   #base: BaseBuild | undefined;
 
-  /** Whether this object is the Builder (`BUILDERS.base`): one reserved-name instance of this class, never a Workspace. */
+  /** Which Builder this object is (`BUILDERS`): a reserved-name instance of this class, never a Workspace; else undefined. */
+  #builderKind(): BuilderKind | undefined {
+    return builderKindOf(this.ctx.id.name, this.ctx.storage.kv.get<unknown>(BUILDER_MARK_KEY));
+  }
+
   #isBuilder(): boolean {
-    return this.ctx.id.name === BUILDERS.base || this.ctx.storage.kv.get<boolean>(BUILDER_MARK_KEY) === true;
+    return this.#builderKind() !== undefined;
   }
 
   /**
-   * The Builder's RPCs are this object's only when it is the Builder; a Workspace refuses them. Marks this object as the
-   * Builder (`BUILDER_MARK_KEY`), so its alarm drives the build when `ctx.id.name` is not given.
+   * A Builder's RPCs are this object's only when it is that Builder; a Workspace, and the other Builder, refuse them.
+   * Marks this object as that Builder (`BUILDER_MARK_KEY`), so its alarm drives the build when `ctx.id.name` is not given.
    */
-  #becomeBuilder(): BaseBuild {
+  #becomeBuilder(kind: BuilderKind = "base"): BaseBuild {
     const name = this.ctx.id.name;
-    if (name !== undefined && name !== BUILDERS.base) throw new Error("t3flare: only the Builder runs a Base build");
+    if (name !== undefined && name !== BUILDERS[kind]) throw new Error(kind === "base" ? "t3flare: only the Builder runs a Base build" : "t3flare: only the test Builder runs a Test base build");
     if (this.ctx.storage.kv.get<string>(WORKSPACE_ID_KEY) !== undefined) throw new Error("t3flare: a Workspace is never the Builder");
-    if (!this.#isBuilder()) this.ctx.storage.kv.put(BUILDER_MARK_KEY, true);
+    const marked = builderKindOf(undefined, this.ctx.storage.kv.get<unknown>(BUILDER_MARK_KEY));
+    if (marked !== undefined && marked !== kind) throw new Error("t3flare: this object is the other Builder");
+    if (marked === undefined) this.ctx.storage.kv.put(BUILDER_MARK_KEY, builderMark(kind));
     return this.#baseBuild();
   }
 
   #baseBuild(): BaseBuild {
+    // The test Builder (SPI-1334) runs the same machine with `test` on, and reports to the test's own record.
+    const test = this.#builderKind() === "test";
     this.#base ??= new BaseBuild(
       {
         container: platformContainer(this.ctx),
@@ -2193,7 +2201,10 @@ export class WorkspaceDO extends ContainerHost {
         },
         setAlarm: async (at) => await this.ctx.storage.setAlarm(Math.max(at, Date.now())),
         waitUntil: (promise) => this.ctx.waitUntil(promise),
-        report: (record) => this.ctx.waitUntil(environmentStub(this.env.ENVIRONMENT).noteBaseBuild(record).then(() => undefined, () => undefined)),
+        report: (record) => {
+          const environment = environmentStub(this.env.ENVIRONMENT);
+          this.ctx.waitUntil((test ? environment.noteTestBaseBuild(record) : environment.noteBaseBuild(record)).then(() => undefined, () => undefined));
+        },
         lease: {
           acquire: async (budget) => await this.#budget().acquire(this.ctx.id.toString(), budget),
           release: async () => await this.#budget().release(this.ctx.id.toString()),
@@ -2203,13 +2214,17 @@ export class WorkspaceDO extends ContainerHost {
         log: (event) => console.log(JSON.stringify(event)),
       },
       { commandEnv: COMMAND_ENV },
+      { test },
     );
     return this.#base;
   }
 
-  /** The Base snapshot's record (ADR-0047 §4): what a Workspace's start and the Settings page read. */
+  /**
+   * The Base snapshot's record (ADR-0047 §4), what a Workspace's start and the Settings page read; or, on the test Builder,
+   * the last Test base build's (SPI-1334), which the Environment DO reads again when a report of its end went missing.
+   */
   async builderRecord(): Promise<BaseBuildRecord> {
-    return this.#becomeBuilder().record();
+    return this.#becomeBuilder(this.#builderKind() ?? "base").record();
   }
 
   /**
@@ -2223,6 +2238,14 @@ export class WorkspaceDO extends ContainerHost {
   /** The Owner's Rebuild, or an agent's (`rebuild_base`): builds the current key again; a build under way goes on. */
   async builderRebuild(input: { readonly reason: string }): Promise<BaseBuildRecord> {
     return this.#becomeBuilder().poke(reasonOf(input), { force: true });
+  }
+
+  /**
+   * A Test base build (SPI-1334, ADR-0047 §8), on the test Builder (`BUILDERS.test`): runs `imageSetup`, proposed and not
+   * saved, with the saved rest of the settings; a test under way is canceled. Its snapshot is never the Base snapshot.
+   */
+  async builderTest(input: { readonly imageSetup: string; readonly reason: string }): Promise<BaseBuildRecord> {
+    return this.#becomeBuilder("test").test(proposedSetup(input.imageSetup), reasonOf(input));
   }
 
   /**

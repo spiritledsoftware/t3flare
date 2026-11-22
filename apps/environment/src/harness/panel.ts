@@ -22,7 +22,7 @@
 // - The Workspaces (ADR-0044 §4): `GET …/api/workspaces` (the view), `…/usage?id=` (one row's Files, ADR-0044 §1)
 //   and `…/sweep` (the dry Sweep); `POST …/api/workspaces/purge` `{ id, confirm }`, `/restore` `{ id }`, `/stop` `{ id }`
 //   and `/sweep`, behind the same write guard: the Owner's own acts (workspaceActions.ts), audited, never Open changes.
-import { type BaseBuildRecord, BUILTIN_TOOLS, CONTAINER_SETUP_OUTPUT_STATUS, describeBaseBuild, describeContainerSetup, describeGlobalMise, ENVIRONMENT_SETTINGS, EXTENSIONS, ignoredServersOf, readStoredEnvironment, resolveHarness, type ToolsChange } from "@t3flare/harness-registry";
+import { type BaseBuildRecord, BUILTIN_TOOLS, imageSetupTooLong, CONTAINER_SETUP_OUTPUT_STATUS, describeBaseBuild, describeContainerSetup, describeGlobalMise, ENVIRONMENT_SETTINGS, EXTENSIONS, ignoredServersOf, readStoredEnvironment, resolveHarness, type ToolsChange } from "@t3flare/harness-registry";
 
 import type { AccessCaller } from "../access.ts";
 import type { ValueSealer } from "../credentials/sealed.ts";
@@ -60,7 +60,7 @@ import { type Answerer, type ChangesApi, openChangeSummary } from "../settings/o
 import { renderChangePage, renderGonePage } from "./changePage.ts";
 import { CHANGE_SCRIPT } from "./changePageScript.ts";
 import { CHANGES_API_PATH, CHANGES_PATH, changePagePath, SETTINGS_PAGE_PATH } from "./paths.ts";
-import { pageCsp, renderPage } from "./page.ts";
+import { pageCsp, renderPage, testBuildView } from "./page.ts";
 import { type AuditActor, auditWorkspace, type HarnessStore } from "./store.ts";
 
 export const CSRF_HEADER = "x-t3flare-csrf";
@@ -98,6 +98,10 @@ export interface HarnessDeps {
   readonly baseInputsChanged?: (reason: string) => void;
   /** The Owner's Rebuild of the Base snapshot (ADR-0047 §5): the Builder's record after it. */
   readonly rebuildBase?: () => Promise<BaseBuildRecord>;
+  /** The Owner's Test of a proposed Image setup (SPI-1334, ADR-0047 §8): the test Builder's record after it. */
+  readonly testBase?: (imageSetup: string) => Promise<BaseBuildRecord>;
+  /** The test Builder's own record (SPI-1334): read again while the kept one says building (`refreshedTestRecord`). */
+  readonly readTestBase?: () => Promise<BaseBuildRecord>;
   /** The Workspaces section (ADR-0044 §4): the view, the Owner's acts, each Workspace's usage, and the Sweep. */
   readonly workspaces?: WorkspacesApi;
 }
@@ -109,6 +113,28 @@ export const CLIENTS_API_PATH = `${SETTINGS_PAGE_PATH}/api/mcp/clients`;
 
 /** The Owner's Rebuild of the Base snapshot (SPI-1332). */
 export const REBUILD_BASE_PATH = `${SETTINGS_PAGE_PATH}/api/base/rebuild`;
+
+/** The Owner's Test of the Image setup in the box (SPI-1334): POST starts one, GET reads the last one's view. */
+export const TEST_BASE_PATH = `${SETTINGS_PAGE_PATH}/api/base/test`;
+
+/**
+ * The last Test base build's record (SPI-1334), read again from the test Builder while the kept one says building: its
+ * reports are not awaited, so a lost one (the last above all) would otherwise leave a test building forever. A read that
+ * fails keeps the record kept; the next read tries again.
+ */
+export const refreshedTestRecord = async (store: Pick<HarnessStore, "lastTestBaseBuild" | "noteTestBaseBuild">, read: (() => Promise<BaseBuildRecord>) | undefined): Promise<BaseBuildRecord | undefined> => {
+  const kept = store.lastTestBaseBuild();
+  if (kept?.state !== "building" || read === undefined) return kept;
+  try {
+    store.noteTestBaseBuild(await read());
+  } catch (error) {
+    console.warn(JSON.stringify({ t3flare: "test-builder-read-failed", error: String(error).slice(0, 300) }));
+  }
+  return store.lastTestBaseBuild();
+};
+
+/** The last Test base build's record and its view, as the page's script shows it. */
+const testAnswer = (record: BaseBuildRecord | undefined) => ({ record: record ?? null, view: testBuildView(record) });
 
 /** The Containers running now, by their Workspaces (a holder's DO id when its Workspace is unknown); null without the budget. */
 export const runningContainers = async (deps: Pick<HarnessDeps, "budget">): Promise<{ readonly count: number; readonly holders: ReadonlyArray<string> } | null> => {
@@ -229,6 +255,7 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
       const storedEnvironment = deps.store.loadEnvironment();
       // A secret Variable as set, or as unreadable when this credentials key does not open it (ADR-0046).
       const environment = await resolvedForRead(storedEnvironment, deps.variableSealer);
+      const testBuild = await refreshedTestRecord(deps.store, deps.readTestBase);
       const html = renderPage({
         resolved: resolveHarness(deps.store.load()),
         environment,
@@ -239,6 +266,8 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
         status: harnessStatus(deps),
         ...(deps.store.lastBaseBuild() === undefined ? {} : { baseBuild: deps.store.lastBaseBuild()! }),
         ...(deps.rebuildBase === undefined ? {} : { canRebuild: true }),
+        ...(testBuild === undefined ? {} : { testBuild }),
+        ...(deps.testBase === undefined ? {} : { canTest: true }),
         mcp: await mcpOverview(deps),
         ...(deps.store.lastT3Tools() === undefined ? {} : { t3Tools: deps.store.lastT3Tools()! }),
         ...(deps.skills === undefined ? {} : { skills: skillsOverview(deps.skills) }),
@@ -279,6 +308,8 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
       return json({ revision: stored.revision, resolved, schema: ENVIRONMENT_SETTINGS, costs: containerCostTable(resolved.containerBudget), running: await runningContainers(deps), stored: readStoredEnvironment(stored) });
     }
     if (path === `${SETTINGS_PAGE_PATH}/api/status`) return json(harnessStatus(deps));
+    // The last Test base build (SPI-1334): the page polls it while a test runs. A read: it starts nothing.
+    if (path === TEST_BASE_PATH) return json(testAnswer(await refreshedTestRecord(deps.store, deps.readTestBase)));
     if (path === `${SETTINGS_PAGE_PATH}/api/mcp`) return json({ servers: await mcpOverview(deps) });
     if (path === `${SETTINGS_PAGE_PATH}/api/audit`) return json({ entries: deps.store.auditLog(50) });
     if (path === CLIENTS_API_PATH && deps.clients !== undefined) return json({ clients: deps.clients.list() });
@@ -311,7 +342,8 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
   const clientsRoute = path === CLIENTS_API_PATH && deps.clients !== undefined;
   const workspacesRoute = deps.workspaces === undefined ? undefined : WORKSPACES_ACTIONS.find((route) => path === `${WORKSPACES_API_PATH}${route}`);
   const rebuildRoute = path === REBUILD_BASE_PATH && deps.rebuildBase !== undefined;
-  if (!routes.includes(path) && (skillsRoute === undefined || deps.skills === undefined) && endpointsRoute === undefined && changeRoute === undefined && !clientsRoute && workspacesRoute === undefined && !rebuildRoute) {
+  const testRoute = path === TEST_BASE_PATH && deps.testBase !== undefined;
+  if (!routes.includes(path) && (skillsRoute === undefined || deps.skills === undefined) && endpointsRoute === undefined && changeRoute === undefined && !clientsRoute && workspacesRoute === undefined && !rebuildRoute && !testRoute) {
     return refused(404, "Not found");
   }
   const why = await unsafeWrite(request, deps);
@@ -329,6 +361,20 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
       return json({ ok: true, record, status: describeBaseBuild(record) });
     } catch (error) {
       return refused(503, `the Builder could not be reached: ${String(error).slice(0, 300)}`);
+    }
+  }
+  if (testRoute && deps.testBase !== undefined) {
+    // Free (ADR-0047 §8): the text in the box, unsaved, bounded as the Image setup is; a test under way is canceled.
+    const imageSetup = (await bodyOf(request))?.imageSetup;
+    if (typeof imageSetup !== "string") return refused(400, "imageSetup is the Image setup to test, as text");
+    const tooLong = imageSetupTooLong(imageSetup);
+    if (tooLong !== undefined) return refused(413, tooLong);
+    try {
+      const record = await deps.testBase(imageSetup);
+      deps.store.noteTestBaseBuild(record);
+      return json({ ok: true, ...testAnswer(record) });
+    } catch (error) {
+      return refused(503, `the test Builder could not be reached: ${String(error).slice(0, 300)}`);
     }
   }
   if (workspacesRoute !== undefined && deps.workspaces !== undefined) {

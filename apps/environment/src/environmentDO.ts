@@ -402,7 +402,9 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       oauth: this.harnessOAuth,
       sweepSettingsChanged: () => this.#sweepSettingsChanged(),
       baseInputsChanged: (reason) => this.#pokeBuilder(reason),
-      ...(this.env.WORKSPACES === undefined ? {} : { rebuildBase: () => this.#rebuildBase("the Owner's Rebuild") }),
+      ...(this.env.WORKSPACES === undefined
+        ? {}
+        : { rebuildBase: () => this.#rebuildBase("the Owner's Rebuild"), testBase: (imageSetup: string) => this.#testBase(imageSetup, "the Owner's Test"), readTestBase: () => this.#builder("test").builderRecord() }),
       // The Workspaces section (ADR-0044): the view, the Owner's acts, each Workspace's usage, and the Sweep.
       workspaces: await this.workspacesApi(),
       // The Container budget's leases (ADR-0032): the Environment section shows the running count and holders.
@@ -585,7 +587,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
    */
   async #settingsDeps(): Promise<SettingsServerDeps> {
     // threadCaller.ts, not provider/adapter.ts: the panel's GET on a cold object must not load the provider modules.
-    const [{ settingsChanges }, { harnessStatus, runningContainers }, { threadLinkIn, durableModes }, { cliThreadState }] = await Promise.all([
+    const [{ settingsChanges }, { harnessStatus, refreshedTestRecord, runningContainers }, { threadLinkIn, durableModes }, { cliThreadState }] = await Promise.all([
       import("./settings/changes.ts"),
       import("./harness/panel.ts"),
       import("./provider/threadCaller.ts"),
@@ -604,7 +606,10 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       status: () => harnessStatus({ store, skills }),
       // The Base snapshot (SPI-1332): `get_status` reads its record, `rebuild_base` asks the Builder.
       baseBuild: () => store.lastBaseBuild(),
-      ...(this.env.WORKSPACES === undefined ? {} : { rebuildBase: (reason: string) => this.#rebuildBase(reason) }),
+      // A Test base build (SPI-1334): `test_base_build` asks the test Builder, `get_status` reads its last result.
+      // Read again from the test Builder while it says building: its reports are not awaited (`refreshedTestRecord`).
+      testBaseBuild: () => refreshedTestRecord(store, this.env.WORKSPACES === undefined ? undefined : () => this.#builder("test").builderRecord()),
+      ...(this.env.WORKSPACES === undefined ? {} : { rebuildBase: (reason: string) => this.#rebuildBase(reason), testBase: (imageSetup: string, reason: string) => this.#testBase(imageSetup, reason) }),
       running: () => runningContainers({ budget: () => this.#budgetState() }),
       log: (event) => console.log(JSON.stringify(event)),
       // `list_workspaces` and `purge_workspace` (ADR-0044 §5): the Settings page's reads and acts.
@@ -843,11 +848,19 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     return { kept: harnessStore(this.ctx.storage.kv).noteBaseBuild(record) };
   }
 
-  /** The Builder (SPI-1332, ADR-0047 §1): the Workspace DO class's reserved-name instance, over the agents Worker's binding. */
-  #builder() {
+  /** The test Builder's record of a Test base build (SPI-1334), on each change: the Image setup's test result. Never boots t3. */
+  async noteTestBaseBuild(record: unknown): Promise<{ readonly kept: boolean }> {
+    return { kept: harnessStore(this.ctx.storage.kv).noteTestBaseBuild(record) };
+  }
+
+  /**
+   * A Builder (SPI-1332, SPI-1334; ADR-0047 §1, §8): a reserved-name instance of the Workspace DO class, over the agents
+   * Worker's binding. `test` is the Test base build's, its own object, so a test never touches a real build.
+   */
+  #builder(kind: keyof typeof BUILDERS = "base") {
     const namespace = this.env.WORKSPACES;
     if (namespace === undefined) throw new Error("t3flare: the environment Worker has no WORKSPACES binding");
-    return namespace.get(namespace.idFromName(BUILDERS.base));
+    return namespace.get(namespace.idFromName(BUILDERS[kind]));
   }
 
   /**
@@ -871,6 +884,13 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
   async #rebuildBase(reason: string): Promise<BaseBuildRecord> {
     const record = await this.#builder().builderRebuild({ reason });
     harnessStore(this.ctx.storage.kv).noteBaseBuild(record);
+    return record;
+  }
+
+  /** A Test base build (SPI-1334, ADR-0047 §8): free; the proposed Image setup is not saved, a test under way is canceled. */
+  async #testBase(imageSetup: string, reason: string): Promise<BaseBuildRecord> {
+    const record = await this.#builder("test").builderTest({ imageSetup, reason });
+    harnessStore(this.ctx.storage.kv).noteTestBaseBuild(record);
     return record;
   }
 

@@ -31,6 +31,12 @@ export const MAX_GLOBAL_MISE_BYTES = 16 * 1024;
  */
 export const MAX_SETUP_BYTES = 256 * 1024;
 
+/** Why `text` cannot be an Image setup (a Test base build's proposal included): past `MAX_SETUP_BYTES`; undefined when it fits. */
+export const imageSetupTooLong = (text: string): string | undefined => {
+  const bytes = new TextEncoder().encode(text).length;
+  return bytes > MAX_SETUP_BYTES ? `the Image setup is at most ${MAX_SETUP_BYTES / 1024} KiB, not ${bytes} bytes` : undefined;
+};
+
 /**
  * The most of a setup's output a report may keep, in KiB (`setupOutputKiB`'s bound). Fixed by a constraint: the
  * Environment DO keeps the last report, output and all, as one Durable Object value, which holds at most 2 MB.

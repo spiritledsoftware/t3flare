@@ -696,3 +696,112 @@ describe("a Base build (review cycle 2)", () => {
   });
 });
 
+
+// SPI-1334 (ADR-0047 §8): a Test base build runs a proposed Image setup in the second Builder with the saved rest of the
+// settings, on the same machine; its snapshot is never the Base snapshot, a new test cancels one under way, and its
+// result is kept until the next test.
+describe("a Test base build", () => {
+  const PROPOSED = "apt-get install -y yq\necho proposed\n";
+  const tester = () => new BaseBuild(deps(), { commandEnv: COMMAND_ENV }, { test: true });
+
+  it("runs the proposed Image setup with the saved Global mise config and Variables, and its proved snapshot is its result, never the Base snapshot", async () => {
+    settings.rebuildEveryDays = 7;
+    const test = tester();
+    const started = await test.test(PROPOSED, "the Owner's Test");
+    expect(started).toMatchObject({ test: true, state: "building", reason: "the Owner's Test" });
+    // The text it ran, by its digest: the page tells a result from an edited text's.
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(PROPOSED)));
+    expect(started.setup).toBe([...digest].map((byte) => byte.toString(16).padStart(2, "0")).join(""));
+    expect(container.starts[0]).toEqual({ from: { image: IMAGE }, entrypoint: ["sleep", "infinity"], instance: "standard-2" });
+    expect(container.files.get(BUILDER_FILES.setup)).toBe(PROPOSED);
+    expect(container.files.get(BUILDER_FILES.mise)).toBe(settings.globalMiseConfig);
+    expect(container.launchEnv).toMatchObject({ NPM_TOKEN: "s3cr3t-value", HOME: "/root" });
+
+    container.exitCode = 0;
+    await ticks(test);
+    expect(container.snapshots[0]!.name).toMatch(/^t3flare-test-/);
+    container.snapshots[0]!.answer.resolve({ id: "snap-test", size: 1_200_000 });
+    await settle();
+    await ticks(test);
+    await ticks(test);
+    const record = test.record();
+    expect(record).toMatchObject({ test: true, state: "ready", good: { id: "snap-test", size: 1_200_000, imageDigest: IMAGE } });
+    expect(record.good!.tookMs).toBeGreaterThan(0);
+    expect(store.get(BUILDER_KEYS.good)).toBeUndefined();
+    expect(container.isRunning).toBe(false);
+    expect(reports.every((each) => each.test === true)).toBe(true);
+
+    // No schedule: a test is never built again on its own.
+    const starts = container.starts.length;
+    await ticks(test, 1, 8 * DAY);
+    expect(container.starts).toHaveLength(starts);
+    expect(test.record()).toMatchObject({ state: "ready", good: { id: "snap-test" } });
+  });
+
+  it("fails with the exit code and the output's tail, every secret value blanked, kept until the next test", async () => {
+    const test = tester();
+    await test.test(PROPOSED, "an agent's test");
+    container.log = "using s3cr3t-value\nE: Unable to locate package yq\n";
+    container.exitCode = 100;
+    await ticks(test);
+    expect(test.record()).toMatchObject({ test: true, state: "failed", failure: { exitCode: 100, phase: "running", message: "the Image setup exited 100" } });
+    expect(test.record().failure!.output).toBe("using ***\nE: Unable to locate package yq\n");
+    await ticks(test, 3, DAY);
+    expect(test.record()).toMatchObject({ state: "failed", failure: { exitCode: 100 } });
+
+    // The same text again runs at once: no backoff, no skip of a script that failed.
+    container.exitCode = undefined;
+    expect(await test.test(PROPOSED, "an agent's test")).toMatchObject({ state: "building" });
+    expect(container.starts).toHaveLength(2);
+  });
+
+  it("cancels a test under way when a new one starts, and runs the new text", async () => {
+    const test = tester();
+    await test.test(PROPOSED, "the Owner's Test");
+    expect(store.get(BUILDER_KEYS.build)).toMatchObject({ phase: "running" });
+    const record = await test.test("echo second\n", "the Owner's Test");
+    expect(record).toMatchObject({ state: "building" });
+    expect(container.destroys).toBe(1);
+    expect(container.starts).toHaveLength(2);
+    expect(container.files.get(BUILDER_FILES.setup)).toBe("echo second\n");
+  });
+
+  it("goes on with the proposed text after a reset of the object", async () => {
+    container.booted = false;
+    const test = tester();
+    await test.test(PROPOSED, "the Owner's Test");
+    expect(container.files.size).toBe(0);
+    // A Variable saved mid-test moves the key: the test starts again, still with the proposed text.
+    settings.variables = [...variables, { name: "MORE", value: "x", secret: false }];
+    container.booted = true;
+    const again = tester();
+    await ticks(again);
+    expect(container.destroys).toBe(1);
+    await ticks(again);
+    expect(container.starts).toHaveLength(2);
+    expect(container.files.get(BUILDER_FILES.setup)).toBe(PROPOSED);
+    expect(container.launchEnv).toMatchObject({ MORE: "x" });
+    expect(again.record()).toMatchObject({ test: true, state: "building", phase: "running" });
+  });
+
+  it("answers nothing to build for an empty proposal with no Global mise config, and cancels a test under way", async () => {
+    const test = tester();
+    await test.test(PROPOSED, "the Owner's Test");
+    settings.globalMiseConfig = "";
+    expect(await test.test("", "the Owner's Test")).toMatchObject({ test: true, state: "none", nothingToBuild: true });
+    expect(container.destroys).toBe(1);
+    expect(container.starts).toHaveLength(1);
+  });
+
+  it("is never poked, rebuilt or refused, and a Base Builder takes no test", async () => {
+    const test = tester();
+    await expect(test.poke("the Environment booted")).rejects.toThrow(/test/);
+    await expect(test.refused("snap", "x")).rejects.toThrow(/test/);
+    await expect(builder().test(PROPOSED, "x")).rejects.toThrow(/test/);
+    expect(container.starts).toHaveLength(0);
+  });
+
+  it("answers none before any test", () => {
+    expect(tester().record()).toMatchObject({ test: true, state: "none", key: null, good: null });
+  });
+});

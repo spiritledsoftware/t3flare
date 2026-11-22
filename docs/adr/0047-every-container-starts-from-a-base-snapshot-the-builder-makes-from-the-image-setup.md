@@ -111,3 +111,19 @@ new Container's start. Both are Environment settings, bash scripts of up to 256 
 7. **One output setting, one blanking:** a failed Base build keeps the last `setupOutputKiB` of its output, the Container
    setup's setting (SPI-1330), read and blanked as a Container setup's report is (`blankSecrets`, with its margin and
    mark). The Builder's settings join the Image setup's row on the Settings page.
+
+## Refinement (SPI-1334, 2026-11-22): the Test base build as built
+
+1. **The same machine, a `test` flag:** the test Builder (`BUILDERS.test`) is its own object, storage and Container, so a
+   test never cancels, waits on or changes a real build. It runs the proposed Image setup, kept in its storage, with
+   the saved Global mise config, Variables (secret ones opened), limits, Builder size and budget setting, read as a
+   Base build reads them; same steps, time limits, blanking, proof and late-snapshot rule.
+2. **Its result is the test's alone:** a proved snapshot is the test's record (`test: true`, its size and time), never
+   the Base snapshot, and the Environment DO keeps that record apart, refusing either kind as the other. It is kept
+   until the next test. A test has no schedule, no backoff and no pokes: a new test, of any text, runs at once and
+   cancels one under way. An empty proposal with no Global mise config has nothing to build, as a Base build has not.
+3. **Where it runs from:** the Settings page's Test, beside the Image setup's text area, tests the text in the box,
+   unsaved; the page follows it by reading the last test, with no reload (which would lose the text). A test's record
+   carries the SHA-256 of the text it ran, so the page marks a result stale once the box holds another text. The Settings
+   server's `test_base_build` takes the whole proposed text, free and with no revision, as `rebuild_base` is; plan mode
+   refuses it as it refuses every write. `get_status` shows the result as `testBaseBuild`.

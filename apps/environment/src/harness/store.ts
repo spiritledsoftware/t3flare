@@ -18,6 +18,8 @@ const GLOBAL_MISE_KEY = "t3flare:environment:global-mise";
 const CONTAINER_SETUP_KEY = "t3flare:environment:container-setup";
 /** The Base build's record, as the Builder last reported it (SPI-1332). */
 export const BASE_BUILD_KEY = "t3flare:base-build";
+/** The last Test base build's record, as the test Builder last reported it (SPI-1334): kept until the next test. */
+export const TEST_BASE_BUILD_KEY = "t3flare:test-base-build";
 const T3_TOOLS_KEY = "t3flare:harness:t3-tools";
 export const AUDIT_KEPT = 1_000;
 
@@ -118,10 +120,26 @@ export interface HarnessStore {
    */
   noteBaseBuild(record: unknown): boolean;
   lastBaseBuild(): BaseBuildRecord | undefined;
+  /** The test Builder's record of a Test base build (SPI-1334), kept as `noteBaseBuild` keeps the Base build's. */
+  noteTestBaseBuild(record: unknown): boolean;
+  lastTestBaseBuild(): BaseBuildRecord | undefined;
   /** t3's tools as a Session last listed them (the t3-code card's list): kept when well-formed. Answers whether it was kept. */
   noteT3Tools(listing: unknown): boolean;
   lastT3Tools(): T3ToolListing | undefined;
 }
+
+/**
+ * Keeps a Builder's record under `key` when well-formed, of the right Builder (`test`), and no older than the one kept (its
+ * reports may arrive out of order). Answers whether it was kept.
+ */
+const noteBuild = (kv: KvStorage, key: string, record: unknown, test: boolean): boolean => {
+  const valid = baseBuildRecord(record);
+  if (valid === undefined || (valid.test === true) !== test) return false;
+  const kept = baseBuildRecord(kv.get<unknown>(key));
+  if (kept !== undefined && kept.at > valid.at) return false;
+  kv.put(key, valid);
+  return true;
+};
 
 export const harnessStore = (kv: KvStorage): HarnessStore => ({
   load: () => kv.get<StoredHarness>(SETTINGS_KEY) ?? EMPTY_HARNESS,
@@ -169,15 +187,11 @@ export const harnessStore = (kv: KvStorage): HarnessStore => ({
     return true;
   },
   lastContainerSetup: () => containerSetupReport(kv.get<unknown>(CONTAINER_SETUP_KEY)),
-  noteBaseBuild: (record) => {
-    const valid = baseBuildRecord(record);
-    if (valid === undefined) return false;
-    const kept = baseBuildRecord(kv.get<unknown>(BASE_BUILD_KEY));
-    if (kept !== undefined && kept.at > valid.at) return false;
-    kv.put(BASE_BUILD_KEY, valid);
-    return true;
-  },
+  // A test's record is never kept as the Base build's, nor the other way (SPI-1334): its snapshot is never used.
+  noteBaseBuild: (record) => noteBuild(kv, BASE_BUILD_KEY, record, false),
   lastBaseBuild: () => baseBuildRecord(kv.get<unknown>(BASE_BUILD_KEY)),
+  noteTestBaseBuild: (record) => noteBuild(kv, TEST_BASE_BUILD_KEY, record, true),
+  lastTestBaseBuild: () => baseBuildRecord(kv.get<unknown>(TEST_BASE_BUILD_KEY)),
   noteT3Tools: (listing) => {
     const valid = t3ToolListing(listing);
     if (valid === undefined) return false;
