@@ -379,7 +379,7 @@ const environmentSection = (environment: ResolvedEnvironment, costs: ContainerCo
       ? "unknown"
       : `${running.count} of ${environment.containerBudget}${running.holders.length === 0 ? "" : `: ${running.holders.map((holder) => `<code>${escapeHtml(holder)}</code>`).join(", ")}`}`
   }</dd></div></dl>
-<p class="section-desc" data-budget-note aria-live="polite">${escapeHtml(budgetNote(environment.containerBudget))}</p>
+<p class="section-desc" data-budget-note>${escapeHtml(budgetNote(environment.containerBudget))}</p>
 <h3 class="sub-head">Cost at worst</h3>
 <p class="section-desc">Cloudflare's Workers Paid list prices, every vCPU busy the whole hour. Memory and disk are billed while a Container runs, CPU only while it works, so a real hour costs less.</p>
 <p class="section-desc" data-cost-now aria-live="polite">${escapeHtml(costNow(costs, environment.containerSize))}</p>
