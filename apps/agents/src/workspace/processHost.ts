@@ -95,13 +95,13 @@ const weightOf = (cli: string) => CLI_WEIGHT[cli] ?? 1;
  * carried budget (apps/agents/src/budget.ts).
  */
 export const cliLimitsOf = (input: Pick<ProcessStartInput, "cliProcessesPerWorkspace" | "cliReclaimSeconds">): { readonly maxProcesses: number; readonly reclaimAfterMs: number } => ({
-  maxProcesses:
-    input.cliProcessesPerWorkspace !== undefined && fitsEnvironmentSetting("cliProcessesPerWorkspace", input.cliProcessesPerWorkspace)
-      ? input.cliProcessesPerWorkspace
-      : ENVIRONMENT_SETTINGS.cliProcessesPerWorkspace.schema.default,
-  reclaimAfterMs:
-    (input.cliReclaimSeconds !== undefined && fitsEnvironmentSetting("cliReclaimSeconds", input.cliReclaimSeconds) ? input.cliReclaimSeconds : ENVIRONMENT_SETTINGS.cliReclaimSeconds.schema.default) * 1000,
+  maxProcesses: carriedOr("cliProcessesPerWorkspace", input.cliProcessesPerWorkspace),
+  reclaimAfterMs: carriedOr("cliReclaimSeconds", input.cliReclaimSeconds) * 1000,
 });
+
+/** A carried integer setting when it fits the setting's schema, else the setting's default. */
+const carriedOr = (key: "cliProcessesPerWorkspace" | "cliReclaimSeconds", carried: number | undefined): number =>
+  carried !== undefined && fitsEnvironmentSetting(key, carried) ? carried : ENVIRONMENT_SETTINGS[key].schema.default;
 
 interface Proc {
   readonly key: string;
@@ -115,6 +115,8 @@ interface Proc {
   lastIo: number;
   lastInput: number;
   inTurn: boolean;
+  /** Whether any of its turns has ended (`reclaimable`). */
+  turnEnded: boolean;
   turnEndedAt: number;
   /** Out of a turn this long, it may be ended to free the Container for another Workspace: the delay its start carried. */
   readonly reclaimAfterMs: number;
@@ -149,6 +151,8 @@ export class ProcessHost {
   #drained: Array<() => void> = [];
   #reads = 0;
   #lastInput = 0;
+  /** The weight of starts between the cap's check and their registration (`start`). */
+  #reserved = 0;
 
   constructor(deps: ProcessHostDeps) {
     this.#deps = deps;
@@ -227,11 +231,15 @@ export class ProcessHost {
     return [...this.#procs.values()].some((proc) => !proc.exited && (proc.inTurn || now - Math.max(proc.turnEndedAt, proc.lastInput) < idleHoldMs));
   }
 
-  /** Processes no turn has used for the reclaim delay each started with: the budget may end them for another Workspace. */
+  /**
+   * Processes no turn has used for the reclaim delay each started with: the budget may end them for another Workspace.
+   * A process none of whose turns has ended yet is never one: its first turn may not have arrived (a 0 s delay would
+   * otherwise offer it at its start).
+   */
   reclaimable(): ReadonlyArray<string> {
     const now = this.#deps.now();
     return [...this.#procs.values()]
-      .filter((proc) => !proc.exited && !proc.inTurn && now - Math.max(proc.turnEndedAt, proc.lastInput) >= proc.reclaimAfterMs)
+      .filter((proc) => !proc.exited && !proc.inTurn && proc.turnEnded && now - Math.max(proc.turnEndedAt, proc.lastInput) >= proc.reclaimAfterMs)
       .map((proc) => proc.key);
   }
 
@@ -241,10 +249,32 @@ export class ProcessHost {
     if (input.cli === "probe" && !this.#deps.allowProbe) return refuse("the probe program runs on test stages only");
     const limits = cliLimitsOf(input);
     // Lowering the setting ends no running process: a start is refused until fewer run (as the Container budget does).
-    if (this.weight + weightOf(input.cli) > limits.maxProcesses)
+    // Starts in flight count too: the check and the registration are apart by awaits.
+    const counted = this.weight + this.#reserved;
+    if (counted + weightOf(input.cli) > limits.maxProcesses)
       return refuse(
-        `this Workspace's CLI agents' processes already count ${this.weight} of the ${limits.maxProcesses} its Environment setting "${ENVIRONMENT_SETTINGS.cliProcessesPerWorkspace.title}" (cliProcessesPerWorkspace) allows, and Claude Code's and OpenCode's count two each; let one finish first, or raise the setting`,
+        `this Workspace's CLI agents' processes already count ${counted} of the ${limits.maxProcesses} its Environment setting "${ENVIRONMENT_SETTINGS.cliProcessesPerWorkspace.title}" (cliProcessesPerWorkspace) allows, and Claude Code's and OpenCode's count two each; let one finish first, or raise the setting`,
       );
+    // The slot is held from the check until the process is registered (it then counts in `weight`) or the start fails.
+    let held = weightOf(input.cli);
+    this.#reserved += held;
+    const release = () => {
+      this.#reserved -= held;
+      held = 0;
+    };
+    try {
+      return await this.#startHeld(input, limits, release);
+    } finally {
+      release();
+    }
+  }
+
+  async #startHeld(
+    input: ProcessStartInput & { readonly files?: ReadonlyArray<ProcessFile> },
+    limits: ReturnType<typeof cliLimitsOf>,
+    release: () => void,
+  ): Promise<ProcessStartAnswer> {
+    const refuse = (reason: string): ProcessStartAnswer => ({ ok: false, epoch: this.#deps.epoch, reason });
     if (!this.#deps.running()) {
       try {
         await this.#deps.startContainer();
@@ -295,6 +325,7 @@ export class ProcessHost {
       lastIo: now,
       lastInput: now,
       inTurn: false,
+      turnEnded: false,
       turnEndedAt: now,
       reclaimAfterMs: limits.reclaimAfterMs,
       exited: false,
@@ -303,6 +334,7 @@ export class ProcessHost {
       modelHandle: (input.modelRelay ?? []).length > 0 ? newHandle() : undefined,
       modelEndpoints: new Set(input.modelRelay ?? []),
     };
+    release();
     this.#procs.set(input.key, proc);
     this.#save();
     // The model handle is this object's alone: whatever the profile's environment names it is dropped.
@@ -448,6 +480,7 @@ export class ProcessHost {
     if (proc === undefined || proc.exited) return this.#answer([key]);
     if (proc.inTurn && !active) {
       proc.turnEndedAt = this.#deps.now();
+      proc.turnEnded = true;
       // A turn ended: its session file and edits come into the DO now, not at the next quiet pull (a deploy or a
       // crash can take the Container before that).
       this.#deps.filesMayHaveChanged("exit");

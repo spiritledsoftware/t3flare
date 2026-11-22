@@ -52,6 +52,12 @@ export const DEFAULT_CLI_PROCESSES_PER_WORKSPACE = 4;
 export const MAX_CLI_PROCESSES_PER_WORKSPACE = 100;
 
 /**
+ * The reclaim delay's default, in seconds (`cliReclaimSeconds`; review F7): a CLI agent's process out of a turn this
+ * long may be ended to free the Container for another Workspace.
+ */
+export const DEFAULT_CLI_RECLAIM_SECONDS = 30;
+
+/**
  * The most seconds a CLI agent's process out of a turn waits before it may be ended to free the Container for another
  * Workspace (`cliReclaimSeconds`). A named constraint: a CLI process holds the Container for `CLI_IDLE_HOLD_MS` (11
  * minutes, apps/agents/src/workspace/processHost.ts) after its last turn, forced by t3's 10-minute session release, so a
@@ -219,7 +225,7 @@ export const ENVIRONMENT_SETTINGS = {
     description:
       "Only while the Container budget is full and another Workspace asks for a Container: a CLI agent's process idle this long after its turn may be ended to free the Container for another Workspace. 0 is as soon as its turn ends. Applies at each CLI agent's next start; a running one keeps what it started with.",
     // A named constraint (`MAX_CLI_RECLAIM_SECONDS`): past the CLI idle hold, a longer delay changes nothing.
-    schema: { type: "integer", minimum: 0, maximum: MAX_CLI_RECLAIM_SECONDS, default: 30 },
+    schema: { type: "integer", minimum: 0, maximum: MAX_CLI_RECLAIM_SECONDS, default: DEFAULT_CLI_RECLAIM_SECONDS },
     tier: "free",
   },
   variables: {
