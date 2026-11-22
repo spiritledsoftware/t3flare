@@ -49,7 +49,7 @@ import type { AuditEntry } from "./store.ts";
 import { brand, FAVICON } from "./pageBrand.ts";
 import { ICON_SPRITE, icon, type IconName } from "./pageIcons.ts";
 import { changePagePath } from "./paths.ts";
-import { SCRIPT } from "./pageScript.ts";
+import { KEPT_PLACEHOLDER, SCRIPT } from "./pageScript.ts";
 import { endpointsSection, type EndpointsView } from "./pageEndpoints.ts";
 import { workspacesSection, type WorkspacesSectionInput } from "./pageWorkspaces.ts";
 import { STYLE } from "./pageStyle.ts";
@@ -130,6 +130,9 @@ const field = (extension: string, key: string, setting: EnvironmentSettingEntry,
   }
 };
 
+/** A stored secret this credentials key does not open: its placeholder. */
+const UNREADABLE_PLACEHOLDER = "Cannot be opened: type its value again";
+
 /**
  * One Variable's row: its name, its value (a text area, so a value with a line break survives a save), its Secret toggle
  * and Remove, then the notes: a name t3flare sets or keeps itself (ADR-0046 §3), and a stored secret this credentials
@@ -147,10 +150,6 @@ const variableRow = (variable: Variable | undefined): string => {
     unreadable ? '<p class="hint variable-note variable-unreadable" role="note">This secret cannot be opened (the credentials key changed or is missing), so no Container gets it: type its value again.</p>' : ""
   }</div>`;
 };
-
-/** A stored secret's placeholder: its value is kept while its box stays empty. */
-const KEPT_PLACEHOLDER = "Set, not shown. Type to replace it";
-const UNREADABLE_PLACEHOLDER = "Cannot be opened: type its value again";
 
 /** A locked extension's settings, shown and not editable. */
 const lockedSettings = (entry: ExtensionEntry, current: ResolvedHarness["extensions"][string] | undefined): string => {

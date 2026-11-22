@@ -97,6 +97,7 @@ describe("secret Variables (ADR-0046)", () => {
     expect(refusal([{ name: "NPM_TOKEN", value: "", secret: true, valueRedacted: true }])).toBe('variables: "NPM_TOKEN" keeps a secret value, and none is stored under that name: give its value');
     expect(refusal([{ name: "NPM_TOKEN", value: "", secret: true, sealed: { iv: 1 } }])).toBe('variables: "NPM_TOKEN"\'s sealed value is malformed');
     expect(refusal([{ name: "A", value: "", secret: false, valueRedacted: true }])).toBe('variables: "A" is not secret: give its value');
+    expect(refusal([{ name: "A", value: "1", secret: false, sealed: SEALED }])).toBe('variables: "A" is not secret: a sealed value is a secret\'s only');
     expect(refusal([{ name: "A", value: "1", secret: "yes" }])).toBe('variables: "A"\'s secret is true or false');
   });
 

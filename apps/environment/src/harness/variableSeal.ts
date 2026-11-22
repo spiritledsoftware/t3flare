@@ -6,9 +6,11 @@ import {
   fitStoredVariables,
   isRecord,
   isSealedValue,
+  readVariable,
+  type ResolvedEnvironment,
+  resolveEnvironment,
   type SealedValue,
   type StoredEnvironment,
-  readVariable,
   type Variable,
   variableEntries,
   variableNameProblem,
@@ -20,13 +22,21 @@ import type { ValueSealer } from "../credentials/sealed.ts";
 /** What a secret Variable's value is sealed under: its name, so a sealed value moved to another name does not open. */
 const labelOf = (name: string): string => `t3flare/variables/${name}`;
 
+/**
+ * Whether a change's sealed values were sealed by the Settings server's door: only its replay of an Open change says
+ * so (`changeEnvironment`, `sealVariablesIn`).
+ */
+export interface Sealing {
+  readonly sealedAtDoor?: boolean;
+}
 
 /**
  * `settings` (an Environment change) with each secret Variable in its stored form: a value given is sealed, and
  * `valueRedacted: true` keeps the value stored under that name (as stock t3's redacted secrets round-trip). A change
  * from outside (the page, the Settings server's door) gives only those two (ADR-0046 §1): a `sealed` value from it is
- * refused, since a sealed value seen once could bring back an old value. `sealedAtDoor` is the Open change's replay
- * through the ops, whose arguments the door sealed: a secret already sealed is kept there if it opens under its name.
+ * refused on any entry, plain or secret, since a sealed value seen once could bring back an old value.
+ * `sealing.sealedAtDoor` is the Open change's replay through the ops, whose arguments the door sealed: a secret already
+ * sealed is kept there if it opens under its name.
  * Everything else is left for the change function to judge. Refused besides: a kept secret with nothing stored under
  * its name, a secret with no value, a value that is no Variable's, and any secret to seal without a credentials key.
  */
@@ -34,7 +44,7 @@ export const sealVariablesIn = async (
   settings: Readonly<Record<string, unknown>>,
   stored: StoredEnvironment,
   sealer: ValueSealer | undefined,
-  options: { readonly sealedAtDoor?: boolean } = {},
+  sealing: Sealing = {},
 ): Promise<{ readonly ok: true; readonly settings: Readonly<Record<string, unknown>> } | { readonly ok: false; readonly error: string }> => {
   if (!Object.hasOwn(settings, "variables")) return { ok: true, settings };
   const entries = variableEntries(settings.variables);
@@ -44,6 +54,10 @@ export const sealVariablesIn = async (
   const out: Array<unknown> = [];
   const problems: Array<string> = [];
   for (const entry of entries) {
+    if (isRecord(entry) && entry.sealed !== undefined && (sealing.sealedAtDoor !== true || entry.secret !== true)) {
+      problems.push(`${JSON.stringify(entry.name)} gives a sealed value: give its value, or valueRedacted to keep the one stored`);
+      continue;
+    }
     if (!isRecord(entry) || entry.secret !== true || typeof entry.name !== "string") {
       out.push(entry);
       continue;
@@ -51,10 +65,6 @@ export const sealVariablesIn = async (
     const { name } = entry;
     const quoted = JSON.stringify(name);
     if (entry.sealed !== undefined) {
-      if (options.sealedAtDoor !== true) {
-        problems.push(`${quoted} gives a sealed value: give its value, or valueRedacted to keep the one stored`);
-        continue;
-      }
       const opens = isSealedValue(entry.sealed) && sealer !== undefined && (await sealer.open(labelOf(name), entry.sealed)) !== undefined;
       if (opens) out.push({ name, value: "", secret: true, sealed: entry.sealed });
       else problems.push(`${quoted}'s sealed value does not open here: give its value`);
@@ -121,3 +131,9 @@ export const readVariables = async (stored: StoredEnvironment, sealer: ValueSeal
       return opens ? read : { ...read, unreadable: true as const };
     }),
   );
+
+/** The Environment settings as a read shows them: resolved, with the Variables as `readVariables` reads them. */
+export const resolvedForRead = async (stored: StoredEnvironment, sealer: ValueSealer | undefined): Promise<ResolvedEnvironment> => ({
+  ...resolveEnvironment(stored),
+  variables: await readVariables(stored, sealer),
+});

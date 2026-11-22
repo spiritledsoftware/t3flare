@@ -38,7 +38,7 @@ import { SKILLS_WRITE_ROUTES, skillsChange, type SkillsAnswer, type SkillsApiDep
 import type { HarnessOAuth } from "./oauth.ts";
 import type { HarnessSecrets, SecretMark } from "./secrets.ts";
 import type { AuditActor, AuditEntry, HarnessStore } from "./store.ts";
-import { sealVariablesIn } from "./variableSeal.ts";
+import { type Sealing, sealVariablesIn } from "./variableSeal.ts";
 
 /** What every Settings change runs over. */
 export interface OpsDeps {
@@ -158,16 +158,16 @@ export const changeTools = (deps: OpsDeps, change: ToolsChange, options: OpOptio
 /**
  * Some of the Environment settings (ADR-0032): validated against their schema, it bumps only their revision, and the
  * audit entry has the changed settings as they resolved before and after, a secret Variable as its name and fingerprint
- * (ADR-0046). `sealing.sealedAtDoor` is the Settings server's replay of an Open change, whose arguments its door sealed;
- * every other caller gives a secret's value or `valueRedacted`, never a sealed value. A change that moves nothing is stored, bumped
- * and audited as nothing (`unchanged`). Applies at each Workspace's next Container start; the Grace at the next Sweep,
- * which a change to it brings forward (ADR-0043 §5).
+ * (ADR-0046). A change that moves nothing is stored, bumped and audited as nothing (`unchanged`). Applies at each
+ * Workspace's next Container start; the Grace at the next Sweep, which a change to it brings forward (ADR-0043 §5).
+ * `sealing.sealedAtDoor` is the Settings server's replay of an Open change, whose arguments its door sealed; every other
+ * caller gives a secret's value or `valueRedacted`, never a sealed value.
  */
 export const changeEnvironment = async (
   deps: OpsDeps,
   settings: Readonly<Record<string, unknown>>,
   options: OpOptions,
-  sealing: { readonly sealedAtDoor?: boolean } = {},
+  sealing: Sealing = {},
 ): Promise<Outcome<{ unchanged?: true; revision: number; resolved: ReturnType<typeof resolveEnvironment> }>> => {
   const before = deps.store.loadEnvironment();
   // A secret Variable's value is sealed before anything else sees it (ADR-0046 §1): the stored value, the resolved one

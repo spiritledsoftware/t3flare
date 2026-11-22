@@ -64,6 +64,16 @@ describe("sealing (variableSeal.ts)", () => {
     });
   });
 
+  it("refuses a sealed value on a plain Variable too, at the door's replay as from outside", async () => {
+    const first = await sealVariablesIn({ variables: [secret("T", SECRET)] }, EMPTY_ENVIRONMENT, sealer);
+    if (!first.ok) throw new Error(first.error);
+    const entry = (first.settings.variables as Array<{ sealed: unknown }>)[0]!;
+    const plainSealed = { variables: [{ name: "X", value: "1", secret: false, sealed: entry.sealed }] };
+    const refused = { ok: false, error: 'variables: "X" gives a sealed value: give its value, or valueRedacted to keep the one stored' };
+    expect(await sealVariablesIn(plainSealed, EMPTY_ENVIRONMENT, sealer)).toEqual(refused);
+    expect(await sealVariablesIn(plainSealed, EMPTY_ENVIRONMENT, sealer, { sealedAtDoor: true })).toEqual(refused);
+  });
+
   it("refuses a secret with an empty value and no redacted mark: it would blank the stored secret", async () => {
     expect(await sealVariablesIn({ variables: [secret("T", "")] }, EMPTY_ENVIRONMENT, sealer)).toEqual({ ok: false, error: 'variables: "T" is secret and has no value: give its value' });
   });
@@ -164,6 +174,9 @@ describe("secret Variables on the Settings page", () => {
     const replayed = await save(deps, [{ name: "OLD", value: "", secret: true, sealed }]);
     expect(replayed.status).toBe(400);
     expect(await replayed.text()).toBe('variables: "OLD" gives a sealed value: give its value, or valueRedacted to keep the one stored\n');
+    const plainSealed = await save(deps, [{ name: "X", value: "1", secret: false, sealed }]);
+    expect(plainSealed.status).toBe(400);
+    expect(await plainSealed.text()).toBe('variables: "X" gives a sealed value: give its value, or valueRedacted to keep the one stored\n');
     const blank = await save(deps, [secret("NPM_TOKEN", "")]);
     expect(blank.status).toBe(400);
     expect(await blank.text()).toBe('variables: "NPM_TOKEN" is secret and has no value: give its value\n');
@@ -255,6 +268,16 @@ describe("secret Variables through the Settings server", () => {
     const answer = await run.call(run.durable(), "change_environment", { expectedRevision: 0, settings: { variables: [kept("NPM_TOKEN")] } });
     expect(textOf(answer)).toContain('"NPM_TOKEN" keeps a secret value, and none is stored under that name: give its value');
     expect(run.store.loadEnvironment().revision).toBe(0);
+  });
+
+  it("answers that a Variable under T3FLARE_ or T3CODE_ is stored but reaches no command (ADR-0046 §3)", async () => {
+    fixture = settingsFixture();
+    const run = fixture;
+    const answer = await run.call(run.durable("thread-a"), "change_environment", { expectedRevision: 0, settings: { variables: [plain("T3FLARE_PASSIVE_READ", "1"), plain("NODE_ENV", "test")] } });
+    expect(structured(answer)).toMatchObject({ status: "applied" });
+    expect(textOf(answer)).toContain("T3FLARE_PASSIVE_READ is a name t3flare or the Container's shell keeps for itself: stored, but it reaches no command.");
+    const none = await run.call(run.durable("thread-b"), "change_environment", { expectedRevision: 1, settings: { variables: [plain("NODE_ENV", "dev")] } });
+    expect(textOf(none)).not.toContain("reaches no command");
   });
 
   it("refuses a sealed value an agent gives", async () => {

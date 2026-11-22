@@ -22,14 +22,14 @@
 // - The Workspaces (ADR-0044 §4): `GET …/api/workspaces` (the view), `…/usage?id=` (one row's Files, ADR-0044 §1)
 //   and `…/sweep` (the dry Sweep); `POST …/api/workspaces/purge` `{ id, confirm }`, `/restore` `{ id }`, `/stop` `{ id }`
 //   and `/sweep`, behind the same write guard: the Owner's own acts (workspaceActions.ts), audited, never Open changes.
-import { BUILTIN_TOOLS, describeGlobalMise, ENVIRONMENT_SETTINGS, EXTENSIONS, ignoredServersOf, readStoredEnvironment, resolveEnvironment, resolveHarness, type ToolsChange } from "@t3flare/harness-registry";
+import { BUILTIN_TOOLS, describeGlobalMise, ENVIRONMENT_SETTINGS, EXTENSIONS, ignoredServersOf, readStoredEnvironment, resolveHarness, type ToolsChange } from "@t3flare/harness-registry";
 
 import type { AccessCaller } from "../access.ts";
+import type { ValueSealer } from "../credentials/sealed.ts";
 import type { McpHost } from "../mcp/host.ts";
 import type { HarnessOAuth } from "./oauth.ts";
-import type { ValueSealer } from "../credentials/sealed.ts";
 import type { HarnessSecrets } from "./secrets.ts";
-import { readVariables } from "./variableSeal.ts";
+import { resolvedForRead } from "./variableSeal.ts";
 
 import { decodeHarnessChange, decodeMcpChange } from "./changeBodies.ts";
 
@@ -214,7 +214,7 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
       const csrf = subject === "" ? "" : await csrfToken(deps.store.csrfKey(), subject, deps.now?.() ?? Date.now());
       const storedEnvironment = deps.store.loadEnvironment();
       // A secret Variable as set, or as unreadable when this credentials key does not open it (ADR-0046).
-      const environment = { ...resolveEnvironment(storedEnvironment), variables: await readVariables(storedEnvironment, deps.variableSealer) };
+      const environment = await resolvedForRead(storedEnvironment, deps.variableSealer);
       const html = renderPage({
         resolved: resolveHarness(deps.store.load()),
         environment,
@@ -258,7 +258,7 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
     }
     if (path === `${SETTINGS_PAGE_PATH}/api/environment`) {
       const stored = deps.store.loadEnvironment();
-      const resolved = { ...resolveEnvironment(stored), variables: await readVariables(stored, deps.variableSealer) };
+      const resolved = await resolvedForRead(stored, deps.variableSealer);
       // `stored` as read (ADR-0046): a secret Variable's sealed value is shown as its fingerprint, as `resolved` shows it.
       return json({ revision: stored.revision, resolved, schema: ENVIRONMENT_SETTINGS, costs: containerCostTable(resolved.containerBudget), running: await runningContainers(deps), stored: readStoredEnvironment(stored) });
     }

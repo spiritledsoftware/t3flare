@@ -31,13 +31,13 @@ import {
   classOf,
   ENVIRONMENT_SETTINGS,
   EXTENSIONS,
+  fitVariables,
   type HarnessChange,
   ignoredServersOf,
   type McpChange,
   mcpServersOf,
   ownEntry,
   PLAN_REFUSAL,
-  fitVariables,
   resolveEnvironment,
   resolveHarness,
   SETTINGS_SERVER,
@@ -47,6 +47,7 @@ import {
   tierOf,
   type ToolClass,
   visible,
+  withheldFromCommands,
   withoutQuery,
 } from "@t3flare/harness-registry";
 import type { McpAsker, McpQuestionAnswer, McpQuestionCard } from "@t3flare/session-protocol";
@@ -71,6 +72,7 @@ import {
   testMcpServer,
 } from "../harness/ops.ts";
 import type { AuditActor } from "../harness/store.ts";
+import { resolvedForRead, sealVariablesIn } from "../harness/variableSeal.ts";
 import { canonicalJson } from "../mcp/canonical.ts";
 import { newCardId } from "../mcp/elicitation.ts";
 import type { McpCallAnswer, McpHost } from "../mcp/host.ts";
@@ -114,7 +116,6 @@ import {
   waitForChange,
 } from "./openChanges.ts";
 import { askedByText, changeText, environmentItems, extensionItems, mcpItems, PAGE_REASON, shownCallArgs, shownSkill, toolsItems } from "./render.ts";
-import { readVariables, sealVariablesIn } from "../harness/variableSeal.ts";
 import { settingsToolOf } from "./tools.ts";
 import type { ChangeEntity, ChangeItem, ChangeView, PageReason } from "./types.ts";
 
@@ -280,7 +281,7 @@ const getSettings = async (deps: SettingsServerDeps, args: Readonly<Record<strin
   if (args.entity === "environment") {
     const stored = deps.ops.store.loadEnvironment();
     // A secret Variable as set, or as unreadable when this credentials key does not open it (ADR-0046).
-    const resolved: Readonly<Record<string, unknown>> = { ...resolveEnvironment(stored), variables: await readVariables(stored, deps.ops.variableSealer) };
+    const resolved: Readonly<Record<string, unknown>> = await resolvedForRead(stored, deps.ops.variableSealer);
     return read({
       entity: "environment",
       revision: stored.revision,
@@ -557,6 +558,17 @@ const environmentAppliesAt = (keys: ReadonlyArray<string>): string => {
   return `${APPLIES_AT.environment} ${sweep.join(" and ")}: ${APPLIES_AT.sweep}`;
 };
 
+/**
+ * What an answer adds for a change whose Variables name ones that reach no command (ADR-0046 §3): t3flare's own
+ * (T3FLARE_, T3CODE_) and the Container's shell's. Empty when there are none.
+ */
+const withheldText = (variables: unknown): string => {
+  const names = fitVariables(variables)
+    .map((variable) => variable.name)
+    .filter(withheldFromCommands);
+  return names.length === 0 ? "" : ` ${names.join(", ")} ${names.length === 1 ? "is a name" : "are names"} t3flare or the Container's shell keeps for itself: stored, but ${names.length === 1 ? "it reaches" : "they reach"} no command.`;
+};
+
 const planEnvironment = (deps: SettingsServerDeps, args: Readonly<Record<string, unknown>>): PlanOrRefusal => {
   const settings = objectArg(args.settings);
   if (settings === undefined) return { refused: "settings is an object of Environment settings" };
@@ -565,7 +577,7 @@ const planEnvironment = (deps: SettingsServerDeps, args: Readonly<Record<string,
   if (!applied.ok) return { refused: applied.error };
   return {
     ...TARGET.environment,
-    appliesAt: environmentAppliesAt(applied.changed.length > 0 ? applied.changed : Object.keys(settings)),
+    appliesAt: environmentAppliesAt(applied.changed.length > 0 ? applied.changed : Object.keys(settings)) + withheldText(settings.variables),
     verdict: tierOf({ entity: "environment", stored, change: { settings } }),
     // Hashed as read (ADR-0046): a secret Variable by its fingerprint, a keyed HMAC of its value, not its sealed value,
     // whose IV differs each time: the same secret change hashes the same for the declined-repeat refusal and reuse.
@@ -771,8 +783,7 @@ const openListOf = (deps: Pick<SettingsServerDeps, "origin">): string | undefine
 /** The calling thread and agent, as a card or page names them. */
 const askedBy = (caller: OwnCaller): string => `Asked by ${askedByText(caller)}.`;
 
-/** The agent's call, as a card shows it last. */
-/** The agent's call as a card prints it: a secret Variable as set or changed, never its value (`shownCallArgs`). */
+/** The agent's call, as a card shows it last: a secret Variable as set or changed, never its value (`shownCallArgs`). */
 const callText = (input: Pick<SettingsCallInput, "tool" | "args" | "shownArgs">): string => `The agent's call: settings: ${input.tool}\n${JSON.stringify(input.shownArgs ?? input.args, null, 2)}`;
 
 const APPROVAL_OPTIONS: NonNullable<McpQuestionCard["options"]> = [

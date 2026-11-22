@@ -140,10 +140,9 @@ const foot = `<div id="result" class="notice" role="status" aria-live="polite" h
 export const renderGonePage = (csrf: string): string =>
   `${head("Change", csrf)}<body><main class="change-main" id="main">${brandLink}<header class="page-head"><div><h1>This change is gone</h1><p>No change has this id: it closed over ${durationText(CLOSED_KEPT_MS)} ago, or never was. Nothing waits here.</p></div></header><p><a href="${OPEN_CHANGES_PATH}">The Settings page's Open changes</a></p>${foot}`;
 
-/** The Change page for `record` (plan D10). `now` decides the time left. */
 /**
- * `environment` is the Environment settings as stored now: the call's secret Variables show as set or changed against
- * it (`shownCallArgs`), never their sealed values.
+ * The Change page for `record` (plan D10). `now` decides the time left. `environment` is the Environment settings as
+ * stored now: the call's secret Variables show as set or changed against it (`shownCallArgs`), never their sealed values.
  */
 export const renderChangePage = (record: ChangeRecord, input: { readonly csrf: string; readonly now: number; readonly environment?: StoredEnvironment }): string => {
   const view = record.shown;

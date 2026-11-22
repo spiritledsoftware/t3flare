@@ -79,8 +79,11 @@ export const SET_BY_THE_CONTAINER: ReadonlyArray<string> = ["PATH", "HOME", "PWD
  */
 export const RESERVED_PREFIXES: ReadonlyArray<string> = ["T3FLARE_", "T3CODE_"];
 
+/** Whether `name` is under one of RESERVED_PREFIXES: t3flare's or t3's own. */
+export const reservedPrefix = (name: string): boolean => RESERVED_PREFIXES.some((prefix) => name.startsWith(prefix));
+
 /** Whether a Variable named `name` is left out of every command: the Container's shell's own, or a reserved prefix. */
-export const withheldFromCommands = (name: string): boolean => SET_BY_THE_CONTAINER.includes(name) || RESERVED_PREFIXES.some((prefix) => name.startsWith(prefix));
+export const withheldFromCommands = (name: string): boolean => SET_BY_THE_CONTAINER.includes(name) || reservedPrefix(name);
 
 /**
  * Every name t3flare sets or pins for a command, a Terminal or a CLI agent: the Container's shell's own
@@ -199,7 +202,7 @@ export const SET_BY_T3FLARE: ReadonlyArray<string> = [
  * Whether t3flare sets or keeps `name` itself, so its own value wins over a Variable's, or the Variable reaches no
  * command (the Settings page's note): SET_BY_T3FLARE, and every name under RESERVED_PREFIXES.
  */
-export const setByT3flare = (name: string): boolean => SET_BY_T3FLARE.includes(name) || RESERVED_PREFIXES.some((prefix) => name.startsWith(prefix));
+export const setByT3flare = (name: string): boolean => SET_BY_T3FLARE.includes(name) || reservedPrefix(name);
 
 /** Whether `value` is a plain object: a Variable's entry, a set of them in the old shape, a sealed value. */
 export const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -265,6 +268,7 @@ const storedEntryProblem = (entry: unknown): string | undefined => {
     if (entry.value !== undefined && entry.value !== "") return `${quoted} is secret: its value is stored sealed only`;
     return undefined;
   }
+  if (entry.sealed !== undefined) return `${quoted} is not secret: a sealed value is a secret's only`;
   if (entry.valueRedacted === true) return `${quoted} is not secret: give its value`;
   if (typeof entry.value !== "string") return `${quoted}'s value is not text`;
   return variableValueProblem(name, entry.value);
