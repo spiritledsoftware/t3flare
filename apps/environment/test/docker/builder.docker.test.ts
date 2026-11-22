@@ -39,8 +39,8 @@ const docker = (args: ReadonlyArray<string>, input?: string) => {
 const exec = (argv: ReadonlyArray<string>, options: { readonly env?: Readonly<Record<string, string>>; readonly stdin?: string } = {}) =>
   docker(["exec", ...(options.stdin === undefined ? [] : ["-i"]), ...Object.entries(options.env ?? {}).flatMap(([name, value]) => ["-e", `${name}=${value}`]), NAME, ...argv], options.stdin);
 
-/** The log's last `bytes`, as the Builder reads them (`TAIL_SCRIPT` answers base64). */
-const tail = (bytes: number) => Buffer.from(exec(["bash", "-c", TAIL_SCRIPT, "t3flare-builder", String(bytes)]).stdout, "base64").toString("utf8");
+/** The log's last `bytes`, as the Builder reads them. */
+const tail = (bytes: number) => exec(["bash", "-c", TAIL_SCRIPT, "t3flare-builder", String(bytes)]).stdout;
 
 const write = (file: string, text: string) => expect(exec(["bash", "-c", WRITE_SCRIPT, "t3flare-builder", file], { stdin: text }).code).toBe(0);
 

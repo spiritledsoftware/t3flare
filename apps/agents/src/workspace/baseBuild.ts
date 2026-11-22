@@ -36,7 +36,10 @@ import {
   variableEnv,
 } from "@t3flare/harness-registry";
 
+import { SECRET_MARGIN_BYTES } from "@t3flare/sandbox-image/containerSetup";
+
 import { baseKey, hex, sha256Hex, unhex } from "./baseKey.ts";
+import { blankSecrets } from "./containerSetup.ts";
 import {
   BUILDER_FILES,
   EXIT_SCRIPT,
@@ -201,73 +204,8 @@ const LEASE_RENEW_MS = 5 * 60_000;
 /** A probe exec's own bound: a command that answers at once (`true`, `cat`), not the Image setup. */
 const PROBE_MS = 30_000;
 
-/**
- * SPI-1330's `setupOutputKiB` default: how much output a failure keeps until that setting reaches this branch, when
- * `outputBytesOf` reads the setting itself.
- */
-export const DEFAULT_OUTPUT_KIB = 32;
-
-/** How much of a failed build's output is kept: SPI-1330's `setupOutputKiB` when the settings have it, else its default. */
-export const outputBytesOf = (settings: ResolvedEnvironment): number => {
-  const kib = (settings as unknown as { readonly setupOutputKiB?: unknown }).setupOutputKiB;
-  return (typeof kib === "number" && Number.isInteger(kib) && kib > 0 ? kib : DEFAULT_OUTPUT_KIB) * 1024;
-};
-
-const utf8 = new TextEncoder();
-const BLANKED = utf8.encode("•••");
-
-/** Where `needle` occurs in `haystack`, as byte ranges. */
-const occurrences = (haystack: Uint8Array, needle: Uint8Array): Array<readonly [number, number]> => {
-  const found: Array<readonly [number, number]> = [];
-  if (needle.length === 0) return found;
-  outer: for (let at = 0; at + needle.length <= haystack.length; at++) {
-    for (let index = 0; index < needle.length; index++) if (haystack[at + index] !== needle[index]) continue outer;
-    found.push([at, at + needle.length]);
-  }
-  return found;
-};
-
-/**
- * The last `keep` bytes of `raw`, by raw offset, with every secret that reaches into them blanked whole (ADR-0047 §9's
- * Status: no secret in the output). `raw` is the log's tail read with a margin of the longest secret's length before
- * `keep`: a secret the read cut at its head lies wholly in the margin, and one the kept window cuts is found in full
- * across it. A character the window cuts in two is dropped.
- */
-export const tailWithoutSecrets = (raw: Uint8Array, options: { readonly keep: number; readonly secrets: ReadonlyArray<string> }): string => {
-  const start = Math.max(0, raw.length - options.keep);
-  const ranges = options.secrets
-    .filter((secret) => secret !== "")
-    .flatMap((secret) => occurrences(raw, utf8.encode(secret)))
-    .filter(([, end]) => end > start)
-    .sort((a, b) => a[0] - b[0]);
-  const parts: Array<Uint8Array> = [];
-  let at = start;
-  for (const [from, to] of ranges) {
-    if (to <= at) continue;
-    // A secret overlapping the one just blanked extends that mark: no byte of either shows.
-    if (from < at && parts.at(-1) === BLANKED) {
-      at = to;
-      continue;
-    }
-    if (from > at) parts.push(raw.subarray(at, from));
-    parts.push(BLANKED);
-    at = to;
-  }
-  parts.push(raw.subarray(at));
-  const joined = new Uint8Array(parts.reduce((total, part) => total + part.length, 0));
-  let offset = 0;
-  for (const part of parts) {
-    joined.set(part, offset);
-    offset += part.length;
-  }
-  // A blanked mark longer than the secret's kept part may overrun: cut to `keep` again, by byte offset.
-  const kept = joined.length > options.keep ? joined.subarray(joined.length - options.keep) : joined;
-  const text = new TextDecoder().decode(kept);
-  return start > 0 || kept !== joined ? text.replace(/^\uFFFD+/, "") : text;
-};
-
-/** The bytes of base64 `text` (the tail's answer). */
-const fromBase64 = (text: string): Uint8Array => Uint8Array.from(atob(text.replace(/\s/g, "")), (char) => char.charCodeAt(0));
+/** How much of a failed build's output is kept: `setupOutputKiB`, shared with the Container setup (SPI-1330). */
+export const outputBytesOf = (settings: ResolvedEnvironment): number => settings.setupOutputKiB * 1024;
 
 /** The wait before the retry after `failures` failures in a row: `SCHEDULE_RETRY_MS`, doubling, at most a day. */
 export const retryDelay = (failures: number): number => Math.min(DAY_MS, SCHEDULE_RETRY_MS * 2 ** Math.min(Math.max(1, failures) - 1, 5));
@@ -766,10 +704,10 @@ export class BaseBuild {
     let output = "";
     // The secrets are cleared only once a build is over; a build that has none of them kept shows no output at all.
     if (container.running() && build.secretsCleared !== true) {
-      // The kept bytes and a margin of the longest secret, so one the window cuts at its head is still blanked whole.
-      const margin = Math.max(0, ...build.secrets.map((secret) => utf8.encode(secret).length));
-      const tail = await container.exec(["bash", "-c", TAIL_SCRIPT, "t3flare-builder", String(build.outputBytes + margin)], { timeoutMs: PROBE_MS }).catch(() => undefined);
-      output = tailWithoutSecrets(fromBase64(tail?.stdout ?? ""), { keep: build.outputBytes, secrets: build.secrets });
+      // The kept bytes and the Container setup's margin, so a secret the window cuts at its head is still blanked whole:
+      // the same window and blanking as a Container setup's report (`blankSecrets`).
+      const tail = await container.exec(["bash", "-c", TAIL_SCRIPT, "t3flare-builder", String(build.outputBytes + SECRET_MARGIN_BYTES)], { timeoutMs: PROBE_MS }).catch(() => undefined);
+      output = blankSecrets(tail?.stdout ?? "", build.secrets, build.outputBytes);
     }
     const failure: BaseBuildFailure = { at: now(), phase: build.phase as BaseBuildPhase, exitCode, message: message.slice(0, BASE_BUILD_CAPS.message), output };
     this.#deps.log?.({ t3flare: "base-build-failed", build: build.id, phase: build.phase, exitCode, message: message.slice(0, BASE_BUILD_CAPS.log) });

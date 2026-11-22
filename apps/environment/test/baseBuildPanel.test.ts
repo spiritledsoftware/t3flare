@@ -134,12 +134,14 @@ describe("a save pokes the Builder", () => {
 });
 
 describe("the Base snapshot's settings on the page", () => {
-  it("has a row of its own: the Image setup as a file, the limits, the Builder's size by its label", async () => {
+  it("joins the Image setup's own row: the script as a file, the limits, the Builder's size by its label", async () => {
     const html = await page(setup().deps);
-    const row = /<div class="row" id="base-build-settings">[\s\S]*?<\/div><\/div><\/div><\/div>/.exec(html)?.[0] ?? "";
+    const start = html.indexOf("<h3>Image setup</h3>");
+    expect(start).toBeGreaterThan(-1);
+    const row = html.slice(start, html.indexOf('<div class="row">', start));
     expect(row).toMatch(/<textarea class="file"[^>]*data-setting="imageSetup"/);
-    for (const key of ["imageSetupMinutes", "snapshotMinutes", "builderSize", "builderInBudget", "rebuildEveryDays"]) expect(html).toContain(`data-setting="${key}"`);
-    expect(html).toContain('<option value="sameAsContainer" selected>Same as Container size</option>');
+    for (const key of ["imageSetupMinutes", "snapshotMinutes", "builderSize", "builderInBudget", "rebuildEveryDays"]) expect(row).toContain(`data-setting="${key}"`);
+    expect(row).toContain('<option value="sameAsContainer" selected>Same as Container size</option>');
   });
 });
 

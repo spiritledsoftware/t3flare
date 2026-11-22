@@ -14,8 +14,9 @@ import {
   EXPIRY_MARGIN_MS,
   GOOD_FOR_MS,
   SCHEDULE_RETRY_MS,
-  tailWithoutSecrets,
 } from "../src/workspace/baseBuild.ts";
+import { SECRET_MARGIN_BYTES } from "@t3flare/sandbox-image/containerSetup";
+
 import { BUILDER_FILES, EXIT_SCRIPT, LAUNCH_SCRIPT, PROOF_SCRIPT, TAIL_SCRIPT, WRITE_SCRIPT } from "../src/workspace/builderScripts.ts";
 
 const IMAGE = "registry/workspace@sha256:1111";
@@ -89,10 +90,10 @@ class FakeContainer implements BuilderContainer {
     }
     if (script === EXIT_SCRIPT) return { exitCode: 0, stdout: this.exitCode === undefined ? "" : `${this.exitCode}\n` };
     if (script === TAIL_SCRIPT) {
-      // `tail -c N | base64`: the last N bytes of the log, raw.
+      // `tail -c N`: the last N bytes of the log.
       this.tailBytes = Number(argv[4]);
       const bytes = new TextEncoder().encode(this.log);
-      return { exitCode: 0, stdout: Buffer.from(bytes.slice(Math.max(0, bytes.length - Number(argv[4])))).toString("base64") };
+      return { exitCode: 0, stdout: new TextDecoder().decode(bytes.slice(Math.max(0, bytes.length - Number(argv[4])))) };
     }
     if (script === PROOF_SCRIPT) {
       const last = this.starts.at(-1);
@@ -137,11 +138,9 @@ let leases: { acquired: number; released: number; refuse: boolean };
 let settings: Record<string, unknown>;
 let failInputs = false;
 
-// SPI-1330's `setupOutputKiB` is passed through as a setting the resolve does not know yet.
 const settingsNow = () => ({
   ...resolveEnvironment({ revision: 4, settings: { ...settings, variables: undefined } }),
   variables: (settings.variables as ReadonlyArray<Variable> | undefined) ?? variables,
-  ...(settings.setupOutputKiB === undefined ? {} : { setupOutputKiB: settings.setupOutputKiB }),
 });
 
 let randomCalls = 0;
@@ -245,8 +244,8 @@ describe("a Base build", () => {
     expect(record.state).toBe("failed");
     expect(record.failure).toMatchObject({ exitCode: 3, phase: "running", message: "the Image setup exited 3" });
     // The kept bytes and a margin of the longest secret, so a secret cut at the window's head is blanked whole.
-    expect(container.tailBytes).toBe(4 * 1024 + "s3cr3t-value".length);
-    expect(record.failure!.output).toContain("using ••• to log in");
+    expect(container.tailBytes).toBe(4 * 1024 + SECRET_MARGIN_BYTES);
+    expect(record.failure!.output).toContain("using *** to log in");
     expect(record.failure!.output).not.toContain("s3cr3t-value");
     expect(container.isRunning).toBe(false);
 
@@ -256,12 +255,12 @@ describe("a Base build", () => {
     expect(container.starts).toHaveLength(2);
   });
 
-  it("keeps 32 KiB of output when the settings have no output setting", async () => {
+  it("keeps setupOutputKiB's default, 32 KiB, of the output", async () => {
     const build = builder();
     await toRunning(build);
     container.exitCode = 1;
     await ticks(build);
-    expect(container.tailBytes).toBe(32 * 1024 + "s3cr3t-value".length);
+    expect(container.tailBytes).toBe(32 * 1024 + SECRET_MARGIN_BYTES);
   });
 
   it("fails a run past the Image setup's time limit, with no exit code, and destroys the Container", async () => {
@@ -480,8 +479,8 @@ describe("a Base build (review fixes)", () => {
     await ticks(build);
     const output = build.record().failure!.output;
     expect(output).not.toContain("MNOP");
-    // Blanked, then cut to the kept bytes: the mark may lose a dot, never show the secret.
-    expect(output.startsWith("••")).toBe(true);
+    // Blanked whole across the cut, the blank kept (`blankSecrets`).
+    expect(output.startsWith("***")).toBe(true);
     expect(new TextEncoder().encode(output).length).toBeLessThanOrEqual(4 * 1024);
   });
 
@@ -635,7 +634,7 @@ describe("a Base build (review cycle 2)", () => {
     await ticks(build, 1, 61_000);
     const record = build.record();
     expect(record).toMatchObject({ state: "failed", failure: { phase: "proving" } });
-    expect(record.failure!.output).toContain("logging in with •••");
+    expect(record.failure!.output).toContain("logging in with ***");
     expect(record.failure!.output).not.toContain("s3cr3t-value");
     expect(store.get(BUILDER_KEYS.build)).toMatchObject({ secrets: [] });
   });
@@ -678,25 +677,4 @@ describe("a Base build (review cycle 2)", () => {
   });
 });
 
-describe("tailWithoutSecrets", () => {
-  it("blanks overlapping secrets with no byte of either shown", () => {
-    const text = tailWithoutSecrets(new TextEncoder().encode("abcdefgh"), { keep: 100, secrets: ["abc", "bcdefgh"] });
-    expect(text).toBe("•••");
-    for (const char of "abcdefgh") expect(text).not.toContain(char);
-  });
-});
 
-describe("tailWithoutSecrets", () => {
-  const utf8 = new TextEncoder();
-  it("keeps the last bytes by raw offset, every secret that reaches into them blanked whole", () => {
-    // Read: the last 12 kept bytes and a margin of 6 (the secret's length). The window starts inside SECRET: blanked
-    // whole, then cut to 12 bytes again (the mark is longer than the secret's kept part), never a fragment.
-    expect(tailWithoutSecrets(utf8.encode("xxSECRETyy-tail"), { keep: 12, secrets: ["SECRET"] })).toBe("•yy-tail");
-    expect(tailWithoutSecrets(utf8.encode("xxSECRETyy-tail"), { keep: 9, secrets: ["SECRET"] })).toBe("yy-tail");
-    // A fragment wholly inside the margin never reaches the window.
-    expect(tailWithoutSecrets(utf8.encode("CRETabcdefghi"), { keep: 9, secrets: ["SECRET"] })).toBe("abcdefghi");
-    expect(tailWithoutSecrets(utf8.encode("SECRET then SECRET"), { keep: 100, secrets: ["SECRET"] })).toBe("••• then •••");
-    // A character the window cuts in two is dropped, not shown as a replacement character.
-    expect(tailWithoutSecrets(utf8.encode("é-end"), { keep: 5, secrets: [] })).toBe("-end");
-  });
-});

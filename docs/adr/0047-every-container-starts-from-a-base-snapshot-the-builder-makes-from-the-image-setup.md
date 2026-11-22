@@ -105,3 +105,6 @@ new Container's start. Both are Environment settings, bash scripts of up to 256 
    start takes (secret Variables opened), which Status does not count as a Workspace's.
 6. **The key's Variables** are those that reach a command (`variableEnv`), in any order. The 29 days count from the
    snapshot's creation: the Builder does not see a Workspace's restore.
+7. **One output setting, one blanking:** a failed Base build keeps the last `setupOutputKiB` of its output, the Container
+   setup's setting (SPI-1330), read and blanked as a Container setup's report is (`blankSecrets`, with its margin and
+   mark). The Builder's settings join the Image setup's row on the Settings page.

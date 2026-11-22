@@ -55,11 +55,8 @@ echo launched`;
 /** The run's exit code once it ended: prints it, or nothing while it runs. */
 export const EXIT_SCRIPT = `cat ${BUILDER_EXIT} 2>/dev/null || true`;
 
-/**
- * The end of the run's log, raw, as base64 (so the Builder cuts and blanks it by byte offset):
- * `bash -c <this> t3flare-builder <bytes>`.
- */
-export const TAIL_SCRIPT = `{ tail -c "$1" ${BUILDER_LOG} 2>/dev/null || true; } | base64 -w0`;
+/** The end of the run's log (`blankSecrets` cuts it by byte offset): `bash -c <this> t3flare-builder <bytes>`. */
+export const TAIL_SCRIPT = `tail -c "$1" ${BUILDER_LOG} 2>/dev/null || true`;
 
 /**
  * The proof that a start from the candidate works (ADR-0047 §2): the image's own entrypoint runs computerd, and this

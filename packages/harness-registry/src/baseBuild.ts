@@ -3,6 +3,8 @@
 // DO on every change, and what the Settings page's Status and the Settings server's `get_status` show. Imported by both
 // Workers: the Builder writes it, the Environment DO keeps the last one it was sent and reads it back through
 // `baseBuildRecord`, which drops a malformed one (another Worker's version).
+import { MAX_SETUP_OUTPUT_KIB } from "./environment.ts";
+
 
 /**
  * The reserved names of the Builders (ADR-0047 §1, §8): instances of the Workspace DO's class that are never a Workspace.
@@ -73,8 +75,8 @@ export interface BaseBuildRecord {
   readonly at: number;
 }
 
-/** The most output a record may carry: the largest output setting (SPI-1330's `setupOutputKiB`, at most 256). */
-const MAX_OUTPUT = 256 * 1024;
+/** The most output a record may carry: the most `setupOutputKiB` keeps. */
+const MAX_OUTPUT = MAX_SETUP_OUTPUT_KIB * 1024;
 
 const isObject = (value: unknown): value is Readonly<Record<string, unknown>> => value !== null && typeof value === "object" && !Array.isArray(value);
 const isTime = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0;
