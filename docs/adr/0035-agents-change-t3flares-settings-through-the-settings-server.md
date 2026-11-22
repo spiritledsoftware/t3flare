@@ -52,7 +52,7 @@ nor changes them, and `read_audit` shows their entries without key fingerprints.
 
    A fallback only ever moves toward `browser`.
 
-9. **Secrets and sign-ins happen on the Change page only.** An agent may ask to add a header-auth Direct server, set its
+9. **Secrets and sign-ins happen on the Change page only** (a secret Variable's value excepted: [ADR-0046](0046-a-variable-may-be-secret-as-stock-t3s-environment-variables-are.md) §4). An agent may ask to add a header-auth Direct server, set its
    header value, or start its OAuth sign-in; the value is typed, and the sign-in started, on the Change page under the
    owner's Access identity, in every mode. No tool argument or result carries a secret or an authorization URL. Two
    more kinds of change are answered on the page alone, in every mode: installing or updating Environment skills (only

@@ -5,7 +5,9 @@ Status: accepted (Owner decisions, 2026-11-22). Supersedes
 refinement ("Variables are never credentials"), and in
 [ADR-0032](0032-environment-settings-and-harness-settings-are-separate-entities-edited-on-one-owner-page.md)'s
 Variables refinement §2 and §3 (the refused names and values), §4 (a Variable a later rule refuses), §8 for a secret
-Variable's value, and its ADR-0035 refinement's item 5 (refusals through the Settings server). ADR-0016's rule for
+Variable's value, and its ADR-0035 refinement's item 5 (refusals through the Settings server); refines
+[ADR-0035](0035-agents-change-t3flares-settings-through-the-settings-server.md) §9 (a secret Variable's value may be a
+tool argument). ADR-0016's rule for
 t3flare's own credentials (Model endpoints' keys, Subscriptions, MCP servers' sign-ins, the Environment token) is
 unchanged.
 
@@ -26,10 +28,11 @@ protects the Owner from their own choice.
    Any agent can read a secret Variable, as on stock t3.
 3. **Validation keeps t3flare working, nothing more.** A name must be one a shell can export; a value holds no NUL; the
    count and length limits stay, since every Environment setting is one stored value of at most 2 MB. Every other
-   refusal goes. A name t3flare sets itself (`PATH`, `HOME`, `COMMAND_ENV`'s, a CLI profile's) is still overridden by
+   refusal goes, the loader hooks (`NODE_OPTIONS`, `BASH_ENV`, `LD_*`) included. A name t3flare sets itself (`PATH`, `HOME`, `COMMAND_ENV`'s, a CLI profile's) is still overridden by
    t3flare (ADR-0032's Variables §7), and the Settings page says so beside it.
-4. **Through the Settings server,** an agent sets a Variable as any Settings change, a secret value included; the
-   tier is the Variables' (asked).
+4. **Through the Settings server,** an agent sets a Variable as any Settings change, a secret value included, as a
+   tool argument the server seals on arrival (ADR-0035 §9's "no tool argument carries a secret" excepts it); the tier
+   is the Variables' (asked).
 
 ## Considered options
 
