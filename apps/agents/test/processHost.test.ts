@@ -182,7 +182,9 @@ describe("ProcessHost", () => {
   it("holds a slot for a start in flight: two concurrent starts at one below the count cannot both pass (SPI-1318)", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));
-    const h = harness({ beforeStart: async () => void (await gate) });
+    const h = harness({ beforeStart: async () => {
+        await gate;
+      } });
     const first = h.host.start(start("proc-a", { cliProcessesPerWorkspace: 1 }));
     const second = h.host.start(start("proc-b", { cliProcessesPerWorkspace: 1 }));
     release();
