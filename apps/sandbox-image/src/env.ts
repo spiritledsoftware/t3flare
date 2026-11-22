@@ -12,6 +12,9 @@ export const BASE_MISE_CONFIG = `${IMAGE_SHARE}/mise.toml`;
 /** Where the Global mise config's lay-down keeps its files: the Container's own disk, outside `/workspace` (SPI-1150). */
 export const GLOBAL_MISE_DIR = "/var/lib/t3flare/mise";
 
+/** Where the Container setup's wrapper keeps the script, its output and its answer: the Container's own disk (ADR-0047 §7). */
+export const CONTAINER_SETUP_DIR = "/var/lib/t3flare/container-setup";
+
 /**
  * mise's global config: the owner's Global mise config, laid down at each Container start when git and gh run under it
  * (`globalMise.ts`, ADR-0032's Global mise config refinement). Absent when there is none, and mise then resolves as from the base file alone.

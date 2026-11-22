@@ -822,6 +822,14 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     return { kept: harnessStore(this.ctx.storage.kv).noteGlobalMise(report) };
   }
 
+  /**
+   * A Workspace DO's Container setup in a new Container (ADR-0047 §7): the panel's Status shows the last one, its output
+   * already blanked of secret Variables' values. A malformed report (another Worker's) is dropped. Never boots t3.
+   */
+  async noteContainerSetup(report: unknown): Promise<{ readonly kept: boolean }> {
+    return { kept: harnessStore(this.ctx.storage.kv).noteContainerSetup(report) };
+  }
+
   /** t3's tools as a Session listed them (the panel's t3-code card). A malformed listing is dropped. Never boots t3. */
   async noteT3Tools(listing: unknown): Promise<{ readonly kept: boolean }> {
     return { kept: harnessStore(this.ctx.storage.kv).noteT3Tools(listing) };

@@ -222,6 +222,21 @@ describe("Environment settings in the panel", () => {
     expect(store.noteGlobalMise({ ...report, outcome: "maybe" })).toBe(false);
     expect((await getJson(deps, "status"))["last Global mise lay-down"]).toBe("web-app at revision 3: not laid down (mise install exit 1), 2026-11-13T10:30:00.000Z");
   });
+
+  it("shows the last Container setup in Status with the end of its output, and refuses a malformed report (ADR-0047 §7)", async () => {
+    const { store, deps } = setup();
+    expect((await getJson(deps, "status"))["last Container setup"]).toBeNull();
+    expect((await getJson(deps, "status"))["last Container setup output"]).toBeNull();
+    const report = { workspace: "web-app", runtime: "r1", revision: 4, sha256: SHA_OF_TEXT, bytes: 25, source: "environment", outcome: "failed", exitCode: 2, timedOut: false, output: "E: Unable to locate package ripgrep\n", ms: 2_400, at: NOW };
+    expect(store.noteContainerSetup(report)).toBe(true);
+    expect(store.noteContainerSetup({ ...report, output: 7 })).toBe(false);
+    expect(store.noteContainerSetup({ ...report, outcome: "maybe" })).toBe(false);
+    const status = await getJson(deps, "status");
+    expect(status["last Container setup"]).toBe("web-app at revision 4: exit 2 after 2.4 s, 2026-11-13T10:30:00.000Z");
+    expect(status["last Container setup output"]).toBe("E: Unable to locate package ripgrep\n");
+    const html = await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), deps)).text();
+    expect(html).toMatch(/<pre class="status-output"[^>]*>E: Unable to locate package ripgrep\n<\/pre>/);
+  });
 });
 
 // SPI-1152: the Variables in the same section and guards; the audit log keeps names and values (the page shows them to

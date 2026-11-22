@@ -4,7 +4,7 @@
 // other's readers take it again. Sessions take a new Harness revision at a turn's start; Workspace DOs take a new
 // Environment revision before a Container start. One audit log for both, append-only, 1 000 entries kept, each with its
 // `entity`; it holds no secret value (parts 2-4's secrets are masked before an entry is written).
-import { EMPTY_ENVIRONMENT, EMPTY_HARNESS, type GlobalMiseReport, globalMiseReport, type StoredEnvironment, type StoredHarness, type T3ToolListing, t3ToolListing } from "@t3flare/harness-registry";
+import { type ContainerSetupReport, containerSetupReport, EMPTY_ENVIRONMENT, EMPTY_HARNESS, type GlobalMiseReport, globalMiseReport, type StoredEnvironment, type StoredHarness, type T3ToolListing, t3ToolListing } from "@t3flare/harness-registry";
 
 import { keptKey, type KvStorage } from "./keys.ts";
 
@@ -15,6 +15,7 @@ const CSRF_KEY = "t3flare:harness:csrf-key";
 const READ_KEY = "t3flare:harness:last-read";
 const ENVIRONMENT_READ_KEY = "t3flare:environment:last-read";
 const GLOBAL_MISE_KEY = "t3flare:environment:global-mise";
+const CONTAINER_SETUP_KEY = "t3flare:environment:container-setup";
 const T3_TOOLS_KEY = "t3flare:harness:t3-tools";
 export const AUDIT_KEPT = 1_000;
 
@@ -103,6 +104,12 @@ export interface HarnessStore {
    */
   noteGlobalMise(report: unknown): boolean;
   lastGlobalMise(): GlobalMiseReport | undefined;
+  /**
+   * A Workspace DO's Container setup (ADR-0047 §7): kept when it is a well-formed report, the last one only, across all
+   * Workspaces. Answers whether it was kept.
+   */
+  noteContainerSetup(report: unknown): boolean;
+  lastContainerSetup(): ContainerSetupReport | undefined;
   /** t3's tools as a Session last listed them (the t3-code card's list): kept when well-formed. Answers whether it was kept. */
   noteT3Tools(listing: unknown): boolean;
   lastT3Tools(): T3ToolListing | undefined;
@@ -147,6 +154,13 @@ export const harnessStore = (kv: KvStorage): HarnessStore => ({
     return true;
   },
   lastGlobalMise: () => globalMiseReport(kv.get<unknown>(GLOBAL_MISE_KEY)),
+  noteContainerSetup: (report) => {
+    const valid = containerSetupReport(report);
+    if (valid === undefined) return false;
+    kv.put(CONTAINER_SETUP_KEY, valid);
+    return true;
+  },
+  lastContainerSetup: () => containerSetupReport(kv.get<unknown>(CONTAINER_SETUP_KEY)),
   noteT3Tools: (listing) => {
     const valid = t3ToolListing(listing);
     if (valid === undefined) return false;

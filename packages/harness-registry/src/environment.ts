@@ -25,6 +25,16 @@ export const MAX_CONTAINER_BUDGET = 10;
 /** The largest Global mise config, in bytes of UTF-8. */
 export const MAX_GLOBAL_MISE_BYTES = 16 * 1024;
 
+/**
+ * The largest Container setup, in bytes of UTF-8 (ADR-0047 §9). Fixed by a constraint: every Environment setting is one
+ * stored value of at most 2 MB, and the Environment settings are one value together.
+ */
+export const MAX_CONTAINER_SETUP_BYTES = 256 * 1024;
+
+/** What a Container whose setup failed does (ADR-0047 §7): carries on, or refuses every command but a passive read. */
+export const CONTAINER_SETUP_FAILURES = ["carryOn", "refuse"] as const;
+export type ContainerSetupFailure = (typeof CONTAINER_SETUP_FAILURES)[number];
+
 /** The Grace's default and bounds, in days (ADR-0043 §1): no zero, since at once is the Owner's own Purge. */
 export const DEFAULT_GRACE_DAYS = 7;
 export const MAX_GRACE_DAYS = 3650;
@@ -121,6 +131,24 @@ export const ENVIRONMENT_SETTINGS = {
     description:
       "A mise.toml every Container's commands get, under a repository's own and over the image's base tools. Laid down and installed at each Workspace's next Container start; a running Container keeps what it started with. Kept only if git and gh still run under it. disable_tools and disable_backends are ignored. Agents can read this file: put no secret in it, [env] included.",
     schema: { type: "file", maxBytes: MAX_GLOBAL_MISE_BYTES, default: "" },
+  },
+  containerSetup: {
+    title: "Container setup",
+    description:
+      "A bash script run once in every new Container before its first command, after the Global mise config is laid down: as root in / with HOME=/root, the Variables and t3flare's command environment. Every command, Terminal and CLI agent waits for it. Applies at each Workspace's next Container start; a running Container keeps what it started with. Its exit code, time and the last 32 KB of its output show in Status, with every secret Variable's value blanked.",
+    schema: { type: "file", maxBytes: MAX_CONTAINER_SETUP_BYTES, default: "" },
+  },
+  containerSetupMinutes: {
+    title: "Container setup time limit (minutes)",
+    description: "How long the Container setup may run before it is stopped and counts as failed. Applies at each Workspace's next Container start.",
+    schema: { type: "integer", minimum: 1, maximum: 60, default: 5 },
+    tier: "down-free",
+  },
+  containerSetupFailure: {
+    title: "When the Container setup fails",
+    description:
+      "carryOn: the Container's commands run anyway. refuse: every command, Terminal and CLI agent in that Container is refused until a new Container starts. A failure is a non-zero exit, the time limit, or a Container that could not run it. Applies at each Workspace's next Container start.",
+    schema: { type: "enum", values: CONTAINER_SETUP_FAILURES, default: "carryOn" },
   },
   sweepPurges: {
     title: "Purge after the Grace",

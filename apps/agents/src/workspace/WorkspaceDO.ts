@@ -47,10 +47,12 @@ import { BUDGET_NAME, type ContainerBudget, RENEW_EVERY_MS } from "../budget.ts"
 import { type EnvironmentDO, environmentStub } from "../environment.ts";
 import { EMPTY_ENVIRONMENT, fitVariableEnv, type McpRelayAnswer, type ResolvedEnvironment, resolveEnvironment } from "@t3flare/harness-registry";
 import { changedBetween, currentRevision, repoFileSizes } from "./changeLog.ts";
-import { type ContainerLaunch, ENVIRONMENT_READ_MS, launchOf, shownLaunch, takeEnvironment, withGlobalMise } from "./containerLaunch.ts";
+import { type ContainerLaunch, ENVIRONMENT_READ_MS, launchOf, secretValuesOf, shownLaunch, takeEnvironment, withScripts } from "./containerLaunch.ts";
+import { ContainerSetup, type ContainerSetupState } from "./containerSetup.ts";
+import { type ContainerExec, ContainerSteps } from "./containerStep.ts";
 import { GlobalMise, type GlobalMiseState } from "./globalMise.ts";
 import { StoppedExecs, StoppedExecsBackend } from "./stoppedExecs.ts";
-import { commandEnvOf, COMPUTER_RUNTIME_KEY, GlobalMiseBackend, readyForSpawn, spawnRuntime } from "./globalMiseGate.ts";
+import { commandEnvOf, COMPUTER_RUNTIME_KEY, ContainerStepsBackend, readyForSpawn, spawnRuntime } from "./containerStepsGate.ts";
 import { commandEnv, VariablesBackend } from "./variables.ts";
 import { reclaimFor } from "./reclaim.ts";
 import { killInRunningContainer } from "./containerKill.ts";
@@ -281,6 +283,10 @@ export class WorkspaceDO extends ContainerHost {
   readonly #stoppedExecs = new StoppedExecs(() => Date.now());
   /** The Global mise config's lay-down, once per Container (SPI-1150, ADR-0032's Global mise config refinement). */
   readonly #globalMise: GlobalMise;
+  /** The Container setup, once per Container after the lay-down (ADR-0047 §7). */
+  readonly #containerSetup: ContainerSetup;
+  /** The once-per-Container steps in order: the lay-down, then the Container setup. Every active command waits for them. */
+  readonly #steps: ContainerSteps;
   /** The runtime id of the Container computer last connected to (its lay-down's key). */
   #runtime: string | undefined;
   /** Whether bubblewrap works in the running Container (review F5): probed once per Container start. */
@@ -339,17 +345,19 @@ export class WorkspaceDO extends ContainerHost {
         if (this.ctx.container?.running === true) await this.ctx.container.destroy();
       },
       log: (event) => console.log(JSON.stringify({ ...event, workspace: this.#workspaceId() ?? null })),
-      // Every connect: the Container's runtime id, its lay-down's key (`GlobalMiseBackend` runs it before a command).
+      // Every connect: the Container's runtime id, its steps' key (`ContainerStepsBackend` runs them before a command).
       connected: async (handle) => {
         this.#runtime = handle.runtimeId;
       },
     });
-    this.#globalMise = new GlobalMise({
-      exec: async (argv, stdin) => {
+    // A once-per-Container step's script on the running Container: the owner's Variables reach it as every command (a
+    // mirror a tool's install reads, a token a setup clones with); COMMAND_ENV and `env` win.
+    const stepExec =
+      (env: Readonly<Record<string, string>>) =>
+      async (argv: ReadonlyArray<string>, stdin: string): Promise<ContainerExec> => {
         const container = this.ctx.container;
         if (container === undefined || !container.running) throw new Error("the Container is not running");
-        // The owner's Variables reach the install as every command (a mirror a tool's install reads); COMMAND_ENV wins.
-        const process = await container.exec([...argv], { stdin: "pipe", stdout: "pipe", stderr: "pipe", env: commandEnv(this.#variables(), COMMAND_ENV) });
+        const process = await container.exec([...argv], { stdin: "pipe", stdout: "pipe", stderr: "pipe", env: commandEnv(this.#variables(), COMMAND_ENV, env) });
         const writer = process.stdin?.getWriter();
         await writer?.write(new TextEncoder().encode(stdin));
         await writer?.close();
@@ -357,22 +365,26 @@ export class WorkspaceDO extends ContainerHost {
           output: Promise.all([process.output(), process.exitCode.catch(() => null)]).then(([output, exitCode]) => ({ stdout: new TextDecoder().decode(output.stdout), exitCode })),
           kill: () => process.kill(9),
         };
-      },
+      };
+    // A step counts as a command: no idle stop, and "in use" to a reclaim (ADR-0032's Global mise config refinement).
+    const hold = () => {
+      this.#running++;
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        this.#running--;
+      };
+    };
+    const used = async () => {
+      await this.#noteUse();
+      await this.#scheduleAlarm();
+    };
+    this.#globalMise = new GlobalMise({
+      exec: stepExec({}),
       launch: () => ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY)?.globalMise,
-      // The lay-down counts as a command: no idle stop, and "in use" to a reclaim (ADR-0032's Global mise config refinement).
-      hold: () => {
-        this.#running++;
-        let released = false;
-        return () => {
-          if (released) return;
-          released = true;
-          this.#running--;
-        };
-      },
-      used: async () => {
-        await this.#noteUse();
-        await this.#scheduleAlarm();
-      },
+      hold,
+      used,
       report: (report) => ctx.waitUntil(environmentStub(this.env.ENVIRONMENT).noteGlobalMise(report).then(() => undefined, () => undefined)),
       storage: ctx.storage.kv,
       workspace: () => this.#workspaceId() ?? null,
@@ -380,6 +392,23 @@ export class WorkspaceDO extends ContainerHost {
       deadlineMs: GLOBAL_MISE_DEADLINE_MS,
       log: (event) => console.log(JSON.stringify(event)),
     });
+    this.#containerSetup = new ContainerSetup({
+      // As root in / with HOME=/root (ADR-0047): the wrapper sets both too.
+      exec: stepExec({ HOME: "/root" }),
+      launch: () => ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY)?.containerSetup,
+      secrets: () => secretValuesOf(ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY)),
+      hold,
+      used,
+      report: (report) => ctx.waitUntil(environmentStub(this.env.ENVIRONMENT).noteContainerSetup(report).then(() => undefined, () => undefined)),
+      storage: ctx.storage.kv,
+      workspace: () => this.#workspaceId() ?? null,
+      now: () => Date.now(),
+      log: (event) => console.log(JSON.stringify(event)),
+    });
+    this.#steps = new ContainerSteps([
+      { step: this.#globalMise, doing: "installing the Global mise config" },
+      { step: this.#containerSetup, doing: "running the Container setup", refusal: (state) => this.#containerSetup.refusal(state as ContainerSetupState) },
+    ]);
     this.#reads = readCache(ctx.storage.sql);
     this.#skillSet = skillSetStore({ kv: ctx.storage.kv, transactionSync: <T>(closure: () => T): T => ctx.storage.transactionSync(closure) });
     const skillSet = this.#skillSet;
@@ -389,7 +418,7 @@ export class WorkspaceDO extends ContainerHost {
       // hash replaces the copy (`takeEnvironmentSkills`).
       mounts: { [SKILLS_MOUNT]: skillSetMount(skillSet) },
       // The Variables under every command computer runs, on either backend (SPI-1152, `variables.ts`).
-      backends: [this.#withVariables(new WorkerShellBackend({ loader: env.LOADER, workspace: ref, ctx })), this.#withVariables(new GlobalMiseBackend(new StoppedExecsBackend(this.#container, this.#stoppedExecs), (runtime) => this.#globalMise.ensure(runtime)))],
+      backends: [this.#withVariables(new WorkerShellBackend({ loader: env.LOADER, workspace: ref, ctx })), this.#withVariables(new ContainerStepsBackend(new StoppedExecsBackend(this.#container, this.#stoppedExecs), (runtime) => this.#steps.ensure(runtime)))],
     });
     // The model's file tools reach Container-only paths through the Container, as a script.
     this.#host = new WorkspaceEnvHost(this.#workspace, {
@@ -441,7 +470,7 @@ export class WorkspaceDO extends ContainerHost {
       remember: (markers) => ctx.storage.kv.put(TERMINAL_MARKERS_KEY, [...markers]),
       remembered: () => ctx.storage.kv.get<ReadonlyArray<string>>(TERMINAL_MARKERS_KEY) ?? [],
       beforeSpawn: async () => {
-        await this.#ensureGlobalMise();
+        await this.#ensureSteps();
         if (this.containerRunning()) await this.#syncEntries("push");
       },
       projectRootView: PROJECT_ROOT_VIEW,
@@ -465,7 +494,7 @@ export class WorkspaceDO extends ContainerHost {
       remember: (markers) => ctx.storage.kv.put(AGENT_TERMINAL_MARKERS_KEY, [...markers]),
       remembered: () => ctx.storage.kv.get<ReadonlyArray<string>>(AGENT_TERMINAL_MARKERS_KEY) ?? [],
       beforeSpawn: async () => {
-        await this.#ensureGlobalMise();
+        await this.#ensureSteps();
         if (this.containerRunning()) await this.#syncEntries("push");
       },
       projectRootView: PROJECT_ROOT_VIEW,
@@ -505,7 +534,7 @@ export class WorkspaceDO extends ContainerHost {
       maxProcesses: MAX_CLI_PROCESSES,
       allowProbe: env.T3FLARE_FAULTS === "1",
       beforeStart: async () => {
-        await this.#ensureGlobalMise();
+        await this.#ensureSteps();
         return { sandbox: await this.#sandboxWorks() };
       },
     });
@@ -892,9 +921,9 @@ export class WorkspaceDO extends ContainerHost {
       keep: (settings) => kv.put(ENVIRONMENT_KEY, settings),
       waitMs: ENVIRONMENT_READ_MS,
     });
-    const launch = await withGlobalMise(launchOf(taken), taken);
+    const launch = await withScripts(launchOf(taken), taken);
     kv.put(LAUNCH_KEY, launch);
-    console.log(JSON.stringify({ t3flare: "container-launch", workspace: this.#workspaceId() ?? null, source: taken.source, revision: launch.revision, size: launch.size, idleMs: launch.idleMs, budget: launch.budget, globalMise: launch.globalMise === undefined ? null : { bytes: launch.globalMise.bytes, sha256: launch.globalMise.sha256 } }));
+    console.log(JSON.stringify({ t3flare: "container-launch", workspace: this.#workspaceId() ?? null, source: taken.source, revision: launch.revision, size: launch.size, idleMs: launch.idleMs, budget: launch.budget, globalMise: launch.globalMise === undefined ? null : { bytes: launch.globalMise.bytes, sha256: launch.globalMise.sha256 }, containerSetup: launch.containerSetup === undefined ? null : { bytes: launch.containerSetup.bytes, sha256: launch.containerSetup.sha256 } }));
     return launch;
   }
 
@@ -1880,22 +1909,22 @@ export class WorkspaceDO extends ContainerHost {
   }
 
   /**
-   * Before a Terminal's or a CLI process's spawn: the running Container's lay-down has ended (`readyForSpawn`), joined
-   * while it runs and run again after an exec failure. No command and no connect: the runtime is computer's stored one
-   * (`spawnRuntime`), falling back to the last connect's when the key is cleared.
+   * Before a Terminal's or a CLI process's spawn: the running Container's steps have ended (`readyForSpawn`), joined
+   * while they run and run again after an exec failure; a refusal refuses the spawn. No command and no connect: the
+   * runtime is computer's stored one (`spawnRuntime`), falling back to the last connect's when the key is cleared.
    */
-  async #ensureGlobalMise(): Promise<void> {
+  async #ensureSteps(): Promise<void> {
     await readyForSpawn({
       running: () => this.containerRunning(),
       runtime: () => spawnRuntime(() => this.ctx.storage.get(COMPUTER_RUNTIME_KEY), this.#runtime),
-      ensure: (runtime) => this.#globalMise.ensure(runtime),
+      ensure: (runtime) => this.#steps.ensure(runtime),
       log: (event) => console.log(JSON.stringify({ ...event, workspace: this.#workspaceId() ?? null })),
     });
   }
 
-  /** What a command cut off before it started waited for (computer-env's message): the Global mise config's install. */
+  /** What a command cut off before it started waited for (computer-env's message): a once-per-Container step. */
   containerStartingNote(): string | undefined {
-    return this.#globalMise.inFlight() ? "installing the Global mise config" : undefined;
+    return this.#steps.doing();
   }
 
   /** Whether the Container runs, and the budget's view. */
@@ -1907,6 +1936,8 @@ export class WorkspaceDO extends ContainerHost {
     readonly launch: ReturnType<typeof shownLaunch> | null;
     /** The current Container's Global mise lay-down (its answer, never the text). */
     readonly globalMise: GlobalMiseState | null;
+    /** The current Container's setup (its exit, never its output: that goes to the Environment DO's Status). */
+    readonly containerSetup: ContainerSetupState | null;
   }> {
     return {
       running: this.containerRunning(),
@@ -1915,6 +1946,7 @@ export class WorkspaceDO extends ContainerHost {
       startedAt: (await this.ctx.storage.get<number>(STARTED_AT_KEY)) ?? null,
       launch: this.#shownLaunch(),
       globalMise: this.#globalMise.state() ?? null,
+      containerSetup: this.#containerSetup.state() ?? null,
     };
   }
 
@@ -1977,9 +2009,9 @@ export class WorkspaceDO extends ContainerHost {
       await this.stopContainer();
       return;
     }
-    // A lay-down whose exec failed, or that never ran (only passive reads connected), runs here, not awaited, whoever
-    // calls next (ADR-0032's Global mise config refinement).
-    if (this.#globalMise.catchUp(this.#runtime)) console.log(JSON.stringify({ t3flare: "global-mise-catch-up", workspace: this.#workspaceId() ?? null }));
+    // A step whose exec failed, or that never ran (only passive reads connected), runs here, not awaited, whoever
+    // calls next (ADR-0032's Global mise config refinement, ADR-0047 §7).
+    if (this.#steps.catchUp(this.#runtime)) console.log(JSON.stringify({ t3flare: "container-steps-catch-up", workspace: this.#workspaceId() ?? null }));
     const renewed = await this.#budget().renew(this.ctx.id.toString());
     if (!renewed.ok) console.warn(JSON.stringify({ t3flare: "container-lease-lost", reason: renewed.reason }));
     await this.#scheduleAlarm();

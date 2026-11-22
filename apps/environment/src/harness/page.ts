@@ -678,9 +678,16 @@ const statusValue = (value: string | number | null): string => {
   return escapeHtml(String(value));
 };
 
+/** Whether a status value is a block of lines (the Container setup's output): shown below its name, as it was written. */
+const isBlock = (value: string | number | null): value is string => typeof value === "string" && value.includes("\n");
+
 const statusSection = (status: Readonly<Record<string, string | number | null>>): string => {
   const rows = Object.entries(status)
-    .map(([key, value]) => `<div><dt>${escapeHtml(key)}</dt><dd>${statusValue(value)}</dd></div>`)
+    .map(([key, value]) =>
+      isBlock(value)
+        ? `<div class="kv-block"><dt>${escapeHtml(key)}</dt><dd><pre class="status-output" tabindex="0" aria-label="${escapeHtml(key)}">${escapeHtml(value)}</pre></dd></div>`
+        : `<div><dt>${escapeHtml(key)}</dt><dd>${statusValue(value)}</dd></div>`,
+    )
     .join("");
   return `<section id="status" aria-labelledby="status-title">
 <div class="section-head"><h2 id="status-title">${icon("status")}Status</h2></div>

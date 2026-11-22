@@ -1,12 +1,13 @@
 // @effect-diagnostics globalTimers:off
 // "mise install runs before the first command of each Container start" (SPI-1150, ADR-0032): every command sent to the
-// Container that is not a passive read waits for the lay-down, at the point it is sent (`GlobalMiseBackend`), whoever
+// Container that is not a passive read waits for the lay-down, at the point it is sent (`ContainerStepsBackend`), whoever
 // sends it: a Durable agent's command comes through computer, never `WorkspaceDO.exec`. Passive reads never run it.
 // Terminals and CLI processes wait before their spawn (`readyForSpawn`).
 import type { BackendHandle, WorkspaceBackend } from "@cloudflare/computer";
 import { describe, expect, it } from "vitest";
 
-import { commandEnvOf, COMPUTER_RUNTIME_KEY, GlobalMiseBackend, PASSIVE_MARKER, readyForSpawn, spawnRuntime } from "../src/workspace/globalMiseGate.ts";
+import { ContainerRefused, ContainerSteps, type SequencedStep } from "../src/workspace/containerStep.ts";
+import { commandEnvOf, COMPUTER_RUNTIME_KEY, ContainerStepsBackend, PASSIVE_MARKER, readyForSpawn, spawnRuntime } from "../src/workspace/containerStepsGate.ts";
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
 
@@ -48,11 +49,11 @@ const layDown = () => {
 const passive = (source: string) => ({ source, env: { [PASSIVE_MARKER]: "1", A: "x" } }) as never;
 const active = (source: string) => ({ source, env: { T3FLARE_EXEC: "exec-1" } }) as never;
 
-describe("GlobalMiseBackend", () => {
+describe("ContainerStepsBackend", () => {
   it("a Durable agent's command arriving while a passive read holds the connect waits for the lay-down; the read does not", async () => {
     const sent: Array<string> = [];
     const gate = layDown();
-    const handle = await new GlobalMiseBackend(container(sent), gate.ensure).connect({} as never);
+    const handle = await new ContainerStepsBackend(container(sent), gate.ensure).connect({} as never);
     // A status poll (passive, marked by WorkspaceDO.exec) is in flight on the shared connect.
     await handle.rpc.shell.exec(passive("git status"));
     expect(sent).toEqual(["git status"]);
@@ -70,7 +71,7 @@ describe("GlobalMiseBackend", () => {
   it("a Container a passive read started still lays down before the first active command", async () => {
     const sent: Array<string> = [];
     const gate = layDown();
-    const backend = new GlobalMiseBackend(container(sent), gate.ensure);
+    const backend = new ContainerStepsBackend(container(sent), gate.ensure);
     // The passive read's connect starts the Container and its command runs without the lay-down.
     const first = await backend.connect({} as never);
     await first.rpc.shell.exec(passive("git rev-parse HEAD"));
@@ -84,7 +85,7 @@ describe("GlobalMiseBackend", () => {
   it("a Terminal's start on a stopped Container, with a passive read in flight, waits for the lay-down before its spawn", async () => {
     const sent: Array<string> = [];
     const gate = layDown();
-    const handle = await new GlobalMiseBackend(container(sent), gate.ensure).connect({} as never);
+    const handle = await new ContainerStepsBackend(container(sent), gate.ensure).connect({} as never);
     const read = handle.rpc.shell.exec(passive("git status"));
     // The Terminal host starts the Container with an active `true`, then spawns once it is ready.
     const events: Array<string> = [];
@@ -97,6 +98,82 @@ describe("GlobalMiseBackend", () => {
     await spawn;
     expect(events).toEqual(["started", "spawned"]);
     expect(sent).toEqual(["git status", "true"]);
+  });
+});
+
+describe("ContainerStepsBackend's refusal", () => {
+  it("refuses an active command, never sent, when its Container's steps refuse it; a passive read still runs", async () => {
+    const sent: Array<string> = [];
+    const handle = await new ContainerStepsBackend(container(sent), async () => Promise.reject(new ContainerRefused("Refused: setup failed"))).connect({} as never);
+    await expect(handle.rpc.shell.exec(active("npm test"))).rejects.toThrow("Refused: setup failed");
+    await handle.rpc.shell.exec(passive("git status"));
+    expect(sent).toEqual(["git status"]);
+  });
+
+  it("sends the command when the steps fail any other way", async () => {
+    const sent: Array<string> = [];
+    const handle = await new ContainerStepsBackend(container(sent), async () => Promise.reject(new Error("exec"))).connect({} as never);
+    await handle.rpc.shell.exec(active("npm test"));
+    expect(sent).toEqual(["npm test"]);
+  });
+});
+
+describe("ContainerSteps", () => {
+  /** A step on a script of ends: each `ensure` resolves when its test says, with the state given. */
+  const step = (name: string, events: Array<string>, outcome = "ok", options: { due?: boolean; fails?: boolean } = {}) => {
+    let running = false;
+    let release: () => void = () => undefined;
+    const ensure = async (runtime: string | undefined) => {
+      events.push(`${name} ${String(runtime)}`);
+      running = true;
+      await new Promise<void>((resolve) => (release = resolve));
+      running = false;
+      events.push(`${name} done`);
+      if (options.fails === true) throw new Error(`${name} broke`);
+      return { runtime: runtime ?? "", outcome, attempts: 1, at: 0 };
+    };
+    return { step: { ensure, due: () => options.due ?? false, inFlight: () => running }, release: () => release() };
+  };
+  const steps = (...entries: ReadonlyArray<SequencedStep>) => new ContainerSteps(entries);
+
+  it("runs each step after the one before has ended, and the second even when the first broke", async () => {
+    const events: Array<string> = [];
+    const mise = step("mise", events, "laid", { fails: true });
+    const setup = step("setup", events);
+    const ready = steps({ step: mise.step, doing: "installing the Global mise config" }, { step: setup.step, doing: "running the Container setup" });
+    const done = ready.ensure("r1");
+    await tick();
+    expect(events).toEqual(["mise r1"]);
+    expect(ready.doing()).toBe("installing the Global mise config");
+    mise.release();
+    await tick();
+    expect(events).toEqual(["mise r1", "mise done", "setup r1"]);
+    expect(ready.doing()).toBe("running the Container setup");
+    setup.release();
+    await done;
+    expect(ready.doing()).toBeUndefined();
+  });
+
+  it("rejects with ContainerRefused when a step's outcome refuses the Container", async () => {
+    const events: Array<string> = [];
+    const setup = step("setup", events, "failed");
+    const ready = steps({ step: setup.step, doing: "running the Container setup", refusal: (state) => (state.outcome === "failed" ? "Refused: setup failed" : undefined) });
+    const done = ready.ensure("r1");
+    await tick();
+    setup.release();
+    await expect(done).rejects.toBeInstanceOf(ContainerRefused);
+  });
+
+  it("the alarm catches up when a step is due and none runs", async () => {
+    const events: Array<string> = [];
+    const mise = step("mise", events);
+    const setup = step("setup", events, "ok", { due: true });
+    const ready = steps({ step: mise.step, doing: "a" }, { step: setup.step, doing: "b" });
+    expect(steps({ step: step("x", []).step, doing: "x" }).catchUp("r1")).toBe(false);
+    expect(ready.catchUp("r1")).toBe(true);
+    await tick();
+    expect(events).toEqual(["mise r1"]);
+    expect(ready.catchUp("r1")).toBe(false);
   });
 });
 
@@ -138,6 +215,11 @@ describe("readyForSpawn", () => {
       expect(h.logged).toHaveLength(1);
       expect(h.logged[0]).toMatchObject({ t3flare: "global-mise-spawn", waited: false });
     }
+  });
+
+  it("refuses the spawn when the Container's steps refuse its commands", async () => {
+    const h = harness(true, async () => "r1", async () => Promise.reject(new ContainerRefused("Refused: setup failed")));
+    await expect(h.ready()).rejects.toThrow("Refused: setup failed");
   });
 
   it("prefers computer's stored runtime over the last connect's, which names a replaced Container until the new connect ends", async () => {
