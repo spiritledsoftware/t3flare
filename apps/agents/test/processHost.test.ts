@@ -13,6 +13,7 @@ import {
   ProcessHost,
   type ProcessHostDeps,
   type ProcessMarker,
+  STARTUP_GRACE_MS,
   textOf,
 } from "../src/workspace/processHost.ts";
 import { DEFAULT_CLI_RECLAIM_SECONDS, MAX_CLI_RECLAIM_SECONDS } from "@t3flare/harness-registry";
@@ -350,15 +351,31 @@ describe("ProcessHost", () => {
     expect(h.host.reclaimable()).toEqual(["proc-a", "proc-b", "proc-c"]);
   });
 
-  it("never offers a process no turn has ended yet, even at a 0 s delay: its first turn may not have arrived (SPI-1318)", async () => {
+  it("gives a process no turn has ended a 30 s startup grace from its start, even at a 0 s delay (SPI-1318)", async () => {
     const h = harness();
     await h.host.start(start("proc-a", { cliReclaimSeconds: 0 }));
     expect(h.host.reclaimable()).toEqual([]);
-    h.advance(CLI_IDLE_HOLD_MS);
+    h.advance(STARTUP_GRACE_MS - 1);
     expect(h.host.reclaimable()).toEqual([]);
+    h.advance(1);
+    expect(h.host.reclaimable()).toEqual(["proc-a"]);
+  });
+
+  it("offers a process at once at a 0 s delay once one of its turns has ended, within the startup grace (SPI-1318)", async () => {
+    const h = harness();
+    await h.host.start(start("proc-a", { cliReclaimSeconds: 0 }));
     h.host.turn("proc-a", true);
     expect(h.host.reclaimable()).toEqual([]);
     h.host.turn("proc-a", false);
+    expect(h.host.reclaimable()).toEqual(["proc-a"]);
+  });
+
+  it("keeps a turnless process's longer delay past the startup grace", async () => {
+    const h = harness();
+    await h.host.start(start("proc-a", { cliReclaimSeconds: 120 }));
+    h.advance(STARTUP_GRACE_MS);
+    expect(h.host.reclaimable()).toEqual([]);
+    h.advance(120_000 - STARTUP_GRACE_MS);
     expect(h.host.reclaimable()).toEqual(["proc-a"]);
   });
 

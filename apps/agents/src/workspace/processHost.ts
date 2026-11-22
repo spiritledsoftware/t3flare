@@ -40,6 +40,12 @@ export const ECHO_WINDOW_MS = 1_000;
 export const BACKPRESSURE_BYTES = 1024 * 1024;
 /** How long after its last turn a CLI process holds the Container (review F7; t3 releases the session at 10 minutes). */
 export const CLI_IDLE_HOLD_MS = 11 * 60_000;
+/**
+ * The least a CLI process no turn has ended yet waits from its start before a reclaim may end it, whatever the reclaim
+ * delay. Fixed for t3flare's own correctness: it covers the spawn to the first turn's arrival, so a reclaim cannot end a
+ * process before its first turn. Equal to the delay's default, so the default behaves as before the setting.
+ */
+export const STARTUP_GRACE_MS = 30_000;
 /** A process with neither input nor output for this long is killed (past the 2 h turn cap). */
 export const BACKSTOP_MS = 130 * 60_000;
 
@@ -233,13 +239,17 @@ export class ProcessHost {
 
   /**
    * Processes no turn has used for the reclaim delay each started with: the budget may end them for another Workspace.
-   * A process none of whose turns has ended yet is never one: its first turn may not have arrived (a 0 s delay would
-   * otherwise offer it at its start).
+   * One none of whose turns has ended yet waits at least `STARTUP_GRACE_MS` from its start: its first turn may not have
+   * arrived (a 0 s delay would otherwise offer it at its start).
    */
   reclaimable(): ReadonlyArray<string> {
     const now = this.#deps.now();
     return [...this.#procs.values()]
-      .filter((proc) => !proc.exited && !proc.inTurn && proc.turnEnded && now - Math.max(proc.turnEndedAt, proc.lastInput) >= proc.reclaimAfterMs)
+      .filter((proc) => {
+        if (proc.exited || proc.inTurn) return false;
+        const wait = proc.turnEnded ? proc.reclaimAfterMs : Math.max(proc.reclaimAfterMs, STARTUP_GRACE_MS);
+        return now - Math.max(proc.turnEndedAt, proc.lastInput) >= wait;
+      })
       .map((proc) => proc.key);
   }
 
