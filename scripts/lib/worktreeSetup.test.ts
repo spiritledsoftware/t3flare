@@ -9,7 +9,9 @@ import { after, describe, it } from "node:test";
 
 import { gitfileTarget, worktreeSetup } from "./worktreeSetup.ts";
 
-// The scratch repositories see none of the machine's git config or hooks; identity comes from the environment.
+// The scratch repositories see none of the machine's git config or hooks, nor a GIT_DIR or GIT_INDEX_FILE this test
+// was started under; identity comes from the environment.
+for (const key of Object.keys(process.env)) if (key.startsWith("GIT_")) delete process.env[key];
 Object.assign(process.env, {
   GIT_CONFIG_GLOBAL: "/dev/null",
   GIT_CONFIG_NOSYSTEM: "1",
@@ -57,7 +59,11 @@ const superproject = () => {
   git(path.join(main, "t3code"), "checkout", "--quiet", second);
   git(main, "commit", "--quiet", "-am", "pin two");
   git(main, "config", "submodule.recurse", "true");
-  return { dir, main, first, second };
+  // A commit only the upstream has: the main checkout's module dir never fetched it.
+  fs.writeFileSync(path.join(upstream, "a.txt"), "three\n");
+  git(upstream, "commit", "--quiet", "-am", "three");
+  const unfetched = git(upstream, "rev-parse", "HEAD");
+  return { dir, main, first, second, unfetched };
 };
 
 /** A linked git worktree of `main` whose `t3code/.git` is a dangling relative pointer beside populated files, as T3's checkout cache leaves it. */
@@ -95,6 +101,8 @@ await describe("worktreeSetup", async () => {
     assert.equal(git(worktree, "status", "--porcelain"), "");
     assert.equal(git(worktree, "submodule", "update", "--init"), "");
     assert.equal(git(worktree, "rev-parse", "HEAD:t3code"), fixture.second);
+    // A leading space: initialised and at the pinned commit (not "-" uninitialised, "+" off the pin, or "U" conflicted).
+    assert.match(spawnSync("git", ["submodule", "status"], { cwd: worktree, encoding: "utf8" }).stdout, new RegExp(`^ ${fixture.second} t3code `));
 
     // A switch to a commit pinning another submodule commit recurses into it.
     git(worktree, "switch", "--quiet", "--detach", "old");
@@ -157,5 +165,57 @@ await describe("worktreeSetup", async () => {
     assert.equal(result.kind, "uninitialised");
     if (result.kind === "uninitialised") assert.match(result.message, /git submodule update --init t3code$/);
     assert.equal(fs.readFileSync(path.join(worktree, "t3code", ".git"), "utf8"), "gitdir: ../../.git/worktrees/elsewhere/modules/t3code\n");
+  });
+
+  await it("fails when the borrowed objects lack the pinned commit, and keeps failing: never healthy", () => {
+    const fixture = superproject();
+    const worktree = brokenWorktree(fixture);
+    git(worktree, "-c", "submodule.recurse=false", "update-index", "--cacheinfo", `160000,${fixture.unfetched},t3code`);
+    git(worktree, "-c", "submodule.recurse=false", "commit", "--quiet", "-m", "pin three");
+    const own = path.join(gitDirOf(worktree), "modules", "t3code");
+    for (const run of [1, 2]) {
+      const result = worktreeSetup(worktree);
+      assert.equal(result.kind, "failed", `run ${run}`);
+      if (result.kind === "failed") assert.match(result.message, /git submodule update --init t3code$/);
+      assert.equal(fs.readFileSync(path.join(worktree, "t3code", ".git"), "utf8"), "gitdir: ../../.git/worktrees/elsewhere/modules/t3code\n");
+      assert.equal(fs.existsSync(own), false);
+      assert.deepEqual(fs.readdirSync(path.dirname(own)), []);
+    }
+  });
+
+  await it("leaves the dangling pointer in place when preparing the module dir fails, and repairs once it can", () => {
+    const fixture = superproject();
+    const worktree = brokenWorktree(fixture);
+    const modules = path.join(gitDirOf(worktree), "modules");
+    fs.mkdirSync(modules);
+    fs.chmodSync(modules, 0o555);
+    try {
+      assert.equal(worktreeSetup(worktree).kind, "failed");
+      assert.equal(fs.readFileSync(path.join(worktree, "t3code", ".git"), "utf8"), "gitdir: ../../.git/worktrees/elsewhere/modules/t3code\n");
+      assert.equal(worktreeSetup(worktree).kind, "failed");
+    } finally {
+      fs.chmodSync(modules, 0o755);
+    }
+    assert.equal(worktreeSetup(worktree).kind, "repaired");
+    assert.equal(git(worktree, "status", "--porcelain"), "");
+  });
+
+  await it("ignores an inherited GIT_DIR, GIT_WORK_TREE and GIT_INDEX_FILE: the superproject's index stays intact", () => {
+    const fixture = superproject();
+    const worktree = brokenWorktree(fixture);
+    const gitDir = gitDirOf(worktree);
+    const index = path.join(gitDir, "index");
+    const before = fs.readFileSync(index);
+    Object.assign(process.env, { GIT_DIR: gitDir, GIT_WORK_TREE: worktree, GIT_INDEX_FILE: index });
+    let result;
+    try {
+      result = worktreeSetup(worktree);
+    } finally {
+      for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"]) delete process.env[key];
+    }
+    assert.equal(result.kind, "repaired");
+    assert.deepEqual(fs.readFileSync(index), before);
+    assert.equal(git(worktree, "status", "--porcelain"), "");
+    assert.equal(git(path.join(worktree, "t3code"), "rev-parse", "HEAD"), fixture.second);
   });
 });
