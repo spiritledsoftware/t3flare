@@ -74,12 +74,14 @@ refuses to deploy `prod` without it, and refuses any other Stage with it, as `al
    Display information): GitHub takes a logo only there, not from the registration.
 5. Deploy a test Stage: `pnpm --filter @t3flare/environment run deploy <stage>`
    ([`apps/environment/scripts/stage.ts`](../apps/environment/scripts/stage.ts); a Stage name is lowercase letters,
-   digits and inner dashes, at most 34 characters by Cloudflare's limits on Worker names,
+   digits and inner dashes, short enough that the Environment Worker's name, `t3flare-environment-<stage>`, fits
+   Cloudflare's 54-character limit on a Worker with preview URLs;
    [`stage-names.ts`](../apps/environment/stage-names.ts)). It builds the web client (when it is missing, or with
-   `--web`) and the two Workers, then runs alchemy, which builds and pushes the Container image, and then saves the Stage's Model endpoint through the Settings page's API. A
-   Stage's secrets are kept in `apps/environment/.alchemy/stages/` (gitignored). A deploy replaces the Environment's code
-   at once (connected clients reconnect), while Cloudflare lets the agents Worker's busy Durable Objects finish their
-   work first, for up to five minutes.
+   `--web`) and the two Workers, then runs alchemy, which builds and pushes the Container image, and then saves the
+   Stage's Model endpoint through the Settings page's API. A Stage's secrets are kept in
+   `apps/environment/.alchemy/stages/` (gitignored). A deploy replaces the Environment's code at once (connected
+   clients reconnect), while Cloudflare lets the agents Worker's busy Durable Objects finish their work first, for up
+   to five minutes.
 6. Deploy `prod` from a clean checkout of `main`: `T3FLARE_DOMAIN=t3.example.com pnpm --filter @t3flare/environment run deploy prod`.
 7. Pair your first client, then do the setup step on the Settings page
    ([model-endpoints.md](model-endpoints.md#the-setup-step)): from `apps/environment`,

@@ -5,8 +5,12 @@
 //                                                      build (and the web client with --web or when missing), alchemy deploy,
 //                                                      then the stage's Model endpoint through the panel's API (SPI-1175)
 //   node scripts/stage.ts run <stage> <script> [args]  run scripts/<script>.ts against the stage, with its secrets; a
-//                                                      <script> with a path separator or a .ts suffix is a path from the cwd
-//   node scripts/stage.ts destroy <stage>              alchemy destroy, and forget the stage's secrets
+//                                                      <script> with a path separator or a .ts suffix is a path from the cwd.
+//                                                      The script itself runs in apps/environment, so a relative path in
+//                                                      [args] is from there
+//   node scripts/stage.ts destroy <stage>              alchemy destroy, and forget the stage's secrets; a stage deployed
+//                                                      from another checkout needs its T3_BOOTSTRAP_TOKEN and
+//                                                      T3FLARE_ADMIN_TOKEN in the environment, as CI passes them
 //
 // A <stage> is any name of lowercase letters, digits and inner dashes whose Worker names fit Cloudflare's limits (stage-names.ts).
 //
@@ -56,9 +60,9 @@ if (command === undefined || stage === undefined || problem !== undefined) {
 const secretsFile = secretsFileOf(stage);
 const token = () => randomBytes(32).toString("base64url");
 /** `run` and `destroy` act on a stage deployed from here; without its local files there is nothing to act with. */
-const requireLocalFiles = (file: string) => {
+const requireLocalFiles = (file: string, wayThrough: string) => {
   if (fs.existsSync(file)) return;
-  console.error(`t3flare: no Stage "${stage}" deployed from here (no ${path.relative(here, file)}); deploy it with node scripts/stage.ts deploy ${stage}`);
+  console.error(`t3flare: no Stage "${stage}" deployed from here (no ${path.relative(here, file)}); ${wayThrough}`);
   process.exit(1);
 };
 
@@ -222,10 +226,12 @@ switch (command) {
   case "run": {
     const [script, ...args] = rest;
     if (script === undefined) {
-      console.error("usage: node scripts/stage.ts run <stage> <script> [args]");
+      console.error(
+        "usage: node scripts/stage.ts run <stage> <script> [args]  (<script>: a name in scripts/, or a path from the cwd; the script runs in apps/environment, so relative paths in [args] are from there)",
+      );
       process.exit(2);
     }
-    requireLocalFiles(credentialsFile(stage));
+    requireLocalFiles(credentialsFile(stage), `deploy it with node scripts/stage.ts deploy ${stage}`);
     const access = JSON.parse(fs.readFileSync(credentialsFile(stage), "utf8")) as { url: string; adminUrl?: string; settingsMcpUrl?: string; clientId: string; clientSecret: string };
     // Each script's fetch retries a connection Cloudflare's edge reset (lib/resetRetry.ts).
     const installResetRetry = url.pathToFileURL(path.join(here, "scripts/lib/installResetRetry.ts")).href;
@@ -253,8 +259,10 @@ switch (command) {
       console.error("t3flare: prod holds the owner's threads; pass --really-destroy-prod to destroy it");
       process.exit(2);
     }
-    // CI passes the stage's tokens in the environment instead of a file (stageSecrets).
-    if (!STAGE_SECRETS.every((name) => process.env[name])) requireLocalFiles(secretsFile);
+    // CI passes the stage's tokens in the environment instead of a file (stageSecrets); so can a stage's other checkout.
+    if (!STAGE_SECRETS.every((name) => process.env[name])) {
+      requireLocalFiles(secretsFile, `to destroy a Stage deployed from another checkout, set its ${STAGE_SECRETS.join(" and ")} in the environment`);
+    }
     const { status } = await alchemy(["destroy"], { ...stageSecrets(), ...deploySecrets(OPTIONAL_DEPLOY_SETTINGS) });
     if (status === 0) {
       fs.rmSync(secretsFile, { force: true });

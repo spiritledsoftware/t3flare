@@ -370,7 +370,7 @@ export default Alchemy.Stack(
         description: `t3's auth routes on ${domain} (apps/environment/alchemy.run.ts)`,
         rules: [
           {
-            ref: `t3flare-auth-${stage}`,
+            ref: names.authRule,
             description: `t3flare ${stage}: t3's auth routes on ${domain}`,
             expression: `(http.host eq "${domain}" and http.request.method eq "POST" and http.request.uri.path in {${AUTH_PATHS.map((p) => `"${p}"`).join(" ")}})`,
             action: "block",

@@ -1,7 +1,7 @@
 // The names a stage's resources take (alchemy.run.ts), and the Stage names scripts/stage.ts accepts, kept together so
 // the bound on a Stage name follows the derived names and cannot drift from them (SPI-1338).
 
-/** The Workers and the stand-in tunnel of `stage`. */
+/** The Workers, the stand-in tunnel and the auth rate-limit rule of `stage`. */
 export const stageNames = (stage: string) => ({
   environment: `t3flare-environment-${stage}`,
   agents: `t3flare-agents-${stage}`,
@@ -10,18 +10,21 @@ export const stageNames = (stage: string) => ({
   mcpFixture: `t3flare-mcpfixture-${stage}`,
   probe: `t3flare-probe-${stage}`,
   standin: `t3flare-${stage}-standin`,
+  authRule: `t3flare-auth-${stage}`,
 });
 
 /**
- * Fixed by Cloudflare, the longest each derived name may be. Each is one DNS label (a workers.dev host, the stand-in's
- * host), at most 63 characters and not ending in a dash. The Environment Worker keeps workers.dev's version preview URLs
- * on every Stage but prod (only prod has a domain, alchemy.run.ts), and Cloudflare refuses a script name over 54
- * characters with previews enabled ("Script names with previews enabled cannot be longer than 54 characters", found by
- * a 43-character Stage's deploy); the other Workers have previews off.
+ * Fixed by Cloudflare, the longest each limited name may be. A Worker's script name is at most 63 characters (a
+ * workers.dev host is `<script>.<subdomain>.workers.dev`, one DNS label, for the Workers served there: the Environment,
+ * the MCP fixture and the probe), as is the stand-in's hostname label. A Worker with version previews on is held to 54
+ * ("Script names with previews enabled cannot be longer than 54 characters", found by a 43-character Stage's deploy):
+ * the Environment Worker has them on wherever it is served at workers.dev, every Stage without a domain. The bound is
+ * one rule for every Stage name, prod's too, so a name never fits only while it has a domain. The auth rate-limit
+ * rule's ref has no limit a Stage name could reach.
  */
 const DNS_LABEL_MAX = 63;
 const PREVIEWS_SCRIPT_NAME_MAX = 54;
-const NAME_MAX: Record<keyof ReturnType<typeof stageNames>, number> = {
+const NAME_MAX: Record<Exclude<keyof ReturnType<typeof stageNames>, "authRule">, number> = {
   environment: PREVIEWS_SCRIPT_NAME_MAX,
   agents: DNS_LABEL_MAX,
   codemode: DNS_LABEL_MAX,
@@ -33,7 +36,7 @@ const NAME_MAX: Record<keyof ReturnType<typeof stageNames>, number> = {
 
 /** The longest Stage name whose every derived name fits its limit (34: `t3flare-environment-` under the previews limit). */
 export const MAX_STAGE_NAME_LENGTH = Math.min(
-  ...Object.entries(stageNames("")).map(([key, fixed]) => NAME_MAX[key as keyof typeof NAME_MAX] - fixed.length),
+  ...Object.entries(NAME_MAX).map(([key, max]) => max - stageNames("")[key as keyof typeof NAME_MAX].length),
 );
 
 const STAGE_NAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;

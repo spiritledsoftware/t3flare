@@ -42,6 +42,7 @@ describe("stageNames", () => {
       mcpFixture: "t3flare-mcpfixture-p1",
       probe: "t3flare-probe-p1",
       standin: "t3flare-p1-standin",
+      authRule: "t3flare-auth-p1",
     });
   });
 });
@@ -55,8 +56,15 @@ describe("stageScript", () => {
 
   it("resolves an argument with a path separator against the cwd", () => {
     expect(stageScript("probes/thing", where)).toBe(path.resolve(where.cwd, "probes/thing"));
-    expect(stageScript("./probe.mjs", where)).toBe(path.resolve(where.cwd, "probe.mjs"));
     expect(stageScript("/tmp/probe.ts", where)).toBe("/tmp/probe.ts");
+  });
+
+  it("resolves a name with a subdirectory against the cwd, not in scripts/", () => {
+    expect(stageScript("pbatch2/probe", where)).toBe(path.resolve(where.cwd, "pbatch2/probe"));
+  });
+
+  it("resolves a ./ path to a non-.ts file against the cwd", () => {
+    expect(stageScript("./probe.mjs", where)).toBe(path.resolve(where.cwd, "probe.mjs"));
   });
 
   it("resolves an argument ending in .ts against the cwd", () => {
