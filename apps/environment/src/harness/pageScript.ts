@@ -24,6 +24,16 @@ export const TEST_POLL_FAILURES = 3;
 /** An ISO time in a Builder's line (`describeBaseBuild`): page.ts shows it as a time, the script formats it as one. */
 export const ISO_TIME_SOURCE = String.raw`\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z`;
 
+/**
+ * The Container budget's consequence, stated once under the budget field's description (ADR-0048): page.ts renders it, the script
+ * rewrites it as the budget input changes. t3flare reads no account limit, so it names them rather than checking them.
+ */
+const BUDGET_NOTE = [
+  "Each running Container is billed for its size; at this budget, up to ",
+  " can run at once. Your Cloudflare account's own Container limits (concurrent memory, vCPU and disk) also apply; t3flare does not check them.",
+] as const;
+export const budgetNote = (budget: number): string => `${BUDGET_NOTE[0]}${budget}${BUDGET_NOTE[1]}`;
+
 export const SCRIPT = `"use strict";
 const csrf = document.querySelector('meta[name="t3flare-csrf"]').getAttribute("content");
 const notice = document.getElementById("result");
@@ -376,6 +386,8 @@ for (const form of document.querySelectorAll("form[data-environment]")) {
       if (size !== null && row.dataset.size === size.value) { row.setAttribute("aria-current", "true"); current = row; }
       else row.removeAttribute("aria-current");
     }
+    const budgetLine = document.querySelector("[data-budget-note]");
+    if (budgetLine !== null) budgetLine.textContent = ${JSON.stringify(BUDGET_NOTE[0])} + count + ${JSON.stringify(BUDGET_NOTE[1])};
     const now = document.querySelector("[data-cost-now]");
     if (now !== null && current !== null) now.textContent = "With these settings, at most $" + (Number(current.dataset.perHour) * count).toFixed(2) + " an hour: " + containers + " of " + current.dataset.size + ", every vCPU busy.";
   };

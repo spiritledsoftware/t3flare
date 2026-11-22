@@ -3,7 +3,7 @@
 // name as an `instance` that is never omitted, the idle time, and the budget carried only when it was read fresh.
 import { describe, expect, it } from "vitest";
 
-import { EMPTY_ENVIRONMENT, type ResolvedEnvironment, resolveEnvironment } from "@t3flare/harness-registry";
+import { EMPTY_ENVIRONMENT, MAX_CONTAINER_BUDGET, MAX_TIMED_MINUTES, type ResolvedEnvironment, resolveEnvironment } from "@t3flare/harness-registry";
 
 import { launchOf, SECRET_SHOWN, secretValuesOf, shownLaunch, takeEnvironment, withContainerSteps } from "../src/workspace/containerLaunch.ts";
 
@@ -53,7 +53,7 @@ describe("takeEnvironment", () => {
   it("reads an answer from an Environment newer or older than this Worker against this Worker's schema", async () => {
     const store = keeper();
     // SAFETY: deliberately outside the type, as another Worker's version may answer.
-    const odd = { revision: 9, containerSize: "standard-9", containerIdleMinutes: 61, containerBudget: 11, misePolicy: "x" } as unknown as ResolvedEnvironment;
+    const odd = { revision: 9, containerSize: "standard-9", containerIdleMinutes: MAX_TIMED_MINUTES + 1, containerBudget: MAX_CONTAINER_BUDGET + 1, misePolicy: "x" } as unknown as ResolvedEnvironment;
     const taken = await takeEnvironment({ read: async () => odd, kept: store.kept, keep: store.keep, waitMs: 50 });
     expect(taken).toEqual({ settings: { ...DEFAULTS, revision: 9 }, source: "environment" });
     expect(store.now()).toEqual({ ...DEFAULTS, revision: 9 });

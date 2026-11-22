@@ -131,7 +131,7 @@ describe("a Settings server write from a caller the Environment cannot vouch for
     const call = (thread: string, tool: string, args: Record<string, unknown>) => host.call({ server: "settings", tool, args, caller: caller(thread) });
     return { store, call, done: () => ["own", "linked", "child-of-linked", "missing"].forEach((thread) => forgetDurableModes(thread, owner)) };
   };
-  const write = { expectedRevision: 0, settings: { containerIdleMinutes: 9 } };
+  const write = { expectedRevision: 0, settings: { containerIdleMinutes: 1 } };
   const text = (answer: Awaited<ReturnType<ReturnType<typeof setup>["call"]>>) => (answer.kind === "result" ? answer.text : answer.message);
 
   it("linked work and its children: reads run, writes are refused", async () => {

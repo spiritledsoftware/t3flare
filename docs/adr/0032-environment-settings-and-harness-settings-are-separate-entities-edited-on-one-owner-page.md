@@ -42,9 +42,9 @@ settings. Both are edited on the one page at `/_t3flare/harness`, the Environmen
 5. **A running Container keeps what it started with.** The Workspace DO records each start's size, idle time and
    budget, and adopts a running Container with the `instance` it started with (computer relaunches one whose launch
    differs). A change never resizes or restarts it; its idle stop follows the idle time it started with.
-6. **The idle time** (1 to 60 minutes, default 2) replaces the `CONTAINER_IDLE_MS` constant.
+6. **The idle time** (1 to 60 minutes, default 2; 1 to 10,080 since [ADR-0048](0048-the-owner-is-trusted-with-their-own-settings-and-a-maximum-is-a-named-constraint-or-a-sanity-bound.md)) replaces the `CONTAINER_IDLE_MS` constant.
 7. **The Container budget is a setting** (1 to 10, default 3, today's value; a cost guard, far below the account's
-   concurrent limits). It replaces `MAX_CONTAINERS` as a constant. The budget DO is a singleton in the agents Worker,
+   concurrent limits; 1 to 100, a sanity bound and no cost guard, since [ADR-0048](0048-the-owner-is-trusted-with-their-own-settings-and-a-maximum-is-a-named-constraint-or-a-sanity-bound.md)). It replaces `MAX_CONTAINERS` as a constant. The budget DO is a singleton in the agents Worker,
    so a Workspace DO carries the budget with a fresh start's lease request, and only when it read it from the
    Environment then: a kept copy or the defaults carry none, so they never overwrite the owner's newer budget. The
    budget DO judges the request by it and keeps the last one for renewals and status reads. `T3FLARE_MAX_CONTAINERS`
@@ -198,7 +198,7 @@ and the Environment settings through the Settings server, which calls the same f
 
 1. **Keys, revisions, readers and application points are unchanged** (§1). A change through the Settings server names
    the revision of the entity it changes and is refused when that revision has moved.
-2. **Each setting declares its tier in the one schema** (§2): `containerIdleMinutes` is free, `containerBudget` is free
+2. **Each setting declares its tier in the one schema** (§2): `containerIdleMinutes` is free (`down-free` since [ADR-0048](0048-the-owner-is-trusted-with-their-own-settings-and-a-maximum-is-a-named-constraint-or-a-sanity-bound.md)), `containerBudget` is free
    when lowered and asked when raised, and `containerSize`, `variables` and `globalMiseConfig` are asked. A setting
    added later without a tier is asked.
 3. **One audit log still** (§3); its entries gain who asked, through which door, the tier and what answered.
@@ -216,3 +216,10 @@ reads the rest at a Container start as §1 says. The Global mise lay-down also r
 setup, so a Base snapshot carries its installs: the cache mise §8 deferred, whenever a Base snapshot is in use. With
 no Global mise config, mise's global config is the dotfiles' own `~/.config/mise/config.toml`, under the same git and
 gh check (ADR-0047 §10), where mise §2 left none.
+
+## Refinement ([ADR-0048](0048-the-owner-is-trusted-with-their-own-settings-and-a-maximum-is-a-named-constraint-or-a-sanity-bound.md), 2026-11-22): no cost guards
+
+§6 and §7 bounded the idle time and the budget to protect the Owner. The idle time is now 1 to 10,080 minutes, the
+shared maximum for limits t3flare times itself (its own alarm does the idle stop; `setInactivityTimeout` is never set),
+and its tier is `down-free`. The budget is 1 to 100, a sanity bound: the account's own concurrent limits bound it in
+fact, and the Settings page says so in a note under the budget field. Defaults are unchanged (2 minutes, 3 Containers).

@@ -13,8 +13,11 @@ export interface PairingStorage extends KeyValue {
 
 const ARMED_UNTIL_KEY = "t3flare/bootstrap/armed-until";
 
-/** The longest an admin may arm pairing for. */
-export const MAX_ARM_MINUTES = 60;
+/** How long `POST /_t3flare/arm-bootstrap` opens the window for without `?minutes=`. */
+export const DEFAULT_ARM_MINUTES = 15;
+
+/** The pairing window's consequence, stated once in the arm route's answer. */
+export const PAIRING_CONSEQUENCE = "While the window is open, anyone holding the bootstrap token can pair a client.";
 
 export const armedUntil = async (storage: KeyValue): Promise<Date | null> => {
   const value = await storage.get<string>(ARMED_UNTIL_KEY);
@@ -26,11 +29,30 @@ export const isArmed = async (storage: KeyValue, now: Date): Promise<boolean> =>
   return until !== null && until.getTime() > now.getTime();
 };
 
-/** Opens the window for `minutes`, clamped to 1–MAX_ARM_MINUTES; returns when it closes. */
+/**
+ * Opens the window for `minutes`, as given: the Owner chooses how long (ADR-0048), and the arm route refuses a length
+ * that is not one. Returns when it closes.
+ */
 export const arm = async (storage: KeyValue, minutes: number, now: Date): Promise<Date> => {
-  const until = new Date(now.getTime() + Math.min(Math.max(minutes, 1), MAX_ARM_MINUTES) * 60_000);
+  const until = new Date(now.getTime() + minutes * 60_000);
   await storage.put(ARMED_UNTIL_KEY, until.toISOString());
   return until;
+};
+
+const jsonAnswer = (value: unknown, status: number) => new Response(JSON.stringify(value, null, 2), { status, headers: { "content-type": "application/json" } });
+
+/**
+ * `POST /_t3flare/arm-bootstrap?minutes=N` (admin.ts): opens the window for N minutes, DEFAULT_ARM_MINUTES without it.
+ * A non-numeric or non-positive N is refused (400), as is one whose close a Date cannot hold (about 270,000 years
+ * past 1970: the stored close is a Date's ISO string); nothing is armed then.
+ */
+export const armRoute = async (url: URL, deps: { readonly arm: (minutes: number) => Promise<Date> }, now: Date = new Date()): Promise<Response> => {
+  const raw = url.searchParams.get("minutes");
+  const minutes = raw === null ? DEFAULT_ARM_MINUTES : raw.trim() === "" ? Number.NaN : Number(raw);
+  if (!Number.isFinite(minutes) || minutes <= 0) return jsonAnswer({ error: `minutes must be a positive number, not ${JSON.stringify(raw)}` }, 400);
+  if (Number.isNaN(new Date(now.getTime() + minutes * 60_000).getTime())) return jsonAnswer({ error: `minutes is past the latest time a Date can hold: ${raw}` }, 400);
+  const until = await deps.arm(minutes);
+  return jsonAnswer({ armedUntil: until.toISOString(), note: PAIRING_CONSEQUENCE }, 200);
 };
 
 export const disarm = async (storage: KeyValue): Promise<void> => {

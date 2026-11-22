@@ -13,14 +13,27 @@ import { fitVariables, MAX_VARIABLES, type Variable } from "./variables.ts";
 export * from "./variables.ts";
 
 /**
- * The Container budget's default (step 2a cost guardrails): at most this many Containers run at once across the deploy.
- * The owner changes it in the Environment settings (`containerBudget`, 1 to 10: a cost guard, far under the account's
- * concurrent limits); each Workspace DO carries it with its lease request.
+ * The most minutes a limit t3flare times itself (its own alarm or timer) may be set to: a sanity bound, not a constraint
+ * (ADR-0048). Why a week: the longest single wait t3flare times, a Workspace's wait for a Base build (`waitLimitMs` =
+ * imageSetupMinutes + 2 × snapshotMinutes, apps/agents/src/workspace/baseStart.ts), stays under the 24.8 days past
+ * which a JS timer overflows and fires at once. A value handed to a platform API takes that API's maximum instead,
+ * named in a comment where it is set.
+ */
+export const MAX_TIMED_MINUTES = 10_080;
+
+/**
+ * The Container budget's default: at most this many Containers run at once across the deploy. The Owner changes it in
+ * the Environment settings (`containerBudget`); each Workspace DO carries it with its lease request.
  */
 export const DEFAULT_CONTAINER_BUDGET = 3;
 
-/** The most the Container budget may be set to. */
-export const MAX_CONTAINER_BUDGET = 10;
+/**
+ * The most the Container budget may be set to: a sanity bound, not a constraint (ADR-0048). Nothing in t3flare forces
+ * 100, and `max_instances` does not apply under `schedulingPolicy: "durable_object"` (apps/agents/src/budget.ts); 100 of
+ * the largest size (4 vCPU, 12 GiB, 20 GB) is under each of the account's documented default concurrent Container
+ * limits, which bound it in fact and which t3flare does not check.
+ */
+export const MAX_CONTAINER_BUDGET = 100;
 
 /** The largest Global mise config, in bytes of UTF-8. */
 export const MAX_GLOBAL_MISE_BYTES = 16 * 1024;
@@ -156,9 +169,11 @@ export const ENVIRONMENT_SETTINGS = {
   },
   containerIdleMinutes: {
     title: "Idle time (minutes)",
-    description: "A Container stops after this long without a command. Applies at each Workspace's next Container start.",
-    schema: { type: "integer", minimum: 1, maximum: 60, default: 2 },
-    tier: "free",
+    description: "A Container stops after this long without a command; its memory and disk are billed while it waits idle. Applies at each Workspace's next Container start.",
+    // t3flare's own alarm stops an idle Container (WorkspaceDO `#scheduleAlarm`); the platform's `setInactivityTimeout`
+    // (at most 6 hours) is never set, so the shared sanity maximum applies.
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: 2 },
+    tier: "down-free",
   },
   containerBudget: {
     title: "Container budget",
@@ -187,7 +202,7 @@ export const ENVIRONMENT_SETTINGS = {
   containerSetupMinutes: {
     title: "Container setup time limit (minutes)",
     description: "How long it may run before it is stopped and counts as failed.",
-    schema: { type: "integer", minimum: 1, maximum: 60, default: 5 },
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: 5 },
     tier: "down-free",
     row: "containerSetup",
   },
@@ -214,14 +229,14 @@ export const ENVIRONMENT_SETTINGS = {
   imageSetupMinutes: {
     title: "Image setup time limit (minutes)",
     description: "How long the Builder's Container may take to start and run the Image setup before the Base build fails.",
-    schema: { type: "integer", minimum: 1, maximum: 120, default: 30 },
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: 30 },
     tier: "down-free",
     row: "imageSetup",
   },
   snapshotMinutes: {
     title: "Snapshot time limit (minutes)",
     description: "How long the snapshot and the start from it that proves it may take before the Base build is reported failed. A snapshot that finishes later is still kept if nothing changed meanwhile.",
-    schema: { type: "integer", minimum: 1, maximum: 15, default: 5 },
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: 5 },
     tier: "down-free",
     row: "imageSetup",
   },

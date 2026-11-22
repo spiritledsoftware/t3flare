@@ -54,7 +54,7 @@ import type { AuditEntry } from "./store.ts";
 import { brand, FAVICON } from "./pageBrand.ts";
 import { ICON_SPRITE, icon, type IconName } from "./pageIcons.ts";
 import { changePagePath } from "./paths.ts";
-import { ISO_TIME_SOURCE, KEPT_PLACEHOLDER, SCRIPT } from "./pageScript.ts";
+import { budgetNote, ISO_TIME_SOURCE, KEPT_PLACEHOLDER, SCRIPT } from "./pageScript.ts";
 import { endpointsSection, type EndpointsView } from "./pageEndpoints.ts";
 import { workspacesSection, type WorkspacesSectionInput } from "./pageWorkspaces.ts";
 import { STYLE } from "./pageStyle.ts";
@@ -104,10 +104,16 @@ const plural = (count: number, one: string, many: string) => `${count} ${count =
 
 // ── Extensions ──────────────────────────────────────────────────────────────────────────────────────────────────
 
-const field = (extension: string, key: string, setting: EnvironmentSettingEntry, value: unknown, locked = false): string => {
+/** A field's second hint after its description (its `data-` attribute names it for the script): the budget's note. */
+interface FieldNote {
+  readonly text: string;
+  readonly data: string;
+}
+
+const field = (extension: string, key: string, setting: EnvironmentSettingEntry, value: unknown, locked = false, note?: FieldNote): string => {
   const id = escapeHtml(`${extension}-${key}`);
-  const hint = `<p class="hint" id="${id}-hint">${escapeHtml(setting.description)}</p>`;
-  const attrs = `id="${id}" data-setting="${escapeHtml(key)}" data-kind="${setting.schema.type}" aria-describedby="${id}-hint"${locked ? " disabled" : ""}`;
+  const hint = `<p class="hint" id="${id}-hint">${escapeHtml(setting.description)}</p>${note === undefined ? "" : `<p class="hint" id="${id}-note" data-${note.data}>${escapeHtml(note.text)}</p>`}`;
+  const attrs = `id="${id}" data-setting="${escapeHtml(key)}" data-kind="${setting.schema.type}" aria-describedby="${id}-hint${note === undefined ? "" : ` ${id}-note`}"${locked ? " disabled" : ""}`;
   switch (setting.schema.type) {
     case "boolean":
       return `<div class="field"><div class="inline-field"><input type="checkbox" ${attrs}${value === true ? " checked" : ""}><label for="${id}">${escapeHtml(setting.title)}</label></div>${hint}</div>`;
@@ -353,7 +359,11 @@ const environmentSection = (environment: ResolvedEnvironment, costs: ContainerCo
   // that name it as their `row` join. One form, one Save.
   const dotfilesKey = (key: string) => (DOTFILES_SETTING_KEYS as ReadonlyArray<string>).includes(key);
   const ownRow = (setting: EnvironmentSettingEntry) => setting.schema.type === "variables" || setting.schema.type === "file";
-  const fields = entries.filter(([key, setting]) => !ownRow(setting) && setting.row === undefined && !dotfilesKey(key)).map(([key, setting]) => field("environment", key, setting, values[key]));
+  // The budget states its consequence once, under its own description, where the script rewrites it as the input changes.
+  const noteFor = (key: string): FieldNote | undefined => (key === "containerBudget" ? { text: budgetNote(environment.containerBudget), data: "budget-note" } : undefined);
+  const fields = entries
+    .filter(([key, setting]) => !ownRow(setting) && setting.row === undefined && !dotfilesKey(key))
+    .map(([key, setting]) => field("environment", key, setting, values[key], false, noteFor(key)));
   const joining = (row: string) => entries.filter(([, setting]) => setting.row === row).map(([key, setting]) => field("environment", key, setting, values[key]));
   const dotfiles = `<div class="row"><div><div class="row-title"><h3 id="environment-dotfiles-title">Dotfiles</h3></div><p class="desc" id="environment-dotfiles-desc">Whether your own config in ~ (/root), from your Image setup or Container setup, reaches Terminals and CLI agents.</p></div><div class="row-extra"><div class="fields" role="group" aria-labelledby="environment-dotfiles-title" aria-describedby="environment-dotfiles-desc">${entries
     .filter(([key]) => dotfilesKey(key))

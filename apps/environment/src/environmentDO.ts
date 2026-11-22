@@ -126,7 +126,6 @@ export const isolate = {
 ModuleState.install();
 
 const HOST_KEY = "t3flare/host";
-export const DEFAULT_ARM_MINUTES = 15;
 
 export class SafeModeError extends Error {
   readonly safeMode: BootState.SafeMode;

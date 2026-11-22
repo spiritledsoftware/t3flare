@@ -5,6 +5,7 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
+import { MAX_CONTAINER_BUDGET } from "@t3flare/harness-registry";
 import type { ContainerBudget } from "../src/budget.ts";
 import type { FakeClockContainerBudget, SettingContainerBudget } from "./workerd.fixture.ts";
 
@@ -84,7 +85,7 @@ describe("ContainerBudget", () => {
   it("ignores a carried budget out of bounds, keeping the last valid one", async () => {
     const b = settingBudget();
     await b.acquire("a", 2);
-    for (const bad of [0, 11, 2.5, Number.NaN]) await b.acquire("x", bad).catch(() => undefined);
+    for (const bad of [0, MAX_CONTAINER_BUDGET + 1, 2.5, Number.NaN]) await b.acquire("x", bad).catch(() => undefined);
     expect((await b.state()).max).toBe(2);
   });
 
