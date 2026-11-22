@@ -558,6 +558,9 @@ export class BaseBuild {
           return setAlarm(now() + READ_RETRY_MS);
         }
         if (isRunning(storage.get<Build>(BUILDER_KEYS.build))) return this.#tick();
+        // It started nothing (nothing to build, a backoff): the watch's poll or the backoff's end, whichever comes first.
+        const next = [this.#watching() ? now() + IMAGE_WATCH_POLL_MS : undefined, this.#backoffEnd()].filter((at): at is number => at !== undefined);
+        if (next.length > 0) await setAlarm(Math.min(...next));
         return;
       }
       if (live?.awaitingSnapshot === true) {
@@ -589,6 +592,16 @@ export class BaseBuild {
       if (deadline !== undefined && now() > deadline) return this.#fail(kept, null, `the ${kept.phase} step kept failing until its time limit: ${message}`);
       await setAlarm(now() + POLL_MS.starting);
     }
+  }
+
+  /** When a failing key's backoff ends, if it is still ahead (`retryDelay`). */
+  #backoffEnd(): number | undefined {
+    const { storage, now } = this.#deps;
+    const last = storage.get<Build>(BUILDER_KEYS.build);
+    const current = storage.get<Current>(BUILDER_KEYS.current);
+    if (last?.phase !== "failed" || last.key !== current?.key) return undefined;
+    const at = (last.endedAt ?? last.startedAt) + retryDelay(this.#failures(last.key));
+    return at > now() ? at : undefined;
   }
 
   /** The image watch is on (SPI-1333); one past its bound is dropped. */

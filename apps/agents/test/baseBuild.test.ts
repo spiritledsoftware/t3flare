@@ -440,6 +440,18 @@ describe("a Base build", () => {
     expect(build.record().key).not.toBe(oldKey);
   });
 
+  it("keeps the watch's alarm when a due schedule's poke starts no build", async () => {
+    settings.rebuildEveryDays = 7;
+    const build = await readyBuild();
+    // Nothing to build any more: the scheduled poke starts nothing.
+    settings.imageSetup = "";
+    settings.globalMiseConfig = "";
+    clock = build.record().good!.builtAt + 7 * DAY;
+    await build.alarm();
+    expect(build.record().state).toBe("none");
+    expect(alarms.at(-1)).toBe(clock + IMAGE_WATCH_POLL_MS);
+  });
+
   it("stops watching the image after its bound", async () => {
     const build = await readyBuild();
     await build.poke("the Environment booted");

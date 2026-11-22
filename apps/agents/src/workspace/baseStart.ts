@@ -54,7 +54,9 @@ export const pickBase = (record: BaseBuildRecord | undefined, settings: BaseSett
   if (record === undefined) return image("the Builder did not answer");
   // The Builder last read another image than this start's (a deploy's rollout reaches each object in its own time).
   const otherImage = record.imageDigest !== undefined && record.imageDigest !== imageDigest;
-  if (!asked && (record.revision === undefined || record.revision < settings.revision)) return { kind: "ask", why: "the Builder has not read these settings yet" };
+  // The Builder has not read this start's settings: its key and its ready one are an older revision's.
+  const behind = record.revision === undefined || record.revision < settings.revision;
+  if (!asked && behind) return { kind: "ask", why: "the Builder has not read these settings yet" };
   if (!asked && otherImage) return { kind: "ask", why: "the Builder has not read this Workspace image yet" };
   const onImage = (snapshot: BaseSnapshot | null): snapshot is BaseSnapshot => snapshot !== null && snapshot.imageDigest === imageDigest;
   const good = record.good;
@@ -68,8 +70,11 @@ export const pickBase = (record: BaseBuildRecord | undefined, settings: BaseSett
       ? { kind: "wait", why: `${what} with no last good Base snapshot on this Workspace image, and the settings wait for it` }
       : image(`${what} with no last good Base snapshot on this Workspace image`);
   };
-  // Asked, and still on another image: the Builder's image watch builds this one once it reaches the Builder.
-  if (otherImage) return duringBuild("a Base build for this Workspace image is due");
+  // Asked, and still on another image. Which of the two is newer cannot be told: a build under way is waited for as any
+  // is; otherwise this start runs the image this object sees (the Builder's watch builds a newer one when it lands).
+  if (otherImage) return record.state === "building" ? duringBuild("a Base build runs on another Workspace image") : image("the Builder reads another Workspace image");
+  // Asked, and still behind this start's settings: never ready for them; the while-building settings apply.
+  if (behind) return duringBuild("the Builder has not read these settings yet");
   switch (record.state) {
     case "ready":
       if (onImage(good)) return { kind: "base", base: good, why: "the Base snapshot is ready" };
@@ -234,6 +239,17 @@ export const startFromBase = async <Answer extends { readonly outcome: string }>
   deps.refused(snapshotId, refusal, false);
   return deps.start(undefined);
 };
+
+/**
+ * The spec computer's start gets (`ContainerLaunchSpec`): the start's own `instance` always (an omitted one starts `lite`),
+ * and `containerSnapshot` only when a Base snapshot was picked. Nothing else of computer's spec moves, so `sameLaunch`
+ * adopts a running Container as before.
+ */
+export const startSpec = <Spec extends object, Instance>(spec: Spec, instance: Instance, snapshotId: string | undefined) => ({
+  ...spec,
+  instance,
+  ...(snapshotId === undefined ? {} : { containerSnapshot: { id: snapshotId } }),
+});
 
 /** The Base snapshot a launch started from, or undefined (the image, or a launch recorded before SPI-1333). */
 export const baseIdOf = (from: LaunchFrom | undefined): string | undefined => (from !== undefined && "base" in from ? from.base.snapshotId : undefined);

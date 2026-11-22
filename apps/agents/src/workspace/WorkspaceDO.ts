@@ -48,7 +48,7 @@ import { BUDGET_NAME, type ContainerBudget, RENEW_EVERY_MS } from "../budget.ts"
 import { type EnvironmentDO, environmentStub } from "../environment.ts";
 import { BASE_BUILD_CAPS, type BaseBuildRecord, BUILDERS, EMPTY_ENVIRONMENT, fitVariableEnv, type McpRelayAnswer, type ResolvedEnvironment, resolveEnvironment } from "@t3flare/harness-registry";
 import { BaseBuild } from "./baseBuild.ts";
-import { BASE_WAIT_POLL_MS, baseIdOf, type BaseSettings, BaseWaitBackend, BUILDER_READ_MS, type LaunchFrom, launchFrom, planBase, REFUSAL_WATCH_MS, startFromBase, waitForBase, waitLimitMs } from "./baseStart.ts";
+import { BASE_WAIT_POLL_MS, baseIdOf, type BaseSettings, BaseWaitBackend, BUILDER_READ_MS, type LaunchFrom, launchFrom, planBase, REFUSAL_WATCH_MS, startFromBase, startSpec, waitForBase, waitLimitMs } from "./baseStart.ts";
 import { type BuilderKind, builderKindOf, builderMark, platformContainer, proposedSetup, workspaceImage } from "./builder.ts";
 import { changedBetween, currentRevision, repoFileSizes } from "./changeLog.ts";
 import { type ContainerLaunch, ENVIRONMENT_READ_MS, launchOf, secretValuesOf, shownLaunch, takeEnvironment, withContainerSteps } from "./containerLaunch.ts";
@@ -200,7 +200,7 @@ const WORKSPACE_ID_KEY = "t3flare:workspace-id";
 const reasonOf = (input: { readonly reason: unknown }): string => String(input.reason).slice(0, BASE_BUILD_CAPS.reason);
 /** Set on a Builder's object (SPI-1332; `builderMark`): its alarm drives the build, never a Workspace's idle stop. */
 const BUILDER_MARK_KEY = "t3flare:builder";
-/** Test stages only (SPI-1333): the snapshot id the next fresh start uses in place of its pick (`faultBaseSnapshot`). */
+/** Test stages only (SPI-1333): the snapshot id the next start from a Base snapshot, fresh or not, hands the platform (`faultBaseSnapshot`). */
 const BASE_FAULT_KEY = "t3flare:fault:base-snapshot";
 /** A cached token is renewed this long before it expires. */
 const TOKEN_RENEW_MS = 5 * 60_000;
@@ -903,7 +903,7 @@ export class WorkspaceDO extends ContainerHost {
           let refused = false;
           const answer = await startFromBase(
             {
-              start: (id) => op({ ...spec, instance: launch.instance, ...(id === undefined || platformId === undefined ? {} : { containerSnapshot: { id: platformId } }) }),
+              start: (id) => op(startSpec(spec, launch.instance, id === undefined ? undefined : platformId)),
               monitor: () => this.ctx.container?.monitor() ?? Promise.resolve(),
               destroy: async () => await this.ctx.container?.destroy(),
               refused: (id, message, late) => {
@@ -2279,8 +2279,8 @@ export class WorkspaceDO extends ContainerHost {
   }
 
   /**
-   * Test stages only (SPI-1333's acceptance): the next fresh start from the Base snapshot hands the platform `snapshotId`
-   * in its place (a bogus one is refused as an expired one is), once, and reports the refusal for the real one, so the
+   * Test stages only (SPI-1333's acceptance): the next start from a Base snapshot, fresh or picked again for a new
+   * Container while one runs, hands the platform `snapshotId` in its place (a bogus one is refused as an expired one is), once, and reports the refusal for the real one, so the
    * Builder marks it gone and builds again. Null clears it.
    */
   faultBaseSnapshot(input: { readonly snapshotId: string | null }): { readonly armed: string | null } {
@@ -2290,7 +2290,7 @@ export class WorkspaceDO extends ContainerHost {
     return { armed: input.snapshotId === null ? null : String(input.snapshotId) };
   }
 
-  /** The armed fault's snapshot id, taken once (test stages only). */
+  /** The armed fault's snapshot id, taken once by the next start from a Base snapshot, fresh or not (test stages only). */
   #takeBaseFault(): string | undefined {
     if (this.env.T3FLARE_FAULTS !== "1") return undefined;
     const id = this.ctx.storage.kv.get<string>(BASE_FAULT_KEY);

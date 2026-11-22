@@ -14,6 +14,7 @@ import {
   baseIdOf,
   isSnapshotRefusal,
   launchFrom,
+  startSpec,
   pickBase,
   planBase,
   startFromBase,
@@ -85,14 +86,26 @@ describe("pickBase", () => {
     expect(pickBase(building(snapshot()), { ...SETTINGS, whileBuilding: "image" }, IMAGE)).toMatchObject({ kind: "image" });
   });
 
-  it("asks when the Builder last read another Workspace image, then treats it as a build on a new image (its watch builds it)", () => {
-    const lagging = record({ imageDigest: OLD_IMAGE, good: snapshot({ imageDigest: OLD_IMAGE }) });
-    expect(pickBase(lagging, SETTINGS, IMAGE)).toMatchObject({ kind: "ask" });
-    expect(pickBase(lagging, { ...SETTINGS, whileBuilding: "lastGood", whileBuildingNewImage: "wait" }, IMAGE, { asked: true })).toMatchObject({ kind: "wait" });
-    expect(pickBase(lagging, { ...SETTINGS, whileBuilding: "lastGood", whileBuildingNewImage: "image" }, IMAGE, { asked: true })).toMatchObject({ kind: "image" });
-    expect(pickBase(lagging, { ...SETTINGS, whileBuilding: "image" }, IMAGE, { asked: true })).toMatchObject({ kind: "image" });
+  it("asks when the Builder last read another Workspace image; asked, it waits only for a build under way", () => {
+    const other = record({ imageDigest: OLD_IMAGE, good: snapshot({ imageDigest: OLD_IMAGE }) });
+    expect(pickBase(other, SETTINGS, IMAGE)).toMatchObject({ kind: "ask" });
+    // Building (its watch caught this image): the while-building settings.
+    const buildingOther = building(snapshot({ imageDigest: OLD_IMAGE }), { imageDigest: OLD_IMAGE });
+    expect(pickBase(buildingOther, { ...SETTINGS, whileBuilding: "lastGood", whileBuildingNewImage: "wait" }, IMAGE, { asked: true })).toMatchObject({ kind: "wait" });
+    expect(pickBase(buildingOther, { ...SETTINGS, whileBuilding: "lastGood", whileBuildingNewImage: "image" }, IMAGE, { asked: true })).toMatchObject({ kind: "image" });
+    // Not building: the Builder may be ahead (this object still runs the old image), so nothing is waited for.
+    expect(pickBase(other, SETTINGS, IMAGE, { asked: true })).toMatchObject({ kind: "image" });
+    expect(pickBase(other, { ...SETTINGS, whileBuilding: "wait" }, IMAGE, { asked: true })).toMatchObject({ kind: "image" });
     // The Builder read this image: its record is trusted.
     expect(pickBase(record({ imageDigest: IMAGE }), SETTINGS, IMAGE)).toMatchObject({ kind: "base" });
+  });
+
+  it("never takes a record behind the start's settings as ready for them, even after asking: it counts as building", () => {
+    const behind = record({ revision: 4, good: snapshot({ key: OLD_KEY }) });
+    expect(pickBase(behind, { ...SETTINGS, whileBuilding: "wait" }, IMAGE, { asked: true })).toMatchObject({ kind: "wait" });
+    expect(pickBase(behind, { ...SETTINGS, whileBuilding: "image" }, IMAGE, { asked: true })).toMatchObject({ kind: "image" });
+    // The last good one is the Owner's while-building choice, older settings and all.
+    expect(pickBase(behind, { ...SETTINGS, whileBuilding: "lastGood" }, IMAGE, { asked: true })).toMatchObject({ kind: "base", why: expect.stringContaining("last good") });
   });
 
   it("while a build of new settings runs: lastGood starts from the last good one on this image", () => {
@@ -303,6 +316,14 @@ describe("startFromBase", () => {
 });
 
 describe("a start's launch", () => {
+  it("hands computer's start the snapshot only for a picked base, and the start's own instance always", () => {
+    const spec = { env: { RPC_TOKEN: "t" }, enableInternet: true, name: "WorkspaceContainer", instance: "standard-1" as const };
+    expect(startSpec(spec, "standard-2", "snap-1")).toEqual({ ...spec, instance: "standard-2", containerSnapshot: { id: "snap-1" } });
+    const plain = startSpec(spec, { vcpu: 1, memoryMib: 3072, diskMb: 12_000 }, undefined);
+    expect(plain).toEqual({ ...spec, instance: { vcpu: 1, memoryMib: 3072, diskMb: 12_000 } });
+    expect(plain).not.toHaveProperty("containerSnapshot");
+  });
+
   it("names the Base snapshot a launch started from, if any", () => {
     expect(baseIdOf({ base: { snapshotId: "snap-1", key: KEY } })).toBe("snap-1");
     expect(baseIdOf({ image: { why: "no Image setup" } })).toBeUndefined();
