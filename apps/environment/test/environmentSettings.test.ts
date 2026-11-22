@@ -190,6 +190,8 @@ describe("Environment settings in the panel", () => {
     // The budget's consequence, stated once, and rewritten by the script as the budget input changes.
     const note = "Each running Container is billed for its size; at this budget, up to 3 can run at once. Your Cloudflare account&#39;s own Container limits (concurrent memory, vCPU and disk) also apply; t3flare does not check them.";
     expect(html.split(note)).toHaveLength(2);
+    expect(html).toContain('aria-describedby="environment-containerBudget-hint environment-containerBudget-note"');
+    expect(html).toContain(`<p class="hint" id="environment-containerBudget-note" data-budget-note>${note}</p>`);
     const rewrite = new Script(`(count) => ${SCRIPT.match(/budgetLine\.textContent = (.*);$/m)![1]}`).runInNewContext() as (count: number) => string;
     expect(rewrite(40)).toBe(budgetNote(40));
     expect(budgetNote(40)).toContain("up to 40 can run at once.");

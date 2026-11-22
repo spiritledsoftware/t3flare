@@ -169,7 +169,7 @@ export const ENVIRONMENT_SETTINGS = {
   },
   containerIdleMinutes: {
     title: "Idle time (minutes)",
-    description: "A Container stops after this long without a command, and is billed while it waits idle. Applies at each Workspace's next Container start.",
+    description: "A Container stops after this long without a command; its memory and disk are billed while it waits idle. Applies at each Workspace's next Container start.",
     // t3flare's own alarm stops an idle Container (WorkspaceDO `#scheduleAlarm`); the platform's `setInactivityTimeout`
     // (at most 6 hours) is never set, so the shared sanity maximum applies.
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: 2 },
