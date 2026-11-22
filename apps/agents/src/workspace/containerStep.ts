@@ -154,45 +154,85 @@ export class ContainerRefused extends Error {
   override readonly name = "ContainerRefused";
 }
 
+/** Whether `state` is final for its Container: any outcome but an exec failure, or one out of attempts. */
+export const isFinal = (state: StepState): boolean => state.outcome !== EXEC_FAILED || state.attempts >= MAX_ATTEMPTS;
+
 /** One step of `ContainerSteps`: what it is doing while it runs, and when its outcome refuses the Container's commands. */
-export interface SequencedStep {
-  readonly step: Pick<ContainerStep<StepState>, "ensure" | "due" | "inFlight">;
+export interface SequencedStep<State extends StepState> {
+  readonly step: Pick<ContainerStep<State>, "ensure" | "due" | "inFlight">;
   /** What a command cut off before it started waited for (computer-env's message). */
   readonly doing: string;
-  /** Why the Container's commands are refused after `state`, or undefined to carry on. */
-  readonly refusal?: (state: StepState) => string | undefined;
+  /**
+   * Why the Container's commands are refused after `state`, or undefined to carry on. `state` is undefined when the step
+   * was not judged: its run threw, or a step before it is not final yet.
+   */
+  readonly refusal?: (state: State | undefined) => string | undefined;
 }
 
-/** The steps every new Container runs before its first command, in order: each after the one before has ended. */
-export class ContainerSteps {
-  readonly #steps: ReadonlyArray<SequencedStep>;
+/** A step as `ContainerSteps` runs it, whatever its state's type. */
+export interface Sequenced {
+  readonly doing: string;
+  readonly due: (runtime: string | undefined) => boolean;
+  readonly inFlight: () => boolean;
+  /** Runs or joins the step: whether it is final, and why it refuses the Container's commands. */
+  readonly run: (runtime: string | undefined) => Promise<{ readonly final: boolean; readonly refused?: string }>;
+  /** Why the Container's commands are refused when the step is not judged. */
+  readonly unjudged: () => string | undefined;
+}
 
-  constructor(steps: ReadonlyArray<SequencedStep>) {
+/** `entry` as `ContainerSteps` runs it. */
+export const sequenced = <State extends StepState>({ step, doing, refusal }: SequencedStep<State>): Sequenced => ({
+  doing,
+  due: (runtime) => step.due(runtime),
+  inFlight: () => step.inFlight(),
+  run: async (runtime) => {
+    const state = await step.ensure(runtime).catch(() => undefined);
+    const refused = refusal?.(state);
+    return { final: state !== undefined && isFinal(state), ...(refused === undefined ? {} : { refused }) };
+  },
+  unjudged: () => refusal?.(undefined),
+});
+
+/**
+ * The steps every new Container runs before its first command, in order: each only once the one before is final (the
+ * Container setup never runs before the Global mise lay-down has laid down, refused, or run out of attempts).
+ */
+export class ContainerSteps {
+  readonly #steps: ReadonlyArray<Sequenced>;
+
+  constructor(steps: ReadonlyArray<Sequenced>) {
     this.#steps = steps;
   }
 
   /**
-   * Every step on Container `runtime`, in order, run or joined. A step that fails never stops the next; rejects with
-   * `ContainerRefused` only when a step's outcome refuses the Container's commands.
+   * Every step on Container `runtime`, in order, run or joined, each only once the one before is final. Rejects with
+   * `ContainerRefused` when a step's outcome refuses the Container's commands, or when a step that would refuse on a
+   * failure was not judged (held behind a step not yet final, or its run threw).
    */
   async ensure(runtime: string | undefined): Promise<void> {
-    for (const { step, refusal } of this.#steps) {
-      const state = await step.ensure(runtime).catch(() => undefined);
-      const why = state === undefined ? undefined : refusal?.(state);
-      if (why !== undefined) throw new ContainerRefused(why);
+    for (const [index, step] of this.#steps.entries()) {
+      const { final, refused } = await step.run(runtime);
+      if (refused !== undefined) throw new ContainerRefused(refused);
+      if (final) continue;
+      // Not final: the steps after it wait for a later caller or the alarm; one that refuses when not judged refuses.
+      for (const later of this.#steps.slice(index + 1)) {
+        const why = later.unjudged();
+        if (why !== undefined) throw new ContainerRefused(why);
+      }
+      return;
     }
   }
 
   /** The alarm's catch-up (not awaited): the steps, when one is due on the running Container. Answers whether it started. */
   catchUp(runtime: string | undefined): boolean {
-    if (this.#steps.some(({ step }) => step.inFlight())) return false;
-    if (!this.#steps.some(({ step }) => step.due(runtime))) return false;
+    if (this.#steps.some((step) => step.inFlight())) return false;
+    if (!this.#steps.some((step) => step.due(runtime))) return false;
     void this.ensure(runtime).catch(() => undefined);
     return true;
   }
 
   /** What the steps are doing now, or undefined when none runs. */
   doing(): string | undefined {
-    return this.#steps.find(({ step }) => step.inFlight())?.doing;
+    return this.#steps.find((step) => step.inFlight())?.doing;
   }
 }

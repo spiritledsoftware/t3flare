@@ -6,7 +6,7 @@
 import type { BackendHandle, WorkspaceBackend } from "@cloudflare/computer";
 import { describe, expect, it } from "vitest";
 
-import { ContainerRefused, ContainerSteps, type SequencedStep } from "../src/workspace/containerStep.ts";
+import { ContainerRefused, ContainerSteps, MAX_ATTEMPTS, sequenced, type SequencedStep, type StepState } from "../src/workspace/containerStep.ts";
 import { commandEnvOf, COMPUTER_RUNTIME_KEY, ContainerStepsBackend, PASSIVE_MARKER, readyForSpawn, spawnRuntime } from "../src/workspace/containerStepsGate.ts";
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
@@ -90,7 +90,7 @@ describe("ContainerStepsBackend", () => {
     // The Terminal host starts the Container with an active `true`, then spawns once it is ready.
     const events: Array<string> = [];
     const start = handle.rpc.shell.exec(active("true")).then(() => events.push("started"));
-    const spawn = start.then(() => readyForSpawn({ running: () => true, runtime: async () => "r1", ensure: gate.ensure, log: () => undefined })).then(() => events.push("spawned"));
+    const spawn = start.then(() => readyForSpawn({ running: () => true, runtime: async () => "r1", ensure: gate.ensure, log: () => undefined, refuses: () => false })).then(() => events.push("spawned"));
     await read;
     await tick();
     expect(events).toEqual([]);
@@ -120,7 +120,7 @@ describe("ContainerStepsBackend's refusal", () => {
 
 describe("ContainerSteps", () => {
   /** A step on a script of ends: each `ensure` resolves when its test says, with the state given. */
-  const step = (name: string, events: Array<string>, outcome = "ok", options: { due?: boolean; fails?: boolean } = {}) => {
+  const step = (name: string, events: Array<string>, outcome = "ok", options: { due?: boolean; fails?: boolean; attempts?: number } = {}) => {
     let running = false;
     let release: () => void = () => undefined;
     const ensure = async (runtime: string | undefined) => {
@@ -130,15 +130,15 @@ describe("ContainerSteps", () => {
       running = false;
       events.push(`${name} done`);
       if (options.fails === true) throw new Error(`${name} broke`);
-      return { runtime: runtime ?? "", outcome, attempts: 1, at: 0 };
+      return { runtime: runtime ?? "", outcome, attempts: options.attempts ?? 1, at: 0 };
     };
     return { step: { ensure, due: () => options.due ?? false, inFlight: () => running }, release: () => release() };
   };
-  const steps = (...entries: ReadonlyArray<SequencedStep>) => new ContainerSteps(entries);
+  const steps = (...entries: ReadonlyArray<SequencedStep<StepState>>) => new ContainerSteps(entries.map(sequenced));
 
-  it("runs each step after the one before has ended, and the second even when the first broke", async () => {
+  it("runs each step after the one before has ended", async () => {
     const events: Array<string> = [];
-    const mise = step("mise", events, "laid", { fails: true });
+    const mise = step("mise", events, "laid");
     const setup = step("setup", events);
     const ready = steps({ step: mise.step, doing: "installing the Global mise config" }, { step: setup.step, doing: "running the Container setup" });
     const done = ready.ensure("r1");
@@ -154,14 +154,65 @@ describe("ContainerSteps", () => {
     expect(ready.doing()).toBeUndefined();
   });
 
+  it("holds the second step behind a first that broke (not final), and lets the command go on when nothing refuses", async () => {
+    const events: Array<string> = [];
+    const mise = step("mise", events, "laid", { fails: true });
+    const done = steps({ step: mise.step, doing: "a" }, { step: step("setup", events).step, doing: "b" }).ensure("r1");
+    await tick();
+    mise.release();
+    await expect(done).resolves.toBeUndefined();
+    expect(events).toEqual(["mise r1", "mise done"]);
+  });
+
   it("rejects with ContainerRefused when a step's outcome refuses the Container", async () => {
     const events: Array<string> = [];
     const setup = step("setup", events, "failed");
-    const ready = steps({ step: setup.step, doing: "running the Container setup", refusal: (state) => (state.outcome === "failed" ? "Refused: setup failed" : undefined) });
+    const ready = steps({ step: setup.step, doing: "running the Container setup", refusal: (state) => (state?.outcome === "failed" ? "Refused: setup failed" : undefined) });
     const done = ready.ensure("r1");
     await tick();
     setup.release();
     await expect(done).rejects.toBeInstanceOf(ContainerRefused);
+  });
+
+  /** A refusal as the Container setup's under refuse: any outcome but ok, and a setup not judged at all. */
+  const refusing = (state: StepState | undefined) => (state === undefined ? "Refused: not judged" : state.outcome === "ok" ? undefined : `Refused: ${state.outcome}`);
+
+  it("holds the second step until the first is final: an exec failure with attempts left runs nothing after it", async () => {
+    const events: Array<string> = [];
+    const mise = step("mise", events, "exec-failed", { attempts: 2 });
+    const setup = step("setup", events);
+    const ready = steps({ step: mise.step, doing: "a" }, { step: setup.step, doing: "b" });
+    const done = ready.ensure("r1");
+    await tick();
+    mise.release();
+    await done;
+    expect(events).toEqual(["mise r1", "mise done"]);
+  });
+
+  it("runs the second step once the first is out of attempts", async () => {
+    const events: Array<string> = [];
+    const mise = step("mise", events, "exec-failed", { attempts: MAX_ATTEMPTS });
+    const setup = step("setup", events);
+    const done = steps({ step: mise.step, doing: "a" }, { step: setup.step, doing: "b" }).ensure("r1");
+    await tick();
+    mise.release();
+    await tick();
+    setup.release();
+    await done;
+    expect(events).toEqual(["mise r1", "mise done", "setup r1", "setup done"]);
+  });
+
+  it("refuses under refuse when the setup was not judged: held behind the first step, or its own run threw", async () => {
+    const held = step("mise", [], "exec-failed", { attempts: 1 });
+    const unjudged = steps({ step: held.step, doing: "a" }, { step: step("setup", []).step, doing: "b", refusal: refusing }).ensure("r1");
+    await tick();
+    held.release();
+    await expect(unjudged).rejects.toThrow("Refused: not judged");
+    const broke = step("setup", [], "ok", { fails: true });
+    const thrown = steps({ step: broke.step, doing: "b", refusal: refusing }).ensure("r1");
+    await tick();
+    broke.release();
+    await expect(thrown).rejects.toThrow("Refused: not judged");
   });
 
   it("the alarm catches up when a step is due and none runs", async () => {
@@ -178,7 +229,7 @@ describe("ContainerSteps", () => {
 });
 
 describe("readyForSpawn", () => {
-  const harness = (running: boolean, runtime: () => Promise<string | undefined>, ensure: (runtime: string | undefined) => Promise<unknown> = async () => undefined) => {
+  const harness = (running: boolean, runtime: () => Promise<string | undefined>, ensure: (runtime: string | undefined) => Promise<unknown> = async () => undefined, refuses = false) => {
     const calls: Array<string> = [];
     const logged: Array<Record<string, unknown>> = [];
     const deps = {
@@ -192,6 +243,7 @@ describe("readyForSpawn", () => {
         return ensure(id);
       },
       log: (event: Record<string, unknown>) => void logged.push(event),
+      refuses: () => refuses,
     };
     return { calls, logged, ready: () => readyForSpawn(deps) };
   };
@@ -213,7 +265,13 @@ describe("readyForSpawn", () => {
     for (const h of [harness(true, async () => undefined), harness(true, async () => Promise.reject(new Error("storage"))), harness(true, async () => "r1", async () => Promise.reject(new Error("exec")))]) {
       await expect(h.ready()).resolves.toBeUndefined();
       expect(h.logged).toHaveLength(1);
-      expect(h.logged[0]).toMatchObject({ t3flare: "global-mise-spawn", waited: false });
+      expect(h.logged[0]).toMatchObject({ t3flare: "container-steps-spawn", waited: false });
+    }
+  });
+
+  it("fails closed under refuse: a runtime it cannot learn refuses the spawn", async () => {
+    for (const h of [harness(true, async () => undefined, undefined, true), harness(true, async () => Promise.reject(new Error("storage")), undefined, true)]) {
+      await expect(h.ready()).rejects.toBeInstanceOf(ContainerRefused);
     }
   });
 
@@ -238,6 +296,7 @@ describe("readyForSpawn", () => {
       runtime: () => spawnRuntime(async () => ({ id: "R2" }), "R1"),
       ensure: (id) => laid.get(id ?? "") ?? Promise.resolve(),
       log: () => undefined,
+      refuses: () => false,
     }).then(() => events.push("spawned"));
     await new Promise((resolve) => setTimeout(resolve, 20));
     events.push("laid R2");

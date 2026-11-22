@@ -118,6 +118,10 @@ describe("ContainerSetup", () => {
     const refuse = setup([{ stdout: answered("", { exitCode: 1 }) }, { stdout: answered("", {}) }], { launch: { ...LAUNCH, failure: "refuse" } });
     expect(refuse.container.refusal(await refuse.container.ensure("r1"))).toMatch(/Container setup failed \(exit 1\)/);
     expect(refuse.container.refusal(await refuse.container.ensure("r2"))).toBeUndefined();
+    // Not judged (its run threw, or an earlier step held it): refused under refuse, unless there is no script.
+    expect(refuse.container.refusal(undefined)).toMatch(/Container setup has not run/);
+    expect(carry.container.refusal(undefined)).toBeUndefined();
+    expect(setup([], { launch: { ...LAUNCH, text: "", failure: "refuse" } }).container.refusal(undefined)).toBeUndefined();
   });
 });
 

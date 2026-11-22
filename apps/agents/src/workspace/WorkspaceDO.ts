@@ -49,7 +49,7 @@ import { EMPTY_ENVIRONMENT, fitVariableEnv, type McpRelayAnswer, type ResolvedEn
 import { changedBetween, currentRevision, repoFileSizes } from "./changeLog.ts";
 import { type ContainerLaunch, ENVIRONMENT_READ_MS, launchOf, secretValuesOf, shownLaunch, takeEnvironment, withScripts } from "./containerLaunch.ts";
 import { ContainerSetup, type ContainerSetupState } from "./containerSetup.ts";
-import { type ContainerExec, ContainerSteps } from "./containerStep.ts";
+import { type ContainerExec, ContainerSteps, sequenced } from "./containerStep.ts";
 import { GlobalMise, type GlobalMiseState } from "./globalMise.ts";
 import { StoppedExecs, StoppedExecsBackend } from "./stoppedExecs.ts";
 import { commandEnvOf, COMPUTER_RUNTIME_KEY, ContainerStepsBackend, readyForSpawn, spawnRuntime } from "./containerStepsGate.ts";
@@ -406,8 +406,8 @@ export class WorkspaceDO extends ContainerHost {
       log: (event) => console.log(JSON.stringify(event)),
     });
     this.#steps = new ContainerSteps([
-      { step: this.#globalMise, doing: "installing the Global mise config" },
-      { step: this.#containerSetup, doing: "running the Container setup", refusal: (state) => this.#containerSetup.refusal(state as ContainerSetupState) },
+      sequenced({ step: this.#globalMise, doing: "installing the Global mise config" }),
+      sequenced({ step: this.#containerSetup, doing: "running the Container setup", refusal: (state) => this.#containerSetup.refusal(state) }),
     ]);
     this.#reads = readCache(ctx.storage.sql);
     this.#skillSet = skillSetStore({ kv: ctx.storage.kv, transactionSync: <T>(closure: () => T): T => ctx.storage.transactionSync(closure) });
@@ -1918,6 +1918,7 @@ export class WorkspaceDO extends ContainerHost {
       running: () => this.containerRunning(),
       runtime: () => spawnRuntime(() => this.ctx.storage.get(COMPUTER_RUNTIME_KEY), this.#runtime),
       ensure: (runtime) => this.#steps.ensure(runtime),
+      refuses: () => this.#containerSetup.refuses(),
       log: (event) => console.log(JSON.stringify({ ...event, workspace: this.#workspaceId() ?? null })),
     });
   }

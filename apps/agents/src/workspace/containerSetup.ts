@@ -139,14 +139,24 @@ export class ContainerSetup {
     return this.#step.due(runtime);
   }
 
+  /** Whether a failure refuses the running Container's commands: the Owner set refuse, and there is a script to run. */
+  refuses(): boolean {
+    const launch = this.#deps.launch();
+    return launch?.failure === "refuse" && launch.text !== "";
+  }
+
   /**
-   * Why the running Container's commands are refused after `state`, or undefined: only when the Owner set failures to
-   * refuse and the setup did not end well (a non-zero exit, its time limit, no answer, or an exec that failed).
+   * Why the running Container's commands are refused after `state`, or undefined: only when `refuses()` and the setup
+   * did not end well (a non-zero exit, its time limit, no answer, an exec that failed), or was not judged at all
+   * (`state` undefined: its run threw, or the Global mise lay-down before it is not final yet).
    */
-  refusal(state: Pick<ContainerSetupState, "outcome" | "exitCode" | "timedOut">): string | undefined {
-    if (this.#deps.launch()?.failure !== "refuse" || state.outcome === "ok" || state.outcome === "none") return undefined;
+  refusal(state: Pick<ContainerSetupState, "outcome" | "exitCode" | "timedOut"> | undefined): string | undefined {
+    if (!this.refuses()) return undefined;
+    const tail = "and the Environment settings refuse commands in a Container whose setup failed. A new Container runs it again; Status on the Settings page shows its output.";
+    if (state === undefined) return `Refused: this Container's Container setup has not run (the Container's steps before it did not finish), ${tail}`;
+    if (state.outcome === "ok" || state.outcome === "none") return undefined;
     const how = state.timedOut ? "stopped at its time limit" : state.exitCode !== null ? `exit ${state.exitCode}` : state.outcome === "deadline" ? "no answer within the deadline" : "the Container's exec failed";
-    return `Refused: this Container's Container setup failed (${how}), and the Environment settings refuse commands in a Container whose setup failed. A new Container runs it again; Status on the Settings page shows its output.`;
+    return `Refused: this Container's Container setup failed (${how}), ${tail}`;
   }
 
   async #attempt(runtime: string, attemptsBefore: number, run: RunStep): Promise<ContainerSetupState> {

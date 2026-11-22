@@ -97,6 +97,8 @@ export interface SpawnReadiness {
   readonly runtime: () => Promise<string | undefined>;
   readonly ensure: (runtime: string | undefined) => Promise<unknown>;
   readonly log: (event: Record<string, unknown>) => void;
+  /** Whether a failed Container setup refuses commands (`ContainerSetup.refuses`): then a spawn it cannot judge is refused. */
+  readonly refuses: () => boolean;
 }
 
 /**
@@ -106,15 +108,26 @@ export interface SpawnReadiness {
  */
 export const readyForSpawn = async (deps: SpawnReadiness): Promise<void> => {
   if (!deps.running()) return;
+  // A spawn whose Container's steps cannot be judged: refused under refuse (fail closed), else logged and let through.
+  const unjudged = (reason: string): void => {
+    if (deps.refuses()) throw new ContainerRefused(`Refused: this Container's Container setup cannot be checked (${reason}), and the Environment settings refuse commands in a Container whose setup failed. Try again in a moment.`);
+    deps.log({ t3flare: "container-steps-spawn", waited: false, reason });
+  };
+  let runtime: string | undefined;
   try {
-    const runtime = await deps.runtime();
-    if (runtime === undefined) {
-      deps.log({ t3flare: "global-mise-spawn", waited: false, reason: "the running Container's runtime is unknown" });
-      return;
-    }
+    runtime = await deps.runtime();
+  } catch (error) {
+    unjudged(String(error).slice(0, 200));
+    return;
+  }
+  if (runtime === undefined) {
+    unjudged("the running Container's runtime is unknown");
+    return;
+  }
+  try {
     await deps.ensure(runtime);
   } catch (error) {
     if (error instanceof ContainerRefused) throw error;
-    deps.log({ t3flare: "global-mise-spawn", waited: false, reason: String(error).slice(0, 200) });
+    unjudged(String(error).slice(0, 200));
   }
 };
