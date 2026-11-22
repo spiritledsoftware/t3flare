@@ -12,6 +12,9 @@ export const BASE_MISE_CONFIG = `${IMAGE_SHARE}/mise.toml`;
 /** Where the Global mise config's lay-down keeps its files: the Container's own disk, outside `/workspace` (SPI-1150). */
 export const GLOBAL_MISE_DIR = "/var/lib/t3flare/mise";
 
+/** root's home in the Container: the HOME the Image setup and the Container setup run with (ADR-0047). */
+export const ROOT_HOME = "/root";
+
 /** Where the Container setup's wrapper keeps the script, its output and its answer: the Container's own disk (ADR-0047 §7). */
 export const CONTAINER_SETUP_DIR = "/var/lib/t3flare/container-setup";
 

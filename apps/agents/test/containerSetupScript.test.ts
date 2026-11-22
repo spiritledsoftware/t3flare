@@ -66,6 +66,33 @@ describe.skipIf(!docker)("the Container setup's wrapper script", { timeout: 120_
     expect(kill).toMatchObject({ answer: { exitCode: 137, timedOut: true } });
   });
 
+  withImage("tells a script's own exit 124 or 137 from its time limit", () => {
+    const [own124, own137] = run([{ text: "echo quick\nexit 124\n", seconds: 30 }, { text: "exit 137\n", seconds: 30 }]);
+    expect(own124).toMatchObject({ answer: { exitCode: 124, timedOut: false }, output: "quick\n" });
+    expect(own137).toMatchObject({ answer: { exitCode: 137, timedOut: false } });
+  });
+
+  withImage("a broken exec that kills the wrapper leaves the run going; a retry waits for it and answers it, never running the script again", () => {
+    // The first try is killed a second in (as a broken exec kills it); the retry starts at once.
+    const script = `mkdir -p /t
+cat > /t/script.sh <<'T3FLARE_EOF'
+${CONTAINER_SETUP_SCRIPT}
+T3FLARE_EOF
+printf 'echo run >> /root/runs\nsleep 3\necho finished\nexit 4\n' > /t/in
+sha=$(sha256sum /t/in | cut -c1-64)
+bash -c "$(cat /t/script.sh)" t3flare-container-setup "$sha" 60 65536 < /t/in > /t/first 2>/dev/null &
+first=$!
+sleep 1
+kill -9 $first
+echo "RETRY $(bash -c "$(cat /t/script.sh)" t3flare-container-setup "$sha" 60 65536 < /t/in 2>/dev/null | base64 -w0)"
+echo "RUNS $(wc -l < /root/runs)"
+`;
+    const result = spawnSync("docker", ["run", "--rm", "-i", IMAGE, "bash", "-s"], { input: script, encoding: "utf8", timeout: 120_000 });
+    const field = (name: string) => result.stdout.split("\n").find((line) => line.startsWith(`${name} `))?.slice(name.length + 1) ?? "";
+    expect(field("RUNS")).toBe("1");
+    expect(parseContainerSetupAnswer(Buffer.from(field("RETRY"), "base64").toString("utf8"))).toMatchObject({ answer: { exitCode: 4, timedOut: false }, output: "finished\n" });
+  });
+
   withImage("answers only the window it is given of a long output", () => {
     const [long] = run([{ text: `head -c 20000 /dev/zero | tr '\\0' a\necho END\n`, window: 8192 }]);
     expect(long?.output.length).toBe(8192);

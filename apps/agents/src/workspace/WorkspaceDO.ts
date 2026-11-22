@@ -14,7 +14,7 @@ import {
 } from "@cloudflare/computer/backends/container";
 import { WorkerShellBackend } from "@cloudflare/computer/backends/worker-shell";
 import { type EnvRequest, type EnvResponse, type HostOperation, withHarnessKept, WorkspaceEnvHost } from "@t3flare/computer-env";
-import { COMMAND_ENV } from "@t3flare/sandbox-image/env";
+import { COMMAND_ENV, ROOT_HOME } from "@t3flare/sandbox-image/env";
 import { GLOBAL_MISE_DEADLINE_MS } from "@t3flare/sandbox-image/globalMise";
 import { DurableObject } from "cloudflare:workers";
 
@@ -394,7 +394,7 @@ export class WorkspaceDO extends ContainerHost {
     });
     this.#containerSetup = new ContainerSetup({
       // As root in / with HOME=/root (ADR-0047): the wrapper sets both too.
-      exec: stepExec({ HOME: "/root" }),
+      exec: stepExec({ HOME: ROOT_HOME }),
       launch: () => ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY)?.containerSetup,
       secrets: () => secretValuesOf(ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY)),
       hold,
