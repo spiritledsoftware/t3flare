@@ -661,6 +661,25 @@ describe("a Base build (review cycle 2)", () => {
     expect(await build.poke("the Owner's Rebuild", { force: true })).toMatchObject({ state: "building" });
   });
 
+  it("blanks a multibyte secret that straddles the window's head, its cut falling inside a character", async () => {
+    // 17 bytes of UTF-8: s é c r e t - ü - 值 値 (2-byte é and ü, 3-byte 值 and 値).
+    const secret = "sécret-ü-值値";
+    settings.variables = [{ name: "WIDE_SECRET", value: secret, secret: true }];
+    settings.setupOutputKiB = 4;
+    const build = builder();
+    await toRunning(build);
+    // After the secret: 4091 bytes of two-byte é and one x, so the kept 4096 bytes start 5 bytes before the secret's
+    // end, in the middle of 值.
+    container.log = `start\n${secret}${"é".repeat(2045)}x`;
+    container.exitCode = 1;
+    await ticks(build);
+    const output = build.record().failure!.output;
+    for (const fragment of ["值", "値", "ü", "-", "\uFFFD"]) expect(output).not.toContain(fragment);
+    expect(output.startsWith("***é")).toBe(true);
+    expect(output.endsWith("éx")).toBe(true);
+    expect(new TextEncoder().encode(output).length).toBeLessThanOrEqual(4 * 1024);
+  });
+
   it("renews the lease while a failed build's Container waits for its snapshot", async () => {
     settings.builderInBudget = true;
     settings.snapshotMinutes = 1;
@@ -676,5 +695,4 @@ describe("a Base build (review cycle 2)", () => {
     expect(leases.released).toBe(0);
   });
 });
-
 

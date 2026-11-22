@@ -5,7 +5,6 @@
 // `baseBuildRecord`, which drops a malformed one (another Worker's version).
 import { MAX_SETUP_OUTPUT_KIB } from "./environment.ts";
 
-
 /**
  * The reserved names of the Builders (ADR-0047 §1, §8): instances of the Workspace DO's class that are never a Workspace.
  * A Workspace's id never holds a colon, so none can take one of these.
