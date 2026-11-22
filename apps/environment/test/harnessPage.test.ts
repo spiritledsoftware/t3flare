@@ -342,7 +342,10 @@ describe("the Environment section's dotfiles", () => {
   it("draws both toggles in a row of their own, checked by default, outside the Containers row, each saying when it applies", () => {
     const section = sectionOf(renderPage(fixturePage()));
     const tags = tagsOf(section);
-    const boxes = tags.filter((tag) => tag.name === "input" && tag.attrs.type === "checkbox" && tag.attrs["data-setting"] !== undefined);
+    // The Dotfiles row: from its heading to the next row (other rows hold checkboxes of their own, the Builder's).
+    const start = section.indexOf('<h3 id="environment-dotfiles-title">');
+    const row = section.slice(start, section.indexOf('<div class="row">', start));
+    const boxes = tagsOf(row).filter((tag) => tag.name === "input" && tag.attrs.type === "checkbox" && tag.attrs["data-setting"] !== undefined);
     expect(boxes.map((tag) => [tag.attrs["data-setting"], tag.attrs.checked !== undefined])).toEqual([
       ["terminalsReadBashrc", true],
       ["agentsReadDotfiles", true],

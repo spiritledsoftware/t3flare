@@ -16,7 +16,8 @@ const watch = (lines: ReadonlyArray<string>) => {
   const script = `mkdir -p /x; sleep 4 & self=$!; sleep 0.2
 printf '%s\\n' ${lines.map((line) => `'${line}'`).join(" ")} > /x/log
 XDG_CONFIG_HOME=/h/config sh /img/t3flare-opencode --t3flare-watch $self /x/log
-echo "alive=$(kill -0 $self 2>/dev/null && echo yes || echo no)"`;
+# OpenCode stands in as a sleep: its exit says whether the watcher ended it (143, TERM) or it ran to its end (0).
+wait $self; echo "exit=$?"`;
   return spawnSync("docker", ["run", "--rm", "-i", "-v", `${SCRIPTS}:/img:ro`, IMAGE, "bash", "-c", script], { encoding: "utf8", timeout: 60_000 });
 };
 
@@ -30,11 +31,12 @@ describe.skipIf(!docker)("OpenCode's launcher watcher", () => {
     ]);
     expect(result.stderr).toContain("rejected malformed JSON or JSONC document");
     expect(result.stderr).not.toContain("the process was ended");
+    expect(result.stdout.trim()).toBe("exit=0");
   }, 90_000);
 
   it("still ends OpenCode on a diagnostic about t3flare's own configuration", () => {
     const result = watch(['message="configuration normalization diagnostic" source=/etc/opencode/opencode.json']);
     expect(result.stderr).toContain("t3flare: OpenCode could not read part of t3flare's configuration; the process was ended");
-    expect(result.stdout.trim()).toBe("alive=no");
+    expect(result.stdout.trim()).toBe("exit=143");
   }, 90_000);
 });

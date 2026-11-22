@@ -37,6 +37,7 @@ import {
 } from "@t3flare/harness-registry";
 
 import { SECRET_MARGIN_BYTES } from "@t3flare/sandbox-image/containerSetup";
+import { OWNER_HOME } from "@t3flare/sandbox-image/env";
 
 import { baseKey, hex, sha256Hex, unhex } from "./baseKey.ts";
 import { blankSecrets } from "./containerSetup.ts";
@@ -556,7 +557,7 @@ export class BaseBuild {
     await write(BUILDER_FILES.run, RUN_SCRIPT);
     const mise = await sha256Hex(settings.globalMiseConfig);
     // Every Variable, then COMMAND_ENV, then HOME=/root (ADR-0047's preamble): what a Container's commands get.
-    const env = { ...variableEnv(settings.variables), ...this.#runEnv.commandEnv, HOME: "/root" };
+    const env = { ...variableEnv(settings.variables), ...this.#runEnv.commandEnv, HOME: OWNER_HOME };
     const launched = await container.exec(["bash", "-c", LAUNCH_SCRIPT, "t3flare-builder", String(settings.revision), mise, "environment"], { env, timeoutMs: PROBE_MS });
     if (launched.exitCode !== 0) throw new Error(`the run's launch exited ${String(launched.exitCode)}`);
     this.#phase(build, "running");
