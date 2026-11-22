@@ -3,7 +3,7 @@
 // name as an `instance` that is never omitted, the idle time, and the budget carried only when it was read fresh.
 import { describe, expect, it } from "vitest";
 
-import { EMPTY_ENVIRONMENT, MAX_CONTAINER_BUDGET, MAX_TIMED_MINUTES, type ResolvedEnvironment, resolveEnvironment } from "@t3flare/harness-registry";
+import { EMPTY_ENVIRONMENT, ENVIRONMENT_SETTINGS, MAX_CONTAINER_BUDGET, MAX_TIMED_MINUTES, type ResolvedEnvironment, resolveEnvironment } from "@t3flare/harness-registry";
 
 import { launchOf, SECRET_SHOWN, secretValuesOf, shownLaunch, takeEnvironment, withContainerSteps } from "../src/workspace/containerLaunch.ts";
 import { type GlobalMiseLaunch, installMinutesOf } from "../src/workspace/globalMise.ts";
@@ -123,15 +123,17 @@ describe("the launch's Global mise config", () => {
 });
 
 describe("the launch's Global mise install time limit (SPI-1313)", () => {
-  it("is the setting's, 10 minutes by default", async () => {
+  const DEFAULT_MINUTES = ENVIRONMENT_SETTINGS.globalMiseInstallMinutes.schema.default;
+
+  it("is the setting's, its default by default", async () => {
     const taken = { settings: DEFAULTS, source: "default" as const };
-    expect((await withContainerSteps(launchOf(taken), taken)).globalMise?.installMinutes).toBe(10);
+    expect((await withContainerSteps(launchOf(taken), taken)).globalMise?.installMinutes).toBe(DEFAULT_MINUTES);
   });
 
   it("is the setting's default for a launch kept from before it (none recorded)", () => {
     const before: GlobalMiseLaunch = { text: "", bytes: 0, sha256: "e".repeat(64), revision: 3, source: "kept" };
-    expect(installMinutesOf(before)).toBe(10);
-    expect(installMinutesOf(undefined)).toBe(10);
+    expect(installMinutesOf(before)).toBe(DEFAULT_MINUTES);
+    expect(installMinutesOf(undefined)).toBe(DEFAULT_MINUTES);
     expect(installMinutesOf({ ...before, installMinutes: 3 })).toBe(3);
   });
 });

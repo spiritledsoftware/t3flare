@@ -732,7 +732,7 @@ export class BaseBuild {
     const env = { ...variableEnv(settings.variables), ...this.#runEnv.commandEnv, HOME: OWNER_HOME };
     // The lay-down's install has the Container start's time limit (`globalMiseInstallMinutes`), which is not part of the
     // Base key: a changed limit builds nothing again.
-    const args = globalMiseArgs(settings.revision, mise, "environment", "lay-down", settings.globalMiseInstallMinutes);
+    const args = globalMiseArgs({ revision: settings.revision, sha256: mise, source: "environment", mode: "lay-down", minutes: settings.globalMiseInstallMinutes });
     const launched = await container.exec(["bash", "-c", LAUNCH_SCRIPT, "t3flare-builder", ...args], { env, timeoutMs: PROBE_MS });
     if (launched.exitCode !== 0) throw new Error(`the run's launch exited ${String(launched.exitCode)}`);
     this.#phase(build, "running");

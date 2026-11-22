@@ -2,14 +2,16 @@
 // The Global mise config's lay-down as the Workspace DO runs it (SPI-1150, ADR-0032's Global mise config refinement;
 // `GlobalMise`), with a fake exec and clock: once per Container (its runtime id), held while it runs, bounded by a
 // deadline, retried after an exec failure, and reported. The script itself is `globalMiseScript.test.ts`'s.
-import { describeGlobalMise, type GlobalMiseReport } from "@t3flare/harness-registry";
-import { globalMiseArgs } from "@t3flare/sandbox-image/globalMise";
+import { describeGlobalMise, ENVIRONMENT_SETTINGS, type GlobalMiseReport } from "@t3flare/harness-registry";
+import { parseGlobalMiseArgv } from "@t3flare/sandbox-image/globalMise";
 import { describe, expect, it, vi } from "vitest";
 
 import { GLOBAL_MISE_AFTER_SETUP_KEY, GLOBAL_MISE_KEY, GlobalMise, type GlobalMiseExec, type GlobalMiseLaunch, type GlobalMiseState, MAX_ATTEMPTS } from "../src/workspace/globalMise.ts";
 
 const SHA = "a".repeat(64);
-const LAUNCH: GlobalMiseLaunch = { text: '[tools]\nnode = "24.11.1"\n', bytes: 25, sha256: SHA, revision: 4, source: "environment", installMinutes: 10 };
+/** The install time limit's default (`globalMiseInstallMinutes`). */
+const DEFAULT_MINUTES = ENVIRONMENT_SETTINGS.globalMiseInstallMinutes.schema.default;
+const LAUNCH: GlobalMiseLaunch = { text: '[tools]\nnode = "24.11.1"\n', bytes: 25, sha256: SHA, revision: 4, source: "environment", installMinutes: DEFAULT_MINUTES };
 const answer = (laid: boolean, extra: Record<string, unknown> = {}) => `${JSON.stringify({ revision: 4, sha256: SHA, source: "environment", laid, install: 0, timedOut: false, ms: 5, bytes: 25, ...extra })}\n`;
 
 type Step = { readonly stdout?: string; readonly throws?: string; readonly hang?: boolean };
@@ -58,25 +60,24 @@ describe("GlobalMise", () => {
     await t.mise.ensure("r1");
     expect(t.calls).toHaveLength(1);
     expect(t.calls[0]!.stdin).toBe(LAUNCH.text);
-    expect(t.calls[0]!.argv.slice(4)).toEqual(globalMiseArgs(4, SHA, "environment", "lay-down", 10));
+    expect(parseGlobalMiseArgv(t.calls[0]!.argv)).toMatchObject({ revision: 4, sha256: SHA, source: "environment", mode: "lay-down" });
   });
 
   it("bounds the install by the launch's time limit (SPI-1313), and waits for the exec at that limit", async () => {
     const asked: Array<number> = [];
     const t = setup([{ stdout: answer(true) }], { launch: { ...LAUNCH, installMinutes: 45 }, deadlineMs: (minutes) => (asked.push(minutes), 1_000) });
     await t.mise.ensure("r1");
-    expect(t.calls[0]!.argv.slice(4)).toEqual(globalMiseArgs(4, SHA, "environment", "lay-down", 45));
-    expect(t.calls[0]!.argv[8]).toBe(String(45 * 60));
+    expect(parseGlobalMiseArgv(t.calls[0]!.argv)).toMatchObject({ mode: "lay-down", installSeconds: 45 * 60 });
     expect(asked).toEqual([45]);
   });
 
-  it("gives a launch kept from before the time limit (none recorded) the setting's default of 10 minutes", async () => {
+  it("gives a launch kept from before the time limit (none recorded) the setting's default", async () => {
     const { installMinutes: _installMinutes, ...before } = LAUNCH;
     const asked: Array<number> = [];
     const t = setup([{ stdout: answer(true) }], { launch: before, deadlineMs: (minutes) => (asked.push(minutes), 1_000) });
     await t.mise.ensure("r1");
-    expect(t.calls[0]!.argv.slice(4)).toEqual(globalMiseArgs(4, SHA, "environment", "lay-down", 10));
-    expect(asked).toEqual([10]);
+    expect(parseGlobalMiseArgv(t.calls[0]!.argv)).toMatchObject({ installSeconds: DEFAULT_MINUTES * 60 });
+    expect(asked).toEqual([DEFAULT_MINUTES]);
   });
 
   it("runs again for a new Container (a runtime id it has not seen: one that died on its own and came back)", async () => {
@@ -214,7 +215,7 @@ describe("GlobalMise", () => {
     it("checks the dotfiles' mise file again in if-changed mode, and reports an unchanged one with the last finished run's answer", async () => {
       const t = setup([{ stdout: answer(true, { bytes: 30, dotfiles: true, unchanged: true }) }], { launch: EMPTY });
       expect(await after(t, "chezmoi apply\n").ensure("r1")).toMatchObject({ outcome: "laid" });
-      expect(t.calls[0]!.argv[7]).toBe("if-changed");
+      expect(parseGlobalMiseArgv(t.calls[0]!.argv)?.mode).toBe("if-changed");
       expect(t.calls[0]!.stdin).toBe("");
       expect(t.reports).toMatchObject([{ outcome: "laid", bytes: 30, dotfiles: true }]);
     });

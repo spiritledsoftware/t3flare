@@ -10,6 +10,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as path from "node:path";
 
+import { ENVIRONMENT_SETTINGS } from "@t3flare/harness-registry";
 import { COMMAND_ENV } from "@t3flare/sandbox-image/env";
 import { globalMiseArgs } from "@t3flare/sandbox-image/globalMise";
 import { afterAll, beforeAll, expect, it } from "vitest";
@@ -52,7 +53,7 @@ const build = async (setup: string, mise: string, variables: Readonly<Record<str
   write(BUILDER_FILES.laydown, LAYDOWN_SCRIPT);
   write(BUILDER_FILES.run, RUN_SCRIPT);
   const sha = createHash("sha256").update(mise).digest("hex");
-  const launched = exec(["bash", "-c", LAUNCH_SCRIPT, "t3flare-builder", ...globalMiseArgs(7, sha, "environment", "lay-down", 10)], { env: { ...variables, ...COMMAND_ENV, HOME: "/root" } });
+  const launched = exec(["bash", "-c", LAUNCH_SCRIPT, "t3flare-builder", ...globalMiseArgs({ revision: 7, sha256: sha, source: "environment", mode: "lay-down", minutes: ENVIRONMENT_SETTINGS.globalMiseInstallMinutes.schema.default })], { env: { ...variables, ...COMMAND_ENV, HOME: "/root" } });
   expect(launched.stdout.trim()).toBe("launched");
   for (let i = 0; i < 600; i++) {
     const code = exec(["bash", "-c", EXIT_SCRIPT]).stdout.trim();

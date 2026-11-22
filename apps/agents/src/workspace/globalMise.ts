@@ -145,7 +145,7 @@ const layDown = async (
     return { runtime, outcome: "none", attempts: attemptsBefore + 1, at: started };
   }
   const minutes = installMinutesOf(known);
-  const result = await run(globalMiseArgv(launch.revision, launch.sha256, launch.source, mode, minutes), launch.text, (deps.deadlineMs ?? globalMiseDeadlineMs)(minutes));
+  const result = await run(globalMiseArgv({ revision: launch.revision, sha256: launch.sha256, source: launch.source, mode, minutes }), launch.text, (deps.deadlineMs ?? globalMiseDeadlineMs)(minutes));
   let outcome: GlobalMiseOutcome = "exec-failed";
   let answer: GlobalMiseAnswer | undefined;
   let error: string | undefined;

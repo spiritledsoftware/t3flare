@@ -152,24 +152,54 @@ printf '%s\\n' "$line"
  */
 export type GlobalMiseMode = "lay-down" | "if-changed";
 
-/** The script's arguments after its name: what `GLOBAL_MISE_SCRIPT` reads as `$1` to `$6`, at an install limit of `minutes`. */
-export const globalMiseArgs = (revision: number, sha256: string, source: string, mode: GlobalMiseMode, minutes: number): ReadonlyArray<string> => [
-  String(revision),
-  sha256,
-  source,
-  mode,
-  String(minutes * 60),
-  String(globalMiseLockSeconds(minutes)),
+/** One run of the lay-down: the settings' revision, the text's digest, where the settings came from, its mode and install limit. */
+export interface GlobalMiseRun {
+  readonly revision: number;
+  readonly sha256: string;
+  readonly source: string;
+  readonly mode: GlobalMiseMode;
+  /** The install time limit (`globalMiseInstallMinutes`). */
+  readonly minutes: number;
+}
+
+/** The script's name (bash's `$0`): the argument before the ones `globalMiseArgs` gives. */
+const SCRIPT_NAME = "t3flare-global-mise";
+
+/** The script's arguments after its name: what `GLOBAL_MISE_SCRIPT` reads as `$1` to `$6`. */
+export const globalMiseArgs = (run: GlobalMiseRun): ReadonlyArray<string> => [
+  String(run.revision),
+  run.sha256,
+  run.source,
+  run.mode,
+  String(run.minutes * 60),
+  String(globalMiseLockSeconds(run.minutes)),
 ];
 
 /** The argv the platform's exec runs; the text goes on stdin. */
-export const globalMiseArgv = (revision: number, sha256: string, source: string, mode: GlobalMiseMode, minutes: number): ReadonlyArray<string> => [
-  "bash",
-  "-c",
-  GLOBAL_MISE_SCRIPT,
-  "t3flare-global-mise",
-  ...globalMiseArgs(revision, sha256, source, mode, minutes),
-];
+export const globalMiseArgv = (run: GlobalMiseRun): ReadonlyArray<string> => ["bash", "-c", GLOBAL_MISE_SCRIPT, SCRIPT_NAME, ...globalMiseArgs(run)];
+
+/** What the script reads from its arguments (`globalMiseArgs`, read back): its bounds in seconds. */
+export interface GlobalMiseArgs {
+  readonly revision: number;
+  readonly sha256: string;
+  readonly source: string;
+  readonly mode: string;
+  readonly installSeconds: number;
+  readonly lockSeconds: number;
+}
+
+/** `globalMiseArgs`' output read back, field by field; undefined when there are not six. */
+export const parseGlobalMiseArgs = (args: ReadonlyArray<string>): GlobalMiseArgs | undefined => {
+  if (args.length !== 6) return undefined;
+  const [revision, sha256, source, mode, install, lock] = args as readonly [string, string, string, string, string, string];
+  return { revision: Number(revision), sha256, source, mode, installSeconds: Number(install), lockSeconds: Number(lock) };
+};
+
+/** The arguments of a `globalMiseArgv`, read back: those after the script's name; undefined for another argv. */
+export const parseGlobalMiseArgv = (argv: ReadonlyArray<string>): GlobalMiseArgs | undefined => {
+  const at = argv.indexOf(SCRIPT_NAME);
+  return argv[2] !== GLOBAL_MISE_SCRIPT || at < 0 ? undefined : parseGlobalMiseArgs(argv.slice(at + 1));
+};
 
 /** The answer from the script's stdout (its last line), or undefined when it is not one, field by field. */
 export const parseGlobalMiseAnswer = (stdout: string): GlobalMiseAnswer | undefined => {

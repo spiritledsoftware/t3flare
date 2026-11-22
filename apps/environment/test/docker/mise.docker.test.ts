@@ -24,8 +24,9 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+import { ENVIRONMENT_SETTINGS } from "@t3flare/harness-registry";
 import { BASE_MISE_CONFIG, COMMAND_ENV, GLOBAL_MISE_CONFIG, IMAGE_SHARE } from "@t3flare/sandbox-image/env";
-import { GLOBAL_MISE_SCRIPT } from "@t3flare/sandbox-image/globalMise";
+import { GLOBAL_MISE_SCRIPT, globalMiseArgs } from "@t3flare/sandbox-image/globalMise";
 import { expect, it } from "vitest";
 
 import { removeMounted } from "./cliHarness.ts";
@@ -76,7 +77,7 @@ const DESIGN_ENV: Readonly<Record<string, string>> = Object.fromEntries(Object.e
 
 /** The real lay-down (`GLOBAL_MISE_SCRIPT`), the text on stdin; prints its answer, one JSON line. */
 const layDown = (text: string): string =>
-  `printf %s '${Buffer.from(text).toString("base64")}' | base64 -d | bash -c '${GLOBAL_MISE_SCRIPT.replaceAll("'", "'\\''")}' t3flare-global-mise 1 ${createHash("sha256").update(text).digest("hex")} environment`;
+  `printf %s '${Buffer.from(text).toString("base64")}' | base64 -d | bash -c '${GLOBAL_MISE_SCRIPT.replaceAll("'", "'\\''")}' t3flare-global-mise ${globalMiseArgs({ revision: 1, sha256: createHash("sha256").update(text).digest("hex"), source: "environment", mode: "lay-down", minutes: ENVIRONMENT_SETTINGS.globalMiseInstallMinutes.schema.default }).join(" ")}`;
 
 const docker = (args: ReadonlyArray<string>, options: { input?: string; quiet?: boolean } = {}) => {
   const result = spawnSync("docker", args, { encoding: "utf8", input: options.input, maxBuffer: 64 * 1024 * 1024 });

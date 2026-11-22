@@ -7,8 +7,12 @@
 import { spawnSync } from "node:child_process";
 
 import { DOTFILES_MISE_CONFIG, GLOBAL_MISE_CONFIG, GLOBAL_MISE_DIR } from "@t3flare/sandbox-image/env";
-import { GLOBAL_MISE_BOUNDS, GLOBAL_MISE_SCRIPT, globalMiseArgs, globalMiseDeadlineMs, globalMiseLockSeconds, parseGlobalMiseAnswer, SYSTEM_GITCONFIG } from "@t3flare/sandbox-image/globalMise";
+import { ENVIRONMENT_SETTINGS } from "@t3flare/harness-registry";
+import { GLOBAL_MISE_BOUNDS, GLOBAL_MISE_SCRIPT, globalMiseArgs, globalMiseDeadlineMs, globalMiseLockSeconds, parseGlobalMiseAnswer, parseGlobalMiseArgs, SYSTEM_GITCONFIG } from "@t3flare/sandbox-image/globalMise";
 import { beforeAll, describe, expect, it, type TestContext } from "vitest";
+
+/** The install time limit's default (`globalMiseInstallMinutes`). */
+const DEFAULT_MINUTES = ENVIRONMENT_SETTINGS.globalMiseInstallMinutes.schema.default;
 
 /** The final stage's base of apps/sandbox-image/image/Dockerfile, by the same digest. */
 const IMAGE = "ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c";
@@ -53,11 +57,11 @@ mkdir -p $(dirname ${SYSTEM_GITCONFIG}) && printf '[credential]\\n\\thelper = "!
 
 /**
  * Each run: `text` on stdin to the script for `revision`; prints the answer and what the stubs and disk show. The bounds
- * are the default install limit's (10 minutes), as `globalMiseArgs` hands them in; `shortBounds` hands in a 1 s install
+ * are the default install limit's, as `globalMiseArgs` hands them in; `shortBounds` hands in a 1 s install
  * and a 3 s lock, and puts a 1 s KILL in place of the script's own by text.
  */
 const run = (cases: ReadonlyArray<{ readonly text: string; readonly revision?: number; readonly env?: string; readonly before?: string; readonly mode?: string }>, options: { readonly shortBounds?: boolean } = {}) => {
-  const bounds = options.shortBounds === true ? "1 3" : `${10 * 60} ${globalMiseLockSeconds(10)}`;
+  const bounds = options.shortBounds === true ? "1 3" : `${DEFAULT_MINUTES * 60} ${globalMiseLockSeconds(DEFAULT_MINUTES)}`;
   const steps = cases
     .map(
       ({ text, revision = 1, env = "", before = "", mode = "lay-down" }, index) => `${before}
@@ -266,7 +270,7 @@ cp -r /root/.local/share/mise/installs/conda-git/2.40.0/bin /root/.local/share/m
 printf '[credential]\\n\\thelper = "!x t3flare/git-credential"\\n' > /root/.local/share/mise/installs/conda-git/2.56.0/etc/gitconfig
 trap 'echo "PINNED $(base64 -w0 < /root/.local/share/mise/installs/conda-git/2.40.0/etc/gitconfig)"; echo "KEPT $(base64 -w0 < /root/.local/share/mise/installs/conda-git/2.56.0/etc/gitconfig)"' EXIT`;
     const result = spawnSync("docker", ["run", "--rm", "-i", IMAGE, "bash", "-s"], {
-      input: `${STUBS}\n${before}\nprintf %s '${Buffer.from(NODE).toString("base64")}' | base64 -d | bash -c '${GLOBAL_MISE_SCRIPT.replaceAll("'", "'\\''")}' t3flare-global-mise ${globalMiseArgs(1, "a".repeat(64), "kept", "lay-down", 10).join(" ")}\n`,
+      input: `${STUBS}\n${before}\nprintf %s '${Buffer.from(NODE).toString("base64")}' | base64 -d | bash -c '${GLOBAL_MISE_SCRIPT.replaceAll("'", "'\\''")}' t3flare-global-mise ${globalMiseArgs({ revision: 1, sha256: "a".repeat(64), source: "kept", mode: "lay-down", minutes: DEFAULT_MINUTES }).join(" ")}\n`,
       encoding: "utf8",
       timeout: 120_000,
     });
@@ -303,7 +307,8 @@ describe("the lay-down's bounds at an install time limit", () => {
       const install = minutes * 60;
       const lock = install + GLOBAL_MISE_BOUNDS.installKillAfter + checks + GLOBAL_MISE_BOUNDS.lockMargin;
       expect(globalMiseLockSeconds(minutes)).toBe(lock);
-      expect(globalMiseArgs(3, "b".repeat(64), "kept", "if-changed", minutes)).toEqual(["3", "b".repeat(64), "kept", "if-changed", String(install), String(lock)]);
+      const args = globalMiseArgs({ revision: 3, sha256: "b".repeat(64), source: "kept", mode: "if-changed", minutes });
+      expect(parseGlobalMiseArgs(args)).toEqual({ revision: 3, sha256: "b".repeat(64), source: "kept", mode: "if-changed", installSeconds: install, lockSeconds: lock });
     }
   });
 
