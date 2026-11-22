@@ -218,12 +218,6 @@ const cliAgentArgument = (agent: unknown): void => {
   if (agent !== undefined && !isCliAgent(agent)) throw new Error(`t3flare: no CLI agent ${JSON.stringify(agent)}`);
 };
 
-/**
- * CLI processes per Workspace (plan §2.1, review F7): an idle Codex app-server measured 157–160 MB RSS on step4a
- * (steps-evidence-1:docs/steps/step-4a/m3-memory.json), so four take about 0.65 GB of 3 GiB, beside computerd (~100 MB) and the agents'
- * own commands (an `npm ci` and its tests peak at 1–1.5 GB). A fifth start is refused with this reason.
- */
-export const MAX_CLI_PROCESSES = 4;
 /** Set when the sync guard found a credential in the Workspace: the key is to be rotated (review F3). */
 const LEAK_FLAG_KEY = "t3flare:credential-leak";
 /** Where the sync guard moves a file holding a credential: the Container's own disk, never synced. */
@@ -558,7 +552,6 @@ export class WorkspaceDO extends ContainerHost {
       remember: (markers) => ctx.storage.kv.put(PROCESS_MARKERS_KEY, [...markers]),
       remembered: () => ctx.storage.kv.get<ReadonlyArray<ProcessMarker>>(PROCESS_MARKERS_KEY) ?? [],
       filesMayHaveChanged: (why) => this.#terminalSync.changed(why),
-      maxProcesses: MAX_CLI_PROCESSES,
       allowProbe: env.T3FLARE_FAULTS === "1",
       beforeStart: async () => {
         await this.#ensureSteps();

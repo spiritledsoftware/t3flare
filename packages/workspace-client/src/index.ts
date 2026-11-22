@@ -290,6 +290,18 @@ export interface ProcessStartInput {
    * Workspace DO and the process.
    */
   readonly modelRelay?: ReadonlyArray<string>;
+  /**
+   * The Environment settings' CLI agents' processes per Workspace (SPI-1318), carried with each start as the Container
+   * budget rides the lease request (ADR-0032 §7): the start is refused when it would take the Workspace past it. Absent,
+   * or out of the setting's bounds (an older or newer Environment): the setting's default.
+   */
+  readonly cliProcessesPerWorkspace?: number;
+  /**
+   * The Environment settings' reclaim delay in seconds (SPI-1318): how long this process may be out of a turn before it
+   * may be ended to free the Container for another Workspace. Kept with the process, so a change applies to processes
+   * started after it. Absent or out of bounds: the setting's default.
+   */
+  readonly cliReclaimSeconds?: number;
 }
 
 /** A Tool handle or a model handle: 32 random bytes, hex. */

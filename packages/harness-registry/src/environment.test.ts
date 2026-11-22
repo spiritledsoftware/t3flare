@@ -3,7 +3,7 @@
 // (`containerInstance`): defaults, an unknown stored size, the idle bounds, and `instance` never omitted.
 import { describe, expect, it } from "vitest";
 
-import { applyEnvironmentChange, BASE_BUILD_SETTING_KEYS, builderInstance, containerInstance, DOTFILES_SETTING_KEYS, EMPTY_ENVIRONMENT, ENVIRONMENT_SETTINGS, MAX_CONTAINER_BUDGET, MAX_SETUP_BYTES, MAX_TIMED_MINUTES, resolveEnvironment, SWEEP_SETTING_KEYS } from "./environment.ts";
+import { applyEnvironmentChange, BASE_BUILD_SETTING_KEYS, builderInstance, containerInstance, DOTFILES_SETTING_KEYS, EMPTY_ENVIRONMENT, ENVIRONMENT_SETTINGS, MAX_CLI_PROCESSES_PER_WORKSPACE, MAX_CLI_RECLAIM_SECONDS, MAX_CONTAINER_BUDGET, MAX_SETUP_BYTES, MAX_TIMED_MINUTES, resolveEnvironment, SWEEP_SETTING_KEYS } from "./environment.ts";
 import type { EnvironmentSettingEntry } from "./fields.ts";
 
 /** The Base build's settings at their defaults (SPI-1332, ADR-0047 §9). */
@@ -11,12 +11,12 @@ const BASE_DEFAULTS = { imageSetup: "", imageSetupMinutes: 30, snapshotMinutes: 
 
 describe("resolveEnvironment", () => {
   it("gives the defaults for empty settings: cpu-1 and a 2-minute idle time, at revision 0", () => {
-    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toEqual({ revision: 0, containerSize: "cpu-1", containerIdleMinutes: 2, containerBudget: 3, variables: [], globalMiseConfig: "", globalMiseInstallMinutes: 10, containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, terminalsReadBashrc: true, agentsReadDotfiles: true, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toEqual({ revision: 0, containerSize: "cpu-1", containerIdleMinutes: 2, containerBudget: 3, cliProcessesPerWorkspace: 4, cliReclaimSeconds: 30, variables: [], globalMiseConfig: "", globalMiseInstallMinutes: 10, containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, terminalsReadBashrc: true, agentsReadDotfiles: true, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
   });
 
   it("reads a stored size it no longer offers, or an idle time out of bounds, as the default", () => {
-    expect(resolveEnvironment({ revision: 4, settings: { containerSize: "mem-8", containerIdleMinutes: 0, containerBudget: 101 } })).toEqual({ revision: 4, containerSize: "cpu-1", containerIdleMinutes: 2, containerBudget: 3, variables: [], globalMiseConfig: "", globalMiseInstallMinutes: 10, containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, terminalsReadBashrc: true, agentsReadDotfiles: true, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
-    expect(resolveEnvironment({ revision: 5, settings: { containerSize: "standard-3", containerIdleMinutes: 15, containerBudget: 5 } })).toEqual({ revision: 5, containerSize: "standard-3", containerIdleMinutes: 15, containerBudget: 5, variables: [], globalMiseConfig: "", globalMiseInstallMinutes: 10, containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, terminalsReadBashrc: true, agentsReadDotfiles: true, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
+    expect(resolveEnvironment({ revision: 4, settings: { containerSize: "mem-8", containerIdleMinutes: 0, containerBudget: 101 } })).toEqual({ revision: 4, containerSize: "cpu-1", containerIdleMinutes: 2, containerBudget: 3, cliProcessesPerWorkspace: 4, cliReclaimSeconds: 30, variables: [], globalMiseConfig: "", globalMiseInstallMinutes: 10, containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, terminalsReadBashrc: true, agentsReadDotfiles: true, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
+    expect(resolveEnvironment({ revision: 5, settings: { containerSize: "standard-3", containerIdleMinutes: 15, containerBudget: 5 } })).toEqual({ revision: 5, containerSize: "standard-3", containerIdleMinutes: 15, containerBudget: 5, cliProcessesPerWorkspace: 4, cliReclaimSeconds: 30, variables: [], globalMiseConfig: "", globalMiseInstallMinutes: 10, containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, terminalsReadBashrc: true, agentsReadDotfiles: true, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
   });
 });
 
@@ -25,10 +25,10 @@ describe("applyEnvironmentChange", () => {
     const applied = applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { containerSize: "standard-4", containerIdleMinutes: 10 } });
     if (!applied.ok) throw new Error(applied.error);
     expect(applied.environment.revision).toBe(1);
-    expect(resolveEnvironment(applied.environment)).toEqual({ revision: 1, containerSize: "standard-4", containerIdleMinutes: 10, containerBudget: 3, variables: [], globalMiseConfig: "", globalMiseInstallMinutes: 10, containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, terminalsReadBashrc: true, agentsReadDotfiles: true, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
+    expect(resolveEnvironment(applied.environment)).toEqual({ revision: 1, containerSize: "standard-4", containerIdleMinutes: 10, containerBudget: 3, cliProcessesPerWorkspace: 4, cliReclaimSeconds: 30, variables: [], globalMiseConfig: "", globalMiseInstallMinutes: 10, containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, terminalsReadBashrc: true, agentsReadDotfiles: true, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
     const again = applyEnvironmentChange(applied.environment, { settings: { containerIdleMinutes: 5 } });
     if (!again.ok) throw new Error(again.error);
-    expect(resolveEnvironment(again.environment)).toEqual({ revision: 2, containerSize: "standard-4", containerIdleMinutes: 5, containerBudget: 3, variables: [], globalMiseConfig: "", globalMiseInstallMinutes: 10, containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, terminalsReadBashrc: true, agentsReadDotfiles: true, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
+    expect(resolveEnvironment(again.environment)).toEqual({ revision: 2, containerSize: "standard-4", containerIdleMinutes: 5, containerBudget: 3, cliProcessesPerWorkspace: 4, cliReclaimSeconds: 30, variables: [], globalMiseConfig: "", globalMiseInstallMinutes: 10, containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, terminalsReadBashrc: true, agentsReadDotfiles: true, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
   });
 
   it("stores and bumps the revision for the settings that moved only; a save that moves none changes nothing", () => {
@@ -134,6 +134,33 @@ describe("the Global mise config", () => {
     if (!again.ok) throw new Error(again.error);
     expect(again.changed).toEqual([]);
     expect(again.environment.revision).toBe(1);
+  });
+});
+
+describe("the CLI agents' processes per Workspace and the reclaim delay (SPI-1318)", () => {
+  const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
+
+  it("counts 4 processes by default, 1 to MAX_CLI_PROCESSES_PER_WORKSPACE (100, a sanity bound) whole processes", () => {
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT).cliProcessesPerWorkspace).toBe(4);
+    expect(MAX_CLI_PROCESSES_PER_WORKSPACE).toBe(100);
+    for (const count of [1, 4, 32, 100]) expect(set({ cliProcessesPerWorkspace: count })).toMatchObject({ ok: true });
+    for (const count of [0, 101, 2.5, "4"]) expect(set({ cliProcessesPerWorkspace: count })).toMatchObject({ ok: false });
+  });
+
+  it("waits 30 seconds by default, 0 to MAX_CLI_RECLAIM_SECONDS (660, the CLI idle hold) whole seconds", () => {
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT).cliReclaimSeconds).toBe(30);
+    expect(MAX_CLI_RECLAIM_SECONDS).toBe(660);
+    for (const seconds of [0, 30, 660]) expect(set({ cliReclaimSeconds: seconds })).toMatchObject({ ok: true });
+    for (const seconds of [-1, 661, 0.5, "30"]) expect(set({ cliReclaimSeconds: seconds })).toMatchObject({ ok: false });
+  });
+
+  it("are down-free and free, in the Containers row, and the count states its memory once in Owner words", () => {
+    expect(ENVIRONMENT_SETTINGS.cliProcessesPerWorkspace).toMatchObject({ tier: "down-free" });
+    expect(ENVIRONMENT_SETTINGS.cliReclaimSeconds).toMatchObject({ tier: "free" });
+    expect("row" in ENVIRONMENT_SETTINGS.cliProcessesPerWorkspace || "row" in ENVIRONMENT_SETTINGS.cliReclaimSeconds).toBe(false);
+    expect(ENVIRONMENT_SETTINGS.cliProcessesPerWorkspace.description).toContain("Each CLI agent's process takes about 150 to 200 MB of the Container's memory; past what the Container size has, commands fail for memory.");
+    expect(ENVIRONMENT_SETTINGS.cliReclaimSeconds.description).toContain("ended to free the Container for another Workspace");
+    expect(ENVIRONMENT_SETTINGS.cliReclaimSeconds.description).not.toMatch(/reclaim/i);
   });
 });
 
