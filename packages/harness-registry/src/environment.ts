@@ -215,9 +215,9 @@ export const ENVIRONMENT_SETTINGS = {
     tier: "down-free",
   },
   cliReclaimSeconds: {
-    title: "Idle CLI agent's process may end after (seconds)",
+    title: "CLI agent's idle time before it may end (seconds)",
     description:
-      "When the Container budget is full and another Workspace asks for a Container, a CLI agent's process out of its turn this long may be ended to free the Container for another Workspace. 0: as soon as its turn ends. Applies to CLI agents' processes started after the change.",
+      "Only while the Container budget is full and another Workspace asks for a Container: a CLI agent's process idle this long after its turn may be ended to free the Container for another Workspace. 0 is as soon as its turn ends. Applies at each CLI agent's next start; a running one keeps what it started with.",
     // A named constraint (`MAX_CLI_RECLAIM_SECONDS`): past the CLI idle hold, a longer delay changes nothing.
     schema: { type: "integer", minimum: 0, maximum: MAX_CLI_RECLAIM_SECONDS, default: 30 },
     tier: "free",
