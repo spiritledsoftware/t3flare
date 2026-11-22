@@ -45,7 +45,7 @@ const setup = (steps: Array<Step>, options: { launch?: GlobalMiseLaunch | undefi
     now: () => Date.now(),
     deadlineMs: options.deadlineMs ?? 1_000,
   };
-  return { mise: new GlobalMise(deps), map, calls, reports, events, storage, holds: () => holds, killed: () => killed };
+  return { mise: new GlobalMise(deps), deps, map, calls, reports, events, storage, holds: () => holds, killed: () => killed };
 };
 
 describe("GlobalMise", () => {
@@ -139,6 +139,22 @@ describe("GlobalMise", () => {
     await vi.waitFor(() => expect(t.mise.state()).toMatchObject({ runtime: "r1", outcome: "laid" }));
     expect(t.mise.catchUp("r1")).toBe(false);
     expect(t.calls).toHaveLength(1);
+  });
+
+  it("counts an attempt that threw (its report or launch broke) as an exec failure, so it ends final", async () => {
+    const map = new Map<string, unknown>();
+    let reads = 0;
+    const t = setup([], { map });
+    // The launch read throws on every attempt.
+    const broken = new GlobalMise({ ...t.deps, launch: () => {
+      reads++;
+      throw new Error("storage");
+    } });
+    expect(await broken.ensure("r1")).toMatchObject({ runtime: "r1", outcome: "exec-failed", attempts: 2 });
+    expect(await broken.ensure("r1")).toMatchObject({ outcome: "exec-failed", attempts: MAX_ATTEMPTS });
+    expect(await broken.ensure("r1")).toMatchObject({ attempts: MAX_ATTEMPTS });
+    expect(reads).toBe(MAX_ATTEMPTS);
+    expect(broken.due("r1")).toBe(false);
   });
 
   it("reports a Container started with no text, so Status no longer shows an older start's file", async () => {

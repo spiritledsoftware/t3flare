@@ -117,6 +117,8 @@ export class ContainerSetup {
       used: deps.used,
       storage: deps.storage,
       attempt: (runtime, attempts, run) => this.#attempt(runtime, attempts, run),
+      failed: (runtime, attempts) => ({ runtime, outcome: "exec-failed", attempts, exitCode: null, timedOut: false, at: deps.now() }),
+      ...(deps.log === undefined ? {} : { log: deps.log }),
     });
   }
 

@@ -122,17 +122,25 @@ describe("ContainerSteps", () => {
   /** A step on a script of ends: each `ensure` resolves when its test says, with the state given. */
   const step = (name: string, events: Array<string>, outcome = "ok", options: { due?: boolean; fails?: boolean; attempts?: number } = {}) => {
     let running = false;
+    let released = false;
     let release: () => void = () => undefined;
     const ensure = async (runtime: string | undefined) => {
       events.push(`${name} ${String(runtime)}`);
       running = true;
-      await new Promise<void>((resolve) => (release = resolve));
+      // Once released, a step driven again ends at once.
+      if (!released) await new Promise<void>((resolve) => (release = resolve));
       running = false;
       events.push(`${name} done`);
       if (options.fails === true) throw new Error(`${name} broke`);
       return { runtime: runtime ?? "", outcome, attempts: options.attempts ?? 1, at: 0 };
     };
-    return { step: { ensure, due: () => options.due ?? false, inFlight: () => running }, release: () => release() };
+    return {
+      step: { ensure, due: () => options.due ?? false, inFlight: () => running },
+      release: () => {
+        released = true;
+        release();
+      },
+    };
   };
   const steps = (...entries: ReadonlyArray<SequencedStep<StepState>>) => new ContainerSteps(entries.map(sequenced));
 
@@ -161,7 +169,9 @@ describe("ContainerSteps", () => {
     await tick();
     mise.release();
     await expect(done).resolves.toBeUndefined();
-    expect(events).toEqual(["mise r1", "mise done"]);
+    // Driven MAX_ATTEMPTS times by this command, never final, so the setup is not run.
+    expect(events.filter((event) => event.startsWith("setup"))).toEqual([]);
+    expect(events.filter((event) => event === "mise done")).toHaveLength(MAX_ATTEMPTS);
   });
 
   it("rejects with ContainerRefused when a step's outcome refuses the Container", async () => {
@@ -177,16 +187,21 @@ describe("ContainerSteps", () => {
   /** A refusal as the Container setup's under refuse: any outcome but ok, and a setup not judged at all. */
   const refusing = (state: StepState | undefined) => (state === undefined ? "Refused: not judged" : state.outcome === "ok" ? undefined : `Refused: ${state.outcome}`);
 
-  it("holds the second step until the first is final: an exec failure with attempts left runs nothing after it", async () => {
+  it("drives the first step's remaining attempts before the second, so a command waits for both", async () => {
+    // Two exec failures at once, then the third attempt (driven by this same command) lays down.
     const events: Array<string> = [];
-    const mise = step("mise", events, "exec-failed", { attempts: 2 });
-    const setup = step("setup", events);
-    const ready = steps({ step: mise.step, doing: "a" }, { step: setup.step, doing: "b" });
-    const done = ready.ensure("r1");
-    await tick();
-    mise.release();
-    await done;
-    expect(events).toEqual(["mise r1", "mise done"]);
+    const outcomes = [{ outcome: "exec-failed", attempts: 2 }, { outcome: "laid", attempts: 3 }];
+    const mise = { ensure: async (runtime: string | undefined) => (events.push(`mise ${String(runtime)}`), { runtime: runtime ?? "", at: 0, ...outcomes.shift()! }), due: () => false, inFlight: () => false };
+    const setup = { ensure: async (runtime: string | undefined) => (events.push(`setup ${String(runtime)}`), { runtime: runtime ?? "", outcome: "ok", attempts: 1, at: 0 }), due: () => false, inFlight: () => false };
+    await steps({ step: mise, doing: "a" }, { step: setup, doing: "b" }).ensure("r1");
+    expect(events).toEqual(["mise r1", "mise r1", "setup r1"]);
+  });
+
+  it("drives a first step that never ends final at most MAX_ATTEMPTS times, then lets the command go on", async () => {
+    const events: Array<string> = [];
+    const mise = { ensure: async () => (events.push("mise"), { runtime: "", outcome: "exec-failed", attempts: 1, at: 0 }), due: () => false, inFlight: () => false };
+    await steps({ step: mise, doing: "a" }, { step: step("setup", events).step, doing: "b" }).ensure(undefined);
+    expect(events).toEqual(Array.from({ length: MAX_ATTEMPTS }, () => "mise"));
   });
 
   it("runs the second step once the first is out of attempts", async () => {

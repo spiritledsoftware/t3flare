@@ -66,6 +66,8 @@ export class GlobalMise {
       used: deps.used,
       storage: deps.storage,
       attempt: (runtime, attempts, run) => layDown(deps, runtime, attempts, run),
+      failed: (runtime, attempts) => ({ runtime, outcome: "exec-failed", attempts, at: deps.now() }),
+      ...(deps.log === undefined ? {} : { log: deps.log }),
     });
   }
 
