@@ -1,7 +1,7 @@
 // Variables (SPI-1152, ADR-0032's Variables refinement, ADR-0046): `NAME=value` pairs every command in a Workspace starts
 // with, kept in the Environment settings. A Variable may be secret, as stock t3's provider environment variables are
 // (`t3code/packages/contracts/src/providerInstance.ts`): its value is then sealed with the Stage's credentials key before
-// it is stored (`apps/environment/src/settings/variableSeal.ts`), and no read returns it. Validation keeps t3flare
+// it is stored (`apps/environment/src/harness/variableSeal.ts`), and no read returns it. Validation keeps t3flare
 // working and nothing more (ADR-0046 §3): a name a shell can export, a value without a NUL, and the limits below, since
 // every Environment setting is one stored value.
 //
@@ -29,7 +29,10 @@ export const MAX_VARIABLE_VALUE_LENGTH = 4096;
  */
 const MAX_SEALED_LENGTH = 4 * Math.ceil((MAX_VARIABLE_VALUE_LENGTH * 3 + 16) / 3);
 
-/** A secret's value as stored: AES-GCM under the Stage's credentials key, and an HMAC fingerprint of the value. */
+/**
+ * A secret's value as stored: AES-GCM under the Stage's credentials key, and an HMAC fingerprint of the value. Only the
+ * Environment DO makes one (`variableSeal.ts`): a change from outside gives a value or `valueRedacted`, never this.
+ */
 export interface SealedValue {
   readonly iv: string;
   readonly data: string;
@@ -54,6 +57,11 @@ export interface Variable {
   readonly secret: boolean;
   readonly valueRedacted?: true;
   readonly fingerprint?: string;
+  /**
+   * A stored secret this Environment's credentials key does not open (set before the key changed, or without one): a
+   * Container start leaves it out, so its value must be typed again. Only a read that tried to open it says so.
+   */
+  readonly unreadable?: true;
 }
 
 /**
@@ -61,6 +69,18 @@ export interface Variable {
  * (`variableEnv`): t3flare's value wins (ADR-0046 §3, ADR-0032's Variables §7), as for every name in SET_BY_T3FLARE.
  */
 export const SET_BY_THE_CONTAINER: ReadonlyArray<string> = ["PATH", "HOME", "PWD", "SHELL", "USER"];
+
+/**
+ * The prefixes of the names t3flare and t3 keep for themselves inside a Workspace: t3flare's internal markers
+ * (`T3FLARE_PASSIVE_READ`, which lets a read skip the Global mise lay-down; `T3FLARE_EXEC`, a command's exec id that
+ * the stop ledger and the kill helper find it by; the model and tool handles) and t3's own (`T3CODE_THREAD_ID`, which
+ * the port discovery reads). A Variable under one never reaches a command (`variableEnv`): it would make a command look
+ * like something t3flare made, so t3flare's correctness forces this, and the Settings page says so beside it.
+ */
+export const RESERVED_PREFIXES: ReadonlyArray<string> = ["T3FLARE_", "T3CODE_"];
+
+/** Whether a Variable named `name` is left out of every command: the Container's shell's own, or a reserved prefix. */
+export const withheldFromCommands = (name: string): boolean => SET_BY_THE_CONTAINER.includes(name) || RESERVED_PREFIXES.some((prefix) => name.startsWith(prefix));
 
 /**
  * Every name t3flare sets or pins for a command, a Terminal or a CLI agent: the Container's shell's own
@@ -175,11 +195,14 @@ export const SET_BY_T3FLARE: ReadonlyArray<string> = [
   "https_proxy",
 ];
 
-/** Whether t3flare sets `name` itself, so its own value wins over a Variable's (the Settings page's note). */
-export const setByT3flare = (name: string): boolean => SET_BY_T3FLARE.includes(name);
+/**
+ * Whether t3flare sets or keeps `name` itself, so its own value wins over a Variable's, or the Variable reaches no
+ * command (the Settings page's note): SET_BY_T3FLARE, and every name under RESERVED_PREFIXES.
+ */
+export const setByT3flare = (name: string): boolean => SET_BY_T3FLARE.includes(name) || RESERVED_PREFIXES.some((prefix) => name.startsWith(prefix));
 
-/** Whether `value` is a plain object. */
-const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> => value !== null && typeof value === "object" && !Array.isArray(value);
+/** Whether `value` is a plain object: a Variable's entry, a set of them in the old shape, a sealed value. */
+export const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> => value !== null && typeof value === "object" && !Array.isArray(value);
 
 /** Why `name` cannot be a Variable's, or undefined when it can. */
 export const variableNameProblem = (name: string): string | undefined => {
@@ -198,15 +221,20 @@ export const variableValueProblem = (name: string, value: string): string | unde
   return undefined;
 };
 
+/** AES-GCM's 12-byte IV as base64 (16 characters), with room: `valueSealer` (sealed.ts) makes it. */
+const MAX_IV_LENGTH = 32;
+/** The fingerprint `valueSealer` makes: 8 hex digits of an HMAC-SHA-256 (64 at most, the whole digest in hex). */
+const MAX_FINGERPRINT_LENGTH = 64;
+
 /** Whether `value` is a sealed value's shape (whether it opens is the Environment DO's to say). */
 export const isSealedValue = (value: unknown): value is SealedValue =>
   isRecord(value) &&
   typeof value.iv === "string" &&
-  value.iv.length <= 32 &&
+  value.iv.length <= MAX_IV_LENGTH &&
   typeof value.data === "string" &&
   value.data.length <= MAX_SEALED_LENGTH &&
   typeof value.fingerprint === "string" &&
-  value.fingerprint.length <= 64;
+  value.fingerprint.length <= MAX_FINGERPRINT_LENGTH;
 
 /**
  * A set of Variables as a list of entries: a list as given, the old `{ NAME: "value" }` set as plain Variables in its
@@ -293,21 +321,22 @@ export const fitVariables = (value: unknown): ReadonlyArray<Variable> => fitStor
 
 /**
  * What a command gets from the Variables, `{ NAME: "value" }`: every Variable with its value, a secret's opened in the
- * Environment DO's answer. A redacted secret (no value to give) and a name the Container's shell sets for every command
- * (SET_BY_THE_CONTAINER, whose value wins) are left out.
+ * Environment DO's answer. Left out: a redacted secret (no value to give), a name the Container's shell sets for every
+ * command (SET_BY_THE_CONTAINER, whose value wins), and a name under RESERVED_PREFIXES (t3flare's and t3's own markers).
  */
 export const variableEnv = (variables: ReadonlyArray<Variable>): Readonly<Record<string, string>> =>
-  Object.fromEntries(variables.filter((variable) => variable.valueRedacted !== true && !SET_BY_THE_CONTAINER.includes(variable.name)).map((variable) => [variable.name, variable.value]));
+  Object.fromEntries(variables.filter((variable) => variable.valueRedacted !== true && !withheldFromCommands(variable.name)).map((variable) => [variable.name, variable.value]));
 
 /**
  * A kept `{ NAME: "value" }` (a Container launch's Variables) that still fits: names a shell can export, text values
- * without a NUL, at most MAX_VARIABLES. Anything else reads as none.
+ * without a NUL, none withheld from commands (`withheldFromCommands`), at most MAX_VARIABLES. Anything else reads as
+ * none.
  */
 export const fitVariableEnv = (value: unknown): Readonly<Record<string, string>> => {
   if (!isRecord(value)) return {};
   return Object.fromEntries(
     Object.entries(value)
-      .filter((entry): entry is [string, string] => typeof entry[1] === "string" && variableNameProblem(entry[0]) === undefined && variableValueProblem(entry[0], entry[1]) === undefined && !SET_BY_THE_CONTAINER.includes(entry[0]))
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string" && variableNameProblem(entry[0]) === undefined && variableValueProblem(entry[0], entry[1]) === undefined && !withheldFromCommands(entry[0]))
       .slice(0, MAX_VARIABLES),
   );
 };

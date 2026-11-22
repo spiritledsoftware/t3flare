@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 
 import { applyEnvironmentChange, EMPTY_ENVIRONMENT, readStoredEnvironment, resolveEnvironment } from "./environment.ts";
-import { fitVariableEnv, SET_BY_T3FLARE, setByT3flare, variableEnv } from "./variables.ts";
+import { fitVariableEnv, RESERVED_PREFIXES, SET_BY_T3FLARE, setByT3flare, variableEnv, withheldFromCommands } from "./variables.ts";
 
 const apply = (variables: unknown) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { variables } });
 const refusal = (variables: unknown) => {
@@ -130,8 +130,19 @@ describe("what a command gets (variableEnv)", () => {
     expect(variableEnv(variables)).toEqual({ A: "1" });
   });
 
+  it("leaves out every name under t3flare's and t3's reserved prefixes: their internal markers win (ADR-0046 §3)", () => {
+    const variables = ["T3FLARE_PASSIVE_READ", "T3FLARE_EXEC", "T3CODE_THREAD_ID", "T3_OK", "NODE_ENV"].map((name) => plain(name, "1"));
+    // Stored as the Owner gave them; only what a command gets leaves them out.
+    expect(apply(variables)).toMatchObject({ ok: true });
+    expect(variableEnv(variables)).toEqual({ T3_OK: "1", NODE_ENV: "1" });
+    expect(RESERVED_PREFIXES).toEqual(["T3FLARE_", "T3CODE_"]);
+    for (const name of ["T3FLARE_PASSIVE_READ", "T3CODE_THREAD_ID", "PATH"]) expect(withheldFromCommands(name)).toBe(true);
+    expect(withheldFromCommands("T3_OK")).toBe(false);
+  });
+
   it("reads a kept launch's { NAME: value } against the same rules", () => {
     expect(fitVariableEnv({ A: "1", PATH: "/nope", "BAD-NAME": "x", N: 3 })).toEqual({ A: "1" });
+    expect(fitVariableEnv({ T3FLARE_PASSIVE_READ: "1", B: "2" })).toEqual({ B: "2" });
     expect(fitVariableEnv(["A=1"])).toEqual({});
   });
 });
@@ -141,5 +152,8 @@ describe("the names t3flare sets (the Settings page's note)", () => {
     expect(new Set(SET_BY_T3FLARE).size).toBe(SET_BY_T3FLARE.length);
     for (const name of ["PATH", "HOME", "ANTHROPIC_BASE_URL", "MISE_YES", "BASH_ENV", "T3FLARE_MODEL_HANDLE"]) expect(setByT3flare(name)).toBe(true);
     expect(setByT3flare("NODE_ENV")).toBe(false);
+    // Every name under a reserved prefix is noted, listed or not.
+    expect(setByT3flare("T3FLARE_PASSIVE_READ")).toBe(true);
+    expect(setByT3flare("T3CODE_ANYTHING")).toBe(true);
   });
 });
