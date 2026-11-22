@@ -28,6 +28,8 @@ export interface WorkspaceActionsDeps extends WorkspacesDeps {
 export interface WorkspaceUsage {
   readonly bytes: number;
   readonly containerRunning: boolean;
+  /** What the running Container started from (SPI-1333); absent while none runs, or from an older agents Worker. */
+  readonly startedFrom?: "base" | "image";
 }
 
 /** The Workspaces as the Settings page's routes reach them (ADR-0044 §4). */

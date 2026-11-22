@@ -84,6 +84,10 @@ What moves the total:
   prices them, count a Container snapshot per Base build for 30 days.
 - **`base-build`, `base-build-ready`, `base-build-failed`** (agents Worker logs): each phase of a build, its size and time
   taken (`tookMs`) when ready; a Test base build's lines carry `test: true`.
+- **A Workspace's start from the Base snapshot costs what a start from the image costs** (SPI-1333): the same Container,
+  started about as fast. A start set to wait for a Base build holds no Container while it waits. Each start from a Base
+  snapshot is a restore, which the platform counts toward its 30 days. `container-launch` (agents Worker logs) names what
+  each Container started from (`from`); `container-base-wait` each wait, `container-base-refused` each refused snapshot.
 
 ## When to act
 

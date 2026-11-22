@@ -127,3 +127,23 @@ new Container's start. Both are Environment settings, bash scripts of up to 256 
    carries the SHA-256 of the text it ran, so the page marks a result stale once the box holds another text. The Settings
    server's `test_base_build` takes the whole proposed text, free and with no revision, as `rebuild_base` is; plan mode
    refuses it as it refuses every write. `get_status` shows the result as `testBaseBuild`.
+
+## Refinement (SPI-1333, 2026-11-22): the start as built
+
+1. **The Builder's key, trusted once it read the start's settings:** a Workspace cannot compute the key (a secret
+   Variable enters it under the Builder's own HMAC key), so the record carries the Environment settings' revision the
+   Builder last read. A start whose settings are newer first asks the Builder to read them (a `missing` report, which
+   also builds a key with no Base snapshot), then picks from its answer. A Base snapshot is started only when it was made
+   on this Workspace image's digest.
+2. **While a build runs,** a good Base snapshot already for the current key (a Rebuild, a scheduled rebuild) is started
+   whatever the setting. The image-change setting applies when the first setting starts from the last good one and none
+   was made on the current Workspace image (an older image, or none at all).
+3. **A failed build of the current key** starts from the Workspace image, not the last good one of older settings; the
+   start reports `missing`, and the Builder's backoff decides whether to build (Refinement SPI-1332 §3, §4).
+4. **A wait** is bounded by the build's own limits, the Image setup's then the snapshot's twice (the snapshot and its
+   proof). A start that reaches the gated start still waiting (the wait gave up, or a start with no connect) starts
+   from the Workspace image. The Builder not answering within 5 seconds starts from the image.
+5. **The fast fallback** watches `monitor()` for one second after a start from a Base snapshot (the platform refuses in
+   about 0.3 s), then goes once more from the Workspace image; a refusal after that second is still reported, so the
+   Builder marks the snapshot gone and the next start does not pick it. A running Container that computer adopts is not
+   watched, and keeps what it started from.

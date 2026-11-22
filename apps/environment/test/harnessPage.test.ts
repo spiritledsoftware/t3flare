@@ -511,6 +511,13 @@ describe("the Workspaces section", () => {
     expect(WORKSPACES_SCRIPT).toContain('post("/_t3flare/settings/api/environment", { settings }, save)');
     // Stop shows once the read says the Container runs, or could not say.
     expect(WORKSPACES_SCRIPT).toContain("if (stop) stop.hidden = !usage.containerRunning;");
+    // What a running Container started from (SPI-1333): the Base snapshot or the Workspace image.
+    expect(WORKSPACES_SCRIPT).toContain("cell.textContent = sizeOf(usage.bytes) + runningText(usage);");
+    const runningText = new Script(`${WORKSPACES_SCRIPT.match(/const runningText = [^\n]*/)![0]}; runningText`).runInNewContext() as (usage: object) => string;
+    expect(runningText({ containerRunning: true, startedFrom: "base" })).toBe(", Container running from the Base snapshot");
+    expect(runningText({ containerRunning: true, startedFrom: "image" })).toBe(", Container running from the Workspace image");
+    expect(runningText({ containerRunning: true })).toBe(", Container running");
+    expect(runningText({ containerRunning: false })).toBe("");
     expect(WORKSPACES_SCRIPT).toMatch(/cell\.textContent = "unknown";\s*if \(stop\) stop\.hidden = false;/);
   });
 });

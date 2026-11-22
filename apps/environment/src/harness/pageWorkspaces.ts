@@ -164,6 +164,8 @@ if (graceForm !== null) {
   });
 }
 const sizeOf = (bytes) => (bytes < 1048576 ? (bytes / 1024).toFixed(1) + " KiB" : (bytes / 1048576).toFixed(1) + " MiB");
+// A running Container, and what it started from (SPI-1333); an older agents Worker does not say.
+const runningText = (usage) => (!usage.containerRunning ? "" : usage.startedFrom === "base" ? ", Container running from the Base snapshot" : usage.startedFrom === "image" ? ", Container running from the Workspace image" : ", Container running");
 // One request per row, one at a time, after the table renders (ADR-0044 §1): none starts a Container. A row's Stop
 // Container shows once its read says the Container runs, or could not say (Stop is harmless on a stopped one).
 (async () => {
@@ -171,7 +173,7 @@ const sizeOf = (bytes) => (bytes < 1048576 ? (bytes / 1024).toFixed(1) + " KiB" 
     const stop = cell.closest("tr")?.querySelector("button[data-workspace-stop]");
     try {
       const usage = await getJson("/_t3flare/settings/api/workspaces/usage?id=" + encodeURIComponent(cell.dataset.workspaceUsage));
-      cell.textContent = sizeOf(usage.bytes) + (usage.containerRunning ? ", Container running" : "");
+      cell.textContent = sizeOf(usage.bytes) + runningText(usage);
       if (stop) stop.hidden = !usage.containerRunning;
     } catch (error) {
       cell.textContent = "unknown";
