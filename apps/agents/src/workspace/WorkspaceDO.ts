@@ -48,7 +48,7 @@ import { BUDGET_NAME, type ContainerBudget, RENEW_EVERY_MS } from "../budget.ts"
 import { type EnvironmentDO, environmentStub } from "../environment.ts";
 import { BASE_BUILD_CAPS, type BaseBuildRecord, BUILDERS, EMPTY_ENVIRONMENT, fitVariableEnv, type McpRelayAnswer, type ResolvedEnvironment, resolveEnvironment } from "@t3flare/harness-registry";
 import { BaseBuild } from "./baseBuild.ts";
-import { BASE_WAIT_POLL_MS, type BaseSettings, BaseWaitBackend, BUILDER_READ_MS, launchFrom, launchSpec, planBase, REFUSAL_WATCH_MS, startFromBase, waitForBase, waitLimitMs } from "./baseStart.ts";
+import { BASE_WAIT_POLL_MS, baseIdOf, type BaseSettings, BaseWaitBackend, BUILDER_READ_MS, type LaunchFrom, launchFrom, planBase, REFUSAL_WATCH_MS, startFromBase, waitForBase, waitLimitMs } from "./baseStart.ts";
 import { type BuilderKind, builderKindOf, builderMark, platformContainer, proposedSetup, workspaceImage } from "./builder.ts";
 import { changedBetween, currentRevision, repoFileSizes } from "./changeLog.ts";
 import { type ContainerLaunch, ENVIRONMENT_READ_MS, launchOf, secretValuesOf, shownLaunch, takeEnvironment, withContainerSteps } from "./containerLaunch.ts";
@@ -883,8 +883,12 @@ export class WorkspaceDO extends ContainerHost {
       await this.#scheduleAlarm();
     };
     // Each start, lease and all, goes through the gate: refused once the Workspace is closed, waited out by the close.
-    // A fresh start from the Base snapshot (SPI-1333) is watched for the platform's refusal and goes again from the
-    // Workspace image (`startFromBase`); a running Container is started (adopted) exactly as before, with no snapshot.
+    // Every start that may make a Container (SPI-1333) starts from its Base snapshot when it has one, is watched for the
+    // platform's refusal and goes again from the Workspace image (`startFromBase`). Even with one running, computer makes
+    // a new Container on its restart (computerd unhealthy) and on a start that cannot adopt the running one (a launch spec
+    // that differs after a deploy, an exit): such a start picks its base as a fresh one does, from the settings the running
+    // Container took, without asking the Builder anything. One computer adopts keeps what it started from (`sameLaunch`
+    // ignores the snapshot), and is not watched.
     const gated =
       (op: (spec: ContainerLaunchSpec) => Promise<ContainerRuntimeInfo>) =>
       (spec: ContainerLaunchSpec): Promise<ContainerRuntimeInfo> =>
@@ -892,21 +896,28 @@ export class WorkspaceDO extends ContainerHost {
           const fresh = !this.containerRunning();
           const launch = await this.#launch();
           await lease(fresh ? launch.budget : undefined);
-          const snapshotId = fresh && launch.from !== undefined && "base" in launch.from ? launch.from.base.snapshotId : undefined;
+          const from = fresh ? launch.from : launchFrom(await this.#planBase(this.#keptSettings(), { mayAsk: false }));
+          const snapshotId = baseIdOf(from);
           // Test stages only: a bogus id in the real one's place (`faultBaseSnapshot`).
           const platformId = snapshotId === undefined ? undefined : (this.#takeBaseFault() ?? snapshotId);
+          let refused = false;
           const answer = await startFromBase(
             {
-              start: (id) => op(launchSpec(spec, launch.instance, id === undefined ? undefined : platformId)),
+              start: (id) => op({ ...spec, instance: launch.instance, ...(id === undefined || platformId === undefined ? {} : { containerSnapshot: { id: platformId } }) }),
               monitor: () => this.ctx.container?.monitor() ?? Promise.resolve(),
               destroy: async () => await this.ctx.container?.destroy(),
-              refused: (id, message, late) => this.#baseRefused(id, message, late),
+              refused: (id, message, late) => {
+                refused = true;
+                this.#baseRefused(id, message, late);
+              },
               windowMs: REFUSAL_WATCH_MS,
             },
             snapshotId,
           );
-          // computer relaunched a running Container it had no record of: from the Workspace image (no snapshot passed).
-          if (!fresh && answer.outcome !== "adopted" && launch.from !== undefined && "base" in launch.from) this.#launchedFromImage("computer relaunched the running Container");
+          if (!fresh && answer.outcome !== "adopted" && !refused && from !== undefined) {
+            this.#recordFrom(from);
+            console.log(JSON.stringify({ t3flare: "container-base-replanned", workspace: this.#workspaceId() ?? null, outcome: answer.outcome, from }));
+          }
           return answer;
         });
     return {
@@ -962,20 +973,32 @@ export class WorkspaceDO extends ContainerHost {
     const running = kv.get<ContainerLaunch>(LAUNCH_KEY);
     // Before the first recorded launch, a running Container started with the default (today's custom size).
     if (this.containerRunning()) return running ?? launchOf({ settings: resolveEnvironment(EMPTY_ENVIRONMENT), source: "default" });
-    const taken = await takeEnvironment({
+    const taken = await this.#takeSettings();
+    // What it starts from (SPI-1333): a wait was done before computer's connect (`#waitForBase`), so one left here starts
+    // from the image; a key with no Base snapshot is reported to the Builder, which decides whether to build.
+    const pick = await this.#planBase(taken.settings);
+    if (pick.kind === "image" && pick.missing === true) this.ctx.waitUntil(this.#reportToBuilder({ kind: "missing" }));
+    const launch: ContainerLaunch = { ...(await withContainerSteps(launchOf(taken), taken)), from: launchFrom(pick) };
+    kv.put(LAUNCH_KEY, launch);
+    console.log(JSON.stringify({ t3flare: "container-launch", workspace: this.#workspaceId() ?? null, source: taken.source, revision: launch.revision, size: launch.size, idleMs: launch.idleMs, budget: launch.budget, from: launch.from, globalMise: launch.globalMise === undefined ? null : { bytes: launch.globalMise.bytes, sha256: launch.globalMise.sha256 }, containerSetup: launch.containerSetup === undefined ? null : { bytes: launch.containerSetup.bytes, sha256: launch.containerSetup.sha256 } }));
+    return launch;
+  }
+
+  /** The Environment settings for a start: the Environment's, waited for at most ENVIRONMENT_READ_MS, else the copy kept. */
+  #takeSettings() {
+    const kv = this.ctx.storage.kv;
+    return takeEnvironment({
       read: () => environmentStub(this.env.ENVIRONMENT).environmentSettings(),
       kept: () => kv.get<ResolvedEnvironment>(ENVIRONMENT_KEY),
       keep: (settings) => kv.put(ENVIRONMENT_KEY, settings),
       waitMs: ENVIRONMENT_READ_MS,
     });
-    // What it starts from (SPI-1333): a wait was done before computer's connect (`#waitForBase`), so one left here starts
-    // from the image; a key with no Base snapshot is reported to the Builder, which decides whether to build.
-    const pick = await this.#planBase(taken.settings);
-    if (pick.kind === "image" && pick.missing === true) this.ctx.waitUntil(this.#reportToBuilder({ kind: "missing" }));
-    const launch: ContainerLaunch = { ...(await withContainerSteps(launchOf(taken), taken)), from: launchFrom(pick.kind === "wait" ? { kind: "image", why: `${pick.why}; this start did not wait` } : pick) };
-    kv.put(LAUNCH_KEY, launch);
-    console.log(JSON.stringify({ t3flare: "container-launch", workspace: this.#workspaceId() ?? null, source: taken.source, revision: launch.revision, size: launch.size, idleMs: launch.idleMs, budget: launch.budget, from: launch.from, globalMise: launch.globalMise === undefined ? null : { bytes: launch.globalMise.bytes, sha256: launch.globalMise.sha256 }, containerSetup: launch.containerSetup === undefined ? null : { bytes: launch.containerSetup.bytes, sha256: launch.containerSetup.sha256 } }));
-    return launch;
+  }
+
+  /** The settings the running Container took (kept by its start), read against this Worker's schema; else the defaults. */
+  #keptSettings(): ResolvedEnvironment {
+    const kept = this.ctx.storage.kv.get<ResolvedEnvironment>(ENVIRONMENT_KEY);
+    return resolveEnvironment(kept === undefined ? EMPTY_ENVIRONMENT : { revision: kept.revision, settings: kept });
   }
 
   /** The Builder (`BUILDERS.base`): a start reads its record and reports to it (SPI-1333). */
@@ -993,9 +1016,9 @@ export class WorkspaceDO extends ContainerHost {
   }
 
   /** What a fresh start with `settings` starts from (`planBase`): the Builder's record against this Workspace image. */
-  #planBase(settings: BaseSettings) {
+  #planBase(settings: BaseSettings, options: { readonly mayAsk?: boolean } = {}) {
     const stub = this.#builderStub();
-    return planBase({ builder: { record: () => stub.builderRecord(), missing: () => stub.builderReport({ kind: "missing" }) }, imageDigest: workspaceImage(this.ctx.container), boundMs: BUILDER_READ_MS }, settings);
+    return planBase({ builder: { record: () => stub.builderRecord(), missing: () => stub.builderReport({ kind: "missing" }) }, imageDigest: workspaceImage(this.ctx.container), boundMs: BUILDER_READ_MS }, settings, options);
   }
 
   /** The wait before computer's connect, shared by the connects that meet it; and whether one waits now (`containerStartingNote`). */
@@ -1010,19 +1033,16 @@ export class WorkspaceDO extends ContainerHost {
   #waitForBase(): Promise<void> {
     if (this.containerRunning() || this.#isBuilder()) return Promise.resolve();
     this.#baseWait ??= (async () => {
-      const kv = this.ctx.storage.kv;
-      const { settings } = await takeEnvironment({
-        read: () => environmentStub(this.env.ENVIRONMENT).environmentSettings(),
-        kept: () => kv.get<ResolvedEnvironment>(ENVIRONMENT_KEY),
-        keep: (taken) => kv.put(ENVIRONMENT_KEY, taken),
-        waitMs: ENVIRONMENT_READ_MS,
-      });
+      const { settings } = await this.#takeSettings();
       const started = Date.now();
       let waited = false;
+      // The Builder is asked (or told) once a wait; its later polls read the record only.
+      let mayAsk = true;
       try {
         const pick = await waitForBase({
           plan: async () => {
-            const next = await this.#planBase(settings);
+            const next = await this.#planBase(settings, { mayAsk });
+            mayAsk = false;
             this.#waitingForBase = next.kind === "wait";
             waited ||= this.#waitingForBase;
             return next;
@@ -1042,10 +1062,10 @@ export class WorkspaceDO extends ContainerHost {
     return this.#baseWait;
   }
 
-  /** The running Container's launch, recorded as from the Workspace image (`why`). */
-  #launchedFromImage(why: string): void {
+  /** The running Container's launch, recorded as started from `from`. */
+  #recordFrom(from: LaunchFrom): void {
     const launch = this.ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY);
-    if (launch !== undefined) this.ctx.storage.kv.put(LAUNCH_KEY, { ...launch, from: { image: { why } } });
+    if (launch !== undefined) this.ctx.storage.kv.put(LAUNCH_KEY, { ...launch, from });
   }
 
   /**
@@ -1054,7 +1074,7 @@ export class WorkspaceDO extends ContainerHost {
    * command starts one from the image.
    */
   #baseRefused(id: string, message: string, late: boolean): void {
-    this.#launchedFromImage(`the platform refused the Base snapshot: ${message}`);
+    this.#recordFrom({ image: { why: `the platform refused the Base snapshot: ${message}` } });
     console.warn(JSON.stringify({ t3flare: "container-base-refused", workspace: this.#workspaceId() ?? null, snapshot: id, late, message: message.slice(0, BASE_BUILD_CAPS.log) }));
     this.ctx.waitUntil(this.#reportToBuilder({ kind: "refused", id }));
   }
@@ -2010,7 +2030,7 @@ export class WorkspaceDO extends ContainerHost {
     if (!this.containerRunning()) return { bytes: this.ctx.storage.sql.databaseSize, containerRunning: false };
     // What the running Container started from (SPI-1333): the Base snapshot or the Workspace image.
     const from = this.ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY)?.from;
-    return { bytes: this.ctx.storage.sql.databaseSize, containerRunning: true, startedFrom: from !== undefined && "base" in from ? "base" : "image" };
+    return { bytes: this.ctx.storage.sql.databaseSize, containerRunning: true, startedFrom: baseIdOf(from) === undefined ? "image" : "base" };
   }
 
   /** G11: stops process group `pgid` (stock's TERM, then KILL after 3 s); false when it was gone or nothing runs. */
@@ -2320,6 +2340,7 @@ export class WorkspaceDO extends ContainerHost {
       {
         container: platformContainer(this.ctx),
         storage: this.ctx.storage.kv,
+        image: () => workspaceImage(this.ctx.container),
         inputs: async () => {
           const image = workspaceImage(this.ctx.container);
           if (image === undefined) throw new Error("t3flare: no Workspace image here");
@@ -2383,7 +2404,7 @@ export class WorkspaceDO extends ContainerHost {
    */
   async builderReport(input: { readonly kind: "missing" } | { readonly kind: "refused"; readonly id: string }): Promise<BaseBuildRecord> {
     const builder = this.#becomeBuilder();
-    return input.kind === "refused" ? builder.refused(String(input.id), "a start from the Base snapshot failed") : builder.poke("a start found no Base snapshot for its settings");
+    return input.kind === "refused" ? builder.refused(String(input.id), "a start from the Base snapshot failed") : builder.missing("a start found no Base snapshot for its settings");
   }
 
   /** Points the repo's git credentials at `CREDENTIAL_HELPER` (repos cloned before it existed). */

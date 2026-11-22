@@ -18,14 +18,14 @@ describe("baseBuildRecord", () => {
       { key: KEY, state: "building", phase: "starting", since: AT, reason: "Rebuild", waitingForBudget: true, good: null, at: AT },
       { key: KEY, state: "ready", good, at: AT },
       // SPI-1333: the Environment settings' revision the Builder last read.
-      { key: KEY, revision: 7, state: "ready", good, at: AT },
+      { key: KEY, revision: 7, imageDigest: "sha256:img", state: "ready", good, at: AT },
       { key: KEY, state: "failed", failure: { at: AT, phase: "running", exitCode: 3, message: "the Image setup exited 3", output: "boom\n" }, good: null, at: AT },
     ];
     for (const record of records) expect(baseBuildRecord(record)).toEqual(record);
   });
 
   it("drops what is not a record, or holds more output than any setting keeps", () => {
-    for (const value of [null, "ready", [], { key: KEY, state: "maybe", good: null, at: AT }, { key: 3, state: "none", good: null, at: AT }, { key: KEY, state: "ready", good: { id: 1 }, at: AT }, { key: KEY, revision: -1, state: "none", good: null, at: AT }, { key: KEY, revision: "7", state: "none", good: null, at: AT }]) {
+    for (const value of [null, "ready", [], { key: KEY, state: "maybe", good: null, at: AT }, { key: 3, state: "none", good: null, at: AT }, { key: KEY, state: "ready", good: { id: 1 }, at: AT }, { key: KEY, revision: -1, state: "none", good: null, at: AT }, { key: KEY, revision: "7", state: "none", good: null, at: AT }, { key: KEY, imageDigest: 7, state: "none", good: null, at: AT }]) {
       expect(baseBuildRecord(value)).toBeUndefined();
     }
     expect(baseBuildRecord({ key: KEY, state: "failed", failure: { at: AT, phase: "running", exitCode: 1, message: "x", output: "y".repeat(256 * 1024 + 1) }, good: null, at: AT })).toBeUndefined();

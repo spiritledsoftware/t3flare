@@ -11,9 +11,9 @@ import {
   type BasePick,
   type BaseSettings,
   BaseWaitBackend,
+  baseIdOf,
   isSnapshotRefusal,
   launchFrom,
-  launchSpec,
   pickBase,
   planBase,
   startFromBase,
@@ -79,10 +79,20 @@ describe("pickBase", () => {
     expect(pickBase(record({ state: "none", nothingToBuild: true, good: null }), SETTINGS, IMAGE, { asked: true })).toMatchObject({ kind: "image" });
   });
 
-  it("while a build runs, starts from a good one already for the settings (a Rebuild or a scheduled rebuild), whatever the policy", () => {
-    for (const whileBuilding of ["lastGood", "wait", "image"] as const) {
-      expect(pickBase(building(snapshot()), { ...SETTINGS, whileBuilding }, IMAGE)).toMatchObject({ kind: "base", base: { id: "snap-1" } });
-    }
+  it("while a rebuild of the same settings runs (a Rebuild, a scheduled rebuild), each policy holds: wait waits", () => {
+    expect(pickBase(building(snapshot()), { ...SETTINGS, whileBuilding: "lastGood" }, IMAGE)).toMatchObject({ kind: "base", base: { id: "snap-1" } });
+    expect(pickBase(building(snapshot()), { ...SETTINGS, whileBuilding: "wait" }, IMAGE)).toMatchObject({ kind: "wait" });
+    expect(pickBase(building(snapshot()), { ...SETTINGS, whileBuilding: "image" }, IMAGE)).toMatchObject({ kind: "image" });
+  });
+
+  it("asks when the Builder last read another Workspace image, then treats it as a build on a new image (its watch builds it)", () => {
+    const lagging = record({ imageDigest: OLD_IMAGE, good: snapshot({ imageDigest: OLD_IMAGE }) });
+    expect(pickBase(lagging, SETTINGS, IMAGE)).toMatchObject({ kind: "ask" });
+    expect(pickBase(lagging, { ...SETTINGS, whileBuilding: "lastGood", whileBuildingNewImage: "wait" }, IMAGE, { asked: true })).toMatchObject({ kind: "wait" });
+    expect(pickBase(lagging, { ...SETTINGS, whileBuilding: "lastGood", whileBuildingNewImage: "image" }, IMAGE, { asked: true })).toMatchObject({ kind: "image" });
+    expect(pickBase(lagging, { ...SETTINGS, whileBuilding: "image" }, IMAGE, { asked: true })).toMatchObject({ kind: "image" });
+    // The Builder read this image: its record is trusted.
+    expect(pickBase(record({ imageDigest: IMAGE }), SETTINGS, IMAGE)).toMatchObject({ kind: "base" });
   });
 
   it("while a build of new settings runs: lastGood starts from the last good one on this image", () => {
@@ -134,10 +144,22 @@ describe("planBase", () => {
     expect(calls).toEqual(["record", "missing"]);
   });
 
+  it("reads the record again when the missing report does not answer in time (a tick or an alarm ahead of it)", async () => {
+    const { calls, builder: deps } = builder([record({ revision: 3 }), "never", building(null)]);
+    expect(await planBase({ builder: deps, imageDigest: IMAGE, boundMs: 20 }, SETTINGS)).toMatchObject({ kind: "wait" });
+    expect(calls).toEqual(["record", "missing", "record"]);
+  });
+
+  it("asks nothing when told not to (a wait's later polls, a running Container's re-plan)", async () => {
+    const { calls, builder: deps } = builder([record({ revision: 3 })]);
+    expect(await planBase({ builder: deps, imageDigest: IMAGE, boundMs: 20 }, SETTINGS, { mayAsk: false })).toMatchObject({ kind: "base" });
+    expect(calls).toEqual(["record"]);
+  });
+
   it("starts from the image when the Builder fails or does not answer in time", async () => {
     expect(await planBase({ builder: builder([new Error("reset")]).builder, imageDigest: IMAGE, boundMs: 20 }, SETTINGS)).toMatchObject({ kind: "image" });
     expect(await planBase({ builder: builder(["never"]).builder, imageDigest: IMAGE, boundMs: 20 }, SETTINGS)).toMatchObject({ kind: "image" });
-    expect(await planBase({ builder: builder([record({ revision: 3 }), "never"]).builder, imageDigest: IMAGE, boundMs: 20 }, SETTINGS)).toMatchObject({ kind: "image" });
+    expect(await planBase({ builder: builder([record({ revision: 3 }), "never", "never"]).builder, imageDigest: IMAGE, boundMs: 20 }, SETTINGS)).toMatchObject({ kind: "image" });
   });
 
   it("asks nothing with nothing to build", async () => {
@@ -281,20 +303,15 @@ describe("startFromBase", () => {
 });
 
 describe("a start's launch", () => {
-  const spec = { env: { RPC_TOKEN: "t" }, enableInternet: true, name: "WorkspaceContainer", instance: "standard-1" as const };
-
-  it("passes the snapshot only to a fresh start, and otherwise leaves the spec computer compares (sameLaunch) as it was", () => {
-    const fresh = launchSpec(spec, "standard-2", "snap-1");
-    expect(fresh).toEqual({ ...spec, instance: "standard-2", containerSnapshot: { id: "snap-1" } });
-    const running = launchSpec(spec, "standard-2", undefined);
-    // What computer's `sameLaunch` reads (env, instance, enableInternet, name) is what it was before SPI-1333.
-    expect(running).toEqual({ ...spec, instance: "standard-2" });
-    expect(running).not.toHaveProperty("containerSnapshot");
+  it("names the Base snapshot a launch started from, if any", () => {
+    expect(baseIdOf({ base: { snapshotId: "snap-1", key: KEY } })).toBe("snap-1");
+    expect(baseIdOf({ image: { why: "no Image setup" } })).toBeUndefined();
+    expect(baseIdOf(undefined)).toBeUndefined();
   });
 
   it("records what a Container started from", () => {
     expect(launchFrom({ kind: "base", base: snapshot(), why: "ready" })).toEqual({ base: { snapshotId: "snap-1", key: KEY } });
     expect(launchFrom({ kind: "image", why: "no Image setup" })).toEqual({ image: { why: "no Image setup" } });
-    expect(launchFrom({ kind: "wait", why: "a build runs" })).toEqual({ image: { why: "a build runs" } });
+    expect(launchFrom({ kind: "wait", why: "a build runs" })).toEqual({ image: { why: "a build runs; this start did not wait" } });
   });
 });
