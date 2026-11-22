@@ -53,6 +53,11 @@ export interface BaseBuildFailure {
 }
 
 export interface BaseBuildRecord {
+  /**
+   * A Test base build's record (SPI-1334, ADR-0047 §8), from `BUILDERS.test`: `good` is the test's proved snapshot, which
+   * no Container ever starts from. A Base build's record never carries it, so neither is ever kept as the other.
+   */
+  readonly test?: true;
   /** The key of the settings the Builder last read (`baseKey`); null before it read any. */
   readonly key: string | null;
   /** What the Base snapshot is for `key`: none, being built, ready (`good` is for it), or its last build failed. */
@@ -96,6 +101,7 @@ const isFailure = (value: unknown): value is BaseBuildFailure =>
 export const baseBuildRecord = (value: unknown): BaseBuildRecord | undefined => {
   if (!isObject(value)) return undefined;
   const ok =
+    (value.test === undefined || value.test === true) &&
     (value.key === null || isText(value.key, 128)) &&
     ["none", "building", "ready", "failed"].includes(value.state as string) &&
     (value.nothingToBuild === undefined || typeof value.nothingToBuild === "boolean") &&
@@ -131,6 +137,9 @@ export const buildDurationText = (ms: number): string => {
 
 const iso = (at: number) => new Date(at).toISOString();
 
+/** A failure as one line: when, its exit code, and why. */
+const failureText = (failure: BaseBuildFailure): string => `failed ${iso(failure.at)}${failure.exitCode === null ? "" : ` (exit ${failure.exitCode})`}: ${failure.message}`;
+
 /** The record as Status's one line; the failed build's output is shown apart from it. */
 export const describeBaseBuild = (record: BaseBuildRecord): string => {
   switch (record.state) {
@@ -147,8 +156,24 @@ export const describeBaseBuild = (record: BaseBuildRecord): string => {
     }
     case "failed": {
       const failure = record.failure;
-      const what = failure === undefined ? "failed" : `failed ${iso(failure.at)}${failure.exitCode === null ? "" : ` (exit ${failure.exitCode})`}: ${failure.message}`;
+      const what = failure === undefined ? "failed" : failureText(failure);
       return record.good === null ? what : `${what}; the last good one (built ${iso(record.good.builtAt)}) is for older settings`;
     }
+  }
+};
+
+/** A Test base build's record (SPI-1334) as one line: its result is never used, so a pass says only what it made. */
+export const describeTestBaseBuild = (record: BaseBuildRecord): string => {
+  switch (record.state) {
+    case "none":
+      return record.nothingToBuild === true ? "nothing to build: the proposed Image setup is empty and there is no Global mise config" : "no test yet";
+    case "building": {
+      const step = record.waitingForBudget === true ? "waiting for room under the Container budget" : (record.phase ?? "starting");
+      return `testing since ${iso(record.since ?? record.at)} (${step})`;
+    }
+    case "ready":
+      return record.good === null ? "passed" : `passed ${iso(record.good.builtAt)}: ${snapshotSizeText(record.good.size)}, took ${buildDurationText(record.good.tookMs)}`;
+    case "failed":
+      return record.failure === undefined ? "failed" : failureText(record.failure);
   }
 };

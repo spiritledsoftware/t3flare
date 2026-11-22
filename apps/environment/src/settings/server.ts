@@ -20,6 +20,7 @@
 //   Elicitation mode, which the endpoint (endpoint.ts) delivers and the Change page answers.
 import {
   type BaseBuildRecord,
+  MAX_SETUP_BYTES,
   applyChange,
   applyToolsChange,
   BUILTIN_TOOLS,
@@ -137,6 +138,10 @@ export interface SettingsServerDeps {
   readonly baseBuild?: () => BaseBuildRecord | undefined;
   /** Asks the Builder to build the saved settings again (`rebuild_base`, ADR-0047 §5). Without it the tool is refused. */
   readonly rebuildBase?: (reason: string) => Promise<BaseBuildRecord>;
+  /** The last Test base build's record as the test Builder reported it (SPI-1334): `get_status` shows it beside the Base snapshot's. */
+  readonly testBaseBuild?: () => BaseBuildRecord | undefined;
+  /** Asks the test Builder to test a proposed Image setup (`test_base_build`, ADR-0047 §8). Without it the tool is refused. */
+  readonly testBase?: (imageSetup: string, reason: string) => Promise<BaseBuildRecord>;
   /** The Containers running now. */
   readonly running?: () => Promise<{ readonly count: number; readonly holders: ReadonlyArray<string> } | null>;
   readonly log?: (event: Record<string, unknown>) => void;
@@ -177,6 +182,8 @@ export const APPLIES_AT = {
   purge: "Applies at once; it cannot be undone.",
   /** The Base snapshot's Rebuild (SPI-1332). */
   base: "The Builder builds the saved settings again (a build under way goes on); get_status shows the Base snapshot's state. New Containers start from it once it is ready.",
+  /** A Test base build (SPI-1334). */
+  test: "The test Builder runs the proposed Image setup with the saved Global mise config, Variables and limits, as a Base build would; nothing is saved. get_status shows its result as testBaseBuild; its snapshot is never used, and a new test cancels one under way.",
 } as const;
 
 const json = (value: unknown) => JSON.stringify(value, null, 2);
@@ -384,6 +391,8 @@ const TARGET = {
 /** A write made ready: its entity, tier, what it shows when asked, and how it runs through the ops. */
 interface Planned extends Target {
   readonly verdict: TierVerdict;
+  /** The free card's first line, for a write that is no change of settings (a Test base build); a Rebuild's or a change's otherwise. */
+  readonly asks?: string;
   /**
    * The change as validated, without anything the call carried that the change ignores (plan D16, SPI-1199 review): the
    * declined-repeat hash is of this, so junk keys in the arguments cannot dodge it.
@@ -726,6 +735,37 @@ const planRebuildBase = (deps: SettingsServerDeps): PlanOrRefusal => {
   };
 };
 
+/**
+ * A Test base build (ADR-0047 §8, SPI-1334): free, as a Rebuild is, with no revision: it saves nothing. The proposed
+ * Image setup is bounded as the setting is. The declined-repeat hash is of the text, so a declined test of it is not
+ * asked again for a while.
+ */
+const planTestBaseBuild = (deps: SettingsServerDeps, args: Readonly<Record<string, unknown>>): PlanOrRefusal => {
+  const test = deps.testBase;
+  if (test === undefined) return { refused: "the test Builder is not available here" };
+  const imageSetup = args.imageSetup;
+  if (typeof imageSetup !== "string") return { refused: "imageSetup is the Image setup to test, as text" };
+  const bytes = new TextEncoder().encode(imageSetup).length;
+  if (bytes > MAX_SETUP_BYTES) return { refused: `the Image setup is at most ${MAX_SETUP_BYTES / 1024} KiB, not ${bytes} bytes` };
+  return {
+    entity: "base",
+    subject: "a Test base build of a proposed Image setup",
+    asks: "An agent asks for a Test base build of a proposed Image setup:",
+    appliesAt: APPLIES_AT.test,
+    verdict: { tier: "free", reasons: [`a proposed Image setup of ${bytes} bytes: tested in the test Builder, not saved (free)`] },
+    normalized: { imageSetup },
+    describe: async () => ({ items: [], lines: [APPLIES_AT.test] }),
+    run: async () => {
+      try {
+        await test(imageSetup, "an agent's test (test_base_build)");
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error: `the test Builder could not be reached: ${String(error).slice(0, 300)}` };
+      }
+    },
+  };
+};
+
 const WORKSPACES_UNAVAILABLE = "The Workspaces are not available here.";
 
 const plural = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
@@ -781,6 +821,8 @@ const planWrite = async (deps: SettingsServerDeps, tool: string, args: Readonly<
       return planPurgeWorkspace(deps, args);
     case "rebuild_base":
       return planRebuildBase(deps);
+    case "test_base_build":
+      return planTestBaseBuild(deps, args);
     case "change_extension":
       return planExtension(deps, args);
     case "change_tools":
@@ -836,7 +878,7 @@ const PAGE_OPTIONS: NonNullable<McpQuestionCard["options"]> = [
 /** The owner-only approval card for a free write the thread's mode asks about (plan D7). */
 const freeCard = (input: SettingsCallInput, planned: Planned, revision: number): McpQuestionCard => {
   const prompt = [
-    planned.entity === "base" ? `An agent asks to rebuild ${planned.subject}:` : `An agent asks to change ${planned.subject} (revision ${revision}):`,
+    planned.asks ?? (planned.entity === "base" ? `An agent asks to rebuild ${planned.subject}:` : `An agent asks to change ${planned.subject} (revision ${revision}):`),
     ...planned.verdict.reasons.map((reason) => `- ${reason}`),
     "",
     planned.appliesAt,
@@ -1413,6 +1455,8 @@ const runRead = async (deps: SettingsServerDeps, name: string, args: Readonly<Re
         status: deps.status?.() ?? {},
         // The Base snapshot's record (SPI-1332): its state, the last good one, a failure's output with secret values blanked.
         baseSnapshot: deps.baseBuild?.() ?? null,
+        // The last Test base build (SPI-1334): its state, a pass's size and time, a failure's output with secret values blanked.
+        testBaseBuild: deps.testBaseBuild?.() ?? null,
         access: { enabled: access !== "off", writes: access === "on" },
         // This caller's Open changes (plan D8): its thread's, or its Access identity's.
         openChanges: openKey === undefined ? [] : deps.changes.openBy(openKey).map((record) => openChangeSummary(record, changeUrlOf(deps, record.id))),

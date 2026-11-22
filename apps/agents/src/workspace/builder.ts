@@ -2,12 +2,33 @@
 // The Builder's lean path (SPI-1332, ADR-0047 §1): the platform's raw `ctx.container` beside computer, which the Builder
 // never uses (no computer Workspace, no `computer.internal` routes, no store in its Container). Leans on the Containers
 // API's snapshots, a public beta (docs/upstream-fragility.md).
-import type { ContainerInstance } from "@t3flare/harness-registry";
+import { BUILDERS, type ContainerInstance, MAX_SETUP_BYTES } from "@t3flare/harness-registry";
 
 import type { BuilderContainer } from "./baseBuild.ts";
 import { WORKSPACE_CONTAINER } from "./constants.ts";
 
 const utf8 = new TextEncoder();
+
+/** The two Builders (ADR-0047 §1, §8): the Base build's, and the Test base build's (SPI-1334). */
+export type BuilderKind = keyof typeof BUILDERS;
+
+/** What a Builder keeps as its mark, so its alarm knows it when `ctx.id.name` is not given (the base's is SPI-1332's `true`). */
+export const builderMark = (kind: BuilderKind): true | "test" => (kind === "base" ? true : "test");
+
+/** Which Builder an object is: by its reserved name, else by the mark it kept; undefined for a Workspace. */
+export const builderKindOf = (name: string | undefined, mark: unknown): BuilderKind | undefined => {
+  if (name === BUILDERS.base) return "base";
+  if (name === BUILDERS.test) return "test";
+  return mark === true ? "base" : mark === "test" ? "test" : undefined;
+};
+
+/** A Test base build's proposed Image setup as an RPC carries it: text within the Image setup's own bound. */
+export const proposedSetup = (value: unknown): string => {
+  if (typeof value !== "string") throw new Error("t3flare: a Test base build's Image setup is text");
+  const bytes = utf8.encode(value).length;
+  if (bytes > MAX_SETUP_BYTES) throw new Error(`t3flare: a Test base build's Image setup is at most ${MAX_SETUP_BYTES} bytes, not ${bytes}`);
+  return value;
+};
 
 /** The Workspace image's digest-pinned reference (`ctx.container.images`), or undefined where there is none (local tests). */
 export const workspaceImage = (container: Container | undefined): string | undefined => container?.images?.[WORKSPACE_CONTAINER];

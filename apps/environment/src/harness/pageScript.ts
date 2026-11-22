@@ -63,6 +63,53 @@ for (const button of document.querySelectorAll("button[data-base-rebuild]")) {
     button.focus();
   });
 }
+// The Image setup's Test (SPI-1334): tests the text in the box, unsaved, so no reload (it would lose the text). The
+// block follows the test's view from the panel, written with textContent, polling while it runs.
+for (const block of document.querySelectorAll("[data-base-test-block]")) {
+  const button = block.querySelector("button[data-base-test]");
+  const box = document.getElementById("environment-imageSetup");
+  const result = block.querySelector("[data-base-test-result]");
+  const pill = block.querySelector("[data-test-pill]");
+  const status = block.querySelector("[data-test-status]");
+  const output = block.querySelector("[data-test-output]");
+  const when = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  const timed = (line) => line.replace(/\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d\\.\\d{3}Z/g, (iso) => when.format(new Date(iso)));
+  let polling;
+  const show = (view) => {
+    block.dataset.testState = view.state;
+    pill.className = "pill" + (view.pill.tone === "" ? "" : " pill-" + view.pill.tone);
+    pill.textContent = view.pill.label;
+    status.textContent = timed(view.line);
+    output.hidden = view.output === null;
+    output.open = view.state === "failed";
+    output.querySelector("[data-test-output-summary]").textContent = view.outputSummary;
+    output.querySelector("[data-test-output-text]").textContent = view.output === null ? "" : view.output;
+    clearTimeout(polling);
+    if (view.state === "building") polling = setTimeout(follow, 5000);
+  };
+  const follow = async () => {
+    try {
+      const response = await fetch("/_t3flare/settings/api/base/test", { credentials: "same-origin" });
+      if (response.ok) return show((await response.json()).view);
+    } catch {}
+    polling = setTimeout(follow, 15000);
+  };
+  if (block.dataset.testState === "building") polling = setTimeout(follow, 5000);
+  if (button === null || box === null) continue;
+  button.addEventListener("click", async () => {
+    result.textContent = "Asking the test Builder…";
+    busy(button, true);
+    const answer = await request("/_t3flare/settings/api/base/test", { imageSetup: box.value });
+    busy(button, false);
+    if (answer.response === undefined) {
+      result.textContent = answer.error;
+      button.focus();
+      return;
+    }
+    result.textContent = "Testing the Image setup in the box; this shows its result when it ends.";
+    show((await answer.response.json()).view);
+  });
+}
 for (const button of document.querySelectorAll("button[data-mcp]")) {
   button.addEventListener("click", async () => {
     const change = JSON.parse(button.dataset.mcp);

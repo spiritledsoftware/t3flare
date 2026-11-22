@@ -3,7 +3,7 @@
 // adapter's record) and a relayed CLI caller (modes from its live session); the access switch; no `resume` and no Pause;
 // reads that carry no secret value, fingerprint, URL query or authorization URL; the applied cap. Since M4 (SPI-1199) an
 // asked change asks on the owner-only card in every mode but plan (settingsCard.test.ts covers the card itself).
-import { applyMcpChange, type BaseBuildRecord, EMPTY_HARNESS, PLAN_REFUSAL, type StoredHarness } from "@t3flare/harness-registry";
+import { applyMcpChange, type BaseBuildRecord, EMPTY_HARNESS, MAX_SETUP_BYTES, PLAN_REFUSAL, type StoredHarness } from "@t3flare/harness-registry";
 import { MCP_QUESTION_MARKER, type McpAsker, type McpQuestionAnswer, type McpQuestionCard } from "@t3flare/session-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -60,6 +60,8 @@ const setup = (
     cardWaitMs?: number;
     /** The Base snapshot's record and the Builder's Rebuild (SPI-1332). */
     base?: { readonly record?: BaseBuildRecord; readonly rebuild?: (reason: string) => Promise<BaseBuildRecord> };
+    /** The last Test base build's record and the test Builder's Test (SPI-1334). */
+    test?: { readonly record?: BaseBuildRecord; readonly run?: (imageSetup: string, reason: string) => Promise<BaseBuildRecord> };
   } = {},
 ) => {
   let now = NOW;
@@ -105,6 +107,8 @@ const setup = (
           ...(options.cardWaitMs === undefined ? {} : { cardWaitMs: options.cardWaitMs }),
           ...(options.base === undefined ? {} : { baseBuild: () => options.base?.record }),
           ...(options.base?.rebuild === undefined ? {} : { rebuildBase: options.base.rebuild }),
+          ...(options.test === undefined ? {} : { testBaseBuild: () => options.test?.record }),
+          ...(options.test?.run === undefined ? {} : { testBase: options.test.run }),
         },
         input,
       ),
@@ -498,5 +502,60 @@ describe("the Settings server: the Base snapshot", () => {
 
   it("lists rebuild_base as a write", () => {
     expect(SETTINGS_TOOLS.find((tool) => tool.name === "rebuild_base")).toMatchObject({ class: "write" });
+  });
+});
+
+// SPI-1334 (ADR-0047 §8, ADR-0035's refinement): an agent's Test base build of a proposed Image setup is free and names
+// no revision; nothing is saved, and get_status reads the last test's result beside the Base snapshot's.
+describe("the Settings server: the Test base build", () => {
+  const record: BaseBuildRecord = { test: true, key: "t".repeat(64), state: "failed", failure: { at: NOW, phase: "running", exitCode: 100, message: "the Image setup exited 100", output: "E: Unable to locate package yq\n" }, good: null, at: NOW };
+  const building: BaseBuildRecord = { test: true, key: "t".repeat(64), state: "building", phase: "starting", since: NOW, good: null, at: NOW };
+
+  it("test_base_build runs the proposed text in full access with no revision, saves nothing, and asks on the free card in another mode", async () => {
+    const runs: Array<[string, string]> = [];
+    const { call, cards, store } = setup({ test: { record, run: async (imageSetup, reason) => (runs.push([imageSetup, reason]), building) } });
+    const caller = durable("thread-tb");
+    recordModes(caller, "full-access");
+    const answer = await call(caller, "test_base_build", { imageSetup: "apt-get install -y yq\n" });
+    expect(structured(answer)).toMatchObject({ status: "applied" });
+    expect(textOf(answer)).toContain("get_status shows its result as testBaseBuild");
+    expect(runs).toEqual([["apt-get install -y yq\n", "an agent's test (test_base_build)"]]);
+    expect(store.loadEnvironment().revision).toBe(0);
+    expect(cards).toHaveLength(0);
+
+    const other = durable("thread-tb2");
+    recordModes(other, "approval-required");
+    expect(structured(await call(other, "test_base_build", { imageSetup: "echo two\n" }))).toMatchObject({ status: "applied" });
+    expect(cards).toHaveLength(1);
+    expect(cards[0]!.prompt).toContain("An agent asks for a Test base build of a proposed Image setup:");
+  });
+
+  it("refuses an Image setup that is not text or past its bound, plan mode, and where there is no test Builder", async () => {
+    let runs = 0;
+    const { call } = setup({ test: { run: async () => (runs++, building) } });
+    const caller = durable("thread-tbr");
+    recordModes(caller, "full-access");
+    expect(textOf(await call(caller, "test_base_build", {}))).toContain("imageSetup is the Image setup to test");
+    expect(textOf(await call(caller, "test_base_build", { imageSetup: "é".repeat(MAX_SETUP_BYTES / 2 + 1) }))).toContain("at most 256 KiB");
+    const planned = durable("thread-tbp");
+    recordModes(planned, "plan");
+    expect(structured(await call(planned, "test_base_build", { imageSetup: "true\n" }))).toMatchObject({ status: "refused" });
+    expect(runs).toBe(0);
+    const none = setup();
+    const full = durable("thread-tbn");
+    recordModes(full, "full-access");
+    expect(textOf(await none.call(full, "test_base_build", { imageSetup: "true\n" }))).toContain("the test Builder is not available here");
+  });
+
+  it("get_status carries the last test's result beside the Base snapshot's", async () => {
+    const { call } = setup({ test: { record } });
+    const caller = durable("thread-tbs");
+    recordModes(caller, "full-access");
+    expect(structured(await call(caller, "get_status"))).toMatchObject({ testBaseBuild: { test: true, state: "failed", failure: { exitCode: 100, output: "E: Unable to locate package yq\n" } } });
+    expect(structured(await setup().call(caller, "get_status"))).toMatchObject({ testBaseBuild: null });
+  });
+
+  it("lists test_base_build as a write that takes the proposed text", () => {
+    expect(SETTINGS_TOOLS.find((tool) => tool.name === "test_base_build")).toMatchObject({ class: "write", inputSchema: { required: ["imageSetup"] } });
   });
 });

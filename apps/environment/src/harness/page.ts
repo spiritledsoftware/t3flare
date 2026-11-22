@@ -26,6 +26,7 @@ import {
   CONTAINER_SETUP_OUTPUT_STATUS,
   type BaseBuildRecord,
   describeBaseBuild,
+  describeTestBaseBuild,
   type EnvironmentSettingEntry,
   type ExtensionEntry,
   EXTENSIONS,
@@ -343,7 +344,7 @@ const costTable = (costs: ContainerCostTable, size: string): string => {
  * The Environment settings (ADR-0032): one form rendered from their schema, the running Containers, and each size's cost.
  * A later setting (SPI-1150, SPI-1152) is a schema entry, rendered here without page work.
  */
-const environmentSection = (environment: ResolvedEnvironment, costs: ContainerCostTable, running: PageInput["running"]): string => {
+const environmentSection = (environment: ResolvedEnvironment, costs: ContainerCostTable, running: PageInput["running"], test: TestBlockInput): string => {
   const values: Readonly<Record<string, unknown>> = { ...environment };
   // The Grace (ADR-0043) applies at the next Sweep, not at a Container start: the Workspaces section shows it (ADR-0044 §1).
   const entries = Object.entries(ENVIRONMENT_SETTINGS as Readonly<Record<string, EnvironmentSettingEntry>>).filter(([key]) => !(SWEEP_SETTING_KEYS as ReadonlyArray<string>).includes(key));
@@ -362,7 +363,9 @@ const environmentSection = (environment: ResolvedEnvironment, costs: ContainerCo
     .filter(([, setting]) => ownRow(setting))
     .map(([key, setting]) => {
       const joined = joining(key);
-      return `<div class="row"><div class="row-title"><h3>${escapeHtml(setting.title)}</h3></div><div class="row-extra"><div class="fields list">${field("environment", key, setting, values[key])}</div>${joined.length === 0 ? "" : `<div class="fields">${joined.join("")}</div>`}</div></div>`;
+      // The Image setup's Test (SPI-1334) sits under its text area: it tests the text in the box, unsaved.
+      const beside = key === "imageSetup" ? testBuildBlock(test) : "";
+      return `<div class="row"><div class="row-title"><h3>${escapeHtml(setting.title)}</h3></div><div class="row-extra"><div class="fields list">${field("environment", key, setting, values[key])}${beside}</div>${joined.length === 0 ? "" : `<div class="fields">${joined.join("")}</div>`}</div></div>`;
     });
   const save = `<div class="row"><div class="save"><span class="save-note" data-save-note aria-live="polite"></span><button type="submit" class="btn btn-sm" data-save disabled>Save</button></div></div>`;
   return `<section id="environment" aria-labelledby="environment-title">
@@ -701,6 +704,52 @@ const blockRow = (key: string, value: string): string => {
   return `<div class="kv-block"><dt id="${id}">${escapeHtml(key)}</dt><dd><pre class="status-output" tabindex="0" role="region" aria-labelledby="${id}"><span>${escapeHtml(value === "" ? "(no output)" : value)}</span></pre></dd></div>`;
 };
 
+/** A Builder's line, escaped, its ISO times shown as the rest of the page shows a time. */
+const timedLine = (text: string): string => escapeHtml(text).replace(/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z/g, (iso) => time(Date.parse(iso)));
+
+/** What a failed build's kept output is, in a few words. */
+const outputSummary = (output: string): string => (output === "" ? "none" : `the last ${sizeText(new TextEncoder().encode(output).length)}, secret values blanked`);
+
+/**
+ * A Test base build's result as the page shows it (SPI-1334): its pill, its line and a failure's output. The page renders
+ * it, and the panel answers it to the page's script, which writes it with `textContent` as a test runs.
+ */
+export interface TestBuildView {
+  readonly state: BaseBuildRecord["state"];
+  readonly pill: { readonly label: string; readonly tone: "" | "ok" | "warn" | "err" };
+  /** Its ISO times as written: the page shows them as times, the script as it formats a time. */
+  readonly line: string;
+  /** A failed test's output, every secret value blanked; null when it did not fail. */
+  readonly output: string | null;
+  readonly outputSummary: string;
+}
+
+export const testBuildView = (record: BaseBuildRecord | undefined): TestBuildView => {
+  const state = record?.state ?? "none";
+  const pill: TestBuildView["pill"] =
+    state === "building" ? { label: "Testing", tone: "warn" } : state === "ready" ? { label: "Passed", tone: "ok" } : state === "failed" ? { label: "Failed", tone: "err" } : { label: "None", tone: "" };
+  const output = record?.failure === undefined ? null : record.failure.output;
+  return { state, pill, line: record === undefined ? "no test yet" : describeTestBaseBuild(record), output, outputSummary: outputSummary(output ?? "") };
+};
+
+interface TestBlockInput {
+  readonly record?: BaseBuildRecord;
+  readonly canTest: boolean;
+}
+
+/**
+ * The Image setup's Test (SPI-1334, ADR-0047 §8): the button that tests the text in the box, unsaved, and the last test's
+ * result, rendered as the Base snapshot's block renders its own. Left out where the test Builder cannot be reached and
+ * no test has reported.
+ */
+const testBuildBlock = (input: TestBlockInput): string => {
+  if (!input.canTest && input.record === undefined) return "";
+  const view = testBuildView(input.record);
+  const output = view.output ?? "";
+  const button = input.canTest ? `<button type="button" class="btn btn-sm" data-base-test aria-describedby="base-test-hint">${icon("play")}Test</button>` : "";
+  return `<div class="test-build" data-base-test-block data-test-state="${view.state}" role="group" aria-labelledby="base-test-title"><div class="test-build-head"><div><div class="row-title"><h4 id="base-test-title">Test base build</h4><span class="pill${view.pill.tone === "" ? "" : ` pill-${view.pill.tone}`}" data-test-pill>${escapeHtml(view.pill.label)}</span></div><p class="desc" data-test-status>${timedLine(view.line)}</p><p class="desc" id="base-test-hint">Test runs the Image setup in the box, unsaved, in a Builder of its own with the saved Global mise config, Variables and limits, as a Base build would; its snapshot is never used. A new test cancels one under way.</p><p class="desc" data-base-test-result role="status" aria-live="polite"></p></div>${button}</div><details class="tools" data-test-output${view.output === null ? " hidden" : ""}${view.state === "failed" ? " open" : ""}><summary>${icon("chevron")}Output<span data-test-output-summary>${escapeHtml(view.outputSummary)}</span></summary><pre class="text" tabindex="0" aria-label="The Test base build's output" data-test-output-text>${escapeHtml(output)}</pre></details></div>`;
+};
+
 /** The Base snapshot's state as a pill (SPI-1332). */
 const basePill = (record: BaseBuildRecord | undefined): string => {
   if (record === undefined || record.state === "none") return '<span class="pill">None</span>';
@@ -714,13 +763,12 @@ const basePill = (record: BaseBuildRecord | undefined): string => {
  * output (every secret Variable's value blanked by the Builder).
  */
 const baseBuildBlock = (record: BaseBuildRecord | undefined, canRebuild: boolean): string => {
-  // Status's line, its ISO times shown as the rest of the page shows a time.
-  const line = (record === undefined ? escapeHtml("No Base build has reported yet.") : escapeHtml(describeBaseBuild(record))).replace(/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z/g, (iso) => time(Date.parse(iso)));
+  const line = timedLine(record === undefined ? "No Base build has reported yet." : describeBaseBuild(record));
   const output = record?.failure?.output ?? "";
   const shown =
     record?.failure === undefined
       ? ""
-      : `<details class="tools"${record.state === "failed" ? " open" : ""}><summary>${icon("chevron")}Output<span>${output === "" ? "none" : `the last ${escapeHtml(sizeText(new TextEncoder().encode(output).length))}, secret values blanked`}</span></summary>${output === "" ? "" : `<pre class="text" tabindex="0" aria-label="The failed Base build's output">${escapeHtml(output)}</pre>`}</details>`;
+      : `<details class="tools"${record.state === "failed" ? " open" : ""}><summary>${icon("chevron")}Output<span>${escapeHtml(outputSummary(output))}</span></summary>${output === "" ? "" : `<pre class="text" tabindex="0" aria-label="The failed Base build's output">${escapeHtml(output)}</pre>`}</details>`;
   // Nothing to build (no Image setup, no Global mise config): no Rebuild. A build under way: Rebuild waits for it.
   const button =
     canRebuild && record?.nothingToBuild !== true
@@ -815,6 +863,10 @@ export interface PageInput {
   readonly baseBuild?: BaseBuildRecord;
   /** The Rebuild button is shown (the Environment DO can reach the Builder). */
   readonly canRebuild?: boolean;
+  /** The test Builder's last record of a Test base build (SPI-1334), shown beside the Image setup. */
+  readonly testBuild?: BaseBuildRecord;
+  /** The Image setup's Test button is shown (the Environment DO can reach the test Builder). */
+  readonly canTest?: boolean;
   /** The Environment skills (SPI-1148); the section is left out without them. */
   readonly skills?: SkillsView;
   /** The Model endpoints (SPI-1162); the section is left out without them. */
@@ -864,7 +916,7 @@ ${navItem("audit", "Audit log", "audit", `<span class="count">${input.audit.leng
 ${input.openChanges === undefined ? "" : `${openChangesSection(input.openChanges)}\n`}${toolsSection(input.resolved)}
 ${extensionsSection(input.resolved)}
 ${mcpSection(rows, t3Card(input.resolved, input.t3Tools), input.ownerClients)}
-${endpointsSection(escapeHtml, input.endpoints)}${environmentSection(environment, input.costs ?? containerCostTable(environment.containerBudget), input.running)}
+${endpointsSection(escapeHtml, input.endpoints)}${environmentSection(environment, input.costs ?? containerCostTable(environment.containerBudget), input.running, { ...(input.testBuild === undefined ? {} : { record: input.testBuild }), canTest: input.canTest === true })}
 ${workspacesSection(escapeHtml, time, input.workspaces)}
 ${skillsSection(input.skills)}
 ${statusSection(input.status, input.baseBuild, input.canRebuild === true)}

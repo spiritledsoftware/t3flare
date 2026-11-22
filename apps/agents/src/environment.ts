@@ -50,6 +50,8 @@ export interface EnvironmentRpc {
   environmentSettings(input?: { readonly reader?: "builder" }): Promise<ResolvedEnvironment>;
   /** The Base build's record, on each change (SPI-1332): the Settings page's Status. Never boots t3. */
   noteBaseBuild(record: BaseBuildRecord): Promise<{ readonly kept: boolean }>;
+  /** The test Builder's record of a Test base build (SPI-1334), on each change: the Settings page shows it. */
+  noteTestBaseBuild(record: BaseBuildRecord): Promise<{ readonly kept: boolean }>;
   /**
    * The Environment skill set (SPI-1148): every enabled Environment skill's files and the set's hash. The Workspace names
    * itself, so the Environment drops its last refusal. Never boots t3.

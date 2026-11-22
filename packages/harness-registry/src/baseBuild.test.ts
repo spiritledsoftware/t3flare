@@ -2,7 +2,7 @@
 // keeps the last one it was sent (`baseBuildRecord` drops a malformed one) and Status says it in a line.
 import { describe, expect, it } from "vitest";
 
-import { type BaseBuildRecord, baseBuildRecord, BUILDERS, describeBaseBuild, buildDurationText, snapshotSizeText } from "./baseBuild.ts";
+import { type BaseBuildRecord, baseBuildRecord, BUILDERS, describeBaseBuild, describeTestBaseBuild, buildDurationText, snapshotSizeText } from "./baseBuild.ts";
 
 const AT = Date.parse("2026-11-22T10:00:00.000Z");
 const KEY = "a".repeat(64);
@@ -59,5 +59,30 @@ describe("describeBaseBuild", () => {
   it("names a Builder for each kind of build, never a Workspace's id", () => {
     expect(BUILDERS.base).not.toBe(BUILDERS.test);
     for (const name of Object.values(BUILDERS)) expect(name).toMatch(/^t3flare:/);
+  });
+});
+
+// SPI-1334 (ADR-0047 §8): a Test base build's record is marked, and says its result in a line of its own.
+describe("a Test base build's record", () => {
+  it("keeps the test mark, and drops any other value of it", () => {
+    const record: BaseBuildRecord = { test: true, key: KEY, state: "ready", good, at: AT };
+    expect(baseBuildRecord(record)).toEqual(record);
+    expect(baseBuildRecord({ ...record, test: false })).toBeUndefined();
+    expect(baseBuildRecord({ ...record, test: "yes" })).toBeUndefined();
+  });
+
+  it("says each state in a line: a pass by its size and time, a failure by its exit", () => {
+    expect(describeTestBaseBuild({ test: true, key: null, state: "none", good: null, at: AT })).toBe("no test yet");
+    expect(describeTestBaseBuild({ test: true, key: KEY, state: "none", nothingToBuild: true, good: null, at: AT })).toBe(
+      "nothing to build: the proposed Image setup is empty and there is no Global mise config",
+    );
+    expect(describeTestBaseBuild({ test: true, key: KEY, state: "building", phase: "snapshotting", since: AT, good: null, at: AT })).toBe("testing since 2026-11-22T10:00:00.000Z (snapshotting)");
+    expect(describeTestBaseBuild({ test: true, key: KEY, state: "building", phase: "starting", since: AT, waitingForBudget: true, good: null, at: AT })).toBe(
+      "testing since 2026-11-22T10:00:00.000Z (waiting for room under the Container budget)",
+    );
+    expect(describeTestBaseBuild({ test: true, key: KEY, state: "ready", good, at: AT })).toBe("passed 2026-11-22T10:00:00.000Z: 34.5 MB, took 1 min 12 s");
+    expect(describeTestBaseBuild({ test: true, key: KEY, state: "failed", failure: { at: AT, phase: "running", exitCode: 100, message: "the Image setup exited 100", output: "" }, good: null, at: AT })).toBe(
+      "failed 2026-11-22T10:00:00.000Z (exit 100): the Image setup exited 100",
+    );
   });
 });
