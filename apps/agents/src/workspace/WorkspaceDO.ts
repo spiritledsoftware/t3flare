@@ -47,7 +47,7 @@ import { BUDGET_NAME, type ContainerBudget, RENEW_EVERY_MS } from "../budget.ts"
 import { type EnvironmentDO, environmentStub } from "../environment.ts";
 import { EMPTY_ENVIRONMENT, fitVariableEnv, type McpRelayAnswer, type ResolvedEnvironment, resolveEnvironment } from "@t3flare/harness-registry";
 import { changedBetween, currentRevision, repoFileSizes } from "./changeLog.ts";
-import { type ContainerLaunch, ENVIRONMENT_READ_MS, launchOf, secretValuesOf, shownLaunch, takeEnvironment, withScripts } from "./containerLaunch.ts";
+import { type ContainerLaunch, ENVIRONMENT_READ_MS, launchOf, secretValuesOf, shownLaunch, takeEnvironment, withContainerSteps } from "./containerLaunch.ts";
 import { ContainerSetup, type ContainerSetupState } from "./containerSetup.ts";
 import { type ContainerExec, ContainerSteps, sequenced } from "./containerStep.ts";
 import { GlobalMise, type GlobalMiseState } from "./globalMise.ts";
@@ -921,7 +921,7 @@ export class WorkspaceDO extends ContainerHost {
       keep: (settings) => kv.put(ENVIRONMENT_KEY, settings),
       waitMs: ENVIRONMENT_READ_MS,
     });
-    const launch = await withScripts(launchOf(taken), taken);
+    const launch = await withContainerSteps(launchOf(taken), taken);
     kv.put(LAUNCH_KEY, launch);
     console.log(JSON.stringify({ t3flare: "container-launch", workspace: this.#workspaceId() ?? null, source: taken.source, revision: launch.revision, size: launch.size, idleMs: launch.idleMs, budget: launch.budget, globalMise: launch.globalMise === undefined ? null : { bytes: launch.globalMise.bytes, sha256: launch.globalMise.sha256 }, containerSetup: launch.containerSetup === undefined ? null : { bytes: launch.containerSetup.bytes, sha256: launch.containerSetup.sha256 } }));
     return launch;

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { EMPTY_ENVIRONMENT, type ResolvedEnvironment, resolveEnvironment } from "@t3flare/harness-registry";
 
-import { launchOf, SECRET_SHOWN, secretValuesOf, shownLaunch, takeEnvironment, withScripts } from "../src/workspace/containerLaunch.ts";
+import { launchOf, SECRET_SHOWN, secretValuesOf, shownLaunch, takeEnvironment, withContainerSteps } from "../src/workspace/containerLaunch.ts";
 
 const CPU_1 = { vcpu: 1, memoryMib: 3072, diskMb: 12000 };
 /** The registry's defaults: a literal below names only what it changes. */
@@ -76,7 +76,7 @@ describe("launchOf", () => {
     const launch = launchOf(taken);
     expect(launch.variables).toEqual({ NODE_ENV: "test", NPM_TOKEN: "npm_live" });
     expect(launch.secretVariables).toEqual(["NPM_TOKEN"]);
-    const shown = shownLaunch(await withScripts(launch, taken));
+    const shown = shownLaunch(await withContainerSteps(launch, taken));
     expect(shown.variables).toEqual({ NODE_ENV: "test", NPM_TOKEN: SECRET_SHOWN });
     expect(JSON.stringify(shown)).not.toContain("npm_live");
   });
@@ -105,12 +105,12 @@ describe("the launch's Global mise config", () => {
   const taken = { settings: { ...DEFAULTS, revision: 7, containerSize: "cpu-1" as const, containerIdleMinutes: 2, containerBudget: 3, globalMiseConfig: '[tools]\nnode = "24.11.1"\n' }, source: "kept" as const };
 
   it("carries the start's text, its size and SHA-256, its revision and where the settings came from", async () => {
-    const launch = await withScripts(launchOf(taken), taken);
+    const launch = await withContainerSteps(launchOf(taken), taken);
     expect(launch.globalMise).toEqual({ text: '[tools]\nnode = "24.11.1"\n', bytes: 25, sha256: "0eb09ceb981ac62b1ed4ebb30295ad081a471bb40b9ebda4eb48fcf45aae8cf3", revision: 7, source: "kept" });
   });
 
   it("is shown by its digest only, never its text", async () => {
-    const shown = shownLaunch(await withScripts(launchOf(taken), taken));
+    const shown = shownLaunch(await withContainerSteps(launchOf(taken), taken));
     expect(shown.globalMise).toEqual({ bytes: 25, sha256: "0eb09ceb981ac62b1ed4ebb30295ad081a471bb40b9ebda4eb48fcf45aae8cf3", revision: 7, source: "kept" });
     expect(JSON.stringify(shown)).not.toContain("24.11.1");
   });
@@ -121,12 +121,12 @@ describe("the launch's Container setup (ADR-0047 §7)", () => {
   const SHA = "65de07bbb8dacf17ecd6ba438aa4087ef6d70a6a2f2f4987df5ab9b46833c0db";
 
   it("carries the start's script, its size and SHA-256, its revision, time limit and failure policy", async () => {
-    const launch = await withScripts(launchOf(taken), taken);
+    const launch = await withContainerSteps(launchOf(taken), taken);
     expect(launch.containerSetup).toEqual({ text: "apt-get install -y ripgrep\n", bytes: 27, sha256: SHA, revision: 8, source: "environment", minutes: 12, failure: "refuse", outputBytes: 64 * 1024 });
   });
 
   it("is shown by its digest only, never its text", async () => {
-    const shown = shownLaunch(await withScripts(launchOf(taken), taken));
+    const shown = shownLaunch(await withContainerSteps(launchOf(taken), taken));
     expect(shown.containerSetup).toEqual({ bytes: 27, sha256: SHA, revision: 8, source: "environment", minutes: 12, failure: "refuse", outputBytes: 64 * 1024 });
     expect(JSON.stringify(shown)).not.toContain("ripgrep");
   });

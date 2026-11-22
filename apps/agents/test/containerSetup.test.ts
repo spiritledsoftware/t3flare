@@ -6,7 +6,7 @@
 import { type ContainerSetupReport, EMPTY_ENVIRONMENT, resolveEnvironment } from "@t3flare/harness-registry";
 import { describe, expect, it } from "vitest";
 
-import { launchOf, secretValuesOf, withScripts } from "../src/workspace/containerLaunch.ts";
+import { launchOf, secretValuesOf, withContainerSteps } from "../src/workspace/containerLaunch.ts";
 import { blankSecrets, CONTAINER_SETUP_KEY, ContainerSetup, type ContainerSetupLaunch } from "../src/workspace/containerSetup.ts";
 import type { ContainerExec } from "../src/workspace/containerStep.ts";
 import { SECRET_MARGIN_BYTES } from "@t3flare/sandbox-image/containerSetup";
@@ -102,7 +102,7 @@ describe("ContainerSetup", () => {
       { name: "NODE_ENV", value: "production", secret: false },
     ];
     const taken = { settings: { ...resolveEnvironment(EMPTY_ENVIRONMENT), variables, containerSetup: "git clone https://$DOTFILES_TOKEN@github.com/me/dotfiles\n" }, source: "environment" as const };
-    const launch = await withScripts(launchOf(taken), taken);
+    const launch = await withContainerSteps(launchOf(taken), taken);
     const t = setup([{ stdout: answered("+ git clone https://ghp_live_0123456789@github.com/me/dotfiles\nNODE_ENV=production\n", {}) }], { launch: launch.containerSetup, secrets: () => secretValuesOf(launch) });
     await t.container.ensure("r1");
     expect(t.reports[0]!.output).toBe("+ git clone https://***@github.com/me/dotfiles\nNODE_ENV=production\n");

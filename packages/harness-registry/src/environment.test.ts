@@ -3,7 +3,8 @@
 // (`containerInstance`): defaults, an unknown stored size, the idle bounds, and `instance` never omitted.
 import { describe, expect, it } from "vitest";
 
-import { applyEnvironmentChange, containerInstance, EMPTY_ENVIRONMENT, resolveEnvironment } from "./environment.ts";
+import { applyEnvironmentChange, containerInstance, EMPTY_ENVIRONMENT, ENVIRONMENT_SETTINGS, resolveEnvironment } from "./environment.ts";
+import type { EnvironmentSettingEntry } from "./fields.ts";
 
 describe("resolveEnvironment", () => {
   it("gives the defaults for empty settings: cpu-1 and a 2-minute idle time, at revision 0", () => {
@@ -144,5 +145,16 @@ describe("the Container setup (ADR-0047 §7, §9)", () => {
   it("carries on or refuses commands on a failure, nothing else", () => {
     expect(set({ containerSetupFailure: "refuse" })).toMatchObject({ ok: true });
     expect(set({ containerSetupFailure: "stop" })).toEqual({ ok: false, error: "containerSetupFailure: one of carryOn, refuse" });
+  });
+});
+
+describe("the Settings page's rows", () => {
+  it("joins each setting with a row to a setting that has a row of its own (a file's or a list's)", () => {
+    for (const [key, setting] of Object.entries(ENVIRONMENT_SETTINGS as Readonly<Record<string, EnvironmentSettingEntry>>)) {
+      if (setting.row === undefined) continue;
+      const owner = (ENVIRONMENT_SETTINGS as Readonly<Record<string, EnvironmentSettingEntry>>)[setting.row];
+      expect(owner, `${key}'s row`).toBeDefined();
+      expect(["file", "variables"], `${key}'s row`).toContain(owner!.schema.type);
+    }
   });
 });

@@ -102,7 +102,7 @@ export interface ContainerLaunch {
 }
 
 /** `launch` with the Global mise config and the Container setup of `taken` (their digests are async, so apart from `launchOf`). */
-export const withScripts = async (launch: ContainerLaunch, { settings, source }: TakenEnvironment): Promise<ContainerLaunch> => ({
+export const withContainerSteps = async (launch: ContainerLaunch, { settings, source }: TakenEnvironment): Promise<ContainerLaunch> => ({
   ...launch,
   globalMise: { text: settings.globalMiseConfig, ...(await digestOf(settings.globalMiseConfig)), revision: settings.revision, source },
   containerSetup: {
