@@ -122,6 +122,14 @@ const environment = async () => {
   const answer = await harness("GET", "/_t3flare/settings/api/environment");
   return { revision: answer.json?.revision as number, resolved: answer.json?.resolved as Record<string, any> };
 };
+/**
+ * The Variables as read (ADR-0046's list, a secret redacted, which keeps its value when sent back) with `name` set to a
+ * plain `value`.
+ */
+const withVariable = (variables: unknown, name: string, value: string): Array<unknown> => [
+  ...(Array.isArray(variables) ? variables.filter((variable: { readonly name?: unknown }) => variable.name !== name) : []),
+  { name, value, secret: false },
+];
 const harnessRevision = async () => (await harness("GET", "/_t3flare/settings/api/settings")).json?.revision as number;
 /** The panel's Open changes list, each with `id` (the list names it `changeId`). */
 const openChanges = async () => (((await harness("GET", "/_t3flare/settings/api/changes")).json?.changes ?? []) as Array<any>).map((c) => ({ ...c, id: c.changeId }));
@@ -978,7 +986,7 @@ text(JSON.stringify({ first: await one }).slice(0, 1500));`;
       const env = await environment();
       const threadId = await newThread("durable", `probe-hostile ${label}`, "approval-required");
       const firstSeen = new Map<string, number>();
-      const run = await durableCalls(threadId, settingsCall("change_environment", { expectedRevision: env.revision, settings: { variables: { ...env.resolved.variables, [`PROBE_${label.toUpperCase()}`]: value } } }), (request) => {
+      const run = await durableCalls(threadId, settingsCall("change_environment", { expectedRevision: env.revision, settings: { variables: withVariable(env.resolved.variables, `PROBE_${label.toUpperCase()}`, value) } }), (request) => {
         const seen = firstSeen.get(request.id) ?? Date.now();
         firstSeen.set(request.id, seen);
         return Date.now() - seen > 15_000 ? "cancel" : undefined;
@@ -1015,7 +1023,7 @@ const m4Page = async () => {
   const hostile = "<script>alert(1)</script>\u202Eevil";
   const env = await environment();
   const threadId = await newThread("durable", "m4-page hostile", "approval-required");
-  const variables = { ...env.resolved.variables, HOSTILE_VAR: hostile };
+  const variables = withVariable(env.resolved.variables, "HOSTILE_VAR", hostile);
   const code = `const a = tools.mcp__settings__change_mcp(${JSON.stringify({ expectedRevision: await harnessRevision(), change: { op: "add", server: "hostile-url", url: `https://example.com/${hostile}/mcp`, auth: { kind: "none" } } })}).catch((e) => ({ threw: String(e.message) }));
 text(JSON.stringify(await a).slice(0, 1500));`;
   let release: Decision | undefined;
@@ -1341,7 +1349,7 @@ const m6 = async (item: string) => {
     let release = false;
     for (let n = 1; n <= 17; n++) {
       const threadId = await newThread("durable", `m6-1.3 child ${n}`, "approval-required");
-      const variables = { ...env.resolved.variables, [`CHILD_${n}`]: "1" };
+      const variables = withVariable(env.resolved.variables, `CHILD_${n}`, "1");
       threads.push({ n, threadId, run: durableCalls(threadId, settingsCall("change_environment", { expectedRevision: env.revision, settings: { variables } }), () => (release ? "cancel" : undefined), { timeoutMs: 15 * 60_000 }) });
       // The 17th waits for the other 16 to be open.
       if (n === 16) {
@@ -1378,7 +1386,7 @@ const m6 = async (item: string) => {
       for (let n = 1; n <= 7; n++) {
         const env = await environment();
         let stopped = false;
-        const run = await durableCalls(threadId, settingsCall("change_environment", { expectedRevision: env.revision, settings: { variables: { ...env.resolved.variables, [`DROP_${n}`]: "1" } } }), () => undefined, {
+        const run = await durableCalls(threadId, settingsCall("change_environment", { expectedRevision: env.revision, settings: { variables: withVariable(env.resolved.variables, `DROP_${n}`, "1") } }), () => undefined, {
           during: async (projection, cards) => {
             if (!stopped && cards.some((c) => c.status === "pending")) {
               await sleep(2000);
@@ -1415,7 +1423,7 @@ const m6 = async (item: string) => {
       await sleep(wait);
     }
     const env = await environment();
-    const run = await durableCalls(threadId, settingsCall("change_environment", { expectedRevision: env.revision, settings: { variables: { ...env.resolved.variables, DROP_8: "1" } } }), () => "cancel");
+    const run = await durableCalls(threadId, settingsCall("change_environment", { expectedRevision: env.revision, settings: { variables: withVariable(env.resolved.variables, "DROP_8", "1") } }), () => "cancel");
     own.afterAnHour = { at: new Date().toISOString(), cards: run.cards.length, output: run.output.slice(0, 600), ok: run.cards.length === 1 };
     own.verdict = own.verdict === "pass" && run.cards.length === 1 ? "pass" : "fail";
     await record(FILE, "1.4-own", own);
@@ -1427,7 +1435,7 @@ const m6 = async (item: string) => {
     const { lines } = await withLogs(async () => {
       for (let n = 1; n <= 7; n++) {
         const env = await environment();
-        const args = { expectedRevision: env.revision, settings: { variables: { ...env.resolved.variables, [`ODROP_${n}`]: "1" } } };
+        const args = { expectedRevision: env.revision, settings: { variables: withVariable(env.resolved.variables, `ODROP_${n}`, "1") } };
         const first = await modernCall("tools/call", { name: "change_environment", arguments: args }, { query: "?elicitation_mode=browser" });
         const state = first.json?.result?.requestState;
         const retry = state === undefined ? null : await modernCall("tools/call", { name: "change_environment", arguments: args, requestState: state, inputResponses: { change: { action: "cancel" } } }, { query: "?elicitation_mode=browser", id: 2 });
@@ -2007,7 +2015,7 @@ const ownerOAuth = async () => {
   // P12: the token at the admin application's paths, as a bearer and as cf-access-token; an Open change of the Owner door
   // (this sub) for the page and its API.
   const envNow = await environment();
-  const openArgs = { expectedRevision: envNow.revision, settings: { variables: { ...envNow.resolved.variables, OAUTH_PROBE: "1" } } };
+  const openArgs = { expectedRevision: envNow.revision, settings: { variables: withVariable(envNow.resolved.variables, "OAUTH_PROBE", "1") } };
   const opened = await call("tools/call", { name: "change_environment", arguments: openArgs }, 3);
   const openId = (opened.json?.result?.structuredContent?.changeId as string | undefined) ?? changeIdIn(JSON.stringify(opened.json));
   const probe = async (p: string, header: "bearer" | "cf-access-token", method = "GET") => {

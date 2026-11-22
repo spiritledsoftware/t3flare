@@ -90,7 +90,8 @@ describe("reads show Variables, the Global mise config and a SKILL.md as they ar
     run.store.saveEnvironment({ revision: 3, settings: { variables: VARIABLES, globalMiseConfig: MISE } });
     const read = structured(await run.call(run.durable(), "get_settings", { entity: "environment" }))!;
     const value = (key: string) => read.settings.find((setting: { key: string }) => setting.key === key).value;
-    expect(value("variables")).toEqual(VARIABLES);
+    // The old stored shape reads as ADR-0046's list, every Variable plain.
+    expect(value("variables")).toEqual(Object.entries(VARIABLES).map(([name, text]) => ({ name, value: text, secret: false })));
     expect(value("globalMiseConfig")).toBe(MISE);
     const written = await run.call(run.durable(), "change_environment", { expectedRevision: read.revision, settings: { variables: value("variables"), globalMiseConfig: value("globalMiseConfig") } });
     expect(structured(written)).toEqual({ status: "unchanged", revision: 3 });

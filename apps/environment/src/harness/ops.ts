@@ -32,11 +32,13 @@ import {
   withoutQuery,
 } from "@t3flare/harness-registry";
 
+import type { ValueSealer } from "../credentials/sealed.ts";
 import type { McpHost } from "../mcp/host.ts";
 import { SKILLS_WRITE_ROUTES, skillsChange, type SkillsAnswer, type SkillsApiDeps } from "../skills/api.ts";
 import type { HarnessOAuth } from "./oauth.ts";
 import type { HarnessSecrets, SecretMark } from "./secrets.ts";
 import type { AuditActor, AuditEntry, HarnessStore } from "./store.ts";
+import { type Sealing, sealVariablesIn } from "./variableSeal.ts";
 
 /** What every Settings change runs over. */
 export interface OpsDeps {
@@ -45,6 +47,11 @@ export interface OpsDeps {
   readonly mcp?: Pick<McpHost, "servers" | "inventory" | "tools" | "list" | "forget">;
   /** Direct servers' write-only secrets. */
   readonly secrets?: HarnessSecrets;
+  /**
+   * Seals a secret Variable's value with the Stage's credentials key (ADR-0046). Without one (or without its key), a
+   * change that sets a secret value is refused; one that keeps the stored values still applies.
+   */
+  readonly variableSealer?: ValueSealer;
   /** OAuth sign-ins. */
   readonly oauth?: Pick<HarnessOAuth, "begin" | "forget">;
   /** The Environment skills (SPI-1148): their store and GitHub reads. */
@@ -150,17 +157,24 @@ export const changeTools = (deps: OpsDeps, change: ToolsChange, options: OpOptio
 
 /**
  * Some of the Environment settings (ADR-0032): validated against their schema, it bumps only their revision, and the
- * audit entry has the changed settings as they resolved before and after. A change that moves nothing is stored, bumped
- * and audited as nothing (`unchanged`). Applies at each Workspace's next Container start; the Grace at the next Sweep,
- * which a change to it brings forward (ADR-0043 §5).
+ * audit entry has the changed settings as they resolved before and after, a secret Variable as its name and fingerprint
+ * (ADR-0046). A change that moves nothing is stored, bumped and audited as nothing (`unchanged`). Applies at each
+ * Workspace's next Container start; the Grace at the next Sweep, which a change to it brings forward (ADR-0043 §5).
+ * `sealing.sealedAtDoor` is the Settings server's replay of an Open change, whose arguments its door sealed; every other
+ * caller gives a secret's value or `valueRedacted`, never a sealed value.
  */
 export const changeEnvironment = async (
   deps: OpsDeps,
   settings: Readonly<Record<string, unknown>>,
   options: OpOptions,
+  sealing: Sealing = {},
 ): Promise<Outcome<{ unchanged?: true; revision: number; resolved: ReturnType<typeof resolveEnvironment> }>> => {
   const before = deps.store.loadEnvironment();
-  const applied = applyEnvironmentChange(before, { settings });
+  // A secret Variable's value is sealed before anything else sees it (ADR-0046 §1): the stored value, the resolved one
+  // answered here and the audit entry hold its fingerprint only.
+  const sealed = await sealVariablesIn(settings, before, deps.variableSealer, sealing);
+  if (!sealed.ok) return refuse(400, sealed.error);
+  const applied = applyEnvironmentChange(before, { settings: sealed.settings });
   if (!applied.ok) return refuse(400, applied.error);
   const stale = moved("Environment", before.revision, options.expectedRevision);
   if (stale !== undefined) return stale;

@@ -4,6 +4,11 @@
 import { ENDPOINTS_SCRIPT } from "./pageEndpoints.ts";
 import { WORKSPACES_SCRIPT } from "./pageWorkspaces.ts";
 
+/** A stored secret Variable's placeholder while its value is kept (an empty box keeps it); page.ts renders it too. */
+export const KEPT_PLACEHOLDER = "Set, not shown. Type to replace it";
+/** A stored secret Variable's placeholder once renamed or turned plain: its value must be typed again. */
+export const RETYPE_PLACEHOLDER = "Type the value again";
+
 export const SCRIPT = `"use strict";
 const csrf = document.querySelector('meta[name="t3flare-csrf"]').getAttribute("content");
 const notice = document.getElementById("result");
@@ -148,16 +153,27 @@ if (adding !== null) {
     if (response !== undefined) done();
   });
 }
-// A Variables list's rows as { NAME: "value" }; a row with neither a name nor a value is skipped. A name listed twice
-// is refused here, before the save, since an object would keep only the last.
+// A Variables list's rows as [{ name, value, secret }]; a row with neither a name nor a value is skipped. A stored
+// secret's row (data-variable-stored, its stored name) keeps its stored value while it has that name and Secret on
+// (keepsStored): with an empty box it posts valueRedacted (ADR-0046). A stored secret renamed or turned plain needs its value typed again, and a
+// name listed twice is refused here, before the save.
+const keepsStored = (row) =>
+  row.dataset.variableStored !== undefined &&
+  row.querySelector("[data-variable-secret]").checked &&
+  row.querySelector("[data-variable-name]").value.trim() === row.dataset.variableStored;
 const variablesOf = (list) => {
-  const variables = {};
+  const variables = [];
+  const seen = new Set();
   for (const row of list.querySelectorAll("[data-variable]")) {
     const name = row.querySelector("[data-variable-name]").value.trim();
     const value = row.querySelector("[data-variable-value]").value;
-    if (name === "" && value === "") continue;
-    if (Object.prototype.hasOwnProperty.call(variables, name)) throw new Error("The Variable " + JSON.stringify(name) + " is listed twice; keep one.");
-    variables[name] = value;
+    const secret = row.querySelector("[data-variable-secret]").checked;
+    const kept = keepsStored(row) && value === "";
+    if (name === "" && value === "" && !kept) continue;
+    if (seen.has(name)) throw new Error("The Variable " + JSON.stringify(name) + " is listed twice; keep one.");
+    seen.add(name);
+    if (!kept && value === "" && (row.dataset.variableStored !== undefined || row.hasAttribute("data-variable-unreadable"))) throw new Error("Type the value of " + JSON.stringify(name) + " again, or remove it.");
+    variables.push(kept ? { name, value: "", secret: true, valueRedacted: true } : { name, value, secret });
   }
   return variables;
 };
@@ -171,13 +187,35 @@ const settingsOf = (form) => {
 };
 for (const list of document.querySelectorAll('[data-kind="variables"]')) {
   const rows = list.querySelector("[data-variable-rows]");
+  const setByT3flare = new Set((list.dataset.setByT3flare ?? "").split(" "));
+  const reserved = (list.dataset.reservedPrefixes ?? "").split(" ").filter((prefix) => prefix !== "");
+  const noted = (name) => setByT3flare.has(name) || reserved.some((prefix) => name.startsWith(prefix));
   const changed = () => list.dispatchEvent(new Event("input", { bubbles: true }));
-  const removable = (row) => row.querySelector("[data-variable-remove]").addEventListener("click", () => { row.remove(); changed(); });
-  for (const row of rows.querySelectorAll("[data-variable]")) removable(row);
+  // A stored secret's box: kept while the row has its stored name and Secret on (the mark comes back with them), else
+  // required, since its value is not on the page.
+  const sync = (row) => {
+    const box = row.querySelector("[data-variable-value]");
+    const stored = row.dataset.variableStored !== undefined;
+    const keeps = keepsStored(row);
+    if (stored) box.placeholder = keeps ? ${JSON.stringify(KEPT_PLACEHOLDER)} : ${JSON.stringify(RETYPE_PLACEHOLDER)};
+    box.required = row.hasAttribute("data-variable-unreadable") || (stored && !keeps);
+  };
+  const wire = (row) => {
+    const name = row.querySelector("[data-variable-name]");
+    const note = row.querySelector("[data-variable-note]");
+    const secret = row.querySelector("[data-variable-secret]");
+    row.querySelector("[data-variable-remove]").addEventListener("click", () => { row.remove(); changed(); });
+    name.addEventListener("input", () => { note.hidden = !noted(name.value.trim()); sync(row); });
+    secret.addEventListener("change", () => {
+      row.classList.toggle("is-secret", secret.checked);
+      sync(row);
+    });
+  };
+  for (const row of rows.querySelectorAll("[data-variable]")) wire(row);
   list.querySelector("[data-variable-add]").addEventListener("click", () => {
     const row = list.querySelector("[data-variable-template]").content.firstElementChild.cloneNode(true);
     rows.append(row);
-    removable(row);
+    wire(row);
     row.querySelector("[data-variable-name]").focus();
     changed();
   });

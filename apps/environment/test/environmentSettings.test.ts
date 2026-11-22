@@ -235,27 +235,33 @@ describe("Variables in the panel", () => {
     const log = console.log;
     console.log = (line: string) => void logged.push(line);
     try {
-      expect((await post(deps, "environment", { settings: { variables: { NODE_ENV: "test", REGION: "eu" } } }, headers)).status).toBe(200);
+      expect((await post(deps, "environment", { settings: { variables: [{ name: "NODE_ENV", value: "test", secret: false }, { name: "REGION", value: "eu", secret: false }] } }, headers)).status).toBe(200);
     } finally {
       console.log = log;
     }
-    expect(await getJson(deps, "environment")).toMatchObject({ revision: 2, resolved: { variables: { NODE_ENV: "test", REGION: "eu" } } });
+    const now = [
+      { name: "NODE_ENV", value: "test", secret: false },
+      { name: "REGION", value: "eu", secret: false },
+    ];
+    expect(await getJson(deps, "environment")).toMatchObject({ revision: 2, resolved: { variables: now } });
     expect(store.auditLog(1)).toMatchObject([
-      { entity: "environment", action: "environment.change", target: "variables", before: { variables: { NODE_ENV: "development" } }, after: { variables: { NODE_ENV: "test", REGION: "eu" } } },
+      { entity: "environment", action: "environment.change", target: "variables", before: { variables: [{ name: "NODE_ENV", value: "development", secret: false }] }, after: { variables: now } },
     ]);
     expect(logged).toHaveLength(1);
     expect(JSON.parse(logged[0]!)).toEqual({ t3flare: "harness-change", entity: "environment", caller: "owner", action: "environment.change", target: "variables" });
   });
 
-  it("refuses a refused name or a credential-looking value with the whole reason, and stores nothing", async () => {
+  it("refuses only what breaks t3flare, with the whole reason, and stores nothing (ADR-0046 §3)", async () => {
     const { store, deps } = setup({ kind: "service-token" });
-    const named = await post(deps, "environment", { settings: { variables: { GITHUB_TOKEN: "x" } } }, {});
+    const named = await post(deps, "environment", { settings: { variables: { "MY-VAR": "x" } } }, {});
     expect(named.status).toBe(400);
-    expect(await named.text()).toBe('variables: "GITHUB_TOKEN" is refused: names starting GITHUB_ are GitHub\'s\n');
-    const value = await post(deps, "environment", { settings: { variables: { OPENAI: `sk-${"a".repeat(30)}` } } }, {});
-    expect(await value.text()).toBe('variables: "OPENAI"\'s value looks like an API key (sk-…), and secrets never enter a Container (ADR-0016)\n');
+    expect(await named.text()).toBe('variables: "MY-VAR" is not a name a shell can export: letters, digits and _, not starting with a digit\n');
+    const value = await post(deps, "environment", { settings: { variables: { OK: "a\u0000b" } } }, {});
+    expect(await value.text()).toBe('variables: "OK"\'s value holds a NUL character, which no environment can\n');
     expect(store.loadEnvironment().revision).toBe(0);
     expect(store.auditLog(5)).toEqual([]);
+    // What the old rules refused now stores: a credential-looking name and value, a name t3flare sets.
+    expect((await post(deps, "environment", { settings: { variables: { GITHUB_TOKEN: `ghp_${"b".repeat(36)}`, PATH: "/opt/bin" } } }, {})).status).toBe(200);
   });
 
   it("shows the Variables as a list in the Environment section: each name and value, escaped, and a way to add one", async () => {

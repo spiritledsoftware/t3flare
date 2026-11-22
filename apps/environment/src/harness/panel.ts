@@ -22,12 +22,14 @@
 // - The Workspaces (ADR-0044 §4): `GET …/api/workspaces` (the view), `…/usage?id=` (one row's Files, ADR-0044 §1)
 //   and `…/sweep` (the dry Sweep); `POST …/api/workspaces/purge` `{ id, confirm }`, `/restore` `{ id }`, `/stop` `{ id }`
 //   and `/sweep`, behind the same write guard: the Owner's own acts (workspaceActions.ts), audited, never Open changes.
-import { BUILTIN_TOOLS, describeGlobalMise, ENVIRONMENT_SETTINGS, EXTENSIONS, ignoredServersOf, resolveEnvironment, resolveHarness, type ToolsChange } from "@t3flare/harness-registry";
+import { BUILTIN_TOOLS, describeGlobalMise, ENVIRONMENT_SETTINGS, EXTENSIONS, ignoredServersOf, readStoredEnvironment, resolveHarness, type ToolsChange } from "@t3flare/harness-registry";
 
 import type { AccessCaller } from "../access.ts";
+import type { ValueSealer } from "../credentials/sealed.ts";
 import type { McpHost } from "../mcp/host.ts";
 import type { HarnessOAuth } from "./oauth.ts";
 import type { HarnessSecrets } from "./secrets.ts";
+import { resolvedForRead } from "./variableSeal.ts";
 
 import { decodeHarnessChange, decodeMcpChange } from "./changeBodies.ts";
 
@@ -73,6 +75,8 @@ export interface HarnessDeps {
   readonly mcp?: Pick<McpHost, "servers" | "inventory" | "tools" | "list" | "forget">;
   /** Direct servers' write-only secrets (part 4). */
   readonly secrets?: HarnessSecrets;
+  /** Seals a secret Variable's value with the Stage's credentials key (ADR-0046). */
+  readonly variableSealer?: ValueSealer;
   /** OAuth sign-ins (review M4). */
   readonly oauth?: Pick<HarnessOAuth, "begin" | "status" | "forget">;
   readonly now?: () => number;
@@ -208,7 +212,9 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
     if (path === SETTINGS_PAGE_PATH || path === `${SETTINGS_PAGE_PATH}/`) {
       const subject = deps.caller.kind === "owner" ? deps.caller.subject : "";
       const csrf = subject === "" ? "" : await csrfToken(deps.store.csrfKey(), subject, deps.now?.() ?? Date.now());
-      const environment = resolveEnvironment(deps.store.loadEnvironment());
+      const storedEnvironment = deps.store.loadEnvironment();
+      // A secret Variable as set, or as unreadable when this credentials key does not open it (ADR-0046).
+      const environment = await resolvedForRead(storedEnvironment, deps.variableSealer);
       const html = renderPage({
         resolved: resolveHarness(deps.store.load()),
         environment,
@@ -237,7 +243,7 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
       const subject = deps.caller.kind === "owner" ? deps.caller.subject : "";
       const csrf = subject === "" ? "" : await csrfToken(deps.store.csrfKey(), subject, deps.now?.() ?? Date.now());
       const record = isChangeId(id) ? deps.changes.get(id) : undefined;
-      const html = record === undefined || record.tier !== "asked" ? renderGonePage(csrf) : renderChangePage(record, { csrf, now: deps.now?.() ?? Date.now() });
+      const html = record === undefined || record.tier !== "asked" ? renderGonePage(csrf) : renderChangePage(record, { csrf, now: deps.now?.() ?? Date.now(), environment: deps.store.loadEnvironment() });
       return new Response(html, {
         status: record === undefined ? 404 : 200,
         headers: { ...SECURITY_HEADERS, "content-type": "text/html; charset=utf-8", "content-security-policy": await pageCsp(CHANGE_SCRIPT) },
@@ -252,8 +258,9 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
     }
     if (path === `${SETTINGS_PAGE_PATH}/api/environment`) {
       const stored = deps.store.loadEnvironment();
-      const resolved = resolveEnvironment(stored);
-      return json({ revision: stored.revision, resolved, schema: ENVIRONMENT_SETTINGS, costs: containerCostTable(resolved.containerBudget), running: await runningContainers(deps), stored });
+      const resolved = await resolvedForRead(stored, deps.variableSealer);
+      // `stored` as read (ADR-0046): a secret Variable's sealed value is shown as its fingerprint, as `resolved` shows it.
+      return json({ revision: stored.revision, resolved, schema: ENVIRONMENT_SETTINGS, costs: containerCostTable(resolved.containerBudget), running: await runningContainers(deps), stored: readStoredEnvironment(stored) });
     }
     if (path === `${SETTINGS_PAGE_PATH}/api/status`) return json(harnessStatus(deps));
     if (path === `${SETTINGS_PAGE_PATH}/api/mcp`) return json({ servers: await mcpOverview(deps) });
@@ -498,6 +505,7 @@ const opsOf = (deps: HarnessDeps): OpsDeps => ({
   now: () => deps.now?.() ?? Date.now(),
   ...(deps.mcp === undefined ? {} : { mcp: deps.mcp }),
   ...(deps.secrets === undefined ? {} : { secrets: deps.secrets }),
+  ...(deps.variableSealer === undefined ? {} : { variableSealer: deps.variableSealer }),
   ...(deps.oauth === undefined ? {} : { oauth: deps.oauth }),
   ...(deps.skills === undefined ? {} : { skills: deps.skills }),
   ...(deps.sweepSettingsChanged === undefined ? {} : { sweepSettingsChanged: deps.sweepSettingsChanged }),

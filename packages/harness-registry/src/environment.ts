@@ -8,7 +8,7 @@
 // setting (the Global mise config, SPI-1150; Variables, SPI-1152) is one entry in `ENVIRONMENT_SETTINGS`. The resolved
 // type, the resolve, the validation and the panel's section all follow from it.
 import { type EnvironmentSettingEntry, type EnvironmentValue, fieldProblem, normalizeField } from "./fields.ts";
-import { fitVariables, MAX_VARIABLES } from "./variables.ts";
+import { fitVariables, MAX_VARIABLES, type Variable } from "./variables.ts";
 
 export * from "./variables.ts";
 
@@ -113,8 +113,8 @@ export const ENVIRONMENT_SETTINGS = {
   },
   variables: {
     title: "Variables",
-    description: `Plain NAME=value pairs every command in a Workspace starts with: agents' commands, Terminals and CLI agents. Agents can read them, so never a credential. Anything t3flare, t3, mise's [env] or the command itself sets wins over them. At most ${MAX_VARIABLES}. Applies at each Workspace's next Container start.`,
-    schema: { type: "variables", default: {} },
+    description: `NAME=value pairs every command in a Workspace starts with: agents' commands, Terminals and CLI agents. A Secret one's value is stored sealed and never shown again, but every agent and command in a Workspace can read it, as on stock t3. Anything t3flare, t3, mise's [env] or the command itself sets wins over them. At most ${MAX_VARIABLES}. Applies at each Workspace's next Container start.`,
+    schema: { type: "variables", default: [] },
   },
   globalMiseConfig: {
     title: "Global mise config",
@@ -150,7 +150,7 @@ type ValueOf<Schema> = Schema extends { readonly type: "enum"; readonly values: 
     : Schema extends { readonly type: "boolean" }
       ? boolean
       : Schema extends { readonly type: "variables" }
-        ? Readonly<Record<string, string>>
+        ? ReadonlyArray<Variable>
         : string;
 
 /** What a Workspace DO reads: every setting resolved, a stored value that no longer fits read as its default. */
@@ -182,9 +182,18 @@ export const resolveEnvironment = (stored: { readonly revision: number; readonly
   return resolved as ResolvedEnvironment;
 };
 
-/** Whether two settings' values are equal: a scalar by identity, Variables by their names and values in order. */
-const sameValue = (a: unknown, b: unknown): boolean =>
-  a === b || (typeof a === "object" && a !== null && typeof b === "object" && b !== null && JSON.stringify(Object.entries(a)) === JSON.stringify(Object.entries(b)));
+/**
+ * The stored Environment settings as a read shows them (ADR-0046): a set of Variables as `fitVariables` reads it, each
+ * secret's sealed value as its fingerprint. Everything else as stored.
+ */
+export const readStoredEnvironment = (stored: StoredEnvironment): StoredEnvironment =>
+  stored.settings.variables === undefined ? stored : { ...stored, settings: { ...stored.settings, variables: fitVariables(stored.settings.variables) } };
+
+/**
+ * Whether two settings' values, as read, are equal: a scalar by identity, Variables by their names, values and Secret
+ * toggles in order, a secret by its fingerprint (the same value sealed again is no change).
+ */
+const sameValue = (a: unknown, b: unknown): boolean => a === b || (typeof a === "object" && a !== null && typeof b === "object" && b !== null && JSON.stringify(a) === JSON.stringify(b));
 
 /** One change from the panel or a script: some of the settings. */
 export interface EnvironmentChange {
@@ -207,7 +216,8 @@ export const applyEnvironmentChange = (
     if (why !== undefined) return { ok: false, error: `${key}: ${why}` };
   }
   const before: Readonly<Record<string, unknown>> = resolveEnvironment(stored);
-  const moved = entries.filter(([key, value]) => !sameValue(before[key], value));
+  // Compared as read: a set of Variables as `fitVariables` reads it, its secrets by their fingerprints.
+  const moved = entries.filter(([key, value]) => !sameValue(before[key], settingOf(key as EnvironmentKey).schema.type === "variables" ? fitVariables(value) : value));
   if (moved.length === 0) return { ok: true, environment: stored, changed: [] };
   return {
     ok: true,

@@ -1,10 +1,11 @@
-// The names t3flare sets itself, derived from the code (SPI-1152, ADR-0032's Variables refinement): every name
-// `COMMAND_ENV`, a CLI profile's environment or Codex's shell policy, the managed settings' `env`, a Terminal's base
-// environment or its rc file sets, and the model handle a CLI process gets. Each must be refused as a Variable's, and
-// `SET_BY_T3FLARE` must be exactly those no general rule refuses, so the list can drift neither way.
+// The names t3flare sets itself, derived from the code (SPI-1152, ADR-0032's Variables refinement, ADR-0046 §3): every
+// name `COMMAND_ENV`, a CLI profile's environment or Codex's shell policy, the managed settings' `env`, a Terminal's
+// base environment or its rc file sets, and the model handle a CLI process gets. A Variable may have any of them; the
+// Settings page notes beside it that t3flare's value wins. `SET_BY_T3FLARE`, the note's list, must be exactly those and
+// the Container's shell's own (`SET_BY_THE_CONTAINER`), so the list can drift neither way.
 import { COMMAND_ENV } from "@t3flare/sandbox-image/env";
 import { terminalRc } from "@t3flare/sandbox-image/terminal";
-import { credentialSegment, REFUSED_EXACT, REFUSED_LOADER_HOOKS, REFUSED_PREFIXES, SET_BY_T3FLARE, variableNameProblem } from "@t3flare/harness-registry";
+import { SET_BY_T3FLARE, SET_BY_THE_CONTAINER, setByT3flare, variableNameProblem } from "@t3flare/harness-registry";
 import { MODEL_HANDLE_ENV } from "@t3flare/models/relay";
 import { describe, expect, it } from "vitest";
 
@@ -78,25 +79,22 @@ const derived = (): ReadonlyArray<string> => [
   ]),
 ];
 
-/** Whether a rule other than `SET_BY_T3FLARE` already refuses `name`. */
-const generalRuleRefuses = (name: string): boolean =>
-  REFUSED_EXACT.includes(name) || REFUSED_PREFIXES.some((entry) => name.startsWith(entry.prefix)) || REFUSED_LOADER_HOOKS.includes(name) || credentialSegment(name) !== undefined;
-
 describe("the names t3flare sets itself", () => {
   it("are derived from a launch of every CLI profile", () => {
     expect(Object.keys(LAUNCHES).sort()).toEqual([...CLI_PROFILE_NAMES].sort());
   });
 
-  it("are all refused as a Variable's", () => {
+  it("are names a Variable may have, each with the Settings page's note (ADR-0046 §3)", () => {
     const names = derived();
     // Spot checks against each source, so an empty derivation cannot pass.
     expect(names).toEqual(
       expect.arrayContaining(["ANTHROPIC_BASE_URL", "HTTPS_PROXY", "MISE_GLOBAL_CONFIG_FILE", "BASH_ENV", "CODEX_HOME", "T3FLARE_TOOL_HANDLE", "T3FLARE_MODEL_HANDLE", "T3FLARE_EXEC", "TERM", "HISTFILE", "PS1"]),
     );
-    expect(names.filter((name) => variableNameProblem(name) === undefined)).toEqual([]);
+    expect(names.filter((name) => variableNameProblem(name) !== undefined)).toEqual([]);
+    expect(names.filter((name) => !setByT3flare(name))).toEqual([]);
   });
 
-  it("are listed in SET_BY_T3FLARE exactly when no general rule refuses them", () => {
-    expect([...SET_BY_T3FLARE].sort()).toEqual(derived().filter((name) => !generalRuleRefuses(name)).sort());
+  it("are listed in SET_BY_T3FLARE exactly, with the Container's shell's own", () => {
+    expect([...SET_BY_T3FLARE].sort()).toEqual([...new Set([...derived(), ...SET_BY_THE_CONTAINER])].sort());
   });
 });

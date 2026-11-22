@@ -31,6 +31,7 @@ import {
   classOf,
   ENVIRONMENT_SETTINGS,
   EXTENSIONS,
+  fitVariables,
   type HarnessChange,
   ignoredServersOf,
   type McpChange,
@@ -46,6 +47,7 @@ import {
   tierOf,
   type ToolClass,
   visible,
+  withheldFromCommands,
   withoutQuery,
 } from "@t3flare/harness-registry";
 import type { McpAsker, McpQuestionAnswer, McpQuestionCard } from "@t3flare/session-protocol";
@@ -70,6 +72,7 @@ import {
   testMcpServer,
 } from "../harness/ops.ts";
 import type { AuditActor } from "../harness/store.ts";
+import { resolvedForRead, sealVariablesIn } from "../harness/variableSeal.ts";
 import { canonicalJson } from "../mcp/canonical.ts";
 import { newCardId } from "../mcp/elicitation.ts";
 import type { McpCallAnswer, McpHost } from "../mcp/host.ts";
@@ -112,7 +115,7 @@ import {
   outcomeOf,
   waitForChange,
 } from "./openChanges.ts";
-import { askedByText, changeText, environmentItems, extensionItems, mcpItems, PAGE_REASON, shownSkill, toolsItems } from "./render.ts";
+import { askedByText, changeText, environmentItems, extensionItems, mcpItems, PAGE_REASON, shownCallArgs, shownSkill, toolsItems } from "./render.ts";
 import { settingsToolOf } from "./tools.ts";
 import type { ChangeEntity, ChangeItem, ChangeView, PageReason } from "./types.ts";
 
@@ -143,6 +146,8 @@ export interface SettingsServerDeps {
 export interface SettingsCallInput {
   readonly tool: string;
   readonly args: Readonly<Record<string, unknown>>;
+  /** The arguments as a card prints them, when they differ (a secret Variable shown as set, `shownCallArgs`). */
+  readonly shownArgs?: unknown;
   readonly caller: OwnCaller;
   readonly asker?: McpAsker;
   readonly signal?: AbortSignal;
@@ -275,7 +280,8 @@ const getSettings = async (deps: SettingsServerDeps, args: Readonly<Record<strin
   }
   if (args.entity === "environment") {
     const stored = deps.ops.store.loadEnvironment();
-    const resolved: Readonly<Record<string, unknown>> = resolveEnvironment(stored);
+    // A secret Variable as set, or as unreadable when this credentials key does not open it (ADR-0046).
+    const resolved: Readonly<Record<string, unknown>> = await resolvedForRead(stored, deps.ops.variableSealer);
     return read({
       entity: "environment",
       revision: stored.revision,
@@ -552,6 +558,17 @@ const environmentAppliesAt = (keys: ReadonlyArray<string>): string => {
   return `${APPLIES_AT.environment} ${sweep.join(" and ")}: ${APPLIES_AT.sweep}`;
 };
 
+/**
+ * What an answer adds for a change whose Variables name ones that reach no command (ADR-0046 §3): t3flare's own
+ * (T3FLARE_, T3CODE_) and the Container's shell's. Empty when there are none.
+ */
+const withheldText = (variables: unknown): string => {
+  const names = fitVariables(variables)
+    .map((variable) => variable.name)
+    .filter(withheldFromCommands);
+  return names.length === 0 ? "" : ` ${names.join(", ")} ${names.length === 1 ? "is a name" : "are names"} t3flare or the Container's shell keeps for itself: stored, but ${names.length === 1 ? "it reaches" : "they reach"} no command.`;
+};
+
 const planEnvironment = (deps: SettingsServerDeps, args: Readonly<Record<string, unknown>>): PlanOrRefusal => {
   const settings = objectArg(args.settings);
   if (settings === undefined) return { refused: "settings is an object of Environment settings" };
@@ -560,11 +577,14 @@ const planEnvironment = (deps: SettingsServerDeps, args: Readonly<Record<string,
   if (!applied.ok) return { refused: applied.error };
   return {
     ...TARGET.environment,
-    appliesAt: environmentAppliesAt(applied.changed.length > 0 ? applied.changed : Object.keys(settings)),
+    appliesAt: environmentAppliesAt(applied.changed.length > 0 ? applied.changed : Object.keys(settings)) + withheldText(settings.variables),
     verdict: tierOf({ entity: "environment", stored, change: { settings } }),
-    normalized: { settings },
+    // Hashed as read (ADR-0046): a secret Variable by its fingerprint, a keyed HMAC of its value, not its sealed value,
+    // whose IV differs each time: the same secret change hashes the same for the declined-repeat refusal and reuse.
+    normalized: { settings: settings.variables === undefined ? settings : { ...settings, variables: fitVariables(settings.variables) } },
     describe: async () => ({ items: environmentItems(stored, settings), lines: [] }),
-    run: async (options) => fromOutcome(await changeEnvironment(deps.ops, settings, options)),
+    // The door sealed these arguments (`sealedArgs`), or an Open change kept them so.
+    run: async (options) => fromOutcome(await changeEnvironment(deps.ops, settings, options, { sealedAtDoor: true })),
   };
 };
 
@@ -763,8 +783,8 @@ const openListOf = (deps: Pick<SettingsServerDeps, "origin">): string | undefine
 /** The calling thread and agent, as a card or page names them. */
 const askedBy = (caller: OwnCaller): string => `Asked by ${askedByText(caller)}.`;
 
-/** The agent's call, as a card shows it last. */
-const callText = (tool: string, args: Readonly<Record<string, unknown>>): string => `The agent's call: settings: ${tool}\n${JSON.stringify(args, null, 2)}`;
+/** The agent's call, as a card shows it last: a secret Variable as set or changed, never its value (`shownCallArgs`). */
+const callText = (input: Pick<SettingsCallInput, "tool" | "args" | "shownArgs">): string => `The agent's call: settings: ${input.tool}\n${JSON.stringify(input.shownArgs ?? input.args, null, 2)}`;
 
 const APPROVAL_OPTIONS: NonNullable<McpQuestionCard["options"]> = [
   { decision: "accept", label: "Approve" },
@@ -788,7 +808,7 @@ const freeCard = (input: SettingsCallInput, planned: Planned, revision: number):
     planned.appliesAt,
     `${askedBy(input.caller)} This change is free (it narrows what agents have); this thread's mode asks for every write.`,
     "",
-    callText(input.tool, input.args),
+    callText(input),
   ].join("\n");
   return { id: newCardId(), kind: "approval", server: SETTINGS_SERVER, title: cardText(`settings: ${input.tool}?`, 200), prompt: cardText(prompt), options: APPROVAL_OPTIONS };
 };
@@ -798,7 +818,7 @@ const freeCard = (input: SettingsCallInput, planned: Planned, revision: number):
  * lines, when it applies, who asked, the Change page's link, and the agent's call last.
  */
 const askedText = (view: ChangeView, input: SettingsCallInput, url: string | undefined): string =>
-  [changeText(view), "", askedBy(input.caller), ...(url === undefined ? [] : [`The Change page: ${url}`]), "", callText(input.tool, input.args)].join("\n");
+  [changeText(view), "", askedBy(input.caller), ...(url === undefined ? [] : [`The Change page: ${url}`]), "", callText(input)].join("\n");
 
 /** The owner-only approval card for an asked change (plan D9); never a field, so no agent can answer it. */
 export const askedCard = (view: ChangeView, input: SettingsCallInput, url: string | undefined, needsPage: PageReason | undefined): McpQuestionCard => {
@@ -1383,6 +1403,25 @@ const runRead = async (deps: SettingsServerDeps, name: string, args: Readonly<Re
 };
 
 /**
+ * A write's arguments with a `change_environment`'s secret Variables sealed (ADR-0046 §4), before anything logs, shows,
+ * hashes, keeps or plans them: the card, the Change page, an Open change's stored arguments and the audit entry hold a
+ * secret's fingerprint, never its value. Every other write's arguments as given.
+ */
+const sealedArgs = async (
+  deps: SettingsServerDeps,
+  tool: string,
+  args: Readonly<Record<string, unknown>>,
+): Promise<{ readonly ok: true; readonly args: Readonly<Record<string, unknown>>; readonly shownArgs?: unknown } | { readonly ok: false; readonly error: string }> => {
+  const settings = tool === "change_environment" ? objectArg(args.settings) : undefined;
+  if (settings === undefined) return { ok: true, args };
+  const stored = deps.ops.store.loadEnvironment();
+  const sealed = await sealVariablesIn(settings, stored, deps.ops.variableSealer);
+  if (!sealed.ok) return sealed;
+  const sealedArgs = { ...args, settings: sealed.settings };
+  return { ok: true, args: sealedArgs, shownArgs: shownCallArgs(tool, sealedArgs, stored) };
+};
+
+/**
  * One call of the Settings server by t3flare's own agent (the MCP host's branch for kind `settings`). Its answer is the
  * host's: a result for the agent, or unavailable when the server is off.
  */
@@ -1390,7 +1429,14 @@ export const settingsCall = async (deps: SettingsServerDeps, input: SettingsCall
   if (accessSwitchOf(deps) === "off") return { kind: "unavailable", message: OFF_MESSAGE, mayHaveRun: false };
   const tool = settingsToolOf(input.tool);
   if (tool === undefined) return { kind: "unavailable", message: `The Settings server has no tool ${input.tool}.`, mayHaveRun: false };
-  if (tool.class === "write") return write(deps, input);
+  if (tool.class === "write") {
+    const sealed = await sealedArgs(deps, tool.name, input.args);
+    if (!sealed.ok) {
+      deps.log?.({ t3flare: "settings-refused", via: "mcp", door: input.caller.door, agent: input.caller.agent, thread: input.caller.thread ?? null, tool: input.tool, outcome: "refused", reason: "invalid" });
+      return written("refused", `Not changed: ${sealed.error}`);
+    }
+    return write(deps, { ...input, args: sealed.args, ...(sealed.shownArgs === undefined ? {} : { shownArgs: sealed.shownArgs }) });
+  }
   const limited = readLimit(deps, ownReader(deps, input.caller), tool.name);
   if (limited !== undefined) return limited;
   const actor: AuditActor = { caller: input.caller.thread === undefined ? "agent" : `agent:${input.caller.thread}`, via: "mcp", ...(input.caller.thread === undefined ? {} : { thread: input.caller.thread }), agent: input.caller.agent };
@@ -1601,7 +1647,14 @@ export const settingsOwnerCall = async (deps: SettingsServerDeps, input: OwnerCa
     deps.log?.({ t3flare: "settings-refused", via: "mcp", door: "owner", principal: input.caller.kind, tool: input.tool, outcome: "refused", reason: "hidden" });
     return { kind: "result", answer: readError(`${tool.name} is hidden by the owner.`) };
   }
-  if (tool.class === "write") return ownerWrite(deps, input);
+  if (tool.class === "write") {
+    const sealed = await sealedArgs(deps, tool.name, input.args);
+    if (!sealed.ok) {
+      deps.log?.({ t3flare: "settings-refused", via: "mcp", door: "owner", principal: input.caller.kind, tool: input.tool, outcome: "refused", reason: "invalid" });
+      return { kind: "result", answer: written("refused", `Not changed: ${sealed.error}`) };
+    }
+    return ownerWrite(deps, { ...input, args: sealed.args });
+  }
   const limited = readLimit(deps, ownerReader(deps, input.caller), tool.name);
   if (limited !== undefined) return { kind: "result", answer: limited };
   const actor: AuditActor = { caller: ownerAuditCaller(input.caller), via: "mcp", ...(input.caller.client === undefined ? {} : { client: input.caller.client }) };

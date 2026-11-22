@@ -5,7 +5,7 @@
 //
 // `resume` (plan D12) is not among them: it is `RESUME_TOOL`, the Owner-client endpoint's alone in `model` (M5b,
 // SPI-1201), never the in-process server's.
-import { BUILTIN_TOOLS, ENVIRONMENT_SETTINGS, type EnvironmentFieldSchema, EXPOSURES, EXTENSIONS, OFFERED_PRESETS, type ToolClass } from "@t3flare/harness-registry";
+import { BUILTIN_TOOLS, ENVIRONMENT_SETTINGS, type EnvironmentFieldSchema, EXPOSURES, EXTENSIONS, MAX_VARIABLES, OFFERED_PRESETS, type ToolClass } from "@t3flare/harness-registry";
 
 import { CHANGE_TTL_MS, durationText } from "./changes.ts";
 
@@ -63,7 +63,22 @@ const fieldJson = (schema: EnvironmentFieldSchema): Record<string, unknown> => {
     case "file":
       return { type: "string", description: `At most ${schema.maxBytes} bytes of UTF-8.` };
     case "variables":
-      return { type: "object", additionalProperties: { type: "string" }, description: "The whole set of Variables, NAME: value; never a credential." };
+      return {
+        type: "array",
+        maxItems: MAX_VARIABLES,
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "A name a shell can export." },
+            value: { type: "string", description: "The value. A secret's read back as empty, with valueRedacted." },
+            secret: { type: "boolean", description: "Whether the value is secret: stored sealed, never read back." },
+            valueRedacted: { type: "boolean", description: "On a secret: true keeps the value stored under its name, as the read gave it." },
+          },
+          required: ["name"],
+        },
+        description:
+          "The whole set of Variables, each { name, value, secret }. A secret read back has valueRedacted: true; send it so to keep its value, or a new value to replace it. Turning Secret off needs the value given again. Anything run in a Workspace can read every Variable, a secret's value included.",
+      };
   }
 };
 

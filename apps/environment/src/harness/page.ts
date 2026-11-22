@@ -28,6 +28,10 @@ import {
   MAX_VARIABLE_NAME_LENGTH,
   MAX_VARIABLE_VALUE_LENGTH,
   type ResolvedEnvironment,
+  RESERVED_PREFIXES,
+  SET_BY_T3FLARE,
+  setByT3flare,
+  type Variable,
   type ResolvedHarness,
   ownEntry,
   resolveEnvironment,
@@ -45,7 +49,7 @@ import type { AuditEntry } from "./store.ts";
 import { brand, FAVICON } from "./pageBrand.ts";
 import { ICON_SPRITE, icon, type IconName } from "./pageIcons.ts";
 import { changePagePath } from "./paths.ts";
-import { SCRIPT } from "./pageScript.ts";
+import { KEPT_PLACEHOLDER, SCRIPT } from "./pageScript.ts";
 import { endpointsSection, type EndpointsView } from "./pageEndpoints.ts";
 import { workspacesSection, type WorkspacesSectionInput } from "./pageWorkspaces.ts";
 import { STYLE } from "./pageStyle.ts";
@@ -113,9 +117,11 @@ const field = (extension: string, key: string, setting: EnvironmentSettingEntry,
         ? `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><textarea rows="4" maxlength="${setting.schema.maxLength}" ${attrs}>${escapeHtml(typeof value === "string" ? value : "")}</textarea>${hint}</div>`
         : `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="text" maxlength="${setting.schema.maxLength}" ${attrs} value="${escapeHtml(typeof value === "string" ? value : "")}">${hint}</div>`;
     case "variables": {
-      // One row per Variable; the script adds rows from the template, removes them, and posts `{ NAME: "value" }`.
-      const rows = Object.entries(value !== null && typeof value === "object" ? (value as Readonly<Record<string, string>>) : {}).map(([name, text]) => variableRow(name, text));
-      return `<fieldset class="field" ${attrs}><legend class="sr">${escapeHtml(setting.title)}</legend><div class="variables" data-variable-rows>${rows.join("")}</div><template data-variable-template>${variableRow("", "")}</template><div><button type="button" class="btn btn-sm" data-variable-add>${icon("plus")}Add a Variable</button></div>${hint}</fieldset>`;
+      // One row per Variable; the script adds rows from the template, removes them, and posts `[{ name, value, secret }]`
+      // (a secret left as it was posts `valueRedacted`, which keeps its stored value). The names t3flare sets itself are
+      // on the list for the script's note.
+      const rows = (Array.isArray(value) ? (value as ReadonlyArray<Variable>) : []).map((variable) => variableRow(variable));
+      return `<fieldset class="field" ${attrs} data-set-by-t3flare="${escapeHtml(SET_BY_T3FLARE.join(" "))}" data-reserved-prefixes="${escapeHtml(RESERVED_PREFIXES.join(" "))}"><legend class="sr">${escapeHtml(setting.title)}</legend><div class="variables" data-variable-rows>${rows.join("")}</div><template data-variable-template>${variableRow(undefined)}</template><div><button type="button" class="btn btn-sm" data-variable-add>${icon("plus")}Add a Variable</button></div>${hint}</fieldset>`;
     }
     case "file":
       // No maxlength (it counts UTF-16 units; the API's byte limit refuses, whole). The newline after the tag is the one
@@ -124,9 +130,26 @@ const field = (extension: string, key: string, setting: EnvironmentSettingEntry,
   }
 };
 
-/** One Variable's row: its name, its value (a text area, so a value with a line break survives a save), and Remove. */
-const variableRow = (name: string, value: string): string =>
-  `<div class="variable" data-variable><input type="text" data-variable-name aria-label="Name" value="${escapeHtml(name)}" maxlength="${MAX_VARIABLE_NAME_LENGTH}" placeholder="NAME" autocapitalize="none" spellcheck="false"><textarea rows="1" data-variable-value aria-label="Value" maxlength="${MAX_VARIABLE_VALUE_LENGTH}" placeholder="value" spellcheck="false">${escapeHtml(value)}</textarea><button type="button" class="btn btn-sm btn-danger" data-variable-remove aria-label="Remove this Variable">${icon("trash")}</button></div>`;
+/** A stored secret this credentials key does not open: its placeholder. */
+const UNREADABLE_PLACEHOLDER = "Cannot be opened: type its value again";
+
+/**
+ * One Variable's row: its name, its value (a text area, so a value with a line break survives a save), its Secret toggle
+ * and Remove, then the notes: a name t3flare sets or keeps itself (ADR-0046 §3), and a stored secret this credentials
+ * key does not open. A secret's value is never on the page: its text area is empty, marked as set, and the row keeps the
+ * name it is stored under (`data-variable-stored`). While the row has that name and Secret on, an empty box keeps the
+ * stored value; typing replaces it, and a rename or Secret off asks for the value again (pageScript.ts).
+ */
+const variableRow = (variable: Variable | undefined): string => {
+  const name = variable?.name ?? "";
+  const secret = variable?.secret === true;
+  const unreadable = variable?.unreadable === true;
+  const stored = variable?.valueRedacted === true && !unreadable;
+  const placeholder = stored ? KEPT_PLACEHOLDER : unreadable ? UNREADABLE_PLACEHOLDER : "value";
+  return `<div class="variable${secret ? " is-secret" : ""}" data-variable${stored ? ` data-variable-stored="${escapeHtml(name)}"` : ""}${unreadable ? " data-variable-unreadable" : ""}><input type="text" data-variable-name aria-label="Name" value="${escapeHtml(name)}" maxlength="${MAX_VARIABLE_NAME_LENGTH}" placeholder="NAME" autocapitalize="none" spellcheck="false"><textarea rows="1" data-variable-value aria-label="Value" maxlength="${MAX_VARIABLE_VALUE_LENGTH}" placeholder="${placeholder}" spellcheck="false" autocomplete="off"${unreadable ? " required" : ""}>${secret ? "" : escapeHtml(variable?.value ?? "")}</textarea><label class="variable-secret"><input type="checkbox" data-variable-secret${secret ? " checked" : ""}>Secret</label><button type="button" class="btn btn-sm btn-danger" data-variable-remove aria-label="Remove this Variable">${icon("trash")}</button><p class="hint variable-note" data-variable-note${name !== "" && setByT3flare(name) ? "" : " hidden"}>t3flare sets or keeps this name itself: its own value wins over this one wherever it sets it, and a T3FLARE_ or T3CODE_ name reaches no command.</p>${
+    unreadable ? '<p class="hint variable-note variable-unreadable" role="note">This secret cannot be opened (the credentials key changed or is missing), so no Container gets it: type its value again.</p>' : ""
+  }</div>`;
+};
 
 /** A locked extension's settings, shown and not editable. */
 const lockedSettings = (entry: ExtensionEntry, current: ResolvedHarness["extensions"][string] | undefined): string => {

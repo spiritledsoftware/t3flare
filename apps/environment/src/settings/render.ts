@@ -3,7 +3,8 @@
 // settings before the change and the change as the registry will apply it, never from the agent's words. The card's text
 // and the Change page are both rendered from it: this file renders the text (the card's prompt, and an Owner client's
 // message `M`); `harness/changePage.ts` renders the page. No secret is ever in it: a header value is typed on the page and
-// goes straight to the secret store, and a URL is shown without its query (plan D14).
+// goes straight to the secret store, a secret Variable is shown as set (ADR-0046), and a URL is shown without its query
+// (plan D14).
 import {
   applyEnvironmentChange,
   applyToolsChange,
@@ -13,7 +14,10 @@ import {
   type ToolsChange,
   type EnvironmentKey,
   EXTENSIONS,
+  fitVariables,
   type HarnessChange,
+  isRecord,
+  isSealedValue,
   mcpServersOf,
   ownEntry,
   resolveEnvironment,
@@ -21,11 +25,12 @@ import {
   settingOf,
   type StoredEnvironment,
   type StoredHarness,
+  type Variable,
   withoutQuery,
 } from "@t3flare/harness-registry";
 import type { McpTierChange } from "@t3flare/harness-registry";
 
-import type { ChangeItem, ChangeView, PageReason, ShownSkill } from "./types.ts";
+import type { ChangeItem, ChangeView, PageReason, ShownSkill, ShownVariableValue } from "./types.ts";
 
 export const SKILL_MD_SHOWN = 32 * 1024;
 export const PATHS_SHOWN = 200;
@@ -86,6 +91,29 @@ export const toolsItems = (
   return { items, lines: change.preset === undefined ? [] : [`This applies the ${change.preset} preset to every tool that is not hidden, t3's and MCP servers' included (an MCP server's code-mode-only tools excepted).`] };
 };
 
+/**
+ * A Settings call's arguments as a card and the Change page print them (ADR-0046): a `change_environment`'s secret
+ * Variable, sealed at the door or kept by `valueRedacted`, as "secret, set", or "secret, changed" when `stored` holds
+ * another value under its name; never its value or its sealed value. Every other call's arguments as given.
+ */
+export const shownCallArgs = (tool: string, args: unknown, stored?: StoredEnvironment): unknown => {
+  if (tool !== "change_environment" || !isRecord(args) || !isRecord(args.settings) || !Array.isArray(args.settings.variables)) return args;
+  const before = new Map(fitVariables(stored?.settings.variables).flatMap((variable) => (variable.secret ? [[variable.name, variable.fingerprint] as const] : [])));
+  const variables = args.settings.variables.map((entry: unknown) => {
+    if (!isRecord(entry) || entry.secret !== true || (entry.sealed === undefined && entry.valueRedacted !== true)) return entry;
+    const fingerprint = isSealedValue(entry.sealed) ? entry.sealed.fingerprint : undefined;
+    const changed = fingerprint !== undefined && before.has(String(entry.name)) && before.get(String(entry.name)) !== fingerprint;
+    return { name: entry.name, secret: true, value: changed ? "secret, changed" : "secret, set" };
+  });
+  return { ...args, settings: { ...args.settings, variables } };
+};
+
+/** A Variable's value as a change shows it: a secret only as set. */
+const shownVariable = (variable: Variable): ShownVariableValue => (variable.secret ? { secret: true } : variable.value);
+
+/** A shown Variable's value as text: a plain one quoted, a secret one as set. */
+export const variableValueText = (value: ShownVariableValue): string => (typeof value === "string" ? JSON.stringify(value) : "a secret value (not shown)");
+
 /** An Environment change's items, against the stored Environment settings it changes. */
 export const environmentItems = (stored: StoredEnvironment, settings: Readonly<Record<string, unknown>>): Array<ChangeItem> => {
   const applied = applyEnvironmentChange(stored, { settings });
@@ -95,16 +123,19 @@ export const environmentItems = (stored: StoredEnvironment, settings: Readonly<R
   return applied.changed.map((key: EnvironmentKey): ChangeItem => {
     const schema = settingOf(key).schema;
     if (schema.type === "variables") {
-      const was = (before[key] ?? {}) as Readonly<Record<string, string>>;
-      const now = (after[key] ?? {}) as Readonly<Record<string, string>>;
+      // As read: a secret is its fingerprint, so a changed secret shows as changed and its value never shows (ADR-0046).
+      const was = new Map(((before[key] ?? []) as ReadonlyArray<Variable>).map((variable) => [variable.name, variable]));
+      const now = new Map(((after[key] ?? []) as ReadonlyArray<Variable>).map((variable) => [variable.name, variable]));
+      const same = (a: Variable, b: Variable) => a.secret === b.secret && a.value === b.value && a.fingerprint === b.fingerprint;
       return {
         kind: "variables",
         name: key,
-        added: Object.entries(now).filter(([name]) => !Object.hasOwn(was, name)),
-        changed: Object.entries(now)
-          .filter(([name, value]) => Object.hasOwn(was, name) && was[name] !== value)
-          .map(([name, value]) => [name, was[name]!, value] as const),
-        removed: Object.entries(was).filter(([name]) => !Object.hasOwn(now, name)),
+        added: [...now.values()].filter((variable) => !was.has(variable.name)).map((variable) => [variable.name, shownVariable(variable)] as const),
+        changed: [...now.values()].flatMap((variable) => {
+          const prior = was.get(variable.name);
+          return prior === undefined || same(prior, variable) ? [] : [[variable.name, shownVariable(prior), shownVariable(variable)] as const];
+        }),
+        removed: [...was.values()].filter((variable) => !now.has(variable.name)).map((variable) => [variable.name, shownVariable(variable)] as const),
       };
     }
     if (textual(schema)) return { kind: "text", name: key, before: asText(before[key]), after: asText(after[key]) };
@@ -241,9 +272,11 @@ const itemText = (item: ChangeItem): Array<string> => {
     case "variables":
       return [
         `- ${item.name}:`,
-        ...item.added.map(([name, value]) => `  added ${name}=${JSON.stringify(value)}`),
-        ...item.changed.map(([name, before, after]) => `  changed ${name}: ${JSON.stringify(before)} to ${JSON.stringify(after)}`),
-        ...item.removed.map(([name, value]) => `  removed ${name} (was ${JSON.stringify(value)})`),
+        ...item.added.map(([name, value]) => (typeof value === "string" ? `  added ${name}=${JSON.stringify(value)}` : `  added ${name}, secret (set, not shown)`)),
+        ...item.changed.map(([name, before, after]) =>
+          typeof before !== "string" && typeof after !== "string" ? `  changed ${name}: a new secret value (not shown)` : `  changed ${name}: ${variableValueText(before)} to ${variableValueText(after)}`,
+        ),
+        ...item.removed.map(([name, value]) => `  removed ${name} (was ${variableValueText(value)})`),
       ];
     case "text": {
       const diff = lineDiff(item.before, item.after).filter((line) => line.op !== " ");
