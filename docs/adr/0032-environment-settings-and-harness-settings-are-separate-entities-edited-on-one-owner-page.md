@@ -14,16 +14,17 @@ settings. Both are edited on the one page at `/_t3flare/harness`, the Environmen
 
 1. **Keys, revisions and readers.**
 
-   | Entity | Key in the Environment DO | Read by | Applies at |
-   | -- | -- | -- | -- |
-   | Harness settings | `t3flare:harness:settings` | a Session (`harnessSettings`) | the thread's next turn |
-   | Environment settings | `t3flare:environment:settings` | a Workspace DO (`environmentSettings`) | the Workspace's next Container start |
+   | Entity                                                                                                                                                                                    | Key in the Environment DO                                                        | Read by                                                                            | Applies at                                   |
+   | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------- |
+   | Harness settings                                                                                                                                                                          | `t3flare:harness:settings`                                                       | a Session (`harnessSettings`)                                                      | the thread's next turn                       |
+   | Environment settings                                                                                                                                                                      | `t3flare:environment:settings`                                                   | a Workspace DO (`environmentSettings`)                                             | the Workspace's next Container start         |
    | Environment skills (part of the Environment settings; [ADR-0033](0033-environment-skills-are-pinned-copies-fetched-from-github-kept-by-the-environment-and-changed-only-by-the-owner.md)) | tables `t3flare_env_skills`, `t3flare_env_skill_files`, `t3flare_env_skill_meta` | the Pi Durable adapter (the set's hash) and a Workspace DO (`environmentSkillSet`) | the thread's next turn; the composer at once |
 
    Each has its own revision, bumped only by its own changes, so a size change never makes every Session take the
    Harness settings again. A Workspace DO reads them before each Container start with a 5 s bound and keeps the copy it
    took (`t3flare:environment`); with no answer in time it starts with that copy, else the defaults, as a Session does
    for the Harness settings. Neither read boots t3.
+
 2. **One schema.** `@t3flare/harness-registry`'s `ENVIRONMENT_SETTINGS` is the Environment settings' only schema: the
    panel renders its section from it, the API validates against it, and `resolveEnvironment` gives every reader the
    resolved view, reading a stored value that no longer fits as its default. A later setting (SPI-1150, SPI-1152) is an
@@ -77,6 +78,10 @@ settings. Both are edited on the one page at `/_t3flare/harness`, the Environmen
 
 ## Refinement (SPI-1152): Variables
 
+§2, §3 and §4, and §8 for a secret Variable's value, are **superseded** by
+[ADR-0046](0046-a-variable-may-be-secret-as-stock-t3s-environment-variables-are.md) (Owner, 2026-11-22): a Variable is
+a name, a string and a Secret toggle, refused only what breaks t3flare, and a secret one's value is never logged.
+
 Report: [`docs-archive-1:docs/steps/spi-1152.md`](https://github.com/spiritledsoftware/t3flare/blob/docs-archive-1/docs/steps/spi-1152.md). The Environment settings gain **Variables**: plain
 `NAME=value` pairs every command in a Workspace starts with. mise's `[env]` (the Global mise config, SPI-1150) does not
 do this: it reaches a tool run through a shim or `mise exec`, not a plain shell line, an apt-installed tool, or a CLI
@@ -108,6 +113,7 @@ agent's own process, which are fixed-path binaries outside mise.
 
    A Session does not add them: it cannot know which Variables a command's Container will start with before the
    command starts it.
+
 6. **When.** A Container start takes them with the rest of its launch and keeps them while it runs; a change applies
    at the Workspace's next start. The Worker Shell has the last start's, so before the Workspace's first Container
    start its commands have none.
@@ -132,8 +138,8 @@ owner's `mise.toml` text, which every Container's commands get as mise's global 
 
 1. **Shape.** One setting, `globalMiseConfig`, of the schema's `file` type: at most 16 KiB of UTF-8, no NUL, line ends stored as LF so a browser's round trip is not a change. The panel shows it as a text
    area of its own, without `maxlength` (which counts UTF-16 units; the API's refusal is the limit).
-2. **Layers.** Every command's environment (`COMMAND_ENV`) makes the image's base file mise's *system* config and the
-   Container-local `/var/lib/t3flare/mise/config.toml` its *global* config. mise layers system < global < project and
+2. **Layers.** Every command's environment (`COMMAND_ENV`) makes the image's base file mise's _system_ config and the
+   Container-local `/var/lib/t3flare/mise/config.toml` its _global_ config. mise layers system < global < project and
    merges `[tools]` per tool, so the image's `git` and `gh` stay under the owner's file, and a repository's own
    `mise.toml` wins per tool over both. With no text nothing is written there and mise resolves as before.
    `COMMAND_ENV` also pins mise's data, cache, state and config directories to the image's defaults under `/root`, so
@@ -198,5 +204,15 @@ and the Environment settings through the Settings server, which calls the same f
 3. **One audit log still** (§3); its entries gain who asked, through which door, the tier and what answered.
 4. **A running Container still keeps what it started with** (§5): no tool restarts one, and every answer to a change
    says when it applies.
-5. The Variables refinement's "guard rails for the owner, not a boundary against him" now also stand between an agent's
-   request and the store: its refused names and values are refused through the Settings server as on the page.
+5. (Superseded by ADR-0046: Variables refuse only what breaks t3flare.) The Variables refinement's "guard rails for
+   the owner, not a boundary against him" now also stand between an agent's request and the store: its refused names
+   and values are refused through the Settings server as on the page.
+
+## Refinement ([ADR-0047](0047-every-container-starts-from-a-base-snapshot-the-builder-makes-from-the-image-setup.md), 2026-11-22): the Image setup and the Container setup
+
+The Environment settings gain the Image setup, the Container setup and the settings around them (ADR-0047 §9). The
+Image setup, the Global mise config and the Variables are a Base snapshot's key, read by the Builder; a Workspace DO
+reads the rest at a Container start as §1 says. The Global mise lay-down also runs in the Builder before the Image
+setup, so a Base snapshot carries its installs: the cache mise §8 deferred, whenever a Base snapshot is in use. With
+no Global mise config, mise's global config is the dotfiles' own `~/.config/mise/config.toml`, under the same git and
+gh check (ADR-0047 §10), where mise §2 left none.

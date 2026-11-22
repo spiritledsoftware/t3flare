@@ -30,3 +30,8 @@ terms by doing so. A build for one Owner's own Deployment redistributes nothing.
 - Every machine that deploys needs Docker, and a first deploy is slower.
 - A Deployment repository's CI may build the image for its own Deployment (the `bump` Stage, `prod`); that is the same
   build, pushed to the same Owner's account.
+
+## Refinement ([ADR-0047](0047-every-container-starts-from-a-base-snapshot-the-builder-makes-from-the-image-setup.md), 2026-11-22)
+
+A Base snapshot holds the Workspace image's CLIs. It stays in the Owner's own Cloudflare account and is never
+published, as the image is.

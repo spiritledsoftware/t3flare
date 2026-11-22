@@ -223,14 +223,14 @@ _Avoid_: harness config, settings (alone)
 
 **Environment settings**:
 What the Cloud Environment gives every Workspace and its Container, and how long it keeps one: the Container size, idle
-time and budget, the Global mise config, the Environment skills, the Variables and the Grace. t3flare's own, not t3's
-server settings.
+time and budget, the Global mise config, the Image setup and the Container setup, the Environment skills, the Variables
+and the Grace. t3flare's own, not t3's server settings.
 _Avoid_: environment config, server settings, Container settings
 
 **Variable**:
-A plain `NAME=value` every command in a Workspace starts with, kept in the Environment settings. Agents can read it; it
-is never a credential.
-_Avoid_: env var, environment variable (it reads as the Environment's own), secret
+A `NAME=value` every command in a Workspace, and the Image setup, starts with, kept in the Environment settings, as
+stock t3's environment variables are: a string with a Secret toggle. A secret one's value is never shown again; agents can read every one.
+_Avoid_: env var, environment variable (it reads as the Environment's own)
 
 **Global mise config**:
 The Owner's mise configuration that every Container's commands get, under a repository's own.
@@ -241,8 +241,33 @@ The vCPU, memory and disk a Workspace's Container starts with, picked by name.
 _Avoid_: instance type, plan
 
 **Container budget**:
-How many Containers may run at once across the Cloud Environment.
+How many Workspaces' Containers may run at once across the Cloud Environment.
 _Avoid_: max instances, slots
+
+**Image setup**:
+The Owner's script, kept in the Environment settings, whose result on the Workspace image is the Base snapshot.
+_Avoid_: setup script (that is t3's, per Project), build step, Dockerfile, provisioning
+
+**Container setup**:
+The Owner's script, kept in the Environment settings, that runs once in every new Container before its first command.
+_Avoid_: setup script, startup script, init script, entrypoint (that is the image's)
+
+**Base snapshot**:
+The Workspace image's disk after the Image setup ran on it, which a new Container starts from in place of the
+Workspace image.
+_Avoid_: image (that is the Workspace image), snapshot (alone), golden image, template
+
+**Builder**:
+A Container that belongs to no Workspace, in which a Base build or a Test base build runs.
+_Avoid_: build Workspace, image builder, CI
+
+**Base build**:
+One run of the Image setup in the Builder, ending in a Base snapshot or a failure the Settings page shows.
+_Avoid_: image build (that is Docker's, at a deploy), bake
+
+**Test base build**:
+A Base build of a proposed Image setup, made before it is saved to see whether it works; no Container starts from it.
+_Avoid_: dry run, preview build
 
 **Code mode**:
 The Durable agent's `codemode` tool: one short script that calls the agent's tools as functions, each nested call
@@ -511,5 +536,6 @@ the server's (a t3 bump) or a CLI's (a CLI bump).
 _Avoid_: self-update, upgrade
 
 **Workspace image**:
-The Container image every Workspace runs: git, the CLI agents at their CLI pins, and the tools.
+The Container image every Workspace runs, directly or under a Base snapshot: git, the CLI agents at their CLI pins, and
+the tools.
 _Avoid_: sandbox image

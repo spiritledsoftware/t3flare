@@ -51,7 +51,8 @@ nor changes them, and `read_audit` shows their entries without key fingerprints.
    - `model`: the result is a Pause, and the client's agent applies the change by calling `resume`.
 
    A fallback only ever moves toward `browser`.
-9. **Secrets and sign-ins happen on the Change page only.** An agent may ask to add a header-auth Direct server, set its
+
+9. **Secrets and sign-ins happen on the Change page only** (a secret Variable's value excepted: [ADR-0046](0046-a-variable-may-be-secret-as-stock-t3s-environment-variables-are.md) §4). An agent may ask to add a header-auth Direct server, set its
    header value, or start its OAuth sign-in; the value is typed, and the sign-in started, on the Change page under the
    owner's Access identity, in every mode. No tool argument or result carries a secret or an authorization URL. Two
    more kinds of change are answered on the page alone, in every mode: installing or updating Environment skills (only
@@ -145,3 +146,9 @@ client's mode, which it could already have asked for with the query.
 [ADR-0044](0044-a-workspace-is-purged-by-the-owner-or-at-an-agents-asking-through-the-settings-server.md) adds
 `list_workspaces` and `purge_workspace`: the server's first action that is no Settings change. It is always asked, waits
 as an Open change, and names no revision (§10 does not apply to it).
+
+## Refinement ([ADR-0047](0047-every-container-starts-from-a-base-snapshot-the-builder-makes-from-the-image-setup.md), 2026-11-22): Base builds
+
+The Settings server gains a Rebuild of the Base snapshot and a Test base build, both free, and reads of the Base
+snapshot's state and the last Container setup's report, output included. The new settings' tiers follow §3: a
+lowered time limit is free, every other change asked.
