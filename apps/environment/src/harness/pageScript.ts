@@ -25,7 +25,7 @@ export const TEST_POLL_FAILURES = 3;
 export const ISO_TIME_SOURCE = String.raw`\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z`;
 
 /**
- * The Container budget's consequence, stated once under the Containers row (ADR-0048): page.ts renders it, the script
+ * The Container budget's consequence, stated once under the Containers running now (ADR-0048): page.ts renders it, the script
  * rewrites it as the budget input changes. t3flare reads no account limit, so it names them rather than checking them.
  */
 const BUDGET_NOTE = [

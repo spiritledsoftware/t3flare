@@ -30,8 +30,8 @@ export const DEFAULT_CONTAINER_BUDGET = 3;
 /**
  * The most the Container budget may be set to: a sanity bound, not a constraint (ADR-0048). Nothing in t3flare forces
  * 100, and `max_instances` does not apply under `schedulingPolicy: "durable_object"` (apps/agents/src/budget.ts); 100 of
- * the largest size (4 vCPU, 12 GiB, 20 GB) is under the lower of the account's documented default Container limits,
- * which bound it in fact and which t3flare does not check.
+ * the largest size (4 vCPU, 12 GiB, 20 GB) is under each of the account's documented default concurrent Container
+ * limits, which bound it in fact and which t3flare does not check.
  */
 export const MAX_CONTAINER_BUDGET = 100;
 
