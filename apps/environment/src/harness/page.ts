@@ -7,6 +7,10 @@
 //
 // Layout (SPI-1086), after T3 Code's settings: a quiet sidebar of sections (a sticky row of tabs on a phone), then each
 // section as a 16px title over grouped, divided rows.
+//
+// To see it, and use it, without a stage (the live page sits behind Access): `node apps/environment/scripts/panel-preview.ts
+// serve [--port <n>]` serves it on 127.0.0.1 through the real routes (panel.ts) over in-memory fixture state, reset on
+// restart; `panel-preview.ts <out.html>` writes it as a file.
 import {
   BUILTIN_TOOLS,
   builtinTool,

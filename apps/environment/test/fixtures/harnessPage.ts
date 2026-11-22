@@ -1,6 +1,6 @@
 // @effect-diagnostics globalDate:off
 // The Settings page's fixture state (SPI-1086): what the page snapshot test renders and `scripts/panel-preview.ts` writes
-// for a local look. Four MCP servers in every state the page draws: Commissary (added by hand with its `x-api-key`
+// or serves for a local look. Four MCP servers in every state the page draws: Commissary (added by hand with its `x-api-key`
 // header, SPI-1160) listed with no tools, a direct server listed with tools (one class set by the owner, one tool refused), one whose listing failed, and an OAuth server never
 // signed in. Fixed times, so the render is stable.
 import { applyChange, applyToolsChange, EMPTY_HARNESS, resolveHarness, type T3ToolListing } from "@t3flare/harness-registry";
@@ -20,6 +20,9 @@ const changed = applyToolsChange(budget.harness, {
   t3: { tools: { t3_preview_open: "deferred" } },
 });
 if (!changed.ok) throw new Error(changed.error);
+
+/** The Harness settings the page renders, as stored (`panel-preview.ts serve` starts from them). */
+export const FIXTURE_HARNESS = changed.harness;
 
 /** t3's tools as a Session listed them: two it asks for in every request, a wait, and a denied one left out. */
 export const FIXTURE_T3_TOOLS: T3ToolListing = {

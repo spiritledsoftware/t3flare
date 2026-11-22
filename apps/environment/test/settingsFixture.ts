@@ -11,7 +11,7 @@ import type { HarnessDeps } from "../src/harness/panel.ts";
 import { harnessSecrets } from "../src/harness/secrets.ts";
 import { harnessStatus } from "../src/harness/panel.ts";
 import { harnessStore } from "../src/harness/store.ts";
-import { type McpCallAnswer, McpHost } from "../src/mcp/host.ts";
+import { type McpCallAnswer, type McpEngineBinding, McpHost } from "../src/mcp/host.ts";
 import { cliThreadState } from "../src/provider/cli/cliAsk.ts";
 import { DURABLE_AGENT, durableModes, forgetDurableModes, noteDurableModes } from "../src/provider/threadCaller.ts";
 import { settingsChanges } from "../src/settings/changes.ts";
@@ -59,6 +59,8 @@ export interface FixtureOptions {
   readonly workspaces?: SettingsServerDeps["workspaces"];
   /** `get_status` reads the panel's Status, as the Environment DO wires it, rather than the revision alone. */
   readonly panelStatus?: boolean;
+  /** The MCP engine the host lists and calls through (none by default: a list or call answers that it is not bound). */
+  readonly engine?: McpEngineBinding;
 }
 
 export const settingsFixture = (options: FixtureOptions = {}) => {
@@ -97,7 +99,8 @@ export const settingsFixture = (options: FixtureOptions = {}) => {
   let deps: SettingsServerDeps;
   const host: McpHost = new McpHost({
     kv,
-    engine: undefined,
+    engine: options.engine,
+    secret: async (server, field) => secrets.read(server, field),
     settings: () => store.load(),
     now: () => now,
     settingsServer: (input) => settingsCall(deps, input),
