@@ -13,7 +13,7 @@ import { UsageDay } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { HttpClient, HttpClientResponse } from "effect/http";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as ServerConfig from "t3/src/config.ts";
 import * as ServerSettings from "t3/src/serverSettings.ts";
@@ -25,6 +25,14 @@ import { nodeSqlStorage } from "./nodeSqlStorage.ts";
 vi.mock("t3/src/provider/builtInDrivers.ts", () => import("../src/shadows/builtInDrivers.ts"));
 
 describe("t3's Usage page, through the Shadow's readers", () => {
+  // The records land a minute before now and the summary reads only today's UTC day, so a wall clock in the first minute
+  // after 00:00 UTC would put them on yesterday. Only `Date` is faked: the Effect layers run on real timers.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-17T12:00:00Z"));
+  });
+  afterEach(() => vi.useRealTimers());
+
   it("shows each agent's records by its endpoint's model, the unpriced one priced by t3's rate table", async () => {
     const now = Date.now();
     const store = usageStore(nodeSqlStorage());
