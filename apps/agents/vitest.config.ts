@@ -8,7 +8,8 @@ export default defineConfig({
   test: {
     projects: [
       defineProject({
-        test: { name: "node", include: ["test/**/*.test.ts"], exclude: [...configDefaults.exclude, workerd] },
+        // Tests that spawn real git or run t3's real layers can exceed Vitest's 5 s default on a loaded machine.
+        test: { name: "node", include: ["test/**/*.test.ts"], exclude: [...configDefaults.exclude, workerd], testTimeout: 30_000 },
       }),
       defineProject({
         plugins: [

@@ -14,7 +14,13 @@ export default defineConfig({
       defineProject({
         // T3 Connect's public values, as build.ts defines them for the Worker.
         define: T3_CONNECT_DEFINES,
-        test: { name: "node", include: ["test/**/*.test.ts"], exclude: [...configDefaults.exclude, workerd, "test/docker/**"] },
+        // Tests that spawn real git or run t3's real layers can exceed Vitest's 5 s default on a loaded machine.
+        test: {
+          name: "node",
+          include: ["test/**/*.test.ts"],
+          exclude: [...configDefaults.exclude, workerd, "test/docker/**"],
+          testTimeout: 30_000,
+        },
       }),
       defineProject({
         define: T3_CONNECT_DEFINES,
