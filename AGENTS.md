@@ -2,6 +2,7 @@
 
 ## Rules
 
+- In a new git worktree of this repository, run `node scripts/worktree-setup.ts` before any other command: a prepared worktree's `t3code/.git` can point nowhere, and then `git switch`, `git status` and `git add` fail.
 - Run `pnpm run check` before you push a change for review: it is the required `check` on every pull request.
 - Test deploys go to a throwaway Stage of your own Deployment, from `apps/environment/scripts/stage.ts`. `prod` belongs to its Deployment repository's CI.
 - Credential files stay unread and unprinted: `~/.config/t3flare/dev.env`, `~/.alchemy/**`, `apps/environment/.alchemy/stages/*`, the gh config.
