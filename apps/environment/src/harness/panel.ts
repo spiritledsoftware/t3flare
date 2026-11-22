@@ -22,7 +22,7 @@
 // - The Workspaces (ADR-0044 §4): `GET …/api/workspaces` (the view), `…/usage?id=` (one row's Files, ADR-0044 §1)
 //   and `…/sweep` (the dry Sweep); `POST …/api/workspaces/purge` `{ id, confirm }`, `/restore` `{ id }`, `/stop` `{ id }`
 //   and `/sweep`, behind the same write guard: the Owner's own acts (workspaceActions.ts), audited, never Open changes.
-import { BUILTIN_TOOLS, describeContainerSetup, describeGlobalMise, ENVIRONMENT_SETTINGS, EXTENSIONS, ignoredServersOf, readStoredEnvironment, resolveHarness, type ToolsChange } from "@t3flare/harness-registry";
+import { BUILTIN_TOOLS, CONTAINER_SETUP_OUTPUT_STATUS, describeContainerSetup, describeGlobalMise, ENVIRONMENT_SETTINGS, EXTENSIONS, ignoredServersOf, readStoredEnvironment, resolveHarness, type ToolsChange } from "@t3flare/harness-registry";
 
 import type { AccessCaller } from "../access.ts";
 import type { ValueSealer } from "../credentials/sealed.ts";
@@ -171,7 +171,7 @@ export const harnessStatus = (deps: Pick<HarnessDeps, "store" | "skills">) => {
     "last Global mise lay-down": globalMise === undefined ? null : describeGlobalMise(globalMise),
     // The last Container setup across all Workspaces (ADR-0047 §7): its exit and the end of its output, secrets blanked.
     "last Container setup": containerSetup === undefined ? null : describeContainerSetup(containerSetup),
-    "last Container setup output": containerSetup === undefined ? null : containerSetup.output,
+    [CONTAINER_SETUP_OUTPUT_STATUS]: containerSetup === undefined ? null : containerSetup.output,
     Skills: skillsStatus(deps),
     "last Environment skill set refused": latestRefusal(deps) ?? null,
     // A server stored under the Settings server's reserved name or kind (plan D2): ignored until the next MCP change drops it.

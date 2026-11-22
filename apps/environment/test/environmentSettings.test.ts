@@ -227,15 +227,37 @@ describe("Environment settings in the panel", () => {
     const { store, deps } = setup();
     expect((await getJson(deps, "status"))["last Container setup"]).toBeNull();
     expect((await getJson(deps, "status"))["last Container setup output"]).toBeNull();
-    const report = { workspace: "web-app", runtime: "r1", revision: 4, sha256: SHA_OF_TEXT, bytes: 25, source: "environment", outcome: "failed", exitCode: 2, timedOut: false, output: "E: Unable to locate package ripgrep\n", ms: 2_400, at: NOW };
+    const report = { workspace: "web-app", runtime: "r1", revision: 4, sha256: SHA_OF_TEXT, bytes: 25, source: "environment", outcome: "failed", exitCode: 2, timedOut: false, output: "E: Unable to locate package ripgrep\n", failure: "carryOn", ms: 2_400, at: NOW };
     expect(store.noteContainerSetup(report)).toBe(true);
     expect(store.noteContainerSetup({ ...report, output: 7 })).toBe(false);
     expect(store.noteContainerSetup({ ...report, outcome: "maybe" })).toBe(false);
     const status = await getJson(deps, "status");
-    expect(status["last Container setup"]).toBe("web-app at revision 4: exit 2 after 2.4 s, 2026-11-13T10:30:00.000Z");
+    expect(status["last Container setup"]).toBe("web-app at revision 4: failed, exit 2 after 2.4 s, 2026-11-13T10:30:00.000Z");
     expect(status["last Container setup output"]).toBe("E: Unable to locate package ripgrep\n");
     const html = await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), deps)).text();
-    expect(html).toMatch(/<pre class="status-output"[^>]*>E: Unable to locate package ripgrep\n<\/pre>/);
+    // A region named by its label, opening at the end of the output (column-reverse around one span).
+    expect(html).toMatch(/<dt id="status-container-setup-output">last Container setup output<\/dt><dd><pre class="status-output" tabindex="0" role="region" aria-labelledby="status-container-setup-output"><span>E: Unable to locate package ripgrep\n<\/span><\/pre>/);
+  });
+
+  it("shows a Container setup with no output as a block that says so, and one line of output as a block too", async () => {
+    const { store, deps } = setup();
+    const report = { workspace: "web-app", runtime: "r1", revision: 4, sha256: SHA_OF_TEXT, bytes: 25, source: "environment", outcome: "ok", exitCode: 0, timedOut: false, output: "", failure: "carryOn", ms: 10, at: NOW };
+    store.noteContainerSetup(report);
+    const page = async () => (await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), deps)).text();
+    expect(await page()).toMatch(/<pre class="status-output"[^>]*><span>\(no output\)<\/span><\/pre>/);
+    store.noteContainerSetup({ ...report, output: "done" });
+    expect(await page()).toMatch(/<pre class="status-output"[^>]*><span>done<\/span><\/pre>/);
+  });
+
+  it("renders the Container setup's time limit and failure policy in its row, the policy by label", async () => {
+    const { deps } = setup();
+    const html = await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), deps)).text();
+    const row = /<div class="row"><div class="row-title"><h3>Container setup<\/h3>[\s\S]*?<\/div><\/div><\/div>/.exec(html)?.[0] ?? "";
+    expect(row).toContain('data-setting="containerSetup"');
+    expect(row).toContain('data-setting="containerSetupMinutes"');
+    expect(row).toContain('<option value="carryOn" selected>Carry on</option><option value="refuse">Refuse commands</option>');
+    const containers = /<h3>Containers<\/h3>[\s\S]*?<\/div><\/div><\/div>/.exec(html)?.[0] ?? "";
+    expect(containers).not.toContain("containerSetup");
   });
 });
 

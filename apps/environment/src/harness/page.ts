@@ -22,6 +22,7 @@ import {
   T3_SERVER,
   t3Exposures,
   type T3ToolListing,
+  CONTAINER_SETUP_OUTPUT_STATUS,
   type EnvironmentSettingEntry,
   type ExtensionEntry,
   EXTENSIONS,
@@ -110,7 +111,7 @@ const field = (extension: string, key: string, setting: EnvironmentSettingEntry,
       return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="number" inputmode="numeric" required ${attrs} min="${setting.schema.minimum}" max="${setting.schema.maximum}" step="1" value="${escapeHtml(String(value))}">${hint}</div>`;
     case "enum":
       return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><select ${attrs}>${setting.schema.values
-        .map((option) => `<option value="${escapeHtml(option)}"${option === value ? " selected" : ""}>${escapeHtml(option)}</option>`)
+        .map((option) => `<option value="${escapeHtml(option)}"${option === value ? " selected" : ""}>${escapeHtml(setting.schema.type === "enum" ? (setting.schema.labels?.[option] ?? option) : option)}</option>`)
         .join("")}</select>${hint}</div>`;
     case "text":
       return setting.schema.multiline === true
@@ -343,17 +344,21 @@ const environmentSection = (environment: ResolvedEnvironment, costs: ContainerCo
   const values: Readonly<Record<string, unknown>> = { ...environment };
   // The Grace (ADR-0043) applies at the next Sweep, not at a Container start: the Workspaces section shows it (ADR-0044 §1).
   const entries = Object.entries(ENVIRONMENT_SETTINGS as Readonly<Record<string, EnvironmentSettingEntry>>).filter(([key]) => !(SWEEP_SETTING_KEYS as ReadonlyArray<string>).includes(key));
-  // The scalar settings share the Containers row; a list (the Variables) and a file (the Global mise config) each get a
-  // row of their own. One form, one Save.
+  // The scalar settings share the Containers row; a list (the Variables) and a file (the Global mise config, the
+  // Container setup) each get a row of their own, which the settings that name it as their `row` join. One form, one Save.
   const ownRow = (setting: EnvironmentSettingEntry) => setting.schema.type === "variables" || setting.schema.type === "file";
-  const fields = entries.filter(([, setting]) => !ownRow(setting)).map(([key, setting]) => field("environment", key, setting, values[key]));
+  const fields = entries.filter(([, setting]) => !ownRow(setting) && setting.row === undefined).map(([key, setting]) => field("environment", key, setting, values[key]));
+  const joining = (row: string) => entries.filter(([, setting]) => setting.row === row).map(([key, setting]) => field("environment", key, setting, values[key]));
   const lists = entries
     .filter(([, setting]) => ownRow(setting))
-    .map(([key, setting]) => `<div class="row"><div class="row-title"><h3>${escapeHtml(setting.title)}</h3></div><div class="row-extra"><div class="fields list">${field("environment", key, setting, values[key])}</div></div></div>`);
+    .map(([key, setting]) => {
+      const joined = joining(key);
+      return `<div class="row"><div class="row-title"><h3>${escapeHtml(setting.title)}</h3></div><div class="row-extra"><div class="fields list">${field("environment", key, setting, values[key])}</div>${joined.length === 0 ? "" : `<div class="fields">${joined.join("")}</div>`}</div></div>`;
+    });
   const save = `<div class="row"><div class="save"><span class="save-note" data-save-note aria-live="polite"></span><button type="submit" class="btn btn-sm" data-save disabled>Save</button></div></div>`;
   return `<section id="environment" aria-labelledby="environment-title">
 <div class="section-head"><h2 id="environment-title">${icon("container")}Environment</h2></div>
-<p class="section-desc">What every Workspace's Container gets. A change applies at each Workspace's next Container start; a running Container keeps its size, idle time, Variables and Global mise config, and a lower budget stops none.</p>
+<p class="section-desc">What every Workspace's Container gets. A change applies at each Workspace's next Container start; a running Container keeps its size, idle time, Variables, Global mise config and Container setup, and a lower budget stops none.</p>
 <form class="group" data-environment aria-labelledby="environment-title" novalidate><div class="row"><div><div class="row-title"><h3>Containers</h3><span class="ident">revision ${environment.revision}</span></div><p class="desc">Their size, how long one may sit idle, and how many may run at once.</p></div>
 <div class="row-extra"><div class="fields">${fields.join("")}</div></div></div>${lists.join("")}${save}</form>
 <dl class="group kv"><div><dt>Running now</dt><dd>${
@@ -678,15 +683,19 @@ const statusValue = (value: string | number | null): string => {
   return escapeHtml(String(value));
 };
 
-/** Whether a status value is a block of lines (the Container setup's output): shown below its name, as it was written. */
-const isBlock = (value: string | number | null): value is string => typeof value === "string" && value.includes("\n");
+/** Status rows that are blocks of lines (the Container setup's output): shown below their name, as written. */
+const BLOCK_STATUS_KEYS: ReadonlySet<string> = new Set([CONTAINER_SETUP_OUTPUT_STATUS]);
+
+/** A block row: a region named by its label, opening at the end of its text (column-reverse around one span). */
+const blockRow = (key: string, value: string): string => {
+  const id = `status-${key.replace(/^last /, "").replace(/[^A-Za-z0-9]+/g, "-").toLowerCase()}`;
+  return `<div class="kv-block"><dt id="${id}">${escapeHtml(key)}</dt><dd><pre class="status-output" tabindex="0" role="region" aria-labelledby="${id}"><span>${escapeHtml(value === "" ? "(no output)" : value)}</span></pre></dd></div>`;
+};
 
 const statusSection = (status: Readonly<Record<string, string | number | null>>): string => {
   const rows = Object.entries(status)
     .map(([key, value]) =>
-      isBlock(value)
-        ? `<div class="kv-block"><dt>${escapeHtml(key)}</dt><dd><pre class="status-output" tabindex="0" aria-label="${escapeHtml(key)}">${escapeHtml(value)}</pre></dd></div>`
-        : `<div><dt>${escapeHtml(key)}</dt><dd>${statusValue(value)}</dd></div>`,
+      BLOCK_STATUS_KEYS.has(key) && typeof value === "string" ? blockRow(key, value) : `<div><dt>${escapeHtml(key)}</dt><dd>${statusValue(value)}</dd></div>`,
     )
     .join("");
   return `<section id="status" aria-labelledby="status-title">

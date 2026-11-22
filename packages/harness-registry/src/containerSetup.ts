@@ -2,6 +2,7 @@
 // The Container setup as the Workspace DO reports it and the Settings page's Status shows it (ADR-0047 §7): one report
 // per run, sent to the Environment DO, which keeps the last across all Workspaces. The Settings server's `get_status`
 // reads the same. Imported by both Workers.
+import { CONTAINER_SETUP_FAILURES, type ContainerSetupFailure } from "./environment.ts";
 import { SETTINGS_SOURCES, type SettingsSource } from "./globalMise.ts";
 
 /**
@@ -9,6 +10,9 @@ import { SETTINGS_SOURCES, type SettingsSource } from "./globalMise.ts";
  * KB"): what Status shows and the Settings server returns, so a run's whole log never lands in one stored value.
  */
 export const MAX_SETUP_OUTPUT_BYTES = 32 * 1024;
+
+/** The Status key of the last Container setup's output: the Settings page shows it as a block of lines. */
+export const CONTAINER_SETUP_OUTPUT_STATUS = "last Container setup output";
 
 /**
  * How one run ended: `ok` (exit 0), `failed` (a non-zero exit, its time limit included), `none` (the start had no
@@ -35,6 +39,8 @@ export interface ContainerSetupReport {
   readonly timedOut: boolean;
   /** The last `MAX_SETUP_OUTPUT_BYTES` of its stdout and stderr, every secret Variable's value blanked. */
   readonly output: string;
+  /** What a failure did to that Container: the policy its launch carried. */
+  readonly failure: ContainerSetupFailure;
   readonly ms: number;
   readonly at: number;
 }
@@ -60,6 +66,7 @@ export const containerSetupReport = (value: unknown): ContainerSetupReport | und
     typeof report.timedOut === "boolean" &&
     typeof report.output === "string" &&
     utf8.encode(report.output).length <= MAX_SETUP_OUTPUT_BYTES &&
+    (CONTAINER_SETUP_FAILURES as ReadonlyArray<unknown>).includes(report.failure) &&
     count(report.ms) &&
     count(report.at);
   if (!ok) return undefined;
@@ -74,6 +81,7 @@ export const containerSetupReport = (value: unknown): ContainerSetupReport | und
     exitCode: report.exitCode as number | null,
     timedOut: report.timedOut as boolean,
     output: report.output as string,
+    failure: report.failure as ContainerSetupFailure,
     ms: report.ms as number,
     at: report.at as number,
   };
@@ -82,13 +90,15 @@ export const containerSetupReport = (value: unknown): ContainerSetupReport | und
 /** A run's length for Status: tenths of a second under a minute's worth, whole seconds after. */
 const seconds = (ms: number) => (ms < 60_000 ? String(Math.round(ms / 100) / 10) : String(Math.round(ms / 1000)));
 
-/** One line for the Settings page's Status. */
+/** One line for the Settings page's Status: whether it failed first, and when a failure refuses its Container's commands. */
 export const describeContainerSetup = (report: ContainerSetupReport): string => {
   let what: string;
   if (report.outcome === "none") what = "no Container setup";
   else if (report.outcome === "exec-failed") what = "not run (the Container's exec failed; tried again)";
-  else if (report.outcome === "deadline") what = "no answer within the deadline";
-  else if (report.timedOut) what = `stopped at its time limit after ${seconds(report.ms)} s`;
-  else what = `exit ${String(report.exitCode)} after ${seconds(report.ms)} s`;
+  else if (report.outcome === "deadline") what = "failed, no answer within the deadline";
+  else if (report.timedOut) what = `failed, stopped at its time limit after ${seconds(report.ms)} s`;
+  else what = `${report.outcome === "ok" ? "ran" : "failed"}, exit ${String(report.exitCode)} after ${seconds(report.ms)} s`;
+  const refused = report.failure === "refuse" && report.outcome !== "ok" && report.outcome !== "none";
+  if (refused) what = `${what}; its Container refuses commands`;
   return `${report.workspace ?? "a Workspace"} at revision ${report.revision}: ${what}, ${new Date(report.at).toISOString()}`;
 };

@@ -135,20 +135,21 @@ export const ENVIRONMENT_SETTINGS = {
   containerSetup: {
     title: "Container setup",
     description:
-      "A bash script run once in every new Container before its first command, after the Global mise config is laid down: as root in / with HOME=/root, the Variables and t3flare's command environment. Every command, Terminal and CLI agent waits for it. Applies at each Workspace's next Container start; a running Container keeps what it started with. Its exit code, time and the last 32 KB of its output show in Status, with every secret Variable's value blanked.",
+      "A bash script run once in every new Container before its first command, after the Global mise config: as root in / with HOME=/root and the Variables. Commands, Terminals and CLI agents wait for it. Status shows its exit and the last 32 KB of its output, secret Variables blanked. Applies at each Workspace's next Container start.",
     schema: { type: "file", maxBytes: MAX_CONTAINER_SETUP_BYTES, default: "" },
   },
   containerSetupMinutes: {
     title: "Container setup time limit (minutes)",
-    description: "How long the Container setup may run before it is stopped and counts as failed. Applies at each Workspace's next Container start.",
+    description: "How long it may run before it is stopped and counts as failed.",
     schema: { type: "integer", minimum: 1, maximum: 60, default: 5 },
     tier: "down-free",
+    row: "containerSetup",
   },
   containerSetupFailure: {
     title: "When the Container setup fails",
-    description:
-      "carryOn: the Container's commands run anyway. refuse: every command, Terminal and CLI agent in that Container is refused until a new Container starts. A failure is a non-zero exit, the time limit, or a Container that could not run it. Applies at each Workspace's next Container start.",
-    schema: { type: "enum", values: CONTAINER_SETUP_FAILURES, default: "carryOn" },
+    description: "A non-zero exit, the time limit, or a Container that could not run it. Refuse commands: that Container runs no command, Terminal or CLI agent until a new Container starts.",
+    schema: { type: "enum", values: CONTAINER_SETUP_FAILURES, default: "carryOn", labels: { carryOn: "Carry on", refuse: "Refuse commands" } },
+    row: "containerSetup",
   },
   sweepPurges: {
     title: "Purge after the Grace",

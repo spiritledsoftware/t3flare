@@ -127,6 +127,7 @@ export class ContainerSetup {
       exitCode: state.exitCode,
       timedOut: state.timedOut,
       output,
+      failure: known?.failure ?? "carryOn",
       ms: Math.max(0, state.at - started),
       at: state.at,
     });
