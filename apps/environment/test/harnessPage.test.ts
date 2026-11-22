@@ -355,8 +355,21 @@ describe("the Environment section's dotfiles", () => {
     expect(containers).not.toContain('data-setting="terminalsReadBashrc"');
     expect(section).toContain("Applies at each Workspace&#39;s next Container start");
     expect(section).toContain("Applies at each CLI agent&#39;s next start");
-    const group = tags.find((tag) => tag.attrs.role === "group");
+    const group = tags.find((tag) => tag.attrs.role === "group" && tag.attrs["aria-labelledby"] === "environment-dotfiles-title");
     expect(group?.attrs).toMatchObject({ "aria-labelledby": "environment-dotfiles-title", "aria-describedby": "environment-dotfiles-desc" });
+  });
+
+  it("draws the agents' settings in an Agents row of their own, the Turn limit first, outside the Containers row (SPI-1315)", () => {
+    const section = sectionOf(renderPage(fixturePage()));
+    const start = section.indexOf('<h3 id="environment-agents-title">Agents</h3>');
+    expect(start).toBeGreaterThan(-1);
+    const row = section.slice(start, section.indexOf('<div class="row">', start));
+    const settings = tagsOf(row).filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined).map((tag) => tag.attrs["data-setting"]);
+    expect(settings).toEqual(["turnLimitMinutes", "cliProcessesPerWorkspace", "cliReclaimSeconds"]);
+    const containers = section.slice(0, start);
+    for (const key of settings) expect(containers).not.toContain(`data-setting="${key}"`);
+    const group = tagsOf(section).find((tag) => tag.attrs.role === "group" && tag.attrs["aria-labelledby"] === "environment-agents-title");
+    expect(group?.attrs["aria-describedby"]).toBe("environment-agents-desc");
   });
 
   it("draws a toggle the Owner turned off unchecked", () => {

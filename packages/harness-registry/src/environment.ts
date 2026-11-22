@@ -130,6 +130,13 @@ export const MAX_GRACE_DAYS = 3650;
 export const SWEEP_SETTING_KEYS = ["sweepPurges", "graceDays"] as const;
 
 /**
+ * The agents' settings (SPI-1315): how long a turn may run, and the CLI agents' processes per Workspace and their
+ * reclaim delay. They bound agents, not a Container start, so the Settings page shows them in an Agents row of their
+ * own, in this order.
+ */
+export const AGENT_SETTING_KEYS = ["turnLimitMinutes", "cliProcessesPerWorkspace", "cliReclaimSeconds"] as const;
+
+/**
  * The dotfiles toggles (ADR-0047 §9): whether the Owner's own config in their home reaches Terminals and CLI agents. The
  * Settings page shows them in a row of their own. `terminalsReadBashrc` applies at a Container start (the Workspace DO
  * keeps it with the launch); `agentsReadDotfiles` at each CLI agent's start (the Environment DO reads it at the spawn).
@@ -237,7 +244,7 @@ export const ENVIRONMENT_SETTINGS = {
   turnLimitMinutes: {
     title: "Turn limit (minutes)",
     description:
-      "How long one agent turn may run, for the Durable agent and CLI agents alike. A turn longer than this is ended (a CLI agent's process with it). Each minute of a turn can spend model tokens and hold a Container. Applies at each thread's next turn; a running turn keeps the limit it started with.",
+      "How long one agent turn may run, for Pi Durable and CLI agents alike. A turn longer than this is ended (a CLI agent's process with it), and the thread shows it failed. Each minute of a turn can spend model tokens and hold a Container. Applies at each thread's next turn; a running turn keeps the limit it started with.",
     // t3flare times it itself (the Session's alarm, the CLI wrapper's timer), so the shared sanity maximum applies: a
     // week is under the 24.8 days past which a JS timer overflows.
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_TURN_LIMIT_MINUTES },

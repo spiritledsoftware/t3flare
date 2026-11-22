@@ -3,7 +3,7 @@
 // (`containerInstance`): defaults, an unknown stored size, the idle bounds, and `instance` never omitted.
 import { describe, expect, it } from "vitest";
 
-import { applyEnvironmentChange, BASE_BUILD_SETTING_KEYS, builderInstance, containerInstance, DOTFILES_SETTING_KEYS, EMPTY_ENVIRONMENT, ENVIRONMENT_SETTINGS, MAX_CLI_PROCESSES_PER_WORKSPACE, MAX_CLI_RECLAIM_SECONDS, MAX_CONTAINER_BUDGET, MAX_SETUP_BYTES, MAX_TIMED_MINUTES, resolveEnvironment, SWEEP_SETTING_KEYS } from "./environment.ts";
+import { AGENT_SETTING_KEYS, applyEnvironmentChange, BASE_BUILD_SETTING_KEYS, builderInstance, containerInstance, DOTFILES_SETTING_KEYS, EMPTY_ENVIRONMENT, ENVIRONMENT_SETTINGS, MAX_CLI_PROCESSES_PER_WORKSPACE, MAX_CLI_RECLAIM_SECONDS, MAX_CONTAINER_BUDGET, MAX_SETUP_BYTES, MAX_TIMED_MINUTES, resolveEnvironment, SWEEP_SETTING_KEYS } from "./environment.ts";
 import type { EnvironmentSettingEntry } from "./fields.ts";
 
 /** The Base build's settings at their defaults (SPI-1332, ADR-0047 §9). */
@@ -154,7 +154,7 @@ describe("the CLI agents' processes per Workspace and the reclaim delay (SPI-131
     for (const seconds of [-1, 661, 0.5, "30"]) expect(set({ cliReclaimSeconds: seconds })).toMatchObject({ ok: false });
   });
 
-  it("are down-free and free, in the Containers row, and the count states its memory once in Owner words", () => {
+  it("are down-free and free, in the Agents row, and the count states its memory once in Owner words", () => {
     expect(ENVIRONMENT_SETTINGS.cliProcessesPerWorkspace).toMatchObject({ tier: "down-free" });
     expect(ENVIRONMENT_SETTINGS.cliReclaimSeconds).toMatchObject({ tier: "free" });
     expect("row" in ENVIRONMENT_SETTINGS.cliProcessesPerWorkspace || "row" in ENVIRONMENT_SETTINGS.cliReclaimSeconds).toBe(false);
@@ -174,10 +174,11 @@ describe("the Turn limit (SPI-1315)", () => {
     expect(resolveEnvironment({ revision: 1, settings: { turnLimitMinutes: 0 } }).turnLimitMinutes).toBe(120);
   });
 
-  it("is down-free, in the Containers row, and states its consequence once in Owner words", () => {
+  it("is down-free, in the Agents row (AGENT_SETTING_KEYS), and states its consequence once in Owner words", () => {
     expect(ENVIRONMENT_SETTINGS.turnLimitMinutes).toMatchObject({ tier: "down-free" });
     expect("row" in ENVIRONMENT_SETTINGS.turnLimitMinutes).toBe(false);
-    expect(ENVIRONMENT_SETTINGS.turnLimitMinutes.description).toContain("A turn longer than this is ended (a CLI agent's process with it). Each minute of a turn can spend model tokens and hold a Container.");
+    expect(AGENT_SETTING_KEYS).toEqual(["turnLimitMinutes", "cliProcessesPerWorkspace", "cliReclaimSeconds"]);
+    expect(ENVIRONMENT_SETTINGS.turnLimitMinutes.description).toContain("A turn longer than this is ended (a CLI agent's process with it), and the thread shows it failed. Each minute of a turn can spend model tokens and hold a Container.");
     expect(ENVIRONMENT_SETTINGS.turnLimitMinutes.description).toContain("a running turn keeps the limit it started with");
   });
 });

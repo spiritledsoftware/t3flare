@@ -256,7 +256,10 @@ fewer run. The reclaim delay is kept with each process, so a change applies to p
 The fixed 2 h turn cap was a cost policy, not a platform limit, and the Durable agent's (`TURN_DEADLINE_MS`) and the CLI
 agents' (`TURN_CAP_MS`, ADR-0015) were two constants that had to agree. Both are now one Environment setting, not a
 Harness setting (it bounds the CLI agents too): `turnLimitMinutes`, 120 by default, 1 to `MAX_TIMED_MINUTES` (ADR-0048
-§2: t3flare times it with its own alarm and timer), tier `down-free`, in the Containers row. Its consequence is stated
+§2: t3flare times it with its own alarm and timer), tier `down-free`. It opens a new Agents row on the Settings page
+(`AGENT_SETTING_KEYS`), which the CLI agents' processes per Workspace and the reclaim delay (SPI-1318) move into from
+the Containers row: they bound agents, not a Container start. The page's header and sidebar no longer say every
+Environment setting applies at a Container start. Its consequence is stated
 once, in its description (ADR-0048 §6): "A turn longer than this is ended (a CLI agent's process with it). Each minute of
 a turn can spend model tokens and hold a Container."
 
