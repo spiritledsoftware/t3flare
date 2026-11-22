@@ -155,6 +155,8 @@ export interface WorkspaceRpc {
   }): Promise<{ readonly do: ReadonlyArray<{ readonly name: string; readonly path: string }>; readonly container: unknown; readonly flagged: unknown; readonly notScanned?: ReadonlyArray<{ readonly name: string; readonly where: string }> }>;
   /** Step 4a M0 P1, test stages only. */
   probeProcess(op: unknown): Promise<unknown>;
+  /** SPI-1333, test stages only: the next fresh start uses `snapshotId` as its Base snapshot (null clears it). */
+  faultBaseSnapshot(input: { readonly snapshotId: string | null }): Promise<{ readonly armed: string | null }>;
   /** Why a reclaim would leave the running Container alone now, or null (SPI-1150's stage check). */
   reclaimReason(): Promise<string | null>;
   terminalState(): Promise<{ readonly epoch: string; readonly keys: ReadonlyArray<string>; readonly lastInput: number; readonly pushes: number; readonly sync: Readonly<Record<string, number>> }>;

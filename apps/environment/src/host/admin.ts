@@ -359,8 +359,18 @@ export const handleAdmin = async (request: Request, environment: EnvironmentDO):
                             ? await rpc.skills(String(body.skills), undefined, body.repoOnly === true ? { repoOnly: true } : undefined)
                             : "reclaimReason" in body
                               ? await rpc.reclaimReason()
-                              : { error: "one of fs, git, checkpoint, exec, credentialHelper, killExecs, probeProcess, takeSkills, skills, reclaimReason" };
+                              : // SPI-1333, test stages only: the next fresh start uses this snapshot id (a refused one's fallback).
+                                "baseFault" in body
+                                ? await rpc.faultBaseSnapshot(body.baseFault as never)
+                                : { error: "one of fs, git, checkpoint, exec, credentialHelper, killExecs, probeProcess, takeSkills, skills, reclaimReason, baseFault" };
         return json({ ms: Date.now() - started, result, container: await rpc.containerState() });
+      }
+      case "GET /_t3flare/agents/base-builder": {
+        // SPI-1333: the Builder's record as a Workspace's start reads it (its key, revision, state and last good one).
+        const { environmentServices } = await import("../agents/bindings.ts");
+        const { byName } = await import("../agents/rpc.ts");
+        const { BUILDERS } = await import("@t3flare/harness-registry");
+        return json(await byName(environmentServices().agents.WORKSPACES, BUILDERS.base, "WORKSPACES").builderRecord());
       }
       case "POST /_t3flare/check/connect-leak": {
         // Step 3+: which T3 Connect secrets (names only) appear in text the caller collected, such as Workers Logs; and,
