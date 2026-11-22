@@ -2,10 +2,10 @@
 // The Global mise config's lay-down as the Workspace DO runs it (SPI-1150, ADR-0032's Global mise config refinement;
 // `GlobalMise`), with a fake exec and clock: once per Container (its runtime id), held while it runs, bounded by a
 // deadline, retried after an exec failure, and reported. The script itself is `globalMiseScript.test.ts`'s.
-import type { GlobalMiseReport } from "@t3flare/harness-registry";
+import { describeGlobalMise, type GlobalMiseReport } from "@t3flare/harness-registry";
 import { describe, expect, it, vi } from "vitest";
 
-import { GLOBAL_MISE_KEY, GlobalMise, type GlobalMiseExec, type GlobalMiseLaunch, type GlobalMiseState, MAX_ATTEMPTS } from "../src/workspace/globalMise.ts";
+import { GLOBAL_MISE_AFTER_SETUP_KEY, GLOBAL_MISE_KEY, GlobalMise, type GlobalMiseExec, type GlobalMiseLaunch, type GlobalMiseState, MAX_ATTEMPTS } from "../src/workspace/globalMise.ts";
 
 const SHA = "a".repeat(64);
 const LAUNCH: GlobalMiseLaunch = { text: '[tools]\nnode = "24.11.1"\n', bytes: 25, sha256: SHA, revision: 4, source: "environment" };
@@ -157,10 +157,63 @@ describe("GlobalMise", () => {
     expect(broken.due("r1")).toBe(false);
   });
 
-  it("reports a Container started with no text, so Status no longer shows an older start's file", async () => {
-    const t = setup([], { launch: { ...LAUNCH, text: "", bytes: 0, sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" } });
+  const EMPTY = { ...LAUNCH, text: "", bytes: 0, sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" };
+
+  it("reports a Container started with no text and no dotfiles' mise config as none, so Status no longer shows an older start's file", async () => {
+    const t = setup([{ stdout: answer(false, { install: null, bytes: 0, dotfiles: false }) }], { launch: EMPTY });
     expect(await t.mise.ensure("r1")).toMatchObject({ outcome: "none" });
-    expect(t.calls).toHaveLength(0);
+    expect(t.calls).toHaveLength(1);
+    expect(t.calls[0]!.stdin).toBe("");
     expect(t.reports).toMatchObject([{ outcome: "none", install: null, bytes: 0, revision: 4 }]);
+    expect(t.reports[0]!.dotfiles).toBeUndefined();
+  });
+
+  it("with no text, runs the script for the dotfiles' mise config (ADR-0047 §10) and reports what it did with it", async () => {
+    const laid = setup([{ stdout: answer(true, { bytes: 30, dotfiles: true }) }], { launch: EMPTY });
+    expect(await laid.mise.ensure("r1")).toMatchObject({ outcome: "laid" });
+    expect(laid.reports).toMatchObject([{ outcome: "laid", install: 0, bytes: 30, dotfiles: true }]);
+    const refused = setup([{ stdout: answer(false, { bytes: 30, dotfiles: true }) }], { launch: EMPTY });
+    expect(await refused.mise.ensure("r1")).toMatchObject({ outcome: "not-laid" });
+    expect(refused.reports).toMatchObject([{ outcome: "not-laid", install: 0, dotfiles: true }]);
+  });
+
+  describe("after the Container setup (ADR-0047 §10)", () => {
+    const after = (t: ReturnType<typeof setup>, setupText: string | undefined) => new GlobalMise({ ...t.deps, afterSetup: { setupText: () => setupText } });
+
+    it("runs nothing when the launch has Global mise text (it wins), or the Container had no Container setup", async () => {
+      for (const [launch, setupText] of [[LAUNCH, "chezmoi apply\n"], [EMPTY, ""], [EMPTY, undefined]] as const) {
+        const t = setup([], { launch });
+        expect(await after(t, setupText).ensure("r1")).toMatchObject({ runtime: "r1", outcome: "none" });
+        expect(t.calls).toHaveLength(0);
+        expect(t.reports).toHaveLength(0);
+        // Kept under its own key: the lay-down's own outcome is untouched.
+        expect(t.storage.get(GLOBAL_MISE_AFTER_SETUP_KEY)).toMatchObject({ outcome: "none" });
+        expect(t.storage.get(GLOBAL_MISE_KEY)).toBeUndefined();
+      }
+    });
+
+    it("checks the dotfiles' mise file again in if-changed mode, and reports an unchanged one with the last finished run's answer", async () => {
+      const t = setup([{ stdout: answer(true, { bytes: 30, dotfiles: true, unchanged: true }) }], { launch: EMPTY });
+      expect(await after(t, "chezmoi apply\n").ensure("r1")).toMatchObject({ outcome: "laid" });
+      expect(t.calls[0]!.argv.at(-1)).toBe("if-changed");
+      expect(t.calls[0]!.stdin).toBe("");
+      expect(t.reports).toMatchObject([{ outcome: "laid", bytes: 30, dotfiles: true }]);
+    });
+
+    it("leaves a correct Status after an exec failure then an unchanged answer: the retry's report replaces the failure's", async () => {
+      const t = setup([{ throws: "exec refused" }, { stdout: answer(true, { bytes: 30, dotfiles: true, unchanged: true }) }], { launch: EMPTY });
+      expect(await after(t, "chezmoi apply\n").ensure("r1")).toMatchObject({ outcome: "laid", attempts: 2 });
+      expect(t.reports.map((report) => [report.outcome, report.dotfiles])).toEqual([
+        ["exec-failed", undefined],
+        ["laid", true],
+      ]);
+      expect(describeGlobalMise(t.reports.at(-1)!)).toContain("the dotfiles' ~/.config/mise/config.toml is mise's global config");
+    });
+
+    it("reports a dotfiles' mise file the setup wrote or changed as the first lay-down does", async () => {
+      const t = setup([{ stdout: answer(true, { bytes: 30, dotfiles: true }) }], { launch: EMPTY });
+      expect(await after(t, "chezmoi apply\n").ensure("r1")).toMatchObject({ outcome: "laid" });
+      expect(t.reports).toMatchObject([{ outcome: "laid", install: 0, bytes: 30, dotfiles: true }]);
+    });
   });
 });

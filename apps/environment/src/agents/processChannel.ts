@@ -293,8 +293,10 @@ export interface ChannelStart {
   readonly cwd: string;
   readonly argv: ReadonlyArray<string>;
   readonly env: Readonly<Record<string, string>>;
+  readonly seed?: ProcessStartInput["seed"];
+  readonly check?: ProcessStartInput["check"];
   readonly files?: ProcessStartInput["files"];
-  readonly links?: ReadonlyArray<{ readonly path: string; readonly target: string }>;
+  readonly links?: ProcessStartInput["links"];
   readonly prune?: ProcessStartInput["prune"];
   readonly thread?: string;
   /** The process's tool handle for the MCP relay (ADR-0028). */
@@ -362,6 +364,8 @@ export class ProcessChannel {
         cwd: input.cwd,
         argv: input.argv,
         env: input.env,
+        ...(input.seed === undefined ? {} : { seed: input.seed }),
+        ...(input.check === undefined ? {} : { check: input.check }),
         ...(input.files === undefined ? {} : { files: input.files }),
         ...(input.links === undefined ? {} : { links: input.links }),
         ...(input.prune === undefined ? {} : { prune: input.prune }),

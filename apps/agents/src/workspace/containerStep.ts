@@ -171,7 +171,7 @@ export const isFinal = (state: Pick<StepState, "outcome" | "attempts">): boolean
 
 /** One step of `ContainerSteps`: what it is doing while it runs, and when its outcome refuses the Container's commands. */
 export interface SequencedStep<State extends StepState> {
-  readonly step: Pick<ContainerStep<State>, "ensure" | "due" | "inFlight">;
+  readonly step: Pick<ContainerStep<State>, "ensure" | "due" | "inFlight"> & { readonly state?: () => State | undefined };
   /** What a command cut off before it started waited for (computer-env's message). */
   readonly doing: string;
   /**
@@ -190,6 +190,8 @@ export interface Sequenced {
   readonly run: (runtime: string | undefined) => Promise<{ readonly final: boolean; readonly refused?: string }>;
   /** Why the Container's commands are refused when the step is not judged. */
   readonly unjudged: () => string | undefined;
+  /** Whether the step's kept outcome refuses the Container's commands: the steps after it are then never due. */
+  readonly refusing: () => boolean;
 }
 
 /** `entry` as `ContainerSteps` runs it. */
@@ -203,6 +205,10 @@ export const sequenced = <State extends StepState>({ step, doing, refusal }: Seq
     return { final: state !== undefined && isFinal(state), ...(refused === undefined ? {} : { refused }) };
   },
   unjudged: () => refusal?.(undefined),
+  refusing: () => {
+    const state = step.state?.();
+    return state !== undefined && refusal?.(state) !== undefined;
+  },
 });
 
 /**
@@ -241,9 +247,21 @@ export class ContainerSteps {
   /** The alarm's catch-up (not awaited): the steps, when one is due on the running Container. Answers whether it started. */
   catchUp(runtime: string | undefined): boolean {
     if (this.#steps.some((step) => step.inFlight())) return false;
-    if (!this.#steps.some((step) => step.due(runtime))) return false;
+    if (!this.#due(runtime)) return false;
     void this.ensure(runtime).catch(() => undefined);
     return true;
+  }
+
+  /**
+   * Whether a step is due on the running Container, in order: one behind a step that is not due and whose kept outcome
+   * refuses the Container's commands never is (`ensure` would refuse before reaching it, alarm after alarm).
+   */
+  #due(runtime: string | undefined): boolean {
+    for (const step of this.#steps) {
+      if (step.due(runtime)) return true;
+      if (step.refusing()) return false;
+    }
+    return false;
   }
 
   /** What the steps are doing now, or undefined when none runs. */

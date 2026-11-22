@@ -230,6 +230,16 @@ describe("ContainerSteps", () => {
     await expect(thrown).rejects.toThrow("Refused: not judged");
   });
 
+  it("the alarm leaves the steps after one whose kept outcome refuses: never due, so no catch-up alarm after alarm", () => {
+    const failed = { runtime: "r1", outcome: "failed", attempts: 1, at: 0 };
+    const setup = { ensure: async () => failed, due: () => false, inFlight: () => false, state: () => failed };
+    const after = { ensure: async () => failed, due: () => true, inFlight: () => false };
+    expect(steps({ step: setup, doing: "b", refusal: refusing }, { step: after, doing: "c" }).catchUp("r1")).toBe(false);
+    // The same steps with a setup that carried on: the step after it is due.
+    const ok = { ...failed, outcome: "ok" };
+    expect(steps({ step: { ...setup, state: () => ok }, doing: "b", refusal: refusing }, { step: after, doing: "c" }).catchUp("r1")).toBe(true);
+  });
+
   it("the alarm catches up when a step is due and none runs", async () => {
     const events: Array<string> = [];
     const mise = step("mise", events);

@@ -3,6 +3,8 @@
 # into this process's home (/etc/opencode outranks user and project files), copies in the synced session snapshot, and
 # becomes `opencode acp`. OpenCode drops a configuration statement it cannot read with only a warning in its log, which
 # would fail open: a watcher ends the process on any diagnostic about t3flare's file. Nothing goes to stdout.
+# ADR-0047 §9: a diagnostic about the Owner's own config, which the profile copied into XDG_CONFIG_HOME when "CLI agents
+# read your dotfiles" is on, is only said on stderr, once: OpenCode skipped that statement and runs on.
 # SPI-1169: a process on the model relay has its model handle in T3FLARE_MODEL_HANDLE. OpenCode starts without it
 # (`env -u` below), so no OpenCode process holds it and a repository's `{env:T3FLARE_MODEL_HANDLE}` finds nothing: the
 # key plugin reads it from the start environment of setsid, which started this script (`relay.js` `handleFrom`). The
@@ -13,8 +15,14 @@
 set -eu
 self=${2:-}
 if [ "${1:-}" = --t3flare-watch ]; then
-  log=$3
+  log=$3 noted=
+  mine="configuration normalization diagnostic.*source=${XDG_CONFIG_HOME:-/nonexistent}/opencode/"
   while kill -0 "$self" 2>/dev/null; do
+    if [ -z "$noted" ] && /usr/bin/grep -q "$mine" "$log" 2>/dev/null; then
+      echo "t3flare: OpenCode skipped part of your config in ${XDG_CONFIG_HOME:-}/opencode, the copy of your ~/.config/opencode made because the Environment setting \"CLI agents read your dotfiles\" is on; fix it there, or turn the setting off to skip it" >&2
+      /usr/bin/grep "$mine" "$log" | /usr/bin/head -3 >&2
+      noted=1
+    fi
     if /usr/bin/grep -q 'configuration normalization diagnostic.*source=/etc/opencode' "$log" 2>/dev/null; then
       echo "t3flare: OpenCode could not read part of t3flare's configuration; the process was ended" >&2
       /usr/bin/grep 'configuration normalization diagnostic.*source=/etc/opencode' "$log" | /usr/bin/head -3 >&2

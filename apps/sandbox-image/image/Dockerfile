@@ -145,6 +145,11 @@ COPY --chmod=755 supervise /usr/local/bin/t3flare-supervise
 COPY --chmod=755 t3flare-memory-guard /usr/local/bin/t3flare-memory-guard
 COPY command.bash /usr/local/share/t3flare/command.bash
 
+# Ubuntu's stock /root/.bashrc goes (ADR-0047 §9): a Terminal sources ~/.bashrc unless the Owner turns that off, so the
+# only one there is the Owner's own, from their Image setup or Container setup; without one a Terminal keeps t3flare's
+# prompt. No other shell reads it: commands run under BASH_ENV, never interactive.
+RUN rm -f /root/.bashrc
+
 # A copy at the directory's earlier path, for one release: a Workspace Container started on the previous image keeps
 # running after a deploy (Containers run by Durable Objects take no rollout), so the commands' environment
 # (apps/sandbox-image/src/env.ts) names this path until every Container runs this image. Then env.ts moves to

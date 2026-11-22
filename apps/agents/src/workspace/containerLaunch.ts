@@ -99,6 +99,11 @@ export interface ContainerLaunch {
    * launch recorded before it; `containerState()` shows only its digest.
    */
   readonly containerSetup?: ContainerSetupLaunch;
+  /**
+   * Whether this Container's Terminals source `~/.bashrc` (ADR-0047 §9). Absent in a launch recorded before it: read
+   * as on, the setting's default, as every layer reads an absent toggle.
+   */
+  readonly terminalsReadBashrc?: boolean;
 }
 
 /** `launch` with the Global mise config and the Container setup of `taken` (their digests are async, so apart from `launchOf`). */
@@ -158,4 +163,5 @@ export const launchOf = ({ settings, source }: TakenEnvironment): ContainerLaunc
   revision: settings.revision,
   variables: variableEnv(settings.variables),
   ...(settings.variables.some((variable) => variable.secret) ? { secretVariables: settings.variables.filter((variable) => variable.secret).map((variable) => variable.name) } : {}),
+  terminalsReadBashrc: settings.terminalsReadBashrc,
 });

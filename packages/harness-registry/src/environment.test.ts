@@ -3,7 +3,7 @@
 // (`containerInstance`): defaults, an unknown stored size, the idle bounds, and `instance` never omitted.
 import { describe, expect, it } from "vitest";
 
-import { applyEnvironmentChange, BASE_BUILD_SETTING_KEYS, builderInstance, containerInstance, EMPTY_ENVIRONMENT, ENVIRONMENT_SETTINGS, MAX_SETUP_BYTES, resolveEnvironment } from "./environment.ts";
+import { applyEnvironmentChange, BASE_BUILD_SETTING_KEYS, builderInstance, containerInstance, DOTFILES_SETTING_KEYS, EMPTY_ENVIRONMENT, ENVIRONMENT_SETTINGS, MAX_SETUP_BYTES, resolveEnvironment, SWEEP_SETTING_KEYS } from "./environment.ts";
 import type { EnvironmentSettingEntry } from "./fields.ts";
 
 /** The Base build's settings at their defaults (SPI-1332, ADR-0047 §9). */
@@ -11,12 +11,12 @@ const BASE_DEFAULTS = { imageSetup: "", imageSetupMinutes: 30, snapshotMinutes: 
 
 describe("resolveEnvironment", () => {
   it("gives the defaults for empty settings: cpu-1 and a 2-minute idle time, at revision 0", () => {
-    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toEqual({ revision: 0, containerSize: "cpu-1", containerIdleMinutes: 2, containerBudget: 3, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toEqual({ revision: 0, containerSize: "cpu-1", containerIdleMinutes: 2, containerBudget: 3, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, terminalsReadBashrc: true, agentsReadDotfiles: true, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
   });
 
   it("reads a stored size it no longer offers, or an idle time out of bounds, as the default", () => {
-    expect(resolveEnvironment({ revision: 4, settings: { containerSize: "mem-8", containerIdleMinutes: 0, containerBudget: 11 } })).toEqual({ revision: 4, containerSize: "cpu-1", containerIdleMinutes: 2, containerBudget: 3, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
-    expect(resolveEnvironment({ revision: 5, settings: { containerSize: "standard-3", containerIdleMinutes: 15, containerBudget: 5 } })).toEqual({ revision: 5, containerSize: "standard-3", containerIdleMinutes: 15, containerBudget: 5, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
+    expect(resolveEnvironment({ revision: 4, settings: { containerSize: "mem-8", containerIdleMinutes: 0, containerBudget: 11 } })).toEqual({ revision: 4, containerSize: "cpu-1", containerIdleMinutes: 2, containerBudget: 3, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, terminalsReadBashrc: true, agentsReadDotfiles: true, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
+    expect(resolveEnvironment({ revision: 5, settings: { containerSize: "standard-3", containerIdleMinutes: 15, containerBudget: 5 } })).toEqual({ revision: 5, containerSize: "standard-3", containerIdleMinutes: 15, containerBudget: 5, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, terminalsReadBashrc: true, agentsReadDotfiles: true, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
   });
 });
 
@@ -25,10 +25,10 @@ describe("applyEnvironmentChange", () => {
     const applied = applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { containerSize: "standard-4", containerIdleMinutes: 10 } });
     if (!applied.ok) throw new Error(applied.error);
     expect(applied.environment.revision).toBe(1);
-    expect(resolveEnvironment(applied.environment)).toEqual({ revision: 1, containerSize: "standard-4", containerIdleMinutes: 10, containerBudget: 3, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
+    expect(resolveEnvironment(applied.environment)).toEqual({ revision: 1, containerSize: "standard-4", containerIdleMinutes: 10, containerBudget: 3, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, terminalsReadBashrc: true, agentsReadDotfiles: true, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
     const again = applyEnvironmentChange(applied.environment, { settings: { containerIdleMinutes: 5 } });
     if (!again.ok) throw new Error(again.error);
-    expect(resolveEnvironment(again.environment)).toEqual({ revision: 2, containerSize: "standard-4", containerIdleMinutes: 5, containerBudget: 3, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
+    expect(resolveEnvironment(again.environment)).toEqual({ revision: 2, containerSize: "standard-4", containerIdleMinutes: 5, containerBudget: 3, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, terminalsReadBashrc: true, agentsReadDotfiles: true, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
   });
 
   it("stores and bumps the revision for the settings that moved only; a save that moves none changes nothing", () => {
@@ -70,6 +70,21 @@ describe("applyEnvironmentChange", () => {
     expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { containerSize: "lite" } })).toEqual({ ok: false, error: "containerSize: one of cpu-1, standard-1, standard-2, standard-3, standard-4" });
     expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { secrets: "x" } })).toEqual({ ok: false, error: "secrets: no such setting" });
     expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: {} })).toMatchObject({ ok: false });
+  });
+});
+
+describe("the dotfiles toggles (ADR-0047 §9)", () => {
+  it("are both on by default, store a switch, and read a stored value that is not a boolean as on", () => {
+    const applied = applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { terminalsReadBashrc: false, agentsReadDotfiles: false } });
+    expect(applied).toMatchObject({ ok: true, changed: ["terminalsReadBashrc", "agentsReadDotfiles"] });
+    if (!applied.ok) return;
+    expect(resolveEnvironment(applied.environment)).toMatchObject({ terminalsReadBashrc: false, agentsReadDotfiles: false });
+    expect(resolveEnvironment({ revision: 1, settings: { terminalsReadBashrc: "no", agentsReadDotfiles: 0 } })).toMatchObject({ terminalsReadBashrc: true, agentsReadDotfiles: true });
+  });
+
+  it("are Container and CLI settings, not the Sweep's, and render in their own row", () => {
+    expect(SWEEP_SETTING_KEYS).not.toContain("terminalsReadBashrc");
+    expect(DOTFILES_SETTING_KEYS).toEqual(["terminalsReadBashrc", "agentsReadDotfiles"]);
   });
 });
 

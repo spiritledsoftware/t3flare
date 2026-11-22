@@ -26,6 +26,12 @@ export interface EnvironmentServices {
   readonly sql: SqlStorage;
   /** The Sweep's settings as stored now (ADR-0043 §2–3): read at each use, so a change to the Grace needs no reset. */
   readonly sweep: () => SweepSettings;
+  /**
+   * Whether a CLI agent's home is first filled from the Owner's dotfiles (ADR-0047 §9, `agentsReadDotfiles`), as stored
+   * now: read at each spawn, so a change applies at each CLI agent's next start. Absent (a test's services): on, the
+   * setting's default.
+   */
+  readonly agentsReadDotfiles?: () => boolean;
   /** Asks for a Sweep after 5 s of quiet (ADR-0043 §5): the deletion wake's Layer calls it. */
   readonly wakeSweep: () => void;
   /** One-time marks in the Environment DO's storage (step 3: a setting seeded once, L1). */

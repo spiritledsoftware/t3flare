@@ -251,6 +251,8 @@ export class ProcessHost {
         t3Path: input.t3Path,
         cwd: input.cwd,
         argv: input.argv,
+        ...(input.seed === undefined ? {} : { seed: input.seed }),
+        ...(input.check === undefined ? {} : { check: input.check }),
         ...(input.files === undefined ? {} : { files: input.files }),
         ...(input.links === undefined ? {} : { links: input.links }),
         ...(input.prune === undefined ? {} : { prune: input.prune }),

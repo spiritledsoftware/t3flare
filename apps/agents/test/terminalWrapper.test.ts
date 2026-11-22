@@ -12,16 +12,18 @@ const IMAGE = "ubuntu:26.04";
 const docker = spawnSync("docker", ["image", "inspect", IMAGE], { encoding: "utf8" }).status === 0;
 
 /** Runs the wrapper under a PTY with `input` typed, as root; answers the raw output and the exit code. */
-const run = (input: string, options: { readonly privileged: boolean; readonly after?: string; readonly projectRoot?: boolean }) => {
+const run = (input: string, options: { readonly privileged: boolean; readonly after?: string; readonly projectRoot?: boolean; readonly before?: string; readonly readBashrc?: boolean }) => {
   const wrapper = terminalCommand({
     marker: "term-test1",
     t3Path: options.projectRoot ? "/w/.wt/demo/feat" : "/w/demo",
     cwd: options.projectRoot ? "/w/.wt/demo/feat" : "/w/demo/sub",
     ...(options.projectRoot ? { projectRoot: { t3Path: "/w/demo", view: "/workspace/.t3flare/project-root" } } : {}),
+    ...(options.readBashrc === undefined ? {} : { readBashrc: options.readBashrc }),
   });
   const script = `set -u
 mkdir -p /workspace/repo/sub /tmp/case
 echo repo-file > /workspace/repo/file.txt
+${options.before ?? ""}
 mkdir -p /workspace/.t3flare/project-root && echo SECRET_FROM_PROJECT=1 > /workspace/.t3flare/project-root/.env
 cat > /tmp/case/wrapper.sh <<'T3FLARE_WRAPPER_EOF'
 ${wrapper}
@@ -43,7 +45,34 @@ cat /tmp/case/typescript
   return { output: result.stdout, exit, stderr: result.stderr };
 };
 
+/** An Owner's ~/.bashrc (ADR-0047 §9): an alias, a prompt, and a PS0 and PROMPT_COMMAND of its own. */
+const BASHRC = `cat > /root/.bashrc <<'EOF'
+alias hi='echo hello-from-bashrc'
+PS1='OWNER$ '
+PS0='[ps0-owner]'
+PROMPT_COMMAND='echo pc-owner'
+EOF`;
+
 describe.skipIf(!docker)("the terminal wrapper", () => {
+  it("sources ~/.bashrc when asked, before its markers: the Owner's alias and prompt, and the markers still printed (ADR-0047 §9)", () => {
+    const result = run('hi; echo "ps1=$PS1"; exit 0', { privileged: true, before: BASHRC, readBashrc: true });
+    const { text } = scanMarkers("", result.output);
+    expect(text).toContain("hello-from-bashrc");
+    expect(text).toContain("ps1=OWNER$ ");
+    expect(text).toContain("[ps0-owner]");
+    expect(text).toContain("pc-owner");
+    expect(result.output).toContain(MARK_PROMPT);
+    expect(result.output).toContain(MARK_BUSY);
+  }, 120_000);
+
+  it("leaves ~/.bashrc alone when not asked: t3flare's rc alone", () => {
+    const result = run("hi; exit 0", { privileged: true, before: BASHRC, readBashrc: false });
+    const { text } = scanMarkers("", result.output);
+    expect(text).not.toContain("hello-from-bashrc");
+    expect(text).toContain("hi: command not found");
+    expect(result.output).toContain(MARK_PROMPT);
+  }, 120_000);
+
   it("binds the repo at t3's path, starts in t3's cwd with the marker, prints the markers, and exits with the shell's code", () => {
     const result = run('pwd; cat ../file.txt; echo "mark=$T3FLARE_EXEC bashenv=${BASH_ENV:-unset}"; findmnt -n -o TARGET /w/demo; exit 3', { privileged: true });
     expect(result.exit).toBe(3);

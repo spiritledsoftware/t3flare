@@ -262,6 +262,7 @@ select.sel-sm{height:2.25rem;font-size:16px}
 .fields.list{max-width:none}
 .variable{grid-template-columns:minmax(0,1fr) auto auto;grid-template-areas:"name secret remove" "value value value" "note note note"}
 .inline-field{display:grid;grid-template-columns:minmax(0,1fr) auto}
+.inline-field:has(>input[type=checkbox]){grid-template-columns:auto minmax(0,1fr)}
 .server-head{grid-template-columns:minmax(0,1fr) auto}
 .form-body,.pair{grid-template-columns:minmax(0,1fr)}
 .choices{grid-template-columns:minmax(0,1fr)}

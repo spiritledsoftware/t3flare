@@ -60,6 +60,9 @@ const ENVIRONMENT: Readonly<Record<EnvironmentKey, { readonly up: readonly [unkn
   containerSetupFailure: { up: ["carryOn", "refuse", "asked"], down: ["refuse", "carryOn", "asked"] },
   // Keeping less of a setup's output is free; keeping more is asked (it is a larger stored value and a longer read).
   setupOutputKiB: { up: [32, 64, "asked"], down: [32, 16, "free"] },
+  // ADR-0047 §9: turning one on puts the Owner's dotfiles (text, hooks) in front of agents, so it is asked.
+  terminalsReadBashrc: { up: [false, true, "asked"], down: [true, false, "free"] },
+  agentsReadDotfiles: { up: [false, true, "asked"], down: [true, false, "free"] },
   // ADR-0043 §6: turning purging on and shortening the Grace destroy sooner, so they are asked.
   sweepPurges: { up: [false, true, "asked"], down: [true, false, "free"] },
   graceDays: { up: [7, 30, "free"], down: [7, 1, "asked"] },

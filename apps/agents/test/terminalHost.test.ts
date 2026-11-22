@@ -37,7 +37,7 @@ const fakeShell = () => {
   };
 };
 
-const harness = (options: { running?: boolean; refuse?: string; pushMs?: number; answer?: (frames: ReadonlyArray<TerminalFrame>) => TerminalPushAnswer; beforeSpawn?: () => Promise<void> } = {}) => {
+const harness = (options: { running?: boolean; refuse?: string; pushMs?: number; answer?: (frames: ReadonlyArray<TerminalFrame>) => TerminalPushAnswer; beforeSpawn?: () => Promise<void>; readBashrc?: () => boolean } = {}) => {
   let now = 1_000_000;
   let running = options.running ?? true;
   const shells: Array<ReturnType<typeof fakeShell>> = [];
@@ -72,6 +72,7 @@ const harness = (options: { running?: boolean; refuse?: string; pushMs?: number;
     remembered: () => remembered,
     beforeSpawn: options.beforeSpawn ?? (async () => undefined),
     projectRootView: "/workspace/.t3flare/project-root",
+    ...(options.readBashrc === undefined ? {} : { readBashrc: options.readBashrc }),
   };
   const host = new TerminalHost(deps);
   return {
@@ -119,6 +120,16 @@ describe("TerminalHost", () => {
     expect(h.spawned[0]!.env).toEqual({ PATH: "/usr/bin", MISE_YES: "1", TERM: "xterm-256color", T3FLARE_EXEC: "term-a1" });
     await h.host.settled();
     expect(h.text("term-a1")).toContain("Starting the Workspace's Container");
+  });
+
+  it("sources ~/.bashrc in the shell's rc as the running Container's launch says, read at each open (ADR-0047 §9)", async () => {
+    let read = true;
+    const h = harness({ readBashrc: () => read });
+    await h.host.open(open("term-a1"));
+    read = false;
+    await h.host.open(open("term-a2"));
+    expect(h.spawned[0]!.argv[2]).toContain("[ -r ~/.bashrc ] && . ~/.bashrc");
+    expect(h.spawned[1]!.argv[2]).not.toContain("~/.bashrc");
   });
 
   it("strips the markers, pushes the foreground's state, and holds input until the first prompt", async () => {

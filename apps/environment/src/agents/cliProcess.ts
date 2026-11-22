@@ -154,6 +154,8 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
         ...(claudeRelay === undefined ? {} : { claudeRelay }),
         ...(opencodeRelay === undefined ? {} : { opencodeRelay }),
         ...(piRelay === undefined ? {} : { piRelay }),
+        // SPI-1331 (ADR-0047 §9): the Owner's own config for the CLI first, as the Environment says now.
+        dotfiles: services.agentsReadDotfiles?.() ?? true,
       },
     );
     if ("refused" in launch) {
@@ -172,6 +174,8 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
       cwd,
       argv: launch.argv,
       env: launch.env,
+      ...(launch.seed === undefined ? {} : { seed: launch.seed }),
+      ...(launch.check === undefined ? {} : { check: launch.check }),
       ...(launch.files === undefined ? {} : { files: launch.files }),
       ...(launch.links === undefined ? {} : { links: launch.links }),
       ...(launch.prune === undefined ? {} : { prune: launch.prune }),
