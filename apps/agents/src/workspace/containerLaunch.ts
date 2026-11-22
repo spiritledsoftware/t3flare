@@ -112,6 +112,7 @@ export const withScripts = async (launch: ContainerLaunch, { settings, source }:
     source,
     minutes: settings.containerSetupMinutes,
     failure: settings.containerSetupFailure,
+    outputBytes: settings.setupOutputKiB * 1024,
   },
 });
 

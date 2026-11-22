@@ -31,6 +31,12 @@ export const MAX_GLOBAL_MISE_BYTES = 16 * 1024;
  */
 export const MAX_CONTAINER_SETUP_BYTES = 256 * 1024;
 
+/**
+ * The most of a setup's output a report may keep, in KiB (`setupOutputKiB`'s bound). Fixed by a constraint: the
+ * Environment DO keeps the last report, output and all, as one Durable Object value, which holds at most 2 MB.
+ */
+export const MAX_SETUP_OUTPUT_KIB = 256;
+
 /** What a Container whose setup failed does (ADR-0047 §7): carries on, or refuses every command but a passive read. */
 export const CONTAINER_SETUP_FAILURES = ["carryOn", "refuse"] as const;
 export type ContainerSetupFailure = (typeof CONTAINER_SETUP_FAILURES)[number];
@@ -135,7 +141,7 @@ export const ENVIRONMENT_SETTINGS = {
   containerSetup: {
     title: "Container setup",
     description:
-      "A bash script run once in every new Container before its first command, after the Global mise config: as root in / with HOME=/root and the Variables. Commands, Terminals and CLI agents wait for it. Status shows its exit and the last 32 KB of its output, secret Variables blanked. Applies at each Workspace's next Container start.",
+      "A bash script run once in every new Container before its first command, after the Global mise config: as root in / with HOME=/root and the Variables. Commands, Terminals and CLI agents wait for it. Status shows its exit and the end of its output, secret Variables blanked. Applies at each Workspace's next Container start.",
     schema: { type: "file", maxBytes: MAX_CONTAINER_SETUP_BYTES, default: "" },
   },
   containerSetupMinutes: {
@@ -149,6 +155,13 @@ export const ENVIRONMENT_SETTINGS = {
     title: "When the Container setup fails",
     description: "A non-zero exit, the time limit, or a Container that could not run it. Refuse commands: that Container runs no command, Terminal or CLI agent until a new Container starts.",
     schema: { type: "enum", values: CONTAINER_SETUP_FAILURES, default: "carryOn", labels: { carryOn: "Carry on", refuse: "Refuse commands" } },
+    row: "containerSetup",
+  },
+  setupOutputKiB: {
+    title: "Setup output kept (KiB)",
+    description: "How much of the end of a setup's output Status keeps and shows, secret Variables blanked.",
+    schema: { type: "integer", minimum: 4, maximum: MAX_SETUP_OUTPUT_KIB, default: 32 },
+    tier: "down-free",
     row: "containerSetup",
   },
   sweepPurges: {

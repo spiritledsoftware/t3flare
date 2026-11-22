@@ -4,7 +4,7 @@
 // held, bounded, retried). It is reported to the Environment DO with the end of its output, every secret Variable's
 // value blanked; on a failure the Container carries on, or refuses its commands, as the Owner set.
 import { type ContainerSetupFailure, type ContainerSetupOutcome, type ContainerSetupReport, MAX_SETUP_OUTPUT_BYTES, type SettingsSource } from "@t3flare/harness-registry";
-import { containerSetupArgv, containerSetupDeadlineMs, parseContainerSetupAnswer } from "@t3flare/sandbox-image/containerSetup";
+import { containerSetupArgv, containerSetupDeadlineMs, parseContainerSetupAnswer, SECRET_MARGIN_BYTES } from "@t3flare/sandbox-image/containerSetup";
 
 import { type ContainerExec, ContainerStep, type RunStep } from "./containerStep.ts";
 
@@ -17,7 +17,12 @@ export interface ContainerSetupLaunch {
   readonly source: SettingsSource;
   readonly minutes: number;
   readonly failure: ContainerSetupFailure;
+  /** How much of the end of its output the report keeps (`setupOutputKiB`, in bytes). */
+  readonly outputBytes: number;
 }
+
+/** What a launch recorded before `setupOutputKiB` keeps: the setting's default. */
+const DEFAULT_OUTPUT_BYTES = 32 * 1024;
 
 export interface ContainerSetupDeps {
   /** Starts the wrapper on the running Container, `stdin` on its stdin; throws when the exec cannot start. */
@@ -138,7 +143,9 @@ export class ContainerSetup {
       deps.report(reportOf(state, launch, ""));
       return state;
     }
-    const result = await run(containerSetupArgv(known.sha256, known.minutes * 60), known.text, (deps.deadlineMs ?? containerSetupDeadlineMs)(known.minutes));
+    // Never more than a report may carry, whatever an older or newer launch recorded.
+    const outputBytes = Math.min(known.outputBytes ?? DEFAULT_OUTPUT_BYTES, MAX_SETUP_OUTPUT_BYTES);
+    const result = await run(containerSetupArgv(known.sha256, known.minutes * 60, outputBytes + SECRET_MARGIN_BYTES), known.text, (deps.deadlineMs ?? containerSetupDeadlineMs)(known.minutes));
     let outcome: ContainerSetupOutcome = "exec-failed";
     let exitCode: number | null = null;
     let timedOut = false;
@@ -153,7 +160,7 @@ export class ContainerSetup {
         exitCode = parsed.answer.exitCode;
         timedOut = parsed.answer.timedOut;
         outcome = exitCode === 0 ? "ok" : "failed";
-        output = blankSecrets(parsed.output, deps.secrets(), MAX_SETUP_OUTPUT_BYTES);
+        output = blankSecrets(parsed.output, deps.secrets(), outputBytes);
       }
     }
     const state: ContainerSetupState = { runtime, outcome, attempts: attemptsBefore + 1, exitCode, timedOut, at: deps.now() };

@@ -26,7 +26,7 @@ describe("containerSetupReport", () => {
     expect(containerSetupReport({ ...REPORT, workspace: null, exitCode: null, outcome: "exec-failed" })).toMatchObject({ workspace: null, exitCode: null });
   });
 
-  it("refuses one with a field out of shape, or an output over 32 KB", () => {
+  it("refuses one with a field out of shape, or an output over the most setupOutputKiB keeps", () => {
     expect(containerSetupReport({ ...REPORT, outcome: "maybe" })).toBeUndefined();
     expect(containerSetupReport({ ...REPORT, sha256: "x" })).toBeUndefined();
     expect(containerSetupReport({ ...REPORT, exitCode: 1.5 })).toBeUndefined();

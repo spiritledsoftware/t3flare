@@ -2,14 +2,11 @@
 // The Container setup as the Workspace DO reports it and the Settings page's Status shows it (ADR-0047 §7): one report
 // per run, sent to the Environment DO, which keeps the last across all Workspaces. The Settings server's `get_status`
 // reads the same. Imported by both Workers.
-import { CONTAINER_SETUP_FAILURES, type ContainerSetupFailure } from "./environment.ts";
+import { CONTAINER_SETUP_FAILURES, type ContainerSetupFailure, MAX_SETUP_OUTPUT_KIB } from "./environment.ts";
 import { SETTINGS_SOURCES, type SettingsSource } from "./globalMise.ts";
 
-/**
- * How much of the end of the setup's output a report carries, in bytes of UTF-8 (ADR-0047 §7, "the output's last 32
- * KB"): what Status shows and the Settings server returns, so a run's whole log never lands in one stored value.
- */
-export const MAX_SETUP_OUTPUT_BYTES = 32 * 1024;
+/** The most output a report may carry, in bytes of UTF-8: `setupOutputKiB`'s bound. A report keeps its launch's setting. */
+export const MAX_SETUP_OUTPUT_BYTES = MAX_SETUP_OUTPUT_KIB * 1024;
 
 /** The Status key of the last Container setup's output: the Settings page shows it as a block of lines. */
 export const CONTAINER_SETUP_OUTPUT_STATUS = "last Container setup output";
@@ -37,7 +34,7 @@ export interface ContainerSetupReport {
   readonly exitCode: number | null;
   /** Its time limit stopped it (exit 124, or 137 after the KILL). */
   readonly timedOut: boolean;
-  /** The last `MAX_SETUP_OUTPUT_BYTES` of its stdout and stderr, every secret Variable's value blanked. */
+  /** The last `setupOutputKiB` of its stdout and stderr, every secret Variable's value blanked. */
   readonly output: string;
   /** What a failure did to that Container: the policy its launch carried. */
   readonly failure: ContainerSetupFailure;

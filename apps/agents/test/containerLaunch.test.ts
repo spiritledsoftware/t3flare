@@ -117,17 +117,17 @@ describe("the launch's Global mise config", () => {
 });
 
 describe("the launch's Container setup (ADR-0047 §7)", () => {
-  const taken = { settings: { ...DEFAULTS, revision: 8, containerSetup: "apt-get install -y ripgrep\n", containerSetupMinutes: 12, containerSetupFailure: "refuse" as const }, source: "environment" as const };
+  const taken = { settings: { ...DEFAULTS, revision: 8, containerSetup: "apt-get install -y ripgrep\n", containerSetupMinutes: 12, containerSetupFailure: "refuse" as const, setupOutputKiB: 64 }, source: "environment" as const };
   const SHA = "65de07bbb8dacf17ecd6ba438aa4087ef6d70a6a2f2f4987df5ab9b46833c0db";
 
   it("carries the start's script, its size and SHA-256, its revision, time limit and failure policy", async () => {
     const launch = await withScripts(launchOf(taken), taken);
-    expect(launch.containerSetup).toEqual({ text: "apt-get install -y ripgrep\n", bytes: 27, sha256: SHA, revision: 8, source: "environment", minutes: 12, failure: "refuse" });
+    expect(launch.containerSetup).toEqual({ text: "apt-get install -y ripgrep\n", bytes: 27, sha256: SHA, revision: 8, source: "environment", minutes: 12, failure: "refuse", outputBytes: 64 * 1024 });
   });
 
   it("is shown by its digest only, never its text", async () => {
     const shown = shownLaunch(await withScripts(launchOf(taken), taken));
-    expect(shown.containerSetup).toEqual({ bytes: 27, sha256: SHA, revision: 8, source: "environment", minutes: 12, failure: "refuse" });
+    expect(shown.containerSetup).toEqual({ bytes: 27, sha256: SHA, revision: 8, source: "environment", minutes: 12, failure: "refuse", outputBytes: 64 * 1024 });
     expect(JSON.stringify(shown)).not.toContain("ripgrep");
   });
 });

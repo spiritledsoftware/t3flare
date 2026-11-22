@@ -58,6 +58,8 @@ const ENVIRONMENT: Readonly<Record<EnvironmentKey, { readonly up: readonly [unkn
   containerSetup: { up: ["", "apt-get install -y ripgrep\n", "asked"], down: ["apt-get install -y ripgrep\n", "", "asked"] },
   containerSetupMinutes: { up: [5, 10, "asked"], down: [10, 5, "free"] },
   containerSetupFailure: { up: ["carryOn", "refuse", "asked"], down: ["refuse", "carryOn", "asked"] },
+  // Keeping less of a setup's output is free; keeping more is asked (it is a larger stored value and a longer read).
+  setupOutputKiB: { up: [32, 64, "asked"], down: [32, 16, "free"] },
   // ADR-0043 §6: turning purging on and shortening the Grace destroy sooner, so they are asked.
   sweepPurges: { up: [false, true, "asked"], down: [true, false, "free"] },
   graceDays: { up: [7, 30, "free"], down: [7, 1, "asked"] },

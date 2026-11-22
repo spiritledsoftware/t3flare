@@ -14,11 +14,10 @@ import { CONTAINER_SETUP_DIR } from "./env.ts";
 export const CONTAINER_SETUP_BOUNDS = { killAfter: 10, lockMargin: 30 } as const;
 
 /**
- * How much of the end of the output the wrapper answers, in bytes: the report's 32 KB
- * (`@t3flare/harness-registry`'s `MAX_SETUP_OUTPUT_BYTES`) and 16 KB more, the most one Variable's value can take in
- * UTF-8 (4096 characters), so a secret value that crosses the report's cut is whole here and blanked before the cut.
+ * How much more of the output than the report keeps the wrapper answers, in bytes: the most one Variable's value can
+ * take in UTF-8 (4096 characters), so a secret value that crosses the report's cut is whole here and blanked before it.
  */
-export const SETUP_OUTPUT_WINDOW_BYTES = 48 * 1024;
+export const SECRET_MARGIN_BYTES = 16 * 1024;
 
 /** How long the Workspace DO waits for the whole exec at a limit of `minutes`: the lock, the run, its KILL, a minute's margin. */
 export const containerSetupDeadlineMs = (minutes: number): number => {
@@ -44,9 +43,9 @@ export interface ContainerSetupAnswer {
 
 const b = CONTAINER_SETUP_BOUNDS;
 
-/** The wrapper: `bash -c <this> t3flare-container-setup <sha256> <seconds>`, the Owner's script on stdin. */
+/** The wrapper: `bash -c <this> t3flare-container-setup <sha256> <seconds> <window bytes>`, the Owner's script on stdin. */
 export const CONTAINER_SETUP_SCRIPT = `set -u
-sha=$1 seconds=$2
+sha=$1 seconds=$2 window=$3
 dir=${CONTAINER_SETUP_DIR}
 mkdir -p "$dir" && cd / || exit 1
 export HOME=/root
@@ -59,7 +58,7 @@ exec 9> "$dir/.lock"
 if ! flock -w $((seconds + ${b.killAfter} + ${b.lockMargin})) 9; then printf '\\n${MARK}%s\\n' "$(answer null false ',"locked":true')"; exit 0; fi
 # The same script already ran on this disk: its answer again.
 if [ -f "$dir/answer.json" ] && grep -q "\\"sha256\\":\\"$sha\\"" "$dir/answer.json"; then
-  tail -c ${SETUP_OUTPUT_WINDOW_BYTES} "$dir/output.log" 2>/dev/null
+  tail -c "$window" "$dir/output.log" 2>/dev/null
   printf '\\n${MARK}%s\\n' "$(tail -n 1 "$dir/answer.json")"; exit 0
 fi
 cat > "$dir/setup.sh"
@@ -70,12 +69,15 @@ timed=false
 case $code in 124|137) timed=true ;; esac
 line=$(answer $code $timed)
 printf '%s\\n' "$line" > "$dir/answer.json.$$" && mv -f "$dir/answer.json.$$" "$dir/answer.json"
-tail -c ${SETUP_OUTPUT_WINDOW_BYTES} "$dir/output.log"
+tail -c "$window" "$dir/output.log"
 printf '\\n${MARK}%s\\n' "$line"
 `;
 
-/** The argv the platform's exec runs for a script of SHA-256 `sha256` at a limit of `seconds`; the script goes on stdin. */
-export const containerSetupArgv = (sha256: string, seconds: number): ReadonlyArray<string> => ["bash", "-c", CONTAINER_SETUP_SCRIPT, "t3flare-container-setup", sha256, String(seconds)];
+/**
+ * The argv the platform's exec runs for a script of SHA-256 `sha256` at a limit of `seconds`, answering the last
+ * `windowBytes` of its output; the script goes on stdin.
+ */
+export const containerSetupArgv = (sha256: string, seconds: number, windowBytes: number): ReadonlyArray<string> => ["bash", "-c", CONTAINER_SETUP_SCRIPT, "t3flare-container-setup", sha256, String(seconds), String(windowBytes)];
 
 /** The output and the answer from the wrapper's stdout, or undefined when it holds no answer, field by field. */
 export const parseContainerSetupAnswer = (stdout: string): { readonly output: string; readonly answer: ContainerSetupAnswer } | undefined => {

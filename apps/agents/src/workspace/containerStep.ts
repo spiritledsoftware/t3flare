@@ -18,7 +18,10 @@ export interface ContainerExec {
   kill(): void;
 }
 
-/** At most this many runs per Container: one, one at once after an exec failure, one more from a later caller. */
+/**
+ * At most this many runs per Container: one, one at once after an exec failure, one more from a later caller. Not a
+ * setting: it is t3flare's own robustness against a refused or broken exec, not a choice about the Owner's script.
+ */
 export const MAX_ATTEMPTS = 3;
 
 /** The one outcome a step tries again. */

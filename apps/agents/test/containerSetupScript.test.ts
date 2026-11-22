@@ -5,7 +5,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import { spawnSync } from "node:child_process";
 
-import { CONTAINER_SETUP_BOUNDS, CONTAINER_SETUP_SCRIPT, containerSetupArgv, containerSetupDeadlineMs, parseContainerSetupAnswer, SETUP_OUTPUT_WINDOW_BYTES } from "@t3flare/sandbox-image/containerSetup";
+import { CONTAINER_SETUP_BOUNDS, CONTAINER_SETUP_SCRIPT, containerSetupArgv, containerSetupDeadlineMs, parseContainerSetupAnswer } from "@t3flare/sandbox-image/containerSetup";
 import { beforeAll, describe, expect, it, type TestContext } from "vitest";
 
 /** The final stage's base of apps/sandbox-image/image/Dockerfile, by the same digest. */
@@ -20,14 +20,14 @@ const withImage = (name: string, fn: () => void) =>
   });
 
 /** Each run: `text` on stdin to the wrapper with `seconds` as its limit; answers each run's whole stdout. */
-const run = (cases: ReadonlyArray<{ readonly text: string; readonly seconds?: number; readonly before?: string; readonly env?: string }>) => {
+const run = (cases: ReadonlyArray<{ readonly text: string; readonly seconds?: number; readonly window?: number; readonly before?: string; readonly env?: string }>) => {
   const steps = cases
-    .map(({ text, seconds = 60, before = "", env = "" }, index) => {
-      const argv = containerSetupArgv("x".repeat(64), seconds).slice(3);
+    .map(({ text, seconds = 60, window = 48 * 1024, before = "", env = "" }, index) => {
+      const argv = containerSetupArgv("x".repeat(64), seconds, window).slice(3);
       return `${before}
 printf %s '${Buffer.from(text).toString("base64")}' | base64 -d > /t/in
 sha=$(sha256sum /t/in | cut -c1-64)
-echo "OUT ${index} $(cd /tmp && ${env} bash -c "$SCRIPT" ${argv[0]} "$sha" ${argv[2]} < /t/in 2>/dev/null | base64 -w0)"`;
+echo "OUT ${index} $(cd /tmp && ${env} bash -c "$SCRIPT" ${argv[0]} "$sha" ${argv[2]} ${argv[3]} < /t/in 2>/dev/null | base64 -w0)"`;
     })
     .join("\n");
   const script = `mkdir -p /t
@@ -66,9 +66,9 @@ describe.skipIf(!docker)("the Container setup's wrapper script", { timeout: 120_
     expect(kill).toMatchObject({ answer: { exitCode: 137, timedOut: true } });
   });
 
-  withImage("answers only the end of a long output", () => {
-    const [long] = run([{ text: `head -c ${SETUP_OUTPUT_WINDOW_BYTES + 5000} /dev/zero | tr '\\0' a\necho END\n` }]);
-    expect(long?.output.length).toBe(SETUP_OUTPUT_WINDOW_BYTES);
+  withImage("answers only the window it is given of a long output", () => {
+    const [long] = run([{ text: `head -c 20000 /dev/zero | tr '\\0' a\necho END\n`, window: 8192 }]);
+    expect(long?.output.length).toBe(8192);
     expect(long?.output.endsWith("aaaaEND\n")).toBe(true);
   });
 

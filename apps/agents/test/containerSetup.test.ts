@@ -3,20 +3,21 @@
 // Owner's script once per Container, bounded by its time limit, reported with the end of its output and every secret
 // Variable's value blanked, and refusing the Container's commands on a failure when the Owner set that. The wrapper
 // script itself is `containerSetupScript.test.ts`'s; the keyed, held, retried step is `globalMise.test.ts`'s too.
-import { type ContainerSetupReport, MAX_SETUP_OUTPUT_BYTES } from "@t3flare/harness-registry";
+import { type ContainerSetupReport, EMPTY_ENVIRONMENT, resolveEnvironment } from "@t3flare/harness-registry";
 import { describe, expect, it } from "vitest";
 
+import { launchOf, secretValuesOf, withScripts } from "../src/workspace/containerLaunch.ts";
 import { blankSecrets, CONTAINER_SETUP_KEY, ContainerSetup, type ContainerSetupLaunch } from "../src/workspace/containerSetup.ts";
 import type { ContainerExec } from "../src/workspace/containerStep.ts";
 
 const SHA = "c".repeat(64);
-const LAUNCH: ContainerSetupLaunch = { text: "apt-get install -y ripgrep\n", bytes: 27, sha256: SHA, revision: 3, source: "environment", minutes: 5, failure: "carryOn" };
+const LAUNCH: ContainerSetupLaunch = { text: "apt-get install -y ripgrep\n", bytes: 27, sha256: SHA, revision: 3, source: "environment", minutes: 5, failure: "carryOn", outputBytes: 32 * 1024 };
 const MARK = "@@t3flare-container-setup@@";
 const answered = (output: string, answer: Record<string, unknown>) => `${output}\n${MARK}${JSON.stringify({ sha256: SHA, exitCode: 0, timedOut: false, ms: 40, ...answer })}\n`;
 
 type Step = { readonly stdout?: string; readonly throws?: string; readonly hang?: boolean };
 
-const setup = (steps: Array<Step>, options: { launch?: ContainerSetupLaunch | undefined; secrets?: ReadonlyArray<string> } = {}) => {
+const setup = (steps: Array<Step>, options: { launch?: ContainerSetupLaunch | undefined; secrets?: () => ReadonlyArray<string> } = {}) => {
   const map = new Map<string, unknown>();
   const calls: Array<{ argv: ReadonlyArray<string>; stdin: string }> = [];
   const reports: Array<ContainerSetupReport> = [];
@@ -33,7 +34,7 @@ const setup = (steps: Array<Step>, options: { launch?: ContainerSetupLaunch | un
       };
     },
     launch: () => launch,
-    secrets: () => options.secrets ?? [],
+    secrets: options.secrets ?? (() => []),
     hold: () => () => undefined,
     used: async () => undefined,
     report: (report) => void reports.push(report),
@@ -50,7 +51,7 @@ describe("ContainerSetup", () => {
     const t = setup([{ stdout: answered("installed\n", {}) }]);
     expect(await t.container.ensure("r1")).toMatchObject({ runtime: "r1", outcome: "ok", exitCode: 0 });
     expect(t.calls[0]!.stdin).toBe(LAUNCH.text);
-    expect(t.calls[0]!.argv.slice(-2)).toEqual([SHA, "300"]);
+    expect(t.calls[0]!.argv.slice(-3)).toEqual([SHA, "300", String(48 * 1024)]);
     expect(t.reports).toEqual([expect.objectContaining({ workspace: "/w/app", runtime: "r1", revision: 3, sha256: SHA, bytes: 27, source: "environment", outcome: "ok", exitCode: 0, timedOut: false, output: "installed\n" })]);
     expect(t.map.get(CONTAINER_SETUP_KEY)).toMatchObject({ runtime: "r1", outcome: "ok" });
   });
@@ -86,9 +87,28 @@ describe("ContainerSetup", () => {
   });
 
   it("blanks every secret Variable's value in the reported output", async () => {
-    const t = setup([{ stdout: answered("token=s3cr3t-value\nnpm ok with s3cr3t-value\n", {}) }], { secrets: ["s3cr3t-value"] });
+    const t = setup([{ stdout: answered("token=s3cr3t-value\nnpm ok with s3cr3t-value\n", {}) }], { secrets: () => ["s3cr3t-value"] });
     await t.container.ensure("r1");
     expect(t.reports[0]!.output).toBe("token=***\nnpm ok with ***\n");
+  });
+
+  it("blanks the opened value of a secret Variable the Container started with, as the Workspace DO wires it (ADR-0046)", async () => {
+    const variables = [
+      { name: "DOTFILES_TOKEN", value: "ghp_live_0123456789", secret: true },
+      { name: "NODE_ENV", value: "production", secret: false },
+    ];
+    const taken = { settings: { ...resolveEnvironment(EMPTY_ENVIRONMENT), variables, containerSetup: "git clone https://$DOTFILES_TOKEN@github.com/me/dotfiles\n" }, source: "environment" as const };
+    const launch = await withScripts(launchOf(taken), taken);
+    const t = setup([{ stdout: answered("+ git clone https://ghp_live_0123456789@github.com/me/dotfiles\nNODE_ENV=production\n", {}) }], { launch: launch.containerSetup, secrets: () => secretValuesOf(launch) });
+    await t.container.ensure("r1");
+    expect(t.reports[0]!.output).toBe("+ git clone https://***@github.com/me/dotfiles\nNODE_ENV=production\n");
+  });
+
+  it("keeps the last setupOutputKiB of output, and asks the wrapper for that and 16 KiB more", async () => {
+    const t = setup([{ stdout: answered(`${"a".repeat(5000)}END\n`, {}) }], { launch: { ...LAUNCH, outputBytes: 4 * 1024 } });
+    await t.container.ensure("r1");
+    expect(t.reports[0]!.output).toBe(`${"a".repeat(4096 - 4)}END\n`);
+    expect(t.calls[0]!.argv.at(-1)).toBe(String(4 * 1024 + 16 * 1024));
   });
 
   it("refuses the Container's commands after a failure only when the Owner set refuse", async () => {
@@ -108,10 +128,10 @@ describe("blankSecrets", () => {
   it("keeps the last bytes after blanking, so a value cut by the window's start never shows a part of it", () => {
     const secret = "S".repeat(40);
     // The secret crosses where a cut of the raw output would fall: blanked first, then cut.
-    const output = `${"x".repeat(10)}${secret}${"y".repeat(MAX_SETUP_OUTPUT_BYTES - 20)}`;
-    const shown = blankSecrets(output, [secret], MAX_SETUP_OUTPUT_BYTES);
+    const output = `${"x".repeat(10)}${secret}${"y".repeat(32 * 1024 - 20)}`;
+    const shown = blankSecrets(output, [secret], 32 * 1024);
     expect(shown).not.toContain("S");
-    expect(new TextEncoder().encode(shown).length).toBeLessThanOrEqual(MAX_SETUP_OUTPUT_BYTES);
+    expect(new TextEncoder().encode(shown).length).toBeLessThanOrEqual(32 * 1024);
     expect(shown.endsWith("y")).toBe(true);
   });
 

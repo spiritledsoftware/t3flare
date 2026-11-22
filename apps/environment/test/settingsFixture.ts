@@ -9,6 +9,7 @@ import type { AccessCaller } from "../src/access.ts";
 import { valueSealer } from "../src/credentials/sealed.ts";
 import type { HarnessDeps } from "../src/harness/panel.ts";
 import { harnessSecrets } from "../src/harness/secrets.ts";
+import { harnessStatus } from "../src/harness/panel.ts";
 import { harnessStore } from "../src/harness/store.ts";
 import { type McpCallAnswer, McpHost } from "../src/mcp/host.ts";
 import { cliThreadState } from "../src/provider/cli/cliAsk.ts";
@@ -56,6 +57,8 @@ export interface FixtureOptions {
   readonly cardWaitMs?: number;
   /** The Workspaces `list_workspaces` and `purge_workspace` act on (ADR-0044 §5). */
   readonly workspaces?: SettingsServerDeps["workspaces"];
+  /** `get_status` reads the panel's Status, as the Environment DO wires it, rather than the revision alone. */
+  readonly panelStatus?: boolean;
 }
 
 export const settingsFixture = (options: FixtureOptions = {}) => {
@@ -111,7 +114,7 @@ export const settingsFixture = (options: FixtureOptions = {}) => {
     modes: (caller) => (caller.thread === undefined ? undefined : caller.agent === DURABLE_AGENT ? durableModes(caller.thread) : cliThreadState(caller.thread)),
     changes: changes(),
     origin: () => `https://${HOST}`,
-    status: () => ({ "settings revision": store.load().revision }),
+    status: () => (options.panelStatus === true ? harnessStatus({ store }) : { "settings revision": store.load().revision }),
     running: async () => ({ count: 0, holders: [] }),
     log: (event) => void logs.push(event),
     ...(options.cardWaitMs === undefined ? {} : { cardWaitMs: options.cardWaitMs }),
