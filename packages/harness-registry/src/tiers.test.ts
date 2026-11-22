@@ -54,6 +54,8 @@ const ENVIRONMENT: Readonly<Record<EnvironmentKey, { readonly up: readonly [unkn
   containerBudget: { up: [3, 4, "asked"], down: [3, 2, "free"] },
   variables: { up: [[], [{ name: "A", value: "1", secret: false }], "asked"], down: [[{ name: "A", value: "1", secret: false }], [], "asked"] },
   globalMiseConfig: { up: ["", "[tools]\nnode = '24'\n", "asked"], down: ["[tools]\nnode = '24'\n", "", "asked"] },
+  // A shorter install bound only narrows; a longer one spends Container time, so it is asked.
+  globalMiseInstallMinutes: { up: [10, 30, "asked"], down: [10, 5, "free"] },
   // ADR-0047 §9: a lowered Container setup time limit is free; every other Container setup change is asked.
   containerSetup: { up: ["", "apt-get install -y ripgrep\n", "asked"], down: ["apt-get install -y ripgrep\n", "", "asked"] },
   containerSetupMinutes: { up: [5, 10, "asked"], down: [10, 5, "free"] },

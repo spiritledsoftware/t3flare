@@ -3,9 +3,10 @@
 // name as an `instance` that is never omitted, the idle time, and the budget carried only when it was read fresh.
 import { describe, expect, it } from "vitest";
 
-import { EMPTY_ENVIRONMENT, MAX_CONTAINER_BUDGET, MAX_TIMED_MINUTES, type ResolvedEnvironment, resolveEnvironment } from "@t3flare/harness-registry";
+import { EMPTY_ENVIRONMENT, ENVIRONMENT_SETTINGS, MAX_CONTAINER_BUDGET, MAX_TIMED_MINUTES, type ResolvedEnvironment, resolveEnvironment } from "@t3flare/harness-registry";
 
 import { launchOf, SECRET_SHOWN, secretValuesOf, shownLaunch, takeEnvironment, withContainerSteps } from "../src/workspace/containerLaunch.ts";
+import { type GlobalMiseLaunch, installMinutesOf } from "../src/workspace/globalMise.ts";
 
 const CPU_1 = { vcpu: 1, memoryMib: 3072, diskMb: 12000 };
 /** The registry's defaults: a literal below names only what it changes. */
@@ -107,17 +108,33 @@ describe("launchOf", () => {
 });
 
 describe("the launch's Global mise config", () => {
-  const taken = { settings: { ...DEFAULTS, revision: 7, containerSize: "cpu-1" as const, containerIdleMinutes: 2, containerBudget: 3, globalMiseConfig: '[tools]\nnode = "24.11.1"\n' }, source: "kept" as const };
+  const taken = { settings: { ...DEFAULTS, revision: 7, containerSize: "cpu-1" as const, containerIdleMinutes: 2, containerBudget: 3, globalMiseConfig: '[tools]\nnode = "24.11.1"\n', globalMiseInstallMinutes: 45 }, source: "kept" as const };
 
-  it("carries the start's text, its size and SHA-256, its revision and where the settings came from", async () => {
+  it("carries the start's text, its size and SHA-256, its revision, where the settings came from and its install time limit", async () => {
     const launch = await withContainerSteps(launchOf(taken), taken);
-    expect(launch.globalMise).toEqual({ text: '[tools]\nnode = "24.11.1"\n', bytes: 25, sha256: "0eb09ceb981ac62b1ed4ebb30295ad081a471bb40b9ebda4eb48fcf45aae8cf3", revision: 7, source: "kept" });
+    expect(launch.globalMise).toEqual({ text: '[tools]\nnode = "24.11.1"\n', bytes: 25, sha256: "0eb09ceb981ac62b1ed4ebb30295ad081a471bb40b9ebda4eb48fcf45aae8cf3", revision: 7, source: "kept", installMinutes: 45 });
   });
 
   it("is shown by its digest only, never its text", async () => {
     const shown = shownLaunch(await withContainerSteps(launchOf(taken), taken));
-    expect(shown.globalMise).toEqual({ bytes: 25, sha256: "0eb09ceb981ac62b1ed4ebb30295ad081a471bb40b9ebda4eb48fcf45aae8cf3", revision: 7, source: "kept" });
+    expect(shown.globalMise).toEqual({ bytes: 25, sha256: "0eb09ceb981ac62b1ed4ebb30295ad081a471bb40b9ebda4eb48fcf45aae8cf3", revision: 7, source: "kept", installMinutes: 45 });
     expect(JSON.stringify(shown)).not.toContain("24.11.1");
+  });
+});
+
+describe("the launch's Global mise install time limit (SPI-1313)", () => {
+  const DEFAULT_MINUTES = ENVIRONMENT_SETTINGS.globalMiseInstallMinutes.schema.default;
+
+  it("is the setting's, its default by default", async () => {
+    const taken = { settings: DEFAULTS, source: "default" as const };
+    expect((await withContainerSteps(launchOf(taken), taken)).globalMise?.installMinutes).toBe(DEFAULT_MINUTES);
+  });
+
+  it("is the setting's default for a launch kept from before it (none recorded)", () => {
+    const before: GlobalMiseLaunch = { text: "", bytes: 0, sha256: "e".repeat(64), revision: 3, source: "kept" };
+    expect(installMinutesOf(before)).toBe(DEFAULT_MINUTES);
+    expect(installMinutesOf(undefined)).toBe(DEFAULT_MINUTES);
+    expect(installMinutesOf({ ...before, installMinutes: 3 })).toBe(3);
   });
 });
 

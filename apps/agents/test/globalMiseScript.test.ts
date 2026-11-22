@@ -7,8 +7,12 @@
 import { spawnSync } from "node:child_process";
 
 import { DOTFILES_MISE_CONFIG, GLOBAL_MISE_CONFIG, GLOBAL_MISE_DIR } from "@t3flare/sandbox-image/env";
-import { GLOBAL_MISE_BOUNDS, GLOBAL_MISE_SCRIPT, parseGlobalMiseAnswer, SYSTEM_GITCONFIG } from "@t3flare/sandbox-image/globalMise";
+import { ENVIRONMENT_SETTINGS } from "@t3flare/harness-registry";
+import { GLOBAL_MISE_BOUNDS, GLOBAL_MISE_SCRIPT, globalMiseArgs, globalMiseDeadlineMs, globalMiseLockSeconds, parseGlobalMiseAnswer, parseGlobalMiseArgs, SYSTEM_GITCONFIG } from "@t3flare/sandbox-image/globalMise";
 import { beforeAll, describe, expect, it, type TestContext } from "vitest";
+
+/** The install time limit's default (`globalMiseInstallMinutes`). */
+const DEFAULT_MINUTES = ENVIRONMENT_SETTINGS.globalMiseInstallMinutes.schema.default;
 
 /** The final stage's base of apps/sandbox-image/image/Dockerfile, by the same digest. */
 const IMAGE = "ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c";
@@ -51,13 +55,18 @@ export PATH=/stub:$PATH
 mkdir -p $(dirname ${SYSTEM_GITCONFIG}) && printf '[credential]\\n\\thelper = "!t3flare/git-credential"\\n' > ${SYSTEM_GITCONFIG}
 `;
 
-/** Each run: `text` on stdin to the script for `revision`; prints the answer and what the stubs and disk show. */
+/**
+ * Each run: `text` on stdin to the script for `revision`; prints the answer and what the stubs and disk show. The bounds
+ * are the default install limit's, as `globalMiseArgs` hands them in; `shortBounds` hands in a 1 s install
+ * and a 3 s lock, and puts a 1 s KILL in place of the script's own by text.
+ */
 const run = (cases: ReadonlyArray<{ readonly text: string; readonly revision?: number; readonly env?: string; readonly before?: string; readonly mode?: string }>, options: { readonly shortBounds?: boolean } = {}) => {
+  const bounds = options.shortBounds === true ? "1 3" : `${DEFAULT_MINUTES * 60} ${globalMiseLockSeconds(DEFAULT_MINUTES)}`;
   const steps = cases
     .map(
-      ({ text, revision = 1, env = "", before = "", mode = "" }, index) => `${before}
+      ({ text, revision = 1, env = "", before = "", mode = "lay-down" }, index) => `${before}
 printf %s '${Buffer.from(text).toString("base64")}' | base64 -d > /t/in
-echo "ANSWER ${index} $(${env} bash -c "$SCRIPT" t3flare-global-mise ${revision} $(sha256sum /t/in | cut -c1-64) environment ${mode} < /t/in 2>/dev/null | tail -n 1)"
+echo "ANSWER ${index} $(${env} bash -c "$SCRIPT" t3flare-global-mise ${revision} $(sha256sum /t/in | cut -c1-64) environment ${mode} ${bounds} < /t/in 2>/dev/null | tail -n 1)"
 echo "GLOBAL ${index} $([ -f ${GLOBAL_MISE_CONFIG} ] && base64 -w0 ${GLOBAL_MISE_CONFIG} || echo -)"
 echo "LINK ${index} $(readlink ${GLOBAL_MISE_CONFIG} || echo -)"
 echo "STAGED ${index} $(ls ${GLOBAL_MISE_DIR} | grep -c '^config\\..*\\.toml$')"`,
@@ -67,7 +76,7 @@ echo "STAGED ${index} $(ls ${GLOBAL_MISE_DIR} | grep -c '^config\\..*\\.toml$')"
 cat > /t/script.sh <<'T3FLARE_EOF'
 ${GLOBAL_MISE_SCRIPT}
 T3FLARE_EOF
-SCRIPT=$(${options.shortBounds === true ? "sed -e 's/timeout -k 10 600 mise install/timeout -k 1 1 mise install/' -e 's/flock -w 60 9/flock -w 3 9/' /t/script.sh" : "cat /t/script.sh"})
+SCRIPT=$(${options.shortBounds === true ? `sed -e 's/timeout -k ${GLOBAL_MISE_BOUNDS.installKillAfter} "$install_seconds" mise install/timeout -k 1 "$install_seconds" mise install/' /t/script.sh` : "cat /t/script.sh"})
 ${steps}
 echo "CALLS $(base64 -w0 < /t/calls 2>/dev/null)"
 `;
@@ -96,9 +105,9 @@ describe.skipIf(!docker)("the Global mise config's lay-down script", { timeout: 
   }, 320_000);
 
   withImage("cuts a slow install off with the real timeout: 124 after TERM, 137 after the KILL", () => {
-    // The short bounds are put in by text: the script must say what they replace.
-    expect(GLOBAL_MISE_SCRIPT).toContain(`timeout -k ${GLOBAL_MISE_BOUNDS.installKillAfter} ${GLOBAL_MISE_BOUNDS.install} mise install`);
-    expect(GLOBAL_MISE_SCRIPT).toContain(`flock -w ${GLOBAL_MISE_BOUNDS.lock} 9`);
+    // The short KILL is put in by text: the script must say what it replaces. The install and lock bounds are argv.
+    expect(GLOBAL_MISE_SCRIPT).toContain(`timeout -k ${GLOBAL_MISE_BOUNDS.installKillAfter} "$install_seconds" mise install`);
+    expect(GLOBAL_MISE_SCRIPT).toContain(`flock -w "$lock_seconds" 9`);
     const result = run([{ text: NODE, env: "STUB_SLEEP=10" }, { text: NODE, revision: 2, env: "STUB_SLEEP=10 STUB_IGNORE_TERM=1" }], { shortBounds: true });
     expect(result.answers.map((answer) => [answer?.install, answer?.timedOut])).toEqual([
       [124, true],
@@ -261,7 +270,7 @@ cp -r /root/.local/share/mise/installs/conda-git/2.40.0/bin /root/.local/share/m
 printf '[credential]\\n\\thelper = "!x t3flare/git-credential"\\n' > /root/.local/share/mise/installs/conda-git/2.56.0/etc/gitconfig
 trap 'echo "PINNED $(base64 -w0 < /root/.local/share/mise/installs/conda-git/2.40.0/etc/gitconfig)"; echo "KEPT $(base64 -w0 < /root/.local/share/mise/installs/conda-git/2.56.0/etc/gitconfig)"' EXIT`;
     const result = spawnSync("docker", ["run", "--rm", "-i", IMAGE, "bash", "-s"], {
-      input: `${STUBS}\n${before}\nprintf %s '${Buffer.from(NODE).toString("base64")}' | base64 -d | bash -c '${GLOBAL_MISE_SCRIPT.replaceAll("'", "'\\''")}' t3flare-global-mise 1 ${"a".repeat(64)} kept\n`,
+      input: `${STUBS}\n${before}\nprintf %s '${Buffer.from(NODE).toString("base64")}' | base64 -d | bash -c '${GLOBAL_MISE_SCRIPT.replaceAll("'", "'\\''")}' t3flare-global-mise ${globalMiseArgs({ revision: 1, sha256: "a".repeat(64), source: "kept", mode: "lay-down", minutes: DEFAULT_MINUTES }).join(" ")}\n`,
       encoding: "utf8",
       timeout: 120_000,
     });
@@ -285,5 +294,33 @@ describe("parseGlobalMiseAnswer", () => {
     expect(parseGlobalMiseAnswer("[true]")).toBeUndefined();
     expect(parseGlobalMiseAnswer("mise ERROR something\n")).toBeUndefined();
     expect(parseGlobalMiseAnswer("")).toBeUndefined();
+  });
+});
+
+// SPI-1313: the install bound is the Owner's (`globalMiseInstallMinutes`); the lock, the KILLs and the Workspace DO's
+// wait follow from it, and the git/gh checks stay t3flare's own.
+describe("the lay-down's bounds at an install time limit", () => {
+  const checks = 2 * (GLOBAL_MISE_BOUNDS.check + GLOBAL_MISE_BOUNDS.checkKillAfter);
+
+  it("hands the script the limit in seconds and a lock that waits out another run's install, KILL and checks", () => {
+    for (const minutes of [1, 10, 25, 10_080]) {
+      const install = minutes * 60;
+      const lock = install + GLOBAL_MISE_BOUNDS.installKillAfter + checks + GLOBAL_MISE_BOUNDS.lockMargin;
+      expect(globalMiseLockSeconds(minutes)).toBe(lock);
+      const args = globalMiseArgs({ revision: 3, sha256: "b".repeat(64), source: "kept", mode: "if-changed", minutes });
+      expect(parseGlobalMiseArgs(args)).toEqual({ revision: 3, sha256: "b".repeat(64), source: "kept", mode: "if-changed", installSeconds: install, lockSeconds: lock });
+    }
+  });
+
+  it("waits for the lock, its own run and a margin, so the script's own timeouts always answer first", () => {
+    for (const minutes of [1, 10, 25]) {
+      const run = minutes * 60 + GLOBAL_MISE_BOUNDS.installKillAfter + checks;
+      expect(globalMiseDeadlineMs(minutes)).toBe((globalMiseLockSeconds(minutes) + run + GLOBAL_MISE_BOUNDS.answerMargin) * 1000);
+    }
+  });
+
+  it("keeps the git and gh checks at 20 s whatever the limit", () => {
+    expect(GLOBAL_MISE_SCRIPT).toContain(`timeout -k ${GLOBAL_MISE_BOUNDS.checkKillAfter} ${GLOBAL_MISE_BOUNDS.check} git --version`);
+    expect(GLOBAL_MISE_BOUNDS.check).toBe(20);
   });
 });

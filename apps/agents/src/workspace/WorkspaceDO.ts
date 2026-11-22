@@ -16,7 +16,6 @@ import {
 import { WorkerShellBackend } from "@cloudflare/computer/backends/worker-shell";
 import { type EnvRequest, type EnvResponse, type HostOperation, withHarnessKept, WorkspaceEnvHost } from "@t3flare/computer-env";
 import { COMMAND_ENV, OWNER_HOME } from "@t3flare/sandbox-image/env";
-import { GLOBAL_MISE_DEADLINE_MS } from "@t3flare/sandbox-image/globalMise";
 import { DurableObject } from "cloudflare:workers";
 
 import type {
@@ -401,7 +400,6 @@ export class WorkspaceDO extends ContainerHost {
       storage: ctx.storage.kv,
       workspace: () => this.#workspaceId() ?? null,
       now: () => Date.now(),
-      deadlineMs: GLOBAL_MISE_DEADLINE_MS,
       log: (event) => console.log(JSON.stringify(event)),
     });
     this.#containerSetup = new ContainerSetup({
@@ -428,7 +426,6 @@ export class WorkspaceDO extends ContainerHost {
       storage: ctx.storage.kv,
       workspace: () => this.#workspaceId() ?? null,
       now: () => Date.now(),
-      deadlineMs: GLOBAL_MISE_DEADLINE_MS,
       log: (event) => console.log(JSON.stringify(event)),
       afterSetup: { setupText: () => ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY)?.containerSetup?.text },
     });

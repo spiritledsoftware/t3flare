@@ -223,3 +223,14 @@ gh check (ADR-0047 §10), where mise §2 left none.
 shared maximum for limits t3flare times itself (its own alarm does the idle stop; `setInactivityTimeout` is never set),
 and its tier is `down-free`. The budget is 1 to 100, a sanity bound: the account's own concurrent limits bound it in
 fact, and the Settings page says so in a note under the budget field. Defaults are unchanged (2 minutes, 3 Containers).
+
+## Refinement (SPI-1313, 2026-11-22): the Global mise install time limit
+
+The install's 600 s bound in the Global mise config refinement's §4 is the Owner's toolchain's, so it is the setting
+`globalMiseInstallMinutes`: 10 minutes by default, 1 to the shared maximum of 10,080 (ADR-0048), tier `down-free`,
+shown in the Global mise config's row. The launch carries it (`ContainerLaunch.globalMise.installMinutes`), so a running
+Container keeps what it started with; a launch kept from before it reads the default. The lock follows it: a second
+lay-down waits for one run's whole install, KILL and checks, and 30 s more. The KILLs, the Workspace DO's wait and the
+attempts stay derived or fixed: t3flare's own robustness. The git and gh checks stay at 20 s each, t3flare's own proof
+that its git still runs. The Builder's lay-down in a Base build gets the same bound; the bound is not part of the Base
+key, so changing it alone leaves a Base snapshot current.

@@ -1,18 +1,18 @@
 // The Global mise config's lay-down, once per Container (SPI-1150, ADR-0032's Global mise config refinement): the
 // Workspace DO runs the script (`@t3flare/sandbox-image/globalMise`) on each new Container before its first command,
 // the first of its once-per-Container steps (`containerStep.ts`: keyed, held, bounded, retried), and reports how it
-// ended. The script bounds its lock, install and checks; the Workspace DO waits for their sum and a margin
-// (`GLOBAL_MISE_DEADLINE_MS`), then kills the exec and treats it as not laid, final for that Container. Without a
-// runtime id the script runs anyway: it is idempotent on a Container's disk (it answers again for the same revision and
-// text).
+// ended. The script bounds its lock, install and checks, the install by the launch's time limit (`installMinutes`); the
+// Workspace DO waits for their sum and a margin (`globalMiseDeadlineMs`), then kills the exec and treats it as not laid,
+// final for that Container. Without a runtime id the script runs anyway: it is idempotent on a Container's disk (it
+// answers again for the same revision and text).
 //
 // With no Global mise config text, a second instance runs after the Container setup (`afterSetup`, ADR-0047 §10): the
 // setup may write or change the dotfiles' mise file, so the script, in its `if-changed` mode, checks and lays it down
 // again only when it is not the file the last finished run saw; either way it is reported (an unchanged file with that
 // run's answer). Nothing is run when the
 // launch has text (it wins) or no Container setup.
-import type { GlobalMiseOutcome, GlobalMiseReport, SettingsSource } from "@t3flare/harness-registry";
-import { type GlobalMiseAnswer, globalMiseArgv, type GlobalMiseMode, parseGlobalMiseAnswer } from "@t3flare/sandbox-image/globalMise";
+import { ENVIRONMENT_SETTINGS, type GlobalMiseOutcome, type GlobalMiseReport, type SettingsSource } from "@t3flare/harness-registry";
+import { type GlobalMiseAnswer, globalMiseArgv, globalMiseDeadlineMs, type GlobalMiseMode, parseGlobalMiseAnswer } from "@t3flare/sandbox-image/globalMise";
 
 import { type ContainerExec, ContainerStep, MAX_ATTEMPTS, type RunStep } from "./containerStep.ts";
 
@@ -25,7 +25,16 @@ export interface GlobalMiseLaunch {
   readonly sha256: string;
   readonly revision: number;
   readonly source: SettingsSource;
+  /**
+   * How long `mise install` may run (`globalMiseInstallMinutes`). Absent in a launch recorded before SPI-1313: the
+   * setting's default (`installMinutesOf`).
+   */
+  readonly installMinutes?: number;
 }
+
+/** The install time limit `launch` runs with: its own, or the setting's default for a launch recorded before it. */
+export const installMinutesOf = (launch: Pick<GlobalMiseLaunch, "installMinutes"> | undefined): number =>
+  launch?.installMinutes ?? ENVIRONMENT_SETTINGS.globalMiseInstallMinutes.schema.default;
 
 /** A running exec on the Container (the platform's): its output when it ends, and a kill. */
 export type GlobalMiseExec = ContainerExec;
@@ -43,7 +52,8 @@ export interface GlobalMiseDeps {
   readonly storage: { get<T>(key: string): T | undefined; put<T>(key: string, value: T): void };
   readonly workspace: () => string | null;
   readonly now: () => number;
-  readonly deadlineMs: number;
+  /** How long to wait for the whole exec at an install limit of `minutes` (the script's bounds and a margin; `globalMiseDeadlineMs`). */
+  readonly deadlineMs?: (minutes: number) => number;
   readonly log?: (event: Record<string, unknown>) => void;
   /**
    * The instance that runs after the Container setup (ADR-0047 §10), kept under its own key: `setupText` is the running
@@ -134,7 +144,8 @@ const layDown = async (
   if (deps.afterSetup !== undefined && (known === undefined || known.text !== "" || (deps.afterSetup.setupText() ?? "") === "")) {
     return { runtime, outcome: "none", attempts: attemptsBefore + 1, at: started };
   }
-  const result = await run(globalMiseArgv(launch.revision, launch.sha256, launch.source, mode), launch.text, deps.deadlineMs);
+  const minutes = installMinutesOf(known);
+  const result = await run(globalMiseArgv({ revision: launch.revision, sha256: launch.sha256, source: launch.source, mode, minutes }), launch.text, (deps.deadlineMs ?? globalMiseDeadlineMs)(minutes));
   let outcome: GlobalMiseOutcome = "exec-failed";
   let answer: GlobalMiseAnswer | undefined;
   let error: string | undefined;

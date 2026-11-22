@@ -91,8 +91,8 @@ export interface ContainerLaunch {
    */
   readonly secretVariables?: ReadonlyArray<string>;
   /**
-   * The Global mise config this start lays down (SPI-1150), with its digest and where the settings came from. Absent in
-   * a launch recorded before SPI-1150; `containerState()` shows only its digest.
+   * The Global mise config this start lays down (SPI-1150), with its digest, where the settings came from and its install
+   * time limit (SPI-1313). Absent in a launch recorded before SPI-1150; `containerState()` shows only its digest.
    */
   readonly globalMise?: GlobalMiseLaunch;
   /**
@@ -115,7 +115,13 @@ export interface ContainerLaunch {
 /** `launch` with the Global mise config and the Container setup of `taken` (their digests are async, so apart from `launchOf`). */
 export const withContainerSteps = async (launch: ContainerLaunch, { settings, source }: TakenEnvironment): Promise<ContainerLaunch> => ({
   ...launch,
-  globalMise: { text: settings.globalMiseConfig, ...(await digestOf(settings.globalMiseConfig)), revision: settings.revision, source },
+  globalMise: {
+    text: settings.globalMiseConfig,
+    ...(await digestOf(settings.globalMiseConfig)),
+    revision: settings.revision,
+    source,
+    installMinutes: settings.globalMiseInstallMinutes,
+  },
   containerSetup: {
     text: settings.containerSetup,
     ...(await digestOf(settings.containerSetup)),
