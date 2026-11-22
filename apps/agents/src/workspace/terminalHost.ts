@@ -15,6 +15,8 @@
 import { scanMarkers, terminalCommand } from "@t3flare/sandbox-image/terminal";
 import type { TerminalAnswer, TerminalFrame, TerminalOpenInput, TerminalPush, TerminalPushAnswer } from "@t3flare/workspace-client";
 
+import { ContainerRefused } from "./containerStep.ts";
+
 /** A terminal not heartbeaten for this long is killed (the adapter beats every 30 s). */
 export const HEARTBEAT_LAPSE_MS = 90_000;
 /** A batch closes after this long or this many bytes. */
@@ -181,7 +183,17 @@ export class TerminalHost {
     }
     if (terminal.exited) return this.#answer([]);
     await this.#killOrphans().catch((error: unknown) => console.warn(JSON.stringify({ t3flare: "terminal-orphans-failed", error: String(error) })));
-    await this.#deps.beforeSpawn().catch((error: unknown) => console.warn(JSON.stringify({ t3flare: "terminal-push-before-spawn-failed", error: String(error).slice(0, 300) })));
+    try {
+      await this.#deps.beforeSpawn();
+    } catch (error) {
+      // The Container's steps refuse its commands (ADR-0047 §7): the terminal is refused with why. Anything else (a
+      // push that failed) is logged and the shell spawns.
+      if (error instanceof ContainerRefused) {
+        this.#refuse(terminal, error.message);
+        return this.#answer([]);
+      }
+      console.warn(JSON.stringify({ t3flare: "terminal-push-before-spawn-failed", error: String(error).slice(0, 300) }));
+    }
     try {
       const command = terminalCommand({
         marker: input.key,

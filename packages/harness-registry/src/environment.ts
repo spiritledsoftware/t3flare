@@ -25,6 +25,22 @@ export const MAX_CONTAINER_BUDGET = 10;
 /** The largest Global mise config, in bytes of UTF-8. */
 export const MAX_GLOBAL_MISE_BYTES = 16 * 1024;
 
+/**
+ * The largest Container setup, in bytes of UTF-8 (ADR-0047 §9). Fixed by a constraint: every Environment setting is one
+ * stored value of at most 2 MB, and the Environment settings are one value together.
+ */
+export const MAX_CONTAINER_SETUP_BYTES = 256 * 1024;
+
+/**
+ * The most of a setup's output a report may keep, in KiB (`setupOutputKiB`'s bound). Fixed by a constraint: the
+ * Environment DO keeps the last report, output and all, as one Durable Object value, which holds at most 2 MB.
+ */
+export const MAX_SETUP_OUTPUT_KIB = 256;
+
+/** What a Container whose setup failed does (ADR-0047 §7): carries on, or refuses every command but a passive read. */
+export const CONTAINER_SETUP_FAILURES = ["carryOn", "refuse"] as const;
+export type ContainerSetupFailure = (typeof CONTAINER_SETUP_FAILURES)[number];
+
 /** The Grace's default and bounds, in days (ADR-0043 §1): no zero, since at once is the Owner's own Purge. */
 export const DEFAULT_GRACE_DAYS = 7;
 export const MAX_GRACE_DAYS = 3650;
@@ -121,6 +137,33 @@ export const ENVIRONMENT_SETTINGS = {
     description:
       "A mise.toml every Container's commands get, under a repository's own and over the image's base tools. Laid down and installed at each Workspace's next Container start; a running Container keeps what it started with. Kept only if git and gh still run under it. disable_tools and disable_backends are ignored. Agents can read this file: put no secret in it, [env] included.",
     schema: { type: "file", maxBytes: MAX_GLOBAL_MISE_BYTES, default: "" },
+  },
+  containerSetup: {
+    title: "Container setup",
+    description:
+      "A bash script run once in every new Container before its first command, after the Global mise config: as root in / with HOME=/root and the Variables. Commands, Terminals and CLI agents wait for it. Status shows its exit and the end of its output, secret Variables blanked. Applies at each Workspace's next Container start.",
+    schema: { type: "file", maxBytes: MAX_CONTAINER_SETUP_BYTES, default: "" },
+  },
+  containerSetupMinutes: {
+    title: "Container setup time limit (minutes)",
+    description: "How long it may run before it is stopped and counts as failed.",
+    schema: { type: "integer", minimum: 1, maximum: 60, default: 5 },
+    tier: "down-free",
+    row: "containerSetup",
+  },
+  containerSetupFailure: {
+    title: "When the Container setup fails",
+    description: "A non-zero exit, the time limit, or a Container that could not run it. Refuse commands: that Container runs no command, Terminal or CLI agent until a new Container starts.",
+    schema: { type: "enum", values: CONTAINER_SETUP_FAILURES, default: "carryOn", labels: { carryOn: "Carry on", refuse: "Refuse commands" } },
+    row: "containerSetup",
+  },
+  setupOutputKiB: {
+    title: "Setup output kept (KiB)",
+    description:
+      "The last part of every setup's output that the Status section keeps and shows, secret Variables blanked: 4 to 256 KiB, 32 by default. Applies at each Workspace's next Container start; a report already kept stays as it is.",
+    schema: { type: "integer", minimum: 4, maximum: MAX_SETUP_OUTPUT_KIB, default: 32 },
+    tier: "down-free",
+    row: "containerSetup",
   },
   sweepPurges: {
     title: "Purge after the Grace",

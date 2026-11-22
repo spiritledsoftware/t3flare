@@ -3,16 +3,17 @@
 // (`containerInstance`): defaults, an unknown stored size, the idle bounds, and `instance` never omitted.
 import { describe, expect, it } from "vitest";
 
-import { applyEnvironmentChange, containerInstance, EMPTY_ENVIRONMENT, resolveEnvironment } from "./environment.ts";
+import { applyEnvironmentChange, containerInstance, EMPTY_ENVIRONMENT, ENVIRONMENT_SETTINGS, resolveEnvironment } from "./environment.ts";
+import type { EnvironmentSettingEntry } from "./fields.ts";
 
 describe("resolveEnvironment", () => {
   it("gives the defaults for empty settings: cpu-1 and a 2-minute idle time, at revision 0", () => {
-    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toEqual({ revision: 0, containerSize: "cpu-1", containerIdleMinutes: 2, containerBudget: 3, variables: [], globalMiseConfig: "", sweepPurges: true, graceDays: 7 });
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toEqual({ revision: 0, containerSize: "cpu-1", containerIdleMinutes: 2, containerBudget: 3, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, sweepPurges: true, graceDays: 7 });
   });
 
   it("reads a stored size it no longer offers, or an idle time out of bounds, as the default", () => {
-    expect(resolveEnvironment({ revision: 4, settings: { containerSize: "mem-8", containerIdleMinutes: 0, containerBudget: 11 } })).toEqual({ revision: 4, containerSize: "cpu-1", containerIdleMinutes: 2, containerBudget: 3, variables: [], globalMiseConfig: "", sweepPurges: true, graceDays: 7 });
-    expect(resolveEnvironment({ revision: 5, settings: { containerSize: "standard-3", containerIdleMinutes: 15, containerBudget: 5 } })).toEqual({ revision: 5, containerSize: "standard-3", containerIdleMinutes: 15, containerBudget: 5, variables: [], globalMiseConfig: "", sweepPurges: true, graceDays: 7 });
+    expect(resolveEnvironment({ revision: 4, settings: { containerSize: "mem-8", containerIdleMinutes: 0, containerBudget: 11 } })).toEqual({ revision: 4, containerSize: "cpu-1", containerIdleMinutes: 2, containerBudget: 3, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, sweepPurges: true, graceDays: 7 });
+    expect(resolveEnvironment({ revision: 5, settings: { containerSize: "standard-3", containerIdleMinutes: 15, containerBudget: 5 } })).toEqual({ revision: 5, containerSize: "standard-3", containerIdleMinutes: 15, containerBudget: 5, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, sweepPurges: true, graceDays: 7 });
   });
 });
 
@@ -21,10 +22,10 @@ describe("applyEnvironmentChange", () => {
     const applied = applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { containerSize: "standard-4", containerIdleMinutes: 10 } });
     if (!applied.ok) throw new Error(applied.error);
     expect(applied.environment.revision).toBe(1);
-    expect(resolveEnvironment(applied.environment)).toEqual({ revision: 1, containerSize: "standard-4", containerIdleMinutes: 10, containerBudget: 3, variables: [], globalMiseConfig: "", sweepPurges: true, graceDays: 7 });
+    expect(resolveEnvironment(applied.environment)).toEqual({ revision: 1, containerSize: "standard-4", containerIdleMinutes: 10, containerBudget: 3, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, sweepPurges: true, graceDays: 7 });
     const again = applyEnvironmentChange(applied.environment, { settings: { containerIdleMinutes: 5 } });
     if (!again.ok) throw new Error(again.error);
-    expect(resolveEnvironment(again.environment)).toEqual({ revision: 2, containerSize: "standard-4", containerIdleMinutes: 5, containerBudget: 3, variables: [], globalMiseConfig: "", sweepPurges: true, graceDays: 7 });
+    expect(resolveEnvironment(again.environment)).toEqual({ revision: 2, containerSize: "standard-4", containerIdleMinutes: 5, containerBudget: 3, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, sweepPurges: true, graceDays: 7 });
   });
 
   it("stores and bumps the revision for the settings that moved only; a save that moves none changes nothing", () => {
@@ -115,5 +116,45 @@ describe("the Global mise config", () => {
     if (!again.ok) throw new Error(again.error);
     expect(again.changed).toEqual([]);
     expect(again.environment.revision).toBe(1);
+  });
+});
+
+describe("the Container setup (ADR-0047 §7, §9)", () => {
+  const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
+
+  it("is an empty script, a 5-minute limit and carry on, by default", () => {
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({ containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn" });
+  });
+
+  it("takes a script of up to 256 KiB of UTF-8 and refuses one byte more", () => {
+    expect(set({ containerSetup: "x".repeat(256 * 1024) })).toMatchObject({ ok: true });
+    expect(set({ containerSetup: "x".repeat(256 * 1024 + 1) })).toEqual({ ok: false, error: "containerSetup: is longer than 256 KiB of UTF-8" });
+  });
+
+  it("takes a time limit of 1 to 60 minutes", () => {
+    for (const minutes of [1, 60]) expect(set({ containerSetupMinutes: minutes })).toMatchObject({ ok: true });
+    for (const minutes of [0, 61, 2.5]) expect(set({ containerSetupMinutes: minutes })).toMatchObject({ ok: false });
+  });
+
+  it("keeps 32 KiB of a setup's output by default, 4 to 256", () => {
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT).setupOutputKiB).toBe(32);
+    for (const kib of [4, 256]) expect(set({ setupOutputKiB: kib })).toMatchObject({ ok: true });
+    for (const kib of [3, 257, 8.5]) expect(set({ setupOutputKiB: kib })).toMatchObject({ ok: false });
+  });
+
+  it("carries on or refuses commands on a failure, nothing else", () => {
+    expect(set({ containerSetupFailure: "refuse" })).toMatchObject({ ok: true });
+    expect(set({ containerSetupFailure: "stop" })).toEqual({ ok: false, error: "containerSetupFailure: one of carryOn, refuse" });
+  });
+});
+
+describe("the Settings page's rows", () => {
+  it("joins each setting with a row to a setting that has a row of its own (a file's or a list's)", () => {
+    for (const [key, setting] of Object.entries(ENVIRONMENT_SETTINGS as Readonly<Record<string, EnvironmentSettingEntry>>)) {
+      if (setting.row === undefined) continue;
+      const owner = (ENVIRONMENT_SETTINGS as Readonly<Record<string, EnvironmentSettingEntry>>)[setting.row];
+      expect(owner, `${key}'s row`).toBeDefined();
+      expect(["file", "variables"], `${key}'s row`).toContain(owner!.schema.type);
+    }
   });
 });

@@ -13,7 +13,7 @@ import { MODEL_HANDLE_ENV } from "@t3flare/models/relay";
 import { describe, expect, it } from "vitest";
 
 import { launchOf } from "../src/workspace/containerLaunch.ts";
-import { GlobalMiseBackend, PASSIVE_MARKER } from "../src/workspace/globalMiseGate.ts";
+import { ContainerStepsBackend, PASSIVE_MARKER } from "../src/workspace/containerStepsGate.ts";
 import { VariablesBackend } from "../src/workspace/variables.ts";
 
 /** computer-env's `EXEC_MARKER` (its index loads `cloudflare:` modules Node cannot): the sweep below finds it in the code. */
@@ -69,7 +69,7 @@ describe("the markers t3flare and t3 keep in a command's environment", () => {
     } as WorkspaceBackend;
     // As WorkspaceDO wires it: the Variables over the lay-down's gate, read from the kept launch.
     const launch = launchOf({ settings: resolveEnvironment({ revision: 1, settings: { variables: [{ name: PASSIVE_MARKER, value: "1", secret: false }] } }), source: "environment" });
-    const backend = new VariablesBackend(new GlobalMiseBackend(inner, async (runtime) => void asked.push(runtime)), () => fitVariableEnv(launch.variables));
+    const backend = new VariablesBackend(new ContainerStepsBackend(inner, async (runtime) => void asked.push(runtime)), () => fitVariableEnv(launch.variables));
     const handle = await backend.connect({} as never);
     await handle.rpc.shell.exec({ source: "node --version", env: {} } as never);
     expect(asked).toEqual(["r1"]);

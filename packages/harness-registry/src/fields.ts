@@ -6,7 +6,8 @@ import { normalizeVariables, type StoredVariable, variablesProblem } from "./var
 export type FieldSchema =
   | { readonly type: "boolean"; readonly default: boolean }
   | { readonly type: "integer"; readonly minimum: number; readonly maximum: number; readonly default: number }
-  | { readonly type: "enum"; readonly values: ReadonlyArray<string>; readonly default: string }
+  /** `labels`: what the panel shows for a value, where its stored name is not words; the value itself otherwise. */
+  | { readonly type: "enum"; readonly values: ReadonlyArray<string>; readonly default: string; readonly labels?: Readonly<Record<string, string>> }
   /** Free text (SPI-1058: guardian's rules and policy, typed as pi-guardian's menu takes them); `multiline` is a text area. */
   | { readonly type: "text"; readonly maxLength: number; readonly default: string; readonly multiline?: boolean }
   /**
@@ -50,6 +51,8 @@ export interface EnvironmentSettingEntry {
   readonly description: string;
   readonly schema: EnvironmentFieldSchema;
   readonly tier?: SettingTier;
+  /** The setting whose row on the Settings page this one joins (a file's own row), rather than the Containers row. */
+  readonly row?: string;
 }
 
 const utf8 = new TextEncoder();

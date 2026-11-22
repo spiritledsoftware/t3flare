@@ -13,6 +13,7 @@
     "./leakscan": "./src/leakscan.ts",
     "./ports": "./src/ports.ts",
     "./globalMise": "./src/globalMise.ts",
+    "./containerSetup": "./src/containerSetup.ts",
     "./mcp-bridge": "./src/mcp-bridge.ts"
   },
   "scripts": {

@@ -15,6 +15,7 @@ import {
   variableEnv,
 } from "@t3flare/harness-registry";
 
+import type { ContainerSetupLaunch } from "./containerSetup.ts";
 import type { GlobalMiseLaunch } from "./globalMise.ts";
 
 /** How long a Container start waits for the Environment's settings before it starts with the ones it kept. */
@@ -83,32 +84,69 @@ export interface ContainerLaunch {
    * recorded before them has none.
    */
   readonly variables?: Readonly<Record<string, string>>;
-  /** Which of `variables` are secret (ADR-0046): `containerState()` shows them as set, never their values. */
+  /**
+   * Which of `variables` are secret (ADR-0046): `containerState()` shows them as set, never their values, and the
+   * Container setup's reported output has their values blanked (`secretValuesOf`).
+   */
   readonly secretVariables?: ReadonlyArray<string>;
   /**
    * The Global mise config this start lays down (SPI-1150), with its digest and where the settings came from. Absent in
    * a launch recorded before SPI-1150; `containerState()` shows only its digest.
    */
   readonly globalMise?: GlobalMiseLaunch;
+  /**
+   * The Container setup this start runs (ADR-0047 §7), with its digest, time limit and failure policy. Absent in a
+   * launch recorded before it; `containerState()` shows only its digest.
+   */
+  readonly containerSetup?: ContainerSetupLaunch;
 }
 
-/** `launch` with the Global mise config of `taken` (its digest is async, so apart from `launchOf`). */
-export const withGlobalMise = async (launch: ContainerLaunch, { settings, source }: TakenEnvironment): Promise<ContainerLaunch> => ({
+/** `launch` with the Global mise config and the Container setup of `taken` (their digests are async, so apart from `launchOf`). */
+export const withContainerSteps = async (launch: ContainerLaunch, { settings, source }: TakenEnvironment): Promise<ContainerLaunch> => ({
   ...launch,
   globalMise: { text: settings.globalMiseConfig, ...(await digestOf(settings.globalMiseConfig)), revision: settings.revision, source },
+  containerSetup: {
+    text: settings.containerSetup,
+    ...(await digestOf(settings.containerSetup)),
+    revision: settings.revision,
+    source,
+    minutes: settings.containerSetupMinutes,
+    failure: settings.containerSetupFailure,
+    outputBytes: settings.setupOutputKiB * 1024,
+  },
 });
 
 /** What `containerState()` shows for a secret Variable's value. */
 export const SECRET_SHOWN = "(secret, set)";
 
-/** A launch as `containerState()` shows it: the Global mise config's digest, never its text; a secret Variable as set. */
-export const shownLaunch = (launch: ContainerLaunch): Omit<ContainerLaunch, "globalMise"> & { readonly globalMise?: Omit<GlobalMiseLaunch, "text"> } => {
+/** The opened values of the secret Variables `launch` started with (`secretVariables`): blanked in the setup's output. */
+export const secretValuesOf = (launch: ContainerLaunch | undefined): ReadonlyArray<string> => {
+  const secrets = new Set(launch?.secretVariables ?? []);
+  return Object.entries(launch?.variables ?? {})
+    .filter(([name]) => secrets.has(name))
+    .map(([, value]) => value);
+};
+
+/**
+ * A launch as `containerState()` shows it: the Global mise config's and the Container setup's digests, never their
+ * text; a secret Variable as set.
+ */
+export const shownLaunch = (
+  launch: ContainerLaunch,
+): Omit<ContainerLaunch, "globalMise" | "containerSetup"> & { readonly globalMise?: Omit<GlobalMiseLaunch, "text">; readonly containerSetup?: Omit<ContainerSetupLaunch, "text"> } => {
+  const { globalMise, containerSetup, ...rest } = launch;
   const secrets = new Set(launch.secretVariables ?? []);
-  const variables = launch.variables === undefined || secrets.size === 0 ? launch.variables : Object.fromEntries(Object.entries(launch.variables).map(([name, value]) => [name, secrets.has(name) ? SECRET_SHOWN : value]));
-  const shown = variables === undefined ? launch : { ...launch, variables };
-  if (shown.globalMise === undefined) return shown;
-  const { text: _text, ...digest } = shown.globalMise;
-  return { ...shown, globalMise: digest };
+  const variables = rest.variables === undefined || secrets.size === 0 ? rest.variables : Object.fromEntries(Object.entries(rest.variables).map(([name, value]) => [name, secrets.has(name) ? SECRET_SHOWN : value]));
+  const digestOnly = <T extends { readonly text: string }>(script: T): Omit<T, "text"> => {
+    const { text: _text, ...digest } = script;
+    return digest;
+  };
+  return {
+    ...rest,
+    ...(variables === undefined ? {} : { variables }),
+    ...(globalMise === undefined ? {} : { globalMise: digestOnly(globalMise) }),
+    ...(containerSetup === undefined ? {} : { containerSetup: digestOnly(containerSetup) }),
+  };
 };
 
 /** The launch for the settings `taken` (`takeEnvironment`'s, already read against this Worker's schema). */

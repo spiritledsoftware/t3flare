@@ -218,6 +218,9 @@ fieldset>legend{padding:0;margin-bottom:.375rem}
 dl.kv>div{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;padding:.625rem 1rem}
 dl.kv dt{color:var(--muted-fg);font-size:.8125rem}
 dl.kv dd{text-align:right;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+dl.kv>div.kv-block{flex-direction:column;align-items:stretch;gap:.5rem}
+dl.kv>div.kv-block dd{text-align:left;min-width:0}
+pre.status-output{margin:0;padding:.5rem .75rem;border-radius:var(--radius);background:var(--muted);font:.75rem/1.5 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;max-height:20rem;overflow:auto;display:flex;flex-direction:column-reverse}
 .notice{display:flex;align-items:flex-start;gap:.625rem;padding:.75rem 1rem;border-radius:var(--radius-lg);border:1px solid var(--border);background:var(--card);box-shadow:var(--shadow);font-size:.8125rem}
 .notice[hidden]{display:none}
 .notice[data-tone=err]{border-color:var(--err-line);background:var(--err-soft)}

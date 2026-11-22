@@ -1,25 +1,34 @@
-// Where a command waits for the Global mise config's lay-down (SPI-1150, ADR-0032's Global mise config refinement):
-// "`mise install` runs before the first command of each Container start". Every command sent to the Container that is
-// not a passive read waits for its Container's lay-down at the point it is sent, whoever sends it (a Durable agent's
+// Where a command waits for its Container's once-per-Container steps (`ContainerSteps`: the Global mise lay-down,
+// SPI-1150, ADR-0032's Global mise config refinement; then the Container setup, ADR-0047 §7). Every command sent to the
+// Container that is not a passive read waits for them at the point it is sent, whoever sends it (a Durable agent's
 // command reaches computer through the Workspace stub, never `WorkspaceDO.exec`); a Terminal or a CLI process waits
 // before its spawn. A passive read (`WorkspaceDO.exec`'s `passive`, marked in its environment by `commandEnvOf`) never
-// runs it.
+// runs them. A step that fails lets the command go on, unless the Owner set a failed Container setup to refuse it
+// (`ContainerRefused`).
 import type { BackendHandle, WorkspaceBackend } from "@cloudflare/computer";
+
+import { ContainerRefused } from "./containerStep.ts";
+
+/** `ensure`'s refusal, rethrown; any other failure of the steps lets the command go on. */
+const refusedOnly = (error: unknown): undefined => {
+  if (error instanceof ContainerRefused) throw error;
+  return undefined;
+};
 
 /** The variable `WorkspaceDO.exec` marks a passive read with; taken out before the command is sent. */
 export const PASSIVE_MARKER = "T3FLARE_PASSIVE_READ";
 
 /**
  * A Container command's environment from `WorkspaceDO.exec`: `base` under the caller's, the passive mark only when the
- * read is passive. A caller's own mark is dropped, so no active command can skip the lay-down.
+ * read is passive. A caller's own mark is dropped, so no active command can skip the steps.
  */
 export const commandEnvOf = (base: Readonly<Record<string, string>>, env: Readonly<Record<string, string>> | undefined, passive: boolean): Record<string, string> => {
   const { [PASSIVE_MARKER]: _given, ...own } = env ?? {};
   return { ...base, ...own, ...(passive ? { [PASSIVE_MARKER]: "1" } : {}) };
 };
 
-/** `inner` (the Container's backend) with every command but a passive read sent after its Container's lay-down. */
-export class GlobalMiseBackend implements WorkspaceBackend {
+/** `inner` (the Container's backend) with every command but a passive read sent after its Container's steps. */
+export class ContainerStepsBackend implements WorkspaceBackend {
   readonly id: string;
   readonly type: string;
   readonly description: string;
@@ -45,7 +54,7 @@ export class GlobalMiseBackend implements WorkspaceBackend {
           const { [PASSIVE_MARKER]: _marker, ...env } = input.env;
           return handle.rpc.shell.exec({ ...input, env });
         }
-        await ensure(handle.runtimeId).catch(() => undefined);
+        await ensure(handle.runtimeId).catch(refusedOnly);
         return handle.rpc.shell.exec(input);
       },
       getExec: (input) => handle.rpc.shell.getExec(input),
@@ -67,7 +76,7 @@ export class GlobalMiseBackend implements WorkspaceBackend {
 /**
  * Where computer keeps the running Container's runtime id in the Workspace DO's storage (`@cloudflare/computer`
  * 0.11.2, `CurrentContainerRuntimeIdentity`): the id its connect answers. Read so a spawn learns the runtime without a
- * command or a connect. Checked by `globalMiseGate.test.ts` against the package's code.
+ * command or a connect. Checked by `containerStepsGate.test.ts` against the package's code.
  */
 export const COMPUTER_RUNTIME_KEY = "computer:container-runtime-identity";
 
@@ -88,23 +97,37 @@ export interface SpawnReadiness {
   readonly runtime: () => Promise<string | undefined>;
   readonly ensure: (runtime: string | undefined) => Promise<unknown>;
   readonly log: (event: Record<string, unknown>) => void;
+  /** Whether a failed Container setup refuses commands (`ContainerSetup.refuses`): then a spawn it cannot judge is refused. */
+  readonly refuses: () => boolean;
 }
 
 /**
- * Before a Terminal's or a CLI process's spawn: the running Container's lay-down has ended. It never runs a command,
+ * Before a Terminal's or a CLI process's spawn: the running Container's steps have ended. It never runs a command,
  * connects or starts a Container (a stopped one is started by the spawn's own path, whose `true` waits as every active
- * command does, `GlobalMiseBackend`); a runtime it cannot learn, or a lay-down that fails, is logged and the spawn goes on.
+ * command does, `ContainerStepsBackend`); a runtime it cannot learn, or a step that fails, is logged and the spawn goes on; a refusal (`ContainerRefused`) refuses the spawn.
  */
 export const readyForSpawn = async (deps: SpawnReadiness): Promise<void> => {
   if (!deps.running()) return;
+  // A spawn whose Container's steps cannot be judged: refused under refuse (fail closed), else logged and let through.
+  const unjudged = (reason: string): void => {
+    if (deps.refuses()) throw new ContainerRefused(`Refused: this Container's Container setup cannot be checked (${reason}), and the Environment settings refuse commands in a Container whose setup failed. Try again in a moment.`);
+    deps.log({ t3flare: "container-steps-spawn", waited: false, reason });
+  };
+  let runtime: string | undefined;
   try {
-    const runtime = await deps.runtime();
-    if (runtime === undefined) {
-      deps.log({ t3flare: "global-mise-spawn", waited: false, reason: "the running Container's runtime is unknown" });
-      return;
-    }
+    runtime = await deps.runtime();
+  } catch (error) {
+    unjudged(String(error).slice(0, 200));
+    return;
+  }
+  if (runtime === undefined) {
+    unjudged("the running Container's runtime is unknown");
+    return;
+  }
+  try {
     await deps.ensure(runtime);
   } catch (error) {
-    deps.log({ t3flare: "global-mise-spawn", waited: false, reason: String(error).slice(0, 200) });
+    if (error instanceof ContainerRefused) throw error;
+    unjudged(String(error).slice(0, 200));
   }
 };
