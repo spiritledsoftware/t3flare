@@ -76,7 +76,7 @@ export interface WorkspaceRpc {
   /** G11: the Container's listeners; never starts it, not use. */
   listeners(): Promise<{ readonly running: boolean; readonly scan: PortScan | null }>;
   /** The Settings page's Files column (ADR-0044 §1): the DO's storage size and whether its Container runs; never starts it. */
-  usage(): Promise<{ readonly bytes: number; readonly containerRunning: boolean }>;
+  usage(): Promise<{ readonly bytes: number; readonly containerRunning: boolean; readonly startedFrom?: "base" | "image" }>;
   /** G11: stops one process group in the Container (TERM, then KILL); false when gone or not running. */
   stopProcessGroup(pgid: number, members: ReadonlyArray<number>): Promise<boolean>;
   /** G11: a configured `localhost` preview URL's web probe on the Container's port; never starts it, not use. */
@@ -90,7 +90,15 @@ export interface WorkspaceRpc {
     readonly leased: boolean;
     readonly lastUse: number | null;
     readonly startedAt: number | null;
-    readonly launch: { readonly size: string; readonly instance: ContainerInstance; readonly idleMs: number; readonly budget?: number; readonly revision: number } | null;
+    readonly launch: {
+      readonly size: string;
+      readonly instance: ContainerInstance;
+      readonly idleMs: number;
+      readonly budget?: number;
+      readonly revision: number;
+      /** What it started from (SPI-1333): the Base snapshot's id and key, or the Workspace image and why. */
+      readonly from?: { readonly base: { readonly snapshotId: string; readonly key: string } } | { readonly image: { readonly why: string } };
+    } | null;
   }>;
   stopContainer(): Promise<void>;
   /** The Builder's (SPI-1332): the Base snapshot's record, a trigger, the Owner's or an agent's Rebuild. */
@@ -147,6 +155,8 @@ export interface WorkspaceRpc {
   }): Promise<{ readonly do: ReadonlyArray<{ readonly name: string; readonly path: string }>; readonly container: unknown; readonly flagged: unknown; readonly notScanned?: ReadonlyArray<{ readonly name: string; readonly where: string }> }>;
   /** Step 4a M0 P1, test stages only. */
   probeProcess(op: unknown): Promise<unknown>;
+  /** SPI-1333, test stages only: the next fresh start uses `snapshotId` as its Base snapshot (null clears it). */
+  faultBaseSnapshot(input: { readonly snapshotId: string | null }): Promise<{ readonly armed: string | null }>;
   /** Why a reclaim would leave the running Container alone now, or null (SPI-1150's stage check). */
   reclaimReason(): Promise<string | null>;
   terminalState(): Promise<{ readonly epoch: string; readonly keys: ReadonlyArray<string>; readonly lastInput: number; readonly pushes: number; readonly sync: Readonly<Record<string, number>> }>;

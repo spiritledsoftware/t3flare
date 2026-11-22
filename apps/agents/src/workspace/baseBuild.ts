@@ -82,6 +82,8 @@ export interface BaseBuildDeps {
   readonly container: BuilderContainer;
   readonly storage: { get<T>(key: string): T | undefined; put<T>(key: string, value: T): void; delete(key: string): void };
   readonly inputs: () => Promise<BuilderInputs>;
+  /** `ctx.container.images.WorkspaceContainer` alone, without the settings' read: the image watch's (SPI-1333). */
+  readonly image: () => string | undefined;
   readonly setAlarm: (at: number) => Promise<void>;
   readonly waitUntil: (promise: Promise<unknown>) => void;
   /** Every change of the record (the Environment DO's report sink, for Status). */
@@ -147,6 +149,10 @@ export interface Build {
 /** The settings the Builder last read, by their key. */
 interface Current {
   readonly key: string;
+  /** The settings' revision (SPI-1333): a Workspace's start compares its own with it. Absent in one kept before. */
+  readonly revision?: number;
+  /** The Workspace image read with them (SPI-1333): a start on another one asks the Builder to read it again. */
+  readonly image?: string;
   readonly nothingToBuild: boolean;
   readonly rebuildEveryDays: number;
   readonly at: number;
@@ -154,6 +160,12 @@ interface Current {
 
 /** The last good Base snapshot as kept: `gone` once a Workspace's start found the platform refused it. */
 type KeptSnapshot = BaseSnapshot & { readonly gone?: true };
+
+/** The image watch (SPI-1333): until when, and the image last read. */
+interface ImageWatch {
+  readonly until: number;
+  readonly image: string;
+}
 
 /** A snapshot call this instance made, and how it ended. */
 interface SnapshotCall {
@@ -175,6 +187,8 @@ export const BUILDER_KEYS = {
   /** The proposed Image setup a Test base build runs (SPI-1334), in place of the saved one, and its SHA-256 (hex). */
   proposal: "t3flare:builder:proposal",
   proposalDigest: "t3flare:builder:proposal-digest",
+  /** The image watch (`{ until, image }`, SPI-1333): the Workspace image is read on the alarm until then. */
+  watch: "t3flare:builder:image-watch",
 } as const;
 
 export const DAY_MS = 24 * 60 * 60_000;
@@ -203,6 +217,16 @@ export const READ_RETRY_MS = 60_000;
  * would tune; the time limits are the Owner's.
  */
 export const POLL_MS = { starting: 2_000, running: 5_000, snapshotting: 5_000, proving: 2_000 } as const;
+/**
+ * How long after a trigger the Builder keeps reading the Workspace image on its alarm (SPI-1333), so a deploy's new image
+ * is built when it reaches this object, not at some Workspace's start. Fixed by a constraint: a Container application's
+ * rollout of a new image to its instances took about 4 minutes on a Stage (SPI-1333's acceptance); this is twice that
+ * and more, a bound on a cheap read, not a policy.
+ */
+export const IMAGE_WATCH_MS = 10 * 60_000;
+/** How often the watch reads the image. Fixed: a read of `ctx.container.images`, nothing an Owner would tune. */
+export const IMAGE_WATCH_POLL_MS = 30_000;
+
 /**
  * How long a refused lease waits before it asks again. Fixed: a poll of the budget DO, not a limit; the Owner decides
  * whether the Builder waits at all (`builderInBudget`).
@@ -280,7 +304,13 @@ export class BaseBuild {
     const current = storage.get<Current>(BUILDER_KEYS.current);
     const build = storage.get<Build>(BUILDER_KEYS.build);
     const good = this.#good();
-    const base = { key: current?.key ?? null, good, at: now() };
+    const base = {
+      key: current?.key ?? null,
+      ...(current?.revision === undefined ? {} : { revision: current.revision }),
+      ...(current?.image === undefined ? {} : { imageDigest: current.image }),
+      good,
+      at: now(),
+    };
     if (isRunning(build)) {
       return { ...base, state: "building", phase: build.phase, since: build.startedAt, reason: build.reason, ...(build.waitingForBudget === true ? { waitingForBudget: true } : {}) };
     }
@@ -329,6 +359,21 @@ export class BaseBuild {
       await this.#settleLate();
       await this.#poke(reason, options.force === true ? "rebuild" : "automatic");
       await this.#tick();
+      return this.record();
+    });
+  }
+
+  /**
+   * A Workspace's start found no Base snapshot for its settings (SPI-1333): the settings and the image are read, a build
+   * begun when none is for their key, and the record answered at once; the build's first step runs on the alarm, so the
+   * start is never held by it.
+   */
+  missing(reason: string): Promise<BaseBuildRecord> {
+    if (this.#test) return Promise.reject(new Error(NOT_BASE));
+    return this.#serial(async () => {
+      await this.#settleLate();
+      await this.#poke(reason, "automatic");
+      await this.#deps.setAlarm(this.#deps.now());
       return this.record();
     });
   }
@@ -399,7 +444,7 @@ export class BaseBuild {
       this.#hmacKey(),
     );
     // A test has no schedule.
-    return { key, nothingToBuild: settings.imageSetup === "" && settings.globalMiseConfig === "", rebuildEveryDays: this.#test ? 0 : settings.rebuildEveryDays, at: this.#deps.now() };
+    return { key, revision: settings.revision, image, nothingToBuild: settings.imageSetup === "" && settings.globalMiseConfig === "", rebuildEveryDays: this.#test ? 0 : settings.rebuildEveryDays, at: this.#deps.now() };
   }
 
   #hmacKey(): Uint8Array {
@@ -437,6 +482,8 @@ export class BaseBuild {
     const inputs = await this.#inputs();
     const current = await this.#currentOf(inputs);
     storage.put(BUILDER_KEYS.current, current);
+    // Every trigger watches the image a while: a deploy's new image may reach this object after its boot's poke.
+    storage.put(BUILDER_KEYS.watch, { until: this.#deps.now() + IMAGE_WATCH_MS, image: inputs.image });
     const build = storage.get<Build>(BUILDER_KEYS.build);
     if (isRunning(build)) {
       // The same key under way: it goes on (a Rebuild of it included).
@@ -494,6 +541,15 @@ export class BaseBuild {
     await this.#settleLate();
     const live = storage.get<Build>(BUILDER_KEYS.build);
     if (!isRunning(live)) {
+      if (this.#imageMoved()) {
+        try {
+          await this.#poke("the Workspace image changed", "automatic");
+        } catch (error) {
+          this.#deps.log?.({ t3flare: "base-build-watch-failed", error: errorText(error).slice(0, BASE_BUILD_CAPS.log) });
+          return setAlarm(now() + READ_RETRY_MS);
+        }
+        if (isRunning(storage.get<Build>(BUILDER_KEYS.build))) return this.#tick();
+      }
       if (await this.#armSchedule(live)) {
         try {
           await this.#poke("the scheduled rebuild", "scheduled");
@@ -502,13 +558,16 @@ export class BaseBuild {
           return setAlarm(now() + READ_RETRY_MS);
         }
         if (isRunning(storage.get<Build>(BUILDER_KEYS.build))) return this.#tick();
+        // It started nothing (nothing to build, a backoff): the watch's poll or the backoff's end, whichever comes first.
+        const next = [this.#watching() ? now() + IMAGE_WATCH_POLL_MS : undefined, this.#backoffEnd()].filter((at): at is number => at !== undefined);
+        if (next.length > 0) await setAlarm(Math.min(...next));
         return;
       }
       if (live?.awaitingSnapshot === true) {
         // Its Container still runs (the snapshot is taken on it): it keeps its place under the budget.
         await this.#renewLease(live);
         await setAlarm(now() + POLL_MS.snapshotting);
-      }
+      } else if (this.#watching()) await setAlarm(now() + IMAGE_WATCH_POLL_MS);
       return;
     }
     try {
@@ -533,6 +592,35 @@ export class BaseBuild {
       if (deadline !== undefined && now() > deadline) return this.#fail(kept, null, `the ${kept.phase} step kept failing until its time limit: ${message}`);
       await setAlarm(now() + POLL_MS.starting);
     }
+  }
+
+  /** When a failing key's backoff ends, if it is still ahead (`retryDelay`). */
+  #backoffEnd(): number | undefined {
+    const { storage, now } = this.#deps;
+    const last = storage.get<Build>(BUILDER_KEYS.build);
+    const current = storage.get<Current>(BUILDER_KEYS.current);
+    if (last?.phase !== "failed" || last.key !== current?.key) return undefined;
+    const at = (last.endedAt ?? last.startedAt) + retryDelay(this.#failures(last.key));
+    return at > now() ? at : undefined;
+  }
+
+  /** The image watch is on (SPI-1333); one past its bound is dropped. */
+  #watching(): boolean {
+    const watch = this.#deps.storage.get<ImageWatch>(BUILDER_KEYS.watch);
+    if (watch === undefined) return false;
+    if (this.#deps.now() <= watch.until) return true;
+    this.#deps.storage.delete(BUILDER_KEYS.watch);
+    return false;
+  }
+
+  /** While watching: the Workspace image moved since the last read (a deploy's rollout reached this object). */
+  #imageMoved(): boolean {
+    if (!this.#watching()) return false;
+    const watch = this.#deps.storage.get<ImageWatch>(BUILDER_KEYS.watch)!;
+    const image = this.#deps.image();
+    if (image === undefined || image === watch.image) return false;
+    this.#deps.log?.({ t3flare: "base-build-image-moved", image: image.slice(-24) });
+    return true;
   }
 
   /** When the step under way must have ended: the Image setup's limit, or the snapshot's (and the proof's). */
@@ -817,6 +905,7 @@ export class BaseBuild {
     this.#report();
     if (snapshotting) await setAlarm(now() + POLL_MS.snapshotting);
     else if (await this.#armSchedule(ended)) await setAlarm(now());
+    else if (this.#watching()) await setAlarm(now() + IMAGE_WATCH_POLL_MS);
   }
 
   async #release(build: Build): Promise<void> {

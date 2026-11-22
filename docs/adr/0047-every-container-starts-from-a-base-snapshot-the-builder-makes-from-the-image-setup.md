@@ -127,3 +127,39 @@ new Container's start. Both are Environment settings, bash scripts of up to 256 
    carries the SHA-256 of the text it ran, so the page marks a result stale once the box holds another text. The Settings
    server's `test_base_build` takes the whole proposed text, free and with no revision, as `rebuild_base` is; plan mode
    refuses it as it refuses every write. `get_status` shows the result as `testBaseBuild`.
+
+## Refinement (SPI-1333, 2026-11-22): the start as built
+
+1. **The Builder's key, trusted once it read the start's settings:** a Workspace cannot compute the key (a secret
+   Variable enters it under the Builder's own HMAC key), so the record carries the Environment settings' revision the
+   Builder last read. A start whose settings are newer first asks the Builder to read them (a `missing` report, which
+   also builds a key with no Base snapshot), then picks from its answer. A Base snapshot is started only when it was made
+   on this Workspace image's digest.
+2. **While a build runs,** each setting holds, a rebuild of the current key's included (a Rebuild, a scheduled rebuild):
+   the last good one starts its good Base snapshot, Wait waits for the build, the Workspace image starts at once. The
+   second setting applies when the first starts from the last good one and none was made on the current Workspace image
+   (an older image, or none at all).
+3. **A failed build of the current key** starts from the Workspace image, not the last good one of older settings; the
+   start reports `missing`, and the Builder's backoff decides whether to build (Refinement SPI-1332 §3, §4).
+4. **A wait** is bounded by the build's own limits, the Image setup's then the snapshot's twice (the snapshot and its
+   proof). A start that reaches the gated start still waiting (the wait gave up, or a start with no connect) starts
+   from the Workspace image. The Builder not answering within 5 seconds starts from the image.
+5. **The fast fallback** watches `monitor()` for one second after a start from a Base snapshot (the platform refuses in
+   about 0.3 s), then goes once more from the Workspace image; a refusal after that second is still reported, so the
+   Builder marks the snapshot gone and the next start does not pick it. A running Container that computer adopts is not
+   watched, and keeps what it started from.
+6. **A new Container while one runs:** computer's restart (computerd unhealthy) and a start that cannot adopt the
+   running Container (its launch spec differs after a deploy, or it exited) make a new Container. Such a start picks its
+   base as a fresh one does, against the Builder's current key, without asking the Builder anything, and records it; it
+   keeps the running Container's launch otherwise (its size, its Variables). So a relaunch after an Image setup change
+   starts from the new Base snapshot with the old launch's Variables, until the next fresh start. One computer adopts
+   keeps what it started from.
+7. **A deploy's new image reaches each object in its own time** (about 4 minutes on a Stage): the record carries the
+   image the Builder read, and a start on another one asks it to read again and is treated as a start during a build
+   on a new image (the second setting) only while the Builder builds; otherwise it starts from the Workspace image it
+   runs, since which of the two images is newer cannot be told. A record still behind the start's settings after it asked
+   counts as a build under way, never as ready for them. After every trigger, the Builder reads the image on its alarm for 10 minutes and
+   builds when it moves, so a boot poke that still read the old image does not leave the new one unbuilt.
+8. **A `missing` report answers once the Builder read the settings and began a build,** before the build's first step;
+   a start whose report gets no answer within 5 seconds reads the record again (it is not serialised behind the alarm).
+   The fast fallback's 60 s (§6 says two connects) is computer's one connect deadline, which its attempts share.

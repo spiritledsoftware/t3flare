@@ -15,6 +15,7 @@ import {
   variableEnv,
 } from "@t3flare/harness-registry";
 
+import type { LaunchFrom } from "./baseStart.ts";
 import type { ContainerSetupLaunch } from "./containerSetup.ts";
 import type { GlobalMiseLaunch } from "./globalMise.ts";
 
@@ -104,6 +105,11 @@ export interface ContainerLaunch {
    * as on, the setting's default, as every layer reads an absent toggle.
    */
   readonly terminalsReadBashrc?: boolean;
+  /**
+   * What this Container started from (SPI-1333, ADR-0047 §6): the Base snapshot (its id and key) or the Workspace image
+   * (and why). A running Container keeps it (ADR-0032 §5). Absent in a launch recorded before it: the image.
+   */
+  readonly from?: LaunchFrom;
 }
 
 /** `launch` with the Global mise config and the Container setup of `taken` (their digests are async, so apart from `launchOf`). */

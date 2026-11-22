@@ -13,6 +13,8 @@ import {
   DAY_MS,
   EXPIRY_MARGIN_MS,
   GOOD_FOR_MS,
+  IMAGE_WATCH_MS,
+  IMAGE_WATCH_POLL_MS,
   SCHEDULE_RETRY_MS,
 } from "../src/workspace/baseBuild.ts";
 import { SECRET_MARGIN_BYTES } from "@t3flare/sandbox-image/containerSetup";
@@ -137,6 +139,8 @@ let waits: Array<Promise<unknown>>;
 let leases: { acquired: number; released: number; refuse: boolean };
 let settings: Record<string, unknown>;
 let failInputs = false;
+/** What `ctx.container.images` answers now: a deploy's rollout moves it (SPI-1333). */
+let imageNow = IMAGE;
 
 const settingsNow = () => ({
   ...resolveEnvironment({ revision: 4, settings: { ...settings, variables: undefined } }),
@@ -148,7 +152,8 @@ let randomCalls = 0;
 const deps = (): BaseBuildDeps => ({
   container,
   storage: { get: <T,>(key: string) => store.get(key) as T | undefined, put: (key, value) => void store.set(key, value), delete: (key) => void store.delete(key) },
-  inputs: async () => ({ settings: settingsNow(), image: IMAGE }),
+  inputs: async () => ({ settings: settingsNow(), image: imageNow }),
+  image: () => imageNow,
   setAlarm: async (at) => void alarms.push(at),
   waitUntil: (promise) => void waits.push(promise),
   report: (record) => void reports.push(record),
@@ -188,6 +193,31 @@ const toRunning = async (build: BaseBuild, reason = "the Image setup changed") =
   expect(store.get(BUILDER_KEYS.build)).toMatchObject({ phase: "running" });
 };
 
+/**
+ * The alarm the schedule sets once the image watch (SPI-1333) is over: the watch's own 30-second alarms come first while
+ * it lasts.
+ */
+const scheduled = async (build: BaseBuild): Promise<number | undefined> => {
+  store.delete(BUILDER_KEYS.watch);
+  await build.alarm();
+  return alarms.at(-1);
+};
+
+/** A build driven to a ready Base snapshot, its triggers' alarms cleared. */
+const readyBuild = async (): Promise<BaseBuild> => {
+  const build = builder();
+  await toRunning(build);
+  container.exitCode = 0;
+  await ticks(build);
+  container.snapshots[0]!.answer.resolve({ id: "snap-1", size: 1 });
+  await settle();
+  await ticks(build, 2);
+  expect(build.record().state).toBe("ready");
+  container.exitCode = undefined;
+  alarms = [];
+  return build;
+};
+
 beforeEach(() => {
   clock = Date.parse("2026-11-22T10:00:00.000Z");
   container = new FakeContainer();
@@ -197,6 +227,7 @@ beforeEach(() => {
   waits = [];
   leases = { acquired: 0, released: 0, refuse: false };
   failInputs = false;
+  imageNow = IMAGE;
   settings = { imageSetup: "apt-get install -y jq\necho marker > /opt/marker\n", globalMiseConfig: "[tools]\nnode = '24'\n", containerSize: "standard-2" };
 });
 
@@ -340,6 +371,13 @@ describe("a Base build", () => {
     expect(build.record()).toMatchObject({ state: "failed", failure: { phase: "proving", message: 'a start from the snapshot failed: Snapshot "snap-gone" was not found.' } });
   });
 
+  it("says which revision of the Environment settings it last read (SPI-1333): a start's settings newer than it are not read yet", async () => {
+    const build = builder();
+    expect(build.record().revision).toBeUndefined();
+    await toRunning(build);
+    expect(build.record()).toMatchObject({ state: "building", revision: 4 });
+  });
+
   it("builds nothing with no Image setup and no Global mise config", async () => {
     settings = { imageSetup: "", globalMiseConfig: "" };
     const build = builder();
@@ -377,6 +415,52 @@ describe("a Base build", () => {
     expect(await build.refused("snap-1", "a start failed")).toMatchObject({ state: "building", reason: "a start failed", good: null });
   });
 
+  it("answers a Workspace's missing report once it read the settings, before the build's first step runs (SPI-1333)", async () => {
+    const build = builder();
+    const record = await build.missing("a start found no Base snapshot for its settings");
+    expect(record).toMatchObject({ state: "building", phase: "starting", revision: 4, imageDigest: IMAGE });
+    // The step runs on the alarm, set for now.
+    expect(container.starts).toHaveLength(0);
+    expect(alarms.at(-1)).toBe(clock);
+    await ticks(build, 1, 0);
+    expect(container.starts).toHaveLength(1);
+  });
+
+  it("watches the Workspace image after a trigger and builds when a deploy's rollout moves it (SPI-1333)", async () => {
+    const build = await readyBuild();
+    const oldKey = build.record().key;
+    // The Environment booted after a deploy, but this object still reads the old image.
+    expect(await build.poke("the Environment booted")).toMatchObject({ state: "ready", imageDigest: IMAGE });
+    expect(alarms.at(-1)).toBe(clock + IMAGE_WATCH_POLL_MS);
+    await ticks(build, 1, IMAGE_WATCH_POLL_MS);
+    expect(build.record().state).toBe("ready");
+    imageNow = "registry/workspace@sha256:2222";
+    await ticks(build, 1, IMAGE_WATCH_POLL_MS);
+    expect(build.record()).toMatchObject({ state: "building", reason: "the Workspace image changed", imageDigest: imageNow });
+    expect(build.record().key).not.toBe(oldKey);
+  });
+
+  it("keeps the watch's alarm when a due schedule's poke starts no build", async () => {
+    settings.rebuildEveryDays = 7;
+    const build = await readyBuild();
+    // Nothing to build any more: the scheduled poke starts nothing.
+    settings.imageSetup = "";
+    settings.globalMiseConfig = "";
+    clock = build.record().good!.builtAt + 7 * DAY;
+    await build.alarm();
+    expect(build.record().state).toBe("none");
+    expect(alarms.at(-1)).toBe(clock + IMAGE_WATCH_POLL_MS);
+  });
+
+  it("stops watching the image after its bound", async () => {
+    const build = await readyBuild();
+    await build.poke("the Environment booted");
+    clock += IMAGE_WATCH_MS + 1;
+    imageNow = "registry/workspace@sha256:2222";
+    await ticks(build, 1, 0);
+    expect(build.record().state).toBe("ready");
+  });
+
   it("rebuilds on the schedule, once per due time", async () => {
     settings.rebuildEveryDays = 7;
     const build = builder();
@@ -387,7 +471,7 @@ describe("a Base build", () => {
     await settle();
     await ticks(build, 2);
     expect(build.record().state).toBe("ready");
-    expect(alarms.at(-1)).toBe(build.record().good!.builtAt + 7 * DAY);
+    expect(await scheduled(build)).toBe(build.record().good!.builtAt + 7 * DAY);
     container.exitCode = undefined;
     clock += 7 * DAY;
     await build.alarm();
@@ -489,7 +573,7 @@ describe("a Base build (review fixes)", () => {
     const build = builder();
     await toReady(build, "snap-1");
     const builtAt = build.record().good!.builtAt;
-    expect(alarms.at(-1)).toBe(builtAt + GOOD_FOR_MS - EXPIRY_MARGIN_MS);
+    expect(await scheduled(build)).toBe(builtAt + GOOD_FOR_MS - EXPIRY_MARGIN_MS);
     clock = builtAt + GOOD_FOR_MS - EXPIRY_MARGIN_MS;
     await build.alarm();
     expect(build.record()).toMatchObject({ state: "building", reason: "the scheduled rebuild" });
@@ -505,7 +589,7 @@ describe("a Base build (review fixes)", () => {
     container.exitCode = 4;
     await ticks(build);
     expect(build.record()).toMatchObject({ state: "ready", failure: { exitCode: 4 } });
-    expect(alarms.at(-1)).toBe(builtAt + 7 * DAY);
+    expect(await scheduled(build)).toBe(builtAt + 7 * DAY);
     clock = builtAt + 7 * DAY;
     container.exitCode = undefined;
     await build.alarm();
@@ -514,7 +598,7 @@ describe("a Base build (review fixes)", () => {
     await ticks(build);
     const failedAt = clock;
     // The second failure of this key in a row (the Owner's Rebuild was the first): two hours.
-    expect(alarms.at(-1)).toBe(failedAt + 2 * SCHEDULE_RETRY_MS);
+    expect(await scheduled(build)).toBe(failedAt + 2 * SCHEDULE_RETRY_MS);
     const starts = container.starts.length;
     container.exitCode = undefined;
     clock = failedAt + 2 * SCHEDULE_RETRY_MS;
@@ -523,7 +607,7 @@ describe("a Base build (review fixes)", () => {
     // A third waits twice as long again.
     container.exitCode = 4;
     await ticks(build);
-    expect(alarms.at(-1)).toBe(clock + 4 * SCHEDULE_RETRY_MS);
+    expect(await scheduled(build)).toBe(clock + 4 * SCHEDULE_RETRY_MS);
   });
 
   it("builds again when the good snapshot expires, even after its Image setup failed a rebuild", async () => {

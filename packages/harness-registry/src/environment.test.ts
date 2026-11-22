@@ -7,7 +7,7 @@ import { applyEnvironmentChange, BASE_BUILD_SETTING_KEYS, builderInstance, conta
 import type { EnvironmentSettingEntry } from "./fields.ts";
 
 /** The Base build's settings at their defaults (SPI-1332, ADR-0047 §9). */
-const BASE_DEFAULTS = { imageSetup: "", imageSetupMinutes: 30, snapshotMinutes: 5, builderSize: "sameAsContainer", builderInBudget: false, rebuildEveryDays: 0 } as const;
+const BASE_DEFAULTS = { imageSetup: "", imageSetupMinutes: 30, snapshotMinutes: 5, builderSize: "sameAsContainer", builderInBudget: false, rebuildEveryDays: 0, whileBuilding: "lastGood", whileBuildingNewImage: "wait" } as const;
 
 describe("resolveEnvironment", () => {
   it("gives the defaults for empty settings: cpu-1 and a 2-minute idle time, at revision 0", () => {
