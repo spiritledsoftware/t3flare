@@ -190,10 +190,8 @@ files.set(
     `node = "${nodeVersion}"`,
     `pnpm = "${pnpmVersion}"`,
     `vp = "${vpVersion}"`,
-    "",
-    "# A pnpm or vp command run inside t3code/ would otherwise install it as its own workspace (AGENTS.md).",
-    "[env]",
-    'NPM_CONFIG_WORKSPACE_DIR = "{{config_root}}"',
+    // No [env] NPM_CONFIG_WORKSPACE_DIR: mise evaluates it once, in the checkout a shell starts in, and a shell that
+    // moves to another checkout keeps that path (ADR-0030's SPI-1336 refinement).
     "",
   ].join("\n"),
 );

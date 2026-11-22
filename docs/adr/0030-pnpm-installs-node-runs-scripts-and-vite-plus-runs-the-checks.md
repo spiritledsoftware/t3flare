@@ -24,7 +24,7 @@ Under Bun, every nightly bump re-translated t3code's pnpm settings into Bun's. C
 
 **Nested workspace.** A pnpm or `vp` command whose working directory is inside `t3code/` finds t3's `pnpm-workspace.yaml` and installs t3code as its own workspace. Guards:
 
-- mise, `stage.ts`, `bump.ts`, `relock.ts` and CI export `NPM_CONFIG_WORKSPACE_DIR=<root>`.
+- mise, `stage.ts`, `bump.ts`, `relock.ts` and CI export `NPM_CONFIG_WORKSPACE_DIR=<root>`. (mise no longer does: the SPI-1336 refinement below.)
 - `check:workspace` and `stage.ts deploy` fail when `t3code/node_modules/.pnpm` exists.
 
 **Costs.**
@@ -105,3 +105,16 @@ as it was and fails again on the next run. It never points a checkout at another
 move each other's HEAD and index. A healthy checkout, one whose `t3code/.git` names its own module dir with a commit at
 HEAD, is not written to; an uninitialised submodule is reported with `git submodule update --init t3code` and left alone.
 Like the guard it is plain node, so it runs before anything is installed.
+
+## Refinement (SPI-1336, 2026-11-22): mise no longer exports `NPM_CONFIG_WORKSPACE_DIR`
+
+The mise leg of the first guard under **Nested workspace** is retired: `gen-workspace.ts` no longer writes an `[env]`
+table into `mise.toml`. mise evaluates `{{config_root}}` once, in the checkout a shell starts in, and an agent's shell
+that then moves to another checkout keeps that path. The SPI-1290 guard refuses this only in `check`; an install has no
+hook to refuse it in, so on 2026-11-22 a stale export sent `pnpm install` from a second worktree into the first three
+times, breaking the first's tests until it was reinstalled. Without the export, pnpm finds the workspace of the checkout
+it runs in. The other guards stay: `stage.ts`, `bump.ts`, `cli-bump.ts`, `relock.ts` and CI each export their own root;
+`workspace-guard.ts` still refuses a hand export, or one from a shell started before this change, that names another
+checkout; and a nested install inside `t3code/` is caught by `check:workspace` and `stage.ts deploy`. Its fix: `rm -rf
+t3code/node_modules`, then `pnpm install --frozen-lockfile` at the root. Rejected: a pnpm and vp wrapper on `PATH` that
+derives the root from the git top-level, which would be a permanent shim and needed a spike.
