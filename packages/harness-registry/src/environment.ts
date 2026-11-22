@@ -159,7 +159,8 @@ export const ENVIRONMENT_SETTINGS = {
   },
   setupOutputKiB: {
     title: "Setup output kept (KiB)",
-    description: "How much of the end of a setup's output Status keeps and shows, secret Variables blanked.",
+    description:
+      "The last part of every setup's output that the Status section keeps and shows, secret Variables blanked: 4 to 256 KiB, 32 by default. Applies at each Workspace's next Container start; a report already kept stays as it is.",
     schema: { type: "integer", minimum: 4, maximum: MAX_SETUP_OUTPUT_KIB, default: 32 },
     tier: "down-free",
     row: "containerSetup",
