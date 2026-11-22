@@ -50,7 +50,7 @@ const SETTINGS: Readonly<Record<string, "free" | "down-free" | "asked">> = {
 /** Each Environment key: from, to, and the expected tier; `down` is the same key moved the other way. */
 const ENVIRONMENT: Readonly<Record<EnvironmentKey, { readonly up: readonly [unknown, unknown, "free" | "asked"]; readonly down: readonly [unknown, unknown, "free" | "asked"] }>> = {
   containerSize: { up: ["cpu-1", "standard-4", "asked"], down: ["standard-4", "standard-1", "asked"] },
-  containerIdleMinutes: { up: [2, 30, "free"], down: [30, 2, "free"] },
+  containerIdleMinutes: { up: [2, 30, "asked"], down: [30, 2, "free"] },
   containerBudget: { up: [3, 4, "asked"], down: [3, 2, "free"] },
   variables: { up: [[], [{ name: "A", value: "1", secret: false }], "asked"], down: [[{ name: "A", value: "1", secret: false }], [], "asked"] },
   globalMiseConfig: { up: ["", "[tools]\nnode = '24'\n", "asked"], down: ["[tools]\nnode = '24'\n", "", "asked"] },
@@ -380,8 +380,8 @@ describe("tierOf: the Environment settings", () => {
   });
 
   it("a multi-key change is asked when any key is; nothing moved is unchanged", () => {
-    expect(tier({ entity: "environment", stored: EMPTY_ENVIRONMENT, change: { settings: { containerIdleMinutes: 5, containerBudget: 2 } } })).toBe("free");
-    expect(tierOf({ entity: "environment", stored: EMPTY_ENVIRONMENT, change: { settings: { containerIdleMinutes: 5, containerBudget: 4 } } })).toEqual({ tier: "asked", reasons: ["containerBudget: 3 to 4 (turned up)"] });
+    expect(tier({ entity: "environment", stored: EMPTY_ENVIRONMENT, change: { settings: { containerIdleMinutes: 1, containerBudget: 2 } } })).toBe("free");
+    expect(tierOf({ entity: "environment", stored: EMPTY_ENVIRONMENT, change: { settings: { containerIdleMinutes: 1, containerBudget: 4 } } })).toEqual({ tier: "asked", reasons: ["containerBudget: 3 to 4 (turned up)"] });
     expect(tier({ entity: "environment", stored: EMPTY_ENVIRONMENT, change: { settings: { containerIdleMinutes: 2, containerSize: "cpu-1" } } })).toBe("unchanged");
     expect(tier({ entity: "environment", stored: EMPTY_ENVIRONMENT, change: { settings: { nope: 1 } } })).toBe("asked");
   });

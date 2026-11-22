@@ -7,7 +7,7 @@
 //   POST /_t3flare/fault/boot-failures?count=N  make the next N boots fail (to prove automatic safe mode)
 //   POST /_t3flare/sql                          read-only SQL: {"sql": "...", "params": [...]}
 //   GET  /_t3flare/peer-links/count             SPI-1061 pre-B: how many outward link rows t3 stores (a count only; prod-safe)
-//   POST /_t3flare/arm-bootstrap?minutes=15     seed t3's bootstrap grant for a window (restarts t3 in place)
+//   POST /_t3flare/arm-bootstrap?minutes=15     seed t3's bootstrap grant for a window (restarts t3 in place); 400 unless minutes > 0
 //   POST /_t3flare/disarm-bootstrap
 //   POST /_t3flare/restart?mode=abort|in-place  reset the object (as an eviction does), or restart t3 only
 //   POST /_t3flare/idle-check?force=1           run the idle check now (force: ignore the idle delay)
@@ -53,8 +53,9 @@ import { adminFailureBody, logAdminFailure } from "./adminFailure.ts";
 import * as BootState from "./bootState.ts";
 import * as Idle from "./idle.ts";
 import * as ModuleState from "./moduleState.ts";
+import * as Pairing from "./pairing.ts";
 import { redactions } from "./redactingConsole.ts";
-import { DEFAULT_ARM_MINUTES, type EnvironmentDO, SafeModeError, isolate } from "../environmentDO.ts";
+import { type EnvironmentDO, SafeModeError, isolate } from "../environmentDO.ts";
 import { sqlStats } from "../platform/sqlAdapter.ts";
 import { spawnAttempts } from "../platform/services.ts";
 import * as StateStore from "../platform/stateStore.ts";
@@ -213,10 +214,13 @@ export const handleAdmin = async (request: Request, environment: EnvironmentDO):
       case "GET /_t3flare/peer-links/count":
         return json(peerLinkCount(environment));
       case "POST /_t3flare/arm-bootstrap": {
-        const minutes = Number(url.searchParams.get("minutes") ?? DEFAULT_ARM_MINUTES);
-        const until = await environment.arm(Number.isFinite(minutes) ? minutes : DEFAULT_ARM_MINUTES);
-        console.log(JSON.stringify({ t3flare: "bootstrap-armed", until: until.toISOString() }));
-        return json({ armedUntil: until.toISOString() });
+        return await Pairing.armRoute(url, {
+          arm: async (minutes) => {
+            const until = await environment.arm(minutes);
+            console.log(JSON.stringify({ t3flare: "bootstrap-armed", until: until.toISOString() }));
+            return until;
+          },
+        });
       }
       case "POST /_t3flare/disarm-bootstrap":
         await environment.disarm();

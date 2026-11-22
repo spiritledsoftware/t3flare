@@ -9,7 +9,8 @@ import type { SettingsFixture } from "./settingsFixture.ts";
 export const SUB = "owner-sub";
 export const OWNER: AccessCaller = { kind: "owner", subject: SUB };
 export const ENDPOINT = "https://t3.example.dev/_t3flare/mcp";
-export const FREE = { expectedRevision: 0, settings: { containerIdleMinutes: 7 } };
+// Free: the idle time lowered (`down-free`, ADR-0048).
+export const FREE = { expectedRevision: 0, settings: { containerIdleMinutes: 1 } };
 export const ASKED = { expectedRevision: 0, settings: { containerBudget: 4 } };
 export const KEY = new Uint8Array(32).fill(7);
 

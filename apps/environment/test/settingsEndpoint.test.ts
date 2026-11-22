@@ -302,10 +302,10 @@ describe("T-endpoint: versions and methods", () => {
     const { session } = await initialize(endpoint, "2025-11-25");
     await endpoint(legacy("tools/call", { name: "change_environment", arguments: FREE }, { session }));
     expect(f.store.auditLog(1)[0]?.client).toEqual({ name: "opencode 2.2.7", source: "clientInfo at initialize" });
-    await endpoint(post({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "change_environment", arguments: { expectedRevision: 1, settings: { containerIdleMinutes: 8 } } } }, { headers: { "user-agent": `agent/${"x".repeat(100)}` } }));
+    await endpoint(post({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "change_environment", arguments: { expectedRevision: 1, settings: { graceDays: 8 } } } }, { headers: { "user-agent": `agent/${"x".repeat(100)}` } }));
     expect(f.store.auditLog(1)[0]?.client).toEqual({ name: `agent/${"x".repeat(54)}`, source: "User-Agent" });
     const hostile = { name: `evil\u202Eclient\u0007${"x".repeat(100)}`, version: "1" };
-    await endpoint(modern("tools/call", { name: "change_environment", arguments: { expectedRevision: 2, settings: { containerIdleMinutes: 9 } }, _meta: { "io.modelcontextprotocol/clientInfo": hostile } }));
+    await endpoint(modern("tools/call", { name: "change_environment", arguments: { expectedRevision: 2, settings: { graceDays: 9 } }, _meta: { "io.modelcontextprotocol/clientInfo": hostile } }));
     const label = f.store.auditLog(1)[0]?.client;
     expect(label?.source).toBe("clientInfo in _meta");
     expect(label?.name).toHaveLength(60);

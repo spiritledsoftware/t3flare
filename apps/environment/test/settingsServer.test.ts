@@ -125,7 +125,8 @@ const durable = (thread = "thread-d"): OwnCaller => ({ door: "own", thread, agen
 const relayed = (thread = "thread-c"): OwnCaller => ({ door: "own", thread, agent: "codex" });
 
 /** A free change (idle time is free either way) and an asked one (the budget turned up), both to the Environment. */
-const FREE = { expectedRevision: 0, settings: { containerIdleMinutes: 7 } };
+// Free: the idle time lowered (`down-free`, ADR-0048).
+const FREE = { expectedRevision: 0, settings: { containerIdleMinutes: 1 } };
 const ASKED = { expectedRevision: 0, settings: { containerBudget: 4 } };
 
 describe("the Settings server: D7's mode table, every cell", () => {
@@ -156,7 +157,7 @@ describe("the Settings server: D7's mode table, every cell", () => {
             return;
           }
           expect(structured(answer)).toMatchObject({ status: "applied", revision: 1 });
-          expect(run.store.loadEnvironment().settings.containerIdleMinutes).toBe(7);
+          expect(run.store.loadEnvironment().settings.containerIdleMinutes).toBe(1);
           expect(run.cards.length).toBe(mode === "full-access" ? 0 : 1);
         });
 
@@ -192,7 +193,7 @@ describe("the Settings server's card for a free change", () => {
     expect(card!.id).toContain(MCP_QUESTION_MARKER);
     expect(card!.questions).toBeUndefined();
     expect(card!.options?.map((option) => option.decision)).toEqual(["accept", "decline", "cancel"]);
-    expect(card!.prompt).toContain("containerIdleMinutes: 2 to 7");
+    expect(card!.prompt).toContain("containerIdleMinutes: 2 to 1");
     expect(card!.prompt).toContain(`Asked by ${DURABLE_AGENT} on thread thread-d`);
     expect(card!.prompt).toContain("Applies when each Workspace's Container next starts");
   });
@@ -205,7 +206,7 @@ describe("the Settings server's card for a free change", () => {
     expect(run.cards[0]!.prompt).toContain("Applies at the next Sweep");
     expect(run.cards[0]!.prompt).not.toContain("Container next starts");
     // Both kinds in one change: both texts.
-    await run.call(durable(), "change_environment", { expectedRevision: 1, settings: { graceDays: 15, containerIdleMinutes: 9 } });
+    await run.call(durable(), "change_environment", { expectedRevision: 1, settings: { graceDays: 15, containerIdleMinutes: 1 } });
     expect(run.cards[1]!.prompt).toContain("Applies at the next Sweep");
     expect(run.cards[1]!.prompt).toContain("Container next starts");
     expect(SETTINGS_TOOLS.find((tool) => tool.name === "change_environment")!.description).toContain("next Sweep");
@@ -300,7 +301,7 @@ describe("the Settings server's write checks", () => {
   it("expectedRevision is required and a moved one is refused with the current revision; a change that moves nothing is unchanged", async () => {
     const run = setup();
     recordModes(durable(), "full-access");
-    expect(structured(await run.call(durable(), "change_environment", { settings: { containerIdleMinutes: 7 } }))).toEqual({ status: "refused" });
+    expect(structured(await run.call(durable(), "change_environment", { settings: { containerIdleMinutes: 1 } }))).toEqual({ status: "refused" });
     expect(structured(await run.call(durable(), "change_environment", { ...FREE, expectedRevision: 3 }))).toEqual({ status: "moved", revision: 0 });
     expect(structured(await run.call(durable(), "change_environment", { expectedRevision: 0, settings: { containerIdleMinutes: 2 } }))).toEqual({ status: "unchanged", revision: 0 });
     // Validation by the registry comes before the tier: an out-of-range value is refused, never asked.
@@ -338,16 +339,16 @@ describe("the Settings server's write checks", () => {
     const run = setup();
     recordModes(durable(), "full-access");
     for (let index = 0; index < APPLIED_CAP; index++) {
-      const answer = await run.call(durable(), "change_environment", { expectedRevision: index, settings: { containerIdleMinutes: index % 2 === 0 ? 7 : 8 } });
+      const answer = await run.call(durable(), "change_environment", { expectedRevision: index, settings: { graceDays: 8 + index } });
       expect(structured(answer).status).toBe("applied");
     }
-    const capped = await run.call(durable(), "change_environment", { expectedRevision: APPLIED_CAP, settings: { containerIdleMinutes: 9 } });
+    const capped = await run.call(durable(), "change_environment", { expectedRevision: APPLIED_CAP, settings: { graceDays: 100 } });
     expect(textOf(capped)).toContain(`${APPLIED_CAP} settings changes in the last hour`);
     // Another caller has its own count; an hour later the first may change again.
     recordModes(durable("thread-other"), "full-access");
-    expect(structured(await run.call(durable("thread-other"), "change_environment", { expectedRevision: APPLIED_CAP, settings: { containerIdleMinutes: 9 } })).status).toBe("applied");
+    expect(structured(await run.call(durable("thread-other"), "change_environment", { expectedRevision: APPLIED_CAP, settings: { graceDays: 100 } })).status).toBe("applied");
     run.advance(60 * 60_000 + 1);
-    expect(structured(await run.call(durable(), "change_environment", { expectedRevision: APPLIED_CAP + 1, settings: { containerIdleMinutes: 10 } })).status).toBe("applied");
+    expect(structured(await run.call(durable(), "change_environment", { expectedRevision: APPLIED_CAP + 1, settings: { graceDays: 101 } })).status).toBe("applied");
   });
 });
 

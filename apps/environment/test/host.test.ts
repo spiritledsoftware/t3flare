@@ -283,14 +283,38 @@ describe("Pairing window", () => {
     expect(await storage.getAlarm()).toBe(until.getTime());
   });
 
-  it("caps the window at an hour and closes it on disarm", async () => {
+  it("opens the window for as long as asked, unclamped, and closes it on disarm", async () => {
     const storage = memoryStorage();
-    expect(await Pairing.arm(storage, 600, now)).toEqual(minutes(Pairing.MAX_ARM_MINUTES));
+    expect(await Pairing.arm(storage, 600, now)).toEqual(minutes(600));
+    expect(await Pairing.armedUntil(storage)).toEqual(minutes(600));
     expect(await Pairing.isArmed(storage, now)).toBe(true);
     await Pairing.disarm(storage);
     expect(await Pairing.isArmed(storage, now)).toBe(false);
     expect(await Pairing.onAlarm(storage, { seeded: false }, now)).toBe("keep");
     expect(await storage.getAlarm()).toBeNull();
+  });
+
+  it("the arm route: the default without minutes, any positive length unclamped, and the consequence stated once", async () => {
+    const asked: Array<number> = [];
+    const deps = { arm: async (length: number) => (asked.push(length), minutes(length)) };
+    const route = (query: string) => Pairing.armRoute(new URL(`https://env.example/_t3flare/arm-bootstrap${query}`), deps, now);
+    for (const [query, length] of [["", Pairing.DEFAULT_ARM_MINUTES], ["?minutes=600", 600], ["?minutes=0.5", 0.5], ["?minutes=10080", 10_080]] as const) {
+      const answer = await route(query);
+      expect(answer.status, query).toBe(200);
+      expect(await answer.json(), query).toEqual({ armedUntil: minutes(length).toISOString(), note: "While the window is open, anyone holding the bootstrap token can pair a client." });
+    }
+    expect(asked).toEqual([Pairing.DEFAULT_ARM_MINUTES, 600, 0.5, 10_080]);
+  });
+
+  it("the arm route refuses a non-numeric, non-positive or unrepresentable minutes (400), arming nothing", async () => {
+    const asked: Array<number> = [];
+    const deps = { arm: async (length: number) => (asked.push(length), minutes(length)) };
+    for (const query of ["?minutes=", "?minutes=%20", "?minutes=abc", "?minutes=0", "?minutes=-5", "?minutes=NaN", "?minutes=Infinity", "?minutes=1e300"]) {
+      const answer = await Pairing.armRoute(new URL(`https://env.example/_t3flare/arm-bootstrap${query}`), deps, now);
+      expect(answer.status, query).toBe(400);
+      expect(((await answer.json()) as { error: string }).error, query).toMatch(/minutes/);
+    }
+    expect(asked).toEqual([]);
   });
 
   it("finds the bootstrap token in the parsed credential, however it is encoded", () => {

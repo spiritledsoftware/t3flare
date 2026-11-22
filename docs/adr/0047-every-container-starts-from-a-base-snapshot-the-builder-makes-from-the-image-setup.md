@@ -51,7 +51,8 @@ new Container's start. Both are Environment settings, bash scripts of up to 256 
    the Container budget (no); a scheduled rebuild (off); and whether Terminals read `~/.bashrc` and CLI agents read the
    dotfiles' own agent config, `~/.claude.json` included (both on; t3flare's model routing and managed settings stay
    on top). Fixed only by constraint: 256 KiB per script (every Environment setting is one stored value of at most
-   2 MB) and the rebuild after an image change.
+   2 MB) and the rebuild after an image change. The three time limits' maximums (60, 120 and 15 minutes) were no constraint: since
+   [ADR-0048](0048-the-owner-is-trusted-with-their-own-settings-and-a-maximum-is-a-named-constraint-or-a-sanity-bound.md) each takes the shared 10,080-minute maximum for limits t3flare times itself.
 10. **With no Global mise config, mise's global config is the dotfiles' own** (`~/.config/mise/config.toml`), not
     t3flare's empty file, so a dotfiles manager such as chezmoi declares the Owner's tools. The lay-down's check still
     runs on it: under a file that breaks git or gh, t3flare points mise back at its own file and the Settings page says
@@ -163,3 +164,9 @@ new Container's start. Both are Environment settings, bash scripts of up to 256 
 8. **A `missing` report answers once the Builder read the settings and began a build,** before the build's first step;
    a start whose report gets no answer within 5 seconds reads the record again (it is not serialised behind the alarm).
    The fast fallback's 60 s (§6 says two connects) is computer's one connect deadline, which its attempts share.
+
+## Refinement ([ADR-0048](0048-the-owner-is-trusted-with-their-own-settings-and-a-maximum-is-a-named-constraint-or-a-sanity-bound.md), 2026-11-22): the time limits' maximums
+
+§9's Container setup, Image setup and snapshot time limits keep their defaults (5, 30 and 5 minutes) and take
+`MAX_TIMED_MINUTES`, 10,080 minutes, as their maximum. A week keeps a Workspace's longest wait for a Base build
+(`waitLimitMs`: the Image setup's limit plus twice the snapshot's) at three weeks, under a JS timer's 24.8-day overflow.

@@ -1,11 +1,15 @@
 // The Environment settings in the panel (SPI-1149, ADR-0032): `handleHarness` over a store, as for the Harness settings.
 // Their own revision (an Environment change never moves the Harness one, and the reverse), the audit log's `entity`
 // (old entries read as harness), validation, the same CSRF and Origin guards as the old routes, and the page's section.
+// @effect-diagnostics nodeBuiltinImport:off
+import { Script } from "node:vm";
+
 import { describe, expect, it } from "vitest";
 
 import { csrfToken } from "../src/harness/csrf.ts";
 import type { AccessCaller } from "../src/access.ts";
 import { CSRF_HEADER, handleHarness } from "../src/harness/panel.ts";
+import { budgetNote, SCRIPT } from "../src/harness/pageScript.ts";
 import { AUDIT_KEY, harnessStore } from "../src/harness/store.ts";
 
 const HOST = "t3-admin.example.dev";
@@ -108,8 +112,8 @@ describe("Environment settings in the panel", () => {
     for (const body of [{ settings: { containerSize: "lite" } }, { settings: { containerIdleMinutes: 0 } }, { settings: { secrets: "x" } }, { containerSize: "standard-1" }, "[]"]) {
       expect((await post(deps, "environment", body, {})).status).toBe(400);
     }
-    const response = await post(deps, "environment", { settings: { containerIdleMinutes: 61 } }, {});
-    expect(await response.text()).toContain("containerIdleMinutes: at most 60");
+    const response = await post(deps, "environment", { settings: { containerIdleMinutes: 10_081 } }, {});
+    expect(await response.text()).toContain("containerIdleMinutes: at most 10080");
     expect(store.loadEnvironment().revision).toBe(0);
     expect(store.auditLog(10)).toEqual([]);
   });
@@ -133,7 +137,7 @@ describe("Environment settings in the panel", () => {
     const answer = await getJson(deps, "environment");
     expect(answer.revision).toBe(1);
     expect(answer.schema.containerSize.schema.values).toEqual(["cpu-1", "standard-1", "standard-2", "standard-3", "standard-4"]);
-    expect(answer.schema.containerBudget.schema).toMatchObject({ minimum: 1, maximum: 10, default: 3 });
+    expect(answer.schema.containerBudget.schema).toMatchObject({ minimum: 1, maximum: 100, default: 3 });
     expect(answer.costs.budget).toBe(5);
     expect(answer.costs.rows).toHaveLength(5);
     expect(answer.running).toEqual({ count: 2, holders: ["web-app", "b2"] });
@@ -162,9 +166,10 @@ describe("Environment settings in the panel", () => {
     expect(html).not.toContain('data-setting="sweepPurges"');
   });
 
-  it("refuses a budget out of 1 to 10", async () => {
+  it("refuses a budget out of 1 to 100", async () => {
     const { deps } = setup({ kind: "service-token" });
-    for (const budget of [0, 11]) expect((await post(deps, "environment", { settings: { containerBudget: budget } }, {})).status).toBe(400);
+    for (const budget of [11, 100]) expect((await post(deps, "environment", { settings: { containerBudget: budget } }, {})).status).toBe(200);
+    for (const budget of [0, 101]) expect((await post(deps, "environment", { settings: { containerBudget: budget } }, {})).status).toBe(400);
   });
 
   it("shows an Environment section with the size, the idle time, the budget beside the running Containers, and the cost table", async () => {
@@ -182,6 +187,12 @@ describe("Environment settings in the panel", () => {
     expect(html).toContain("With these settings, at most $0.22 an hour: 3 Containers of standard-1, every vCPU busy.");
     expect(html).toContain("data-budget-head>3 Containers, an hour<");
     expect(html).toContain("web-app");
+    // The budget's consequence, stated once, and rewritten by the script as the budget input changes.
+    const note = "Each running Container is billed for its size; at this budget, up to 3 can run at once. Your Cloudflare account&#39;s own Container limits (concurrent memory, vCPU and disk) also apply; t3flare does not check them.";
+    expect(html.split(note)).toHaveLength(2);
+    const rewrite = new Script(`(count) => ${SCRIPT.match(/budgetLine\.textContent = (.*);$/m)![1]}`).runInNewContext() as (count: number) => string;
+    expect(rewrite(40)).toBe(budgetNote(40));
+    expect(budgetNote(40)).toContain("up to 40 can run at once.");
   });
 
   it("audits the Global mise config as its size and SHA-256, never its text", async () => {

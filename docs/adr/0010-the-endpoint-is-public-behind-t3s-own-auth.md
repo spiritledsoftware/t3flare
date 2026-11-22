@@ -5,7 +5,7 @@ Stock t3 desktop and mobile clients, and Peer links, cannot pass Cloudflare Acce
 ## How step 1 does it
 
 - **Access only on the admin path.** Each stage's alchemy stack creates an Access application whose destination is `<host>/_t3flare` (and below) on every host the Worker serves (its workers.dev host, and its custom domain when it has one: prod's is `T3FLARE_DOMAIN`, docs/deploy.md), with two policies: an Allow for the owner's email, and a Service Auth (`non_identity`) for the stage's own Access service token, which the acceptance test and the bump job use. The Worker does not trust that Access ran: it verifies `Cf-Access-Jwt-Assertion` itself (RS256 against the team's keys, issuer, lifetime, the application's `aud`, then the owner's email or that service token's client id) and then the admin token, and answers 404 to anything else. A Worker without its audience, team or token refuses every admin request.
-- **Pairing is armed, not standing.** `T3_BOOTSTRAP_TOKEN` reaches t3's `ServerConfig.desktopBootstrapToken` only on a boot while pairing is armed (`POST /_t3flare/arm-bootstrap`, 15 minutes by default, 60 at most). Arming restarts t3 in place so the grant is seeded; when the window closes the alarm restarts it without the grant; and outside the window the Environment DO refuses a bootstrap exchange that presents the token, even if t3 still holds a grant in memory.
+- **Pairing is armed, not standing.** `T3_BOOTSTRAP_TOKEN` reaches t3's `ServerConfig.desktopBootstrapToken` only on a boot while pairing is armed (`POST /_t3flare/arm-bootstrap`, 15 minutes by default, 60 at most; as long as asked since [ADR-0048](0048-the-owner-is-trusted-with-their-own-settings-and-a-maximum-is-a-named-constraint-or-a-sanity-bound.md)). Arming restarts t3 in place so the grant is seeded; when the window closes the alarm restarts it without the grant; and outside the window the Environment DO refuses a bootstrap exchange that presents the token, even if t3 still holds a grant in memory.
 - **No token in the logs.** t3's Console (and the loggers writing through it) is a redacting one: it drops t3's startup pairing-URL line and redacts `token=` values and bearer credentials.
 - **`remote-reachable`.** `ServerConfig.host` is the Worker's public host, so t3's auth descriptor reports `remote-reachable` (its session cookie name then derives from the environment id alone, so it is stable). Nothing else in t3's auth is configured with the public origin: origin checks, DPoP's `htu`, MCP OAuth's issuer and pairing URLs are all taken from each request, and the session cookie is host-only, so a stage answers the same on its custom domain and its workers.dev host (a browser session on one is not a session on the other).
 
@@ -86,3 +86,9 @@ built. Until now they defaulted to the Maintainer's values, which another Owner 
 deployed into their own Access policy. `prod`'s custom domain (`T3FLARE_DOMAIN`) and its zone (`T3FLARE_DOMAIN_ZONE_ID`)
 are Deployment settings too, so the domain and zone named above are the Maintainer's Deployment's. `prod` still needs a
 domain in a zone, for the rate limit.
+
+## Refinement ([ADR-0048](0048-the-owner-is-trusted-with-their-own-settings-and-a-maximum-is-a-named-constraint-or-a-sanity-bound.md), 2026-11-22): the Pairing window is as long as asked
+
+`POST /_t3flare/arm-bootstrap?minutes=N` opens the window for N minutes, 15 by default, with no 60-minute clamp. A
+`minutes` that is not a positive number is refused with 400, not swapped for the default. The answer states once that
+while the window is open, anyone holding the bootstrap token can pair a client. The alarm still closes it on time.

@@ -3,7 +3,7 @@
 // (`containerInstance`): defaults, an unknown stored size, the idle bounds, and `instance` never omitted.
 import { describe, expect, it } from "vitest";
 
-import { applyEnvironmentChange, BASE_BUILD_SETTING_KEYS, builderInstance, containerInstance, DOTFILES_SETTING_KEYS, EMPTY_ENVIRONMENT, ENVIRONMENT_SETTINGS, MAX_SETUP_BYTES, resolveEnvironment, SWEEP_SETTING_KEYS } from "./environment.ts";
+import { applyEnvironmentChange, BASE_BUILD_SETTING_KEYS, builderInstance, containerInstance, DOTFILES_SETTING_KEYS, EMPTY_ENVIRONMENT, ENVIRONMENT_SETTINGS, MAX_CONTAINER_BUDGET, MAX_SETUP_BYTES, MAX_TIMED_MINUTES, resolveEnvironment, SWEEP_SETTING_KEYS } from "./environment.ts";
 import type { EnvironmentSettingEntry } from "./fields.ts";
 
 /** The Base build's settings at their defaults (SPI-1332, ADR-0047 §9). */
@@ -15,7 +15,7 @@ describe("resolveEnvironment", () => {
   });
 
   it("reads a stored size it no longer offers, or an idle time out of bounds, as the default", () => {
-    expect(resolveEnvironment({ revision: 4, settings: { containerSize: "mem-8", containerIdleMinutes: 0, containerBudget: 11 } })).toEqual({ revision: 4, containerSize: "cpu-1", containerIdleMinutes: 2, containerBudget: 3, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, terminalsReadBashrc: true, agentsReadDotfiles: true, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
+    expect(resolveEnvironment({ revision: 4, settings: { containerSize: "mem-8", containerIdleMinutes: 0, containerBudget: 101 } })).toEqual({ revision: 4, containerSize: "cpu-1", containerIdleMinutes: 2, containerBudget: 3, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, terminalsReadBashrc: true, agentsReadDotfiles: true, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
     expect(resolveEnvironment({ revision: 5, settings: { containerSize: "standard-3", containerIdleMinutes: 15, containerBudget: 5 } })).toEqual({ revision: 5, containerSize: "standard-3", containerIdleMinutes: 15, containerBudget: 5, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, terminalsReadBashrc: true, agentsReadDotfiles: true, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
   });
 });
@@ -43,13 +43,13 @@ describe("applyEnvironmentChange", () => {
   });
 
   it("keeps the idle time between 1 and 60 whole minutes", () => {
-    for (const minutes of [1, 60]) expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { containerIdleMinutes: minutes } })).toMatchObject({ ok: true });
-    for (const minutes of [0, 61, 1.5, -2, "5"]) expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { containerIdleMinutes: minutes } })).toMatchObject({ ok: false });
+    for (const minutes of [1, 60, 1440, MAX_TIMED_MINUTES]) expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { containerIdleMinutes: minutes } })).toMatchObject({ ok: true });
+    for (const minutes of [0, MAX_TIMED_MINUTES + 1, 1.5, -2, "5"]) expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { containerIdleMinutes: minutes } })).toMatchObject({ ok: false });
   });
 
   it("keeps the Container budget between 1 and 10 whole Containers", () => {
-    for (const budget of [1, 10]) expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { containerBudget: budget } })).toMatchObject({ ok: true });
-    for (const budget of [0, 11, 2.5, "3"]) expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { containerBudget: budget } })).toMatchObject({ ok: false });
+    for (const budget of [1, 10, 11, MAX_CONTAINER_BUDGET]) expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { containerBudget: budget } })).toMatchObject({ ok: true });
+    for (const budget of [0, MAX_CONTAINER_BUDGET + 1, 2.5, "3"]) expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { containerBudget: budget } })).toMatchObject({ ok: false });
   });
 
   it("keeps the Grace a whole number of days from 1 (no zero: at once is the Owner's Purge, ADR-0043), and purging a switch", () => {
@@ -150,8 +150,8 @@ describe("the Container setup (ADR-0047 §7, §9)", () => {
   });
 
   it("takes a time limit of 1 to 60 minutes", () => {
-    for (const minutes of [1, 60]) expect(set({ containerSetupMinutes: minutes })).toMatchObject({ ok: true });
-    for (const minutes of [0, 61, 2.5]) expect(set({ containerSetupMinutes: minutes })).toMatchObject({ ok: false });
+    for (const minutes of [1, 60, 61, MAX_TIMED_MINUTES]) expect(set({ containerSetupMinutes: minutes })).toMatchObject({ ok: true });
+    for (const minutes of [0, MAX_TIMED_MINUTES + 1, 2.5]) expect(set({ containerSetupMinutes: minutes })).toMatchObject({ ok: false });
   });
 
   it("keeps 32 KiB of a setup's output by default, 4 to 256", () => {
@@ -186,10 +186,10 @@ describe("the Base build's settings (SPI-1332, ADR-0047 §9)", () => {
   });
 
   it("bounds the time limits, the scheduled rebuild and the Builder's size", () => {
-    for (const minutes of [1, 120]) expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { imageSetupMinutes: minutes } })).toMatchObject({ ok: true });
-    for (const minutes of [0, 121, 2.5]) expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { imageSetupMinutes: minutes } })).toMatchObject({ ok: false });
-    for (const minutes of [1, 15]) expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { snapshotMinutes: minutes } })).toMatchObject({ ok: true });
-    for (const minutes of [0, 16]) expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { snapshotMinutes: minutes } })).toMatchObject({ ok: false });
+    for (const minutes of [1, 120, 121, MAX_TIMED_MINUTES]) expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { imageSetupMinutes: minutes } })).toMatchObject({ ok: true });
+    for (const minutes of [0, MAX_TIMED_MINUTES + 1, 2.5]) expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { imageSetupMinutes: minutes } })).toMatchObject({ ok: false });
+    for (const minutes of [1, 15, 16, MAX_TIMED_MINUTES]) expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { snapshotMinutes: minutes } })).toMatchObject({ ok: true });
+    for (const minutes of [0, MAX_TIMED_MINUTES + 1]) expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { snapshotMinutes: minutes } })).toMatchObject({ ok: false });
     // 0 is off; 29 is the most, under the platform's 30-day expiry.
     for (const days of [1, 29]) expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { rebuildEveryDays: days } })).toMatchObject({ ok: true });
     for (const days of [-1, 30]) expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { rebuildEveryDays: days } })).toMatchObject({ ok: false });
