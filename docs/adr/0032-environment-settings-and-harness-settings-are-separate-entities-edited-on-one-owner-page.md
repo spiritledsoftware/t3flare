@@ -155,8 +155,7 @@ owner's `mise.toml` text, which every Container's commands get as mise's global 
    unchecked would break t3's git. The launch records the text, so a running Container keeps what it started with, a
    change applies at the next start, and an agent's edit of the file is gone then.
 4. **Held and bounded.** The lay-down counts as a command: no idle stop and no reclaim under it, and the idle time
-   counts from its end. The script bounds its lock (60 s), install (600 s, KILL 10 s later) and checks (20 s each) (the
-   install's bound is now a setting and the lock follows it: the SPI-1313 refinement below); the
+   counts from its end. The script bounds its lock (60 s), install (600 s, KILL 10 s later) and checks (20 s each); the
    Workspace DO waits their sum and a minute, then kills it and takes the file as not laid down, final for that
    Container. An exec that failed is tried again at once, then by the next command, Terminal, CLI process or alarm, at
    most three times per Container; the alarm also runs it for a running Container only passive reads have reached. The
