@@ -123,6 +123,7 @@ new Container's start. Both are Environment settings, bash scripts of up to 256 
    until the next test. A test has no schedule, no backoff and no pokes: a new test, of any text, runs at once and
    cancels one under way. An empty proposal with no Global mise config has nothing to build, as a Base build has not.
 3. **Where it runs from:** the Settings page's Test, beside the Image setup's text area, tests the text in the box,
-   unsaved; the page follows it by reading the last test, with no reload (which would lose the text). The Settings
+   unsaved; the page follows it by reading the last test, with no reload (which would lose the text). A test's record
+   carries the SHA-256 of the text it ran, so the page marks a result stale once the box holds another text. The Settings
    server's `test_base_build` takes the whole proposed text, free and with no revision, as `rebuild_base` is; plan mode
    refuses it as it refuses every write. `get_status` shows the result as `testBaseBuild`.
