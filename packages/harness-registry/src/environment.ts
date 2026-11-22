@@ -53,6 +53,17 @@ export type ContainerSetupFailure = (typeof CONTAINER_SETUP_FAILURES)[number];
  */
 export const MAX_REBUILD_DAYS = 29;
 
+/**
+ * What a new Container starts from while a Base build runs (ADR-0047 §6): the last good Base snapshot when it was made on
+ * the current Workspace image, the build's result once it ends, or the Workspace image.
+ */
+export const WHILE_BUILDING = ["lastGood", "wait", "image"] as const;
+export type WhileBuilding = (typeof WHILE_BUILDING)[number];
+
+/** The same while the last good Base snapshot was made on another Workspace image (ADR-0047 §6): wait, or the image. */
+export const WHILE_BUILDING_NEW_IMAGE = ["wait", "image"] as const;
+export type WhileBuildingNewImage = (typeof WHILE_BUILDING_NEW_IMAGE)[number];
+
 /** The Builder's size setting's value for "the Container size" (ADR-0047 §9). */
 export const BUILDER_SAME_SIZE = "sameAsContainer";
 
@@ -230,6 +241,20 @@ export const ENVIRONMENT_SETTINGS = {
     title: "Rebuild every (days)",
     description: `Builds the Base snapshot again this many days after the last good one, so the Image setup's downloads stay current. 0 is off. At most ${MAX_REBUILD_DAYS}: a Base snapshot expires 30 days after it was made.`,
     schema: { type: "integer", minimum: 0, maximum: MAX_REBUILD_DAYS, default: 0 },
+    row: "imageSetup",
+  },
+  whileBuilding: {
+    title: "While a Base build runs",
+    description:
+      "What a Workspace's new Container starts from while the Base snapshot is being built. The last good one: the Base snapshot made before, when it was made on the current Workspace image (its Image setup may be older); with none, as set below. Wait: the start waits for the build, at most its time limits, then starts from its result or the Workspace image. A running Container keeps what it started from.",
+    schema: { type: "enum", values: WHILE_BUILDING, default: "lastGood", labels: { lastGood: "Start from the last good one", wait: "Wait for the build", image: "Start from the Workspace image" } },
+    row: "imageSetup",
+  },
+  whileBuildingNewImage: {
+    title: "While a Base build runs after an image change",
+    description:
+      "When the last good Base snapshot was made on an older Workspace image (a deploy changed it) or there is none, and the setting above starts from the last good one: wait for the build, at most its time limits, or start from the Workspace image without the Image setup.",
+    schema: { type: "enum", values: WHILE_BUILDING_NEW_IMAGE, default: "wait", labels: { wait: "Wait for the build", image: "Start from the Workspace image" } },
     row: "imageSetup",
   },
   terminalsReadBashrc: {

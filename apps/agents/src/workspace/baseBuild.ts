@@ -147,6 +147,8 @@ export interface Build {
 /** The settings the Builder last read, by their key. */
 interface Current {
   readonly key: string;
+  /** The settings' revision (SPI-1333): a Workspace's start compares its own with it. Absent in one kept before. */
+  readonly revision?: number;
   readonly nothingToBuild: boolean;
   readonly rebuildEveryDays: number;
   readonly at: number;
@@ -280,7 +282,7 @@ export class BaseBuild {
     const current = storage.get<Current>(BUILDER_KEYS.current);
     const build = storage.get<Build>(BUILDER_KEYS.build);
     const good = this.#good();
-    const base = { key: current?.key ?? null, good, at: now() };
+    const base = { key: current?.key ?? null, ...(current?.revision === undefined ? {} : { revision: current.revision }), good, at: now() };
     if (isRunning(build)) {
       return { ...base, state: "building", phase: build.phase, since: build.startedAt, reason: build.reason, ...(build.waitingForBudget === true ? { waitingForBudget: true } : {}) };
     }
@@ -399,7 +401,7 @@ export class BaseBuild {
       this.#hmacKey(),
     );
     // A test has no schedule.
-    return { key, nothingToBuild: settings.imageSetup === "" && settings.globalMiseConfig === "", rebuildEveryDays: this.#test ? 0 : settings.rebuildEveryDays, at: this.#deps.now() };
+    return { key, revision: settings.revision, nothingToBuild: settings.imageSetup === "" && settings.globalMiseConfig === "", rebuildEveryDays: this.#test ? 0 : settings.rebuildEveryDays, at: this.#deps.now() };
   }
 
   #hmacKey(): Uint8Array {

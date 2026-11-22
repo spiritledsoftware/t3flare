@@ -73,6 +73,9 @@ const ENVIRONMENT: Readonly<Record<EnvironmentKey, { readonly up: readonly [unkn
   builderSize: { up: ["sameAsContainer", "standard-4", "asked"], down: ["standard-4", "sameAsContainer", "asked"] },
   builderInBudget: { up: [false, true, "asked"], down: [true, false, "asked"] },
   rebuildEveryDays: { up: [0, 7, "asked"], down: [7, 0, "asked"] },
+  // ADR-0047 §6 (SPI-1333): what a start does while a Base build runs is the Owner's policy, asked either way.
+  whileBuilding: { up: ["lastGood", "wait", "asked"], down: ["wait", "lastGood", "asked"] },
+  whileBuildingNewImage: { up: ["wait", "image", "asked"], down: ["image", "wait", "asked"] },
 };
 
 /** Two values of `schema` with `low` below `high` where that has a meaning (a boolean's false, a smaller integer). */

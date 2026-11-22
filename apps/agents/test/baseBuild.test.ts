@@ -340,6 +340,13 @@ describe("a Base build", () => {
     expect(build.record()).toMatchObject({ state: "failed", failure: { phase: "proving", message: 'a start from the snapshot failed: Snapshot "snap-gone" was not found.' } });
   });
 
+  it("says which revision of the Environment settings it last read (SPI-1333): a start's settings newer than it are not read yet", async () => {
+    const build = builder();
+    expect(build.record().revision).toBeUndefined();
+    await toRunning(build);
+    expect(build.record()).toMatchObject({ state: "building", revision: 4 });
+  });
+
   it("builds nothing with no Image setup and no Global mise config", async () => {
     settings = { imageSetup: "", globalMiseConfig: "" };
     const build = builder();

@@ -62,6 +62,11 @@ export interface BaseBuildRecord {
   readonly setup?: string;
   /** The key of the settings the Builder last read (`baseKey`); null before it read any. */
   readonly key: string | null;
+  /**
+   * The Environment settings' revision `key` was read at (SPI-1333): a Workspace whose start took a newer revision asks
+   * the Builder to read them again before it trusts `key`. Absent before the Builder read any, or in an older record.
+   */
+  readonly revision?: number;
   /** What the Base snapshot is for `key`: none, being built, ready (`good` is for it), or its last build failed. */
   readonly state: "none" | "building" | "ready" | "failed";
   /** `none` because there is nothing to build: no Image setup and no Global mise config. */
@@ -106,6 +111,7 @@ export const baseBuildRecord = (value: unknown): BaseBuildRecord | undefined => 
     (value.test === undefined || value.test === true) &&
     (value.setup === undefined || (typeof value.setup === "string" && /^[0-9a-f]{64}$/.test(value.setup))) &&
     (value.key === null || isText(value.key, 128)) &&
+    (value.revision === undefined || (isTime(value.revision) && Number.isInteger(value.revision))) &&
     ["none", "building", "ready", "failed"].includes(value.state as string) &&
     (value.nothingToBuild === undefined || typeof value.nothingToBuild === "boolean") &&
     (value.phase === undefined || (BASE_BUILD_PHASES as ReadonlyArray<unknown>).includes(value.phase)) &&

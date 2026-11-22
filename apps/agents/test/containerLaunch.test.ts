@@ -137,6 +137,14 @@ describe("the launch's Container setup (ADR-0047 §7)", () => {
   });
 });
 
+describe("what a launch started from (SPI-1333)", () => {
+  it("is kept with the launch and shown as it is: the Base snapshot's id and key, or the image and why", () => {
+    const launch = { ...launchOf({ settings: DEFAULTS, source: "environment" }), from: { base: { snapshotId: "snap-1", key: "k".repeat(64) } } };
+    expect(shownLaunch(launch).from).toEqual({ base: { snapshotId: "snap-1", key: "k".repeat(64) } });
+    expect(shownLaunch({ ...launch, from: { image: { why: "no Image setup and no Global mise config" } } }).from).toEqual({ image: { why: "no Image setup and no Global mise config" } });
+  });
+});
+
 describe("secretValuesOf", () => {
   it("answers the values of the Variables the launch names secret, nothing for a launch with none", () => {
     const variables = [
