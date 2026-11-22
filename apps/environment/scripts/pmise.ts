@@ -238,7 +238,7 @@ const variables = async () => {
 
   // A command each CLI agent runs (the platform's exec, then each CLI's own handling of its children's environment).
   for (const cli of (Object.keys(CLIS) as Array<Cli>).filter(wanted)) {
-    // A Workspace runs at most 4 CLI process weights (Claude Code and OpenCode count twice): each CLI on a fresh
+    // A Workspace runs at most cliProcessesPerWorkspace CLI process weights (default 4) (Claude Code and OpenCode count twice): each CLI on a fresh
     // Container, so the earlier ones' processes never refuse the next.
     await stopOn(WORKSPACE);
     paths.push({

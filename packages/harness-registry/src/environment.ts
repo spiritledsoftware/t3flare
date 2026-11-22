@@ -35,6 +35,36 @@ export const DEFAULT_CONTAINER_BUDGET = 3;
  */
 export const MAX_CONTAINER_BUDGET = 100;
 
+/**
+ * The CLI agents' processes per Workspace by default (`cliProcessesPerWorkspace`; plan §2.1, review F7), counted in
+ * Codex processes (Claude Code and OpenCode count twice, `CLI_WEIGHT` in apps/agents/src/workspace/processHost.ts). An
+ * idle Codex app-server measured 157–160 MB RSS on step4a (steps-evidence-1:docs/steps/step-4a/m3-memory.json), so four
+ * take about 0.65 GB of `cpu-1`'s 3 GiB, beside computerd (~100 MB) and the agents' own commands (an `npm ci` and its
+ * tests peak at 1–1.5 GB).
+ */
+export const DEFAULT_CLI_PROCESSES_PER_WORKSPACE = 4;
+
+/**
+ * The most CLI agents' processes per Workspace: a sanity bound, not a constraint (ADR-0048). Nothing in t3flare forces
+ * 100; the Container size's memory bounds it in fact (100 Codex processes take about 16 GB, past the largest size's
+ * 12 GiB), and the setting's description states that consequence.
+ */
+export const MAX_CLI_PROCESSES_PER_WORKSPACE = 100;
+
+/**
+ * The reclaim delay's default, in seconds (`cliReclaimSeconds`; review F7): a CLI agent's process out of a turn this
+ * long may be ended to free the Container for another Workspace.
+ */
+export const DEFAULT_CLI_RECLAIM_SECONDS = 30;
+
+/**
+ * The most seconds a CLI agent's process out of a turn waits before it may be ended to free the Container for another
+ * Workspace (`cliReclaimSeconds`). A named constraint: a CLI process holds the Container for `CLI_IDLE_HOLD_MS` (11
+ * minutes, apps/agents/src/workspace/processHost.ts) after its last turn, forced by t3's 10-minute session release, so a
+ * longer delay changes nothing.
+ */
+export const MAX_CLI_RECLAIM_SECONDS = 660;
+
 /** The largest Global mise config, in bytes of UTF-8. */
 export const MAX_GLOBAL_MISE_BYTES = 16 * 1024;
 
@@ -181,6 +211,22 @@ export const ENVIRONMENT_SETTINGS = {
       "How many Containers may run at once across the Environment. Applies at the next start; lowering it stops no running Container, and new starts wait until fewer run.",
     schema: { type: "integer", minimum: 1, maximum: MAX_CONTAINER_BUDGET, default: DEFAULT_CONTAINER_BUDGET },
     tier: "down-free",
+  },
+  cliProcessesPerWorkspace: {
+    title: "CLI agents' processes per Workspace",
+    description:
+      "How many CLI agents' processes one Workspace's Container may run at once; Claude Code's and OpenCode's each count as two. Each CLI agent's process takes about 150 to 200 MB of the Container's memory; past what the Container size has, commands fail for memory. Applies at each CLI agent's next start; lowering it ends no running process, and new starts are refused until fewer run.",
+    // A sanity bound (ADR-0048): the Container's memory is the real one, which the description states.
+    schema: { type: "integer", minimum: 1, maximum: MAX_CLI_PROCESSES_PER_WORKSPACE, default: DEFAULT_CLI_PROCESSES_PER_WORKSPACE },
+    tier: "down-free",
+  },
+  cliReclaimSeconds: {
+    title: "CLI agent's idle time before it may end (seconds)",
+    description:
+      "Only while the Container budget is full and another Workspace asks for a Container: a CLI agent's process idle this long after its turn may be ended to free the Container for another Workspace. 0 is as soon as its turn ends. Applies at each CLI agent's next start; a running one keeps what it started with.",
+    // A named constraint (`MAX_CLI_RECLAIM_SECONDS`): past the CLI idle hold, a longer delay changes nothing.
+    schema: { type: "integer", minimum: 0, maximum: MAX_CLI_RECLAIM_SECONDS, default: DEFAULT_CLI_RECLAIM_SECONDS },
+    tier: "free",
   },
   variables: {
     title: "Variables",

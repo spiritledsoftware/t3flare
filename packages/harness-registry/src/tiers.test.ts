@@ -52,6 +52,9 @@ const ENVIRONMENT: Readonly<Record<EnvironmentKey, { readonly up: readonly [unkn
   containerSize: { up: ["cpu-1", "standard-4", "asked"], down: ["standard-4", "standard-1", "asked"] },
   containerIdleMinutes: { up: [2, 30, "asked"], down: [30, 2, "free"] },
   containerBudget: { up: [3, 4, "asked"], down: [3, 2, "free"] },
+  // SPI-1318: more processes spend memory and model tokens, so a raise is asked; the reclaim delay is free either way.
+  cliProcessesPerWorkspace: { up: [4, 8, "asked"], down: [4, 2, "free"] },
+  cliReclaimSeconds: { up: [30, 600, "free"], down: [30, 0, "free"] },
   variables: { up: [[], [{ name: "A", value: "1", secret: false }], "asked"], down: [[{ name: "A", value: "1", secret: false }], [], "asked"] },
   globalMiseConfig: { up: ["", "[tools]\nnode = '24'\n", "asked"], down: ["[tools]\nnode = '24'\n", "", "asked"] },
   // A shorter install bound only narrows; a longer one spends Container time, so it is asked.

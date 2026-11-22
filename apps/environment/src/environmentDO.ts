@@ -211,6 +211,11 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
         };
       },
       newKey: () => `proc-${crypto.randomUUID()}`,
+      // Read at each CLI spawn (SPI-1318): the count applies at the next start, the reclaim delay to processes started after.
+      cliLimits: () => {
+        const { cliProcessesPerWorkspace, cliReclaimSeconds } = resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment());
+        return { cliProcessesPerWorkspace, cliReclaimSeconds };
+      },
     });
     bindEnvironmentServices({
       agents: env,

@@ -234,3 +234,19 @@ lay-down waits for one run's whole install, KILL and checks, and 30 s more. The 
 attempts stay derived or fixed: t3flare's own robustness. The git and gh checks stay at 20 s each, t3flare's own proof
 that its git still runs. The Builder's lay-down in a Base build gets the same bound; the bound is not part of the Base
 key, so changing it alone leaves a Base snapshot current.
+
+## Refinement (SPI-1318, 2026-11-22): the CLI agents' processes per Workspace and the reclaim delay
+
+The Workspace DO's fixed cap of 4 CLI processes and its fixed 30 s reclaim delay were measured against `cpu-1`; since
+the Container size is a setting, both are the Owner's. `cliProcessesPerWorkspace`: 4 by default, 1 to 100, tier
+`down-free`, counted as before (Claude Code and OpenCode count two each). 100 is a sanity bound (ADR-0048): the
+Container's memory bounds it in fact, and the description states that once ("Each CLI agent's process takes about 150
+to 200 MB of the Container's memory; past what the Container size has, commands fail for memory."). `cliReclaimSeconds`:
+30 by default, 0 to 660, tier `free`. 660 is a named constraint: a CLI process holds the Container for
+`CLI_IDLE_HOLD_MS` (11 minutes) after its last turn, forced by t3's 10-minute session release, so a longer delay changes
+nothing. Both show in the Containers row.
+
+The Environment DO reads both at each CLI spawn and carries them with the start request (`ProcessStartInput`), as the
+budget rides the lease request (§7); a carried value that is absent or out of bounds reads as its default. The count
+applies at the next start: lowering it ends no running process, and new starts are refused, naming the setting, until
+fewer run. The reclaim delay is kept with each process, so a change applies to processes started after it.

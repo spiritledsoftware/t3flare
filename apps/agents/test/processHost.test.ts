@@ -13,9 +13,13 @@ import {
   ProcessHost,
   type ProcessHostDeps,
   type ProcessMarker,
-  RECLAIMABLE_AFTER_MS,
+  STARTUP_GRACE_MS,
   textOf,
 } from "../src/workspace/processHost.ts";
+import { DEFAULT_CLI_RECLAIM_SECONDS, MAX_CLI_RECLAIM_SECONDS } from "@t3flare/harness-registry";
+
+/** The reclaim delay's default (`cliReclaimSeconds`), as a start without one gets. */
+const RECLAIM_DEFAULT_MS = DEFAULT_CLI_RECLAIM_SECONDS * 1000;
 
 const decoder = new TextDecoder();
 const tick = (ms = 40) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -53,7 +57,7 @@ const fakeProcess = (options: { failWrites?: boolean } = {}) => {
   };
 };
 
-const harness = (options: { running?: boolean; refuse?: string; maxProcesses?: number; failWrites?: boolean; allowProbe?: boolean } = {}) => {
+const harness = (options: { running?: boolean; refuse?: string; failWrites?: boolean; allowProbe?: boolean; beforeStart?: ProcessHostDeps["beforeStart"] } = {}) => {
   let now = 1_000_000;
   let running = options.running ?? true;
   let ack = 0;
@@ -81,8 +85,8 @@ const harness = (options: { running?: boolean; refuse?: string; maxProcesses?: n
     remember: (markers) => void (remembered = markers),
     remembered: () => remembered,
     filesMayHaveChanged: () => undefined,
-    maxProcesses: options.maxProcesses ?? 4,
     allowProbe: options.allowProbe ?? true,
+    ...(options.beforeStart === undefined ? {} : { beforeStart: options.beforeStart }),
   };
   const host = new ProcessHost(deps);
   /** The Environment's reads until nothing is left, each acknowledged. */
@@ -139,7 +143,7 @@ describe("ProcessHost", () => {
   });
 
   it("weighs Claude Code and OpenCode as two Codex processes each (step 4b, M0 P7's memory)", async () => {
-    const h = harness({ maxProcesses: 4 });
+    const h = harness();
     expect((await h.host.start(start("proc-a", { cli: "claude" }))).ok).toBe(true);
     expect((await h.host.start(start("proc-b", { cli: "opencode" }))).ok).toBe(true);
     const third = await h.host.start(start("proc-c", { cli: "codex" }));
@@ -147,12 +151,77 @@ describe("ProcessHost", () => {
     expect(h.spawned).toHaveLength(2);
   });
 
-  it("refuses past the per-Workspace cap", async () => {
-    const h = harness({ maxProcesses: 1 });
-    await h.host.start(start("proc-a"));
-    const answer = await h.host.start(start("proc-b"));
-    expect(answer.ok).toBe(false);
+  it("refuses past the count the start carries, naming the setting (SPI-1318)", async () => {
+    const h = harness();
+    await h.host.start(start("proc-a", { cliProcessesPerWorkspace: 1 }));
+    const answer = await h.host.start(start("proc-b", { cliProcessesPerWorkspace: 1 }));
+    expect(answer).toEqual({
+      ok: false,
+      epoch: 7,
+      reason:
+        "this Workspace's CLI agents' processes already count 1 of the 1 its Environment setting \"CLI agents' processes per Workspace\" (cliProcessesPerWorkspace) allows, and Claude Code's and OpenCode's count two each; let one finish first, or raise the setting",
+    });
     expect(h.spawned).toHaveLength(1);
+  });
+
+  it("runs as many as a higher carried count allows, past the default 4 (SPI-1318)", async () => {
+    const h = harness();
+    for (const key of ["a", "b", "c", "d", "e", "f"]) expect((await h.host.start(start(`proc-${key}`, { cliProcessesPerWorkspace: 6 }))).ok).toBe(true);
+    expect((await h.host.start(start("proc-g", { cliProcessesPerWorkspace: 6 }))).ok).toBe(false);
+    expect(h.spawned).toHaveLength(6);
+  });
+
+  it("takes the default count when a start carries none, or one out of the setting's bounds (an older or newer Environment)", async () => {
+    for (const carried of [undefined, 0, 101, 2.5]) {
+      const h = harness();
+      const extra = carried === undefined ? {} : { cliProcessesPerWorkspace: carried };
+      for (const key of ["a", "b", "c", "d"]) expect((await h.host.start(start(`proc-${key}`, extra))).ok).toBe(true);
+      expect((await h.host.start(start("proc-e", extra))).ok).toBe(false);
+    }
+  });
+
+  it("holds a slot for a start in flight: two concurrent starts at one below the count cannot both pass (SPI-1318)", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const h = harness({ beforeStart: async () => {
+        await gate;
+      } });
+    const first = h.host.start(start("proc-a", { cliProcessesPerWorkspace: 1 }));
+    const second = h.host.start(start("proc-b", { cliProcessesPerWorkspace: 1 }));
+    release();
+    const answers = await Promise.all([first, second]);
+    expect(answers.map((answer) => answer.ok)).toEqual([true, false]);
+    expect(h.spawned).toHaveLength(1);
+  });
+
+  it("gives the held slot back when a start fails", async () => {
+    let fail = true;
+    const h = harness({
+      beforeStart: async () => {
+        if (fail) throw new Error("the sandbox probe failed");
+      },
+    });
+    expect((await h.host.start(start("proc-a", { cliProcessesPerWorkspace: 1 }))).ok).toBe(false);
+    fail = false;
+    expect((await h.host.start(start("proc-b", { cliProcessesPerWorkspace: 1 }))).ok).toBe(true);
+  });
+
+  it("ends no running process when a start carries a count below what runs; new starts are refused until fewer run (SPI-1318)", async () => {
+    const h = harness();
+    for (const key of ["a", "b", "c"]) await h.host.start(start(`proc-${key}`, { cliProcessesPerWorkspace: 4 }));
+    const lowered = await h.host.start(start("proc-d", { cliProcessesPerWorkspace: 1 }));
+    expect(lowered.ok).toBe(false);
+    expect(h.killed).toEqual([]);
+    expect(h.host.size).toBe(3);
+    expect(h.remembered().map((marker) => marker.key)).toEqual(["proc-a", "proc-b", "proc-c"]);
+    // Two exit: one runs, still not fewer than the lowered count of 1.
+    h.procs[0]!.exit(0);
+    h.procs[1]!.exit(0);
+    await tick();
+    expect((await h.host.start(start("proc-e", { cliProcessesPerWorkspace: 1 }))).ok).toBe(false);
+    h.procs[2]!.exit(0);
+    await tick();
+    expect((await h.host.start(start("proc-f", { cliProcessesPerWorkspace: 1 }))).ok).toBe(true);
   });
 
   it("kills the processes of another Environment epoch, and an earlier instance's orphans, before starting", async () => {
@@ -258,12 +327,69 @@ describe("ProcessHost", () => {
     expect(h.host.holdsContainer()).toBe(true);
     expect(h.host.reclaimable()).toEqual([]);
     h.host.turn("proc-a", false);
-    h.advance(RECLAIMABLE_AFTER_MS);
+    h.advance(RECLAIM_DEFAULT_MS);
     expect(h.host.reclaimable()).toEqual(["proc-a"]);
-    h.advance(CLI_IDLE_HOLD_MS - RECLAIMABLE_AFTER_MS - 1);
+    h.advance(CLI_IDLE_HOLD_MS - RECLAIM_DEFAULT_MS - 1);
     expect(h.host.holdsContainer()).toBe(true);
     h.advance(1);
     expect(h.host.holdsContainer()).toBe(false);
+  });
+
+  it("keeps the reclaim delay each process started with: a change applies to processes started after it (SPI-1318)", async () => {
+    const h = harness();
+    await h.host.start(start("proc-a"));
+    await h.host.start(start("proc-b", { cliReclaimSeconds: 120 }));
+    await h.host.start(start("proc-c", { cliReclaimSeconds: 0 }));
+    for (const key of ["proc-a", "proc-b", "proc-c"]) h.host.turn(key, true);
+    for (const key of ["proc-a", "proc-b", "proc-c"]) h.host.turn(key, false);
+    expect(h.host.reclaimable()).toEqual(["proc-c"]);
+    h.advance(RECLAIM_DEFAULT_MS - 1);
+    expect(h.host.reclaimable()).toEqual(["proc-c"]);
+    h.advance(1);
+    expect(h.host.reclaimable()).toEqual(["proc-a", "proc-c"]);
+    h.advance(120_000 - RECLAIM_DEFAULT_MS);
+    expect(h.host.reclaimable()).toEqual(["proc-a", "proc-b", "proc-c"]);
+  });
+
+  it("gives a process no turn has ended a 30 s startup grace from its start, even at a 0 s delay (SPI-1318)", async () => {
+    const h = harness();
+    await h.host.start(start("proc-a", { cliReclaimSeconds: 0 }));
+    expect(h.host.reclaimable()).toEqual([]);
+    h.advance(STARTUP_GRACE_MS - 1);
+    expect(h.host.reclaimable()).toEqual([]);
+    h.advance(1);
+    expect(h.host.reclaimable()).toEqual(["proc-a"]);
+  });
+
+  it("offers a process at once at a 0 s delay once one of its turns has ended, within the startup grace (SPI-1318)", async () => {
+    const h = harness();
+    await h.host.start(start("proc-a", { cliReclaimSeconds: 0 }));
+    h.host.turn("proc-a", true);
+    expect(h.host.reclaimable()).toEqual([]);
+    h.host.turn("proc-a", false);
+    expect(h.host.reclaimable()).toEqual(["proc-a"]);
+  });
+
+  it("keeps a turnless process's longer delay past the startup grace", async () => {
+    const h = harness();
+    await h.host.start(start("proc-a", { cliReclaimSeconds: 120 }));
+    h.advance(STARTUP_GRACE_MS);
+    expect(h.host.reclaimable()).toEqual([]);
+    h.advance(120_000 - STARTUP_GRACE_MS);
+    expect(h.host.reclaimable()).toEqual(["proc-a"]);
+  });
+
+  it("takes the default reclaim delay for one out of the setting's bounds", async () => {
+    const h = harness();
+    await h.host.start(start("proc-a", { cliReclaimSeconds: MAX_CLI_RECLAIM_SECONDS + 1 }));
+    h.host.turn("proc-a", true);
+    h.host.turn("proc-a", false);
+    h.advance(RECLAIM_DEFAULT_MS);
+    expect(h.host.reclaimable()).toEqual(["proc-a"]);
+  });
+
+  it("bounds the reclaim delay by the CLI idle hold (MAX_CLI_RECLAIM_SECONDS is CLI_IDLE_HOLD_MS)", () => {
+    expect(MAX_CLI_RECLAIM_SECONDS * 1000).toBe(CLI_IDLE_HOLD_MS);
   });
 
   it("ends every process by marker before a stop and waits for their exits", async () => {

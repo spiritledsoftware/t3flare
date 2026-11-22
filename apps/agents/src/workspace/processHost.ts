@@ -14,6 +14,7 @@
 // - The hold (review F7): a process holds the Container while its thread is in a turn, and for `idleHoldMs` after the
 //   last turn ended (or the last input). Past that it no longer holds it, and t3's own idle release (Patch 0003, at the
 //   same 10 minutes) ends the session.
+import { ENVIRONMENT_SETTINGS, fitsEnvironmentSetting } from "@t3flare/harness-registry";
 import { MODEL_HANDLE_ENV } from "@t3flare/models/relay";
 import { PROCESS_SHELL, processCommand, type ProcessFile } from "@t3flare/sandbox-image/process";
 import type {
@@ -39,10 +40,14 @@ export const ECHO_WINDOW_MS = 1_000;
 export const BACKPRESSURE_BYTES = 1024 * 1024;
 /** How long after its last turn a CLI process holds the Container (review F7; t3 releases the session at 10 minutes). */
 export const CLI_IDLE_HOLD_MS = 11 * 60_000;
+/**
+ * The least a CLI process no turn has ended yet waits from its start before a reclaim may end it, whatever the reclaim
+ * delay. Fixed for t3flare's own correctness: it covers the spawn to the first turn's arrival, so a reclaim cannot end a
+ * process before its first turn. Equal to the delay's default, so the default behaves as before the setting.
+ */
+export const STARTUP_GRACE_MS = 30_000;
 /** A process with neither input nor output for this long is killed (past the 2 h turn cap). */
 export const BACKSTOP_MS = 130 * 60_000;
-/** A process out of a turn for this long may be ended to free the Container for another Workspace (review F7). */
-export const RECLAIMABLE_AFTER_MS = 30_000;
 
 /** The part of the platform's `ExecProcess` used here (no PTY). */
 export interface CliProcess {
@@ -76,8 +81,6 @@ export interface ProcessHostDeps {
   readonly remembered: () => ReadonlyArray<ProcessMarker>;
   /** Output went quiet, or a process exited: the Container's files may have changed. */
   readonly filesMayHaveChanged: (why: "output" | "exit") => void;
-  /** At most this many live processes (derived from the memory probe, P9). */
-  readonly maxProcesses: number;
   /** Whether `cli: "probe"` may start (test stages). */
   readonly allowProbe: boolean;
   /** Before a start: the profile's checks that need the Container (the sandbox probe), and env for the process. */
@@ -92,6 +95,20 @@ export interface ProcessHostDeps {
 export const CLI_WEIGHT: Readonly<Record<string, number>> = { claude: 2, opencode: 2 };
 const weightOf = (cli: string) => CLI_WEIGHT[cli] ?? 1;
 
+/**
+ * A start's carried Environment settings (SPI-1318): the CLI agents' processes per Workspace and the reclaim delay, each
+ * read as its default when absent or out of the setting's bounds (an older or newer Environment), as the budget reads a
+ * carried budget (apps/agents/src/budget.ts).
+ */
+export const cliLimitsOf = (input: Pick<ProcessStartInput, "cliProcessesPerWorkspace" | "cliReclaimSeconds">): { readonly maxProcesses: number; readonly reclaimAfterMs: number } => ({
+  maxProcesses: carriedOr("cliProcessesPerWorkspace", input.cliProcessesPerWorkspace),
+  reclaimAfterMs: carriedOr("cliReclaimSeconds", input.cliReclaimSeconds) * 1000,
+});
+
+/** A carried integer setting when it fits the setting's schema, else the setting's default. */
+const carriedOr = (key: "cliProcessesPerWorkspace" | "cliReclaimSeconds", carried: number | undefined): number =>
+  carried !== undefined && fitsEnvironmentSetting(key, carried) ? carried : ENVIRONMENT_SETTINGS[key].schema.default;
+
 interface Proc {
   readonly key: string;
   readonly cli: string;
@@ -104,7 +121,11 @@ interface Proc {
   lastIo: number;
   lastInput: number;
   inTurn: boolean;
+  /** Whether any of its turns has ended (`reclaimable`). */
+  turnEnded: boolean;
   turnEndedAt: number;
+  /** Out of a turn this long, it may be ended to free the Container for another Workspace: the delay its start carried. */
+  readonly reclaimAfterMs: number;
   exited: boolean;
   killing: boolean;
   /** The process's tool handle (ADR-0028), in memory only: gone with the process or this object. */
@@ -136,6 +157,8 @@ export class ProcessHost {
   #drained: Array<() => void> = [];
   #reads = 0;
   #lastInput = 0;
+  /** The weight of starts between the cap's check and their registration (`start`). */
+  #reserved = 0;
 
   constructor(deps: ProcessHostDeps) {
     this.#deps = deps;
@@ -214,11 +237,19 @@ export class ProcessHost {
     return [...this.#procs.values()].some((proc) => !proc.exited && (proc.inTurn || now - Math.max(proc.turnEndedAt, proc.lastInput) < idleHoldMs));
   }
 
-  /** Processes no turn has used for `RECLAIMABLE_AFTER_MS`: the budget may end them for another Workspace. */
+  /**
+   * Processes no turn has used for the reclaim delay each started with: the budget may end them for another Workspace.
+   * One none of whose turns has ended yet waits at least `STARTUP_GRACE_MS` from its start: its first turn may not have
+   * arrived (a 0 s delay would otherwise offer it at its start).
+   */
   reclaimable(): ReadonlyArray<string> {
     const now = this.#deps.now();
     return [...this.#procs.values()]
-      .filter((proc) => !proc.exited && !proc.inTurn && now - Math.max(proc.turnEndedAt, proc.lastInput) >= RECLAIMABLE_AFTER_MS)
+      .filter((proc) => {
+        if (proc.exited || proc.inTurn) return false;
+        const wait = proc.turnEnded ? proc.reclaimAfterMs : Math.max(proc.reclaimAfterMs, STARTUP_GRACE_MS);
+        return now - Math.max(proc.turnEndedAt, proc.lastInput) >= wait;
+      })
       .map((proc) => proc.key);
   }
 
@@ -226,7 +257,34 @@ export class ProcessHost {
     const refuse = (reason: string): ProcessStartAnswer => ({ ok: false, epoch: this.#deps.epoch, reason });
     if (this.#procs.has(input.key)) return { ok: true, epoch: this.#deps.epoch };
     if (input.cli === "probe" && !this.#deps.allowProbe) return refuse("the probe program runs on test stages only");
-    if (this.weight + weightOf(input.cli) > this.#deps.maxProcesses) return refuse(`this Workspace already runs ${this.size} CLI agent processes (Claude Code and OpenCode count twice); let one finish first`);
+    const limits = cliLimitsOf(input);
+    // Lowering the setting ends no running process: a start is refused until fewer run (as the Container budget does).
+    // Starts in flight count too: the check and the registration are apart by awaits.
+    const counted = this.weight + this.#reserved;
+    if (counted + weightOf(input.cli) > limits.maxProcesses)
+      return refuse(
+        `this Workspace's CLI agents' processes already count ${counted} of the ${limits.maxProcesses} its Environment setting "${ENVIRONMENT_SETTINGS.cliProcessesPerWorkspace.title}" (cliProcessesPerWorkspace) allows, and Claude Code's and OpenCode's count two each; let one finish first, or raise the setting`,
+      );
+    // The slot is held from the check until the process is registered (it then counts in `weight`) or the start fails.
+    let held = weightOf(input.cli);
+    this.#reserved += held;
+    const release = () => {
+      this.#reserved -= held;
+      held = 0;
+    };
+    try {
+      return await this.#startHeld(input, limits, release);
+    } finally {
+      release();
+    }
+  }
+
+  async #startHeld(
+    input: ProcessStartInput & { readonly files?: ReadonlyArray<ProcessFile> },
+    limits: ReturnType<typeof cliLimitsOf>,
+    release: () => void,
+  ): Promise<ProcessStartAnswer> {
+    const refuse = (reason: string): ProcessStartAnswer => ({ ok: false, epoch: this.#deps.epoch, reason });
     if (!this.#deps.running()) {
       try {
         await this.#deps.startContainer();
@@ -277,13 +335,16 @@ export class ProcessHost {
       lastIo: now,
       lastInput: now,
       inTurn: false,
+      turnEnded: false,
       turnEndedAt: now,
+      reclaimAfterMs: limits.reclaimAfterMs,
       exited: false,
       killing: false,
       toolHandle: input.toolHandle !== undefined && HANDLE.test(input.toolHandle) ? input.toolHandle : undefined,
       modelHandle: (input.modelRelay ?? []).length > 0 ? newHandle() : undefined,
       modelEndpoints: new Set(input.modelRelay ?? []),
     };
+    release();
     this.#procs.set(input.key, proc);
     this.#save();
     // The model handle is this object's alone: whatever the profile's environment names it is dropped.
@@ -429,6 +490,7 @@ export class ProcessHost {
     if (proc === undefined || proc.exited) return this.#answer([key]);
     if (proc.inTurn && !active) {
       proc.turnEndedAt = this.#deps.now();
+      proc.turnEnded = true;
       // A turn ended: its session file and edits come into the DO now, not at the next quiet pull (a deploy or a
       // crash can take the Container before that).
       this.#deps.filesMayHaveChanged("exit");

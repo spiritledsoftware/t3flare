@@ -280,7 +280,7 @@ const codexTurn = async (workspace: string, label: string, prompt: string, answe
   const before = (await fixtureLog()).length;
   await sendMessage(cookie, threadId, prompt, model);
   const turn = await watch(threadId, answer, { runsBefore: 0, timeoutMs: 10 * 60_000 });
-  // Each case on a fresh process: a Workspace holds at most 4 CLI processes.
+  // Each case on a fresh process: a Workspace holds at most cliProcessesPerWorkspace CLI processes (default 4).
   await admin("POST", `/_t3flare/agents/workspace-stop?id=${workspace}`);
   return { threadId, status: turn.status, cards: turn.cards, reply: replyOf(turn.projection), logAdded: (await fixtureLog()).slice(before), ms: turn.ms };
 };
