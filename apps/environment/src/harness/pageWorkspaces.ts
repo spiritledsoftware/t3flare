@@ -67,8 +67,10 @@ const purgeCell = (escape: Escape, time: Time, view: WorkspacesView, row: Worksp
             : row.status === "unreferenced"
               ? "dated at the next Sweep"
               : "—";
-  // A date says it all; without one, the Sweep's own reason says why not.
-  return `${when}${row.purgeDue !== null || row.planned.why === "" ? "" : `<span class="src">${escape(row.planned.why)}</span>`}`;
+  // A date says it all; without one, the Sweep's own reason says why not. In use, Referenced by already says why, by name
+  // (the Sweep's reason gives the same references by id).
+  const why = row.purgeDue === null && row.status !== "in use" && row.planned.why !== "";
+  return `${when}${why ? `<span class="src">${escape(row.planned.why)}</span>` : ""}`;
 };
 
 /** A Workspace path or branch, escaped, that wraps only after a `/` (never mid-name). */

@@ -391,6 +391,9 @@ describe("the Workspaces section", () => {
     expect(section).toContain("uncommitted work (--force)");
     expect(section).toContain(`<time datetime="${new Date(FIXTURE_NOW + 5 * 24 * 60 * 60_000).toISOString()}" data-local>`);
     expect(section).toContain("never: kept");
+    // In use, Referenced by names why; the Sweep's reason (the same references by id) is not repeated beneath.
+    expect(section).toContain('<td data-label="Purged"><div>never while referenced</div></td>');
+    expect(section).not.toContain("project p-live");
     expect(section).toContain("Purging since");
   });
 
