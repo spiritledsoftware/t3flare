@@ -17,11 +17,11 @@ export const CLIS = {
   },
   /** Step 4b: Claude Code over ACP. `version` is Claude Code's (the `claude` the SDK's platform package holds). */
   claude: {
-    version: "2.1.322",
+    version: "2.1.330",
     /** npm's package, locked with its dependencies in image/claude/package-lock.json. */
     package: "@agentclientprotocol/claude-agent-acp",
-    packageVersion: "0.106.0",
-    sdkVersion: "0.3.322",
+    packageVersion: "0.109.1",
+    sdkVersion: "0.3.330",
   },
   /** Step 4b: OpenCode over ACP. */
   opencode: {
