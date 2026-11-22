@@ -59,20 +59,52 @@ const BLANK = "***";
 
 const utf8 = new TextEncoder();
 
-/**
- * `output` with every value of `secrets` blanked, then its last `maxBytes` of UTF-8, never a character cut in two.
- * Blanked before the cut, so a value the cut would split is whole when blanked; the longest value first, so a value
- * that holds another is blanked whole.
- */
-export const blankSecrets = (output: string, secrets: ReadonlyArray<string>, maxBytes: number): string => {
-  let blanked = output;
-  for (const secret of [...secrets].filter((value) => value !== "").sort((a, b) => b.length - a.length)) blanked = blanked.replaceAll(secret, BLANK);
-  const bytes = utf8.encode(blanked);
-  if (bytes.length <= maxBytes) return blanked;
+/** `text`'s last `maxBytes` of UTF-8, never a character cut in two. */
+const lastBytes = (text: string, maxBytes: number): string => {
+  const bytes = utf8.encode(text);
+  if (bytes.length <= maxBytes) return text;
   let start = bytes.length - maxBytes;
   // A continuation byte (10xxxxxx) starts no character: step past the rest of the one the cut split.
   while (start < bytes.length && (bytes[start]! & 0xc0) === 0x80) start++;
   return new TextDecoder().decode(bytes.subarray(start));
+};
+
+/**
+ * The last `keptBytes` of the wrapper's `window` with every value of `secrets` blanked. The cut is taken on the raw
+ * window, never on blanked text (blanking shrinks it): everything before its last `keptBytes` is dropped. The wrapper
+ * answers `SECRET_MARGIN_BYTES` more than is kept, at least any one value's length, so a copy the window's own start
+ * split lies wholly in the dropped head; a value that crosses the cut is blanked whole, its blank kept. The longest value
+ * is matched first, so a value that holds another is blanked whole.
+ */
+export const blankSecrets = (window: string, secrets: ReadonlyArray<string>, keptBytes: number): string => {
+  const values = [...new Set(secrets)].filter((value) => value !== "").sort((a, b) => b.length - a.length);
+  const kept = lastBytes(window, keptBytes);
+  if (values.length === 0) return kept;
+  const cut = window.length - kept.length;
+  let shown = "";
+  let at = 0;
+  // Each value's next copy at or after `at` (-1: none left), searched again only once passed.
+  const found = values.map((value) => window.indexOf(value));
+  // Every copy in the window, left to right (the longest of those that start first); text only from the cut on, and a
+  // copy that crosses the cut blanked whole.
+  while (at < window.length) {
+    let next = window.length;
+    let value: string | undefined;
+    values.forEach((candidate, index) => {
+      if (found[index] !== -1 && found[index]! < at) found[index] = window.indexOf(candidate, at);
+      const position = found[index]!;
+      if (position !== -1 && position < next) {
+        next = position;
+        value = candidate;
+      }
+    });
+    if (next > cut) shown += window.slice(Math.max(at, cut), next);
+    if (value === undefined) break;
+    if (next + value.length > cut) shown += BLANK;
+    at = next + value.length;
+  }
+  // A blank longer than a short value it replaced can grow the text past what is kept.
+  return lastBytes(shown, keptBytes);
 };
 
 export class ContainerSetup {

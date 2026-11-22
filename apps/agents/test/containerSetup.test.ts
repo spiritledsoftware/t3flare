@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { launchOf, secretValuesOf, withScripts } from "../src/workspace/containerLaunch.ts";
 import { blankSecrets, CONTAINER_SETUP_KEY, ContainerSetup, type ContainerSetupLaunch } from "../src/workspace/containerSetup.ts";
 import type { ContainerExec } from "../src/workspace/containerStep.ts";
+import { SECRET_MARGIN_BYTES } from "@t3flare/sandbox-image/containerSetup";
 
 const SHA = "c".repeat(64);
 const LAUNCH: ContainerSetupLaunch = { text: "apt-get install -y ripgrep\n", bytes: 27, sha256: SHA, revision: 3, source: "environment", minutes: 5, failure: "carryOn", outputBytes: 32 * 1024 };
@@ -125,18 +126,47 @@ describe("blankSecrets", () => {
     expect(blankSecrets("ab abc abcd", ["abc", "abcd", ""], 100)).toBe("ab *** ***");
   });
 
-  it("keeps the last bytes after blanking, so a value cut by the window's start never shows a part of it", () => {
-    const secret = "S".repeat(40);
-    // The secret crosses where a cut of the raw output would fall: blanked first, then cut.
-    const output = `${"x".repeat(10)}${secret}${"y".repeat(32 * 1024 - 20)}`;
-    const shown = blankSecrets(output, [secret], 32 * 1024);
-    expect(shown).not.toContain("S");
-    expect(new TextEncoder().encode(shown).length).toBeLessThanOrEqual(32 * 1024);
-    expect(shown.endsWith("y")).toBe(true);
-  });
-
   it("never cuts a character in two", () => {
     const shown = blankSecrets(`€${"x".repeat(9)}`, [], 10);
     expect(shown).toBe("x".repeat(9));
+  });
+
+  /** What the wrapper answers: the last `bytes` of the whole output, as `tail -c` cuts it (ASCII here). */
+  const tailOf = (whole: string, bytes: number) => whole.slice(Math.max(0, whole.length - bytes));
+  const KEPT = 4 * 1024;
+  const WINDOW = KEPT + SECRET_MARGIN_BYTES;
+
+  it("shows no part of a long secret echoed many times, whose copy the window's start split", () => {
+    // 4000 characters, the most a Variable's value holds, echoed 15 times: blanking shrinks the window far below what
+    // is kept, so a cut of the blanked text would keep the split copy's tail.
+    const secret = `s3cr3t-${"Q".repeat(3993)}`;
+    const whole = Array.from({ length: 15 }, (_, i) => `line ${i}: token=${secret}\n`).join("");
+    const window = tailOf(whole, WINDOW);
+    expect(window.startsWith("s3cr3t-")).toBe(false);
+    const shown = blankSecrets(window, [secret], KEPT);
+    expect(shown).not.toMatch(/Q/);
+    expect(shown.endsWith("line 14: token=***\n")).toBe(true);
+  });
+
+  it("shows no part of a short token traced by set -x in a long loop, whose copy the window's start split", () => {
+    const token = `ghp_${"Z".repeat(36)}`;
+    const line = `+ curl -sf -H 'Authorization: Bearer ${token}' https://api.github.com/repos/me/dotfiles\n`;
+    // The window starts in the middle of a copy of the token.
+    const whole = `${line.repeat(400)}+ done\n`;
+    const start = whole.length - WINDOW;
+    const window = whole.slice(start);
+    expect(whole.slice(start - 10, start + 10)).toMatch(/Z/);
+    const shown = blankSecrets(window, [token], KEPT);
+    expect(shown).not.toMatch(/Z|ghp_/);
+    expect(new TextEncoder().encode(shown).length).toBeLessThanOrEqual(KEPT);
+    expect(shown.endsWith("Bearer ***' https://api.github.com/repos/me/dotfiles\n+ done\n")).toBe(true);
+  });
+
+  it("blanks a secret that crosses the kept part's start whole", () => {
+    const secret = "S".repeat(40);
+    const window = `${"x".repeat(100)}${secret}${"y".repeat(KEPT - 20)}`;
+    const shown = blankSecrets(window, [secret], KEPT);
+    expect(shown.startsWith("***y")).toBe(true);
+    expect(shown).not.toMatch(/S/);
   });
 });
