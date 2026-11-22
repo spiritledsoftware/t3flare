@@ -4,8 +4,15 @@
 //   node scripts/stage.ts deploy <stage> [--web]
 //                                                      build (and the web client with --web or when missing), alchemy deploy,
 //                                                      then the stage's Model endpoint through the panel's API (SPI-1175)
-//   node scripts/stage.ts run <stage> <script> [args]  run scripts/<script>.ts against the stage, with its secrets
-//   node scripts/stage.ts destroy <stage>              alchemy destroy, and forget the stage's secrets
+//   node scripts/stage.ts run <stage> <script> [args]  run scripts/<script>.ts against the stage, with its secrets; a
+//                                                      <script> with a path separator or a .ts suffix is a path from the cwd.
+//                                                      The script itself runs in apps/environment, so a relative path in
+//                                                      [args] is from there
+//   node scripts/stage.ts destroy <stage>              alchemy destroy, and forget the stage's secrets; a stage deployed
+//                                                      from another checkout needs its T3_BOOTSTRAP_TOKEN and
+//                                                      T3FLARE_ADMIN_TOKEN in the environment, as CI passes them
+//
+// A <stage> is any name of lowercase letters, digits and inner dashes whose Worker names fit Cloudflare's limits (stage-names.ts).
 //
 // The stage's bootstrap and admin tokens are random, made on its first deploy and kept in
 // `.alchemy/stages/<stage>.env.json` (gitignored, 0600); its Access service token's credentials are written next
@@ -25,6 +32,7 @@ import * as path from "node:path";
 import * as url from "node:url";
 
 import { credentialsFile, secretsFile as secretsFileOf, standinFile } from "../stage-files.ts";
+import { stageNameProblem } from "../stage-names.ts";
 import { buildWorker } from "../build.ts";
 import { t3ServerVersion, t3TrackSetting } from "../serverVersion.ts";
 import { buildAgentsWorker } from "../../agents/build.ts";
@@ -32,6 +40,7 @@ import { isDurableObjectClassNotFound } from "./deploy-retry.ts";
 import { adminClient, ensureModelEndpoint } from "./lib/modelEndpoint.ts";
 import { allDeploySettings, deployPlan, devEnvNames, OPTIONAL_DEPLOY_SETTINGS } from "./lib/deployPlan.ts";
 import { MODEL_ENDPOINT_VAR, type ModelEndpointSpecResult } from "./lib/modelEndpointSpec.ts";
+import { stageScript } from "./lib/stageScript.ts";
 
 const here = path.resolve(import.meta.dirname, "..");
 const repoRoot = path.resolve(here, "../..");
@@ -39,19 +48,23 @@ const repoRoot = path.resolve(here, "../..");
 process.env.NPM_CONFIG_WORKSPACE_DIR = repoRoot;
 const [command, stage, ...rest] = process.argv.slice(2);
 
-/**
- * The stages this repo deploys to; anything else is refused, so a typo cannot create a stray stage. `prod` is the
- * owner's long-lived Environment, deployed from `main` only; step branches use their own throwaway stages.
- */
-const STAGES = new Set(["prod", "step1", "bump", "step2a", "models", "step2a2", "step2b", "debug2b", "leftovers", "ghfix", "modefix", "costwins", "step3", "idlesafe", "attach", "truecaps", "noanalytics", "bigrepo", "step3plus", "step4a", "step4b", "spi992", "pre1061", "tools", "stock", "pnpm", "bump1", "spi1079", "panel", "link", "ports", "ports2", "p996", "p997", "p1100", "pbatch", "pbatch2", "previews", "profilesave", "spi1141", "spi1050", "p1001", "penv", "pcli", "pvars", "penvsk", "pmise", "pclienv", "pgitobj", "p1160", "p1161", "p1162", "p1163", "p1164", "p1165", "p1166", "p1167", "p1168", "p1169", "p1170", "p1171", "p1172", "p1173", "p1174", "p1175", "p1176", "psettings", "psmcp", "demo", "pushdepth", "purge", "absorb"]);
-
-if (command === undefined || stage === undefined || !STAGES.has(stage)) {
-  console.error(`usage: node scripts/stage.ts deploy|run|destroy <${[...STAGES].join("|")}> …`);
+// Any Stage name whose Worker names fit Cloudflare's limits is accepted (stage-names.ts; SPI-1338): a throwaway Stage needs no edit here.
+// `prod` (the owner's long-lived Environment, deployed from `main` only) and `bump` (bump.ts) keep their guards below.
+const problem = stage === undefined ? undefined : stageNameProblem(stage);
+if (command === undefined || stage === undefined || problem !== undefined) {
+  if (problem !== undefined) console.error(`t3flare: ${problem}`);
+  console.error("usage: node scripts/stage.ts deploy|run|destroy <stage> …");
   process.exit(2);
 }
 
 const secretsFile = secretsFileOf(stage);
 const token = () => randomBytes(32).toString("base64url");
+/** `run` and `destroy` act on a stage deployed from here; without its local files there is nothing to act with. */
+const requireLocalFiles = (file: string, wayThrough: string) => {
+  if (fs.existsSync(file)) return;
+  console.error(`t3flare: no Stage "${stage}" deployed from here (no ${path.relative(here, file)}); ${wayThrough}`);
+  process.exit(1);
+};
 
 const STAGE_SECRETS = ["T3_BOOTSTRAP_TOKEN", "T3FLARE_ADMIN_TOKEN"];
 const inCI = process.env.GITHUB_ACTIONS === "true";
@@ -213,13 +226,16 @@ switch (command) {
   case "run": {
     const [script, ...args] = rest;
     if (script === undefined) {
-      console.error("usage: node scripts/stage.ts run <stage> <script> [args]");
+      console.error(
+        "usage: node scripts/stage.ts run <stage> <script> [args]  (<script>: a name in scripts/, or a path from the cwd; the script runs in apps/environment, so relative paths in [args] are from there)",
+      );
       process.exit(2);
     }
+    requireLocalFiles(credentialsFile(stage), `deploy it with node scripts/stage.ts deploy ${stage}`);
     const access = JSON.parse(fs.readFileSync(credentialsFile(stage), "utf8")) as { url: string; adminUrl?: string; settingsMcpUrl?: string; clientId: string; clientSecret: string };
     // Each script's fetch retries a connection Cloudflare's edge reset (lib/resetRetry.ts).
     const installResetRetry = url.pathToFileURL(path.join(here, "scripts/lib/installResetRetry.ts")).href;
-    const result = spawnSync(process.execPath, ["--import", installResetRetry, path.join(here, "scripts", `${script}.ts`), ...args], {
+    const result = spawnSync(process.execPath, ["--import", installResetRetry, stageScript(script, { scriptsDir: path.join(here, "scripts"), cwd: process.cwd() }), ...args], {
       cwd: here,
       stdio: "inherit",
       env: {
@@ -242,6 +258,10 @@ switch (command) {
     if (stage === "prod" && !rest.includes("--really-destroy-prod")) {
       console.error("t3flare: prod holds the owner's threads; pass --really-destroy-prod to destroy it");
       process.exit(2);
+    }
+    // CI passes the stage's tokens in the environment instead of a file (stageSecrets); so can a stage's other checkout.
+    if (!STAGE_SECRETS.every((name) => process.env[name])) {
+      requireLocalFiles(secretsFile, `to destroy a Stage deployed from another checkout, set its ${STAGE_SECRETS.join(" and ")} in the environment`);
     }
     const { status } = await alchemy(["destroy"], { ...stageSecrets(), ...deploySecrets(OPTIONAL_DEPLOY_SETTINGS) });
     if (status === 0) {

@@ -49,6 +49,7 @@ import { MCP_WORKER_COMPATIBILITY } from "../mcp-worker/src/engine/compatibility
 import { COMPATIBILITY } from "./build.ts";
 import { type DeploymentSettingName, optionalSetting, requiredSetting } from "./scripts/lib/deploymentSettings.ts";
 import { credentialsFile, standinFile } from "./stage-files.ts";
+import { stageNames } from "./stage-names.ts";
 import { ownerEndpointOn, SETTINGS_MCP_PATH, SETTINGS_OAUTH_GRANT, SETTINGS_OAUTH_REDIRECT_URIS, settingsMcpUrl } from "./src/settings/endpointLayout.ts";
 
 const here = import.meta.dirname;
@@ -106,12 +107,9 @@ export default Alchemy.Stack(
   { providers: Cloudflare.providers(), state: Cloudflare.state() },
   Effect.gen(function* () {
     const stage = yield* Alchemy.Stage;
-    const name = `t3flare-environment-${stage}`;
-    const agentsName = `t3flare-agents-${stage}`;
-    const codemodeName = `t3flare-codemode-${stage}`;
-    const mcpName = `t3flare-mcp-${stage}`;
-    const fixtureName = `t3flare-mcpfixture-${stage}`;
-    const probeName = `t3flare-probe-${stage}`;
+    // The names derived from the stage, kept with the bound they put on a Stage name (stage-names.ts).
+    const names = stageNames(stage);
+    const { environment: name, agents: agentsName, codemode: codemodeName, mcp: mcpName, mcpFixture: fixtureName, probe: probeName } = names;
     // Test stages: the tools step's fixture MCP server, when the stage has its bearer (scripts/stage.ts).
     const fixtureBearer = stage === "prod" ? "" : yield* Config.String("T3FLARE_FIXTURE_BEARER").pipe(Config.withDefault(""));
     // The account's workers.dev subdomain: the Worker's host has to be known to name the Access destination.
@@ -372,7 +370,7 @@ export default Alchemy.Stack(
         description: `t3's auth routes on ${domain} (apps/environment/alchemy.run.ts)`,
         rules: [
           {
-            ref: `t3flare-auth-${stage}`,
+            ref: names.authRule,
             description: `t3flare ${stage}: t3's auth routes on ${domain}`,
             expression: `(http.host eq "${domain}" and http.request.method eq "POST" and http.request.uri.path in {${AUTH_PATHS.map((p) => `"${p}"`).join(" ")}})`,
             action: "block",
@@ -390,9 +388,9 @@ export default Alchemy.Stack(
     let standinHost: string | undefined;
     let standinCredentials: unknown;
     if (standin) {
-      standinHost = `t3flare-${stage}-standin.${yield* required("T3FLARE_STANDIN_ZONE")}`;
+      standinHost = `${names.standin}.${yield* required("T3FLARE_STANDIN_ZONE")}`;
       const tunnel = yield* Cloudflare.Tunnel.Tunnel("StandinTunnel", {
-        name: `t3flare-${stage}-standin`,
+        name: names.standin,
         // cloudflared runs in the stand-in's container, beside t3; `Host` is passed as it is, which t3 needs.
         ingress: [{ hostname: standinHost, service: `http://localhost:${STANDIN_PORT}` }, { service: "http_status:404" }],
       });
