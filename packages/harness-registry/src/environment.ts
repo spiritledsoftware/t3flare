@@ -196,7 +196,7 @@ export const ENVIRONMENT_SETTINGS = {
   globalMiseInstallMinutes: {
     title: "Global mise install time limit (minutes)",
     description:
-      "How long mise install may run for the Global mise config (or your dotfiles' mise config) in a new Container, and in a Base build, before it is stopped. It holds the Container as a command does: a Container's first commands can wait up to twice this (once before the Container setup and again after it, when the setup may have changed your dotfiles' mise config) plus the Container setup time limit. Applies at each Workspace's next Container start and the next Base build; a running Container keeps what it started with.",
+      "How long mise install may run for the Global mise config (or your dotfiles' mise config) in a new Container, and in a Base build, before it is stopped. While it runs, the Container is in use, so its idle time does not stop it. A Container's first commands can wait up to twice this (once before the Container setup and again after it, when the setup may have changed your dotfiles' mise config) plus the Container setup time limit. In a Base build the install also counts against the Image setup time limit, which stops the build first if it is shorter. Applies at each Workspace's next Container start and the next Base build; a running Container keeps what it started with.",
     // The lay-down script's own `timeout` and the Workspace DO's wait for its exec (`globalMiseDeadlineMs`) time it, no
     // platform limit: the shared sanity maximum applies (ADR-0048).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: 10 },
