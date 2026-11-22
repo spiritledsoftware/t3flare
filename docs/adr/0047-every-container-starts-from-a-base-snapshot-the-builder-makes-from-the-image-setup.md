@@ -81,3 +81,30 @@ new Container's start. Both are Environment settings, bash scripts of up to 256 
 - A Base snapshot holds the CLIs at their pins, in the Owner's own account, never published (ADR-0040).
 - Whatever the Image setup writes, a secret Variable included, is in every Workspace's Container until the next Base
   build.
+
+## Refinement (SPI-1332, 2026-11-22): the Builder as built
+
+1. **Nothing to build:** with no Image setup and no Global mise config, the Builder builds nothing and records `none`;
+   a snapshot of the image alone would only cost a build per deploy.
+2. **Time limits:** the Image setup's time limit counts from the Builder's Container's first start (a wait for room under
+   the Container budget, or for a canceled build's snapshot, is not in it) and covers that start; the start that proves
+   the snapshot (§2) counts in the snapshot's. A step that keeps throwing fails at its limit.
+3. **No automatic rerun of a failing script:** a key whose last build failed in the Image setup (a non-zero exit) is not
+   built again by a boot or a Workspace's report; a change of key, Rebuild, or `rebuild_base` builds it. A failure that
+   was not the script's (a lost Container, a snapshot, a refused proof) is retried by any trigger, and so is a key whose
+   Base snapshot once worked and is gone (expired, or refused at a start): its script ran before.
+4. **A Rebuild while a build of the same key runs** leaves that build going, and while a late snapshot of the current key
+   is still being taken, no trigger starts another build: the late result is proved. The scheduled rebuild fires this
+   many days after the last good Base snapshot, and at the latest a day before it counts as gone; every failing
+   rebuild of one key, whatever its trigger (the schedule included), waits an hour, then twice as long each time (at
+   most a day), before the next; a change of key and a Rebuild run at once. The schedule is armed again from the last
+   good one after every build. A failed rebuild leaves the last good Base snapshot in use (still for the same
+   key), shown as ready with the failure beside it. Any Builder setting saved alone pokes the Builder, so it reads and
+   arms it again.
+5. **The poke carries only its reason:** the Builder reads the Environment settings itself, through the read a Container
+   start takes (secret Variables opened), which Status does not count as a Workspace's.
+6. **The key's Variables** are those that reach a command (`variableEnv`), in any order. The 29 days count from the
+   snapshot's creation: the Builder does not see a Workspace's restore.
+7. **One output setting, one blanking:** a failed Base build keeps the last `setupOutputKiB` of its output, the Container
+   setup's setting (SPI-1330), read and blanked as a Container setup's report is (`blankSecrets`, with its margin and
+   mark). The Builder's settings join the Image setup's row on the Settings page.

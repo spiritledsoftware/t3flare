@@ -3,17 +3,20 @@
 // (`containerInstance`): defaults, an unknown stored size, the idle bounds, and `instance` never omitted.
 import { describe, expect, it } from "vitest";
 
-import { applyEnvironmentChange, containerInstance, EMPTY_ENVIRONMENT, ENVIRONMENT_SETTINGS, resolveEnvironment } from "./environment.ts";
+import { applyEnvironmentChange, BASE_BUILD_SETTING_KEYS, builderInstance, containerInstance, EMPTY_ENVIRONMENT, ENVIRONMENT_SETTINGS, MAX_SETUP_BYTES, resolveEnvironment } from "./environment.ts";
 import type { EnvironmentSettingEntry } from "./fields.ts";
+
+/** The Base build's settings at their defaults (SPI-1332, ADR-0047 §9). */
+const BASE_DEFAULTS = { imageSetup: "", imageSetupMinutes: 30, snapshotMinutes: 5, builderSize: "sameAsContainer", builderInBudget: false, rebuildEveryDays: 0 } as const;
 
 describe("resolveEnvironment", () => {
   it("gives the defaults for empty settings: cpu-1 and a 2-minute idle time, at revision 0", () => {
-    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toEqual({ revision: 0, containerSize: "cpu-1", containerIdleMinutes: 2, containerBudget: 3, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, sweepPurges: true, graceDays: 7 });
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toEqual({ revision: 0, containerSize: "cpu-1", containerIdleMinutes: 2, containerBudget: 3, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
   });
 
   it("reads a stored size it no longer offers, or an idle time out of bounds, as the default", () => {
-    expect(resolveEnvironment({ revision: 4, settings: { containerSize: "mem-8", containerIdleMinutes: 0, containerBudget: 11 } })).toEqual({ revision: 4, containerSize: "cpu-1", containerIdleMinutes: 2, containerBudget: 3, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, sweepPurges: true, graceDays: 7 });
-    expect(resolveEnvironment({ revision: 5, settings: { containerSize: "standard-3", containerIdleMinutes: 15, containerBudget: 5 } })).toEqual({ revision: 5, containerSize: "standard-3", containerIdleMinutes: 15, containerBudget: 5, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, sweepPurges: true, graceDays: 7 });
+    expect(resolveEnvironment({ revision: 4, settings: { containerSize: "mem-8", containerIdleMinutes: 0, containerBudget: 11 } })).toEqual({ revision: 4, containerSize: "cpu-1", containerIdleMinutes: 2, containerBudget: 3, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
+    expect(resolveEnvironment({ revision: 5, settings: { containerSize: "standard-3", containerIdleMinutes: 15, containerBudget: 5 } })).toEqual({ revision: 5, containerSize: "standard-3", containerIdleMinutes: 15, containerBudget: 5, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
   });
 });
 
@@ -22,10 +25,10 @@ describe("applyEnvironmentChange", () => {
     const applied = applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { containerSize: "standard-4", containerIdleMinutes: 10 } });
     if (!applied.ok) throw new Error(applied.error);
     expect(applied.environment.revision).toBe(1);
-    expect(resolveEnvironment(applied.environment)).toEqual({ revision: 1, containerSize: "standard-4", containerIdleMinutes: 10, containerBudget: 3, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, sweepPurges: true, graceDays: 7 });
+    expect(resolveEnvironment(applied.environment)).toEqual({ revision: 1, containerSize: "standard-4", containerIdleMinutes: 10, containerBudget: 3, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
     const again = applyEnvironmentChange(applied.environment, { settings: { containerIdleMinutes: 5 } });
     if (!again.ok) throw new Error(again.error);
-    expect(resolveEnvironment(again.environment)).toEqual({ revision: 2, containerSize: "standard-4", containerIdleMinutes: 5, containerBudget: 3, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, sweepPurges: true, graceDays: 7 });
+    expect(resolveEnvironment(again.environment)).toEqual({ revision: 2, containerSize: "standard-4", containerIdleMinutes: 5, containerBudget: 3, variables: [], globalMiseConfig: "", containerSetup: "", containerSetupMinutes: 5, containerSetupFailure: "carryOn", setupOutputKiB: 32, sweepPurges: true, graceDays: 7, ...BASE_DEFAULTS });
   });
 
   it("stores and bumps the revision for the settings that moved only; a save that moves none changes nothing", () => {
@@ -156,5 +159,38 @@ describe("the Settings page's rows", () => {
       expect(owner, `${key}'s row`).toBeDefined();
       expect(["file", "variables"], `${key}'s row`).toContain(owner!.schema.type);
     }
+  });
+});
+
+describe("the Base build's settings (SPI-1332, ADR-0047 §9)", () => {
+  it("keeps the Image setup a file of at most 256 KiB of UTF-8", () => {
+    expect(MAX_SETUP_BYTES).toBe(256 * 1024);
+    expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { imageSetup: "apt-get install -y jq\r\n" } })).toMatchObject({ ok: true, changed: ["imageSetup"], environment: { settings: { imageSetup: "apt-get install -y jq\n" } } });
+    expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { imageSetup: "x".repeat(MAX_SETUP_BYTES) } })).toMatchObject({ ok: true });
+    expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { imageSetup: "x".repeat(MAX_SETUP_BYTES + 1) } })).toEqual({ ok: false, error: "imageSetup: is longer than 256 KiB of UTF-8" });
+  });
+
+  it("bounds the time limits, the scheduled rebuild and the Builder's size", () => {
+    for (const minutes of [1, 120]) expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { imageSetupMinutes: minutes } })).toMatchObject({ ok: true });
+    for (const minutes of [0, 121, 2.5]) expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { imageSetupMinutes: minutes } })).toMatchObject({ ok: false });
+    for (const minutes of [1, 15]) expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { snapshotMinutes: minutes } })).toMatchObject({ ok: true });
+    for (const minutes of [0, 16]) expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { snapshotMinutes: minutes } })).toMatchObject({ ok: false });
+    // 0 is off; 29 is the most, under the platform's 30-day expiry.
+    for (const days of [1, 29]) expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { rebuildEveryDays: days } })).toMatchObject({ ok: true });
+    for (const days of [-1, 30]) expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { rebuildEveryDays: days } })).toMatchObject({ ok: false });
+    for (const size of ["standard-4", "cpu-1"]) expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { builderSize: size } })).toMatchObject({ ok: true });
+    expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { builderSize: "lite" } })).toMatchObject({ ok: false });
+    expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { builderInBudget: true } })).toMatchObject({ ok: true, changed: ["builderInBudget"] });
+  });
+
+  it("starts the Builder at the Container size unless the Owner gave it one", () => {
+    const settings = (stored: Record<string, unknown>) => resolveEnvironment({ revision: 1, settings: stored });
+    expect(builderInstance(settings({ containerSize: "standard-3" }))).toBe("standard-3");
+    expect(builderInstance(settings({}))).toEqual(containerInstance("cpu-1"));
+    expect(builderInstance(settings({ containerSize: "standard-1", builderSize: "standard-4" }))).toBe("standard-4");
+  });
+
+  it("names the settings a Base build reads", () => {
+    expect(BASE_BUILD_SETTING_KEYS).toEqual(["imageSetup", "imageSetupMinutes", "snapshotMinutes", "builderSize", "builderInBudget", "rebuildEveryDays"]);
   });
 });

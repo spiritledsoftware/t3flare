@@ -45,7 +45,9 @@ import * as git from "isomorphic-git";
 import { CREDENTIAL_HELPER, CREDENTIAL_PATH } from "./credentialHelper.ts";
 import { BUDGET_NAME, type ContainerBudget, RENEW_EVERY_MS } from "../budget.ts";
 import { type EnvironmentDO, environmentStub } from "../environment.ts";
-import { EMPTY_ENVIRONMENT, fitVariableEnv, type McpRelayAnswer, type ResolvedEnvironment, resolveEnvironment } from "@t3flare/harness-registry";
+import { BASE_BUILD_CAPS, type BaseBuildRecord, BUILDERS, EMPTY_ENVIRONMENT, fitVariableEnv, type McpRelayAnswer, type ResolvedEnvironment, resolveEnvironment } from "@t3flare/harness-registry";
+import { BaseBuild } from "./baseBuild.ts";
+import { platformContainer, workspaceImage } from "./builder.ts";
 import { changedBetween, currentRevision, repoFileSizes } from "./changeLog.ts";
 import { type ContainerLaunch, ENVIRONMENT_READ_MS, launchOf, secretValuesOf, shownLaunch, takeEnvironment, withContainerSteps } from "./containerLaunch.ts";
 import { ContainerSetup, type ContainerSetupState } from "./containerSetup.ts";
@@ -192,6 +194,10 @@ const LEASED_KEY = "t3flare:container-leased";
 const CONTAINER_CLOSED_KEY = "t3flare:container-closed";
 export { CREDENTIAL_HELPER, CREDENTIAL_PATH };
 const WORKSPACE_ID_KEY = "t3flare:workspace-id";
+/** A trigger's reason as the Builder keeps it (`BASE_BUILD_CAPS.reason`). */
+const reasonOf = (input: { readonly reason: unknown }): string => String(input.reason).slice(0, BASE_BUILD_CAPS.reason);
+/** Set on the Builder's object (SPI-1332): its alarm drives the Base build, never a Workspace's idle stop. */
+const BUILDER_MARK_KEY = "t3flare:builder";
 /** A cached token is renewed this long before it expires. */
 const TOKEN_RENEW_MS = 5 * 60_000;
 /** The markers of the shells this object started (orphans after a restart are killed by them). */
@@ -1800,6 +1806,8 @@ export class WorkspaceDO extends ContainerHost {
 
   /** Why the running Container may not give its lease up now, or undefined when it may (ADR-0032 §7's reclaim). */
   async #notReclaimable(): Promise<string | undefined> {
+    // A Builder holding a lease (`builderInBudget`) gives it back when its build ends, never to a reclaim.
+    if (this.#isBuilder()) return "the Builder";
     if (!this.containerRunning()) return "not running";
     const busy = this.#running > 0 || this.#terminalsHold() || this.#processes.reclaimable().length < this.#processes.size;
     if (busy) return "in use";
@@ -1986,6 +1994,7 @@ export class WorkspaceDO extends ContainerHost {
 
   /** Idle stop and the budget lease's renewal: the object's one alarm. */
   override async alarm(): Promise<void> {
+    if (this.#isBuilder()) return this.#baseBuild().alarm();
     if (this.#isDestroyed()) return;
     if (!this.containerRunning()) {
       if ((await this.ctx.storage.get<boolean>(LEASED_KEY)) === true) await this.#release();
@@ -2030,6 +2039,8 @@ export class WorkspaceDO extends ContainerHost {
    * helper's token request (`CREDENTIAL_PATH`) is answered here.
    */
   override async fetch(request: Request): Promise<Response> {
+    // The Builder's Container has no computer.internal routes (SPI-1332): nothing of a Workspace answers here.
+    if (this.#isBuilder()) return new Response("t3flare: the Builder serves no requests", { status: 404 });
     if (this.#isDestroyed()) return new Response("t3flare: this Workspace was deleted", { status: 410 });
     if (new URL(request.url).pathname === CREDENTIAL_PATH) return this.#credential(new URL(request.url));
     return this.#container.handleFetch(request);
@@ -2122,6 +2133,83 @@ export class WorkspaceDO extends ContainerHost {
     if (op.op !== "abort") throw new Error("t3flare: the only probe is abort");
     setTimeout(() => this.ctx.abort("t3flare: probe abort"), 0);
     return { aborting: true, epoch: this.#boot };
+  }
+
+  // ── The Builder (SPI-1332, ADR-0047) ──────────────────────────────────────────────────────────────────────────
+
+  #base: BaseBuild | undefined;
+
+  /** Whether this object is the Builder (`BUILDERS.base`): one reserved-name instance of this class, never a Workspace. */
+  #isBuilder(): boolean {
+    return this.ctx.id.name === BUILDERS.base || this.ctx.storage.kv.get<boolean>(BUILDER_MARK_KEY) === true;
+  }
+
+  /**
+   * The Builder's RPCs are this object's only when it is the Builder; a Workspace refuses them. Marks this object as the
+   * Builder (`BUILDER_MARK_KEY`), so its alarm drives the build when `ctx.id.name` is not given.
+   */
+  #becomeBuilder(): BaseBuild {
+    const name = this.ctx.id.name;
+    if (name !== undefined && name !== BUILDERS.base) throw new Error("t3flare: only the Builder runs a Base build");
+    if (this.ctx.storage.kv.get<string>(WORKSPACE_ID_KEY) !== undefined) throw new Error("t3flare: a Workspace is never the Builder");
+    if (!this.#isBuilder()) this.ctx.storage.kv.put(BUILDER_MARK_KEY, true);
+    return this.#baseBuild();
+  }
+
+  #baseBuild(): BaseBuild {
+    this.#base ??= new BaseBuild(
+      {
+        container: platformContainer(this.ctx),
+        storage: this.ctx.storage.kv,
+        inputs: async () => {
+          const image = workspaceImage(this.ctx.container);
+          if (image === undefined) throw new Error("t3flare: no Workspace image here");
+          // The read a Container start takes: secret Variables opened (ADR-0046 §2).
+          // Read against this Worker's schema, as `takeEnvironment` reads a start's.
+          const answer = await environmentStub(this.env.ENVIRONMENT).environmentSettings({ reader: "builder" });
+          return { settings: resolveEnvironment({ revision: answer.revision, settings: answer }), image };
+        },
+        setAlarm: async (at) => await this.ctx.storage.setAlarm(Math.max(at, Date.now())),
+        waitUntil: (promise) => this.ctx.waitUntil(promise),
+        report: (record) => this.ctx.waitUntil(environmentStub(this.env.ENVIRONMENT).noteBaseBuild(record).then(() => undefined, () => undefined)),
+        lease: {
+          acquire: async (budget) => await this.#budget().acquire(this.ctx.id.toString(), budget),
+          release: async () => await this.#budget().release(this.ctx.id.toString()),
+        },
+        now: () => Date.now(),
+        random: (bytes) => crypto.getRandomValues(new Uint8Array(bytes)),
+        log: (event) => console.log(JSON.stringify(event)),
+      },
+      { commandEnv: COMMAND_ENV },
+    );
+    return this.#base;
+  }
+
+  /** The Base snapshot's record (ADR-0047 §4): what a Workspace's start and the Settings page read. */
+  async builderRecord(): Promise<BaseBuildRecord> {
+    return this.#becomeBuilder().record();
+  }
+
+  /**
+   * A trigger (ADR-0047 §5): the settings a Base build reads changed, or the Environment booted. The Builder reads the
+   * settings itself, as a Container start does, and builds their key when it has no Base snapshot.
+   */
+  async builderPoke(input: { readonly reason: string }): Promise<BaseBuildRecord> {
+    return this.#becomeBuilder().poke(reasonOf(input));
+  }
+
+  /** The Owner's Rebuild, or an agent's (`rebuild_base`): builds the current key again; a build under way goes on. */
+  async builderRebuild(input: { readonly reason: string }): Promise<BaseBuildRecord> {
+    return this.#becomeBuilder().poke(reasonOf(input), { force: true });
+  }
+
+  /**
+   * A Workspace's start (SPI-1333): it found no Base snapshot for its key (`missing`), or the platform refused the one
+   * it started from (`refused`, gone: built again).
+   */
+  async builderReport(input: { readonly kind: "missing" } | { readonly kind: "refused"; readonly id: string }): Promise<BaseBuildRecord> {
+    const builder = this.#becomeBuilder();
+    return input.kind === "refused" ? builder.refused(String(input.id), "a start from the Base snapshot failed") : builder.poke("a start found no Base snapshot for its settings");
   }
 
   /** Points the repo's git credentials at `CREDENTIAL_HELPER` (repos cloned before it existed). */

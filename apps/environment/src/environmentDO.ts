@@ -10,7 +10,7 @@ import type { DurableObjectState } from "@cloudflare/workers-types/index.ts";
 import type { McpAsker, McpRpcAnswer, McpRpcRequest, SessionPush, SessionPushAnswer } from "@t3flare/session-protocol";
 import type { TerminalPush, TerminalPushAnswer } from "@t3flare/workspace-client";
 import type { SkillSet } from "@t3flare/skills";
-import { extensionOf, type McpRelayAnswer, type McpRelayInput, resolveEnvironment, type ResolvedEnvironment, resolveHarness, type ResolvedHarness } from "@t3flare/harness-registry";
+import { BASE_BUILD_CAPS, type BaseBuildRecord, BUILDERS, extensionOf, type McpRelayAnswer, type McpRelayInput, resolveEnvironment, type ResolvedEnvironment, resolveHarness, type ResolvedHarness } from "@t3flare/harness-registry";
 
 import { bindEnvironmentServices, environmentServices } from "./agents/bindings.ts";
 import { graceMoved, ownerSweep, SweepWake } from "./agents/sweepWake.ts";
@@ -399,6 +399,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       variableSealer: this.#variableSealer(),
       oauth: this.harnessOAuth,
       sweepSettingsChanged: () => this.#sweepSettingsChanged(),
+      baseInputsChanged: (reason) => this.#pokeBuilder(reason),
+      ...(this.env.WORKSPACES === undefined ? {} : { rebuildBase: () => this.#rebuildBase("the Owner's Rebuild") }),
       // The Workspaces section (ADR-0044): the view, the Owner's acts, each Workspace's usage, and the Sweep.
       workspaces: await this.workspacesApi(),
       // The Container budget's leases (ADR-0032): the Environment section shows the running count and holders.
@@ -590,7 +592,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     const store = harnessStore(this.ctx.storage.kv);
     const skills = this.#skillsApi();
     return {
-      ops: { store, mcp: this.mcpHost, secrets: harnessSecrets(this.ctx.storage.kv), variableSealer: this.#variableSealer(), oauth: this.harnessOAuth, skills, sweepSettingsChanged: () => this.#sweepSettingsChanged(), now: () => Date.now() },
+      ops: { store, mcp: this.mcpHost, secrets: harnessSecrets(this.ctx.storage.kv), variableSealer: this.#variableSealer(), oauth: this.harnessOAuth, skills, sweepSettingsChanged: () => this.#sweepSettingsChanged(), baseInputsChanged: (reason) => this.#pokeBuilder(reason), now: () => Date.now() },
       oauthStatus: (server) => this.harnessOAuth.status(server),
       link: (thread) => threadLinkIn(this.ctx.storage.sql, thread),
       // A Durable thread's modes are the adapter's record; a CLI thread's are its live session's (plan D3).
@@ -598,6 +600,9 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       changes: settingsChanges(this.ctx.storage.sql, Date.now, (event) => console.log(JSON.stringify(event))),
       origin: () => (this.env.T3FLARE_HOST === undefined && this.#host === undefined ? undefined : `https://${this.#configuredHost()}`),
       status: () => harnessStatus({ store, skills }),
+      // The Base snapshot (SPI-1332): `get_status` reads its record, `rebuild_base` asks the Builder.
+      baseBuild: () => store.lastBaseBuild(),
+      ...(this.env.WORKSPACES === undefined ? {} : { rebuildBase: (reason: string) => this.#rebuildBase(reason) }),
       running: () => runningContainers({ budget: () => this.#budgetState() }),
       log: (event) => console.log(JSON.stringify(event)),
       // `list_workspaces` and `purge_workspace` (ADR-0044 §5): the Settings page's reads and acts.
@@ -760,10 +765,11 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
   }
 
   /** The Environment settings for a Workspace's Container start (ADR-0032), resolved. Never boots t3. */
-  async environmentSettings(): Promise<ResolvedEnvironment> {
+  async environmentSettings(input?: { readonly reader?: "builder" }): Promise<ResolvedEnvironment> {
     const store = harnessStore(this.ctx.storage.kv);
     const stored = store.loadEnvironment();
-    store.noteEnvironmentRead(stored.revision, Date.now());
+    // The Builder's read (SPI-1332) is not a Workspace's: Status's "last taken by a Workspace" stays a Workspace's.
+    if (input?.reader !== "builder") store.noteEnvironmentRead(stored.revision, Date.now());
     // The one read that opens a secret Variable (ADR-0046 §2): the Container start needs its value. One this credentials
     // key does not open is left out, logged by name only.
     const { variables, unreadable } = await openVariables(stored, this.#variableSealer());
@@ -828,6 +834,42 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
    */
   async noteContainerSetup(report: unknown): Promise<{ readonly kept: boolean }> {
     return { kept: harnessStore(this.ctx.storage.kv).noteContainerSetup(report) };
+  }
+
+  /** The Builder's record of the Base build (SPI-1332), on each change: the panel's Status. Never boots t3. */
+  async noteBaseBuild(record: unknown): Promise<{ readonly kept: boolean }> {
+    return { kept: harnessStore(this.ctx.storage.kv).noteBaseBuild(record) };
+  }
+
+  /** The Builder (SPI-1332, ADR-0047 §1): the Workspace DO class's reserved-name instance, over the agents Worker's binding. */
+  #builder() {
+    const namespace = this.env.WORKSPACES;
+    if (namespace === undefined) throw new Error("t3flare: the environment Worker has no WORKSPACES binding");
+    return namespace.get(namespace.idFromName(BUILDERS.base));
+  }
+
+  /**
+   * Pokes the Builder (ADR-0047 §5): what a Base build is made from changed, or the Environment booted. Not awaited; its
+   * record is kept for Status. A failure is logged: the next trigger pokes again.
+   */
+  #pokeBuilder(reason: string): void {
+    if (this.env.WORKSPACES === undefined) return;
+    this.ctx.waitUntil(
+      this.#builder()
+        .builderPoke({ reason })
+        .then(
+          (record) => void harnessStore(this.ctx.storage.kv).noteBaseBuild(record),
+          // A log line's error text, kept short (`BASE_BUILD_CAPS.log`).
+          (error: unknown) => console.warn(JSON.stringify({ t3flare: "builder-poke-failed", reason, error: String(error).slice(0, BASE_BUILD_CAPS.log) })),
+        ),
+    );
+  }
+
+  /** The Owner's Rebuild or an agent's (`rebuild_base`, ADR-0047 §5): free; a build under way goes on. */
+  async #rebuildBase(reason: string): Promise<BaseBuildRecord> {
+    const record = await this.#builder().builderRebuild({ reason });
+    harnessStore(this.ctx.storage.kv).noteBaseBuild(record);
+    return record;
   }
 
   /** t3's tools as a Session listed them (the panel's t3-code card). A malformed listing is dropped. Never boots t3. */
@@ -926,6 +968,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
         isolateBoot: isolate.boots,
       };
       console.log(JSON.stringify({ t3flare: "booted", ...this.#lastBoot, constructions: isolate.constructions }));
+      // A boot follows a deploy, which may bring a new Workspace image: the Builder checks its key (ADR-0047 §5).
+      this.#pokeBuilder("the Environment booted");
       this.#startIdleChecks();
       this.#reraised = runtime
         .commandReady()

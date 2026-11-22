@@ -22,7 +22,7 @@
 // - The Workspaces (ADR-0044 §4): `GET …/api/workspaces` (the view), `…/usage?id=` (one row's Files, ADR-0044 §1)
 //   and `…/sweep` (the dry Sweep); `POST …/api/workspaces/purge` `{ id, confirm }`, `/restore` `{ id }`, `/stop` `{ id }`
 //   and `/sweep`, behind the same write guard: the Owner's own acts (workspaceActions.ts), audited, never Open changes.
-import { BUILTIN_TOOLS, CONTAINER_SETUP_OUTPUT_STATUS, describeContainerSetup, describeGlobalMise, ENVIRONMENT_SETTINGS, EXTENSIONS, ignoredServersOf, readStoredEnvironment, resolveHarness, type ToolsChange } from "@t3flare/harness-registry";
+import { type BaseBuildRecord, BUILTIN_TOOLS, CONTAINER_SETUP_OUTPUT_STATUS, describeBaseBuild, describeContainerSetup, describeGlobalMise, ENVIRONMENT_SETTINGS, EXTENSIONS, ignoredServersOf, readStoredEnvironment, resolveHarness, type ToolsChange } from "@t3flare/harness-registry";
 
 import type { AccessCaller } from "../access.ts";
 import type { ValueSealer } from "../credentials/sealed.ts";
@@ -94,6 +94,10 @@ export interface HarnessDeps {
   readonly ownerEndpoint?: string;
   /** A change moved the Grace (ADR-0043 §5): the Environment DO brings the Sweep forward. */
   readonly sweepSettingsChanged?: () => void;
+  /** A change moved what a Base build is made from (ADR-0047 §5): the Environment DO pokes the Builder. */
+  readonly baseInputsChanged?: (reason: string) => void;
+  /** The Owner's Rebuild of the Base snapshot (ADR-0047 §5): the Builder's record after it. */
+  readonly rebuildBase?: () => Promise<BaseBuildRecord>;
   /** The Workspaces section (ADR-0044 §4): the view, the Owner's acts, each Workspace's usage, and the Sweep. */
   readonly workspaces?: WorkspacesApi;
 }
@@ -102,6 +106,9 @@ export const WORKSPACES_API_PATH = `${SETTINGS_PAGE_PATH}/api/workspaces`;
 const WORKSPACES_ACTIONS = ["/purge", "/restore", "/stop", "/sweep"] as const;
 
 export const CLIENTS_API_PATH = `${SETTINGS_PAGE_PATH}/api/mcp/clients`;
+
+/** The Owner's Rebuild of the Base snapshot (SPI-1332). */
+export const REBUILD_BASE_PATH = `${SETTINGS_PAGE_PATH}/api/base/rebuild`;
 
 /** The Containers running now, by their Workspaces (a holder's DO id when its Workspace is unknown); null without the budget. */
 export const runningContainers = async (deps: Pick<HarnessDeps, "budget">): Promise<{ readonly count: number; readonly holders: ReadonlyArray<string> } | null> => {
@@ -160,6 +167,7 @@ export const harnessStatus = (deps: Pick<HarnessDeps, "store" | "skills">) => {
   const environmentRead = deps.store.lastEnvironmentRead();
   const globalMise = deps.store.lastGlobalMise();
   const containerSetup = deps.store.lastContainerSetup();
+  const baseBuild = deps.store.lastBaseBuild();
   return {
     "settings revision": stored.revision,
     "last taken by a Session (revision)": read?.revision ?? null,
@@ -172,6 +180,8 @@ export const harnessStatus = (deps: Pick<HarnessDeps, "store" | "skills">) => {
     // The last Container setup across all Workspaces (ADR-0047 §7): its exit and the end of its output, secrets blanked.
     "last Container setup": containerSetup === undefined ? null : describeContainerSetup(containerSetup),
     [CONTAINER_SETUP_OUTPUT_STATUS]: containerSetup === undefined ? null : containerSetup.output,
+    // The Builder's record (SPI-1332, ADR-0047 §4); a failed build's output is the page's block and `get_status`'s own field.
+    "Base snapshot": baseBuild === undefined ? null : describeBaseBuild(baseBuild),
     Skills: skillsStatus(deps),
     "last Environment skill set refused": latestRefusal(deps) ?? null,
     // A server stored under the Settings server's reserved name or kind (plan D2): ignored until the next MCP change drops it.
@@ -227,6 +237,8 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
         csrf,
         audit: deps.store.auditLog(50),
         status: harnessStatus(deps),
+        ...(deps.store.lastBaseBuild() === undefined ? {} : { baseBuild: deps.store.lastBaseBuild()! }),
+        ...(deps.rebuildBase === undefined ? {} : { canRebuild: true }),
         mcp: await mcpOverview(deps),
         ...(deps.store.lastT3Tools() === undefined ? {} : { t3Tools: deps.store.lastT3Tools()! }),
         ...(deps.skills === undefined ? {} : { skills: skillsOverview(deps.skills) }),
@@ -298,7 +310,8 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
   const changeRoute = path.startsWith(`${CHANGES_API_PATH}/`) && deps.changes !== undefined ? path.slice(`${CHANGES_API_PATH}/`.length) : undefined;
   const clientsRoute = path === CLIENTS_API_PATH && deps.clients !== undefined;
   const workspacesRoute = deps.workspaces === undefined ? undefined : WORKSPACES_ACTIONS.find((route) => path === `${WORKSPACES_API_PATH}${route}`);
-  if (!routes.includes(path) && (skillsRoute === undefined || deps.skills === undefined) && endpointsRoute === undefined && changeRoute === undefined && !clientsRoute && workspacesRoute === undefined) {
+  const rebuildRoute = path === REBUILD_BASE_PATH && deps.rebuildBase !== undefined;
+  if (!routes.includes(path) && (skillsRoute === undefined || deps.skills === undefined) && endpointsRoute === undefined && changeRoute === undefined && !clientsRoute && workspacesRoute === undefined && !rebuildRoute) {
     return refused(404, "Not found");
   }
   const why = await unsafeWrite(request, deps);
@@ -308,6 +321,16 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
   }
   if (changeRoute !== undefined && deps.changes !== undefined) return answerChange(deps.changes, changeRoute, await bodyOf(request), deps.caller);
   if (clientsRoute && deps.clients !== undefined) return changeClient(deps, deps.clients, await bodyOf(request));
+  if (rebuildRoute && deps.rebuildBase !== undefined) {
+    // Free (ADR-0047 §5): it builds the settings already saved, a build under way goes on.
+    try {
+      const record = await deps.rebuildBase();
+      deps.store.noteBaseBuild(record);
+      return json({ ok: true, record, status: describeBaseBuild(record) });
+    } catch (error) {
+      return refused(503, `the Builder could not be reached: ${String(error).slice(0, 300)}`);
+    }
+  }
   if (workspacesRoute !== undefined && deps.workspaces !== undefined) {
     const body = await bodyOf(request);
     try {
@@ -513,4 +536,5 @@ const opsOf = (deps: HarnessDeps): OpsDeps => ({
   ...(deps.oauth === undefined ? {} : { oauth: deps.oauth }),
   ...(deps.skills === undefined ? {} : { skills: deps.skills }),
   ...(deps.sweepSettingsChanged === undefined ? {} : { sweepSettingsChanged: deps.sweepSettingsChanged }),
+  ...(deps.baseInputsChanged === undefined ? {} : { baseInputsChanged: deps.baseInputsChanged }),
 });

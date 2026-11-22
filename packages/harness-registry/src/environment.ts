@@ -26,10 +26,10 @@ export const MAX_CONTAINER_BUDGET = 10;
 export const MAX_GLOBAL_MISE_BYTES = 16 * 1024;
 
 /**
- * The largest Container setup, in bytes of UTF-8 (ADR-0047 §9). Fixed by a constraint: every Environment setting is one
- * stored value of at most 2 MB, and the Environment settings are one value together.
+ * The largest Image setup and Container setup, each, in bytes of UTF-8 (ADR-0047 §9). Fixed by a constraint: every
+ * Environment setting is one stored value of at most 2 MB, and the Environment settings are one value together.
  */
-export const MAX_CONTAINER_SETUP_BYTES = 256 * 1024;
+export const MAX_SETUP_BYTES = 256 * 1024;
 
 /**
  * The most of a setup's output a report may keep, in KiB (`setupOutputKiB`'s bound). Fixed by a constraint: the
@@ -40,6 +40,18 @@ export const MAX_SETUP_OUTPUT_KIB = 256;
 /** What a Container whose setup failed does (ADR-0047 §7): carries on, or refuses every command but a passive read. */
 export const CONTAINER_SETUP_FAILURES = ["carryOn", "refuse"] as const;
 export type ContainerSetupFailure = (typeof CONTAINER_SETUP_FAILURES)[number];
+
+/**
+ * The most days a scheduled rebuild may wait (ADR-0047 §3): the platform expires a snapshot 30 days after its creation
+ * or last restore, and t3flare counts one older than 29 days as gone.
+ */
+export const MAX_REBUILD_DAYS = 29;
+
+/** The Builder's size setting's value for "the Container size" (ADR-0047 §9). */
+export const BUILDER_SAME_SIZE = "sameAsContainer";
+
+/** The Environment settings a Base build reads besides the Global mise config and the Variables (ADR-0047 §9). */
+export const BASE_BUILD_SETTING_KEYS = ["imageSetup", "imageSetupMinutes", "snapshotMinutes", "builderSize", "builderInBudget", "rebuildEveryDays"] as const;
 
 /** The Grace's default and bounds, in days (ADR-0043 §1): no zero, since at once is the Owner's own Purge. */
 export const DEFAULT_GRACE_DAYS = 7;
@@ -98,6 +110,10 @@ export const containerInstance = (size: ContainerSize): ContainerInstance => {
   return entry.custom ? entry.resources : (size as NamedContainerType);
 };
 
+/** What the Builder's Container starts with (ADR-0047 §9): its own size, or the Container size. */
+export const builderInstance = (settings: Pick<ResolvedEnvironment, "containerSize" | "builderSize">): ContainerInstance =>
+  containerInstance(settings.builderSize === BUILDER_SAME_SIZE ? settings.containerSize : (settings.builderSize as ContainerSize));
+
 /** What the Environment DO stores (`t3flare:environment:settings`): the settings set explicitly. */
 export interface StoredEnvironment {
   /** Bumped by every change; never moved by a Harness settings change (and the reverse). */
@@ -142,7 +158,7 @@ export const ENVIRONMENT_SETTINGS = {
     title: "Container setup",
     description:
       "A bash script run once in every new Container before its first command, after the Global mise config: as root in / with HOME=/root and the Variables. Commands, Terminals and CLI agents wait for it. Status shows its exit and the end of its output, secret Variables blanked. Applies at each Workspace's next Container start.",
-    schema: { type: "file", maxBytes: MAX_CONTAINER_SETUP_BYTES, default: "" },
+    schema: { type: "file", maxBytes: MAX_SETUP_BYTES, default: "" },
   },
   containerSetupMinutes: {
     title: "Container setup time limit (minutes)",
@@ -160,10 +176,48 @@ export const ENVIRONMENT_SETTINGS = {
   setupOutputKiB: {
     title: "Setup output kept (KiB)",
     description:
-      "The last part of every setup's output that the Status section keeps and shows, secret Variables blanked: 4 to 256 KiB, 32 by default. Applies at each Workspace's next Container start; a report already kept stays as it is.",
+      "The last part of a setup's output that the Status section keeps and shows, secret Variables blanked: the Container setup's and the Base build's Image setup's. 4 to 256 KiB, 32 by default. Applies at each Workspace's next Container start and the next Base build; a report already kept stays as it is.",
     schema: { type: "integer", minimum: 4, maximum: MAX_SETUP_OUTPUT_KIB, default: 32 },
     tier: "down-free",
     row: "containerSetup",
+  },
+  imageSetup: {
+    title: "Image setup",
+    description:
+      "A bash script run once, as root with HOME=/root and every Variable (secret ones included), on the Workspace image after the Global mise config is laid down; its result is the Base snapshot. Once saved, a change builds a new one in the Builder, as a deploy and Rebuild do. Whatever it writes, a secret included, is in every Workspace's Container until the next Base build. Empty with no Global mise config, there is nothing to build.",
+    schema: { type: "file", maxBytes: MAX_SETUP_BYTES, default: "" },
+  },
+  imageSetupMinutes: {
+    title: "Image setup time limit (minutes)",
+    description: "How long the Builder's Container may take to start and run the Image setup before the Base build fails.",
+    schema: { type: "integer", minimum: 1, maximum: 120, default: 30 },
+    tier: "down-free",
+    row: "imageSetup",
+  },
+  snapshotMinutes: {
+    title: "Snapshot time limit (minutes)",
+    description: "How long the snapshot and the start from it that proves it may take before the Base build is reported failed. A snapshot that finishes later is still kept if nothing changed meanwhile.",
+    schema: { type: "integer", minimum: 1, maximum: 15, default: 5 },
+    tier: "down-free",
+    row: "imageSetup",
+  },
+  builderSize: {
+    title: "Builder size",
+    description: "The vCPU, memory and disk the Builder's Container runs the Image setup with. Every Container size starts from the Base snapshot it makes.",
+    schema: { type: "enum", values: [BUILDER_SAME_SIZE, ...CONTAINER_SIZE_NAMES], default: BUILDER_SAME_SIZE, labels: { [BUILDER_SAME_SIZE]: "Same as Container size" } },
+    row: "imageSetup",
+  },
+  builderInBudget: {
+    title: "Builder counts against the Container budget",
+    description: "On, the Builder waits for room under the Container budget before it starts, and holds one place while it runs. Off, it runs beside the budget's Containers.",
+    schema: { type: "boolean", default: false },
+    row: "imageSetup",
+  },
+  rebuildEveryDays: {
+    title: "Rebuild every (days)",
+    description: `Builds the Base snapshot again this many days after the last good one, so the Image setup's downloads stay current. 0 is off. At most ${MAX_REBUILD_DAYS}: a Base snapshot expires 30 days after it was made.`,
+    schema: { type: "integer", minimum: 0, maximum: MAX_REBUILD_DAYS, default: 0 },
+    row: "imageSetup",
   },
   sweepPurges: {
     title: "Purge after the Grace",
