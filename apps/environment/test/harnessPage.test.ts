@@ -394,7 +394,7 @@ describe("the Workspaces section", () => {
     expect(section).toContain("Purging since");
   });
 
-  it("offers Purge now beside \"purges its files for good\", Restore for a Tombstone and Stop for a ready Workspace; none for one in use", () => {
+  it("offers Purge now beside \"purges its files for good\", Restore for a Tombstone and a hidden Stop for a ready Workspace; none for one in use", () => {
     const purges = tags.filter((tag) => tag.attrs["data-workspace-purge"] !== undefined);
     expect(purges.map((tag) => JSON.parse(tag.attrs["data-workspace-purge"]!.replaceAll("&quot;", '"')))).toEqual([
       {
@@ -421,7 +421,10 @@ describe("the Workspaces section", () => {
       expect(markupAfter(section, tags[index]!)).toMatch(/^<\/button><span class="hint">purges its files for good<\/span>/);
     }
     expect(tags.filter((tag) => tag.attrs["data-workspace-restore"] !== undefined).map((tag) => tag.attrs["data-workspace-restore"])).toEqual([".wt/acme/feat-b", ".wt/old/kept"]);
-    expect(tags.filter((tag) => tag.attrs["data-workspace-stop"] !== undefined).map((tag) => tag.attrs["data-workspace-stop"])).toEqual(["acme", ".wt/acme/feat-a", "live"]);
+    const stops = tags.filter((tag) => tag.attrs["data-workspace-stop"] !== undefined);
+    expect(stops.map((tag) => tag.attrs["data-workspace-stop"])).toEqual(["acme", ".wt/acme/feat-a", "live"]);
+    // A ready Workspace's Container may not run: Stop stays hidden until the Files column's read says it does.
+    expect(stops.every((tag) => tag.attrs.hidden === "")).toBe(true);
     // The typed-name dialog: its field labelled, its Purge disabled until the name matches (the script).
     expect(tags.find((tag) => tag.name === "dialog")?.attrs["data-purge-dialog"]).toBe("");
     expect(tags.find((tag) => tag.attrs["data-purge-go"] !== undefined)?.attrs.disabled).toBe("");
@@ -472,6 +475,7 @@ describe("the Workspaces section", () => {
     expect(WORKSPACES_SCRIPT).toContain('getJson("/_t3flare/settings/api/workspaces/sweep")');
     expect(WORKSPACES_SCRIPT).toContain('getJson("/_t3flare/settings/api/workspaces/usage?id=" + encodeURIComponent(');
     expect(WORKSPACES_SCRIPT).toContain('post("/_t3flare/settings/api/environment", { settings }, save)');
+    expect(WORKSPACES_SCRIPT).toContain("if (stop) stop.hidden = !usage.containerRunning;");
   });
 });
 

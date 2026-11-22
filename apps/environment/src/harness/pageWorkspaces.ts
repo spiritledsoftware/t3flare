@@ -92,7 +92,8 @@ const workspaceRow = (escape: Escape, time: Time, view: WorkspacesView, row: Wor
       ? `<button type="button" class="btn btn-sm btn-danger" data-workspace-purge="${escape(JSON.stringify(purge))}" aria-label="Purge now: ${escape(row.title)}">${icon("trash")}Purge now</button><span class="hint">purges its files for good</span>`
       : "",
     row.can.restore ? `<button type="button" class="btn btn-sm" data-workspace-restore="${escape(row.id)}" aria-label="Restore ${escape(row.title)}">Restore</button>` : "",
-    row.can.stop ? `<button type="button" class="btn btn-sm" data-workspace-stop="${escape(row.id)}" aria-label="Stop the Container of ${escape(row.title)}">Stop Container</button>` : "",
+    // Hidden until the Files column's read says its Container runs (or could not say): the registry's `ready` is not a running Container.
+    row.can.stop ? `<button type="button" class="btn btn-sm" data-workspace-stop="${escape(row.id)}" hidden aria-label="Stop the Container of ${escape(row.title)}">Stop Container</button>` : "",
   ].filter((action) => action !== "");
   return `<tr data-workspace="${escape(row.id)}"${nested ? ' class="wt"' : ""}><td data-label="Workspace"><div><strong>${pathHtml(escape, row.title)}</strong><span class="src"><code>${pathHtml(escape, row.id)}</code>${facts === "" ? "" : ` · ${facts}`}</span></div></td><td data-label="Status"><div><span class="pill${pill === "" ? "" : ` ${pill}`}">${escape(row.status)}</span>${
     row.lastError === null ? "" : `<span class="src">${escape(row.lastError)}</span>`
@@ -161,13 +162,19 @@ if (graceForm !== null) {
   });
 }
 const sizeOf = (bytes) => (bytes < 1048576 ? (bytes / 1024).toFixed(1) + " KiB" : (bytes / 1048576).toFixed(1) + " MiB");
-// One request per row, one at a time, after the table renders (ADR-0044 §1): none starts a Container.
+// One request per row, one at a time, after the table renders (ADR-0044 §1): none starts a Container. A row's Stop
+// Container shows once its read says the Container runs, or could not say (Stop is harmless on a stopped one).
 (async () => {
   for (const cell of document.querySelectorAll("[data-workspace-usage]")) {
+    const stop = cell.closest("tr")?.querySelector("button[data-workspace-stop]");
     try {
       const usage = await getJson("/_t3flare/settings/api/workspaces/usage?id=" + encodeURIComponent(cell.dataset.workspaceUsage));
       cell.textContent = sizeOf(usage.bytes) + (usage.containerRunning ? ", Container running" : "");
-    } catch (error) { cell.textContent = "unknown"; }
+      if (stop) stop.hidden = !usage.containerRunning;
+    } catch (error) {
+      cell.textContent = "unknown";
+      if (stop) stop.hidden = false;
+    }
   }
 })();
 const purgeDialog = document.querySelector("dialog[data-purge-dialog]");
