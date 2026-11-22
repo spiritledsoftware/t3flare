@@ -9,7 +9,9 @@
 // With no text (ADR-0047 §10) the dotfiles' own mise config is the one installed and checked, staged as a link to it;
 // kept, mise's global config is that link, so a later edit of the dotfiles' file reaches mise. Under a file that breaks
 // git or gh nothing is kept: mise is back on t3flare's own (none). This run is never answered from the disk: the
-// dotfiles' file may be new since the last (a Base snapshot's lay-down ran before the Image setup wrote it).
+// dotfiles' file may be new since the last (a Base snapshot's lay-down ran before the Image setup wrote it). Each such
+// run keeps the SHA-256 of the dotfiles' file it saw (`none` without one); a run in the mode `if-changed`, after the
+// Container setup, does nothing and answers `unchanged` when the file is still that one.
 import { DOTFILES_MISE_CONFIG, GLOBAL_MISE_CONFIG, GLOBAL_MISE_DIR } from "./env.ts";
 
 /**
@@ -40,6 +42,8 @@ export interface GlobalMiseAnswer {
   readonly laid: boolean;
   /** The file was the dotfiles' own (`DOTFILES_MISE_CONFIG`): the start had no Global mise config text. */
   readonly dotfiles?: boolean;
+  /** An `if-changed` run found the dotfiles' file as the last run saw it: nothing was done. */
+  readonly unchanged?: boolean;
   /** `mise install`'s exit, or null when it did not run (no text). */
   readonly install: number | null;
   /** The install or a check was cut off (124 after TERM, 137 after KILL). */
@@ -58,7 +62,7 @@ const check = (tool: "git" | "gh") =>
 
 /** The lay-down: `bash -c <this> t3flare-global-mise <revision> <sha256> <source>`, the text on stdin. */
 export const GLOBAL_MISE_SCRIPT = `set -u
-revision=$1 sha=$2 source=$3
+revision=$1 sha=$2 source=$3 mode=\${4:-lay-down}
 dir=${GLOBAL_MISE_DIR} global=${GLOBAL_MISE_CONFIG} dotfiles_config=${DOTFILES_MISE_CONFIG}
 mkdir -p "$dir" && cd / || exit 1
 started=$(date +%s%N)
@@ -80,8 +84,14 @@ if [ "$bytes" -gt 0 ]; then
     rm -f "$stage"; tail -n 1 "$dir/answer.json"; exit 0
   fi
 else
-  # No text: the dotfiles' own mise config, when there is one, staged as a link to it.
+  # No text: the dotfiles' own mise config, when there is one, staged as a link to it. After the Container setup
+  # (if-changed), only when the file is not the one the last run saw.
   rm -f "$stage"
+  seen=none; [ -f "$dotfiles_config" ] && seen=$(sha256sum < "$dotfiles_config" | cut -c1-64)
+  if [ "$mode" = if-changed ] && [ "$(cat "$dir/dotfiles.sha" 2>/dev/null)" = "$seen" ]; then
+    answer false null false 0 ',"dotfiles":false,"unchanged":true'; exit 0
+  fi
+  printf '%s' "$seen" > "$dir/dotfiles.sha"
   if [ -f "$dotfiles_config" ]; then dotfiles=true; ln -s "$dotfiles_config" "$stage"; bytes=$(wc -c < "$stage"); fi
 fi
 if [ ! -L "$stage" ] && [ ! -f "$stage" ]; then
@@ -115,8 +125,14 @@ printf '%s\\n' "$line" > "$dir/answer.json.$$" && mv -f "$dir/answer.json.$$" "$
 printf '%s\\n' "$line"
 `;
 
+/**
+ * How a run goes: `lay-down` at a Container start; `if-changed` after the Container setup, with no text (ADR-0047 §10):
+ * the dotfiles' mise file is checked and laid down again only when the setup changed or wrote it.
+ */
+export type GlobalMiseMode = "lay-down" | "if-changed";
+
 /** The argv the platform's exec runs; the text goes on stdin. */
-export const globalMiseArgv = (revision: number, sha256: string, source: string): ReadonlyArray<string> => [
+export const globalMiseArgv = (revision: number, sha256: string, source: string, mode: GlobalMiseMode = "lay-down"): ReadonlyArray<string> => [
   "bash",
   "-c",
   GLOBAL_MISE_SCRIPT,
@@ -124,6 +140,7 @@ export const globalMiseArgv = (revision: number, sha256: string, source: string)
   String(revision),
   sha256,
   source,
+  ...(mode === "lay-down" ? [] : [mode]),
 ];
 
 /** The answer from the script's stdout (its last line), or undefined when it is not one, field by field. */
@@ -148,6 +165,7 @@ export const parseGlobalMiseAnswer = (stdout: string): GlobalMiseAnswer | undefi
     typeof answer.timedOut === "boolean" &&
     (answer.locked === undefined || typeof answer.locked === "boolean") &&
     (answer.dotfiles === undefined || typeof answer.dotfiles === "boolean") &&
+    (answer.unchanged === undefined || typeof answer.unchanged === "boolean") &&
     count(answer.ms) &&
     count(answer.bytes);
   if (!ok) return undefined;
@@ -160,6 +178,7 @@ export const parseGlobalMiseAnswer = (stdout: string): GlobalMiseAnswer | undefi
     timedOut: answer.timedOut as boolean,
     ...(answer.locked === undefined ? {} : { locked: answer.locked as boolean }),
     ...(answer.dotfiles === undefined ? {} : { dotfiles: answer.dotfiles as boolean }),
+    ...(answer.unchanged === undefined ? {} : { unchanged: answer.unchanged as boolean }),
     ms: answer.ms as number,
     bytes: answer.bytes as number,
   };

@@ -56,8 +56,9 @@ new Container's start. Both are Environment settings, bash scripts of up to 256 
     t3flare's empty file, so a dotfiles manager such as chezmoi declares the Owner's tools. The lay-down's check still
     runs on it: under a file that breaks git or gh, t3flare points mise back at its own file and the Settings page says
     why. A Global mise config with text wins, as before (refines ADR-0032's Global mise config §2). The dotfiles' file
-    is checked once per Container, at its lay-down, then used through a link: a later write to it reaches mise
-    unchecked, and is checked only at the next Container start (or a lay-down run again after the Container setup).
+    is checked at the Container's lay-down and, when the Container setup wrote or changed it, once more after the
+    setup, then used through a link: a later write to it reaches mise unchecked, and is checked only at the next
+    Container start.
 
 ## Considered options
 

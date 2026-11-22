@@ -52,12 +52,12 @@ mkdir -p $(dirname ${SYSTEM_GITCONFIG}) && printf '[credential]\\n\\thelper = "!
 `;
 
 /** Each run: `text` on stdin to the script for `revision`; prints the answer and what the stubs and disk show. */
-const run = (cases: ReadonlyArray<{ readonly text: string; readonly revision?: number; readonly env?: string; readonly before?: string }>, options: { readonly shortBounds?: boolean } = {}) => {
+const run = (cases: ReadonlyArray<{ readonly text: string; readonly revision?: number; readonly env?: string; readonly before?: string; readonly mode?: string }>, options: { readonly shortBounds?: boolean } = {}) => {
   const steps = cases
     .map(
-      ({ text, revision = 1, env = "", before = "" }, index) => `${before}
+      ({ text, revision = 1, env = "", before = "", mode = "" }, index) => `${before}
 printf %s '${Buffer.from(text).toString("base64")}' | base64 -d > /t/in
-echo "ANSWER ${index} $(${env} bash -c "$SCRIPT" t3flare-global-mise ${revision} $(sha256sum /t/in | cut -c1-64) environment < /t/in 2>/dev/null | tail -n 1)"
+echo "ANSWER ${index} $(${env} bash -c "$SCRIPT" t3flare-global-mise ${revision} $(sha256sum /t/in | cut -c1-64) environment ${mode} < /t/in 2>/dev/null | tail -n 1)"
 echo "GLOBAL ${index} $([ -f ${GLOBAL_MISE_CONFIG} ] && base64 -w0 ${GLOBAL_MISE_CONFIG} || echo -)"
 echo "LINK ${index} $(readlink ${GLOBAL_MISE_CONFIG} || echo -)"
 echo "STAGED ${index} $(ls ${GLOBAL_MISE_DIR} | grep -c '^config\\..*\\.toml$')"`,
@@ -194,6 +194,32 @@ describe.skipIf(!docker)("the Global mise config's lay-down script", { timeout: 
       [false, true],
     ]);
     expect(result.links).toEqual([null, DOTFILES_MISE_CONFIG, null]);
+  });
+
+  withImage("after the Container setup (if-changed), does nothing while the dotfiles' mise file is the one the lay-down saw", () => {
+    const result = run([
+      { text: "", before: dotfiles(NODE) },
+      { text: "", mode: "if-changed" },
+    ]);
+    expect(result.answers[0]).toMatchObject({ laid: true, dotfiles: true });
+    expect(result.answers[1]).toMatchObject({ laid: false, install: null, unchanged: true });
+    expect(result.links[1]).toBe(DOTFILES_MISE_CONFIG);
+    expect(result.calls.filter((call: string) => call.startsWith("mise install"))).toHaveLength(1);
+  });
+
+  withImage("after the Container setup (if-changed), lays down a dotfiles' mise file the setup wrote or changed, under the same check", () => {
+    const appeared = run([{ text: "" }, { text: "", mode: "if-changed", before: dotfiles(NODE) }]);
+    expect(appeared.answers[0]).toMatchObject({ laid: false, install: null, dotfiles: false });
+    expect(appeared.answers[1]).toMatchObject({ laid: true, install: 0, dotfiles: true });
+    expect(appeared.answers[1]?.unchanged).toBeUndefined();
+    expect(appeared.links[1]).toBe(DOTFILES_MISE_CONFIG);
+    const broke = run([{ text: "", before: dotfiles(NODE) }, { text: "", mode: "if-changed", before: dotfiles(`# BREAK_GH\n${NODE}`) }]);
+    expect(broke.answers[1]).toMatchObject({ laid: false, install: 0, dotfiles: true });
+    expect(broke.links[1]).toBeNull();
+    // Removed by the setup: nothing laid down any more.
+    const removed = run([{ text: "", before: dotfiles(NODE) }, { text: "", mode: "if-changed", before: `rm ${DOTFILES_MISE_CONFIG}` }]);
+    expect(removed.answers[1]).toMatchObject({ laid: false, install: null, dotfiles: false });
+    expect(removed.globals[1]).toBeNull();
   });
 
   withImage("lays down a Global mise config with text over the dotfiles' own", () => {

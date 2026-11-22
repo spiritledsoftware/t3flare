@@ -5,7 +5,7 @@
 import type { GlobalMiseReport } from "@t3flare/harness-registry";
 import { describe, expect, it, vi } from "vitest";
 
-import { GLOBAL_MISE_KEY, GlobalMise, type GlobalMiseExec, type GlobalMiseLaunch, type GlobalMiseState, MAX_ATTEMPTS } from "../src/workspace/globalMise.ts";
+import { GLOBAL_MISE_AFTER_SETUP_KEY, GLOBAL_MISE_KEY, GlobalMise, type GlobalMiseExec, type GlobalMiseLaunch, type GlobalMiseState, MAX_ATTEMPTS } from "../src/workspace/globalMise.ts";
 
 const SHA = "a".repeat(64);
 const LAUNCH: GlobalMiseLaunch = { text: '[tools]\nnode = "24.11.1"\n', bytes: 25, sha256: SHA, revision: 4, source: "environment" };
@@ -175,5 +175,35 @@ describe("GlobalMise", () => {
     const refused = setup([{ stdout: answer(false, { bytes: 30, dotfiles: true }) }], { launch: EMPTY });
     expect(await refused.mise.ensure("r1")).toMatchObject({ outcome: "not-laid" });
     expect(refused.reports).toMatchObject([{ outcome: "not-laid", install: 0, dotfiles: true }]);
+  });
+
+  describe("after the Container setup (ADR-0047 §10)", () => {
+    const after = (t: ReturnType<typeof setup>, setupText: string | undefined) => new GlobalMise({ ...t.deps, afterSetup: { setupText: () => setupText } });
+
+    it("runs nothing when the launch has Global mise text (it wins), or the Container had no Container setup", async () => {
+      for (const [launch, setupText] of [[LAUNCH, "chezmoi apply\n"], [EMPTY, ""], [EMPTY, undefined]] as const) {
+        const t = setup([], { launch });
+        expect(await after(t, setupText).ensure("r1")).toMatchObject({ runtime: "r1", outcome: "none" });
+        expect(t.calls).toHaveLength(0);
+        expect(t.reports).toHaveLength(0);
+        // Kept under its own key: the lay-down's own outcome is untouched.
+        expect(t.storage.get(GLOBAL_MISE_AFTER_SETUP_KEY)).toMatchObject({ outcome: "none" });
+        expect(t.storage.get(GLOBAL_MISE_KEY)).toBeUndefined();
+      }
+    });
+
+    it("checks the dotfiles' mise file again in if-changed mode; an unchanged one leaves the first run's report standing", async () => {
+      const t = setup([{ stdout: answer(false, { install: null, bytes: 0, dotfiles: false, unchanged: true }) }], { launch: EMPTY });
+      expect(await after(t, "chezmoi apply\n").ensure("r1")).toMatchObject({ outcome: "none" });
+      expect(t.calls[0]!.argv.at(-1)).toBe("if-changed");
+      expect(t.calls[0]!.stdin).toBe("");
+      expect(t.reports).toHaveLength(0);
+    });
+
+    it("reports a dotfiles' mise file the setup wrote or changed as the first lay-down does", async () => {
+      const t = setup([{ stdout: answer(true, { bytes: 30, dotfiles: true }) }], { launch: EMPTY });
+      expect(await after(t, "chezmoi apply\n").ensure("r1")).toMatchObject({ outcome: "laid" });
+      expect(t.reports).toMatchObject([{ outcome: "laid", install: 0, bytes: 30, dotfiles: true }]);
+    });
   });
 });

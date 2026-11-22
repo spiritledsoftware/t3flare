@@ -5,8 +5,13 @@
 // (`GLOBAL_MISE_DEADLINE_MS`), then kills the exec and treats it as not laid, final for that Container. Without a
 // runtime id the script runs anyway: it is idempotent on a Container's disk (it answers again for the same revision and
 // text).
+//
+// With no Global mise config text, a second instance runs after the Container setup (`afterSetup`, ADR-0047 §10): the
+// setup may write or change the dotfiles' mise file, so the script, in its `if-changed` mode, checks and lays it down
+// again only when it is not the file the first run saw, and is reported as the first run is. Nothing is run when the
+// launch has text (it wins) or no Container setup.
 import type { GlobalMiseOutcome, GlobalMiseReport, SettingsSource } from "@t3flare/harness-registry";
-import { type GlobalMiseAnswer, globalMiseArgv, parseGlobalMiseAnswer } from "@t3flare/sandbox-image/globalMise";
+import { type GlobalMiseAnswer, globalMiseArgv, type GlobalMiseMode, parseGlobalMiseAnswer } from "@t3flare/sandbox-image/globalMise";
 
 import { type ContainerExec, ContainerStep, MAX_ATTEMPTS, type RunStep } from "./containerStep.ts";
 
@@ -39,10 +44,18 @@ export interface GlobalMiseDeps {
   readonly now: () => number;
   readonly deadlineMs: number;
   readonly log?: (event: Record<string, unknown>) => void;
+  /**
+   * The instance that runs after the Container setup (ADR-0047 §10), kept under its own key: `setupText` is the running
+   * Container's Container setup (undefined in a launch from before it). Absent: the lay-down at a Container start.
+   */
+  readonly afterSetup?: { readonly setupText: () => string | undefined };
 }
 
 /** The kept outcome of the current Container's lay-down. */
 export const GLOBAL_MISE_KEY = "t3flare:global-mise";
+
+/** The kept outcome of the current Container's re-check after its Container setup. */
+export const GLOBAL_MISE_AFTER_SETUP_KEY = "t3flare:global-mise-after-setup";
 
 export interface GlobalMiseState {
   readonly runtime: string;
@@ -60,7 +73,7 @@ export class GlobalMise {
 
   constructor(deps: GlobalMiseDeps) {
     this.#step = new ContainerStep<GlobalMiseState>({
-      key: GLOBAL_MISE_KEY,
+      key: deps.afterSetup === undefined ? GLOBAL_MISE_KEY : GLOBAL_MISE_AFTER_SETUP_KEY,
       exec: deps.exec,
       hold: deps.hold,
       used: deps.used,
@@ -115,7 +128,12 @@ const layDown = async (
   // does: it lays down the dotfiles' own mise config when git and gh run under it (ADR-0047 §10), else nothing.
   const launch = known ?? { text: "", bytes: 0, sha256: EMPTY_SHA, revision: 0, source: "default" as const };
   const started = deps.now();
-  const result = await run(globalMiseArgv(launch.revision, launch.sha256, launch.source), launch.text, deps.deadlineMs);
+  const mode: GlobalMiseMode = deps.afterSetup === undefined ? "lay-down" : "if-changed";
+  // After the setup: nothing to check when the launch has text (it wins), or there was no setup to change the file.
+  if (deps.afterSetup !== undefined && (known === undefined || known.text !== "" || (deps.afterSetup.setupText() ?? "") === "")) {
+    return { runtime, outcome: "none", attempts: attemptsBefore + 1, at: started };
+  }
+  const result = await run(globalMiseArgv(launch.revision, launch.sha256, launch.source, mode), launch.text, deps.deadlineMs);
   let outcome: GlobalMiseOutcome = "exec-failed";
   let answer: GlobalMiseAnswer | undefined;
   let error: string | undefined;
@@ -129,6 +147,8 @@ const layDown = async (
   }
   const at = deps.now();
   const state: GlobalMiseState = { runtime, outcome, attempts: attemptsBefore + 1, ...(answer === undefined ? {} : { answer }), at };
+  // The setup left the dotfiles' file as it was: the first run's report stands.
+  if (answer?.unchanged === true) return { ...state, outcome: "none" };
   const report: GlobalMiseReport = {
     workspace: deps.workspace(),
     runtime: runtime === "" ? "unknown" : runtime,
@@ -144,7 +164,7 @@ const layDown = async (
     ms: Math.max(0, at - started),
     at,
   };
-  deps.log?.({ t3flare: "global-mise", ...report, attempt: state.attempts, ...(error === undefined ? {} : { error }) });
+  deps.log?.({ t3flare: deps.afterSetup === undefined ? "global-mise" : "global-mise-after-setup", ...report, attempt: state.attempts, ...(error === undefined ? {} : { error }) });
   deps.report(report);
   return state;
 };

@@ -289,6 +289,8 @@ export class WorkspaceDO extends ContainerHost {
   readonly #stoppedExecs = new StoppedExecs(() => Date.now());
   /** The Global mise config's lay-down, once per Container (SPI-1150, ADR-0032's Global mise config refinement). */
   readonly #globalMise: GlobalMise;
+  /** The dotfiles' mise file again after the Container setup (ADR-0047 §10). */
+  readonly #globalMiseAfterSetup: GlobalMise;
   /** The Container setup, once per Container after the lay-down (ADR-0047 §7). */
   readonly #containerSetup: ContainerSetup;
   /** The once-per-Container steps in order: the lay-down, then the Container setup. Every active command waits for them. */
@@ -411,9 +413,25 @@ export class WorkspaceDO extends ContainerHost {
       now: () => Date.now(),
       log: (event) => console.log(JSON.stringify(event)),
     });
+    // ADR-0047 §10: with no Global mise config text, the dotfiles' mise file again once the Container setup has run, in
+    // case it wrote or changed it.
+    this.#globalMiseAfterSetup = new GlobalMise({
+      exec: stepExec({}),
+      launch: () => ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY)?.globalMise,
+      hold,
+      used,
+      report: (report) => ctx.waitUntil(environmentStub(this.env.ENVIRONMENT).noteGlobalMise(report).then(() => undefined, () => undefined)),
+      storage: ctx.storage.kv,
+      workspace: () => this.#workspaceId() ?? null,
+      now: () => Date.now(),
+      deadlineMs: GLOBAL_MISE_DEADLINE_MS,
+      log: (event) => console.log(JSON.stringify(event)),
+      afterSetup: { setupText: () => ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY)?.containerSetup?.text },
+    });
     this.#steps = new ContainerSteps([
       sequenced({ step: this.#globalMise, doing: "installing the Global mise config" }),
       sequenced({ step: this.#containerSetup, doing: "running the Container setup", refusal: (state) => this.#containerSetup.refusal(state) }),
+      sequenced({ step: this.#globalMiseAfterSetup, doing: "checking the dotfiles' mise config the Container setup wrote" }),
     ]);
     this.#reads = readCache(ctx.storage.sql);
     this.#skillSet = skillSetStore({ kv: ctx.storage.kv, transactionSync: <T>(closure: () => T): T => ctx.storage.transactionSync(closure) });
@@ -1949,6 +1967,7 @@ export class WorkspaceDO extends ContainerHost {
     readonly globalMise: GlobalMiseState | null;
     /** The current Container's setup (its exit, never its output: that goes to the Environment DO's Status). */
     readonly containerSetup: ContainerSetupState | null;
+    readonly globalMiseAfterSetup: GlobalMiseState | null;
   }> {
     return {
       running: this.containerRunning(),
@@ -1958,6 +1977,7 @@ export class WorkspaceDO extends ContainerHost {
       launch: this.#shownLaunch(),
       globalMise: this.#globalMise.state() ?? null,
       containerSetup: this.#containerSetup.state() ?? null,
+      globalMiseAfterSetup: this.#globalMiseAfterSetup.state() ?? null,
     };
   }
 
