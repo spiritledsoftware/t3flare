@@ -129,6 +129,12 @@ export interface SubmitTurnInput {
    * one held. Absent from an adapter that carries none (the CLI adapters until SPI-1153).
    */
   readonly environmentSkillsHash?: string;
+  /**
+   * SPI-1315: the Turn limit (the Environment's `turnLimitMinutes`) in ms, as read at this turn's start; the Session
+   * keeps it on the turn's record. Absent (an Environment before it): the Turn limit's
+   * default (`DEFAULT_TURN_LIMIT_MS`, @t3flare/harness-registry).
+   */
+  readonly turnLimitMs?: number;
 }
 
 export interface SteerInput {
@@ -303,13 +309,18 @@ export interface TurnState {
   readonly runId: string;
   readonly attemptId: string;
   readonly status: TurnStatus;
-  /** When the turn settled without an answer: pi-durable's reason (RunFailureReason, or ours: `turn_deadline`). */
+  /** When the turn settled without an answer: pi-durable's reason (RunFailureReason, or ours: `turn_deadline`, the Turn limit's). */
   readonly reason?: string;
   /** Bounded detail for `failed` (a model error's text is classified, never shown raw). */
   readonly detail?: string;
   /** The entry the turn's input was placed as. */
   readonly inputEntry?: string;
   readonly startedAt: number;
+  /**
+   * SPI-1315: the Turn limit the turn started with, in ms; the Session ends it at `startedAt` plus this. Absent on a turn
+   * recorded before it: the Turn limit's default.
+   */
+  readonly turnLimitMs?: number;
   readonly settledAt?: number;
   /**
    * Steers sent into the turn (their submissions). A steer that reaches the run as it gives its final answer starts the
@@ -507,5 +518,3 @@ export const TOOL_OUTPUT_BYTES = 16 * 1024;
 export const LIVENESS_PUSH_MS = 60_000;
 /** An open turn with no push for this long makes the adapter pull a snapshot (the inverse guard). */
 export const SILENT_TURN_MS = 2 * 60_000;
-/** A turn may run at most this long (step 2a cost guardrails). */
-export const TURN_DEADLINE_MS = 2 * 60 * 60_000;

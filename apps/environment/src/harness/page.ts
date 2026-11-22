@@ -15,6 +15,7 @@ import {
   BUILTIN_TOOLS,
   builtinTool,
   EMPTY_ENVIRONMENT,
+  AGENT_SETTING_KEYS,
   DOTFILES_SETTING_KEYS,
   ENVIRONMENT_SETTINGS,
   type Exposure,
@@ -358,17 +359,21 @@ const environmentSection = (environment: ResolvedEnvironment, costs: ContainerCo
   const values: Readonly<Record<string, unknown>> = { ...environment };
   // The Grace (ADR-0043) applies at the next Sweep, not at a Container start: the Workspaces section shows it (ADR-0044 §1).
   const entries = Object.entries(ENVIRONMENT_SETTINGS as Readonly<Record<string, EnvironmentSettingEntry>>).filter(([key]) => !(SWEEP_SETTING_KEYS as ReadonlyArray<string>).includes(key));
-  // The scalar settings share the Containers row. The dotfiles toggles (ADR-0047 §9) share a Dotfiles row; a list (the
+  // The scalar settings share the Containers row. The agents' settings (SPI-1315: the Turn limit, the CLI agents'
+  // processes) share an Agents row, and the dotfiles toggles (ADR-0047 §9) a Dotfiles row; a list (the
   // Variables) and a file (the Global mise config, the Container setup) each get a row of their own, which the settings
   // that name it as their `row` join. One form, one Save.
   const dotfilesKey = (key: string) => (DOTFILES_SETTING_KEYS as ReadonlyArray<string>).includes(key);
+  const agentKey = (key: string) => (AGENT_SETTING_KEYS as ReadonlyArray<string>).includes(key);
   const ownRow = (setting: EnvironmentSettingEntry) => setting.schema.type === "variables" || setting.schema.type === "file";
   // The budget states its consequence once, under its own description, where the script rewrites it as the input changes.
   const noteFor = (key: string): FieldNote | undefined => (key === "containerBudget" ? { text: budgetNote(environment.containerBudget), data: "budget-note" } : undefined);
   const fields = entries
-    .filter(([key, setting]) => !ownRow(setting) && setting.row === undefined && !dotfilesKey(key))
+    .filter(([key, setting]) => !ownRow(setting) && setting.row === undefined && !dotfilesKey(key) && !agentKey(key))
     .map(([key, setting]) => field("environment", key, setting, values[key], false, noteFor(key)));
   const joining = (row: string) => entries.filter(([, setting]) => setting.row === row).map(([key, setting]) => field("environment", key, setting, values[key]));
+  const agentEntries = Object.fromEntries(entries);
+  const agents = `<div class="row"><div><div class="row-title"><h3 id="environment-agents-title">Agents</h3></div><p class="desc" id="environment-agents-desc">How long an agent's turn may run, how many CLI agents' processes a Workspace's Container may run, and how long an idle one waits before it may be ended for another Workspace.</p></div><div class="row-extra"><div class="fields" role="group" aria-labelledby="environment-agents-title" aria-describedby="environment-agents-desc">${AGENT_SETTING_KEYS.map((key) => field("environment", key, agentEntries[key]!, values[key])).join("")}</div></div></div>`;
   const dotfiles = `<div class="row"><div><div class="row-title"><h3 id="environment-dotfiles-title">Dotfiles</h3></div><p class="desc" id="environment-dotfiles-desc">Whether your own config in ~ (/root), from your Image setup or Container setup, reaches Terminals and CLI agents.</p></div><div class="row-extra"><div class="fields" role="group" aria-labelledby="environment-dotfiles-title" aria-describedby="environment-dotfiles-desc">${entries
     .filter(([key]) => dotfilesKey(key))
     .map(([key, setting]) => field("environment", key, setting, values[key]))
@@ -386,8 +391,8 @@ const environmentSection = (environment: ResolvedEnvironment, costs: ContainerCo
   return `<section id="environment" aria-labelledby="environment-title">
 <div class="section-head"><h2 id="environment-title">${icon("container")}Environment</h2></div>
 <p class="section-desc">What every Workspace's Container gets. A change applies at each Workspace's next Container start unless its setting says otherwise; a running Container keeps what it started with, and a lower budget stops none.</p>
-<form class="group" data-environment aria-labelledby="environment-title" novalidate><div class="row"><div><div class="row-title"><h3>Containers</h3><span class="ident">revision ${environment.revision}</span></div><p class="desc">Their size, how long one may sit idle, how many may run at once, and how many CLI agents' processes each may run.</p></div>
-<div class="row-extra"><div class="fields">${fields.join("")}</div></div></div>${dotfiles}${lists.join("")}${save}</form>
+<form class="group" data-environment aria-labelledby="environment-title" novalidate><div class="row"><div><div class="row-title"><h3>Containers</h3><span class="ident">revision ${environment.revision}</span></div><p class="desc">Their size, how long one may sit idle, and how many may run at once.</p></div>
+<div class="row-extra"><div class="fields">${fields.join("")}</div></div></div>${agents}${dotfiles}${lists.join("")}${save}</form>
 <dl class="group kv"><div><dt>Running now</dt><dd>${
     running === null || running === undefined
       ? "unknown"
@@ -925,10 +930,10 @@ ${input.workspaces === undefined ? "" : `${navItem("workspaces", "Workspaces", "
 ${navItem("status", "Status", "status")}
 ${navItem("audit", "Audit log", "audit", `<span class="count">${input.audit.length}</span>`)}
 </nav>
-<p class="side-foot">Harness revision <strong>${revision}</strong>, applied at each thread's next turn. Environment revision <strong>${environment.revision}</strong>: Container settings apply at each Container's next start, Environment skills at each thread's next turn.</p>
+<p class="side-foot">Harness revision <strong>${revision}</strong>, applied at each thread's next turn. Environment revision <strong>${environment.revision}</strong>: each setting applies when it says, most at each Container's next start; Environment skills at each thread's next turn.</p>
 </aside>
 <main id="main" tabindex="-1"><div class="content">
-<header class="page-head"><div><h1>Settings</h1><p>t3flare's own settings for this Cloud Environment: the Harness settings (the tools Pi Durable's agents are offered, its extensions and MCP servers, applied at each thread's next turn) and the Environment settings (what every Container gets, applied at its next start).</p></div><span class="chip">Revision <strong>${revision}</strong></span></header>
+<header class="page-head"><div><h1>Settings</h1><p>t3flare's own settings for this Cloud Environment: the Harness settings (the tools Pi Durable's agents are offered, its extensions and MCP servers, applied at each thread's next turn) and the Environment settings (what every Container and agent gets, most applied at each Container's next start).</p></div><span class="chip">Revision <strong>${revision}</strong></span></header>
 <div id="result" class="notice" role="status" aria-live="polite" hidden><span class="notice-ico-ok">${icon("check")}</span><span class="notice-ico-err">${icon("alert")}</span><p class="msg"></p><button type="button" class="btn btn-ghost btn-sm" data-dismiss aria-label="Dismiss">${icon("x")}</button></div>
 ${input.openChanges === undefined ? "" : `${openChangesSection(input.openChanges)}\n`}${toolsSection(input.resolved)}
 ${extensionsSection(input.resolved)}

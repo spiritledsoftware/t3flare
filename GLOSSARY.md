@@ -224,7 +224,7 @@ _Avoid_: harness config, settings (alone)
 **Environment settings**:
 What the Cloud Environment gives every Workspace and its Container, and how long it keeps one: the Container size, idle
 time and budget, how many CLI agents' processes a Workspace may run and how long an idle one waits before it may be ended
-to free the Container for another Workspace, the Global mise config, the Image setup and the Container setup, the
+to free the Container for another Workspace, the Turn limit, the Global mise config, the Image setup and the Container setup, the
 Environment skills, the Variables, whether Terminals and CLI agents read the Owner's dotfiles, and the Grace. t3flare's own, not t3's server settings.
 _Avoid_: environment config, server settings, Container settings
 
@@ -245,6 +245,10 @@ _Avoid_: instance type, plan
 **Container budget**:
 How many Workspaces' Containers may run at once across the Cloud Environment.
 _Avoid_: max instances, slots
+
+**Turn limit**:
+How long a turn may run before it is ended, for a Durable agent and a CLI agent alike; an Environment setting.
+_Avoid_: turn cap, turn deadline, timeout
 
 **Image setup**:
 The Owner's script, kept in the Environment settings, whose result on the Workspace image is the Base snapshot.

@@ -10,7 +10,8 @@
 // - t3's tools through the MCP relay (SPI-1039, `relayedMcp.ts`; OD-3 lifted); MCP apps and feedback uploads (to the
 //   vendor) are gone.
 // - The turn's state reaches the Workspace (`processTurn`): the Container's hold (review F7).
-// - The 2 h turn cap (ADR-0015): a turn still running then ends its process, and with it the session.
+// - The Turn limit (ADR-0015, SPI-1315: `turnLimitMinutes`, read at each turn's start): a turn still running at the
+//   limit it started with ends its process, and with it the session.
 // - Events can be filtered (pi's "t3-code MCP unavailable" notice, review F10).
 // - The thread's Workspace takes the Environment skill set before each turn (SPI-1153).
 // - A tool call the MCP relay asks about (ADR-0028) is raised as t3's approval card on the thread's live turn: the
@@ -45,14 +46,12 @@ import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 
+import { turnLimitMsNow } from "../../agents/bindings.ts";
 import type { ChannelProcess } from "../../agents/processChannel.ts";
 import { type CliAnswer, type CliAsk, registerCliAsker } from "./cliAsk.ts";
 import { takeEnvironmentSkillsAt } from "./environmentSkillsTake.ts";
 import { failureOf, withRelayFailure } from "./relayFailure.ts";
 import { workersLog } from "../../platform/workersLog.ts";
-
-/** ADR-0015: a CLI turn longer than this ends its process. */
-export const TURN_CAP_MS = 2 * 60 * 60_000;
 
 /** What t3flare knows of one CLI provider session: its process (the client factory's) and the thread's policy. */
 export interface CliSession {
@@ -64,7 +63,7 @@ export interface CliSession {
   /** The Workspace the session's process runs in. */
   readonly workspace: string | null;
   turnActive: boolean;
-  capFiber: Fiber.Fiber<void> | undefined;
+  limitFiber: Fiber.Fiber<void> | undefined;
   /** The session's process's tool handle for the MCP relay (ADR-0028): 256 random bits, never logged. */
   readonly toolHandle: string;
   /** The model the session was opened with (SPI-1167: Codex's process provider is its model's). */
@@ -84,7 +83,7 @@ export const CliSpawn = Context.Reference<CliSession | undefined>("t3flare/CliSp
 export const sessionFor = (sessions: CliSessions, providerSessionId: string, cwd: string | null, thread: string): CliSession => {
   let session = sessions.get(providerSessionId);
   if (session === undefined) {
-    session = { thread, process: undefined, runtimeMode: undefined, interactionMode: undefined, workspace: cwd === null ? null : (toWorkspace(cwd)?.id ?? null), turnActive: false, capFiber: undefined, toolHandle: newHandle() };
+    session = { thread, process: undefined, runtimeMode: undefined, interactionMode: undefined, workspace: cwd === null ? null : (toWorkspace(cwd)?.id ?? null), turnActive: false, limitFiber: undefined, toolHandle: newHandle() };
     sessions.set(providerSessionId, session);
   }
   return session;
@@ -113,6 +112,11 @@ export interface WrapOptions {
    * (`takeEnvironmentSkillsAt`) unless a test replaces it: every CLI driver gets it without asking.
    */
   readonly takeEnvironmentSkills?: (cwd: string | null) => Effect.Effect<void>;
+  /**
+   * SPI-1315 (ADR-0015): the Turn limit in ms, read at each turn's start; a turn longer than the limit it started with
+   * ends its process. Default: the Environment's `turnLimitMinutes` (`turnLimitMsNow`).
+   */
+  readonly turnLimitMs?: () => number;
   /** SPI-1172: the clock a usage limit's reset is held against (tests). */
   readonly now?: () => number;
   /** SPI-1172: the session's process's last model relay failure this turn. Default: asked of its Workspace DO. */
@@ -191,6 +195,7 @@ export const wrapCliAdapter = (adapter: ProviderAdapter.ProviderAdapterV2["Servi
   const { sessions } = options;
   const takeEnvironmentSkills = options.takeEnvironmentSkills ?? ((cwd: string | null) => takeEnvironmentSkillsAt(cwd));
   const now = options.now ?? Date.now;
+  const turnLimitMs = options.turnLimitMs ?? turnLimitMsNow;
   const relayFailure = options.relayFailure ?? (async (session: CliSession) => (await session.process?.modelFailure()) ?? null);
   /** SPI-1172: a failed turn's terminal or error item, with the relay's classification of the process's last answer. */
   const relayedEvent = (session: CliSession, event: ProviderAdapter.ProviderAdapterV2Event): Effect.Effect<ProviderAdapter.ProviderAdapterV2Event> =>
@@ -202,8 +207,8 @@ export const wrapCliAdapter = (adapter: ProviderAdapter.ProviderAdapterV2["Servi
       if (!session.turnActive) return;
       session.turnActive = false;
       session.process?.turn(false);
-      if (session.capFiber !== undefined) yield* Fiber.interrupt(session.capFiber);
-      session.capFiber = undefined;
+      if (session.limitFiber !== undefined) yield* Fiber.interrupt(session.limitFiber);
+      session.limitFiber = undefined;
     });
   return ProviderAdapter.ProviderAdapterV2.of({
     instanceId: adapter.instanceId,
@@ -354,18 +359,20 @@ export const wrapCliAdapter = (adapter: ProviderAdapter.ProviderAdapterV2["Servi
           startTurn: (turn) =>
             Effect.gen(function* () {
               const cwd = turn.runtimePolicy.cwd ?? null;
-              // SPI-1153: before the turn's hold and cap, so an interrupt during the take's wait leaves neither behind.
+              // SPI-1153: before the turn's hold and Turn limit, so an interrupt during the take's wait leaves neither behind.
               yield* takeEnvironmentSkills(cwd);
               session.runtimeMode = turn.runtimePolicy.runtimeMode;
               session.interactionMode = turn.runtimePolicy.interactionMode;
               session.turnActive = true;
               live = { threadId: turn.threadId, runId: turn.runId, rootNodeId: turn.rootNodeId, providerThreadId: turn.providerThread.id, providerTurnId: undefined, ordinal: turn.providerTurnOrdinal * 100 };
               session.process?.turn(true);
-              if (session.capFiber !== undefined) yield* Fiber.interrupt(session.capFiber);
-              session.capFiber = yield* Effect.sleep(TURN_CAP_MS).pipe(
+              if (session.limitFiber !== undefined) yield* Fiber.interrupt(session.limitFiber);
+              // The Turn limit as it is now, kept by this turn's timer: a change reaches only the thread's next turn. At
+              // most MAX_TIMED_MINUTES (7 days), under the 24.8 days past which a JS timer overflows.
+              session.limitFiber = yield* Effect.sleep(turnLimitMs()).pipe(
                 Effect.andThen(
                   Effect.sync(() => {
-                    workersLog("warn", { t3flare: "cli-turn-cap", providerSessionId: input.providerSessionId, key: session.process?.key ?? null });
+                    workersLog("warn", { t3flare: "cli-turn-limit", providerSessionId: input.providerSessionId, key: session.process?.key ?? null });
                     session.process?.kill();
                   }),
                 ),
@@ -373,7 +380,7 @@ export const wrapCliAdapter = (adapter: ProviderAdapter.ProviderAdapterV2["Servi
               );
               const text = options.rewriteTurnText === undefined ? turn.message.text : yield* options.rewriteTurnText(turn.message.text, cwd);
               const sent = text === turn.message.text ? turn : { ...turn, message: { ...turn.message, text } };
-              // A turn that never started ends here: no `turn.terminal` follows, and the hold and the cap would stay.
+              // A turn that never started ends here: no `turn.terminal` follows, and the hold and the Turn limit's timer would stay.
               yield* runtime.startTurn(sent).pipe(Effect.provideService(CliTurn, { cwd }), Effect.onError(() => turnEnded(session)));
             }),
           respondToRuntimeRequest: (response) => {

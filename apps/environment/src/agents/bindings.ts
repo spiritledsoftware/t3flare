@@ -1,6 +1,7 @@
 // What the Environment DO hands t3's code that is not a t3 service (step 1's note: expose what 2a needs deliberately):
 // the agents Worker's Durable Object bindings, the Model endpoints, and the GitHub minter. Set by the DO's constructor, before
 // t3 boots; module state, as the DO is the only one in its isolate.
+import { DEFAULT_TURN_LIMIT_MS } from "@t3flare/harness-registry";
 import type { ModelEndpoints } from "@t3flare/models/endpoints";
 import type { GitHubTokens } from "./github.ts";
 import type { AgentsBindings } from "./rpc.ts";
@@ -32,6 +33,11 @@ export interface EnvironmentServices {
    * setting's default.
    */
   readonly agentsReadDotfiles?: () => boolean;
+  /**
+   * The Turn limit (SPI-1315, `turnLimitMinutes`) in ms, as stored now: read at each turn's start, by the CLI wrapper and
+   * the Durable agent's adapter, so a change applies at each thread's next turn. Absent (a test's services): the default.
+   */
+  readonly turnLimitMs?: () => number;
   /** Asks for a Sweep after 5 s of quiet (ADR-0043 §5): the deletion wake's Layer calls it. */
   readonly wakeSweep: () => void;
   /** One-time marks in the Environment DO's storage (step 3: a setting seeded once, L1). */
@@ -75,4 +81,16 @@ export const bindEnvironmentServices = (services: EnvironmentServices): void => 
 export const environmentServices = (): EnvironmentServices => {
   if (current === undefined) throw new Error("t3flare: the Environment DO has not bound its services");
   return current;
+};
+
+/**
+ * The Turn limit now, in ms (SPI-1315): the stored setting, or its default when the services or the store cannot be read,
+ * so a turn always starts with a limit.
+ */
+export const turnLimitMsNow = (): number => {
+  try {
+    return current?.turnLimitMs?.() ?? DEFAULT_TURN_LIMIT_MS;
+  } catch {
+    return DEFAULT_TURN_LIMIT_MS;
+  }
 };

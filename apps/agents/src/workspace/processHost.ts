@@ -46,7 +46,12 @@ export const CLI_IDLE_HOLD_MS = 11 * 60_000;
  * process before its first turn. Equal to the delay's default, so the default behaves as before the setting.
  */
 export const STARTUP_GRACE_MS = 30_000;
-/** A process with neither input nor output for this long is killed (past the 2 h turn cap). */
+/**
+ * A process out of a turn with neither input nor output for this long is killed. Fixed, and not the Turn limit
+ * (SPI-1315): it applies only out of a turn (`!inTurn`), where the Turn limit has nothing to bound (the Environment's
+ * wrapper ends a turn at its limit), and it backs up t3flare's own cleanup: t3 releases an idle session at 10 minutes and
+ * the heartbeat lapse (`HEARTBEAT_LAPSE_MS`) catches a lost Environment, so only a process both missed reaches it.
+ */
 export const BACKSTOP_MS = 130 * 60_000;
 
 /** The part of the platform's `ExecProcess` used here (no PTY). */

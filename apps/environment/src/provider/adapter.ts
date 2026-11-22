@@ -44,7 +44,7 @@ import * as Stream from "effect/Stream";
 import { defaultModelSlug, EMPTY_ENDPOINTS, endpointSlug, findEndpointModel, type ModelEndpoints, parseEndpointSlug, selectionSlug } from "@t3flare/models/endpoints";
 import { toWorkspace } from "@t3flare/workspace-client";
 
-import { environmentServices } from "../agents/bindings.ts";
+import { environmentServices, turnLimitMsNow } from "../agents/bindings.ts";
 import { byName, type SessionRpc } from "../agents/rpc.ts";
 import { registerSession } from "../agents/sessionSink.ts";
 import { durableModeRecord } from "./threadCaller.ts";
@@ -486,6 +486,8 @@ export const makePiDurableAdapter = (
                 linked,
                 // SPI-1148: the Environment skill set's hash; the Session has its Workspace take a new one (plan §4.2).
                 ...environmentSkillsInput(),
+                // SPI-1315: the Turn limit as it is at this turn's start; the Session keeps it with the turn.
+                turnLimitMs: turnLimitMsNow(),
               }),
             ).pipe(
               Effect.tapError(() =>

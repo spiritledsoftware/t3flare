@@ -137,7 +137,8 @@ export default Alchemy.Stack(
     const idleAfterMs = yield* Config.String("T3FLARE_IDLE_AFTER_MS").pipe(Config.withDefault(""));
     // The first pass of a deploy to a new stage: no Durable Object bindings across the two Workers (scripts/stage.ts).
     const bootstrapPass = (yield* Config.String("T3FLARE_DEPLOY_BOOTSTRAP").pipe(Config.withDefault(""))) === "1";
-    // The turn deadline (2 h) shortened on a stage for its check (step 2a M5): unset in normal deploys.
+    // Overrides every Durable turn's Turn limit (the setting's and its default), shortened on a stage for its check (step
+    // 2a M5): unset in normal deploys.
     const turnDeadlineMs = yield* Config.String("T3FLARE_TURN_DEADLINE_MS").pipe(Config.withDefault(""));
     // The terminal hold (30 min) and the Grace (an Environment setting, ADR-0043) shortened on a stage for their checks.
     const terminalIdleMs = yield* Config.String("T3FLARE_TERMINAL_IDLE_MS").pipe(Config.withDefault(""));

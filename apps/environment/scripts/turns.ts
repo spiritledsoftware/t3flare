@@ -9,7 +9,7 @@
 //                                                    (M5) the same with a turn that runs tools in the fixture Workspace
 //                                                    (restart while its `bash` runs); with --approval, while an approval
 //                                                    waits: no continuation, the turn aborted, the request withdrawn
-//   node scripts/stage.ts run step2a turns deadline   (M5, stage deployed with T3FLARE_TURN_DEADLINE_MS) the turn cap
+//   node scripts/stage.ts run step2a turns deadline   (M5, stage deployed with T3FLARE_TURN_DEADLINE_MS) the Turn limit
 //   node scripts/stage.ts run step2a turns lost       a Session that loses its turn: the inverse guard ends it
 //   … [--model anthropic/claude-haiku-5-5] [--out file.json]
 import * as fs from "node:fs";
@@ -223,7 +223,7 @@ if (scenario === "restart") {
 }
 
 if (scenario === "deadline") {
-  // Deploy the stage with T3FLARE_TURN_DEADLINE_MS=120000 first (the 2 h cap, shortened).
+  // Deploy the stage with T3FLARE_TURN_DEADLINE_MS=120000 first (the Turn limit, overridden and shortened).
   const threadId = await fixtureThread(`deadline ${stamp}`, "full-access");
   await sendMessage(cookie, threadId, "Run `sleep 900 && echo done` with the bash tool and tell me when it finishes.", model);
   const running = await waitFor(cookie, threadId, (p) => runsOf(p).some((r) => r.status === "running"), 120_000);

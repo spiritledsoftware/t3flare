@@ -7,7 +7,7 @@
 // two levels per round trip, until "Subrequest depth limit exceeded" failed every call the Environment made. An alarm
 // is a request of its own, at the top of no chain, so a push sent from it starts again at the top.
 
-/** The least time from now to the next housekeeping alarm (heartbeat, turn deadline, push retry). */
+/** The least time from now to the next housekeeping alarm (heartbeat, a turn's Turn limit, push retry). */
 const HOUSEKEEPING_FLOOR_MS = 500;
 
 export interface NextAlarm {
@@ -15,7 +15,7 @@ export interface NextAlarm {
   readonly at: number | null;
   /**
    * When housekeeping is next due, if it is: an alarm before it only pushes. Not floored, so a push alarm sees an overdue
-   * fixed-time candidate (a turn deadline, a push retry) as due however often pushes rearm the alarm. The heartbeat and
+   * fixed-time candidate (a turn's Turn limit, a push retry) as due however often pushes rearm the alarm. The heartbeat and
    * the kill retry are reckoned from each arming, so they still move with it, as before.
    */
   readonly housekeepingAt: number | undefined;

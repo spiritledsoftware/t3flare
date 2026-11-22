@@ -2,7 +2,7 @@
 // SPI-1153 (hand-off A1): a CLI agent's Workspace takes the Environment skill set before the CLI's process starts and
 // before each of its turns, on the Environment's side, bounded and never failing either. The take itself
 // (`takeEnvironmentSkillsAt`), the spawner's take before the process channel starts (`spawnCli`), and the wrapper's
-// default take before the inner adapter's turn, for each of the four CLI drivers, ahead of the turn's hold and cap.
+// default take before the inner adapter's turn, for each of the four CLI drivers, ahead of the turn's hold and Turn limit.
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -154,7 +154,7 @@ describe("wrapCliAdapter's take", () => {
     }
   });
 
-  it("comes before the turn's hold and cap: an interrupt during its wait leaves neither behind", async () => {
+  it("comes before the turn's hold and Turn limit: an interrupt during its wait leaves neither behind", async () => {
     const sessions: CliSessions = new Map();
     await Effect.runPromise(
       Effect.gen(function* () {
@@ -164,7 +164,7 @@ describe("wrapCliAdapter's take", () => {
         yield* Fiber.interrupt(turn);
         const session = sessions.get("s1")!;
         expect(session.turnActive).toBe(false);
-        expect(session.capFiber).toBeUndefined();
+        expect(session.limitFiber).toBeUndefined();
         expect(log).toEqual([]);
       }).pipe(Effect.scoped),
     );
