@@ -89,6 +89,7 @@ section{display:flex;flex-direction:column;gap:.625rem;scroll-margin-top:1.5rem}
 .variable [data-variable-remove]{grid-area:remove}
 .variable-note{grid-area:note;font-size:.75rem;color:var(--muted-fg);margin-top:-.25rem}
 .variable-note[hidden]{display:none}
+.variable-unreadable{color:var(--err)}
 .row>.save{grid-column:1/-1;justify-content:flex-end;padding-top:0}
 .save{display:flex;align-items:center;gap:.75rem;padding-top:calc(1.21875rem + .375rem + 4px)}
 .state{display:inline-flex;align-items:center;gap:.375rem;font-size:.75rem;color:var(--muted-fg);white-space:nowrap}

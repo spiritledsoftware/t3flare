@@ -37,6 +37,7 @@ import {
   mcpServersOf,
   ownEntry,
   PLAN_REFUSAL,
+  fitVariables,
   resolveEnvironment,
   resolveHarness,
   SETTINGS_SERVER,
@@ -112,8 +113,8 @@ import {
   outcomeOf,
   waitForChange,
 } from "./openChanges.ts";
-import { askedByText, changeText, environmentItems, extensionItems, mcpItems, PAGE_REASON, shownSkill, toolsItems } from "./render.ts";
-import { sealVariablesIn } from "../harness/variableSeal.ts";
+import { askedByText, changeText, environmentItems, extensionItems, mcpItems, PAGE_REASON, shownCallArgs, shownSkill, toolsItems } from "./render.ts";
+import { readVariables, sealVariablesIn } from "../harness/variableSeal.ts";
 import { settingsToolOf } from "./tools.ts";
 import type { ChangeEntity, ChangeItem, ChangeView, PageReason } from "./types.ts";
 
@@ -144,6 +145,8 @@ export interface SettingsServerDeps {
 export interface SettingsCallInput {
   readonly tool: string;
   readonly args: Readonly<Record<string, unknown>>;
+  /** The arguments as a card prints them, when they differ (a secret Variable shown as set, `shownCallArgs`). */
+  readonly shownArgs?: unknown;
   readonly caller: OwnCaller;
   readonly asker?: McpAsker;
   readonly signal?: AbortSignal;
@@ -276,7 +279,8 @@ const getSettings = async (deps: SettingsServerDeps, args: Readonly<Record<strin
   }
   if (args.entity === "environment") {
     const stored = deps.ops.store.loadEnvironment();
-    const resolved: Readonly<Record<string, unknown>> = resolveEnvironment(stored);
+    // A secret Variable as set, or as unreadable when this credentials key does not open it (ADR-0046).
+    const resolved: Readonly<Record<string, unknown>> = { ...resolveEnvironment(stored), variables: await readVariables(stored, deps.ops.variableSealer) };
     return read({
       entity: "environment",
       revision: stored.revision,
@@ -563,9 +567,12 @@ const planEnvironment = (deps: SettingsServerDeps, args: Readonly<Record<string,
     ...TARGET.environment,
     appliesAt: environmentAppliesAt(applied.changed.length > 0 ? applied.changed : Object.keys(settings)),
     verdict: tierOf({ entity: "environment", stored, change: { settings } }),
-    normalized: { settings },
+    // Hashed as read (ADR-0046): a secret Variable by its fingerprint, a keyed HMAC of its value, not its sealed value,
+    // whose IV differs each time: the same secret change hashes the same for the declined-repeat refusal and reuse.
+    normalized: { settings: settings.variables === undefined ? settings : { ...settings, variables: fitVariables(settings.variables) } },
     describe: async () => ({ items: environmentItems(stored, settings), lines: [] }),
-    run: async (options) => fromOutcome(await changeEnvironment(deps.ops, settings, options)),
+    // The door sealed these arguments (`sealedArgs`), or an Open change kept them so.
+    run: async (options) => fromOutcome(await changeEnvironment(deps.ops, settings, options, { sealedAtDoor: true })),
   };
 };
 
@@ -765,7 +772,8 @@ const openListOf = (deps: Pick<SettingsServerDeps, "origin">): string | undefine
 const askedBy = (caller: OwnCaller): string => `Asked by ${askedByText(caller)}.`;
 
 /** The agent's call, as a card shows it last. */
-const callText = (tool: string, args: Readonly<Record<string, unknown>>): string => `The agent's call: settings: ${tool}\n${JSON.stringify(args, null, 2)}`;
+/** The agent's call as a card prints it: a secret Variable as set or changed, never its value (`shownCallArgs`). */
+const callText = (input: Pick<SettingsCallInput, "tool" | "args" | "shownArgs">): string => `The agent's call: settings: ${input.tool}\n${JSON.stringify(input.shownArgs ?? input.args, null, 2)}`;
 
 const APPROVAL_OPTIONS: NonNullable<McpQuestionCard["options"]> = [
   { decision: "accept", label: "Approve" },
@@ -789,7 +797,7 @@ const freeCard = (input: SettingsCallInput, planned: Planned, revision: number):
     planned.appliesAt,
     `${askedBy(input.caller)} This change is free (it narrows what agents have); this thread's mode asks for every write.`,
     "",
-    callText(input.tool, input.args),
+    callText(input),
   ].join("\n");
   return { id: newCardId(), kind: "approval", server: SETTINGS_SERVER, title: cardText(`settings: ${input.tool}?`, 200), prompt: cardText(prompt), options: APPROVAL_OPTIONS };
 };
@@ -799,7 +807,7 @@ const freeCard = (input: SettingsCallInput, planned: Planned, revision: number):
  * lines, when it applies, who asked, the Change page's link, and the agent's call last.
  */
 const askedText = (view: ChangeView, input: SettingsCallInput, url: string | undefined): string =>
-  [changeText(view), "", askedBy(input.caller), ...(url === undefined ? [] : [`The Change page: ${url}`]), "", callText(input.tool, input.args)].join("\n");
+  [changeText(view), "", askedBy(input.caller), ...(url === undefined ? [] : [`The Change page: ${url}`]), "", callText(input)].join("\n");
 
 /** The owner-only approval card for an asked change (plan D9); never a field, so no agent can answer it. */
 export const askedCard = (view: ChangeView, input: SettingsCallInput, url: string | undefined, needsPage: PageReason | undefined): McpQuestionCard => {
@@ -1392,11 +1400,14 @@ const sealedArgs = async (
   deps: SettingsServerDeps,
   tool: string,
   args: Readonly<Record<string, unknown>>,
-): Promise<{ readonly ok: true; readonly args: Readonly<Record<string, unknown>> } | { readonly ok: false; readonly error: string }> => {
+): Promise<{ readonly ok: true; readonly args: Readonly<Record<string, unknown>>; readonly shownArgs?: unknown } | { readonly ok: false; readonly error: string }> => {
   const settings = tool === "change_environment" ? objectArg(args.settings) : undefined;
   if (settings === undefined) return { ok: true, args };
-  const sealed = await sealVariablesIn(settings, deps.ops.store.loadEnvironment(), deps.ops.variableSealer);
-  return sealed.ok ? { ok: true, args: { ...args, settings: sealed.settings } } : sealed;
+  const stored = deps.ops.store.loadEnvironment();
+  const sealed = await sealVariablesIn(settings, stored, deps.ops.variableSealer);
+  if (!sealed.ok) return sealed;
+  const sealedArgs = { ...args, settings: sealed.settings };
+  return { ok: true, args: sealedArgs, shownArgs: shownCallArgs(tool, sealedArgs, stored) };
 };
 
 /**
@@ -1413,7 +1424,7 @@ export const settingsCall = async (deps: SettingsServerDeps, input: SettingsCall
       deps.log?.({ t3flare: "settings-refused", via: "mcp", door: input.caller.door, agent: input.caller.agent, thread: input.caller.thread ?? null, tool: input.tool, outcome: "refused", reason: "invalid" });
       return written("refused", `Not changed: ${sealed.error}`);
     }
-    return write(deps, { ...input, args: sealed.args });
+    return write(deps, { ...input, args: sealed.args, ...(sealed.shownArgs === undefined ? {} : { shownArgs: sealed.shownArgs }) });
   }
   const limited = readLimit(deps, ownReader(deps, input.caller), tool.name);
   if (limited !== undefined) return limited;

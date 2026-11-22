@@ -5,8 +5,10 @@
 //
 // It is the only place a header value is typed for an agent's change, and the only place a sign-in's authorization URL
 // goes (in the POST's own answer, to this page's script): ADR-0035, O8.
+import type { StoredEnvironment } from "@t3flare/harness-registry";
+
 import { type ChangeRecord, CLOSED_KEPT_MS, type ClosedBy, durationText } from "../settings/changes.ts";
-import { askedByText, changeHead, keptOf, keptText, lineDiff, purgeDueText, sizeText } from "../settings/render.ts";
+import { askedByText, changeHead, keptOf, keptText, lineDiff, purgeDueText, shownCallArgs, sizeText } from "../settings/render.ts";
 import type { ChangeItem, ShownSkill, ShownVariableValue } from "../settings/types.ts";
 import { fileUrl } from "../skills/api.ts";
 import { CHANGE_SCRIPT } from "./changePageScript.ts";
@@ -139,7 +141,11 @@ export const renderGonePage = (csrf: string): string =>
   `${head("Change", csrf)}<body><main class="change-main" id="main">${brandLink}<header class="page-head"><div><h1>This change is gone</h1><p>No change has this id: it closed over ${durationText(CLOSED_KEPT_MS)} ago, or never was. Nothing waits here.</p></div></header><p><a href="${OPEN_CHANGES_PATH}">The Settings page's Open changes</a></p>${foot}`;
 
 /** The Change page for `record` (plan D10). `now` decides the time left. */
-export const renderChangePage = (record: ChangeRecord, input: { readonly csrf: string; readonly now: number }): string => {
+/**
+ * `environment` is the Environment settings as stored now: the call's secret Variables show as set or changed against
+ * it (`shownCallArgs`), never their sealed values.
+ */
+export const renderChangePage = (record: ChangeRecord, input: { readonly csrf: string; readonly now: number; readonly environment?: StoredEnvironment }): string => {
   const view = record.shown;
   const open = record.state === "open";
   const left = Math.max(0, Math.ceil(((record.expiresAt ?? record.createdAt) - input.now) / 60_000));
@@ -177,7 +183,7 @@ export const renderChangePage = (record: ChangeRecord, input: { readonly csrf: s
 ${lines}
 <section class="group" aria-label="What changes">${items === "" ? '<div class="change-block"><p class="desc">Nothing to show.</p></div>' : items}</section>
 <section class="group" aria-label="Why it waits"><div class="change-block"><h3>Why it waits for you</h3><ul>${reasons}</ul></div></section>
-<section class="group" aria-label="The agent's call"><div class="change-block"><h3>The call</h3><pre class="text">${visibleHtml(`settings: ${record.tool}\n${JSON.stringify(record.args, null, 2)}`)}</pre></div></section>
+<section class="group" aria-label="The agent's call"><div class="change-block"><h3>The call</h3><pre class="text">${visibleHtml(`settings: ${record.tool}\n${JSON.stringify(shownCallArgs(record.tool, record.args, input.environment), null, 2)}`)}</pre></div></section>
 ${answer}
 ${foot}`;
 };

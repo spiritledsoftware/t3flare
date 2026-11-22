@@ -4,9 +4,11 @@
 // the Change page, an Open change's arguments and every read hold a secret's fingerprint, never its value.
 import {
   fitStoredVariables,
+  isRecord,
   isSealedValue,
   type SealedValue,
   type StoredEnvironment,
+  readVariable,
   type Variable,
   variableEntries,
   variableNameProblem,
@@ -18,19 +20,21 @@ import type { ValueSealer } from "../credentials/sealed.ts";
 /** What a secret Variable's value is sealed under: its name, so a sealed value moved to another name does not open. */
 const labelOf = (name: string): string => `t3flare/variables/${name}`;
 
-const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> => value !== null && typeof value === "object" && !Array.isArray(value);
 
 /**
  * `settings` (an Environment change) with each secret Variable in its stored form: a value given is sealed, and
- * `valueRedacted: true` keeps the value stored under that name (as stock t3's redacted secrets round-trip). A secret
- * already sealed (an Open change's arguments, sealed when it was asked) is kept if it opens under its name. Everything
- * else is left for the change function to judge. Refused: a kept secret with nothing stored under its name, a value
- * that is no Variable's, and any secret to seal without a credentials key.
+ * `valueRedacted: true` keeps the value stored under that name (as stock t3's redacted secrets round-trip). A change
+ * from outside (the page, the Settings server's door) gives only those two (ADR-0046 §1): a `sealed` value from it is
+ * refused, since a sealed value seen once could bring back an old value. `sealedAtDoor` is the Open change's replay
+ * through the ops, whose arguments the door sealed: a secret already sealed is kept there if it opens under its name.
+ * Everything else is left for the change function to judge. Refused besides: a kept secret with nothing stored under
+ * its name, a secret with no value, a value that is no Variable's, and any secret to seal without a credentials key.
  */
 export const sealVariablesIn = async (
   settings: Readonly<Record<string, unknown>>,
   stored: StoredEnvironment,
   sealer: ValueSealer | undefined,
+  options: { readonly sealedAtDoor?: boolean } = {},
 ): Promise<{ readonly ok: true; readonly settings: Readonly<Record<string, unknown>> } | { readonly ok: false; readonly error: string }> => {
   if (!Object.hasOwn(settings, "variables")) return { ok: true, settings };
   const entries = variableEntries(settings.variables);
@@ -47,6 +51,10 @@ export const sealVariablesIn = async (
     const { name } = entry;
     const quoted = JSON.stringify(name);
     if (entry.sealed !== undefined) {
+      if (options.sealedAtDoor !== true) {
+        problems.push(`${quoted} gives a sealed value: give its value, or valueRedacted to keep the one stored`);
+        continue;
+      }
       const opens = isSealedValue(entry.sealed) && sealer !== undefined && (await sealer.open(labelOf(name), entry.sealed)) !== undefined;
       if (opens) out.push({ name, value: "", secret: true, sealed: entry.sealed });
       else problems.push(`${quoted}'s sealed value does not open here: give its value`);
@@ -62,7 +70,9 @@ export const sealVariablesIn = async (
       out.push(entry);
       continue;
     }
-    const why = variableNameProblem(name) ?? variableValueProblem(name, entry.value);
+    // An empty value with no redacted mark is a stored secret's box left blank (a page that lost its mark), not a value
+    // to seal: sealing it would blank the secret without a word.
+    const why = variableNameProblem(name) ?? variableValueProblem(name, entry.value) ?? (entry.value === "" ? `${quoted} is secret and has no value: give its value` : undefined);
     if (why !== undefined) {
       problems.push(why);
       continue;
@@ -96,3 +106,18 @@ export const openVariables = async (
   }
   return { variables, unreadable };
 };
+
+/**
+ * The stored Variables as a read shows them (`fitVariables`), each secret this credentials key does not open marked
+ * `unreadable` (ADR-0046): the Settings page and the Settings server say it must be typed again, since a Container
+ * start leaves it out. Never a value.
+ */
+export const readVariables = async (stored: StoredEnvironment, sealer: ValueSealer | undefined): Promise<ReadonlyArray<Variable>> =>
+  Promise.all(
+    fitStoredVariables(stored.settings.variables).map(async (variable) => {
+      const read = readVariable(variable);
+      if (variable.sealed === undefined) return read;
+      const opens = (await sealer?.open(labelOf(variable.name), variable.sealed)) !== undefined;
+      return opens ? read : { ...read, unreadable: true as const };
+    }),
+  );

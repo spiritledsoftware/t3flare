@@ -158,7 +158,8 @@ export const changeTools = (deps: OpsDeps, change: ToolsChange, options: OpOptio
 /**
  * Some of the Environment settings (ADR-0032): validated against their schema, it bumps only their revision, and the
  * audit entry has the changed settings as they resolved before and after, a secret Variable as its name and fingerprint
- * (ADR-0046). A change that moves nothing is stored, bumped
+ * (ADR-0046). `sealing.sealedAtDoor` is the Settings server's replay of an Open change, whose arguments its door sealed;
+ * every other caller gives a secret's value or `valueRedacted`, never a sealed value. A change that moves nothing is stored, bumped
  * and audited as nothing (`unchanged`). Applies at each Workspace's next Container start; the Grace at the next Sweep,
  * which a change to it brings forward (ADR-0043 §5).
  */
@@ -166,11 +167,12 @@ export const changeEnvironment = async (
   deps: OpsDeps,
   settings: Readonly<Record<string, unknown>>,
   options: OpOptions,
+  sealing: { readonly sealedAtDoor?: boolean } = {},
 ): Promise<Outcome<{ unchanged?: true; revision: number; resolved: ReturnType<typeof resolveEnvironment> }>> => {
   const before = deps.store.loadEnvironment();
   // A secret Variable's value is sealed before anything else sees it (ADR-0046 §1): the stored value, the resolved one
   // answered here and the audit entry hold its fingerprint only.
-  const sealed = await sealVariablesIn(settings, before, deps.variableSealer);
+  const sealed = await sealVariablesIn(settings, before, deps.variableSealer, sealing);
   if (!sealed.ok) return refuse(400, sealed.error);
   const applied = applyEnvironmentChange(before, { settings: sealed.settings });
   if (!applied.ok) return refuse(400, applied.error);

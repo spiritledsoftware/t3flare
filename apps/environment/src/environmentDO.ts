@@ -38,7 +38,7 @@ import { type CredentialBroker, credentialBroker } from "./credentials/broker.ts
 import { chatgptSignIn } from "./credentials/chatgpt.ts";
 import { claudeSignIn } from "./credentials/claude.ts";
 import { copilotSignIn } from "./credentials/copilot.ts";
-import { sealedStore, valueSealer } from "./credentials/sealed.ts";
+import { sealedStore, type ValueSealer, valueSealer } from "./credentials/sealed.ts";
 import { expireOnStage } from "./endpoints/expireHook.ts";
 import type { SignInLeakPatterns } from "./endpoints/leak.ts";
 import { endpointStore, type EndpointStore } from "./endpoints/store.ts";
@@ -396,7 +396,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       store: harnessStore(this.ctx.storage.kv),
       mcp: this.mcpHost,
       secrets: harnessSecrets(this.ctx.storage.kv),
-      variableSealer: valueSealer(this.env.T3FLARE_CREDENTIALS_KEY),
+      variableSealer: this.#variableSealer(),
       oauth: this.harnessOAuth,
       sweepSettingsChanged: () => this.#sweepSettingsChanged(),
       // The Workspaces section (ADR-0044): the view, the Owner's acts, each Workspace's usage, and the Sweep.
@@ -590,7 +590,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     const store = harnessStore(this.ctx.storage.kv);
     const skills = this.#skillsApi();
     return {
-      ops: { store, mcp: this.mcpHost, secrets: harnessSecrets(this.ctx.storage.kv), variableSealer: valueSealer(this.env.T3FLARE_CREDENTIALS_KEY), oauth: this.harnessOAuth, skills, sweepSettingsChanged: () => this.#sweepSettingsChanged(), now: () => Date.now() },
+      ops: { store, mcp: this.mcpHost, secrets: harnessSecrets(this.ctx.storage.kv), variableSealer: this.#variableSealer(), oauth: this.harnessOAuth, skills, sweepSettingsChanged: () => this.#sweepSettingsChanged(), now: () => Date.now() },
       oauthStatus: (server) => this.harnessOAuth.status(server),
       link: (thread) => threadLinkIn(this.ctx.storage.sql, thread),
       // A Durable thread's modes are the adapter's record; a CLI thread's are its live session's (plan D3).
@@ -754,6 +754,11 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     return resolveHarness(stored, input);
   }
 
+  /** Seals and opens a secret Variable's value with the Stage's credentials key (ADR-0046). */
+  #variableSealer(): ValueSealer {
+    return valueSealer(this.env.T3FLARE_CREDENTIALS_KEY);
+  }
+
   /** The Environment settings for a Workspace's Container start (ADR-0032), resolved. Never boots t3. */
   async environmentSettings(): Promise<ResolvedEnvironment> {
     const store = harnessStore(this.ctx.storage.kv);
@@ -761,7 +766,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     store.noteEnvironmentRead(stored.revision, Date.now());
     // The one read that opens a secret Variable (ADR-0046 §2): the Container start needs its value. One this credentials
     // key does not open is left out, logged by name only.
-    const { variables, unreadable } = await openVariables(stored, valueSealer(this.env.T3FLARE_CREDENTIALS_KEY));
+    const { variables, unreadable } = await openVariables(stored, this.#variableSealer());
     if (unreadable.length > 0) console.warn(JSON.stringify({ t3flare: "variables-unreadable", names: unreadable }));
     return { ...resolveEnvironment(stored), variables };
   }

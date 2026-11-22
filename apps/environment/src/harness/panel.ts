@@ -29,6 +29,7 @@ import type { McpHost } from "../mcp/host.ts";
 import type { HarnessOAuth } from "./oauth.ts";
 import type { ValueSealer } from "../credentials/sealed.ts";
 import type { HarnessSecrets } from "./secrets.ts";
+import { readVariables } from "./variableSeal.ts";
 
 import { decodeHarnessChange, decodeMcpChange } from "./changeBodies.ts";
 
@@ -211,7 +212,9 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
     if (path === SETTINGS_PAGE_PATH || path === `${SETTINGS_PAGE_PATH}/`) {
       const subject = deps.caller.kind === "owner" ? deps.caller.subject : "";
       const csrf = subject === "" ? "" : await csrfToken(deps.store.csrfKey(), subject, deps.now?.() ?? Date.now());
-      const environment = resolveEnvironment(deps.store.loadEnvironment());
+      const storedEnvironment = deps.store.loadEnvironment();
+      // A secret Variable as set, or as unreadable when this credentials key does not open it (ADR-0046).
+      const environment = { ...resolveEnvironment(storedEnvironment), variables: await readVariables(storedEnvironment, deps.variableSealer) };
       const html = renderPage({
         resolved: resolveHarness(deps.store.load()),
         environment,
@@ -240,7 +243,7 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
       const subject = deps.caller.kind === "owner" ? deps.caller.subject : "";
       const csrf = subject === "" ? "" : await csrfToken(deps.store.csrfKey(), subject, deps.now?.() ?? Date.now());
       const record = isChangeId(id) ? deps.changes.get(id) : undefined;
-      const html = record === undefined || record.tier !== "asked" ? renderGonePage(csrf) : renderChangePage(record, { csrf, now: deps.now?.() ?? Date.now() });
+      const html = record === undefined || record.tier !== "asked" ? renderGonePage(csrf) : renderChangePage(record, { csrf, now: deps.now?.() ?? Date.now(), environment: deps.store.loadEnvironment() });
       return new Response(html, {
         status: record === undefined ? 404 : 200,
         headers: { ...SECURITY_HEADERS, "content-type": "text/html; charset=utf-8", "content-security-policy": await pageCsp(CHANGE_SCRIPT) },
@@ -255,7 +258,7 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
     }
     if (path === `${SETTINGS_PAGE_PATH}/api/environment`) {
       const stored = deps.store.loadEnvironment();
-      const resolved = resolveEnvironment(stored);
+      const resolved = { ...resolveEnvironment(stored), variables: await readVariables(stored, deps.variableSealer) };
       // `stored` as read (ADR-0046): a secret Variable's sealed value is shown as its fingerprint, as `resolved` shows it.
       return json({ revision: stored.revision, resolved, schema: ENVIRONMENT_SETTINGS, costs: containerCostTable(resolved.containerBudget), running: await runningContainers(deps), stored: readStoredEnvironment(stored) });
     }

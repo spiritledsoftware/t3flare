@@ -22,6 +22,9 @@ import {
   settingOf,
   type StoredEnvironment,
   type StoredHarness,
+  fitVariables,
+  isRecord,
+  isSealedValue,
   type Variable,
   withoutQuery,
 } from "@t3flare/harness-registry";
@@ -86,6 +89,23 @@ export const toolsItems = (
   const moves = [...movedTools(resolveTools(stored.global), resolveTools(applied.harness.global), asksForDirect), ...movedServerTools(mcpServersOf(stored), mcpServersOf(applied.harness))];
   const items: Array<ChangeItem> = moves.map((move) => ({ kind: "scalar", name: `${move.tool}: Exposure`, before: move.before, after: move.after }));
   return { items, lines: change.preset === undefined ? [] : [`This applies the ${change.preset} preset to every tool that is not hidden, t3's and MCP servers' included (an MCP server's code-mode-only tools excepted).`] };
+};
+
+/**
+ * A Settings call's arguments as a card and the Change page print them (ADR-0046): a `change_environment`'s secret
+ * Variable, sealed at the door or kept by `valueRedacted`, as "secret, set", or "secret, changed" when `stored` holds
+ * another value under its name; never its value or its sealed value. Every other call's arguments as given.
+ */
+export const shownCallArgs = (tool: string, args: unknown, stored?: StoredEnvironment): unknown => {
+  if (tool !== "change_environment" || !isRecord(args) || !isRecord(args.settings) || !Array.isArray(args.settings.variables)) return args;
+  const before = new Map(fitVariables(stored?.settings.variables).flatMap((variable) => (variable.secret ? [[variable.name, variable.fingerprint] as const] : [])));
+  const variables = args.settings.variables.map((entry: unknown) => {
+    if (!isRecord(entry) || entry.secret !== true || (entry.sealed === undefined && entry.valueRedacted !== true)) return entry;
+    const fingerprint = isSealedValue(entry.sealed) ? entry.sealed.fingerprint : undefined;
+    const changed = fingerprint !== undefined && before.has(String(entry.name)) && before.get(String(entry.name)) !== fingerprint;
+    return { name: entry.name, secret: true, value: changed ? "secret, changed" : "secret, set" };
+  });
+  return { ...args, settings: { ...args.settings, variables } };
 };
 
 /** A Variable's value as a change shows it: a secret only as set. */
