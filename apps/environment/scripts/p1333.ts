@@ -10,6 +10,7 @@
 //   … image-change  after a redeploy whose Workspace image changed: a start waits for the new build (the default) and
 //                   never starts the old snapshot (image-change.json)
 //   … clear         the Image setup emptied
+//   … record        the Builder's record, in a line
 //
 // Evidence goes to .evidence/base-start/, each file naming the deployed commit.
 import * as fs from "node:fs";
@@ -147,7 +148,13 @@ const clear = async () => {
   console.log("the Image setup is empty");
 };
 
-const commands: Record<string, () => Promise<void>> = { ready, start, fallback, "image-change": imageChange, clear };
+/** The Builder's record now, in a line. */
+const show = async () => {
+  const r = await record();
+  console.log(JSON.stringify({ state: r?.state, phase: r?.phase, reason: r?.reason, revision: r?.revision, key: r?.key?.slice(0, 12), good: r?.good && { id: r.good.id, key: r.good.key.slice(0, 12), imageDigest: r.good.imageDigest.slice(-16) }, at: r?.at === undefined ? null : new Date(r.at).toISOString() }));
+};
+
+const commands: Record<string, () => Promise<void>> = { ready, start, fallback, "image-change": imageChange, clear, record: show };
 const command = commands[process.argv[2] ?? ""];
 if (command === undefined) {
   console.error(`usage: p1333.ts ${Object.keys(commands).join(" | ")}`);
