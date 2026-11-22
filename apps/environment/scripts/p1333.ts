@@ -12,18 +12,17 @@
 //   … clear         the Image setup emptied
 //   … record        the Builder's record, in a line
 //
-// Evidence goes to .evidence/base-start/, each file naming the deployed commit.
+// Evidence goes to .evidence/base-start/ (or `--out <dir>`), each file naming the deployed commit.
 import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { ensureProject } from "./lib/cliTurn.ts";
-import { admin, pair, sleep } from "./lib/client.ts";
+import { admin, base, pair, sleep } from "./lib/client.ts";
+import { writeEvidence as writeFile } from "./lib/evidence.ts";
+import { panelApi } from "./lib/relayEvidence.ts";
 
-const HARNESS = process.env.T3FLARE_HARNESS_URL ?? "";
-const T3 = process.env.T3_URL ?? "";
-const OUT = path.resolve(import.meta.dirname, "../../../.evidence/base-start");
-const accessHeaders = { "cf-access-client-id": process.env.T3FLARE_ACCESS_CLIENT_ID ?? "", "cf-access-client-secret": process.env.T3FLARE_ACCESS_CLIENT_SECRET ?? "" };
-const scriptHeaders = { ...accessHeaders, authorization: `Bearer ${process.env.T3FLARE_ADMIN_TOKEN ?? ""}` };
+const outAt = process.argv.indexOf("--out");
+const OUT = path.resolve(outAt === -1 ? path.resolve(import.meta.dirname, "../../../.evidence/base-start") : process.argv[outAt + 1]!);
 const WORKSPACE = "p1333";
 const MARKER = "/opt/p1333-marker";
 const IMAGE_SETUP = `set -euo pipefail
@@ -36,9 +35,8 @@ const CHECK = `cat ${MARKER} 2>/dev/null || echo NO-MARKER; command -v figlet ||
 const deployedCommit = async (): Promise<string | null> => (await admin("GET", "/_t3flare/health")).json?.build?.commit ?? null;
 
 const writeEvidence = async (name: string, value: Record<string, unknown>) => {
-  fs.mkdirSync(OUT, { recursive: true });
-  fs.writeFileSync(path.join(OUT, name), `${JSON.stringify({ at: new Date().toISOString(), host: new URL(T3).host, commit: await deployedCommit(), ...value }, null, 1)}\n`);
-  console.log(`wrote .evidence/base-start/${name} (ok: ${String(value.ok)})`);
+  writeFile(path.join(OUT, name), { host: base.host, commit: await deployedCommit(), ...value });
+  console.log(`(ok: ${String(value.ok)})`);
 };
 const readEvidence = (name: string): any => {
   const file = path.join(OUT, name);
@@ -46,19 +44,14 @@ const readEvidence = (name: string): any => {
 };
 
 const setEnvironment = async (settings: Record<string, unknown>) => {
-  const response = await fetch(new URL("/_t3flare/settings/api/environment", HARNESS), { method: "POST", redirect: "manual", headers: { ...scriptHeaders, "content-type": "application/json" }, body: JSON.stringify({ settings }) });
-  if (response.status !== 200) throw new Error(`environment change refused: ${response.status} ${(await response.text()).slice(0, 300)}`);
-  return (await response.json()) as { revision: number };
+  const answer = await panelApi("POST", "environment", { settings });
+  if (answer.status !== 200) throw new Error(`environment change refused: ${answer.status} ${JSON.stringify(answer.json).slice(0, 300)}`);
+  return answer.json as { revision: number };
 };
 
 const callOn = async (body: unknown) => {
-  const response = await fetch(new URL(`/_t3flare/agents/workspace-call?id=${WORKSPACE}`, T3), { method: "POST", redirect: "manual", headers: { ...scriptHeaders, "content-type": "application/json" }, body: JSON.stringify(body) });
-  const text = await response.text();
-  try {
-    return { status: response.status, ...JSON.parse(text) } as { status: number; result: any; container: any };
-  } catch {
-    return { status: response.status, result: { error: text.slice(0, 400) }, container: undefined };
-  }
+  const answer = await admin("POST", `/_t3flare/agents/workspace-call?id=${WORKSPACE}`, body);
+  return { status: answer.status, result: answer.json?.result ?? { error: String(answer.json).slice(0, 400) }, container: answer.json?.container } as { status: number; result: any; container: any };
 };
 const execTimed = async (script: string, timeoutMs = 20 * 60_000) => {
   const started = Date.now();
