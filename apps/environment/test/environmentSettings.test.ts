@@ -1,9 +1,6 @@
 // The Environment settings in the panel (SPI-1149, ADR-0032): `handleHarness` over a store, as for the Harness settings.
 // Their own revision (an Environment change never moves the Harness one, and the reverse), the audit log's `entity`
 // (old entries read as harness), validation, the same CSRF and Origin guards as the old routes, and the page's section.
-// @effect-diagnostics nodeBuiltinImport:off
-import { Script } from "node:vm";
-
 import { describe, expect, it } from "vitest";
 
 import { csrfToken } from "../src/harness/csrf.ts";
@@ -192,8 +189,10 @@ describe("Environment settings in the panel", () => {
     expect(html.split(note)).toHaveLength(2);
     expect(html).toContain('aria-describedby="environment-containerBudget-hint environment-containerBudget-note"');
     expect(html).toContain(`<p class="hint" id="environment-containerBudget-note" data-budget-note>${note}</p>`);
-    const rewrite = new Script(`(count) => ${SCRIPT.match(/budgetLine\.textContent = (.*);$/m)![1]}`).runInNewContext() as (count: number) => string;
-    expect(rewrite(40)).toBe(budgetNote(40));
+    // The script's rewrite is the note's text around the input's count, as page.ts renders it (no code is built here).
+    const [before, after, ...rest] = budgetNote(40).split("40");
+    expect(rest).toEqual([]);
+    expect(SCRIPT).toContain(`budgetLine.textContent = ${JSON.stringify(before)} + count + ${JSON.stringify(after)};`);
     expect(budgetNote(40)).toContain("up to 40 can run at once.");
   });
 
