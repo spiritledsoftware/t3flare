@@ -10,8 +10,9 @@
 // kept, mise's global config is that link, so a later edit of the dotfiles' file reaches mise. Under a file that breaks
 // git or gh nothing is kept: mise is back on t3flare's own (none). This run is never answered from the disk: the
 // dotfiles' file may be new since the last (a Base snapshot's lay-down ran before the Image setup wrote it). Each such
-// run keeps the SHA-256 of the dotfiles' file it saw (`none` without one); a run in the mode `if-changed`, after the
-// Container setup, does nothing and answers `unchanged` when the file is still that one.
+// run keeps the SHA-256 of the dotfiles' file it saw (`none` without one), written only after its answer, so a run cut
+// off mid-way leaves the last finished run's; a run in the mode `if-changed`, after the Container setup, does nothing
+// when the file is still that one and answers that run's answer again, marked `unchanged`.
 import { DOTFILES_MISE_CONFIG, GLOBAL_MISE_CONFIG, GLOBAL_MISE_DIR } from "./env.ts";
 
 /**
@@ -42,7 +43,7 @@ export interface GlobalMiseAnswer {
   readonly laid: boolean;
   /** The file was the dotfiles' own (`DOTFILES_MISE_CONFIG`): the start had no Global mise config text. */
   readonly dotfiles?: boolean;
-  /** An `if-changed` run found the dotfiles' file as the last run saw it: nothing was done. */
+  /** An `if-changed` run found the dotfiles' file as the last finished run saw it: nothing was done, the rest is that run's answer. */
   readonly unchanged?: boolean;
   /** `mise install`'s exit, or null when it did not run (no text). */
   readonly install: number | null;
@@ -76,7 +77,7 @@ if ! flock -w ${b.lock} 9; then answer false null false 0 ',"locked":true'; exit
 stage="$dir/config.$sha.$$.toml"
 cat > "$stage"
 bytes=$(wc -c < "$stage")
-dotfiles=false
+dotfiles=false notext=false
 if [ "$bytes" -gt 0 ]; then
   # The same revision and text already laid down (or refused) on this disk: its answer again (a dotfiles run's answer
   # has the empty text's SHA-256, so it is never this).
@@ -87,11 +88,11 @@ else
   # No text: the dotfiles' own mise config, when there is one, staged as a link to it. After the Container setup
   # (if-changed), only when the file is not the one the last run saw.
   rm -f "$stage"
+  notext=true
   seen=none; [ -f "$dotfiles_config" ] && seen=$(sha256sum < "$dotfiles_config" | cut -c1-64)
-  if [ "$mode" = if-changed ] && [ "$(cat "$dir/dotfiles.sha" 2>/dev/null)" = "$seen" ]; then
-    answer false null false 0 ',"dotfiles":false,"unchanged":true'; exit 0
+  if [ "$mode" = if-changed ] && [ -f "$dir/answer.json" ] && [ "$(cat "$dir/dotfiles.sha" 2>/dev/null)" = "$seen" ]; then
+    tail -n 1 "$dir/answer.json" | sed 's/}$/,"unchanged":true}/'; exit 0
   fi
-  printf '%s' "$seen" > "$dir/dotfiles.sha"
   if [ -f "$dotfiles_config" ]; then dotfiles=true; ln -s "$dotfiles_config" "$stage"; bytes=$(wc -c < "$stage"); fi
 fi
 if [ ! -L "$stage" ] && [ ! -f "$stage" ]; then
@@ -122,6 +123,9 @@ else
   line=$(answer $laid $install $timed "$bytes" ',"dotfiles":'$dotfiles)
 fi
 printf '%s\\n' "$line" > "$dir/answer.json.$$" && mv -f "$dir/answer.json.$$" "$dir/answer.json"
+# The dotfiles' file this run checked, kept only now, after its answer: a run cut off before this leaves the last
+# finished run's, so the next if-changed run checks the file again.
+if [ $notext = true ]; then printf '%s' "$seen" > "$dir/dotfiles.sha.$$" && mv -f "$dir/dotfiles.sha.$$" "$dir/dotfiles.sha"; fi
 printf '%s\\n' "$line"
 `;
 

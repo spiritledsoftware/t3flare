@@ -196,13 +196,13 @@ describe.skipIf(!docker)("the Global mise config's lay-down script", { timeout: 
     expect(result.links).toEqual([null, DOTFILES_MISE_CONFIG, null]);
   });
 
-  withImage("after the Container setup (if-changed), does nothing while the dotfiles' mise file is the one the lay-down saw", () => {
+  withImage("after the Container setup (if-changed), does nothing while the dotfiles' mise file is the one the lay-down saw, and answers the lay-down's answer again", () => {
     const result = run([
       { text: "", before: dotfiles(NODE) },
       { text: "", mode: "if-changed" },
     ]);
     expect(result.answers[0]).toMatchObject({ laid: true, dotfiles: true });
-    expect(result.answers[1]).toMatchObject({ laid: false, install: null, unchanged: true });
+    expect(result.answers[1]).toEqual({ ...result.answers[0], unchanged: true });
     expect(result.links[1]).toBe(DOTFILES_MISE_CONFIG);
     expect(result.calls.filter((call: string) => call.startsWith("mise install"))).toHaveLength(1);
   });
@@ -220,6 +220,20 @@ describe.skipIf(!docker)("the Global mise config's lay-down script", { timeout: 
     const removed = run([{ text: "", before: dotfiles(NODE) }, { text: "", mode: "if-changed", before: `rm ${DOTFILES_MISE_CONFIG}` }]);
     expect(removed.answers[1]).toMatchObject({ laid: false, install: null, dotfiles: false });
     expect(removed.globals[1]).toBeNull();
+  });
+
+  withImage("keeps the file's hash only with a finished answer: a run cut off mid-way on a changed file is checked again by the next", () => {
+    const result = run([
+      { text: "", before: dotfiles(NODE) },
+      // The setup changed the file; the re-check is cut off (KILL) during its install.
+      { text: "", mode: "if-changed", before: dotfiles(`# BREAK_GIT\n${NODE}`), env: "STUB_SLEEP=5 timeout -s KILL 1" },
+      // Its retry.
+      { text: "", mode: "if-changed" },
+    ]);
+    expect(result.answers[1]).toBeUndefined();
+    expect(result.answers[2]).toMatchObject({ laid: false, install: 0, dotfiles: true });
+    expect(result.answers[2]?.unchanged).toBeUndefined();
+    expect(result.links[2]).toBeNull();
   });
 
   withImage("lays down a Global mise config with text over the dotfiles' own", () => {

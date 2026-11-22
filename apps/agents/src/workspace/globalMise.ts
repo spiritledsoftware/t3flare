@@ -8,7 +8,8 @@
 //
 // With no Global mise config text, a second instance runs after the Container setup (`afterSetup`, ADR-0047 §10): the
 // setup may write or change the dotfiles' mise file, so the script, in its `if-changed` mode, checks and lays it down
-// again only when it is not the file the first run saw, and is reported as the first run is. Nothing is run when the
+// again only when it is not the file the last finished run saw; either way it is reported (an unchanged file with that
+// run's answer). Nothing is run when the
 // launch has text (it wins) or no Container setup.
 import type { GlobalMiseOutcome, GlobalMiseReport, SettingsSource } from "@t3flare/harness-registry";
 import { type GlobalMiseAnswer, globalMiseArgv, type GlobalMiseMode, parseGlobalMiseAnswer } from "@t3flare/sandbox-image/globalMise";
@@ -147,8 +148,8 @@ const layDown = async (
   }
   const at = deps.now();
   const state: GlobalMiseState = { runtime, outcome, attempts: attemptsBefore + 1, ...(answer === undefined ? {} : { answer }), at };
-  // The setup left the dotfiles' file as it was: the first run's report stands.
-  if (answer?.unchanged === true) return { ...state, outcome: "none" };
+  // An `unchanged` answer is the last finished run's answer again: reported as it is, so Status shows the file's real
+  // state even when this step's own first attempt failed and was reported so.
   const report: GlobalMiseReport = {
     workspace: deps.workspace(),
     runtime: runtime === "" ? "unknown" : runtime,
