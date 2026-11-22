@@ -1,0 +1,63 @@
+// @effect-diagnostics nodeBuiltinImport:off
+// SPI-1338: which Stage names stage.ts accepts (stage-names.ts), and which file `stage.ts run` runs (scripts/lib/stageScript.ts).
+import * as path from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+import { MAX_STAGE_NAME_LENGTH, stageNameProblem, stageNames } from "../stage-names.ts";
+import { stageScript } from "../scripts/lib/stageScript.ts";
+
+describe("stageNameProblem", () => {
+  it("accepts lowercase names of letters, digits and inner dashes", () => {
+    for (const stage of ["a", "7", "p1338", "snapspike1", "spi-1338", "a-b-c", "1-2"]) expect(stageNameProblem(stage)).toBeUndefined();
+  });
+
+  it("accepts prod and bump, whose own guards stay in stage.ts", () => {
+    expect(stageNameProblem("prod")).toBeUndefined();
+    expect(stageNameProblem("bump")).toBeUndefined();
+  });
+
+  it("refuses an empty name, capitals, underscores, dots, spaces and an outer dash", () => {
+    for (const stage of ["", "P1338", "p_1338", "p.1338", "p 1338", "-p1338", "p1338-", "-"]) expect(stageNameProblem(stage)).toBeDefined();
+  });
+
+  it("bounds the name by the workers.dev label rule on the longest derived name", () => {
+    expect(MAX_STAGE_NAME_LENGTH).toBe(63 - "t3flare-environment-".length);
+    expect(MAX_STAGE_NAME_LENGTH).toBe(43);
+    expect(stageNameProblem("a".repeat(43))).toBeUndefined();
+    expect(stageNameProblem("a".repeat(44))).toMatch(/43/);
+    for (const name of Object.values(stageNames("a".repeat(MAX_STAGE_NAME_LENGTH)))) expect(name.length).toBeLessThanOrEqual(63);
+  });
+});
+
+describe("stageNames", () => {
+  it("names each Worker and the stand-in after the stage", () => {
+    expect(stageNames("p1")).toEqual({
+      environment: "t3flare-environment-p1",
+      agents: "t3flare-agents-p1",
+      codemode: "t3flare-codemode-p1",
+      mcp: "t3flare-mcp-p1",
+      mcpFixture: "t3flare-mcpfixture-p1",
+      probe: "t3flare-probe-p1",
+      standin: "t3flare-p1-standin",
+    });
+  });
+});
+
+describe("stageScript", () => {
+  const where = { scriptsDir: "/repo/apps/environment/scripts", cwd: "/work" };
+
+  it("resolves a bare name in scripts/", () => {
+    expect(stageScript("health", where)).toBe(path.join(where.scriptsDir, "health.ts"));
+  });
+
+  it("resolves an argument with a path separator against the cwd", () => {
+    expect(stageScript("probes/thing", where)).toBe(path.resolve(where.cwd, "probes/thing"));
+    expect(stageScript("./probe.mjs", where)).toBe(path.resolve(where.cwd, "probe.mjs"));
+    expect(stageScript("/tmp/probe.ts", where)).toBe("/tmp/probe.ts");
+  });
+
+  it("resolves an argument ending in .ts against the cwd", () => {
+    expect(stageScript("probe.ts", where)).toBe(path.resolve(where.cwd, "probe.ts"));
+  });
+});
