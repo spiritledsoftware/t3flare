@@ -28,18 +28,22 @@ constraint set: 60, 120 and 15 minutes.
    maximum.
 3. **The idle time** is 1 to 10,080 minutes, default 2. t3flare's own alarm does the idle stop (the Workspace DO's
    `#scheduleAlarm`); the platform's `setInactivityTimeout`, which takes at most 6 hours, is never set. Its tier
-   becomes `down-free`: lowering it is free, raising it spends and is asked. Its description says a Container is billed
-   while it waits idle.
+   becomes `down-free`: lowering it is free, raising it spends and is asked. Its description says a Container's memory and
+   disk are billed while it waits idle.
 4. **The Container budget** is 1 to 100, default 3, tier `down-free`. Nothing in t3flare forces 100: `max_instances`
    does not apply under `schedulingPolicy: "durable_object"`, and 100 of the largest size (standard-4: 4 vCPU, 12 GiB,
    20 GB) is 400 vCPU, 1.2 TiB and 2 TB, under the account's default concurrent limits (60 TiB of memory, 15,000 vCPU
    and 300 TB of disk when this was written). Those limits bound it in practice; t3flare does not read or check them.
-   The Settings page states the consequence once, under the running Containers: "Each running Container is billed for
-   its size; at this budget, up to N can run at once. Your Cloudflare account's own Container limits (concurrent
+   The Settings page states the consequence once, in a note under the budget field: "Each running Container is billed
+   for its size; at this budget, up to N can run at once. Your Cloudflare account's own Container limits (concurrent
    memory, vCPU and disk) also apply; t3flare does not check them."
 5. **The setup time limits** (`containerSetupMinutes`, `imageSetupMinutes`, `snapshotMinutes`) keep their defaults (5,
    30 and 5) and take the shared maximum.
-6. **The Pairing window** stays a per-call argument of `POST /_t3flare/arm-bootstrap`, 15 minutes by default, opened
+6. **Where a consequence is stated.** Once, where the Owner sets the value: in the setting's own description when it
+   does not change with the value (the idle time's), or in a note under the field when it does (the budget's, whose
+   count the page rewrites as the input changes). A per-call value states it in the call's answer (the Pairing
+   window's, §7).
+7. **The Pairing window** stays a per-call argument of `POST /_t3flare/arm-bootstrap`, 15 minutes by default, opened
    for as long as asked. A `minutes` that is not a positive number is refused with 400 instead of being swapped for the
    default or clamped, as is one whose close a Date cannot hold (the stored close is a Date). The route's answer
    states the consequence once: "While the window is open, anyone holding the bootstrap token can pair a client." The
@@ -58,6 +62,11 @@ constraint set: 60, 120 and 15 minutes.
 
 - An Owner can run up to 100 Containers at once, keep one warm for a week, and leave pairing open as long as they ask;
   each costs what the page or the route says.
+- A Base build may now run for days (the Image setup's and the snapshot's limits each up to a week). With
+  `rebuildEveryDays` at most 29, a scheduled rebuild lands within a day of the 30-day expiry, so a slow build can
+  outlast the last good Base snapshot. Starts then do what the second while-building setting says with no last good
+  Base snapshot (ADR-0047 §6): by default they wait up to the time limits and then start from the Workspace image,
+  which they use until the build ends. That is the Owner's choice of limits.
 - Raising the idle time now goes through the Settings server's asking, as raising the budget already did.
 - A new tunable limit takes its maximum from this ADR: a named constraint with its comment, the shared timed maximum,
   or a stated sanity bound.

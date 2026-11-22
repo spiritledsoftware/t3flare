@@ -124,8 +124,7 @@ const setup = (
 const durable = (thread = "thread-d"): OwnCaller => ({ door: "own", thread, agent: DURABLE_AGENT });
 const relayed = (thread = "thread-c"): OwnCaller => ({ door: "own", thread, agent: "codex" });
 
-/** A free change (idle time is free either way) and an asked one (the budget turned up), both to the Environment. */
-// Free: the idle time lowered (`down-free`, ADR-0048).
+/** A free change (the idle time lowered: `down-free`, ADR-0048) and an asked one (the budget turned up), both to the Environment. */
 const FREE = { expectedRevision: 0, settings: { containerIdleMinutes: 1 } };
 const ASKED = { expectedRevision: 0, settings: { containerBudget: 4 } };
 

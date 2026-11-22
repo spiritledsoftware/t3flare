@@ -222,4 +222,4 @@ gh check (ADR-0047 §10), where mise §2 left none.
 §6 and §7 bounded the idle time and the budget to protect the Owner. The idle time is now 1 to 10,080 minutes, the
 shared maximum for limits t3flare times itself (its own alarm does the idle stop; `setInactivityTimeout` is never set),
 and its tier is `down-free`. The budget is 1 to 100, a sanity bound: the account's own concurrent limits bound it in
-fact, and the Settings page says so beside the budget's cost. Defaults are unchanged (2 minutes, 3 Containers).
+fact, and the Settings page says so in a note under the budget field. Defaults are unchanged (2 minutes, 3 Containers).

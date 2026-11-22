@@ -149,7 +149,7 @@ describe("the Container setup (ADR-0047 §7, §9)", () => {
     expect(set({ containerSetup: "x".repeat(256 * 1024 + 1) })).toEqual({ ok: false, error: "containerSetup: is longer than 256 KiB of UTF-8" });
   });
 
-  it("takes a time limit of 1 to 60 minutes", () => {
+  it("takes a time limit of 1 to MAX_TIMED_MINUTES (10,080) minutes", () => {
     for (const minutes of [1, 60, 61, MAX_TIMED_MINUTES]) expect(set({ containerSetupMinutes: minutes })).toMatchObject({ ok: true });
     for (const minutes of [0, MAX_TIMED_MINUTES + 1, 2.5]) expect(set({ containerSetupMinutes: minutes })).toMatchObject({ ok: false });
   });
