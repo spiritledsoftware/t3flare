@@ -43,6 +43,7 @@ import {
 
 import { SECRET_MARGIN_BYTES } from "@t3flare/sandbox-image/containerSetup";
 import { OWNER_HOME } from "@t3flare/sandbox-image/env";
+import { globalMiseArgs } from "@t3flare/sandbox-image/globalMise";
 
 import { baseKey, hex, sha256Hex, unhex } from "./baseKey.ts";
 import { blankSecrets } from "./containerSetup.ts";
@@ -729,7 +730,10 @@ export class BaseBuild {
     const mise = await sha256Hex(settings.globalMiseConfig);
     // Every Variable, then COMMAND_ENV, then HOME=/root (ADR-0047's preamble): what a Container's commands get.
     const env = { ...variableEnv(settings.variables), ...this.#runEnv.commandEnv, HOME: OWNER_HOME };
-    const launched = await container.exec(["bash", "-c", LAUNCH_SCRIPT, "t3flare-builder", String(settings.revision), mise, "environment"], { env, timeoutMs: PROBE_MS });
+    // The lay-down's install has the Container start's time limit (`globalMiseInstallMinutes`), which is not part of the
+    // Base key: a changed limit builds nothing again.
+    const args = globalMiseArgs(settings.revision, mise, "environment", "lay-down", settings.globalMiseInstallMinutes);
+    const launched = await container.exec(["bash", "-c", LAUNCH_SCRIPT, "t3flare-builder", ...args], { env, timeoutMs: PROBE_MS });
     if (launched.exitCode !== 0) throw new Error(`the run's launch exited ${String(launched.exitCode)}`);
     this.#phase(build, "running");
     await setAlarm(now() + POLL_MS.running);

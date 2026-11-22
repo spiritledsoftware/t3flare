@@ -271,6 +271,16 @@ describe("Environment settings in the panel", () => {
     const containers = /<h3>Containers<\/h3>[\s\S]*?<\/div><\/div><\/div>/.exec(html)?.[0] ?? "";
     expect(containers).not.toContain("containerSetup");
   });
+
+  it("renders the Global mise install time limit in the Global mise config's row (SPI-1313)", async () => {
+    const { deps } = setup();
+    const html = await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), deps)).text();
+    const row = /<div class="row"><div class="row-title"><h3>Global mise config<\/h3>[\s\S]*?<\/div><\/div><\/div>/.exec(html)?.[0] ?? "";
+    expect(row).toContain('data-setting="globalMiseInstallMinutes"');
+    expect(row).toContain('min="1" max="10080" step="1" value="10"');
+    const containers = /<h3>Containers<\/h3>[\s\S]*?<\/div><\/div><\/div>/.exec(html)?.[0] ?? "";
+    expect(containers).not.toContain("globalMiseInstallMinutes");
+  });
 });
 
 // SPI-1152: the Variables in the same section and guards; the audit log keeps names and values (the page shows them to

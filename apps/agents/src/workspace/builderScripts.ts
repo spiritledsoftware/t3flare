@@ -25,7 +25,8 @@ export const BUILDER_EXIT = `${BUILDER_DIR}/exit`;
 export const LAYDOWN_SCRIPT = GLOBAL_MISE_SCRIPT;
 
 /**
- * The run (`BUILDER_FILES.run`): `bash run.sh <revision> <sha256> <source>`, under the environment the launch gave it
+ * The run (`BUILDER_FILES.run`): `bash run.sh <the lay-down's arguments>` (`globalMiseArgs`: the revision, digest,
+ * source, mode and the install's bounds from `globalMiseInstallMinutes`), under the environment the launch gave it
  * (every Variable, `COMMAND_ENV`, `HOME=/root`). The Global mise config is laid down first, on the Workspace DO's model
  * (its answer goes to the log; a file it does not keep fails nothing here, as at a Container start); then the Image setup
  * runs as root from `/root`. Its exit code is written last, atomically.
@@ -34,7 +35,7 @@ export const RUN_SCRIPT = `set -u
 dir=${BUILDER_DIR}
 if [ -s ${BUILDER_FILES.mise} ]; then
   echo "t3flare: laying down the Global mise config"
-  bash ${BUILDER_FILES.laydown} "$1" "$2" "$3" < ${BUILDER_FILES.mise}
+  bash ${BUILDER_FILES.laydown} "$@" < ${BUILDER_FILES.mise}
 fi
 echo "t3flare: running the Image setup"
 cd /root
@@ -47,7 +48,7 @@ echo "$code" > "$dir/exit.tmp" && mv "$dir/exit.tmp" ${BUILDER_EXIT}
 /** Writes stdin to the file `$1` under the work directory (made first). */
 export const WRITE_SCRIPT = `mkdir -p ${BUILDER_DIR} && cat > "$1"`;
 
-/** Starts the run detached and answers at once: `bash -c <this> t3flare-builder <revision> <sha256> <source>`. */
+/** Starts the run detached and answers at once: `bash -c <this> t3flare-builder <the run's arguments>`. */
 export const LAUNCH_SCRIPT = `rm -f ${BUILDER_EXIT} ${BUILDER_LOG}
 setsid bash ${BUILDER_FILES.run} "$@" > ${BUILDER_LOG} 2>&1 < /dev/null &
 echo launched`;

@@ -18,6 +18,7 @@ import {
   SCHEDULE_RETRY_MS,
 } from "../src/workspace/baseBuild.ts";
 import { SECRET_MARGIN_BYTES } from "@t3flare/sandbox-image/containerSetup";
+import { globalMiseLockSeconds } from "@t3flare/sandbox-image/globalMise";
 
 import { BUILDER_FILES, EXIT_SCRIPT, LAUNCH_SCRIPT, PROOF_SCRIPT, TAIL_SCRIPT, WRITE_SCRIPT } from "../src/workspace/builderScripts.ts";
 
@@ -399,6 +400,28 @@ describe("a Base build", () => {
     clock += GOOD_FOR_MS + 1;
     expect(build.record()).toMatchObject({ state: "none", good: null });
     expect((await build.poke("the Environment booted")).state).toBe("building");
+  });
+
+  it("hands the Global mise lay-down the install time limit (SPI-1313), the Container start's own bounds", async () => {
+    settings.globalMiseInstallMinutes = 45;
+    await toRunning(builder());
+    expect(container.launchArgs.slice(2)).toEqual(["environment", "lay-down", String(45 * 60), String(globalMiseLockSeconds(45))]);
+  });
+
+  it("keeps a Base snapshot current when only the Global mise install time limit changed: it is not part of the key", async () => {
+    const build = builder();
+    await toRunning(build);
+    container.exitCode = 0;
+    await ticks(build);
+    container.snapshots[0]!.answer.resolve({ id: "snap-1", size: 1 });
+    await settle();
+    await ticks(build, 2);
+    const ready = build.record();
+    expect(ready.state).toBe("ready");
+    settings.globalMiseInstallMinutes = 120;
+    const after = await build.poke("the Environment booted");
+    expect(after).toMatchObject({ state: "ready", key: ready.key, good: { id: "snap-1" } });
+    expect(container.starts).toHaveLength(2);
   });
 
   it("builds again when a Workspace's start finds the Base snapshot refused", async () => {

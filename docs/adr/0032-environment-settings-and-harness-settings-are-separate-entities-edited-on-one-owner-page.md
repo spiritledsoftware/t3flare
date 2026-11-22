@@ -155,7 +155,8 @@ owner's `mise.toml` text, which every Container's commands get as mise's global 
    unchecked would break t3's git. The launch records the text, so a running Container keeps what it started with, a
    change applies at the next start, and an agent's edit of the file is gone then.
 4. **Held and bounded.** The lay-down counts as a command: no idle stop and no reclaim under it, and the idle time
-   counts from its end. The script bounds its lock (60 s), install (600 s, KILL 10 s later) and checks (20 s each); the
+   counts from its end. The script bounds its lock (60 s), install (600 s, KILL 10 s later) and checks (20 s each) (the
+   install's bound is now a setting and the lock follows it: the SPI-1313 refinement below); the
    Workspace DO waits their sum and a minute, then kills it and takes the file as not laid down, final for that
    Container. An exec that failed is tried again at once, then by the next command, Terminal, CLI process or alarm, at
    most three times per Container; the alarm also runs it for a running Container only passive reads have reached. The
@@ -223,3 +224,14 @@ gh check (ADR-0047 §10), where mise §2 left none.
 shared maximum for limits t3flare times itself (its own alarm does the idle stop; `setInactivityTimeout` is never set),
 and its tier is `down-free`. The budget is 1 to 100, a sanity bound: the account's own concurrent limits bound it in
 fact, and the Settings page says so in a note under the budget field. Defaults are unchanged (2 minutes, 3 Containers).
+
+## Refinement (SPI-1313, 2026-11-22): the Global mise install time limit
+
+The install's 600 s bound in the Global mise config refinement's §4 is the Owner's toolchain's, so it is the setting
+`globalMiseInstallMinutes`: 10 minutes by default, 1 to the shared maximum of 10,080 (ADR-0048), tier `down-free`,
+shown in the Global mise config's row. The launch carries it (`ContainerLaunch.globalMise.installMinutes`), so a running
+Container keeps what it started with; a launch kept from before it reads the default. The lock follows it: a second
+lay-down waits for one run's whole install, KILL and checks, and 30 s more. The KILLs, the Workspace DO's wait and the
+attempts stay derived or fixed: t3flare's own robustness. The git and gh checks stay at 20 s each, t3flare's own proof
+that its git still runs. The Builder's lay-down in a Base build gets the same bound; the bound is not part of the Base
+key, so changing it alone leaves a Base snapshot current.

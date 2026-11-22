@@ -16,20 +16,34 @@
 import { DOTFILES_MISE_CONFIG, GLOBAL_MISE_CONFIG, GLOBAL_MISE_DIR } from "./env.ts";
 
 /**
- * The script's own bounds, in seconds; the Workspace DO's deadline is derived from them (`GLOBAL_MISE_DEADLINE_MS`).
- * `timeout -k` sends TERM at the bound (exit 124) and KILL `…KillAfter` later (exit 137).
+ * The script's own bounds, in seconds, around the Owner's install time limit (`globalMiseInstallMinutes`, handed in by
+ * argv). Each is fixed: t3flare's own robustness margins and correctness check, not a choice about the Owner's tools.
+ * `timeout -k` sends TERM at a bound (exit 124) and KILL `…KillAfter` later (exit 137).
+ *
+ * - `installKillAfter`: KILL this long after the install's TERM, for an install that ignores TERM.
+ * - `check`, `checkKillAfter`: each of the `git --version` and `gh --version` checks, t3flare's own proof that its git
+ *   still runs under the Owner's file; a working binary answers in well under a second.
+ * - `lockMargin`: a second lay-down waits for one holding the lock for that run's whole install, its KILL and both
+ *   checks, and this long more for the script's own bookkeeping.
+ * - `answerMargin`: the Workspace DO waits this long past every bound above for the answer to come back over the exec.
  */
 export const GLOBAL_MISE_BOUNDS = {
-  lock: 60,
-  install: 600,
   installKillAfter: 10,
   check: 20,
   checkKillAfter: 5,
+  lockMargin: 30,
+  answerMargin: 60,
 } as const;
 
-/** How long the Workspace DO waits for the whole exec: every bound in the script, and a minute's margin. */
-export const GLOBAL_MISE_DEADLINE_MS =
-  (GLOBAL_MISE_BOUNDS.lock + GLOBAL_MISE_BOUNDS.install + GLOBAL_MISE_BOUNDS.installKillAfter + 2 * (GLOBAL_MISE_BOUNDS.check + GLOBAL_MISE_BOUNDS.checkKillAfter) + 60) * 1000;
+/** One run's install and checks at an install limit of `minutes`, each to its KILL, in seconds. */
+const runSeconds = (minutes: number): number =>
+  minutes * 60 + GLOBAL_MISE_BOUNDS.installKillAfter + 2 * (GLOBAL_MISE_BOUNDS.check + GLOBAL_MISE_BOUNDS.checkKillAfter);
+
+/** How long a lay-down at an install limit of `minutes` waits for another's lock, in seconds: that run's whole time and a margin. */
+export const globalMiseLockSeconds = (minutes: number): number => runSeconds(minutes) + GLOBAL_MISE_BOUNDS.lockMargin;
+
+/** How long the Workspace DO waits for the whole exec at an install limit of `minutes`: the lock, its own run, a minute's margin. */
+export const globalMiseDeadlineMs = (minutes: number): number => (globalMiseLockSeconds(minutes) + runSeconds(minutes) + GLOBAL_MISE_BOUNDS.answerMargin) * 1000;
 
 /** Where an owner-pinned git gets the image's system gitconfig from (the credential helper, Dockerfile). */
 export const SYSTEM_GITCONFIG = "/usr/local/share/t3flare/gitconfig";
@@ -61,9 +75,12 @@ const b = GLOBAL_MISE_BOUNDS;
 const check = (tool: "git" | "gh") =>
   `MISE_GLOBAL_CONFIG_FILE="$stage" MISE_AUTO_INSTALL=false MISE_EXEC_AUTO_INSTALL=false MISE_NOT_FOUND_AUTO_INSTALL=false timeout -k ${b.checkKillAfter} ${b.check} ${tool} --version > /dev/null 2>&1 9>&-`;
 
-/** The lay-down: `bash -c <this> t3flare-global-mise <revision> <sha256> <source>`, the text on stdin. */
+/**
+ * The lay-down: `bash -c <this> t3flare-global-mise <revision> <sha256> <source> <mode> <install seconds> <lock seconds>`,
+ * the text on stdin (`globalMiseArgv`).
+ */
 export const GLOBAL_MISE_SCRIPT = `set -u
-revision=$1 sha=$2 source=$3 mode=\${4:-lay-down}
+revision=$1 sha=$2 source=$3 mode=$4 install_seconds=$5 lock_seconds=$6
 dir=${GLOBAL_MISE_DIR} global=${GLOBAL_MISE_CONFIG} dotfiles_config=${DOTFILES_MISE_CONFIG}
 mkdir -p "$dir" && cd / || exit 1
 started=$(date +%s%N)
@@ -73,7 +90,7 @@ answer() {
 }
 # One lay-down at a time on this disk (two Workspace DO instances across a deploy).
 exec 9> "$dir/.lock"
-if ! flock -w ${b.lock} 9; then answer false null false 0 ',"locked":true'; exit 0; fi
+if ! flock -w "$lock_seconds" 9; then answer false null false 0 ',"locked":true'; exit 0; fi
 stage="$dir/config.$sha.$$.toml"
 cat > "$stage"
 bytes=$(wc -c < "$stage")
@@ -101,7 +118,7 @@ if [ ! -L "$stage" ] && [ ! -f "$stage" ]; then
 else
   # The lock's fd is closed for the install and the checks: a child left after a timeout's KILL (uutils' timeout
   # kills the process, not its group) must not hold the lock for the next lay-down.
-  MISE_GLOBAL_CONFIG_FILE="$stage" timeout -k ${b.installKillAfter} ${b.install} mise install > "$dir/install.log" 2>&1 9>&-
+  MISE_GLOBAL_CONFIG_FILE="$stage" timeout -k ${b.installKillAfter} "$install_seconds" mise install > "$dir/install.log" 2>&1 9>&-
   install=$?
   timed=false
   case $install in 124|137) timed=true ;; esac
@@ -135,16 +152,23 @@ printf '%s\\n' "$line"
  */
 export type GlobalMiseMode = "lay-down" | "if-changed";
 
+/** The script's arguments after its name: what `GLOBAL_MISE_SCRIPT` reads as `$1` to `$6`, at an install limit of `minutes`. */
+export const globalMiseArgs = (revision: number, sha256: string, source: string, mode: GlobalMiseMode, minutes: number): ReadonlyArray<string> => [
+  String(revision),
+  sha256,
+  source,
+  mode,
+  String(minutes * 60),
+  String(globalMiseLockSeconds(minutes)),
+];
+
 /** The argv the platform's exec runs; the text goes on stdin. */
-export const globalMiseArgv = (revision: number, sha256: string, source: string, mode: GlobalMiseMode = "lay-down"): ReadonlyArray<string> => [
+export const globalMiseArgv = (revision: number, sha256: string, source: string, mode: GlobalMiseMode, minutes: number): ReadonlyArray<string> => [
   "bash",
   "-c",
   GLOBAL_MISE_SCRIPT,
   "t3flare-global-mise",
-  String(revision),
-  sha256,
-  source,
-  ...(mode === "lay-down" ? [] : [mode]),
+  ...globalMiseArgs(revision, sha256, source, mode, minutes),
 ];
 
 /** The answer from the script's stdout (its last line), or undefined when it is not one, field by field. */
