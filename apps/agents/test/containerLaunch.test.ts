@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { EMPTY_ENVIRONMENT, type ResolvedEnvironment, resolveEnvironment } from "@t3flare/harness-registry";
 
-import { launchOf, shownLaunch, takeEnvironment, withGlobalMise } from "../src/workspace/containerLaunch.ts";
+import { launchOf, SECRET_SHOWN, shownLaunch, takeEnvironment, withGlobalMise } from "../src/workspace/containerLaunch.ts";
 
 const CPU_1 = { vcpu: 1, memoryMib: 3072, diskMb: 12000 };
 /** The registry's defaults: a literal below names only what it changes. */
@@ -62,9 +62,23 @@ describe("takeEnvironment", () => {
 
 describe("launchOf", () => {
   it("launches with the Variables it took, fresh or kept: a running Container keeps them (SPI-1152)", () => {
-    const variables = { NODE_ENV: "test" };
-    expect(launchOf({ settings: { ...DEFAULTS, variables }, source: "environment" }).variables).toEqual(variables);
-    expect(launchOf({ settings: { ...DEFAULTS, variables }, source: "kept" }).variables).toEqual(variables);
+    const variables = [{ name: "NODE_ENV", value: "test", secret: false }];
+    expect(launchOf({ settings: { ...DEFAULTS, variables }, source: "environment" }).variables).toEqual({ NODE_ENV: "test" });
+    expect(launchOf({ settings: { ...DEFAULTS, variables }, source: "kept" }).variables).toEqual({ NODE_ENV: "test" });
+  });
+
+  it("launches with a secret Variable's opened value, and shows it only as set (ADR-0046)", async () => {
+    const variables = [
+      { name: "NODE_ENV", value: "test", secret: false },
+      { name: "NPM_TOKEN", value: "npm_live", secret: true },
+    ];
+    const taken = { settings: { ...DEFAULTS, variables }, source: "environment" as const };
+    const launch = launchOf(taken);
+    expect(launch.variables).toEqual({ NODE_ENV: "test", NPM_TOKEN: "npm_live" });
+    expect(launch.secretVariables).toEqual(["NPM_TOKEN"]);
+    const shown = shownLaunch(await withGlobalMise(launch, taken));
+    expect(shown.variables).toEqual({ NODE_ENV: "test", NPM_TOKEN: SECRET_SHOWN });
+    expect(JSON.stringify(shown)).not.toContain("npm_live");
   });
 
   it("launches a named size by its name and cpu-1 as its resources, with the idle time in milliseconds", () => {

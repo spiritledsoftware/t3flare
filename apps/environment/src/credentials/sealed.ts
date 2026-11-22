@@ -65,7 +65,28 @@ const derive = async (secret: string, info: string, algorithm: AesKeyGenParams |
   return crypto.subtle.deriveKey({ name: "HKDF", hash: "SHA-256", salt: new Uint8Array(32), info: encoder.encode(info) }, material, algorithm, false, usages);
 };
 
-export const sealedStore = (kv: KvStorage & { delete(key: string): unknown }, credentialsKey: string | undefined, now: () => number = Date.now): SealedStore => {
+/** A value sealed under the credentials key: what `ValueSealer.seal` gives and `open` takes. */
+export interface Sealed {
+  readonly iv: string;
+  readonly data: string;
+  /** An HMAC of the value under a second derived key, its first 8 hex digits: shown, never the value. */
+  readonly fingerprint: string;
+}
+
+/**
+ * Seals and opens one value under the credentials key, bound to `label` (the additional data): a sealed value moved to
+ * another label does not open. The sealed store keeps its records with it; a secret Variable keeps its value in the
+ * Environment settings with it (ADR-0046).
+ */
+export interface ValueSealer {
+  /** Whether a credentials key is bound: without one, `seal` rejects with `CredentialsKeyMissing`. */
+  readonly available: boolean;
+  seal(label: string, value: string): Promise<Sealed>;
+  /** The value, or undefined: no key, or one this key does not open under `label`. */
+  open(label: string, sealed: Pick<Sealed, "iv" | "data">): Promise<string | undefined>;
+}
+
+export const valueSealer = (credentialsKey: string | undefined): ValueSealer => {
   const available = credentialsKey !== undefined && credentialsKey.length >= MIN_KEY_LENGTH;
   let keys: Promise<{ readonly seal: CryptoKey; readonly fingerprint: CryptoKey }> | undefined;
   const keysOf = () => {
@@ -76,23 +97,40 @@ export const sealedStore = (kv: KvStorage & { delete(key: string): unknown }, cr
     ]).then(([seal, fingerprint]) => ({ seal, fingerprint }));
     return keys;
   };
+  return {
+    available,
+    seal: async (label, value) => {
+      const { seal, fingerprint } = await keysOf();
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const data = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: encoder.encode(label) }, seal, encoder.encode(value)));
+      const print = hex(new Uint8Array(await crypto.subtle.sign("HMAC", fingerprint, encoder.encode(value)))).slice(0, 8);
+      return { iv: base64(iv), data: base64(data), fingerprint: print };
+    },
+    open: async (label, sealed) => {
+      if (!available) return undefined;
+      try {
+        const { seal } = await keysOf();
+        const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unbase64(sealed.iv), additionalData: encoder.encode(label) }, seal, unbase64(sealed.data));
+        return new TextDecoder().decode(plain);
+      } catch {
+        return undefined;
+      }
+    },
+  };
+};
+
+export const sealedStore = (kv: KvStorage & { delete(key: string): unknown }, credentialsKey: string | undefined, now: () => number = Date.now): SealedStore => {
+  const sealer = valueSealer(credentialsKey);
   const mark = (name: string): SealedMark => {
     const record = kv.get<SealedRecord>(PREFIX + name);
     return record === undefined ? { set: false, setAt: null, fingerprint: null } : { set: true, setAt: record.setAt, fingerprint: record.fingerprint };
   };
   const open = async (name: string): Promise<string | undefined> => {
     const record = kv.get<SealedRecord>(PREFIX + name);
-    if (record === undefined || !available) return undefined;
-    try {
-      const { seal } = await keysOf();
-      const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unbase64(record.iv), additionalData: encoder.encode(PREFIX + name) }, seal, unbase64(record.data));
-      return new TextDecoder().decode(plain);
-    } catch {
-      return undefined;
-    }
+    return record === undefined ? undefined : sealer.open(PREFIX + name, record);
   };
   return {
-    available,
+    available: sealer.available,
     mark,
     open,
     inspect: async (name) => {
@@ -100,11 +138,8 @@ export const sealedStore = (kv: KvStorage & { delete(key: string): unknown }, cr
       return marked.set ? { ...marked, readable: (await open(name)) !== undefined } : marked;
     },
     put: async (name, value) => {
-      const { seal, fingerprint } = await keysOf();
-      const iv = crypto.getRandomValues(new Uint8Array(12));
-      const data = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: encoder.encode(PREFIX + name) }, seal, encoder.encode(value)));
-      const print = hex(new Uint8Array(await crypto.subtle.sign("HMAC", fingerprint, encoder.encode(value)))).slice(0, 8);
-      kv.put<SealedRecord>(PREFIX + name, { v: 1, iv: base64(iv), data: base64(data), setAt: now(), fingerprint: print });
+      const { iv, data, fingerprint } = await sealer.seal(PREFIX + name, value);
+      kv.put<SealedRecord>(PREFIX + name, { v: 1, iv, data, setAt: now(), fingerprint });
       return mark(name);
     },
     remove: (name) => void kv.delete(PREFIX + name),

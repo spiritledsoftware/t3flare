@@ -7,7 +7,7 @@
 // goes (in the POST's own answer, to this page's script): ADR-0035, O8.
 import { type ChangeRecord, CLOSED_KEPT_MS, type ClosedBy, durationText } from "../settings/changes.ts";
 import { askedByText, changeHead, keptOf, keptText, lineDiff, purgeDueText, sizeText } from "../settings/render.ts";
-import type { ChangeItem, ShownSkill } from "../settings/types.ts";
+import type { ChangeItem, ShownSkill, ShownVariableValue } from "../settings/types.ts";
 import { fileUrl } from "../skills/api.ts";
 import { CHANGE_SCRIPT } from "./changePageScript.ts";
 import { escapeHtml, time, visibleHtml } from "./page.ts";
@@ -17,6 +17,10 @@ import { STYLE } from "./pageStyle.ts";
 
 /** A value as JSON text, safe. */
 const value = (raw: unknown): string => (raw === undefined ? '<span class="desc">unset</span>' : `<code>${visibleHtml(typeof raw === "string" ? raw : JSON.stringify(raw))}</code>`);
+
+/** A Variable's value on the page: a plain one's text; a secret one only as set, or as changed after a secret (ADR-0046). */
+const variableValue = (shown: ShownVariableValue, replacesSecret = false): string =>
+  typeof shown === "string" ? value(shown) : `<span class="desc">${replacesSecret ? "secret, changed" : "secret, set"}</span>`;
 
 /** A URL with its host set apart (plan D10: an MCP `add` shows where it goes). */
 const urlWithHost = (url: string, host: string): string => {
@@ -53,12 +57,12 @@ const itemBlock = (item: ChangeItem, needsSecret: boolean): string => {
       return `<div class="change-block"><h3>${visibleHtml(item.name)}</h3><dl class="kv"><div><dt>Before</dt><dd>${value(item.before)}</dd></div><div><dt>After</dt><dd>${value(item.after)}</dd></div></dl></div>`;
     case "variables": {
       const rows = [
-        ...item.added.map(([name, after]) => `<tr><td data-label="Change"><div>added</div></td><td data-label="Name"><div><code>${visibleHtml(name)}</code></div></td><td data-label="Before"><div>—</div></td><td data-label="After"><div>${value(after)}</div></td></tr>`),
+        ...item.added.map(([name, after]) => `<tr><td data-label="Change"><div>added</div></td><td data-label="Name"><div><code>${visibleHtml(name)}</code></div></td><td data-label="Before"><div>—</div></td><td data-label="After"><div>${variableValue(after)}</div></td></tr>`),
         ...item.changed.map(
           ([name, before, after]) =>
-            `<tr><td data-label="Change"><div>changed</div></td><td data-label="Name"><div><code>${visibleHtml(name)}</code></div></td><td data-label="Before"><div>${value(before)}</div></td><td data-label="After"><div>${value(after)}</div></td></tr>`,
+            `<tr><td data-label="Change"><div>changed</div></td><td data-label="Name"><div><code>${visibleHtml(name)}</code></div></td><td data-label="Before"><div>${variableValue(before)}</div></td><td data-label="After"><div>${variableValue(after, typeof before !== "string")}</div></td></tr>`,
         ),
-        ...item.removed.map(([name, before]) => `<tr><td data-label="Change"><div>removed</div></td><td data-label="Name"><div><code>${visibleHtml(name)}</code></div></td><td data-label="Before"><div>${value(before)}</div></td><td data-label="After"><div>—</div></td></tr>`),
+        ...item.removed.map(([name, before]) => `<tr><td data-label="Change"><div>removed</div></td><td data-label="Name"><div><code>${visibleHtml(name)}</code></div></td><td data-label="Before"><div>${variableValue(before)}</div></td><td data-label="After"><div>—</div></td></tr>`),
       ];
       return `<div class="change-block"><h3>${visibleHtml(item.name)}</h3><div class="table-wrap"><table class="stacked"><thead><tr><th scope="col">Change</th><th scope="col">Name</th><th scope="col">Before</th><th scope="col">After</th></tr></thead><tbody>${rows.join("")}</tbody></table></div></div>`;
     }

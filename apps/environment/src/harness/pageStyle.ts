@@ -81,10 +81,14 @@ section{display:flex;flex-direction:column;gap:.625rem;scroll-margin-top:1.5rem}
 .fields.list{max-width:44rem}
 .variables{display:flex;flex-direction:column;gap:.5rem}
 .variables:empty{display:none}
-.variable{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,3fr) auto;grid-template-areas:"name value remove";gap:.5rem;align-items:start}
+.variable{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,3fr) auto auto;grid-template-areas:"name value secret remove" "note note note note";gap:.5rem;align-items:start}
 .variable [data-variable-name]{grid-area:name;font-family:var(--mono)}
 .variable textarea{grid-area:value;min-height:2.25rem;height:2.25rem;padding:.4375rem .625rem;font-family:var(--mono)}
+.variable.is-secret textarea{-webkit-text-security:disc}
+.variable-secret{grid-area:secret;display:inline-flex;align-items:center;gap:.375rem;min-height:2.25rem;font-size:.75rem;white-space:nowrap}
 .variable [data-variable-remove]{grid-area:remove}
+.variable-note{grid-area:note;font-size:.75rem;color:var(--muted-fg);margin-top:-.25rem}
+.variable-note[hidden]{display:none}
 .row>.save{grid-column:1/-1;justify-content:flex-end;padding-top:0}
 .save{display:flex;align-items:center;gap:.75rem;padding-top:calc(1.21875rem + .375rem + 4px)}
 .state{display:inline-flex;align-items:center;gap:.375rem;font-size:.75rem;color:var(--muted-fg);white-space:nowrap}
@@ -252,7 +256,7 @@ select.sel-sm{height:2.25rem;font-size:16px}
 .save{padding-top:0}
 .fields{max-width:none}
 .fields.list{max-width:none}
-.variable{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"name remove" "value value"}
+.variable{grid-template-columns:minmax(0,1fr) auto auto;grid-template-areas:"name secret remove" "value value value" "note note note"}
 .inline-field{display:grid;grid-template-columns:minmax(0,1fr) auto}
 .server-head{grid-template-columns:minmax(0,1fr) auto}
 .form-body,.pair{grid-template-columns:minmax(0,1fr)}

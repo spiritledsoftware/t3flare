@@ -2,8 +2,10 @@
 // environment with the Variables as its lowest layer (`commandEnv`), and the Workspace's backends add them under every
 // command computer runs (`VariablesBackend`), read when the command is sent, so a Container started since takes its own.
 import { COMMAND_ENV } from "@t3flare/sandbox-image/env";
+import { fitVariableEnv, resolveEnvironment } from "@t3flare/harness-registry";
 import { describe, expect, it } from "vitest";
 
+import { launchOf } from "../src/workspace/containerLaunch.ts";
 import { commandEnv, VariablesBackend } from "../src/workspace/variables.ts";
 
 describe("commandEnv", () => {
@@ -13,6 +15,16 @@ describe("commandEnv", () => {
     // Every COMMAND_ENV name as COMMAND_ENV has it (its mise configs and guards, SPI-1150), the Variable's MISE_YES lost.
     expect(env).toEqual({ ...COMMAND_ENV, NODE_ENV: "development", LOG_LEVEL: "info", T3CODE_THREAD_ID: "t1", CODEX_HOME: "/var/lib/t3flare/cli/k1/codex" });
     expect(env.MISE_YES).toBe("1");
+  });
+
+  it("gives a command a secret Variable's opened value, from the launch the Environment DO's answer made (ADR-0046 §2)", () => {
+    const answer = { revision: 4, settings: { variables: [{ name: "NODE_ENV", value: "test", secret: false }, { name: "NPM_TOKEN", value: "npm_live", secret: true }, { name: "PATH", value: "/nope", secret: false }] } };
+    const launch = launchOf({ settings: resolveEnvironment(answer), source: "environment" });
+    // As the Workspace DO reads its kept launch (`#variables()`), then as every command is sent.
+    const env = commandEnv(fitVariableEnv(launch.variables), COMMAND_ENV);
+    expect(env).toEqual({ ...COMMAND_ENV, NODE_ENV: "test", NPM_TOKEN: "npm_live" });
+    // The Container's shell sets PATH: the Variable never reaches a command (ADR-0046 §3).
+    expect(env.PATH).toBeUndefined();
   });
 
   it("is the layers alone without Variables", () => {

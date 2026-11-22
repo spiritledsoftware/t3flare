@@ -52,7 +52,7 @@ const ENVIRONMENT: Readonly<Record<EnvironmentKey, { readonly up: readonly [unkn
   containerSize: { up: ["cpu-1", "standard-4", "asked"], down: ["standard-4", "standard-1", "asked"] },
   containerIdleMinutes: { up: [2, 30, "free"], down: [30, 2, "free"] },
   containerBudget: { up: [3, 4, "asked"], down: [3, 2, "free"] },
-  variables: { up: [{}, { A: "1" }, "asked"], down: [{ A: "1" }, {}, "asked"] },
+  variables: { up: [[], [{ name: "A", value: "1", secret: false }], "asked"], down: [[{ name: "A", value: "1", secret: false }], [], "asked"] },
   globalMiseConfig: { up: ["", "[tools]\nnode = '24'\n", "asked"], down: ["[tools]\nnode = '24'\n", "", "asked"] },
   // ADR-0043 §6: turning purging on and shortening the Grace destroy sooner, so they are asked.
   sweepPurges: { up: [false, true, "asked"], down: [true, false, "free"] },

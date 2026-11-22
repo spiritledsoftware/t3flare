@@ -31,17 +31,23 @@ export interface ShownSkill {
   readonly problems: ReadonlyArray<string>;
 }
 
+/**
+ * A Variable's value as a change shows it: a plain one's text (as every change kept before ADR-0046 holds it), or that a
+ * secret one is set, never its value.
+ */
+export type ShownVariableValue = string | { readonly secret: true };
+
 /** One thing a change moves, by kind (plan D10's table). */
 export type ChangeItem =
   /** A scalar setting, a switch, an Exposure or a class: its name, before and after. */
   | { readonly kind: "scalar"; readonly name: string; readonly before: unknown; readonly after: unknown }
-  /** The Variables: names added, changed and removed, with their values. */
+  /** The Variables: names added, changed and removed, with their values, a secret's shown as set (ADR-0046). */
   | {
       readonly kind: "variables";
       readonly name: string;
-      readonly added: ReadonlyArray<readonly [string, string]>;
-      readonly changed: ReadonlyArray<readonly [string, string, string]>;
-      readonly removed: ReadonlyArray<readonly [string, string]>;
+      readonly added: ReadonlyArray<readonly [string, ShownVariableValue]>;
+      readonly changed: ReadonlyArray<readonly [string, ShownVariableValue, ShownVariableValue]>;
+      readonly removed: ReadonlyArray<readonly [string, ShownVariableValue]>;
     }
   /** A `file` or multiline `text` setting: the whole text before and after (the renderer diffs it by line). */
   | { readonly kind: "text"; readonly name: string; readonly before: string; readonly after: string }

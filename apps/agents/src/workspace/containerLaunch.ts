@@ -12,6 +12,7 @@ import {
   type ResolvedEnvironment,
   resolveEnvironment,
   type SettingsSource,
+  variableEnv,
 } from "@t3flare/harness-registry";
 
 import type { GlobalMiseLaunch } from "./globalMise.ts";
@@ -82,6 +83,8 @@ export interface ContainerLaunch {
    * recorded before them has none.
    */
   readonly variables?: Readonly<Record<string, string>>;
+  /** Which of `variables` are secret (ADR-0046): `containerState()` shows them as set, never their values. */
+  readonly secretVariables?: ReadonlyArray<string>;
   /**
    * The Global mise config this start lays down (SPI-1150), with its digest and where the settings came from. Absent in
    * a launch recorded before SPI-1150; `containerState()` shows only its digest.
@@ -95,11 +98,17 @@ export const withGlobalMise = async (launch: ContainerLaunch, { settings, source
   globalMise: { text: settings.globalMiseConfig, ...(await digestOf(settings.globalMiseConfig)), revision: settings.revision, source },
 });
 
-/** A launch as `containerState()` shows it: the Global mise config's digest, never its text. */
+/** What `containerState()` shows for a secret Variable's value. */
+export const SECRET_SHOWN = "(secret, set)";
+
+/** A launch as `containerState()` shows it: the Global mise config's digest, never its text; a secret Variable as set. */
 export const shownLaunch = (launch: ContainerLaunch): Omit<ContainerLaunch, "globalMise"> & { readonly globalMise?: Omit<GlobalMiseLaunch, "text"> } => {
-  if (launch.globalMise === undefined) return launch;
-  const { text: _text, ...digest } = launch.globalMise;
-  return { ...launch, globalMise: digest };
+  const secrets = new Set(launch.secretVariables ?? []);
+  const variables = launch.variables === undefined || secrets.size === 0 ? launch.variables : Object.fromEntries(Object.entries(launch.variables).map(([name, value]) => [name, secrets.has(name) ? SECRET_SHOWN : value]));
+  const shown = variables === undefined ? launch : { ...launch, variables };
+  if (shown.globalMise === undefined) return shown;
+  const { text: _text, ...digest } = shown.globalMise;
+  return { ...shown, globalMise: digest };
 };
 
 /** The launch for the settings `taken` (`takeEnvironment`'s, already read against this Worker's schema). */
@@ -109,5 +118,6 @@ export const launchOf = ({ settings, source }: TakenEnvironment): ContainerLaunc
   idleMs: settings.containerIdleMinutes * 60_000,
   ...(source === "environment" ? { budget: settings.containerBudget } : {}),
   revision: settings.revision,
-  variables: settings.variables,
+  variables: variableEnv(settings.variables),
+  ...(settings.variables.some((variable) => variable.secret) ? { secretVariables: settings.variables.filter((variable) => variable.secret).map((variable) => variable.name) } : {}),
 });

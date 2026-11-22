@@ -148,16 +148,21 @@ if (adding !== null) {
     if (response !== undefined) done();
   });
 }
-// A Variables list's rows as { NAME: "value" }; a row with neither a name nor a value is skipped. A name listed twice
-// is refused here, before the save, since an object would keep only the last.
+// A Variables list's rows as [{ name, value, secret }]; a row with neither a name nor a value is skipped. A secret row
+// left as it was (marked redacted, nothing typed) posts valueRedacted, which keeps its stored value (ADR-0046). A name
+// listed twice is refused here, before the save.
 const variablesOf = (list) => {
-  const variables = {};
+  const variables = [];
+  const seen = new Set();
   for (const row of list.querySelectorAll("[data-variable]")) {
     const name = row.querySelector("[data-variable-name]").value.trim();
     const value = row.querySelector("[data-variable-value]").value;
-    if (name === "" && value === "") continue;
-    if (Object.prototype.hasOwnProperty.call(variables, name)) throw new Error("The Variable " + JSON.stringify(name) + " is listed twice; keep one.");
-    variables[name] = value;
+    const secret = row.querySelector("[data-variable-secret]").checked;
+    const kept = secret && value === "" && row.hasAttribute("data-variable-redacted");
+    if (name === "" && value === "" && !kept) continue;
+    if (seen.has(name)) throw new Error("The Variable " + JSON.stringify(name) + " is listed twice; keep one.");
+    seen.add(name);
+    variables.push(kept ? { name, value: "", secret: true, valueRedacted: true } : { name, value, secret });
   }
   return variables;
 };
@@ -171,13 +176,30 @@ const settingsOf = (form) => {
 };
 for (const list of document.querySelectorAll('[data-kind="variables"]')) {
   const rows = list.querySelector("[data-variable-rows]");
+  const setByT3flare = new Set((list.dataset.setByT3flare ?? "").split(" "));
   const changed = () => list.dispatchEvent(new Event("input", { bubbles: true }));
-  const removable = (row) => row.querySelector("[data-variable-remove]").addEventListener("click", () => { row.remove(); changed(); });
-  for (const row of rows.querySelectorAll("[data-variable]")) removable(row);
+  // A stored secret's value is not on the page: renaming it or turning Secret off asks for the value again.
+  const forget = (row) => {
+    if (!row.hasAttribute("data-variable-redacted")) return;
+    row.removeAttribute("data-variable-redacted");
+    row.querySelector("[data-variable-value]").placeholder = "Type the value again";
+  };
+  const wire = (row) => {
+    const name = row.querySelector("[data-variable-name]");
+    const note = row.querySelector("[data-variable-note]");
+    const secret = row.querySelector("[data-variable-secret]");
+    row.querySelector("[data-variable-remove]").addEventListener("click", () => { row.remove(); changed(); });
+    name.addEventListener("input", () => { note.hidden = !setByT3flare.has(name.value.trim()); forget(row); });
+    secret.addEventListener("change", () => {
+      row.classList.toggle("is-secret", secret.checked);
+      if (!secret.checked) forget(row);
+    });
+  };
+  for (const row of rows.querySelectorAll("[data-variable]")) wire(row);
   list.querySelector("[data-variable-add]").addEventListener("click", () => {
     const row = list.querySelector("[data-variable-template]").content.firstElementChild.cloneNode(true);
     rows.append(row);
-    removable(row);
+    wire(row);
     row.querySelector("[data-variable-name]").focus();
     changed();
   });

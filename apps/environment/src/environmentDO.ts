@@ -32,12 +32,13 @@ import { isRefusedRelayRoute } from "./host/relayRoutes.ts";
 import { bindStateStorage } from "./platform/stateStore.ts";
 import type { AccessCaller } from "./access.ts";
 import { harnessSecrets } from "./harness/secrets.ts";
+import { openVariables } from "./harness/variableSeal.ts";
 import { auditWorkspace, harnessStore } from "./harness/store.ts";
 import { type CredentialBroker, credentialBroker } from "./credentials/broker.ts";
 import { chatgptSignIn } from "./credentials/chatgpt.ts";
 import { claudeSignIn } from "./credentials/claude.ts";
 import { copilotSignIn } from "./credentials/copilot.ts";
-import { sealedStore } from "./credentials/sealed.ts";
+import { sealedStore, valueSealer } from "./credentials/sealed.ts";
 import { expireOnStage } from "./endpoints/expireHook.ts";
 import type { SignInLeakPatterns } from "./endpoints/leak.ts";
 import { endpointStore, type EndpointStore } from "./endpoints/store.ts";
@@ -395,6 +396,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       store: harnessStore(this.ctx.storage.kv),
       mcp: this.mcpHost,
       secrets: harnessSecrets(this.ctx.storage.kv),
+      variableSealer: valueSealer(this.env.T3FLARE_CREDENTIALS_KEY),
       oauth: this.harnessOAuth,
       sweepSettingsChanged: () => this.#sweepSettingsChanged(),
       // The Workspaces section (ADR-0044): the view, the Owner's acts, each Workspace's usage, and the Sweep.
@@ -588,7 +590,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     const store = harnessStore(this.ctx.storage.kv);
     const skills = this.#skillsApi();
     return {
-      ops: { store, mcp: this.mcpHost, secrets: harnessSecrets(this.ctx.storage.kv), oauth: this.harnessOAuth, skills, sweepSettingsChanged: () => this.#sweepSettingsChanged(), now: () => Date.now() },
+      ops: { store, mcp: this.mcpHost, secrets: harnessSecrets(this.ctx.storage.kv), variableSealer: valueSealer(this.env.T3FLARE_CREDENTIALS_KEY), oauth: this.harnessOAuth, skills, sweepSettingsChanged: () => this.#sweepSettingsChanged(), now: () => Date.now() },
       oauthStatus: (server) => this.harnessOAuth.status(server),
       link: (thread) => threadLinkIn(this.ctx.storage.sql, thread),
       // A Durable thread's modes are the adapter's record; a CLI thread's are its live session's (plan D3).
@@ -757,7 +759,11 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     const store = harnessStore(this.ctx.storage.kv);
     const stored = store.loadEnvironment();
     store.noteEnvironmentRead(stored.revision, Date.now());
-    return resolveEnvironment(stored);
+    // The one read that opens a secret Variable (ADR-0046 §2): the Container start needs its value. One this credentials
+    // key does not open is left out, logged by name only.
+    const { variables, unreadable } = await openVariables(stored, valueSealer(this.env.T3FLARE_CREDENTIALS_KEY));
+    if (unreadable.length > 0) console.warn(JSON.stringify({ t3flare: "variables-unreadable", names: unreadable }));
+    return { ...resolveEnvironment(stored), variables };
   }
 
   /** The Environment skills this Environment keeps (SPI-1148, ADR-0033). */

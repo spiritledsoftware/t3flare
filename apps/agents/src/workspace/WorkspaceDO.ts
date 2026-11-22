@@ -45,7 +45,7 @@ import * as git from "isomorphic-git";
 import { CREDENTIAL_HELPER, CREDENTIAL_PATH } from "./credentialHelper.ts";
 import { BUDGET_NAME, type ContainerBudget, RENEW_EVERY_MS } from "../budget.ts";
 import { type EnvironmentDO, environmentStub } from "../environment.ts";
-import { EMPTY_ENVIRONMENT, fitVariables, type McpRelayAnswer, type ResolvedEnvironment, resolveEnvironment } from "@t3flare/harness-registry";
+import { EMPTY_ENVIRONMENT, fitVariableEnv, type McpRelayAnswer, type ResolvedEnvironment, resolveEnvironment } from "@t3flare/harness-registry";
 import { changedBetween, currentRevision, repoFileSizes } from "./changeLog.ts";
 import { type ContainerLaunch, ENVIRONMENT_READ_MS, launchOf, shownLaunch, takeEnvironment, withGlobalMise } from "./containerLaunch.ts";
 import { GlobalMise, type GlobalMiseState } from "./globalMise.ts";
@@ -903,7 +903,7 @@ export class WorkspaceDO extends ContainerHost {
    * Container and on the Worker Shell, until the next start. Read against this Worker's rules, as the settings are.
    */
   #variables(): Readonly<Record<string, string>> {
-    return fitVariables(this.ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY)?.variables);
+    return fitVariableEnv(this.ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY)?.variables);
   }
 
   /** `backend` with the Variables under every command it is sent (`VariablesBackend`). */

@@ -113,6 +113,7 @@ import {
   waitForChange,
 } from "./openChanges.ts";
 import { askedByText, changeText, environmentItems, extensionItems, mcpItems, PAGE_REASON, shownSkill, toolsItems } from "./render.ts";
+import { sealVariablesIn } from "../harness/variableSeal.ts";
 import { settingsToolOf } from "./tools.ts";
 import type { ChangeEntity, ChangeItem, ChangeView, PageReason } from "./types.ts";
 
@@ -1383,6 +1384,22 @@ const runRead = async (deps: SettingsServerDeps, name: string, args: Readonly<Re
 };
 
 /**
+ * A write's arguments with a `change_environment`'s secret Variables sealed (ADR-0046 §4), before anything logs, shows,
+ * hashes, keeps or plans them: the card, the Change page, an Open change's stored arguments and the audit entry hold a
+ * secret's fingerprint, never its value. Every other write's arguments as given.
+ */
+const sealedArgs = async (
+  deps: SettingsServerDeps,
+  tool: string,
+  args: Readonly<Record<string, unknown>>,
+): Promise<{ readonly ok: true; readonly args: Readonly<Record<string, unknown>> } | { readonly ok: false; readonly error: string }> => {
+  const settings = tool === "change_environment" ? objectArg(args.settings) : undefined;
+  if (settings === undefined) return { ok: true, args };
+  const sealed = await sealVariablesIn(settings, deps.ops.store.loadEnvironment(), deps.ops.variableSealer);
+  return sealed.ok ? { ok: true, args: { ...args, settings: sealed.settings } } : sealed;
+};
+
+/**
  * One call of the Settings server by t3flare's own agent (the MCP host's branch for kind `settings`). Its answer is the
  * host's: a result for the agent, or unavailable when the server is off.
  */
@@ -1390,7 +1407,14 @@ export const settingsCall = async (deps: SettingsServerDeps, input: SettingsCall
   if (accessSwitchOf(deps) === "off") return { kind: "unavailable", message: OFF_MESSAGE, mayHaveRun: false };
   const tool = settingsToolOf(input.tool);
   if (tool === undefined) return { kind: "unavailable", message: `The Settings server has no tool ${input.tool}.`, mayHaveRun: false };
-  if (tool.class === "write") return write(deps, input);
+  if (tool.class === "write") {
+    const sealed = await sealedArgs(deps, tool.name, input.args);
+    if (!sealed.ok) {
+      deps.log?.({ t3flare: "settings-refused", via: "mcp", door: input.caller.door, agent: input.caller.agent, thread: input.caller.thread ?? null, tool: input.tool, outcome: "refused", reason: "invalid" });
+      return written("refused", `Not changed: ${sealed.error}`);
+    }
+    return write(deps, { ...input, args: sealed.args });
+  }
   const limited = readLimit(deps, ownReader(deps, input.caller), tool.name);
   if (limited !== undefined) return limited;
   const actor: AuditActor = { caller: input.caller.thread === undefined ? "agent" : `agent:${input.caller.thread}`, via: "mcp", ...(input.caller.thread === undefined ? {} : { thread: input.caller.thread }), agent: input.caller.agent };
@@ -1601,7 +1625,14 @@ export const settingsOwnerCall = async (deps: SettingsServerDeps, input: OwnerCa
     deps.log?.({ t3flare: "settings-refused", via: "mcp", door: "owner", principal: input.caller.kind, tool: input.tool, outcome: "refused", reason: "hidden" });
     return { kind: "result", answer: readError(`${tool.name} is hidden by the owner.`) };
   }
-  if (tool.class === "write") return ownerWrite(deps, input);
+  if (tool.class === "write") {
+    const sealed = await sealedArgs(deps, tool.name, input.args);
+    if (!sealed.ok) {
+      deps.log?.({ t3flare: "settings-refused", via: "mcp", door: "owner", principal: input.caller.kind, tool: input.tool, outcome: "refused", reason: "invalid" });
+      return { kind: "result", answer: written("refused", `Not changed: ${sealed.error}`) };
+    }
+    return ownerWrite(deps, { ...input, args: sealed.args });
+  }
   const limited = readLimit(deps, ownerReader(deps, input.caller), tool.name);
   if (limited !== undefined) return { kind: "result", answer: limited };
   const actor: AuditActor = { caller: ownerAuditCaller(input.caller), via: "mcp", ...(input.caller.client === undefined ? {} : { client: input.caller.client }) };

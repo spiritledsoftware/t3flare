@@ -1,6 +1,6 @@
 // A setting's schema and its validation, shared by the Harness settings' extension registry (index.ts) and the
 // Environment settings (environment.ts): the panel renders a form from each and the API validates against it.
-import { variablesProblem } from "./variables.ts";
+import { normalizeVariables, type StoredVariable, variablesProblem } from "./variables.ts";
 
 /** A setting's schema: the JSON Schema subset the panel renders as a form and the API validates against. */
 export type FieldSchema =
@@ -17,15 +17,18 @@ export type FieldSchema =
   | { readonly type: "file"; readonly maxBytes: number; readonly default: string };
 
 /**
- * An Environment setting's schema: a field's, or Variables (SPI-1152): `{ NAME: "value" }`, checked by
- * `variablesProblem`, which the panel renders as a list. Harness settings hold scalars only.
+ * An Environment setting's schema: a field's, or Variables (SPI-1152, ADR-0046): a list of `{ name, value, secret }`,
+ * checked by `variablesProblem`, which the panel renders as a list. Harness settings hold scalars only.
  */
-export type EnvironmentFieldSchema = FieldSchema | { readonly type: "variables"; readonly default: Readonly<Record<string, string>> };
+export type EnvironmentFieldSchema = FieldSchema | { readonly type: "variables"; readonly default: ReadonlyArray<StoredVariable> };
 
 export type SettingValue = boolean | number | string;
 
-/** A value an Environment setting may hold: a Harness setting's, or a set of Variables (SPI-1152). */
-export type EnvironmentValue = SettingValue | Readonly<Record<string, string>>;
+/**
+ * A value an Environment setting may hold: a Harness setting's, or a set of Variables (SPI-1152; ADR-0046's list, or the
+ * old `{ NAME: "value" }` set a store may still hold).
+ */
+export type EnvironmentValue = SettingValue | ReadonlyArray<StoredVariable> | Readonly<Record<string, string>>;
 
 /**
  * A setting's Change tier rule (ADR-0035 §3, plan D5): `free` in either direction; `down-free` free when a boolean is
@@ -59,9 +62,14 @@ const fileProblem = (text: string, maxBytes: number): string | undefined => {
   return undefined;
 };
 
-/** `value` as it is stored: a `file` field's line ends as LF, so a browser's CRLF round trip is never a change. */
-export const normalizeField = (schema: EnvironmentFieldSchema, value: unknown): unknown =>
-  schema.type === "file" && typeof value === "string" ? value.replaceAll("\r\n", "\n") : value;
+/**
+ * `value` as it is stored: a `file` field's line ends as LF, so a browser's CRLF round trip is never a change; the old
+ * `{ NAME: "value" }` set of Variables as ADR-0046's list.
+ */
+export const normalizeField = (schema: EnvironmentFieldSchema, value: unknown): unknown => {
+  if (schema.type === "file" && typeof value === "string") return value.replaceAll("\r\n", "\n");
+  return schema.type === "variables" ? normalizeVariables(value) : value;
+};
 
 /** Why `value` does not fit `schema`, or undefined. */
 export const fieldProblem = (schema: EnvironmentFieldSchema, value: unknown): string | undefined => {

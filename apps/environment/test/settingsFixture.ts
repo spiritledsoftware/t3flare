@@ -6,6 +6,7 @@ import type { StoredHarness } from "@t3flare/harness-registry";
 import type { McpAsker, McpQuestionAnswer, McpQuestionCard } from "@t3flare/session-protocol";
 
 import type { AccessCaller } from "../src/access.ts";
+import { valueSealer } from "../src/credentials/sealed.ts";
 import type { HarnessDeps } from "../src/harness/panel.ts";
 import { harnessSecrets } from "../src/harness/secrets.ts";
 import { harnessStore } from "../src/harness/store.ts";
@@ -24,6 +25,8 @@ export const NOW = Date.UTC(2026, 10, 14, 12, 0);
 export const HOST = "t3.example.dev";
 export const PANEL = `https://${HOST}/_t3flare/settings`;
 export const AUTHORIZATION_URL = "https://auth.example/authorize?state=s3cr3t-state";
+/** The Stage's credentials key a secret Variable is sealed with (ADR-0046). */
+export const CREDENTIALS_KEY = "c".repeat(64);
 
 export const memory = () => {
   const map = new Map<string, unknown>();
@@ -62,6 +65,7 @@ export const settingsFixture = (options: FixtureOptions = {}) => {
   const store = harnessStore(kv);
   if (options.harness !== undefined) store.save(options.harness);
   const secrets = harnessSecrets(kv, () => now);
+  const variableSealer = valueSealer(CREDENTIALS_KEY);
   const cards: Array<McpQuestionCard> = [];
   const withdrawn: Array<string> = [];
   const asker: McpAsker = {
@@ -100,7 +104,7 @@ export const settingsFixture = (options: FixtureOptions = {}) => {
   /** The Owner clients' modes, over the same SQLite (the panel sets them; the endpoint reads them). */
   const clients = ownerClients(sql, () => now);
   deps = {
-    ops: { store, mcp: host, secrets, oauth, skills, now: () => now },
+    ops: { store, mcp: host, secrets, variableSealer, oauth, skills, now: () => now },
     oauthStatus: oauth.status,
     link: (thread) => options.links?.[thread] ?? "own",
     // As the Environment DO wires it: a Durable thread's modes are the adapter's record, a CLI's its live session's.
@@ -129,6 +133,7 @@ export const settingsFixture = (options: FixtureOptions = {}) => {
     store,
     mcp: host,
     secrets,
+    variableSealer,
     oauth,
     now: () => now,
     skills,

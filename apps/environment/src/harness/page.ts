@@ -28,6 +28,9 @@ import {
   MAX_VARIABLE_NAME_LENGTH,
   MAX_VARIABLE_VALUE_LENGTH,
   type ResolvedEnvironment,
+  SET_BY_T3FLARE,
+  setByT3flare,
+  type Variable,
   type ResolvedHarness,
   ownEntry,
   resolveEnvironment,
@@ -113,9 +116,11 @@ const field = (extension: string, key: string, setting: EnvironmentSettingEntry,
         ? `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><textarea rows="4" maxlength="${setting.schema.maxLength}" ${attrs}>${escapeHtml(typeof value === "string" ? value : "")}</textarea>${hint}</div>`
         : `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="text" maxlength="${setting.schema.maxLength}" ${attrs} value="${escapeHtml(typeof value === "string" ? value : "")}">${hint}</div>`;
     case "variables": {
-      // One row per Variable; the script adds rows from the template, removes them, and posts `{ NAME: "value" }`.
-      const rows = Object.entries(value !== null && typeof value === "object" ? (value as Readonly<Record<string, string>>) : {}).map(([name, text]) => variableRow(name, text));
-      return `<fieldset class="field" ${attrs}><legend class="sr">${escapeHtml(setting.title)}</legend><div class="variables" data-variable-rows>${rows.join("")}</div><template data-variable-template>${variableRow("", "")}</template><div><button type="button" class="btn btn-sm" data-variable-add>${icon("plus")}Add a Variable</button></div>${hint}</fieldset>`;
+      // One row per Variable; the script adds rows from the template, removes them, and posts `[{ name, value, secret }]`
+      // (a secret left as it was posts `valueRedacted`, which keeps its stored value). The names t3flare sets itself are
+      // on the list for the script's note.
+      const rows = (Array.isArray(value) ? (value as ReadonlyArray<Variable>) : []).map((variable) => variableRow(variable));
+      return `<fieldset class="field" ${attrs} data-set-by-t3flare="${escapeHtml(SET_BY_T3FLARE.join(" "))}"><legend class="sr">${escapeHtml(setting.title)}</legend><div class="variables" data-variable-rows>${rows.join("")}</div><template data-variable-template>${variableRow(undefined)}</template><div><button type="button" class="btn btn-sm" data-variable-add>${icon("plus")}Add a Variable</button></div>${hint}</fieldset>`;
     }
     case "file":
       // No maxlength (it counts UTF-16 units; the API's byte limit refuses, whole). The newline after the tag is the one
@@ -124,9 +129,17 @@ const field = (extension: string, key: string, setting: EnvironmentSettingEntry,
   }
 };
 
-/** One Variable's row: its name, its value (a text area, so a value with a line break survives a save), and Remove. */
-const variableRow = (name: string, value: string): string =>
-  `<div class="variable" data-variable><input type="text" data-variable-name aria-label="Name" value="${escapeHtml(name)}" maxlength="${MAX_VARIABLE_NAME_LENGTH}" placeholder="NAME" autocapitalize="none" spellcheck="false"><textarea rows="1" data-variable-value aria-label="Value" maxlength="${MAX_VARIABLE_VALUE_LENGTH}" placeholder="value" spellcheck="false">${escapeHtml(value)}</textarea><button type="button" class="btn btn-sm btn-danger" data-variable-remove aria-label="Remove this Variable">${icon("trash")}</button></div>`;
+/**
+ * One Variable's row: its name, its value (a text area, so a value with a line break survives a save), its Secret toggle
+ * and Remove, then the note for a name t3flare sets itself (ADR-0046 §3). A secret's value is never on the page: its
+ * text area is empty, marked as set; typing replaces the value, and turning Secret off asks for it again.
+ */
+const variableRow = (variable: Variable | undefined): string => {
+  const name = variable?.name ?? "";
+  const secret = variable?.secret === true;
+  const redacted = variable?.valueRedacted === true;
+  return `<div class="variable${secret ? " is-secret" : ""}" data-variable${redacted ? " data-variable-redacted" : ""}><input type="text" data-variable-name aria-label="Name" value="${escapeHtml(name)}" maxlength="${MAX_VARIABLE_NAME_LENGTH}" placeholder="NAME" autocapitalize="none" spellcheck="false"><textarea rows="1" data-variable-value aria-label="Value" maxlength="${MAX_VARIABLE_VALUE_LENGTH}" placeholder="${redacted ? "Set, not shown. Type to replace it" : "value"}" spellcheck="false" autocomplete="off">${redacted ? "" : escapeHtml(variable?.value ?? "")}</textarea><label class="variable-secret"><input type="checkbox" data-variable-secret${secret ? " checked" : ""}>Secret</label><button type="button" class="btn btn-sm btn-danger" data-variable-remove aria-label="Remove this Variable">${icon("trash")}</button><p class="hint variable-note" data-variable-note${name !== "" && setByT3flare(name) ? "" : " hidden"}>t3flare sets this name itself: its own value wins over this one wherever it sets it.</p></div>`;
+};
 
 /** A locked extension's settings, shown and not editable. */
 const lockedSettings = (entry: ExtensionEntry, current: ResolvedHarness["extensions"][string] | undefined): string => {
