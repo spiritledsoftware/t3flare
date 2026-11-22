@@ -76,6 +76,7 @@ import {
 import type { AuditActor } from "../harness/store.ts";
 import { resolvedForRead, sealVariablesIn } from "../harness/variableSeal.ts";
 import { canonicalJson } from "../mcp/canonical.ts";
+import { sha256Hex } from "@t3flare/skills";
 import { newCardId } from "../mcp/elicitation.ts";
 import type { McpCallAnswer, McpHost } from "../mcp/host.ts";
 import { previewAtCommit, viewSkill } from "../skills/api.ts";
@@ -393,6 +394,8 @@ interface Planned extends Target {
   readonly verdict: TierVerdict;
   /** The free card's first line, for a write that is no change of settings (a Test base build); a Rebuild's or a change's otherwise. */
   readonly asks?: string;
+  /** What its change row keeps of the call, when not the call's own arguments (a Test base build's script, by its size and digest). */
+  readonly recorded?: () => Promise<Readonly<Record<string, unknown>>>;
   /**
    * The change as validated, without anything the call carried that the change ignores (plan D16, SPI-1199 review): the
    * declined-repeat hash is of this, so junk keys in the arguments cannot dodge it.
@@ -754,6 +757,8 @@ const planTestBaseBuild = (deps: SettingsServerDeps, args: Readonly<Record<strin
     appliesAt: APPLIES_AT.test,
     verdict: { tier: "free", reasons: [`a proposed Image setup of ${bytes} bytes: tested in the test Builder, not saved (free)`] },
     normalized: { imageSetup },
+    // The text stays in the test Builder's storage (ADR-0047's SPI-1334 refinement): its row keeps its size and SHA-256.
+    recorded: async () => ({ imageSetup: { bytes, sha256: await sha256Hex(imageSetup) } }),
     describe: async () => ({ items: [], lines: [APPLIES_AT.test] }),
     run: async () => {
       try {
@@ -1112,7 +1117,7 @@ const applyFree = async (
     entity: planned.entity,
     expectedRevision: input.expected,
     tool: input.tool,
-    args: JSON.parse(canonicalJson(input.args)) as unknown,
+    args: JSON.parse(canonicalJson(planned.recorded === undefined ? input.args : await planned.recorded())) as unknown,
     hash: await changeHash(input.tool, planned.normalized),
     tier: "free",
     caller: input.caller,

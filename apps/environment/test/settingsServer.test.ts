@@ -15,7 +15,7 @@ import { type McpCallAnswer, McpHost } from "../src/mcp/host.ts";
 import { registerCliAsker } from "../src/provider/cli/cliAsk.ts";
 import { cliThreadState } from "../src/provider/cli/cliAsk.ts";
 import { DURABLE_AGENT, durableModes, forgetDurableModes, noteDurableModes } from "../src/provider/threadCaller.ts";
-import { APPLIED_CAP, settingsChanges } from "../src/settings/changes.ts";
+import { APPLIED_CAP, type ChangeRecord, settingsChanges } from "../src/settings/changes.ts";
 import { OFF_MESSAGE, type OwnCaller, type ThreadLink } from "../src/settings/caller.ts";
 import { LINKED_REFUSAL, NO_MODES_REFUSAL, READ_ONLY_REFUSAL, settingsCall, UNKNOWN_REFUSAL } from "../src/settings/server.ts";
 import { SETTINGS_TOOLS } from "../src/settings/tools.ts";
@@ -84,7 +84,10 @@ const setup = (
     forget: () => undefined,
     accessToken: async () => undefined,
   };
-  const changes = settingsChanges(nodeSqlStorage(), () => now);
+  const stored = settingsChanges(nodeSqlStorage(), () => now);
+  // Every applied change's row, as the changes table keeps it.
+  const applied: Array<ChangeRecord> = [];
+  const changes = { ...stored, recordApplied: (record: ChangeRecord) => (applied.push(record), stored.recordApplied(record)) };
   const logs: Array<Record<string, unknown>> = [];
   const host: McpHost = new McpHost({
     kv,
@@ -114,7 +117,7 @@ const setup = (
       ),
   });
   const call = (caller: OwnCaller, tool: string, args: Record<string, unknown> = {}) => host.call({ server: "settings", tool, args, caller, asker });
-  return { kv, store, secrets, oauth, host, call, cards, withdrawn, logs, advance: (ms: number) => (now += ms) };
+  return { kv, store, secrets, oauth, host, call, cards, withdrawn, logs, applied, advance: (ms: number) => (now += ms) };
 };
 
 
@@ -513,7 +516,7 @@ describe("the Settings server: the Test base build", () => {
 
   it("test_base_build runs the proposed text in full access with no revision, saves nothing, and asks on the free card in another mode", async () => {
     const runs: Array<[string, string]> = [];
-    const { call, cards, store } = setup({ test: { record, run: async (imageSetup, reason) => (runs.push([imageSetup, reason]), building) } });
+    const { call, cards, store, applied } = setup({ test: { record, run: async (imageSetup, reason) => (runs.push([imageSetup, reason]), building) } });
     const caller = durable("thread-tb");
     recordModes(caller, "full-access");
     const answer = await call(caller, "test_base_build", { imageSetup: "apt-get install -y yq\n" });
@@ -522,6 +525,10 @@ describe("the Settings server: the Test base build", () => {
     expect(runs).toEqual([["apt-get install -y yq\n", "an agent's test (test_base_build)"]]);
     expect(store.loadEnvironment().revision).toBe(0);
     expect(cards).toHaveLength(0);
+    // The text stays in the test Builder: its change row keeps only its size and SHA-256.
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode("apt-get install -y yq\n")));
+    expect(applied.at(-1)).toMatchObject({ tool: "test_base_build", args: { imageSetup: { bytes: 22, sha256: [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("") } } });
+    expect(JSON.stringify(applied.at(-1))).not.toContain("apt-get");
 
     const other = durable("thread-tb2");
     recordModes(other, "approval-required");
