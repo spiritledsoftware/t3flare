@@ -33,8 +33,8 @@ pnpm install --frozen-lockfile
 pnpm run check
 ```
 
-Without mise, install Node and pnpm at the versions in `mise.toml` and `export NPM_CONFIG_WORKSPACE_DIR=$PWD` in the
-repository's root before running pnpm.
+Without mise, install Node and pnpm at the versions in `mise.toml`. Run pnpm from the repository's root, never inside
+`t3code/` (AGENTS.md).
 
 ## Rules
 

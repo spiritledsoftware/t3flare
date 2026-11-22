@@ -3,7 +3,3 @@
 node = "26.13.1"
 pnpm = "12.14.0"
 vp = "1.4.0"
-
-# A pnpm or vp command run inside t3code/ would otherwise install it as its own workspace (AGENTS.md).
-[env]
-NPM_CONFIG_WORKSPACE_DIR = "{{config_root}}"
