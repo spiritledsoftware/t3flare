@@ -91,3 +91,17 @@ unknowable there. When the target checkout's install is stale, pnpm's `verifyDep
 
 The root has no Vitest dependency, so the tests of root `scripts/` run on `node --test` (`test:scripts` in `check:all`),
 beside Vitest for the packages.
+
+## Refinement (SPI-1335, 2026-11-22): `check` first repairs a checkout whose `t3code/.git` points nowhere
+
+A git worktree prepared from T3's checkout cache can get a `t3code/.git` written relative to another checkout's module
+dir, which resolves nowhere, and then `git switch`, `git status` and `git add` fail in it. So `pnpm run check` now runs
+`scripts/worktree-setup.ts` first, before the workspace guard, and AGENTS.md names it as the first command in a new git
+worktree. Unlike the guard, which only reads, it writes to the checkout: it gives the checkout its own
+`<git-dir>/modules/t3code`, borrowing the main checkout's objects through `objects/info/alternates` (no network), with
+HEAD at the pinned commit and the index reset; the files on disk are left as they are. The module dir is prepared beside
+its place and the dangling pointer replaced only once it holds the pinned commit, so a failed repair leaves the checkout
+as it was and fails again on the next run. It never points a checkout at another's module dir: two checkouts sharing one
+move each other's HEAD and index. A healthy checkout, one whose `t3code/.git` names its own module dir with a commit at
+HEAD, is not written to; an uninitialised submodule is reported with `git submodule update --init t3code` and left alone.
+Like the guard it is plain node, so it runs before anything is installed.
