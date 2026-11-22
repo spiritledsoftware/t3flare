@@ -21,12 +21,14 @@ describe("stageNameProblem", () => {
     for (const stage of ["", "P1338", "p_1338", "p.1338", "p 1338", "-p1338", "p1338-", "-"]) expect(stageNameProblem(stage)).toBeDefined();
   });
 
-  it("bounds the name by the workers.dev label rule on the longest derived name", () => {
-    expect(MAX_STAGE_NAME_LENGTH).toBe(63 - "t3flare-environment-".length);
-    expect(MAX_STAGE_NAME_LENGTH).toBe(43);
-    expect(stageNameProblem("a".repeat(43))).toBeUndefined();
-    expect(stageNameProblem("a".repeat(44))).toMatch(/43/);
-    for (const name of Object.values(stageNames("a".repeat(MAX_STAGE_NAME_LENGTH)))) expect(name.length).toBeLessThanOrEqual(63);
+  it("bounds the name by Cloudflare's 54-character limit on the Environment Worker, whose previews are on", () => {
+    expect(MAX_STAGE_NAME_LENGTH).toBe(54 - "t3flare-environment-".length);
+    expect(MAX_STAGE_NAME_LENGTH).toBe(34);
+    expect(stageNameProblem("a".repeat(34))).toBeUndefined();
+    expect(stageNameProblem("a".repeat(35))).toMatch(/34/);
+    const names = stageNames("a".repeat(MAX_STAGE_NAME_LENGTH));
+    expect(names.environment.length).toBe(54);
+    for (const name of Object.values(names)) expect(name.length).toBeLessThanOrEqual(63);
   });
 });
 

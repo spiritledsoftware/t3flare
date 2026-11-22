@@ -8,7 +8,7 @@
 //                                                      <script> with a path separator or a .ts suffix is a path from the cwd
 //   node scripts/stage.ts destroy <stage>              alchemy destroy, and forget the stage's secrets
 //
-// A <stage> is any name of lowercase letters, digits and inner dashes that fits a workers.dev host (stage-names.ts).
+// A <stage> is any name of lowercase letters, digits and inner dashes whose Worker names fit Cloudflare's limits (stage-names.ts).
 //
 // The stage's bootstrap and admin tokens are random, made on its first deploy and kept in
 // `.alchemy/stages/<stage>.env.json` (gitignored, 0600); its Access service token's credentials are written next
@@ -44,7 +44,7 @@ const repoRoot = path.resolve(here, "../..");
 process.env.NPM_CONFIG_WORKSPACE_DIR = repoRoot;
 const [command, stage, ...rest] = process.argv.slice(2);
 
-// Any Stage name fitting a workers.dev host is accepted (stage-names.ts; SPI-1338): a throwaway Stage needs no edit here.
+// Any Stage name whose Worker names fit Cloudflare's limits is accepted (stage-names.ts; SPI-1338): a throwaway Stage needs no edit here.
 // `prod` (the owner's long-lived Environment, deployed from `main` only) and `bump` (bump.ts) keep their guards below.
 const problem = stage === undefined ? undefined : stageNameProblem(stage);
 if (command === undefined || stage === undefined || problem !== undefined) {

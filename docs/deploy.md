@@ -74,9 +74,9 @@ refuses to deploy `prod` without it, and refuses any other Stage with it, as `al
    Display information): GitHub takes a logo only there, not from the registration.
 5. Deploy a test Stage: `pnpm --filter @t3flare/environment run deploy <stage>`
    ([`apps/environment/scripts/stage.ts`](../apps/environment/scripts/stage.ts); a Stage name is lowercase letters,
-   digits and inner dashes that fit a workers.dev host, [`stage-names.ts`](../apps/environment/stage-names.ts)). It
-   builds the web client (when it is missing, or with `--web`) and the two Workers, then runs alchemy, which builds and
-   pushes the Container image, and then saves the Stage's Model endpoint through the Settings page's API. A
+   digits and inner dashes, at most 34 characters by Cloudflare's limits on Worker names,
+   [`stage-names.ts`](../apps/environment/stage-names.ts)). It builds the web client (when it is missing, or with
+   `--web`) and the two Workers, then runs alchemy, which builds and pushes the Container image, and then saves the Stage's Model endpoint through the Settings page's API. A
    Stage's secrets are kept in `apps/environment/.alchemy/stages/` (gitignored). A deploy replaces the Environment's code
    at once (connected clients reconnect), while Cloudflare lets the agents Worker's busy Durable Objects finish their
    work first, for up to five minutes.
