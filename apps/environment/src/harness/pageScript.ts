@@ -9,6 +9,21 @@ export const KEPT_PLACEHOLDER = "Set, not shown. Type to replace it";
 /** A stored secret Variable's placeholder once renamed or turned plain: its value must be typed again. */
 export const RETYPE_PLACEHOLDER = "Type the value again";
 
+/**
+ * How often the page reads a running Test base build (SPI-1334). Fixed: how fresh the page's view of a test is, not
+ * anything an Owner tunes; the test's own time limits are the Owner's settings.
+ */
+export const TEST_POLL_MS = 5_000;
+/** How long the page waits to read again after a read failed. Fixed: a retry's back-off, not a policy. */
+export const TEST_POLL_RETRY_MS = 15_000;
+/**
+ * Failed reads in a row after which the page stops following a test and says why. Fixed: the bound on a retry loop (an
+ * expired Access session fails every read); the Owner follows again with a click.
+ */
+export const TEST_POLL_FAILURES = 3;
+/** An ISO time in a Builder's line (`describeBaseBuild`): page.ts shows it as a time, the script formats it as one. */
+export const ISO_TIME_SOURCE = String.raw`\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z`;
+
 export const SCRIPT = `"use strict";
 const csrf = document.querySelector('meta[name="t3flare-csrf"]').getAttribute("content");
 const notice = document.getElementById("result");
@@ -73,6 +88,7 @@ for (const block of document.querySelectorAll("[data-base-test-block]")) {
   const status = block.querySelector("[data-test-status]");
   const output = block.querySelector("[data-test-output]");
   const stale = block.querySelector("[data-test-stale]");
+  const again = block.querySelector("button[data-test-follow]");
   // A result is the tested text's: once the box holds another text, it says so (the digest the test Builder kept).
   const checkStale = async () => {
     const tested = block.dataset.testSetup;
@@ -83,8 +99,9 @@ for (const block of document.querySelectorAll("[data-base-test-block]")) {
     stale.hidden = hexed === tested;
   };
   const when = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-  const timed = (line) => line.replace(/\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d\\.\\d{3}Z/g, (iso) => when.format(new Date(iso)));
+  const timed = (line) => line.replace(new RegExp(${JSON.stringify(ISO_TIME_SOURCE)}, "g"), (iso) => when.format(new Date(iso)));
   let polling;
+  let failures = 0;
   const show = (view) => {
     // A test that ends while the page follows it is said in the live region, so its outcome is heard too.
     if (block.dataset.testState === "building" && view.state !== "building") {
@@ -104,16 +121,36 @@ for (const block of document.querySelectorAll("[data-base-test-block]")) {
     text.hidden = view.output === null || view.output === "";
     checkStale();
     clearTimeout(polling);
-    if (view.state === "building") polling = setTimeout(follow, 5000);
+    if (view.state === "building") polling = setTimeout(follow, ${TEST_POLL_MS});
   };
+  // A read that fails is tried again, a few times in a row at most: then the page stops, says why, and offers to follow again.
   const follow = async () => {
+    let why;
     try {
       const response = await fetch("/_t3flare/settings/api/base/test", { credentials: "same-origin" });
-      if (response.ok) return show((await response.json()).view);
-    } catch {}
-    polling = setTimeout(follow, 15000);
+      if (response.ok) {
+        failures = 0;
+        return show((await response.json()).view);
+      }
+      why = "the panel answered " + response.status + (response.status === 401 || response.status === 403 ? "; the sign-in may have expired" : "");
+    } catch {
+      why = "the panel could not be reached";
+    }
+    failures += 1;
+    if (failures < ${TEST_POLL_FAILURES}) {
+      polling = setTimeout(follow, ${TEST_POLL_RETRY_MS});
+      return;
+    }
+    result.textContent = "Stopped following the test (" + why + "). It goes on in its Builder; Follow again reads it.";
+    again.hidden = false;
   };
-  if (block.dataset.testState === "building") polling = setTimeout(follow, 5000);
+  again.addEventListener("click", () => {
+    again.hidden = true;
+    failures = 0;
+    result.textContent = "Following the test again…";
+    follow();
+  });
+  if (block.dataset.testState === "building") polling = setTimeout(follow, ${TEST_POLL_MS});
   if (box !== null) box.addEventListener("input", checkStale);
   checkStale();
   if (button === null || box === null) continue;
@@ -127,8 +164,13 @@ for (const block of document.querySelectorAll("[data-base-test-block]")) {
       button.focus();
       return;
     }
-    result.textContent = "Testing the Image setup above; this shows its result when it ends.";
-    show((await answer.response.json()).view);
+    const view = (await answer.response.json()).view;
+    again.hidden = true;
+    failures = 0;
+    show(view);
+    // What the test Builder answered: a test under way, or why none ran (an empty proposal has nothing to build).
+    const line = timed(view.line);
+    result.textContent = view.state === "building" ? "Testing the Image setup above; this shows its result when it ends." : line.charAt(0).toUpperCase() + line.slice(1) + ".";
     // The button was disabled while it asked: focus goes back to it, not to the page's top.
     button.focus();
   });

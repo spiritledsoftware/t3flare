@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import type { AccessCaller } from "../src/access.ts";
 import { csrfToken } from "../src/harness/csrf.ts";
 import { CSRF_HEADER, handleHarness, type HarnessDeps, refreshedTestRecord, TEST_BASE_PATH } from "../src/harness/panel.ts";
+import { SCRIPT, TEST_POLL_FAILURES, TEST_POLL_MS, TEST_POLL_RETRY_MS } from "../src/harness/pageScript.ts";
 import { harnessStore } from "../src/harness/store.ts";
 
 const HOST = "t3-admin.example.dev";
@@ -195,5 +196,22 @@ describe("a missed report of a test", () => {
     });
     expect(record).toEqual(building);
     expect(await refreshedTestRecord(store, undefined)).toEqual(building);
+  });
+});
+
+// Review findings 3–5: the page's following of a test is bounded, named, and says what the test Builder answered.
+describe("the page's script for a test", () => {
+  it("polls by its named constants and stops after a bounded run of failed reads, with a way to follow again", async () => {
+    expect(SCRIPT).toContain(`setTimeout(follow, ${TEST_POLL_MS})`);
+    expect(SCRIPT).toContain(`setTimeout(follow, ${TEST_POLL_RETRY_MS})`);
+    expect(SCRIPT).toContain(`failures < ${TEST_POLL_FAILURES}`);
+    expect(SCRIPT).toContain("Stopped following the test (");
+    const { deps } = setup({ testBase: async () => building });
+    expect(imageSetupRow(await page(deps))).toMatch(/<button type="button"[^>]*data-test-follow hidden>Follow again<\/button>/);
+  });
+
+  it("announces what the test Builder answered, not a test, for an empty proposal", () => {
+    expect(SCRIPT).toContain('view.state === "building" ? "Testing the Image setup above; this shows its result when it ends." : line.charAt(0).toUpperCase()');
+    expect(SCRIPT).not.toMatch(/innerHTML|outerHTML|insertAdjacentHTML/);
   });
 });

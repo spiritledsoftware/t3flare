@@ -54,7 +54,7 @@ import type { AuditEntry } from "./store.ts";
 import { brand, FAVICON } from "./pageBrand.ts";
 import { ICON_SPRITE, icon, type IconName } from "./pageIcons.ts";
 import { changePagePath } from "./paths.ts";
-import { KEPT_PLACEHOLDER, SCRIPT } from "./pageScript.ts";
+import { ISO_TIME_SOURCE, KEPT_PLACEHOLDER, SCRIPT } from "./pageScript.ts";
 import { endpointsSection, type EndpointsView } from "./pageEndpoints.ts";
 import { workspacesSection, type WorkspacesSectionInput } from "./pageWorkspaces.ts";
 import { STYLE } from "./pageStyle.ts";
@@ -706,7 +706,7 @@ const blockRow = (key: string, value: string): string => {
 };
 
 /** A Builder's line, escaped, its ISO times shown as the rest of the page shows a time. */
-const timedLine = (text: string): string => escapeHtml(text).replace(/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z/g, (iso) => time(Date.parse(iso)));
+const timedLine = (text: string): string => escapeHtml(text).replace(new RegExp(ISO_TIME_SOURCE, "g"), (iso) => time(Date.parse(iso)));
 
 /** What a failed build's kept output is, in a few words. */
 const outputSummary = (output: string): string => (output === "" ? "none" : `the last ${sizeText(new TextEncoder().encode(output).length)}, secret values blanked`);
@@ -750,7 +750,7 @@ const testBuildBlock = (input: TestBlockInput): string => {
   const view = testBuildView(input.record);
   const output = view.output ?? "";
   const button = input.canTest ? `<button type="button" class="btn btn-sm" data-base-test aria-describedby="base-test-hint">${icon("play")}Test</button>` : "";
-  return `<div class="test-build" data-base-test-block data-test-state="${view.state}"${view.setup === null ? "" : ` data-test-setup="${view.setup}"`} role="group" aria-labelledby="base-test-title"><div class="test-build-head"><div><div class="row-title"><h4 id="base-test-title">Test base build</h4><span class="pill${view.pill.tone === "" ? "" : ` pill-${view.pill.tone}`}" data-test-pill>${escapeHtml(view.pill.label)}</span></div><p class="desc" data-test-status>${timedLine(view.line)}</p><p class="desc test-build-stale" data-test-stale hidden>This result is for an earlier text of the Image setup; Test again to check the text above.</p><p class="desc test-build-hint" id="base-test-hint">Test runs the Image setup above, unsaved, in a Builder of its own with the saved Global mise config, Variables and limits; its snapshot is never used. A new test cancels one under way.</p><p class="desc" data-base-test-result role="status" aria-live="polite"></p></div>${button}</div><details class="tools" data-test-output${view.output === null ? " hidden" : ""}${view.state === "failed" ? " open" : ""}><summary>${icon("chevron")}Output<span data-test-output-summary>${escapeHtml(view.outputSummary)}</span></summary><pre class="text" tabindex="0" role="region" aria-label="The Test base build's output" data-test-output-text${output === "" ? " hidden" : ""}>${escapeHtml(output)}</pre></details></div>`;
+  return `<div class="test-build" data-base-test-block data-test-state="${view.state}"${view.setup === null ? "" : ` data-test-setup="${view.setup}"`} role="group" aria-labelledby="base-test-title"><div class="test-build-head"><div><div class="row-title"><h4 id="base-test-title">Test base build</h4><span class="pill${view.pill.tone === "" ? "" : ` pill-${view.pill.tone}`}" data-test-pill>${escapeHtml(view.pill.label)}</span></div><p class="desc" data-test-status>${timedLine(view.line)}</p><p class="desc test-build-stale" data-test-stale hidden>This result is for an earlier text of the Image setup; Test again to check the text above.</p><p class="desc test-build-hint" id="base-test-hint">Test runs the Image setup above, unsaved, in a Builder of its own with the saved Global mise config, Variables and limits; its snapshot is never used. A new test cancels one under way.</p><p class="desc" data-base-test-result role="status" aria-live="polite"></p><button type="button" class="btn btn-sm test-build-follow" data-test-follow hidden>Follow again</button></div>${button}</div><details class="tools" data-test-output${view.output === null ? " hidden" : ""}${view.state === "failed" ? " open" : ""}><summary>${icon("chevron")}Output<span data-test-output-summary>${escapeHtml(view.outputSummary)}</span></summary><pre class="text" tabindex="0" role="region" aria-label="The Test base build's output" data-test-output-text${output === "" ? " hidden" : ""}>${escapeHtml(output)}</pre></details></div>`;
 };
 
 /** The Base snapshot's state as a pill (SPI-1332). */

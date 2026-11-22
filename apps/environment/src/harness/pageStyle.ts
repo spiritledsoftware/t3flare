@@ -82,6 +82,7 @@ section{display:flex;flex-direction:column;gap:.625rem;scroll-margin-top:1.5rem}
 .test-build{grid-column:1/-1;border:1px solid var(--border);border-radius:var(--radius);background:var(--card)}
 .test-build .test-build-hint{margin-top:.375rem}
 .test-build .test-build-stale{margin-top:.375rem;color:var(--warn)}
+.test-build .test-build-follow{margin-top:.375rem}
 .test-build>details>summary{flex-wrap:wrap;row-gap:0}
 .test-build-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:.5rem 1rem;padding:.625rem .75rem}
 .test-build h4{margin:0;font-size:.8125rem;font-weight:550}
