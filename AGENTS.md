@@ -5,6 +5,7 @@
 - In a new git worktree of this repository, run `node scripts/worktree-setup.ts` before any other command: a prepared checkout's `t3code/.git` can point nowhere, and then `git switch`, `git status` and `git add` fail.
 - Run `pnpm run check` before you push a change for review: it is the required `check` on every pull request.
 - Test deploys go to a throwaway Stage of your own Deployment, from `apps/environment/scripts/stage.ts`. `prod` belongs to its Deployment repository's CI.
+- Render the Settings page locally with `node apps/environment/scripts/panel-preview.ts serve`, which answers its API from in-memory fixture state: the live page sits behind Access.
 - Credential files stay unread and unprinted: `~/.config/t3flare/dev.env`, `~/.alchemy/**`, `apps/environment/.alchemy/stages/*`, the gh config.
 - A Deployment's values (emails, domains, account and zone ids, repository names) stay out of the source: they are Deployment settings ([ADR-0038](docs/adr/0038-a-deployment-is-configured-outside-the-source-tree.md)).
 - Whatever an Owner could tune is a setting with a sensible default: a time limit, a size, a count, a policy choice, a behaviour toggle. A value stays fixed only where Cloudflare or t3flare's own correctness forces it, with a comment naming the constraint.
