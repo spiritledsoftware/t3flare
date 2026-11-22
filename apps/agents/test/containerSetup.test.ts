@@ -122,7 +122,11 @@ describe("ContainerSetup", () => {
     expect(refuse.container.refusal(await refuse.container.ensure("r1"))).toMatch(/Container setup failed \(exit 1\)/);
     expect(refuse.container.refusal(await refuse.container.ensure("r2"))).toBeUndefined();
     // Not judged (its run threw, or an earlier step held it): refused under refuse, unless there is no script.
-    expect(refuse.container.refusal(undefined)).toMatch(/Container setup has not run/);
+    expect(refuse.container.refusal(undefined)).toMatch(/Container setup has not run.*The next command tries it again/);
+    // Its text matches its state: still to run (attempts left) or final.
+    expect(refuse.container.refusal({ outcome: "exec-failed", exitCode: null, timedOut: false, attempts: 1 })).toMatch(/exec failed.*The next command tries it again/);
+    expect(refuse.container.refusal({ outcome: "exec-failed", exitCode: null, timedOut: false, attempts: 3 })).toMatch(/exec failed.*A new Container runs it again/);
+    expect(refuse.container.refusal({ outcome: "failed", exitCode: 1, timedOut: false, attempts: 1 })).toMatch(/exit 1.*A new Container runs it again/);
     expect(carry.container.refusal(undefined)).toBeUndefined();
     expect(setup([], { launch: { ...LAUNCH, text: "", failure: "refuse" } }).container.refusal(undefined)).toBeUndefined();
   });
@@ -144,7 +148,7 @@ describe("blankSecrets", () => {
   const WINDOW = KEPT + SECRET_MARGIN_BYTES;
 
   it("shows no part of a long secret echoed many times, whose copy the window's start split", () => {
-    // 4000 characters, the most a Variable's value holds, echoed 15 times: blanking shrinks the window far below what
+    // 4000 characters, near the most a Variable's value holds (4096), echoed 15 times: blanking shrinks the window far below what
     // is kept, so a cut of the blanked text would keep the split copy's tail.
     const secret = `s3cr3t-${"Q".repeat(3993)}`;
     const whole = Array.from({ length: 15 }, (_, i) => `line ${i}: token=${secret}\n`).join("");

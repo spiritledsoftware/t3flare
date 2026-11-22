@@ -167,7 +167,7 @@ export class ContainerRefused extends Error {
 }
 
 /** Whether `state` is final for its Container: any outcome but an exec failure, or one out of attempts. */
-export const isFinal = (state: StepState): boolean => state.outcome !== EXEC_FAILED || state.attempts >= MAX_ATTEMPTS;
+export const isFinal = (state: Pick<StepState, "outcome" | "attempts">): boolean => state.outcome !== EXEC_FAILED || state.attempts >= MAX_ATTEMPTS;
 
 /** One step of `ContainerSteps`: what it is doing while it runs, and when its outcome refuses the Container's commands. */
 export interface SequencedStep<State extends StepState> {

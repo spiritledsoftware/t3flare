@@ -6,7 +6,7 @@
 import { type ContainerSetupFailure, type ContainerSetupOutcome, type ContainerSetupReport, MAX_SETUP_OUTPUT_BYTES, type SettingsSource } from "@t3flare/harness-registry";
 import { containerSetupArgv, containerSetupDeadlineMs, parseContainerSetupAnswer, SECRET_MARGIN_BYTES } from "@t3flare/sandbox-image/containerSetup";
 
-import { type ContainerExec, ContainerStep, type RunStep } from "./containerStep.ts";
+import { type ContainerExec, ContainerStep, isFinal, type RunStep } from "./containerStep.ts";
 
 /** What a Container start runs: the script, its digest, and the Owner's time limit and failure policy. */
 export interface ContainerSetupLaunch {
@@ -149,9 +149,12 @@ export class ContainerSetup {
    * did not end well (a non-zero exit, its time limit, no answer, an exec that failed), or was not judged at all
    * (`state` undefined: its run threw, or the Global mise lay-down before it is not final yet).
    */
-  refusal(state: Pick<ContainerSetupState, "outcome" | "exitCode" | "timedOut"> | undefined): string | undefined {
+  refusal(state: Pick<ContainerSetupState, "outcome" | "exitCode" | "timedOut" | "attempts"> | undefined): string | undefined {
     if (!this.refuses()) return undefined;
-    const tail = "and the Environment settings refuse commands in a Container whose setup failed. A new Container runs it again; Status on the Settings page shows its output.";
+    // What happens next: a setup not final yet (or not judged) is tried again by the next command; a final one only by
+    // a new Container.
+    const next = state === undefined || !isFinal(state) ? "The next command tries it again" : "A new Container runs it again";
+    const tail = `and the Environment settings refuse commands in a Container whose setup failed. ${next}; Status on the Settings page shows its output.`;
     if (state === undefined) return `Refused: this Container's Container setup has not run (the Container's steps before it did not finish), ${tail}`;
     if (state.outcome === "ok" || state.outcome === "none") return undefined;
     const how = state.timedOut ? "stopped at its time limit" : state.exitCode !== null ? `exit ${state.exitCode}` : state.outcome === "deadline" ? "no answer within the deadline" : "the Container's exec failed";
