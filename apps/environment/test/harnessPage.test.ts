@@ -397,7 +397,7 @@ describe("the Workspaces section", () => {
     expect(section).toContain("Purging since");
   });
 
-  it("offers Purge now beside \"purges its files for good\", Restore for a Tombstone and a hidden Stop for a ready Workspace; none for one in use", () => {
+  it("offers Purge now beside \"purges its files for good\", Restore for a Tombstone, and a hidden Stop for a ready Workspace; no Purge now for one in use", () => {
     const purges = tags.filter((tag) => tag.attrs["data-workspace-purge"] !== undefined);
     expect(purges.map((tag) => JSON.parse(tag.attrs["data-workspace-purge"]!.replaceAll("&quot;", '"')))).toEqual([
       {
@@ -478,7 +478,9 @@ describe("the Workspaces section", () => {
     expect(WORKSPACES_SCRIPT).toContain('getJson("/_t3flare/settings/api/workspaces/sweep")');
     expect(WORKSPACES_SCRIPT).toContain('getJson("/_t3flare/settings/api/workspaces/usage?id=" + encodeURIComponent(');
     expect(WORKSPACES_SCRIPT).toContain('post("/_t3flare/settings/api/environment", { settings }, save)');
+    // Stop shows once the read says the Container runs, or could not say.
     expect(WORKSPACES_SCRIPT).toContain("if (stop) stop.hidden = !usage.containerRunning;");
+    expect(WORKSPACES_SCRIPT).toMatch(/cell\.textContent = "unknown";\s*if \(stop\) stop\.hidden = false;/);
   });
 });
 
