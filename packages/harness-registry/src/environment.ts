@@ -71,6 +71,12 @@ export const MAX_CLI_RECLAIM_SECONDS = 660;
  */
 export const DEFAULT_TURN_LIMIT_MINUTES = 120;
 
+/**
+ * The Turn limit's default in ms: the one source for it, used where no setting reaches (a test's services, a Session's
+ * turn whose start carried no limit, or one recorded before the setting).
+ */
+export const DEFAULT_TURN_LIMIT_MS = DEFAULT_TURN_LIMIT_MINUTES * 60_000;
+
 /** The largest Global mise config, in bytes of UTF-8. */
 export const MAX_GLOBAL_MISE_BYTES = 16 * 1024;
 

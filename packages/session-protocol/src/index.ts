@@ -131,7 +131,8 @@ export interface SubmitTurnInput {
   readonly environmentSkillsHash?: string;
   /**
    * SPI-1315: the Turn limit (the Environment's `turnLimitMinutes`) in ms, as read at this turn's start; the Session
-   * keeps it on the turn's record. Absent (an Environment before it): `TURN_DEADLINE_MS`.
+   * keeps it on the turn's record. Absent (an Environment before it): the Turn limit's
+   * default (`DEFAULT_TURN_LIMIT_MS`, @t3flare/harness-registry).
    */
   readonly turnLimitMs?: number;
 }
@@ -317,7 +318,7 @@ export interface TurnState {
   readonly startedAt: number;
   /**
    * SPI-1315: the Turn limit the turn started with, in ms; the Session ends it at `startedAt` plus this. Absent on a turn
-   * recorded before it: `TURN_DEADLINE_MS`.
+   * recorded before it: the Turn limit's default.
    */
   readonly turnLimitMs?: number;
   readonly settledAt?: number;
@@ -517,8 +518,3 @@ export const TOOL_OUTPUT_BYTES = 16 * 1024;
 export const LIVENESS_PUSH_MS = 60_000;
 /** An open turn with no push for this long makes the adapter pull a snapshot (the inverse guard). */
 export const SILENT_TURN_MS = 2 * 60_000;
-/**
- * The Turn limit's default (step 2a cost guardrails; the Environment's `turnLimitMinutes` default, 120): what a turn whose
- * start carried no limit may run at most.
- */
-export const TURN_DEADLINE_MS = 2 * 60 * 60_000;

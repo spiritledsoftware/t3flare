@@ -63,7 +63,7 @@ export interface CliSession {
   /** The Workspace the session's process runs in. */
   readonly workspace: string | null;
   turnActive: boolean;
-  capFiber: Fiber.Fiber<void> | undefined;
+  limitFiber: Fiber.Fiber<void> | undefined;
   /** The session's process's tool handle for the MCP relay (ADR-0028): 256 random bits, never logged. */
   readonly toolHandle: string;
   /** The model the session was opened with (SPI-1167: Codex's process provider is its model's). */
@@ -83,7 +83,7 @@ export const CliSpawn = Context.Reference<CliSession | undefined>("t3flare/CliSp
 export const sessionFor = (sessions: CliSessions, providerSessionId: string, cwd: string | null, thread: string): CliSession => {
   let session = sessions.get(providerSessionId);
   if (session === undefined) {
-    session = { thread, process: undefined, runtimeMode: undefined, interactionMode: undefined, workspace: cwd === null ? null : (toWorkspace(cwd)?.id ?? null), turnActive: false, capFiber: undefined, toolHandle: newHandle() };
+    session = { thread, process: undefined, runtimeMode: undefined, interactionMode: undefined, workspace: cwd === null ? null : (toWorkspace(cwd)?.id ?? null), turnActive: false, limitFiber: undefined, toolHandle: newHandle() };
     sessions.set(providerSessionId, session);
   }
   return session;
@@ -207,8 +207,8 @@ export const wrapCliAdapter = (adapter: ProviderAdapter.ProviderAdapterV2["Servi
       if (!session.turnActive) return;
       session.turnActive = false;
       session.process?.turn(false);
-      if (session.capFiber !== undefined) yield* Fiber.interrupt(session.capFiber);
-      session.capFiber = undefined;
+      if (session.limitFiber !== undefined) yield* Fiber.interrupt(session.limitFiber);
+      session.limitFiber = undefined;
     });
   return ProviderAdapter.ProviderAdapterV2.of({
     instanceId: adapter.instanceId,
@@ -359,20 +359,20 @@ export const wrapCliAdapter = (adapter: ProviderAdapter.ProviderAdapterV2["Servi
           startTurn: (turn) =>
             Effect.gen(function* () {
               const cwd = turn.runtimePolicy.cwd ?? null;
-              // SPI-1153: before the turn's hold and cap, so an interrupt during the take's wait leaves neither behind.
+              // SPI-1153: before the turn's hold and Turn limit, so an interrupt during the take's wait leaves neither behind.
               yield* takeEnvironmentSkills(cwd);
               session.runtimeMode = turn.runtimePolicy.runtimeMode;
               session.interactionMode = turn.runtimePolicy.interactionMode;
               session.turnActive = true;
               live = { threadId: turn.threadId, runId: turn.runId, rootNodeId: turn.rootNodeId, providerThreadId: turn.providerThread.id, providerTurnId: undefined, ordinal: turn.providerTurnOrdinal * 100 };
               session.process?.turn(true);
-              if (session.capFiber !== undefined) yield* Fiber.interrupt(session.capFiber);
+              if (session.limitFiber !== undefined) yield* Fiber.interrupt(session.limitFiber);
               // The Turn limit as it is now, kept by this turn's timer: a change reaches only the thread's next turn. At
               // most MAX_TIMED_MINUTES (7 days), under the 24.8 days past which a JS timer overflows.
-              session.capFiber = yield* Effect.sleep(turnLimitMs()).pipe(
+              session.limitFiber = yield* Effect.sleep(turnLimitMs()).pipe(
                 Effect.andThen(
                   Effect.sync(() => {
-                    workersLog("warn", { t3flare: "cli-turn-cap", providerSessionId: input.providerSessionId, key: session.process?.key ?? null });
+                    workersLog("warn", { t3flare: "cli-turn-limit", providerSessionId: input.providerSessionId, key: session.process?.key ?? null });
                     session.process?.kill();
                   }),
                 ),
@@ -380,7 +380,7 @@ export const wrapCliAdapter = (adapter: ProviderAdapter.ProviderAdapterV2["Servi
               );
               const text = options.rewriteTurnText === undefined ? turn.message.text : yield* options.rewriteTurnText(turn.message.text, cwd);
               const sent = text === turn.message.text ? turn : { ...turn, message: { ...turn.message, text } };
-              // A turn that never started ends here: no `turn.terminal` follows, and the hold and the cap would stay.
+              // A turn that never started ends here: no `turn.terminal` follows, and the hold and the Turn limit's timer would stay.
               yield* runtime.startTurn(sent).pipe(Effect.provideService(CliTurn, { cwd }), Effect.onError(() => turnEnded(session)));
             }),
           respondToRuntimeRequest: (response) => {

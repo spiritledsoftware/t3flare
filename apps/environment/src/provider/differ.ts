@@ -807,10 +807,6 @@ const inSetupState = (): boolean => {
   }
 };
 
-/**
- * A model error, classified (step 2a part 2 plan, section 3): the Session's record of the endpoint's answer first (its
- * credential, then its classified failure), else the error's HTTP status.
- */
 /** What t3 shows for a turn the Turn limit ended (SPI-1315): the limit it started with, when the Session kept it. */
 const turnLimitMessage = (turnLimitMs: number | undefined): string => {
   if (turnLimitMs === undefined) return "The turn ran past its Turn limit and was stopped.";
@@ -819,6 +815,10 @@ const turnLimitMessage = (turnLimitMs: number | undefined): string => {
   return `The turn ran past its Turn limit (${span}) and was stopped.`;
 };
 
+/**
+ * A model error, classified (step 2a part 2 plan, section 3): the Session's record of the endpoint's answer first (its
+ * credential, then its classified failure), else the error's HTTP status.
+ */
 export const failureOf = (turn: TurnState, now: DateTime.Utc, setup: () => boolean = inSetupState): OrchestrationV2ProviderFailure => {
   const reason = turn.reason ?? "unknown";
   const detail = turn.detail ?? "";

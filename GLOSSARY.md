@@ -247,8 +247,7 @@ How many Workspaces' Containers may run at once across the Cloud Environment.
 _Avoid_: max instances, slots
 
 **Turn limit**:
-How long a turn may run before it is ended, for a Durable agent and a CLI agent alike (a CLI agent's process ends with
-it); an Environment setting, 120 minutes unless the Owner changes it. A turn keeps the limit it started with.
+How long a turn may run before it is ended, for a Durable agent and a CLI agent alike; an Environment setting.
 _Avoid_: turn cap, turn deadline, timeout
 
 **Image setup**:
