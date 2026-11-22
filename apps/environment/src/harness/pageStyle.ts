@@ -326,7 +326,7 @@ table.workspaces td.actions{padding-left:.5rem}
 table.workspaces td[data-label=Workspace] strong,table.workspaces code{overflow-wrap:normal;word-break:keep-all}
 table.workspaces td:is([data-label=Status],[data-label=Purged]) .src{overflow-wrap:anywhere}
 table.workspaces .files{min-width:5.5rem;white-space:nowrap;font-variant-numeric:tabular-nums}
-table.workspaces td.files>div{white-space:nowrap;overflow-wrap:normal;word-break:keep-all}
+table.workspaces td.files>div{white-space:normal;overflow-wrap:normal;word-break:keep-all}
 table.workspaces tr.wt>td:first-child{padding-left:2rem;position:relative}
 table.workspaces tr.wt>td:first-child::after{content:"";position:absolute;left:1.125rem;top:0;bottom:50%;width:.5rem;border-left:1px solid var(--border);border-bottom:1px solid var(--border);border-bottom-left-radius:.25rem}
 .workspace-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:.25rem .5rem}

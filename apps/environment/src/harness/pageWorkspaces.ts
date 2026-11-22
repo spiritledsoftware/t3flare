@@ -163,7 +163,8 @@ if (graceForm !== null) {
     if (await post("/_t3flare/settings/api/environment", { settings }, save)) done();
   });
 }
-const sizeOf = (bytes) => (bytes < 1048576 ? (bytes / 1024).toFixed(1) + " KiB" : (bytes / 1048576).toFixed(1) + " MiB");
+// A size never breaks across lines (a no-break space before its unit); what follows it wraps in a narrow cell.
+const sizeOf = (bytes) => (bytes < 1048576 ? (bytes / 1024).toFixed(1) + "\u00a0KiB" : (bytes / 1048576).toFixed(1) + "\u00a0MiB");
 // A running Container, and what it started from (SPI-1333); an older agents Worker does not say.
 const runningText = (usage) => (!usage.containerRunning ? "" : usage.startedFrom === "base" ? ", Container running from the Base snapshot" : usage.startedFrom === "image" ? ", Container running from the Workspace image" : ", Container running");
 // One request per row, one at a time, after the table renders (ADR-0044 §1): none starts a Container. A row's Stop
