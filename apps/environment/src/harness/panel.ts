@@ -22,7 +22,7 @@
 // - The Workspaces (ADR-0044 §4): `GET …/api/workspaces` (the view), `…/usage?id=` (one row's Files, ADR-0044 §1)
 //   and `…/sweep` (the dry Sweep); `POST …/api/workspaces/purge` `{ id, confirm }`, `/restore` `{ id }`, `/stop` `{ id }`
 //   and `/sweep`, behind the same write guard: the Owner's own acts (workspaceActions.ts), audited, never Open changes.
-import { type BaseBuildRecord, BUILTIN_TOOLS, MAX_SETUP_BYTES, CONTAINER_SETUP_OUTPUT_STATUS, describeBaseBuild, describeContainerSetup, describeGlobalMise, ENVIRONMENT_SETTINGS, EXTENSIONS, ignoredServersOf, readStoredEnvironment, resolveHarness, type ToolsChange } from "@t3flare/harness-registry";
+import { type BaseBuildRecord, BUILTIN_TOOLS, imageSetupTooLong, CONTAINER_SETUP_OUTPUT_STATUS, describeBaseBuild, describeContainerSetup, describeGlobalMise, ENVIRONMENT_SETTINGS, EXTENSIONS, ignoredServersOf, readStoredEnvironment, resolveHarness, type ToolsChange } from "@t3flare/harness-registry";
 
 import type { AccessCaller } from "../access.ts";
 import type { ValueSealer } from "../credentials/sealed.ts";
@@ -367,7 +367,8 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
     // Free (ADR-0047 §8): the text in the box, unsaved, bounded as the Image setup is; a test under way is canceled.
     const imageSetup = (await bodyOf(request))?.imageSetup;
     if (typeof imageSetup !== "string") return refused(400, "imageSetup is the Image setup to test, as text");
-    if (new TextEncoder().encode(imageSetup).length > MAX_SETUP_BYTES) return refused(413, `the Image setup is at most ${MAX_SETUP_BYTES / 1024} KiB`);
+    const tooLong = imageSetupTooLong(imageSetup);
+    if (tooLong !== undefined) return refused(413, tooLong);
     try {
       const record = await deps.testBase(imageSetup);
       deps.store.noteTestBaseBuild(record);

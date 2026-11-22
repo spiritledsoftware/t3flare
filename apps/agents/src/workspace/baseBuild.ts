@@ -225,6 +225,16 @@ type Trigger = "rebuild" | "automatic" | "scheduled";
 const ENDED: ReadonlyArray<Build["phase"]> = ["ready", "failed", "canceled"];
 export const isRunning = (build: Build | undefined): build is Build & { readonly phase: BaseBuildPhase } => build !== undefined && !ENDED.includes(build.phase);
 
+/** A build's proved snapshot as a record carries it: the Base snapshot's, or a test's result. */
+const goodOf = (build: Build, snapshot: NonNullable<Build["snapshot"]>, builtAt: number): BaseSnapshot => ({
+  id: snapshot.id,
+  size: snapshot.size,
+  key: build.key,
+  imageDigest: build.image,
+  builtAt,
+  tookMs: builtAt - build.startedAt,
+});
+
 const NOT_BASE = "t3flare: the test Builder runs only a Test base build";
 
 const errorText = (error: unknown): string => String(error instanceof Error ? error.message : error).slice(0, BASE_BUILD_CAPS.message);
@@ -295,7 +305,7 @@ export class BaseBuild {
     }
     if (build?.phase === "ready" && build.snapshot !== undefined) {
       const builtAt = build.endedAt ?? build.phaseAt;
-      return { ...base, state: "ready", good: { id: build.snapshot.id, size: build.snapshot.size, key: build.key, imageDigest: build.image, builtAt, tookMs: builtAt - build.startedAt } };
+      return { ...base, state: "ready", good: goodOf(build, build.snapshot, builtAt) };
     }
     if (build?.phase === "failed" && build.failure !== undefined) return { ...base, state: "failed", failure: build.failure };
     return { ...base, state: "none" };
@@ -764,7 +774,7 @@ export class BaseBuild {
     );
     if (proved && build.snapshot !== undefined) {
       const at = now();
-      const good: BaseSnapshot = { id: build.snapshot.id, size: build.snapshot.size, key: build.key, imageDigest: build.image, builtAt: at, tookMs: at - build.startedAt };
+      const good = goodOf(build, build.snapshot, at);
       // A test's snapshot is its result alone (kept in its build): never the Base snapshot.
       if (!this.#test) storage.put(BUILDER_KEYS.good, good);
       this.#deps.log?.({ t3flare: "base-build-ready", build: build.id, size: good.size, tookMs: good.tookMs });

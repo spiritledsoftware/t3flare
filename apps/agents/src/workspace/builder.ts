@@ -2,7 +2,7 @@
 // The Builder's lean path (SPI-1332, ADR-0047 §1): the platform's raw `ctx.container` beside computer, which the Builder
 // never uses (no computer Workspace, no `computer.internal` routes, no store in its Container). Leans on the Containers
 // API's snapshots, a public beta (docs/upstream-fragility.md).
-import { BUILDERS, type ContainerInstance, MAX_SETUP_BYTES } from "@t3flare/harness-registry";
+import { BUILDERS, type ContainerInstance, imageSetupTooLong } from "@t3flare/harness-registry";
 
 import type { BuilderContainer } from "./baseBuild.ts";
 import { WORKSPACE_CONTAINER } from "./constants.ts";
@@ -25,8 +25,8 @@ export const builderKindOf = (name: string | undefined, mark: unknown): BuilderK
 /** A Test base build's proposed Image setup as an RPC carries it: text within the Image setup's own bound. */
 export const proposedSetup = (value: unknown): string => {
   if (typeof value !== "string") throw new Error("t3flare: a Test base build's Image setup is text");
-  const bytes = utf8.encode(value).length;
-  if (bytes > MAX_SETUP_BYTES) throw new Error(`t3flare: a Test base build's Image setup is at most ${MAX_SETUP_BYTES} bytes, not ${bytes}`);
+  const tooLong = imageSetupTooLong(value);
+  if (tooLong !== undefined) throw new Error(`t3flare: ${tooLong}`);
   return value;
 };
 

@@ -20,7 +20,7 @@
 //   Elicitation mode, which the endpoint (endpoint.ts) delivers and the Change page answers.
 import {
   type BaseBuildRecord,
-  MAX_SETUP_BYTES,
+  imageSetupTooLong,
   applyChange,
   applyToolsChange,
   BUILTIN_TOOLS,
@@ -748,8 +748,9 @@ const planTestBaseBuild = (deps: SettingsServerDeps, args: Readonly<Record<strin
   if (test === undefined) return { refused: "the test Builder is not available here" };
   const imageSetup = args.imageSetup;
   if (typeof imageSetup !== "string") return { refused: "imageSetup is the Image setup to test, as text" };
+  const tooLong = imageSetupTooLong(imageSetup);
+  if (tooLong !== undefined) return { refused: tooLong };
   const bytes = new TextEncoder().encode(imageSetup).length;
-  if (bytes > MAX_SETUP_BYTES) return { refused: `the Image setup is at most ${MAX_SETUP_BYTES / 1024} KiB, not ${bytes} bytes` };
   return {
     entity: "base",
     subject: "a Test base build of a proposed Image setup",
