@@ -82,9 +82,12 @@ describe("ContainerSetup", () => {
     expect(await empty.container.ensure("r1")).toMatchObject({ outcome: "none" });
     expect(empty.calls).toHaveLength(0);
     expect(empty.reports).toMatchObject([{ outcome: "none", exitCode: null, output: "", revision: 3 }]);
+    // A launch from before the Container setup is reported to no one: its revision 0 would replace another Workspace's
+    // real report in Status.
     const before = setup([], { launch: undefined });
     expect(await before.container.ensure("r1")).toMatchObject({ outcome: "none" });
     expect(before.calls).toHaveLength(0);
+    expect(before.reports).toEqual([]);
   });
 
   it("blanks every secret Variable's value in the reported output", async () => {

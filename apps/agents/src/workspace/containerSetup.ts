@@ -21,9 +21,6 @@ export interface ContainerSetupLaunch {
   readonly outputBytes: number;
 }
 
-/** What a launch recorded before `setupOutputKiB` keeps: the setting's default. */
-const DEFAULT_OUTPUT_BYTES = 32 * 1024;
-
 export interface ContainerSetupDeps {
   /** Starts the wrapper on the running Container, `stdin` on its stdin; throws when the exec cannot start. */
   readonly exec: (argv: ReadonlyArray<string>, stdin: string) => Promise<ContainerExec>;
@@ -178,15 +175,15 @@ export class ContainerSetup {
       ms: Math.max(0, state.at - started),
       at: state.at,
     });
-    // No script (or a launch from before it): nothing run; reported all the same, so Status stops showing an older one.
+    // No script: nothing run, reported all the same, so Status stops showing an older one. A launch from before the
+    // Container setup runs nothing and reports nothing: its revision would replace another Workspace's real report.
     if (known === undefined || known.text === "") {
       const state: ContainerSetupState = { runtime, outcome: "none", attempts: attemptsBefore + 1, exitCode: null, timedOut: false, at: started };
-      const launch = known ?? { revision: 0, sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", bytes: 0, source: "default" as const };
-      deps.report(reportOf(state, launch, ""));
+      if (known !== undefined) deps.report(reportOf(state, known, ""));
       return state;
     }
     // Never more than a report may carry, whatever an older or newer launch recorded.
-    const outputBytes = Math.min(known.outputBytes ?? DEFAULT_OUTPUT_BYTES, MAX_SETUP_OUTPUT_BYTES);
+    const outputBytes = Math.min(known.outputBytes, MAX_SETUP_OUTPUT_BYTES);
     const result = await run(containerSetupArgv(known.sha256, known.minutes * 60, outputBytes + SECRET_MARGIN_BYTES), known.text, (deps.deadlineMs ?? containerSetupDeadlineMs)(known.minutes));
     let outcome: ContainerSetupOutcome = "exec-failed";
     let exitCode: number | null = null;
