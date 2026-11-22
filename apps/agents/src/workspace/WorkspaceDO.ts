@@ -1028,7 +1028,7 @@ export class WorkspaceDO extends ContainerHost {
           limitMs: waitLimitMs(settings),
           pollMs: BASE_WAIT_POLL_MS,
         });
-        if (waited) console.log(JSON.stringify({ t3flare: "container-base-wait", workspace: this.#workspaceId() ?? null, ms: Date.now() - started, then: pick.kind, why: pick.why }));
+        if (waited) console.log(JSON.stringify({ t3flare: "container-base-wait", workspace: this.#workspaceId() ?? null, ms: Date.now() - started, outcome: pick.kind, why: pick.why }));
       } finally {
         this.#waitingForBase = false;
       }
