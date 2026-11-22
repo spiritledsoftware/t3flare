@@ -98,6 +98,9 @@ t3's ACP registry offers 45 agents. The rule above admits one that takes the pro
 
 ## Refinement (SPI-1152): Variables are never credentials
 
+**Superseded** by [ADR-0046](0046-a-variable-may-be-secret-as-stock-t3s-environment-variables-are.md) (Owner,
+2026-11-22): a Variable may be secret, and no name or value is refused as a credential.
+
 The owner's Variables (ADR-0032's Variables refinement) reach every command in a Workspace, CLI agent processes
 included, so any agent can read them. A Variable is therefore never a credential: a name with a `KEY`, `TOKEN`,
 `SECRET`, `PASSWORD` or `CREDENTIAL` segment, the `GIT_`, `GH_`, `GITHUB_` and `SSH_` prefixes, and a value that looks

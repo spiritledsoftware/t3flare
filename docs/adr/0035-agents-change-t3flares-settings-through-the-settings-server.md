@@ -145,3 +145,9 @@ client's mode, which it could already have asked for with the query.
 [ADR-0044](0044-a-workspace-is-purged-by-the-owner-or-at-an-agents-asking-through-the-settings-server.md) adds
 `list_workspaces` and `purge_workspace`: the server's first action that is no Settings change. It is always asked, waits
 as an Open change, and names no revision (§10 does not apply to it).
+
+## Refinement ([ADR-0047](0047-every-container-starts-from-a-base-snapshot-the-builder-makes-from-the-image-setup.md), 2026-11-22): Base builds
+
+The Settings server gains a Rebuild of the Base snapshot and a Test base build, both free, and reads of the Base
+snapshot's state and the last Container setup's report, output included. The new settings' tiers follow §3: a
+lowered time limit is free, every other change asked.

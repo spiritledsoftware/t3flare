@@ -77,6 +77,9 @@ settings. Both are edited on the one page at `/_t3flare/harness`, the Environmen
 
 ## Refinement (SPI-1152): Variables
 
+§2 and §3 are **superseded** by [ADR-0046](0046-a-variable-may-be-secret-as-stock-t3s-environment-variables-are.md)
+(Owner, 2026-11-22): a Variable is a name, a string and a Secret toggle, refused only what breaks t3flare.
+
 Report: [`docs-archive-1:docs/steps/spi-1152.md`](https://github.com/spiritledsoftware/t3flare/blob/docs-archive-1/docs/steps/spi-1152.md). The Environment settings gain **Variables**: plain
 `NAME=value` pairs every command in a Workspace starts with. mise's `[env]` (the Global mise config, SPI-1150) does not
 do this: it reaches a tool run through a shim or `mise exec`, not a plain shell line, an apt-installed tool, or a CLI
@@ -200,3 +203,11 @@ and the Environment settings through the Settings server, which calls the same f
    says when it applies.
 5. The Variables refinement's "guard rails for the owner, not a boundary against him" now also stand between an agent's
    request and the store: its refused names and values are refused through the Settings server as on the page.
+
+## Refinement ([ADR-0047](0047-every-container-starts-from-a-base-snapshot-the-builder-makes-from-the-image-setup.md), 2026-11-22): the Image setup and the Container setup
+
+The Environment settings gain the Image setup, the Container setup and the settings around them (ADR-0047 §9). The
+Image setup, the Global mise config and the Variables are a Base snapshot's key, read by the Builder; a Workspace DO
+reads the rest at a Container start as §1 says. The Global mise lay-down also runs in the Builder before the Image
+setup, so a Base snapshot carries its installs: the cache mise §8 deferred, whenever a Base snapshot is in use. With no Global mise config, mise's global config is the dotfiles' own
+`~/.config/mise/config.toml`, under the same git and gh check (ADR-0047 §10), where mise §2 left none.
