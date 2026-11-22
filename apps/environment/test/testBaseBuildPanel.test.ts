@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AccessCaller } from "../src/access.ts";
 import { csrfToken } from "../src/harness/csrf.ts";
-import { CSRF_HEADER, handleHarness, type HarnessDeps, TEST_BASE_PATH } from "../src/harness/panel.ts";
+import { CSRF_HEADER, handleHarness, type HarnessDeps, refreshedTestRecord, TEST_BASE_PATH } from "../src/harness/panel.ts";
 import { harnessStore } from "../src/harness/store.ts";
 
 const HOST = "t3-admin.example.dev";
@@ -165,5 +165,35 @@ describe("the Test beside the Image setup", () => {
   it("shows no Test where the test Builder cannot be reached", async () => {
     const row = imageSetupRow(await page(setup().deps));
     expect(row).not.toContain("data-base-test");
+  });
+});
+
+// Review finding 1: the test Builder's reports are fire-and-forget, so a test kept as building is read again from the
+// test Builder on the page's poll, the page and get_status: a missed final report heals.
+describe("a missed report of a test", () => {
+  it("is healed by reading the test Builder while the kept record says building", async () => {
+    let reads = 0;
+    const { store, deps } = setup({
+      testBase: async () => building,
+      readTestBase: async () => (reads++, { ...failedTest, at: NOW + 60_000 }),
+    });
+    store.noteTestBaseBuild(building);
+    const read = async () => (await handleHarness(new Request(`https://${HOST}${TEST_BASE_PATH}`), deps)).json();
+    expect(await read()).toMatchObject({ record: { state: "failed" }, view: { pill: { label: "Failed" } } });
+    expect(store.lastTestBaseBuild()).toMatchObject({ state: "failed" });
+    // Once it has ended, the kept record is answered without asking the test Builder.
+    await read();
+    expect(reads).toBe(1);
+    expect(imageSetupRow(await page(deps))).toContain('data-test-pill>Failed</span>');
+  });
+
+  it("keeps the record it has when the test Builder cannot be read", async () => {
+    const { store } = setup();
+    store.noteTestBaseBuild(building);
+    const record = await refreshedTestRecord(store, async () => {
+      throw new Error("no such Durable Object");
+    });
+    expect(record).toEqual(building);
+    expect(await refreshedTestRecord(store, undefined)).toEqual(building);
   });
 });

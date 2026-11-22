@@ -2219,9 +2219,12 @@ export class WorkspaceDO extends ContainerHost {
     return this.#base;
   }
 
-  /** The Base snapshot's record (ADR-0047 §4): what a Workspace's start and the Settings page read. */
+  /**
+   * The Base snapshot's record (ADR-0047 §4), what a Workspace's start and the Settings page read; or, on the test Builder,
+   * the last Test base build's (SPI-1334), which the Environment DO reads again when a report of its end went missing.
+   */
   async builderRecord(): Promise<BaseBuildRecord> {
-    return this.#becomeBuilder().record();
+    return this.#becomeBuilder(this.#builderKind() ?? "base").record();
   }
 
   /**

@@ -100,6 +100,8 @@ export interface HarnessDeps {
   readonly rebuildBase?: () => Promise<BaseBuildRecord>;
   /** The Owner's Test of a proposed Image setup (SPI-1334, ADR-0047 §8): the test Builder's record after it. */
   readonly testBase?: (imageSetup: string) => Promise<BaseBuildRecord>;
+  /** The test Builder's own record (SPI-1334): read again while the kept one says building (`refreshedTestRecord`). */
+  readonly readTestBase?: () => Promise<BaseBuildRecord>;
   /** The Workspaces section (ADR-0044 §4): the view, the Owner's acts, each Workspace's usage, and the Sweep. */
   readonly workspaces?: WorkspacesApi;
 }
@@ -114,6 +116,22 @@ export const REBUILD_BASE_PATH = `${SETTINGS_PAGE_PATH}/api/base/rebuild`;
 
 /** The Owner's Test of the Image setup in the box (SPI-1334): POST starts one, GET reads the last one's view. */
 export const TEST_BASE_PATH = `${SETTINGS_PAGE_PATH}/api/base/test`;
+
+/**
+ * The last Test base build's record (SPI-1334), read again from the test Builder while the kept one says building: its
+ * reports are not awaited, so a lost one (the last above all) would otherwise leave a test building forever. A read that
+ * fails keeps the record kept; the next read tries again.
+ */
+export const refreshedTestRecord = async (store: Pick<HarnessStore, "lastTestBaseBuild" | "noteTestBaseBuild">, read: (() => Promise<BaseBuildRecord>) | undefined): Promise<BaseBuildRecord | undefined> => {
+  const kept = store.lastTestBaseBuild();
+  if (kept?.state !== "building" || read === undefined) return kept;
+  try {
+    store.noteTestBaseBuild(await read());
+  } catch (error) {
+    console.warn(JSON.stringify({ t3flare: "test-builder-read-failed", error: String(error).slice(0, 300) }));
+  }
+  return store.lastTestBaseBuild();
+};
 
 /** The last Test base build's record and its view, as the page's script shows it. */
 const testAnswer = (record: BaseBuildRecord | undefined) => ({ record: record ?? null, view: testBuildView(record) });
@@ -237,6 +255,7 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
       const storedEnvironment = deps.store.loadEnvironment();
       // A secret Variable as set, or as unreadable when this credentials key does not open it (ADR-0046).
       const environment = await resolvedForRead(storedEnvironment, deps.variableSealer);
+      const testBuild = await refreshedTestRecord(deps.store, deps.readTestBase);
       const html = renderPage({
         resolved: resolveHarness(deps.store.load()),
         environment,
@@ -247,7 +266,7 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
         status: harnessStatus(deps),
         ...(deps.store.lastBaseBuild() === undefined ? {} : { baseBuild: deps.store.lastBaseBuild()! }),
         ...(deps.rebuildBase === undefined ? {} : { canRebuild: true }),
-        ...(deps.store.lastTestBaseBuild() === undefined ? {} : { testBuild: deps.store.lastTestBaseBuild()! }),
+        ...(testBuild === undefined ? {} : { testBuild }),
         ...(deps.testBase === undefined ? {} : { canTest: true }),
         mcp: await mcpOverview(deps),
         ...(deps.store.lastT3Tools() === undefined ? {} : { t3Tools: deps.store.lastT3Tools()! }),
@@ -290,7 +309,7 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
     }
     if (path === `${SETTINGS_PAGE_PATH}/api/status`) return json(harnessStatus(deps));
     // The last Test base build (SPI-1334): the page polls it while a test runs. A read: it starts nothing.
-    if (path === TEST_BASE_PATH) return json(testAnswer(deps.store.lastTestBaseBuild()));
+    if (path === TEST_BASE_PATH) return json(testAnswer(await refreshedTestRecord(deps.store, deps.readTestBase)));
     if (path === `${SETTINGS_PAGE_PATH}/api/mcp`) return json({ servers: await mcpOverview(deps) });
     if (path === `${SETTINGS_PAGE_PATH}/api/audit`) return json({ entries: deps.store.auditLog(50) });
     if (path === CLIENTS_API_PATH && deps.clients !== undefined) return json({ clients: deps.clients.list() });

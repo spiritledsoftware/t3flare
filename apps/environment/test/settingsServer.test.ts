@@ -107,7 +107,7 @@ const setup = (
           ...(options.cardWaitMs === undefined ? {} : { cardWaitMs: options.cardWaitMs }),
           ...(options.base === undefined ? {} : { baseBuild: () => options.base?.record }),
           ...(options.base?.rebuild === undefined ? {} : { rebuildBase: options.base.rebuild }),
-          ...(options.test === undefined ? {} : { testBaseBuild: () => options.test?.record }),
+          ...(options.test === undefined ? {} : { testBaseBuild: async () => options.test?.record }),
           ...(options.test?.run === undefined ? {} : { testBase: options.test.run }),
         },
         input,

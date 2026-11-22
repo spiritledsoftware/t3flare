@@ -139,7 +139,7 @@ export interface SettingsServerDeps {
   /** Asks the Builder to build the saved settings again (`rebuild_base`, ADR-0047 §5). Without it the tool is refused. */
   readonly rebuildBase?: (reason: string) => Promise<BaseBuildRecord>;
   /** The last Test base build's record as the test Builder reported it (SPI-1334): `get_status` shows it beside the Base snapshot's. */
-  readonly testBaseBuild?: () => BaseBuildRecord | undefined;
+  readonly testBaseBuild?: () => BaseBuildRecord | undefined | Promise<BaseBuildRecord | undefined>;
   /** Asks the test Builder to test a proposed Image setup (`test_base_build`, ADR-0047 §8). Without it the tool is refused. */
   readonly testBase?: (imageSetup: string, reason: string) => Promise<BaseBuildRecord>;
   /** The Containers running now. */
@@ -1456,7 +1456,7 @@ const runRead = async (deps: SettingsServerDeps, name: string, args: Readonly<Re
         // The Base snapshot's record (SPI-1332): its state, the last good one, a failure's output with secret values blanked.
         baseSnapshot: deps.baseBuild?.() ?? null,
         // The last Test base build (SPI-1334): its state, a pass's size and time, a failure's output with secret values blanked.
-        testBaseBuild: deps.testBaseBuild?.() ?? null,
+        testBaseBuild: (await deps.testBaseBuild?.()) ?? null,
         access: { enabled: access !== "off", writes: access === "on" },
         // This caller's Open changes (plan D8): its thread's, or its Access identity's.
         openChanges: openKey === undefined ? [] : deps.changes.openBy(openKey).map((record) => openChangeSummary(record, changeUrlOf(deps, record.id))),

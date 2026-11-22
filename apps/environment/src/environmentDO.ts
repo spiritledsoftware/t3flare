@@ -402,7 +402,9 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       oauth: this.harnessOAuth,
       sweepSettingsChanged: () => this.#sweepSettingsChanged(),
       baseInputsChanged: (reason) => this.#pokeBuilder(reason),
-      ...(this.env.WORKSPACES === undefined ? {} : { rebuildBase: () => this.#rebuildBase("the Owner's Rebuild"), testBase: (imageSetup: string) => this.#testBase(imageSetup, "the Owner's Test") }),
+      ...(this.env.WORKSPACES === undefined
+        ? {}
+        : { rebuildBase: () => this.#rebuildBase("the Owner's Rebuild"), testBase: (imageSetup: string) => this.#testBase(imageSetup, "the Owner's Test"), readTestBase: () => this.#builder("test").builderRecord() }),
       // The Workspaces section (ADR-0044): the view, the Owner's acts, each Workspace's usage, and the Sweep.
       workspaces: await this.workspacesApi(),
       // The Container budget's leases (ADR-0032): the Environment section shows the running count and holders.
@@ -585,7 +587,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
    */
   async #settingsDeps(): Promise<SettingsServerDeps> {
     // threadCaller.ts, not provider/adapter.ts: the panel's GET on a cold object must not load the provider modules.
-    const [{ settingsChanges }, { harnessStatus, runningContainers }, { threadLinkIn, durableModes }, { cliThreadState }] = await Promise.all([
+    const [{ settingsChanges }, { harnessStatus, refreshedTestRecord, runningContainers }, { threadLinkIn, durableModes }, { cliThreadState }] = await Promise.all([
       import("./settings/changes.ts"),
       import("./harness/panel.ts"),
       import("./provider/threadCaller.ts"),
@@ -605,7 +607,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       // The Base snapshot (SPI-1332): `get_status` reads its record, `rebuild_base` asks the Builder.
       baseBuild: () => store.lastBaseBuild(),
       // A Test base build (SPI-1334): `test_base_build` asks the test Builder, `get_status` reads its last result.
-      testBaseBuild: () => store.lastTestBaseBuild(),
+      // Read again from the test Builder while it says building: its reports are not awaited (`refreshedTestRecord`).
+      testBaseBuild: () => refreshedTestRecord(store, this.env.WORKSPACES === undefined ? undefined : () => this.#builder("test").builderRecord()),
       ...(this.env.WORKSPACES === undefined ? {} : { rebuildBase: (reason: string) => this.#rebuildBase(reason), testBase: (imageSetup: string, reason: string) => this.#testBase(imageSetup, reason) }),
       running: () => runningContainers({ budget: () => this.#budgetState() }),
       log: (event) => console.log(JSON.stringify(event)),
