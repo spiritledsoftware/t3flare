@@ -20,8 +20,8 @@ const busy = (element, on) => {
   element.setAttribute("aria-busy", on ? "true" : "false");
   element.disabled = on;
 };
-const post = async (path, body, control) => {
-  busy(control, true);
+// A POST's { response } when it is ok, else { error }: the refusal or the failure to reach the panel, as text.
+const request = async (path, body) => {
   try {
     const response = await fetch(path, {
       method: "POST",
@@ -29,11 +29,17 @@ const post = async (path, body, control) => {
       body: JSON.stringify(body),
       credentials: "same-origin",
     });
-    if (response.ok) return response;
-    notify("err", "Refused (" + response.status + "): " + (await response.text()).trim());
+    if (response.ok) return { response };
+    return { error: "Refused (" + response.status + "): " + (await response.text()).trim() };
   } catch (error) {
-    notify("err", "Could not reach the panel: " + (error && error.message ? error.message : String(error)));
+    return { error: "Could not reach the panel: " + (error && error.message ? error.message : String(error)) };
   }
+};
+const post = async (path, body, control) => {
+  busy(control, true);
+  const answer = await request(path, body);
+  if (answer.response !== undefined) return answer.response;
+  notify("err", answer.error);
   busy(control, false);
   return undefined;
 };
@@ -311,6 +317,41 @@ if (installing !== null && preview !== null) {
   });
 }
 const outOf = (name) => document.querySelector('[data-skill-out="' + CSS.escape(name) + '"]');
+// The updates the last checks found, by skill name. An update leaves the others' found updates in place, and the page
+// reloads (for its totals) only once none is left. One check or update runs at a time: while one does, every check and
+// update control is disabled, so a re-check never swaps a found update out from under its running update.
+const foundUpdates = new Map();
+const updateAll = document.querySelector("button[data-skill-update-all]");
+let skillsLocked = false;
+let updatedInPlace = false;
+let reloading = false;
+// Once a reload is due the lock stays held, so no check starts only to be cut off by it.
+const lockSkills = (on) => {
+  skillsLocked = on || reloading;
+  for (const button of document.querySelectorAll("button[data-skill-check]")) button.disabled = skillsLocked;
+  for (const entry of foundUpdates.values()) entry.button.disabled = skillsLocked;
+  if (updateAll !== null) updateAll.disabled = skillsLocked;
+};
+const showFoundUpdates = () => {
+  if (updateAll === null) return;
+  updateAll.hidden = foundUpdates.size === 0;
+  updateAll.textContent = "Update all (" + foundUpdates.size + ")";
+};
+const reloadWhenNoneLeft = () => {
+  showFoundUpdates();
+  if (!updatedInPlace || foundUpdates.size > 0) return;
+  reloading = true;
+  setTimeout(() => location.reload(), 1500);
+};
+// Runs one check or update under the lock; false when another holds it.
+const withSkillsLock = async (work) => {
+  if (skillsLocked) return false;
+  lockSkills(true);
+  try { await work(); } finally { lockSkills(false); }
+  return true;
+};
+// A found update's row: its summary, and an error and its button while it is still to be applied.
+const showFound = (entry, ...before) => show(entry.out, ...before, entry.summary, entry.button);
 for (const button of document.querySelectorAll("button[data-skill-view]")) {
   button.addEventListener("click", async () => {
     const name = button.dataset.skillView;
@@ -329,12 +370,53 @@ for (const button of document.querySelectorAll("button[data-skill-view]")) {
         } else item.textContent = file.path + " " + kib(file.size);
         list.append(item);
       }
-      show(out, el("pre", view.skillMd), list);
-    } catch (error) { failed(out, error.message); }
+      // A found update stays under the view, still applicable.
+      const kept = foundUpdates.get(name);
+      if (kept === undefined) show(out, el("pre", view.skillMd), list);
+      else showFound(kept, el("pre", view.skillMd), list);
+    } catch (error) {
+      const kept = foundUpdates.get(name);
+      if (kept === undefined) failed(out, error.message);
+      else showFound(kept, el("p", error.message, "err"));
+    }
   });
 }
+// One found update, applied: { text } when it was, { error } when it was not.
+const updateOne = async (name) => {
+  const entry = foundUpdates.get(name);
+  // aria-busy alone: the lock already holds the button disabled.
+  entry.button.setAttribute("aria-busy", "true");
+  const answer = await request("/_t3flare/settings/api/skills/update", { name, commit: entry.commit });
+  entry.button.setAttribute("aria-busy", "false");
+  const updated = answer.error === undefined ? await answer.response.json().catch(() => undefined) : undefined;
+  if (updated === undefined) {
+    const error = answer.error ?? "The panel's answer could not be read; reload to see whether it was updated.";
+    showFound(entry, el("p", error, "err"));
+    return { error: name + ": " + error };
+  }
+  foundUpdates.delete(name);
+  showFoundUpdates();
+  updatedInPlace = true;
+  const from = updated.from.slice(0, 7);
+  const to = updated.to.slice(0, 7);
+  const ident = document.querySelector('[data-skill-row="' + CSS.escape(name) + '"] .ident');
+  if (ident !== null) ident.textContent = to;
+  show(entry.out, el("p", "Updated from " + from + " to " + to + "."));
+  return { text: name + " updated from " + from + " to " + to + "." };
+};
+const report = (outcomes) => {
+  if (outcomes.length > 0) notify(outcomes.every((outcome) => outcome.error === undefined) ? "ok" : "err", outcomes.map((outcome) => outcome.error ?? outcome.text).join(" · "));
+  reloadWhenNoneLeft();
+};
+if (updateAll !== null) {
+  updateAll.addEventListener("click", () => withSkillsLock(async () => {
+    const outcomes = [];
+    for (const name of [...foundUpdates.keys()]) outcomes.push(await updateOne(name));
+    report(outcomes);
+  }));
+}
 for (const button of document.querySelectorAll("button[data-skill-check]")) {
-  button.addEventListener("click", async () => {
+  button.addEventListener("click", () => withSkillsLock(async () => {
     const name = button.dataset.skillCheck;
     const response = await post("/_t3flare/settings/api/skills/check", name === "" ? {} : { names: [name] }, button);
     busy(button, false);
@@ -342,25 +424,29 @@ for (const button of document.querySelectorAll("button[data-skill-check]")) {
     const answer = await response.json();
     for (const result of answer.results) {
       const out = outOf(result.name);
+      const kept = foundUpdates.get(result.name);
+      // A failed re-check keeps the update an earlier check found.
+      if (result.status !== "current" && result.status !== "update") {
+        if (kept !== undefined) showFound(kept, el("p", result.message, "err"));
+        else if (out !== null) failed(out, result.message);
+        continue;
+      }
+      foundUpdates.delete(result.name);
       if (out === null) continue;
       if (result.status === "current") { show(out, el("p", "Up to date at " + result.from + ".")); continue; }
-      if (result.status !== "update") { failed(out, result.message); continue; }
       const parts = [["added", result.added], ["changed", result.changed], ["removed", result.removed]].filter(([, paths]) => paths.length > 0).map(([what, paths]) => what + ": " + paths.join(", "));
       const update = el("button", "Update to " + result.to, "btn btn-primary btn-sm");
       update.type = "button";
-      update.addEventListener("click", async () => {
-        const done = await post("/_t3flare/settings/api/skills/update", { name: result.name, commit: result.commit }, update);
-        busy(update, false);
-        if (done === undefined) return;
-        const updated = await done.json();
-        notify("ok", updated.name + " updated from " + updated.from.slice(0, 7) + " to " + updated.to.slice(0, 7) + ".");
-        setTimeout(() => location.reload(), 1500);
-      });
-      show(out, el("p", "An update: " + result.from + " → " + result.to + ". " + (parts.length === 0 ? "" : parts.join("; ") + ".")), update);
+      const summary = el("p", "An update: " + result.from + " → " + result.to + ". " + (parts.length === 0 ? "" : parts.join("; ") + "."));
+      const entry = { commit: result.commit, out, button: update, summary };
+      foundUpdates.set(result.name, entry);
+      update.addEventListener("click", () => withSkillsLock(async () => report([await updateOne(result.name)])));
+      showFound(entry);
     }
+    reloadWhenNoneLeft();
     if (answer.how === "unauthenticated") notify("ok", "Checked without a token, from GitHub's shared limit of 60 an hour." + (answer.note === undefined ? "" : " " + answer.note));
     else if (answer.note !== undefined) notify("ok", answer.note);
-  });
+  }));
 }
 for (const button of document.querySelectorAll("button[data-skill-remove]")) {
   button.addEventListener("click", async () => {
