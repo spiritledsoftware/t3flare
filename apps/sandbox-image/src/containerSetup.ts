@@ -5,7 +5,7 @@
 // It runs the Owner's script as root in `/` with HOME=/root, bounded by the Owner's time limit, and answers the end of
 // its output and one marked JSON line. It runs a script once per Container disk: the same script again (an exec that
 // broke after the script started, retried; two Workspace DO instances across a deploy) answers the first run again.
-import { CONTAINER_SETUP_DIR, ROOT_HOME } from "./env.ts";
+import { CONTAINER_SETUP_DIR, OWNER_HOME } from "./env.ts";
 
 /**
  * The wrapper's own bounds, in seconds; the Owner's time limit is the script's (`containerSetupMinutes`). Each is fixed:
@@ -62,7 +62,7 @@ export const CONTAINER_SETUP_SCRIPT = `set -u
 sha=$1 seconds=$2 window=$3
 dir=${CONTAINER_SETUP_DIR}
 mkdir -p "$dir" && cd / || exit 1
-export HOME=${ROOT_HOME}
+export HOME=${OWNER_HOME}
 answer() {
   printf '{"sha256":"%s","exitCode":%s,"timedOut":%s,"ms":%s%s}' "$sha" "$1" "$2" "$3" "\${4:-}"
 }
