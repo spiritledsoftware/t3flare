@@ -6,6 +6,7 @@ import { MARK_BUSY, MARK_PROMPT, scanMarkers } from "@t3flare/sandbox-image/term
 import type { TerminalFrame, TerminalPushAnswer } from "@t3flare/workspace-client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ContainerRefused } from "../src/workspace/containerStep.ts";
 import { HEARTBEAT_LAPSE_MS, MAX_TERMINALS, type ShellProcess, TerminalHost, type TerminalHostDeps } from "../src/workspace/terminalHost.ts";
 
 const encoder = new TextEncoder();
@@ -36,7 +37,7 @@ const fakeShell = () => {
   };
 };
 
-const harness = (options: { running?: boolean; refuse?: string; pushMs?: number; answer?: (frames: ReadonlyArray<TerminalFrame>) => TerminalPushAnswer } = {}) => {
+const harness = (options: { running?: boolean; refuse?: string; pushMs?: number; answer?: (frames: ReadonlyArray<TerminalFrame>) => TerminalPushAnswer; beforeSpawn?: () => Promise<void> } = {}) => {
   let now = 1_000_000;
   let running = options.running ?? true;
   const shells: Array<ReturnType<typeof fakeShell>> = [];
@@ -69,7 +70,7 @@ const harness = (options: { running?: boolean; refuse?: string; pushMs?: number;
     filesMayHaveChanged: (why) => void changes.push(why),
     remember: (markers) => void (remembered = markers),
     remembered: () => remembered,
-    beforeSpawn: async () => undefined,
+    beforeSpawn: options.beforeSpawn ?? (async () => undefined),
     projectRootView: "/workspace/.t3flare/project-root",
   };
   const host = new TerminalHost(deps);
@@ -188,6 +189,19 @@ describe("TerminalHost", () => {
     expect(refused.text("term-a1")).toContain("t3flare: the Container cannot start: 3 Containers are running");
     expect(refused.frames.at(-1)).toMatchObject({ exit: { code: 1 } });
     expect(refused.spawned).toEqual([]);
+  });
+
+  it("refuses a terminal in it when its running Container's steps refuse commands (ADR-0047 §7), and spawns after any other failure before the spawn", async () => {
+    const refused = harness({ beforeSpawn: async () => Promise.reject(new ContainerRefused("Refused: this Container's Container setup failed (exit 2)")) });
+    await refused.host.open(open("term-a1"));
+    await refused.host.settled();
+    expect(refused.text("term-a1")).toContain("t3flare: Refused: this Container's Container setup failed (exit 2)");
+    expect(refused.frames.at(-1)).toMatchObject({ exit: { code: 1 } });
+    expect(refused.spawned).toEqual([]);
+    const pushFailed = harness({ beforeSpawn: async () => Promise.reject(new Error("push failed")) });
+    await pushFailed.host.open(open("term-a1"));
+    await pushFailed.host.settled();
+    expect(pushFailed.spawned).toHaveLength(1);
   });
 
   it("counts only input as use: neither an open (a re-attach after an Environment restart) nor output moves the last input", async () => {
