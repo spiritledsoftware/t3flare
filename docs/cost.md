@@ -87,7 +87,10 @@ What moves the total:
 - **A Workspace's start from the Base snapshot costs what a start from the image costs** (SPI-1333): the same Container,
   started about as fast. A start set to wait for a Base build holds no Container while it waits. Each start from a Base
   snapshot is a restore, which the platform counts toward its 30 days. `container-launch` (agents Worker logs) names what
-  each Container started from (`from`); `container-base-wait` each wait, `container-base-refused` each refused snapshot.
+  each Container started from (`from`); `container-base-wait` each wait, `container-base-refused` each refused snapshot,
+  `container-base-replanned` each new Container computer made while one ran, and `base-build-image-moved` each new
+  image the Builder's watch saw. The watch is one alarm every 30 seconds for 10 minutes after a trigger, on the
+  Builder's Durable Object alone.
 
 ## When to act
 
