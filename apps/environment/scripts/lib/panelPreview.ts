@@ -1,24 +1,28 @@
-// @effect-diagnostics nodeBuiltinImport:off globalConsole:off globalDate:off globalTimers:off
+// @effect-diagnostics nodeBuiltinImport:off globalConsole:off globalDate:off
 // The Settings page served on localhost with its API (SPI-1337): the real `handleHarness` over in-memory deps (the
 // stores, the MCP host, the Open changes and the Owner clients of test/settingsFixture.ts), seeded with the page's
 // fixture state (test/fixtures/harnessPage.ts), so Save, Rebuild, Test and the page's other controls run the real route
-// code. The live page sits behind Access, so neither `wrangler dev` nor a stage serves it to a local browser.
+// code. The live page sits behind Access: a stage's page asks for its Access sign-in first, and `wrangler dev` has no
+// Access application to admit a browser. This needs neither, nor Cloudflare.
 //
 // What the preview stands in for, and what it cannot do:
 // - The caller is an owner (`PREVIEW_SUBJECT`); the configured host is the preview's own, so the write guard (Origin and
-//   CSRF token) passes for the page's own requests and refuses any other origin's, as on a stage.
+//   CSRF token) passes for the page's own requests and refuses any other origin's, as on a stage. A request whose Host
+//   is not the preview's (`127.0.0.1:<port>` or `localhost:<port>`) is refused, so a rebound DNS name reads nothing.
 // - The Builder is simulated: a Rebuild is ready at once, a Test reports building, then ready `TEST_TAKES_MS` later.
 // - The Container budget shows one Container running; no Container starts.
-// - The MCP engine is not bound: a server's Test answers that, and nothing leaves the machine.
+// - The MCP engine is simulated from the page fixture: its servers list as the fixture shows them (Commissary with no
+//   tools, `fixture` with its tools and refused tool, `docs` failing, `linear` never signed in, as there is no OAuth). A
+//   server the Owner adds lists nothing; no request leaves the machine, and no tool can be called.
 // - Skills come from a fake GitHub holding one repo, `PREVIEW_SKILLS_REPO`.
 // - The Model endpoints read no model list (no request leaves the machine): an add with a model typed works.
-// - The Workspaces section reads fixed rows; their usage, the Sweep and the Owner's acts need the agents Worker and answer
-//   501 "not in the preview".
+// - The Workspaces section reads fixed rows; the routes run as on a stage up to the agents Worker, so a Workspace's
+//   usage, the Sweep and the Owner's acts answer 501 "not in the preview" (after the guard and the Purge's typed name).
 // State lives in memory and is lost when the process ends.
 import { createHash } from "node:crypto";
 import http from "node:http";
 
-import { applyMcpChange, type BaseBuildRecord, type StoredHarness } from "@t3flare/harness-registry";
+import { applyMcpChange, type BaseBuildRecord, type Exposure, EXPOSURES, type StoredHarness } from "@t3flare/harness-registry";
 
 import type { WorkspacesApi } from "../../src/agents/workspaceActions.ts";
 import type { WorkspaceRecord } from "../../src/agents/workspaces.ts";
@@ -29,6 +33,7 @@ import { handleHarness, type HarnessDeps, WORKSPACES_API_PATH } from "../../src/
 import { SETTINGS_PAGE_PATH } from "../../src/harness/paths.ts";
 import { AUDIT_KEY } from "../../src/harness/store.ts";
 import { resolvedForRead } from "../../src/harness/variableSeal.ts";
+import type { McpEngineBinding } from "../../src/mcp/host.ts";
 import { FIXTURE_AUDIT, FIXTURE_HARNESS, FIXTURE_MCP, FIXTURE_T3_TOOLS } from "../../test/fixtures/harnessPage.ts";
 import { DAY, record, t3Tables, viewDeps } from "../../test/fixtures/workspaces.ts";
 import { CREDENTIALS_KEY, settingsFixture } from "../../test/settingsFixture.ts";
@@ -45,33 +50,84 @@ export const TEST_TAKES_MS = 3_000;
 /** The fake GitHub's one repo, with the two skills the page fixture shows. */
 export const PREVIEW_SKILLS_REPO = "mattpocock/skills";
 
+const NOT_IN_PREVIEW = "not in the preview: ";
 const NOT_IN_PREVIEW_WORKSPACES = "a Workspace's usage, the Sweep and the Owner's acts on the Workspaces need the agents Worker";
 
-/** Why `path` is not served by the preview, or undefined when it is. */
-const notInPreview = (path: string): string | undefined =>
-  path.startsWith(`${WORKSPACES_API_PATH}/`) ? NOT_IN_PREVIEW_WORKSPACES : undefined;
+const text = (status: number, body: string) => new Response(`${body}\n`, { status, headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" } });
 
-const notInPreviewResponse = (reason: string) => new Response(`not in the preview: ${reason}\n`, { status: 501, headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" } });
-
-const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
+const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 
 const skillMd = (name: string, description: string) => `---\nname: ${name}\ndescription: ${JSON.stringify(description)}\n---\n\n# ${name}\n\n${description}\n`;
 
-/** The page fixture's Harness settings with its MCP servers added, as the Owner would have added them. */
+/** Runs `work` with the console's log and warn lines dropped: the seeding's changes and listings are not news. */
+const quietly = async <T>(work: () => Promise<T>): Promise<T> => {
+  const { log, warn } = console;
+  console.log = () => undefined;
+  console.warn = () => undefined;
+  try {
+    return await work();
+  } finally {
+    console.log = log;
+    console.warn = warn;
+  }
+};
+
+/** The page fixture's Harness settings with its MCP servers added, and their tools' overrides set, as the Owner would. */
 const seededHarness = (): StoredHarness => {
   let harness = FIXTURE_HARNESS;
+  const apply = (change: Parameters<typeof applyMcpChange>[1]) => {
+    const applied = applyMcpChange(harness, change);
+    if (!applied.ok) throw new Error(applied.error);
+    harness = applied.harness;
+  };
   for (const row of FIXTURE_MCP) {
     if (row.setting.kind !== "direct" || row.setting.url === undefined) continue;
     const setting = row.setting.auth;
     const auth = setting?.kind === "header" && setting.header !== undefined ? { kind: "header" as const, header: setting.header } : setting?.kind === "oauth" ? { kind: "oauth" as const } : { kind: "none" as const };
-    const applied = applyMcpChange(harness, { op: "add", server: row.name, url: row.setting.url, auth });
-    if (!applied.ok) throw new Error(applied.error);
-    harness = applied.harness;
+    apply({ op: "add", server: row.name, url: row.setting.url, auth });
+    // The page's rows carry these as text; the fixture's are a class and an Exposure each.
+    for (const [tool, cls] of Object.entries(row.overrides ?? {})) if (cls === "read" || cls === "write") apply({ op: "class", server: row.name, tool, class: cls });
+    const exposures = Object.entries(row.toolExposure ?? {}).filter((entry): entry is [string, Exposure] => (EXPOSURES as ReadonlyArray<string>).includes(entry[1]));
+    if (exposures.length > 0) apply({ op: "server", server: row.name, toolExposure: Object.fromEntries(exposures) });
   }
   return harness;
 };
 
-/** The Workspaces section's rows, after the page fixture's: a deleted project and its worktrees, and one in use. */
+/**
+ * The MCP engine, simulated from the page fixture: a listed server's tools (each hinted read or write as the fixture
+ * has it) and refused tools, a failed one's error, and a refusal for everything else. Nothing is fetched.
+ */
+const fixtureEngine = (): McpEngineBinding => {
+  const failed = (tag: string, message: string) => ({ kind: "failed", error: { _tag: tag, message }, state: {} }) as never;
+  return {
+    discover: async (target) => {
+      const row = FIXTURE_MCP.find((each) => each.name === target.conn);
+      if (row === undefined) return failed("NotInPreview", "the preview's MCP engine knows only the fixture's servers");
+      if (row.status === "never") return failed("Unauthorized", "the preview has no OAuth sign-in");
+      if (row.status === "failed") {
+        const [tag = "Error", ...rest] = (row.error ?? "the fixture's listing failed").split(": ");
+        return failed(tag, rest.join(": "));
+      }
+      return {
+        kind: "discovered",
+        era: "legacy",
+        protocolVersion: "2025-06-18",
+        capabilities: { tools: {} },
+        tools: row.tools.map((tool) => ({ name: tool.upstream, description: `${tool.upstream} (a fixture tool)`, inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: tool.hinted === "read" } })),
+        prompts: [],
+        problems: row.refused.map((refused) => ({ tool: refused.tool, problem: refused.reason })),
+        fetchedAt: 0,
+        state: {},
+      } as never;
+    },
+    request: async () => failed("NotInPreview", "the preview calls no MCP tool"),
+  };
+};
+
+/**
+ * The Workspaces section's rows, after the page fixture's: a deleted project and its worktrees, and one in use. What a
+ * stage asks the agents Worker for (usage, the Sweep, the acts) throws `NOT_IN_PREVIEW`, which the route answers.
+ */
 const seededWorkspaces = (now: number): WorkspacesApi => {
   const sql = t3Tables();
   sql.exec("INSERT INTO projection_projects VALUES ('p-live', 'Live app', '/w/live', ?, NULL, NULL)", new Date(now - 40 * DAY).toISOString());
@@ -82,7 +138,7 @@ const seededWorkspaces = (now: number): WorkspacesApi => {
     record({ id: "live", owner: "acme", name: "live", createdAt: now - 40 * DAY }),
   ];
   const refuse = async (): Promise<never> => {
-    throw new Error(`not in the preview: ${NOT_IN_PREVIEW_WORKSPACES}`);
+    throw new Error(`${NOT_IN_PREVIEW}${NOT_IN_PREVIEW_WORKSPACES}`);
   };
   return {
     deps: { ...viewDeps(rows, { sql, purgingSince: now - 20 * DAY }), purge: refuse, restore: refuse, stop: refuse, audit: () => undefined, now: () => now },
@@ -92,8 +148,8 @@ const seededWorkspaces = (now: number): WorkspacesApi => {
 };
 
 export interface PreviewOptions {
-  /** The preview's own origin, `http://127.0.0.1:<port>`: what the page's requests send as their `Origin`. */
-  readonly origin: string;
+  /** The port the preview listens on: its own origins are `http://127.0.0.1:<port>` and `http://localhost:<port>`. */
+  readonly port: number;
   readonly now?: () => number;
   /** Where the simulated Builder and the Environment's pokes are told (the console by default). */
   readonly log?: (line: string) => void;
@@ -103,31 +159,34 @@ export interface PreviewOptions {
 export const panelPreview = async (options: PreviewOptions) => {
   const clock = options.now ?? Date.now;
   const log = options.log ?? ((line: string) => console.log(line));
-  const host = new URL(options.origin).host;
-  const fixture = settingsFixture({ harness: seededHarness() });
+  const hosts = [`127.0.0.1:${options.port}`, `localhost:${options.port}`];
+  const host = hosts[0]!;
+  const fixture = settingsFixture({ harness: seededHarness(), engine: fixtureEngine() });
   // The fixture's own clock follows the real one, so CSRF tokens, audit entries and Open changes all read one time.
   const tick = () => fixture.advance(clock() - fixture.now());
   tick();
   const now = fixture.now;
 
-  for (const row of FIXTURE_MCP) {
-    if (row.setting.kind === "direct" && row.setting.auth?.kind === "header") await fixture.secrets.put(row.name, "header", `preview-${row.name}-value`);
-  }
-  // The audit log as kept (oldest first), without a console line for each seeded entry.
-  fixture.kv.put(AUDIT_KEY, [...FIXTURE_AUDIT].reverse());
-  fixture.store.noteT3Tools({ ...FIXTURE_T3_TOOLS, listedAt: now() - 9 * 60_000 });
-
-  const commit = fixture.github.push(PREVIEW_SKILLS_REPO, {
-    "skills/grill-me/SKILL.md": skillMd("grill-me", "Grill the user about a plan until each branch of its design tree is settled."),
-    "skills/tdd/SKILL.md": skillMd("tdd", "Test-driven development: red, green, then refactor at agreed seams."),
-    "skills/tdd/reference.md": "Red, green, refactor.\n",
+  await quietly(async () => {
+    for (const row of FIXTURE_MCP) {
+      if (row.setting.kind === "direct" && row.setting.auth?.kind === "header") await fixture.secrets.put(row.name, "header", `preview-${row.name}-value`);
+    }
+    // Listed as the fixture shows them; an OAuth server never signed in stays unlisted.
+    for (const row of FIXTURE_MCP) if (row.status !== "never") await fixture.host.list(row.name);
+    fixture.kv.put(AUDIT_KEY, [...FIXTURE_AUDIT].reverse());
+    fixture.store.noteT3Tools({ ...FIXTURE_T3_TOOLS, listedAt: now() - 9 * 60_000 });
+    const commit = fixture.github.push(PREVIEW_SKILLS_REPO, {
+      "skills/grill-me/SKILL.md": skillMd("grill-me", "Grill the user about a plan until each branch of its design tree is settled."),
+      "skills/tdd/SKILL.md": skillMd("tdd", "Test-driven development: red, green, then refactor at agreed seams."),
+      "skills/tdd/reference.md": "Red, green, refactor.\n",
+    });
+    const actor = { caller: `owner:${PREVIEW_SUBJECT}` };
+    const installed = await changeSkills(fixture.deps.ops, "/install", { source: PREVIEW_SKILLS_REPO, commit, folders: ["skills/grill-me", "skills/tdd"] }, { actor });
+    const results = "json" in installed ? (installed.json as { readonly results?: ReadonlyArray<{ readonly error?: string }> }).results : undefined;
+    if (results === undefined || results.length !== 2 || results.some((result) => result.error !== undefined)) throw new Error(`the preview's skills could not be installed: ${JSON.stringify(installed)}`);
+    const disabled = await changeSkills(fixture.deps.ops, "/enable", { name: "tdd", enabled: false }, { actor });
+    if (disabled.status !== 200) throw new Error(`the preview's tdd skill could not be disabled: ${JSON.stringify(disabled)}`);
   });
-  const actor = { caller: `owner:${PREVIEW_SUBJECT}` };
-  const installed = await changeSkills(fixture.deps.ops, "/install", { source: PREVIEW_SKILLS_REPO, commit, folders: ["skills/grill-me", "skills/tdd"] }, { actor });
-  const results = "json" in installed ? (installed.json as { readonly results?: ReadonlyArray<{ readonly error?: string }> }).results : undefined;
-  if (results === undefined || results.length !== 2 || results.some((result) => result.error !== undefined)) throw new Error(`the preview's skills could not be installed: ${JSON.stringify(installed)}`);
-  const disabled = await changeSkills(fixture.deps.ops, "/enable", { name: "tdd", enabled: false }, { actor });
-  if (disabled.status !== 200) throw new Error(`the preview's tdd skill could not be disabled: ${JSON.stringify(disabled)}`);
 
   // The simulated Builder (ADR-0047 §4–§8): its records are made here, the panel keeps them as it keeps the real one's.
   const snapshot = (key: string) => ({ id: `preview-snapshot-${key.slice(0, 8)}`, size: 412_000_000, key, imageDigest: "sha256:preview", builtAt: now(), tookMs: 95_000 });
@@ -145,9 +204,9 @@ export const panelPreview = async (options: PreviewOptions) => {
     ...fixture.panel({ kind: "owner", subject: PREVIEW_SUBJECT }),
     host,
     now,
-    ownerEndpoint: `${options.origin}/_t3flare/mcp`,
+    ownerEndpoint: `http://${host}/_t3flare/mcp`,
     budget: async () => ({ max: (await resolvedForRead(fixture.store.loadEnvironment(), undefined)).containerBudget, leases: [{ holder: "preview-lease", workspace: "live" }] }),
-    endpoints: { store: endpoints, discover: async () => ({ ok: false, error: "not in the preview: no model list is read; type the model's id" }) },
+    endpoints: { store: endpoints, discover: async () => ({ ok: false, error: `${NOT_IN_PREVIEW}no model list is read; type the model's id` }) },
     workspaces: seededWorkspaces(now()),
     sweepSettingsChanged: () => log("preview: the Sweep settings changed (the Environment would bring the Sweep forward)"),
     baseInputsChanged: (reason) => log(`preview: the Base build's inputs changed (${reason}); the Builder would build again`),
@@ -168,16 +227,26 @@ export const panelPreview = async (options: PreviewOptions) => {
   const handle = async (request: Request): Promise<Response> => {
     tick();
     const url = new URL(request.url);
-    if (url.pathname === "/" && request.method === "GET") return Response.redirect(`${options.origin}${SETTINGS_PAGE_PATH}`, 302);
-    const reason = notInPreview(url.pathname);
-    if (reason !== undefined) return notInPreviewResponse(reason);
+    // DNS rebinding: a page on another name that resolves here must not read the page (and its CSRF token).
+    const requestHost = request.headers.get("host") ?? url.host;
+    if (!hosts.includes(requestHost)) return text(421, `not the preview's host: it answers ${hosts.join(" and ")} alone`);
+    if (url.pathname === "/" && request.method === "GET") return Response.redirect(`http://${requestHost}${SETTINGS_PAGE_PATH}`, 302);
     // The guard compares `Origin` with `https://<host>`, as the Worker is served over TLS; the preview is plain HTTP on the
-    // loopback, so its own origin stands in for that one. Any other Origin goes on as sent, and is refused.
+    // loopback, so either of its own origins stands in for that one. Any other Origin goes on as sent, and is refused.
     const origin = request.headers.get("origin");
-    if (origin !== options.origin) return handleHarness(request, deps);
-    const headers = new Headers(request.headers);
-    headers.set("origin", `https://${host}`);
-    return handleHarness(new Request(request, { headers }), deps);
+    let forwarded = request;
+    if (origin !== null && hosts.some((each) => origin === `http://${each}`)) {
+      const headers = new Headers(request.headers);
+      headers.set("origin", `https://${host}`);
+      forwarded = new Request(request, { headers });
+    }
+    const response = await handleHarness(forwarded, deps);
+    // A Workspaces route that reached the agents Worker's part answers so (the route's own words would be a 503).
+    if (response.status === 503 && url.pathname.startsWith(`${WORKSPACES_API_PATH}/`)) {
+      const body = await response.text();
+      return body.includes(NOT_IN_PREVIEW) ? text(501, `${NOT_IN_PREVIEW}${NOT_IN_PREVIEW_WORKSPACES}`) : new Response(body, { status: response.status, headers: response.headers });
+    }
+    return response;
   };
 
   return { handle, fixture, deps };
@@ -189,22 +258,30 @@ export interface ServeOptions {
   readonly log?: (line: string) => void;
 }
 
-/** Serves the preview on 127.0.0.1 alone (`port: 0` takes a free port); resolves once it listens. */
+/** Serves the preview on 127.0.0.1 alone (`port: 0` takes a free port); resolves once it listens and is seeded. */
 export const servePreview = async (options: ServeOptions = {}) => {
   let handle: ((request: Request) => Promise<Response>) | undefined;
+  let port = 0;
   const server = http.createServer((incoming, outgoing) => {
     void (async () => {
       try {
         const chunks: Array<Buffer> = [];
         for await (const chunk of incoming) chunks.push(chunk as Buffer);
+        // A request that lands while the fixture is seeded is told to come back, never answered from half-made state.
+        const ready = handle;
+        if (ready === undefined) {
+          outgoing.writeHead(503, { "content-type": "text/plain; charset=utf-8", "retry-after": "1" });
+          outgoing.end("the preview is starting; try again in a moment\n");
+          return;
+        }
         const headers = new Headers();
         for (const [name, value] of Object.entries(incoming.headers)) {
           if (value === undefined) continue;
           for (const each of Array.isArray(value) ? value : [value]) headers.append(name, each);
         }
         const method = incoming.method ?? "GET";
-        const request = new Request(`${origin}${incoming.url ?? "/"}`, { method, headers, ...(method === "GET" || method === "HEAD" ? {} : { body: Buffer.concat(chunks) }) });
-        const response = await handle!(request);
+        const request = new Request(`http://127.0.0.1:${port}${incoming.url ?? "/"}`, { method, headers, ...(method === "GET" || method === "HEAD" ? {} : { body: Buffer.concat(chunks) }) });
+        const response = await ready(request);
         outgoing.writeHead(response.status, Object.fromEntries(response.headers));
         outgoing.end(Buffer.from(await response.arrayBuffer()));
       } catch (error) {
@@ -219,15 +296,17 @@ export const servePreview = async (options: ServeOptions = {}) => {
   });
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("the preview has no TCP address");
-  const origin = `http://127.0.0.1:${address.port}`;
+  port = address.port;
+  const origin = `http://127.0.0.1:${port}`;
   try {
-    ({ handle } = await panelPreview({ origin, ...(options.now === undefined ? {} : { now: options.now }), ...(options.log === undefined ? {} : { log: options.log }) }));
+    ({ handle } = await panelPreview({ port, ...(options.now === undefined ? {} : { now: options.now }), ...(options.log === undefined ? {} : { log: options.log }) }));
   } catch (error) {
     server.close();
     throw error;
   }
   return {
     origin,
+    port,
     url: `${origin}${SETTINGS_PAGE_PATH}`,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
