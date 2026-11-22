@@ -2,10 +2,12 @@
 
 Status: accepted (Owner decisions, 2026-11-22). Supersedes
 [ADR-0016](0016-no-vendor-credential-enters-a-container-and-cli-agents-reach-the-model-proxy.md)'s SPI-1152
-refinement ("Variables are never credentials") and §2 and §3 of
+refinement ("Variables are never credentials"), and in
 [ADR-0032](0032-environment-settings-and-harness-settings-are-separate-entities-edited-on-one-owner-page.md)'s
-Variables refinement (the refused names and values). ADR-0016's rule for t3flare's own credentials (Model endpoints'
-keys, Subscriptions, MCP servers' sign-ins, the Environment token) is unchanged.
+Variables refinement §2 and §3 (the refused names and values), §4 (a Variable a later rule refuses), §8 for a secret
+Variable's value, and its ADR-0035 refinement's item 5 (refusals through the Settings server). ADR-0016's rule for
+t3flare's own credentials (Model endpoints' keys, Subscriptions, MCP servers' sign-ins, the Environment token) is
+unchanged.
 
 Variables were never credentials: names with a `KEY` or `TOKEN` segment, the `GH_` and `GITHUB_` prefixes and
 credential-looking values were refused, so an Owner had no way to give their Workspaces an npm token or the token that

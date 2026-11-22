@@ -51,6 +51,7 @@ nor changes them, and `read_audit` shows their entries without key fingerprints.
    - `model`: the result is a Pause, and the client's agent applies the change by calling `resume`.
 
    A fallback only ever moves toward `browser`.
+
 9. **Secrets and sign-ins happen on the Change page only.** An agent may ask to add a header-auth Direct server, set its
    header value, or start its OAuth sign-in; the value is typed, and the sign-in started, on the Change page under the
    owner's Access identity, in every mode. No tool argument or result carries a secret or an authorization URL. Two

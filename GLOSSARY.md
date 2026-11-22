@@ -228,8 +228,8 @@ and the Grace. t3flare's own, not t3's server settings.
 _Avoid_: environment config, server settings, Container settings
 
 **Variable**:
-A `NAME=value` every command in a Workspace starts with, kept in the Environment settings, as stock t3's environment
-variables are: a string with a Secret toggle. A secret one's value is never shown again; agents can read every one.
+A `NAME=value` every command in a Workspace, and the Image setup, starts with, kept in the Environment settings, as
+stock t3's environment variables are: a string with a Secret toggle. A secret one's value is never shown again; agents can read every one.
 _Avoid_: env var, environment variable (it reads as the Environment's own)
 
 **Global mise config**:
@@ -241,12 +241,11 @@ The vCPU, memory and disk a Workspace's Container starts with, picked by name.
 _Avoid_: instance type, plan
 
 **Container budget**:
-How many Workspaces' Containers may run at once across the Cloud Environment; the Builder counts only if the Owner says so.
+How many Workspaces' Containers may run at once across the Cloud Environment.
 _Avoid_: max instances, slots
 
 **Image setup**:
-The Owner's script, kept in the Environment settings, that a Base build runs on the Workspace image to make the Base
-snapshot.
+The Owner's script, kept in the Environment settings, whose result on the Workspace image is the Base snapshot.
 _Avoid_: setup script (that is t3's, per Project), build step, Dockerfile, provisioning
 
 **Container setup**:
@@ -254,12 +253,12 @@ The Owner's script, kept in the Environment settings, that runs once in every ne
 _Avoid_: setup script, startup script, init script, entrypoint (that is the image's)
 
 **Base snapshot**:
-The Workspace image's disk after the Image setup ran on it; every Workspace's new Container starts from it when there is
-one for the current Workspace image and Image setup, and from the Workspace image otherwise.
+The Workspace image's disk after the Image setup ran on it, which a new Container starts from in place of the
+Workspace image.
 _Avoid_: image (that is the Workspace image), snapshot (alone), golden image, template
 
 **Builder**:
-The one Container that belongs to no Workspace, in which a Base build runs.
+A Container that belongs to no Workspace, in which a Base build or a Test base build runs.
 _Avoid_: build Workspace, image builder, CI
 
 **Base build**:
