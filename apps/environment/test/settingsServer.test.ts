@@ -3,7 +3,7 @@
 // adapter's record) and a relayed CLI caller (modes from its live session); the access switch; no `resume` and no Pause;
 // reads that carry no secret value, fingerprint, URL query or authorization URL; the applied cap. Since M4 (SPI-1199) an
 // asked change asks on the owner-only card in every mode but plan (settingsCard.test.ts covers the card itself).
-import { applyMcpChange, EMPTY_HARNESS, PLAN_REFUSAL, type StoredHarness } from "@t3flare/harness-registry";
+import { applyMcpChange, type BaseBuildRecord, EMPTY_HARNESS, PLAN_REFUSAL, type StoredHarness } from "@t3flare/harness-registry";
 import { MCP_QUESTION_MARKER, type McpAsker, type McpQuestionAnswer, type McpQuestionCard } from "@t3flare/session-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -52,7 +52,16 @@ const recordModes = (caller: OwnCaller, mode: ModeName) => {
   }
 };
 
-const setup = (options: { links?: Record<string, ThreadLink>; answer?: McpQuestionAnswer; harness?: StoredHarness; cardWaitMs?: number } = {}) => {
+const setup = (
+  options: {
+    links?: Record<string, ThreadLink>;
+    answer?: McpQuestionAnswer;
+    harness?: StoredHarness;
+    cardWaitMs?: number;
+    /** The Base snapshot's record and the Builder's Rebuild (SPI-1332). */
+    base?: { readonly record?: BaseBuildRecord; readonly rebuild?: (reason: string) => Promise<BaseBuildRecord> };
+  } = {},
+) => {
   let now = NOW;
   const kv = memory();
   const store = harnessStore(kv);
@@ -94,6 +103,8 @@ const setup = (options: { links?: Record<string, ThreadLink>; answer?: McpQuesti
           running: async () => ({ count: 0, holders: [] }),
           log: (event) => void logs.push(event),
           ...(options.cardWaitMs === undefined ? {} : { cardWaitMs: options.cardWaitMs }),
+          ...(options.base === undefined ? {} : { baseBuild: () => options.base?.record }),
+          ...(options.base?.rebuild === undefined ? {} : { rebuildBase: options.base.rebuild }),
         },
         input,
       ),
@@ -438,5 +449,54 @@ describe("the Settings server's reads (plan D14)", () => {
     const listed = structured(await run.call(durable(), "list_mcp_servers")) as unknown as { servers: Array<{ name: string; kind: string }>; ignored: Array<string> };
     expect(listed.servers.find((server) => server.name === "settings")?.kind).toBe("settings");
     expect(listed.ignored).toEqual([expect.stringContaining("settings:")]);
+  });
+});
+
+// SPI-1332 (ADR-0047 §5): an agent's Rebuild of the Base snapshot is free and names no revision; get_status reads the
+// Builder's record, a failure's output included.
+describe("the Settings server: the Base snapshot", () => {
+  const record: BaseBuildRecord = { key: "k".repeat(64), state: "failed", failure: { at: NOW, phase: "running", exitCode: 3, message: "the Image setup exited 3", output: "E: Unable to locate package nope\n" }, good: null, at: NOW };
+
+  it("rebuild_base runs in full access with no revision, and asks on the free card in another mode", async () => {
+    const reasons: Array<string> = [];
+    const { call, cards } = setup({ base: { record, rebuild: async (reason): Promise<BaseBuildRecord> => (reasons.push(reason), { key: record.key, state: "building", phase: "starting", since: NOW, good: null, at: NOW }) } });
+    const caller = durable("thread-rb");
+    recordModes(caller, "full-access");
+    const answer = await call(caller, "rebuild_base");
+    expect(structured(answer)).toMatchObject({ status: "applied" });
+    expect(textOf(answer)).toContain("The Builder builds the saved settings again");
+    expect(reasons).toEqual(["an agent's Rebuild (rebuild_base)"]);
+    expect(cards).toHaveLength(0);
+
+    const other = durable("thread-rb2");
+    recordModes(other, "approval-required");
+    expect(structured(await call(other, "rebuild_base"))).toMatchObject({ status: "applied" });
+    expect(cards).toHaveLength(1);
+    expect(cards[0]!.prompt).toContain("An agent asks to rebuild the Base snapshot:");
+  });
+
+  it("refuses rebuild_base in plan mode, and where there is no Builder", async () => {
+    const planned = setup({ base: { record, rebuild: async () => record } });
+    const caller = durable("thread-plan");
+    recordModes(caller, "plan");
+    expect(structured(await planned.call(caller, "rebuild_base"))).toMatchObject({ status: "refused" });
+    const none = setup();
+    const full = durable("thread-none");
+    recordModes(full, "full-access");
+    const answer = await none.call(full, "rebuild_base");
+    expect(structured(answer)).toMatchObject({ status: "refused" });
+    expect(textOf(answer)).toContain("the Builder is not available here");
+  });
+
+  it("get_status carries the Base snapshot's record", async () => {
+    const { call } = setup({ base: { record } });
+    const caller = durable("thread-st");
+    recordModes(caller, "full-access");
+    expect(structured(await call(caller, "get_status"))).toMatchObject({ baseSnapshot: { state: "failed", failure: { exitCode: 3, output: "E: Unable to locate package nope\n" } } });
+    expect(structured(await setup().call(caller, "get_status"))).toMatchObject({ baseSnapshot: null });
+  });
+
+  it("lists rebuild_base as a write", () => {
+    expect(SETTINGS_TOOLS.find((tool) => tool.name === "rebuild_base")).toMatchObject({ class: "write" });
   });
 });

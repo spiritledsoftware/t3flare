@@ -98,7 +98,7 @@ describe("harness page", () => {
   });
 
   it("links every section from the navigation, in order, each with its heading", () => {
-    const nav = tags.filter((tag) => tag.name === "a" && tag.attrs.href?.startsWith("#") && tag.attrs.href !== "#main" && tag.attrs.href !== "#add-server");
+    const nav = tags.filter((tag) => tag.name === "a" && tag.attrs.href?.startsWith("#") && tag.attrs.href !== "#main" && tag.attrs.href !== "#add-server" && tag.attrs["data-jump"] === undefined);
     expect(nav.map((tag) => tag.attrs.href)).toEqual(["#tools", "#extensions", "#mcp", "#environment", "#workspaces", "#skills", "#status", "#audit"]);
     for (const link of nav) {
       const section = tags.find((tag) => tag.name === "section" && tag.attrs.id === link.attrs.href!.slice(1));

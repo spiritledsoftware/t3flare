@@ -5,7 +5,7 @@ import { ENVIRONMENT_NAME } from "@t3flare/session-protocol";
 
 import type { McpAsker, McpRpcAnswer, McpRpcRequest, SessionPush, SessionPushAnswer } from "@t3flare/session-protocol";
 import type { TerminalPush, TerminalPushAnswer } from "@t3flare/workspace-client";
-import type { ContainerSetupReport, GlobalMiseReport, McpRelayAnswer, McpRelayInput, ResolvedEnvironment, ResolvedHarness, T3ToolListing } from "@t3flare/harness-registry";
+import type { BaseBuildRecord, ContainerSetupReport, GlobalMiseReport, McpRelayAnswer, McpRelayInput, ResolvedEnvironment, ResolvedHarness, T3ToolListing } from "@t3flare/harness-registry";
 import type { SkillSet } from "@t3flare/skills";
 import type { EndpointCredential, EndpointCredentialRequest, ModelEndpoints } from "@t3flare/models/endpoints";
 import type { LimitReading } from "@t3flare/models/limits";
@@ -43,8 +43,13 @@ export interface EnvironmentRpc {
   recordUsage(input: { readonly entries: ReadonlyArray<UsageEntry> }): Promise<{ readonly kept: number }>;
   /** A Session's, text generation's or the model relay's limit readings, for t3's limit meters (SPI-1174). Never boots t3. */
   recordLimits(input: { readonly readings: ReadonlyArray<LimitReading> }): Promise<{ readonly kept: number }>;
-  /** The Environment settings, resolved (ADR-0032): read before a Container start. Never boots t3. */
-  environmentSettings(): Promise<ResolvedEnvironment>;
+  /**
+   * The Environment settings, resolved (ADR-0032): read before a Container start, and by the Builder (SPI-1332), whose
+   * read Status does not count as a Workspace's. Never boots t3.
+   */
+  environmentSettings(input?: { readonly reader?: "builder" }): Promise<ResolvedEnvironment>;
+  /** The Base build's record, on each change (SPI-1332): the Settings page's Status. Never boots t3. */
+  noteBaseBuild(record: BaseBuildRecord): Promise<{ readonly kept: boolean }>;
   /**
    * The Environment skill set (SPI-1148): every enabled Environment skill's files and the set's hash. The Workspace names
    * itself, so the Environment drops its last refusal. Never boots t3.

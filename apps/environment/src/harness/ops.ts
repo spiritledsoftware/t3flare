@@ -26,6 +26,7 @@ import {
   resolveHarness,
   settingOf,
   type StoredHarness,
+  BASE_BUILD_SETTING_KEYS,
   SWEEP_SETTING_KEYS,
   T3_SERVER,
   type ToolsChange,
@@ -61,8 +62,24 @@ export interface OpsDeps {
    * Environment DO runs the Sweep again soon (ADR-0043 §5).
    */
   readonly sweepSettingsChanged?: () => void;
+  /**
+   * Called after a change that moved what a Base build is made from (the Image setup, the Global mise config, the
+   * Variables; ADR-0047 §5), with what moved: the Environment DO pokes the Builder.
+   */
+  readonly baseInputsChanged?: (reason: string) => void;
   readonly now: () => number;
 }
+
+/**
+ * What the Builder reads (ADR-0047 §5, §9), each with the words a poke gives it: what a Base build is made from, and
+ * the Builder's own settings (its limits, size, budget and schedule), which a poke makes it read and arm again.
+ */
+const BASE_INPUTS: ReadonlyArray<readonly [EnvironmentKey, string]> = [
+  ["imageSetup", "the Image setup changed"],
+  ["globalMiseConfig", "the Global mise config changed"],
+  ["variables", "the Variables changed"],
+  ...BASE_BUILD_SETTING_KEYS.filter((key) => key !== "imageSetup").map((key) => [key, `${settingOf(key).title} changed`] as const),
+];
 
 /** One change's who and against what. */
 export interface OpOptions {
@@ -194,6 +211,8 @@ export const changeEnvironment = async (
     after: await pick(resolved),
   });
   if (keys.some((key) => (SWEEP_SETTING_KEYS as ReadonlyArray<string>).includes(key))) deps.sweepSettingsChanged?.();
+  const movedInputs = BASE_INPUTS.filter(([key]) => keys.includes(key)).map(([, words]) => words);
+  if (movedInputs.length > 0) deps.baseInputsChanged?.(movedInputs.join("; "));
   return { ok: true, revision: applied.environment.revision, resolved };
 };
 

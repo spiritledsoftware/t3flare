@@ -23,6 +23,8 @@ import {
   t3Exposures,
   type T3ToolListing,
   CONTAINER_SETUP_OUTPUT_STATUS,
+  type BaseBuildRecord,
+  describeBaseBuild,
   type EnvironmentSettingEntry,
   type ExtensionEntry,
   EXTENSIONS,
@@ -692,14 +694,48 @@ const blockRow = (key: string, value: string): string => {
   return `<div class="kv-block"><dt id="${id}">${escapeHtml(key)}</dt><dd><pre class="status-output" tabindex="0" role="region" aria-labelledby="${id}"><span>${escapeHtml(value === "" ? "(no output)" : value)}</span></pre></dd></div>`;
 };
 
-const statusSection = (status: Readonly<Record<string, string | number | null>>): string => {
+/** The Base snapshot's state as a pill (SPI-1332). */
+const basePill = (record: BaseBuildRecord | undefined): string => {
+  if (record === undefined || record.state === "none") return '<span class="pill">None</span>';
+  if (record.state === "building") return '<span class="pill pill-warn">Building</span>';
+  if (record.state === "ready") return record.failure === undefined ? '<span class="pill pill-ok">Ready</span>' : '<span class="pill pill-warn">Ready, rebuild failed</span>';
+  return '<span class="pill pill-err">Failed</span>';
+};
+
+/**
+ * The Base snapshot's block in Status (ADR-0047 §4, SPI-1332): its state, the Rebuild button, and a failed build's
+ * output (every secret Variable's value blanked by the Builder).
+ */
+const baseBuildBlock = (record: BaseBuildRecord | undefined, canRebuild: boolean): string => {
+  // Status's line, its ISO times shown as the rest of the page shows a time.
+  const line = (record === undefined ? escapeHtml("No Base build has reported yet.") : escapeHtml(describeBaseBuild(record))).replace(/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z/g, (iso) => time(Date.parse(iso)));
+  const output = record?.failure?.output ?? "";
+  const shown =
+    record?.failure === undefined
+      ? ""
+      : `<details class="tools"${record.state === "failed" ? " open" : ""}><summary>${icon("chevron")}Output<span>${output === "" ? "none" : `the last ${escapeHtml(sizeText(new TextEncoder().encode(output).length))}, secret values blanked`}</span></summary>${output === "" ? "" : `<pre class="text" tabindex="0" aria-label="The failed Base build's output">${escapeHtml(output)}</pre>`}</details>`;
+  // Nothing to build (no Image setup, no Global mise config): no Rebuild. A build under way: Rebuild waits for it.
+  const button =
+    canRebuild && record?.nothingToBuild !== true
+      ? `<button type="button" class="btn btn-sm" data-base-rebuild aria-describedby="base-rebuild-hint"${record?.state === "building" ? " disabled" : ""}>${icon("play")}Rebuild</button>`
+      : "";
+  // A failed build's fix is the script: a way to it (the Image setup's field, in the Environment section).
+  const edit = record?.failure === undefined ? "" : `<p class="desc"><a href="#environment-imageSetup" data-jump>Edit the Image setup</a>; saving it builds again.</p>`;
+  const hint = button === "" ? "" : `<p class="desc" id="base-rebuild-hint">${record?.state === "building" ? "A build is under way; Rebuild waits for it to end." : "Rebuild builds the saved Environment settings again."}</p>`;
+  return `<div class="group" data-base-build><div class="row"><div><div class="row-title"><h3>Base snapshot</h3>${basePill(record)}</div><p class="desc" data-base-status>${line}</p>${edit}${hint}<p class="desc" data-base-result role="status" aria-live="polite"></p></div>${button}</div>${shown}</div>`;
+};
+
+const statusSection = (status: Readonly<Record<string, string | number | null>>, baseBuild: BaseBuildRecord | undefined, canRebuild: boolean): string => {
   const rows = Object.entries(status)
+    // The Base snapshot has its own block above the list.
+    .filter(([key]) => key !== "Base snapshot")
     .map(([key, value]) =>
       BLOCK_STATUS_KEYS.has(key) && typeof value === "string" ? blockRow(key, value) : `<div><dt>${escapeHtml(key)}</dt><dd>${statusValue(value)}</dd></div>`,
     )
     .join("");
   return `<section id="status" aria-labelledby="status-title">
 <div class="section-head"><h2 id="status-title">${icon("status")}Status</h2></div>
+${baseBuildBlock(baseBuild, canRebuild)}
 <dl class="group kv">${rows}</dl>
 </section>`;
 };
@@ -768,6 +804,10 @@ export interface PageInput {
   readonly csrf: string;
   readonly audit: ReadonlyArray<AuditEntry>;
   readonly status: Readonly<Record<string, string | number | null>>;
+  /** The Builder's last record of the Base build (SPI-1332); "none reported yet" without it. */
+  readonly baseBuild?: BaseBuildRecord;
+  /** The Rebuild button is shown (the Environment DO can reach the Builder). */
+  readonly canRebuild?: boolean;
   /** The Environment skills (SPI-1148); the section is left out without them. */
   readonly skills?: SkillsView;
   /** The Model endpoints (SPI-1162); the section is left out without them. */
@@ -820,7 +860,7 @@ ${mcpSection(rows, t3Card(input.resolved, input.t3Tools), input.ownerClients)}
 ${endpointsSection(escapeHtml, input.endpoints)}${environmentSection(environment, input.costs ?? containerCostTable(environment.containerBudget), input.running)}
 ${workspacesSection(escapeHtml, time, input.workspaces)}
 ${skillsSection(input.skills)}
-${statusSection(input.status)}
+${statusSection(input.status, input.baseBuild, input.canRebuild === true)}
 ${auditSection(input.audit)}
 </div></main>
 </div>

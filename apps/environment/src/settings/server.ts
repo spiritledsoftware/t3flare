@@ -19,6 +19,7 @@
 //   Owner client has no thread or mode: a free change runs, and an asked change becomes an Open change in its
 //   Elicitation mode, which the endpoint (endpoint.ts) delivers and the Change page answers.
 import {
+  type BaseBuildRecord,
   applyChange,
   applyToolsChange,
   BUILTIN_TOOLS,
@@ -132,6 +133,10 @@ export interface SettingsServerDeps {
   readonly origin: () => string | undefined;
   /** The panel's Status. */
   readonly status?: () => Readonly<Record<string, unknown>>;
+  /** The Base snapshot's record as the Builder last reported it (SPI-1332): `get_status` shows it, a failure's output included. */
+  readonly baseBuild?: () => BaseBuildRecord | undefined;
+  /** Asks the Builder to build the saved settings again (`rebuild_base`, ADR-0047 §5). Without it the tool is refused. */
+  readonly rebuildBase?: (reason: string) => Promise<BaseBuildRecord>;
   /** The Containers running now. */
   readonly running?: () => Promise<{ readonly count: number; readonly holders: ReadonlyArray<string> } | null>;
   readonly log?: (event: Record<string, unknown>) => void;
@@ -170,6 +175,8 @@ export const APPLIES_AT = {
   skills: "Files at each thread's next turn; the listing at the next context window; the composer at once.",
   /** A Purge (ADR-0044 §5). */
   purge: "Applies at once; it cannot be undone.",
+  /** The Base snapshot's Rebuild (SPI-1332). */
+  base: "The Builder builds the saved settings again (a build under way goes on); get_status shows the Base snapshot's state. New Containers start from it once it is ready.",
 } as const;
 
 const json = (value: unknown) => JSON.stringify(value, null, 2);
@@ -694,6 +701,31 @@ const planSkills = (deps: SettingsServerDeps, args: Readonly<Record<string, unkn
   }
 };
 
+/**
+ * The Base snapshot's Rebuild (ADR-0047 §5, SPI-1332): free, in every mode's own way (a full-access thread runs it, any
+ * other asks on the free card), with no revision: it builds the settings already saved.
+ */
+const planRebuildBase = (deps: SettingsServerDeps): PlanOrRefusal => {
+  const rebuild = deps.rebuildBase;
+  if (rebuild === undefined) return { refused: "the Builder is not available here" };
+  return {
+    entity: "base",
+    subject: "the Base snapshot",
+    appliesAt: APPLIES_AT.base,
+    verdict: { tier: "free", reasons: ["the Base snapshot: built again from the saved settings (free)"] },
+    normalized: {},
+    describe: async () => ({ items: [], lines: [APPLIES_AT.base] }),
+    run: async () => {
+      try {
+        await rebuild("an agent's Rebuild (rebuild_base)");
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error: `the Builder could not be reached: ${String(error).slice(0, 300)}` };
+      }
+    },
+  };
+};
+
 const WORKSPACES_UNAVAILABLE = "The Workspaces are not available here.";
 
 const plural = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
@@ -747,6 +779,8 @@ const planWrite = async (deps: SettingsServerDeps, tool: string, args: Readonly<
   switch (tool) {
     case "purge_workspace":
       return planPurgeWorkspace(deps, args);
+    case "rebuild_base":
+      return planRebuildBase(deps);
     case "change_extension":
       return planExtension(deps, args);
     case "change_tools":
@@ -766,7 +800,7 @@ const planWrite = async (deps: SettingsServerDeps, tool: string, args: Readonly<
 
 /** An entity's revision; the Workspaces' is a constant 0 (ADR-0044 §5), so a Purge never reads as moved. */
 const revisionOf = (deps: SettingsServerDeps, entity: ChangeEntity): number =>
-  entity === "workspaces" ? 0 : entity === "harness" ? deps.ops.store.load().revision : deps.ops.store.loadEnvironment().revision;
+  entity === "workspaces" || entity === "base" ? 0 : entity === "harness" ? deps.ops.store.load().revision : deps.ops.store.loadEnvironment().revision;
 
 /** The Change page's URL for `id` on the configured host, when known (plan D10). */
 export const changeUrlOf = (deps: Pick<SettingsServerDeps, "origin">, id: string): string | undefined => {
@@ -802,7 +836,7 @@ const PAGE_OPTIONS: NonNullable<McpQuestionCard["options"]> = [
 /** The owner-only approval card for a free write the thread's mode asks about (plan D7). */
 const freeCard = (input: SettingsCallInput, planned: Planned, revision: number): McpQuestionCard => {
   const prompt = [
-    `An agent asks to change ${planned.subject} (revision ${revision}):`,
+    planned.entity === "base" ? `An agent asks to rebuild ${planned.subject}:` : `An agent asks to change ${planned.subject} (revision ${revision}):`,
     ...planned.verdict.reasons.map((reason) => `- ${reason}`),
     "",
     planned.appliesAt,
@@ -981,7 +1015,8 @@ const prepareWrite = async (deps: SettingsServerDeps, tool: string, args: Readon
   const planned = await planWrite(deps, tool, args);
   if ("refused" in planned) return refused(`Not changed: ${scrubUrls(planned.refused)}`);
   // A Purge names no revision (ADR-0044 §5): what it is bound to is read again when it applies.
-  if (planned.entity === "workspaces") return { kind: "planned", planned, expected: 0, current: 0 };
+  // Nor a Rebuild (SPI-1332): it builds whatever is saved when it runs.
+  if (planned.entity === "workspaces" || planned.entity === "base") return { kind: "planned", planned, expected: 0, current: 0 };
   const expected = args.expectedRevision;
   if (typeof expected !== "number" || !Number.isSafeInteger(expected) || expected < 0) return refused("Not changed: expectedRevision is the revision you read, a whole number.");
   const current = revisionOf(deps, planned.entity);
@@ -997,7 +1032,7 @@ const prepareWrite = async (deps: SettingsServerDeps, tool: string, args: Readon
   return { kind: "planned", planned, expected, current };
 };
 
-const entityName = (entity: ChangeEntity): string => (entity === "harness" ? "Harness" : entity === "environment" ? "Environment" : "Workspaces");
+const entityName = (entity: ChangeEntity): string => (entity === "harness" ? "Harness" : entity === "environment" ? "Environment" : entity === "base" ? "Base snapshot" : "Workspaces");
 
 /** A free change, run (plan D7), and kept as an already-closed row for the applied cap (D16). */
 const applyFree = async (
@@ -1045,6 +1080,7 @@ const applyFree = async (
     closed: { at: deps.ops.now(), revision },
   });
   log("applied", { tier: "free", entity: planned.entity, revision, ...input.applied });
+  if (planned.entity === "base") return written("applied", `Asked: ${planned.appliesAt}`, { appliesAt: planned.appliesAt });
   return written("applied", `Applied: the ${entityName(planned.entity)} settings are at revision ${revision}. ${planned.appliesAt}`, { revision, appliesAt: planned.appliesAt });
 };
 
@@ -1375,6 +1411,8 @@ const runRead = async (deps: SettingsServerDeps, name: string, args: Readonly<Re
       const access = accessSwitchOf(deps);
       return read({
         status: deps.status?.() ?? {},
+        // The Base snapshot's record (SPI-1332): its state, the last good one, a failure's output with secret values blanked.
+        baseSnapshot: deps.baseBuild?.() ?? null,
         access: { enabled: access !== "off", writes: access === "on" },
         // This caller's Open changes (plan D8): its thread's, or its Access identity's.
         openChanges: openKey === undefined ? [] : deps.changes.openBy(openKey).map((record) => openChangeSummary(record, changeUrlOf(deps, record.id))),

@@ -85,7 +85,8 @@ export type ChangeItem =
     };
 
 /** What an Open change is to: a settings entity with a revision, or the Workspaces (a Purge, whose revision is always 0). */
-export type ChangeEntity = "harness" | "environment" | "workspaces";
+/** `base`: the Base snapshot's Rebuild (SPI-1332), which, like a Purge, names no revision. */
+export type ChangeEntity = "harness" | "environment" | "workspaces" | "base";
 
 /** What an Open change's card and page render (plan D8's `shown`). */
 export interface ChangeView {

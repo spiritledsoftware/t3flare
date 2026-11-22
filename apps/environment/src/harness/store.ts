@@ -4,7 +4,7 @@
 // other's readers take it again. Sessions take a new Harness revision at a turn's start; Workspace DOs take a new
 // Environment revision before a Container start. One audit log for both, append-only, 1 000 entries kept, each with its
 // `entity`; it holds no secret value (parts 2-4's secrets are masked before an entry is written).
-import { type ContainerSetupReport, containerSetupReport, EMPTY_ENVIRONMENT, EMPTY_HARNESS, type GlobalMiseReport, globalMiseReport, type StoredEnvironment, type StoredHarness, type T3ToolListing, t3ToolListing } from "@t3flare/harness-registry";
+import { type BaseBuildRecord, baseBuildRecord, type ContainerSetupReport, containerSetupReport, EMPTY_ENVIRONMENT, EMPTY_HARNESS, type GlobalMiseReport, globalMiseReport, type StoredEnvironment, type StoredHarness, type T3ToolListing, t3ToolListing } from "@t3flare/harness-registry";
 
 import { keptKey, type KvStorage } from "./keys.ts";
 
@@ -16,6 +16,8 @@ const READ_KEY = "t3flare:harness:last-read";
 const ENVIRONMENT_READ_KEY = "t3flare:environment:last-read";
 const GLOBAL_MISE_KEY = "t3flare:environment:global-mise";
 const CONTAINER_SETUP_KEY = "t3flare:environment:container-setup";
+/** The Base build's record, as the Builder last reported it (SPI-1332). */
+export const BASE_BUILD_KEY = "t3flare:base-build";
 const T3_TOOLS_KEY = "t3flare:harness:t3-tools";
 export const AUDIT_KEPT = 1_000;
 
@@ -110,6 +112,12 @@ export interface HarnessStore {
    */
   noteContainerSetup(report: unknown): boolean;
   lastContainerSetup(): ContainerSetupReport | undefined;
+  /**
+   * The Builder's record of the Base build (SPI-1332): kept when well-formed and no older than the one kept (its reports
+   * may arrive out of order). Answers whether it was kept.
+   */
+  noteBaseBuild(record: unknown): boolean;
+  lastBaseBuild(): BaseBuildRecord | undefined;
   /** t3's tools as a Session last listed them (the t3-code card's list): kept when well-formed. Answers whether it was kept. */
   noteT3Tools(listing: unknown): boolean;
   lastT3Tools(): T3ToolListing | undefined;
@@ -161,6 +169,15 @@ export const harnessStore = (kv: KvStorage): HarnessStore => ({
     return true;
   },
   lastContainerSetup: () => containerSetupReport(kv.get<unknown>(CONTAINER_SETUP_KEY)),
+  noteBaseBuild: (record) => {
+    const valid = baseBuildRecord(record);
+    if (valid === undefined) return false;
+    const kept = baseBuildRecord(kv.get<unknown>(BASE_BUILD_KEY));
+    if (kept !== undefined && kept.at > valid.at) return false;
+    kv.put(BASE_BUILD_KEY, valid);
+    return true;
+  },
+  lastBaseBuild: () => baseBuildRecord(kv.get<unknown>(BASE_BUILD_KEY)),
   noteT3Tools: (listing) => {
     const valid = t3ToolListing(listing);
     if (valid === undefined) return false;

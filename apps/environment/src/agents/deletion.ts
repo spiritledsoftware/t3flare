@@ -3,10 +3,11 @@
 // tombstone, and the sweep with its cost guard. The registry stays the only index of Workspace DOs (they cannot be
 // listed), so a purge deletes the registry row last; a row left in `deleting` is driven again by the sweep.
 import type { SqlStorage } from "@cloudflare/workers-types/index.ts";
+import { BUILDERS } from "@t3flare/harness-registry";
 import { toWorkspace } from "@t3flare/workspace-client";
 
 import { environmentServices } from "./bindings.ts";
-import { byName } from "./rpc.ts";
+import { byName, type Namespace } from "./rpc.ts";
 import { workspaceRpc } from "./workspaceClient.ts";
 import { DAY_MS, type SweepSettings } from "./deletionSettings.ts";
 import type { WorkspaceRecord } from "./workspaces.ts";
@@ -490,6 +491,16 @@ export const sweep = async (
 };
 
 /**
+ * The lease holders the cost guard leaves alone: every `ready` or `provisioning` Workspace, and the Builders (SPI-1332),
+ * which hold a lease while a build runs with `builderInBudget` on and give it back when it ends: the Sweep never stops one.
+ */
+export const keptHolders = (namespace: Namespace<unknown>, workspaces: ReadonlyArray<{ readonly id: string; readonly state: string }>): ReadonlySet<string> =>
+  new Set([
+    ...workspaces.filter((ws) => ws.state === "ready" || ws.state === "provisioning").map((ws) => String(namespace.idFromName(ws.id))),
+    ...Object.values(BUILDERS).map((name) => String(namespace.idFromName(name))),
+  ]);
+
+/**
  * The cost guard: a Container whose budget lease no `ready` Workspace holds is stopped. Holders are Durable Object
  * ids in hex, so the registry's ids are compared as `idFromName(id).toString()` (review F4).
  */
@@ -498,7 +509,7 @@ export const guardCost = async (dry: boolean): Promise<ReadonlyArray<{ readonly 
   const namespace = services.agents.WORKSPACES;
   const budget = services.agents.CONTAINER_BUDGET;
   if (namespace === undefined || budget === undefined) return [];
-  const known = new Set(services.workspaces.list().filter((ws) => ws.state === "ready" || ws.state === "provisioning").map((ws) => String(namespace.idFromName(ws.id))));
+  const known = keptHolders(namespace, services.workspaces.list());
   const state = await byName(budget, "budget", "CONTAINER_BUDGET").state();
   const out: Array<{ holder: string; action: string }> = [];
   for (const lease of state.leases) {

@@ -49,6 +49,20 @@ const post = async (path, body, control) => {
   return undefined;
 };
 const done = () => location.reload();
+// The Base snapshot's Rebuild (SPI-1332): a reload shows the build it started; a refusal is said beside the button,
+// which keeps the focus.
+for (const button of document.querySelectorAll("button[data-base-rebuild]")) {
+  button.addEventListener("click", async () => {
+    const result = button.closest("[data-base-build]").querySelector("[data-base-result]");
+    result.textContent = "Asking the Builder…";
+    busy(button, true);
+    const answer = await request("/_t3flare/settings/api/base/rebuild", {});
+    if (answer.response !== undefined) return done();
+    result.textContent = answer.error;
+    busy(button, false);
+    button.focus();
+  });
+}
 for (const button of document.querySelectorAll("button[data-mcp]")) {
   button.addEventListener("click", async () => {
     const change = JSON.parse(button.dataset.mcp);

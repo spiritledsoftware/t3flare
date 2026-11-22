@@ -1,0 +1,804 @@
+// The Base build (SPI-1332, ADR-0047 §1–§5): one run of the Image setup in the Builder, ending in a Base snapshot or a
+// failure the Settings page shows. The Builder is one reserved-name instance of the Workspace DO's class
+// (`BUILDERS.base`), which drives this machine over the platform's raw `ctx.container` (no computer Workspace).
+//
+// The machine is alarm-driven and kept in storage, so a deploy that resets the object loses no build:
+//
+//   starting → running → snapshotting → proving → ready
+//          ↘          ↘              ↘          ↘ failed
+//
+// - starting: a lease when the Builder counts against the Container budget (retried on the alarm while refused); a
+//   Container from the Workspace image with its entrypoint replaced (`sleep infinity`, so computerd never writes a store
+//   into it), internet on; once an exec answers, the files are written and the run starts detached.
+// - running: the alarm polls the run's exit file. The Image setup's time limit counts from the Container's start (a wait
+//   for the budget, or for a canceled build's snapshot, is not in it), and covers the start and the run.
+// - snapshotting: `snapshotContainer()` runs in the background (`waitUntil`) and records its result. Past the snapshot's
+//   time limit the build is reported failed, but the Container is kept until the result comes, and a late result whose
+//   key is still current goes on to the proof: a snapshot given up on early is lost (the platform keeps going).
+// - proving: the Container is started again from the candidate with the image's own entrypoint; computerd running and a
+//   command succeeding accept it (ADR-0047 §2). A refused start shows in `monitor()` within a second.
+//
+// A change of key while a build runs cancels it (its Container destroyed, or, mid-snapshot, once the snapshot ends) and
+// builds the new key; while a late snapshot of the current key is still being taken, no trigger starts another build.
+// The scheduled rebuild fires before the snapshot expires, and one that fails is retried on a backoff. Every step is
+// bounded by its time limit, a step that keeps throwing included. Unit tests drive it over a fake container
+// (apps/agents/test/baseBuild.test.ts).
+import {
+  BASE_BUILD_CAPS,
+  type BaseBuildFailure,
+  type BaseBuildPhase,
+  type BaseBuildRecord,
+  type BaseSnapshot,
+  builderInstance,
+  type ContainerInstance,
+  MAX_REBUILD_DAYS,
+  type ResolvedEnvironment,
+  variableEnv,
+} from "@t3flare/harness-registry";
+
+import { baseKey, hex, sha256Hex, unhex } from "./baseKey.ts";
+import {
+  BUILDER_FILES,
+  EXIT_SCRIPT,
+  LAUNCH_SCRIPT,
+  LAYDOWN_SCRIPT,
+  PROOF_SCRIPT,
+  RUN_SCRIPT,
+  TAIL_SCRIPT,
+  WRITE_SCRIPT,
+} from "./builderScripts.ts";
+
+/** The platform's Container, as much of it as a build uses (the Builder adapts `ctx.container`; tests fake it). */
+export interface BuilderContainer {
+  running(): boolean;
+  /** Starts from the image (`entrypoint` replaced) or from a snapshot (the image's own entrypoint). Throws when refused. */
+  start(options: { readonly from: { readonly image: string } | { readonly snapshot: string }; readonly entrypoint?: ReadonlyArray<string>; readonly instance: ContainerInstance }): void;
+  /** Runs `argv`; answers its exit code and stdout. Throws when the exec cannot run or `timeoutMs` passes. */
+  exec(argv: ReadonlyArray<string>, options: { readonly stdin?: string; readonly env?: Readonly<Record<string, string>>; readonly timeoutMs: number }): Promise<{ readonly exitCode: number | null; readonly stdout: string }>;
+  snapshot(name: string): Promise<{ readonly id: string; readonly size: number }>;
+  /** Settles when the running Container stops; rejects at once when a start from a snapshot is refused. */
+  monitor(): Promise<void>;
+  destroy(): Promise<void>;
+}
+
+/** What a build reads from the Environment and the Worker. */
+export interface BuilderInputs {
+  /** The Environment settings as a Container start gets them: secret Variables opened. */
+  readonly settings: ResolvedEnvironment;
+  /** `ctx.container.images.WorkspaceContainer`. */
+  readonly image: string;
+}
+
+export interface BaseBuildDeps {
+  readonly container: BuilderContainer;
+  readonly storage: { get<T>(key: string): T | undefined; put<T>(key: string, value: T): void; delete(key: string): void };
+  readonly inputs: () => Promise<BuilderInputs>;
+  readonly setAlarm: (at: number) => Promise<void>;
+  readonly waitUntil: (promise: Promise<unknown>) => void;
+  /** Every change of the record (the Environment DO's report sink, for Status). */
+  readonly report: (record: BaseBuildRecord) => void;
+  /** The Container budget's lease, taken when `builderInBudget` is on. */
+  readonly lease: { acquire(budget: number): Promise<{ readonly ok: boolean; readonly reason?: string }>; release(): Promise<void> };
+  readonly now: () => number;
+  readonly random: (bytes: number) => Uint8Array;
+  readonly log?: (event: Readonly<Record<string, unknown>>) => void;
+}
+
+/** What the run's environment holds over the Variables: `COMMAND_ENV` (then `HOME=/root`, ADR-0047's preamble). */
+export interface RunEnv {
+  readonly commandEnv: Readonly<Record<string, string>>;
+}
+
+/** A build under way or the last one that ended, as kept. */
+export interface Build {
+  readonly id: string;
+  readonly key: string;
+  readonly image: string;
+  readonly reason: string;
+  /** Started by the schedule: a failure is retried on a backoff. */
+  readonly scheduled?: boolean;
+  readonly phase: BaseBuildPhase | "ready" | "failed" | "canceled";
+  readonly startedAt: number;
+  readonly phaseAt: number;
+  readonly instance: ContainerInstance;
+  /** The Image setup's time limit (`imageSetupMinutes`), counted from the Container's first start. */
+  readonly setupMs: number;
+  /** The Container's start and the Image setup end by then; set at the Container's first start. */
+  readonly setupDeadline?: number;
+  /** The snapshot's time limit, and the proof's (`snapshotMinutes`). */
+  readonly snapshotMs: number;
+  /** How much of the output a failure keeps (`setupOutputKiB`). */
+  readonly outputBytes: number;
+  readonly inBudget: boolean;
+  readonly budget: number;
+  readonly leased?: boolean;
+  readonly leaseAt?: number;
+  readonly waitingForBudget?: boolean;
+  /** The Container from the image was started, and when. */
+  readonly started?: boolean;
+  readonly containerAt?: number;
+  /** The Container from the candidate was started (`proving`), by which object instance (its `monitor()` handler's). */
+  readonly provingStarted?: boolean;
+  readonly provingEpoch?: string;
+  /** The last error a step threw: a failure past the time limit names it. */
+  readonly lastError?: string;
+  /**
+   * The opened secret Variables' values, blanked in the output a failure keeps; never reported. Cleared once the build is
+   * over, kept while it awaits a late snapshot (it may still go on to its proof, and fail there).
+   */
+  readonly secrets: ReadonlyArray<string>;
+  readonly secretsCleared?: boolean;
+  readonly snapshot?: { readonly id: string; readonly size: number };
+  readonly failure?: BaseBuildFailure;
+  /** A snapshot is still being taken after the build failed or was canceled: the Container waits for it. */
+  readonly awaitingSnapshot?: boolean;
+  readonly endedAt?: number;
+}
+
+/** The settings the Builder last read, by their key. */
+interface Current {
+  readonly key: string;
+  readonly nothingToBuild: boolean;
+  readonly rebuildEveryDays: number;
+  readonly at: number;
+}
+
+/** The last good Base snapshot as kept: `gone` once a Workspace's start found the platform refused it. */
+type KeptSnapshot = BaseSnapshot & { readonly gone?: true };
+
+/** A snapshot call this instance made, and how it ended. */
+interface SnapshotCall {
+  readonly build: string;
+  /** The object instance that made it: one from before a reset will never record its result. */
+  readonly epoch: string;
+  readonly result?: { readonly ok: true; readonly id: string; readonly size: number } | { readonly ok: false; readonly error: string };
+}
+
+export const BUILDER_KEYS = {
+  hmac: "t3flare:builder:hmac",
+  current: "t3flare:builder:current",
+  build: "t3flare:builder:build",
+  good: "t3flare:builder:good",
+  snapshot: "t3flare:builder:snapshot",
+  refused: "t3flare:builder:refused",
+  /** Builds of one key that failed in a row (`{ key, count }`): the retry's backoff. */
+  failures: "t3flare:builder:failures",
+} as const;
+
+export const DAY_MS = 24 * 60 * 60_000;
+
+/** A Base snapshot older than this counts as gone (ADR-0047 §3): the platform's TTL is 30 days from creation or last restore. */
+export const GOOD_FOR_MS = MAX_REBUILD_DAYS * DAY_MS;
+
+/**
+ * How long before the snapshot counts as gone the scheduled rebuild fires at the latest. Fixed: room for the longest
+ * build the settings allow (120 minutes of Image setup and 15 of snapshot) and its retries, not a policy.
+ */
+export const EXPIRY_MARGIN_MS = DAY_MS;
+
+/**
+ * A failing rebuild's first retry (of the same key, whatever the trigger but a change or a Rebuild); each one after waits
+ * twice as long, at most a day. Fixed, by a constraint: a scheduled rebuild fires a day before the snapshot counts as
+ * gone (`EXPIRY_MARGIN_MS`), and its first four retries (1 + 2 + 4 + 8 = 15 hours) must land inside that day.
+ */
+export const SCHEDULE_RETRY_MS = 60 * 60_000;
+
+/** How long the scheduled rebuild waits to read the settings again when the Environment did not answer. Fixed: a retry. */
+export const READ_RETRY_MS = 60_000;
+
+/**
+ * How often the alarm polls a build. Fixed: a poll is one exec on the Builder's own Container, and nothing an Owner
+ * would tune; the time limits are the Owner's.
+ */
+export const POLL_MS = { starting: 2_000, running: 5_000, snapshotting: 5_000, proving: 2_000 } as const;
+/**
+ * How long a refused lease waits before it asks again. Fixed: a poll of the budget DO, not a limit; the Owner decides
+ * whether the Builder waits at all (`builderInBudget`).
+ */
+export const BUDGET_RETRY_MS = 30_000;
+/** A lease is renewed this often while the build holds it (under the budget DO's 10-minute lease). */
+const LEASE_RENEW_MS = 5 * 60_000;
+/** A probe exec's own bound: a command that answers at once (`true`, `cat`), not the Image setup. */
+const PROBE_MS = 30_000;
+
+/**
+ * SPI-1330's `setupOutputKiB` default: how much output a failure keeps until that setting reaches this branch, when
+ * `outputBytesOf` reads the setting itself.
+ */
+export const DEFAULT_OUTPUT_KIB = 32;
+
+/** How much of a failed build's output is kept: SPI-1330's `setupOutputKiB` when the settings have it, else its default. */
+export const outputBytesOf = (settings: ResolvedEnvironment): number => {
+  const kib = (settings as unknown as { readonly setupOutputKiB?: unknown }).setupOutputKiB;
+  return (typeof kib === "number" && Number.isInteger(kib) && kib > 0 ? kib : DEFAULT_OUTPUT_KIB) * 1024;
+};
+
+const utf8 = new TextEncoder();
+const BLANKED = utf8.encode("•••");
+
+/** Where `needle` occurs in `haystack`, as byte ranges. */
+const occurrences = (haystack: Uint8Array, needle: Uint8Array): Array<readonly [number, number]> => {
+  const found: Array<readonly [number, number]> = [];
+  if (needle.length === 0) return found;
+  outer: for (let at = 0; at + needle.length <= haystack.length; at++) {
+    for (let index = 0; index < needle.length; index++) if (haystack[at + index] !== needle[index]) continue outer;
+    found.push([at, at + needle.length]);
+  }
+  return found;
+};
+
+/**
+ * The last `keep` bytes of `raw`, by raw offset, with every secret that reaches into them blanked whole (ADR-0047 §9's
+ * Status: no secret in the output). `raw` is the log's tail read with a margin of the longest secret's length before
+ * `keep`: a secret the read cut at its head lies wholly in the margin, and one the kept window cuts is found in full
+ * across it. A character the window cuts in two is dropped.
+ */
+export const tailWithoutSecrets = (raw: Uint8Array, options: { readonly keep: number; readonly secrets: ReadonlyArray<string> }): string => {
+  const start = Math.max(0, raw.length - options.keep);
+  const ranges = options.secrets
+    .filter((secret) => secret !== "")
+    .flatMap((secret) => occurrences(raw, utf8.encode(secret)))
+    .filter(([, end]) => end > start)
+    .sort((a, b) => a[0] - b[0]);
+  const parts: Array<Uint8Array> = [];
+  let at = start;
+  for (const [from, to] of ranges) {
+    if (to <= at) continue;
+    // A secret overlapping the one just blanked extends that mark: no byte of either shows.
+    if (from < at && parts.at(-1) === BLANKED) {
+      at = to;
+      continue;
+    }
+    if (from > at) parts.push(raw.subarray(at, from));
+    parts.push(BLANKED);
+    at = to;
+  }
+  parts.push(raw.subarray(at));
+  const joined = new Uint8Array(parts.reduce((total, part) => total + part.length, 0));
+  let offset = 0;
+  for (const part of parts) {
+    joined.set(part, offset);
+    offset += part.length;
+  }
+  // A blanked mark longer than the secret's kept part may overrun: cut to `keep` again, by byte offset.
+  const kept = joined.length > options.keep ? joined.subarray(joined.length - options.keep) : joined;
+  const text = new TextDecoder().decode(kept);
+  return start > 0 || kept !== joined ? text.replace(/^\uFFFD+/, "") : text;
+};
+
+/** The bytes of base64 `text` (the tail's answer). */
+const fromBase64 = (text: string): Uint8Array => Uint8Array.from(atob(text.replace(/\s/g, "")), (char) => char.charCodeAt(0));
+
+/** The wait before the retry after `failures` failures in a row: `SCHEDULE_RETRY_MS`, doubling, at most a day. */
+export const retryDelay = (failures: number): number => Math.min(DAY_MS, SCHEDULE_RETRY_MS * 2 ** Math.min(Math.max(1, failures) - 1, 5));
+
+/** A trigger's kind: a Rebuild (the Owner's or `rebuild_base`) runs at once; the rest wait out a failing key's backoff. */
+type Trigger = "rebuild" | "automatic" | "scheduled";
+
+const ENDED: ReadonlyArray<Build["phase"]> = ["ready", "failed", "canceled"];
+export const isRunning = (build: Build | undefined): build is Build & { readonly phase: BaseBuildPhase } => build !== undefined && !ENDED.includes(build.phase);
+
+const errorText = (error: unknown): string => String(error instanceof Error ? error.message : error).slice(0, BASE_BUILD_CAPS.message);
+
+export class BaseBuild {
+  readonly #deps: BaseBuildDeps;
+  readonly #runEnv: RunEnv;
+  /** This object instance: a snapshot call or a `monitor()` handler of another one never answers here. */
+  readonly #epoch: string;
+  /** One tick at a time: the alarm and an RPC may both drive the machine. */
+  #queue: Promise<unknown> = Promise.resolve();
+
+  constructor(deps: BaseBuildDeps, runEnv: RunEnv) {
+    this.#deps = deps;
+    this.#runEnv = runEnv;
+    this.#epoch = hex(deps.random(8));
+  }
+
+  #serial<T>(run: () => Promise<T>): Promise<T> {
+    const next = this.#queue.then(run, run);
+    this.#queue = next.catch(() => undefined);
+    return next;
+  }
+
+  // ── The record ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  /** The last good Base snapshot, unless it is gone: refused by the platform, or older than 29 days. */
+  #good(): BaseSnapshot | null {
+    const good = this.#deps.storage.get<KeptSnapshot>(BUILDER_KEYS.good);
+    if (good === undefined || good.gone === true || this.#deps.now() - good.builtAt > GOOD_FOR_MS) return null;
+    const { gone: _gone, ...snapshot } = good;
+    return snapshot;
+  }
+
+  record(): BaseBuildRecord {
+    const { storage, now } = this.#deps;
+    const current = storage.get<Current>(BUILDER_KEYS.current);
+    const build = storage.get<Build>(BUILDER_KEYS.build);
+    const good = this.#good();
+    const base = { key: current?.key ?? null, good, at: now() };
+    if (isRunning(build)) {
+      return { ...base, state: "building", phase: build.phase, since: build.startedAt, reason: build.reason, ...(build.waitingForBudget === true ? { waitingForBudget: true } : {}) };
+    }
+    if (current?.nothingToBuild === true) return { ...base, state: "none", nothingToBuild: true };
+    // The last build of these settings failed: shown, beside a good one still for them (a failed scheduled rebuild).
+    const failed = build?.phase === "failed" && build.key === current?.key && build.failure !== undefined && (good === null || build.startedAt >= good.builtAt) ? build.failure : undefined;
+    if (good !== null && good.key === current?.key) return { ...base, state: "ready", ...(failed === undefined ? {} : { failure: failed }) };
+    if (failed !== undefined) return { ...base, state: "failed", failure: failed };
+    return { ...base, state: "none" };
+  }
+
+  #report(): void {
+    this.#deps.report(this.record());
+  }
+
+  // ── Triggers ──────────────────────────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Reads the settings and builds their key when it has no Base snapshot (ADR-0047 §5): a settings change, an
+   * Environment boot, a start that found none. A build of another key under way is canceled. A key whose last build
+   * failed in the Image setup is not run again on its own (it would fail the same way), unless its Base snapshot once
+   * worked and is gone (expired or refused): `force` (Rebuild) runs it.
+   */
+  poke(reason: string, options: { readonly force?: boolean } = {}): Promise<BaseBuildRecord> {
+    return this.#serial(async () => {
+      await this.#settleLate();
+      await this.#poke(reason, options.force === true ? "rebuild" : "automatic");
+      await this.#tick();
+      return this.record();
+    });
+  }
+
+  /** A Workspace's start found the Base snapshot `id` refused (missing or expired): it is gone, and built again. */
+  refused(id: string, reason: string): Promise<BaseBuildRecord> {
+    return this.#serial(async () => {
+      const kept = this.#deps.storage.get<KeptSnapshot>(BUILDER_KEYS.good);
+      if (kept?.id === id) this.#deps.storage.put<KeptSnapshot>(BUILDER_KEYS.good, { ...kept, gone: true });
+      await this.#settleLate();
+      await this.#poke(reason, "automatic");
+      await this.#tick();
+      return this.record();
+    });
+  }
+
+  /** The alarm: the next step of the build under way, or the scheduled rebuild. */
+  alarm(): Promise<void> {
+    return this.#serial(() => this.#tick());
+  }
+
+  async #currentOf(inputs: BuilderInputs): Promise<Current> {
+    const { settings, image } = inputs;
+    const key = await baseKey(
+      {
+        imageDigest: image,
+        imageSetup: settings.imageSetup,
+        globalMiseConfig: settings.globalMiseConfig,
+        // As a Container start gets them (`variableEnv`): a name withheld from commands reaches no Image setup either.
+        variables: Object.entries(variableEnv(settings.variables)).map(([name, value]) => ({ name, value, secret: settings.variables.some((variable) => variable.name === name && variable.secret) })),
+      },
+      this.#hmacKey(),
+    );
+    return { key, nothingToBuild: settings.imageSetup === "" && settings.globalMiseConfig === "", rebuildEveryDays: settings.rebuildEveryDays, at: this.#deps.now() };
+  }
+
+  #hmacKey(): Uint8Array {
+    const { storage, random } = this.#deps;
+    let kept = storage.get<string>(BUILDER_KEYS.hmac);
+    if (kept === undefined) {
+      kept = hex(random(32));
+      storage.put(BUILDER_KEYS.hmac, kept);
+    }
+    return unhex(kept);
+  }
+
+  /** A late snapshot that has ended is proved or let go before a trigger looks at the record. */
+  async #settleLate(): Promise<void> {
+    const build = this.#deps.storage.get<Build>(BUILDER_KEYS.build);
+    if (build?.awaitingSnapshot !== true) return;
+    try {
+      await this.#lateSnapshot(build);
+    } catch (error) {
+      // The proof it went on to threw (a destroy the platform refused): the next alarm drives it, bounded by its limit.
+      this.#deps.log?.({ t3flare: "base-build-tick-failed", build: build.id, phase: "proving", error: errorText(error).slice(0, BASE_BUILD_CAPS.log) });
+      await this.#deps.setAlarm(this.#deps.now() + POLL_MS.proving);
+    }
+  }
+
+  /** The key's failures in a row. */
+  #failures(key: string): number {
+    const kept = this.#deps.storage.get<{ readonly key: string; readonly count: number }>(BUILDER_KEYS.failures);
+    return kept?.key === key ? kept.count : 0;
+  }
+
+  async #poke(reason: string, trigger: Trigger): Promise<void> {
+    const force = trigger !== "automatic";
+    const { storage } = this.#deps;
+    const inputs = await this.#deps.inputs();
+    const current = await this.#currentOf(inputs);
+    storage.put(BUILDER_KEYS.current, current);
+    const build = storage.get<Build>(BUILDER_KEYS.build);
+    if (isRunning(build)) {
+      // The same key under way: it goes on (a Rebuild of it included).
+      if (build.key === current.key && !current.nothingToBuild) return this.#report();
+      await this.#end(build, "canceled");
+    }
+    if (current.nothingToBuild) return this.#report();
+    const last = storage.get<Build>(BUILDER_KEYS.build);
+    // A late snapshot of these settings is still being taken: it is kept, and no trigger starts another build.
+    if (last?.awaitingSnapshot === true && last.key === current.key) return this.#report();
+    const good = this.#good();
+    if (!force && good !== null && good.key === current.key) return this.#report();
+    // The script failed for this key: not run again on its own, unless a Base snapshot of the key once worked and is gone.
+    const scriptFailed = last?.phase === "failed" && last.key === current.key && typeof last.failure?.exitCode === "number";
+    const workedOnce = storage.get<KeptSnapshot>(BUILDER_KEYS.good)?.key === current.key;
+    if (!force && scriptFailed && !workedOnce) return this.#report();
+    // A key that keeps failing waits out its backoff, whatever the trigger (the schedule included), but a Rebuild: a
+    // change of key is a new key, never waited on.
+    if (trigger !== "rebuild" && last?.phase === "failed" && last.key === current.key && this.#deps.now() < (last.endedAt ?? last.startedAt) + retryDelay(this.#failures(current.key))) {
+      return this.#report();
+    }
+    this.#begin(inputs, current.key, reason, trigger === "scheduled");
+  }
+
+  #begin(inputs: BuilderInputs, key: string, reason: string, scheduled: boolean): void {
+    const { storage, now, random } = this.#deps;
+    const { settings, image } = inputs;
+    const at = now();
+    const build: Build = {
+      id: hex(random(8)),
+      key,
+      image,
+      reason,
+      ...(scheduled ? { scheduled: true } : {}),
+      phase: "starting",
+      startedAt: at,
+      phaseAt: at,
+      instance: builderInstance(settings),
+      setupMs: settings.imageSetupMinutes * 60_000,
+      snapshotMs: settings.snapshotMinutes * 60_000,
+      outputBytes: outputBytesOf(settings),
+      inBudget: settings.builderInBudget,
+      budget: settings.containerBudget,
+      secrets: settings.variables.filter((variable) => variable.secret).map((variable) => variable.value),
+    };
+    storage.put(BUILDER_KEYS.build, build);
+    this.#deps.log?.({ t3flare: "base-build", build: build.id, phase: "starting", reason, key: key.slice(0, 12) });
+    this.#report();
+  }
+
+  // ── The machine ───────────────────────────────────────────────────────────────────────────────────────────────
+
+  async #tick(): Promise<void> {
+    const { storage, now, setAlarm } = this.#deps;
+    await this.#settleLate();
+    const live = storage.get<Build>(BUILDER_KEYS.build);
+    if (!isRunning(live)) {
+      if (await this.#armSchedule(live)) {
+        try {
+          await this.#poke("the scheduled rebuild", "scheduled");
+        } catch (error) {
+          this.#deps.log?.({ t3flare: "base-build-schedule-failed", error: errorText(error).slice(0, BASE_BUILD_CAPS.log) });
+          return setAlarm(now() + READ_RETRY_MS);
+        }
+        if (isRunning(storage.get<Build>(BUILDER_KEYS.build))) return this.#tick();
+        return;
+      }
+      if (live?.awaitingSnapshot === true) {
+        // Its Container still runs (the snapshot is taken on it): it keeps its place under the budget.
+        await this.#renewLease(live);
+        await setAlarm(now() + POLL_MS.snapshotting);
+      }
+      return;
+    }
+    try {
+      switch (live.phase) {
+        case "starting":
+          return await this.#starting(live);
+        case "running":
+          return await this.#running(live);
+        case "snapshotting":
+          return await this.#snapshotting(live);
+        case "proving":
+          return await this.#proving(live);
+      }
+    } catch (error) {
+      const message = errorText(error);
+      this.#deps.log?.({ t3flare: "base-build-tick-failed", build: live.id, phase: live.phase, error: message.slice(0, BASE_BUILD_CAPS.log) });
+      const now_ = storage.get<Build>(BUILDER_KEYS.build);
+      if (!isRunning(now_) || now_.id !== live.id) return setAlarm(now() + POLL_MS.starting);
+      const kept = this.#save(now_, { lastError: message });
+      // A step that keeps throwing ends at its time limit, never building forever.
+      const deadline = this.#deadlineOf(kept);
+      if (deadline !== undefined && now() > deadline) return this.#fail(kept, null, `the ${kept.phase} step kept failing until its time limit: ${message}`);
+      await setAlarm(now() + POLL_MS.starting);
+    }
+  }
+
+  /** When the step under way must have ended: the Image setup's limit, or the snapshot's (and the proof's). */
+  #deadlineOf(build: Build): number | undefined {
+    return build.phase === "starting" || build.phase === "running" ? build.setupDeadline : build.phaseAt + build.snapshotMs;
+  }
+
+  /**
+   * The scheduled rebuild (ADR-0047 §5): whether it is due now; when not, the alarm is set for when it is. It is due
+   * this many days after the last good one, and at the latest a day before that one expires; a failed attempt is retried
+   * on a backoff. The schedule is armed from the last good one after every build, failed ones included.
+   */
+  async #armSchedule(last: Build | undefined): Promise<boolean> {
+    const { storage, now, setAlarm } = this.#deps;
+    const current = storage.get<Current>(BUILDER_KEYS.current);
+    const good = this.#good();
+    if (current === undefined || current.rebuildEveryDays <= 0 || good === null || last?.awaitingSnapshot === true) return false;
+    const due = Math.min(good.builtAt + current.rebuildEveryDays * DAY_MS, good.builtAt + GOOD_FOR_MS - EXPIRY_MARGIN_MS);
+    let at = due;
+    // Tried since it fell due, and it did not end ready: again after a backoff.
+    if (last !== undefined && last.startedAt >= due && last.phase !== "ready") at = (last.endedAt ?? last.startedAt) + retryDelay(this.#failures(last.key));
+    if (now() < at) {
+      await setAlarm(at);
+      return false;
+    }
+    return true;
+  }
+
+  #save(build: Build, change: Partial<Build>): Build {
+    const next = { ...build, ...change } as Build;
+    this.#deps.storage.put(BUILDER_KEYS.build, next);
+    return next;
+  }
+
+  #phase(build: Build, phase: Build["phase"], change: Partial<Build> = {}): Build {
+    const next = this.#save(build, { ...change, phase, phaseAt: this.#deps.now() });
+    this.#deps.log?.({ t3flare: "base-build", build: build.id, phase });
+    this.#report();
+    return next;
+  }
+
+  /** A snapshot is being taken now, by this instance (one a reset left behind will never answer). */
+  #snapshotInFlight(): SnapshotCall | undefined {
+    const call = this.#deps.storage.get<SnapshotCall>(BUILDER_KEYS.snapshot);
+    return call !== undefined && call.result === undefined && call.epoch === this.#epoch ? call : undefined;
+  }
+
+  async #renewLease(build: Build): Promise<Build> {
+    if (!build.inBudget || build.leased !== true || this.#deps.now() - (build.leaseAt ?? 0) < LEASE_RENEW_MS) return build;
+    await this.#deps.lease.acquire(build.budget).catch(() => undefined);
+    return this.#save(build, { leaseAt: this.#deps.now() });
+  }
+
+  async #starting(build: Build): Promise<void> {
+    const { container, now, setAlarm } = this.#deps;
+    // A canceled build's snapshot is still being taken on this Container: the new build waits for it.
+    if (this.#snapshotInFlight() !== undefined) return setAlarm(now() + POLL_MS.snapshotting);
+    if (build.inBudget && build.leased !== true) {
+      const lease = await this.#deps.lease.acquire(build.budget).catch((error: unknown) => ({ ok: false, reason: String(error) }));
+      if (!lease.ok) {
+        if (build.waitingForBudget !== true) {
+          this.#save(build, { waitingForBudget: true });
+          this.#report();
+        }
+        return setAlarm(now() + BUDGET_RETRY_MS);
+      }
+      build = this.#save(build, { leased: true, leaseAt: now(), waitingForBudget: false });
+      this.#report();
+    }
+    build = await this.#renewLease(build);
+    // A Container a reset (or the platform) lost after its start, past a probe's time to come up: started again.
+    if (build.started === true && !container.running() && now() - (build.containerAt ?? 0) > PROBE_MS) build = this.#save(build, { started: false });
+    if (build.started !== true) {
+      // The Image setup's clock starts at the Container's first start, and is kept before the start, which may throw.
+      build = this.#save(build, { setupDeadline: build.setupDeadline ?? now() + build.setupMs });
+      if (now() > build.setupDeadline!) return this.#fail(build, null, this.#startLimit(build));
+      // A Container left from a canceled build, or from before a reset.
+      if (container.running()) await container.destroy().catch(() => undefined);
+      container.start({ from: { image: build.image }, entrypoint: ["sleep", "infinity"], instance: build.instance });
+      build = this.#save(build, { started: true, containerAt: now() });
+    }
+    if (now() > build.setupDeadline!) return this.#fail(build, null, this.#startLimit(build));
+    const ready = await container.exec(["true"], { timeoutMs: PROBE_MS }).then(
+      (answer) => answer.exitCode === 0,
+      () => false,
+    );
+    if (!ready) return setAlarm(now() + POLL_MS.starting);
+    // The settings again, now that the Container is up: one that moved since the build began is a new key.
+    const inputs = await this.#deps.inputs();
+    const current = await this.#currentOf(inputs);
+    if (current.key !== build.key) {
+      this.#deps.storage.put(BUILDER_KEYS.current, current);
+      await this.#end(build, "canceled");
+      if (!current.nothingToBuild) this.#begin(inputs, current.key, build.reason, false);
+      return setAlarm(now() + POLL_MS.starting);
+    }
+    const { settings } = inputs;
+    const write = async (path: string, text: string) => {
+      const answer = await container.exec(["bash", "-c", WRITE_SCRIPT, "t3flare-builder", path], { stdin: text, timeoutMs: PROBE_MS });
+      if (answer.exitCode !== 0) throw new Error(`writing ${path} exited ${String(answer.exitCode)}`);
+    };
+    await write(BUILDER_FILES.setup, settings.imageSetup);
+    await write(BUILDER_FILES.mise, settings.globalMiseConfig);
+    await write(BUILDER_FILES.laydown, LAYDOWN_SCRIPT);
+    await write(BUILDER_FILES.run, RUN_SCRIPT);
+    const mise = await sha256Hex(settings.globalMiseConfig);
+    // Every Variable, then COMMAND_ENV, then HOME=/root (ADR-0047's preamble): what a Container's commands get.
+    const env = { ...variableEnv(settings.variables), ...this.#runEnv.commandEnv, HOME: "/root" };
+    const launched = await container.exec(["bash", "-c", LAUNCH_SCRIPT, "t3flare-builder", String(settings.revision), mise, "environment"], { env, timeoutMs: PROBE_MS });
+    if (launched.exitCode !== 0) throw new Error(`the run's launch exited ${String(launched.exitCode)}`);
+    this.#phase(build, "running");
+    await setAlarm(now() + POLL_MS.running);
+  }
+
+  #startLimit(build: Build): string {
+    return `the Builder's Container did not start within the Image setup's time limit (${Math.round(build.setupMs / 60_000)} min)${build.lastError === undefined ? "" : `: ${build.lastError}`}`;
+  }
+
+  async #running(build: Build): Promise<void> {
+    const { container, now, setAlarm } = this.#deps;
+    build = await this.#renewLease(build);
+    const answer = await container.exec(["bash", "-c", EXIT_SCRIPT], { timeoutMs: PROBE_MS }).catch(() => undefined);
+    const code = answer === undefined ? Number.NaN : Number.parseInt(answer.stdout.trim(), 10);
+    if (Number.isInteger(code)) {
+      if (code !== 0) return this.#fail(build, code, `the Image setup exited ${code}`);
+      this.#snapshot(this.#phase(build, "snapshotting"));
+      return setAlarm(now() + POLL_MS.snapshotting);
+    }
+    if (answer === undefined && !container.running()) return this.#fail(build, null, "the Builder's Container stopped while the Image setup ran");
+    if (build.setupDeadline !== undefined && now() > build.setupDeadline) return this.#fail(build, null, `the Image setup ran past its time limit (${Math.round(build.setupMs / 60_000)} min)`);
+    await setAlarm(now() + POLL_MS.running);
+  }
+
+  /** Takes the snapshot in the background and records how it ended; the alarm reads it (`#snapshotting`). */
+  #snapshot(build: Build): void {
+    const { storage, container } = this.#deps;
+    const call: SnapshotCall = { build: build.id, epoch: this.#epoch };
+    storage.put(BUILDER_KEYS.snapshot, call);
+    const done = (result: NonNullable<SnapshotCall["result"]>) => {
+      if (storage.get<SnapshotCall>(BUILDER_KEYS.snapshot)?.build === build.id) storage.put(BUILDER_KEYS.snapshot, { ...call, result });
+      void this.#deps.setAlarm(this.#deps.now()).catch(() => undefined);
+    };
+    this.#deps.waitUntil(
+      container.snapshot(`t3flare-base-${build.key.slice(0, 12)}-${build.id}`).then(
+        (snapshot) => done({ ok: true, id: snapshot.id, size: snapshot.size }),
+        (error: unknown) => done({ ok: false, error: errorText(error) }),
+      ),
+    );
+  }
+
+  async #snapshotting(build: Build): Promise<void> {
+    const { storage, container, now, setAlarm } = this.#deps;
+    build = await this.#renewLease(build);
+    const call = storage.get<SnapshotCall>(BUILDER_KEYS.snapshot);
+    if (call?.build === build.id && call.result !== undefined) {
+      if (!call.result.ok) {
+        storage.delete(BUILDER_KEYS.snapshot);
+        return this.#fail(build, null, `the snapshot failed: ${call.result.error}`);
+      }
+      // Kept in the build before the call is let go, so a failure after this never loses the snapshot's id.
+      await this.#prove(build, { id: call.result.id, size: call.result.size });
+      storage.delete(BUILDER_KEYS.snapshot);
+      return;
+    }
+    if (this.#snapshotInFlight() === undefined) {
+      // A reset lost the call (its result will never come here): taken again while the Container still runs.
+      if (!container.running()) return this.#fail(build, null, "the Builder's Container stopped before its snapshot was taken");
+      this.#snapshot(build);
+      return setAlarm(now() + POLL_MS.snapshotting);
+    }
+    if (now() - build.phaseAt > build.snapshotMs) {
+      // Reported failed, but never abandoned: the Container waits for the result, kept if its key is still current.
+      return this.#fail(build, null, `the snapshot took longer than ${Math.round(build.snapshotMs / 60_000)} min`, { awaitingSnapshot: true });
+    }
+    await setAlarm(now() + POLL_MS.snapshotting);
+  }
+
+  /** A snapshot that ended after its build failed or was canceled: proved if its key is still current, else let go. */
+  async #lateSnapshot(build: Build): Promise<void> {
+    const { storage, container } = this.#deps;
+    const call = storage.get<SnapshotCall>(BUILDER_KEYS.snapshot);
+    if (call?.build === build.id && call.result === undefined && call.epoch === this.#epoch) return;
+    storage.delete(BUILDER_KEYS.snapshot);
+    const result = call?.build === build.id ? call.result : undefined;
+    const current = storage.get<Current>(BUILDER_KEYS.current);
+    const someoneElse = isRunning(storage.get<Build>(BUILDER_KEYS.build)) && storage.get<Build>(BUILDER_KEYS.build)?.id !== build.id;
+    if (result?.ok === true && build.phase === "failed" && current?.key === build.key && !someoneElse) {
+      this.#deps.log?.({ t3flare: "base-build-late-snapshot", build: build.id });
+      // The failure goes: the build goes on to its proof.
+      const { failure: _failure, ...kept } = build;
+      return this.#prove(this.#save(kept as Build, { awaitingSnapshot: false }), { id: result.id, size: result.size });
+    }
+    this.#save(build, { awaitingSnapshot: false, secrets: [], secretsCleared: true });
+    if (!someoneElse && container.running()) await container.destroy().catch(() => undefined);
+    if (!someoneElse) await this.#release(build);
+  }
+
+  /** The candidate is taken: the proof starts from it (`#proving`). */
+  async #prove(build: Build, snapshot: { readonly id: string; readonly size: number }): Promise<void> {
+    this.#deps.storage.delete(BUILDER_KEYS.refused);
+    await this.#proving(this.#phase(build, "proving", { snapshot, provingStarted: false }));
+  }
+
+  /** Records a refused start from the candidate when `monitor()` rejects (within a second of the start). */
+  #watchProof(build: Build): void {
+    const { storage, container, now, setAlarm } = this.#deps;
+    container.monitor().catch((error: unknown) => {
+      const kept = storage.get<Build>(BUILDER_KEYS.build);
+      if (kept?.id === build.id && kept.phase === "proving") {
+        storage.put(BUILDER_KEYS.refused, { build: build.id, message: errorText(error) });
+        void setAlarm(now()).catch(() => undefined);
+      }
+    });
+  }
+
+  async #proving(build: Build): Promise<void> {
+    const { container, storage, now, setAlarm } = this.#deps;
+    build = await this.#renewLease(build);
+    if (build.provingStarted !== true && build.snapshot !== undefined) {
+      if (container.running()) await container.destroy();
+      container.start({ from: { snapshot: build.snapshot.id }, instance: build.instance });
+      const proving = this.#save(build, { provingStarted: true, provingEpoch: this.#epoch, containerAt: now() });
+      this.#watchProof(proving);
+      return setAlarm(now() + POLL_MS.proving);
+    }
+    const refused = storage.get<{ readonly build: string; readonly message: string }>(BUILDER_KEYS.refused);
+    if (refused?.build === build.id) {
+      storage.delete(BUILDER_KEYS.refused);
+      return this.#fail(build, null, `a start from the snapshot failed: ${refused.message}`);
+    }
+    if (build.provingEpoch !== this.#epoch) {
+      // A reset took the `monitor()` handler with the old instance: a start that is not running is not waited for.
+      if (!container.running()) return this.#fail(build, null, "a start from the snapshot was not running after the Builder was reset");
+      this.#watchProof(this.#save(build, { provingEpoch: this.#epoch }));
+    }
+    const proved = await container.exec(["bash", "-c", PROOF_SCRIPT], { timeoutMs: PROBE_MS }).then(
+      (answer) => answer.exitCode === 0,
+      () => false,
+    );
+    if (proved && build.snapshot !== undefined) {
+      const at = now();
+      const good: BaseSnapshot = { id: build.snapshot.id, size: build.snapshot.size, key: build.key, imageDigest: build.image, builtAt: at, tookMs: at - build.startedAt };
+      storage.put(BUILDER_KEYS.good, good);
+      this.#deps.log?.({ t3flare: "base-build-ready", build: build.id, size: good.size, tookMs: good.tookMs });
+      return this.#end(build, "ready");
+    }
+    if (now() - build.phaseAt > build.snapshotMs) return this.#fail(build, null, `a start from the snapshot did not run computerd within ${Math.round(build.snapshotMs / 60_000)} min`);
+    await setAlarm(now() + POLL_MS.proving);
+  }
+
+  async #fail(build: Build, exitCode: number | null, message: string, change: Partial<Build> = {}): Promise<void> {
+    const { container, now } = this.#deps;
+    let output = "";
+    // The secrets are cleared only once a build is over; a build that has none of them kept shows no output at all.
+    if (container.running() && build.secretsCleared !== true) {
+      // The kept bytes and a margin of the longest secret, so one the window cuts at its head is still blanked whole.
+      const margin = Math.max(0, ...build.secrets.map((secret) => utf8.encode(secret).length));
+      const tail = await container.exec(["bash", "-c", TAIL_SCRIPT, "t3flare-builder", String(build.outputBytes + margin)], { timeoutMs: PROBE_MS }).catch(() => undefined);
+      output = tailWithoutSecrets(fromBase64(tail?.stdout ?? ""), { keep: build.outputBytes, secrets: build.secrets });
+    }
+    const failure: BaseBuildFailure = { at: now(), phase: build.phase as BaseBuildPhase, exitCode, message: message.slice(0, BASE_BUILD_CAPS.message), output };
+    this.#deps.log?.({ t3flare: "base-build-failed", build: build.id, phase: build.phase, exitCode, message: message.slice(0, BASE_BUILD_CAPS.log) });
+    await this.#end(this.#save(build, { ...change, failure }), "failed");
+  }
+
+  /**
+   * Ends `build`: its opened secrets cleared, its Container destroyed (unless a snapshot is still being taken on it), its
+   * lease released, and the schedule armed from the last good Base snapshot.
+   */
+  async #end(build: Build, phase: "ready" | "failed" | "canceled"): Promise<void> {
+    const { container, storage, now, setAlarm } = this.#deps;
+    const snapshotting = build.awaitingSnapshot === true || (build.phase === "snapshotting" && this.#snapshotInFlight()?.build === build.id);
+    const ended = this.#save(build, { phase, endedAt: now(), ...(snapshotting ? { awaitingSnapshot: true } : { secrets: [], secretsCleared: true }) });
+    if (phase === "ready") storage.delete(BUILDER_KEYS.failures);
+    else if (phase === "failed") storage.put(BUILDER_KEYS.failures, { key: build.key, count: this.#failures(build.key) + 1 });
+    if (!snapshotting) {
+      if (container.running()) await container.destroy().catch(() => undefined);
+      await this.#release(ended);
+    }
+    this.#deps.log?.({ t3flare: "base-build", build: build.id, phase });
+    this.#report();
+    if (snapshotting) await setAlarm(now() + POLL_MS.snapshotting);
+    else if (await this.#armSchedule(ended)) await setAlarm(now());
+  }
+
+  async #release(build: Build): Promise<void> {
+    if (build.leased !== true) return;
+    await this.#deps.lease.release().catch(() => undefined);
+    this.#save(build, { leased: false });
+  }
+}

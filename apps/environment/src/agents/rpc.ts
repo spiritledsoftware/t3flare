@@ -1,6 +1,6 @@
 // The environment Worker's view of the agents Worker's Durable Objects (ADR-0014): their RPC methods, typed here so
 // this Worker never imports the agents Worker's code (which is typed against the Workers globals, not Node's).
-import type { ContainerInstance } from "@t3flare/harness-registry";
+import type { BaseBuildRecord, ContainerInstance } from "@t3flare/harness-registry";
 import type { EndpointTextAnswer, EndpointTextRequest } from "@t3flare/models/endpoints";
 import type { PortScan } from "@t3flare/sandbox-image/ports";
 import type { CliAgent, PromptTemplate, SkillDiscovery } from "@t3flare/skills";
@@ -93,6 +93,10 @@ export interface WorkspaceRpc {
     readonly launch: { readonly size: string; readonly instance: ContainerInstance; readonly idleMs: number; readonly budget?: number; readonly revision: number } | null;
   }>;
   stopContainer(): Promise<void>;
+  /** The Builder's (SPI-1332): the Base snapshot's record, a trigger, the Owner's or an agent's Rebuild. */
+  builderRecord(): Promise<BaseBuildRecord>;
+  builderPoke(input: { readonly reason: string }): Promise<BaseBuildRecord>;
+  builderRebuild(input: { readonly reason: string }): Promise<BaseBuildRecord>;
   /** A tombstone: no later start, a start under way waited out, then stopped and released; throws if it still runs. */
   closeContainer(): Promise<{ readonly stopped: true }>;
   /** A tombstone restored: its Container may start again. */

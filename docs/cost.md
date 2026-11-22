@@ -65,6 +65,22 @@ What moves the total:
   running `npm ci && npm test`, so each counts twice against a Workspace's 4 CLI processes (`CLI_WEIGHT`). An
   `acp-request` log line (Environment Worker) records each session's `initialize`, `session/new` and `session/load`.
 
+## Base snapshots (SPI-1332, ADR-0047)
+
+- **Each Base build is a Container while it runs.** The Builder starts one at the Builder size (the Container size by
+  default) for the Image setup, the Container snapshot and the start that proves it, then destroys it: priced as any Container
+  for those minutes. It runs beside the Container budget unless the Owner sets it to count against it. A build starts
+  on a change to the Image setup, the Global mise config or the Variables, at each deploy whose image or settings
+  changed the key, on a Rebuild, and on the scheduled rebuild when the Owner sets one; with no Image setup and no
+  Global mise config there is nothing to build.
+- **Container snapshots cannot be listed or deleted.** Each Base build, each Test base build and a destroyed Stage leave
+  theirs to expire 30 days after their creation or last restore. A Container snapshot holds only the changes over the
+  image (34.5 MB for one apt package on the spike, 33.5 MB on a Stage).
+- **Price.** Container snapshots are a public beta: free during it, the price after it unannounced. When Cloudflare
+  prices them, count a Container snapshot per Base build for 30 days.
+- **`base-build`, `base-build-ready`, `base-build-failed`** (agents Worker logs): each phase of a build, its size and time
+  taken (`tookMs`) when ready.
+
 ## When to act
 
 - **Right-size the Container from 3 GiB to 2 GiB (audit F3)** once at least ~20 idle stops are logged and the p95 of

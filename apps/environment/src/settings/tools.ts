@@ -122,7 +122,7 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
   {
     name: "get_status",
     class: "read",
-    description: "The Settings page's Status (which revisions Sessions and Workspaces took, skills), the Settings server's access switch, and this caller's open changes.",
+    description: "The Settings page's Status (which revisions Sessions and Workspaces took, skills, the Base snapshot), the Base snapshot's record (baseSnapshot: its state, a failed build's output), the Settings server's access switch, and this caller's open changes.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
@@ -264,6 +264,13 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
       },
       additionalProperties: false,
     },
+  },
+  {
+    name: "rebuild_base",
+    class: "write",
+    description:
+      "Asks the Builder to build the Base snapshot again from the saved Environment settings (the Image setup, the Global mise config, the Variables), as the Settings page's Rebuild does. Free; a build under way goes on. get_status shows its state as baseSnapshot. A change to those settings, and each deploy, builds a new one on its own.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "purge_workspace",

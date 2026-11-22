@@ -515,4 +515,5 @@ export { isDeniedT3Tool, T3_TOOL_DENYLIST } from "./t3Tools.ts";
 export { descriptionFor, guidanceFor, toolLikeNamesIn } from "./t3Guidance.ts";
 export * from "./globalMise.ts";
 export * from "./containerSetup.ts";
+export * from "./baseBuild.ts";
 export * from "./tiers.ts";
