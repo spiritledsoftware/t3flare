@@ -171,3 +171,14 @@ was a built-in kind; this refinement follows the SPI-1160 refinement above).
    has Executor's shape, so a host with this rule hides its `resume` and asks its own owner.
 6. **Its card is the host's own.** The SPI-1079 rule that a page on the t3 host is declined unseen governs other
    servers' questions; the Settings server's card links to the panel's Change page.
+
+## Refinement (SPI-1316, 2026-11-23): the Answer wait sets the question wait and the CLI tool timeout
+
+The "up to 10 minutes" a question waits (the CLI card's `CLI_ASK_MS`) and the "900 s" CLI tool timeout above are no
+longer fixed. A question, and a CLI agent's tool approval, waits the Answer wait, an Environment setting
+(`ownerAnswerMinutes`, 10 by default;
+[ADR-0032](0032-environment-settings-and-harness-settings-are-separate-entities-edited-on-one-owner-page.md)'s SPI-1316
+refinement). A CLI process's MCP tool timeout is made from the wait at its spawn, `cliToolTimeoutSec(wait) = 2 × wait +
+300 s` (1,500 s at the default), so an approval card and an in-call question, each up to the wait, fit with a call. The
+process keeps that wait for its relay cards for its life: the Workspace DO passes the calling process's key with each
+relay message, and the Environment DO reads the wait the process was started with.

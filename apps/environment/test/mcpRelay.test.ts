@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import type { McpView } from "../src/mcp/host.ts";
 import { relayMessage, type RelayDeps } from "../src/mcp/relay.ts";
 import { codexRelayOverrides, profileLaunch } from "../src/agents/cliProfiles.ts";
-import { noteCliSpawnWait } from "../src/provider/cli/cliAsk.ts";
+import { bindEnvironmentServices, type EnvironmentServices } from "../src/agents/bindings.ts";
 
 const tool = (
   upstream: string,
@@ -118,19 +118,12 @@ describe("the relay's MCP server", () => {
       );
       return (answer as { body: { result: { instructions: string } } }).body.result.instructions;
     };
-    const waits: Array<string> = [];
-    const at30 = await instructions({
-      ...harness().deps,
-      answerMs: (thread) => {
-        waits.push(thread);
-        return 30 * 60_000;
-      },
-    });
-    expect(waits).toEqual(["thread-1"]);
+    const at30 = await instructions({ ...harness().deps, answerMs: () => 30 * 60_000 });
     expect(at30).toContain("(at most 30 minutes, one at a time per thread)");
-    // Without the dep, the thread's CLI process's spawn-time wait (`cliAnswerMs`).
-    noteCliSpawnWait("thread-1", 60_000);
+    // Without the dep, the wait now.
+    bindEnvironmentServices({ ownerAnswerMs: () => 60_000 } as unknown as EnvironmentServices);
     expect(await instructions(harness().deps)).toContain("(at most a minute, one at a time per thread)");
+    bindEnvironmentServices(undefined as unknown as EnvironmentServices);
   });
 
   it("answers initialize with the client's protocol version and only tools", async () => {

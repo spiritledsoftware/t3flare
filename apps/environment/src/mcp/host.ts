@@ -35,7 +35,7 @@ import {
 import type { McpAsker, McpQuestionAnswer } from "@t3flare/session-protocol";
 import { sha256Hex } from "@t3flare/skills";
 
-import { ownerAnswerMsNow } from "../agents/bindings.ts";
+import { askerWaitMs } from "../agents/bindings.ts";
 import type { KvStorage } from "../harness/keys.ts";
 import { OFF_MESSAGE, type OwnCaller } from "../settings/caller.ts";
 import { settingsDefinitions } from "../settings/tools.ts";
@@ -154,7 +154,8 @@ export interface McpHostDeps {
   readonly ownHost?: () => string | undefined;
   /**
    * How long a server's question waits for the owner, in ms, read when a call starts or a pause is raised: the Answer
-   * wait (SPI-1316). An asker that names its own wait (a CLI process's spawn-time one) wins. Default: `ownerAnswerMsNow`.
+   * wait (SPI-1316). An asker that names its own wait (a CLI process's spawn-time one) wins. Default:
+   * `ownerAnswerMsNow`.
    */
   readonly questionWaitMs?: () => number;
   /**
@@ -186,7 +187,7 @@ export class McpHost {
 
   /** How long `asker`'s cards wait (SPI-1316): its own wait, or the Answer wait now. */
   #waitOf(asker: McpAsker): number {
-    return asker.waitMs ?? (this.#deps.questionWaitMs ?? ownerAnswerMsNow)();
+    return askerWaitMs(asker, this.#deps.questionWaitMs);
   }
 
   servers(): Readonly<Record<string, McpServerSetting>> {

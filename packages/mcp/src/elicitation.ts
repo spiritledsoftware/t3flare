@@ -26,7 +26,8 @@ import { isJsonObject, JsonObject } from "./json.ts";
 
 /**
  * How long a Legacy elicitation waits for the owner, from the ask, when the caller passes no `ctx.answers.inputWaitMs`:
- * this library's default, 10 minutes. t3flare's MCP host always passes the Answer wait (`ownerAnswerMinutes`, SPI-1316).
+ * this library's default, 10 minutes. t3flare's MCP host always passes the Answer wait (`ownerAnswerMinutes`,
+ * SPI-1316).
  */
 export const MCP_ELICITATION_WAIT_MS = 10 * 60 * 1000;
 

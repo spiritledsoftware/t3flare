@@ -5,7 +5,7 @@
 //
 // Kept in storage, not memory: the Environment resets after about 60 s idle (ADR-0003), which can fall between the ask
 // and the owner's click. Rows expire and are pruned lazily, on every read and write of the table: an open row past its
-// `expiresAt` closes as `expired`, and a closed row goes `closedKeptMs` after it closed (the longest a cap looks back:
+// `expiresAt` closes as `expired`, and a closed row goes `keptMs` after it closed (the longest a cap looks back:
 // a run of strikes and the lock after its last). No alarm is added (ADR-0003: one alarm).
 import type { SqlStorage } from "@cloudflare/workers-types/index.ts";
 import { DEFAULT_OWNER_ANSWER_MS, withoutQuery } from "@t3flare/harness-registry";
@@ -30,18 +30,23 @@ export const STRIKE_LOCK_MS = 60 * 60_000;
 const STRIKE_RUN_SLACK_MS = 5 * 60_000;
 
 /**
- * How far apart a run of strikes may fall (SPI-1316), for the Answer wait `answerMs`: `STRIKE_WINDOW_MS`, or more when
- * the wait is long. One Open change per thread means its unanswered strikes come at least a wait apart, so a run of
- * expiries spans `STRIKES - 1` waits; a fixed window would never see one past a 30-minute wait.
+ * How far apart a run of strikes may fall (SPI-1316), for the longest Answer wait `answerMs` among the run's changes:
+ * `STRIKE_WINDOW_MS`, or more when the wait is long. One Open change per thread means its unanswered strikes come at
+ * least a wait apart, so a run of expiries spans `STRIKES - 1` waits; a fixed window would never see one past a
+ * 30-minute wait.
  */
 export const strikeWindowMs = (answerMs: number): number =>
   Math.max(STRIKE_WINDOW_MS, (STRIKES - 1) * answerMs + STRIKE_RUN_SLACK_MS);
 
 /**
  * How long a closed row is kept: the longest a cap looks back, a run of strikes and the lock after it (plan D16), for
- * the Answer wait `answerMs`. Two hours at the default.
+ * the longest Answer wait `answerMs` a run may have. Two hours at the default.
  */
 export const closedKeptMs = (answerMs: number): number => strikeWindowMs(answerMs) + STRIKE_LOCK_MS;
+
+/** The wait a change took when it opened (SPI-1316): its own deadline less its start; none for a free change. */
+export const waitOf = (record: Pick<ChangeRecord, "createdAt" | "expiresAt">): number =>
+  (record.expiresAt ?? record.createdAt) - record.createdAt;
 
 /** A duration as the texts name it: "10 minutes", "an hour", "2 hours". */
 export const durationText = (ms: number): string => {
@@ -176,8 +181,13 @@ export interface SettingsChanges {
   noteRead(key: string, kind: "read" | "network", at: number): void;
   /** Reads by `key` since `since`: every read for `read`, those that reach the network for `network`. */
   readsSince(key: string, kind: "read" | "network", since: number): number;
-  /** The Answer wait now (SPI-1316), in ms: the strike window and the rows' keeping follow it. */
+  /** The Answer wait now (SPI-1316), in ms. */
   answerMs(): number;
+  /**
+   * How long a closed row is kept (SPI-1316): `closedKeptMs` of the longest wait a run may have, the wait now or the
+   * longest any kept change took (a CLI agent's change takes the wait its process was spawned with).
+   */
+  keptMs(): number;
 }
 
 /**
@@ -228,8 +238,8 @@ export const closedLine = (record: ChangeRecord): Record<string, unknown> => ({
 
 /**
  * The table over `sql`. `log` gets the line of each change the table itself closes (an expiry, or an apply the
- * Environment's restart cut off), since no answerer is there to write it. `answerMs` is the Answer wait now (SPI-1316):
- * a closed row is kept `closedKeptMs` of it.
+ * Environment's restart cut off), since no answerer is there to write it. `answerMs` is the Answer wait now (SPI-1316),
+ * which a closed row's keeping covers (`keptMs`).
  */
 export const settingsChanges = (
   sql: Pick<SqlStorage, "exec">,
@@ -257,7 +267,17 @@ export const settingsChanges = (
         const record = parse(row.record);
         return record === undefined ? [] : [record];
       });
-  /** Creates the table once, closes what has expired, and prunes what closed over `closedKeptMs` ago. */
+  /** The longest wait a kept change took, or the wait now, whichever is longer (SPI-1316). */
+  const longestWait = (): number => {
+    const row = sql
+      .exec<{ longest: number | null }>(
+        `SELECT MAX(json_extract(record, '$.expiresAt') - created_at) AS longest FROM ${CHANGES_TABLE}`,
+      )
+      .toArray()[0];
+    return Math.max(answerMs(), Number(row?.longest ?? 0));
+  };
+  const keptMs = (): number => closedKeptMs(longestWait());
+  /** Creates the table once, closes what has expired, and prunes what closed over `keptMs` ago. */
   const prepare = () => {
     if (!ready) {
       sql.exec(
@@ -292,10 +312,7 @@ export const settingsChanges = (
       write(closed);
       log?.(closedLine(closed));
     }
-    sql.exec(
-      `DELETE FROM ${CHANGES_TABLE} WHERE closed_at IS NOT NULL AND closed_at < ?`,
-      at - closedKeptMs(answerMs()),
-    );
+    sql.exec(`DELETE FROM ${CHANGES_TABLE} WHERE closed_at IS NOT NULL AND closed_at < ?`, at - keptMs());
     sql.exec(`DELETE FROM ${READS_TABLE} WHERE at < ?`, at - READ_WINDOW_MS);
   };
   return {
@@ -348,6 +365,10 @@ export const settingsChanges = (
       sql.exec(`INSERT INTO ${READS_TABLE} (caller_key, kind, at) VALUES (?, ?, ?)`, key, kind, at);
     },
     answerMs,
+    keptMs: () => {
+      prepare();
+      return keptMs();
+    },
     readsSince: (key, kind, since) => {
       prepare();
       const row = sql

@@ -33,6 +33,7 @@ import {
   ENVIRONMENT_SETTINGS,
   EXTENSIONS,
   ignoredServersOf,
+  ownerAnswerMsOf,
   readStoredEnvironment,
   resolveEnvironment,
   resolveHarness,
@@ -360,7 +361,7 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
       const record = isChangeId(id) ? deps.changes.get(id) : undefined;
       const html =
         record === undefined || record.tier !== "asked"
-          ? renderGonePage(csrf, resolveEnvironment(deps.store.loadEnvironment()).ownerAnswerMinutes * 60_000)
+          ? renderGonePage(csrf, ownerAnswerMsOf(resolveEnvironment(deps.store.loadEnvironment())))
           : renderChangePage(record, {
               csrf,
               now: deps.now?.() ?? Date.now(),

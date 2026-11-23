@@ -19,7 +19,6 @@ import { scratchProjectOf } from "./scratch.ts";
 import { type ChannelProcess, type ChannelStart, ProcessRefused } from "./processChannel.ts";
 import { type CliName, profileLaunch } from "./cliProfiles.ts";
 import { CliSpawn } from "../provider/cli/wrapper.ts";
-import { noteCliSpawnWait } from "../provider/cli/cliAsk.ts";
 import { takeEnvironmentSkillsAt } from "../provider/cli/environmentSkillsTake.ts";
 import { claudeRelayOf } from "../provider/cli/claudeEndpoints.ts";
 import { opencodeRelayOf } from "../provider/cli/opencodeEndpoints.ts";
@@ -166,7 +165,8 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
     // ADR-0028: the process's tool handle for the relay's third-party servers (the session's; pi spawns outside the
     // session's fiber and gets one of its own).
     const toolHandle = session?.toolHandle ?? newHandle();
-    // SPI-1316: the Answer wait at the spawn sets the process's MCP tool timeout, and bounds its relay cards for its life.
+    // SPI-1316: the Answer wait at the spawn sets the process's MCP tool timeout, and bounds its relay cards for its
+    // life.
     const answerMs = ownerAnswerMsNow();
     const launch = profileLaunch(
       {
@@ -230,6 +230,8 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
           : {}),
       toolHandle,
       ...(launch.modelRelay === undefined ? {} : { modelRelay: launch.modelRelay }),
+      // SPI-1316: its relay cards wait as long as its MCP tool timeout allows, for its life.
+      answerMs,
     };
     // SPI-1153: the Workspace takes the Environment skill set first, so a CLI that reads its Skills at start (through
     // its link, or pi's flag) reads the current set. Bounded, and never the spawn's failure.
@@ -245,8 +247,6 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
       (running: ChannelProcess) => Effect.sync(() => running.kill()),
     );
     if (session !== undefined) session.process = process;
-    // SPI-1316: the thread's relay cards wait as long as this process's MCP tool timeout allows, for its life.
-    if (start.thread !== undefined) noteCliSpawnWait(start.thread, answerMs);
     const stdin = command.options.stdin;
     const endOnDone =
       typeof stdin === "object" && stdin !== null && "endOnDone" in stdin ? stdin.endOnDone !== false : true;

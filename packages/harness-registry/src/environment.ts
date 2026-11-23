@@ -100,6 +100,10 @@ export const DEFAULT_OWNER_ANSWER_MINUTES = 10;
  */
 export const DEFAULT_OWNER_ANSWER_MS = DEFAULT_OWNER_ANSWER_MINUTES * 60_000;
 
+/** The Answer wait of resolved Environment settings, in ms (SPI-1316). */
+export const ownerAnswerMsOf = (environment: { readonly ownerAnswerMinutes: number }): number =>
+  environment.ownerAnswerMinutes * 60_000;
+
 /** The largest Global mise config, in bytes of UTF-8. */
 export const MAX_GLOBAL_MISE_BYTES = 16 * 1024;
 
@@ -169,8 +173,8 @@ export const SWEEP_SETTING_KEYS = ["sweepPurges", "graceDays"] as const;
 
 /**
  * The agents' settings (SPI-1315): how long a turn may run, how long a card waits for the Owner's answer (SPI-1316),
- * and the CLI agents' processes per Workspace and their reclaim delay. They bound agents, not a Container start, so the Settings page shows them in an Agents row of their
- * own, in this order.
+ * and the CLI agents' processes per Workspace and their reclaim delay. They bound agents, not a Container start, so the
+ * Settings page shows them in an Agents row of their own, in this order.
  */
 export const AGENT_SETTING_KEYS = [
   "turnLimitMinutes",

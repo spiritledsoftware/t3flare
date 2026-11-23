@@ -137,6 +137,8 @@ export class ChannelProcess {
   readonly pid: number;
   readonly place: ProcessPlace;
   readonly cli: ProcessCli;
+  /** The Answer wait it was spawned with (`ChannelStart.answerMs`, SPI-1316). */
+  answerMs: number | undefined;
   readonly stdout = new ByteQueue(QUEUE_BYTES, "wait");
   readonly stderr = new ByteQueue(QUEUE_BYTES, "drop-oldest");
   readonly exit: Promise<number>;
@@ -318,6 +320,11 @@ export interface ChannelStart {
   readonly modelRelay?: ReadonlyArray<string>;
   /** Made by the caller when it needs the key before the start (the profile's per-process home). */
   readonly key?: string;
+  /**
+   * The Answer wait the process is spawned with, in ms (SPI-1316): its MCP tool timeout was made from it, so its relay
+   * cards wait that long for its life. Absent: they wait the wait now.
+   */
+  readonly answerMs?: number;
 }
 
 /** Every CLI process of this Environment DO instance: the spawner's state, and its Workspaces' readers. */
@@ -353,6 +360,11 @@ export class ProcessChannel {
     return process === undefined ? undefined : { workspace: process.place.workspace, thread: this.#threads.get(key) };
   }
 
+  /** The Answer wait a live process was spawned with (SPI-1316), by its key; undefined once gone or without one. */
+  answerMsOf(key: string): number | undefined {
+    return this.#byKey.get(key)?.answerMs;
+  }
+
   /** Where `cwd` runs, or undefined (no Workspace: the caller refuses). */
   placeOf(cwd: string): ProcessPlace | undefined {
     return this.#deps.place(cwd);
@@ -367,6 +379,7 @@ export class ProcessChannel {
       );
     const key = input.key ?? this.#deps.newKey();
     const process = new ChannelProcess(this, this.#nextPid++, key, place, input.cli);
+    process.answerMs = input.answerMs;
     this.#byKey.set(key, process);
     if (input.thread !== undefined) this.#threads.set(key, input.thread);
     this.#byPid.set(process.pid, process);

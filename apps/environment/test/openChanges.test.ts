@@ -418,7 +418,7 @@ describe("D16's caps", () => {
     expect(capRefusal(fresh.deps().changes, OWN, "hash-9", fresh.now())).toBeUndefined();
   });
 
-  it("a long Answer wait widens the strike window, so three spaced-out expiries still lock (SPI-1316)", () => {
+  it("a long wait widens the strike window, from the run's own changes, so spaced-out expiries still lock (SPI-1316)", () => {
     // One Open change per thread: each next ask comes after the last expired, so three expiries span two waits.
     const run = (w: ReturnType<typeof world>, waitMs: number) => {
       for (let index = 1; index <= 3; index++) {
@@ -429,26 +429,38 @@ describe("D16's caps", () => {
     const long = 45 * 60_000;
     expect(strikeWindowMs(DEFAULT_OWNER_ANSWER_MS)).toBe(STRIKE_WINDOW_MS);
     expect(strikeWindowMs(long)).toBe(2 * long + 5 * 60_000);
-    // At a 45-minute wait the run spans 90 minutes, past the hour: the window follows the wait.
+    // At a 45-minute wait the run spans 90 minutes, past the hour.
     const w = world(long);
     run(w, long);
     expect(capRefusal(w.deps().changes, OWN, "hash-9", w.now())).toMatchObject({ reason: "strikes" });
-    // A fixed hour (the default wait's window) would never see that run.
-    const fixed = world();
-    run(fixed, long);
-    expect(capRefusal(fixed.deps().changes, OWN, "hash-9", fixed.now())).toBeUndefined();
+    // A CLI agent spawned at 45 minutes keeps that wait for its changes after the setting is lowered to 10: the window
+    // follows the changes' own waits, not the setting's.
+    const lowered = world(10 * 60_000);
+    run(lowered, long);
+    expect(capRefusal(lowered.deps().changes, OWN, "hash-9", lowered.now())).toMatchObject({ reason: "strikes" });
+    // Three short expiries spread over two hours are no run.
+    const spread = world();
+    for (let index = 1; index <= 3; index++) {
+      spread.open(OWN, { hash: `hash-${index}` });
+      spread.advance(DEFAULT_OWNER_ANSWER_MS + 50 * 60_000);
+    }
+    expect(capRefusal(spread.deps().changes, OWN, "hash-9", spread.now())).toBeUndefined();
   });
 
-  it("keeps closed rows as long as the strike window and the lock look back, at a long wait (SPI-1316)", () => {
+  it("keeps closed rows for the window and lock of the longest wait still kept, the setting's or a change's (SPI-1316)", () => {
     const long = 45 * 60_000;
     expect(closedKeptMs(long)).toBe(strikeWindowMs(long) + STRIKE_LOCK_MS);
-    const w = world(long);
-    const record = w.open(OWN);
+    // The setting is 10 minutes, but a change took 45 (a CLI agent's spawn-time wait): rows stay for 45's keeping.
+    const w = world();
+    expect(w.deps().changes.keptMs()).toBe(closedKeptMs(DEFAULT_OWNER_ANSWER_MS));
+    const record = w.open(OWN, { expiresAt: w.now() + long });
     closeOpenChange(w.deps(), record.id, "withdrawn", "stop");
+    expect(w.deps().changes.keptMs()).toBe(closedKeptMs(long));
     w.advance(closedKeptMs(long));
     expect(w.deps().changes.get(record.id)?.state).toBe("withdrawn");
     w.advance(1);
     expect(w.deps().changes.get(record.id)).toBeUndefined();
+    expect(w.deps().changes.keptMs()).toBe(closedKeptMs(DEFAULT_OWNER_ANSWER_MS));
   });
 
   it("for an Owner client, only declines strike: a dropped stream (withdrawn) or an expiry is not a strike", async () => {

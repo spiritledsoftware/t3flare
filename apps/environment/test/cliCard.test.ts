@@ -29,14 +29,7 @@ import * as TestProviderHost from "../../../t3code/packages/provider-testing/src
 import { makeTurnInput } from "t3/src/orchestration-v2/Adapters/AcpAdapterV2.testkit.ts";
 import { acpAdapterOptions, acpFlavor } from "../src/provider/cli/acpDriver.ts";
 import { bindEnvironmentServices, type EnvironmentServices } from "../src/agents/bindings.ts";
-import {
-  approveCliTool,
-  cancelCliAsk,
-  cliAnswerMs,
-  cliQuestionAsker,
-  noteCliSpawnWait,
-  registerCliAsker,
-} from "../src/provider/cli/cliAsk.ts";
+import { approveCliTool, cancelCliAsk, cliQuestionAsker, registerCliAsker } from "../src/provider/cli/cliAsk.ts";
 import { wrapCliAdapter } from "../src/provider/cli/wrapper.ts";
 
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
@@ -443,8 +436,15 @@ describe("the CLI cards' wait (SPI-1316)", () => {
     });
     return { signals, unregister };
   };
-  const approve = (thread: string) =>
-    approveCliTool({ thread, askId: `ask-${thread}`, title: "t", summary: "s", detail: "" });
+  const approve = (thread: string, waitMs?: number) =>
+    approveCliTool({
+      thread,
+      askId: `ask-${thread}`,
+      title: "t",
+      summary: "s",
+      detail: "",
+      ...(waitMs === undefined ? {} : { waitMs }),
+    });
   const services = (ms: () => number) =>
     bindEnvironmentServices({ ownerAnswerMs: ms } as unknown as EnvironmentServices);
 
@@ -463,18 +463,16 @@ describe("the CLI cards' wait (SPI-1316)", () => {
     const pending = approve("wait-thread-2");
     wait = 60 * 60_000;
     expect(await pending).toEqual({ approved: false, reason: "no answer in time" });
-    expect(cliAnswerMs("wait-thread-2")).toBe(60 * 60_000);
+    expect(cliQuestionAsker("wait-thread-2").waitMs).toBe(60 * 60_000);
     owner.unregister();
   });
 
-  it("a thread's CLI process keeps the wait it was spawned with, for its tool cards and its questions", async () => {
+  it("a card waits the wait its calling process was spawned with, over the wait now", async () => {
     services(() => 60 * 60_000);
-    noteCliSpawnWait("wait-thread-3", 40);
-    expect(cliAnswerMs("wait-thread-3")).toBe(40);
-    expect(cliQuestionAsker("wait-thread-3").waitMs).toBe(40);
+    expect(cliQuestionAsker("wait-thread-3", 40).waitMs).toBe(40);
     const owner = silentOwner("wait-thread-3");
-    expect(await approve("wait-thread-3")).toEqual({ approved: false, reason: "no answer in time" });
-    const asked = await cliQuestionAsker("wait-thread-3").ask({
+    expect(await approve("wait-thread-3", 40)).toEqual({ approved: false, reason: "no answer in time" });
+    const asked = await cliQuestionAsker("wait-thread-3", 40).ask({
       id: "card-3",
       kind: "approval",
       server: "fixture",
@@ -483,7 +481,7 @@ describe("the CLI cards' wait (SPI-1316)", () => {
     } as never);
     expect(asked).toEqual({ decision: "cancel", reason: "no answer in time" });
     owner.unregister();
-    // A thread with no spawn recorded takes the wait now.
+    // Without one, the wait now.
     expect(cliQuestionAsker("wait-thread-unspawned").waitMs).toBe(60 * 60_000);
   });
 });

@@ -113,6 +113,19 @@ describe("ProcessChannel", () => {
     expect(ws.starts).toHaveLength(1);
   });
 
+  it("keeps each process's spawn-time Answer wait by its key, two of one thread apart, until it is gone (SPI-1316)", async () => {
+    const ch = channel(fakeWorkspace());
+    const older = await ch.start({ ...start, answerMs: 45 * 60_000 });
+    const newer = await ch.start({ ...start, answerMs: 10 * 60_000 });
+    const none = await ch.start(start);
+    expect(ch.answerMsOf(older.key)).toBe(45 * 60_000);
+    expect(ch.answerMsOf(newer.key)).toBe(10 * 60_000);
+    expect(ch.answerMsOf(none.key)).toBeUndefined();
+    older.finish(0);
+    expect(ch.answerMsOf(older.key)).toBeUndefined();
+    expect(ch.answerMsOf(newer.key)).toBe(10 * 60_000);
+  });
+
   it("carries the Environment's CLI agents' processes per Workspace and reclaim delay, read at each start (SPI-1318)", async () => {
     const ws = fakeWorkspace();
     let limits = { cliProcessesPerWorkspace: 4, cliReclaimSeconds: 30 };

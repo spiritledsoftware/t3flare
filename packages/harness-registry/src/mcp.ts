@@ -142,10 +142,10 @@ export const MAX_SCHEMA_BYTES = 256 * 1024;
 export const MCP_RELAY_PREFIX = "/t3flare/mcp/";
 
 /**
- * A CLI process's MCP tool timeout in seconds (review M11, SPI-1316), from the Answer wait it is spawned with: a relayed
- * call can wait on an approval card and then on an in-call question, each up to the wait, while the call's own clock is
- * paused (`packages/mcp/src/connection.ts`), plus 270 s for the call itself (`CALL_TIMEOUT_MS`) and a 30 s margin. At
- * the default 10-minute wait this is 1,500 s.
+ * A CLI process's MCP tool timeout in seconds (review M11, SPI-1316), from the Answer wait it is spawned with: a
+ * relayed call can wait on an approval card and then on an in-call question, each up to the wait, while the call's own
+ * clock is paused (`packages/mcp/src/connection.ts`), plus 270 s for the call itself (`CALL_TIMEOUT_MS`) and a 30 s
+ * margin. At the default 10-minute wait this is 1,500 s.
  */
 export const cliToolTimeoutSec = (answerMs: number): number => 2 * Math.ceil(answerMs / 1000) + 300;
 
@@ -163,6 +163,11 @@ export interface McpRelayInput {
   readonly workspace: string;
   readonly thread: string;
   readonly cli: string;
+  /**
+   * The calling process's key (SPI-1316), from the handle: its relay cards wait the Answer wait it was spawned with.
+   * Absent (a Workspace DO before it): the wait now.
+   */
+  readonly process?: string;
   readonly server: string;
   /** One JSON-RPC message (a request or a notification). */
   readonly message: unknown;

@@ -54,9 +54,9 @@ export interface ProfileContext {
   /** t3's own extension source: a copy is accepted only when it is exactly this (plan §5.2). */
   readonly piExtensionSource: string;
   /**
-   * The MCP relay's entries for this process (ADR-0028): its tool handle, the servers it gets, and their MCP tool timeout
-   * in seconds (`cliToolTimeoutSec` of the Answer wait at the spawn, SPI-1316). The handle goes only into this process's
-   * environment (review H2: never a Container-wide file).
+   * The MCP relay's entries for this process (ADR-0028): its tool handle, the servers it gets, and their MCP tool
+   * timeout in seconds (`cliToolTimeoutSec` of the Answer wait at the spawn, SPI-1316). The handle goes only into this
+   * process's environment (review H2: never a Container-wide file).
    */
   readonly relay?: {
     readonly handle: string;
@@ -419,10 +419,11 @@ export const piRelayModelsJson = (relay: PiRelay): string =>
 
 /**
  * pi's MCP relay entries (ADR-0028, SPI-1076, settings-mcp plan D4): its user-level `mcp.json` in the agent directory
- * (`PI_CODING_AGENT_DIR`), one streamable-HTTP server per relayed source. The handle is named, never written: pi expands
- * `${T3FLARE_TOOL_HANDLE}` in a header from the process's environment (M0 P16). The timeout `toolTimeoutSec` is above
- * the relay's cards plus a call (review M11, `cliToolTimeoutSec`); the tools are deferred, found through pi's `tool_search`. A repository's
- * `.pi/mcp.json` cannot replace an entry: it is read only under project trust, which the profile never grants.
+ * (`PI_CODING_AGENT_DIR`), one streamable-HTTP server per relayed source. The handle is named, never written: pi
+ * expands `${T3FLARE_TOOL_HANDLE}` in a header from the process's environment (M0 P16). The timeout `toolTimeoutSec` is
+ * above the relay's cards plus a call (review M11, `cliToolTimeoutSec`); the tools are deferred, found through pi's
+ * `tool_search`. A repository's `.pi/mcp.json` cannot replace an entry: it is read only under project trust, which the
+ * profile never grants.
  */
 export const piMcpJson = (servers: ReadonlyArray<string>, toolTimeoutSec: number): string =>
   `${JSON.stringify(

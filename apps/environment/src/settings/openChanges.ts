@@ -19,7 +19,6 @@ import {
   type ChangeCaller,
   type ChangeRecord,
   type ChangeState,
-  closedKeptMs,
   type ClosedBy,
   closedLine,
   durationText,
@@ -31,6 +30,7 @@ import {
   STRIKE_LOCK_MS,
   strikeWindowMs,
   STRIKES,
+  waitOf,
 } from "./changes.ts";
 import { REQUEST_BUDGET_MS } from "../skills/api.ts";
 
@@ -105,9 +105,8 @@ export const capRefusal = (
           : `Not changed: you asked for ${OPENED_CAP} changes in the last hour, answered or not, the most t3flare allows. Make the change on the Settings page${openList === undefined ? "" : ` (${openList})`}, or try again later.`,
     };
   }
-  // SPI-1316: the run's window follows the Answer wait, so a long wait's spaced-out expiries still make a run.
-  const window = strikeWindowMs(changes.answerMs());
-  const recent = changes.closedBy(capKey, now - window - STRIKE_LOCK_MS);
+  // Everything the table keeps: a run's window is known only once its changes are (SPI-1316).
+  const recent = changes.closedBy(capKey, now - changes.keptMs());
   if (
     recent.some(
       (record) => record.hash === hash && record.state === "declined" && record.closed!.at > now - DECLINED_REPEAT_MS,
@@ -126,6 +125,9 @@ export const capRefusal = (
   const run = recent.filter((record) => record.state === "applied" || strike(record)).slice(0, STRIKES);
   const last = run[0]?.closed?.at ?? 0;
   const first = run.at(-1)?.closed?.at ?? 0;
+  // SPI-1316: the run's window follows the longest wait its changes took, so a long wait's spaced-out expiries still
+  // make a run, whatever the wait is now.
+  const window = strikeWindowMs(Math.max(0, ...run.map(waitOf)));
   if (run.length === STRIKES && run.every(strike) && last - first <= window && now < last + STRIKE_LOCK_MS) {
     return {
       reason: "strikes",
@@ -289,7 +291,7 @@ export const answerOpenChange = async (deps: AnswerDeps, id: string, answer: Ans
     return {
       ok: false,
       status: 404,
-      error: `no such change (it may have closed over ${durationText(closedKeptMs(deps.changes.answerMs()))} ago)`,
+      error: `no such change (it may have closed over ${durationText(deps.changes.keptMs())} ago)`,
     };
   if (!isOpen(record))
     return { ok: false, status: 409, error: `this change is already ${record.state}`, closed: outcomeOf(record) };

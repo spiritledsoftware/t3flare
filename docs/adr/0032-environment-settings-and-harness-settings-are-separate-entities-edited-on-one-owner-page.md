@@ -316,11 +316,13 @@ A CLI agent's MCP tool timeout is written at its spawn, so it follows the wait a
 the call's own 270 s clock is paused, plus a 30 s margin), carried as `relay.toolTimeoutSec` into Codex's
 `tool_timeout_sec` and pi's `mcp.json` `timeout`; 1,500 s at the default. Claude Code and OpenCode get no MCP timeout.
 So that a raised wait never outlasts the CLI's own timeout, a live CLI process's relay cards (its tool approvals, its
-servers' questions, and its Settings server's Open changes) keep the wait it was spawned with (`noteCliSpawnWait`,
-`cliAnswerMs`, by thread); its next spawn takes the wait then. The Settings server's instructions are built when served,
-with the wait they will apply.
+servers' questions, and its Settings server's Open changes) keep the wait it was spawned with: the process channel keeps
+it with the process (`ChannelStart.answerMs`) and forgets it with the process, and the Workspace DO names the calling
+process's key with each relay message. Two processes of one thread each keep their own. The Settings server's
+instructions are built when served, with the wait they will apply.
 
 Unanswered strikes depend on it: one Open change per thread means three expiries span at least two waits, so a fixed
 hour would never see a run past a 30-minute wait. A run's window is `max(STRIKE_WINDOW_MS, (STRIKES - 1) × wait + 5
-min)` (`strikeWindowMs`), the hour at the default, and a closed row is kept that window plus the lock (`closedKeptMs`),
-which the Change page's gone text names. Both read the wait now.
+min)` (`strikeWindowMs`), the hour at the default, where the wait is the longest its own changes took (`expiresAt -
+createdAt`), not the setting's: a CLI agent's changes take its spawn-time wait. A closed row is kept that window plus
+the lock (`closedKeptMs`) for the longest wait still kept, the setting's or a kept change's, so a run's rows outlast it.

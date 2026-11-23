@@ -44,6 +44,7 @@ import {
   type Variable,
   type ResolvedHarness,
   ownEntry,
+  ownerAnswerMsOf,
   resolveEnvironment,
   SWEEP_SETTING_KEYS,
   visible,
@@ -1102,7 +1103,7 @@ ${navItem("audit", "Audit log", "audit", `<span class="count">${input.audit.leng
 <main id="main" tabindex="-1"><div class="content">
 <header class="page-head"><div><h1>Settings</h1><p>t3flare's own settings for this Cloud Environment: the Harness settings (the tools Pi Durable's agents are offered, its extensions and MCP servers, applied at each thread's next turn) and the Environment settings (what every Container and agent gets, most applied at each Container's next start).</p></div><span class="chip">Revision <strong>${revision}</strong></span></header>
 <div id="result" class="notice" role="status" aria-live="polite" hidden><span class="notice-ico-ok">${icon("check")}</span><span class="notice-ico-err">${icon("alert")}</span><p class="msg"></p><button type="button" class="btn btn-ghost btn-sm" data-dismiss aria-label="Dismiss">${icon("x")}</button></div>
-${input.openChanges === undefined ? "" : `${openChangesSection(input.openChanges, environment.ownerAnswerMinutes * 60_000)}\n`}${toolsSection(input.resolved)}
+${input.openChanges === undefined ? "" : `${openChangesSection(input.openChanges, ownerAnswerMsOf(environment))}\n`}${toolsSection(input.resolved)}
 ${extensionsSection(input.resolved)}
 ${mcpSection(rows, t3Card(input.resolved, input.t3Tools), input.ownerClients)}
 ${endpointsSection(escapeHtml, input.endpoints)}${environmentSection(environment, input.costs ?? containerCostTable(environment.containerBudget), input.running, { ...(input.testBuild === undefined ? {} : { record: input.testBuild }), canTest: input.canTest === true })}

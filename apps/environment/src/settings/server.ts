@@ -129,6 +129,7 @@ import {
   toolsItems,
 } from "./render.ts";
 import { settingsToolOf } from "./tools.ts";
+import { askerWaitMs } from "../agents/bindings.ts";
 import type { ChangeEntity, ChangeItem, ChangeView, PageReason } from "./types.ts";
 
 export interface SettingsServerDeps {
@@ -1213,7 +1214,7 @@ const askOnCard = async (
   const closed = new Promise<McpQuestionAnswer>((resolve) => {
     timer = setTimeout(
       () => resolve({ decision: "cancel", reason: "no answer in time" }),
-      deps.cardWaitMs ?? asker.waitMs ?? deps.changes.answerMs(),
+      deps.cardWaitMs ?? askerWaitMs(asker, () => deps.changes.answerMs()),
     );
     if (signal !== undefined) {
       onAbort = () => resolve({ decision: "cancel", reason: "the call was stopped" });
@@ -1524,8 +1525,8 @@ interface AskedInput {
   readonly planned: Planned;
   readonly expected: number;
   readonly reader: Reader;
-  /** How long it waits, when the asker says (a CLI process's spawn-time Answer wait, SPI-1316); else the wait now. */
-  readonly waitMs?: number;
+  /** The asker, when one asks: a CLI process's names the Answer wait it was spawned with (SPI-1316). */
+  readonly asker?: Pick<McpAsker, "waitMs">;
   /** The change's mode, given what it needs (a change that needs the page is an Owner client's `browser`). */
   readonly modeOf: (needsPage: PageReason | undefined) => ChangeMode;
   /** The text a question would show whole, whose length decides `oversize` (plan D6). */
@@ -1597,7 +1598,7 @@ const openAskedChange = async (deps: SettingsServerDeps, input: AskedInput): Pro
     createdAt: now,
     // SPI-1316: the Answer wait now, or the one a CLI process was spawned with (its relay's asker), which its MCP tool
     // timeout was made from.
-    expiresAt: now + (input.waitMs ?? deps.changes.answerMs()),
+    expiresAt: now + askerWaitMs(input.asker, () => deps.changes.answerMs()),
     state: "open",
   };
   const again = reused();
@@ -1629,7 +1630,7 @@ const ask = async (
     planned,
     expected,
     reader: ownReader(deps, caller),
-    ...(input.asker?.waitMs === undefined ? {} : { waitMs: input.asker.waitMs }),
+    ...(input.asker === undefined ? {} : { asker: input.asker }),
     modeOf: () => "card",
     fullText: (view, url) => askedText(view, input, url),
     log: { door: "own", agent: caller.agent, thread: key },

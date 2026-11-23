@@ -1,6 +1,7 @@
 // The Answer wait at a CLI agent's spawn (SPI-1316): the process's MCP tool timeout is made from the wait as stored at
-// its spawn (`cliToolTimeoutSec`), written into Codex's relay entries, and the thread's relay cards keep that wait for the
-// process's life, so a raised wait never outlasts the CLI's own timeout.
+// its spawn (`cliToolTimeoutSec`), written into Codex's relay entries, and the process carries that wait to the channel
+// (`ChannelStart.answerMs`), so its relay cards keep it for its life and a raised wait never outlasts the CLI's
+// timeout.
 import * as Effect from "effect/Effect";
 import * as ChildProcess from "effect/process/ChildProcess";
 import type { ModelEndpoints } from "@t3flare/models/endpoints";
@@ -9,7 +10,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { bindEnvironmentServices, type EnvironmentServices } from "../src/agents/bindings.ts";
 import { spawnCli } from "../src/agents/cliProcess.ts";
 import type { ChannelStart } from "../src/agents/processChannel.ts";
-import { cliAnswerMs } from "../src/provider/cli/cliAsk.ts";
 
 const ENDPOINTS: ModelEndpoints = {
   revision: 1,
@@ -104,16 +104,16 @@ describe("a CLI agent's spawn takes the Answer wait (SPI-1316)", () => {
     expect(timeoutOf(started[1]!)).toBe("3900");
   });
 
-  it("keeps the spawn's wait for the thread's cards when the setting is raised after it", async () => {
+  it("gives each process of one thread the wait at its own spawn, so an older one keeps its own", async () => {
     vi.spyOn(console, "log").mockImplementation(() => undefined);
-    let wait = 30 * 60_000;
+    let wait = 45 * 60_000;
     bind(() => wait);
     expect((await spawnCodex("spawn-kept"))._tag).toBe("Success");
-    wait = 60 * 60_000;
-    expect(cliAnswerMs("spawn-kept")).toBe(30 * 60_000);
-    // The thread's next spawn takes the wait now.
+    wait = 10 * 60_000;
     expect((await spawnCodex("spawn-kept"))._tag).toBe("Success");
-    expect(cliAnswerMs("spawn-kept")).toBe(60 * 60_000);
-    expect(timeoutOf(started[1]!)).toBe("7500");
+    expect(started.map((start) => [start.thread, start.answerMs, timeoutOf(start)])).toEqual([
+      ["spawn-kept", 45 * 60_000, "5700"],
+      ["spawn-kept", 10 * 60_000, "1500"],
+    ]);
   });
 });

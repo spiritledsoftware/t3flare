@@ -45,8 +45,8 @@ export interface EnvironmentServices {
   readonly settingsReadMs?: () => number;
   /**
    * The Answer wait (SPI-1316, `ownerAnswerMinutes`) in ms, as stored now: read when a card is raised (an MCP server's
-   * question, a CLI agent's tool approval, an Open change) and at each CLI spawn, so a change applies to the cards raised
-   * after it. Absent (a test's services): the default.
+   * question, a CLI agent's tool approval, an Open change) and at each CLI spawn, so a change applies to the cards
+   * raised after it. Absent (a test's services): the default.
    */
   readonly ownerAnswerMs?: () => number;
   /** Asks for a Sweep after 5 s of quiet (ADR-0043 §5): the deletion wake's Layer calls it. */
@@ -117,6 +117,15 @@ export const settingsReadMsNow = (): number => {
     return DEFAULT_SETTINGS_READ_MS;
   }
 };
+
+/**
+ * How long `asker`'s cards wait (SPI-1316): the wait it names (a CLI process's relay names the Answer wait the process
+ * was spawned with), else `now()`, the Answer wait now.
+ */
+export const askerWaitMs = (
+  asker: { readonly waitMs?: number } | undefined,
+  now: () => number = ownerAnswerMsNow,
+): number => asker?.waitMs ?? now();
 
 /**
  * The Answer wait now, in ms (SPI-1316): the stored setting, or its default when the services or the store cannot be

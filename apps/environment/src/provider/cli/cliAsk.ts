@@ -46,20 +46,6 @@ export interface CliAsker {
 }
 
 const askers = new Map<string, CliAsker>();
-/** The Answer wait each thread's CLI process was spawned with (SPI-1316), by thread: its relay cards' bound. */
-const spawnWaits = new Map<string, number>();
-
-/**
- * Keeps the Answer wait `thread`'s CLI process is spawned with (SPI-1316): its MCP tool timeout was made from it
- * (`cliToolTimeoutSec`), so its relay cards wait that long, not the wait as stored now, or a raised wait would outlast
- * the CLI's own timeout. The thread's next spawn replaces it.
- */
-export const noteCliSpawnWait = (thread: string, answerMs: number): void => {
-  spawnWaits.set(thread, answerMs);
-};
-
-/** How long a card on `thread` waits for the owner: its CLI process's spawn-time Answer wait, or the wait now. */
-export const cliAnswerMs = (thread: string): number => spawnWaits.get(thread) ?? ownerAnswerMsNow();
 const withdrawals = new Map<string, AbortController>();
 
 /** Registers the live session of `thread`; the returned function unregisters it (only if still the registered one). */
@@ -89,6 +75,11 @@ export const approveCliTool = async (input: {
   readonly title: string;
   readonly summary: string;
   readonly detail: string;
+  /**
+   * How long the card waits (SPI-1316): the Answer wait the calling process was spawned with, which its MCP tool
+   * timeout was made from. Absent: the wait now.
+   */
+  readonly waitMs?: number;
 }): Promise<CliAnswer> => {
   const asker = askers.get(input.thread);
   if (asker === undefined) return { approved: false, reason: `no live turn to ask on (thread ${input.thread})` };
@@ -102,7 +93,7 @@ export const approveCliTool = async (input: {
   try {
     const answer = await asker.ask(
       { askId: input.askId, summary: input.summary, detail: input.detail, options, title: input.title },
-      AbortSignal.any([AbortSignal.timeout(cliAnswerMs(input.thread)), withdrawn.signal]),
+      AbortSignal.any([AbortSignal.timeout(input.waitMs ?? ownerAnswerMsNow()), withdrawn.signal]),
     );
     if (answer.reason === "withdrawn")
       return { approved: false, reason: withdrawn.signal.aborted ? "the agent went away" : "no answer in time" };
@@ -117,9 +108,9 @@ export const approveCliTool = async (input: {
  * The cards of an MCP server's questions on `thread`'s live turn (SPI-1079): the MCP host makes each card, this raises it
  * as the relay's tool cards are raised, and hands back the owner's answer. No live turn: cancelled, nothing shown.
  */
-export const cliQuestionAsker = (thread: string): McpAsker => {
-  // One wait for the asker's life (SPI-1316): the MCP host's and the Settings server's card timers take it too.
-  const waitMs = cliAnswerMs(thread);
+export const cliQuestionAsker = (thread: string, waitMs: number = ownerAnswerMsNow()): McpAsker => {
+  // One wait for the asker's life (SPI-1316): the calling process's spawn-time wait, which the MCP host's and the
+  // Settings server's card timers take too.
   return {
     waitMs,
     ask: async (card) => {
