@@ -15,6 +15,12 @@ import type { WorkspaceRecord } from "./workspaces.ts";
 export { SWEEP_EVERY_MS, type SweepSettings, sweepSettingsOf } from "./deletionSettings.ts";
 /** A `deleting` row is driven again this soon (review F5: t3 may re-create the same worktree path). */
 export const DELETING_RETRY_MS = 5 * 60_000;
+/**
+ * Whether `error` is Workers' subrequest limit (10,000 a paid invocation; "Too many subrequests"): past it, every RPC and
+ * fetch of the invocation fails.
+ */
+export const isSubrequestLimit = (error: unknown): boolean => /too many subrequests/i.test(String(error));
+
 /** The Sweep never runs again sooner than this after a run (ADR-0043 §5). */
 export const SWEEP_MIN_GAP_MS = 60_000;
 
@@ -595,6 +601,7 @@ export const sweep = async (
   const sessions: Array<string> = [];
   const dues = actions.flatMap((action) => (action.due === undefined ? [] : [action.due]));
   const purgedIds = new Set(purged.filter((p) => p.destroyed).flatMap((p) => p.sessionsDestroyed));
+  let cut = false;
   for (const thread of purging ? [...references.deletedThreads.values()].flat() : []) {
     if (purgedIds.has(thread.threadId) || sweptSessions?.has(thread.threadId) === true) continue;
     const due = purgeDue({ kind: "session", deletedAt: thread.deletedAt }, grace);
@@ -608,6 +615,15 @@ export const sweep = async (
         await destroyed(byName(services.agents.SESSIONS, `thread:${thread.threadId}`, "SESSIONS").destroy());
         sweptSessions?.add(thread.threadId);
       } catch (error) {
+        // Workers' 10,000 subrequests per invocation (each destroy is one DO RPC): every later destroy and the cost
+        // guard's budget read would fail too. The pass stops here, what it destroyed recorded, and the rest go at the
+        // next pass, soon (SPI-1366), not a day later.
+        if (isSubrequestLimit(error)) {
+          console.warn(JSON.stringify({ t3flare: "sweep-subrequest-limit", destroyed: sessions.length }));
+          cut = true;
+          dues.push(now);
+          break;
+        }
         console.warn(
           JSON.stringify({
             t3flare: "sweep-session-failed",
@@ -622,8 +638,9 @@ export const sweep = async (
   }
   // Read whole above (the Sweep stops before here on a failed read): a thread t3 no longer holds is never met again.
   if (!dry) sweptSessions?.keepOnly(references.threadIds);
-  // The cost guard runs with purging off too (ADR-0043 §4): a Container no Workspace holds is stopped, no files go.
-  const costGuard = await guardCost(dry);
+  // The cost guard runs with purging off too (ADR-0043 §4): a Container no Workspace holds is stopped, no files go. Past
+  // the subrequest limit it waits for the next pass.
+  const costGuard = cut ? [] : await guardCost(dry);
   const deletingLeft = services.workspaces.list().some((ws) => ws.state === "deleting");
   const report: SweepReport = {
     ...reported,

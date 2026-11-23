@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { bindEnvironmentServices, type EnvironmentServices } from "../src/agents/bindings.ts";
 import { sweep, type PurgeReport } from "../src/agents/deletion.ts";
+import { sweptSessionsIn } from "../src/agents/sweptSessions.ts";
 import type { WorkspaceRecord } from "../src/agents/workspaces.ts";
 import { DAY, record, t3Tables } from "./fixtures/workspaces.ts";
 
@@ -232,5 +233,73 @@ describe("the Sweep's Purge of a deleted project with a worktree thread", () => 
       { get: () => NOW - DAY, set: () => undefined },
     );
     expect([...swept]).toEqual(["t0"]);
+  });
+
+  it("keeps one key a swept thread, moves an old list into them, and forgets with no delete inside the list's cursor", () => {
+    const map = new Map<string, unknown>([["t3flare:swept-sessions", ["t0", "t1"]]]);
+    let listing = false;
+    const kv = {
+      get: <T,>(key: string) => map.get(key) as T | undefined,
+      put: <T,>(key: string, value: T) => void map.set(key, value),
+      delete: (key: string) => {
+        // workerd's list is a live cursor over storage: a write inside it is what this guards against.
+        if (listing) throw new Error("deleted inside the list's cursor");
+        return map.delete(key);
+      },
+      *list<T>(options: { readonly prefix: string }): Iterable<[string, T]> {
+        listing = true;
+        try {
+          for (const [key, value] of [...map].toSorted()) if (key.startsWith(options.prefix)) yield [key, value as T];
+        } finally {
+          listing = false;
+        }
+      },
+    };
+    const swept = sweptSessionsIn(kv);
+    expect(swept.has("t0")).toBe(true);
+    expect(map.has("t3flare:swept-sessions")).toBe(false);
+    swept.add("t2");
+    swept.keepOnly(new Set(["t1"]));
+    expect([...map.keys()]).toEqual(["t3flare:swept-session:t1"]);
+  });
+
+  it("stops its Session pass at Workers' subrequest limit and comes back a minute later, not a day (SPI-1366)", async () => {
+    const threads = Array.from({ length: 10 }, (_, n) => `t${n}`);
+    const sql = deletedProject(threads);
+    const destroyedSessions: Array<string> = [];
+    let budgetRead = false;
+    bindEnvironmentServices({
+      workspaces: {
+        list: () => [record({ id: "app" })],
+        get: () => undefined,
+        setUnreferencedSince: () => undefined,
+        setState: () => undefined,
+        setLastError: () => undefined,
+      },
+      agents: {
+        SESSIONS: namespace((name) => ({
+          destroy: async () => {
+            if (destroyedSessions.length >= 3) throw new Error("Too many subrequests.");
+            destroyedSessions.push(name);
+          },
+        })),
+        WORKSPACES: namespace(() => ({ terminalState: async () => ({ keys: [] }) })),
+        CONTAINER_BUDGET: namespace(() => ({ state: async () => ((budgetRead = true), { leases: [] }) })),
+      },
+    } as unknown as EnvironmentServices);
+    const swept = new Set<string>();
+    const report = await sweep(
+      sql,
+      { purging: true, graceMs: GRACE_MS, graceDays: 7, overridden: true, provisioningMs: 80 * 60_000, dry: false },
+      NOW,
+      sweptIn(swept),
+      { get: () => NOW - DAY, set: () => undefined },
+    );
+    expect(report.ok).toBe(true);
+    expect(report.sessions).toHaveLength(3);
+    expect(swept.size).toBe(3);
+    // The rest wait for the next pass, a minute out; the cost guard, another subrequest, waits for it too.
+    expect(Date.parse(report.nextDue)).toBe(NOW + 60_000);
+    expect(budgetRead).toBe(false);
   });
 });

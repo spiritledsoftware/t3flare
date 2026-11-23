@@ -30,6 +30,7 @@ import { graceMoved, ownerSweep, SweepWake } from "./agents/sweepWake.ts";
 import { GitHubTokens } from "./agents/github.ts";
 import { deliverPush } from "./agents/sessionSink.ts";
 import { SWEEP_EVERY_MS, sweepSettingsOf } from "./agents/deletionSettings.ts";
+import { sweptSessionsIn } from "./agents/sweptSessions.ts";
 import { ProcessChannel } from "./agents/processChannel.ts";
 import { scratchProjectOf } from "./agents/scratch.ts";
 import { locate, workspaceRpc } from "./agents/workspaceClient.ts";
@@ -159,10 +160,6 @@ export interface BootReport {
 /** When the Workspace sweep is next due, and its last report (step 2b, plan section 5.5). */
 const NEXT_SWEEP_KEY = "t3flare:next-sweep";
 const LAST_SWEEP_KEY = "t3flare:last-sweep";
-/** The swept Sessions as one list, before SPI-1366: read once, to move them into their own keys. */
-const SWEPT_SESSIONS_KEY = "t3flare:swept-sessions";
-/** One key per deleted thread whose Session the Sweep or a Purge destroyed (SPI-1366). */
-const SWEPT_SESSION_PREFIX = "t3flare:swept-session:";
 /** When purging was last turned on (ADR-0043 §4): nothing is purged before one Grace after it. */
 const PURGING_SINCE_KEY = "t3flare:purging-since";
 
@@ -1334,31 +1331,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
    * forgotten once t3 no longer holds the thread, so no count bounds it. A list kept under the old single key (at most
    * 5,000 threads) moves into them at first use.
    */
-  readonly #sweptSessions: SweptSessions = (() => {
-    const kv = this.ctx.storage.kv;
-    const keyOf = (threadId: string) => `${SWEPT_SESSION_PREFIX}${threadId}`;
-    const moveOldList = () => {
-      const old = kv.get<ReadonlyArray<string>>(SWEPT_SESSIONS_KEY);
-      if (old === undefined) return;
-      for (const threadId of old) kv.put(keyOf(threadId), 1);
-      kv.delete(SWEPT_SESSIONS_KEY);
-    };
-    return {
-      has: (threadId) => {
-        moveOldList();
-        return kv.get(keyOf(threadId)) !== undefined;
-      },
-      add: (threadId) => {
-        moveOldList();
-        kv.put(keyOf(threadId), 1);
-      },
-      keepOnly: (threadIds) => {
-        moveOldList();
-        for (const [key] of kv.list({ prefix: SWEPT_SESSION_PREFIX }))
-          if (!threadIds.has(key.slice(SWEPT_SESSION_PREFIX.length))) kv.delete(key);
-      },
-    };
-  })();
+  readonly #sweptSessions: SweptSessions = sweptSessionsIn(this.ctx.storage.kv);
 
   /** When purging was last turned on (ADR-0043 §4), for the Sweep, the Workspaces section and a change to the Grace. */
   readonly #purgingSince: PurgingSince = {
