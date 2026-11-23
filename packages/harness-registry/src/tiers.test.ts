@@ -93,7 +93,13 @@ const ENVIRONMENT: Readonly<
 > = {
   containerSize: { up: ["cpu-1", "standard-4", "asked"], down: ["standard-4", "standard-1", "asked"] },
   containerIdleMinutes: { up: [2, 30, "asked"], down: [30, 2, "free"] },
+  // SPI-1317: a longer Terminal hold keeps the Container running, and billed, longer, so it is asked.
+  terminalBusyHoldMinutes: { up: [30, 60, "asked"], down: [30, 5, "free"] },
+  terminalPromptHoldMinutes: { up: [10, 30, "asked"], down: [10, 5, "free"] },
   containerBudget: { up: [3, 4, "asked"], down: [3, 2, "free"] },
+  // SPI-1317: more Terminals use more of the Container's and the Workspace DO's memory, so a raise is asked.
+  terminalsPerWorkspace: { up: [8, 16, "asked"], down: [8, 2, "free"] },
+  agentTerminalsPerWorkspace: { up: [8, 16, "asked"], down: [8, 3, "free"] },
   // SPI-1318: more processes spend memory and model tokens, so a raise is asked; the reclaim delay is free either way.
   cliProcessesPerWorkspace: { up: [4, 8, "asked"], down: [4, 2, "free"] },
   cliReclaimSeconds: { up: [30, 600, "free"], down: [30, 0, "free"] },

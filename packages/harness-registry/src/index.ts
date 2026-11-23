@@ -14,7 +14,7 @@ import {
   type ToolClass,
 } from "./mcp.ts";
 
-import { MAX_TIMED_MINUTES } from "./environment.ts";
+import { DEFAULT_TERMINALS_PER_WORKSPACE, ENVIRONMENT_SETTINGS, MAX_TIMED_MINUTES } from "./environment.ts";
 import { fieldProblem, type SettingEntry, type SettingValue } from "./fields.ts";
 import { EXPOSURES, legacyResolvedTools, type ResolvedTools, resolveTools, type ToolsLayer } from "./tools.ts";
 
@@ -250,8 +250,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
   {
     id: "termctrl",
     title: "Terminals and Background jobs",
-    description:
-      "terminal_start, terminal_send, terminal_stop, terminal_list and terminal_wait: interactive programs (REPLs, TUIs, prompts) as PTYs in the Workspace's container, and bash's background: true. Approvals follow the thread's mode as bash's do; nothing starts a container until a Terminal or a job starts. At most 8 run at once in a Workspace, and they end with its container (SPI-1057).",
+    description: `terminal_start, terminal_send, terminal_stop, terminal_list and terminal_wait: interactive programs (REPLs, TUIs, prompts) as PTYs in the Workspace's container, and bash's background: true. Approvals follow the thread's mode as bash's do; nothing starts a container until a Terminal or a job starts. At most the Environment setting ${ENVIRONMENT_SETTINGS.agentTerminalsPerWorkspace.title} (${DEFAULT_TERMINALS_PER_WORKSPACE} by default) run at once in a Workspace, and they end with its container (SPI-1057).`,
     default: "on",
     tools: ["terminal_start", "terminal_send", "terminal_stop", "terminal_list", "terminal_wait"],
     settings: {

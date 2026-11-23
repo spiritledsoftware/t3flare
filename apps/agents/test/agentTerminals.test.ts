@@ -6,10 +6,13 @@ import { spawnSync } from "node:child_process";
 import { terminalCommand } from "@t3flare/sandbox-image/terminal";
 import { describe, expect, it } from "vitest";
 
-import { AgentTerminals, MAX_LIVE } from "../src/workspace/agentTerminals.ts";
+import { AgentTerminals } from "../src/workspace/agentTerminals.ts";
 
 /** A host whose "programs" answer input as `program` says, pushing frames back as the real host does. */
-const fakeHost = (program: (data: string, emit: (data: string) => void, exit: (code: number) => void) => void) => {
+const fakeHost = (
+  program: (data: string, emit: (data: string) => void, exit: (code: number) => void) => void,
+  maxLive: () => number = () => 8,
+) => {
   const opened: Array<{ key: string; command: string; cwd: string }> = [];
   const closed: Array<string> = [];
   let terminals: AgentTerminals | undefined;
@@ -38,7 +41,14 @@ const fakeHost = (program: (data: string, emit: (data: string) => void, exit: (c
     },
   };
   let n = 0;
-  terminals = new AgentTerminals({ host, now: () => Date.now(), nextId: () => ++n, env: {}, repo: "/workspace/repo" });
+  terminals = new AgentTerminals({
+    host,
+    now: () => Date.now(),
+    nextId: () => ++n,
+    env: {},
+    repo: "/workspace/repo",
+    maxLive,
+  });
   return { terminals, opened, closed };
 };
 
@@ -126,7 +136,8 @@ describe("agent terminals", () => {
   });
 
   it("stops and forgets an entry; waits for exits; refuses past the cap; keeps owners apart", async () => {
-    const { terminals, closed } = fakeHost(repl);
+    let maxLive = 3;
+    const { terminals, closed } = fakeHost(repl, () => maxLive);
     const id = await start(terminals);
     const stopped = await terminals.handle({ op: "stop", owner, id });
     expect(stopped.ok && stopped.value.stopped.exit).toEqual({ code: 130, signal: null });
@@ -156,18 +167,27 @@ describe("agent terminals", () => {
     const exits = await terminals.handle({ op: "exits", owner, tailLines: 5 });
     expect(exits.ok && exits.value.exits).toEqual([]); // reported by the wait, so not notified again
 
-    for (let index = 0; index < MAX_LIVE; index++) await start(terminals);
-    const refused = await terminals.handle({
+    for (let index = 0; index < 3; index++) await start(terminals);
+    const fourth = {
       op: "start",
       owner,
-      kind: "terminal",
+      kind: "background_job",
       command: "x",
       cwd: "/workspace/repo",
       cols: 40,
       rows: 6,
       notify: true,
-    });
-    expect(refused.ok ? "" : refused.error).toContain(`already runs ${MAX_LIVE}`);
+    } as const;
+    const refused = await terminals.handle(fourth);
+    expect(refused.ok ? "" : refused.error).toContain(
+      'already runs 3 Terminals and Background jobs, and its Environment setting "Agents\' Terminals per Workspace" (agentTerminalsPerWorkspace) allows 3',
+    );
+    // SPI-1317: lowering the count stops none that run; the next start is refused against it.
+    maxLive = 1;
+    expect(terminals.live).toBe(3);
+    expect(closed).toHaveLength(1);
+    const lowered = await terminals.handle({ ...fourth, kind: "terminal" });
+    expect(lowered.ok ? "" : lowered.error).toContain("allows 1");
   });
 
   it("runs a Background job with its output tee'd to a log, and reports an unseen exit once", async () => {

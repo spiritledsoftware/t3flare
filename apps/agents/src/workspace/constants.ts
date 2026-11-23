@@ -21,17 +21,8 @@ export const CONTAINER_BACKEND = "container-shell";
 /** computer's default id of the Worker Shell backend. */
 export const WORKER_SHELL_BACKEND = "worker-shell";
 
-// The Container's size and idle time are Environment settings (ADR-0032, `@t3flare/harness-registry`'s
-// `ENVIRONMENT_SETTINGS`), taken at each start (`containerLaunch.ts`).
-
-/**
- * While a terminal runs a foreground command, open terminals hold the Container until their last input is this old (step
- * 2b; review F10: output does not count).
- */
-export const TERMINAL_IDLE_MS = 30 * 60_000;
-
-/** While every terminal sits at its prompt, they hold the Container this long after the last input (cost audit F1). */
-export const TERMINAL_PROMPT_IDLE_MS = 10 * 60_000;
+// The Container's size and idle time, and the Terminals' holds (SPI-1317), are Environment settings (ADR-0032,
+// `@t3flare/harness-registry`'s `ENVIRONMENT_SETTINGS`), taken at each start (`containerLaunch.ts`).
 
 /**
  * Dependency directories, build output and caches stay on the Container's disk, out of the Workspace DO: syncing them would fill the DO's SQLite and slow every command.

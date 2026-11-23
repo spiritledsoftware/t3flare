@@ -55,3 +55,10 @@ resize and close go back as RPC, and nothing holds a connection open. The Worksp
 ## Refinement (G11, 2026-11-13): the preview hold
 
 A Container preview's requests (use) and carried sockets (a hold) keep a running Container only while someone works in the Workspace: a command runs, or a terminal, an agent's Terminal or a CLI process had input within the foreground terminal's 30 minutes. A preview never starts a Container, and a scan for listening ports is neither use nor input (ADR-0031).
+
+## Refinement (SPI-1317, 2026-11-23): the holds and the cap are settings
+
+The 30-minute and 10-minute holds and the cap of 8 Terminals per Workspace, t3's and the agent's each, are now the
+defaults of Environment settings (`terminalBusyHoldMinutes`, `terminalPromptHoldMinutes`, `terminalsPerWorkspace`,
+`agentTerminalsPerWorkspace`; ADR-0032's SPI-1317 refinement), taken at each Container start. The preview hold above
+follows the busy hold.
