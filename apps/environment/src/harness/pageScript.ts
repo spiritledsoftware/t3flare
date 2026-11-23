@@ -4,6 +4,18 @@
 import { ENDPOINTS_SCRIPT } from "./pageEndpoints.ts";
 import { WORKSPACES_SCRIPT } from "./pageWorkspaces.ts";
 
+/** Each entity's name in the audit log; one this page does not know shows as stored. page.ts renders it too. */
+export const ENTITY_LABELS: Readonly<Record<string, string>> = {
+  harness: "Harness",
+  environment: "Environment",
+  endpoints: "Model endpoints",
+  "owner-clients": "Owner clients",
+  workspaces: "Workspaces",
+};
+
+/** Where the page asks for a new token (SPI-1366); panel.ts answers it. */
+export const TOKEN_PATH = "/_t3flare/settings/api/token";
+
 /** A stored secret Variable's placeholder while its value is kept (an empty box keeps it); page.ts renders it too. */
 export const KEPT_PLACEHOLDER = "Set, not shown. Type to replace it";
 /** A stored secret Variable's placeholder once renamed or turned plain: its value must be typed again. */
@@ -36,7 +48,20 @@ export const budgetNote = (budget: number): string => `${BUDGET_NOTE[0]}${budget
 
 export const SCRIPT =
   `"use strict";
-const csrf = document.querySelector('meta[name="t3flare-csrf"]').getAttribute("content");
+let csrf = document.querySelector('meta[name="t3flare-csrf"]').getAttribute("content");
+// The token lasts the Settings page token setting (SPI-1366): a change refused for it asks for a new one, and is sent
+// again with it, once.
+const freshToken = async () => {
+  try {
+    const response = await fetch(${JSON.stringify(TOKEN_PATH)}, { credentials: "same-origin" });
+    const token = response.ok ? (await response.json()).token : "";
+    if (typeof token !== "string" || token === "") return false;
+    csrf = token;
+    return true;
+  } catch {
+    return false;
+  }
+};
 const notice = document.getElementById("result");
 const noticeText = notice.querySelector(".msg");
 const notify = (tone, text) => {
@@ -54,12 +79,16 @@ const busy = (element, on) => {
 // A POST's { response } when it is ok, else { error }: the refusal or the failure to reach the panel, as text.
 const request = async (path, body) => {
   try {
-    const response = await fetch(path, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-t3flare-csrf": csrf },
-      body: JSON.stringify(body),
-      credentials: "same-origin",
-    });
+    const send = () =>
+      fetch(path, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-t3flare-csrf": csrf },
+        body: JSON.stringify(body),
+        credentials: "same-origin",
+      });
+    let response = await send();
+    if (response.status === 403 && (await response.clone().text()).includes("bad CSRF token") && (await freshToken()))
+      response = await send();
     if (response.ok) return { response };
     return { error: "Refused (" + response.status + "): " + (await response.text()).trim() };
   } catch (error) {
@@ -698,6 +727,50 @@ const format = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeri
 for (const time of document.querySelectorAll("time[data-local]")) {
   const at = new Date(time.getAttribute("datetime"));
   if (!Number.isNaN(at.getTime())) { time.title = time.textContent; time.textContent = format.format(at); }
+}
+// The audit log's older pages (SPI-1366): each Show older reads the next page and adds its rows, as page.ts renders them.
+const older = document.querySelector("button[data-audit-older]");
+const auditRows = document.querySelector("tbody[data-audit-rows]");
+const auditNote = document.querySelector("[data-audit-note]");
+const auditLabels = ${JSON.stringify(ENTITY_LABELS)};
+const cell = (label, className, child) => {
+  const td = el("td", undefined, className);
+  td.dataset.label = label;
+  const div = el("div");
+  div.append(child);
+  td.append(div);
+  return td;
+};
+if (older !== null && auditRows !== null) {
+  older.addEventListener("click", async () => {
+    busy(older, true);
+    auditNote.textContent = "Reading older changes…";
+    try {
+      const page = await getJson("/_t3flare/settings/api/audit?before=" + encodeURIComponent(older.dataset.before));
+      for (const entry of page.entries) {
+        const at = new Date(entry.at);
+        const time = el("time", format.format(at));
+        time.dateTime = at.toISOString();
+        time.title = at.toISOString().slice(0, 16).replace("T", " ") + " UTC";
+        const row = el("tr");
+        row.append(
+          cell("When", "when", time),
+          cell("Who", "who", document.createTextNode(entry.caller)),
+          cell("Settings", undefined, document.createTextNode(auditLabels[entry.entity] ?? String(entry.entity))),
+          cell("Action", undefined, el("code", entry.action)),
+          cell("Target", undefined, document.createTextNode(entry.target)),
+          cell("Change", undefined, el("code", JSON.stringify(entry.after ?? null), "change")),
+        );
+        auditRows.append(row);
+      }
+      auditNote.textContent = page.entries.length + " older changes shown.";
+      if (page.before === undefined) older.remove();
+      else { older.dataset.before = String(page.before); busy(older, false); }
+    } catch (error) {
+      auditNote.textContent = error && error.message ? error.message : String(error);
+      busy(older, false);
+    }
+  });
 }
 const links = new Map([...document.querySelectorAll(".nav a")].map((link) => [link.getAttribute("href").slice(1), link]));
 const mark = (id) => { for (const [key, link] of links) { if (key === id) link.setAttribute("aria-current", "location"); else link.removeAttribute("aria-current"); } };

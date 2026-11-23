@@ -488,15 +488,27 @@ export const redactAudit = (entry: AuditEntry): AuditEntry => {
   };
 };
 
-/** The audit log redacted, newest first: at most `limit` (1 to 50, default 20) entries older than the `before` index. */
+/**
+ * A page of the audit log, newest first: `limit` entries (at least one, 20 by default; SPI-1366: no maximum, the log is
+ * read whole anyway) older than the `before` index, and the `before` of the next page when one is left.
+ */
+export const auditPage = (
+  store: Pick<OpsDeps["store"], "auditLog">,
+  input: { readonly limit?: number; readonly before?: number } = {},
+): { readonly entries: ReadonlyArray<AuditEntry>; readonly before?: number } => {
+  const limit = Math.max(1, Math.floor(input.limit ?? 20));
+  const all = store.auditLog(Number.MAX_SAFE_INTEGER);
+  const start = input.before === undefined ? 0 : Math.max(0, all.length - Math.floor(input.before));
+  const entries = all.slice(start, start + limit);
+  const next = start + entries.length < all.length ? all.length - (start + entries.length) : undefined;
+  return { entries, ...(next === undefined ? {} : { before: next }) };
+};
+
+/** The audit log redacted, newest first, a page at a time (`auditPage`). */
 export const readAudit = (
   deps: Pick<OpsDeps, "store">,
   input: { readonly limit?: number; readonly before?: number } = {},
 ) => {
-  const limit = Math.min(50, Math.max(1, Math.floor(input.limit ?? 20)));
-  const all = deps.store.auditLog(Number.MAX_SAFE_INTEGER);
-  const start = input.before === undefined ? 0 : Math.max(0, all.length - Math.floor(input.before));
-  const entries = all.slice(start, start + limit);
-  const next = start + entries.length < all.length ? all.length - (start + entries.length) : undefined;
-  return { entries: entries.map(redactAudit), ...(next === undefined ? {} : { before: next }) };
+  const page = auditPage(deps.store, input);
+  return { ...page, entries: page.entries.map(redactAudit) };
 };

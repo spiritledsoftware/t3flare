@@ -136,6 +136,7 @@ input:disabled,select:disabled,textarea:disabled{opacity:.64;cursor:not-allowed}
 .btn-danger{border-color:transparent;background:transparent;box-shadow:none;color:var(--muted-fg)}
 .btn-danger:hover{background:var(--err-soft);color:var(--err)}
 .btn-sm{height:1.75rem;padding:0 .5rem;font-size:.75rem}
+.audit-more{display:flex;flex-wrap:wrap;align-items:center;gap:.75rem;padding:.75rem 0 0}
 select.sel-sm{height:1.75rem;min-width:0;padding:0 1.5rem 0 .5rem;font-size:.75rem}
 label.exposure{display:inline-flex;align-items:center;gap:.5rem;font-size:.75rem;color:var(--muted-fg)}
 .btn[aria-busy=true]{color:transparent}

@@ -287,12 +287,26 @@ describe("the Settings server's card for a free change", () => {
     });
     expect(structured(smaller)).toMatchObject({
       status: "applied",
-      appliesAt: "Applies at the next MCP call; a CLI agent's own tool timeout at its next start.",
+      appliesAt:
+        "Applies at the next MCP call; a CLI agent's own tool timeout and MCP start wait at its next start; the sign-in time to sign-ins started after it.",
     });
     for (const card of run.cards) expect(card.prompt).not.toContain("Container next starts");
     expect(SETTINGS_TOOLS.find((tool) => tool.name === "change_environment")!.description).toContain(
       "mcpCallSeconds and mcpResultKiB at the next MCP call",
     );
+  });
+
+  it("a change to a setting read at its own next use says so, never a Container start (SPI-1366)", async () => {
+    const run = setup();
+    recordModes(durable(), "approval-required");
+    const lower = await run.call(durable(), "change_environment", {
+      expectedRevision: 0,
+      settings: { idleAfterSeconds: 30, textGenerationSeconds: 60 },
+    });
+    expect(structured(lower)).toMatchObject({
+      status: "applied",
+      appliesAt: "Applies at each one's next use, as its description says; no Container start is needed.",
+    });
   });
 
   it("a change to how long history is kept applies per key: at the next prune or at each Pi start, never a Container start (SPI-1323)", async () => {

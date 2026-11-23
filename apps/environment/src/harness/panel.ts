@@ -34,6 +34,7 @@ import {
   EXTENSIONS,
   ignoredServersOf,
   readStoredEnvironment,
+  resolveEnvironment,
   resolveHarness,
   type ToolsChange,
 } from "@t3flare/harness-registry";
@@ -68,6 +69,7 @@ import { csrfToken, csrfValid } from "./csrf.ts";
 import {
   type AddServer,
   addMcpServer,
+  auditPage,
   beginMcpSignIn,
   changeEnvironment,
   changeExtension,
@@ -89,9 +91,17 @@ import { renderChangePage, renderGonePage } from "./changePage.ts";
 import { CHANGE_SCRIPT } from "./changePageScript.ts";
 import { CHANGES_API_PATH, CHANGES_PATH, changePagePath, SETTINGS_PAGE_PATH } from "./paths.ts";
 import { pageCsp, renderPage, testBuildView } from "./page.ts";
+import { TOKEN_PATH } from "./pageScript.ts";
 import { type AuditActor, auditWorkspace, type HarnessStore } from "./store.ts";
 
 export const CSRF_HEADER = "x-t3flare-csrf";
+/** Where the page asks for a new token (SPI-1366). */
+export const TOKEN_API_PATH = TOKEN_PATH;
+/**
+ * How many audit entries the page shows at once: a page, not a cap (SPI-1366). Show older loads the next from
+ * `/api/audit`.
+ */
+export const AUDIT_PAGE = 50;
 
 export interface HarnessDeps {
   readonly caller: AccessCaller;
@@ -289,11 +299,19 @@ const unsafeWrite = async (request: Request, deps: HarnessDeps): Promise<string 
   if (deps.caller.kind === "owner") {
     if (origin === null) return "a browser change needs its Origin";
     const now = deps.now?.() ?? Date.now();
-    if (!(await csrfValid(deps.store.csrfKey(), deps.caller.subject, request.headers.get(CSRF_HEADER), now)))
+    // The token lasts the Settings page token setting (SPI-1366), read at each change.
+    const hours = resolveEnvironment(deps.store.loadEnvironment()).pageTokenHours;
+    if (!(await csrfValid(deps.store.csrfKey(), deps.caller.subject, request.headers.get(CSRF_HEADER), now, hours)))
       return "bad CSRF token";
   }
   return undefined;
 };
+
+/** A page of the audit log as the page takes it: the entries, and where Show older starts when more are kept. */
+const auditOfPage = (page: ReturnType<typeof auditPage>) => ({
+  audit: page.entries,
+  ...(page.before === undefined ? {} : { auditBefore: page.before }),
+});
 
 /** The panel's answer to `request`. */
 export const handleHarness = async (request: Request, deps: HarnessDeps): Promise<Response> => {
@@ -313,7 +331,7 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
         costs: containerCostTable(environment),
         running: await runningContainers(deps),
         csrf,
-        audit: deps.store.auditLog(50),
+        ...auditOfPage(auditPage(deps.store, { limit: AUDIT_PAGE })),
         status: harnessStatus(deps),
         ...(deps.store.lastBaseBuild() === undefined ? {} : { baseBuild: deps.store.lastBaseBuild()! }),
         ...(deps.rebuildBase === undefined ? {} : { canRebuild: true }),
@@ -409,7 +427,20 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
     // The last Test base build (SPI-1334): the page polls it while a test runs. A read: it starts nothing.
     if (path === TEST_BASE_PATH) return json(testAnswer(await refreshedTestRecord(deps.store, deps.readTestBase)));
     if (path === `${SETTINGS_PAGE_PATH}/api/mcp`) return json({ servers: await mcpOverview(deps) });
-    if (path === `${SETTINGS_PAGE_PATH}/api/audit`) return json({ entries: deps.store.auditLog(50) });
+    if (path === `${SETTINGS_PAGE_PATH}/api/audit`) {
+      // A page of the log (SPI-1366): the page's Show older asks for the next with the last one's `before`.
+      const number = (name: string) => {
+        const value = Number(url.searchParams.get(name));
+        return url.searchParams.has(name) && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+      };
+      const before = number("before");
+      return json(auditPage(deps.store, { limit: number("limit") ?? AUDIT_PAGE, ...(before === undefined ? {} : { before }) }));
+    }
+    // The page's token, new (SPI-1366): the page asks for it when a change is refused for a token that ran out.
+    if (path === TOKEN_API_PATH) {
+      const subject = deps.caller.kind === "owner" ? deps.caller.subject : "";
+      return json({ token: subject === "" ? "" : await csrfToken(deps.store.csrfKey(), subject, deps.now?.() ?? Date.now()) });
+    }
     if (path === CLIENTS_API_PATH && deps.clients !== undefined) return json({ clients: deps.clients.list() });
     if (path.startsWith(WORKSPACES_API_PATH) && deps.workspaces !== undefined) {
       const workspaces = deps.workspaces;
