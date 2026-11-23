@@ -7,6 +7,11 @@ export type FieldSchema =
   | { readonly type: "boolean"; readonly default: boolean }
   | { readonly type: "integer"; readonly minimum: number; readonly maximum: number; readonly default: number }
   /**
+   * A number with no maximum of t3flare's (a custom Container size's resources, SPI-1365: Cloudflare's account limits
+   * bound them, and refuse a start past them); `whole`: an integer only.
+   */
+  | { readonly type: "number"; readonly minimum: number; readonly whole?: boolean; readonly default: number }
+  /**
    * `labels`: what the panel shows for a value, where its stored name is not words; the value itself otherwise.
    * `integers`: a whole number of at least `minimum`, written in digits, is a value too (the Advisor's cadence, SPI-1365).
    */
@@ -102,6 +107,10 @@ export const fieldProblem = (schema: EnvironmentFieldSchema, value: unknown): st
       if (typeof value !== "number" || !Number.isInteger(value)) return "an integer";
       if (value < schema.minimum) return `at least ${schema.minimum}`;
       return value > schema.maximum ? `at most ${schema.maximum}` : undefined;
+    case "number":
+      if (typeof value !== "number" || !Number.isFinite(value)) return "a number";
+      if (schema.whole === true && !Number.isSafeInteger(value)) return "a whole number";
+      return value < schema.minimum ? `at least ${schema.minimum}` : undefined;
     case "enum":
       if (typeof value === "string" && (schema.values.includes(value) || enumInteger(schema, value))) return undefined;
       return schema.integers === undefined

@@ -84,6 +84,8 @@ const fieldJson = (schema: EnvironmentFieldSchema): Record<string, unknown> => {
       return { type: "boolean" };
     case "integer":
       return { type: "integer", minimum: schema.minimum, maximum: schema.maximum };
+    case "number":
+      return { type: schema.whole === true ? "integer" : "number", minimum: schema.minimum };
     case "enum":
       return schema.integers === undefined
         ? { type: "string", enum: [...schema.values] }

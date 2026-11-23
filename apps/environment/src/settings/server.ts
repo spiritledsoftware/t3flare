@@ -368,7 +368,7 @@ const getSettings = async (
         tier: (setting as { readonly tier?: string }).tier ?? "asked",
       })),
       running: (await deps.running?.()) ?? null,
-      costs: containerCostTable(resolveEnvironment(stored).containerBudget),
+      costs: containerCostTable(resolveEnvironment(stored)),
     });
   }
   return readError("entity is harness or environment");

@@ -310,7 +310,7 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
       const html = renderPage({
         resolved: resolveHarness(deps.store.load()),
         environment,
-        costs: containerCostTable(environment.containerBudget),
+        costs: containerCostTable(environment),
         running: await runningContainers(deps),
         csrf,
         audit: deps.store.auditLog(50),
@@ -400,7 +400,7 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
         revision: stored.revision,
         resolved,
         schema: ENVIRONMENT_SETTINGS,
-        costs: containerCostTable(resolved.containerBudget),
+        costs: containerCostTable(resolved),
         running: await runningContainers(deps),
         stored: readStoredEnvironment(stored),
       });

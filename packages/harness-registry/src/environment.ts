@@ -338,9 +338,9 @@ export type ContainerInstance = NamedContainerType | ContainerResources;
  * The Container sizes, by the name kept in the settings, smallest memory first. `cpu-1` is t3flare's size before this
  * setting (1 vCPU, 3 GiB, 12 GB), a custom size started as its resources; the others are Cloudflare's
  * named types, started by name, with the resources its limits page gives
- * (docs-archive-1:docs/steps/spi-1001-research-container-sizes.md §2). Not offered: `lite` and `basic` (the runtime refuses `basic`),
- * and other custom sizes. A stored name never changes meaning: adding a size is free, removing one needs a
- * rename map.
+ * (docs-archive-1:docs/steps/spi-1001-research-container-sizes.md §2). Not offered: `lite` and `basic` (the runtime refuses `basic`).
+ * Any other size is `custom` (`CUSTOM_SIZE`, SPI-1365), its resources the Owner's settings. A stored name never changes
+ * meaning: adding a size is free, removing one needs a rename map.
  */
 export const CONTAINER_SIZES = {
   "cpu-1": { custom: true, resources: { vcpu: 1, memoryMib: 3072, diskMb: 12_000 } },
@@ -350,28 +350,56 @@ export const CONTAINER_SIZES = {
   "standard-4": { custom: false, resources: { vcpu: 4, memoryMib: 12_288, diskMb: 20_000 } },
 } as const satisfies Readonly<Record<string, { readonly custom: boolean; readonly resources: ContainerResources }>>;
 
-export type ContainerSize = keyof typeof CONTAINER_SIZES;
+/** The size whose resources are the settings `customVcpu`, `customMemoryMib` and `customDiskMb` (SPI-1365). */
+export const CUSTOM_SIZE = "custom";
 
-export const CONTAINER_SIZE_NAMES = Object.keys(CONTAINER_SIZES) as ReadonlyArray<ContainerSize>;
+export type ContainerSize = keyof typeof CONTAINER_SIZES | typeof CUSTOM_SIZE;
+
+export const CONTAINER_SIZE_NAMES = [...Object.keys(CONTAINER_SIZES), CUSTOM_SIZE] as ReadonlyArray<ContainerSize>;
+
+/**
+ * The least a custom size may have: Cloudflare's minimums for a custom instance under `schedulingPolicy:
+ * "durable_object"` (1/16 vCPU, 256 MiB, 2 GB; developers.cloudflare.com/containers/platform-details/limits, read
+ * 2026-11-23). A named constraint. Its maximums are the account's limits (4 vCPU, 12 GiB and 20 GB by default, raised on
+ * request), which t3flare cannot read: Cloudflare refuses a start past them.
+ */
+export const CUSTOM_SIZE_MINIMUMS: ContainerResources = { vcpu: 1 / 16, memoryMib: 256, diskMb: 2000 };
+
+/** A custom size's resources as `settings` set them. */
+export const customResources = (
+  settings: Pick<ResolvedEnvironment, "customVcpu" | "customMemoryMib" | "customDiskMb">,
+): ContainerResources => ({
+  vcpu: settings.customVcpu,
+  memoryMib: settings.customMemoryMib,
+  diskMb: settings.customDiskMb,
+});
 
 export const DEFAULT_CONTAINER_SIZE: ContainerSize = "cpu-1";
 
 /**
- * What `ctx.container.start({ instance })` takes for `size`: a custom size's resources, a named type's name. Never
- * undefined (an omitted `instance` starts `lite`); a stored name t3flare does not offer resolves to the default first
- * (`resolveEnvironment`).
+ * What `ctx.container.start({ instance })` takes for `size`: a custom size's resources (`custom` for `CUSTOM_SIZE`), a
+ * named type's name. Never undefined (an omitted `instance` starts `lite`); a stored name t3flare does not offer resolves
+ * to the default first (`resolveEnvironment`).
  */
-export const containerInstance = (size: ContainerSize): ContainerInstance => {
+export const containerInstance = (
+  size: ContainerSize,
+  custom: ContainerResources = CONTAINER_SIZES["cpu-1"].resources,
+): ContainerInstance => {
+  if (size === CUSTOM_SIZE) return custom;
   const entry = CONTAINER_SIZES[size];
   return entry.custom ? entry.resources : (size as NamedContainerType);
 };
 
 /** What the Builder's Container starts with (ADR-0047 §9): its own size, or the Container size. */
 export const builderInstance = (
-  settings: Pick<ResolvedEnvironment, "containerSize" | "builderSize">,
+  settings: Pick<
+    ResolvedEnvironment,
+    "containerSize" | "builderSize" | "customVcpu" | "customMemoryMib" | "customDiskMb"
+  >,
 ): ContainerInstance =>
   containerInstance(
     settings.builderSize === BUILDER_SAME_SIZE ? settings.containerSize : (settings.builderSize as ContainerSize),
+    customResources(settings),
   );
 
 /** What the Environment DO stores (`t3flare:environment:settings`): the settings set explicitly. */
@@ -389,7 +417,38 @@ export const ENVIRONMENT_SETTINGS = {
     title: "Container size",
     description:
       "The vCPU, memory and disk a Workspace's Container starts with. Applies at each Workspace's next Container start; a running Container keeps its size.",
-    schema: { type: "enum", values: CONTAINER_SIZE_NAMES, default: DEFAULT_CONTAINER_SIZE },
+    schema: {
+      type: "enum",
+      values: CONTAINER_SIZE_NAMES,
+      default: DEFAULT_CONTAINER_SIZE,
+      labels: { [CUSTOM_SIZE]: "custom (the vCPU, memory and disk below)" },
+    },
+  },
+  customVcpu: {
+    title: "Custom size: vCPU",
+    description: `The custom size's vCPU, used when the Container size or the Builder size is custom: at least ${CUSTOM_SIZE_MINIMUMS.vcpu}, Cloudflare's least. Past your account's limits (4 vCPU, 12 GiB and 20 GB by default) Cloudflare refuses the start, and no Container starts until the size changes. Applies at each Workspace's next Container start.`,
+    // At least Cloudflare's minimum (`CUSTOM_SIZE_MINIMUMS`); no maximum of t3flare's: the account's limit is Cloudflare's.
+    schema: { type: "number", minimum: CUSTOM_SIZE_MINIMUMS.vcpu, default: CONTAINER_SIZES["cpu-1"].resources.vcpu },
+  },
+  customMemoryMib: {
+    title: "Custom size: memory (MiB)",
+    description: `The custom size's memory, at least ${CUSTOM_SIZE_MINIMUMS.memoryMib} MiB.`,
+    schema: {
+      type: "number",
+      minimum: CUSTOM_SIZE_MINIMUMS.memoryMib,
+      whole: true,
+      default: CONTAINER_SIZES["cpu-1"].resources.memoryMib,
+    },
+  },
+  customDiskMb: {
+    title: "Custom size: disk (MB)",
+    description: `The custom size's disk, at least ${CUSTOM_SIZE_MINIMUMS.diskMb} MB.`,
+    schema: {
+      type: "number",
+      minimum: CUSTOM_SIZE_MINIMUMS.diskMb,
+      whole: true,
+      default: CONTAINER_SIZES["cpu-1"].resources.diskMb,
+    },
   },
   containerIdleMinutes: {
     title: "Idle time (minutes)",
@@ -602,7 +661,7 @@ export const ENVIRONMENT_SETTINGS = {
       type: "enum",
       values: [BUILDER_SAME_SIZE, ...CONTAINER_SIZE_NAMES],
       default: BUILDER_SAME_SIZE,
-      labels: { [BUILDER_SAME_SIZE]: "Same as Container size" },
+      labels: { [BUILDER_SAME_SIZE]: "Same as Container size", [CUSTOM_SIZE]: "custom (the vCPU, memory and disk above)" },
     },
     row: "imageSetup",
   },
@@ -717,7 +776,7 @@ const ENVIRONMENT_KEYS = Object.keys(ENVIRONMENT_SETTINGS) as ReadonlyArray<Envi
 /** The value a field of `schema` holds: an enum's own names, a number, a boolean or text (a `file` field's too). */
 type ValueOf<Schema> = Schema extends { readonly type: "enum"; readonly values: ReadonlyArray<infer Name> }
   ? Name
-  : Schema extends { readonly type: "integer" }
+  : Schema extends { readonly type: "integer" | "number" }
     ? number
     : Schema extends { readonly type: "boolean" }
       ? boolean

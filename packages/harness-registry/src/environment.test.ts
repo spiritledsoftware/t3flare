@@ -9,6 +9,7 @@ import {
   BASE_BUILD_SETTING_KEYS,
   builderInstance,
   containerInstance,
+  customResources,
   DEFAULT_CHECKPOINT_MINUTES,
   DEFAULT_CLONE_MINUTES,
   DEFAULT_OWNER_ANSWER_MS,
@@ -55,6 +56,9 @@ const BASE_DEFAULTS = {
  * every full object below.
  */
 const TUNABLE_DEFAULTS = {
+  customVcpu: 1,
+  customMemoryMib: 3072,
+  customDiskMb: 12_000,
   cliProcessesPerWorkspace: 4,
   cliReclaimSeconds: 30,
   turnLimitMinutes: 120,
@@ -266,7 +270,7 @@ describe("applyEnvironmentChange", () => {
   it("refuses a size it does not offer, an unknown setting and an empty change, with the setting named", () => {
     expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { containerSize: "lite" } })).toEqual({
       ok: false,
-      error: "containerSize: one of cpu-1, standard-1, standard-2, standard-3, standard-4",
+      error: "containerSize: one of cpu-1, standard-1, standard-2, standard-3, standard-4, custom",
     });
     expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { secrets: "x" } })).toEqual({
       ok: false,
@@ -305,6 +309,26 @@ describe("containerInstance", () => {
     expect(containerInstance("standard-2")).toBe("standard-2");
     expect(containerInstance("standard-3")).toBe("standard-3");
     expect(containerInstance("standard-4")).toBe("standard-4");
+  });
+
+  it("starts the custom size as the Owner's resources, down to Cloudflare's minimums and with no maximum of its own", () => {
+    const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
+    const applied = set({ containerSize: "custom", customVcpu: 0.25, customMemoryMib: 1024, customDiskMb: 4000 });
+    if (!applied.ok) throw new Error(applied.error);
+    const resolved = resolveEnvironment(applied.environment);
+    expect(containerInstance(resolved.containerSize, customResources(resolved))).toEqual({
+      vcpu: 0.25,
+      memoryMib: 1024,
+      diskMb: 4000,
+    });
+    // The Builder takes the same custom resources.
+    expect(builderInstance({ ...resolved, builderSize: "custom" })).toEqual({ vcpu: 0.25, memoryMib: 1024, diskMb: 4000 });
+    expect(set({ customVcpu: 1 / 16, customMemoryMib: 256, customDiskMb: 2000 })).toMatchObject({ ok: true });
+    expect(set({ customVcpu: 64, customMemoryMib: 262_144, customDiskMb: 400_000 })).toMatchObject({ ok: true });
+    expect(set({ customVcpu: 0.05 })).toEqual({ ok: false, error: "customVcpu: at least 0.0625" });
+    expect(set({ customMemoryMib: 255 })).toEqual({ ok: false, error: "customMemoryMib: at least 256" });
+    expect(set({ customMemoryMib: 1024.5 })).toEqual({ ok: false, error: "customMemoryMib: a whole number" });
+    expect(set({ customDiskMb: 1999 })).toEqual({ ok: false, error: "customDiskMb: at least 2000" });
   });
 
   it("starts the default for a stored name it does not offer, never an omitted instance (which would start lite)", () => {

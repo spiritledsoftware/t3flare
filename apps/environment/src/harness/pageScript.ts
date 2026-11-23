@@ -318,7 +318,7 @@ const settingsOf = (form) => {
   const settings = {};
   for (const input of form.querySelectorAll("[data-setting]")) {
     const kind = input.dataset.kind;
-    settings[input.dataset.setting] = kind === "boolean" ? input.checked : kind === "integer" ? Number(input.value) : kind === "variables" ? variablesOf(input) : input.value;
+    settings[input.dataset.setting] = kind === "boolean" ? input.checked : kind === "integer" || kind === "number" ? Number(input.value) : kind === "variables" ? variablesOf(input) : input.value;
   }
   return settings;
 };

@@ -146,6 +146,8 @@ const field = (
       return `<div class="field"><div class="inline-field"><input type="checkbox" ${attrs}${value === true ? " checked" : ""}><label for="${id}">${escapeHtml(setting.title)}</label></div>${hint}</div>`;
     case "integer":
       return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="number" inputmode="numeric" required ${attrs} min="${setting.schema.minimum}" max="${setting.schema.maximum}" step="1" value="${escapeHtml(String(value))}">${hint}</div>`;
+    case "number":
+      return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="number" inputmode="${setting.schema.whole === true ? "numeric" : "decimal"}" required ${attrs} min="${setting.schema.minimum}" step="${setting.schema.whole === true ? "1" : "any"}" value="${escapeHtml(String(value))}">${hint}</div>`;
     case "enum":
       // An enum that takes whole numbers too (the Advisor's cadence): a text box offering the named values.
       if (setting.schema.integers !== undefined)
@@ -1175,7 +1177,7 @@ ${navItem("audit", "Audit log", "audit", `<span class="count">${input.audit.leng
 ${input.openChanges === undefined ? "" : `${openChangesSection(input.openChanges, ownerAnswerMsOf(environment))}\n`}${toolsSection(input.resolved)}
 ${extensionsSection(input.resolved)}
 ${mcpSection(rows, t3Card(input.resolved, input.t3Tools), input.ownerClients)}
-${endpointsSection(escapeHtml, input.endpoints)}${environmentSection(environment, input.costs ?? containerCostTable(environment.containerBudget), input.running, { ...(input.testBuild === undefined ? {} : { record: input.testBuild }), canTest: input.canTest === true })}
+${endpointsSection(escapeHtml, input.endpoints)}${environmentSection(environment, input.costs ?? containerCostTable(environment), input.running, { ...(input.testBuild === undefined ? {} : { record: input.testBuild }), canTest: input.canTest === true })}
 ${workspacesSection(escapeHtml, time, input.workspaces)}
 ${skillsSection(input.skills)}
 ${statusSection(input.status, input.baseBuild, input.canRebuild === true)}

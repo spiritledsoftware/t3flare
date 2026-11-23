@@ -92,6 +92,10 @@ const ENVIRONMENT: Readonly<
   >
 > = {
   containerSize: { up: ["cpu-1", "standard-4", "asked"], down: ["standard-4", "standard-1", "asked"] },
+  // SPI-1365: a custom size's resources are asked either way, as the size is (cost one way, a start refused the other).
+  customVcpu: { up: [1, 2, "asked"], down: [2, 0.5, "asked"] },
+  customMemoryMib: { up: [3072, 8192, "asked"], down: [8192, 1024, "asked"] },
+  customDiskMb: { up: [12_000, 16_000, "asked"], down: [16_000, 4000, "asked"] },
   containerIdleMinutes: { up: [2, 30, "asked"], down: [30, 2, "free"] },
   // SPI-1317: a longer Terminal hold keeps the Container running, and billed, longer, so it is asked.
   terminalBusyHoldMinutes: { up: [30, 60, "asked"], down: [30, 5, "free"] },
@@ -160,6 +164,7 @@ const twoValues = (schema: FieldSchema): readonly [unknown, unknown] => {
     case "boolean":
       return [false, true];
     case "integer":
+    case "number":
       return [schema.minimum, schema.minimum + 1];
     case "enum":
       return [schema.values[0], schema.values[1]];

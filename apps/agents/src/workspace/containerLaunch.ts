@@ -5,6 +5,7 @@
 import {
   type ContainerInstance,
   containerInstance,
+  customResources,
   digestOf,
   type ContainerSize,
   EMPTY_ENVIRONMENT,
@@ -207,7 +208,7 @@ const terminalLimitsFrom = (settings: ResolvedEnvironment): TerminalLimits => ({
 /** The launch for the settings `taken` (`takeEnvironment`'s, already read against this Worker's schema). */
 export const launchOf = ({ settings, source }: TakenEnvironment): ContainerLaunch => ({
   size: settings.containerSize,
-  instance: containerInstance(settings.containerSize),
+  instance: containerInstance(settings.containerSize, customResources(settings)),
   idleMs: settings.containerIdleMinutes * 60_000,
   ...(source === "environment" ? { budget: settings.containerBudget } : {}),
   revision: settings.revision,
