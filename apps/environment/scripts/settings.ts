@@ -1170,6 +1170,53 @@ const m3Linked = async (kind: "durable" | "codex") => {
   });
 };
 
+/**
+ * M3's deleted thread, from a CLI's relay: a live Codex process's handle (read from /proc, as relay-hostile does) replayed
+ * after its thread was deleted. Before SPI-1356 the projection read refused it as unknown work; now the thread's deletion
+ * stops its provider session, so the handle dies with its process or the write finds no modes record.
+ */
+const m3Deleted = async () => {
+  const FILE = "m3-settings-cli-codex.json";
+  await enableKind("codex");
+  const threadId = await newThread("codex", "m3 deleted", "full-access");
+  const run = await turn("codex", threadId, cliCall("get_status", {}), () => "accept");
+  await dispatch(cookie, { type: "thread.delete", commandId: uuid(), threadId }).catch((error: unknown) =>
+    console.log(`delete: ${String(error).slice(0, 200)}`),
+  );
+  await sleep(3000);
+  const env = await environment();
+  const body = JSON.stringify({
+    jsonrpc: "2.0",
+    id: 9,
+    method: "tools/call",
+    params: {
+      name: "change_environment",
+      arguments: {
+        expectedRevision: env.revision,
+        settings: { containerIdleMinutes: Math.max(1, Number(env.resolved.containerIdleMinutes) - 1) },
+      },
+    },
+  });
+  const steal = `H=$(for p in /proc/[0-9]*; do tr '\\0' '\\n' < $p/environ 2>/dev/null | sed -n 's/^T3FLARE_TOOL_HANDLE=//p'; done | head -1); test -n "$H" && echo found || echo none;`;
+  const answer = await exec(
+    WORKSPACE.cli,
+    `${steal} curl -s -o /tmp/unk.out -w '%{http_code}' -X POST -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' -H "authorization: Bearer $H" --data '${body}' http://computer.internal/t3flare/mcp/settings; echo; head -c 1200 /tmp/unk.out`,
+  );
+  const after = await environment();
+  await stopCliProcesses();
+  const out = String(answer.stdout ?? "");
+  const ok =
+    after.revision === env.revision && (out.startsWith("none") || /no record of this thread's modes|40[13]/.test(out));
+  await record(FILE, "6-deleted-thread", {
+    name: "codex: a deleted thread's handle, replayed from the Container, changes nothing (no live handle, or no modes record), no revision moved",
+    threadId,
+    firstTurn: { status: run.status, reply: run.reply.slice(-300) },
+    relayAnswer: out.slice(0, 1400),
+    revisions: { before: env.revision, after: after.revision },
+    verdict: ok ? "pass" : "fail",
+  });
+};
+
 // ---------------------------------------------------------------------------------------------------------------------
 // M4: an own agent's asked change
 
@@ -3532,6 +3579,7 @@ switch (command) {
   case "m3":
     if (arg === "linked-durable") await m3Linked("durable");
     else if (arg === "linked-codex") await m3Linked("codex");
+    else if (arg === "deleted") await m3Deleted();
     else await m3(arg as Kind);
     break;
   case "m4":
@@ -3578,7 +3626,7 @@ switch (command) {
     break;
   default:
     console.error(
-      "usage: settings.ts setup|m1|m1-cold|m2|m3 <kind|linked-durable|linked-codex>|m4 <item>|m4-page|m5a|m5a-prod|m5b|m6 <item>|changes",
+      "usage: settings.ts setup|m1|m1-cold|m2|m3 <kind|linked-durable|linked-codex|deleted>|m4 <item>|m4-page|m5a|m5a-prod|m5b|m6 <item>|changes",
     );
     process.exit(2);
 }

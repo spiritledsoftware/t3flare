@@ -36,9 +36,9 @@ nor changes them, and `read_audit` shows their entries without key fingerprints.
 4. **The thread's mode still rules.** Plan mode refuses every write. Outside full access every write asks. In full
    access a free change runs and an asked change still asks, as an elicitation does in every mode. There is one card,
    never the generic write card followed by a second.
-5. ~~**Linked work reads only.** A thread that carries a link's origin, or whose origin the Environment cannot establish,
-   may read settings and change none. The laptop's way to change them is an Owner client.~~ Superseded by the SPI-1356
-   refinement below: Linked work changes settings as the owner's own thread does.
+5. **Linked work reads only.** A thread that carries a link's origin, or whose origin the Environment cannot establish,
+   may read settings and change none. The laptop's way to change them is an Owner client. (Superseded by the SPI-1356
+   refinement below: Linked work changes settings as the owner's own thread does.)
 6. **An asked change is an Open change**: kept by the Environment DO for at most 10 minutes, bound to the revision it
    was asked against, answered once.
 7. **t3flare's own agents get the owner-only card.** An asked change raises a Server question as an approval card on the
@@ -209,9 +209,10 @@ there in any t3 client connected to that Environment (the web client at its host
 added it); the laptop's own client shows another Environment's thread only when it is connected to that Environment too
 (t3's `ChatView`: "Only an environment this client is connected to can open the parent"). It can also be answered on the
 Change page, whose link the card carries when the host is configured, or from the Settings page's Open changes list; the
-first answer wins. No agent answers it, the laptop's included: the laptop's `t3_pending_request` is forwarded over the
-link to the Cloud Environment's `/mcp`, where `refuseOwnerOnly` (`mcp/ownerOnly.ts`, SPI-1079) refuses `read` and
-`respond` on the card and `list` only shows its id.
+first answer wins. No agent answers it, the laptop's included: the card is an approval, which t3's `t3_pending_request`
+neither lists nor answers (it handles `user_input` requests only), and the laptop's calls are forwarded over the link
+to the Cloud Environment's `/mcp`, where `refuseOwnerOnly` (`mcp/ownerOnly.ts`, SPI-1079) also refuses `read` and
+`respond` naming an MCP server's card.
 
 **Consequence**: an agent on the laptop that can start or steer Linked work in the Cloud Environment can now ask for any
 Settings change there, as an agent in the owner's own cloud thread can. Each one it asks for still needs the owner's

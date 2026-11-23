@@ -838,7 +838,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     readonly args: Readonly<Record<string, unknown>>;
     readonly judged?: "read" | "write";
     readonly asker?: McpAsker;
-    /** The Session's thread (plan D3); absent from a Session before SPI-1198, judged as unknown work. */
+    /** The Session's thread (plan D3); absent from a Session before SPI-1198, which has no modes record and writes nothing. */
     readonly thread?: string;
     /** The id the Session's Stop names in `cancelAsk` (plan D9): a Settings server call is stopped by it. */
     readonly stopId?: string;
