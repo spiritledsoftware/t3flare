@@ -77,6 +77,18 @@ export const DEFAULT_TURN_LIMIT_MINUTES = 120;
  */
 export const DEFAULT_TURN_LIMIT_MS = DEFAULT_TURN_LIMIT_MINUTES * 60_000;
 
+/**
+ * The settings read wait's default, in seconds (`settingsReadSeconds`, SPI-1314): how long a Container start or a turn
+ * waits for the newest settings before it runs with the ones it last took.
+ */
+export const DEFAULT_SETTINGS_READ_SECONDS = 5;
+
+/**
+ * The settings read wait's default in ms: used where no setting reaches (a turn whose start carried none, a Workspace
+ * that kept no settings yet).
+ */
+export const DEFAULT_SETTINGS_READ_MS = DEFAULT_SETTINGS_READ_SECONDS * 1000;
+
 /** The largest Global mise config, in bytes of UTF-8. */
 export const MAX_GLOBAL_MISE_BYTES = 16 * 1024;
 
@@ -275,6 +287,15 @@ export const ENVIRONMENT_SETTINGS = {
     // week is under the 24.8 days past which a JS timer overflows.
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_TURN_LIMIT_MINUTES },
     tier: "down-free",
+  },
+  settingsReadSeconds: {
+    title: "Settings read wait (seconds)",
+    description:
+      "How long a Container start or a turn waits for the newest settings before it goes ahead with the ones it last read; a start waits as long to learn which Base snapshot it starts from. A long wait holds a start or a turn that long whenever the settings are slow to answer. Applies at each thread's next turn. A Workspace's next Container start still waits as long as the settings it last read say, so for a Container it applies at the start after that.",
+    // t3flare times it itself (the Session's and the Workspace DO's timers), so the shared sanity maximum applies
+    // (ADR-0048 §2), in seconds.
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES * 60, default: DEFAULT_SETTINGS_READ_SECONDS },
+    tier: "free",
   },
   variables: {
     title: "Variables",

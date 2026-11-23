@@ -55,7 +55,7 @@ import { withCause } from "@t3flare/models/failures";
 import { redactSecrets } from "@t3flare/models/redact";
 import { toWorkspace } from "@t3flare/workspace-client";
 
-import { environmentServices, turnLimitMsNow } from "../agents/bindings.ts";
+import { environmentServices, settingsReadMsNow, turnLimitMsNow } from "../agents/bindings.ts";
 import { byName, type SessionRpc } from "../agents/rpc.ts";
 import { registerSession } from "../agents/sessionSink.ts";
 import { durableModeRecord } from "./threadCaller.ts";
@@ -567,6 +567,8 @@ export const makePiDurableAdapter = (
                 ...environmentSkillsInput(),
                 // SPI-1315: the Turn limit as it is at this turn's start; the Session keeps it with the turn.
                 turnLimitMs: turnLimitMsNow(),
+                // SPI-1314: how long the Session waits at this turn's start for the newest settings.
+                settingsReadMs: settingsReadMsNow(),
               }),
             ).pipe(
               Effect.tapError(() =>

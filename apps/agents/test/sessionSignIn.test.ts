@@ -109,7 +109,6 @@ const sessionWith = (
     kv: { get: <T>(key: string) => map.get(key) as T | undefined, put: (key, value) => void map.set(key, value) },
     models,
     fetch: fetcher,
-    readMs: 50,
     now: () => clock,
     source: () => ({
       modelEndpoints: async () => ({ revision: 1, endpoints: [endpoint] }),
@@ -153,7 +152,7 @@ const sessionWith = (
 describe("a Session on a sign-in endpoint", () => {
   it("sends the broker's access token as a bearer, with a body plan usage takes", async () => {
     const session = sessionWith(() => ({ apiKey: "at-one", expiresAt: 1_000_000 + 3_600_000 }));
-    await session.endpoints.take();
+    await session.endpoints.take(50);
     expect(await session.request("Be brief.")).toBe("ok");
     const [first] = session.sent;
     expect(first).toMatchObject({ url: "https://api.openai.com/v1/responses", authorization: "Bearer at-one" });
@@ -171,7 +170,7 @@ describe("a Session on a sign-in endpoint", () => {
         ? { apiKey: "at-before", expiresAt: 1_000_000 + 4 * 60_000 }
         : { apiKey: "at-after", expiresAt: 1_000_000 + 64 * 60_000 },
     );
-    await session.endpoints.take();
+    await session.endpoints.take(50);
     await session.request();
     session.advance(60_000);
     await session.request();
@@ -205,7 +204,7 @@ describe("a Session on a sign-in endpoint", () => {
             )
           : responsesStream("ok"),
     );
-    await session.endpoints.take();
+    await session.endpoints.take(50);
     await session.request();
     refuse = false;
     expect(await session.request()).toBe("ok");
@@ -214,7 +213,7 @@ describe("a Session on a sign-in endpoint", () => {
 
   it("drops the token when the endpoint is signed out", async () => {
     const session = sessionWith((asked) => ({ apiKey: `at-${asked}`, expiresAt: 1_000_000 + 3_600_000 }));
-    await session.endpoints.take();
+    await session.endpoints.take(50);
     await session.request();
     expect(session.endpoints.drop("chatgpt")).toBe(true);
     await session.request();
@@ -227,7 +226,7 @@ describe("a Session on a sign-in endpoint", () => {
       signedOut: true,
       problem: "ChatGPT refused to renew the sign-in (invalid_grant): it is signed out",
     }));
-    await session.endpoints.take();
+    await session.endpoints.take(50);
     const error = await session.request();
     expect(error).toMatch(
       /The Model endpoint "chatgpt" is not signed in to ChatGPT \(ChatGPT refused to renew the sign-in \(invalid_grant\): it is signed out\): sign in with ChatGPT again on the Settings page\./,
@@ -237,7 +236,7 @@ describe("a Session on a sign-in endpoint", () => {
       apiKey: null,
       problem: "its ChatGPT sign-in could not be renewed yet: retry the turn",
     }));
-    await transient.endpoints.take();
+    await transient.endpoints.take(50);
     expect(await transient.request()).toMatch(
       /The Model endpoint "chatgpt" could not get a ChatGPT token \(its ChatGPT sign-in could not be renewed yet: retry the turn\)/,
     );
@@ -257,7 +256,7 @@ describe("a Session on a sign-in endpoint", () => {
 
   it("keeps no token in its storage", async () => {
     const session = sessionWith(() => ({ apiKey: "at-never-stored", expiresAt: 1_000_000 + 3_600_000 }));
-    await session.endpoints.take();
+    await session.endpoints.take(50);
     await session.request();
     expect(JSON.stringify([...session.map.entries()])).not.toContain("at-never-stored");
   });
@@ -293,7 +292,7 @@ describe("a Session on a sign-in endpoint", () => {
       ],
     };
     const session = sessionWith(() => ({ apiKey: "at-one", expiresAt: 1_000_000 + 3_600_000 }), undefined, sol);
-    await session.endpoints.take();
+    await session.endpoints.take(50);
     await session.request("Be brief.", { reasoning: "high", tools: true });
     const body = session.sent[0]!.body;
     const input = body.input as Array<Record<string, unknown>>;

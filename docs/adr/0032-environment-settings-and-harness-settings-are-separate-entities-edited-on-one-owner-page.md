@@ -273,3 +273,21 @@ and the stage's Turn limit check) still wins over both.
 
 The Workspace DO's process backstop (`BACKSTOP_MS`, 130 minutes) stays fixed and does not follow the limit: it applies
 only to a process out of a turn, where the Turn limit bounds nothing.
+
+## Refinement (SPI-1314, 2026-11-23): the settings read wait
+
+§1's "5 s bound" was a trade of start latency against freshness, not a platform limit, and two constants made it: the
+Workspace DO's `ENVIRONMENT_READ_MS` and the Session's `HARNESS_READ_MS`. Both are now one Environment setting,
+`settingsReadSeconds`, 5 by default, 1 to `MAX_TIMED_MINUTES * 60` (ADR-0048 §2: t3flare times it with its own timers),
+tier `free`. It sits in the Containers row of the Settings page. Its consequence is stated once, in its description
+(ADR-0048 §6): "A long wait holds a start or a turn that long whenever the settings are slow to answer."
+
+The Session gets it the way it gets the Turn limit: the Environment DO reads it at each turn's start
+(`EnvironmentServices.settingsReadMs`), and the Durable agent's adapter carries it with `submitTurn` (`settingsReadMs`).
+It bounds that turn's reads of the Harness settings, the Model endpoints and the MCP view, and each read's timer is
+cleared when the read wins. A start without it (an Environment before it) waits the default, `DEFAULT_SETTINGS_READ_MS`.
+
+The Workspace DO cannot be told before it reads, so it bootstraps from the copy it kept: a start waits as long as that
+copy says (the default before it kept one), and a change it takes applies from the start after. The same wait bounds
+the start's reads of the Builder (`BUILDER_READ_MS` before). The skill set's copy (`SKILLS_TAKE_MS`) stays fixed: it
+bounds a copy of files, not a read of settings.

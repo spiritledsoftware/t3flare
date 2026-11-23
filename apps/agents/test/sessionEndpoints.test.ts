@@ -5,9 +5,12 @@
 // memory, or a turn whose read of the endpoints failed) sends no key to the old host, and its turn says why.
 import { createModels } from "@earendil-works/pi-ai";
 import { type EndpointCredentialRequest, type ModelEndpoint, sameTarget } from "@t3flare/models/endpoints";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { DEFAULT_SETTINGS_READ_MS, MAX_TIMED_MINUTES } from "@t3flare/harness-registry";
 
 import { ENDPOINT_KEY_TTL_MS, SessionEndpoints } from "../src/session/endpoints.ts";
+import { readWithin, turnReadMs } from "../src/session/readWithin.ts";
 
 const endpointAt = (baseUrl: string): ModelEndpoint => ({
   id: "gw",
@@ -51,7 +54,6 @@ describe("a Session's Model endpoint keys", () => {
       kv: { get: <T>(key: string) => map.get(key) as T | undefined, put: (key, value) => void map.set(key, value) },
       models,
       fetch: fetcher,
-      readMs: 50,
       now: () => clock,
       source: () => ({
         modelEndpoints: async () => {
@@ -75,18 +77,18 @@ describe("a Session's Model endpoint keys", () => {
         (auth) => auth?.auth.apiKey ?? null,
         (error: Error) => error.message,
       )) as string | null;
-    await endpoints.take();
+    await endpoints.take(50);
     expect(await ask()).toBe("sk-K1-old");
     environment = { revision: 2, endpoint: endpointAt("https://new-host.example"), key: "sk-K2-new" };
     clock += ENDPOINT_KEY_TTL_MS + 1;
     expect(await ask()).toMatch(/changed or was removed .*retry the turn/);
     expect(await request()).toMatch(/changed or was removed/);
     failRead = true;
-    await endpoints.take();
+    await endpoints.take(50);
     clock += ENDPOINT_KEY_TTL_MS + 1;
     expect(await ask()).toMatch(/changed or was removed/);
     failRead = false;
-    await endpoints.take();
+    await endpoints.take(50);
     expect(await ask()).toBe("sk-K2-new");
     await request();
     // Only the new host ever saw a request, with the new key; the old host never got the new key.
@@ -115,7 +117,6 @@ describe("a Session's Model endpoint keys", () => {
       kv: { get: <T>(key: string) => map.get(key) as T | undefined, put: (key, value) => void map.set(key, value) },
       models,
       fetch: fetcher,
-      readMs: 50,
       source: () => ({
         modelEndpoints: async () => ({ revision: environment.revision, endpoints: [environment.endpoint] }),
         endpointCredential: async ({ target }: EndpointCredentialRequest) => {
@@ -128,7 +129,7 @@ describe("a Session's Model endpoint keys", () => {
         },
       }),
     });
-    await endpoints.take();
+    await endpoints.take(50);
     let release!: () => void;
     hold = new Promise((resolve) => (release = resolve));
     // A turn asks for the old target's key; the Environment answers K1, but the answer is held in flight.
@@ -136,7 +137,7 @@ describe("a Session's Model endpoint keys", () => {
     while (asked === 0) await new Promise((resolve) => setTimeout(resolve, 1));
     // The owner moves the endpoint with a new key; a follow-up turn installs it; then the old answer lands.
     environment = { revision: 2, endpoint: at("https://new-host.example"), key: "sk-K2-new" };
-    await endpoints.take();
+    await endpoints.take(50);
     release();
     hold = undefined;
     await inFlight;
@@ -144,5 +145,47 @@ describe("a Session's Model endpoint keys", () => {
       messages: [{ role: "user", content: "hi", timestamp: 0 }],
     });
     expect(sent).toEqual(["new-host.example <- sk-K2-new"]);
+  });
+});
+
+describe("a turn's read of the endpoints (SPI-1314)", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("take(readMs) gives up at its bound, and keeps what the Session has", async () => {
+    vi.useFakeTimers();
+    const map = new Map<string, unknown>();
+    const endpoints = new SessionEndpoints({
+      usage: { session: () => "s", record: () => undefined },
+      limits: () => undefined,
+      kv: { get: <T>(key: string) => map.get(key) as T | undefined, put: (key, value) => void map.set(key, value) },
+      models: createModels(),
+      // A silent Environment: the read never answers.
+      source: () => ({
+        modelEndpoints: () => new Promise(() => undefined),
+        endpointCredential: async () => ({ apiKey: null }),
+      }),
+    });
+    let done = false;
+    const taking = endpoints.take(1000).then(() => (done = true));
+    await vi.advanceTimersByTimeAsync(999);
+    expect(done).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await taking;
+    expect(done).toBe(true);
+    expect(map.size).toBe(0);
+  });
+
+  it("leaves no timer pending when the read wins", async () => {
+    vi.useFakeTimers();
+    expect(await readWithin(Promise.resolve("answer"), MAX_TIMED_MINUTES * 60_000)).toBe("answer");
+    expect(vi.getTimerCount()).toBe(0);
+    await expect(readWithin(Promise.reject(new Error("busy")), 1000)).rejects.toThrow("busy");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("a turn's wait is what its start carried, else the default 5 s", () => {
+    expect(turnReadMs({ settingsReadMs: 1000 })).toBe(1000);
+    expect(turnReadMs({})).toBe(DEFAULT_SETTINGS_READ_MS);
+    expect(DEFAULT_SETTINGS_READ_MS).toBe(5000);
   });
 });

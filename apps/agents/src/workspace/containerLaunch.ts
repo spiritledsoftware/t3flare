@@ -19,14 +19,19 @@ import type { LaunchFrom } from "./baseStart.ts";
 import type { ContainerSetupLaunch } from "./containerSetup.ts";
 import type { GlobalMiseLaunch } from "./globalMise.ts";
 
-/** How long a Container start waits for the Environment's settings before it starts with the ones it kept. */
-export const ENVIRONMENT_READ_MS = 5_000;
+/**
+ * How long a Container start waits for the Environment's settings (and for each answer of the Builder): the settings read
+ * wait (SPI-1314, `settingsReadSeconds`) of the copy the Workspace kept, read against this Worker's schema; the default
+ * before it kept one.
+ */
+export const readMsOf = (kept: ResolvedEnvironment): number => kept.settingsReadSeconds * 1000;
 
 export interface TakeEnvironmentDeps {
   /** The Environment DO's `environmentSettings()`. */
   readonly read: () => Promise<ResolvedEnvironment>;
   readonly kept: () => ResolvedEnvironment | undefined;
   readonly keep: (settings: ResolvedEnvironment) => void;
+  /** The kept copy's settings read wait (`readMsOf`). */
   readonly waitMs: number;
 }
 

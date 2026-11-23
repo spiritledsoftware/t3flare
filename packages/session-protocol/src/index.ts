@@ -135,6 +135,12 @@ export interface SubmitTurnInput {
    * default (`DEFAULT_TURN_LIMIT_MS`, @t3flare/harness-registry).
    */
   readonly turnLimitMs?: number;
+  /**
+   * SPI-1314: the settings read wait (the Environment's `settingsReadSeconds`) in ms, as read at this turn's start: how
+   * long the Session waits at it for the harness settings, the Model endpoints and the MCP view. Absent (an Environment
+   * before it): the default (`DEFAULT_SETTINGS_READ_MS`, @t3flare/harness-registry).
+   */
+  readonly settingsReadMs?: number;
 }
 
 export interface SteerInput {

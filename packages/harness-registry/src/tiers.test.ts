@@ -87,6 +87,8 @@ const ENVIRONMENT: Readonly<
   cliReclaimSeconds: { up: [30, 600, "free"], down: [30, 0, "free"] },
   // SPI-1315: a shorter Turn limit only narrows; a longer one spends model tokens and Container time, so it is asked.
   turnLimitMinutes: { up: [120, 240, "asked"], down: [120, 60, "free"] },
+  // SPI-1314: the settings read wait neither widens reach nor spends, so it is free either way.
+  settingsReadSeconds: { up: [5, 30, "free"], down: [5, 1, "free"] },
   variables: {
     up: [[], [{ name: "A", value: "1", secret: false }], "asked"],
     down: [[{ name: "A", value: "1", secret: false }], [], "asked"],

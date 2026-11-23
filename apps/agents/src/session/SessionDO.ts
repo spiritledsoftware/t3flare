@@ -115,6 +115,7 @@ import { NO_KEY, sessionModels } from "./models.ts";
 import { credentialFailure } from "./credentialFailure.ts";
 import { modelSettingSlug } from "@t3flare/models/endpoints";
 import { SessionEndpoints } from "./endpoints.ts";
+import { readWithin, turnReadMs } from "./readWithin.ts";
 import { noteTurnProvider, runsOn } from "./signOut.ts";
 import { suggestionModelOf, suggestPrompt } from "./promptSuggestion.ts";
 import {
@@ -174,8 +175,6 @@ const MCP_BUILD_KEY = "t3flare:mcp-build";
 const MCP_CHUNK_CHARS = 100_000;
 /** This Session started a Terminal or Background job once (SPI-1057): exits are asked for after each tool round. */
 const TERMCTRL_USED_KEY = "t3flare:termctrl-used";
-/** How long a turn's start waits for the Environment's harness settings before it keeps the ones it has. */
-const HARNESS_READ_MS = 5_000;
 /** A test's model fault (stages only). */
 const FAULT_KEY = "t3flare:proxy-fault";
 /** The most a Stop (or the object's start) waits for an aborted command's processes to be killed. */
@@ -304,7 +303,6 @@ export class SessionDO extends DurableObject<SessionEnv> {
       models: this.#models,
       source: () => environmentStub(env.ENVIRONMENT),
       fetch: this.#modelFetch,
-      readMs: HARNESS_READ_MS,
       // SPI-1164: why the running turn's request got no credential, typed, for the differ.
       onCredential: (failure) =>
         this.#noteProxy((record) => {
@@ -670,14 +668,12 @@ export class SessionDO extends DurableObject<SessionEnv> {
 
   /**
    * The Environment's MCP view at a turn's start: a new version is kept and installed (with code mode's namespaces and
-   * tool search's deferral, once: a positional tools entry), never mid-turn. Bounded; never fails the turn.
+   * tool search's deferral, once: a positional tools entry), never mid-turn. Waits at most `readMs`, the turn's settings
+   * read wait (SPI-1314); never fails the turn.
    */
-  async #takeMcp(): Promise<void> {
+  async #takeMcp(readMs: number): Promise<void> {
     try {
-      const view = await Promise.race([
-        environmentStub(this.env.ENVIRONMENT).mcpView(),
-        new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), HARNESS_READ_MS)),
-      ]);
+      const view = await readWithin(environmentStub(this.env.ENVIRONMENT).mcpView(), readMs);
       if (view === undefined) return console.warn(JSON.stringify({ t3flare: "mcp-view-timeout" }));
       const kv = this.ctx.storage.kv;
       if (kv.get<{ version: string }>(MCP_BUILD_KEY)?.version === view.version) return;
@@ -702,14 +698,12 @@ export class SessionDO extends DurableObject<SessionEnv> {
 
   /**
    * The Environment's harness settings at a turn's start: a new revision is kept and installed (applies to this turn's
-   * next phase, never one under way). Bounded; on failure the Session keeps what it has. Never fails the turn.
+   * next phase, never one under way). Waits at most `readMs`, the turn's settings read wait (SPI-1314); on failure the
+   * Session keeps what it has. Never fails the turn.
    */
-  async #takeHarness(): Promise<void> {
+  async #takeHarness(readMs: number): Promise<void> {
     try {
-      const resolved = await Promise.race([
-        environmentStub(this.env.ENVIRONMENT).harnessSettings({}),
-        new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), HARNESS_READ_MS)),
-      ]);
+      const resolved = await readWithin(environmentStub(this.env.ENVIRONMENT).harnessSettings({}), readMs);
       if (resolved === undefined) return console.warn(JSON.stringify({ t3flare: "harness-settings-timeout" }));
       if (this.ctx.storage.kv.get<ResolvedHarness>(HARNESS_KEY)?.revision === resolved.revision) return;
       this.ctx.storage.kv.put(HARNESS_KEY, resolved);
@@ -959,11 +953,13 @@ export class SessionDO extends DurableObject<SessionEnv> {
       } satisfies Meta);
     }
     await this.#takeT3Mcp(input.t3Mcp);
-    await this.#takeHarness();
-    await this.#endpoints.take();
+    // SPI-1314: the settings read wait the start carried bounds each read of the newest settings below.
+    const readMs = turnReadMs(input);
+    await this.#takeHarness(readMs);
+    await this.#endpoints.take(readMs);
     // SPI-1148: the turn's Environment skill set, in the Workspace before the agent runs (bounded; never fails the turn).
     await takeSkillsForTurn(input.environmentSkillsHash, this.#skillsTaker());
-    await this.#takeMcp();
+    await this.#takeMcp(readMs);
     const conversation = await this.#conversation(input.model, input.thinking);
     await conversation.configure({ model: input.model, thinkingLevel: input.thinking ?? null }, context);
     // SPI-1164: kept in storage, so a sign-out of this endpoint stops the turn even after a restart of either object.

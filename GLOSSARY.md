@@ -224,7 +224,7 @@ _Avoid_: harness config, settings (alone)
 **Environment settings**:
 What the Cloud Environment gives every Workspace and its Container, and how long it keeps one: the Container size, idle
 time and budget, how many CLI agents' processes a Workspace may run and how long an idle one waits before it may be ended
-to free the Container for another Workspace, the Turn limit, the Global mise config, the Image setup and the Container setup, the
+to free the Container for another Workspace, the Turn limit, how long a start or a turn waits for the newest settings, the Global mise config, the Image setup and the Container setup, the
 Environment skills, the Variables, whether Terminals and CLI agents read the Owner's dotfiles, and the Grace. t3flare's own, not t3's server settings.
 _Avoid_: environment config, server settings, Container settings
 

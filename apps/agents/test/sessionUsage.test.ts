@@ -70,7 +70,6 @@ const sessionWith = (fetcher: typeof fetch) => {
     kv: { get: <T>(key: string) => map.get(key) as T | undefined, put: (key, value) => void map.set(key, value) },
     models,
     fetch: fetcher,
-    readMs: 50,
     now: () => 5_000,
     source: () => ({
       modelEndpoints: async () => ({ revision: 1, endpoints: [endpoint] }),
@@ -94,7 +93,7 @@ describe("a Session's usage records", () => {
     };
     const { recorded, models, endpoints } = sessionWith((async () =>
       answer("claude-haiku-5-5", usage)) as unknown as typeof fetch);
-    await endpoints.take();
+    await endpoints.take(50);
     const message = await models.completeSimple(models.getModel("gw", "claude-haiku-5-5")!, {
       messages: [{ role: "user", content: "hi", timestamp: 0 }],
     });
@@ -123,7 +122,7 @@ describe("a Session's usage records", () => {
       refuse
         ? Response.json({ type: "error", error: { type: "authentication_error", message: "no" } }, { status: 401 })
         : answer("house-model", { input_tokens: 30, output_tokens: 7 })) as unknown as typeof fetch);
-    await endpoints.take();
+    await endpoints.take(50);
     const house = models.getModel("gw", "house-model")!;
     await models.completeSimple(house, { messages: [{ role: "user", content: "hi", timestamp: 0 }] });
     refuse = true;

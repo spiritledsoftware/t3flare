@@ -129,9 +129,6 @@ export interface BaseBuilder {
   readonly missing: () => Promise<BaseBuildRecord>;
 }
 
-/** How long a start waits for one answer of the Builder. Fixed: a bound on one call to another object, as `ENVIRONMENT_READ_MS` is. */
-export const BUILDER_READ_MS = 5_000;
-
 /** `promise`'s value, or undefined when it fails or does not settle within `ms`. */
 const bounded = async <T>(promise: () => Promise<T>, ms: number): Promise<T | undefined> => {
   let timer: ReturnType<typeof setTimeout> | undefined;
