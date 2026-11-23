@@ -8,13 +8,13 @@ import {
   digestOf,
   type ContainerSize,
   EMPTY_ENVIRONMENT,
-  ENVIRONMENT_SETTINGS,
   type ResolvedEnvironment,
   resolveEnvironment,
   type SettingsSource,
   variableEnv,
 } from "@t3flare/harness-registry";
 
+import { positiveOverride } from "../envOverride.ts";
 import { readWithin } from "../readWithin.ts";
 import type { LaunchFrom } from "./baseStart.ts";
 import type { ContainerSetupLaunch } from "./containerSetup.ts";
@@ -105,8 +105,8 @@ export interface ContainerLaunch {
   readonly terminalsReadBashrc?: boolean;
   /**
    * The Terminals' holds (SPI-1317, `terminalBusyHoldMinutes` and `terminalPromptHoldMinutes`) in ms and their counts
-   * (`terminalsPerWorkspace`, `agentTerminalsPerWorkspace`): a running Container keeps them. Absent in a launch recorded
-   * before them: read as the defaults (`terminalLimitsOf`).
+   * (`terminalsPerWorkspace`, `agentTerminalsPerWorkspace`): a running Container keeps them. Absent in a launch
+   * recorded before them: read as the defaults (`terminalLimitsOf`).
    */
   readonly terminalBusyHoldMs?: number;
   readonly terminalPromptHoldMs?: number;
@@ -184,6 +184,26 @@ export const shownLaunch = (
   };
 };
 
+/** How long open Terminals hold the Container (`TerminalHost.holdsContainer`): while one runs a command, and else. */
+export interface TerminalHold {
+  readonly terminalBusyHoldMs: number;
+  readonly terminalPromptHoldMs: number;
+}
+
+/** The Terminals' holds and counts a Container started with (SPI-1317), spelled as its launch keeps them. */
+export interface TerminalLimits extends TerminalHold {
+  readonly terminalsPerWorkspace: number;
+  readonly agentTerminalsPerWorkspace: number;
+}
+
+/** The Terminals' holds and counts of `settings`, the holds in ms: what `launchOf` keeps. */
+const terminalLimitsFrom = (settings: ResolvedEnvironment): TerminalLimits => ({
+  terminalBusyHoldMs: settings.terminalBusyHoldMinutes * 60_000,
+  terminalPromptHoldMs: settings.terminalPromptHoldMinutes * 60_000,
+  terminalsPerWorkspace: settings.terminalsPerWorkspace,
+  agentTerminalsPerWorkspace: settings.agentTerminalsPerWorkspace,
+});
+
 /** The launch for the settings `taken` (`takeEnvironment`'s, already read against this Worker's schema). */
 export const launchOf = ({ settings, source }: TakenEnvironment): ContainerLaunch => ({
   size: settings.containerSize,
@@ -196,37 +216,25 @@ export const launchOf = ({ settings, source }: TakenEnvironment): ContainerLaunc
     ? { secretVariables: settings.variables.filter((variable) => variable.secret).map((variable) => variable.name) }
     : {}),
   terminalsReadBashrc: settings.terminalsReadBashrc,
-  terminalBusyHoldMs: settings.terminalBusyHoldMinutes * 60_000,
-  terminalPromptHoldMs: settings.terminalPromptHoldMinutes * 60_000,
-  terminalsPerWorkspace: settings.terminalsPerWorkspace,
-  agentTerminalsPerWorkspace: settings.agentTerminalsPerWorkspace,
+  ...terminalLimitsFrom(settings),
 });
-
-/** The Terminals' holds and counts a Container started with (SPI-1317). */
-export interface TerminalLimits {
-  readonly busyHoldMs: number;
-  readonly promptHoldMs: number;
-  readonly terminalsPerWorkspace: number;
-  readonly agentTerminalsPerWorkspace: number;
-}
 
 /**
- * The Terminals' holds and counts of `launch`: the settings' defaults for a launch recorded before them, or for none (no
- * Container started yet).
+ * The defaults' limits: what a launch recorded before SPI-1317, or no launch, reads as, as `launchOf` gives them for
+ * the defaults.
+ */
+const DEFAULT_LIMITS = terminalLimitsFrom(resolveEnvironment(EMPTY_ENVIRONMENT));
+
+/**
+ * The Terminals' holds and counts of `launch`: the settings' defaults for a launch recorded before them, or for none
+ * (no Container started yet).
  */
 export const terminalLimitsOf = (launch: ContainerLaunch | undefined): TerminalLimits => ({
-  busyHoldMs: launch?.terminalBusyHoldMs ?? ENVIRONMENT_SETTINGS.terminalBusyHoldMinutes.schema.default * 60_000,
-  promptHoldMs: launch?.terminalPromptHoldMs ?? ENVIRONMENT_SETTINGS.terminalPromptHoldMinutes.schema.default * 60_000,
-  terminalsPerWorkspace: launch?.terminalsPerWorkspace ?? ENVIRONMENT_SETTINGS.terminalsPerWorkspace.schema.default,
-  agentTerminalsPerWorkspace:
-    launch?.agentTerminalsPerWorkspace ?? ENVIRONMENT_SETTINGS.agentTerminalsPerWorkspace.schema.default,
+  terminalBusyHoldMs: launch?.terminalBusyHoldMs ?? DEFAULT_LIMITS.terminalBusyHoldMs,
+  terminalPromptHoldMs: launch?.terminalPromptHoldMs ?? DEFAULT_LIMITS.terminalPromptHoldMs,
+  terminalsPerWorkspace: launch?.terminalsPerWorkspace ?? DEFAULT_LIMITS.terminalsPerWorkspace,
+  agentTerminalsPerWorkspace: launch?.agentTerminalsPerWorkspace ?? DEFAULT_LIMITS.agentTerminalsPerWorkspace,
 });
-
-/** A stage override in ms (`T3FLARE_TERMINAL_*_MS`): a positive number, else none. */
-const overrideMs = (value: string | undefined): number | undefined => {
-  const ms = Number(value);
-  return value !== undefined && Number.isFinite(ms) && ms > 0 ? ms : undefined;
-};
 
 /**
  * The Terminals' holds the Container is kept for (`TerminalHost.holdsContainer`): the stage checks' overrides
@@ -234,9 +242,9 @@ const overrideMs = (value: string | undefined): number | undefined => {
  * the running Container started with (`terminalLimitsOf`).
  */
 export const terminalHoldOf = (
-  limits: TerminalLimits,
-  overrides: { readonly busyMs?: string; readonly promptMs?: string },
-): { readonly busyMs: number; readonly promptMs: number } => ({
-  busyMs: overrideMs(overrides.busyMs) ?? limits.busyHoldMs,
-  promptMs: overrideMs(overrides.promptMs) ?? limits.promptHoldMs,
+  limits: TerminalHold,
+  overrides: { readonly busyHoldMs: string | undefined; readonly promptHoldMs: string | undefined },
+): TerminalHold => ({
+  terminalBusyHoldMs: positiveOverride(overrides.busyHoldMs) ?? limits.terminalBusyHoldMs,
+  terminalPromptHoldMs: positiveOverride(overrides.promptHoldMs) ?? limits.terminalPromptHoldMs,
 });

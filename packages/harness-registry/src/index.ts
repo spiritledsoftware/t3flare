@@ -250,7 +250,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
   {
     id: "termctrl",
     title: "Terminals and Background jobs",
-    description: `terminal_start, terminal_send, terminal_stop, terminal_list and terminal_wait: interactive programs (REPLs, TUIs, prompts) as PTYs in the Workspace's container, and bash's background: true. Approvals follow the thread's mode as bash's do; nothing starts a container until a Terminal or a job starts. At most ${DEFAULT_TERMINALS_PER_WORKSPACE} run at once in a Workspace by default, as the Environment setting ${ENVIRONMENT_SETTINGS.agentTerminalsPerWorkspace.title} sets, and they end with its container (SPI-1057).`,
+    description: `terminal_start, terminal_send, terminal_stop, terminal_list and terminal_wait: interactive programs (REPLs, TUIs, prompts) as PTYs in the Workspace's container, and bash's background: true. Approvals follow the thread's mode as bash's do; nothing starts a container until a Terminal or a job starts. At most the Environment setting ${ENVIRONMENT_SETTINGS.agentTerminalsPerWorkspace.title} (${DEFAULT_TERMINALS_PER_WORKSPACE} by default) run at once in a Workspace, and they end with its container (SPI-1057).`,
     default: "on",
     tools: ["terminal_start", "terminal_send", "terminal_stop", "terminal_list", "terminal_wait"],
     settings: {

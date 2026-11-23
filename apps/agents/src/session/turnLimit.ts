@@ -10,6 +10,8 @@
 import { DEFAULT_TURN_LIMIT_MS } from "@t3flare/harness-registry";
 import type { TurnState } from "@t3flare/session-protocol";
 
+import { positiveOverride } from "../envOverride.ts";
+
 /** A turn the Session still runs or waits to run. */
 export const isLiveTurn = (turn: TurnState): boolean => turn.status === "queued" || turn.status === "running";
 
@@ -22,9 +24,7 @@ const positive = (value: unknown): number | undefined =>
  * Owner's bounds were checked when the setting was saved.
  */
 export const turnLimitAt = (carried: unknown, override: string | undefined): number =>
-  positive(override === undefined || override === "" ? undefined : Number(override)) ??
-  positive(carried) ??
-  DEFAULT_TURN_LIMIT_MS;
+  positiveOverride(override) ?? positive(carried) ?? DEFAULT_TURN_LIMIT_MS;
 
 /** When the turn's limit ends it: its start plus the limit it started with. */
 export const turnLimitEndsAt = (

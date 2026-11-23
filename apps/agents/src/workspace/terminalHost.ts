@@ -22,6 +22,7 @@ import type {
   TerminalPushAnswer,
 } from "@t3flare/workspace-client";
 
+import type { TerminalHold } from "./containerLaunch.ts";
 import { ContainerRefused } from "./containerStep.ts";
 
 /** A terminal not heartbeaten for this long is killed (the adapter beats every 30 s). */
@@ -135,11 +136,14 @@ export class TerminalHost {
     return this.#lastInput;
   }
 
-  /** Whether open terminals hold the Container now: `busyMs` from the last input while a command runs, else `promptMs`. */
-  holdsContainer(hold: { readonly promptMs: number; readonly busyMs: number }): boolean {
+  /**
+   * Whether open terminals hold the Container now: `terminalBusyHoldMs` from the last input while a command runs, else
+   * `terminalPromptHoldMs`.
+   */
+  holdsContainer(hold: TerminalHold): boolean {
     const open = [...this.#terminals.values()].filter((terminal) => !terminal.exited);
     if (open.length === 0) return false;
-    const ms = open.some((terminal) => terminal.busy) ? hold.busyMs : hold.promptMs;
+    const ms = open.some((terminal) => terminal.busy) ? hold.terminalBusyHoldMs : hold.terminalPromptHoldMs;
     return this.#deps.now() - this.#lastInput < ms;
   }
 
@@ -185,6 +189,9 @@ export class TerminalHost {
       exited: false,
       closing: false,
     };
+    // Checked before `startContainer()` stores the new launch: opens that start a stopped Container (panels
+    // reattaching) count against the previous Container's `terminalsPerWorkspace` until it does, so a count raised
+    // since may refuse one of them once. Harmless; the Owner opens it again.
     const max = this.#deps.maxTerminals?.();
     const opened = this.#terminals.size;
     if (max !== undefined && opened >= max) {

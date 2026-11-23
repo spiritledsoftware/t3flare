@@ -254,8 +254,8 @@ describe("the launch's Terminal holds and counts (SPI-1317)", () => {
       agentTerminalsPerWorkspace: 3,
     });
     expect(terminalLimitsOf(launch)).toEqual({
-      busyHoldMs: 300_000,
-      promptHoldMs: 120_000,
+      terminalBusyHoldMs: 300_000,
+      terminalPromptHoldMs: 120_000,
       terminalsPerWorkspace: 2,
       agentTerminalsPerWorkspace: 3,
     });
@@ -263,8 +263,8 @@ describe("the launch's Terminal holds and counts (SPI-1317)", () => {
 
   it("reads a launch recorded before them, or none, as the defaults: 30 and 10 minutes, 8 and 8 Terminals", () => {
     const defaults = {
-      busyHoldMs: 1_800_000,
-      promptHoldMs: 600_000,
+      terminalBusyHoldMs: 1_800_000,
+      terminalPromptHoldMs: 600_000,
       terminalsPerWorkspace: 8,
       agentTerminalsPerWorkspace: 8,
     };

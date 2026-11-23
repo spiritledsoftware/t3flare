@@ -93,6 +93,7 @@ import {
   shownLaunch,
   takeEnvironment,
   type TakenEnvironment,
+  type TerminalHold,
   type TerminalLimits,
   terminalHoldOf,
   terminalLimitsOf,
@@ -654,8 +655,9 @@ export class WorkspaceDO extends ContainerHost {
       },
       projectRootView: PROJECT_ROOT_VIEW,
     });
-    // The agent's Terminals (SPI-1057): the same host, never heartbeaten; `AgentTerminals` counts them, not the host; (they end with the Container or a
-    // stop), their output rendered by `AgentTerminals` instead of pushed to t3's terminal adapter.
+    // The agent's Terminals (SPI-1057): the same host, never heartbeaten (they end with the Container or a stop), their
+    // output rendered by `AgentTerminals` instead of pushed to t3's terminal adapter. `AgentTerminals` counts them, not
+    // the host.
     this.#agentHost = new TerminalHost({
       now: () => Date.now(),
       epoch: this.#epoch,
@@ -2535,12 +2537,13 @@ export class WorkspaceDO extends ContainerHost {
 
   /** Whether t3's or the agent's terminals hold the Container: input within the hold (ADR-0021, review F10). */
   /**
-   * G11 (review M5): whether someone works in the Workspace now: a command runs, or a terminal, an agent's Terminal or a
-   * CLI process had input (or a CLI is in a turn) within the cap of a foreground terminal (ADR-0021; the busy hold,
-   * `terminalBusyHoldMinutes`, SPI-1317). A Container preview's requests and carried sockets keep the Container only while this holds.
+   * G11 (review M5): whether someone works in the Workspace now: a command runs, or a terminal, an agent's Terminal or
+   * a CLI process had input (or a CLI is in a turn) within the cap of a foreground terminal (ADR-0021; the busy hold,
+   * `terminalBusyHoldMinutes`, SPI-1317). A Container preview's requests and carried sockets keep the Container only
+   * while this holds.
    */
   #someoneWorks(): boolean {
-    const cap = this.#terminalHold().busyMs;
+    const cap = this.#terminalHold().terminalBusyHoldMs;
     const lastInput = Math.max(
       this.#terminals.lastInput,
       this.#agentHost.lastInput,
@@ -2617,12 +2620,10 @@ export class WorkspaceDO extends ContainerHost {
   }
 
   /** The busy and prompt holds (SPI-1317): the stage's overrides win, else the launch's. */
-  #terminalHold(): { readonly busyMs: number; readonly promptMs: number } {
+  #terminalHold(): TerminalHold {
     return terminalHoldOf(this.#terminalLimits(), {
-      ...(this.env.T3FLARE_TERMINAL_IDLE_MS === undefined ? {} : { busyMs: this.env.T3FLARE_TERMINAL_IDLE_MS }),
-      ...(this.env.T3FLARE_TERMINAL_PROMPT_IDLE_MS === undefined
-        ? {}
-        : { promptMs: this.env.T3FLARE_TERMINAL_PROMPT_IDLE_MS }),
+      busyHoldMs: this.env.T3FLARE_TERMINAL_IDLE_MS,
+      promptHoldMs: this.env.T3FLARE_TERMINAL_PROMPT_IDLE_MS,
     });
   }
 

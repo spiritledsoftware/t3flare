@@ -10,6 +10,8 @@
 import { DEFAULT_CONTAINER_BUDGET, fitsEnvironmentSetting } from "@t3flare/harness-registry";
 import { DurableObject } from "cloudflare:workers";
 
+import { positiveOverride } from "./envOverride.ts";
+
 /** The budget before any request carried one (the Environment settings' default). */
 export const MAX_CONTAINERS = DEFAULT_CONTAINER_BUDGET;
 /** The last budget a request carried. */
@@ -55,8 +57,7 @@ export class ContainerBudget extends DurableObject<BudgetEnv> {
   }
 
   #leaseMs(): number {
-    const value = Number(this.env.T3FLARE_LEASE_MS);
-    return Number.isFinite(value) && value > 0 ? value : LEASE_MS;
+    return positiveOverride(this.env.T3FLARE_LEASE_MS) ?? LEASE_MS;
   }
 
   #live(now: number): Array<Lease> {

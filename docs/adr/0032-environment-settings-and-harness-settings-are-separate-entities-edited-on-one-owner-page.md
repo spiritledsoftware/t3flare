@@ -334,13 +334,14 @@ ADR-0021's fixed Terminal holds and Terminal caps are the Owner's. `terminalBusy
 §2's sanity maximum applies. `terminalsPerWorkspace` (t3's Terminals) and `agentTerminalsPerWorkspace` (Pi Durable
 agents' running Terminals and Background jobs) stay two caps, 8 each by default, as the two hosts had: one key would
 change the total and mix the Owner's panels with an agent's jobs. They take 1 to 32, a named constraint and a
-provisional figure: each Terminal's handle, and an agent's Terminal's headless xterm, lives in the Workspace DO's
-128 MB isolate, and SPI-978's measurement of that memory sets the figure. An agent's exited Terminals keep their xterm
-outside the live count, bounded by `MAX_KEPT` (32) per Session. All four are `down-free` and show in the Containers row,
-the holds after the idle time and the counts after the budget; each states its consequence once ("Open Terminals keep
-the Container running, and billed, for this long after their last input"; "Each Terminal uses memory in the
-Container", and for the agents' count "Each Terminal and Background job uses memory in the Container"). The holds say
-they run past the Idle time.
+provisional figure: each Terminal's handle, and an agent's Terminal's headless xterm, lives in the Workspace DO's 128 MB
+isolate, and SPI-978's measurement of that memory sets the figure. An agent's exited Terminals keep their xterm outside
+the live count, bounded by `MAX_KEPT` (32) per Session only: their Workspace-wide total grows with the Sessions the
+Workspace serves until the DO restarts, pending SPI-978's measurement. All four are `down-free` and show in the
+Containers row, the holds after the idle time and the counts after the budget; each states its consequence once ("Open
+Terminals keep the Container running, and billed, for this long after their last input"; "Each Terminal uses memory in
+the Container", and for the agents' count "Each Terminal and Background job uses memory in the Container"). The holds
+say they keep it even past the Idle time.
 
 All four ride the launch (`ContainerLaunch`, as `idleMs` and `terminalsReadBashrc` do), so they apply at each
 Workspace's next Container start and a running Container keeps what it started with; a launch recorded before them

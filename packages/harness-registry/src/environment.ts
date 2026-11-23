@@ -123,8 +123,9 @@ export const DEFAULT_TERMINALS_PER_WORKSPACE = 8;
  * The most Terminals of either count per Workspace. A named constraint, provisional: the Workspace DO's memory. Each
  * open Terminal's handle, and an agent's Terminal's headless xterm (1,000 lines of scrollback), lives in the Workspace
  * DO's 128 MB isolate, which holds its files' sync too; 32 is a guess at what fits, and SPI-978's measurement of the
- * DO's memory sets the figure. Exited agent Terminals keep their xterm outside the live count, bounded on their own by
- * `MAX_KEPT` per Session (apps/agents/src/workspace/agentTerminals.ts).
+ * DO's memory sets the figure. An agent's exited Terminals keep their xterm outside the live count: `MAX_KEPT`
+ * (apps/agents/src/workspace/agentTerminals.ts) bounds them per Session only, so their Workspace-wide total grows with
+ * the Sessions the Workspace serves until the DO restarts.
  */
 export const MAX_TERMINALS_PER_WORKSPACE = 32;
 
@@ -298,7 +299,7 @@ export const ENVIRONMENT_SETTINGS = {
   terminalBusyHoldMinutes: {
     title: "Terminal hold while a command runs (minutes)",
     description:
-      "While a Terminal runs a command, open Terminals keep the Container running, and billed, for this long after their last input, past the Idle time; output does not count. A Container preview keeps it running as long after the last command, CLI agent's turn, or input to a Terminal or CLI agent. Applies at each Workspace's next Container start.",
+      "While a Terminal runs a command, open Terminals keep the Container running, and billed, for this long after their last input, even past the Idle time; output does not count. A Container preview keeps it running as long after the last command, CLI agent's turn, or input to a Terminal or CLI agent. Applies at each Workspace's next Container start.",
     // t3flare's own alarm releases the Container (WorkspaceDO `#scheduleAlarm`), so the shared sanity maximum applies
     // (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_TERMINAL_BUSY_HOLD_MINUTES },
@@ -307,7 +308,7 @@ export const ENVIRONMENT_SETTINGS = {
   terminalPromptHoldMinutes: {
     title: "Terminal hold at the prompt (minutes)",
     description:
-      "While every open Terminal sits at its prompt, they keep the Container running, and billed, for this long after their last input, past the Idle time. Applies at each Workspace's next Container start.",
+      "While every open Terminal sits at its prompt, they keep the Container running, and billed, for this long after their last input, even past the Idle time. Applies at each Workspace's next Container start.",
     // As the busy hold: t3flare's own alarm, the shared sanity maximum (ADR-0048 §2).
     schema: {
       type: "integer",

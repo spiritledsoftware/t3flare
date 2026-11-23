@@ -16,6 +16,9 @@ import {
   type TerminalHostDeps,
 } from "../src/workspace/terminalHost.ts";
 
+/** No stage override: the holds are the launch's. */
+const NO_OVERRIDES = { busyHoldMs: undefined, promptHoldMs: undefined };
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const tick = (ms = 40) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -283,7 +286,7 @@ describe("TerminalHost", () => {
 
   describe("the Container hold (cost audit F1): an idle prompt holds less than a running command", () => {
     // The defaults' holds, as a Container started before SPI-1317 (no launch values) keeps them: 10 and 30 minutes.
-    const hold = terminalHoldOf(terminalLimitsOf(undefined), {});
+    const hold = terminalHoldOf(terminalLimitsOf(undefined), NO_OVERRIDES);
 
     it("does not hold for a terminal that was only opened", async () => {
       const h = harness({ running: false });
@@ -336,22 +339,25 @@ describe("TerminalHost", () => {
         await tick();
         return h;
       };
-      const fiveMinutes = terminalHoldOf(terminalLimitsOf(launch), {});
+      const fiveMinutes = terminalHoldOf(terminalLimitsOf(launch), NO_OVERRIDES);
       const h = await running();
       h.advance(5 * 60_000 - 1);
       expect(h.host.holdsContainer(fiveMinutes)).toBe(true);
       h.advance(1);
       expect(h.host.holdsContainer(fiveMinutes)).toBe(false);
 
-      const overridden = terminalHoldOf(terminalLimitsOf(launch), { busyMs: "180000", promptMs: "60000" });
-      expect(overridden).toEqual({ busyMs: 180_000, promptMs: 60_000 });
+      const overridden = terminalHoldOf(terminalLimitsOf(launch), {
+        busyHoldMs: "180000",
+        promptHoldMs: "60000",
+      });
+      expect(overridden).toEqual({ terminalBusyHoldMs: 180_000, terminalPromptHoldMs: 60_000 });
       const o = await running();
       o.advance(3 * 60_000);
       expect(o.host.holdsContainer(overridden)).toBe(false);
       // An override that is not a positive number is none.
-      expect(terminalHoldOf(terminalLimitsOf(launch), { busyMs: "", promptMs: "0" })).toEqual({
-        busyMs: 300_000,
-        promptMs: 600_000,
+      expect(terminalHoldOf(terminalLimitsOf(launch), { busyHoldMs: "", promptHoldMs: "0" })).toEqual({
+        terminalBusyHoldMs: 300_000,
+        terminalPromptHoldMs: 600_000,
       });
     });
 
