@@ -501,7 +501,12 @@ export class ContainerFiles {
     // does not parse and is skipped.
     const events = options.limit * (2 * options.context + 3) + 1000;
 
-    const out = await this.#run(path, GREP, { P: path, PATTERN: pattern, LIMIT: String(events), BYTES: String(GREP_OUTPUT_BYTES) }, { args });
+    const out = await this.#run(
+      path,
+      GREP,
+      { P: path, PATTERN: pattern, LIMIT: String(events), BYTES: String(GREP_OUTPUT_BYTES) },
+      { args },
+    );
 
     // Every line of each file in order, then each match with the lines around it.
     const files = new Map<string, Map<number, GrepLine>>();
