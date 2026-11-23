@@ -153,7 +153,7 @@ const field = (
     case "enum":
       // An enum that takes whole numbers too (the Advisor's cadence): a text box offering the named values.
       if (setting.schema.integers !== undefined)
-        return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="text" inputmode="text" autocomplete="off" spellcheck="false" required list="${id}-values" pattern="${escapeHtml(`${setting.schema.values.join("|")}|[1-9][0-9]*`)}" ${attrs} value="${escapeHtml(String(value ?? setting.schema.default))}"><datalist id="${id}-values">${setting.schema.values.map((option) => `<option value="${escapeHtml(option)}"></option>`).join("")}</datalist>${hint}</div>`;
+        return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="text" inputmode="text" autocomplete="off" spellcheck="false" required list="${id}-values" pattern="${escapeHtml(`${setting.schema.values.join("|")}|[1-9][0-9]*`)}" ${attrs} value="${escapeHtml(typeof value === "string" ? value : setting.schema.default)}"><datalist id="${id}-values">${setting.schema.values.map((option) => `<option value="${escapeHtml(option)}"></option>`).join("")}</datalist>${hint}</div>`;
       return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><select ${attrs}>${setting.schema.values
         .map(
           (option) =>

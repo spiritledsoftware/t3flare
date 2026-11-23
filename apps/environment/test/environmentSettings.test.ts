@@ -177,6 +177,7 @@ describe("Environment settings in the panel", () => {
       "standard-2",
       "standard-3",
       "standard-4",
+      "custom",
     ]);
     expect(answer.schema.containerBudget.schema).toMatchObject({ minimum: 1, maximum: 100, default: 3 });
     expect(answer.costs.budget).toBe(5);
