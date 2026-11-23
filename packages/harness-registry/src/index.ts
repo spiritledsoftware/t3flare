@@ -143,7 +143,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
     id: "tool-output",
     title: "Tool output",
     description:
-      "How much of each tool's result the model is shown, for every tool: bash keeps the last part of its output, the others their first, and the result says what was left out. read shows at most 50 KiB or 2,000 lines of a file per call whatever these say, and pages through the rest.",
+      "How much of each tool's result the model is shown, for every tool but code mode and todo, which keep their own: bash keeps the last part of its output, the others their first, and the result says what was left out. read pages through a file in at most 50 KiB or 2,000 lines per call, and never more than these.",
     default: "always",
     settings: {
       outputKiB: {
@@ -269,7 +269,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
       searchContextCharacters: {
         title: "Search result characters",
         description:
-          "The characters of result text one web_search call shares across its results when the call names no budget of its own; past it, results are shortened or lose their text, never their title and URL.",
+          "The characters of result text one web_search call shares across its results when the call names no budget of its own; past it, results are shortened or lose their text, never their title and URL. More puts more of each page in front of the model, still within Tool output's limit.",
         // 1,000,000: a sanity bound (ADR-0048); the Tool output limit cuts what the model reads in any case.
         schema: { type: "integer", minimum: 100, maximum: 1_000_000, default: 6000 },
         tier: "down-free",
@@ -303,7 +303,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
       previewCharacters: {
         title: "History preview (characters)",
         description:
-          "How long each line of a context_history list is, and each match of a context_history or context_notes search: an entry's preview takes all of it, a tool call's argument half, and a match a sixth of it before and half after.",
+          "How many characters each line of a context_history list shows, and each match of a context_history or context_notes search. Longer previews show more of each entry, and each page takes more of the model's context.",
         // 10,000: a sanity bound (ADR-0048); the Tool output limit cuts a page in any case.
         schema: { type: "integer", minimum: 12, maximum: 10_000, default: 120 },
         tier: "down-free",
@@ -324,44 +324,6 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         schema: { type: "boolean", default: true },
         tier: "down-free",
       },
-      startWaitMs: {
-        title: "Start wait (ms)",
-        description:
-          "How long terminal_start waits for a new Terminal's screen to settle when the call names no wait, and how long bash with background: true runs before the command becomes a Background job.",
-        // Up to MAX_TIMED_SECONDS (ADR-0048 §2): the wait runs in Workspace slices toward one deadline.
-        schema: { type: "integer", minimum: 0, maximum: MAX_TIMED_SECONDS * 1000, default: 2000 },
-        tier: "free",
-      },
-      inputWaitMs: {
-        title: "Input wait (ms)",
-        description: "How long terminal_send waits for the screen to settle after typing when the call names no wait.",
-        // Up to MAX_TIMED_SECONDS (ADR-0048 §2): the wait runs in Workspace slices toward one deadline.
-        schema: { type: "integer", minimum: 0, maximum: MAX_TIMED_SECONDS * 1000, default: 500 },
-        tier: "free",
-      },
-      pollWaitMs: {
-        title: "Poll wait (ms)",
-        description: "How long terminal_send with nothing to type waits for new output when the call names no wait.",
-        // Up to MAX_TIMED_SECONDS (ADR-0048 §2): the wait runs in Workspace slices toward one deadline.
-        schema: { type: "integer", minimum: 0, maximum: MAX_TIMED_SECONDS * 1000, default: 30_000 },
-        tier: "free",
-      },
-      scrollbackLines: {
-        title: "Scrolled-off lines shown",
-        description:
-          "The most lines that scrolled off a Terminal since the last result the next result shows, its first and last kept; the KiB limit below comes first when it is reached first.",
-        // 100,000: a sanity bound (ADR-0048); the scrolled-off lines take at most half the Tool output limit.
-        schema: { type: "integer", minimum: 2, maximum: 100_000, default: 100 },
-        tier: "down-free",
-      },
-      scrollbackKiB: {
-        title: "Scrolled-off KiB shown",
-        description:
-          "The most KiB of scrolled-off lines a Terminal result shows. They take at most half the Tool output limit, so the current screen always fits beside them.",
-        // MAX_TOOL_OUTPUT_KIB: a sanity bound (ADR-0048); half the Tool output limit comes first from half of it.
-        schema: { type: "integer", minimum: 1, maximum: MAX_TOOL_OUTPUT_KIB, default: 16 },
-        tier: "down-free",
-      },
       cols: {
         title: "Columns",
         description: "A Terminal's width.",
@@ -373,6 +335,45 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         description: "A Terminal's height.",
         schema: { type: "integer", minimum: 10, maximum: 200, default: 40 },
         tier: "free",
+      },
+      startWaitMs: {
+        title: "Start wait (ms)",
+        description:
+          "How long terminal_start waits for a new Terminal's screen to settle when the call names no wait, and how long bash with background: true runs before the command becomes a Background job (0: at once). Longer holds the agent's call that long; shorter can return a screen still drawing.",
+        // Up to MAX_TIMED_SECONDS (ADR-0048 §2): the wait runs in Workspace slices toward one deadline.
+        schema: { type: "integer", minimum: 0, maximum: MAX_TIMED_SECONDS * 1000, default: 2000 },
+        tier: "free",
+      },
+      inputWaitMs: {
+        title: "Input wait (ms)",
+        description:
+          "How long terminal_send waits for the screen to settle after typing when the call names no wait. Shorter returns sooner, possibly before the program has answered.",
+        // Up to MAX_TIMED_SECONDS (ADR-0048 §2): the wait runs in Workspace slices toward one deadline.
+        schema: { type: "integer", minimum: 0, maximum: MAX_TIMED_SECONDS * 1000, default: 500 },
+        tier: "free",
+      },
+      pollWaitMs: {
+        title: "Poll wait (ms)",
+        description:
+          "How long terminal_send with nothing to type waits for new output when the call names no wait. The agent's call is held up to this long while a program is quiet.",
+        // Up to MAX_TIMED_SECONDS (ADR-0048 §2): the wait runs in Workspace slices toward one deadline.
+        schema: { type: "integer", minimum: 0, maximum: MAX_TIMED_SECONDS * 1000, default: 30_000 },
+        tier: "free",
+      },
+      scrollbackLines: {
+        title: "Scrollback lines shown",
+        description: `How many lines that scrolled off a Terminal since the agent last looked its next result shows; past this, the first and last are kept and the middle dropped. More shows the agent more of what it missed and leaves less room for the rest of the result. Never more than the Environment setting ${ENVIRONMENT_SETTINGS.agentTerminalScrollbackLines.title} keeps.`,
+        // 100,000: a sanity bound (ADR-0048); the scrolled-off lines take at most half the Tool output limit.
+        schema: { type: "integer", minimum: 2, maximum: 100_000, default: 100 },
+        tier: "down-free",
+      },
+      scrollbackKiB: {
+        title: "Scrollback KiB shown",
+        description:
+          "The most KiB of those lines a result shows, whichever limit comes first. Never more than half of Tool output's Output shown to the model, so the current screen always fits beside them.",
+        // MAX_TOOL_OUTPUT_KIB: a sanity bound (ADR-0048); half the Tool output limit comes first from half of it.
+        schema: { type: "integer", minimum: 1, maximum: MAX_TOOL_OUTPUT_KIB, default: 16 },
+        tier: "down-free",
       },
     },
   },
@@ -419,8 +420,8 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: 60 },
       },
       batchArgumentCharacters: {
-        title: "Batch call characters",
-        description: `How much of each other call in the reviewed call's batch the Guardian reads: its path and command whole, the rest of its arguments cut to this many characters. More lets the Guardian judge the batch as a whole and makes each Review longer. At most the evidence budget, ${GUARDIAN_EVIDENCE_CHARACTERS} characters.`,
+        title: "Other calls in the batch (characters)",
+        description: `When the model makes several calls at once, how much of each other call the Guardian reads beside the one it reviews: its path and command whole, the rest of its arguments cut to this many characters (0: path and command only). More lets the Guardian judge the calls together, and each Review reads more tokens. At most ${GUARDIAN_EVIDENCE_CHARACTERS.toLocaleString("en-US")}, all the evidence a Review reads.`,
         // GUARDIAN_EVIDENCE_CHARACTERS: a sanity bound (ADR-0048); past it, one batch call outweighs the evidence.
         schema: { type: "integer", minimum: 0, maximum: GUARDIAN_EVIDENCE_CHARACTERS, default: 2000 },
       },
@@ -531,7 +532,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
     default: "always",
     settings: {
       excerptCharacters: {
-        title: "Characters read",
+        title: "Suggestion characters read",
         description:
           "The most characters of the request and of the answer the small model reads, the last of each; more costs more tokens per suggestion.",
         // 1,000,000: a sanity bound (ADR-0048); the small model's own context refuses more in any case.
@@ -539,7 +540,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         tier: "down-free",
       },
       timeoutSeconds: {
-        title: "Time limit (seconds)",
+        title: "Suggestion time limit (seconds)",
         description: "How long a suggestion may take; a slower one is dropped, and no suggestion shows.",
         // Timed by t3flare's own setTimeout (promptSuggestion.ts): up to MAX_TIMED_SECONDS (ADR-0048 §2).
         schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: 20 },

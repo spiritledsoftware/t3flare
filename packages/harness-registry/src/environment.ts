@@ -560,7 +560,7 @@ export const ENVIRONMENT_SETTINGS = {
   },
   agentTerminalScrollbackLines: {
     title: "Agents' Terminal scrollback (lines)",
-    description: `How many lines that scrolled off an agent's Terminal or Background job it keeps; the agent cannot read past them (a Background job's whole output stays in its log). Each line takes memory in the Workspace's own object, about 1.4 KB at 120 columns, for every Terminal it keeps; past the object's 128 MB, it restarts and every agent's Terminal and Background job ends. At most ${MAX_AGENT_TERMINAL_SCROLLBACK_LINES}. Applies at each Workspace's next Container start.`,
+    description: `How many lines that scrolled off an agent's Terminal or Background job it keeps (0: only the screen); the agent cannot read past them, though a Background job's log keeps all of its output. Each line uses memory in the Workspace's own Durable Object, not the Container: about 1.4 KiB at 120 columns, for every Terminal it keeps; past that object's 128 MB it restarts, and every agent's Terminal and Background job ends. At most ${MAX_AGENT_TERMINAL_SCROLLBACK_LINES.toLocaleString("en-US")}. Applies at each Workspace's next Container start.`,
     // A named constraint, provisional (`MAX_AGENT_TERMINAL_SCROLLBACK_LINES`): their xterms in the Workspace DO's memory.
     schema: {
       type: "integer",
