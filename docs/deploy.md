@@ -59,7 +59,7 @@ zone's `http_ratelimit` phase, which the Stage then owns, so only one Stage per 
 refuses to deploy `prod` without it, and refuses any other Stage with it, as `alchemy.run.ts` does: another Stage on
 `prod`'s domain would take over `prod`'s Access application and rate limit.
 
-1. Install the tools: Node and pnpm at the versions in `mise.toml` (`mise install`; they follow t3code's), Docker, `gh`
+1. Install the tools: Node and pnpm at the versions in `mise.toml` (`mise install`; they follow t3code's), Docker (running, for a deploy), `gh`
    signed in, and `pnpm install` (the t3code submodule must be checked out). Run pnpm and `vp` from the repository,
    never inside `t3code/` ([AGENTS.md](../AGENTS.md)).
 2. Log in to Cloudflare with alchemy: a `default` profile for deploys, and an `admin` profile that may create API

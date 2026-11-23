@@ -204,6 +204,11 @@ switch (command) {
       );
       process.exit(2);
     }
+    // alchemy builds the sandbox image with Docker (alchemy.run.ts); without a daemon the deploy fails minutes in.
+    if (spawnSync("docker", ["info"], { stdio: "ignore" }).status !== 0) {
+      console.error("t3flare: Docker isn't running: start it (e.g. `orb start`) and retry");
+      process.exit(2);
+    }
     // SPI-1175: what is bound and set up, decided before anything is built (lib/deployPlan.ts): the stage's Model endpoints
     // come from T3FLARE_MODEL_ENDPOINT, else a logged skip (the stage then starts in the setup state).
     const plan = deployPlan({
