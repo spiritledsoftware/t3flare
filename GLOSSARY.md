@@ -223,13 +223,17 @@ MCP server set.
 _Avoid_: harness config, settings (alone)
 
 **Environment settings**:
-What the Cloud Environment gives every Workspace and its Container, and how long it keeps one: the Container size, idle
-time and budget, how long open Terminals hold the Container and how many may run, how many CLI agents' processes a
+What the Cloud Environment gives every Workspace and its Container, and how long it keeps one: the Container size (a
+named one, or a custom size's vCPU, memory and disk: `customVcpu`, `customMemoryMib`, `customDiskMb`), idle time and
+budget, how long open Terminals hold the Container and how many may run, how many CLI agents' processes a
 Workspace may run and how long an idle one waits before it may be ended to free the Container for another Workspace, the
 Turn limit, the Answer wait, the settings read wait, how long a clone or a checkpoint may run, the Global mise config,
 the Image setup and the Container setup, the Environment skills, the Variables, whether Terminals and CLI agents read
 the Owner's dotfiles, how long usage records and pi sessions are kept, how long an MCP call may run and how large a
-result it takes, how long a failed Base build waits to retry, and the Grace.
+result it takes, how long a request to GitHub or a sign-in's vendor may wait (`outsideRequestSeconds`), how many of a
+repository's skills are listed and how far its skills and Prompt templates directories are read (`repoSkillsListed`,
+`skillsDirectoryEntries`, `skillsLinkEntries`, `promptsDirectoryEntries`), how long a failed Base build waits to retry,
+and the Grace.
 t3flare's own, not t3's server settings.
 _Avoid_: environment config, server settings, Container settings
 
