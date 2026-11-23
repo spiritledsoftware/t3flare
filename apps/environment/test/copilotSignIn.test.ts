@@ -374,19 +374,21 @@ describe("the GitHub Copilot sign-in", () => {
     expect(context.github.requests).toHaveLength(before);
   });
 
-  it("names when a rate-limited renewal may be tried again: retry-after, else the limit's reset, else a minute; at most 15", async () => {
-    const credential = async (options: Parameters<typeof fakeGitHubCopilot>[0]) => {
+  it("names when a rate-limited renewal may be tried again: GitHub's own time as it names it, else the GitHub retry (SPI-1366)", async () => {
+    const credential = async (options: Parameters<typeof fakeGitHubCopilot>[0], retryMs?: number) => {
       const context = setup();
       const result = await signedIn(context);
       if (!result.ok) throw new Error("not signed in");
       Object.assign(context.github.options, options);
-      return { context, answer: await refreshCopilot(context.vendor, result.credential) };
+      const vendor = retryMs === undefined ? context.vendor : { ...context.vendor, retryMs };
+      return { context, answer: await refreshCopilot(vendor, result.credential) };
     };
     const limited = { copilotStatus: 403, copilotBody: { message: "You have exceeded a secondary rate limit" } };
+    // No floor and no cap over GitHub's named time: asking sooner meets the limit again, later loses nothing.
     for (const [headers, after] of [
       [{ "retry-after": "120" }, 120_000],
-      [{ "retry-after": "5" }, 60_000],
-      [{ "retry-after": "86400" }, 900_000],
+      [{ "retry-after": "5" }, 5_000],
+      [{ "retry-after": "86400" }, 86_400_000],
       [{}, 60_000],
     ] as const) {
       const { context, answer } = await credential({ ...limited, copilotHeaders: headers });
@@ -411,6 +413,9 @@ describe("the GitHub Copilot sign-in", () => {
       },
     });
     expect(reset.answer).toMatchObject({ retryAt: Date.UTC(2026, 10, 16, 12, 0) + 300_000 });
+    // No time named: the GitHub retry setting's wait.
+    const tuned = await credential({ ...limited, copilotHeaders: {} }, 300_000);
+    expect(tuned.answer).toMatchObject({ retryAt: tuned.context.now() + 300_000 });
     // A 503 is passing trouble with no time named: the next ask tries again.
     const down = await credential({ copilotStatus: 503, copilotBody: { message: "Service unavailable" } });
     expect(down.answer).not.toHaveProperty("retryAt");

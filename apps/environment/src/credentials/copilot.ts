@@ -41,6 +41,8 @@ import {
   GITHUB_DEVICE_CODE_URL,
 } from "@t3flare/models/copilotOAuth";
 
+import { DEFAULT_GITHUB_RETRY_SECONDS } from "@t3flare/harness-registry";
+
 import { isRecord, oauthRequestOptions } from "./oauth.ts";
 import type { DeviceCode, RefreshResult, SignInCredential, SignInResult, SignInVendor } from "./signIn.ts";
 
@@ -49,6 +51,11 @@ export interface CopilotVendor {
   readonly now: () => number;
   /** Each request's bound (`outsideRequestSeconds`, read at each request; `OAUTH_TIMEOUT_MS` when absent). */
   readonly timeoutMs?: number;
+  /**
+   * How long a rate-limited renewal waits when GitHub names no time (`githubRetrySeconds`, read at each request,
+   * SPI-1366); `DEFAULT_RETRY_MS` when absent.
+   */
+  readonly retryMs?: number;
 }
 
 /** A sign-in started and not yet approved: kept sealed until GitHub says it is. */
@@ -156,9 +163,8 @@ export const startCopilotSignIn = async (
  * exceeded").
  */
 const RATE_LIMIT_MESSAGE = /rate limit|too many requests|login attempts/i;
-/** A rate-limited renewal waits at least this, and this when GitHub names no time; at most the cap. */
-const RATE_LIMIT_FLOOR_MS = 60_000;
-const RATE_LIMIT_CAP_MS = 15 * 60_000;
+/** A rate-limited renewal's wait when GitHub names no time and no setting reaches: the GitHub retry's default. */
+const DEFAULT_RETRY_MS = DEFAULT_GITHUB_RETRY_SECONDS * 1000;
 
 /**
  * GitHub's error object (its API's `{ message }`, or an OAuth error), a code from it, and whether its message names a
@@ -194,20 +200,18 @@ const rateLimited = (response: Response, rateLimitMessage: boolean): boolean =>
 
 /**
  * When a rate-limited renewal may be tried again: `retry-after` (seconds or a date), else the reset of an exhausted
- * limit (`x-ratelimit-reset`, epoch seconds), else a minute; between a minute and 15 minutes from now.
+ * limit (`x-ratelimit-reset`, epoch seconds), each as GitHub names it (SPI-1366), else `retryMs` from now.
  */
-const retryAtOf = (response: Response, now: number): number => {
+const retryAtOf = (response: Response, now: number, retryMs: number): number => {
   const after = response.headers.get("retry-after")?.trim();
   const reset = Number(response.headers.get("x-ratelimit-reset"));
-  const named =
-    after !== undefined && /^\d+$/.test(after)
-      ? now + Number(after) * 1000
-      : after !== undefined && !Number.isNaN(Date.parse(after))
-        ? Date.parse(after)
-        : response.headers.get("x-ratelimit-remaining") === "0" && positive(reset)
-          ? reset * 1000
-          : now;
-  return Math.min(Math.max(named, now + RATE_LIMIT_FLOOR_MS), now + RATE_LIMIT_CAP_MS);
+  return after !== undefined && /^\d+$/.test(after)
+    ? now + Number(after) * 1000
+    : after !== undefined && !Number.isNaN(Date.parse(after))
+      ? Date.parse(after)
+      : response.headers.get("x-ratelimit-remaining") === "0" && positive(reset)
+        ? reset * 1000
+        : now + retryMs;
 };
 
 type CopilotToken =
@@ -242,7 +246,7 @@ const copilotToken = async (vendor: CopilotVendor, githubToken: string): Promise
       refused,
       status: response.status,
       ...(code === undefined ? {} : { code }),
-      ...(limited ? { retryAt: retryAtOf(response, vendor.now()) } : {}),
+      ...(limited ? { retryAt: retryAtOf(response, vendor.now(), vendor.retryMs ?? DEFAULT_RETRY_MS) } : {}),
       problem: refused
         ? `GitHub refused a Copilot token (${code ?? `HTTP ${response.status}`})`
         : `GitHub gave no Copilot token (HTTP ${response.status})`,

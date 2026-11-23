@@ -315,10 +315,15 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
 
   /** The GitHub App's minter (ADR-0013, ADR-0018). */
   get github(): GitHubTokens {
-    this.#github ??= new GitHubTokens({
-      appId: this.env.T3FLARE_GITHUB_APP_ID,
-      privateKey: this.env.T3FLARE_GITHUB_APP_PRIVATE_KEY,
-    });
+    this.#github ??= new GitHubTokens(
+      { appId: this.env.T3FLARE_GITHUB_APP_ID, privateKey: this.env.T3FLARE_GITHUB_APP_PRIVATE_KEY },
+      // Read at each request and each failure (SPI-1366).
+      {
+        requestTimeoutMs: () => this.#outsideRequestMs(),
+        retryMs: () =>
+          resolveEnvironment(harnessStore(this.ctx.storage.kv).loadEnvironment()).githubRetrySeconds * 1000,
+      },
+    );
     return this.#github;
   }
 
@@ -542,13 +547,24 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
   }
 
   /** A sign-in vendor's fetch, clock and request bound; `timeoutMs` is read at each request, so a change applies at the next. */
-  #vendorAccess(): { readonly fetch: typeof fetch; readonly now: () => number; readonly timeoutMs: number } {
+  #vendorAccess(): {
+    readonly fetch: typeof fetch;
+    readonly now: () => number;
+    readonly timeoutMs: number;
+    readonly retryMs: number;
+  } {
     const outsideRequestMs = () => this.#outsideRequestMs();
+    const retryMs = () =>
+      resolveEnvironment(harnessStore(this.ctx.storage.kv).loadEnvironment()).githubRetrySeconds * 1000;
     return {
       fetch: (input, init) => fetch(input, init),
       now: () => Date.now(),
       get timeoutMs() {
         return outsideRequestMs();
+      },
+      // Read at each rate-limited renewal (SPI-1366): the GitHub retry when GitHub names no time.
+      get retryMs() {
+        return retryMs();
       },
     };
   }

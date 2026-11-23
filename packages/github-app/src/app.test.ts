@@ -183,8 +183,8 @@ describe("GitHubApp", () => {
       { token: "ghs_token2", mintedAt: now },
     ]);
 
-    // The installations are listed again once the list is five minutes old.
-    expect(github.seen.filter(({ url }) => url.includes("/app/installations?"))).toHaveLength(2);
+    // The installations are listed once: every account asked for is in the list (SPI-1366: no five-minute renewal).
+    expect(github.seen.filter(({ url }) => url.includes("/app/installations?"))).toHaveLength(1);
 
     now += 45 * MINUTE;
     expect(app.live()).toEqual(["ghs_token2"]);
@@ -220,9 +220,8 @@ describe("GitHubApp", () => {
       "The GitHub App is not installed on someone-else: install it there, on all repositories",
     );
 
-    // An account it is installed on later is found once the list is five minutes old.
+    // An account it is installed on later is found at the next ask for every installation (SPI-1366: no wait).
     installations.push({ id: 44, login: "someone-else" });
-    now += 5 * MINUTE;
 
     expect(Object.keys((await app.tokens()).byAccount).sort()).toEqual([
       "ian-pascoe",
@@ -587,5 +586,92 @@ describe("GitHubApp", () => {
       "ghs_token1",
     ]);
     expect(github.seen.filter(({ method }) => method === "POST")).toHaveLength(1);
+  });
+
+  it("lists every installation, following GitHub's next page past the first hundred (SPI-1366)", async () => {
+    const now = Date.UTC(2026, 0, 1, 12);
+    const github = fakeGitHub({ now: () => now });
+    const firstPage = Array.from({ length: 100 }, (_, n) => ({ id: n + 1, account: { login: `org-${n}` } }));
+    const next = "https://api.github.com/app/installations?per_page=100&page=2";
+    const app = new GitHubApp({
+      appId: "1",
+      privateKey: KEYS.privateKey,
+      fetch: (url, init) =>
+        url.endsWith("/app/installations?per_page=100")
+          ? Promise.resolve(Response.json(firstPage, { headers: { link: `<${next}>; rel="next", <${next}>; rel="last"` } }))
+          : url === next
+            ? Promise.resolve(Response.json([{ id: 500, account: { login: "late-org" } }]))
+            : github.fetch(url, init),
+      now: () => now,
+    });
+
+    expect(await app.token("late-org")).toBe("ghs_token1");
+    expect(github.seen.at(-1)?.url).toBe("https://api.github.com/app/installations/500/access_tokens");
+  });
+
+  it("lists the installations again at once for an account it does not know, with no wait (SPI-1366)", async () => {
+    const now = Date.UTC(2026, 0, 1, 12);
+    const installations = [{ id: 42, login: "ian-pascoe" }];
+    const github = fakeGitHub({ now: () => now, installations });
+    const app = new GitHubApp({ appId: "1", privateKey: KEYS.privateKey, fetch: github.fetch, now: () => now });
+
+    expect(await app.token()).toBe("ghs_token1");
+    // Installed a moment later on another account: found at its first ask, not minutes later.
+    installations.push({ id: 43, login: "spiritledsoftware" });
+    expect(await app.token("spiritledsoftware")).toBe("ghs_token2");
+  });
+
+  it("waits GitHub's own named time, else the retry setting doubling up to 15 times it (SPI-1366)", async () => {
+    let now = Date.UTC(2026, 0, 1, 12);
+    let answer: () => Response = () => Response.json({ message: "Server Error" }, { status: 500 });
+    const asked: string[] = [];
+    const app = new GitHubApp({
+      appId: "1",
+      privateKey: KEYS.privateKey,
+      fetch: (url) => {
+        asked.push(url);
+        return Promise.resolve(answer());
+      },
+      now: () => now,
+      retryMs: () => 10_000,
+    });
+
+    // No time named: 10 s, then 20 s, ... never past 150 s.
+    await expect(app.token()).rejects.toThrow();
+    for (const wait of [10_000, 20_000, 40_000, 80_000, 150_000, 150_000]) {
+      const before = asked.length;
+      now += wait - 1;
+      await expect(app.token()).rejects.toThrow();
+      expect(asked).toHaveLength(before);
+      now += 1;
+      await expect(app.token()).rejects.toThrow();
+      expect(asked).toHaveLength(before + 1);
+    }
+    // GitHub names a time, longer than the cap: it is kept.
+    answer = () =>
+      Response.json({ message: "API rate limit exceeded" }, { status: 403, headers: { "retry-after": "3600" } });
+    now += 150_000;
+    await expect(app.token()).rejects.toThrow();
+    const before = asked.length;
+    now += 3_599_000;
+    await expect(app.token()).rejects.toThrow();
+    expect(asked).toHaveLength(before);
+    now += 1_000;
+    await expect(app.token()).rejects.toThrow();
+    expect(asked).toHaveLength(before + 1);
+  });
+
+  it("ends a request GitHub does not answer at the request time limit it is given (SPI-1366)", async () => {
+    const now = Date.UTC(2026, 0, 1, 12);
+    const app = new GitHubApp({
+      appId: "1",
+      privateKey: KEYS.privateKey,
+      fetch: (_url, init) =>
+        new Promise((_resolve, reject) => init.signal?.addEventListener("abort", () => reject(init.signal?.reason))),
+      now: () => now,
+      requestTimeoutMs: () => 20,
+    });
+
+    await expect(app.token()).rejects.toThrow(/GitHub could not be reached/);
   });
 });

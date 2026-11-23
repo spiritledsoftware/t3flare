@@ -11,6 +11,15 @@ export interface GitHubAppSecrets {
   readonly privateKey: string | undefined;
 }
 
+/**
+ * The Environment settings the minters read at each use (SPI-1366): one request's time limit (`outsideRequestSeconds`)
+ * and the first wait after a failure GitHub named no time for (`githubRetrySeconds`). Absent: the App's own defaults.
+ */
+export interface GitHubWaits {
+  readonly requestTimeoutMs?: (() => number) | undefined;
+  readonly retryMs?: (() => number) | undefined;
+}
+
 export interface MintRequest {
   /** The installation's account (the repos' owner), lower case. */
   readonly owner: string;
@@ -30,11 +39,13 @@ export const HANDED_OUT_MIN_MS = 15 * 60_000;
 /** The minters, one `GitHubApp` per (owner, repositories, permissions), each keeping its own tokens. */
 export class GitHubTokens {
   readonly #secrets: GitHubAppSecrets;
+  readonly #waits: GitHubWaits;
   readonly #apps = new Map<string, GitHubApp>();
   readonly #minted = new Map<string, Array<MintedToken>>();
 
-  constructor(secrets: GitHubAppSecrets) {
+  constructor(secrets: GitHubAppSecrets, waits: GitHubWaits = {}) {
     this.#secrets = secrets;
+    this.#waits = waits;
   }
 
   get configured(): boolean {
@@ -55,6 +66,8 @@ export class GitHubTokens {
         privateKey: this.#secrets.privateKey!,
         fetch: (url, init) => fetch(url, init),
         now: () => Date.now(),
+        requestTimeoutMs: this.#waits.requestTimeoutMs,
+        retryMs: this.#waits.retryMs,
         permissions: request.permissions,
         repositories,
         kept: {
