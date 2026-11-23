@@ -67,3 +67,9 @@ modules at `v0.1.11-nightly.20261117.4825`) reports the pin. Counted in `dist/bu
 `buildShims.manifestStamps` (the files and their importers). Everything else is a Layer: t3flare's `ServerSelfUpdate`
 and `ServiceLauncherClient` in place of t3's (`apps/environment/src/updates/selfUpdate.ts`), and the CLI drivers'
 maintenance capabilities.
+
+## Counts after SPI-1182
+
+Shadows 4 (unchanged), Patches 8.
+
+- Patch `0008-git-errors-keep-t3flares-reason.patch`: one helper beside `gitFailureDetail` and two call sites in `GitVcsDriverCore.ts`, so the `GitCommandError` that `executeGit` and `executeRaw` build carries the text of the router's `fatal: t3flare: ` stderr lines, and nothing else of stderr; see U99 in `docs/upstream-fragility.md`. A Layer cannot reach it: the text is dropped inside `executeGit`, before any service boundary, and `GitVcsDriver` is also built inside t3's private runtime graph. A Shadow would copy the 6,000-line file.

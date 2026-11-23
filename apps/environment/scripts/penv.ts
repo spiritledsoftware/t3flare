@@ -535,20 +535,23 @@ const surfaces = async () => {
     if (setup?.phase === "failed" || setup?.phase === "ready" || setup?.worktreePath) break;
     await sleep(3_000);
   }
-  // t3flare's worktree creation answers t3's `git worktree add` with the whole reason on stderr, and keeps it as the
-  // worktree Workspace's `lastError`. t3's GitCommandError keeps only stderr's length (`stderrLength`), so t3's setup
-  // error names the command, not the reason: recorded here as t3's text, a limit of t3's surface.
+  // t3flare's worktree creation answers t3's `git worktree add` with the whole reason on a `fatal: t3flare: ` stderr line,
+  // and keeps it as the worktree Workspace's `lastError`. t3's GitCommandError hides git's stderr, but Patch 0008 adds
+  // that line's text to its detail (SPI-1182), so t3's setup error carries the reason after `git worktree add failed`.
   const worktreeRow = (
     (await admin("GET", "/_t3flare/agents/workspaces")).json?.workspaces as Array<any> | undefined
   )?.find((row) => String(row.id).startsWith(`.wt/${agentWorkspace}/`) && row.state === "failed");
   cases.push({
-    name: "a worktree thread's creation: t3flare's answer carries the whole refusal (t3's own setup error drops git's stderr)",
+    name: "a worktree thread's creation: t3flare's answer and t3's setup error both carry the whole refusal",
     threadId: worktreeThread,
     phase: setup?.phase ?? null,
     t3flareAnswer: worktreeRow?.lastError ?? null,
     t3Shows: setup?.error ?? null,
     t3ShowsWholeRefusal: JSON.stringify(setup?.error ?? "").includes(WHOLE_REFUSAL),
-    ok: setup?.phase === "failed" && String(worktreeRow?.lastError ?? "").includes(WHOLE_REFUSAL),
+    ok:
+      setup?.phase === "failed" &&
+      String(worktreeRow?.lastError ?? "").includes(WHOLE_REFUSAL) &&
+      JSON.stringify(setup?.error ?? "").includes(WHOLE_REFUSAL),
   });
 
   for (const id of [holder, agentWorkspace]) await stopOn(id);

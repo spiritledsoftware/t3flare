@@ -346,6 +346,12 @@ export const worktreeCommandOf = (args: ReadonlyArray<string>): WorktreeCommand 
 };
 
 /**
+ * What every refusal the process router writes starts with. Patch 0008 shows the text after it in t3's git errors (its
+ * `GitCommandError` detail, which t3 prints and persists); git's own stderr stays hidden (SPI-1182).
+ */
+export const T3FLARE_FATAL = "fatal: t3flare: ";
+
+/**
  * Where a project's worktree may go: `/w/.wt/<the cwd's project dir>/<one segment>` (t3 builds it from the basename of
  * the project's cwd and the branch). Answers the worktree Workspace's id, or the reason it is refused.
  */
@@ -357,7 +363,7 @@ export const worktreeDestinationOf = (
   const target = toWorkspace(path);
   const dir = normalize(cwd).split("/").at(-1) ?? "";
   if (project === null || project.id.startsWith(".wt/"))
-    return { refused: "fatal: t3flare: worktrees are made from a project in /w" };
+    return { refused: `${T3FLARE_FATAL}worktrees are made from a project in /w` };
   if (
     target === null ||
     !target.id.startsWith(".wt/") ||
@@ -365,7 +371,7 @@ export const worktreeDestinationOf = (
     target.id.split("/")[1] !== (project.inner === REPO_ROOT ? project.id : dir)
   ) {
     return {
-      refused: `fatal: t3flare: worktrees live under /w/.wt in the Cloud Environment; clear Settings → Worktrees → Location (asked for '${path}')`,
+      refused: `${T3FLARE_FATAL}worktrees live under /w/.wt in the Cloud Environment; clear Settings → Worktrees → Location (asked for '${path}')`,
     };
   }
   return { id: target.id };
