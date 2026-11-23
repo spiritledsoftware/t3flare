@@ -122,7 +122,8 @@ CI, never by updating the Environment in place:
 10. **State and outcome.** The Environment DO keeps one record per target (`t3`, one per CLI) in its storage, and finds
     the run by its `run-name` (`Update <id>`, `CLI update <id>`). The same target pressed again joins the run in flight;
     another is refused. A record has failed 110 minutes after the DO first saw its run out of the queue (a run waiting its
-    turn in the `bump` group is not counted until then; 3 hours queued, or 15 minutes unlisted, has failed). A fiber in t3's runtime follows the run while the
+    turn in the `bump` group is not counted until then; 3 hours queued, or 15 minutes unlisted, has failed; the 3 hours
+    are superseded by SPI-1366's refinement below). A fiber in t3's runtime follows the run while the
     DO is awake (no alarm), and settles lazily at boot and at the next press. Success is the new build booting:
     `prepareTrial` of our `ServiceLauncherClient` reports the update committed when the stored target is the stamped
     version. Failure is `ready` published again with its original `at` and a failed `updateOutcome` naming the failed
@@ -213,3 +214,11 @@ can never carry that update, and the watched files change on most nightlies.
   it (`git switch -c <name> origin/bump/<tag>`, then `git submodule update --init t3code`), reviews the files the pull request names, runs `--update`, commits,
   opens a pull request from that branch and merges it through the required `check`. The bump's own pull request is then
   superseded and can be closed.
+
+## Refinement (SPI-1366, 2026-11-23): a queued run waits as long as GitHub queues it
+
+Supersedes the 3-hour ceiling on a run waiting its turn (step 10). A queued run stays in flight until it starts, or
+until GitHub's own queue limit or the Owner's cancel ends it, whose end is then the outcome: the queue's length is the
+Owner's own CI. Meanwhile the same target pressed again joins it, and another is refused, as before. A dispatch GitHub
+never lists still fails after 15 minutes, and `findRun` reads GitHub's largest page of runs (100).
+

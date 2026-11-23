@@ -155,7 +155,7 @@ const tomlString = (value: string) => JSON.stringify(value);
  * Codex's MCP relay entries (ADR-0028, plan §3.2): one server per relayed source, the handle from the process's
  * environment, Codex's own approval off for them (the relay decides and asks on the thread), the tool timeout
  * `toolTimeoutSec` above the relay's cards and a call (review M11, `cliToolTimeoutSec`), the start wait `startTimeoutSec`
- * (`cliMcpStartSeconds`, SPI-1366: left out, Codex would wait its own 10 s).
+ * (`cliMcpStartSeconds`, SPI-1366: left out, Codex would use its own default).
  */
 export const codexRelayOverrides = (
   servers: ReadonlyArray<string>,

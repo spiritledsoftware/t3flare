@@ -513,3 +513,35 @@ Global mise config refinement's 16 KiB, §4's "nor other custom sizes", and the 
 - **Removed:** the 10-minute default of a t3 wait with no `timeoutMs` (it waits until what it waits on happens, or the
   turn is interrupted), termctrl's 20-line exit tail (a job's tail bounds it), and the 64 KiB cuts of an owner's message
   and a tool's `details` in a push (both fit the Session row they come from).
+
+## Refinement (SPI-1366, 2026-11-23): the Environment's housekeeping caps and fixed waits
+
+The Environment's housekeeping kept counts and waits nothing forced. Supersedes the usage records' row cap of the
+SPI-1323 refinement above, and widens SPI-1365's Outside request time limit.
+
+- **Removed: what dropped data or work.** The usage records keep every row inside the retention (no `MAX_USAGE_ROWS`).
+  The Sweep destroys every deleted thread's Session that is due in one run (no 50), lists every holder of a Workspace
+  (no 5), and remembers the Sessions it destroyed one key a thread, forgetting a thread once t3's projection no longer
+  holds it (no 5,000). The GitHub App lists every page of its installations and lists them again at once for an
+  account it does not know (no single page, no 5-minute cache). The audit log reads any page size and the Settings
+  page pages it (no 50). An Update waits as long as GitHub queues it (ADR-0037's refinement). A model sign-in waits as
+  long as its vendor takes the code (no 30 minutes). Endpoint labels, API keys and pasted redirects, model names in
+  `codex exec`, a model's listing's pages, a cause chain's depth and the fixtures route's runs lose their counts.
+- **Reused: the Outside request time limit.** `outsideRequestSeconds` now also bounds a Model endpoint's model listing
+  (all its pages together), T3 Connect's sign-in code and its relay unlink, and each GitHub App request. The Connect
+  probe and the relay status view end with the admin request that asked for them.
+- **New settings**, each with today's value as default, read at its own next use (the Settings server says so):
+  `githubRetrySeconds` (60, `up-free`; the GitHub App's back-off doubles to 15 times it, and GitHub's own named time is
+  always kept), `textGenerationSeconds` (110, `down-free`; the agents Worker ends its request at it and the Environment
+  waits `TEXT_GENERATION_MARGIN_MS` more, today's 120 s), in the Outside requests row; `mcpPausesPerCall` (16),
+  `cliMcpStartSeconds` (20, `free`) and `mcpSignInMinutes` (10, which also deletes abandoned sign-in states), in the MCP
+  calls row; `idleAfterSeconds`, `prWatchWakeMinutes`, `remoteRetryMinutes` and `safeModeAfterFailures` in a Sleep and
+  wake row (ADR-0003's refinement); `browserProfileSaveSeconds` (60, `free`) and `htmlBrowserKeepAliveSeconds` (60,
+  `down-free`, at most Browser Run's own 10 minutes: Browser Run's `keep_alive` is the one knob, with no close of
+  t3flare's beside it) in a Previews row; `pageTokenHours` (1, `down-free`; the page asks for a new token when its own
+  runs out), `clientsPerKey` (50, `up-free`) and `connectPublishLogKept` (100, `free`) in an access row. T3 Connect's
+  republish after a boot reads each live thread's last phase from a map of its own, never cut by the log's length.
+- **Derived.** A new Environment's first Sweep comes one Sweep cadence after its first look, not an hour.
+- **Kept.** The stage-only process check's parameters and the preview spike's CDP command wait are diagnostics' own,
+  not the Owner's.
+
