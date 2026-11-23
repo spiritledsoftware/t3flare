@@ -3,11 +3,12 @@ import {
   boundStructuredText,
   fitOutput,
   fitWindowedOutput,
-  OUTPUT_MAX_BYTES,
-  OUTPUT_MAX_LINES,
   selectLines,
   STRUCTURED_MAX_BYTES,
 } from "../../src/extensions/web/output.ts";
+import { DEFAULT_TOOL_OUTPUT_LIMITS } from "../../src/extensions/toolOutput.ts";
+
+const { maxBytes: OUTPUT_MAX_BYTES, maxLines: OUTPUT_MAX_LINES } = DEFAULT_TOOL_OUTPUT_LIMITS;
 
 const lines = (count: number, make = (index: number) => `line ${index + 1}`): string =>
   Array.from({ length: count }, (_, index) => make(index)).join("\n");
@@ -114,6 +115,23 @@ describe("fitWindowedOutput", () => {
   });
 });
 
+describe("the Tool output limit (SPI-1362)", () => {
+  it("fits both cuts to the limits they are given, the note inside them", () => {
+    const limits = { maxBytes: 8 * 1024, maxLines: 100 };
+    const text = lines(5000);
+    const windowed = fitWindowedOutput(text, whole(text), limits);
+    const fitted = fitOutput(text, "Narrow it.", limits);
+    for (const out of [windowed, fitted]) {
+      expect(out.truncated).toBe(true);
+      expect(out.content.split("\n").length).toBeLessThanOrEqual(limits.maxLines);
+      expect(bytes(out.content)).toBeLessThanOrEqual(limits.maxBytes);
+    }
+    expect(fitWindowedOutput(`${"x".repeat(20_000)}\nsecond`, whole("a\nb"), limits).content).toContain(
+      "longer than the 8 KiB output limit",
+    );
+  });
+});
+
 describe("fitOutput", () => {
   it("returns text within the limits unchanged", () => {
     expect(fitOutput("hello", "narrow it")).toEqual({ content: "hello", truncated: false });
@@ -157,12 +175,14 @@ describe("selectLines", () => {
 });
 
 describe("boundStructuredText", () => {
-  it("cuts at 1 MiB on a character boundary", () => {
+  it("cuts at 1 MiB of JSON on a character boundary, escapes counted (SPI-1362)", () => {
     const text = "é".repeat(STRUCTURED_MAX_BYTES);
     const bounded = boundStructuredText(text);
 
     expect(bounded.truncated).toBe(true);
     expect(bytes(bounded.content)).toBeLessThanOrEqual(STRUCTURED_MAX_BYTES);
+    const controls = boundStructuredText("\u0001".repeat(STRUCTURED_MAX_BYTES));
+    expect(bytes(JSON.stringify(controls.content))).toBeLessThanOrEqual(STRUCTURED_MAX_BYTES + 2);
     expect(bounded.content).not.toContain("\ufffd");
     expect(boundStructuredText("small")).toEqual({ content: "small", truncated: false });
   });

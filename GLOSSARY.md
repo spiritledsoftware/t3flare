@@ -218,14 +218,15 @@ Environment settings, with the Workspaces and their Purges, Status, the audit lo
 _Avoid_: Harness panel, dashboard, admin UI
 
 **Harness settings**:
-What agents are offered and how Pi Durable's loop runs: each tool's Exposure, its extensions with their options, and the
-MCP server set.
+What agents are offered and how Pi Durable's loop runs: each tool's Exposure, its extensions with their options, how
+much of a tool's result the model is shown (the Tool output limit), and the MCP server set.
 _Avoid_: harness config, settings (alone)
 
 **Environment settings**:
 What the Cloud Environment gives every Workspace and its Container, and how long it keeps one: the Container size (a
 named one, or a custom size's vCPU, memory and disk: `customVcpu`, `customMemoryMib`, `customDiskMb`), idle time and
-budget, how long open Terminals hold the Container and how many may run, how many CLI agents' processes a
+budget, how long open Terminals hold the Container, how many may run and how much an agent's Terminal keeps of its
+scrollback, how many CLI agents' processes a
 Workspace may run and how long an idle one waits before it may be ended to free the Container for another Workspace, the
 Turn limit, the Answer wait, the settings read wait, how long a clone or a checkpoint may run, the Global mise config,
 the Image setup and the Container setup, the Environment skills, the Variables, whether Terminals and CLI agents read

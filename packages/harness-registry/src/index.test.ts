@@ -1,6 +1,7 @@
 // The harness registry's seam (ADR-0026): what a Session gets from the stored settings (`resolveHarness`), and what the
 // panel may store (`applyChange`): defaults, validation against each entry's schema, locked entries, the revision, and
 // the merge (keyed settings merged key by key, lists replaced whole) for the later per-Project overrides.
+import { JSON_ESCAPE_MAX_BYTES, SESSION_ROW_BYTES, SESSION_ROW_ENVELOPE_BYTES } from "@t3flare/session-protocol";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -12,7 +13,11 @@ import {
   EMPTY_HARNESS,
   extensionOf,
   FETCH_MAX_KIB,
+  GUARDIAN_EVIDENCE_CHARACTERS,
   MAX_TIMED_MINUTES,
+  MAX_TOOL_OUTPUT_KIB,
+  MIN_TOOL_OUTPUT_KIB,
+  MIN_TOOL_OUTPUT_LINES,
   EXTENSIONS,
   resolvedToolsOf,
   resolveHarness,
@@ -66,7 +71,16 @@ describe("resolveHarness", () => {
   it("has Terminals on with bash's background jobs and a 120x40 viewport (SPI-1057): nothing starts a container until used", () => {
     expect(resolveHarness(EMPTY_HARNESS).extensions.termctrl).toEqual({
       enabled: true,
-      settings: { backgroundBash: true, cols: 120, rows: 40 },
+      settings: {
+        backgroundBash: true,
+        cols: 120,
+        rows: 40,
+        startWaitMs: 2000,
+        inputWaitMs: 500,
+        pollWaitMs: 30_000,
+        scrollbackLines: 100,
+        scrollbackKiB: 16,
+      },
     });
     expect(applyChange(EMPTY_HARNESS, { extension: "termctrl", settings: { cols: 10 } })).toMatchObject({ ok: false });
   });
@@ -81,6 +95,7 @@ describe("resolveHarness", () => {
         commands: "",
         policy: "",
         reviewTimeoutSeconds: 60,
+        batchArgumentCharacters: 2000,
       },
     });
     const on = applyChange(EMPTY_HARNESS, {
@@ -329,9 +344,25 @@ describe("applyChange", () => {
         searchesPerCall: [1, 50],
         searchSummaryTokens: [100, 64_000],
         searchTimeoutSeconds: [1, MAX_TIMED_MINUTES * 60],
+        searchContextCharacters: [100, 1_000_000],
       },
       files: { lsLimit: [1, 100_000], findLimit: [1, 100_000], grepLimit: [1, 100_000] },
       "project-context": { maxFileCharacters: [1, 1_000_000] },
+      // SPI-1362: what the model, the Guardian and the suggestion model are shown, and the Terminals' waits.
+      "tool-output": {
+        outputKiB: [MIN_TOOL_OUTPUT_KIB, MAX_TOOL_OUTPUT_KIB],
+        outputLines: [MIN_TOOL_OUTPUT_LINES, 100_000],
+      },
+      context: { previewCharacters: [12, 10_000] },
+      termctrl: {
+        startWaitMs: [0, MAX_TIMED_MINUTES * 60_000],
+        inputWaitMs: [0, MAX_TIMED_MINUTES * 60_000],
+        pollWaitMs: [0, MAX_TIMED_MINUTES * 60_000],
+        scrollbackLines: [2, 100_000],
+        scrollbackKiB: [1, MAX_TOOL_OUTPUT_KIB],
+      },
+      guardian: { batchArgumentCharacters: [0, GUARDIAN_EVIDENCE_CHARACTERS] },
+      "prompt-suggestions": { excerptCharacters: [100, 1_000_000], timeoutSeconds: [1, MAX_TIMED_MINUTES * 60] },
     };
     for (const [extension, keys] of Object.entries(bounds))
       for (const [key, [low, high]] of Object.entries(keys)) {
@@ -359,12 +390,34 @@ describe("applyChange", () => {
       searchesPerCall: 2,
       searchSummaryTokens: 1500,
       searchTimeoutSeconds: 90,
+      searchContextCharacters: 6000,
+    });
+    expect(resolveHarness(EMPTY_HARNESS).extensions["tool-output"]?.settings).toEqual({
+      outputKiB: 50,
+      outputLines: 2000,
+    });
+    expect(resolveHarness(EMPTY_HARNESS).extensions["prompt-suggestions"]?.settings).toEqual({
+      excerptCharacters: 4000,
+      timeoutSeconds: 20,
     });
     expect(resolveHarness(EMPTY_HARNESS).extensions.files?.settings).toEqual({
       lsLimit: 500,
       findLimit: 1000,
       grepLimit: 100,
     });
+  });
+
+  it("keeps the model's text of a result within half a Session row at the Tool output limit's maximum (SPI-1362)", () => {
+    // Every byte of the text at its worst JSON escape, beside the rest of the result in the other half.
+    expect(MAX_TOOL_OUTPUT_KIB * 1024 * JSON_ESCAPE_MAX_BYTES).toBeLessThanOrEqual(
+      (SESSION_ROW_BYTES - SESSION_ROW_ENVELOPE_BYTES) / 2,
+    );
+    expect((MAX_TOOL_OUTPUT_KIB + 1) * 1024 * JSON_ESCAPE_MAX_BYTES).toBeGreaterThan(
+      (SESSION_ROW_BYTES - SESSION_ROW_ENVELOPE_BYTES) / 2,
+    );
+    expect(EXTENSIONS.find((entry) => entry.id === "tool-output")?.settings.outputKiB?.description).toContain(
+      `At most ${MAX_TOOL_OUTPUT_KIB} KiB`,
+    );
   });
 
   it("refuses to turn an extension with tools on or off: its tools' Exposures are its switch", () => {

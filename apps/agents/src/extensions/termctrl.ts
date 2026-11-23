@@ -26,11 +26,11 @@ import {
 import type { CodemodeNamespace } from "@earendil-works/pi-durable/codemode";
 
 import type { BackgroundJobs } from "./coding-tools.ts";
+import { jobTailOf } from "./toolOutput.ts";
 import {
   describeExitStatus,
-  EXIT_TAIL_LINES,
+  exitTails,
   formatExitNotice,
-  START_WAIT_MS,
   TERMCTRL_GUIDELINES,
   type TermctrlHost,
   terminalListTool,
@@ -40,7 +40,7 @@ import {
   terminalWaitTool,
 } from "./termctrl/tools.ts";
 
-export { type TermctrlHost } from "./termctrl/tools.ts";
+export { DEFAULT_TERMCTRL_LIMITS, type TermctrlHost, type TermctrlLimits, termctrlLimits } from "./termctrl/tools.ts";
 
 export const TERMCTRL_EXTENSION = "termctrl";
 
@@ -59,11 +59,19 @@ export interface TermctrlOptions {
   readonly used: () => boolean;
 }
 
-/** The Exit notifications due: exits of this Session's entries it has not seen, each told once. */
+/**
+ * The Exit notifications due: exits of this Session's entries it has not seen, each told once, their outputs sharing a
+ * job's tail (`exitTails`), so the notice is no longer than one result.
+ */
 const dueExits = async (host: TermctrlHost): Promise<string | undefined> => {
-  const answer = await host.call({ op: "exits", owner: host.owner(), tailLines: EXIT_TAIL_LINES });
+  const { output } = host.limits();
+  const answer = await host.call({ op: "exits", owner: host.owner(), tail: jobTailOf(output) });
   if (!answer.ok || answer.value.exits.length === 0) return undefined;
-  return answer.value.exits.map((exit) => formatExitNotice(exit, exit.tail, EXIT_TAIL_LINES)).join("\n\n");
+  const tails = exitTails(
+    answer.value.exits.map((exit) => exit.tail),
+    output,
+  );
+  return answer.value.exits.map((exit, index) => formatExitNotice(exit, tails[index] ?? "")).join("\n\n");
 };
 
 /** Tells the run of the exits: a steer while it works, else a note placed after its answer (never a run of its own). */
@@ -130,10 +138,12 @@ export const termctrlExtension = (harness: () => Promise<Harness>, options: Term
   });
 
 /**
- * `bash`'s `background: true` (pi-termctrl `bash-replacement.ts`): the command starts as a Background job and waits 2 s;
- * one that finished answers as `bash` does (its output and exit code), else the call returns the job's id and log.
+ * `bash`'s `background: true` (pi-termctrl `bash-replacement.ts`): the command starts as a Background job and waits the
+ * Start wait (`startWaitMs`); one that finished answers as `bash` does (its output and exit code), else the call
+ * returns the job's id and log.
  */
 export const backgroundJobs = (host: TermctrlHost): BackgroundJobs => ({
+  waitMs: host.limits().startWaitMs,
   async run(command: string, cwd: string, _api: ToolExecutionApi, _context: Context) {
     const owner = host.owner();
     const started = await host.call({
@@ -152,10 +162,11 @@ export const backgroundJobs = (host: TermctrlHost): BackgroundJobs => ({
       owner,
       id,
       mode: "start",
-      deadline: Date.now() + START_WAIT_MS,
-      chunkMs: START_WAIT_MS,
+      deadline: Date.now() + host.limits().startWaitMs,
+      chunkMs: host.limits().startWaitMs,
       pattern: "\u0000never",
       view: true,
+      tail: jobTailOf(host.limits().output),
     });
     if (!settled.ok) throw new Error(settled.error);
     const view = settled.value.view;

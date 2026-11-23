@@ -9,13 +9,13 @@
 // (no token calibration here). There are no Skills, delegations or User Overrides to carry.
 import type { Context as ChordContext } from "@earendil-works/chord";
 import type { Cursor, EntryRecord, HookApi } from "@earendil-works/pi-durable";
+import { defaultSettings, GUARDIAN_EVIDENCE_CHARACTERS } from "@t3flare/harness-registry";
 
 import { ADVISOR_CONTINUATION } from "../advisor.ts";
 
 /** Characters of untrusted evidence a review carries at most (about pi-guardian's 32,000-token ceiling). */
-export const EVIDENCE_CHARACTERS = 96_000;
-/** History read back for evidence, newest first. */
-const MAX_ENTRIES = 2_000;
+export const EVIDENCE_CHARACTERS = GUARDIAN_EVIDENCE_CHARACTERS;
+/** History read back for evidence, newest first, a page at a time. */
 const PAGE = 200;
 
 interface EvidenceEntry {
@@ -98,6 +98,9 @@ const shorten = (entry: EvidenceEntry, limit: number): EvidenceEntry => {
  * The evidence blocks of a review, in conversation order: every trusted entry, and the newest untrusted ones within
  * `budget` characters, each shortened only when it alone exceeds a quarter of it, with an omission note for what was
  * left out. `skipCalls`: the Reviewed Call's own response, which the Reviewed Call shows.
+ *
+ * The whole History is read, newest first, so no trusted message is lost however long the thread (it is the owner's
+ * authorization); once the untrusted budget is full, an older untrusted entry is counted, never held.
  */
 export const selectEvidence = async (
   api: Pick<HookApi, "entries">,
@@ -105,35 +108,30 @@ export const selectEvidence = async (
   options: { readonly trustUser: boolean; readonly skipCalls: ReadonlySet<string>; readonly budget?: number },
 ): Promise<ReadonlyArray<string>> => {
   const budget = options.budget ?? EVIDENCE_CHARACTERS;
-  const newestFirst: Array<EvidenceEntry> = [];
+  let used = 0;
+  let omitted = 0;
+  const kept: Array<EvidenceEntry> = [];
   let cursor: Cursor | undefined;
-  let read = 0;
   do {
     const page = await api.entries({ order: "descending" }, PAGE, cursor, context);
     for (const entry of page.items) {
       const evidence = entryEvidence(entry, options.trustUser, options.skipCalls);
-      if (evidence !== undefined) newestFirst.push(evidence);
+      if (evidence === undefined) continue;
+      if (evidence.trusted) {
+        kept.push(shorten(evidence, budget));
+        continue;
+      }
+      const shown = shorten(evidence, Math.floor(budget / 4));
+      const size = JSON.stringify(shown.message).length;
+      if (used + size > budget) {
+        omitted++;
+        continue;
+      }
+      used += size;
+      kept.push(shown);
     }
-    read += page.items.length;
     cursor = page.next;
-  } while (cursor !== undefined && read < MAX_ENTRIES);
-  let used = 0;
-  let omitted = 0;
-  const kept: Array<EvidenceEntry> = [];
-  for (const entry of newestFirst) {
-    if (entry.trusted) {
-      kept.push(shorten(entry, budget));
-      continue;
-    }
-    const shown = shorten(entry, Math.floor(budget / 4));
-    const size = JSON.stringify(shown.message).length;
-    if (used + size > budget) {
-      omitted++;
-      continue;
-    }
-    used += size;
-    kept.push(shown);
-  }
+  } while (cursor !== undefined);
   const blocks = kept.toReversed().map(render);
   return omitted === 0
     ? blocks
@@ -147,12 +145,13 @@ const sha256 = async (text: string): Promise<string> => {
 
 export const argumentsHash = (input: unknown): Promise<string> => sha256(JSON.stringify(input));
 
-const BATCH_CHARACTERS = 2_000;
+/** The `batchArgumentCharacters` setting's default, for a call rendered without settings (a test). */
+const DEFAULT_BATCH_CHARACTERS = Number(defaultSettings("guardian").batchArgumentCharacters);
 
-const batchCallLine = (call: { readonly name: string; readonly arguments: unknown }): string => {
+const batchCallLine = (call: { readonly name: string; readonly arguments: unknown }, limit: number): string => {
   const name = JSON.stringify(call.name);
   const json = JSON.stringify(call.arguments);
-  if (json.length <= BATCH_CHARACTERS) return `${name} with arguments ${json}`;
+  if (json.length <= limit) return `${name} with arguments ${json}`;
   const fields = (typeof call.arguments === "object" && call.arguments !== null ? call.arguments : {}) as Record<
     string,
     unknown
@@ -161,10 +160,7 @@ const batchCallLine = (call: { readonly name: string; readonly arguments: unknow
   const rest = JSON.stringify(
     Object.fromEntries(Object.entries(fields).filter(([key]) => key !== "path" && key !== "command")),
   );
-  const shown =
-    rest.length > BATCH_CHARACTERS
-      ? `${rest.slice(0, BATCH_CHARACTERS)}${omissionMarker(rest.length - BATCH_CHARACTERS)}`
-      : rest;
+  const shown = rest.length > limit ? `${rest.slice(0, limit)}${omissionMarker(rest.length - limit)}` : rest;
   return Object.keys(pinned).length > 0
     ? `${name} with arguments ${JSON.stringify(pinned)} in full, and other arguments ${shown}`
     : `${name} with arguments ${shown}`;
@@ -177,6 +173,8 @@ export interface ReviewedCall {
   readonly reason?: string | undefined;
   readonly parent?: { readonly toolName: string; readonly input: unknown } | undefined;
   readonly batch?: ReadonlyArray<{ readonly name: string; readonly arguments: unknown }>;
+  /** Characters of each other batch call's arguments shown beside its path and command (`batchArgumentCharacters`). */
+  readonly batchCharacters?: number;
 }
 
 /** The final request block (`renderReviewedCall`): never shortened. */
@@ -203,7 +201,8 @@ export const renderReviewedCall = async (call: ReviewedCall): Promise<string> =>
         ? "Other calls in the issuing call's tool batch (each reviewed on its own; they bear on this call only where they change what it does, and Pi may run them before or alongside the issuing call):"
         : "Other calls in the same tool batch (each reviewed on its own; they bear on this call only where they change what it does, and Pi may run them before or alongside this call):",
     );
-    for (const other of call.batch) lines.push(`- ${batchCallLine(other)}`);
+    for (const other of call.batch)
+      lines.push(`- ${batchCallLine(other, call.batchCharacters ?? DEFAULT_BATCH_CHARACTERS)}`);
   }
   return lines.join("\n");
 };

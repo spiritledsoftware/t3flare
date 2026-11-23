@@ -105,7 +105,8 @@ export const pushedEntry = (
     turn,
     ...(typeof message.timestamp === "number" ? { timestamp: message.timestamp } : {}),
     // The ports' own entries (an Advisor finding, a Guardian rejection, a Terminal's exit) carry what t3 shows in `data`.
-    ...(entry.kind.startsWith("t3flare.") && entry.data !== undefined ? { details: boundedDetails(entry.data) } : {}),
+    // Whole, as `details` below: the entry already fits one Session row, so its push fits t3's event row and an RPC.
+    ...(entry.kind.startsWith("t3flare.") && entry.data !== undefined ? { details: entry.data } : {}),
   };
   if (role === "assistant") {
     const usage = usageOf(message.usage);
@@ -127,17 +128,12 @@ export const pushedEntry = (
       ...opt("toolCallId", str(message.toolCallId)),
       ...opt("toolName", str(message.toolName)),
       isError: message.isError === true,
-      ...(message.details === undefined ? {} : { details: boundedDetails(message.details) }),
+      ...(message.details === undefined ? {} : { details: message.details }),
     };
   }
-  if (role === "user") return { ...base, role: "user", content: slimContent(message.content, 64 * 1024) };
+  // Whole: t3 bounds what the owner sends (PROVIDER_SEND_TURN_MAX_INPUT_CHARS), and the entry fits one Session row.
+  if (role === "user") return { ...base, role: "user", content: slimContent(message.content) };
   return { ...base, role: role === "system" ? "system" : "other", content: [] };
-};
-
-/** A tool's `details` (edit's patch, bash's exit code) when small; else none. */
-const boundedDetails = (details: Json): Json => {
-  const text = JSON.stringify(details) ?? "";
-  return encoder.encode(text).length <= 64 * 1024 ? details : undefined;
 };
 
 /** A nested call's arguments, whole when small, else each string field cut (so a command still shows its start). */

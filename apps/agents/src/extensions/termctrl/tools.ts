@@ -2,8 +2,8 @@
 // (SPI-1057): the owner's `terminal_start`, `terminal_send`, `terminal_stop`, `terminal_list` and `terminal_wait`, as
 // plain pi-durable tools over the Workspace DO's agent terminals (`workspace/agentTerminals.ts`). Kept: the parameters,
 // defaults and clamps, the settle reasons, `wait_for_text`, the result's first line, the Screen Delta, scrolled-off lines
-// within `termctrl.scrollback`'s default limits (100 lines or 16 KB, first and last kept), `changed`, the exit texts, and
-// the Steer Yield (a queued steer ends a wait as `steered`). Changed: the wait runs in the Workspace DO in slices, and
+// within `termctrl.scrollback`'s limits (the `termctrl` settings, 100 lines or 16 KiB by default, first and last kept),
+// `changed`, the exit texts, and the Steer Yield (a queued steer ends a wait as `steered`). Changed: the wait runs in the Workspace DO in slices, and
 // between slices the tool checks this conversation's inbox for a steer; nothing is written to files on the Worker
 // (termctrl's full-output files), so a cut result says to run the command with `bash` or redirect it; the cwd is the
 // Workspace's (`/workspace/repo`), and t3's `/w/<id>` paths are translated as `bash`'s are (`permissions.ts`).
@@ -17,6 +17,7 @@ import {
   type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import { arr, bool, int, obj, opt, str } from "@earendil-works/pi-schema";
+import { defaultSettings, type SettingValue } from "@t3flare/harness-registry";
 import type {
   AgentEntryInfo,
   AgentExit,
@@ -26,19 +27,63 @@ import type {
   AgentView,
 } from "@t3flare/workspace-client";
 
-export const START_WAIT_MS = 2_000;
-export const INPUT_WAIT_MS = 500;
-export const POLL_WAIT_MS = 30_000;
+import { DEFAULT_TOOL_OUTPUT_LIMITS, jobTailOf, type ToolOutputLimits } from "../toolOutput.ts";
+
+/** The `termctrl` settings the tools read (SPI-1362), and the Tool output limit their results fit. */
+export interface TermctrlLimits {
+  /** terminal_start's default wait, and how long bash's `background` runs before the command becomes a job. */
+  readonly startWaitMs: number;
+  /** terminal_send's default wait after typing. */
+  readonly inputWaitMs: number;
+  /** terminal_send's default wait with nothing to type. */
+  readonly pollWaitMs: number;
+  /** termctrl's `scrollback`: the scrolled-off lines a result shows, first and last kept. */
+  readonly scrollback: { readonly lines: number; readonly bytes: number };
+  readonly output: ToolOutputLimits;
+}
+
+/** The `termctrl` extension's resolved settings, with the Tool output limit, as limits. */
+export const termctrlLimits = (
+  values: Readonly<Record<string, SettingValue>>,
+  output: ToolOutputLimits = DEFAULT_TOOL_OUTPUT_LIMITS,
+): TermctrlLimits => ({
+  startWaitMs: Number(values.startWaitMs),
+  inputWaitMs: Number(values.inputWaitMs),
+  pollWaitMs: Number(values.pollWaitMs),
+  scrollback: { lines: Number(values.scrollbackLines), bytes: Number(values.scrollbackKiB) * 1024 },
+  output,
+});
+
+export const DEFAULT_TERMCTRL_LIMITS: TermctrlLimits = termctrlLimits(defaultSettings("termctrl"));
+
+/** Room a Terminal result keeps for its first line, a note and its notices, beside the scrolled-off lines and the screen. */
+const RESULT_ROOM = { lines: 10, bytes: 1024 };
+
+/**
+ * The scrolled-off lines a result shows: the `scrollback` settings, and at most half the Tool output limit, so the
+ * screen always fits beside them.
+ */
+export const scrolledLimits = (limits: TermctrlLimits): { readonly lines: number; readonly bytes: number } => ({
+  lines: Math.min(limits.scrollback.lines, Math.floor(limits.output.maxLines / 2)),
+  bytes: Math.min(limits.scrollback.bytes, Math.floor(limits.output.maxBytes / 2)),
+});
+
+/**
+ * The screen a result shows, its last lines: what the Tool output limit leaves beside the scrolled-off lines and the
+ * result's own lines, so the Harness's cut, which keeps a result's head, never cuts the screen.
+ */
+export const screenLimits = (limits: TermctrlLimits): { readonly lines: number; readonly bytes: number } => {
+  const scrolled = scrolledLimits(limits);
+  return {
+    lines: Math.max(1, limits.output.maxLines - scrolled.lines - RESULT_ROOM.lines),
+    bytes: Math.max(1, limits.output.maxBytes - scrolled.bytes - RESULT_ROOM.bytes),
+  };
+};
+
 /** `terminal_wait`'s default wait. A wait the agent names may be any length: it runs in `SLICE_MS` slices. */
 export const TERMINAL_WAIT_MS = 5 * 60_000;
 /** How long one Workspace slice of a wait lasts before the tool checks for a steer. */
 export const SLICE_MS = 5_000;
-/** termctrl's `scrollback` default: scrolled-off lines a result shows. */
-export const SCROLLBACK = { lines: 100, bytes: 16_384 };
-/** pi's tool output limits (2,000 lines or 50 KB), which the screen is cut to first. */
-const OUTPUT = { lines: 2_000, bytes: 51_200 };
-/** termctrl's `exitTailLines` default. */
-export const EXIT_TAIL_LINES = 20;
 
 export const TERMINAL_KEYS: ReadonlyArray<string> = [
   "Enter",
@@ -65,6 +110,8 @@ export interface TermctrlHost {
   readonly viewport: () => { readonly cols: number; readonly rows: number };
   /** t3's `/w/<id>` as `/workspace/repo` in a command or typed text (`permissions.ts` `toToolPath`). */
   readonly toToolPath: (text: string) => string;
+  /** The `termctrl` settings and the Tool output limit, as the turn's install took them. */
+  readonly limits: () => TermctrlLimits;
 }
 
 const encoder = new TextEncoder();
@@ -95,13 +142,24 @@ export const formatDuration = (milliseconds: number): string => {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 };
 
-export const lastLines = (output: string, count: number): string => {
-  if (count === 0) return "";
-  return output.replace(/\n+$/u, "").split("\n").slice(-count).join("\n");
+/**
+ * The exits' outputs (each a Terminal's final screen or a job's output) as one result shows them: each its share of
+ * a job's tail (`jobTailOf` the Tool output limit), its last lines, so every exit fits the result together.
+ */
+export const exitTails = (outputs: ReadonlyArray<string>, output: ToolOutputLimits): ReadonlyArray<string> => {
+  const tail = jobTailOf(output);
+  const share = {
+    lines: Math.max(1, Math.floor(tail.lines / Math.max(1, outputs.length))),
+    bytes: Math.max(1, Math.floor(tail.bytes / Math.max(1, outputs.length))),
+  };
+  return outputs.map((each) => keepTail(each.replace(/\n+$/u, ""), share).text);
 };
 
-/** One exit as an Exit notification and `terminal_wait` describe it (exit-notification.ts `formatExitNotice`). */
-export const formatExitNotice = (entry: AgentEntryInfo, output: string, tailLines: number): string => {
+/**
+ * One exit as an Exit notification and `terminal_wait` describe it (exit-notification.ts `formatExitNotice`), with
+ * `output`, its tail as `exitTails` cut it.
+ */
+export const formatExitNotice = (entry: AgentEntryInfo, output: string): string => {
   const label = entry.kind === "terminal" ? "Terminal" : "Background job";
   const exit = entry.exit ?? { code: null, signal: null };
   const head = `${label} ${entry.id} ${describeExitStatus(exit)} after ${formatDuration((entry.endedAt ?? entry.startedAt) - entry.startedAt)}: ${entry.command}\n${
@@ -109,7 +167,7 @@ export const formatExitNotice = (entry: AgentEntryInfo, output: string, tailLine
       ? `Log: ${entry.logPath}`
       : `terminal_send {"id": "${entry.id}"} returns its final screen.`
   }`;
-  const tail = lastLines(output, tailLines);
+  const tail = output.replace(/\n+$/u, "");
   return tail === ""
     ? head
     : `${head}\nLast lines of ${entry.kind === "terminal" ? "final screen" : "output"}:\n${tail}`;
@@ -124,7 +182,7 @@ const exitFields = (exit: AgentExit | null): { exit_code?: number; signal?: stri
 const splitRows = (screen: string): Array<string> => (screen === "" ? [] : screen.split("\n"));
 
 /** The last `limits` of `text`'s lines. */
-const keepTail = (
+export const keepTail = (
   text: string,
   limits: { readonly lines: number; readonly bytes: number },
 ): { readonly text: string; readonly cut: boolean } => {
@@ -135,13 +193,16 @@ const keepTail = (
   return { text: lines.join("\n"), cut };
 };
 
-/** Scrolled-off lines within termctrl's scrollback limits: the first and last kept around a marker. */
-export const fitScrolled = (lines: ReadonlyArray<string>): { readonly text: string; readonly summary?: string } => {
+/** Scrolled-off lines within `limits` (`scrolledLimits`): the first and last kept around a marker. */
+export const fitScrolled = (
+  lines: ReadonlyArray<string>,
+  limits: { readonly lines: number; readonly bytes: number },
+): { readonly text: string; readonly summary?: string } => {
   const text = lines.join("\n");
-  if (lines.length <= SCROLLBACK.lines && bytes(text) <= SCROLLBACK.bytes) return { text };
+  if (lines.length <= limits.lines && bytes(text) <= limits.bytes) return { text };
   const marker = (count: number) => `[… ${count} lines omitted …]`;
-  const bodyLines = SCROLLBACK.lines - 1;
-  const bodyBytes = SCROLLBACK.bytes - bytes(marker(lines.length));
+  const bodyLines = limits.lines - 1;
+  const bodyBytes = limits.bytes - bytes(marker(lines.length));
   const head: Array<string> = [];
   let headBytes = 0;
   for (const line of lines) {
@@ -160,7 +221,7 @@ export const fitScrolled = (lines: ReadonlyArray<string>): { readonly text: stri
   const omitted = lines.length - head.length - tail.length;
   return {
     text: [...head, marker(omitted), ...tail].join("\n"),
-    summary: `Showing the first ${head.length} and last ${tail.length} of ${lines.length} scrolled-off lines (16.0KB or ${SCROLLBACK.lines} line limit).`,
+    summary: `Showing the first ${head.length} and last ${tail.length} of ${lines.length} scrolled-off lines (${(limits.bytes / 1024).toFixed(1)}KB or ${limits.lines} line limit).`,
   };
 };
 
@@ -212,16 +273,18 @@ export const terminalResult = (
     readonly fullScreen?: boolean | undefined;
     readonly label?: string;
   } = {},
+  limits: TermctrlLimits = DEFAULT_TERMCTRL_LIMITS,
 ) => {
   const rows = splitRows(view.screen);
   // A line the agent saw on its previous screen is not repeated when it scrolls off unchanged.
   const seen = view.shift === null ? [] : splitRows(view.previous?.screen ?? "");
   const scrolled = view.scrolledOff.filter((line, index) => line !== seen[index]);
-  const fitted = fitScrolled(scrolled);
+  const fitted = fitScrolled(scrolled, scrolledLimits(limits));
   const unchanged = view.previous !== null && view.previous.screen === view.screen;
   const start = options.fullScreen === true || unchanged ? 0 : deltaStart(view, rows);
   const omitted = options.fullScreen !== true && unchanged;
-  const shown = keepTail(start === 0 ? view.screen : rows.slice(start).join("\n"), OUTPUT);
+  const screen = screenLimits(limits);
+  const shown = keepTail(start === 0 ? view.screen : rows.slice(start).join("\n"), screen);
   const cursor = view.cursor === null ? null : { row: view.cursor.y + 1, column: view.cursor.x + 1 };
   const result: TerminalResult = {
     id: view.id,
@@ -254,7 +317,9 @@ export const terminalResult = (
     ...(fitted.summary === undefined
       ? []
       : [`[${fitted.summary} For complete output, run the command with bash or redirect it to a file.]`]),
-    ...(shown.cut ? ["[The screen was cut to its last 2000 lines or 50KB.]"] : []),
+    ...(shown.cut
+      ? [`[The screen was cut to its last ${screen.lines} lines or ${(screen.bytes / 1024).toFixed(1)}KB.]`]
+      : []),
   ];
   const text = notices.length === 0 ? parts.join("\n") : `${parts.join("\n")}\n\n${notices.join("\n")}`;
   return { text, result };
@@ -307,6 +372,7 @@ const settle = async (
         ...(input.pattern === undefined ? {} : { pattern: input.pattern }),
         ...(since === undefined ? {} : { since }),
         view: true,
+        tail: jobTailOf(host.limits().output),
       }),
     );
     if (steered) return { view: answer.view, reason: "steered" };
@@ -361,9 +427,9 @@ export const terminalStartTool = (host: TermctrlHost): ToolRegistration =>
       const { view, reason } = await settle(host, api, context, {
         id: entry.id,
         mode: "start",
-        waitMs: waitOf(args.wait_ms, START_WAIT_MS),
+        waitMs: waitOf(args.wait_ms, host.limits().startWaitMs),
       });
-      const shown = terminalResult(view, reason, { fullScreen: true });
+      const shown = terminalResult(view, reason, { fullScreen: true }, host.limits());
       return toolResult(shown.text, shown.result);
     },
   });
@@ -401,13 +467,15 @@ export const terminalSendTool = (host: TermctrlHost): ToolRegistration =>
         ...(args.text === undefined || args.text === "" ? {} : { text: args.text.replaceAll("\n", "\r") }),
         ...(keys.length === 0 ? {} : { keys }),
         mode: hasInput ? "input" : "poll",
-        waitMs: waitOf(args.wait_ms, hasInput ? INPUT_WAIT_MS : POLL_WAIT_MS),
+        waitMs: waitOf(args.wait_ms, hasInput ? host.limits().inputWaitMs : host.limits().pollWaitMs),
         ...(args.wait_for_text === undefined ? {} : { pattern: args.wait_for_text }),
       });
-      const shown = terminalResult(view, reason, {
-        note: unmatchedNote(reason, args.wait_for_text),
-        fullScreen: args.full_screen,
-      });
+      const shown = terminalResult(
+        view,
+        reason,
+        { note: unmatchedNote(reason, args.wait_for_text), fullScreen: args.full_screen },
+        host.limits(),
+      );
       return toolResult(shown.text, shown.result);
     },
   });
@@ -420,7 +488,9 @@ export const terminalStopTool = (host: TermctrlHost): ToolRegistration =>
     parameters: obj({ id: str({ description: "A Terminal id (t1) or Background job id (b1)" }) }),
     structuredOutputSchema: OBJECT,
     async execute(args) {
-      const { stopped, view } = valueOf(await host.call({ op: "stop", owner: host.owner(), id: args.id }));
+      const { stopped, view } = valueOf(
+        await host.call({ op: "stop", owner: host.owner(), id: args.id, tail: jobTailOf(host.limits().output) }),
+      );
       if (stopped.kind === "background_job") {
         const result = {
           id: stopped.id,
@@ -432,7 +502,7 @@ export const terminalStopTool = (host: TermctrlHost): ToolRegistration =>
         const text = `Background job ${stopped.id} stopped (${describeExitStatus(stopped.exit ?? { code: null, signal: null })}).\n--- recent output ---\n${view.output === "" ? "(none)" : (view.output ?? "")}`;
         return toolResult(text, result);
       }
-      const shown = terminalResult(view, "exited", { label: "final screen" });
+      const shown = terminalResult(view, "exited", { label: "final screen" }, host.limits());
       const text = shown.text.replace(
         /^[^\n]*/,
         `Terminal ${stopped.id} stopped · ${view.cursor === null ? "cursor hidden" : `cursor ${view.cursor.y + 1}:${view.cursor.x + 1}`}`,
@@ -529,6 +599,7 @@ export const terminalWaitTool = (host: TermctrlHost): ToolRegistration =>
             deadline: Date.now(),
             chunkMs: 0,
             view: false,
+            tail: jobTailOf(host.limits().output),
           });
           return settled.ok
             ? entry.kind === "terminal"
@@ -536,9 +607,9 @@ export const terminalWaitTool = (host: TermctrlHost): ToolRegistration =>
               : (settled.value.view.output ?? "")
             : "";
         }),
-      );
+      ).then((all) => exitTails(all, host.limits().output));
       const now = Date.now();
-      const parts = answer.exited.map((entry, index) => formatExitNotice(entry, tails[index] ?? "", EXIT_TAIL_LINES));
+      const parts = answer.exited.map((entry, index) => formatExitNotice(entry, tails[index] ?? ""));
       if (reason !== "exited") parts.unshift(WAIT_REASON_TEXT[reason](ms));
       const running = answer.running;
       if (running.length > 0) parts.push(`Still running:\n${running.map((entry) => listLine(entry, now)).join("\n")}`);
@@ -550,7 +621,7 @@ export const terminalWaitTool = (host: TermctrlHost): ToolRegistration =>
           command: entry.command,
           ...exitFields(entry.exit),
           duration_ms: (entry.endedAt ?? now) - entry.startedAt,
-          output: lastLines(tails[index] ?? "", EXIT_TAIL_LINES),
+          output: tails[index] ?? "",
           ...(entry.logPath === undefined ? {} : { log_path: entry.logPath }),
         })),
         running: running.map((entry) => ({

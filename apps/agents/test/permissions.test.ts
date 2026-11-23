@@ -19,6 +19,7 @@ import {
   toToolPath,
 } from "../src/extensions/permissions.ts";
 
+import { CARD_TEXT_MAX, cardText } from "../src/extensions/cardText.ts";
 import { context, instanceKv, memoryKv, restartingHarness, textOf, until } from "./harness.fixture.ts";
 
 /** A `bash` that records its runs (not replay-safe, as pi-durable's own). */
@@ -211,6 +212,39 @@ describe("permissions", () => {
     store.answer("2", "acceptForSession");
     expect(store.acceptedFor({ tool: "bash", kind: "command" })).toBe(true);
     expect(store.acceptedFor({ tool: "mcp__t3-code__t3_thread_send", kind: "mcp-tool" })).toBe(false);
+  });
+
+  it("keeps a script once per code mode call, shown on each of its cards by the card's own rule (SPI-1362)", () => {
+    const kv = memoryKv();
+    const store = new ApprovalStore(kv, () => {});
+    const script = `const a = 1;\n${"tools.bash({ command: 'x' });\n".repeat(2_000)}`;
+    store.noteScript("cm", script);
+    for (const id of ["1", "2", "3"])
+      void store.ask(
+        {
+          requestId: id,
+          turn: "t",
+          callId: `cm/c${id}`,
+          tool: "bash",
+          kind: "command",
+          summary: "x",
+          via: { parentCallId: "cm" },
+          createdAt: 0,
+        },
+        async () => {},
+        context,
+      );
+    // Stored once: the requests name the script's call only.
+    expect(JSON.stringify(kv.get("t3flare:approval-requests"))).not.toContain("const a = 1");
+    const shown = store.shown();
+    expect(shown).toHaveLength(3);
+    for (const card of shown) {
+      expect(card.via?.parentCallId).toBe("cm");
+      expect(card.via?.script).toBe(cardText(script));
+    }
+    // The card's rule: whole up to CARD_TEXT_MAX, then cut and fingerprinted, never the old 600-character excerpt.
+    expect(shown[0]!.via?.script.length).toBeGreaterThan(CARD_TEXT_MAX);
+    expect(shown[0]!.via?.script).toContain("[TRUNCATED: ");
   });
 
   it("shows a file's path on its card as the card shows any text, with no shorter cut of its own (SPI-1361)", () => {

@@ -95,7 +95,10 @@ import {
   TERMCTRL_NAMESPACE,
   type TermctrlHost,
   termctrlExtension,
+  type TermctrlLimits,
+  termctrlLimits,
 } from "../extensions/termctrl.ts";
+import { TOOL_OUTPUT_EXTENSION, toolOutputExtension, toolOutputLimits } from "../extensions/toolOutput.ts";
 import { SKILLS_EXTENSION, skillsExtension } from "../extensions/skills.ts";
 import { TODO_EXTENSION, TodoDoc, todoExtension } from "../extensions/todo.ts";
 import { WEB_EXTENSION, WEB_NAMESPACE, webExtension, webLimits } from "../extensions/web.ts";
@@ -117,7 +120,12 @@ import { SessionEndpoints } from "./endpoints.ts";
 import { readWithin } from "../readWithin.ts";
 import { turnReadMs } from "./turnReadMs.ts";
 import { noteTurnProvider, runsOn, TURN_PROVIDER_KEY } from "./signOut.ts";
-import { suggestionModelOf, suggestPrompt } from "./promptSuggestion.ts";
+import {
+  PROMPT_SUGGESTIONS_EXTENSION,
+  suggestionLimits,
+  suggestionModelOf,
+  suggestPrompt,
+} from "./promptSuggestion.ts";
 import {
   armFault,
   compactionLimits,
@@ -471,12 +479,15 @@ export class SessionDO extends DurableObject<SessionEnv> {
     const registry = this.#registryWriter;
     const tools = resolvedToolsOf(harness);
     const namespaces: Array<CodemodeNamespace> = [];
+    // SPI-1362: what the model is shown of every tool's result; the tools that size their text to it are built with it.
+    const output = toolOutputLimits(extensionOf(harness, TOOL_OUTPUT_EXTENSION).settings);
     const web = extensionOf(harness, WEB_EXTENSION);
     if (web.enabled) {
       const searchModel = String(web.settings.searchModel);
       registry.install(
         webExtension({
           limits: webLimits(web.settings),
+          output,
           ...(tools.tools.web_search !== "hidden"
             ? { search: { resolve: () => this.#searchTarget(searchModel) } }
             : {}),
@@ -496,8 +507,10 @@ export class SessionDO extends DurableObject<SessionEnv> {
     if (extensionOf(harness, SKILLS_EXTENSION).enabled) registry.install(skillsExtension());
     else registry.uninstall({ name: SKILLS_EXTENSION });
     const termctrl = extensionOf(harness, TERMCTRL_EXTENSION);
+    const viewport = { cols: Number(termctrl.settings.cols), rows: Number(termctrl.settings.rows) };
+    const terminalLimits = termctrlLimits(termctrl.settings, output);
     if (termctrl.enabled) {
-      const host = this.#termctrlHost({ cols: Number(termctrl.settings.cols), rows: Number(termctrl.settings.rows) });
+      const host = this.#termctrlHost(viewport, terminalLimits);
       registry.install(
         termctrlExtension(() => this.#opening, {
           host,
@@ -509,7 +522,9 @@ export class SessionDO extends DurableObject<SessionEnv> {
       registry.uninstall({ name: TERMCTRL_EXTENSION });
     }
     // SPI-1321: the file tools' and the Project context's limits; installed again in place, as codingTools is below.
-    registry.install(fileTools(() => this.#files(), fileLimits(extensionOf(harness, FILES_EXTENSION).settings)));
+    registry.install(
+      fileTools(() => this.#files(), fileLimits(extensionOf(harness, FILES_EXTENSION).settings), output),
+    );
     registry.install(
       projectContext(REPO_ROOT, projectContextLimits(extensionOf(harness, PROJECT_CONTEXT_EXTENSION).settings)),
     );
@@ -517,12 +532,8 @@ export class SessionDO extends DurableObject<SessionEnv> {
     registry.install(
       codingTools(
         termctrl.enabled && termctrl.settings.backgroundBash !== false
-          ? {
-              jobs: backgroundJobs(
-                this.#termctrlHost({ cols: Number(termctrl.settings.cols), rows: Number(termctrl.settings.rows) }),
-              ),
-            }
-          : {},
+          ? { jobs: backgroundJobs(this.#termctrlHost(viewport, terminalLimits)), output }
+          : { output },
       ),
     );
     const guardian = extensionOf(harness, GUARDIAN_EXTENSION);
@@ -558,6 +569,8 @@ export class SessionDO extends DurableObject<SessionEnv> {
       registry.install(
         contextExtension(() => this.#opening, {
           rolloverOnCompaction: contextManagement.settings.rolloverOnCompaction !== false,
+          previewCharacters: Number(contextManagement.settings.previewCharacters),
+          output,
         }),
       );
       namespaces.push(CONTEXT_NAMESPACE);
@@ -598,6 +611,16 @@ export class SessionDO extends DurableObject<SessionEnv> {
         codemode: harness.codemode.enabled && sandbox !== undefined,
       }),
     );
+    // Every tool but code mode's (pi-durable's own limits) within the Tool output limit (SPI-1362).
+    registry.install(
+      toolOutputExtension(
+        registry
+          .snapshot()
+          .tools()
+          .flatMap(({ tool }) => (tool.name === "codemode" ? [] : [tool.name])),
+        output,
+      ),
+    );
   }
 
   /**
@@ -614,11 +637,12 @@ export class SessionDO extends DurableObject<SessionEnv> {
   }
 
   /** The agent's Terminals in the thread's Workspace (SPI-1057), owned by this Session. */
-  #termctrlHost(viewport: { readonly cols: number; readonly rows: number }): TermctrlHost {
+  #termctrlHost(viewport: { readonly cols: number; readonly rows: number }, limits: TermctrlLimits): TermctrlHost {
     const sessionName = this.ctx.id.name ?? this.ctx.id.toString();
     return {
       owner: () => sessionName,
       viewport: () => viewport,
+      limits: () => limits,
       toToolPath: (text) => toToolPath(text, this.#meta()?.workspaceId ?? null),
       call: async <R extends AgentTerminalRequest>(request: R): Promise<AgentTerminalResult<R["op"]>> => {
         const id = this.#meta()?.workspaceId;
@@ -1113,7 +1137,10 @@ export class SessionDO extends DurableObject<SessionEnv> {
     const ref = suggestionModelOf(this.#endpoints.current());
     const model = ref === undefined ? undefined : models.getModel(ref.provider, ref.modelId);
     if (model === undefined) return { text: "" };
-    const text = await suggestPrompt(models, model, user.text, answer.text);
+    // The settings the Session last took (ADR-0026), as its last turn's install did.
+    const harness = this.ctx.storage.kv.get<ResolvedHarness>(HARNESS_KEY) ?? resolveHarness(EMPTY_HARNESS);
+    const limits = suggestionLimits(extensionOf(harness, PROMPT_SUGGESTIONS_EXTENSION).settings);
+    const text = await suggestPrompt(models, model, user.text, answer.text, limits);
     console.log(JSON.stringify({ t3flare: "prompt-suggestion", suggested: text !== "" }));
     return { text };
   }
@@ -1393,7 +1420,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
       usage:
         usageOf((view?.docs["pi.usage"] as { total?: unknown } | undefined)?.total ?? view?.docs["pi.usage"]) ?? null,
       inbox: { pending: inbox.items?.length ?? 0 },
-      approvals: [...this.#approvals.pending(), ...this.#mcpQuestions.approvals()],
+      approvals: [...this.#approvals.shown(), ...this.#mcpQuestions.approvals()],
       questions: [...this.#questions.pending(), ...this.#mcpQuestions.questions()],
       todo: await this.#todo(conversation),
       turns,

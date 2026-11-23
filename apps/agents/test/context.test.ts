@@ -19,20 +19,24 @@ import {
 import { describe, expect, it } from "vitest";
 
 import { ContextDoc, contextExtension, MAX_TOTAL_NOTE_CHARACTERS } from "../src/extensions/context.ts";
-import { READ_CHARACTERS } from "../src/extensions/context/history.ts";
+import { readCharacters } from "../src/extensions/context/history.ts";
+import { DEFAULT_TOOL_OUTPUT_LIMITS } from "../src/extensions/toolOutput.ts";
 import { noteIndex } from "../src/extensions/context/notes.ts";
 import { conversationIdOf } from "../src/durableIds.ts";
 import { CONTINUE_PROMPT, emergencyText, PREPARE_PROMPT, prepareRollover } from "../src/extensions/context/rollover.ts";
 import { context } from "./harness.fixture.ts";
 
-const open = async (responses: ReadonlyArray<AssistantMessage>) => {
+const open = async (
+  responses: ReadonlyArray<AssistantMessage>,
+  options: Partial<Parameters<typeof contextExtension>[1]> = {},
+) => {
   const faux = fauxProvider();
   const models = createModels();
   models.setProvider(faux.provider);
   faux.setResponses([...responses]);
   const registry = createRegistry();
   let harness: Harness | undefined;
-  registry.install(contextExtension(() => Promise.resolve(harness!), { rolloverOnCompaction: true }));
+  registry.install(contextExtension(() => Promise.resolve(harness!), { rolloverOnCompaction: true, ...options }));
   harness = await HarnessApi.open(new MemoryStorage(), { models, registry }, context);
   const root = await harness.root(context, { agent: { model: { provider: "faux", modelId: "faux-1" } } });
   await root.submit({ type: "input", content: "go" }, context);
@@ -131,18 +135,59 @@ describe("context_notes", () => {
 });
 
 describe("context_history pages", () => {
-  it("lists as many entries as the agent asks for, while a read still returns at most READ_CHARACTERS (SPI-1361)", async () => {
+  it("lists as many entries as the agent asks for, while a read returns at most a page (SPI-1361)", async () => {
     const { results } = await open([
+      // Entry 11: the first call's, the big Note's.
+      calls(["context_notes", { action: "write", name: "big", content: "z".repeat(60_000) }]),
       ...Array.from({ length: 20 }, (_, index) =>
         calls(["context_notes", { action: "write", name: `n${index}`, content: "z".repeat(3_000) }]),
       ),
       calls(["context_history", { action: "list", limit: 30 }]),
-      calls(["context_history", { action: "read", ref: "context:1:11", limit: 5_000 }]),
+      calls(["context_history", { action: "read", ref: "context:1:11", limit: 100_000 }]),
       fauxAssistantMessage("done"),
     ]);
-    expect(results[20]?.isError).toBe(false);
-    expect((json(results[20]).items as unknown[]).length).toBe(30);
-    expect((json(results[21]).content as string).length).toBe(READ_CHARACTERS);
+    expect(results[21]?.isError).toBe(false);
+    expect((json(results[21]).items as unknown[]).length).toBe(30);
+    expect((json(results[22]).content as string).length).toBe(readCharacters(DEFAULT_TOOL_OUTPUT_LIMITS.maxBytes));
+  });
+
+  it("sizes a read's page to the Tool output limit, so the whole result, next_offset included, fits it (SPI-1362)", async () => {
+    const output = { maxBytes: 8 * 1024, maxLines: 2_000 };
+    // Characters that take the most bytes once the entry's JSON is written again: escapes, then three-byte UTF-8.
+    const content = '"\\é€'.repeat(10_000);
+    const { results } = await open(
+      [
+        calls(["context_notes", { action: "write", name: "wide", content }]),
+        calls(["context_history", { action: "read", ref: "context:1:11" }]),
+        fauxAssistantMessage("done"),
+      ],
+      { output },
+    );
+    const page = json(results[1]);
+    expect((page.content as string).length).toBe(readCharacters(output.maxBytes));
+    expect(new TextEncoder().encode(text(results[1])).length).toBeLessThanOrEqual(output.maxBytes);
+    expect(page.next_offset).toBe(readCharacters(output.maxBytes));
+  });
+
+  it("cuts list previews and search previews to the previewCharacters setting (SPI-1362)", async () => {
+    const { results } = await open(
+      [
+        calls([
+          "context_notes",
+          { action: "write", name: "long", content: `${"a".repeat(200)}NEEDLE${"b".repeat(200)}` },
+        ]),
+        calls(["context_history", { action: "list" }]),
+        calls(["context_notes", { action: "search", query: "NEEDLE" }]),
+        fauxAssistantMessage("done"),
+      ],
+      { previewCharacters: 30 },
+    );
+    const previews = (json(results[1]).items as Array<{ preview: string }>).map((item) => item.preview);
+    expect(previews.every((preview) => preview.length <= 30)).toBe(true);
+    // A sixth before the match, half after it.
+    expect((json(results[2]).matches as Array<{ preview: string }>)[0]!.preview).toBe(
+      `${"a".repeat(5)}NEEDLE${"b".repeat(9)}`,
+    );
   });
 });
 

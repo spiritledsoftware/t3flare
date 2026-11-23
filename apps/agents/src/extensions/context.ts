@@ -9,7 +9,8 @@ import { defineExtension, type Extension, type Harness, section } from "@earendi
 import type { CodemodeNamespace } from "@earendil-works/pi-durable/codemode";
 
 import { contextRolloverTool, prepareRollover } from "./context/rollover.ts";
-import { CONTEXT_GUIDELINES, contextHistoryTool, contextNotesTool } from "./context/tools.ts";
+import { CONTEXT_GUIDELINES, contextHistoryTool, contextNotesTool, DEFAULT_PREVIEW_LIMITS } from "./context/tools.ts";
+import { DEFAULT_TOOL_OUTPUT_LIMITS, type ToolOutputLimits } from "./toolOutput.ts";
 
 export const CONTEXT_EXTENSION = "context";
 
@@ -24,13 +25,24 @@ export const CONTEXT_NAMESPACE: CodemodeNamespace = {
 export interface ContextOptions {
   /** Turn automatic compaction into a Rollover (the harness setting); off: pi-durable summarizes as before. */
   readonly rolloverOnCompaction: boolean;
+  /** How long a History list line or a search preview is (the `previewCharacters` setting); absent: its default. */
+  readonly previewCharacters?: number;
+  /** The Tool output limit, which a History read's page is sized to; absent: its default. */
+  readonly output?: ToolOutputLimits;
 }
+
+const previews = (options: ContextOptions) =>
+  options.previewCharacters === undefined ? DEFAULT_PREVIEW_LIMITS : { preview: options.previewCharacters };
 
 /** The `context` extension; `harness` finds the conversation a compaction belongs to. */
 export const contextExtension = (harness: () => Promise<Harness>, options: ContextOptions): Extension =>
   defineExtension({
     name: CONTEXT_EXTENSION,
-    tools: [contextNotesTool(), contextHistoryTool(), contextRolloverTool()],
+    tools: [
+      contextNotesTool(previews(options)),
+      contextHistoryTool(previews(options), options.output ?? DEFAULT_TOOL_OUTPUT_LIMITS),
+      contextRolloverTool(),
+    ],
     hooks: options.rolloverOnCompaction ? [prepareRollover(harness)] : [],
     // The guideline of each context tool the request offers, as pi-context-management adds them to the prompt.
     sections: [

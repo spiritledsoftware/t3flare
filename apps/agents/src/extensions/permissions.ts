@@ -42,15 +42,24 @@ export interface StoredAnswer {
 const REQUESTS_KEY = "t3flare:approval-requests";
 const ANSWERS_KEY = "t3flare:approval-answers";
 const ACCEPTED_KEY = "t3flare:approval-accepted-kinds";
-/** The running code mode calls' scripts (the start of each), by call id: what a card raised inside one names. */
+/**
+ * The running code mode calls' scripts as a card shows them (`cardText`'s one rule), by call id: what a card raised
+ * inside one names. Each is kept here once, however many of its cards wait; a request names its script's call only.
+ */
 const SCRIPTS_KEY = "t3flare:approval-scripts";
 
-/** Most characters of a script a card shows (the whole script is on the code mode item). */
-export const SCRIPT_EXCERPT = 600;
 /** Most asks one code mode call has pending at once (review M8); the rest wait their turn. */
 export const MAX_PENDING_PER_SCRIPT = 8;
 
 export type ApprovalKind = PendingApproval["kind"];
+
+/**
+ * A pending approval as the store keeps it: a code mode script's call names the script's call, whose text is in
+ * `SCRIPTS_KEY` once (`ApprovalStore.shown` adds it). A request stored before SPI-1362 carries its own excerpt.
+ */
+export type StoredApproval = Omit<PendingApproval, "via"> & {
+  readonly via?: { readonly parentCallId: string; readonly script?: string };
+};
 
 /**
  * What "accept for the session" covers (review C4): a kind for the coding tools (every command, every file change), one
@@ -208,7 +217,7 @@ export class WaitingRequests<Request extends WaitingRequest, Answer> {
 }
 
 /** The Session's approval requests. */
-export class ApprovalStore extends WaitingRequests<PendingApproval, StoredAnswer> {
+export class ApprovalStore extends WaitingRequests<StoredApproval, StoredAnswer> {
   constructor(storage: ApprovalStorage, changed: () => void) {
     super(storage, { requests: REQUESTS_KEY, answers: ANSWERS_KEY }, changed);
   }
@@ -218,11 +227,24 @@ export class ApprovalStore extends WaitingRequests<PendingApproval, StoredAnswer
     return new Set(this.storage.get<string[]>(ACCEPTED_KEY) ?? []);
   }
 
-  /** A code mode call started (or reran): what cards raised by its script name. */
+  /** A code mode call started (or reran): what cards raised by its script name, as a card shows it. */
   noteScript(callId: string, code: string): void {
     const scripts = this.storage.get<Record<string, string>>(SCRIPTS_KEY) ?? {};
-    const excerpt = code.length <= SCRIPT_EXCERPT ? code : `${code.slice(0, SCRIPT_EXCERPT)}…`;
-    if (scripts[callId] !== excerpt) this.storage.put(SCRIPTS_KEY, { ...scripts, [callId]: excerpt });
+    const shown = cardText(code);
+    if (scripts[callId] !== shown) this.storage.put(SCRIPTS_KEY, { ...scripts, [callId]: shown });
+  }
+
+  /** The pending approvals as t3 is shown them: a script's call's card with its script. */
+  shown(): ReadonlyArray<PendingApproval> {
+    const scripts = this.storage.get<Record<string, string>>(SCRIPTS_KEY) ?? {};
+    return this.pending().map(({ via, ...request }) =>
+      via === undefined
+        ? request
+        : {
+            ...request,
+            via: { parentCallId: via.parentCallId, script: scripts[via.parentCallId] ?? via.script ?? "" },
+          },
+    );
   }
 
   /** A code mode call ended. */
@@ -230,11 +252,6 @@ export class ApprovalStore extends WaitingRequests<PendingApproval, StoredAnswer
     const scripts = this.storage.get<Record<string, string>>(SCRIPTS_KEY) ?? {};
     if (callId in scripts)
       this.storage.put(SCRIPTS_KEY, Object.fromEntries(Object.entries(scripts).filter(([id]) => id !== callId)));
-  }
-
-  /** The script of code mode call `callId`, as noted. */
-  scriptOf(callId: string): string | undefined {
-    return this.storage.get<Record<string, string>>(SCRIPTS_KEY)?.[callId];
   }
 
   /** Whether the owner accepted calls like this one for the rest of the Session. */
@@ -379,7 +396,7 @@ export const askOwner = async (
   // MAX_PENDING_PER_SCRIPT asks pending at once (review M8: all requests share one storage value).
   const cut = api.callId.lastIndexOf("/");
   const parentCallId = cut === -1 ? undefined : api.callId.slice(0, cut);
-  const via = parentCallId === undefined ? undefined : { parentCallId, script: store.scriptOf(parentCallId) ?? "" };
+  const via = parentCallId === undefined ? undefined : { parentCallId };
   try {
     const answer = await store.ask(
       { ...request, requestId, callId: api.callId, ...(via === undefined ? {} : { via }), createdAt: Date.now() },

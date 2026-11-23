@@ -1,10 +1,77 @@
 // SPI-996: what the Session pushes for t3's live command output and prompt suggestions.
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { TOOL_LIVE_OUTPUT_BYTES } from "@t3flare/session-protocol";
+import {
+  NESTED_ARGS_BYTES,
+  NESTED_OUTPUT_BYTES,
+  T3_DETAIL_STRING_BYTES,
+  T3_ON_DEMAND_BYTES,
+  T3_OUTPUT_TAIL_CHARS,
+  TOOL_LIVE_OUTPUT_BYTES,
+  TOOL_OUTPUT_BYTES,
+} from "@t3flare/session-protocol";
 import { describe, expect, it } from "vitest";
 
-import { PROMPT_SUGGESTION_PROMPT, suggestionContext, suggestPrompt } from "../src/session/promptSuggestion.ts";
-import { liveOf } from "../src/session/state.ts";
+import {
+  DEFAULT_SUGGESTION_LIMITS,
+  PROMPT_SUGGESTION_PROMPT,
+  suggestionContext,
+  suggestPrompt,
+} from "../src/session/promptSuggestion.ts";
+import { liveOf, pushedEntry } from "../src/session/state.ts";
+
+describe("what t3 is shown of a tool (SPI-1362)", () => {
+  const toolResult = (text: string, details?: unknown) => ({
+    id: 5,
+    kind: "pi.tool-result",
+    model: [{ role: "toolResult", content: [{ type: "text", text }], toolCallId: "c", toolName: "bash", details }],
+  });
+  const textOf = (entry: ReturnType<typeof pushedEntry>) =>
+    entry.content.map((block) => (block.type === "text" ? block.text : "")).join("");
+
+  it("derives each cut from t3's own display caps", () => {
+    expect(TOOL_OUTPUT_BYTES).toBe(T3_ON_DEMAND_BYTES);
+    expect(NESTED_ARGS_BYTES).toBe(T3_DETAIL_STRING_BYTES);
+    expect(TOOL_LIVE_OUTPUT_BYTES).toBe(T3_OUTPUT_TAIL_CHARS);
+    expect(NESTED_OUTPUT_BYTES).toBe(T3_OUTPUT_TAIL_CHARS);
+  });
+
+  it("pushes a tool result's text whole up to t3's on-demand size, and cuts past it", () => {
+    const fits = "x".repeat(TOOL_OUTPUT_BYTES);
+    expect(textOf(pushedEntry(toolResult(fits), "turn-1"))).toBe(fits);
+    const over = textOf(pushedEntry(toolResult(`${fits}y`), "turn-1"));
+    expect(new TextEncoder().encode(over).length).toBeLessThanOrEqual(TOOL_OUTPUT_BYTES);
+    expect(over).toContain("[cut: ");
+  });
+
+  it("pushes a tool's details and an owner's message whole, however large", () => {
+    const patch = "+".repeat(200 * 1024);
+    expect(pushedEntry(toolResult("ok", { patch }), "turn-1").details).toEqual({ patch });
+    const said = "u".repeat(100_000);
+    const user = pushedEntry({ id: 1, kind: "pi.user", model: [{ role: "user", content: said }] }, "turn-1");
+    expect(textOf(user)).toBe(said);
+    const exit = pushedEntry({ id: 2, kind: "t3flare.terminal-exit", data: { text: patch } }, "turn-1");
+    expect(exit.details).toEqual({ text: patch });
+  });
+
+  it("pushes a nested call's arguments whole up to t3's detail size, then each string cut, and its output's tail", () => {
+    const nested = (args: unknown, output: string) =>
+      liveOf(
+        {
+          run: { taskId: 7 },
+          nestedTools: [
+            { callId: "cm/c1", parentCallId: "cm", name: "bash", arguments: args, status: "running", output },
+          ],
+        },
+        () => "turn-1",
+      ).nestedTools![0]!;
+    const command = "c".repeat(20_000);
+    expect(nested({ command }, "out").args).toEqual({ command });
+    const long = nested({ command: "c".repeat(NESTED_ARGS_BYTES) }, "out").args.command as string;
+    expect(new TextEncoder().encode(long).length).toBeLessThanOrEqual(NESTED_ARGS_BYTES / 2);
+    const output = `${"o".repeat(NESTED_OUTPUT_BYTES)}END`;
+    expect(nested({}, output).output).toBe(output.slice(-NESTED_OUTPUT_BYTES));
+  });
+});
 
 describe("a running call's output in the push", () => {
   it("carries the tail of a running call's retained output, and none once it is done", () => {
@@ -64,5 +131,21 @@ describe("prompt suggestions", () => {
     expect(await suggestPrompt(models(new Error("down")), model, "fix it", "fixed")).toBe("");
     expect(await suggestPrompt(models(reply("y".repeat(400))), model, "fix it", "fixed")).toBe("y".repeat(400));
     expect(await suggestPrompt(models(reply("never asked")), model, "", "fixed")).toBe("");
+  });
+
+  it("reads the last excerptCharacters of each and waits timeoutMs, the settings' (SPI-1362)", async () => {
+    expect(DEFAULT_SUGGESTION_LIMITS).toEqual({ excerptCharacters: 4_000, timeoutMs: 20_000 });
+    const limits = { excerptCharacters: 100, timeoutMs: 20 };
+    const text = askedText(suggestionContext(`${"u".repeat(500)}USER`, `${"a".repeat(500)}ANSWER`, limits));
+    expect(text).toContain(`…${"u".repeat(96)}USER\n`);
+    expect(text).not.toContain("u".repeat(97));
+    expect(text).toContain(`…${"a".repeat(94)}ANSWER\n`);
+    const hung = {
+      completeSimple: (_model: unknown, _context: unknown, options: { signal: AbortSignal }) =>
+        new Promise<AssistantMessage>((_, reject) =>
+          options.signal.addEventListener("abort", () => reject(options.signal.reason)),
+        ),
+    };
+    expect(await suggestPrompt(hung as never, model, "fix it", "fixed", limits)).toBe("");
   });
 });

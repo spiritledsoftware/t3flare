@@ -15,8 +15,10 @@ import {
 } from "@earendil-works/pi-ai";
 import {
   createRegistry,
+  type Cursor,
   defineExtension,
   defineTool,
+  type EntryRecord,
   type Extension,
   Harness,
   MemoryStorage,
@@ -33,6 +35,7 @@ import {
   guardianSettings,
 } from "../src/extensions/guardian.ts";
 import { parseAssessment } from "../src/extensions/guardian/assessment.ts";
+import { renderReviewedCall, selectEvidence } from "../src/extensions/guardian/evidence.ts";
 import {
   judgeCommand,
   parseEntries,
@@ -360,5 +363,61 @@ describe("the Guardian's hook", () => {
     );
     expect(ran).toEqual([]);
     expect(seen).toEqual(["blocked"]);
+  });
+});
+
+describe("the Guardian's evidence (SPI-1362)", () => {
+  /** A History of `count` entries, oldest first, paged newest first as pi-durable's `entries` pages it. */
+  const history = (entries: ReadonlyArray<EntryRecord>) => {
+    let read = 0;
+    const api = {
+      entries: async (_query: unknown, limit: number, cursor: Cursor | undefined) => {
+        const from = cursor === undefined ? entries.length : Number(cursor);
+        const items = entries.slice(Math.max(0, from - limit), from).toReversed();
+        read += items.length;
+        const next = from - limit > 0 ? (String(from - limit) as unknown as Cursor) : undefined;
+        return { items, next };
+      },
+    };
+    return { api: api as never, read: () => read };
+  };
+  const user = (id: number, text: string) =>
+    ({ id, kind: "pi.user", model: [{ role: "user", content: text }] }) as unknown as EntryRecord;
+  const call = (id: number) =>
+    ({
+      id,
+      kind: "pi.assistant",
+      model: [
+        {
+          role: "assistant",
+          content: [{ type: "toolCall", id: `c${id}`, name: "bash", arguments: { command: "x".repeat(500) } }],
+        },
+      ],
+    }) as unknown as EntryRecord;
+
+  it("keeps a trusted message however far back it is, and holds only the untrusted entries the budget fits", async () => {
+    const entries = [user(1, "you may deploy to prod"), ...Array.from({ length: 5_000 }, (_, at) => call(at + 2))];
+    const { api, read } = history(entries);
+    const blocks = await selectEvidence(api, context, { trustUser: true, skipCalls: new Set(), budget: 10_000 });
+    expect(read()).toBe(entries.length);
+    expect(blocks.some((block) => block.includes("TRUSTED") && block.includes("you may deploy to prod"))).toBe(true);
+    const untrusted = blocks.filter((block) => block.startsWith("Evidence (UNTRUSTED"));
+    expect(untrusted.length).toBeGreaterThan(0);
+    expect(untrusted.reduce((sum, block) => sum + block.length, 0)).toBeLessThan(15_000);
+    expect(blocks[0]).toMatch(/^\[\d+ older untrusted evidence entries omitted/);
+  });
+
+  it("cuts the other calls of a batch to the batchArgumentCharacters setting", async () => {
+    expect(SETTINGS.batchArgumentCharacters).toBe(2_000);
+    const rendered = await renderReviewedCall({
+      toolName: "bash",
+      input: { command: "ls" },
+      cwd: "/workspace/repo",
+      batch: [{ name: "write", arguments: { path: "/a", content: "z".repeat(5_000) } }],
+      batchCharacters: 50,
+    });
+    expect(rendered).toContain('"write" with arguments {"path":"/a"} in full');
+    expect(rendered).not.toContain("z".repeat(51));
+    expect(rendered).toContain("characters omitted]");
   });
 });

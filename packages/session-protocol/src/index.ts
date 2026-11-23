@@ -89,6 +89,8 @@ export interface ImageInput {
 export const SESSION_ROW_BYTES = 8_000_000;
 /** What a Session row keeps for the record around a message's content: its ids, status, times and JSON structure. */
 export const SESSION_ROW_ENVELOPE_BYTES = 64 * 1024;
+/** The most bytes one byte of text takes in a JSON string: a control character, written `\u001f`. */
+export const JSON_ESCAPE_MAX_BYTES = 6;
 
 /** One binary megabyte, the unit t3's client and t3's own limits ("80 MiB") write sizes in. */
 export const MIB = 1024 * 1024;
@@ -357,10 +359,31 @@ export interface NestedToolSlim {
   readonly output?: string;
 }
 
-export const NESTED_ARGS_BYTES = 4 * 1024;
-export const NESTED_OUTPUT_BYTES = 2 * 1024;
-/** A running model-issued call's output, as pushed (SPI-996): its tail. */
-export const TOOL_LIVE_OUTPUT_BYTES = 8 * 1024;
+/**
+ * The most bytes of one detail string t3 sends its client with an item on the wire (a diff, a subagent's prompt): t3's
+ * `MAX_DETAIL_STRING_BYTES` (t3code `apps/server/src/orchestration-v2/WireProjection.ts`). A nested call's arguments
+ * are pushed again every few hundred ms while its script runs, so they take this wire size, not the on-demand one. A
+ * t3 internal: docs/upstream-fragility.md.
+ */
+export const T3_DETAIL_STRING_BYTES = 32_768;
+/**
+ * The most of a running command's output t3 keeps as its live tail, in UTF-16 units: t3's `TERMINAL_OUTPUT_TAIL_CHARS`
+ * (t3code `packages/shared/src/terminalOutput.ts`). A t3 internal: docs/upstream-fragility.md.
+ */
+export const T3_OUTPUT_TAIL_CHARS = 64 * 1024;
+/**
+ * The most of a tool result's output t3 serves its client on demand: t3's `MAX_ON_DEMAND_BYTES` (t3code
+ * `apps/server/src/orchestration-v2/WireProjection.ts`), which cuts anything longer. A t3 internal:
+ * docs/upstream-fragility.md.
+ */
+export const T3_ON_DEMAND_BYTES = 256 * 1024;
+
+/** A nested call's arguments as pushed: whole up to t3's wire detail size (SPI-1362), else each string field cut. */
+export const NESTED_ARGS_BYTES = T3_DETAIL_STRING_BYTES;
+/** A running nested call's output, as pushed: its tail, as much as t3 keeps of a live output (SPI-1362). */
+export const NESTED_OUTPUT_BYTES = T3_OUTPUT_TAIL_CHARS;
+/** A running model-issued call's output, as pushed (SPI-996): its tail, as much as t3 keeps (SPI-1362). */
+export const TOOL_LIVE_OUTPUT_BYTES = T3_OUTPUT_TAIL_CHARS;
 
 export interface LiveSlim {
   /** The run in progress, if any: its generation task, and the turn it serves. */
@@ -482,7 +505,7 @@ export interface PendingApproval {
     readonly label: string;
     readonly warning?: string;
   }>;
-  /** A call a code mode script made (tools step, ADR-0027): the script's call and the start of its code. */
+  /** A call a code mode script made (tools step, ADR-0027): the script's call and its code, as a card shows it. */
   readonly via?: { readonly parentCallId: string; readonly script: string };
   /** An MCP tool's definition hash (ADR-0028, review H3): an acceptance for the session covers that definition only. */
   readonly definition?: string;
@@ -606,8 +629,8 @@ export interface SessionPushAnswer {
 export const PUSH_COALESCE_MS = 300;
 /** The most a push's entries may hold (JSON); past it, `more` and the adapter pulls a snapshot. */
 export const PUSH_ENTRIES_BYTES = 256 * 1024;
-/** A tool result's text, as pushed. */
-export const TOOL_OUTPUT_BYTES = 16 * 1024;
+/** A tool result's text, as pushed: as much as t3 serves its client (SPI-1362); the model's copy is the Session's. */
+export const TOOL_OUTPUT_BYTES = T3_ON_DEMAND_BYTES;
 /** While a turn is live the Session pushes at least this often. */
 export const LIVENESS_PUSH_MS = 60_000;
 /** An open turn with no push for this long makes the adapter pull a snapshot (the inverse guard). */

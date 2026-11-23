@@ -12,12 +12,33 @@ import { conversationIdOf, entryIdOf } from "../../durableIds.ts";
 /** Lists and searches return at most this many items per page. */
 export const PAGE_SIZE = 20;
 
-/** A History `read` returns at most this many characters of entry JSON per call. */
-export const READ_CHARACTERS = 2_000;
+/**
+ * The most bytes of UTF-8 one character of a History `read`'s page takes in its result: the page is a slice of entry
+ * JSON, written again as a JSON string. A UTF-16 unit is at most 3 bytes of UTF-8, and JSON's escapes (`\"`, `\\`, the
+ * `\n` already in the entry's JSON) take 2; a control character is already escaped in the entry's JSON. A surrogate pair
+ * cut at the page's edge is written as a 6-byte escape, which `READ_ROOM_BYTES` covers.
+ */
+const READ_BYTES_PER_CHARACTER = 3;
 
-const PREVIEW_LIMIT = 120;
+/** Room in a `read`'s result for what is around the page: its ref, offsets and keys, and a cut surrogate at each edge. */
+const READ_ROOM_BYTES = 1024;
 
-const ARGUMENT_LIMIT = 60;
+/**
+ * The most characters of entry JSON a History `read` returns per call: as many as fit the tool's `maxBytes` (the Tool
+ * output limit) with the result around them, so the Harness never cuts the result and its `next_offset` stays readable.
+ * The result is one line, so the line limit never cuts it.
+ */
+export const readCharacters = (maxBytes: number): number =>
+  Math.max(1, Math.floor((maxBytes - READ_ROOM_BYTES) / READ_BYTES_PER_CHARACTER));
+
+/** How long list lines and search previews are: the `context` extension's `previewCharacters` setting. */
+export interface PreviewLimits {
+  /** An entry's whole preview line. */
+  readonly preview: number;
+}
+
+/** A tool call's argument in a preview line: half the line. */
+const argumentLimit = (limits: PreviewLimits) => Math.max(1, Math.floor(limits.preview / 2));
 
 /** The reference of entry `id` of conversation `conversationId`. */
 export const entryRef = (conversationId: ConversationId, id: EntryId): string => `context:${conversationId}:${id}`;
@@ -64,39 +85,43 @@ const clip = (text: string, limit: number): string => {
 const textOf = (content: Message["content"]): string =>
   Predicate.isString(content) ? content : content.map((block) => (block.type === "text" ? block.text : "")).join(" ");
 
-const describeCall = (call: ToolCall): string => {
+const describeCall = (call: ToolCall, limits: PreviewLimits): string => {
   const first = Record.values(call.arguments).find(Predicate.isString);
 
-  return `${call.name}(${clip(first ?? JSON.stringify(call.arguments), ARGUMENT_LIMIT)})`;
+  return `${call.name}(${clip(first ?? JSON.stringify(call.arguments), argumentLimit(limits))})`;
 };
 
-const labelled = (label: string, text: string): string => {
-  const body = clip(text, PREVIEW_LIMIT);
+const labelled = (label: string, text: string, limits: PreviewLimits): string => {
+  const body = clip(text, limits.preview);
 
   return body === "" ? label : `${label}: ${body}`;
 };
 
-const describeMessage = (entry: EntryRecord, message: Message): string => {
+const describeMessage = (entry: EntryRecord, message: Message, limits: PreviewLimits): string => {
   switch (message.role) {
     case "user":
-      return labelled(entry.kind === "pi.user" ? "user" : `user(${entry.kind})`, textOf(message.content));
+      return labelled(entry.kind === "pi.user" ? "user" : `user(${entry.kind})`, textOf(message.content), limits);
     case "assistant": {
       const text = clip(
         textOf(message.content) ||
           message.errorMessage ||
           (message.content.some((block) => block.type === "thinking") ? "[thinking]" : ""),
-        PREVIEW_LIMIT,
+        limits.preview,
       );
 
       const calls = message.content
-        .flatMap((block) => (block.type === "toolCall" ? [describeCall(block)] : []))
+        .flatMap((block) => (block.type === "toolCall" ? [describeCall(block, limits)] : []))
         .join(", ");
 
       return `assistant${text === "" ? "" : `: ${text}`}${calls === "" ? "" : ` → ${calls}`}`;
     }
 
     case "toolResult":
-      return labelled(`toolResult(${message.toolName}${message.isError ? ", error" : ""})`, textOf(message.content));
+      return labelled(
+        `toolResult(${message.toolName}${message.isError ? ", error" : ""})`,
+        textOf(message.content),
+        limits,
+      );
     case "system":
       return "system";
   }
@@ -106,19 +131,22 @@ const describeMessage = (entry: EntryRecord, message: Message): string => {
  * One bounded line naming what a stored entry says: `user: …`, `assistant: … → read(…)`, `toolResult(read): …`,
  * `handoff: …`, `compaction: …`, or the entry's kind.
  */
-export const describeEntry = (entry: EntryRecord): string => {
+export const describeEntry = (entry: EntryRecord, limits: PreviewLimits): string => {
   const message = entry.model?.[0];
 
   try {
     if (entry.kind === "pi.reset") {
-      return clip(message === undefined ? "reset" : labelled("handoff", textOf(message.content)), PREVIEW_LIMIT);
+      return clip(
+        message === undefined ? "reset" : labelled("handoff", textOf(message.content), limits),
+        limits.preview,
+      );
     }
 
     if (entry.kind === "pi.compaction" && message !== undefined) {
-      return clip(labelled("compaction", textOf(message.content)), PREVIEW_LIMIT);
+      return clip(labelled("compaction", textOf(message.content), limits), limits.preview);
     }
 
-    return clip(message === undefined ? entry.kind : describeMessage(entry, message), PREVIEW_LIMIT);
+    return clip(message === undefined ? entry.kind : describeMessage(entry, message, limits), limits.preview);
   } catch {
     // An unfamiliar stored shape must not make the whole page unreadable.
     return entry.kind;
@@ -210,8 +238,19 @@ const encodedOffset = (encoded: string, offset: number): number => {
   return cursor;
 };
 
-/** One page of the case-sensitive literal matches of `query` in `items`, from match `offset`. */
-export const search = (items: Iterable<SearchItem>, query: string, offset: number, limit: number): SearchPage => {
+/**
+ * One page of the case-sensitive literal matches of `query` in `items`, from match `offset`; each preview shows a sixth
+ * of `limits.preview` before the match and half after it.
+ */
+export const search = (
+  items: Iterable<SearchItem>,
+  query: string,
+  offset: number,
+  limit: number,
+  limits: PreviewLimits,
+): SearchPage => {
+  const before = Math.floor(limits.preview / 6);
+  const after = Math.floor(limits.preview / 2);
   const matches: SearchMatch[] = [];
   let skipped = 0;
 
@@ -227,7 +266,7 @@ export const search = (items: Iterable<SearchItem>, query: string, offset: numbe
             ref: item.ref,
             offset: part.encoded === "" ? position : part.start + encodedOffset(part.encoded, position),
             // The decoded text, so escapes read as characters, not as JSON.
-            preview: part.content.slice(Math.max(0, position - 20), position + 60),
+            preview: part.content.slice(Math.max(0, position - before), position + after),
           };
 
           if (item.name !== undefined) match.name = item.name;

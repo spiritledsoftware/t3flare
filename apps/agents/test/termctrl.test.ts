@@ -28,18 +28,26 @@ import { codingTools } from "../src/extensions/coding-tools.ts";
 import { ApprovalStore, permissions } from "../src/extensions/permissions.ts";
 import { backgroundJobs, EXIT_ENTRY, type TermctrlHost, termctrlExtension } from "../src/extensions/termctrl.ts";
 import {
-  POLL_WAIT_MS,
+  DEFAULT_TERMCTRL_LIMITS,
+  exitTails,
+  formatExitNotice,
+  scrolledLimits,
+  screenLimits,
   TERMINAL_WAIT_MS,
+  type TermctrlLimits,
+  terminalResult,
   terminalSendTool,
   terminalStartTool,
   terminalWaitTool,
   waitOf,
 } from "../src/extensions/termctrl/tools.ts";
+import { jobTailOf } from "../src/extensions/toolOutput.ts";
 import { AgentTerminals } from "../src/workspace/agentTerminals.ts";
 import { context, memoryKv, until } from "./harness.fixture.ts";
 
 /** A REPL behind a fake PTY host: echoes a line, answers it upper-cased, and exits on `exit`. */
-const workspace = () => {
+const workspace = (limits: TermctrlLimits = DEFAULT_TERMCTRL_LIMITS) => {
+  const requests: Array<AgentTerminalRequest & { readonly at: number }> = [];
   let terminals: AgentTerminals | undefined;
   const seq = new Map<string, number>();
   const emit = (key: string, data: string) => {
@@ -81,19 +89,22 @@ const workspace = () => {
     env: {},
     repo: "/workspace/repo",
     maxLive: () => 8,
+    scrollback: () => 1000,
   });
   let used = false;
   const host: TermctrlHost = {
     owner: () => "session-1",
     viewport: () => ({ cols: 40, rows: 8 }),
     toToolPath: (text) => text.replaceAll("/w/fixture", "/workspace/repo"),
+    limits: () => limits,
     call: async <R extends AgentTerminalRequest>(request: R) => {
+      requests.push({ ...request, at: Date.now() });
       const answer = await terminals!.handle(request);
       if (request.op === "start" && answer.ok) used = true;
       return answer as AgentTerminalResult<R["op"]>;
     },
   };
-  return { host, terminals, used: () => used };
+  return { host, terminals, used: () => used, requests };
 };
 
 /** A tool that takes 600 ms and sees nothing. */
@@ -146,11 +157,102 @@ const results = async (root: Awaited<ReturnType<typeof run>>["root"]) => {
   };
 };
 
+describe("termctrl's settings and the Tool output limit (SPI-1362)", () => {
+  const small: TermctrlLimits = {
+    ...DEFAULT_TERMCTRL_LIMITS,
+    scrollback: { lines: 1_000, bytes: 64 * 1024 },
+    output: { maxBytes: 8 * 1024, maxLines: 120 },
+  };
+  const view = (screen: string, scrolledOff: ReadonlyArray<string>) => ({
+    id: "t1",
+    state: "running" as const,
+    exit: null,
+    screen,
+    cursor: null,
+    scrolledOff,
+    outputMissing: false,
+    previous: null,
+    shift: null,
+  });
+
+  it("keeps the scrolled-off lines to half the output limit and the screen to the rest, so the result fits it", () => {
+    expect(scrolledLimits(small)).toEqual({ lines: 60, bytes: 4 * 1024 });
+    expect(scrolledLimits(DEFAULT_TERMCTRL_LIMITS)).toEqual({ lines: 100, bytes: 16 * 1024 });
+    const line = (index: number) => `row ${index} ${"x".repeat(70)}`;
+    const shown = terminalResult(
+      view(
+        Array.from({ length: 300 }, (_, index) => line(index)).join("\n"),
+        Array.from({ length: 500 }, (_, index) => line(index)),
+      ),
+      "quiet",
+      {},
+      small,
+    );
+    expect(new TextEncoder().encode(shown.text).length).toBeLessThanOrEqual(small.output.maxBytes);
+    expect(shown.text.split("\n").length).toBeLessThanOrEqual(small.output.maxLines);
+    // The screen's last row survives: the Harness keeps a result's head, so nothing of it is cut there.
+    expect(shown.text).toContain(line(299));
+    expect(shown.text).toContain(`last ${screenLimits(small).lines} lines`);
+  });
+
+  it("shows each exit's whole tail, sharing a job's tail between the exits", () => {
+    const entry = {
+      id: "b1",
+      kind: "background_job" as const,
+      command: "make",
+      cwd: "/",
+      state: "exited" as const,
+      exit: { code: 0, signal: null },
+      startedAt: 0,
+      endedAt: 1,
+    };
+    const fifty = Array.from({ length: 50 }, (_, index) => `line ${index}`).join("\n");
+    // termctrl's 20-line exit tail is gone: the job's tail bounds it.
+    expect(formatExitNotice(entry, fifty)).toContain("line 0\n");
+    const output = { maxBytes: 8 * 1024, maxLines: 100 };
+    const tails = exitTails([fifty, fifty, fifty, fifty], output);
+    const share = Math.floor(jobTailOf(output).lines / 4);
+    expect(tails.every((tail) => tail.split("\n").length === share)).toBe(true);
+    expect(tails[0]!.endsWith("line 49")).toBe(true);
+  });
+
+  it("waits the settings' defaults and asks the Workspace for a job's tail within the output limit", async () => {
+    const limits = {
+      ...DEFAULT_TERMCTRL_LIMITS,
+      startWaitMs: 1_234,
+      inputWaitMs: 4_321,
+      output: { maxBytes: 8 * 1024, maxLines: 100 },
+    };
+    const { host, requests } = workspace(limits);
+    const run = (tool: ReturnType<typeof terminalStartTool>, args: Record<string, unknown>) =>
+      tool.execute(
+        args as never,
+        { getTask: async () => undefined, snapshot: async () => undefined } as never,
+        context,
+      );
+    await run(terminalStartTool(host), { command: "python3" });
+    await run(terminalSendTool(host), { id: "t1", text: "1+1\n" });
+    const settles = requests.filter((request) => request.op === "settle");
+    const waited = settles.map((request) => (request.op === "settle" ? request.deadline - request.at : 0));
+    expect(waited[0]).toBeGreaterThan(1_100);
+    expect(waited[0]).toBeLessThanOrEqual(1_234);
+    expect(waited.at(-1)).toBeGreaterThan(4_200);
+    expect(
+      settles.every(
+        (request) =>
+          request.op === "settle" && JSON.stringify(request.tail) === JSON.stringify(jobTailOf(limits.output)),
+      ),
+    ).toBe(true);
+    expect(backgroundJobs(host).waitMs).toBe(1_234);
+  });
+});
+
 describe("termctrl", () => {
   it("waits as long as the agent asks: a wait runs in Workspace slices, so nothing bounds it (SPI-1361)", () => {
-    expect(waitOf(60 * 60_000, POLL_WAIT_MS)).toBe(60 * 60_000);
-    expect(waitOf(undefined, POLL_WAIT_MS)).toBe(POLL_WAIT_MS);
-    expect(waitOf(-1, POLL_WAIT_MS)).toBe(0);
+    const poll = DEFAULT_TERMCTRL_LIMITS.pollWaitMs;
+    expect(waitOf(60 * 60_000, poll)).toBe(60 * 60_000);
+    expect(waitOf(undefined, poll)).toBe(poll);
+    expect(waitOf(-1, poll)).toBe(0);
     expect(TERMINAL_WAIT_MS).toBe(5 * 60_000);
     const host = {} as TermctrlHost;
     for (const tool of [terminalStartTool(host), terminalSendTool(host), terminalWaitTool(host)])

@@ -128,7 +128,8 @@ describe("code mode: nested calls are judged like direct ones", () => {
     const card = run.store().pending()[0]!;
     expect(card.tool).toBe("bash");
     expect(card.callId.startsWith("call-cm/")).toBe(true);
-    expect(card.via?.script).toContain("tools.write");
+    expect(card.via).toEqual({ parentCallId: "call-cm" });
+    expect(run.store().shown()[0]!.via?.script).toContain("tools.write");
     run.store().answer(card.requestId, "decline");
     const output = textOf(await run.result());
     expect(output).toContain(`write threw: ${PLAN_MODE_REFUSAL}`);

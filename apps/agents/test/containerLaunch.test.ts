@@ -199,6 +199,7 @@ describe("launchOf", () => {
       terminalPromptHoldMs: 600_000,
       terminalsPerWorkspace: 8,
       agentTerminalsPerWorkspace: 8,
+      agentTerminalScrollbackLines: 1000,
     });
     expect(launchOf({ settings: DEFAULTS, source: "environment" })).toEqual({
       size: "cpu-1",
@@ -212,6 +213,7 @@ describe("launchOf", () => {
       terminalPromptHoldMs: 600_000,
       terminalsPerWorkspace: 8,
       agentTerminalsPerWorkspace: 8,
+      agentTerminalScrollbackLines: 1000,
     });
   });
 
@@ -244,6 +246,7 @@ describe("the launch's Terminal holds and counts (SPI-1317)", () => {
         terminalPromptHoldMinutes: 2,
         terminalsPerWorkspace: 2,
         agentTerminalsPerWorkspace: 3,
+        agentTerminalScrollbackLines: 250,
       },
       source: "kept",
     });
@@ -252,12 +255,14 @@ describe("the launch's Terminal holds and counts (SPI-1317)", () => {
       terminalPromptHoldMs: 120_000,
       terminalsPerWorkspace: 2,
       agentTerminalsPerWorkspace: 3,
+      agentTerminalScrollbackLines: 250,
     });
     expect(terminalLimitsOf(launch)).toEqual({
       terminalBusyHoldMs: 300_000,
       terminalPromptHoldMs: 120_000,
       terminalsPerWorkspace: 2,
       agentTerminalsPerWorkspace: 3,
+      agentTerminalScrollbackLines: 250,
     });
   });
 
@@ -267,12 +272,14 @@ describe("the launch's Terminal holds and counts (SPI-1317)", () => {
       terminalPromptHoldMs: 600_000,
       terminalsPerWorkspace: 8,
       agentTerminalsPerWorkspace: 8,
+      agentTerminalScrollbackLines: 1000,
     };
     const {
       terminalBusyHoldMs: _busy,
       terminalPromptHoldMs: _prompt,
       terminalsPerWorkspace: _terminals,
       agentTerminalsPerWorkspace: _agents,
+      agentTerminalScrollbackLines: _scrollback,
       ...before
     } = launchOf({ settings: DEFAULTS, source: "default" });
     expect(terminalLimitsOf(before)).toEqual(defaults);

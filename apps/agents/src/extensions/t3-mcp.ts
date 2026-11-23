@@ -13,7 +13,8 @@
 //   when the model gave none, so the rerun returns t3's same durable work; t3 scopes that key by the provider session,
 //   so a rerun under a credential t3 issued again (an Environment restart) is refused rather than repeated (review C9).
 //   Any other tool that changes state is not run again once started.
-// - A wait (`timeoutMs`) goes to t3 in pieces of at most 50 s from its start (review C9), each marked as progress.
+// - A wait (`timeoutMs`) goes to t3 in pieces of at most 50 s from its start (review C9), each marked as progress. A wait
+//   the model gave no `timeoutMs` for lasts until what it waits on happens, or the turn is interrupted (SPI-1362).
 // @effect-diagnostics globalDate:off
 import type { Context } from "@earendil-works/chord";
 import {
@@ -50,8 +51,6 @@ import {
  * (`OrchestratorMcpService.MAX_WAIT_TIMEOUT_MS`), so a piece holds 45 s and times out; the next piece follows.
  */
 export const WAIT_PIECE_MS = 50_000;
-/** A wait the model gave no `timeoutMs` for lasts this long at most, in pieces. */
-const DEFAULT_WAIT_MS = 10 * 60_000;
 
 export interface CatalogTool {
   readonly name: string;
@@ -229,7 +228,10 @@ const toolOf = (tool: CatalogTool, host: T3McpHost): ToolRegistration => {
   } as ToolRegistration;
 };
 
-/** A wait in pieces of at most WAIT_PIECE_MS from its start, until it is not a timeout or its time is up. */
+/**
+ * A wait in pieces of at most WAIT_PIECE_MS from its start, until it is not a timeout or its time is up; with no
+ * `timeoutMs`, until it is not a timeout (an interrupt aborts the call).
+ */
 const waitInPieces = async (
   host: T3McpHost,
   tool: string,
@@ -237,7 +239,7 @@ const waitInPieces = async (
   api: ToolExecutionApi,
   context: Context,
 ): Promise<McpCallAnswer> => {
-  const total = typeof args.timeoutMs === "number" && args.timeoutMs > 0 ? args.timeoutMs : DEFAULT_WAIT_MS;
+  const total = typeof args.timeoutMs === "number" && args.timeoutMs > 0 ? args.timeoutMs : Number.POSITIVE_INFINITY;
   const started = Date.now();
   for (;;) {
     const left = total - (Date.now() - started);
@@ -251,6 +253,8 @@ const waitInPieces = async (
       }
     })();
     if (!timedOut) return answer;
+    // An interrupted turn ends the wait at its next piece.
+    context.abortSignal?.throwIfAborted();
     await api.progressed(context).catch(() => undefined);
   }
 };

@@ -18,6 +18,8 @@ import type { ExecutionEnv, FileError, Result, ShellOutputInfo } from "@earendil
 import { createBashTool, createEditTool, createReadTool, createWriteTool } from "@earendil-works/pi-durable/tools";
 import { bool, num, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
 
+import { DEFAULT_TOOL_OUTPUT_LIMITS, type ToolOutputLimits } from "./toolOutput.ts";
+
 import {
   type BashRoute,
   commandPaths,
@@ -87,24 +89,48 @@ const backendField = opt(
   oneOf(["worker", "container"], { description: "Where to run the command (default: chosen from the command)" }),
 );
 
-const parameters = obj({
-  command: commandField,
-  timeout: timeoutField,
-  backend: backendField,
-  background: opt(
-    bool({
-      description: "Run in the background if still running after 2 seconds; returns a Background job id and log path",
-    }),
-  ),
-});
+const parametersFor = (jobs: BackgroundJobs) =>
+  obj({
+    command: commandField,
+    timeout: timeoutField,
+    backend: backendField,
+    background: opt(
+      bool({
+        description: `Run in the background if still running after ${jobs.waitMs} ms; returns a Background job id and log path`,
+      }),
+    ),
+  });
+type BashParameters = ReturnType<typeof parametersFor>;
 
 /**
  * Background jobs (SPI-1057, pi-termctrl's `bash` replacement): with `background: true` a command runs as a Background job
- * in the Workspace's container; one that finishes within 2 s answers as `bash` does, else the call returns its id.
+ * in the Workspace's container; one that finishes within `waitMs` (the Start wait) answers as `bash` does, else the
+ * call returns its id.
  */
 export interface BackgroundJobs {
+  readonly waitMs: number;
   run(command: string, cwd: string, api: ToolExecutionApi, context: Context): Promise<ToolExecutionResult>;
 }
+
+/** pi-durable's tool output sizes as `bash`'s and `read`'s descriptions name them (`2000 lines or 50KB`). */
+const OUTPUT_SIZE = /\d+ lines or \d+KB/u;
+
+/**
+ * `description` naming `limits` (the Tool output limit) where it names pi-durable's default sizes. `read` reads at most
+ * pi-durable's own defaults (`readHead`, `truncateHeadOf`), whatever the limit, so its description names the lower of
+ * the two (`cap`).
+ */
+export const withOutputSize = (description: string, limits: ToolOutputLimits, cap?: ToolOutputLimits): string => {
+  const lines = Math.min(limits.maxLines, cap?.maxLines ?? Number.POSITIVE_INFINITY);
+  const bytes = Math.min(limits.maxBytes, cap?.maxBytes ?? Number.POSITIVE_INFINITY);
+  return description.replace(OUTPUT_SIZE, `${lines} lines or ${bytes / 1024}KB`);
+};
+
+/**
+ * pi-durable's own output limits (`DEFAULT_MAX_BYTES`, `DEFAULT_MAX_LINES` in its `truncate.js`, which no entry point
+ * exports), which `read` never reads past.
+ */
+const PI_DURABLE_READ_LIMITS: ToolOutputLimits = { maxBytes: 50 * 1024, maxLines: 2000 };
 
 // @effect-diagnostics-next-line extendsNativeError:off -- caught by `bash` itself.
 class RunOnContainer extends Error {}
@@ -175,13 +201,17 @@ const withExitCode = <R extends { readonly structuredOutput?: unknown; readonly 
     : result;
 };
 
-const bashTool = (known: Map<string, boolean>, jobs: BackgroundJobs | undefined): ToolRegistration =>
+const bashTool = (
+  known: Map<string, boolean>,
+  jobs: BackgroundJobs | undefined,
+  output: ToolOutputLimits,
+): ToolRegistration =>
   defineTool({
     ...bashBase,
-    description: `${base.description}\n\n${backendDescription}`,
+    description: `${withOutputSize(base.description, output)}\n\n${backendDescription}`,
     // Without Background jobs (termctrl off), `background` is not offered, as with pi-termctrl's `replaceBash: false`.
     // SAFETY: the same fields but `background`, which is then never present.
-    parameters: (jobs === undefined ? withoutBackground : parameters) as typeof parameters,
+    parameters: (jobs === undefined ? withoutBackground : parametersFor(jobs)) as BashParameters,
     async execute({ backend, background, ...args }, api, context) {
       const env = api.env;
       if (background === true && jobs !== undefined)
@@ -257,15 +287,24 @@ const withoutBackground = obj({ command: commandField, timeout: timeoutField, ba
  * `read`, `write`, `edit`, and `bash` with a `backend` argument (and `background` with `jobs`), and the `coding_tools`
  * section. Installed again with the same name when the jobs change, in place, so the permissions' wraps stay outside it.
  */
-export const codingTools = (options: { readonly jobs?: BackgroundJobs } = {}): Extension =>
-  defineExtension({
+export const codingTools = (
+  options: { readonly jobs?: BackgroundJobs; readonly output?: ToolOutputLimits } = {},
+): Extension => {
+  const output = options.output ?? DEFAULT_TOOL_OUTPUT_LIMITS;
+  const read = createReadTool();
+  return defineExtension({
     name: "coding-tools",
     // `read` is replay-safe (tools step, plan §2.6): it has no effect, so a script's read cut off by a restart reruns.
     tools: [
-      throughContainer({ ...createReadTool(), replay: "safe" as const }),
+      throughContainer({
+        ...read,
+        description: withOutputSize(read.description, output, PI_DURABLE_READ_LIMITS),
+        replay: "safe" as const,
+      }),
       throughContainer(createWriteTool()),
       throughContainer(createEditTool()),
-      bashTool(new Map(), options.jobs),
+      bashTool(new Map(), options.jobs, output),
     ],
     sections: [Guidelines],
   });
+};

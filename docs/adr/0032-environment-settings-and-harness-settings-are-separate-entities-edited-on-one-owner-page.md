@@ -478,3 +478,34 @@ Global mise config refinement's 16 KiB, §4's "nor other custom sizes", and the 
   `skillsLinkEntries` (200) and `promptsDirectoryEntries` (1000), in a Repo skills and Prompt templates row, each
   `down-free`, read by the Workspace DO from the settings its last Container start kept. Prompt templates have no
   count and no size.
+
+## Refinement (SPI-1362, 2026-11-23): what a model and the Owner's client are shown
+
+- **The Tool output limit is a Harness setting.** pi-durable cut every tool result the model reads at its own default,
+  50 KiB or 2,000 lines, since no tool t3flare registers named `outputLimits`. A `tool-output` entry, "Always on", holds
+  `outputKiB` (50) and `outputLines` (2000), both `down-free`; the Session wraps every tool but code mode (pi-durable's
+  own limits) with them, a tool's own `maxBytes` or `maxLines` kept. Its maximum, `MAX_TOOL_OUTPUT_KIB`, is a named
+  constraint from the Session row: the text at six JSON bytes per byte takes at most half the row. Its minimums, 4 KiB
+  and 50 lines, are t3flare's own: each tool keeps room for its notes inside the limit. The tools that size their own
+  text to it take it: `ls`, `find` and `grep` (grep's context share), the web tools (`web_search`'s stored result lists,
+  `resultsBytes`, from what it leaves), a Terminal's screen beside its scrolled-off lines, a Background job's tail, and
+  a `context_history` read's page. `read` still reads at most pi-durable's 50 KiB or 2,000 lines of a file per call,
+  which its description names.
+- **New Harness settings, today's values as defaults:** `web.searchContextCharacters` (6000), `context.previewCharacters`
+  (120: a list line; a tool call's argument half, a search match a sixth before and half after), `termctrl.startWaitMs`
+  (2000, also bash's background threshold), `inputWaitMs` (500), `pollWaitMs` (30000), `scrollbackLines` (100) and
+  `scrollbackKiB` (16, at most half the Tool output limit in effect), `guardian.batchArgumentCharacters` (2000, at most
+  the evidence budget; asked, as every Guard's setting), and a `prompt-suggestions` entry, "Always on" (t3's Labs flag
+  turns suggestions on), with `excerptCharacters` (4000) and `timeoutSeconds` (20).
+- **A new Environment setting:** `agentTerminalScrollbackLines` (1000, 0 to 10,000, `down-free`, in the Containers row
+  after the agents' Terminal count), riding the launch as the SPI-1317 refinement's four do. Its maximum is a named,
+  provisional constraint, as the agents' Terminal count's: each line of an agent's Terminal takes about 12 bytes per
+  column in the Workspace DO's 128 MB isolate.
+- **Derived, not set:** what t3 is shown follows t3's own display caps (docs/upstream-fragility.md U100): a finished
+  tool result's text at t3's 256 KiB on-demand size, a nested call's arguments at its 32 KiB wire detail size, and
+  running output tails at its 64 Ki live tail. The approval card's script is shown by the card's own rule
+  (`cardText`) and kept once per code mode call. The Guardian reads the whole History for evidence, keeping every
+  trusted message and holding only the untrusted entries its budget fits.
+- **Removed:** the 10-minute default of a t3 wait with no `timeoutMs` (it waits until what it waits on happens, or the
+  turn is interrupted), termctrl's 20-line exit tail (a job's tail bounds it), and the 64 KiB cuts of an owner's message
+  and a tool's `details` in a push (both fit the Session row they come from).

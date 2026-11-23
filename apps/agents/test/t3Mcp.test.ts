@@ -1,10 +1,11 @@
+// @effect-diagnostics globalDate:off
 // The `t3-mcp` extension (step 3, plan section 4.3) on a real pi-durable Harness with pi-ai's faux provider, and its
 // catalog: the denylist, t3's tool names, the approvals per mode and annotation (accepted per tool name), the replay of a
 // call cut off by a Session restart (the same clientRequestId; refused under a credential t3 issued again), a 401 as a
 // tool error, plan mode, and waits in 50 s pieces.
 import { type AssistantMessage, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import type { InteractionMode, RuntimeMode } from "@t3flare/session-protocol";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { ApprovalStore, PLAN_MODE_REFUSAL } from "../src/extensions/permissions.ts";
 import {
@@ -259,6 +260,34 @@ describe("t3-mcp tools", () => {
     expect(host.calls.length).toBe(3);
     expect(host.calls.every((c) => typeof c.args.timeoutMs === "number" && c.args.timeoutMs <= 50_000)).toBe(true);
     expect(textOf(await harness.lastToolResult())).toContain("completed");
+  });
+
+  it("a wait with no timeoutMs keeps waiting in pieces until t3 answers, past any default (SPI-1362)", async () => {
+    // Each piece takes 50 s of the clock; 20 pieces are well past the 10 minutes a wait once stopped at.
+    let now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      const host = setup({
+        answer: (_tool, _args, nth) => {
+          now += 50_000;
+          return Promise.resolve({
+            kind: "result",
+            text: nth < 20 ? '{"timedOut":true}' : '{"status":"completed","timedOut":false}',
+            isError: false,
+          });
+        },
+      });
+      const harness = await restartingHarness(
+        [host.extension()],
+        [call("t3_thread_wait", { threadId: "a" }), fauxAssistantMessage("ok")],
+      );
+      // The clock moves with the pieces, so the wait for the result is bounded by the test's own timeout instead.
+      await until(async () => (await harness.lastToolResult()) !== undefined, "the result", Number.POSITIVE_INFINITY);
+      expect(host.calls.length).toBe(20);
+      expect(textOf(await harness.lastToolResult())).toContain("completed");
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("t3's orchestration instructions are a prompt section while the tools are installed", async () => {

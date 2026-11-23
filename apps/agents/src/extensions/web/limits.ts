@@ -19,6 +19,8 @@ export interface WebLimits {
   readonly searchSummaryTokens: number;
   /** A `web_search` call's time limit, reading the answer included. */
   readonly searchTimeoutSeconds: number;
+  /** The characters of result text a `web_search` call that names no `contextMaxCharacters` shares across results. */
+  readonly searchContextCharacters: number;
 }
 
 /** The `web` extension's resolved settings as limits. */
@@ -30,6 +32,7 @@ export const webLimits = (values: Readonly<Record<string, SettingValue>>): WebLi
   searchesPerCall: Number(values.searchesPerCall),
   searchSummaryTokens: Number(values.searchSummaryTokens),
   searchTimeoutSeconds: Number(values.searchTimeoutSeconds),
+  searchContextCharacters: Number(values.searchContextCharacters),
 });
 
 export const DEFAULT_WEB_LIMITS: WebLimits = webLimits(defaultSettings(WEB_EXTENSION));

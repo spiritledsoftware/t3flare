@@ -702,6 +702,7 @@ export class WorkspaceDO extends ContainerHost {
       repo: REPO_ROOT,
       // SPI-1317: as the running Container started (its launch), so a change applies at its next start.
       maxLive: () => this.#terminalLimits().agentTerminalsPerWorkspace,
+      scrollback: () => this.#terminalLimits().agentTerminalScrollbackLines,
     });
     this.#boot = (ctx.storage.kv.get<number>(BOOT_COUNT_KEY) ?? 0) + 1;
     ctx.storage.kv.put(BOOT_COUNT_KEY, this.#boot);

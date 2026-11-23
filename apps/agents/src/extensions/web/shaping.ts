@@ -4,8 +4,8 @@
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
 
-/** Default total budget for Search Provider text, in Unicode code points. */
-export const DEFAULT_CONTEXT_MAX_CHARACTERS = 6000;
+import { DEFAULT_WEB_LIMITS } from "./limits.ts";
+
 const MAX_PROVIDER_MESSAGE_CHARACTERS = 500;
 
 /** The first `limit` Unicode code points of `text`. */
@@ -215,11 +215,16 @@ const shareSearchBudget = (
 };
 
 /**
- * Cut provider text at `contextMaxCharacters` code points (default 6,000), then mark the cut. An Exa result list
- * shares that budget so each result keeps its Title and URL; other text is cut once.
+ * Cut provider text at `contextMaxCharacters` code points (by default `fallback`, the `searchContextCharacters`
+ * setting), then mark the cut. An Exa result list shares that budget so each result keeps its Title and URL; other
+ * text is cut once.
  */
-export const limitSearchText = (providerText: string, explicit: number | undefined): string => {
-  const limit = explicit ?? DEFAULT_CONTEXT_MAX_CHARACTERS;
+export const limitSearchText = (
+  providerText: string,
+  explicit: number | undefined,
+  fallback: number = DEFAULT_WEB_LIMITS.searchContextCharacters,
+): string => {
+  const limit = explicit ?? fallback;
   const results = splitExaResults(providerText);
   const text = results === undefined ? providerText : joinExaResults(results);
   const kept = truncateCodePoints(text, limit);
