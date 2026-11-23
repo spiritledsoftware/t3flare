@@ -147,7 +147,8 @@ const OUTPUT_SCHEMA = {
     },
     truncated: {
       type: "boolean",
-      description: "Whether content was cut at 1 MiB of JSON, or results cut short of numResults to fit the stored result",
+      description:
+        "Whether content was cut at 1 MiB of JSON, or results cut short of numResults to fit the stored result",
     },
     results: {
       type: "array",

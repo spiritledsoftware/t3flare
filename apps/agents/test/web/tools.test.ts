@@ -450,9 +450,9 @@ describe("web_search", () => {
       },
     };
     expect(bytes(nested)).toBeLessThan(SESSION_ROW_BYTES - SESSION_ROW_ENVELOPE_BYTES);
-    expect(bytes({ output: result?.output, details: result?.details, structuredOutput: result?.structuredOutput })).toBeLessThan(
-      SESSION_ROW_BYTES - SESSION_ROW_ENVELOPE_BYTES,
-    );
+    expect(
+      bytes({ output: result?.output, details: result?.details, structuredOutput: result?.structuredOutput }),
+    ).toBeLessThan(SESSION_ROW_BYTES - SESSION_ROW_ENVELOPE_BYTES);
   });
 
   it("times a search out at searchTimeoutSeconds (SPI-1321)", async () => {

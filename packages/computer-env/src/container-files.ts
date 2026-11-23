@@ -180,7 +180,8 @@ if [ -d "$P" ]; then root=$P; target=.; else root=$(dirname -- "$P"); target="./
 out=$(cd -- "$root" 2>&1) || failed "$out"
 cd -- "$root"
 printf '%s\n' "$root"
-out=$(rg --json --no-ignore --hidden --no-config "$@" -e "$PATTERN" -- "$target" | head -n "$LIMIT" | head -c "$BYTES")
+# rg's stderr is dropped: unread here, it would reach the answer uncapped.
+out=$(rg --json --no-ignore --hidden --no-config "$@" -e "$PATTERN" -- "$target" 2>/dev/null | head -n "$LIMIT" | head -c "$BYTES")
 code=$?
 if [ "$code" = 2 ]; then
   case "$out" in *'"type":"match"'*) ;; *) exit 1 ;; esac

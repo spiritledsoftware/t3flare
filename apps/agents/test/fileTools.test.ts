@@ -5,7 +5,13 @@ import type { ToolRegistration } from "@earendil-works/pi-durable";
 import type { ComputerFiles } from "@t3flare/computer-env";
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_FILE_LIMITS, type FileLimits, fileTools, GREP_CONTEXT_MAX_LINES } from "../src/extensions/files.ts";
+import {
+  DEFAULT_FILE_LIMITS,
+  type FileLimits,
+  fileTools,
+  GREP_OUTPUT_LIMITS,
+  grepContext,
+} from "../src/extensions/files.ts";
 
 /** A Workspace with `count` of everything, recording the limit each search was asked for. */
 const workspace = (count: number) => {
@@ -67,7 +73,7 @@ describe("file tools' limits (SPI-1321)", () => {
     expect((await run(tool("grep"), { pattern: "x", limit: 2 })).split("\n")).toHaveLength(3);
   });
 
-  it("grep asks for as many context lines as the call names (SPI-1361)", async () => {
+  it("grep asks for as much context as every match's share of the result's lines (SPI-1361)", async () => {
     const contexts: Array<number> = [];
     const files = {
       grep: async (_pattern: string, _path: string, options: { context: number }) => (
@@ -78,10 +84,44 @@ describe("file tools' limits (SPI-1321)", () => {
     const grep = (fileTools(() => files, LIMITS).tools ?? []).find((tool) => tool.name === "grep")!;
     await run(grep, { pattern: "x", context: 40 });
     await run(grep, { pattern: "x", context: -3 });
-    // Past the lines a result can show, more context is never seen; the Workspace's grep copies it per match.
     await run(grep, { pattern: "x", context: 1_000_000_000 });
     await run(grep, { pattern: "x", context: 2.5 });
-    expect(contexts).toEqual([40, 0, GREP_CONTEXT_MAX_LINES, 2]);
+    // grepLimit 5 asks for 6 matches; each takes 2 × context + 1 of the result's lines and a `--`.
+    const share = Math.floor((GREP_OUTPUT_LIMITS.maxLines / 6 - 2) / 2);
+    expect(contexts).toEqual([40, 0, share, 2]);
+    expect(grepContext(1_000_000_000, 1)).toBe(Math.floor((GREP_OUTPUT_LIMITS.maxLines - 2) / 2));
+    expect(grepContext(5, 100_000)).toBe(0);
+  });
+
+  it("grep's result stays within its output lines at the default limit and a huge context (SPI-1361)", async () => {
+    const line = "x".repeat(60);
+    let answered = 0;
+    const files = {
+      // A Workspace that gives every match all the context asked for.
+      grep: async (_pattern: string, path: string, options: { context: number; limit: number }) => {
+        const matches = Array.from({ length: options.limit }, (_, at) => {
+          const middle = at * 10_000 + options.context + 1;
+          return {
+            path: `${path}/a.ts`,
+            line: middle,
+            text: line,
+            context: Array.from({ length: 2 * options.context + 1 }, (_, offset) => ({
+              line: middle - options.context + offset,
+              text: line,
+              isMatch: offset === options.context,
+            })),
+          };
+        });
+        answered = new TextEncoder().encode(JSON.stringify(matches)).length;
+        return matches;
+      },
+    } as unknown as ComputerFiles;
+    const grep = (fileTools(() => files).tools ?? []).find((tool) => tool.name === "grep")!;
+    const out = await run(grep, { pattern: "x", context: 1_000_000_000 });
+    expect(out.split("\n").length).toBeLessThanOrEqual(GREP_OUTPUT_LIMITS.maxLines + 1);
+    expect(new TextEncoder().encode(out).length).toBeLessThan(1024 * 1024);
+    // What the Workspace answers over RPC: every match's context, which the share keeps to the result's lines.
+    expect(answered).toBeLessThan(1024 * 1024);
   });
 
   it("find and ls take their own limits", async () => {
