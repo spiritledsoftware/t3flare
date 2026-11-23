@@ -9,7 +9,8 @@ import {
   DEFAULT_FILE_LIMITS,
   type FileLimits,
   fileTools,
-  GREP_OUTPUT_LIMITS,
+  FILE_TOOL_OUTPUT_LIMITS,
+  GREP_CONTEXT_FLOOR,
   grepContext,
 } from "../src/extensions/files.ts";
 
@@ -87,10 +88,14 @@ describe("file tools' limits (SPI-1321)", () => {
     await run(grep, { pattern: "x", context: 1_000_000_000 });
     await run(grep, { pattern: "x", context: 2.5 });
     // grepLimit 5 asks for 6 matches; each takes 2 × context + 1 of the result's lines and a `--`.
-    const share = Math.floor((GREP_OUTPUT_LIMITS.maxLines / 6 - 2) / 2);
+    const share = Math.floor((FILE_TOOL_OUTPUT_LIMITS.maxLines / 6 - 2) / 2);
     expect(contexts).toEqual([40, 0, share, 2]);
-    expect(grepContext(1_000_000_000, 1)).toBe(Math.floor((GREP_OUTPUT_LIMITS.maxLines - 2) / 2));
-    expect(grepContext(5, 100_000)).toBe(0);
+    expect(grepContext(1_000_000_000, 1)).toBe(Math.floor((FILE_TOOL_OUTPUT_LIMITS.maxLines - 2) / 2));
+    // Never below what the former clamp allowed: 10 lines, whatever the limit.
+    expect(grepContext(10, 101)).toBe(10);
+    expect(grepContext(5, 100_001)).toBe(5);
+    expect(grepContext(50, 100_001)).toBe(GREP_CONTEXT_FLOOR);
+    expect(grepContext(-3, 101)).toBe(0);
   });
 
   it("grep's result stays within its output lines at the default limit and a huge context (SPI-1361)", async () => {
@@ -117,8 +122,15 @@ describe("file tools' limits (SPI-1321)", () => {
       },
     } as unknown as ComputerFiles;
     const grep = (fileTools(() => files).tools ?? []).find((tool) => tool.name === "grep")!;
+    // A high grepLimit with a small context keeps the context, within the result's lines.
+    const many = (fileTools(() => files, { ...DEFAULT_FILE_LIMITS, grepLimit: 5_000 }).tools ?? []).find(
+      (tool) => tool.name === "grep",
+    )!;
+    const kept = await run(many, { pattern: "x", context: 5 });
+    expect(kept).toContain("a.ts-1- "); // the first match keeps its context from line 1
+    expect(kept.split("\n").length).toBeLessThanOrEqual(FILE_TOOL_OUTPUT_LIMITS.maxLines + 1);
     const out = await run(grep, { pattern: "x", context: 1_000_000_000 });
-    expect(out.split("\n").length).toBeLessThanOrEqual(GREP_OUTPUT_LIMITS.maxLines + 1);
+    expect(out.split("\n").length).toBeLessThanOrEqual(FILE_TOOL_OUTPUT_LIMITS.maxLines + 1);
     expect(new TextEncoder().encode(out).length).toBeLessThan(1024 * 1024);
     // What the Workspace answers over RPC: every match's context, which the share keeps to the result's lines.
     expect(answered).toBeLessThan(1024 * 1024);
