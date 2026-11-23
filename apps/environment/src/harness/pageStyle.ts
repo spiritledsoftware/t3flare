@@ -137,7 +137,7 @@ input:disabled,select:disabled,textarea:disabled{opacity:.64;cursor:not-allowed}
 .btn-danger:hover{background:var(--err-soft);color:var(--err)}
 .btn-sm{height:1.75rem;padding:0 .5rem;font-size:.75rem}
 .audit-more{display:flex;flex-wrap:wrap;align-items:center;gap:.75rem;padding:.75rem 1rem}
-#audit .change{min-width:14rem}
+#audit td[data-label="Target"] div{overflow-wrap:anywhere}
 @media (pointer:coarse){.audit-more .btn{min-height:2.75rem}}
 select.sel-sm{height:1.75rem;min-width:0;padding:0 1.5rem 0 .5rem;font-size:.75rem}
 label.exposure{display:inline-flex;align-items:center;gap:.5rem;font-size:.75rem;color:var(--muted-fg)}
@@ -311,7 +311,6 @@ table.tools-table td.actions{grid-column:2;grid-row:2/4;text-align:right}
 table.tools-table td.actions>div{display:flex;flex-direction:column;align-items:flex-end;gap:.25rem}
 table.stacked tbody tr:hover>td{background:none}
 .change{max-width:none}
-#audit .change{min-width:0}
 }
 .skill-extra{grid-column:1/-1;display:flex;flex-direction:column;gap:.5rem;min-width:0}
 [data-skill-row] .desc code{overflow-wrap:anywhere}
