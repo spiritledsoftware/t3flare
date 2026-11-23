@@ -368,13 +368,17 @@ switch (step) {
     const failure = (turn.runs.at(-1)?.failure ?? errors.at(-1) ?? {}) as Record<string, any>;
     report.cli = { runs: turn.runs.map((run: any) => ({ status: run.status })), failure, errorItems: errors };
     check(`the ${cli} turn failed`, turn.runs.at(-1)?.status === "failed", turn.runs);
-    check(
-      `t3's failure on ${cli} is the relay's: a refused key naming the endpoint`,
-      failure.class === "permission_error" &&
-        failure.code === "key_refused" &&
-        String(failure.message).startsWith('The Model endpoint "badkey" refused its API key (HTTP 401)'),
-      failure,
-    );
+    const relayText = String(failure.message).startsWith('The Model endpoint "badkey" refused its API key (HTTP 401)');
+    if (cli === "claude")
+      // SPI-1223: Claude Code checks its key at open, so the failure is the open's ("Provider session failed to open"):
+      // t3 settles it as `provider_error` with its own code, and the relay's record reaches it as the text alone.
+      check(`t3's failed open on ${cli} shows the relay's text: a refused key naming the endpoint`, relayText, failure);
+    else
+      check(
+        `t3's failure on ${cli} is the relay's: a refused key naming the endpoint`,
+        failure.class === "permission_error" && failure.code === "key_refused" && relayText,
+        failure,
+      );
     check(
       "not the Model proxy key's text",
       !JSON.stringify(report.cli).includes("COMMISSARY_CONTAINER_API_KEY"),

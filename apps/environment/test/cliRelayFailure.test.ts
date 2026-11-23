@@ -7,6 +7,8 @@
 //   CLI's "API Error: 401 {…}" text, wrapped by the CLI wrapper.
 // - Codex and pi: t3's adapters need their real CLIs, so a stand-in adapter emits each one's failure as t3's adapter
 //   makes it (Codex's own usage-limit class without a reset; pi's provider error with the vendor's text), wrapped the same way.
+// - SPI-1223: Claude Code checks its key at open, so a refused key fails the open (ACP's -32000 at `session/new`); the
+//   wrapper's open error carries the relay's record, which t3's failure text reads through to.
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
@@ -21,7 +23,7 @@ import {
 } from "@t3tools/contracts";
 import * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
 import { type AcpAdapterV2RuntimeInput, makeAcpAdapterV2 } from "@t3tools/provider-acp/server/adapter";
-import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
+import { knownProviderFailureMessage, makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
@@ -163,17 +165,27 @@ const PROMPT_ERROR = {
 
 let threads = 0;
 
-const acpTurn = Effect.fn("acpTurn")(function* (
+/** ACP's answer to `session/new` when the CLI's key check at open is refused: -32000, auth_required. */
+const AUTH_REQUIRED = { code: -32000, message: "Authentication required" };
+
+/** t3's ACP adapter with the `cli` flavor over a scripted agent, wrapped by the CLI wrapper, and its session's open. */
+const acpOpen = Effect.fn("acpOpen")(function* (
   cli: "claude" | "opencode",
   relayed: EndpointFailureRecord | null,
   model: string,
+  script: { readonly sessionNewError?: { readonly code: number; readonly message: string } } = {},
 ) {
   const fileSystem = yield* FileSystem.FileSystem;
   const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3flare-cli-relay-failure-" });
   const scriptPath = path.join(cwd, "..", `${path.basename(cwd)}.script.json`);
   yield* fileSystem.writeFileString(
     scriptPath,
-    yield* encodeJson({ initialize: INITIALIZE, sessionNew: SESSION_NEW, prompts: [[{ error: PROMPT_ERROR }]] }),
+    yield* encodeJson({
+      initialize: INITIALIZE,
+      sessionNew: SESSION_NEW,
+      prompts: [[{ error: PROMPT_ERROR }]],
+      ...script,
+    }),
   );
   const PATH = yield* Config.String("PATH").pipe(Config.withDefault(""));
   const spawn = Effect.fn("spawn")(function* (input: AcpAdapterV2RuntimeInput) {
@@ -222,12 +234,22 @@ const acpTurn = Effect.fn("acpTurn")(function* (
     interactionMode: "default",
     cwd,
   });
-  const runtime = yield* adapter.openSession({
+  const opened = adapter.openSession({
     threadId,
     providerSessionId: ProviderSessionId.make(`session-relay-failure-${threads}`),
     modelSelection,
     runtimePolicy,
   });
+  return { opened, threadId, modelSelection, runtimePolicy, instanceId };
+});
+
+const acpTurn = Effect.fn("acpTurn")(function* (
+  cli: "claude" | "opencode",
+  relayed: EndpointFailureRecord | null,
+  model: string,
+) {
+  const { opened, threadId, modelSelection, runtimePolicy, instanceId } = yield* acpOpen(cli, relayed, model);
+  const runtime = yield* opened;
   const queue = yield* Queue.unbounded<Event>();
   yield* runtime.events.pipe(
     Stream.runForEach((event) => Queue.offer(queue, event)),
@@ -276,6 +298,33 @@ for (const cli of ["claude", "opencode"] as const) {
     });
   });
 }
+
+describe("claude on a Model endpoint whose key is refused at open (SPI-1223)", () => {
+  it("the open's failure text is the relay's record, not t3's sign-in text", async () => {
+    const failed = await run(
+      Effect.gen(function* () {
+        const { opened } = yield* acpOpen("claude", KEY_REFUSED, "commissary/claude-haiku-5-5", {
+          sessionNewError: AUTH_REQUIRED,
+        });
+        return yield* Effect.flip(opened);
+      }),
+    );
+    expect(failed._tag).toBe("ProviderAdapterOpenSessionError");
+    expect(knownProviderFailureMessage({ cause: failed })).toBe(KEY_REFUSED.message);
+  });
+
+  it("with no relay record, t3's own text stands", async () => {
+    const failed = await run(
+      Effect.gen(function* () {
+        const { opened } = yield* acpOpen("claude", null, "commissary/claude-haiku-5-5", {
+          sessionNewError: AUTH_REQUIRED,
+        });
+        return yield* Effect.flip(opened);
+      }),
+    );
+    expect(knownProviderFailureMessage({ cause: failed })).not.toBe(KEY_REFUSED.message);
+  });
+});
 
 // --- Codex and pi: their adapters' failures, from a stand-in adapter ------------------------------------------------
 

@@ -17,7 +17,8 @@
 // - A tool call the MCP relay asks about (ADR-0028) is raised as t3's approval card on the thread's live turn: the
 //   wrapper injects the request's events and answers it itself (`respondToRuntimeRequest`), never the CLI.
 // - A failed turn on a Model endpoint shows the model relay's classification of the process's last answer, by the
-//   endpoint's API and auth (SPI-1172, `relayFailure.ts`), in its terminal and its error items.
+//   endpoint's API and auth (SPI-1172, `relayFailure.ts`), in its terminal and its error items. A failed open (Claude
+//   Code checks its key at open) carries the process's relay record too, as t3's open error's setup cause (SPI-1223).
 import type { EndpointFailureRecord } from "@t3flare/session-protocol";
 import { newHandle, toWorkspace } from "@t3flare/workspace-client";
 import {
@@ -207,21 +208,30 @@ export const spawnRefusalOf = (error: unknown): string | undefined => {
 };
 
 /**
- * An open that failed on a refused spawn, as t3 shows it: t3's open error carries a `ProviderSetupError` with the
- * refusal, a cause t3's failure text reads through (`knownProviderFailureMessage`), not "Failed to open ... session"
- * (U85). Any other failure as it was.
+ * t3's open error with `detail` as its failure text: a `ProviderSetupError` under it, a cause t3's failure text reads
+ * through (`knownProviderFailureMessage`), not "Failed to open ... session" (U85).
  */
+const underSetupError = (
+  instanceId: ProviderInstanceId,
+  driver: ProviderDriverKind,
+  providerSessionId: ProviderSessionId,
+  detail: string,
+  cause: unknown,
+): ProviderAdapter.ProviderAdapterV2Error =>
+  new ProviderAdapter.ProviderAdapterOpenSessionError({
+    driver,
+    providerSessionId,
+    cause: new ProviderSetupError({ instanceId, operation: "open-session", detail, cause }),
+  });
+
+/** An open that failed on a refused spawn, as t3 shows it: with the refusal as its failure text. Any other failure as it was. */
 export const withSpawnRefusal =
   (instanceId: ProviderInstanceId, driver: ProviderDriverKind, providerSessionId: ProviderSessionId) =>
   (error: ProviderAdapter.ProviderAdapterV2Error): ProviderAdapter.ProviderAdapterV2Error => {
     const refusal = spawnRefusalOf(error);
     if (refusal === undefined) return error;
     const detail = /[.!?]$/.test(refusal) ? refusal : `${refusal}.`;
-    return new ProviderAdapter.ProviderAdapterOpenSessionError({
-      driver,
-      providerSessionId,
-      cause: new ProviderSetupError({ instanceId, operation: "open-session", detail, cause: error }),
-    });
+    return underSetupError(instanceId, driver, providerSessionId, detail, error);
   };
 
 /** t3's adapter, as the Cloud Environment runs it. */
@@ -262,12 +272,31 @@ export const wrapCliAdapter = (
         session.runtimeMode = input.runtimePolicy.runtimeMode;
         session.interactionMode = input.runtimePolicy.interactionMode;
         session.model = input.modelSelection.model;
-        const runtime = yield* adapter
-          .openSession(input)
-          .pipe(
-            Effect.provideService(CliSpawn, session),
-            Effect.mapError(withSpawnRefusal(adapter.instanceId, adapter.driver, input.providerSessionId)),
-          );
+        const runtime = yield* adapter.openSession(input).pipe(
+          Effect.provideService(CliSpawn, session),
+          // SPI-1223: a refused spawn shows its refusal (it has no process, so no relay record); any other failed open
+          // shows its process's relay record, if any. The process is new, so its record is this open's. Only a failed
+          // open asks the Workspace, and `relayFailure` never rejects.
+          Effect.catch((error) => {
+            const refused = withSpawnRefusal(adapter.instanceId, adapter.driver, input.providerSessionId)(error);
+            if (refused !== error) return Effect.fail(refused);
+            return Effect.promise(() => relayFailure(session)).pipe(
+              Effect.flatMap((record) =>
+                Effect.fail(
+                  record === null
+                    ? error
+                    : underSetupError(
+                        adapter.instanceId,
+                        adapter.driver,
+                        input.providerSessionId,
+                        record.message,
+                        error,
+                      ),
+                ),
+              ),
+            );
+          }),
+        );
         yield* Effect.addFinalizer(() => Effect.sync(() => sessions.delete(input.providerSessionId)));
         // G11: `mcpApps` passes through (Codex's App rendering, MCP apps through the relay); upload feedback stays off.
         const { uploadFeedback: _feedback, ...rest } = runtime;

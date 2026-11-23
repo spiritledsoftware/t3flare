@@ -1380,7 +1380,9 @@ succeed; nothing in t3 is touched. The leans are on the vendors' error shapes, o
   - **pi-durable's default retries** (`DEFAULT_RETRY_POLICY`: 3, from 2 s doubling, pi-ai's `retryDelayMs`): a rate
     limit resetting within their 14 s (`SHORT_RESET_MS`) is retried, a later one pauses at once.
   - **t3's adapter events** (U3): a failed `turn.terminal` and an `error` turn item carry `failure`, which the CLI
-    wrapper replaces; a failure t3 raises outside the adapter's events (a session that fails to open) is not seen.
+    wrapper replaces. A session that fails to open (Claude Code checks its key at open) raises no event: the wrapper's
+    `openSession` puts a `ProviderSetupError` with the process's relay record under t3's open error (SPI-1223, U85's
+    lean), so t3 shows the record's text with its own `provider_error` class and code.
   - **The vendors' stream error events** (`relayFailures.ts`' `sseErrors`): Anthropic's `{"type":"error","error":{…}}`,
     OpenAI Responses' `error` and `response.failed`, an OpenAI-compatible Completions chunk that is only
     `{"error":{…}}`, Mistral Conversations' `conversation.response.error`, in a `text/event-stream` that passes on as it
@@ -1396,7 +1398,8 @@ succeed; nothing in t3 is touched. The leans are on the vendors' error shapes, o
 - **Breaks when**: a vendor renames a code or moves a reset (Anthropic documents its unified headers, or changes them);
   pi-ai changes its stream error text or adds a retry pattern a code matches; pi-ai stops passing a request's `fetch`.
 - **Detection**: `apps/environment/test/modelFailures.test.ts` (each row on doc-shaped answers), `cliRelayFailure.test.ts`
-  (t3's ACP adapter for Claude Code and OpenCode, stand-ins for Codex and pi),
+  (t3's ACP adapter for Claude Code and OpenCode, stand-ins for Codex and pi; Claude Code's refused open),
+  `cliSpawnRefusal.test.ts` (an open's relay record through t3's failure text),
   `apps/agents/test/endpointFailures.test.ts` (a real Harness: one request for a limit, four for an overload, every
   stopping code not retryable to pi-ai), `endpointText.test.ts`, `modelRelayRoute.test.ts`, `redactSecrets.test.ts`.
   **Silent**: a vendor-side change (the fixtures are the docs' shapes, not live answers); an unknown 429 then shows as
@@ -1646,7 +1649,7 @@ fails for it.
   adapter stops calling `resolveModelId` (an old Claude or OpenCode thread is refused, "The agent did not accept the
   model"); t3's Pi adapter sends a model by another command or shape (an old pi thread fails "Model not found"); Codex
   takes a model elsewhere than those params; `knownProviderFailureMessage` drops `ProviderSetupError` or stops walking
-  `cause` (a refused spawn shows t3's generic open failure).
+  `cause` (a refused spawn shows t3's generic open failure, and an open the relay refused, SPI-1223, t3's own text).
 - **Detection**: `setupStateSnapshots.test.ts` (each driver's own snapshot without and with an endpoint for it),
   `cliSpawnRefusal.test.ts` (the refusal through t3's failure text), `differ.test.ts` (Pi Durable's),
   `endpointsPicker.test.ts` (the probe, Pi Durable's fallback), `piDriver.test.ts` (pi's status through an
