@@ -70,8 +70,6 @@ maintenance capabilities.
 
 ## Counts after SPI-1182
 
-Shadows 4 (unchanged), Patches 8: `0008-git-errors-keep-t3flares-reason.patch` adds the text of the router's
-`fatal: t3flare: ` stderr lines to the detail of t3's `GitCommandError`, in `executeGit` and `executeRaw`. A Layer
-cannot reach it: the text is dropped inside `executeGit`, before any service boundary, and `GitVcsDriver` is also built
-inside t3's private runtime graph. A Shadow would copy the 6,000-line `GitVcsDriverCore.ts` for one helper and two call
-sites.
+Shadows 4 (unchanged), Patches 8.
+
+- Patch `0008-git-errors-keep-t3flares-reason.patch`: one helper beside `gitFailureDetail` and two call sites in `GitVcsDriverCore.ts`, so the `GitCommandError` that `executeGit` and `executeRaw` build carries the text of the router's `fatal: t3flare: ` stderr lines, and nothing else of stderr; see U99 in `docs/upstream-fragility.md`. A Layer cannot reach it: the text is dropped inside `executeGit`, before any service boundary, and `GitVcsDriver` is also built inside t3's private runtime graph. A Shadow would copy the 6,000-line file.

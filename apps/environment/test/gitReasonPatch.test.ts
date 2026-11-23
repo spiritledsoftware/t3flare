@@ -35,19 +35,21 @@ const SOURCE = "apps/server/src/vcs/GitVcsDriverCore.ts";
 const REFUSAL = "the Container cannot start: Container budget (3) reached: raise it at /_t3flare/settings#environment";
 const REPO_ROOT = "/workspace/repo";
 
-// Inside the package (gitignored), so `effect` and `@t3tools/*` resolve from its node_modules.
-fs.mkdirSync(path.resolve(here, "../dist"), { recursive: true });
-const work = fs.mkdtempSync(path.resolve(here, "../dist/patch-0008-"));
-const root = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), "t3flare-git-reason-")));
-afterAll(() => {
-  fs.rmSync(work, { recursive: true, force: true });
-  fs.rmSync(root, { recursive: true, force: true });
-});
-
 type MakeCore = () => Effect.Effect<GitVcsDriver.GitVcsDriver["Service"], never, never>;
 let patchedCore: MakeCore;
+/** The patched copy's tree: inside the package (gitignored), so `effect` and `@t3tools/*` resolve from its node_modules. */
+let work: string;
+/** The local repos the Workspaces run git in. */
+let root: string;
+afterAll(() => {
+  if (work !== undefined) fs.rmSync(work, { recursive: true, force: true });
+  if (root !== undefined) fs.rmSync(root, { recursive: true, force: true });
+});
 
 beforeAll(async () => {
+  fs.mkdirSync(path.resolve(here, "../dist"), { recursive: true });
+  work = fs.mkdtempSync(path.resolve(here, "../dist/patch-0008-"));
+  root = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), "t3flare-git-reason-")));
   fs.mkdirSync(path.join(work, path.dirname(SOURCE)), { recursive: true });
   fs.copyFileSync(path.join(T3, SOURCE), path.join(work, SOURCE));
   // A repo of its own: inside t3flare's checkout, `git apply` would take the Patch's paths from t3flare's root and skip them.

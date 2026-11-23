@@ -120,12 +120,16 @@ const redactTokens = (text: string): string => {
   return out;
 };
 
+/** Credentials in URLs (`//user:pass@`) and every live GitHub token taken out of `text`. */
+const redactSecrets = (text: string): string => redactTokens(text.replace(/\/\/[^/@\s]+@/g, "//***@"));
+
 /**
- * A line the router writes to stderr: one line, every live token taken out. t3 shows and persists the text of a
- * `fatal: t3flare: ` line (Patch 0008, SPI-1182), so it must hold no secret and no line break.
+ * A line the router writes to stderr: one line, credentials in URLs and every live token taken out. t3 shows and persists
+ * the text of a `fatal: t3flare: ` line (Patch 0008, SPI-1182), and a refused worktree's line can carry the Container's
+ * own git stderr, so it must hold no secret and no line break.
  */
 const routerLine = (text: string): string =>
-  `${redactTokens(text)
+  `${redactSecrets(text)
     .replace(/\s*[\r\n]+\s*/g, " ")
     .trim()}\n`;
 
@@ -140,8 +144,7 @@ const passedThrough = (stderr: string): string =>
     .join("\n");
 
 /** An argv as the trace keeps it: credentials in URLs and anything token-like removed. */
-const traceArgv = (args: ReadonlyArray<string>) =>
-  args.map((arg) => redactTokens(arg.replace(/\/\/[^/@\s]+@/g, "//***@")).slice(0, 300));
+const traceArgv = (args: ReadonlyArray<string>) => args.map((arg) => redactSecrets(arg).slice(0, 300));
 
 const ghToken = async (): Promise<Answer> => {
   const services = environmentServices();
@@ -203,11 +206,12 @@ const clone = async (request: { readonly id: string; readonly url: string }): Pr
   if (!answer.ran || answer.exitCode !== 0) {
     if (existing === undefined) services.workspaces.remove(request.id);
     else services.workspaces.setRemote(request.id, { host: null, owner: null, name: null, cloneUrl: null });
-    const stderr = answer.ran ? answer.stderr : `fatal: ${answer.detail}\n`;
+    // The Container's stderr as `git` passes it through; a clone that did not run answers with a router line.
+    const stderr = answer.ran ? passedThrough(redactTokens(answer.stderr)) : routerLine(`fatal: ${answer.detail}`);
     return { exitCode: answer.ran ? answer.exitCode || 128 : 128, stdout: "", stderr, route: "clone", detail };
   }
   services.workspaces.setState(request.id, "ready");
-  return { exitCode: 0, stdout: "", stderr: answer.stderr, route: "clone", detail };
+  return { exitCode: 0, stdout: "", stderr: passedThrough(redactTokens(answer.stderr)), route: "clone", detail };
 };
 
 /**

@@ -97,4 +97,50 @@ describe("the router's refusals", () => {
     expect(answer.stderr).toContain("/tmp/elsewhere ***");
     expect(answer.stderr).not.toContain(token);
   });
+
+  it("mask credentials in URLs, as the Container's git stderr can carry them", async () => {
+    bindEnvironmentServices({
+      workspaces: { list: () => [workspace("ian-pascoe", "t3flare")] },
+      github: () => ({ live: () => [] }),
+    } as unknown as EnvironmentServices);
+    const answer = await run("git", ["worktree", "add", "--", "https://user:pass@host/o/r.git", "main"], "/w/t3flare");
+    expect(answer.stderr.startsWith(T3FLARE_FATAL)).toBe(true);
+    expect(answer.stderr).toContain("https://***@host/o/r.git");
+    expect(answer.stderr).not.toContain("user:pass");
+  });
+});
+
+/** The Environment's services for a clone into `/w/repo`, whose Workspace DO answers `clone` with `answer`. */
+const bindClone = (answer: Record<string, unknown>, live: ReadonlyArray<string> = []) =>
+  bindEnvironmentServices({
+    workspaces: {
+      list: () => [],
+      get: () => undefined,
+      create: () => undefined,
+      remove: () => undefined,
+      setState: () => undefined,
+    },
+    github: () => ({ live: () => live }),
+    agents: { WORKSPACES: { idFromName: (name: string) => name, get: () => ({ clone: async () => answer }) } },
+  } as unknown as EnvironmentServices);
+
+const cloneArgs = ["clone", "https://github.com/ian-pascoe/repo.git", "repo"];
+
+describe("a clone's stderr", () => {
+  it("passes the Container's through with the router's marker neutralised and live tokens taken out", async () => {
+    const token = "ghs_liveTokenForThisTest";
+    bindClone({ ran: true, exitCode: 128, stderr: `${T3FLARE_FATAL}from a hook ${token}\nfatal: denied\n`, ms: 0 }, [
+      token,
+    ]);
+    const answer = await run("git", cloneArgs, "/w");
+    expect(answer.exitCode).toBe(128);
+    expect(answer.stderr).toBe(` ${T3FLARE_FATAL}from a hook ***\nfatal: denied\n`);
+  });
+
+  it("is one masked router line when the clone did not run", async () => {
+    bindClone({ ran: false, reason: "container_refused", detail: "t3flare: refused\nat https://user:pass@host/r.git" });
+    const answer = await run("git", cloneArgs, "/w");
+    expect(answer.exitCode).toBe(128);
+    expect(answer.stderr).toBe(`${T3FLARE_FATAL}refused at https://***@host/r.git\n`);
+  });
 });
