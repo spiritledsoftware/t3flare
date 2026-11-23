@@ -19,7 +19,6 @@ import {
   type ChangeCaller,
   type ChangeRecord,
   type ChangeState,
-  CLOSED_KEPT_MS,
   type ClosedBy,
   closedLine,
   durationText,
@@ -29,7 +28,9 @@ import {
   scrubUrls,
   type SettingsChanges,
   STRIKE_LOCK_MS,
-  STRIKE_WINDOW_MS,
+  strikeWindowMs,
+  STRIKES,
+  waitOf,
 } from "./changes.ts";
 import { REQUEST_BUDGET_MS } from "../skills/api.ts";
 
@@ -41,11 +42,6 @@ export const OPEN_PER_OWNER = 2;
 export const OPEN_ACROSS = 16;
 /** The same change (by hash) after a decline, per caller, is refused this long. */
 export const DECLINED_REPEAT_MS = 10 * 60_000;
-/**
- * This many in a row declined (or, for own agents, unanswered), within `STRIKE_WINDOW_MS` of each other, refuse the
- * caller's asked changes for `STRIKE_LOCK_MS` from the last of them.
- */
-export const STRIKES = 3;
 
 /** A closed change's outcome, as a held call and an answerer read it. Never an authorization URL. */
 export interface ChangeOutcome {
@@ -109,7 +105,8 @@ export const capRefusal = (
           : `Not changed: you asked for ${OPENED_CAP} changes in the last hour, answered or not, the most t3flare allows. Make the change on the Settings page${openList === undefined ? "" : ` (${openList})`}, or try again later.`,
     };
   }
-  const recent = changes.closedBy(capKey, now - STRIKE_WINDOW_MS - STRIKE_LOCK_MS);
+  // Everything the table keeps: a run's window is known only once its changes are (SPI-1316).
+  const recent = changes.closedBy(capKey, now - changes.keptMs());
   if (
     recent.some(
       (record) => record.hash === hash && record.state === "declined" && record.closed!.at > now - DECLINED_REPEAT_MS,
@@ -128,7 +125,10 @@ export const capRefusal = (
   const run = recent.filter((record) => record.state === "applied" || strike(record)).slice(0, STRIKES);
   const last = run[0]?.closed?.at ?? 0;
   const first = run.at(-1)?.closed?.at ?? 0;
-  if (run.length === STRIKES && run.every(strike) && last - first <= STRIKE_WINDOW_MS && now < last + STRIKE_LOCK_MS) {
+  // SPI-1316: the run's window follows the longest wait its changes took, so a long wait's spaced-out expiries still
+  // make a run, whatever the wait is now.
+  const window = strikeWindowMs(Math.max(0, ...run.map(waitOf)));
+  if (run.length === STRIKES && run.every(strike) && last - first <= window && now < last + STRIKE_LOCK_MS) {
     return {
       reason: "strikes",
       text: `Not changed: your last ${STRIKES} asked changes were ${caller.door === "own" ? "declined or unanswered" : "declined"}, so t3flare refuses your asked changes until ${new Date(last + STRIKE_LOCK_MS).toISOString()} (${durationText(STRIKE_LOCK_MS)} after the last). Ask the owner in the thread what he wants.`,
@@ -291,7 +291,7 @@ export const answerOpenChange = async (deps: AnswerDeps, id: string, answer: Ans
     return {
       ok: false,
       status: 404,
-      error: `no such change (it may have closed over ${durationText(CLOSED_KEPT_MS)} ago)`,
+      error: `no such change (it may have closed over ${durationText(deps.changes.keptMs())} ago)`,
     };
   if (!isOpen(record))
     return { ok: false, status: 409, error: `this change is already ${record.state}`, closed: outcomeOf(record) };
@@ -439,4 +439,6 @@ export interface ChangesApi {
   readonly get: (id: string) => ChangeRecord | undefined;
   /** The page's answer, by the identity the panel admitted. */
   readonly answer: (id: string, input: Omit<AnswerInput, "by">) => Promise<AnswerResult>;
+  /** How long a closed change is kept (`SettingsChanges.keptMs`, SPI-1316): the gone page names it. */
+  readonly keptMs: () => number;
 }

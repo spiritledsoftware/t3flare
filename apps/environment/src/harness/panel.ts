@@ -359,7 +359,7 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
       const record = isChangeId(id) ? deps.changes.get(id) : undefined;
       const html =
         record === undefined || record.tier !== "asked"
-          ? renderGonePage(csrf)
+          ? renderGonePage(csrf, deps.changes.keptMs())
           : renderChangePage(record, {
               csrf,
               now: deps.now?.() ?? Date.now(),

@@ -23,12 +23,13 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import * as TestProviderHost from "../../../t3code/packages/provider-testing/src/TestProviderHost.ts";
 import { makeTurnInput } from "t3/src/orchestration-v2/Adapters/AcpAdapterV2.testkit.ts";
 import { acpAdapterOptions, acpFlavor } from "../src/provider/cli/acpDriver.ts";
-import { approveCliTool, cancelCliAsk, cliQuestionAsker } from "../src/provider/cli/cliAsk.ts";
+import { bindEnvironmentServices, type EnvironmentServices } from "../src/agents/bindings.ts";
+import { approveCliTool, cancelCliAsk, cliQuestionAsker, registerCliAsker } from "../src/provider/cli/cliAsk.ts";
 import { wrapCliAdapter } from "../src/provider/cli/wrapper.ts";
 
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
@@ -418,6 +419,71 @@ describe("an MCP server's question asked on a CLI thread (SPI-1079)", () => {
         expect(yield* Fiber.join(answer)).toMatchObject({ decision: "decline" });
       }),
     ));
+});
+
+describe("the CLI cards' wait (SPI-1316)", () => {
+  afterEach(() => bindEnvironmentServices(undefined as unknown as EnvironmentServices));
+
+  /** A live turn whose owner never answers: a card ends only when its signal does. */
+  const silentOwner = (thread: string) => {
+    const signals: Array<AbortSignal> = [];
+    const unregister = registerCliAsker(thread, {
+      ask: (_ask, signal) =>
+        new Promise((resolve) => {
+          signals.push(signal);
+          signal.addEventListener("abort", () => resolve({ approved: false, reason: "withdrawn" }), { once: true });
+        }),
+    });
+    return { signals, unregister };
+  };
+  const approve = (thread: string, waitMs?: number) =>
+    approveCliTool({
+      thread,
+      askId: `ask-${thread}`,
+      title: "t",
+      summary: "s",
+      detail: "",
+      ...(waitMs === undefined ? {} : { waitMs }),
+    });
+  const services = (ms: () => number) =>
+    bindEnvironmentServices({ ownerAnswerMs: ms } as unknown as EnvironmentServices);
+
+  // Each wait here is tens of ms against an hour's alternative: the test's own 5 s timeout is the bound.
+  it("closes an unanswered tool card after the Answer wait from the services, as no answer in time", async () => {
+    services(() => 40);
+    const owner = silentOwner("wait-thread-1");
+    expect(await approve("wait-thread-1")).toEqual({ approved: false, reason: "no answer in time" });
+    owner.unregister();
+  });
+
+  it("a card raised before the wait changes keeps its deadline", async () => {
+    let wait = 40;
+    services(() => wait);
+    const owner = silentOwner("wait-thread-2");
+    const pending = approve("wait-thread-2");
+    wait = 60 * 60_000;
+    expect(await pending).toEqual({ approved: false, reason: "no answer in time" });
+    expect(cliQuestionAsker("wait-thread-2").waitMs).toBe(60 * 60_000);
+    owner.unregister();
+  });
+
+  it("a card waits the wait its calling process was spawned with, over the wait now", async () => {
+    services(() => 60 * 60_000);
+    expect(cliQuestionAsker("wait-thread-3", 40).waitMs).toBe(40);
+    const owner = silentOwner("wait-thread-3");
+    expect(await approve("wait-thread-3", 40)).toEqual({ approved: false, reason: "no answer in time" });
+    const asked = await cliQuestionAsker("wait-thread-3", 40).ask({
+      id: "card-3",
+      kind: "approval",
+      server: "fixture",
+      title: "Sure?",
+      prompt: "Sure?",
+    } as never);
+    expect(asked).toEqual({ decision: "cancel", reason: "no answer in time" });
+    owner.unregister();
+    // Without one, the wait now.
+    expect(cliQuestionAsker("wait-thread-unspawned").waitMs).toBe(60 * 60_000);
+  });
 });
 
 describe("the ACP driver's adapter options", () => {

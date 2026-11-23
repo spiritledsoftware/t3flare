@@ -16,7 +16,7 @@ import {
   type ToolClass,
 } from "@t3flare/harness-registry";
 
-import { CHANGE_TTL_MS, durationText } from "./changes.ts";
+import { durationText } from "./changes.ts";
 
 export interface SettingsTool {
   readonly name: string;
@@ -27,20 +27,25 @@ export interface SettingsTool {
 
 /** What the server covers, said the same to both doors (plan D17). */
 const SETTINGS_SCOPE =
-  "t3flare's own settings: the Harness settings (Pi Durable's extensions and the MCP server set), the Environment settings (Container size, idle time, budget, the CLI agents' processes per Workspace, the Turn limit, the settings read wait, Variables, Global mise config, whether Terminals and CLI agents read the Owner's dotfiles, the Grace) and the Environment skills; and the Workspaces, which list_workspaces reads and purge_workspace asks to purge (their files only: a Workspace something in t3 references is refused, and deleting a project or thread stays t3's). These are not t3's preferences (t3_environment_preferences_update). Read tools run.";
+  "t3flare's own settings: the Harness settings (Pi Durable's extensions and the MCP server set), the Environment settings (Container size, idle time, budget, the CLI agents' processes per Workspace, the Turn limit, the Answer wait, the settings read wait, Variables, Global mise config, whether Terminals and CLI agents read the Owner's dotfiles, the Grace) and the Environment skills; and the Workspaces, which list_workspaces reads and purge_workspace asks to purge (their files only: a Workspace something in t3 references is refused, and deleting a project or thread stays t3's). These are not t3's preferences (t3_environment_preferences_update). Read tools run.";
 
 /** What both doors say of a Purge (ADR-0044 §5). */
 const PURGE_NOTE =
   "A Purge (purge_workspace) names no revision and always waits for the owner's answer, in every mode.";
 
-/** What agents are told about the server (plan D17): its instructions and its tools' descriptions, nothing else. */
-export const SETTINGS_INSTRUCTIONS = `${SETTINGS_SCOPE} Every settings write names the expectedRevision it read, and the thread's mode rules it: plan mode refuses writes; outside full access a write waits for the owner's card; a change that widens what agents have or can do always waits for the owner's answer on a card or its Change page (at most ${durationText(CHANGE_TTL_MS)}, one at a time per thread). ${PURGE_NOTE} Do not repeat a declined change.`;
+/**
+ * What agents are told about the server (plan D17): its instructions and its tools' descriptions, nothing else. Built
+ * when served, with the Answer wait `answerMs` its asked changes wait (SPI-1316).
+ */
+export const settingsInstructions = (answerMs: number): string =>
+  `${SETTINGS_SCOPE} Every settings write names the expectedRevision it read, and the thread's mode rules it: plan mode refuses writes; outside full access a write waits for the owner's card; a change that widens what agents have or can do always waits for the owner's answer on a card or its Change page (at most ${durationText(answerMs)}, one at a time per thread). ${PURGE_NOTE} Do not repeat a declined change.`;
 
 /**
  * The same for an Owner client (plan D11, D12): it has no thread mode, and its asked changes wait on the Change page in
- * its Elicitation mode.
+ * its Elicitation mode, for the Answer wait `answerMs`.
  */
-export const SETTINGS_OWNER_INSTRUCTIONS = `${SETTINGS_SCOPE} Every settings write names the expectedRevision it read. ${PURGE_NOTE} A change that narrows what agents have or can do applies at once; one that widens it waits for the owner's answer on its Change page (at most ${durationText(CHANGE_TTL_MS)}): open the link the result or the question gives, and do not repeat the call; read the settings to see whether it applied. Do not repeat a declined change.`;
+export const settingsOwnerInstructions = (answerMs: number): string =>
+  `${SETTINGS_SCOPE} Every settings write names the expectedRevision it read. ${PURGE_NOTE} A change that narrows what agents have or can do applies at once; one that widens it waits for the owner's answer on its Change page (at most ${durationText(answerMs)}): open the link the result or the question gives, and do not repeat the call; read the settings to see whether it applied. Do not repeat a declined change.`;
 
 /**
  * What an Owner client is told besides, by its Elicitation mode (plan D12): the mode the owner set for this client on the
@@ -118,7 +123,7 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
     name: "get_settings",
     class: "read",
     description:
-      "Reads the Harness settings (entity harness: each Pi Durable extension's switch and settings) or the Environment settings (entity environment: Container size, idle time, budget, the CLI agents' processes per Workspace cliProcessesPerWorkspace and their reclaim delay cliReclaimSeconds, the Turn limit turnLimitMinutes, the settings read wait settingsReadSeconds, Variables, Global mise config, the dotfiles toggles terminalsReadBashrc and agentsReadDotfiles, with the running Containers and costs): the revision, every setting resolved, its limits and its Change tier rule.",
+      "Reads the Harness settings (entity harness: each Pi Durable extension's switch and settings) or the Environment settings (entity environment: Container size, idle time, budget, the CLI agents' processes per Workspace cliProcessesPerWorkspace and their reclaim delay cliReclaimSeconds, the Turn limit turnLimitMinutes, the Answer wait ownerAnswerMinutes, the settings read wait settingsReadSeconds, Variables, Global mise config, the dotfiles toggles terminalsReadBashrc and agentsReadDotfiles, with the running Containers and costs): the revision, every setting resolved, its limits and its Change tier rule.",
     inputSchema: {
       type: "object",
       required: ["entity"],
@@ -301,7 +306,7 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
   {
     name: "change_environment",
     class: "write",
-    description: `Changes some of the Environment settings. The Container settings apply when each Workspace's Container next starts, not in one running now (terminalsReadBashrc too); agentsReadDotfiles and cliProcessesPerWorkspace apply at each CLI agent's next start (a lower count ends no running process), cliReclaimSeconds to CLI agents' processes started after the change; turnLimitMinutes at each thread's next turn (a running turn keeps the limit it started with); settingsReadSeconds at each thread's next turn, and at a Container start once the Workspace has kept it (a start uses the wait it last kept, so a change can take one more start to apply fully); the Grace (sweepPurges, graceDays) applies at the next Sweep. ${ASKED_NOTE}`,
+    description: `Changes some of the Environment settings. The Container settings apply when each Workspace's Container next starts, not in one running now (terminalsReadBashrc too); agentsReadDotfiles and cliProcessesPerWorkspace apply at each CLI agent's next start (a lower count ends no running process), cliReclaimSeconds to CLI agents' processes started after the change; turnLimitMinutes at each thread's next turn (a running turn keeps the limit it started with); ownerAnswerMinutes to cards raised after the change (a card already waiting keeps its deadline; a running CLI agent's cards keep the wait it started with); settingsReadSeconds at each thread's next turn, and at a Container start once the Workspace has kept it (a start uses the wait it last kept, so a change can take one more start to apply fully); the Grace (sweepPurges, graceDays) applies at the next Sweep. ${ASKED_NOTE}`,
     inputSchema: {
       type: "object",
       required: ["expectedRevision", "settings"],

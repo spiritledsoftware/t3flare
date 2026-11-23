@@ -293,3 +293,36 @@ connect (`#waitForBase`) and at its launch, so a new wait it keeps at the first 
 can take one more start to apply fully. The same wait bounds the start's reads of the Builder (`BUILDER_READ_MS`
 before). The skill set's copy (`SKILLS_TAKE_MS`) stays fixed: it
 bounds a copy of files, not a read of settings.
+
+## Refinement (SPI-1316, 2026-11-23): the Answer wait
+
+How long a card waits for the Owner was 10 minutes in four constants that had to agree: the MCP host's question wait
+(`QUESTION_WAIT_MS`), the CLI card's (`CLI_ASK_MS`), the Open change's lifetime (`CHANGE_TTL_MS`), and the library
+default they all came from (`MCP_ELICITATION_WAIT_MS`). They are now one Environment setting, not a Harness setting (it
+spans MCP questions, CLI approval cards and Open changes, for Durable and CLI agents alike, all in the Environment DO):
+`ownerAnswerMinutes`, 10 by default, 1 to `MAX_TIMED_MINUTES` (ADR-0048 §2: t3flare times it itself), tier `down-free`.
+It sits in the Agents row after the Turn limit. Its consequence is stated once, in its description (ADR-0048 §6): "An
+unanswered card is refused after this long. While it waits, the turn stays open and may hold its Container."
+
+It applies to the cards raised after a change; a card already waiting keeps its deadline. The Environment DO reads it
+when a card is raised (`EnvironmentServices.ownerAnswerMs`, `ownerAnswerMsNow`): the MCP host once per call, for the
+engine's input bound and each card's timer; the Settings server when it opens an Open change, whose `expiresAt` is its
+own deadline (its expired text names that record's wait); the CLI cards at the ask. `packages/mcp` keeps its 10 and 12
+minutes only as its defaults for a caller that passes no `inputWaitMs`, which t3flare's host never is. The unused
+prompt-time wait (`MCP_PROMPT_QUESTION_WAIT_MS`) is gone.
+
+A CLI agent's MCP tool timeout is written at its spawn, so it follows the wait at the spawn: `cliToolTimeoutSec(wait) =
+2 × wait + 300 s` (a relayed call can wait on an approval card and then an in-call question, each up to the wait, while
+the call's own 270 s clock is paused, plus a 30 s margin), carried as `relay.toolTimeoutSec` into Codex's
+`tool_timeout_sec` and pi's `mcp.json` `timeout`; 1,500 s at the default. Claude Code and OpenCode get no MCP timeout.
+So that a raised wait never outlasts the CLI's own timeout, a live CLI process's relay cards (its tool approvals, its
+servers' questions, and its Settings server's Open changes) keep the wait it was spawned with: the process channel keeps
+it with the process (`ChannelStart.answerMs`) and forgets it with the process, and the Workspace DO names the calling
+process's key with each relay message. Two processes of one thread each keep their own. The Settings server's
+instructions are built when served, with the wait they will apply.
+
+Unanswered strikes depend on it: one Open change per thread means three expiries span at least two waits, so a fixed
+hour would never see a run past a 30-minute wait. A run's window is `max(STRIKE_WINDOW_MS, (STRIKES - 1) × wait + 5
+min)` (`strikeWindowMs`), the hour at the default, where the wait is the longest its own changes took (`expiresAt -
+createdAt`), not the setting's: a CLI agent's changes take its spawn-time wait. A closed row is kept that window plus
+the lock (`closedKeptMs`) for the longest wait still kept, the setting's or a kept change's, so a run's rows outlast it.

@@ -224,8 +224,9 @@ _Avoid_: harness config, settings (alone)
 **Environment settings**:
 What the Cloud Environment gives every Workspace and its Container, and how long it keeps one: the Container size, idle
 time and budget, how many CLI agents' processes a Workspace may run and how long an idle one waits before it may be ended
-to free the Container for another Workspace, the Turn limit, the settings read wait, the Global mise config, the Image setup and the Container setup, the
-Environment skills, the Variables, whether Terminals and CLI agents read the Owner's dotfiles, and the Grace. t3flare's own, not t3's server settings.
+to free the Container for another Workspace, the Turn limit, the Answer wait, the settings read wait, the Global mise
+config, the Image setup and the Container setup, the Environment skills, the Variables, whether Terminals and CLI agents
+read the Owner's dotfiles, and the Grace. t3flare's own, not t3's server settings.
 _Avoid_: environment config, server settings, Container settings
 
 **Variable**:
@@ -249,6 +250,11 @@ _Avoid_: max instances, slots
 **Turn limit**:
 How long a turn may run before it is ended, for a Durable agent and a CLI agent alike; an Environment setting.
 _Avoid_: turn cap, turn deadline, timeout
+
+**Answer wait**:
+How long a card waits for the Owner's answer (an MCP server's question, a CLI agent's tool approval, an Open change)
+before it is refused as unanswered; an Environment setting.
+_Avoid_: question timeout, card TTL, approval timeout
 
 **Image setup**:
 The Owner's script, kept in the Environment settings, whose result on the Workspace image is the Base snapshot.
@@ -362,8 +368,8 @@ server's own entry). In full access a free change runs unasked; an asked change 
 _Avoid_: risk level, permission level, direct (that is an Exposure), confirmation tier
 
 **Open change**:
-An asked Settings change, or a Purge asked through the Settings server, waiting for its answer, kept for at most 10
-minutes and answered once.
+An asked Settings change, or a Purge asked through the Settings server, waiting for its answer, kept for at most the
+Answer wait and answered once.
 _Avoid_: Proposal (a queue), pending request (t3's), draft
 
 **Change page**:

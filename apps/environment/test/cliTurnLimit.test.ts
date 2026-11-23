@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   bindEnvironmentServices,
   type EnvironmentServices,
+  ownerAnswerMsNow,
   settingsReadMsNow,
   turnLimitMsNow,
 } from "../src/agents/bindings.ts";
@@ -115,5 +116,24 @@ describe("settingsReadMsNow (SPI-1314)", () => {
     expect(settingsReadMsNow()).toBe(5000);
     bindEnvironmentServices(undefined as unknown as EnvironmentServices);
     expect(settingsReadMsNow()).toBe(5000);
+  });
+});
+
+describe("ownerAnswerMsNow (SPI-1316)", () => {
+  afterEach(() => bindEnvironmentServices(undefined as unknown as EnvironmentServices));
+
+  it("reads the Environment's Answer wait, and the default (10 minutes) without services, a reader, or a readable store", () => {
+    bindEnvironmentServices({ ownerAnswerMs: () => 60_000 } as unknown as EnvironmentServices);
+    expect(ownerAnswerMsNow()).toBe(60_000);
+    bindEnvironmentServices({
+      ownerAnswerMs: () => {
+        throw new Error("storage reset");
+      },
+    } as unknown as EnvironmentServices);
+    expect(ownerAnswerMsNow()).toBe(600_000);
+    bindEnvironmentServices({} as unknown as EnvironmentServices);
+    expect(ownerAnswerMsNow()).toBe(600_000);
+    bindEnvironmentServices(undefined as unknown as EnvironmentServices);
+    expect(ownerAnswerMsNow()).toBe(600_000);
   });
 });

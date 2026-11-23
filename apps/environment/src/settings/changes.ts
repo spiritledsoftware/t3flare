@@ -5,11 +5,10 @@
 //
 // Kept in storage, not memory: the Environment resets after about 60 s idle (ADR-0003), which can fall between the ask
 // and the owner's click. Rows expire and are pruned lazily, on every read and write of the table: an open row past its
-// `expiresAt` closes as `expired`, and a closed row goes `CLOSED_KEPT_MS` after it closed (the longest a cap looks back:
+// `expiresAt` closes as `expired`, and a closed row goes `keptMs` after it closed (the longest a cap looks back:
 // a run of strikes and the lock after its last). No alarm is added (ADR-0003: one alarm).
 import type { SqlStorage } from "@cloudflare/workers-types/index.ts";
-import { MCP_ELICITATION_WAIT_MS } from "@t3flare/mcp/types";
-import { withoutQuery } from "@t3flare/harness-registry";
+import { DEFAULT_OWNER_ANSWER_MS, withoutQuery } from "@t3flare/harness-registry";
 import { sha256Hex } from "@t3flare/skills";
 
 import { base64Url } from "../harness/keys.ts";
@@ -18,16 +17,36 @@ import type { ChangeEntity, ChangeView, PageReason } from "./types.ts";
 
 export const CHANGES_TABLE = "t3flare_settings_changes";
 
-/** Three strikes count as a run when they fall within this long of each other (plan D16). */
+/**
+ * This many in a row declined (or, for own agents, unanswered), within `strikeWindowMs` of each other, refuse the
+ * caller's asked changes for `STRIKE_LOCK_MS` from the last of them.
+ */
+export const STRIKES = 3;
+/** Three strikes count as a run when they fall within this long of each other (plan D16), at least. */
 export const STRIKE_WINDOW_MS = 60 * 60_000;
 /** A run of strikes refuses the caller's asked changes this long after its last strike (plan D16). */
 export const STRIKE_LOCK_MS = 60 * 60_000;
+/** What a strike run's window has over its expiries' spacing: room for each next ask after an expiry. */
+const STRIKE_RUN_SLACK_MS = 5 * 60_000;
 
-/** How long a closed row is kept: the longest a cap looks back, a run of strikes and the lock after it (plan D16). */
-export const CLOSED_KEPT_MS = STRIKE_WINDOW_MS + STRIKE_LOCK_MS;
+/**
+ * How far apart a run of strikes may fall (SPI-1316), for the longest Answer wait `answerMs` among the run's changes:
+ * `STRIKE_WINDOW_MS`, or more when the wait is long. One Open change per thread means its unanswered strikes come at
+ * least a wait apart, so a run of expiries spans `STRIKES - 1` waits; a fixed window would never see one past a
+ * 30-minute wait.
+ */
+export const strikeWindowMs = (answerMs: number): number =>
+  Math.max(STRIKE_WINDOW_MS, (STRIKES - 1) * answerMs + STRIKE_RUN_SLACK_MS);
 
-/** How long an Open change waits for its answer (plan D8): the MCP host's question wait, `QUESTION_WAIT_MS`, which is this. */
-export const CHANGE_TTL_MS = MCP_ELICITATION_WAIT_MS;
+/**
+ * How long a closed row is kept: the longest a cap looks back, a run of strikes and the lock after it (plan D16), for
+ * the longest Answer wait `answerMs` a run may have. Two hours at the default.
+ */
+export const closedKeptMs = (answerMs: number): number => strikeWindowMs(answerMs) + STRIKE_LOCK_MS;
+
+/** The wait a change took when it opened (SPI-1316): its own deadline less its start; none for a free change. */
+export const waitOf = (record: Pick<ChangeRecord, "createdAt" | "expiresAt">): number =>
+  (record.expiresAt ?? record.createdAt) - record.createdAt;
 
 /** A duration as the texts name it: "10 minutes", "an hour", "2 hours". */
 export const durationText = (ms: number): string => {
@@ -162,6 +181,13 @@ export interface SettingsChanges {
   noteRead(key: string, kind: "read" | "network", at: number): void;
   /** Reads by `key` since `since`: every read for `read`, those that reach the network for `network`. */
   readsSince(key: string, kind: "read" | "network", since: number): number;
+  /** The Answer wait now (SPI-1316), in ms. */
+  answerMs(): number;
+  /**
+   * How long a closed row is kept (SPI-1316): `closedKeptMs` of the longest wait a run may have, the wait now or the
+   * longest any kept change took (a CLI agent's change takes the wait its process was spawned with).
+   */
+  keptMs(): number;
 }
 
 /**
@@ -212,12 +238,14 @@ export const closedLine = (record: ChangeRecord): Record<string, unknown> => ({
 
 /**
  * The table over `sql`. `log` gets the line of each change the table itself closes (an expiry, or an apply the
- * Environment's restart cut off), since no answerer is there to write it.
+ * Environment's restart cut off), since no answerer is there to write it. `answerMs` is the Answer wait now (SPI-1316),
+ * which a closed row's keeping covers (`keptMs`).
  */
 export const settingsChanges = (
   sql: Pick<SqlStorage, "exec">,
   now: () => number = Date.now,
   log?: (event: Record<string, unknown>) => void,
+  answerMs: () => number = () => DEFAULT_OWNER_ANSWER_MS,
 ): SettingsChanges => {
   let ready = false;
   const write = (record: ChangeRecord) =>
@@ -239,7 +267,18 @@ export const settingsChanges = (
         const record = parse(row.record);
         return record === undefined ? [] : [record];
       });
-  /** Creates the table once, closes what has expired, and prunes what closed over `CLOSED_KEPT_MS` ago. */
+  /** The longest wait a kept change took, or the wait now, whichever is longer (SPI-1316). */
+  const longestWait = (): number => {
+    const row = sql
+      .exec<{ longest: number | null }>(
+        // A malformed row is skipped, as `parse` skips it: `json_extract` would throw on it and break every read.
+        `SELECT MAX(json_extract(record, '$.expiresAt') - created_at) AS longest FROM ${CHANGES_TABLE} WHERE json_valid(record)`,
+      )
+      .toArray()[0];
+    return Math.max(answerMs(), Number(row?.longest ?? 0));
+  };
+  const keptMs = (): number => closedKeptMs(longestWait());
+  /** Creates the table once, closes what has expired, and prunes what closed over `keptMs` ago. */
   const prepare = () => {
     if (!ready) {
       sql.exec(
@@ -274,7 +313,7 @@ export const settingsChanges = (
       write(closed);
       log?.(closedLine(closed));
     }
-    sql.exec(`DELETE FROM ${CHANGES_TABLE} WHERE closed_at IS NOT NULL AND closed_at < ?`, at - CLOSED_KEPT_MS);
+    sql.exec(`DELETE FROM ${CHANGES_TABLE} WHERE closed_at IS NOT NULL AND closed_at < ?`, at - keptMs());
     sql.exec(`DELETE FROM ${READS_TABLE} WHERE at < ?`, at - READ_WINDOW_MS);
   };
   return {
@@ -291,7 +330,7 @@ export const settingsChanges = (
     },
     openedSince: (key, since) => {
       prepare();
-      // Closed rows are kept two hours (`CLOSED_KEPT_MS`), longer than any window this is asked about.
+      // Closed rows are kept two hours at least (`closedKeptMs`), longer than any window this is asked about.
       return rows(`caller_key = ? AND created_at >= ?`, key, since).filter((record) => record.tier === "asked").length;
     },
     recordApplied: (record) => {
@@ -325,6 +364,11 @@ export const settingsChanges = (
     noteRead: (key, kind, at) => {
       prepare();
       sql.exec(`INSERT INTO ${READS_TABLE} (caller_key, kind, at) VALUES (?, ?, ?)`, key, kind, at);
+    },
+    answerMs,
+    keptMs: () => {
+      prepare();
+      return keptMs();
     },
     readsSince: (key, kind, since) => {
       prepare();

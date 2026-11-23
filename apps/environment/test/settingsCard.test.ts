@@ -4,13 +4,16 @@
 // withdraws the Open change.
 import { applyChange, CARD_TEXT_MAX, EMPTY_HARNESS, MAX_GLOBAL_MISE_BYTES } from "@t3flare/harness-registry";
 import { type McpQuestionCard } from "@t3flare/session-protocol";
+import type { McpCallAnswer } from "../src/mcp/host.ts";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { handleHarness } from "../src/harness/panel.ts";
 import { CHANGES_API_PATH, changePagePath } from "../src/harness/paths.ts";
 import { HINT_TRUST_LINE } from "../src/settings/render.ts";
 import { addMcpServer } from "../src/harness/ops.ts";
-import { HOST, PANEL, settingsFixture, type SettingsFixture, structured, until } from "./settingsFixture.ts";
+import { HOST, PANEL, settingsFixture, type SettingsFixture, structured, textOf, until } from "./settingsFixture.ts";
+import { ownerOutcome } from "../src/settings/server.ts";
+import { settingsInstructions, settingsOwnerInstructions } from "../src/settings/tools.ts";
 import { csrfToken } from "../src/harness/csrf.ts";
 
 let fixture: SettingsFixture | undefined;
@@ -233,5 +236,48 @@ describe("the asked change's card", () => {
       structured(await run.call(run.durable("thread-full", "full-access"), "change_environment", ASKED)),
     ).toMatchObject({ status: "applied" });
     expect(run.cards.length).toBe(1);
+  });
+});
+
+describe("the asked change's wait is the Answer wait (SPI-1316)", () => {
+  /** The change the call opened, read back from the table (it may have closed). */
+  const opened = (run: SettingsFixture) =>
+    run.deps.changes.get(run.cards[0]!.prompt.match(/changes\/(chg_[\w-]+)/)![1]!);
+
+  it("records expiresAt = createdAt + the wait, and closes unanswered after it, saying how long it waited", async () => {
+    // The real path: no cardWaitMs, so the call's timer is the record's own expiresAt - createdAt.
+    fixture = settingsFixture({ answer: open, answerMs: () => 40 });
+    const run = fixture;
+    const answer = await run.call(run.durable(), "change_environment", ASKED);
+    expect(structured(answer)).toMatchObject({ status: "expired" });
+    const record = opened(run)!;
+    expect(record.expiresAt! - record.createdAt).toBe(40);
+    expect(run.store.loadEnvironment().revision).toBe(0);
+  });
+
+  it("at one minute, an Open change records createdAt + 60,000, and its expired text names a minute", async () => {
+    fixture = settingsFixture({ answer: { decision: "cancel", reason: "no answer in time" }, answerMs: () => 60_000 });
+    const run = fixture;
+    await run.call(run.durable(), "change_environment", ASKED);
+    const record = opened(run)!;
+    expect(record.expiresAt).toBe(record.createdAt + 60_000);
+    // An Open change that expired says how long it waited: its own record's wait.
+    expect(
+      textOf(ownerOutcome({ state: "expired" } as never, { ...record, state: "expired" }) as McpCallAnswer),
+    ).toContain("the owner did not answer within a minute.");
+  });
+
+  it("a CLI process's asker names its spawn-time wait, which the change takes over the wait now", async () => {
+    fixture = settingsFixture({ answer: open, answerMs: () => 60 * 60_000, askerWaitMs: 40 });
+    const run = fixture;
+    const answer = await run.call(run.durable(), "change_environment", ASKED);
+    expect(structured(answer)).toMatchObject({ status: "expired" });
+    const record = opened(run)!;
+    expect(record.expiresAt! - record.createdAt).toBe(40);
+  });
+
+  it("the Settings server's instructions name the wait they are built with", () => {
+    expect(settingsInstructions(30 * 60_000)).toContain("(at most 30 minutes, one at a time per thread)");
+    expect(settingsOwnerInstructions(60_000)).toContain("on its Change page (at most a minute)");
   });
 });

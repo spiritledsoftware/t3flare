@@ -17,13 +17,14 @@ import {
   extensionOf,
   type McpRelayAnswer,
   type McpRelayInput,
+  ownerAnswerMsOf,
   resolveEnvironment,
   type ResolvedEnvironment,
   resolveHarness,
   type ResolvedHarness,
 } from "@t3flare/harness-registry";
 
-import { bindEnvironmentServices, environmentServices } from "./agents/bindings.ts";
+import { bindEnvironmentServices, environmentServices, ownerAnswerMsNow } from "./agents/bindings.ts";
 import { graceMoved, ownerSweep, SweepWake } from "./agents/sweepWake.ts";
 import { GitHubTokens } from "./agents/github.ts";
 import { deliverPush } from "./agents/sessionSink.ts";
@@ -247,6 +248,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       // Read at each turn's start (SPI-1314): how long the Session waits there for the newest settings.
       settingsReadMs: () =>
         resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).settingsReadSeconds * 1000,
+      // Read when a card is raised and at each CLI spawn (SPI-1316): a card already waiting keeps its deadline.
+      ownerAnswerMs: () => ownerAnswerMsOf(resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment())),
       // The deletion wake's Layer (`t3/deletionWake.ts`, ADR-0043 §5) asks for a Sweep here.
       wakeSweep: () => this.wakeSweep(),
       marks: { has: (key) => ctx.storage.kv.get(key) !== undefined, set: (key) => ctx.storage.kv.put(key, Date.now()) },
@@ -701,7 +704,12 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
           : caller.agent === DURABLE_AGENT
             ? durableModes(caller.thread)
             : cliThreadState(caller.thread),
-      changes: settingsChanges(this.ctx.storage.sql, Date.now, (event) => console.log(JSON.stringify(event))),
+      changes: settingsChanges(
+        this.ctx.storage.sql,
+        Date.now,
+        (event) => console.log(JSON.stringify(event)),
+        ownerAnswerMsNow,
+      ),
       origin: () =>
         this.env.T3FLARE_HOST === undefined && this.#host === undefined
           ? undefined
@@ -848,13 +856,18 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       const [{ relayMessage }, { approveCliTool, cliQuestionAsker, cliThreadState }, { stoppableCall }] =
         await Promise.all([import("./mcp/relay.ts"), import("./provider/cli/cliAsk.ts"), import("./mcp/callStops.ts")]);
       const accepted = this.#relayAccepted;
+      // SPI-1316: the calling process's cards wait the Answer wait it was spawned with, which its MCP tool timeout was
+      // made from; a process the channel does not know (gone, or no key) waits the wait now.
+      const waitMs =
+        (input.process === undefined ? undefined : this.#processes.answerMsOf(input.process)) ?? ownerAnswerMsNow();
       return await relayMessage(input, {
         view: () => this.mcpHost.view(),
         call: stoppableCall(this.mcpHost),
         readAppResource: (read) => this.mcpHost.readAppResource(read),
         state: cliThreadState,
-        ask: approveCliTool,
-        asker: cliQuestionAsker,
+        ask: (ask) => approveCliTool({ ...ask, waitMs }),
+        asker: (thread) => cliQuestionAsker(thread, waitMs),
+        answerMs: () => waitMs,
         accepted: {
           has: (thread: string, key: string) => accepted.get(thread)?.has(key) === true,
           add: (thread: string, key: string) => {

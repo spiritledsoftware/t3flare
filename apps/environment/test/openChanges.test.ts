@@ -1,15 +1,16 @@
 // T-open (plan §5; ADR-0035, plan D8, D16), M4 (SPI-1199): the Open change. Single use; expiry at 10 minutes and lazy
-// pruning two hours after closing (`CLOSED_KEPT_MS`); D8's answerer table, a wrong `sub`; a moved revision; two changes
+// pruning two hours after closing (`closedKeptMs`); D8's answerer table, a wrong `sub`; a moved revision; two changes
 // against one revision; the record surviving an Environment reset; a skill whose digest changed at apply; every cap of
 // D16, and that a dropped stream or an expiry is not a strike for an Owner client.
+import { DEFAULT_OWNER_ANSWER_MS } from "@t3flare/harness-registry";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
   APPLIED_CAP,
-  CHANGE_TTL_MS,
+  CHANGES_TABLE,
   type ChangeCaller,
   type ChangeRecord,
-  CLOSED_KEPT_MS,
+  closedKeptMs,
   NETWORK_READ_CAP,
   newChangeId,
   OPENED_CAP,
@@ -17,6 +18,7 @@ import {
   settingsChanges,
   STRIKE_LOCK_MS,
   STRIKE_WINDOW_MS,
+  strikeWindowMs,
 } from "../src/settings/changes.ts";
 import {
   type AnswerDeps,
@@ -44,8 +46,11 @@ const OWNER: ChangeCaller = {
 };
 const TOKEN: ChangeCaller = { door: "owner", key: "service-token", principal: "service-token" };
 
-/** A unit world: the table over Node's SQLite, a revision, and an apply that records its calls. */
-const world = () => {
+/**
+ * A unit world: the table over Node's SQLite, a revision, and an apply that records its calls. `answerMs` is the Answer
+ * wait the table and each opened change take (SPI-1316).
+ */
+const world = (answerMs = DEFAULT_OWNER_ANSWER_MS) => {
   let now = NOW;
   let revision = 4;
   const sql = nodeSqlStorage();
@@ -56,6 +61,7 @@ const world = () => {
       sql,
       () => now,
       (event) => void logs.push(event),
+      () => answerMs,
     ),
     now: () => now,
     revisionOf: () => revision,
@@ -80,7 +86,7 @@ const world = () => {
       mode: caller.door === "own" ? "card" : "browser",
       caller,
       createdAt: now,
-      expiresAt: now + CHANGE_TTL_MS,
+      expiresAt: now + answerMs,
       state: "open",
       ...extra,
     };
@@ -146,10 +152,13 @@ describe("expiry and pruning", () => {
   it("expires at 10 minutes, and an answer after it applies nothing", async () => {
     const w = world();
     const record = w.open(OWN);
-    w.advance(CHANGE_TTL_MS - 1);
+    w.advance(DEFAULT_OWNER_ANSWER_MS - 1);
     expect(w.deps().changes.get(record.id)?.state).toBe("open");
     w.advance(1);
-    expect(w.deps().changes.get(record.id)).toMatchObject({ state: "expired", closed: { at: NOW + CHANGE_TTL_MS } });
+    expect(w.deps().changes.get(record.id)).toMatchObject({
+      state: "expired",
+      closed: { at: NOW + DEFAULT_OWNER_ANSWER_MS },
+    });
     // An expiry is a log line (plan D15), `settings-change` as a change's own end, written once, by the table that
     // closed it.
     w.deps().changes.get(record.id);
@@ -172,11 +181,11 @@ describe("expiry and pruning", () => {
     expect(w.applied).toEqual([]);
   });
 
-  it("prunes a row two hours after it closed (CLOSED_KEPT_MS), lazily", () => {
+  it("prunes a row two hours after it closed (closedKeptMs at the default wait), lazily", () => {
     const w = world();
     const record = w.open(OWN);
     closeOpenChange(w.deps(), record.id, "withdrawn", "stop");
-    w.advance(CLOSED_KEPT_MS);
+    w.advance(closedKeptMs(DEFAULT_OWNER_ANSWER_MS));
     expect(w.deps().changes.get(record.id)?.state).toBe("withdrawn");
     w.advance(1);
     expect(w.deps().changes.get(record.id)).toBeUndefined();
@@ -378,7 +387,7 @@ describe("D16's caps", () => {
       const record = w.open(OWN, { hash: `hash-${index}` });
       if (how === "decline")
         await answerOpenChange(w.deps(), record.id, { by: "card", answerer: { kind: "card" }, action: "decline" });
-      else w.advance(CHANGE_TTL_MS);
+      else w.advance(DEFAULT_OWNER_ANSWER_MS);
       w.advance(1_000);
     };
     await strike(1, "decline");
@@ -410,13 +419,67 @@ describe("D16's caps", () => {
     expect(capRefusal(fresh.deps().changes, OWN, "hash-9", fresh.now())).toBeUndefined();
   });
 
+  it("a long wait widens the strike window, from the run's own changes, so spaced-out expiries still lock (SPI-1316)", () => {
+    // One Open change per thread: each next ask comes after the last expired, so three expiries span two waits.
+    const run = (w: ReturnType<typeof world>, waitMs: number) => {
+      for (let index = 1; index <= 3; index++) {
+        w.open(OWN, { hash: `hash-${index}`, expiresAt: w.now() + waitMs });
+        w.advance(waitMs + 1_000);
+      }
+    };
+    const long = 45 * 60_000;
+    expect(strikeWindowMs(DEFAULT_OWNER_ANSWER_MS)).toBe(STRIKE_WINDOW_MS);
+    expect(strikeWindowMs(long)).toBe(2 * long + 5 * 60_000);
+    // At a 45-minute wait the run spans 90 minutes, past the hour.
+    const w = world(long);
+    run(w, long);
+    expect(capRefusal(w.deps().changes, OWN, "hash-9", w.now())).toMatchObject({ reason: "strikes" });
+    // A CLI agent spawned at 45 minutes keeps that wait for its changes after the setting is lowered to 10: the window
+    // follows the changes' own waits, not the setting's.
+    const lowered = world(10 * 60_000);
+    run(lowered, long);
+    expect(capRefusal(lowered.deps().changes, OWN, "hash-9", lowered.now())).toMatchObject({ reason: "strikes" });
+    // Three short expiries spread over two hours are no run.
+    const spread = world();
+    for (let index = 1; index <= 3; index++) {
+      spread.open(OWN, { hash: `hash-${index}` });
+      spread.advance(DEFAULT_OWNER_ANSWER_MS + 50 * 60_000);
+    }
+    expect(capRefusal(spread.deps().changes, OWN, "hash-9", spread.now())).toBeUndefined();
+  });
+
+  it("skips a malformed row when it works out the longest wait, as its reads skip it (SPI-1316)", () => {
+    const w = world();
+    const record = w.open(OWN);
+    w.sql.exec(`UPDATE ${CHANGES_TABLE} SET record = ? WHERE id = ?`, "{not json", record.id);
+    expect(w.deps().changes.keptMs()).toBe(closedKeptMs(DEFAULT_OWNER_ANSWER_MS));
+    expect(w.deps().changes.get(record.id)).toBeUndefined();
+    expect(w.deps().changes.open()).toEqual([]);
+  });
+
+  it("keeps closed rows for the window and lock of the longest wait still kept, the setting's or a change's (SPI-1316)", () => {
+    const long = 45 * 60_000;
+    expect(closedKeptMs(long)).toBe(strikeWindowMs(long) + STRIKE_LOCK_MS);
+    // The setting is 10 minutes, but a change took 45 (a CLI agent's spawn-time wait): rows stay for 45's keeping.
+    const w = world();
+    expect(w.deps().changes.keptMs()).toBe(closedKeptMs(DEFAULT_OWNER_ANSWER_MS));
+    const record = w.open(OWN, { expiresAt: w.now() + long });
+    closeOpenChange(w.deps(), record.id, "withdrawn", "stop");
+    expect(w.deps().changes.keptMs()).toBe(closedKeptMs(long));
+    w.advance(closedKeptMs(long));
+    expect(w.deps().changes.get(record.id)?.state).toBe("withdrawn");
+    w.advance(1);
+    expect(w.deps().changes.get(record.id)).toBeUndefined();
+    expect(w.deps().changes.keptMs()).toBe(closedKeptMs(DEFAULT_OWNER_ANSWER_MS));
+  });
+
   it("for an Owner client, only declines strike: a dropped stream (withdrawn) or an expiry is not a strike", async () => {
     const w = world();
     for (let index = 0; index < 3; index++) {
       const record = w.open(OWNER, { hash: `w-${index}` });
       closeOpenChange(w.deps(), record.id, "withdrawn");
       const expiring = w.open(OWNER, { hash: `e-${index}` });
-      w.advance(CHANGE_TTL_MS);
+      w.advance(DEFAULT_OWNER_ANSWER_MS);
       expect(w.deps().changes.get(expiring.id)?.state).toBe("expired");
     }
     // Past the opened cap's hour, so only the strikes are judged.

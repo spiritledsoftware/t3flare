@@ -1,6 +1,7 @@
 // CLI profiles (step 4a, plan §4 with the review's F2, F4, F5 and M0's findings): what a Codex or pi process gets,
 // whatever t3 asked. Expected values are the M0 probes' (steps-evidence-1:docs/steps/step-4a/m0-local.json), not recomputed here. Every
 // CLI runs on its Model endpoints through the model relay, and is refused without one (SPI-1176).
+import { cliToolTimeoutSec } from "@t3flare/harness-registry";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -511,6 +512,7 @@ describe("pi's profile", () => {
     const relayed = (
       args: ReadonlyArray<string>,
       servers: ReadonlyArray<string> = ["commissary", "settings", "docs"],
+      toolTimeoutSec = 1500,
     ) =>
       profileLaunch(
         {
@@ -521,8 +523,15 @@ describe("pi's profile", () => {
           env: { T3_PI_RUNTIME_MODE: "approval-required" },
           allowProbe: false,
         },
-        { ...context, relay: { handle: HANDLE, servers } },
+        { ...context, relay: { handle: HANDLE, servers, toolTimeoutSec } },
       );
+
+    it("writes the relay's tool timeout as each entry's timeout (SPI-1316: cliToolTimeoutSec of a 30-minute wait)", () => {
+      const answer = relayed(rpc, ["commissary"], cliToolTimeoutSec(30 * 60_000));
+      if ("refused" in answer) throw new Error(answer.refused);
+      const file = answer.files!.find((entry) => entry.path === "/var/lib/t3flare/cli/proc-1/agent/mcp.json");
+      expect(JSON.parse(file!.text).mcpServers.commissary.timeout).toBe(3900);
+    });
 
     it("writes one mcp.json entry per relay server in the agent dir, with the relay's URL, the handle's header, the CLI timeout and deferred exposure", () => {
       const answer = relayed(rpc);
@@ -533,7 +542,7 @@ describe("pi's profile", () => {
       const entry = (url: string) => ({
         url,
         headers: { Authorization: "Bearer ${T3FLARE_TOOL_HANDLE}" },
-        timeout: 900,
+        timeout: 1500,
         exposure: "deferred",
       });
       expect(JSON.parse(file!.text)).toEqual({

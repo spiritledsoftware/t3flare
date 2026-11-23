@@ -98,6 +98,8 @@ export const sessionFor = (
       workspace: cwd === null ? null : (toWorkspace(cwd)?.id ?? null),
       turnActive: false,
       limitFiber: undefined,
+      // One handle per session: were two of its processes ever live at once, the Workspace DO's `toolCaller` would name
+      // the older, and the newer's relay cards would wait the older's spawn-time Answer wait (SPI-1316).
       toolHandle: newHandle(),
     };
     sessions.set(providerSessionId, session);

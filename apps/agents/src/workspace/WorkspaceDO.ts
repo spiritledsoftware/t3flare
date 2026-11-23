@@ -2809,6 +2809,7 @@ export class WorkspaceDO extends ContainerHost {
       workspace,
       thread: caller.thread,
       cli: caller.cli,
+      process: caller.key,
       server: input.server,
       message: input.message,
       askId: input.askId,

@@ -9,6 +9,7 @@ import {
   BASE_BUILD_SETTING_KEYS,
   builderInstance,
   containerInstance,
+  DEFAULT_OWNER_ANSWER_MS,
   DEFAULT_SETTINGS_READ_MS,
   DOTFILES_SETTING_KEYS,
   EMPTY_ENVIRONMENT,
@@ -22,6 +23,7 @@ import {
   SWEEP_SETTING_KEYS,
 } from "./environment.ts";
 import type { EnvironmentSettingEntry } from "./fields.ts";
+import { cliToolTimeoutSec } from "./mcp.ts";
 
 /** The Base build's settings at their defaults (SPI-1332, ADR-0047 §9). */
 const BASE_DEFAULTS = {
@@ -43,6 +45,7 @@ const TUNABLE_DEFAULTS = {
   cliProcessesPerWorkspace: 4,
   cliReclaimSeconds: 30,
   turnLimitMinutes: 120,
+  ownerAnswerMinutes: 10,
   globalMiseInstallMinutes: 10,
   settingsReadSeconds: 5,
 } as const;
@@ -381,13 +384,51 @@ describe("the Turn limit (SPI-1315)", () => {
   it("is down-free, in the Agents row (AGENT_SETTING_KEYS), and states its consequence once in Owner words", () => {
     expect(ENVIRONMENT_SETTINGS.turnLimitMinutes).toMatchObject({ tier: "down-free" });
     expect("row" in ENVIRONMENT_SETTINGS.turnLimitMinutes).toBe(false);
-    expect(AGENT_SETTING_KEYS).toEqual(["turnLimitMinutes", "cliProcessesPerWorkspace", "cliReclaimSeconds"]);
+    expect(AGENT_SETTING_KEYS).toEqual([
+      "turnLimitMinutes",
+      "ownerAnswerMinutes",
+      "cliProcessesPerWorkspace",
+      "cliReclaimSeconds",
+    ]);
     expect(ENVIRONMENT_SETTINGS.turnLimitMinutes.description).toContain(
       "A turn longer than this is ended (a CLI agent's process with it), and the thread shows it failed. Each minute of a turn can spend model tokens and hold a Container.",
     );
     expect(ENVIRONMENT_SETTINGS.turnLimitMinutes.description).toContain(
       "a running turn keeps the limit it started with",
     );
+  });
+});
+
+describe("the Answer wait (SPI-1316)", () => {
+  const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
+
+  it("is 10 minutes by default, 1 to MAX_TIMED_MINUTES (10,080) whole minutes (ADR-0048 §2)", () => {
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT).ownerAnswerMinutes).toBe(10);
+    expect(DEFAULT_OWNER_ANSWER_MS).toBe(600_000);
+    for (const minutes of [1, 10, 120, MAX_TIMED_MINUTES])
+      expect(set({ ownerAnswerMinutes: minutes })).toMatchObject({ ok: true });
+    for (const minutes of [0, MAX_TIMED_MINUTES + 1, 2.5, "10"])
+      expect(set({ ownerAnswerMinutes: minutes })).toMatchObject({ ok: false });
+    expect(resolveEnvironment({ revision: 1, settings: { ownerAnswerMinutes: 0 } }).ownerAnswerMinutes).toBe(10);
+  });
+
+  it("is down-free, in the Agents row after the Turn limit, and says what a waiting card keeps", () => {
+    expect(ENVIRONMENT_SETTINGS.ownerAnswerMinutes).toMatchObject({
+      title: "Answer wait (minutes)",
+      tier: "down-free",
+    });
+    expect(AGENT_SETTING_KEYS.indexOf("ownerAnswerMinutes")).toBe(AGENT_SETTING_KEYS.indexOf("turnLimitMinutes") + 1);
+    expect(ENVIRONMENT_SETTINGS.ownerAnswerMinutes.description).toContain(
+      "An unanswered card is refused after this long. While it waits, the turn stays open and may hold its Container.",
+    );
+    expect(ENVIRONMENT_SETTINGS.ownerAnswerMinutes.description).toContain("a card already waiting keeps its deadline");
+  });
+
+  it("sets a CLI process's MCP tool timeout: two waits plus 300 s (cliToolTimeoutSec)", () => {
+    expect(cliToolTimeoutSec(DEFAULT_OWNER_ANSWER_MS)).toBe(1500);
+    expect(cliToolTimeoutSec(30 * 60_000)).toBe(3900);
+    expect(cliToolTimeoutSec(60_000)).toBe(420);
+    expect(cliToolTimeoutSec(1500)).toBe(304);
   });
 });
 

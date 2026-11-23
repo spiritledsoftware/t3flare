@@ -56,6 +56,10 @@ export interface FixtureOptions {
   readonly links?: Readonly<Record<string, ThreadLink>>;
   readonly harness?: StoredHarness;
   readonly cardWaitMs?: number;
+  /** The Answer wait the changes table reads (SPI-1316); its default without it. */
+  readonly answerMs?: () => number;
+  /** The wait the asker names, as a CLI process's relay asker does (its spawn-time Answer wait, SPI-1316). */
+  readonly askerWaitMs?: number;
   /** The Workspaces `list_workspaces` and `purge_workspace` act on (ADR-0044 §5). */
   readonly workspaces?: SettingsServerDeps["workspaces"];
   /** `get_status` reads the panel's Status, as the Environment DO wires it, rather than the revision alone. */
@@ -75,6 +79,7 @@ export const settingsFixture = (options: FixtureOptions = {}) => {
   const cards: Array<McpQuestionCard> = [];
   const withdrawn: Array<string> = [];
   const asker: McpAsker = {
+    ...(options.askerWaitMs === undefined ? {} : { waitMs: options.askerWaitMs }),
     ask: async (card) => {
       cards.push(card);
       const answer = options.answer ?? { decision: "accept" };
@@ -116,6 +121,7 @@ export const settingsFixture = (options: FixtureOptions = {}) => {
       sql,
       () => now,
       (event) => void logs.push(event),
+      ...(options.answerMs === undefined ? [] : [options.answerMs]),
     );
   /** The Owner clients' modes, over the same SQLite (the panel sets them; the endpoint reads them). */
   const clients = ownerClients(sql, () => now);
