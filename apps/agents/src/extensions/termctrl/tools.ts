@@ -75,9 +75,15 @@ export const clampWait = (requested: number | undefined, fallback: number): numb
 
 /** How a process ended (exit-notification.ts `describeExitStatus`). */
 export const describeExitStatus = (exit: AgentExit): string => {
-  if (exit.signal !== null && exit.code !== null) return `exited with code ${exit.code} (${exit.signal})`;
-  if (exit.signal !== null) return `ended by ${exit.signal}`;
-  return `exited with code ${exit.code ?? "unknown"}`;
+  const how =
+    exit.signal !== null && exit.code !== null
+      ? `exited with code ${exit.code} (${exit.signal})`
+      : exit.signal !== null
+        ? `ended by ${exit.signal}`
+        : exit.code === null && exit.note !== undefined
+          ? "ended"
+          : `exited with code ${exit.code ?? "unknown"}`;
+  return exit.note === undefined ? how : `${how}: ${exit.note}`;
 };
 
 export const formatDuration = (milliseconds: number): string => {
@@ -109,9 +115,10 @@ export const formatExitNotice = (entry: AgentEntryInfo, output: string, tailLine
     : `${head}\nLast lines of ${entry.kind === "terminal" ? "final screen" : "output"}:\n${tail}`;
 };
 
-const exitFields = (exit: AgentExit | null): { exit_code?: number; signal?: string } => ({
+const exitFields = (exit: AgentExit | null): { exit_code?: number; signal?: string; note?: string } => ({
   ...(exit?.code === null || exit?.code === undefined ? {} : { exit_code: exit.code }),
   ...(exit?.signal === null || exit?.signal === undefined ? {} : { signal: exit.signal }),
+  ...(exit?.note === undefined ? {} : { note: exit.note }),
 });
 
 const splitRows = (screen: string): Array<string> => (screen === "" ? [] : screen.split("\n"));

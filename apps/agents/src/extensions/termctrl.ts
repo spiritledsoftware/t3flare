@@ -27,6 +27,7 @@ import type { CodemodeNamespace } from "@earendil-works/pi-durable/codemode";
 
 import type { BackgroundJobs } from "./coding-tools.ts";
 import {
+  describeExitStatus,
   EXIT_TAIL_LINES,
   formatExitNotice,
   START_WAIT_MS,
@@ -163,7 +164,7 @@ export const backgroundJobs = (host: TermctrlHost): BackgroundJobs => ({
       // Finished in the foreground: an ordinary `bash` result, and no job is left behind.
       await host.call({ op: "stop", owner, id });
       const exitCode = view.exit?.code ?? null;
-      const text = `${output === "" ? "(no output)" : output}${exitCode === 0 ? "" : `\n\nCommand ${exitCode === null ? `ended by ${view.exit?.signal ?? "a signal"}` : `exited with code ${exitCode}`}`}`;
+      const text = `${output === "" ? "(no output)" : output}${exitCode === 0 ? "" : `\n\nCommand ${describeExitStatus(view.exit ?? { code: null, signal: null })}`}`;
       return {
         output: [{ type: "text" as const, text }],
         isError: exitCode !== 0,

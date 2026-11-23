@@ -442,16 +442,25 @@ export class TerminalHost {
 
   /** Kills the shell and what it started (part 2's kill script on its marker); its exit frame follows. */
   async close(key: string): Promise<TerminalAnswer> {
+    const known = this.#terminals.get(key)?.exited === false;
+    await this.closeAnswered(key);
+    return this.#answer(known ? [] : [key]);
+  }
+
+  /**
+   * `close`, and the kill script's answer (an agent's stop reports it, SPI-1372); undefined when no kill ran: the shell
+   * is unknown or gone, still opening (killed once it starts), or the Container is not running.
+   */
+  async closeAnswered(key: string): Promise<KillAnswer | undefined> {
     const terminal = this.#terminals.get(key);
-    if (terminal === undefined || terminal.exited) return this.#answer([key]);
+    if (terminal === undefined || terminal.exited) return undefined;
     terminal.closing = true;
-    if (terminal.process === undefined) return this.#answer([]); // still opening: killed once it starts
+    if (terminal.process === undefined) return undefined;
     if (!this.#deps.running()) {
       this.#exited(terminal, 129);
-      return this.#answer([]);
+      return undefined;
     }
-    await this.#deps.kill([key]);
-    return this.#answer([]);
+    return this.#deps.kill([key]);
   }
 
   /**

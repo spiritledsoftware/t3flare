@@ -217,6 +217,16 @@ describe("TerminalHost", () => {
     await expect(harness().host.kill("term-a1")).rejects.toThrow("the kill script gave no answer");
   });
 
+  it("closes with the kill script's answer, and none for a key it does not hold", async () => {
+    const answer = { signalled: 2, survivors: 1, signal: "KILL" } as const;
+    const h = harness({ killAnswer: answer });
+    await h.host.open(open("term-a1"));
+    expect(await h.host.closeAnswered("term-a1")).toEqual(answer);
+    expect(h.killed).toEqual([["term-a1"]]);
+    expect(await h.host.closeAnswered("term-zz")).toBeUndefined();
+    expect(h.killed).toEqual([["term-a1"]]);
+  });
+
   it("kills a terminal whose Environment stopped heartbeating", async () => {
     const h = harness();
     await h.host.open(open("term-a1"));
