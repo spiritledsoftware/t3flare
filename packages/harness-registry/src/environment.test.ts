@@ -471,11 +471,13 @@ describe("the clone and checkpoint time limits (SPI-1324)", () => {
     expect(order.slice(order.indexOf("setupOutputKiB") + 1, order.indexOf("imageSetup"))).toEqual([...keys]);
   });
 
-  it("state their consequence once, and the checkpoint limit names its operations", () => {
-    const consequence =
-      "A clone, checkout or checkpoint that runs longer than this fails; while it runs it holds the Container.";
-    expect(ENVIRONMENT_SETTINGS.cloneMinutes.description).toContain(consequence);
-    expect(ENVIRONMENT_SETTINGS.checkpointMinutes.description).not.toContain(consequence);
+  it("each state its consequence once, scoped to its own operations, and the checkpoint limit names its operations", () => {
+    expect(ENVIRONMENT_SETTINGS.cloneMinutes.description).toContain(
+      "A clone or checkout that runs longer than this fails; while it runs it holds the Container.",
+    );
+    expect(ENVIRONMENT_SETTINGS.checkpointMinutes.description).toContain(
+      "A checkpoint, bundle or carry that runs longer than this fails; while it runs it holds the Container.",
+    );
     for (const named of ["a turn's checkpoint and its restore", "carrying a removed worktree's commits home"])
       expect(ENVIRONMENT_SETTINGS.checkpointMinutes.description).toContain(named);
   });

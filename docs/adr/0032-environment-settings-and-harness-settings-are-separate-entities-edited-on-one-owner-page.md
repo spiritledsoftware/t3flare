@@ -358,8 +358,7 @@ long as a capture) and its restore, a worktree's seed bundle in its project, and
 home (its carry out and carry in). Two keys, not one with a ratio, as every other time limit: a big history and a big
 working tree are different costs. Both take 1 to `MAX_TIMED_MINUTES`: computerd times each exec with its own timer and
 no maximum (computer 0.11.2), so ADR-0048 §2's sanity maximum applies. Both are `down-free` (a longer limit holds the
-Container longer) and show last in the Containers row; the clone limit states the consequence once ("A clone, checkout
-or checkpoint that runs longer than this fails; while it runs it holds the Container").
+Container longer) and show last in the Containers row; each states its consequence once, scoped to its own operations ("A clone or checkout that runs longer than this fails"; "A checkpoint, bundle or carry that runs longer than this fails"; while it runs it holds the Container). A worktree's creation runs under both, which each says. A removed worktree whose carry fails is a Tombstone that is never purged, which the checkpoint limit says.
 
 The Environment DO reads each at every call and carries it to the Workspace DO as `timeoutMs` (`cloneMsNow`,
 `checkpointMsNow`), as the CLI agents' processes per Workspace ride their start: a copy kept in the Workspace DO would

@@ -730,7 +730,7 @@ describe("the Environment section's dotfiles", () => {
       section.indexOf("<h3>Containers</h3>"),
       section.indexOf('<h3 id="environment-agents-title">Agents</h3>'),
     );
-    expect(containers).toContain("how long a clone or a checkpoint may run in it");
+    expect(containers).toContain("and how long a clone or a checkpoint may run.");
     const settings = tagsOf(containers)
       .map((tag) => tag.attrs["data-setting"])
       .filter((key) => key !== undefined);

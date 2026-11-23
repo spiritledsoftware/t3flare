@@ -469,7 +469,7 @@ export const ENVIRONMENT_SETTINGS = {
   cloneMinutes: {
     title: "Clone time limit (minutes)",
     description:
-      "How long cloning a project's repository may run in its Container, and a new worktree's clone and its checkout each. A clone, checkout or checkpoint that runs longer than this fails; while it runs it holds the Container. Applies at the next clone or checkout; one already running keeps its limit.",
+      "How long each clone may run in the Workspace's Container: a project's clone, and a new worktree's clone and its checkout. A clone or checkout that runs longer than this fails; while it runs it holds the Container. A new worktree's bundle counts against the Checkpoint time limit instead. Applies at the next clone or checkout; one already running keeps its limit.",
     // computerd times each exec with its own timer and no maximum (computer 0.11.2), so the shared sanity maximum
     // applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_CLONE_MINUTES },
@@ -478,7 +478,7 @@ export const ENVIRONMENT_SETTINGS = {
   checkpointMinutes: {
     title: "Checkpoint time limit (minutes)",
     description:
-      "How long the Container's git may take for a turn's checkpoint and its restore, for bundling a project's commits into a new worktree, and for carrying a removed worktree's commits home. Applies at the next one; one already running keeps its limit.",
+      "How long each checkpoint may run in the Workspace's Container: a turn's checkpoint and its restore, bundling a project's commits into a new worktree, and carrying a removed worktree's commits home. A checkpoint, bundle or carry that runs longer than this fails; while it runs it holds the Container. A removed worktree whose commits could not be carried home is kept, not purged. Applies at the next checkpoint, bundle or carry; one already running keeps its limit.",
     // As the clone time limit: computerd's own timer, no maximum, the shared sanity maximum (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_CHECKPOINT_MINUTES },
     tier: "down-free",
