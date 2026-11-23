@@ -1,0 +1,191 @@
+$ node scripts/worktree-setup.ts && node scripts/workspace-guard.ts && vp run --log grouped --concurrency-limit 16 check:all
+[@t3flare/session-protocol#lint] ~/packages/session-protocol$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src ⊘ cache disabled
+[@t3flare/mcp#typecheck] ~/packages/mcp$ effect-tsgo tsrs --noEmit ⊘ cache disabled
+[@t3flare/models#typecheck] ~/packages/models$ effect-tsgo tsrs --noEmit ⊘ cache disabled
+[t3flare#typecheck:scripts] ~/scripts$ effect-tsgo tsrs --noEmit ⊘ cache disabled
+[@t3flare/skills#typecheck] ~/packages/skills$ effect-tsgo tsrs --noEmit ⊘ cache disabled
+[@t3flare/codemode-sandbox#lint] ~/apps/codemode-sandbox$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src ⊘ cache disabled
+[t3flare#check:workspace] $ node scripts/gen-workspace.ts --check ⊘ cache disabled
+[@t3flare/harness-registry#typecheck] ~/packages/harness-registry$ effect-tsgo tsrs --noEmit ⊘ cache disabled
+[@t3flare/mcp-worker#lint] ~/apps/mcp-worker$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src test vitest.config.ts ⊘ cache disabled
+[@t3flare/workspace-client#typecheck] ~/packages/workspace-client$ effect-tsgo tsrs --noEmit ⊘ cache disabled
+[@t3flare/agents#lint] ~/apps/agents$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src test scripts build.ts ⊘ cache disabled
+[@t3flare/github-app#typecheck] ~/packages/github-app$ effect-tsgo tsrs --noEmit ⊘ cache disabled
+[@t3flare/infra#lint] ~/infra$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error github.ts allow-actions-prs.ts github-app-setup.ts src ⊘ cache disabled
+[@t3flare/computer-env#typecheck] ~/packages/computer-env$ effect-tsgo tsrs --noEmit ⊘ cache disabled
+[@t3flare/environment#lint] ~/apps/environment$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src test scripts build.ts alchemy.run.ts stage-files.ts stage-names.ts vitest.config.ts ⊘ cache disabled
+[@t3flare/effect-durable#typecheck] ~/packages/effect-durable$ effect-tsgo tsrs --noEmit ⊘ cache disabled
+
+[t3flare#lint:scripts] $ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error scripts ⊘ cache disabled
+
+[@t3flare/mcp#lint] ~/packages/mcp$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src vitest.config.ts ⊘ cache disabled
+
+[@t3flare/models#lint] ~/packages/models$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src test ⊘ cache disabled
+
+[t3flare#check:lock] $ node scripts/verify-lock.ts ⊘ cache disabled
+
+[@t3flare/skills#lint] ~/packages/skills$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src ⊘ cache disabled
+
+[@t3flare/sandbox-image#typecheck] ~/apps/sandbox-image$ effect-tsgo tsrs --noEmit ⊘ cache disabled
+
+[t3flare#check:patches] ~/apps/environment$ node build.ts --check ⊘ cache disabled
+
+[@t3flare/harness-registry#lint] ~/packages/harness-registry$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src ⊘ cache disabled
+
+[@t3flare/mcp-worker#test] ~/apps/mcp-worker$ vitest run ⊘ cache disabled
+
+[@t3flare/workspace-client#lint] ~/packages/workspace-client$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src ⊘ cache disabled
+
+[@t3flare/agents#test] ~/apps/agents$ vitest run ⊘ cache disabled
+
+[@t3flare/github-app#lint] ~/packages/github-app$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src ⊘ cache disabled
+
+[@t3flare/infra#test] ~/infra$ vitest run ⊘ cache disabled
+
+[@t3flare/computer-env#lint] ~/packages/computer-env$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src vitest.config.ts ⊘ cache disabled
+
+[@t3flare/environment#test] ~/apps/environment$ vitest run ⊘ cache disabled
+
+[@t3flare/effect-durable#lint] ~/packages/effect-durable$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src vitest.config.ts ⊘ cache disabled
+
+[t3flare#test:scripts] $ node --test 'scripts/**/*.test.ts' ⊘ cache disabled
+
+[@t3flare/mcp#test] ~/packages/mcp$ vitest run ⊘ cache disabled
+
+[@t3flare/session-protocol#typecheck] ~/packages/session-protocol$ effect-tsgo tsrs --noEmit ⊘ cache disabled
+
+[t3flare#check:fmt] $ vp fmt --check ⊘ cache disabled
+
+[@t3flare/skills#test] ~/packages/skills$ vitest run ⊘ cache disabled
+
+[@t3flare/sandbox-image#lint] ~/apps/sandbox-image$ oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src ⊘ cache disabled
+
+[t3flare#check:fs] ~/apps/environment$ node build.ts --check-fs ⊘ cache disabled
+── [t3flare#check:patches] ──
+ok   0001-lazy-server-browser-ref-namespace.patch
+ok   0002-new-project-root-is-w.patch
+ok   0003-provider-session-idle-10-minutes.patch
+ok   0004-scratch-root-is-a-workspace.patch
+ok   0005-server-browser-context-thread.patch
+ok   0006-endpoint-models-are-not-retained.patch
+ok   0007-pi-relay-tools-are-judged-by-the-relay.patch
+
+[@t3flare/harness-registry#test] ~/packages/harness-registry$ vitest run ⊘ cache disabled
+
+[@t3flare/codemode-sandbox#typecheck] ~/apps/codemode-sandbox$ effect-tsgo tsrs --noEmit ⊘ cache disabled
+
+[@t3flare/workspace-client#test] ~/packages/workspace-client$ vitest run ⊘ cache disabled
+
+[@t3flare/mcp-worker#typecheck] ~/apps/mcp-worker$ effect-tsgo tsrs --noEmit ⊘ cache disabled
+── [t3flare#check:fmt] ──
+Checking formatting...
+
+All matched files use the correct format.
+Finished in 1114ms on 1069 files using 8 threads.
+
+[@t3flare/github-app#test] ~/packages/github-app$ vitest run ⊘ cache disabled
+
+[@t3flare/agents#typecheck] ~/apps/agents$ effect-tsgo tsrs --noEmit ⊘ cache disabled
+── [@t3flare/skills#test] ──
+
+ RUN  v5.0.5 /repo/packages/skills
+
+ ❯ src/listing.test.ts (5 tests | 1 failed) 361ms
+   ❯ scratch (1)
+     × fails on purpose 210ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/listing.test.ts > scratch > fails on purpose
+AssertionError: expected 1 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ src/listing.test.ts:56:15
+     54| describe("scratch", () => {
+     55|   it("fails on purpose", () => {
+     56|     expect(1).toBe(2);
+       |               ^
+     57|   });
+     58| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 4 passed (5)
+      Tests  1 failed | 59 passed (60)
+   Start at  06:55:10
+   Duration  3.28s (tests 55%, transform 23%, import 17%, worker 4%)
+
+
+── [t3flare#test:scripts] ──
+▶ workspaceGuard
+  ✔ allows a shell without NPM_CONFIG_WORKSPACE_DIR (0.677875ms)
+  ✔ allows a workspace dir that is the checkout's root (0.088417ms)
+  ✔ refuses another checkout's workspace dir, naming both paths and the fix (12.7655ms)
+  ✔ refuses when either of two set values is another checkout's (0.178042ms)
+  ✔ allows a command typed outside any git checkout, saying why it could not check (6.183ms)
+  ✔ stays quiet outside a checkout when nothing is set (0.104917ms)
+✔ workspaceGuard (20.749167ms)
+▶ workspaceDirsOf
+  ✔ reads NPM_CONFIG_WORKSPACE_DIR, else pnpm's lowercase npm_config_workspace_dir, ignoring empty values (0.189458ms)
+  ✔ resolves a relative value against the directory the command was typed in, as pnpm does (0.091666ms)
+  ✔ refuses a stale lowercase value (0.077375ms)
+✔ workspaceDirsOf (0.498875ms)
+▶ checkoutRootOf
+  ✔ is the checkout's root from anywhere in it (368.013625ms)
+  ✔ is the superproject's root from inside the t3code submodule (204.503917ms)
+  ✔ gives a reason outside any git checkout (298.408167ms)
+  ✔ gives a reason for a directory that does not exist (0.449916ms)
+  ✔ gives a reason when git cannot run (115.518833ms)
+✔ checkoutRootOf (987.280958ms)
+
+── [@t3flare/github-app#test] ──
+
+ RUN  v5.0.5 /repo/packages/github-app
+
+
+── [@t3flare/workspace-client#test] ──
+
+ RUN  v5.0.5 /repo/packages/workspace-client
+
+
+
+── [@t3flare/infra#test] ──
+
+ RUN  v5.0.5 /repo/infra
+
+
+── [@t3flare/harness-registry#test] ──
+
+ RUN  v5.0.5 /repo/packages/harness-registry
+
+
+
+
+── [@t3flare/mcp#test] ──
+
+ RUN  v5.0.5 /repo/packages/mcp
+
+
+
+── [@t3flare/agents#test] ──
+
+ RUN  v5.0.5 /repo/apps/agents
+
+
+── [@t3flare/mcp-worker#test] ──
+
+ RUN  v5.0.5 /repo/apps/mcp-worker
+
+
+
+
+
+---
+vp run: 29/45 successful. (Run `vp run --last-details` for full details)
+[ELIFECYCLE] Command failed with exit code 1.
