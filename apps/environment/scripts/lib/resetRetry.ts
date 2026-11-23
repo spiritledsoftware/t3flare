@@ -3,7 +3,7 @@
 // edge, which now and then resets a stream (`ECONNRESET`, `http2ErrorCode` set) before the Worker sees the request: the
 // bump's acceptance test died of it at random points while every request the Worker logged succeeded. A request with
 // no body or a string body is sent again, at most twice; a reset after the Worker acted on a POST would send it twice,
-// which these test clients accept over dying. WebSockets are not covered. `stage.ts run` installs it in every script it
+// which these test clients accept over dying. A /ws call's dropped socket is socketRetry.ts's. `stage.ts run` installs it in every script it
 // runs (`--import ./lib/installResetRetry.ts`), before the script's own first fetch.
 const RESET_CODES = new Set(["ECONNRESET", "EPIPE", "UND_ERR_SOCKET", "ERR_HTTP2_STREAM_ERROR", "ERR_HTTP2_SESSION_ERROR", "ERR_HTTP2_GOAWAY_SESSION"]);
 const ATTEMPTS = 3;

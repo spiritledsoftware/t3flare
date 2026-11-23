@@ -9,6 +9,7 @@ import { RpcClient, RpcSerialization } from "effect/rpc";
 import * as Socket from "effect/socket/Socket";
 
 import { CLI_APIS } from "./modelEndpointSpec.ts";
+import { withSocketRetry } from "./socketRetry.ts";
 
 export const base = new URL(process.env.T3_URL ?? "http://localhost:8791");
 const bootstrapToken = process.env.T3_BOOTSTRAP_TOKEN ?? "local-bootstrap-token-0123456789";
@@ -76,14 +77,16 @@ export const clientAt = (base: URL) => {
       }).pipe(Effect.provide(protocol(cookie)), Effect.scoped),
     );
 
-  /** One WS method's answer (any of t3's `WS_METHODS`), on a socket opened for the call. */
-  const wsCall = (cookie: string, method: string, payload: unknown): Promise<unknown> =>
+  /** One WS method's answer (any of t3's `WS_METHODS`), on a socket opened for the call; an idempotent method is sent
+   * again once if the edge drops the socket (socketRetry.ts). */
+  const wsCall = withSocketRetry((cookie, method, payload) =>
     Effect.runPromise(
       Effect.gen(function* () {
         const client = (yield* RpcClient.make(WsRpcGroup)) as unknown as Record<string, (input: unknown) => Effect.Effect<unknown, unknown>>;
         return yield* client[method]!(payload);
       }).pipe(Effect.provide(protocol(cookie)), Effect.scoped),
-    );
+    ),
+  );
 
   /** Every event of a streaming WS method, until it ends. */
   const wsStream = (cookie: string, method: string, payload: unknown): Promise<ReadonlyArray<unknown>> =>
@@ -94,14 +97,16 @@ export const clientAt = (base: URL) => {
       }).pipe(Effect.provide(protocol(cookie)), Effect.scoped),
     ).then((chunk) => [...chunk]);
 
-  /** The first event of a streaming WS method (a subscription's snapshot), on a socket opened for the call. */
-  const wsFirst = (cookie: string, method: string, payload: unknown): Promise<unknown> =>
+  /** The first event of a streaming WS method (a subscription's snapshot), on a socket opened for the call; sent again
+   * once if the edge drops the socket (socketRetry.ts). */
+  const wsFirst = withSocketRetry((cookie, method, payload) =>
     Effect.runPromise(
       Effect.gen(function* () {
         const client = (yield* RpcClient.make(WsRpcGroup)) as unknown as Record<string, (input: unknown) => Stream.Stream<unknown, unknown>>;
         return yield* Stream.runHead(client[method]!(payload));
       }).pipe(Effect.provide(protocol(cookie)), Effect.scoped),
-    ).then((head) => (head._tag === "Some" ? head.value : undefined));
+    ).then((head) => (head._tag === "Some" ? head.value : undefined)),
+  );
 
   const updateSettings = (cookie: string, patch: Record<string, unknown>) =>
     Effect.runPromise(
