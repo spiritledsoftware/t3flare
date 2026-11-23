@@ -16,7 +16,7 @@ constraint set: 60, 120 and 15 minutes.
 
 1. **A maximum is a named constraint or a sanity bound.** A named constraint is a limit Cloudflare or t3flare's own
    correctness sets, and the code names it in a comment where the value is set: the setup output's 256 KiB (a Durable
-   Object value holds at most 2 MB) and the rebuild interval's 29 days (a snapshot expires after 30) stay. Anything
+   Object value holds at most 8 MB) and the rebuild interval's 29 days (a snapshot expires after 30) stay. Anything
    else is a sanity bound: a number far beyond any real choice, kept because an integer setting's schema needs a
    maximum, with a comment saying nothing forces it.
 2. **One sanity maximum for timed limits: 10,080 minutes (a week).** `MAX_TIMED_MINUTES` in

@@ -177,7 +177,7 @@ export const MAX_GLOBAL_MISE_BYTES = 16 * 1024;
 
 /**
  * The largest Image setup and Container setup, each, in bytes of UTF-8 (ADR-0047 §9). Fixed by a constraint: every
- * Environment setting is one stored value of at most 2 MB, and the Environment settings are one value together.
+ * Environment setting is one stored value of at most 8 MB, and the Environment settings are one value together.
  */
 export const MAX_SETUP_BYTES = 256 * 1024;
 
@@ -191,7 +191,7 @@ export const imageSetupTooLong = (text: string): string | undefined => {
 
 /**
  * The most of a setup's output a report may keep, in KiB (`setupOutputKiB`'s bound). Fixed by a constraint: the
- * Environment DO keeps the last report, output and all, as one Durable Object value, which holds at most 2 MB.
+ * Environment DO keeps the last report, output and all, as one Durable Object value, which holds at most 8 MB.
  */
 export const MAX_SETUP_OUTPUT_KIB = 256;
 

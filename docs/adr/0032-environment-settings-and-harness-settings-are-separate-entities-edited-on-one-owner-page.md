@@ -179,7 +179,7 @@ owner's `mise.toml` text, which every Container's commands get as mise's global 
    config reports too ("no Global mise config"), so a cleared config replaces an older "not laid down".
 7. **Audit.** A `file` setting is audited as its size and SHA-256, not its text, a departure from §3's "as resolved
    before and after": the audit log is one stored value of up to 1,000 entries, and a Durable Object value is at most
-   2 MB. The current text is on the panel.
+   8 MB. The current text is on the panel.
 8. **No install cache.** Every Container start installs the owner's tools again; mise's data stays in its default
    place on the Container's disk, never under the synced `/workspace/.t3flare/`. A cache is follow-up work.
 

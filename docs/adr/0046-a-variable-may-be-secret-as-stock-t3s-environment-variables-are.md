@@ -27,7 +27,7 @@ protects the Owner from their own choice.
    Terminals, CLI agent processes, a Durable agent's Container commands, and the Image setup and the Container setup.
    Any agent can read a secret Variable, as on stock t3.
 3. **Validation keeps t3flare working, nothing more.** A name must be one a shell can export; a value holds no NUL; the
-   count and length limits stay, since every Environment setting is one stored value of at most 2 MB. A secret
+   count and length limits stay, since every Environment setting is one stored value of at most 8 MB. A secret
    Variable needs a value or the redacted mark that keeps the stored one: an empty secret would read the same as a
    stored secret's `value: ""`, so it is refused rather than sealed. A change gives a value or the mark, never a sealed
    value. Every other refusal goes, the loader hooks (`NODE_OPTIONS`, `BASH_ENV`, `LD_*`) included. A name t3flare

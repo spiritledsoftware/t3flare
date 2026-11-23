@@ -3,11 +3,11 @@
 // - the Browser Run sessions this Environment acquired, so that a new instance closes the ones the last left behind
 //   (review M5: never `listSessions`, which is account-wide), and
 // - each server-browser profile's `storageState` (cookies, localStorage, IndexedDB): what stock keeps in its profile
-//   directory. A profile is kept in 1 MiB rows (a DO SQLite row holds at most 2 MB) and refused over 8 MiB.
+//   directory. A profile is kept in rows of at most 1.5 MB (a DO SQLite row holds at most 8 MB) and refused over 8 MiB.
 import type { SqlStorage } from "@cloudflare/workers-types/index.ts";
 
 export const PROFILE_MAX_BYTES = 8 * 1024 * 1024;
-/** At most 1.5 MB of UTF-8 a row (3 bytes a UTF-16 unit at most), under DO SQLite's 2 MB. */
+/** At most 1.5 MB of UTF-8 a row (3 bytes a UTF-16 unit at most), under DO SQLite's 8 MB. */
 const PROFILE_CHUNK_CHARS = 512 * 1024;
 
 /** `state` in rows of at most PROFILE_CHUNK_CHARS, never splitting a surrogate pair. */

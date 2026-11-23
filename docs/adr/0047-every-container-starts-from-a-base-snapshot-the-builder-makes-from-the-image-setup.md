@@ -51,7 +51,7 @@ new Container's start. Both are Environment settings, bash scripts of up to 256 
    the Container budget (no); a scheduled rebuild (off); and whether Terminals read `~/.bashrc` and CLI agents read the
    dotfiles' own agent config, `~/.claude.json` included (both on; t3flare's model routing and managed settings stay
    on top). Fixed only by constraint: 256 KiB per script (every Environment setting is one stored value of at most
-   2 MB) and the rebuild after an image change. The three time limits' maximums (60, 120 and 15 minutes) were no constraint: since
+   8 MB) and the rebuild after an image change. The three time limits' maximums (60, 120 and 15 minutes) were no constraint: since
    [ADR-0048](0048-the-owner-is-trusted-with-their-own-settings-and-a-maximum-is-a-named-constraint-or-a-sanity-bound.md) each takes the shared 10,080-minute maximum for limits t3flare times itself.
 10. **With no Global mise config, mise's global config is the dotfiles' own** (`~/.config/mise/config.toml`), not
     t3flare's empty file, so a dotfiles manager such as chezmoi declares the Owner's tools. The lay-down's check still

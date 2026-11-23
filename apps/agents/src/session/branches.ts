@@ -13,8 +13,11 @@ import { entryIdOf } from "../durableIds.ts";
 
 /** The most a page of a fork's messages carries over DO RPC (its limit is 32 MiB). */
 export const FORK_PAGE_BYTES = 4 * 1024 * 1024;
-/** The most one seeded entry holds, well under a Durable Object SQLite row's 2 MB. */
-export const SEED_ENTRY_BYTES = 512 * 1024;
+/**
+ * The most one seeded entry holds, in characters of JSON (one message at least): under a Durable Object SQLite row's
+ * 8 MB at 3 bytes of UTF-8 a character, with room for the entry's other columns.
+ */
+export const SEED_ENTRY_BYTES = 2 * 1024 * 1024;
 /** The kind of the entries a fork is seeded with: model context, no turn of the thread's own. */
 export const FORK_ENTRY_KIND = "t3flare.fork";
 
