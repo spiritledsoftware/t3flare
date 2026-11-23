@@ -19,7 +19,7 @@ export interface TurnStorage {
 
 const TURN_PREFIX = "t3flare:turn:";
 const MODEL_PREFIX = "t3flare:turn-model:";
-/** The live turns' ids, in the order they were recorded. */
+/** The live turns' ids, unordered: `live()` sorts them by `startedAt`. */
 const LIVE_KEY = "t3flare:live-turns";
 /** Before SPI-1373: every turn in one value, and every turn's model record in another. Moved over at the first read. */
 const LEGACY_TURNS_KEY = "t3flare:turns";
@@ -50,6 +50,19 @@ export class TurnStore {
       );
   }
 
+  /**
+   * Changes the turn `id` by `patch`, when it is recorded; a patch that answers undefined leaves it. Answers the turn as
+   * it now stands, or undefined when there is none.
+   */
+  update(id: string, patch: (turn: TurnState) => TurnState | undefined): TurnState | undefined {
+    const turn = this.get(id);
+    if (turn === undefined) return undefined;
+    const next = patch(turn);
+    if (next === undefined) return turn;
+    this.put(id, next);
+    return next;
+  }
+
   /** The live turns, the one started first first. */
   live(): Array<[string, TurnState]> {
     return this.#liveIds()
@@ -65,18 +78,26 @@ export class TurnStore {
     return this.live()[0]?.[0] ?? null;
   }
 
-  /** Whether the Session has recorded any turn. */
-  any(): boolean {
-    for (const _ of this.#kv.list({ prefix: TURN_PREFIX, limit: 1 })) return true;
-    return false;
+  /** Whether a turn is live: the Session is busy. */
+  busy(): boolean {
+    return this.liveTurn() !== null;
   }
 
-  /** Every turn: O(all turns), for a rollback, a fork and a push only. */
+  /** Whether the Session has recorded any turn. */
+  any(): boolean {
+    return [...this.#kv.list({ prefix: TURN_PREFIX, limit: 1 })].length > 0;
+  }
+
+  /**
+   * Every turn, the one started first first, as `live()` orders them: whoever takes the first running turn from it
+   * (the push's live turn, the Environment's differ) names the turn `liveTurn()` does. O(all turns), for a rollback, a
+   * fork and a push only.
+   */
   all(): Record<string, TurnState> {
-    const turns: Record<string, TurnState> = {};
-    for (const [key, turn] of this.#kv.list<TurnState>({ prefix: TURN_PREFIX }))
-      turns[key.slice(TURN_PREFIX.length)] = turn;
-    return turns;
+    const entries = [...this.#kv.list<TurnState>({ prefix: TURN_PREFIX })]
+      .map(([key, turn]): [string, TurnState] => [key.slice(TURN_PREFIX.length), turn])
+      .sort(([, a], [, b]) => a.startedAt - b.startedAt);
+    return Object.fromEntries(entries);
   }
 
   /** Every turn with its model record (`proxy`, a kept wire name). */

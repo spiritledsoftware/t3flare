@@ -46,21 +46,13 @@ export const turnRecord = (
   turnLimitMs: turnLimitAt(input.turnLimitMs, override),
 });
 
+/** A Session's turns as `[id, turn]` pairs: the live ones (`TurnStore.live`), or any others. */
+export type TurnEntries = ReadonlyArray<readonly [string, TurnState]>;
+
 /** When each live turn's own limit ends it: what `#arm` adds to the alarm's candidates. */
-export const turnLimitAlarms = (
-  turns: Readonly<Record<string, TurnState>>,
-  override: string | undefined,
-): Array<number> =>
-  Object.values(turns)
-    .filter(isLiveTurn)
-    .map((turn) => turnLimitEndsAt(turn, override));
+export const turnLimitAlarms = (turns: TurnEntries, override: string | undefined): Array<number> =>
+  turns.filter(([, turn]) => isLiveTurn(turn)).map(([, turn]) => turnLimitEndsAt(turn, override));
 
 /** The live turns past their own limit at `now`: what the alarm's housekeeping ends (`turn_deadline`). */
-export const turnsPastLimit = (
-  turns: Readonly<Record<string, TurnState>>,
-  now: number,
-  override: string | undefined,
-): Array<string> =>
-  Object.entries(turns)
-    .filter(([, turn]) => isLiveTurn(turn) && now >= turnLimitEndsAt(turn, override))
-    .map(([id]) => id);
+export const turnsPastLimit = (turns: TurnEntries, now: number, override: string | undefined): Array<string> =>
+  turns.filter(([, turn]) => isLiveTurn(turn) && now >= turnLimitEndsAt(turn, override)).map(([id]) => id);

@@ -96,6 +96,30 @@ describe("TurnStore", () => {
     expect(store.liveTurn()).toBe("first");
   });
 
+  it("lists every turn in start order, so the first running one is the turn `liveTurn` names", () => {
+    const { kv } = countingKv();
+    const store = new TurnStore(kv);
+    store.put("z-first", turn("running", 10));
+    store.put("a-second", turn("running", 20));
+    store.put("m-done", turn("answered", 5));
+    expect(Object.keys(store.all())).toEqual(["m-done", "z-first", "a-second"]);
+    expect(Object.keys(store.allWithModel())).toEqual(["m-done", "z-first", "a-second"]);
+    const running = Object.entries(store.all()).find(([, state]) => state.status === "running")?.[0];
+    expect(running).toBe(store.liveTurn());
+    expect(store.busy()).toBe(true);
+  });
+
+  it("updates a recorded turn by a patch, keeps the live index in step, and leaves one the patch declines", () => {
+    const { kv } = countingKv();
+    const store = new TurnStore(kv);
+    expect(store.update("missing", (state) => state)).toBeUndefined();
+    store.put("t", turn("running", 1));
+    expect(store.update("t", () => undefined)).toEqual(turn("running", 1));
+    expect(store.update("t", (state) => ({ ...state, status: "aborted" }))?.status).toBe("aborted");
+    expect(store.get("t")?.status).toBe("aborted");
+    expect(store.busy()).toBe(false);
+  });
+
   it("does nothing to model records when no turn is live", () => {
     const { kv, map } = countingKv();
     const store = new TurnStore(kv);
