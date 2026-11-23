@@ -227,6 +227,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
       reviewTimeoutSeconds: {
         title: "Review time limit (seconds)",
         description: "Every reviewed call waits up to this long; a Review that runs out fails and blocks the call.",
+        // Timed by t3flare's own setTimeout (guardian/review.ts): up to MAX_TIMED_SECONDS (ADR-0048 §2).
         schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: 60 },
       },
     },
@@ -264,7 +265,8 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
       reviewTimeoutSeconds: {
         title: "Review time limit (seconds)",
         description:
-          "A Review still running after this long is stopped, and the Advisor pauses until its settings change.",
+          "When the agent answers, its turn waits up to this long for the Review under way and again for a final one; a Review still running after this long is stopped, and the Advisor pauses until its settings change.",
+        // Timed by t3flare's own setTimeout (advisor.ts): up to MAX_TIMED_SECONDS (ADR-0048 §2).
         schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: 120 },
         tier: "down-free",
       },
@@ -285,7 +287,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
       maxToolRounds: {
         title: "Tool rounds per Review",
         description:
-          "How many rounds of read, grep, find and ls the Advisor may take in a Review (0: none). Each tool round is a model request on the Advisor model's endpoint.",
+          "How many rounds of read, grep, find and ls the Advisor may take in a Review (0: no tool rounds: the Advisor reviews from what it is given). Each tool round is a model request on the Advisor model's endpoint.",
         // 100: a sanity bound, nothing in t3flare forces it (ADR-0048).
         schema: { type: "integer", minimum: 0, maximum: 100, default: 8 },
         tier: "down-free",
@@ -304,12 +306,16 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
           "When this many turns wait unreviewed, the agent pauses for the Review under way, for up to the Catch-up wait.",
         // 1000: a sanity bound, nothing in t3flare forces it (ADR-0048).
         schema: { type: "integer", minimum: 1, maximum: 1_000, default: 3 },
+        // Free either way: neither key changes spend or what the agent sees. A lower backlog or a longer wait can hold
+        // the agent's turn, but never past the Review's own time limit.
         tier: "free",
       },
       catchUpWaitSeconds: {
         title: "Catch-up wait (seconds)",
         description: "How long the agent waits at the catch-up backlog (0: never waits).",
+        // Timed by t3flare's own setTimeout (advisor.ts): up to MAX_TIMED_SECONDS (ADR-0048 §2).
         schema: { type: "integer", minimum: 0, maximum: MAX_TIMED_SECONDS, default: 30 },
+        // Free either way: see catchUpBacklog.
         tier: "free",
       },
     },

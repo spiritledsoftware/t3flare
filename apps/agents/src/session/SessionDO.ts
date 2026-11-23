@@ -88,9 +88,8 @@ import { ApprovalStore, interactionModeSection, permissions, toToolPath } from "
 import { projectContext } from "../extensions/project-context.ts";
 import { proposePlan } from "../extensions/plan.ts";
 import { CONTEXT_EXTENSION, CONTEXT_NAMESPACE, contextExtension } from "../extensions/context.ts";
-import { ADVISOR_EXTENSION, AdvisorObserver, type AdvisorSettings, advisorExtension } from "../extensions/advisor.ts";
-import { GUARDIAN_EXTENSION, guardianExtension } from "../extensions/guardian.ts";
-import type { GuardianThinkingLevel } from "../extensions/guardian/review.ts";
+import { ADVISOR_EXTENSION, AdvisorObserver, advisorExtension, advisorSettings } from "../extensions/advisor.ts";
+import { GUARDIAN_EXTENSION, guardianExtension, guardianSettings } from "../extensions/guardian.ts";
 import {
   backgroundJobs,
   TERMCTRL_EXTENSION,
@@ -528,14 +527,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
             sessionId: () => this.ctx.id.name ?? this.ctx.id.toString(),
             model: (setting) => modelSettingSlug(setting, this.#endpoints.current()),
           },
-          {
-            model: String(guardian.settings.model),
-            thinkingLevel: String(guardian.settings.thinkingLevel) as GuardianThinkingLevel,
-            tools: String(guardian.settings.tools ?? ""),
-            commands: String(guardian.settings.commands ?? ""),
-            policy: String(guardian.settings.policy ?? ""),
-            reviewTimeoutMs: Number(guardian.settings.reviewTimeoutSeconds) * 1_000,
-          },
+          guardianSettings(guardian.settings),
         ),
       );
     } else {
@@ -543,20 +535,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
     }
     const advisor = extensionOf(harness, ADVISOR_EXTENSION);
     if (advisor.enabled) {
-      const every = String(advisor.settings.reviewEvery);
-      const settings: AdvisorSettings = {
-        model: String(advisor.settings.model),
-        reviewEvery: every === "turn" || every === "request" ? every : Math.max(1, Number(every) || 1),
-        thinkingLevel: String(advisor.settings.thinkingLevel) as AdvisorSettings["thinkingLevel"],
-        correctiveTurns: Number(advisor.settings.correctiveTurns),
-        reviewTimeoutMs: Number(advisor.settings.reviewTimeoutSeconds) * 1_000,
-        maxFindings: Number(advisor.settings.maxFindings),
-        maxNits: Number(advisor.settings.maxNits),
-        maxToolRounds: Number(advisor.settings.maxToolRounds),
-        concernCooldownTurns: Number(advisor.settings.concernCooldownTurns),
-        catchUpBacklog: Number(advisor.settings.catchUpBacklog),
-        catchUpWaitMs: Number(advisor.settings.catchUpWaitSeconds) * 1_000,
-      };
+      const settings = advisorSettings(advisor.settings);
       if (this.#advisor === undefined)
         this.#advisor = new AdvisorObserver(() => this.#opening, this.ctx.storage.kv, settings);
       else this.#advisor.configure(settings);

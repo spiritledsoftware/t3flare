@@ -29,6 +29,7 @@ import {
   type ToolHookCall,
   ToolTask,
 } from "@earendil-works/pi-durable";
+import type { SettingValue } from "@t3flare/harness-registry";
 import { parseEndpointSlug } from "@t3flare/models/endpoints";
 
 import {
@@ -58,6 +59,16 @@ export interface GuardianSettings {
   /** How long a Guardian Review may run before it fails and blocks the call (the `reviewTimeoutSeconds` setting). */
   readonly reviewTimeoutMs: number;
 }
+
+/** The Guardian's settings from its resolved registry values (`extensionOf(…, "guardian").settings`). */
+export const guardianSettings = (values: Readonly<Record<string, SettingValue>>): GuardianSettings => ({
+  model: String(values.model),
+  thinkingLevel: String(values.thinkingLevel) as GuardianThinkingLevel,
+  tools: String(values.tools ?? ""),
+  commands: String(values.commands ?? ""),
+  policy: String(values.policy ?? ""),
+  reviewTimeoutMs: Number(values.reviewTimeoutSeconds) * 1_000,
+});
 
 export interface GuardianHost {
   readonly harness: () => Promise<Harness>;

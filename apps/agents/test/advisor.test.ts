@@ -19,6 +19,7 @@ import {
   MemoryStorage,
 } from "@earendil-works/pi-durable";
 import { obj, str } from "@earendil-works/pi-schema";
+import { EMPTY_HARNESS, extensionOf, resolveHarness } from "@t3flare/harness-registry";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -27,6 +28,7 @@ import {
   type AdvisorSettings,
   advisorExtension,
   advisorPrompt,
+  advisorSettings,
   parseFindings,
   validFinding,
 } from "../src/extensions/advisor.ts";
@@ -43,26 +45,32 @@ const run = async (settings: AdvisorSettings, agent: Array<Step>, advisor: Array
   const models = createModels();
   models.setProvider(faux.provider);
   const advisorPrompts: Array<string> = [];
+  /** Each request to the Advisor model: its transcript and options. */
+  const advisorRequests: Array<{ readonly transcript: unknown; readonly options: unknown }> = [];
   const next = async (list: Array<Step>) => {
     const step = list.shift();
     if (step === undefined) throw new Error("script ran out");
     return typeof step === "function" ? step() : step;
   };
   faux.setResponses(
-    Array.from({ length: 30 }, () => (transcript: { messages: ReadonlyArray<{ role: string; content: unknown }> }) => {
-      // The faux transcript has no system prompt: the Advisor Session is the one whose first user message is a Review.
-      if (
-        JSON.stringify(transcript.messages.find((message) => message.role === "user")?.content ?? "").includes(
-          "Review this observed-agent evidence",
-        )
-      ) {
-        const last = transcript.messages.at(-1);
-        if (last?.role === "user")
-          advisorPrompts.push(typeof last.content === "string" ? last.content : JSON.stringify(last.content));
-        return next(advisor);
-      }
-      return next(agent);
-    }) as never,
+    Array.from(
+      { length: 30 },
+      () => (transcript: { messages: ReadonlyArray<{ role: string; content: unknown }> }, options: unknown) => {
+        // The faux transcript has no system prompt: the Advisor Session is the one whose first user message is a Review.
+        if (
+          JSON.stringify(transcript.messages.find((message) => message.role === "user")?.content ?? "").includes(
+            "Review this observed-agent evidence",
+          )
+        ) {
+          advisorRequests.push({ transcript, options });
+          const last = transcript.messages.at(-1);
+          if (last?.role === "user")
+            advisorPrompts.push(typeof last.content === "string" ? last.content : JSON.stringify(last.content));
+          return next(advisor);
+        }
+        return next(agent);
+      },
+    ) as never,
   );
   const registry = createRegistry();
   const ran: Array<string> = [];
@@ -98,7 +106,15 @@ const run = async (settings: AdvisorSettings, agent: Array<Step>, advisor: Array
   harness.resume();
   await root.waitForIdle(context);
   const page = await root.entries({ order: "ascending" }, 200, undefined, context);
-  return { observer, root, entries: page.items, status: await submission.status(context), advisorPrompts, ran };
+  return {
+    observer,
+    root,
+    entries: page.items,
+    status: await submission.status(context),
+    advisorPrompts,
+    advisorRequests,
+    ran,
+  };
 };
 
 const bash = (command: string, id: string) =>
@@ -106,18 +122,10 @@ const bash = (command: string, id: string) =>
 const report = (findings: ReadonlyArray<unknown>) => fauxAssistantMessage(`Checked.\n${JSON.stringify({ findings })}`);
 const model = (entry: EntryRecord) => JSON.stringify(entry.model?.[0] ?? null);
 
+/** The registry's defaults, as a Session builds them, with no thinking for the faux model. */
 const SETTINGS: AdvisorSettings = {
-  model: "inherit",
-  reviewEvery: "turn",
+  ...advisorSettings(extensionOf(resolveHarness(EMPTY_HARNESS), "advisor").settings),
   thinkingLevel: "off",
-  correctiveTurns: 1,
-  reviewTimeoutMs: 120_000,
-  maxFindings: 4,
-  maxNits: 3,
-  maxToolRounds: 8,
-  concernCooldownTurns: 3,
-  catchUpBacklog: 3,
-  catchUpWaitMs: 30_000,
 };
 const severities = (entries: ReadonlyArray<EntryRecord>) =>
   entries.filter((entry) => entry.kind === ADVICE_ENTRY).map((entry) => (entry.data as { severity: string }).severity);
@@ -240,6 +248,52 @@ describe("the Advisor", () => {
     );
     expect(advisorPrompts[0]).toContain("up to 1 distinct findings");
     expect(severities(entries)).toEqual(["concern"]);
+  });
+
+  it("keeps the most severe findings under the cap: a Blocker reported after a Nit (SPI-1320)", async () => {
+    const { entries } = await run(
+      { ...SETTINGS, reviewEvery: "request", maxFindings: 1, correctiveTurns: 0 },
+      [bash("rm CHANGELOG.md", "c1"), fauxAssistantMessage("Updated the changelog.")],
+      [
+        report([
+          {
+            severity: "nit",
+            message: "The answer could name the file.",
+            evidence: { quote: "Updated the changelog." },
+          },
+          {
+            severity: "blocker",
+            message: "The agent deleted CHANGELOG.md but claims it updated it.",
+            evidence: { refs: [toolCallRef("c1")] },
+          },
+        ]),
+      ],
+    );
+    expect(severities(entries)).toEqual(["blocker"]);
+  });
+
+  it("offers the Advisor no tools with maxToolRounds 0, and its Review still reports (SPI-1320)", async () => {
+    const offered = (requests: ReadonlyArray<{ readonly transcript: unknown }>) =>
+      requests.flatMap(({ transcript }) =>
+        (
+          transcript as { messages: ReadonlyArray<{ role: string; toolsAdded?: ReadonlyArray<{ name: string }> }> }
+        ).messages
+          .flatMap((message) => (message.role === "system" ? (message.toolsAdded ?? []) : []))
+          .map((tool) => tool.name),
+      );
+    const finding = {
+      severity: "concern",
+      message: "It deleted the changelog.",
+      evidence: { refs: [toolCallRef("c1")] },
+    };
+    const script = () => [bash("rm CHANGELOG.md", "c1"), fauxAssistantMessage("Updated the changelog.")];
+    const usual = await run({ ...SETTINGS, reviewEvery: "request" }, script(), [report([finding])]);
+    expect(offered(usual.advisorRequests)).toContain("read");
+    const none = await run({ ...SETTINGS, reviewEvery: "request", maxToolRounds: 0 }, script(), [report([finding])]);
+    expect(offered(none.advisorRequests)).toEqual([]);
+    expect(JSON.stringify(none.advisorRequests[0]?.transcript)).toContain("You have no tools");
+    expect(none.observer.paused).toBeUndefined();
+    expect(severities(none.entries)).toEqual(["concern"]);
   });
 
   it("delivers no Nits with maxNits 0 (SPI-1320)", async () => {

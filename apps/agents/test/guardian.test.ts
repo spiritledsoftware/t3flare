@@ -24,7 +24,14 @@ import {
 import { obj, str } from "@earendil-works/pi-schema";
 import { describe, expect, it } from "vitest";
 
-import { GUARDIAN_ENTRY, guardianExtension, type GuardianSettings } from "../src/extensions/guardian.ts";
+import { EMPTY_HARNESS, extensionOf, resolveHarness } from "@t3flare/harness-registry";
+
+import {
+  GUARDIAN_ENTRY,
+  guardianExtension,
+  type GuardianSettings,
+  guardianSettings,
+} from "../src/extensions/guardian.ts";
 import { parseAssessment } from "../src/extensions/guardian/assessment.ts";
 import {
   judgeCommand,
@@ -166,14 +173,8 @@ const BLOCKING = JSON.stringify({
   risk_category: "destruction",
   rationale: "deletes the whole repository",
 });
-const SETTINGS: GuardianSettings = {
-  model: "default",
-  thinkingLevel: "off",
-  tools: "",
-  commands: "",
-  policy: "",
-  reviewTimeoutMs: 60_000,
-};
+/** The registry's defaults, as a Session builds them. */
+const SETTINGS: GuardianSettings = guardianSettings(extensionOf(resolveHarness(EMPTY_HARNESS), "guardian").settings);
 
 const run = async (
   settings: GuardianSettings,
