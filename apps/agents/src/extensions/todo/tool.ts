@@ -31,18 +31,10 @@ const descriptionField = (description: string) => str({ description });
 const PARAMETERS = obj({
   action: oneOf(TODO_ACTIONS),
   id: opt(nullable(taskId("Task ID for update or remove; not allowed with updates"))),
-  title: opt(
-    nullable(
-      title(
-        "Task title for add or update; not allowed with tasks or updates",
-      ),
-    ),
-  ),
+  title: opt(nullable(title("Task title for add or update; not allowed with tasks or updates"))),
   description: opt(
     nullable(
-      descriptionField(
-        "Optional Task description; null removes it during update; not allowed with tasks or updates",
-      ),
+      descriptionField("Optional Task description; null removes it during update; not allowed with tasks or updates"),
     ),
   ),
   tasks: opt(

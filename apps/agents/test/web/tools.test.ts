@@ -10,12 +10,7 @@ import { UNCONVERTED_NOTE, webFetchTool } from "../../src/extensions/web/fetch.t
 import { DEFAULT_WEB_LIMITS, type WebLimits } from "../../src/extensions/web/limits.ts";
 import { STRUCTURED_MAX_BYTES } from "../../src/extensions/web/output.ts";
 import type { WebRequest, WebTransport } from "../../src/extensions/web/net.ts";
-import {
-  ANSWER_MAX_BYTES,
-  readAnswer,
-  systemPrompt,
-  webSearchTool,
-} from "../../src/extensions/web/search.ts";
+import { ANSWER_MAX_BYTES, readAnswer, systemPrompt, webSearchTool } from "../../src/extensions/web/search.ts";
 
 const PUBLIC = "93.184.215.14";
 
@@ -370,13 +365,18 @@ describe("web_search", () => {
   });
 
   it("bounds a program's copy of the results text at the structured limit (SPI-1361)", async () => {
-    const long = { ...answer, content: [...answer.content, { type: "text", text: "z".repeat(2 * STRUCTURED_MAX_BYTES) }] };
+    const long = {
+      ...answer,
+      content: [...answer.content, { type: "text", text: "z".repeat(2 * STRUCTURED_MAX_BYTES) }],
+    };
     const { transport } = network(() => Response.json(long));
     const outcome = await run(webSearchTool(transport, endpoint), {
       query: "q",
       contextMaxCharacters: 4 * STRUCTURED_MAX_BYTES,
     });
-    const structured = outcome.ok ? (outcome.result.structuredOutput as { content: string; truncated?: boolean }) : undefined;
+    const structured = outcome.ok
+      ? (outcome.result.structuredOutput as { content: string; truncated?: boolean })
+      : undefined;
     expect(new TextEncoder().encode(structured?.content).length).toBeLessThanOrEqual(STRUCTURED_MAX_BYTES);
     expect(structured?.truncated).toBe(true);
   });

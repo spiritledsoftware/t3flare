@@ -71,7 +71,8 @@ describe("file tools' limits (SPI-1321)", () => {
     const contexts: Array<number> = [];
     const files = {
       grep: async (_pattern: string, _path: string, options: { context: number }) => (
-        contexts.push(options.context), []
+        contexts.push(options.context),
+        []
       ),
     } as unknown as ComputerFiles;
     const grep = (fileTools(() => files, LIMITS).tools ?? []).find((tool) => tool.name === "grep")!;

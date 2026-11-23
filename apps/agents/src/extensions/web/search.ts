@@ -235,9 +235,7 @@ export const webSearchTool = (
     description: DESCRIPTION,
     parameters: obj({
       query: str({ description: "Web Search query" }),
-      numResults: opt(
-        int({ minimum: 1, description: `Maximum number of results (default: ${limits.searchResults})` }),
-      ),
+      numResults: opt(int({ minimum: 1, description: `Maximum number of results (default: ${limits.searchResults})` })),
       contextMaxCharacters: opt(
         int({
           minimum: 1,

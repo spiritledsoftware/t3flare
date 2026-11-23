@@ -93,8 +93,7 @@ export const contextRolloverTool = (): ToolRegistration =>
     // Scripts cannot hand off: the Handoff ends the model's context.
     callers: ["model"],
     async execute(args, api, context) {
-      if (args.handoff.trim() === "")
-        throw new Error("Supply a non-empty Handoff");
+      if (args.handoff.trim() === "") throw new Error("Supply a non-empty Handoff");
       const task = await api.getTask(api.taskId, context);
       // SAFETY: a tool call's task is a `pi.tool` task, whose input is a `ToolTaskInput`.
       const input = task?.input as ToolTaskInput | undefined;
