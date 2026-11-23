@@ -17,13 +17,15 @@ export const MAX_TITLE_CHARACTERS = 300;
 export const MAX_DESCRIPTION_CHARACTERS = 2_000;
 
 /**
- * The longest a list may be as the model reads it, in characters and in lines. A result shows the whole list and
- * pi-durable keeps at most 50 KB and 2,000 lines of a result, so a longer list could be cut off in the very result that
- * says it shows the list.
+ * The `todo` tool's own output limits (SPI-1359), which pi-durable keeps a result within. Every result shows the whole
+ * list, so the list is bounded by them (`fits`) and is never cut in the very result that says it shows it. The bytes
+ * are pi-durable's default (50 KB, `DEFAULT_MAX_BYTES` in its truncate.js), what every tool's result gets in the model's
+ * context; the lines are as many as the bytes, so they never bind first (a line takes a byte at least).
  */
-export const MAX_LIST_CHARACTERS = 20_000;
+export const TODO_OUTPUT_LIMITS = { maxBytes: 50 * 1024, maxLines: 50 * 1024 } as const;
 
-export const MAX_LIST_LINES = 500;
+/** Room in a result for the line before the list (`Added 3 Tasks`, `Updated Task #12`): a few dozen bytes at most. */
+const MESSAGE_ROOM_BYTES = 256;
 
 /** The list as the actions see it: the Tasks in ID order and the ID the next one gets. */
 export type TodoList = {
@@ -359,12 +361,9 @@ const applyAction = (list: TodoList, input: TodoInput): TodoOutcome => {
   }
 };
 
-/** Whether the list fits in what the model reads of a result. */
-export const fits = (tasks: ReadonlyArray<TodoTask>): boolean => {
-  const text = formatTasks(tasks);
-
-  return text.length <= MAX_LIST_CHARACTERS && text.split("\n").length <= MAX_LIST_LINES;
-};
+/** Whether the list, and the line before it, fit in the `todo` tool's result (`TODO_OUTPUT_LIMITS`), in bytes of UTF-8. */
+export const fits = (tasks: ReadonlyArray<TodoTask>): boolean =>
+  new TextEncoder().encode(formatTasks(tasks)).length + MESSAGE_ROOM_BYTES <= TODO_OUTPUT_LIMITS.maxBytes;
 
 /** Apply one call of the `todo` tool to `list`. */
 export const applyTodo = (list: TodoList, input: TodoInput): TodoOutcome => {
@@ -373,7 +372,7 @@ export const applyTodo = (list: TodoList, input: TodoInput): TodoOutcome => {
   if (outcome.ok && outcome.list !== list && !fits(outcome.list.tasks)) {
     return failure(
       input.action,
-      `the list would be over ${MAX_LIST_CHARACTERS} characters or ${MAX_LIST_LINES} lines; shorten descriptions or remove Tasks`,
+      `the list would be over the ${TODO_OUTPUT_LIMITS.maxBytes} bytes of UTF-8 a result shows; shorten descriptions or remove Tasks`,
     );
   }
 
