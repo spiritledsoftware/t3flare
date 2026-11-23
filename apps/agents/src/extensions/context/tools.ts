@@ -39,11 +39,9 @@ import {
   EMPTY_STATE,
   findNote,
   joinAppend,
-  MAX_NOTE_CHARACTERS,
-  MAX_NOTE_NAME,
-  MAX_NOTES,
   MAX_TOTAL_NOTE_CHARACTERS,
   NOTE_NAME,
+  noteCharacters,
   noteRef,
 } from "./notes.ts";
 
@@ -135,7 +133,7 @@ interface NotesArgs {
 const notesTool = async (args: NotesArgs, api: ToolExecutionApi, context: Context) => {
   const self = api.conversationId;
   const offset = args.offset ?? 0;
-  const pageSize = Math.min(args.limit ?? PAGE_SIZE, PAGE_SIZE);
+  const pageSize = args.limit ?? PAGE_SIZE;
   switch (args.action) {
     case "list": {
       const { notes } = await readContext(api, self, context);
@@ -173,7 +171,7 @@ const notesTool = async (args: NotesArgs, api: ToolExecutionApi, context: Contex
             ? findNote((await readContext(api, self, context)).notes, args.name)
             : fail("A Note name or ref is required");
       if (note === undefined) return fail("Note not found");
-      const content = note.content.slice(offset, offset + (args.limit ?? MAX_NOTE_CHARACTERS));
+      const content = note.content.slice(offset, args.limit === undefined ? undefined : offset + args.limit);
       return result({
         name: note.name,
         ref: noteRef(self, note.name),
@@ -211,15 +209,12 @@ const notesTool = async (args: NotesArgs, api: ToolExecutionApi, context: Contex
               `A Note named ${JSON.stringify(name)} already exists; pass name to copy under another name`,
             );
           }
-          if (existing === undefined && state.notes.length >= MAX_NOTES)
-            throw new Refusal("Note limit reached; delete an obsolete Note first");
           const content =
             action === "append"
               ? joinAppend(existing?.content ?? "", args.content ?? "")
               : (source?.content ?? args.content ?? "");
-          if (content.length > MAX_NOTE_CHARACTERS) throw new Refusal(`Note exceeds ${MAX_NOTE_CHARACTERS} characters`);
-          const others = state.notes.reduce((sum, note) => sum + (note === existing ? 0 : note.content.length), 0);
-          if (others + content.length > MAX_TOTAL_NOTE_CHARACTERS) {
+          const others = state.notes.reduce((sum, note) => sum + (note === existing ? 0 : noteCharacters(note)), 0);
+          if (others + noteCharacters({ name, content }) > MAX_TOTAL_NOTE_CHARACTERS) {
             throw new Refusal(
               `Notes would exceed ${MAX_TOTAL_NOTE_CHARACTERS} characters in all; shorten or delete obsolete Notes first`,
             );
@@ -265,7 +260,7 @@ interface EntryLine {
 const historyTool = async (args: HistoryArgs, api: ToolExecutionApi, context: Context) => {
   const self = api.conversationId;
   const offset = args.offset ?? 0;
-  const pageSize = Math.min(args.limit ?? PAGE_SIZE, PAGE_SIZE);
+  const pageSize = args.limit ?? PAGE_SIZE;
 
   if (args.action === "read") {
     if (args.ref === undefined) return fail("An entry reference is required");
@@ -379,22 +374,22 @@ const historyTool = async (args: HistoryArgs, api: ToolExecutionApi, context: Co
   return result({ matches, next_offset: null });
 };
 
-const NAME = str({ minLength: 1, maxLength: MAX_NOTE_NAME, pattern: NOTE_NAME.source });
-const REF = str({ maxLength: 300 });
-const QUERY = str({ minLength: 1, maxLength: 256 });
+const NAME = str({ minLength: 1, pattern: NOTE_NAME.source });
+const REF = str();
+const QUERY = str({ minLength: 1 });
 
 export const contextNotesTool = (): ToolRegistration =>
   defineTool({
     name: "context_notes",
-    description: `Conversation Markdown Notes, kept across Handoffs and compactions in this thread's Session. Actions list/read/write/append/delete/search/copy. Names are labels, not paths. read takes a name or a ref from list/search; copy saves the Note a ref names under another name. read returns the whole Note unless offset/limit select a character range; lists return at most 20 Notes. Append starts the new text on a new line unless the Note is empty or already ends with one. Search is case-sensitive literal text. At most ${MAX_NOTES} Notes of ${MAX_NOTE_CHARACTERS} characters, ${MAX_TOTAL_NOTE_CHARACTERS} in all.`,
+    description: `Conversation Markdown Notes, kept across Handoffs and compactions in this thread's Session. Actions list/read/write/append/delete/search/copy. Names are labels, not paths. read takes a name or a ref from list/search; copy saves the Note a ref names under another name. read returns the whole Note unless offset/limit select a character range; list and search return 20 items unless limit says how many. Append starts the new text on a new line unless the Note is empty or already ends with one. Search is case-sensitive literal text. Notes hold at most ${MAX_TOTAL_NOTE_CHARACTERS} characters in all, names and contents together.`,
     parameters: obj({
       action: oneOf(NOTES_ACTIONS),
       ref: opt(REF),
       name: opt(NAME),
-      content: opt(str({ maxLength: MAX_NOTE_CHARACTERS })),
+      content: opt(str()),
       query: opt(QUERY),
       offset: opt(int({ minimum: 0 })),
-      limit: opt(int({ minimum: 1, maximum: MAX_NOTE_CHARACTERS })),
+      limit: opt(int({ minimum: 1 })),
     }),
     executionMode: "sequential",
     replay: "safe",
@@ -405,21 +400,19 @@ export const contextHistoryTool = (): ToolRegistration =>
   defineTool({
     name: "context_history",
     description:
-      "Read-only stored History of this conversation, including entries from before a Handoff or compaction. windows/list/search are paginated (max 20); read returns exact stored entry JSON, at most 2000 characters per call from a zero-based offset. Search is case-sensitive literal text, with JSON string escaping handled for you; returned offsets address the entry JSON. Optional window limits list/search to one Context Window. Optional type (entry kind, e.g. pi.user) and role (message role, e.g. user) filter list/search; by default every entry is included, and list previews describe each entry's text, tool call, or kind. Search previews are decoded readable text; a direct search call does not match its own tool-call block.",
+      "Read-only stored History of this conversation, including entries from before a Handoff or compaction. windows/list/search are paginated (20 items unless limit says how many); read returns exact stored entry JSON, at most 2000 characters per call from a zero-based offset. Search is case-sensitive literal text, with JSON string escaping handled for you; returned offsets address the entry JSON. Optional window limits list/search to one Context Window. Optional type (entry kind, e.g. pi.user) and role (message role, e.g. user) filter list/search; by default every entry is included, and list previews describe each entry's text, tool call, or kind. Search previews are decoded readable text; a direct search call does not match its own tool-call block.",
     parameters: obj({
       action: oneOf(HISTORY_ACTIONS),
       ref: opt(REF),
       window: opt(REF),
       type: opt(
         str({
-          maxLength: 64,
           description:
             'list/search: only entries of this kind, e.g. "pi.user", "pi.assistant", "pi.tool-result", "pi.reset", "pi.compaction"',
         }),
       ),
       role: opt(
         str({
-          maxLength: 64,
           description: 'list/search: only entries whose message has this role, e.g. "user", "assistant", "toolResult"',
         }),
       ),
