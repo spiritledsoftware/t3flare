@@ -38,7 +38,11 @@ export interface CliRoots {
 export type EnvironmentPrecedence = "environment" | "repo" | "both";
 
 /** A root that walks from the cwd up to the repo root, and its winner against an Environment skill. */
-const up = (directory: string, environment: EnvironmentPrecedence): SkillRoot => ({ directory, cwdOnly: false, environment });
+const up = (directory: string, environment: EnvironmentPrecedence): SkillRoot => ({
+  directory,
+  cwdOnly: false,
+  environment,
+});
 
 /**
  * Each CLI's roots (M0, 2026-11-13). Codex 0.167.2: `.agents/skills` and `.codex/skills`, which it lists both of a
@@ -52,8 +56,17 @@ const up = (directory: string, environment: EnvironmentPrecedence): SkillRoot =>
  */
 export const CLI_ROOTS: Readonly<Record<CliAgent, CliRoots>> = {
   codex: { skills: [up(".agents/skills", "both"), up(".codex/skills", "both")], commands: [] },
-  pi: { skills: [{ directory: ".pi/skills", cwdOnly: true, environment: "environment" }, up(".agents/skills", "environment")], commands: [{ directory: ".pi/prompts", nested: false }] },
-  claude: { skills: [up(".claude/skills", "environment")], commands: [{ directory: ".claude/commands", nested: true }] },
+  pi: {
+    skills: [
+      { directory: ".pi/skills", cwdOnly: true, environment: "environment" },
+      up(".agents/skills", "environment"),
+    ],
+    commands: [{ directory: ".pi/prompts", nested: false }],
+  },
+  claude: {
+    skills: [up(".claude/skills", "environment")],
+    commands: [{ directory: ".claude/commands", nested: true }],
+  },
   opencode: {
     skills: [up(".opencode/skills", "repo"), up(".opencode/skill", "repo"), up(".agents/skills", "environment")],
     commands: [
@@ -63,7 +76,8 @@ export const CLI_ROOTS: Readonly<Record<CliAgent, CliRoots>> = {
   },
 };
 
-export const isCliAgent = (value: unknown): value is CliAgent => typeof value === "string" && (CLI_AGENTS as ReadonlyArray<string>).includes(value);
+export const isCliAgent = (value: unknown): value is CliAgent =>
+  typeof value === "string" && (CLI_AGENTS as ReadonlyArray<string>).includes(value);
 
 /**
  * SPI-1153: the winner between a CLI's Repo skill at `filePath` and an Environment skill of its name, by the root it is

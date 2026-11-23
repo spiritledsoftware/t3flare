@@ -35,10 +35,15 @@ import * as ConnectService from "../src/connect/service.ts";
 
 const MINT_KEY = generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" }).toString();
 const ENVIRONMENT = EnvironmentId.make("env_123");
-const TOKEN: CliTokenManager.PersistedToken = { accessToken: "account-access-token", refreshToken: "account-refresh", expiresAtEpochMs: Number.MAX_SAFE_INTEGER };
+const TOKEN: CliTokenManager.PersistedToken = {
+  accessToken: "account-access-token",
+  refreshToken: "account-refresh",
+  expiresAtEpochMs: Number.MAX_SAFE_INTEGER,
+};
 
 const decodeJsonObject = Schema.decodeEffect(Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)));
-const decodeJwt = (jwt: string) => JSON.parse(Buffer.from(jwt.split(".")[1]!, "base64url").toString("utf8")) as Record<string, any>;
+const decodeJwt = (jwt: string) =>
+  JSON.parse(Buffer.from(jwt.split(".")[1]!, "base64url").toString("utf8")) as Record<string, any>;
 
 interface Harness {
   readonly secrets: Map<string, string>;
@@ -49,11 +54,22 @@ interface Harness {
   endpointRuntime: unknown;
 }
 
-const harness = (): Harness => ({ secrets: new Map(), relayCalls: [], tunnels: [], token: undefined, endpointRuntime: null });
+const harness = (): Harness => ({
+  secrets: new Map(),
+  relayCalls: [],
+  tunnels: [],
+  token: undefined,
+  endpointRuntime: null,
+});
 
-const run = <A, E>(h: Harness, policy: ConnectService.ConnectPolicy, use: (connect: ConnectService.Connect["Service"]) => Effect.Effect<A, E>) => {
+const run = <A, E>(
+  h: Harness,
+  policy: ConnectService.ConnectPolicy,
+  use: (connect: ConnectService.Connect["Service"]) => Effect.Effect<A, E>,
+) => {
   const store: ServerSecretStore.ServerSecretStore["Service"] = {
-    get: (name) => Effect.sync(() => Option.map(Option.fromNullishOr(h.secrets.get(name)), (v) => new TextEncoder().encode(v))),
+    get: (name) =>
+      Effect.sync(() => Option.map(Option.fromNullishOr(h.secrets.get(name)), (v) => new TextEncoder().encode(v))),
     set: (name, value) => Effect.sync(() => void h.secrets.set(name, new TextDecoder().decode(value))),
     create: (name, value) => Effect.sync(() => void h.secrets.set(name, new TextDecoder().decode(value))),
     getOrCreateRandom: () => Effect.die("unused"),
@@ -62,7 +78,10 @@ const run = <A, E>(h: Harness, policy: ConnectService.ConnectPolicy, use: (conne
   const relay = HttpClient.make(
     Effect.fn("relay")(function* (request) {
       const url = new URL(request.url);
-      const body = request.body._tag === "Uint8Array" ? yield* decodeJsonObject(new TextDecoder().decode(request.body.body)).pipe(Effect.orDie) : null;
+      const body =
+        request.body._tag === "Uint8Array"
+          ? yield* decodeJsonObject(new TextDecoder().decode(request.body.body)).pipe(Effect.orDie)
+          : null;
       h.relayCalls.push({ method: request.method, path: url.pathname, body });
       const answer =
         url.pathname === "/v1/client/environment-link-challenges"
@@ -96,12 +115,26 @@ const run = <A, E>(h: Harness, policy: ConnectService.ConnectPolicy, use: (conne
     Layer.provide(ServerSettings.layerTest({})),
   );
   const services = Layer.mergeAll(
-    Layer.succeed(ConnectReachability.ConnectReachability, ConnectReachability.ConnectReachability.of({ check: Effect.die("unused"), latest: Effect.succeedNone })),
-    Layer.succeed(HttpServer.HttpServer, HttpServer.HttpServer.of({ address: NetAddress.inetAddressFromIpStringUnsafe("127.0.0.1", 443), serve: (() => Effect.void) as never })),
+    Layer.succeed(
+      ConnectReachability.ConnectReachability,
+      ConnectReachability.ConnectReachability.of({ check: Effect.die("unused"), latest: Effect.succeedNone }),
+    ),
+    Layer.succeed(
+      HttpServer.HttpServer,
+      HttpServer.HttpServer.of({
+        address: NetAddress.inetAddressFromIpStringUnsafe("127.0.0.1", 443),
+        serve: (() => Effect.void) as never,
+      }),
+    ),
     Layer.succeed(ServerSecretStore.ServerSecretStore, store),
     Layer.succeed(
       AgentAwarenessRelay.AgentAwarenessRelay,
-      AgentAwarenessRelay.AgentAwarenessRelay.of({ publishThread: () => Effect.void, drain: Effect.void, requestCatchUp: () => Effect.void, start: () => Effect.void }),
+      AgentAwarenessRelay.AgentAwarenessRelay.of({
+        publishThread: () => Effect.void,
+        drain: Effect.void,
+        requestCatchUp: () => Effect.void,
+        start: () => Effect.void,
+      }),
     ),
     Layer.succeed(
       ServerEnvironment.ServerEnvironment,
@@ -114,7 +147,14 @@ const run = <A, E>(h: Harness, policy: ConnectService.ConnectPolicy, use: (conne
       ManagedEndpointRuntime.CloudManagedEndpointRuntime,
       ManagedEndpointRuntime.CloudManagedEndpointRuntime.of({
         // As the Worker's: no cloudflared, so a tunnel never runs.
-        applyConfig: (config) => Effect.sync(() => (h.tunnels.push(config), config === null ? { status: "disabled" } : { status: "unsupported", providerKind: "cloudflare_tunnel" }) as never),
+        applyConfig: (config) =>
+          Effect.sync(
+            () =>
+              (h.tunnels.push(config),
+              config === null
+                ? { status: "disabled" }
+                : { status: "unsupported", providerKind: "cloudflare_tunnel" }) as never,
+          ),
         recoveryRequests: Stream.empty,
         requestRecovery: () => Effect.void,
         restartConnector: () => Effect.succeed(false),
@@ -127,9 +167,14 @@ const run = <A, E>(h: Harness, policy: ConnectService.ConnectPolicy, use: (conne
     Layer.succeed(EnvironmentAuth.EnvironmentAuth, EnvironmentAuth.EnvironmentAuth.of({} as never)),
     Layer.succeed(CliTokenManager.CloudCliTokenManager, tokens),
     Layer.succeed(HttpClient.HttpClient, relay),
-    ServerConfigModule.layerTest("/", { prefix: "t3flare-connect-test-" }).pipe(Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+    ServerConfigModule.layerTest("/", { prefix: "t3flare-connect-test-" }).pipe(
+      Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+    ),
   );
-  const layer = ConnectService.layer(policy, makePublishRecorder({ read: () => undefined, write: () => undefined })).pipe(Layer.provideMerge(cloudLink), Layer.provideMerge(services));
+  const layer = ConnectService.layer(
+    policy,
+    makePublishRecorder({ read: () => undefined, write: () => undefined }),
+  ).pipe(Layer.provideMerge(cloudLink), Layer.provideMerge(services));
   return Effect.runPromise(Effect.flatMap(ConnectService.Connect, use).pipe(Effect.provide(layer), Effect.scoped));
 };
 
@@ -145,11 +190,23 @@ describe("the publish-only link step against a fake relay", () => {
     expect(outcome).toEqual({ mode: "publish_only", accountTokenKept: true, mintKeyRemoved: true });
 
     const [challenge, link] = h.relayCalls;
-    expect(challenge).toMatchObject({ method: "POST", path: "/v1/client/environment-link-challenges", body: { managedTunnelsEnabled: false } });
-    expect(link).toMatchObject({ method: "POST", path: "/v1/client/environment-links", body: { managedTunnelsEnabled: false } });
+    expect(challenge).toMatchObject({
+      method: "POST",
+      path: "/v1/client/environment-link-challenges",
+      body: { managedTunnelsEnabled: false },
+    });
+    expect(link).toMatchObject({
+      method: "POST",
+      path: "/v1/client/environment-links",
+      body: { managedTunnelsEnabled: false },
+    });
     const proof = decodeJwt(link!.body.proof);
     expect(proof.scopes).toEqual(["agent_activity_notifications"]);
-    expect(proof.endpoint).toEqual({ httpBaseUrl: "http://127.0.0.1:443", wsBaseUrl: "ws://127.0.0.1:443", providerKind: "manual" });
+    expect(proof.endpoint).toEqual({
+      httpBaseUrl: "http://127.0.0.1:443",
+      wsBaseUrl: "ws://127.0.0.1:443",
+      providerKind: "manual",
+    });
     expect(proof.origin).toEqual({ localHttpHost: "127.0.0.1", localHttpPort: 443 });
     expect(proof.challenge).toBe("challenge-1");
 
@@ -216,6 +273,8 @@ describe("the publish-only link step against a fake relay", () => {
     const out = await run(h, STAGE, (connect) => connect.signOut);
     expect(out).toMatchObject({ relay: { status: 200 }, accountTokenCleared: true });
     expect(h.token).toBeUndefined();
-    expect([...h.secrets.keys()].filter((name) => name.startsWith("cloud-relay") || name.startsWith("cloud-cli"))).toEqual([]);
+    expect(
+      [...h.secrets.keys()].filter((name) => name.startsWith("cloud-relay") || name.startsWith("cloud-cli")),
+    ).toEqual([]);
   });
 });

@@ -31,13 +31,18 @@ const familyOf = (family: string) => new RegExp(`(?:^|[-_./:])${family}(?:$|[-_.
  * session calls the alias.
  */
 const familyModelOf = (own: ReadonlyArray<ModelEndpoint>, family: "opus" | "sonnet"): string | undefined => {
-  const slugs = own.flatMap((endpoint) => endpoint.models.map((model) => ({ slug: endpointSlug(endpoint.id, model.id), id: model.id, known: model.known })));
+  const slugs = own.flatMap((endpoint) =>
+    endpoint.models.map((model) => ({ slug: endpointSlug(endpoint.id, model.id), id: model.id, known: model.known })),
+  );
   const ofFamily = slugs.filter((entry) => familyOf(family).test(entry.id));
   return (ofFamily.find((entry) => entry.known) ?? ofFamily[0] ?? slugs[0])?.slug;
 };
 
 /** Claude Code's relay configuration for the endpoints as stored now, or undefined when there is no such endpoint. */
-export const claudeRelayOf = (endpoints: ModelEndpoints | undefined, textModel: string | undefined): ClaudeRelay | undefined => {
+export const claudeRelayOf = (
+  endpoints: ModelEndpoints | undefined,
+  textModel: string | undefined,
+): ClaudeRelay | undefined => {
   const own = claudeEndpoints(endpoints);
   if (own.length === 0) return undefined;
   return {
@@ -54,7 +59,8 @@ export const claudeRelayOf = (endpoints: ModelEndpoints | undefined, textModel: 
  * beside a label two endpoints share), with the effort picker on reasoning models, the first the default. Empty without
  * one: the provider then needs setup.
  */
-export const claudeModelsOf = (endpoints: ModelEndpoints | undefined): ReadonlyArray<ServerProviderModel> => relayPickerModels(claudeEndpoints(endpoints));
+export const claudeModelsOf = (endpoints: ModelEndpoints | undefined): ReadonlyArray<ServerProviderModel> =>
+  relayPickerModels(claudeEndpoints(endpoints));
 
 /**
  * The model as Claude Code names it: an Anthropic Messages endpoint's by its slug (the relay routes by it). An old
@@ -62,4 +68,5 @@ export const claudeModelsOf = (endpoints: ModelEndpoints | undefined): ReadonlyA
  * first (`selectionSlug`). Any other slug (an endpoint that is gone) stays as it is: Claude Code's session does not
  * offer it, and t3's adapter refuses it before any request.
  */
-export const claudeModelId = (slug: string, endpoints: ModelEndpoints | undefined): string => selectionSlug(slug, relayPickerModels(claudeEndpoints(endpoints))[0]?.slug);
+export const claudeModelId = (slug: string, endpoints: ModelEndpoints | undefined): string =>
+  selectionSlug(slug, relayPickerModels(claudeEndpoints(endpoints))[0]?.slug);

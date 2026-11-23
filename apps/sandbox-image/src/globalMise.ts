@@ -37,13 +37,16 @@ export const GLOBAL_MISE_BOUNDS = {
 
 /** One run's install and checks at an install limit of `minutes`, each to its KILL, in seconds. */
 const runSeconds = (minutes: number): number =>
-  minutes * 60 + GLOBAL_MISE_BOUNDS.installKillAfter + 2 * (GLOBAL_MISE_BOUNDS.check + GLOBAL_MISE_BOUNDS.checkKillAfter);
+  minutes * 60 +
+  GLOBAL_MISE_BOUNDS.installKillAfter +
+  2 * (GLOBAL_MISE_BOUNDS.check + GLOBAL_MISE_BOUNDS.checkKillAfter);
 
 /** How long a lay-down at an install limit of `minutes` waits for another's lock, in seconds: that run's whole time and a margin. */
 export const globalMiseLockSeconds = (minutes: number): number => runSeconds(minutes) + GLOBAL_MISE_BOUNDS.lockMargin;
 
 /** How long the Workspace DO waits for the whole exec at an install limit of `minutes`: the lock, its own run, a minute's margin. */
-export const globalMiseDeadlineMs = (minutes: number): number => (globalMiseLockSeconds(minutes) + runSeconds(minutes) + GLOBAL_MISE_BOUNDS.answerMargin) * 1000;
+export const globalMiseDeadlineMs = (minutes: number): number =>
+  (globalMiseLockSeconds(minutes) + runSeconds(minutes) + GLOBAL_MISE_BOUNDS.answerMargin) * 1000;
 
 /** Where an owner-pinned git gets the image's system gitconfig from (the credential helper, Dockerfile). */
 export const SYSTEM_GITCONFIG = "/usr/local/share/t3flare/gitconfig";
@@ -176,7 +179,13 @@ export const globalMiseArgs = (run: GlobalMiseRun): ReadonlyArray<string> => [
 ];
 
 /** The argv the platform's exec runs; the text goes on stdin. */
-export const globalMiseArgv = (run: GlobalMiseRun): ReadonlyArray<string> => ["bash", "-c", GLOBAL_MISE_SCRIPT, SCRIPT_NAME, ...globalMiseArgs(run)];
+export const globalMiseArgv = (run: GlobalMiseRun): ReadonlyArray<string> => [
+  "bash",
+  "-c",
+  GLOBAL_MISE_SCRIPT,
+  SCRIPT_NAME,
+  ...globalMiseArgs(run),
+];
 
 /** What the script reads from its arguments (`globalMiseArgs`, read back): its bounds in seconds. */
 export interface GlobalMiseArgs {
@@ -191,8 +200,22 @@ export interface GlobalMiseArgs {
 /** `globalMiseArgs`' output read back, field by field; undefined when there are not six. */
 export const parseGlobalMiseArgs = (args: ReadonlyArray<string>): GlobalMiseArgs | undefined => {
   if (args.length !== 6) return undefined;
-  const [revision, sha256, source, mode, install, lock] = args as readonly [string, string, string, string, string, string];
-  return { revision: Number(revision), sha256, source, mode, installSeconds: Number(install), lockSeconds: Number(lock) };
+  const [revision, sha256, source, mode, install, lock] = args as readonly [
+    string,
+    string,
+    string,
+    string,
+    string,
+    string,
+  ];
+  return {
+    revision: Number(revision),
+    sha256,
+    source,
+    mode,
+    installSeconds: Number(install),
+    lockSeconds: Number(lock),
+  };
 };
 
 /** The arguments of a `globalMiseArgv`, read back: those after the script's name; undefined for another argv. */

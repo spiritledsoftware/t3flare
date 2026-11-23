@@ -40,11 +40,18 @@ const run = async (tool: ToolRegistration, args: Record<string, unknown>) => {
 };
 
 const textOf = (outcome: Awaited<ReturnType<typeof run>>) =>
-  outcome.ok ? (outcome.result.output ?? []).map((block) => ("text" in block ? block.text : "")).join("") : outcome.error;
+  outcome.ok
+    ? (outcome.result.output ?? []).map((block) => ("text" in block ? block.text : "")).join("")
+    : outcome.error;
 
 describe("web_fetch", () => {
   it("fetches a page as Markdown with its title and URL in details", async () => {
-    const { transport, sent } = network(() => new Response("<html><head><title>Example</title></head><body><h1>Hello</h1><p>World</p></body></html>", { headers: { "content-type": "text/html" } }));
+    const { transport, sent } = network(
+      () =>
+        new Response("<html><head><title>Example</title></head><body><h1>Hello</h1><p>World</p></body></html>", {
+          headers: { "content-type": "text/html" },
+        }),
+    );
     const outcome = await run(webFetchTool(transport), { url: "https://example.com/a" });
     expect(textOf(outcome)).toContain("Hello");
     expect(sent[0]?.headers.accept).toContain("text/markdown");
@@ -53,28 +60,41 @@ describe("web_fetch", () => {
 
   it("refuses a private address, a name that resolves to one, and a redirect to the metadata service", async () => {
     const { transport, sent } = network(
-      (request) => (request.url.startsWith("https://public.example") ? new Response(null, { status: 302, headers: { location: "http://169.254.169.254/latest" } }) : new Response("no")),
+      (request) =>
+        request.url.startsWith("https://public.example")
+          ? new Response(null, { status: 302, headers: { location: "http://169.254.169.254/latest" } })
+          : new Response("no"),
       { "inside.example": "10.0.0.5" },
     );
     const tool = webFetchTool(transport);
     expect(textOf(await run(tool, { url: "http://127.0.0.1/" }))).toMatch(/Unable to fetch .*blocked: loopback/);
-    expect(textOf(await run(tool, { url: "https://inside.example/" }))).toMatch(/blocked: host resolves to a private address/);
-    expect(textOf(await run(tool, { url: "https://public.example/" }))).toMatch(/redirect blocked: cloud metadata address/);
+    expect(textOf(await run(tool, { url: "https://inside.example/" }))).toMatch(
+      /blocked: host resolves to a private address/,
+    );
+    expect(textOf(await run(tool, { url: "https://public.example/" }))).toMatch(
+      /redirect blocked: cloud metadata address/,
+    );
     expect(sent.map((request) => request.url)).toEqual(["https://public.example/"]);
   });
 
   it("names a failing status by its standard phrase, and refuses a body over 5 MiB", async () => {
     const { transport } = network((request) =>
-      request.url.endsWith("/missing") ? new Response("server text", { status: 404 }) : new Response("x", { headers: { "content-length": String(6 * 1024 * 1024) } }),
+      request.url.endsWith("/missing")
+        ? new Response("server text", { status: 404 })
+        : new Response("x", { headers: { "content-length": String(6 * 1024 * 1024) } }),
     );
     const tool = webFetchTool(transport);
-    expect(textOf(await run(tool, { url: "https://example.com/missing" }))).toBe("Unable to fetch https://example.com/missing: HTTP 404 Not Found");
+    expect(textOf(await run(tool, { url: "https://example.com/missing" }))).toBe(
+      "Unable to fetch https://example.com/missing: HTTP 404 Not Found",
+    );
     expect(textOf(await run(tool, { url: "https://example.com/big" }))).toMatch(/exceeds the 5 MiB limit/);
   });
 
   it("retries a Cloudflare challenge once with the honest user agent", async () => {
     const { transport, sent } = network((request) =>
-      request.headers["user-agent"] === "t3flare-web-tools" ? new Response("plain text", { headers: { "content-type": "text/plain" } }) : new Response("", { status: 403, headers: { "cf-mitigated": "challenge" } }),
+      request.headers["user-agent"] === "t3flare-web-tools"
+        ? new Response("plain text", { headers: { "content-type": "text/plain" } })
+        : new Response("", { status: 403, headers: { "cf-mitigated": "challenge" } }),
     );
     expect(textOf(await run(webFetchTool(transport), { url: "https://example.com/" }))).toBe("plain text");
     expect(sent).toHaveLength(2);
@@ -84,7 +104,11 @@ describe("web_fetch", () => {
     const lines = Array.from({ length: 10 }, (_, index) => `line ${index + 1}`).join("\n");
     const { transport } = network(() => new Response(lines, { headers: { "content-type": "text/plain" } }));
     const outcome = await run(webFetchTool(transport), { url: "https://example.com/", offset: 3, limit: 2 });
-    expect(outcome.ok && outcome.result.structuredOutput).toMatchObject({ content: "line 3\nline 4", total_lines: 10, next_offset: 5 });
+    expect(outcome.ok && outcome.result.structuredOutput).toMatchObject({
+      content: "line 3\nline 4",
+      total_lines: 10,
+      next_offset: 5,
+    });
   });
 });
 
@@ -96,11 +120,28 @@ const answer = {
       type: "web_search_tool_result",
       tool_use_id: "srvtoolu_1",
       content: [
-        { type: "web_search_result", url: "https://a.example/one", title: "One", page_age: "2 days ago", encrypted_content: "x" },
+        {
+          type: "web_search_result",
+          url: "https://a.example/one",
+          title: "One",
+          page_age: "2 days ago",
+          encrypted_content: "x",
+        },
         { type: "web_search_result", url: "https://b.example/two", title: "Two", encrypted_content: "y" },
       ],
     },
-    { type: "text", text: "Pi Durable runs agents ", citations: [{ type: "web_search_result_location", url: "https://a.example/one", title: "One", cited_text: "agents on Durable Objects" }] },
+    {
+      type: "text",
+      text: "Pi Durable runs agents ",
+      citations: [
+        {
+          type: "web_search_result_location",
+          url: "https://a.example/one",
+          title: "One",
+          cited_text: "agents on Durable Objects",
+        },
+      ],
+    },
     { type: "text", text: "on Cloudflare." },
   ],
   usage: { input_tokens: 1200, output_tokens: 80, server_tool_use: { web_search_requests: 1 } },
@@ -109,7 +150,13 @@ const answer = {
 describe("web_search", () => {
   // SPI-1176: an Anthropic Messages Model endpoint's model, its key and headers resolved at each search.
   const endpoint = {
-    resolve: async () => ({ baseUrl: "https://llm.example/", headers: { "x-gateway": "team" }, apiKey: "sk-secret-key", slug: "comm/claude-haiku-5-5", modelId: "claude-haiku-5-5" }),
+    resolve: async () => ({
+      baseUrl: "https://llm.example/",
+      headers: { "x-gateway": "team" },
+      apiKey: "sk-secret-key",
+      slug: "comm/claude-haiku-5-5",
+      modelId: "claude-haiku-5-5",
+    }),
   };
 
   it("asks the endpoint's model with the web search server tool, and returns the pages and the cited summary", async () => {
@@ -119,12 +166,21 @@ describe("web_search", () => {
     expect(request.url).toBe("https://llm.example/v1/messages");
     expect(request.headers["x-api-key"]).toBe("sk-secret-key");
     expect(request.headers["x-gateway"]).toBe("team");
-    expect(JSON.parse(request.body ?? "{}")).toMatchObject({ model: "claude-haiku-5-5", tools: [{ type: "web_search_20250305", name: "web_search" }] });
+    expect(JSON.parse(request.body ?? "{}")).toMatchObject({
+      model: "claude-haiku-5-5",
+      tools: [{ type: "web_search_20250305", name: "web_search" }],
+    });
     const text = textOf(outcome);
-    expect(text).toContain("Title: One\nURL: https://a.example/one\nPublished: 2 days ago\nText: agents on Durable Objects");
+    expect(text).toContain(
+      "Title: One\nURL: https://a.example/one\nPublished: 2 days ago\nText: agents on Durable Objects",
+    );
     expect(text).toContain("Title: Two\nURL: https://b.example/two");
     expect(text).toContain("Pi Durable runs agents on Cloudflare.");
-    expect(outcome.ok && outcome.result.details).toMatchObject({ provider: "model-endpoint:comm/claude-haiku-5-5", query: "pi durable", results: [{ url: "https://a.example/one", title: "One" }, { url: "https://b.example/two" }] });
+    expect(outcome.ok && outcome.result.details).toMatchObject({
+      provider: "model-endpoint:comm/claude-haiku-5-5",
+      query: "pi durable",
+      results: [{ url: "https://a.example/one", title: "One" }, { url: "https://b.example/two" }],
+    });
     expect(outcome.ok && outcome.result.usage).toMatchObject({ input: 1200, output: 80 });
   });
 
@@ -139,16 +195,37 @@ describe("web_search", () => {
   });
 
   it("reports a failed search, and an endpoint's error without the key", async () => {
-    const failed = network(() => Response.json({ content: [{ type: "web_search_tool_result", tool_use_id: "s", content: { type: "web_search_tool_result_error", error_code: "too_many_requests" } }] }));
-    expect(textOf(await run(webSearchTool(failed.transport, endpoint), { query: "q" }))).toBe("Unable to search the web for q: the search failed (too_many_requests)");
-    const refused = network(() => Response.json({ type: "error", error: { type: "permission_error", message: "key sk-secret-key has no models" } }, { status: 403 }));
+    const failed = network(() =>
+      Response.json({
+        content: [
+          {
+            type: "web_search_tool_result",
+            tool_use_id: "s",
+            content: { type: "web_search_tool_result_error", error_code: "too_many_requests" },
+          },
+        ],
+      }),
+    );
+    expect(textOf(await run(webSearchTool(failed.transport, endpoint), { query: "q" }))).toBe(
+      "Unable to search the web for q: the search failed (too_many_requests)",
+    );
+    const refused = network(() =>
+      Response.json(
+        { type: "error", error: { type: "permission_error", message: "key sk-secret-key has no models" } },
+        { status: 403 },
+      ),
+    );
     const text = textOf(await run(webSearchTool(refused.transport, endpoint), { query: "q" }));
     expect(text).toBe("Unable to search the web for q: HTTP 403 Forbidden: key [REDACTED] has no models");
   });
 
   it("says why when no endpoint can search, and sends nothing", async () => {
     const { transport, sent } = network(() => Response.json(answer));
-    const none = { resolve: async () => ({ error: "no Anthropic Messages Model endpoint with an API key or no auth lists a model to search with" }) };
+    const none = {
+      resolve: async () => ({
+        error: "no Anthropic Messages Model endpoint with an API key or no auth lists a model to search with",
+      }),
+    };
     expect(textOf(await run(webSearchTool(transport, none), { query: "q" }))).toBe(
       "Unable to search the web for q: no Anthropic Messages Model endpoint with an API key or no auth lists a model to search with",
     );

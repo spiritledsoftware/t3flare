@@ -8,20 +8,9 @@ import * as Effect from "effect/Effect";
 import type * as Schema from "effect/Schema";
 import { describe, expect, it } from "vitest";
 import { OWNER, run, settled, TARGET, testDeps } from "./core.fixture.ts";
-import {
-  type FakePrompt,
-  type FakeServer,
-  fetchTo,
-  legacyStatefulServer,
-  modernServer,
-} from "./fakes.fixture.ts";
+import { type FakePrompt, type FakeServer, fetchTo, legacyStatefulServer, modernServer } from "./fakes.fixture.ts";
 import { connect, type McpDeps } from "./index.ts";
-import {
-  type McpCallContext,
-  type McpInputAnswer,
-  type McpInputRequest,
-  ServerError,
-} from "./types.ts";
+import { type McpCallContext, type McpInputAnswer, type McpInputRequest, ServerError } from "./types.ts";
 
 const FORM_PROMPT: FakePrompt = {
   name: "who",
@@ -80,19 +69,10 @@ const deps = (
   onInput: (request) => Effect.tap(answer(request), () => Effect.sync(() => seen.push(request))),
 });
 
-const get = (
-  prompt: FakePrompt,
-  server: FakeServer,
-  given: McpDeps,
-  ctx: McpCallContext,
-  timeoutMs?: number,
-) =>
+const get = (prompt: FakePrompt, server: FakeServer, given: McpDeps, ctx: McpCallContext, timeoutMs?: number) =>
   run(
     Effect.gen(function* () {
-      const connection = yield* connect(
-        timeoutMs === undefined ? TARGET : { ...TARGET, timeoutMs },
-        given,
-      );
+      const connection = yield* connect(timeoutMs === undefined ? TARGET : { ...TARGET, timeoutMs }, given);
 
       return yield* settled(connection.getPrompt(prompt.name, {}, ctx));
     }),
@@ -298,19 +278,14 @@ describe("a Modern server's page during a prompt get", () => {
       server,
       deps(
         server,
-        (request) =>
-          Effect.succeed(
-            request.key === "q1" ? { kind: "answered", result: { action: "decline" } } : DONE,
-          ),
+        (request) => Effect.succeed(request.key === "q1" ? { kind: "answered", result: { action: "decline" } } : DONE),
         seen,
       ),
       PAGES,
     );
 
     expect(seen.map((request) => request.key)).toEqual(["q1", "q2"]);
-    expect(asked).toMatchObject([
-      { round: 1, responses: { q1: { action: "decline" }, q2: { action: "accept" } } },
-    ]);
+    expect(asked).toMatchObject([{ round: 1, responses: { q1: { action: "decline" }, q2: { action: "accept" } } }]);
     expect(outcome).toHaveProperty("value");
   });
 
@@ -336,8 +311,7 @@ describe("a Legacy server's -32042 during a prompt get", () => {
 
   const gated = (
     times: number,
-    answer: (request: McpInputRequest) => Effect.Effect<McpInputAnswer> = () =>
-      Effect.succeed(DONE),
+    answer: (request: McpInputRequest) => Effect.Effect<McpInputAnswer> = () => Effect.succeed(DONE),
     ctx: McpCallContext = PAGES,
     pages = 1,
   ) => {
@@ -350,12 +324,7 @@ describe("a Legacy server's -32042 during a prompt get", () => {
       gatePrompts,
       seen,
       ended,
-      outcome: get(
-        VISIT,
-        server,
-        { ...deps(server, answer, seen), onInputEnded: (key) => ended.push(key) },
-        ctx,
-      ),
+      outcome: get(VISIT, server, { ...deps(server, answer, seen), onInputEnded: (key) => ended.push(key) }, ctx),
     };
   };
 
@@ -363,9 +332,7 @@ describe("a Legacy server's -32042 during a prompt get", () => {
     const { gatePrompts, seen, outcome } = gated(1);
 
     expect(answeredOf(await outcome)).toEqual("opened");
-    expect(seen).toMatchObject([
-      { kind: "elicitation", key: "page-1", mode: "deferrable", era: "legacy" },
-    ]);
+    expect(seen).toMatchObject([{ kind: "elicitation", key: "page-1", mode: "deferrable", era: "legacy" }]);
     expect(gatePrompts.calls).toBe(2);
   });
 
@@ -379,9 +346,7 @@ describe("a Legacy server's -32042 during a prompt get", () => {
 
   it("ends with the server's error when the owner declines or cancels, with nothing sent again", async () => {
     for (const action of ["decline", "cancel"] as const) {
-      const { gatePrompts, outcome } = gated(1, () =>
-        Effect.succeed({ kind: "answered", result: { action } }),
-      );
+      const { gatePrompts, outcome } = gated(1, () => Effect.succeed({ kind: "answered", result: { action } }));
 
       expect(await outcome).toMatchObject({
         failed: ServerError.make({ message: "Authorization needed", code: -32042 }),
@@ -435,8 +400,7 @@ describe("a Legacy server's -32042 during a prompt get", () => {
 
     expect(await outcome).toMatchObject({
       failed: ServerError.make({
-        message:
-          "Authorization needed. The server kept asking for the same page; stopped after 10 tries",
+        message: "Authorization needed. The server kept asking for the same page; stopped after 10 tries",
         code: -32042,
       }),
     });

@@ -16,7 +16,17 @@ import { describe, expect, it } from "vitest";
 import fixtures from "../../../packages/models/test/fixtures/vendors.json" with { type: "json" };
 import { SessionEndpoints } from "../src/session/endpoints.ts";
 import { liveOf, pushedEntry, turnDetail } from "../src/session/state.ts";
-import { armFault, compactionLimits, sessionLimits, type Fault, FAULT_ECHOED_SECRETS, FAULT_FIXTURES, faultAnswer, modelLimits, recordingFetch } from "../src/session/modelLimits.ts";
+import {
+  armFault,
+  compactionLimits,
+  sessionLimits,
+  type Fault,
+  FAULT_ECHOED_SECRETS,
+  FAULT_FIXTURES,
+  faultAnswer,
+  modelLimits,
+  recordingFetch,
+} from "../src/session/modelLimits.ts";
 
 const context = BACKGROUND_CONTEXT;
 const T0 = Date.parse(fixtures.now);
@@ -24,10 +34,22 @@ const T0 = Date.parse(fixtures.now);
 type Name = keyof typeof fixtures.answers;
 const answerOf = (name: Name) => {
   const answer = fixtures.answers[name];
-  return new Response(answer.body, { status: answer.status, headers: { ...answer.headers, "content-type": "application/json" } });
+  return new Response(answer.body, {
+    status: answer.status,
+    headers: { ...answer.headers, "content-type": "application/json" },
+  });
 };
 
-const model = { id: "m-1", name: "M", reasoning: false, input: ["text" as const], contextWindow: 200_000, maxTokens: 8_000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, known: false };
+const model = {
+  id: "m-1",
+  name: "M",
+  reasoning: false,
+  input: ["text" as const],
+  contextWindow: 200_000,
+  maxTokens: 8_000,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  known: false,
+};
 
 const endpointOf = (id: string, api: ModelEndpoint["api"], auth: ModelEndpoint["auth"] = "api-key"): ModelEndpoint => ({
   id,
@@ -45,9 +67,20 @@ const OTHER = endpointOf("spare", "anthropic-messages");
 
 /** An Anthropic Messages stream that answers `ok`. */
 const okAnswer = () => {
-  const event = (type: string, data: unknown) => `event: ${type}\ndata: ${JSON.stringify({ type, ...(data as object) })}\n\n`;
+  const event = (type: string, data: unknown) =>
+    `event: ${type}\ndata: ${JSON.stringify({ type, ...(data as object) })}\n\n`;
   const body = [
-    event("message_start", { message: { id: "msg_1", type: "message", role: "assistant", model: "m-1", content: [], stop_reason: null, usage: { input_tokens: 5, output_tokens: 0 } } }),
+    event("message_start", {
+      message: {
+        id: "msg_1",
+        type: "message",
+        role: "assistant",
+        model: "m-1",
+        content: [],
+        stop_reason: null,
+        usage: { input_tokens: 5, output_tokens: 0 },
+      },
+    }),
     event("content_block_start", { index: 0, content_block: { type: "text", text: "" } }),
     event("content_block_delta", { index: 0, delta: { type: "text_delta", text: "ok" } }),
     event("content_block_stop", { index: 0 }),
@@ -60,7 +93,12 @@ const okAnswer = () => {
 /** The Session's model path over fake endpoints: their providers, the recording fetch, the hook and compaction's limits. */
 const openSession = async (
   answer: (url: string) => Response,
-  options: { readonly on?: ModelEndpoint; readonly fault?: Fault; readonly endpoints?: ReadonlyArray<ModelEndpoint>; readonly baseUrl?: string } = {},
+  options: {
+    readonly on?: ModelEndpoint;
+    readonly fault?: Fault;
+    readonly endpoints?: ReadonlyArray<ModelEndpoint>;
+    readonly baseUrl?: string;
+  } = {},
 ) => {
   const on = options.on ?? CLAUDE;
   const endpoints = options.endpoints ?? [on];
@@ -96,14 +134,19 @@ const openSession = async (
     limits: () => undefined,
     readMs: 50,
     now: () => now,
-    source: () => ({ modelEndpoints: async () => ({ revision: 1, endpoints }), endpointCredential: async () => ({ apiKey: "key-for-tests-only" }) }),
+    source: () => ({
+      modelEndpoints: async () => ({ revision: 1, endpoints }),
+      endpointCredential: async () => ({ apiKey: "key-for-tests-only" }),
+    }),
   });
   const limits = {
     last: recorder.last,
     // A test may move the endpoint's base URL away from where its requests go (the answers are then not its).
     endpoint: (id: string) => {
       const endpoint = session.endpoint(id);
-      return endpoint === undefined || options.baseUrl === undefined ? endpoint : { ...endpoint, baseUrl: options.baseUrl };
+      return endpoint === undefined || options.baseUrl === undefined
+        ? endpoint
+        : { ...endpoint, baseUrl: options.baseUrl };
     },
     recordEndpoint: (failure: EndpointFailureRecord | undefined) => void records.push(failure),
     secrets: (id: string) => session.secrets(id),
@@ -111,7 +154,15 @@ const openSession = async (
   compactionLimits(models, limits);
   const registry = createRegistry();
   registry.install(modelLimits(limits));
-  const harness = await Harness.open(new MemoryStorage(), { models, registry, settings: { retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 }, compaction: { keepRecentTokens: 1 } } }, context);
+  const harness = await Harness.open(
+    new MemoryStorage(),
+    {
+      models,
+      registry,
+      settings: { retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 }, compaction: { keepRecentTokens: 1 } },
+    },
+    context,
+  );
   const root = await harness.root(context, { agent: { model: { provider: on.id, modelId: model.id } } });
   harness.resume();
   return {
@@ -121,7 +172,8 @@ const openSession = async (
       const submission = await root.submit({ type: "input", content: "hi" }, context);
       for (;;) {
         const status = await submission.status(context);
-        if (status.status === "done" || status.status === "unanswered") return status as { status: string; detail?: unknown };
+        if (status.status === "done" || status.status === "unanswered")
+          return status as { status: string; detail?: unknown };
         await new Promise((resolve) => setTimeout(resolve, 2));
       }
     },
@@ -144,9 +196,21 @@ describe("a Session's Model endpoint failures (SPI-1172)", () => {
   it("Anthropic's unified usage limit: one request, recorded with its reset and the endpoint's text, no fallback", async () => {
     const run = await submit(() => answerOf("anthropicSubscriptionLimit"), { endpoints: [CLAUDE, OTHER] });
     expect(run.requests).toBe(1);
-    expect(run.status).toMatchObject({ status: "unanswered", detail: "t3flare model endpoint: usage_limit, not retried" });
+    expect(run.status).toMatchObject({
+      status: "unanswered",
+      detail: "t3flare model endpoint: usage_limit, not retried",
+    });
     expect(run.records).toEqual([
-      { endpointId: "claude", class: "usage_limit", code: "usage_limit", message: 'The Model endpoint "claude" reached its usage limit.', retryable: true, resetAt: T0 + 2 * 3_600_000, stop: true, at: T0 },
+      {
+        endpointId: "claude",
+        class: "usage_limit",
+        code: "usage_limit",
+        message: 'The Model endpoint "claude" reached its usage limit.',
+        retryable: true,
+        resetAt: T0 + 2 * 3_600_000,
+        stop: true,
+        at: T0,
+      },
     ]);
     // Never another endpoint.
     expect([...run.sentTo.keys()]).toEqual(["claude.example"]);
@@ -155,7 +219,11 @@ describe("a Session's Model endpoint failures (SPI-1172)", () => {
   it("a refused key: one request, a permission error naming the endpoint", async () => {
     const run = await submit(() => answerOf("anthropicKeyRefused"));
     expect(run.requests).toBe(1);
-    expect(run.records.at(-1)).toMatchObject({ class: "permission_error", code: "key_refused", message: 'The Model endpoint "claude" refused its API key (HTTP 401): check it on the Settings page.' });
+    expect(run.records.at(-1)).toMatchObject({
+      class: "permission_error",
+      code: "key_refused",
+      message: 'The Model endpoint "claude" refused its API key (HTTP 401): check it on the Settings page.',
+    });
   });
 
   it("an overload is retried by pi-durable and is not a usage limit", async () => {
@@ -175,7 +243,9 @@ describe("a Session's Model endpoint failures (SPI-1172)", () => {
 
   it("a rate limit with no reset is retried, and the next answer's long reset ends it", async () => {
     let calls = 0;
-    const run = await submit(() => (calls++ === 0 ? answerOf("anthropicRateLimitBare") : answerOf("anthropicRateLimitLong")));
+    const run = await submit(() =>
+      calls++ === 0 ? answerOf("anthropicRateLimitBare") : answerOf("anthropicRateLimitLong"),
+    );
     expect(run.requests).toBe(2);
     expect(run.records.map((record) => [record?.code, record?.stop])).toEqual([
       ["rate_limited", false],
@@ -190,13 +260,18 @@ describe("a Session's Model endpoint failures (SPI-1172)", () => {
     compacting = true;
     const compaction = await session.compact();
     expect(compaction.requests).toBe(1);
-    expect(compaction.outcome).toMatchObject({ status: "failed", error: { message: "Summarization failed: t3flare model endpoint: usage_limit, not retried" } });
+    expect(compaction.outcome).toMatchObject({
+      status: "failed",
+      error: { message: "Summarization failed: t3flare model endpoint: usage_limit, not retried" },
+    });
     expect(session.counts().records.at(-1)).toMatchObject({ code: "usage_limit", stop: true });
   });
 
   it("an error the table does not know keeps pi-ai's text, redacted: an echoed key never reaches pi-durable", async () => {
     const echo = `{"type":"error","error":{"type":"invalid_request_error","message":"bad header x-api-key: ${FAULT_ECHOED_SECRETS[0]}"}}`;
-    const run = await submit(() => new Response(echo, { status: 400, headers: { "content-type": "application/json" } }));
+    const run = await submit(
+      () => new Response(echo, { status: 400, headers: { "content-type": "application/json" } }),
+    );
     expect(run.records).toEqual([undefined]);
     const detail = String(run.status.detail);
     expect(detail).toContain("[redacted]");
@@ -206,7 +281,11 @@ describe("a Session's Model endpoint failures (SPI-1172)", () => {
   it("the last failed answer wins: a retried 529, then a 400 the table does not know, clears the overload", async () => {
     let calls = 0;
     const tooLong = '{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long"}}';
-    const run = await submit(() => (calls++ < 2 ? answerOf("anthropicOverloaded") : new Response(tooLong, { status: 400, headers: { "content-type": "application/json" } })));
+    const run = await submit(() =>
+      calls++ < 2
+        ? answerOf("anthropicOverloaded")
+        : new Response(tooLong, { status: 400, headers: { "content-type": "application/json" } }),
+    );
     expect(run.requests).toBe(3);
     expect(run.records.map((record) => record?.code)).toEqual(["overloaded", "overloaded", undefined]);
   });
@@ -223,10 +302,14 @@ describe("a Session's Model endpoint failures (SPI-1172)", () => {
   });
 
   it("a 429 resetting within pi-durable's retries (14 s) is retried; one past them, even at 20 s, stops after one request", async () => {
-    const short = await submit(() => new Response(answerOf("anthropicRateLimitBare").body, { status: 429, headers: { "retry-after": "2" } }));
+    const short = await submit(
+      () => new Response(answerOf("anthropicRateLimitBare").body, { status: 429, headers: { "retry-after": "2" } }),
+    );
     expect(short.requests).toBe(4);
     expect(short.records.at(-1)).toMatchObject({ code: "rate_limited", stop: false });
-    const beyond = await submit(() => new Response(answerOf("anthropicRateLimitBare").body, { status: 429, headers: { "retry-after": "20" } }));
+    const beyond = await submit(
+      () => new Response(answerOf("anthropicRateLimitBare").body, { status: 429, headers: { "retry-after": "20" } }),
+    );
     expect(beyond.requests).toBe(1);
     expect(beyond.records.at(-1)).toMatchObject({ code: "rate_limited", stop: true, class: "usage_limit" });
     const long = await submit(() => answerOf("anthropicRateLimitLong"));
@@ -234,8 +317,11 @@ describe("a Session's Model endpoint failures (SPI-1172)", () => {
   });
 
   it("the endpoint's own key is redacted from its error text whatever its shape", async () => {
-    const echo = '{"type":"error","error":{"type":"invalid_request_error","message":"bad request for key key-for-tests-only"}}';
-    const run = await submit(() => new Response(echo, { status: 400, headers: { "content-type": "application/json" } }));
+    const echo =
+      '{"type":"error","error":{"type":"invalid_request_error","message":"bad request for key key-for-tests-only"}}';
+    const run = await submit(
+      () => new Response(echo, { status: 400, headers: { "content-type": "application/json" } }),
+    );
     expect(String(run.status.detail)).not.toContain("key-for-tests-only");
   });
 
@@ -272,17 +358,26 @@ describe("a Session's Model endpoint failures (SPI-1172)", () => {
 
 describe("the recording fetch (SPI-1172)", () => {
   const recorder = (answer: () => Response) =>
-    recordingFetch({ fetch: (async () => answer()) as typeof globalThis.fetch, fault: () => undefined, clearFault: () => undefined, now: () => T0, onRequest: () => undefined });
+    recordingFetch({
+      fetch: (async () => answer()) as typeof globalThis.fetch,
+      fault: () => undefined,
+      clearFault: () => undefined,
+      now: () => T0,
+      onRequest: () => undefined,
+    });
 
   it("never reads or buffers a success's body: it streams to pi-ai untouched", async () => {
     let pulls = 0;
-    const body = new ReadableStream<Uint8Array>({
+    const body = new ReadableStream<Uint8Array>(
+      {
         pull: (controller) => {
           pulls++;
           controller.enqueue(new TextEncoder().encode("data: x\n\n"));
           controller.close();
         },
-      }, { highWaterMark: 0 });
+      },
+      { highWaterMark: 0 },
+    );
     const r = recorder(() => new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } }));
     const response = await r.fetch("https://claude.example/v1/messages");
     expect(pulls).toBe(0);
@@ -301,7 +396,10 @@ describe("the recording fetch (SPI-1172)", () => {
 
 describe("the fault gate (SPI-1172)", () => {
   it("arms only where the deployment has T3FLARE_FAULTS=1, a known fixture and a finite reset", () => {
-    expect(armFault("1", { fixture: "anthropicUsageLimit", resetAt: T0 })).toEqual({ fixture: "anthropicUsageLimit", resetAt: T0 });
+    expect(armFault("1", { fixture: "anthropicUsageLimit", resetAt: T0 })).toEqual({
+      fixture: "anthropicUsageLimit",
+      resetAt: T0,
+    });
     expect(armFault(undefined, { fixture: "anthropicUsageLimit", resetAt: T0 })).toBeInstanceOf(Error);
     expect(armFault("0", { fixture: "anthropicUsageLimit", resetAt: T0 })).toBeInstanceOf(Error);
     expect(armFault("1", { fixture: "nope", resetAt: T0 })).toBeInstanceOf(Error);
@@ -319,7 +417,10 @@ describe("the fault route's vendor shapes (SPI-1172)", () => {
 
   it("a refused-key fault names the endpoint, and the secrets it echoes are redacted", async () => {
     const run = await submit(() => okAnswer(), { fault: { fixture: "anthropicKeyRefused", resetAt: T0 + 120_000 } });
-    expect(run.records[0]).toMatchObject({ code: "key_refused", message: expect.stringContaining('The Model endpoint "claude"') });
+    expect(run.records[0]).toMatchObject({
+      code: "key_refused",
+      message: expect.stringContaining('The Model endpoint "claude"'),
+    });
     expect(JSON.stringify(run)).not.toContain(FAULT_ECHOED_SECRETS[0]);
   });
 
@@ -338,15 +439,29 @@ describe("the fault route's vendor shapes (SPI-1172)", () => {
       const run = await submit(() => okAnswer(), { on, fault: { fixture, resetAt: T0 + 60_000 } });
       expect(run.records.at(-1)?.code, fixture).toBe(code);
     }
-    expect(faultAnswer({ fixture: "anthropicUsageLimit", resetAt: T0 + 60_000 }, T0).headers.get("anthropic-ratelimit-unified-status")).toBe("rejected");
+    expect(
+      faultAnswer({ fixture: "anthropicUsageLimit", resetAt: T0 + 60_000 }, T0).headers.get(
+        "anthropic-ratelimit-unified-status",
+      ),
+    ).toBe("rejected");
   });
 });
 
 describe("what the Session pushes is redacted (SPI-1172)", () => {
   it("an assistant entry's error text and a run failure's detail carry no echoed credential", () => {
     const echoed = `401 invalid x-api-key: ${FAULT_ECHOED_SECRETS[0]}; Bearer ${FAULT_ECHOED_SECRETS[1]}; ${FAULT_ECHOED_SECRETS[2]}`;
-    const entry = pushedEntry({ id: 1, kind: "message", model: [{ role: "assistant", content: [], stopReason: "error", errorMessage: echoed }] }, "t");
-    const live = liveOf({ run: { taskId: "1" }, runFailure: { reason: "model_error", detail: echoed, taskId: "1" } }, () => "t");
+    const entry = pushedEntry(
+      {
+        id: 1,
+        kind: "message",
+        model: [{ role: "assistant", content: [], stopReason: "error", errorMessage: echoed }],
+      },
+      "t",
+    );
+    const live = liveOf(
+      { run: { taskId: "1" }, runFailure: { reason: "model_error", detail: echoed, taskId: "1" } },
+      () => "t",
+    );
     const pushed = JSON.stringify([entry, live]);
     for (const secret of FAULT_ECHOED_SECRETS) expect(pushed).not.toContain(secret);
     expect(pushed).toContain("[redacted]");
@@ -361,13 +476,24 @@ describe("what the Session pushes is redacted (SPI-1172)", () => {
 });
 
 describe("the Session's record of a turn's failures (sessionLimits, SPI-1172 review 2)", () => {
-  const endpointFailure = { endpointId: "claude", class: "provider_error" as const, code: "overloaded", message: "m", retryable: true, stop: false, at: 2 };
+  const endpointFailure = {
+    endpointId: "claude",
+    class: "provider_error" as const,
+    code: "overloaded",
+    message: "m",
+    retryable: true,
+    stop: false,
+    at: 2,
+  };
   const session = () => {
     let record: ProxyRecord = { requests: 3 };
     const options = sessionLimits({
       last: () => undefined,
       note: (update) => void (record = update(record)),
-      endpoints: { endpoint: (id) => (id === "claude" ? CLAUDE : undefined), secrets: (id) => (id === "claude" ? ["claude-key-held-now"] : []) },
+      endpoints: {
+        endpoint: (id) => (id === "claude" ? CLAUDE : undefined),
+        secrets: (id) => (id === "claude" ? ["claude-key-held-now"] : []),
+      },
     });
     return { options, record: () => record };
   };

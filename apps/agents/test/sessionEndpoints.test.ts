@@ -16,7 +16,18 @@ const endpointAt = (baseUrl: string): ModelEndpoint => ({
   baseUrl,
   auth: "api-key",
   headers: {},
-  models: [{ id: "claude-haiku-5-5", name: "h", reasoning: false, input: ["text"], contextWindow: 200_000, maxTokens: 1_000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, known: true }],
+  models: [
+    {
+      id: "claude-haiku-5-5",
+      name: "h",
+      reasoning: false,
+      input: ["text"],
+      contextWindow: 200_000,
+      maxTokens: 1_000,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      known: true,
+    },
+  ],
 });
 
 describe("a Session's Model endpoint keys", () => {
@@ -27,7 +38,10 @@ describe("a Session's Model endpoint keys", () => {
     const sent: Array<string> = [];
     const fetcher = (async (url: unknown, init?: RequestInit) => {
       sent.push(`${String(url)} ${new Headers(init?.headers).get("x-api-key")}`);
-      return Response.json({ type: "error", error: { type: "invalid_request_error", message: "stub" } }, { status: 400 });
+      return Response.json(
+        { type: "error", error: { type: "invalid_request_error", message: "stub" } },
+        { status: 400 },
+      );
     }) as typeof fetch;
     const models = createModels();
     const map = new Map<string, unknown>();
@@ -45,14 +59,22 @@ describe("a Session's Model endpoint keys", () => {
           return { revision: environment.revision, endpoints: [environment.endpoint] };
         },
         // The Environment's rule (endpoints/store.ts `credential`): a key only for the target it has now.
-        endpointCredential: async ({ target }: EndpointCredentialRequest) => (sameTarget(environment.endpoint, target) ? { apiKey: environment.key } : { apiKey: null, changed: true }),
+        endpointCredential: async ({ target }: EndpointCredentialRequest) =>
+          sameTarget(environment.endpoint, target) ? { apiKey: environment.key } : { apiKey: null, changed: true },
       }),
     });
     const request = async () => {
       const model = models.getModel("gw", "claude-haiku-5-5")!;
-      return (await models.completeSimple(model, { messages: [{ role: "user", content: "hi", timestamp: 0 }] })).errorMessage ?? "";
+      return (
+        (await models.completeSimple(model, { messages: [{ role: "user", content: "hi", timestamp: 0 }] }))
+          .errorMessage ?? ""
+      );
     };
-    const ask = async () => (await models.getAuth("gw").then((auth) => auth?.auth.apiKey ?? null, (error: Error) => error.message)) as string | null;
+    const ask = async () =>
+      (await models.getAuth("gw").then(
+        (auth) => auth?.auth.apiKey ?? null,
+        (error: Error) => error.message,
+      )) as string | null;
     await endpoints.take();
     expect(await ask()).toBe("sk-K1-old");
     environment = { revision: 2, endpoint: endpointAt("https://new-host.example"), key: "sk-K2-new" };
@@ -80,7 +102,10 @@ describe("a Session's Model endpoint keys", () => {
     const sent: Array<string> = [];
     const fetcher = (async (url: unknown, init?: RequestInit) => {
       sent.push(`${new URL(String(url)).host} <- ${new Headers(init?.headers).get("x-api-key")}`);
-      return Response.json({ type: "error", error: { type: "invalid_request_error", message: "stub" } }, { status: 400 });
+      return Response.json(
+        { type: "error", error: { type: "invalid_request_error", message: "stub" } },
+        { status: 400 },
+      );
     }) as typeof fetch;
     const models = createModels();
     const map = new Map<string, unknown>();
@@ -95,7 +120,9 @@ describe("a Session's Model endpoint keys", () => {
         modelEndpoints: async () => ({ revision: environment.revision, endpoints: [environment.endpoint] }),
         endpointCredential: async ({ target }: EndpointCredentialRequest) => {
           asked += 1;
-          const answer = sameTarget(environment.endpoint, target) ? { apiKey: environment.key } : { apiKey: null, changed: true };
+          const answer = sameTarget(environment.endpoint, target)
+            ? { apiKey: environment.key }
+            : { apiKey: null, changed: true };
           if (hold !== undefined) await hold;
           return answer;
         },
@@ -113,7 +140,9 @@ describe("a Session's Model endpoint keys", () => {
     release();
     hold = undefined;
     await inFlight;
-    await models.completeSimple(models.getModel("gw", "claude-haiku-5-5")!, { messages: [{ role: "user", content: "hi", timestamp: 0 }] });
+    await models.completeSimple(models.getModel("gw", "claude-haiku-5-5")!, {
+      messages: [{ role: "user", content: "hi", timestamp: 0 }],
+    });
     expect(sent).toEqual(["new-host.example <- sk-K2-new"]);
   });
 });

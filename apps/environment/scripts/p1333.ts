@@ -22,7 +22,9 @@ import { writeEvidence as writeFile } from "./lib/evidence.ts";
 import { panelApi } from "./lib/relayEvidence.ts";
 
 const outAt = process.argv.indexOf("--out");
-const OUT = path.resolve(outAt === -1 ? path.resolve(import.meta.dirname, "../../../.evidence/base-start") : process.argv[outAt + 1]!);
+const OUT = path.resolve(
+  outAt === -1 ? path.resolve(import.meta.dirname, "../../../.evidence/base-start") : process.argv[outAt + 1]!,
+);
 const WORKSPACE = "p1333";
 const MARKER = "/opt/p1333-marker";
 const IMAGE_SETUP = `set -euo pipefail
@@ -32,7 +34,8 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends fi
 `;
 const CHECK = `cat ${MARKER} 2>/dev/null || echo NO-MARKER; command -v figlet || echo NO-FIGLET`;
 
-const deployedCommit = async (): Promise<string | null> => (await admin("GET", "/_t3flare/health")).json?.build?.commit ?? null;
+const deployedCommit = async (): Promise<string | null> =>
+  (await admin("GET", "/_t3flare/health")).json?.build?.commit ?? null;
 
 const writeEvidence = async (name: string, value: Record<string, unknown>) => {
   writeFile(path.join(OUT, name), { host: base.host, commit: await deployedCommit(), ...value });
@@ -45,18 +48,29 @@ const readEvidence = (name: string): any => {
 
 const setEnvironment = async (settings: Record<string, unknown>) => {
   const answer = await panelApi("POST", "environment", { settings });
-  if (answer.status !== 200) throw new Error(`environment change refused: ${answer.status} ${JSON.stringify(answer.json).slice(0, 300)}`);
+  if (answer.status !== 200)
+    throw new Error(`environment change refused: ${answer.status} ${JSON.stringify(answer.json).slice(0, 300)}`);
   return answer.json as { revision: number };
 };
 
 const callOn = async (body: unknown) => {
   const answer = await admin("POST", `/_t3flare/agents/workspace-call?id=${WORKSPACE}`, body);
-  return { status: answer.status, result: answer.json?.result ?? { error: String(answer.json).slice(0, 400) }, container: answer.json?.container } as { status: number; result: any; container: any };
+  return {
+    status: answer.status,
+    result: answer.json?.result ?? { error: String(answer.json).slice(0, 400) },
+    container: answer.json?.container,
+  } as { status: number; result: any; container: any };
 };
 const execTimed = async (script: string, timeoutMs = 20 * 60_000) => {
   const started = Date.now();
   const answer = await callOn({ exec: { script, timeoutMs } });
-  return { ms: Date.now() - started, exitCode: answer.result?.exitCode as number | undefined, stdout: String(answer.result?.stdout ?? ""), stderr: String(answer.result?.stderr ?? answer.result?.error ?? "").slice(0, 600), from: answer.container?.launch?.from ?? null };
+  return {
+    ms: Date.now() - started,
+    exitCode: answer.result?.exitCode as number | undefined,
+    stdout: String(answer.result?.stdout ?? ""),
+    stderr: String(answer.result?.stderr ?? answer.result?.error ?? "").slice(0, 600),
+    from: answer.container?.launch?.from ?? null,
+  };
 };
 const stop = async () => {
   await admin("POST", `/_t3flare/agents/workspace-stop?id=${WORKSPACE}`);
@@ -84,9 +98,22 @@ const until = async (done: (r: any) => boolean, ms: number) => {
 const readyForKey = (r: any) => r?.state === "ready" && r.good !== null && r.good.key === r.key;
 
 const ready = async () => {
-  const { revision } = await setEnvironment({ imageSetup: IMAGE_SETUP, whileBuilding: "lastGood", whileBuildingNewImage: "wait" });
-  const polled = await until((r) => (r?.revision ?? -1) >= revision && (readyForKey(r) || r?.state === "failed"), 25 * 60_000);
-  await writeEvidence("ready.json", { revision, seen: polled.seen, record: polled.last, ms: polled.ms, ok: readyForKey(polled.last) });
+  const { revision } = await setEnvironment({
+    imageSetup: IMAGE_SETUP,
+    whileBuilding: "lastGood",
+    whileBuildingNewImage: "wait",
+  });
+  const polled = await until(
+    (r) => (r?.revision ?? -1) >= revision && (readyForKey(r) || r?.state === "failed"),
+    25 * 60_000,
+  );
+  await writeEvidence("ready.json", {
+    revision,
+    seen: polled.seen,
+    record: polled.last,
+    ms: polled.ms,
+    ok: readyForKey(polled.last),
+  });
 };
 
 const start = async () => {
@@ -95,7 +122,12 @@ const start = async () => {
   const builder = await record();
   await stop();
   const run = await execTimed(CHECK);
-  const ok = readyForKey(builder) && run.exitCode === 0 && run.stdout.includes("p1333 ") && run.stdout.includes("/figlet") && run.from?.base?.snapshotId === builder.good.id;
+  const ok =
+    readyForKey(builder) &&
+    run.exitCode === 0 &&
+    run.stdout.includes("p1333 ") &&
+    run.stdout.includes("/figlet") &&
+    run.from?.base?.snapshotId === builder.good.id;
   await writeEvidence("start.json", { builder: { key: builder?.key, good: builder?.good }, run, ok });
 };
 
@@ -105,7 +137,12 @@ const fallback = async () => {
   const armed = await callOn({ baseFault: { snapshotId: `p1333-bogus-${Date.now()}` } });
   const run = await execTimed(CHECK);
   // The image has no marker or figlet; the start went again from it, within seconds rather than two 60 s connects.
-  const fellBack = run.exitCode === 0 && run.stdout.includes("NO-MARKER") && typeof run.from?.image?.why === "string" && run.from.image.why.includes("refused") && run.ms < 60_000;
+  const fellBack =
+    run.exitCode === 0 &&
+    run.stdout.includes("NO-MARKER") &&
+    typeof run.from?.image?.why === "string" &&
+    run.from.image.why.includes("refused") &&
+    run.ms < 60_000;
   const rebuilt = await until((r) => readyForKey(r) && r.good.id !== before?.good?.id, 25 * 60_000);
   await stop();
   const again = await execTimed(CHECK);
@@ -115,7 +152,11 @@ const fallback = async () => {
     run,
     rebuild: { seen: rebuilt.seen, good: rebuilt.last?.good ?? null, ms: rebuilt.ms },
     again,
-    ok: fellBack && rebuilt.seen.some((step) => step.startsWith("building")) && again.from?.base?.snapshotId === rebuilt.last?.good?.id && again.stdout.includes("/figlet"),
+    ok:
+      fellBack &&
+      rebuilt.seen.some((step) => step.startsWith("building")) &&
+      again.from?.base?.snapshotId === rebuilt.last?.good?.id &&
+      again.stdout.includes("/figlet"),
   });
 };
 
@@ -132,7 +173,12 @@ const imageChange = async () => {
     before: { state: before?.state, phase: before?.phase, good: before?.good ?? null },
     run,
     after: { state: after?.state, good: after?.good ?? null },
-    ok: run.exitCode === 0 && run.stdout.includes("/figlet") && run.from?.base?.snapshotId !== earlier.id && after?.good?.imageDigest !== earlier.imageDigest && run.from?.base?.snapshotId === after?.good?.id,
+    ok:
+      run.exitCode === 0 &&
+      run.stdout.includes("/figlet") &&
+      run.from?.base?.snapshotId !== earlier.id &&
+      after?.good?.imageDigest !== earlier.imageDigest &&
+      run.from?.base?.snapshotId === after?.good?.id,
   });
 };
 
@@ -144,10 +190,27 @@ const clear = async () => {
 /** The Builder's record now, in a line. */
 const show = async () => {
   const r = await record();
-  console.log(JSON.stringify({ state: r?.state, phase: r?.phase, reason: r?.reason, revision: r?.revision, key: r?.key?.slice(0, 12), good: r?.good && { id: r.good.id, key: r.good.key.slice(0, 12), imageDigest: r.good.imageDigest.slice(-16) }, at: r?.at === undefined ? null : new Date(r.at).toISOString() }));
+  console.log(
+    JSON.stringify({
+      state: r?.state,
+      phase: r?.phase,
+      reason: r?.reason,
+      revision: r?.revision,
+      key: r?.key?.slice(0, 12),
+      good: r?.good && { id: r.good.id, key: r.good.key.slice(0, 12), imageDigest: r.good.imageDigest.slice(-16) },
+      at: r?.at === undefined ? null : new Date(r.at).toISOString(),
+    }),
+  );
 };
 
-const commands: Record<string, () => Promise<void>> = { ready, start, fallback, "image-change": imageChange, clear, record: show };
+const commands: Record<string, () => Promise<void>> = {
+  ready,
+  start,
+  fallback,
+  "image-change": imageChange,
+  clear,
+  record: show,
+};
 const command = commands[process.argv[2] ?? ""];
 if (command === undefined) {
   console.error(`usage: p1333.ts ${Object.keys(commands).join(" | ")}`);

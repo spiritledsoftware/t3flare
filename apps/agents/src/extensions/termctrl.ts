@@ -13,7 +13,16 @@
 // - Nothing starts a container until a Terminal or a job starts: the tools are free to offer.
 // @effect-diagnostics globalDate:off
 import type { Context } from "@earendil-works/chord";
-import { defineExtension, type Extension, GenerationTask, type Harness, hook, type HookApi, section, type ToolExecutionApi } from "@earendil-works/pi-durable";
+import {
+  defineExtension,
+  type Extension,
+  GenerationTask,
+  type Harness,
+  hook,
+  type HookApi,
+  section,
+  type ToolExecutionApi,
+} from "@earendil-works/pi-durable";
 import type { CodemodeNamespace } from "@earendil-works/pi-durable/codemode";
 
 import type { BackgroundJobs } from "./coding-tools.ts";
@@ -37,7 +46,11 @@ export const TERMCTRL_EXTENSION = "termctrl";
 /** An Exit notification's entry: the model reads its text; t3 shows it as a notice (the differ). */
 export const EXIT_ENTRY = "t3flare.terminal-exit";
 
-export const TERMCTRL_NAMESPACE: CodemodeNamespace = { name: "terminal", description: "Terminals and Background jobs in the Workspace's container", prefix: "terminal_" };
+export const TERMCTRL_NAMESPACE: CodemodeNamespace = {
+  name: "terminal",
+  description: "Terminals and Background jobs in the Workspace's container",
+  prefix: "terminal_",
+};
 
 export interface TermctrlOptions {
   readonly host: TermctrlHost;
@@ -53,7 +66,13 @@ const dueExits = async (host: TermctrlHost): Promise<string | undefined> => {
 };
 
 /** Tells the run of the exits: a steer while it works, else a note placed after its answer (never a run of its own). */
-const notify = async (harness: () => Promise<Harness>, options: TermctrlOptions, api: HookApi, context: Context, steer: boolean): Promise<void> => {
+const notify = async (
+  harness: () => Promise<Harness>,
+  options: TermctrlOptions,
+  api: HookApi,
+  context: Context,
+  steer: boolean,
+): Promise<void> => {
   if (!options.used()) return;
   const text = await dueExits(options.host).catch(() => undefined);
   if (text === undefined) return;
@@ -62,19 +81,31 @@ const notify = async (harness: () => Promise<Harness>, options: TermctrlOptions,
   const entry = { kind: EXIT_ENTRY, data: { text } };
   if (steer) {
     try {
-      await conversation.submit({ type: "input", content: text, whenBusy: "steer", whenIdle: "reject", entry }, context);
+      await conversation.submit(
+        { type: "input", content: text, whenBusy: "steer", whenIdle: "reject", entry },
+        context,
+      );
       return;
     } catch {
       // Idle meanwhile: the note below, for the next turn.
     }
   }
-  await conversation.submit({ type: "write", entry: { ...entry, model: [{ role: "user", content: text, timestamp: Date.now() }] } }, context);
+  await conversation.submit(
+    { type: "write", entry: { ...entry, model: [{ role: "user", content: text, timestamp: Date.now() }] } },
+    context,
+  );
 };
 
 export const termctrlExtension = (harness: () => Promise<Harness>, options: TermctrlOptions): Extension =>
   defineExtension({
     name: TERMCTRL_EXTENSION,
-    tools: [terminalStartTool(options.host), terminalSendTool(options.host), terminalStopTool(options.host), terminalListTool(options.host), terminalWaitTool(options.host)],
+    tools: [
+      terminalStartTool(options.host),
+      terminalSendTool(options.host),
+      terminalStopTool(options.host),
+      terminalListTool(options.host),
+      terminalWaitTool(options.host),
+    ],
     hooks: [
       hook(GenerationTask, {
         afterTools: async (_assistant, _results, api, context) => {
@@ -89,7 +120,9 @@ export const termctrlExtension = (harness: () => Promise<Harness>, options: Term
     sections: [
       section("terminals", (input) => {
         const offered = new Set(input.agent.tools.map((tool) => tool.name));
-        const lines = Object.entries(TERMCTRL_GUIDELINES).flatMap(([tool, line]) => (offered.has(tool) ? [`- ${line}`] : []));
+        const lines = Object.entries(TERMCTRL_GUIDELINES).flatMap(([tool, line]) =>
+          offered.has(tool) ? [`- ${line}`] : [],
+        );
         return lines.length === 0 ? undefined : lines.join("\n");
       }),
     ],
@@ -102,10 +135,27 @@ export const termctrlExtension = (harness: () => Promise<Harness>, options: Term
 export const backgroundJobs = (host: TermctrlHost): BackgroundJobs => ({
   async run(command: string, cwd: string, _api: ToolExecutionApi, _context: Context) {
     const owner = host.owner();
-    const started = await host.call({ op: "start", owner, kind: "background_job", command: host.toToolPath(command), cwd, ...host.viewport(), notify: true });
+    const started = await host.call({
+      op: "start",
+      owner,
+      kind: "background_job",
+      command: host.toToolPath(command),
+      cwd,
+      ...host.viewport(),
+      notify: true,
+    });
     if (!started.ok) throw new Error(started.error);
     const id = started.value.entry.id;
-    const settled = await host.call({ op: "settle", owner, id, mode: "start", deadline: Date.now() + START_WAIT_MS, chunkMs: START_WAIT_MS, pattern: "\u0000never", view: true });
+    const settled = await host.call({
+      op: "settle",
+      owner,
+      id,
+      mode: "start",
+      deadline: Date.now() + START_WAIT_MS,
+      chunkMs: START_WAIT_MS,
+      pattern: "\u0000never",
+      view: true,
+    });
     if (!settled.ok) throw new Error(settled.error);
     const view = settled.value.view;
     const output = view.output ?? "";

@@ -12,7 +12,11 @@ import { type SearchEndpoint, webSearchTool } from "./web/search.ts";
 export const WEB_EXTENSION = "web";
 
 /** The web tools in a code mode script (`tools.web_fetch`, `tools.web_search`). */
-export const WEB_NAMESPACE: CodemodeNamespace = { name: "web", description: "The public web: fetch a page, search", prefix: "web_" };
+export const WEB_NAMESPACE: CodemodeNamespace = {
+  name: "web",
+  description: "The public web: fetch a page, search",
+  prefix: "web_",
+};
 
 export interface WebOptions {
   /** Where `web_search` searches; absent: `web_search` is not offered. */
@@ -24,6 +28,9 @@ export const webExtension = (options: WebOptions = {}): Extension => {
   const transport = options.transport ?? workerTransport;
   return defineExtension({
     name: WEB_EXTENSION,
-    tools: [webFetchTool(transport), ...(options.search === undefined ? [] : [webSearchTool(transport, options.search)])],
+    tools: [
+      webFetchTool(transport),
+      ...(options.search === undefined ? [] : [webSearchTool(transport, options.search)]),
+    ],
   });
 };

@@ -6,12 +6,7 @@
  * was sent, and all are in the call's `tokens`), and their data is cut to 2 KiB, after the scrub so no token is left cut in half. Nothing here reaches a model.
  */
 import { type McpLog } from "@t3flare/mcp";
-import {
-  MCP_LOG_DATA_MAX,
-  MCP_LOG_RING,
-  type McpEngineTargetEncoded,
-  type McpLogEntry,
-} from "@t3flare/mcp/types";
+import { MCP_LOG_DATA_MAX, MCP_LOG_RING, type McpEngineTargetEncoded, type McpLogEntry } from "@t3flare/mcp/types";
 import * as Arr from "effect/Array";
 import * as Predicate from "effect/Predicate";
 import * as Record from "effect/Record";

@@ -15,7 +15,20 @@ import * as path from "node:path";
 
 import { enable as enableAcp, INSTANCE } from "./lib/acpTurn.ts";
 import { enable as enableCli, ensureProject, modelOf } from "./lib/cliTurn.ts";
-import { admin, dispatch, itemsOf, pair, projectionOf, runsOf, sendMessage, sleep, threadWindow, uuid, wsCall, wsFirst } from "./lib/client.ts";
+import {
+  admin,
+  dispatch,
+  itemsOf,
+  pair,
+  projectionOf,
+  runsOf,
+  sendMessage,
+  sleep,
+  threadWindow,
+  uuid,
+  wsCall,
+  wsFirst,
+} from "./lib/client.ts";
 
 const EVIDENCE = path.resolve(import.meta.dirname, "../../../.evidence/spi-1100");
 const SETTLED = new Set(["completed", "failed", "interrupted", "cancelled", "rolled_back"]);
@@ -25,14 +38,22 @@ const SECRET_KEYS = /token|authorization|cookie|secret|handle|bearer|credential|
 const redact = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(redact);
   if (value !== null && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, SECRET_KEYS.test(key) && typeof inner === "string" ? "[redacted]" : redact(inner)]));
+    return Object.fromEntries(
+      Object.entries(value).map(([key, inner]) => [
+        key,
+        SECRET_KEYS.test(key) && typeof inner === "string" ? "[redacted]" : redact(inner),
+      ]),
+    );
   }
   return value;
 };
 
 const writeEvidence = (name: string, value: unknown) => {
   fs.mkdirSync(EVIDENCE, { recursive: true });
-  fs.writeFileSync(path.join(EVIDENCE, name), `${JSON.stringify(redact({ at: new Date().toISOString(), ...(value as object) }), null, 1)}\n`);
+  fs.writeFileSync(
+    path.join(EVIDENCE, name),
+    `${JSON.stringify(redact({ at: new Date().toISOString(), ...(value as object) }), null, 1)}\n`,
+  );
   console.log(`wrote .evidence/spi-1100/${name}`);
 };
 
@@ -42,11 +63,14 @@ const option = (name: string) => {
   const at = args.indexOf(`--${name}`);
   return at === -1 ? undefined : args[at + 1];
 };
-const agents = (args[0] !== undefined && !args[0].startsWith("--") ? args[0] : "codex,pi,claude,opencode,durable").split(",");
+const agents = (
+  args[0] !== undefined && !args[0].startsWith("--") ? args[0] : "codex,pi,claude,opencode,durable"
+).split(",");
 
 let cookie = "";
 
-const projection = async (threadId: string): Promise<any> => projectionOf(await threadWindow(cookie, threadId).catch(() => undefined));
+const projection = async (threadId: string): Promise<any> =>
+  projectionOf(await threadWindow(cookie, threadId).catch(() => undefined));
 
 /** Waits until the thread has a run of ordinal `ordinal` or later and all its runs have settled; every card accepted. */
 const settle = async (threadId: string, ordinal: number, timeoutMs = 8 * 60_000): Promise<any> => {
@@ -55,9 +79,17 @@ const settle = async (threadId: string, ordinal: number, timeoutMs = 8 * 60_000)
   const answered = new Set<string>();
   while (Date.now() - started < timeoutMs) {
     current = await projection(threadId);
-    for (const request of (current?.runtimeRequests ?? []).filter((r: any) => r.status === "pending" && !answered.has(r.id))) {
+    for (const request of (current?.runtimeRequests ?? []).filter(
+      (r: any) => r.status === "pending" && !answered.has(r.id),
+    )) {
       answered.add(request.id);
-      await dispatch(cookie, { type: "runtime-request.respond", commandId: uuid(), threadId, requestId: request.id, decision: "accept" }).catch(() => undefined);
+      await dispatch(cookie, {
+        type: "runtime-request.respond",
+        commandId: uuid(),
+        threadId,
+        requestId: request.id,
+        decision: "accept",
+      }).catch(() => undefined);
     }
     const runs = runsOf(current);
     if (runs.some((run: any) => run.ordinal >= ordinal) && runs.every((run) => SETTLED.has(run.status))) return current;
@@ -67,17 +99,28 @@ const settle = async (threadId: string, ordinal: number, timeoutMs = 8 * 60_000)
 };
 
 const readNotes = async (cwd: string): Promise<string | null> => {
-  const read = (await wsCall(cookie, "projects.readFile", { cwd, relativePath: "notes.txt", allowMissing: true }).catch((error: unknown) => ({ error: String(error).slice(0, 300) }))) as any;
-  return read?.exists === false ? null : typeof read?.contents === "string" ? read.contents.trim() : `error: ${read?.error}`;
+  const read = (await wsCall(cookie, "projects.readFile", { cwd, relativePath: "notes.txt", allowMissing: true }).catch(
+    (error: unknown) => ({ error: String(error).slice(0, 300) }),
+  )) as any;
+  return read?.exists === false
+    ? null
+    : typeof read?.contents === "string"
+      ? read.contents.trim()
+      : `error: ${read?.error}`;
 };
 
 const turnDiff = async (threadId: string, from: number, to: number): Promise<string> => {
-  const answer = (await wsCall(cookie, "orchestration.getTurnDiff", { threadId, fromTurnCount: from, toTurnCount: to }).catch((error: unknown) => ({ error: String(error).slice(0, 300) }))) as any;
+  const answer = (await wsCall(cookie, "orchestration.getTurnDiff", {
+    threadId,
+    fromTurnCount: from,
+    toTurnCount: to,
+  }).catch((error: unknown) => ({ error: String(error).slice(0, 300) }))) as any;
   return typeof answer?.diff === "string" ? answer.diff : `error: ${answer?.error}`;
 };
 
 /** A diff that adds `line` to notes.txt (as its only line, a new file or an overwrite). */
-const diffWrites = (diff: string, line: string) => diff.includes("b/notes.txt") && diff.split("\n").some((row) => row === `+${line}`);
+const diffWrites = (diff: string, line: string) =>
+  diff.includes("b/notes.txt") && diff.split("\n").some((row) => row === `+${line}`);
 
 const modelFor = (agent: string) =>
   agent === "durable"
@@ -88,7 +131,14 @@ const modelFor = (agent: string) =>
 
 const enableAgent = async (agent: string) => {
   if (agent === "durable") {
-    await wsCall(cookie, "server.updateSettings", { patch: {}, providerInstanceMutation: { operation: "upsert", instanceId: "piDurable", instance: { driver: "piDurable", enabled: true } } });
+    await wsCall(cookie, "server.updateSettings", {
+      patch: {},
+      providerInstanceMutation: {
+        operation: "upsert",
+        instanceId: "piDurable",
+        instance: { driver: "piDurable", enabled: true },
+      },
+    });
   } else if (agent === "claude" || agent === "opencode") {
     await enableAcp(cookie, agent);
   } else {
@@ -97,13 +147,15 @@ const enableAgent = async (agent: string) => {
 };
 
 /** The checkpoint operations the Workspace DOs answered since the last clear (the Environment's in-memory trace). */
-const trace = async (clear: boolean) => ((await admin("GET", `/_t3flare/agents/checkpoint-trace${clear ? "?clear=1" : ""}`)).json as any)?.entries ?? null;
+const trace = async (clear: boolean) =>
+  ((await admin("GET", `/_t3flare/agents/checkpoint-trace${clear ? "?clear=1" : ""}`)).json as any)?.entries ?? null;
 
 const LINES = ["one", "two"];
 const WORDS = ["FIG-3", "PLUM-9"];
 const prompt = (index: number) =>
   `Write the file notes.txt in the current directory (the repository root) so its only line is \`${LINES[index]}\` (overwrite it if it exists). Use your file editing tool. Code word ${index + 1} is ${WORDS[index]}; remember it. Then reply only OK.`;
-const ASK = "Without reading any file or running any command: list every code word I have given you in this conversation, comma-separated, or reply NONE.";
+const ASK =
+  "Without reading any file or running any command: list every code word I have given you in this conversation, comma-separated, or reply NONE.";
 
 const run = async (projectId: string, agent: string) => {
   const started = Date.now();
@@ -126,7 +178,10 @@ const run = async (projectId: string, agent: string) => {
     initialMessage: { messageId: uuid(), text: prompt(0), attachments: [] },
   });
   await settle(threadId, 1, 10 * 60_000);
-  const worktreePath: string | null = (await projection(threadId))?.thread?.worktreePath ?? ((await wsFirst(cookie, "subscribeWorktreeSetup", { threadId }).catch(() => undefined)) as any)?.worktreePath ?? null;
+  const worktreePath: string | null =
+    (await projection(threadId))?.thread?.worktreePath ??
+    ((await wsFirst(cookie, "subscribeWorktreeSetup", { threadId }).catch(() => undefined)) as any)?.worktreePath ??
+    null;
   if (worktreePath === null) throw new Error("the thread has no worktree");
   const notes: Array<string | null> = [await readNotes(worktreePath)];
   const diffs: Array<string> = [await turnDiff(threadId, 0, 1)];
@@ -137,7 +192,12 @@ const run = async (projectId: string, agent: string) => {
   const diffsOk = LINES.every((line, index) => diffWrites(diffs[index]!, line));
   const before = await projection(threadId);
   const runs = runsOf(before).map((r: any) => ({ ordinal: r.ordinal, status: r.status }));
-  const checkpoints = (before?.checkpoints ?? []).map((checkpoint: any) => ({ id: checkpoint.id, scopeId: checkpoint.scopeId, appRunOrdinal: checkpoint.appRunOrdinal ?? null, status: checkpoint.status }));
+  const checkpoints = (before?.checkpoints ?? []).map((checkpoint: any) => ({
+    id: checkpoint.id,
+    scopeId: checkpoint.scopeId,
+    appRunOrdinal: checkpoint.appRunOrdinal ?? null,
+    status: checkpoint.status,
+  }));
   const capturesTrace = await trace(false).catch((error: unknown) => String(error).slice(0, 200));
   let rollback: any = { skipped: true };
   if (!flag("no-rollback")) {
@@ -146,13 +206,23 @@ const run = async (projectId: string, agent: string) => {
       rollback = { ok: false, error: "no checkpoint of the first turn" };
     } else {
       // The web client's "Revert to this message", files restored (client-runtime `revertThreadCheckpoint`).
-      const rolled = await dispatch(cookie, { type: "checkpoint.rollback", restoreFiles: true, commandId: uuid(), threadId, scopeId: target.scopeId, checkpointId: target.id }).then(
+      const rolled = await dispatch(cookie, {
+        type: "checkpoint.rollback",
+        restoreFiles: true,
+        commandId: uuid(),
+        threadId,
+        scopeId: target.scopeId,
+        checkpointId: target.id,
+      }).then(
         (value: unknown) => ({ ok: true, value }),
         (error: unknown) => ({ ok: false, error: String(error).slice(0, 600) }),
       );
       const waitStarted = Date.now();
       let after: any;
-      const live = (view: any) => runsOf(view).filter((r: any) => r.status !== "rolled_back").map((r: any) => r.ordinal);
+      const live = (view: any) =>
+        runsOf(view)
+          .filter((r: any) => r.status !== "rolled_back")
+          .map((r: any) => r.ordinal);
       while (rolled.ok && Date.now() - waitStarted < 120_000) {
         after = await projection(threadId);
         if (!live(after).includes(2)) break;
@@ -169,14 +239,28 @@ const run = async (projectId: string, agent: string) => {
       let answer = "";
       if (rolled.ok) {
         await sendMessage(cookie, threadId, ASK, model);
-        answer = String(itemsOf(await settle(threadId, 2)).filter((item: any) => item.type === "assistant_message").at(-1)?.text ?? "");
+        answer = String(
+          itemsOf(await settle(threadId, 2))
+            .filter((item: any) => item.type === "assistant_message")
+            .at(-1)?.text ?? "",
+        );
       }
       const forgot = !answer.includes(WORDS[1]!);
-      rollback = { ok: rolled.ok && rolledBack && restored === "one" && forgot, dispatch: rolled, rolledBack, restored, answer: answer.slice(0, 300), forgot, target: { id: target.id, appRunOrdinal: target.appRunOrdinal } };
+      rollback = {
+        ok: rolled.ok && rolledBack && restored === "one" && forgot,
+        dispatch: rolled,
+        rolledBack,
+        restored,
+        answer: answer.slice(0, 300),
+        forgot,
+        target: { id: target.id, appRunOrdinal: target.appRunOrdinal },
+      };
     }
   }
   const ok = notes.join(",") === "one,two" && diffsOk && (rollback.skipped === true || rollback.ok === true);
-  console.log(`${agent}: ${ok ? "ok" : "FAIL"} (notes ${notes.join(",")}; diffs ${diffs.map((diff, index) => diffWrites(diff, LINES[index]!)).join(",")}; rollback ${rollback.skipped ? "skipped" : `${rollback.ok} -> ${rollback.restored ?? rollback.error}, answered ${JSON.stringify(rollback.answer ?? "")}`})`);
+  console.log(
+    `${agent}: ${ok ? "ok" : "FAIL"} (notes ${notes.join(",")}; diffs ${diffs.map((diff, index) => diffWrites(diff, LINES[index]!)).join(",")}; rollback ${rollback.skipped ? "skipped" : `${rollback.ok} -> ${rollback.restored ?? rollback.error}, answered ${JSON.stringify(rollback.answer ?? "")}`})`,
+  );
   return {
     ok,
     agent,
@@ -187,7 +271,9 @@ const run = async (projectId: string, agent: string) => {
     diffs: diffs.map((diff) => diff.slice(0, 1500)),
     diffsOk,
     runs,
-    answers: itemsOf(before).filter((item: any) => item.type === "assistant_message").map((item: any) => String(item.text ?? "").slice(0, 200)),
+    answers: itemsOf(before)
+      .filter((item: any) => item.type === "assistant_message")
+      .map((item: any) => String(item.text ?? "").slice(0, 200)),
     checkpoints,
     checkpointTrace: capturesTrace,
     rollback,

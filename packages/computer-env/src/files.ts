@@ -7,14 +7,7 @@ import { type Call, caller } from "./client.ts";
 import type { ComputerWorkspaceStub } from "./env.ts";
 import type { DirectoryEntry, FindOptions, FoundEntry, GrepMatch, GrepOptions } from "./wire.ts";
 
-export type {
-  DirectoryEntry,
-  FindOptions,
-  FoundEntry,
-  GrepLine,
-  GrepMatch,
-  GrepOptions,
-} from "./wire.ts";
+export type { DirectoryEntry, FindOptions, FoundEntry, GrepLine, GrepMatch, GrepOptions } from "./wire.ts";
 
 export type ComputerFilesOptions = {
   /** Whether a search of a Container-only path runs on the Container, starting it if it is stopped. */
@@ -25,10 +18,7 @@ export type ComputerFilesOptions = {
 export class ComputerFiles {
   readonly #call: Call;
 
-  constructor(
-    workspace: Pick<ComputerWorkspaceStub, "fileOperation">,
-    options: ComputerFilesOptions = {},
-  ) {
+  constructor(workspace: Pick<ComputerWorkspaceStub, "fileOperation">, options: ComputerFilesOptions = {}) {
     this.#call = caller(workspace, options.reachContainer === true);
   }
 
@@ -40,11 +30,7 @@ export class ComputerFiles {
     return listed.value;
   }
 
-  async find(
-    directory: string,
-    pattern: string,
-    options: FindOptions,
-  ): Promise<ReadonlyArray<FoundEntry>> {
+  async find(directory: string, pattern: string, options: FindOptions): Promise<ReadonlyArray<FoundEntry>> {
     const found = await this.#call(BACKGROUND_CONTEXT, "find", directory, pattern, options);
 
     if (!found.ok) throw found.error;
@@ -52,11 +38,7 @@ export class ComputerFiles {
     return found.value;
   }
 
-  async grep(
-    pattern: string,
-    path: string,
-    options: GrepOptions,
-  ): Promise<ReadonlyArray<GrepMatch>> {
+  async grep(pattern: string, path: string, options: GrepOptions): Promise<ReadonlyArray<GrepMatch>> {
     const matched = await this.#call(BACKGROUND_CONTEXT, "grep", pattern, path, options);
 
     if (!matched.ok) throw matched.error;

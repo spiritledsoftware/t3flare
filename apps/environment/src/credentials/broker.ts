@@ -101,7 +101,9 @@ export type BrokerAccess =
   | ({ readonly ok: false } & SignInRefusal);
 
 /** `waiting`: a device sign-in the owner has not approved yet; ask again after its interval. */
-export type SignInCompletion = { readonly ok: true; readonly status: SignInStatus } | { readonly ok: false; readonly problem: string; readonly waiting?: boolean };
+export type SignInCompletion =
+  | { readonly ok: true; readonly status: SignInStatus }
+  | { readonly ok: false; readonly problem: string; readonly waiting?: boolean };
 
 export interface SignOutOptions {
   /** Runs after the tokens are gone here and before the vendor is asked to revoke them (the Sessions stopped). */
@@ -122,7 +124,10 @@ export interface CredentialBroker extends CredentialStore {
    * Signs out: after any refresh in flight, the tokens are removed here, `beforeRevoke` runs, then the vendor revokes the
    * refresh token that was current (`revoked` only when it confirmed). The registration is kept.
    */
-  signOut(endpointId: string, options?: SignOutOptions): Promise<{ readonly signedOut: boolean; readonly revoked: boolean }>;
+  signOut(
+    endpointId: string,
+    options?: SignOutOptions,
+  ): Promise<{ readonly signedOut: boolean; readonly revoked: boolean }>;
   /** Signs out and forgets everything of the endpoint's sign-in (the endpoint was removed). */
   forget(endpointId: string, options?: SignOutOptions): Promise<{ readonly revoked: boolean }>;
   status(endpointId: string): SignInStatus;
@@ -155,8 +160,13 @@ const completing = new WeakMap<object, Map<string, Promise<SignInCompletion>>>()
 
 const log = (event: Record<string, unknown>) => console.log(JSON.stringify({ t3flare: "sign-in", ...event }));
 
-const isSignedIn = (credential: Credential | undefined): credential is SignInCredential & Credential & { readonly signIn: SignIn } =>
-  credential?.type === "oauth" && typeof credential.access === "string" && typeof credential.refresh === "string" && typeof credential.signIn === "string";
+const isSignedIn = (
+  credential: Credential | undefined,
+): credential is SignInCredential & Credential & { readonly signIn: SignIn } =>
+  credential?.type === "oauth" &&
+  typeof credential.access === "string" &&
+  typeof credential.refresh === "string" &&
+  typeof credential.signIn === "string";
 
 export const credentialBroker = (deps: BrokerDeps): CredentialBroker => {
   const { kv, sealed, vendors } = deps;
@@ -177,7 +187,10 @@ export const credentialBroker = (deps: BrokerDeps): CredentialBroker => {
   };
 
   // --- Status (no secret) ---------------------------------------------------------------------------------------------
-  const status = (endpointId: string): SignInStatus => ({ ...NOT_SIGNED_IN, ...kv.get<SignInStatus>(signInStatusKey(endpointId)) });
+  const status = (endpointId: string): SignInStatus => ({
+    ...NOT_SIGNED_IN,
+    ...kv.get<SignInStatus>(signInStatusKey(endpointId)),
+  });
   const setStatus = (endpointId: string, patch: Partial<SignInStatus>): SignInStatus => {
     const next = { ...status(endpointId), ...patch };
     kv.put(signInStatusKey(endpointId), next);
@@ -193,7 +206,11 @@ export const credentialBroker = (deps: BrokerDeps): CredentialBroker => {
     const { kind, email } = status(endpointId);
     return { subject: null, email: kind !== null && SIGN_IN_KINDS[kind].keepsEmail ? email : null };
   };
-  const notSignedIn = (endpointId: string): BrokerAccess => ({ ok: false, signedOut: true, problem: status(endpointId).problem ?? "it is not signed in" });
+  const notSignedIn = (endpointId: string): BrokerAccess => ({
+    ok: false,
+    signedOut: true,
+    problem: status(endpointId).problem ?? "it is not signed in",
+  });
 
   // --- The sealed credential (callers hold the lock to write) ---------------------------------------------------------
   const read = async (endpointId: string): Promise<Credential | undefined> => {
@@ -226,15 +243,30 @@ export const credentialBroker = (deps: BrokerDeps): CredentialBroker => {
   const fresh = (credential: SignInCredential): boolean => now() + REFRESH_MARGIN_MS < credential.expires;
   /** Where `kind`'s token goes and the headers it takes, when its vendor's token decides (Copilot's). */
   const useOf = (kind: SignIn, credential: SignInCredential) => vendors[kind]?.use?.(credential) ?? {};
-  const granted = (kind: SignIn, credential: SignInCredential): BrokerAccess => ({ ok: true, accessToken: credential.access, expiresAt: credential.expires, ...useOf(kind, credential) });
+  const granted = (kind: SignIn, credential: SignInCredential): BrokerAccess => ({
+    ok: true,
+    accessToken: credential.access,
+    expiresAt: credential.expires,
+    ...useOf(kind, credential),
+  });
 
   // --- access: a token now, renewed under the lock when near its expiry ------------------------------------------------
   /** The vendor refused the renewal: the sign-in is over here (called under the lock). */
-  const refusedRenewal = (endpointId: string, refusal: { readonly code?: string; readonly problem: string }): BrokerAccess => {
+  const refusedRenewal = (
+    endpointId: string,
+    refusal: { readonly code?: string; readonly problem: string },
+  ): BrokerAccess => {
     sealed.remove(credentialName(endpointId));
     const problem = `${refusal.problem}: it is signed out`;
     // The account is forgotten as at a sign-out: the next sign-in may be another account.
-    setStatus(endpointId, { ...forgotten(endpointId), signedIn: false, expiresAt: null, baseUrl: null, problem, problemAt: now() });
+    setStatus(endpointId, {
+      ...forgotten(endpointId),
+      signedIn: false,
+      expiresAt: null,
+      baseUrl: null,
+      problem,
+      problemAt: now(),
+    });
     log({ endpoint: endpointId, event: "refresh", ok: false, refused: true, code: refusal.code ?? null });
     return { ok: false, signedOut: true, problem };
   };
@@ -245,14 +277,24 @@ export const credentialBroker = (deps: BrokerDeps): CredentialBroker => {
     if (!isSignedIn(current)) return notSignedIn(endpointId);
     if (fresh(current)) return granted(current.signIn, current);
     const keep = (problem: string, retryAt?: number): BrokerAccess =>
-      current.expires > now() ? granted(current.signIn, current) : { ok: false, signedOut: false, problem, ...(retryAt === undefined ? {} : { retryAt }) };
-    if (typeof current.earliestRefreshAt === "number" && current.earliestRefreshAt > now()) return keep("its sign-in cannot be renewed yet", current.earliestRefreshAt);
+      current.expires > now()
+        ? granted(current.signIn, current)
+        : { ok: false, signedOut: false, problem, ...(retryAt === undefined ? {} : { retryAt }) };
+    if (typeof current.earliestRefreshAt === "number" && current.earliestRefreshAt > now())
+      return keep("its sign-in cannot be renewed yet", current.earliestRefreshAt);
     const vendor = vendors[current.signIn];
     if (vendor === undefined) return keep("this Environment cannot renew this sign-in");
     const renewed = await vendor.refresh(current);
     if (!renewed.ok) {
       if (renewed.refused) return refusedRenewal(endpointId, renewed);
-      log({ endpoint: endpointId, event: "refresh", ok: false, refused: false, code: renewed.code ?? null, kept: current.expires > now() });
+      log({
+        endpoint: endpointId,
+        event: "refresh",
+        ok: false,
+        refused: false,
+        code: renewed.code ?? null,
+        kept: current.expires > now(),
+      });
       if (renewed.retryAt !== undefined) {
         // The vendor asked to wait (a rate limit): no renewal before then, whoever asks (`earliestRefreshAt` above).
         try {
@@ -270,10 +312,19 @@ export const credentialBroker = (deps: BrokerDeps): CredentialBroker => {
       await write(endpointId, { ...renewed.credential, signIn: current.signIn });
     } catch {
       log({ endpoint: endpointId, event: "refresh", ok: false, saved: false });
-      setStatus(endpointId, { problem: "the renewed sign-in could not be saved: retry, or sign in again", problemAt: now() });
+      setStatus(endpointId, {
+        problem: "the renewed sign-in could not be saved: retry, or sign in again",
+        problemAt: now(),
+      });
       return { ok: false, signedOut: false, problem: "the renewed sign-in could not be saved" };
     }
-    setStatus(endpointId, { expiresAt: renewed.credential.expires, refreshedAt: now(), problem: null, problemAt: null, baseUrl: useOf(current.signIn, renewed.credential).baseUrl ?? null });
+    setStatus(endpointId, {
+      expiresAt: renewed.credential.expires,
+      refreshedAt: now(),
+      problem: null,
+      problemAt: null,
+      baseUrl: useOf(current.signIn, renewed.credential).baseUrl ?? null,
+    });
     log({ endpoint: endpointId, event: "refresh", ok: true, expiresAt: renewed.credential.expires });
     return granted(current.signIn, renewed.credential);
   };
@@ -289,8 +340,15 @@ export const credentialBroker = (deps: BrokerDeps): CredentialBroker => {
     const vendor = vendors[kind];
     if (vendor === undefined) throw new Error(`this Environment offers no ${kind} sign-in`);
     const saved = status(endpointId);
-    const registration: SignInRegistration | undefined = saved.clientId === null || saved.kind !== kind ? undefined : { clientId: saved.clientId, email: saved.email, subject: saved.subject };
-    const { authorizeUrl, pending, device } = await vendor.start({ hostId: hostId(), now, ...(registration === undefined ? {} : { registration }) });
+    const registration: SignInRegistration | undefined =
+      saved.clientId === null || saved.kind !== kind
+        ? undefined
+        : { clientId: saved.clientId, email: saved.email, subject: saved.subject };
+    const { authorizeUrl, pending, device } = await vendor.start({
+      hostId: hostId(),
+      now,
+      ...(registration === undefined ? {} : { registration }),
+    });
     await serial(endpointId, async () => {
       await sealed.put(pendingName(endpointId), JSON.stringify({ ...pending, signIn: kind }));
       setStatus(endpointId, { kind, pendingSince: pending.startedAt, problem: null, problemAt: null });
@@ -310,7 +368,8 @@ export const credentialBroker = (deps: BrokerDeps): CredentialBroker => {
 
   const complete = async (endpointId: string, pasted: string): Promise<SignInCompletion> => {
     const text = await sealed.open(pendingName(endpointId));
-    if (text === undefined) return { ok: false, problem: "No sign-in is waiting for a pasted address: start the sign-in again." };
+    if (text === undefined)
+      return { ok: false, problem: "No sign-in is waiting for a pasted address: start the sign-in again." };
     const key = JSON.stringify([endpointId, text]);
     const running = inFlight.get(key);
     if (running !== undefined) return running;
@@ -322,7 +381,8 @@ export const credentialBroker = (deps: BrokerDeps): CredentialBroker => {
   const completeAttempt = async (endpointId: string, text: string, pasted: string): Promise<SignInCompletion> => {
     const pending = JSON.parse(text) as PendingSignIn & { readonly signIn: SignIn };
     const vendor = vendors[pending.signIn];
-    if (vendor === undefined) return { ok: false, problem: "No sign-in is waiting for a pasted address: start the sign-in again." };
+    if (vendor === undefined)
+      return { ok: false, problem: "No sign-in is waiting for a pasted address: start the sign-in again." };
     if (now() - pending.startedAt > PENDING_TTL_MS) {
       await serial(endpointId, async () => {
         if ((await sealed.open(pendingName(endpointId))) !== text) return;
@@ -347,12 +407,25 @@ export const credentialBroker = (deps: BrokerDeps): CredentialBroker => {
         if (result.spent === true && still) {
           sealed.remove(pendingName(endpointId));
           // The vendor's advice after a refused code: start again with the registration this attempt was issued.
-          setStatus(endpointId, { pendingSince: null, problem: result.problem, problemAt: now(), ...(result.clientId === undefined ? {} : { clientId: result.clientId }) });
+          setStatus(endpointId, {
+            pendingSince: null,
+            problem: result.problem,
+            problemAt: now(),
+            ...(result.clientId === undefined ? {} : { clientId: result.clientId }),
+          });
         }
         return { answer: { ok: false, problem: result.problem } };
       }
       const { credential } = result;
-      if (!still) return { answer: { ok: false, problem: "This sign-in was signed out or started again while it finished, so it was not kept: start it again." }, superseded: credential };
+      if (!still)
+        return {
+          answer: {
+            ok: false,
+            problem:
+              "This sign-in was signed out or started again while it finished, so it was not kept: start it again.",
+          },
+          superseded: credential,
+        };
       await write(endpointId, { ...credential, signIn: pending.signIn });
       sealed.remove(pendingName(endpointId));
       log({ endpoint: endpointId, event: "complete", ok: true, expiresAt: credential.expires });
@@ -400,7 +473,15 @@ export const credentialBroker = (deps: BrokerDeps): CredentialBroker => {
       } else {
         // The account is forgotten too, so the next sign-in may be another account; a registration (its client id, and the
         // email it is hinted with) stays.
-        setStatus(endpointId, { ...forgotten(endpointId), signedIn: false, expiresAt: null, baseUrl: null, pendingSince: null, problem: null, problemAt: null });
+        setStatus(endpointId, {
+          ...forgotten(endpointId),
+          signedIn: false,
+          expiresAt: null,
+          baseUrl: null,
+          pendingSince: null,
+          problem: null,
+          problemAt: null,
+        });
       }
       return current;
     });
@@ -420,7 +501,9 @@ export const credentialBroker = (deps: BrokerDeps): CredentialBroker => {
     read: (endpointId) => read(endpointId),
     list: async () => {
       const ids = kv.get<ReadonlyArray<string>>(INDEX_KEY) ?? [];
-      return ids.filter((id) => sealed.mark(credentialName(id)).set).map((providerId) => ({ providerId, type: "oauth" as const }));
+      return ids
+        .filter((id) => sealed.mark(credentialName(id)).set)
+        .map((providerId) => ({ providerId, type: "oauth" as const }));
     },
     modify,
     delete: (endpointId) => serial(endpointId, async () => sealed.remove(credentialName(endpointId))),
@@ -428,7 +511,9 @@ export const credentialBroker = (deps: BrokerDeps): CredentialBroker => {
     start,
     complete,
     signOut,
-    forget: async (endpointId, options) => ({ revoked: (await signOut(endpointId, { ...options, forget: true })).revoked }),
+    forget: async (endpointId, options) => ({
+      revoked: (await signOut(endpointId, { ...options, forget: true })).revoked,
+    }),
     status,
     secrets: async (endpointId) => {
       const stored = await read(endpointId);

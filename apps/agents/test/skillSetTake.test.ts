@@ -21,7 +21,9 @@ const memoryStore = (held: SkillSet = { hash: EMPTY_SKILL_SET_HASH, files: {} })
   };
 };
 
-const deps = (overrides: Partial<TakeDeps> & { readonly store: ReturnType<typeof memoryStore>; readonly set?: unknown }) => {
+const deps = (
+  overrides: Partial<TakeDeps> & { readonly store: ReturnType<typeof memoryStore>; readonly set?: unknown },
+) => {
   const calls = { read: 0, mount: 0, report: [] as Array<string>, awaited: [] as Array<unknown> };
   const store = overrides.store;
   const built: TakeDeps = {
@@ -69,8 +71,14 @@ describe("takeSkillSet", () => {
     const bad = { hash: "bad-hash", files: { "a\\b": "x" } };
     const { built, calls } = deps({ store, set: bad });
     const first = await takeSkillSet(built, "bad-hash");
-    expect(first).toEqual({ taken: false, hash: EMPTY_SKILL_SET_HASH, error: "The Environment skill set was refused: Skill file path a\\b has a backslash or a NUL" });
-    expect(calls.report).toEqual(["bad-ha The Environment skill set was refused: Skill file path a\\b has a backslash or a NUL"]);
+    expect(first).toEqual({
+      taken: false,
+      hash: EMPTY_SKILL_SET_HASH,
+      error: "The Environment skill set was refused: Skill file path a\\b has a backslash or a NUL",
+    });
+    expect(calls.report).toEqual([
+      "bad-ha The Environment skill set was refused: Skill file path a\\b has a backslash or a NUL",
+    ]);
     expect(await takeSkillSet(built, "bad-hash")).toEqual(first);
     expect(calls.read).toBe(1);
     const good = await skillSetOf({ "a/SKILL.md": "x" });
@@ -83,19 +91,41 @@ describe("takeSkillSet", () => {
     const held = await skillSetOf({ "old/SKILL.md": "o" });
     const store = memoryStore(held);
     const set = await skillSetOf({ "new/SKILL.md": "n" });
-    const { built, calls } = deps({ store, set, mount: async () => ({ error: "The Environment skill set could not be mounted, and the Workspace keeps the one it held: boom" }) });
-    expect(await takeSkillSet(built, set.hash)).toEqual({ taken: false, hash: held.hash, error: "The Environment skill set could not be mounted, and the Workspace keeps the one it held: boom" });
+    const { built, calls } = deps({
+      store,
+      set,
+      mount: async () => ({
+        error: "The Environment skill set could not be mounted, and the Workspace keeps the one it held: boom",
+      }),
+    });
+    expect(await takeSkillSet(built, set.hash)).toEqual({
+      taken: false,
+      hash: held.hash,
+      error: "The Environment skill set could not be mounted, and the Workspace keeps the one it held: boom",
+    });
     expect(store.refused()?.hash).toBe(set.hash);
     expect(calls.awaited).toEqual([]);
   });
 
   it("version skew: an Environment without the set's call fails the take (the Session logs it); one without the report call does not", async () => {
     const store = memoryStore();
-    const old = deps({ store, read: () => Promise.reject(new TypeError('The RPC receiver does not implement the method "environmentSkillSet".')) });
+    const old = deps({
+      store,
+      read: () =>
+        Promise.reject(new TypeError('The RPC receiver does not implement the method "environmentSkillSet".')),
+    });
     await expect(takeSkillSet(old.built, "h")).rejects.toThrow("environmentSkillSet");
     const warned: Array<string> = [];
-    const noReport = deps({ store, set: null, report: () => Promise.reject(new TypeError('does not implement the method "skillSetRefused"')), warn: (line) => warned.push(line) });
-    expect(await takeSkillSet(noReport.built, "h2")).toMatchObject({ taken: false, error: "The Environment skill set was refused: not a Skill set" });
+    const noReport = deps({
+      store,
+      set: null,
+      report: () => Promise.reject(new TypeError('does not implement the method "skillSetRefused"')),
+      warn: (line) => warned.push(line),
+    });
+    expect(await takeSkillSet(noReport.built, "h2")).toMatchObject({
+      taken: false,
+      error: "The Environment skill set was refused: not a Skill set",
+    });
     expect(warned.some((line) => line.includes("skills-refusal-unreported"))).toBe(true);
   });
 });
@@ -105,20 +135,46 @@ describe("awaitContainerCopy", () => {
 
   it("sends no command to a stopped Container, so it never starts one", async () => {
     const sent: Array<WaitCommand> = [];
-    expect(await awaitContainerCopy({ running: () => false, exec: async (command) => (sent.push(command), { status: "completed", stdout: "" }), warn: () => undefined }, expectation)).toBe("stopped");
+    expect(
+      await awaitContainerCopy(
+        {
+          running: () => false,
+          exec: async (command) => (sent.push(command), { status: "completed", stdout: "" }),
+          warn: () => undefined,
+        },
+        expectation,
+      ),
+    ).toBe("stopped");
     expect(sent).toEqual([]);
   });
 
   it("asks a running one with a passive command that refuses to start it, the expectation on stdin", async () => {
     const sent: Array<WaitCommand> = [];
-    const answer = await awaitContainerCopy({ running: () => true, exec: async (command) => (sent.push(command), { status: "completed", stdout: "caught-up 3\n" }), warn: () => undefined }, expectation);
+    const answer = await awaitContainerCopy(
+      {
+        running: () => true,
+        exec: async (command) => (sent.push(command), { status: "completed", stdout: "caught-up 3\n" }),
+        warn: () => undefined,
+      },
+      expectation,
+    );
     expect(answer).toEqual({ caughtUp: true, looks: 3, stale: [] });
     expect(sent).toMatchObject([{ passive: true, onlyIfRunning: true, stdin: "--removed--\na/SKILL.md\n" }]);
     expect(sent[0]!.script).not.toContain("a/SKILL.md");
   });
 
   it("answers stopped when the Container stopped before the command reached it, and nothing when nothing moved", async () => {
-    expect(await awaitContainerCopy({ running: () => true, exec: async () => ({ status: "not-running", stdout: "" }), warn: () => undefined }, expectation)).toBe("stopped");
-    expect(await awaitContainerCopy({ running: () => true, exec: async () => ({ status: "completed", stdout: "" }), warn: () => undefined }, { present: [], removed: [] })).toBeUndefined();
+    expect(
+      await awaitContainerCopy(
+        { running: () => true, exec: async () => ({ status: "not-running", stdout: "" }), warn: () => undefined },
+        expectation,
+      ),
+    ).toBe("stopped");
+    expect(
+      await awaitContainerCopy(
+        { running: () => true, exec: async () => ({ status: "completed", stdout: "" }), warn: () => undefined },
+        { present: [], removed: [] },
+      ),
+    ).toBeUndefined();
   });
 });

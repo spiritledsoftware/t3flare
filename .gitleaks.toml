@@ -8,10 +8,7 @@ useDefault = true
 
 [[allowlists]]
 description = "Tests and test harnesses: made-up credentials the redaction and refusal tests look for"
-paths = [
-  '''(^|/)test/''',
-  '''\.test\.ts$''',
-]
+paths = ['''(^|/)test/''', '''\.test\.ts$''']
 
 [[allowlists]]
 description = "Values that look like keys but are public or fixed"

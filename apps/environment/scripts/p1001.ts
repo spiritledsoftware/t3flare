@@ -18,7 +18,20 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { ensureProject } from "./lib/cliTurn.ts";
-import { admin, dispatch, itemsOf, pair, projectionOf, runsOf, sendMessage, sleep, threadWindow, uuid, wsCall, wsFirst } from "./lib/client.ts";
+import {
+  admin,
+  dispatch,
+  itemsOf,
+  pair,
+  projectionOf,
+  runsOf,
+  sendMessage,
+  sleep,
+  threadWindow,
+  uuid,
+  wsCall,
+  wsFirst,
+} from "./lib/client.ts";
 
 const SLUG = process.env.T3FLARE_P1001_MODEL ?? "anthropic/claude-sonnet-5-5";
 const DURABLE = { instanceId: "piDurable", model: SLUG, options: [] };
@@ -26,20 +39,31 @@ const EVIDENCE = path.resolve(import.meta.dirname, "../../../.evidence/spi-1001"
 const FIXTURE = path.resolve(import.meta.dirname, "../test/fixtures/skills");
 const SETTLED = new Set(["completed", "failed", "interrupted", "cancelled"]);
 const HARNESS = process.env.T3FLARE_HARNESS_URL ?? "";
-const accessHeaders = { "cf-access-client-id": process.env.T3FLARE_ACCESS_CLIENT_ID ?? "", "cf-access-client-secret": process.env.T3FLARE_ACCESS_CLIENT_SECRET ?? "" };
+const accessHeaders = {
+  "cf-access-client-id": process.env.T3FLARE_ACCESS_CLIENT_ID ?? "",
+  "cf-access-client-secret": process.env.T3FLARE_ACCESS_CLIENT_SECRET ?? "",
+};
 
 const SECRET_KEYS = /token|authorization|cookie|secret|handle|bearer|credential|csrf/i;
 const redact = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(redact);
   if (value !== null && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, SECRET_KEYS.test(key) && typeof inner === "string" ? "[redacted]" : redact(inner)]));
+    return Object.fromEntries(
+      Object.entries(value).map(([key, inner]) => [
+        key,
+        SECRET_KEYS.test(key) && typeof inner === "string" ? "[redacted]" : redact(inner),
+      ]),
+    );
   }
   return value;
 };
 
 const writeEvidence = (name: string, value: unknown) => {
   fs.mkdirSync(EVIDENCE, { recursive: true });
-  fs.writeFileSync(path.join(EVIDENCE, name), `${JSON.stringify(redact({ at: new Date().toISOString(), model: SLUG, ...(value as object) }), null, 1)}\n`);
+  fs.writeFileSync(
+    path.join(EVIDENCE, name),
+    `${JSON.stringify(redact({ at: new Date().toISOString(), model: SLUG, ...(value as object) }), null, 1)}\n`,
+  );
   console.log(`wrote .evidence/spi-1001/${name}`);
 };
 
@@ -47,7 +71,11 @@ const harness = async (method: string, pathname: string, body?: unknown) => {
   const response = await fetch(new URL(pathname, HARNESS), {
     method,
     redirect: "manual",
-    headers: { ...accessHeaders, authorization: `Bearer ${process.env.T3FLARE_ADMIN_TOKEN ?? ""}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+    headers: {
+      ...accessHeaders,
+      authorization: `Bearer ${process.env.T3FLARE_ADMIN_TOKEN ?? ""}`,
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
+    },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const text = await response.text();
@@ -100,7 +128,9 @@ const writeFixture = async (cwd: string) => {
 };
 
 const workspaceRow = async (id: string) =>
-  (((await admin("GET", "/_t3flare/agents/workspaces")).json?.workspaces ?? []) as Array<any>).find((row) => row.id === id);
+  (((await admin("GET", "/_t3flare/agents/workspaces")).json?.workspaces ?? []) as Array<any>).find(
+    (row) => row.id === id,
+  );
 const containerOf = async (id: string) => {
   const row = await workspaceRow(id);
   return { running: row?.container?.running ?? null, leased: row?.container?.leased ?? null };
@@ -117,9 +147,13 @@ const stopContainer = async (id: string) => {
 
 /** The composer's snapshot of `cwd` for Pi Durable, fresh (past t3's TTL), as the client asks for it. */
 const composerSnapshot = async (cwd: string) => {
-  const reply = (await wsCall(cookie, "server.refreshProviders", { instanceId: "piDurable", cwd, fresh: true }).catch((error: unknown) => ({ error: String(error).slice(0, 400) }))) as any;
+  const reply = (await wsCall(cookie, "server.refreshProviders", { instanceId: "piDurable", cwd, fresh: true }).catch(
+    (error: unknown) => ({ error: String(error).slice(0, 400) }),
+  )) as any;
   const provider = (reply?.providers ?? []).find((candidate: any) => candidate.instanceId === "piDurable");
-  const scoped = (provider?.workspaceSnapshots ?? []).find((snapshot: any) => snapshot.cwd === cwd) ?? provider?.workspaceSnapshots?.[0];
+  const scoped =
+    (provider?.workspaceSnapshots ?? []).find((snapshot: any) => snapshot.cwd === cwd) ??
+    provider?.workspaceSnapshots?.[0];
   return {
     error: reply?.error ?? null,
     snapshotCwd: scoped?.cwd ?? null,
@@ -129,7 +163,8 @@ const composerSnapshot = async (cwd: string) => {
   };
 };
 
-const projection = async (threadId: string): Promise<any> => projectionOf(await threadWindow(cookie, threadId).catch(() => undefined));
+const projection = async (threadId: string): Promise<any> =>
+  projectionOf(await threadWindow(cookie, threadId).catch(() => undefined));
 
 const settle = async (threadId: string, ordinal: number, timeoutMs = 6 * 60_000): Promise<any> => {
   const started = Date.now();
@@ -137,9 +172,17 @@ const settle = async (threadId: string, ordinal: number, timeoutMs = 6 * 60_000)
   const answered = new Set<string>();
   while (Date.now() - started < timeoutMs) {
     current = await projection(threadId);
-    for (const request of (current?.runtimeRequests ?? []).filter((r: any) => r.status === "pending" && !answered.has(r.id))) {
+    for (const request of (current?.runtimeRequests ?? []).filter(
+      (r: any) => r.status === "pending" && !answered.has(r.id),
+    )) {
       answered.add(request.id);
-      await dispatch(cookie, { type: "runtime-request.respond", commandId: uuid(), threadId, requestId: request.id, decision: "accept" }).catch(() => undefined);
+      await dispatch(cookie, {
+        type: "runtime-request.respond",
+        commandId: uuid(),
+        threadId,
+        requestId: request.id,
+        decision: "accept",
+      }).catch(() => undefined);
     }
     const runs = runsOf(current);
     if (runs.some((run: any) => run.ordinal >= ordinal) && runs.every((run) => SETTLED.has(run.status))) return current;
@@ -150,7 +193,20 @@ const settle = async (threadId: string, ordinal: number, timeoutMs = 6 * 60_000)
 
 const newThread = async (projectId: string, title: string) => {
   const threadId = uuid();
-  await dispatch(cookie, { type: "thread.create", commandId: uuid(), threadId, projectId, title, modelSelection: DURABLE, runtimeMode: "full-access", interactionMode: "default", branch: null, worktreePath: null, createdBy: "user", creationSource: "web" });
+  await dispatch(cookie, {
+    type: "thread.create",
+    commandId: uuid(),
+    threadId,
+    projectId,
+    title,
+    modelSelection: DURABLE,
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    branch: null,
+    worktreePath: null,
+    createdBy: "user",
+    creationSource: "web",
+  });
   return threadId;
 };
 
@@ -163,10 +219,23 @@ const turn = async (threadId: string, ordinal: number, text: string) => {
   const typed = items.find((item: any) => item.type === "user_message")?.text ?? null;
   const answer = String(items.filter((item: any) => item.type === "assistant_message").at(-1)?.text ?? "");
   // Each tool item without its ids, as text: what it ran and on which path.
-  const IDS = new Set(["id", "threadId", "runId", "nodeId", "providerThreadId", "providerTurnId", "createdAt", "updatedAt", "startedAt", "completedAt"]);
+  const IDS = new Set([
+    "id",
+    "threadId",
+    "runId",
+    "nodeId",
+    "providerThreadId",
+    "providerTurnId",
+    "createdAt",
+    "updatedAt",
+    "startedAt",
+    "completedAt",
+  ]);
   const tools = items
     .filter((item: any) => !["user_message", "assistant_message", "reasoning", "checkpoint"].includes(item.type))
-    .map((item: any) => JSON.stringify(Object.fromEntries(Object.entries(item).filter(([key]) => !IDS.has(key)))).slice(0, 800));
+    .map((item: any) =>
+      JSON.stringify(Object.fromEntries(Object.entries(item).filter(([key]) => !IDS.has(key)))).slice(0, 800),
+    );
   return { sent: text, status: run?.status ?? null, typed, answer: answer.slice(0, 600), tools };
 };
 
@@ -179,12 +248,22 @@ const snapshot = async (projectId: string, root: string, id: string) => {
   const project = await composerSnapshot(root);
   const after = await containerOf(id);
   // M0: the directory t3 passes the hook for a worktree and for the scratch folder.
-  const worktree = (await wsCall(cookie, "vcs.createWorktree", { cwd: root, refName: "main", newRefName: `p1001-${Date.now().toString(36)}`, path: null }).catch((error: unknown) => ({ error: String(error).slice(0, 300) }))) as any;
+  const worktree = (await wsCall(cookie, "vcs.createWorktree", {
+    cwd: root,
+    refName: "main",
+    newRefName: `p1001-${Date.now().toString(36)}`,
+    path: null,
+  }).catch((error: unknown) => ({ error: String(error).slice(0, 300) }))) as any;
   const worktreePath: string | null = worktree?.worktree?.path ?? null;
-  const worktreeSnapshot = worktreePath === null ? { error: worktree?.error ?? "no worktree" } : await composerSnapshot(worktreePath);
-  const scratch = (await wsCall(cookie, "projects.ensureScratch", {}).catch((error: unknown) => ({ error: String(error).slice(0, 300) }))) as any;
+  const worktreeSnapshot =
+    worktreePath === null ? { error: worktree?.error ?? "no worktree" } : await composerSnapshot(worktreePath);
+  const scratch = (await wsCall(cookie, "projects.ensureScratch", {}).catch((error: unknown) => ({
+    error: String(error).slice(0, 300),
+  }))) as any;
   const shell = (await wsFirst(cookie, "orchestration.subscribeShell", {}).catch(() => undefined)) as any;
-  const scratchRoot: string | null = findIn(shell, (record) => record.id === scratch?.projectId && typeof record.workspaceRoot === "string")?.workspaceRoot ?? null;
+  const scratchRoot: string | null =
+    findIn(shell, (record) => record.id === scratch?.projectId && typeof record.workspaceRoot === "string")
+      ?.workspaceRoot ?? null;
   const scratchSnapshot = scratchRoot === null ? { error: "no scratch root" } : await composerSnapshot(scratchRoot);
   const names = (project.skills ?? []).map((skill: any) => skill.name);
   const fruit = (project.skills ?? []).find((skill: any) => skill.name === "fruit-code");
@@ -198,8 +277,22 @@ const snapshot = async (projectId: string, root: string, id: string) => {
     (project.slashCommands ?? []).some((command: any) => command.name === "echo") &&
     before.running === false &&
     after.running === false;
-  console.log(`snapshot: ${ok ? "ok" : "FAIL"} (${JSON.stringify(names)}; container ${before.running} -> ${after.running})`);
-  return { ok, projectId, root, written, container: { before, after }, project, m0: { project: project.snapshotCwd, worktree: { path: worktreePath, ...worktreeSnapshot }, scratch: { root: scratchRoot, ...scratchSnapshot } } };
+  console.log(
+    `snapshot: ${ok ? "ok" : "FAIL"} (${JSON.stringify(names)}; container ${before.running} -> ${after.running})`,
+  );
+  return {
+    ok,
+    projectId,
+    root,
+    written,
+    container: { before, after },
+    project,
+    m0: {
+      project: project.snapshotCwd,
+      worktree: { path: worktreePath, ...worktreeSnapshot },
+      scratch: { root: scratchRoot, ...scratchSnapshot },
+    },
+  };
 };
 
 const turns = async (projectId: string, root: string) => {
@@ -212,10 +305,20 @@ const turns = async (projectId: string, root: string) => {
   // A name new to this run: the skill exists only from here on.
   const late = `late-${Date.now().toString(36)}`;
   const before = await composerSnapshot(root);
-  await wsCall(cookie, "projects.writeFile", { cwd: root, relativePath: `.agents/skills/${late}/SKILL.md`, contents: `---\nname: ${late}\ndescription: A skill written mid-thread.\n---\n\nReply with exactly: LATE-5\n` });
-  steps.late = { ...(await turn(threadId, 5, `$${late}`)), listedBefore: (before.skills ?? []).some((skill: any) => skill.name === late) };
+  await wsCall(cookie, "projects.writeFile", {
+    cwd: root,
+    relativePath: `.agents/skills/${late}/SKILL.md`,
+    contents: `---\nname: ${late}\ndescription: A skill written mid-thread.\n---\n\nReply with exactly: LATE-5\n`,
+  });
+  steps.late = {
+    ...(await turn(threadId, 5, `$${late}`)),
+    listedBefore: (before.skills ?? []).some((skill: any) => skill.name === late),
+  };
   const checks = {
-    listedReadsSkill: readsFile(steps.listed, "fruit-code/SKILL.md") && steps.listed.answer.includes("KIWI-7") && !steps.listed.answer.includes("FAKE-0"),
+    listedReadsSkill:
+      readsFile(steps.listed, "fruit-code/SKILL.md") &&
+      steps.listed.answer.includes("KIWI-7") &&
+      !steps.listed.answer.includes("FAKE-0"),
     mentionAnswers: steps.mention.answer.includes("KIWI-7") && steps.mention.typed === "$fruit-code",
     templateAnswers: steps.template.answer.trim() === "ECHO a none" && steps.template.typed === "/echo a",
     unknownUntouched: steps.unknown.answer.includes("$nope"),
@@ -231,8 +334,16 @@ const switchOff = async (projectId: string, root: string) => {
   try {
     const snapshotOff = await composerSnapshot(root);
     const threadId = await newThread(projectId, "spi-1147: skills off");
-    const listing = await turn(threadId, 1, "Without reading any file or running any command: does your system prompt hold an <available_skills> list? Reply YES or NO, then the skill names if YES.");
-    const mention = await turn(threadId, 2, "Without reading any file or running any command, reply with exactly the text after the colon, unchanged: $fruit-code");
+    const listing = await turn(
+      threadId,
+      1,
+      "Without reading any file or running any command: does your system prompt hold an <available_skills> list? Reply YES or NO, then the skill names if YES.",
+    );
+    const mention = await turn(
+      threadId,
+      2,
+      "Without reading any file or running any command, reply with exactly the text after the colon, unchanged: $fruit-code",
+    );
     const template = await turn(threadId, 3, "/echo a");
     const checks = {
       snapshotEmpty: (snapshotOff.skills ?? []).length === 0 && (snapshotOff.slashCommands ?? []).length === 0,
@@ -251,7 +362,14 @@ const switchOff = async (projectId: string, root: string) => {
 
 const command = process.argv[2];
 cookie = await pair();
-await wsCall(cookie, "server.updateSettings", { patch: {}, providerInstanceMutation: { operation: "upsert", instanceId: "piDurable", instance: { driver: "piDurable", enabled: true } } });
+await wsCall(cookie, "server.updateSettings", {
+  patch: {},
+  providerInstanceMutation: {
+    operation: "upsert",
+    instanceId: "piDurable",
+    instance: { driver: "piDurable", enabled: true },
+  },
+});
 const id = process.env.T3FLARE_P1001_PROJECT ?? `p1001-${Date.now().toString(36)}`;
 const { projectId, root } = await ensureProject(cookie, id);
 const results: Record<string, any> = {};

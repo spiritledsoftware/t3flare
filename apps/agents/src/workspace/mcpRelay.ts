@@ -10,7 +10,12 @@ export const MAX_RELAY_BYTES = 1024 * 1024;
 
 export interface RelayDeps {
   /** The Workspace DO's `mcpRelay`. May hold the request while the owner is asked. */
-  readonly relay: (input: { readonly handle: string | null; readonly server: string; readonly message: unknown; readonly askId: string }) => Promise<McpRelayAnswer>;
+  readonly relay: (input: {
+    readonly handle: string | null;
+    readonly server: string;
+    readonly message: unknown;
+    readonly askId: string;
+  }) => Promise<McpRelayAnswer>;
   /** The CLI went away while its call was asked: the card is withdrawn. */
   readonly cancel: (askId: string) => void;
   readonly newId: () => string;
@@ -19,10 +24,16 @@ export interface RelayDeps {
 const PATH = /^\/t3flare\/mcp\/([a-z0-9-]{1,20})$/;
 
 const plain = (status: number, message: string, extra: Record<string, string> = {}): Response =>
-  new Response(`t3flare: ${message}\n`, { status, headers: { "content-type": "text/plain", "cache-control": "no-store", ...extra } });
+  new Response(`t3flare: ${message}\n`, {
+    status,
+    headers: { "content-type": "text/plain", "cache-control": "no-store", ...extra },
+  });
 
 const jsonRpcError = (id: unknown, code: number, message: string): Response =>
-  Response.json({ jsonrpc: "2.0", id: id ?? null, error: { code, message } }, { status: 200, headers: { "cache-control": "no-store" } });
+  Response.json(
+    { jsonrpc: "2.0", id: id ?? null, error: { code, message } },
+    { status: 200, headers: { "cache-control": "no-store" } },
+  );
 
 const bearerOf = (headers: Headers): string | null => {
   const value = headers.get("authorization");
@@ -71,7 +82,8 @@ export const handleRelayRequest = async (request: Request, deps: RelayDeps): Pro
   if (request.method !== "POST") return plain(405, "only POST", { allow: "POST" });
   const handle = bearerOf(request.headers);
   if (handle === null) return plain(401, "the relay needs this process's tool handle as its bearer");
-  if (!(request.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json")) return plain(415, "MCP messages are JSON");
+  if (!(request.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json"))
+    return plain(415, "MCP messages are JSON");
   const text = await readCapped(request);
   if (text === null) return plain(413, `MCP messages over ${MAX_RELAY_BYTES} bytes are refused`);
   let message: unknown;
@@ -80,7 +92,8 @@ export const handleRelayRequest = async (request: Request, deps: RelayDeps): Pro
   } catch {
     return jsonRpcError(null, -32700, "parse error");
   }
-  if (message === null || typeof message !== "object" || Array.isArray(message)) return jsonRpcError(null, -32600, "one JSON-RPC message per request (no batches)");
+  if (message === null || typeof message !== "object" || Array.isArray(message))
+    return jsonRpcError(null, -32600, "one JSON-RPC message per request (no batches)");
   const askId = deps.newId();
   const onAbort = () => deps.cancel(askId);
   request.signal.addEventListener("abort", onAbort, { once: true });

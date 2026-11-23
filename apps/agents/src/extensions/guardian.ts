@@ -18,10 +18,26 @@
 // @effect-diagnostics globalConsole:off
 import type { Context as ChordContext } from "@earendil-works/chord";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { type Cursor, defineExtension, type Extension, type Harness, hook, type HookApi, type JsonObject, type ToolHookCall, ToolTask } from "@earendil-works/pi-durable";
+import {
+  type Cursor,
+  defineExtension,
+  type Extension,
+  type Harness,
+  hook,
+  type HookApi,
+  type JsonObject,
+  type ToolHookCall,
+  ToolTask,
+} from "@earendil-works/pi-durable";
 import { parseEndpointSlug } from "@t3flare/models/endpoints";
 
-import { type Assessment, rejectionReason, riskLabel, statedRationale, validRiskCategories } from "./guardian/assessment.ts";
+import {
+  type Assessment,
+  rejectionReason,
+  riskLabel,
+  statedRationale,
+  validRiskCategories,
+} from "./guardian/assessment.ts";
 import { renderReviewedCall, selectEvidence, toolCallsOf } from "./guardian/evidence.ts";
 import { parseEntries, type PolicyEntries, readOnlyBuiltIns, resolveToolPolicy, REPO } from "./guardian/policy.ts";
 import { escalationInstruction, guardianSystemPrompt } from "./guardian/prompt.ts";
@@ -56,22 +72,44 @@ export interface GuardianHost {
   readonly model: (setting: string) => string | undefined;
 }
 
-const translated = (input: Readonly<Record<string, unknown>>, toToolPath: (text: string) => string): Readonly<Record<string, unknown>> =>
-  Object.fromEntries(Object.entries(input).map(([key, value]) => [key, (key === "path" || key === "command" || key === "cwd") && typeof value === "string" ? toToolPath(value) : value]));
+const translated = (
+  input: Readonly<Record<string, unknown>>,
+  toToolPath: (text: string) => string,
+): Readonly<Record<string, unknown>> =>
+  Object.fromEntries(
+    Object.entries(input).map(([key, value]) => [
+      key,
+      (key === "path" || key === "command" || key === "cwd") && typeof value === "string" ? toToolPath(value) : value,
+    ]),
+  );
 
 /** What a review decided, as memoized and audited. */
 type Decision =
   | { readonly result: "allowed" }
-  | { readonly result: "rejected" | "failed" | "denied" | "aborted"; readonly reason: string; readonly shown?: string; readonly model?: string };
+  | {
+      readonly result: "rejected" | "failed" | "denied" | "aborted";
+      readonly reason: string;
+      readonly shown?: string;
+      readonly model?: string;
+    };
 
 /** What t3 shows of a Rejection: the risk, the authorization and the rationale. */
-const shownOf = (assessment: Assessment): string => `Risk: ${riskLabel(assessment)}. Authorization: ${assessment.authorization}.\nReason: ${statedRationale(assessment)}`;
+const shownOf = (assessment: Assessment): string =>
+  `Risk: ${riskLabel(assessment)}. Authorization: ${assessment.authorization}.\nReason: ${statedRationale(assessment)}`;
 
 const decisionOf = (review: ReviewResult): Decision => {
   if (review.kind === "assessed") {
-    return review.outcome === "allowed" ? { result: "allowed" } : { result: "rejected", reason: rejectionReason(review.assessment), shown: shownOf(review.assessment), model: review.model };
+    return review.outcome === "allowed"
+      ? { result: "allowed" }
+      : {
+          result: "rejected",
+          reason: rejectionReason(review.assessment),
+          shown: shownOf(review.assessment),
+          model: review.model,
+        };
   }
-  if (review.kind === "aborted") return { result: "aborted", reason: "The Guardian Review was aborted, so the call did not run." };
+  if (review.kind === "aborted")
+    return { result: "aborted", reason: "The Guardian Review was aborted, so the call did not run." };
   return {
     result: "failed",
     reason: `The Guardian could not review this call (${review.failure}), so it did not run. A Review Failure never allows a call. Tell the owner; they can change the Guardian's model or its Tool Policies on the Settings page.`,
@@ -83,7 +121,7 @@ const decisionOf = (review: ReviewResult): Decision => {
 const callContext = async (api: Pick<HookApi, "entries">, call: ToolHookCall, context: ChordContext) => {
   const own = call.parent?.callId ?? call.id;
   let cursor: Cursor | undefined;
-  for (let read = 0; read < 1_000; ) {
+  for (let read = 0; read < 1_000;) {
     const page = await api.entries({ order: "descending" }, 100, cursor, context);
     for (const entry of page.items) {
       const calls = toolCallsOf(entry);
@@ -110,34 +148,78 @@ const guardianModel = (api: HookApi, slug: string | undefined): Model<Api> | und
 };
 
 /** One Guardian Review of `call` and its Escalation Pass (guardian-gate.ts `review`). */
-const review = async (api: HookApi, call: ToolHookCall, settings: GuardianSettings, host: GuardianHost, reason: string | undefined, securityPolicy: boolean, context: ChordContext): Promise<Decision> => {
+const review = async (
+  api: HookApi,
+  call: ToolHookCall,
+  settings: GuardianSettings,
+  host: GuardianHost,
+  reason: string | undefined,
+  securityPolicy: boolean,
+  context: ChordContext,
+): Promise<Decision> => {
   const slug = host.model(settings.model);
   const model = guardianModel(api, slug);
   const categories = validRiskCategories(securityPolicy);
   if (model === undefined) {
-    const failure = slug === undefined ? "no Model endpoint lists a model for it" : `Guardian model ${slug} was not found among the Model endpoints' models`;
+    const failure =
+      slug === undefined
+        ? "no Model endpoint lists a model for it"
+        : `Guardian model ${slug} was not found among the Model endpoints' models`;
     return decisionOf({ kind: "failed", failure, model: slug ?? settings.model, durationMs: 0, tokens: 0, cost: null });
   }
   const where = await callContext(api, call, context);
   const evidence = await selectEvidence(api, context, { trustUser: host.trustUser(), skipCalls: where.skip });
-  const reviewed = await renderReviewedCall({ toolName: call.name, input: call.arguments, cwd: REPO, reason, parent: where.parent, batch: where.batch });
+  const reviewed = await renderReviewedCall({
+    toolName: call.name,
+    input: call.arguments,
+    cwd: REPO,
+    reason,
+    parent: where.parent,
+    batch: where.batch,
+  });
   const blocks = [...evidence, reviewed].map((text) => ({ type: "text" as const, text }));
   const systemPrompt = guardianSystemPrompt(settings.policy, false, [...categories]);
-  const base = { models: api.models, model, timeoutMs: REVIEW_TIMEOUT_MS, signal: context.abortSignal, sessionId: host.sessionId(), categories };
-  const first = await runGuardianReview({ ...base, thinkingLevel: settings.thinkingLevel, context: { systemPrompt, messages: [{ role: "user", content: blocks, timestamp: 0 }] } });
+  const base = {
+    models: api.models,
+    model,
+    timeoutMs: REVIEW_TIMEOUT_MS,
+    signal: context.abortSignal,
+    sessionId: host.sessionId(),
+    categories,
+  };
+  const first = await runGuardianReview({
+    ...base,
+    thinkingLevel: settings.thinkingLevel,
+    context: { systemPrompt, messages: [{ role: "user", content: blocks, timestamp: 0 }] },
+  });
   if (first.kind !== "assessed" || first.outcome === "allowed") return decisionOf(first);
   // A would-be Rejection: the Escalation Pass reasons carefully before it stands, at `low` thinking or above.
   const escalation = await runGuardianReview({
     ...base,
     thinkingLevel: settings.thinkingLevel === "off" ? "low" : settings.thinkingLevel,
     reasoned: true,
-    context: { systemPrompt, messages: [{ role: "user", content: [...blocks, { type: "text", text: escalationInstruction([...categories]) }], timestamp: 0 }] },
+    context: {
+      systemPrompt,
+      messages: [
+        {
+          role: "user",
+          content: [...blocks, { type: "text", text: escalationInstruction([...categories]) }],
+          timestamp: 0,
+        },
+      ],
+    },
   });
   return decisionOf(withEscalation(first, escalation));
 };
 
 /** Records a blocked call in the conversation, for t3 (a notice) and for the owner's audit; never for the model. */
-const audit = async (host: GuardianHost, api: HookApi, call: ToolHookCall, decision: Decision, context: ChordContext): Promise<void> => {
+const audit = async (
+  host: GuardianHost,
+  api: HookApi,
+  call: ToolHookCall,
+  decision: Decision,
+  context: ChordContext,
+): Promise<void> => {
   if (decision.result === "allowed") return;
   try {
     const conversation = await (await host.harness()).conversation(api.conversationId, context);
@@ -168,23 +250,49 @@ export const guardianExtension = (host: GuardianHost, settings: GuardianSettings
           // Invalid settings may have held `deny` rules: every call but the read-only built-ins fails closed.
           if (invalid.length > 0) {
             if (readOnlyBuiltIns.includes(call.name)) return undefined;
-            const decision: Decision = { result: "failed", reason: `The Guardian's settings cannot be read (${invalid.map((pair) => JSON.stringify(pair)).join(", ")} is not name=allow|review|deny), so no call but a read runs until the owner fixes them on the Settings page.` };
+            const decision: Decision = {
+              result: "failed",
+              reason: `The Guardian's settings cannot be read (${invalid.map((pair) => JSON.stringify(pair)).join(", ")} is not name=allow|review|deny), so no call but a read runs until the owner fixes them on the Settings page.`,
+            };
             await audit(host, api, call, decision, context);
             return { block: decision.reason };
           }
           const input = translated(call.arguments, host.toToolPath);
-          const policy = resolveToolPolicy({ toolName: call.name, input, configured: tools.entries as PolicyEntries, commands: commands.entries as PolicyEntries, readOnly: host.readOnly(call.name) });
+          const policy = resolveToolPolicy({
+            toolName: call.name,
+            input,
+            configured: tools.entries as PolicyEntries,
+            commands: commands.entries as PolicyEntries,
+            readOnly: host.readOnly(call.name),
+          });
           if (policy.policy === "allow") return undefined;
           let decision: Decision;
           if (policy.policy === "deny") {
-            decision = { result: "denied", reason: `Blocked by the owner's Guardian settings: ${policy.detail ?? `the Tool Policy for ${call.name} is deny`}. Do not try to reach the same effect another way.` };
+            decision = {
+              result: "denied",
+              reason: `Blocked by the owner's Guardian settings: ${policy.detail ?? `the Tool Policy for ${call.name} is deny`}. Do not try to reach the same effect another way.`,
+            };
           } else {
             // A rerun after a restart takes the decision already made, instead of asking the model again.
             const memo = `guardian:${call.id}`;
             const known = await api.memo<Decision>(memo, context);
-            decision = known ?? (await api.memo<Decision>(memo, await review(api, call, settings, host, policy.detail, securityPolicy, context), context));
+            decision =
+              known ??
+              (await api.memo<Decision>(
+                memo,
+                await review(api, call, settings, host, policy.detail, securityPolicy, context),
+                context,
+              ));
           }
-          console.log(JSON.stringify({ t3flare: "guardian-decision", tool: call.name, policy: policy.policy, source: policy.source, result: decision.result }));
+          console.log(
+            JSON.stringify({
+              t3flare: "guardian-decision",
+              tool: call.name,
+              policy: policy.policy,
+              source: policy.source,
+              result: decision.result,
+            }),
+          );
           if (decision.result === "allowed") return undefined;
           await audit(host, api, call, decision, context);
           return { block: decision.reason };
@@ -193,4 +301,3 @@ export const guardianExtension = (host: GuardianHost, settings: GuardianSettings
     ],
   });
 };
-

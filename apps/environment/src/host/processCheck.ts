@@ -24,7 +24,10 @@ const percentile = (values: ReadonlyArray<number>, p: number) => {
 
 /** Processes in the Workspace's Container whose environment carries `marker`. */
 export const countMarker = async (workspace: string, marker: string): Promise<number> => {
-  const answer = await workspaceRpc(workspace).exec({ script: `grep -l -a 'T3FLARE_EXEC=${marker.replace(/[^A-Za-z0-9-]/g, "")}' /proc/[0-9]*/environ 2>/dev/null | wc -l`, timeoutMs: 20_000 });
+  const answer = await workspaceRpc(workspace).exec({
+    script: `grep -l -a 'T3FLARE_EXEC=${marker.replace(/[^A-Za-z0-9-]/g, "")}' /proc/[0-9]*/environ 2>/dev/null | wc -l`,
+    timeoutMs: 20_000,
+  });
   return Number(answer.stdout.trim());
 };
 
@@ -64,12 +67,22 @@ const lineReader = <E>(stream: Stream.Stream<Uint8Array, E>) => {
   return { run, next, bytes: () => bytes };
 };
 
-export const processCheck = async (body: { readonly op: string; readonly workspace: string; readonly marker?: string; readonly roundTrips?: number }): Promise<unknown> => {
+export const processCheck = async (body: {
+  readonly op: string;
+  readonly workspace: string;
+  readonly marker?: string;
+  readonly roundTrips?: number;
+}): Promise<unknown> => {
   if (body.op === "count") return { count: await countMarker(body.workspace, body.marker ?? "") };
   const scope = Scope.makeUnsafe();
   const started = Date.now();
   const handle = await Effect.runPromise(
-    spawn(ChildProcess.make("t3flare-probe", [], { cwd: `/w/${body.workspace}`, stdin: { stream: "pipe", endOnDone: false } })).pipe(Scope.provide(scope)),
+    spawn(
+      ChildProcess.make("t3flare-probe", [], {
+        cwd: `/w/${body.workspace}`,
+        stdin: { stream: "pipe", endOnDone: false },
+      }),
+    ).pipe(Scope.provide(scope)),
   );
   const startMs = Date.now() - started;
   const key = (await import("../agents/bindings.ts")).environmentServices().processes.byPid(handle.pid)?.key ?? null;
@@ -116,7 +129,12 @@ export const processCheck = async (body: { readonly op: string; readonly workspa
       }
       rtts.push(Date.now() - at);
     }
-    report.roundTrips = { n: rtts.length, p50: percentile(rtts, 50), p95: percentile(rtts, 95), max: Math.max(...rtts) };
+    report.roundTrips = {
+      n: rtts.length,
+      p50: percentile(rtts, 50),
+      p95: percentile(rtts, 95),
+      max: Math.max(...rtts),
+    };
     let errLines = 0;
     while ((await err.next(2000)) !== null) if (++errLines >= rtts.length) break;
     report.stderrLines = errLines;
@@ -133,7 +151,10 @@ export const processCheck = async (body: { readonly op: string; readonly workspa
     // The kill: t3's handle.kill (TERM, then KILL by marker); the child that ignores TERM goes too.
     at = Date.now();
     await Effect.runPromise(handle.kill({ killSignal: "SIGTERM" }));
-    const code = await Promise.race([Effect.runPromise(handle.exitCode), new Promise((resolve) => setTimeout(() => resolve("timeout"), 10_000))]);
+    const code = await Promise.race([
+      Effect.runPromise(handle.exitCode),
+      new Promise((resolve) => setTimeout(() => resolve("timeout"), 10_000)),
+    ]);
     report.kill = { exitCode: code, ms: Date.now() - at };
     await new Promise((resolve) => setTimeout(resolve, 3000));
     report.markerProcessesAfterKill = key === null ? null : await countMarker(body.workspace, key);
@@ -150,4 +171,3 @@ export const releaseHeld = async (): Promise<number> => {
   for (const entry of scopes) await Effect.runPromise(Scope.close(entry.scope, Exit.void));
   return scopes.length;
 };
-

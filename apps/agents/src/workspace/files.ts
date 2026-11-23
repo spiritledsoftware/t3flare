@@ -9,7 +9,10 @@ const errorOf = (cause: unknown): FsError => {
   const known = ["ENOENT", "EEXIST", "ENOTDIR", "EISDIR", "ENOTEMPTY", "EINVAL"] as const;
   const fromCode = typeof code === "string" ? known.find((candidate) => candidate === code) : undefined;
   const fromMessage = known.find((candidate) => message.includes(candidate));
-  return { error: fromCode ?? fromMessage ?? (/not found|no such/i.test(message) ? "ENOENT" : "EIO"), message: message.slice(0, 500) };
+  return {
+    error: fromCode ?? fromMessage ?? (/not found|no such/i.test(message) ? "ENOENT" : "EIO"),
+    message: message.slice(0, 500),
+  };
 };
 
 const run = async <A>(f: () => Promise<A>): Promise<FsAnswer<A>> => {
@@ -35,7 +38,10 @@ export const fileOps = (workspace: ComputerWorkspace) => {
       }),
     read: (path: string, range?: { readonly offset: number; readonly length: number }): Promise<FsAnswer<Uint8Array>> =>
       run(async () => {
-        const stream = await fs().readFile(path, range === undefined ? {} : { byteOffset: range.offset, byteLength: range.length });
+        const stream = await fs().readFile(
+          path,
+          range === undefined ? {} : { byteOffset: range.offset, byteLength: range.length },
+        );
         const chunks: Array<Uint8Array> = [];
         let total = 0;
         for await (const chunk of stream as AsyncIterable<Uint8Array>) {
@@ -50,7 +56,11 @@ export const fileOps = (workspace: ComputerWorkspace) => {
         }
         return out;
       }),
-    write: (path: string, data: Uint8Array | string, options: { readonly append?: boolean; readonly exclusive?: boolean } = {}): Promise<FsAnswer<null>> =>
+    write: (
+      path: string,
+      data: Uint8Array | string,
+      options: { readonly append?: boolean; readonly exclusive?: boolean } = {},
+    ): Promise<FsAnswer<null>> =>
       run(async () => {
         await fs().mkdir(parentOf(path), { recursive: true });
         if (options.append === true) {
@@ -71,7 +81,10 @@ export const fileOps = (workspace: ComputerWorkspace) => {
         await fs().mkdir(path, { recursive });
         return null;
       }),
-    remove: (path: string, options: { readonly recursive?: boolean; readonly force?: boolean }): Promise<FsAnswer<null>> =>
+    remove: (
+      path: string,
+      options: { readonly recursive?: boolean; readonly force?: boolean },
+    ): Promise<FsAnswer<null>> =>
       run(async () => {
         await fs().rm(path, { recursive: options.recursive === true, force: options.force === true });
         return null;
@@ -97,7 +110,11 @@ export const fileOps = (workspace: ComputerWorkspace) => {
         }
         return resolved === "" ? "/" : resolved;
       }),
-    find: (directory: string, pattern: string | undefined, limit: number): Promise<FsAnswer<ReadonlyArray<FoundEntry>>> =>
+    find: (
+      directory: string,
+      pattern: string | undefined,
+      limit: number,
+    ): Promise<FsAnswer<ReadonlyArray<FoundEntry>>> =>
       run(async () =>
         (await fs().find(directory, pattern, { limit, exclude: ["**/.git", "**/node_modules"] })).map((entry) => ({
           path: entry.path,
@@ -107,8 +124,19 @@ export const fileOps = (workspace: ComputerWorkspace) => {
     grep: (
       pattern: string,
       directory: string,
-      options: { readonly ignoreCase?: boolean; readonly regex?: boolean; readonly limit?: number; readonly include?: string },
+      options: {
+        readonly ignoreCase?: boolean;
+        readonly regex?: boolean;
+        readonly limit?: number;
+        readonly include?: string;
+      },
     ): Promise<FsAnswer<ReadonlyArray<GrepMatch>>> =>
-      run(async () => (await fs().grep(pattern, directory, options)).map((match) => ({ path: match.path, line: match.line, text: match.text }))),
+      run(async () =>
+        (await fs().grep(pattern, directory, options)).map((match) => ({
+          path: match.path,
+          line: match.line,
+          text: match.text,
+        })),
+      ),
   };
 };

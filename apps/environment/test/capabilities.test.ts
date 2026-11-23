@@ -17,7 +17,9 @@ describe("the descriptor's capabilities", () => {
 
   it("strips a flag a nightly adds until it is classified, and names it", () => {
     expect(unclassifiedCapabilities(["repositoryIdentity", "someNewFlag"])).toEqual(["someNewFlag"]);
-    expect(cloudCapabilities({ repositoryIdentity: true, someNewFlag: true } as unknown as ExecutionEnvironmentCapabilities)).toEqual({ repositoryIdentity: true });
+    expect(
+      cloudCapabilities({ repositoryIdentity: true, someNewFlag: true } as unknown as ExecutionEnvironmentCapabilities),
+    ).toEqual({ repositoryIdentity: true });
   });
 
   it("strips what the Cloud Environment does not do and keeps the rest", () => {
@@ -50,22 +52,40 @@ describe("the descriptor's capabilities", () => {
   });
 
   it("advertises t3flare's own server Update only where it is configured (in-app updates plan D2, D14)", () => {
-    const fromT3 = { repositoryIdentity: true, serverSelfUpdate: "boot-service", serverSelfUpdateProgress: true, serverUpdateStaging: true } as ExecutionEnvironmentCapabilities;
+    const fromT3 = {
+      repositoryIdentity: true,
+      serverSelfUpdate: "boot-service",
+      serverSelfUpdateProgress: true,
+      serverUpdateStaging: true,
+    } as ExecutionEnvironmentCapabilities;
     expect(cloudCapabilities(fromT3)).toEqual({ repositoryIdentity: true });
-    expect(cloudCapabilities(fromT3, { serverSelfUpdate: "respawn" })).toEqual({ repositoryIdentity: true, serverSelfUpdate: "respawn" });
+    expect(cloudCapabilities(fromT3, { serverSelfUpdate: "respawn" })).toEqual({
+      repositoryIdentity: true,
+      serverSelfUpdate: "respawn",
+    });
     // The stock client takes no accepting-`ready` baseline for `respawn`, so an idle reset does not read as a failure.
     // t3's own update machinery is stripped whatever t3 says, with or without t3flare's own Update advertised.
-    const stripped = Object.fromEntries(["serverSelfUpdateProgress", "serverUpdateStaging", "serverUpdateThreadContinuation", "serverInstallation", "npmReleaseLookup", "desktopAppUpdate"].map((key) => [key, true]));
+    const stripped = Object.fromEntries(
+      [
+        "serverSelfUpdateProgress",
+        "serverUpdateStaging",
+        "serverUpdateThreadContinuation",
+        "serverInstallation",
+        "npmReleaseLookup",
+        "desktopAppUpdate",
+      ].map((key) => [key, true]),
+    );
     const withStripped = { repositoryIdentity: true, ...stripped } as unknown as ExecutionEnvironmentCapabilities;
     expect(cloudCapabilities(withStripped)).toEqual({ repositoryIdentity: true });
-    expect(cloudCapabilities(withStripped, { serverSelfUpdate: "respawn" })).toEqual({ repositoryIdentity: true, serverSelfUpdate: "respawn" });
+    expect(cloudCapabilities(withStripped, { serverSelfUpdate: "respawn" })).toEqual({
+      repositoryIdentity: true,
+      serverSelfUpdate: "respawn",
+    });
   });
 });
 
 describe("t3flare's managed policy", () => {
-  const policy = Effect.runPromise(
-    ManagedPolicy.ManagedPolicy.pipe(Effect.provide(layerManagedPolicy)),
-  );
+  const policy = Effect.runPromise(ManagedPolicy.ManagedPolicy.pipe(Effect.provide(layerManagedPolicy)));
 
   it("is one t3 accepts, and tells clients what it locks", async () => {
     const { summary } = await policy;
@@ -85,8 +105,12 @@ describe("t3flare's managed policy", () => {
 
   it("leaves custom text generators to the owner, as stock t3 does (D5 lifted)", async () => {
     const { settings } = await policy;
-    expect(settings.vetWrite(DEFAULT_SERVER_SETTINGS, DEFAULT_SERVER_SETTINGS, { textGenerators: {} })).not.toMatchObject({ _tag: "Locked" });
-    expect(settings.vetWrite(DEFAULT_SERVER_SETTINGS, DEFAULT_SERVER_SETTINGS, { guestSharingEnabled: true })).toMatchObject({ _tag: "Locked" });
+    expect(
+      settings.vetWrite(DEFAULT_SERVER_SETTINGS, DEFAULT_SERVER_SETTINGS, { textGenerators: {} }),
+    ).not.toMatchObject({ _tag: "Locked" });
+    expect(
+      settings.vetWrite(DEFAULT_SERVER_SETTINGS, DEFAULT_SERVER_SETTINGS, { guestSharingEnabled: true }),
+    ).toMatchObject({ _tag: "Locked" });
   });
 
   it("keeps guest links and the device panel off, whatever was stored", async () => {
@@ -95,6 +119,8 @@ describe("t3flare's managed policy", () => {
     const applied = settings.applyLocks(stored);
     expect(applied.guestSharingEnabled).toBe(false);
     expect(applied.enableDeviceSupport).toBe(false);
-    expect(settings.vetWrite(DEFAULT_SERVER_SETTINGS, stored, { guestSharingEnabled: true })).toMatchObject({ _tag: "Locked" });
+    expect(settings.vetWrite(DEFAULT_SERVER_SETTINGS, stored, { guestSharingEnabled: true })).toMatchObject({
+      _tag: "Locked",
+    });
   });
 });

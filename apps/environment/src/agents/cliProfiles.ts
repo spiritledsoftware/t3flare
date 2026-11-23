@@ -85,7 +85,9 @@ export interface ProfileContext {
  */
 export interface PiRelay {
   /** Its auth, when a sign-in: its models take the sign-in's compatibility overrides (`SIGN_IN_COMPAT`, SPI-1171). */
-  readonly endpoints: ReadonlyArray<Pick<ModelEndpoint, "id" | "label" | "api" | "models"> & Partial<Pick<ModelEndpoint, "auth">>>;
+  readonly endpoints: ReadonlyArray<
+    Pick<ModelEndpoint, "id" | "label" | "api" | "models"> & Partial<Pick<ModelEndpoint, "auth">>
+  >;
   readonly model: string | undefined;
 }
 
@@ -121,9 +123,16 @@ const homeOf = (key: string) => `${CLI_HOMES}/${key}`;
 export const CODEX_ENVIRONMENT_SKILLS = "codex/skills/t3flare-environment";
 
 /** t3's env keys the profiles read; everything else is dropped. */
-const READ_ENV = new Set(["T3CODE_THREAD_ID", "T3_PI_RUNTIME_MODE", "T3_PI_MCP_EXTENSION_PATH", "T3_MCP_URL", "T3_MCP_BEARER_TOKEN"]);
+const READ_ENV = new Set([
+  "T3CODE_THREAD_ID",
+  "T3_PI_RUNTIME_MODE",
+  "T3_PI_MCP_EXTENSION_PATH",
+  "T3_MCP_URL",
+  "T3_MCP_BEARER_TOKEN",
+]);
 
-const dropped = (env: LaunchInput["env"]): ReadonlyArray<string> => Object.keys(env).filter((key) => env[key] !== undefined && !READ_ENV.has(key));
+const dropped = (env: LaunchInput["env"]): ReadonlyArray<string> =>
+  Object.keys(env).filter((key) => env[key] !== undefined && !READ_ENV.has(key));
 
 const tomlString = (value: string) => JSON.stringify(value);
 
@@ -165,13 +174,20 @@ export const codexEndpointOverrides = (endpoints: ReadonlyArray<RelayedEndpoint>
  * your current provider is <b>"), so it is the session's model's (`codexModelRoute`): its endpoint's for an endpoint's
  * slug, the first endpoint's for none or an old one (`isRetiredSlug`).
  */
-export const codexProcessProvider = (endpoints: ReadonlyArray<CodexRouteEndpoint>, model: string | undefined): string => {
+export const codexProcessProvider = (
+  endpoints: ReadonlyArray<CodexRouteEndpoint>,
+  model: string | undefined,
+): string => {
   const routed = codexModelRoute(model ?? "default", endpoints, endpointProviderId).provider;
   return routed !== "" ? routed : endpoints[0] === undefined ? "" : endpointProviderId(endpoints[0].id);
 };
 
 /** Codex's `-c` overrides (plan §4.3; M0: P3, P10, P11). Each value is TOML. */
-export const codexOverrides = (key: string, endpoints: ReadonlyArray<RelayedEndpoint & CodexRouteEndpoint>, model?: string): ReadonlyArray<string> => {
+export const codexOverrides = (
+  key: string,
+  endpoints: ReadonlyArray<RelayedEndpoint & CodexRouteEndpoint>,
+  model?: string,
+): ReadonlyArray<string> => {
   return [
     `model_provider=${tomlString(codexProcessProvider(endpoints, model))}`,
     ...codexEndpointOverrides(endpoints),
@@ -220,7 +236,11 @@ export const codexExecArgs = (model: string, schemaPath: string): ReadonlyArray<
 ];
 
 /** The Owner's ~/.codex for a Codex process's home, when the Environment says so (ADR-0047 §9). */
-const codexDotfiles = (home: string, context: ProfileContext, overrides: ReadonlyArray<string>): Pick<Launch, "seed" | "check"> =>
+const codexDotfiles = (
+  home: string,
+  context: ProfileContext,
+  overrides: ReadonlyArray<string>,
+): Pick<Launch, "seed" | "check"> =>
   dotfilesLaunch("codex", home, context.dotfiles, { bin: `${CLI_BIN}/codex`, overrides });
 
 /**
@@ -246,21 +266,33 @@ const codexExecLaunch = (input: LaunchInput, context: ProfileContext): LaunchAns
   const model = input.args[7] ?? "";
   const schemaPath = input.args[9] ?? "";
   const expected = codexExecArgs(model, schemaPath);
-  if (input.args.length !== expected.length || input.args.some((arg, at) => arg !== expected[at])) return { refused: "Codex runs `codex exec` here only for t3's read-only investigations" };
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,100}$/.test(model)) return { refused: `Codex's model ${model} is not a model name` };
+  if (input.args.length !== expected.length || input.args.some((arg, at) => arg !== expected[at]))
+    return { refused: "Codex runs `codex exec` here only for t3's read-only investigations" };
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,100}$/.test(model))
+    return { refused: `Codex's model ${model} is not a model name` };
   const schema = schemaPath.startsWith("/") ? context.readStateFile(schemaPath) : undefined;
   if (schema === undefined) return { refused: `Codex's output schema ${schemaPath} is not in the State directory` };
   const endpoints = context.endpoints ?? [];
   if (endpoints.length === 0) return { refused: NO_CODEX_ENDPOINT };
   const home = homeOf(input.key);
   const overrides = [
-    ...codexOverrides(input.key, endpoints, model).filter((value) => !value.startsWith("approval_policy=") && !value.startsWith("sandbox_mode=")),
+    ...codexOverrides(input.key, endpoints, model).filter(
+      (value) => !value.startsWith("approval_policy=") && !value.startsWith("sandbox_mode="),
+    ),
     // `codex exec` cannot ask anyone: a command the read-only sandbox refuses fails back to the model.
     `approval_policy="never"`,
   ];
   const asCodexNames = codexModelRoute(model, endpoints, endpointProviderId).model;
   return {
-    argv: [`${CLI_BIN}/codex`, ...overrides.flatMap((value) => ["-c", value]), ...expected.slice(0, 7), asCodexNames, expected[8]!, `${home}/output-schema.json`, "-"],
+    argv: [
+      `${CLI_BIN}/codex`,
+      ...overrides.flatMap((value) => ["-c", value]),
+      ...expected.slice(0, 7),
+      asCodexNames,
+      expected[8]!,
+      `${home}/output-schema.json`,
+      "-",
+    ],
     env: { HOME: OWNER_HOME, LANG: "C.UTF-8", CODEX_HOME: `${home}/codex`, CODEX_SQLITE_HOME: `${home}/sqlite` },
     ...codexDotfiles(home, context, overrides),
     files: [codexConfig(home, context), { path: `${home}/output-schema.json`, text: schema }],
@@ -271,19 +303,32 @@ const codexExecLaunch = (input: LaunchInput, context: ProfileContext): LaunchAns
 
 const codexLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer => {
   if (input.args[0] === "exec") return codexExecLaunch(input, context);
-  if (input.args.length !== 1 || input.args[0] !== "app-server") return { refused: `Codex runs here only as \`codex app-server\` (not \`codex ${input.args.join(" ")}\`)` };
+  if (input.args.length !== 1 || input.args[0] !== "app-server")
+    return { refused: `Codex runs here only as \`codex app-server\` (not \`codex ${input.args.join(" ")}\`)` };
   const endpoints = context.endpoints ?? [];
   if (endpoints.length === 0) return { refused: NO_CODEX_ENDPOINT };
   const home = homeOf(input.key);
   const thread = input.env.T3CODE_THREAD_ID;
   const relay = context.relay;
-  const overrides = [...codexOverrides(input.key, endpoints, context.model), ...codexRelayOverrides(relay?.servers ?? [])];
+  const overrides = [
+    ...codexOverrides(input.key, endpoints, context.model),
+    ...codexRelayOverrides(relay?.servers ?? []),
+  ];
   return {
     argv: [`${CLI_BIN}/codex`, "app-server", ...overrides.flatMap((value) => ["-c", value])],
-    env: { HOME: OWNER_HOME, LANG: "C.UTF-8", CODEX_HOME: `${home}/codex`, CODEX_SQLITE_HOME: `${home}/sqlite`, ...(relay === undefined ? {} : { [TOOL_HANDLE_ENV]: relay.handle }) },
+    env: {
+      HOME: OWNER_HOME,
+      LANG: "C.UTF-8",
+      CODEX_HOME: `${home}/codex`,
+      CODEX_SQLITE_HOME: `${home}/sqlite`,
+      ...(relay === undefined ? {} : { [TOOL_HANDLE_ENV]: relay.handle }),
+    },
     ...codexDotfiles(home, context, overrides),
     files: [codexConfig(home, context)],
-    links: [{ path: `${home}/codex/sessions`, target: CODEX_SESSIONS }, environmentSkillsLink(`${home}/${CODEX_ENVIRONMENT_SKILLS}`)],
+    links: [
+      { path: `${home}/codex/sessions`, target: CODEX_SESSIONS },
+      environmentSkillsLink(`${home}/${CODEX_ENVIRONMENT_SKILLS}`),
+    ],
     ...(thread === undefined ? {} : { thread }),
     modelRelay: endpoints.map((endpoint) => endpoint.id),
     droppedEnv: dropped(input.env),
@@ -352,9 +397,15 @@ export const piRelayModelsJson = (relay: PiRelay): string =>
     {
       providers: Object.fromEntries(
         relay.endpoints.map((endpoint) => [
-            endpointProviderId(endpoint.id),
-            { name: endpoint.label, baseUrl: modelRelayUrl(endpoint.id), api: endpoint.api, apiKey: `!${PI_HANDLE_COMMAND}`, models: piEndpointModels(endpoint) },
-          ]),
+          endpointProviderId(endpoint.id),
+          {
+            name: endpoint.label,
+            baseUrl: modelRelayUrl(endpoint.id),
+            api: endpoint.api,
+            apiKey: `!${PI_HANDLE_COMMAND}`,
+            models: piEndpointModels(endpoint),
+          },
+        ]),
       ),
     },
     null,
@@ -374,7 +425,12 @@ export const piMcpJson = (servers: ReadonlyArray<string>): string =>
       mcpServers: Object.fromEntries(
         servers.map((server) => [
           server,
-          { url: relayUrl(server), headers: { Authorization: `Bearer \${${TOOL_HANDLE_ENV}}` }, timeout: CLI_TOOL_TIMEOUT_SEC, exposure: "deferred" },
+          {
+            url: relayUrl(server),
+            headers: { Authorization: `Bearer \${${TOOL_HANDLE_ENV}}` },
+            timeout: CLI_TOOL_TIMEOUT_SEC,
+            exposure: "deferred",
+          },
         ]),
       ),
     },
@@ -389,7 +445,8 @@ export const piMcpJson = (servers: ReadonlyArray<string>): string =>
  */
 export const piRelaySettings = (relay: PiRelay): string => {
   const start = relay.model === undefined ? undefined : parseEndpointSlug(relay.model);
-  const defaults = start === undefined ? {} : { defaultProvider: endpointProviderId(start.endpointId), defaultModel: start.modelId };
+  const defaults =
+    start === undefined ? {} : { defaultProvider: endpointProviderId(start.endpointId), defaultModel: start.modelId };
   return `${JSON.stringify({ defaultProjectTrust: "never", retry: { maxRetries: 1 }, ...defaults }, null, 1)}\n`;
 };
 
@@ -421,14 +478,17 @@ export const piRepoResourceArgs = (cwd: string): ReadonlyArray<string> => {
     "--skill",
     SKILLS_MOUNT,
     ...directoriesUp(base, root).flatMap((directory, depth) =>
-      CLI_ROOTS.pi.skills.filter((skillRoot) => depth === 0 || !skillRoot.cwdOnly).flatMap((skillRoot) => ["--skill", `${directory}/${skillRoot.directory}`]),
+      CLI_ROOTS.pi.skills
+        .filter((skillRoot) => depth === 0 || !skillRoot.cwdOnly)
+        .flatMap((skillRoot) => ["--skill", `${directory}/${skillRoot.directory}`]),
     ),
     ...CLI_ROOTS.pi.commands.flatMap((source) => ["--prompt-template", `${base}/${source.directory}`]),
   ];
 };
 
 const piLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer => {
-  if (input.args[0] !== "--mode" || input.args[1] !== "rpc") return { refused: `pi runs here only as \`pi --mode rpc\`` };
+  if (input.args[0] !== "--mode" || input.args[1] !== "rpc")
+    return { refused: `pi runs here only as \`pi --mode rpc\`` };
   const home = homeOf(input.key);
   const rest: Array<string> = [];
   let extension: string | undefined;
@@ -475,7 +535,8 @@ const piLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer => 
     if (extension === undefined) return { refused: "pi starts here only with t3's permission extension" };
     const source = context.readStateFile(extension);
     if (source === undefined) return { refused: `pi's extension ${extension} is not in the State directory` };
-    if (source !== context.piExtensionSource) return { refused: "pi's extension is not t3's own (its content differs)" };
+    if (source !== context.piExtensionSource)
+      return { refused: "pi's extension is not t3's own (its content differs)" };
     const bridged = `${home}/ext/${extension.replace(/^.*\//, "")}`;
     files.push({ path: bridged, text: source });
     extensionArgs.push("--extension", bridged);
@@ -496,14 +557,27 @@ const piLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer => 
     // SPI-1039: t3's MCP server as stock t3 hands it, t3's public `/mcp` with t3's per-thread bearer (relayedMcp.ts;
     // owner, 2026-11-12, back to stock). Only an https `/mcp` URL passes.
     const t3Url = input.env.T3_MCP_URL;
-    if (t3Url !== undefined && /^https:\/\/[^/?#]+\/mcp$/.test(t3Url) && input.env.T3_MCP_BEARER_TOKEN !== undefined && input.env.T3_MCP_BEARER_TOKEN !== "") {
+    if (
+      t3Url !== undefined &&
+      /^https:\/\/[^/?#]+\/mcp$/.test(t3Url) &&
+      input.env.T3_MCP_BEARER_TOKEN !== undefined &&
+      input.env.T3_MCP_BEARER_TOKEN !== ""
+    ) {
       env.T3_MCP_URL = t3Url;
       env.T3_MCP_BEARER_TOKEN = input.env.T3_MCP_BEARER_TOKEN;
     }
   }
   const thread = input.env.T3CODE_THREAD_ID;
   return {
-    argv: [`${CLI_BIN}/pi`, "--mode", "rpc", ...rest, ...extensionArgs, ...piRepoResourceArgs(input.cwd), "--no-approve"],
+    argv: [
+      `${CLI_BIN}/pi`,
+      "--mode",
+      "rpc",
+      ...rest,
+      ...extensionArgs,
+      ...piRepoResourceArgs(input.cwd),
+      "--no-approve",
+    ],
     env,
     // ADR-0047 §9: the Owner's user directory first; t3flare's models.json, settings.json and mcp.json over it.
     ...dotfilesLaunch("pi", home, context.dotfiles),
@@ -531,7 +605,12 @@ export const PROBE_SCRIPT = [
 const probeLaunch = (input: LaunchInput): LaunchAnswer => {
   if (!input.allowProbe) return { refused: "the probe program runs on test stages only" };
   const home = homeOf(input.key);
-  return { argv: ["/bin/bash", `${home}/probe.sh`], env: { HOME: OWNER_HOME, LANG: "C.UTF-8" }, files: [{ path: `${home}/probe.sh`, text: PROBE_SCRIPT, mode: 0o700 }], droppedEnv: dropped(input.env) };
+  return {
+    argv: ["/bin/bash", `${home}/probe.sh`],
+    env: { HOME: OWNER_HOME, LANG: "C.UTF-8" },
+    files: [{ path: `${home}/probe.sh`, text: PROBE_SCRIPT, mode: 0o700 }],
+    droppedEnv: dropped(input.env),
+  };
 };
 
 /** The launch of a CLI t3 asked for, or why it is refused. */

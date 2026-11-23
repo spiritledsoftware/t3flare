@@ -17,7 +17,13 @@ import { usageReader } from "../usage/readers.ts";
 export type BuiltInDriversEnv = PiDurableDriverEnv | CodexCliDriverEnv | PiCliDriverEnv | AcpCliDriverEnv;
 
 /** Step 4b adds Claude Code and OpenCode, t3's own kinds over t3's ACP adapter (`provider/cli/acpDriver.ts`). */
-export const BUILT_IN_DRIVERS: ReadonlyArray<AnyProviderDriver<BuiltInDriversEnv>> = [PiDurableDriver, CodexCliDriver, PiCliDriver, ClaudeCliDriver, OpenCodeCliDriver];
+export const BUILT_IN_DRIVERS: ReadonlyArray<AnyProviderDriver<BuiltInDriversEnv>> = [
+  PiDurableDriver,
+  CodexCliDriver,
+  PiCliDriver,
+  ClaudeCliDriver,
+  OpenCodeCliDriver,
+];
 
 export type BuiltInUsageReadersEnv = ProviderUsageReaderEnv<typeof PiDurableDriver>;
 

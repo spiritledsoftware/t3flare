@@ -49,13 +49,18 @@ const staleNotice = (windows: ReadonlyArray<StoredWindow>, now: number): string 
  * The account an endpoint's family of windows shows under: the endpoint's id (no account identity is kept), with its
  * family when the endpoint has both vendors' windows (t3 keys an account by source and id).
  */
-const accountIdOf = (endpointId: string, family: LimitFamily, families: number): string => (families === 1 ? endpointId : `${endpointId} (${family})`);
+const accountIdOf = (endpointId: string, family: LimitFamily, families: number): string =>
+  families === 1 ? endpointId : `${endpointId} (${family})`;
 
 /**
  * t3's limit sources: one per current endpoint with a kept window, labelled with the endpoint's label, one account per
  * vendor family. A window whose reset has passed shows reset; a stale source carries its notice.
  */
-export const limitSnapshots = (windows: ReadonlyArray<StoredWindow>, endpoints: ModelEndpoints, now: number): ReadonlyArray<UsageLimitSourceSnapshot> =>
+export const limitSnapshots = (
+  windows: ReadonlyArray<StoredWindow>,
+  endpoints: ModelEndpoints,
+  now: number,
+): ReadonlyArray<UsageLimitSourceSnapshot> =>
   endpoints.endpoints.flatMap((endpoint): ReadonlyArray<UsageLimitSourceSnapshot> => {
     const own = windows.filter((window) => window.endpoint === endpoint.id);
     if (own.length === 0) return [];

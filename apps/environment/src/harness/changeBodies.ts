@@ -24,7 +24,12 @@ export const McpChangeBody = Schema.Union([
     toolExposure: Schema.optionalKey(Schema.Record(Schema.String, Schema.NullOr(Exposure))),
     writes: Schema.optionalKey(Schema.Boolean),
   }),
-  Schema.Struct({ op: Schema.Literal("class"), server: Schema.String, tool: Schema.String, class: Schema.NullOr(Schema.Literals(["read", "write"])) }),
+  Schema.Struct({
+    op: Schema.Literal("class"),
+    server: Schema.String,
+    tool: Schema.String,
+    class: Schema.NullOr(Schema.Literals(["read", "write"])),
+  }),
   Schema.Struct({ op: Schema.Literal("add"), server: Schema.String, url: Schema.String, auth: ServerAuth }),
   Schema.Struct({ op: Schema.Literal("remove"), server: Schema.String }),
 ]);
@@ -51,7 +56,9 @@ const decoder =
   <T>(schema: Schema.Decoder<T>) =>
   (body: unknown): Decoded<T> => {
     const result = Schema.decodeUnknownResult(schema)(body);
-    return Result.isSuccess(result) ? { ok: true, change: result.success } : { ok: false, error: result.failure.message };
+    return Result.isSuccess(result)
+      ? { ok: true, change: result.success }
+      : { ok: false, error: result.failure.message };
   };
 
 export const decodeMcpChange: (body: unknown) => Decoded<McpChange> = decoder(McpChangeBody);

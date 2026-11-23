@@ -43,11 +43,18 @@ const EMPTY_RECORD: BootRecord = {
 };
 const SAFE_MODE_OFF: SafeMode = { on: false, reason: null, since: null };
 
-export const readBootRecord = async (kv: KeyValue): Promise<BootRecord> => (await kv.get<BootRecord>(BOOT_KEY)) ?? EMPTY_RECORD;
+export const readBootRecord = async (kv: KeyValue): Promise<BootRecord> =>
+  (await kv.get<BootRecord>(BOOT_KEY)) ?? EMPTY_RECORD;
 
-export const readSafeMode = async (kv: KeyValue): Promise<SafeMode> => (await kv.get<SafeMode>(SAFE_MODE_KEY)) ?? SAFE_MODE_OFF;
+export const readSafeMode = async (kv: KeyValue): Promise<SafeMode> =>
+  (await kv.get<SafeMode>(SAFE_MODE_KEY)) ?? SAFE_MODE_OFF;
 
-export const setSafeMode = async (kv: KeyValue, on: boolean, reason: SafeMode["reason"], now: Date): Promise<SafeMode> => {
+export const setSafeMode = async (
+  kv: KeyValue,
+  on: boolean,
+  reason: SafeMode["reason"],
+  now: Date,
+): Promise<SafeMode> => {
   const next: SafeMode = on ? { on, reason, since: now.toISOString() } : SAFE_MODE_OFF;
   await kv.put(SAFE_MODE_KEY, next);
   if (!on) {
@@ -58,7 +65,9 @@ export const setSafeMode = async (kv: KeyValue, on: boolean, reason: SafeMode["r
   return next;
 };
 
-export type BootDecision = { readonly start: true; readonly record: BootRecord } | { readonly start: false; readonly safeMode: SafeMode };
+export type BootDecision =
+  | { readonly start: true; readonly record: BootRecord }
+  | { readonly start: false; readonly safeMode: SafeMode };
 
 /**
  * Whether to start t3 now. Records the attempt before it runs, or enters safe mode when too many boots in a

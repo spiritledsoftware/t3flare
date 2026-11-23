@@ -49,11 +49,24 @@ const repl = (data: string, emit: (data: string) => void, exit: (code: number) =
 
 const owner = "session-a";
 const start = async (terminals: AgentTerminals, kind: "terminal" | "background_job" = "terminal") => {
-  const started = await terminals.handle({ op: "start", owner, kind, command: "node", cwd: "/workspace/repo", cols: 40, rows: 6, notify: true });
+  const started = await terminals.handle({
+    op: "start",
+    owner,
+    kind,
+    command: "node",
+    cwd: "/workspace/repo",
+    cols: 40,
+    rows: 6,
+    notify: true,
+  });
   if (!started.ok) throw new Error(started.error);
   return started.value.entry.id;
 };
-const settle = async (terminals: AgentTerminals, id: string, input: { text?: string; mode?: "start" | "input" | "poll"; pattern?: string; waitMs?: number } = {}) => {
+const settle = async (
+  terminals: AgentTerminals,
+  id: string,
+  input: { text?: string; mode?: "start" | "input" | "poll"; pattern?: string; waitMs?: number } = {},
+) => {
   const answer = await terminals.handle({
     op: "settle",
     owner,
@@ -99,7 +112,16 @@ describe("agent terminals", () => {
     const exited = await settle(terminals, id, { text: "exit\r" });
     expect(exited.reason).toBe("exited");
     expect(exited.view.exit).toEqual({ code: 0, signal: null });
-    const typing = await terminals.handle({ op: "settle", owner, id, text: "x", mode: "input", deadline: Date.now() + 100, chunkMs: 100, view: true });
+    const typing = await terminals.handle({
+      op: "settle",
+      owner,
+      id,
+      text: "x",
+      mode: "input",
+      deadline: Date.now() + 100,
+      chunkMs: 100,
+      view: true,
+    });
     expect(typing.ok ? "" : typing.error).toContain("t1 has exited (exit code 0)");
   });
 
@@ -115,14 +137,36 @@ describe("agent terminals", () => {
     expect(other.ok && other.value.entries).toEqual([]);
 
     const waited = await start(terminals);
-    setTimeout(() => void terminals.handle({ op: "settle", owner, id: waited, text: "exit\r", mode: "input", deadline: Date.now() + 500, chunkMs: 500, view: false }), 50);
+    setTimeout(
+      () =>
+        void terminals.handle({
+          op: "settle",
+          owner,
+          id: waited,
+          text: "exit\r",
+          mode: "input",
+          deadline: Date.now() + 500,
+          chunkMs: 500,
+          view: false,
+        }),
+      50,
+    );
     const wait = await terminals.handle({ op: "wait", owner, ids: null, deadline: Date.now() + 2_000, chunkMs: 2_000 });
     expect(wait.ok && wait.value.exited.map((entry) => entry.id)).toEqual([waited]);
     const exits = await terminals.handle({ op: "exits", owner, tailLines: 5 });
     expect(exits.ok && exits.value.exits).toEqual([]); // reported by the wait, so not notified again
 
     for (let index = 0; index < MAX_LIVE; index++) await start(terminals);
-    const refused = await terminals.handle({ op: "start", owner, kind: "terminal", command: "x", cwd: "/workspace/repo", cols: 40, rows: 6, notify: true });
+    const refused = await terminals.handle({
+      op: "start",
+      owner,
+      kind: "terminal",
+      command: "x",
+      cwd: "/workspace/repo",
+      cols: 40,
+      rows: 6,
+      notify: true,
+    });
     expect(refused.ok ? "" : refused.error).toContain(`already runs ${MAX_LIVE}`);
   });
 
@@ -136,7 +180,9 @@ describe("agent terminals", () => {
     expect(view.view.logPath).toMatch(/^\/tmp\/t3flare-jobs\/term-agent-.+-b1\.log$/);
     terminals.frames([{ key: opened[0]!.key, seq: 9, exit: { code: 3 } }]);
     const exits = await terminals.handle({ op: "exits", owner, tailLines: 1 });
-    expect(exits.ok && exits.value.exits.map((exit) => [exit.id, exit.exit, exit.tail])).toEqual([["b1", { code: 3, signal: null }, "job line 2"]]);
+    expect(exits.ok && exits.value.exits.map((exit) => [exit.id, exit.exit, exit.tail])).toEqual([
+      ["b1", { code: 3, signal: null }, "job line 2"],
+    ]);
     const again = await terminals.handle({ op: "exits", owner, tailLines: 1 });
     expect(again.ok && again.value.exits).toEqual([]);
   });
@@ -144,7 +190,12 @@ describe("agent terminals", () => {
 
 describe("an agent Terminal's wrapper", () => {
   it("runs the command under bash -c in its cwd, linking nothing for the repo's own path", () => {
-    const wrapper = terminalCommand({ marker: "term-agent-x-t1", t3Path: "/workspace/repo", cwd: "/tmp", command: "pwd -P; echo \"it's $((1+1))\"" });
+    const wrapper = terminalCommand({
+      marker: "term-agent-x-t1",
+      t3Path: "/workspace/repo",
+      cwd: "/tmp",
+      command: 'pwd -P; echo "it\'s $((1+1))"',
+    });
     expect(wrapper).not.toContain("mount");
     const ran = spawnSync("bash", ["-c", wrapper], { encoding: "utf8" });
     expect(ran.status).toBe(0);

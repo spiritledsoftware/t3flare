@@ -8,13 +8,7 @@ import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import { describe, expect, it } from "vitest";
 import { AGENT, completed, run, TARGET, testDeps } from "./core.fixture.ts";
-import {
-  type FakeServer,
-  fetchTo,
-  GATED_TOOL,
-  legacyStatefulServer,
-  VISIT_TOOL,
-} from "./fakes.fixture.ts";
+import { type FakeServer, fetchTo, GATED_TOOL, legacyStatefulServer, VISIT_TOOL } from "./fakes.fixture.ts";
 import type { CallToolResult } from "@modelcontextprotocol/client";
 import { connect, type McpConnection, type McpDeps } from "./index.ts";
 import {
@@ -61,22 +55,15 @@ const visit = (
 ) =>
   run(
     Effect.gen(function* () {
-      const connection = yield* connect(
-        timeoutMs === undefined ? TARGET : { ...TARGET, timeoutMs },
-        deps,
-      );
+      const connection = yield* connect(timeoutMs === undefined ? TARGET : { ...TARGET, timeoutMs }, deps);
 
-      return yield* connection
-        .callTool({ tool: VISIT_TOOL, arguments: { ...PAGE, ...args } }, ctx)
-        .pipe(Effect.result);
+      return yield* connection.callTool({ tool: VISIT_TOOL, arguments: { ...PAGE, ...args } }, ctx).pipe(Effect.result);
     }),
   );
 
 const textOf = (outcome: Awaited<ReturnType<typeof visit>>) =>
   Result.isSuccess(outcome)
-    ? completed(outcome.success).value.content.map((block) =>
-        block.type === "text" ? block.text : "",
-      )
+    ? completed(outcome.success).value.content.map((block) => (block.type === "text" ? block.text : ""))
     : [];
 
 describe("a Legacy server's URL-mode elicitation", () => {
@@ -226,14 +213,11 @@ const gated = <A>(
 
 const DEFER: McpInputAnswer = { kind: "defer" };
 
-const tools = (server: FakeServer) =>
-  server.received.filter((received) => received.rpc?.method === "tools/call");
+const tools = (server: FakeServer) => server.received.filter((received) => received.rpc?.method === "tools/call");
 
-const failureOf = <A>(result: Result.Result<A, McpError>) =>
-  Result.isFailure(result) ? result.failure : undefined;
+const failureOf = <A>(result: Result.Result<A, McpError>) => (Result.isFailure(result) ? result.failure : undefined);
 
-const textsOf = (value: CallToolResult) =>
-  value.content.map((block) => (block.type === "text" ? block.text : ""));
+const textsOf = (value: CallToolResult) => value.content.map((block) => (block.type === "text" ? block.text : ""));
 
 describe("a Legacy server's -32042", () => {
   it("is kept for the owner as pages_required with a state that sends the call again, as it was", async () => {
@@ -263,8 +247,7 @@ describe("a Legacy server's -32042", () => {
       message: "Authorize first",
     });
 
-    const state =
-      Result.isSuccess(kept) && kept.success.kind === "pages_required" ? kept.success : undefined;
+    const state = Result.isSuccess(kept) && kept.success.kind === "pages_required" ? kept.success : undefined;
 
     expect(state?.requests.map((request) => request.key)).toEqual(["page-1", "page-2"]);
 
@@ -280,9 +263,7 @@ describe("a Legacy server's -32042", () => {
         ),
     );
 
-    expect(Result.isSuccess(again) ? textsOf(completed(again.success).value) : []).toEqual([
-      "opened",
-    ]);
+    expect(Result.isSuccess(again) ? textsOf(completed(again.success).value) : []).toEqual(["opened"]);
 
     // The call was sent twice, the second time as the first, with nothing added.
     const sent = tools(server);
@@ -317,9 +298,7 @@ describe("a Legacy server's -32042", () => {
           }),
       );
 
-      expect(failureOf(resumed)).toEqual(
-        ServerError.make({ message: "Authorization needed", code: -32042 }),
-      );
+      expect(failureOf(resumed)).toEqual(ServerError.make({ message: "Authorization needed", code: -32042 }));
       expect(gate.calls).toBe(1);
     },
   );
@@ -339,9 +318,7 @@ describe("a Legacy server's -32042", () => {
         (connection) => connection.callTool({ tool: GATED_TOOL }, ctx),
       );
 
-      expect(failureOf(without)).toEqual(
-        ServerError.make({ message: "Authorization needed", code: -32042 }),
-      );
+      expect(failureOf(without)).toEqual(ServerError.make({ message: "Authorization needed", code: -32042 }));
     }
 
     expect(asked).toBe(0);
@@ -352,9 +329,7 @@ describe("a Legacy server's -32042", () => {
       (connection) => connection.callTool({ tool: GATED_TOOL }, KEEPING),
     );
 
-    expect(failureOf(declined)).toEqual(
-      ServerError.make({ message: "Authorization needed", code: -32042 }),
-    );
+    expect(failureOf(declined)).toEqual(ServerError.make({ message: "Authorization needed", code: -32042 }));
   });
 
   it("stops at the eleventh -32042 with the server's error and says it kept asking", async () => {
@@ -440,12 +415,8 @@ describe("a ResendState and a ResumeState", () => {
         }),
     );
 
-    expect(Result.isSuccess(outcome) && failureOf(outcome.success.resumed)?._tag).toBe(
-      "Unsupported",
-    );
-    expect(Result.isSuccess(outcome) && failureOf(outcome.success.resent)?._tag).toBe(
-      "Unsupported",
-    );
+    expect(Result.isSuccess(outcome) && failureOf(outcome.success.resumed)?._tag).toBe("Unsupported");
+    expect(Result.isSuccess(outcome) && failureOf(outcome.success.resent)?._tag).toBe("Unsupported");
     expect(server.received.filter((r) => r.rpc?.method === "tools/call")).toHaveLength(1);
   });
 });

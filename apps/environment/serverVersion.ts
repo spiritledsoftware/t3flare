@@ -27,15 +27,23 @@ export interface ServerVersion {
 }
 
 /** The version from the tags on the pin's commit (`git tag --points-at HEAD`), the Deployment's track, and the manifest's. */
-export const serverVersionOf = (tags: ReadonlyArray<string>, track: T3Track, manifestVersion: string): ServerVersion => {
+export const serverVersionOf = (
+  tags: ReadonlyArray<string>,
+  track: T3Track,
+  manifestVersion: string,
+): ServerVersion => {
   const tag = pinTagOf(tags, track);
-  return tag === undefined ? { version: manifestVersion, exact: false, tag: null } : { version: tag.slice(1), exact: true, tag };
+  return tag === undefined
+    ? { version: manifestVersion, exact: false, tag: null }
+    : { version: tag.slice(1), exact: true, tag };
 };
 
 /** The pinned t3's Server version on `track`, read from the submodule now. */
 export const t3ServerVersion = (track: T3Track, root: string = T3_ROOT): ServerVersion => {
   const result = spawnSync("git", ["-C", root, "tag", "--points-at", "HEAD"], { encoding: "utf8" });
-  const manifest = JSON.parse(fs.readFileSync(path.join(root, "apps/server/package.json"), "utf8")) as { version: string };
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, "apps/server/package.json"), "utf8")) as {
+    version: string;
+  };
   const tags = result.status === 0 ? result.stdout.split("\n").map((line) => line.trim()) : [];
   return serverVersionOf(tags, track, manifest.version);
 };
@@ -49,7 +57,9 @@ export const t3TrackSetting = (env: Readonly<Record<string, string | undefined>>
   const file = path.join(env.HOME ?? "", ".config/t3flare/dev.env");
   const fromFile = () => {
     if (!fs.existsSync(file)) return undefined;
-    const read = spawnSync("bash", ["-c", 'set -a; . "$1"; set +a; printf %s "${T3FLARE_T3_TRACK:-}"', "-", file], { encoding: "utf8" });
+    const read = spawnSync("bash", ["-c", 'set -a; . "$1"; set +a; printf %s "${T3FLARE_T3_TRACK:-}"', "-", file], {
+      encoding: "utf8",
+    });
     return read.status === 0 && read.stdout !== "" ? read.stdout : undefined;
   };
   const value = env.T3FLARE_T3_TRACK || fromFile();
@@ -64,7 +74,11 @@ if (import.meta.main) {
   const what = process.argv[2];
   const serverVersion = t3ServerVersion(t3TrackSetting());
   if ((what !== "version" && what !== "tag") || !serverVersion.exact) {
-    console.error(what !== "version" && what !== "tag" ? "usage: node serverVersion.ts version|tag" : "t3code is not at a t3 release tag");
+    console.error(
+      what !== "version" && what !== "tag"
+        ? "usage: node serverVersion.ts version|tag"
+        : "t3code is not at a t3 release tag",
+    );
     process.exit(2);
   }
   console.log(what === "tag" ? serverVersion.tag : serverVersion.version);

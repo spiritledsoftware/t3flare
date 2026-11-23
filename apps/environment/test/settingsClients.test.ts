@@ -15,7 +15,18 @@ import { CLIENT_NAME_MAX, CLIENTS_PER_KEY, SEEN_EVERY_MS } from "../src/settings
 import { readAudit } from "../src/harness/ops.ts";
 import { MODERN_VERSION } from "../src/settings/endpoint.ts";
 import { OWNER_MODE_INSTRUCTIONS, RESUME_TOOL, SETTINGS_TOOLS } from "../src/settings/tools.ts";
-import { ASKED, BOTH, bodyOf, CLAUDE_INFO, endpointOf, initialize, legacy, modern, post, SUB } from "./settingsEndpointFixture.ts";
+import {
+  ASKED,
+  BOTH,
+  bodyOf,
+  CLAUDE_INFO,
+  endpointOf,
+  initialize,
+  legacy,
+  modern,
+  post,
+  SUB,
+} from "./settingsEndpointFixture.ts";
 import { HOST, settingsFixture, type SettingsFixture } from "./settingsFixture.ts";
 
 let fixture: SettingsFixture | undefined;
@@ -35,23 +46,51 @@ const panelHeaders = async (f: SettingsFixture) => ({
   "x-t3flare-csrf": await csrfToken(f.store.csrfKey(), SUB, f.now()),
 });
 
-const panelPost = async (f: SettingsFixture, body: unknown, headers?: Record<string, string>, path = CLIENTS_API_PATH) =>
-  handleHarness(new Request(`https://${HOST}${path}`, { method: "POST", headers: headers ?? (await panelHeaders(f)), body: JSON.stringify(body) }), f.panel());
+const panelPost = async (
+  f: SettingsFixture,
+  body: unknown,
+  headers?: Record<string, string>,
+  path = CLIENTS_API_PATH,
+) =>
+  handleHarness(
+    new Request(`https://${HOST}${path}`, {
+      method: "POST",
+      headers: headers ?? (await panelHeaders(f)),
+      body: JSON.stringify(body),
+    }),
+    f.panel(),
+  );
 
 const setMode = async (f: SettingsFixture, mode: string, clientName = CLAUDE_INFO.name, key = SUB) => {
   const response = await panelPost(f, { key, clientName, mode });
   expect(response.status).toBe(200);
 };
 
-const modeOf = (f: SettingsFixture, clientName = CLAUDE_INFO.name, key = SUB) => f.clients.list().find((entry) => entry.key === key && entry.clientName === clientName)?.mode;
+const modeOf = (f: SettingsFixture, clientName = CLAUDE_INFO.name, key = SUB) =>
+  f.clients.list().find((entry) => entry.key === key && entry.clientName === clientName)?.mode;
 
 /** A 2026 `tools/list` with this client info (`null`: none); the tools' names. */
-const listedBy = async (endpoint: ReturnType<typeof endpointOf>, info: unknown = CLAUDE_INFO, query?: string, caller?: Parameters<ReturnType<typeof endpointOf>>[1]) => {
-  const meta: Record<string, unknown> = { "io.modelcontextprotocol/protocolVersion": MODERN_VERSION, "io.modelcontextprotocol/clientCapabilities": BOTH };
+const listedBy = async (
+  endpoint: ReturnType<typeof endpointOf>,
+  info: unknown = CLAUDE_INFO,
+  query?: string,
+  caller?: Parameters<ReturnType<typeof endpointOf>>[1],
+) => {
+  const meta: Record<string, unknown> = {
+    "io.modelcontextprotocol/protocolVersion": MODERN_VERSION,
+    "io.modelcontextprotocol/clientCapabilities": BOTH,
+  };
   if (info !== null) meta["io.modelcontextprotocol/clientInfo"] = info;
   const request = post(
     { jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: meta } },
-    { headers: { "mcp-protocol-version": MODERN_VERSION, "mcp-method": "tools/list", "user-agent": "claude-code/2.1.322" }, ...(query === undefined ? {} : { query }) },
+    {
+      headers: {
+        "mcp-protocol-version": MODERN_VERSION,
+        "mcp-method": "tools/list",
+        "user-agent": "claude-code/2.1.322",
+      },
+      ...(query === undefined ? {} : { query }),
+    },
   );
   const body = await bodyOf(await endpoint(request, caller));
   return ((body.result?.tools ?? []) as Array<{ name: string }>).map((tool) => tool.name);
@@ -61,7 +100,9 @@ describe("the kept mode decides when the URL names none", () => {
   it("records a client at its first request, in browser, keyed by its clientInfo name without the version", async () => {
     const f = world();
     await endpointOf(f)(modern("ping"));
-    expect(f.clients.list()).toEqual([{ key: SUB, clientName: "claude-code", mode: "browser", firstSeen: f.now(), lastSeen: f.now() }]);
+    expect(f.clients.list()).toEqual([
+      { key: SUB, clientName: "claude-code", mode: "browser", firstSeen: f.now(), lastSeen: f.now() },
+    ]);
   });
 
   it("uses the stored mode with no query: model lists resume and opens a model change; native opens a native one", async () => {
@@ -73,9 +114,24 @@ describe("the kept mode decides when the URL names none", () => {
     await endpoint(modern("tools/call", { name: "change_environment", arguments: ASKED }));
     expect(f.deps.changes.open()[0]?.mode).toBe("model");
     await setMode(f, "native");
-    const native = await bodyOf(await endpoint(modern("tools/call", { name: "change_environment", arguments: { expectedRevision: 0, settings: { containerBudget: 6 } } })));
-    expect(native.result).toMatchObject({ resultType: "input_required", inputRequests: { change: { params: { mode: "form" } } } });
-    expect(f.deps.changes.open().map((record) => String(record.mode)).sort((a, b) => a.localeCompare(b))).toEqual(["model", "native"]);
+    const native = await bodyOf(
+      await endpoint(
+        modern("tools/call", {
+          name: "change_environment",
+          arguments: { expectedRevision: 0, settings: { containerBudget: 6 } },
+        }),
+      ),
+    );
+    expect(native.result).toMatchObject({
+      resultType: "input_required",
+      inputRequests: { change: { params: { mode: "form" } } },
+    });
+    expect(
+      f.deps.changes
+        .open()
+        .map((record) => String(record.mode))
+        .sort((a, b) => a.localeCompare(b)),
+    ).toEqual(["model", "native"]);
   });
 
   it("tells the client its mode in the instructions, naming the panel, not the query", async () => {
@@ -112,8 +168,14 @@ describe("the kept mode decides when the URL names none", () => {
     expect(await listedBy(endpoint, { name: "cursor", version: "3" })).not.toContain(RESUME_TOOL.name);
     expect(modeOf(f, "cursor")).toBe("browser");
     // No clientInfo (the User-Agent is a label only, never the key), an empty name, a name of hidden characters only.
-    for (const info of [null, { version: "1" }, { name: "" }, { name: "\u200B\u202E" }]) expect(await listedBy(endpoint, info)).not.toContain(RESUME_TOOL.name);
-    expect(f.clients.list().map((entry) => entry.clientName).sort((a, b) => a.localeCompare(b))).toEqual(["claude-code", "cursor"]);
+    for (const info of [null, { version: "1" }, { name: "" }, { name: "\u200B\u202E" }])
+      expect(await listedBy(endpoint, info)).not.toContain(RESUME_TOOL.name);
+    expect(
+      f.clients
+        .list()
+        .map((entry) => entry.clientName)
+        .sort((a, b) => a.localeCompare(b)),
+    ).toEqual(["claude-code", "cursor"]);
   });
 
   it("a 2025-11-25 session uses the clientInfo name from initialize", async () => {
@@ -126,7 +188,10 @@ describe("the kept mode decides when the URL names none", () => {
     const { session, body } = await initialize(endpoint, "2025-11-25");
     expect(body.result.instructions).toContain(OWNER_MODE_INSTRUCTIONS.model);
     const listed = async (withSession: boolean) =>
-      (((await bodyOf(await endpoint(legacy("tools/list", {}, withSession ? { session } : {})))).result?.tools ?? []) as Array<{ name: string }>).map((tool) => tool.name);
+      (
+        ((await bodyOf(await endpoint(legacy("tools/list", {}, withSession ? { session } : {})))).result?.tools ??
+          []) as Array<{ name: string }>
+      ).map((tool) => tool.name);
     expect(await listed(true)).toContain(RESUME_TOOL.name);
     // No session: no client name, so browser.
     expect(await listed(false)).not.toContain(RESUME_TOOL.name);
@@ -145,7 +210,18 @@ describe("the kept mode decides when the URL names none", () => {
     expect(record?.mode).toBe("native");
     await setMode(f, "browser");
     const retry = await bodyOf(
-      await endpoint(modern("tools/call", { name: "change_environment", arguments: ASKED, requestState: first.result?.requestState, inputResponses: { change: { action: "accept" } } }, { id: 2 })),
+      await endpoint(
+        modern(
+          "tools/call",
+          {
+            name: "change_environment",
+            arguments: ASKED,
+            requestState: first.result?.requestState,
+            inputResponses: { change: { action: "accept" } },
+          },
+          { id: 2 },
+        ),
+      ),
     );
     expect(retry.result).toMatchObject({ isError: true, structuredContent: { status: "refused" } });
     expect(JSON.stringify(retry.result?.content)).toContain("native Elicitation mode");
@@ -213,7 +289,12 @@ describe("the table: keys isolated, capped per key, lastSeen throttled", () => {
     expect(mine).toHaveLength(CLIENTS_PER_KEY);
     expect(modeOf(f, "client-0")).toBe("model");
     expect(modeOf(f, `client-${CLIENTS_PER_KEY - 1}`)).toBe("native");
-    expect(mine.filter((entry) => entry.mode !== "browser").map((entry) => entry.clientName).sort((a, b) => a.localeCompare(b))).toEqual(["client-0", `client-${CLIENTS_PER_KEY - 1}`]);
+    expect(
+      mine
+        .filter((entry) => entry.mode !== "browser")
+        .map((entry) => entry.clientName)
+        .sort((a, b) => a.localeCompare(b)),
+    ).toEqual(["client-0", `client-${CLIENTS_PER_KEY - 1}`]);
   });
 
   it("with no browser row left, evicts the least recently seen of any mode", async () => {
@@ -269,7 +350,14 @@ describe("only the panel's CSRF-guarded POST changes a mode", () => {
     expect(modeOf(f)).toBe("browser");
     expect((await panelPost(f, body)).status).toBe(200);
     expect(modeOf(f)).toBe("model");
-    expect(f.store.auditLog(1)[0]).toMatchObject({ entity: "owner-clients", caller: `owner:${SUB}`, action: "client-mode", target: "claude-code", before: { mode: "browser" }, after: { mode: "model" } });
+    expect(f.store.auditLog(1)[0]).toMatchObject({
+      entity: "owner-clients",
+      caller: `owner:${SUB}`,
+      action: "client-mode",
+      target: "claude-code",
+      before: { mode: "browser" },
+      after: { mode: "model" },
+    });
   });
 
   it("refuses an unknown client, a bad mode and a malformed body; removes a client, audited", async () => {
@@ -278,10 +366,18 @@ describe("only the panel's CSRF-guarded POST changes a mode", () => {
     expect((await panelPost(f, { key: SUB, clientName: "never-seen", mode: "model" })).status).toBe(404);
     expect((await panelPost(f, { key: SUB, clientName: "claude-code", mode: "Model" })).status).toBe(400);
     expect((await panelPost(f, { clientName: "claude-code", mode: "model" })).status).toBe(400);
-    expect((await panelPost(f, { key: SUB, clientName: "x".repeat(CLIENT_NAME_MAX + 1), mode: "model" })).status).toBe(400);
+    expect((await panelPost(f, { key: SUB, clientName: "x".repeat(CLIENT_NAME_MAX + 1), mode: "model" })).status).toBe(
+      400,
+    );
     expect((await panelPost(f, { key: SUB, clientName: "claude-code", remove: true })).status).toBe(200);
     expect(f.clients.list()).toEqual([]);
-    expect(f.store.auditLog(1)[0]).toMatchObject({ entity: "owner-clients", action: "client-remove", target: "claude-code", before: { mode: "browser" }, after: null });
+    expect(f.store.auditLog(1)[0]).toMatchObject({
+      entity: "owner-clients",
+      action: "client-remove",
+      target: "claude-code",
+      before: { mode: "browser" },
+      after: null,
+    });
     expect((await panelPost(f, { key: SUB, clientName: "claude-code", remove: true })).status).toBe(404);
   });
 
@@ -292,15 +388,33 @@ describe("only the panel's CSRF-guarded POST changes a mode", () => {
     await setMode(f, "model");
     const setModeSpy = vi.spyOn(f.clients, "setMode");
     const removeSpy = vi.spyOn(f.clients, "remove");
-    const attempt = { key: SUB, clientName: "claude-code", mode: "native", remove: true, elicitation_mode: "native", expectedRevision: 0 };
+    const attempt = {
+      key: SUB,
+      clientName: "claude-code",
+      mode: "native",
+      remove: true,
+      elicitation_mode: "native",
+      expectedRevision: 0,
+    };
     // Every tool of the Owner-client endpoint, `resume` included, with and without the query override.
     for (const tool of [...SETTINGS_TOOLS.map((each) => each.name), RESUME_TOOL.name]) {
-      for (const query of [undefined, "?elicitation_mode=native"]) await endpoint(modern("tools/call", { name: tool, arguments: attempt }, query === undefined ? {} : { query }));
+      for (const query of [undefined, "?elicitation_mode=native"])
+        await endpoint(modern("tools/call", { name: tool, arguments: attempt }, query === undefined ? {} : { query }));
     }
     // Every tool of the own agents' door.
     for (const tool of SETTINGS_TOOLS) await f.call(f.durable(), tool.name, attempt);
     // Every other panel POST route, with the same body.
-    for (const route of ["/api/extensions", "/api/environment", "/api/mcp", "/api/mcp/test", "/api/mcp/servers", "/api/mcp/oauth", "/api/mcp/secret", "/api/skills/enable", "/api/changes/x"]) {
+    for (const route of [
+      "/api/extensions",
+      "/api/environment",
+      "/api/mcp",
+      "/api/mcp/test",
+      "/api/mcp/servers",
+      "/api/mcp/oauth",
+      "/api/mcp/secret",
+      "/api/skills/enable",
+      "/api/changes/x",
+    ]) {
       await panelPost(f, attempt, undefined, `${SETTINGS_PAGE_PATH}${route}`);
     }
     expect(setModeSpy).not.toHaveBeenCalled();
@@ -322,12 +436,16 @@ describe("only the panel's CSRF-guarded POST changes a mode", () => {
     expect(html).not.toContain("<script>alert(1)");
     // Hidden characters are dropped from a name when it is kept; the rest is escaped.
     expect(html).toContain("<code>&lt;script&gt;alert(1)&lt;/script&gt;</code>");
-    expect(html).toMatch(/data-client-mode data-client-key="owner-sub" data-client-name="claude-code"[^>]*><option value="browser">browser<\/option><option value="native" selected>/);
+    expect(html).toMatch(
+      /data-client-mode data-client-key="owner-sub" data-client-name="claude-code"[^>]*><option value="browser">browser<\/option><option value="native" selected>/,
+    );
     expect(html).toContain("data-client-remove");
     for (const mode of ["browser", "native", "model"]) expect(html).toContain(`<li><strong>${mode}</strong>: `);
     // `model` is learned at the connect (instructions and the tool list are read once), so a change to or from it needs a reconnect.
     expect(html).toContain("must reconnect after a change to or from <strong>model</strong>");
-    const listed = (await (await handleHarness(new Request(`https://${HOST}${CLIENTS_API_PATH}`), f.panel())).json()) as { clients: Array<{ clientName: string }> };
+    const listed = (await (
+      await handleHarness(new Request(`https://${HOST}${CLIENTS_API_PATH}`), f.panel())
+    ).json()) as { clients: Array<{ clientName: string }> };
     expect(listed.clients.map((client) => client.clientName)).toContain("claude-code");
   });
 });
@@ -347,7 +465,9 @@ describe("a 2025 native form answer takes its mode from its session's client nam
     const endpoint = endpointOf(f, { beatMs: 30 });
     const { session } = await initialize(endpoint, "2025-11-25");
     await setMode(f, "native", OPENCODE);
-    const held = await endpoint(legacy("tools/call", { name: "change_environment", arguments: ASKED }, { session, id: 7 }));
+    const held = await endpoint(
+      legacy("tools/call", { name: "change_environment", arguments: ASKED }, { session, id: 7 }),
+    );
     expect(held.headers.get("content-type")).toBe("text/event-stream");
     const reader = held.body!.getReader();
     let text = "";
@@ -359,7 +479,8 @@ describe("a 2025 native form answer takes its mode from its session's client nam
     const ask = eventsOf(text)[0]!;
     const [record] = f.deps.changes.open();
     expect(record).toMatchObject({ mode: "native", state: "open" });
-    const answer = (withSession: boolean) => endpoint(post(answerBody(ask.id), { headers: withSession ? { "mcp-session-id": session } : {} }));
+    const answer = (withSession: boolean) =>
+      endpoint(post(answerBody(ask.id), { headers: withSession ? { "mcp-session-id": session } : {} }));
     return { f, reader, record: record!, answer };
   };
 
@@ -417,11 +538,18 @@ describe("read_audit never carries the owner's Access subject (plan D14)", () =>
     await setMode(f, "model");
     await setMode(f, "native");
     expect((await panelPost(f, { key: SUB, clientName: "claude-code", remove: true })).status).toBe(200);
-    expect(f.store.auditLog(10).filter((entry) => entry.entity === "owner-clients").map((entry) => entry.action)).toEqual(["client-remove", "client-mode", "client-mode"]);
+    expect(
+      f.store
+        .auditLog(10)
+        .filter((entry) => entry.entity === "owner-clients")
+        .map((entry) => entry.action),
+    ).toEqual(["client-remove", "client-mode", "client-mode"]);
     // The stored entries carry the client's name and mode only; the subject is only in `caller`, which `read_audit` redacts.
     expect(JSON.stringify(f.store.auditLog(10).map(({ caller: _caller, ...entry }) => entry))).not.toContain(SUB);
 
-    const viaEndpoint = JSON.stringify(await bodyOf(await endpoint(modern("tools/call", { name: "read_audit", arguments: {} }))));
+    const viaEndpoint = JSON.stringify(
+      await bodyOf(await endpoint(modern("tools/call", { name: "read_audit", arguments: {} }))),
+    );
     const viaOwn = JSON.stringify(await f.call(f.durable(), "read_audit", {}));
     for (const read of [viaEndpoint, viaOwn, JSON.stringify(readAudit(f.deps.ops))]) {
       expect(read).toContain("client-remove");
@@ -434,7 +562,12 @@ describe("read_audit never carries the owner's Access subject (plan D14)", () =>
 describe("the excluded-stage panel (no Owner-client endpoint)", () => {
   it("renders the not-deployed line alone: no URL, no mode meanings, no query note", async () => {
     const f = world();
-    const html = await (await handleHarness(new Request(`https://${HOST}${SETTINGS_PAGE_PATH}`), f.panel(undefined, { ownerEndpoint: false }))).text();
+    const html = await (
+      await handleHarness(
+        new Request(`https://${HOST}${SETTINGS_PAGE_PATH}`),
+        f.panel(undefined, { ownerEndpoint: false }),
+      )
+    ).text();
     const block = /<details class="tools" open data-owner-clients>[\s\S]*?<\/details>/.exec(html)?.[0] ?? "";
     expect(block).toContain("The Owner-client endpoint is not deployed on this Environment.");
     expect(html).not.toContain("/_t3flare/mcp");
@@ -447,9 +580,16 @@ describe("the excluded-stage panel (no Owner-client endpoint)", () => {
 describe("only the panel writes a client's mode", () => {
   it("in the sources, the table's setMode and remove are called from harness/panel.ts alone", () => {
     const root = join(import.meta.dirname, "..", "src");
-    const files = (dir: string): Array<string> => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? files(join(dir, entry.name)) : entry.name.endsWith(".ts") ? [join(dir, entry.name)] : []));
+    const files = (dir: string): Array<string> =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+        entry.isDirectory() ? files(join(dir, entry.name)) : entry.name.endsWith(".ts") ? [join(dir, entry.name)] : [],
+      );
     const called = files(root)
-      .filter((file) => /\b[cC]lients\)?\??\.(?:setMode|remove)\b|\bownerClients\([^)]*\)\.(?:setMode|remove)\b/.test(readFileSync(file, "utf8")))
+      .filter((file) =>
+        /\b[cC]lients\)?\??\.(?:setMode|remove)\b|\bownerClients\([^)]*\)\.(?:setMode|remove)\b/.test(
+          readFileSync(file, "utf8"),
+        ),
+      )
       .map((file) => file.slice(root.length + 1));
     expect(called).toEqual(["harness/panel.ts"]);
     // `setMode` as a name: the table's own module, and the panel that calls it, only (acpFlavor's is another thing).

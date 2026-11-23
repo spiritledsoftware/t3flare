@@ -3,12 +3,32 @@
 // running agent with an attributed Concern; under `request`, the final Review's findings become notes in the same run and
 // a Blocker continues it once; findings that cite no evidence are dropped; a failed Review pauses the Advisor without
 // stopping the agent, and nothing it does starts a run of its own.
-import { type AssistantMessage, createModels, fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
-import { createRegistry, defineExtension, defineTool, type EntryRecord, Harness, MemoryStorage } from "@earendil-works/pi-durable";
+import {
+  type AssistantMessage,
+  createModels,
+  fauxAssistantMessage,
+  fauxProvider,
+  fauxToolCall,
+} from "@earendil-works/pi-ai";
+import {
+  createRegistry,
+  defineExtension,
+  defineTool,
+  type EntryRecord,
+  Harness,
+  MemoryStorage,
+} from "@earendil-works/pi-durable";
 import { obj, str } from "@earendil-works/pi-schema";
 import { describe, expect, it } from "vitest";
 
-import { ADVICE_ENTRY, AdvisorObserver, type AdvisorSettings, advisorExtension, parseFindings, validFinding } from "../src/extensions/advisor.ts";
+import {
+  ADVICE_ENTRY,
+  AdvisorObserver,
+  type AdvisorSettings,
+  advisorExtension,
+  parseFindings,
+  validFinding,
+} from "../src/extensions/advisor.ts";
 import { capText, toolCallRef } from "../src/extensions/advisor/evidence.ts";
 import { context, memoryKv } from "./harness.fixture.ts";
 
@@ -27,9 +47,14 @@ const run = async (settings: AdvisorSettings, agent: Array<Step>, advisor: Array
   faux.setResponses(
     Array.from({ length: 30 }, () => (transcript: { messages: ReadonlyArray<{ role: string; content: unknown }> }) => {
       // The faux transcript has no system prompt: the Advisor Session is the one whose first user message is a Review.
-      if (JSON.stringify(transcript.messages.find((message) => message.role === "user")?.content ?? "").includes("Review this observed-agent evidence")) {
+      if (
+        JSON.stringify(transcript.messages.find((message) => message.role === "user")?.content ?? "").includes(
+          "Review this observed-agent evidence",
+        )
+      ) {
         const last = transcript.messages.at(-1);
-        if (last?.role === "user") advisorPrompts.push(typeof last.content === "string" ? last.content : JSON.stringify(last.content));
+        if (last?.role === "user")
+          advisorPrompts.push(typeof last.content === "string" ? last.content : JSON.stringify(last.content));
         return next(advisor);
       }
       return next(agent);
@@ -41,8 +66,21 @@ const run = async (settings: AdvisorSettings, agent: Array<Step>, advisor: Array
     defineExtension({
       name: "coding-tools",
       tools: [
-        defineTool({ name: "bash", description: "run", parameters: obj({ command: str() }), execute: async (args) => (ran.push(args.command), { output: [{ type: "text" as const, text: `ran ${args.command}` }] }) }),
-        defineTool({ name: "read", description: "read", parameters: obj({ path: str() }), execute: async () => ({ output: [{ type: "text" as const, text: "contents" }] }) }),
+        defineTool({
+          name: "bash",
+          description: "run",
+          parameters: obj({ command: str() }),
+          execute: async (args) => (
+            ran.push(args.command),
+            { output: [{ type: "text" as const, text: `ran ${args.command}` }] }
+          ),
+        }),
+        defineTool({
+          name: "read",
+          description: "read",
+          parameters: obj({ path: str() }),
+          execute: async () => ({ output: [{ type: "text" as const, text: "contents" }] }),
+        }),
       ],
     }),
   );
@@ -58,7 +96,8 @@ const run = async (settings: AdvisorSettings, agent: Array<Step>, advisor: Array
   return { observer, root, entries: page.items, status: await submission.status(context), advisorPrompts, ran };
 };
 
-const bash = (command: string, id: string) => fauxAssistantMessage([fauxToolCall("bash", { command }, { id })], { stopReason: "toolUse" });
+const bash = (command: string, id: string) =>
+  fauxAssistantMessage([fauxToolCall("bash", { command }, { id })], { stopReason: "toolUse" });
 const report = (findings: ReadonlyArray<unknown>) => fauxAssistantMessage(`Checked.\n${JSON.stringify({ findings })}`);
 const model = (entry: EntryRecord) => JSON.stringify(entry.model?.[0] ?? null);
 
@@ -70,11 +109,21 @@ describe("the Advisor", () => {
     const done = new Promise<void>((resolve) => (reviewed = resolve));
     const { entries, status, advisorPrompts } = await run(
       SETTINGS,
-      [bash("echo changelog >> CHANGELOG.md", "c1"), async () => (await done, bash("true", "c2")), fauxAssistantMessage("All done, tests pass.")],
+      [
+        bash("echo changelog >> CHANGELOG.md", "c1"),
+        async () => (await done, bash("true", "c2")),
+        fauxAssistantMessage("All done, tests pass."),
+      ],
       [
         () => {
           reviewed();
-          return report([{ severity: "concern", message: "The tests were never run; the agent ran `true` instead.", evidence: { refs: [toolCallRef("c1")] } }]);
+          return report([
+            {
+              severity: "concern",
+              message: "The tests were never run; the agent ran `true` instead.",
+              evidence: { refs: [toolCallRef("c1")] },
+            },
+          ]);
         },
         report([]),
       ],
@@ -84,7 +133,10 @@ describe("the Advisor", () => {
     expect(advisorPrompts[0]).toContain(`"ref":"${toolCallRef("c1")}"`);
     const advice = entries.filter((entry) => entry.kind === ADVICE_ENTRY);
     expect(advice).toHaveLength(1);
-    expect(advice[0]?.data).toMatchObject({ severity: "concern", message: "The tests were never run; the agent ran `true` instead." });
+    expect(advice[0]?.data).toMatchObject({
+      severity: "concern",
+      message: "The tests were never run; the agent ran `true` instead.",
+    });
     expect(model(advice[0]!)).toContain("Advisor concern: The tests were never run");
     // The steer joined the run: an answer came after it.
     expect(entries.findIndex((entry) => entry.kind === ADVICE_ENTRY)).toBeLessThan(entries.length - 1);
@@ -95,11 +147,23 @@ describe("the Advisor", () => {
   it("reviews once at the end under the request cadence: a Nit is a note, a Blocker continues the same run once", async () => {
     const { entries, status, advisorPrompts } = await run(
       { ...SETTINGS, reviewEvery: "request" },
-      [bash("rm CHANGELOG.md", "c1"), fauxAssistantMessage("Updated the changelog."), fauxAssistantMessage("Restored it; sorry.")],
+      [
+        bash("rm CHANGELOG.md", "c1"),
+        fauxAssistantMessage("Updated the changelog."),
+        fauxAssistantMessage("Restored it; sorry."),
+      ],
       [
         report([
-          { severity: "nit", message: "The answer could name the file.", evidence: { quote: "Updated the changelog." } },
-          { severity: "blocker", message: "The agent deleted CHANGELOG.md but claims it updated it.", evidence: { refs: [toolCallRef("c1")], quote: "Updated the changelog." } },
+          {
+            severity: "nit",
+            message: "The answer could name the file.",
+            evidence: { quote: "Updated the changelog." },
+          },
+          {
+            severity: "blocker",
+            message: "The agent deleted CHANGELOG.md but claims it updated it.",
+            evidence: { refs: [toolCallRef("c1")], quote: "Updated the changelog." },
+          },
           { severity: "concern", message: "Cites nothing." },
           { severity: "concern", message: "Cites a ref it never saw.", evidence: { refs: ["nope"] } },
         ]),
@@ -107,9 +171,13 @@ describe("the Advisor", () => {
     );
     expect(advisorPrompts).toHaveLength(1);
     expect(status.status).toBe("done");
-    const advice = entries.filter((entry) => entry.kind === ADVICE_ENTRY).map((entry) => (entry.data as { severity: string }).severity);
+    const advice = entries
+      .filter((entry) => entry.kind === ADVICE_ENTRY)
+      .map((entry) => (entry.data as { severity: string }).severity);
     expect(advice).toEqual(["blocker", "nit"]);
-    const continued = entries.findIndex((entry) => JSON.stringify(entry.model ?? []).includes("Address the recorded Advisor blocker"));
+    const continued = entries.findIndex((entry) =>
+      JSON.stringify(entry.model ?? []).includes("Address the recorded Advisor blocker"),
+    );
     expect(continued).toBeGreaterThan(-1);
     expect(model(entries.at(-1)!)).toContain("Restored it; sorry.");
   });
@@ -132,7 +200,11 @@ describe("the Advisor", () => {
     expect(parseFindings('example {"findings": [1]} then {"findings": []}')).toEqual([]);
     expect(parseFindings("none")).toBeUndefined();
     const known = new Set(["r1"]);
-    expect(validFinding({ severity: "nit", message: "x", evidence: { refs: ["r1"] } }, known)).toEqual({ severity: "nit", message: "x", evidence: { refs: ["r1"] } });
+    expect(validFinding({ severity: "nit", message: "x", evidence: { refs: ["r1"] } }, known)).toEqual({
+      severity: "nit",
+      message: "x",
+      evidence: { refs: ["r1"] },
+    });
     expect(validFinding({ severity: "nit", message: "x", evidence: { refs: ["r2"] } }, known)).toBeUndefined();
     expect(validFinding({ severity: "urgent", message: "x", evidence: { quote: "q" } }, known)).toBeUndefined();
     const capped = capText("a".repeat(5_000));

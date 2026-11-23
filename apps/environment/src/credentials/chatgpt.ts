@@ -110,7 +110,8 @@ export type ChatGptRefreshResult =
   /** `refused`: OpenAI ended the sign-in (sign in again); otherwise a passing failure (retry). */
   | { readonly ok: false; readonly refused: boolean; readonly code?: string; readonly problem: string };
 
-const unbase64url = (text: string): Uint8Array<ArrayBuffer> => Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), (char) => char.charCodeAt(0));
+const unbase64url = (text: string): Uint8Array<ArrayBuffer> =>
+  Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), (char) => char.charCodeAt(0));
 
 /** A new attempt: its authorize URL for the owner's browser, and what the paste is checked against. */
 export const startChatGptSignIn = async (input: {
@@ -132,7 +133,11 @@ export const startChatGptSignIn = async (input: {
   const url = new URL((input.urls ?? CHATGPT_URLS).authorize);
   url.search = new URLSearchParams({
     client_id: pending.clientId ?? "dynamic_agent_client",
-    ...(pending.clientId === null ? { agent_name_hint: AGENT_NAME } : typeof input.registration?.email === "string" ? { login_hint: input.registration.email } : {}),
+    ...(pending.clientId === null
+      ? { agent_name_hint: AGENT_NAME }
+      : typeof input.registration?.email === "string"
+        ? { login_hint: input.registration.email }
+        : {}),
     ext_agent_host_id: input.hostId,
     response_type: "code",
     redirect_uri: pending.redirectUri,
@@ -157,7 +162,8 @@ const pastedUrl = (pasted: string, redirectUri: string): URL | string => {
   if (!text.includes("=")) return whole;
   let url: URL;
   try {
-    if (text.startsWith("?") || /^(?:code|state|error|scope|client_id)=/.test(text)) url = new URL(`${redirectUri}${text.startsWith("?") ? "" : "?"}${text}`);
+    if (text.startsWith("?") || /^(?:code|state|error|scope|client_id)=/.test(text))
+      url = new URL(`${redirectUri}${text.startsWith("?") ? "" : "?"}${text}`);
     else url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `http://${text}`);
   } catch {
     return whole;
@@ -169,7 +175,12 @@ const pastedUrl = (pasted: string, redirectUri: string): URL | string => {
   return url;
 };
 
-const post = async (vendor: ChatGptVendor, url: string, form: Record<string, string>, deadline?: AbortSignal): Promise<Response> =>
+const post = async (
+  vendor: ChatGptVendor,
+  url: string,
+  form: Record<string, string>,
+  deadline?: AbortSignal,
+): Promise<Response> =>
   vendor.fetch(url, {
     method: "POST",
     headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
@@ -189,9 +200,21 @@ interface TokenAnswer {
 const tokenAnswer = (body: unknown): TokenAnswer | undefined => {
   if (!isRecord(body)) return undefined;
   const { access_token, refresh_token, id_token, token_type, expires_in, scope, earliest_refresh_at } = body;
-  if (typeof access_token !== "string" || access_token === "" || typeof token_type !== "string" || token_type.toLowerCase() !== "bearer") return undefined;
-  if (typeof expires_in !== "number" || !Number.isFinite(expires_in) || expires_in <= 0 || typeof scope !== "string") return undefined;
-  const earliest = typeof earliest_refresh_at === "number" ? earliest_refresh_at * 1000 : typeof earliest_refresh_at === "string" ? Date.parse(earliest_refresh_at) : Number.NaN;
+  if (
+    typeof access_token !== "string" ||
+    access_token === "" ||
+    typeof token_type !== "string" ||
+    token_type.toLowerCase() !== "bearer"
+  )
+    return undefined;
+  if (typeof expires_in !== "number" || !Number.isFinite(expires_in) || expires_in <= 0 || typeof scope !== "string")
+    return undefined;
+  const earliest =
+    typeof earliest_refresh_at === "number"
+      ? earliest_refresh_at * 1000
+      : typeof earliest_refresh_at === "string"
+        ? Date.parse(earliest_refresh_at)
+        : Number.NaN;
   return {
     access: access_token,
     refresh: typeof refresh_token === "string" && refresh_token !== "" ? refresh_token : undefined,
@@ -203,19 +226,35 @@ const tokenAnswer = (body: unknown): TokenAnswer | undefined => {
 };
 
 const getJson = async (vendor: ChatGptVendor, url: string, deadline?: AbortSignal): Promise<unknown> => {
-  const response = await vendor.fetch(url, { headers: { accept: "application/json" }, ...oauthRequestOptions({ deadline }) });
+  const response = await vendor.fetch(url, {
+    headers: { accept: "application/json" },
+    ...oauthRequestOptions({ deadline }),
+  });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.json();
 };
 
-const discovery = async (vendor: ChatGptVendor, deadline?: AbortSignal): Promise<{ readonly issuer: string; readonly jwksUri: string; readonly revocation: string | undefined }> => {
+const discovery = async (
+  vendor: ChatGptVendor,
+  deadline?: AbortSignal,
+): Promise<{ readonly issuer: string; readonly jwksUri: string; readonly revocation: string | undefined }> => {
   const body = await getJson(vendor, (vendor.urls ?? CHATGPT_URLS).discovery, deadline);
-  if (!isRecord(body) || typeof body.issuer !== "string" || typeof body.jwks_uri !== "string") throw new Error("discovery");
-  return { issuer: body.issuer, jwksUri: body.jwks_uri, revocation: typeof body.revocation_endpoint === "string" ? body.revocation_endpoint : undefined };
+  if (!isRecord(body) || typeof body.issuer !== "string" || typeof body.jwks_uri !== "string")
+    throw new Error("discovery");
+  return {
+    issuer: body.issuer,
+    jwksUri: body.jwks_uri,
+    revocation: typeof body.revocation_endpoint === "string" ? body.revocation_endpoint : undefined,
+  };
 };
 
 /** The ID token's claims once its signature (RS256, OpenAI's JWKS), issuer, audience, expiry and nonce check out. */
-const verifiedIdToken = async (vendor: ChatGptVendor, token: string, clientId: string, nonce: string): Promise<{ readonly sub: string; readonly email: string | null } | undefined> => {
+const verifiedIdToken = async (
+  vendor: ChatGptVendor,
+  token: string,
+  clientId: string,
+  nonce: string,
+): Promise<{ readonly sub: string; readonly email: string | null } | undefined> => {
   const [head, body, signature] = token.split(".");
   if (head === undefined || body === undefined || signature === undefined) return undefined;
   const header: unknown = JSON.parse(new TextDecoder().decode(unbase64url(head)));
@@ -227,11 +266,31 @@ const verifiedIdToken = async (vendor: ChatGptVendor, token: string, clientId: s
   const keys = isRecord(jwks) && Array.isArray(jwks.keys) ? jwks.keys.filter(isRecord) : [];
   const jwk = keys.find((key) => key.kty === "RSA" && (header.kid === undefined || key.kid === header.kid));
   if (jwk === undefined) return undefined;
-  const key = await crypto.subtle.importKey("jwk", { kty: "RSA", n: String(jwk.n), e: String(jwk.e) }, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
-  if (!(await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, unbase64url(signature), new TextEncoder().encode(`${head}.${body}`)))) return undefined;
+  const key = await crypto.subtle.importKey(
+    "jwk",
+    { kty: "RSA", n: String(jwk.n), e: String(jwk.e) },
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["verify"],
+  );
+  if (
+    !(await crypto.subtle.verify(
+      "RSASSA-PKCS1-v1_5",
+      key,
+      unbase64url(signature),
+      new TextEncoder().encode(`${head}.${body}`),
+    ))
+  )
+    return undefined;
   const audience = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
   if (claims.iss !== ISSUER || !audience.includes(clientId) || claims.nonce !== nonce) return undefined;
-  if (typeof claims.exp !== "number" || claims.exp * 1000 < vendor.now() - SKEW_MS || typeof claims.sub !== "string" || claims.sub === "") return undefined;
+  if (
+    typeof claims.exp !== "number" ||
+    claims.exp * 1000 < vendor.now() - SKEW_MS ||
+    typeof claims.sub !== "string" ||
+    claims.sub === ""
+  )
+    return undefined;
   return { sub: claims.sub, email: typeof claims.email === "string" ? claims.email : null };
 };
 
@@ -243,25 +302,42 @@ const exchangeProblem = (status: number, code: string | undefined): string =>
       : `OpenAI did not complete the sign-in (HTTP ${status}${code === undefined ? "" : `, ${code}`}): start it again.`;
 
 /** Completes `pending` with the owner's pasted redirect: the code exchanged, the ID token and plan-usage scope checked. */
-export const completeChatGptSignIn = async (vendor: ChatGptVendor, pending: PendingChatGptSignIn, pasted: string): Promise<ChatGptSignInResult> => {
+export const completeChatGptSignIn = async (
+  vendor: ChatGptVendor,
+  pending: PendingChatGptSignIn,
+  pasted: string,
+): Promise<ChatGptSignInResult> => {
   const url = pastedUrl(pasted, pending.redirectUri);
   if (typeof url === "string") return { ok: false, problem: url };
   const params = url.searchParams;
-  if (params.get("state") !== pending.state) return { ok: false, problem: "This address does not belong to the sign-in in progress: start the sign-in again and paste the address it leads to." };
+  if (params.get("state") !== pending.state)
+    return {
+      ok: false,
+      problem:
+        "This address does not belong to the sign-in in progress: start the sign-in again and paste the address it leads to.",
+    };
   // RFC 9207: an authorization response that names its issuer must name OpenAI's.
   const iss = params.get("iss");
-  if (iss !== null && iss !== ISSUER) return { ok: false, problem: "This address names another issuer than OpenAI: start the sign-in again." };
+  if (iss !== null && iss !== ISSUER)
+    return { ok: false, problem: "This address names another issuer than OpenAI: start the sign-in again." };
   const error = params.get("error");
   if (error !== null) {
     return {
       ok: false,
-      problem: error === "access_denied" ? "ChatGPT's approval was declined: start the sign-in again when you are ready." : "ChatGPT did not approve the sign-in: start it again.",
+      problem:
+        error === "access_denied"
+          ? "ChatGPT's approval was declined: start the sign-in again when you are ready."
+          : "ChatGPT did not approve the sign-in: start it again.",
     };
   }
   const code = params.get("code") ?? "";
   const returned = params.get("client_id");
   const clientId = pending.clientId ?? returned;
-  if (clientId === null || !clientId.startsWith("oaiapp_") || (pending.clientId !== null && returned !== null && returned !== pending.clientId)) {
+  if (
+    clientId === null ||
+    !clientId.startsWith("oaiapp_") ||
+    (pending.clientId !== null && returned !== null && returned !== pending.clientId)
+  ) {
     return { ok: false, problem: "ChatGPT's redirect did not name this app's registration: start the sign-in again." };
   }
   let response: Response;
@@ -275,21 +351,33 @@ export const completeChatGptSignIn = async (vendor: ChatGptVendor, pending: Pend
       resource: CHATGPT_RESOURCE,
     });
   } catch {
-    return { ok: false, problem: "OpenAI's token endpoint could not be reached: paste the address again, or start again." };
+    return {
+      ok: false,
+      problem: "OpenAI's token endpoint could not be reached: paste the address again, or start again.",
+    };
   }
   const spent = { spent: true, ...(pending.clientId === null ? { clientId } : {}) } as const;
-  if (!response.ok) return { ok: false, problem: exchangeProblem(response.status, await oauthErrorCode(response)), ...spent };
+  if (!response.ok)
+    return { ok: false, problem: exchangeProblem(response.status, await oauthErrorCode(response)), ...spent };
   const answer = tokenAnswer(await response.json().catch(() => undefined));
   /** A grant this attempt will not keep: revoked (bounded, as a sign-out's) when it came with a refresh token. */
   const dropped = async (problem: string): Promise<ChatGptSignInResult> => {
     if (answer?.refresh !== undefined) await revokeChatGpt(vendor, { refresh: answer.refresh, clientId });
     return { ok: false, problem, ...spent };
   };
-  if (answer === undefined || answer.refresh === undefined || answer.idToken === undefined) return dropped("OpenAI's answer to the sign-in was not a usable token set: start the sign-in again.");
+  if (answer === undefined || answer.refresh === undefined || answer.idToken === undefined)
+    return dropped("OpenAI's answer to the sign-in was not a usable token set: start the sign-in again.");
   const identity = await verifiedIdToken(vendor, answer.idToken, clientId, pending.nonce).catch(() => undefined);
-  if (identity === undefined) return dropped("The sign-in could not be verified (OpenAI's ID token did not check out): start it again.");
-  if (pending.subject !== null && identity.sub !== pending.subject) return dropped("This sign-in returned another ChatGPT account than the one saved: sign out first to change accounts.");
-  if (!answer.scopes.includes(PLAN_USAGE_SCOPE)) return dropped("Signed in, but ChatGPT did not allow ChatGPT plan usage for t3flare: start again and allow it (it needs a Plus or Pro plan).");
+  if (identity === undefined)
+    return dropped("The sign-in could not be verified (OpenAI's ID token did not check out): start it again.");
+  if (pending.subject !== null && identity.sub !== pending.subject)
+    return dropped(
+      "This sign-in returned another ChatGPT account than the one saved: sign out first to change accounts.",
+    );
+  if (!answer.scopes.includes(PLAN_USAGE_SCOPE))
+    return dropped(
+      "Signed in, but ChatGPT did not allow ChatGPT plan usage for t3flare: start again and allow it (it needs a Plus or Pro plan).",
+    );
   return {
     ok: true,
     credential: {
@@ -307,7 +395,10 @@ export const completeChatGptSignIn = async (vendor: ChatGptVendor, pending: Pend
 };
 
 /** A refresh at OpenAI: the new access token with its replacement refresh token, or why not. */
-export const refreshChatGpt = async (vendor: ChatGptVendor, credential: ChatGptCredential): Promise<ChatGptRefreshResult> => {
+export const refreshChatGpt = async (
+  vendor: ChatGptVendor,
+  credential: ChatGptCredential,
+): Promise<ChatGptRefreshResult> => {
   let response: Response;
   try {
     response = await post(vendor, (vendor.urls ?? CHATGPT_URLS).token, {
@@ -317,16 +408,33 @@ export const refreshChatGpt = async (vendor: ChatGptVendor, credential: ChatGptC
       resource: CHATGPT_RESOURCE,
     });
   } catch {
-    return { ok: false, refused: false, problem: "OpenAI's token endpoint could not be reached to renew the ChatGPT sign-in" };
+    return {
+      ok: false,
+      refused: false,
+      problem: "OpenAI's token endpoint could not be reached to renew the ChatGPT sign-in",
+    };
   }
   if (!response.ok) {
     const code = await oauthErrorCode(response);
-    if (code !== undefined && REFUSED_CODES.has(code)) return { ok: false, refused: true, code, problem: `ChatGPT refused to renew the sign-in (${code})` };
-    return { ok: false, refused: false, ...(code === undefined ? {} : { code }), problem: `OpenAI did not renew the ChatGPT sign-in (HTTP ${response.status})` };
+    if (code !== undefined && REFUSED_CODES.has(code))
+      return { ok: false, refused: true, code, problem: `ChatGPT refused to renew the sign-in (${code})` };
+    return {
+      ok: false,
+      refused: false,
+      ...(code === undefined ? {} : { code }),
+      problem: `OpenAI did not renew the ChatGPT sign-in (HTTP ${response.status})`,
+    };
   }
   const answer = tokenAnswer(await response.json().catch(() => undefined));
-  if (answer === undefined) return { ok: false, refused: false, problem: "OpenAI's renewal was not a usable token set" };
-  if (!answer.scopes.includes(PLAN_USAGE_SCOPE)) return { ok: false, refused: true, code: "plan_usage_disabled", problem: "ChatGPT plan usage is no longer allowed for t3flare" };
+  if (answer === undefined)
+    return { ok: false, refused: false, problem: "OpenAI's renewal was not a usable token set" };
+  if (!answer.scopes.includes(PLAN_USAGE_SCOPE))
+    return {
+      ok: false,
+      refused: true,
+      code: "plan_usage_disabled",
+      problem: "ChatGPT plan usage is no longer allowed for t3flare",
+    };
   return {
     ok: true,
     credential: {
@@ -375,7 +483,12 @@ export const revokeChatGpt = async (
     try {
       const { revocation } = await discovery(vendor, deadline);
       if (revocation === undefined) return { confirmed: false };
-      const response = await post(vendor, revocation, { token: credential.refresh, token_type_hint: "refresh_token", client_id: credential.clientId }, deadline);
+      const response = await post(
+        vendor,
+        revocation,
+        { token: credential.refresh, token_type_hint: "refresh_token", client_id: credential.clientId },
+        deadline,
+      );
       if (response.status === 200) return { confirmed: true };
       retry = response.status >= 500;
     } catch {
@@ -389,7 +502,13 @@ export const revokeChatGpt = async (
 
 /** ChatGPT plan usage as the Credential broker's vendor for the `chatgpt` sign-in. */
 export const chatgptSignIn = (vendor: ChatGptVendor): SignInVendor => ({
-  start: ({ hostId, registration, now }) => startChatGptSignIn({ hostId, now, ...(registration === undefined ? {} : { registration }), ...(vendor.urls === undefined ? {} : { urls: vendor.urls }) }),
+  start: ({ hostId, registration, now }) =>
+    startChatGptSignIn({
+      hostId,
+      now,
+      ...(registration === undefined ? {} : { registration }),
+      ...(vendor.urls === undefined ? {} : { urls: vendor.urls }),
+    }),
   // SAFETY: the broker hands back exactly the attempt `start` made (sealed in between), and only ever a credential this
   // vendor made, so each is this module's own shape.
   complete: (pending, pasted) => completeChatGptSignIn(vendor, pending as unknown as PendingChatGptSignIn, pasted),

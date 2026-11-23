@@ -4,7 +4,14 @@
 // @effect-diagnostics globalTimers:off
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { type AssistantMessage, createModels, fauxProvider } from "@earendil-works/pi-ai";
-import { createRegistry, type Extension, Harness, MemoryStorage, type Storage, ToolResultEntry } from "@earendil-works/pi-durable";
+import {
+  createRegistry,
+  type Extension,
+  Harness,
+  MemoryStorage,
+  type Storage,
+  ToolResultEntry,
+} from "@earendil-works/pi-durable";
 
 import type { ApprovalStorage } from "../src/extensions/permissions.ts";
 
@@ -46,7 +53,11 @@ export const instanceKv = (kv: ApprovalStorage): (() => ApprovalStorage) => {
 };
 
 /** Polls `check` until it holds, for up to 90 s of wall time (CI runners resume a restarted Harness much slower). */
-export const until = async (check: () => boolean | Promise<boolean>, what: string, withinMs = 90_000): Promise<void> => {
+export const until = async (
+  check: () => boolean | Promise<boolean>,
+  what: string,
+  withinMs = 90_000,
+): Promise<void> => {
   const deadline = Date.now() + withinMs;
   while (Date.now() < deadline) {
     if (await check()) return;
@@ -56,7 +67,10 @@ export const until = async (check: () => boolean | Promise<boolean>, what: strin
 };
 
 /** A Harness restarted as an evicted Durable Object is: the old instance cut off from storage, a new one resumed. */
-export const restartingHarness = async (extensions: ReadonlyArray<Extension>, responses: ReadonlyArray<AssistantMessage>) => {
+export const restartingHarness = async (
+  extensions: ReadonlyArray<Extension>,
+  responses: ReadonlyArray<AssistantMessage>,
+) => {
   const faux = fauxProvider();
   const models = createModels();
   models.setProvider(faux.provider);
@@ -98,7 +112,12 @@ export const restartingHarness = async (extensions: ReadonlyArray<Extension>, re
     messages: async () => {
       const conversation = await current.conversation(root.id, context);
       const page = await conversation?.entries({}, 50, undefined, context);
-      return (page?.items ?? []).flatMap((item) => (item.model ?? []).map((message) => ({ role: message.role, text: typeof message.content === "string" ? message.content : textOf(message as never) })));
+      return (page?.items ?? []).flatMap((item) =>
+        (item.model ?? []).map((message) => ({
+          role: message.role,
+          text: typeof message.content === "string" ? message.content : textOf(message as never),
+        })),
+      );
     },
     lastToolResult: async () => {
       const conversation = await current.conversation(root.id, context);
@@ -112,4 +131,3 @@ export const restartingHarness = async (extensions: ReadonlyArray<Extension>, re
 
 export const textOf = (result: { content: ReadonlyArray<{ type: string; text?: string }> } | undefined) =>
   (result?.content ?? []).map((block) => block.text ?? "").join("");
-

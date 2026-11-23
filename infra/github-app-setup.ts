@@ -62,7 +62,10 @@ const { values: args } = parseArgs({
 
 /** The repository whose environments get the app's secrets: `--repo`, else GITHUB_REPOSITORY. */
 const repo = (() => {
-  const setting = requiredSetting({ GITHUB_REPOSITORY: args.repo ?? process.env.GITHUB_REPOSITORY }, "GITHUB_REPOSITORY");
+  const setting = requiredSetting(
+    { GITHUB_REPOSITORY: args.repo ?? process.env.GITHUB_REPOSITORY },
+    "GITHUB_REPOSITORY",
+  );
   if (!setting.ok) {
     console.error(setting.error);
     process.exit(1);
@@ -79,7 +82,6 @@ for (const environment of environments) {
   }
 }
 
-
 /** Runs `command` with `input` on its stdin (a secret never goes on a command line); rejects unless it succeeds. */
 const run = (command: string, argv: readonly string[], input = ""): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -89,9 +91,7 @@ const run = (command: string, argv: readonly string[], input = ""): Promise<stri
     child.stdout.on("data", (chunk: Buffer) => (out += chunk.toString()));
     child.on("error", reject);
     child.on("close", (code) =>
-      code === 0
-        ? resolve(out)
-        : reject(new Error(`${command} ${argv[0] ?? ""} exited with ${code}`)),
+      code === 0 ? resolve(out) : reject(new Error(`${command} ${argv[0] ?? ""} exited with ${code}`)),
     );
     child.stdin.end(input);
   });
@@ -294,4 +294,6 @@ await install(app);
 console.log(
   "\nDone. Repos can be added to the installation later in GitHub's settings (Settings → Applications → t3flare → Configure).",
 );
-console.log(`Optional: give the app t3flare's logo, docs/assets/t3flare-app-icon.png, under Display information at ${settingsUrl(app)}.`);
+console.log(
+  `Optional: give the app t3flare's logo, docs/assets/t3flare-app-icon.png, under Display information at ${settingsUrl(app)}.`,
+);

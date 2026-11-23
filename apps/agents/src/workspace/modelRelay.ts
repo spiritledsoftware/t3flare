@@ -26,7 +26,16 @@ import { type LimitReading, noteLimitReading } from "@t3flare/models/limits";
 import { redactSecrets } from "@t3flare/models/redact";
 import type { UsageEntry } from "@t3flare/models/usage";
 import type { EndpointFailureRecord } from "@t3flare/session-protocol";
-import { credentialHeaderFor, forwardedHeadersOf, KEY_HEADERS, MODEL_RELAY_PREFIX, MODEL_ROUTED_ID, type ModelRelayTarget, type RelaySignInRefusal, type RelayTarget } from "@t3flare/models/relay";
+import {
+  credentialHeaderFor,
+  forwardedHeadersOf,
+  KEY_HEADERS,
+  MODEL_RELAY_PREFIX,
+  MODEL_ROUTED_ID,
+  type ModelRelayTarget,
+  type RelaySignInRefusal,
+  type RelayTarget,
+} from "@t3flare/models/relay";
 import { HANDLE } from "@t3flare/workspace-client";
 
 import type { HandleCaller } from "./processHost.ts";
@@ -88,11 +97,17 @@ export interface ModelRelayDeps {
 /** What `WorkspaceProxy` reaches of the Workspace DO for the relay (its RPC stub's methods answer promises). */
 export interface WorkspaceRelayRpc {
   modelRelay(input: ModelRelayAsk): Promise<ModelRelayGrant>;
-  modelRelayOutcome(input: { readonly handleId: string; readonly failure: EndpointFailureRecord | null }): Promise<void> | void;
+  modelRelayOutcome(input: {
+    readonly handleId: string;
+    readonly failure: EndpointFailureRecord | null;
+  }): Promise<void> | void;
 }
 
 /** The relay's deps in `WorkspaceProxy`: the Workspace DO's check, and each answer reported to it before the CLI has it. */
-export const workspaceRelayDeps = (rpc: WorkspaceRelayRpc, io: Pick<ModelRelayDeps, "fetch" | "log" | "now" | "usage" | "limits">): ModelRelayDeps => ({
+export const workspaceRelayDeps = (
+  rpc: WorkspaceRelayRpc,
+  io: Pick<ModelRelayDeps, "fetch" | "log" | "now" | "usage" | "limits">,
+): ModelRelayDeps => ({
   ...io,
   authorize: (input) => rpc.modelRelay(input),
   outcome: async (handleId, failure) => {
@@ -101,14 +116,26 @@ export const workspaceRelayDeps = (rpc: WorkspaceRelayRpc, io: Pick<ModelRelayDe
 });
 
 /** Response headers not passed back: hop-by-hop ones and cookies. */
-const DROPPED_RESPONSE = new Set(["connection", "keep-alive", "proxy-connection", "te", "trailer", "transfer-encoding", "upgrade", "set-cookie"]);
+const DROPPED_RESPONSE = new Set([
+  "connection",
+  "keep-alive",
+  "proxy-connection",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+  "set-cookie",
+]);
 
 const PATH = new RegExp(`^${MODEL_RELAY_PREFIX.replaceAll("/", "\\/")}([^/]*)(\\/.*)?$`);
 
 export const isModelRelayPath = (pathname: string): boolean => pathname.startsWith(MODEL_RELAY_PREFIX);
 
 const plain = (status: number, message: string): Response =>
-  new Response(`t3flare: ${message}\n`, { status, headers: { "content-type": "text/plain", "cache-control": "no-store" } });
+  new Response(`t3flare: ${message}\n`, {
+    status,
+    headers: { "content-type": "text/plain", "cache-control": "no-store" },
+  });
 
 const handleOf = (headers: Headers): string | null => {
   for (const name of KEY_HEADERS) {
@@ -159,7 +186,10 @@ const leavesBase = (rest: string): boolean =>
     });
 
 /** Only the allowed headers of the Container's request, then the endpoint's own and its credential. */
-const upstreamHeaders = (incoming: Headers, target: Pick<RelayTarget, "api" | "headers">): { readonly headers: Headers; readonly dropped: ReadonlyArray<string> } => {
+const upstreamHeaders = (
+  incoming: Headers,
+  target: Pick<RelayTarget, "api" | "headers">,
+): { readonly headers: Headers; readonly dropped: ReadonlyArray<string> } => {
   const allowed = forwardedHeadersOf(target.api);
   const headers = new Headers();
   const dropped: Array<string> = [];
@@ -172,7 +202,9 @@ const upstreamHeaders = (incoming: Headers, target: Pick<RelayTarget, "api" | "h
 };
 
 /** A model-routed request's endpoint and the body to send it, or why not (400, 413). Called once the handle is known. */
-const routedRequest = async (request: Request): Promise<RoutedBody | { readonly status: number; readonly why: string }> => {
+const routedRequest = async (
+  request: Request,
+): Promise<RoutedBody | { readonly status: number; readonly why: string }> => {
   const unnamed = { status: 400, why: "a model-routed request's JSON body names its model as <endpointId>/<modelId>" };
   if (request.method === "GET" || request.method === "HEAD") return unnamed;
   const read = await readCapped(request.body, declaredLength(request.headers));
@@ -189,7 +221,11 @@ export const handleModelRelay = async (request: Request, deps: ModelRelayDeps): 
   // A routed request's endpoint is its body's, known once the body is read.
   let endpointId = match?.[1] !== undefined && ENDPOINT_ID.test(match[1]) ? match[1] : null;
   const rest = match?.[2] ?? "";
-  const log = (status: number, grant: { readonly handleId: string | null; readonly workspace?: string | null; readonly cli?: string }, extra: Record<string, unknown> = {}) =>
+  const log = (
+    status: number,
+    grant: { readonly handleId: string | null; readonly workspace?: string | null; readonly cli?: string },
+    extra: Record<string, unknown> = {},
+  ) =>
     deps.log({
       t3flare: "model-relay",
       endpoint: endpointId,
@@ -208,7 +244,10 @@ export const handleModelRelay = async (request: Request, deps: ModelRelayDeps): 
   }
   if (leavesBase(rest)) {
     log(400, { handleId: null }, { why: "a malformed escape, a dot segment, a separator or a control character" });
-    return plain(400, "the path holds a malformed escape, an encoded dot segment, `/`, `\\` or a control character: it could leave the endpoint's base URL");
+    return plain(
+      400,
+      "the path holds a malformed escape, an encoded dot segment, `/`, `\\` or a control character: it could leave the endpoint's base URL",
+    );
   }
   const handle = handleOf(request.headers);
   if (handle === null) {
@@ -222,14 +261,25 @@ export const handleModelRelay = async (request: Request, deps: ModelRelayDeps): 
       if (grant.signIn !== undefined && grant.handleId !== null && endpoint !== null) {
         // SPI-1171: the sign-in gave no token; the CLI and t3 are told which, and why.
         const refused = signInRefusal(endpoint, grant.signIn, deps.now());
-        log(refused.response.status, grant, { why: grant.message, signIn: grant.signIn.kind, failure: { class: refused.failure.class, code: refused.failure.code } });
-        await (deps.outcome?.(grant.handleId, { ...refused.failure, endpointId: endpoint, at: deps.now() }) ?? Promise.resolve()).catch(() => undefined);
+        log(refused.response.status, grant, {
+          why: grant.message,
+          signIn: grant.signIn.kind,
+          failure: { class: refused.failure.class, code: refused.failure.code },
+        });
+        await (
+          deps.outcome?.(grant.handleId, { ...refused.failure, endpointId: endpoint, at: deps.now() }) ??
+          Promise.resolve()
+        ).catch(() => undefined);
         return refused.response;
       }
       log(grant.status, grant, { why: grant.message });
       return plain(grant.status, grant.message);
     } catch (error) {
-      log(502, { handleId: null }, { why: `the Workspace did not answer (${error instanceof Error ? error.name : "error"})` });
+      log(
+        502,
+        { handleId: null },
+        { why: `the Workspace did not answer (${error instanceof Error ? error.name : "error"})` },
+      );
       return plain(502, "the model relay could not check this handle");
     }
   };
@@ -286,7 +336,10 @@ export const handleModelRelay = async (request: Request, deps: ModelRelayDeps): 
   }
   // SPI-1172: each answer goes to the Workspace DO before the CLI sees it (`RelayFailures` keeps the turn's most telling one).
   const report = (failure: DescribedFailure | undefined): Promise<void> =>
-    (deps.outcome?.(grant.handleId, failure === undefined ? null : { ...failure, endpointId, at: deps.now() }) ?? Promise.resolve()).catch(() => undefined);
+    (
+      deps.outcome?.(grant.handleId, failure === undefined ? null : { ...failure, endpointId, at: deps.now() }) ??
+      Promise.resolve()
+    ).catch(() => undefined);
   let upstream: Response;
   try {
     upstream = await deps.fetch(
@@ -311,7 +364,10 @@ export const handleModelRelay = async (request: Request, deps: ModelRelayDeps): 
     void upstream.body?.cancel().catch(() => undefined);
     log(502, grant, { why: `redirected (HTTP ${upstream.status})`, dropped });
     await report(undefined);
-    return plain(502, `the Model endpoint ${endpointId} redirected (HTTP ${upstream.status}); the relay follows no redirect: fix its base URL`);
+    return plain(
+      502,
+      `the Model endpoint ${endpointId} redirected (HTTP ${upstream.status}); the relay follows no redirect: fix its base URL`,
+    );
   }
   // SPI-1174: the endpoint's limit windows, as this answer's headers report them (a refused limit's too).
   noteLimitReading(endpointId, upstream.headers, deps.now(), deps.limits);
@@ -323,28 +379,46 @@ export const handleModelRelay = async (request: Request, deps: ModelRelayDeps): 
   // SPI-1171: which of a sign-in's tokens went (a short hash, never the token), so a mid-thread renewal shows in the log.
   // `credentialValues` gives a bearer's header value, then its token: the token is the last.
   const bearerToken = known.at(-1);
-  const signedWith = isSignIn(endpoint.auth) && bearerToken !== undefined ? { signIn: endpoint.auth, credential: await tokenLogHashPrefix(bearerToken) } : {};
+  const signedWith =
+    isSignIn(endpoint.auth) && bearerToken !== undefined
+      ? { signIn: endpoint.auth, credential: await tokenLogHashPrefix(bearerToken) }
+      : {};
   const classify = (status: number, body: string): DescribedFailure | undefined =>
-    describeFailure({ status, headers: failureHeaders(upstream.headers), body, at: deps.now() }, { id: endpointId, api: endpoint.api, auth: endpoint.auth });
+    describeFailure(
+      { status, headers: failureHeaders(upstream.headers), body, at: deps.now() },
+      { id: endpointId, api: endpoint.api, auth: endpoint.auth },
+    );
   const logged = (failure: DescribedFailure | undefined) =>
-    failure === undefined ? {} : { failure: { class: failure.class, code: failure.code, ...(failure.resetAt === undefined ? {} : { resetAt: failure.resetAt }) } };
+    failure === undefined
+      ? {}
+      : {
+          failure: {
+            class: failure.class,
+            code: failure.code,
+            ...(failure.resetAt === undefined ? {} : { resetAt: failure.resetAt }),
+          },
+        };
   if (upstream.status < 400) {
     // The dropped headers' names (never values) show what a CLI sends that the allowlist keeps back.
     log(upstream.status, grant, { dropped, ...signedWith });
     await report(undefined);
-    const observed = observeUsage(upstream, { cli: grant.cli, endpointId, api: grant.target.api, modelId: routedModel, session: grant.handleId, at: started }, deps.usage);
+    const observed = observeUsage(
+      upstream,
+      { cli: grant.cli, endpointId, api: grant.target.api, modelId: routedModel, session: grant.handleId, at: started },
+      deps.usage,
+    );
     const streaming = (upstream.headers.get("content-type") ?? "").includes("text/event-stream");
     // An error event inside the stream: redacted, classified, logged and reported as the process's last answer.
     const body =
       streaming && observed !== null
         ? observed.pipeThrough(
-          sseErrors(redact, async (event) => {
-            const failure = classify(event.status ?? 200, event.body);
-            log(upstream.status, grant, { stream: "error-event", ...logged(failure) });
-            await report(failure);
-          }),
-        )
-      : observed;
+            sseErrors(redact, async (event) => {
+              const failure = classify(event.status ?? 200, event.body);
+              log(upstream.status, grant, { stream: "error-event", ...logged(failure) });
+              await report(failure);
+            }),
+          )
+        : observed;
     return new Response(body, { status: upstream.status, statusText: upstream.statusText, headers: answer });
   }
   // The error body, whole and redacted, so the CLI reads it as the vendor's; one over the cap is replaced, never cut.
@@ -352,7 +426,12 @@ export const handleModelRelay = async (request: Request, deps: ModelRelayDeps): 
   void upstream.body?.cancel().catch(() => undefined);
   const text = read === undefined || read.over ? oversizedError(endpoint.api, upstream.status) : read.text;
   const failure = classify(upstream.status, text);
-  log(upstream.status, grant, { dropped, ...signedWith, ...logged(failure), ...(read?.over === true ? { oversized: true } : {}) });
+  log(upstream.status, grant, {
+    dropped,
+    ...signedWith,
+    ...logged(failure),
+    ...(read?.over === true ? { oversized: true } : {}),
+  });
   await report(failure);
   // The body's length (and any encoding) changed with the redaction.
   answer.delete("content-length");
@@ -392,15 +471,43 @@ export interface AuthorizeDeps {
  */
 export const authorizeModelRelay = async (input: ModelRelayAsk, deps: AuthorizeDeps): Promise<ModelRelayGrant> => {
   const { workspace } = deps;
-  if (deps.destroyed) return { kind: "refused", status: 410, message: "this Workspace was deleted", handleId: null, workspace };
+  if (deps.destroyed)
+    return { kind: "refused", status: 410, message: "this Workspace was deleted", handleId: null, workspace };
   const caller = deps.caller(input.handle);
-  if (caller === null) return { kind: "refused", status: 401, message: "unknown or revoked model handle (a handle ends with its process)", handleId: null, workspace };
+  if (caller === null)
+    return {
+      kind: "refused",
+      status: 401,
+      message: "unknown or revoked model handle (a handle ends with its process)",
+      handleId: null,
+      workspace,
+    };
   if (input.endpointId === null) return { kind: "known", handleId: caller.key, cli: caller.cli, workspace };
   if (!caller.endpoints.has(input.endpointId)) {
-    return { kind: "refused", status: 403, message: `this process's model handle is not for the Model endpoint ${input.endpointId}`, handleId: caller.key, workspace };
+    return {
+      kind: "refused",
+      status: 403,
+      message: `this process's model handle is not for the Model endpoint ${input.endpointId}`,
+      handleId: caller.key,
+      workspace,
+    };
   }
   const target = await deps.target(input.endpointId);
-  if (!target.ok) return { kind: "refused", status: target.status, message: target.message, handleId: caller.key, workspace, ...(target.signIn === undefined ? {} : { signIn: target.signIn }) };
+  if (!target.ok)
+    return {
+      kind: "refused",
+      status: target.status,
+      message: target.message,
+      handleId: caller.key,
+      workspace,
+      ...(target.signIn === undefined ? {} : { signIn: target.signIn }),
+    };
   if (target.key !== null) await deps.remember(input.endpointId, target.key);
-  return { kind: "granted", handleId: caller.key, cli: caller.cli, workspace, target: { api: target.api, auth: target.auth, baseUrl: target.baseUrl, headers: target.headers } };
+  return {
+    kind: "granted",
+    handleId: caller.key,
+    cli: caller.cli,
+    workspace,
+    target: { api: target.api, auth: target.auth, baseUrl: target.baseUrl, headers: target.headers },
+  };
 };

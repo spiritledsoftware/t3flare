@@ -37,12 +37,19 @@ export const FIRST_READ_ALLOWED: ReadonlyArray<AllowedRead> = [
   {
     name: "base-upstream",
     caller: "GitVcsDriverCore.resolveWorktreeBaseRemote (a worktree launch's base branch and its upstream)",
-    matches: (args) => args.length === 3 && args[0] === "for-each-ref" && args[1] === UPSTREAM_FORMAT && args[2]!.startsWith("refs/heads/"),
+    matches: (args) =>
+      args.length === 3 &&
+      args[0] === "for-each-ref" &&
+      args[1] === UPSTREAM_FORMAT &&
+      args[2]!.startsWith("refs/heads/"),
   },
   {
     name: "remote-commit",
     caller: "GitVcsDriverCore.fetchWorktreeBaseCommit (the launch's base commit after its fetch)",
-    matches: (args) => args.length === 4 && equals(args.slice(0, 3), ["rev-parse", "--verify", "--quiet"]) && /^refs\/remotes\/.+\^\{commit\}$/.test(args[3]!),
+    matches: (args) =>
+      args.length === 4 &&
+      equals(args.slice(0, 3), ["rev-parse", "--verify", "--quiet"]) &&
+      /^refs\/remotes\/.+\^\{commit\}$/.test(args[3]!),
   },
   {
     name: "checkout-workers",
@@ -107,7 +114,10 @@ export const primeArgvs = (refs: ReadonlyArray<string>): ReadonlyArray<ReadonlyA
   ["config", "--get", "checkout.workers"],
   COMMIT_GIT_PATHS,
   COUNT_OBJECTS_ARGV,
-  ...refs.filter((ref) => ref.startsWith("refs/heads/")).slice(0, 100).map((ref) => ["for-each-ref", UPSTREAM_FORMAT, ref]),
+  ...refs
+    .filter((ref) => ref.startsWith("refs/heads/"))
+    .slice(0, 100)
+    .map((ref) => ["for-each-ref", UPSTREAM_FORMAT, ref]),
   ...refs
     .filter((ref) => ref.startsWith("refs/remotes/") && !ref.endsWith("/HEAD"))
     .slice(0, 100)
@@ -120,15 +130,23 @@ const word = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
 export const primeScript = (argvs: ReadonlyArray<ReadonlyArray<string>>): string =>
   [
     "t=$(mktemp)",
-    ...argvs.map((argv, index) => `git ${argv.map(word).join(" ")} >"$t" 2>/dev/null; echo "T3P ${index} $? $(base64 -w0 <"$t")"`),
+    ...argvs.map(
+      (argv, index) => `git ${argv.map(word).join(" ")} >"$t" 2>/dev/null; echo "T3P ${index} $? $(base64 -w0 <"$t")"`,
+    ),
     'rm -f "$t"',
   ].join("\n");
 
-export const parsePrimed = (stdout: string): ReadonlyArray<{ readonly index: number; readonly exitCode: number; readonly stdout: string }> =>
+export const parsePrimed = (
+  stdout: string,
+): ReadonlyArray<{ readonly index: number; readonly exitCode: number; readonly stdout: string }> =>
   stdout
     .split("\n")
     .filter((line) => line.startsWith("T3P "))
     .map((line) => {
       const [, index, exit, data = ""] = line.split(" ");
-      return { index: Number(index), exitCode: Number(exit), stdout: new TextDecoder().decode(Uint8Array.from(atob(data), (char) => char.charCodeAt(0))) };
+      return {
+        index: Number(index),
+        exitCode: Number(exit),
+        stdout: new TextDecoder().decode(Uint8Array.from(atob(data), (char) => char.charCodeAt(0))),
+      };
     });

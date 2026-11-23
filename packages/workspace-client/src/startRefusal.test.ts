@@ -8,7 +8,10 @@ const REASON = "Container budget (1) reached: raise it at /_t3flare/settings#env
 /** The error a refused start throws, as computer wraps it after a Container exited before (the case met on stage). */
 const wrapped = () => {
   const inner = new Error(`t3flare: the Container cannot start: ${REASON}`);
-  const backend = new Error(`ContainerBackend(container-shell): connect failed at stage=start priorExit="Container exited with unexpected ex lastError=t3flare: the Container cannot start: Container budget (1`, { cause: inner });
+  const backend = new Error(
+    `ContainerBackend(container-shell): connect failed at stage=start priorExit="Container exited with unexpected ex lastError=t3flare: the Container cannot start: Container budget (1`,
+    { cause: inner },
+  );
   return new Error("WorkspaceTransportError: shell.exec failed after 1 reconnect retry", { cause: backend });
 };
 

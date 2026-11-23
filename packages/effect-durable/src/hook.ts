@@ -43,9 +43,7 @@ type BuiltInHandler =
 
 type HookArgument = Parameters<BuiltInHandler>[number];
 
-type Handler<E, R> = (
-  ...params: readonly HookArgument[]
-) => Effect.Effect<Awaited<ReturnType<BuiltInHandler>>, E, R>;
+type Handler<E, R> = (...params: readonly HookArgument[]) => Effect.Effect<Awaited<ReturnType<BuiltInHandler>>, E, R>;
 
 /**
  * pi-durable hooks of `task` from Effect handlers, run with the services of the Effect that builds them. A handler's

@@ -46,7 +46,11 @@ export const planUsagePayload = (params: unknown): unknown => {
     body.input = body.input
       // Refused by plan usage; with `PLAN_USAGE_COMPAT` pi-ai makes none, so this is a guard.
       .filter((item: unknown) => !(isRecord(item) && item.type === "configuration_update"))
-      .map((item: unknown) => (isRecord(item) && item.role === "system" && (item.type === undefined || item.type === "message") ? { ...item, role: "developer" } : item));
+      .map((item: unknown) =>
+        isRecord(item) && item.role === "system" && (item.type === undefined || item.type === "message")
+          ? { ...item, role: "developer" }
+          : item,
+      );
   }
   if (Array.isArray(body.tools)) {
     body.tools = body.tools.filter((tool: unknown) => !(isRecord(tool) && tool.type === "tool_search"));

@@ -5,16 +5,25 @@
 // fills in what the list does not say (store.ts). A failure is reported as its HTTP status, never its body (which may
 // echo the key).
 import { parseList, realIdOf } from "@t3flare/models/lists";
-import { type EndpointApi, type EndpointModelInput, type EndpointTarget, isRecord, type SignIn } from "@t3flare/models/endpoints";
+import {
+  type EndpointApi,
+  type EndpointModelInput,
+  type EndpointTarget,
+  isRecord,
+  type SignIn,
+} from "@t3flare/models/endpoints";
 import { copilotModelApi } from "@t3flare/models/known";
 import { credentialHeaderOf } from "@t3flare/models/relay";
 
 const TIMEOUT_MS = 10_000;
 const MAX_PAGES = 10;
 
-export type Discovery = { readonly ok: true; readonly models: ReadonlyArray<EndpointModelInput> } | { readonly ok: false; readonly error: string };
+export type Discovery =
+  | { readonly ok: true; readonly models: ReadonlyArray<EndpointModelInput> }
+  | { readonly ok: false; readonly error: string };
 
-const count = (value: unknown): number | undefined => (typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined);
+const count = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
 
 class ListError extends Error {}
 
@@ -25,10 +34,22 @@ const keyedHeaders = (target: EndpointTarget, apiKey: string | undefined): Recor
   return { ...target.headers, [credential.name]: credential.value };
 };
 
-const getJson = async (url: URL, headers: Record<string, string>, fetcher: typeof fetch, signal: AbortSignal): Promise<unknown> => {
+const getJson = async (
+  url: URL,
+  headers: Record<string, string>,
+  fetcher: typeof fetch,
+  signal: AbortSignal,
+): Promise<unknown> => {
   // Never followed: a redirect would carry the key to wherever it points.
-  const response = await fetcher(url, { headers: { accept: "application/json", ...headers }, signal, redirect: "manual" });
-  if (response.status >= 300 && response.status < 400) throw new ListError(`the endpoint's model list redirected (HTTP ${response.status}): give the base URL it redirects to`);
+  const response = await fetcher(url, {
+    headers: { accept: "application/json", ...headers },
+    signal,
+    redirect: "manual",
+  });
+  if (response.status >= 300 && response.status < 400)
+    throw new ListError(
+      `the endpoint's model list redirected (HTTP ${response.status}): give the base URL it redirects to`,
+    );
   if (!response.ok) throw new ListError(`the endpoint's model list answered HTTP ${response.status}`);
   try {
     return await response.json();
@@ -37,7 +58,12 @@ const getJson = async (url: URL, headers: Record<string, string>, fetcher: typeo
   }
 };
 
-const anthropic = async (target: EndpointTarget, apiKey: string | undefined, fetcher: typeof fetch, signal: AbortSignal) => {
+const anthropic = async (
+  target: EndpointTarget,
+  apiKey: string | undefined,
+  fetcher: typeof fetch,
+  signal: AbortSignal,
+) => {
   const headers = { ...keyedHeaders(target, apiKey), "anthropic-version": "2023-06-01" };
   const models: Array<EndpointModelInput> = [];
   let after: string | undefined;
@@ -62,25 +88,48 @@ const anthropic = async (target: EndpointTarget, apiKey: string | undefined, fet
   return models;
 };
 
-const openai = async (target: EndpointTarget, apiKey: string | undefined, fetcher: typeof fetch, signal: AbortSignal, signIn: SignIn | undefined) => {
+const openai = async (
+  target: EndpointTarget,
+  apiKey: string | undefined,
+  fetcher: typeof fetch,
+  signal: AbortSignal,
+  signIn: SignIn | undefined,
+) => {
   const body = await getJson(new URL(`${target.baseUrl}/models`), keyedHeaders(target, apiKey), fetcher, signal);
   // ChatGPT plan usage's catalog (SPI-1164; OpenAI's "Models and inference"): `{ models: [{ slug, display_name,
   // visibility }] }`, of which those listed for display, in the server's order.
   if (isRecord(body) && Array.isArray(body.models) && !Array.isArray(body.data)) {
     return body.models.flatMap((entry): Array<EndpointModelInput> =>
-      isRecord(entry) && typeof entry.slug === "string" && entry.slug !== "" && (entry.visibility === undefined || entry.visibility === "list")
-        ? [{ id: entry.slug, ...(typeof entry.display_name === "string" && entry.display_name !== "" ? { name: entry.display_name } : {}) }]
+      isRecord(entry) &&
+      typeof entry.slug === "string" &&
+      entry.slug !== "" &&
+      (entry.visibility === undefined || entry.visibility === "list")
+        ? [
+            {
+              id: entry.slug,
+              ...(typeof entry.display_name === "string" && entry.display_name !== ""
+                ? { name: entry.display_name }
+                : {}),
+            },
+          ]
         : [],
     );
   }
-  if (!isRecord(body) || !Array.isArray(body.data)) throw new ListError("the endpoint's answer is not a list of models");
+  if (!isRecord(body) || !Array.isArray(body.data))
+    throw new ListError("the endpoint's answer is not a list of models");
   // A Copilot sign-in's list is Copilot's catalog; any other endpoint's is read generically, whatever its fields.
   if (signIn === "copilot") return copilotModels(body.data, target);
-  return body.data.flatMap((entry): Array<EndpointModelInput> => (isRecord(entry) && typeof entry.id === "string" && entry.id !== "" ? [{ id: entry.id }] : []));
+  return body.data.flatMap((entry): Array<EndpointModelInput> =>
+    isRecord(entry) && typeof entry.id === "string" && entry.id !== "" ? [{ id: entry.id }] : [],
+  );
 };
 
 /** Each API's path in Copilot's `supported_endpoints`. */
-const COPILOT_PATHS: Readonly<Partial<Record<EndpointApi, string>>> = { "openai-responses": "/responses", "openai-completions": "/chat/completions", "anthropic-messages": "/v1/messages" };
+const COPILOT_PATHS: Readonly<Partial<Record<EndpointApi, string>>> = {
+  "openai-responses": "/responses",
+  "openai-completions": "/chat/completions",
+  "anthropic-messages": "/v1/messages",
+};
 
 /**
  * GitHub Copilot's catalog (SPI-1166): `{ data: [{ id, name, model_picker_enabled, policy: { state }, capabilities: {
@@ -96,21 +145,39 @@ const copilotModels = (data: ReadonlyArray<unknown>, target: EndpointTarget): Ar
     const supports = isRecord(capabilities.supports) ? capabilities.supports : {};
     if (supports.tool_calls === false || (capabilities.type !== undefined && capabilities.type !== "chat")) return [];
     const policy = isRecord(entry.policy) ? entry.policy.state : undefined;
-    return [{ id: entry.id, name: typeof entry.name === "string" && entry.name !== "" ? entry.name : undefined, picker: entry.model_picker_enabled === true, policy, endpoints: entry.supported_endpoints }];
+    return [
+      {
+        id: entry.id,
+        name: typeof entry.name === "string" && entry.name !== "" ? entry.name : undefined,
+        picker: entry.model_picker_enabled === true,
+        policy,
+        endpoints: entry.supported_endpoints,
+      },
+    ];
   });
   const picked = entries.filter((entry) => entry.picker && entry.policy !== "disabled");
   const fallback = picked.length === 0 && new URL(target.baseUrl).hostname === "api.individual.githubcopilot.com";
   const path = COPILOT_PATHS[target.api];
   return (fallback ? entries.filter((entry) => entry.policy === "enabled") : picked)
-    .filter((entry) => (Array.isArray(entry.endpoints) ? path !== undefined && entry.endpoints.includes(path) : copilotModelApi(entry.id) === target.api))
+    .filter((entry) =>
+      Array.isArray(entry.endpoints)
+        ? path !== undefined && entry.endpoints.includes(path)
+        : copilotModelApi(entry.id) === target.api,
+    )
     .map((entry) => ({ id: entry.id, ...(entry.name === undefined ? {} : { name: entry.name }) }));
 };
 
-const google = async (target: EndpointTarget, apiKey: string | undefined, fetcher: typeof fetch, signal: AbortSignal) => {
+const google = async (
+  target: EndpointTarget,
+  apiKey: string | undefined,
+  fetcher: typeof fetch,
+  signal: AbortSignal,
+) => {
   const url = new URL(`${target.baseUrl}/models`);
   url.searchParams.set("pageSize", "1000");
   const body = await getJson(url, keyedHeaders(target, apiKey), fetcher, signal);
-  if (!isRecord(body) || !Array.isArray(body.models)) throw new ListError("the endpoint's answer is not a list of models");
+  if (!isRecord(body) || !Array.isArray(body.models))
+    throw new ListError("the endpoint's answer is not a list of models");
   return body.models.flatMap((entry): Array<EndpointModelInput> => {
     if (!isRecord(entry) || typeof entry.name !== "string") return [];
     const methods = Array.isArray(entry.supportedGenerationMethods) ? entry.supportedGenerationMethods : [];
@@ -132,7 +199,12 @@ const google = async (target: EndpointTarget, apiKey: string | undefined, fetche
  * The models `target` lists, sorted by id, read with `apiKey` (none for an endpoint without auth). `signIn`: the sign-in
  * whose list it is, when its vendor's list has its own shape (Copilot's).
  */
-export const discoverModels = async (target: EndpointTarget, apiKey: string | undefined, fetcher: typeof fetch = fetch, signIn?: SignIn): Promise<Discovery> => {
+export const discoverModels = async (
+  target: EndpointTarget,
+  apiKey: string | undefined,
+  fetcher: typeof fetch = fetch,
+  signIn?: SignIn,
+): Promise<Discovery> => {
   const signal = AbortSignal.timeout(TIMEOUT_MS);
   try {
     const models =
@@ -141,11 +213,19 @@ export const discoverModels = async (target: EndpointTarget, apiKey: string | un
         : target.api === "google-generative-ai"
           ? await google(target, apiKey, fetcher, signal)
           : await openai(target, apiKey, fetcher, signal, signIn);
-    const unique = [...new Map(models.map((model) => [model.id, model])).values()].sort((a, b) => a.id.localeCompare(b.id));
+    const unique = [...new Map(models.map((model) => [model.id, model])).values()].sort((a, b) =>
+      a.id.localeCompare(b.id),
+    );
     return { ok: true, models: unique };
   } catch (error) {
     if (error instanceof ListError) return { ok: false, error: error.message };
     const name = error instanceof Error ? error.name : "";
-    return { ok: false, error: name === "TimeoutError" ? "the endpoint's model list did not answer in 10 s" : "the endpoint's model list could not be reached" };
+    return {
+      ok: false,
+      error:
+        name === "TimeoutError"
+          ? "the endpoint's model list did not answer in 10 s"
+          : "the endpoint's model list could not be reached",
+    };
   }
 };

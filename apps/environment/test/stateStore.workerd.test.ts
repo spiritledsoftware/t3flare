@@ -119,7 +119,10 @@ describe("State directory", () => {
       const sql = state.storage.sql;
       sql.exec(`CREATE TABLE t3flare_files (path TEXT PRIMARY KEY, parent TEXT NOT NULL, kind TEXT NOT NULL, data BLOB,
         target TEXT, mode INTEGER NOT NULL, mtime_ms INTEGER NOT NULL, birthtime_ms INTEGER NOT NULL)`);
-      sql.exec(`INSERT INTO t3flare_files VALUES ('/', '/', 'dir', NULL, NULL, 493, 0, 0), ('/old.txt', '/', 'file', ?, NULL, 420, 0, 0)`, new TextEncoder().encode("hello"));
+      sql.exec(
+        `INSERT INTO t3flare_files VALUES ('/', '/', 'dir', NULL, NULL, 493, 0, 0), ('/old.txt', '/', 'file', ?, NULL, 420, 0, 0)`,
+        new TextEncoder().encode("hello"),
+      );
       store.bindStateStorage({ sql, transactionSync: (f) => state.storage.transactionSync(f) });
       expect(store.get("/old.txt")?.size).toBe(5);
       expect(new TextDecoder().decode(store.readFile("/old.txt"))).toBe("hello");

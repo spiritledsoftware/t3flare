@@ -16,7 +16,13 @@
 // - A wait (`timeoutMs`) goes to t3 in pieces of at most 50 s from its start (review C9), each marked as progress.
 // @effect-diagnostics globalDate:off
 import type { Context } from "@earendil-works/chord";
-import { defineExtension, type Extension, section, type ToolExecutionApi, type ToolRegistration } from "@earendil-works/pi-durable";
+import {
+  defineExtension,
+  type Extension,
+  section,
+  type ToolExecutionApi,
+  type ToolRegistration,
+} from "@earendil-works/pi-durable";
 import type { InteractionMode, RuntimeMode } from "@t3flare/session-protocol";
 
 import { cardText } from "./cardText.ts";
@@ -30,7 +36,15 @@ export const t3ToolName = (name: string): string => `mcp__${T3_MCP_SERVER}__${na
 
 /** The T3 tools a Durable agent is not offered: harness-registry's (ADR-0022). */
 export { T3_TOOL_DENYLIST } from "@t3flare/harness-registry";
-import { type Exposure, isDeniedT3Tool, MAX_T3_DESCRIPTION, ownEntry, type ResolvedTools, T3_DIRECT_ONLY, type T3ToolListing } from "@t3flare/harness-registry";
+import {
+  type Exposure,
+  isDeniedT3Tool,
+  MAX_T3_DESCRIPTION,
+  ownEntry,
+  type ResolvedTools,
+  T3_DIRECT_ONLY,
+  type T3ToolListing,
+} from "@t3flare/harness-registry";
 
 /**
  * `PeerForwarding.FORWARDED_WAIT_CHUNK_MS`'s length, from the wait's start. t3 itself holds a wait at most 45 s
@@ -57,7 +71,8 @@ export const asksForDirect = (tool: CatalogTool): boolean => tool._meta?.["anthr
  * Tool `tool`'s Exposure (harness-registry's tools.ts): the owner's for it, else direct when t3 asks for it in every
  * request, else the owner's for t3's tools without their own.
  */
-export const t3ExposureOf = (t3: ResolvedTools["t3"], tool: CatalogTool): Exposure => ownEntry(t3.tools, tool.name) ?? (asksForDirect(tool) ? "direct" : t3.exposure);
+export const t3ExposureOf = (t3: ResolvedTools["t3"], tool: CatalogTool): Exposure =>
+  ownEntry(t3.tools, tool.name) ?? (asksForDirect(tool) ? "direct" : t3.exposure);
 
 /** The tools offered from one `tools/list`, and the listed ones the denylist left out. */
 export interface T3Catalog {
@@ -67,7 +82,11 @@ export interface T3Catalog {
 }
 
 /** The Exposure of the tool the Session registered as `registered` (`mcp__t3-code__…`): by its listing, else the default. */
-export const t3RegisteredExposure = (t3: ResolvedTools["t3"], catalog: T3Catalog | undefined, registered: string): Exposure => {
+export const t3RegisteredExposure = (
+  t3: ResolvedTools["t3"],
+  catalog: T3Catalog | undefined,
+  registered: string,
+): Exposure => {
   const listed = catalog?.tools.find((each) => t3ToolName(each.name) === registered);
   return listed === undefined ? t3.exposure : t3ExposureOf(t3, listed);
 };
@@ -77,7 +96,9 @@ export const t3ListingOf = (catalog: T3Catalog, listedAt: number): T3ToolListing
   listedAt,
   tools: catalog.tools.map((tool) => ({
     name: tool.name,
-    ...(tool.description === undefined && tool.title === undefined ? {} : { description: (tool.title ?? tool.description ?? "").slice(0, MAX_T3_DESCRIPTION) }),
+    ...(tool.description === undefined && tool.title === undefined
+      ? {}
+      : { description: (tool.title ?? tool.description ?? "").slice(0, MAX_T3_DESCRIPTION) }),
     readOnly: tool.annotations?.readOnlyHint === true,
     asksForDirect: asksForDirect(tool),
   })),
@@ -99,7 +120,10 @@ export const catalogOf = (listed: ReadonlyArray<CatalogTool>): T3Catalog => {
   return {
     tools,
     hash: hashOf(JSON.stringify(tools)),
-    left: listed.filter((tool) => isDeniedT3Tool(tool.name)).map((tool) => tool.name).sort(),
+    left: listed
+      .filter((tool) => isDeniedT3Tool(tool.name))
+      .map((tool) => tool.name)
+      .sort(),
   };
 };
 
@@ -129,14 +153,24 @@ export interface T3McpHost {
 
 const CREDENTIAL_MEMO = "t3flare.t3-mcp.credential";
 
-const textResult = (text: string, isError: boolean, tool: string, images: ReadonlyArray<{ readonly data: string; readonly mimeType: string }> = []) => ({
-  output: [{ type: "text" as const, text }, ...images.map((image) => ({ type: "image" as const, data: image.data, mimeType: image.mimeType }))],
+const textResult = (
+  text: string,
+  isError: boolean,
+  tool: string,
+  images: ReadonlyArray<{ readonly data: string; readonly mimeType: string }> = [],
+) => ({
+  output: [
+    { type: "text" as const, text },
+    ...images.map((image) => ({ type: "image" as const, data: image.data, mimeType: image.mimeType })),
+  ],
   isError,
   details: { server: T3_MCP_SERVER, tool },
 });
 
 const takesKey = (tool: CatalogTool) =>
-  typeof tool.inputSchema?.properties === "object" && tool.inputSchema.properties !== null && "clientRequestId" in (tool.inputSchema.properties as object);
+  typeof tool.inputSchema?.properties === "object" &&
+  tool.inputSchema.properties !== null &&
+  "clientRequestId" in (tool.inputSchema.properties as object);
 
 /** One tool of the catalog as a pi-durable tool; its description names no denied tool (SPI-1060). */
 const toolOf = (tool: CatalogTool, host: T3McpHost): ToolRegistration => {
@@ -155,7 +189,12 @@ const toolOf = (tool: CatalogTool, host: T3McpHost): ToolRegistration => {
     ...(T3_DIRECT_ONLY.has(tool.name) ? { callers: ["model"] as const } : {}),
     async execute(input: Record<string, unknown>, api: ToolExecutionApi, context: Context) {
       const credential = host.credential();
-      if (credential === undefined) return textResult("T3's tools are unavailable in this turn; they come back with the next turn.", true, tool.name);
+      if (credential === undefined)
+        return textResult(
+          "T3's tools are unavailable in this turn; they come back with the next turn.",
+          true,
+          tool.name,
+        );
       if (!readOnly) {
         if (host.interaction() === "plan") return planRefusal();
         // t3 scopes a clientRequestId by the provider session: under a credential issued again, a rerun would be new work.
@@ -165,7 +204,12 @@ const toolOf = (tool: CatalogTool, host: T3McpHost): ToolRegistration => {
         if (host.mode() !== "full-access" && !host.store.acceptedFor({ tool: name, kind: "mcp-tool" })) {
           const declined = await askOwner(
             host.store,
-            { turn: host.turn(), tool: name, kind: "mcp-tool", summary: cardText(`${tool.name} ${JSON.stringify(input, null, 2)}`) },
+            {
+              turn: host.turn(),
+              tool: name,
+              kind: "mcp-tool",
+              summary: cardText(`${tool.name} ${JSON.stringify(input, null, 2)}`),
+            },
             api,
             context,
           );
@@ -173,8 +217,13 @@ const toolOf = (tool: CatalogTool, host: T3McpHost): ToolRegistration => {
         }
         if (!keyed) await api.memo(STARTED_MEMO, true, context);
       }
-      const args = keyed && typeof input.clientRequestId !== "string" ? { ...input, clientRequestId: `pi-durable:${String(api.taskId)}` } : input;
-      const answer = T3_DIRECT_ONLY.has(tool.name) ? await waitInPieces(host, tool.name, args, api, context) : await host.call(tool.name, args);
+      const args =
+        keyed && typeof input.clientRequestId !== "string"
+          ? { ...input, clientRequestId: `pi-durable:${String(api.taskId)}` }
+          : input;
+      const answer = T3_DIRECT_ONLY.has(tool.name)
+        ? await waitInPieces(host, tool.name, args, api, context)
+        : await host.call(tool.name, args);
       if (answer.kind === "unavailable") return textResult(answer.message, true, tool.name);
       return textResult(answer.text, answer.isError, tool.name, answer.images);
     },

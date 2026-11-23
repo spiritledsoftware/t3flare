@@ -9,9 +9,22 @@
 // Workspace's (`/workspace/repo`), and t3's `/w/<id>` paths are translated as `bash`'s are (`permissions.ts`).
 // @effect-diagnostics globalDate:off
 import type { Context } from "@earendil-works/chord";
-import { defineTool, InboxDoc, type JsonObject, type ToolExecutionApi, type ToolRegistration } from "@earendil-works/pi-durable";
+import {
+  defineTool,
+  InboxDoc,
+  type JsonObject,
+  type ToolExecutionApi,
+  type ToolRegistration,
+} from "@earendil-works/pi-durable";
 import { arr, bool, int, obj, opt, str } from "@earendil-works/pi-schema";
-import type { AgentEntryInfo, AgentExit, AgentSettleReason, AgentTerminalRequest, AgentTerminalResult, AgentView } from "@t3flare/workspace-client";
+import type {
+  AgentEntryInfo,
+  AgentExit,
+  AgentSettleReason,
+  AgentTerminalRequest,
+  AgentTerminalResult,
+  AgentView,
+} from "@t3flare/workspace-client";
 
 export const QUIET_MS = 250;
 export const START_WAIT_MS = 2_000;
@@ -57,7 +70,8 @@ export interface TermctrlHost {
 const encoder = new TextEncoder();
 const bytes = (text: string) => encoder.encode(text).length;
 
-export const clampWait = (requested: number | undefined, fallback: number): number => Math.min(MAX_WAIT_MS, Math.max(0, requested ?? fallback));
+export const clampWait = (requested: number | undefined, fallback: number): number =>
+  Math.min(MAX_WAIT_MS, Math.max(0, requested ?? fallback));
 
 /** How a process ended (exit-notification.ts `describeExitStatus`). */
 export const describeExitStatus = (exit: AgentExit): string => {
@@ -85,10 +99,14 @@ export const formatExitNotice = (entry: AgentEntryInfo, output: string, tailLine
   const label = entry.kind === "terminal" ? "Terminal" : "Background job";
   const exit = entry.exit ?? { code: null, signal: null };
   const head = `${label} ${entry.id} ${describeExitStatus(exit)} after ${formatDuration((entry.endedAt ?? entry.startedAt) - entry.startedAt)}: ${entry.command}\n${
-    entry.logPath !== undefined ? `Log: ${entry.logPath}` : `terminal_send {"id": "${entry.id}"} returns its final screen.`
+    entry.logPath !== undefined
+      ? `Log: ${entry.logPath}`
+      : `terminal_send {"id": "${entry.id}"} returns its final screen.`
   }`;
   const tail = lastLines(output, tailLines);
-  return tail === "" ? head : `${head}\nLast lines of ${entry.kind === "terminal" ? "final screen" : "output"}:\n${tail}`;
+  return tail === ""
+    ? head
+    : `${head}\nLast lines of ${entry.kind === "terminal" ? "final screen" : "output"}:\n${tail}`;
 };
 
 const exitFields = (exit: AgentExit | null): { exit_code?: number; signal?: string } => ({
@@ -99,7 +117,10 @@ const exitFields = (exit: AgentExit | null): { exit_code?: number; signal?: stri
 const splitRows = (screen: string): Array<string> => (screen === "" ? [] : screen.split("\n"));
 
 /** The last `limits` of `text`'s lines. */
-const keepTail = (text: string, limits: { readonly lines: number; readonly bytes: number }): { readonly text: string; readonly cut: boolean } => {
+const keepTail = (
+  text: string,
+  limits: { readonly lines: number; readonly bytes: number },
+): { readonly text: string; readonly cut: boolean } => {
   let lines = splitRows(text);
   const cut = lines.length > limits.lines || bytes(text) > limits.bytes;
   lines = lines.slice(-limits.lines);
@@ -154,7 +175,11 @@ export type TerminalResult = {
 };
 
 /** A result whose structured value is also its details (the differ reads them). */
-const toolResult = (text: string, value: object) => ({ output: [{ type: "text" as const, text }], structuredOutput: value as JsonObject, details: value as JsonObject });
+const toolResult = (text: string, value: object) => ({
+  output: [{ type: "text" as const, text }],
+  structuredOutput: value as JsonObject,
+  details: value as JsonObject,
+});
 
 /**
  * Where a Screen Delta starts (terminal-tools.ts `screenDeltaStart`): the previous cursor row moved up by the rows the
@@ -166,7 +191,8 @@ const deltaStart = (view: AgentView, rows: ReadonlyArray<string>): number => {
   const start = previous.cursorRow - view.shift;
   if (start <= 0 || start >= rows.length) return 0;
   const before = splitRows(previous.screen);
-  for (let row = view.shift; row < previous.cursorRow; row++) if ((before[row] ?? "") !== (rows[row - view.shift] ?? "")) return 0;
+  for (let row = view.shift; row < previous.cursorRow; row++)
+    if ((before[row] ?? "") !== (rows[row - view.shift] ?? "")) return 0;
   return start;
 };
 
@@ -174,7 +200,11 @@ const deltaStart = (view: AgentView, rows: ReadonlyArray<string>): number => {
 export const terminalResult = (
   view: AgentView,
   reason: AgentSettleReason | "steered",
-  options: { readonly note?: string | undefined; readonly fullScreen?: boolean | undefined; readonly label?: string } = {},
+  options: {
+    readonly note?: string | undefined;
+    readonly fullScreen?: boolean | undefined;
+    readonly label?: string;
+  } = {},
 ) => {
   const rows = splitRows(view.screen);
   // A line the agent saw on its previous screen is not repeated when it scrolls off unchanged.
@@ -199,17 +229,24 @@ export const terminalResult = (
     ...(view.outputMissing ? { output_missing: true } : {}),
   };
   const exit = view.state === "running" ? "running" : describeExitStatus(view.exit ?? { code: null, signal: null });
-  const parts = [`${view.id} ${exit} · settled: ${reason}${unchanged ? " · screen unchanged" : ""} · ${cursor === null ? "cursor hidden" : `cursor ${cursor.row}:${cursor.column}`}`];
+  const parts = [
+    `${view.id} ${exit} · settled: ${reason}${unchanged ? " · screen unchanged" : ""} · ${cursor === null ? "cursor hidden" : `cursor ${cursor.row}:${cursor.column}`}`,
+  ];
   if (options.note !== undefined) parts.push(options.note);
   if (fitted.text !== "") parts.push(`--- scrolled off ---\n${fitted.text}`);
   if (!omitted) {
     const label = options.label ?? "screen";
-    const marker = start === 0 ? `--- ${label} ---` : `--- ${label} (rows ${start + 1}-${rows.length} of ${rows.length}; rows above unchanged) ---`;
+    const marker =
+      start === 0
+        ? `--- ${label} ---`
+        : `--- ${label} (rows ${start + 1}-${rows.length} of ${rows.length}; rows above unchanged) ---`;
     parts.push(`${marker}\n${shown.text === "" ? "(blank)" : shown.text}`);
   }
   const notices = [
     ...(view.outputMissing ? [GAP_NOTICE] : []),
-    ...(fitted.summary === undefined ? [] : [`[${fitted.summary} For complete output, run the command with bash or redirect it to a file.]`]),
+    ...(fitted.summary === undefined
+      ? []
+      : [`[${fitted.summary} For complete output, run the command with bash or redirect it to a file.]`]),
     ...(shown.cut ? ["[The screen was cut to its last 2000 lines or 50KB.]"] : []),
   ];
   const text = notices.length === 0 ? parts.join("\n") : `${parts.join("\n")}\n\n${notices.join("\n")}`;
@@ -236,7 +273,14 @@ const settle = async (
   host: TermctrlHost,
   api: ToolExecutionApi,
   context: Context,
-  input: { readonly id: string; readonly text?: string; readonly keys?: ReadonlyArray<string>; readonly mode: "start" | "input" | "poll"; readonly waitMs: number; readonly pattern?: string },
+  input: {
+    readonly id: string;
+    readonly text?: string;
+    readonly keys?: ReadonlyArray<string>;
+    readonly mode: "start" | "input" | "poll";
+    readonly waitMs: number;
+    readonly pattern?: string;
+  },
 ): Promise<{ readonly view: AgentView; readonly reason: AgentSettleReason | "steered" }> => {
   const deadline = Date.now() + input.waitMs;
   let since: string | undefined;
@@ -265,7 +309,9 @@ const settle = async (
 };
 
 const unmatchedNote = (reason: string, pattern: string | undefined): string | undefined =>
-  (reason === "timeout" || reason === "steered") && pattern !== undefined ? `wait_for_text ${JSON.stringify(pattern)} was not seen before the wait ended.` : undefined;
+  (reason === "timeout" || reason === "steered") && pattern !== undefined
+    ? `wait_for_text ${JSON.stringify(pattern)} was not seen before the wait ended.`
+    : undefined;
 
 /** Loose schemas: the shapes are the results above; code mode scripts get them as values. */
 const OBJECT = { type: "object" } as const;
@@ -281,15 +327,35 @@ export const terminalStartTool = (host: TermctrlHost): ToolRegistration =>
       command: str({ description: "Shell command that starts the program" }),
       cwd: opt(str({ description: "Working directory (default: the repo)" })),
       wait_ms: waitMs("Maximum milliseconds to wait (clamped to 300000)"),
-      notify: opt(bool({ description: "Send an Exit notification when it exits (default true); to block until it exits, use terminal_wait" })),
+      notify: opt(
+        bool({
+          description:
+            "Send an Exit notification when it exits (default true); to block until it exits, use terminal_wait",
+        }),
+      ),
     }),
     structuredOutputSchema: OBJECT,
     async execute(args, api, context) {
-      const cwd = args.cwd === undefined ? "/workspace/repo" : host.toToolPath(args.cwd.startsWith("/") ? args.cwd : `/workspace/repo/${args.cwd}`);
+      const cwd =
+        args.cwd === undefined
+          ? "/workspace/repo"
+          : host.toToolPath(args.cwd.startsWith("/") ? args.cwd : `/workspace/repo/${args.cwd}`);
       const { entry } = valueOf(
-        await host.call({ op: "start", owner: host.owner(), kind: "terminal", command: host.toToolPath(args.command), cwd, ...host.viewport(), notify: args.notify ?? true }),
+        await host.call({
+          op: "start",
+          owner: host.owner(),
+          kind: "terminal",
+          command: host.toToolPath(args.command),
+          cwd,
+          ...host.viewport(),
+          notify: args.notify ?? true,
+        }),
       );
-      const { view, reason } = await settle(host, api, context, { id: entry.id, mode: "start", waitMs: clampWait(args.wait_ms, START_WAIT_MS) });
+      const { view, reason } = await settle(host, api, context, {
+        id: entry.id,
+        mode: "start",
+        waitMs: clampWait(args.wait_ms, START_WAIT_MS),
+      });
       const shown = terminalResult(view, reason, { fullScreen: true });
       return toolResult(shown.text, shown.result);
     },
@@ -303,14 +369,24 @@ export const terminalSendTool = (host: TermctrlHost): ToolRegistration =>
     parameters: obj({
       id: str({ description: "Terminal id, such as t1" }),
       text: opt(str({ description: "Text to type; \\n presses Enter" })),
-      keys: opt(arr(str(), { description: `Keys pressed after text: ${TERMINAL_KEYS.join(", ")}, Control+A to Control+Z` })),
+      keys: opt(
+        arr(str(), { description: `Keys pressed after text: ${TERMINAL_KEYS.join(", ")}, Control+A to Control+Z` }),
+      ),
       wait_for_text: opt(str({ description: "Wait until the screen shows this text, or /regex/flags" })),
       wait_ms: waitMs("Maximum milliseconds to wait (clamped to 300000)"),
-      full_screen: opt(bool({ description: "Show the whole screen in this result, even when the rows above the previous cursor row are unchanged or the screen is unchanged" })),
+      full_screen: opt(
+        bool({
+          description:
+            "Show the whole screen in this result, even when the rows above the previous cursor row are unchanged or the screen is unchanged",
+        }),
+      ),
     }),
     structuredOutputSchema: OBJECT,
     async execute(args, api, context) {
-      if (/^b\d+$/.test(args.id)) throw new Error(`${args.id} is a Background job, which accepts no input. Read its log or stop it with terminal_stop.`);
+      if (/^b\d+$/.test(args.id))
+        throw new Error(
+          `${args.id} is a Background job, which accepts no input. Read its log or stop it with terminal_stop.`,
+        );
       const keys = args.keys ?? [];
       const hasInput = (args.text ?? "") !== "" || keys.length > 0;
       const { view, reason } = await settle(host, api, context, {
@@ -321,7 +397,10 @@ export const terminalSendTool = (host: TermctrlHost): ToolRegistration =>
         waitMs: clampWait(args.wait_ms, hasInput ? INPUT_WAIT_MS : POLL_WAIT_MS),
         ...(args.wait_for_text === undefined ? {} : { pattern: args.wait_for_text }),
       });
-      const shown = terminalResult(view, reason, { note: unmatchedNote(reason, args.wait_for_text), fullScreen: args.full_screen });
+      const shown = terminalResult(view, reason, {
+        note: unmatchedNote(reason, args.wait_for_text),
+        fullScreen: args.full_screen,
+      });
       return toolResult(shown.text, shown.result);
     },
   });
@@ -336,12 +415,21 @@ export const terminalStopTool = (host: TermctrlHost): ToolRegistration =>
     async execute(args) {
       const { stopped, view } = valueOf(await host.call({ op: "stop", owner: host.owner(), id: args.id }));
       if (stopped.kind === "background_job") {
-        const result = { id: stopped.id, kind: stopped.kind, state: "exited" as const, ...exitFields(stopped.exit), output: view.output ?? "" };
+        const result = {
+          id: stopped.id,
+          kind: stopped.kind,
+          state: "exited" as const,
+          ...exitFields(stopped.exit),
+          output: view.output ?? "",
+        };
         const text = `Background job ${stopped.id} stopped (${describeExitStatus(stopped.exit ?? { code: null, signal: null })}).\n--- recent output ---\n${view.output === "" ? "(none)" : (view.output ?? "")}`;
         return toolResult(text, result);
       }
       const shown = terminalResult(view, "exited", { label: "final screen" });
-      const text = shown.text.replace(/^[^\n]*/, `Terminal ${stopped.id} stopped · ${view.cursor === null ? "cursor hidden" : `cursor ${view.cursor.y + 1}:${view.cursor.x + 1}`}`);
+      const text = shown.text.replace(
+        /^[^\n]*/,
+        `Terminal ${stopped.id} stopped · ${view.cursor === null ? "cursor hidden" : `cursor ${view.cursor.y + 1}:${view.cursor.x + 1}`}`,
+      );
       return toolResult(text, { ...shown.result, kind: stopped.kind });
     },
   });
@@ -363,7 +451,8 @@ const listEntry = (entry: AgentEntryInfo, now: number) => ({
 export const terminalListTool = (host: TermctrlHost): ToolRegistration =>
   defineTool({
     name: "terminal_list",
-    description: "List your Terminals and Background jobs, running and exited, with their state. Background jobs include their log path.",
+    description:
+      "List your Terminals and Background jobs, running and exited, with their state. Background jobs include their log path.",
     parameters: obj({}),
     structuredOutputSchema: OBJECT,
     replay: "safe",
@@ -372,8 +461,12 @@ export const terminalListTool = (host: TermctrlHost): ToolRegistration =>
       const now = Date.now();
       const terminals = entries.filter((entry) => entry.kind === "terminal");
       const jobs = entries.filter((entry) => entry.kind === "background_job");
-      const section = (title: string, items: ReadonlyArray<AgentEntryInfo>) => `${title}:\n${items.length === 0 ? "(none)" : items.map((entry) => listLine(entry, now)).join("\n")}`;
-      const result = { terminals: terminals.map((entry) => listEntry(entry, now)), background_jobs: jobs.map((entry) => listEntry(entry, now)) };
+      const section = (title: string, items: ReadonlyArray<AgentEntryInfo>) =>
+        `${title}:\n${items.length === 0 ? "(none)" : items.map((entry) => listLine(entry, now)).join("\n")}`;
+      const result = {
+        terminals: terminals.map((entry) => listEntry(entry, now)),
+        background_jobs: jobs.map((entry) => listEntry(entry, now)),
+      };
       return toolResult(`${section("Terminals", terminals)}\n\n${section("Background jobs", jobs)}`, result);
     },
   });
@@ -390,7 +483,9 @@ export const terminalWaitTool = (host: TermctrlHost): ToolRegistration =>
     description:
       "Wait until one of your Terminals or Background jobs exits, then return every exit so far and what is still running. Returns early when wait_ms (default 300000) runs out or a steer is queued for you; whatever it waited on keeps running. Exits it returns send no Exit notification.",
     parameters: obj({
-      ids: opt(arr(str(), { description: "Terminal or Background job ids to wait for (default: all of yours still running)" })),
+      ids: opt(
+        arr(str(), { description: "Terminal or Background job ids to wait for (default: all of yours still running)" }),
+      ),
       wait_ms: waitMs("Maximum milliseconds to wait (default and maximum 300000)"),
     }),
     structuredOutputSchema: OBJECT,
@@ -398,9 +493,17 @@ export const terminalWaitTool = (host: TermctrlHost): ToolRegistration =>
       const ms = clampWait(args.wait_ms, MAX_WAIT_MS);
       const deadline = Date.now() + ms;
       let reason: "exited" | "timeout" | "steered" | "nothing_running" = "nothing_running";
-      let answer: { readonly exited: ReadonlyArray<AgentEntryInfo>; readonly running: ReadonlyArray<AgentEntryInfo>; readonly timedOut: boolean } | undefined;
+      let answer:
+        | {
+            readonly exited: ReadonlyArray<AgentEntryInfo>;
+            readonly running: ReadonlyArray<AgentEntryInfo>;
+            readonly timedOut: boolean;
+          }
+        | undefined;
       for (;;) {
-        answer = valueOf(await host.call({ op: "wait", owner: host.owner(), ids: args.ids ?? null, deadline, chunkMs: SLICE_MS }));
+        answer = valueOf(
+          await host.call({ op: "wait", owner: host.owner(), ids: args.ids ?? null, deadline, chunkMs: SLICE_MS }),
+        );
         if (answer.exited.length > 0) reason = "exited";
         else if (answer.running.length === 0 && args.ids === undefined) reason = "nothing_running";
         else if (answer.timedOut || Date.now() >= deadline) reason = "timeout";
@@ -411,8 +514,20 @@ export const terminalWaitTool = (host: TermctrlHost): ToolRegistration =>
       const tails = await Promise.all(
         answer.exited.map(async (entry) => {
           // A Terminal's final screen, or a job's output, for the exit's last lines; the view is not the owner's.
-          const settled = await host.call({ op: "settle", owner: host.owner(), id: entry.id, mode: "poll", deadline: Date.now(), chunkMs: 0, view: false });
-          return settled.ok ? (entry.kind === "terminal" ? settled.value.view.screen : (settled.value.view.output ?? "")) : "";
+          const settled = await host.call({
+            op: "settle",
+            owner: host.owner(),
+            id: entry.id,
+            mode: "poll",
+            deadline: Date.now(),
+            chunkMs: 0,
+            view: false,
+          });
+          return settled.ok
+            ? entry.kind === "terminal"
+              ? settled.value.view.screen
+              : (settled.value.view.output ?? "")
+            : "";
         }),
       );
       const now = Date.now();
@@ -431,7 +546,12 @@ export const terminalWaitTool = (host: TermctrlHost): ToolRegistration =>
           output: lastLines(tails[index] ?? "", EXIT_TAIL_LINES),
           ...(entry.logPath === undefined ? {} : { log_path: entry.logPath }),
         })),
-        running: running.map((entry) => ({ id: entry.id, kind: entry.kind, command: entry.command, age_seconds: Math.round((now - entry.startedAt) / 1000) })),
+        running: running.map((entry) => ({
+          id: entry.id,
+          kind: entry.kind,
+          command: entry.command,
+          age_seconds: Math.round((now - entry.startedAt) / 1000),
+        })),
       };
       return toolResult(parts.join("\n\n"), result);
     },

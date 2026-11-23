@@ -228,9 +228,7 @@ const exitedAs = (child: StatusChild, scrub: Scrub) => {
 
   const tail = child.stderrTail === undefined ? "" : quoted(child.stderrTail, scrub);
 
-  return tail === ""
-    ? `stdio server exited (${how})`
-    : `stdio server exited (${how}); its stderr ended:\n${tail}`;
+  return tail === "" ? `stdio server exited (${how})` : `stdio server exited (${how}); its stderr ended:\n${tail}`;
 };
 
 /** What a stdio call goes through: the `fetch` for the core, the child's spawn id, and the naming of a cut. */
@@ -327,8 +325,7 @@ export const stdioBridge = (
     const key = await mcpBridgeKey(config);
     const child = Arr.findFirst(children, (each) => each.key === key);
 
-    return Option.isSome(child) &&
-      (child.value.state === "exited" || child.value.exit !== undefined)
+    return Option.isSome(child) && (child.value.state === "exited" || child.value.exit !== undefined)
       ? Cut.make({ message: exitedAs(child.value, scrub), mayHaveRun: true })
       : undefined;
   };
@@ -344,9 +341,7 @@ export const stdioBridge = (
       const ended = await Promise.race([status().catch(() => undefined), timeout]);
 
       // The status knows what ended the call, not whether the server had run it: that is the cut's own.
-      return ended === undefined
-        ? cut
-        : Cut.make({ message: ended.message, mayHaveRun: cut.mayHaveRun });
+      return ended === undefined ? cut : Cut.make({ message: ended.message, mayHaveRun: cut.mayHaveRun });
     },
   };
 };

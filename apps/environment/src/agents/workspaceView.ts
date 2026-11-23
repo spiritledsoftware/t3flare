@@ -6,7 +6,17 @@
 import type { SqlStorage } from "@cloudflare/workers-types/index.ts";
 import { toWorkspace } from "@t3flare/workspace-client";
 
-import { type Holder, type OpenTerminals, planSweep, purgeDue, purgeSubjectOf, readReferences, type References, type SweepAction, type SweepReport } from "./deletion.ts";
+import {
+  type Holder,
+  type OpenTerminals,
+  planSweep,
+  purgeDue,
+  purgeSubjectOf,
+  readReferences,
+  type References,
+  type SweepAction,
+  type SweepReport,
+} from "./deletion.ts";
 import type { SweepSettings } from "./deletionSettings.ts";
 import type { WorkspaceKind, WorkspaceRecord } from "./workspaces.ts";
 
@@ -23,7 +33,14 @@ export interface WorkspacesDeps {
   readonly terminals: OpenTerminals;
 }
 
-export type WorkspaceStatus = "in use" | "unreferenced" | "tombstone" | "tombstone (kept)" | "purging" | "provisioning" | "failed";
+export type WorkspaceStatus =
+  | "in use"
+  | "unreferenced"
+  | "tombstone"
+  | "tombstone (kept)"
+  | "purging"
+  | "provisioning"
+  | "failed";
 
 export interface WorkspaceRow {
   readonly id: string;
@@ -78,9 +95,13 @@ export interface Titles {
 /** The titles of t3's projects and threads; a table or column t3 renamed throws. */
 export const titlesFrom = (sql: SqlStorage): Titles => {
   const projects = sql
-    .exec<{ project_id: string; title: string; workspace_root: string }>("SELECT project_id, title, workspace_root FROM projection_projects ORDER BY created_at DESC")
+    .exec<{ project_id: string; title: string; workspace_root: string }>(
+      "SELECT project_id, title, workspace_root FROM projection_projects ORDER BY created_at DESC",
+    )
     .toArray();
-  const threads = sql.exec<{ thread_id: string; title: string }>("SELECT thread_id, title FROM orchestration_v2_projection_threads").toArray();
+  const threads = sql
+    .exec<{ thread_id: string; title: string }>("SELECT thread_id, title FROM orchestration_v2_projection_threads")
+    .toArray();
   const workspaces = new Map<string, string>();
   for (const project of projects) {
     // A project may sit in a subdirectory of its repo: matched by Workspace id, as the references are.
@@ -95,11 +116,17 @@ export const titlesFrom = (sql: SqlStorage): Titles => {
 };
 
 /** A Workspace's title (ADR-0044 §1): its t3 project's, by Workspace id, else its id; a worktree's branch, else its name. */
-export const titleOf = (row: WorkspaceRecord, titles: Titles): string => (row.kind === "worktree" ? (row.branch ?? confirmNameOf(row.id)) : (titles.workspaces.get(row.id) ?? row.id));
+export const titleOf = (row: WorkspaceRecord, titles: Titles): string =>
+  row.kind === "worktree" ? (row.branch ?? confirmNameOf(row.id)) : (titles.workspaces.get(row.id) ?? row.id);
 
 /** How many deleted threads' Sessions a Purge of `members` destroys, each once (a worktree thread is under its project too). */
-export const sessionsOf = (members: ReadonlyArray<Pick<WorkspaceRecord, "id">>, references: Pick<References, "deletedThreads">): number =>
-  new Set(members.flatMap((member) => (references.deletedThreads.get(member.id) ?? []).map((thread) => thread.threadId))).size;
+export const sessionsOf = (
+  members: ReadonlyArray<Pick<WorkspaceRecord, "id">>,
+  references: Pick<References, "deletedThreads">,
+): number =>
+  new Set(
+    members.flatMap((member) => (references.deletedThreads.get(member.id) ?? []).map((thread) => thread.threadId)),
+  ).size;
 
 const quoted = (title: string | undefined, id: string) => `“${title ?? id}”`;
 
@@ -125,7 +152,8 @@ export const readNamedReferences = async (deps: WorkspacesDeps, rows: ReadonlyAr
     references,
     titles,
     /** What references Workspace `id`, by title; empty when nothing does. */
-    named: (id: string): ReadonlyArray<string> => (references.holders.get(id) ?? []).map((holder) => namedHolder(holder, titles)),
+    named: (id: string): ReadonlyArray<string> =>
+      (references.holders.get(id) ?? []).map((holder) => namedHolder(holder, titles)),
   };
 };
 
@@ -150,8 +178,14 @@ export const workspacesView = async (deps: WorkspacesDeps, now: number): Promise
   const purgingSince = deps.purgingSince();
   const { references, titles, named } = await readNamedReferences(deps, all);
   // As the next Sweep would plan: a Sweep that has not run since purging was turned on starts its Grace then (ADR-0043 §4).
-  const grace = { purging: settings.purging, graceMs: settings.graceMs, purgingSince: settings.purging ? (purgingSince ?? now) : null };
-  const plans = new Map(planSweep(all, references.byWorkspace, now, grace, references.released).map((action) => [action.id, action]));
+  const grace = {
+    purging: settings.purging,
+    graceMs: settings.graceMs,
+    purgingSince: settings.purging ? (purgingSince ?? now) : null,
+  };
+  const plans = new Map(
+    planSweep(all, references.byWorkspace, now, grace, references.released).map((action) => [action.id, action]),
+  );
   const rowOf = (row: WorkspaceRecord, worktrees: ReadonlyArray<WorkspaceRow>): WorkspaceRow => {
     const referenced = references.holders.has(row.id);
     const subject = purgeSubjectOf(row, references.released.get(row.id));
@@ -188,10 +222,19 @@ export const workspacesView = async (deps: WorkspacesDeps, now: number): Promise
     .map((row) =>
       rowOf(
         row,
-        all.filter((child) => child.kind === "worktree" && child.parent === row.id && row.kind === "project").map((child) => rowOf(child, [])),
+        all
+          .filter((child) => child.kind === "worktree" && child.parent === row.id && row.kind === "project")
+          .map((child) => rowOf(child, [])),
       ),
     );
-  return { purging: settings.purging, graceDays: settings.graceDays, graceMs: settings.graceMs, overridden: settings.overridden, purgingSince, rows };
+  return {
+    purging: settings.purging,
+    graceDays: settings.graceDays,
+    graceMs: settings.graceMs,
+    overridden: settings.overridden,
+    purgingSince,
+    rows,
+  };
 };
 
 /** The dry Sweep as the page's preview shows it (ADR-0044 §1). */
@@ -212,8 +255,18 @@ export const sweepPreview = (report: SweepReport): SweepPreview => {
   const rows = report.actions.map(({ id, action, why }) => ({ id, action, why }));
   const sessions = report.sessions ?? [];
   const containers = report.costGuard.map((entry) => entry.holder);
-  const workspaces = count(report.dry ? rows.filter((row) => row.action === "purge").length : report.purged.filter((entry) => entry.destroyed).length, "Workspace", "Workspaces");
-  const stopped = count(report.dry ? containers.length : report.costGuard.filter((entry) => entry.action === "stopped").length, "Container", "Containers");
+  const workspaces = count(
+    report.dry
+      ? rows.filter((row) => row.action === "purge").length
+      : report.purged.filter((entry) => entry.destroyed).length,
+    "Workspace",
+    "Workspaces",
+  );
+  const stopped = count(
+    report.dry ? containers.length : report.costGuard.filter((entry) => entry.action === "stopped").length,
+    "Container",
+    "Containers",
+  );
   // With purging off, the Sweep still finishes a Purge under way (a `deleting` row, ADR-0043 §4), with its Sessions.
   const finishing = rows.filter((row) => row.action === "purge").length;
   const off =

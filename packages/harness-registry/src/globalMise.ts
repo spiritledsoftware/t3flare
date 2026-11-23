@@ -92,9 +92,14 @@ export const globalMiseReport = (value: unknown): GlobalMiseReport | undefined =
 /** One line for the panel's Status. */
 export const describeGlobalMise = (report: GlobalMiseReport): string => {
   // A run with no text installs nothing (`install` null): no Global mise config, whatever outcome it was given.
-  const noText = report.outcome === "none" || (report.outcome === "not-laid" && report.install === null && !report.timedOut);
+  const noText =
+    report.outcome === "none" || (report.outcome === "not-laid" && report.install === null && !report.timedOut);
   let what: string;
-  const why = report.timedOut ? "timed out" : report.install === 0 ? "git or gh did not run under it" : `mise install exit ${report.install}`;
+  const why = report.timedOut
+    ? "timed out"
+    : report.install === 0
+      ? "git or gh did not run under it"
+      : `mise install exit ${report.install}`;
   if (report.dotfiles === true && (report.outcome === "laid" || report.outcome === "not-laid")) {
     // ADR-0047 §10: with no text, the dotfiles' own file, kept under the same check as a text.
     const dotfiles = "no Global mise config; the dotfiles' ~/.config/mise/config.toml";
@@ -103,7 +108,8 @@ export const describeGlobalMise = (report: GlobalMiseReport): string => {
         ? `${dotfiles} is mise's global config${report.install === 0 || report.install === null ? "" : ` (mise install exit ${report.install})`}`
         : `${dotfiles} is not used (${why}), so mise uses t3flare's own`;
   } else if (noText) what = "no Global mise config";
-  else if (report.outcome === "laid") what = `laid down${report.install === 0 || report.install === null ? "" : ` (mise install exit ${report.install})`}`;
+  else if (report.outcome === "laid")
+    what = `laid down${report.install === 0 || report.install === null ? "" : ` (mise install exit ${report.install})`}`;
   else if (report.outcome === "not-laid") what = `not laid down (${why})`;
   else if (report.outcome === "exec-failed") what = "not laid down (the Container's exec failed; tried again)";
   else what = "not laid down (no answer within the deadline)";

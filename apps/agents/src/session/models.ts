@@ -2,7 +2,18 @@
 // endpoint lists; a model's ref is `{ provider: <endpointId>, modelId }`, its t3 slug `<endpointId>/<modelId>`. Each
 // resolves its key (or a sign-in's token) from the Environment at use time (ADR-0018) and never stores it. There is no
 // other provider.
-import { type Api, type AssistantMessage, type Context, createModels, createProvider, type FetchFunction, type Model, type MutableModels, type Provider, type ProviderStreams } from "@earendil-works/pi-ai";
+import {
+  type Api,
+  type AssistantMessage,
+  type Context,
+  createModels,
+  createProvider,
+  type FetchFunction,
+  type Model,
+  type MutableModels,
+  type Provider,
+  type ProviderStreams,
+} from "@earendil-works/pi-ai";
 import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
 import { googleGenerativeAIApi } from "@earendil-works/pi-ai/api/google-generative-ai.lazy";
 import { mistralConversationsApi } from "@earendil-works/pi-ai/api/mistral-conversations.lazy";
@@ -109,7 +120,9 @@ const endpointModel = (endpoint: ModelEndpoint, model: EndpointModel): Model<Api
   maxTokens: model.maxTokens,
   // SAFETY: both were copied from pi-ai's own catalog entry of this model (known.ts): `thinkingLevelMap` as pi-ai typed
   // it, `compat` only from an entry of the same API, so each is the type `Model<api>` declares; the stored copy widened them.
-  ...(model.thinkingLevelMap === undefined ? {} : { thinkingLevelMap: model.thinkingLevelMap as NonNullable<Model<Api>["thinkingLevelMap"]> }),
+  ...(model.thinkingLevelMap === undefined
+    ? {}
+    : { thinkingLevelMap: model.thinkingLevelMap as NonNullable<Model<Api>["thinkingLevelMap"]> }),
   ...compatOf(endpoint, model),
 });
 
@@ -133,7 +146,12 @@ const refusalWatch = (fetch: FetchFunction, onRefused: () => void): FetchFunctio
   }) as FetchFunction;
 
 /** An endpoint's fetch whose every answer's limit windows go to `limits`; the answer itself is untouched. */
-export const limitWatch = (fetch: FetchFunction, endpointId: string, limits: (reading: LimitReading) => void, now: () => number = Date.now): FetchFunction =>
+export const limitWatch = (
+  fetch: FetchFunction,
+  endpointId: string,
+  limits: (reading: LimitReading) => void,
+  now: () => number = Date.now,
+): FetchFunction =>
   (async (input: Parameters<FetchFunction>[0], init?: Parameters<FetchFunction>[1]) => {
     const response = await fetch(input, init);
     noteLimitReading(endpointId, response.headers, now(), limits);
@@ -167,7 +185,8 @@ const endpointProvider = (endpoint: ModelEndpoint, access: EndpointAccess): Prov
           // provider-level headers).
           const headers = { ...endpoint.headers };
           // pi-ai's APIs refuse a request without a key, so an endpoint with no auth sends a placeholder, never a secret.
-          if (endpoint.auth === "none") return { auth: { apiKey: NO_KEY, baseUrl: endpoint.baseUrl, headers }, source: "Model endpoint (no key)" };
+          if (endpoint.auth === "none")
+            return { auth: { apiKey: NO_KEY, baseUrl: endpoint.baseUrl, headers }, source: "Model endpoint (no key)" };
           // The key is asked for the target this provider sends it to; the Environment gives none for an old one.
           // A sign-in's access token comes the same way (the Credential broker's, SPI-1164), for the same target rule.
           const credential = await access.credential(endpoint.id, targetOf(endpoint));
@@ -180,7 +199,9 @@ const endpointProvider = (endpoint: ModelEndpoint, access: EndpointAccess): Prov
           // A sign-in whose token names where it goes (Copilot's, SPI-1166) goes there, with the headers the broker gives
           // beside it, when its kind allows that base URL (`signInRequestTarget`, the model relay's rule too); the
           // endpoint's own base URL is then only a stand-in. No other endpoint takes either.
-          const sent = isSignIn(endpoint.auth) ? signInRequestTarget(endpoint, credential) : { baseUrl: endpoint.baseUrl, headers };
+          const sent = isSignIn(endpoint.auth)
+            ? signInRequestTarget(endpoint, credential)
+            : { baseUrl: endpoint.baseUrl, headers };
           return {
             auth: { apiKey: credential.apiKey, baseUrl: sent.baseUrl, headers: { ...sent.headers } },
             source: isSignIn(endpoint.auth) ? "Model endpoint (sign-in)" : "Model endpoint",
@@ -223,14 +244,16 @@ const signInProvider = (base: Provider, kind: SignIn, endpoint: ModelEndpoint, a
       ...options,
       ...headers,
       fetch,
-      onPayload: async (params, model) => payload((earlier === undefined ? undefined : await earlier(params, model)) ?? params),
+      onPayload: async (params, model) =>
+        payload((earlier === undefined ? undefined : await earlier(params, model)) ?? params),
     };
   };
   return {
     ...base,
     // SAFETY: as above, only `fetch`, `headers` and `onPayload` are added, fields of every API's stream options; the cast
     // restores the generic `ApiStreamOptions<T>` the spread widens.
-    stream: (model, context, options) => base.stream(model, context, withRules(context, options as Options | undefined) as typeof options),
+    stream: (model, context, options) =>
+      base.stream(model, context, withRules(context, options as Options | undefined) as typeof options),
     streamSimple: (model, context, options) => base.streamSimple(model, context, withRules(context, options)),
   } satisfies Provider;
 };

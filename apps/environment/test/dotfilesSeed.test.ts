@@ -3,26 +3,66 @@
 // launcher does with a seed is `processWrapper.test.ts`'s; here, what each profile asks for.
 import { describe, expect, it } from "vitest";
 
-import { CODEX_SESSIONS, type Launch, type LaunchAnswer, type ProfileContext, profileLaunch } from "../src/agents/cliProfiles.ts";
+import {
+  CODEX_SESSIONS,
+  type Launch,
+  type LaunchAnswer,
+  type ProfileContext,
+  profileLaunch,
+} from "../src/agents/cliProfiles.ts";
 
 const EXTENSION = "export default function (pi) {}\n";
 const STATE_EXTENSION = "/t3/state/cache/pi-t3-mcp-extension.ts";
 const SCHEMA = "/t3/state/schema.json";
-const model = (id: string) => ({ id, name: id, reasoning: false, input: ["text" as const], contextWindow: 100_000, maxTokens: 8000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, known: false });
+const model = (id: string) => ({
+  id,
+  name: id,
+  reasoning: false,
+  input: ["text" as const],
+  contextWindow: 100_000,
+  maxTokens: 8000,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  known: false,
+});
 
 const context = (dotfiles: boolean | undefined): ProfileContext => ({
   readStateFile: (path) => (path === STATE_EXTENSION ? EXTENSION : path === SCHEMA ? "{}" : undefined),
   piExtensionSource: EXTENSION,
   endpoints: [{ id: "openai", label: "OpenAI", models: [model("gpt-5-mini")] }],
-  piRelay: { endpoints: [{ id: "comm", label: "Commissary", api: "anthropic-messages", models: [model("claude-haiku-5-5")] }], model: "comm/claude-haiku-5-5" },
-  claudeRelay: { endpoints: ["comm"], models: ["comm/claude-haiku-5-5"], backgroundModel: "comm/claude-haiku-5-5", opusModel: "comm/claude-haiku-5-5", sonnetModel: "comm/claude-haiku-5-5" },
-  opencodeRelay: { endpoints: [{ id: "comm", label: "Commissary", api: "anthropic-messages", models: [model("claude-haiku-5-5")] }], model: "comm/claude-haiku-5-5", smallModel: undefined },
+  piRelay: {
+    endpoints: [{ id: "comm", label: "Commissary", api: "anthropic-messages", models: [model("claude-haiku-5-5")] }],
+    model: "comm/claude-haiku-5-5",
+  },
+  claudeRelay: {
+    endpoints: ["comm"],
+    models: ["comm/claude-haiku-5-5"],
+    backgroundModel: "comm/claude-haiku-5-5",
+    opusModel: "comm/claude-haiku-5-5",
+    sonnetModel: "comm/claude-haiku-5-5",
+  },
+  opencodeRelay: {
+    endpoints: [{ id: "comm", label: "Commissary", api: "anthropic-messages", models: [model("claude-haiku-5-5")] }],
+    model: "comm/claude-haiku-5-5",
+    smallModel: undefined,
+  },
   ...(dotfiles === undefined ? {} : { dotfiles }),
 });
 
 const ARGS = {
   codex: ["app-server"],
-  "codex exec": ["exec", "--json", "--ephemeral", "--skip-git-repo-check", "-s", "read-only", "--model", "gpt-5-mini", "--output-schema", SCHEMA, "-"],
+  "codex exec": [
+    "exec",
+    "--json",
+    "--ephemeral",
+    "--skip-git-repo-check",
+    "-s",
+    "read-only",
+    "--model",
+    "gpt-5-mini",
+    "--output-schema",
+    SCHEMA,
+    "-",
+  ],
   pi: ["--mode", "rpc", "--extension", STATE_EXTENSION],
   claude: [],
   opencode: ["acp"],
@@ -34,7 +74,19 @@ const launched = (answer: LaunchAnswer): Launch => {
 };
 
 const launch = (cli: keyof typeof ARGS, dotfiles: boolean | undefined) =>
-  launched(profileLaunch({ cli: cli === "codex exec" ? "codex" : cli, args: ARGS[cli], key: "proc-1", cwd: "/w/demo", env: {}, allowProbe: false }, context(dotfiles)));
+  launched(
+    profileLaunch(
+      {
+        cli: cli === "codex exec" ? "codex" : cli,
+        args: ARGS[cli],
+        key: "proc-1",
+        cwd: "/w/demo",
+        env: {},
+        allowProbe: false,
+      },
+      context(dotfiles),
+    ),
+  );
 
 const HOME = "/var/lib/t3flare/cli/proc-1";
 
@@ -54,7 +106,11 @@ describe("the CLI agents' dotfiles", () => {
       { from: "/root/.claude", to: `${HOME}/claude`, skip: ["projects"] },
       { from: "/root/.claude.json", to: `${HOME}/claude/.claude.json` },
     ]);
-    expect(answer.links).toContainEqual({ path: `${HOME}/claude/skills`, target: "/workspace/.agents/skills", merge: true });
+    expect(answer.links).toContainEqual({
+      path: `${HOME}/claude/skills`,
+      target: "/workspace/.agents/skills",
+      merge: true,
+    });
     // The managed settings stay outside the seeded directory: the launcher installs them at /etc/claude-code, on top.
     expect(answer.files?.map((file) => file.path)).toEqual([`${HOME}/managed-settings.json`]);
     expect(answer.check).toBeUndefined();
@@ -72,9 +128,11 @@ describe("the CLI agents' dotfiles", () => {
       expect(answer.check).toEqual({
         when: "/root/.codex/config.toml",
         argv: ["/opt/t3flare/bin/codex", ...overrides.flatMap((value) => ["-c", value]), "features", "list"],
-        failure: expect.stringContaining(`Codex cannot load ${HOME}/codex/config.toml, the copy of your ~/.codex/config.toml`),
+        failure: expect.stringContaining(
+          `Codex cannot load ${HOME}/codex/config.toml, the copy of your ~/.codex/config.toml`,
+        ),
       });
-      expect(answer.check?.failure).toContain('turn the setting off');
+      expect(answer.check?.failure).toContain("turn the setting off");
       // Codex filters by include_only after its `set`: an Owner's would drop the kill script's marker.
       expect(answer.argv).toContain("shell_environment_policy.include_only=[]");
       // An Owner's `inherit = "core"` or `"none"` would drop COMMAND_ENV's MISE_* (and mise) from Codex's shells.
@@ -82,14 +140,20 @@ describe("the CLI agents' dotfiles", () => {
     }
     expect(launch("codex", true).links).toContainEqual({ path: `${HOME}/codex/sessions`, target: CODEX_SESSIONS });
     // Off, t3flare's placeholder is written as before.
-    expect(launch("codex", false).files?.find((file) => file.path === `${HOME}/codex/config.toml`)?.keep).toBeUndefined();
+    expect(
+      launch("codex", false).files?.find((file) => file.path === `${HOME}/codex/config.toml`)?.keep,
+    ).toBeUndefined();
   });
 
   it("give OpenCode ~/.config/opencode in its XDG config directory, under its system configuration, the Environment skills merged", () => {
     const answer = launch("opencode", true);
     expect(answer.env.XDG_CONFIG_HOME).toBe(`${HOME}/config`);
     expect(answer.seed).toEqual([{ from: "/root/.config/opencode", to: `${HOME}/config/opencode` }]);
-    expect(answer.links).toContainEqual({ path: `${HOME}/config/opencode/skills`, target: "/workspace/.agents/skills", merge: true });
+    expect(answer.links).toContainEqual({
+      path: `${HOME}/config/opencode/skills`,
+      target: "/workspace/.agents/skills",
+      merge: true,
+    });
     expect(answer.files?.map((file) => file.path)).toEqual([`${HOME}/opencode.json`]);
   });
 
@@ -99,9 +163,21 @@ describe("the CLI agents' dotfiles", () => {
     // Not its auth.json: pi's credentials stay t3flare's (ADR-0016).
     // pi reads skills/ there before its --skill paths and keeps the first of a name: an Owner's Skill named as an
     // Environment skill is left out of the copy, so the Environment skill wins.
-    expect(answer.seed).toEqual([{ from: "/root/.pi/agent", to: `${HOME}/agent`, skip: ["sessions", "auth.json"], shadow: { dir: "skills", by: "/workspace/.agents/skills" } }]);
-    expect(answer.argv.slice(answer.argv.indexOf("--skill"), answer.argv.indexOf("--skill") + 2)).toEqual(["--skill", "/workspace/.agents/skills"]);
-    expect(answer.files?.filter((file) => file.path.startsWith(`${HOME}/agent/`)).map((file) => [file.path, file.keep])).toEqual([
+    expect(answer.seed).toEqual([
+      {
+        from: "/root/.pi/agent",
+        to: `${HOME}/agent`,
+        skip: ["sessions", "auth.json"],
+        shadow: { dir: "skills", by: "/workspace/.agents/skills" },
+      },
+    ]);
+    expect(answer.argv.slice(answer.argv.indexOf("--skill"), answer.argv.indexOf("--skill") + 2)).toEqual([
+      "--skill",
+      "/workspace/.agents/skills",
+    ]);
+    expect(
+      answer.files?.filter((file) => file.path.startsWith(`${HOME}/agent/`)).map((file) => [file.path, file.keep]),
+    ).toEqual([
       [`${HOME}/agent/models.json`, undefined],
       [`${HOME}/agent/settings.json`, undefined],
     ]);

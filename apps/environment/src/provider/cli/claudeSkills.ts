@@ -64,9 +64,19 @@ export const claudeMentionRewrite =
     if (cwd === null || !/\p{Sc}/u.test(text)) return Effect.succeed(text);
     const at = access.locate(cwd);
     if (at === undefined) return Effect.succeed(text);
-    return Effect.tryPromise({ try: () => cliSkills(at, access, "claude"), catch: (cause) => new SkillsReadError({ message: "Cannot read the Workspace's skills", cause }) }).pipe(
-      Effect.map((found) => claudeSkillText(text, found.skills.map((skill) => ({ name: skill.name, path: fromWorkspace(at.id, skill.filePath) })))),
-      Effect.tapError((error) => Effect.logWarning("t3flare: the Workspace's skills could not be read; the message goes as typed", error)),
+    return Effect.tryPromise({
+      try: () => cliSkills(at, access, "claude"),
+      catch: (cause) => new SkillsReadError({ message: "Cannot read the Workspace's skills", cause }),
+    }).pipe(
+      Effect.map((found) =>
+        claudeSkillText(
+          text,
+          found.skills.map((skill) => ({ name: skill.name, path: fromWorkspace(at.id, skill.filePath) })),
+        ),
+      ),
+      Effect.tapError((error) =>
+        Effect.logWarning("t3flare: the Workspace's skills could not be read; the message goes as typed", error),
+      ),
       Effect.orElseSucceed(() => text),
     );
   };

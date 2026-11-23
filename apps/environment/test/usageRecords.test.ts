@@ -37,8 +37,26 @@ const endpoints: ModelEndpoints = {
       auth: "api-key",
       headers: {},
       models: [
-        { id: "claude-sonnet-4-5", name: "Sonnet", reasoning: true, input: ["text"], contextWindow: 200_000, maxTokens: 64_000, cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 }, known: true },
-        { id: "house-model", name: "House", reasoning: false, input: ["text"], contextWindow: 100_000, maxTokens: 8_000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, known: false },
+        {
+          id: "claude-sonnet-4-5",
+          name: "Sonnet",
+          reasoning: true,
+          input: ["text"],
+          contextWindow: 200_000,
+          maxTokens: 64_000,
+          cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+          known: true,
+        },
+        {
+          id: "house-model",
+          name: "House",
+          reasoning: false,
+          input: ["text"],
+          contextWindow: 100_000,
+          maxTokens: 8_000,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          known: false,
+        },
       ],
     },
   ],
@@ -65,15 +83,31 @@ const readerOn = (store: UsageStore, provider: "pi" | "codex" | "claude" | "open
   return usageReader(provider);
 };
 
-const scanOf = (store: ReturnType<typeof usageStore>, provider: "pi" | "codex" | "claude" | "opencode", sinceMs = NOW - DAY) =>
+const scanOf = (
+  store: ReturnType<typeof usageStore>,
+  provider: "pi" | "codex" | "claude" | "opencode",
+  sinceMs = NOW - DAY,
+) =>
   Effect.runPromise(
-    readerOn(store, provider).scan({ instances: [], settings: {} as never, windowStartMs: sinceMs, retentionCutoffMs: NOW - USAGE_RETENTION_MS, awaitRefresh: false }),
+    readerOn(store, provider).scan({
+      instances: [],
+      settings: {} as never,
+      windowStartMs: sinceMs,
+      retentionCutoffMs: NOW - USAGE_RETENTION_MS,
+      awaitRefresh: false,
+    }),
   );
 
 describe("the Environment's usage records", () => {
   it("adds the answers of one agent, endpoint, model and session in one quarter hour together", async () => {
     const store = usageStore(nodeSqlStorage());
-    expect(store.record([entry(), entry({ input: 1, output: 2, cacheRead: 0, costUsd: 0.25 }), entry({ session: "s2" })], endpoints, NOW)).toBe(3);
+    expect(
+      store.record(
+        [entry(), entry({ input: 1, output: 2, cacheRead: 0, costUsd: 0.25 }), entry({ session: "s2" })],
+        endpoints,
+        NOW,
+      ),
+    ).toBe(3);
     const [scan] = await scanOf(store, "pi");
     expect(scan).toMatchObject({ dir: "t3flare://usage/durable", status: "ok" });
     const records = scan!.files![0]!.records;
@@ -84,7 +118,13 @@ describe("the Environment's usage records", () => {
       model: "anth/claude-sonnet-4-5",
       rateModel: "claude-sonnet-4-5",
       sessionId: "durable:s1",
-      totals: { uncachedInputTokens: 101, cachedInputTokens: 1_000, cacheCreationTokens: 0, outputTokens: 52, reasoningTokens: 0 },
+      totals: {
+        uncachedInputTokens: 101,
+        cachedInputTokens: 1_000,
+        cacheCreationTokens: 0,
+        outputTokens: 52,
+        reasoningTokens: 0,
+      },
       reportedCostUsd: 0.75,
       speed: "standard",
       dedupeKey: null,
@@ -93,71 +133,144 @@ describe("the Environment's usage records", () => {
 
   it("splits by agent: each of t3's providers reads its own, the Durable agent, text generation and Pi (the CLI agent) under Pi", async () => {
     const store = usageStore(nodeSqlStorage());
-    store.record([entry(), entry({ agent: "text-generation", session: "" }), entry({ agent: "pi" }), entry({ agent: "codex" }), entry({ agent: "claude" }), entry({ agent: "opencode" })], endpoints, NOW);
+    store.record(
+      [
+        entry(),
+        entry({ agent: "text-generation", session: "" }),
+        entry({ agent: "pi" }),
+        entry({ agent: "codex" }),
+        entry({ agent: "claude" }),
+        entry({ agent: "opencode" }),
+      ],
+      endpoints,
+      NOW,
+    );
     const pi = await scanOf(store, "pi");
-    expect(pi.map((scan) => scan.dir)).toEqual(["t3flare://usage/durable", "t3flare://usage/text-generation", "t3flare://usage/pi"]);
+    expect(pi.map((scan) => scan.dir)).toEqual([
+      "t3flare://usage/durable",
+      "t3flare://usage/text-generation",
+      "t3flare://usage/pi",
+    ]);
     expect(pi.every((scan) => scan.files![0]!.records.every((record) => record.provider === "pi"))).toBe(true);
     for (const provider of ["codex", "claude", "opencode"] as const) {
       const scans = await scanOf(store, provider);
       expect(scans.map((scan) => scan.dir)).toEqual([`t3flare://usage/${provider}`]);
-      expect(scans[0]!.files![0]!.records).toMatchObject([{ provider, model: "anth/claude-sonnet-4-5", sessionId: `${provider}:s1` }]);
+      expect(scans[0]!.files![0]!.records).toMatchObject([
+        { provider, model: "anth/claude-sonnet-4-5", sessionId: `${provider}:s1` },
+      ]);
     }
   });
 
   it("names a relayed answer's dated model by the endpoint's listed model, and prices it by the endpoint's prices", async () => {
     const store = usageStore(nodeSqlStorage());
-    store.record([entry({ agent: "claude", modelId: "claude-sonnet-4-5-20250929", costUsd: null, input: 1_000_000, cacheRead: 0, output: 0 })], endpoints, NOW);
+    store.record(
+      [
+        entry({
+          agent: "claude",
+          modelId: "claude-sonnet-4-5-20250929",
+          costUsd: null,
+          input: 1_000_000,
+          cacheRead: 0,
+          output: 0,
+        }),
+      ],
+      endpoints,
+      NOW,
+    );
     const [scan] = await scanOf(store, "claude");
-    expect(scan!.files![0]!.records).toMatchObject([{ model: "anth/claude-sonnet-4-5", rateModel: "claude-sonnet-4-5", reportedCostUsd: 3 }]);
+    expect(scan!.files![0]!.records).toMatchObject([
+      { model: "anth/claude-sonnet-4-5", rateModel: "claude-sonnet-4-5", reportedCostUsd: 3 },
+    ]);
   });
 
   it("leaves a model with no price to t3's rate table, which prices it on the Usage page", async () => {
     const store = usageStore(nodeSqlStorage());
     store.record(
-      [entry({ agent: "codex", modelId: "house-model", costUsd: null, input: 2_000_000, cacheRead: 0, output: 0 }), entry({ agent: "codex", modelId: "never-heard-of-it", costUsd: null, cacheRead: 0 })],
+      [
+        entry({ agent: "codex", modelId: "house-model", costUsd: null, input: 2_000_000, cacheRead: 0, output: 0 }),
+        entry({ agent: "codex", modelId: "never-heard-of-it", costUsd: null, cacheRead: 0 }),
+      ],
       endpoints,
       NOW,
     );
     const [scan] = await scanOf(store, "codex");
     const records = scan!.files![0]!.records;
     expect(records.every((record) => record.reportedCostUsd === null)).toBe(true);
-    const aggregator = new UsageAggregator({ timeZone: "UTC", sinceDay: "2026-11-16", untilDay: "2026-11-16", rates: parseRateTable({ "house-model": { input_cost_per_token: 0.000_001, output_cost_per_token: 0.000_002 } }) });
+    const aggregator = new UsageAggregator({
+      timeZone: "UTC",
+      sinceDay: "2026-11-16",
+      untilDay: "2026-11-16",
+      rates: parseRateTable({ "house-model": { input_cost_per_token: 0.000_001, output_cost_per_token: 0.000_002 } }),
+    });
     for (const record of records) aggregator.add(record, scan!.dir);
     const buckets = aggregator.finish().buckets;
-    expect(buckets.find((bucket) => bucket.model === "anth/house-model")).toMatchObject({ provider: "codex", costUsd: 2, costSource: "modelPriced" });
-    expect(buckets.find((bucket) => bucket.model === "anth/never-heard-of-it")).toMatchObject({ costUsd: 0, costSource: "unpriced" });
+    expect(buckets.find((bucket) => bucket.model === "anth/house-model")).toMatchObject({
+      provider: "codex",
+      costUsd: 2,
+      costSource: "modelPriced",
+    });
+    expect(buckets.find((bucket) => bucket.model === "anth/never-heard-of-it")).toMatchObject({
+      costUsd: 0,
+      costSource: "unpriced",
+    });
   });
 
   it("keeps a model's records apart by endpoint: the same model on two endpoints is two models on the page", async () => {
     const store = usageStore(nodeSqlStorage());
     store.record([entry({ agent: "opencode" }), entry({ agent: "opencode", endpointId: "other" })], endpoints, NOW);
     const [scan] = await scanOf(store, "opencode");
-    expect(scan!.files![0]!.records.map((record) => record.model).toSorted()).toEqual(["anth/claude-sonnet-4-5", "other/claude-sonnet-4-5"]);
+    expect(scan!.files![0]!.records.map((record) => record.model).toSorted()).toEqual([
+      "anth/claude-sonnet-4-5",
+      "other/claude-sonnet-4-5",
+    ]);
   });
 
   it("reads only the window asked for, and keeps nothing past the retention window", async () => {
     const sql = nodeSqlStorage();
     const store = usageStore(sql);
-    store.record([entry({ at: NOW - 3 * DAY }), entry({ at: NOW - USAGE_RETENTION_MS - DAY, session: "old" })], endpoints, NOW);
+    store.record(
+      [entry({ at: NOW - 3 * DAY }), entry({ at: NOW - USAGE_RETENTION_MS - DAY, session: "old" })],
+      endpoints,
+      NOW,
+    );
     expect((await scanOf(store, "pi"))[0]!.files![0]!.records).toEqual([]);
     expect((await scanOf(store, "pi", NOW - 4 * DAY))[0]!.files![0]!.records).toHaveLength(1);
     // A record kept then, past the window now, is gone at the next write's prune.
     const later = NOW + USAGE_RETENTION_MS - 2 * DAY;
     store.record([entry({ at: later })], endpoints, later);
-    expect((await scanOf(store, "pi", 0))[0]!.files![0]!.records.map((record) => record.timestampMs)).toEqual([Math.floor(later / USAGE_SLOT_MS) * USAGE_SLOT_MS]);
+    expect((await scanOf(store, "pi", 0))[0]!.files![0]!.records.map((record) => record.timestampMs)).toEqual([
+      Math.floor(later / USAGE_SLOT_MS) * USAGE_SLOT_MS,
+    ]);
   });
 
   it("keeps at most MAX_USAGE_ROWS rows, the oldest dropped first", async () => {
     const store = usageStore(nodeSqlStorage(), { maxRows: 3 });
     expect(MAX_USAGE_ROWS).toBeGreaterThan(10_000);
-    store.record([1, 2, 3, 4, 5].map((n) => entry({ at: NOW - n * USAGE_SLOT_MS })), endpoints, NOW);
+    store.record(
+      [1, 2, 3, 4, 5].map((n) => entry({ at: NOW - n * USAGE_SLOT_MS })),
+      endpoints,
+      NOW,
+    );
     const records = (await scanOf(store, "pi"))[0]!.files![0]!.records;
-    expect(records.map((record) => (NOW - record.timestampMs) / USAGE_SLOT_MS).sort((a, b) => a - b)).toEqual([1, 2, 3]);
+    expect(records.map((record) => (NOW - record.timestampMs) / USAGE_SLOT_MS).sort((a, b) => a - b)).toEqual([
+      1, 2, 3,
+    ]);
   });
 
   it("drops an entry the agents Worker should never send: unknown agent, no tokens, a control character", () => {
     const store = usageStore(nodeSqlStorage());
-    expect(store.record([{ ...entry(), agent: "probe" } as never, entry({ input: 0, cacheRead: 0, output: 0 }), entry({ modelId: "a\nb" }), "junk" as never], endpoints, NOW)).toBe(0);
+    expect(
+      store.record(
+        [
+          { ...entry(), agent: "probe" } as never,
+          entry({ input: 0, cacheRead: 0, output: 0 }),
+          entry({ modelId: "a\nb" }),
+          "junk" as never,
+        ],
+        endpoints,
+        NOW,
+      ),
+    ).toBe(0);
   });
 });
 
@@ -168,7 +281,11 @@ describe("the records' times and bounds", () => {
   it("rolls up by quarter hour: the slot's first and last moment share a row, the next moment starts one", async () => {
     const store = usageStore(nodeSqlStorage());
     const slot = slotOf(NOW - DAY);
-    store.record([entry({ at: slot }), entry({ at: slot + USAGE_SLOT_MS - 1 }), entry({ at: slot + USAGE_SLOT_MS })], endpoints, NOW);
+    store.record(
+      [entry({ at: slot }), entry({ at: slot + USAGE_SLOT_MS - 1 }), entry({ at: slot + USAGE_SLOT_MS })],
+      endpoints,
+      NOW,
+    );
     expect((await rows(store)).map((record) => [record.timestampMs, record.totals.outputTokens])).toEqual([
       [slot, 100],
       [slot + USAGE_SLOT_MS, 50],
@@ -177,8 +294,15 @@ describe("the records' times and bounds", () => {
 
   it("puts a record in its quarter hour, by the clock: 12:14:59 in 12:00's, 12:15:00 in 12:15's", async () => {
     const store = usageStore(nodeSqlStorage());
-    store.record([entry({ at: Date.parse("2026-11-16T11:14:59.999Z") }), entry({ at: Date.parse("2026-11-16T11:15:00Z") })], endpoints, NOW);
-    expect((await rows(store)).map((record) => new Date(record.timestampMs).toISOString())).toEqual(["2026-11-16T11:00:00.000Z", "2026-11-16T11:15:00.000Z"]);
+    store.record(
+      [entry({ at: Date.parse("2026-11-16T11:14:59.999Z") }), entry({ at: Date.parse("2026-11-16T11:15:00Z") })],
+      endpoints,
+      NOW,
+    );
+    expect((await rows(store)).map((record) => new Date(record.timestampMs).toISOString())).toEqual([
+      "2026-11-16T11:00:00.000Z",
+      "2026-11-16T11:15:00.000Z",
+    ]);
   });
 
   it("reads from the start of the quarter hour the window starts in", async () => {
@@ -190,8 +314,20 @@ describe("the records' times and bounds", () => {
 
   it("keeps an entry inside the retention window and up to an hour ahead of the clock, and drops the rest", () => {
     const store = usageStore(nodeSqlStorage());
-    expect(store.record([entry({ at: NOW - USAGE_RETENTION_MS + 60_000 }), entry({ at: NOW + 30 * 60_000 })], endpoints, NOW)).toBe(2);
-    expect(store.record([entry({ at: NOW - USAGE_RETENTION_MS - 60_000 }), entry({ at: NOW + 2 * 60 * 60_000 })], endpoints, NOW)).toBe(0);
+    expect(
+      store.record(
+        [entry({ at: NOW - USAGE_RETENTION_MS + 60_000 }), entry({ at: NOW + 30 * 60_000 })],
+        endpoints,
+        NOW,
+      ),
+    ).toBe(2);
+    expect(
+      store.record(
+        [entry({ at: NOW - USAGE_RETENTION_MS - 60_000 }), entry({ at: NOW + 2 * 60 * 60_000 })],
+        endpoints,
+        NOW,
+      ),
+    ).toBe(0);
   });
 
   it("keeps 92 days, more than the page's widest range (90 days)", () => {
@@ -213,9 +349,20 @@ describe("the records' times and bounds", () => {
   });
 
   it("reports a table it cannot read as a failed source, never a failed page", async () => {
-    const broken = { record: () => 0, read: () => { throw new Error("SQLITE_CORRUPT"); } };
+    const broken = {
+      record: () => 0,
+      read: () => {
+        throw new Error("SQLITE_CORRUPT");
+      },
+    };
     const scans = await Effect.runPromise(
-      readerOn(broken, "pi").scan({ instances: [], settings: {} as never, windowStartMs: 0, retentionCutoffMs: 0, awaitRefresh: false }),
+      readerOn(broken, "pi").scan({
+        instances: [],
+        settings: {} as never,
+        windowStartMs: 0,
+        retentionCutoffMs: 0,
+        awaitRefresh: false,
+      }),
     );
     expect(scans.map((scan) => [scan.dir, scan.status, scan.files])).toEqual([
       ["t3flare://usage/durable", "failed", null],
@@ -250,23 +397,51 @@ describe("every endpoint's records, counted once, ours", () => {
 
   it("keeps every endpoint's records, and stores what it keeps", async () => {
     const store = usageStore(nodeSqlStorage());
-    const answer = acceptUsage({ entries: [entry({ endpointId: "comm" }), entry({ endpointId: "mine" }), entry({ endpointId: "open" })] }, { store, endpoints: two, now: () => NOW });
+    const answer = acceptUsage(
+      { entries: [entry({ endpointId: "comm" }), entry({ endpointId: "mine" }), entry({ endpointId: "open" })] },
+      { store, endpoints: two, now: () => NOW },
+    );
     expect(answer).toEqual({ kept: 3 });
-    expect((await scanOf(store, "pi"))[0]!.files![0]!.records.map((record) => record.model).sort()).toEqual(["comm/claude-sonnet-4-5", "mine/claude-sonnet-4-5", "open/claude-sonnet-4-5"]);
+    expect((await scanOf(store, "pi"))[0]!.files![0]!.records.map((record) => record.model).sort()).toEqual([
+      "comm/claude-sonnet-4-5",
+      "mine/claude-sonnet-4-5",
+      "open/claude-sonnet-4-5",
+    ]);
   });
 
   it("reads at most MAX_USAGE_ENTRIES of one call, and nothing of junk", () => {
     const store = usageStore(nodeSqlStorage());
-    expect(acceptUsage({ entries: Array.from({ length: 100 }, () => entry({ endpointId: "mine" })) }, { store, endpoints: two, now: () => NOW })).toEqual({ kept: 64 });
+    expect(
+      acceptUsage(
+        { entries: Array.from({ length: 100 }, () => entry({ endpointId: "mine" })) },
+        { store, endpoints: two, now: () => NOW },
+      ),
+    ).toEqual({ kept: 64 });
     expect(acceptUsage("junk", { store, endpoints: two, now: () => NOW })).toEqual({ kept: 0 });
   });
 
   it("shows a turn on any endpoint once on the page, from our records alone", async () => {
     const store = usageStore(nodeSqlStorage());
     bindEnvironmentServices({ usage: store } as unknown as EnvironmentServices);
-    acceptUsage({ entries: [entry({ agent: "claude", endpointId: "comm" }), entry({ agent: "claude", endpointId: "mine" })] }, { store, endpoints: two, now: () => NOW });
-    const scans = await Effect.runPromise(usageReader("claude").scan({ instances: [], settings: {} as never, windowStartMs: NOW - DAY, retentionCutoffMs: 0, awaitRefresh: true }));
-    const records = scans.flatMap((scan) => (scan.files ?? []).flatMap((file) => file.records.map((record) => `${scan.dir} ${record.model}`)));
-    expect(records.sort()).toEqual(["t3flare://usage/claude comm/claude-sonnet-4-5", "t3flare://usage/claude mine/claude-sonnet-4-5"]);
+    acceptUsage(
+      { entries: [entry({ agent: "claude", endpointId: "comm" }), entry({ agent: "claude", endpointId: "mine" })] },
+      { store, endpoints: two, now: () => NOW },
+    );
+    const scans = await Effect.runPromise(
+      usageReader("claude").scan({
+        instances: [],
+        settings: {} as never,
+        windowStartMs: NOW - DAY,
+        retentionCutoffMs: 0,
+        awaitRefresh: true,
+      }),
+    );
+    const records = scans.flatMap((scan) =>
+      (scan.files ?? []).flatMap((file) => file.records.map((record) => `${scan.dir} ${record.model}`)),
+    );
+    expect(records.sort()).toEqual([
+      "t3flare://usage/claude comm/claude-sonnet-4-5",
+      "t3flare://usage/claude mine/claude-sonnet-4-5",
+    ]);
   });
 });

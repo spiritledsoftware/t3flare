@@ -34,11 +34,7 @@ const until = (events: ReadonlyArray<McpListenEvent>, count: number) =>
   vi.waitFor(() => expect(events.length).toBeGreaterThanOrEqual(count), WAIT);
 
 /** Waits until `events` holds the update of `uri` and a change of the `list`. */
-const untilHeard = (
-  events: ReadonlyArray<McpListenEvent>,
-  uri: string,
-  list: "tools" | "prompts" | "resources",
-) =>
+const untilHeard = (events: ReadonlyArray<McpListenEvent>, uri: string, list: "tools" | "prompts" | "resources") =>
   vi.waitFor(() => {
     expect(events).toContainEqual({ kind: "resource_updated", uri });
     expect(events).toContainEqual({ kind: "list_changed", list });
@@ -139,9 +135,7 @@ describe("a Modern server's listen", () => {
       Effect.gen(function* () {
         const connection = yield* connect(TARGET, testDeps(fetchTo(server)));
 
-        const listening = yield* connection.listen({ resourceSubscriptions: [URI] }, (event) =>
-          events.push(event),
-        );
+        const listening = yield* connection.listen({ resourceSubscriptions: [URI] }, (event) => events.push(event));
 
         yield* listening.close;
         server.notify.resourceUpdated(URI);
@@ -225,10 +219,7 @@ describe("a Legacy server's listen", () => {
       Effect.gen(function* () {
         const connection = yield* connect(TARGET, testDeps(fetchTo(server)));
 
-        const listening = yield* connection.listen(
-          { resourceSubscriptions: [URI, OTHER] },
-          () => undefined,
-        );
+        const listening = yield* connection.listen({ resourceSubscriptions: [URI, OTHER] }, () => undefined);
 
         yield* listening.close;
 
@@ -246,10 +237,7 @@ describe("a Legacy server's listen", () => {
       Effect.gen(function* () {
         const connection = yield* connect(TARGET, testDeps(fetchTo(server)));
 
-        const listening = yield* connection.listen(
-          { resourceSubscriptions: [URI] },
-          () => undefined,
-        );
+        const listening = yield* connection.listen({ resourceSubscriptions: [URI] }, () => undefined);
 
         yield* listening.close;
 
@@ -268,10 +256,7 @@ describe("a Legacy server's listen", () => {
       Effect.gen(function* () {
         const connection = yield* connect(TARGET, testDeps(fetchTo(server)));
 
-        const listening = yield* connection.listen(
-          { resourceSubscriptions: [URI] },
-          () => undefined,
-        );
+        const listening = yield* connection.listen({ resourceSubscriptions: [URI] }, () => undefined);
 
         yield* Effect.promise(() => server.cutStreams());
 
@@ -303,10 +288,7 @@ describe("a Legacy server's listen", () => {
       Effect.gen(function* () {
         const connection = yield* connect(TARGET, deps);
 
-        const listening = yield* connection.listen(
-          { resourceSubscriptions: [URI] },
-          () => undefined,
-        );
+        const listening = yield* connection.listen({ resourceSubscriptions: [URI] }, () => undefined);
 
         yield* listening.close;
 

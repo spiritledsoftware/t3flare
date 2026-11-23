@@ -26,8 +26,7 @@ const rollDie = defineEffectTool({
   name: "roll_die",
   description: "Roll one die",
   parameters: Schema.Struct({ sides: Sides }),
-  execute: ({ sides }) =>
-    Effect.succeed({ output: [{ type: "text", text: `rolled a d${sides}` }] }),
+  execute: ({ sides }) => Effect.succeed({ output: [{ type: "text", text: `rolled a d${sides}` }] }),
 });
 
 const dice = defineExtension({ name: "dice", tools: [Effect.runSync(rollDie)] });
@@ -64,9 +63,7 @@ describe("defineEffectTool", () => {
       execute: () => Effect.succeed({}),
     });
 
-    expect(() => Effect.runSync(camel)).toThrow(
-      "Tool name rollDie is not snake_case or an MCP tool name",
-    );
+    expect(() => Effect.runSync(camel)).toThrow("Tool name rollDie is not snake_case or an MCP tool name");
   });
   it("answers arguments its Schema rejects with an error result, without running", async () => {
     let ran = false;
@@ -132,10 +129,9 @@ describe("defineEffectTool", () => {
   });
 
   it("answers a typed failure with an error result carrying the failure's message", async () => {
-    class DiceLost extends Schema.TaggedError<DiceLost, { readonly brand: unique symbol }>()(
-      "DiceLost",
-      { message: Schema.String },
-    ) {}
+    class DiceLost extends Schema.TaggedError<DiceLost, { readonly brand: unique symbol }>()("DiceLost", {
+      message: Schema.String,
+    }) {}
 
     const rollLost = defineEffectTool({
       name: "roll_lost",
@@ -164,8 +160,7 @@ describe("defineEffectTool", () => {
       name: "roll_one",
       description: "Roll one die",
       parameters: Schema.Struct({ die: Die }).annotate({ identifier: "RollOne" }),
-      execute: ({ die }) =>
-        Effect.succeed({ output: [{ type: "text", text: `rolled a d${die.sides}` }] }),
+      execute: ({ die }) => Effect.succeed({ output: [{ type: "text", text: `rolled a d${die.sides}` }] }),
     });
 
     const { requests, prompt, lastToolResult } = await openFauxHarness(
@@ -216,10 +211,9 @@ describe("defineEffectTool", () => {
   });
 
   it("answers a defect with pi-durable's tool_error result, even when the call also failed", async () => {
-    class DiceLost extends Schema.TaggedError<DiceLost, { readonly brand: unique symbol }>()(
-      "DiceLost",
-      { message: Schema.String },
-    ) {}
+    class DiceLost extends Schema.TaggedError<DiceLost, { readonly brand: unique symbol }>()("DiceLost", {
+      message: Schema.String,
+    }) {}
 
     const crash = defineEffectTool({
       name: "crash",
@@ -294,9 +288,7 @@ describe("defineEffectTool", () => {
       execute: () =>
         Effect.serviceOption(Tracer.ParentSpan).pipe(
           Effect.map((parent) => {
-            spans.push(
-              Option.match(parent, { onNone: () => "none", onSome: (span) => span.spanId }),
-            );
+            spans.push(Option.match(parent, { onNone: () => "none", onSome: (span) => span.spanId }));
 
             return {};
           }),
@@ -393,9 +385,7 @@ const nesting = (behaviour: {
 
         if (behaviour.callerHangs(attempt)) return yield* Effect.never;
 
-        yield* callDurable("executeTool", (callContext) =>
-          api.executeTool("waiter", {}, callContext, { key: "c1" }),
-        );
+        yield* callDurable("executeTool", (callContext) => api.executeTool("waiter", {}, callContext, { key: "c1" }));
 
         return {};
       }),
@@ -437,11 +427,9 @@ describe("reachedWait across restarts", () => {
   it("starts the restart count over for the call and for the call that waits on it, past the restart limit", async () => {
     const { extension, reached } = nesting({ callerHangs: () => false, waiterMarks: () => true });
 
-    const { harness, restart } = await openRestartingHarness(
-      [extension],
-      [callTool("caller", {}), answer("done")],
-      { restartLimit: 3 },
-    );
+    const { harness, restart } = await openRestartingHarness([extension], [callTool("caller", {}), answer("done")], {
+      restartLimit: 3,
+    });
 
     await reached("waiter 1");
 
@@ -490,12 +478,9 @@ describe("isToolName", () => {
     expect(isToolName(name)).toBe(true);
   });
 
-  it.each(["mcp__github__get_user", "mcp__a__b__x", "mcp__s__2fa"])(
-    "accepts the MCP tool name %s",
-    (name) => {
-      expect(isToolName(name)).toBe(true);
-    },
-  );
+  it.each(["mcp__github__get_user", "mcp__a__b__x", "mcp__s__2fa"])("accepts the MCP tool name %s", (name) => {
+    expect(isToolName(name)).toBe(true);
+  });
 
   it.each([
     "rollDie",

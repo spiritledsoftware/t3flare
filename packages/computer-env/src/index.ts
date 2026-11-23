@@ -7,11 +7,7 @@ export {
   type ComputerWorkspaceStub,
 } from "./env.ts";
 
-export {
-  type ContainerAccess,
-  type ContainerScriptRun,
-  MAX_CONTAINER_FILE_BYTES,
-} from "./container-files.ts";
+export { type ContainerAccess, type ContainerScriptRun, MAX_CONTAINER_FILE_BYTES } from "./container-files.ts";
 
 export { HARNESS_ROOT, isContainerOnly, withHarnessKept } from "./container-paths.ts";
 

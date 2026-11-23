@@ -31,8 +31,7 @@ const firstLine = (text: string): string => text.trimStart().split("\n", 1)[0]?.
 export const convertHtmlPage = (html: string, format: "markdown" | "text"): string => {
   const main = extractMainContent(html);
 
-  if (main === undefined)
-    return format === "markdown" ? htmlToMarkdown(html) : extractTextFromHtml(html);
+  if (main === undefined) return format === "markdown" ? htmlToMarkdown(html) : extractTextFromHtml(html);
 
   const note = chromeNote(main);
 
@@ -41,10 +40,7 @@ export const convertHtmlPage = (html: string, format: "markdown" | "text"): stri
     const heading = firstLine(body) === main.title ? undefined : main.title;
 
     return Arr.join(
-      Arr.filter(
-        [heading, note === undefined ? undefined : `[${note}]`, body],
-        (part) => part !== undefined,
-      ),
+      Arr.filter([heading, note === undefined ? undefined : `[${note}]`, body], (part) => part !== undefined),
       "\n\n",
     );
   }
@@ -53,16 +49,10 @@ export const convertHtmlPage = (html: string, format: "markdown" | "text"): stri
   // Escape the title as the body escapes text, so `Foo_bar` matches a `# Foo\_bar` heading.
   const title = main.title === undefined ? undefined : escapeText(main.title, false);
 
-  const heading =
-    title === undefined || firstLine(body).replace(/^#+\s*/, "") === title
-      ? undefined
-      : `# ${title}`;
+  const heading = title === undefined || firstLine(body).replace(/^#+\s*/, "") === title ? undefined : `# ${title}`;
 
   return Arr.join(
-    Arr.filter(
-      [heading, note === undefined ? undefined : `*${note}*`, body],
-      (part) => part !== undefined,
-    ),
+    Arr.filter([heading, note === undefined ? undefined : `*${note}*`, body], (part) => part !== undefined),
     "\n\n",
   );
 };

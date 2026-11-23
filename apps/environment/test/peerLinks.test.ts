@@ -26,10 +26,16 @@ it("links, lists, resolves and unlinks as stock t3 does, through our Layer", asy
     Effect.scoped(
       Effect.gen(function* () {
         const peer = yield* servePeer(laptop, Layer.empty);
-        const context = yield* Layer.build(layerPeerLinksWithoutCause.pipe(Layer.provideMerge(layerLinkingEnvironment(cloud))));
+        const context = yield* Layer.build(
+          layerPeerLinksWithoutCause.pipe(Layer.provideMerge(layerLinkingEnvironment(cloud))),
+        );
         const links = Context.get(context, PeerLinks.PeerLinks);
         const pairing = yield* peer.auth.issuePairingCredential();
-        const linked = yield* links.link({ url: peer.url, pairingCode: pairing.credential, access: "approval-required" });
+        const linked = yield* links.link({
+          url: peer.url,
+          pairingCode: pairing.credential,
+          access: "approval-required",
+        });
         const listed = yield* links.list;
         const resolved = yield* links.resolve(laptop.environmentId);
         const removed = yield* links.unlink(laptop.environmentId);
@@ -38,7 +44,11 @@ it("links, lists, resolves and unlinks as stock t3 does, through our Layer", asy
       }),
     ).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
-  expect(result.linked).toMatchObject({ environmentId: laptop.environmentId, label: "Laptop", access: "approval-required" });
+  expect(result.linked).toMatchObject({
+    environmentId: laptop.environmentId,
+    label: "Laptop",
+    access: "approval-required",
+  });
   expect(result.listed.map((link) => [link.environmentId, link.status])).toEqual([[laptop.environmentId, "reachable"]]);
   expect(result.resolved.token.length).toBeGreaterThan(20);
   expect(result.removed).toBe(true);
@@ -83,14 +93,22 @@ it("answers every error with t3's reason, message and answeredAs, and no cause",
   );
   expect(errors).toHaveLength(6);
   for (const error of errors) {
-    expect(error).toMatchObject({ _tag: "PeerLinkError", reason: "unreachable", message: "t3's own words", answeredAs: "Other" });
+    expect(error).toMatchObject({
+      _tag: "PeerLinkError",
+      reason: "unreachable",
+      message: "t3's own words",
+      answeredAs: "Other",
+    });
     expect(error.cause).toBeUndefined();
     expect(JSON.stringify(error)).not.toMatch(/secret-bearer|PAIRCODE/);
   }
 });
 
 it("leaves t3's `notListed` as t3 wrote it, pointing at a tool the agent is offered (C3)", () => {
-  const source = NodeFs.readFileSync(new URL("../../../t3code/apps/server/src/peer/PeerForwarding.ts", import.meta.url), "utf8");
+  const source = NodeFs.readFileSync(
+    new URL("../../../t3code/apps/server/src/peer/PeerForwarding.ts", import.meta.url),
+    "utf8",
+  );
   const t3Line = /const NOT_LISTED =\s*"([^"]+)"/.exec(source)?.[1];
   expect(t3Line, "t3's NOT_LISTED moved; re-read PeerForwarding.links (U45)").toBeDefined();
   const named = [...t3Line!.matchAll(/\bt3_[a-z_]+/g)].map((match) => match[0]);

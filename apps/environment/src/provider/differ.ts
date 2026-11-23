@@ -22,7 +22,17 @@ import {
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import type { ProviderAdapterV2Event } from "@t3tools/provider-core/server/ProviderAdapter";
-import { type ApprovalDecision, type ContentBlock, type EndpointFailureRecord, type PendingApproval, type PendingQuestion, PROPOSE_PLAN_TOOL, type PushedEntry, type SessionState, type TurnState } from "@t3flare/session-protocol";
+import {
+  type ApprovalDecision,
+  type ContentBlock,
+  type EndpointFailureRecord,
+  type PendingApproval,
+  type PendingQuestion,
+  PROPOSE_PLAN_TOOL,
+  type PushedEntry,
+  type SessionState,
+  type TurnState,
+} from "@t3flare/session-protocol";
 import { heldReset } from "@t3flare/models/failures";
 import { defaultModelSlug, isRetiredSlug, NO_ENDPOINT_MESSAGE, parseEndpointSlug } from "@t3flare/models/endpoints";
 import { environmentServices } from "../agents/bindings.ts";
@@ -89,7 +99,14 @@ export interface DifferState {
   /** Approvals emitted as pending and not yet closed, by the Session's request id. */
   readonly approvals: Map<string, OpenApproval>;
   /** The owner's answers, by t3's runtime request id (`respondToRuntimeRequest`), to close a request as resolved. */
-  readonly decisions: Map<string, { readonly decision: ApprovalDecision; readonly feedback?: string; readonly answers?: Readonly<Record<string, unknown>> }>;
+  readonly decisions: Map<
+    string,
+    {
+      readonly decision: ApprovalDecision;
+      readonly feedback?: string;
+      readonly answers?: Readonly<Record<string, unknown>>;
+    }
+  >;
   /** SPI-1055: the Todo List's revision last shown (undefined: none yet). */
   todoRev?: number;
   /** SPI-996: each running command's output as last streamed, by call id, to stream only what is new. */
@@ -160,7 +177,13 @@ const startedAtOf = (state: DifferState, key: string, now: DateTime.Utc): DateTi
 };
 
 /** Pushes `event` unless an identical one was emitted under `key` (timestamps aside). */
-const emitOnce = (state: DifferState, out: Array<ProviderAdapterV2Event>, key: string, event: ProviderAdapterV2Event, identity: unknown) => {
+const emitOnce = (
+  state: DifferState,
+  out: Array<ProviderAdapterV2Event>,
+  key: string,
+  event: ProviderAdapterV2Event,
+  identity: unknown,
+) => {
   const fingerprint = JSON.stringify(identity);
   if (state.emitted.get(key) === fingerprint) return;
   state.emitted.set(key, fingerprint);
@@ -186,7 +209,14 @@ const emitItem = (
 ) => {
   const nativeItemId = `${state.sessionName}:${key}`;
   const parentNativeId = parentKey === undefined ? undefined : `${state.sessionName}:${parentKey}`;
-  state.items.set(key, { turn: turn.providerTurnId, kind, status, title, body, ...(parentKey === undefined ? {} : { parentKey }) });
+  state.items.set(key, {
+    turn: turn.providerTurnId,
+    kind,
+    status,
+    title,
+    body,
+    ...(parentKey === undefined ? {} : { parentKey }),
+  });
   const startedAt = startedAtOf(state, key, now);
   const completedAt = status === "running" ? null : now;
   const nodeId = derive.nodeFromProviderItem({ driver, nativeItemId });
@@ -202,7 +232,10 @@ const emitItem = (
         id: nodeId,
         threadId: turn.threadId,
         runId: turn.runId,
-        parentNodeId: parentNativeId === undefined ? turn.rootNodeId : derive.nodeFromProviderItem({ driver, nativeItemId: parentNativeId }),
+        parentNodeId:
+          parentNativeId === undefined
+            ? turn.rootNodeId
+            : derive.nodeFromProviderItem({ driver, nativeItemId: parentNativeId }),
         rootNodeId: turn.rootNodeId,
         kind,
         status,
@@ -233,7 +266,10 @@ const emitItem = (
         providerThreadId: turn.providerThreadId,
         providerTurnId: turn.providerTurnId,
         nativeItemRef: ref(nativeItemId),
-        parentItemId: parentNativeId === undefined ? null : derive.turnItemFromProviderItem({ driver, nativeItemId: parentNativeId }),
+        parentItemId:
+          parentNativeId === undefined
+            ? null
+            : derive.turnItemFromProviderItem({ driver, nativeItemId: parentNativeId }),
         ordinal,
         startedAt,
         updatedAt: now,
@@ -246,7 +282,11 @@ const emitItem = (
     [status, title, body],
   );
   if (body.type === "assistant_message") {
-    const message = body as unknown as { readonly messageId: never; readonly text: string; readonly streaming: boolean };
+    const message = body as unknown as {
+      readonly messageId: never;
+      readonly text: string;
+      readonly streaming: boolean;
+    };
     emitOnce(
       state,
       out,
@@ -291,18 +331,38 @@ const emitResponse = (
     const key = `gen:${taskId}:${index}`;
     if (block.type === "text" && typeof block.text === "string" && block.text.length > 0) {
       const messageId = derive.messageFromProviderItem({ driver, nativeItemId: `${state.sessionName}:${key}` });
-      emitItem(state, out, turn, key, "assistant_message", streaming ? "running" : "completed", null, {
-        type: "assistant_message",
-        messageId,
-        text: block.text,
-        streaming,
-      }, now);
+      emitItem(
+        state,
+        out,
+        turn,
+        key,
+        "assistant_message",
+        streaming ? "running" : "completed",
+        null,
+        {
+          type: "assistant_message",
+          messageId,
+          text: block.text,
+          streaming,
+        },
+        now,
+      );
     } else if (block.type === "thinking" && typeof block.thinking === "string" && block.thinking.length > 0) {
-      emitItem(state, out, turn, key, "reasoning", streaming ? "running" : "completed", null, {
-        type: "reasoning",
-        text: block.thinking,
-        streaming,
-      }, now);
+      emitItem(
+        state,
+        out,
+        turn,
+        key,
+        "reasoning",
+        streaming ? "running" : "completed",
+        null,
+        {
+          type: "reasoning",
+          text: block.thinking,
+          streaming,
+        },
+        now,
+      );
     }
   });
 };
@@ -344,43 +404,85 @@ const emitTool = (
   }
   if (call.name === "bash") {
     const exitCode = typeof details.exitCode === "number" ? details.exitCode : undefined;
-    emitItem(state, out, turn, key, "tool_call", status, "bash", {
-      type: "command_execution",
-      input: textOut(str(call.arguments.command) ?? ""),
-      ...(output.length > 0 ? { output } : {}),
-      ...(exitCode === undefined ? {} : { exitCode }),
-    }, now, parentKey);
+    emitItem(
+      state,
+      out,
+      turn,
+      key,
+      "tool_call",
+      status,
+      "bash",
+      {
+        type: "command_execution",
+        input: textOut(str(call.arguments.command) ?? ""),
+        ...(output.length > 0 ? { output } : {}),
+        ...(exitCode === undefined ? {} : { exitCode }),
+      },
+      now,
+      parentKey,
+    );
     return;
   }
   if (call.name === "edit" || call.name === "write") {
     const fileName = str(call.arguments.path) ?? str(call.arguments.file_path);
     if (fileName !== undefined) {
       const patch = str(details.patch);
-      const diffStr = patch !== undefined ? textOut(patch) : result?.isError === true && output.trim().length > 0 ? output : undefined;
+      const diffStr =
+        patch !== undefined
+          ? textOut(patch)
+          : result?.isError === true && output.trim().length > 0
+            ? output
+            : undefined;
       const newStr = call.name === "write" ? str(call.arguments.content) : undefined;
-      emitItem(state, out, turn, key, "tool_call", status, call.name, {
-        type: "file_change",
-        fileName: pathOut(fileName),
-        ...(diffStr === undefined ? {} : { diffStr }),
-        ...(newStr === undefined ? {} : { newStr }),
-      }, now, parentKey);
+      emitItem(
+        state,
+        out,
+        turn,
+        key,
+        "tool_call",
+        status,
+        call.name,
+        {
+          type: "file_change",
+          fileName: pathOut(fileName),
+          ...(diffStr === undefined ? {} : { diffStr }),
+          ...(newStr === undefined ? {} : { newStr }),
+        },
+        now,
+        parentKey,
+      );
       return;
     }
   }
   // The agent's Terminals (SPI-1057) as commands, as t3 shows a command: what started or what was typed, and the screen.
   if (isTerminalCommand(call)) {
-    const keys = Array.isArray(call.arguments.keys) ? call.arguments.keys.filter((key): key is string => typeof key === "string") : [];
+    const keys = Array.isArray(call.arguments.keys)
+      ? call.arguments.keys.filter((key): key is string => typeof key === "string")
+      : [];
     const input =
       call.name === "terminal_start"
         ? (str(call.arguments.command) ?? "")
         : `${str(call.arguments.id) ?? "?"} ⟵ ${JSON.stringify(str(call.arguments.text) ?? "")}${keys.length === 0 ? "" : ` [${keys.join(", ")}]`}`;
     const exitCode = typeof details.exit_code === "number" ? details.exit_code : undefined;
-    emitItem(state, out, turn, key, "tool_call", status, call.name === "terminal_start" ? `Terminal ${str(details.id) ?? ""}`.trim() : `Typed into ${str(call.arguments.id) ?? "a Terminal"}`, {
-      type: "command_execution",
-      input: textOut(input),
-      ...(output.length > 0 ? { output } : {}),
-      ...(exitCode === undefined ? {} : { exitCode }),
-    }, now, parentKey);
+    emitItem(
+      state,
+      out,
+      turn,
+      key,
+      "tool_call",
+      status,
+      call.name === "terminal_start"
+        ? `Terminal ${str(details.id) ?? ""}`.trim()
+        : `Typed into ${str(call.arguments.id) ?? "a Terminal"}`,
+      {
+        type: "command_execution",
+        input: textOut(input),
+        ...(output.length > 0 ? { output } : {}),
+        ...(exitCode === undefined ? {} : { exitCode }),
+      },
+      now,
+      parentKey,
+    );
     return;
   }
   // The web tools (SPI-1054) as t3's own web search item, as t3's ACP adapter shows a fetch; a failed call stays a tool
@@ -389,24 +491,49 @@ const emitTool = (
     const search = call.name === "web_search";
     const pattern = str(search ? call.arguments.query : call.arguments.url)?.trim();
     const results = webResults(search ? details.results : [details], textOut);
-    emitItem(state, out, turn, key, "tool_call", status, search ? null : "Fetched a page", {
-      type: "web_search",
-      ...(pattern === undefined || pattern === "" ? {} : { patterns: [textOut(pattern)] }),
-      ...(results.length === 0 ? {} : { results }),
-    }, now, parentKey);
+    emitItem(
+      state,
+      out,
+      turn,
+      key,
+      "tool_call",
+      status,
+      search ? null : "Fetched a page",
+      {
+        type: "web_search",
+        ...(pattern === undefined || pattern === "" ? {} : { patterns: [textOut(pattern)] }),
+        ...(results.length === 0 ? {} : { results }),
+      },
+      now,
+      parentKey,
+    );
     return;
   }
   const input = Object.fromEntries(
-    Object.entries(call.arguments).map(([name, value]) => [name, name === "path" && typeof value === "string" ? pathOut(value) : value]),
+    Object.entries(call.arguments).map(([name, value]) => [
+      name,
+      name === "path" && typeof value === "string" ? pathOut(value) : value,
+    ]),
   );
-  emitItem(state, out, turn, key, "tool_call", status, toolTitle(call), {
-    type: "dynamic_tool",
-    // t3's own tools (`mcp__t3-code__…`, step 3) show as t3 shows them for its Pi provider.
-    ...mcpToolPresentation({ toolName: call.name }),
-    toolName: call.name,
-    input,
-    ...(result === undefined ? {} : { output: { content: result.content.filter((block) => block.type === "text") } }),
-  }, now, parentKey);
+  emitItem(
+    state,
+    out,
+    turn,
+    key,
+    "tool_call",
+    status,
+    toolTitle(call),
+    {
+      type: "dynamic_tool",
+      // t3's own tools (`mcp__t3-code__…`, step 3) show as t3 shows them for its Pi provider.
+      ...mcpToolPresentation({ toolName: call.name }),
+      toolName: call.name,
+      input,
+      ...(result === undefined ? {} : { output: { content: result.content.filter((block) => block.type === "text") } }),
+    },
+    now,
+    parentKey,
+  );
 };
 
 /**
@@ -417,14 +544,17 @@ const emitTool = (
 const emitTodo = (state: DifferState, out: Array<ProviderAdapterV2Event>, pushed: SessionState, now: DateTime.Utc) => {
   const todo = pushed.todo;
   if (todo === undefined || todo === null || todo.rev === state.todoRev) return;
-  const turnId = pushed.live.run?.turn ?? Object.entries(pushed.turns).find(([, turn]) => turn.status === "running")?.[0];
+  const turnId =
+    pushed.live.run?.turn ?? Object.entries(pushed.turns).find(([, turn]) => turn.status === "running")?.[0];
   const turn = turnId === undefined || turnId === null ? undefined : state.turns.get(turnId);
   if (turn === undefined || state.terminated.has(turn.providerTurnId)) return;
   state.todoRev = todo.rev;
   const key = `todo:${turn.providerTurnId}:${todo.rev}`;
   const steps = todo.tasks.flatMap((task) => {
     const text = task.title.trim();
-    return text === "" ? [] : [{ id: `todo:${task.id}`, text, status: task.status === "active" ? ("running" as const) : task.status }];
+    return text === ""
+      ? []
+      : [{ id: `todo:${task.id}`, text, status: task.status === "active" ? ("running" as const) : task.status }];
   });
   const planId = PlanId.make(`plan:${driver}:${state.sessionName}:todo:${turn.providerTurnId}`);
   emitItem(state, out, turn, key, "todo_list", "completed", "Todo list", { type: "todo_list", planId, steps }, now);
@@ -448,7 +578,14 @@ const emitTodo = (state: DifferState, out: Array<ProviderAdapterV2Event>, pushed
  * node, a `proposed_plan` turn item and an `active` plan artifact, which the owner's Implement completes. The plan the
  * session proposed before it, if not yet t3's, is superseded (Claude's `emitClaudePlanProjection`).
  */
-const emitProposedPlan = (state: DifferState, out: Array<ProviderAdapterV2Event>, turn: TurnContext, callId: string, markdown: string, now: DateTime.Utc) => {
+const emitProposedPlan = (
+  state: DifferState,
+  out: Array<ProviderAdapterV2Event>,
+  turn: TurnContext,
+  callId: string,
+  markdown: string,
+  now: DateTime.Utc,
+) => {
   const key = `plan:${callId}`;
   const planId = PlanId.make(`plan:${driver}:${state.sessionName}:proposed:${callId}`);
   const plan: Extract<OrchestrationV2PlanArtifact, { kind: "proposed_plan" }> = {
@@ -463,8 +600,19 @@ const emitProposedPlan = (state: DifferState, out: Array<ProviderAdapterV2Event>
   const fingerprint = JSON.stringify([markdown]);
   if (state.emitted.get(`plan-artifact:${callId}`) === fingerprint) return;
   const previous = state.proposedPlan;
-  if (previous !== undefined && previous.id !== planId) out.push({ type: "plan.updated", driver, plan: { ...previous, status: "superseded" } });
-  emitItem(state, out, turn, key, "plan", "completed", null, { type: "proposed_plan", planId, markdown, streaming: false }, now);
+  if (previous !== undefined && previous.id !== planId)
+    out.push({ type: "plan.updated", driver, plan: { ...previous, status: "superseded" } });
+  emitItem(
+    state,
+    out,
+    turn,
+    key,
+    "plan",
+    "completed",
+    null,
+    { type: "proposed_plan", planId, markdown, streaming: false },
+    now,
+  );
   state.emitted.set(`plan-artifact:${callId}`, fingerprint);
   out.push({ type: "plan.updated", driver, plan });
   state.proposedPlan = plan;
@@ -472,7 +620,8 @@ const emitProposedPlan = (state: DifferState, out: Array<ProviderAdapterV2Event>
 
 /** A Terminal call shown as a command: one that starts a program or types into one (SPI-1057). */
 const isTerminalCommand = (call: ToolCallInfo): boolean =>
-  call.name === "terminal_start" || (call.name === "terminal_send" && (str(call.arguments.text) !== undefined || Array.isArray(call.arguments.keys)));
+  call.name === "terminal_start" ||
+  (call.name === "terminal_send" && (str(call.arguments.text) !== undefined || Array.isArray(call.arguments.keys)));
 
 /** The calls shown as commands (`command_execution`), whose running output streams (SPI-996). */
 const isCommandItem = (call: ToolCallInfo): boolean => call.name === "bash" || isTerminalCommand(call);
@@ -501,7 +650,14 @@ export const SKIPPED_OUTPUT = "\n[… earlier output not streamed …]\n";
  * output: unpersisted, to clients showing the row; the result's output lands on the item when the call ends. The
  * Session pushes the tail of `pi.live`'s retained output, so what is new is what follows the part both pushes share.
  */
-const emitOutputDelta = (state: DifferState, out: Array<ProviderAdapterV2Event>, turn: TurnContext, callId: string, output: string, textOut: (text: string) => string) => {
+const emitOutputDelta = (
+  state: DifferState,
+  out: Array<ProviderAdapterV2Event>,
+  turn: TurnContext,
+  callId: string,
+  output: string,
+  textOut: (text: string) => string,
+) => {
   const previous = state.liveOutput.get(callId) ?? "";
   if (output === previous) return;
   state.liveOutput.set(callId, output);
@@ -521,7 +677,9 @@ const emitOutputDelta = (state: DifferState, out: Array<ProviderAdapterV2Event>,
  * The ports' notices (SPI-1057, SPI-1058, SPI-1059) as t3's `system_notice`, as t3's Pi provider shows its own: an
  * Advisor's finding, a Guardian's rejection, a Terminal's exit. Their entries carry the text in `data` (`details` here).
  */
-const NOTICES: Readonly<Record<string, (details: Record<string, unknown>) => { readonly title: string; readonly message: string } | undefined>> = {
+const NOTICES: Readonly<
+  Record<string, (details: Record<string, unknown>) => { readonly title: string; readonly message: string } | undefined>
+> = {
   "t3flare.advice": (details) => {
     const severity = str(details.severity);
     const message = str(details.message);
@@ -530,7 +688,12 @@ const NOTICES: Readonly<Record<string, (details: Record<string, unknown>) => { r
   "t3flare.guardian": (details) => {
     const tool = str(details.tool);
     const reason = str(details.reason);
-    return tool === undefined || reason === undefined ? undefined : { title: `Guardian ${str(details.result) === "failed" ? "could not review" : "blocked"} ${tool}`, message: reason };
+    return tool === undefined || reason === undefined
+      ? undefined
+      : {
+          title: `Guardian ${str(details.result) === "failed" ? "could not review" : "blocked"} ${tool}`,
+          message: reason,
+        };
   },
   "t3flare.terminal-exit": (details) => {
     const text = str(details.text);
@@ -538,10 +701,26 @@ const NOTICES: Readonly<Record<string, (details: Record<string, unknown>) => { r
   },
 };
 
-const emitNotice = (state: DifferState, out: Array<ProviderAdapterV2Event>, turn: TurnContext, entry: PushedEntry, now: DateTime.Utc) => {
+const emitNotice = (
+  state: DifferState,
+  out: Array<ProviderAdapterV2Event>,
+  turn: TurnContext,
+  entry: PushedEntry,
+  now: DateTime.Utc,
+) => {
   const notice = NOTICES[entry.kind]?.((entry.details ?? {}) as Record<string, unknown>);
   if (notice === undefined) return;
-  emitItem(state, out, turn, `notice:${entry.id}`, "system", "completed", notice.title, { type: "system_notice", message: notice.message }, now);
+  emitItem(
+    state,
+    out,
+    turn,
+    `notice:${entry.id}`,
+    "system",
+    "completed",
+    notice.title,
+    { type: "system_notice", message: notice.message },
+    now,
+  );
 };
 
 /** A tool item's title: code mode's, and the context tools' by what they did (SPI-1056); else the tool's name. */
@@ -571,14 +750,23 @@ const toolTitle = (call: ToolCallInfo): string => {
 };
 
 /** A web tool's pages (`details.results` of `web_search`, `details` of `web_fetch`) as t3's web search results. */
-const webResults = (raw: unknown, textOut: (text: string) => string): Array<{ readonly url: string; readonly title?: string; readonly snippet?: string }> =>
+const webResults = (
+  raw: unknown,
+  textOut: (text: string) => string,
+): Array<{ readonly url: string; readonly title?: string; readonly snippet?: string }> =>
   (Array.isArray(raw) ? raw : []).slice(0, 20).flatMap((page: unknown) => {
     const fields = (typeof page === "object" && page !== null ? page : {}) as Record<string, unknown>;
     const url = str(fields.url)?.trim();
     if (url === undefined || url === "") return [];
     const title = str(fields.title);
     const snippet = str(fields.snippet);
-    return [{ url, ...(title === undefined ? {} : { title }), ...(snippet === undefined ? {} : { snippet: textOut(snippet) }) }];
+    return [
+      {
+        url,
+        ...(title === undefined ? {} : { title }),
+        ...(snippet === undefined ? {} : { snippet: textOut(snippet) }),
+      },
+    ];
   });
 
 /** A nested call's status as committed in the code mode result's `details.calls`. */
@@ -589,7 +777,9 @@ const parseArgs = (text: unknown): Readonly<Record<string, unknown>> => {
   if (typeof text !== "string") return {};
   try {
     const parsed: unknown = JSON.parse(text);
-    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
   } catch {
     return { args: text };
   }
@@ -611,14 +801,31 @@ const emitNested = (
   now: DateTime.Utc,
 ) => {
   const parentKey = `call:${parent.id}`;
-  const details = (result?.details ?? {}) as { calls?: ReadonlyArray<Record<string, unknown>>; omittedCalls?: { count?: unknown; failed?: unknown } };
+  const details = (result?.details ?? {}) as {
+    calls?: ReadonlyArray<Record<string, unknown>>;
+    omittedCalls?: { count?: unknown; failed?: unknown };
+  };
   if (result === undefined || !Array.isArray(details.calls)) {
     for (const slot of live) {
       if (slot.parentCallId !== parent.id) continue;
       state.nestedArgs.set(slot.callId, slot.args);
       const status: ItemStatus = slot.status === "done" ? (slot.isError === true ? "failed" : "completed") : "running";
-      const shown = slot.output === undefined ? undefined : ({ content: [{ type: "text", text: slot.output }] } as unknown as PushedEntry);
-      emitTool(state, out, turn, { id: slot.callId, name: slot.name, arguments: slot.args }, status, slot.name === "bash" ? shown : undefined, pathOut, textOut, now, parentKey);
+      const shown =
+        slot.output === undefined
+          ? undefined
+          : ({ content: [{ type: "text", text: slot.output }] } as unknown as PushedEntry);
+      emitTool(
+        state,
+        out,
+        turn,
+        { id: slot.callId, name: slot.name, arguments: slot.args },
+        status,
+        slot.name === "bash" ? shown : undefined,
+        pathOut,
+        textOut,
+        now,
+        parentKey,
+      );
     }
     return;
   }
@@ -626,22 +833,45 @@ const emitNested = (
     const id = `${parent.id}/c${String(nested.id)}`;
     const name = typeof nested.name === "string" ? nested.name : "tool";
     const args = state.nestedArgs.get(id) ?? parseArgs(nested.args);
-    emitTool(state, out, turn, { id, name, arguments: args }, nestedStatus(nested.status), undefined, pathOut, textOut, now, parentKey);
+    emitTool(
+      state,
+      out,
+      turn,
+      { id, name, arguments: args },
+      nestedStatus(nested.status),
+      undefined,
+      pathOut,
+      textOut,
+      now,
+      parentKey,
+    );
   }
   const omitted = details.omittedCalls;
   if (typeof omitted?.count === "number" && omitted.count > 0) {
     const failed = typeof omitted.failed === "number" ? omitted.failed : 0;
-    emitItem(state, out, turn, `call:${parent.id}/omitted`, "tool_call", failed > 0 ? "failed" : "completed", `${omitted.count} more calls (${failed} failed)`, {
-      type: "dynamic_tool",
-      ...mcpToolPresentation({ toolName: "codemode" }),
-      toolName: "codemode",
-      input: {},
-    }, now, parentKey);
+    emitItem(
+      state,
+      out,
+      turn,
+      `call:${parent.id}/omitted`,
+      "tool_call",
+      failed > 0 ? "failed" : "completed",
+      `${omitted.count} more calls (${failed} failed)`,
+      {
+        type: "dynamic_tool",
+        ...mcpToolPresentation({ toolName: "codemode" }),
+        toolName: "codemode",
+        input: {},
+      },
+      now,
+      parentKey,
+    );
   }
 };
 
 /** t3's request kind for a Session approval: a T3 tool's is a permission (as t3's Pi bridge asks). */
-const requestKindOf = (kind: PendingApproval["kind"]): "command" | "file-change" | "permission" | "mcp-elicitation" => (kind === "mcp-tool" ? "permission" : kind);
+const requestKindOf = (kind: PendingApproval["kind"]): "command" | "file-change" | "permission" | "mcp-elicitation" =>
+  kind === "mcp-tool" ? "permission" : kind;
 
 /** A Session request (an approval, or step 3's question) as t3 shows it: its kinds and its turn item's own fields. */
 interface RequestView {
@@ -665,7 +895,11 @@ const approvalView = (approval: PendingApproval, textOut: (text: string) => stri
     type: "approval_request",
     requestKind: requestKindOf(approval.kind),
     prompt: textOut(
-      [approval.summary, approval.detail, approval.via === undefined ? undefined : `From a code mode script:\n${approval.via.script}`]
+      [
+        approval.summary,
+        approval.detail,
+        approval.via === undefined ? undefined : `From a code mode script:\n${approval.via.script}`,
+      ]
         .filter((part) => part !== undefined)
         .join("\n\n"),
     ),
@@ -697,7 +931,12 @@ const questionView = (question: PendingQuestion): RequestView => ({
 });
 
 /** Opens each new pending request of a turn this provider session started, and closes those the Session no longer has. */
-const emitRequests = (state: DifferState, out: Array<ProviderAdapterV2Event>, pending: ReadonlyArray<RequestView>, now: DateTime.Utc) => {
+const emitRequests = (
+  state: DifferState,
+  out: Array<ProviderAdapterV2Event>,
+  pending: ReadonlyArray<RequestView>,
+  now: DateTime.Utc,
+) => {
   const current = new Set(pending.map((request) => request.requestId));
   for (const view of pending) {
     if (state.approvals.has(view.requestId) || view.turn === null) continue;
@@ -777,17 +1016,27 @@ const emitRequests = (state: DifferState, out: Array<ProviderAdapterV2Event>, pe
         ...(answered?.answers === undefined ? {} : { answers: answered.answers }),
       },
     });
-    out.push({ type: "node.updated", driver, node: { ...open.node, status: resolved ? "completed" : "cancelled", completedAt: now } });
+    out.push({
+      type: "node.updated",
+      driver,
+      node: { ...open.node, status: resolved ? "completed" : "cancelled", completedAt: now },
+    });
     out.push({
       type: "turn_item.updated",
       driver,
-      turnItem: { ...open.turnItem, status: resolved ? "completed" : "cancelled", completedAt: now, updatedAt: now } as OrchestrationV2TurnItem,
+      turnItem: {
+        ...open.turnItem,
+        status: resolved ? "completed" : "cancelled",
+        completedAt: now,
+        updatedAt: now,
+      } as OrchestrationV2TurnItem,
     });
   }
 };
 
 /** A usage limit's reset as t3 takes it (`heldReset`: ISO, at least `MIN_RESET_MS` after `now`). */
-const resetOf = (failure: { readonly class: string; readonly resetAt?: number }, now: DateTime.Utc): string | null => heldReset(failure, DateTime.toEpochMillis(now));
+const resetOf = (failure: { readonly class: string; readonly resetAt?: number }, now: DateTime.Utc): string | null =>
+  heldReset(failure, DateTime.toEpochMillis(now));
 
 /**
  * A Model endpoint's failure as the Session classified it by the endpoint's API and auth (SPI-1172): its fixed text
@@ -795,7 +1044,13 @@ const resetOf = (failure: { readonly class: string; readonly resetAt?: number },
  * thread until it; nothing here (or in the Session) falls back to another endpoint.
  */
 const endpointFailureOf = (failure: EndpointFailureRecord, now: DateTime.Utc): OrchestrationV2ProviderFailure =>
-  makeProviderFailure({ class: failure.class, message: failure.message, code: failure.code, retryable: failure.retryable, resetAt: resetOf(failure, now) });
+  makeProviderFailure({
+    class: failure.class,
+    message: failure.message,
+    code: failure.code,
+    retryable: failure.retryable,
+    resetAt: resetOf(failure, now),
+  });
 
 /** True when no Model endpoint lists a model: the Environment needs setup (SPI-1176). Unbound services (tests): false. */
 const inSetupState = (): boolean => {
@@ -811,7 +1066,8 @@ const inSetupState = (): boolean => {
 const turnLimitMessage = (turnLimitMs: number | undefined): string => {
   if (turnLimitMs === undefined) return "The turn ran past its Turn limit and was stopped.";
   const minutes = Math.round(turnLimitMs / 60_000);
-  const span = minutes >= 1 ? `${minutes} minute${minutes === 1 ? "" : "s"}` : `${Math.round(turnLimitMs / 1000)} seconds`;
+  const span =
+    minutes >= 1 ? `${minutes} minute${minutes === 1 ? "" : "s"}` : `${Math.round(turnLimitMs / 1000)} seconds`;
   return `The turn ran past its Turn limit (${span}) and was stopped.`;
 };
 
@@ -819,20 +1075,31 @@ const turnLimitMessage = (turnLimitMs: number | undefined): string => {
  * A model error, classified (step 2a part 2 plan, section 3): the Session's record of the endpoint's answer first (its
  * credential, then its classified failure), else the error's HTTP status.
  */
-export const failureOf = (turn: TurnState, now: DateTime.Utc, setup: () => boolean = inSetupState): OrchestrationV2ProviderFailure => {
+export const failureOf = (
+  turn: TurnState,
+  now: DateTime.Utc,
+  setup: () => boolean = inSetupState,
+): OrchestrationV2ProviderFailure => {
   const reason = turn.reason ?? "unknown";
   const detail = turn.detail ?? "";
   if (reason === "model_error") {
     // A Model endpoint's credential failure as the Session recorded it, typed (SPI-1164: a sign-in signed out or not
     // renewed, a key gone or changed): the Session's own fixed text, its kind as the code.
     const credential = turn.proxy?.credential;
-    if (credential !== undefined) return makeProviderFailure({ class: "provider_error", message: credential.message, code: credential.kind, retryable: credential.retryable });
+    if (credential !== undefined)
+      return makeProviderFailure({
+        class: "provider_error",
+        message: credential.message,
+        code: credential.kind,
+        retryable: credential.retryable,
+      });
     const endpointFailure = turn.proxy?.endpointFailure;
     if (endpointFailure !== undefined) return endpointFailureOf(endpointFailure, now);
     const status = /\b([45]\d\d)\b/.exec(detail)?.[1];
     return makeProviderFailure({
       class: "provider_error",
-      message: status === undefined ? "The model provider reported an error." : `The model provider returned HTTP ${status}.`,
+      message:
+        status === undefined ? "The model provider reported an error." : `The model provider returned HTTP ${status}.`,
       code: status ?? null,
       retryable: null,
     });
@@ -843,11 +1110,18 @@ export const failureOf = (turn: TurnState, now: DateTime.Utc, setup: () => boole
     // (`adapter.ts` `modelOf`): the Environment needs setup.
     const slug = /^Model (\S+) is not available/.exec(detail)?.[1];
     // pi-durable's settlement may carry no detail at all: with no endpoint listing a model, that is setup too.
-    if ((slug === undefined && setup()) || (slug !== undefined && (parseEndpointSlug(slug) === undefined || isRetiredSlug(slug)))) {
+    if (
+      (slug === undefined && setup()) ||
+      (slug !== undefined && (parseEndpointSlug(slug) === undefined || isRetiredSlug(slug)))
+    ) {
       return makeProviderFailure({ class: "provider_error", message: NO_ENDPOINT_MESSAGE, code: reason });
     }
     const which = slug === undefined ? "The selected model" : `The model ${slug}`;
-    return makeProviderFailure({ class: "provider_error", message: `${which} is not available: its Model endpoint was removed or no longer lists it. Pick another model.`, code: reason });
+    return makeProviderFailure({
+      class: "provider_error",
+      message: `${which} is not available: its Model endpoint was removed or no longer lists it. Pick another model.`,
+      code: reason,
+    });
   }
   const messages: Record<string, string> = {
     turn_deadline: turnLimitMessage(turn.turnLimitMs),
@@ -858,7 +1132,11 @@ export const failureOf = (turn: TurnState, now: DateTime.Utc, setup: () => boole
     turn_limit: "The turn reached its tool-round limit.",
     lost: "The agent's session lost this turn.",
   };
-  return makeProviderFailure({ class: "provider_error", message: messages[reason] ?? `The turn ended without an answer (${reason}).`, code: reason });
+  return makeProviderFailure({
+    class: "provider_error",
+    message: messages[reason] ?? `The turn ended without an answer (${reason}).`,
+    code: reason,
+  });
 };
 
 /** The events for `pushed`, relative to what `state` last saw. `pathOut` translates structured path fields. */
@@ -904,16 +1182,32 @@ export const diff = (
     const result = results.get(id);
     const slot = slots.get(id);
     const status: ItemStatus =
-      result !== undefined ? (result.isError === true ? "failed" : "completed") : slot?.status === "done" ? "completed" : "running";
+      result !== undefined
+        ? result.isError === true
+          ? "failed"
+          : "completed"
+        : slot?.status === "done"
+          ? "completed"
+          : "running";
     emitTool(state, out, turn, call, status, result, pathOut, textOut, now);
-    if (status === "running" && slot?.output !== undefined && isCommandItem(call)) emitOutputDelta(state, out, turn, id, slot.output, textOut);
+    if (status === "running" && slot?.output !== undefined && isCommandItem(call))
+      emitOutputDelta(state, out, turn, id, slot.output, textOut);
     else if (status !== "running") state.liveOutput.delete(id);
-    if (call.name === "codemode") emitNested(state, out, turn, call, result, pushed.live.nestedTools ?? [], pathOut, textOut, now);
+    if (call.name === "codemode")
+      emitNested(state, out, turn, call, result, pushed.live.nestedTools ?? [], pathOut, textOut, now);
   }
 
   emitTodo(state, out, pushed, now);
 
-  emitRequests(state, out, [...pushed.approvals.map((approval) => approvalView(approval, textOut)), ...(pushed.questions ?? []).map(questionView)], now);
+  emitRequests(
+    state,
+    out,
+    [
+      ...pushed.approvals.map((approval) => approvalView(approval, textOut)),
+      ...(pushed.questions ?? []).map(questionView),
+    ],
+    now,
+  );
 
   // Usage of the newest response in each turn, as the provider turn's token usage.
   const usageByTurn = new Map<string, NonNullable<PushedEntry["usage"]>>();
@@ -924,7 +1218,9 @@ export const diff = (
   for (const [providerTurnId, pushedTurn] of Object.entries(pushed.turns)) {
     // The Turn limit aborts the run in the Session; t3 shows it as a failed turn, not a Stop (step 2a plan, section 3).
     const turnState: TurnState =
-      pushedTurn.status === "aborted" && pushedTurn.reason === "turn_deadline" ? { ...pushedTurn, status: "failed" } : pushedTurn;
+      pushedTurn.status === "aborted" && pushedTurn.reason === "turn_deadline"
+        ? { ...pushedTurn, status: "failed" }
+        : pushedTurn;
     const turn = state.turns.get(providerTurnId);
     if (turn === undefined || state.terminated.has(providerTurnId)) continue;
     const usage = usageByTurn.get(providerTurnId);
@@ -941,17 +1237,24 @@ export const diff = (
           };
     if (turnState.status === "queued" || turnState.status === "running") {
       if (tokenUsage !== undefined) {
-        emitOnce(state, out, `turn-usage:${providerTurnId}`, {
-          type: "provider_turn.updated",
-          driver,
-          threadId: turn.threadId,
-          providerTurn: { ...turn.providerTurn, tokenUsage },
-        }, [tokenUsage.usedTokens, tokenUsage.outputTokens]);
+        emitOnce(
+          state,
+          out,
+          `turn-usage:${providerTurnId}`,
+          {
+            type: "provider_turn.updated",
+            driver,
+            threadId: turn.threadId,
+            providerTurn: { ...turn.providerTurn, tokenUsage },
+          },
+          [tokenUsage.usedTokens, tokenUsage.outputTokens],
+        );
       }
       continue;
     }
     // Settled: close what is still open, then the provider turn and its terminal.
-    const settledStatus = turnState.status === "answered" ? "completed" : turnState.status === "aborted" ? "interrupted" : "failed";
+    const settledStatus =
+      turnState.status === "answered" ? "completed" : turnState.status === "aborted" ? "interrupted" : "failed";
     for (const [key, item] of state.items) {
       if (item.turn !== providerTurnId || item.status !== "running") continue;
       const closed: ItemStatus = settledStatus === "completed" ? "completed" : "interrupted";
@@ -973,7 +1276,8 @@ export const diff = (
       threadId: turn.threadId,
       providerTurn: {
         ...turn.providerTurn,
-        status: settledStatus === "completed" ? "completed" : settledStatus === "interrupted" ? "interrupted" : "failed",
+        status:
+          settledStatus === "completed" ? "completed" : settledStatus === "interrupted" ? "interrupted" : "failed",
         completedAt: now,
         ...(tokenUsage === undefined ? {} : { tokenUsage }),
       },
@@ -1023,7 +1327,8 @@ export const diff = (
         providerThreadId: turn.providerThreadId,
         providerTurnId: turn.providerTurnId,
         runOrdinal: turn.runOrdinal as never,
-        status: settledStatus === "completed" ? "completed" : turn.interruptRequested === true ? "interrupted" : "cancelled",
+        status:
+          settledStatus === "completed" ? "completed" : turn.interruptRequested === true ? "interrupted" : "cancelled",
         failure: null,
         threadDisposition: "reusable",
       });

@@ -22,7 +22,12 @@ describe("fsUsageOf", () => {
       uses(`import { readFileSync, statSync as stat } from "fs";
         import fsp, { open } from "node:fs/promises";
         await fsp.rm(p);`),
-    ).toEqual(["fs.readFileSync (named)", "fs.statSync (named)", "fs/promises.open (named)", "fs/promises.rm (default)"]);
+    ).toEqual([
+      "fs.readFileSync (named)",
+      "fs.statSync (named)",
+      "fs/promises.open (named)",
+      "fs/promises.rm (default)",
+    ]);
   });
 
   it("ignores type-only imports and type positions", () => {
@@ -36,7 +41,9 @@ describe("fsUsageOf", () => {
   });
 
   it("ignores modules other than node:fs, and code in strings", () => {
-    expect(uses('import * as fs from "node:path"; fs.join(a); const s = `const fs = require("node:fs"); fs.readSync(0)`;')).toEqual([]);
+    expect(
+      uses('import * as fs from "node:path"; fs.join(a); const s = `const fs = require("node:fs"); fs.readSync(0)`;'),
+    ).toEqual([]);
   });
 
   it("calls a binding used as a value, a computed member or a re-export opaque", () => {
@@ -87,15 +94,25 @@ describe("fsUsageOf", () => {
       import { promises as fsp } from "node:fs";
       await fsp.opendir(p);
       const q = NodeFS.promises; q.watch(p);`);
-    expect(result.uses.map(({ module, member }) => `${module}.${member}`)).toEqual(["fs.promises", "fs/promises.opendir", "fs.promises"]);
+    expect(result.uses.map(({ module, member }) => `${module}.${member}`)).toEqual([
+      "fs.promises",
+      "fs/promises.opendir",
+      "fs.promises",
+    ]);
     expect(result.opaque).toEqual(["NodeFS.promises (node:fs/promises) used as a value"]);
   });
 
   it("calls node:fs's `promises` destructured into a binding opaque", () => {
     const opaqueOf = (code: string) => usage(`import * as NS from "node:fs"; ${code}`).opaque;
-    expect(opaqueOf("const { promises } = NS; await promises.opendir(p);")).toEqual(["NS.promises (node:fs/promises) destructured into a binding"]);
-    expect(opaqueOf("const { promises: fsp } = NS; fsp.opendir(p);")).toEqual(["NS.promises (node:fs/promises) destructured into a binding"]);
-    expect(opaqueOf("const { promises: { cp } = {} } = NS;")).toEqual(["NS.promises (node:fs/promises) destructured into a binding"]);
+    expect(opaqueOf("const { promises } = NS; await promises.opendir(p);")).toEqual([
+      "NS.promises (node:fs/promises) destructured into a binding",
+    ]);
+    expect(opaqueOf("const { promises: fsp } = NS; fsp.opendir(p);")).toEqual([
+      "NS.promises (node:fs/promises) destructured into a binding",
+    ]);
+    expect(opaqueOf("const { promises: { cp } = {} } = NS;")).toEqual([
+      "NS.promises (node:fs/promises) destructured into a binding",
+    ]);
     expect(usage('const { promises } = await import("node:fs"); promises.opendir(p);').opaque).toEqual([
       'import("node:fs").promises (node:fs/promises) destructured into a binding',
     ]);
@@ -120,7 +137,13 @@ describe("shimSurfaceOf", () => {
         { lang: "ts" },
       ),
     );
-    expect([...surface.named].toSorted((a, b) => a.localeCompare(b))).toEqual(["exists", "existsSync", "openSync", "readFileSync", "Stats"]);
+    expect([...surface.named].toSorted((a, b) => a.localeCompare(b))).toEqual([
+      "exists",
+      "existsSync",
+      "openSync",
+      "readFileSync",
+      "Stats",
+    ]);
     expect([...surface.defaultKeys].toSorted((a, b) => a.localeCompare(b))).toEqual(["openSync", "readFileSync"]);
   });
 });
@@ -134,8 +157,14 @@ describe("fsCoverage", () => {
   it("names each use the shim does not implement, by module, with its importers", () => {
     const result = fsCoverage(
       [
-        { importer: "apps/server/src/a.ts", usage: usage('import * as F from "node:fs"; F.openSync(p); F.createReadStream(p);') },
-        { importer: "apps/server/src/b.ts", usage: usage('import F from "node:fs"; F.readSync(fd); F.openSync(p); F.createReadStream(p);') },
+        {
+          importer: "apps/server/src/a.ts",
+          usage: usage('import * as F from "node:fs"; F.openSync(p); F.createReadStream(p);'),
+        },
+        {
+          importer: "apps/server/src/b.ts",
+          usage: usage('import F from "node:fs"; F.readSync(fd); F.openSync(p); F.createReadStream(p);'),
+        },
       ],
       surfaces,
       { fs: {}, "fs/promises": {} },
@@ -147,11 +176,10 @@ describe("fsCoverage", () => {
   });
 
   it("checks a default import's members against the default object", () => {
-    const result = fsCoverage(
-      [{ importer: "x.ts", usage: usage('import F from "node:fs"; F.constants;') }],
-      surfaces,
-      { fs: {}, "fs/promises": {} },
-    );
+    const result = fsCoverage([{ importer: "x.ts", usage: usage('import F from "node:fs"; F.constants;') }], surfaces, {
+      fs: {},
+      "fs/promises": {},
+    });
     expect(result.uncovered).toEqual([{ module: "fs", member: "constants", importers: ["x.ts"] }]);
   });
 
@@ -167,18 +195,19 @@ describe("fsCoverage", () => {
   });
 
   it("carries each importer's opaque uses", () => {
-    const result = fsCoverage(
-      [{ importer: "x.ts", usage: usage('import * as F from "node:fs"; use(F);') }],
-      surfaces,
-      { fs: {}, "fs/promises": {} },
-    );
+    const result = fsCoverage([{ importer: "x.ts", usage: usage('import * as F from "node:fs"; use(F);') }], surfaces, {
+      fs: {},
+      "fs/promises": {},
+    });
     expect(result.opaque).toEqual(["x.ts: F (node:fs) used as a value"]);
   });
 });
 
 describe("fsCoverageFailure", () => {
   it("passes coverage with nothing uncovered or opaque", () => {
-    expect(fsCoverageFailure({ uncovered: [], opaque: [], allowed: ["fs.write"], unusedAllowances: ["fs.watch"] })).toBeUndefined();
+    expect(
+      fsCoverageFailure({ uncovered: [], opaque: [], allowed: ["fs.write"], unusedAllowances: ["fs.watch"] }),
+    ).toBeUndefined();
   });
 
   it("names each uncovered member with its readers, and each opaque use, with what to do about each", () => {

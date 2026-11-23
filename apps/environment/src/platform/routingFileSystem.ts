@@ -5,7 +5,19 @@
 //
 // Step 2b: worktree Workspaces are at `/w/.wt/<project dir>/<dir>`. `/w/.wt` and `/w/.wt/<project dir>` are directories
 // listed from the registry and hold nothing else; `/w` lists projects only.
-import { REPO_ROOT, W_ROOT, WORKTREES_ROOT, WORKTREES_SEGMENT, isUnderW, normalize, toWorkspace, worktreeDirOf, type DirEntry, type FileStat, type FsAnswer } from "@t3flare/workspace-client";
+import {
+  REPO_ROOT,
+  W_ROOT,
+  WORKTREES_ROOT,
+  WORKTREES_SEGMENT,
+  isUnderW,
+  normalize,
+  toWorkspace,
+  worktreeDirOf,
+  type DirEntry,
+  type FileStat,
+  type FsAnswer,
+} from "@t3flare/workspace-client";
 import * as ByteSize from "effect/ByteSize";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
@@ -34,7 +46,8 @@ const tagOf = (code: string): "NotFound" | "AlreadyExists" | "BadResource" | "Un
 const failure = (method: string, path: string, tag: ReturnType<typeof tagOf>, description: string) =>
   PlatformError.systemError({ _tag: tag, module: "FileSystem", method, pathOrDescriptor: path, description });
 
-const notFound = (method: string, path: string) => Effect.fail(failure(method, path, "NotFound", "t3flare: no such Workspace"));
+const notFound = (method: string, path: string) =>
+  Effect.fail(failure(method, path, "NotFound", "t3flare: no such Workspace"));
 const readOnly = (method: string, path: string) =>
   Effect.fail(failure(method, path, "BadResource", "t3flare: not supported in a Workspace"));
 
@@ -45,14 +58,21 @@ const call = <A>(method: string, path: string, at: Located, op: FsOp): Effect.Ef
     catch: (cause) => failure(method, path, "Unknown", `t3flare: Workspace ${at.id}: ${String(cause).slice(0, 300)}`),
   }).pipe(
     Effect.flatMap((answer: FsAnswer<unknown>) =>
-      "ok" in answer ? Effect.succeed(answer.ok as A) : Effect.fail(failure(method, path, tagOf(answer.error), answer.message)),
+      "ok" in answer
+        ? Effect.succeed(answer.ok as A)
+        : Effect.fail(failure(method, path, tagOf(answer.error), answer.message)),
     ),
   );
 
 const fileType = (kind: FileStat["kind"]): FileSystem.File.Type =>
   kind === "directory" ? "Directory" : kind === "symlink" ? "SymbolicLink" : "File";
 
-const info = (stat: { readonly kind: FileStat["kind"]; readonly size: number; readonly mtimeMs: number; readonly mode: number }): FileSystem.File.Info => ({
+const info = (stat: {
+  readonly kind: FileStat["kind"];
+  readonly size: number;
+  readonly mtimeMs: number;
+  readonly mode: number;
+}): FileSystem.File.Info => ({
   type: fileType(stat.kind),
   mtime: Option.some(new Date(stat.mtimeMs)),
   atime: Option.some(new Date(stat.mtimeMs)),
@@ -100,11 +120,15 @@ const listVirtual = (path: string): ReadonlyArray<string> => {
     .filter((ws) => ws.kind === "worktree" && (ws.state === "provisioning" || ws.state === "ready"))
     .map((ws) => ws.id.split("/"));
   if (at === null) return [];
-  const names = at.project === null ? worktrees.map((parts) => parts[1]!) : worktrees.filter((parts) => parts[1] === at.project).map((parts) => parts[2]!);
+  const names =
+    at.project === null
+      ? worktrees.map((parts) => parts[1]!)
+      : worktrees.filter((parts) => parts[1] === at.project).map((parts) => parts[2]!);
   return [...new Set(names)].toSorted();
 };
 
-const randomName = () => [...crypto.getRandomValues(new Uint8Array(8))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+const randomName = () =>
+  [...crypto.getRandomValues(new Uint8Array(8))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 
 /**
  * A temporary directory in t3's worktrees directory: a scratch directory for a detached checkout in a project's
@@ -114,7 +138,14 @@ const scratchDir = (method: string, directory: string, prefix: string | undefine
   Effect.flatMap(Clock.currentTimeMillis, (now) => {
     const made = makeScratchDir(directory, prefix, now, randomName);
     return made === undefined
-      ? Effect.fail(failure(method, directory, "BadResource", `t3flare: temporary directories in ${WORKTREES_ROOT} are only scratch checkouts (a prefix of letters, digits, '.', '_' or '-')`))
+      ? Effect.fail(
+          failure(
+            method,
+            directory,
+            "BadResource",
+            `t3flare: temporary directories in ${WORKTREES_ROOT} are only scratch checkouts (a prefix of letters, digits, '.', '_' or '-')`,
+          ),
+        )
       : Effect.succeed(made);
   });
 
@@ -127,20 +158,33 @@ const workspace = (method: string, path: string): Effect.Effect<Located, Platfor
 
 // `.wt` is listed once any worktree exists, so t3's own walks of `/w` find them.
 const listRoot = () => {
-  const ids = environmentServices().workspaces.projects().map((record) => record.id);
+  const ids = environmentServices()
+    .workspaces.projects()
+    .map((record) => record.id);
   return listVirtual(WORKTREES_ROOT).length > 0 ? [...ids, WORKTREES_SEGMENT] : ids;
 };
 
 const statOf = (method: string, path: string, follow: boolean) =>
   isRoot(path) || (isVirtual(path) && (normalize(path) === WORKTREES_ROOT || listVirtual(path).length > 0))
     ? Effect.succeed(ROOT_INFO)
-    : Effect.flatMap(workspace(method, path), (at) => Effect.map(call<FileStat>(method, path, at, { op: "stat", path: at.inner, follow }), info));
+    : Effect.flatMap(workspace(method, path), (at) =>
+        Effect.map(call<FileStat>(method, path, at, { op: "stat", path: at.inner, follow }), info),
+      );
 
 const readAll = (path: string) =>
-  Effect.flatMap(workspace("readFile", path), (at) => call<Uint8Array>("readFile", path, at, { op: "read", path: at.inner }));
+  Effect.flatMap(workspace("readFile", path), (at) =>
+    call<Uint8Array>("readFile", path, at, { op: "read", path: at.inner }),
+  );
 
-const writeAll = (method: string, path: string, data: Uint8Array, options: { readonly append?: boolean; readonly exclusive?: boolean } = {}) =>
-  Effect.flatMap(workspace(method, path), (at) => Effect.asVoid(call(method, path, at, { op: "write", path: at.inner, data, options })));
+const writeAll = (
+  method: string,
+  path: string,
+  data: Uint8Array,
+  options: { readonly append?: boolean; readonly exclusive?: boolean } = {},
+) =>
+  Effect.flatMap(workspace(method, path), (at) =>
+    Effect.asVoid(call(method, path, at, { op: "write", path: at.inner, data, options })),
+  );
 
 /** Reads a Workspace file through a handle: the whole file once, then from memory. Writes go through writeFile. */
 const openWorkspaceFile = (path: string): Effect.Effect<FileSystem.File, PlatformError.PlatformError> =>
@@ -195,14 +239,20 @@ export const routing = (local: Impl): Impl => ({
   stat: (path) => (isUnderW(path) ? statOf("stat", path, true) : local.stat(path)),
   makeDirectory: (path, options) => {
     if (!isUnderW(path)) return local.makeDirectory(path, options);
-    if (isRoot(path)) return options?.recursive === true ? Effect.void : Effect.fail(failure("makeDirectory", path, "AlreadyExists", "/w exists"));
+    if (isRoot(path))
+      return options?.recursive === true
+        ? Effect.void
+        : Effect.fail(failure("makeDirectory", path, "AlreadyExists", "/w exists"));
     // The worktree directories exist as long as a worktree does; making them is a no-op (`git worktree add` makes the Workspace).
     if (isVirtual(path)) return Effect.void;
     const target = toWorkspace(path);
     // A new folder directly in `/w` is a new, empty Workspace (t3's project folder, before a clone or `git init`).
-    if (target !== null && target.inner === REPO_ROOT && locate(path) === undefined) return createWorkspace(path, target.id);
+    if (target !== null && target.inner === REPO_ROOT && locate(path) === undefined)
+      return createWorkspace(path, target.id);
     return Effect.flatMap(workspace("makeDirectory", path), (at) =>
-      Effect.asVoid(call("makeDirectory", path, at, { op: "mkdir", path: at.inner, recursive: options?.recursive === true })),
+      Effect.asVoid(
+        call("makeDirectory", path, at, { op: "mkdir", path: at.inner, recursive: options?.recursive === true }),
+      ),
     );
   },
   makeTempDirectory: (options) =>
@@ -214,13 +264,19 @@ export const routing = (local: Impl): Impl => ({
   makeTempDirectoryScoped: (options) =>
     options?.directory !== undefined && isUnderW(options.directory)
       ? isVirtual(options.directory)
-        ? Effect.acquireRelease(scratchDir("makeTempDirectory", options.directory, options.prefix), (dir) => Effect.sync(() => dropScratchDir(dir)))
+        ? Effect.acquireRelease(scratchDir("makeTempDirectory", options.directory, options.prefix), (dir) =>
+            Effect.sync(() => dropScratchDir(dir)),
+          )
         : readOnly("makeTempDirectory", options.directory)
       : local.makeTempDirectoryScoped(options),
   makeTempFile: (options) =>
-    options?.directory !== undefined && isUnderW(options.directory) ? readOnly("makeTempFile", options.directory) : local.makeTempFile(options),
+    options?.directory !== undefined && isUnderW(options.directory)
+      ? readOnly("makeTempFile", options.directory)
+      : local.makeTempFile(options),
   makeTempFileScoped: (options) =>
-    options?.directory !== undefined && isUnderW(options.directory) ? readOnly("makeTempFile", options.directory) : local.makeTempFileScoped(options),
+    options?.directory !== undefined && isUnderW(options.directory)
+      ? readOnly("makeTempFile", options.directory)
+      : local.makeTempFileScoped(options),
   open: (path, options) => {
     if (!isUnderW(path)) return local.open(path, options);
     const flag = options?.flag ?? "r";
@@ -232,24 +288,33 @@ export const routing = (local: Impl): Impl => ({
     if (isVirtual(path)) return Effect.sync(() => [...listVirtual(path)]);
     if (options?.recursive === true) {
       return Effect.flatMap(workspace("readDirectory", path), (at) =>
-        Effect.map(call<ReadonlyArray<{ readonly path: string }>>("readDirectory", path, at, { op: "find", path: at.inner, limit: 20_000 }), (found) =>
-          found.map((entry) => entry.path.slice(at.inner.length).replace(/^\//, "")).filter((name) => name !== ""),
+        Effect.map(
+          call<ReadonlyArray<{ readonly path: string }>>("readDirectory", path, at, {
+            op: "find",
+            path: at.inner,
+            limit: 20_000,
+          }),
+          (found) =>
+            found.map((entry) => entry.path.slice(at.inner.length).replace(/^\//, "")).filter((name) => name !== ""),
         ),
       );
     }
     return Effect.flatMap(workspace("readDirectory", path), (at) =>
-      Effect.map(call<ReadonlyArray<DirEntry>>("readDirectory", path, at, { op: "readdir", path: at.inner }), (entries) =>
-        entries.map((entry) => entry.name),
+      Effect.map(
+        call<ReadonlyArray<DirEntry>>("readDirectory", path, at, { op: "readdir", path: at.inner }),
+        (entries) => entries.map((entry) => entry.name),
       ),
     );
   },
   readDirectoryEntries: (path) => {
     if (!isUnderW(path)) return local.readDirectoryEntries(path);
     if (isRoot(path)) return Effect.sync(() => listRoot().map((name) => ({ name, type: "Directory" as const })));
-    if (isVirtual(path)) return Effect.sync(() => listVirtual(path).map((name) => ({ name, type: "Directory" as const })));
+    if (isVirtual(path))
+      return Effect.sync(() => listVirtual(path).map((name) => ({ name, type: "Directory" as const })));
     return Effect.flatMap(workspace("readDirectoryEntries", path), (at) =>
-      Effect.map(call<ReadonlyArray<DirEntry>>("readDirectoryEntries", path, at, { op: "readdir", path: at.inner }), (entries) =>
-        entries.map((entry) => ({ name: entry.name, type: fileType(entry.kind) })),
+      Effect.map(
+        call<ReadonlyArray<DirEntry>>("readDirectoryEntries", path, at, { op: "readdir", path: at.inner }),
+        (entries) => entries.map((entry) => ({ name: entry.name, type: fileType(entry.kind) })),
       ),
     );
   },
@@ -261,7 +326,10 @@ export const routing = (local: Impl): Impl => ({
     if (isVirtual(path)) return Effect.succeed(normalize(path));
     return Effect.flatMap(workspace("realPath", path), (at) =>
       Effect.map(call<string>("realPath", path, at, { op: "realPath", path: at.inner }), (inner) => {
-        const back = inner === REPO_ROOT || inner.startsWith(`${REPO_ROOT}/`) ? `${W_ROOT}/${at.id}${inner.slice(REPO_ROOT.length)}` : null;
+        const back =
+          inner === REPO_ROOT || inner.startsWith(`${REPO_ROOT}/`)
+            ? `${W_ROOT}/${at.id}${inner.slice(REPO_ROOT.length)}`
+            : null;
         return back ?? normalize(path);
       }),
     );
@@ -275,13 +343,21 @@ export const routing = (local: Impl): Impl => ({
     // A Workspace's root goes with the Workspace: its files, then its registry entry.
     if (at !== null && at.inner === REPO_ROOT) {
       return Effect.flatMap(workspace("remove", path), (located) =>
-        call("remove", path, located, { op: "remove", path: REPO_ROOT, options: { recursive: true, force: true } }).pipe(
-          Effect.andThen(Effect.sync(() => environmentServices().workspaces.remove(located.id))),
-        ),
+        call("remove", path, located, {
+          op: "remove",
+          path: REPO_ROOT,
+          options: { recursive: true, force: true },
+        }).pipe(Effect.andThen(Effect.sync(() => environmentServices().workspaces.remove(located.id)))),
       );
     }
     return Effect.flatMap(workspace("remove", path), (located) =>
-      Effect.asVoid(call("remove", path, located, { op: "remove", path: located.inner, options: { recursive: options?.recursive === true, force: options?.force === true } })),
+      Effect.asVoid(
+        call("remove", path, located, {
+          op: "remove",
+          path: located.inner,
+          options: { recursive: options?.recursive === true, force: options?.force === true },
+        }),
+      ),
     );
   },
   rename: (from, to) => {
@@ -289,7 +365,9 @@ export const routing = (local: Impl): Impl => ({
     const a = toWorkspace(from);
     const b = toWorkspace(to);
     if (a === null || b === null || a.id !== b.id) return readOnly("rename", from);
-    return Effect.flatMap(workspace("rename", from), (at) => Effect.asVoid(call("rename", from, at, { op: "rename", path: a.inner, to: b.inner })));
+    return Effect.flatMap(workspace("rename", from), (at) =>
+      Effect.asVoid(call("rename", from, at, { op: "rename", path: a.inner, to: b.inner })),
+    );
   },
   symlink: (target, path) => (isUnderW(path) ? readOnly("symlink", path) : local.symlink(target, path)),
   truncate: (path, length) => (isUnderW(path) ? readOnly("truncate", path) : local.truncate(path, length)),
@@ -297,7 +375,10 @@ export const routing = (local: Impl): Impl => ({
   watch: (path, options) => local.watch(path, options),
   writeFile: (path, data, options) =>
     isUnderW(path)
-      ? writeAll("writeFile", path, data, { append: options?.flag?.startsWith("a") ?? false, exclusive: options?.flag?.includes("x") ?? false })
+      ? writeAll("writeFile", path, data, {
+          append: options?.flag?.startsWith("a") ?? false,
+          exclusive: options?.flag?.includes("x") ?? false,
+        })
       : local.writeFile(path, data, options),
 });
 

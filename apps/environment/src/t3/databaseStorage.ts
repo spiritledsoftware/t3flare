@@ -14,7 +14,8 @@ import * as DatabaseStorage from "t3/src/persistence/DatabaseStorage.ts";
 
 /** What stands where t3 prints its offline repair command: there is none to run. */
 export const NO_REPAIR = "Not needed: Cloudflare manages this Environment's Durable Object storage.";
-export const NOTHING_TO_RECLAIM = "This Environment's database lives in Durable Object storage, which Cloudflare manages: there is no space to reclaim here.";
+export const NOTHING_TO_RECLAIM =
+  "This Environment's database lives in Durable Object storage, which Cloudflare manages: there is no space to reclaim here.";
 
 /** How often an open Storage page sees the size again (t3's own pass is every minute). */
 export const SIZE_EVERY = "1 minute";
@@ -45,5 +46,7 @@ export const withDurableObjectSize = (
 export const layer = <E, R>(stock: Layer.Layer<DatabaseStorage.DatabaseStorage, E, R>, databaseSize: () => number) =>
   Layer.effect(
     DatabaseStorage.DatabaseStorage,
-    Effect.map(Effect.service(DatabaseStorage.DatabaseStorage), (service) => withDurableObjectSize(service, databaseSize)),
+    Effect.map(Effect.service(DatabaseStorage.DatabaseStorage), (service) =>
+      withDurableObjectSize(service, databaseSize),
+    ),
   ).pipe(Layer.provide(stock));

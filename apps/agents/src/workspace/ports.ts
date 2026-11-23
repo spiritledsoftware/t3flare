@@ -47,14 +47,24 @@ export interface PortProbe {
 }
 
 /** One GET of `path` on the Container's `port`, as stock's web probe does (1 s, no redirect followed, body unread). */
-export const probeRunningPort = async (container: RunningContainer | undefined, port: number, path: string): Promise<PortProbe | undefined> => {
+export const probeRunningPort = async (
+  container: RunningContainer | undefined,
+  port: number,
+  path: string,
+): Promise<PortProbe | undefined> => {
   if (container === undefined || !container.running) return undefined;
   if (!Number.isInteger(port) || port < 1 || port > 65_535 || !path.startsWith("/")) return undefined;
   const signal = AbortSignal.timeout(1_000);
   try {
-    const response = await container.getTcpPort(port).fetch(`http://localhost:${port}${path}`, { redirect: "manual", signal, headers: { host: `localhost:${port}` } });
+    const response = await container
+      .getTcpPort(port)
+      .fetch(`http://localhost:${port}${path}`, { redirect: "manual", signal, headers: { host: `localhost:${port}` } });
     await response.body?.cancel().catch(() => undefined);
-    return { status: response.status, contentType: response.headers.get("content-type"), location: response.headers.get("location") };
+    return {
+      status: response.status,
+      contentType: response.headers.get("content-type"),
+      location: response.headers.get("location"),
+    };
   } catch {
     return undefined;
   }

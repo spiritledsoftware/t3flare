@@ -30,31 +30,73 @@ export const truncate = lift(fs.truncateSync);
 export const access = lift(fs.accessSync);
 export const stat = lift((path: unknown) => fs.statSync(path));
 export const lstat = lift((path: unknown) => fs.lstatSync(path));
-export const statfs = async () => ({ type: 0, bsize: 4096, blocks: 2_621_440, bfree: 2_621_440, bavail: 2_621_440, files: 0, ffree: 0 });
+export const statfs = async () => ({
+  type: 0,
+  bsize: 4096,
+  blocks: 2_621_440,
+  bfree: 2_621_440,
+  bavail: 2_621_440,
+  files: 0,
+  ffree: 0,
+});
 
 class FileHandle {
   readonly fd: number;
   constructor(fd: number) {
     this.fd = fd;
   }
-  async writeFile(data: unknown) { fs.writeSync(this.fd, data); }
-  async write(data: unknown) { return { bytesWritten: fs.writeSync(this.fd, data) }; }
-  async appendFile(data: unknown) { fs.writeSync(this.fd, data); }
-  async stat() { return fs.fstatSync(this.fd); }
+  async writeFile(data: unknown) {
+    fs.writeSync(this.fd, data);
+  }
+  async write(data: unknown) {
+    return { bytesWritten: fs.writeSync(this.fd, data) };
+  }
+  async appendFile(data: unknown) {
+    fs.writeSync(this.fd, data);
+  }
+  async stat() {
+    return fs.fstatSync(this.fd);
+  }
   async sync() {}
   async datasync() {}
-  async close() { fs.closeSync(this.fd); }
-  async [Symbol.asyncDispose]() { fs.closeSync(this.fd); }
+  async close() {
+    fs.closeSync(this.fd);
+  }
+  async [Symbol.asyncDispose]() {
+    fs.closeSync(this.fd);
+  }
 }
 
-export const open = async (path: unknown, flags?: string, mode?: number) => new FileHandle(fs.openSync(path, flags, mode));
+export const open = async (path: unknown, flags?: string, mode?: number) =>
+  new FileHandle(fs.openSync(path, flags, mode));
 
 export { FileHandle };
 export const constants = fs.constants;
 
 export default {
-  readFile, writeFile, appendFile, mkdir, mkdtemp, readdir, rm, rmdir, unlink, rename, copyFile,
-  realpath, symlink, readlink, chmod, utimes, truncate, access, stat, lstat, statfs, open, constants,
+  readFile,
+  writeFile,
+  appendFile,
+  mkdir,
+  mkdtemp,
+  readdir,
+  rm,
+  rmdir,
+  unlink,
+  rename,
+  copyFile,
+  realpath,
+  symlink,
+  readlink,
+  chmod,
+  utimes,
+  truncate,
+  access,
+  stat,
+  lstat,
+  statfs,
+  open,
+  constants,
 };
 
 void store;

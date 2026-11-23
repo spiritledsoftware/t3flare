@@ -16,7 +16,16 @@ import * as fs from "node:fs";
 import { defaultTextModel } from "@t3flare/models/endpoints";
 
 import { MIN_SECRET_LENGTH, modelEndpointSpec, scrubValue, secretsOf } from "./lib/modelEndpointSpec.ts";
-import { admin, createProjectAndThread, enablePiDurable, pair, regenerateTitle, sendMessage, textGenerationSetting, updateSettings } from "./lib/client.ts";
+import {
+  admin,
+  createProjectAndThread,
+  enablePiDurable,
+  pair,
+  regenerateTitle,
+  sendMessage,
+  textGenerationSetting,
+  updateSettings,
+} from "./lib/client.ts";
 
 const option = (name: string) => {
   const index = process.argv.indexOf(`--${name}`);
@@ -36,7 +45,8 @@ const check = (name: string, ok: boolean, detail?: unknown) => {
 // A secret in any string of an answer kept (compared value by value, not in the JSON text: a short header value would
 // match its tokens).
 const clean = <T>(value: T): T => {
-  if (JSON.stringify(scrubValue(value, secrets)) !== JSON.stringify(value)) throw new Error("a key reached an answer kept as evidence");
+  if (JSON.stringify(scrubValue(value, secrets)) !== JSON.stringify(value))
+    throw new Error("a key reached an answer kept as evidence");
   return value;
 };
 
@@ -46,13 +56,36 @@ const endpoint = listed.json?.endpoints?.find((entry: any) => entry.id === spec.
 report.endpoint = clean(
   endpoint === undefined
     ? null
-    : { id: endpoint.id, label: endpoint.label, api: endpoint.api, auth: endpoint.auth, models: endpoint.models.map((model: any) => model.id), key: { set: endpoint.key?.set, readable: endpoint.key?.readable } },
+    : {
+        id: endpoint.id,
+        label: endpoint.label,
+        api: endpoint.api,
+        auth: endpoint.auth,
+        models: endpoint.models.map((model: any) => model.id),
+        key: { set: endpoint.key?.set, readable: endpoint.key?.readable },
+      },
 );
-check("the endpoint stage.ts saved is listed with a readable key", endpoint !== undefined && endpoint.key?.set === true && endpoint.key?.readable === true, report.endpoint);
+check(
+  "the endpoint stage.ts saved is listed with a readable key",
+  endpoint !== undefined && endpoint.key?.set === true && endpoint.key?.readable === true,
+  report.endpoint,
+);
 const audit = await admin("GET", "/_t3flare/settings/api/audit");
-const saves = (audit.json?.entries ?? []).filter((entry: any) => entry.entity === "endpoints" && entry.target === spec.spec.id);
-report.audit = clean(saves.map((entry: any) => ({ action: entry.action, caller: entry.caller, key: entry.after?.key === undefined ? null : { set: entry.after.key.set } })));
-check("its saves are audited, by the service token", saves.length > 0 && saves.every((entry: any) => entry.caller === "service-token"), report.audit);
+const saves = (audit.json?.entries ?? []).filter(
+  (entry: any) => entry.entity === "endpoints" && entry.target === spec.spec.id,
+);
+report.audit = clean(
+  saves.map((entry: any) => ({
+    action: entry.action,
+    caller: entry.caller,
+    key: entry.after?.key === undefined ? null : { set: entry.after.key.set },
+  })),
+);
+check(
+  "its saves are audited, by the service token",
+  saves.length > 0 && saves.every((entry: any) => entry.caller === "service-token"),
+  report.audit,
+);
 
 // 2. The text-generation setting, picked by no one, and a title generated on it.
 const cookie = await pair();
@@ -61,16 +94,33 @@ await enablePiDurable(cookie);
 report.setting = await textGenerationSetting(cookie);
 const expected = defaultTextModel({ revision: listed.json?.revision ?? 0, endpoints: listed.json?.endpoints ?? [] });
 report.expectedSetting = expected ?? null;
-check("text generation names the endpoint's small model", expected?.startsWith(`${spec.spec.id}/`) === true && (report.setting as any)?.model === expected, report.setting);
+check(
+  "text generation names the endpoint's small model",
+  expected?.startsWith(`${spec.spec.id}/`) === true && (report.setting as any)?.model === expected,
+  report.setting,
+);
 
-const { threadId } = await createProjectAndThread(cookie, { title: "New thread", workspaceRoot: `/w/p1175-${Date.now().toString(36)}` });
-await sendMessage(cookie, threadId, "Please fix the failing date parser test in src/dates.ts: it treats 2024-02-29 as invalid.");
+const { threadId } = await createProjectAndThread(cookie, {
+  title: "New thread",
+  workspaceRoot: `/w/p1175-${Date.now().toString(36)}`,
+});
+await sendMessage(
+  cookie,
+  threadId,
+  "Please fix the failing date parser test in src/dates.ts: it treats 2024-02-29 as invalid.",
+);
 const title = await regenerateTitle(cookie, threadId);
 report.title = clean(title);
-check("a thread's title is generated on the endpoint's model", title.outcome === "renamed" && typeof title.title === "string" && title.title !== "New thread", title);
+check(
+  "a thread's title is generated on the endpoint's model",
+  title.outcome === "renamed" && typeof title.title === "string" && title.title !== "New thread",
+  title,
+);
 
 // 3. No Model proxy: its model's text generation runs on the default model (SPI-1176).
-await updateSettings(cookie, { textGenerationModelSelection: { instanceId: "piDurable", model: "anthropic/claude-haiku-5-5" } });
+await updateSettings(cookie, {
+  textGenerationModelSelection: { instanceId: "piDurable", model: "anthropic/claude-haiku-5-5" },
+});
 const proxyTitle = await regenerateTitle(cookie, threadId);
 report.proxyModel = clean(proxyTitle);
 check("the retired proxy's model falls back to the default model", proxyTitle.outcome === "renamed", proxyTitle);

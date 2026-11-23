@@ -22,7 +22,11 @@ export interface SignInLeakPatterns {
 
 /** `secrets` hashed for the Container's scan; one shorter than the scanner's minimum is dropped and named. */
 export const signInLeakPatterns = async (secrets: ReadonlyArray<NamedSecret>): Promise<SignInLeakPatterns> => ({
-  patterns: await Promise.all(secrets.filter((secret) => secret.value.length >= MIN_SCANNED_LENGTH).map((secret) => patternOf(secret.name, secret.value))),
+  patterns: await Promise.all(
+    secrets
+      .filter((secret) => secret.value.length >= MIN_SCANNED_LENGTH)
+      .map((secret) => patternOf(secret.name, secret.value)),
+  ),
   tooShort: secrets.filter((secret) => secret.value.length < MIN_SCANNED_LENGTH).map((secret) => secret.name),
 });
 

@@ -6,7 +6,12 @@ import { otlpConfigFromSettings } from "../src/t3/otlp.ts";
 describe("the Environment's OTLP endpoints", () => {
   it("are the traces and metrics URLs saved in t3's settings, marked as from the settings", () => {
     const config = otlpConfigFromSettings(
-      JSON.stringify({ observability: { otlpTracesUrl: "https://otel.example/v1/traces", otlpMetricsUrl: "https://otel.example/v1/metrics" } }),
+      JSON.stringify({
+        observability: {
+          otlpTracesUrl: "https://otel.example/v1/traces",
+          otlpMetricsUrl: "https://otel.example/v1/metrics",
+        },
+      }),
     );
     expect(config).toMatchObject({
       otlpTracesUrl: "https://otel.example/v1/traces",

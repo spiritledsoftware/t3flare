@@ -6,8 +6,7 @@ import { convertContent, type WebFetchFormat } from "../../src/extensions/web/co
 import { htmlToMarkdown, MAX_FRAMES, MAX_SPANS } from "../../src/extensions/web/html-markdown.ts";
 import { HtmlTooDeepError } from "../../src/extensions/web/html-parse.ts";
 
-const page = (html: string, format: WebFetchFormat): string =>
-  convertContent(html, "text/html", format);
+const page = (html: string, format: WebFetchFormat): string => convertContent(html, "text/html", format);
 
 const NAVIGATION_PAGE = `<!doctype html><html><head><title>Guide to Widgets</title><style>.x{}</style></head>
 <body>
@@ -41,52 +40,38 @@ describe("htmlToMarkdown", () => {
   });
 
   it("moves whitespace outside emphasis markers, and drops empty spans and links", () => {
-    expect(htmlToMarkdown("<p>a<b> bold </b>b <i></i><a href='/x'> </a>c</p>")).toBe(
-      "a **bold** b c",
-    );
+    expect(htmlToMarkdown("<p>a<b> bold </b>b <i></i><a href='/x'> </a>c</p>")).toBe("a **bold** b c");
   });
 
   it("renders nested lists, ordered lists with a start, and list items holding paragraphs", () => {
     expect(
-      htmlToMarkdown(
-        "<ul><li>a</li><li>b<ul><li>nested</li></ul></li></ul><ol start='3'><li>x</li><li>y</li></ol>",
-      ),
+      htmlToMarkdown("<ul><li>a</li><li>b<ul><li>nested</li></ul></li></ul><ol start='3'><li>x</li><li>y</li></ol>"),
     ).toBe("- a\n- b\n  - nested\n\n3. x\n4. y");
-    expect(htmlToMarkdown("<ul><li><p>one</p></li><li><p>two</p></li></ul>")).toBe(
-      "- one\n\n- two",
-    );
+    expect(htmlToMarkdown("<ul><li><p>one</p></li><li><p>two</p></li></ul>")).toBe("- one\n\n- two");
   });
 
   it("fences code, keeps its blank lines, takes the language, and outgrows backticks inside it", () => {
-    expect(
-      htmlToMarkdown(
-        '<pre><code class="language-js">const a = 1;\n\nlet b;</code></pre><p>after</p>',
-      ),
-    ).toBe("```js\nconst a = 1;\n\nlet b;\n```\n\nafter");
+    expect(htmlToMarkdown('<pre><code class="language-js">const a = 1;\n\nlet b;</code></pre><p>after</p>')).toBe(
+      "```js\nconst a = 1;\n\nlet b;\n```\n\nafter",
+    );
     expect(htmlToMarkdown("<pre>use ``` fences</pre>")).toBe("````\nuse ``` fences\n````");
   });
 
   it("prefixes every line of a block quote, also around code", () => {
-    expect(htmlToMarkdown("<blockquote><p>one</p><p>two</p></blockquote><p>out</p>")).toBe(
-      "> one\n>\n> two\n\nout",
-    );
-    expect(htmlToMarkdown("<ul><li>item<pre>x\ny</pre></li></ul>")).toBe(
-      "- item\n\n  ```\n  x\n  y\n  ```",
-    );
+    expect(htmlToMarkdown("<blockquote><p>one</p><p>two</p></blockquote><p>out</p>")).toBe("> one\n>\n> two\n\nout");
+    expect(htmlToMarkdown("<ul><li>item<pre>x\ny</pre></li></ul>")).toBe("- item\n\n  ```\n  x\n  y\n  ```");
   });
 
   it("escapes Markdown syntax in text, and block starters at the start of a line", () => {
-    expect(
-      htmlToMarkdown(
-        "<p>Foo_bar *star* [x] \\</p><p># not a heading</p><p>1. not a list</p><p>- no</p>",
-      ),
-    ).toBe("Foo\\_bar \\*star\\* \\[x\\] \\\\\n\n\\# not a heading\n\n1\\. not a list\n\n\\- no");
+    expect(htmlToMarkdown("<p>Foo_bar *star* [x] \\</p><p># not a heading</p><p>1. not a list</p><p>- no</p>")).toBe(
+      "Foo\\_bar \\*star\\* \\[x\\] \\\\\n\n\\# not a heading\n\n1\\. not a list\n\n\\- no",
+    );
   });
 
   it("renders images, and skips inline data: images", () => {
-    expect(
-      htmlToMarkdown('<img src="a b.png" alt="pic [1]"><img src="data:image/png;base64,AAAA">'),
-    ).toBe("![pic \\[1\\]](a%20b.png)");
+    expect(htmlToMarkdown('<img src="a b.png" alt="pic [1]"><img src="data:image/png;base64,AAAA">')).toBe(
+      "![pic \\[1\\]](a%20b.png)",
+    );
   });
 
   it("escapes a backslash in an image's alt text, so it cannot escape the closing bracket", () => {
@@ -96,9 +81,7 @@ describe("htmlToMarkdown", () => {
 
   it("renders a rule, a hard break, and a table as one line per row", () => {
     expect(
-      htmlToMarkdown(
-        "<p>a<br>b</p><hr><table><tr><th>H</th><th>I</th></tr><tr><td>1</td><td>2</td></tr></table>",
-      ),
+      htmlToMarkdown("<p>a<br>b</p><hr><table><tr><th>H</th><th>I</th></tr><tr><td>1</td><td>2</td></tr></table>"),
     ).toBe("a  \nb\n\n---\n\nH | I\n1 | 2");
   });
 
@@ -112,9 +95,7 @@ describe("htmlToMarkdown", () => {
 
   it("keeps the text of malformed input", () => {
     expect(htmlToMarkdown("<p>one<p>two")).toBe("one\n\ntwo");
-    expect(htmlToMarkdown("<div><b>unclosed bold <a href='/x'>link")).toBe(
-      "**unclosed bold [link](/x)**",
-    );
+    expect(htmlToMarkdown("<div><b>unclosed bold <a href='/x'>link")).toBe("**unclosed bold [link](/x)**");
     expect(htmlToMarkdown("</div><p>stray</p>")).toBe("stray");
     expect(htmlToMarkdown("")).toBe("");
   });
@@ -158,25 +139,20 @@ describe("nesting", () => {
   );
 
   it("converts nested inline elements in linear time, keeping the outermost markup and all the text", () => {
-    const { output, ms } = timed(() =>
-      htmlToMarkdown(`${"<b>".repeat(1_000)}deep text${"</b>".repeat(1_000)} after`),
-    );
+    const { output, ms } = timed(() => htmlToMarkdown(`${"<b>".repeat(1_000)}deep text${"</b>".repeat(1_000)} after`));
 
     expect(output).toBe(`${"**".repeat(MAX_SPANS)}deep text${"**".repeat(MAX_SPANS)} after`);
     expect(ms).toBeLessThan(3_000);
   });
 
-  it.each(["markdown", "text"] as const)(
-    "refuses an unclosed-element bomb at once, in %s format",
-    (format) => {
-      // 5 MiB of `<div>` inside `<main>`: htmlparser2 alone takes minutes to open that many levels.
-      const bomb = `<main>${"<div>".repeat(1_000_000)}text`;
-      const started = Date.now();
+  it.each(["markdown", "text"] as const)("refuses an unclosed-element bomb at once, in %s format", (format) => {
+    // 5 MiB of `<div>` inside `<main>`: htmlparser2 alone takes minutes to open that many levels.
+    const bomb = `<main>${"<div>".repeat(1_000_000)}text`;
+    const started = Date.now();
 
-      expect(() => page(bomb, format)).toThrow(HtmlTooDeepError);
-      expect(Date.now() - started).toBeLessThan(2_000);
-    },
-  );
+    expect(() => page(bomb, format)).toThrow(HtmlTooDeepError);
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
 
   it("fails rather than produce more than the output limit", () => {
     const html = `${"<blockquote>".repeat(MAX_FRAMES)}${"<p>x</p>".repeat(400_000)}`;
@@ -186,30 +162,25 @@ describe("nesting", () => {
 });
 
 describe("convertContent", () => {
-  it.each(["markdown", "text"] as const)(
-    "returns <main> without site chrome in %s format",
-    (format) => {
-      const output = page(NAVIGATION_PAGE, format);
+  it.each(["markdown", "text"] as const)("returns <main> without site chrome in %s format", (format) => {
+    const output = page(NAVIGATION_PAGE, format);
 
-      for (const chrome of [
-        "SiteBrand",
-        "NavAlpha",
-        "NavBeta",
-        "SidebarAds",
-        "FooterLegal",
-        "InPageToc",
-        "trackingBeacon",
-      ]) {
-        expect(output).not.toContain(chrome);
-      }
+    for (const chrome of [
+      "SiteBrand",
+      "NavAlpha",
+      "NavBeta",
+      "SidebarAds",
+      "FooterLegal",
+      "InPageToc",
+      "trackingBeacon",
+    ]) {
+      expect(output).not.toContain(chrome);
+    }
 
-      expect(output).toContain("Widgets are small");
-      expect(output).toContain("Site chrome outside the main content was removed");
-      expect(
-        output.startsWith(format === "markdown" ? "# Guide to Widgets" : "Guide to Widgets"),
-      ).toBe(true);
-    },
-  );
+    expect(output).toContain("Widgets are small");
+    expect(output).toContain("Site chrome outside the main content was removed");
+    expect(output.startsWith(format === "markdown" ? "# Guide to Widgets" : "Guide to Widgets")).toBe(true);
+  });
 
   it("renders the main content as Markdown", () => {
     expect(page(NAVIGATION_PAGE, "markdown")).toBe(
@@ -220,22 +191,17 @@ describe("convertContent", () => {
   it("prefers [role=main] and skips a title the content already repeats", () => {
     const html = `<html><head><title>Widgets</title></head><body><nav>NavAlpha</nav><div role="main"><h1>Widgets</h1><p>Body.</p></div></body></html>`;
 
-    expect(page(html, "markdown")).toBe(
-      "*Site chrome outside the main content was removed.*\n\n# Widgets\n\nBody.",
-    );
+    expect(page(html, "markdown")).toBe("*Site chrome outside the main content was removed.*\n\n# Widgets\n\nBody.");
   });
 
-  it.each(["markdown", "text"] as const)(
-    "falls back to a single <article> in %s format",
-    (format) => {
-      const output = page(ARTICLE_PAGE, format);
+  it.each(["markdown", "text"] as const)("falls back to a single <article> in %s format", (format) => {
+    const output = page(ARTICLE_PAGE, format);
 
-      expect(output).toContain("Blog Post Title");
-      expect(output).toContain("Post body text.");
-      expect(output).not.toContain("NavAlpha");
-      expect(output).not.toContain("FooterLegal");
-    },
-  );
+    expect(output).toContain("Blog Post Title");
+    expect(output).toContain("Post body text.");
+    expect(output).not.toContain("NavAlpha");
+    expect(output).not.toContain("FooterLegal");
+  });
 
   it.each(["markdown", "text"] as const)(
     "strips page-level chrome when there is no main or article in %s format",
@@ -252,10 +218,7 @@ describe("convertContent", () => {
   );
 
   it("says how much text chrome removal dropped, and how to see it", () => {
-    const links = Array.from(
-      { length: 120 },
-      (_, index) => `<a href="/${index}">Nav item ${index}</a>`,
-    );
+    const links = Array.from({ length: 120 }, (_, index) => `<a href="/${index}">Nav item ${index}</a>`);
 
     const html = `<html><head><title>Docs</title></head><body><nav>${links.join(" ")}</nav><main><h1>Widgets</h1><p>Short body.</p></main></body></html>`;
 
@@ -266,10 +229,7 @@ describe("convertContent", () => {
 
   it("keeps a <main> that is the whole page without claiming chrome was removed", () => {
     expect(
-      page(
-        "<html><head><title>Solo</title></head><body><main><p>Only main.</p></main></body></html>",
-        "markdown",
-      ),
+      page("<html><head><title>Solo</title></head><body><main><p>Only main.</p></main></body></html>", "markdown"),
     ).toBe("# Solo\n\nOnly main.");
   });
 
@@ -321,9 +281,7 @@ describe("convertContent", () => {
 
   it("returns html format unchanged, and JSON re-indented", () => {
     expect(page(NAVIGATION_PAGE, "html")).toBe(NAVIGATION_PAGE);
-    expect(convertContent('{"a":[1]}', "application/json", "text")).toBe(
-      '{\n  "a": [\n    1\n  ]\n}',
-    );
+    expect(convertContent('{"a":[1]}', "application/json", "text")).toBe('{\n  "a": [\n    1\n  ]\n}');
     expect(convertContent('{"a":[1]}', "application/json", "html")).toBe('{"a":[1]}');
     expect(convertContent('{"a":[1]}', "text/plain", "text")).toBe('{"a":[1]}');
   });

@@ -8,6 +8,7 @@ Research date: 2026-11-19. Four questions, for deciding how to release t3flare (
 - **Part D.** Whether the Copilot, OpenAI and Anthropic terms allow an Owner's own paid plan to be held by a server-side broker for their own harnesses.
 
 Conventions:
+
 - Every claim cites a primary URL: a licence file in the project's repo or npm tarball, the vendor's own legal or docs page, or docs.github.com. Quotes are verbatim.
 - **(derived)** = my inference from cited statements, not stated verbatim in a source.
 - **(interpretation)** = a reading of vendor terms that the vendor does not state. Treat it as a question for counsel or for the vendor.
@@ -18,14 +19,15 @@ Conventions:
 
 ## What the Dockerfile installs (`apps/sandbox-image/image/Dockerfile`)
 
-| CLI | How the Dockerfile installs it | Pinned version | Upstream repo, licence file |
-|---|---|---|---|
-| OpenAI Codex CLI | Release tarball from `https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/codex-x86_64-unknown-linux-musl.tar.gz`, checked by SHA-256 | `CODEX_VERSION=0.167.2` | `https://github.com/openai/codex`, Apache-2.0 |
-| OpenCode | Release tarball from `https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-x64.tar.gz`, checked by SHA-256 | `OPENCODE_VERSION=2.2.7` | `https://github.com/anomalyco/opencode`, MIT |
-| pi CLI | `npm ci` from `cli/package.json`: `@earendil-works/pi-coding-agent` | `1.5.2` | `https://github.com/earendil-works/pi`, MIT |
-| Claude Code (over ACP) | `npm ci` from `claude/package.json`: `@agentclientprotocol/claude-agent-acp`, which depends on `@anthropic-ai/claude-agent-sdk`; the Dockerfile tests that `node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude` exists | `0.106.0` (ACP) | `https://github.com/agentclientprotocol/claude-agent-acp`, Apache-2.0 (ACP); SDK and `claude` binary: proprietary, see A.1 |
+| CLI                    | How the Dockerfile installs it                                                                                                                                                                                                   | Pinned version           | Upstream repo, licence file                                                                                                |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| OpenAI Codex CLI       | Release tarball from `https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/codex-x86_64-unknown-linux-musl.tar.gz`, checked by SHA-256                                                                       | `CODEX_VERSION=0.167.2`  | `https://github.com/openai/codex`, Apache-2.0                                                                              |
+| OpenCode               | Release tarball from `https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-x64.tar.gz`, checked by SHA-256                                                                                | `OPENCODE_VERSION=2.2.7` | `https://github.com/anomalyco/opencode`, MIT                                                                               |
+| pi CLI                 | `npm ci` from `cli/package.json`: `@earendil-works/pi-coding-agent`                                                                                                                                                              | `1.5.2`                  | `https://github.com/earendil-works/pi`, MIT                                                                                |
+| Claude Code (over ACP) | `npm ci` from `claude/package.json`: `@agentclientprotocol/claude-agent-acp`, which depends on `@anthropic-ai/claude-agent-sdk`; the Dockerfile tests that `node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude` exists | `0.106.0` (ACP)          | `https://github.com/agentclientprotocol/claude-agent-acp`, Apache-2.0 (ACP); SDK and `claude` binary: proprietary, see A.1 |
 
 Notes:
+
 - The OpenCode release is from `anomalyco/opencode`, not `sst/opencode`. `https://github.com/sst/opencode` answers `HTTP/2 301` with `location: https://github.com/anomalyco/opencode` (checked 2026-11-19).
 - The ACP package's own `package.json` declares `"@anthropic-ai/claude-agent-sdk": "0.3.322"` (npm: `https://registry.npmjs.org/@agentclientprotocol/claude-agent-acp/0.106.0`). The lock in `claude/package-lock.json` decides what is actually installed; I did not read it (UNCONFIRMED for the resolved SDK version). The npm `latest` SDK at fetch time was 0.3.328 (`https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk/latest`).
 - Codex `latest` on npm was 0.170.0 (`https://registry.npmjs.org/@openai/codex/latest`). The Dockerfile pins 0.167.2 from GitHub Releases, not from npm.
@@ -37,6 +39,7 @@ Notes:
 ### A.1 Licence that governs the CLI package
 
 **Claude Code (`@anthropic-ai/claude-code`) and the Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`): proprietary, not open source.**
+
 - Package `LICENSE.md`, inside `@anthropic-ai/claude-code@2.1.328` (tarball `https://registry.npmjs.org/@anthropic-ai/claude-code/-/claude-code-2.1.328.tgz`, file `package/LICENSE.md`):
   > "© Anthropic PBC. All rights reserved. Use is subject to the Legal Agreements outlined here: https://code.claude.com/docs/en/legal-and-compliance."
 - The npm `license` field is `"SEE LICENSE IN README.md"` (`https://www.npmjs.com/package/@anthropic-ai/claude-code`). The README has no licence section (checked `package/README.md` in the tarball). The licence text is in `LICENSE.md`, so the npm pointer is wrong.
@@ -45,22 +48,27 @@ Notes:
 - **Version drift:** the GitHub repo's `LICENSE.md` on `main` reads differently: "© Anthropic PBC. All rights reserved. Use is subject to Anthropic's [Commercial Terms of Service](https://www.anthropic.com/legal/commercial-terms)." (`https://raw.githubusercontent.com/anthropics/claude-code/main/LICENSE.md`). The npm 2.1.328 file points to the legal page instead. Both say "All rights reserved".
 
 The governing terms, per the vendor's legal page (`https://code.claude.com/docs/en/legal-and-compliance`, section "License"):
+
 > "Your use of Claude Code is subject to: [Commercial Terms of Service](https://www.anthropic.com/legal/commercial-terms) - for Team, Enterprise, and Claude API users; [Consumer Terms of Service](https://www.anthropic.com/legal/consumer-terms) - for Free, Pro, Max, and Ultra users"
 
 **Claude Code over ACP (`@agentclientprotocol/claude-agent-acp`, the adapter in the image): Apache-2.0.**
+
 - `LICENSE` in `@agentclientprotocol/claude-agent-acp@0.106.0` (tarball `https://registry.npmjs.org/@agentclientprotocol/claude-agent-acp/-/claude-agent-acp-0.106.0.tgz`) is the Apache License, Version 2.0 text. npm `license`: `"Apache-2.0"` (`https://registry.npmjs.org/@agentclientprotocol/claude-agent-acp/0.106.0`).
 - Its licence covers only the adapter. The SDK and the `claude` binary it depends on are under the proprietary terms above (derived from the dependency list).
 
 **OpenAI Codex CLI (`@openai/codex`, and the Rust binary the Dockerfile fetches): Apache-2.0.**
+
 - `LICENSE` at the pinned tag `rust-v0.167.2` (`https://raw.githubusercontent.com/openai/codex/rust-v0.167.2/LICENSE`) is "Apache License Version 2.0, January 2004".
 - npm `license`: `"Apache-2.0"` (`https://registry.npmjs.org/@openai/codex/0.167.2`).
 - OpenAI's Terms of Use say the same thing about OpenAI software: "Our software may include open source software that is governed by its own licenses that we've made available to you." (`https://openai.com/policies/terms-of-use/`, section "Software"). This covers the open-source CLI. It does not cover OpenAI's hosted Services.
 
 **OpenCode (`anomalyco/opencode`): MIT.**
+
 - `LICENSE` at tag `v2.2.7` (`https://raw.githubusercontent.com/anomalyco/opencode/v2.2.7/LICENSE`): "MIT License. Copyright (c) 2025 opencode."
 - No separate CLI terms were found for OpenCode. Its provider docs cover model-provider sign-in (A.3).
 
 **pi (`@earendil-works/pi-coding-agent`): MIT.**
+
 - npm `package.json` field: `"license": "MIT"` (`https://registry.npmjs.org/@earendil-works/pi-coding-agent/1.5.2`).
 - `LICENSE` at tag `v1.5.2` (`https://raw.githubusercontent.com/earendil-works/pi/v1.5.2/LICENSE`): "MIT License. Copyright (c) 2025 Mario Zechner."
 - **The npm tarball has no LICENSE file.** Its root holds `CHANGELOG.md`, `README.md`, `dist`, `docs`, `examples`, `schemas`, `package.json` (checked `https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-1.5.2.tgz`). An image that bundles pi should carry the MIT notice itself.
@@ -71,14 +79,16 @@ The governing terms, per the vendor's legal page (`https://code.claude.com/docs/
 **The repo as the project would publish it contains no CLI binary or package tarball.** The Dockerfile downloads each CLI at the deployer's build time, and the lock files record package names, versions and integrity hashes. (derived from `apps/sandbox-image/image/Dockerfile`, `cli/package.json`, `claude/package.json`.) Under that model the project does not redistribute anything, and each deployer's build is a copy made for their own account.
 
 **Apache-2.0 (Codex, ACP) and MIT (OpenCode, pi): a prebuilt image is a redistribution, and the licences attach conditions, not use restrictions.**
+
 - Apache-2.0 §4 (`https://raw.githubusercontent.com/openai/codex/rust-v0.167.2/LICENSE`): "You may reproduce and distribute copies of the Work or Derivative Works thereof in any medium, with or without modifications, and in Source or Object form, provided that You meet the following conditions:" The conditions include:
   > "(a) You must give any other recipients of the Work or Derivative Works a copy of this License; and"
   > "(d) If the Work includes a "NOTICE" text file as part of its distribution, then any Derivative Works that You distribute must include a readable copy of the attribution notices contained within such NOTICE file…"
-  §4(d) applies only when the work ships a NOTICE file; whether `openai/codex` or `agentclientprotocol/claude-agent-acp` ships one was not checked (UNCONFIRMED).
+  > §4(d) applies only when the work ships a NOTICE file; whether `openai/codex` or `agentclientprotocol/claude-agent-acp` ships one was not checked (UNCONFIRMED).
 - MIT (OpenCode `v2.2.7` and pi `v1.5.2` LICENSE files): "The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software."
 - Neither licence limits where or for whom the software runs.
 
 **Claude Code: a prebuilt image the project publishes would redistribute proprietary software under the Anthropic terms, which have explicit conditions for "preinstalling or running" it.**
+
 - `https://code.claude.com/docs/en/legal-and-compliance`, section "Can customers offer Claude Code in their products?":
   > "Unless we've mutually agreed otherwise, preinstalling or running Claude Code in your products or services (e.g. in hosted sandboxes or other agent infrastructure) requires agreeing to our [Commercial Terms of Service] and complying with the conditions below:"
   > "The Claude Code binary must not be modified. Claude Code must be installed and run as published by Anthropic, and customers may not remove, disable, or restrict any authentication method built into it (including methods that permit signing in with a Claude account or the user's own API key)."
@@ -91,6 +101,7 @@ The governing terms, per the vendor's legal page (`https://code.claude.com/docs/
 ### A.3 Headless, automated, and subscription use in a container on the deployer's own account
 
 **Claude Code / Claude subscriptions.**
+
 - Consumer Terms, section "3. Use of our Services" (`https://www.anthropic.com/legal/consumer-terms`), a prohibition:
   > "Except when you are accessing our Services via an Anthropic API Key or where we otherwise explicitly permit it, to access the Services through automated or non-human means, whether through a bot, script, or otherwise."
 - The same section bars sharing: "You may not share your Account login information, Anthropic API key, or Account credentials with anyone else." (section 2, `https://www.anthropic.com/legal/consumer-terms`).
@@ -98,17 +109,19 @@ The governing terms, per the vendor's legal page (`https://code.claude.com/docs/
   > "OAuth authentication is intended exclusively for purchasers of Claude Free, Pro, Max, Ultra, Team, and Enterprise subscription plans and is designed to support ordinary use of Claude Code and other native Anthropic applications."
   > "Advertised usage limits for Pro, Max, and Ultra plans assume ordinary, individual usage of Claude Code and the Agent SDK." (section "Acceptable use")
   > "Developers building products or services that interact with Claude's capabilities, including those using the Agent SDK, should use API key authentication through Claude Console or a supported cloud provider. Anthropic does not permit third-party developers to offer Claude.ai login into their own applications, or to route requests through Free, Pro, Max, or Ultra plan credentials on behalf of their users. Moreover, developers may not collect, store, or intermediate Claude.ai credentials or session tokens"
-  > "Nor does it prevent an end user from signing in to the unmodified Claude Code binary with their own Claude subscription, including where a platform hosts Claude Code as described under *Can customers offer Claude Code in their products?* above."
+  > "Nor does it prevent an end user from signing in to the unmodified Claude Code binary with their own Claude subscription, including where a platform hosts Claude Code as described under _Can customers offer Claude Code in their products?_ above."
 - Usage Policy (`https://www.anthropic.com/legal/aup`, "Do Not Abuse Our Platform"; page shows "Effective Nov 12, 2026"):
   > "Resell, proxy, or otherwise provide access to Claude through unauthorized means, including services that route requests through consumer subscriptions or misrepresent the product or client being used"
 - Commercial Terms (`https://www.anthropic.com/legal/commercial-terms`, D.4 Use Restrictions): "access the Services to build a competing product or service, including to train competing AI models or resell the Services except as expressly approved by Anthropic".
 
 **Reading (interpretation):**
+
 - Headless Claude Code run by a deployer, for that deployer alone, on the deployer's own subscription: the legal page's OAuth scope and its "end user… with their own Claude subscription" sentence point towards allowed. The Consumer Terms' automation ban still applies unless the access is via an API key or "explicitly permit[ted]". No explicit permission for headless automation was found. Anthropic's own wording that the Agent SDK is used under subscription limits "assume ordinary, individual usage" is the closest thing to an explicit permission. The safe default for automated runs is an API key.
 - Multi-tenant or hosted use of any subscription login (one shared token, or many users' tokens routed through the project's service): prohibited by the AUP and the legal page's intermediation rule.
 - The project itself must not collect, store or route a user's Claude subscription credentials if it serves anyone other than that user.
 
 **Codex / ChatGPT.**
+
 - Codex auth page (`https://developers.openai.com/codex/auth`):
   > "Use API key authentication for programmatic Codex CLI workflows, such as CI/CD jobs. Don't expose Codex execution in untrusted or public environments."
   > "Access tokens are intended for trusted scripts, schedulers, and private CI runners. For general OpenAI API calls, continue to use Platform API keys." (section "Use Codex access tokens for enterprise automation", ChatGPT Enterprise only)
@@ -123,11 +136,13 @@ The governing terms, per the vendor's legal page (`https://code.claude.com/docs/
 **Reading (interpretation):** OpenAI names API keys as the supported way to run Codex headless in CI, and limits ChatGPT-login reuse to trusted private automation, not public or open-source repos. A deployer running Codex in their own container on an API key is inside the stated guidance. A ChatGPT login copied into containers, or shared across users, is not.
 
 **OpenCode.**
+
 - Provider docs (`https://opencode.ai/docs/providers/`): "## ChatGPT — Use a ChatGPT Plus or Pro plan instead of an OpenAI API key. Connect **OpenAI**, then choose **Sign in with ChatGPT** or one of the legacy **Codex** sign-in methods."
 - The same page has no Anthropic subscription sign-in. Its Anthropic mentions are only in the Vertex section. The page is the V2 docs (it says "The old `google-vertex-anthropic` provider ID is unavailable in V2").
 - OpenCode's own licence (MIT) imposes no use restriction. The model providers' terms (above) govern what a subscription login may be used for.
 
 **pi.**
+
 - Providers doc (`https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/docs/providers.md`): the table row "Anthropic | `ANTHROPIC_API_KEY`". The page also says "Sign in through a browser or device flow backed by OAuth." and "On a remote or headless machine, an OAuth callback may not reach the local process."
 - The page does not say whether `/login` offers a Claude subscription sign-in for Anthropic, and it links to no Anthropic subscription flow. (UNCONFIRMED: whether pi's `/login` can reach Claude Pro/Max OAuth. If it can, Anthropic's rules in this section apply to its use.)
 - pi has no use restriction of its own (MIT).
@@ -148,8 +163,10 @@ The governing terms, per the vendor's legal page (`https://code.claude.com/docs/
 ### B.2 `pull_request` vs `pull_request_target` from a fork
 
 **`pull_request` from a fork** (`https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows`, "Workflows in forked repositories"):
+
 > "With the exception of `GITHUB_TOKEN`, secrets are not passed to the runner when a workflow is triggered from a forked repository."
 > "The `GITHUB_TOKEN` has read-only permissions in pull requests from forked repositories."
+
 - Secrets page (`https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions`) says the same.
 - Settings page (`https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository`), fork policy: "**Run workflows from fork pull requests** - Allows users to run workflows from fork pull requests, using a `GITHUB_TOKEN` with read-only permission, and with no access to secrets." "**Send write tokens to workflows from pull requests** - Allows pull requests from forks to use a `GITHUB_TOKEN` with write permission." "**Send secrets to workflows from pull requests** - Makes all secrets available to the pull request."
 - Workflow syntax, `permissions` (`https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax`): "You can use the `permissions` key to add and remove read permissions for forked repositories, but typically you can't grant write access. The exception to this behavior is where an admin user has selected the **Send write tokens to workflows from pull requests** option in the GitHub Actions settings."
@@ -157,7 +174,9 @@ The governing terms, per the vendor's legal page (`https://code.claude.com/docs/
 - **Default `GITHUB_TOKEN` permission** for a same-repo `pull_request`: the repo's "Workflow permissions" setting, either "read and write access for all permissions (the permissive setting), or just read access for the `contents` and `packages` permissions (the restricted setting)" (settings page above). The page does not say which one is the default for new repos (UNCONFIRMED).
 
 **`pull_request_target`** (events page, `#pull_request_target`):
+
 > "This event runs in the context of the default branch of the base repository, rather than in the context of the merge commit, as the `pull_request` event does. This prevents execution of unsafe code from the head of the pull request that could alter your repository or steal any secrets you use in your workflow. This event allows your workflow to do things like label or comment on pull requests from forks."
+
 - Workflow syntax, `permissions`: "...for the `pull_request_target` event, the `GITHUB_TOKEN` is granted read/write repository permission, even when it is triggered from a public fork."
 - Hardening guide (`https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions`): "The `pull_request_target` and `workflow_run` workflow triggers, when used with the checkout of an untrusted pull request, expose the repository to security compromises. These workflows are privileged, which means they share the same cache of the main branch with other privileged workflow triggers, and may have repository write access and access to referenced secrets." It also says: "Avoid using the `pull_request_target` workflow trigger if it's not necessary."
 
@@ -166,6 +185,7 @@ The governing terms, per the vendor's legal page (`https://code.claude.com/docs/
 ### B.3 Does a fork inherit upstream environments, secrets, variables, deploy keys, or rulesets?
 
 **Expected: no, for environments, secrets, variables and deploy keys. Confirmed for the settings-level statement; the rest is derived.**
+
 - About forks (`https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/about-forks`): "A fork is a separate repository with its own settings and collaboration space. Each fork can have its own: Branches; Members and discussions; Issues and pull requests; Actions and projects; Tags, labels, and wikis." Also "A fork has its own settings and permissions but stays connected to the upstream repository."
 - Deploy keys (`https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys`): "a deploy key, which is an SSH key that grants access to a single repository. GitHub attaches the public part of the key directly to your repository". A fork is a different repository, so it has no upstream deploy key (derived).
 - Environments and secrets are per-repository, so a fork starts without them (derived from the "own settings" statement and the environment page above). The docs do not list fork-copy exceptions for them.
@@ -240,6 +260,7 @@ The governing terms, per the vendor's legal page (`https://code.claude.com/docs/
 ## Sources checked (primary)
 
 Licences (package tarballs and repo files at the pinned versions):
+
 - `https://registry.npmjs.org/@anthropic-ai/claude-code/-/claude-code-2.1.328.tgz` (`package/LICENSE.md`, `package/README.md`); `https://www.npmjs.com/package/@anthropic-ai/claude-code`; `https://registry.npmjs.org/@anthropic-ai/claude-code/latest`
 - `https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk/-/claude-agent-sdk-0.3.328.tgz` (`package/LICENSE.md`); `https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk/latest`; `https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-x64/0.3.328`
 - `https://registry.npmjs.org/@agentclientprotocol/claude-agent-acp/0.106.0`; `https://registry.npmjs.org/@agentclientprotocol/claude-agent-acp/-/claude-agent-acp-0.106.0.tgz`
@@ -249,12 +270,14 @@ Licences (package tarballs and repo files at the pinned versions):
 - `https://raw.githubusercontent.com/earendil-works/pi/v1.5.2/LICENSE`; `https://registry.npmjs.org/@earendil-works/pi-coding-agent/1.5.2`; `https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-1.5.2.tgz`
 
 Vendor terms and docs:
+
 - Anthropic: `https://code.claude.com/docs/en/legal-and-compliance`; `https://www.anthropic.com/legal/consumer-terms`; `https://www.anthropic.com/legal/commercial-terms`; `https://www.anthropic.com/legal/aup`
 - OpenAI: `https://openai.com/policies/terms-of-use/`; `https://openai.com/policies/services-agreement/`; `https://openai.com/policies/usage-policies/`; `https://developers.openai.com/codex/auth`; `https://developers.openai.com/codex/auth/ci-cd-auth`
 - OpenCode: `https://opencode.ai/docs/providers/`
 - pi: `https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/docs/providers.md`
 
 GitHub and git:
+
 - `https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows`
 - `https://docs.github.com/en/actions/how-tos/manage-workflow-runs/disable-and-enable-workflows`
 - `https://docs.github.com/en/actions/how-tos/manage-workflow-runs/approve-runs-from-forks`
@@ -345,6 +368,7 @@ Research date: 2026-11-19. Conventions as in Part A: quotes are verbatim from th
 ### D.1 GitHub Copilot
 
 **Which terms govern an individual plan.**
+
 - GitHub Terms for Additional Products and Features, version effective 2026-08-27, section "GitHub Copilot" (`https://docs.github.com/en/site-policy/github-terms/github-terms-for-additional-products-and-features`):
   > "For all other GitHub Copilot users, your use of GitHub Copilot is governed by Section J (AI Features) of the GitHub Terms of Service."
 - Copilot Product Specific Terms (`https://github.com/customer-terms/github-copilot-product-specific-terms`, banner: "deprecated effective 5 March 2026"):
@@ -357,10 +381,11 @@ Research date: 2026-11-19. Conventions as in Part A: quotes are verbatim from th
 
 - Strongest restriction in the terms, AUP §6 "Services Usage Limits" (`https://docs.github.com/en/site-policy/acceptable-use-policies/github-acceptable-use-policies`):
   > "You will not reproduce, duplicate, copy, sell, resell or exploit any portion of the Service, use of the Service, or access to the Service without our express written permission."
-  **Interpretation (mine):** read broadly, this reaches a broker that makes the Owner's Copilot access available to other programs. Read narrowly, it targets resale. GitHub has not said which. Treat it as unresolved.
+  > **Interpretation (mine):** read broadly, this reaches a broker that makes the Owner's Copilot access available to other programs. Read narrowly, it targets resale. GitHub has not said which. Treat it as unresolved.
 - ToS §C (`https://docs.github.com/en/site-policy/github-terms/github-terms-of-service#c-acceptable-use`): "You agree that you will not under any circumstances violate our Acceptable Use Policies or Community Guidelines."
 
 **Routes GitHub does document.**
+
 - Copilot SDK authentication (`https://docs.github.com/en/copilot/how-tos/copilot-sdk/auth/authenticate`): the methods table lists "Environment Variables | CI/CD, automation, server-to-server | Yes" (Copilot subscription required). Its OAuth section says: "Your app receives a user access token (`gho_` or `ghu_` prefix)." Its supported-token list excludes "`ghp_` - Classic personal access tokens (deprecated)".
 - Copilot SDK GA changelog (`https://github.blog/changelog/2026-06-02-copilot-sdk-is-now-generally-available/`): "The GitHub Copilot SDK is available to all existing GitHub Copilot subscribers, including Copilot Free for personal use, and to non-Copilot users via BYOK."
 - Server-to-server tokens (`https://docs.github.com/en/copilot/how-tos/copilot-sdk/auth/server-to-server-tokens`): for services outside Actions, "Create a GitHub App with the **Copilot Requests** organization permission", and "Usage is attributed and billed to the organization that owns the GitHub App installation." **Interpretation (mine):** this route needs an organization, so a personal subscription cannot use it.
@@ -370,32 +395,37 @@ Research date: 2026-11-19. Conventions as in Part A: quotes are verbatim from th
 **Interpretation (mine).** GitHub documents personal-token use in automation through its own runtime (the SDK or CLI) and through OAuth App user tokens that the app obtains itself. None of the pages describes a server that holds a subscriber's token and forwards model requests for a different vendor's client. That is the t3flare pattern, and it is not on the documented list.
 
 **Headless and automated use on a server.** The sources do not restrict it by name for an individual plan. Two lines bear on it:
+
 - AUP §4: "using our servers for any form of excessive automated bulk activity, to place undue burden on our servers through automated means."
 - ToS §B.3 (`https://docs.github.com/en/site-policy/github-terms/github-terms-of-service#b-account-terms`): "A machine account is used exclusively for performing automated tasks."
 
 **Sharing.**
+
 - ToS §B.3: "Your login may only be used by one person — i.e., a single login may not be shared by multiple people."
 - ToS §H (API Terms): "You may not share API tokens to exceed GitHub's rate limitations."
-**Interpretation (mine):** a single-Owner broker that serves one person's harnesses fits §B.3. A multi-user deployment does not.
+  **Interpretation (mine):** a single-Owner broker that serves one person's harnesses fits §B.3. A multi-user deployment does not.
 
 **Excluded lead.** A GitHub issue (`https://github.com/anomalyco/opencode/issues/12258`) reports a GitHub response that PAT authentication is "not currently supported for third-party tools like OpenCode." That is a user's secondhand report, not a primary source, so I did not rely on it. GitHub should be asked directly.
 
 ### D.2 OpenAI (ChatGPT plan and Codex)
 
 **Usage Policies, current and incoming.**
+
 - Current, in force until 2026-11-20 (`https://openai.com/policies/usage-policies/revisions/2025-10-29/`, "Effective: October 29, 2025"): no clause on subscription credentials, account sharing, or model-access intermediaries. The "Protect people" list includes "circumventing our safeguards."
 - Incoming (`https://openai.com/policies/usage-policies/`, "Effective: November 20, 2026 | Previous Version"; changelog: "2026-10-21: ... These changes are effective November 20, 2026."). New clause:
   > "**Providing access to our models.** If you operate a model-access intermediary platform or other service that enables third parties to directly access OpenAI models, you must obtain our prior review and approval. This requirement does not apply solely because an application integrates OpenAI models to power its features or functionality."
-  The same version adds a training restriction ("You must not use OpenAI models or their outputs to generate, prepare, select, or supply training material or signals for models that are intended as alternatives to or substitutes for OpenAI models or services."), which does not govern access.
-  **Interpretation (mine):** a broker serving only the Owner's own harnesses is not obviously "a model-access intermediary platform." Whether pi or OpenCode count as "third parties", and whether a broker shipped to other deployers counts, is open. Ask OpenAI before release.
+  > The same version adds a training restriction ("You must not use OpenAI models or their outputs to generate, prepare, select, or supply training material or signals for models that are intended as alternatives to or substitutes for OpenAI models or services."), which does not govern access.
+  > **Interpretation (mine):** a broker serving only the Owner's own harnesses is not obviously "a model-access intermediary platform." Whether pi or OpenCode count as "third parties", and whether a broker shipped to other deployers counts, is open. Ask OpenAI before release.
 
 **Terms of Use** (`https://openai.com/policies/terms-of-use/`, "Published: January 1, 2026"). Scope: "These Terms of Use apply to your use of ChatGPT, DALL·E, and OpenAI's other services for individuals". Quotes:
-  > "You may not share your account credentials or make your account available to anyone else and are responsible for all activities that occur under your account."
-  > "Interfere with or disrupt our Services, including circumvent any rate limits or restrictions or bypass any protective measures or safety mitigations we put on our Services."
-  > "Modify, copy, lease, sell or distribute any of our Services."
-  The same page says: "Our Business Terms govern use of ChatGPT Enterprise, our APIs, and our other services for businesses and developers." **Interpretation (mine):** a Plus or Pro login falls under these Terms, not the Services Agreement.
+
+> "You may not share your account credentials or make your account available to anyone else and are responsible for all activities that occur under your account."
+> "Interfere with or disrupt our Services, including circumvent any rate limits or restrictions or bypass any protective measures or safety mitigations we put on our Services."
+> "Modify, copy, lease, sell or distribute any of our Services."
+> The same page says: "Our Business Terms govern use of ChatGPT Enterprise, our APIs, and our other services for businesses and developers." **Interpretation (mine):** a Plus or Pro login falls under these Terms, not the Services Agreement.
 
 **(a) Codex on a remote or headless server the user owns.** Codex auth docs (`https://developers.openai.com/codex/auth`):
+
 - "Codex supports two ways for a person to sign in when using OpenAI models: Sign in with ChatGPT for subscription access; Sign in with an API key for usage-based access"
 - "If you are signing in to ChatGPT with the Codex CLI, there are some situations where the browser-based login UI may not work: You're running the CLI in a remote or headless environment."
 - Fallback, documented with a Docker example: "If you can complete the login flow on a machine with a browser, you can copy your cached credentials to the headless machine."
@@ -403,17 +433,19 @@ Research date: 2026-11-19. Conventions as in Part A: quotes are verbatim from th
 - Custom providers: "Set `requires_openai_auth = true` to use OpenAI authentication. You can then sign in with ChatGPT or an API key. This is useful when you access OpenAI models through an LLM proxy server."
 
 CI/CD guide (`https://developers.openai.com/codex/auth/ci-cd-auth`), the passage in full:
-  > The right way to authenticate automation is with an API key. Use this guide only if you specifically need to run the workflow as your Codex account.
-  >
-  > This is an advanced workflow for enterprise and other trusted private automation. API keys are still the recommended option for most CI/CD jobs.
-  >
-  > Treat `~/.codex/auth.json` like a password: it contains access tokens. Don't commit it, paste it into tickets, or share it in chat. Do not use this workflow for public or open-source repositories.
+
+> The right way to authenticate automation is with an API key. Use this guide only if you specifically need to run the workflow as your Codex account.
+>
+> This is an advanced workflow for enterprise and other trusted private automation. API keys are still the recommended option for most CI/CD jobs.
+>
+> Treat `~/.codex/auth.json` like a password: it contains access tokens. Don't commit it, paste it into tickets, or share it in chat. Do not use this workflow for public or open-source repositories.
 
 The guide's conditions include: "the runner is trusted private infrastructure" and "only one machine or serialized job stream will use a given `auth.json` copy."
 
 **Interpretation (mine):** OpenAI documents Codex with ChatGPT-managed auth on a headless machine the user runs. The guide calls that advanced, conditional on trusted private infrastructure and one job stream per `auth.json`, with API keys as the default. A container in the Owner's own cloud account running Codex on the Owner's `auth.json` fits the documented pattern. A broker that exposes that login to other clients does not.
 
 **(b) Non-OpenAI clients.** OpenAI's documented route for them is Sign in with ChatGPT:
+
 - `https://learn.chatgpt.com/docs/sign-in-with-chatgpt` lists "Open-source integrations: OpenClaw, OpenCode, Pi, T3."
 - `https://developers.openai.com/siwc/quickstart`: "For open-source developers: Let users run AI workloads in your tools with their ChatGPT plan, without requiring them to provide an API key. The open-source sign-in flow registers your client and issues OAuth credentials for eligible Responses API requests, without a client secret or partner API key." It also says "ChatGPT plan usage is available to all open-source partners and selected private clients."
 - `https://help.openai.com/en/articles/20001542-using-your-chatgpt-plan-in-other-apps-and-sites`: "Supported open-source tools remain available to all ChatGPT users." and "Only sign in to apps and sites you trust."
@@ -425,25 +457,30 @@ The guide's conditions include: "the runner is trusted private infrastructure" a
 **Consumer Terms** (`https://www.anthropic.com/legal/consumer-terms`), §3(7) and §2, re-verified in D.4: the automation ban has the exception "Except when you are accessing our Services via an Anthropic API Key or where we otherwise explicitly permit it". §2: "You may not share your Account login information, Anthropic API key, or Account credentials with anyone else."
 
 **Usage Policy** (`https://www.anthropic.com/legal/aup`, "Effective Nov 12, 2026"), "Do Not Abuse Our Platform":
-  > "Resell, proxy, or otherwise provide access to Claude through unauthorized means, including services that route requests through consumer subscriptions or misrepresent the product or client being used"
+
+> "Resell, proxy, or otherwise provide access to Claude through unauthorized means, including services that route requests through consumer subscriptions or misrepresent the product or client being used"
 
 **Claude Code legal page** (`https://code.claude.com/docs/en/legal-and-compliance`, section "Authentication and credential use"):
-  > "OAuth authentication is intended exclusively for purchasers of Claude Free, Pro, Max, Ultra, Team, and Enterprise subscription plans and is designed to support ordinary use of Claude Code and other native Anthropic applications."
-  > "Anthropic does not permit third-party developers to offer Claude.ai login into their own applications, or to route requests through Free, Pro, Max, or Ultra plan credentials on behalf of their users. Moreover, developers may not collect, store, or intermediate Claude.ai credentials or session tokens — sign-in to a Claude account must complete through Anthropic's own flow."
-  > "Nor does it prevent an end user from signing in to the unmodified Claude Code binary with their own Claude subscription, including where a platform hosts Claude Code as described under *Can customers offer Claude Code in their products?* above."
-  > "Anthropic reserves the right to take measures to enforce these restrictions and may do so without prior notice."
-  The same page, section "Can customers offer Claude Code in their products?": "Customers may not pay for, resell, or intermediate Claude usage on their end users' behalf."
+
+> "OAuth authentication is intended exclusively for purchasers of Claude Free, Pro, Max, Ultra, Team, and Enterprise subscription plans and is designed to support ordinary use of Claude Code and other native Anthropic applications."
+> "Anthropic does not permit third-party developers to offer Claude.ai login into their own applications, or to route requests through Free, Pro, Max, or Ultra plan credentials on behalf of their users. Moreover, developers may not collect, store, or intermediate Claude.ai credentials or session tokens — sign-in to a Claude account must complete through Anthropic's own flow."
+> "Nor does it prevent an end user from signing in to the unmodified Claude Code binary with their own Claude subscription, including where a platform hosts Claude Code as described under _Can customers offer Claude Code in their products?_ above."
+> "Anthropic reserves the right to take measures to enforce these restrictions and may do so without prior notice."
+> The same page, section "Can customers offer Claude Code in their products?": "Customers may not pay for, resell, or intermediate Claude usage on their end users' behalf."
 
 **Owner-run Claude Code with a long-lived token** (`https://code.claude.com/docs/en/authentication.md`, "Generate a long-lived token"):
-  > "For CI pipelines, scripts, or other environments where interactive browser login isn't available, generate a one-year OAuth token with `claude setup-token`"
-  > "This token authenticates with your Claude subscription and requires a Pro, Max, Ultra, Team, or Enterprise plan."
+
+> "For CI pipelines, scripts, or other environments where interactive browser login isn't available, generate a one-year OAuth token with `claude setup-token`"
+> "This token authenticates with your Claude subscription and requires a Pro, Max, Ultra, Team, or Enterprise plan."
 
 **Newer statements.**
+
 - Agent SDK overview (`https://code.claude.com/docs/en/agent-sdk/overview.md`; no date in the fetched copy): "Unless previously approved, Anthropic does not allow third party developers to offer claude.ai login or rate limits for their products, including agents built on the Claude Agent SDK. Use the API key authentication methods described in the Quickstart instead."
 - Help Center (`https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan`), the most recent dated update (October 7, 2026): "Nothing changes for your plan: when you're signed in with your Claude plan, the Claude Agent SDK and claude -p still draw from your subscription limits." The June 15, 2026 update says: "Claude Agent SDK, claude -p , and third-party app usage still draw from your subscription limits."
   **Interpretation (mine):** "third-party app usage" describes metering, not permission. It does not override the Claude Code legal page's ban on offering Claude.ai login or routing plan credentials for others. The page does not say which apps it means.
 
 **Interpretation of the t3flare pattern (mine).**
+
 - A broker that holds the Owner's Claude subscription credential and attaches it to pi or OpenCode requests falls within "collect, store, or intermediate Claude.ai credentials" and "route requests through ... plan credentials" on the text. The carve-out covers only the unmodified Claude Code binary signing in with the user's own subscription, and pi and OpenCode are not Claude Code. Treat it as prohibited.
 - The Owner running unmodified Claude Code on their own login in their own container falls within the carve-out and the `setup-token` pattern. Open items: the managed-settings file (Part A, open item 2) and whether the broker's storage of the token counts as "store".
 - Whether pi's `/login` offers Claude subscription OAuth remains unconfirmed. pi's provider doc (`https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/docs/providers.md`) says only that "Anthropic also recognizes `ANTHROPIC_OAUTH_TOKEN` as an API credential."

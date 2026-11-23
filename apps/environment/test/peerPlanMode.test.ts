@@ -15,7 +15,11 @@ const failed = (projection: unknown) =>
 
 describe("F6's checks on a plan-mode thread", () => {
   it("pass when the model obeys Plan mode and calls no tool, after t3 prepared the workspace", () => {
-    const projection = { thread: plan, turnItems: [preparing, { type: "assistant_message", status: "completed" }], runtimeRequests: [] };
+    const projection = {
+      thread: plan,
+      turnItems: [preparing, { type: "assistant_message", status: "completed" }],
+      runtimeRequests: [],
+    };
     expect(planModeChecks(projection).bashAttempted).toBe(false);
     expect(failed(projection)).toEqual([]);
   });
@@ -35,7 +39,11 @@ describe("F6's checks on a plan-mode thread", () => {
   });
 
   it("pass when the model's bash was refused or denied: it fails with no exit code", () => {
-    const projection = { thread: plan, turnItems: [preparing, { type: "command_execution", status: "failed", output: "refused", ...ref }], runtimeRequests: [] };
+    const projection = {
+      thread: plan,
+      turnItems: [preparing, { type: "command_execution", status: "failed", output: "refused", ...ref }],
+      runtimeRequests: [],
+    };
     expect(planModeChecks(projection).bashAttempted).toBe(true);
     expect(failed(projection)).toEqual([]);
   });
@@ -53,17 +61,27 @@ describe("F6's checks on a plan-mode thread", () => {
   });
 
   it("fail when a command ran after an approval: F6 answers none, so none can have run", () => {
-    const projection = { thread: plan, turnItems: [{ type: "command_execution", status: "completed", ...ref }], runtimeRequests: [{ kind: "command", status: "resolved" }] };
+    const projection = {
+      thread: plan,
+      turnItems: [{ type: "command_execution", status: "completed", ...ref }],
+      runtimeRequests: [{ kind: "command", status: "resolved" }],
+    };
     expect(failed(projection)).toEqual(["F6: no command runs without asking"]);
   });
 
   it("fail when a command of the model's ran and exited non-zero", () => {
-    const projection = { thread: plan, turnItems: [{ type: "command_execution", status: "failed", exitCode: 2, ...ref }], runtimeRequests: [] };
+    const projection = {
+      thread: plan,
+      turnItems: [{ type: "command_execution", status: "failed", exitCode: 2, ...ref }],
+      runtimeRequests: [],
+    };
     expect(failed(projection)).toEqual(["F6: no command runs without asking"]);
   });
 
   it("fail when a write completes", () => {
-    expect(failed({ thread: plan, turnItems: [{ type: "file_change", status: "completed", ...ref }], runtimeRequests: [] })).toEqual(["F6: write is refused in plan"]);
+    expect(
+      failed({ thread: plan, turnItems: [{ type: "file_change", status: "completed", ...ref }], runtimeRequests: [] }),
+    ).toEqual(["F6: write is refused in plan"]);
   });
 
   it("fail when the thread is not in plan or not at approval-required", () => {

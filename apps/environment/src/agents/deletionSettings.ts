@@ -16,8 +16,16 @@ export interface SweepSettings {
 }
 
 /** The Sweep's settings from the resolved Environment settings and a Stage's `T3FLARE_SWEEP_GRACE_MS`, if set and positive. */
-export const sweepSettingsOf = (environment: Pick<ResolvedEnvironment, "sweepPurges" | "graceDays">, overrideMs: string | undefined): SweepSettings => {
+export const sweepSettingsOf = (
+  environment: Pick<ResolvedEnvironment, "sweepPurges" | "graceDays">,
+  overrideMs: string | undefined,
+): SweepSettings => {
   const override = Number(overrideMs);
   const overridden = overrideMs !== undefined && overrideMs !== "" && Number.isFinite(override) && override > 0;
-  return { purging: environment.sweepPurges, graceMs: overridden ? override : environment.graceDays * DAY_MS, graceDays: environment.graceDays, overridden };
+  return {
+    purging: environment.sweepPurges,
+    graceMs: overridden ? override : environment.graceDays * DAY_MS,
+    graceDays: environment.graceDays,
+    overridden,
+  };
 };

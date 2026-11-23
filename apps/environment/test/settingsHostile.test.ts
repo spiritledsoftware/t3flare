@@ -2,7 +2,12 @@
 // doors as the Environment wires them (the MCP host, the CLI relay, the Owner-client endpoint, the Settings page). Each
 // `describe` names its line of the list; `docs-archive-1:docs/steps/settings-mcp.md` maps every line to its tests here and elsewhere,
 // and `docs-archive-1:docs/steps/settings-mcp/m6-stage-run.md` to what the stage run records.
-import { MCP_QUESTION_MARKER, type McpAsker, type McpQuestionAnswer, type McpQuestionCard } from "@t3flare/session-protocol";
+import {
+  MCP_QUESTION_MARKER,
+  type McpAsker,
+  type McpQuestionAnswer,
+  type McpQuestionCard,
+} from "@t3flare/session-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { csrfToken } from "../src/harness/csrf.ts";
@@ -35,7 +40,6 @@ const world = (options: Parameters<typeof settingsFixture>[0] = {}) => {
 };
 const never = () => new Promise<McpQuestionAnswer>(() => undefined);
 
-
 /** A recording asker standing for one thread's cards (the Session's, or the CLI wrapper's). */
 const askerFor = (answer: McpQuestionAnswer | (() => Promise<McpQuestionAnswer>)) => {
   const cards: Array<McpQuestionCard> = [];
@@ -57,16 +61,27 @@ const panelHeaders = async (f: SettingsFixture) => ({
   "x-t3flare-csrf": await csrfToken(f.store.csrfKey(), "owner-sub", f.now()),
 });
 const panelPost = async (f: SettingsFixture, path: string, body: unknown) =>
-  handleHarness(new Request(`https://${HOST}/_t3flare/settings${path}`, { method: "POST", headers: await panelHeaders(f), body: JSON.stringify(body) }), f.panel());
+  handleHarness(
+    new Request(`https://${HOST}/_t3flare/settings${path}`, {
+      method: "POST",
+      headers: await panelHeaders(f),
+      body: JSON.stringify(body),
+    }),
+    f.panel(),
+  );
 
 describe("hostile: an injected agent asking repeatedly is stopped by the caps; 17 children leave the 17th refused", () => {
   it("one thread: a repeat of a declined change is refused, and the third decline in a row locks it out without a card", async () => {
     const f = world({ answer: { decision: "decline" } });
     const agent = f.durable("thread-injected");
-    const ask = (settings: Record<string, unknown>) => f.call(agent, "change_environment", { expectedRevision: 0, settings });
+    const ask = (settings: Record<string, unknown>) =>
+      f.call(agent, "change_environment", { expectedRevision: 0, settings });
     expect(structured(await ask({ containerBudget: 4 }))).toMatchObject({ status: "declined" });
     // The same change again: refused before any card.
-    expect(structured(await ask({ containerBudget: 4 }))).toMatchObject({ status: "refused", reason: "declined-repeat" });
+    expect(structured(await ask({ containerBudget: 4 }))).toMatchObject({
+      status: "refused",
+      reason: "declined-repeat",
+    });
     expect(f.cards).toHaveLength(1);
     expect(structured(await ask({ containerBudget: 5 }))).toMatchObject({ status: "declined" });
     expect(structured(await ask({ containerSize: "standard-3" }))).toMatchObject({ status: "declined" });
@@ -88,7 +103,14 @@ describe("hostile: an injected agent asking repeatedly is stopped by the caps; 1
       const stop = new AbortController();
       const before = f.cards.length;
       let settled = false;
-      const pending = f.call(agent, "change_environment", { expectedRevision: 0, settings: { containerBudget: 4 } }, { signal: stop.signal }).finally(() => (settled = true));
+      const pending = f
+        .call(
+          agent,
+          "change_environment",
+          { expectedRevision: 0, settings: { containerBudget: 4 } },
+          { signal: stop.signal },
+        )
+        .finally(() => (settled = true));
       await until(() => settled || f.cards.length > before);
       stop.abort();
       const answer = await pending;
@@ -96,7 +118,9 @@ describe("hostile: an injected agent asking repeatedly is stopped by the caps; 1
       if (index === OPENED_CAP) refusal = textOf(answer);
     }
     expect(statuses.slice(0, OPENED_CAP).every((status) => status?.status === "withdrawn")).toBe(true);
-    expect(statuses.slice(OPENED_CAP).every((status) => status?.status === "refused" && status.reason === "opened-cap")).toBe(true);
+    expect(
+      statuses.slice(OPENED_CAP).every((status) => status?.status === "refused" && status.reason === "opened-cap"),
+    ).toBe(true);
     expect(f.cards).toHaveLength(OPENED_CAP);
     expect(refusal).toContain("Settings page");
     expect(f.store.loadEnvironment().revision).toBe(0);
@@ -105,7 +129,11 @@ describe("hostile: an injected agent asking repeatedly is stopped by the caps; 1
     const g = world({ answer: { decision: "cancel" } });
     const other = g.durable("thread-canceller");
     const cancelled: Array<unknown> = [];
-    for (let index = 0; index < OPENED_CAP + 2; index++) cancelled.push(structured(await g.call(other, "change_environment", { expectedRevision: 0, settings: { containerBudget: 4 } }))?.status);
+    for (let index = 0; index < OPENED_CAP + 2; index++)
+      cancelled.push(
+        structured(await g.call(other, "change_environment", { expectedRevision: 0, settings: { containerBudget: 4 } }))
+          ?.status,
+      );
     expect(cancelled).toEqual([...Array.from({ length: OPENED_CAP }, () => "withdrawn"), "refused", "refused"]);
     expect(g.cards).toHaveLength(OPENED_CAP);
     f.dispose();
@@ -114,10 +142,16 @@ describe("hostile: an injected agent asking repeatedly is stopped by the caps; 1
   it(`${OPEN_ACROSS + 1} children asking at once: ${OPEN_ACROSS} wait for the owner, the next is refused naming the panel's list, with no card`, async () => {
     const f = world({ answer: never });
     for (let index = 0; index < OPEN_ACROSS; index++) {
-      void f.call(f.durable(`child-${index}`), "change_environment", { expectedRevision: 0, settings: { variables: { [`CHILD_${index}`]: "1" } } });
+      void f.call(f.durable(`child-${index}`), "change_environment", {
+        expectedRevision: 0,
+        settings: { variables: { [`CHILD_${index}`]: "1" } },
+      });
     }
     await until(() => f.cards.length === OPEN_ACROSS);
-    const last = await f.call(f.durable(`child-${OPEN_ACROSS}`), "change_environment", { expectedRevision: 0, settings: { variables: { LAST_CHILD: "1" } } });
+    const last = await f.call(f.durable(`child-${OPEN_ACROSS}`), "change_environment", {
+      expectedRevision: 0,
+      settings: { variables: { LAST_CHILD: "1" } },
+    });
     expect(structured(last)).toMatchObject({ status: "refused", reason: "open-across" });
     expect(textOf(last)).toContain("Open changes list");
     expect(textOf(last)).toContain(`https://${HOST}/_t3flare/settings`);
@@ -132,12 +166,28 @@ describe("hostile: a leak scan finds a typed secret nowhere but the secret store
     const SECRET = "hostile-typed-s3cr3t-0042";
     const f = world();
     const lines: Array<string> = [];
-    vi.spyOn(console, "log").mockImplementation((...args: Array<unknown>) => void lines.push(args.map(String).join(" ")));
-    await addMcpServer(f.deps.ops, { server: "keyed", url: "https://keyed.example/mcp", auth: { kind: "header", header: "X-Key" }, value: "old-value" }, { actor: { caller: "owner:o" } });
-    const pending = f.call(f.durable(), "change_mcp", { expectedRevision: 1, change: { op: "header-value", server: "keyed" } });
+    vi.spyOn(console, "log").mockImplementation(
+      (...args: Array<unknown>) => void lines.push(args.map(String).join(" ")),
+    );
+    await addMcpServer(
+      f.deps.ops,
+      {
+        server: "keyed",
+        url: "https://keyed.example/mcp",
+        auth: { kind: "header", header: "X-Key" },
+        value: "old-value",
+      },
+      { actor: { caller: "owner:o" } },
+    );
+    const pending = f.call(f.durable(), "change_mcp", {
+      expectedRevision: 1,
+      change: { op: "header-value", server: "keyed" },
+    });
     await until(() => f.cards.length === 1);
     const [open] = f.deps.changes.open();
-    const page = await (await handleHarness(new Request(`https://${HOST}${changePagePath(open!.id)}`), f.panel())).text();
+    const page = await (
+      await handleHarness(new Request(`https://${HOST}${changePagePath(open!.id)}`), f.panel())
+    ).text();
     const answered = await panelPost(f, `/api/changes/${open!.id}`, { action: "approve", value: SECRET });
     expect(answered.status).toBe(200);
     const answerText = await answered.text();
@@ -149,7 +199,9 @@ describe("hostile: a leak scan finds a typed secret nowhere but the secret store
     expect(holders.length).toBeGreaterThan(0);
     for (const [key] of holders) expect(key.startsWith("t3flare/secret/")).toBe(true);
     // Every SQLite table, whole.
-    const tables = f.sql.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>;
+    const tables = f.sql.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
+      name: string;
+    }>;
     expect(tables.map((table) => table.name)).toContain("t3flare_settings_changes");
     for (const { name } of tables) {
       const rows = f.sql.db.prepare(`SELECT * FROM "${name}"`).all();
@@ -163,13 +215,24 @@ describe("hostile: a leak scan finds a typed secret nowhere but the secret store
         ["get_status", {}],
       ].map(([tool, args]) => f.call(f.durable(), tool as string, args as Record<string, unknown>)),
     );
-    for (const text of [page, answerText, JSON.stringify(result), JSON.stringify(reads), JSON.stringify(f.cards), JSON.stringify(f.logs), lines.join("\n"), JSON.stringify(f.store.auditLog(1000))]) {
+    for (const text of [
+      page,
+      answerText,
+      JSON.stringify(result),
+      JSON.stringify(reads),
+      JSON.stringify(f.cards),
+      JSON.stringify(f.logs),
+      lines.join("\n"),
+      JSON.stringify(f.store.auditLog(1000)),
+    ]) {
       expect(text).not.toContain(SECRET);
     }
   });
 
   it("SPI-1195 review: an error's URL loses its query even when the URL parser refuses it (a bad port)", () => {
-    expect(scrubUrls("sign-in failed: discovery of https://h:99999/p?key=x failed (401)")).toBe("sign-in failed: discovery of https://h:99999/p failed (401)");
+    expect(scrubUrls("sign-in failed: discovery of https://h:99999/p?key=x failed (401)")).toBe(
+      "sign-in failed: discovery of https://h:99999/p failed (401)",
+    );
     expect(scrubUrls("empty host https://?key=s3cr3t")).not.toContain("s3cr3t");
   });
 });
@@ -182,7 +245,11 @@ describe("hostile: t3flare's own agents, by Session and by each CLI, see no resu
     { runtimeMode: "full-access", interactionMode: "plan" },
   ] as const;
   // Approved, declined, cancelled (as an unanswered card ends), and a change that needs the page (its card "Opened it").
-  const ANSWERS: ReadonlyArray<McpQuestionAnswer> = [{ decision: "accept" }, { decision: "decline" }, { decision: "cancel", reason: "no answer in time" }];
+  const ANSWERS: ReadonlyArray<McpQuestionAnswer> = [
+    { decision: "accept" },
+    { decision: "decline" },
+    { decision: "cancel", reason: "no answer in time" },
+  ];
   const recordOwner = {};
   const isPause = (answer: unknown) => {
     const text = JSON.stringify(answer);
@@ -202,11 +269,30 @@ describe("hostile: t3flare's own agents, by Session and by each CLI, see no resu
         const view = await f.host.view();
         const tools = view.servers.find((server) => server.name === "settings")!.tools.map((tool) => tool.upstream);
         expect(tools).not.toContain("resume");
-        await addMcpServer(f.deps.ops, { server: "keyed", url: "https://keyed.example/mcp", auth: { kind: "header", header: "X-Key" }, value: "v" }, { actor: { caller: "owner:o" } });
+        await addMcpServer(
+          f.deps.ops,
+          { server: "keyed", url: "https://keyed.example/mcp", auth: { kind: "header", header: "X-Key" }, value: "v" },
+          { actor: { caller: "owner:o" } },
+        );
         const results = [
-          await f.call(caller, "change_environment", { expectedRevision: 0, settings: { containerBudget: 4 } }, { asker }),
-          await f.call(caller, "change_environment", { expectedRevision: 0, settings: { containerIdleMinutes: 7 } }, { asker }),
-          await f.call(caller, "change_mcp", { expectedRevision: 1, change: { op: "header-value", server: "keyed" } }, { asker }),
+          await f.call(
+            caller,
+            "change_environment",
+            { expectedRevision: 0, settings: { containerBudget: 4 } },
+            { asker },
+          ),
+          await f.call(
+            caller,
+            "change_environment",
+            { expectedRevision: 0, settings: { containerIdleMinutes: 7 } },
+            { asker },
+          ),
+          await f.call(
+            caller,
+            "change_mcp",
+            { expectedRevision: 1, change: { op: "header-value", server: "keyed" } },
+            { asker },
+          ),
           await f.call(caller, "resume", { requestId: "chg_x", response: { action: "accept" } }, { asker }),
         ];
         for (const result of results) {
@@ -219,43 +305,64 @@ describe("hostile: t3flare's own agents, by Session and by each CLI, see no resu
     }
   });
 
-  it.each(["codex", "claudeCode", "opencode", "pi"])("a CLI (%s) through the relay: no resume listed, resume is no tool, and no result in any mode or answer is a Pause", async (cli) => {
-    for (const modes of MODES) {
-      for (const answer of ANSWERS) {
-        // A short card wait: "Opened it" on a change that needs the page keeps the call waiting for the page.
-        const f = world({ cardWaitMs: 5 });
-        const thread = `cli-${cli}-${modes.runtimeMode}-${modes.interactionMode}-${answer.decision}`;
-        unregisters.push(registerCliAsker(thread, { state: () => ({ ...modes, workspace: "ws-1" }), ask: async () => ({ approved: false, reason: "not this card" }) }));
-        const { asker } = askerFor(answer);
-        const deps: RelayDeps = {
-          view: () => f.host.view(),
-          call: (input) => f.host.call(input),
-          asker: () => asker,
-          state: () => modes,
-          ask: async () => ({ approved: false, reason: "the relay's own card is never raised for settings" }),
-          accepted: { has: () => false, add: () => undefined },
-          log: () => undefined,
-        };
-        await addMcpServer(f.deps.ops, { server: "keyed", url: "https://keyed.example/mcp", auth: { kind: "header", header: "X-Key" }, value: "v" }, { actor: { caller: "owner:o" } });
-        const relay = (message: unknown) => relayMessage({ workspace: "ws-1", thread, cli, server: "settings", message, askId: `ask-${thread}` }, deps);
-        const listed = await relay({ jsonrpc: "2.0", id: 1, method: "tools/list" });
-        const names = ((listed as { body: { result: { tools: Array<{ name: string }> } } }).body.result.tools ?? []).map((tool) => tool.name);
-        expect(names).toContain("change_environment");
-        expect(names).not.toContain("resume");
-        const calls = [
-          { name: "change_environment", arguments: { expectedRevision: 0, settings: { containerBudget: 4 } } },
-          { name: "change_environment", arguments: { expectedRevision: 0, settings: { containerIdleMinutes: 7 } } },
-          { name: "change_mcp", arguments: { expectedRevision: 1, change: { op: "header-value", server: "keyed" } } },
-          { name: "resume", arguments: { requestId: "chg_x", response: { action: "accept" } } },
-        ];
-        const results: Array<unknown> = [];
-        for (const [index, params] of calls.entries()) results.push(await relay({ jsonrpc: "2.0", id: 10 + index, method: "tools/call", params }));
-        for (const result of results) expect(isPause(result), JSON.stringify(result)).toBe(false);
-        expect(JSON.stringify(results[3])).toContain("offers no tool resume");
-        f.dispose();
+  it.each(["codex", "claudeCode", "opencode", "pi"])(
+    "a CLI (%s) through the relay: no resume listed, resume is no tool, and no result in any mode or answer is a Pause",
+    async (cli) => {
+      for (const modes of MODES) {
+        for (const answer of ANSWERS) {
+          // A short card wait: "Opened it" on a change that needs the page keeps the call waiting for the page.
+          const f = world({ cardWaitMs: 5 });
+          const thread = `cli-${cli}-${modes.runtimeMode}-${modes.interactionMode}-${answer.decision}`;
+          unregisters.push(
+            registerCliAsker(thread, {
+              state: () => ({ ...modes, workspace: "ws-1" }),
+              ask: async () => ({ approved: false, reason: "not this card" }),
+            }),
+          );
+          const { asker } = askerFor(answer);
+          const deps: RelayDeps = {
+            view: () => f.host.view(),
+            call: (input) => f.host.call(input),
+            asker: () => asker,
+            state: () => modes,
+            ask: async () => ({ approved: false, reason: "the relay's own card is never raised for settings" }),
+            accepted: { has: () => false, add: () => undefined },
+            log: () => undefined,
+          };
+          await addMcpServer(
+            f.deps.ops,
+            {
+              server: "keyed",
+              url: "https://keyed.example/mcp",
+              auth: { kind: "header", header: "X-Key" },
+              value: "v",
+            },
+            { actor: { caller: "owner:o" } },
+          );
+          const relay = (message: unknown) =>
+            relayMessage({ workspace: "ws-1", thread, cli, server: "settings", message, askId: `ask-${thread}` }, deps);
+          const listed = await relay({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+          const names = (
+            (listed as { body: { result: { tools: Array<{ name: string }> } } }).body.result.tools ?? []
+          ).map((tool) => tool.name);
+          expect(names).toContain("change_environment");
+          expect(names).not.toContain("resume");
+          const calls = [
+            { name: "change_environment", arguments: { expectedRevision: 0, settings: { containerBudget: 4 } } },
+            { name: "change_environment", arguments: { expectedRevision: 0, settings: { containerIdleMinutes: 7 } } },
+            { name: "change_mcp", arguments: { expectedRevision: 1, change: { op: "header-value", server: "keyed" } } },
+            { name: "resume", arguments: { requestId: "chg_x", response: { action: "accept" } } },
+          ];
+          const results: Array<unknown> = [];
+          for (const [index, params] of calls.entries())
+            results.push(await relay({ jsonrpc: "2.0", id: 10 + index, method: "tools/call", params }));
+          for (const result of results) expect(isPause(result), JSON.stringify(result)).toBe(false);
+          expect(JSON.stringify(results[3])).toContain("offers no tool resume");
+          f.dispose();
+        }
       }
-    }
-  });
+    },
+  );
 });
 
 describe("hostile: a parent agent cannot answer a child's card", () => {
@@ -264,7 +371,12 @@ describe("hostile: a parent agent cannot answer a child's card", () => {
     const parent = askerFor(never);
     const child = askerFor(never);
     f.durable("thread-parent");
-    void f.call(f.durable("thread-child"), "change_environment", { expectedRevision: 0, settings: { containerBudget: 4 } }, { asker: child.asker });
+    void f.call(
+      f.durable("thread-child"),
+      "change_environment",
+      { expectedRevision: 0, settings: { containerBudget: 4 } },
+      { asker: child.asker },
+    );
     await until(() => child.cards.length === 1);
     expect(parent.cards).toEqual([]);
     const [card] = child.cards;
@@ -284,8 +396,17 @@ describe("hostile: a parent agent cannot answer a child's card", () => {
       { action: "respond", requestId, answers: { approve: "yes" } },
       { action: "read", requestId },
     ]) {
-      const body = JSON.stringify({ jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "t3_pending_request", arguments: args } });
-      expect(JSON.parse(refuseOwnerOnly(body)!)).toEqual({ jsonrpc: "2.0", id: 9, result: { content: [{ type: "text", text: OWNER_ONLY_REFUSAL }], isError: true } });
+      const body = JSON.stringify({
+        jsonrpc: "2.0",
+        id: 9,
+        method: "tools/call",
+        params: { name: "t3_pending_request", arguments: args },
+      });
+      expect(JSON.parse(refuseOwnerOnly(body)!)).toEqual({
+        jsonrpc: "2.0",
+        id: 9,
+        result: { content: [{ type: "text", text: OWNER_ONLY_REFUSAL }], isError: true },
+      });
     }
     expect(f.deps.changes.open()).toHaveLength(1);
     expect(f.store.loadEnvironment().revision).toBe(0);
@@ -297,15 +418,26 @@ describe("hostile: turning the access switch off through the server; only the pa
     const f = world();
     const agent = f.durable("thread-off", "full-access");
     // Turning the server's own entry off is asked (plan D5): the owner approves it on the card.
-    const off = await f.call(agent, "change_mcp", { expectedRevision: 0, change: { op: "server", server: "settings", enabled: false } });
+    const off = await f.call(agent, "change_mcp", {
+      expectedRevision: 0,
+      change: { op: "server", server: "settings", enabled: false },
+    });
     expect(structured(off)).toMatchObject({ status: "applied", revision: 1 });
     expect(f.cards).toHaveLength(1);
     // A Session: gone from the view; every call is unavailable naming the panel.
     expect((await f.host.view()).servers.map((server) => server.name)).not.toContain("settings");
-    const back = await f.call(agent, "change_mcp", { expectedRevision: 1, change: { op: "server", server: "settings", enabled: true } });
+    const back = await f.call(agent, "change_mcp", {
+      expectedRevision: 1,
+      change: { op: "server", server: "settings", enabled: true },
+    });
     expect(back).toEqual({ kind: "unavailable", message: OFF_MESSAGE, mayHaveRun: false });
     // A CLI: the relay lists nothing and offers no tool.
-    unregisters.push(registerCliAsker("thread-cli", { state: () => ({ runtimeMode: "full-access", interactionMode: "default", workspace: "ws-1" }), ask: async () => ({ approved: true }) }));
+    unregisters.push(
+      registerCliAsker("thread-cli", {
+        state: () => ({ runtimeMode: "full-access", interactionMode: "default", workspace: "ws-1" }),
+        ask: async () => ({ approved: true }),
+      }),
+    );
     const deps: RelayDeps = {
       view: () => f.host.view(),
       call: (input) => f.host.call(input),
@@ -314,14 +446,35 @@ describe("hostile: turning the access switch off through the server; only the pa
       accepted: { has: () => false, add: () => undefined },
       log: () => undefined,
     };
-    const relay = (message: unknown) => relayMessage({ workspace: "ws-1", thread: "thread-cli", cli: "codex", server: "settings", message, askId: "ask-1" }, deps);
-    expect(await relay({ jsonrpc: "2.0", id: 1, method: "tools/list" })).toMatchObject({ body: { result: { tools: [] } } });
-    const relayed = await relay({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "change_mcp", arguments: { expectedRevision: 1, change: { op: "server", server: "settings", enabled: true } } } });
+    const relay = (message: unknown) =>
+      relayMessage(
+        { workspace: "ws-1", thread: "thread-cli", cli: "codex", server: "settings", message, askId: "ask-1" },
+        deps,
+      );
+    expect(await relay({ jsonrpc: "2.0", id: 1, method: "tools/list" })).toMatchObject({
+      body: { result: { tools: [] } },
+    });
+    const relayed = await relay({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: {
+        name: "change_mcp",
+        arguments: { expectedRevision: 1, change: { op: "server", server: "settings", enabled: true } },
+      },
+    });
     expect(relayed).toMatchObject({ body: { result: { isError: true } } });
     // An Owner client: no tools listed, and its call refused naming the panel.
     const endpoint = endpointOf(f);
     expect((await bodyOf(await endpoint(modern("tools/list")))).result?.tools).toEqual([]);
-    const owner = await bodyOf(await endpoint(modern("tools/call", { name: "change_mcp", arguments: { expectedRevision: 1, change: { op: "server", server: "settings", enabled: true } } })));
+    const owner = await bodyOf(
+      await endpoint(
+        modern("tools/call", {
+          name: "change_mcp",
+          arguments: { expectedRevision: 1, change: { op: "server", server: "settings", enabled: true } },
+        }),
+      ),
+    );
     expect(JSON.stringify(owner)).toContain(OFF_MESSAGE);
     expect(f.store.load().revision).toBe(1);
     expect(f.store.load().mcp?.servers.settings).toMatchObject({ enabled: false });
@@ -335,12 +488,25 @@ describe("hostile: turning the access switch off through the server; only the pa
   it("read-only: no agent's write turns writes back on, through either door", async () => {
     const f = world();
     const agent = f.durable("thread-ro", "full-access");
-    const readOnly = await f.call(agent, "change_mcp", { expectedRevision: 0, change: { op: "server", server: "settings", writes: false } });
+    const readOnly = await f.call(agent, "change_mcp", {
+      expectedRevision: 0,
+      change: { op: "server", server: "settings", writes: false },
+    });
     expect(structured(readOnly)).toMatchObject({ status: "applied", revision: 1 });
-    const again = await f.call(agent, "change_mcp", { expectedRevision: 1, change: { op: "server", server: "settings", writes: true } });
+    const again = await f.call(agent, "change_mcp", {
+      expectedRevision: 1,
+      change: { op: "server", server: "settings", writes: true },
+    });
     expect(textOf(again)).toBe(READ_ONLY_REFUSAL);
     const endpoint = endpointOf(f);
-    const owner = await bodyOf(await endpoint(modern("tools/call", { name: "change_mcp", arguments: { expectedRevision: 1, change: { op: "server", server: "settings", writes: true } } })));
+    const owner = await bodyOf(
+      await endpoint(
+        modern("tools/call", {
+          name: "change_mcp",
+          arguments: { expectedRevision: 1, change: { op: "server", server: "settings", writes: true } },
+        }),
+      ),
+    );
     expect(JSON.stringify(owner)).toContain(READ_ONLY_REFUSAL);
     expect(f.store.load().mcp?.servers.settings).toMatchObject({ writes: false });
     expect((await panelPost(f, "/api/mcp", { op: "server", server: "settings", writes: true })).status).toBe(200);

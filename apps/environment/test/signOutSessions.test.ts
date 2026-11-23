@@ -32,10 +32,10 @@ describe("stopping a signed-out endpoint's Sessions", () => {
       open: () => ["hung", "fine"],
       timeoutMs: 20,
       session: (name) => ({
-        endpointSignedOut: () => (name === "hung" ? new Promise<never>(() => undefined) : Promise.resolve({ dropped: true, stopped: true })),
+        endpointSignedOut: () =>
+          name === "hung" ? new Promise<never>(() => undefined) : Promise.resolve({ dropped: true, stopped: true }),
       }),
     });
     expect(result).toEqual({ told: 1, stopped: 1 });
   });
 });
-

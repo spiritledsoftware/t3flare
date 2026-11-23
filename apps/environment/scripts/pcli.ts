@@ -18,12 +18,41 @@ import * as path from "node:path";
 
 import { ensureProject } from "./lib/cliTurn.ts";
 import { tailing } from "./lib/tail.ts";
-import { admin, dispatch, itemsOf, pair, projectionOf, runsOf, sendMessage, sleep, threadWindow, uuid, wsCall } from "./lib/client.ts";
+import {
+  admin,
+  dispatch,
+  itemsOf,
+  pair,
+  projectionOf,
+  runsOf,
+  sendMessage,
+  sleep,
+  threadWindow,
+  uuid,
+  wsCall,
+} from "./lib/client.ts";
 
 type Cli = "codex" | "pi" | "claude" | "opencode";
 const SONNET = process.env.T3FLARE_PCLI_MODEL ?? "anthropic/claude-sonnet-5-5";
-const CLIS: Readonly<Record<Cli, { readonly instanceId: string; readonly driver: string; readonly model: string; readonly root: string; readonly echo: string | null }>> = {
-  codex: { instanceId: "codex", driver: "codex", model: process.env.T3FLARE_PCLI_CODEX_MODEL ?? "gpt-6-luna", root: ".agents/skills", echo: null },
+const CLIS: Readonly<
+  Record<
+    Cli,
+    {
+      readonly instanceId: string;
+      readonly driver: string;
+      readonly model: string;
+      readonly root: string;
+      readonly echo: string | null;
+    }
+  >
+> = {
+  codex: {
+    instanceId: "codex",
+    driver: "codex",
+    model: process.env.T3FLARE_PCLI_CODEX_MODEL ?? "gpt-6-luna",
+    root: ".agents/skills",
+    echo: null,
+  },
   pi: { instanceId: "pi", driver: "pi", model: SONNET, root: ".agents/skills", echo: "ECHO a none" },
   claude: { instanceId: "claudeAgent", driver: "claudeAgent", model: SONNET, root: ".claude/skills", echo: "ECHO a" },
   // OpenCode's `/echo` is run, not listed: over ACP its reply never reaches t3.
@@ -37,13 +66,21 @@ const SECRET_KEYS = /token|authorization|cookie|secret|handle|bearer|credential|
 const redact = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(redact);
   if (value !== null && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, SECRET_KEYS.test(key) && typeof inner === "string" ? "[redacted]" : redact(inner)]));
+    return Object.fromEntries(
+      Object.entries(value).map(([key, inner]) => [
+        key,
+        SECRET_KEYS.test(key) && typeof inner === "string" ? "[redacted]" : redact(inner),
+      ]),
+    );
   }
   return value;
 };
 const writeEvidence = (name: string, value: unknown) => {
   fs.mkdirSync(EVIDENCE, { recursive: true });
-  fs.writeFileSync(path.join(EVIDENCE, name), `${JSON.stringify(redact({ at: new Date().toISOString(), ...(value as object) }), null, 1)}\n`);
+  fs.writeFileSync(
+    path.join(EVIDENCE, name),
+    `${JSON.stringify(redact({ at: new Date().toISOString(), ...(value as object) }), null, 1)}\n`,
+  );
   console.log(`wrote .evidence/spi-1151/${name}`);
 };
 
@@ -67,7 +104,9 @@ const writeFixture = async (cwd: string) => {
 };
 
 const containerOf = async (id: string) => {
-  const row = (((await admin("GET", "/_t3flare/agents/workspaces")).json?.workspaces ?? []) as Array<any>).find((candidate) => candidate.id === id);
+  const row = (((await admin("GET", "/_t3flare/agents/workspaces")).json?.workspaces ?? []) as Array<any>).find(
+    (candidate) => candidate.id === id,
+  );
   return { running: row?.container?.running ?? null, leased: row?.container?.leased ?? null };
 };
 const stopContainer = async (id: string) => {
@@ -82,22 +121,41 @@ const stopContainer = async (id: string) => {
 
 /** The composer's snapshot of `cwd` for one provider instance, fresh, as the client asks for it. */
 const composerSnapshot = async (instanceId: string, cwd: string) => {
-  const reply = (await wsCall(cookie, "server.refreshProviders", { instanceId, cwd, fresh: true }).catch((error: unknown) => ({ error: String(error).slice(0, 400) }))) as any;
+  const reply = (await wsCall(cookie, "server.refreshProviders", { instanceId, cwd, fresh: true }).catch(
+    (error: unknown) => ({ error: String(error).slice(0, 400) }),
+  )) as any;
   const provider = (reply?.providers ?? []).find((candidate: any) => candidate.instanceId === instanceId);
-  const scoped = (provider?.workspaceSnapshots ?? []).find((snapshot: any) => snapshot.cwd === cwd) ?? provider?.workspaceSnapshots?.[0];
-  return { error: reply?.error ?? null, snapshotCwd: scoped?.cwd ?? null, skills: scoped?.skills ?? null, slashCommands: scoped?.slashCommands ?? null, slashCommandsPending: scoped?.slashCommandsPending ?? null };
+  const scoped =
+    (provider?.workspaceSnapshots ?? []).find((snapshot: any) => snapshot.cwd === cwd) ??
+    provider?.workspaceSnapshots?.[0];
+  return {
+    error: reply?.error ?? null,
+    snapshotCwd: scoped?.cwd ?? null,
+    skills: scoped?.skills ?? null,
+    slashCommands: scoped?.slashCommands ?? null,
+    slashCommandsPending: scoped?.slashCommandsPending ?? null,
+  };
 };
 
-const projection = async (threadId: string): Promise<any> => projectionOf(await threadWindow(cookie, threadId).catch(() => undefined));
+const projection = async (threadId: string): Promise<any> =>
+  projectionOf(await threadWindow(cookie, threadId).catch(() => undefined));
 const settle = async (threadId: string, ordinal: number, timeoutMs = 8 * 60_000): Promise<any> => {
   const started = Date.now();
   let current: any;
   const answered = new Set<string>();
   while (Date.now() - started < timeoutMs) {
     current = await projection(threadId);
-    for (const request of (current?.runtimeRequests ?? []).filter((r: any) => r.status === "pending" && !answered.has(r.id))) {
+    for (const request of (current?.runtimeRequests ?? []).filter(
+      (r: any) => r.status === "pending" && !answered.has(r.id),
+    )) {
       answered.add(request.id);
-      await dispatch(cookie, { type: "runtime-request.respond", commandId: uuid(), threadId, requestId: request.id, decision: "accept" }).catch(() => undefined);
+      await dispatch(cookie, {
+        type: "runtime-request.respond",
+        commandId: uuid(),
+        threadId,
+        requestId: request.id,
+        decision: "accept",
+      }).catch(() => undefined);
     }
     const runs = runsOf(current);
     if (runs.some((run: any) => run.ordinal >= ordinal) && runs.every((run) => SETTLED.has(run.status))) return current;
@@ -109,11 +167,37 @@ const settle = async (threadId: string, ordinal: number, timeoutMs = 8 * 60_000)
 const newThread = async (cli: Cli, projectId: string, title: string) => {
   const threadId = uuid();
   const model = { instanceId: CLIS[cli].instanceId, model: CLIS[cli].model, options: [] };
-  await dispatch(cookie, { type: "thread.create", commandId: uuid(), threadId, projectId, title, modelSelection: model, runtimeMode: "full-access", interactionMode: "default", branch: null, worktreePath: null, createdBy: "user", creationSource: "web" });
+  await dispatch(cookie, {
+    type: "thread.create",
+    commandId: uuid(),
+    threadId,
+    projectId,
+    title,
+    modelSelection: model,
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    branch: null,
+    worktreePath: null,
+    createdBy: "user",
+    creationSource: "web",
+  });
   return threadId;
 };
 
-const IDS = new Set(["id", "threadId", "runId", "nodeId", "providerThreadId", "providerTurnId", "createdAt", "updatedAt", "startedAt", "completedAt", "nativeItemRef", "parentItemId"]);
+const IDS = new Set([
+  "id",
+  "threadId",
+  "runId",
+  "nodeId",
+  "providerThreadId",
+  "providerTurnId",
+  "createdAt",
+  "updatedAt",
+  "startedAt",
+  "completedAt",
+  "nativeItemRef",
+  "parentItemId",
+]);
 /** One turn: what t3 kept as the owner's message, the run's status and failure, the answer, and the tools it ran. */
 const turn = async (cli: Cli, threadId: string, ordinal: number, text: string) => {
   const model = { instanceId: CLIS[cli].instanceId, model: CLIS[cli].model, options: [] };
@@ -125,16 +209,37 @@ const turn = async (cli: Cli, threadId: string, ordinal: number, text: string) =
   const answer = String(items.filter((item: any) => item.type === "assistant_message").at(-1)?.text ?? "");
   const tools = items
     .filter((item: any) => !["user_message", "assistant_message", "reasoning", "checkpoint"].includes(item.type))
-    .map((item: any) => JSON.stringify(Object.fromEntries(Object.entries(item).filter(([key]) => !IDS.has(key)))).slice(0, 900));
-  const kinds = items.map((item: any) => `${item.type}:${item.status ?? ""}${item.type === "assistant_message" ? `:${String(item.text ?? "").length}` : ""}`);
-  return { sent: text, status: run?.status ?? null, failure: run?.failure ?? run?.error ?? null, typed, answer: answer.slice(0, 600), tools, kinds };
+    .map((item: any) =>
+      JSON.stringify(Object.fromEntries(Object.entries(item).filter(([key]) => !IDS.has(key)))).slice(0, 900),
+    );
+  const kinds = items.map(
+    (item: any) =>
+      `${item.type}:${item.status ?? ""}${item.type === "assistant_message" ? `:${String(item.text ?? "").length}` : ""}`,
+  );
+  return {
+    sent: text,
+    status: run?.status ?? null,
+    failure: run?.failure ?? run?.error ?? null,
+    typed,
+    answer: answer.slice(0, 600),
+    tools,
+    kinds,
+  };
 };
-const readsSkillMd = (step: { tools: ReadonlyArray<string> }) => step.tools.some((tool) => tool.includes("fruit-code/SKILL.md"));
+const readsSkillMd = (step: { tools: ReadonlyArray<string> }) =>
+  step.tools.some((tool) => tool.includes("fruit-code/SKILL.md"));
 const touchesSkill = (step: { tools: ReadonlyArray<string> }) => step.tools.some((tool) => tool.includes("fruit-code"));
 
 const probeCli = async (cli: Cli, projectId: string, root: string, id: string) => {
   const spec = CLIS[cli];
-  await wsCall(cookie, "server.updateSettings", { patch: {}, providerInstanceMutation: { operation: "upsert", instanceId: spec.instanceId, instance: { driver: spec.driver, enabled: true } } });
+  await wsCall(cookie, "server.updateSettings", {
+    patch: {},
+    providerInstanceMutation: {
+      operation: "upsert",
+      instanceId: spec.instanceId,
+      instance: { driver: spec.driver, enabled: true },
+    },
+  });
   // The snapshot, with the Container stopped (each CLI's turns below start it).
   await stopContainer(id);
   const before = await containerOf(id);
@@ -145,7 +250,9 @@ const probeCli = async (cli: Cli, projectId: string, root: string, id: string) =
   const builtIns = cli === "codex" ? ["compact", "goal"] : cli === "pi" ? ["compact"] : [];
   const checks: Record<string, boolean> = {
     snapshotSkill: fruit?.path === `${root}/${spec.root}/fruit-code/SKILL.md`,
-    snapshotCommands: JSON.stringify(commands) === JSON.stringify(spec.echo === null || cli === "opencode" ? builtIns : [...builtIns, "echo"]),
+    snapshotCommands:
+      JSON.stringify(commands) ===
+      JSON.stringify(spec.echo === null || cli === "opencode" ? builtIns : [...builtIns, "echo"]),
     noContainerForSnapshot: before.running === false && after.running === false,
   };
   const steps: Record<string, any> = {};
@@ -166,7 +273,8 @@ const probeCli = async (cli: Cli, projectId: string, root: string, id: string) =
     // A mention t3's grammar matches needs whitespace or the end after its name (no full stop), else nothing rewrites it.
     const inlineText = "Tell me the fruit code, following $fruit-code and replying with the code alone.";
     steps.inlineMention = await turn(cli, inline, 1, inlineText);
-    checks.inlineMentionAnswers = steps.inlineMention.answer.includes("KIWI-7") && steps.inlineMention.typed === inlineText;
+    checks.inlineMentionAnswers =
+      steps.inlineMention.answer.includes("KIWI-7") && steps.inlineMention.typed === inlineText;
   }
   if (spec.echo !== null) {
     steps.command = await turn(cli, mentioned, ++ordinal, "/echo a");
@@ -176,7 +284,9 @@ const probeCli = async (cli: Cli, projectId: string, root: string, id: string) =
     if (cli === "opencode") {
       // OpenCode 2.2.7's ACP ends a command's turn once it is submitted (`acp/turn.ts`): whether its reply shows later.
       await sleep(30_000);
-      const late = itemsOf(await projection(mentioned)).filter((item: any) => item.type === "assistant_message" && String(item.text ?? "").includes("ECHO"));
+      const late = itemsOf(await projection(mentioned)).filter(
+        (item: any) => item.type === "assistant_message" && String(item.text ?? "").includes("ECHO"),
+      );
       steps.commandLateReply = late.map((item: any) => ({ runId: item.runId, text: String(item.text).slice(0, 200) }));
     }
   }
@@ -184,14 +294,21 @@ const probeCli = async (cli: Cli, projectId: string, root: string, id: string) =
     // pi compacts only what lies beyond its 20,000 most recent tokens (`keepRecentTokens`), estimated at four characters
     // a token: a turn of about 160,000 characters.
     const filler = Array.from({ length: 24_000 }, (_, at) => `w${at}`).join(" ");
-    steps.filler = await turn(cli, mentioned, ++ordinal, `Reply with the single word OK. The rest is filler: ${filler}`);
+    steps.filler = await turn(
+      cli,
+      mentioned,
+      ++ordinal,
+      `Reply with the single word OK. The rest is filler: ${filler}`,
+    );
     steps.filler.sent = `${steps.filler.sent.slice(0, 80)}… (${steps.filler.sent.length} characters)`;
     steps.filler.typed = `${String(steps.filler.typed ?? "").slice(0, 80)}…`;
   }
   steps.compact = await turn(cli, mentioned, ++ordinal, "/compact");
   // Listed for Codex and pi only, where the compaction itself completes; t3's ACP adapter refuses it for Claude Code
   // and OpenCode (recorded, not listed).
-  checks.compactAsListed = builtIns.includes("compact") ? steps.compact.kinds.includes("compaction:completed") : steps.compact.status === "failed";
+  checks.compactAsListed = builtIns.includes("compact")
+    ? steps.compact.kinds.includes("compaction:completed")
+    : steps.compact.status === "failed";
   if (cli === "codex") {
     steps.goal = await turn(cli, mentioned, ++ordinal, "/goal Reply with the single word DONE.");
     checks.goalRuns = steps.goal.status === "completed";
@@ -199,7 +316,15 @@ const probeCli = async (cli: Cli, projectId: string, root: string, id: string) =
   }
   const ok = Object.values(checks).every(Boolean);
   console.log(`${cli}: ${ok ? "ok" : "FAIL"} ${JSON.stringify(checks)}`);
-  return { ok, cli, model: spec.model, checks, snapshot: { container: { before, after }, ...snapshot }, threads: { described, mentioned }, steps };
+  return {
+    ok,
+    cli,
+    model: spec.model,
+    checks,
+    snapshot: { container: { before, after }, ...snapshot },
+    threads: { described, mentioned },
+    steps,
+  };
 };
 
 cookie = await pair();

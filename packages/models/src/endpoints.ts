@@ -9,7 +9,13 @@
 import { COPILOT_BASE_URL, COPILOT_LIST_HEADERS } from "./copilotOAuth.ts";
 
 /** The pi-ai APIs an endpoint may speak. A sign-in fixes its endpoint's API (`SIGN_IN_KINDS`). */
-export const ENDPOINT_APIS = ["anthropic-messages", "openai-responses", "openai-completions", "google-generative-ai", "mistral-conversations"] as const;
+export const ENDPOINT_APIS = [
+  "anthropic-messages",
+  "openai-responses",
+  "openai-completions",
+  "google-generative-ai",
+  "mistral-conversations",
+] as const;
 export type EndpointApi = (typeof ENDPOINT_APIS)[number];
 
 /**
@@ -103,7 +109,8 @@ export const SIGN_IN_KINDS: Readonly<Record<SignIn, SignInKind>> = {
     refused: "ChatGPT plan usage needs a Plus or Pro plan; otherwise sign in again on the Settings page.",
     about: "Use your ChatGPT plan's usage for Pi Durable, on OpenAI's Responses API.",
     paste: {
-      instructions: "Open the sign-in and approve. Your browser then lands on a 127.0.0.1 page that does not load: copy its whole address into the field, then Finish.",
+      instructions:
+        "Open the sign-in and approve. Your browser then lands on a 127.0.0.1 page that does not load: copy its whole address into the field, then Finish.",
       placeholder: "http://127.0.0.1:1455/auth/callback?code=…",
     },
     device: null,
@@ -127,12 +134,14 @@ export const SIGN_IN_KINDS: Readonly<Record<SignIn, SignInKind>> = {
     refused: "a Claude Pro or Max plan is needed; otherwise sign in with Claude again on the Settings page.",
     about: "Use your Claude Pro or Max plan's usage for Pi Durable, on Anthropic's Messages API.",
     paste: {
-      instructions: "Open the sign-in and approve. Anthropic then shows a code: copy all of it (it holds a #) into the field, then Finish.",
+      instructions:
+        "Open the sign-in and approve. Anthropic then shows a code: copy all of it (it holds a #) into the field, then Finish.",
       placeholder: "code#state",
     },
     device: null,
     credentialBaseUrl: null,
-    revocation: "Anthropic offers no revocation to apps: the grant stays on your Claude account until you remove it at claude.ai, under Settings, Claude Code (Authorization tokens).",
+    revocation:
+      "Anthropic offers no revocation to apps: the grant stays on your Claude account until you remove it at claude.ai, under Settings, Claude Code (Authorization tokens).",
     // Anthropic takes a Claude sign-in's token as a bearer only with its OAuth beta (SPI-1161 Q4).
     listHeaders: { "anthropic-beta": "oauth-2025-04-20" },
     keepsEmail: false,
@@ -152,17 +161,20 @@ export const SIGN_IN_KINDS: Readonly<Record<SignIn, SignInKind>> = {
     title: "GitHub Copilot",
     noteTitle: "Your risk",
     note: "This signs in as the Copilot editor extension, with its GitHub client, as pi-ai does. GitHub's terms may not allow a Copilot plan's usage outside its own editors: that risk is yours, chosen knowingly. It needs a Copilot plan on your GitHub account, and lists Copilot's models on its Responses API (GPT, Grok), not its Claude or Gemini models, which take other APIs. GitHub offers this client no revocation, so signing out here does not end the grant: revoke it at github.com, under Settings, Applications.",
-    refused: "the GitHub account needs a Copilot plan with this model enabled; otherwise sign in with GitHub Copilot again on the Settings page.",
+    refused:
+      "the GitHub account needs a Copilot plan with this model enabled; otherwise sign in with GitHub Copilot again on the Settings page.",
     about: "Use your GitHub Copilot plan's models for Pi Durable, on Copilot's Responses API.",
     paste: null,
     device: {
-      instructions: "Open GitHub's device page, enter the code shown here, and approve. This page finishes the sign-in by itself once GitHub says so.",
+      instructions:
+        "Open GitHub's device page, enter the code shown here, and approve. This page finishes the sign-in by itself once GitHub says so.",
       how: "Start, open GitHub's page and enter the code shown here; this page finishes once you approve.",
       link: "Open GitHub's device page",
       check: "Check sign-in",
     },
     credentialBaseUrl: COPILOT_BASE_URL,
-    revocation: "GitHub offers this client no revocation: the grant stays on your GitHub account until you revoke it at github.com, under Settings, Applications (Authorized GitHub Apps: GitHub Copilot).",
+    revocation:
+      "GitHub offers this client no revocation: the grant stays on your GitHub account until you revoke it at github.com, under Settings, Applications (Authorized GitHub Apps: GitHub Copilot).",
     // The editor headers come from the Credential broker with each token (copilotOAuth.ts), never from here.
     listHeaders: COPILOT_LIST_HEADERS,
     keepsEmail: false,
@@ -185,7 +197,8 @@ export const signInHeaders = (kind: SignIn, accessToken: string): Readonly<Recor
 });
 
 /** An endpoint's sign-in facts, or undefined for a key or no auth. */
-export const signInOf = (auth: EndpointAuth): SignInKind | undefined => (isSignIn(auth) ? SIGN_IN_KINDS[auth] : undefined);
+export const signInOf = (auth: EndpointAuth): SignInKind | undefined =>
+  isSignIn(auth) ? SIGN_IN_KINDS[auth] : undefined;
 
 /**
  * pi-ai's compatibility overrides for a sign-in's models (`Model.compat`), by kind: ChatGPT plan usage takes no
@@ -208,8 +221,13 @@ export const signInRequestTarget = (
   credential: Pick<EndpointCredential, "baseUrl" | "headers">,
 ): { readonly baseUrl: string; readonly headers: Readonly<Record<string, string>> } => {
   const allowed = signInOf(endpoint.auth)?.credentialBaseUrl ?? null;
-  const own = allowed !== null && credential.baseUrl !== undefined && allowed.test(credential.baseUrl) ? credential.baseUrl : undefined;
-  return own === undefined ? { baseUrl: endpoint.baseUrl, headers: { ...endpoint.headers } } : { baseUrl: own, headers: { ...endpoint.headers, ...credential.headers } };
+  const own =
+    allowed !== null && credential.baseUrl !== undefined && allowed.test(credential.baseUrl)
+      ? credential.baseUrl
+      : undefined;
+  return own === undefined
+    ? { baseUrl: endpoint.baseUrl, headers: { ...endpoint.headers } }
+    : { baseUrl: own, headers: { ...endpoint.headers, ...credential.headers } };
 };
 
 // pi-ai's credential types, which the Credential broker implements (type-only: no pi-ai in the Environment's bundle).
@@ -273,20 +291,33 @@ export const MAX_ENDPOINT_MODELS = 200;
 const MAX_HEADERS = 16;
 const HEADER_NAME = /^[A-Za-z0-9-]{1,64}$/;
 /** Headers that carry a credential: the key goes in its sealed field, never here. */
-const CREDENTIAL_HEADERS = new Set(["authorization", "x-api-key", "api-key", "x-goog-api-key", "proxy-authorization", "cookie", "cf-aig-authorization"]);
+const CREDENTIAL_HEADERS = new Set([
+  "authorization",
+  "x-api-key",
+  "api-key",
+  "x-goog-api-key",
+  "proxy-authorization",
+  "cookie",
+  "cf-aig-authorization",
+]);
 
 /** A model's slug: `<endpointId>/<modelId>`. */
 export const endpointSlug = (endpointId: string, modelId: string): string => `${endpointId}/${modelId}`;
 
 /** A slug's endpoint and model, split at the first `/`; undefined without one. */
-export const parseEndpointSlug = (slug: string): { readonly endpointId: string; readonly modelId: string } | undefined => {
+export const parseEndpointSlug = (
+  slug: string,
+): { readonly endpointId: string; readonly modelId: string } | undefined => {
   const slash = slug.indexOf("/");
   if (slash <= 0 || slash === slug.length - 1) return undefined;
   return { endpointId: slug.slice(0, slash), modelId: slug.slice(slash + 1) };
 };
 
 /** A model of `endpoints` by its slug, with its endpoint. */
-export const findEndpointModel = (endpoints: ModelEndpoints, slug: string): { readonly endpoint: ModelEndpoint; readonly model: EndpointModel } | undefined => {
+export const findEndpointModel = (
+  endpoints: ModelEndpoints,
+  slug: string,
+): { readonly endpoint: ModelEndpoint; readonly model: EndpointModel } | undefined => {
   const parsed = parseEndpointSlug(slug);
   if (parsed === undefined) return undefined;
   const endpoint = endpoints.endpoints.find((entry) => entry.id === parsed.endpointId);
@@ -299,14 +330,16 @@ export const findEndpointModel = (endpoints: ModelEndpoints, slug: string): { re
  * and Claude Code once named models, or t3's own stock defaults), or `anthropic/<id>`. None names a Model
  * endpoint, so each falls back to the default model. A slug of an endpoint that is gone is not one: it fails, saying so.
  */
-export const isRetiredSlug = (slug: string): boolean => slug === "default" || parseEndpointSlug(slug) === undefined || slug.startsWith("anthropic/");
+export const isRetiredSlug = (slug: string): boolean =>
+  slug === "default" || parseEndpointSlug(slug) === undefined || slug.startsWith("anthropic/");
 
 /**
  * The slug a selection runs on: an old one (`isRetiredSlug`) on `defaultSlug`, the default model of the agent's
  * endpoints (ADR-0034 §3: never on an endpoint that happens to list its id), or as it was when there is none; any other
  * slug as it is.
  */
-export const selectionSlug = (slug: string, defaultSlug: string | undefined): string => (isRetiredSlug(slug) ? (defaultSlug ?? slug) : slug);
+export const selectionSlug = (slug: string, defaultSlug: string | undefined): string =>
+  isRetiredSlug(slug) ? (defaultSlug ?? slug) : slug;
 
 /** The default model (SPI-1176): the first model of the first endpoint, in the owner's order, that lists one. */
 export const defaultModelSlug = (endpoints: ModelEndpoints): string | undefined => {
@@ -333,7 +366,10 @@ export const defaultTextModel = (endpoints: ModelEndpoints): string | undefined 
     const small = endpoint.models.filter((model) => SMALL_MODEL.test(model.id));
     if (small.length === 0) continue;
     const priced = small.filter((model) => model.known);
-    const pick = priced.length === 0 ? small[0]! : priced.reduce((best, model) => (model.cost.output < best.cost.output ? model : best));
+    const pick =
+      priced.length === 0
+        ? small[0]!
+        : priced.reduce((best, model) => (model.cost.output < best.cost.output ? model : best));
     return endpointSlug(endpoint.id, pick.id);
   }
   return undefined;
@@ -343,13 +379,15 @@ export const defaultTextModel = (endpoints: ModelEndpoints): string | undefined 
  * The small model for the Session's own requests when the owner names none (`default`): the Guardian, prompt
  * suggestions, web search (SPI-1176). Text generation's default rule, else the default model.
  */
-export const defaultSmallModel = (endpoints: ModelEndpoints): string | undefined => defaultTextModel(endpoints) ?? defaultModelSlug(endpoints);
+export const defaultSmallModel = (endpoints: ModelEndpoints): string | undefined =>
+  defaultTextModel(endpoints) ?? defaultModelSlug(endpoints);
 
 /**
  * The slug a model setting names (the Guardian's, `web_search`'s): its own when it is an endpoint's slug; `default`, or an
  * old value (`isRetiredSlug`), the endpoints' small model. Undefined: no endpoint lists a model.
  */
-export const modelSettingSlug = (setting: string, endpoints: ModelEndpoints): string | undefined => (isRetiredSlug(setting) ? defaultSmallModel(endpoints) : setting);
+export const modelSettingSlug = (setting: string, endpoints: ModelEndpoints): string | undefined =>
+  isRetiredSlug(setting) ? defaultSmallModel(endpoints) : setting;
 
 /**
  * One text-generation request on an endpoint's model (SPI-1163): the Environment DO's call of the agents Worker's
@@ -369,7 +407,9 @@ export const endpointLabel = (endpointId: string): string => `The Model endpoint
 export const jsonOnlyPrompt = (prompt: string): string => `${prompt}\n\nAnswer with the JSON object only.`;
 
 /** Its answer: the model's text, or a failure that names the endpoint and never holds a vendor's body or a key. */
-export type EndpointTextAnswer = { readonly ok: true; readonly text: string } | { readonly ok: false; readonly error: string };
+export type EndpointTextAnswer =
+  | { readonly ok: true; readonly text: string }
+  | { readonly ok: false; readonly error: string };
 
 /** A preset fills the panel's form; the owner may change any field before saving. */
 export interface EndpointPreset {
@@ -383,10 +423,42 @@ export interface EndpointPreset {
 }
 
 export const ENDPOINT_PRESETS: ReadonlyArray<EndpointPreset> = [
-  { preset: "anthropic", title: "Anthropic API", id: "anthropic-api", label: "Anthropic", api: "anthropic-messages", baseUrl: "https://api.anthropic.com", auth: "api-key" },
-  { preset: "openai", title: "OpenAI API", id: "openai", label: "OpenAI", api: "openai-responses", baseUrl: "https://api.openai.com/v1", auth: "api-key" },
-  { preset: "openrouter", title: "OpenRouter", id: "openrouter", label: "OpenRouter", api: "openai-completions", baseUrl: "https://openrouter.ai/api/v1", auth: "api-key" },
-  { preset: "custom", title: "Custom (OpenAI-compatible)", id: "", label: "", api: "openai-completions", baseUrl: "", auth: "api-key" },
+  {
+    preset: "anthropic",
+    title: "Anthropic API",
+    id: "anthropic-api",
+    label: "Anthropic",
+    api: "anthropic-messages",
+    baseUrl: "https://api.anthropic.com",
+    auth: "api-key",
+  },
+  {
+    preset: "openai",
+    title: "OpenAI API",
+    id: "openai",
+    label: "OpenAI",
+    api: "openai-responses",
+    baseUrl: "https://api.openai.com/v1",
+    auth: "api-key",
+  },
+  {
+    preset: "openrouter",
+    title: "OpenRouter",
+    id: "openrouter",
+    label: "OpenRouter",
+    api: "openai-completions",
+    baseUrl: "https://openrouter.ai/api/v1",
+    auth: "api-key",
+  },
+  {
+    preset: "custom",
+    title: "Custom (OpenAI-compatible)",
+    id: "",
+    label: "",
+    api: "openai-completions",
+    baseUrl: "",
+    auth: "api-key",
+  },
 ];
 
 /** A model as the owner gives it: its id, and any metadata of its own (which wins over pi-ai's). */
@@ -420,14 +492,23 @@ export interface EndpointTarget {
   readonly headers: Readonly<Record<string, string>>;
 }
 
-export const targetOf = (endpoint: EndpointTarget): EndpointTarget => ({ api: endpoint.api, baseUrl: endpoint.baseUrl, headers: { ...endpoint.headers } });
+export const targetOf = (endpoint: EndpointTarget): EndpointTarget => ({
+  api: endpoint.api,
+  baseUrl: endpoint.baseUrl,
+  headers: { ...endpoint.headers },
+});
 
 /** Headers as compared: names lowercased, sorted. */
 const headerList = (headers: Readonly<Record<string, string>>): string =>
-  JSON.stringify(Object.entries(headers).map(([name, value]) => [name.toLowerCase(), value]).sort(([a], [b]) => (a! < b! ? -1 : a! > b! ? 1 : 0)));
+  JSON.stringify(
+    Object.entries(headers)
+      .map(([name, value]) => [name.toLowerCase(), value])
+      .sort(([a], [b]) => (a! < b! ? -1 : a! > b! ? 1 : 0)),
+  );
 
 /** A target as one string: equal for the same API, base URL and headers (names case-insensitive). */
-export const targetKey = (target: EndpointTarget): string => JSON.stringify([target.api, target.baseUrl, headerList(target.headers)]);
+export const targetKey = (target: EndpointTarget): string =>
+  JSON.stringify([target.api, target.baseUrl, headerList(target.headers)]);
 
 /** Whether two targets are the same: the same API, base URL and headers (names case-insensitive). */
 export const sameTarget = (a: EndpointTarget, b: EndpointTarget): boolean => targetKey(a) === targetKey(b);
@@ -484,20 +565,30 @@ export const endpointModelOf = (input: EndpointModelInput, known: KnownModel | u
 });
 
 /** A JSON object (not an array, not null). */
-export const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
-const positive = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 100_000_000;
+export const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+const positive = (value: unknown): value is number =>
+  typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 100_000_000;
 
 const modelInputOf = (value: unknown): EndpointModelInput | string => {
   if (typeof value === "string") value = { id: value };
   if (!isRecord(value)) return "each model is { id, name?, reasoning?, input?, contextWindow?, maxTokens? }";
   const id = typeof value.id === "string" ? value.id.trim() : "";
-  if (id === "" || id.length > 200 || /\s/.test(id)) return `a model id is 1–200 characters without spaces (${JSON.stringify(value.id)})`;
-  if (value.name !== undefined && (typeof value.name !== "string" || value.name.length > 200)) return `${id}: name is a text of up to 200 characters`;
+  if (id === "" || id.length > 200 || /\s/.test(id))
+    return `a model id is 1–200 characters without spaces (${JSON.stringify(value.id)})`;
+  if (value.name !== undefined && (typeof value.name !== "string" || value.name.length > 200))
+    return `${id}: name is a text of up to 200 characters`;
   if (value.reasoning !== undefined && typeof value.reasoning !== "boolean") return `${id}: reasoning is true or false`;
-  if (value.input !== undefined && (!Array.isArray(value.input) || value.input.length === 0 || !value.input.every((entry) => entry === "text" || entry === "image"))) {
+  if (
+    value.input !== undefined &&
+    (!Array.isArray(value.input) ||
+      value.input.length === 0 ||
+      !value.input.every((entry) => entry === "text" || entry === "image"))
+  ) {
     return `${id}: input is a list of "text" and "image"`;
   }
-  if (value.contextWindow !== undefined && !positive(value.contextWindow)) return `${id}: contextWindow is a positive whole number`;
+  if (value.contextWindow !== undefined && !positive(value.contextWindow))
+    return `${id}: contextWindow is a positive whole number`;
   if (value.maxTokens !== undefined && !positive(value.maxTokens)) return `${id}: maxTokens is a positive whole number`;
   return {
     id,
@@ -525,33 +616,48 @@ const baseUrlOf = (value: unknown): { readonly url: string } | { readonly proble
     return { problem: "baseUrl is an https URL" };
   }
   if (url.protocol !== "https:") return { problem: "baseUrl is https only" };
-  if (url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "") return { problem: "baseUrl has no credentials, query or fragment" };
+  if (url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "")
+    return { problem: "baseUrl has no credentials, query or fragment" };
   const host = url.hostname.toLowerCase().replace(/\.$/, "");
-  if (/^[\d.]+$/.test(host) || host.startsWith("[") || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".internal")) {
+  if (
+    /^[\d.]+$/.test(host) ||
+    host.startsWith("[") ||
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".internal")
+  ) {
     return { problem: "baseUrl's host is a public host name, not an address" };
   }
   return { url: url.toString().replace(/\/+$/, "") };
 };
 
 /** Checks an endpoint as the panel's API receives it. */
-export const validateEndpoint = (value: unknown): { readonly ok: true; readonly endpoint: EndpointInput } | { readonly ok: false; readonly error: string } => {
-  if (!isRecord(value)) return { ok: false, error: "the endpoint is { id, label, api, baseUrl, auth, headers?, models }" };
+export const validateEndpoint = (
+  value: unknown,
+): { readonly ok: true; readonly endpoint: EndpointInput } | { readonly ok: false; readonly error: string } => {
+  if (!isRecord(value))
+    return { ok: false, error: "the endpoint is { id, label, api, baseUrl, auth, headers?, models }" };
   const id = typeof value.id === "string" ? value.id : "";
-  if (!ENDPOINT_ID.test(id)) return { ok: false, error: "id is 1–32 of a–z, 0–9 and -, starting and ending with a letter or digit" };
+  if (!ENDPOINT_ID.test(id))
+    return { ok: false, error: "id is 1–32 of a–z, 0–9 and -, starting and ending with a letter or digit" };
   if (RESERVED_ENDPOINT_IDS.includes(id)) return { ok: false, error: `the id ${id} is reserved` };
   const label = typeof value.label === "string" ? value.label.trim() : "";
   if (label === "" || label.length > 60) return { ok: false, error: "label is 1–60 characters" };
-  if (typeof value.api !== "string" || !(ENDPOINT_APIS as ReadonlyArray<string>).includes(value.api)) return { ok: false, error: `api is one of ${ENDPOINT_APIS.join(", ")}` };
+  if (typeof value.api !== "string" || !(ENDPOINT_APIS as ReadonlyArray<string>).includes(value.api))
+    return { ok: false, error: `api is one of ${ENDPOINT_APIS.join(", ")}` };
   const base = baseUrlOf(value.baseUrl);
   if ("problem" in base) return { ok: false, error: base.problem };
   const baseUrl = base.url;
   const auth = value.auth ?? "api-key";
-  if (auth !== "api-key" && auth !== "none" && !(SIGN_INS as ReadonlyArray<unknown>).includes(auth)) return { ok: false, error: `auth is api-key, none or a sign-in (${SIGN_INS.join(", ")})` };
+  if (auth !== "api-key" && auth !== "none" && !(SIGN_INS as ReadonlyArray<unknown>).includes(auth))
+    return { ok: false, error: `auth is api-key, none or a sign-in (${SIGN_INS.join(", ")})` };
   if (isSignIn(auth as EndpointAuth)) {
     // A sign-in's tokens go only to its own API at its own base URL, with no header of the owner's.
     const target = SIGN_IN_KINDS[auth as SignIn];
-    if (value.api !== target.api || baseUrl !== target.baseUrl) return { ok: false, error: `a ${target.title} sign-in's endpoint is ${target.api} at ${target.baseUrl}` };
-    if (isRecord(value.headers) && Object.keys(value.headers).length > 0) return { ok: false, error: `a ${target.title} sign-in's endpoint has no headers of its own` };
+    if (value.api !== target.api || baseUrl !== target.baseUrl)
+      return { ok: false, error: `a ${target.title} sign-in's endpoint is ${target.api} at ${target.baseUrl}` };
+    if (isRecord(value.headers) && Object.keys(value.headers).length > 0)
+      return { ok: false, error: `a ${target.title} sign-in's endpoint has no headers of its own` };
   }
   const headers: Record<string, string> = {};
   const given = value.headers ?? {};
@@ -559,11 +665,15 @@ export const validateEndpoint = (value: unknown): { readonly ok: true; readonly 
   if (Object.keys(given).length > MAX_HEADERS) return { ok: false, error: `at most ${MAX_HEADERS} headers` };
   const names = new Set<string>();
   for (const [name, text] of Object.entries(given)) {
-    if (!HEADER_NAME.test(name)) return { ok: false, error: `the header name ${JSON.stringify(name)} is 1–64 of A–Z, a–z, 0–9 and -` };
-    if (names.has(name.toLowerCase())) return { ok: false, error: `the header ${name} is given twice (header names ignore case)` };
+    if (!HEADER_NAME.test(name))
+      return { ok: false, error: `the header name ${JSON.stringify(name)} is 1–64 of A–Z, a–z, 0–9 and -` };
+    if (names.has(name.toLowerCase()))
+      return { ok: false, error: `the header ${name} is given twice (header names ignore case)` };
     names.add(name.toLowerCase());
-    if (CREDENTIAL_HEADERS.has(name.toLowerCase())) return { ok: false, error: `${name} carries a credential: put the key in the API key field, which is sealed` };
-    if (typeof text !== "string" || text.length > 1024 || /[\r\n]/.test(text)) return { ok: false, error: `the header ${name}'s value is one line of up to 1024 characters` };
+    if (CREDENTIAL_HEADERS.has(name.toLowerCase()))
+      return { ok: false, error: `${name} carries a credential: put the key in the API key field, which is sealed` };
+    if (typeof text !== "string" || text.length > 1024 || /[\r\n]/.test(text))
+      return { ok: false, error: `the header ${name}'s value is one line of up to 1024 characters` };
     headers[name] = text;
   }
   const listed = value.models ?? [];
@@ -573,8 +683,12 @@ export const validateEndpoint = (value: unknown): { readonly ok: true; readonly 
   for (const entry of listed) {
     const model = modelInputOf(entry);
     if (typeof model === "string") return { ok: false, error: model };
-    if (models.some((other) => other.id === model.id)) return { ok: false, error: `the model ${model.id} is listed twice` };
+    if (models.some((other) => other.id === model.id))
+      return { ok: false, error: `the model ${model.id} is listed twice` };
     models.push(model);
   }
-  return { ok: true, endpoint: { id, label, api: value.api as EndpointApi, baseUrl, auth: auth as EndpointAuth, headers, models } };
+  return {
+    ok: true,
+    endpoint: { id, label, api: value.api as EndpointApi, baseUrl, auth: auth as EndpointAuth, headers, models },
+  };
 };

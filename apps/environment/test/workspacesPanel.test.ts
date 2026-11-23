@@ -49,7 +49,15 @@ const setup = (caller: AccessCaller = owner) => {
   const rows: Array<WorkspaceRecord> = [
     record({ id: "acme" }),
     record({ id: ".wt/acme/feat-a", kind: "worktree", parent: "acme", branch: "feat-a" }),
-    record({ id: ".wt/acme/feat-b", kind: "worktree", parent: "acme", branch: "feat-b", state: "tombstoned", deletedAt: NOW, purgeAfter: NOW }),
+    record({
+      id: ".wt/acme/feat-b",
+      kind: "worktree",
+      parent: "acme",
+      branch: "feat-b",
+      state: "tombstoned",
+      deletedAt: NOW,
+      purgeAfter: NOW,
+    }),
     record({ id: "live" }),
   ];
   const calls: Array<string> = [];
@@ -59,7 +67,10 @@ const setup = (caller: AccessCaller = owner) => {
       ...viewDeps(rows, { sql }),
       purge: async (id, threads) => {
         calls.push(`purge ${id}`);
-        rows.splice(rows.findIndex((row) => row.id === id), 1);
+        rows.splice(
+          rows.findIndex((row) => row.id === id),
+          1,
+        );
         return { id, sessionsDestroyed: threads.map((thread) => thread.threadId), destroyed: true };
       },
       restore: async (id) => {
@@ -70,7 +81,8 @@ const setup = (caller: AccessCaller = owner) => {
       audit: (entry) => store.audit(entry),
       now: () => NOW,
     },
-    usage: async (id) => (id === "acme" ? { bytes: 2_097_152, containerRunning: true } : { bytes: 0, containerRunning: false }),
+    usage: async (id) =>
+      id === "acme" ? { bytes: 2_097_152, containerRunning: true } : { bytes: 0, containerRunning: false },
     runSweep: async (dry) => {
       sweeps.push(dry);
       return { ...REPORT, dry };
@@ -89,7 +101,8 @@ const ownerHeaders = async (store: ReturnType<typeof setup>["store"]) => ({
 const post = (deps: ReturnType<typeof setup>["deps"], route: string, body: unknown, headers: Record<string, string>) =>
   handleHarness(new Request(`${BASE}${route}`, { method: "POST", headers, body: JSON.stringify(body) }), deps);
 
-const workspaceEntries = (store: ReturnType<typeof setup>["store"]) => store.auditLog(50).filter((entry) => entry.entity === "workspaces");
+const workspaceEntries = (store: ReturnType<typeof setup>["store"]) =>
+  store.auditLog(50).filter((entry) => entry.entity === "workspaces");
 
 describe("the Workspaces routes (ADR-0044 §4)", () => {
   it("refuse every action without the page's CSRF token: nothing purged, restored, stopped or swept, nothing audited", async () => {
@@ -106,7 +119,18 @@ describe("the Workspaces routes (ADR-0044 §4)", () => {
       expect(await response.text()).toContain("bad CSRF token");
     }
     // A form post from elsewhere is refused before anything else.
-    expect((await handleHarness(new Request(`${BASE}/purge`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "id=acme&confirm=acme" }), deps)).status).toBe(403);
+    expect(
+      (
+        await handleHarness(
+          new Request(`${BASE}/purge`, {
+            method: "POST",
+            headers: { "content-type": "application/x-www-form-urlencoded" },
+            body: "id=acme&confirm=acme",
+          }),
+          deps,
+        )
+      ).status,
+    ).toBe(403);
     expect(calls).toEqual([]);
     expect(sweeps).toEqual([]);
     expect(workspaceEntries(store)).toEqual([]);
@@ -120,7 +144,9 @@ describe("the Workspaces routes (ADR-0044 §4)", () => {
       expect(response.status, String(confirm)).toBe(400);
       expect(await response.text()).toContain("type acme");
     }
-    expect((await post(deps, "/purge", { id: ".wt/acme/feat-a", confirm: ".wt/acme/feat-a" }, headers)).status).toBe(400);
+    expect((await post(deps, "/purge", { id: ".wt/acme/feat-a", confirm: ".wt/acme/feat-a" }, headers)).status).toBe(
+      400,
+    );
     expect(calls).toEqual([]);
     expect(workspaceEntries(store)).toEqual([]);
   });
@@ -129,10 +155,21 @@ describe("the Workspaces routes (ADR-0044 §4)", () => {
     const { store, deps, calls } = setup();
     const response = await post(deps, "/purge", { id: "acme", confirm: "acme" }, await ownerHeaders(store));
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ ok: true, ids: [".wt/acme/feat-a", ".wt/acme/feat-b", "acme"], sessions: 0 });
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      ids: [".wt/acme/feat-a", ".wt/acme/feat-b", "acme"],
+      sessions: 0,
+    });
     expect(calls).toEqual(["purge .wt/acme/feat-a", "purge .wt/acme/feat-b", "purge acme"]);
     expect(workspaceEntries(store)).toEqual([
-      { at: NOW, entity: "workspaces", caller: "owner:owner-sub", action: "workspace.purge", target: "acme", after: { purged: [".wt/acme/feat-a", ".wt/acme/feat-b", "acme"], sessions: 0 } },
+      {
+        at: NOW,
+        entity: "workspaces",
+        caller: "owner:owner-sub",
+        action: "workspace.purge",
+        target: "acme",
+        after: { purged: [".wt/acme/feat-a", ".wt/acme/feat-b", "acme"], sessions: 0 },
+      },
     ]);
   });
 
@@ -157,7 +194,10 @@ describe("the Workspaces routes (ADR-0044 §4)", () => {
     expect((await post(deps, "/stop", { id: "acme" }, headers)).status).toBe(200);
     const swept = await post(deps, "/sweep", {}, headers);
     expect(swept.status).toBe(200);
-    expect(await swept.json()).toMatchObject({ ok: true, summary: "The Sweep purged 0 Workspaces, destroyed 1 Session and stopped 0 Containers." });
+    expect(await swept.json()).toMatchObject({
+      ok: true,
+      summary: "The Sweep purged 0 Workspaces, destroyed 1 Session and stopped 0 Containers.",
+    });
     expect(calls).toEqual(["restore .wt/acme/feat-b", "stop acme"]);
     expect(sweeps).toEqual([false]);
     expect(workspaceEntries(store).map((entry) => [entry.action, entry.target, entry.caller])).toEqual([
@@ -174,12 +214,17 @@ describe("the Workspaces routes (ADR-0044 §4)", () => {
 
   it("read the view, a Workspace's usage and the dry Sweep with GET, which changes nothing", async () => {
     const { store, deps, calls, sweeps } = setup();
-    const view = (await (await handleHarness(new Request(BASE), deps)).json()) as { rows: Array<{ id: string; worktrees: Array<unknown> }> };
+    const view = (await (await handleHarness(new Request(BASE), deps)).json()) as {
+      rows: Array<{ id: string; worktrees: Array<unknown> }>;
+    };
     expect(view.rows.map((row) => [row.id, row.worktrees.length])).toEqual([
       ["acme", 2],
       ["live", 0],
     ]);
-    expect(await (await handleHarness(new Request(`${BASE}/usage?id=acme`), deps)).json()).toEqual({ bytes: 2_097_152, containerRunning: true });
+    expect(await (await handleHarness(new Request(`${BASE}/usage?id=acme`), deps)).json()).toEqual({
+      bytes: 2_097_152,
+      containerRunning: true,
+    });
     expect((await handleHarness(new Request(`${BASE}/usage?id=nope`), deps)).status).toBe(404);
     const preview = await (await handleHarness(new Request(`${BASE}/sweep`), deps)).json();
     expect(preview).toMatchObject({ ok: true, rows: [{ id: ".wt/acme/feat-a", action: "purge" }], sessions: ["t1"] });
@@ -190,7 +235,13 @@ describe("the Workspaces routes (ADR-0044 §4)", () => {
 
   it("refuse an act whose reference read fails, with 503: nothing purged, nothing audited", async () => {
     const { store, deps, calls } = setup();
-    const broken = { ...deps, workspaces: { ...deps.workspaces, deps: { ...deps.workspaces.deps, terminals: async () => Promise.reject(new Error("no answer")) } } };
+    const broken = {
+      ...deps,
+      workspaces: {
+        ...deps.workspaces,
+        deps: { ...deps.workspaces.deps, terminals: async () => Promise.reject(new Error("no answer")) },
+      },
+    };
     const response = await post(broken, "/purge", { id: "acme", confirm: "acme" }, await ownerHeaders(store));
     expect(response.status).toBe(503);
     expect(await response.text()).toContain("so nothing was purged: Error: no answer");

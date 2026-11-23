@@ -9,8 +9,48 @@
 
 /** Builtins of both dash and bash, and the reserved words: neither is looked up on PATH. */
 const SHELL = new Set([
-  ":", "[", "break", "cd", "continue", "echo", "exec", "exit", "export", "false", "getopts", "kill", "local", "printf", "pwd", "read", "readonly", "return", "set", "shift", "test", "true", "ulimit", "umask", "unset", "wait",
-  "!", "{", "}", "if", "then", "elif", "else", "fi", "while", "until", "for", "do", "done", "case", "esac", "in",
+  ":",
+  "[",
+  "break",
+  "cd",
+  "continue",
+  "echo",
+  "exec",
+  "exit",
+  "export",
+  "false",
+  "getopts",
+  "kill",
+  "local",
+  "printf",
+  "pwd",
+  "read",
+  "readonly",
+  "return",
+  "set",
+  "shift",
+  "test",
+  "true",
+  "ulimit",
+  "umask",
+  "unset",
+  "wait",
+  "!",
+  "{",
+  "}",
+  "if",
+  "then",
+  "elif",
+  "else",
+  "fi",
+  "while",
+  "until",
+  "for",
+  "do",
+  "done",
+  "case",
+  "esac",
+  "in",
 ]);
 const STARTS_COMMAND = new Set(["!", "{", "if", "then", "elif", "else", "while", "until", "do"]);
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
@@ -25,7 +65,29 @@ const RUNS_NEXT = new Map<string, ReadonlySet<string>>([
   ["setsid", new Set()],
 ]);
 /** Words that run a string, a file or another program this lexer does not follow: a script using one is refused. */
-const UNFOLLOWED = new Set([".", "source", "eval", "command", "trap", "builtin", "sh", "bash", "dash", "xargs", "timeout", "nohup", "nice", "sudo", "su", "chroot", "flock", "stdbuf", "unshare", "nsenter", "watch"]);
+const UNFOLLOWED = new Set([
+  ".",
+  "source",
+  "eval",
+  "command",
+  "trap",
+  "builtin",
+  "sh",
+  "bash",
+  "dash",
+  "xargs",
+  "timeout",
+  "nohup",
+  "nice",
+  "sudo",
+  "su",
+  "chroot",
+  "flock",
+  "stdbuf",
+  "unshare",
+  "nsenter",
+  "watch",
+]);
 /** Arguments that make the program before them run another (`find -exec`, `env -S`): refused as well. */
 const UNFOLLOWED_ARGUMENTS = new Set(["-exec", "-execdir", "-ok", "-okdir", "-S", "--split-string"]);
 
@@ -212,4 +274,5 @@ export const commandWords = (script: string): ReadonlyArray<string> => {
  * The programs `script` runs by name: every command word that is neither the shell's nor an absolute path. `$0`, a
  * launcher running itself again, counts as absolute: `processCommand` starts a process's binary only by its absolute path.
  */
-export const bareCommands = (script: string): ReadonlyArray<string> => commandWords(script).filter((w) => !SHELL.has(w) && !w.startsWith("/") && w !== "$0");
+export const bareCommands = (script: string): ReadonlyArray<string> =>
+  commandWords(script).filter((w) => !SHELL.has(w) && !w.startsWith("/") && w !== "$0");

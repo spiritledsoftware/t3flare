@@ -7,15 +7,15 @@ against Cloudflare's pricing pages that day.
 
 At light and moderate use the bill is almost all the **$5 Workers Paid minimum**.
 
-| | Light | Moderate | Heavy |
-|---|---|---|---|
-| Client connected | 3 h/day | 10 h/day | 24/7 |
-| Turns | 5/day | 30/day | 100/day |
-| Container-hours a month | 15 | 60 | 360 |
-| Containers (memory, disk, CPU) | ≈ $0.20 | ≈ $1.95 | ≈ $16.60 |
-| DO duration | 65k GB-s, $0 | 207k GB-s, $0 | 617k GB-s, **$12.50** |
-| DO requests | $0 | ≈ $0.15 | ≈ $1.05 |
-| **Total a month** | **≈ $5.20** | **≈ $7.10** | **≈ $35** |
+|                                | Light        | Moderate      | Heavy                 |
+| ------------------------------ | ------------ | ------------- | --------------------- |
+| Client connected               | 3 h/day      | 10 h/day      | 24/7                  |
+| Turns                          | 5/day        | 30/day        | 100/day               |
+| Container-hours a month        | 15           | 60            | 360                   |
+| Containers (memory, disk, CPU) | ≈ $0.20      | ≈ $1.95       | ≈ $16.60              |
+| DO duration                    | 65k GB-s, $0 | 207k GB-s, $0 | 617k GB-s, **$12.50** |
+| DO requests                    | $0           | ≈ $0.15       | ≈ $1.05               |
+| **Total a month**              | **≈ $5.20**  | **≈ $7.10**   | **≈ $35**             |
 
 What moves the total:
 

@@ -64,7 +64,15 @@ const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value, null, 2), { status, headers: { "content-type": "application/json" } });
 
 /** Declared by the build (build.ts `define`): which t3 pin, on which t3 track, and which commit of ours this bundle is. */
-declare const __T3FLARE_BUILD__: { readonly t3: string; readonly serverVersion?: string; readonly t3Track?: string; readonly commit: string; readonly builtAt: string } | undefined;
+declare const __T3FLARE_BUILD__:
+  | {
+      readonly t3: string;
+      readonly serverVersion?: string;
+      readonly t3Track?: string;
+      readonly commit: string;
+      readonly builtAt: string;
+    }
+  | undefined;
 const build = typeof __T3FLARE_BUILD__ === "undefined" ? null : __T3FLARE_BUILD__;
 
 class ReadOnlyRollback extends Error {}
@@ -97,7 +105,11 @@ const readOnlySql = (environment: EnvironmentDO, query: string, params: Readonly
  * (no address, label or secret name), so the owner can run it on prod. `null` before t3 has made the table.
  */
 const peerLinkCount = (environment: EnvironmentDO): { readonly count: number | null } => {
-  const table = readOnlySql(environment, "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'peer_environment_links'", []);
+  const table = readOnlySql(
+    environment,
+    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'peer_environment_links'",
+    [],
+  );
   if (table.rows.length === 0) return { count: null };
   return { count: Number(readOnlySql(environment, "SELECT COUNT(*) FROM peer_environment_links", []).rows[0]![0]) };
 };
@@ -114,7 +126,8 @@ const unreadableAsError = <A>(read: () => A): A | { readonly unreadable: string 
 
 const health = async (environment: EnvironmentDO) => {
   const storage = environment.ctxStorage;
-  const runtime = environment.runtimeIfBooted === undefined ? undefined : await environment.runtimeIfBooted.catch(() => null);
+  const runtime =
+    environment.runtimeIfBooted === undefined ? undefined : await environment.runtimeIfBooted.catch(() => null);
   const alarm = await storage.getAlarm();
   return {
     build,
@@ -122,20 +135,29 @@ const health = async (environment: EnvironmentDO) => {
     bootRecord: await BootState.readBootRecord(storage),
     runtime: runtime === undefined ? "stopped" : runtime === null ? "failed" : "running",
     lastBoot: environment.lastBoot ?? null,
-    bootstrap: { armedUntil: (await environment.armedUntil())?.toISOString() ?? null, armed: await environment.isArmed() },
+    bootstrap: {
+      armedUntil: (await environment.armedUntil())?.toISOString() ?? null,
+      armed: await environment.isArmed(),
+    },
     isolate: { ...isolate, startedAt: new Date(isolate.startedAt).toISOString() },
     object: { constructedAt: new Date(environment.constructedAt).toISOString() },
     activity: { ...Idle.activity, idleSince: new Date(Idle.activity.idleSince).toISOString() },
-    holds: Object.fromEntries([...Idle.holds].map(([name, { until, capped }]) => [name, { until: new Date(until).toISOString(), capped }])),
+    holds: Object.fromEntries(
+      [...Idle.holds].map(([name, { until, capped }]) => [name, { until: new Date(until).toISOString(), capped }]),
+    ),
     alarm: alarm === null ? null : new Date(alarm).toISOString(),
     openWork: unreadableAsError(() => Idle.openWork(storage.sql, new Date())),
     // As the alarm reads it: the PR watch's wake is the one the last reset stored (parity G12).
-    nextDue: unreadableAsError(() => Idle.nextDue(storage.sql, new Date(), storage.kv.get<number>(Idle.PR_WATCH_WAKE_KEY) ?? Date.now())),
+    nextDue: unreadableAsError(() =>
+      Idle.nextDue(storage.sql, new Date(), storage.kv.get<number>(Idle.PR_WATCH_WAKE_KEY) ?? Date.now()),
+    ),
     // SPI-1061 D7: the retry of Remote tasks whose machine does not answer, if one is pending.
     remoteRetry: storage.kv.get<Idle.RemoteRetry>(Idle.REMOTE_RETRY_KEY) ?? null,
     // Parity G12: the PR watch's wake the last reset set, and the watches now.
     prWatch: {
-      wake: ((at) => (at === undefined ? null : new Date(at).toISOString()))(storage.kv.get<number>(Idle.PR_WATCH_WAKE_KEY)),
+      wake: ((at) => (at === undefined ? null : new Date(at).toISOString()))(
+        storage.kv.get<number>(Idle.PR_WATCH_WAKE_KEY),
+      ),
       watched: unreadableAsError(() => Idle.watchedPullRequests(storage.sql)),
     },
     // The rows are t3's statements through the adapter since `isolate.startedAt` (cost audit F2).
@@ -170,7 +192,8 @@ const rebootCheck = async (environment: EnvironmentDO, request: Request) => {
     changedAfterFirstBoot: afterFirst.length,
     globalsAddedDuringCheck: globalsAdded,
     // Step 4a (review F6): the process channel's handles and pids belong to this object, not to module state.
-    processChannelOnInstance: (await import("../agents/bindings.ts")).environmentServices().processes === environment.processChannel,
+    processChannelOnInstance:
+      (await import("../agents/bindings.ts")).environmentServices().processes === environment.processChannel,
   };
 };
 
@@ -290,9 +313,15 @@ export const handleAdmin = async (request: Request, environment: EnvironmentDO):
             records.map(async (record) => ({
               ...record,
               references: references.get(record.id) ?? [],
-              container: await workspaceRpc(record.id).containerState().catch((error: unknown) => ({ error: String(error) })),
-              info: await workspaceRpc(record.id).info().catch((error: unknown) => ({ error: String(error) })),
-              terminals: await workspaceRpc(record.id).terminalState().catch((error: unknown) => ({ error: String(error) })),
+              container: await workspaceRpc(record.id)
+                .containerState()
+                .catch((error: unknown) => ({ error: String(error) })),
+              info: await workspaceRpc(record.id)
+                .info()
+                .catch((error: unknown) => ({ error: String(error) })),
+              terminals: await workspaceRpc(record.id)
+                .terminalState()
+                .catch((error: unknown) => ({ error: String(error) })),
             })),
           ),
         });
@@ -300,7 +329,9 @@ export const handleAdmin = async (request: Request, environment: EnvironmentDO):
       case "POST /_t3flare/agents/workspace-stop": {
         // ADR-0044 §2–3: through the Owner's act, audited as the admin's; a `ready` Workspace only.
         const { stop } = await import("../agents/workspaceActions.ts");
-        const stopped = await stop((await environment.workspacesApi()).deps, url.searchParams.get("id") ?? "", { actor: ADMIN });
+        const stopped = await stop((await environment.workspacesApi()).deps, url.searchParams.get("id") ?? "", {
+          actor: ADMIN,
+        });
         return stopped.ok ? json({ stopped: true }) : json({ error: stopped.error }, stopped.status);
       }
       case "POST /_t3flare/agents/workspace-probe": {
@@ -327,7 +358,12 @@ export const handleAdmin = async (request: Request, environment: EnvironmentDO):
           removed,
           outsideWrite,
           gitRevision: { before: first.gitRevision, afterWrite: afterWrite.gitRevision },
-          ok: before! < written! && written! < rewritten! && rewritten! < removed! && outsideWrite === removed && gitDirUnmoved,
+          ok:
+            before! < written! &&
+            written! < rewritten! &&
+            rewritten! < removed! &&
+            outsideWrite === removed &&
+            gitDirUnmoved,
         });
       }
       case "POST /_t3flare/agents/workspace-workflows": {
@@ -360,13 +396,20 @@ export const handleAdmin = async (request: Request, environment: EnvironmentDO):
                           "takeSkills" in body
                           ? await rpc.takeEnvironmentSkills(environment.skills.hash())
                           : "skills" in body
-                            ? await rpc.skills(String(body.skills), undefined, body.repoOnly === true ? { repoOnly: true } : undefined)
+                            ? await rpc.skills(
+                                String(body.skills),
+                                undefined,
+                                body.repoOnly === true ? { repoOnly: true } : undefined,
+                              )
                             : "reclaimReason" in body
                               ? await rpc.reclaimReason()
                               : // SPI-1333, test stages only: the next fresh start uses this snapshot id (a refused one's fallback).
                                 "baseFault" in body
                                 ? await rpc.faultBaseSnapshot(body.baseFault as never)
-                                : { error: "one of fs, git, checkpoint, exec, credentialHelper, killExecs, probeProcess, takeSkills, skills, reclaimReason, baseFault" };
+                                : {
+                                    error:
+                                      "one of fs, git, checkpoint, exec, credentialHelper, killExecs, probeProcess, takeSkills, skills, reclaimReason, baseFault",
+                                  };
         return json({ ms: Date.now() - started, result, container: await rpc.containerState() });
       }
       case "GET /_t3flare/agents/base-builder": {
@@ -383,7 +426,11 @@ export const handleAdmin = async (request: Request, environment: EnvironmentDO):
         const body = (await request.json()) as { text?: string };
         const runtime = await environment.boot("check-connect-leak", request);
         const secrets = [...(await runtime.run(connectSecrets)), ...(await runtime.run(peerLinkSecrets))];
-        return json({ checked: secrets.map(({ name }) => name), bytes: (body.text ?? "").length, leaked: leakedIn(body.text ?? "", secrets) });
+        return json({
+          checked: secrets.map(({ name }) => name),
+          bytes: (body.text ?? "").length,
+          leaked: leakedIn(body.text ?? "", secrets),
+        });
       }
       case "POST /_t3flare/agents/process-check": {
         const { environmentServices } = await import("../agents/bindings.ts");
@@ -415,7 +462,10 @@ export const handleAdmin = async (request: Request, environment: EnvironmentDO):
         const idle = await import("./idle.ts");
         idle.requestStarted();
         try {
-          const body = request.method === "POST" ? ((await request.json().catch(() => ({}))) as { match?: string; expression?: string }) : {};
+          const body =
+            request.method === "POST"
+              ? ((await request.json().catch(() => ({}))) as { match?: string; expression?: string })
+              : {};
           return json(await runSpike(url.searchParams.get("op") ?? "", storage, environment, body));
         } finally {
           idle.requestEnded();
@@ -438,13 +488,25 @@ export const handleAdmin = async (request: Request, environment: EnvironmentDO):
       }
       case "POST /_t3flare/check/sign-in-expire": {
         // SPI-1171 (stages only): a sign-in's access token marked expired, so the next use renews it (expireHook.ts).
-        const [{ environmentServices }, { expireRoute }] = await Promise.all([import("../agents/bindings.ts"), import("../endpoints/expireHook.ts")]);
-        return expireRoute(url, { faults: () => environmentServices().faults, expire: (endpointId) => environment.expireSignIn(endpointId) });
+        const [{ environmentServices }, { expireRoute }] = await Promise.all([
+          import("../agents/bindings.ts"),
+          import("../endpoints/expireHook.ts"),
+        ]);
+        return expireRoute(url, {
+          faults: () => environmentServices().faults,
+          expire: (endpointId) => environment.expireSignIn(endpointId),
+        });
       }
       case "GET /_t3flare/agents/process-state": {
         const { workspaceRpc } = await import("../agents/workspaceClient.ts");
         const id = url.searchParams.get("id") ?? "";
-        return json({ channel: { live: environment.processChannel.size, environmentEpoch: environment.processChannel.environmentEpoch }, workspace: id === "" ? null : await workspaceRpc(id).processState() });
+        return json({
+          channel: {
+            live: environment.processChannel.size,
+            environmentEpoch: environment.processChannel.environmentEpoch,
+          },
+          workspace: id === "" ? null : await workspaceRpc(id).processState(),
+        });
       }
       case "POST /_t3flare/check/peer-leak": {
         // Step 3 (plan section 4.6, review C8): after turns that called t3's tools and answered linked work, look for
@@ -477,7 +539,8 @@ export const handleAdmin = async (request: Request, environment: EnvironmentDO):
         for (const [name, value] of Object.entries(env)) {
           if (typeof value !== "string" || value.length < 8) continue;
           checked.push(name);
-          if (text.includes(value) || value.split("\n").some((line) => line.length >= 16 && text.includes(line))) leaked.push(name);
+          if (text.includes(value) || value.split("\n").some((line) => line.length >= 16 && text.includes(line)))
+            leaked.push(name);
         }
         const processEnv = Object.keys((globalThis as { process?: { env?: object } }).process?.env ?? {});
         return json({ checked: checked.toSorted(), leaked, processEnvKeys: processEnv.toSorted() });
@@ -501,13 +564,23 @@ export const handleAdmin = async (request: Request, environment: EnvironmentDO):
         // project's Worktree Workspaces go with it and the purge is audited; `force` is this route's alone.
         const { purgeNow } = await import("../agents/workspaceActions.ts");
         const force = url.searchParams.get("force") === "1" || url.pathname.endsWith("workspace-remove");
-        const purged = await purgeNow((await environment.workspacesApi()).deps, url.searchParams.get("id") ?? "", { force, actor: ADMIN });
+        const purged = await purgeNow((await environment.workspacesApi()).deps, url.searchParams.get("id") ?? "", {
+          force,
+          actor: ADMIN,
+        });
         if (purged.ok) return json(purged);
-        return json(purged.status === 409 ? { refused: true, error: purged.error, references: purged.references } : { error: purged.error }, purged.status);
+        return json(
+          purged.status === 409
+            ? { refused: true, error: purged.error, references: purged.references }
+            : { error: purged.error },
+          purged.status,
+        );
       }
       case "POST /_t3flare/agents/workspace-restore": {
         const { restore } = await import("../agents/workspaceActions.ts");
-        const restored = await restore((await environment.workspacesApi()).deps, url.searchParams.get("id") ?? "", { actor: ADMIN });
+        const restored = await restore((await environment.workspacesApi()).deps, url.searchParams.get("id") ?? "", {
+          actor: ADMIN,
+        });
         return restored.ok ? json({ restored: restored.restored }) : json({ error: restored.error }, restored.status);
       }
       case "GET /_t3flare/agents/budget": {
@@ -516,14 +589,22 @@ export const handleAdmin = async (request: Request, environment: EnvironmentDO):
         const { byName } = await import("../agents/rpc.ts");
         const services = environmentServices();
         const state = await byName(services.agents.CONTAINER_BUDGET, "budget", "CONTAINER_BUDGET").state();
-        const names = new Map(services.workspaces.list().map((ws) => [String(services.agents.WORKSPACES?.idFromName(ws.id)), ws.id]));
-        return json({ ...state, leases: state.leases.map((lease) => ({ ...lease, workspace: names.get(lease.holder) ?? null })) });
+        const names = new Map(
+          services.workspaces.list().map((ws) => [String(services.agents.WORKSPACES?.idFromName(ws.id)), ws.id]),
+        );
+        return json({
+          ...state,
+          leases: state.leases.map((lease) => ({ ...lease, workspace: names.get(lease.holder) ?? null })),
+        });
       }
       case "GET /_t3flare/agents/sweep":
       case "POST /_t3flare/agents/sweep":
         // `dry=1` reports what it would do and writes nothing; with purging off (the Grace's setting) a run marks and purges nothing.
         // A real run waits behind a scheduled Sweep rather than run beside it (agents/sweepWake.ts).
-        return json({ report: await environment.ownerSweep(url.searchParams.get("dry") === "1"), last: environment.lastSweep });
+        return json({
+          report: await environment.ownerSweep(url.searchParams.get("dry") === "1"),
+          last: environment.lastSweep,
+        });
       case "POST /_t3flare/check/workspaces": {
         const { workspacesCheck } = await import("./workspacesCheck.ts");
         return json(await workspacesCheck());

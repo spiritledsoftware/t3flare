@@ -29,7 +29,14 @@ import { PI_HANDLE_HOLDERS } from "../src/agents/cliProfiles.ts";
 import { admin, pair, sleep, wsCall } from "./lib/client.ts";
 import { cliTurn, enable } from "./lib/cliTurn.ts";
 import { EDIT_AND_TEST } from "./lib/acpTurn.ts";
-import { leakCheck as leak, linesOf, panelApi as api, relayEvidence, workerLogs, workspaceExec as exec } from "./lib/relayEvidence.ts";
+import {
+  leakCheck as leak,
+  linesOf,
+  panelApi as api,
+  relayEvidence,
+  workerLogs,
+  workspaceExec as exec,
+} from "./lib/relayEvidence.ts";
 import { tailing } from "./lib/tail.ts";
 
 const proxyUrl = (process.env.MODEL_PROXY_URL ?? "").replace(/\/+$/, "");
@@ -53,8 +60,12 @@ const { text: raw } = await tailing([`t3flare-agents-${stage}`], async () => {
 
   // 1. The endpoints: Commissary's three APIs, each with the same model (the list read with the key). The stage's own
   //    endpoint (`stage.ts deploy`'s, SPI-1175) is removed first, so pi's are exactly these.
-  const existing = ((await api("GET", "endpoints")).json ?? {}) as { endpoints?: { endpoints?: Array<{ id: string }> } | Array<{ id: string }> };
-  const existingIds = (Array.isArray(existing.endpoints) ? existing.endpoints : (existing.endpoints?.endpoints ?? [])).map((entry) => entry.id);
+  const existing = ((await api("GET", "endpoints")).json ?? {}) as {
+    endpoints?: { endpoints?: Array<{ id: string }> } | Array<{ id: string }>;
+  };
+  const existingIds = (
+    Array.isArray(existing.endpoints) ? existing.endpoints : (existing.endpoints?.endpoints ?? [])
+  ).map((entry) => entry.id);
   for (const id of existingIds) await api("POST", "endpoints", { op: "remove", id });
   report.removedEndpoints = existingIds;
   const ANTHROPIC = { api: "anthropic-messages", baseUrl: proxyUrl, auth: "api-key", headers: {} };
@@ -62,16 +73,42 @@ const { text: raw } = await tailing([`t3flare-agents-${stage}`], async () => {
   const RESPONSES = { api: "openai-responses", baseUrl: `${proxyUrl}/v1`, auth: "api-key", headers: {} };
   const MODEL = "claude-haiku-5-5";
   const discover = async (id: string, spec: Record<string, unknown>) =>
-    new Set((((await api("POST", "endpoints/discover", { endpoint: { id, label: id, ...spec }, apiKey: proxyKey })).json ?? {}) as { models?: Array<{ id: string }> }).models?.map((model) => model.id) ?? []);
+    new Set(
+      (
+        ((await api("POST", "endpoints/discover", { endpoint: { id, label: id, ...spec }, apiKey: proxyKey })).json ??
+          {}) as { models?: Array<{ id: string }> }
+      ).models?.map((model) => model.id) ?? [],
+    );
   const offered = { comm: await discover("comm", ANTHROPIC), oai: await discover("oai", COMPLETIONS) };
   report.models = { model: MODEL, anthropicLists: offered.comm.has(MODEL), openaiLists: offered.oai.has(MODEL) };
   check("Commissary's Anthropic API lists the model", offered.comm.has(MODEL), [...offered.comm].slice(0, 30));
   const saved = {
-    comm: (await api("POST", "endpoints", { op: "save", endpoint: { id: "comm", label: "Commissary (Anthropic)", ...ANTHROPIC, models: [MODEL] }, apiKey: proxyKey })).status,
-    oai: (await api("POST", "endpoints", { op: "save", endpoint: { id: "oai", label: "Commissary (Chat Completions)", ...COMPLETIONS, models: [MODEL] }, apiKey: proxyKey })).status,
-    resp: (await api("POST", "endpoints", { op: "save", endpoint: { id: "resp", label: "Commissary (Responses)", ...RESPONSES, models: [MODEL] }, apiKey: proxyKey })).status,
+    comm: (
+      await api("POST", "endpoints", {
+        op: "save",
+        endpoint: { id: "comm", label: "Commissary (Anthropic)", ...ANTHROPIC, models: [MODEL] },
+        apiKey: proxyKey,
+      })
+    ).status,
+    oai: (
+      await api("POST", "endpoints", {
+        op: "save",
+        endpoint: { id: "oai", label: "Commissary (Chat Completions)", ...COMPLETIONS, models: [MODEL] },
+        apiKey: proxyKey,
+      })
+    ).status,
+    resp: (
+      await api("POST", "endpoints", {
+        op: "save",
+        endpoint: { id: "resp", label: "Commissary (Responses)", ...RESPONSES, models: [MODEL] },
+        apiKey: proxyKey,
+      })
+    ).status,
   };
-  report.endpoints = { saved, baseUrls: { comm: "<MODEL_PROXY_URL>", oai: "<MODEL_PROXY_URL>/v1", resp: "<MODEL_PROXY_URL>/v1" } };
+  report.endpoints = {
+    saved,
+    baseUrls: { comm: "<MODEL_PROXY_URL>", oai: "<MODEL_PROXY_URL>/v1", resp: "<MODEL_PROXY_URL>/v1" },
+  };
   check("the three endpoints saved", saved.comm === 200 && saved.oai === 200 && saved.resp === 200, saved);
   const SLUGS = { comm: `comm/${MODEL}`, oai: `oai/${MODEL}`, resp: `resp/${MODEL}` };
 
@@ -79,55 +116,154 @@ const { text: raw } = await tailing([`t3flare-agents-${stage}`], async () => {
   await enable(cookie, "pi", "pi");
   await sleep(2000);
   const config = (await wsCall(cookie, "server.getConfig", {})) as any;
-  const piModels = (((config?.providers ?? []) as Array<any>).find((provider) => provider.driver === "pi")?.models ?? []).map((model: any) => ({ slug: model.slug, group: model.subProvider, isDefault: model.isDefault === true }));
-  report.piModels = { first: piModels.slice(0, 4), total: piModels.length, proxyRetained: piModels.filter((row: any) => String(row.slug).startsWith("anthropic/")).length };
+  const piModels = (
+    ((config?.providers ?? []) as Array<any>).find((provider) => provider.driver === "pi")?.models ?? []
+  ).map((model: any) => ({ slug: model.slug, group: model.subProvider, isDefault: model.isDefault === true }));
+  report.piModels = {
+    first: piModels.slice(0, 4),
+    total: piModels.length,
+    proxyRetained: piModels.filter((row: any) => String(row.slug).startsWith("anthropic/")).length,
+  };
   check(
     "pi lists exactly the endpoints' models by slug, the first the default (t3's registry keeps none of the proxy's)",
-    JSON.stringify(piModels.map((row: any) => row.slug)) === JSON.stringify([SLUGS.comm, SLUGS.oai, SLUGS.resp]) && piModels[0]?.isDefault === true && (report.piModels as any).proxyRetained === 0,
+    JSON.stringify(piModels.map((row: any) => row.slug)) === JSON.stringify([SLUGS.comm, SLUGS.oai, SLUGS.resp]) &&
+      piModels[0]?.isDefault === true &&
+      (report.piModels as any).proxyRetained === 0,
     piModels.slice(0, 5),
   );
 
   // 3. A turn with tools on comm's model (Anthropic Messages).
   const run = Date.now().toString(36);
   const A = `relay-pi-${run}`;
-  const first = await cliTurn(cookie, { cli: "pi", workspace: A, model: SLUGS.comm, mode: "approval-required", plan: false, prompt: `Remember the code word KESTREL-41 for later. ${EDIT_AND_TEST}` });
+  const first = await cliTurn(cookie, {
+    cli: "pi",
+    workspace: A,
+    model: SLUGS.comm,
+    mode: "approval-required",
+    plan: false,
+    prompt: `Remember the code word KESTREL-41 for later. ${EDIT_AND_TEST}`,
+  });
   report.turn = clean(first);
-  const toolTurn = (turn: typeof first) => turn.runs.at(-1)?.status === "completed" && turn.items.some((item: any) => item.type === "file_change") && turn.items.some((item: any) => item.type === "command_execution");
-  check("a pi turn with tools ran on the Anthropic Messages endpoint's model through the relay", toolTurn(first), first.items);
+  const toolTurn = (turn: typeof first) =>
+    turn.runs.at(-1)?.status === "completed" &&
+    turn.items.some((item: any) => item.type === "file_change") &&
+    turn.items.some((item: any) => item.type === "command_execution");
+  check(
+    "a pi turn with tools ran on the Anthropic Messages endpoint's model through the relay",
+    toolTurn(first),
+    first.items,
+  );
   // Each request was answered `accept` by `cliTurn`; t3's projection keeps no decision for pi's, only that it resolved.
-  check("its tool requests were asked, and resolved by the accept sent", first.requests.length > 0 && first.requests.every((request: any) => request.status === "resolved"), first.requests);
+  check(
+    "its tool requests were asked, and resolved by the accept sent",
+    first.requests.length > 0 && first.requests.every((request: any) => request.status === "resolved"),
+    first.requests,
+  );
 
   // pi's models.json and settings in the Container: one provider per endpoint at the relay, the handle command, no key.
-  const files = await exec(A, "for d in /var/lib/t3flare/cli/proc-*; do [ -f $d/agent/models.json ] && { cat $d/agent/models.json; echo; echo '#settings'; cat $d/agent/settings.json; break; }; done");
+  const files = await exec(
+    A,
+    "for d in /var/lib/t3flare/cli/proc-*; do [ -f $d/agent/models.json ] && { cat $d/agent/models.json; echo; echo '#settings'; cat $d/agent/settings.json; break; }; done",
+  );
   const [modelsText, settingsText] = String(files.stdout ?? "").split("#settings");
   const models = JSON.parse(modelsText?.trim() || "{}") as any;
-  const providers = Object.fromEntries(Object.entries(models.providers ?? {}).map(([id, provider]: [string, any]) => [id, { api: provider.api, baseUrl: provider.baseUrl, apiKey: provider.apiKey, models: (provider.models ?? []).map((model: any) => `${model.id}@${model.baseUrl}`) }]));
+  const providers = Object.fromEntries(
+    Object.entries(models.providers ?? {}).map(([id, provider]: [string, any]) => [
+      id,
+      {
+        api: provider.api,
+        baseUrl: provider.baseUrl,
+        apiKey: provider.apiKey,
+        models: (provider.models ?? []).map((model: any) => `${model.id}@${model.baseUrl}`),
+      },
+    ]),
+  );
   report.modelsJson = clean({ providers, settings: JSON.parse(settingsText?.trim() || "{}") });
   const relayUrl = (id: string) => `http://computer.internal/t3flare/model/${id}`;
   check(
     "pi's providers: one per endpoint, its API, at the relay's per-endpoint URL, the handle command as its key",
     JSON.stringify(providers) ===
       JSON.stringify({
-        "t3flare-endpoint-comm": { api: "anthropic-messages", baseUrl: relayUrl("comm"), apiKey: "!/opt/t3flare/bin/t3flare-pi-handle", models: [`${MODEL}@${relayUrl("comm")}`] },
-        "t3flare-endpoint-oai": { api: "openai-completions", baseUrl: relayUrl("oai"), apiKey: "!/opt/t3flare/bin/t3flare-pi-handle", models: [`${MODEL}@${relayUrl("oai")}`] },
-        "t3flare-endpoint-resp": { api: "openai-responses", baseUrl: relayUrl("resp"), apiKey: "!/opt/t3flare/bin/t3flare-pi-handle", models: [`${MODEL}@${relayUrl("resp")}`] },
+        "t3flare-endpoint-comm": {
+          api: "anthropic-messages",
+          baseUrl: relayUrl("comm"),
+          apiKey: "!/opt/t3flare/bin/t3flare-pi-handle",
+          models: [`${MODEL}@${relayUrl("comm")}`],
+        },
+        "t3flare-endpoint-oai": {
+          api: "openai-completions",
+          baseUrl: relayUrl("oai"),
+          apiKey: "!/opt/t3flare/bin/t3flare-pi-handle",
+          models: [`${MODEL}@${relayUrl("oai")}`],
+        },
+        "t3flare-endpoint-resp": {
+          api: "openai-responses",
+          baseUrl: relayUrl("resp"),
+          apiKey: "!/opt/t3flare/bin/t3flare-pi-handle",
+          models: [`${MODEL}@${relayUrl("resp")}`],
+        },
       }),
     report.modelsJson,
   );
 
   // 4. The same thread on the OpenAI endpoints: a tool turn on Chat Completions, then Responses.
-  const native = (turn: typeof first) => turn.providerThreads.map((thread: any) => thread.nativeThreadRef?.nativeId ?? null);
-  const openai = await cliTurn(cookie, { cli: "pi", workspace: A, model: SLUGS.oai, mode: "approval-required", plan: false, prompt: "In src/greeting.txt add another last line `Hello again.` with your file edit tool (not the shell), then run `bash test.sh` and tell me in one sentence whether it passed.", threadId: first.threadId });
+  const native = (turn: typeof first) =>
+    turn.providerThreads.map((thread: any) => thread.nativeThreadRef?.nativeId ?? null);
+  const openai = await cliTurn(cookie, {
+    cli: "pi",
+    workspace: A,
+    model: SLUGS.oai,
+    mode: "approval-required",
+    plan: false,
+    prompt:
+      "In src/greeting.txt add another last line `Hello again.` with your file edit tool (not the shell), then run `bash test.sh` and tell me in one sentence whether it passed.",
+    threadId: first.threadId,
+  });
   report.openaiTurn = clean(openai);
-  check("a pi turn with tools ran on the OpenAI (Chat Completions) endpoint's model, in the same thread", toolTurn(openai), openai.items);
-  const responses = await cliTurn(cookie, { cli: "pi", workspace: A, model: SLUGS.resp, mode: "approval-required", plan: false, prompt: "In src/greeting.txt add another last line `Hello once more.` with your file edit tool (not the shell), then run `bash test.sh`, and reply with the code word only.", threadId: first.threadId });
-  report.switch = clean({ toResponses: { runs: responses.runs.slice(-1), items: responses.items, text: responses.text, native: native(responses) }, openai: native(openai), first: native(first) });
-  check("a model switch to the Responses endpoint's model: a turn with tools that knows the code word", toolTurn(responses) && responses.text.includes("KESTREL-41"), report.switch);
-  check("the same native pi session throughout (no handoff)", native(first).length === 1 && JSON.stringify(native(first)) === JSON.stringify(native(openai)) && JSON.stringify(native(first)) === JSON.stringify(native(responses)), report.switch);
+  check(
+    "a pi turn with tools ran on the OpenAI (Chat Completions) endpoint's model, in the same thread",
+    toolTurn(openai),
+    openai.items,
+  );
+  const responses = await cliTurn(cookie, {
+    cli: "pi",
+    workspace: A,
+    model: SLUGS.resp,
+    mode: "approval-required",
+    plan: false,
+    prompt:
+      "In src/greeting.txt add another last line `Hello once more.` with your file edit tool (not the shell), then run `bash test.sh`, and reply with the code word only.",
+    threadId: first.threadId,
+  });
+  report.switch = clean({
+    toResponses: {
+      runs: responses.runs.slice(-1),
+      items: responses.items,
+      text: responses.text,
+      native: native(responses),
+    },
+    openai: native(openai),
+    first: native(first),
+  });
+  check(
+    "a model switch to the Responses endpoint's model: a turn with tools that knows the code word",
+    toolTurn(responses) && responses.text.includes("KESTREL-41"),
+    report.switch,
+  );
+  check(
+    "the same native pi session throughout (no handoff)",
+    native(first).length === 1 &&
+      JSON.stringify(native(first)) === JSON.stringify(native(openai)) &&
+      JSON.stringify(native(first)) === JSON.stringify(native(responses)),
+    report.switch,
+  );
 
   // 5. Where the handle is, with the thread's process alive. Only counts and names leave the Container.
   const CANARY = { id: "canary", label: "Canary", ...ANTHROPIC, models: [MODEL] };
-  check("the canary endpoint saved (after the process started)", (await api("POST", "endpoints", { op: "save", endpoint: CANARY, apiKey: canaryKey })).status === 200);
+  check(
+    "the canary endpoint saved (after the process started)",
+    (await api("POST", "endpoints", { op: "save", endpoint: CANARY, apiKey: canaryKey })).status === 200,
+  );
   const RELAY = "http://computer.internal/t3flare/model";
   const body = `{"model":"${MODEL}","max_tokens":5,"messages":[{"role":"user","content":"Reply with ok."}]}`;
   const anthropicPost = (endpoint: string, handleExpr: string) =>
@@ -161,34 +297,77 @@ const { text: raw } = await tailing([`t3flare-agents-${stage}`], async () => {
   if (handle !== undefined) handles.push(handle);
   delete lines.handle;
   report.handle = clean({ found: handle !== undefined, ...lines, stderr: String(where.stderr ?? "").slice(0, 300) });
-  const holders = String(lines.holders ?? "").split("|").map((entry) => entry.trim()).filter((entry) => entry !== "");
+  const holders = String(lines.holders ?? "")
+    .split("|")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "");
   check(
     "only the launch chain's setsid holds the handle (not pi, not a shell)",
-    handle !== undefined && holders.length === 1 && holders[0] === PI_HANDLE_HOLDERS[0] && lines.piWithHandle === "0" && lines.piProcesses === "1",
+    handle !== undefined &&
+      holders.length === 1 &&
+      holders[0] === PI_HANDLE_HOLDERS[0] &&
+      lines.piWithHandle === "0" &&
+      lines.piProcesses === "1",
     report.handle,
   );
   check("no file holds the handle", lines.files === "0", report.handle);
   check("the handle command prints nothing outside a pi process's launch chain", lines.outside === "0", report.handle);
-  check("the handle reaches the Anthropic endpoint in x-api-key and the OpenAI endpoint as a Bearer (200)", lines.anthropic === "200" && lines.openai === "200", report.handle);
-  check("a forged handle and no handle are refused (401)", lines.forged === "401" && lines.none === "401", report.handle);
+  check(
+    "the handle reaches the Anthropic endpoint in x-api-key and the OpenAI endpoint as a Bearer (200)",
+    lines.anthropic === "200" && lines.openai === "200",
+    report.handle,
+  );
+  check(
+    "a forged handle and no handle are refused (401)",
+    lines.forged === "401" && lines.none === "401",
+    report.handle,
+  );
   check("an endpoint saved after the process started is refused (403)", lines.unconfigured === "403", report.handle);
 
   // A pi shell has no handle.
-  const shell = await cliTurn(cookie, { cli: "pi", workspace: A, model: SLUGS.comm, mode: "full-access", plan: false, prompt: "Run exactly this shell command with your bash tool: `env > /tmp/p1170-shell-env.txt` and then reply with the single word done.", threadId: first.threadId });
-  const shellEnv = await exec(A, "echo handle=$(grep -c '^T3FLARE_MODEL_HANDLE=' /tmp/p1170-shell-env.txt); echo exec=$(grep -c '^T3FLARE_EXEC=' /tmp/p1170-shell-env.txt); rm -f /tmp/p1170-shell-env.txt");
+  const shell = await cliTurn(cookie, {
+    cli: "pi",
+    workspace: A,
+    model: SLUGS.comm,
+    mode: "full-access",
+    plan: false,
+    prompt:
+      "Run exactly this shell command with your bash tool: `env > /tmp/p1170-shell-env.txt` and then reply with the single word done.",
+    threadId: first.threadId,
+  });
+  const shellEnv = await exec(
+    A,
+    "echo handle=$(grep -c '^T3FLARE_MODEL_HANDLE=' /tmp/p1170-shell-env.txt); echo exec=$(grep -c '^T3FLARE_EXEC=' /tmp/p1170-shell-env.txt); rm -f /tmp/p1170-shell-env.txt",
+  );
   report.shellEnv = { runs: shell.runs.slice(-1), counts: String(shellEnv.stdout ?? "").trim() };
-  check("a pi shell's environment has no model handle (its marker shows it was the process's)", String(shellEnv.stdout ?? "").includes("handle=0") && String(shellEnv.stdout ?? "").includes("exec=1"), report.shellEnv);
+  check(
+    "a pi shell's environment has no model handle (its marker shows it was the process's)",
+    String(shellEnv.stdout ?? "").includes("handle=0") && String(shellEnv.stdout ?? "").includes("exec=1"),
+    report.shellEnv,
+  );
 
   // 6. The leak scan, with the thread's process alive; then the positive control.
   const scan = await leak(A);
   report.leak = clean(scan);
-  check("the leak scan finds no endpoint key and scanned every key (DO files, Container files, process environments and command lines)", (scan?.do ?? []).length === 0 && (scan?.container?.hits ?? []).length === 0 && (scan?.container?.files ?? 0) > 0 && Array.isArray(scan?.notScanned) && scan.notScanned.length === 0, scan);
+  check(
+    "the leak scan finds no endpoint key and scanned every key (DO files, Container files, process environments and command lines)",
+    (scan?.do ?? []).length === 0 &&
+      (scan?.container?.hits ?? []).length === 0 &&
+      (scan?.container?.files ?? 0) > 0 &&
+      Array.isArray(scan?.notScanned) &&
+      scan.notScanned.length === 0,
+    scan,
+  );
   await exec(A, `printf %s '${canaryKey}' > /tmp/p1170-canary.txt`);
   const planted = await leak(A);
   await exec(A, "rm -f /tmp/p1170-canary.txt");
   const plantedHits = (planted?.container?.hits ?? []) as Array<{ name: string; path: string }>;
   report.leakControl = clean({ hits: plantedHits });
-  check("the leak scan finds an endpoint key planted in the Container", plantedHits.some((hit) => hit.name === "endpoint:canary" && hit.path === "/tmp/p1170-canary.txt"), report.leakControl);
+  check(
+    "the leak scan finds an endpoint key planted in the Container",
+    plantedHits.some((hit) => hit.name === "endpoint:canary" && hit.path === "/tmp/p1170-canary.txt"),
+    report.leakControl,
+  );
   check("the canary endpoint removed", (await api("POST", "endpoints", { op: "remove", id: "canary" })).status === 200);
 
   // 7. Resume after a Container restart: a new process, a new handle, the same native session.
@@ -196,22 +375,58 @@ const { text: raw } = await tailing([`t3flare-agents-${stage}`], async () => {
   let container: any = null;
   for (let i = 0; i < 12; i++) {
     await sleep(5000);
-    container = (await admin("GET", "/_t3flare/agents/workspaces")).json?.workspaces?.find((ws: any) => ws.id === A)?.container ?? null;
+    container =
+      (await admin("GET", "/_t3flare/agents/workspaces")).json?.workspaces?.find((ws: any) => ws.id === A)?.container ??
+      null;
     if (container?.running === false) break;
   }
   check("the Container stopped", container?.running === false, container);
   await admin("GET", "/_t3flare/agents/router-trace?clear=1");
-  const resumed = await cliTurn(cookie, { cli: "pi", workspace: A, model: SLUGS.comm, mode: "approval-required", plan: false, prompt: "What was the code word? Reply with it only.", threadId: first.threadId });
+  const resumed = await cliTurn(cookie, {
+    cli: "pi",
+    workspace: A,
+    model: SLUGS.comm,
+    mode: "approval-required",
+    plan: false,
+    prompt: "What was the code word? Reply with it only.",
+    threadId: first.threadId,
+  });
   report.resume = clean({ runs: resumed.runs.slice(-1), text: resumed.text, native: native(resumed) });
-  check("the next turn completed after the restart and knew the code word", resumed.runs.at(-1)?.status === "completed" && resumed.text.includes("KESTREL-41"), report.resume);
-  check("the same native pi session (resumed, not a handoff)", JSON.stringify(native(first)) === JSON.stringify(native(resumed)), { first: native(first), resumed: native(resumed) });
+  check(
+    "the next turn completed after the restart and knew the code word",
+    resumed.runs.at(-1)?.status === "completed" && resumed.text.includes("KESTREL-41"),
+    report.resume,
+  );
+  check(
+    "the same native pi session (resumed, not a handoff)",
+    JSON.stringify(native(first)) === JSON.stringify(native(resumed)),
+    { first: native(first), resumed: native(resumed) },
+  );
   const trace = ((await admin("GET", "/_t3flare/agents/router-trace")).json?.entries ?? []) as Array<any>;
   report.resumeTrace = trace.filter((entry: any) => entry.route === "protocol").slice(-5);
-  check("the protocol log shows pi switched to that session file", trace.some((entry: any) => entry.route === "protocol" && String(entry.detail ?? "").includes(String(native(first)[0]))), report.resumeTrace);
+  check(
+    "the protocol log shows pi switched to that session file",
+    trace.some(
+      (entry: any) => entry.route === "protocol" && String(entry.detail ?? "").includes(String(native(first)[0])),
+    ),
+    report.resumeTrace,
+  );
   const code = (handleExpr: string) => anthropicPost("comm", handleExpr);
-  const revoked = handle === undefined ? {} : await exec(A, `N=$(${HANDLE_OF}); echo "revoked=$(${code(handle)})"; echo "fresh=$(${code("$N")})"; echo "changed=$([ -n "$N" ] && [ "$N" != "${handle}" ] && echo 1 || echo 0)"`);
+  const revoked =
+    handle === undefined
+      ? {}
+      : await exec(
+          A,
+          `N=$(${HANDLE_OF}); echo "revoked=$(${code(handle)})"; echo "fresh=$(${code("$N")})"; echo "changed=$([ -n "$N" ] && [ "$N" != "${handle}" ] && echo 1 || echo 0)"`,
+        );
   report.revoked = { output: String(revoked.stdout ?? "").trim() };
-  check("the new process has a new handle; the first process's is refused (401), the new one passes (200)", String(revoked.stdout ?? "").includes("revoked=401") && String(revoked.stdout ?? "").includes("fresh=200") && String(revoked.stdout ?? "").includes("changed=1"), report.revoked);
+  check(
+    "the new process has a new handle; the first process's is refused (401), the new one passes (200)",
+    String(revoked.stdout ?? "").includes("revoked=401") &&
+      String(revoked.stdout ?? "").includes("fresh=200") &&
+      String(revoked.stdout ?? "").includes("changed=1"),
+    report.revoked,
+  );
 });
 
 // 8. The agents Worker's log.
@@ -225,13 +440,28 @@ for (const entry of piLogs) byEndpoint[entry.endpoint] = (byEndpoint[entry.endpo
 report.relayLog = {
   entries: relayLogs.length,
   byStatus,
-  pi: { entries: piLogs.length, byEndpoint, routed: piLogs.some((entry) => entry.routed === true), statuses: [...new Set(piLogs.map((entry) => entry.status))] },
+  pi: {
+    entries: piLogs.length,
+    byEndpoint,
+    routed: piLogs.some((entry) => entry.routed === true),
+    statuses: [...new Set(piLogs.map((entry) => entry.status))],
+  },
   // What pi sends that the allowlist keeps back (names only).
-  piDropped: [...new Set(piLogs.flatMap((entry) => entry.dropped ?? []))].sort((a, b) => String(a).localeCompare(String(b))),
+  piDropped: [...new Set(piLogs.flatMap((entry) => entry.dropped ?? []))].sort((a, b) =>
+    String(a).localeCompare(String(b)),
+  ),
   sample: piLogs.slice(0, 3),
 };
-report.keyHelper = { entries: keyLogs.length, pi: keyLogs.filter((entry) => JSON.stringify(entry).includes('"pi"')).length };
-check("pi's requests went to each endpoint's own path (comm, oai, resp), none model-routed, every one 200", ["comm", "oai", "resp"].every((id) => (byEndpoint[id] ?? 0) > 0) && piLogs.every((entry) => entry.status === 200 && entry.routed !== true), report.relayLog);
+report.keyHelper = {
+  entries: keyLogs.length,
+  pi: keyLogs.filter((entry) => JSON.stringify(entry).includes('"pi"')).length,
+};
+check(
+  "pi's requests went to each endpoint's own path (comm, oai, resp), none model-routed, every one 200",
+  ["comm", "oai", "resp"].every((id) => (byEndpoint[id] ?? 0) > 0) &&
+    piLogs.every((entry) => entry.status === 200 && entry.routed !== true),
+  report.relayLog,
+);
 check("pi on the relay never asked the key helper", (report.keyHelper as any).pi === 0, report.keyHelper);
 check("no handle or key in the agents Worker's log", !leaks(raw));
 finish();

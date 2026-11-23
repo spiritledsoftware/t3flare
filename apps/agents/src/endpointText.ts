@@ -54,7 +54,10 @@ export interface EndpointTextAccess {
 
 /** The request as the binding hands it: three strings, else undefined. */
 export const endpointTextRequestOf = (value: unknown): EndpointTextRequest | undefined =>
-  isRecord(value) && typeof value.endpointId === "string" && typeof value.modelId === "string" && typeof value.prompt === "string"
+  isRecord(value) &&
+  typeof value.endpointId === "string" &&
+  typeof value.modelId === "string" &&
+  typeof value.prompt === "string"
     ? { endpointId: value.endpointId, modelId: value.modelId, prompt: value.prompt }
     : undefined;
 
@@ -92,13 +95,30 @@ const failureOf = (endpoint: ModelEndpoint, modelId: string, observed: Observed)
     // The endpoint was read from the Environment just now, so a changed target is a save that landed meanwhile.
     return {
       ok: false,
-      error: observed.refused.changed === true ? `${named} changed or was removed while the text was being generated: try again.` : credentialProblem(endpoint, observed.refused),
+      error:
+        observed.refused.changed === true
+          ? `${named} changed or was removed while the text was being generated: try again.`
+          : credentialProblem(endpoint, observed.refused),
     };
   }
   if (observed.status !== undefined) {
     // Classified by the endpoint's API and auth when the answer is a failure the table knows; else by its status.
-    const failure = describeFailure({ status: observed.status, headers: observed.headers ?? {}, body: observed.body ?? "", at: observed.at ?? Date.now() }, endpoint);
-    return { ok: false, error: failure === undefined ? statusProblem(endpoint, modelId, observed.status) : `${failure.message}${resetSentence(failure)}` };
+    const failure = describeFailure(
+      {
+        status: observed.status,
+        headers: observed.headers ?? {},
+        body: observed.body ?? "",
+        at: observed.at ?? Date.now(),
+      },
+      endpoint,
+    );
+    return {
+      ok: false,
+      error:
+        failure === undefined
+          ? statusProblem(endpoint, modelId, observed.status)
+          : `${failure.message}${resetSentence(failure)}`,
+    };
   }
   if (observed.unreachable) return { ok: false, error: `${named} could not be reached.` };
   // An error with no status this code can read (Google's adapter reports none): the endpoint failed, how is not known.
@@ -107,7 +127,11 @@ const failureOf = (endpoint: ModelEndpoint, modelId: string, observed: Observed)
 
 export const generateEndpointText = async (input: unknown, access: EndpointTextAccess): Promise<EndpointTextAnswer> => {
   const request = endpointTextRequestOf(input);
-  if (request === undefined) return { ok: false, error: "The text generation request was malformed: it names no Model endpoint, model and prompt." };
+  if (request === undefined)
+    return {
+      ok: false,
+      error: "The text generation request was malformed: it names no Model endpoint, model and prompt.",
+    };
   const { endpointId, modelId } = request;
   const named = endpointLabel(endpointId);
   let endpoints: ModelEndpoints;
@@ -117,7 +141,8 @@ export const generateEndpointText = async (input: unknown, access: EndpointTextA
     return { ok: false, error: `${named} could not be read from the Environment: try again.` };
   }
   const endpoint = endpoints.endpoints.find((entry) => entry.id === endpointId);
-  if (endpoint === undefined) return { ok: false, error: `${named} was removed: pick another model for text generation.` };
+  if (endpoint === undefined)
+    return { ok: false, error: `${named} was removed: pick another model for text generation.` };
   const observed: Observed = { unreachable: false };
   const base = access.fetch ?? globalThis.fetch;
   const fetch: FetchFunction = async (url, init) => {
@@ -144,7 +169,11 @@ export const generateEndpointText = async (input: unknown, access: EndpointTextA
     const entry = usageOfPiAnswer(answer, { agent: "text-generation", endpointId: id, session: "", now: Date.now() });
     if (entry !== undefined) access.usage(entry);
   };
-  for (const provider of endpointProviders({ revision: endpoints.revision, endpoints: [endpoint] }, { credential, fetch, answered, ...(access.limits === undefined ? {} : { limits: access.limits }) })) models.setProvider(provider);
+  for (const provider of endpointProviders(
+    { revision: endpoints.revision, endpoints: [endpoint] },
+    { credential, fetch, answered, ...(access.limits === undefined ? {} : { limits: access.limits }) },
+  ))
+    models.setProvider(provider);
   const model = models.getModel(endpoint.id, modelId);
   if (model === undefined) return { ok: false, error: `${named} does not list the model ${modelId}.` };
   const signal = AbortSignal.timeout(access.timeoutMs ?? TIMEOUT_MS);
@@ -169,7 +198,8 @@ export const generateEndpointText = async (input: unknown, access: EndpointTextA
     return signal.aborted ? timedOut : failureOf(endpoint, modelId, observed);
   }
   if (message.stopReason === "aborted" || signal.aborted) return timedOut;
-  if (message.stopReason === "error" || (observed.status !== undefined && observed.status >= 400)) return failureOf(endpoint, modelId, observed);
+  if (message.stopReason === "error" || (observed.status !== undefined && observed.status >= 400))
+    return failureOf(endpoint, modelId, observed);
   const text = message.content
     .flatMap((block) => (block.type === "text" ? [block.text] : []))
     .join("")

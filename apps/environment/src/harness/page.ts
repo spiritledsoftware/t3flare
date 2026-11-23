@@ -69,7 +69,12 @@ export const visibleHtml = (text: string): string => escapeHtml(visible(text));
 
 /** `text` safe in HTML text and in a double-quoted attribute. */
 export const escapeHtml = (text: string): string =>
-  text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+  text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 
 const sha256 = async (text: string): Promise<string> =>
   btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))));
@@ -82,7 +87,11 @@ const hashes = new Map<string, Promise<{ readonly style: string; readonly script
  */
 export const pageCsp = async (pageScript: string = SCRIPT): Promise<string> => {
   let pending = hashes.get(pageScript);
-  if (pending === undefined) hashes.set(pageScript, (pending = Promise.all([sha256(STYLE), sha256(pageScript)]).then(([style, script]) => ({ style, script }))));
+  if (pending === undefined)
+    hashes.set(
+      pageScript,
+      (pending = Promise.all([sha256(STYLE), sha256(pageScript)]).then(([style, script]) => ({ style, script }))),
+    );
   const { style, script } = await pending;
   return [
     "default-src 'none'",
@@ -115,7 +124,14 @@ interface FieldNote {
   readonly data: string;
 }
 
-const field = (extension: string, key: string, setting: EnvironmentSettingEntry, value: unknown, locked = false, note?: FieldNote): string => {
+const field = (
+  extension: string,
+  key: string,
+  setting: EnvironmentSettingEntry,
+  value: unknown,
+  locked = false,
+  note?: FieldNote,
+): string => {
   const id = escapeHtml(`${extension}-${key}`);
   const hint = `<p class="hint" id="${id}-hint">${escapeHtml(setting.description)}</p>${note === undefined ? "" : `<p class="hint" id="${id}-note" data-${note.data}>${escapeHtml(note.text)}</p>`}`;
   const attrs = `id="${id}" data-setting="${escapeHtml(key)}" data-kind="${setting.schema.type}" aria-describedby="${id}-hint${note === undefined ? "" : ` ${id}-note`}"${locked ? " disabled" : ""}`;
@@ -126,7 +142,10 @@ const field = (extension: string, key: string, setting: EnvironmentSettingEntry,
       return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="number" inputmode="numeric" required ${attrs} min="${setting.schema.minimum}" max="${setting.schema.maximum}" step="1" value="${escapeHtml(String(value))}">${hint}</div>`;
     case "enum":
       return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><select ${attrs}>${setting.schema.values
-        .map((option) => `<option value="${escapeHtml(option)}"${option === value ? " selected" : ""}>${escapeHtml(setting.schema.type === "enum" ? (setting.schema.labels?.[option] ?? option) : option)}</option>`)
+        .map(
+          (option) =>
+            `<option value="${escapeHtml(option)}"${option === value ? " selected" : ""}>${escapeHtml(setting.schema.type === "enum" ? (setting.schema.labels?.[option] ?? option) : option)}</option>`,
+        )
         .join("")}</select>${hint}</div>`;
     case "text":
       return setting.schema.multiline === true
@@ -136,7 +155,9 @@ const field = (extension: string, key: string, setting: EnvironmentSettingEntry,
       // One row per Variable; the script adds rows from the template, removes them, and posts `[{ name, value, secret }]`
       // (a secret left as it was posts `valueRedacted`, which keeps its stored value). The names t3flare sets itself are
       // on the list for the script's note.
-      const rows = (Array.isArray(value) ? (value as ReadonlyArray<Variable>) : []).map((variable) => variableRow(variable));
+      const rows = (Array.isArray(value) ? (value as ReadonlyArray<Variable>) : []).map((variable) =>
+        variableRow(variable),
+      );
       return `<fieldset class="field" ${attrs} data-set-by-t3flare="${escapeHtml(SET_BY_T3FLARE.join(" "))}" data-reserved-prefixes="${escapeHtml(RESERVED_PREFIXES.join(" "))}"><legend class="sr">${escapeHtml(setting.title)}</legend><div class="variables" data-variable-rows>${rows.join("")}</div><template data-variable-template>${variableRow(undefined)}</template><div><button type="button" class="btn btn-sm" data-variable-add>${icon("plus")}Add a Variable</button></div>${hint}</fieldset>`;
     }
     case "file":
@@ -163,13 +184,17 @@ const variableRow = (variable: Variable | undefined): string => {
   const stored = variable?.valueRedacted === true && !unreadable;
   const placeholder = stored ? KEPT_PLACEHOLDER : unreadable ? UNREADABLE_PLACEHOLDER : "value";
   return `<div class="variable${secret ? " is-secret" : ""}" data-variable${stored ? ` data-variable-stored="${escapeHtml(name)}"` : ""}${unreadable ? " data-variable-unreadable" : ""}><input type="text" data-variable-name aria-label="Name" value="${escapeHtml(name)}" maxlength="${MAX_VARIABLE_NAME_LENGTH}" placeholder="NAME" autocapitalize="none" spellcheck="false"><textarea rows="1" data-variable-value aria-label="Value" maxlength="${MAX_VARIABLE_VALUE_LENGTH}" placeholder="${placeholder}" spellcheck="false" autocomplete="off"${unreadable ? " required" : ""}>${secret ? "" : escapeHtml(variable?.value ?? "")}</textarea><label class="variable-secret"><input type="checkbox" data-variable-secret${secret ? " checked" : ""}>Secret</label><button type="button" class="btn btn-sm btn-danger" data-variable-remove aria-label="Remove this Variable">${icon("trash")}</button><p class="hint variable-note" data-variable-note${name !== "" && setByT3flare(name) ? "" : " hidden"}>t3flare sets or keeps this name itself: its own value wins over this one wherever it sets it, and a T3FLARE_ or T3CODE_ name reaches no command.</p>${
-    unreadable ? '<p class="hint variable-note variable-unreadable" role="note">This secret cannot be opened (the credentials key changed or is missing), so no Container gets it: type its value again.</p>' : ""
+    unreadable
+      ? '<p class="hint variable-note variable-unreadable" role="note">This secret cannot be opened (the credentials key changed or is missing), so no Container gets it: type its value again.</p>'
+      : ""
   }</div>`;
 };
 
 /** A locked extension's settings, shown and not editable. */
 const lockedSettings = (entry: ExtensionEntry, current: ResolvedHarness["extensions"][string] | undefined): string => {
-  const fields = Object.entries(entry.settings).map(([key, setting]) => field(entry.id, key, setting, current?.settings[key], true));
+  const fields = Object.entries(entry.settings).map(([key, setting]) =>
+    field(entry.id, key, setting, current?.settings[key], true),
+  );
   return fields.length === 0 ? "" : `<div class="row-extra"><div class="fields">${fields.join("")}</div></div>`;
 };
 
@@ -186,7 +211,9 @@ const extensionRow = (resolved: ResolvedHarness, entry: ExtensionEntry): string 
     entry.default === "always"
       ? `<span class="state">${icon("check")}Always on</span>`
       : `<input type="checkbox" class="switch" role="switch" data-enabled aria-labelledby="${titleId}"${current?.enabled === true ? " checked" : ""}>`;
-  const settings = Object.entries(entry.settings).map(([key, setting]) => field(entry.id, key, setting, current?.settings[key]));
+  const settings = Object.entries(entry.settings).map(([key, setting]) =>
+    field(entry.id, key, setting, current?.settings[key]),
+  );
   const extra =
     settings.length === 0
       ? ""
@@ -223,7 +250,8 @@ const EXPOSURE_WORDS: Readonly<Record<Exposure, string>> = {
 const fallbackNote = (exposure: Exposure, tools: ResolvedTools): string => {
   const codemodeOff = tools.tools.codemode === "hidden";
   const searchOff = tools.tools.tool_search === "hidden";
-  if (exposure === "codemode" && codemodeOff) return `Code mode is hidden: offered ${searchOff ? "direct" : "deferred"}.`;
+  if (exposure === "codemode" && codemodeOff)
+    return `Code mode is hidden: offered ${searchOff ? "direct" : "deferred"}.`;
   if (exposure === "deferred" && searchOff) return "Tool search is hidden: offered direct.";
   return "";
 };
@@ -232,10 +260,23 @@ const fallbackNote = (exposure: Exposure, tools: ResolvedTools): string => {
  * An Exposure select that saves at once (pageScript.ts): a built-in tool's (`tool`), or one of t3's (`t3`: a tool's
  * name, or "" for the card's default). `inherit` is the label of the empty option that clears the tool's own.
  */
-const toolExposureSelect = (input: { readonly tool: string; readonly t3?: true; readonly current: string; readonly allowed: ReadonlyArray<Exposure>; readonly inherit?: string; readonly label: string }): string => {
-  const options: Array<readonly [string, string]> = [...(input.inherit === undefined ? [] : [["", input.inherit] as const]), ...input.allowed.map((value) => [value, value] as const)];
+const toolExposureSelect = (input: {
+  readonly tool: string;
+  readonly t3?: true;
+  readonly current: string;
+  readonly allowed: ReadonlyArray<Exposure>;
+  readonly inherit?: string;
+  readonly label: string;
+}): string => {
+  const options: Array<readonly [string, string]> = [
+    ...(input.inherit === undefined ? [] : [["", input.inherit] as const]),
+    ...input.allowed.map((value) => [value, value] as const),
+  ];
   return `<select class="sel-sm" data-tool-exposure="${escapeHtml(input.tool)}"${input.t3 === true ? " data-t3" : ""} aria-label="${escapeHtml(input.label)}">${options
-    .map(([value, text]) => `<option value="${escapeHtml(value)}"${value === input.current ? " selected" : ""}${value === "" ? "" : ` title="${escapeHtml(EXPOSURE_WORDS[value as Exposure])}"`}>${escapeHtml(text)}</option>`)
+    .map(
+      ([value, text]) =>
+        `<option value="${escapeHtml(value)}"${value === input.current ? " selected" : ""}${value === "" ? "" : ` title="${escapeHtml(EXPOSURE_WORDS[value as Exposure])}"`}>${escapeHtml(text)}</option>`,
+    )
     .join("")}</select>`;
 };
 
@@ -251,8 +292,12 @@ const toolsRow = (resolved: ResolvedHarness, tools: ResolvedTools, entry: Extens
   const current = resolved.extensions[entry.id];
   const titleId = escapeHtml(`ext-${entry.id}-title`);
   const on = (entry.tools ?? []).some((tool) => tools.tools[tool] !== "hidden");
-  const rows = (entry.tools ?? []).map((name) => toolRow(name, tools.tools[name] ?? "hidden", builtinTool(name)?.exposures ?? [], tools)).join("");
-  const settings = Object.entries(entry.settings).map(([key, setting]) => field(entry.id, key, setting, current?.settings[key]));
+  const rows = (entry.tools ?? [])
+    .map((name) => toolRow(name, tools.tools[name] ?? "hidden", builtinTool(name)?.exposures ?? [], tools))
+    .join("");
+  const settings = Object.entries(entry.settings).map(([key, setting]) =>
+    field(entry.id, key, setting, current?.settings[key]),
+  );
   const save =
     settings.length === 0
       ? ""
@@ -264,14 +309,18 @@ const toolsRow = (resolved: ResolvedHarness, tools: ResolvedTools, entry: Extens
 
 const PRESET_WORDS: Readonly<Record<OfferedPreset, string>> = {
   core: "built-in and t3 tools direct, MCP servers' tools deferred",
-  "codemode-only": "every tool deferred, for code mode and tool search (t3's tools it asks for in every request stay direct unless you set them)",
+  "codemode-only":
+    "every tool deferred, for code mode and tool search (t3's tools it asks for in every request stay direct unless you set them)",
   everything: "every tool direct, MCP servers' included",
 };
 
 const toolsSection = (resolved: ResolvedHarness): string => {
   const tools = resolvedToolsOf(resolved);
   const presets = (Object.keys(OFFERED_PRESETS) as Array<OfferedPreset>)
-    .map((preset) => `<button type="button" class="btn btn-sm" data-tools-preset="${preset}" title="${escapeHtml(PRESET_WORDS[preset])}">${escapeHtml(preset)}</button>`)
+    .map(
+      (preset) =>
+        `<button type="button" class="btn btn-sm" data-tools-preset="${preset}" title="${escapeHtml(PRESET_WORDS[preset])}">${escapeHtml(preset)}</button>`,
+    )
     .join("");
   return `<section id="tools" aria-labelledby="tools-title">
 <div class="section-head"><h2 id="tools-title">${icon("extensions")}Tools</h2><div class="presets" role="group" aria-label="Presets"><span>Preset</span>${presets}</div></div>
@@ -293,15 +342,22 @@ const t3Card = (resolved: ResolvedHarness, listing: T3ToolListing | undefined): 
       const inherited = tool.asksForDirect ? "direct" : t3.exposure;
       const inherit = tool.asksForDirect ? "t3 asks: direct" : `Default (${t3.exposure})`;
       const exposure = own ?? inherited;
-      const note = [T3_DIRECT_ONLY.has(tool.name) ? "Waits: never code mode only." : "", fallbackNote(exposure, resolvedToolsOf(resolved))].filter((text) => text !== "").join(" ");
-      return `<tr><td class="tool" data-label="Tool"><code>${escapeHtml(tool.name)}</code>${tool.description === undefined ? "" : `<span class="src">${escapeHtml(tool.description)}</span>`}</td><td class="cls" data-label="Class"><div><span class="tag tag-${tool.readOnly ? "read" : "write"}">${tool.readOnly ? "read" : "write"}</span></div></td><td class="exp" data-label="Exposure"><div>${toolExposureSelect({
-        tool: tool.name,
-        t3: true,
-        current: own ?? "",
-        allowed: t3Exposures(tool.name),
-        inherit,
-        label: `${tool.name} exposure`,
-      })}</div>${note === "" ? "" : `<span class="src">${escapeHtml(note)}</span>`}</td></tr>`;
+      const note = [
+        T3_DIRECT_ONLY.has(tool.name) ? "Waits: never code mode only." : "",
+        fallbackNote(exposure, resolvedToolsOf(resolved)),
+      ]
+        .filter((text) => text !== "")
+        .join(" ");
+      return `<tr><td class="tool" data-label="Tool"><code>${escapeHtml(tool.name)}</code>${tool.description === undefined ? "" : `<span class="src">${escapeHtml(tool.description)}</span>`}</td><td class="cls" data-label="Class"><div><span class="tag tag-${tool.readOnly ? "read" : "write"}">${tool.readOnly ? "read" : "write"}</span></div></td><td class="exp" data-label="Exposure"><div>${toolExposureSelect(
+        {
+          tool: tool.name,
+          t3: true,
+          current: own ?? "",
+          allowed: t3Exposures(tool.name),
+          inherit,
+          label: `${tool.name} exposure`,
+        },
+      )}</div>${note === "" ? "" : `<span class="src">${escapeHtml(note)}</span>`}</td></tr>`;
     })
     .join("");
   const reads = (listing?.tools ?? []).filter((tool) => tool.readOnly).length;
@@ -314,7 +370,12 @@ const t3Card = (resolved: ResolvedHarness, listing: T3ToolListing | undefined): 
             ? ""
             : `<p class="empty-tools">Not offered to Durable agents (ADR-0022): ${listing.left.map((name) => `<code>${escapeHtml(name)}</code>`).join(", ")}.</p>`
         }`;
-  const listed = listing === undefined ? "Not listed yet" : listing.listedAt === 0 ? "From a thread, before this card existed" : `${time(listing.listedAt)}, from a thread`;
+  const listed =
+    listing === undefined
+      ? "Not listed yet"
+      : listing.listedAt === 0
+        ? "From a thread, before this card existed"
+        : `${time(listing.listedAt)}, from a thread`;
   return `<article class="group server" aria-labelledby="mcp-t3-code">
 <div class="server-head"><div><div class="server-name"><h3 id="mcp-t3-code">${T3_SERVER}</h3><span class="tag">T3 Code</span></div><p class="desc">t3's own tools (ADR-0022). t3 decides which tools a thread has, and may ask for one in every request; the Exposures are yours.</p></div>
 <span class="state" title="Always on">${icon("lock")}Always on</span>
@@ -334,7 +395,9 @@ const containers = (count: number) => `${count} ${count === 1 ? "Container" : "C
 /** The worst case for the settings as they stand; the page's script rewrites it as the size or budget inputs change. */
 const costNow = (costs: ContainerCostTable, size: string): string => {
   const row = costs.rows.find((entry) => entry.size === size);
-  return row === undefined ? "" : `With these settings, at most ${dollars(row.budgetHour, 2)} an hour: ${containers(costs.budget)} of ${row.size}, every vCPU busy.`;
+  return row === undefined
+    ? ""
+    : `With these settings, at most ${dollars(row.budgetHour, 2)} an hour: ${containers(costs.budget)} of ${row.size}, every vCPU busy.`;
 };
 
 /**
@@ -355,23 +418,35 @@ const costTable = (costs: ContainerCostTable, size: string): string => {
  * The Environment settings (ADR-0032): one form rendered from their schema, the running Containers, and each size's cost.
  * A later setting (SPI-1150, SPI-1152) is a schema entry, rendered here without page work.
  */
-const environmentSection = (environment: ResolvedEnvironment, costs: ContainerCostTable, running: PageInput["running"], test: TestBlockInput): string => {
+const environmentSection = (
+  environment: ResolvedEnvironment,
+  costs: ContainerCostTable,
+  running: PageInput["running"],
+  test: TestBlockInput,
+): string => {
   const values: Readonly<Record<string, unknown>> = { ...environment };
   // The Grace (ADR-0043) applies at the next Sweep, not at a Container start: the Workspaces section shows it (ADR-0044 §1).
-  const entries = Object.entries(ENVIRONMENT_SETTINGS as Readonly<Record<string, EnvironmentSettingEntry>>).filter(([key]) => !(SWEEP_SETTING_KEYS as ReadonlyArray<string>).includes(key));
+  const entries = Object.entries(ENVIRONMENT_SETTINGS as Readonly<Record<string, EnvironmentSettingEntry>>).filter(
+    ([key]) => !(SWEEP_SETTING_KEYS as ReadonlyArray<string>).includes(key),
+  );
   // The scalar settings share the Containers row. The agents' settings (SPI-1315: the Turn limit, the CLI agents'
   // processes) share an Agents row, and the dotfiles toggles (ADR-0047 §9) a Dotfiles row; a list (the
   // Variables) and a file (the Global mise config, the Container setup) each get a row of their own, which the settings
   // that name it as their `row` join. One form, one Save.
   const dotfilesKey = (key: string) => (DOTFILES_SETTING_KEYS as ReadonlyArray<string>).includes(key);
   const agentKey = (key: string) => (AGENT_SETTING_KEYS as ReadonlyArray<string>).includes(key);
-  const ownRow = (setting: EnvironmentSettingEntry) => setting.schema.type === "variables" || setting.schema.type === "file";
+  const ownRow = (setting: EnvironmentSettingEntry) =>
+    setting.schema.type === "variables" || setting.schema.type === "file";
   // The budget states its consequence once, under its own description, where the script rewrites it as the input changes.
-  const noteFor = (key: string): FieldNote | undefined => (key === "containerBudget" ? { text: budgetNote(environment.containerBudget), data: "budget-note" } : undefined);
+  const noteFor = (key: string): FieldNote | undefined =>
+    key === "containerBudget" ? { text: budgetNote(environment.containerBudget), data: "budget-note" } : undefined;
   const fields = entries
     .filter(([key, setting]) => !ownRow(setting) && setting.row === undefined && !dotfilesKey(key) && !agentKey(key))
     .map(([key, setting]) => field("environment", key, setting, values[key], false, noteFor(key)));
-  const joining = (row: string) => entries.filter(([, setting]) => setting.row === row).map(([key, setting]) => field("environment", key, setting, values[key]));
+  const joining = (row: string) =>
+    entries
+      .filter(([, setting]) => setting.row === row)
+      .map(([key, setting]) => field("environment", key, setting, values[key]));
   const agentEntries = Object.fromEntries(entries);
   const agents = `<div class="row"><div><div class="row-title"><h3 id="environment-agents-title">Agents</h3></div><p class="desc" id="environment-agents-desc">How long an agent's turn may run, how many CLI agents' processes a Workspace's Container may run, and how long an idle one waits before it may be ended for another Workspace.</p></div><div class="row-extra"><div class="fields" role="group" aria-labelledby="environment-agents-title" aria-describedby="environment-agents-desc">${AGENT_SETTING_KEYS.map((key) => field("environment", key, agentEntries[key]!, values[key])).join("")}</div></div></div>`;
   const dotfiles = `<div class="row"><div><div class="row-title"><h3 id="environment-dotfiles-title">Dotfiles</h3></div><p class="desc" id="environment-dotfiles-desc">Whether your own config in ~ (/root), from your Image setup or Container setup, reaches Terminals and CLI agents.</p></div><div class="row-extra"><div class="fields" role="group" aria-labelledby="environment-dotfiles-title" aria-describedby="environment-dotfiles-desc">${entries
@@ -425,7 +500,13 @@ export interface McpRow {
   readonly status: string;
   readonly listedAt: number | null;
   readonly error: string | null;
-  readonly tools: ReadonlyArray<{ readonly name: string; readonly upstream: string; readonly class: string; readonly hinted: string; readonly exposure: string }>;
+  readonly tools: ReadonlyArray<{
+    readonly name: string;
+    readonly upstream: string;
+    readonly class: string;
+    readonly hinted: string;
+    readonly exposure: string;
+  }>;
   /** The owner's overrides, by upstream name. */
   readonly overrides?: Readonly<Record<string, string>>;
   /** The owner's per-tool Exposure, by upstream name; a tool without one follows its server's. */
@@ -433,7 +514,11 @@ export interface McpRow {
   readonly refused: ReadonlyArray<{ readonly tool: string; readonly reason: string }>;
 }
 
-const action = (label: string, change: unknown, options: { readonly className?: string; readonly ariaLabel?: string; readonly icon?: IconName } = {}) =>
+const action = (
+  label: string,
+  change: unknown,
+  options: { readonly className?: string; readonly ariaLabel?: string; readonly icon?: IconName } = {},
+) =>
   `<button type="button" class="btn ${options.className ?? "btn-sm"}" data-mcp="${escapeHtml(JSON.stringify(change))}"${
     options.ariaLabel === undefined ? "" : ` aria-label="${escapeHtml(options.ariaLabel)}"`
   }>${options.icon === undefined ? "" : icon(options.icon)}${escapeHtml(label)}</button>`;
@@ -451,14 +536,20 @@ const exposureSelect = (row: McpRow, current: string, tool?: string): string => 
   ];
   const label = tool === undefined ? `${row.name} exposure` : `${tool} exposure`;
   return `<select class="sel-sm" data-mcp-exposure="${escapeHtml(row.name)}"${tool === undefined ? "" : ` data-tool="${escapeHtml(tool)}"`} aria-label="${escapeHtml(label)}">${options
-    .map(([value, text]) => `<option value="${escapeHtml(value)}"${value === current ? " selected" : ""}>${escapeHtml(text)}</option>`)
+    .map(
+      ([value, text]) =>
+        `<option value="${escapeHtml(value)}"${value === current ? " selected" : ""}>${escapeHtml(text)}</option>`,
+    )
     .join("")}</select>`;
 };
 
 /** The server's state as one pill: off, listed, failing, or not listed yet. */
 const statusPill = (row: McpRow): string => {
   if (!row.setting.enabled) return '<span class="pill">Disabled</span>';
-  if (row.setting.kind === "settings") return row.setting.writes === false ? '<span class="pill pill-ok">Read-only</span>' : '<span class="pill pill-ok">Read-write</span>';
+  if (row.setting.kind === "settings")
+    return row.setting.writes === false
+      ? '<span class="pill pill-ok">Read-only</span>'
+      : '<span class="pill pill-ok">Read-write</span>';
   if (row.status === "ok") return '<span class="pill pill-ok">Connected</span>';
   if (row.status === "failed") return '<span class="pill pill-err">Error</span>';
   if (row.status === "never") return '<span class="pill">Not listed yet</span>';
@@ -469,7 +560,10 @@ const signIn = (row: McpRow): string | undefined => {
   const auth = row.setting.auth;
   if (auth === undefined) return undefined;
   if (auth.kind === "none") return "None";
-  if (auth.kind === "oauth") return row.oauth?.signedIn === true ? '<span class="pill pill-ok">OAuth, signed in</span>' : '<span class="pill pill-warn">OAuth, signed out</span>';
+  if (auth.kind === "oauth")
+    return row.oauth?.signedIn === true
+      ? '<span class="pill pill-ok">OAuth, signed in</span>'
+      : '<span class="pill pill-warn">OAuth, signed out</span>';
   if (auth.kind === "header") {
     const name = `<code>${escapeHtml(auth.header ?? "header")}</code>`;
     if (row.secret === undefined) return `Header ${name}`;
@@ -482,7 +576,12 @@ const signIn = (row: McpRow): string | undefined => {
 
 const toolsTable = (row: McpRow): string => {
   if (row.tools.length === 0) {
-    const why = row.status === "never" ? "Not listed yet: Test lists its tools." : row.status === "failed" ? "No tools: the last listing failed." : "This server offers no tools.";
+    const why =
+      row.status === "never"
+        ? "Not listed yet: Test lists its tools."
+        : row.status === "failed"
+          ? "No tools: the last listing failed."
+          : "This server offers no tools.";
     return `<p class="empty-tools">${why}</p>`;
   }
   const reads = row.tools.filter((tool) => tool.class === "read").length;
@@ -496,7 +595,9 @@ const toolsTable = (row: McpRow): string => {
         row.setting.kind === "settings"
           ? ""
           : `${action(`Mark ${other}`, { op: "class", server: row.name, tool: tool.upstream, class: other }, { ariaLabel: `Mark ${tool.upstream} as ${other}` })}${
-              overridden ? ` ${action("Use its hint", { op: "class", server: row.name, tool: tool.upstream, class: null }, { className: "btn-sm btn-ghost", ariaLabel: `Use ${tool.upstream}'s own hint` })}` : ""
+              overridden
+                ? ` ${action("Use its hint", { op: "class", server: row.name, tool: tool.upstream, class: null }, { className: "btn-sm btn-ghost", ariaLabel: `Use ${tool.upstream}'s own hint` })}`
+                : ""
             }`;
       return `<tr><td class="tool" data-label="Tool"><code>${escapeHtml(tool.upstream)}</code></td><td class="cls" data-label="Class"><div><span class="tag tag-${tool.class === "read" ? "read" : "write"}">${escapeHtml(tool.class)}</span><span class="src">${row.setting.kind === "settings" ? "Fixed" : source}</span></div></td><td class="exp" data-label="Exposure"><div>${exposureSelect(row, ownEntry(row.toolExposure, tool.upstream) ?? "", tool.upstream)}</div></td><td class="actions" data-label="Change"><div>${change}</div></td></tr>`;
     })
@@ -538,13 +639,17 @@ export interface OwnerClientsView {
 
 /** What each Elicitation mode means for the owner (plan D12), beside the mode select. */
 const MODE_MEANINGS: Readonly<Record<OwnerMode, string>> = {
-  browser: "the client sends you to the Change page (a link it opens, or one in its answer); you approve there. Works with every client.",
-  native: "the client shows its own Accept / Decline form, and Accept applies the change. A client that declares no form gets the page instead.",
-  model: "the client's agent gets a requestId, asks you in the chat and answers with resume. Only for a client whose agent you trust to relay your answer.",
+  browser:
+    "the client sends you to the Change page (a link it opens, or one in its answer); you approve there. Works with every client.",
+  native:
+    "the client shows its own Accept / Decline form, and Accept applies the change. A client that declares no form gets the page instead.",
+  model:
+    "the client's agent gets a requestId, asks you in the chat and answers with resume. Only for a client whose agent you trust to relay your answer.",
 };
 
 /** Who a client's key names: you, the stage's service token, or another Access identity. */
-const keyText = (key: string, viewer: string): string => (key === "service-token" ? "the service token" : key === viewer ? "you" : `Access identity ${key}`);
+const keyText = (key: string, viewer: string): string =>
+  key === "service-token" ? "the service token" : key === viewer ? "you" : `Access identity ${key}`;
 
 /**
  * The Owner clients on the Settings server's card: how to add one (the plain endpoint URL), and each client seen, with
@@ -558,7 +663,8 @@ const ownerClientsBlock = (view: OwnerClientsView): string => {
   const meanings = `<ul class="desc">${OWNER_MODES.map((mode) => `<li><strong>${mode}</strong>: ${escapeHtml(MODE_MEANINGS[mode])}</li>`).join("")}</ul>
 <p class="desc">A mode applies from the client's next request; a change it already asked keeps the mode it was asked in. The client must reconnect after a change to or from <strong>model</strong>: it learns of <code>resume</code> once, when it connects. A change that needs a secret, a sign-in or a skills install is approved on its page in every mode. <code>?elicitation_mode=</code> on the URL still overrides this, for clients that keep a query.</p>`;
   // No endpoint and no client kept: nothing to add and nothing to explain, so the "not deployed" line alone.
-  if (view.endpoint === undefined && view.clients.length === 0) return `<details class="tools" open data-owner-clients><summary>${icon("chevron")}Owner clients <span>${plural(0, "client", "clients")}</span></summary>\n${add}</details>`;
+  if (view.endpoint === undefined && view.clients.length === 0)
+    return `<details class="tools" open data-owner-clients><summary>${icon("chevron")}Owner clients <span>${plural(0, "client", "clients")}</span></summary>\n${add}</details>`;
   const rows = view.clients
     .map((client) => {
       const attrs = `data-client-key="${escapeHtml(client.key)}" data-client-name="${escapeHtml(client.clientName)}"`;
@@ -600,7 +706,13 @@ const serverCard = (row: McpRow, owner?: OwnerClientsView): string => {
       ? `<button type="button" class="btn btn-sm${row.oauth?.signedIn === true ? "" : " btn-primary"}" data-mcp-oauth="${name}">${icon("login")}${row.oauth?.signedIn === true ? "Sign in again" : "Sign in"}</button>`
       : "";
   const remove =
-    row.setting.kind === "settings" ? "" : action("Remove", { op: "remove", server: row.name }, { className: "btn-sm btn-danger", ariaLabel: `Remove ${row.name}`, icon: "trash" });
+    row.setting.kind === "settings"
+      ? ""
+      : action(
+          "Remove",
+          { op: "remove", server: row.name },
+          { className: "btn-sm btn-danger", ariaLabel: `Remove ${row.name}`, icon: "trash" },
+        );
   return `<article class="group server" aria-labelledby="${id}">
 <div class="server-head"><div><div class="server-name"><h3 id="${id}">${name}</h3>${kindTag(row.setting.kind)}${statusPill(row)}</div>${
     row.setting.url === undefined ? "" : `<p class="server-url">${escapeHtml(row.setting.url)}</p>`
@@ -637,7 +749,11 @@ const ADD_SERVER = `<form class="group add" id="add-server" data-mcp-add autocom
 <div class="form-foot"><p>${icon("key")}Secrets go to the Environment's secret store.</p><button type="submit" class="btn btn-primary">${icon("plus")}Add server</button></div>
 </form>`;
 
-const mcpSection = (rows: ReadonlyArray<McpRow>, t3: string, owner?: OwnerClientsView): string => `<section id="mcp" aria-labelledby="mcp-title">
+const mcpSection = (
+  rows: ReadonlyArray<McpRow>,
+  t3: string,
+  owner?: OwnerClientsView,
+): string => `<section id="mcp" aria-labelledby="mcp-title">
 <div class="section-head"><h2 id="mcp-title">${icon("server")}MCP servers</h2><a class="btn btn-sm" href="#add-server">${icon("plus")}Add server</a></div>
 <p class="section-desc">Servers whose tools agents get, read at each call. Test lists a server's tools now.</p>
 <div class="stack">${t3}
@@ -665,10 +781,17 @@ export interface SkillsView {
     readonly files: number;
     readonly bytes: number;
   }>;
-  readonly totals: { readonly count: number; readonly enabled: number; readonly disabled: number; readonly bytes: number; readonly disabledBytes: number; readonly maxBytes: number; readonly maxSkills: number };
+  readonly totals: {
+    readonly count: number;
+    readonly enabled: number;
+    readonly disabled: number;
+    readonly bytes: number;
+    readonly disabledBytes: number;
+    readonly maxBytes: number;
+    readonly maxSkills: number;
+  };
   readonly unauthenticated: boolean;
 }
-
 
 /** One kept skill: its source at its commit, its switch, and its actions; the script fills its output area. */
 const skillRow = (skill: SkillsView["skills"][number]): string => {
@@ -711,7 +834,8 @@ ${view.unauthenticated ? `<div class="callout callout-warn" role="note">${icon("
 /** A status value; an ISO time reads as a time. */
 const statusValue = (value: string | number | null): string => {
   if (value === null) return "—";
-  if (typeof value === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z$/.test(value)) return time(Date.parse(value));
+  if (typeof value === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z$/.test(value))
+    return time(Date.parse(value));
   return escapeHtml(String(value));
 };
 
@@ -720,15 +844,20 @@ const BLOCK_STATUS_KEYS: ReadonlySet<string> = new Set([CONTAINER_SETUP_OUTPUT_S
 
 /** A block row: a region named by its label, opening at the end of its text (column-reverse around one span). */
 const blockRow = (key: string, value: string): string => {
-  const id = `status-${key.replace(/^last /, "").replace(/[^A-Za-z0-9]+/g, "-").toLowerCase()}`;
+  const id = `status-${key
+    .replace(/^last /, "")
+    .replace(/[^A-Za-z0-9]+/g, "-")
+    .toLowerCase()}`;
   return `<div class="kv-block"><dt id="${id}">${escapeHtml(key)}</dt><dd><pre class="status-output" tabindex="0" role="region" aria-labelledby="${id}"><span>${escapeHtml(value === "" ? "(no output)" : value)}</span></pre></dd></div>`;
 };
 
 /** A Builder's line, escaped, its ISO times shown as the rest of the page shows a time. */
-const timedLine = (text: string): string => escapeHtml(text).replace(new RegExp(ISO_TIME_SOURCE, "g"), (iso) => time(Date.parse(iso)));
+const timedLine = (text: string): string =>
+  escapeHtml(text).replace(new RegExp(ISO_TIME_SOURCE, "g"), (iso) => time(Date.parse(iso)));
 
 /** What a failed build's kept output is, in a few words. */
-const outputSummary = (output: string): string => (output === "" ? "none" : `the last ${sizeText(new TextEncoder().encode(output).length)}, secret values blanked`);
+const outputSummary = (output: string): string =>
+  output === "" ? "none" : `the last ${sizeText(new TextEncoder().encode(output).length)}, secret values blanked`;
 
 /**
  * A Test base build's result as the page shows it (SPI-1334): its pill, its line and a failure's output. The page renders
@@ -749,9 +878,22 @@ export interface TestBuildView {
 export const testBuildView = (record: BaseBuildRecord | undefined): TestBuildView => {
   const state = record?.state ?? "none";
   const pill: TestBuildView["pill"] =
-    state === "building" ? { label: "Testing", tone: "warn" } : state === "ready" ? { label: "Passed", tone: "ok" } : state === "failed" ? { label: "Failed", tone: "err" } : { label: "None", tone: "" };
+    state === "building"
+      ? { label: "Testing", tone: "warn" }
+      : state === "ready"
+        ? { label: "Passed", tone: "ok" }
+        : state === "failed"
+          ? { label: "Failed", tone: "err" }
+          : { label: "None", tone: "" };
   const output = record?.failure === undefined ? null : record.failure.output;
-  return { state, pill, line: record === undefined ? "no test yet" : describeTestBaseBuild(record), output, outputSummary: outputSummary(output ?? ""), setup: record?.setup ?? null };
+  return {
+    state,
+    pill,
+    line: record === undefined ? "no test yet" : describeTestBaseBuild(record),
+    output,
+    outputSummary: outputSummary(output ?? ""),
+    setup: record?.setup ?? null,
+  };
 };
 
 interface TestBlockInput {
@@ -768,7 +910,9 @@ const testBuildBlock = (input: TestBlockInput): string => {
   if (!input.canTest && input.record === undefined) return "";
   const view = testBuildView(input.record);
   const output = view.output ?? "";
-  const button = input.canTest ? `<button type="button" class="btn btn-sm" data-base-test aria-describedby="base-test-hint">${icon("play")}Test</button>` : "";
+  const button = input.canTest
+    ? `<button type="button" class="btn btn-sm" data-base-test aria-describedby="base-test-hint">${icon("play")}Test</button>`
+    : "";
   return `<div class="test-build" data-base-test-block data-test-state="${view.state}"${view.setup === null ? "" : ` data-test-setup="${view.setup}"`} role="group" aria-labelledby="base-test-title"><div class="test-build-head"><div><div class="row-title"><h4 id="base-test-title">Test base build</h4><span class="pill${view.pill.tone === "" ? "" : ` pill-${view.pill.tone}`}" data-test-pill>${escapeHtml(view.pill.label)}</span></div><p class="desc" data-test-status>${timedLine(view.line)}</p><p class="desc test-build-stale" data-test-stale hidden>This result is for an earlier text of the Image setup; Test again to check the text above.</p><p class="desc test-build-hint" id="base-test-hint">Test runs the Image setup above, unsaved, in a Builder of its own with the saved Global mise config, Variables and limits; its snapshot is never used. A new test cancels one under way.</p><p class="desc" data-base-test-result role="status" aria-live="polite"></p><button type="button" class="btn btn-sm test-build-follow" data-test-follow hidden>Follow again</button></div>${button}</div><details class="tools" data-test-output${view.output === null ? " hidden" : ""}${view.state === "failed" ? " open" : ""}><summary>${icon("chevron")}Output<span data-test-output-summary>${escapeHtml(view.outputSummary)}</span></summary><pre class="text" tabindex="0" role="region" aria-label="The Test base build's output" data-test-output-text${output === "" ? " hidden" : ""}>${escapeHtml(output)}</pre></details></div>`;
 };
 
@@ -776,7 +920,10 @@ const testBuildBlock = (input: TestBlockInput): string => {
 const basePill = (record: BaseBuildRecord | undefined): string => {
   if (record === undefined || record.state === "none") return '<span class="pill">None</span>';
   if (record.state === "building") return '<span class="pill pill-warn">Building</span>';
-  if (record.state === "ready") return record.failure === undefined ? '<span class="pill pill-ok">Ready</span>' : '<span class="pill pill-warn">Ready, rebuild failed</span>';
+  if (record.state === "ready")
+    return record.failure === undefined
+      ? '<span class="pill pill-ok">Ready</span>'
+      : '<span class="pill pill-warn">Ready, rebuild failed</span>';
   return '<span class="pill pill-err">Failed</span>';
 };
 
@@ -797,17 +944,29 @@ const baseBuildBlock = (record: BaseBuildRecord | undefined, canRebuild: boolean
       ? `<button type="button" class="btn btn-sm" data-base-rebuild aria-describedby="base-rebuild-hint"${record?.state === "building" ? " disabled" : ""}>${icon("play")}Rebuild</button>`
       : "";
   // A failed build's fix is the script: a way to it (the Image setup's field, in the Environment section).
-  const edit = record?.failure === undefined ? "" : `<p class="desc"><a href="#environment-imageSetup" data-jump>Edit the Image setup</a>; saving it builds again.</p>`;
-  const hint = button === "" ? "" : `<p class="desc" id="base-rebuild-hint">${record?.state === "building" ? "A build is under way; Rebuild waits for it to end." : "Rebuild builds the saved Environment settings again."}</p>`;
+  const edit =
+    record?.failure === undefined
+      ? ""
+      : `<p class="desc"><a href="#environment-imageSetup" data-jump>Edit the Image setup</a>; saving it builds again.</p>`;
+  const hint =
+    button === ""
+      ? ""
+      : `<p class="desc" id="base-rebuild-hint">${record?.state === "building" ? "A build is under way; Rebuild waits for it to end." : "Rebuild builds the saved Environment settings again."}</p>`;
   return `<div class="group" data-base-build><div class="row"><div><div class="row-title"><h3>Base snapshot</h3>${basePill(record)}</div><p class="desc" data-base-status>${line}</p>${edit}${hint}<p class="desc" data-base-result role="status" aria-live="polite"></p></div>${button}</div>${shown}</div>`;
 };
 
-const statusSection = (status: Readonly<Record<string, string | number | null>>, baseBuild: BaseBuildRecord | undefined, canRebuild: boolean): string => {
+const statusSection = (
+  status: Readonly<Record<string, string | number | null>>,
+  baseBuild: BaseBuildRecord | undefined,
+  canRebuild: boolean,
+): string => {
   const rows = Object.entries(status)
     // The Base snapshot has its own block above the list.
     .filter(([key]) => key !== "Base snapshot")
     .map(([key, value]) =>
-      BLOCK_STATUS_KEYS.has(key) && typeof value === "string" ? blockRow(key, value) : `<div><dt>${escapeHtml(key)}</dt><dd>${statusValue(value)}</dd></div>`,
+      BLOCK_STATUS_KEYS.has(key) && typeof value === "string"
+        ? blockRow(key, value)
+        : `<div><dt>${escapeHtml(key)}</dt><dd>${statusValue(value)}</dd></div>`,
     )
     .join("");
   return `<section id="status" aria-labelledby="status-title">
@@ -818,7 +977,13 @@ ${baseBuildBlock(baseBuild, canRebuild)}
 };
 
 /** Each entity's name in the audit log; one this page does not know shows as stored. */
-const ENTITY_LABELS: Readonly<Record<string, string>> = { harness: "Harness", environment: "Environment", endpoints: "Model endpoints", "owner-clients": "Owner clients", workspaces: "Workspaces" };
+const ENTITY_LABELS: Readonly<Record<string, string>> = {
+  harness: "Harness",
+  environment: "Environment",
+  endpoints: "Model endpoints",
+  "owner-clients": "Owner clients",
+  workspaces: "Workspaces",
+};
 
 const auditSection = (audit: ReadonlyArray<AuditEntry>): string => {
   const body =
@@ -903,7 +1068,8 @@ export interface PageInput {
   readonly workspaces?: WorkspacesSectionInput;
 }
 
-const navItem = (id: string, label: string, name: IconName, after = "") => `<a href="#${id}">${icon(name)}${label}${after}</a>`;
+const navItem = (id: string, label: string, name: IconName, after = "") =>
+  `<a href="#${id}">${icon(name)}${label}${after}</a>`;
 
 /** The whole page. */
 export const renderPage = (input: PageInput): string => {

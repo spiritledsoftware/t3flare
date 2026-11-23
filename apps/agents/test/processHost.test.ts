@@ -57,7 +57,15 @@ const fakeProcess = (options: { failWrites?: boolean } = {}) => {
   };
 };
 
-const harness = (options: { running?: boolean; refuse?: string; failWrites?: boolean; allowProbe?: boolean; beforeStart?: ProcessHostDeps["beforeStart"] } = {}) => {
+const harness = (
+  options: {
+    running?: boolean;
+    refuse?: string;
+    failWrites?: boolean;
+    allowProbe?: boolean;
+    beforeStart?: ProcessHostDeps["beforeStart"];
+  } = {},
+) => {
   let now = 1_000_000;
   let running = options.running ?? true;
   let ack = 0;
@@ -131,14 +139,24 @@ describe("ProcessHost", () => {
     expect(answer).toEqual({ ok: true, epoch: 7 });
     // The shell and setsid by absolute path: a project's mise shim of either name would get the model handle (SPI-1209).
     expect(h.spawned[0]!.argv.slice(0, 2)).toEqual(["/usr/bin/bash", "-c"]);
-    expect(h.spawned[0]!.argv[2]).toContain("exec -a setsid /usr/bin/setsid --wait '/opt/t3flare/bin/codex' 'app-server'");
-    expect(h.spawned[0]!.env).toMatchObject({ T3FLARE_EXEC: "proc-a", CODEX_HOME: "/var/lib/t3flare/cli/x/codex", PATH: "/usr/bin" });
+    expect(h.spawned[0]!.argv[2]).toContain(
+      "exec -a setsid /usr/bin/setsid --wait '/opt/t3flare/bin/codex' 'app-server'",
+    );
+    expect(h.spawned[0]!.env).toMatchObject({
+      T3FLARE_EXEC: "proc-a",
+      CODEX_HOME: "/var/lib/t3flare/cli/x/codex",
+      PATH: "/usr/bin",
+    });
     expect(h.remembered()).toEqual([{ key: "proc-a", environmentEpoch: 3, thread: "thread-1" }]);
   });
 
   it("fails the start with the budget's reason", async () => {
     const h = harness({ running: false, refuse: "the Container cannot start: 3 Containers are running" });
-    expect(await h.host.start(start("proc-a"))).toEqual({ ok: false, epoch: 7, reason: "the Container cannot start: 3 Containers are running" });
+    expect(await h.host.start(start("proc-a"))).toEqual({
+      ok: false,
+      epoch: 7,
+      reason: "the Container cannot start: 3 Containers are running",
+    });
     expect(h.spawned).toHaveLength(0);
   });
 
@@ -166,7 +184,8 @@ describe("ProcessHost", () => {
 
   it("runs as many as a higher carried count allows, past the default 4 (SPI-1318)", async () => {
     const h = harness();
-    for (const key of ["a", "b", "c", "d", "e", "f"]) expect((await h.host.start(start(`proc-${key}`, { cliProcessesPerWorkspace: 6 }))).ok).toBe(true);
+    for (const key of ["a", "b", "c", "d", "e", "f"])
+      expect((await h.host.start(start(`proc-${key}`, { cliProcessesPerWorkspace: 6 }))).ok).toBe(true);
     expect((await h.host.start(start("proc-g", { cliProcessesPerWorkspace: 6 }))).ok).toBe(false);
     expect(h.spawned).toHaveLength(6);
   });
@@ -183,9 +202,11 @@ describe("ProcessHost", () => {
   it("holds a slot for a start in flight: two concurrent starts at one below the count cannot both pass (SPI-1318)", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));
-    const h = harness({ beforeStart: async () => {
+    const h = harness({
+      beforeStart: async () => {
         await gate;
-      } });
+      },
+    });
     const first = h.host.start(start("proc-a", { cliProcessesPerWorkspace: 1 }));
     const second = h.host.start(start("proc-b", { cliProcessesPerWorkspace: 1 }));
     release();
@@ -251,7 +272,9 @@ describe("ProcessHost", () => {
     expect(textOf(h.frames, "proc-a", "stdout")).toBe('{"id":1,"€"}\n');
     expect(textOf(h.frames, "proc-a", "stderr")).toBe("warn\n");
     expect(h.frames.at(-1)).toMatchObject({ key: "proc-a", stream: "exit", code: 0 });
-    expect(h.frames.filter((frame) => frame.data !== undefined).every((frame) => frame.data instanceof Uint8Array)).toBe(true);
+    expect(
+      h.frames.filter((frame) => frame.data !== undefined).every((frame) => frame.data instanceof Uint8Array),
+    ).toBe(true);
   });
 
   it("writes input in seq order: a duplicate is acknowledged, a gap kills, null closes stdin", async () => {
@@ -417,7 +440,11 @@ describe("ProcessHost", () => {
   it("refuses the probe program unless the stage allows it", async () => {
     const probe = start("proc-a", { cli: "probe", argv: ["/opt/t3flare/bin/probe"] });
     const refused = harness({ allowProbe: false });
-    expect(await refused.host.start(probe)).toEqual({ ok: false, epoch: 7, reason: "the probe program runs on test stages only" });
+    expect(await refused.host.start(probe)).toEqual({
+      ok: false,
+      epoch: 7,
+      reason: "the probe program runs on test stages only",
+    });
     expect(refused.spawned).toHaveLength(0);
     const allowed = harness({ allowProbe: true });
     expect((await allowed.host.start(probe)).ok).toBe(true);
@@ -460,7 +487,12 @@ describe("model handles (SPI-1167)", () => {
     const handle = handleIn(h);
     expect(handle).toMatch(/^[0-9a-f]{64}$/);
     expect(h.spawned[0]!.argv.join(" ")).not.toContain(handle!);
-    expect(h.host.modelCaller(handle!)).toEqual({ key: "proc-a", cli: "codex", thread: "thread-1", endpoints: new Set(["openai"]) });
+    expect(h.host.modelCaller(handle!)).toEqual({
+      key: "proc-a",
+      cli: "codex",
+      thread: "thread-1",
+      endpoints: new Set(["openai"]),
+    });
     h.procs[0]!.exit(0);
     await tick();
     expect(h.host.modelCaller(handle!)).toBeNull();

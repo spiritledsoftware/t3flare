@@ -32,8 +32,13 @@ export class QuestionStore extends WaitingRequests<PendingQuestion, { readonly t
 /** An answer as t3 hands it to a provider (a string, a list of choices, or `{ answers }`), as text. */
 export const answerText = (value: unknown): string | undefined => {
   if (typeof value === "string") return value;
-  if (Array.isArray(value)) return value.map((item) => answerText(item) ?? "").filter((item) => item !== "").join(", ");
-  if (typeof value === "object" && value !== null && "answers" in value) return answerText((value as { answers: unknown }).answers);
+  if (Array.isArray(value))
+    return value
+      .map((item) => answerText(item) ?? "")
+      .filter((item) => item !== "")
+      .join(", ");
+  if (typeof value === "object" && value !== null && "answers" in value)
+    return answerText((value as { answers: unknown }).answers);
   return undefined;
 };
 
@@ -62,7 +67,10 @@ export const askUser = (host: AskUserHost): Extension =>
         replay: "safe",
         async execute(args, api: ToolExecutionApi, context: Context) {
           const requestId = String(api.taskId);
-          const options = (args.options ?? []).slice(0, MAX_OPTIONS).map((option) => option.slice(0, MAX_OPTION)).filter((option) => option.trim() !== "");
+          const options = (args.options ?? [])
+            .slice(0, MAX_OPTIONS)
+            .map((option) => option.slice(0, MAX_OPTION))
+            .filter((option) => option.trim() !== "");
           try {
             const answer = await host.store.ask(
               {
@@ -74,7 +82,12 @@ export const askUser = (host: AskUserHost): Extension =>
                 allowFreeText: args.allowFreeText ?? true,
                 createdAt: Date.now(),
               },
-              () => api.progressed(context).catch((error: unknown) => console.warn(JSON.stringify({ t3flare: "progressed-failed", error: String(error) }))),
+              () =>
+                api
+                  .progressed(context)
+                  .catch((error: unknown) =>
+                    console.warn(JSON.stringify({ t3flare: "progressed-failed", error: String(error) })),
+                  ),
               context,
             );
             return { output: [{ type: "text" as const, text: `The owner answered: ${answer.text}` }] };

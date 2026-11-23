@@ -79,13 +79,7 @@ export const PRIORITY_PREFIXES: ReadonlyArray<string> = [
 ];
 
 /** Directory names a container's nested Skill is not looked for in. */
-const SKIP_DIRS: ReadonlySet<string> = new Set([
-  "node_modules",
-  ".git",
-  "dist",
-  "build",
-  "__pycache__",
-]);
+const SKIP_DIRS: ReadonlySet<string> = new Set(["node_modules", ".git", "dist", "build", "__pycache__"]);
 
 /** The deepest path (in segments) of a `SKILL.md` that is taken when no priority directory holds one. */
 const MAX_FALLBACK_SEGMENTS = 6;
@@ -104,13 +98,10 @@ export const findSkillMdPaths = (
     .filter((entry) => entry.type === "blob" && entry.path.toLowerCase().endsWith("skill.md"))
     .map((entry) => entry.path);
 
-  const prefix =
-    subpath === undefined || subpath === "" ? "" : subpath.endsWith("/") ? subpath : `${subpath}/`;
+  const prefix = subpath === undefined || subpath === "" ? "" : subpath.endsWith("/") ? subpath : `${subpath}/`;
 
   const filtered =
-    prefix === ""
-      ? allSkillMds
-      : allSkillMds.filter((path) => path.startsWith(prefix) || path === `${prefix}SKILL.md`);
+    prefix === "" ? allSkillMds : allSkillMds.filter((path) => path.startsWith(prefix) || path === `${prefix}SKILL.md`);
 
   if (filtered.length === 0) return [];
 
@@ -234,9 +225,7 @@ export const skillMdIn = (
   const prefix = folder === "" ? "" : `${folder}/`;
   const wanted = `${prefix}skill.md`;
 
-  const found = tree.tree.filter(
-    (entry) => entry.type === "blob" && entry.path.toLowerCase() === wanted,
-  );
+  const found = tree.tree.filter((entry) => entry.type === "blob" && entry.path.toLowerCase() === wanted);
 
   return (found.find((entry) => entry.path === `${prefix}SKILL.md`) ?? found[0])?.path;
 };
@@ -264,7 +253,10 @@ export const folderHashOf = async (
  * `skillMdPath`, by their path in the folder (SPI-1148: such a Skill is refused, since its copy would not be what the
  * repo means). Nothing for a Skill at the repo's root, which takes its `SKILL.md` alone.
  */
-export const linksIn = (tree: { readonly tree: ReadonlyArray<TreeEntry> }, skillMdPath: string): ReadonlyArray<string> => {
+export const linksIn = (
+  tree: { readonly tree: ReadonlyArray<TreeEntry> },
+  skillMdPath: string,
+): ReadonlyArray<string> => {
   const folder = skillFolderOf(skillMdPath);
   if (folder === "") return [];
   const prefix = `${folder}/`;

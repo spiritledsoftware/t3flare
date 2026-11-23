@@ -2,7 +2,15 @@
 // and the owner's changes (preview, install, check, update, remove, enable). `panel.ts` routes here after its guards
 // (Access, JSON, Origin, `Sec-Fetch-Site`, CSRF), so these answer only well-formed requests. A GitHub failure is a 502
 // whose text is the failure's whole message; a request that runs out of time keeps nothing.
-import { checkSkills, fetchSkills, type KeptForCheck, type Preview, previewSkills, type RepoReader, type SkillRepo } from "./fetch.ts";
+import {
+  checkSkills,
+  fetchSkills,
+  type KeptForCheck,
+  type Preview,
+  previewSkills,
+  type RepoReader,
+  type SkillRepo,
+} from "./fetch.ts";
 import { MAX_ENVIRONMENT_SKILLS, MAX_SET_BYTES } from "./checks.ts";
 import { parseSkillSource } from "./source.ts";
 import type { ReadAccess } from "./contents.ts";
@@ -21,7 +29,10 @@ export const OTHER_FILES_NOTE = "Other files are checked when the skill is insta
 export interface SkillsApiDeps {
   readonly store: SkillStore;
   /** A reader of `repo` with the Environment's credential (`readAccessFor`), ending at `deadline`. */
-  readonly reader: (repo: SkillRepo, deadline: number) => Promise<{ readonly reader: RepoReader; readonly how: ReadAccess["how"] }>;
+  readonly reader: (
+    repo: SkillRepo,
+    deadline: number,
+  ) => Promise<{ readonly reader: RepoReader; readonly how: ReadAccess["how"] }>;
   /** No installed repo is known: reads would be unauthenticated (shown on the page without minting, plan A9). */
   readonly unauthenticated: () => boolean;
   /** Who asked, as the audit log keeps it: a caller name, or every actor field (plan D15). */
@@ -34,7 +45,9 @@ export interface SkillsApiDeps {
   readonly expectedRevision?: number;
 }
 
-export type SkillsAnswer = { readonly status: number; readonly json: unknown } | { readonly status: number; readonly text: string };
+export type SkillsAnswer =
+  | { readonly status: number; readonly json: unknown }
+  | { readonly status: number; readonly text: string };
 
 const ok = (json: unknown): SkillsAnswer => ({ status: 200, json });
 const refuse = (status: number, text: string): SkillsAnswer => ({ status, text });
@@ -42,7 +55,8 @@ const refuse = (status: number, text: string): SkillsAnswer => ({ status, text }
 const short = (commit: string) => commit.slice(0, 7);
 
 /** A store answer refused for a moved revision, as a 409 with the store's words. */
-const movedAnswer = (answer: ChangeAnswer): SkillsAnswer | undefined => (!answer.ok && answer.moved !== undefined ? refuse(409, answer.error) : undefined);
+const movedAnswer = (answer: ChangeAnswer): SkillsAnswer | undefined =>
+  !answer.ok && answer.moved !== undefined ? refuse(409, answer.error) : undefined;
 
 /** A kept skill's GitHub URL for one of its files at its commit. */
 export const fileUrl = (row: Pick<EnvironmentSkillRow, "repo" | "path" | "commit">, file: string): string =>
@@ -56,7 +70,15 @@ export const skillsOverview = (deps: Pick<SkillsApiDeps, "store" | "unauthentica
   const disabledBytes = skills.filter((skill) => !skill.enabled).reduce((sum, skill) => sum + skill.bytes, 0);
   return {
     skills,
-    totals: { count: skills.length, enabled: enabled.length, disabled: skills.length - enabled.length, bytes, disabledBytes, maxBytes: MAX_SET_BYTES, maxSkills: MAX_ENVIRONMENT_SKILLS },
+    totals: {
+      count: skills.length,
+      enabled: enabled.length,
+      disabled: skills.length - enabled.length,
+      bytes,
+      disabledBytes,
+      maxBytes: MAX_SET_BYTES,
+      maxSkills: MAX_ENVIRONMENT_SKILLS,
+    },
     hash: deps.store.hash(),
     unauthenticated: deps.unauthenticated(),
     refusals: deps.store.refusals(),
@@ -74,7 +96,8 @@ export const viewSkill = (deps: Pick<SkillsApiDeps, "store">, name: string): Ski
   });
 };
 
-const stringField = (body: Record<string, unknown>, key: string): string | undefined => (typeof body[key] === "string" ? body[key] : undefined);
+const stringField = (body: Record<string, unknown>, key: string): string | undefined =>
+  typeof body[key] === "string" ? body[key] : undefined;
 
 /** `POST …/skills/preview` `{ source }`: the candidates at the resolved commit, each with what it would replace. */
 const preview = async (deps: SkillsApiDeps, body: Record<string, unknown>): Promise<SkillsAnswer> => {
@@ -90,10 +113,19 @@ const preview = async (deps: SkillsApiDeps, body: Record<string, unknown>): Prom
     note: OTHER_FILES_NOTE,
     skills: found.skills.map((skill) => {
       const kept = deps.store.get(skill.name);
-      const same = kept !== undefined && kept.repo === source.repo && kept.path === skill.path && kept.ref === source.ref && kept.digest === skill.digest;
+      const same =
+        kept !== undefined &&
+        kept.repo === source.repo &&
+        kept.path === skill.path &&
+        kept.ref === source.ref &&
+        kept.digest === skill.digest;
       return {
         ...skill,
-        ...(kept === undefined ? {} : same ? { unchanged: true } : { replaces: { repo: kept.repo, path: kept.path, ref: kept.ref, commit: short(kept.commit) } }),
+        ...(kept === undefined
+          ? {}
+          : same
+            ? { unchanged: true }
+            : { replaces: { repo: kept.repo, path: kept.path, ref: kept.ref, commit: short(kept.commit) } }),
       };
     }),
   });
@@ -104,12 +136,18 @@ const preview = async (deps: SkillsApiDeps, body: Record<string, unknown>): Prom
  * apply: the Settings server keeps each skill's digest from its preview), names each folder's digest; a fetched skill
  * whose folder has another digest refuses the whole change. The panel sends none: its own preview is its confirmation.
  */
-const digestProblem = (digests: unknown, skills: ReadonlyArray<{ readonly name: string; readonly path: string; readonly digest: string }>): string | undefined => {
+const digestProblem = (
+  digests: unknown,
+  skills: ReadonlyArray<{ readonly name: string; readonly path: string; readonly digest: string }>,
+): string | undefined => {
   if (digests === undefined) return undefined;
-  if (digests === null || typeof digests !== "object" || Array.isArray(digests)) return "digests is an object of folders and digests";
+  if (digests === null || typeof digests !== "object" || Array.isArray(digests))
+    return "digests is an object of folders and digests";
   const shown = digests as Readonly<Record<string, unknown>>;
   const differs = skills.filter((skill) => shown[skill.path] !== skill.digest).map((skill) => skill.name);
-  return differs.length === 0 ? undefined : `Not installed: ${differs.join(", ")} at this commit differ from what the owner was shown; nothing was kept.`;
+  return differs.length === 0
+    ? undefined
+    : `Not installed: ${differs.join(", ")} at this commit differ from what the owner was shown; nothing was kept.`;
 };
 
 /**
@@ -127,7 +165,8 @@ export const previewAtCommit = async (
   const { reader } = await deps.reader({ owner: source.owner, name: source.name }, deps.now() + REQUEST_BUDGET_MS);
   const found = await previewSkills(reader, source, { detail: true });
   if (found.status === "failed") return { ok: false, error: found.message };
-  const skills = input.folders === undefined ? found.skills : found.skills.filter((skill) => input.folders!.includes(skill.path));
+  const skills =
+    input.folders === undefined ? found.skills : found.skills.filter((skill) => input.folders!.includes(skill.path));
   return { ok: true, preview: { ...found, ref: parsed.source.ref, commit: input.commit, skills } };
 };
 
@@ -137,7 +176,9 @@ const install = async (deps: SkillsApiDeps, body: Record<string, unknown>): Prom
   if (!parsed.ok) return refuse(400, parsed.message);
   const commit = stringField(body, "commit") ?? "";
   if (!/^[0-9a-f]{40}$/.test(commit)) return refuse(400, "commit is the 40-hex commit the preview answered");
-  const folders = Array.isArray(body.folders) ? body.folders.filter((folder): folder is string => typeof folder === "string") : [];
+  const folders = Array.isArray(body.folders)
+    ? body.folders.filter((folder): folder is string => typeof folder === "string")
+    : [];
   if (folders.length === 0) return refuse(400, "folders names at least one skill's folder from the preview");
   const { source } = parsed;
   const { reader } = await deps.reader({ owner: source.owner, name: source.name }, deps.now() + REQUEST_BUDGET_MS);
@@ -146,19 +187,34 @@ const install = async (deps: SkillsApiDeps, body: Record<string, unknown>): Prom
   if (fetched.status === "failed") return refuse(fetched.kind === "too_many" ? 422 : 502, fetched.message);
   const changed = digestProblem(body.digests, fetched.skills);
   if (changed !== undefined) return refuse(422, changed);
-  const results: Array<{ readonly name: string; readonly path: string; readonly action?: string; readonly error?: string }> = [];
+  const results: Array<{
+    readonly name: string;
+    readonly path: string;
+    readonly action?: string;
+    readonly error?: string;
+  }> = [];
   let expected = deps.expectedRevision;
   for (const skill of fetched.skills) {
-    const answer = await deps.store.apply({ kind: "install", skill, source: { repo: source.repo, path: skill.path, ref: source.ref, commit } }, deps.caller, deps.now(), expected);
+    const answer = await deps.store.apply(
+      { kind: "install", skill, source: { repo: source.repo, path: skill.path, ref: source.ref, commit } },
+      deps.caller,
+      deps.now(),
+      expected,
+    );
     // Moved before anything was kept: the whole install is refused, as any other write is.
     if (results.length === 0) {
       const moved = movedAnswer(answer);
       if (moved !== undefined) return moved;
     }
     if (answer.ok && expected !== undefined) expected = answer.revision;
-    results.push(answer.ok ? { name: skill.name, path: skill.path, action: answer.action } : { name: skill.name, path: skill.path, error: answer.error });
+    results.push(
+      answer.ok
+        ? { name: skill.name, path: skill.path, action: answer.action }
+        : { name: skill.name, path: skill.path, error: answer.error },
+    );
   }
-  for (const refused of fetched.refused) results.push({ name: refused.path.split("/").at(-1) || source.name, path: refused.path, error: refused.message });
+  for (const refused of fetched.refused)
+    results.push({ name: refused.path.split("/").at(-1) || source.name, path: refused.path, error: refused.message });
   return ok({ commit, results, hash: deps.store.hash() });
 };
 
@@ -172,7 +228,9 @@ const keptForCheck = (deps: SkillsApiDeps, row: EnvironmentSkillRow): KeptForChe
 
 /** `POST …/skills/check` `{ names? }`: grouped by repo and ref, one commit and one tree per group, no file read. */
 const check = async (deps: SkillsApiDeps, body: Record<string, unknown>): Promise<SkillsAnswer> => {
-  const names = Array.isArray(body.names) ? new Set(body.names.filter((name): name is string => typeof name === "string")) : undefined;
+  const names = Array.isArray(body.names)
+    ? new Set(body.names.filter((name): name is string => typeof name === "string"))
+    : undefined;
   const rows = deps.store.list().filter((row) => names === undefined || names.has(row.name));
   const groups = new Map<string, Array<EnvironmentSkillRow>>();
   for (const row of rows) {
@@ -188,20 +246,42 @@ const check = async (deps: SkillsApiDeps, body: Record<string, unknown>): Promis
     const [owner = "", name = ""] = group[0]!.repo.split("/");
     const { reader, how } = await deps.reader({ owner, name }, deadline);
     hows.add(how);
-    const checked = await checkSkills(reader, { repo: { owner, name }, ref: group[0]!.ref, kept: group.map((row) => keptForCheck(deps, row)) });
+    const checked = await checkSkills(reader, {
+      repo: { owner, name },
+      ref: group[0]!.ref,
+      kept: group.map((row) => keptForCheck(deps, row)),
+    });
     if (checked.status === "failed") {
       for (const row of group) results.push({ name: row.name, status: "failed", message: checked.message });
       continue;
     }
     for (const result of checked.results) {
       const row = group.find((each) => each.name === result.name)!;
-      results.push({ ...result, from: short(row.commit), ...(result.status === "update" ? { commit: checked.commit, to: short(checked.commit) } : {}) });
+      results.push({
+        ...result,
+        from: short(row.commit),
+        ...(result.status === "update" ? { commit: checked.commit, to: short(checked.commit) } : {}),
+      });
     }
   }
   const skipped = keys.slice(MAX_CHECK_GROUPS).flatMap((key) => groups.get(key)!.map((row) => row.name));
   // Said as the preview says it (plan §3.2): reads from GitHub's shared unauthenticated limit, when any were.
-  const how = hows.has("unauthenticated") ? "unauthenticated" : hows.has("installation") ? "installation" : hows.size === 0 ? undefined : "repo";
-  return ok({ results, ...(how === undefined ? {} : { how }), ...(skipped.length === 0 ? {} : { note: `Checked the first ${MAX_CHECK_GROUPS} repositories and refs; check again for ${skipped.join(", ")}.` }) });
+  const how = hows.has("unauthenticated")
+    ? "unauthenticated"
+    : hows.has("installation")
+      ? "installation"
+      : hows.size === 0
+        ? undefined
+        : "repo";
+  return ok({
+    results,
+    ...(how === undefined ? {} : { how }),
+    ...(skipped.length === 0
+      ? {}
+      : {
+          note: `Checked the first ${MAX_CHECK_GROUPS} repositories and refs; check again for ${skipped.join(", ")}.`,
+        }),
+  });
 };
 
 /** `POST …/skills/update` `{ name, commit }`: the kept skill's folder at that commit, under the same name. */
@@ -216,13 +296,26 @@ const update = async (deps: SkillsApiDeps, body: Record<string, unknown>): Promi
   const fetched = await fetchSkills(reader, { repo: { owner, name: repoName }, commit, folders: [row.path] });
   if (fetched.status === "failed") return refuse(502, fetched.message);
   const [skill] = fetched.skills;
-  if (skill === undefined) return refuse(422, `${name} was not updated, and is kept at ${short(row.commit)}: ${fetched.refused.map((refused) => refused.message).join("; ")}`);
-  if (skill.name !== name) return refuse(422, `${name} was not updated: at ${short(commit)} its SKILL.md names it ${skill.name}. Install it under that name; removing ${name} is your choice.`);
+  if (skill === undefined)
+    return refuse(
+      422,
+      `${name} was not updated, and is kept at ${short(row.commit)}: ${fetched.refused.map((refused) => refused.message).join("; ")}`,
+    );
+  if (skill.name !== name)
+    return refuse(
+      422,
+      `${name} was not updated: at ${short(commit)} its SKILL.md names it ${skill.name}. Install it under that name; removing ${name} is your choice.`,
+    );
   const changed = digestProblem(body.digests, [skill]);
   if (changed !== undefined) return refuse(422, changed);
   const before = new Map(deps.store.files(name).map((file) => [file.path, file.blob]));
   const after = new Map(Object.entries(skill.files).map(([path, file]) => [path, file.blob]));
-  const answer = await deps.store.apply({ kind: "install", skill, source: { repo: row.repo, path: row.path, ref: row.ref, commit } }, deps.caller, deps.now(), deps.expectedRevision);
+  const answer = await deps.store.apply(
+    { kind: "install", skill, source: { repo: row.repo, path: row.path, ref: row.ref, commit } },
+    deps.caller,
+    deps.now(),
+    deps.expectedRevision,
+  );
   if (!answer.ok) return movedAnswer(answer) ?? refuse(422, answer.error);
   return ok({
     name,
@@ -230,17 +323,29 @@ const update = async (deps: SkillsApiDeps, body: Record<string, unknown>): Promi
     from: row.commit,
     to: commit,
     added: [...after.keys()].filter((path) => !before.has(path)).sort(),
-    changed: [...after].filter(([path, blob]) => before.has(path) && before.get(path) !== blob).map(([path]) => path).sort(),
+    changed: [...after]
+      .filter(([path, blob]) => before.has(path) && before.get(path) !== blob)
+      .map(([path]) => path)
+      .sort(),
     removed: [...before.keys()].filter((path) => !after.has(path)).sort(),
     hash: answer.hash,
   });
 };
 
 /** `POST …/skills/remove` `{ name }` and `…/skills/enable` `{ name, enabled }`. */
-const removeOrEnable = async (deps: SkillsApiDeps, body: Record<string, unknown>, op: "remove" | "enable"): Promise<SkillsAnswer> => {
+const removeOrEnable = async (
+  deps: SkillsApiDeps,
+  body: Record<string, unknown>,
+  op: "remove" | "enable",
+): Promise<SkillsAnswer> => {
   const name = stringField(body, "name") ?? "";
   if (op === "enable" && typeof body.enabled !== "boolean") return refuse(400, "the body is { name, enabled }");
-  const answer = await deps.store.apply(op === "remove" ? { kind: "remove", name } : { kind: "enable", name, enabled: body.enabled === true }, deps.caller, deps.now(), deps.expectedRevision);
+  const answer = await deps.store.apply(
+    op === "remove" ? { kind: "remove", name } : { kind: "enable", name, enabled: body.enabled === true },
+    deps.caller,
+    deps.now(),
+    deps.expectedRevision,
+  );
   return answer.ok ? ok(answer) : (movedAnswer(answer) ?? refuse(404, `${answer.error}.`));
 };
 
@@ -248,7 +353,11 @@ const removeOrEnable = async (deps: SkillsApiDeps, body: Record<string, unknown>
 export const SKILLS_WRITE_ROUTES = ["/preview", "/install", "/check", "/update", "/remove", "/enable"] as const;
 
 /** A write route's answer to `body` (already through the panel's guards). */
-export const skillsChange = (deps: SkillsApiDeps, route: (typeof SKILLS_WRITE_ROUTES)[number], body: Record<string, unknown>): Promise<SkillsAnswer> => {
+export const skillsChange = (
+  deps: SkillsApiDeps,
+  route: (typeof SKILLS_WRITE_ROUTES)[number],
+  body: Record<string, unknown>,
+): Promise<SkillsAnswer> => {
   switch (route) {
     case "/preview":
       return preview(deps, body);

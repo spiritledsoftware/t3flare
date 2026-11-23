@@ -15,7 +15,14 @@
 // see it) in the arguments of the file tools and in `bash`'s command (step 2a plan, R13).
 // @effect-diagnostics globalDate:off globalConsole:off
 import type { Context } from "@earendil-works/chord";
-import { defineExtension, type Extension, section, type ToolExecutionApi, type ToolRegistration, type Wrap } from "@earendil-works/pi-durable";
+import {
+  defineExtension,
+  type Extension,
+  section,
+  type ToolExecutionApi,
+  type ToolRegistration,
+  type Wrap,
+} from "@earendil-works/pi-durable";
 import type { ApprovalDecision, InteractionMode, PendingApproval, RuntimeMode } from "@t3flare/session-protocol";
 
 import { cardText } from "./cardText.ts";
@@ -50,8 +57,14 @@ export type ApprovalKind = PendingApproval["kind"];
  * tool by name for t3's MCP tools (so accepting `delegate_task` never unlocks `bash` or another T3 tool, nor the
  * reverse).
  */
-export const acceptanceKeyOf = (call: { readonly tool: string; readonly kind: ApprovalKind; readonly definition?: string }): string | null =>
-  call.kind === "mcp-tool" ? `mcp-tool:${call.tool}${call.definition === undefined ? "" : `@${call.definition}`}` : call.kind;
+export const acceptanceKeyOf = (call: {
+  readonly tool: string;
+  readonly kind: ApprovalKind;
+  readonly definition?: string;
+}): string | null =>
+  call.kind === "mcp-tool"
+    ? `mcp-tool:${call.tool}${call.definition === undefined ? "" : `@${call.definition}`}`
+    : call.kind;
 
 /** A request a tool call waits on: stored by the asking call's task, withdrawn when its turn ends. */
 export interface WaitingRequest {
@@ -73,7 +86,11 @@ export class WaitingRequests<Request extends WaitingRequest, Answer> {
   /** Calls waiting for the pending requests to change (a slot in a script's queue). */
   readonly #watchers = new Set<() => void>();
 
-  constructor(storage: ApprovalStorage, keys: { readonly requests: string; readonly answers: string }, changed: () => void) {
+  constructor(
+    storage: ApprovalStorage,
+    keys: { readonly requests: string; readonly answers: string },
+    changed: () => void,
+  ) {
     this.#storage = storage;
     this.#keys = keys;
     this.#changed = changed;
@@ -163,7 +180,10 @@ export class WaitingRequests<Request extends WaitingRequest, Answer> {
     this.#waiters.delete(requestId);
     const answers = this.#answers();
     if (answers[requestId] !== undefined) {
-      this.#storage.put(this.#keys.answers, Object.fromEntries(Object.entries(answers).filter(([key]) => key !== requestId)));
+      this.#storage.put(
+        this.#keys.answers,
+        Object.fromEntries(Object.entries(answers).filter(([key]) => key !== requestId)),
+      );
     }
     const remaining = this.pending().filter((pending) => pending.requestId !== requestId);
     if (remaining.length !== this.pending().length) this.#putRequests(remaining);
@@ -208,7 +228,8 @@ export class ApprovalStore extends WaitingRequests<PendingApproval, StoredAnswer
   /** A code mode call ended. */
   forgetScript(callId: string): void {
     const scripts = this.storage.get<Record<string, string>>(SCRIPTS_KEY) ?? {};
-    if (callId in scripts) this.storage.put(SCRIPTS_KEY, Object.fromEntries(Object.entries(scripts).filter(([id]) => id !== callId)));
+    if (callId in scripts)
+      this.storage.put(SCRIPTS_KEY, Object.fromEntries(Object.entries(scripts).filter(([id]) => id !== callId)));
   }
 
   /** The script of code mode call `callId`, as noted. */
@@ -225,10 +246,14 @@ export class ApprovalStore extends WaitingRequests<PendingApproval, StoredAnswer
   /** The owner's answer to `requestId`; false when no such request waits (answered already, or its call ended). */
   answer(requestId: string, decision: ApprovalDecision, feedback?: string): boolean {
     const trimmed = feedback?.trim();
-    const request = this.give(requestId, { decision, ...(trimmed === undefined || trimmed === "" ? {} : { feedback: trimmed }) });
+    const request = this.give(requestId, {
+      decision,
+      ...(trimmed === undefined || trimmed === "" ? {} : { feedback: trimmed }),
+    });
     if (request === undefined) return false;
     const key = acceptanceKeyOf(request);
-    if (decision === "acceptForSession" && key !== null) this.storage.put(ACCEPTED_KEY, [...new Set([...this.#accepted(), key])]);
+    if (decision === "acceptForSession" && key !== null)
+      this.storage.put(ACCEPTED_KEY, [...new Set([...this.#accepted(), key])]);
     return true;
   }
 }
@@ -253,7 +278,9 @@ const kindOf = (tool: string): ApprovalKind => (COMMAND_TOOLS.has(tool) ? "comma
 
 /** A `terminal_send` that only polls types nothing: it never asks. */
 const typesNothing = (tool: string, args: Readonly<Record<string, unknown>>): boolean =>
-  tool === "terminal_send" && (typeof args.text !== "string" || args.text === "") && (!Array.isArray(args.keys) || args.keys.length === 0);
+  tool === "terminal_send" &&
+  (typeof args.text !== "string" || args.text === "") &&
+  (!Array.isArray(args.keys) || args.keys.length === 0);
 
 /** Whether `mode` asks before a call of `kind`. */
 export const asks = (mode: RuntimeMode, kind: ApprovalKind): boolean =>
@@ -265,18 +292,29 @@ const textOf = (value: unknown): string => (typeof value === "string" ? value : 
  * What the owner is shown (review M2: `cardText`'s one rule): the whole command, or the path and the whole change, up to
  * the card's cap, with any cut said.
  */
-export const summaryOf = (tool: string, args: Readonly<Record<string, unknown>>): { readonly summary: string; readonly detail?: string } => {
-  if (tool === "bash") return { summary: cardText(`${textOf(args.command)}${args.background === true ? "  (in the background)" : ""}`) };
+export const summaryOf = (
+  tool: string,
+  args: Readonly<Record<string, unknown>>,
+): { readonly summary: string; readonly detail?: string } => {
+  if (tool === "bash")
+    return { summary: cardText(`${textOf(args.command)}${args.background === true ? "  (in the background)" : ""}`) };
   if (tool === "terminal_start") return { summary: cardText(`Terminal: ${textOf(args.command)}`) };
   if (tool === "terminal_send") {
-    const keys = Array.isArray(args.keys) ? ` [${args.keys.filter((key): key is string => typeof key === "string").join(", ")}]` : "";
+    const keys = Array.isArray(args.keys)
+      ? ` [${args.keys.filter((key): key is string => typeof key === "string").join(", ")}]`
+      : "";
     return { summary: cardText(`Type into ${textOf(args.id)}: ${JSON.stringify(textOf(args.text))}${keys}`) };
   }
   const path = cardText(textOf(args.path), 1_000);
   if (tool === "edit") {
-    const edits = Array.isArray(args.edits) ? (args.edits as ReadonlyArray<{ oldText?: unknown; newText?: unknown }>) : [];
+    const edits = Array.isArray(args.edits)
+      ? (args.edits as ReadonlyArray<{ oldText?: unknown; newText?: unknown }>)
+      : [];
     const detail = edits.map((edit) => `- ${textOf(edit.oldText)}\n+ ${textOf(edit.newText)}`).join("\n");
-    return { summary: `Edit ${path} (${edits.length} change${edits.length === 1 ? "" : "s"})`, ...(detail === "" ? {} : { detail: cardText(detail) }) };
+    return {
+      summary: `Edit ${path} (${edits.length} change${edits.length === 1 ? "" : "s"})`,
+      ...(detail === "" ? {} : { detail: cardText(detail) }),
+    };
   }
   const content = textOf(args.content);
   return { summary: `Write ${path} (${content.length} characters)`, detail: cardText(content) };
@@ -288,7 +326,11 @@ export const STARTED_MEMO = "t3flare.started";
 export const PLAN_MODE_REFUSAL =
   "Refused: this thread is in plan mode, which is read-only. Investigate with read-only tools and reply with a plan; the owner switches the thread out of plan mode to implement it.";
 
-export const planRefusal = () => ({ output: [{ type: "text" as const, text: PLAN_MODE_REFUSAL }], isError: true, details: { planMode: true } });
+export const planRefusal = () => ({
+  output: [{ type: "text" as const, text: PLAN_MODE_REFUSAL }],
+  isError: true,
+  details: { planMode: true },
+});
 
 /**
  * t3's plan-mode instruction (t3code/packages/provider-core/src/server/orchestrationInstructions.ts,
@@ -329,7 +371,10 @@ export const askOwner = async (
   context: Context,
 ): Promise<ReturnType<typeof declinedResult> | undefined> => {
   const requestId = String(api.taskId);
-  const progressed = () => api.progressed(context).catch((error: unknown) => console.warn(JSON.stringify({ t3flare: "progressed-failed", error: String(error) })));
+  const progressed = () =>
+    api
+      .progressed(context)
+      .catch((error: unknown) => console.warn(JSON.stringify({ t3flare: "progressed-failed", error: String(error) })));
   // A nested call's id is `<code mode call id>/c<n>` (pi-durable): its card names the script, and one script has at most
   // MAX_PENDING_PER_SCRIPT asks pending at once (review M8: all requests share one storage value).
   const cut = api.callId.lastIndexOf("/");
@@ -340,7 +385,9 @@ export const askOwner = async (
       { ...request, requestId, callId: api.callId, ...(via === undefined ? {} : { via }), createdAt: Date.now() },
       progressed,
       context,
-      via === undefined ? undefined : { mine: (pending) => pending.via?.parentCallId === via.parentCallId, max: MAX_PENDING_PER_SCRIPT },
+      via === undefined
+        ? undefined
+        : { mine: (pending) => pending.via?.parentCallId === via.parentCallId, max: MAX_PENDING_PER_SCRIPT },
     );
     return answer.decision === "decline" || answer.decision === "cancel" ? declinedResult(answer) : undefined;
   } finally {
@@ -360,7 +407,8 @@ export const cutOffResult = () => ({
 });
 
 /** Run any wrapped tool: a `ToolRegistration` takes whatever arguments its schema validated. */
-const runTool = (tool: ToolRegistration, args: Record<string, unknown>, api: ToolExecutionApi, context: Context) => tool.execute(args, api, context);
+const runTool = (tool: ToolRegistration, args: Record<string, unknown>, api: ToolExecutionApi, context: Context) =>
+  tool.execute(args, api, context);
 
 /** `tool`, asking before it runs when the mode says so. */
 const guarded = <T extends ToolRegistration>(host: PermissionsHost, tool: T): T => {
@@ -376,7 +424,12 @@ const guarded = <T extends ToolRegistration>(host: PermissionsHost, tool: T): T 
       // Plan mode is read-only: no file change runs, and every command asks (a command cannot be classified as reading).
       if (plan && kind === "file-change") return planRefusal();
       if (plan || (asks(host.mode(), kind) && !host.store.acceptedFor({ tool: tool.name, kind }))) {
-        const declined = await askOwner(host.store, { turn: host.turn(), tool: tool.name, kind, ...summaryOf(tool.name, args) }, api, context);
+        const declined = await askOwner(
+          host.store,
+          { turn: host.turn(), tool: tool.name, kind, ...summaryOf(tool.name, args) },
+          api,
+          context,
+        );
         if (declined !== undefined) return declined;
       }
       if (unsafe) await api.memo(STARTED_MEMO, true, context);
@@ -389,7 +442,12 @@ const PATH_TOOLS = ["read", "write", "edit", "ls", "find", "grep"] as const;
 
 /** `/w/<id>` (t3's name for the Workspace) as `/workspace/repo` in `text`. */
 export const toToolPath = (text: string, workspaceId: string | null): string =>
-  workspaceId === null ? text : text.replace(new RegExp(`/w/${workspaceId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=/|$|[\\s'"\`;:)])`, "g"), "/workspace/repo");
+  workspaceId === null
+    ? text
+    : text.replace(
+        new RegExp(`/w/${workspaceId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=/|$|[\\s'"\`;:)])`, "g"),
+        "/workspace/repo",
+      );
 
 const translated = <T extends ToolRegistration>(host: PermissionsHost, tool: T, field: "path" | "command"): T => ({
   ...tool,
@@ -422,7 +480,9 @@ export const permissions = (host: PermissionsHost): Extension =>
     wraps: [
       ...PATH_TOOLS.map((name) => wrap(name, (tool) => translated(host, tool, "path"))),
       wrap("bash", (tool) => translated(host, tool, "command")),
-      ...["bash", "edit", "write", "terminal_start", "terminal_send"].map((name) => wrap(name, (tool) => guarded(host, tool))),
+      ...["bash", "edit", "write", "terminal_start", "terminal_send"].map((name) =>
+        wrap(name, (tool) => guarded(host, tool)),
+      ),
       // Code mode is never guarded (a dispatcher: what it calls is), only noted, so a card its script raises names it.
       wrap("codemode", (tool) => noted(host, tool)),
     ],

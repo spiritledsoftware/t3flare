@@ -8,7 +8,15 @@ import { describe, expect, it } from "vitest";
 
 const src = path.resolve(import.meta.dirname, "../src");
 const files = (dir: string): Array<string> =>
-  fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? files(path.join(dir, entry.name)) : entry.name.endsWith(".ts") ? [path.join(dir, entry.name)] : []));
+  fs
+    .readdirSync(dir, { withFileTypes: true })
+    .flatMap((entry) =>
+      entry.isDirectory()
+        ? files(path.join(dir, entry.name))
+        : entry.name.endsWith(".ts")
+          ? [path.join(dir, entry.name)]
+          : [],
+    );
 
 describe("a sign-in's stored tokens", () => {
   it("are read (`secrets`) only by the Environment DO, which hashes them for the leak check", () => {

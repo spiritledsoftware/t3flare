@@ -13,7 +13,15 @@ import { createHash } from "node:crypto";
 
 import { parseSync } from "rolldown/utils";
 
-import { FIXTURE_PATH, type Finding, type Fingerprint, type RegionSpec, UPDATE_COMMAND, type WatchedRegion, watchedFiles } from "./upstreamFingerprintFixture.ts";
+import {
+  FIXTURE_PATH,
+  type Finding,
+  type Fingerprint,
+  type RegionSpec,
+  UPDATE_COMMAND,
+  type WatchedRegion,
+  watchedFiles,
+} from "./upstreamFingerprintFixture.ts";
 
 export * from "./upstreamFingerprintFixture.ts";
 
@@ -34,7 +42,10 @@ const parse = (source: string): { readonly body: ReadonlyArray<Node>; readonly c
 };
 
 const isNode = (value: unknown): value is Node =>
-  typeof value === "object" && value !== null && typeof (value as { type?: unknown }).type === "string" && typeof (value as { start?: unknown }).start === "number";
+  typeof value === "object" &&
+  value !== null &&
+  typeof (value as { type?: unknown }).type === "string" &&
+  typeof (value as { start?: unknown }).start === "number";
 
 const childrenOf = (node: Node): Array<Node> => {
   const children: Array<Node> = [];
@@ -76,9 +87,14 @@ const nameOf = (node: Node): string | undefined => {
 
 /** The names a top-level statement declares (through `export`). */
 const topLevelNames = (statement: Node): Array<string> => {
-  const declaration = (statement.type === "ExportNamedDeclaration" || statement.type === "ExportDefaultDeclaration" ? statement.declaration : statement) as Node | null;
+  const declaration = (
+    statement.type === "ExportNamedDeclaration" || statement.type === "ExportDefaultDeclaration"
+      ? statement.declaration
+      : statement
+  ) as Node | null;
   if (!isNode(declaration)) return [];
-  if (declaration.type === "VariableDeclaration") return (declaration.declarations as Array<Node>).flatMap((declarator) => nameOf(declarator) ?? []);
+  if (declaration.type === "VariableDeclaration")
+    return (declaration.declarations as Array<Node>).flatMap((declarator) => nameOf(declarator) ?? []);
   return [nameOf(declaration) ?? []].flat();
 };
 
@@ -105,10 +121,20 @@ const withoutComments = (source: string, comments: ReadonlyArray<Span>, { start,
 };
 
 const isTrueFlag = (node: Node): boolean =>
-  node.type === "Property" && node.computed !== true && node.shorthand !== true && isNode(node.value) && node.value.type === "Literal" && node.value.value === true;
+  node.type === "Property" &&
+  node.computed !== true &&
+  node.shorthand !== true &&
+  isNode(node.value) &&
+  node.value.type === "Literal" &&
+  node.value.value === true;
 
 const regionText = (source: string, comments: ReadonlyArray<Span>, node: Node, omitTrueFlags: boolean): string => {
-  const object = node.type === "ObjectExpression" ? node : ([node.value, node.init].find((value) => isNode(value) && value.type === "ObjectExpression") as Node | undefined);
+  const object =
+    node.type === "ObjectExpression"
+      ? node
+      : ([node.value, node.init].find((value) => isNode(value) && value.type === "ObjectExpression") as
+          | Node
+          | undefined);
   if (!omitTrueFlags || object === undefined) return withoutComments(source, comments, node);
   const kept = (object.properties as Array<Node>).filter((property) => !isTrueFlag(property));
   return (
@@ -177,7 +203,13 @@ export const findingMessage = (finding: Finding, reviewedCommit: string): string
   }
 };
 
-const regionFinding = (kind: "changed" | "gone", { file, symbol, ourFile, entry }: WatchedRegion): Finding => ({ kind, file, symbol, ourFile, entry });
+const regionFinding = (kind: "changed" | "gone", { file, symbol, ourFile, entry }: WatchedRegion): Finding => ({
+  kind,
+  file,
+  symbol,
+  ourFile,
+  entry,
+});
 
 /** Each region with its current hash (undefined when gone), each watched file's blob id, and every finding. */
 const evaluate = (fingerprint: Fingerprint, read: Read, blobOf: BlobOf) => {
@@ -191,10 +223,18 @@ const evaluate = (fingerprint: Fingerprint, read: Read, blobOf: BlobOf) => {
     return { region, hash: source === undefined ? undefined : hashRegion(source, region) };
   });
   const findings: Array<Finding> = [
-    ...regions.flatMap(({ region, hash }) => (hash === undefined ? [regionFinding("gone", region)] : hash === region.hash ? [] : [regionFinding("changed", region)])),
+    ...regions.flatMap(({ region, hash }) =>
+      hash === undefined
+        ? [regionFinding("gone", region)]
+        : hash === region.hash
+          ? []
+          : [regionFinding("changed", region)],
+    ),
     ...fingerprint.literals.flatMap(({ file, literal, ourFile, entry }): Array<Finding> => {
       const source = sourceOf(file);
-      return source !== undefined && searchableSource(source).includes(normalise(literal)) ? [] : [{ kind: "missing", file, literal, ourFile, entry }];
+      return source !== undefined && searchableSource(source).includes(normalise(literal))
+        ? []
+        : [{ kind: "missing", file, literal, ourFile, entry }];
     }),
   ];
   const blobs = Object.fromEntries(watchedFiles(fingerprint).map((file) => [file, blobOf(file)]));
@@ -206,7 +246,8 @@ const evaluate = (fingerprint: Fingerprint, read: Read, blobOf: BlobOf) => {
 };
 
 /** Every watched region that changed or is gone, every literal t3's source no longer contains, and every other watched file whose bytes moved. */
-export const fingerprintFindings = (fingerprint: Fingerprint, read: Read, blobOf: BlobOf): Array<Finding> => evaluate(fingerprint, read, blobOf).findings;
+export const fingerprintFindings = (fingerprint: Fingerprint, read: Read, blobOf: BlobOf): Array<Finding> =>
+  evaluate(fingerprint, read, blobOf).findings;
 
 /** One message per finding. */
 export const checkFingerprint = (fingerprint: Fingerprint, read: Read, blobOf: BlobOf): Array<string> =>
@@ -217,10 +258,16 @@ export const checkFingerprint = (fingerprint: Fingerprint, read: Read, blobOf: B
  * region or a missing literal is the fixture's to fix by hand; a watched file git cannot read is refused, so an empty
  * blob id is never recorded.
  */
-export const updateFingerprint = (fingerprint: Fingerprint, read: Read, blobOf: BlobOf, reviewedCommit: string): Fingerprint => {
+export const updateFingerprint = (
+  fingerprint: Fingerprint,
+  read: Read,
+  blobOf: BlobOf,
+  reviewedCommit: string,
+): Fingerprint => {
   const { regions, blobs, findings } = evaluate(fingerprint, read, blobOf);
   const unfixable = findings.filter((finding) => finding.kind === "gone" || finding.kind === "missing");
-  if (unfixable.length > 0) throw new Error(unfixable.map((finding) => findingMessage(finding, fingerprint.reviewedCommit)).join("\n"));
+  if (unfixable.length > 0)
+    throw new Error(unfixable.map((finding) => findingMessage(finding, fingerprint.reviewedCommit)).join("\n"));
   const unread = Object.entries(blobs).flatMap(([file, blob]) => (blob === undefined ? [file] : []));
   if (unread.length > 0) throw new Error(`git has no blob at the t3code checkout's HEAD for: ${unread.join(", ")}`);
   return {

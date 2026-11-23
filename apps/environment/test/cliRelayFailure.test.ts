@@ -59,7 +59,18 @@ const ENDPOINTS: ModelEndpoints = {
       baseUrl: "https://commissary.example",
       auth: "api-key",
       headers: {},
-      models: [{ id: "claude-haiku-5-5", name: "Haiku", reasoning: false, input: ["text"], contextWindow: 200_000, maxTokens: 8_000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, known: true }],
+      models: [
+        {
+          id: "claude-haiku-5-5",
+          name: "Haiku",
+          reasoning: false,
+          input: ["text"],
+          contextWindow: 200_000,
+          maxTokens: 8_000,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          known: true,
+        },
+      ],
     },
   ],
 };
@@ -85,8 +96,18 @@ const USAGE_LIMIT: EndpointFailureRecord = {
 };
 
 describe("cliRelayFailure", () => {
-  const refused = makeProviderFailure({ class: "permission_error", message: "The Model endpoint refused the agent's credential.", code: null, retryable: false });
-  const own = makeProviderFailure({ class: "provider_error", message: "The agent crashed.", code: "-32603", retryable: null });
+  const refused = makeProviderFailure({
+    class: "permission_error",
+    message: "The Model endpoint refused the agent's credential.",
+    code: null,
+    retryable: false,
+  });
+  const own = makeProviderFailure({
+    class: "provider_error",
+    message: "The agent crashed.",
+    code: "-32603",
+    retryable: null,
+  });
 
   it("the relay's failure is t3's: its class, text naming the endpoint, code and reset (held to 30 s after now)", () => {
     expect(cliRelayFailure(refused, USAGE_LIMIT, NOW)).toEqual({
@@ -96,7 +117,9 @@ describe("cliRelayFailure", () => {
       retryable: true,
       resetAt: "2026-11-16T12:00:00.000Z",
     });
-    expect(cliRelayFailure(own, { ...USAGE_LIMIT, resetAt: NOW + 1000 }, NOW).resetAt).toBe(new Date(NOW + MIN_RESET_MS).toISOString());
+    expect(cliRelayFailure(own, { ...USAGE_LIMIT, resetAt: NOW + 1000 }, NOW).resetAt).toBe(
+      new Date(NOW + MIN_RESET_MS).toISOString(),
+    );
   });
 
   it("with no relay failure, the adapter's own failure stands", () => {
@@ -119,28 +142,59 @@ type Event = ProviderAdapter.ProviderAdapterV2Event;
 
 const INITIALIZE = {
   protocolVersion: 1,
-  agentCapabilities: { loadSession: true, promptCapabilities: { image: true, embeddedContext: true }, sessionCapabilities: { close: {}, fork: {}, resume: {} } },
+  agentCapabilities: {
+    loadSession: true,
+    promptCapabilities: { image: true, embeddedContext: true },
+    sessionCapabilities: { close: {}, fork: {}, resume: {} },
+  },
   authMethods: [],
   agentInfo: { name: "fake", title: "Fake", version: "0.0.1" },
 };
-const SESSION_NEW = { sessionId: "acp-session", modes: { currentModeId: "default", availableModes: ["default", "build", "plan"].map((id) => ({ id, name: id })) } };
+const SESSION_NEW = {
+  sessionId: "acp-session",
+  modes: { currentModeId: "default", availableModes: ["default", "build", "plan"].map((id) => ({ id, name: id })) },
+};
 /** The CLI's text for a relayed 401 (Claude Code's `API Error: <status> <body>`), as the ACP error carries it. */
-const PROMPT_ERROR = { code: -32603, message: 'Internal error: API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}' };
+const PROMPT_ERROR = {
+  code: -32603,
+  message:
+    'Internal error: API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}',
+};
 
 let threads = 0;
 
-const acpTurn = Effect.fn("acpTurn")(function* (cli: "claude" | "opencode", relayed: EndpointFailureRecord | null, model: string) {
+const acpTurn = Effect.fn("acpTurn")(function* (
+  cli: "claude" | "opencode",
+  relayed: EndpointFailureRecord | null,
+  model: string,
+) {
   const fileSystem = yield* FileSystem.FileSystem;
   const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3flare-cli-relay-failure-" });
   const scriptPath = path.join(cwd, "..", `${path.basename(cwd)}.script.json`);
-  yield* fileSystem.writeFileString(scriptPath, yield* encodeJson({ initialize: INITIALIZE, sessionNew: SESSION_NEW, prompts: [[{ error: PROMPT_ERROR }]] }));
+  yield* fileSystem.writeFileString(
+    scriptPath,
+    yield* encodeJson({ initialize: INITIALIZE, sessionNew: SESSION_NEW, prompts: [[{ error: PROMPT_ERROR }]] }),
+  );
   const PATH = yield* Config.String("PATH").pipe(Config.withDefault(""));
   const spawn = Effect.fn("spawn")(function* (input: AcpAdapterV2RuntimeInput) {
-    const { processEnvironment: _env, runtimePolicy: _policy, mcpServers: _mcp, acpMcpServers: _acp, httpMcpServers: _http, ...rest } = input;
+    const {
+      processEnvironment: _env,
+      runtimePolicy: _policy,
+      mcpServers: _mcp,
+      acpMcpServers: _acp,
+      httpMcpServers: _http,
+      ...rest
+    } = input;
     const context = yield* Layer.build(
       AcpSessionRuntime.layer({
         ...rest,
-        spawn: { command: process.execPath, args: [AGENT], cwd: input.cwd, env: { PATH, FAKE_ACP_SCRIPT: scriptPath, FAKE_ACP_LOG: path.join(cwd, "..", "log") }, extendEnv: false },
+        spawn: {
+          command: process.execPath,
+          args: [AGENT],
+          cwd: input.cwd,
+          env: { PATH, FAKE_ACP_SCRIPT: scriptPath, FAKE_ACP_LOG: path.join(cwd, "..", "log") },
+          extendEnv: false,
+        },
         authenticateOnAuthRequired: false,
         ownDetachedProcessGroup: true,
         processGroupPlatform: process.platform,
@@ -150,20 +204,39 @@ const acpTurn = Effect.fn("acpTurn")(function* (cli: "claude" | "opencode", rela
   });
   const driver = ProviderDriverKind.make(cli === "claude" ? "claudeAgent" : "opencode");
   const instanceId = ProviderInstanceId.make(cli === "claude" ? "claudeAgent" : "opencode");
-  const adapter = wrapCliAdapter(yield* makeAcpAdapterV2(acpAdapterOptions(instanceId, acpFlavor(cli, driver, { spawn, modelEndpoints: () => ENDPOINTS }), undefined)), {
-    sessions: new Map(),
-    now: () => NOW,
-    relayFailure: async () => relayed,
-    takeEnvironmentSkills: () => Effect.void,
-  });
+  const adapter = wrapCliAdapter(
+    yield* makeAcpAdapterV2(
+      acpAdapterOptions(instanceId, acpFlavor(cli, driver, { spawn, modelEndpoints: () => ENDPOINTS }), undefined),
+    ),
+    {
+      sessions: new Map(),
+      now: () => NOW,
+      relayFailure: async () => relayed,
+      takeEnvironmentSkills: () => Effect.void,
+    },
+  );
   const threadId = ThreadId.make(`thread-relay-failure-${++threads}`);
   const modelSelection = { instanceId, model } as const;
-  const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({ runtimeMode: "full-access", interactionMode: "default", cwd });
-  const runtime = yield* adapter.openSession({ threadId, providerSessionId: ProviderSessionId.make(`session-relay-failure-${threads}`), modelSelection, runtimePolicy });
+  const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    cwd,
+  });
+  const runtime = yield* adapter.openSession({
+    threadId,
+    providerSessionId: ProviderSessionId.make(`session-relay-failure-${threads}`),
+    modelSelection,
+    runtimePolicy,
+  });
   const queue = yield* Queue.unbounded<Event>();
-  yield* runtime.events.pipe(Stream.runForEach((event) => Queue.offer(queue, event)), Effect.forkScoped);
+  yield* runtime.events.pipe(
+    Stream.runForEach((event) => Queue.offer(queue, event)),
+    Effect.forkScoped,
+  );
   const providerThread = yield* runtime.ensureThread({ threadId, modelSelection, runtimePolicy });
-  yield* runtime.startTurn(makeTurnInput({ threadId, providerThread, instanceId, runtimePolicy, now: yield* DateTime.now, modelSelection }));
+  yield* runtime.startTurn(
+    makeTurnInput({ threadId, providerThread, instanceId, runtimePolicy, now: yield* DateTime.now, modelSelection }),
+  );
   while (true) {
     const event = yield* Queue.take(queue).pipe(Effect.timeout("20 seconds"));
     // t3's ACP adapter reports a failed prompt on the terminal alone (no error item), so the terminal is the whole failure.
@@ -171,7 +244,8 @@ const acpTurn = Effect.fn("acpTurn")(function* (cli: "claude" | "opencode", rela
   }
 });
 
-const run = <A, E>(body: Effect.Effect<A, E, Layer.Success<typeof layerTest> | import("effect/Scope").Scope>) => Effect.runPromise(body.pipe(Effect.scoped, Effect.provide(layerTest)));
+const run = <A, E>(body: Effect.Effect<A, E, Layer.Success<typeof layerTest> | import("effect/Scope").Scope>) =>
+  Effect.runPromise(body.pipe(Effect.scoped, Effect.provide(layerTest)));
 
 for (const cli of ["claude", "opencode"] as const) {
   describe(`${cli} on a Model endpoint, through the relay`, () => {
@@ -184,12 +258,17 @@ for (const cli of ["claude", "opencode"] as const) {
 
     it("a relayed usage limit: t3's usage limit with the endpoint's reset", async () => {
       const { terminal } = await run(acpTurn(cli, USAGE_LIMIT, "commissary/claude-haiku-5-5"));
-      expect(terminal.type === "turn.terminal" && terminal.status === "failed" ? terminal.failure : undefined).toMatchObject({ class: "usage_limit", resetAt: "2026-11-16T12:00:00.000Z" });
+      expect(
+        terminal.type === "turn.terminal" && terminal.status === "failed" ? terminal.failure : undefined,
+      ).toMatchObject({ class: "usage_limit", resetAt: "2026-11-16T12:00:00.000Z" });
     });
 
     it("no relay failure: the adapter's own failure, never a text naming the retired Model proxy's key (SPI-1176)", async () => {
       const onEndpoint = await run(acpTurn(cli, null, "commissary/claude-haiku-5-5"));
-      const endpointFailure = onEndpoint.terminal.type === "turn.terminal" && onEndpoint.terminal.status === "failed" ? onEndpoint.terminal.failure : undefined;
+      const endpointFailure =
+        onEndpoint.terminal.type === "turn.terminal" && onEndpoint.terminal.status === "failed"
+          ? onEndpoint.terminal.failure
+          : undefined;
       expect(onEndpoint.terminal.type === "turn.terminal" && onEndpoint.terminal.status).toBe("failed");
       // The adapter's own classification of the ACP error (its code is the ACP error's), not the relay's `key_refused`.
       expect(endpointFailure).toMatchObject({ class: "permission_error", code: String(PROMPT_ERROR.code) });
@@ -201,7 +280,10 @@ for (const cli of ["claude", "opencode"] as const) {
 // --- Codex and pi: their adapters' failures, from a stand-in adapter ------------------------------------------------
 
 /** A stand-in for t3's adapter whose one turn fails with `failure`, as t3's Codex or Pi adapter reports it. */
-const standIn = (driver: ProviderDriverKind, failure: OrchestrationV2ProviderFailure): ProviderAdapter.ProviderAdapterV2["Service"] =>
+const standIn = (
+  driver: ProviderDriverKind,
+  failure: OrchestrationV2ProviderFailure,
+): ProviderAdapter.ProviderAdapterV2["Service"] =>
   ({
     instanceId: ProviderInstanceId.make(driver),
     driver,
@@ -231,37 +313,74 @@ const standIn = (driver: ProviderDriverKind, failure: OrchestrationV2ProviderFai
       }),
   }) as unknown as ProviderAdapter.ProviderAdapterV2["Service"];
 
-const standInTurn = Effect.fn("standInTurn")(function* (driver: string, failure: OrchestrationV2ProviderFailure, relayed: EndpointFailureRecord | null, model: string) {
-  const adapter = wrapCliAdapter(standIn(ProviderDriverKind.make(driver), failure), { sessions: new Map(), now: () => NOW, relayFailure: async () => relayed });
+const standInTurn = Effect.fn("standInTurn")(function* (
+  driver: string,
+  failure: OrchestrationV2ProviderFailure,
+  relayed: EndpointFailureRecord | null,
+  model: string,
+) {
+  const adapter = wrapCliAdapter(standIn(ProviderDriverKind.make(driver), failure), {
+    sessions: new Map(),
+    now: () => NOW,
+    relayFailure: async () => relayed,
+  });
   const runtime = yield* adapter.openSession({
     threadId: ThreadId.make(`thread-${driver}-${++threads}`),
     providerSessionId: ProviderSessionId.make(`session-${driver}-${threads}`),
     modelSelection: { instanceId: ProviderInstanceId.make(driver), model },
-    runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({ runtimeMode: "full-access", interactionMode: "default", cwd: "/w/x" }),
+    runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      cwd: "/w/x",
+    }),
   } as never);
   return Array.from(yield* Stream.runCollect(runtime.events));
 });
 
 const CLI_FAILURES = {
   // t3's Codex adapter: Codex's own usage limit (its `usageLimitExceeded`), with no reset t3 can arm.
-  codex: makeProviderFailure({ class: "usage_limit", message: "You've hit your usage limit.", code: null, retryable: true }),
+  codex: makeProviderFailure({
+    class: "usage_limit",
+    message: "You've hit your usage limit.",
+    code: null,
+    retryable: true,
+  }),
   // t3's Pi adapter: every model error is a provider error carrying pi's text.
-  pi: makeProviderFailure({ class: "provider_error", message: '429 {"error":{"type":"usage_limit_reached"}}', code: null, retryable: null }),
+  pi: makeProviderFailure({
+    class: "provider_error",
+    message: '429 {"error":{"type":"usage_limit_reached"}}',
+    code: null,
+    retryable: null,
+  }),
 } as const;
 
 for (const [driver, failure] of Object.entries(CLI_FAILURES)) {
   describe(`${driver} on a Model endpoint, through the relay`, () => {
     it("the terminal and the error item carry the relay's classification", async () => {
       const events = await run(standInTurn(driver, failure, USAGE_LIMIT, "commissary/claude-haiku-5-5"));
-      const failures = events.flatMap((event) => (event.type === "turn.terminal" && event.status === "failed" ? [event.failure] : event.type === "turn_item.updated" && event.turnItem.type === "error" ? [event.turnItem.failure] : []));
+      const failures = events.flatMap((event) =>
+        event.type === "turn.terminal" && event.status === "failed"
+          ? [event.failure]
+          : event.type === "turn_item.updated" && event.turnItem.type === "error"
+            ? [event.turnItem.failure]
+            : [],
+      );
       expect(failures).toHaveLength(2);
-      for (const each of failures) expect(each).toMatchObject({ class: "usage_limit", code: "usage_limit", message: USAGE_LIMIT.message, resetAt: "2026-11-16T12:00:00.000Z" });
+      for (const each of failures)
+        expect(each).toMatchObject({
+          class: "usage_limit",
+          code: "usage_limit",
+          message: USAGE_LIMIT.message,
+          resetAt: "2026-11-16T12:00:00.000Z",
+        });
     });
 
     it("with no relay failure, the adapter's own failure stands", async () => {
       const events = await run(standInTurn(driver, failure, null, "commissary/claude-haiku-5-5"));
       const terminal = events.find((event) => event.type === "turn.terminal");
-      expect(terminal?.type === "turn.terminal" && terminal.status === "failed" ? terminal.failure : undefined).toEqual(failure);
+      expect(terminal?.type === "turn.terminal" && terminal.status === "failed" ? terminal.failure : undefined).toEqual(
+        failure,
+      );
     });
   });
 }

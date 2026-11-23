@@ -16,7 +16,13 @@
 // @effect-diagnostics globalDate:off
 import { GenerationTask, defineExtension, type Extension, hook } from "@earendil-works/pi-durable";
 import type { EndpointApi, EndpointAuth } from "@t3flare/models/endpoints";
-import { describeFailure, errorBodyOf, type FailedAnswer, failureHeaders, modelFailureDetail } from "@t3flare/models/failures";
+import {
+  describeFailure,
+  errorBodyOf,
+  type FailedAnswer,
+  failureHeaders,
+  modelFailureDetail,
+} from "@t3flare/models/failures";
 import { redactSecrets } from "@t3flare/models/redact";
 import type { EndpointFailureRecord, ProxyRecord } from "@t3flare/session-protocol";
 import type { AssistantMessage, MutableModels } from "@earendil-works/pi-ai";
@@ -53,15 +59,20 @@ export const FAULT_FIXTURES = [
 export type FaultFixture = (typeof FAULT_FIXTURES)[number];
 
 /** A fault to arm, or why not: only where the deployment has `T3FLARE_FAULTS=1` (every stage but prod), a known fixture and a finite reset. */
-export const armFault = (faults: string | undefined, input: { readonly fixture: string; readonly resetAt: number }): Fault | Error => {
+export const armFault = (
+  faults: string | undefined,
+  input: { readonly fixture: string; readonly resetAt: number },
+): Fault | Error => {
   if (faults !== "1") return new Error("t3flare: faults are off in this deployment");
   const fixture = FAULT_FIXTURES.find((name) => name === input.fixture);
-  if (fixture === undefined || !Number.isFinite(input.resetAt)) return new Error(`t3flare: no fixture ${input.fixture}`);
+  if (fixture === undefined || !Number.isFinite(input.resetAt))
+    return new Error(`t3flare: no fixture ${input.fixture}`);
   return { fixture, resetAt: input.resetAt };
 };
 
 const anthropicError = (type: string, message: string) => JSON.stringify({ type: "error", error: { type, message } });
-const openaiError = (message: string, type: string, code: string) => JSON.stringify({ error: { message, type, param: null, code } });
+const openaiError = (message: string, type: string, code: string) =>
+  JSON.stringify({ error: { message, type, param: null, code } });
 
 /**
  * Made-up credentials a refused-key fault echoes in its body, as a careless vendor or gateway might: an Anthropic key, a
@@ -79,33 +90,83 @@ export const faultAnswer = (fault: Fault, now: number): Response => {
   const json = (status: number, body: string, retryAfter?: number) =>
     new Response(body, {
       status,
-      headers: { "content-type": "application/json", ...(retryAfter === undefined ? {} : { "retry-after": String(retryAfter) }) },
+      headers: {
+        "content-type": "application/json",
+        ...(retryAfter === undefined ? {} : { "retry-after": String(retryAfter) }),
+      },
     });
   switch (fault.fixture) {
     case "anthropicUsageLimit":
       // Anthropic's unified limit, as Claude Code reads it: status rejected, the claim's reset in epoch seconds.
-      return new Response(anthropicError("rate_limit_error", "This request would exceed your account's rate limit. Please try again later."), {
-        status: 429,
-        headers: {
-          "content-type": "application/json",
-          "anthropic-ratelimit-unified-status": "rejected",
-          "anthropic-ratelimit-unified-reset": String(Math.ceil(fault.resetAt / 1000)),
-          "anthropic-ratelimit-unified-representative-claim": "five_hour",
+      return new Response(
+        anthropicError(
+          "rate_limit_error",
+          "This request would exceed your account's rate limit. Please try again later.",
+        ),
+        {
+          status: 429,
+          headers: {
+            "content-type": "application/json",
+            "anthropic-ratelimit-unified-status": "rejected",
+            "anthropic-ratelimit-unified-reset": String(Math.ceil(fault.resetAt / 1000)),
+            "anthropic-ratelimit-unified-representative-claim": "five_hour",
+          },
         },
-      });
+      );
     case "anthropicRateLimit":
-      return json(429, anthropicError("rate_limit_error", "This request would exceed your organization's rate limit."), seconds);
+      return json(
+        429,
+        anthropicError("rate_limit_error", "This request would exceed your organization's rate limit."),
+        seconds,
+      );
     case "anthropicKeyRefused":
-      return json(401, anthropicError("authentication_error", `invalid x-api-key: ${FAULT_ECHOED_SECRETS[0]} (Authorization: Bearer ${FAULT_ECHOED_SECRETS[1]})`));
+      return json(
+        401,
+        anthropicError(
+          "authentication_error",
+          `invalid x-api-key: ${FAULT_ECHOED_SECRETS[0]} (Authorization: Bearer ${FAULT_ECHOED_SECRETS[1]})`,
+        ),
+      );
     case "openaiUsageLimit":
       // ChatGPT's Codex backend: `usage_limit_reached` with `resets_at` in epoch seconds.
-      return json(429, JSON.stringify({ error: { type: "usage_limit_reached", message: "The usage limit has been reached", plan_type: "plus", resets_at: Math.ceil(fault.resetAt / 1000) } }));
+      return json(
+        429,
+        JSON.stringify({
+          error: {
+            type: "usage_limit_reached",
+            message: "The usage limit has been reached",
+            plan_type: "plus",
+            resets_at: Math.ceil(fault.resetAt / 1000),
+          },
+        }),
+      );
     case "openaiQuota":
-      return json(429, openaiError("You exceeded your current quota, please check your plan and billing details.", "insufficient_quota", "insufficient_quota"));
+      return json(
+        429,
+        openaiError(
+          "You exceeded your current quota, please check your plan and billing details.",
+          "insufficient_quota",
+          "insufficient_quota",
+        ),
+      );
     case "openaiKeyRefused":
-      return json(401, openaiError(`Incorrect API key provided: ${FAULT_ECHOED_SECRETS[2]}.`, "invalid_request_error", "invalid_api_key"));
+      return json(
+        401,
+        openaiError(
+          `Incorrect API key provided: ${FAULT_ECHOED_SECRETS[2]}.`,
+          "invalid_request_error",
+          "invalid_api_key",
+        ),
+      );
     case "planUsageLimit":
-      return json(429, openaiError("You have reached your ChatGPT usage limit.", "invalid_request_error", "subscription_sharing_usage_limit_exceeded"));
+      return json(
+        429,
+        openaiError(
+          "You have reached your ChatGPT usage limit.",
+          "invalid_request_error",
+          "subscription_sharing_usage_limit_exceeded",
+        ),
+      );
   }
 };
 
@@ -135,7 +196,14 @@ export const recordingFetch = (options: RecordingFetchOptions) => {
     const url = input instanceof Request ? input.url : String(input);
     // An error answer's body, from a copy, so pi-ai still reads the answer whole.
     const body = response.status >= 400 ? await errorBodyOf(response) : undefined;
-    last = { status: response.status, retryAfter: response.headers.get("retry-after"), at, url, headers: failureHeaders(response.headers), ...(body === undefined ? {} : { body }) };
+    last = {
+      status: response.status,
+      retryAfter: response.headers.get("retry-after"),
+      at,
+      url,
+      headers: failureHeaders(response.headers),
+      ...(body === undefined ? {} : { body }),
+    };
     return response;
   }) as typeof globalThis.fetch;
   return { fetch: recording, last: () => last };
@@ -168,7 +236,10 @@ export interface SessionLimitsDeps {
   readonly last: () => RecordedAnswer | undefined;
   /** Changes the running turn's record (`SessionDO.#noteProxy`). */
   readonly note: (update: (record: ProxyRecord) => ProxyRecord) => void;
-  readonly endpoints: { endpoint(id: string): ClassifiedEndpoint | undefined; secrets(id: string): ReadonlyArray<string> };
+  readonly endpoints: {
+    endpoint(id: string): ClassifiedEndpoint | undefined;
+    secrets(id: string): ReadonlyArray<string>;
+  };
 }
 
 /**
@@ -178,7 +249,10 @@ export interface SessionLimitsDeps {
 export const sessionLimits = (deps: SessionLimitsDeps): ModelLimitsOptions => ({
   last: deps.last,
   endpoint: (provider) => deps.endpoints.endpoint(provider),
-  recordEndpoint: (endpointFailure) => deps.note(({ endpointFailure: _before, ...record }) => (endpointFailure === undefined ? record : { ...record, endpointFailure })),
+  recordEndpoint: (endpointFailure) =>
+    deps.note(({ endpointFailure: _before, ...record }) =>
+      endpointFailure === undefined ? record : { ...record, endpointFailure },
+    ),
   secrets: (provider) => deps.endpoints.secrets(provider),
 });
 
@@ -188,7 +262,12 @@ export const sessionLimits = (deps: SessionLimitsDeps): ModelLimitsOptions => ({
  * pi-ai client takes no fetch leaves none: its text alone is read, as a stream's is). The record is replaced either way;
  * a classified failure's text becomes its code, worded so pi-durable stops or retries it as the table says.
  */
-const classifyEndpoint = (message: AssistantMessage, errorMessage: string, endpoint: ClassifiedEndpoint, options: ModelLimitsOptions): void => {
+const classifyEndpoint = (
+  message: AssistantMessage,
+  errorMessage: string,
+  endpoint: ClassifiedEndpoint,
+  options: ModelLimitsOptions,
+): void => {
   const recorded = options.last();
   const answer = recorded !== undefined && recorded.url.startsWith(endpoint.baseUrl) ? recorded : undefined;
   const failed: FailedAnswer =

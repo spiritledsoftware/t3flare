@@ -27,7 +27,15 @@ const innerAdapter = {
 } as unknown as ProviderAdapter.ProviderAdapterV2["Service"];
 
 const policy = { runtimeMode: "full-access", interactionMode: "default", cwd: null };
-const turnInput = { threadId: "t1", runId: "r1", rootNodeId: "n1", providerThread: { id: "pt1" }, providerTurnOrdinal: 1, runtimePolicy: policy, message: { text: "hello" } } as never;
+const turnInput = {
+  threadId: "t1",
+  runId: "r1",
+  rootNodeId: "n1",
+  providerThread: { id: "pt1" },
+  providerTurnOrdinal: 1,
+  runtimePolicy: policy,
+  message: { text: "hello" },
+} as never;
 
 /** Opens a wrapped session with a fake process, starts one turn, then sets the limit to `after` and waits `waitMs`. */
 const turnUnder = async (limit: { at: number }, after: number, waitMs: number): Promise<number> => {
@@ -36,13 +44,21 @@ const turnUnder = async (limit: { at: number }, after: number, waitMs: number): 
   vi.spyOn(console, "warn").mockImplementation(() => undefined);
   await Effect.runPromise(
     Effect.gen(function* () {
-      const runtime = yield* wrapCliAdapter(innerAdapter, { sessions, takeEnvironmentSkills: () => Effect.void, turnLimitMs: () => limit.at }).openSession({
+      const runtime = yield* wrapCliAdapter(innerAdapter, {
+        sessions,
+        takeEnvironmentSkills: () => Effect.void,
+        turnLimitMs: () => limit.at,
+      }).openSession({
         threadId: "t1",
         providerSessionId: "s1",
         runtimePolicy: policy,
         modelSelection: { instanceId: "codex", model: "gpt-6-luna" },
       } as never);
-      sessions.get("s1")!.process = { key: "proc-1", turn: () => undefined, kill: () => void kills++ } as unknown as ChannelProcess;
+      sessions.get("s1")!.process = {
+        key: "proc-1",
+        turn: () => undefined,
+        kill: () => void kills++,
+      } as unknown as ChannelProcess;
       yield* runtime.startTurn(turnInput);
       limit.at = after;
       yield* Effect.sleep(`${waitMs} millis`);

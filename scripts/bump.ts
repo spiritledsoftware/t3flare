@@ -46,7 +46,11 @@ import * as path from "node:path";
 
 import { DETERMINISTIC_STEPS, findingSummary, HELD_BUMP_STEPS } from "../apps/environment/scripts/lib/land.ts";
 import { keptReportJson } from "../apps/environment/scripts/lib/modelEndpointSpec.ts";
-import { type Finding, REPORT_ONLY, REPORT_ONLY_ENV } from "../apps/environment/scripts/lib/upstreamFingerprintFixture.ts";
+import {
+  type Finding,
+  REPORT_ONLY,
+  REPORT_ONLY_ENV,
+} from "../apps/environment/scripts/lib/upstreamFingerprintFixture.ts";
 import { T3_ERRORS_COUNT } from "../apps/environment/scripts/lib/typecheckFilter.ts";
 import { t3ServerVersion, t3TrackSetting } from "../apps/environment/serverVersion.ts";
 import { newestOnTrack, NPM_DIST_TAG, PINNED_FILES, type T3Track } from "../apps/environment/src/updates/pins.ts";
@@ -75,7 +79,20 @@ try {
 }
 /** The acceptance test's arguments for the gate: the Update gate keeps the core and one Durable agent turn. */
 const ACCEPTANCE_ARGS = {
-  full: ["--threads", "12", "--runs", "4", "--real-turn", "--terminal", "--worktree", "--peer", "--codex", "--pi", "--claude", "--opencode"],
+  full: [
+    "--threads",
+    "12",
+    "--runs",
+    "4",
+    "--real-turn",
+    "--terminal",
+    "--worktree",
+    "--peer",
+    "--codex",
+    "--pi",
+    "--claude",
+    "--opencode",
+  ],
   update: ["--threads", "12", "--runs", "4", "--real-turn"],
 } as const;
 // Every pnpm command belongs to this workspace, never t3code's (AGENTS.md; review M3).
@@ -94,7 +111,12 @@ const DETAIL_CHARS = 4000;
 /** test:docker's and the acceptance test's failures each carry a long record; 4000 characters held barely one. */
 const LONG_DETAIL_CHARS = 24_000;
 
-const sh = (command: string, commandArgs: Array<string>, cwd: string, options: { quiet?: boolean; env?: Record<string, string> } = {}) => {
+const sh = (
+  command: string,
+  commandArgs: Array<string>,
+  cwd: string,
+  options: { quiet?: boolean; env?: Record<string, string> } = {},
+) => {
   const result = spawnSync(command, commandArgs, {
     cwd,
     encoding: "utf8",
@@ -115,13 +137,18 @@ const step = (name: string, run: () => { ok: boolean; detail?: string }, detailC
   } catch (error) {
     result = { ok: false, detail: String(error) };
   }
-  if (failAt !== undefined && name.startsWith(failAt)) result = { ok: false, detail: `forced to fail by --fail-at ${failAt}` };
+  if (failAt !== undefined && name.startsWith(failAt))
+    result = { ok: false, detail: `forced to fail by --fail-at ${failAt}` };
   const seconds = Math.round((performance.now() - started) / 100) / 10;
-  steps.push({ name, ok: result.ok, seconds, ...(result.detail === undefined ? {} : { detail: result.detail.slice(-detailChars) }) });
+  steps.push({
+    name,
+    ok: result.ok,
+    seconds,
+    ...(result.detail === undefined ? {} : { detail: result.detail.slice(-detailChars) }),
+  });
   console.log(`== ${name}: ${result.ok ? "ok" : "FAILED"} (${seconds} s)`);
   return result.ok;
 };
-
 
 let lockLine: string | undefined;
 /** The descriptor flags the new pin has and `capabilities.ts` does not classify: stripped until classified (U4). */
@@ -143,8 +170,17 @@ let to: string | undefined;
 step(`find the newest ${track} tag`, () => {
   const fetched = sh("git", ["fetch", "--tags", "--force", "--quiet", "origin"], t3, { quiet: true });
   if (!fetched.ok) return { ok: false, detail: fetched.output };
-  to = option("tag") ?? newestOnTrack(sh("git", ["tag", "-l", "v*"], t3, { quiet: true }).stdout.split("\n").map((t) => t.trim()), track);
-  return to === undefined ? { ok: false, detail: `no tag on the ${track} track` } : { ok: true, detail: `${from} → ${to}` };
+  to =
+    option("tag") ??
+    newestOnTrack(
+      sh("git", ["tag", "-l", "v*"], t3, { quiet: true })
+        .stdout.split("\n")
+        .map((t) => t.trim()),
+      track,
+    );
+  return to === undefined
+    ? { ok: false, detail: `no tag on the ${track} track` }
+    : { ok: true, detail: `${from} → ${to}` };
 });
 
 const finish = (ok: boolean, note?: string) => {
@@ -171,7 +207,9 @@ const finish = (ok: boolean, note?: string) => {
   // SPI-1175: the report is an artifact; the Model endpoint's key and header values never reach it, even where a step's
   // output repeated one (the workflow masks them in the log, not in files).
   fs.writeFileSync(reportFile, `${keptReportJson(report, process.env)}\n`);
-  console.log(`\nbump ${ok ? "PASSED" : "FAILED"}: ${from} → ${to ?? "?"}${note ? ` (${note})` : ""}; report in ${path.relative(root, reportFile)}`);
+  console.log(
+    `\nbump ${ok ? "PASSED" : "FAILED"}: ${from} → ${to ?? "?"}${note ? ` (${note})` : ""}; report in ${path.relative(root, reportFile)}`,
+  );
   for (const s of steps) console.log(`  ${s.ok ? "ok  " : "FAIL"} ${s.name} (${s.seconds} s)`);
   process.exit(ok ? 0 : 1);
 };
@@ -196,7 +234,10 @@ const rollback = () => {
   const pinned = sh("git", ["status", "--porcelain", "--", ...PINNED_FILES], root, { quiet: true }).output.trim();
   rollbackResult = {
     ok: install.ok && t3Status === "" && t3Head === fromCommit && pinned === "",
-    t3code: t3Head === fromCommit && t3Status === "" ? `clean at ${from}` : `at ${t3Head}, ${t3Status === "" ? "clean" : "dirty"}`,
+    t3code:
+      t3Head === fromCommit && t3Status === ""
+        ? `clean at ${from}`
+        : `at ${t3Head}, ${t3Status === "" ? "clean" : "dirty"}`,
     pinnedFiles: pinned === "" ? "unchanged" : pinned,
     install: install.ok ? "frozen install passed" : install.output.slice(-2000),
   };
@@ -208,7 +249,11 @@ const ok =
     // Only forward (ADR-0041): t3's migrations never go back, and a tag newer by version need not contain the pin (a
     // stable promotes an older nightly than a nightly pin may be). The plan's retry stop covers a refusal here.
     const forward = sh("git", ["merge-base", "--is-ancestor", fromCommit, `${to!}^{commit}`], t3, { quiet: true });
-    if (!forward.ok) return { ok: false, detail: `${to} does not contain the pin ${from} (${fromCommit}): t3code moves only forward\n${forward.output}` };
+    if (!forward.ok)
+      return {
+        ok: false,
+        detail: `${to} does not contain the pin ${from} (${fromCommit}): t3code moves only forward\n${forward.output}`,
+      };
     const result = sh("git", ["checkout", "--quiet", to!], t3);
     return { ok: result.ok, detail: result.output };
   }) &&
@@ -239,7 +284,13 @@ const ok =
     } catch {
       // Unread: the report says null, and the bump goes on.
     }
-    return { ok: true, detail: unclassifiedCapabilities === undefined ? `unread: ${result.output.slice(-1000)}` : JSON.stringify(unclassifiedCapabilities) };
+    return {
+      ok: true,
+      detail:
+        unclassifiedCapabilities === undefined
+          ? `unread: ${result.output.slice(-1000)}`
+          : JSON.stringify(unclassifiedCapabilities),
+    };
   }) &&
   // Never fails the bump: a change holds the pin for a person at the land check (SPI-1011). The report and the PR name
   // each finding with our file to review.
@@ -251,65 +302,113 @@ const ok =
     } catch {
       // Unread: the report says null, and the bump goes on; the land check still compares the files.
     }
-    return { ok: true, detail: upstreamFingerprint === undefined ? `unread: ${result.output.slice(-1000)}` : JSON.stringify(upstreamFingerprint) };
+    return {
+      ok: true,
+      detail:
+        upstreamFingerprint === undefined
+          ? `unread: ${result.output.slice(-1000)}`
+          : JSON.stringify(upstreamFingerprint),
+    };
   }) &&
   (flag("no-deploy") ||
-  (!fullGate || step("the CLI agents in Docker (test:docker: the pinned Codex and pi, launched as the Workspace launches them)", () => {
-    // In the log whole, and a long tail in the report.
-    const result = sh("pnpm", ["run", "test:docker"], environment);
-    return { ok: result.ok, detail: result.output };
-  }, LONG_DETAIL_CHARS)) &&
-  step(`deploy the ${stage} stage (build, web client)`, () => {
-    const result = sh(process.execPath, ["scripts/stage.ts", "deploy", stage, "--web"], environment);
-    return { ok: result.ok, detail: result.output };
-  }) &&
-  // A new build on CI's own stage starts fresh: boots the last build failed (safe mode after three, which only the owner
-  // or this turns off; GLOSSARY: Safe mode) say nothing about this one.
-  step(`the ${stage} stage starts its new build fresh (safe mode off)`, () => {
-    // Just after a deploy the admin routes can refuse for a moment (a 404, as the panel's endpoint save also met): retried.
-    let output = "";
-    for (let attempt = 0; attempt < 12; attempt++) {
-      if (attempt > 0) spawnSync("sleep", ["5"]);
-      const result = sh(process.execPath, ["scripts/stage.ts", "run", stage, "admin", "POST", "/_t3flare/safe-mode?on=0"], environment);
-      output = result.output;
-      if (result.ok && /^200 /m.test(output)) return { ok: true, detail: `attempt ${attempt + 1}: ${output}` };
-    }
-    return { ok: false, detail: output };
-  }) &&
-  step(`acceptance test against the ${stage} stage (${gate} gate)`, () => {
-    const out = path.join(environment, "dist/bump-acceptance.json");
-    const attempt = () => {
-      fs.rmSync(out, { force: true });
-      return sh(process.execPath, ["scripts/stage.ts", "run", stage, "acceptance", ...ACCEPTANCE_ARGS[gate], "--out", out], environment, { quiet: true });
-    };
-    let result = attempt();
-    // Once more, on the Full gate: most acceptance failures that were not t3's were races and timeouts that passed on the
-    // next run. Not on the Update gate, whose run must fail within 20 minutes (D7); the owner can press Update again.
-    if (!result.ok && fullGate) {
-      const first = fs.existsSync(out) ? fs.readFileSync(out, "utf8") : result.output;
-      let firstFailures: unknown = null;
-      try {
-        firstFailures = (JSON.parse(first) as { failures?: unknown }).failures ?? null;
-      } catch {
-        // Not the acceptance test's JSON: the detail keeps the output.
-      }
-      acceptanceRetry = { firstFailures, firstDetail: first.slice(-DETAIL_CHARS) };
-      console.log("== acceptance failed; running it once more");
-      result = attempt();
-    }
-    // A failed start answers every route with one line; the boot record says why.
-    const health = result.ok ? "" : `\n${sh(process.execPath, ["scripts/stage.ts", "run", stage, "health", "bootRecord,safeMode,runtime"], environment, { quiet: true }).output}`;
-    return { ok: result.ok, detail: `${fs.existsSync(out) ? fs.readFileSync(out, "utf8") : result.output}${health}` };
-  }, LONG_DETAIL_CHARS) &&
-  (!fullGate || step(`a stock t3 from npm (${NPM_DIST_TAG[track]}) links to the ${stage} stage and forwards a launch`, () => {
-    // The track's newest release on npm, as the Owner's laptop runs it. stdout alone, outside the workspace (npm warns
-    // about workspaces on stderr there).
-    const distTag = NPM_DIST_TAG[track];
-    const version = (spawnSync("npm", ["view", "t3", `dist-tags.${distTag}`], { cwd: os.tmpdir(), encoding: "utf8" }).stdout ?? "").trim();
-    if (version === "") return { ok: false, detail: `npm has no t3 at ${distTag}` };
-    const result = sh(process.execPath, ["scripts/stage.ts", "run", stage, "peer-laptop", "--version", version, "--skip-repo", "--out", path.join(environment, "dist/bump-peer-laptop.json")], environment, { quiet: true });
-    return { ok: result.ok, detail: `t3@${version}\n${result.output.slice(-3000)}` };
-  })));
+    ((!fullGate ||
+      step(
+        "the CLI agents in Docker (test:docker: the pinned Codex and pi, launched as the Workspace launches them)",
+        () => {
+          // In the log whole, and a long tail in the report.
+          const result = sh("pnpm", ["run", "test:docker"], environment);
+          return { ok: result.ok, detail: result.output };
+        },
+        LONG_DETAIL_CHARS,
+      )) &&
+      step(`deploy the ${stage} stage (build, web client)`, () => {
+        const result = sh(process.execPath, ["scripts/stage.ts", "deploy", stage, "--web"], environment);
+        return { ok: result.ok, detail: result.output };
+      }) &&
+      // A new build on CI's own stage starts fresh: boots the last build failed (safe mode after three, which only the owner
+      // or this turns off; GLOSSARY: Safe mode) say nothing about this one.
+      step(`the ${stage} stage starts its new build fresh (safe mode off)`, () => {
+        // Just after a deploy the admin routes can refuse for a moment (a 404, as the panel's endpoint save also met): retried.
+        let output = "";
+        for (let attempt = 0; attempt < 12; attempt++) {
+          if (attempt > 0) spawnSync("sleep", ["5"]);
+          const result = sh(
+            process.execPath,
+            ["scripts/stage.ts", "run", stage, "admin", "POST", "/_t3flare/safe-mode?on=0"],
+            environment,
+          );
+          output = result.output;
+          if (result.ok && /^200 /m.test(output)) return { ok: true, detail: `attempt ${attempt + 1}: ${output}` };
+        }
+        return { ok: false, detail: output };
+      }) &&
+      step(
+        `acceptance test against the ${stage} stage (${gate} gate)`,
+        () => {
+          const out = path.join(environment, "dist/bump-acceptance.json");
+          const attempt = () => {
+            fs.rmSync(out, { force: true });
+            return sh(
+              process.execPath,
+              ["scripts/stage.ts", "run", stage, "acceptance", ...ACCEPTANCE_ARGS[gate], "--out", out],
+              environment,
+              { quiet: true },
+            );
+          };
+          let result = attempt();
+          // Once more, on the Full gate: most acceptance failures that were not t3's were races and timeouts that passed on the
+          // next run. Not on the Update gate, whose run must fail within 20 minutes (D7); the owner can press Update again.
+          if (!result.ok && fullGate) {
+            const first = fs.existsSync(out) ? fs.readFileSync(out, "utf8") : result.output;
+            let firstFailures: unknown = null;
+            try {
+              firstFailures = (JSON.parse(first) as { failures?: unknown }).failures ?? null;
+            } catch {
+              // Not the acceptance test's JSON: the detail keeps the output.
+            }
+            acceptanceRetry = { firstFailures, firstDetail: first.slice(-DETAIL_CHARS) };
+            console.log("== acceptance failed; running it once more");
+            result = attempt();
+          }
+          // A failed start answers every route with one line; the boot record says why.
+          const health = result.ok
+            ? ""
+            : `\n${sh(process.execPath, ["scripts/stage.ts", "run", stage, "health", "bootRecord,safeMode,runtime"], environment, { quiet: true }).output}`;
+          return {
+            ok: result.ok,
+            detail: `${fs.existsSync(out) ? fs.readFileSync(out, "utf8") : result.output}${health}`,
+          };
+        },
+        LONG_DETAIL_CHARS,
+      ) &&
+      (!fullGate ||
+        step(`a stock t3 from npm (${NPM_DIST_TAG[track]}) links to the ${stage} stage and forwards a launch`, () => {
+          // The track's newest release on npm, as the Owner's laptop runs it. stdout alone, outside the workspace (npm warns
+          // about workspaces on stderr there).
+          const distTag = NPM_DIST_TAG[track];
+          const version = (
+            spawnSync("npm", ["view", "t3", `dist-tags.${distTag}`], { cwd: os.tmpdir(), encoding: "utf8" }).stdout ??
+            ""
+          ).trim();
+          if (version === "") return { ok: false, detail: `npm has no t3 at ${distTag}` };
+          const result = sh(
+            process.execPath,
+            [
+              "scripts/stage.ts",
+              "run",
+              stage,
+              "peer-laptop",
+              "--version",
+              version,
+              "--skip-repo",
+              "--out",
+              path.join(environment, "dist/bump-peer-laptop.json"),
+            ],
+            environment,
+            { quiet: true },
+          );
+          return { ok: result.ok, detail: `t3@${version}\n${result.output.slice(-3000)}` };
+        }))));
 
 if (!ok) {
   rollback();
@@ -326,19 +425,35 @@ if (flag("commit") && moves) {
     const notes = [
       `Proven by the ${gate} gate${acceptanceRetry === undefined ? "" : ", the acceptance test passing on its second attempt"}.`,
       ...(unclassifiedCapabilities !== undefined && unclassifiedCapabilities.length > 0
-        ? [`Capability flags stripped until classified in apps/environment/src/t3/capabilities.ts: ${unclassifiedCapabilities.join(", ")}.`]
+        ? [
+            `Capability flags stripped until classified in apps/environment/src/t3/capabilities.ts: ${unclassifiedCapabilities.join(", ")}.`,
+          ]
         : []),
       ...(upstreamFingerprint !== undefined && upstreamFingerprint.length > 0
         ? [
-            ["t3 files the upstream fingerprint watches changed since its last review, so this pin does not land by itself (fragility T2)", upstreamFingerprint.flatMap((finding) => findingSummary(finding) ?? []).join("; ")]
+            [
+              "t3 files the upstream fingerprint watches changed since its last review, so this pin does not land by itself (fragility T2)",
+              upstreamFingerprint.flatMap((finding) => findingSummary(finding) ?? []).join("; "),
+            ]
               .filter((part) => part.length > 0)
               .join(": ") + `. To land it: ${HELD_BUMP_STEPS} (ADR-0037's SPI-1011 refinement).`,
           ]
         : []),
-      ...(t3TypeErrors !== undefined && t3TypeErrors > 0 ? [`The typecheck passed over ${t3TypeErrors} type error(s) in t3's own files (fragility U10).`] : []),
+      ...(t3TypeErrors !== undefined && t3TypeErrors > 0
+        ? [`The typecheck passed over ${t3TypeErrors} type error(s) in t3's own files (fragility U10).`]
+        : []),
     ];
-    const commit = sh("git", ["commit", "--quiet", "-m", `chore: bump t3code to ${to}`, ...notes.flatMap((note) => ["-m", note])], root);
+    const commit = sh(
+      "git",
+      ["commit", "--quiet", "-m", `chore: bump t3code to ${to}`, ...notes.flatMap((note) => ["-m", note])],
+      root,
+    );
     return { ok: add.ok && commit.ok, detail: commit.output };
   });
 }
-finish(true, !moves ? `already at the newest ${track} tag; re-proved${flag("no-deploy") ? " through the check" : ` on the ${stage} stage`}` : undefined);
+finish(
+  true,
+  !moves
+    ? `already at the newest ${track} tag; re-proved${flag("no-deploy") ? " through the check" : ` on the ${stage} stage`}`
+    : undefined,
+);

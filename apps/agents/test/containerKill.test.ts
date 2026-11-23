@@ -8,7 +8,12 @@ import { killInRunningContainer, type RunningContainer } from "../src/workspace/
 const encode = (text: string) => new TextEncoder().encode(text);
 
 /** A platform Container that is `running`, answers `stdout`, and records its exec calls; `start` must never be called. */
-const fakeContainer = (options: { running: boolean; stdout?: string; execFails?: Error; stopsBeforeExec?: boolean }) => {
+const fakeContainer = (options: {
+  running: boolean;
+  stdout?: string;
+  execFails?: Error;
+  stopsBeforeExec?: boolean;
+}) => {
   const calls: Array<ReadonlyArray<string>> = [];
   let running = options.running;
   const container = {
@@ -34,7 +39,11 @@ const fakeContainer = (options: { running: boolean; stdout?: string; execFails?:
 describe("the kill script on the Container", () => {
   it("runs straight on a running Container, with the markers as arguments", async () => {
     const { container, calls } = fakeContainer({ running: true, stdout: '{"signalled":2,"survivors":0}\n' });
-    expect(await killInRunningContainer(container, ["exec-1", "exec-2"])).toEqual({ exitCode: 0, stdout: '{"signalled":2,"survivors":0}\n', stderr: "" });
+    expect(await killInRunningContainer(container, ["exec-1", "exec-2"])).toEqual({
+      exitCode: 0,
+      stdout: '{"signalled":2,"survivors":0}\n',
+      stderr: "",
+    });
     expect(calls).toHaveLength(1);
     expect(calls[0]?.slice(0, 2)).toEqual(["bash", "-c"]);
     expect(calls[0]?.slice(3)).toEqual(["t3flare-kill", "exec-1", "exec-2"]);

@@ -82,8 +82,7 @@ describe("fitWindowedOutput", () => {
       const out = fitWindowedOutput(selected?.text ?? "", selected?.window ?? whole(text));
       const next = /Use offset=(\d+) to continue\.\]$/.exec(out.content);
 
-      const body =
-        next === null ? out.content : out.content.slice(0, out.content.lastIndexOf("\n\n[Showing"));
+      const body = next === null ? out.content : out.content.slice(0, out.content.lastIndexOf("\n\n[Showing"));
 
       seen.push(...body.split("\n"));
       offset = next === null ? total + 1 : Number(next[1]);

@@ -12,7 +12,16 @@ const IMAGE = "ubuntu:26.04";
 const docker = spawnSync("docker", ["image", "inspect", IMAGE], { encoding: "utf8" }).status === 0;
 
 /** Runs the wrapper under a PTY with `input` typed, as root; answers the raw output and the exit code. */
-const run = (input: string, options: { readonly privileged: boolean; readonly after?: string; readonly projectRoot?: boolean; readonly before?: string; readonly readBashrc?: boolean }) => {
+const run = (
+  input: string,
+  options: {
+    readonly privileged: boolean;
+    readonly after?: string;
+    readonly projectRoot?: boolean;
+    readonly before?: string;
+    readonly readBashrc?: boolean;
+  },
+) => {
   const wrapper = terminalCommand({
     marker: "term-test1",
     t3Path: options.projectRoot ? "/w/.wt/demo/feat" : "/w/demo",
@@ -39,7 +48,15 @@ echo "EXIT $?"
 ${options.after ?? ""}
 cat /tmp/case/typescript
 `;
-  const args = ["run", "--rm", "-i", ...(options.privileged ? ["--cap-add", "SYS_ADMIN", "--security-opt", "apparmor=unconfined"] : []), IMAGE, "bash", "-s"];
+  const args = [
+    "run",
+    "--rm",
+    "-i",
+    ...(options.privileged ? ["--cap-add", "SYS_ADMIN", "--security-opt", "apparmor=unconfined"] : []),
+    IMAGE,
+    "bash",
+    "-s",
+  ];
   const result = spawnSync("docker", args, { input: script, encoding: "utf8", timeout: 90_000 });
   const exit = Number(/^EXIT (\d+)$/m.exec(result.stdout)?.[1]);
   return { output: result.stdout, exit, stderr: result.stderr };
@@ -74,7 +91,10 @@ describe.skipIf(!docker)("the terminal wrapper", () => {
   }, 120_000);
 
   it("binds the repo at t3's path, starts in t3's cwd with the marker, prints the markers, and exits with the shell's code", () => {
-    const result = run('pwd; cat ../file.txt; echo "mark=$T3FLARE_EXEC bashenv=${BASH_ENV:-unset}"; findmnt -n -o TARGET /w/demo; exit 3', { privileged: true });
+    const result = run(
+      'pwd; cat ../file.txt; echo "mark=$T3FLARE_EXEC bashenv=${BASH_ENV:-unset}"; findmnt -n -o TARGET /w/demo; exit 3',
+      { privileged: true },
+    );
     expect(result.exit).toBe(3);
     const { text } = scanMarkers("", result.output);
     expect(text).toMatch(/^\/w\/demo\/sub\r?$/m);
@@ -95,7 +115,7 @@ describe.skipIf(!docker)("the terminal wrapper", () => {
   }, 120_000);
 
   it("falls back to a symlink when the bind mount is not allowed", () => {
-    const result = run('readlink /w/demo; pwd -P; exit 0', { privileged: false });
+    const result = run("readlink /w/demo; pwd -P; exit 0", { privileged: false });
     expect(result.exit).toBe(0);
     const { text } = scanMarkers("", result.output);
     expect(text).toMatch(/^\/workspace\/repo\r?$/m);

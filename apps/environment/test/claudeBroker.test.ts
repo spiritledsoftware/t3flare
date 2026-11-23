@@ -30,7 +30,10 @@ const memory = () => {
 let logged: Array<string> = [];
 beforeEach(() => {
   logged = [];
-  for (const level of ["log", "warn", "error", "info"] as const) vi.spyOn(console, level).mockImplementation((...args: Array<unknown>) => void logged.push(args.map(String).join(" ")));
+  for (const level of ["log", "warn", "error", "info"] as const)
+    vi.spyOn(console, level).mockImplementation(
+      (...args: Array<unknown>) => void logged.push(args.map(String).join(" ")),
+    );
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -39,11 +42,20 @@ const setup = () => {
   const now = () => clock;
   const vendor = fakeAnthropic();
   const kv = memory();
-  const broker = credentialBroker({ kv, sealed: sealedStore(kv, "c".repeat(64), now), vendors: { claude: claudeSignIn({ fetch: vendor.fetch, now }) }, now });
+  const broker = credentialBroker({
+    kv,
+    sealed: sealedStore(kv, "c".repeat(64), now),
+    vendors: { claude: claudeSignIn({ fetch: vendor.fetch, now }) },
+    now,
+  });
   return { kv, vendor, broker, advance: (ms: number) => void (clock += ms), now };
 };
 
-const signIn = async (broker: CredentialBroker, vendor: FakeAnthropic, account: { readonly uuid?: string; readonly email?: string } = { uuid: "acct-7", email: "owner@example.com" }) => {
+const signIn = async (
+  broker: CredentialBroker,
+  vendor: FakeAnthropic,
+  account: { readonly uuid?: string; readonly email?: string } = { uuid: "acct-7", email: "owner@example.com" },
+) => {
   const { authorizeUrl } = await broker.start("claude", "claude");
   return broker.complete("claude", vendor.approve(authorizeUrl, account));
 };
@@ -61,8 +73,19 @@ describe("the Credential broker with a Claude sign-in", () => {
   it("signs in from the pasted code, seals the tokens, and gives the access token with its expiry", async () => {
     const { kv, vendor, broker, now } = setup();
     expect(await signIn(broker, vendor)).toMatchObject({ ok: true });
-    expect(broker.status("claude")).toMatchObject({ kind: "claude", signedIn: true, email: "owner@example.com", subject: "acct-7", clientId: null, expiresAt: now() + HOURS_8 });
-    expect(await broker.access("claude")).toEqual({ ok: true, accessToken: vendor.accessTokens[0], expiresAt: now() + HOURS_8 });
+    expect(broker.status("claude")).toMatchObject({
+      kind: "claude",
+      signedIn: true,
+      email: "owner@example.com",
+      subject: "acct-7",
+      clientId: null,
+      expiresAt: now() + HOURS_8,
+    });
+    expect(await broker.access("claude")).toEqual({
+      ok: true,
+      accessToken: vendor.accessTokens[0],
+      expiresAt: now() + HOURS_8,
+    });
     scan(kv, vendor);
   });
 
@@ -70,7 +93,10 @@ describe("the Credential broker with a Claude sign-in", () => {
     const { kv, vendor, broker } = setup();
     const { authorizeUrl } = await broker.start("claude", "claude");
     vendor.options.tokenDown = true;
-    expect(await broker.complete("claude", vendor.approve(authorizeUrl))).toMatchObject({ ok: false, problem: expect.stringMatching(/could not be reached/) });
+    expect(await broker.complete("claude", vendor.approve(authorizeUrl))).toMatchObject({
+      ok: false,
+      problem: expect.stringMatching(/could not be reached/),
+    });
     expect(broker.status("claude").pendingSince).not.toBeNull();
     // The fake saw the state and challenge (the authorize URL) and the code, state and verifier (the exchange).
     expect(vendor.secrets().length).toBeGreaterThanOrEqual(5);
@@ -84,7 +110,11 @@ describe("the Credential broker with a Claude sign-in", () => {
     advance(HOURS_8);
     vendor.options.refreshStatus = 401;
     vendor.options.refreshBody = { type: "error", error: { type: "authentication_error", message: "invalid" } };
-    expect(await broker.access("claude")).toMatchObject({ ok: false, signedOut: true, problem: "Claude refused to renew the sign-in (HTTP 401): it is signed out" });
+    expect(await broker.access("claude")).toMatchObject({
+      ok: false,
+      signedOut: true,
+      problem: "Claude refused to renew the sign-in (HTTP 401): it is signed out",
+    });
     expect(await broker.access("claude")).toMatchObject({ ok: false, signedOut: true });
     expect(vendor.counts.refreshes).toBe(1);
     scan(kv, vendor);
@@ -96,7 +126,11 @@ describe("the Credential broker with a Claude sign-in", () => {
     advance(HOURS_8 - 60_000);
     vendor.options.refreshStatus = 503;
     expect(await broker.access("claude")).toMatchObject({ ok: true });
-    expect(broker.status("claude")).toMatchObject({ signedIn: true, problem: "Anthropic did not renew the Claude sign-in (HTTP 503): it is tried again at the next use", problemAt: expect.any(Number) });
+    expect(broker.status("claude")).toMatchObject({
+      signedIn: true,
+      problem: "Anthropic did not renew the Claude sign-in (HTTP 503): it is tried again at the next use",
+      problemAt: expect.any(Number),
+    });
     vendor.options.refreshStatus = undefined;
     expect(await broker.access("claude")).toMatchObject({ ok: true, accessToken: vendor.accessTokens[1] });
     expect(broker.status("claude")).toMatchObject({ signedIn: true, problem: null, problemAt: null });

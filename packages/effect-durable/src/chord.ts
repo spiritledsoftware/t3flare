@@ -16,10 +16,9 @@ import { CallerFrame, captureFrame } from "./frame.ts";
 export type Failure = { readonly message: string };
 
 /** The Chord `Context` of the pi-durable invocation this fiber runs for; outside one, the background context. */
-export const ChordContext = Context.Reference<Chord.Context>(
-  "@t3flare/effect-durable/ChordContext",
-  { defaultValue: () => Chord.BACKGROUND_CONTEXT },
-);
+export const ChordContext = Context.Reference<Chord.Context>("@t3flare/effect-durable/ChordContext", {
+  defaultValue: () => Chord.BACKGROUND_CONTEXT,
+});
 
 /**
  * Runs Effects with `services` for pi-durable invocations: each fiber sees the invocation's Chord `Context` as
@@ -33,10 +32,7 @@ export const invoker = <R>(services: Context.Context<R>) => {
 
   return <A, E>(effect: Effect.Effect<A, E, R>, context: Chord.Context): Promise<Exit.Exit<A, E>> =>
     Effect.runPromiseExitWith(detached)(
-      effect.pipe(
-        Effect.provideService(ChordContext, context),
-        Effect.provideService(CallerFrame, captureFrame()),
-      ),
+      effect.pipe(Effect.provideService(ChordContext, context), Effect.provideService(CallerFrame, captureFrame())),
       { signal: context.abortSignal },
     );
 };
@@ -52,20 +48,14 @@ export const settle = <A, E>(exit: Exit.Exit<A, E>): A => {
  * An invocation's value, or its typed failure. A defect, even beside a failure, and any failure of an invocation whose
  * Context was cancelled are thrown, so pi-durable records them itself, as a throw or as a cancellation.
  */
-export const settleTyped = <A, E>(
-  exit: Exit.Exit<A, E>,
-  context: Chord.Context,
-): Result.Result<A, E> => {
+export const settleTyped = <A, E>(exit: Exit.Exit<A, E>, context: Chord.Context): Result.Result<A, E> => {
   if (Exit.isSuccess(exit)) return Result.succeed(exit.value);
 
   // Defects win over failures, as in Effect's own error reporting. Since effect 4.0.6 the runtime itself turns every
   // failure of a cause that holds a defect into a defect (a dying finalizer or concurrent sibling), in the
   // cause's order, so the first defect may be a failure that was demoted. Nothing marks which ones were, so several are
   // thrown together, and the crash is never hidden behind a failure.
-  const defects = Arr.map(
-    Arr.filter(exit.cause.reasons, Cause.isDieReason),
-    (reason) => reason.defect,
-  );
+  const defects = Arr.map(Arr.filter(exit.cause.reasons, Cause.isDieReason), (reason) => reason.defect);
 
   if (defects.length === 1) throw defects[0];
 

@@ -7,7 +7,13 @@ import type { TerminalFrame, TerminalPushAnswer } from "@t3flare/workspace-clien
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ContainerRefused } from "../src/workspace/containerStep.ts";
-import { HEARTBEAT_LAPSE_MS, MAX_TERMINALS, type ShellProcess, TerminalHost, type TerminalHostDeps } from "../src/workspace/terminalHost.ts";
+import {
+  HEARTBEAT_LAPSE_MS,
+  MAX_TERMINALS,
+  type ShellProcess,
+  TerminalHost,
+  type TerminalHostDeps,
+} from "../src/workspace/terminalHost.ts";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -37,7 +43,16 @@ const fakeShell = () => {
   };
 };
 
-const harness = (options: { running?: boolean; refuse?: string; pushMs?: number; answer?: (frames: ReadonlyArray<TerminalFrame>) => TerminalPushAnswer; beforeSpawn?: () => Promise<void>; readBashrc?: () => boolean } = {}) => {
+const harness = (
+  options: {
+    running?: boolean;
+    refuse?: string;
+    pushMs?: number;
+    answer?: (frames: ReadonlyArray<TerminalFrame>) => TerminalPushAnswer;
+    beforeSpawn?: () => Promise<void>;
+    readBashrc?: () => boolean;
+  } = {},
+) => {
   let now = 1_000_000;
   let running = options.running ?? true;
   const shells: Array<ReturnType<typeof fakeShell>> = [];
@@ -84,11 +99,22 @@ const harness = (options: { running?: boolean; refuse?: string; pushMs?: number;
     changes,
     advance: (ms: number) => void (now += ms),
     setRemembered: (markers: ReadonlyArray<string>) => void (remembered = markers),
-    text: (key: string) => frames.filter((frame) => frame.key === key && frame.data !== undefined).map((frame) => frame.data).join(""),
+    text: (key: string) =>
+      frames
+        .filter((frame) => frame.key === key && frame.data !== undefined)
+        .map((frame) => frame.data)
+        .join(""),
   };
 };
 
-const open = (key: string) => ({ key, t3Path: "/w/demo", cwd: "/w/demo/src", cols: 80, rows: 24, env: { TERM: "xterm-256color" } });
+const open = (key: string) => ({
+  key,
+  t3Path: "/w/demo",
+  cwd: "/w/demo/src",
+  cols: 80,
+  rows: 24,
+  env: { TERM: "xterm-256color" },
+});
 
 describe("scanMarkers", () => {
   it("strips the rc file's markers and reports the foreground's state and prompts", () => {
@@ -117,7 +143,12 @@ describe("TerminalHost", () => {
     expect(h.spawned[0]!.argv.slice(0, 2)).toEqual(["bash", "-c"]);
     expect(h.spawned[0]!.argv[2]).toContain("exec bash --rcfile /tmp/t3flare-rc-term-a1 -i");
     expect(h.spawned[0]!.argv[2]).toContain("mount --bind '/workspace/repo' '/w/demo'");
-    expect(h.spawned[0]!.env).toEqual({ PATH: "/usr/bin", MISE_YES: "1", TERM: "xterm-256color", T3FLARE_EXEC: "term-a1" });
+    expect(h.spawned[0]!.env).toEqual({
+      PATH: "/usr/bin",
+      MISE_YES: "1",
+      TERM: "xterm-256color",
+      T3FLARE_EXEC: "term-a1",
+    });
     await h.host.settled();
     expect(h.text("term-a1")).toContain("Starting the Workspace's Container");
   });
@@ -203,7 +234,10 @@ describe("TerminalHost", () => {
   });
 
   it("refuses a terminal in it when its running Container's steps refuse commands (ADR-0047 §7), and spawns after any other failure before the spawn", async () => {
-    const refused = harness({ beforeSpawn: async () => Promise.reject(new ContainerRefused("Refused: this Container's Container setup failed (exit 2)")) });
+    const refused = harness({
+      beforeSpawn: async () =>
+        Promise.reject(new ContainerRefused("Refused: this Container's Container setup failed (exit 2)")),
+    });
     await refused.host.open(open("term-a1"));
     await refused.host.settled();
     expect(refused.text("term-a1")).toContain("t3flare: Refused: this Container's Container setup failed (exit 2)");

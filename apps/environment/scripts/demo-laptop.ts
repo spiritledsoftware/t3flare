@@ -18,13 +18,17 @@ const capture = path.resolve(import.meta.dirname, "../../../tools/demo-video/cap
 const env = laptopPiEnvironment(cap);
 // The instance's checkout sits under the real home, whose ~/.agents/skills Pi counts as the project's; untrusted, t3
 // shows a notice on every turn. Pi's RPC mode cannot ask, so trust by default in this agent directory only.
-fs.writeFileSync(path.join(env.PI_CODING_AGENT_DIR!, "settings.json"), `${JSON.stringify({ defaultProjectTrust: "always" }, null, 2)}\n`);
+fs.writeFileSync(
+  path.join(env.PI_CODING_AGENT_DIR!, "settings.json"),
+  `${JSON.stringify({ defaultProjectTrust: "always" }, null, 2)}\n`,
+);
 const pi = path.join(cap, "bin", "pi");
 fs.mkdirSync(path.dirname(pi), { recursive: true });
 fs.rmSync(pi, { force: true });
 // A mise shim is mise itself, which the instance's HOME has no config for: link the binary mise resolves to.
 const shim = fs.realpathSync(piBinary());
-const resolved = path.basename(shim) === "mise" ? spawnSync(shim, ["which", "pi"], { encoding: "utf8" }).stdout.trim() : shim;
+const resolved =
+  path.basename(shim) === "mise" ? spawnSync(shim, ["which", "pi"], { encoding: "utf8" }).stdout.trim() : shim;
 fs.symlinkSync(fs.realpathSync(resolved), pi);
 
 const run = (command: string) => {

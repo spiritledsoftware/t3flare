@@ -30,9 +30,7 @@ export const layer = (storage: DurableObjectStorage) =>
           catch: (cause) => new ServerSecretStore.SecretStorePersistError({ resource: name, cause }),
         });
       const create = (name: string, value: Uint8Array) =>
-        Effect.flatMap(read(name), (existing) =>
-          Option.isSome(existing) ? Effect.void : write(name, value),
-        );
+        Effect.flatMap(read(name), (existing) => (Option.isSome(existing) ? Effect.void : write(name, value)));
       return ServerSecretStore.ServerSecretStore.of({
         get: read,
         set: write,

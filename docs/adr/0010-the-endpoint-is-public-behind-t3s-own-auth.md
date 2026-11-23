@@ -56,6 +56,7 @@ No tunnel, no `cloudflared`, no machine slot; T3 Connect can neither reach the E
 The harness panel (ADR-0026) is `/_t3flare/harness` on the t3 host, behind the `/_t3flare` Access application (owner, 2026-11-12, back to stock; it was first built on a dedicated admin host with its own Access application). There the Worker admits the owner's Access assertion **without the admin token**: a browser cannot send it, so CSRF, Origin and `Sec-Fetch-Site` checks take its place. A service-token caller still needs the admin token, and every other admin route is unchanged.
 
 Two exact paths on the t3 host are public, outside `/_t3flare` (so outside its Access application, like `/mcp`), because an OAuth authorization server must reach them without Access:
+
 - `/t3flare/oauth/callback`, the redirect. It is a GET, but it changes state only by redeeming a single-use 256-bit `state`, with PKCE and an `iss` check.
 - `/t3flare/oauth/client.json`, our Client ID Metadata Document.
 

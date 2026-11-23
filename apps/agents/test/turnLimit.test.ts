@@ -22,7 +22,11 @@ const session = (override?: string) => {
     turns,
     /** `submitTurn`: the record kept before the submit, with the limit the Environment carried (absent: none). */
     submit: (id: string, at: number, turnLimitMs?: number) => {
-      turns[id] = turnRecord({ runId: `run-${id}`, attemptId: `attempt-${id}`, ...(turnLimitMs === undefined ? {} : { turnLimitMs }) }, at, override);
+      turns[id] = turnRecord(
+        { runId: `run-${id}`, attemptId: `attempt-${id}`, ...(turnLimitMs === undefined ? {} : { turnLimitMs }) },
+        at,
+        override,
+      );
     },
     /** A turn the harness runs. */
     run: (id: string) => {
@@ -81,7 +85,14 @@ describe("a Session's turn and its Turn limit", () => {
     const s = session("120000");
     s.submit("a", START, 60 * MINUTE);
     expect(s.turns.a?.turnLimitMs).toBe(120_000);
-    s.turns.old = { submissionId: "s0", runId: "r0", attemptId: "a0", status: "running", startedAt: START, turnLimitMs: 60 * MINUTE };
+    s.turns.old = {
+      submissionId: "s0",
+      runId: "r0",
+      attemptId: "a0",
+      status: "running",
+      startedAt: START,
+      turnLimitMs: 60 * MINUTE,
+    };
     expect(s.alarmAt(START)).toBe(START + 120_000);
     expect(s.housekeep(START + 120_000)).toEqual(["a", "old"]);
   });
@@ -89,7 +100,8 @@ describe("a Session's turn and its Turn limit", () => {
 
 describe("turnLimitAt", () => {
   it("reads a carried limit that is not a positive finite number as the default, and an empty or bad override as none", () => {
-    for (const carried of [undefined, 0, -5, Number.NaN, Number.POSITIVE_INFINITY, "60"]) expect(turnLimitAt(carried, undefined)).toBe(DEFAULT_TURN_LIMIT_MS);
+    for (const carried of [undefined, 0, -5, Number.NaN, Number.POSITIVE_INFINITY, "60"])
+      expect(turnLimitAt(carried, undefined)).toBe(DEFAULT_TURN_LIMIT_MS);
     expect(turnLimitAt(10_080 * MINUTE, undefined)).toBe(10_080 * MINUTE);
     expect(turnLimitAt(30 * MINUTE, "")).toBe(30 * MINUTE);
     expect(turnLimitAt(30 * MINUTE, "nope")).toBe(30 * MINUTE);

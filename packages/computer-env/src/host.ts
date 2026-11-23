@@ -3,14 +3,7 @@
 // pi-durable's `ExecutionEnv` is Promise-native and stays so; this adapter follows it.
 // @effect-diagnostics cryptoRandomUUID:off globalDate:off
 import type { Workspace } from "@cloudflare/computer";
-import {
-  err,
-  type ExecutionEnv,
-  type FileInfo,
-  type FileKind,
-  LineScanner,
-  ok,
-} from "@earendil-works/pi-durable/env";
+import { err, type ExecutionEnv, type FileInfo, type FileKind, LineScanner, ok } from "@earendil-works/pi-durable/env";
 import { type ContainerAccess, ContainerFiles } from "./container-files.ts";
 import { HARNESS_ROOT, isContainerOnly } from "./container-paths.ts";
 import { HostFailure, posixCode, toWireError } from "./failure.ts";
@@ -66,16 +59,8 @@ const attempt = async <T>(path: string, operation: () => Promise<T>): Promise<Wi
   }
 };
 
-const kindOf = (
-  stat: Pick<Stat, "isFile" | "isDirectory" | "isSymbolicLink">,
-): FileKind | undefined =>
-  stat.isFile
-    ? "file"
-    : stat.isDirectory
-      ? "directory"
-      : stat.isSymbolicLink
-        ? "symlink"
-        : undefined;
+const kindOf = (stat: Pick<Stat, "isFile" | "isDirectory" | "isSymbolicLink">): FileKind | undefined =>
+  stat.isFile ? "file" : stat.isDirectory ? "directory" : stat.isSymbolicLink ? "symlink" : undefined;
 
 const fileInfo = (path: string, stat: Stat): FileInfo => {
   const kind = kindOf(stat);
@@ -109,10 +94,7 @@ export type ReadEnv = Pick<ExecutionEnv, "cwd" | "fileInfo" | "listFiles" | "rea
  * the call on any path above a read-only mount (`/workspace`, with the Skill set mounted below it), though it would
  * change nothing, and every write into the Workspace root makes its parents this way.
  */
-export const ensureDirectory = async (
-  fs: Pick<Workspace["fs"], "stat" | "mkdir">,
-  path: string,
-): Promise<void> => {
+export const ensureDirectory = async (fs: Pick<Workspace["fs"], "stat" | "mkdir">, path: string): Promise<void> => {
   try {
     if ((await fs.stat(path)).isDirectory) return;
   } catch (cause) {
@@ -165,8 +147,7 @@ export class WorkspaceEnvHost {
       container === undefined
         ? undefined
         : new ContainerFiles(container, {
-            read: async (path) =>
-              new Uint8Array(await new Response(await fs.readFile(path)).arrayBuffer()),
+            read: async (path) => new Uint8Array(await new Response(await fs.readFile(path)).arrayBuffer()),
             write: async (path, bytes) => {
               await ensureDirectory(fs, dirname(path));
               await fs.writeFile(path, bytes);
@@ -200,9 +181,7 @@ export class WorkspaceEnvHost {
     const container = this.#container;
 
     return attempt(paths[0] ?? "/", async () =>
-      container === undefined
-        ? paths.map((path) => isContainerOnly(path, undefined))
-        : container.classify(paths),
+      container === undefined ? paths.map((path) => isContainerOnly(path, undefined)) : container.classify(paths),
     );
   }
 
@@ -211,10 +190,7 @@ export class WorkspaceEnvHost {
    * answer. A `readdir` of a synced directory is the Workspace's, with the Container-only entries the running Container
    * has added.
    */
-  async #onContainer(
-    container: ContainerFiles,
-    request: EnvRequest,
-  ): Promise<EnvResponse<HostOperation> | undefined> {
+  async #onContainer(container: ContainerFiles, request: EnvRequest): Promise<EnvResponse<HostOperation> | undefined> {
     const paths = pathsOf(request);
 
     if (paths.length === 0) return undefined;
@@ -224,9 +200,7 @@ export class WorkspaceEnvHost {
     if (!classified.ok) return classified;
 
     if (!classified.value.some(Boolean)) {
-      return request.op === "readdir"
-        ? this.#withContainerEntries(container, request.args[0])
-        : undefined;
+      return request.op === "readdir" ? this.#withContainerEntries(container, request.args[0]) : undefined;
     }
 
     const path = paths[classified.value.indexOf(true)] ?? paths[0] ?? "/";
@@ -242,11 +216,7 @@ export class WorkspaceEnvHost {
         const [target, content, append] = request.args;
 
         return attempt(path, async () => {
-          await container.writeFile(
-            target,
-            content instanceof Uint8Array ? content : encoder.encode(content),
-            append,
-          );
+          await container.writeFile(target, content instanceof Uint8Array ? content : encoder.encode(content), append);
 
           return null;
         });
@@ -254,10 +224,8 @@ export class WorkspaceEnvHost {
 
       case "openReader":
         return attempt(path, async () => {
-          const { opened, info } = await container.openReader(
-            request.args[0],
-            request.args[1],
-            (stage) => this.#operations.openReader(stage, false),
+          const { opened, info } = await container.openReader(request.args[0], request.args[1], (stage) =>
+            this.#operations.openReader(stage, false),
           );
 
           if (!opened.ok) throw new HostFailure(opened.error.code, opened.error.message, path);
@@ -283,19 +251,14 @@ export class WorkspaceEnvHost {
   }
 
   /** The Workspace's entries of directory `path`, then the Container-only ones the running Container has there. */
-  async #withContainerEntries(
-    container: ContainerFiles,
-    path: string,
-  ): Promise<WireResult<readonly DirectoryEntry[]>> {
+  async #withContainerEntries(container: ContainerFiles, path: string): Promise<WireResult<readonly DirectoryEntry[]>> {
     const own = await this.#operations.readdir(path);
 
     if (!own.ok) return own;
 
     const names = new Set(own.value.map((entry) => entry.name));
 
-    const extra = (await container.containerOnlyEntries(path)).filter(
-      (entry) => !names.has(entry.name),
-    );
+    const extra = (await container.containerOnlyEntries(path)).filter((entry) => !names.has(entry.name));
 
     return { ok: true, value: [...own.value, ...extra] };
   }
@@ -347,8 +310,7 @@ export class WorkspaceEnvHost {
   #makeOperations(): HostOperations {
     const fs = this.#workspace.fs;
 
-    const stat = (path: string, follow: boolean): Promise<Stat> =>
-      follow ? fs.stat(path) : fs.lstat(path);
+    const stat = (path: string, follow: boolean): Promise<Stat> => (follow ? fs.stat(path) : fs.lstat(path));
 
     const readAll = async (path: string): Promise<Uint8Array> =>
       new Uint8Array(await new Response(await fs.readFile(path)).arrayBuffer());
@@ -494,14 +456,11 @@ export class WorkspaceEnvHost {
 
           await fs.mkdir(READERS_DIR, { recursive: true });
 
-          await this.#workspace
-            .provider()
-            .link(await this.#workspace.provider().realpath(path), handle);
+          await this.#workspace.provider().link(await this.#workspace.provider().realpath(path), handle);
 
           return { handle, info: fileInfo(path, opened) };
         }),
-      readerInfo: (handle) =>
-        attempt(handle, async () => fileInfo(handle, await fs.stat(readerPath(handle)))),
+      readerInfo: (handle) => attempt(handle, async () => fileInfo(handle, await fs.stat(readerPath(handle)))),
       read: (handle, offset, length) =>
         attempt(handle, async () => {
           const size = (await fs.stat(readerPath(handle))).size;
@@ -514,8 +473,7 @@ export class WorkspaceEnvHost {
         }),
       scanLines: (handle, startLine, endLine) =>
         attempt(handle, async () => {
-          const scanner =
-            endLine === null ? new LineScanner(startLine) : new LineScanner(startLine, endLine);
+          const scanner = endLine === null ? new LineScanner(startLine) : new LineScanner(startLine, endLine);
 
           for await (const chunk of await fs.readFile(readerPath(handle))) scanner.push(chunk);
 
@@ -578,9 +536,7 @@ export class WorkspaceEnvHost {
 
 /** The identity a polling watcher compares: a directory by inode, anything else also by size and modification. */
 const entryOf = (stat: Stat): string =>
-  stat.isDirectory
-    ? `d:${stat.inode}`
-    : `${kindOf(stat) ?? "other"}:${stat.inode}:${stat.size}:${stat.mtime}`;
+  stat.isDirectory ? `d:${stat.inode}` : `${kindOf(stat) ?? "other"}:${stat.inode}:${stat.size}:${stat.mtime}`;
 
 /** No bytes for a file that does not exist yet; any other failure stands. */
 const absent = (cause: unknown): Uint8Array[] => {
@@ -647,11 +603,7 @@ const scan = async (
         counted.add(path);
 
         if (counted.size > maxDirectories) {
-          throw new HostFailure(
-            "invalid",
-            `Watched paths exceed ${maxDirectories} directories`,
-            target.path,
-          );
+          throw new HostFailure("invalid", `Watched paths exceed ${maxDirectories} directories`, target.path);
         }
 
         await scanDirectory(index, target, path);

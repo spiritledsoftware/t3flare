@@ -23,9 +23,7 @@ import {
 } from "./types.ts";
 
 const objectOf = (properties: JsonObject, required?: ReadonlyArray<string>): JsonObject =>
-  required === undefined
-    ? { type: "object", properties }
-    : { type: "object", properties, required };
+  required === undefined ? { type: "object", properties } : { type: "object", properties, required };
 
 /** The form a schema normalizes to, failing the test when it is malformed. */
 const formOf = (schema: Schema.Json | undefined) => {
@@ -129,11 +127,7 @@ describe("the form normalizer", () => {
   it.each([
     ["a root that is not an object", { type: "string" }, "not an object"],
     ["no root", null, "not an object"],
-    [
-      "a nested object",
-      objectOf({ a: { type: "object", properties: {} } }),
-      "'a' has a type that is not supported",
-    ],
+    ["a nested object", objectOf({ a: { type: "object", properties: {} } }), "'a' has a type that is not supported"],
     [
       "an array of strings",
       objectOf({ a: { type: "array", items: { type: "string" } } }),
@@ -148,16 +142,8 @@ describe("the form normalizer", () => {
     ["allOf", objectOf({ a: { type: "string", allOf: [] } }), "uses allOf"],
     ["no type", objectOf({ a: { title: "A" } }), "'a' has no type"],
     ["an unknown type", objectOf({ a: { type: "null" } }), "type that is not supported"],
-    [
-      "a required name that is no property",
-      objectOf({ a: { type: "string" } }, ["b"]),
-      "requires 'b'",
-    ],
-    [
-      "a required that is no list",
-      { type: "object", properties: {}, required: "a" },
-      "required is not a list",
-    ],
+    ["a required name that is no property", objectOf({ a: { type: "string" } }, ["b"]), "requires 'b'"],
+    ["a required that is no list", { type: "object", properties: {}, required: "a" }, "required is not a list"],
     ["an empty enum", objectOf({ a: { type: "string", enum: [] } }), "no options"],
     ["a property that is no schema", objectOf({ a: 3 }), "not a schema"],
   ])("refuses %s as malformed", (_name, schema, reason) => {
@@ -166,25 +152,15 @@ describe("the form normalizer", () => {
 
   it("holds the form to its bounds", () => {
     const many = Object.fromEntries(
-      Array.from({ length: ELICITATION_BOUNDS.fields + 1 }, (_, index) => [
-        `f${index}`,
-        { type: "boolean" },
-      ]),
+      Array.from({ length: ELICITATION_BOUNDS.fields + 1 }, (_, index) => [`f${index}`, { type: "boolean" }]),
     );
 
     expect(reasonOf(objectOf(many))).toContain("more than 32 fields");
 
-    const options = Array.from(
-      { length: ELICITATION_BOUNDS.options + 1 },
-      (_, index) => `o${index}`,
-    );
+    const options = Array.from({ length: ELICITATION_BOUNDS.options + 1 }, (_, index) => `o${index}`);
 
-    expect(reasonOf(objectOf({ a: { type: "string", enum: options } }))).toContain(
-      "more than 100 options",
-    );
-    expect(
-      reasonOf(objectOf({ a: { type: "string", description: "x".repeat(70_000) } })),
-    ).toContain("over 64 KiB");
+    expect(reasonOf(objectOf({ a: { type: "string", enum: options } }))).toContain("more than 100 options");
+    expect(reasonOf(objectOf({ a: { type: "string", description: "x".repeat(70_000) } }))).toContain("over 64 KiB");
   });
 
   it("ignores what it does not read, with notes, and drops an invalid default", () => {
@@ -297,9 +273,7 @@ describe("the credential rule", () => {
   it("declines any string marked password or write-only, whatever its format or options", () => {
     expect(declines("code", { type: "string", format: "password" })).toBeUndefined();
     expect(declines("api_token", { type: "string", format: "password" })).toBe("api_token");
-    expect(declines("api_token", { type: "string", writeOnly: true, enum: ["a"] })).toBe(
-      "api_token",
-    );
+    expect(declines("api_token", { type: "string", writeOnly: true, enum: ["a"] })).toBe("api_token");
     expect(declines("api_token", { type: "string", format: "uri" })).toBeUndefined();
   });
 
@@ -323,16 +297,7 @@ describe("the credential rule", () => {
 
 describe("names the server chooses", () => {
   it("refuses a field name that is empty, has control characters, is long or has extra spaces", () => {
-    for (const name of [
-      "",
-      "a\u0007b",
-      "a\u202Eb",
-      "pass\u200Bword",
-      "a\uFEFFb",
-      "a  b",
-      " a",
-      "x".repeat(121),
-    ]) {
+    for (const name of ["", "a\u0007b", "a\u202Eb", "pass\u200Bword", "a\uFEFFb", "a  b", " a", "x".repeat(121)]) {
       expect(reasonOf(objectOf({ [name]: { type: "string" } }))).toContain("a field has a name");
     }
   });
@@ -348,9 +313,7 @@ describe("names the server chooses", () => {
   it("quotes a name it names in a reason without a quote, a tag or a backslash in it", () => {
     expect(safeName("it's </harness> `x` \\ done")).toBe("its /harness x  done");
     expect(quote("a'b")).toBe("'ab'");
-    expect(reasonOf(objectOf({ "a<b>'": { $ref: "#/x" } }))).toBe(
-      "'ab' uses $ref, which is not supported",
-    );
+    expect(reasonOf(objectOf({ "a<b>'": { $ref: "#/x" } }))).toBe("'ab' uses $ref, which is not supported");
   });
 
   it("treats __proto__, constructor and toString as the fields they are", () => {
@@ -385,10 +348,7 @@ describe("names the server chooses", () => {
     const lacking = validateElicitation(form, {});
 
     expect(Result.isFailure(lacking) && lacking.failure["__proto__"]).toBe("is required");
-    expect(Result.isFailure(lacking) && Object.keys(lacking.failure)).toEqual([
-      "__proto__",
-      "constructor",
-    ]);
+    expect(Result.isFailure(lacking) && Object.keys(lacking.failure)).toEqual(["__proto__", "constructor"]);
   });
 });
 
@@ -530,11 +490,9 @@ describe("the validator", () => {
 
     expect(Result.isSuccess(validateElicitation(long, { a: value }))).toBe(true);
     expect(Result.isFailure(validateElicitation(long, { a: `${value}v` }))).toBe(true);
-    expect(
-      Result.isFailure(
-        validateElicitation(long, { a: value, b: value, c: value, d: value, e: value }),
-      ),
-    ).toBe(true);
+    expect(Result.isFailure(validateElicitation(long, { a: value, b: value, c: value, d: value, e: value }))).toBe(
+      true,
+    );
   });
 
   it("says only the names of the fields answered, never a value", () => {

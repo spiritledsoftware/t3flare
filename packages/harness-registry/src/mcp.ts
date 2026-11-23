@@ -8,7 +8,10 @@ export type RuntimeModeName = "approval-required" | "auto-accept-edits" | "full-
  * A call's verdict (plan §3.3): `run`, `refuse`, or `ask` the owner. A linked thread follows its own mode, as in stock t3
  * (owner, 2026-11-12, back to stock: the per-call rule for linked writes is removed).
  */
-export type CallVerdict = { readonly kind: "run" } | { readonly kind: "ask" } | { readonly kind: "refuse"; readonly reason: string };
+export type CallVerdict =
+  | { readonly kind: "run" }
+  | { readonly kind: "ask" }
+  | { readonly kind: "refuse"; readonly reason: string };
 
 /**
  * `record[key]` when `key` is the record's own key, else undefined: a user-supplied key (a tool's or server's name)
@@ -17,7 +20,8 @@ export type CallVerdict = { readonly kind: "run" } | { readonly kind: "ask" } | 
 export const ownEntry = <T>(record: Readonly<Record<string, T>> | undefined, key: string): T | undefined =>
   record !== undefined && record !== null && Object.hasOwn(record, key) ? record[key] : undefined;
 
-export const PLAN_REFUSAL = "Refused: this thread is in plan mode, which is read-only; this tool may change things outside it.";
+export const PLAN_REFUSAL =
+  "Refused: this thread is in plan mode, which is read-only; this tool may change things outside it.";
 
 export const decideCall = (input: {
   readonly class: ToolClass;
@@ -43,14 +47,17 @@ export type ServerKind = "direct" | "settings";
  * as t3 does. Owner, 2026-11-12, back to stock: no definition-hash pins, and a direct server's tools are not write
  * until the owner marks them read.
  */
-export const classOf = (tool: { readonly annotations?: { readonly readOnlyHint?: unknown } }, owner: ToolClass | undefined): ToolClass =>
-  owner ?? (tool.annotations?.readOnlyHint === true ? "read" : "write");
+export const classOf = (
+  tool: { readonly annotations?: { readonly readOnlyHint?: unknown } },
+  owner: ToolClass | undefined,
+): ToolClass => owner ?? (tool.annotations?.readOnlyHint === true ? "read" : "write");
 
 /** pi's limit on a tool name. */
 export const MAX_TOOL_NAME = 64;
 
 /** `mcp__<server>__<tool>`, with every character outside `[A-Za-z0-9_-]` of the tool's name as `_`. */
-export const mcpToolName = (server: string, tool: string): string => `mcp__${server}__${tool.replace(/[^A-Za-z0-9_-]/g, "_").replace(/-/g, "_")}`;
+export const mcpToolName = (server: string, tool: string): string =>
+  `mcp__${server}__${tool.replace(/[^A-Za-z0-9_-]/g, "_").replace(/-/g, "_")}`;
 
 /**
  * The tool names of a server's tools by upstream name, and the tools refused: names that collide once sanitised
@@ -59,7 +66,10 @@ export const mcpToolName = (server: string, tool: string): string => `mcp__${ser
 export const toolNamesOf = (
   server: string,
   tools: ReadonlyArray<string>,
-): { readonly names: Readonly<Record<string, string>>; readonly refused: ReadonlyArray<{ readonly tool: string; readonly reason: string }> } => {
+): {
+  readonly names: Readonly<Record<string, string>>;
+  readonly refused: ReadonlyArray<{ readonly tool: string; readonly reason: string }>;
+} => {
   const byName = new Map<string, Array<string>>();
   for (const tool of tools) {
     const name = mcpToolName(server, tool);
@@ -68,8 +78,14 @@ export const toolNamesOf = (
   const names: Record<string, string> = {};
   const refused: Array<{ tool: string; reason: string }> = [];
   for (const [name, upstream] of byName) {
-    if (upstream.length > 1) for (const tool of upstream) refused.push({ tool, reason: `its name collides with ${upstream.filter((other) => other !== tool).join(", ")} as ${name}` });
-    else if (name.length > MAX_TOOL_NAME) refused.push({ tool: upstream[0]!, reason: `${name} is longer than ${MAX_TOOL_NAME} characters` });
+    if (upstream.length > 1)
+      for (const tool of upstream)
+        refused.push({
+          tool,
+          reason: `its name collides with ${upstream.filter((other) => other !== tool).join(", ")} as ${name}`,
+        });
+    else if (name.length > MAX_TOOL_NAME)
+      refused.push({ tool: upstream[0]!, reason: `${name} is longer than ${MAX_TOOL_NAME} characters` });
     else names[upstream[0]!] = name;
   }
   return { names, refused };
@@ -79,7 +95,10 @@ export const toolNamesOf = (
 export type Exposure = "direct" | "deferred" | "codemode" | "hidden";
 
 /** A direct server's sign-in (Route B). */
-export type ServerAuth = { readonly kind: "none" } | { readonly kind: "header"; readonly header: string } | { readonly kind: "oauth" };
+export type ServerAuth =
+  | { readonly kind: "none" }
+  | { readonly kind: "header"; readonly header: string }
+  | { readonly kind: "oauth" };
 
 /** One MCP server as the harness settings keep it (no secret: header values and tokens are in the secret store). */
 export interface McpServerSetting {
@@ -108,7 +127,12 @@ export const RESERVED_SERVER_NAMES: ReadonlySet<string> = new Set(["t3", "t3-cod
 export const SERVER_NAME = /^[a-z0-9-]{1,20}$/;
 
 /** The Settings server's implied entry (plan D2): on, deferred and read-write until a change stores one. */
-export const defaultSettingsServer = (): McpServerSetting => ({ kind: "settings", enabled: true, exposure: "deferred", writes: true });
+export const defaultSettingsServer = (): McpServerSetting => ({
+  kind: "settings",
+  enabled: true,
+  exposure: "deferred",
+  writes: true,
+});
 
 /** Most tools taken from one server, and most bytes of their schemas (review M12). */
 export const MAX_TOOLS_PER_SERVER = 200;
@@ -142,4 +166,7 @@ export interface McpRelayInput {
 }
 
 /** The relay's answer: a JSON-RPC response, nothing (a notification: 202), or a refusal before MCP (HTTP status). */
-export type McpRelayAnswer = { readonly kind: "response"; readonly body: unknown } | { readonly kind: "accepted" } | { readonly kind: "refused"; readonly status: 401 | 403 | 404; readonly message: string };
+export type McpRelayAnswer =
+  | { readonly kind: "response"; readonly body: unknown }
+  | { readonly kind: "accepted" }
+  | { readonly kind: "refused"; readonly status: 401 | 403 | 404; readonly message: string };

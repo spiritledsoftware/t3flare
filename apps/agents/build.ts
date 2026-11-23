@@ -45,7 +45,8 @@ export const buildAgentsWorker = async (options: { readonly quiet?: boolean } = 
   }
   const report = { builtAt: new Date().toISOString(), bytes, files };
   fs.writeFileSync(path.join(here, "dist/build-report.json"), `${JSON.stringify(report, null, 2)}\n`);
-  if (!options.quiet) console.log(`t3flare: built the agents Worker, ${(bytes / 1024 / 1024).toFixed(2)} MiB in ${files.length} files`);
+  if (!options.quiet)
+    console.log(`t3flare: built the agents Worker, ${(bytes / 1024 / 1024).toFixed(2)} MiB in ${files.length} files`);
   return report;
 };
 

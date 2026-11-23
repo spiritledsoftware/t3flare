@@ -23,7 +23,11 @@ const shell = (overrides: Record<string, unknown>) =>
   }) as never;
 
 const phaseOf = (overrides: Record<string, unknown>) => {
-  const state = projectThreadAwarenessV2({ environmentId: "env-1" as EnvironmentId, project: { title: "t3flare" }, thread: shell(overrides) });
+  const state = projectThreadAwarenessV2({
+    environmentId: "env-1" as EnvironmentId,
+    project: { title: "t3flare" },
+    thread: shell(overrides),
+  });
   return state === null ? null : { phase: state.phase, headline: state.headline };
 };
 
@@ -31,13 +35,19 @@ const request = (kind: string) => ({ id: "request-1", kind, status: "pending" })
 
 describe("what a Durable agent run publishes (plan section 4.1)", () => {
   it("a turn starting and running: starting, then running (no alert)", () => {
-    expect(phaseOf({ status: "starting", activityRunStatus: "starting" })).toEqual({ phase: "starting", headline: "Starting agent" });
+    expect(phaseOf({ status: "starting", activityRunStatus: "starting" })).toEqual({
+      phase: "starting",
+      headline: "Starting agent",
+    });
     expect(phaseOf({})).toEqual({ phase: "running", headline: "Agent is working" });
   });
 
   it("an approval of each kind the differ raises (bash, an edit, permission, mcp-tool, git-push): Approval needed", () => {
     for (const kind of ["command", "file-change", "permission"]) {
-      expect(phaseOf({ status: "waiting", activityRunStatus: "waiting", pendingRuntimeRequest: request(kind) }), kind).toEqual({
+      expect(
+        phaseOf({ status: "waiting", activityRunStatus: "waiting", pendingRuntimeRequest: request(kind) }),
+        kind,
+      ).toEqual({
         phase: "waiting_for_approval",
         headline: "Approval needed",
       });
@@ -45,7 +55,9 @@ describe("what a Durable agent run publishes (plan section 4.1)", () => {
   });
 
   it("an ask_user question: waiting for input", () => {
-    expect(phaseOf({ status: "waiting", activityRunStatus: "waiting", pendingRuntimeRequest: request("user_input") })?.phase).toBe("waiting_for_input");
+    expect(
+      phaseOf({ status: "waiting", activityRunStatus: "waiting", pendingRuntimeRequest: request("user_input") })?.phase,
+    ).toBe("waiting_for_input");
   });
 
   it("an answered turn: completed; a failed one, a usage limit included: failed", () => {
@@ -60,6 +72,9 @@ describe("what a Durable agent run publishes (plan section 4.1)", () => {
   });
 
   it("a linked thread (delegated from the laptop) publishes like any top-level thread (D4)", () => {
-    expect(phaseOf({ status: "completed", activityRunStatus: "completed", delegatedFrom: { environmentId: "laptop" } })?.phase).toBe("completed");
+    expect(
+      phaseOf({ status: "completed", activityRunStatus: "completed", delegatedFrom: { environmentId: "laptop" } })
+        ?.phase,
+    ).toBe("completed");
   });
 });

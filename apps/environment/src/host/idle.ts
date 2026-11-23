@@ -155,8 +155,15 @@ export const openWork = (sql: SqlStorage, now: Date): OpenWork => {
   const count = (table: string, where: string, ...params: Array<unknown>) =>
     rows<{ n: number }>(sql, table, `SELECT COUNT(*) AS n FROM ${table} WHERE ${where}`, ...params)[0]?.n ?? 0;
   const openRuns = count("orchestration_v2_projection_runs", `status NOT IN (${list(SETTLED_RUN_STATUSES)})`);
-  const openProviderSessions = count("orchestration_v2_projection_provider_sessions", `status NOT IN (${list(SETTLED_SESSION_STATUSES)})`);
-  const claimableEffects = count("orchestration_v2_effect_outbox", `status IN ('pending', 'running') AND available_at <= ?`, now.toISOString());
+  const openProviderSessions = count(
+    "orchestration_v2_projection_provider_sessions",
+    `status NOT IN (${list(SETTLED_SESSION_STATUSES)})`,
+  );
+  const claimableEffects = count(
+    "orchestration_v2_effect_outbox",
+    `status IN ('pending', 'running') AND available_at <= ?`,
+    now.toISOString(),
+  );
   const remote = openRemoteTasks(sql);
   return {
     openRuns,
@@ -299,7 +306,9 @@ export const nextDue = (sql: SqlStorage, now: Date = new Date(), prWatchWakeAt: 
   const limitWakes = [limits?.reset_ms, limits?.snooze_ms].filter((v): v is number => v !== null && v !== undefined);
   const usageLimit = limitWakes.length === 0 ? null : new Date(Math.round(Math.min(...limitWakes)));
   const prWatch = watchedPullRequests(sql) > 0 ? new Date(prWatchWakeAt) : null;
-  const candidates = [parseTime(outbox), parseTime(scheduled), usageLimit, prWatch].filter((d): d is Date => d !== null);
+  const candidates = [parseTime(outbox), parseTime(scheduled), usageLimit, prWatch].filter(
+    (d): d is Date => d !== null,
+  );
   const at = candidates.length === 0 ? null : new Date(Math.min(...candidates.map((d) => d.getTime())));
   return {
     at,
@@ -327,7 +336,10 @@ export const idleVerdict = (sql: SqlStorage, now: Date, idleAfterMs = IDLE_AFTER
   const held = activeHolds(now.getTime());
   if (held.length > 0) return { reset: false, why: `held: ${held.join(", ")}` };
   if (now.getTime() < activity.unreadableUntil) {
-    return { reset: false, why: `t3's tables were unreadable; next read after ${new Date(activity.unreadableUntil).toISOString()}` };
+    return {
+      reset: false,
+      why: `t3's tables were unreadable; next read after ${new Date(activity.unreadableUntil).toISOString()}`,
+    };
   }
   try {
     const work = openWork(sql, now);

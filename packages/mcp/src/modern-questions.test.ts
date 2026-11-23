@@ -10,14 +10,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vitest";
 import { AGENT, completed, failedWith, run, settled, TARGET, testDeps } from "./core.fixture.ts";
-import {
-  ASK_TOOL,
-  type FakeServer,
-  fetchTo,
-  modernServer,
-  TASKS_EXTENSION,
-  VISIT_TOOL,
-} from "./fakes.fixture.ts";
+import { ASK_TOOL, type FakeServer, fetchTo, modernServer, TASKS_EXTENSION, VISIT_TOOL } from "./fakes.fixture.ts";
 import type { CallToolResult } from "@modelcontextprotocol/client";
 import { connect, type InputRequired, type McpDeps, type Outcome } from "./index.ts";
 import {
@@ -53,8 +46,7 @@ const deps = (
   extra: Partial<McpDeps> = {},
 ): McpDeps =>
   testDeps(fetchTo(server), {
-    capabilities: (ctx) =>
-      ctx?.answers?.elicitation === true ? { elicitation: { form: {} } } : {},
+    capabilities: (ctx) => (ctx?.answers?.elicitation === true ? { elicitation: { form: {} } } : {}),
     onInput: (request) =>
       Effect.sync(() => {
         seen.push(request);
@@ -102,9 +94,7 @@ const resume = (
 
 /** The `tools/call` requests the server received, with their ids and the params of each. */
 const calls = (server: FakeServer) =>
-  server.received.flatMap((received) =>
-    received.rpc?.method === "tools/call" ? [received.rpc] : [],
-  );
+  server.received.flatMap((received) => (received.rpc?.method === "tools/call" ? [received.rpc] : []));
 
 const valueOf = <A>(outcome: { readonly value: A } | { readonly failed: unknown }): A => {
   if (!("value" in outcome)) throw new Error(`Expected a value, got ${JSON.stringify(outcome)}`);
@@ -291,12 +281,9 @@ describe("A Modern server's questions", () => {
       valueOf(
         await ask(
           server,
-          deps(
-            server,
-            (request: McpInputRequest) => (request.key === "q1" ? ACCEPTED : { kind: "defer" }),
-            [],
-            { roots: ROOTS },
-          ),
+          deps(server, (request: McpInputRequest) => (request.key === "q1" ? ACCEPTED : { kind: "defer" }), [], {
+            roots: ROOTS,
+          }),
           DEFERRING,
           { forms: 2, roots: true },
         ),
@@ -379,12 +366,7 @@ describe("A Modern server's questions", () => {
     expect(declared).toContainEqual(PAGING);
 
     const resumed = valueOf(
-      await resume(
-        given,
-        JSON.parse(JSON.stringify(deferred.resume)),
-        { page: { action: "accept" } },
-        PAGING,
-      ),
+      await resume(given, JSON.parse(JSON.stringify(deferred.resume)), { page: { action: "accept" } }, PAGING),
     );
 
     expect(answeredText(resumed)).toEqual({ page: { action: "accept" } });
@@ -398,16 +380,15 @@ describe("A Modern server's questions", () => {
 
     const deferred = inputRequired(valueOf(await ask(server, deferring, offered)));
 
-    const resumed = valueOf(
-      await resume(deferring, deferred.resume, { q1: { action: "decline" } }, offered),
-    );
+    const resumed = valueOf(await resume(deferring, deferred.resume, { q1: { action: "decline" } }, offered));
 
     expect(answeredText(resumed)).toEqual({ q1: { action: "decline" } });
     expect(calls(server)).toHaveLength(2);
     // Both declared the tasks extension: they went on the task wire.
-    expect(
-      calls(server).map((call) => JSON.stringify(call.params?.["_meta"]).includes(TASKS_EXTENSION)),
-    ).toEqual([true, true]);
+    expect(calls(server).map((call) => JSON.stringify(call.params?.["_meta"]).includes(TASKS_EXTENSION))).toEqual([
+      true,
+      true,
+    ]);
   });
 
   it("goes round by round: a resume answered with another round is input_required again", async () => {
@@ -417,9 +398,7 @@ describe("A Modern server's questions", () => {
 
     const first = inputRequired(valueOf(await ask(server, deferring, DEFERRING, { rounds: 2 })));
 
-    const second = inputRequired(
-      valueOf(await resume(deferring, first.resume, { q1: { action: "decline" } })),
-    );
+    const second = inputRequired(valueOf(await resume(deferring, first.resume, { q1: { action: "decline" } })));
 
     expect(second.resume).toMatchObject({ round: 2, requestState: "round-2" });
 
@@ -427,10 +406,7 @@ describe("A Modern server's questions", () => {
 
     expect(answeredText(done)).toEqual({ q1: { action: "cancel" } });
     expect(calls(server)).toHaveLength(3);
-    expect(options.asked).toEqual([
-      expect.objectContaining({ round: 1 }),
-      expect.objectContaining({ round: 2 }),
-    ]);
+    expect(options.asked).toEqual([expect.objectContaining({ round: 1 }), expect.objectContaining({ round: 2 })]);
   });
 
   it("fails a call whose server asks for more than 10 rounds", async () => {
@@ -468,9 +444,7 @@ describe("A Modern server's questions", () => {
 
     const server = modernServer({
       asked,
-      resources: [
-        { uri: "file:///notes", name: "notes", contents: [], asks: { message: "Go on?" } },
-      ],
+      resources: [{ uri: "file:///notes", name: "notes", contents: [], asks: { message: "Go on?" } }],
     });
 
     const seen: Array<McpInputRequest> = [];
@@ -594,9 +568,7 @@ describe("A Modern server's Sampling requests", () => {
       ),
     );
 
-    expect(deferred.requests).toEqual([
-      expect.objectContaining({ key: "s1", kind: "sampling", mode: "deferrable" }),
-    ]);
+    expect(deferred.requests).toEqual([expect.objectContaining({ key: "s1", kind: "sampling", mode: "deferrable" })]);
     expect(deferred.resume).toMatchObject({ requestState: "round-1", deferred: ["s1"] });
     expect(calls(server)).toHaveLength(1);
 
@@ -624,9 +596,7 @@ describe("A Modern server's Sampling requests", () => {
       sampler(
         server,
         (request) =>
-          request.kind === "sampling"
-            ? { kind: "refused", message: "out of budget", code: -1 }
-            : { kind: "defer" },
+          request.kind === "sampling" ? { kind: "refused", message: "out of budget", code: -1 } : { kind: "defer" },
         seen,
       ),
       SAMPLING_DEFERRING,
@@ -649,9 +619,7 @@ describe("A Modern server's Sampling requests", () => {
       { forms: 0, samples: 1 },
     );
 
-    expect(outcome).toEqual(
-      failedWith(Unsupported, { message: "t3flare could not answer the sampling request" }),
-    );
+    expect(outcome).toEqual(failedWith(Unsupported, { message: "t3flare could not answer the sampling request" }));
     expect(calls(server)).toHaveLength(1);
   });
 

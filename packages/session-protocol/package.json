@@ -3,10 +3,14 @@
   "private": true,
   "license": "MIT",
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "typecheck": "effect-tsgo tsrs --noEmit",
     "lint": "oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src"
   },
-  "devDependencies": { "@types/node": "catalog:" }
+  "devDependencies": {
+    "@types/node": "catalog:"
+  }
 }

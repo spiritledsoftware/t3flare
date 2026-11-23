@@ -30,15 +30,34 @@ import * as path from "node:path";
 import { CLI_ROOTS, type EnvironmentPrecedence } from "@t3flare/skills";
 
 import { ensureProject } from "./lib/cliTurn.ts";
-import { admin, dispatch, itemsOf, pair, projectionOf, runsOf, sendMessage, sleep, threadWindow, uuid, wsCall } from "./lib/client.ts";
+import {
+  admin,
+  dispatch,
+  itemsOf,
+  pair,
+  projectionOf,
+  runsOf,
+  sendMessage,
+  sleep,
+  threadWindow,
+  uuid,
+  wsCall,
+} from "./lib/client.ts";
 import { fixtureRepo } from "./lib/scriptSettings.ts";
 
 type Cli = "codex" | "pi" | "claude" | "opencode";
 const SONNET = process.env.T3FLARE_PCLIENV_MODEL ?? "anthropic/claude-sonnet-5-5";
 const MOUNT = "/workspace/.agents/skills";
 /** Each CLI: its instance, model, and where its process reads the set (pi: none, its flag names the mount). */
-const CLIS: Readonly<Record<Cli, { readonly instanceId: string; readonly driver: string; readonly model: string; readonly linked: string }>> = {
-  codex: { instanceId: "codex", driver: "codex", model: process.env.T3FLARE_PCLIENV_CODEX_MODEL ?? "gpt-6-luna", linked: "codex/skills/t3flare-environment" },
+const CLIS: Readonly<
+  Record<Cli, { readonly instanceId: string; readonly driver: string; readonly model: string; readonly linked: string }>
+> = {
+  codex: {
+    instanceId: "codex",
+    driver: "codex",
+    model: process.env.T3FLARE_PCLIENV_CODEX_MODEL ?? "gpt-6-luna",
+    linked: "codex/skills/t3flare-environment",
+  },
   pi: { instanceId: "pi", driver: "pi", model: SONNET, linked: "" },
   claude: { instanceId: "claudeAgent", driver: "claudeAgent", model: SONNET, linked: "claude/skills" },
   opencode: { instanceId: "opencode", driver: "opencode", model: SONNET, linked: "config/opencode/skills" },
@@ -61,21 +80,33 @@ const FIXTURE_REPO = fixtureRepo();
 const BRANCH = "spi1153-env";
 const PROJECT = process.env.T3FLARE_PCLIENV_PROJECT ?? "pclienv-proj";
 const root = `/w/${PROJECT}`;
-const accessHeaders = { "cf-access-client-id": process.env.T3FLARE_ACCESS_CLIENT_ID ?? "", "cf-access-client-secret": process.env.T3FLARE_ACCESS_CLIENT_SECRET ?? "" };
+const accessHeaders = {
+  "cf-access-client-id": process.env.T3FLARE_ACCESS_CLIENT_ID ?? "",
+  "cf-access-client-secret": process.env.T3FLARE_ACCESS_CLIENT_SECRET ?? "",
+};
 const scriptHeaders = { ...accessHeaders, authorization: `Bearer ${process.env.T3FLARE_ADMIN_TOKEN ?? ""}` };
 
 const SECRET_KEYS = /token|authorization|cookie|secret|handle|bearer|credential|csrf/i;
 const redact = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(redact);
   if (value !== null && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, SECRET_KEYS.test(key) && typeof inner === "string" ? "[redacted]" : redact(inner)]));
+    return Object.fromEntries(
+      Object.entries(value).map(([key, inner]) => [
+        key,
+        SECRET_KEYS.test(key) && typeof inner === "string" ? "[redacted]" : redact(inner),
+      ]),
+    );
   }
   return value;
 };
-const deployedCommit = async (): Promise<string | null> => (await admin("GET", "/_t3flare/health")).json?.build?.commit ?? null;
+const deployedCommit = async (): Promise<string | null> =>
+  (await admin("GET", "/_t3flare/health")).json?.build?.commit ?? null;
 const writeEvidence = async (name: string, value: Record<string, unknown>) => {
   fs.mkdirSync(EVIDENCE, { recursive: true });
-  fs.writeFileSync(path.join(EVIDENCE, name), `${JSON.stringify(redact({ at: new Date().toISOString(), host: new URL(T3).host, commit: await deployedCommit(), ...value }), null, 1)}\n`);
+  fs.writeFileSync(
+    path.join(EVIDENCE, name),
+    `${JSON.stringify(redact({ at: new Date().toISOString(), host: new URL(T3).host, commit: await deployedCommit(), ...value }), null, 1)}\n`,
+  );
   console.log(`wrote .evidence/env-skills-cli/${name} (ok: ${String(value.ok)})`);
 };
 
@@ -86,19 +117,37 @@ const git = (cwd: string, ...args: Array<string>) => {
   if (result.status !== 0) throw new Error(`git ${args[0]} failed: ${result.stderr.slice(0, 300)}`);
   return result.stdout.trim();
 };
-const SKILL_MD = (name: string, description: string, body: string) => `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`;
+const SKILL_MD = (name: string, description: string, body: string) =>
+  `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`;
 /** A pair's Skill, the same name and description on both sides; only its code says which side it is. */
-const pairMd = (word: string, code: string) => SKILL_MD(`pair-${word}`, `How to find the ${word} pair code. Use whenever anyone asks for the ${word} pair code.`, `The ${word} pair code is ${code}. Answer with the code alone.`);
+const pairMd = (word: string, code: string) =>
+  SKILL_MD(
+    `pair-${word}`,
+    `How to find the ${word} pair code. Use whenever anyone asks for the ${word} pair code.`,
+    `The ${word} pair code is ${code}. Answer with the code alone.`,
+  );
 const ENV_FILES: Record<string, string> = {
-  "skills/env-code/SKILL.md": SKILL_MD("env-code", "How to find the environment code, the code the Cloud Environment keeps. Use whenever anyone asks for the environment code.", "The environment code is written in reference/code.md, next to this file. Read that file and answer with the code alone."),
+  "skills/env-code/SKILL.md": SKILL_MD(
+    "env-code",
+    "How to find the environment code, the code the Cloud Environment keeps. Use whenever anyone asks for the environment code.",
+    "The environment code is written in reference/code.md, next to this file. Read that file and answer with the code alone.",
+  ),
   "skills/env-code/reference/code.md": "The environment code is MANGO-5.\n",
-  ...Object.fromEntries(Object.values(PAIRS).map((word) => [`skills/pair-${word}/SKILL.md`, pairMd(word, `ENV-${word.toUpperCase()}`)])),
-  "late/late-code/SKILL.md": SKILL_MD("late-code", "How to find the late code. Use whenever anyone asks for the late code.", "The late code is LATE-8. Answer with the code alone."),
+  ...Object.fromEntries(
+    Object.values(PAIRS).map((word) => [`skills/pair-${word}/SKILL.md`, pairMd(word, `ENV-${word.toUpperCase()}`)]),
+  ),
+  "late/late-code/SKILL.md": SKILL_MD(
+    "late-code",
+    "How to find the late code. Use whenever anyone asks for the late code.",
+    "The late code is LATE-8. Answer with the code alone.",
+  ),
   "README.md": "SPI-1153's Environment skills fixture branch; moved by apps/environment/scripts/pclienv.ts.\n",
 };
 const fixture = () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pclienv-"));
-  const clone = spawnSync("gh", ["repo", "clone", FIXTURE_REPO, dir, "--", "--depth", "1", "--quiet"], { encoding: "utf8" });
+  const clone = spawnSync("gh", ["repo", "clone", FIXTURE_REPO, dir, "--", "--depth", "1", "--quiet"], {
+    encoding: "utf8",
+  });
   if (clone.status !== 0) throw new Error(`gh repo clone failed: ${clone.stderr.slice(0, 300)}`);
   git(dir, "checkout", "--orphan", BRANCH);
   git(dir, "rm", "-rf", "--quiet", ".");
@@ -107,7 +156,17 @@ const fixture = () => {
     fs.writeFileSync(path.join(dir, file), content);
   }
   git(dir, "add", "-A");
-  git(dir, "-c", "user.name=t3flare stage", "-c", "user.email=stage@t3flare.invalid", "commit", "--quiet", "-m", `pclienv: ${BRANCH}`);
+  git(
+    dir,
+    "-c",
+    "user.name=t3flare stage",
+    "-c",
+    "user.email=stage@t3flare.invalid",
+    "commit",
+    "--quiet",
+    "-m",
+    `pclienv: ${BRANCH}`,
+  );
   git(dir, "push", "--quiet", "--force", "origin", `HEAD:refs/heads/${BRANCH}`);
   console.log(`pushed ${BRANCH} at ${git(dir, "rev-parse", "HEAD").slice(0, 7)}`);
   fs.rmSync(dir, { recursive: true, force: true });
@@ -129,12 +188,15 @@ const harness = async (method: string, pathname: string, body?: unknown) => {
     return { status: response.status, json: text.trim() as any };
   }
 };
-const installed = async () => ((await harness("GET", "skills")).json.skills as Array<any>).map((skill) => skill.name as string);
+const installed = async () =>
+  ((await harness("GET", "skills")).json.skills as Array<any>).map((skill) => skill.name as string);
 const install = async (folder: "skills" | "late") => {
   const source = `https://github.com/${FIXTURE_REPO}/tree/${BRANCH}/${folder}`;
   const preview = await harness("POST", "skills/preview", { source });
   if (preview.status !== 200) throw new Error(`preview of ${source}: ${JSON.stringify(preview.json).slice(0, 300)}`);
-  const folders = (preview.json.skills as Array<any>).filter((skill) => skill.problems.length === 0 && skill.unchanged !== true).map((skill) => skill.path);
+  const folders = (preview.json.skills as Array<any>)
+    .filter((skill) => skill.problems.length === 0 && skill.unchanged !== true)
+    .map((skill) => skill.path);
   if (folders.length === 0) return { status: 200, skipped: "unchanged" };
   const answer = await harness("POST", "skills/install", { source, commit: preview.json.commit, folders });
   return { status: answer.status, commit: preview.json.commit, folders };
@@ -142,7 +204,12 @@ const install = async (folder: "skills" | "late") => {
 const remove = async (name: string) => (await harness("POST", "skills/remove", { name })).status;
 
 const call = async (body: unknown) => {
-  const response = await fetch(new URL(`/_t3flare/agents/workspace-call?id=${PROJECT}`, T3), { method: "POST", redirect: "manual", headers: { ...scriptHeaders, "content-type": "application/json" }, body: JSON.stringify(body) });
+  const response = await fetch(new URL(`/_t3flare/agents/workspace-call?id=${PROJECT}`, T3), {
+    method: "POST",
+    redirect: "manual",
+    headers: { ...scriptHeaders, "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
   const text = await response.text();
   try {
     return JSON.parse(text) as { result: any; container: any };
@@ -152,10 +219,16 @@ const call = async (body: unknown) => {
 };
 const sh = async (script: string) => {
   const answer = await call({ exec: { script, timeoutMs: 120_000 } });
-  return { exitCode: answer.result?.exitCode ?? null, stdout: String(answer.result?.stdout ?? "").slice(0, 3000), stderr: String(answer.result?.stderr ?? "").slice(0, 1000) };
+  return {
+    exitCode: answer.result?.exitCode ?? null,
+    stdout: String(answer.result?.stdout ?? "").slice(0, 3000),
+    stderr: String(answer.result?.stderr ?? "").slice(0, 1000),
+  };
 };
 const containerOf = async () => {
-  const row = (((await admin("GET", "/_t3flare/agents/workspaces")).json?.workspaces ?? []) as Array<any>).find((candidate) => candidate.id === PROJECT);
+  const row = (((await admin("GET", "/_t3flare/agents/workspaces")).json?.workspaces ?? []) as Array<any>).find(
+    (candidate) => candidate.id === PROJECT,
+  );
   return { running: row?.container?.running ?? null };
 };
 const stopContainer = async () => {
@@ -172,10 +245,19 @@ let cookie = "";
 let projectId = "";
 
 const composerSnapshot = async (instanceId: string) => {
-  const reply = (await wsCall(cookie, "server.refreshProviders", { instanceId, cwd: root, fresh: true }).catch((error: unknown) => ({ error: String(error).slice(0, 400) }))) as any;
+  const reply = (await wsCall(cookie, "server.refreshProviders", { instanceId, cwd: root, fresh: true }).catch(
+    (error: unknown) => ({ error: String(error).slice(0, 400) }),
+  )) as any;
   const provider = (reply?.providers ?? []).find((candidate: any) => candidate.instanceId === instanceId);
-  const scoped = (provider?.workspaceSnapshots ?? []).find((snapshot: any) => snapshot.cwd === root) ?? provider?.workspaceSnapshots?.[0];
-  return { error: reply?.error ?? null, skills: ((scoped?.skills ?? []) as Array<any>).filter((skill) => ["env-code", "late-code"].includes(skill.name) || String(skill.name).startsWith("pair-")) };
+  const scoped =
+    (provider?.workspaceSnapshots ?? []).find((snapshot: any) => snapshot.cwd === root) ??
+    provider?.workspaceSnapshots?.[0];
+  return {
+    error: reply?.error ?? null,
+    skills: ((scoped?.skills ?? []) as Array<any>).filter(
+      (skill) => ["env-code", "late-code"].includes(skill.name) || String(skill.name).startsWith("pair-"),
+    ),
+  };
 };
 
 const settle = async (threadId: string, ordinal: number, timeoutMs = 8 * 60_000): Promise<any> => {
@@ -184,9 +266,17 @@ const settle = async (threadId: string, ordinal: number, timeoutMs = 8 * 60_000)
   const answered = new Set<string>();
   while (Date.now() - started < timeoutMs) {
     current = projectionOf(await threadWindow(cookie, threadId).catch(() => undefined));
-    for (const request of (current?.runtimeRequests ?? []).filter((r: any) => r.status === "pending" && !answered.has(r.id))) {
+    for (const request of (current?.runtimeRequests ?? []).filter(
+      (r: any) => r.status === "pending" && !answered.has(r.id),
+    )) {
       answered.add(request.id);
-      await dispatch(cookie, { type: "runtime-request.respond", commandId: uuid(), threadId, requestId: request.id, decision: "accept" }).catch(() => undefined);
+      await dispatch(cookie, {
+        type: "runtime-request.respond",
+        commandId: uuid(),
+        threadId,
+        requestId: request.id,
+        decision: "accept",
+      }).catch(() => undefined);
     }
     const runs = runsOf(current);
     if (runs.some((run: any) => run.ordinal >= ordinal) && runs.every((run) => SETTLED.has(run.status))) return current;
@@ -203,10 +293,36 @@ interface Thread {
 const newThread = async (cli: Cli, title: string): Promise<Thread> => {
   const threadId = uuid();
   const model = { instanceId: CLIS[cli].instanceId, model: CLIS[cli].model, options: [] };
-  await dispatch(cookie, { type: "thread.create", commandId: uuid(), threadId, projectId, title, modelSelection: model, runtimeMode: "full-access", interactionMode: "default", branch: null, worktreePath: null, createdBy: "user", creationSource: "web" });
+  await dispatch(cookie, {
+    type: "thread.create",
+    commandId: uuid(),
+    threadId,
+    projectId,
+    title,
+    modelSelection: model,
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    branch: null,
+    worktreePath: null,
+    createdBy: "user",
+    creationSource: "web",
+  });
   return { cli, threadId, ordinal: 0 };
 };
-const IDS = new Set(["id", "threadId", "runId", "nodeId", "providerThreadId", "providerTurnId", "createdAt", "updatedAt", "startedAt", "completedAt", "nativeItemRef", "parentItemId"]);
+const IDS = new Set([
+  "id",
+  "threadId",
+  "runId",
+  "nodeId",
+  "providerThreadId",
+  "providerTurnId",
+  "createdAt",
+  "updatedAt",
+  "startedAt",
+  "completedAt",
+  "nativeItemRef",
+  "parentItemId",
+]);
 const turn = async (thread: Thread, text: string) => {
   thread.ordinal += 1;
   const model = { instanceId: CLIS[thread.cli].instanceId, model: CLIS[thread.cli].model, options: [] };
@@ -222,15 +338,20 @@ const turn = async (thread: Thread, text: string) => {
     answer: String(items.filter((item: any) => item.type === "assistant_message").at(-1)?.text ?? "").slice(0, 600),
     tools: items
       .filter((item: any) => !["user_message", "assistant_message", "reasoning", "checkpoint"].includes(item.type))
-      .map((item: any) => JSON.stringify(Object.fromEntries(Object.entries(item).filter(([key]) => !IDS.has(key)))).slice(0, 900)),
+      .map((item: any) =>
+        JSON.stringify(Object.fromEntries(Object.entries(item).filter(([key]) => !IDS.has(key)))).slice(0, 900),
+      ),
   };
 };
-const touches = (step: { tools: ReadonlyArray<string> }, name: string) => step.tools.some((tool) => tool.includes(name));
+const touches = (step: { tools: ReadonlyArray<string> }, name: string) =>
+  step.tools.some((tool) => tool.includes(name));
 
 /** Where the CLI's live process reads the set: its linked root in its home (pi: the mount its flag names), and the link's target. */
 const linkedRoot = async (cli: Cli) => {
   if (CLIS[cli].linked === "") return { at: MOUNT, target: null, live: null };
-  const found = await sh(`for d in /var/lib/t3flare/cli/proc-*/${CLIS[cli].linked}; do [ -L "$d" ] && echo "$d $(readlink "$d")"; done`);
+  const found = await sh(
+    `for d in /var/lib/t3flare/cli/proc-*/${CLIS[cli].linked}; do [ -L "$d" ] && echo "$d $(readlink "$d")"; done`,
+  );
   const line = found.stdout.trim().split("\n").filter(Boolean).at(-1) ?? "";
   const [at, target] = line.split(" ");
   return { at: at ?? null, target: target ?? null, live: found };
@@ -245,11 +366,19 @@ const sideOf = (answer: string, word: string): "environment" | "repo" | "unclear
   return environment && !repo ? "environment" : repo && !environment ? "repo" : "unclear";
 };
 /** Whether `side` is what a root whose winner is `expected` gives: Codex's `both` picks neither, so any side. */
-const agrees = (side: string, expected: EnvironmentPrecedence) => (expected === "both" ? side !== "unclear" : side === expected);
+const agrees = (side: string, expected: EnvironmentPrecedence) =>
+  expected === "both" ? side !== "unclear" : side === expected;
 
 const probeCli = async (cli: Cli) => {
   const spec = CLIS[cli];
-  await wsCall(cookie, "server.updateSettings", { patch: {}, providerInstanceMutation: { operation: "upsert", instanceId: spec.instanceId, instance: { driver: spec.driver, enabled: true } } });
+  await wsCall(cookie, "server.updateSettings", {
+    patch: {},
+    providerInstanceMutation: {
+      operation: "upsert",
+      instanceId: spec.instanceId,
+      instance: { driver: spec.driver, enabled: true },
+    },
+  });
   if ((await installed()).includes("late-code")) await remove("late-code");
   const setup = await install("skills");
   const checks: Record<string, boolean> = {};
@@ -262,9 +391,15 @@ const probeCli = async (cli: Cli) => {
   const after = await containerOf();
   const envCode = snapshot.skills.find((skill: any) => skill.name === "env-code");
   checks.composerListsEnvironmentSkill = envCode?.scope === "user" && envCode?.path === `${MOUNT}/env-code/SKILL.md`;
-  const roots = CLI_ROOTS[cli].skills.map((root) => ({ directory: root.directory, word: PAIRS[root.directory]!, expected: root.environment! }));
+  const roots = CLI_ROOTS[cli].skills.map((root) => ({
+    directory: root.directory,
+    word: PAIRS[root.directory]!,
+    expected: root.environment!,
+  }));
   steps.composerPairs = roots.map(({ directory, word, expected }) => {
-    const listed = snapshot.skills.filter((skill: any) => skill.name === `pair-${word}`).map((skill: any) => ({ scope: skill.scope, path: skill.path }));
+    const listed = snapshot.skills
+      .filter((skill: any) => skill.name === `pair-${word}`)
+      .map((skill: any) => ({ scope: skill.scope, path: skill.path }));
     const environment = { scope: "user", path: `${MOUNT}/pair-${word}/SKILL.md` };
     const repo = { scope: "project", path: `${root}/${directory}/pair-${word}/SKILL.md` };
     const wanted = expected === "environment" ? [environment] : expected === "repo" ? [repo] : [repo, environment];
@@ -296,7 +431,10 @@ const probeCli = async (cli: Cli) => {
       `ls '${at}'`,
     ].join("\n"),
   );
-  steps.agentWrite = await turn(mentioned, `Run exactly this shell command and reply with its error output verbatim: touch '${at}/planted-by-agent'`);
+  steps.agentWrite = await turn(
+    mentioned,
+    `Run exactly this shell command and reply with its error output verbatim: touch '${at}/planted-by-agent'`,
+  );
   steps.afterWrites = await sh(`ls -la '${MOUNT}' '${MOUNT}/env-code'; head -c 400 '${MOUNT}/env-code/SKILL.md'`);
   checks.writeRefused =
     steps.shellWrite.stdout.includes("touch: refused") &&
@@ -313,10 +451,21 @@ const probeCli = async (cli: Cli) => {
     const own = await newThread(cli, `spi-1153 ${cli}: pair ${word} described`);
     const ownTurn = await turn(own, `What is the ${word} pair code? Reply with the code alone.`);
     const byMention = await newThread(cli, `spi-1153 ${cli}: pair ${word} mention`);
-    const mentionTurn = await turn(byMention, `$pair-${word} What is the ${word} pair code? Reply with the code alone.`);
+    const mentionTurn = await turn(
+      byMention,
+      `$pair-${word} What is the ${word} pair code? Reply with the code alone.`,
+    );
     const cliChose = sideOf(ownTurn.answer, word);
     const mentionGave = sideOf(mentionTurn.answer, word);
-    steps.pairs.push({ root: directory, word, expected, cliChose, mentionGave, described: ownTurn, mention: mentionTurn });
+    steps.pairs.push({
+      root: directory,
+      word,
+      expected,
+      cliChose,
+      mentionGave,
+      described: ownTurn,
+      mention: mentionTurn,
+    });
   }
   checks.pairsCliChoiceIsRoots = steps.pairs.every((pair: any) => agrees(pair.cliChose, pair.expected));
   checks.pairsMentionIsRoots = steps.pairs.every((pair: any) => agrees(pair.mentionGave, pair.expected));
@@ -343,7 +492,10 @@ const probeCli = async (cli: Cli) => {
   steps.lateReinstall = await install("late");
   await stopContainer();
   const fresh = await newThread(cli, `spi-1153 ${cli}: catch-up new process`);
-  steps.lateMentionNewProcess = await turn(fresh, "$late-code What is the late code? If you cannot find it, reply NONE.");
+  steps.lateMentionNewProcess = await turn(
+    fresh,
+    "$late-code What is the late code? If you cannot find it, reply NONE.",
+  );
   checks.lateSeenByNewProcess = steps.lateMentionNewProcess.answer.includes("LATE-8");
   await remove("late-code");
   steps.catchUp = {
@@ -354,14 +506,23 @@ const probeCli = async (cli: Cli) => {
   };
 
   const ok = Object.values(checks).every(Boolean);
-  console.log(`${cli}: ${ok ? "ok" : "FAIL"} ${JSON.stringify(checks)} pairs ${JSON.stringify(steps.pairs.map((pair: any) => [pair.root, pair.expected, pair.cliChose, pair.mentionGave]))} catch-up ${JSON.stringify(steps.catchUp)}`);
+  console.log(
+    `${cli}: ${ok ? "ok" : "FAIL"} ${JSON.stringify(checks)} pairs ${JSON.stringify(steps.pairs.map((pair: any) => [pair.root, pair.expected, pair.cliChose, pair.mentionGave]))} catch-up ${JSON.stringify(steps.catchUp)}`,
+  );
   return {
     ok,
     cli,
     model: spec.model,
     checks,
     composer: { container: { before, after }, ...snapshot },
-    threads: { described: described.threadId, mentioned: mentioned.threadId, lateA: lateA.threadId, lateB: lateB.threadId, late: late.threadId, fresh: fresh.threadId },
+    threads: {
+      described: described.threadId,
+      mentioned: mentioned.threadId,
+      lateA: lateA.threadId,
+      lateB: lateB.threadId,
+      late: late.threadId,
+      fresh: fresh.threadId,
+    },
     steps,
   };
 };
@@ -372,12 +533,22 @@ if (asked[0] === "fixture") {
 } else {
   cookie = await pair();
   projectId = (await ensureProject(cookie, PROJECT)).projectId;
-  for (const file of fs.readdirSync(REPO_FIXTURE, { recursive: true, withFileTypes: true }).filter((entry) => entry.isFile())) {
+  for (const file of fs
+    .readdirSync(REPO_FIXTURE, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())) {
     const full = path.join(file.parentPath, file.name);
-    await wsCall(cookie, "projects.writeFile", { cwd: root, relativePath: path.relative(REPO_FIXTURE, full), contents: fs.readFileSync(full, "utf8") });
+    await wsCall(cookie, "projects.writeFile", {
+      cwd: root,
+      relativePath: path.relative(REPO_FIXTURE, full),
+      contents: fs.readFileSync(full, "utf8"),
+    });
   }
   for (const [directory, word] of Object.entries(PAIRS)) {
-    await wsCall(cookie, "projects.writeFile", { cwd: root, relativePath: `${directory}/pair-${word}/SKILL.md`, contents: pairMd(word, `REPO-${word.toUpperCase()}`) });
+    await wsCall(cookie, "projects.writeFile", {
+      cwd: root,
+      relativePath: `${directory}/pair-${word}/SKILL.md`,
+      contents: pairMd(word, `REPO-${word.toUpperCase()}`),
+    });
   }
   let failed = false;
   for (const cli of (asked.length === 0 ? Object.keys(CLIS) : asked) as Array<Cli>) {

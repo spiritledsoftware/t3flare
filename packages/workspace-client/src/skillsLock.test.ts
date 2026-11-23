@@ -18,11 +18,19 @@ describe("SKILLS_LOCK_SCRIPT", () => {
   it("leaves the command's output and status as they are, and records why the lock failed once", () => {
     fs.rmSync(SKILLS_LOCK_FAILED, { force: true });
     const first = run("echo out; echo err >&2; exit 7");
-    expect({ stdout: first.stdout, stderr: first.stderr, status: first.status }).toEqual({ stdout: "out\n", stderr: "err\n", status: 7 });
+    expect({ stdout: first.stdout, stderr: first.stderr, status: first.status }).toEqual({
+      stdout: "out\n",
+      stderr: "err\n",
+      status: 7,
+    });
     expect(fs.existsSync(SKILLS_LOCK_FAILED)).toBe(true);
     const at = fs.statSync(SKILLS_LOCK_FAILED).mtimeMs;
     const second = run("echo again");
-    expect({ stdout: second.stdout, stderr: second.stderr, status: second.status }).toEqual({ stdout: "again\n", stderr: "", status: 0 });
+    expect({ stdout: second.stdout, stderr: second.stderr, status: second.status }).toEqual({
+      stdout: "again\n",
+      stderr: "",
+      status: 0,
+    });
     // Not tried again in the same launch.
     expect(fs.statSync(SKILLS_LOCK_FAILED).mtimeMs).toBe(at);
   });

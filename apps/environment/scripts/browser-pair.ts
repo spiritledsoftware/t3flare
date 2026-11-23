@@ -20,10 +20,16 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), "t3flare-pair-"));
 const file = path.join(dir, "cookie");
 fs.writeFileSync(file, cookie, { mode: 0o600 });
 try {
-  const set = spawnSync("agent-browser", ["--session", session, "cookies", "set", "--curl", file, "--domain", base.hostname], { encoding: "utf8" });
+  const set = spawnSync(
+    "agent-browser",
+    ["--session", session, "cookies", "set", "--curl", file, "--domain", base.hostname],
+    { encoding: "utf8" },
+  );
   if (set.status !== 0) throw new Error(`cookies set failed (${set.status})`);
 } finally {
   fs.rmSync(dir, { recursive: true, force: true });
 }
-const opened = spawnSync("agent-browser", ["--session", session, "open", new URL(pathname, base).toString()], { encoding: "utf8" });
+const opened = spawnSync("agent-browser", ["--session", session, "open", new URL(pathname, base).toString()], {
+  encoding: "utf8",
+});
 console.log(JSON.stringify({ paired: true, opened: opened.status === 0 }));

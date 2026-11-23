@@ -17,13 +17,22 @@ const KEY = "a".repeat(64);
 
 const memory = () => {
   const map = new Map<string, unknown>();
-  return { get: <T>(key: string) => map.get(key) as T | undefined, put: <T>(key: string, value: T) => void map.set(key, structuredClone(value)) };
+  return {
+    get: <T>(key: string) => map.get(key) as T | undefined,
+    put: <T>(key: string, value: T) => void map.set(key, structuredClone(value)),
+  };
 };
 
 const failed: BaseBuildRecord = {
   key: KEY,
   state: "failed",
-  failure: { at: NOW, phase: "running", exitCode: 100, message: "the Image setup exited 100", output: "E: Unable to locate package <nope>\n" },
+  failure: {
+    at: NOW,
+    phase: "running",
+    exitCode: 100,
+    message: "the Image setup exited 100",
+    output: "E: Unable to locate package <nope>\n",
+  },
   good: null,
   at: NOW,
 };
@@ -34,13 +43,19 @@ const setup = (extra: Partial<HarnessDeps> = {}) => {
   return { store, deps };
 };
 
-const page = async (deps: HarnessDeps) => (await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), deps)).text();
+const page = async (deps: HarnessDeps) =>
+  (await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), deps)).text();
 
 const ownerPost = async (deps: HarnessDeps, path: string, body: unknown) =>
   handleHarness(
     new Request(`https://${HOST}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json", origin: `https://${HOST}`, "sec-fetch-site": "same-origin", [CSRF_HEADER]: await csrfToken(deps.store.csrfKey(), "owner-sub", NOW) },
+      headers: {
+        "content-type": "application/json",
+        origin: `https://${HOST}`,
+        "sec-fetch-site": "same-origin",
+        [CSRF_HEADER]: await csrfToken(deps.store.csrfKey(), "owner-sub", NOW),
+      },
       body: JSON.stringify(body),
     }),
     deps,
@@ -53,14 +68,25 @@ describe("the Base build's record in the Environment DO", () => {
     expect(store.noteBaseBuild(failed)).toBe(true);
     expect(store.noteBaseBuild({ ...failed, state: "maybe" })).toBe(false);
     // A report that arrives late (an older `at`) does not replace a newer one.
-    expect(store.noteBaseBuild({ key: KEY, state: "building", phase: "running", since: NOW - 5000, good: null, at: NOW - 1000 })).toBe(false);
+    expect(
+      store.noteBaseBuild({
+        key: KEY,
+        state: "building",
+        phase: "running",
+        since: NOW - 5000,
+        good: null,
+        at: NOW - 1000,
+      }),
+    ).toBe(false);
     expect(store.lastBaseBuild()).toEqual(failed);
   });
 
   it("shows the state in Status, and the failed build's output on the page, escaped", async () => {
     const { store, deps } = setup({ rebuildBase: async () => failed });
     store.noteBaseBuild(failed);
-    const status = (await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings/api/status`), deps)).json()) as Record<string, unknown>;
+    const status = (await (
+      await handleHarness(new Request(`https://${HOST}/_t3flare/settings/api/status`), deps)
+    ).json()) as Record<string, unknown>;
     expect(status["Base snapshot"]).toBe("failed 2026-11-22T10:00:00.000Z (exit 100): the Image setup exited 100");
     const html = await page(deps);
     expect(html).toContain('<span class="pill pill-err">Failed</span>');
@@ -80,7 +106,15 @@ describe("the Base build's record in the Environment DO", () => {
 describe("the Owner's Rebuild", () => {
   it("asks the Builder, keeps its record and answers its line", async () => {
     let asked = 0;
-    const building: BaseBuildRecord = { key: KEY, state: "building", phase: "starting", since: NOW, reason: "the Owner's Rebuild", good: null, at: NOW };
+    const building: BaseBuildRecord = {
+      key: KEY,
+      state: "building",
+      phase: "starting",
+      since: NOW,
+      reason: "the Owner's Rebuild",
+      good: null,
+      at: NOW,
+    };
     const { store, deps } = setup({
       rebuildBase: async () => {
         asked++;
@@ -89,14 +123,25 @@ describe("the Owner's Rebuild", () => {
     });
     const response = await ownerPost(deps, REBUILD_BASE_PATH, {});
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ ok: true, record: { state: "building" }, status: "building since 2026-11-22T10:00:00.000Z (starting; the Owner's Rebuild)" });
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      record: { state: "building" },
+      status: "building since 2026-11-22T10:00:00.000Z (starting; the Owner's Rebuild)",
+    });
     expect(asked).toBe(1);
     expect(store.lastBaseBuild()).toEqual(building);
   });
 
   it("is guarded as every change is, and is not found without a Builder", async () => {
     const { deps } = setup({ rebuildBase: async () => failed });
-    const bare = await handleHarness(new Request(`https://${HOST}${REBUILD_BASE_PATH}`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }), deps);
+    const bare = await handleHarness(
+      new Request(`https://${HOST}${REBUILD_BASE_PATH}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }),
+      deps,
+    );
     expect(bare.status).toBe(403);
     expect((await ownerPost(setup().deps, REBUILD_BASE_PATH, {})).status).toBe(404);
   });
@@ -115,7 +160,8 @@ describe("a save pokes the Builder", () => {
   it("when what a build is made from or a Builder setting moves, with what moved; never for the rest", async () => {
     const reasons: Array<string> = [];
     const { deps } = setup({ baseInputsChanged: (reason) => void reasons.push(reason) });
-    const save = (settings: Record<string, unknown>) => ownerPost(deps, "/_t3flare/settings/api/environment", { settings });
+    const save = (settings: Record<string, unknown>) =>
+      ownerPost(deps, "/_t3flare/settings/api/environment", { settings });
     expect((await save({ containerIdleMinutes: 5, containerBudget: 2 })).status).toBe(200);
     expect(reasons).toEqual([]);
     await save({ imageSetup: "apt-get install -y jq\n" });
@@ -140,7 +186,8 @@ describe("the Base snapshot's settings on the page", () => {
     expect(start).toBeGreaterThan(-1);
     const row = html.slice(start, html.indexOf('<div class="row">', start));
     expect(row).toMatch(/<textarea class="file"[^>]*data-setting="imageSetup"/);
-    for (const key of ["imageSetupMinutes", "snapshotMinutes", "builderSize", "builderInBudget", "rebuildEveryDays"]) expect(row).toContain(`data-setting="${key}"`);
+    for (const key of ["imageSetupMinutes", "snapshotMinutes", "builderSize", "builderInBudget", "rebuildEveryDays"])
+      expect(row).toContain(`data-setting="${key}"`);
     expect(row).toContain('<option value="sameAsContainer" selected>Same as Container size</option>');
   });
 });

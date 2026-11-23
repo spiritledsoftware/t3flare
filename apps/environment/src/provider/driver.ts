@@ -45,7 +45,10 @@ export const PRESENTATION = {
 
 const decodeSettings = Schema.decodeSync(PiDurableSettings);
 
-export type PiDurableDriverEnv = ProviderHost.ProviderHost | McpProviderSessions.McpProviderSessions | FileSystem.FileSystem;
+export type PiDurableDriverEnv =
+  | ProviderHost.ProviderHost
+  | McpProviderSessions.McpProviderSessions
+  | FileSystem.FileSystem;
 
 /** Pi Durable's snapshot: the endpoints' models, else needing setup (SPI-1176). */
 export const snapshotOf = Effect.fn("PiDurableDriver.snapshot")(function* (input: {
@@ -81,15 +84,21 @@ export const PiDurableDriver: ProviderDriver<PiDurableSettings, PiDurableDriverE
     // The snapshot's models are the Model endpoints' as stored now (SPI-1162), read through the services bound last: an
     // Environment DO that reset in a warm isolate binds them again.
     const models = () => snapshotModels(environmentServices().modelEndpoints?.());
-    const maintenance = makeManualOnlyProviderMaintenanceCapabilities({ provider: PI_DURABLE_DRIVER, packageName: null });
+    const maintenance = makeManualOnlyProviderMaintenanceCapabilities({
+      provider: PI_DURABLE_DRIVER,
+      packageName: null,
+    });
     const settingsSource = yield* makeProviderSnapshotSettingsSource(effective);
     const snapshot = yield* makeManagedServerProvider({
       resolveMaintenance: () => Effect.succeed(maintenance),
       getSettings: settingsSource.getSettings,
       streamSettings: settingsSource.streamSettings,
       haveSettingsChanged: haveProviderSnapshotSettingsChanged,
-      initialSnapshot: (settings) => snapshotOf({ enabled: settings.provider.enabled, models: models() }).pipe(Effect.map(stamp)),
-      checkProvider: Effect.suspend(() => snapshotOf({ enabled: effective.enabled, models: models() })).pipe(Effect.map(stamp)),
+      initialSnapshot: (settings) =>
+        snapshotOf({ enabled: settings.provider.enabled, models: models() }).pipe(Effect.map(stamp)),
+      checkProvider: Effect.suspend(() => snapshotOf({ enabled: effective.enabled, models: models() })).pipe(
+        Effect.map(stamp),
+      ),
     }).pipe(Effect.orDie);
     yield* Effect.forkScoped(snapshot.refresh);
     // A change to the Model endpoints reaches the picker at once, not at the next check.
@@ -113,7 +122,15 @@ export const PiDurableDriver: ProviderDriver<PiDurableSettings, PiDurableDriverE
       snapshotForCwd: (cwd) =>
         snapshot.getSnapshot.pipe(
           Effect.flatMap((machine) => piDurableSnapshotForCwd(machine, cwd, skills)),
-          Effect.mapError((cause) => new ProviderDriverError({ driver: PI_DURABLE_DRIVER, instanceId, detail: "Failed to read the Workspace's skills.", cause })),
+          Effect.mapError(
+            (cause) =>
+              new ProviderDriverError({
+                driver: PI_DURABLE_DRIVER,
+                instanceId,
+                detail: "Failed to read the Workspace's skills.",
+                cause,
+              }),
+          ),
         ),
       orchestrationAdapter: makePiDurableAdapter(instanceId, mcpSessions, attachments, skills),
       textGeneration,

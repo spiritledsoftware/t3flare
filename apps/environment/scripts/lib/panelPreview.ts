@@ -22,7 +22,13 @@
 import { createHash } from "node:crypto";
 import http from "node:http";
 
-import { applyMcpChange, type BaseBuildRecord, type Exposure, EXPOSURES, type StoredHarness } from "@t3flare/harness-registry";
+import {
+  applyMcpChange,
+  type BaseBuildRecord,
+  type Exposure,
+  EXPOSURES,
+  type StoredHarness,
+} from "@t3flare/harness-registry";
 
 import type { WorkspacesApi } from "../../src/agents/workspaceActions.ts";
 import type { WorkspaceRecord } from "../../src/agents/workspaces.ts";
@@ -51,13 +57,19 @@ export const TEST_TAKES_MS = 3_000;
 export const PREVIEW_SKILLS_REPO = "mattpocock/skills";
 
 const NOT_IN_PREVIEW = "not in the preview: ";
-const NOT_IN_PREVIEW_WORKSPACES = "a Workspace's usage, the Sweep and the Owner's acts on the Workspaces need the agents Worker";
+const NOT_IN_PREVIEW_WORKSPACES =
+  "a Workspace's usage, the Sweep and the Owner's acts on the Workspaces need the agents Worker";
 
-const text = (status: number, body: string) => new Response(`${body}\n`, { status, headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" } });
+const text = (status: number, body: string) =>
+  new Response(`${body}\n`, {
+    status,
+    headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
+  });
 
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 
-const skillMd = (name: string, description: string) => `---\nname: ${name}\ndescription: ${JSON.stringify(description)}\n---\n\n# ${name}\n\n${description}\n`;
+const skillMd = (name: string, description: string) =>
+  `---\nname: ${name}\ndescription: ${JSON.stringify(description)}\n---\n\n# ${name}\n\n${description}\n`;
 
 /** Runs `work` with the console's log and warn lines dropped: the seeding's changes and listings are not news. */
 const quietly = async <T>(work: () => Promise<T>): Promise<T> => {
@@ -83,11 +95,19 @@ const seededHarness = (): StoredHarness => {
   for (const row of FIXTURE_MCP) {
     if (row.setting.kind !== "direct" || row.setting.url === undefined) continue;
     const setting = row.setting.auth;
-    const auth = setting?.kind === "header" && setting.header !== undefined ? { kind: "header" as const, header: setting.header } : setting?.kind === "oauth" ? { kind: "oauth" as const } : { kind: "none" as const };
+    const auth =
+      setting?.kind === "header" && setting.header !== undefined
+        ? { kind: "header" as const, header: setting.header }
+        : setting?.kind === "oauth"
+          ? { kind: "oauth" as const }
+          : { kind: "none" as const };
     apply({ op: "add", server: row.name, url: row.setting.url, auth });
     // The page's rows carry these as text; the fixture's are a class and an Exposure each.
-    for (const [tool, cls] of Object.entries(row.overrides ?? {})) if (cls === "read" || cls === "write") apply({ op: "class", server: row.name, tool, class: cls });
-    const exposures = Object.entries(row.toolExposure ?? {}).filter((entry): entry is [string, Exposure] => (EXPOSURES as ReadonlyArray<string>).includes(entry[1]));
+    for (const [tool, cls] of Object.entries(row.overrides ?? {}))
+      if (cls === "read" || cls === "write") apply({ op: "class", server: row.name, tool, class: cls });
+    const exposures = Object.entries(row.toolExposure ?? {}).filter((entry): entry is [string, Exposure] =>
+      (EXPOSURES as ReadonlyArray<string>).includes(entry[1]),
+    );
     if (exposures.length > 0) apply({ op: "server", server: row.name, toolExposure: Object.fromEntries(exposures) });
   }
   return harness;
@@ -98,7 +118,8 @@ const seededHarness = (): StoredHarness => {
  * has it) and refused tools, a failed one's error, and a refusal for everything else. Nothing is fetched.
  */
 const fixtureEngine = (): McpEngineBinding => {
-  const failed = (tag: string, message: string) => ({ kind: "failed", error: { _tag: tag, message }, state: {} }) as never;
+  const failed = (tag: string, message: string) =>
+    ({ kind: "failed", error: { _tag: tag, message }, state: {} }) as never;
   return {
     discover: async (target) => {
       const row = FIXTURE_MCP.find((each) => each.name === target.conn);
@@ -113,7 +134,12 @@ const fixtureEngine = (): McpEngineBinding => {
         era: "legacy",
         protocolVersion: "2025-06-18",
         capabilities: { tools: {} },
-        tools: row.tools.map((tool) => ({ name: tool.upstream, description: `${tool.upstream} (a fixture tool)`, inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: tool.hinted === "read" } })),
+        tools: row.tools.map((tool) => ({
+          name: tool.upstream,
+          description: `${tool.upstream} (a fixture tool)`,
+          inputSchema: { type: "object", properties: {} },
+          annotations: { readOnlyHint: tool.hinted === "read" },
+        })),
         prompts: [],
         problems: row.refused.map((refused) => ({ tool: refused.tool, problem: refused.reason })),
         fetchedAt: 0,
@@ -130,18 +156,45 @@ const fixtureEngine = (): McpEngineBinding => {
  */
 const seededWorkspaces = (now: number): WorkspacesApi => {
   const sql = t3Tables();
-  sql.exec("INSERT INTO projection_projects VALUES ('p-live', 'Live app', '/w/live', ?, NULL, NULL)", new Date(now - 40 * DAY).toISOString());
+  sql.exec(
+    "INSERT INTO projection_projects VALUES ('p-live', 'Live app', '/w/live', ?, NULL, NULL)",
+    new Date(now - 40 * DAY).toISOString(),
+  );
   const rows: ReadonlyArray<WorkspaceRecord> = [
     record({ id: "acme", createdAt: now - 40 * DAY, unreferencedSince: now - 2 * DAY }),
-    record({ id: ".wt/acme/feat-a", kind: "worktree", parent: "acme", branch: "feat-a", createdAt: now - 10 * DAY, unreferencedSince: now - 2 * DAY }),
-    record({ id: ".wt/acme/feat-b", kind: "worktree", parent: "acme", branch: "t3/feat-b", createdAt: now - 10 * DAY, state: "tombstoned", deletedAt: now - 3 * DAY, purgeAfter: now + 4 * DAY, lastError: "uncommitted work (--force)" }),
+    record({
+      id: ".wt/acme/feat-a",
+      kind: "worktree",
+      parent: "acme",
+      branch: "feat-a",
+      createdAt: now - 10 * DAY,
+      unreferencedSince: now - 2 * DAY,
+    }),
+    record({
+      id: ".wt/acme/feat-b",
+      kind: "worktree",
+      parent: "acme",
+      branch: "t3/feat-b",
+      createdAt: now - 10 * DAY,
+      state: "tombstoned",
+      deletedAt: now - 3 * DAY,
+      purgeAfter: now + 4 * DAY,
+      lastError: "uncommitted work (--force)",
+    }),
     record({ id: "live", owner: "acme", name: "live", createdAt: now - 40 * DAY }),
   ];
   const refuse = async (): Promise<never> => {
     throw new Error(`${NOT_IN_PREVIEW}${NOT_IN_PREVIEW_WORKSPACES}`);
   };
   return {
-    deps: { ...viewDeps(rows, { sql, purgingSince: now - 20 * DAY }), purge: refuse, restore: refuse, stop: refuse, audit: () => undefined, now: () => now },
+    deps: {
+      ...viewDeps(rows, { sql, purgingSince: now - 20 * DAY }),
+      purge: refuse,
+      restore: refuse,
+      stop: refuse,
+      audit: () => undefined,
+      now: () => now,
+    },
     usage: refuse,
     runSweep: refuse,
   };
@@ -169,33 +222,72 @@ export const panelPreview = async (options: PreviewOptions) => {
 
   await quietly(async () => {
     for (const row of FIXTURE_MCP) {
-      if (row.setting.kind === "direct" && row.setting.auth?.kind === "header") await fixture.secrets.put(row.name, "header", `preview-${row.name}-value`);
+      if (row.setting.kind === "direct" && row.setting.auth?.kind === "header")
+        await fixture.secrets.put(row.name, "header", `preview-${row.name}-value`);
     }
     // Listed as the fixture shows them; an OAuth server never signed in stays unlisted.
     for (const row of FIXTURE_MCP) if (row.status !== "never") await fixture.host.list(row.name);
     fixture.kv.put(AUDIT_KEY, [...FIXTURE_AUDIT].reverse());
     fixture.store.noteT3Tools({ ...FIXTURE_T3_TOOLS, listedAt: now() - 9 * 60_000 });
     const commit = fixture.github.push(PREVIEW_SKILLS_REPO, {
-      "skills/grill-me/SKILL.md": skillMd("grill-me", "Grill the user about a plan until each branch of its design tree is settled."),
+      "skills/grill-me/SKILL.md": skillMd(
+        "grill-me",
+        "Grill the user about a plan until each branch of its design tree is settled.",
+      ),
       "skills/tdd/SKILL.md": skillMd("tdd", "Test-driven development: red, green, then refactor at agreed seams."),
       "skills/tdd/reference.md": "Red, green, refactor.\n",
     });
     const actor = { caller: `owner:${PREVIEW_SUBJECT}` };
-    const installed = await changeSkills(fixture.deps.ops, "/install", { source: PREVIEW_SKILLS_REPO, commit, folders: ["skills/grill-me", "skills/tdd"] }, { actor });
-    const results = "json" in installed ? (installed.json as { readonly results?: ReadonlyArray<{ readonly error?: string }> }).results : undefined;
-    if (results === undefined || results.length !== 2 || results.some((result) => result.error !== undefined)) throw new Error(`the preview's skills could not be installed: ${JSON.stringify(installed)}`);
+    const installed = await changeSkills(
+      fixture.deps.ops,
+      "/install",
+      { source: PREVIEW_SKILLS_REPO, commit, folders: ["skills/grill-me", "skills/tdd"] },
+      { actor },
+    );
+    const results =
+      "json" in installed
+        ? (installed.json as { readonly results?: ReadonlyArray<{ readonly error?: string }> }).results
+        : undefined;
+    if (results === undefined || results.length !== 2 || results.some((result) => result.error !== undefined))
+      throw new Error(`the preview's skills could not be installed: ${JSON.stringify(installed)}`);
     const disabled = await changeSkills(fixture.deps.ops, "/enable", { name: "tdd", enabled: false }, { actor });
-    if (disabled.status !== 200) throw new Error(`the preview's tdd skill could not be disabled: ${JSON.stringify(disabled)}`);
+    if (disabled.status !== 200)
+      throw new Error(`the preview's tdd skill could not be disabled: ${JSON.stringify(disabled)}`);
   });
 
   // The simulated Builder (ADR-0047 §4–§8): its records are made here, the panel keeps them as it keeps the real one's.
-  const snapshot = (key: string) => ({ id: `preview-snapshot-${key.slice(0, 8)}`, size: 412_000_000, key, imageDigest: "sha256:preview", builtAt: now(), tookMs: 95_000 });
+  const snapshot = (key: string) => ({
+    id: `preview-snapshot-${key.slice(0, 8)}`,
+    size: 412_000_000,
+    key,
+    imageDigest: "sha256:preview",
+    builtAt: now(),
+    tookMs: 95_000,
+  });
   let test: { readonly setup: string; readonly since: number } | undefined;
   const testRecord = (): BaseBuildRecord => {
     if (test === undefined) return { test: true, key: null, state: "none", good: null, at: now() };
     const key = test.setup;
-    if (now() - test.since < TEST_TAKES_MS) return { test: true, setup: test.setup, key, state: "building", phase: "running", since: test.since, reason: "the Owner's Test", good: null, at: now() };
-    return { test: true, setup: test.setup, key, state: "ready", good: { ...snapshot(key), builtAt: test.since + TEST_TAKES_MS, tookMs: TEST_TAKES_MS }, at: now() };
+    if (now() - test.since < TEST_TAKES_MS)
+      return {
+        test: true,
+        setup: test.setup,
+        key,
+        state: "building",
+        phase: "running",
+        since: test.since,
+        reason: "the Owner's Test",
+        good: null,
+        at: now(),
+      };
+    return {
+      test: true,
+      setup: test.setup,
+      key,
+      state: "ready",
+      good: { ...snapshot(key), builtAt: test.since + TEST_TAKES_MS, tookMs: TEST_TAKES_MS },
+      at: now(),
+    };
   };
 
   const kv = fixture.kv;
@@ -205,16 +297,31 @@ export const panelPreview = async (options: PreviewOptions) => {
     host,
     now,
     ownerEndpoint: `http://${host}/_t3flare/mcp`,
-    budget: async () => ({ max: (await resolvedForRead(fixture.store.loadEnvironment(), undefined)).containerBudget, leases: [{ holder: "preview-lease", workspace: "live" }] }),
-    endpoints: { store: endpoints, discover: async () => ({ ok: false, error: `${NOT_IN_PREVIEW}no model list is read; type the model's id` }) },
+    budget: async () => ({
+      max: (await resolvedForRead(fixture.store.loadEnvironment(), undefined)).containerBudget,
+      leases: [{ holder: "preview-lease", workspace: "live" }],
+    }),
+    endpoints: {
+      store: endpoints,
+      discover: async () => ({ ok: false, error: `${NOT_IN_PREVIEW}no model list is read; type the model's id` }),
+    },
     workspaces: seededWorkspaces(now()),
-    sweepSettingsChanged: () => log("preview: the Sweep settings changed (the Environment would bring the Sweep forward)"),
-    baseInputsChanged: (reason) => log(`preview: the Base build's inputs changed (${reason}); the Builder would build again`),
+    sweepSettingsChanged: () =>
+      log("preview: the Sweep settings changed (the Environment would bring the Sweep forward)"),
+    baseInputsChanged: (reason) =>
+      log(`preview: the Base build's inputs changed (${reason}); the Builder would build again`),
     rebuildBase: async () => {
       const environment = fixture.store.loadEnvironment();
       const key = sha256(JSON.stringify(environment)).slice(0, 64);
       log("preview: Rebuild asked; the simulated Builder is ready at once");
-      return { key, revision: environment.revision, imageDigest: "sha256:preview", state: "ready", good: snapshot(key), at: now() };
+      return {
+        key,
+        revision: environment.revision,
+        imageDigest: "sha256:preview",
+        state: "ready",
+        good: snapshot(key),
+        at: now(),
+      };
     },
     testBase: async (imageSetup) => {
       test = { setup: sha256(imageSetup), since: now() };
@@ -229,8 +336,10 @@ export const panelPreview = async (options: PreviewOptions) => {
     const url = new URL(request.url);
     // DNS rebinding: a page on another name that resolves here must not read the page (and its CSRF token).
     const requestHost = request.headers.get("host") ?? url.host;
-    if (!hosts.includes(requestHost)) return text(421, `not the preview's host: it answers ${hosts.join(" and ")} alone`);
-    if (url.pathname === "/" && request.method === "GET") return Response.redirect(`http://${requestHost}${SETTINGS_PAGE_PATH}`, 302);
+    if (!hosts.includes(requestHost))
+      return text(421, `not the preview's host: it answers ${hosts.join(" and ")} alone`);
+    if (url.pathname === "/" && request.method === "GET")
+      return Response.redirect(`http://${requestHost}${SETTINGS_PAGE_PATH}`, 302);
     // The guard compares `Origin` with `https://<host>`, as the Worker is served over TLS; the preview is plain HTTP on the
     // loopback, so either of its own origins stands in for that one. Any other Origin goes on as sent, and is refused.
     const origin = request.headers.get("origin");
@@ -244,7 +353,9 @@ export const panelPreview = async (options: PreviewOptions) => {
     // A Workspaces route that reached the agents Worker's part answers so (the route's own words would be a 503).
     if (response.status === 503 && url.pathname.startsWith(`${WORKSPACES_API_PATH}/`)) {
       const body = await response.text();
-      return body.includes(NOT_IN_PREVIEW) ? text(501, `${NOT_IN_PREVIEW}${NOT_IN_PREVIEW_WORKSPACES}`) : new Response(body, { status: response.status, headers: response.headers });
+      return body.includes(NOT_IN_PREVIEW)
+        ? text(501, `${NOT_IN_PREVIEW}${NOT_IN_PREVIEW_WORKSPACES}`)
+        : new Response(body, { status: response.status, headers: response.headers });
     }
     return response;
   };
@@ -280,7 +391,11 @@ export const servePreview = async (options: ServeOptions = {}) => {
           for (const each of Array.isArray(value) ? value : [value]) headers.append(name, each);
         }
         const method = incoming.method ?? "GET";
-        const request = new Request(`http://127.0.0.1:${port}${incoming.url ?? "/"}`, { method, headers, ...(method === "GET" || method === "HEAD" ? {} : { body: Buffer.concat(chunks) }) });
+        const request = new Request(`http://127.0.0.1:${port}${incoming.url ?? "/"}`, {
+          method,
+          headers,
+          ...(method === "GET" || method === "HEAD" ? {} : { body: Buffer.concat(chunks) }),
+        });
         const response = await ready(request);
         outgoing.writeHead(response.status, Object.fromEntries(response.headers));
         outgoing.end(Buffer.from(await response.arrayBuffer()));
@@ -299,7 +414,11 @@ export const servePreview = async (options: ServeOptions = {}) => {
   port = address.port;
   const origin = `http://127.0.0.1:${port}`;
   try {
-    ({ handle } = await panelPreview({ port, ...(options.now === undefined ? {} : { now: options.now }), ...(options.log === undefined ? {} : { log: options.log }) }));
+    ({ handle } = await panelPreview({
+      port,
+      ...(options.now === undefined ? {} : { now: options.now }),
+      ...(options.log === undefined ? {} : { log: options.log }),
+    }));
   } catch (error) {
     server.close();
     throw error;

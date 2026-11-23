@@ -22,7 +22,8 @@ if (only === undefined || only.split(",").includes("F11")) {
   await admin("POST", "/_t3flare/disarm-bootstrap");
   const disarmed = await bootstrapAtDecision(token, false);
   f11 = { armed, disarmed };
-  if (!armed.ok) failures.push(`F11: t3 alone refuses the bootstrap grant as not a pairing code: ${JSON.stringify(armed)}`);
+  if (!armed.ok)
+    failures.push(`F11: t3 alone refuses the bootstrap grant as not a pairing code: ${JSON.stringify(armed)}`);
   if (!disarmed.ok) failures.push(`F11: disarmed, the Environment DO refuses it: ${JSON.stringify(disarmed)}`);
 }
 const report = { ...result, F11: f11, failures, ok: failures.length === 0 };

@@ -14,10 +14,27 @@ import * as Stream from "effect/Stream";
 import { RpcClient } from "effect/rpc";
 
 import { ensureProject } from "./lib/cliTurn.ts";
-import { dispatch, itemsOf, pair, projectionOf, protocol, runsOf, SETTLED, sendMessage, sleep, threadWindow, uuid, wsCall } from "./lib/client.ts";
+import {
+  dispatch,
+  itemsOf,
+  pair,
+  projectionOf,
+  protocol,
+  runsOf,
+  SETTLED,
+  sendMessage,
+  sleep,
+  threadWindow,
+  uuid,
+  wsCall,
+} from "./lib/client.ts";
 
 const SLUG = process.env.T3FLARE_P996_MODEL ?? "anthropic/claude-sonnet-5-5";
-const MODEL = { instanceId: "piDurable", model: SLUG, options: /claude/.test(SLUG) ? [{ id: "thinking", value: "low" }] : [] };
+const MODEL = {
+  instanceId: "piDurable",
+  model: SLUG,
+  options: /claude/.test(SLUG) ? [{ id: "thinking", value: "low" }] : [],
+};
 const EVIDENCE = path.resolve(import.meta.dirname, "../../../.evidence/spi-996");
 /** The web client's Implement prefix (t3code `apps/web/src/proposedPlan.ts`, `PLAN_IMPLEMENTATION_PROMPT_PREFIX`). */
 const IMPLEMENT_PREFIX = "PLEASE IMPLEMENT THIS PLAN:\n";
@@ -26,26 +43,41 @@ const SECRET_KEYS = /token|authorization|cookie|secret|handle|bearer|credential|
 const redact = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(redact);
   if (value !== null && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, SECRET_KEYS.test(key) && typeof inner === "string" ? "[redacted]" : redact(inner)]));
+    return Object.fromEntries(
+      Object.entries(value).map(([key, inner]) => [
+        key,
+        SECRET_KEYS.test(key) && typeof inner === "string" ? "[redacted]" : redact(inner),
+      ]),
+    );
   }
   return value;
 };
 
 const writeEvidence = (name: string, value: unknown) => {
   fs.mkdirSync(EVIDENCE, { recursive: true });
-  fs.writeFileSync(path.join(EVIDENCE, name), `${JSON.stringify(redact({ at: new Date().toISOString(), model: SLUG, ...(value as object) }), null, 1)}\n`);
+  fs.writeFileSync(
+    path.join(EVIDENCE, name),
+    `${JSON.stringify(redact({ at: new Date().toISOString(), model: SLUG, ...(value as object) }), null, 1)}\n`,
+  );
   console.log(`wrote .evidence/spi-996/${name}`);
 };
 
 let cookie = "";
 
 /** Every event of a WS subscription with its arrival time, until it ends or `ms` pass. */
-const subscribe = (method: string, payload: unknown, ms: number): Promise<Array<{ readonly atMs: number; readonly value: unknown }>> => {
+const subscribe = (
+  method: string,
+  payload: unknown,
+  ms: number,
+): Promise<Array<{ readonly atMs: number; readonly value: unknown }>> => {
   const started = Date.now();
   const seen: Array<{ atMs: number; value: unknown }> = [];
   return Effect.runPromise(
     Effect.gen(function* () {
-      const client = (yield* RpcClient.make(WsRpcGroup)) as unknown as Record<string, (input: unknown) => Stream.Stream<unknown, unknown>>;
+      const client = (yield* RpcClient.make(WsRpcGroup)) as unknown as Record<
+        string,
+        (input: unknown) => Stream.Stream<unknown, unknown>
+      >;
       yield* client[method]!(payload).pipe(
         Stream.runForEach((value) => Effect.sync(() => seen.push({ atMs: Date.now() - started, value }))),
         Effect.timeout(`${ms} millis`),
@@ -60,16 +92,29 @@ const shownItem = (item: any) => ({
   type: item.type,
   status: item.status,
   title: item.title ?? null,
-  ...(item.type === "proposed_plan" ? { planId: item.planId, markdown: String(item.markdown ?? "").slice(0, 1500), streaming: item.streaming } : {}),
+  ...(item.type === "proposed_plan"
+    ? { planId: item.planId, markdown: String(item.markdown ?? "").slice(0, 1500), streaming: item.streaming }
+    : {}),
   ...(item.type === "dynamic_tool" ? { toolName: item.toolName } : {}),
   ...(item.type === "assistant_message" ? { text: String(item.text ?? "").slice(0, 600) } : {}),
   ...(item.type === "file_change" ? { fileName: item.fileName } : {}),
-  ...(item.type === "command_execution" ? { input: String(item.input ?? "").slice(0, 300), output: String(item.output ?? "").slice(0, 600), exitCode: item.exitCode ?? null } : {}),
+  ...(item.type === "command_execution"
+    ? {
+        input: String(item.input ?? "").slice(0, 300),
+        output: String(item.output ?? "").slice(0, 600),
+        exitCode: item.exitCode ?? null,
+      }
+    : {}),
   ...(item.type === "error" ? { failure: item.failure } : {}),
 });
 
 /** One turn: `send` starts it; runs are watched to the end, every card accepted; `onItem` sees each new item as it appears. */
-const turn = async (threadId: string, send: () => Promise<unknown>, onItem?: (item: any) => void, timeoutMs = 8 * 60_000) => {
+const turn = async (
+  threadId: string,
+  send: () => Promise<unknown>,
+  onItem?: (item: any) => void,
+  timeoutMs = 8 * 60_000,
+) => {
   const before = projectionOf(await threadWindow(cookie, threadId));
   const runsBefore = runsOf(before).length;
   const itemsBefore = new Set(itemsOf(before).map((item: any) => item.id));
@@ -85,9 +130,17 @@ const turn = async (threadId: string, send: () => Promise<unknown>, onItem?: (it
       noticed.add(item.id);
       onItem?.(item);
     }
-    for (const request of (projection?.runtimeRequests ?? []).filter((r: any) => r.status === "pending" && !answered.has(r.id))) {
+    for (const request of (projection?.runtimeRequests ?? []).filter(
+      (r: any) => r.status === "pending" && !answered.has(r.id),
+    )) {
       answered.add(request.id);
-      await dispatch(cookie, { type: "runtime-request.respond", commandId: uuid(), threadId, requestId: request.id, decision: "accept" }).catch(() => undefined);
+      await dispatch(cookie, {
+        type: "runtime-request.respond",
+        commandId: uuid(),
+        threadId,
+        requestId: request.id,
+        decision: "accept",
+      }).catch(() => undefined);
     }
     const runs = runsOf(projection);
     if (runs.length > runsBefore && runs.slice(runsBefore).every((run) => SETTLED.has(run.status))) break;
@@ -96,17 +149,39 @@ const turn = async (threadId: string, send: () => Promise<unknown>, onItem?: (it
   const runs = runsOf(projection).slice(runsBefore);
   return {
     status: runs.at(-1)?.status ?? null,
-    runs: runs.map((run: any) => ({ id: run.id, status: run.status, sourcePlanRef: run.sourcePlanRef ?? null, interactionMode: run.runtimePolicy?.interactionMode ?? run.interactionMode ?? null })),
+    runs: runs.map((run: any) => ({
+      id: run.id,
+      status: run.status,
+      sourcePlanRef: run.sourcePlanRef ?? null,
+      interactionMode: run.runtimePolicy?.interactionMode ?? run.interactionMode ?? null,
+    })),
     ms: Date.now() - started,
-    items: itemsOf(projection).filter((item: any) => !itemsBefore.has(item.id)).map(shownItem),
-    plans: (projection?.plans ?? []).filter((plan: any) => plan.kind === "proposed_plan").map((plan: any) => ({ id: plan.id, status: plan.status, markdown: String(plan.markdown ?? "").slice(0, 200) })),
+    items: itemsOf(projection)
+      .filter((item: any) => !itemsBefore.has(item.id))
+      .map(shownItem),
+    plans: (projection?.plans ?? [])
+      .filter((plan: any) => plan.kind === "proposed_plan")
+      .map((plan: any) => ({ id: plan.id, status: plan.status, markdown: String(plan.markdown ?? "").slice(0, 200) })),
     thread: { interactionMode: projection?.thread?.interactionMode ?? null },
   };
 };
 
 const createThread = async (projectId: string, title: string, interactionMode: "default" | "plan") => {
   const threadId = uuid();
-  await dispatch(cookie, { type: "thread.create", commandId: uuid(), threadId, projectId, title, modelSelection: MODEL, runtimeMode: "full-access", interactionMode, branch: null, worktreePath: null, createdBy: "user", creationSource: "web" });
+  await dispatch(cookie, {
+    type: "thread.create",
+    commandId: uuid(),
+    threadId,
+    projectId,
+    title,
+    modelSelection: MODEL,
+    runtimeMode: "full-access",
+    interactionMode,
+    branch: null,
+    worktreePath: null,
+    createdBy: "user",
+    creationSource: "web",
+  });
   return threadId;
 };
 
@@ -126,19 +201,48 @@ const plan = async (projectId: string) => {
     proposed.status === "completed" &&
     planItem !== undefined &&
     active?.status === "active" &&
-    !proposed.items.some((item: any) => item.type === "file_change" || (item.type === "command_execution" && /notes\/plan-check/.test(item.input)));
+    !proposed.items.some(
+      (item: any) =>
+        item.type === "file_change" || (item.type === "command_execution" && /notes\/plan-check/.test(item.input)),
+    );
   console.log(`plan: ${proposedOk ? "ok" : "FAIL"} (${proposed.status}, ${Math.round(proposed.ms / 1000)} s)`);
   // Implement, as the web client does it: the thread back to default mode, then the plan as the message, citing it.
-  await dispatch(cookie, { type: "thread.interaction-mode.set", commandId: uuid(), threadId, interactionMode: "default" });
+  await dispatch(cookie, {
+    type: "thread.interaction-mode.set",
+    commandId: uuid(),
+    threadId,
+    interactionMode: "default",
+  });
   const implemented = await turn(threadId, () =>
-    sendMessage(cookie, threadId, `${IMPLEMENT_PREFIX}${planItem?.markdown ?? ""}`, MODEL, planItem === undefined ? {} : { sourcePlanRef: { threadId, planId: planItem.planId } }),
+    sendMessage(
+      cookie,
+      threadId,
+      `${IMPLEMENT_PREFIX}${planItem?.markdown ?? ""}`,
+      MODEL,
+      planItem === undefined ? {} : { sourcePlanRef: { threadId, planId: planItem.planId } },
+    ),
   );
   const after = implemented.plans.find((candidate: any) => candidate.id === planItem?.planId);
-  const wrote = implemented.items.some((item: any) => (item.type === "file_change" && /plan-check/.test(item.fileName)) || (item.type === "command_execution" && /plan-check/.test(item.input)));
+  const wrote = implemented.items.some(
+    (item: any) =>
+      (item.type === "file_change" && /plan-check/.test(item.fileName)) ||
+      (item.type === "command_execution" && /plan-check/.test(item.input)),
+  );
   const implementOk =
-    implemented.status === "completed" && implemented.runs.at(-1)?.sourcePlanRef?.planId === planItem?.planId && after?.status === "completed" && wrote && implemented.thread.interactionMode === "default";
-  console.log(`implement: ${implementOk ? "ok" : "FAIL"} (${implemented.status}, ${Math.round(implemented.ms / 1000)} s)`);
-  return { threadId, ok: proposedOk && implementOk, proposed: { ok: proposedOk, ...proposed }, implemented: { ok: implementOk, ...implemented } };
+    implemented.status === "completed" &&
+    implemented.runs.at(-1)?.sourcePlanRef?.planId === planItem?.planId &&
+    after?.status === "completed" &&
+    wrote &&
+    implemented.thread.interactionMode === "default";
+  console.log(
+    `implement: ${implementOk ? "ok" : "FAIL"} (${implemented.status}, ${Math.round(implemented.ms / 1000)} s)`,
+  );
+  return {
+    threadId,
+    ok: proposedOk && implementOk,
+    proposed: { ok: proposedOk, ...proposed },
+    implemented: { ok: implementOk, ...implemented },
+  };
 };
 
 /**
@@ -175,7 +279,9 @@ const streaming = async (projectId: string, backend: "container" | "worker") => 
   const spreadMs = runningFrames.length < 2 ? 0 : (runningFrames.at(-1) as any).atMs - (runningFrames[0] as any).atMs;
   const streamed = runningFrames.length >= 2 && spreadMs >= 1_500 && ticksWhileRunning.length >= 3;
   const ok = run.status === "completed" && (backend === "worker" || streamed);
-  console.log(`streaming ${backend}: ${ok ? "ok" : "FAIL"} (${runningFrames.length} running frames over ${spreadMs} ms; ticks ${ticksWhileRunning.join(",")})`);
+  console.log(
+    `streaming ${backend}: ${ok ? "ok" : "FAIL"} (${runningFrames.length} running frames over ${spreadMs} ms; ticks ${ticksWhileRunning.join(",")})`,
+  );
   return { threadId, ok, streamed, frames: shown, ticksWhileRunning, spreadMs, ...run };
 };
 
@@ -183,12 +289,24 @@ const suggestion = async (projectId: string) => {
   await wsCall(cookie, "server.updateSettings", { patch: { promptSuggestionsEnabled: true } });
   const threadId = await createThread(projectId, "spi-996: suggestion", "default");
   const watching = subscribe(ORCHESTRATION_V2_WS_METHODS.subscribePromptSuggestion, { threadId }, 240_000);
-  const run = await turn(threadId, () => sendMessage(cookie, threadId, "Read README.md and tell me in one sentence what this repository is for.", MODEL), undefined, 150_000);
+  const run = await turn(
+    threadId,
+    () =>
+      sendMessage(cookie, threadId, "Read README.md and tell me in one sentence what this repository is for.", MODEL),
+    undefined,
+    150_000,
+  );
   // The suggestion follows the turn's end: the subscription runs on for the rest of its window.
   const events = await watching;
   await wsCall(cookie, "server.updateSettings", { patch: { promptSuggestionsEnabled: false } });
-  const texts = events.flatMap(({ atMs, value }) => (value !== null && typeof value === "object" ? [{ atMs, ...(value as object) }] : []));
-  const ok = run.status === "completed" && texts.some((event: any) => typeof event.text === "string" && event.text.length > 0 && event.runId === run.runs.at(-1)?.id);
+  const texts = events.flatMap(({ atMs, value }) =>
+    value !== null && typeof value === "object" ? [{ atMs, ...(value as object) }] : [],
+  );
+  const ok =
+    run.status === "completed" &&
+    texts.some(
+      (event: any) => typeof event.text === "string" && event.text.length > 0 && event.runId === run.runs.at(-1)?.id,
+    );
   console.log(`suggestion: ${ok ? "ok" : "FAIL"} (${texts.length} suggestion(s))`);
   return { threadId, ok, suggestions: texts, status: run.status, runs: run.runs };
 };
@@ -198,7 +316,8 @@ const presentation = async () => {
   const config = (await wsCall(cookie, "server.getConfig", {})) as { providers: Array<any> };
   const provider = config.providers.find((candidate) => candidate.driver === "piDurable");
   const shown = {
-    showInteractionModeToggle: provider?.showInteractionModeToggle ?? provider?.presentation?.showInteractionModeToggle ?? null,
+    showInteractionModeToggle:
+      provider?.showInteractionModeToggle ?? provider?.presentation?.showInteractionModeToggle ?? null,
     displayName: provider?.displayName ?? null,
   };
   const ok = shown.showInteractionModeToggle === true;
@@ -207,7 +326,14 @@ const presentation = async () => {
 };
 
 const turns = async () => {
-  await wsCall(cookie, "server.updateSettings", { patch: {}, providerInstanceMutation: { operation: "upsert", instanceId: "piDurable", instance: { driver: "piDurable", enabled: true } } });
+  await wsCall(cookie, "server.updateSettings", {
+    patch: {},
+    providerInstanceMutation: {
+      operation: "upsert",
+      instanceId: "piDurable",
+      instance: { driver: "piDurable", enabled: true },
+    },
+  });
   const { projectId } = await ensureProject(cookie, `p996-${Date.now().toString(36)}`);
   const only = process.argv[3];
   const results: Record<string, any> = {};

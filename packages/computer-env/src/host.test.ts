@@ -86,9 +86,7 @@ describe("WorkspaceEnvHost on Container-only paths", () => {
   it("answers from the Workspace's files alone unless the request asks to reach the Container", async () => {
     const { host, scripts } = routedHost({ running: true, stdout: "" });
 
-    const answer = await host.handle(
-      request({ op: "info", args: ["/workspace/repo/node_modules/a.js", true] }),
-    );
+    const answer = await host.handle(request({ op: "info", args: ["/workspace/repo/node_modules/a.js", true] }));
 
     expect(answer).toMatchObject({ ok: false, error: { code: "not_found" } });
     expect(scripts).toEqual([]);
@@ -97,9 +95,7 @@ describe("WorkspaceEnvHost on Container-only paths", () => {
   it("runs an operation on a Container-only path on the Container when asked to", async () => {
     const { host, scripts } = routedHost({ running: false, stdout: "regular file\t12\t1.5\n" });
 
-    const answer = await host.handle(
-      request({ op: "info", args: ["/root/.npmrc", true], reachContainer: true }),
-    );
+    const answer = await host.handle(request({ op: "info", args: ["/root/.npmrc", true], reachContainer: true }));
 
     expect(answer).toEqual({
       ok: true,
@@ -124,9 +120,7 @@ describe("WorkspaceEnvHost on Container-only paths", () => {
     const running = routedHost({ running: true, stdout: listing });
 
     expect(
-      await running.host.handle(
-        request({ op: "readdir", args: ["/workspace/repo"], reachContainer: true }),
-      ),
+      await running.host.handle(request({ op: "readdir", args: ["/workspace/repo"], reachContainer: true })),
     ).toEqual({
       ok: true,
       value: [
@@ -138,9 +132,7 @@ describe("WorkspaceEnvHost on Container-only paths", () => {
     const stopped = routedHost({ running: false, stdout: listing });
 
     expect(
-      await stopped.host.handle(
-        request({ op: "readdir", args: ["/workspace/repo"], reachContainer: true }),
-      ),
+      await stopped.host.handle(request({ op: "readdir", args: ["/workspace/repo"], reachContainer: true })),
     ).toEqual({
       ok: true,
       value: [{ name: "README.md", isDirectory: false, isSymbolicLink: false }],
@@ -195,9 +187,7 @@ describe("WorkspaceEnvHost.readEnv", () => {
     const env = host.readEnv("/workspace/repo");
 
     expect(getOrThrow(await env.readTextFile("a/./SKILL.md", BACKGROUND_CONTEXT))).toBe("relative");
-    expect(
-      getOrThrow(await env.readTextFile("/workspace//x/../b/SKILL.md", BACKGROUND_CONTEXT)),
-    ).toBe("absolute");
+    expect(getOrThrow(await env.readTextFile("/workspace//x/../b/SKILL.md", BACKGROUND_CONTEXT))).toBe("absolute");
     expect(read).toEqual(["/workspace/repo/a/SKILL.md", "/workspace/b/SKILL.md"]);
   });
 });

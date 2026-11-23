@@ -45,10 +45,19 @@ export const ENDPOINTS_KEY = "t3flare:endpoints:settings";
 export const endpointKeyName = (id: string): string => `endpoint/${id}/api-key`;
 
 export type EndpointSave =
-  | { readonly ok: true; readonly endpoints: ModelEndpoints; readonly endpoint: ModelEndpoint; readonly before: ModelEndpoint | undefined; readonly added: boolean; readonly key: SealedMark }
+  | {
+      readonly ok: true;
+      readonly endpoints: ModelEndpoints;
+      readonly endpoint: ModelEndpoint;
+      readonly before: ModelEndpoint | undefined;
+      readonly added: boolean;
+      readonly key: SealedMark;
+    }
   | { readonly ok: false; readonly error: string };
 
-export type EndpointRemove = { readonly ok: true; readonly endpoints: ModelEndpoints; readonly removed: ModelEndpoint } | { readonly ok: false; readonly error: string };
+export type EndpointRemove =
+  | { readonly ok: true; readonly endpoints: ModelEndpoints; readonly removed: ModelEndpoint }
+  | { readonly ok: false; readonly error: string };
 
 /**
  * An endpoint with its key; `unreadable` when a key is stored that this Environment's credentials key no longer opens. A
@@ -85,11 +94,16 @@ export interface EndpointStore {
 }
 
 /** Each model with its metadata, pi-ai's where its catalog knows the model (the owner's own fields win). */
-export const modelsWithMetadata = (endpoint: { readonly api: EndpointApi; readonly baseUrl: string }, models: ReadonlyArray<EndpointModelInput>): Array<EndpointModel> =>
-  models.map((model) => endpointModelOf(model, knownModel(model.id, endpoint)));
+export const modelsWithMetadata = (
+  endpoint: { readonly api: EndpointApi; readonly baseUrl: string },
+  models: ReadonlyArray<EndpointModelInput>,
+): Array<EndpointModel> => models.map((model) => endpointModelOf(model, knownModel(model.id, endpoint)));
 
 /** The endpoint as stored. */
-const withMetadata = (input: EndpointInput): ModelEndpoint => ({ ...input, models: modelsWithMetadata(input, input.models) });
+const withMetadata = (input: EndpointInput): ModelEndpoint => ({
+  ...input,
+  models: modelsWithMetadata(input, input.models),
+});
 
 /** A sign-in's answer in an Environment with no Credential broker. */
 const NO_BROKER: BrokerAccess = { ok: false, ...NO_CREDENTIAL_BROKER };
@@ -97,7 +111,11 @@ const NO_BROKER: BrokerAccess = { ok: false, ...NO_CREDENTIAL_BROKER };
 /** The save in flight, per storage. */
 const saving = new WeakMap<object, Promise<unknown>>();
 
-export const endpointStore = (kv: KvStorage, sealed: SealedStore, signIns?: Pick<CredentialBroker, "access">): EndpointStore => {
+export const endpointStore = (
+  kv: KvStorage,
+  sealed: SealedStore,
+  signIns?: Pick<CredentialBroker, "access">,
+): EndpointStore => {
   const load = (): ModelEndpoints => kv.get<ModelEndpoints>(ENDPOINTS_KEY) ?? EMPTY_ENDPOINTS;
   const keyMark = (id: string) => sealed.mark(endpointKeyName(id));
   const save = async (input: unknown, { apiKey }: { readonly apiKey?: string }): Promise<EndpointSave> => {
@@ -110,20 +128,30 @@ export const endpointStore = (kv: KvStorage, sealed: SealedStore, signIns?: Pick
       const current = load();
       const seen = current.endpoints.find((entry) => entry.id === id);
       if (seen === undefined && current.endpoints.length >= MAX_ENDPOINTS) return `at most ${MAX_ENDPOINTS} endpoints`;
-      if (seen !== undefined && seen.auth !== valid.endpoint.auth && (isSignIn(seen.auth) || isSignIn(valid.endpoint.auth))) {
+      if (
+        seen !== undefined &&
+        seen.auth !== valid.endpoint.auth &&
+        (isSignIn(seen.auth) || isSignIn(valid.endpoint.auth))
+      ) {
         return "an endpoint's sign-in is fixed: remove it to change its auth";
       }
-      if (isSignIn(valid.endpoint.auth)) return given === undefined ? undefined : "a sign-in endpoint takes no API key: its credential is its sign-in";
-      if (valid.endpoint.auth === "none") return given === undefined ? undefined : "an endpoint with no auth takes no API key";
+      if (isSignIn(valid.endpoint.auth))
+        return given === undefined ? undefined : "a sign-in endpoint takes no API key: its credential is its sign-in";
+      if (valid.endpoint.auth === "none")
+        return given === undefined ? undefined : "an endpoint with no auth takes no API key";
       if (given !== undefined) {
         if (given.length > 4096 || /\s/.test(given)) return "the API key is one word of up to 4096 characters";
         // pi-ai sends such a token with Claude Code's request shape (SPI-1165), which only a Claude sign-in's requests take;
         // and a subscription's token renews only through its sign-in here (ADR-0018: never copied in from elsewhere).
-        return given.includes(CLAUDE_OAUTH_TOKEN_MARK) ? "that is a Claude subscription's token, not an API key: use Sign in with Claude instead" : undefined;
+        return given.includes(CLAUDE_OAUTH_TOKEN_MARK)
+          ? "that is a Claude subscription's token, not an API key: use Sign in with Claude instead"
+          : undefined;
       }
       // Keyless: only an existing API-key endpoint keeps its key, and only at the same target.
-      if (seen === undefined || seen.auth !== "api-key" || !keyMark(id).set) return "an API-key endpoint needs its API key";
-      if (!sameTarget(seen, valid.endpoint)) return "a new API, base URL or header needs the API key entered again: the saved key goes only where it was saved for";
+      if (seen === undefined || seen.auth !== "api-key" || !keyMark(id).set)
+        return "an API-key endpoint needs its API key";
+      if (!sameTarget(seen, valid.endpoint))
+        return "a new API, base URL or header needs the API key entered again: the saved key goes only where it was saved for";
       return undefined;
     };
     const before = refusal();
@@ -151,7 +179,10 @@ export const endpointStore = (kv: KvStorage, sealed: SealedStore, signIns?: Pick
     const endpoint = withMetadata(valid.endpoint);
     const endpoints: ModelEndpoints = {
       revision: current.revision + 1,
-      endpoints: previous === undefined ? [...current.endpoints, endpoint] : current.endpoints.map((entry) => (entry.id === id ? endpoint : entry)),
+      endpoints:
+        previous === undefined
+          ? [...current.endpoints, endpoint]
+          : current.endpoints.map((entry) => (entry.id === id ? endpoint : entry)),
     };
     kv.put(ENDPOINTS_KEY, endpoints);
     return { ok: true, endpoints, endpoint, before: previous, added: previous === undefined, key: keyMark(id) };
@@ -163,14 +194,20 @@ export const endpointStore = (kv: KvStorage, sealed: SealedStore, signIns?: Pick
     // One save at a time per storage: its checks, its seal and its write are never interleaved with another's.
     save: (input, key) => {
       const next = (saving.get(kv) ?? Promise.resolve()).then(() => save(input, key));
-      saving.set(kv, next.catch(() => undefined));
+      saving.set(
+        kv,
+        next.catch(() => undefined),
+      );
       return next;
     },
     remove: (id) => {
       const current = load();
       const removed = current.endpoints.find((entry) => entry.id === id);
       if (removed === undefined) return { ok: false, error: `no endpoint ${id}` };
-      const endpoints: ModelEndpoints = { revision: current.revision + 1, endpoints: current.endpoints.filter((entry) => entry.id !== id) };
+      const endpoints: ModelEndpoints = {
+        revision: current.revision + 1,
+        endpoints: current.endpoints.filter((entry) => entry.id !== id),
+      };
       kv.put(ENDPOINTS_KEY, endpoints);
       sealed.remove(endpointKeyName(id));
       return { ok: true, endpoints, removed };
@@ -180,7 +217,13 @@ export const endpointStore = (kv: KvStorage, sealed: SealedStore, signIns?: Pick
       if (endpoint === undefined) return undefined;
       // A sign-in's token is the broker's, asked for now (SPI-1171: the model relay asks at every request, so a token
       // renewed mid-thread is the next request's), never kept here.
-      if (isSignIn(endpoint.auth)) return { endpoint, apiKey: undefined, unreadable: false, signIn: signIns === undefined ? NO_BROKER : await signIns.access(id) };
+      if (isSignIn(endpoint.auth))
+        return {
+          endpoint,
+          apiKey: undefined,
+          unreadable: false,
+          signIn: signIns === undefined ? NO_BROKER : await signIns.access(id),
+        };
       if (endpoint.auth !== "api-key") return { endpoint, apiKey: undefined, unreadable: false };
       const apiKey = await sealed.open(endpointKeyName(id));
       return { endpoint, apiKey, unreadable: apiKey === undefined && keyMark(id).set };
@@ -194,11 +237,18 @@ export const endpointStore = (kv: KvStorage, sealed: SealedStore, signIns?: Pick
         const access = await signIns.access(endpointId);
         // Where the token goes and the headers it takes, when the token decides (Copilot's): the broker's, never stored here.
         return access.ok
-          ? { apiKey: access.accessToken, expiresAt: access.expiresAt, ...(access.baseUrl === undefined ? {} : { baseUrl: access.baseUrl }), ...(access.headers === undefined ? {} : { headers: access.headers }) }
+          ? {
+              apiKey: access.accessToken,
+              expiresAt: access.expiresAt,
+              ...(access.baseUrl === undefined ? {} : { baseUrl: access.baseUrl }),
+              ...(access.headers === undefined ? {} : { headers: access.headers }),
+            }
           : { apiKey: null, ...(access.signedOut ? { signedOut: true } : {}), problem: access.problem };
       }
       const apiKey = await sealed.open(endpointKeyName(endpointId));
-      return apiKey === undefined ? { apiKey: null, ...(keyMark(endpointId).set ? { unreadable: true } : {}) } : { apiKey };
+      return apiKey === undefined
+        ? { apiKey: null, ...(keyMark(endpointId).set ? { unreadable: true } : {}) }
+        : { apiKey };
     },
   };
 };

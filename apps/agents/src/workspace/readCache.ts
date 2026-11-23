@@ -62,7 +62,11 @@ export const readCache = (sql: SqlStorage) => {
         let inode: number | undefined = 1;
         for (const name of segments) {
           inode = sql
-            .exec<{ child_inode: number }>("SELECT child_inode FROM vfs_dirents WHERE parent_inode = ? AND name = ?", inode, name)
+            .exec<{ child_inode: number }>(
+              "SELECT child_inode FROM vfs_dirents WHERE parent_inode = ? AND name = ?",
+              inode,
+              name,
+            )
             .toArray()[0]?.child_inode;
           if (inode === undefined) break;
         }
@@ -81,8 +85,13 @@ export const readCache = (sql: SqlStorage) => {
                 )
                 .toArray()[0]?.rev ?? 0);
         const deletions =
-          sql.exec<{ rev: number | null }>("SELECT MAX(rev) AS rev FROM vfs_changes WHERE path >= ? AND path < ?", `${prefix}/`, `${prefix}0`).toArray()[0]
-            ?.rev ?? 0;
+          sql
+            .exec<{ rev: number | null }>(
+              "SELECT MAX(rev) AS rev FROM vfs_changes WHERE path >= ? AND path < ?",
+              `${prefix}/`,
+              `${prefix}0`,
+            )
+            .toArray()[0]?.rev ?? 0;
         const rev = Math.max(nodes, deletions);
         memo.set(scope, { global, rev });
         return rev;
@@ -93,7 +102,9 @@ export const readCache = (sql: SqlStorage) => {
     get(key: string, rev: number): CachedAnswer | undefined {
       ensure();
       if (rev < 0) return undefined;
-      const row = sql.exec<{ rev: number; answer: string }>("SELECT rev, answer FROM t3flare_git_reads WHERE key = ?", key).toArray()[0];
+      const row = sql
+        .exec<{ rev: number; answer: string }>("SELECT rev, answer FROM t3flare_git_reads WHERE key = ?", key)
+        .toArray()[0];
       if (row === undefined || row.rev !== rev) return undefined;
       sql.exec("UPDATE t3flare_git_reads SET used_at = ? WHERE key = ?", Date.now(), key);
       return JSON.parse(row.answer) as CachedAnswer;
@@ -101,7 +112,9 @@ export const readCache = (sql: SqlStorage) => {
     /** The last real answer for `key` at any revision, and the revision it was made at (the stale reads' base). */
     last(key: string): { readonly rev: number; readonly answer: CachedAnswer } | undefined {
       ensure();
-      const row = sql.exec<{ rev: number; answer: string }>("SELECT rev, answer FROM t3flare_git_reads WHERE key = ?", key).toArray()[0];
+      const row = sql
+        .exec<{ rev: number; answer: string }>("SELECT rev, answer FROM t3flare_git_reads WHERE key = ?", key)
+        .toArray()[0];
       return row === undefined ? undefined : { rev: row.rev, answer: JSON.parse(row.answer) as CachedAnswer };
     },
     put(key: string, rev: number, answer: CachedAnswer): void {

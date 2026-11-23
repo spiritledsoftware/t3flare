@@ -12,8 +12,25 @@ import { spawnCli } from "../src/agents/cliProcess.ts";
 import { PI_SESSIONS } from "../src/agents/cliProfiles.ts";
 import type { ChannelStart } from "../src/agents/processChannel.ts";
 
-const model = (id: string) => ({ id, name: id, reasoning: false, input: ["text" as const], contextWindow: 1, maxTokens: 1, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, known: false });
-const endpoint = (id: string, api: EndpointApi, models: ReadonlyArray<string>) => ({ id, label: id, api, baseUrl: `https://${id}.example`, auth: "api-key" as const, headers: {}, models: models.map(model) });
+const model = (id: string) => ({
+  id,
+  name: id,
+  reasoning: false,
+  input: ["text" as const],
+  contextWindow: 1,
+  maxTokens: 1,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  known: false,
+});
+const endpoint = (id: string, api: EndpointApi, models: ReadonlyArray<string>) => ({
+  id,
+  label: id,
+  api,
+  baseUrl: `https://${id}.example`,
+  auth: "api-key" as const,
+  headers: {},
+  models: models.map(model),
+});
 
 const started: Array<ChannelStart> = [];
 const written: Array<string> = [];
@@ -21,8 +38,18 @@ const written: Array<string> = [];
 let printed: ReadonlyArray<string> = [];
 const bind = (options: { readonly endpoints: ModelEndpoints }) =>
   bindEnvironmentServices({
-    workspaces: { list: () => [], resolve: (id: string) => (id === "demo" ? { id } : undefined), get: () => undefined, worktreesOf: () => [] },
-    agents: { WORKSPACES: { idFromName: (name: string) => name, get: () => ({ takeEnvironmentSkills: async (hash: string) => ({ taken: false, hash }) }) } },
+    workspaces: {
+      list: () => [],
+      resolve: (id: string) => (id === "demo" ? { id } : undefined),
+      get: () => undefined,
+      worktreesOf: () => [],
+    },
+    agents: {
+      WORKSPACES: {
+        idFromName: (name: string) => name,
+        get: () => ({ takeEnvironmentSkills: async (hash: string) => ({ taken: false, hash }) }),
+      },
+    },
     environmentSkills: () => ({ hash: () => undefined }),
     modelEndpoints: () => options.endpoints,
     faults: false,
@@ -53,7 +80,10 @@ const bind = (options: { readonly endpoints: ModelEndpoints }) =>
 const FORK = ["--mode", "rpc", "--offline", "--no-extensions", "--no-tools", "--fork", `${PI_SESSIONS}/s1.jsonl`];
 const piCommand = () => ChildProcess.make("pi", FORK, { cwd: "/w/demo" }) as ChildProcess.StandardCommand;
 const spawnPi = () => Effect.runPromiseExit(spawnCli(piCommand()).pipe(Effect.scoped));
-const modelsOf = (start: ChannelStart) => JSON.parse(start.files?.find((file) => file.path.endsWith("/agent/models.json"))?.text ?? "{}") as { providers: Record<string, { baseUrl: string; apiKey: string }> };
+const modelsOf = (start: ChannelStart) =>
+  JSON.parse(start.files?.find((file) => file.path.endsWith("/agent/models.json"))?.text ?? "{}") as {
+    providers: Record<string, { baseUrl: string; apiKey: string }>;
+  };
 
 /** One spawn: `sent` written to its stdin (in the chunks given), and what t3 reads from its stdout. */
 const exchange = (sent: ReadonlyArray<string>) =>
@@ -78,7 +108,16 @@ afterEach(() => {
 describe("spawnCli for pi", () => {
   it("runs it on every endpoint that lists a model through the relay", async () => {
     vi.spyOn(console, "log").mockImplementation(() => undefined);
-    bind({ endpoints: { revision: 1, endpoints: [endpoint("gem", "google-generative-ai", ["g"]), endpoint("comm", "anthropic-messages", ["claude-haiku-5-5"]), endpoint("empty", "openai-responses", [])] } });
+    bind({
+      endpoints: {
+        revision: 1,
+        endpoints: [
+          endpoint("gem", "google-generative-ai", ["g"]),
+          endpoint("comm", "anthropic-messages", ["claude-haiku-5-5"]),
+          endpoint("empty", "openai-responses", []),
+        ],
+      },
+    });
     expect((await spawnPi())._tag).toBe("Success");
     const start = started[0]!;
     expect(start.modelRelay).toEqual(["gem", "comm"]);
@@ -95,24 +134,44 @@ describe("spawnCli for pi", () => {
     bind({ endpoints: { revision: 1, endpoints: [endpoint("empty", "anthropic-messages", [])] } });
     const exit = await spawnPi();
     expect(exit._tag).toBe("Failure");
-    expect(String(exit._tag === "Failure" ? exit.cause : "")).toContain("Pi has no Model endpoint to run on: it needs one that lists a model; add one on the Settings page (/_t3flare/settings), under Model endpoints");
+    expect(String(exit._tag === "Failure" ? exit.cause : "")).toContain(
+      "Pi has no Model endpoint to run on: it needs one that lists a model; add one on the Settings page (/_t3flare/settings), under Model endpoints",
+    );
     expect(started).toEqual([]);
   });
 
   it("on the relay, maps t3's endpoint ids to pi's providers on stdin and back on stdout, whole lines across chunks", async () => {
     vi.spyOn(console, "log").mockImplementation(() => undefined);
     bind({ endpoints: { revision: 1, endpoints: [endpoint("comm", "anthropic-messages", ["claude-haiku-5-5"])] } });
-    const response = '{"type":"response","command":"set_model","success":true,"data":{"provider":"t3flare-endpoint-comm","id":"claude-haiku-5-5"}}\n';
+    const response =
+      '{"type":"response","command":"set_model","success":true,"data":{"provider":"t3flare-endpoint-comm","id":"claude-haiku-5-5"}}\n';
     printed = [response.slice(0, 40), `${response.slice(40)}{"type":"agent_end"}\n`];
-    const out = await exchange(['{"id":"c1","type":"set_mo', 'del","provider":"comm","modelId":"claude-haiku-5-5"}\n{"type":"get_state"}\n']);
-    expect(written.join("")).toBe('{"id":"c1","type":"set_model","provider":"t3flare-endpoint-comm","modelId":"claude-haiku-5-5"}\n{"type":"get_state"}\n');
-    expect(out).toBe('{"type":"response","command":"set_model","success":true,"data":{"provider":"comm","id":"claude-haiku-5-5"}}\n{"type":"agent_end"}\n');
+    const out = await exchange([
+      '{"id":"c1","type":"set_mo',
+      'del","provider":"comm","modelId":"claude-haiku-5-5"}\n{"type":"get_state"}\n',
+    ]);
+    expect(written.join("")).toBe(
+      '{"id":"c1","type":"set_model","provider":"t3flare-endpoint-comm","modelId":"claude-haiku-5-5"}\n{"type":"get_state"}\n',
+    );
+    expect(out).toBe(
+      '{"type":"response","command":"set_model","success":true,"data":{"provider":"comm","id":"claude-haiku-5-5"}}\n{"type":"agent_end"}\n',
+    );
   });
 
   it("names the default model in a thread's set_model of an old thread's `anthropic`, even where another endpoint lists the old model's id (SPI-1176, ADR-0034 §3)", async () => {
     vi.spyOn(console, "log").mockImplementation(() => undefined);
-    bind({ endpoints: { revision: 1, endpoints: [endpoint("comm", "anthropic-messages", ["claude-haiku-5-5"]), endpoint("other", "anthropic-messages", ["claude-sonnet-5-5"])] } });
+    bind({
+      endpoints: {
+        revision: 1,
+        endpoints: [
+          endpoint("comm", "anthropic-messages", ["claude-haiku-5-5"]),
+          endpoint("other", "anthropic-messages", ["claude-sonnet-5-5"]),
+        ],
+      },
+    });
     await exchange(['{"id":"c3","type":"set_model","provider":"anthropic","modelId":"claude-sonnet-5-5"}\n']);
-    expect(written.join("")).toBe('{"id":"c3","type":"set_model","provider":"t3flare-endpoint-comm","modelId":"claude-haiku-5-5"}\n');
+    expect(written.join("")).toBe(
+      '{"id":"c3","type":"set_model","provider":"t3flare-endpoint-comm","modelId":"claude-haiku-5-5"}\n',
+    );
   });
 });

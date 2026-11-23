@@ -3,8 +3,19 @@
 // (`@t3flare/sandbox-image/containerSetup`), the second of its once-per-Container steps (`containerStep.ts`: keyed,
 // held, bounded, retried). It is reported to the Environment DO with the end of its output, every secret Variable's
 // value blanked; on a failure the Container carries on, or refuses its commands, as the Owner set.
-import { type ContainerSetupFailure, type ContainerSetupOutcome, type ContainerSetupReport, MAX_SETUP_OUTPUT_BYTES, type SettingsSource } from "@t3flare/harness-registry";
-import { containerSetupArgv, containerSetupDeadlineMs, parseContainerSetupAnswer, SECRET_MARGIN_BYTES } from "@t3flare/sandbox-image/containerSetup";
+import {
+  type ContainerSetupFailure,
+  type ContainerSetupOutcome,
+  type ContainerSetupReport,
+  MAX_SETUP_OUTPUT_BYTES,
+  type SettingsSource,
+} from "@t3flare/harness-registry";
+import {
+  containerSetupArgv,
+  containerSetupDeadlineMs,
+  parseContainerSetupAnswer,
+  SECRET_MARGIN_BYTES,
+} from "@t3flare/sandbox-image/containerSetup";
 
 import { type ContainerExec, ContainerStep, isFinal, type RunStep } from "./containerStep.ts";
 
@@ -81,7 +92,9 @@ export const blankSecrets = (window: string, secrets: ReadonlyArray<string>, kep
   // Every copy of every value, overlapping ones included, as [start, end) ranges; ranges that overlap merge into one, so
   // no part of any value shows between two blanks.
   const ranges: Array<[number, number]> = [];
-  for (const value of values) for (let at = window.indexOf(value); at !== -1; at = window.indexOf(value, at + 1)) ranges.push([at, at + value.length]);
+  for (const value of values)
+    for (let at = window.indexOf(value); at !== -1; at = window.indexOf(value, at + 1))
+      ranges.push([at, at + value.length]);
   ranges.sort((a, b) => a[0] - b[0]);
   const merged: Array<[number, number]> = [];
   for (const [start, end] of ranges) {
@@ -116,7 +129,14 @@ export class ContainerSetup {
       used: deps.used,
       storage: deps.storage,
       attempt: (runtime, attempts, run) => this.#attempt(runtime, attempts, run),
-      failed: (runtime, attempts) => ({ runtime, outcome: "exec-failed", attempts, exitCode: null, timedOut: false, at: deps.now() }),
+      failed: (runtime, attempts) => ({
+        runtime,
+        outcome: "exec-failed",
+        attempts,
+        exitCode: null,
+        timedOut: false,
+        at: deps.now(),
+      }),
       ...(deps.log === undefined ? {} : { log: deps.log }),
     });
   }
@@ -148,15 +168,25 @@ export class ContainerSetup {
    * did not end well (a non-zero exit, its time limit, no answer, an exec that failed), or was not judged at all
    * (`state` undefined: its run threw, or the Global mise lay-down before it is not final yet).
    */
-  refusal(state: Pick<ContainerSetupState, "outcome" | "exitCode" | "timedOut" | "attempts"> | undefined): string | undefined {
+  refusal(
+    state: Pick<ContainerSetupState, "outcome" | "exitCode" | "timedOut" | "attempts"> | undefined,
+  ): string | undefined {
     if (!this.refuses()) return undefined;
     // What happens next: a setup not final yet (or not judged) is tried again by the next command; a final one only by
     // a new Container.
-    const next = state === undefined || !isFinal(state) ? "The next command tries it again" : "A new Container runs it again";
+    const next =
+      state === undefined || !isFinal(state) ? "The next command tries it again" : "A new Container runs it again";
     const tail = `and the Environment settings refuse commands in a Container whose setup failed. ${next}; Status on the Settings page shows its output.`;
-    if (state === undefined) return `Refused: this Container's Container setup has not run (the Container's steps before it did not finish), ${tail}`;
+    if (state === undefined)
+      return `Refused: this Container's Container setup has not run (the Container's steps before it did not finish), ${tail}`;
     if (state.outcome === "ok" || state.outcome === "none") return undefined;
-    const how = state.timedOut ? "stopped at its time limit" : state.exitCode !== null ? `exit ${state.exitCode}` : state.outcome === "deadline" ? "no answer within the deadline" : "the Container's exec failed";
+    const how = state.timedOut
+      ? "stopped at its time limit"
+      : state.exitCode !== null
+        ? `exit ${state.exitCode}`
+        : state.outcome === "deadline"
+          ? "no answer within the deadline"
+          : "the Container's exec failed";
     return `Refused: this Container's Container setup failed (${how}), ${tail}`;
   }
 
@@ -164,7 +194,11 @@ export class ContainerSetup {
     const deps = this.#deps;
     const known = deps.launch();
     const started = deps.now();
-    const reportOf = (state: ContainerSetupState, launch: Pick<ContainerSetupLaunch, "revision" | "sha256" | "bytes" | "source">, output: string): ContainerSetupReport => ({
+    const reportOf = (
+      state: ContainerSetupState,
+      launch: Pick<ContainerSetupLaunch, "revision" | "sha256" | "bytes" | "source">,
+      output: string,
+    ): ContainerSetupReport => ({
       workspace: deps.workspace(),
       runtime: runtime === "" ? "unknown" : runtime,
       revision: launch.revision,
@@ -182,13 +216,24 @@ export class ContainerSetup {
     // No script: nothing run, reported all the same, so Status stops showing an older one. A launch from before the
     // Container setup runs nothing and reports nothing: its revision would replace another Workspace's real report.
     if (known === undefined || known.text === "") {
-      const state: ContainerSetupState = { runtime, outcome: "none", attempts: attemptsBefore + 1, exitCode: null, timedOut: false, at: started };
+      const state: ContainerSetupState = {
+        runtime,
+        outcome: "none",
+        attempts: attemptsBefore + 1,
+        exitCode: null,
+        timedOut: false,
+        at: started,
+      };
       if (known !== undefined) deps.report(reportOf(state, known, ""));
       return state;
     }
     // Never more than a report may carry, whatever an older or newer launch recorded.
     const outputBytes = Math.min(known.outputBytes, MAX_SETUP_OUTPUT_BYTES);
-    const result = await run(containerSetupArgv(known.sha256, known.minutes * 60, outputBytes + SECRET_MARGIN_BYTES), known.text, (deps.deadlineMs ?? containerSetupDeadlineMs)(known.minutes));
+    const result = await run(
+      containerSetupArgv(known.sha256, known.minutes * 60, outputBytes + SECRET_MARGIN_BYTES),
+      known.text,
+      (deps.deadlineMs ?? containerSetupDeadlineMs)(known.minutes),
+    );
     let outcome: ContainerSetupOutcome = "exec-failed";
     let exitCode: number | null = null;
     let timedOut = false;
@@ -206,10 +251,22 @@ export class ContainerSetup {
         output = blankSecrets(parsed.output, deps.secrets(), outputBytes);
       }
     }
-    const state: ContainerSetupState = { runtime, outcome, attempts: attemptsBefore + 1, exitCode, timedOut, at: deps.now() };
+    const state: ContainerSetupState = {
+      runtime,
+      outcome,
+      attempts: attemptsBefore + 1,
+      exitCode,
+      timedOut,
+      at: deps.now(),
+    };
     const report = reportOf(state, known, output);
     const { output: _output, ...logged } = report;
-    deps.log?.({ t3flare: "container-setup", ...logged, attempt: state.attempts, ...(error === undefined ? {} : { error }) });
+    deps.log?.({
+      t3flare: "container-setup",
+      ...logged,
+      attempt: state.attempts,
+      ...(error === undefined ? {} : { error }),
+    });
     deps.report(report);
     return state;
   }

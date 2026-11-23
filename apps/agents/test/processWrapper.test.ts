@@ -17,8 +17,12 @@ describe.skipIf(!docker)("the CLI process launcher", () => {
       marker: "proc-test1",
       t3Path: "/w/demo",
       cwd: "/w/demo/sub",
-      argv: ["/bin/bash", "-c", 'echo "cwd=$(pwd -P) core=$(ulimit -c) cfg=$(cat /var/lib/t3flare/cli/proc-test1/cfg.toml) link=$(readlink /var/lib/t3flare/cli/proc-test1/sessions) stale=$(ls /var/lib/t3flare/cli | tr "\\n" ,) old=$(ls /workspace/.t3flare/pi/sessions | tr "\\n" ,)"'],
-      files: [{ path: "/var/lib/t3flare/cli/proc-test1/cfg.toml", text: "a = \"it's\"\n" }],
+      argv: [
+        "/bin/bash",
+        "-c",
+        'echo "cwd=$(pwd -P) core=$(ulimit -c) cfg=$(cat /var/lib/t3flare/cli/proc-test1/cfg.toml) link=$(readlink /var/lib/t3flare/cli/proc-test1/sessions) stale=$(ls /var/lib/t3flare/cli | tr "\\n" ,) old=$(ls /workspace/.t3flare/pi/sessions | tr "\\n" ,)"',
+      ],
+      files: [{ path: "/var/lib/t3flare/cli/proc-test1/cfg.toml", text: 'a = "it\'s"\n' }],
       links: [{ path: "/var/lib/t3flare/cli/proc-test1/sessions", target: "/workspace/.t3flare/codex/sessions" }],
       prune: [{ dir: "/workspace/.t3flare/pi/sessions", days: 60 }],
     });
@@ -31,23 +35,46 @@ ${launcher}
 T3FLARE_EOF
 T3FLARE_EXEC=proc-test1 bash /tmp/launcher.sh 2>/tmp/err
 echo "exit=$?"`;
-    const result = spawnSync("docker", ["run", "--rm", "-i", IMAGE, "bash", "-s"], { input: script, encoding: "utf8", timeout: 120_000 });
+    const result = spawnSync("docker", ["run", "--rm", "-i", IMAGE, "bash", "-s"], {
+      input: script,
+      encoding: "utf8",
+      timeout: 120_000,
+    });
     expect(result.stdout.trim().split("\n")).toEqual([
-      "cwd=/workspace/repo/sub core=0 cfg=a = \"it's\" link=/workspace/.t3flare/codex/sessions stale=proc-test1, old=new.jsonl,",
+      'cwd=/workspace/repo/sub core=0 cfg=a = "it\'s" link=/workspace/.t3flare/codex/sessions stale=proc-test1, old=new.jsonl,',
       "exit=0",
     ]);
   }, 180_000);
 
   it("runs no program from PATH while the model handle is in its environment, and setsid keeps its name (SPI-1209)", () => {
     // Hostile programs first on PATH, as a project's mise shims would be: each notes that it ran and what handle it saw.
-    const SHIMMED = ["bash", "setsid", "mkdir", "mount", "mountpoint", "rmdir", "dirname", "ln", "basename", "grep", "rm", "base64", "chmod", "find", "cp"];
+    const SHIMMED = [
+      "bash",
+      "setsid",
+      "mkdir",
+      "mount",
+      "mountpoint",
+      "rmdir",
+      "dirname",
+      "ln",
+      "basename",
+      "grep",
+      "rm",
+      "base64",
+      "chmod",
+      "find",
+      "cp",
+    ];
     const launcher = processCommand({
       marker: "proc-test2",
       t3Path: "/w/demo",
       cwd: "/w/demo",
       // The CLI prints its parent's command line: the holder, setsid, which forks here (bash leads its own session).
       argv: ["/bin/sh", "-c", "/usr/bin/tr '\\0' ' ' < /proc/$PPID/cmdline; echo"],
-      seed: [{ from: "/root/.codex", to: "/var/lib/t3flare/cli/proc-test2/codex" }, { from: "/root/.claude.json", to: "/var/lib/t3flare/cli/proc-test2/claude.json" }],
+      seed: [
+        { from: "/root/.codex", to: "/var/lib/t3flare/cli/proc-test2/codex" },
+        { from: "/root/.claude.json", to: "/var/lib/t3flare/cli/proc-test2/claude.json" },
+      ],
       files: [{ path: "/var/lib/t3flare/cli/proc-test2/cfg.toml", text: "a = 1\n" }],
       links: [
         { path: "/var/lib/t3flare/cli/proc-test2/sessions", target: "/workspace/.t3flare/codex/sessions" },
@@ -68,8 +95,16 @@ T3FLARE_EOF
 PATH=/shims:/usr/bin:/bin T3FLARE_EXEC=proc-test2 T3FLARE_MODEL_HANDLE=handle-1 /usr/bin/setsid --wait /usr/bin/bash /tmp/launcher.sh 2>/tmp/err
 echo "exit=$?"
 echo "shims=$(cat /tmp/shims.txt 2>/dev/null | tr '\\n' ,)"`;
-    const result = spawnSync("docker", ["run", "--rm", "-i", IMAGE, "bash", "-s"], { input: script, encoding: "utf8", timeout: 120_000 });
-    expect(result.stdout.trim().split("\n"), result.stderr).toEqual(["setsid --wait /bin/sh -c /usr/bin/tr '\\0' ' ' < /proc/$PPID/cmdline; echo ", "exit=0", "shims="]);
+    const result = spawnSync("docker", ["run", "--rm", "-i", IMAGE, "bash", "-s"], {
+      input: script,
+      encoding: "utf8",
+      timeout: 120_000,
+    });
+    expect(result.stdout.trim().split("\n"), result.stderr).toEqual([
+      "setsid --wait /bin/sh -c /usr/bin/tr '\\0' ' ' < /proc/$PPID/cmdline; echo ",
+      "exit=0",
+      "shims=",
+    ]);
   }, 180_000);
 
   it("fills the home from the Owner's config first, then writes t3flare's files over it, and merges a skills link (ADR-0047 §9)", () => {
@@ -79,7 +114,11 @@ echo "shims=$(cat /tmp/shims.txt 2>/dev/null | tr '\\n' ,)"`;
       t3Path: "/w/demo",
       cwd: "/w/demo",
       // The CLI lists its home: each file with its text, each link with its target.
-      argv: ["/bin/bash", "-c", `cd ${home} && find . \\( -type f -o -type l \\) | while read -r f; do if [ -L "$f" ]; then echo "$f -> $(readlink "$f")"; else echo "$f = $(cat "$f")"; fi; done; [ -x claude/hooks/h.sh ] && echo "hook executable"`],
+      argv: [
+        "/bin/bash",
+        "-c",
+        `cd ${home} && find . \\( -type f -o -type l \\) | while read -r f; do if [ -L "$f" ]; then echo "$f -> $(readlink "$f")"; else echo "$f = $(cat "$f")"; fi; done; [ -x claude/hooks/h.sh ] && echo "hook executable"`,
+      ],
       seed: [
         { from: "/root/.claude", to: `${home}/claude`, skip: ["projects"] },
         { from: "/root/.claude.json", to: `${home}/claude/.claude.json` },
@@ -109,11 +148,15 @@ T3FLARE_EOF
 T3FLARE_EXEC=proc-test3 bash /tmp/launcher.sh 2>/tmp/err
 echo "exit=$?"
 echo "owner=$(cat /root/.claude/over.json)"`;
-    const result = spawnSync("docker", ["run", "--rm", "-i", IMAGE, "bash", "-s"], { input: script, encoding: "utf8", timeout: 120_000 });
+    const result = spawnSync("docker", ["run", "--rm", "-i", IMAGE, "bash", "-s"], {
+      input: script,
+      encoding: "utf8",
+      timeout: 120_000,
+    });
     const lines = result.stdout.trim().split("\n");
     expect(lines.slice(0, -3).sort(), result.stderr).toEqual(
       [
-        "./claude/.claude.json = {\"a\":1}",
+        './claude/.claude.json = {"a":1}',
         "./claude/CLAUDE.md = owner",
         "./claude/hooks/h.sh = hook",
         "./claude/keep.toml = owner",
@@ -138,7 +181,15 @@ echo "owner=$(cat /root/.claude/over.json)"`;
         argv: ["/bin/sh", "-c", "echo started"],
         seed: [{ from: "/root/.tool", to: `/var/lib/t3flare/cli/${marker}/tool` }],
         // The CLI's own loader, standing in: fails on a file that says "bad", from `/`.
-        check: { when: "/root/.tool/config", argv: ["/bin/sh", "-c", `pwd; grep -q bad /var/lib/t3flare/cli/${marker}/tool/config && echo "parse error at line 1" >&2 && exit 1; exit 0`], failure: "the tool cannot load your config" },
+        check: {
+          when: "/root/.tool/config",
+          argv: [
+            "/bin/sh",
+            "-c",
+            `pwd; grep -q bad /var/lib/t3flare/cli/${marker}/tool/config && echo "parse error at line 1" >&2 && exit 1; exit 0`,
+          ],
+          failure: "the tool cannot load your config",
+        },
       });
     const script = `set -u
 mkdir -p /workspace/repo /root/.tool
@@ -151,7 +202,11 @@ echo bad > /root/.tool/config
 T3FLARE_EXEC=proc-test4 bash /tmp/l.sh 2>/tmp/err; echo "bad exit=$? err=$(tr '\\n' '|' < /tmp/err)"
 rm -r /root/.tool
 T3FLARE_EXEC=proc-test4 bash /tmp/l.sh 2>/tmp/err; echo "none exit=$? err=$(tr '\\n' '|' < /tmp/err)"`;
-    const result = spawnSync("docker", ["run", "--rm", "-i", IMAGE, "bash", "-s"], { input: script, encoding: "utf8", timeout: 120_000 });
+    const result = spawnSync("docker", ["run", "--rm", "-i", IMAGE, "bash", "-s"], {
+      input: script,
+      encoding: "utf8",
+      timeout: 120_000,
+    });
     expect(result.stdout.trim().split("\n"), result.stderr).toEqual([
       "started",
       "good exit=0 err=",
@@ -166,8 +221,18 @@ T3FLARE_EXEC=proc-test4 bash /tmp/l.sh 2>/tmp/err; echo "none exit=$? err=$(tr '
       marker: "proc-test5",
       t3Path: "/w/demo",
       cwd: "/w/demo",
-      argv: ["/bin/bash", "-c", "cd /var/lib/t3flare/cli/proc-test5/agent && find . -type f | sort | tr '\\n' ' '; echo"],
-      seed: [{ from: "/root/.pi/agent", to: "/var/lib/t3flare/cli/proc-test5/agent", shadow: { dir: "skills", by: "/skills" } }],
+      argv: [
+        "/bin/bash",
+        "-c",
+        "cd /var/lib/t3flare/cli/proc-test5/agent && find . -type f | sort | tr '\\n' ' '; echo",
+      ],
+      seed: [
+        {
+          from: "/root/.pi/agent",
+          to: "/var/lib/t3flare/cli/proc-test5/agent",
+          shadow: { dir: "skills", by: "/skills" },
+        },
+      ],
     });
     const script = `set -u
 mkdir -p /workspace/repo /root/.pi/agent/skills/deploy /root/.pi/agent/skills/mine /root/.pi/agent/extensions /skills/deploy /skills/env
@@ -176,8 +241,15 @@ cat > /tmp/l.sh <<'T3FLARE_EOF'
 ${launcher}
 T3FLARE_EOF
 T3FLARE_EXEC=proc-test5 bash /tmp/l.sh 2>/tmp/err; echo "exit=$?"`;
-    const result = spawnSync("docker", ["run", "--rm", "-i", IMAGE, "bash", "-s"], { input: script, encoding: "utf8", timeout: 120_000 });
-    expect(result.stdout.trim().split("\n"), result.stderr).toEqual(["./extensions/x.ts ./skills/mine/SKILL.md ", "exit=0"]);
+    const result = spawnSync("docker", ["run", "--rm", "-i", IMAGE, "bash", "-s"], {
+      input: script,
+      encoding: "utf8",
+      timeout: 120_000,
+    });
+    expect(result.stdout.trim().split("\n"), result.stderr).toEqual([
+      "./extensions/x.ts ./skills/mine/SKILL.md ",
+      "exit=0",
+    ]);
   }, 180_000);
 
   it("runs a check with its stdin closed and under a bound: it never reads the CLI's protocol stream, and one that hangs is no verdict", () => {
@@ -187,7 +259,7 @@ T3FLARE_EXEC=proc-test5 bash /tmp/l.sh 2>/tmp/err; echo "exit=$?"`;
         t3Path: "/w/demo",
         cwd: "/w/demo",
         // The CLI echoes the first line of its stdin: the protocol's first frame must still be there.
-        argv: ["/bin/sh", "-c", "read -r line; echo \"cli got: $line\""],
+        argv: ["/bin/sh", "-c", 'read -r line; echo "cli got: $line"'],
         check: { when: "/root/.tool", argv: ["/bin/sh", "-c", check], failure: "the tool cannot load your config" },
       });
     const script = `set -u
@@ -202,7 +274,11 @@ echo frame-1 | T3FLARE_EXEC=proc-test6 bash /tmp/reads.sh 2>/dev/null; echo "rea
 # The bound, shortened by text for the test (the script must say what it replaces).
 sed -i "s/timeout -k 5 ${CHECK_TIMEOUT_SEC} /timeout -k 1 2 /" /tmp/hangs.sh
 echo frame-1 | T3FLARE_EXEC=proc-test6 bash /tmp/hangs.sh 2>/tmp/err; echo "hangs exit=$? err=$(cat /tmp/err)"`;
-    const result = spawnSync("docker", ["run", "--rm", "-i", IMAGE, "bash", "-s"], { input: script, encoding: "utf8", timeout: 120_000 });
+    const result = spawnSync("docker", ["run", "--rm", "-i", IMAGE, "bash", "-s"], {
+      input: script,
+      encoding: "utf8",
+      timeout: 120_000,
+    });
     expect(result.stdout.trim().split("\n"), result.stderr).toEqual([
       "cli got: frame-1",
       "reads exit=0",
@@ -212,15 +288,67 @@ echo frame-1 | T3FLARE_EXEC=proc-test6 bash /tmp/hangs.sh 2>/tmp/err; echo "hang
   }, 180_000);
 
   it("refuses a seed from outside /root or into anywhere but the process's home", () => {
-    expect(() => processCommand({ marker: "proc-x", t3Path: "/w/d", cwd: "/w/d", argv: ["/bin/true"], seed: [{ from: "/etc/shadow", to: "/var/lib/t3flare/cli/proc-x/a" }] })).toThrow(/may not copy/);
-    expect(() => processCommand({ marker: "proc-x", t3Path: "/w/d", cwd: "/w/d", argv: ["/bin/true"], seed: [{ from: "/root/../etc", to: "/var/lib/t3flare/cli/proc-x/a" }] })).toThrow(/may not copy/);
-    expect(() => processCommand({ marker: "proc-x", t3Path: "/w/d", cwd: "/w/d", argv: ["/bin/true"], seed: [{ from: "/root/.claude", to: "/workspace/.t3flare/x" }] })).toThrow(/may not copy/);
-    expect(() => processCommand({ marker: "proc-x", t3Path: "/w/d", cwd: "/w/d", argv: ["/bin/true"], seed: [{ from: "/root/.pi/agent", to: "/var/lib/t3flare/cli/proc-x/a", shadow: { dir: "../x", by: "/skills" } }] })).toThrow(/may not copy/);
+    expect(() =>
+      processCommand({
+        marker: "proc-x",
+        t3Path: "/w/d",
+        cwd: "/w/d",
+        argv: ["/bin/true"],
+        seed: [{ from: "/etc/shadow", to: "/var/lib/t3flare/cli/proc-x/a" }],
+      }),
+    ).toThrow(/may not copy/);
+    expect(() =>
+      processCommand({
+        marker: "proc-x",
+        t3Path: "/w/d",
+        cwd: "/w/d",
+        argv: ["/bin/true"],
+        seed: [{ from: "/root/../etc", to: "/var/lib/t3flare/cli/proc-x/a" }],
+      }),
+    ).toThrow(/may not copy/);
+    expect(() =>
+      processCommand({
+        marker: "proc-x",
+        t3Path: "/w/d",
+        cwd: "/w/d",
+        argv: ["/bin/true"],
+        seed: [{ from: "/root/.claude", to: "/workspace/.t3flare/x" }],
+      }),
+    ).toThrow(/may not copy/);
+    expect(() =>
+      processCommand({
+        marker: "proc-x",
+        t3Path: "/w/d",
+        cwd: "/w/d",
+        argv: ["/bin/true"],
+        seed: [
+          { from: "/root/.pi/agent", to: "/var/lib/t3flare/cli/proc-x/a", shadow: { dir: "../x", by: "/skills" } },
+        ],
+      }),
+    ).toThrow(/may not copy/);
   });
 
   it("refuses a file outside the process's home and the synced harness directory", () => {
-    expect(() => processCommand({ marker: "proc-x", t3Path: "/w/d", cwd: "/w/d", argv: ["/bin/true"], files: [{ path: "/root/.bashrc", text: "x" }] })).toThrow(/may not write/);
-    expect(() => processCommand({ marker: "proc-x", t3Path: "/w/d", cwd: "/w/d", argv: ["/bin/true"], files: [{ path: "/workspace/.t3flare/../repo/x", text: "x" }] })).toThrow(/may not write/);
-    expect(() => processCommand({ marker: "term-x", t3Path: "/w/d", cwd: "/w/d", argv: ["/bin/true"] })).toThrow(/marker/);
+    expect(() =>
+      processCommand({
+        marker: "proc-x",
+        t3Path: "/w/d",
+        cwd: "/w/d",
+        argv: ["/bin/true"],
+        files: [{ path: "/root/.bashrc", text: "x" }],
+      }),
+    ).toThrow(/may not write/);
+    expect(() =>
+      processCommand({
+        marker: "proc-x",
+        t3Path: "/w/d",
+        cwd: "/w/d",
+        argv: ["/bin/true"],
+        files: [{ path: "/workspace/.t3flare/../repo/x", text: "x" }],
+      }),
+    ).toThrow(/may not write/);
+    expect(() => processCommand({ marker: "term-x", t3Path: "/w/d", cwd: "/w/d", argv: ["/bin/true"] })).toThrow(
+      /marker/,
+    );
   });
 });

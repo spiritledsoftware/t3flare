@@ -40,7 +40,9 @@ import * as StateFs from "../shims/node-fs-promises.ts";
 interface Options {
   readonly profilesDir: string;
   readonly executable: () => Promise<string>;
-  readonly launcher?: (executable: string) => Promise<{ readonly path: string; readonly release: () => Promise<void> } | undefined>;
+  readonly launcher?: (
+    executable: string,
+  ) => Promise<{ readonly path: string; readonly release: () => Promise<void> } | undefined>;
   readonly diagnose?: (executable: string, cause: unknown) => Promise<unknown>;
   readonly env?: NodeJS.ProcessEnv;
   /** Closes an idle browser, and an idle profile context, after this long. */
@@ -80,7 +82,10 @@ const chromeIdentity = (
   };
 };
 
-export const presentAsChrome = async (cdp: CDPSession, host: { readonly platform: NodeJS.Platform; readonly arch: string }) => {
+export const presentAsChrome = async (
+  cdp: CDPSession,
+  host: { readonly platform: NodeJS.Platform; readonly arch: string },
+) => {
   const { userAgent } = await cdp.send("Browser.getVersion");
   const identity = chromeIdentity(userAgent, { ...host, release: NodeOS.release() });
   if (identity) await cdp.send("Emulation.setUserAgentOverride", identity);
@@ -107,7 +112,8 @@ export const translatePreviewUrl = (url: string): string => {
   }
   if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || !LOOPBACK.test(parsed.hostname)) return url;
   const port = parsed.port === "" ? (parsed.protocol === "http:" ? 80 : 443) : Number(parsed.port);
-  if (CONTAINER_PREVIEW_PORTS.includes(port)) return `http://${containerPreviewHost(port)}${parsed.pathname}${parsed.search}${parsed.hash}`;
+  if (CONTAINER_PREVIEW_PORTS.includes(port))
+    return `http://${containerPreviewHost(port)}${parsed.pathname}${parsed.search}${parsed.hash}`;
   const ports = CONTAINER_PREVIEW_PORTS.join(", ");
   const page = `<!doctype html><meta charset="utf-8"><title>Port ${port} has no preview</title><body style="font-family:system-ui,sans-serif;max-width:40rem;margin:4rem auto;line-height:1.5"><h1 style="font-size:1.25rem">Port ${port} has no preview</h1><p>The Cloud Environment previews a Workspace's dev server on ports ${ports}. Start it on one of them, listening on 0.0.0.0, then open it again.</p></body>`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(page)}`;
@@ -125,7 +131,11 @@ export const translatePreviewUrl = (url: string): string => {
  */
 export const profileSaver = (
   context: BrowserContext,
-  options: { readonly saved: string | undefined; readonly write: (state: string) => void; readonly intervalMs?: number },
+  options: {
+    readonly saved: string | undefined;
+    readonly write: (state: string) => void;
+    readonly intervalMs?: number;
+  },
 ) => {
   let changes = 0;
   let savedChanges = 0;
@@ -175,10 +185,14 @@ export const profileSaver = (
 };
 
 interface Playwright {
-  launch(binding: unknown, options: { keep_alive?: number; outboundByHost?: unknown }): Promise<Browser & { sessionId(): string }>;
+  launch(
+    binding: unknown,
+    options: { keep_alive?: number; outboundByHost?: unknown },
+  ): Promise<Browser & { sessionId(): string }>;
 }
 
-const loadPlaywright = async (): Promise<Playwright> => (await import("@cloudflare/playwright")) as unknown as Playwright;
+const loadPlaywright = async (): Promise<Playwright> =>
+  (await import("@cloudflare/playwright")) as unknown as Playwright;
 
 /** The bytes of `url` as `page` may read them (its cookies, its origin's rules), at most TRANSFER_MAX_BYTES. */
 const fetchFromPage = async (page: Page, url: string): Promise<Uint8Array> => {
@@ -189,7 +203,8 @@ const fetchFromPage = async (page: Page, url: string): Promise<Uint8Array> => {
       const buffer = new Uint8Array(await response.arrayBuffer());
       if (buffer.byteLength > max) throw new Error("too large");
       let binary = "";
-      for (let at = 0; at < buffer.length; at += 0x8000) binary += String.fromCharCode(...buffer.subarray(at, at + 0x8000));
+      for (let at = 0; at < buffer.length; at += 0x8000)
+        binary += String.fromCharCode(...buffer.subarray(at, at + 0x8000));
       return btoa(binary);
     },
     { target: url, max: TRANSFER_MAX_BYTES },
@@ -200,7 +215,10 @@ const fetchFromPage = async (page: Page, url: string): Promise<Uint8Array> => {
 type FileInput = string | { readonly name: string; readonly mimeType: string; readonly buffer: Buffer };
 
 /** Upload paths as buffers, read from `workspace` (`/w/<id>/…` of it, or its `/workspace/…`); anything else refused. */
-const filesFrom = async (workspace: string | undefined, files: FileInput | ReadonlyArray<FileInput>): Promise<Array<Exclude<FileInput, string>>> => {
+const filesFrom = async (
+  workspace: string | undefined,
+  files: FileInput | ReadonlyArray<FileInput>,
+): Promise<Array<Exclude<FileInput, string>>> => {
   const list = Array.isArray(files) ? (files as ReadonlyArray<FileInput>) : [files as FileInput];
   const out: Array<Exclude<FileInput, string>> = [];
   let total = 0;
@@ -209,15 +227,21 @@ const filesFrom = async (workspace: string | undefined, files: FileInput | Reado
       out.push(file);
       continue;
     }
-    const at = file.startsWith("/workspace/") && workspace !== undefined ? { id: workspace, inner: file } : toWorkspace(file);
+    const at =
+      file.startsWith("/workspace/") && workspace !== undefined ? { id: workspace, inner: file } : toWorkspace(file);
     if (workspace === undefined || at === null || at.id !== workspace) {
       throw new Error(`Upload paths must be in this thread's Workspace: ${file}`);
     }
     const answer = (await workspaceRpc(workspace).fs({ op: "read", path: at.inner })) as { readonly ok?: Uint8Array };
     if (answer.ok === undefined) throw new Error(`Could not read ${file}`);
     total += answer.ok.byteLength;
-    if (total > TRANSFER_MAX_BYTES) throw new Error("The files are larger than the Cloud Environment uploads (16 MiB).");
-    out.push({ name: file.slice(file.lastIndexOf("/") + 1) || "file", mimeType: "application/octet-stream", buffer: Buffer.from(answer.ok) });
+    if (total > TRANSFER_MAX_BYTES)
+      throw new Error("The files are larger than the Cloud Environment uploads (16 MiB).");
+    out.push({
+      name: file.slice(file.lastIndexOf("/") + 1) || "file",
+      mimeType: "application/octet-stream",
+      buffer: Buffer.from(answer.ok),
+    });
   }
   return out;
 };
@@ -235,7 +259,11 @@ const patchUploads = (target: object, method: string, workspaceFor: (self: objec
   const prototype = Object.getPrototypeOf(target) as Record<string, unknown> | null;
   if (prototype === null || patched.has(prototype) || typeof prototype[method] !== "function") return;
   patched.add(prototype);
-  const original = prototype[method] as (this: object, files: FileInput | ReadonlyArray<FileInput>, options?: unknown) => Promise<void>;
+  const original = prototype[method] as (
+    this: object,
+    files: FileInput | ReadonlyArray<FileInput>,
+    options?: unknown,
+  ) => Promise<void>;
   prototype[method] = async function (this: object, files: FileInput | ReadonlyArray<FileInput>, options?: unknown) {
     return original.call(this, await filesFrom(workspaceFor(this), files), options);
   };
@@ -279,9 +307,17 @@ export class ServerBrowserContexts {
               const entry = environmentServices().containerPreviews(workspace);
               return Object.fromEntries(CONTAINER_PREVIEW_PORTS.map((port) => [containerPreviewHost(port), entry]));
             })();
-      const browser = await playwright.launch(binding, { keep_alive: BROWSER_KEEP_ALIVE_MS, ...(routes === undefined ? {} : { outboundByHost: routes }) });
+      const browser = await playwright.launch(binding, {
+        keep_alive: BROWSER_KEEP_ALIVE_MS,
+        ...(routes === undefined ? {} : { outboundByHost: routes }),
+      });
       const sessionId = browser.sessionId();
-      this.store.sessionOpened({ id: sessionId, kind: workspace === undefined ? "shared" : "workspace", workspace: workspace ?? null, openedAt: Date.now() });
+      this.store.sessionOpened({
+        id: sessionId,
+        kind: workspace === undefined ? "shared" : "workspace",
+        workspace: workspace ?? null,
+        openedAt: Date.now(),
+      });
       browser.on("disconnected", () => {
         this.store.sessionClosed(sessionId);
         if (this.browsers.get(key)?.launched === launched) this.browsers.delete(key);
@@ -338,7 +374,8 @@ export class ServerBrowserContexts {
     const prepare = (page: Page) => {
       workspaceOf.set(page, workspace);
       const goto = page.goto.bind(page);
-      page.goto = ((url: string, options?: Parameters<Page["goto"]>[1]) => goto(translatePreviewUrl(url), options)) as Page["goto"];
+      page.goto = ((url: string, options?: Parameters<Page["goto"]>[1]) =>
+        goto(translatePreviewUrl(url), options)) as Page["goto"];
       page.on("download", (download: Download) => {
         const target = download.url();
         (download as { saveAs: (path: string) => Promise<void> }).saveAs = async (path: string) => {
@@ -348,7 +385,9 @@ export class ServerBrowserContexts {
           await StateFs.writeFile(path, bytes);
         };
       });
-      page.on("filechooser", (chooser) => patchUploads(chooser, "setFiles", (self) => workspaceOf.get((self as { page(): Page }).page())));
+      page.on("filechooser", (chooser) =>
+        patchUploads(chooser, "setFiles", (self) => workspaceOf.get((self as { page(): Page }).page())),
+      );
       patchUploads(page.locator("html"), "setInputFiles", (self) => workspaceOf.get((self as { page(): Page }).page()));
     };
     for (const page of context.pages()) prepare(page);

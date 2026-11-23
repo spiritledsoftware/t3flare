@@ -25,9 +25,21 @@ export const laptopModels = (env: Readonly<Record<string, string | undefined>> =
     api: spec.api,
     apiKey: `$${LAPTOP_KEY_VAR}`,
     ...(Object.keys(spec.headers).length === 0 ? {} : { headers: spec.headers }),
-    models: models.map((id) => ({ id, name: id, reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128_000, maxTokens: 16_384 })),
+    models: models.map((id) => ({
+      id,
+      name: id,
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 128_000,
+      maxTokens: 16_384,
+    })),
   };
-  return { modelsJson: JSON.stringify({ providers: { [spec.id]: provider } }, null, 1), key: spec.apiKey, model: `${spec.id}/${models[0]!}` };
+  return {
+    modelsJson: JSON.stringify({ providers: { [spec.id]: provider } }, null, 1),
+    key: spec.apiKey,
+    model: `${spec.id}/${models[0]!}`,
+  };
 };
 
 /** The laptop server's extra environment for its Pi agent; writes `<dir>/pi-agent/models.json`. */

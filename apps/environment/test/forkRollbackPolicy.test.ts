@@ -7,11 +7,13 @@ import { describe, expect, it } from "vitest";
 
 import { PiDurableCapabilities } from "../src/provider/capabilities.ts";
 
-const policy = Effect.runPromise(
-  CommandPolicy.CommandPolicyV2.pipe(Effect.provide(CommandPolicy.layer)),
-);
+const policy = Effect.runPromise(CommandPolicy.CommandPolicyV2.pipe(Effect.provide(CommandPolicy.layer)));
 
-const ids = { commandId: CommandId.make("command-1"), threadId: ThreadId.make("thread-1"), providerInstanceId: ProviderInstanceId.make("piDurable") };
+const ids = {
+  commandId: CommandId.make("command-1"),
+  threadId: ThreadId.make("thread-1"),
+  providerInstanceId: ProviderInstanceId.make("piDurable"),
+};
 
 describe("t3's command policy for the Durable agent (G6)", () => {
   it("forks natively from a completed turn of an idle source", async () => {

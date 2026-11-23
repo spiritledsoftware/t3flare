@@ -15,7 +15,9 @@ export interface Lock {
 }
 
 export const readLock = (file: string): Lock => {
-  const documents = parseAllDocuments(fs.readFileSync(file, "utf8")).map((doc) => doc.toJS({ maxAliasCount: -1 }) as Json);
+  const documents = parseAllDocuments(fs.readFileSync(file, "utf8")).map(
+    (doc) => doc.toJS({ maxAliasCount: -1 }) as Json,
+  );
   const main = documents.find((doc) => doc?.importers !== undefined && doc?.settings !== undefined);
   if (main === undefined) throw new Error(`${file}: no lockfile document with settings and importers`);
   return { main, documents };

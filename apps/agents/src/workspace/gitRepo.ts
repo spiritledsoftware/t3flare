@@ -138,7 +138,8 @@ export const withinGuard = async (repo: Repo): Promise<boolean> => {
   let bytes = 0;
   try {
     for (const name of (await repo.fs.promises.readdir(packDir)) as Array<string>) {
-      if (name.endsWith(".pack")) bytes += ((await repo.fs.promises.stat(`${packDir}/${name}`)) as { size: number }).size;
+      if (name.endsWith(".pack"))
+        bytes += ((await repo.fs.promises.stat(`${packDir}/${name}`)) as { size: number }).size;
     }
   } catch (cause) {
     if (!isNotFound(cause)) throw cause;
@@ -147,10 +148,17 @@ export const withinGuard = async (repo: Repo): Promise<boolean> => {
 };
 
 /** The working tree's side of a file: its mode and bytes (a symlink's target as its bytes), or null when absent. */
-export const worktreeFile = async (repo: Repo, path: string): Promise<{ readonly mode: string; readonly bytes: Uint8Array } | null> => {
+export const worktreeFile = async (
+  repo: Repo,
+  path: string,
+): Promise<{ readonly mode: string; readonly bytes: Uint8Array } | null> => {
   const absolute = `${repo.dir}/${path}`;
   try {
-    const stat = (await repo.fs.promises.lstat(absolute)) as { mode: number; isSymbolicLink(): boolean; isDirectory(): boolean };
+    const stat = (await repo.fs.promises.lstat(absolute)) as {
+      mode: number;
+      isSymbolicLink(): boolean;
+      isDirectory(): boolean;
+    };
     if (stat.isDirectory()) return null;
     if (stat.isSymbolicLink()) {
       const target = (await repo.fs.promises.readlink!(absolute)) as string;
@@ -168,9 +176,19 @@ export const worktreeFile = async (repo: Repo, path: string): Promise<{ readonly
  * What `git add -A` would stage on a fresh index from HEAD: HEAD's files, each changed one as the working tree has it,
  * the deleted ones gone, and the untracked files that are not ignored added. `write` stores the new blobs.
  */
-export const worktreeTree = async (repo: Repo, head: string | null, write: boolean): Promise<Map<string, TreeEntry>> => {
+export const worktreeTree = async (
+  repo: Repo,
+  head: string | null,
+  write: boolean,
+): Promise<Map<string, TreeEntry>> => {
   const tree = await flatTree(repo, head);
-  const rows = await git.statusMatrix({ fs: repo.fs, dir: repo.dir, cache: repo.cache, refresh: false, ...(head === null ? { ref: "HEAD" } : {}) });
+  const rows = await git.statusMatrix({
+    fs: repo.fs,
+    dir: repo.dir,
+    cache: repo.cache,
+    refresh: false,
+    ...(head === null ? { ref: "HEAD" } : {}),
+  });
   for (const [path, , workdir] of rows) {
     if (workdir === 0) {
       tree.delete(path);
@@ -209,7 +227,8 @@ export const writeTrees = async (repo: Repo, files: ReadonlyMap<string, TreeEntr
   }
   const write = async (dir: Dir): Promise<string> => {
     const tree: Array<{ mode: string; path: string; oid: string; type: "blob" | "tree" | "commit" }> = [];
-    for (const [name, child] of dir.dirs) tree.push({ mode: "040000", path: name, oid: await write(child), type: "tree" });
+    for (const [name, child] of dir.dirs)
+      tree.push({ mode: "040000", path: name, oid: await write(child), type: "tree" });
     for (const { name, entry } of dir.files) {
       tree.push({ mode: entry.mode, path: name, oid: entry.oid, type: entry.mode === "160000" ? "commit" : "blob" });
     }
@@ -227,7 +246,13 @@ export const captureCheckpoint = async (repo: Repo, ref: string, nowSeconds: num
   const commit = await git.writeCommit({
     fs: repo.fs,
     dir: repo.dir,
-    commit: { message: `t3 checkpoint ref=${ref}\n`, tree, parent: head === null ? [] : [head], author: person, committer: person },
+    commit: {
+      message: `t3 checkpoint ref=${ref}\n`,
+      tree,
+      parent: head === null ? [] : [head],
+      author: person,
+      committer: person,
+    },
   });
   await git.writeRef({ fs: repo.fs, dir: repo.dir, ref, value: commit, force: true });
   return commit;
@@ -250,7 +275,11 @@ export const diffCommits = async (
   repo: Repo,
   from: string,
   to: string,
-  options: { readonly format: "patch" | "numstat"; readonly filePaths?: ReadonlyArray<string> | undefined; readonly maxOutputBytes?: number | undefined },
+  options: {
+    readonly format: "patch" | "numstat";
+    readonly filePaths?: ReadonlyArray<string> | undefined;
+    readonly maxOutputBytes?: number | undefined;
+  },
 ): Promise<string> => {
   const wanted = options.filePaths === undefined ? undefined : new Set(options.filePaths);
   const changes = treeChanges(await flatTree(repo, from), await flatTree(repo, to)).filter(

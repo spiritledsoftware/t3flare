@@ -28,7 +28,11 @@ export const layerDeletionWake = (wake: () => void) =>
     Effect.gen(function* () {
       const events = yield* OrchestrationEventStore.OrchestrationEventStore;
       yield* ServerActivation.forkParked(
-        Stream.unwrap(events.latestApplicationSequence.pipe(Effect.map((afterSequence) => events.streamApplicationEvents({ afterSequence })))).pipe(
+        Stream.unwrap(
+          events.latestApplicationSequence.pipe(
+            Effect.map((afterSequence) => events.streamApplicationEvents({ afterSequence })),
+          ),
+        ).pipe(
           Stream.filter(wakesSweep),
           Stream.runForEach(() => Effect.sync(wake)),
           Effect.andThen(Effect.logWarning("t3flare: deletion-wake-stream-ended")),

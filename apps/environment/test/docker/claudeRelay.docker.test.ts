@@ -33,7 +33,17 @@ it("Claude Code reaches the model relay with its handle, which no Claude process
     const marker = `proc-${randomUUID()}`;
     const answer = profileLaunch(
       { cli: "claude", args: [], key: marker, cwd: T3_PATH, env: {}, allowProbe: false },
-      { readStateFile: () => undefined, piExtensionSource: "", claudeRelay: { endpoints: ["comm"], models: ["comm/claude-haiku-5-5"], backgroundModel: "comm/claude-haiku-5-5", opusModel: "comm/claude-haiku-5-5", sonnetModel: "comm/claude-haiku-5-5" } },
+      {
+        readStateFile: () => undefined,
+        piExtensionSource: "",
+        claudeRelay: {
+          endpoints: ["comm"],
+          models: ["comm/claude-haiku-5-5"],
+          backgroundModel: "comm/claude-haiku-5-5",
+          opusModel: "comm/claude-haiku-5-5",
+          sonnetModel: "comm/claude-haiku-5-5",
+        },
+      },
     );
     if ("refused" in answer) throw new Error(answer.refused);
     // The watcher runs without the handle: once Claude's Bash has written its environment, it records which processes
@@ -49,7 +59,7 @@ it("Claude Code reaches the model relay with its handle, which no Claude process
       "other=$!",
       "sleep 0.2; echo \"$other $(sed 's/.*) //' /proc/$other/stat | cut -d' ' -f20)\" > /var/lib/t3flare/cli/forged/acp.pid",
       "T3FLARE_EXEC=forged /opt/t3flare/bin/t3flare-claude-handle > /dev/null 2> /workspace/forged-other.txt; echo $? >> /workspace/forged-other.txt",
-      "echo \"$real 1\" > /var/lib/t3flare/cli/forged/acp.pid",
+      'echo "$real 1" > /var/lib/t3flare/cli/forged/acp.pid',
       "T3FLARE_EXEC=forged /opt/t3flare/bin/t3flare-claude-handle > /dev/null 2> /workspace/forged-start.txt; echo $? >> /workspace/forged-start.txt",
       `T3FLARE_EXEC=${marker} /opt/t3flare/bin/t3flare-claude-handle | wc -c > /workspace/helper-bytes.txt`,
       "kill $other",
@@ -63,26 +73,83 @@ it("Claude Code reaches the model relay with its handle, which no Claude process
       workspace,
       setup: "(env -u T3FLARE_MODEL_HANDLE bash /workspace/watch.sh > /workspace/watch.log 2>&1 &)",
     });
-    const result = drive("acp-rpc.mjs", { cwd: T3_PATH, waitMs: 30_000, settleMs: 3000, timeoutMs: 180_000, prompt: "Write your environment to a file.", lingerMs: 10_000 }, command);
+    const result = drive(
+      "acp-rpc.mjs",
+      {
+        cwd: T3_PATH,
+        waitMs: 30_000,
+        settleMs: 3000,
+        timeoutMs: 180_000,
+        prompt: "Write your environment to a file.",
+        lingerMs: 10_000,
+      },
+      command,
+    );
     const read = (name: string) => readMounted(path.join(workspace, name));
-    const relayed = docker(["logs", "t3flare-claude-relay-keyhost"]).stdout
-      .split("\n")
+    const relayed = docker(["logs", "t3flare-claude-relay-keyhost"])
+      .stdout.split("\n")
       .filter((line) => line.includes('"model-relay"'))
-      .map((line) => JSON.parse(line) as { path: string; model: string; apiKeyIsHandle: boolean; bearerIsHandle: boolean; bash: boolean });
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            path: string;
+            model: string;
+            apiKeyIsHandle: boolean;
+            bearerIsHandle: boolean;
+            bash: boolean;
+          },
+      );
     const shellEnv = read("shell-env.txt");
-    const holders = read("holders.txt").split("\n").map((line) => line.trim()).filter((line) => line !== "");
-    const report = { models: result.models, shellEnvWritten: shellEnv !== "", watchLog: read("watch.log").slice(-600), stopReason: result.stopReason, errors: result.errors, toolCalls: result.toolCalls, toolResults: result.toolResults, stderr: String(result.stderr ?? "").slice(-800), relayed, holders, claude: read("claude-count.txt").trim(), forgedOther: read("forged-other.txt"), forgedStart: read("forged-start.txt"), helperBytes: read("helper-bytes.txt").trim() };
+    const holders = read("holders.txt")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== "");
+    const report = {
+      models: result.models,
+      shellEnvWritten: shellEnv !== "",
+      watchLog: read("watch.log").slice(-600),
+      stopReason: result.stopReason,
+      errors: result.errors,
+      toolCalls: result.toolCalls,
+      toolResults: result.toolResults,
+      stderr: String(result.stderr ?? "").slice(-800),
+      relayed,
+      holders,
+      claude: read("claude-count.txt").trim(),
+      forgedOther: read("forged-other.txt"),
+      forgedStart: read("forged-start.txt"),
+      helperBytes: read("helper-bytes.txt").trim(),
+    };
     const text = JSON.stringify(report);
     expect(text.includes(handle), "the handle reached the report").toBe(false);
     expect(relayed.length, text).toBeGreaterThan(0);
     // Claude Code's `default` (its own default, through the pinned aliases) and the slugs: never a non-slug id.
     expect(report.models, text).toEqual(["default", "comm/claude-haiku-5-5"]);
-    expect(relayed.every((entry) => entry.path.startsWith("/t3flare/model/_/") && entry.model === "comm/claude-haiku-5-5" && entry.apiKeyIsHandle && entry.bearerIsHandle), text).toBe(true);
-    expect(relayed.some((entry) => entry.bash), text).toBe(true);
+    expect(
+      relayed.every(
+        (entry) =>
+          entry.path.startsWith("/t3flare/model/_/") &&
+          entry.model === "comm/claude-haiku-5-5" &&
+          entry.apiKeyIsHandle &&
+          entry.bearerIsHandle,
+      ),
+      text,
+    ).toBe(true);
+    expect(
+      relayed.some((entry) => entry.bash),
+      text,
+    ).toBe(true);
     expect(shellEnv.includes("T3FLARE_EXEC="), text).toBe(true);
     expect(shellEnv.includes("T3FLARE_MODEL_HANDLE"), text).toBe(false);
     expect(holders.length, text).toBeGreaterThan(0);
-    expect(holders.every((line) => line.startsWith("setsid --wait /opt/t3flare/bin/claude-agent-acp") || line.includes("--require /opt/t3flare/share/claude-handle-unset.cjs")), text).toBe(true);
+    expect(
+      holders.every(
+        (line) =>
+          line.startsWith("setsid --wait /opt/t3flare/bin/claude-agent-acp") ||
+          line.includes("--require /opt/t3flare/share/claude-handle-unset.cjs"),
+      ),
+      text,
+    ).toBe(true);
     expect(Number(report.claude), text).toBeGreaterThan(0);
     expect(report.forgedOther, text).toMatch(/names another process\n1\n$/);
     expect(report.forgedStart, text).toMatch(/is gone\n1\n$/);

@@ -18,7 +18,11 @@ const namespace = (methods: (name: string) => Record<string, unknown>) => ({
   get: (name: string) => methods(name),
 });
 
-const servicesWith = (rows: Array<WorkspaceRecord>, destroyedSessions: Array<string>, workspaceDestroy: () => Promise<unknown> = async () => undefined) => {
+const servicesWith = (
+  rows: Array<WorkspaceRecord>,
+  destroyedSessions: Array<string>,
+  workspaceDestroy: () => Promise<unknown> = async () => undefined,
+) => {
   const registry = {
     list: () => rows,
     get: (id: string) => rows.find((row) => row.id === id),
@@ -28,7 +32,11 @@ const servicesWith = (rows: Array<WorkspaceRecord>, destroyedSessions: Array<str
     },
     setLastError: () => undefined,
     setUnreferencedSince: () => undefined,
-    remove: (id: string) => void rows.splice(rows.findIndex((row) => row.id === id), 1),
+    remove: (id: string) =>
+      void rows.splice(
+        rows.findIndex((row) => row.id === id),
+        1,
+      ),
   };
   // SAFETY: a stand-in for the few registry and namespace methods the Sweep calls, not the whole EnvironmentServices.
   bindEnvironmentServices({
@@ -48,7 +56,11 @@ describe("the Sweep's Purge of a deleted project with a worktree thread", () => 
   it("destroys the worktree thread's Session once, and counts it in one sweep.purge entry", async () => {
     const sql = t3Tables();
     const deletedAt = new Date(NOW - 10 * 60_000).toISOString();
-    sql.exec("INSERT INTO projection_projects (project_id, title, workspace_root, created_at, deleted_at) VALUES ('p1', 'app', '/w/app', ?, ?)", deletedAt, deletedAt);
+    sql.exec(
+      "INSERT INTO projection_projects (project_id, title, workspace_root, created_at, deleted_at) VALUES ('p1', 'app', '/w/app', ?, ?)",
+      deletedAt,
+      deletedAt,
+    );
     sql.exec(
       "INSERT INTO orchestration_v2_projection_threads (thread_id, project_id, title, deleted_at, payload_json) VALUES ('t1', 'p1', 'wt thread', ?, ?)",
       deletedAt,
@@ -79,7 +91,11 @@ describe("the Sweep's Purge of a deleted project with a worktree thread", () => 
   it("leaves a Session an earlier run already destroyed, and records the ones it destroys", async () => {
     const sql = t3Tables();
     const deletedAt = new Date(NOW - 10 * 60_000).toISOString();
-    sql.exec("INSERT INTO projection_projects (project_id, title, workspace_root, created_at, deleted_at) VALUES ('p1', 'app', '/w/app', ?, ?)", deletedAt, deletedAt);
+    sql.exec(
+      "INSERT INTO projection_projects (project_id, title, workspace_root, created_at, deleted_at) VALUES ('p1', 'app', '/w/app', ?, ?)",
+      deletedAt,
+      deletedAt,
+    );
     for (const [thread, worktree] of [
       ["t1", "/w/.wt/app/t3-1"],
       ["t2", null],
@@ -117,7 +133,11 @@ describe("the Sweep's Purge of a deleted project with a worktree thread", () => 
   it("counts a failed purge's Sessions in the run's Session pass, not lost to its record", async () => {
     const sql = t3Tables();
     const deletedAt = new Date(NOW - 10 * 60_000).toISOString();
-    sql.exec("INSERT INTO projection_projects (project_id, title, workspace_root, created_at, deleted_at) VALUES ('p1', 'app', '/w/app', ?, ?)", deletedAt, deletedAt);
+    sql.exec(
+      "INSERT INTO projection_projects (project_id, title, workspace_root, created_at, deleted_at) VALUES ('p1', 'app', '/w/app', ?, ?)",
+      deletedAt,
+      deletedAt,
+    );
     sql.exec(
       "INSERT INTO orchestration_v2_projection_threads (thread_id, project_id, title, deleted_at, payload_json) VALUES ('t2', 'p1', 'a thread', ?, ?)",
       deletedAt,

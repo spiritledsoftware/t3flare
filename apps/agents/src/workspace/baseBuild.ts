@@ -62,9 +62,16 @@ import {
 export interface BuilderContainer {
   running(): boolean;
   /** Starts from the image (`entrypoint` replaced) or from a snapshot (the image's own entrypoint). Throws when refused. */
-  start(options: { readonly from: { readonly image: string } | { readonly snapshot: string }; readonly entrypoint?: ReadonlyArray<string>; readonly instance: ContainerInstance }): void;
+  start(options: {
+    readonly from: { readonly image: string } | { readonly snapshot: string };
+    readonly entrypoint?: ReadonlyArray<string>;
+    readonly instance: ContainerInstance;
+  }): void;
   /** Runs `argv`; answers its exit code and stdout. Throws when the exec cannot run or `timeoutMs` passes. */
-  exec(argv: ReadonlyArray<string>, options: { readonly stdin?: string; readonly env?: Readonly<Record<string, string>>; readonly timeoutMs: number }): Promise<{ readonly exitCode: number | null; readonly stdout: string }>;
+  exec(
+    argv: ReadonlyArray<string>,
+    options: { readonly stdin?: string; readonly env?: Readonly<Record<string, string>>; readonly timeoutMs: number },
+  ): Promise<{ readonly exitCode: number | null; readonly stdout: string }>;
   snapshot(name: string): Promise<{ readonly id: string; readonly size: number }>;
   /** Settles when the running Container stops; rejects at once when a start from a snapshot is refused. */
   monitor(): Promise<void>;
@@ -81,7 +88,11 @@ export interface BuilderInputs {
 
 export interface BaseBuildDeps {
   readonly container: BuilderContainer;
-  readonly storage: { get<T>(key: string): T | undefined; put<T>(key: string, value: T): void; delete(key: string): void };
+  readonly storage: {
+    get<T>(key: string): T | undefined;
+    put<T>(key: string, value: T): void;
+    delete(key: string): void;
+  };
   readonly inputs: () => Promise<BuilderInputs>;
   /** `ctx.container.images.WorkspaceContainer` alone, without the settings' read: the image watch's (SPI-1333). */
   readonly image: () => string | undefined;
@@ -90,7 +101,10 @@ export interface BaseBuildDeps {
   /** Every change of the record (the Environment DO's report sink, for Status). */
   readonly report: (record: BaseBuildRecord) => void;
   /** The Container budget's lease, taken when `builderInBudget` is on. */
-  readonly lease: { acquire(budget: number): Promise<{ readonly ok: boolean; readonly reason?: string }>; release(): Promise<void> };
+  readonly lease: {
+    acquire(budget: number): Promise<{ readonly ok: boolean; readonly reason?: string }>;
+    release(): Promise<void>;
+  };
   readonly now: () => number;
   readonly random: (bytes: number) => Uint8Array;
   readonly log?: (event: Readonly<Record<string, unknown>>) => void;
@@ -173,7 +187,9 @@ interface SnapshotCall {
   readonly build: string;
   /** The object instance that made it: one from before a reset will never record its result. */
   readonly epoch: string;
-  readonly result?: { readonly ok: true; readonly id: string; readonly size: number } | { readonly ok: false; readonly error: string };
+  readonly result?:
+    | { readonly ok: true; readonly id: string; readonly size: number }
+    | { readonly ok: false; readonly error: string };
 }
 
 export const BUILDER_KEYS = {
@@ -242,13 +258,15 @@ const PROBE_MS = 30_000;
 export const outputBytesOf = (settings: ResolvedEnvironment): number => settings.setupOutputKiB * 1024;
 
 /** The wait before the retry after `failures` failures in a row: `SCHEDULE_RETRY_MS`, doubling, at most a day. */
-export const retryDelay = (failures: number): number => Math.min(DAY_MS, SCHEDULE_RETRY_MS * 2 ** Math.min(Math.max(1, failures) - 1, 5));
+export const retryDelay = (failures: number): number =>
+  Math.min(DAY_MS, SCHEDULE_RETRY_MS * 2 ** Math.min(Math.max(1, failures) - 1, 5));
 
 /** A trigger's kind: a Rebuild (the Owner's or `rebuild_base`) runs at once; the rest wait out a failing key's backoff. */
 type Trigger = "rebuild" | "automatic" | "scheduled";
 
 const ENDED: ReadonlyArray<Build["phase"]> = ["ready", "failed", "canceled"];
-export const isRunning = (build: Build | undefined): build is Build & { readonly phase: BaseBuildPhase } => build !== undefined && !ENDED.includes(build.phase);
+export const isRunning = (build: Build | undefined): build is Build & { readonly phase: BaseBuildPhase } =>
+  build !== undefined && !ENDED.includes(build.phase);
 
 /** A build's proved snapshot as a record carries it: the Base snapshot's, or a test's result. */
 const goodOf = (build: Build, snapshot: NonNullable<Build["snapshot"]>, builtAt: number): BaseSnapshot => ({
@@ -262,7 +280,8 @@ const goodOf = (build: Build, snapshot: NonNullable<Build["snapshot"]>, builtAt:
 
 const NOT_BASE = "t3flare: the test Builder runs only a Test base build";
 
-const errorText = (error: unknown): string => String(error instanceof Error ? error.message : error).slice(0, BASE_BUILD_CAPS.message);
+const errorText = (error: unknown): string =>
+  String(error instanceof Error ? error.message : error).slice(0, BASE_BUILD_CAPS.message);
 
 export class BaseBuild {
   readonly #deps: BaseBuildDeps;
@@ -313,12 +332,26 @@ export class BaseBuild {
       at: now(),
     };
     if (isRunning(build)) {
-      return { ...base, state: "building", phase: build.phase, since: build.startedAt, reason: build.reason, ...(build.waitingForBudget === true ? { waitingForBudget: true } : {}) };
+      return {
+        ...base,
+        state: "building",
+        phase: build.phase,
+        since: build.startedAt,
+        reason: build.reason,
+        ...(build.waitingForBudget === true ? { waitingForBudget: true } : {}),
+      };
     }
     if (current?.nothingToBuild === true) return { ...base, state: "none", nothingToBuild: true };
     // The last build of these settings failed: shown, beside a good one still for them (a failed scheduled rebuild).
-    const failed = build?.phase === "failed" && build.key === current?.key && build.failure !== undefined && (good === null || build.startedAt >= good.builtAt) ? build.failure : undefined;
-    if (good !== null && good.key === current?.key) return { ...base, state: "ready", ...(failed === undefined ? {} : { failure: failed }) };
+    const failed =
+      build?.phase === "failed" &&
+      build.key === current?.key &&
+      build.failure !== undefined &&
+      (good === null || build.startedAt >= good.builtAt)
+        ? build.failure
+        : undefined;
+    if (good !== null && good.key === current?.key)
+      return { ...base, state: "ready", ...(failed === undefined ? {} : { failure: failed }) };
     if (failed !== undefined) return { ...base, state: "failed", failure: failed };
     return { ...base, state: "none" };
   }
@@ -329,16 +362,30 @@ export class BaseBuild {
     const current = storage.get<Current>(BUILDER_KEYS.current);
     const build = storage.get<Build>(BUILDER_KEYS.build);
     const setup = storage.get<string>(BUILDER_KEYS.proposalDigest);
-    const base = { test: true as const, key: build?.key ?? null, ...(setup === undefined ? {} : { setup }), good: null, at: now() };
+    const base = {
+      test: true as const,
+      key: build?.key ?? null,
+      ...(setup === undefined ? {} : { setup }),
+      good: null,
+      at: now(),
+    };
     if (current?.nothingToBuild === true) return { ...base, key: current.key, state: "none", nothingToBuild: true };
     if (isRunning(build)) {
-      return { ...base, state: "building", phase: build.phase, since: build.startedAt, reason: build.reason, ...(build.waitingForBudget === true ? { waitingForBudget: true } : {}) };
+      return {
+        ...base,
+        state: "building",
+        phase: build.phase,
+        since: build.startedAt,
+        reason: build.reason,
+        ...(build.waitingForBudget === true ? { waitingForBudget: true } : {}),
+      };
     }
     if (build?.phase === "ready" && build.snapshot !== undefined) {
       const builtAt = build.endedAt ?? build.phaseAt;
       return { ...base, state: "ready", good: goodOf(build, build.snapshot, builtAt) };
     }
-    if (build?.phase === "failed" && build.failure !== undefined) return { ...base, state: "failed", failure: build.failure };
+    if (build?.phase === "failed" && build.failure !== undefined)
+      return { ...base, state: "failed", failure: build.failure };
     return { ...base, state: "none" };
   }
 
@@ -440,12 +487,23 @@ export class BaseBuild {
         imageSetup: settings.imageSetup,
         globalMiseConfig: settings.globalMiseConfig,
         // As a Container start gets them (`variableEnv`): a name withheld from commands reaches no Image setup either.
-        variables: Object.entries(variableEnv(settings.variables)).map(([name, value]) => ({ name, value, secret: settings.variables.some((variable) => variable.name === name && variable.secret) })),
+        variables: Object.entries(variableEnv(settings.variables)).map(([name, value]) => ({
+          name,
+          value,
+          secret: settings.variables.some((variable) => variable.name === name && variable.secret),
+        })),
       },
       this.#hmacKey(),
     );
     // A test has no schedule.
-    return { key, revision: settings.revision, image, nothingToBuild: settings.imageSetup === "" && settings.globalMiseConfig === "", rebuildEveryDays: this.#test ? 0 : settings.rebuildEveryDays, at: this.#deps.now() };
+    return {
+      key,
+      revision: settings.revision,
+      image,
+      nothingToBuild: settings.imageSetup === "" && settings.globalMiseConfig === "",
+      rebuildEveryDays: this.#test ? 0 : settings.rebuildEveryDays,
+      at: this.#deps.now(),
+    };
   }
 
   #hmacKey(): Uint8Array {
@@ -466,7 +524,12 @@ export class BaseBuild {
       await this.#lateSnapshot(build);
     } catch (error) {
       // The proof it went on to threw (a destroy the platform refused): the next alarm drives it, bounded by its limit.
-      this.#deps.log?.({ t3flare: "base-build-tick-failed", build: build.id, phase: "proving", error: errorText(error).slice(0, BASE_BUILD_CAPS.log) });
+      this.#deps.log?.({
+        t3flare: "base-build-tick-failed",
+        build: build.id,
+        phase: "proving",
+        error: errorText(error).slice(0, BASE_BUILD_CAPS.log),
+      });
       await this.#deps.setAlarm(this.#deps.now() + POLL_MS.proving);
     }
   }
@@ -498,12 +561,18 @@ export class BaseBuild {
     const good = this.#good();
     if (!force && good !== null && good.key === current.key) return this.#report();
     // The script failed for this key: not run again on its own, unless a Base snapshot of the key once worked and is gone.
-    const scriptFailed = last?.phase === "failed" && last.key === current.key && typeof last.failure?.exitCode === "number";
+    const scriptFailed =
+      last?.phase === "failed" && last.key === current.key && typeof last.failure?.exitCode === "number";
     const workedOnce = storage.get<KeptSnapshot>(BUILDER_KEYS.good)?.key === current.key;
     if (!force && scriptFailed && !workedOnce) return this.#report();
     // A key that keeps failing waits out its backoff, whatever the trigger (the schedule included), but a Rebuild: a
     // change of key is a new key, never waited on.
-    if (trigger !== "rebuild" && last?.phase === "failed" && last.key === current.key && this.#deps.now() < (last.endedAt ?? last.startedAt) + retryDelay(this.#failures(current.key))) {
+    if (
+      trigger !== "rebuild" &&
+      last?.phase === "failed" &&
+      last.key === current.key &&
+      this.#deps.now() < (last.endedAt ?? last.startedAt) + retryDelay(this.#failures(current.key))
+    ) {
       return this.#report();
     }
     this.#begin(inputs, current.key, reason, trigger === "scheduled");
@@ -546,7 +615,10 @@ export class BaseBuild {
         try {
           await this.#poke("the Workspace image changed", "automatic");
         } catch (error) {
-          this.#deps.log?.({ t3flare: "base-build-watch-failed", error: errorText(error).slice(0, BASE_BUILD_CAPS.log) });
+          this.#deps.log?.({
+            t3flare: "base-build-watch-failed",
+            error: errorText(error).slice(0, BASE_BUILD_CAPS.log),
+          });
           return setAlarm(now() + READ_RETRY_MS);
         }
         if (isRunning(storage.get<Build>(BUILDER_KEYS.build))) return this.#tick();
@@ -555,12 +627,17 @@ export class BaseBuild {
         try {
           await this.#poke("the scheduled rebuild", "scheduled");
         } catch (error) {
-          this.#deps.log?.({ t3flare: "base-build-schedule-failed", error: errorText(error).slice(0, BASE_BUILD_CAPS.log) });
+          this.#deps.log?.({
+            t3flare: "base-build-schedule-failed",
+            error: errorText(error).slice(0, BASE_BUILD_CAPS.log),
+          });
           return setAlarm(now() + READ_RETRY_MS);
         }
         if (isRunning(storage.get<Build>(BUILDER_KEYS.build))) return this.#tick();
         // It started nothing (nothing to build, a backoff): the watch's poll or the backoff's end, whichever comes first.
-        const next = [this.#watching() ? now() + IMAGE_WATCH_POLL_MS : undefined, this.#backoffEnd()].filter((at): at is number => at !== undefined);
+        const next = [this.#watching() ? now() + IMAGE_WATCH_POLL_MS : undefined, this.#backoffEnd()].filter(
+          (at): at is number => at !== undefined,
+        );
         if (next.length > 0) await setAlarm(Math.min(...next));
         return;
       }
@@ -584,13 +661,19 @@ export class BaseBuild {
       }
     } catch (error) {
       const message = errorText(error);
-      this.#deps.log?.({ t3flare: "base-build-tick-failed", build: live.id, phase: live.phase, error: message.slice(0, BASE_BUILD_CAPS.log) });
+      this.#deps.log?.({
+        t3flare: "base-build-tick-failed",
+        build: live.id,
+        phase: live.phase,
+        error: message.slice(0, BASE_BUILD_CAPS.log),
+      });
       const now_ = storage.get<Build>(BUILDER_KEYS.build);
       if (!isRunning(now_) || now_.id !== live.id) return setAlarm(now() + POLL_MS.starting);
       const kept = this.#save(now_, { lastError: message });
       // A step that keeps throwing ends at its time limit, never building forever.
       const deadline = this.#deadlineOf(kept);
-      if (deadline !== undefined && now() > deadline) return this.#fail(kept, null, `the ${kept.phase} step kept failing until its time limit: ${message}`);
+      if (deadline !== undefined && now() > deadline)
+        return this.#fail(kept, null, `the ${kept.phase} step kept failing until its time limit: ${message}`);
       await setAlarm(now() + POLL_MS.starting);
     }
   }
@@ -626,7 +709,9 @@ export class BaseBuild {
 
   /** When the step under way must have ended: the Image setup's limit, or the snapshot's (and the proof's). */
   #deadlineOf(build: Build): number | undefined {
-    return build.phase === "starting" || build.phase === "running" ? build.setupDeadline : build.phaseAt + build.snapshotMs;
+    return build.phase === "starting" || build.phase === "running"
+      ? build.setupDeadline
+      : build.phaseAt + build.snapshotMs;
   }
 
   /**
@@ -638,11 +723,16 @@ export class BaseBuild {
     const { storage, now, setAlarm } = this.#deps;
     const current = storage.get<Current>(BUILDER_KEYS.current);
     const good = this.#good();
-    if (current === undefined || current.rebuildEveryDays <= 0 || good === null || last?.awaitingSnapshot === true) return false;
-    const due = Math.min(good.builtAt + current.rebuildEveryDays * DAY_MS, good.builtAt + GOOD_FOR_MS - EXPIRY_MARGIN_MS);
+    if (current === undefined || current.rebuildEveryDays <= 0 || good === null || last?.awaitingSnapshot === true)
+      return false;
+    const due = Math.min(
+      good.builtAt + current.rebuildEveryDays * DAY_MS,
+      good.builtAt + GOOD_FOR_MS - EXPIRY_MARGIN_MS,
+    );
     let at = due;
     // Tried since it fell due, and it did not end ready: again after a backoff.
-    if (last !== undefined && last.startedAt >= due && last.phase !== "ready") at = (last.endedAt ?? last.startedAt) + retryDelay(this.#failures(last.key));
+    if (last !== undefined && last.startedAt >= due && last.phase !== "ready")
+      at = (last.endedAt ?? last.startedAt) + retryDelay(this.#failures(last.key));
     if (now() < at) {
       await setAlarm(at);
       return false;
@@ -670,7 +760,8 @@ export class BaseBuild {
   }
 
   async #renewLease(build: Build): Promise<Build> {
-    if (!build.inBudget || build.leased !== true || this.#deps.now() - (build.leaseAt ?? 0) < LEASE_RENEW_MS) return build;
+    if (!build.inBudget || build.leased !== true || this.#deps.now() - (build.leaseAt ?? 0) < LEASE_RENEW_MS)
+      return build;
     await this.#deps.lease.acquire(build.budget).catch(() => undefined);
     return this.#save(build, { leaseAt: this.#deps.now() });
   }
@@ -680,7 +771,9 @@ export class BaseBuild {
     // A canceled build's snapshot is still being taken on this Container: the new build waits for it.
     if (this.#snapshotInFlight() !== undefined) return setAlarm(now() + POLL_MS.snapshotting);
     if (build.inBudget && build.leased !== true) {
-      const lease = await this.#deps.lease.acquire(build.budget).catch((error: unknown) => ({ ok: false, reason: String(error) }));
+      const lease = await this.#deps.lease
+        .acquire(build.budget)
+        .catch((error: unknown) => ({ ok: false, reason: String(error) }));
       if (!lease.ok) {
         if (build.waitingForBudget !== true) {
           this.#save(build, { waitingForBudget: true });
@@ -693,7 +786,8 @@ export class BaseBuild {
     }
     build = await this.#renewLease(build);
     // A Container a reset (or the platform) lost after its start, past a probe's time to come up: started again.
-    if (build.started === true && !container.running() && now() - (build.containerAt ?? 0) > PROBE_MS) build = this.#save(build, { started: false });
+    if (build.started === true && !container.running() && now() - (build.containerAt ?? 0) > PROBE_MS)
+      build = this.#save(build, { started: false });
     if (build.started !== true) {
       // The Image setup's clock starts at the Container's first start, and is kept before the start, which may throw.
       build = this.#save(build, { setupDeadline: build.setupDeadline ?? now() + build.setupMs });
@@ -720,7 +814,10 @@ export class BaseBuild {
     }
     const { settings } = inputs;
     const write = async (path: string, text: string) => {
-      const answer = await container.exec(["bash", "-c", WRITE_SCRIPT, "t3flare-builder", path], { stdin: text, timeoutMs: PROBE_MS });
+      const answer = await container.exec(["bash", "-c", WRITE_SCRIPT, "t3flare-builder", path], {
+        stdin: text,
+        timeoutMs: PROBE_MS,
+      });
       if (answer.exitCode !== 0) throw new Error(`writing ${path} exited ${String(answer.exitCode)}`);
     };
     await write(BUILDER_FILES.setup, settings.imageSetup);
@@ -732,8 +829,17 @@ export class BaseBuild {
     const env = { ...variableEnv(settings.variables), ...this.#runEnv.commandEnv, HOME: OWNER_HOME };
     // The lay-down's install has the Container start's time limit (`globalMiseInstallMinutes`), which is not part of the
     // Base key: a changed limit builds nothing again.
-    const args = globalMiseArgs({ revision: settings.revision, sha256: mise, source: "environment", mode: "lay-down", minutes: settings.globalMiseInstallMinutes });
-    const launched = await container.exec(["bash", "-c", LAUNCH_SCRIPT, "t3flare-builder", ...args], { env, timeoutMs: PROBE_MS });
+    const args = globalMiseArgs({
+      revision: settings.revision,
+      sha256: mise,
+      source: "environment",
+      mode: "lay-down",
+      minutes: settings.globalMiseInstallMinutes,
+    });
+    const launched = await container.exec(["bash", "-c", LAUNCH_SCRIPT, "t3flare-builder", ...args], {
+      env,
+      timeoutMs: PROBE_MS,
+    });
     if (launched.exitCode !== 0) throw new Error(`the run's launch exited ${String(launched.exitCode)}`);
     this.#phase(build, "running");
     await setAlarm(now() + POLL_MS.running);
@@ -753,8 +859,14 @@ export class BaseBuild {
       this.#snapshot(this.#phase(build, "snapshotting"));
       return setAlarm(now() + POLL_MS.snapshotting);
     }
-    if (answer === undefined && !container.running()) return this.#fail(build, null, "the Builder's Container stopped while the Image setup ran");
-    if (build.setupDeadline !== undefined && now() > build.setupDeadline) return this.#fail(build, null, `the Image setup ran past its time limit (${Math.round(build.setupMs / 60_000)} min)`);
+    if (answer === undefined && !container.running())
+      return this.#fail(build, null, "the Builder's Container stopped while the Image setup ran");
+    if (build.setupDeadline !== undefined && now() > build.setupDeadline)
+      return this.#fail(
+        build,
+        null,
+        `the Image setup ran past its time limit (${Math.round(build.setupMs / 60_000)} min)`,
+      );
     await setAlarm(now() + POLL_MS.running);
   }
 
@@ -764,7 +876,8 @@ export class BaseBuild {
     const call: SnapshotCall = { build: build.id, epoch: this.#epoch };
     storage.put(BUILDER_KEYS.snapshot, call);
     const done = (result: NonNullable<SnapshotCall["result"]>) => {
-      if (storage.get<SnapshotCall>(BUILDER_KEYS.snapshot)?.build === build.id) storage.put(BUILDER_KEYS.snapshot, { ...call, result });
+      if (storage.get<SnapshotCall>(BUILDER_KEYS.snapshot)?.build === build.id)
+        storage.put(BUILDER_KEYS.snapshot, { ...call, result });
       void this.#deps.setAlarm(this.#deps.now()).catch(() => undefined);
     };
     this.#deps.waitUntil(
@@ -791,13 +904,16 @@ export class BaseBuild {
     }
     if (this.#snapshotInFlight() === undefined) {
       // A reset lost the call (its result will never come here): taken again while the Container still runs.
-      if (!container.running()) return this.#fail(build, null, "the Builder's Container stopped before its snapshot was taken");
+      if (!container.running())
+        return this.#fail(build, null, "the Builder's Container stopped before its snapshot was taken");
       this.#snapshot(build);
       return setAlarm(now() + POLL_MS.snapshotting);
     }
     if (now() - build.phaseAt > build.snapshotMs) {
       // Reported failed, but never abandoned: the Container waits for the result, kept if its key is still current.
-      return this.#fail(build, null, `the snapshot took longer than ${Math.round(build.snapshotMs / 60_000)} min`, { awaitingSnapshot: true });
+      return this.#fail(build, null, `the snapshot took longer than ${Math.round(build.snapshotMs / 60_000)} min`, {
+        awaitingSnapshot: true,
+      });
     }
     await setAlarm(now() + POLL_MS.snapshotting);
   }
@@ -810,7 +926,8 @@ export class BaseBuild {
     storage.delete(BUILDER_KEYS.snapshot);
     const result = call?.build === build.id ? call.result : undefined;
     const current = storage.get<Current>(BUILDER_KEYS.current);
-    const someoneElse = isRunning(storage.get<Build>(BUILDER_KEYS.build)) && storage.get<Build>(BUILDER_KEYS.build)?.id !== build.id;
+    const someoneElse =
+      isRunning(storage.get<Build>(BUILDER_KEYS.build)) && storage.get<Build>(BUILDER_KEYS.build)?.id !== build.id;
     if (result?.ok === true && build.phase === "failed" && current?.key === build.key && !someoneElse) {
       this.#deps.log?.({ t3flare: "base-build-late-snapshot", build: build.id });
       // The failure goes: the build goes on to its proof.
@@ -857,7 +974,8 @@ export class BaseBuild {
     }
     if (build.provingEpoch !== this.#epoch) {
       // A reset took the `monitor()` handler with the old instance: a start that is not running is not waited for.
-      if (!container.running()) return this.#fail(build, null, "a start from the snapshot was not running after the Builder was reset");
+      if (!container.running())
+        return this.#fail(build, null, "a start from the snapshot was not running after the Builder was reset");
       this.#watchProof(this.#save(build, { provingEpoch: this.#epoch }));
     }
     const proved = await container.exec(["bash", "-c", PROOF_SCRIPT], { timeoutMs: PROBE_MS }).then(
@@ -872,7 +990,12 @@ export class BaseBuild {
       this.#deps.log?.({ t3flare: "base-build-ready", build: build.id, size: good.size, tookMs: good.tookMs });
       return this.#end(build, "ready");
     }
-    if (now() - build.phaseAt > build.snapshotMs) return this.#fail(build, null, `a start from the snapshot did not run computerd within ${Math.round(build.snapshotMs / 60_000)} min`);
+    if (now() - build.phaseAt > build.snapshotMs)
+      return this.#fail(
+        build,
+        null,
+        `a start from the snapshot did not run computerd within ${Math.round(build.snapshotMs / 60_000)} min`,
+      );
     await setAlarm(now() + POLL_MS.proving);
   }
 
@@ -883,11 +1006,27 @@ export class BaseBuild {
     if (container.running() && build.secretsCleared !== true) {
       // The kept bytes and the Container setup's margin, so a secret the window cuts at its head is still blanked whole:
       // the same window and blanking as a Container setup's report (`blankSecrets`).
-      const tail = await container.exec(["bash", "-c", TAIL_SCRIPT, "t3flare-builder", String(build.outputBytes + SECRET_MARGIN_BYTES)], { timeoutMs: PROBE_MS }).catch(() => undefined);
+      const tail = await container
+        .exec(["bash", "-c", TAIL_SCRIPT, "t3flare-builder", String(build.outputBytes + SECRET_MARGIN_BYTES)], {
+          timeoutMs: PROBE_MS,
+        })
+        .catch(() => undefined);
       output = blankSecrets(tail?.stdout ?? "", build.secrets, build.outputBytes);
     }
-    const failure: BaseBuildFailure = { at: now(), phase: build.phase as BaseBuildPhase, exitCode, message: message.slice(0, BASE_BUILD_CAPS.message), output };
-    this.#deps.log?.({ t3flare: "base-build-failed", build: build.id, phase: build.phase, exitCode, message: message.slice(0, BASE_BUILD_CAPS.log) });
+    const failure: BaseBuildFailure = {
+      at: now(),
+      phase: build.phase as BaseBuildPhase,
+      exitCode,
+      message: message.slice(0, BASE_BUILD_CAPS.message),
+      output,
+    };
+    this.#deps.log?.({
+      t3flare: "base-build-failed",
+      build: build.id,
+      phase: build.phase,
+      exitCode,
+      message: message.slice(0, BASE_BUILD_CAPS.log),
+    });
     await this.#end(this.#save(build, { ...change, failure }), "failed");
   }
 
@@ -897,10 +1036,17 @@ export class BaseBuild {
    */
   async #end(build: Build, phase: "ready" | "failed" | "canceled"): Promise<void> {
     const { container, storage, now, setAlarm } = this.#deps;
-    const snapshotting = build.awaitingSnapshot === true || (build.phase === "snapshotting" && this.#snapshotInFlight()?.build === build.id);
-    const ended = this.#save(build, { phase, endedAt: now(), ...(snapshotting ? { awaitingSnapshot: true } : { secrets: [], secretsCleared: true }) });
+    const snapshotting =
+      build.awaitingSnapshot === true ||
+      (build.phase === "snapshotting" && this.#snapshotInFlight()?.build === build.id);
+    const ended = this.#save(build, {
+      phase,
+      endedAt: now(),
+      ...(snapshotting ? { awaitingSnapshot: true } : { secrets: [], secretsCleared: true }),
+    });
     if (phase === "ready") storage.delete(BUILDER_KEYS.failures);
-    else if (phase === "failed") storage.put(BUILDER_KEYS.failures, { key: build.key, count: this.#failures(build.key) + 1 });
+    else if (phase === "failed")
+      storage.put(BUILDER_KEYS.failures, { key: build.key, count: this.#failures(build.key) + 1 });
     if (!snapshotting) {
       if (container.running()) await container.destroy().catch(() => undefined);
       await this.#release(ended);

@@ -18,7 +18,9 @@ export interface ReclaimInput {
 }
 
 /** The holders that stopped, and whether enough did for the start to fit under the budget. */
-export const reclaimFor = async (input: ReclaimInput): Promise<{ readonly released: ReadonlyArray<string>; readonly enough: boolean }> => {
+export const reclaimFor = async (
+  input: ReclaimInput,
+): Promise<{ readonly released: ReadonlyArray<string>; readonly enough: boolean }> => {
   const others = input.running.filter((holder) => holder !== input.self);
   const needed = others.length - input.max + 1;
   if (needed <= 0) return { released: [], enough: true };

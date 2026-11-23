@@ -57,7 +57,14 @@ const entryOf = (method: string, path: string, follow: boolean) =>
     return entry;
   });
 
-const makeTemp = (kind: "dir" | "file", options?: { readonly directory?: string | undefined; readonly prefix?: string | undefined; readonly suffix?: string | undefined }) =>
+const makeTemp = (
+  kind: "dir" | "file",
+  options?: {
+    readonly directory?: string | undefined;
+    readonly prefix?: string | undefined;
+    readonly suffix?: string | undefined;
+  },
+) =>
   attempt("makeTemp", options?.directory ?? "/tmp", () => {
     const directory = options?.directory ?? "/tmp";
     store.mkdir(directory, { recursive: true });
@@ -71,7 +78,10 @@ const open: FileSystem.FileSystem["open"] = (path, options) =>
   Effect.gen(function* () {
     const flag = options?.flag ?? "r";
     if (flag.startsWith("r")) yield* entryOf("open", path, true);
-    else yield* attempt("open", path, () => store.writeFile(path, new Uint8Array(0), { append: flag.startsWith("a"), exclusive: flag.includes("x") }));
+    else
+      yield* attempt("open", path, () =>
+        store.writeFile(path, new Uint8Array(0), { append: flag.startsWith("a"), exclusive: flag.includes("x") }),
+      );
     let position = 0n;
     const file: FileSystem.File = {
       [FileSystem.FileTypeId]: FileSystem.FileTypeId,
@@ -108,79 +118,83 @@ const open: FileSystem.FileSystem["open"] = (path, options) =>
   });
 
 export const impl: Parameters<typeof FileSystem.make>[0] = {
-    access: (path) => Effect.asVoid(entryOf("access", path, true)),
-    chmod: (path, mode) => attempt("chmod", path, () => store.chmod(path, mode)),
-    chown: () => Effect.void,
-    copy: (from, to) =>
-      attempt("copy", from, () => {
-        const walk = (source: string, target: string) => {
-          const entry = store.resolve(source);
-          if (entry === undefined) throw new store.FsError("ENOENT", "copy", source);
-          if (entry.kind === "dir") {
-            store.mkdir(target, { recursive: true });
-            for (const name of store.readdir(source)) walk(`${source}/${name}`, `${target}/${name}`);
-          } else store.writeFile(target, store.readFile(entry.path));
-        };
-        walk(from, to);
-      }),
-    copyFile: (from, to) => attempt("copyFile", from, () => store.writeFile(to, store.readFile(from))),
-    link: (from, to) => attempt("link", to, () => {
+  access: (path) => Effect.asVoid(entryOf("access", path, true)),
+  chmod: (path, mode) => attempt("chmod", path, () => store.chmod(path, mode)),
+  chown: () => Effect.void,
+  copy: (from, to) =>
+    attempt("copy", from, () => {
+      const walk = (source: string, target: string) => {
+        const entry = store.resolve(source);
+        if (entry === undefined) throw new store.FsError("ENOENT", "copy", source);
+        if (entry.kind === "dir") {
+          store.mkdir(target, { recursive: true });
+          for (const name of store.readdir(source)) walk(`${source}/${name}`, `${target}/${name}`);
+        } else store.writeFile(target, store.readFile(entry.path));
+      };
+      walk(from, to);
+    }),
+  copyFile: (from, to) => attempt("copyFile", from, () => store.writeFile(to, store.readFile(from))),
+  link: (from, to) =>
+    attempt("link", to, () => {
       if (store.get(to) !== undefined) throw new store.FsError("EEXIST", "link", to);
       store.writeFile(to, store.readFile(from), { exclusive: true });
     }),
-    lstat: (path) => Effect.map(entryOf("lstat", path, false), info),
-    stat: (path) => Effect.map(entryOf("stat", path, true), info),
-    makeDirectory: (path, options) => Effect.asVoid(attempt("makeDirectory", path, () => store.mkdir(path, options ?? {}))),
-    makeTempDirectory: (options) => makeTemp("dir", options),
-    makeTempDirectoryScoped: (options) =>
-      Effect.acquireRelease(makeTemp("dir", options), (path) => Effect.sync(() => store.remove(path, { recursive: true, force: true }))),
-    makeTempFile: (options) => makeTemp("file", options),
-    makeTempFileScoped: (options) =>
-      Effect.acquireRelease(makeTemp("file", options), (path) => Effect.sync(() => store.remove(path, { force: true }))),
-    open,
-    readDirectory: (path, options) =>
-      attempt("readDirectory", path, () => {
-        if (!options?.recursive) return store.readdir(path);
-        const out: string[] = [];
-        const walk = (dir: string, prefix: string) => {
-          for (const name of store.readdir(dir)) {
-            out.push(prefix + name);
-            if (store.resolve(`${dir}/${name}`)?.kind === "dir") walk(`${dir}/${name}`, `${prefix}${name}/`);
-          }
-        };
-        walk(path, "");
-        return out;
+  lstat: (path) => Effect.map(entryOf("lstat", path, false), info),
+  stat: (path) => Effect.map(entryOf("stat", path, true), info),
+  makeDirectory: (path, options) =>
+    Effect.asVoid(attempt("makeDirectory", path, () => store.mkdir(path, options ?? {}))),
+  makeTempDirectory: (options) => makeTemp("dir", options),
+  makeTempDirectoryScoped: (options) =>
+    Effect.acquireRelease(makeTemp("dir", options), (path) =>
+      Effect.sync(() => store.remove(path, { recursive: true, force: true })),
+    ),
+  makeTempFile: (options) => makeTemp("file", options),
+  makeTempFileScoped: (options) =>
+    Effect.acquireRelease(makeTemp("file", options), (path) => Effect.sync(() => store.remove(path, { force: true }))),
+  open,
+  readDirectory: (path, options) =>
+    attempt("readDirectory", path, () => {
+      if (!options?.recursive) return store.readdir(path);
+      const out: string[] = [];
+      const walk = (dir: string, prefix: string) => {
+        for (const name of store.readdir(dir)) {
+          out.push(prefix + name);
+          if (store.resolve(`${dir}/${name}`)?.kind === "dir") walk(`${dir}/${name}`, `${prefix}${name}/`);
+        }
+      };
+      walk(path, "");
+      return out;
+    }),
+  readDirectoryEntries: (path) =>
+    attempt("readDirectoryEntries", path, () =>
+      store.readdir(path).map((name) => {
+        const kind = store.get(`${path}/${name}`)?.kind;
+        return { name, type: kind === "dir" ? "Directory" : kind === "symlink" ? "SymbolicLink" : "File" } as never;
       }),
-    readDirectoryEntries: (path) =>
-      attempt("readDirectoryEntries", path, () =>
-        store.readdir(path).map((name) => {
-          const kind = store.get(`${path}/${name}`)?.kind;
-          return { name, type: kind === "dir" ? "Directory" : kind === "symlink" ? "SymbolicLink" : "File" } as never;
-        }),
-      ),
-    readFile: (path) => attempt("readFile", path, () => store.readFile(path)),
-    readLink: (path) =>
-      attempt("readLink", path, () => {
-        const entry = store.get(path);
-        if (entry?.kind !== "symlink" || entry.target === null) throw new store.FsError("EINVAL", "readlink", path);
-        return entry.target;
+    ),
+  readFile: (path) => attempt("readFile", path, () => store.readFile(path)),
+  readLink: (path) =>
+    attempt("readLink", path, () => {
+      const entry = store.get(path);
+      if (entry?.kind !== "symlink" || entry.target === null) throw new store.FsError("EINVAL", "readlink", path);
+      return entry.target;
+    }),
+  realPath: (path) => Effect.map(entryOf("realPath", path, true), (entry) => entry.path),
+  remove: (path, options) => attempt("remove", path, () => store.remove(path, options ?? {})),
+  rename: (from, to) => attempt("rename", from, () => store.rename(from, to)),
+  symlink: (target, path) => attempt("symlink", path, () => store.symlink(target, path)),
+  truncate: (path, length) => attempt("truncate", path, () => store.truncate(path, Number(length ?? 0))),
+  utimes: (path, _atime, mtime) =>
+    attempt("utimes", path, () => store.utimes(path, typeof mtime === "number" ? mtime : mtime.getTime())),
+  watch: () => Stream.empty,
+  writeFile: (path, data, options) =>
+    attempt("writeFile", path, () =>
+      store.writeFile(path, data, {
+        append: options?.flag?.startsWith("a") ?? false,
+        exclusive: options?.flag?.includes("x") ?? false,
+        ...(options?.mode === undefined ? {} : { mode: options.mode }),
       }),
-    realPath: (path) => Effect.map(entryOf("realPath", path, true), (entry) => entry.path),
-    remove: (path, options) => attempt("remove", path, () => store.remove(path, options ?? {})),
-    rename: (from, to) => attempt("rename", from, () => store.rename(from, to)),
-    symlink: (target, path) => attempt("symlink", path, () => store.symlink(target, path)),
-    truncate: (path, length) => attempt("truncate", path, () => store.truncate(path, Number(length ?? 0))),
-    utimes: (path, _atime, mtime) =>
-      attempt("utimes", path, () => store.utimes(path, typeof mtime === "number" ? mtime : mtime.getTime())),
-    watch: () => Stream.empty,
-    writeFile: (path, data, options) =>
-      attempt("writeFile", path, () =>
-        store.writeFile(path, data, {
-          append: options?.flag?.startsWith("a") ?? false,
-          exclusive: options?.flag?.includes("x") ?? false,
-          ...(options?.mode === undefined ? {} : { mode: options.mode }),
-        }),
-      ),
+    ),
 };
 
 export const make = (): FileSystem.FileSystem => FileSystem.make(impl);

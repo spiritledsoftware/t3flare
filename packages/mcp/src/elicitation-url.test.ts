@@ -8,8 +8,7 @@ import { checkElicitationUrl, ELICITATION_URL_MAX, registrableDomain } from "./e
 
 const OWN = new Set(["t3flare.example.com", "t3flare-dev.example.workers.dev"]);
 
-const own = (host: string) =>
-  OWN.has(host) || host === "example.app" || host.endsWith(".example.app");
+const own = (host: string) => OWN.has(host) || host === "example.app" || host.endsWith(".example.app");
 
 const problemOf = (url: string) => {
   const checked = checkElicitationUrl(url, own);
@@ -49,22 +48,16 @@ describe("the pages declined unseen", () => {
     });
   });
 
-  it.each(["https://t3flare.example.com/oauth/mcp/start"])(
-    "%s is one of t3flare's own hosts",
-    (url) => {
-      expect(problemOf(url)).toEqual({
-        kind: "declined",
-        reason: "the page is on one of t3flare's own hosts",
-      });
-    },
-  );
+  it.each(["https://t3flare.example.com/oauth/mcp/start"])("%s is one of t3flare's own hosts", (url) => {
+    expect(problemOf(url)).toEqual({
+      kind: "declined",
+      reason: "the page is on one of t3flare's own hosts",
+    });
+  });
 
-  it.each(["", "not a url", "https://", "https://exa mple.com/", "//example.com/"])(
-    "%j is malformed",
-    (url) => {
-      expect(problemOf(url)).toMatchObject({ kind: "malformed" });
-    },
-  );
+  it.each(["", "not a url", "https://", "https://exa mple.com/", "//example.com/"])("%j is malformed", (url) => {
+    expect(problemOf(url)).toMatchObject({ kind: "malformed" });
+  });
 
   it("is malformed over 8,192 characters, and fine at the limit", () => {
     const base = "https://example.com/?q=";

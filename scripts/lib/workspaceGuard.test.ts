@@ -41,7 +41,10 @@ await describe("workspaceGuard", async () => {
 
   await it("allows a command typed outside any git checkout, saying why it could not check", () => {
     const decision = workspaceGuard([upper("/src/t3flare")], { reason: "/tmp is not in a git checkout" });
-    assert.deepEqual(decision, { ok: true, warning: "workspace guard: could not check NPM_CONFIG_WORKSPACE_DIR: /tmp is not in a git checkout" });
+    assert.deepEqual(decision, {
+      ok: true,
+      warning: "workspace guard: could not check NPM_CONFIG_WORKSPACE_DIR: /tmp is not in a git checkout",
+    });
   });
 
   await it("stays quiet outside a checkout when nothing is set", () => {
@@ -54,17 +57,28 @@ await describe("workspaceDirsOf", async () => {
     assert.deepEqual(workspaceDirsOf({}, "/w"), []);
     assert.deepEqual(workspaceDirsOf({ NPM_CONFIG_WORKSPACE_DIR: "" }, "/w"), []);
     assert.deepEqual(workspaceDirsOf({ npm_config_workspace_dir: "/src/t3flare" }, "/w"), [lower("/src/t3flare")]);
-    assert.deepEqual(workspaceDirsOf({ NPM_CONFIG_WORKSPACE_DIR: "/a", npm_config_workspace_dir: "/b" }, "/w"), [upper("/a")]);
-    assert.deepEqual(workspaceDirsOf({ NPM_CONFIG_WORKSPACE_DIR: "", npm_config_workspace_dir: "/b" }, "/w"), [lower("/b")]);
+    assert.deepEqual(workspaceDirsOf({ NPM_CONFIG_WORKSPACE_DIR: "/a", npm_config_workspace_dir: "/b" }, "/w"), [
+      upper("/a"),
+    ]);
+    assert.deepEqual(workspaceDirsOf({ NPM_CONFIG_WORKSPACE_DIR: "", npm_config_workspace_dir: "/b" }, "/w"), [
+      lower("/b"),
+    ]);
   });
 
   await it("resolves a relative value against the directory the command was typed in, as pnpm does", () => {
-    assert.deepEqual(workspaceDirsOf({ NPM_CONFIG_WORKSPACE_DIR: "../.." }, "/src/t3flare/.worktrees/x"), [upper("/src/t3flare")]);
-    assert.deepEqual(workspaceDirsOf({ npm_config_workspace_dir: "." }, "/src/t3flare/.worktrees/x"), [lower("/src/t3flare/.worktrees/x")]);
+    assert.deepEqual(workspaceDirsOf({ NPM_CONFIG_WORKSPACE_DIR: "../.." }, "/src/t3flare/.worktrees/x"), [
+      upper("/src/t3flare"),
+    ]);
+    assert.deepEqual(workspaceDirsOf({ npm_config_workspace_dir: "." }, "/src/t3flare/.worktrees/x"), [
+      lower("/src/t3flare/.worktrees/x"),
+    ]);
   });
 
   await it("refuses a stale lowercase value", () => {
-    const decision = workspaceGuard(workspaceDirsOf({ npm_config_workspace_dir: "/src/t3flare" }, worktree.root), worktree);
+    const decision = workspaceGuard(
+      workspaceDirsOf({ npm_config_workspace_dir: "/src/t3flare" }, worktree.root),
+      worktree,
+    );
     assert.equal(decision.ok, false);
   });
 });

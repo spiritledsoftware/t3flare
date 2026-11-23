@@ -13,20 +13,37 @@ const dropped = {
   SocketReadError: () => new RpcClientError({ reason: new SocketReadError({ cause: new Error("stream ended") }) }),
   SocketCloseError: () => new RpcClientError({ reason: new SocketCloseError({ code: 1006 }) }),
 };
-const unopened = () => new RpcClientError({ reason: new SocketOpenError({ kind: "Unknown", cause: new Error("refused") }) });
-const taken = (detail: string) => new SourceControlRepositoryError({ operation: "cloneRepository", provider: SourceControlProviderKind.make("unknown"), detail });
+const unopened = () =>
+  new RpcClientError({ reason: new SocketOpenError({ kind: "Unknown", cause: new Error("refused") }) });
+const taken = (detail: string) =>
+  new SourceControlRepositoryError({
+    operation: "cloneRepository",
+    provider: SourceControlProviderKind.make("unknown"),
+    detail,
+  });
 const T3_TAKEN = "Destination path already exists and is not empty.";
 const GIT_TAKEN = "fatal: destination path 'a' already exists and is not an empty directory.";
 
 const CLONE = "sourceControl.cloneRepository";
 const clonePayload = { remoteUrl: "https://github.com/o/r.git", destinationPath: "/w/a" };
-const refs = (current: boolean) => ({ refs: current ? [{ name: "main", current: true, isDefault: true, worktreePath: null }] : [], isRepo: current, hasPrimaryRemote: current, nextCursor: null, totalCount: current ? 1 : 0 });
+const refs = (current: boolean) => ({
+  refs: current ? [{ name: "main", current: true, isDefault: true, worktreePath: null }] : [],
+  isRepo: current,
+  hasPrimaryRemote: current,
+  nextCursor: null,
+  totalCount: current ? 1 : 0,
+});
 
 /** The fake server: the clone answers from `clone` in turn, `vcs.listRefs` from `listRefs` in turn (its last answer
  * repeating), any other method from `other`. */
-const fake = (answers: { clone?: Array<() => unknown>; listRefs?: Array<() => unknown>; other?: Array<() => unknown> }) =>
+const fake = (answers: {
+  clone?: Array<() => unknown>;
+  listRefs?: Array<() => unknown>;
+  other?: Array<() => unknown>;
+}) =>
   vi.fn<Call>(async (_cookie, method) => {
-    const queue = (method === CLONE ? answers.clone : method === "vcs.listRefs" ? answers.listRefs : answers.other) ?? [];
+    const queue =
+      (method === CLONE ? answers.clone : method === "vcs.listRefs" ? answers.listRefs : answers.other) ?? [];
     const next = queue.length > 1 ? queue.shift()! : queue[0];
     if (next === undefined) throw new Error(`unexpected ${method}`);
     return next();
@@ -51,25 +68,37 @@ const run = async (inner: Call, method: string, payload: unknown = {}) => {
     vi.useRealTimers();
   }
 };
-const callsTo = (inner: ReturnType<typeof fake>, method: string) => inner.mock.calls.filter(([, called]) => called === method).length;
+const callsTo = (inner: ReturnType<typeof fake>, method: string) =>
+  inner.mock.calls.filter(([, called]) => called === method).length;
 
 describe("withSocketRetry", () => {
-  it.each(["SocketReadError", "SocketCloseError"] as const)("sends an allowlisted method once more after a %s, and answers with the resend's answer", async (reason) => {
-    const inner = fake({ other: [fail(dropped[reason]), () => ({ ok: true })] });
-    const result = await run(inner, "server.getConfig");
-    expect(result).toMatchObject({ value: { ok: true }, logged: ["ws server.getConfig: socket dropped, attempt 2 of 2"] });
-    expect(inner).toHaveBeenCalledTimes(2);
-  });
+  it.each(["SocketReadError", "SocketCloseError"] as const)(
+    "sends an allowlisted method once more after a %s, and answers with the resend's answer",
+    async (reason) => {
+      const inner = fake({ other: [fail(dropped[reason]), () => ({ ok: true })] });
+      const result = await run(inner, "server.getConfig");
+      expect(result).toMatchObject({
+        value: { ok: true },
+        logged: ["ws server.getConfig: socket dropped, attempt 2 of 2"],
+      });
+      expect(inner).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it("does not resend a method off the allowlist", async () => {
     const inner = fake({ other: [fail(dropped.SocketReadError)] });
-    expect(await run(inner, "server.updateSettings")).toMatchObject({ error: { reason: { _tag: "SocketReadError" } }, logged: [] });
+    expect(await run(inner, "server.updateSettings")).toMatchObject({
+      error: { reason: { _tag: "SocketReadError" } },
+      logged: [],
+    });
     expect(inner).toHaveBeenCalledTimes(1);
   });
 
   it("gives up after the one resend with its error", async () => {
     const inner = fake({ other: [fail(dropped.SocketReadError), fail(dropped.SocketCloseError)] });
-    expect(await run(inner, "subscribeWorktreeSetup")).toMatchObject({ error: { reason: { _tag: "SocketCloseError" } } });
+    expect(await run(inner, "subscribeWorktreeSetup")).toMatchObject({
+      error: { reason: { _tag: "SocketCloseError" } },
+    });
     expect(inner).toHaveBeenCalledTimes(2);
   });
 
@@ -88,17 +117,33 @@ describe("withSocketRetry", () => {
   it.each([
     ["t3's", T3_TAKEN],
     ["git's", GIT_TAKEN],
-  ])("answers a resent clone refused with %s taken destination once the first clone has a checked-out branch", async (_, detail) => {
-    const inner = fake({ clone: [fail(dropped.SocketReadError), fail(() => taken(detail))], listRefs: [fail(() => new Error("not a git repository")), () => refs(false), () => refs(true)] });
-    const result = await run(inner, CLONE, clonePayload);
-    expect(result).toMatchObject({ value: { cwd: "/w/a", remoteUrl: "https://github.com/o/r.git", repository: null } });
-    expect(callsTo(inner, CLONE)).toBe(2);
-    expect(callsTo(inner, "vcs.listRefs")).toBe(3);
-    expect(inner).toHaveBeenCalledWith("cookie", "vcs.listRefs", { cwd: "/w/a", refKind: "local", refresh: true, limit: 200 });
-  });
+  ])(
+    "answers a resent clone refused with %s taken destination once the first clone has a checked-out branch",
+    async (_, detail) => {
+      const inner = fake({
+        clone: [fail(dropped.SocketReadError), fail(() => taken(detail))],
+        listRefs: [fail(() => new Error("not a git repository")), () => refs(false), () => refs(true)],
+      });
+      const result = await run(inner, CLONE, clonePayload);
+      expect(result).toMatchObject({
+        value: { cwd: "/w/a", remoteUrl: "https://github.com/o/r.git", repository: null },
+      });
+      expect(callsTo(inner, CLONE)).toBe(2);
+      expect(callsTo(inner, "vcs.listRefs")).toBe(3);
+      expect(inner).toHaveBeenCalledWith("cookie", "vcs.listRefs", {
+        cwd: "/w/a",
+        refKind: "local",
+        refresh: true,
+        limit: 200,
+      });
+    },
+  );
 
   it("throws the drop when the first clone never finishes", async () => {
-    const inner = fake({ clone: [fail(dropped.SocketReadError), fail(() => taken(T3_TAKEN))], listRefs: [() => refs(false)] });
+    const inner = fake({
+      clone: [fail(dropped.SocketReadError), fail(() => taken(T3_TAKEN))],
+      listRefs: [() => refs(false)],
+    });
     expect(await run(inner, CLONE, clonePayload)).toMatchObject({ error: { reason: { _tag: "SocketReadError" } } });
     expect(callsTo(inner, "vcs.listRefs")).toBeGreaterThan(10);
   });
@@ -109,7 +154,10 @@ describe("withSocketRetry", () => {
     ["a remote t3 would answer redacted", { ...clonePayload, remoteUrl: "https://x:token@github.com/o/r.git" }],
     ["no remote, a repository looked up", { destinationPath: "/w/a", provider: "github", repository: "o/r" }],
   ])("throws the drop for a clone it cannot answer as t3 would: %s", async (_, payload) => {
-    const inner = fake({ clone: [fail(dropped.SocketReadError), fail(() => taken(T3_TAKEN))], listRefs: [() => refs(true)] });
+    const inner = fake({
+      clone: [fail(dropped.SocketReadError), fail(() => taken(T3_TAKEN))],
+      listRefs: [() => refs(true)],
+    });
     expect(await run(inner, CLONE, payload)).toMatchObject({ error: { reason: { _tag: "SocketReadError" } } });
     expect(callsTo(inner, "vcs.listRefs")).toBe(0);
   });

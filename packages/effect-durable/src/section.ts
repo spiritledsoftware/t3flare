@@ -42,9 +42,7 @@ export const frozenSection = <E, R>(
     (input) => {
       const shown = input.shown[key];
 
-      return shown === undefined
-        ? read(input)
-        : Effect.as(options?.whenShown?.(input, shown) ?? Effect.void, shown);
+      return shown === undefined ? read(input) : Effect.as(options?.whenShown?.(input, shown) ?? Effect.void, shown);
     },
     { tag: false },
   );

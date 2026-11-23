@@ -18,7 +18,15 @@ export const STANDIN_PI_VERSION = "1.5.2";
 /** The stand-in's model: its Pi provider's, the stage's Model endpoint's first model (`laptopAgent.ts`). */
 export const standinModel = () => ({ instanceId: "pi", model: laptopModels().model });
 
-const docker = (args: ReadonlyArray<string>, options: { readonly env?: Record<string, string>; readonly input?: string; readonly allowFailure?: boolean; readonly timeoutMs?: number } = {}) => {
+const docker = (
+  args: ReadonlyArray<string>,
+  options: {
+    readonly env?: Record<string, string>;
+    readonly input?: string;
+    readonly allowFailure?: boolean;
+    readonly timeoutMs?: number;
+  } = {},
+) => {
   const result = spawnSync("docker", args, {
     encoding: "utf8",
     env: { ...process.env, ...options.env },
@@ -26,7 +34,8 @@ const docker = (args: ReadonlyArray<string>, options: { readonly env?: Record<st
     timeout: options.timeoutMs ?? 600_000,
   });
   const answer = { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
-  if (answer.status !== 0 && options.allowFailure !== true) throw new Error(`docker ${args[0]} exited ${answer.status}: ${answer.stderr.slice(-600)}`);
+  if (answer.status !== 0 && options.allowFailure !== true)
+    throw new Error(`docker ${args[0]} exited ${answer.status}: ${answer.stderr.slice(-600)}`);
   return answer;
 };
 
@@ -54,7 +63,8 @@ export class Standin {
     this.local = new URL(`http://127.0.0.1:${options.localPort}`);
     this.client = clientAt(this.local);
     const file = standinFile(options.stage);
-    if (!fs.existsSync(file)) throw new Error(`no stand-in tunnel for stage ${options.stage}: deploy it with T3FLARE_STANDIN=1`);
+    if (!fs.existsSync(file))
+      throw new Error(`no stand-in tunnel for stage ${options.stage}: deploy it with T3FLARE_STANDIN=1`);
     this.#tunnel = JSON.parse(fs.readFileSync(file, "utf8")) as { host: string; token: string };
   }
 
@@ -70,7 +80,17 @@ export class Standin {
 
   build(): void {
     docker(
-      ["build", "-q", "--build-arg", `T3_VERSION=${this.version}`, "--build-arg", `PI_VERSION=${STANDIN_PI_VERSION}`, "-t", this.image, path.join(import.meta.dirname, "../standin")],
+      [
+        "build",
+        "-q",
+        "--build-arg",
+        `T3_VERSION=${this.version}`,
+        "--build-arg",
+        `PI_VERSION=${STANDIN_PI_VERSION}`,
+        "-t",
+        this.image,
+        path.join(import.meta.dirname, "../standin"),
+      ],
       { timeoutMs: 1_800_000 },
     );
   }
@@ -82,11 +102,29 @@ export class Standin {
     docker(["rm", "-f", this.name], { allowFailure: true });
     // Values by name only (`-e NAME`), so no secret is on a command line.
     docker(
-      ["run", "-d", "--name", this.name, "--hostname", "standin-laptop", "--memory", "2g", "-p", `127.0.0.1:${this.local.port}:3774`, "-e", LAPTOP_KEY_VAR, "-e", "TUNNEL_TOKEN", this.image],
+      [
+        "run",
+        "-d",
+        "--name",
+        this.name,
+        "--hostname",
+        "standin-laptop",
+        "--memory",
+        "2g",
+        "-p",
+        `127.0.0.1:${this.local.port}:3774`,
+        "-e",
+        LAPTOP_KEY_VAR,
+        "-e",
+        "TUNNEL_TOKEN",
+        this.image,
+      ],
       { env: { TUNNEL_TOKEN: this.#tunnel.token, [LAPTOP_KEY_VAR]: laptop.key } },
     );
     // t3's Pi provider on the stage's Model endpoint: the key is named, never written (`laptopModels`).
-    docker(["exec", "-i", this.name, "sh", "-c", "mkdir -p /data/pi-agent && cat > /data/pi-agent/models.json"], { input: laptop.modelsJson });
+    docker(["exec", "-i", this.name, "sh", "-c", "mkdir -p /data/pi-agent && cat > /data/pi-agent/models.json"], {
+      input: laptop.modelsJson,
+    });
     const started = Date.now();
     while (Date.now() - started < 180_000) {
       const descriptor = await this.descriptor().catch(() => undefined);
@@ -100,7 +138,9 @@ export class Standin {
   }
 
   /** The descriptor, at the loopback port or (`public`) over the tunnel. */
-  async descriptor(at: "local" | "public" = "local"): Promise<{ readonly environmentId: string; readonly label: unknown; readonly [key: string]: unknown }> {
+  async descriptor(
+    at: "local" | "public" = "local",
+  ): Promise<{ readonly environmentId: string; readonly label: unknown; readonly [key: string]: unknown }> {
     const response = await fetch(new URL("/.well-known/t3/environment", at === "local" ? this.local : this.publicUrl));
     if (response.status !== 200) throw new Error(`descriptor ${response.status}`);
     return (await response.json()) as never;
@@ -125,11 +165,17 @@ export class Standin {
    * Waits until the Route answers as this t3 (`up`), or answers Cloudflare's 530 for a tunnel with no connector (`down`;
    * a 502 comes first while the connector's connections drain).
    */
-  async awaitRoute(state: "up" | "down", timeoutMs = 120_000): Promise<{ readonly ms: number; readonly status: number | string }> {
+  async awaitRoute(
+    state: "up" | "down",
+    timeoutMs = 120_000,
+  ): Promise<{ readonly ms: number; readonly status: number | string }> {
     const started = Date.now();
     let status: number | string = "none";
     while (Date.now() - started < timeoutMs) {
-      status = await fetch(new URL("/.well-known/t3/environment", this.publicUrl)).then((r) => r.status, (e: Error) => e.message);
+      status = await fetch(new URL("/.well-known/t3/environment", this.publicUrl)).then(
+        (r) => r.status,
+        (e: Error) => e.message,
+      );
       if (state === "up" ? status === 200 : status === 530) return { ms: Date.now() - started, status };
       await sleep(2000);
     }
@@ -143,7 +189,10 @@ export class Standin {
 
   /** A browser session on the stand-in, from a pairing token its CLI makes (the owner's own client there). */
   async pair(): Promise<string> {
-    const issued = JSON.parse(this.cli(["auth", "pairing", "create", "--json", "--label", "t3flare harness"])) as { credential?: string; token?: string };
+    const issued = JSON.parse(this.cli(["auth", "pairing", "create", "--json", "--label", "t3flare harness"])) as {
+      credential?: string;
+      token?: string;
+    };
     const credential = issued.credential ?? issued.token;
     if (credential === undefined) throw new Error("t3 auth pairing create printed no credential");
     const response = await fetch(new URL("/api/auth/browser-session", this.local), {
@@ -151,8 +200,12 @@ export class Standin {
       headers: { "content-type": "application/json", origin: this.local.origin },
       body: JSON.stringify({ credential }),
     });
-    if (response.status !== 200) throw new Error(`stand-in pairing failed: ${response.status} ${(await response.text()).slice(0, 300)}`);
-    return response.headers.getSetCookie().map((cookie) => cookie.split(";")[0]).join("; ");
+    if (response.status !== 200)
+      throw new Error(`stand-in pairing failed: ${response.status} ${(await response.text()).slice(0, 300)}`);
+    return response.headers
+      .getSetCookie()
+      .map((cookie) => cookie.split(";")[0])
+      .join("; ");
   }
 
   logs(): string {

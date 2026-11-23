@@ -7,7 +7,13 @@ import { ContainerPreview, type ContainerPreviewDeps } from "../src/workspace/co
 import { CONTAINER_PREVIEW_HEADER } from "../src/workspace/containerPreviewScript.ts";
 
 const harness = (options: { running?: boolean; answer?: (request: Request) => Response | Promise<Response> } = {}) => {
-  const seen: Array<{ port: number; url: string; host: string | null; forwarded: string | null; cookie: string | null }> = [];
+  const seen: Array<{
+    port: number;
+    url: string;
+    host: string | null;
+    forwarded: string | null;
+    cookie: string | null;
+  }> = [];
   let used = 0;
   const deps: ContainerPreviewDeps = {
     running: () => options.running ?? true,
@@ -15,8 +21,20 @@ const harness = (options: { running?: boolean; answer?: (request: Request) => Re
       ({
         fetch: async (input: string, init?: RequestInit) => {
           const request = new Request(input, init);
-          seen.push({ port, url: request.url, host: request.headers.get("host"), forwarded: request.headers.get("x-forwarded-host"), cookie: request.headers.get("cookie") });
-          return (options.answer ?? (() => new Response("<html><head><title>app</title></head><body>hi</body></html>", { headers: { "content-type": "text/html" } })))(request);
+          seen.push({
+            port,
+            url: request.url,
+            host: request.headers.get("host"),
+            forwarded: request.headers.get("x-forwarded-host"),
+            cookie: request.headers.get("cookie"),
+          });
+          return (
+            options.answer ??
+            (() =>
+              new Response("<html><head><title>app</title></head><body>hi</body></html>", {
+                headers: { "content-type": "text/html" },
+              }))
+          )(request);
         },
       }) as unknown as Fetcher,
     used: async () => {
@@ -35,24 +53,50 @@ const at = (path: string, init?: RequestInit) => new Request(`http://5173.t3flar
 describe("a Container preview", () => {
   it("answers an HTML page from the Container's port as `localhost`, with the socket script first in its head", async () => {
     const run = harness();
-    const response = await run.preview.serve(at("/app?x=1", { headers: { cookie: "session=1", host: "evil.example", "x-forwarded-host": "ws-b" } }), 5173);
+    const response = await run.preview.serve(
+      at("/app?x=1", { headers: { cookie: "session=1", host: "evil.example", "x-forwarded-host": "ws-b" } }),
+      5173,
+    );
     const html = await response.text();
     expect(response.status).toBe(200);
     expect(html.indexOf("<script>")).toBeLessThan(html.indexOf("<title>"));
     expect(html).toContain("__t3flareContainerPreview");
-    expect(run.seen).toEqual([{ port: 5173, url: "http://localhost:5173/app?x=1", host: "localhost:5173", forwarded: "5173.t3flare.internal", cookie: "session=1" }]);
+    expect(run.seen).toEqual([
+      {
+        port: 5173,
+        url: "http://localhost:5173/app?x=1",
+        host: "localhost:5173",
+        forwarded: "5173.t3flare.internal",
+        cookie: "session=1",
+      },
+    ]);
     expect(run.used()).toBe(1);
   });
 
   it("points a redirect to the dev server itself back at the preview host, and leaves other redirects", async () => {
-    const run = harness({ answer: (request) => new Response(null, { status: 302, headers: { location: request.url.endsWith("/a") ? "http://localhost:5173/b?c=1" : "https://example.com/" } }) });
-    expect((await run.preview.serve(at("/a"), 5173)).headers.get("location")).toBe("http://5173.t3flare.internal/b?c=1");
+    const run = harness({
+      answer: (request) =>
+        new Response(null, {
+          status: 302,
+          headers: { location: request.url.endsWith("/a") ? "http://localhost:5173/b?c=1" : "https://example.com/" },
+        }),
+    });
+    expect((await run.preview.serve(at("/a"), 5173)).headers.get("location")).toBe(
+      "http://5173.t3flare.internal/b?c=1",
+    );
     expect((await run.preview.serve(at("/z"), 5173)).headers.get("location")).toBe("https://example.com/");
   });
 
   it("links the script as a file for a page with a CSP, and serves it", async () => {
-    const run = harness({ answer: () => new Response("<html><head></head></html>", { headers: { "content-type": "text/html", "content-security-policy": "script-src 'self'" } }) });
-    expect(await (await run.preview.serve(at("/"), 5173)).text()).toContain('<script src="/__t3flare/ws/shim.js"></script>');
+    const run = harness({
+      answer: () =>
+        new Response("<html><head></head></html>", {
+          headers: { "content-type": "text/html", "content-security-policy": "script-src 'self'" },
+        }),
+    });
+    expect(await (await run.preview.serve(at("/"), 5173)).text()).toContain(
+      '<script src="/__t3flare/ws/shim.js"></script>',
+    );
     const shim = await run.preview.serve(at("/__t3flare/ws/shim.js"), 5173);
     expect(shim.headers.get("content-type")).toContain("javascript");
     expect(await shim.text()).toContain("CarriedSocket");
@@ -81,9 +125,33 @@ describe("a Container preview", () => {
 
   it("refuses the socket endpoints without the header, from another origin, or for an id it never gave", async () => {
     const run = harness();
-    expect((await run.preview.serve(at("/__t3flare/ws/send?id=x", { method: "POST", body: "hi" }), 5173)).status).toBe(403);
-    expect((await run.preview.serve(at("/__t3flare/ws/send?id=x", { method: "POST", body: "hi", headers: { [CONTAINER_PREVIEW_HEADER]: "1", origin: "https://evil.example" } }), 5173)).status).toBe(403);
-    expect((await run.preview.serve(at("/__t3flare/ws/send?id=x", { method: "POST", body: "hi", headers: { [CONTAINER_PREVIEW_HEADER]: "1", origin: "http://5173.t3flare.internal" } }), 5173)).status).toBe(404);
+    expect((await run.preview.serve(at("/__t3flare/ws/send?id=x", { method: "POST", body: "hi" }), 5173)).status).toBe(
+      403,
+    );
+    expect(
+      (
+        await run.preview.serve(
+          at("/__t3flare/ws/send?id=x", {
+            method: "POST",
+            body: "hi",
+            headers: { [CONTAINER_PREVIEW_HEADER]: "1", origin: "https://evil.example" },
+          }),
+          5173,
+        )
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await run.preview.serve(
+          at("/__t3flare/ws/send?id=x", {
+            method: "POST",
+            body: "hi",
+            headers: { [CONTAINER_PREVIEW_HEADER]: "1", origin: "http://5173.t3flare.internal" },
+          }),
+          5173,
+        )
+      ).status,
+    ).toBe(404);
     expect(run.seen).toEqual([]);
   });
 });

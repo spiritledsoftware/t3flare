@@ -5,8 +5,23 @@ import { describe, expect, it } from "vitest";
 
 import { actionsClient, updateRepoOf, type ActionsClient, type WorkflowRun } from "../src/updates/actions.ts";
 import { serverUpdateRefusal, tagOf } from "../src/updates/policy.ts";
-import { NO_UPDATE_TARGET, QUEUED_CEILING_MS, UNLISTED_MS, UPDATE_EXPIRY_MS, UpdateRefused, updates, type PressRequest, type UpdateRecord } from "../src/updates/records.ts";
-import { committedOutcome, FAILED_REPLAY_MS, failedOutcome, makeLauncherClient, readyWithOutcome } from "../src/updates/selfUpdate.ts";
+import {
+  NO_UPDATE_TARGET,
+  QUEUED_CEILING_MS,
+  UNLISTED_MS,
+  UPDATE_EXPIRY_MS,
+  UpdateRefused,
+  updates,
+  type PressRequest,
+  type UpdateRecord,
+} from "../src/updates/records.ts";
+import {
+  committedOutcome,
+  FAILED_REPLAY_MS,
+  failedOutcome,
+  makeLauncherClient,
+  readyWithOutcome,
+} from "../src/updates/selfUpdate.ts";
 import * as Effect from "effect/Effect";
 
 const CURRENT = "0.1.11-nightly.20261117.4825";
@@ -25,13 +40,25 @@ describe("the server Update's target policy", () => {
 
   it("refuses the same or an older version, another track's build, a track switch and a staged update", () => {
     expect(serverUpdateRefusal({ targetVersion: CURRENT }, CURRENT, "nightly")).toMatch(/not newer/);
-    expect(serverUpdateRefusal({ targetVersion: "0.1.11-nightly.20261117.4824" }, CURRENT, "nightly")).toMatch(/not newer/);
-    expect(serverUpdateRefusal({ targetVersion: "0.1.11" }, "0.1.12-nightly.20261120.4994", "stable")).toMatch(/not newer/);
-    expect(serverUpdateRefusal({ targetVersion: "0.1.12" }, CURRENT, "nightly")).toMatch(/follows t3's nightly releases.*0\.1\.12 is a stable build.*nightly update track/);
-    expect(serverUpdateRefusal({ targetVersion: NEXT }, "0.1.11", "stable")).toMatch(/follows t3's stable releases.*is a nightly build/);
+    expect(serverUpdateRefusal({ targetVersion: "0.1.11-nightly.20261117.4824" }, CURRENT, "nightly")).toMatch(
+      /not newer/,
+    );
+    expect(serverUpdateRefusal({ targetVersion: "0.1.11" }, "0.1.12-nightly.20261120.4994", "stable")).toMatch(
+      /not newer/,
+    );
+    expect(serverUpdateRefusal({ targetVersion: "0.1.12" }, CURRENT, "nightly")).toMatch(
+      /follows t3's nightly releases.*0\.1\.12 is a stable build.*nightly update track/,
+    );
+    expect(serverUpdateRefusal({ targetVersion: NEXT }, "0.1.11", "stable")).toMatch(
+      /follows t3's stable releases.*is a nightly build/,
+    );
     expect(serverUpdateRefusal({ targetVersion: "nightly" }, CURRENT, "nightly")).toMatch(/not an exact t3 release\./);
-    expect(serverUpdateRefusal({ targetVersion: "0.1.10-preview.20261112.4593" }, "0.1.9", "stable")).toMatch(/not an exact t3 release/);
-    expect(serverUpdateRefusal({ targetVersion: NEXT, channel: "nightly" } as never, CURRENT, "nightly")).toMatch(/update tracks/);
+    expect(serverUpdateRefusal({ targetVersion: "0.1.10-preview.20261112.4593" }, "0.1.9", "stable")).toMatch(
+      /not an exact t3 release/,
+    );
+    expect(serverUpdateRefusal({ targetVersion: NEXT, channel: "nightly" } as never, CURRENT, "nightly")).toMatch(
+      /update tracks/,
+    );
     expect(serverUpdateRefusal({ targetVersion: NEXT, stageOnly: true }, CURRENT, "nightly")).toMatch(/stage/);
   });
 
@@ -49,7 +76,8 @@ const fakeActions = () => {
     dispatch: async (workflow, inputs) => {
       dispatched.push({ workflow, inputs });
     },
-    findRun: async (workflow, runName) => [...runs.values()].find((run) => run.workflow === workflow && run.name === runName),
+    findRun: async (workflow, runName) =>
+      [...runs.values()].find((run) => run.workflow === workflow && run.name === runName),
     getRun: async (id) => runs.get(id)!,
     failedStep: async () => "update / Bump (Update gate)",
   };
@@ -60,7 +88,15 @@ const fakeActions = () => {
     start: (name: string, startedAt: number | null = 0) => {
       const id = nextRun++;
       const last = dispatched.at(-1)!;
-      runs.set(id, { id, url: `https://github.com/o/r/actions/runs/${id}`, status: startedAt === null ? "pending" : "in_progress", conclusion: null, started: startedAt !== null, name, workflow: last.workflow });
+      runs.set(id, {
+        id,
+        url: `https://github.com/o/r/actions/runs/${id}`,
+        status: startedAt === null ? "pending" : "in_progress",
+        conclusion: null,
+        started: startedAt !== null,
+        name,
+        workflow: last.workflow,
+      });
       return id;
     },
     /** The run leaves the queue at `at`. */
@@ -71,7 +107,10 @@ const fakeActions = () => {
 
 const mapStore = () => {
   const map = new Map<string, unknown>();
-  return { get: (key: string) => structuredClone(map.get(key)), put: (key: string, value: unknown) => void map.set(key, structuredClone(value)) };
+  return {
+    get: (key: string) => structuredClone(map.get(key)),
+    put: (key: string, value: unknown) => void map.set(key, structuredClone(value)),
+  };
 };
 
 const serverPress = (target: string): PressRequest => ({
@@ -98,8 +137,18 @@ describe("the update records", () => {
     const { actions, subject } = setup();
     const { record, attached } = await subject.press(serverPress(NEXT));
     expect(attached).toBe(false);
-    expect(actions.dispatched).toEqual([{ workflow: "bump.yml", inputs: { tag: `v${NEXT}`, land: "true", gate: "update", update_id: "id-1" } }]);
-    expect(record).toMatchObject({ id: "id-1", key: "t3", target: NEXT, from: CURRENT, runName: "Update id-1", run: null, outcome: null });
+    expect(actions.dispatched).toEqual([
+      { workflow: "bump.yml", inputs: { tag: `v${NEXT}`, land: "true", gate: "update", update_id: "id-1" } },
+    ]);
+    expect(record).toMatchObject({
+      id: "id-1",
+      key: "t3",
+      target: NEXT,
+      from: CURRENT,
+      runName: "Update id-1",
+      run: null,
+      outcome: null,
+    });
   });
 
   it("re-attaches the same target to the Update in flight, and refuses another", async () => {
@@ -176,7 +225,11 @@ describe("the update records", () => {
     const store = mapStore();
     const subject = updates({
       store,
-      actions: { ...fakeActions().client, dispatch: async () => Promise.reject(new Error("GitHub answered POST … with 403: Resource not accessible by integration")) },
+      actions: {
+        ...fakeActions().client,
+        dispatch: async () =>
+          Promise.reject(new Error("GitHub answered POST … with 403: Resource not accessible by integration")),
+      },
       now: () => 0,
       newId: () => "x",
     });
@@ -207,29 +260,60 @@ describe("the outcome a server Update reports", () => {
   });
 
   it("is committed at boot when the stored target is the stamped version, and nothing otherwise", () => {
-    expect(committedOutcome(record({}), NEXT)).toEqual({ id: "u1", fromVersion: CURRENT, targetVersion: NEXT, status: "committed" });
+    expect(committedOutcome(record({}), NEXT)).toEqual({
+      id: "u1",
+      fromVersion: CURRENT,
+      targetVersion: NEXT,
+      status: "committed",
+    });
     expect(committedOutcome(record({}), CURRENT)).toBeUndefined();
     expect(committedOutcome(undefined, NEXT)).toBeUndefined();
   });
 
   it("prepareTrial reads storage only and never fails", async () => {
     const committed = makeLauncherClient({ version: NEXT, updates: () => ({ record: () => record({}) }) as never });
-    expect(await Effect.runPromise(committed.prepareTrial({ baseDir: "/" }))).toMatchObject({ id: "u1", status: "committed" });
-    const broken = makeLauncherClient({ version: NEXT, updates: () => ({ record: () => { throw new Error("storage"); } }) as never });
+    expect(await Effect.runPromise(committed.prepareTrial({ baseDir: "/" }))).toMatchObject({
+      id: "u1",
+      status: "committed",
+    });
+    const broken = makeLauncherClient({
+      version: NEXT,
+      updates: () =>
+        ({
+          record: () => {
+            throw new Error("storage");
+          },
+        }) as never,
+    });
     expect(await Effect.runPromise(broken.prepareTrial({ baseDir: "/" }))).toBeUndefined();
-    expect(await Effect.runPromise(makeLauncherClient({ version: NEXT, updates: () => undefined }).prepareTrial({ baseDir: "/" }))).toBeUndefined();
+    expect(
+      await Effect.runPromise(
+        makeLauncherClient({ version: NEXT, updates: () => undefined }).prepareTrial({ baseDir: "/" }),
+      ),
+    ).toBeUndefined();
   });
 
   it("is failed, with the reason, while the client may still wait for it", () => {
     const failed = record({ outcome: { status: "failed", reason: "The update failed: https://x", at: 1000 } });
-    expect(failedOutcome(failed, CURRENT, 2000)).toEqual({ id: "u1", fromVersion: CURRENT, targetVersion: NEXT, status: "failed", reason: "The update failed: https://x" });
+    expect(failedOutcome(failed, CURRENT, 2000)).toEqual({
+      id: "u1",
+      fromVersion: CURRENT,
+      targetVersion: NEXT,
+      status: "failed",
+      reason: "The update failed: https://x",
+    });
     expect(failedOutcome(failed, CURRENT, 1000 + FAILED_REPLAY_MS + 1)).toBeUndefined();
     // Running the target already, the update did land: committed says so.
     expect(failedOutcome(failed, NEXT, 2000)).toBeUndefined();
   });
 
   it("goes out as the original ready again, with the outcome", () => {
-    const ready = { version: 1, type: "ready", sequence: 3, payload: { at: "2026-11-17T00:00:00.000Z", environment: { serverVersion: CURRENT } } } as never;
+    const ready = {
+      version: 1,
+      type: "ready",
+      sequence: 3,
+      payload: { at: "2026-11-17T00:00:00.000Z", environment: { serverVersion: CURRENT } },
+    } as never;
     const welcome = { version: 1, type: "welcome", sequence: 2, payload: {} } as never;
     const outcome = { id: "u1", fromVersion: CURRENT, targetVersion: NEXT, status: "failed" as const, reason: "r" };
     expect(readyWithOutcome([welcome, ready], outcome)).toEqual({
@@ -248,20 +332,57 @@ describe("GitHub Actions through a fake dispatch and runs endpoint", () => {
     const requests: Array<{ method: string; url: string; body?: unknown; authorization: string | null }> = [];
     const fetch = async (url: string, init: RequestInit) => {
       const headers = new Headers(init.headers);
-      requests.push({ method: init.method ?? "GET", url, ...(init.body === undefined ? {} : { body: JSON.parse(init.body as string) }), authorization: headers.get("authorization") });
+      requests.push({
+        method: init.method ?? "GET",
+        url,
+        ...(init.body === undefined ? {} : { body: JSON.parse(init.body as string) }),
+        authorization: headers.get("authorization"),
+      });
       const { pathname } = new URL(url);
       if (pathname.endsWith("/dispatches")) return new Response(null, { status: 204 });
       if (pathname.endsWith("/runs")) {
         return Response.json({
           workflow_runs: [
-            { id: 7, html_url: "https://github.com/ian-pascoe/t3flare/actions/runs/7", status: "queued", conclusion: null, name: "t3 bump", display_title: "Update other" },
-            { id: 8, html_url: "https://github.com/ian-pascoe/t3flare/actions/runs/8", status: "in_progress", conclusion: null, name: "t3 bump", display_title: "Update u1" },
+            {
+              id: 7,
+              html_url: "https://github.com/ian-pascoe/t3flare/actions/runs/7",
+              status: "queued",
+              conclusion: null,
+              name: "t3 bump",
+              display_title: "Update other",
+            },
+            {
+              id: 8,
+              html_url: "https://github.com/ian-pascoe/t3flare/actions/runs/8",
+              status: "in_progress",
+              conclusion: null,
+              name: "t3 bump",
+              display_title: "Update u1",
+            },
           ],
         });
       }
-      if (pathname.endsWith("/runs/8")) return Response.json({ id: 8, html_url: "https://github.com/ian-pascoe/t3flare/actions/runs/8", status: "completed", conclusion: "failure" });
+      if (pathname.endsWith("/runs/8"))
+        return Response.json({
+          id: 8,
+          html_url: "https://github.com/ian-pascoe/t3flare/actions/runs/8",
+          status: "completed",
+          conclusion: "failure",
+        });
       if (pathname.endsWith("/runs/8/jobs")) {
-        return Response.json({ jobs: [{ name: "bump", conclusion: "success", steps: [] }, { name: "land / land", conclusion: "failure", steps: [{ name: "Checkout", conclusion: "success" }, { name: "Check the branch", conclusion: "failure" }] }] });
+        return Response.json({
+          jobs: [
+            { name: "bump", conclusion: "success", steps: [] },
+            {
+              name: "land / land",
+              conclusion: "failure",
+              steps: [
+                { name: "Checkout", conclusion: "success" },
+                { name: "Check the branch", conclusion: "failure" },
+              ],
+            },
+          ],
+        });
       }
       return Response.json({ message: "Not Found" }, { status: 404 });
     };
@@ -273,14 +394,25 @@ describe("GitHub Actions through a fake dispatch and runs endpoint", () => {
     const { requests, client } = fakeGitHub();
     await client.dispatch("bump.yml", { tag: `v${NEXT}`, land: "true", gate: "update", update_id: "u1" });
     await client.dispatch("bump.yml", { tag: `v${NEXT}`, land: "true", gate: "update", update_id: "u2" });
-    expect(requests[0]).toMatchObject({ method: "POST", url: "https://api.github.com/repos/ian-pascoe/t3flare/actions/workflows/bump.yml/dispatches", body: { ref: "main", inputs: { update_id: "u1" } }, authorization: "Bearer token-1" });
+    expect(requests[0]).toMatchObject({
+      method: "POST",
+      url: "https://api.github.com/repos/ian-pascoe/t3flare/actions/workflows/bump.yml/dispatches",
+      body: { ref: "main", inputs: { update_id: "u1" } },
+      authorization: "Bearer token-1",
+    });
     expect(requests[1]?.authorization).toBe("Bearer token-2");
   });
 
   it("finds the run by its run-name among the dispatches since, and names its failed step", async () => {
     const { requests, client } = fakeGitHub();
     const run = await client.findRun("bump.yml", "Update u1", Date.UTC(2026, 10, 17, 12, 0, 0, 500));
-    expect(run).toEqual({ id: 8, url: "https://github.com/ian-pascoe/t3flare/actions/runs/8", status: "in_progress", conclusion: null, started: true });
+    expect(run).toEqual({
+      id: 8,
+      url: "https://github.com/ian-pascoe/t3flare/actions/runs/8",
+      status: "in_progress",
+      conclusion: null,
+      started: true,
+    });
     expect(decodeURIComponent(requests[0]!.url)).toContain("event=workflow_dispatch");
     expect(decodeURIComponent(requests[0]!.url)).toContain("created=>=2026-11-17T12:00:00Z");
     expect(await client.getRun(8)).toMatchObject({ status: "completed", conclusion: "failure" });

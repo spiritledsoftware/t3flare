@@ -28,9 +28,7 @@ export const contentsSha256 = async (contents: ReadResourceResult["contents"]): 
     const isText = "text" in item;
 
     digests.push(
-      await digestOf(
-        encoder.encode(JSON.stringify([item.uri, item.mimeType ?? null, isText ? "text" : "blob"])),
-      ),
+      await digestOf(encoder.encode(JSON.stringify([item.uri, item.mimeType ?? null, isText ? "text" : "blob"]))),
       await digestOf(encoder.encode(isText ? item.text : item.blob)),
     );
   }

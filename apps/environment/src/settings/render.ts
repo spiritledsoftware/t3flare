@@ -36,7 +36,9 @@ export const SKILL_MD_SHOWN = 32 * 1024;
 export const PATHS_SHOWN = 200;
 
 /** The fixed line for a Guard turned off (plan D9), by extension; another Guard gets the generic line. */
-const GUARD_OFF: Readonly<Record<string, string>> = { guardian: "This turns off the Guardian, which reviews risky tool calls." };
+const GUARD_OFF: Readonly<Record<string, string>> = {
+  guardian: "This turns off the Guardian, which reviews risky tool calls.",
+};
 
 /** The fixed line for a new server (plan D9). */
 export const HINT_TRUST_LINE = "Its tools' own read-only hints are trusted: a tool it marks read runs without a card.";
@@ -52,29 +54,45 @@ export const PAGE_REASON: Readonly<Record<PageReason, (where: string) => string>
   oversize: (where) => `It is too long to show whole in a card or a question, so it is answered on ${where}.`,
 };
 
-const asText = (value: unknown): string => (typeof value === "string" ? value : value === undefined || value === null ? "" : JSON.stringify(value));
+const asText = (value: unknown): string =>
+  typeof value === "string" ? value : value === undefined || value === null ? "" : JSON.stringify(value);
 
-const textual = (schema: { readonly type: string; readonly multiline?: boolean }): boolean => schema.type === "file" || (schema.type === "text" && schema.multiline === true);
+const textual = (schema: { readonly type: string; readonly multiline?: boolean }): boolean =>
+  schema.type === "file" || (schema.type === "text" && schema.multiline === true);
 
 /** An extension change's items and lines, against the stored Harness settings it changes. */
-export const extensionItems = (stored: StoredHarness, change: HarnessChange): { readonly items: Array<ChangeItem>; readonly lines: Array<string> } => {
+export const extensionItems = (
+  stored: StoredHarness,
+  change: HarnessChange,
+): { readonly items: Array<ChangeItem>; readonly lines: Array<string> } => {
   const entry = EXTENSIONS.find((each) => each.id === change.extension);
   const items: Array<ChangeItem> = [];
   const lines: Array<string> = [];
   if (entry === undefined) return { items, lines };
   const current = resolveHarness(stored).extensions[entry.id];
   if (change.enabled !== undefined && change.enabled !== current?.enabled) {
-    items.push({ kind: "scalar", name: `${entry.id}: switch`, before: current?.enabled === true ? "on" : "off", after: change.enabled ? "on" : "off" });
-    if (entry.guard === true && change.enabled === false) lines.push(GUARD_OFF[entry.id] ?? `This turns off ${entry.title}, a Guard.`);
+    items.push({
+      kind: "scalar",
+      name: `${entry.id}: switch`,
+      before: current?.enabled === true ? "on" : "off",
+      after: change.enabled ? "on" : "off",
+    });
+    if (entry.guard === true && change.enabled === false)
+      lines.push(GUARD_OFF[entry.id] ?? `This turns off ${entry.title}, a Guard.`);
   }
   for (const [key, after] of Object.entries(change.settings ?? {})) {
     const setting = ownEntry(entry.settings, key);
     const before = current?.settings[key];
     if (setting === undefined || before === after) continue;
     const name = `${entry.id}.${key}`;
-    items.push(textual(setting.schema) ? { kind: "text", name, before: asText(before), after: asText(after) } : { kind: "scalar", name, before, after });
+    items.push(
+      textual(setting.schema)
+        ? { kind: "text", name, before: asText(before), after: asText(after) }
+        : { kind: "scalar", name, before, after },
+    );
   }
-  if (entry.guard === true && items.some((item) => item.kind !== "scalar" || item.name !== `${entry.id}: switch`)) lines.push(`This changes the settings of ${entry.title}, a Guard.`);
+  if (entry.guard === true && items.some((item) => item.kind !== "scalar" || item.name !== `${entry.id}: switch`))
+    lines.push(`This changes the settings of ${entry.title}, a Guard.`);
   return { items, lines };
 };
 
@@ -86,9 +104,25 @@ export const toolsItems = (
 ): { readonly items: Array<ChangeItem>; readonly lines: Array<string> } => {
   const applied = applyToolsChange(stored, change);
   if (!applied.ok) return { items: [], lines: [] };
-  const moves = [...movedTools(resolveTools(stored.global), resolveTools(applied.harness.global), asksForDirect), ...movedServerTools(mcpServersOf(stored), mcpServersOf(applied.harness))];
-  const items: Array<ChangeItem> = moves.map((move) => ({ kind: "scalar", name: `${move.tool}: Exposure`, before: move.before, after: move.after }));
-  return { items, lines: change.preset === undefined ? [] : [`This applies the ${change.preset} preset to every tool that is not hidden, t3's and MCP servers' included (an MCP server's code-mode-only tools excepted).`] };
+  const moves = [
+    ...movedTools(resolveTools(stored.global), resolveTools(applied.harness.global), asksForDirect),
+    ...movedServerTools(mcpServersOf(stored), mcpServersOf(applied.harness)),
+  ];
+  const items: Array<ChangeItem> = moves.map((move) => ({
+    kind: "scalar",
+    name: `${move.tool}: Exposure`,
+    before: move.before,
+    after: move.after,
+  }));
+  return {
+    items,
+    lines:
+      change.preset === undefined
+        ? []
+        : [
+            `This applies the ${change.preset} preset to every tool that is not hidden, t3's and MCP servers' included (an MCP server's code-mode-only tools excepted).`,
+          ],
+  };
 };
 
 /**
@@ -97,12 +131,24 @@ export const toolsItems = (
  * another value under its name; never its value or its sealed value. Every other call's arguments as given.
  */
 export const shownCallArgs = (tool: string, args: unknown, stored?: StoredEnvironment): unknown => {
-  if (tool !== "change_environment" || !isRecord(args) || !isRecord(args.settings) || !Array.isArray(args.settings.variables)) return args;
-  const before = new Map(fitVariables(stored?.settings.variables).flatMap((variable) => (variable.secret ? [[variable.name, variable.fingerprint] as const] : [])));
+  if (
+    tool !== "change_environment" ||
+    !isRecord(args) ||
+    !isRecord(args.settings) ||
+    !Array.isArray(args.settings.variables)
+  )
+    return args;
+  const before = new Map(
+    fitVariables(stored?.settings.variables).flatMap((variable) =>
+      variable.secret ? [[variable.name, variable.fingerprint] as const] : [],
+    ),
+  );
   const variables = args.settings.variables.map((entry: unknown) => {
-    if (!isRecord(entry) || entry.secret !== true || (entry.sealed === undefined && entry.valueRedacted !== true)) return entry;
+    if (!isRecord(entry) || entry.secret !== true || (entry.sealed === undefined && entry.valueRedacted !== true))
+      return entry;
     const fingerprint = isSealedValue(entry.sealed) ? entry.sealed.fingerprint : undefined;
-    const changed = fingerprint !== undefined && before.has(String(entry.name)) && before.get(String(entry.name)) !== fingerprint;
+    const changed =
+      fingerprint !== undefined && before.has(String(entry.name)) && before.get(String(entry.name)) !== fingerprint;
     return { name: entry.name, secret: true, value: changed ? "secret, changed" : "secret, set" };
   });
   return { ...args, settings: { ...args.settings, variables } };
@@ -112,10 +158,14 @@ export const shownCallArgs = (tool: string, args: unknown, stored?: StoredEnviro
 const shownVariable = (variable: Variable): ShownVariableValue => (variable.secret ? { secret: true } : variable.value);
 
 /** A shown Variable's value as text: a plain one quoted, a secret one as set. */
-export const variableValueText = (value: ShownVariableValue): string => (typeof value === "string" ? JSON.stringify(value) : "a secret value (not shown)");
+export const variableValueText = (value: ShownVariableValue): string =>
+  typeof value === "string" ? JSON.stringify(value) : "a secret value (not shown)";
 
 /** An Environment change's items, against the stored Environment settings it changes. */
-export const environmentItems = (stored: StoredEnvironment, settings: Readonly<Record<string, unknown>>): Array<ChangeItem> => {
+export const environmentItems = (
+  stored: StoredEnvironment,
+  settings: Readonly<Record<string, unknown>>,
+): Array<ChangeItem> => {
   const applied = applyEnvironmentChange(stored, { settings });
   if (!applied.ok) return [];
   const before: Readonly<Record<string, unknown>> = resolveEnvironment(stored);
@@ -124,18 +174,27 @@ export const environmentItems = (stored: StoredEnvironment, settings: Readonly<R
     const schema = settingOf(key).schema;
     if (schema.type === "variables") {
       // As read: a secret is its fingerprint, so a changed secret shows as changed and its value never shows (ADR-0046).
-      const was = new Map(((before[key] ?? []) as ReadonlyArray<Variable>).map((variable) => [variable.name, variable]));
+      const was = new Map(
+        ((before[key] ?? []) as ReadonlyArray<Variable>).map((variable) => [variable.name, variable]),
+      );
       const now = new Map(((after[key] ?? []) as ReadonlyArray<Variable>).map((variable) => [variable.name, variable]));
-      const same = (a: Variable, b: Variable) => a.secret === b.secret && a.value === b.value && a.fingerprint === b.fingerprint;
+      const same = (a: Variable, b: Variable) =>
+        a.secret === b.secret && a.value === b.value && a.fingerprint === b.fingerprint;
       return {
         kind: "variables",
         name: key,
-        added: [...now.values()].filter((variable) => !was.has(variable.name)).map((variable) => [variable.name, shownVariable(variable)] as const),
+        added: [...now.values()]
+          .filter((variable) => !was.has(variable.name))
+          .map((variable) => [variable.name, shownVariable(variable)] as const),
         changed: [...now.values()].flatMap((variable) => {
           const prior = was.get(variable.name);
-          return prior === undefined || same(prior, variable) ? [] : [[variable.name, shownVariable(prior), shownVariable(variable)] as const];
+          return prior === undefined || same(prior, variable)
+            ? []
+            : [[variable.name, shownVariable(prior), shownVariable(variable)] as const];
         }),
-        removed: [...was.values()].filter((variable) => !now.has(variable.name)).map((variable) => [variable.name, shownVariable(variable)] as const),
+        removed: [...was.values()]
+          .filter((variable) => !now.has(variable.name))
+          .map((variable) => [variable.name, shownVariable(variable)] as const),
       };
     }
     if (textual(schema)) return { kind: "text", name: key, before: asText(before[key]), after: asText(after[key]) };
@@ -155,7 +214,11 @@ const hostOf = (url: string): string => {
  * An MCP change's items and lines, against the stored Harness settings it changes. `secretSet` says whether a header
  * value is stored now (never the value).
  */
-export const mcpItems = (stored: StoredHarness, change: McpTierChange, secretSet: (server: string) => boolean): { readonly items: Array<ChangeItem>; readonly lines: Array<string> } => {
+export const mcpItems = (
+  stored: StoredHarness,
+  change: McpTierChange,
+  secretSet: (server: string) => boolean,
+): { readonly items: Array<ChangeItem>; readonly lines: Array<string> } => {
   const servers = mcpServersOf(stored);
   const current = ownEntry(servers, change.server);
   switch (change.op) {
@@ -164,30 +227,95 @@ export const mcpItems = (stored: StoredHarness, change: McpTierChange, secretSet
       // and the caller wrote it. A stored server's URL (remove, sign-in) is still shown without its query (plan D14).
       const url = change.url;
       return {
-        items: [{ kind: "mcp-add", server: change.server, url, host: hostOf(change.url), auth: change.auth.kind, ...(change.auth.kind === "header" ? { header: change.auth.header } : {}) }],
+        items: [
+          {
+            kind: "mcp-add",
+            server: change.server,
+            url,
+            host: hostOf(change.url),
+            auth: change.auth.kind,
+            ...(change.auth.kind === "header" ? { header: change.auth.header } : {}),
+          },
+        ],
         lines: [HINT_TRUST_LINE],
       };
     }
     case "remove":
-      return { items: [{ kind: "mcp-remove", server: change.server, ...(current?.url === undefined ? {} : { url: withoutQuery(current.url) }) }], lines: [] };
+      return {
+        items: [
+          {
+            kind: "mcp-remove",
+            server: change.server,
+            ...(current?.url === undefined ? {} : { url: withoutQuery(current.url) }),
+          },
+        ],
+        lines: [],
+      };
     case "header-value":
-      return { items: [{ kind: "header-value", server: change.server, header: current?.auth?.kind === "header" ? current.auth.header : "header", set: secretSet(change.server) }], lines: [] };
+      return {
+        items: [
+          {
+            kind: "header-value",
+            server: change.server,
+            header: current?.auth?.kind === "header" ? current.auth.header : "header",
+            set: secretSet(change.server),
+          },
+        ],
+        lines: [],
+      };
     case "sign-in":
-      return { items: [{ kind: "sign-in", server: change.server, url: current?.url === undefined ? "" : withoutQuery(current.url) }], lines: [] };
+      return {
+        items: [
+          { kind: "sign-in", server: change.server, url: current?.url === undefined ? "" : withoutQuery(current.url) },
+        ],
+        lines: [],
+      };
     case "class":
-      return { items: [{ kind: "scalar", name: `${change.server}/${change.tool}: class`, before: ownEntry(current?.classes, change.tool) ?? "its own hint", after: change.class ?? "its own hint" }], lines: [] };
+      return {
+        items: [
+          {
+            kind: "scalar",
+            name: `${change.server}/${change.tool}: class`,
+            before: ownEntry(current?.classes, change.tool) ?? "its own hint",
+            after: change.class ?? "its own hint",
+          },
+        ],
+        lines: [],
+      };
     case "server": {
       const items: Array<ChangeItem> = [];
       if (current === undefined) return { items, lines: [] };
-      if (change.enabled !== undefined && change.enabled !== current.enabled) items.push({ kind: "scalar", name: `${change.server}: switch`, before: current.enabled ? "on" : "off", after: change.enabled ? "on" : "off" });
+      if (change.enabled !== undefined && change.enabled !== current.enabled)
+        items.push({
+          kind: "scalar",
+          name: `${change.server}: switch`,
+          before: current.enabled ? "on" : "off",
+          after: change.enabled ? "on" : "off",
+        });
       if (change.writes !== undefined && change.writes !== (current.writes ?? true)) {
-        items.push({ kind: "scalar", name: `${change.server}: write tools`, before: (current.writes ?? true) ? "on" : "off", after: change.writes ? "on" : "off" });
+        items.push({
+          kind: "scalar",
+          name: `${change.server}: write tools`,
+          before: (current.writes ?? true) ? "on" : "off",
+          after: change.writes ? "on" : "off",
+        });
       }
-      if (change.exposure !== undefined && change.exposure !== current.exposure) items.push({ kind: "scalar", name: `${change.server}: Exposure`, before: current.exposure, after: change.exposure });
+      if (change.exposure !== undefined && change.exposure !== current.exposure)
+        items.push({
+          kind: "scalar",
+          name: `${change.server}: Exposure`,
+          before: current.exposure,
+          after: change.exposure,
+        });
       for (const [tool, exposure] of Object.entries(change.toolExposure ?? {})) {
         const before = ownEntry(current.toolExposure, tool) ?? null;
         if (before === exposure) continue;
-        items.push({ kind: "scalar", name: `${change.server}/${tool}: Exposure`, before: before ?? `the server's (${current.exposure})`, after: exposure ?? `the server's (${change.exposure ?? current.exposure})` });
+        items.push({
+          kind: "scalar",
+          name: `${change.server}/${tool}: Exposure`,
+          before: before ?? `the server's (${current.exposure})`,
+          after: exposure ?? `the server's (${change.exposure ?? current.exposure})`,
+        });
       }
       return { items, lines: [] };
     }
@@ -236,10 +364,13 @@ const DIFF_MAX_LINES = 2_000;
 export const lineDiff = (before: string, after: string): Array<DiffLine> => {
   const a = before === "" ? [] : before.split("\n");
   const b = after === "" ? [] : after.split("\n");
-  if (a.length > DIFF_MAX_LINES || b.length > DIFF_MAX_LINES) return [...a.map((text) => ({ op: "-" as const, text })), ...b.map((text) => ({ op: "+" as const, text }))];
+  if (a.length > DIFF_MAX_LINES || b.length > DIFF_MAX_LINES)
+    return [...a.map((text) => ({ op: "-" as const, text })), ...b.map((text) => ({ op: "+" as const, text }))];
   // lengths[i][j]: the longest common subsequence of a[i..] and b[j..].
   const lengths = Array.from({ length: a.length + 1 }, () => new Uint32Array(b.length + 1));
-  for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) lengths[i]![j] = a[i] === b[j] ? lengths[i + 1]![j + 1]! + 1 : Math.max(lengths[i + 1]![j]!, lengths[i]![j + 1]!);
+  for (let i = a.length - 1; i >= 0; i--)
+    for (let j = b.length - 1; j >= 0; j--)
+      lengths[i]![j] = a[i] === b[j] ? lengths[i + 1]![j + 1]! + 1 : Math.max(lengths[i + 1]![j]!, lengths[i]![j + 1]!);
   const lines: Array<DiffLine> = [];
   let i = 0;
   let j = 0;
@@ -256,13 +387,15 @@ export const lineDiff = (before: string, after: string): Array<DiffLine> => {
   return lines;
 };
 
-const shown = (value: unknown): string => (typeof value === "string" ? JSON.stringify(value) : value === undefined ? "unset" : JSON.stringify(value));
+const shown = (value: unknown): string =>
+  typeof value === "string" ? JSON.stringify(value) : value === undefined ? "unset" : JSON.stringify(value);
 
 /**
  * A size as the card, the Change page and the panel show it: KiB below a MiB. Here rather than in harness/page.ts, which
  * imports this file.
  */
-export const sizeText = (bytes: number): string => (bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KiB` : `${(bytes / 1024 / 1024).toFixed(2)} MiB`);
+export const sizeText = (bytes: number): string =>
+  bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KiB` : `${(bytes / 1024 / 1024).toFixed(2)} MiB`;
 
 /** One item as text lines. */
 const itemText = (item: ChangeItem): Array<string> => {
@@ -272,39 +405,63 @@ const itemText = (item: ChangeItem): Array<string> => {
     case "variables":
       return [
         `- ${item.name}:`,
-        ...item.added.map(([name, value]) => (typeof value === "string" ? `  added ${name}=${JSON.stringify(value)}` : `  added ${name}, secret (set, not shown)`)),
+        ...item.added.map(([name, value]) =>
+          typeof value === "string"
+            ? `  added ${name}=${JSON.stringify(value)}`
+            : `  added ${name}, secret (set, not shown)`,
+        ),
         ...item.changed.map(([name, before, after]) =>
-          typeof before !== "string" && typeof after !== "string" ? `  changed ${name}: a new secret value (not shown)` : `  changed ${name}: ${variableValueText(before)} to ${variableValueText(after)}`,
+          typeof before !== "string" && typeof after !== "string"
+            ? `  changed ${name}: a new secret value (not shown)`
+            : `  changed ${name}: ${variableValueText(before)} to ${variableValueText(after)}`,
         ),
         ...item.removed.map(([name, value]) => `  removed ${name} (was ${variableValueText(value)})`),
       ];
     case "text": {
       const diff = lineDiff(item.before, item.after).filter((line) => line.op !== " ");
-      return [`- ${item.name}: ${diff.filter((line) => line.op === "+").length} lines added, ${diff.filter((line) => line.op === "-").length} removed:`, ...diff.map((line) => `  ${line.op} ${line.text}`)];
+      return [
+        `- ${item.name}: ${diff.filter((line) => line.op === "+").length} lines added, ${diff.filter((line) => line.op === "-").length} removed:`,
+        ...diff.map((line) => `  ${line.op} ${line.text}`),
+      ];
     }
     case "mcp-add":
       return [
         `- Add the MCP server ${item.server} at ${item.url} (host ${item.host}), signing in ${item.auth === "header" ? `with the header ${item.header ?? ""}, whose value is typed on the Change page` : item.auth === "oauth" ? "with OAuth (started later, on the Change page)" : "with nothing"}.`,
       ];
     case "mcp-remove":
-      return [`- Remove the MCP server ${item.server}${item.url === undefined ? "" : ` (${item.url})`}, with its stored secrets and sign-in.`];
+      return [
+        `- Remove the MCP server ${item.server}${item.url === undefined ? "" : ` (${item.url})`}, with its stored secrets and sign-in.`,
+      ];
     case "header-value":
-      return [`- Set the value of ${item.server}'s header ${item.header} (one is ${item.set ? "set" : "not set"} now). The value is typed on the Change page.`];
+      return [
+        `- Set the value of ${item.server}'s header ${item.header} (one is ${item.set ? "set" : "not set"} now). The value is typed on the Change page.`,
+      ];
     case "sign-in":
-      return [`- Start an OAuth sign-in to ${item.server}${item.url === "" ? "" : ` at ${item.url}`}, in the owner's browser on the Change page.`];
+      return [
+        `- Start an OAuth sign-in to ${item.server}${item.url === "" ? "" : ` at ${item.url}`}, in the owner's browser on the Change page.`,
+      ];
     case "skills":
       return [
         item.op === "install"
           ? `- Install from ${item.source} at ${item.commit}${item.ref === null ? "" : ` (${item.ref})`}:`
           : `- Update ${item.skills[0]?.name ?? "a skill"} from ${item.repo} at ${item.from ?? "?"} to ${item.commit}:`,
-        ...item.skills.map((skill) => `  ${skill.name} (${skill.path === "" ? "the repo's root" : skill.path}): ${skill.files} files, ${sizeText(skill.bytes)}${skill.problems.length === 0 ? "" : `; cannot be installed: ${skill.problems.join("; ")}`}`),
+        ...item.skills.map(
+          (skill) =>
+            `  ${skill.name} (${skill.path === "" ? "the repo's root" : skill.path}): ${skill.files} files, ${sizeText(skill.bytes)}${skill.problems.length === 0 ? "" : `; cannot be installed: ${skill.problems.join("; ")}`}`,
+        ),
       ];
     case "skill":
-      return [`- ${item.op === "enable" ? "Enable" : item.op === "disable" ? "Disable" : "Remove"} the Environment skill ${item.name}${item.repo === undefined ? "" : ` (from ${item.repo}${item.commit === undefined ? "" : ` at ${item.commit.slice(0, 7)}`})`}.`];
+      return [
+        `- ${item.op === "enable" ? "Enable" : item.op === "disable" ? "Disable" : "Remove"} the Environment skill ${item.name}${item.repo === undefined ? "" : ` (from ${item.repo}${item.commit === undefined ? "" : ` at ${item.commit.slice(0, 7)}`})`}.`,
+      ];
     case "purge":
       return [
         `- Purge the ${item.workspaceKind === "project" ? "project" : "Worktree"} Workspace ${item.id} (${JSON.stringify(item.title)}, ${item.status}) now, with its files, for good.`,
-        ...(item.worktrees.length === 0 ? [] : [`  With it, its Worktree Workspaces: ${item.worktrees.map((worktree) => `${worktree.id} (${worktree.status})`).join(", ")}.`]),
+        ...(item.worktrees.length === 0
+          ? []
+          : [
+              `  With it, its Worktree Workspaces: ${item.worktrees.map((worktree) => `${worktree.id} (${worktree.status})`).join(", ")}.`,
+            ]),
         ...keptOf(item).map((ids) => `  ${keptText(ids)}`),
         `  Deleted threads' Sessions destroyed: ${item.sessions}.`,
         `  ${purgeDueText(item.purgeDue)}`,
@@ -314,20 +471,27 @@ const itemText = (item: ChangeItem): Array<string> => {
 
 /** The kept Tombstones in a Purge's set (work a removal could not check), as one list when there are any. */
 export const keptOf = (item: Extract<ChangeItem, { readonly kind: "purge" }>): ReadonlyArray<ReadonlyArray<string>> => {
-  const kept = [...item.worktrees, item].filter((member) => member.status === "tombstone (kept)").map((member) => member.id);
+  const kept = [...item.worktrees, item]
+    .filter((member) => member.status === "tombstone (kept)")
+    .map((member) => member.id);
   return kept.length === 0 ? [] : [kept];
 };
 
 /** A kept Tombstone's call-out, the same on the card and the Change page. */
-export const keptText = (ids: ReadonlyArray<string>): string => `Kept Tombstones, holding work a removal could not check, go with it for good: ${ids.join(", ")}.`;
+export const keptText = (ids: ReadonlyArray<string>): string =>
+  `Kept Tombstones, holding work a removal could not check, go with it for good: ${ids.join(", ")}.`;
 
 /** When the Sweep would have purged a Workspace (ADR-0044 §5), as the card and the Change page say it. */
 export const purgeDueText = (due: number | null): string =>
-  due === null ? "The Sweep has no date to purge it now (purging is off, the Tombstone is kept, or it is not yet marked unreferenced)." : `The Sweep would purge it at ${new Date(due).toISOString()}.`;
+  due === null
+    ? "The Sweep has no date to purge it now (purging is off, the Tombstone is kept, or it is not yet marked unreferenced)."
+    : `The Sweep would purge it at ${new Date(due).toISOString()}.`;
 
 /** An asked change's first line: a Purge names no revision (ADR-0044 §5). */
 export const changeHead = (view: Pick<ChangeView, "entity" | "subject" | "revision">): string =>
-  view.entity === "workspaces" ? `A Purge of ${view.subject}` : `A change to ${view.subject} (revision ${view.revision})`;
+  view.entity === "workspaces"
+    ? `A Purge of ${view.subject}`
+    : `A change to ${view.subject} (revision ${view.revision})`;
 
 /** Who asked a change, as every place names them: the card, the Change page, the panel's list, an Owner client's message. */
 export interface AskedBy {

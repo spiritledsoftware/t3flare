@@ -5,7 +5,15 @@ import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
 import { int, num, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
 
 import { convertContent, type WebFetchFormat } from "./content.ts";
-import { discardBody, guardedFetch, readBoundedBody, statusCause, type WebTransport, WebToolError, withDeadline } from "./net.ts";
+import {
+  discardBody,
+  guardedFetch,
+  readBoundedBody,
+  statusCause,
+  type WebTransport,
+  WebToolError,
+  withDeadline,
+} from "./net.ts";
 import { boundStructuredText, fitWindowedOutput, selectLines } from "./output.ts";
 
 /** Largest response body accepted. */
@@ -30,11 +38,20 @@ const OUTPUT_SCHEMA = {
     url: { type: "string", description: "Final URL after redirects, without credentials" },
     content_type: { type: "string", description: "Response Content-Type header" },
     format: { type: "string", enum: ["text", "markdown", "html"] },
-    content: { type: "string", description: "Fetched text in the requested format, limited to the offset/limit window" },
+    content: {
+      type: "string",
+      description: "Fetched text in the requested format, limited to the offset/limit window",
+    },
     truncated: { type: "boolean", description: "The model-visible output was cut at 50 KiB or 2,000 lines" },
     structured_truncated: { type: "boolean", description: "content itself was cut at 1 MiB" },
-    total_lines: { type: "integer", description: "Lines in the whole converted text; present when offset or limit was passed" },
-    next_offset: { type: "integer", description: "Offset of the first line after the offset/limit window; present when lines remain after it" },
+    total_lines: {
+      type: "integer",
+      description: "Lines in the whole converted text; present when offset or limit was passed",
+    },
+    next_offset: {
+      type: "integer",
+      description: "Offset of the first line after the offset/limit window; present when lines remain after it",
+    },
   },
   required: ["url", "content_type", "format", "content", "truncated", "structured_truncated"],
 };
@@ -83,9 +100,18 @@ interface Fetched {
 }
 
 /** GET `url` through the guard and convert what comes back. */
-const fetchText = async (transport: WebTransport, url: string, format: WebFetchFormat, signal: AbortSignal): Promise<Fetched> => {
+const fetchText = async (
+  transport: WebTransport,
+  url: string,
+  format: WebFetchFormat,
+  signal: AbortSignal,
+): Promise<Fetched> => {
   const send = (userAgent: string) =>
-    guardedFetch(transport, { url, headers: { accept: acceptHeader(format), "accept-language": "en-US,en;q=0.9", "user-agent": userAgent } }, signal);
+    guardedFetch(
+      transport,
+      { url, headers: { accept: acceptHeader(format), "accept-language": "en-US,en;q=0.9", "user-agent": userAgent } },
+      signal,
+    );
   let reply = await send(BROWSER_USER_AGENT);
   // A Cloudflare challenge is aimed at browsers; the honest agent is allowed through by sites that expect tools.
   if (reply.response.status === 403 && reply.response.headers.get("cf-mitigated") === "challenge") {
@@ -110,7 +136,9 @@ const fetchText = async (transport: WebTransport, url: string, format: WebFetchF
   try {
     content = convertContent(new TextDecoder().decode(body), mime, format);
   } catch {
-    throw new WebToolError("the page could not be converted (it is nested too deeply or is too large to convert); use format: html to read it as it came");
+    throw new WebToolError(
+      "the page could not be converted (it is nested too deeply or is too large to convert); use format: html to read it as it came",
+    );
   }
   return { content, contentType, finalUrl: redactUserinfo(reply.url.toString()) };
 };
@@ -136,8 +164,19 @@ export const webFetchTool = (transport: WebTransport): ToolRegistration =>
           description: `Total timeout in seconds (default: ${WEB_FETCH_DEFAULT_TIMEOUT_SECONDS}, maximum: ${WEB_FETCH_MAX_TIMEOUT_SECONDS})`,
         }),
       ),
-      offset: opt(int({ minimum: 1, description: "Line to start reading from (1-indexed), counted in the returned format after conversion" })),
-      limit: opt(int({ minimum: 1, description: "Maximum number of lines to return; the result says how many lines remain and the offset to continue from" })),
+      offset: opt(
+        int({
+          minimum: 1,
+          description: "Line to start reading from (1-indexed), counted in the returned format after conversion",
+        }),
+      ),
+      limit: opt(
+        int({
+          minimum: 1,
+          description:
+            "Maximum number of lines to return; the result says how many lines remain and the offset to continue from",
+        }),
+      ),
     }),
     structuredOutputSchema: OUTPUT_SCHEMA,
     replay: "safe",
@@ -147,15 +186,23 @@ export const webFetchTool = (transport: WebTransport): ToolRegistration =>
       const seconds = args.timeout ?? WEB_FETCH_DEFAULT_TIMEOUT_SECONDS;
       let fetched: Fetched;
       try {
-        fetched = await withDeadline(Math.ceil(seconds * 1000), `${seconds} ${seconds === 1 ? "second" : "seconds"}`, context.abortSignal, (signal) =>
-          fetchText(transport, args.url, format, signal),
+        fetched = await withDeadline(
+          Math.ceil(seconds * 1000),
+          `${seconds} ${seconds === 1 ? "second" : "seconds"}`,
+          context.abortSignal,
+          (signal) => fetchText(transport, args.url, format, signal),
         );
       } catch (error) {
-        throw new Error(`Unable to fetch ${safeUrl}: ${error instanceof WebToolError ? error.message : "network error"}`, { cause: error });
+        throw new Error(
+          `Unable to fetch ${safeUrl}: ${error instanceof WebToolError ? error.message : "network error"}`,
+          { cause: error },
+        );
       }
       const selected = selectLines(fetched.content, args.offset, args.limit);
       if (selected === undefined) {
-        throw new Error(`Unable to fetch ${safeUrl}: Offset ${args.offset} is beyond end of content (${fetched.content.split("\n").length} lines total)`);
+        throw new Error(
+          `Unable to fetch ${safeUrl}: Offset ${args.offset} is beyond end of content (${fetched.content.split("\n").length} lines total)`,
+        );
       }
       const fitted = fitWindowedOutput(selected.text, selected.window);
       const structured = boundStructuredText(selected.text);
@@ -180,7 +227,13 @@ export const webFetchTool = (transport: WebTransport): ToolRegistration =>
           ...paging,
         },
         // What t3's web item shows (the differ): the final URL, its title and the start of the page.
-        details: { url: fetched.finalUrl, contentType: fetched.contentType, format, ...(title === undefined ? {} : { title }), snippet: selected.text.slice(0, 300) },
+        details: {
+          url: fetched.finalUrl,
+          contentType: fetched.contentType,
+          format,
+          ...(title === undefined ? {} : { title }),
+          snippet: selected.text.slice(0, 300),
+        },
       };
     },
   });

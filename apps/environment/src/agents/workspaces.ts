@@ -93,13 +93,20 @@ const record = (row: Row): WorkspaceRecord => ({
 });
 
 /** Whether t3's paths resolve to the Workspace (plan section 3.5). */
-export const resolves = (record: WorkspaceRecord): boolean => record.state === "provisioning" || record.state === "ready";
+export const resolves = (record: WorkspaceRecord): boolean =>
+  record.state === "provisioning" || record.state === "ready";
 
 export const migrateWorkspaceRegistry = (sql: SqlStorage): void => {
   sql.exec(SCHEMA);
-  const columns = new Set(sql.exec<{ name: string }>("PRAGMA table_info(t3flare_workspaces)").toArray().map((column) => column.name));
+  const columns = new Set(
+    sql
+      .exec<{ name: string }>("PRAGMA table_info(t3flare_workspaces)")
+      .toArray()
+      .map((column) => column.name),
+  );
   const first = !columns.has("kind");
-  for (const [name, type] of ADDED_COLUMNS) if (!columns.has(name)) sql.exec(`ALTER TABLE t3flare_workspaces ADD COLUMN ${name} ${type}`);
+  for (const [name, type] of ADDED_COLUMNS)
+    if (!columns.has(name)) sql.exec(`ALTER TABLE t3flare_workspaces ADD COLUMN ${name} ${type}`);
   // Step 2a left a New project's empty folder `provisioning` for good; step 2b's sweep purges stale `provisioning` rows.
   if (first) sql.exec("UPDATE t3flare_workspaces SET state = 'ready' WHERE state = 'provisioning'");
 };
@@ -135,9 +142,16 @@ export const workspaceRegistry = (sql: SqlStorage) => {
       return this.list().filter((ws) => ws.kind === "worktree" && ws.parent === parent && resolves(ws));
     },
     /** Registers a Workspace being provisioned; refuses an id in use or not a valid id. */
-    create(input: { readonly id: string; readonly host?: string | null; readonly owner?: string | null; readonly name?: string | null; readonly cloneUrl?: string | null }): WorkspaceRecord {
+    create(input: {
+      readonly id: string;
+      readonly host?: string | null;
+      readonly owner?: string | null;
+      readonly name?: string | null;
+      readonly cloneUrl?: string | null;
+    }): WorkspaceRecord {
       ensure();
-      if (!isWorkspaceId(input.id)) throw new Error(`t3flare: "${input.id}" is not a Workspace name (letters, digits, ".", "_", "-")`);
+      if (!isWorkspaceId(input.id))
+        throw new Error(`t3flare: "${input.id}" is not a Workspace name (letters, digits, ".", "_", "-")`);
       if (get(input.id) !== undefined) throw new Error(`t3flare: the Workspace /w/${input.id} exists`);
       sql.exec(
         "INSERT INTO t3flare_workspaces (id, host, owner, name, clone_url, created_at, state) VALUES (?, ?, ?, ?, ?, ?, 'provisioning')",
@@ -151,7 +165,11 @@ export const workspaceRegistry = (sql: SqlStorage) => {
       return get(input.id)!;
     },
     /** Registers a worktree Workspace of `parent` being provisioned: the parent's remote and `workflows` opt-in. */
-    createWorktree(input: { readonly id: string; readonly parent: WorkspaceRecord; readonly branch: string }): WorkspaceRecord {
+    createWorktree(input: {
+      readonly id: string;
+      readonly parent: WorkspaceRecord;
+      readonly branch: string;
+    }): WorkspaceRecord {
       ensure();
       if (!isWorktreeId(input.id)) throw new Error(`t3flare: "${input.id}" is not a worktree Workspace name`);
       if (get(input.id) !== undefined) throw new Error(`t3flare: the Workspace /w/${input.id} exists`);
@@ -171,7 +189,15 @@ export const workspaceRegistry = (sql: SqlStorage) => {
       return get(input.id)!;
     },
     /** Names the repo a Workspace made empty (a project folder t3 created first) is cloned from. */
-    setRemote(id: string, remote: { readonly host: string | null; readonly owner: string | null; readonly name: string | null; readonly cloneUrl: string | null }): void {
+    setRemote(
+      id: string,
+      remote: {
+        readonly host: string | null;
+        readonly owner: string | null;
+        readonly name: string | null;
+        readonly cloneUrl: string | null;
+      },
+    ): void {
       ensure();
       sql.exec(
         "UPDATE t3flare_workspaces SET host = ?, owner = ?, name = ?, clone_url = ? WHERE id = ?",
@@ -182,12 +208,23 @@ export const workspaceRegistry = (sql: SqlStorage) => {
         id,
       );
     },
-    setState(id: string, state: WorkspaceState, fields: { readonly deletedAt?: number | null; readonly purgeAfter?: number | null; readonly lastError?: string | null } = {}): void {
+    setState(
+      id: string,
+      state: WorkspaceState,
+      fields: {
+        readonly deletedAt?: number | null;
+        readonly purgeAfter?: number | null;
+        readonly lastError?: string | null;
+      } = {},
+    ): void {
       ensure();
       sql.exec("UPDATE t3flare_workspaces SET state = ? WHERE id = ?", state, id);
-      if (fields.deletedAt !== undefined) sql.exec("UPDATE t3flare_workspaces SET deleted_at = ? WHERE id = ?", fields.deletedAt, id);
-      if (fields.purgeAfter !== undefined) sql.exec("UPDATE t3flare_workspaces SET purge_after = ? WHERE id = ?", fields.purgeAfter, id);
-      if (fields.lastError !== undefined) sql.exec("UPDATE t3flare_workspaces SET last_error = ? WHERE id = ?", fields.lastError, id);
+      if (fields.deletedAt !== undefined)
+        sql.exec("UPDATE t3flare_workspaces SET deleted_at = ? WHERE id = ?", fields.deletedAt, id);
+      if (fields.purgeAfter !== undefined)
+        sql.exec("UPDATE t3flare_workspaces SET purge_after = ? WHERE id = ?", fields.purgeAfter, id);
+      if (fields.lastError !== undefined)
+        sql.exec("UPDATE t3flare_workspaces SET last_error = ? WHERE id = ?", fields.lastError, id);
     },
     setBranch(id: string, branch: string | null): void {
       ensure();
@@ -199,7 +236,11 @@ export const workspaceRegistry = (sql: SqlStorage) => {
     },
     setLastError(id: string, error: string | null): void {
       ensure();
-      sql.exec("UPDATE t3flare_workspaces SET last_error = ? WHERE id = ?", error === null ? null : error.slice(0, 1000), id);
+      sql.exec(
+        "UPDATE t3flare_workspaces SET last_error = ? WHERE id = ?",
+        error === null ? null : error.slice(0, 1000),
+        id,
+      );
     },
     remove(id: string): void {
       ensure();

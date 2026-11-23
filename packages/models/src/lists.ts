@@ -17,7 +17,8 @@ const CLOAK_PREFIX = "claude-fable-5-dd-";
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 const text = (value: unknown): string | undefined => (typeof value === "string" && value !== "" ? value : undefined);
-const count = (value: unknown): number | undefined => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined);
+const count = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 
 /** A page of a list in either shape, or undefined when the body is not one. */
 export const parseList = (
@@ -43,4 +44,5 @@ export const parseList = (
 };
 
 /** The real id behind Commissary's alias for a non-Claude model (the id itself when it is not one). */
-export const realIdOf = (id: string): string => (id.startsWith(CLOAK_PREFIX) ? Array.from(id.slice(CLOAK_PREFIX.length)).reverse().join("") : id);
+export const realIdOf = (id: string): string =>
+  id.startsWith(CLOAK_PREFIX) ? Array.from(id.slice(CLOAK_PREFIX.length)).reverse().join("") : id;

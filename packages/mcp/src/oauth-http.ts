@@ -35,10 +35,7 @@ export type OAuthFetch = (input: string | URL, init?: RequestInit) => Promise<Re
  * read). The 64 KiB bound on a token response is the limit its reader passes (the Client Credentials grant's token
  * request, `./oauth-client-credentials.ts`).
  */
-export const boundedText = async (
-  response: Response,
-  limit: number,
-): Promise<string | undefined> => {
+export const boundedText = async (response: Response, limit: number): Promise<string | undefined> => {
   const declared = Number(response.headers.get("content-length"));
 
   if (Number.isFinite(declared) && declared > limit) {

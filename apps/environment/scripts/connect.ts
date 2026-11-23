@@ -34,7 +34,10 @@ const accessHeaders = (): Record<string, string> => {
     return { "cf-access-token": token };
   }
   return process.env.T3FLARE_ACCESS_CLIENT_ID && process.env.T3FLARE_ACCESS_CLIENT_SECRET
-    ? { "cf-access-client-id": process.env.T3FLARE_ACCESS_CLIENT_ID, "cf-access-client-secret": process.env.T3FLARE_ACCESS_CLIENT_SECRET }
+    ? {
+        "cf-access-client-id": process.env.T3FLARE_ACCESS_CLIENT_ID,
+        "cf-access-client-secret": process.env.T3FLARE_ACCESS_CLIENT_SECRET,
+      }
     : {};
 };
 const headers = accessHeaders();
@@ -43,7 +46,11 @@ const call = async (method: string, path: string, body?: unknown): Promise<{ sta
   const response = await fetch(new URL(path, base), {
     method,
     redirect: "manual",
-    headers: { ...headers, authorization: `Bearer ${process.env.T3FLARE_ADMIN_TOKEN ?? ""}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+    headers: {
+      ...headers,
+      authorization: `Bearer ${process.env.T3FLARE_ADMIN_TOKEN ?? ""}`,
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
+    },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const text = await response.text();
@@ -64,7 +71,12 @@ switch (command) {
       print(started);
       process.exit(1);
     }
-    const prompt = started.json as { userCode: string; verificationUri: string; verificationUriComplete: string | null; expiresInSeconds: number };
+    const prompt = started.json as {
+      userCode: string;
+      verificationUri: string;
+      verificationUriComplete: string | null;
+      expiresInSeconds: number;
+    };
     console.log(`Open ${prompt.verificationUriComplete ?? prompt.verificationUri}`);
     console.log(`and approve the code ${prompt.userCode} (valid ${Math.round(prompt.expiresInSeconds / 60)} min).`);
     const until = Date.now() + prompt.expiresInSeconds * 1000 + 30_000;
@@ -73,7 +85,12 @@ switch (command) {
       const status = await call("GET", "/_t3flare/connect/status");
       const state = status.json?.flow?.state;
       if (state === "linked" || state === "failed") {
-        print({ flow: status.json.flow, link: status.json.link, secretsHeld: status.json.secretsHeld, accountToken: status.json.accountToken });
+        print({
+          flow: status.json.flow,
+          link: status.json.link,
+          secretsHeld: status.json.secretsHeld,
+          accountToken: status.json.accountToken,
+        });
         process.exit(state === "linked" ? 0 : 1);
       }
     }
@@ -126,7 +143,9 @@ switch (command) {
         const response = await fetch(`${base.origin}${path}`, {
           method,
           redirect: "manual",
-          ...(method === "POST" || method === "PUT" ? { headers: { "content-type": "application/json" }, body: '{"proof":"a.b.c"}' } : {}),
+          ...(method === "POST" || method === "PUT"
+            ? { headers: { "content-type": "application/json" }, body: '{"proof":"a.b.c"}' }
+            : {}),
         });
         await response.text();
         // A spelling the Worker does not route to the DO (`/API/…`, case-sensitive) gets the web client's assets.
@@ -135,8 +154,17 @@ switch (command) {
       }
     }
     const kept: Record<string, number> = {};
-    for (const [method, path] of [["GET", "/api/connect/link-state"], ["POST", "/api/connect/preferences"], ["POST", "/api/connect/unlink"], ["POST", "/api/connect/reachability"]] as const) {
-      const response = await fetch(new URL(path, base), { method, redirect: "manual", ...(method === "POST" ? { headers: { "content-type": "application/json" }, body: "{}" } : {}) });
+    for (const [method, path] of [
+      ["GET", "/api/connect/link-state"],
+      ["POST", "/api/connect/preferences"],
+      ["POST", "/api/connect/unlink"],
+      ["POST", "/api/connect/reachability"],
+    ] as const) {
+      const response = await fetch(new URL(path, base), {
+        method,
+        redirect: "manual",
+        ...(method === "POST" ? { headers: { "content-type": "application/json" }, body: "{}" } : {}),
+      });
       await response.text();
       kept[`${method} ${path}`] = response.status;
     }
@@ -150,6 +178,8 @@ switch (command) {
     process.exit(allDoor404 && insideRefused ? 0 : 1);
   }
   default:
-    console.error("usage: connect sign-in|status|publish on|off|relink|unlink|sign-out|import-token <file>|probe|refusals [--owner] [--relay]");
+    console.error(
+      "usage: connect sign-in|status|publish on|off|relink|unlink|sign-out|import-token <file>|probe|refusals [--owner] [--relay]",
+    );
     process.exit(2);
 }

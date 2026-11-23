@@ -13,13 +13,7 @@ const env = { version: "test", hold: () => undefined };
 
 /** A call that takes the large slot, keeps no stream, then does `then`. */
 const largeCall = <A, E>(then: Effect.Effect<A, E>) =>
-  withCall(
-    {},
-    hooks,
-    env,
-    (call) => Effect.promise(() => call.lease.charge(10 * MiB)).pipe(Effect.andThen(then)),
-    [],
-  );
+  withCall({}, hooks, env, (call) => Effect.promise(() => call.lease.charge(10 * MiB)).pipe(Effect.andThen(then)), []);
 
 /** Whether the large slot is free: a new lease takes it at once. */
 const largeSlotFree = async (budget: ReturnType<typeof makeBudget>) => {
@@ -58,9 +52,7 @@ describe("withCall", () => {
         hooks,
         env,
         (call) =>
-          Effect.promise(() => call.lease.charge(10 * MiB)).pipe(
-            Effect.andThen(Effect.sync(() => call.handOff())),
-          ),
+          Effect.promise(() => call.lease.charge(10 * MiB)).pipe(Effect.andThen(Effect.sync(() => call.handOff()))),
         [],
       ).pipe(Effect.provideService(ByteBudget, budget)),
     );

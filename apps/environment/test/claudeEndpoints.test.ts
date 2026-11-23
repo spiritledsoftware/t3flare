@@ -20,9 +20,33 @@ const model = (id: string, extra: { reasoning?: boolean; known?: boolean; output
 const endpoints: ModelEndpoints = {
   revision: 3,
   endpoints: [
-    { id: "openai", label: "OpenAI", api: "openai-responses", baseUrl: "https://api.openai.com/v1", auth: "api-key", headers: {}, models: [model("gpt-5-mini")] },
-    { id: "comm", label: "Commissary", api: "anthropic-messages", baseUrl: "https://c.example/v1", auth: "api-key", headers: {}, models: [model("claude-sonnet-5-5", { reasoning: true }), model("claude-haiku-5-5")] },
-    { id: "comm2", label: "Commissary", api: "anthropic-messages", baseUrl: "https://c2.example/v1", auth: "api-key", headers: {}, models: [model("claude-opus-5-5", { reasoning: true })] },
+    {
+      id: "openai",
+      label: "OpenAI",
+      api: "openai-responses",
+      baseUrl: "https://api.openai.com/v1",
+      auth: "api-key",
+      headers: {},
+      models: [model("gpt-5-mini")],
+    },
+    {
+      id: "comm",
+      label: "Commissary",
+      api: "anthropic-messages",
+      baseUrl: "https://c.example/v1",
+      auth: "api-key",
+      headers: {},
+      models: [model("claude-sonnet-5-5", { reasoning: true }), model("claude-haiku-5-5")],
+    },
+    {
+      id: "comm2",
+      label: "Commissary",
+      api: "anthropic-messages",
+      baseUrl: "https://c2.example/v1",
+      auth: "api-key",
+      headers: {},
+      models: [model("claude-opus-5-5", { reasoning: true })],
+    },
   ],
 };
 
@@ -40,9 +64,17 @@ describe("Claude Code's Model endpoints", () => {
   });
 
   it("takes a Claude sign-in through the relay (SPI-1171), and no other sign-in", () => {
-    const signIn = { ...endpoints.endpoints[1]!, id: "claude", baseUrl: "https://api.anthropic.com", auth: "claude" as const };
+    const signIn = {
+      ...endpoints.endpoints[1]!,
+      id: "claude",
+      baseUrl: "https://api.anthropic.com",
+      auth: "claude" as const,
+    };
     expect(claudeRelayOf({ revision: 1, endpoints: [signIn] }, undefined)?.endpoints).toEqual(["claude"]);
-    expect(claudeRelayOf({ revision: 1, endpoints: [signIn, endpoints.endpoints[2]!] }, undefined)?.endpoints).toEqual(["claude", "comm2"]);
+    expect(claudeRelayOf({ revision: 1, endpoints: [signIn, endpoints.endpoints[2]!] }, undefined)?.endpoints).toEqual([
+      "claude",
+      "comm2",
+    ]);
     // A Copilot sign-in speaks Responses, not Claude Code's API; a ChatGPT one too. Neither is Claude Code's.
     const copilot = { ...signIn, id: "copilot", api: "openai-responses" as const, auth: "copilot" as const };
     expect(claudeRelayOf({ revision: 1, endpoints: [copilot] }, undefined)).toBeUndefined();
@@ -51,34 +83,61 @@ describe("Claude Code's Model endpoints", () => {
   it("ignores an Anthropic Messages endpoint that lists no model: alone, it leaves Claude Code with no endpoint", () => {
     const empty = { ...endpoints.endpoints[1]!, id: "empty", models: [] };
     expect(claudeRelayOf({ revision: 1, endpoints: [empty] }, undefined)).toBeUndefined();
-    expect(claudeRelayOf({ revision: 1, endpoints: [empty, endpoints.endpoints[2]!] }, undefined)?.endpoints).toEqual(["comm2"]);
+    expect(claudeRelayOf({ revision: 1, endpoints: [empty, endpoints.endpoints[2]!] }, undefined)?.endpoints).toEqual([
+      "comm2",
+    ]);
     expect(claudeModelsOf({ revision: 1, endpoints: [empty] })).toEqual([]);
   });
 
   it("takes the text-generation model as the background model when it is an Anthropic Messages endpoint's model", () => {
     expect(claudeRelayOf(endpoints, "comm2/claude-opus-5-5")?.backgroundModel).toBe("comm2/claude-opus-5-5");
     // Another API's model, a model the endpoint no longer lists, or the proxy's: the endpoints' own small model.
-    for (const text of ["openai/gpt-5-mini", "comm/gone", "anthropic/claude-haiku-5-5", "default", undefined]) expect(claudeRelayOf(endpoints, text)?.backgroundModel, text).toBe("comm/claude-haiku-5-5");
+    for (const text of ["openai/gpt-5-mini", "comm/gone", "anthropic/claude-haiku-5-5", "default", undefined])
+      expect(claudeRelayOf(endpoints, text)?.backgroundModel, text).toBe("comm/claude-haiku-5-5");
     // No small model among them: the first endpoint's first model.
     const big: ModelEndpoints = { revision: 1, endpoints: [endpoints.endpoints[2]!] };
     expect(claudeRelayOf(big, undefined)?.backgroundModel).toBe("comm2/claude-opus-5-5");
   });
 
   it("points Claude Code's opus and sonnet aliases at a slug of that family, else at the first model", () => {
-    const haikuOnly: ModelEndpoints = { revision: 1, endpoints: [{ ...endpoints.endpoints[1]!, models: [model("claude-haiku-5-5"), model("my-sonnetish")] }] };
+    const haikuOnly: ModelEndpoints = {
+      revision: 1,
+      endpoints: [{ ...endpoints.endpoints[1]!, models: [model("claude-haiku-5-5"), model("my-sonnetish")] }],
+    };
     // `sonnetish` is not the family's word; the first model stands in.
-    expect(claudeRelayOf(haikuOnly, undefined)).toMatchObject({ opusModel: "comm/claude-haiku-5-5", sonnetModel: "comm/claude-haiku-5-5" });
+    expect(claudeRelayOf(haikuOnly, undefined)).toMatchObject({
+      opusModel: "comm/claude-haiku-5-5",
+      sonnetModel: "comm/claude-haiku-5-5",
+    });
   });
 
   it("prefers a model of the family pi-ai's catalog knows: a dated one listed first may be one the server no longer serves (SPI-1176)", () => {
     // Commissary's list, in its order: dated models pi-ai dropped first (it answers 503 for them).
     const listed: ModelEndpoints = {
       revision: 1,
-      endpoints: [{ ...endpoints.endpoints[1]!, models: [model("claude-3-7-sonnet-20250219"), model("claude-opus-4-1-20250805"), model("claude-opus-4-5", { known: true }), model("claude-sonnet-4-5", { known: true })] }],
+      endpoints: [
+        {
+          ...endpoints.endpoints[1]!,
+          models: [
+            model("claude-3-7-sonnet-20250219"),
+            model("claude-opus-4-1-20250805"),
+            model("claude-opus-4-5", { known: true }),
+            model("claude-sonnet-4-5", { known: true }),
+          ],
+        },
+      ],
     };
-    expect(claudeRelayOf(listed, undefined)).toMatchObject({ opusModel: "comm/claude-opus-4-5", sonnetModel: "comm/claude-sonnet-4-5" });
+    expect(claudeRelayOf(listed, undefined)).toMatchObject({
+      opusModel: "comm/claude-opus-4-5",
+      sonnetModel: "comm/claude-sonnet-4-5",
+    });
     // None of the family known: its first.
-    const unknown: ModelEndpoints = { revision: 1, endpoints: [{ ...endpoints.endpoints[1]!, models: [model("claude-haiku-5-5", { known: true }), model("claude-sonnet-x")] }] };
+    const unknown: ModelEndpoints = {
+      revision: 1,
+      endpoints: [
+        { ...endpoints.endpoints[1]!, models: [model("claude-haiku-5-5", { known: true }), model("claude-sonnet-x")] },
+      ],
+    };
     expect(claudeRelayOf(unknown, undefined)).toMatchObject({ sonnetModel: "comm/claude-sonnet-x" });
   });
 
@@ -101,7 +160,13 @@ describe("Claude Code's Model endpoints", () => {
     expect(claudeModelId("comm/claude-haiku-5-5", endpoints)).toBe("comm/claude-haiku-5-5");
     // Old selections (`anthropic/…`, bare ids, t3's stock Claude default among them) and `default`: the default model,
     // the list's first, even where an endpoint lists a model of the old id (`comm`'s haiku, `comm2`'s opus): ADR-0034 §3.
-    for (const old of ["anthropic/claude-haiku-5-5", "claude-haiku-5-5", "claude-opus-5-5", "anthropic/claude-fable-1", "default"]) {
+    for (const old of [
+      "anthropic/claude-haiku-5-5",
+      "claude-haiku-5-5",
+      "claude-opus-5-5",
+      "anthropic/claude-fable-1",
+      "default",
+    ]) {
       expect(claudeModelId(old, endpoints), old).toBe("comm/claude-sonnet-5-5");
     }
     // Another API's endpoint, or a gone one: kept, so Claude Code's session does not offer it and t3's adapter refuses it.

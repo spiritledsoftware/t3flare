@@ -49,7 +49,8 @@ export class ContainerBudget extends DurableObject<BudgetEnv> {
 
   /** The budget: the override, else `carried` when valid (kept for later), else the last kept, else the default. */
   #max(carried?: number): number {
-    if (carried !== undefined && fitsEnvironmentSetting("containerBudget", carried)) this.ctx.storage.kv.put(BUDGET_KEY, carried);
+    if (carried !== undefined && fitsEnvironmentSetting("containerBudget", carried))
+      this.ctx.storage.kv.put(BUDGET_KEY, carried);
     return this.maxOverride() ?? this.ctx.storage.kv.get<number>(BUDGET_KEY) ?? MAX_CONTAINERS;
   }
 

@@ -31,7 +31,8 @@ export const proposedSetup = (value: unknown): string => {
 };
 
 /** The Workspace image's digest-pinned reference (`ctx.container.images`), or undefined where there is none (local tests). */
-export const workspaceImage = (container: Container | undefined): string | undefined => container?.images?.[WORKSPACE_CONTAINER];
+export const workspaceImage = (container: Container | undefined): string | undefined =>
+  container?.images?.[WORKSPACE_CONTAINER];
 
 /** `ctx.container` as a build drives it. */
 export const platformContainer = (ctx: DurableObjectState): BuilderContainer => {

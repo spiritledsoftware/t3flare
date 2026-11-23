@@ -10,7 +10,8 @@ import { RpcClient } from "effect/rpc";
 import { protocol, sleep } from "./client.ts";
 
 // oxlint-disable-next-line no-control-regex -- ANSI escapes are what this strips
-export const stripAnsi = (text: string) => text.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b[()][A-Za-z0-9]|\r/g, "");
+const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b[()][A-Za-z0-9]|\r/g;
+export const stripAnsi = (text: string) => text.replace(ANSI, "");
 
 export interface TerminalEventLike {
   readonly type: string;
@@ -36,7 +37,15 @@ export interface TerminalSession {
 
 export const attachTerminal = async (
   cookie: string,
-  input: { readonly threadId: string; readonly terminalId: string; readonly cwd?: string; readonly cols?: number; readonly rows?: number; readonly resume?: boolean; readonly env?: Record<string, string> },
+  input: {
+    readonly threadId: string;
+    readonly terminalId: string;
+    readonly cwd?: string;
+    readonly cols?: number;
+    readonly rows?: number;
+    readonly resume?: boolean;
+    readonly env?: Record<string, string>;
+  },
 ): Promise<TerminalSession> => {
   const events: Array<{ at: number; event: TerminalEventLike }> = [];
   let text = "";
@@ -49,12 +58,14 @@ export const attachTerminal = async (
       const client = (yield* RpcClient.make(WsRpcGroup)) as unknown as Record<string, (input: unknown) => any>;
       resolveClient(client);
       const fiber = yield* Effect.forkChild(
-        Stream.runForEach(client["terminal.attach"]!({ cols: 100, rows: 30, ...input }) as Stream.Stream<TerminalEventLike, unknown>, (event) =>
-          Effect.sync(() => {
-            events.push({ at: Date.now(), event });
-            if (event.type === "snapshot" && event.snapshot?.history !== undefined) text += event.snapshot.history;
-            if (event.type === "output" && event.data !== undefined) text += event.data;
-          }),
+        Stream.runForEach(
+          client["terminal.attach"]!({ cols: 100, rows: 30, ...input }) as Stream.Stream<TerminalEventLike, unknown>,
+          (event) =>
+            Effect.sync(() => {
+              events.push({ at: Date.now(), event });
+              if (event.type === "snapshot" && event.snapshot?.history !== undefined) text += event.snapshot.history;
+              if (event.type === "output" && event.data !== undefined) text += event.data;
+            }),
         ),
       );
       yield* Effect.promise(() => stopped);
@@ -62,13 +73,16 @@ export const attachTerminal = async (
     }).pipe(Effect.provide(protocol(cookie)), Effect.scoped),
   );
   const client = await clientReady;
-  const call = (method: string, payload: unknown) => Effect.runPromise(client[method]!(payload) as Effect.Effect<unknown, unknown>).then(() => undefined);
+  const call = (method: string, payload: unknown) =>
+    Effect.runPromise(client[method]!(payload) as Effect.Effect<unknown, unknown>).then(() => undefined);
   const session: TerminalSession = {
     events,
     output: () => text,
     write: (data) => call("terminal.write", { threadId: input.threadId, terminalId: input.terminalId, data }),
-    resize: (cols, rows) => call("terminal.resize", { threadId: input.threadId, terminalId: input.terminalId, cols, rows }),
-    close: (deleteHistory = false) => call("terminal.close", { threadId: input.threadId, terminalId: input.terminalId, deleteHistory }),
+    resize: (cols, rows) =>
+      call("terminal.resize", { threadId: input.threadId, terminalId: input.terminalId, cols, rows }),
+    close: (deleteHistory = false) =>
+      call("terminal.close", { threadId: input.threadId, terminalId: input.terminalId, deleteHistory }),
     until: async (pattern, timeoutMs = 30_000, from = 0) => {
       const started = Date.now();
       while (Date.now() - started < timeoutMs) {

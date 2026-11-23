@@ -21,7 +21,10 @@ const runCiSetup = (args: ReadonlyArray<string>) => {
     chmodSync(join(bin, tool), 0o755);
   }
   const quoted = args.map((arg) => `'${arg.replaceAll("'", "'\\''")}'`).join(" ");
-  execFileSync("sh", ["-c", `${packageJson.scripts["ci:setup"]} ${quoted}`], { env: { HOME: dir, PATH: `${bin}:/usr/bin:/bin` }, encoding: "utf8" });
+  execFileSync("sh", ["-c", `${packageJson.scripts["ci:setup"]} ${quoted}`], {
+    env: { HOME: dir, PATH: `${bin}:/usr/bin:/bin` },
+    encoding: "utf8",
+  });
   const log = (tool: string) => readFileSync(join(dir, `${tool}.log`), "utf8").trim();
   return { alchemy: log("alchemy"), node: log("node") };
 };

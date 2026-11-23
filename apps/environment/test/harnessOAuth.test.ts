@@ -31,14 +31,25 @@ const setup = (options: { issSupported?: boolean; expiresIn?: number } = {}) => 
           codeVerifier: "verifier",
           client: { client_id: "client-1" },
           authorizationServerUrl: "https://as.example",
-          metadata: { issuer: "https://as.example", ...(options.issSupported === true ? { authorization_response_iss_parameter_supported: true } : {}) },
+          metadata: {
+            issuer: "https://as.example",
+            ...(options.issSupported === true ? { authorization_response_iss_parameter_supported: true } : {}),
+          },
           registration: "dcr",
         },
       };
     },
     exchange: async (input) => {
       calls.push(`exchange:${input.code}:${input.codeVerifier}`);
-      return { ok: true, value: { access_token: "access-1", token_type: "Bearer", refresh_token: "refresh-1", ...(options.expiresIn === undefined ? {} : { expires_in: options.expiresIn }) } };
+      return {
+        ok: true,
+        value: {
+          access_token: "access-1",
+          token_type: "Bearer",
+          refresh_token: "refresh-1",
+          ...(options.expiresIn === undefined ? {} : { expires_in: options.expiresIn }),
+        },
+      };
     },
     refresh: async (input) => {
       refreshes++;
@@ -53,12 +64,17 @@ const setup = (options: { issSupported?: boolean; expiresIn?: number } = {}) => 
   return { oauth, kv, calls, secrets, advance: (ms: number) => void (now += ms), stateOf, refreshes: () => refreshes };
 };
 
-const callback = (state: string, extra: Record<string, string> = {}) => new URL(`https://t3.example/t3flare/oauth/callback?${new URLSearchParams({ state, code: "code-1", ...extra })}`);
+const callback = (state: string, extra: Record<string, string> = {}) =>
+  new URL(`https://t3.example/t3flare/oauth/callback?${new URLSearchParams({ state, code: "code-1", ...extra })}`);
 
 describe("OAuth sign-ins (review M4)", () => {
   it("serves a client metadata document naming the public callback", async () => {
     const { oauth } = setup();
-    expect(await oauth.clientDocument().json()).toMatchObject({ client_id: "https://t3.example/t3flare/oauth/client.json", redirect_uris: ["https://t3.example/t3flare/oauth/callback"], token_endpoint_auth_method: "none" });
+    expect(await oauth.clientDocument().json()).toMatchObject({
+      client_id: "https://t3.example/t3flare/oauth/client.json",
+      redirect_uris: ["https://t3.example/t3flare/oauth/callback"],
+      token_endpoint_auth_method: "none",
+    });
   });
 
   it("completes once per state; the tokens are kept write-only", async () => {
@@ -100,7 +116,11 @@ describe("OAuth sign-ins (review M4)", () => {
     await h.oauth.callback(callback(h.stateOf(begun.value.authorizationUrl), { iss: "https://as.example" }));
     expect(await h.oauth.accessToken("srv", false)).toBe("access-1");
     h.advance(70_000);
-    const tokens = await Promise.all([h.oauth.accessToken("srv", false), h.oauth.accessToken("srv", false), h.oauth.accessToken("srv", true)]);
+    const tokens = await Promise.all([
+      h.oauth.accessToken("srv", false),
+      h.oauth.accessToken("srv", false),
+      h.oauth.accessToken("srv", true),
+    ]);
     expect(tokens).toEqual(["access-2", "access-2", "access-2"]);
     expect(h.refreshes()).toBe(1);
     // The refresh token is kept when the server sends no new one.

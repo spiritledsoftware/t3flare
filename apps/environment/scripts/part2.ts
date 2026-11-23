@@ -24,7 +24,22 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { admin, base, dispatch, itemsOf, mutateProject, pair, runsOf, sendMessage, SETTLED, sleep, updateSettings, uuid, waitFor, wsCall } from "./lib/client.ts";
+import {
+  admin,
+  base,
+  dispatch,
+  itemsOf,
+  mutateProject,
+  pair,
+  runsOf,
+  sendMessage,
+  SETTLED,
+  sleep,
+  updateSettings,
+  uuid,
+  waitFor,
+  wsCall,
+} from "./lib/client.ts";
 import { fixtureRepo } from "./lib/scriptSettings.ts";
 
 const [scenario = "ps"] = process.argv.slice(2);
@@ -34,7 +49,11 @@ const option = (name: string, fallback: string) => {
   return index === -1 ? fallback : process.argv[index + 1]!;
 };
 const out = flag("out") ? option("out", "") : undefined;
-const MODEL = { instanceId: "piDurable", model: option("model", "anthropic/claude-haiku-5-5"), options: [{ id: "thinking", value: "low" }] };
+const MODEL = {
+  instanceId: "piDurable",
+  model: option("model", "anthropic/claude-haiku-5-5"),
+  options: [{ id: "thinking", value: "low" }],
+};
 const report: Record<string, unknown> = { scenario, at: new Date().toISOString(), model: MODEL.model };
 const failures: Array<string> = [];
 export const check = (name: string, ok: boolean, detail?: unknown) => {
@@ -72,7 +91,9 @@ interface Proc {
 }
 
 const exec = async (workspaceId: string, script: string) => {
-  const answer = await admin("POST", `/_t3flare/agents/workspace-call?id=${workspaceId}`, { exec: { script, passive: true } });
+  const answer = await admin("POST", `/_t3flare/agents/workspace-call?id=${workspaceId}`, {
+    exec: { script, passive: true },
+  });
   return answer.json?.result as { exitCode: number; stdout: string; stderr: string } | undefined;
 };
 
@@ -119,7 +140,10 @@ const startSleeper = async (threadId: string) => {
   const running = await waitFor(
     cookie,
     threadId,
-    (p) => itemsOf(p).some((i: any) => i.type === "command_execution" && i.status === "running" && /sleep 600/.test(String(i.input))),
+    (p) =>
+      itemsOf(p).some(
+        (i: any) => i.type === "command_execution" && i.status === "running" && /sleep 600/.test(String(i.input)),
+      ),
     180_000,
   );
   const runId = runsOf(running.projection).find((r) => r.status === "running")?.id ?? "";
@@ -131,7 +155,10 @@ const startSleeper = async (threadId: string) => {
   const call = sleepers(procs);
   // The call's processes as the kill sees them: by their marker (the command ran on the Container).
   const callMarked = (await marked(fixture().workspaceId)).filter((m) => call.some((p) => p.pid === m.pid));
-  check("the call's sleeps carry an exec id", callMarked.length === call.length && call.length > 0, { call, callMarked });
+  check("the call's sleeps carry an exec id", callMarked.length === call.length && call.length > 0, {
+    call,
+    callMarked,
+  });
   // The call's tree: each sleep, its parents up to computerd's child.
   const tree = new Map<number, Proc>();
   for (const s of call) {
@@ -178,7 +205,11 @@ switch (scenario) {
   case "setup": {
     await wsCall(cookie, "server.updateSettings", {
       patch: {},
-      providerInstanceMutation: { operation: "upsert", instanceId: "piDurable", instance: { driver: "piDurable", enabled: true } },
+      providerInstanceMutation: {
+        operation: "upsert",
+        instanceId: "piDurable",
+        instance: { driver: "piDurable", enabled: true },
+      },
     });
     const id = `part2-${stamp}`;
     const destination = `/w/${id}`;
@@ -187,7 +218,14 @@ switch (scenario) {
       destinationPath: destination,
     })) as { cwd?: string };
     const projectId = uuid();
-    await mutateProject(cookie, { type: "project.create", commandId: uuid(), projectId, title: id, workspaceRoot: destination, createWorkspaceRootIfMissing: false });
+    await mutateProject(cookie, {
+      type: "project.create",
+      commandId: uuid(),
+      projectId,
+      title: id,
+      workspaceRoot: destination,
+      createWorkspaceRootIfMissing: false,
+    });
     fs.mkdirSync(path.dirname(fixtureFile), { recursive: true });
     fs.writeFileSync(fixtureFile, JSON.stringify({ projectId, workspaceId: id, destination }));
     report.setup = { projectId, workspaceId: id, cloned: cloned.cwd === destination };
@@ -205,9 +243,22 @@ switch (scenario) {
     check("the call's two sleeps ran", started.call.length === 2, started.all);
     await dispatch(cookie, { type: "run.interrupt", commandId: uuid(), threadId, runId: started.runId });
     const stoppedAt = Date.now();
-    const gone = await goneWithin(started.tree.map((p) => p.pid), 20_000);
-    const settled = await waitFor(cookie, threadId, (p) => SETTLED.has(runsOf(p).find((r) => r.id === started.runId)?.status ?? ""), 60_000);
-    report.after = { secondsToGone: gone.seconds, left: gone.left, run: runsOf(settled.projection).find((r) => r.id === started.runId)?.status, msToSettle: Date.now() - stoppedAt };
+    const gone = await goneWithin(
+      started.tree.map((p) => p.pid),
+      20_000,
+    );
+    const settled = await waitFor(
+      cookie,
+      threadId,
+      (p) => SETTLED.has(runsOf(p).find((r) => r.id === started.runId)?.status ?? ""),
+      60_000,
+    );
+    report.after = {
+      secondsToGone: gone.seconds,
+      left: gone.left,
+      run: runsOf(settled.projection).find((r) => r.id === started.runId)?.status,
+      msToSettle: Date.now() - stoppedAt,
+    };
     report.threadId = threadId;
     check("no process of the call within 3 s of Stop", gone.seconds !== null && gone.seconds <= 3, report.after);
     finish();
@@ -234,7 +285,8 @@ switch (scenario) {
     while (Date.now() - restartedAt < 150_000) {
       const turns = Object.values(await sessionTurns(threadId).catch(() => ({}))) as Array<any>;
       const continuation = turns.some((t) => t.runId !== started.runId);
-      if (continuation && continuationSeenS === null) continuationSeenS = Math.round((Date.now() - restartedAt) / 100) / 10;
+      if (continuation && continuationSeenS === null)
+        continuationSeenS = Math.round((Date.now() - restartedAt) / 100) / 10;
       const alive = (await ps(fixture().workspaceId)).filter((p) => pids.includes(p.pid));
       const at = Math.round((Date.now() - restartedAt) / 100) / 10;
       if (alive.length === 0) {
@@ -245,10 +297,21 @@ switch (scenario) {
       if (continuation) seenWithContinuation.push(...alive);
       await sleep(300);
     }
-    report.after = { secondsToGone: goneS, lastSeenAliveS, continuationInSessionS: continuationSeenS, seenWithContinuation };
+    report.after = {
+      secondsToGone: goneS,
+      lastSeenAliveS,
+      continuationInSessionS: continuationSeenS,
+      seenWithContinuation,
+    };
     if (!session) {
-      const recovered = await waitFor(cookie, threadId, (p) => SETTLED.has(runsOf(p).find((r) => r.id === started.runId)?.status ?? ""), 120_000).catch(() => undefined);
-      (report.after as any).firstRun = runsOf(recovered?.projection).find((r) => r.id === started.runId)?.status ?? null;
+      const recovered = await waitFor(
+        cookie,
+        threadId,
+        (p) => SETTLED.has(runsOf(p).find((r) => r.id === started.runId)?.status ?? ""),
+        120_000,
+      ).catch(() => undefined);
+      (report.after as any).firstRun =
+        runsOf(recovered?.projection).find((r) => r.id === started.runId)?.status ?? null;
       check("the continuation never saw the old call's processes", seenWithContinuation.length === 0, report.after);
     }
     (report.after as any).secondsSinceRestart = Math.round((Date.now() - restartedAt) / 1000);
@@ -269,14 +332,26 @@ switch (scenario) {
       `Use the bash tool, ${CONTAINER}, to run exactly this command, once, and nothing else: nohup sleep 900 > /dev/null 2>&1 & echo started`,
       MODEL,
     );
-    const done = await waitFor(cookie, threadId, (p) => runsOf(p).length > 0 && runsOf(p).every((r) => SETTLED.has(r.status)), 180_000);
+    const done = await waitFor(
+      cookie,
+      threadId,
+      (p) => runsOf(p).length > 0 && runsOf(p).every((r) => SETTLED.has(r.status)),
+      180_000,
+    );
     const background = (await ps(fixture().workspaceId)).filter((p) => p.args === "sleep 900");
     report.background = background;
-    check("the background sleep runs after its call completed", background.length >= 1 && runsOf(done.projection)[0]?.status === "completed", { background, runs: runsOf(done.projection) });
+    check(
+      "the background sleep runs after its call completed",
+      background.length >= 1 && runsOf(done.projection)[0]?.status === "completed",
+      { background, runs: runsOf(done.projection) },
+    );
     // A later call is stopped: the earlier call's background process stays.
     const started = await startSleeper(threadId);
     await dispatch(cookie, { type: "run.interrupt", commandId: uuid(), threadId, runId: started.runId });
-    await goneWithin(started.tree.map((p) => p.pid), 20_000);
+    await goneWithin(
+      started.tree.map((p) => p.pid),
+      20_000,
+    );
     const after = (await ps(fixture().workspaceId)).filter((p) => background.some((b) => b.pid === p.pid));
     report.afterStop = after;
     check("the completed call's background process survived the later Stop", after.length === background.length, after);
@@ -288,12 +363,20 @@ switch (scenario) {
     const id = fixture().workspaceId;
     await admin("POST", `/_t3flare/agents/workspace-stop?id=${id}`);
     await sleep(3000);
-    const answer = (await admin("POST", `/_t3flare/agents/workspace-call?id=${id}`, { killExecs: ["00000000-0000-0000-0000-000000000000"] })).json;
+    const answer = (
+      await admin("POST", `/_t3flare/agents/workspace-call?id=${id}`, {
+        killExecs: ["00000000-0000-0000-0000-000000000000"],
+      })
+    ).json;
     await sleep(3000);
     const after = (await admin("GET", "/_t3flare/agents/workspaces")).json;
     report.kill = answer;
     report.workspaces = after;
-    check("the kill found the Container stopped", answer?.result?.running === false && answer?.container?.running === false, answer);
+    check(
+      "the kill found the Container stopped",
+      answer?.result?.running === false && answer?.container?.running === false,
+      answer,
+    );
     const entry = (Array.isArray(after) ? after : (after?.workspaces ?? [])).find((w: any) => w.id === id);
     check("and it is still stopped", entry === undefined || entry.container?.running !== true, entry);
     finish();
@@ -301,13 +384,21 @@ switch (scenario) {
   case "limit":
   case "key":
   case "overload": {
-    const fixtureName = scenario === "key" ? "anthropicKeyRefused" : scenario === "overload" ? "overloaded" : option("fixture", "anthropicUsageLimit");
+    const fixtureName =
+      scenario === "key"
+        ? "anthropicKeyRefused"
+        : scenario === "overload"
+          ? "overloaded"
+          : option("fixture", "anthropicUsageLimit");
     const resume = scenario === "limit" && !flag("no-resume");
     if (resume) await updateSettings(cookie, { autoResumeLimitedThreads: true });
     const threadId = await threadOn(`${scenario} ${fixtureName} ${stamp}`);
     const resetAt = Date.now() + Number(option("reset-s", scenario === "key" ? "60" : "120")) * 1000;
     // --live: no fault, the endpoint's own answer (an endpoint saved with a refused key).
-    if (!flag("live")) report.fault = (await admin("POST", `/_t3flare/agents/proxy-fault?thread=${threadId}`, { fixture: fixtureName, resetAt })).json;
+    if (!flag("live"))
+      report.fault = (
+        await admin("POST", `/_t3flare/agents/proxy-fault?thread=${threadId}`, { fixture: fixtureName, resetAt })
+      ).json;
     await sendMessage(cookie, threadId, "Reply with the single word: pong", MODEL);
     const failed = await waitFor(cookie, threadId, (p) => SETTLED.has(runsOf(p)[0]?.status ?? ""), 180_000);
     const firstRun = runsOf(failed.projection)[0]!;
@@ -328,28 +419,47 @@ switch (scenario) {
     if (scenario === "overload") {
       // pi-durable retries an overload (3 retries, from 2 s): four answers, then a provider error.
       check("four proxy requests (retried)", turns[0]?.proxy?.requests === 4, turns[0]?.proxy);
-      check("a provider error", error?.failure?.class === "provider_error" && error?.failure?.code === "proxy_overloaded", error);
+      check(
+        "a provider error",
+        error?.failure?.class === "provider_error" && error?.failure?.code === "proxy_overloaded",
+        error,
+      );
       finish();
     }
     check("one proxy request", turns[0]?.proxy?.requests === 1, turns[0]?.proxy);
     if (scenario === "key") {
-      check("the key error", error?.failure?.class === "permission_error" && error?.failure?.code === "proxy_key_rejected", error);
+      check(
+        "the key error",
+        error?.failure?.class === "permission_error" && error?.failure?.code === "proxy_key_rejected",
+        error,
+      );
       check("no pause: no reset", (error?.failure?.resetAt ?? null) === null, error);
       finish();
     }
     const failure = error?.failure ?? {};
     check("a usage limit", failure.class === "usage_limit", failure);
-    check("its reset is the proxy's (within 2 s)", Math.abs(Date.parse(failure.resetAt ?? "") - resetAt) <= 2000, { resetAt: failure.resetAt, expected: new Date(resetAt).toISOString() });
+    check("its reset is the proxy's (within 2 s)", Math.abs(Date.parse(failure.resetAt ?? "") - resetAt) <= 2000, {
+      resetAt: failure.resetAt,
+      expected: new Date(resetAt).toISOString(),
+    });
     if (!resume) finish();
     // The Environment goes idle, and its alarm brings it back at the reset.
     await sleep(5000);
     report.idle = (await admin("POST", "/_t3flare/idle-check?force=1")).json;
-    const resumed = await waitFor(cookie, threadId, (p) => runsOf(p).length > 1 && SETTLED.has(runsOf(p).at(-1)?.status ?? ""), resetAt - Date.now() + 240_000);
+    const resumed = await waitFor(
+      cookie,
+      threadId,
+      (p) => runsOf(p).length > 1 && SETTLED.has(runsOf(p).at(-1)?.status ?? ""),
+      resetAt - Date.now() + 240_000,
+    );
     const runs = runsOf(resumed.projection);
-    const answer = itemsOf(resumed.projection).filter((i: any) => i.type === "assistant_message").at(-1);
+    const answer = itemsOf(resumed.projection)
+      .filter((i: any) => i.type === "assistant_message")
+      .at(-1);
     report.resumed = {
       runs: runs.map((r) => ({ id: r.id, status: r.status })),
-      secondRunStartedAfterReset: Date.parse(String((runs.at(-1) as any)?.startedAt ?? (runs.at(-1) as any)?.createdAt ?? 0)) - resetAt,
+      secondRunStartedAfterReset:
+        Date.parse(String((runs.at(-1) as any)?.startedAt ?? (runs.at(-1) as any)?.createdAt ?? 0)) - resetAt,
       answer: String(answer?.text ?? answer?.content ?? "").slice(0, 200),
       health: (await admin("GET", "/_t3flare/health")).json?.boot ?? null,
     };

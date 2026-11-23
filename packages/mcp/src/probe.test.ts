@@ -53,12 +53,10 @@ const outcome = (deps: McpDeps, clock = recordingClock().clock) =>
     clock,
   );
 
-const probes = (server: FakeServer) =>
-  rpcMethods(server).filter((method) => method === "server/discover").length;
+const probes = (server: FakeServer) => rpcMethods(server).filter((method) => method === "server/discover").length;
 
 /** The URL paths of the requests that reached `server`. */
-const paths = (server: FakeServer) =>
-  server.received.map((received) => new URL(received.url).pathname);
+const paths = (server: FakeServer) => server.received.map((received) => new URL(received.url).pathname);
 
 afterEach(() => {
   vi.useRealTimers();
@@ -149,8 +147,7 @@ describe("the probe's outcome table", () => {
       errorDescription: "expired",
     };
 
-    const unauthorized = () =>
-      new Response("Unauthorized", { status: 401, headers: { "www-authenticate": header } });
+    const unauthorized = () => new Response("Unauthorized", { status: 401, headers: { "www-authenticate": header } });
 
     expect(await outcome(testDeps(fetchTo(probeAnswered(unauthorized))))).toEqual(
       failedWith(SignInRequired, { rejected: false, challenge }),
@@ -160,59 +157,40 @@ describe("the probe's outcome table", () => {
       auth: (stale) => Effect.succeed(stale ? "fresh-token" : "old-token"),
     });
 
-    expect(await outcome(rejected)).toEqual(
-      failedWith(SignInRequired, { rejected: true, challenge }),
-    );
+    expect(await outcome(rejected)).toEqual(failedWith(SignInRequired, { rejected: true, challenge }));
   });
 
   it("any other 403: failed", async () => {
     const server = probeAnswered(() => new Response("Forbidden", { status: 403 }));
 
-    expect(await outcome(testDeps(fetchTo(server)))).toEqual(
-      failedWith(ServerError, { status: 403 }),
-    );
+    expect(await outcome(testDeps(fetchTo(server)))).toEqual(failedWith(ServerError, { status: 403 }));
   });
 
-  it.each([408, 429])(
-    "%i, then an answer: retried once after Retry-After, connected",
-    async (status) => {
-      const server = probeAnswered(
-        () => new Response(null, { status, headers: { "retry-after": "3" } }),
-        1,
-      );
-
-      const { clock, slept } = recordingClock();
-
-      expect(await outcome(testDeps(fetchTo(server)), clock)).toEqual({ connected: "modern" });
-      expect(probes(server)).toBe(2);
-      expect(slept).toEqual([3000]);
-    },
-  );
-
-  it.each([408, 429])("%i twice: unavailable, never Legacy, after at most 10 s", async (status) => {
-    const server = probeAnswered(
-      () => new Response(null, { status, headers: { "retry-after": "120" } }),
-    );
+  it.each([408, 429])("%i, then an answer: retried once after Retry-After, connected", async (status) => {
+    const server = probeAnswered(() => new Response(null, { status, headers: { "retry-after": "3" } }), 1);
 
     const { clock, slept } = recordingClock();
 
-    expect(await outcome(testDeps(fetchTo(server)), clock)).toEqual(
-      failedWith(Unreachable, { status }),
-    );
+    expect(await outcome(testDeps(fetchTo(server)), clock)).toEqual({ connected: "modern" });
+    expect(probes(server)).toBe(2);
+    expect(slept).toEqual([3000]);
+  });
+
+  it.each([408, 429])("%i twice: unavailable, never Legacy, after at most 10 s", async (status) => {
+    const server = probeAnswered(() => new Response(null, { status, headers: { "retry-after": "120" } }));
+
+    const { clock, slept } = recordingClock();
+
+    expect(await outcome(testDeps(fetchTo(server)), clock)).toEqual(failedWith(Unreachable, { status }));
     expect(probes(server)).toBe(2);
     expect(rpcMethods(server)).not.toContain("initialize");
     expect(slept).toEqual([10_000]);
   });
 
   it("429 with an HTTP-date Retry-After: retried when it names", async () => {
-    const at = DateTime.toDateUtc(
-      DateTime.makeUnsafe(Effect.runSync(Clock.currentTimeMillis) + 6_000),
-    ).toUTCString();
+    const at = DateTime.toDateUtc(DateTime.makeUnsafe(Effect.runSync(Clock.currentTimeMillis) + 6_000)).toUTCString();
 
-    const server = probeAnswered(
-      () => new Response(null, { status: 429, headers: { "retry-after": at } }),
-      1,
-    );
+    const server = probeAnswered(() => new Response(null, { status: 429, headers: { "retry-after": at } }), 1);
 
     const { clock, slept } = recordingClock();
 
@@ -248,13 +226,10 @@ describe("the probe's outcome table", () => {
 
   it("a redirect to another origin: failed, and not followed", async () => {
     const server = probeAnswered(
-      () =>
-        new Response(null, { status: 302, headers: { location: "https://elsewhere.test/mcp" } }),
+      () => new Response(null, { status: 302, headers: { location: "https://elsewhere.test/mcp" } }),
     );
 
-    expect(await outcome(testDeps(fetchTo(server)))).toEqual(
-      failedWith(ServerError, { status: 302 }),
-    );
+    expect(await outcome(testDeps(fetchTo(server)))).toEqual(failedWith(ServerError, { status: 302 }));
     expect(server.received.map((received) => received.headers.get("host"))).toHaveLength(1);
   });
 
@@ -287,10 +262,7 @@ describe("the probe's outcome table", () => {
   it.each([
     ["HTML", () => new Response("<html></html>", { headers: { "content-type": "text/html" } })],
     ["JSON that is not JSON-RPC", () => Response.json({ hello: "world" })],
-    [
-      "a body that is not JSON",
-      () => new Response("{", { headers: { "content-type": "application/json" } }),
-    ],
+    ["a body that is not JSON", () => new Response("{", { headers: { "content-type": "application/json" } })],
   ])("a 2xx of %s: not an MCP server", async (_name, answer) => {
     const server = probeAnswered(answer);
 
@@ -300,10 +272,7 @@ describe("the probe's outcome table", () => {
 
   it.each([
     ["202", () => new Response(null, { status: 202 })],
-    [
-      "an empty stream",
-      () => new Response("", { headers: { "content-type": "text/event-stream" } }),
-    ],
+    ["an empty stream", () => new Response("", { headers: { "content-type": "text/event-stream" } })],
   ])("%s: the probe's 15 s timeout", async (_name, answer) => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 

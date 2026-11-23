@@ -257,8 +257,7 @@ const OtherHostFailureFromWire = Schema.Struct({
     SchemaTransformation.transform({
       decode: ({ _tag, message }) =>
         HostFailed.make({
-          message:
-            message ?? `The MCP host answered with something this build does not know (${_tag})`,
+          message: message ?? `The MCP host answered with something this build does not know (${_tag})`,
           tag: _tag,
         }),
       // The wire shape: the tag it came with, or `HostFailed` when it had none of its own.
@@ -271,10 +270,7 @@ const OtherHostFailureFromWire = Schema.Struct({
  * `McpApplyResult` as it crosses the edge: a tag this build does not know reads as `HostFailed`, never as a decode
  * error. A known tag whose fields do not fit reads as `HostFailed` as well.
  */
-export const McpApplyResultWire = Schema.Union([
-  ...McpApplyResult.members,
-  OtherHostFailureFromWire,
-]);
+export const McpApplyResultWire = Schema.Union([...McpApplyResult.members, OtherHostFailureFromWire]);
 
 export type McpApplyResultWire = typeof McpApplyResultWire.Type;
 
@@ -284,19 +280,13 @@ export type McpApplyResultWire = typeof McpApplyResultWire.Type;
  * decode error. `what` names the method in the message.
  */
 // @effect-diagnostics-next-line missingPipeableSignature:off -- a reader built from a schema, not a combinator.
-export const hostAnswerReader = <
-  const Members extends ReadonlyArray<Schema.Codec<unknown, unknown>>,
->(
+export const hostAnswerReader = <const Members extends ReadonlyArray<Schema.Codec<unknown, unknown>>>(
   result: Schema.Union<Members>,
   what: string,
 ) => {
-  const decode = Schema.decodeUnknownOption(
-    Schema.Union([...result.members, OtherHostFailureFromWire]),
-  );
+  const decode = Schema.decodeUnknownOption(Schema.Union([...result.members, OtherHostFailureFromWire]));
 
-  return (
-    answer: Schema.Json | Schema.Union<Members>["Encoded"],
-  ): Schema.Union<Members>["Type"] | HostFailed =>
+  return (answer: Schema.Json | Schema.Union<Members>["Encoded"]): Schema.Union<Members>["Type"] | HostFailed =>
     Option.getOrElse(decode(answer), () =>
       HostFailed.make({
         message: `The MCP host answered ${what} with something that is no result`,
@@ -305,10 +295,7 @@ export const hostAnswerReader = <
 };
 
 /** `answer`, an `apply` answer as it crossed the edge, as a result this build knows. */
-export const readMcpApplyResult: (answer: Schema.Json) => McpApplyResult = hostAnswerReader(
-  McpApplyResult,
-  "apply",
-);
+export const readMcpApplyResult: (answer: Schema.Json) => McpApplyResult = hostAnswerReader(McpApplyResult, "apply");
 
 /**
  * The features the host lists at `requestStart`: a Session uses one only once it is listed.
@@ -417,8 +404,7 @@ export type McpServerState = typeof McpServerState.Type;
 const isServerState = Schema.is(McpServerState);
 
 /** `raw`, a state as stored or sent, as one this build knows: `unknown` for any other. */
-export const readMcpServerState = (raw: string): McpServerState =>
-  isServerState(raw) ? raw : "unknown";
+export const readMcpServerState = (raw: string): McpServerState => (isServerState(raw) ? raw : "unknown");
 
 /** One server as `requestStart` reports it. `state` reads as `unknown` where this build does not know it. */
 export const McpServerReport = Schema.Struct({
@@ -480,9 +466,8 @@ export type McpRequestStartResult = typeof McpRequestStartResult.Type;
  * `answer`, a `requestStart` answer as it crossed the edge, as a result this build knows: one it cannot read, or a
  * failure it does not know, is `HostFailed`, never an empty inventory that would read as no servers.
  */
-export const readMcpRequestStartResult: (
-  answer: typeof McpRequestStartResult.Encoded,
-) => McpRequestStartResult = hostAnswerReader(McpRequestStartResult, "requestStart");
+export const readMcpRequestStartResult: (answer: typeof McpRequestStartResult.Encoded) => McpRequestStartResult =
+  hostAnswerReader(McpRequestStartResult, "requestStart");
 
 /**
  * `servers`' arguments: the servers by name (every one when absent),
@@ -572,8 +557,10 @@ export const McpServersResult = Schema.Union([McpServersAnswer, HostFailed]);
 export type McpServersResult = typeof McpServersResult.Type;
 
 /** `answer`, a `servers` answer as it crossed the edge, as a result this build knows; anything else is `HostFailed`. */
-export const readMcpServersResult: (answer: typeof McpServersResult.Encoded) => McpServersResult =
-  hostAnswerReader(McpServersResult, "servers");
+export const readMcpServersResult: (answer: typeof McpServersResult.Encoded) => McpServersResult = hostAnswerReader(
+  McpServersResult,
+  "servers",
+);
 
 /**
  * `serverLog`'s arguments: the server by name, and the Workspace
@@ -670,9 +657,7 @@ export const McpServerValuesAnswer = Schema.Union([
      * For a request that named a `workspace`: that Workspace's Repos (it keeps the Environment's from when it was made), of
      * which a stdio server is offered Roots. Gain-only: absent when no Workspace was named, or the Registry does not list it.
      */
-    repos: Schema.Array(Schema.Struct({ directory: Schema.String, slug: Schema.String })).pipe(
-      Schema.optionalKey,
-    ),
+    repos: Schema.Array(Schema.Struct({ directory: Schema.String, slug: Schema.String })).pipe(Schema.optionalKey),
   }),
   Schema.Struct({ status: Schema.Literal("unknown_server") }),
   Schema.Struct({ status: Schema.Literal("server_changed"), conn: Schema.String }),

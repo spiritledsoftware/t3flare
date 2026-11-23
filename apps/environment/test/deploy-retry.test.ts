@@ -10,7 +10,11 @@ describe("isDurableObjectClassNotFound", () => {
         "Cannot create binding for class 'SessionDO' because it is not currently configured to implement Durable Objects. [code: 10061]",
       ),
     ).toBe(true);
-    expect(isDurableObjectClassNotFound("Cannot create binding for class in script 'agents' that does not exist. [code: 10061]")).toBe(true);
+    expect(
+      isDurableObjectClassNotFound(
+        "Cannot create binding for class in script 'agents' that does not exist. [code: 10061]",
+      ),
+    ).toBe(true);
     expect(isDurableObjectClassNotFound('{"errors":[{"code":10061}]}')).toBe(true);
     expect(isDurableObjectClassNotFound("PUT failed (code: 10061)")).toBe(true);
   });

@@ -57,13 +57,19 @@ export const cliPermissionDisposition = (
 export const cliSessionModeForPolicy =
   (cli: AcpCli) =>
   (policy: Pick<ProviderAdapter.ProviderAdapterV2RuntimePolicy, "runtimeMode" | "interactionMode">): string =>
-    cli === "claude" && policy.runtimeMode === "auto" && policy.interactionMode !== "plan" ? CLAUDE_AUTO_MODE : PINNED_MODE[cli];
+    cli === "claude" && policy.runtimeMode === "auto" && policy.interactionMode !== "plan"
+      ? CLAUDE_AUTO_MODE
+      : PINNED_MODE[cli];
 
 /** The runtime mode an agent's own mode grants: its asking and plan modes ask, Claude's auto is t3's auto; any other is never applied. */
 export const cliRuntimeModeForSessionMode =
   (cli: AcpCli) =>
   (modeId: string): RuntimeMode | undefined =>
-    modeId === PINNED_MODE[cli] || modeId === "plan" ? "approval-required" : cli === "claude" && modeId === CLAUDE_AUTO_MODE ? "auto" : undefined;
+    modeId === PINNED_MODE[cli] || modeId === "plan"
+      ? "approval-required"
+      : cli === "claude" && modeId === CLAUDE_AUTO_MODE
+        ? "auto"
+        : undefined;
 
 /** The effort levels both agents offer as their `effort` config option (M0 P1, P2). */
 const EFFORTS = [
@@ -78,14 +84,17 @@ const EFFORTS = [
 /** A model's capabilities in the agents' pickers: the `effort` picker for a reasoning model (t3's adapter sets it by id). */
 export const acpModelCapabilities = (reasoning: boolean) =>
   createModelCapabilities({
-    optionDescriptors: reasoning ? [{ id: "effort", label: "Effort", type: "select", options: EFFORTS.map((effort) => ({ ...effort })) }] : [],
+    optionDescriptors: reasoning
+      ? [{ id: "effort", label: "Effort", type: "select", options: EFFORTS.map((effort) => ({ ...effort })) }]
+      : [],
   });
 
 const isAcpRequestError = (cause: unknown): cause is EffectAcpErrors.AcpRequestError =>
   typeof cause === "object" && cause !== null && (cause as { _tag?: unknown })._tag === "AcpRequestError";
 
 const errorText = (cause: unknown): string => {
-  if (isAcpRequestError(cause)) return `${cause.errorMessage}${cause.data === undefined ? "" : ` ${JSON.stringify(cause.data)}`}`;
+  if (isAcpRequestError(cause))
+    return `${cause.errorMessage}${cause.data === undefined ? "" : ` ${JSON.stringify(cause.data)}`}`;
   return cause instanceof Error ? cause.message : String(cause);
 };
 
@@ -101,7 +110,8 @@ export const cliPromptFailure = (cause: unknown): OrchestrationV2ProviderFailure
     return makeProviderFailure({
       cause,
       class: "permission_error",
-      message: "The Model endpoint refused the agent's credential. Check the endpoint's key or sign-in on the Settings page; this agent never signs in to a vendor itself.",
+      message:
+        "The Model endpoint refused the agent's credential. Check the endpoint's key or sign-in on the Settings page; this agent never signs in to a vendor itself.",
       code,
       retryable: false,
     });
@@ -110,7 +120,9 @@ export const cliPromptFailure = (cause: unknown): OrchestrationV2ProviderFailure
 };
 
 /** Claude's `ExitPlanMode` request: its plan, when the request carries one. */
-export const exitPlanMarkdown = (request: Pick<EffectAcpSchema.RequestPermissionRequest, "toolCall">): string | undefined => {
+export const exitPlanMarkdown = (
+  request: Pick<EffectAcpSchema.RequestPermissionRequest, "toolCall">,
+): string | undefined => {
   if (request.toolCall.kind !== "switch_mode") return undefined;
   const raw = request.toolCall.rawInput;
   const plan = typeof raw === "object" && raw !== null && "plan" in raw ? (raw as { plan?: unknown }).plan : undefined;
@@ -123,12 +135,24 @@ type Runtime = AcpSessionRuntime.AcpSessionRuntime["Service"];
  * Review F1: denying ExitPlanMode stops Claude's turn (ACP v2: an `idle` whose stop reason is `cancelled` or, after its
  * interrupted query, `error`). When we captured the plan in that turn, the turn ended with its plan: `end_turn`.
  */
-const planTurnEnd = (slot: GuardSlot, notification: EffectAcpSchema.SessionNotification): EffectAcpSchema.SessionNotification => {
+const planTurnEnd = (
+  slot: GuardSlot,
+  notification: EffectAcpSchema.SessionNotification,
+): EffectAcpSchema.SessionNotification => {
   const update = notification.update as { sessionUpdate: string; state?: string; stopReason?: string };
-  if (!slot.planCaptured || update.sessionUpdate !== "state_update" || update.state !== "idle" || (update.stopReason !== "cancelled" && update.stopReason !== "error")) return notification;
+  if (
+    !slot.planCaptured ||
+    update.sessionUpdate !== "state_update" ||
+    update.state !== "idle" ||
+    (update.stopReason !== "cancelled" && update.stopReason !== "error")
+  )
+    return notification;
   slot.planCaptured = false;
   const { error: _error, ...rest } = notification.update as unknown as Record<string, unknown>;
-  return { ...notification, update: { ...rest, stopReason: "end_turn" } as unknown as EffectAcpSchema.SessionNotification["update"] };
+  return {
+    ...notification,
+    update: { ...rest, stopReason: "end_turn" } as unknown as EffectAcpSchema.SessionNotification["update"],
+  };
 };
 
 /** What `registerExtensions` gives the runtime it wraps: t3's proposed-plan capture. */
@@ -159,7 +183,12 @@ export const guardedRuntime = (cli: AcpCli, runtime: Runtime): Runtime => {
     Effect.gen(function* () {
       if ((yield* runtime.getModeState)?.availableModes.some((mode) => mode.id === modeId) === true) return true;
       const mode = (yield* runtime.getConfigOptions).find((option) => option.id === "mode");
-      return mode?.type === "select" && mode.options.some((entry) => ("value" in entry ? entry.value === modeId : entry.options.some((choice) => choice.value === modeId)));
+      return (
+        mode?.type === "select" &&
+        mode.options.some((entry) =>
+          "value" in entry ? entry.value === modeId : entry.options.some((choice) => choice.value === modeId),
+        )
+      );
     });
   const wrapped: Runtime = {
     ...runtime,
@@ -174,9 +203,12 @@ export const guardedRuntime = (cli: AcpCli, runtime: Runtime): Runtime => {
         slot.planCaptured = false;
         const result = yield* runtime.prompt(payload, options);
         // Review F1: denying ExitPlanMode makes Claude stop the prompt as cancelled; the plan turn ended with its plan.
-        return slot.planCaptured && result.stopReason === "cancelled" ? { ...result, stopReason: "end_turn" as const } : result;
+        return slot.planCaptured && result.stopReason === "cancelled"
+          ? { ...result, stopReason: "end_turn" as const }
+          : result;
       }),
-    handleSessionUpdate: (handler) => runtime.handleSessionUpdate((notification) => handler(planTurnEnd(slot, notification))),
+    handleSessionUpdate: (handler) =>
+      runtime.handleSessionUpdate((notification) => handler(planTurnEnd(slot, notification))),
     handleRequestPermission: (handler) =>
       runtime.handleRequestPermission((params, context) =>
         Effect.gen(function* () {

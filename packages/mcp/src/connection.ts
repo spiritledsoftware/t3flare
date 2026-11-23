@@ -70,12 +70,7 @@ import { declaredCapabilities, SUPPORTED_PROTOCOL_VERSIONS } from "./protocol.ts
 import { contentsSha256 } from "./read-hash.ts";
 import { MCP_LOG_LEVEL } from "./log.ts";
 import { APP_READ_HEADER, CALL_HEADER, type TapObserver, tapFetch, Ties, Verdicts } from "./tap.ts";
-import {
-  openTaskWire,
-  type TaskParams,
-  type TaskRequestOptions,
-  type TaskWire,
-} from "./task-wire.ts";
+import { openTaskWire, type TaskParams, type TaskRequestOptions, type TaskWire } from "./task-wire.ts";
 import { xMcpHeaders } from "./tool-headers.ts";
 import {
   Cut,
@@ -399,10 +394,7 @@ export interface McpConnection {
    * task wire with the extension declared, and the server may answer with a task; otherwise the extension is never
    * declared and the answer is always the tool's result.
    */
-  readonly callTool: (
-    params: CallToolParams,
-    ctx: McpCallContext,
-  ) => Effect.Effect<Outcome<CallToolResult>, McpError>;
+  readonly callTool: (params: CallToolParams, ctx: McpCallContext) => Effect.Effect<Outcome<CallToolResult>, McpError>;
   readonly task: McpTasks;
   /**
    * Sends a Modern `tools/call` that answered `input_required` again from its `ResumeState`, with the answers to the
@@ -636,13 +628,11 @@ const LISTS = {
   "resources/templates": {
     capability: "resources",
     page: (client, params, options) =>
-      client
-        .request({ method: "resources/templates/list", params: { ...params } }, options)
-        .then((result) => ({
-          items: result.resourceTemplates,
-          nextCursor: result.nextCursor,
-          result,
-        })),
+      client.request({ method: "resources/templates/list", params: { ...params } }, options).then((result) => ({
+        items: result.resourceTemplates,
+        nextCursor: result.nextCursor,
+        result,
+      })),
   },
 } satisfies Lists;
 
@@ -689,9 +679,7 @@ const decodeResendState = Schema.decodeUnknownOption(ResendStateV1);
 
 const decodeSessionRow = Schema.decodeUnknownOption(SessionRowV1);
 
-const toJsonObject = Schema.decodeUnknownOption(
-  Schema.fromJsonString(Schema.Record(Schema.String, Schema.Json)),
-);
+const toJsonObject = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Record(Schema.String, Schema.Json)));
 
 /**
  * The SDK validates nothing: the engine validates `structuredContent` against what it compiled. `callTool`
@@ -758,8 +746,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
    */
   const watched: FetchLike = (input, init) =>
     deps.fetch(input, init).then((response) => {
-      challenge =
-        response.status === 401 ? authChallenge(extractWWWAuthenticateParams(response)) : undefined;
+      challenge = response.status === 401 ? authChallenge(extractWWWAuthenticateParams(response)) : undefined;
 
       return response;
     });
@@ -1013,9 +1000,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
       // A call that offered only the other kind never takes this one: refused as an unoffered kind, never handed to a hook
       // that reads only its own.
       if (!call.offers.has(kind)) {
-        return sampling
-          ? unsampled("the call did not offer to answer a sampling request")
-          : cancelled;
+        return sampling ? unsampled("the call did not offer to answer a sampling request") : cancelled;
       }
 
       const key = String(id);
@@ -1031,14 +1016,11 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
       const answered = onInput(input).pipe(
         Effect.timeoutOrElse({
           duration: Duration.millis(call.waitMs),
-          orElse: () =>
-            Effect.succeed(sampling ? unsampled("the owner did not answer in time") : cancelled),
+          orElse: () => Effect.succeed(sampling ? unsampled("the owner did not answer in time") : cancelled),
         }),
         Effect.catchCause(() =>
           Effect.succeed(
-            sampling
-              ? unsampled("t3flare could not answer the sampling request", MCP_INTERNAL_ERROR)
-              : cancelled,
+            sampling ? unsampled("t3flare could not answer the sampling request", MCP_INTERNAL_ERROR) : cancelled,
           ),
         ),
       );
@@ -1068,9 +1050,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
 
       // A page's completion is heard from the ask on: the owner may finish there before they have answered.
       const page =
-        "mode" in params && params.mode === "url"
-          ? yield* listenForPage(call, params.elicitationId)
-          : undefined;
+        "mode" in params && params.mode === "url" ? yield* listenForPage(call, params.elicitationId) : undefined;
 
       const finished = page === undefined ? stopped : Effect.raceFirst(stopped, page.completed);
 
@@ -1078,9 +1058,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
 
       const askedAt = yield* Clock.currentTimeMillis;
 
-      const outcome = yield* Effect.raceFirst(answered, finished).pipe(
-        Effect.onInterrupt(() => release(call, page)),
-      );
+      const outcome = yield* Effect.raceFirst(answered, finished).pipe(Effect.onInterrupt(() => release(call, page)));
 
       if (outcome === "complete") {
         yield* release(call, page);
@@ -1196,8 +1174,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
       const era = client.getProtocolEra() ?? "legacy";
 
       const protocolVersion =
-        client.getNegotiatedProtocolVersion() ??
-        (plan.kind === "session" ? plan.row.protocolVersion : "");
+        client.getNegotiatedProtocolVersion() ?? (plan.kind === "session" ? plan.row.protocolVersion : "");
 
       if (plan.kind === "session") {
         return {
@@ -1241,9 +1218,9 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
         // at once, so asking is a round trip for nothing, in a discovery as in a call. A server that refuses the level is
         // still a server: its logs just come at its own level.
         if (transport.sessionId !== undefined && wantsLogs(client.getServerCapabilities() ?? {})) {
-          yield* Effect.tryPromise(() =>
-            client.setLoggingLevel(MCP_LOG_LEVEL, { timeout: connectMs }),
-          ).pipe(Effect.ignore);
+          yield* Effect.tryPromise(() => client.setLoggingLevel(MCP_LOG_LEVEL, { timeout: connectMs })).pipe(
+            Effect.ignore,
+          );
         }
       }
 
@@ -1263,9 +1240,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
   const declaredToday = (row: SessionRow) =>
     row.declared !== undefined &&
     JSON.stringify(row.declared) ===
-      JSON.stringify(
-        jsonObjectOf(declaredCapabilities(deps.capabilities, deps.extensions, deps.roots)),
-      );
+      JSON.stringify(jsonObjectOf(declaredCapabilities(deps.capabilities, deps.extensions, deps.roots)));
 
   /** Opens from the stored rows, falling back to a probe when a row no longer holds. */
   const openFromRows = Effect.gen(function* () {
@@ -1315,9 +1290,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
     Effect.suspend(() =>
       wire === undefined
         ? Effect.void
-        : Effect.ignore(
-            Effect.tryPromise({ try: () => wire?.close() ?? Promise.resolve(), catch: String }),
-          ),
+        : Effect.ignore(Effect.tryPromise({ try: () => wire?.close() ?? Promise.resolve(), catch: String })),
     ),
   );
 
@@ -1363,9 +1336,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
 
       // A read is sent once more after a cut, and so is a request whose resend is safe (`tasks/update`, `tasks/cancel`);
       // a `tools/call` never is, in either era.
-      return (policy.resend === true || !mayHaveRun) && isCut(failed.error)
-        ? Option.some(Effect.void)
-        : Option.none();
+      return (policy.resend === true || !mayHaveRun) && isCut(failed.error) ? Option.some(Effect.void) : Option.none();
     };
 
     return once.pipe(
@@ -1384,12 +1355,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
     if (live.era !== "modern") return undefined;
 
     const meta: RequestMeta = {
-      [CLIENT_CAPABILITIES_META_KEY]: declaredCapabilities(
-        deps.capabilities,
-        deps.extensions,
-        deps.roots,
-        ctx,
-      ),
+      [CLIENT_CAPABILITIES_META_KEY]: declaredCapabilities(deps.capabilities, deps.extensions, deps.roots, ctx),
     };
 
     if (wantsLogs(live.capabilities)) meta[LOG_LEVEL_META_KEY] = MCP_LOG_LEVEL;
@@ -1460,8 +1426,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
     );
 
   /** Whether `ctx` may be offered an MCP task: it asked, the server is Modern and it advertises the extension. */
-  const offersTask = (ctx: McpCallContext) =>
-    ctx.allowTask === true && live.era === "modern" && advertisesTasks();
+  const offersTask = (ctx: McpCallContext) => ctx.allowTask === true && live.era === "modern" && advertisesTasks();
 
   const advertisesTasks = () => live.capabilities.extensions?.[MCP_TASKS_EXTENSION] !== undefined;
 
@@ -1503,9 +1468,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
             ...(answers.elicitation === true ? (["elicitation"] as const) : []),
             ...(answers.sampling === true ? (["sampling"] as const) : []),
           ]),
-          waitMs:
-            answers.inputWaitMs ??
-            (answers.sampling === true ? MCP_SAMPLING_WAIT_MS : MCP_ELICITATION_WAIT_MS),
+          waitMs: answers.inputWaitMs ?? (answers.sampling === true ? MCP_SAMPLING_WAIT_MS : MCP_ELICITATION_WAIT_MS),
           pause: deadline.pause,
           resume: deadline.resume,
           token,
@@ -1546,11 +1509,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
    * is decided at each attempt, on the era and capabilities the server has then: a call sent again after an era drop to
    * a server that is Legacy now declares nothing, and a retry to one is refused before it is sent.
    */
-  const sendCall = (
-    params: CallToolParams,
-    ctx: McpCallContext,
-    retry?: Retry,
-  ): Effect.Effect<CallAnswer, McpError> =>
+  const sendCall = (params: CallToolParams, ctx: McpCallContext, retry?: Retry): Effect.Effect<CallAnswer, McpError> =>
     Effect.gen(function* () {
       const timeoutMs = target.timeoutMs ?? CALL_TIMEOUT_MS;
 
@@ -1568,18 +1527,14 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
             }
 
             return offersTask(ctx)
-              ? callOnTaskWire(params, ctx, signal, retry).then(
-                  (answer) => ({ kind: "wire", answer }) as const,
-                )
+              ? callOnTaskWire(params, ctx, signal, retry).then((answer) => ({ kind: "wire", answer }) as const)
               : callOnClient(client, params, ctx, signal, own, retry).then(
                   (value) => ({ kind: "client", value }) as const,
                   (error: Error) => {
                     // A `-32042` is a question for a call that keeps them; to any other it is the server's error.
                     const url = mayKeepPages(ctx) ? urlRequiredOf(error) : undefined;
 
-                    return url === undefined
-                      ? Promise.reject(error)
-                      : ({ kind: "url", answer: url } as const);
+                    return url === undefined ? Promise.reject(error) : ({ kind: "url", answer: url } as const);
                   },
                 );
           },
@@ -1590,9 +1545,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
 
       if (sent.kind === "url") return sent.answer;
 
-      return yield* sent.kind === "wire"
-        ? readCallAnswer(sent.answer)
-        : readClientAnswer(sent.value);
+      return yield* sent.kind === "wire" ? readCallAnswer(sent.answer) : readClientAnswer(sent.value);
     });
 
   /**
@@ -1601,18 +1554,13 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
    * else ends the call locally, since an `InputResponse` has no error form and a Sampling request has no `cancel`: a
    * refusal, a request the call never offered to answer, and a deferral it cannot keep. The server is told nothing.
    */
-  const answerSample = (
-    key: string,
-    params: JsonObject,
-    ctx: McpCallContext,
-  ): Effect.Effect<RoundAnswer, McpError> =>
+  const answerSample = (key: string, params: JsonObject, ctx: McpCallContext): Effect.Effect<RoundAnswer, McpError> =>
     Effect.gen(function* () {
       const { onInput } = deps;
 
       if (onInput === undefined || ctx.answers?.sampling !== true) {
         return yield* ProtocolViolation.make({
-          message:
-            "The server asked for sampling/createMessage, which t3flare did not offer on this call",
+          message: "The server asked for sampling/createMessage, which t3flare did not offer on this call",
         });
       }
 
@@ -1631,10 +1579,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
       if (answer.kind === "defer" && ctx.answers.defer === true) return { key, defer: input };
 
       return yield* Unsupported.make({
-        message:
-          answer.kind === "refused"
-            ? answer.message
-            : "t3flare could not answer the sampling request",
+        message: answer.kind === "refused" ? answer.message : "t3flare could not answer the sampling request",
       });
     });
 
@@ -1644,11 +1589,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
    * through it too (`answerSample`). Anything else was never offered, and fails the call locally: the server is told
    * nothing (`InputResponse` has no error form).
    */
-  const answerOne = (
-    key: string,
-    entry: JsonObject,
-    ctx: McpCallContext,
-  ): Effect.Effect<RoundAnswer, McpError> =>
+  const answerOne = (key: string, entry: JsonObject, ctx: McpCallContext): Effect.Effect<RoundAnswer, McpError> =>
     Effect.gen(function* () {
       const method = entry["method"];
       const params = isJsonObject(entry["params"]) ? entry["params"] : {};
@@ -1686,9 +1627,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
 
       if (answer.kind === "defer") {
         // Only a caller that keeps questions defers one; to any other a deferral is a `cancel`.
-        return ctx.answers.defer === true
-          ? { key, defer: input }
-          : { key, answer: { action: "cancel" } };
+        return ctx.answers.defer === true ? { key, defer: input } : { key, answer: { action: "cancel" } };
       }
 
       if (answer.kind === "refused") {
@@ -1720,10 +1659,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
    * declined it unseen), and the eleventh `-32042`, end the request with the server's own error: the latter says the
    * server kept asking, and the request is never sent again.
    */
-  const deferPages = (
-    answer: UrlRequired,
-    round: number,
-  ): Effect.Effect<ReadonlyArray<McpInputRequest>, McpError> =>
+  const deferPages = (answer: UrlRequired, round: number): Effect.Effect<ReadonlyArray<McpInputRequest>, McpError> =>
     Effect.gen(function* () {
       const { onInput } = deps;
       const error = ServerError.make({ message: answer.message, code: URL_REQUIRED_CODE });
@@ -1865,10 +1801,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
     });
 
   /** Calls a tool, answering a Modern server's rounds of questions as the call's `ctx` and `onInput` allow. */
-  const callTool = (
-    params: CallToolParams,
-    ctx: McpCallContext,
-  ): Effect.Effect<Outcome<CallToolResult>, McpError> =>
+  const callTool = (params: CallToolParams, ctx: McpCallContext): Effect.Effect<Outcome<CallToolResult>, McpError> =>
     Effect.flatMap(sendCall(params, ctx), (answer) => drive(params, ctx, answer, 1));
 
   const resume = (
@@ -1950,9 +1883,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
         arguments: state.arguments,
       };
 
-      return yield* Effect.flatMap(sendCall(again, ctx), (answer) =>
-        drive(again, ctx, answer, state.round + 1),
-      );
+      return yield* Effect.flatMap(sendCall(again, ctx), (answer) => drive(again, ctx, answer, state.round + 1));
     });
 
   const completeCall = (value: CallToolResult) =>
@@ -1993,9 +1924,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
   ): Promise<A> => {
     if (own === undefined) return send(more === undefined ? undefined : { ...more });
 
-    return Effect.runPromiseWith(context)(own.deadline.reset).then(() =>
-      send({ ...more, [CALL_HEADER]: own.token }),
-    );
+    return Effect.runPromiseWith(context)(own.deadline.reset).then(() => send({ ...more, [CALL_HEADER]: own.token }));
   };
 
   const callOnClient = (
@@ -2110,9 +2039,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
       });
     }
 
-    return advertisesTasks()
-      ? undefined
-      : Unsupported.make({ message: "The server no longer advertises MCP tasks" });
+    return advertisesTasks() ? undefined : Unsupported.make({ message: "The server no longer advertises MCP tasks" });
   };
 
   /** Sends a `tasks/*` request: refused, before anything is sent, by a server that no longer qualifies. */
@@ -2135,16 +2062,10 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
       { declared: () => true, resend: policy.resend },
     ).pipe(Effect.flatMap(read));
 
-  const notMcp = (what: string) =>
-    ProtocolViolation.make({ message: `Not an MCP server: ${what}` });
+  const notMcp = (what: string) => ProtocolViolation.make({ message: `Not an MCP server: ${what}` });
 
   /** A `tools/call` on the task wire: the server's result, or the task it started. */
-  const callOnTaskWire = (
-    params: CallToolParams,
-    ctx: McpCallContext,
-    signal: AbortSignal,
-    retry?: Retry,
-  ) => {
+  const callOnTaskWire = (params: CallToolParams, ctx: McpCallContext, signal: AbortSignal, retry?: Retry) => {
     const args = { ...params.arguments };
 
     const options: Mutable<WireOptions> = {
@@ -2157,13 +2078,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
 
     if (deps.onProgress !== undefined) options.onProgress = deps.onProgress;
 
-    return sendOnTaskWire(
-      "tools/call",
-      { name: params.tool.name, arguments: args, ...retry },
-      ctx,
-      options,
-      signal,
-    );
+    return sendOnTaskWire("tools/call", { name: params.tool.name, arguments: args, ...retry }, ctx, options, signal);
   };
 
   /** A Modern server's round of questions, as it answered a `tools/call`. */
@@ -2238,16 +2153,12 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
    * `tasks/update` and `tasks/cancel` answer an empty result. They may have run when cut, and are sent once more anyway:
    * a repeated answer to a question, or a repeated cancel, changes nothing the task did not already.
    */
-  const taskCommand = (
-    method: "tasks/update" | "tasks/cancel",
-    params: TaskParams,
-    ctx: McpCallContext,
-  ) => taskRequest(method, params, ctx, { mayHaveRun: true, resend: true }, () => Effect.void);
+  const taskCommand = (method: "tasks/update" | "tasks/cancel", params: TaskParams, ctx: McpCallContext) =>
+    taskRequest(method, params, ctx, { mayHaveRun: true, resend: true }, () => Effect.void);
 
   const task: McpTasks = {
     get: taskGet,
-    update: (taskId, inputResponses, ctx) =>
-      taskCommand("tasks/update", { taskId, inputResponses }, ctx),
+    update: (taskId, inputResponses, ctx) => taskCommand("tasks/update", { taskId, inputResponses }, ctx),
     cancel: (taskId, ctx) => taskCommand("tasks/cancel", { taskId }, ctx),
   };
 
@@ -2397,9 +2308,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
       return {
         kind: "complete",
         value:
-          page.nextCursor === undefined
-            ? { items: page.items }
-            : { items: page.items, nextCursor: page.nextCursor },
+          page.nextCursor === undefined ? { items: page.items } : { items: page.items, nextCursor: page.nextCursor },
         cacheable: true,
         fetchedAt,
         ...Option.getOrUndefined(decodeCacheHints(page.result)),
@@ -2493,9 +2402,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
               })
           ).pipe(
             Effect.flatMap((each) =>
-              each.kind === "answered" && each.result.action === "accept"
-                ? Effect.void
-                : Effect.fail(error),
+              each.kind === "answered" && each.result.action === "accept" ? Effect.void : Effect.fail(error),
             ),
             Effect.onInterrupt(() => Effect.sync(() => deps.onInputEnded?.(elicitationId))),
           ),
@@ -2586,16 +2493,10 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
 
       if (meta !== undefined) sent._meta = meta;
 
-      const timeoutMs = Math.min(
-        target.timeoutMs ?? MCP_COMPLETION_TIMEOUT_MS,
-        MCP_COMPLETION_TIMEOUT_MS,
-      );
+      const timeoutMs = Math.min(target.timeoutMs ?? MCP_COMPLETION_TIMEOUT_MS, MCP_COMPLETION_TIMEOUT_MS);
 
       // `mayHaveRun: true` is not a claim about the server: it is what stops the request being sent once more after a cut.
-      const result = yield* request(
-        (client, signal) => client.complete(sent, { signal, timeout: timeoutMs }),
-        true,
-      );
+      const result = yield* request((client, signal) => client.complete(sent, { signal, timeout: timeoutMs }), true);
 
       const fetchedAt = yield* Clock.currentTimeMillis;
 
@@ -2649,8 +2550,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
         yield* Deferred.await(getStream.settled).pipe(
           Effect.timeoutOrElse({
             duration: Duration.millis(MCP_LISTEN_ACK_MS),
-            orElse: () =>
-              Effect.fail(TimedOut.make({ message: "The GET stream did not open in 10 s" })),
+            orElse: () => Effect.fail(TimedOut.make({ message: "The GET stream did not open in 10 s" })),
           }),
         );
       } else if (!getStream.open) {
@@ -2674,9 +2574,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
         yield* Effect.forEach(
           wanted,
           (uri) =>
-            Effect.tryPromise(() =>
-              live.client.subscribeResource({ uri }, { timeout: MCP_LISTEN_ACK_MS }),
-            ).pipe(
+            Effect.tryPromise(() => live.client.subscribeResource({ uri }, { timeout: MCP_LISTEN_ACK_MS })).pipe(
               Effect.tap(() => Effect.sync(() => subscribed.push(uri))),
               Effect.ignore,
             ),
@@ -2712,10 +2610,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
             subscribed,
             (uri) =>
               Effect.tryPromise(() =>
-                live.client.unsubscribeResource(
-                  { uri },
-                  { timeout: NOTIFY_GRACE.pipe(Duration.toMillis) },
-                ),
+                live.client.unsubscribeResource({ uri }, { timeout: NOTIFY_GRACE.pipe(Duration.toMillis) }),
               ).pipe(Effect.ignore),
             { concurrency: 4, discard: true },
           ).pipe(Effect.timeoutOrElse({ duration: NOTIFY_GRACE, orElse: () => Effect.void }));
@@ -2791,15 +2686,7 @@ const filterOf = (given: {
 /** The SDK's progress callback over `onProgress`: the notice's fields the core passes on, and nothing more. */
 const progressOf =
   (onProgress: (progress: McpProgress) => void) =>
-  ({
-    progress,
-    total,
-    message,
-  }: {
-    progress: number;
-    total?: number | undefined;
-    message?: string | undefined;
-  }) => {
+  ({ progress, total, message }: { progress: number; total?: number | undefined; message?: string | undefined }) => {
     const notice: Mutable<McpProgress> = { progress };
 
     if (total !== undefined) notice.total = total;
@@ -2848,10 +2735,7 @@ const eraInDoubt = (failed: Failure) =>
 /** A Modern server refused a request before it ran: its era no longer holds. */
 const eraDropped = (live: Live, failed: Failure) =>
   live.era === "modern" &&
-  (failed.status === 400 ||
-    failed.status === 404 ||
-    failed.status === 405 ||
-    failed.code === -32022);
+  (failed.status === 400 || failed.status === 404 || failed.status === 405 || failed.code === -32022);
 
 /** A Legacy server no longer knows the session. */
 const sessionLost = (live: Live, failed: Failure) =>
@@ -2889,10 +2773,7 @@ const isUrlRequired = (answer: ReadResourceResult | Result | UrlRequired): answe
 
 /** A Legacy server's `-32042` and the pages it lists, when `error` is one that lists any. */
 const urlRequiredOf = (error: Error): UrlRequired | undefined => {
-  if (
-    !(error instanceof ProtocolError) ||
-    error.code !== ProtocolErrorCode.UrlElicitationRequired
-  ) {
+  if (!(error instanceof ProtocolError) || error.code !== ProtocolErrorCode.UrlElicitationRequired) {
     return undefined;
   }
 
@@ -2910,8 +2791,7 @@ const urlRequiredOf = (error: Error): UrlRequired | undefined => {
 };
 
 /** How many bytes `value` weighs as JSON. */
-const jsonBytes = (value: Schema.Json) =>
-  new TextEncoder().encode(JSON.stringify(value)).byteLength;
+const jsonBytes = (value: Schema.Json) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
 
 /** Keeps a Modern server's era row, unless its `server/discover` result is over 64 KiB. */
 const keepModernEra = (eras: RowStore, version: string, discover: DiscoverResult, now: number) => {
@@ -2948,11 +2828,7 @@ const sessionRowOf = (
  * The SDK's `AuthProvider` over `deps.auth` (installed only when there is one), remembering whether the last request
  * carried a token.
  */
-const authState = (
-  deps: McpDeps,
-  context: Context.Context<never>,
-  challenge: () => McpAuthChallenge | undefined,
-) => {
+const authState = (deps: McpDeps, context: Context.Context<never>, challenge: () => McpAuthChallenge | undefined) => {
   let stale = false;
   let sent: string | undefined;
 
@@ -2960,9 +2836,7 @@ const authState = (
     tokenSent: () => sent !== undefined,
     provider: {
       token: () =>
-        Effect.suspend(
-          () => deps.auth?.(stale) ?? Effect.succeedNone.pipe(Effect.map(Option.getOrUndefined)),
-        ).pipe(
+        Effect.suspend(() => deps.auth?.(stale) ?? Effect.succeedNone.pipe(Effect.map(Option.getOrUndefined))).pipe(
           Effect.map((token) => {
             sent = token;
             stale = false;
@@ -2974,9 +2848,7 @@ const authState = (
       onUnauthorized: () => {
         if (sent === undefined) {
           // No token was sent, so asking again changes nothing: the server wants a sign-in.
-          return Promise.reject(
-            signInRequired("The server requires signing in", false, challenge()),
-          );
+          return Promise.reject(signInRequired("The server requires signing in", false, challenge()));
         }
 
         stale = true;

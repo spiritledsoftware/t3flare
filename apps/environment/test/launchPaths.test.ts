@@ -16,7 +16,13 @@ const image = path.resolve(import.meta.dirname, "../../sandbox-image/image");
 const read = (name: string) => fs.readFileSync(path.join(image, name), "utf8");
 
 /** The image's scripts on the launch path: the launchers and the handle helpers. */
-const SCRIPTS = ["t3flare-pi", "t3flare-pi-handle", "t3flare-claude-agent-acp", "t3flare-claude-handle", "t3flare-opencode"];
+const SCRIPTS = [
+  "t3flare-pi",
+  "t3flare-pi-handle",
+  "t3flare-claude-agent-acp",
+  "t3flare-claude-handle",
+  "t3flare-opencode",
+];
 
 describe("the CLI launch path", () => {
   it("finds the programs a script runs by name, wherever the shell would run them", () => {
@@ -29,7 +35,7 @@ describe("the CLI launch path", () => {
       "  proc-*) ;;",
       "esac",
       'if ! mountpoint -q /w 2>/dev/null && [ ! -L /w ]; then { rmdir /w; mkdir -p "$(dirname /w/x)"; }; fi',
-      "for d in /a/*; do [ -d \"$d\" ] || continue; k=$(basename \"$d\"); done",
+      'for d in /a/*; do [ -d "$d" ] || continue; k=$(basename "$d"); done',
       "n=$((n+1)); while kill -0 1; do sleep 1; done",
       "env -u X /usr/bin/true </dev/null >/dev/null &",
       "/usr/bin/env -C /tmp sed a",
@@ -37,8 +43,47 @@ describe("the CLI launch path", () => {
       "exec -a setsid /usr/bin/setsid --wait '/opt/x' 'y'",
       "exec setsid --wait /opt/x",
     ].join("\n");
-    expect(commandWords(script)).toEqual(["set", "echo", "exit", "sed", "/usr/bin/head", "tr", "cut", "mountpoint", "[", "rmdir", "mkdir", "dirname", "[", "continue", "basename", "kill", "sleep", "env", "/usr/bin/true", "/usr/bin/env", "sed", "/usr/bin/setsid", "/opt/x", "setsid", "/opt/x"]);
-    expect(bareCommands(script)).toEqual(["sed", "tr", "cut", "mountpoint", "rmdir", "mkdir", "dirname", "basename", "sleep", "env", "sed", "setsid"]);
+    expect(commandWords(script)).toEqual([
+      "set",
+      "echo",
+      "exit",
+      "sed",
+      "/usr/bin/head",
+      "tr",
+      "cut",
+      "mountpoint",
+      "[",
+      "rmdir",
+      "mkdir",
+      "dirname",
+      "[",
+      "continue",
+      "basename",
+      "kill",
+      "sleep",
+      "env",
+      "/usr/bin/true",
+      "/usr/bin/env",
+      "sed",
+      "/usr/bin/setsid",
+      "/opt/x",
+      "setsid",
+      "/opt/x",
+    ]);
+    expect(bareCommands(script)).toEqual([
+      "sed",
+      "tr",
+      "cut",
+      "mountpoint",
+      "rmdir",
+      "mkdir",
+      "dirname",
+      "basename",
+      "sleep",
+      "env",
+      "sed",
+      "setsid",
+    ]);
   });
 
   it.each([

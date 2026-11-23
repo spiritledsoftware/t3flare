@@ -67,7 +67,10 @@ export class SessionEndpoints {
    * Keys in memory only, by endpoint and target: an answer for an old target (one that lands after a newer install) is
    * never used for another.
    */
-  readonly #keys = new Map<string, { readonly credential: EndpointCredential; readonly until: number; readonly endpointId: string }>();
+  readonly #keys = new Map<
+    string,
+    { readonly credential: EndpointCredential; readonly until: number; readonly endpointId: string }
+  >();
   /** The endpoints whose last credential request failed. */
   readonly #failing = new Set<string>();
 
@@ -142,7 +145,9 @@ export class SessionEndpoints {
 
   /** The credentials held for `endpointId` now (keys or tokens, in memory only), for redacting its error text (SPI-1172). */
   secrets(endpointId: string): ReadonlyArray<string> {
-    return [...this.#keys.values()].flatMap((kept) => (kept.endpointId === endpointId && kept.credential.apiKey !== null ? [kept.credential.apiKey] : []));
+    return [...this.#keys.values()].flatMap((kept) =>
+      kept.endpointId === endpointId && kept.credential.apiKey !== null ? [kept.credential.apiKey] : [],
+    );
   }
 
   /** An endpoint's key for `target`, from memory while fresh, else from the Environment (a refusal is never kept). */
@@ -154,7 +159,10 @@ export class SessionEndpoints {
     const credential = await this.#options.source().endpointCredential({ endpointId, target });
     if (credential.apiKey !== null) {
       // A sign-in's token is kept no later than shortly before it expires; a key, for the TTL.
-      const until = Math.min(now() + ENDPOINT_KEY_TTL_MS, credential.expiresAt === undefined ? Number.POSITIVE_INFINITY : credential.expiresAt - TOKEN_EXPIRY_MARGIN_MS);
+      const until = Math.min(
+        now() + ENDPOINT_KEY_TTL_MS,
+        credential.expiresAt === undefined ? Number.POSITIVE_INFINITY : credential.expiresAt - TOKEN_EXPIRY_MARGIN_MS,
+      );
       this.#keys.set(cacheKey, { credential, until, endpointId });
     }
     return credential;
@@ -186,10 +194,17 @@ export class SessionEndpoints {
         new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), this.#options.readMs)),
       ]);
       if (endpoints === undefined) return console.warn(JSON.stringify({ t3flare: "model-endpoints-timeout" }));
-      if ((this.#options.kv.get<ModelEndpoints>(ENDPOINTS_KEY) ?? EMPTY_ENDPOINTS).revision === endpoints.revision) return;
+      if ((this.#options.kv.get<ModelEndpoints>(ENDPOINTS_KEY) ?? EMPTY_ENDPOINTS).revision === endpoints.revision)
+        return;
       this.#options.kv.put(ENDPOINTS_KEY, endpoints);
       this.#install(endpoints);
-      console.log(JSON.stringify({ t3flare: "model-endpoints", revision: endpoints.revision, endpoints: endpoints.endpoints.length }));
+      console.log(
+        JSON.stringify({
+          t3flare: "model-endpoints",
+          revision: endpoints.revision,
+          endpoints: endpoints.endpoints.length,
+        }),
+      );
     } catch (error) {
       console.warn(JSON.stringify({ t3flare: "model-endpoints-failed", error: String(error).slice(0, 300) }));
     }

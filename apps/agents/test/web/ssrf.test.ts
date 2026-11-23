@@ -115,12 +115,9 @@ describe("blockedAddressReason", () => {
     },
   );
 
-  it.each(["93.184.216.34", "2606:4700:4700::1111"])(
-    "allows the resolved address %s",
-    (address) => {
-      expect(blockedAddressReason(address)).toBeUndefined();
-    },
-  );
+  it.each(["93.184.216.34", "2606:4700:4700::1111"])("allows the resolved address %s", (address) => {
+    expect(blockedAddressReason(address)).toBeUndefined();
+  });
 
   it("refuses text that is not an address", () => {
     expect(blockedAddressReason("not-an-ip")).toEqual(expect.any(String));

@@ -77,7 +77,8 @@ export class TerminalSync {
       const entries = await this.#deps.pull();
       this.stats.pulls++;
       if (entries === 0) this.stats.emptyPulls++;
-      if (quiet) this.#quietDelay = entries === 0 ? Math.min(this.#quietDelay * 2, MAX_QUIET_BACKOFF_MS) : QUIET_PULL_DELAY_MS;
+      if (quiet)
+        this.#quietDelay = entries === 0 ? Math.min(this.#quietDelay * 2, MAX_QUIET_BACKOFF_MS) : QUIET_PULL_DELAY_MS;
       // What the pull applied is in the Container already: not a reason to push.
       this.#syncedRevision = this.#deps.revision();
       return entries;

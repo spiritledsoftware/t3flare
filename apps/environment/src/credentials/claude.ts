@@ -18,7 +18,15 @@
 //   deletes the tokens here; the grant stays on the owner's account until the owner removes it at claude.ai.
 //
 // Every failure is one of our fixed texts: never a token, a code, the verifier, or Anthropic's body.
-import { CLAUDE_AUTHORIZE_URL, CLAUDE_CLIENT_ID, CLAUDE_INFERENCE_SCOPE, CLAUDE_OAUTH_TOKEN_MARK, CLAUDE_REDIRECT_URI, CLAUDE_SCOPES, CLAUDE_TOKEN_URL } from "@t3flare/models/claudeOAuth";
+import {
+  CLAUDE_AUTHORIZE_URL,
+  CLAUDE_CLIENT_ID,
+  CLAUDE_INFERENCE_SCOPE,
+  CLAUDE_OAUTH_TOKEN_MARK,
+  CLAUDE_REDIRECT_URI,
+  CLAUDE_SCOPES,
+  CLAUDE_TOKEN_URL,
+} from "@t3flare/models/claudeOAuth";
 
 import { isRecord, oauthErrorCode, oauthErrorOf, oauthRequestOptions, pkceChallenge, random } from "./oauth.ts";
 import type { RefreshResult, SignInCredential, SignInResult, SignInVendor } from "./signIn.ts";
@@ -47,9 +55,15 @@ export interface PendingClaudeSignIn {
 const PASSING_CODES: ReadonlySet<string> = new Set(["temporarily_unavailable", "server_error", "slow_down"]);
 
 /** A new attempt: its authorize URL for the owner's browser, and what the paste is checked against. */
-export const startClaudeSignIn = async (input: { readonly now?: () => number } = {}): Promise<{ readonly authorizeUrl: string; readonly pending: PendingClaudeSignIn }> => {
+export const startClaudeSignIn = async (
+  input: { readonly now?: () => number } = {},
+): Promise<{ readonly authorizeUrl: string; readonly pending: PendingClaudeSignIn }> => {
   // pi-ai's verifier is 32 random bytes; the state is as long, and its own.
-  const pending: PendingClaudeSignIn = { state: random(32), verifier: random(32), startedAt: (input.now ?? Date.now)() };
+  const pending: PendingClaudeSignIn = {
+    state: random(32),
+    verifier: random(32),
+    startedAt: (input.now ?? Date.now)(),
+  };
   const challenge = await pkceChallenge(pending.verifier);
   const url = new URL(CLAUDE_AUTHORIZE_URL);
   url.search = new URLSearchParams({
@@ -65,7 +79,8 @@ export const startClaudeSignIn = async (input: { readonly now?: () => number } =
   return { authorizeUrl: url.toString(), pending };
 };
 
-const WHOLE = "Copy all of the code Anthropic shows after you approve: it is two parts joined by #. Paste it here whole.";
+const WHOLE =
+  "Copy all of the code Anthropic shows after you approve: it is two parts joined by #. Paste it here whole.";
 const CALLBACK = new URL(CLAUDE_REDIRECT_URI);
 /** Whether a paste starts with a URL scheme (`https://`, …). */
 const hasScheme = (text: string): boolean => /^[a-z][a-z0-9+.-]*:\/\//i.test(text);
@@ -156,10 +171,19 @@ const exchangeProblem = (status: number, code: string | undefined): string =>
  * grant's token form and model-use scope checked. A grant it does not keep cannot be revoked (Anthropic offers no
  * revocation), so the problem says where to remove it.
  */
-export const completeClaudeSignIn = async (vendor: ClaudeVendor, pending: PendingClaudeSignIn, pasted: string): Promise<SignInResult> => {
+export const completeClaudeSignIn = async (
+  vendor: ClaudeVendor,
+  pending: PendingClaudeSignIn,
+  pasted: string,
+): Promise<SignInResult> => {
   const parsed = pastedCode(pasted);
   if (typeof parsed === "string") return { ok: false, problem: parsed };
-  if (parsed.state !== pending.state) return { ok: false, problem: "This code does not belong to the sign-in in progress: start the sign-in again and paste the code it leads to." };
+  if (parsed.state !== pending.state)
+    return {
+      ok: false,
+      problem:
+        "This code does not belong to the sign-in in progress: start the sign-in again and paste the code it leads to.",
+    };
   let response: Response;
   try {
     response = await postJson(vendor, {
@@ -171,17 +195,34 @@ export const completeClaudeSignIn = async (vendor: ClaudeVendor, pending: Pendin
       code_verifier: pending.verifier,
     });
   } catch {
-    return { ok: false, problem: "Anthropic's token endpoint could not be reached: paste the code again, or start again." };
+    return {
+      ok: false,
+      problem: "Anthropic's token endpoint could not be reached: paste the code again, or start again.",
+    };
   }
-  if (!response.ok) return { ok: false, problem: exchangeProblem(response.status, await oauthErrorCode(response)), spent: true };
+  if (!response.ok)
+    return { ok: false, problem: exchangeProblem(response.status, await oauthErrorCode(response)), spent: true };
   const answer = tokenAnswer(await response.json().catch(() => undefined));
   const left = " It could not be revoked here: remove it at claude.ai, under Settings, Claude Code.";
-  if (answer === undefined || answer.refresh === undefined) return { ok: false, problem: `Anthropic's answer to the sign-in was not a usable token set: start the sign-in again.${left}`, spent: true };
+  if (answer === undefined || answer.refresh === undefined)
+    return {
+      ok: false,
+      problem: `Anthropic's answer to the sign-in was not a usable token set: start the sign-in again.${left}`,
+      spent: true,
+    };
   if (!subscriptionToken(answer.access)) {
-    return { ok: false, problem: `Anthropic's token is not in the form t3flare and pi-ai know for a Claude subscription, so its requests would fail: please report it.${left}`, spent: true };
+    return {
+      ok: false,
+      problem: `Anthropic's token is not in the form t3flare and pi-ai know for a Claude subscription, so its requests would fail: please report it.${left}`,
+      spent: true,
+    };
   }
   if (answer.scopes !== undefined && !answer.scopes.includes(CLAUDE_INFERENCE_SCOPE)) {
-    return { ok: false, problem: `Signed in, but Anthropic did not allow model use (user:inference): start again and allow it.${left}`, spent: true };
+    return {
+      ok: false,
+      problem: `Signed in, but Anthropic did not allow model use (user:inference): start again and allow it.${left}`,
+      spent: true,
+    };
   }
   return {
     ok: true,
@@ -201,20 +242,39 @@ export const completeClaudeSignIn = async (vendor: ClaudeVendor, pending: Pendin
 export const refreshClaude = async (vendor: ClaudeVendor, credential: SignInCredential): Promise<RefreshResult> => {
   let response: Response;
   try {
-    response = await postJson(vendor, { grant_type: "refresh_token", client_id: CLAUDE_CLIENT_ID, refresh_token: credential.refresh });
+    response = await postJson(vendor, {
+      grant_type: "refresh_token",
+      client_id: CLAUDE_CLIENT_ID,
+      refresh_token: credential.refresh,
+    });
   } catch {
-    return { ok: false, refused: false, problem: "Anthropic's token endpoint could not be reached to renew the Claude sign-in" };
+    return {
+      ok: false,
+      refused: false,
+      problem: "Anthropic's token endpoint could not be reached to renew the Claude sign-in",
+    };
   }
   if (!response.ok) {
     const { errorObject, code } = await oauthErrorOf(response);
     if ([400, 401, 403].includes(response.status) && errorObject && (code === undefined || !PASSING_CODES.has(code))) {
       const named = code ?? `HTTP ${response.status}`;
-      return { ok: false, refused: true, code: code ?? `http_${response.status}`, problem: `Claude refused to renew the sign-in (${named})` };
+      return {
+        ok: false,
+        refused: true,
+        code: code ?? `http_${response.status}`,
+        problem: `Claude refused to renew the sign-in (${named})`,
+      };
     }
-    return { ok: false, refused: false, ...(code === undefined ? {} : { code }), problem: `Anthropic did not renew the Claude sign-in (HTTP ${response.status})` };
+    return {
+      ok: false,
+      refused: false,
+      ...(code === undefined ? {} : { code }),
+      problem: `Anthropic did not renew the Claude sign-in (HTTP ${response.status})`,
+    };
   }
   const answer = tokenAnswer(await response.json().catch(() => undefined));
-  if (answer === undefined || !subscriptionToken(answer.access)) return { ok: false, refused: false, problem: "Anthropic's renewal was not a usable token set" };
+  if (answer === undefined || !subscriptionToken(answer.access))
+    return { ok: false, refused: false, problem: "Anthropic's renewal was not a usable token set" };
   return {
     ok: true,
     credential: {

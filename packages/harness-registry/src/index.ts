@@ -47,7 +47,6 @@ export interface ExtensionEntry {
   readonly guard?: true;
 }
 
-
 const CORE_LOCK = "a core extension: always on";
 
 /**
@@ -73,7 +72,8 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
     settings: {
       inlineBudget: {
         title: "Inline budget",
-        description: "Estimated tokens the tool declarations in the code mode section may use; past it, scripts find tools with searchTools().",
+        description:
+          "Estimated tokens the tool declarations in the code mode section may use; past it, scripts find tools with searchTools().",
         schema: { type: "integer", minimum: 500, maximum: 20_000, default: 2_000 },
         tier: "free",
       },
@@ -82,7 +82,8 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
   {
     id: "tool-search",
     title: "Tool search",
-    description: "The tool_search tool, which loads a deferred tool for direct use. Hidden: a deferred tool is offered directly, since nothing could load it.",
+    description:
+      "The tool_search tool, which loads a deferred tool for direct use. Hidden: a deferred tool is offered directly, since nothing could load it.",
     default: "on",
     tools: ["tool_search"],
     settings: {},
@@ -95,11 +96,19 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
     tools: ["read", "edit", "write", "bash"],
     settings: {},
   },
-  { id: "files", title: "File tools", description: "ls, find and grep.", default: "on", tools: ["ls", "find", "grep"], settings: {} },
+  {
+    id: "files",
+    title: "File tools",
+    description: "ls, find and grep.",
+    default: "on",
+    tools: ["ls", "find", "grep"],
+    settings: {},
+  },
   {
     id: "ask-user",
     title: "Ask user",
-    description: "ask_user: a question to the owner on the thread, answered as t3's user_input request. Hidden: the agent has no ask_user (for a harness whose question tools come from an MCP server).",
+    description:
+      "ask_user: a question to the owner on the thread, answered as t3's user_input request. Hidden: the agent has no ask_user (for a harness whose question tools come from an MCP server).",
     default: "on",
     tools: ["ask_user"],
     settings: {},
@@ -159,8 +168,18 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         schema: { type: "boolean", default: true },
         tier: "down-free",
       },
-      cols: { title: "Columns", description: "A Terminal's width.", schema: { type: "integer", minimum: 40, maximum: 400, default: 120 }, tier: "free" },
-      rows: { title: "Rows", description: "A Terminal's height.", schema: { type: "integer", minimum: 10, maximum: 200, default: 40 }, tier: "free" },
+      cols: {
+        title: "Columns",
+        description: "A Terminal's width.",
+        schema: { type: "integer", minimum: 40, maximum: 400, default: 120 },
+        tier: "free",
+      },
+      rows: {
+        title: "Rows",
+        description: "A Terminal's height.",
+        schema: { type: "integer", minimum: 10, maximum: 200, default: 40 },
+        tier: "free",
+      },
     },
   },
   {
@@ -171,8 +190,16 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
     default: "off",
     guard: true,
     settings: {
-      model: modelSetting("Model", "The Guardian model, as <endpointId>/<modelId>, or default (the endpoints' small model). A small, fast one: every reviewed call waits for it.", "default"),
-      thinkingLevel: { title: "Thinking", description: "The first pass's thinking; a would-be rejection is checked again at low or above.", schema: { type: "enum", values: THINKING_LEVELS, default: "off" } },
+      model: modelSetting(
+        "Model",
+        "The Guardian model, as <endpointId>/<modelId>, or default (the endpoints' small model). A small, fast one: every reviewed call waits for it.",
+        "default",
+      ),
+      thinkingLevel: {
+        title: "Thinking",
+        description: "The first pass's thinking; a would-be rejection is checked again at low or above.",
+        schema: { type: "enum", values: THINKING_LEVELS, default: "off" },
+      },
       tools: {
         title: "Tool Policies",
         description:
@@ -181,7 +208,8 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
       },
       commands: {
         title: "Command Rules",
-        description: "Literal command prefixes as prefix=allow|review|deny pairs separated by commas (git push=deny, npm test=allow). deny blocks without a review.",
+        description:
+          "Literal command prefixes as prefix=allow|review|deny pairs separated by commas (git push=deny, npm test=allow). deny blocks without a review.",
         schema: { type: "text", maxLength: 4_000, default: "" },
       },
       policy: {
@@ -198,16 +226,26 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
       "A reviewer model reads the thread's completed work in the background and gives attributed advice (nit, concern, blocker), shown in t3 as Advisor notices. It never starts a turn t3 did not start. Off by default: each review is a model request (SPI-1059).",
     default: "off",
     settings: {
-      model: modelSetting("Model", "The Advisor model, as <endpointId>/<modelId>; inherit follows the thread's model.", "inherit"),
+      model: modelSetting(
+        "Model",
+        "The Advisor model, as <endpointId>/<modelId>; inherit follows the thread's model.",
+        "inherit",
+      ),
       reviewEvery: {
         title: "Review cadence",
-        description: "turn: after every tool round that is not read-only; a number: every that many rounds and at the end; request: once, when the agent answers.",
+        description:
+          "turn: after every tool round that is not read-only; a number: every that many rounds and at the end; request: once, when the agent answers.",
         schema: { type: "enum", values: ["turn", "2", "3", "5", "request"], default: "turn" },
       },
-      thinkingLevel: { title: "Thinking", description: "The Advisor's thinking level.", schema: { type: "enum", values: THINKING_LEVELS, default: "high" } },
+      thinkingLevel: {
+        title: "Thinking",
+        description: "The Advisor's thinking level.",
+        schema: { type: "enum", values: THINKING_LEVELS, default: "high" },
+      },
       correctiveTurns: {
         title: "Corrective continuations",
-        description: "How often a blocker found as the agent answers continues the same turn to address it (0: never); later blockers wait for the next turn.",
+        description:
+          "How often a blocker found as the agent answers continues the same turn to address it (0: never); later blockers wait for the next turn.",
         schema: { type: "integer", minimum: 0, maximum: 3, default: 1 },
         tier: "down-free",
       },
@@ -224,13 +262,21 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
   {
     id: "permissions",
     title: "Permissions",
-    description: "The runtime and interaction modes' approvals, the linked-thread rules and path translation. Can never be turned off from the panel.",
+    description:
+      "The runtime and interaction modes' approvals, the linked-thread rules and path translation. Can never be turned off from the panel.",
     default: "always",
     settings: {},
     locked: "the thread's modes and the link fence depend on it",
     guard: true,
   },
-  { id: "project-context", title: "Project context", description: "The repo's AGENTS.md and CLAUDE.md in the prompt.", default: "always", settings: {}, locked: CORE_LOCK },
+  {
+    id: "project-context",
+    title: "Project context",
+    description: "The repo's AGENTS.md and CLAUDE.md in the prompt.",
+    default: "always",
+    settings: {},
+    locked: CORE_LOCK,
+  },
 ];
 
 const entryOf = (id: string) => EXTENSIONS.find((entry) => entry.id === id);
@@ -246,15 +292,22 @@ export const extensionOf = (
   const taken = resolved.extensions[id];
   const entry = entryOf(id);
   if (entry === undefined) return taken ?? { enabled: false, settings: {} };
-  const defaults = Object.fromEntries(Object.entries(entry.settings).map(([key, setting]) => [key, setting.schema.default]));
+  const defaults = Object.fromEntries(
+    Object.entries(entry.settings).map(([key, setting]) => [key, setting.schema.default]),
+  );
   const tools = entry.tools === undefined ? undefined : resolvedToolsOf(resolved).tools;
-  const enabled = tools === undefined || entry.tools === undefined ? (taken?.enabled ?? entry.default !== "off") : entry.tools.some((tool) => tools[tool] !== "hidden");
+  const enabled =
+    tools === undefined || entry.tools === undefined
+      ? (taken?.enabled ?? entry.default !== "off")
+      : entry.tools.some((tool) => tools[tool] !== "hidden");
   return { enabled, settings: { ...defaults, ...taken?.settings } };
 };
 
 /** The tools' Exposures of a resolved view, a view kept from before Exposures existed included. */
 export const resolvedToolsOf = (resolved: ResolvedHarness): ResolvedTools =>
-  resolved.tools !== undefined && resolved.t3 !== undefined ? { tools: resolved.tools, t3: resolved.t3 } : legacyResolvedTools(resolved);
+  resolved.tools !== undefined && resolved.t3 !== undefined
+    ? { tools: resolved.tools, t3: resolved.t3 }
+    : legacyResolvedTools(resolved);
 
 /**
  * One scope's stored choices: per extension, its switch and the settings set explicitly; per tool, its Exposure
@@ -262,7 +315,9 @@ export const resolvedToolsOf = (resolved: ResolvedHarness): ResolvedTools =>
  * resolve a tool with no Exposure of its own.
  */
 export interface HarnessLayer extends ToolsLayer {
-  readonly extensions?: Readonly<Record<string, { readonly enabled?: boolean; readonly settings?: Readonly<Record<string, SettingValue>> }>>;
+  readonly extensions?: Readonly<
+    Record<string, { readonly enabled?: boolean; readonly settings?: Readonly<Record<string, SettingValue>> }>
+  >;
 }
 
 /** What the Environment DO stores (`t3flare:harness:settings`). */
@@ -285,7 +340,11 @@ export const EMPTY_HARNESS: StoredHarness = { revision: 0, global: {}, overrides
  */
 export const mcpServersOf = (stored: StoredHarness): Readonly<Record<string, McpServerSetting>> => ({
   // The Settings server's own entry is set last, from `settingsEntryOf`; no other entry may take its name.
-  ...Object.fromEntries(Object.entries(stored.mcp?.servers ?? {}).filter(([name, server]) => server.kind === "direct" && name !== SETTINGS_SERVER)),
+  ...Object.fromEntries(
+    Object.entries(stored.mcp?.servers ?? {}).filter(
+      ([name, server]) => server.kind === "direct" && name !== SETTINGS_SERVER,
+    ),
+  ),
   settings: settingsEntryOf(stored),
 });
 
@@ -295,7 +354,8 @@ export const mcpServersOf = (stored: StoredHarness): Readonly<Record<string, Mcp
  * `settings` under any other name. Ignored, never mistaken for the Settings server; the panel's Status names it, and
  * the next change to the set drops it from storage.
  */
-const ignoredServer = (name: string, server: McpServerSetting): boolean => (name === SETTINGS_SERVER) !== (server.kind === "settings");
+const ignoredServer = (name: string, server: McpServerSetting): boolean =>
+  (name === SETTINGS_SERVER) !== (server.kind === "settings");
 
 /** The Settings server's entry: the stored one when it is of kind `settings`, else the implied default. */
 const settingsEntryOf = (stored: StoredHarness): McpServerSetting => {
@@ -336,7 +396,14 @@ export const directUrlProblem = (url: string): string | undefined => {
   if (parsed.protocol !== "https:") return "only https";
   if (parsed.username !== "" || parsed.password !== "") return "no credentials in the URL";
   const host = parsed.hostname.toLowerCase();
-  if (/^[\d.]+$/.test(host) || host.startsWith("[") || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".internal")) return "a public host name, not an address";
+  if (
+    /^[\d.]+$/.test(host) ||
+    host.startsWith("[") ||
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".internal")
+  )
+    return "a public host name, not an address";
   return undefined;
 };
 
@@ -366,15 +433,23 @@ export const applyMcpChange = (
 ): { readonly ok: true; readonly harness: StoredHarness } | { readonly ok: false; readonly error: string } => {
   const servers: Record<string, McpServerSetting> = { ...mcpServersOf(stored) };
   const current = Object.hasOwn(servers, change.server) ? servers[change.server] : undefined;
-  const save = (next: Record<string, McpServerSetting>) => ({ ok: true as const, harness: { ...stored, revision: stored.revision + 1, mcp: { servers: next } } });
+  const save = (next: Record<string, McpServerSetting>) => ({
+    ok: true as const,
+    harness: { ...stored, revision: stored.revision + 1, mcp: { servers: next } },
+  });
   if (change.op === "add") {
-    if (!SERVER_NAME.test(change.server)) return { ok: false, error: `${change.server}: a name of 1-20 of a-z, 0-9 and -` };
+    if (!SERVER_NAME.test(change.server))
+      return { ok: false, error: `${change.server}: a name of 1-20 of a-z, 0-9 and -` };
     if (RESERVED_SERVER_NAMES.has(change.server)) return { ok: false, error: `${change.server}: reserved` };
     if (current !== undefined) return { ok: false, error: `${change.server}: exists` };
     const problem = directUrlProblem(change.url);
     if (problem !== undefined) return { ok: false, error: `${change.server}: ${problem}` };
-    if (change.auth.kind === "header" && !/^[A-Za-z0-9-]{1,64}$/.test(change.auth.header)) return { ok: false, error: `${change.server}: a header name` };
-    return save({ ...servers, [change.server]: { kind: "direct", url: change.url, auth: change.auth, enabled: true, exposure: "deferred" } });
+    if (change.auth.kind === "header" && !/^[A-Za-z0-9-]{1,64}$/.test(change.auth.header))
+      return { ok: false, error: `${change.server}: a header name` };
+    return save({
+      ...servers,
+      [change.server]: { kind: "direct", url: change.url, auth: change.auth, enabled: true, exposure: "deferred" },
+    });
   }
   if (current === undefined) return { ok: false, error: `${change.server}: no such server` };
   if (change.op === "remove") {
@@ -385,14 +460,24 @@ export const applyMcpChange = (
   if (change.op === "class") {
     // The Settings server's tools have fixed classes (plan D2), for the panel as for everyone.
     if (current.kind === "settings") return { ok: false, error: `${change.server}: its tools' classes are fixed` };
-    if (change.class !== null && change.class !== "read" && change.class !== "write") return { ok: false, error: "class: read, write or null" };
+    if (change.class !== null && change.class !== "read" && change.class !== "write")
+      return { ok: false, error: "class: read, write or null" };
     const { [change.tool]: _previous, ...classes } = current.classes ?? {};
-    return save({ ...servers, [change.server]: { ...current, classes: change.class === null ? classes : { ...classes, [change.tool]: change.class } } });
+    return save({
+      ...servers,
+      [change.server]: {
+        ...current,
+        classes: change.class === null ? classes : { ...classes, [change.tool]: change.class },
+      },
+    });
   }
-  if (change.exposure !== undefined && !EXPOSURES.includes(change.exposure)) return { ok: false, error: `exposure: one of ${EXPOSURES.join(", ")}` };
-  if (change.enabled !== undefined && typeof change.enabled !== "boolean") return { ok: false, error: "enabled: true or false" };
+  if (change.exposure !== undefined && !EXPOSURES.includes(change.exposure))
+    return { ok: false, error: `exposure: one of ${EXPOSURES.join(", ")}` };
+  if (change.enabled !== undefined && typeof change.enabled !== "boolean")
+    return { ok: false, error: "enabled: true or false" };
   if (change.writes !== undefined) {
-    if (current.kind !== "settings") return { ok: false, error: `${change.server}: only the Settings server has a writes switch` };
+    if (current.kind !== "settings")
+      return { ok: false, error: `${change.server}: only the Settings server has a writes switch` };
     if (typeof change.writes !== "boolean") return { ok: false, error: "writes: true or false" };
   }
   // A Map, so a tool named `__proto__` is a key like any other (SPI-1198 review), never the object's prototype.
@@ -418,7 +503,9 @@ export const applyMcpChange = (
 /** What a Session reads: secret-free, every extension and tool resolved. */
 export interface ResolvedHarness extends Partial<ResolvedTools> {
   readonly revision: number;
-  readonly extensions: Readonly<Record<string, { readonly enabled: boolean; readonly settings: Readonly<Record<string, SettingValue>> }>>;
+  readonly extensions: Readonly<
+    Record<string, { readonly enabled: boolean; readonly settings: Readonly<Record<string, SettingValue>> }>
+  >;
   readonly codemode: { readonly enabled: boolean; readonly inlineBudget: number };
   readonly toolSearch: { readonly enabled: boolean };
   /**
@@ -444,19 +531,26 @@ const merge = (base: HarnessLayer, over: HarnessLayer | undefined): HarnessLayer
   return {
     extensions,
     tools: { ...base.tools, ...over.tools },
-    t3: { ...(t3Exposure === undefined ? {} : { exposure: t3Exposure }), tools: { ...base.t3?.tools, ...over.t3?.tools } },
+    t3: {
+      ...(t3Exposure === undefined ? {} : { exposure: t3Exposure }),
+      tools: { ...base.t3?.tools, ...over.t3?.tools },
+    },
   };
 };
 
 /** The settings for a Session of `projectId` (Global only when it has no override). */
-export const resolveHarness = (stored: StoredHarness, scope: { readonly projectId?: string } = {}): ResolvedHarness & ResolvedTools => {
+export const resolveHarness = (
+  stored: StoredHarness,
+  scope: { readonly projectId?: string } = {},
+): ResolvedHarness & ResolvedTools => {
   const layer = merge(stored.global, scope.projectId === undefined ? undefined : stored.overrides[scope.projectId]);
   const tools = resolveTools(layer);
   const extensions: Record<string, { enabled: boolean; settings: Record<string, SettingValue> }> = {};
   for (const entry of EXTENSIONS) {
     const choice = layer.extensions?.[entry.id];
     const settings: Record<string, SettingValue> = {};
-    for (const [key, setting] of Object.entries(entry.settings)) settings[key] = choice?.settings?.[key] ?? setting.schema.default;
+    for (const [key, setting] of Object.entries(entry.settings))
+      settings[key] = choice?.settings?.[key] ?? setting.schema.default;
     const enabled =
       entry.tools !== undefined
         ? entry.tools.some((tool) => tools.tools[tool] !== "hidden")
@@ -468,7 +562,10 @@ export const resolveHarness = (stored: StoredHarness, scope: { readonly projectI
   return {
     revision: stored.revision,
     extensions,
-    codemode: { enabled: extensions.codemode!.enabled, inlineBudget: extensions.codemode!.settings.inlineBudget as number },
+    codemode: {
+      enabled: extensions.codemode!.enabled,
+      inlineBudget: extensions.codemode!.settings.inlineBudget as number,
+    },
     toolSearch: { enabled: extensions["tool-search"]!.enabled },
     ...tools,
   };
@@ -489,10 +586,16 @@ export const applyChange = (
   const entry = entryOf(change.extension);
   if (entry === undefined) return { ok: false, error: `${change.extension}: no such extension` };
   if (entry.locked !== undefined) return { ok: false, error: `${entry.id}: locked (${entry.locked})` };
-  if (change.enabled !== undefined && entry.default === "always") return { ok: false, error: `${entry.id}: cannot be turned off` };
-  if (change.enabled !== undefined && entry.tools !== undefined) return { ok: false, error: `${entry.id}: on while any of its tools is not hidden; set its tools' Exposure instead` };
+  if (change.enabled !== undefined && entry.default === "always")
+    return { ok: false, error: `${entry.id}: cannot be turned off` };
+  if (change.enabled !== undefined && entry.tools !== undefined)
+    return {
+      ok: false,
+      error: `${entry.id}: on while any of its tools is not hidden; set its tools' Exposure instead`,
+    };
   // A stored non-boolean would resolve to the default, which may be on (fails closed here, before any tier is judged).
-  if (change.enabled !== undefined && typeof change.enabled !== "boolean") return { ok: false, error: "enabled: true or false" };
+  if (change.enabled !== undefined && typeof change.enabled !== "boolean")
+    return { ok: false, error: "enabled: true or false" };
   for (const [key, value] of Object.entries(change.settings ?? {})) {
     const setting = Object.hasOwn(entry.settings, key) ? entry.settings[key] : undefined;
     if (setting === undefined) return { ok: false, error: `${entry.id}.${key}: no such setting` };
@@ -507,7 +610,11 @@ export const applyChange = (
   };
   return {
     ok: true,
-    harness: { ...stored, revision: stored.revision + 1, global: { extensions: { ...stored.global.extensions, [entry.id]: next } } },
+    harness: {
+      ...stored,
+      revision: stored.revision + 1,
+      global: { extensions: { ...stored.global.extensions, [entry.id]: next } },
+    },
   };
 };
 export { CARD_TEXT_MAX, cardText, visible, withoutHidden } from "./cardText.ts";

@@ -26,7 +26,12 @@ const pagePost = async (run: SettingsFixture, id: string, body: Record<string, u
   return handleHarness(
     new Request(`https://${HOST}${CHANGES_API_PATH}/${id}`, {
       method: "POST",
-      headers: { "content-type": "application/json", origin: `https://${HOST}`, "sec-fetch-site": "same-origin", "x-t3flare-csrf": csrf },
+      headers: {
+        "content-type": "application/json",
+        origin: `https://${HOST}`,
+        "sec-fetch-site": "same-origin",
+        "x-t3flare-csrf": csrf,
+      },
       body: JSON.stringify(body),
     }),
     deps,
@@ -37,7 +42,10 @@ describe("the asked change's card", () => {
   it("is written by the server: the change, why, when, who, the page's link, and the agent's call last", async () => {
     fixture = settingsFixture();
     const run = fixture;
-    await run.call(run.durable("thread-x"), "change_environment", { expectedRevision: 0, settings: { containerBudget: 4, variables: { FOO: "bar" } } });
+    await run.call(run.durable("thread-x"), "change_environment", {
+      expectedRevision: 0,
+      settings: { containerBudget: 4, variables: { FOO: "bar" } },
+    });
     const prompt = run.cards[0]!.prompt;
     const [record] = run.deps.changes.closedBy("own:thread-x", 0);
     expect(prompt.startsWith("A change to the Environment settings (revision 0):")).toBe(true);
@@ -47,17 +55,25 @@ describe("the asked change's card", () => {
     expect(prompt).toContain("Applies when each Workspace's Container next starts");
     expect(prompt).toContain("Asked by piDurable on thread thread-x.");
     expect(prompt).toContain(`The Change page: https://${HOST}${changePagePath(record!.id)}`);
-    expect(prompt.indexOf("The agent's call: settings: change_environment")).toBeGreaterThan(prompt.indexOf("The Change page"));
+    expect(prompt.indexOf("The agent's call: settings: change_environment")).toBeGreaterThan(
+      prompt.indexOf("The Change page"),
+    );
   });
 
   it("asks to widen a tool's Exposure, showing each tool it moves; narrowing one applies at once", async () => {
     fixture = settingsFixture();
     const run = fixture;
-    const free = structured(await run.call(run.durable(), "change_tools", { expectedRevision: 0, tools: { ask_user: "hidden" } }));
+    const free = structured(
+      await run.call(run.durable(), "change_tools", { expectedRevision: 0, tools: { ask_user: "hidden" } }),
+    );
     // Free (the thread's mode still asks for the write itself, so the card says so).
     expect(free).toMatchObject({ status: "applied" });
     expect(run.cards[0]!.prompt).toContain("This change is free (it narrows what agents have)");
-    void run.call(run.durable("thread-2"), "change_tools", { expectedRevision: 1, tools: { web_search: "direct" }, t3: { tools: { t3_thread_read: "codemode" } } });
+    void run.call(run.durable("thread-2"), "change_tools", {
+      expectedRevision: 1,
+      tools: { web_search: "direct" },
+      t3: { tools: { t3_thread_read: "codemode" } },
+    });
     await until(() => run.cards.length === 2);
     const prompt = run.cards[1]!.prompt;
     expect(prompt).toContain('- web_search: Exposure: "hidden" to "direct"');
@@ -72,23 +88,72 @@ describe("the asked change's card", () => {
     const run = fixture;
     await run.call(run.durable(), "change_extension", { expectedRevision: 1, extension: "guardian", enabled: false });
     expect(run.cards[0]!.prompt).toContain("This turns off the Guardian, which reviews risky tool calls.");
-    await run.call(run.durable("thread-2"), "change_mcp", { expectedRevision: 1, change: { op: "add", server: "fixture", url: "https://fixture.example/mcp?key=q", auth: { kind: "none" } } });
+    await run.call(run.durable("thread-2"), "change_mcp", {
+      expectedRevision: 1,
+      change: { op: "add", server: "fixture", url: "https://fixture.example/mcp?key=q", auth: { kind: "none" } },
+    });
     expect(run.cards[1]!.prompt).toContain(HINT_TRUST_LINE);
     // An add shows the whole URL it would store, query included (SPI-1199 review): the owner approves exactly that.
     expect(run.cards[1]!.prompt).toContain("https://fixture.example/mcp?key=q (host fixture.example)");
   });
 
   for (const [what, setup] of [
-    ["a header value", async (run: SettingsFixture) => {
-      await addMcpServer(run.deps.ops, { server: "keyed", url: "https://keyed.example/mcp", auth: { kind: "header", header: "X-Key" }, value: "old" }, { actor: { caller: "owner:o" } });
-      return ["change_mcp", { expectedRevision: 1, change: { op: "header-value", server: "keyed" } }] as const;
-    }],
-    ["a header add", async () => ["change_mcp", { expectedRevision: 0, change: { op: "add", server: "keyed", url: "https://keyed.example/mcp", auth: { kind: "header", header: "X-Key" } } }] as const],
-    ["a sign-in", async (run: SettingsFixture) => {
-      await addMcpServer(run.deps.ops, { server: "oauthy", url: "https://oauthy.example/mcp", auth: { kind: "oauth" } }, { actor: { caller: "owner:o" } });
-      return ["start_mcp_sign_in", { expectedRevision: 1, server: "oauthy" }] as const;
-    }],
-    ["text too long for a card", async () => ["change_environment", { expectedRevision: 0, settings: { globalMiseConfig: `[tools]\n${"# a comment line of the config, long enough\n".repeat(Math.floor((MAX_GLOBAL_MISE_BYTES - 64) / 44))}` } }] as const],
+    [
+      "a header value",
+      async (run: SettingsFixture) => {
+        await addMcpServer(
+          run.deps.ops,
+          {
+            server: "keyed",
+            url: "https://keyed.example/mcp",
+            auth: { kind: "header", header: "X-Key" },
+            value: "old",
+          },
+          { actor: { caller: "owner:o" } },
+        );
+        return ["change_mcp", { expectedRevision: 1, change: { op: "header-value", server: "keyed" } }] as const;
+      },
+    ],
+    [
+      "a header add",
+      async () =>
+        [
+          "change_mcp",
+          {
+            expectedRevision: 0,
+            change: {
+              op: "add",
+              server: "keyed",
+              url: "https://keyed.example/mcp",
+              auth: { kind: "header", header: "X-Key" },
+            },
+          },
+        ] as const,
+    ],
+    [
+      "a sign-in",
+      async (run: SettingsFixture) => {
+        await addMcpServer(
+          run.deps.ops,
+          { server: "oauthy", url: "https://oauthy.example/mcp", auth: { kind: "oauth" } },
+          { actor: { caller: "owner:o" } },
+        );
+        return ["start_mcp_sign_in", { expectedRevision: 1, server: "oauthy" }] as const;
+      },
+    ],
+    [
+      "text too long for a card",
+      async () =>
+        [
+          "change_environment",
+          {
+            expectedRevision: 0,
+            settings: {
+              globalMiseConfig: `[tools]\n${"# a comment line of the config, long enough\n".repeat(Math.floor((MAX_GLOBAL_MISE_BYTES - 64) / 44))}`,
+            },
+          },
+        ] as const,
+    ],
   ] as const) {
     it(`needs the page for ${what}: no Approve, and "Opened it" only keeps the call waiting`, async () => {
       fixture = settingsFixture({ cardWaitMs: 50 });
@@ -121,7 +186,15 @@ describe("the asked change's card", () => {
     expect(structured(answer)).toMatchObject({ status: "applied", revision: 1, changeId: record!.id });
     expect(answer.kind === "result" ? answer.text : "").toContain("on the Change page");
     expect(run.withdrawn).toEqual([run.cards[0]!.id]);
-    expect(run.store.auditLog(1)[0]).toMatchObject({ action: "environment.change", via: "mcp", tier: "asked", mode: "card", answeredBy: "page", change: record!.id, caller: "agent:thread-d" });
+    expect(run.store.auditLog(1)[0]).toMatchObject({
+      action: "environment.change",
+      via: "mcp",
+      tier: "asked",
+      mode: "card",
+      answeredBy: "page",
+      change: record!.id,
+      caller: "agent:thread-d",
+    });
   });
 
   it("a Stop withdraws the Open change and the card", async () => {
@@ -142,17 +215,23 @@ describe("the asked change's card", () => {
 
   it("the card's decline closes it as declined; its cancel as withdrawn", async () => {
     fixture = settingsFixture({ answer: { decision: "decline" } });
-    expect(structured(await fixture.call(fixture.durable(), "change_environment", ASKED))).toMatchObject({ status: "declined" });
+    expect(structured(await fixture.call(fixture.durable(), "change_environment", ASKED))).toMatchObject({
+      status: "declined",
+    });
     fixture.dispose();
     fixture = settingsFixture({ answer: { decision: "cancel" } });
-    expect(structured(await fixture.call(fixture.durable(), "change_environment", ASKED))).toMatchObject({ status: "withdrawn" });
+    expect(structured(await fixture.call(fixture.durable(), "change_environment", ASKED))).toMatchObject({
+      status: "withdrawn",
+    });
     expect(fixture.store.loadEnvironment().revision).toBe(0);
   });
 
   it("asks in full access too (plan D7: the tier is what full access does not skip)", async () => {
     fixture = settingsFixture();
     const run = fixture;
-    expect(structured(await run.call(run.durable("thread-full", "full-access"), "change_environment", ASKED))).toMatchObject({ status: "applied" });
+    expect(
+      structured(await run.call(run.durable("thread-full", "full-access"), "change_environment", ASKED)),
+    ).toMatchObject({ status: "applied" });
     expect(run.cards.length).toBe(1);
   });
 });

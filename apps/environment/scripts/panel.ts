@@ -38,22 +38,45 @@ const FIXTURE_URL = workersDevUrl("t3flare-mcpfixture-panel");
 
 const seed = async () => {
   // The stage's fixture MCP Worker (scripts/tools/fixtureMcp.ts), signed in with a header: a server that lists tools.
-  await api("POST", "/_t3flare/settings/api/mcp/servers", { server: "fixture", url: `${FIXTURE_URL}/mcp`, auth: { kind: "header", header: "Authorization" }, value: `Bearer ${process.env.T3FLARE_FIXTURE_BEARER ?? ""}` });
+  await api("POST", "/_t3flare/settings/api/mcp/servers", {
+    server: "fixture",
+    url: `${FIXTURE_URL}/mcp`,
+    auth: { kind: "header", header: "Authorization" },
+    value: `Bearer ${process.env.T3FLARE_FIXTURE_BEARER ?? ""}`,
+  });
   await api("POST", "/_t3flare/settings/api/mcp/test", { server: "fixture" });
   // A direct server on a host that does not resolve: its test fails, so the page shows a server with an error.
-  await api("POST", "/_t3flare/settings/api/mcp/servers", { server: "docs", url: "https://mcp.docs-fixture.invalid/mcp", auth: { kind: "header", header: "Authorization" }, value: "panel-fixture-not-a-real-token" });
+  await api("POST", "/_t3flare/settings/api/mcp/servers", {
+    server: "docs",
+    url: "https://mcp.docs-fixture.invalid/mcp",
+    auth: { kind: "header", header: "Authorization" },
+    value: "panel-fixture-not-a-real-token",
+  });
   // An OAuth server never signed in.
-  await api("POST", "/_t3flare/settings/api/mcp/servers", { server: "linear", url: "https://mcp.linear.app/mcp", auth: { kind: "oauth" } });
+  await api("POST", "/_t3flare/settings/api/mcp/servers", {
+    server: "linear",
+    url: "https://mcp.linear.app/mcp",
+    auth: { kind: "oauth" },
+  });
   await api("POST", "/_t3flare/settings/api/mcp/test", { server: "docs" });
   await api("POST", "/_t3flare/settings/api/extensions", { extension: "codemode", settings: { inlineBudget: 3000 } });
-  const servers = JSON.parse((await api("GET", "/_t3flare/settings/api/mcp")).text) as { servers: Array<{ name: string; tools: Array<{ upstream: string; class: string }> }> };
+  const servers = JSON.parse((await api("GET", "/_t3flare/settings/api/mcp")).text) as {
+    servers: Array<{ name: string; tools: Array<{ upstream: string; class: string }> }>;
+  };
   const tool = servers.servers.find((server) => server.name === "fixture")?.tools[0];
-  if (tool !== undefined) await api("POST", "/_t3flare/settings/api/mcp", { op: "class", server: "fixture", tool: tool.upstream, class: tool.class === "read" ? "write" : "read" });
+  if (tool !== undefined)
+    await api("POST", "/_t3flare/settings/api/mcp", {
+      op: "class",
+      server: "fixture",
+      tool: tool.upstream,
+      class: tool.class === "read" ? "write" : "read",
+    });
 };
 
 const browser = (...args: Array<string>) => {
   const result = spawnSync("agent-browser", ["--session", "panel", ...args], { encoding: "utf8" });
-  if (result.status !== 0) throw new Error(`agent-browser ${args[0]} failed: ${(result.stderr || result.stdout).slice(0, 300)}`);
+  if (result.status !== 0)
+    throw new Error(`agent-browser ${args[0]} failed: ${(result.stderr || result.stdout).slice(0, 300)}`);
   return result.stdout;
 };
 
@@ -61,7 +84,10 @@ const shoot = (label: string) => {
   fs.mkdirSync(OUT, { recursive: true });
   const url = new URL("/_t3flare/settings", HARNESS).toString();
   for (const scheme of ["light", "dark"]) {
-    for (const [name, width, height, scale] of [["desktop", 1280, 860, 1], ["phone", 390, 844, 2]] as const) {
+    for (const [name, width, height, scale] of [
+      ["desktop", 1280, 860, 1],
+      ["phone", 390, 844, 2],
+    ] as const) {
       browser("--headers", JSON.stringify(headers), "--color-scheme", scheme, "open", url);
       browser("set", "viewport", String(width), String(height), String(scale));
       browser("set", "media", scheme);
@@ -69,7 +95,10 @@ const shoot = (label: string) => {
       browser("wait", "--load", "networkidle");
       const file = path.join(OUT, `${label}-${name}-${scheme}.png`);
       browser("screenshot", "--full", file);
-      const widthOf = () => Number(/pixelWidth: (\d+)/.exec(spawnSync("sips", ["-g", "pixelWidth", file], { encoding: "utf8" }).stdout)?.[1]);
+      const widthOf = () =>
+        Number(
+          /pixelWidth: (\d+)/.exec(spawnSync("sips", ["-g", "pixelWidth", file], { encoding: "utf8" }).stdout)?.[1],
+        );
       if (widthOf() > 1400) spawnSync("sips", ["--resampleWidth", "1400", file], { stdio: "ignore" });
       if (widthOf() > 1400) throw new Error(`${file} is wider than 1400 px`);
       console.log(`wrote ${path.relative(process.cwd(), file)}`);
@@ -87,7 +116,10 @@ const pause = (ms: number) => spawnSync("sleep", [String(ms / 1000)]);
 const states = () => {
   fs.mkdirSync(OUT, { recursive: true });
   const url = new URL("/_t3flare/settings", HARNESS).toString();
-  for (const [scheme, name, width, height, scale] of [["dark", "desktop", 1280, 860, 1], ["light", "phone", 390, 844, 2]] as const) {
+  for (const [scheme, name, width, height, scale] of [
+    ["dark", "desktop", 1280, 860, 1],
+    ["light", "phone", 390, 844, 2],
+  ] as const) {
     const save = (shot: string) => {
       const file = path.join(OUT, `states-${shot}-${name}-${scheme}.png`);
       browser("screenshot", file);
@@ -99,9 +131,15 @@ const states = () => {
     browser("open", url);
     browser("wait", "--load", "networkidle");
     // Tests: the docs server fails, the fixture lists its tools; then the commissary test is caught mid-flight.
-    browser("eval", `document.querySelector('[data-mcp-test="docs"]').click(); document.querySelector('[data-mcp-test="fixture"]').click();`);
+    browser(
+      "eval",
+      `document.querySelector('[data-mcp-test="docs"]').click(); document.querySelector('[data-mcp-test="fixture"]').click();`,
+    );
     pause(3000);
-    browser("eval", `(() => { const b = document.querySelector('[data-mcp-test="commissary"]'); b.setAttribute('aria-busy', 'true'); b.disabled = true; document.querySelector('[data-test-result="commissary"]').textContent = 'Testing…'; document.getElementById('mcp').scrollIntoView(); })()`);
+    browser(
+      "eval",
+      `(() => { const b = document.querySelector('[data-mcp-test="commissary"]'); b.setAttribute('aria-busy', 'true'); b.disabled = true; document.querySelector('[data-test-result="commissary"]').textContent = 'Testing…'; document.getElementById('mcp').scrollIntoView(); })()`,
+    );
     pause(500);
     save("tests");
     browser("eval", `document.querySelector('[data-test-result="docs"]').closest('article').scrollIntoView()`);
@@ -111,12 +149,18 @@ const states = () => {
     pause(300);
     save("tests-ok");
     // A refused add (a reserved name), shown in the page's notice; then the header sign-in's fields.
-    browser("eval", `(() => { const f = document.querySelector('form[data-mcp-add]'); f.querySelector('[name=server]').value = 't3'; f.querySelector('[name=url]').value = 'https://mcp.example.com/mcp'; f.querySelector('[name=auth][value=none]').checked = true; f.requestSubmit(); })()`);
+    browser(
+      "eval",
+      `(() => { const f = document.querySelector('form[data-mcp-add]'); f.querySelector('[name=server]').value = 't3'; f.querySelector('[name=url]').value = 'https://mcp.example.com/mcp'; f.querySelector('[name=auth][value=none]').checked = true; f.requestSubmit(); })()`,
+    );
     pause(2000);
     browser("eval", `window.scrollTo(0, 0)`);
     pause(300);
     save("refused");
-    browser("eval", `(() => { const f = document.querySelector('form[data-mcp-add]'); f.querySelector('[name=server]').value = 'executor'; const r = f.querySelector('[name=auth][value=header]'); r.checked = true; r.dispatchEvent(new Event('change')); f.scrollIntoView(); })()`);
+    browser(
+      "eval",
+      `(() => { const f = document.querySelector('form[data-mcp-add]'); f.querySelector('[name=server]').value = 'executor'; const r = f.querySelector('[name=auth][value=header]'); r.checked = true; r.dispatchEvent(new Event('change')); f.scrollIntoView(); })()`,
+    );
     pause(300);
     save("add-header");
     browser("close");

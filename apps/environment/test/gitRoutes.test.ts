@@ -120,7 +120,12 @@ describe("cloneRequestOf", () => {
 
 describe("remoteRepoOf", () => {
   it("reads https, ssh and scp forms as https", () => {
-    const expected = { https: "https://github.com/ian-pascoe/t3flare-fixture.git", host: "github.com", owner: "ian-pascoe", name: "t3flare-fixture" };
+    const expected = {
+      https: "https://github.com/ian-pascoe/t3flare-fixture.git",
+      host: "github.com",
+      owner: "ian-pascoe",
+      name: "t3flare-fixture",
+    };
     expect(remoteRepoOf("https://github.com/ian-pascoe/t3flare-fixture.git")).toEqual(expected);
     expect(remoteRepoOf("https://github.com/ian-pascoe/t3flare-fixture")).toEqual(expected);
     expect(remoteRepoOf("git@github.com:ian-pascoe/t3flare-fixture.git")).toEqual(expected);
@@ -144,7 +149,14 @@ describe("paths into a Workspace", () => {
 
   it("passes git's environment, not the Environment's", () => {
     expect(
-      gitEnvOf("a", { HOME: "/t3/home", PATH: "/bin", GIT_OPTIONAL_LOCKS: "0", GIT_DIR: "/w/a/.git", GIT_TRACE2_EVENT: "/tmp/x", LANGUAGE: "C" }),
+      gitEnvOf("a", {
+        HOME: "/t3/home",
+        PATH: "/bin",
+        GIT_OPTIONAL_LOCKS: "0",
+        GIT_DIR: "/w/a/.git",
+        GIT_TRACE2_EVENT: "/tmp/x",
+        LANGUAGE: "C",
+      }),
     ).toEqual({ GIT_OPTIONAL_LOCKS: "0", GIT_DIR: "/workspace/repo/.git", LANGUAGE: "C" });
   });
 });
@@ -155,18 +167,25 @@ describe("the alternates list into a Workspace", () => {
   const nothingOnT3Side = () => false;
 
   it("translates each entry of this Workspace on its own, keeping git's quoting and separator", () => {
-    expect(alternatesInto("a", '"/w/a/.git/objects"', nothingOnT3Side)).toEqual({ value: '"/workspace/repo/.git/objects"', dropped: [] });
+    expect(alternatesInto("a", '"/w/a/.git/objects"', nothingOnT3Side)).toEqual({
+      value: '"/workspace/repo/.git/objects"',
+      dropped: [],
+    });
     expect(alternatesInto("a", '"/w/a/.git/objects":"/srv/shared/objects"', nothingOnT3Side)).toEqual({
       value: '"/workspace/repo/.git/objects":"/srv/shared/objects"',
       dropped: [],
     });
     // An unquoted list (git's older form) is read too, and written quoted.
-    expect(alternatesInto("a", "/w/a/.git/objects:/srv/x", nothingOnT3Side).value).toBe('"/workspace/repo/.git/objects":"/srv/x"');
+    expect(alternatesInto("a", "/w/a/.git/objects:/srv/x", nothingOnT3Side).value).toBe(
+      '"/workspace/repo/.git/objects":"/srv/x"',
+    );
   });
 
   it("keeps a separator, a quote and a backslash inside one entry", () => {
     const value = String.raw`"/w/a/.git/objects":"/srv/we:ird \"q\" b\\s"`;
-    expect(alternatesInto("a", value, nothingOnT3Side).value).toBe(String.raw`"/workspace/repo/.git/objects":"/srv/we:ird \"q\" b\\s"`);
+    expect(alternatesInto("a", value, nothingOnT3Side).value).toBe(
+      String.raw`"/workspace/repo/.git/objects":"/srv/we:ird \"q\" b\\s"`,
+    );
   });
 
   it("reads git's octal escapes as UTF-8", () => {
@@ -188,7 +207,9 @@ describe("the alternates list into a Workspace", () => {
   });
 
   it("skips empty entries", () => {
-    expect(alternatesInto("a", '::"/w/a/.git/objects"::', nothingOnT3Side).value).toBe('"/workspace/repo/.git/objects"');
+    expect(alternatesInto("a", '::"/w/a/.git/objects"::', nothingOnT3Side).value).toBe(
+      '"/workspace/repo/.git/objects"',
+    );
     expect(alternatesInto("a", "", nothingOnT3Side).value).toBeUndefined();
   });
 
@@ -196,7 +217,11 @@ describe("the alternates list into a Workspace", () => {
     const dropped: Array<string> = [];
     const env = gitEnvOf(
       "a",
-      { GIT_INDEX_FILE: "/tmp/t3code-commit-index-x/index", GIT_OBJECT_DIRECTORY: "/tmp/t3code-commit-index-x/objects", GIT_ALTERNATE_OBJECT_DIRECTORIES: '"/w/a/.git/objects":"/tmp/gone"' },
+      {
+        GIT_INDEX_FILE: "/tmp/t3code-commit-index-x/index",
+        GIT_OBJECT_DIRECTORY: "/tmp/t3code-commit-index-x/objects",
+        GIT_ALTERNATE_OBJECT_DIRECTORIES: '"/w/a/.git/objects":"/tmp/gone"',
+      },
       { onT3Side: (entry) => entry === "/tmp/gone", dropped },
     );
     expect(env).toEqual({
@@ -215,7 +240,11 @@ describe("the alternates list into a Workspace", () => {
     const repo = path.join(root, 'we:ird "repo"');
     fs.mkdirSync(repo);
     const git = (args: ReadonlyArray<string>, env: Record<string, string> = {}) =>
-      spawnSync("git", args, { cwd: repo, encoding: "utf8", env: { ...processEnv, GIT_CONFIG_NOSYSTEM: "1", HOME: root, ...env } });
+      spawnSync("git", args, {
+        cwd: repo,
+        encoding: "utf8",
+        env: { ...processEnv, GIT_CONFIG_NOSYSTEM: "1", HOME: root, ...env },
+      });
     try {
       git(["init", "-q"]);
       fs.writeFileSync(path.join(repo, "a.txt"), "a\n");
@@ -242,7 +271,9 @@ describe("the alternates list into a Workspace", () => {
 
 describe("readScopeOf", () => {
   it("keys ref and config reads on .git alone", () => {
-    expect(readScopeOf(["--git-dir", "/w/a/.git", "for-each-ref", "--format=%(refname)", "refs/heads"])).toBe("git-dir");
+    expect(readScopeOf(["--git-dir", "/w/a/.git", "for-each-ref", "--format=%(refname)", "refs/heads"])).toBe(
+      "git-dir",
+    );
     expect(readScopeOf(["rev-parse", "--show-toplevel"])).toBe("git-dir");
     expect(readScopeOf(["config", "--get", "remote.origin.url"])).toBe("git-dir");
     // t3's commit draft: its paths and the object store's alternates (SPI-1186; primed with the Workspace DO's reads).
@@ -261,7 +292,17 @@ describe("readScopeOf", () => {
 describe("worktree commands (step 2b)", () => {
   it("reads every shape t3 sends", () => {
     // GitVcsDriverCore.createWorktree
-    expect(worktreeCommandOf(["-c", "checkout.workers=0", "worktree", "add", "--", "/w/.wt/fixture/feat-0123456789abcdef", "feat"])).toEqual({
+    expect(
+      worktreeCommandOf([
+        "-c",
+        "checkout.workers=0",
+        "worktree",
+        "add",
+        "--",
+        "/w/.wt/fixture/feat-0123456789abcdef",
+        "feat",
+      ]),
+    ).toEqual({
       verb: "add",
       path: "/w/.wt/fixture/feat-0123456789abcdef",
       ref: "feat",
@@ -269,7 +310,18 @@ describe("worktree commands (step 2b)", () => {
       newBranch: null,
     });
     // PullRequestReviewGuideService.addWorktree (review F6): a detached scratch checkout
-    expect(worktreeCommandOf(["-c", "core.hooksPath=/dev/null", "worktree", "add", "--detach", "--quiet", "/w/.wt/review-guide-abc/checkout", "0123abcd"])).toEqual({
+    expect(
+      worktreeCommandOf([
+        "-c",
+        "core.hooksPath=/dev/null",
+        "worktree",
+        "add",
+        "--detach",
+        "--quiet",
+        "/w/.wt/review-guide-abc/checkout",
+        "0123abcd",
+      ]),
+    ).toEqual({
       verb: "add",
       path: "/w/.wt/review-guide-abc/checkout",
       ref: "0123abcd",
@@ -277,14 +329,32 @@ describe("worktree commands (step 2b)", () => {
       newBranch: null,
     });
     // GitVcsDriverCore.removeWorktree
-    expect(worktreeCommandOf(["-c", "status.showUntrackedFiles=normal", "worktree", "remove", "--force", "--", "/w/.wt/fixture/x"])).toEqual({
+    expect(
+      worktreeCommandOf([
+        "-c",
+        "status.showUntrackedFiles=normal",
+        "worktree",
+        "remove",
+        "--force",
+        "--",
+        "/w/.wt/fixture/x",
+      ]),
+    ).toEqual({
       verb: "remove",
       path: "/w/.wt/fixture/x",
       force: true,
     });
-    expect(worktreeCommandOf(["worktree", "remove", "/w/.wt/fixture/x"])).toEqual({ verb: "remove", path: "/w/.wt/fixture/x", force: false });
+    expect(worktreeCommandOf(["worktree", "remove", "/w/.wt/fixture/x"])).toEqual({
+      verb: "remove",
+      path: "/w/.wt/fixture/x",
+      force: false,
+    });
     // listWorktreePaths
-    expect(worktreeCommandOf(["worktree", "list", "--porcelain", "-z"])).toEqual({ verb: "list", porcelain: true, z: true });
+    expect(worktreeCommandOf(["worktree", "list", "--porcelain", "-z"])).toEqual({
+      verb: "list",
+      porcelain: true,
+      z: true,
+    });
     expect(worktreeCommandOf(["worktree", "prune"])).toEqual({ verb: "prune" });
     expect(worktreeCommandOf(["worktree", "move", "a", "b"])).toEqual({ verb: "unsupported", name: "move" });
     expect(worktreeCommandOf(["status"])).toBeNull();
@@ -294,10 +364,17 @@ describe("worktree commands (step 2b)", () => {
     expect(worktreeDestinationOf("/w/fixture", "/w/.wt/fixture/feat-0123")).toEqual({ id: ".wt/fixture/feat-0123" });
     // A project in a subdirectory of its repo: t3 names the worktree's folder after the subdirectory.
     expect(worktreeDestinationOf("/w/mono/packages/app", "/w/.wt/app/feat-0123")).toEqual({ id: ".wt/app/feat-0123" });
-    for (const destination of ["/home/me/worktrees/fixture/x", "/w/.wt/other/x", "/w/.wt/fixture/x/nested", "/w/fixture-2"]) {
+    for (const destination of [
+      "/home/me/worktrees/fixture/x",
+      "/w/.wt/other/x",
+      "/w/.wt/fixture/x/nested",
+      "/w/fixture-2",
+    ]) {
       expect(worktreeDestinationOf("/w/fixture", destination), destination).toHaveProperty("refused");
     }
-    expect((worktreeDestinationOf("/w/fixture", "/tmp/x") as { refused: string }).refused).toContain("clear Settings → Worktrees → Location");
+    expect((worktreeDestinationOf("/w/fixture", "/tmp/x") as { refused: string }).refused).toContain(
+      "clear Settings → Worktrees → Location",
+    );
     expect(worktreeDestinationOf("/w/.wt/fixture/a", "/w/.wt/fixture/b")).toHaveProperty("refused");
   });
 });

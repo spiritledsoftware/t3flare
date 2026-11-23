@@ -7,13 +7,23 @@
 import { spawnSync } from "node:child_process";
 import * as path from "node:path";
 
-import { type Diagnostic, type Ownership, t3ErrorsHeading, typecheckVerdict, workerdOwnership } from "./lib/typecheckFilter.ts";
+import {
+  type Diagnostic,
+  type Ownership,
+  t3ErrorsHeading,
+  typecheckVerdict,
+  workerdOwnership,
+} from "./lib/typecheckFilter.ts";
 
 const cwd = path.resolve(import.meta.dirname, "..");
 const t3Root = path.resolve(cwd, "../../t3code");
 
 /** Each program, and for one that reaches files it does not own, the program that checks those (`elsewhere`). */
-const programs: ReadonlyArray<{ readonly project: string; readonly ownership?: Ownership; readonly elsewhere?: string }> = [
+const programs: ReadonlyArray<{
+  readonly project: string;
+  readonly ownership?: Ownership;
+  readonly elsewhere?: string;
+}> = [
   { project: "tsconfig.json" },
   { project: "test/tsconfig.workerd.json", ownership: workerdOwnership, elsewhere: "tsconfig.json" },
 ];
@@ -21,11 +31,15 @@ const programs: ReadonlyArray<{ readonly project: string; readonly ownership?: O
 let ok = true;
 const t3Errors = new Map<string, Diagnostic>();
 for (const { project, ownership, elsewhere } of programs) {
-  const result = spawnSync("effect-tsgo", ["tsrs", "--noEmit", "--pretty", "false", "-p", project, ...process.argv.slice(2)], {
-    cwd,
-    encoding: "utf8",
-    maxBuffer: 256 * 1024 * 1024,
-  });
+  const result = spawnSync(
+    "effect-tsgo",
+    ["tsrs", "--noEmit", "--pretty", "false", "-p", project, ...process.argv.slice(2)],
+    {
+      cwd,
+      encoding: "utf8",
+      maxBuffer: 256 * 1024 * 1024,
+    },
+  );
   if (result.error !== undefined) {
     console.error(`typecheck: could not run effect-tsgo: ${String(result.error)}`);
     process.exit(1);
@@ -35,7 +49,9 @@ for (const { project, ownership, elsewhere } of programs) {
   for (const diagnostic of verdict.ours) console.log(diagnostic.text);
   for (const diagnostic of verdict.t3Errors) t3Errors.set(diagnostic.text, diagnostic);
   if (verdict.elsewhereErrors.length > 0) {
-    console.log(`${project}: ${verdict.elsewhereErrors.length} error(s) in files it does not own, which ${elsewhere ?? "another program"} checks; not failing.`);
+    console.log(
+      `${project}: ${verdict.elsewhereErrors.length} error(s) in files it does not own, which ${elsewhere ?? "another program"} checks; not failing.`,
+    );
   }
   if (!verdict.ok) {
     ok = false;

@@ -29,5 +29,7 @@ export const isDeniedT3Tool = (name: string): boolean =>
   [...T3_TOOL_DENYLIST].some((denied) => {
     if (!isFamily(name)) return isFamily(denied) ? name.startsWith(prefixOf(denied)) : name === denied;
     const family = prefixOf(name);
-    return isFamily(denied) ? prefixOf(denied).startsWith(family) || family.startsWith(prefixOf(denied)) : denied.startsWith(family);
+    return isFamily(denied)
+      ? prefixOf(denied).startsWith(family) || family.startsWith(prefixOf(denied))
+      : denied.startsWith(family);
   });

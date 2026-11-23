@@ -75,10 +75,7 @@ const keysHold = (value: unknown, tokens: ReadonlySet<string>): boolean => {
   if (Arr.isArray(value)) return Arr.some(value, (each) => keysHold(each, tokens));
 
   return Predicate.isObject(value)
-    ? Arr.some(
-        Record.toEntries(value),
-        ([key, each]) => holds(key, tokens) || keysHold(each, tokens),
-      )
+    ? Arr.some(Record.toEntries(value), ([key, each]) => holds(key, tokens) || keysHold(each, tokens))
     : false;
 };
 
@@ -90,24 +87,18 @@ const nameOf = (item: unknown) => {
 };
 
 /** Whether `item`, a tool or a prompt, holds a secret in its name or in a key of its declaration. */
-const heldBy = (item: unknown, tokens: ReadonlySet<string>) =>
-  holds(nameOf(item), tokens) || keysHold(item, tokens);
+const heldBy = (item: unknown, tokens: ReadonlySet<string>) => holds(nameOf(item), tokens) || keysHold(item, tokens);
 
 /** What stands for an item left out: its place in the list. */
 const placeOf = (kind: "tool" | "prompt", index: number) => `${kind} #${index + 1}`;
 
-const LEFT_OUT =
-  "left out: its name or a key of its declaration held a value this call keeps secret";
+const LEFT_OUT = "left out: its name or a key of its declaration held a value this call keeps secret";
 
 /**
  * The tools or prompts (`kind`) of `items` that may be kept, their string values scrubbed, and the places of those left
  * out. A name or a key is never rewritten, so an item that holds a secret in one is left out.
  */
-export const vetListed = <A>(
-  kind: "tool" | "prompt",
-  items: ReadonlyArray<A>,
-  tokens: ReadonlySet<string>,
-) => {
+export const vetListed = <A>(kind: "tool" | "prompt", items: ReadonlyArray<A>, tokens: ReadonlySet<string>) => {
   const placed = Arr.map(items, (item, index) => ({ item, place: placeOf(kind, index) }));
 
   return {

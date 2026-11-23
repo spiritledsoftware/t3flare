@@ -42,7 +42,11 @@ const homeOf = (key: string) => `${CLI_HOMES}/${key}`;
  * profile's (`cliProfiles.ts` imports it from here). `merge` (ADR-0047 §9): over the Owner's own Skills the seed copied
  * there, each Environment skill linked in by name, so it wins a name clash.
  */
-export const environmentSkillsLink = (path: string, merge = false) => ({ path, target: SKILLS_MOUNT, ...(merge ? { merge } : {}) });
+export const environmentSkillsLink = (path: string, merge = false) => ({
+  path,
+  target: SKILLS_MOUNT,
+  ...(merge ? { merge } : {}),
+});
 
 /** Claude's session files, synced (resume after the Container sleeps, M0 P5). */
 export const CLAUDE_PROJECTS = `${HARNESS_ROOT}/claude/projects`;
@@ -89,7 +93,9 @@ export interface OpenCodeRelay {
  * SDK appends `/messages` to a base URL that holds `/v1` (an endpoint's base URL does not, as pi-ai's), the OpenAI
  * packages `/responses` and `/chat/completions` to one that does. Other APIs' endpoints are not offered to OpenCode.
  */
-export const OPENCODE_PACKAGES: Readonly<Partial<Record<EndpointApi, { readonly package: string; readonly path: string }>>> = {
+export const OPENCODE_PACKAGES: Readonly<
+  Partial<Record<EndpointApi, { readonly package: string; readonly path: string }>>
+> = {
   "anthropic-messages": { package: "@opencode/ai/providers/anthropic-compatible", path: "/v1" },
   "openai-responses": { package: "@opencode/ai/providers/openai-compatible-responses", path: "" },
   "openai-completions": { package: "@opencode/ai/providers/openai-compatible", path: "" },
@@ -102,7 +108,8 @@ export const OPENCODE_PACKAGES: Readonly<Partial<Record<EndpointApi, { readonly 
 export const OPENCODE_HANDLE_HOLDERS: ReadonlyArray<string> = ["setsid --wait /opt/t3flare/bin/opencode acp"];
 
 /** Whether OpenCode gets a provider for an endpoint: an API it speaks, and a model (`opencodeEndpoints`, the profile). */
-export const opencodeServes = (endpoint: Pick<ModelEndpoint, "api" | "models">): boolean => OPENCODE_PACKAGES[endpoint.api] !== undefined && endpoint.models.length > 0;
+export const opencodeServes = (endpoint: Pick<ModelEndpoint, "api" | "models">): boolean =>
+  OPENCODE_PACKAGES[endpoint.api] !== undefined && endpoint.models.length > 0;
 
 /** The model as OpenCode names it on the relay: its endpoint's provider and the model's own id. */
 export const opencodeEndpointModel = (slug: string): string | undefined => {
@@ -115,7 +122,8 @@ export const CLAUDE_EXECUTABLE = "/opt/t3flare/claude/node_modules/@anthropic-ai
 
 /** t3's env keys these profiles read; everything else is dropped. */
 const READ_ENV = new Set(["T3CODE_THREAD_ID"]);
-const dropped = (env: LaunchInput["env"]): ReadonlyArray<string> => Object.keys(env).filter((key) => env[key] !== undefined && !READ_ENV.has(key));
+const dropped = (env: LaunchInput["env"]): ReadonlyArray<string> =>
+  Object.keys(env).filter((key) => env[key] !== undefined && !READ_ENV.has(key));
 
 /**
  * Variables a repository's `.claude/settings.json` `env` could use to send Claude Code's requests, and its handle,
@@ -182,7 +190,11 @@ export const claudeModeOf = (relay: ClaudeRelay): ClaudeMode => {
     keyHelper: CLAUDE_HANDLE_HELPER,
     availableModels: relay.models,
     // Every alias Claude Code resolves on its own is a slug: the routed URL refuses any other model (400).
-    aliases: aliasesOf({ ANTHROPIC_DEFAULT_HAIKU_MODEL: relay.backgroundModel, ANTHROPIC_DEFAULT_SONNET_MODEL: relay.sonnetModel, ANTHROPIC_DEFAULT_OPUS_MODEL: relay.opusModel }),
+    aliases: aliasesOf({
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: relay.backgroundModel,
+      ANTHROPIC_DEFAULT_SONNET_MODEL: relay.sonnetModel,
+      ANTHROPIC_DEFAULT_OPUS_MODEL: relay.opusModel,
+    }),
     endpoints: relay.endpoints,
   };
 };
@@ -207,7 +219,8 @@ const claudeSwitches = (mode: ClaudeMode): Record<string, string> => ({
 });
 
 /** The relay's server names an ACP agent is given (acpDriver's session servers): the owner's third-party servers. */
-const relayNames = (context: ProfileContext): ReadonlyArray<string> => (context.relay === undefined ? [] : context.relay.servers);
+const relayNames = (context: ProfileContext): ReadonlyArray<string> =>
+  context.relay === undefined ? [] : context.relay.servers;
 
 /**
  * Claude Code's managed settings (`/etc/claude-code/managed-settings.json`): the endpoint and the key (K5), and the
@@ -227,13 +240,20 @@ export const claudeManagedSettings = (mode: ClaudeMode, relayServers: ReadonlyAr
   cleanupPeriodDays: 60,
   // The asking mode the flavor pins: t3 decides each request (acpFlavor.ts). Claude's `auto` mode is not disabled: t3's
   // `auto` selects it, as stock t3's Claude adapter does.
-  permissions: { defaultMode: "default", disableBypassPermissionsMode: "disable", allow: relayServers.map((server) => `mcp__${server}`), ask: [], deny: [] },
+  permissions: {
+    defaultMode: "default",
+    disableBypassPermissionsMode: "disable",
+    allow: relayServers.map((server) => `mcp__${server}`),
+    ask: [],
+    deny: [],
+  },
   // With Claude's own sandbox on, `autoAllowBashIfSandboxed` would run commands without asking t3.
   sandbox: { enabled: false },
 });
 
 const claudeLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer => {
-  if (input.args.length !== 0) return { refused: `Claude Code runs here only as \`claude-agent-acp\` (not with ${input.args.join(" ")})` };
+  if (input.args.length !== 0)
+    return { refused: `Claude Code runs here only as \`claude-agent-acp\` (not with ${input.args.join(" ")})` };
   if (context.claudeRelay === undefined) return { refused: noEndpointFor("Claude Code", "Anthropic Messages") };
   const home = homeOf(input.key);
   const thread = input.env.T3CODE_THREAD_ID;
@@ -252,9 +272,17 @@ const claudeLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer
     },
     // ADR-0047 §9: the Owner's ~/.claude and ~/.claude.json first. The managed settings stay outside it, on top.
     ...dotfilesLaunch("claude", home, context.dotfiles),
-    files: [{ path: `${home}/managed-settings.json`, text: `${JSON.stringify(claudeManagedSettings(mode, relayNames(context)), null, 1)}\n` }],
+    files: [
+      {
+        path: `${home}/managed-settings.json`,
+        text: `${JSON.stringify(claudeManagedSettings(mode, relayNames(context)), null, 1)}\n`,
+      },
+    ],
     // SPI-1153: the Environment skill set as Claude Code's user-level root (`$CLAUDE_CONFIG_DIR/skills`).
-    links: [{ path: `${home}/claude/projects`, target: CLAUDE_PROJECTS }, environmentSkillsLink(`${home}/claude/skills`, dotfilesOn(context.dotfiles))],
+    links: [
+      { path: `${home}/claude/projects`, target: CLAUDE_PROJECTS },
+      environmentSkillsLink(`${home}/claude/skills`, dotfilesOn(context.dotfiles)),
+    ],
     ...(thread === undefined ? {} : { thread }),
     // SPI-1168: the Workspace DO gives the process a model handle for these endpoints, in its environment only.
     modelRelay: [...mode.endpoints],
@@ -282,7 +310,12 @@ export interface OpenCodeMode {
 }
 
 /** A model's entry in an OpenCode provider: its name, inputs and limits. */
-const opencodeModelEntry = (model: { readonly name: string; readonly input: ReadonlyArray<string>; readonly contextWindow: number; readonly maxTokens: number }) => ({
+const opencodeModelEntry = (model: {
+  readonly name: string;
+  readonly input: ReadonlyArray<string>;
+  readonly contextWindow: number;
+  readonly maxTokens: number;
+}) => ({
   name: model.name,
   capabilities: { input: [...model.input] },
   limit: { context: model.contextWindow, output: model.maxTokens },
@@ -302,7 +335,9 @@ const opencodeProviders = (mode: OpenCodeMode) => {
       ...pinned,
       // Pinned on each model too: OpenCode lets a model's own `package` and `settings.baseURL` win over its provider's,
       // and this system configuration outranks a repository's for the keys it sets, so the endpoint's models stay here.
-      models: Object.fromEntries(endpoint.models.map((model) => [model.id, { ...opencodeModelEntry(model), ...pinned }])),
+      models: Object.fromEntries(
+        endpoint.models.map((model) => [model.id, { ...opencodeModelEntry(model), ...pinned }]),
+      ),
     };
   }
   return {
@@ -351,8 +386,12 @@ export const opencodeConfig = (mode: OpenCodeMode, relayServers: ReadonlyArray<s
 };
 
 const opencodeLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer => {
-  if (input.args.length !== 1 || input.args[0] !== "acp") return { refused: `OpenCode runs here only as \`opencode acp\` (not \`opencode ${input.args.join(" ")}\`)` };
-  if (context.opencodeRelay === undefined) return { refused: noEndpointFor("OpenCode", "Anthropic Messages, OpenAI Responses or OpenAI-compatible Completions") };
+  if (input.args.length !== 1 || input.args[0] !== "acp")
+    return { refused: `OpenCode runs here only as \`opencode acp\` (not \`opencode ${input.args.join(" ")}\`)` };
+  if (context.opencodeRelay === undefined)
+    return {
+      refused: noEndpointFor("OpenCode", "Anthropic Messages, OpenAI Responses or OpenAI-compatible Completions"),
+    };
   const home = homeOf(input.key);
   const thread = input.env.T3CODE_THREAD_ID;
   const mode: OpenCodeMode = { kind: "relay", relay: context.opencodeRelay };
@@ -373,7 +412,12 @@ const opencodeLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnsw
     },
     // ADR-0047 §9: the Owner's ~/.config/opencode first; the system configuration (/etc/opencode) outranks it.
     ...dotfilesLaunch("opencode", home, context.dotfiles),
-    files: [{ path: `${home}/opencode.json`, text: `${JSON.stringify(opencodeConfig(mode, relayNames(context)), null, 1)}\n` }],
+    files: [
+      {
+        path: `${home}/opencode.json`,
+        text: `${JSON.stringify(opencodeConfig(mode, relayNames(context)), null, 1)}\n`,
+      },
+    ],
     // SPI-1153: the Environment skill set as OpenCode's user-level root (`$XDG_CONFIG_HOME/opencode/skills`).
     links: [environmentSkillsLink(`${home}/config/opencode/skills`, dotfilesOn(context.dotfiles))],
     ...(thread === undefined ? {} : { thread }),
@@ -384,5 +428,8 @@ const opencodeLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnsw
 };
 
 /** The launch of an ACP agent t3 asked for, or why it is refused. */
-export const acpProfileLaunch = (cli: "claude" | "opencode", input: LaunchInput, context: ProfileContext): LaunchAnswer =>
-  cli === "claude" ? claudeLaunch(input, context) : opencodeLaunch(input, context);
+export const acpProfileLaunch = (
+  cli: "claude" | "opencode",
+  input: LaunchInput,
+  context: ProfileContext,
+): LaunchAnswer => (cli === "claude" ? claudeLaunch(input, context) : opencodeLaunch(input, context));

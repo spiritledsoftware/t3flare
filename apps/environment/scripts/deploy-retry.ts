@@ -7,4 +7,5 @@
  * (2.0.0-beta.85) has no text of its own for it; it surfaces the API's message, so match on that.
  * Any other failure must not retry: the first pass deploys without the bindings, which unbinds a live stage.
  */
-export const isDurableObjectClassNotFound = (output: string): boolean => /Cannot create binding for class|\bcode"?:? ?10061\b/i.test(output);
+export const isDurableObjectClassNotFound = (output: string): boolean =>
+  /Cannot create binding for class|\bcode"?:? ?10061\b/i.test(output);

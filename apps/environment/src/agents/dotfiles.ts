@@ -31,7 +31,14 @@ export const dotfilesSeed = (cli: DotfilesCli, home: string): ReadonlyArray<Proc
       // ones (`PI_SESSIONS`). Not `auth.json`: pi's credentials are t3flare's, its models the relay's (ADR-0016). pi reads
       // `skills/` there before its `--skill` paths and keeps the first Skill of a name, so an Owner's Skill named as an
       // Environment skill is left out of the copy: the Environment skill, from its flag, wins.
-      return [{ from: `${OWNER_HOME}/.pi/agent`, to: `${home}/agent`, skip: ["sessions", "auth.json"], shadow: { dir: "skills", by: SKILLS_MOUNT } }];
+      return [
+        {
+          from: `${OWNER_HOME}/.pi/agent`,
+          to: `${home}/agent`,
+          skip: ["sessions", "auth.json"],
+          shadow: { dir: "skills", by: SKILLS_MOUNT },
+        },
+      ];
   }
 };
 
@@ -63,7 +70,10 @@ export const dotfilesLaunch = (
   codex?: CodexCheckOf,
 ): { readonly seed?: ReadonlyArray<ProcessSeed>; readonly check?: ProcessCheck } => {
   if (dotfiles === false) return {};
-  return { seed: dotfilesSeed(cli, home), ...(cli === "codex" && codex !== undefined ? { check: codexCheck(home, codex) } : {}) };
+  return {
+    seed: dotfilesSeed(cli, home),
+    ...(cli === "codex" && codex !== undefined ? { check: codexCheck(home, codex) } : {}),
+  };
 };
 
 /** Whether the dotfiles are on for a launch: absent is the setting's default, on. */

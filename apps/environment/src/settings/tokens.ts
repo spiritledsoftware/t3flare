@@ -25,7 +25,8 @@ export type TokenRefusal = "malformed" | "bad-signature" | "wrong-kind" | "other
 
 const encoder = new TextEncoder();
 
-const hmacKey = (key: Uint8Array<ArrayBuffer>, usage: "sign" | "verify") => crypto.subtle.importKey("raw", key, { name: "HMAC", hash: "SHA-256" }, false, [usage]);
+const hmacKey = (key: Uint8Array<ArrayBuffer>, usage: "sign" | "verify") =>
+  crypto.subtle.importKey("raw", key, { name: "HMAC", hash: "SHA-256" }, false, [usage]);
 
 /** The DO's key, made on first use. */
 export const settingsStateKey = (kv: KvStorage): Uint8Array<ArrayBuffer> => keptKey(kv, STATE_KEY);
@@ -33,7 +34,9 @@ export const settingsStateKey = (kv: KvStorage): Uint8Array<ArrayBuffer> => kept
 /** `payload`, signed. */
 export const signToken = async (key: Uint8Array<ArrayBuffer>, payload: TokenPayload): Promise<string> => {
   const body = base64Url(encoder.encode(JSON.stringify(payload)));
-  const signature = new Uint8Array(await crypto.subtle.sign("HMAC", await hmacKey(key, "sign"), encoder.encode(`v1.${body}`)));
+  const signature = new Uint8Array(
+    await crypto.subtle.sign("HMAC", await hmacKey(key, "sign"), encoder.encode(`v1.${body}`)),
+  );
   return `v1.${body}.${base64Url(signature)}`;
 };
 
@@ -42,7 +45,9 @@ export const verifyToken = async (
   key: Uint8Array<ArrayBuffer>,
   token: unknown,
   expected: { readonly kind: TokenKind; readonly sub: string; readonly now: number },
-): Promise<{ readonly ok: true; readonly payload: TokenPayload } | { readonly ok: false; readonly reason: TokenRefusal }> => {
+): Promise<
+  { readonly ok: true; readonly payload: TokenPayload } | { readonly ok: false; readonly reason: TokenRefusal }
+> => {
   if (typeof token !== "string" || token.length > 8192) return { ok: false, reason: "malformed" };
   const parts = token.split(".");
   if (parts.length !== 3 || parts[0] !== "v1") return { ok: false, reason: "malformed" };
@@ -50,14 +55,16 @@ export const verifyToken = async (
   const body = fromBase64Url(parts[1]!);
   if (signature === undefined || body === undefined) return { ok: false, reason: "malformed" };
   // The signature first (constant time, by WebCrypto), and only then anything the payload says.
-  if (!(await crypto.subtle.verify("HMAC", await hmacKey(key, "verify"), signature, encoder.encode(`v1.${parts[1]}`)))) return { ok: false, reason: "bad-signature" };
+  if (!(await crypto.subtle.verify("HMAC", await hmacKey(key, "verify"), signature, encoder.encode(`v1.${parts[1]}`))))
+    return { ok: false, reason: "bad-signature" };
   let payload: unknown;
   try {
     payload = JSON.parse(new TextDecoder().decode(body));
   } catch {
     return { ok: false, reason: "malformed" };
   }
-  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return { ok: false, reason: "malformed" };
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload))
+    return { ok: false, reason: "malformed" };
   const fields = payload as Record<string, unknown>;
   if (fields.kind !== expected.kind) return { ok: false, reason: "wrong-kind" };
   if (fields.sub !== expected.sub) return { ok: false, reason: "other-sub" };

@@ -17,18 +17,18 @@ repository, and a forgotten default puts the Maintainer's email in another Owner
 
 So every value that differs between Deployments is a **Deployment setting**, read from the environment:
 
-| Setting | Required | What it is |
-| -- | -- | -- |
-| `T3FLARE_ACCESS_TEAM_DOMAIN` | every deploy | the account's Access team |
-| `T3FLARE_OWNER_EMAIL` | every deploy | the Owner, the one person Access admits to the admin routes |
-| `T3FLARE_WORKERS_DEV_SUBDOMAIN` | every deploy | the account's workers.dev subdomain |
-| `T3FLARE_DOMAIN` | `prod` | `prod`'s custom domain |
-| `T3FLARE_DOMAIN_ZONE_ID` | `ci:setup` | the zone of `prod`'s domain |
-| `T3FLARE_UPDATE_REPO` | no | the update target: the Deployment repository an Update dispatches |
-| `GITHUB_REPOSITORY` | the infra scripts | the Deployment repository they configure |
-| `T3FLARE_STANDIN_ZONE` | a stand-in laptop | the zone a test Stage's stand-in gets its hostname in |
-| `T3FLARE_FIXTURE_REPO` | the acceptance test | the repository the test clones and pushes to |
-| `T3FLARE_LINEAR_SYNC` | no | turns on the Canonical repository's Linear sync |
+| Setting                         | Required            | What it is                                                        |
+| ------------------------------- | ------------------- | ----------------------------------------------------------------- |
+| `T3FLARE_ACCESS_TEAM_DOMAIN`    | every deploy        | the account's Access team                                         |
+| `T3FLARE_OWNER_EMAIL`           | every deploy        | the Owner, the one person Access admits to the admin routes       |
+| `T3FLARE_WORKERS_DEV_SUBDOMAIN` | every deploy        | the account's workers.dev subdomain                               |
+| `T3FLARE_DOMAIN`                | `prod`              | `prod`'s custom domain                                            |
+| `T3FLARE_DOMAIN_ZONE_ID`        | `ci:setup`          | the zone of `prod`'s domain                                       |
+| `T3FLARE_UPDATE_REPO`           | no                  | the update target: the Deployment repository an Update dispatches |
+| `GITHUB_REPOSITORY`             | the infra scripts   | the Deployment repository they configure                          |
+| `T3FLARE_STANDIN_ZONE`          | a stand-in laptop   | the zone a test Stage's stand-in gets its hostname in             |
+| `T3FLARE_FIXTURE_REPO`          | the acceptance test | the repository the test clones and pushes to                      |
+| `T3FLARE_LINEAR_SYNC`           | no                  | turns on the Canonical repository's Linear sync                   |
 
 1. **No defaults; fail closed.** A missing or malformed required setting stops the deploy before anything is built,
    naming the setting and `docs/deploy.md`. `alchemy.run.ts` reads them the same way. `GITHUB_REPOSITORY` is never

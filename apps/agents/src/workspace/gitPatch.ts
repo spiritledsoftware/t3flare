@@ -60,7 +60,17 @@ export const isBinary = (bytes: Uint8Array): boolean => bytes.subarray(0, BINARY
 
 const abbrev = (oid: string) => oid.slice(0, 7);
 
-const ESCAPES: Readonly<Record<number, string>> = { 7: "a", 8: "b", 9: "t", 10: "n", 11: "v", 12: "f", 13: "r", 34: '"', 92: "\\" };
+const ESCAPES: Readonly<Record<number, string>> = {
+  7: "a",
+  8: "b",
+  9: "t",
+  10: "n",
+  11: "v",
+  12: "f",
+  13: "r",
+  34: '"',
+  92: "\\",
+};
 
 /** git's C-style quoting of a path that needs it (`core.quotePath`, on by default), as Latin-1 text. */
 export const quotePath = (path: string): string => {
@@ -153,9 +163,11 @@ export const filePatch = (change: FileChange): string => {
   const renamed = change.oldPath !== change.newPath && before !== null && after !== null;
   if (before === null && after !== null) out += `new file mode ${after.mode}\n`;
   else if (after === null && before !== null) out += `deleted file mode ${before.mode}\n`;
-  else if (before !== null && after !== null && before.mode !== after.mode) out += `old mode ${before.mode}\nnew mode ${after.mode}\n`;
+  else if (before !== null && after !== null && before.mode !== after.mode)
+    out += `old mode ${before.mode}\nnew mode ${after.mode}\n`;
   // Only exact renames are paired here (`treeChanges`).
-  if (renamed) out += `similarity index 100%\nrename from ${quotePath(change.oldPath)}\nrename to ${quotePath(change.newPath)}\n`;
+  if (renamed)
+    out += `similarity index 100%\nrename from ${quotePath(change.oldPath)}\nrename to ${quotePath(change.newPath)}\n`;
   if (before !== null && after !== null && before.oid === after.oid) return out;
   const oldOid = before === null ? ZERO : abbrev(before.oid);
   const newOid = after === null ? ZERO : abbrev(after.oid);
@@ -238,7 +250,10 @@ export interface TreeChange {
  * detection pairs them (a deleted file and an added file with the same blob and mode). Inexact renames stay a delete and
  * an add: git would pair a similar file, which is why the Container's git makes the diff while it runs.
  */
-export const treeChanges = (from: ReadonlyMap<string, TreeEntry>, to: ReadonlyMap<string, TreeEntry>): Array<TreeChange> => {
+export const treeChanges = (
+  from: ReadonlyMap<string, TreeEntry>,
+  to: ReadonlyMap<string, TreeEntry>,
+): Array<TreeChange> => {
   const paths = [...new Set([...from.keys(), ...to.keys()])].toSorted(byPath);
   const raw: Array<TreeChange> = [];
   for (const path of paths) {
@@ -247,7 +262,10 @@ export const treeChanges = (from: ReadonlyMap<string, TreeEntry>, to: ReadonlyMa
     if (before !== null && after !== null && before.oid === after.oid && before.mode === after.mode) continue;
     // A file that became a symlink (or back) is a delete and an add in git.
     if (before !== null && after !== null && (before.mode === "120000") !== (after.mode === "120000")) {
-      raw.push({ oldPath: path, newPath: path, old: before, new: null }, { oldPath: path, newPath: path, old: null, new: after });
+      raw.push(
+        { oldPath: path, newPath: path, old: before, new: null },
+        { oldPath: path, newPath: path, old: null, new: after },
+      );
       continue;
     }
     raw.push({ oldPath: path, newPath: path, old: before, new: after });
@@ -258,7 +276,9 @@ export const treeChanges = (from: ReadonlyMap<string, TreeEntry>, to: ReadonlyMa
   for (const change of raw) {
     if (change.old === null && change.new !== null) {
       const added = change.new;
-      const source = deleted.find((candidate) => !used.has(candidate) && candidate.old!.oid === added.oid && candidate.old!.mode === added.mode);
+      const source = deleted.find(
+        (candidate) => !used.has(candidate) && candidate.old!.oid === added.oid && candidate.old!.mode === added.mode,
+      );
       if (source !== undefined) {
         used.add(source);
         paired.push({ oldPath: source.oldPath, newPath: change.newPath, old: source.old, new: added });

@@ -10,7 +10,18 @@ import type { DurableObjectState } from "@cloudflare/workers-types/index.ts";
 import type { McpAsker, McpRpcAnswer, McpRpcRequest, SessionPush, SessionPushAnswer } from "@t3flare/session-protocol";
 import type { TerminalPush, TerminalPushAnswer } from "@t3flare/workspace-client";
 import type { SkillSet } from "@t3flare/skills";
-import { BASE_BUILD_CAPS, type BaseBuildRecord, BUILDERS, extensionOf, type McpRelayAnswer, type McpRelayInput, resolveEnvironment, type ResolvedEnvironment, resolveHarness, type ResolvedHarness } from "@t3flare/harness-registry";
+import {
+  BASE_BUILD_CAPS,
+  type BaseBuildRecord,
+  BUILDERS,
+  extensionOf,
+  type McpRelayAnswer,
+  type McpRelayInput,
+  resolveEnvironment,
+  type ResolvedEnvironment,
+  resolveHarness,
+  type ResolvedHarness,
+} from "@t3flare/harness-registry";
 
 import { bindEnvironmentServices, environmentServices } from "./agents/bindings.ts";
 import { graceMoved, ownerSweep, SweepWake } from "./agents/sweepWake.ts";
@@ -213,7 +224,9 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       newKey: () => `proc-${crypto.randomUUID()}`,
       // Read at each CLI spawn (SPI-1318): the count applies at the next start, the reclaim delay to processes started after.
       cliLimits: () => {
-        const { cliProcessesPerWorkspace, cliReclaimSeconds } = resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment());
+        const { cliProcessesPerWorkspace, cliReclaimSeconds } = resolveEnvironment(
+          harnessStore(ctx.storage.kv).loadEnvironment(),
+        );
         return { cliProcessesPerWorkspace, cliReclaimSeconds };
       },
     });
@@ -224,7 +237,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       workspaces: workspaceRegistry(ctx.storage.sql),
       sql: ctx.storage.sql,
       // Read at each use (ADR-0043 §2–3): a change to the Grace applies at the next Sweep, without a reset.
-      sweep: () => sweepSettingsOf(resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()), env.T3FLARE_SWEEP_GRACE_MS),
+      sweep: () =>
+        sweepSettingsOf(resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()), env.T3FLARE_SWEEP_GRACE_MS),
       // Read at each CLI spawn (ADR-0047 §9): a change applies at each CLI agent's next start.
       agentsReadDotfiles: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).agentsReadDotfiles,
       // Read at each turn's start (SPI-1315): a change applies at each thread's next turn; a running turn keeps its limit.
@@ -232,7 +246,10 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       // The deletion wake's Layer (`t3/deletionWake.ts`, ADR-0043 §5) asks for a Sweep here.
       wakeSweep: () => this.wakeSweep(),
       marks: { has: (key) => ctx.storage.kv.get(key) !== undefined, set: (key) => ctx.storage.kv.put(key, Date.now()) },
-      seededTextModel: { get: () => ctx.storage.kv.get<string>(SEEDED_TEXT_MODEL_KEY), set: (slug) => ctx.storage.kv.put(SEEDED_TEXT_MODEL_KEY, slug) },
+      seededTextModel: {
+        get: () => ctx.storage.kv.get<string>(SEEDED_TEXT_MODEL_KEY),
+        set: (slug) => ctx.storage.kv.put(SEEDED_TEXT_MODEL_KEY, slug),
+      },
       processes: this.#processes,
       faults: env.T3FLARE_FAULTS === "1",
       relayServers: () =>
@@ -250,9 +267,14 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       limits: limitStore(ctx.storage.sql),
       browserRun: env.BROWSER,
       // SAFETY: the Worker's entry (`worker.ts`) exports `ContainerPreviews`; `ctx.exports` is untyped here.
-      containerPreviews: (workspace) => (ctx.exports as unknown as EnvironmentExports).ContainerPreviews({ props: { workspace } }),
+      containerPreviews: (workspace) =>
+        (ctx.exports as unknown as EnvironmentExports).ContainerPreviews({ props: { workspace } }),
       previewStore: previewStore(ctx.storage.sql),
-      updates: environmentUpdates({ target: env.T3FLARE_UPDATE_REPO, store: ctx.storage.kv, github: () => this.github }),
+      updates: environmentUpdates({
+        target: env.T3FLARE_UPDATE_REPO,
+        store: ctx.storage.kv,
+        github: () => this.github,
+      }),
     });
     // G11 (review M5): the browsers an earlier instance of this object acquired went with its sockets; Browser Run would
     // keep them until their keep-alive. Closed now, from this object's own list (never Browser Run's account-wide one).
@@ -306,7 +328,13 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       // SPI-1079: an MCP server's question is the owner's; an agent's `t3_pending_request` on its card never reaches t3.
       const { refuseOwnerOnly } = await import("./mcp/ownerOnly.ts");
       const refused = refuseOwnerOnly(input.body);
-      if (refused !== undefined) return { status: 200, contentType: "application/json", ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }), body: refused };
+      if (refused !== undefined)
+        return {
+          status: 200,
+          contentType: "application/json",
+          ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
+          body: refused,
+        };
       const runtime = await this.boot("mcp");
       await runtime.commandReady();
       const host = await this.#publicHost();
@@ -353,7 +381,11 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
    * helper in its Container (`contents: write`; `workflows` only when the Workspace is opted in). Null for a Workspace
    * the registry does not list or without a GitHub remote. Counted as a request for the idle check.
    */
-  async workspaceToken(id: string): Promise<{ readonly token: string | null; readonly expiresAt?: number; readonly repo?: { readonly owner: string; readonly name: string } }> {
+  async workspaceToken(id: string): Promise<{
+    readonly token: string | null;
+    readonly expiresAt?: number;
+    readonly repo?: { readonly owner: string; readonly name: string };
+  }> {
     Idle.requestStarted();
     try {
       const { workspaceGitHubToken } = await import("./agents/processRouter.ts");
@@ -369,7 +401,10 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
    * the call raised is withdrawn, and a Settings server call held under the id withdraws its Open change.
    */
   async cancelAsk(input: { readonly askId: string }): Promise<void> {
-    const [{ cancelCliAsk }, { stopCall }] = await Promise.all([import("./provider/cli/cliAsk.ts"), import("./mcp/callStops.ts")]);
+    const [{ cancelCliAsk }, { stopCall }] = await Promise.all([
+      import("./provider/cli/cliAsk.ts"),
+      import("./mcp/callStops.ts"),
+    ]);
     cancelCliAsk(input.askId);
     // A Settings server call held under this id (a CLI's relayed call, or a Session's call stopped): plan D9.
     stopCall(input.askId);
@@ -383,7 +418,10 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
    */
   async terminalOutput(push: TerminalPush): Promise<TerminalPushAnswer> {
     const terminals = currentTerminals();
-    if (terminals === undefined) return { unknown: [...new Set(push.frames.filter((frame) => frame.exit === undefined).map((frame) => frame.key))] };
+    if (terminals === undefined)
+      return {
+        unknown: [...new Set(push.frames.filter((frame) => frame.exit === undefined).map((frame) => frame.key))],
+      };
     return terminals.deliver(push);
   }
 
@@ -410,7 +448,11 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       baseInputsChanged: (reason) => this.#pokeBuilder(reason),
       ...(this.env.WORKSPACES === undefined
         ? {}
-        : { rebuildBase: () => this.#rebuildBase("the Owner's Rebuild"), testBase: (imageSetup: string) => this.#testBase(imageSetup, "the Owner's Test"), readTestBase: () => this.#builder("test").builderRecord() }),
+        : {
+            rebuildBase: () => this.#rebuildBase("the Owner's Rebuild"),
+            testBase: (imageSetup: string) => this.#testBase(imageSetup, "the Owner's Test"),
+            readTestBase: () => this.#builder("test").builderRecord(),
+          }),
       // The Workspaces section (ADR-0044): the view, the Owner's acts, each Workspace's usage, and the Sweep.
       workspaces: await this.workspacesApi(),
       // The Container budget's leases (ADR-0032): the Environment section shows the running count and holders.
@@ -418,7 +460,13 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       skills: this.#skillsApi(),
       endpoints: {
         store: this.#endpointStore(),
-        discover: async (target, apiKey, signIn) => (await import("./endpoints/discover.ts")).discoverModels(target, apiKey, (input, init) => fetch(input, init), signIn),
+        discover: async (target, apiKey, signIn) =>
+          (await import("./endpoints/discover.ts")).discoverModels(
+            target,
+            apiKey,
+            (input, init) => fetch(input, init),
+            signIn,
+          ),
         changed: () => void import("./endpoints/changes.ts").then(({ endpointsChanged }) => endpointsChanged()),
         signIns: this.#credentialBroker(),
         signedOut: (endpointId) => this.#stopSessionsOn(endpointId),
@@ -429,13 +477,19 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       changes: changesApiOf(await this.#settingsDeps()),
       // The Owner clients' modes (ADR-0035's 2026-11-15 refinement): set here alone, read by the endpoint.
       clients,
-      ...(this.env.T3FLARE_ACCESS_SETTINGS_AUD === undefined ? {} : { ownerEndpoint: settingsMcpUrl(this.#configuredHost()) }),
+      ...(this.env.T3FLARE_ACCESS_SETTINGS_AUD === undefined
+        ? {}
+        : { ownerEndpoint: settingsMcpUrl(this.#configuredHost()) }),
     });
   }
 
   /** The Model endpoints (SPI-1162): their entity, and their keys sealed under the stage's credentials key. */
   #endpointStore(): EndpointStore {
-    return endpointStore(this.ctx.storage.kv, sealedStore(this.ctx.storage.kv, this.env.T3FLARE_CREDENTIALS_KEY), this.#credentialBroker());
+    return endpointStore(
+      this.ctx.storage.kv,
+      sealedStore(this.ctx.storage.kv, this.env.T3FLARE_CREDENTIALS_KEY),
+      this.#credentialBroker(),
+    );
   }
 
   #broker: CredentialBroker | undefined;
@@ -520,7 +574,11 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
    */
   async recordUsage(input: unknown): Promise<{ readonly kept: number }> {
     const { environmentServices } = await import("./agents/bindings.ts");
-    return acceptUsage(input, { store: environmentServices().usage, endpoints: this.#endpointStore().load(), now: () => Date.now() });
+    return acceptUsage(input, {
+      store: environmentServices().usage,
+      endpoints: this.#endpointStore().load(),
+      now: () => Date.now(),
+    });
   }
 
   /**
@@ -535,9 +593,12 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
 
   /** The limit readings' wiring (SPI-1174): the store, against the endpoints stored now. */
   #limits() {
-    return limitWiring({ store: () => environmentServices().limits, endpoints: () => this.#endpointStore().load(), now: () => Date.now() });
+    return limitWiring({
+      store: () => environmentServices().limits,
+      endpoints: () => this.#endpointStore().load(),
+      now: () => Date.now(),
+    });
   }
-
 
   /**
    * The Owner-client endpoint (ADR-0035, plan D11), RPC from the Worker after it verified the endpoint's own Access
@@ -546,7 +607,11 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
   async settingsMcp(request: Request, caller: AccessCaller): Promise<Response> {
     Idle.requestStarted();
     try {
-      const [{ handleSettingsMcp }, { settingsStateKey }, clients] = await Promise.all([import("./settings/endpoint.ts"), import("./settings/tokens.ts"), this.#clientsTable()]);
+      const [{ handleSettingsMcp }, { settingsStateKey }, clients] = await Promise.all([
+        import("./settings/endpoint.ts"),
+        import("./settings/tokens.ts"),
+        this.#clientsTable(),
+      ]);
       return await handleSettingsMcp(request, caller, {
         server: await this.#settingsDeps(),
         // The client's kept mode, read and recorded as seen; never set through this door.
@@ -574,8 +639,13 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     const { byName } = await import("./agents/rpc.ts");
     const services = environmentServices();
     const state = await byName(services.agents.CONTAINER_BUDGET, "budget", "CONTAINER_BUDGET").state();
-    const names = new Map(services.workspaces.list().map((ws) => [String(services.agents.WORKSPACES?.idFromName(ws.id)), ws.id]));
-    return { max: state.max, leases: state.leases.map((lease) => ({ holder: lease.holder, workspace: names.get(lease.holder) ?? null })) };
+    const names = new Map(
+      services.workspaces.list().map((ws) => [String(services.agents.WORKSPACES?.idFromName(ws.id)), ws.id]),
+    );
+    return {
+      max: state.max,
+      leases: state.leases.map((lease) => ({ holder: lease.holder, workspace: names.get(lease.holder) ?? null })),
+    };
   }
 
   /** The Owner clients' table: the one instance of this object (its DDL runs on its first call). */
@@ -593,7 +663,12 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
    */
   async #settingsDeps(): Promise<SettingsServerDeps> {
     // threadCaller.ts, not provider/adapter.ts: the panel's GET on a cold object must not load the provider modules.
-    const [{ settingsChanges }, { harnessStatus, refreshedTestRecord, runningContainers }, { threadLinkIn, durableModes }, { cliThreadState }] = await Promise.all([
+    const [
+      { settingsChanges },
+      { harnessStatus, refreshedTestRecord, runningContainers },
+      { threadLinkIn, durableModes },
+      { cliThreadState },
+    ] = await Promise.all([
       import("./settings/changes.ts"),
       import("./harness/panel.ts"),
       import("./provider/threadCaller.ts"),
@@ -602,20 +677,47 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     const store = harnessStore(this.ctx.storage.kv);
     const skills = this.#skillsApi();
     return {
-      ops: { store, mcp: this.mcpHost, secrets: harnessSecrets(this.ctx.storage.kv), variableSealer: this.#variableSealer(), oauth: this.harnessOAuth, skills, sweepSettingsChanged: () => this.#sweepSettingsChanged(), baseInputsChanged: (reason) => this.#pokeBuilder(reason), now: () => Date.now() },
+      ops: {
+        store,
+        mcp: this.mcpHost,
+        secrets: harnessSecrets(this.ctx.storage.kv),
+        variableSealer: this.#variableSealer(),
+        oauth: this.harnessOAuth,
+        skills,
+        sweepSettingsChanged: () => this.#sweepSettingsChanged(),
+        baseInputsChanged: (reason) => this.#pokeBuilder(reason),
+        now: () => Date.now(),
+      },
       oauthStatus: (server) => this.harnessOAuth.status(server),
       link: (thread) => threadLinkIn(this.ctx.storage.sql, thread),
       // A Durable thread's modes are the adapter's record; a CLI thread's are its live session's (plan D3).
-      modes: (caller) => (caller.thread === undefined ? undefined : caller.agent === DURABLE_AGENT ? durableModes(caller.thread) : cliThreadState(caller.thread)),
+      modes: (caller) =>
+        caller.thread === undefined
+          ? undefined
+          : caller.agent === DURABLE_AGENT
+            ? durableModes(caller.thread)
+            : cliThreadState(caller.thread),
       changes: settingsChanges(this.ctx.storage.sql, Date.now, (event) => console.log(JSON.stringify(event))),
-      origin: () => (this.env.T3FLARE_HOST === undefined && this.#host === undefined ? undefined : `https://${this.#configuredHost()}`),
+      origin: () =>
+        this.env.T3FLARE_HOST === undefined && this.#host === undefined
+          ? undefined
+          : `https://${this.#configuredHost()}`,
       status: () => harnessStatus({ store, skills }),
       // The Base snapshot (SPI-1332): `get_status` reads its record, `rebuild_base` asks the Builder.
       baseBuild: () => store.lastBaseBuild(),
       // A Test base build (SPI-1334): `test_base_build` asks the test Builder, `get_status` reads its last result.
       // Read again from the test Builder while it says building: its reports are not awaited (`refreshedTestRecord`).
-      testBaseBuild: () => refreshedTestRecord(store, this.env.WORKSPACES === undefined ? undefined : () => this.#builder("test").builderRecord()),
-      ...(this.env.WORKSPACES === undefined ? {} : { rebuildBase: (reason: string) => this.#rebuildBase(reason), testBase: (imageSetup: string, reason: string) => this.#testBase(imageSetup, reason) }),
+      testBaseBuild: () =>
+        refreshedTestRecord(
+          store,
+          this.env.WORKSPACES === undefined ? undefined : () => this.#builder("test").builderRecord(),
+        ),
+      ...(this.env.WORKSPACES === undefined
+        ? {}
+        : {
+            rebuildBase: (reason: string) => this.#rebuildBase(reason),
+            testBase: (imageSetup: string, reason: string) => this.#testBase(imageSetup, reason),
+          }),
       running: () => runningContainers({ budget: () => this.#budgetState() }),
       log: (event) => console.log(JSON.stringify(event)),
       // `list_workspaces` and `purge_workspace` (ADR-0044 §5): the Settings page's reads and acts.
@@ -688,9 +790,12 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       const header = secrets.read(server, "header");
       if (header !== undefined) found.push({ name: `mcp-header:${server}`, value: header });
       const tokens = parsed(secrets.read(server, "oauth-tokens"));
-      for (const field of ["access", "refresh"]) if (typeof tokens[field] === "string") found.push({ name: `mcp-oauth-${field}:${server}`, value: tokens[field] });
+      for (const field of ["access", "refresh"])
+        if (typeof tokens[field] === "string")
+          found.push({ name: `mcp-oauth-${field}:${server}`, value: tokens[field] });
       const client = parsed(secrets.read(server, "oauth-client"));
-      if (typeof client.client_secret === "string") found.push({ name: `mcp-oauth-client-secret:${server}`, value: client.client_secret });
+      if (typeof client.client_secret === "string")
+        found.push({ name: `mcp-oauth-client-secret:${server}`, value: client.client_secret });
     }
     return found;
   }
@@ -736,11 +841,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
   async mcpRelay(input: McpRelayInput): Promise<McpRelayAnswer> {
     Idle.requestStarted();
     try {
-      const [{ relayMessage }, { approveCliTool, cliQuestionAsker, cliThreadState }, { stoppableCall }] = await Promise.all([
-        import("./mcp/relay.ts"),
-        import("./provider/cli/cliAsk.ts"),
-        import("./mcp/callStops.ts"),
-      ]);
+      const [{ relayMessage }, { approveCliTool, cliQuestionAsker, cliThreadState }, { stoppableCall }] =
+        await Promise.all([import("./mcp/relay.ts"), import("./provider/cli/cliAsk.ts"), import("./mcp/callStops.ts")]);
       const accepted = this.#relayAccepted;
       return await relayMessage(input, {
         view: () => this.mcpHost.view(),
@@ -829,8 +931,17 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
   }
 
   /** A Workspace refused or could not mount the set `hash` (SPI-1148, plan §4.5): shown on the panel's Status. */
-  async skillSetRefused(input: { readonly workspace: string; readonly hash: string; readonly message: string }): Promise<void> {
-    this.skills.noteRefusal({ workspace: String(input.workspace).slice(0, 200), hash: String(input.hash).slice(0, 64), message: String(input.message).slice(0, 2000), at: Date.now() });
+  async skillSetRefused(input: {
+    readonly workspace: string;
+    readonly hash: string;
+    readonly message: string;
+  }): Promise<void> {
+    this.skills.noteRefusal({
+      workspace: String(input.workspace).slice(0, 200),
+      hash: String(input.hash).slice(0, 64),
+      message: String(input.message).slice(0, 2000),
+      at: Date.now(),
+    });
   }
 
   /**
@@ -881,7 +992,14 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
         .then(
           (record) => void harnessStore(this.ctx.storage.kv).noteBaseBuild(record),
           // A log line's error text, kept short (`BASE_BUILD_CAPS.log`).
-          (error: unknown) => console.warn(JSON.stringify({ t3flare: "builder-poke-failed", reason, error: String(error).slice(0, BASE_BUILD_CAPS.log) })),
+          (error: unknown) =>
+            console.warn(
+              JSON.stringify({
+                t3flare: "builder-poke-failed",
+                reason,
+                error: String(error).slice(0, BASE_BUILD_CAPS.log),
+              }),
+            ),
         ),
     );
   }
@@ -975,7 +1093,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     }
     const started = Date.now();
     try {
-      if (await BootState.takeInjectedFailure(kv)) throw new Error("t3flare: injected boot failure (admin fault route)");
+      if (await BootState.takeInjectedFailure(kv))
+        throw new Error("t3flare: injected boot failure (admin fault route)");
       const host = await this.#publicHost(request);
       const armed = await this.isArmed();
       const { boot } = await import("./runtime.ts");
@@ -1006,16 +1125,21 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
           const raised = await runtime.run(reraiseQuestionsAfterRestart);
           if (raised > 0) console.log(JSON.stringify({ t3flare: "questions-raised-again", count: raised }));
         })
-        .catch((error: unknown) => console.warn(JSON.stringify({ t3flare: "questions-reraise-failed", error: String(error).slice(0, 300) })));
+        .catch((error: unknown) =>
+          console.warn(JSON.stringify({ t3flare: "questions-reraise-failed", error: String(error).slice(0, 300) })),
+        );
       // Step 3+ (review finding 4): once the questions are raised again, what the phone last heard of each live thread
       // is published again as it is now (a tombstone for a run the restart cancelled).
       void this.#reraised
         .then(async () => {
           const [{ Connect }, Effect] = await Promise.all([import("./connect/service.ts"), import("effect/Effect")]);
           const republished = await runtime.run(Effect.flatMap(Connect, (connect) => connect.republishLastLive));
-          if (republished.length > 0) console.log(JSON.stringify({ t3flare: "connect-republished", count: republished.length }));
+          if (republished.length > 0)
+            console.log(JSON.stringify({ t3flare: "connect-republished", count: republished.length }));
         })
-        .catch((error: unknown) => console.warn(JSON.stringify({ t3flare: "connect-republish-failed", error: String(error).slice(0, 300) })));
+        .catch((error: unknown) =>
+          console.warn(JSON.stringify({ t3flare: "connect-republish-failed", error: String(error).slice(0, 300) })),
+        );
       if (runtime.bootstrapSeeded) await Pairing.keepWindowClosing(this.ctx.storage);
       return runtime;
     } catch (error) {
@@ -1046,7 +1170,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
 
   async arm(minutes: number): Promise<Date> {
     // Arming restarts t3 in place, which would end a T3 Connect sign-in's poll (step 3+, review finding 4).
-    if (Idle.activeHolds(Date.now()).includes(Idle.CONNECT_SIGN_IN_HOLD)) throw new Error("t3flare: a T3 Connect sign-in is pending; arm after it ends");
+    if (Idle.activeHolds(Date.now()).includes(Idle.CONNECT_SIGN_IN_HOLD))
+      throw new Error("t3flare: a T3 Connect sign-in is pending; arm after it ends");
     const until = await Pairing.arm(this.ctx.storage, minutes, new Date());
     const runtime = this.#runtime === undefined ? undefined : await this.#runtime.catch(() => undefined);
     if (runtime !== undefined && !runtime.bootstrapSeeded) await this.restartRuntime("arm-bootstrap");
@@ -1069,7 +1194,9 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     if (this.#idleTimer !== undefined) return;
     const every = Math.min(Idle.IDLE_CHECK_EVERY_MS, Math.max(1000, Math.floor(this.#idleAfterMs() / 4)));
     this.#idleTimer = setInterval(() => {
-      void this.checkIdle().catch((error) => console.error(JSON.stringify({ t3flare: "idle-check-failed", error: String(error) })));
+      void this.checkIdle().catch((error) =>
+        console.error(JSON.stringify({ t3flare: "idle-check-failed", error: String(error) })),
+      );
     }, every);
   }
 
@@ -1104,7 +1231,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
    * twice across runs; written at each destroy, so a Purge now during a Sweep loses nothing.
    */
   readonly #sweptSessions = {
-    has: (threadId: string): boolean => (this.ctx.storage.kv.get<ReadonlyArray<string>>(SWEPT_SESSIONS_KEY) ?? []).includes(threadId),
+    has: (threadId: string): boolean =>
+      (this.ctx.storage.kv.get<ReadonlyArray<string>>(SWEPT_SESSIONS_KEY) ?? []).includes(threadId),
     add: (threadId: string): void => {
       const swept = this.ctx.storage.kv.get<ReadonlyArray<string>>(SWEPT_SESSIONS_KEY) ?? [];
       if (!swept.includes(threadId)) this.ctx.storage.kv.put(SWEPT_SESSIONS_KEY, [...swept, threadId].slice(-5000));
@@ -1114,7 +1242,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
   /** When purging was last turned on (ADR-0043 §4), for the Sweep, the Workspaces section and a change to the Grace. */
   readonly #purgingSince: PurgingSince = {
     get: () => this.ctx.storage.kv.get<number>(PURGING_SINCE_KEY) ?? null,
-    set: (at) => (at === null ? void this.ctx.storage.kv.delete(PURGING_SINCE_KEY) : this.ctx.storage.kv.put(PURGING_SINCE_KEY, at)),
+    set: (at) =>
+      at === null ? void this.ctx.storage.kv.delete(PURGING_SINCE_KEY) : this.ctx.storage.kv.put(PURGING_SINCE_KEY, at),
   };
 
   /** Runs the Workspace sweep (step 2b); `dry` only reports. Never boots t3: it reads t3's tables directly. */
@@ -1130,7 +1259,15 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       this.#purgingSince,
       // ADR-0044 §4: each Workspace the Sweep purges is its own audit entry, beside the Owner's purges.
       (purged, why) =>
-        store.audit(auditWorkspace({ at: Date.now(), actor: { caller: "sweep" }, action: "sweep.purge", target: purged.id, after: { purged: [purged.id], sessions: purged.sessionsDestroyed.length, why } })),
+        store.audit(
+          auditWorkspace({
+            at: Date.now(),
+            actor: { caller: "sweep" },
+            action: "sweep.purge",
+            target: purged.id,
+            after: { purged: [purged.id], sessions: purged.sessionsDestroyed.length, why },
+          }),
+        ),
     );
     if (!options.dry) {
       this.ctx.storage.kv.put(LAST_SWEEP_KEY, report);
@@ -1190,7 +1327,11 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
 
   /** A change moved the Grace (`sweepPurges` or `graceDays`, ADR-0043 §5): every purge date moved; off clears `purgingSince`. */
   #sweepSettingsChanged(): void {
-    graceMoved({ purging: environmentServices().sweep().purging, clearPurgingSince: () => this.#purgingSince.set(null), wake: () => this.wakeSweep() });
+    graceMoved({
+      purging: environmentServices().sweep().purging,
+      clearPurgingSince: () => this.#purgingSince.set(null),
+      wake: () => this.wakeSweep(),
+    });
   }
 
   /** The one alarm also wakes the sweep (ADR-0003's refinement). */
@@ -1216,7 +1357,11 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       // Fail safe (fragility U2): the Environment stays up. Logged once per back-off, as an error.
       if (verdict.unreadable !== undefined) {
         console.error(
-          JSON.stringify({ t3flare: "idle-check-unreadable", error: verdict.unreadable, retryAfter: new Date(Idle.activity.unreadableUntil).toISOString() }),
+          JSON.stringify({
+            t3flare: "idle-check-unreadable",
+            error: verdict.unreadable,
+            retryAfter: new Date(Idle.activity.unreadableUntil).toISOString(),
+          }),
         );
       }
       return verdict;
@@ -1242,12 +1387,21 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     await this.ctx.storage.setAlarm(planned.alarm);
     // G11 (review M5): the reset ends t3's preview browsers with their tabs (ADR-0031); their Browser Run sessions are
     // closed now, not left to Browser Run's 10-minute keep-alive.
-    if (this.env.BROWSER !== undefined) await closeLeftoverSessions(this.env.BROWSER, previewStore(this.ctx.storage.sql)).catch(() => 0);
+    if (this.env.BROWSER !== undefined)
+      await closeLeftoverSessions(this.env.BROWSER, previewStore(this.ctx.storage.sql)).catch(() => 0);
     // `ctx.abort()` discards writes not yet durable: on production the alarm was lost without this.
     await this.ctx.storage.sync();
     const stored = await this.ctx.storage.getAlarm();
     const alarm = stored === null ? null : new Date(stored).toISOString();
-    console.log(JSON.stringify({ t3flare: "idle-reset", alarm, work: verdict.work, sources: verdict.due.sources, remoteRetry: planned.retry ?? null }));
+    console.log(
+      JSON.stringify({
+        t3flare: "idle-reset",
+        alarm,
+        work: verdict.work,
+        sources: verdict.due.sources,
+        remoteRetry: planned.retry ?? null,
+      }),
+    );
     this.#stopIdleChecks();
     // Reset outside this call, so the caller's I/O completes first.
     setTimeout(() => this.ctx.abort("t3flare: idle reset"), 0);
@@ -1260,14 +1414,21 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
    */
   async #keepRemoteTasksAlarm(work: Idle.OpenWork, now: number): Promise<void> {
     if (work.remoteTasksUnanswered === 0) this.ctx.storage.kv.delete(Idle.REMOTE_RETRY_KEY);
-    const at = Idle.standingAlarm(await this.ctx.storage.getAlarm(), work.remoteTasksAnswering + work.remoteTasksUnanswered, now);
+    const at = Idle.standingAlarm(
+      await this.ctx.storage.getAlarm(),
+      work.remoteTasksAnswering + work.remoteTasksUnanswered,
+      now,
+    );
     if (at !== undefined) await this.ctx.storage.setAlarm(at);
   }
 
   override async alarm(): Promise<void> {
     const runtime = this.#runtime === undefined ? undefined : await this.#runtime.catch(() => undefined);
     // An earlier alarm may have displaced the window's close: onAlarm sets it again while the window is open.
-    if ((await Pairing.onAlarm(this.ctx.storage, { seeded: runtime?.bootstrapSeeded ?? false }, new Date())) === "close-window") {
+    if (
+      (await Pairing.onAlarm(this.ctx.storage, { seeded: runtime?.bootstrapSeeded ?? false }, new Date())) ===
+      "close-window"
+    ) {
       console.log(JSON.stringify({ t3flare: "bootstrap-disarmed", action: "restart-in-place" }));
       await this.restartRuntime("bootstrap-window-closed");
       return;
@@ -1280,8 +1441,15 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       let due: Date | null;
       try {
         // A watch with no stored wake (one a reset before G12 left) is due now.
-        const t3Due = Idle.nextDue(this.ctx.storage.sql, new Date(), this.ctx.storage.kv.get<number>(Idle.PR_WATCH_WAKE_KEY) ?? Date.now()).at;
-        const remote = Idle.remoteWakeAt(this.ctx.storage.kv.get<Idle.RemoteRetry>(Idle.REMOTE_RETRY_KEY), Idle.openRemoteTaskCount(this.ctx.storage.sql));
+        const t3Due = Idle.nextDue(
+          this.ctx.storage.sql,
+          new Date(),
+          this.ctx.storage.kv.get<number>(Idle.PR_WATCH_WAKE_KEY) ?? Date.now(),
+        ).at;
+        const remote = Idle.remoteWakeAt(
+          this.ctx.storage.kv.get<Idle.RemoteRetry>(Idle.REMOTE_RETRY_KEY),
+          Idle.openRemoteTaskCount(this.ctx.storage.sql),
+        );
         due = remote === null ? t3Due : new Date(Math.min(remote, t3Due?.getTime() ?? Number.POSITIVE_INFINITY));
       } catch (error) {
         if (!(error instanceof Idle.UnreadableTables)) throw error;
@@ -1293,7 +1461,12 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
         await this.ctx.storage.setAlarm(Math.max(at, Date.now() + 1000));
         return;
       }
-      console.log(JSON.stringify({ t3flare: "alarm-wake", remoteRetry: this.ctx.storage.kv.get<Idle.RemoteRetry>(Idle.REMOTE_RETRY_KEY) ?? null }));
+      console.log(
+        JSON.stringify({
+          t3flare: "alarm-wake",
+          remoteRetry: this.ctx.storage.kv.get<Idle.RemoteRetry>(Idle.REMOTE_RETRY_KEY) ?? null,
+        }),
+      );
       try {
         await this.boot("alarm");
       } catch (error) {
@@ -1323,16 +1496,22 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
         // SPI-1079: an MCP server's question is the owner's; an agent's `t3_pending_request` on its card never reaches t3.
         const { refuseOwnerOnly } = await import("./mcp/ownerOnly.ts");
         const refused = refuseOwnerOnly(await request.clone().text());
-        if (refused !== undefined) return new Response(refused, { status: 200, headers: { "content-type": "application/json" } });
+        if (refused !== undefined)
+          return new Response(refused, { status: 200, headers: { "content-type": "application/json" } });
       }
       const runtime = await this.boot("request", request);
       if (url.pathname === "/mcp") await this.#reraised;
       return await runtime.fetch(request);
     } catch (error) {
       if (error instanceof SafeModeError) {
-        return Response.json({ t3flare: "safe-mode", ...error.safeMode }, { status: 503, headers: { "retry-after": "60" } });
+        return Response.json(
+          { t3flare: "safe-mode", ...error.safeMode },
+          { status: 503, headers: { "retry-after": "60" } },
+        );
       }
-      console.error(JSON.stringify({ t3flare: "request-failed", path: url.pathname, error: String(error).slice(0, 2000) }));
+      console.error(
+        JSON.stringify({ t3flare: "request-failed", path: url.pathname, error: String(error).slice(0, 2000) }),
+      );
       return new Response("t3flare: the Environment failed to start; see the admin health route.\n", { status: 500 });
     } finally {
       Idle.requestEnded();

@@ -20,7 +20,12 @@ export const csrfToken = (key: Uint8Array<ArrayBuffer>, subject: string, nowMs: 
   hmac(key, `harness:${subject}:${hourOf(nowMs)}`);
 
 /** Whether `token` is `subject`'s for this hour or the previous one. */
-export const csrfValid = async (key: Uint8Array<ArrayBuffer>, subject: string, token: string | null, nowMs: number = Date.now()): Promise<boolean> => {
+export const csrfValid = async (
+  key: Uint8Array<ArrayBuffer>,
+  subject: string,
+  token: string | null,
+  nowMs: number = Date.now(),
+): Promise<boolean> => {
   if (token === null || token === "" || subject === "") return false;
   const hour = hourOf(nowMs);
   for (const at of [hour, hour - 1]) {

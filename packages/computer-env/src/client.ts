@@ -48,13 +48,8 @@ const unreachable = new WeakSet<FileError>();
 /** Whether `error` says the Workspace DO could not be reached, so the operation may succeed if repeated. */
 export const isUnreachable = (error: FileError): boolean => unreachable.has(error);
 
-export const abortedResult = <T>(
-  context: Context,
-  path?: string,
-): Result<T, FileError> | undefined =>
-  context.abortSignal?.aborted === true
-    ? err(new FileError("aborted", "aborted", path))
-    : undefined;
+export const abortedResult = <T>(context: Context, path?: string): Result<T, FileError> | undefined =>
+  context.abortSignal?.aborted === true ? err(new FileError("aborted", "aborted", path)) : undefined;
 
 /** A `Call` on `host`; with `reachContainer`, its operations on Container-only paths run on the Container. */
 export const caller =
@@ -74,11 +69,7 @@ export const caller =
         (reachContainer ? { op, args, reachContainer } : { op, args }) as EnvRequest,
       )) as WireResult<ValueOf<typeof op>>;
     } catch (cause) {
-      const error = new FileError(
-        "unknown",
-        failureMessage(cause),
-        path,
-      );
+      const error = new FileError("unknown", failureMessage(cause), path);
 
       unreachable.add(error);
 

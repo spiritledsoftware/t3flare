@@ -31,7 +31,10 @@ describe("boot record and safe mode", () => {
       await BootState.bootFailed(kv, new Error(`boom ${i}`));
     }
     const refused = await BootState.beginBoot(kv, now);
-    expect(refused).toEqual({ start: false, safeMode: { on: true, reason: "boot-failures", since: now.toISOString() } });
+    expect(refused).toEqual({
+      start: false,
+      safeMode: { on: true, reason: "boot-failures", since: now.toISOString() },
+    });
     expect((await BootState.readBootRecord(kv)).lastError).toBe("Error: boom 2");
 
     await BootState.setSafeMode(kv, false, null, now);
@@ -45,7 +48,11 @@ describe("boot record and safe mode", () => {
     await BootState.beginBoot(kv, now);
     expect((await BootState.readBootRecord(kv)).consecutiveFailures).toBe(2);
     await BootState.bootSucceeded(kv, now);
-    expect(await BootState.readBootRecord(kv)).toMatchObject({ boots: 2, consecutiveFailures: 0, lastSucceededAt: now.toISOString() });
+    expect(await BootState.readBootRecord(kv)).toMatchObject({
+      boots: 2,
+      consecutiveFailures: 0,
+      lastSucceededAt: now.toISOString(),
+    });
   });
 
   it("manual safe mode refuses boots until turned off", async () => {
@@ -66,7 +73,10 @@ describe("boot record and safe mode", () => {
 describe("redacting Console", () => {
   it("drops t3's pairing-URL line and redacts credentials", () => {
     const lines: Array<Array<unknown>> = [];
-    const target = { log: (...args: Array<unknown>) => lines.push(args), error: (...args: Array<unknown>) => lines.push(args) } as unknown as Console;
+    const target = {
+      log: (...args: Array<unknown>) => lines.push(args),
+      error: (...args: Array<unknown>) => lines.push(args),
+    } as unknown as Console;
     const console = redactingConsole(target);
     const before = redactions.droppedPairingLines;
     console.log("  pairingUrl: http://localhost:443/pair#token=ABCDEFGH1234");
@@ -100,7 +110,9 @@ describe("idle queries", () => {
     sql.exec("CREATE TABLE orchestration_v2_effect_outbox (effect_id TEXT, status TEXT, available_at TEXT)");
     sql.exec("CREATE TABLE scheduled_tasks (task_id TEXT, enabled INTEGER, next_run_at TEXT)");
     sql.exec("CREATE TABLE orchestration_v2_projection_threads (thread_id TEXT, payload_json TEXT, deleted_at TEXT)");
-    sql.exec("CREATE TABLE orchestration_v2_projection_subagents (thread_id TEXT, subagent_id TEXT, origin TEXT, child_thread_id TEXT, payload_json TEXT)");
+    sql.exec(
+      "CREATE TABLE orchestration_v2_projection_subagents (thread_id TEXT, subagent_id TEXT, origin TEXT, child_thread_id TEXT, payload_json TEXT)",
+    );
     sql.exec("CREATE TABLE peer_environment_links (environment_id TEXT PRIMARY KEY, last_error TEXT)");
     return sql;
   };
@@ -110,14 +122,24 @@ describe("idle queries", () => {
     const sql = t3Tables();
     expect(Idle.hasOpenWork(Idle.openWork(sql, now))).toBe(false);
     sql.exec("INSERT INTO orchestration_v2_projection_runs VALUES ('r1', 'completed'), ('r2', 'waiting')");
-    sql.exec("INSERT INTO orchestration_v2_effect_outbox VALUES ('e1', 'pending', '2026-11-10T11:00:00.000Z'), ('e2', 'pending', '2026-11-10T13:00:00.000Z')");
-    expect(Idle.openWork(sql, now)).toEqual({ openRuns: 1, openProviderSessions: 0, claimableEffects: 1, remoteTasksAnswering: 0, remoteTasksUnanswered: 0 });
+    sql.exec(
+      "INSERT INTO orchestration_v2_effect_outbox VALUES ('e1', 'pending', '2026-11-10T11:00:00.000Z'), ('e2', 'pending', '2026-11-10T13:00:00.000Z')",
+    );
+    expect(Idle.openWork(sql, now)).toEqual({
+      openRuns: 1,
+      openProviderSessions: 0,
+      claimableEffects: 1,
+      remoteTasksAnswering: 0,
+      remoteTasksUnanswered: 0,
+    });
   });
 
   it("takes the next due time from the outbox and scheduled tasks", () => {
     const sql = t3Tables();
     expect(Idle.nextDue(sql).at).toBeNull();
-    sql.exec("INSERT INTO scheduled_tasks VALUES ('t1', 1, '2026-11-10T15:00:00.000Z'), ('t2', 0, '2026-11-10T13:00:00.000Z')");
+    sql.exec(
+      "INSERT INTO scheduled_tasks VALUES ('t1', 1, '2026-11-10T15:00:00.000Z'), ('t2', 0, '2026-11-10T13:00:00.000Z')",
+    );
     expect(Idle.nextDue(sql).at?.toISOString()).toBe("2026-11-10T15:00:00.000Z");
     sql.exec("INSERT INTO orchestration_v2_effect_outbox VALUES ('e2', 'pending', '2026-11-10T14:00:00.000Z')");
     expect(Idle.nextDue(sql).at?.toISOString()).toBe("2026-11-10T14:00:00.000Z");
@@ -125,9 +147,14 @@ describe("idle queries", () => {
 
   it("wakes for a usage-limit recovery, as t3's getLimitRecoveryWakeAt reads it", () => {
     const sql = t3Tables();
-    const payload = (resetAt: string, autoResume: boolean) => JSON.stringify({ limitRecovery: { resetAt, autoResume } });
-    sql.exec("INSERT INTO orchestration_v2_projection_threads VALUES ('a', ?, NULL), ('b', ?, NULL), ('c', ?, NULL)",
-      payload("2026-11-10T12:30:00.000Z", true), payload("2026-11-10T12:10:00.000Z", false), payload("2026-11-10T11:00:00.000Z", true));
+    const payload = (resetAt: string, autoResume: boolean) =>
+      JSON.stringify({ limitRecovery: { resetAt, autoResume } });
+    sql.exec(
+      "INSERT INTO orchestration_v2_projection_threads VALUES ('a', ?, NULL), ('b', ?, NULL), ('c', ?, NULL)",
+      payload("2026-11-10T12:30:00.000Z", true),
+      payload("2026-11-10T12:10:00.000Z", false),
+      payload("2026-11-10T11:00:00.000Z", true),
+    );
     const due = Idle.nextDue(sql, now);
     expect(due.at?.toISOString()).toBe("2026-11-10T12:30:00.000Z");
     expect(due.sources.usageLimitResets).toBe("2026-11-10T12:30:00.000Z");
@@ -135,7 +162,12 @@ describe("idle queries", () => {
 
   it("wakes for t3's PR watch while a live thread watches a pull request (parity G12)", () => {
     const sql = t3Tables();
-    const link = (watch: boolean) => ({ host: "github.com", repository: "o/r", number: 1, ...(watch ? { watch: { startedAt: "2026-11-10T11:00:00.000Z" } } : {}) });
+    const link = (watch: boolean) => ({
+      host: "github.com",
+      repository: "o/r",
+      number: 1,
+      ...(watch ? { watch: { startedAt: "2026-11-10T11:00:00.000Z" } } : {}),
+    });
     sql.exec(
       "INSERT INTO orchestration_v2_projection_threads VALUES ('a', ?, NULL), ('b', ?, NULL), ('c', ?, '2026-11-10T00:00:00.000Z'), ('d', ?, NULL)",
       JSON.stringify({ pullRequests: [link(false)] }),
@@ -145,7 +177,10 @@ describe("idle queries", () => {
     );
     expect(Idle.watchedPullRequests(sql)).toBe(0);
     expect(Idle.nextDue(sql, now).at).toBeNull();
-    sql.exec("INSERT INTO orchestration_v2_projection_threads VALUES ('e', ?, NULL)", JSON.stringify({ pullRequests: [link(false), link(true)] }));
+    sql.exec(
+      "INSERT INTO orchestration_v2_projection_threads VALUES ('e', ?, NULL)",
+      JSON.stringify({ pullRequests: [link(false), link(true)] }),
+    );
     expect(Idle.watchedPullRequests(sql)).toBe(1);
     // At a reset: PR_WATCH_WAKE_MS ahead; at an alarm, the stored wake (or now, with none stored).
     const reset = Idle.nextDue(sql, now, now.getTime() + Idle.PR_WATCH_WAKE_MS);
@@ -153,14 +188,25 @@ describe("idle queries", () => {
     expect(reset.sources.pullRequestWatch).toBe("2026-11-10T12:10:00.000Z");
     expect(Idle.nextDue(sql, now).at?.toISOString()).toBe(now.toISOString());
     Object.assign(Idle.activity, { sockets: 0, inFlight: 0, idleSince: now.getTime() - 120_000, unreadableUntil: 0 });
-    expect(Idle.idleVerdict(sql, now)).toMatchObject({ reset: true, due: { at: new Date("2026-11-10T12:10:00.000Z") } });
+    expect(Idle.idleVerdict(sql, now)).toMatchObject({
+      reset: true,
+      due: { at: new Date("2026-11-10T12:10:00.000Z") },
+    });
   });
 
   it("counts a run or provider-session status it does not know as open", () => {
     const sql = t3Tables();
     sql.exec("INSERT INTO orchestration_v2_projection_runs VALUES ('r1', 'rolled_back'), ('r2', 'awaiting_input')");
-    sql.exec("INSERT INTO orchestration_v2_projection_provider_sessions VALUES ('s1', 'ready'), ('s2', 'stopped'), ('s3', 'paused')");
-    expect(Idle.openWork(sql, now)).toEqual({ openRuns: 1, openProviderSessions: 1, claimableEffects: 0, remoteTasksAnswering: 0, remoteTasksUnanswered: 0 });
+    sql.exec(
+      "INSERT INTO orchestration_v2_projection_provider_sessions VALUES ('s1', 'ready'), ('s2', 'stopped'), ('s3', 'paused')",
+    );
+    expect(Idle.openWork(sql, now)).toEqual({
+      openRuns: 1,
+      openProviderSessions: 1,
+      claimableEffects: 0,
+      remoteTasksAnswering: 0,
+      remoteTasksUnanswered: 0,
+    });
   });
 
   it("refuses to read a missing table as empty", () => {
@@ -175,12 +221,17 @@ describe("idle queries", () => {
     Object.assign(Idle.activity, { sockets: 0, inFlight: 0, idleSince: now.getTime() - 120_000, unreadableUntil: 0 });
     const verdict = Idle.idleVerdict(sql, now);
     expect(verdict.reset).toBe(false);
-    expect(verdict).toMatchObject({ unreadable: expect.stringContaining("orchestration_v2_projection_provider_sessions") });
+    expect(verdict).toMatchObject({
+      unreadable: expect.stringContaining("orchestration_v2_projection_provider_sessions"),
+    });
     expect(Idle.activity.unreadableUntil).toBe(now.getTime() + Idle.UNREADABLE_BACKOFF_MS);
 
     const tables = t3Tables();
     const soon = new Date(now.getTime() + 60_000);
-    expect(Idle.idleVerdict(tables, soon)).toEqual({ reset: false, why: `t3's tables were unreadable; next read after ${new Date(Idle.activity.unreadableUntil).toISOString()}` });
+    expect(Idle.idleVerdict(tables, soon)).toEqual({
+      reset: false,
+      why: `t3's tables were unreadable; next read after ${new Date(Idle.activity.unreadableUntil).toISOString()}`,
+    });
     const later = new Date(now.getTime() + Idle.UNREADABLE_BACKOFF_MS);
     expect(Idle.idleVerdict(tables, later).reset).toBe(true);
   });
@@ -189,7 +240,10 @@ describe("idle queries", () => {
     const sql = t3Tables();
     sql.exec("DROP TABLE scheduled_tasks");
     Object.assign(Idle.activity, { sockets: 0, inFlight: 0, idleSince: now.getTime() - 120_000, unreadableUntil: 0 });
-    expect(Idle.idleVerdict(sql, now)).toMatchObject({ reset: false, unreadable: expect.stringContaining("scheduled_tasks") });
+    expect(Idle.idleVerdict(sql, now)).toMatchObject({
+      reset: false,
+      unreadable: expect.stringContaining("scheduled_tasks"),
+    });
   });
 
   it("holds the Environment up while a hold lasts, until it is released or expires", () => {
@@ -297,11 +351,20 @@ describe("Pairing window", () => {
   it("the arm route: the default without minutes, any positive length unclamped, and the consequence stated once", async () => {
     const asked: Array<number> = [];
     const deps = { arm: async (length: number) => (asked.push(length), minutes(length)) };
-    const route = (query: string) => Pairing.armRoute(new URL(`https://env.example/_t3flare/arm-bootstrap${query}`), deps, now);
-    for (const [query, length] of [["", Pairing.DEFAULT_ARM_MINUTES], ["?minutes=600", 600], ["?minutes=0.5", 0.5], ["?minutes=10080", 10_080]] as const) {
+    const route = (query: string) =>
+      Pairing.armRoute(new URL(`https://env.example/_t3flare/arm-bootstrap${query}`), deps, now);
+    for (const [query, length] of [
+      ["", Pairing.DEFAULT_ARM_MINUTES],
+      ["?minutes=600", 600],
+      ["?minutes=0.5", 0.5],
+      ["?minutes=10080", 10_080],
+    ] as const) {
       const answer = await route(query);
       expect(answer.status, query).toBe(200);
-      expect(await answer.json(), query).toEqual({ armedUntil: minutes(length).toISOString(), note: "While the window is open, anyone holding the bootstrap token can pair a client." });
+      expect(await answer.json(), query).toEqual({
+        armedUntil: minutes(length).toISOString(),
+        note: "While the window is open, anyone holding the bootstrap token can pair a client.",
+      });
     }
     expect(asked).toEqual([Pairing.DEFAULT_ARM_MINUTES, 600, 0.5, 10_080]);
   });
@@ -309,7 +372,16 @@ describe("Pairing window", () => {
   it("the arm route refuses a non-numeric, non-positive or unrepresentable minutes (400), arming nothing", async () => {
     const asked: Array<number> = [];
     const deps = { arm: async (length: number) => (asked.push(length), minutes(length)) };
-    for (const query of ["?minutes=", "?minutes=%20", "?minutes=abc", "?minutes=0", "?minutes=-5", "?minutes=NaN", "?minutes=Infinity", "?minutes=1e300"]) {
+    for (const query of [
+      "?minutes=",
+      "?minutes=%20",
+      "?minutes=abc",
+      "?minutes=0",
+      "?minutes=-5",
+      "?minutes=NaN",
+      "?minutes=Infinity",
+      "?minutes=1e300",
+    ]) {
       const answer = await Pairing.armRoute(new URL(`https://env.example/_t3flare/arm-bootstrap${query}`), deps, now);
       expect(answer.status, query).toBe(400);
       expect(((await answer.json()) as { error: string }).error, query).toMatch(/minutes/);
@@ -338,7 +410,10 @@ describe("Pairing window", () => {
   it("finds the bootstrap token spent as an MCP pairing code (step 3, L2), and guards the decision route", () => {
     const token = "boot-token-1";
     const decision = (code: string) =>
-      JSON.stringify({ authorization: { client_id: "c", state: "s" }, decision: { _tag: "pairing-code", access: "full-access", code } });
+      JSON.stringify({
+        authorization: { client_id: "c", state: "s" },
+        decision: { _tag: "pairing-code", access: "full-access", code },
+      });
     expect(Pairing.presentsBootstrapToken(decision(token), token)).toBe(true);
     expect(Pairing.presentsBootstrapToken(decision(` ${token} `), token)).toBe(true);
     expect(Pairing.presentsBootstrapToken(decision("ABCD2345EFGH"), token)).toBe(false);
@@ -369,7 +444,15 @@ describe("T3 Connect relay routes refused in the DO (step 3+, review finding 1)"
       "/api/connect/%6C%69%6E%6B-proof",
     ];
     for (const path of refused) expect(isRefusedRelayRoute(path), path).toBe(true);
-    const kept = ["/api/connect/link-state", "/api/connect/preferences", "/api/connect/unlink", "/api/connect/reachability", "/api/t3-connect", "/ws", "/api/connect/link-proofs"];
+    const kept = [
+      "/api/connect/link-state",
+      "/api/connect/preferences",
+      "/api/connect/unlink",
+      "/api/connect/reachability",
+      "/api/t3-connect",
+      "/ws",
+      "/api/connect/link-proofs",
+    ];
     for (const path of kept) expect(isRefusedRelayRoute(path), path).toBe(false);
   });
 

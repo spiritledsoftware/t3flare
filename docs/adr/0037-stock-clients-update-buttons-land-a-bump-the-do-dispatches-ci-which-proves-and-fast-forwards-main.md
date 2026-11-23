@@ -26,7 +26,7 @@ CI, never by updating the Environment in place:
    - a **CLI update** (the pi CLI, Codex, Claude Code; prod only): the drivers' maintenance capabilities carry a real
      `update`, the command `t3flare-cli-update <cli>`, which t3's `ProviderMaintenanceRunner` runs through the process
      router; the router dispatches `cli-bump.yml` and blocks while it follows the run.
-   Pi Durable has no update; it is ours. OpenCode stays manual (its 2.x line is not on npm).
+     Pi Durable has no update; it is ours. OpenCode stays manual (its 2.x line is not on npm).
 3. **Two gates.** The **Full gate** is the nightly bump's whole suite. The **Update gate** (`bump.ts --gate update`,
    about 5 minutes) keeps relock, the lock check, `pnpm run check`, the `bump` stage deploy and the acceptance test's
    core with one Durable agent turn; a CLI bump's gate is the check, the stage deploy with the new image, and the core
@@ -120,22 +120,22 @@ CI, never by updating the Environment in place:
 9. **Queueing.** `bump.yml` and `cli-bump.yml` share the concurrency group `bump` with `queue: max`: runs wait in order,
    none is cancelled for a newer one. Every run checks out the tip of `main` when it starts.
 10. **State and outcome.** The Environment DO keeps one record per target (`t3`, one per CLI) in its storage, and finds
-   the run by its `run-name` (`Update <id>`, `CLI update <id>`). The same target pressed again joins the run in flight;
-   another is refused. A record has failed 110 minutes after the DO first saw its run out of the queue (a run waiting its
-   turn in the `bump` group is not counted until then; 3 hours queued, or 15 minutes unlisted, has failed). A fiber in t3's runtime follows the run while the
-   DO is awake (no alarm), and settles lazily at boot and at the next press. Success is the new build booting:
-   `prepareTrial` of our `ServiceLauncherClient` reports the update committed when the stored target is the stamped
-   version. Failure is `ready` published again with its original `at` and a failed `updateOutcome` naming the failed
-   step and the run's URL. Pressing again is the retry.
+    the run by its `run-name` (`Update <id>`, `CLI update <id>`). The same target pressed again joins the run in flight;
+    another is refused. A record has failed 110 minutes after the DO first saw its run out of the queue (a run waiting its
+    turn in the `bump` group is not counted until then; 3 hours queued, or 15 minutes unlisted, has failed). A fiber in t3's runtime follows the run while the
+    DO is awake (no alarm), and settles lazily at boot and at the next press. Success is the new build booting:
+    `prepareTrial` of our `ServiceLauncherClient` reports the update committed when the stored target is the stamped
+    version. Failure is `ready` published again with its original `at` and a failed `updateOutcome` naming the failed
+    step and the run's URL. Pressing again is the retry.
 11. **Credential.** The existing GitHub App, with `actions: write` added to what it asks for, and a fourth permission
-   list, `UPDATE_DISPATCH_GITHUB_PERMISSIONS` (`actions: write`, `metadata: read`), minted by the DO for
-   `ian-pascoe/t3flare` per dispatch and per poll, then dropped. It never reaches a Container. The update target is set
-   on prod only (`T3FLARE_UPDATE_REPO`): a press on any other stage would land on main, which deploys prod.
+    list, `UPDATE_DISPATCH_GITHUB_PERMISSIONS` (`actions: write`, `metadata: read`), minted by the DO for
+    `ian-pascoe/t3flare` per dispatch and per poll, then dropped. It never reaches a Container. The update target is set
+    on prod only (`T3FLARE_UPDATE_REPO`): a press on any other stage would land on main, which deploys prod.
 12. **Authorization** is t3's: `environment:maintain` for the server Update, `providers:manage` for a CLI update. There is
-   no MCP tool and no Settings-server door, so Peer links and Durable agents cannot start either. Other t3 paths spawn
-   commands a client sets (a custom text generator, setup scripts, the editor), so the process router answers
-   `t3flare-cli-update <cli>` only with this isolate's token in the spawn's environment, which only the update
-   capability carries and no client sees.
+    no MCP tool and no Settings-server door, so Peer links and Durable agents cannot start either. Other t3 paths spawn
+    commands a client sets (a custom text generator, setup scripts, the editor), so the process router answers
+    `t3flare-cli-update <cli>` only with this isolate's token in the spawn's environment, which only the update
+    capability carries and no client sees.
 
 ## Considered Options
 
@@ -167,8 +167,8 @@ CI, never by updating the Environment in place:
     deploy keys may skip a ruleset, GitHub Actions may not on a personal account's repo;
   - commit statuses and their `creator`, for the proof;
   - the hourly plan reads t3's tags with `git ls-remote` against `pins.ts`'s tag pattern.
-  A change in any of these shows in the trial runs (plan D16) and in an Update that fails to start or report: one whose
-  run the DO never finds fails after 15 minutes.
+    A change in any of these shows in the trial runs (plan D16) and in an Update that fails to start or report: one whose
+    run the DO never finds fails after 15 minutes.
 
 ## Refinement (ADR-0038 and ADR-0039, 2026-11-19): the Deployment repository, and the required check
 

@@ -39,7 +39,8 @@ export const readAccessFor = async (
   installed: ReadonlyArray<SkillRepo>,
   repo: SkillRepo,
 ): Promise<ReadAccess> => {
-  const mint = (owner: string, name: string) => minter.mint({ owner: owner.toLowerCase(), repositories: [name], permissions: SKILL_FETCH_GITHUB_PERMISSIONS });
+  const mint = (owner: string, name: string) =>
+    minter.mint({ owner: owner.toLowerCase(), repositories: [name], permissions: SKILL_FETCH_GITHUB_PERMISSIONS });
   let ownerInstalled = true;
   try {
     return { token: (await mint(repo.owner, repo.name)).token, how: "repo", ownerInstalled };
@@ -63,14 +64,16 @@ export const readAccessFor = async (
 export type GithubFetch = (url: string, init: RequestInit) => Promise<Response>;
 
 /** What the way out of the shared unauthenticated limit is, for a refusal. */
-export const UNAUTHENTICATED_WAY_OUT = "Install the GitHub App on a repository and add it as a Project, so reads use the installation's own limit.";
+export const UNAUTHENTICATED_WAY_OUT =
+  "Install the GitHub App on a repository and add it as a Project, so reads use the installation's own limit.";
 
 /**
  * A name that goes in a URL's path as one segment, escaped. A URL parser resolves `.` and `..` (escaped or not), which
  * would send the request, made with the Environment's token, to another endpoint: they and an empty name are refused.
  */
 const segment = (name: string): string => {
-  if (name === "" || name === "." || name === "..") throw new GithubReadError("refused", `${JSON.stringify(name)} is not a name GitHub has`);
+  if (name === "" || name === "." || name === "..")
+    throw new GithubReadError("refused", `${JSON.stringify(name)} is not a name GitHub has`);
   return encodeURIComponent(name);
 };
 
@@ -82,7 +85,9 @@ const refPath = (ref: string): string => ref.split("/").map(segment).join("/");
 const messageOf = (cause: unknown): string => (cause instanceof Error ? cause.message : String(cause));
 
 const whenOf = (resetSeconds: number | undefined, now: number): string =>
-  resetSeconds === undefined ? "" : ` It resets at ${new Date(resetSeconds * 1000).toISOString()} (in ${Math.max(1, Math.ceil((resetSeconds * 1000 - now) / 60_000))} minutes).`;
+  resetSeconds === undefined
+    ? ""
+    : ` It resets at ${new Date(resetSeconds * 1000).toISOString()} (in ${Math.max(1, Math.ceil((resetSeconds * 1000 - now) / 60_000))} minutes).`;
 
 export interface GithubReaderOptions {
   readonly fetch: GithubFetch;
@@ -106,12 +111,19 @@ export const githubReader = (options: GithubReaderOptions): RepoReader => {
 
   const ask = async (path: string, accept: string): Promise<Response> => {
     if (options.deadline !== undefined && now() > options.deadline) {
-      throw new GithubReadError("failed", "GitHub took too long: the request stopped after 60 seconds and kept nothing. Try again, or install fewer skills at a time.");
+      throw new GithubReadError(
+        "failed",
+        "GitHub took too long: the request stopped after 60 seconds and kept nothing. Try again, or install fewer skills at a time.",
+      );
     }
     const headers = new Headers({ accept, "x-github-api-version": "2022-11-28", "user-agent": "t3flare" });
     if (access.token !== undefined) headers.set("authorization", `Bearer ${access.token}`);
     try {
-      return await options.fetch(`${API}${path}`, { method: "GET", headers, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+      return await options.fetch(`${API}${path}`, {
+        method: "GET",
+        headers,
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
     } catch (cause) {
       throw new GithubReadError("failed", `GitHub could not be reached: ${messageOf(cause)}`);
     }
@@ -121,7 +133,9 @@ export const githubReader = (options: GithubReaderOptions): RepoReader => {
   const ensureLeft = async (needed: number): Promise<void> => {
     if (access.how !== "unauthenticated") return;
     const response = await ask("/rate_limit", "application/vnd.github+json");
-    const body = (await response.json().catch(() => null)) as { resources?: { core?: { remaining?: number; limit?: number; reset?: number } } } | null;
+    const body = (await response.json().catch(() => null)) as {
+      resources?: { core?: { remaining?: number; limit?: number; reset?: number } };
+    } | null;
     const core = body?.resources?.core;
     if (core?.remaining === undefined) return;
     if (core.remaining < needed) {
@@ -138,11 +152,16 @@ export const githubReader = (options: GithubReaderOptions): RepoReader => {
     const retryAfter = Number(response.headers.get("retry-after"));
     const reset = Number(response.headers.get("x-ratelimit-reset"));
     if ((response.status === 403 || response.status === 429) && Number.isFinite(retryAfter) && retryAfter > 0) {
-      return new GithubReadError("rate_limited", `GitHub asked t3flare to slow down: try again in ${Math.ceil(retryAfter)} seconds. Nothing was kept.`);
+      return new GithubReadError(
+        "rate_limited",
+        `GitHub asked t3flare to slow down: try again in ${Math.ceil(retryAfter)} seconds. Nothing was kept.`,
+      );
     }
     if (response.status === 429 || (response.status === 403 && response.headers.get("x-ratelimit-remaining") === "0")) {
       const whose =
-        access.how === "unauthenticated" ? "GitHub's unauthenticated limit for this Worker (60 an hour, shared with others on its address)" : "The GitHub App installation's GitHub rate limit";
+        access.how === "unauthenticated"
+          ? "GitHub's unauthenticated limit for this Worker (60 an hour, shared with others on its address)"
+          : "The GitHub App installation's GitHub rate limit";
       return new GithubReadError(
         "rate_limited",
         `${whose} is used up.${whenOf(Number.isFinite(reset) && reset > 0 ? reset : undefined, now())}${access.how === "unauthenticated" ? ` ${UNAUTHENTICATED_WAY_OUT}` : ""}`,
@@ -150,7 +169,10 @@ export const githubReader = (options: GithubReaderOptions): RepoReader => {
     }
     if (response.status === 404 || response.status === 422) return new GithubReadError("not_found", notFound);
     if (response.status === 401 || response.status === 403) {
-      return new GithubReadError("refused", `GitHub refused the read of ${repo.owner}/${repo.name} (${response.status}${saying}). Check the GitHub App's installation on ${repo.owner}.`);
+      return new GithubReadError(
+        "refused",
+        `GitHub refused the read of ${repo.owner}/${repo.name} (${response.status}${saying}). Check the GitHub App's installation on ${repo.owner}.`,
+      );
     }
     return new GithubReadError("failed", `GitHub answered ${response.status}${saying}`);
   };
@@ -170,24 +192,46 @@ export const githubReader = (options: GithubReaderOptions): RepoReader => {
   return {
     commit: async (repo, ref) => {
       await atStart();
-      const response = await read(repo, `/commits/${ref === null ? "HEAD" : refPath(ref)}`, "application/vnd.github.sha", ref === null ? gone(repo) : `${gone(repo)} Or it has no ref ${JSON.stringify(ref)} (a branch, a tag or a commit).`);
+      const response = await read(
+        repo,
+        `/commits/${ref === null ? "HEAD" : refPath(ref)}`,
+        "application/vnd.github.sha",
+        ref === null
+          ? gone(repo)
+          : `${gone(repo)} Or it has no ref ${JSON.stringify(ref)} (a branch, a tag or a commit).`,
+      );
       const sha = (await response.text()).trim();
-      if (!/^[0-9a-f]{40}$/.test(sha)) throw new GithubReadError("failed", "GitHub's answer to the commit was not a SHA");
+      if (!/^[0-9a-f]{40}$/.test(sha))
+        throw new GithubReadError("failed", "GitHub's answer to the commit was not a SHA");
       return sha;
     },
     tree: async (repo, commit): Promise<RepoTree> => {
       await atStart();
       const response = await read(repo, `/git/trees/${segment(commit)}?recursive=1`, "application/vnd.github+json");
       const body = (await response.json().catch(() => null)) as { truncated?: unknown; tree?: unknown } | null;
-      if (body === null || typeof body.truncated !== "boolean" || !Array.isArray(body.tree)) throw new GithubReadError("failed", "GitHub's answer to the tree was not a tree");
+      if (body === null || typeof body.truncated !== "boolean" || !Array.isArray(body.tree))
+        throw new GithubReadError("failed", "GitHub's answer to the tree was not a tree");
       const entries = (body.tree as Array<Record<string, unknown>>).flatMap((entry): Array<TreeEntry> =>
-        typeof entry.path === "string" && typeof entry.sha === "string" && (entry.type === "blob" || entry.type === "tree" || entry.type === "commit")
-          ? [{ path: entry.path, type: entry.type, sha: entry.sha, size: typeof entry.size === "number" ? entry.size : undefined, mode: typeof entry.mode === "string" ? entry.mode : undefined }]
+        typeof entry.path === "string" &&
+        typeof entry.sha === "string" &&
+        (entry.type === "blob" || entry.type === "tree" || entry.type === "commit")
+          ? [
+              {
+                path: entry.path,
+                type: entry.type,
+                sha: entry.sha,
+                size: typeof entry.size === "number" ? entry.size : undefined,
+                mode: typeof entry.mode === "string" ? entry.mode : undefined,
+              },
+            ]
           : [],
       );
       return { truncated: body.truncated, entries };
     },
-    blob: async (repo, sha) => new Uint8Array(await (await read(repo, `/git/blobs/${segment(sha)}`, "application/vnd.github.raw+json")).arrayBuffer()),
+    blob: async (repo, sha) =>
+      new Uint8Array(
+        await (await read(repo, `/git/blobs/${segment(sha)}`, "application/vnd.github.raw+json")).arrayBuffer(),
+      ),
     beforeBlobs: (reads) => ensureLeft(reads),
   };
 };

@@ -6,7 +6,14 @@ import { CLIS } from "@t3flare/sandbox-image/clis";
 import * as Effect from "effect/Effect";
 import { describe, expect, it } from "vitest";
 
-import { CLI_UPDATE_COMMAND, CLI_UPDATE_TOKEN_ENV, cliMaintenance, isCliUpdateSpawn, lookupLatestCliVersion, runCliUpdate } from "../src/updates/cliUpdate.ts";
+import {
+  CLI_UPDATE_COMMAND,
+  CLI_UPDATE_TOKEN_ENV,
+  cliMaintenance,
+  isCliUpdateSpawn,
+  lookupLatestCliVersion,
+  runCliUpdate,
+} from "../src/updates/cliUpdate.ts";
 import { NO_UPDATE_TARGET, updates, type UpdateStore } from "../src/updates/records.ts";
 import type { ActionsClient, WorkflowRun } from "../src/updates/actions.ts";
 
@@ -19,7 +26,10 @@ describe("the CLIs' latest versions (the card's advisory)", () => {
   const registry = npm({
     "@openai/codex/latest": { version: "0.169.0" },
     "@earendil-works/pi-coding-agent/latest": { version: "1.6.0" },
-    "@agentclientprotocol/claude-agent-acp/latest": { version: "0.108.0", dependencies: { "@anthropic-ai/claude-agent-sdk": "0.3.326" } },
+    "@agentclientprotocol/claude-agent-acp/latest": {
+      version: "0.108.0",
+      dependencies: { "@anthropic-ai/claude-agent-sdk": "0.3.326" },
+    },
     "@anthropic-ai/claude-agent-sdk/0.3.326": { version: "0.3.326", claudeCodeVersion: "2.1.326" },
   });
 
@@ -54,8 +64,16 @@ describe("the CLI drivers' maintenance capabilities", () => {
   const codex = ProviderDriverKind.make("codex");
 
   it("has a real update, run through the process router, on a stage with an update target", async () => {
-    const capabilities = cliMaintenance(codex, "codex", { configured: true, fetch: npm({ "@openai/codex/latest": { version: "0.169.0" } }) });
-    expect(capabilities.update).toMatchObject({ executable: CLI_UPDATE_COMMAND, args: ["codex"], lockKey: "t3flare-cli:codex", command: `${CLI_UPDATE_COMMAND} codex` });
+    const capabilities = cliMaintenance(codex, "codex", {
+      configured: true,
+      fetch: npm({ "@openai/codex/latest": { version: "0.169.0" } }),
+    });
+    expect(capabilities.update).toMatchObject({
+      executable: CLI_UPDATE_COMMAND,
+      args: ["codex"],
+      lockKey: "t3flare-cli:codex",
+      command: `${CLI_UPDATE_COMMAND} codex`,
+    });
     expect(capabilities.latestVersion).toBeNull();
     expect(await Effect.runPromise(capabilities.lookupLatestVersion!)).toBe("0.169.0");
   });
@@ -83,16 +101,26 @@ describe("the CLI drivers' maintenance capabilities", () => {
 
 const mapStore = (): UpdateStore => {
   const map = new Map<string, unknown>();
-  return { get: (key) => structuredClone(map.get(key)), put: (key, value) => void map.set(key, structuredClone(value)) };
+  return {
+    get: (key) => structuredClone(map.get(key)),
+    put: (key, value) => void map.set(key, structuredClone(value)),
+  };
 };
 
 const fakeRuns = (conclusion: string) => {
   const dispatched: Array<Readonly<Record<string, string>>> = [];
   let polls = 0;
-  const run = (): WorkflowRun => ({ id: 5, url: "https://github.com/o/r/actions/runs/5", status: polls > 1 ? "completed" : "in_progress", conclusion: polls > 1 ? conclusion : null, started: true });
+  const run = (): WorkflowRun => ({
+    id: 5,
+    url: "https://github.com/o/r/actions/runs/5",
+    status: polls > 1 ? "completed" : "in_progress",
+    conclusion: polls > 1 ? conclusion : null,
+    started: true,
+  });
   const client: ActionsClient = {
     dispatch: async (_workflow, inputs) => void dispatched.push(inputs),
-    findRun: async (workflow, runName) => (workflow === "cli-bump.yml" && runName === `CLI update ${dispatched.at(-1)?.update_id}` ? run() : undefined),
+    findRun: async (workflow, runName) =>
+      workflow === "cli-bump.yml" && runName === `CLI update ${dispatched.at(-1)?.update_id}` ? run() : undefined,
     getRun: async () => {
       polls++;
       return run();
@@ -133,6 +161,11 @@ describe("t3flare-cli-update", () => {
     const store = mapStore();
     const subject = updates({ store, actions: fakeRuns("success").client, now: () => 0, newId: () => "c1" });
     await runCliUpdate(["claude"], { updates: subject, now: () => 0, sleep: async () => {} });
-    expect(subject.record("cli:claude")).toMatchObject({ from: CLIS.claude.version, target: "latest", runName: "CLI update c1", workflow: "cli-bump.yml" });
+    expect(subject.record("cli:claude")).toMatchObject({
+      from: CLIS.claude.version,
+      target: "latest",
+      runName: "CLI update c1",
+      workflow: "cli-bump.yml",
+    });
   });
 });

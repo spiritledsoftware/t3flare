@@ -11,7 +11,11 @@
 // - Failure: a fiber in t3's runtime follows the run while the DO is awake (no alarm), and settles the record lazily at
 //   boot and at the next press. A failed run's reason and URL go to the client as `ready` again, with its original `at`
 //   and a failed `updateOutcome` (ServerLifecycleEvents replays the newest `ready` to every subscriber).
-import { ServerSelfUpdateError, type ServerLifecycleStreamEvent, type ServerSelfUpdateOutcome } from "@t3tools/contracts";
+import {
+  ServerSelfUpdateError,
+  type ServerLifecycleStreamEvent,
+  type ServerSelfUpdateOutcome,
+} from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -39,25 +43,46 @@ export const SERVER_UPDATE_WORKFLOW = "bump.yml";
 export const serverUpdateRunName = (id: string) => `Update ${id}`;
 
 /** The outcome the startup's `ready` carries: committed when the stored target is the version this build runs. */
-export const committedOutcome = (record: UpdateRecord | undefined, version: string): ServerSelfUpdateOutcome | undefined =>
-  record === undefined || record.target !== version ? undefined : { id: record.id, fromVersion: record.from, targetVersion: record.target, status: "committed" };
+export const committedOutcome = (
+  record: UpdateRecord | undefined,
+  version: string,
+): ServerSelfUpdateOutcome | undefined =>
+  record === undefined || record.target !== version
+    ? undefined
+    : { id: record.id, fromVersion: record.from, targetVersion: record.target, status: "committed" };
 
 /** The failed outcome a settled record tells the client, or undefined when there is none to tell at `now`. */
-export const failedOutcome = (record: UpdateRecord | undefined, version: string, now: number): ServerSelfUpdateOutcome | undefined =>
+export const failedOutcome = (
+  record: UpdateRecord | undefined,
+  version: string,
+  now: number,
+): ServerSelfUpdateOutcome | undefined =>
   record?.outcome?.status !== "failed" || record.target === version || now - record.outcome.at > FAILED_REPLAY_MS
     ? undefined
-    : { id: record.id, fromVersion: record.from, targetVersion: record.target, status: "failed", reason: record.outcome.reason };
+    : {
+        id: record.id,
+        fromVersion: record.from,
+        targetVersion: record.target,
+        status: "failed",
+        reason: record.outcome.reason,
+      };
 
 /** `ready` again, as it was, with `outcome`: the client matches it by the outcome's id. */
-export const readyWithOutcome = (events: ReadonlyArray<ServerLifecycleStreamEvent>, outcome: ServerSelfUpdateOutcome) => {
+export const readyWithOutcome = (
+  events: ReadonlyArray<ServerLifecycleStreamEvent>,
+  outcome: ServerSelfUpdateOutcome,
+) => {
   const ready = events.find((event) => event.type === "ready");
-  return ready === undefined || ready.type !== "ready" ? undefined : { version: ready.version, type: "ready" as const, payload: { ...ready.payload, updateOutcome: outcome } };
+  return ready === undefined || ready.type !== "ready"
+    ? undefined
+    : { version: ready.version, type: "ready" as const, payload: { ...ready.payload, updateOutcome: outcome } };
 };
 
 /** Declared by the build (build.ts `define`): the t3 track it was made for (ADR-0041). */
 declare const __T3FLARE_BUILD__: { readonly t3Track?: string } | undefined;
 /** The t3 track this build was made for, or undefined when it names none (an unbundled test). */
-const builtTrack = (): T3Track | undefined => t3TrackOf(typeof __T3FLARE_BUILD__ === "undefined" ? undefined : __T3FLARE_BUILD__.t3Track);
+const builtTrack = (): T3Track | undefined =>
+  t3TrackOf(typeof __T3FLARE_BUILD__ === "undefined" ? undefined : __T3FLARE_BUILD__.t3Track);
 
 /** The records of this Environment (`environmentServices().updates`), or undefined where none are configured. */
 const configuredUpdates = (): Updates | undefined => {
@@ -65,7 +90,9 @@ const configuredUpdates = (): Updates | undefined => {
   return updates?.configured === true ? updates : undefined;
 };
 
-export const make = (options: { readonly version?: string; readonly track?: T3Track; readonly updates?: () => Updates | undefined } = {}) =>
+export const make = (
+  options: { readonly version?: string; readonly track?: T3Track; readonly updates?: () => Updates | undefined } = {},
+) =>
   Effect.gen(function* () {
     const version = options.version ?? packageJson.version;
     const track = options.track ?? builtTrack();
@@ -79,12 +106,26 @@ export const make = (options: { readonly version?: string; readonly track?: T3Tr
     const watchOnce = Effect.gen(function* () {
       const updates = updatesOf();
       if (updates === undefined) return false;
-      let record = yield* Effect.tryPromise({ try: () => updates.settle("t3"), catch: (cause) => failWith(cause instanceof Error ? cause.message : String(cause)) }).pipe(
-        Effect.catch((error) => Effect.logWarning("t3flare: could not read the server Update's run", { reason: error.reason }).pipe(Effect.as(updates.record("t3")))),
+      let record = yield* Effect.tryPromise({
+        try: () => updates.settle("t3"),
+        catch: (cause) => failWith(cause instanceof Error ? cause.message : String(cause)),
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("t3flare: could not read the server Update's run", { reason: error.reason }).pipe(
+            Effect.as(updates.record("t3")),
+          ),
+        ),
       );
       const now = yield* Clock.currentTimeMillis;
-      if (record?.outcome?.status === "succeeded" && record.target !== version && now - record.outcome.at > LANDED_GRACE_MS) {
-        record = updates.fail("t3", `The update's run passed, but this Environment still runs t3@${version}. ${record.outcome.reason}`);
+      if (
+        record?.outcome?.status === "succeeded" &&
+        record.target !== version &&
+        now - record.outcome.at > LANDED_GRACE_MS
+      ) {
+        record = updates.fail(
+          "t3",
+          `The update's run passed, but this Environment still runs t3@${version}. ${record.outcome.reason}`,
+        );
       }
       const failed = failedOutcome(record, version, now);
       if (failed !== undefined && !told.has(failed.id)) {
@@ -92,7 +133,10 @@ export const make = (options: { readonly version?: string; readonly track?: T3Tr
         const event = readyWithOutcome((yield* lifecycle.snapshot).events, failed);
         if (event !== undefined) yield* lifecycle.publish(event);
       }
-      return record !== undefined && (record.outcome === null || (record.outcome.status === "succeeded" && record.target !== version));
+      return (
+        record !== undefined &&
+        (record.outcome === null || (record.outcome.status === "succeeded" && record.target !== version))
+      );
     });
 
     const follow = Effect.gen(function* () {
@@ -126,10 +170,15 @@ export const make = (options: { readonly version?: string; readonly track?: T3Tr
             catch: (cause) => failWith(cause instanceof Error ? cause.message : String(cause)),
           });
           yield* Queue.offer(wake, undefined);
-          yield* Effect.logInfo("t3flare: server Update dispatched", { updateId: pressed.record.id, target, attached: pressed.attached });
+          yield* Effect.logInfo("t3flare: server Update dispatched", {
+            updateId: pressed.record.id,
+            target,
+            attached: pressed.attached,
+          });
           return { targetVersion: target, method: "respawn" as const, updateId: pressed.record.id };
         }),
-      commitDesktopUpdate: () => Effect.fail(failWith("The Cloud Environment has no desktop app to commit an update to.")),
+      commitDesktopUpdate: () =>
+        Effect.fail(failWith("The Cloud Environment has no desktop app to commit an update to.")),
     });
   });
 
@@ -139,7 +188,9 @@ export const layer = Layer.effect(ServerSelfUpdate.ServerSelfUpdate, make());
  * No launcher supervises the Environment. `prepareTrial` reads storage only and never fails: a committed outcome when
  * the stored server Update's target is this build's stamped version, else none.
  */
-export const makeLauncherClient = (options: { readonly version?: string; readonly updates?: () => Updates | undefined } = {}) =>
+export const makeLauncherClient = (
+  options: { readonly version?: string; readonly updates?: () => Updates | undefined } = {},
+) =>
   ServiceLauncherClient.ServiceLauncherClient.of({
     managed: false,
     protocol: undefined,
@@ -147,7 +198,10 @@ export const makeLauncherClient = (options: { readonly version?: string; readonl
     prepareTrial: () =>
       Effect.sync(() => {
         try {
-          return committedOutcome((options.updates ?? (() => environmentServices().updates))()?.record("t3"), options.version ?? packageJson.version);
+          return committedOutcome(
+            (options.updates ?? (() => environmentServices().updates))()?.record("t3"),
+            options.version ?? packageJson.version,
+          );
         } catch {
           return undefined;
         }

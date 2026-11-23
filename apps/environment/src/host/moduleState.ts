@@ -77,10 +77,15 @@ export const changedSinceEvaluation = (): Array<ChangedBinding> =>
     } catch {
       now = "unreadable";
     }
-    return now === binding.initial ? [] : [{ module: binding.module, name: binding.name, initial: binding.initial, now }];
+    return now === binding.initial
+      ? []
+      : [{ module: binding.module, name: binding.name, initial: binding.initial, now }];
   });
 
-export const registeredCount = () => ({ bindings: bindings.length, modules: new Set(bindings.map((b) => b.module)).size });
+export const registeredCount = () => ({
+  bindings: bindings.length,
+  modules: new Set(bindings.map((b) => b.module)).size,
+});
 
 /** Own and symbol keys on globalThis, to spot state t3 or its dependencies park there. */
 export const globalKeys = (): Array<string> => [

@@ -7,12 +7,24 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { skillsExtension, skillsSectionText } from "../src/extensions/skills.ts";
 import { workspaceSkills } from "../src/workspace/skills.ts";
 
-const workspace = (answer: WireSkillDiscovery) => ({ cwd: "/workspace/repo", discoverSkills: () => Promise.resolve(answer) }) as never;
-const fruit = { name: "fruit-code", description: "The fruit code.", filePath: "/workspace/repo/.agents/skills/fruit-code/SKILL.md", disableModelInvocation: false };
+const workspace = (answer: WireSkillDiscovery) =>
+  ({ cwd: "/workspace/repo", discoverSkills: () => Promise.resolve(answer) }) as never;
+const fruit = {
+  name: "fruit-code",
+  description: "The fruit code.",
+  filePath: "/workspace/repo/.agents/skills/fruit-code/SKILL.md",
+  disableModelInvocation: false,
+};
 
 describe("the skills section", () => {
   it("lists the Workspace's skills in a <skills> block", async () => {
-    const text = await skillsSectionText(workspace({ skills: [fruit, { ...fruit, name: "owner-only", disableModelInvocation: true }], skipped: [], omitted: 0 }));
+    const text = await skillsSectionText(
+      workspace({
+        skills: [fruit, { ...fruit, name: "owner-only", disableModelInvocation: true }],
+        skipped: [],
+        omitted: 0,
+      }),
+    );
     expect(text).toMatch(/^<skills>\nThe following skills/);
     expect(text).toContain("<location>/workspace/repo/.agents/skills/fruit-code/SKILL.md</location>");
     expect(text).not.toContain("owner-only");
@@ -28,9 +40,14 @@ describe("the skills section", () => {
   it("leaves itself out, logging why, when the Workspace's discovery fails, rather than failing the request", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const section = skillsExtension().sections?.[0];
-    const failing = { cwd: "/workspace/repo", discoverSkills: () => Promise.reject(new Error("the Workspace DO is gone")) };
+    const failing = {
+      cwd: "/workspace/repo",
+      discoverSkills: () => Promise.reject(new Error("the Workspace DO is gone")),
+    };
     expect(await section?.render({ env: failing, shown: {} } as never, BACKGROUND_CONTEXT)).toBeUndefined();
-    expect(warn.mock.calls.map((call) => JSON.parse(String(call[0])))).toEqual([{ t3flare: "skills-section-failed", error: "Error: the Workspace DO is gone" }]);
+    expect(warn.mock.calls.map((call) => JSON.parse(String(call[0])))).toEqual([
+      { t3flare: "skills-section-failed", error: "Error: the Workspace DO is gone" },
+    ]);
     warn.mockRestore();
   });
 });
@@ -45,12 +62,25 @@ describe("the Workspace DO's discovery log", () => {
         const entries = Object.keys(files)
           .filter((path) => path.startsWith(`${directory}/`))
           .map((path) => ({ path: path.slice(directory.length + 1), kind: "file" as const }));
-        return Promise.resolve(entries.length === 0 ? { ok: false, error: { code: "not_found", message: "absent" } } : { ok: true, value: { entries, truncated: false } });
+        return Promise.resolve(
+          entries.length === 0
+            ? { ok: false, error: { code: "not_found", message: "absent" } }
+            : { ok: true, value: { entries, truncated: false } },
+        );
       },
-      readTextFile: (path: string) => Promise.resolve(path in files ? { ok: true, value: files[path] } : { ok: false, error: { code: "not_found", message: "absent" } }),
+      readTextFile: (path: string) =>
+        Promise.resolve(
+          path in files
+            ? { ok: true, value: files[path] }
+            : { ok: false, error: { code: "not_found", message: "absent" } },
+        ),
     }) as never;
   const skill = (name: string, description: string) => `---\nname: ${name}\ndescription: ${description}\n---\nBody\n`;
-  const lines = () => vi.mocked(console.log).mock.calls.map((call) => String(call[0])).filter((line) => line.includes('"t3flare":"skills"'));
+  const lines = () =>
+    vi
+      .mocked(console.log)
+      .mock.calls.map((call) => String(call[0]))
+      .filter((line) => line.includes('"t3flare":"skills"'));
 
   afterEach(() => vi.restoreAllMocks());
 
@@ -67,7 +97,13 @@ describe("the Workspace DO's discovery log", () => {
     );
     expect(found.skipped).toHaveLength(2);
     expect(lines()).toHaveLength(1);
-    expect(JSON.parse(lines()[0]!)).toMatchObject({ t3flare: "skills", cwd: ROOT, skills: 1, omitted: 0, skippedCount: 2 });
+    expect(JSON.parse(lines()[0]!)).toMatchObject({
+      t3flare: "skills",
+      cwd: ROOT,
+      skills: 1,
+      omitted: 0,
+      skippedCount: 2,
+    });
   });
 
   it("writes none when nothing was skipped", async () => {

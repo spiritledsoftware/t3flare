@@ -9,7 +9,9 @@ const MOVED_FROM_PATH = "/_t3flare/harness";
 
 /** The Settings page path an old one moved to, or `undefined` for any other path. */
 export const movedSettingsPagePath = (pathname: string): string | undefined =>
-  pathname === MOVED_FROM_PATH || pathname.startsWith(`${MOVED_FROM_PATH}/`) ? `${SETTINGS_PAGE_PATH}${pathname.slice(MOVED_FROM_PATH.length)}` : undefined;
+  pathname === MOVED_FROM_PATH || pathname.startsWith(`${MOVED_FROM_PATH}/`)
+    ? `${SETTINGS_PAGE_PATH}${pathname.slice(MOVED_FROM_PATH.length)}`
+    : undefined;
 
 /** The Settings page's Open changes list (an anchor on its page). */
 export const OPEN_CHANGES_PATH = `${SETTINGS_PAGE_PATH}#changes`;

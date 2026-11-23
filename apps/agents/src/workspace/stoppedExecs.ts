@@ -53,7 +53,8 @@ export class StoppedExecsBackend implements WorkspaceBackend {
     const stopped = this.#stopped;
     const shell: BackendHandle["rpc"]["shell"] = {
       exec: (input) => {
-        if (stopped.has(input.env?.[EXEC_MARKER])) return Promise.reject(new Error("t3flare: the command was stopped before it started; it was not run"));
+        if (stopped.has(input.env?.[EXEC_MARKER]))
+          return Promise.reject(new Error("t3flare: the command was stopped before it started; it was not run"));
         return handle.rpc.shell.exec(input);
       },
       getExec: (input) => handle.rpc.shell.getExec(input),

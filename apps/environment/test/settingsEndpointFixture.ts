@@ -3,7 +3,13 @@
 import { applyMcpChange, type McpServerSetting } from "@t3flare/harness-registry";
 
 import type { AccessCaller } from "../src/access.ts";
-import { type EndpointDeps, handleSettingsMcp, MODERN_VERSION, type StreamHolds, streamHolds } from "../src/settings/endpoint.ts";
+import {
+  type EndpointDeps,
+  handleSettingsMcp,
+  MODERN_VERSION,
+  type StreamHolds,
+  streamHolds,
+} from "../src/settings/endpoint.ts";
 import type { SettingsFixture } from "./settingsFixture.ts";
 
 export const SUB = "owner-sub";
@@ -26,10 +32,22 @@ export const endpointOf =
   (request: Request, caller: AccessCaller = OWNER) => {
     const holds = holdsOf.get(f) ?? streamHolds();
     holdsOf.set(f, holds);
-    return handleSettingsMcp(request, caller, { server: f.deps, stateKey: () => KEY, now: f.now, holdMs: 80, beatMs: 30, holds, clients: { seen: (key, clientName) => f.clients.seen(key, clientName) }, ...extra });
+    return handleSettingsMcp(request, caller, {
+      server: f.deps,
+      stateKey: () => KEY,
+      now: f.now,
+      holdMs: 80,
+      beatMs: 30,
+      holds,
+      clients: { seen: (key, clientName) => f.clients.seen(key, clientName) },
+      ...extra,
+    });
   };
 
-export const post = (body: unknown, options: { readonly query?: string; readonly headers?: Readonly<Record<string, string>> } = {}) =>
+export const post = (
+  body: unknown,
+  options: { readonly query?: string; readonly headers?: Readonly<Record<string, string>> } = {},
+) =>
   new Request(`${ENDPOINT}${options.query ?? ""}`, {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...options.headers },
@@ -44,34 +62,85 @@ export const modernMeta = (capabilities: unknown = BOTH, extra: Record<string, u
 });
 
 /** A 2026 request, as Claude Code 2.1.322 sends it (M0 P17): `_meta` on every request, `MCP-Protocol-Version`, `Mcp-Method` and, on `tools/call`, `Mcp-Name`. */
-export const modern = (method: string, params: Record<string, unknown> = {}, options: { readonly capabilities?: unknown; readonly query?: string; readonly id?: number } = {}) =>
+export const modern = (
+  method: string,
+  params: Record<string, unknown> = {},
+  options: { readonly capabilities?: unknown; readonly query?: string; readonly id?: number } = {},
+) =>
   post(
-    { jsonrpc: "2.0", id: options.id ?? 1, method, params: { ...params, _meta: modernMeta(options.capabilities ?? BOTH, (params._meta as Record<string, unknown>) ?? {}) } },
     {
-      headers: { "mcp-protocol-version": MODERN_VERSION, "mcp-method": method, ...(method === "tools/call" && typeof params.name === "string" ? { "mcp-name": params.name } : {}) },
+      jsonrpc: "2.0",
+      id: options.id ?? 1,
+      method,
+      params: {
+        ...params,
+        _meta: modernMeta(options.capabilities ?? BOTH, (params._meta as Record<string, unknown>) ?? {}),
+      },
+    },
+    {
+      headers: {
+        "mcp-protocol-version": MODERN_VERSION,
+        "mcp-method": method,
+        ...(method === "tools/call" && typeof params.name === "string" ? { "mcp-name": params.name } : {}),
+      },
       ...(options.query === undefined ? {} : { query: options.query }),
     },
   );
 
 /** A 2025 request on a session (`Mcp-Session-Id`). */
-export const legacy = (method: string, params: Record<string, unknown> = {}, options: { readonly session?: string; readonly version?: string; readonly query?: string; readonly id?: number | string } = {}) =>
+export const legacy = (
+  method: string,
+  params: Record<string, unknown> = {},
+  options: {
+    readonly session?: string;
+    readonly version?: string;
+    readonly query?: string;
+    readonly id?: number | string;
+  } = {},
+) =>
   post(
     { jsonrpc: "2.0", id: options.id ?? 1, method, params },
     {
-      headers: { "mcp-protocol-version": options.version ?? "2025-11-25", ...(options.session === undefined ? {} : { "mcp-session-id": options.session }) },
+      headers: {
+        "mcp-protocol-version": options.version ?? "2025-11-25",
+        ...(options.session === undefined ? {} : { "mcp-session-id": options.session }),
+      },
       ...(options.query === undefined ? {} : { query: options.query }),
     },
   );
 
 /** Initializes at `version` with `capabilities`; the session token the endpoint gave. */
-export const initialize = async (endpoint: ReturnType<typeof endpointOf>, version: string, capabilities: unknown = BOTH, caller: AccessCaller = OWNER) => {
-  const response = await endpoint(post({ jsonrpc: "2.0", id: 0, method: "initialize", params: { protocolVersion: version, capabilities, clientInfo: { name: "opencode", version: "2.2.7" } } }), caller);
-  return { response, session: response.headers.get("mcp-session-id") ?? "", body: (await response.json()) as { result: Record<string, unknown> } };
+export const initialize = async (
+  endpoint: ReturnType<typeof endpointOf>,
+  version: string,
+  capabilities: unknown = BOTH,
+  caller: AccessCaller = OWNER,
+) => {
+  const response = await endpoint(
+    post({
+      jsonrpc: "2.0",
+      id: 0,
+      method: "initialize",
+      params: { protocolVersion: version, capabilities, clientInfo: { name: "opencode", version: "2.2.7" } },
+    }),
+    caller,
+  );
+  return {
+    response,
+    session: response.headers.get("mcp-session-id") ?? "",
+    body: (await response.json()) as { result: Record<string, unknown> },
+  };
 };
 
-export const bodyOf = async (response: Response) => (await response.json()) as { id?: unknown; result?: Record<string, unknown>; error?: { code: number; message: string; data?: unknown } };
+export const bodyOf = async (response: Response) =>
+  (await response.json()) as {
+    id?: unknown;
+    result?: Record<string, unknown>;
+    error?: { code: number; message: string; data?: unknown };
+  };
 
-export const structuredOf = async (response: Response) => (await bodyOf(response)).result?.structuredContent as Record<string, unknown> | undefined;
+export const structuredOf = async (response: Response) =>
+  (await bodyOf(response)).result?.structuredContent as Record<string, unknown> | undefined;
 
 /** Sets the Settings server's access switch (plan D2). */
 export const setAccess = (f: SettingsFixture, change: Partial<Pick<McpServerSetting, "enabled" | "writes">>) => {

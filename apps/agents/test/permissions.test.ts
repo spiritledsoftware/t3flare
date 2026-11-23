@@ -9,7 +9,14 @@ import { obj, str } from "@earendil-works/pi-schema";
 import type { InteractionMode, RuntimeMode } from "@t3flare/session-protocol";
 import { describe, expect, it } from "vitest";
 
-import { ApprovalStore, asks, interactionModeSection, permissions, PLAN_MODE_REFUSAL, toToolPath } from "../src/extensions/permissions.ts";
+import {
+  ApprovalStore,
+  asks,
+  interactionModeSection,
+  permissions,
+  PLAN_MODE_REFUSAL,
+  toToolPath,
+} from "../src/extensions/permissions.ts";
 
 import { context, instanceKv, memoryKv, restartingHarness, textOf, until } from "./harness.fixture.ts";
 
@@ -49,7 +56,9 @@ const fakeWrite = (writes: Array<string>) =>
   });
 
 const callWrite = (path: string): AssistantMessage =>
-  fauxAssistantMessage([fauxToolCall("write", { path, content: "x" }, { id: "call-write" })], { stopReason: "toolUse" });
+  fauxAssistantMessage([fauxToolCall("write", { path, content: "x" }, { id: "call-write" })], {
+    stopReason: "toolUse",
+  });
 
 const callBash = (command: string): AssistantMessage =>
   fauxAssistantMessage([fauxToolCall("bash", { command }, { id: "call-bash" })], { stopReason: "toolUse" });
@@ -79,7 +88,10 @@ describe("permissions", () => {
   it("an approval survives more restarts than restartLimit, and the answer runs the tool once", async () => {
     const runs: Array<string> = [];
     const host = setup("approval-required");
-    const harness = await restartingHarness([fakeBash(runs), host.extension], [callBash("bash test.sh"), fauxAssistantMessage("done")]);
+    const harness = await restartingHarness(
+      [fakeBash(runs), host.extension],
+      [callBash("bash test.sh"), fauxAssistantMessage("done")],
+    );
     await until(() => host.store().pending().length === 1, "the request");
     const requestId = host.store().pending()[0]!.requestId;
     for (let restart = 0; restart < 8; restart++) {
@@ -103,7 +115,10 @@ describe("permissions", () => {
   it("a decline returns the owner's feedback as the tool's error, and nothing runs", async () => {
     const runs: Array<string> = [];
     const host = setup("approval-required");
-    const harness = await restartingHarness([fakeBash(runs), host.extension], [callBash("rm -rf build"), fauxAssistantMessage("ok")]);
+    const harness = await restartingHarness(
+      [fakeBash(runs), host.extension],
+      [callBash("rm -rf build"), fauxAssistantMessage("ok")],
+    );
     await until(() => host.store().pending().length === 1, "the request");
     host.store().answer(host.store().pending()[0]!.requestId, "decline", "not now");
     await until(async () => (await harness.lastToolResult()) !== undefined, "the tool result");
@@ -117,7 +132,10 @@ describe("permissions", () => {
   it("an unsafe tool cut off after it started is not run again", async () => {
     const runs: Array<string> = [];
     const host = setup("full-access");
-    const harness = await restartingHarness([fakeBash(runs, new Promise(() => {})), host.extension], [callBash("make deploy"), fauxAssistantMessage("ok")]);
+    const harness = await restartingHarness(
+      [fakeBash(runs, new Promise(() => {})), host.extension],
+      [callBash("make deploy"), fauxAssistantMessage("ok")],
+    );
     await until(() => runs.length === 1, "the first run");
     await harness.restart();
     await until(async () => (await harness.lastToolResult()) !== undefined, "the tool result");
@@ -128,7 +146,10 @@ describe("permissions", () => {
   it("in plan mode a write is refused without asking, and nothing is written", async () => {
     const writes: Array<string> = [];
     const host = setup("full-access", "plan");
-    const harness = await restartingHarness([fakeWrite(writes), host.extension], [callWrite("/workspace/repo/a.txt"), fauxAssistantMessage("ok")]);
+    const harness = await restartingHarness(
+      [fakeWrite(writes), host.extension],
+      [callWrite("/workspace/repo/a.txt"), fauxAssistantMessage("ok")],
+    );
     await until(async () => (await harness.lastToolResult()) !== undefined, "the tool result");
     const result = await harness.lastToolResult();
     expect(result?.isError).toBe(true);
@@ -140,9 +161,24 @@ describe("permissions", () => {
   it("in plan mode bash asks even in full access and after the owner accepted commands for the session", async () => {
     const runs: Array<string> = [];
     const host = setup("full-access", "plan");
-    void host.store().ask({ requestId: "earlier", turn: "turn-1", callId: "c", tool: "bash", kind: "command", summary: "ls", createdAt: 0 }, async () => {}, context);
+    void host.store().ask(
+      {
+        requestId: "earlier",
+        turn: "turn-1",
+        callId: "c",
+        tool: "bash",
+        kind: "command",
+        summary: "ls",
+        createdAt: 0,
+      },
+      async () => {},
+      context,
+    );
     host.store().answer("earlier", "acceptForSession");
-    const harness = await restartingHarness([fakeBash(runs), host.extension], [callBash("git status"), fauxAssistantMessage("ok")]);
+    const harness = await restartingHarness(
+      [fakeBash(runs), host.extension],
+      [callBash("git status"), fauxAssistantMessage("ok")],
+    );
     await until(() => host.store().pending().length === 1, "the request");
     expect(runs).toEqual([]);
     host.store().answer(host.store().pending()[0]!.requestId, "accept");
@@ -151,7 +187,8 @@ describe("permissions", () => {
   });
 
   it("the plan-mode instruction is in the prompt only in plan mode", async () => {
-    const render = (mode: InteractionMode) => interactionModeSection(() => mode).sections![0]!.render({} as never, context);
+    const render = (mode: InteractionMode) =>
+      interactionModeSection(() => mode).sections![0]!.render({} as never, context);
     expect(await render("default")).toBeUndefined();
     expect(await render("plan")).toContain("do not edit files");
   });
@@ -159,7 +196,11 @@ describe("permissions", () => {
   it("accepting for the session covers one MCP tool by name, and never bash or another tool", () => {
     const store = new ApprovalStore(memoryKv(), () => {});
     const ask = (requestId: string, tool: string, kind: "command" | "mcp-tool") =>
-      void store.ask({ requestId, turn: "t", callId: "c", tool, kind, summary: tool, createdAt: 0 }, async () => {}, context);
+      void store.ask(
+        { requestId, turn: "t", callId: "c", tool, kind, summary: tool, createdAt: 0 },
+        async () => {},
+        context,
+      );
     ask("1", "mcp__t3-code__delegate_task", "mcp-tool");
     store.answer("1", "acceptForSession");
     expect(store.acceptedFor({ tool: "mcp__t3-code__delegate_task", kind: "mcp-tool" })).toBe(true);
@@ -177,11 +218,17 @@ describe("permissions", () => {
     expect(asks("auto-accept-edits", "command")).toBe(true);
     expect(asks("approval-required", "file-change")).toBe(true);
     const store = new ApprovalStore(memoryKv(), () => {});
-    void store.ask({ requestId: "1", turn: "t", callId: "c", tool: "bash", kind: "command", summary: "ls", createdAt: 0 }, async () => {}, context);
+    void store.ask(
+      { requestId: "1", turn: "t", callId: "c", tool: "bash", kind: "command", summary: "ls", createdAt: 0 },
+      async () => {},
+      context,
+    );
     expect(store.answer("1", "acceptForSession")).toBe(true);
     expect(store.acceptedFor({ tool: "bash", kind: "command" })).toBe(true);
     expect(store.answer("1", "accept")).toBe(false);
-    expect(toToolPath("cat /w/fixture/src/a.txt && ls /w/fixture", "fixture")).toBe("cat /workspace/repo/src/a.txt && ls /workspace/repo");
+    expect(toToolPath("cat /w/fixture/src/a.txt && ls /w/fixture", "fixture")).toBe(
+      "cat /workspace/repo/src/a.txt && ls /workspace/repo",
+    );
     expect(toToolPath("/w/fixture-2/x", "fixture")).toBe("/w/fixture-2/x");
   });
 });

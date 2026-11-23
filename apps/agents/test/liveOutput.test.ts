@@ -56,7 +56,9 @@ describe("prompt suggestions", () => {
   });
 
   it("is the model's text, unquoted; nothing on an error, a failure, an overlong reply or an empty turn", async () => {
-    expect(await suggestPrompt(models(reply('"Now run the tests"')), model, "fix it", "fixed")).toBe("Now run the tests");
+    expect(await suggestPrompt(models(reply('"Now run the tests"')), model, "fix it", "fixed")).toBe(
+      "Now run the tests",
+    );
     expect(await suggestPrompt(models(reply("")), model, "fix it", "fixed")).toBe("");
     expect(await suggestPrompt(models(reply("x", "error")), model, "fix it", "fixed")).toBe("");
     expect(await suggestPrompt(models(new Error("down")), model, "fix it", "fixed")).toBe("");

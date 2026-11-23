@@ -31,14 +31,32 @@ import { workersLog } from "../platform/workersLog.ts";
 export const CLI_NAMES: ReadonlySet<string> = new Set(["codex", "pi", "t3flare-probe", "claude-agent-acp", "opencode"]);
 
 const refused = (name: string, description: string) =>
-  PlatformError.systemError({ _tag: "PermissionDenied", module: "ChildProcess", method: "spawn", description: `t3flare: ${description}`, pathOrDescriptor: name });
+  PlatformError.systemError({
+    _tag: "PermissionDenied",
+    module: "ChildProcess",
+    method: "spawn",
+    description: `t3flare: ${description}`,
+    pathOrDescriptor: name,
+  });
 
 const failedStart = (name: string, description: string) =>
-  PlatformError.systemError({ _tag: "Unknown", module: "ChildProcess", method: "spawn", description: `t3flare: ${description}`, pathOrDescriptor: name });
+  PlatformError.systemError({
+    _tag: "Unknown",
+    module: "ChildProcess",
+    method: "spawn",
+    description: `t3flare: ${description}`,
+    pathOrDescriptor: name,
+  });
 
-const cliOf = (name: string): CliName => (name === "t3flare-probe" ? "probe" : name === "claude-agent-acp" ? "claude" : (name as CliName));
+const cliOf = (name: string): CliName =>
+  name === "t3flare-probe" ? "probe" : name === "claude-agent-acp" ? "claude" : (name as CliName);
 
-const DISPLAY: Readonly<Record<string, string>> = { pi: "Pi", codex: "Codex", "claude-agent-acp": "Claude Code", opencode: "OpenCode" };
+const DISPLAY: Readonly<Record<string, string>> = {
+  pi: "Pi",
+  codex: "Codex",
+  "claude-agent-acp": "Claude Code",
+  opencode: "OpenCode",
+};
 
 /**
  * The process's protocol lines, each mapped on its way: `toCli` on stdin, `fromCli` on stdout (SPI-1170: pi's model
@@ -50,10 +68,16 @@ export interface LineMaps {
 }
 
 /** The handle t3 reads and writes: the channel's process as Effect streams and a sink. */
-export const handleOf = (process: ChannelProcess, stdinEndOnDone: boolean, lines?: LineMaps): ChildProcessSpawner.ChildProcessHandle => {
+export const handleOf = (
+  process: ChannelProcess,
+  stdinEndOnDone: boolean,
+  lines?: LineMaps,
+): ChildProcessSpawner.ChildProcessHandle => {
   /** The process's bytes on one of its outputs. */
   const bytesOf = (queue: ChannelProcess["stdout"]) =>
-    Stream.fromAsyncIterable(queue, (cause) => failedStart(process.cli, `reading the process: ${String(cause).slice(0, 200)}`));
+    Stream.fromAsyncIterable(queue, (cause) =>
+      failedStart(process.cli, `reading the process: ${String(cause).slice(0, 200)}`),
+    );
   /** One output as t3 reads it: its bytes, or with `map`, its lines each mapped. */
   const outputOf = (queue: ChannelProcess["stdout"], map?: (line: string) => string) => {
     if (map === undefined) return bytesOf(queue);
@@ -115,7 +139,10 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
     const cwd = command.options.cwd;
     const services = environmentServices();
     if (cwd === undefined || (toWorkspace(cwd) === null && scratchProjectOf(cwd) === undefined)) {
-      return yield* refused(name, `${DISPLAY[name] ?? name} runs in a Workspace's Container; start the thread in a project`);
+      return yield* refused(
+        name,
+        `${DISPLAY[name] ?? name} runs in a Workspace's Container; start the thread in a project`,
+      );
     }
     const channel = services.processes;
     const key = channel.newKey();
@@ -124,9 +151,13 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
     // SPI-1167: the Model endpoints Codex reaches through the model relay (OpenAI Responses), as stored now.
     const responsesEndpoints = endpointsOfApi(services.modelEndpoints?.(), "openai-responses", "codex");
     // SPI-1168: Claude Code on the Anthropic Messages endpoints through the relay.
-    const claudeRelay = name === "claude-agent-acp" ? claudeRelayOf(services.modelEndpoints?.(), currentTextGenerationModel()) : undefined;
+    const claudeRelay =
+      name === "claude-agent-acp"
+        ? claudeRelayOf(services.modelEndpoints?.(), currentTextGenerationModel())
+        : undefined;
     // SPI-1169: OpenCode on the endpoints whose API it speaks.
-    const opencodeRelay = name === "opencode" ? opencodeRelayOf(services.modelEndpoints?.(), currentTextGenerationModel()) : undefined;
+    const opencodeRelay =
+      name === "opencode" ? opencodeRelayOf(services.modelEndpoints?.(), currentTextGenerationModel()) : undefined;
     // SPI-1170: pi on every endpoint that lists a model.
     const piRelay = name === "pi" ? piRelayOf(services.modelEndpoints?.()) : undefined;
     // SPI-1176: a CLI with no endpoint for its API is refused by its profile, saying so.
@@ -145,7 +176,9 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
       {
         readStateFile: (path) => {
           const entry = StateStore.get(path);
-          return entry !== undefined && entry.kind === "file" ? new TextDecoder().decode(StateStore.readFile(path)) : undefined;
+          return entry !== undefined && entry.kind === "file"
+            ? new TextDecoder().decode(StateStore.readFile(path))
+            : undefined;
         },
         piExtensionSource: PI_T3_MCP_EXTENSION_SOURCE,
         relay: { handle: toolHandle, servers: services.relayServers() },
@@ -164,10 +197,17 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
     }
     // The resume proof (M5), at spawn: since v0.1.11-nightly.20261117.4825 t3 resumes a persisted pi session with
     // `--session <file>` on the new process instead of a `switch_session` message (the stdin hook below keeps that one).
-    if (name === "pi" && args.includes("--session")) traceProtocol("pi", "--session", args[args.indexOf("--session") + 1] ?? "?");
+    if (name === "pi" && args.includes("--session"))
+      traceProtocol("pi", "--session", args[args.indexOf("--session") + 1] ?? "?");
     // The relay's wiring for this process (never the handle): whether t3's tools reach it, and through which session.
-    workersLog("log", { t3flare: "cli-relay", cli: name, session: session !== undefined, t3Tools: launch.env.T3_MCP_URL !== undefined });
-    if (launch.droppedEnv.length > 0) workersLog("log", { t3flare: "cli-env-dropped", cli: name, keys: launch.droppedEnv });
+    workersLog("log", {
+      t3flare: "cli-relay",
+      cli: name,
+      session: session !== undefined,
+      t3Tools: launch.env.T3_MCP_URL !== undefined,
+    });
+    if (launch.droppedEnv.length > 0)
+      workersLog("log", { t3flare: "cli-env-dropped", cli: name, keys: launch.droppedEnv });
     const start: ChannelStart = {
       key,
       cli: cliOf(name),
@@ -179,7 +219,11 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
       ...(launch.files === undefined ? {} : { files: launch.files }),
       ...(launch.links === undefined ? {} : { links: launch.links }),
       ...(launch.prune === undefined ? {} : { prune: launch.prune }),
-      ...(session !== undefined ? { thread: session.thread } : launch.thread !== undefined ? { thread: launch.thread } : {}),
+      ...(session !== undefined
+        ? { thread: session.thread }
+        : launch.thread !== undefined
+          ? { thread: launch.thread }
+          : {}),
       toolHandle,
       ...(launch.modelRelay === undefined ? {} : { modelRelay: launch.modelRelay }),
     };
@@ -189,20 +233,32 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
     const process = yield* Effect.acquireRelease(
       Effect.tryPromise({
         try: () => channel.start(start),
-        catch: (cause) => (cause instanceof ProcessRefused ? refused(name, cause.message) : failedStart(name, String(cause).slice(0, 300))),
+        catch: (cause) =>
+          cause instanceof ProcessRefused
+            ? refused(name, cause.message)
+            : failedStart(name, String(cause).slice(0, 300)),
       }),
       (running: ChannelProcess) => Effect.sync(() => running.kill()),
     );
     if (session !== undefined) session.process = process;
     const stdin = command.options.stdin;
-    const endOnDone = typeof stdin === "object" && stdin !== null && "endOnDone" in stdin ? stdin.endOnDone !== false : true;
+    const endOnDone =
+      typeof stdin === "object" && stdin !== null && "endOnDone" in stdin ? stdin.endOnDone !== false : true;
     // SPI-1170: pi on the relay names an endpoint's model by its own provider id; t3's adapter by the endpoint's.
     const relayEndpointIds = new Set(launch.modelRelay ?? []);
     const piLineMaps: LineMaps | undefined =
-      name === "pi" && relayEndpointIds.size > 0 ? { toCli: (line) => piLineToPi(line, relayEndpointIds, piRelay?.model), fromCli: (line) => piLineFromPi(line, relayEndpointIds) } : undefined;
+      name === "pi" && relayEndpointIds.size > 0
+        ? {
+            toCli: (line) => piLineToPi(line, relayEndpointIds, piRelay?.model),
+            fromCli: (line) => piLineFromPi(line, relayEndpointIds),
+          }
+        : undefined;
     const handle = handleOf(process, endOnDone, piLineMaps);
     // A stdin given as a Stream is piped in, as Node's spawner does (t3's `codex exec` prompt, parity G7).
     const input = typeof stdin === "object" && stdin !== null && "stream" in stdin ? stdin.stream : stdin;
-    if (Stream.isStream(input)) yield* Effect.forkScoped(Stream.run(input as Stream.Stream<Uint8Array, PlatformError.PlatformError>, handle.stdin).pipe(Effect.ignore));
+    if (Stream.isStream(input))
+      yield* Effect.forkScoped(
+        Stream.run(input as Stream.Stream<Uint8Array, PlatformError.PlatformError>, handle.stdin).pipe(Effect.ignore),
+      );
     return handle;
   });

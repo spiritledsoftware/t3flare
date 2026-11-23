@@ -49,7 +49,8 @@ export const ContextDoc = defineDoc<ContextState>({
 export const EMPTY_STATE: ContextState = ContextDoc.definition.initial();
 
 /** The stable reference of Note `name` of conversation `conversationId`. */
-export const noteRef = (conversationId: ConversationId, name: string): string => `context:${conversationId}:note:${name}`;
+export const noteRef = (conversationId: ConversationId, name: string): string =>
+  `context:${conversationId}:note:${name}`;
 
 /** Appended text starts on a new line, so it never runs into the Note's last line. */
 export const joinAppend = (existing: string, appended: string): string =>
@@ -59,7 +60,11 @@ export const joinAppend = (existing: string, appended: string): string =>
  * The Note Index a new context gets: how many Notes there are and each one's reference, within `maxCharacters`, so the
  * agent can read them with `context_notes` instead of carrying them.
  */
-export const noteIndex = (conversationId: ConversationId, notes: ReadonlyArray<Note>, maxCharacters = NOTE_INDEX_CHARACTERS): string => {
+export const noteIndex = (
+  conversationId: ConversationId,
+  notes: ReadonlyArray<Note>,
+  maxCharacters = NOTE_INDEX_CHARACTERS,
+): string => {
   const head = `Notes: ${notes.length}. Read them with context_notes.`;
   const suffix = "\nUse context_notes list for the complete catalogue.";
   let index = head;
@@ -74,4 +79,5 @@ export const noteIndex = (conversationId: ConversationId, notes: ReadonlyArray<N
 };
 
 /** Note `name`, if there is one. */
-export const findNote = (notes: ReadonlyArray<Note>, name: string): Note | undefined => notes.find((note) => note.name === name);
+export const findNote = (notes: ReadonlyArray<Note>, name: string): Note | undefined =>
+  notes.find((note) => note.name === name);

@@ -7,7 +7,13 @@ import { UsageLimitSourceSnapshot } from "@t3tools/contracts";
 import * as UsageLimits from "@t3tools/shared/usageLimits";
 import { collectLimitAccounts, collectLimitPools, collectProviderUsageLimits } from "@t3tools/shared/usageLimits";
 import type { ModelEndpoints } from "@t3flare/models/endpoints";
-import { acceptedLimitReading, limitReadingOf, limitWindowsOf, type LimitReading, noteLimitReading } from "@t3flare/models/limits";
+import {
+  acceptedLimitReading,
+  limitReadingOf,
+  limitWindowsOf,
+  type LimitReading,
+  noteLimitReading,
+} from "@t3flare/models/limits";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -34,7 +40,8 @@ type CollectLimitNotices = (presentations: never) => ReadonlyArray<string>;
 const LIMITS_COPY_MODULE = "@t3tools/shared/usageLimitsCopy";
 const collectLimitNotices: CollectLimitNotices =
   ((UsageLimits as Record<string, unknown>).collectLimitNotices as CollectLimitNotices | undefined) ??
-  ((await import(/* @vite-ignore */ LIMITS_COPY_MODULE)) as { readonly collectLimitNotices: CollectLimitNotices }).collectLimitNotices;
+  ((await import(/* @vite-ignore */ LIMITS_COPY_MODULE)) as { readonly collectLimitNotices: CollectLimitNotices })
+    .collectLimitNotices;
 
 const NOW = Date.parse("2026-11-16T12:00:00Z");
 const S = (ms: number) => String(Math.floor(ms / 1000));
@@ -43,13 +50,46 @@ const DAY = 24 * HOUR;
 
 const headers = (values: Record<string, string>) => new Headers(values);
 
-const model = { id: "m", name: "m", reasoning: false, input: ["text" as const], contextWindow: 1, maxTokens: 1, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, known: true };
+const model = {
+  id: "m",
+  name: "m",
+  reasoning: false,
+  input: ["text" as const],
+  contextWindow: 1,
+  maxTokens: 1,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  known: true,
+};
 const endpoints: ModelEndpoints = {
   revision: 1,
   endpoints: [
-    { id: "chatgpt", label: "ChatGPT plan", api: "openai-responses", baseUrl: "https://api.openai.com/v1", auth: "chatgpt", headers: {}, models: [model] },
-    { id: "claude", label: "Claude plan", api: "anthropic-messages", baseUrl: "https://api.anthropic.com", auth: "claude", headers: {}, models: [model] },
-    { id: "copilot", label: "Copilot", api: "openai-completions", baseUrl: "https://api.githubcopilot.com", auth: "copilot", headers: {}, models: [model] },
+    {
+      id: "chatgpt",
+      label: "ChatGPT plan",
+      api: "openai-responses",
+      baseUrl: "https://api.openai.com/v1",
+      auth: "chatgpt",
+      headers: {},
+      models: [model],
+    },
+    {
+      id: "claude",
+      label: "Claude plan",
+      api: "anthropic-messages",
+      baseUrl: "https://api.anthropic.com",
+      auth: "claude",
+      headers: {},
+      models: [model],
+    },
+    {
+      id: "copilot",
+      label: "Copilot",
+      api: "openai-completions",
+      baseUrl: "https://api.githubcopilot.com",
+      auth: "copilot",
+      headers: {},
+      models: [model],
+    },
   ],
 };
 
@@ -98,57 +138,112 @@ describe("each vendor's limit headers, as its own client reads them", () => {
   });
 
   it("only the seven-day window when that is all the answer sends (SPI-1161's recorded header names)", () => {
-    expect(limitWindowsOf(headers({ "anthropic-ratelimit-unified-7d-utilization": "0.05", "anthropic-ratelimit-unified-7d-reset": S(NOW + DAY) }), NOW)).toEqual([
-      { id: "seven_day", usedPercent: 5, resetsAt: NOW + DAY, windowMinutes: 10080 },
-    ]);
+    expect(
+      limitWindowsOf(
+        headers({
+          "anthropic-ratelimit-unified-7d-utilization": "0.05",
+          "anthropic-ratelimit-unified-7d-reset": S(NOW + DAY),
+        }),
+        NOW,
+      ),
+    ).toEqual([{ id: "seven_day", usedPercent: 5, resetsAt: NOW + DAY, windowMinutes: 10080 }]);
   });
 
   it("a refused claim with no utilization is spent: its own status, or the overall status naming it, with the overall reset", () => {
-    expect(limitWindowsOf(headers({ "anthropic-ratelimit-unified-5h-status": "rejected", "anthropic-ratelimit-unified-5h-reset": S(NOW + HOUR) }), NOW)).toEqual([
-      { id: "five_hour", usedPercent: 100, resetsAt: NOW + HOUR, windowMinutes: 300 },
-    ]);
     expect(
       limitWindowsOf(
-        headers({ "anthropic-ratelimit-unified-status": "rejected", "anthropic-ratelimit-unified-representative-claim": "seven_day", "anthropic-ratelimit-unified-reset": S(NOW + DAY) }),
+        headers({
+          "anthropic-ratelimit-unified-5h-status": "rejected",
+          "anthropic-ratelimit-unified-5h-reset": S(NOW + HOUR),
+        }),
+        NOW,
+      ),
+    ).toEqual([{ id: "five_hour", usedPercent: 100, resetsAt: NOW + HOUR, windowMinutes: 300 }]);
+    expect(
+      limitWindowsOf(
+        headers({
+          "anthropic-ratelimit-unified-status": "rejected",
+          "anthropic-ratelimit-unified-representative-claim": "seven_day",
+          "anthropic-ratelimit-unified-reset": S(NOW + DAY),
+        }),
         NOW,
       ),
     ).toEqual([{ id: "seven_day", usedPercent: 100, resetsAt: NOW + DAY, windowMinutes: 10080 }]);
     // A representative claim the answer did not refuse says nothing.
-    expect(limitWindowsOf(headers({ "anthropic-ratelimit-unified-status": "allowed", "anthropic-ratelimit-unified-representative-claim": "five_hour" }), NOW)).toEqual([]);
+    expect(
+      limitWindowsOf(
+        headers({
+          "anthropic-ratelimit-unified-status": "allowed",
+          "anthropic-ratelimit-unified-representative-claim": "five_hour",
+        }),
+        NOW,
+      ),
+    ).toEqual([]);
   });
 
   it("GitHub Copilot, an API-key OpenAI answer and an API-key Anthropic answer report no window", () => {
-    expect(limitWindowsOf(headers({ "x-ratelimit-remaining": "0", "x-ratelimit-limit-requests": "500", "x-ratelimit-remaining-tokens": "10" }), NOW)).toEqual([]);
-    expect(limitWindowsOf(headers({ "anthropic-ratelimit-requests-remaining": "49", "anthropic-ratelimit-tokens-reset": "2026-11-16T12:01:00Z" }), NOW)).toEqual([]);
+    expect(
+      limitWindowsOf(
+        headers({
+          "x-ratelimit-remaining": "0",
+          "x-ratelimit-limit-requests": "500",
+          "x-ratelimit-remaining-tokens": "10",
+        }),
+        NOW,
+      ),
+    ).toEqual([]);
+    expect(
+      limitWindowsOf(
+        headers({
+          "anthropic-ratelimit-requests-remaining": "49",
+          "anthropic-ratelimit-tokens-reset": "2026-11-16T12:01:00Z",
+        }),
+        NOW,
+      ),
+    ).toEqual([]);
     expect(limitReadingOf("copilot", headers({}), NOW)).toBeUndefined();
   });
 
   it("reads numbers as the vendors' clients do (any fraction, an exponent, a .0 reset), and drops garbage, negatives and implausible values", () => {
-    const codex = (used: string, extra: Record<string, string> = {}) => limitWindowsOf(headers({ "x-codex-primary-used-percent": used, ...extra }), NOW);
-    const claude = (utilization: string, extra: Record<string, string> = {}) => limitWindowsOf(headers({ "anthropic-ratelimit-unified-5h-utilization": utilization, ...extra }), NOW);
+    const codex = (used: string, extra: Record<string, string> = {}) =>
+      limitWindowsOf(headers({ "x-codex-primary-used-percent": used, ...extra }), NOW);
+    const claude = (utilization: string, extra: Record<string, string> = {}) =>
+      limitWindowsOf(headers({ "anthropic-ratelimit-unified-5h-utilization": utilization, ...extra }), NOW);
     // Long fractions and exponents, as Claude Code's Number() and Codex's parse::<f64> read them.
-    expect(claude("0.30000000000000004")).toEqual([{ id: "five_hour", usedPercent: 30.000000000000004, windowMinutes: 300 }]);
+    expect(claude("0.30000000000000004")).toEqual([
+      { id: "five_hour", usedPercent: 30.000000000000004, windowMinutes: 300 },
+    ]);
     expect(claude("0.0731234567891")[0]!.usedPercent).toBeCloseTo(7.31234567891, 9);
     expect(claude("1e-05")[0]!.usedPercent).toBeCloseTo(0.001, 12);
     expect(codex("12.3456789012345")).toEqual([{ id: "primary", usedPercent: 12.3456789012345 }]);
     expect(codex("1e2")).toEqual([{ id: "primary", usedPercent: 100 }]);
     // A reset written with a fraction is rounded to the second, as Claude Code rounds it.
-    expect(claude("0.5", { "anthropic-ratelimit-unified-5h-reset": `${S(NOW + HOUR)}.0` })).toEqual([{ id: "five_hour", usedPercent: 50, resetsAt: NOW + HOUR, windowMinutes: 300 }]);
-    expect(codex("10", { "x-codex-primary-reset-at": `${S(NOW + HOUR)}.4`, "x-codex-primary-window-minutes": "300.0" })).toEqual([{ id: "primary", usedPercent: 10, resetsAt: NOW + HOUR, windowMinutes: 300 }]);
-    for (const bad of ["lots", "-1", "-0.5", "NaN", "Infinity", "1e400", "12.5%", "0x10", " ", "1.2.3", "+5"]) expect(codex(bad), bad).toEqual([]);
+    expect(claude("0.5", { "anthropic-ratelimit-unified-5h-reset": `${S(NOW + HOUR)}.0` })).toEqual([
+      { id: "five_hour", usedPercent: 50, resetsAt: NOW + HOUR, windowMinutes: 300 },
+    ]);
+    expect(
+      codex("10", { "x-codex-primary-reset-at": `${S(NOW + HOUR)}.4`, "x-codex-primary-window-minutes": "300.0" }),
+    ).toEqual([{ id: "primary", usedPercent: 10, resetsAt: NOW + HOUR, windowMinutes: 300 }]);
+    for (const bad of ["lots", "-1", "-0.5", "NaN", "Infinity", "1e400", "12.5%", "0x10", " ", "1.2.3", "+5"])
+      expect(codex(bad), bad).toEqual([]);
     // Overspent by a little (float noise, a just-spent window) is spent: clamped to 100. More is not a share: dropped.
     expect(codex("100.5")).toEqual([{ id: "primary", usedPercent: 100 }]);
     expect(codex("100.0000001")).toEqual([{ id: "primary", usedPercent: 100 }]);
     for (const bad of ["100.6", "150", "1e9"]) expect(codex(bad), bad).toEqual([]);
     // Codex drops a window that says nothing.
     expect(codex("0")).toEqual([]);
-    expect(codex("0", { "x-codex-primary-window-minutes": "300" })).toEqual([{ id: "primary", usedPercent: 0, windowMinutes: 300 }]);
+    expect(codex("0", { "x-codex-primary-window-minutes": "300" })).toEqual([
+      { id: "primary", usedPercent: 0, windowMinutes: 300 },
+    ]);
     // A reset in the past, in milliseconds, over a year away or not a number is dropped (the window is kept).
     for (const reset of [S(NOW - HOUR), String(NOW + HOUR), S(NOW + 400 * DAY), "soon", "-5"]) {
       expect(codex("10", { "x-codex-primary-reset-at": reset }), reset).toEqual([{ id: "primary", usedPercent: 10 }]);
     }
     // A length of zero, over a month or negative is dropped.
-    for (const minutes of ["0", "50000", "-300", "0.2"]) expect(codex("10", { "x-codex-primary-window-minutes": minutes }), minutes).toEqual([{ id: "primary", usedPercent: 10 }]);
+    for (const minutes of ["0", "50000", "-300", "0.2"])
+      expect(codex("10", { "x-codex-primary-window-minutes": minutes }), minutes).toEqual([
+        { id: "primary", usedPercent: 10 },
+      ]);
     // Claude's utilization is a fraction: 1.004 is just spent (100 %); 1.5 or 42 (4200 %) is not a share, dropped.
     expect(claude("1.004")).toEqual([{ id: "five_hour", usedPercent: 100, windowMinutes: 300 }]);
     expect(claude("1.5")).toEqual([]);
@@ -159,8 +254,15 @@ describe("each vendor's limit headers, as its own client reads them", () => {
 
   it("never throws, whatever the headers object does, and a reader's send that throws is its own", () => {
     const sent: Array<LimitReading> = [];
-    noteLimitReading("claude", headers({ "anthropic-ratelimit-unified-5h-utilization": "0.1" }), NOW, (reading) => void sent.push(reading));
-    expect(sent).toEqual([{ endpointId: "claude", at: NOW, windows: [{ id: "five_hour", usedPercent: 10, windowMinutes: 300 }] }]);
+    noteLimitReading(
+      "claude",
+      headers({ "anthropic-ratelimit-unified-5h-utilization": "0.1" }),
+      NOW,
+      (reading) => void sent.push(reading),
+    );
+    expect(sent).toEqual([
+      { endpointId: "claude", at: NOW, windows: [{ id: "five_hour", usedPercent: 10, windowMinutes: 300 }] },
+    ]);
     expect(() =>
       noteLimitReading("claude", headers({ "anthropic-ratelimit-unified-5h-utilization": "0.1" }), NOW, () => {
         throw new Error("lost");
@@ -202,42 +304,100 @@ describe("what the Environment accepts of a reading", () => {
         { id: "seven_day", usedPercent: 10 },
       ],
     });
-    for (const bad of [null, "x", { endpointId: "Bad Id", at: NOW, windows: [{ id: "primary", usedPercent: 1 }] }, { endpointId: "claude", at: -1, windows: [] }, { endpointId: "claude", at: NOW, windows: [] }]) {
+    for (const bad of [
+      null,
+      "x",
+      { endpointId: "Bad Id", at: NOW, windows: [{ id: "primary", usedPercent: 1 }] },
+      { endpointId: "claude", at: -1, windows: [] },
+      { endpointId: "claude", at: NOW, windows: [] },
+    ]) {
       expect(acceptedLimitReading(bad)).toBeUndefined();
     }
   });
 });
 
-const reading = (endpointId: string, at: number, windows: LimitReading["windows"]): LimitReading => ({ endpointId, at, windows });
+const reading = (endpointId: string, at: number, windows: LimitReading["windows"]): LimitReading => ({
+  endpointId,
+  at,
+  windows,
+});
 
 describe("the Environment's kept windows", () => {
   it("keeps each window's reading of the latest answer, whatever order the sends arrive in", () => {
     const store = limitStore(nodeSqlStorage());
     const kept: Array<number> = [];
     store.subscribe(() => void kept.push(store.read().length));
-    expect(store.record({ readings: [reading("claude", NOW, [{ id: "five_hour", usedPercent: 50 }])] }, endpoints, NOW)).toBe(1);
+    expect(
+      store.record({ readings: [reading("claude", NOW, [{ id: "five_hour", usedPercent: 50 }])] }, endpoints, NOW),
+    ).toBe(1);
     // An older answer's reading arriving later is not kept.
-    expect(store.record({ readings: [reading("claude", NOW - 1000, [{ id: "five_hour", usedPercent: 10 }, { id: "seven_day", usedPercent: 3 }])] }, endpoints, NOW)).toBe(1);
+    expect(
+      store.record(
+        {
+          readings: [
+            reading("claude", NOW - 1000, [
+              { id: "five_hour", usedPercent: 10 },
+              { id: "seven_day", usedPercent: 3 },
+            ]),
+          ],
+        },
+        endpoints,
+        NOW,
+      ),
+    ).toBe(1);
     expect(store.read().map((window) => [window.id, window.usedPercent, window.at])).toEqual([
       ["five_hour", 50, NOW],
       ["seven_day", 3, NOW - 1000],
     ]);
     // A later answer replaces only the windows it reports.
-    store.record({ readings: [reading("claude", NOW + 1000, [{ id: "five_hour", usedPercent: 55, resetsAt: NOW + HOUR, windowMinutes: 300 }])] }, endpoints, NOW);
+    store.record(
+      {
+        readings: [
+          reading("claude", NOW + 1000, [
+            { id: "five_hour", usedPercent: 55, resetsAt: NOW + HOUR, windowMinutes: 300 },
+          ]),
+        ],
+      },
+      endpoints,
+      NOW,
+    );
     expect(store.read()).toEqual([
-      { endpoint: "claude", id: "five_hour", at: NOW + 1000, usedPercent: 55, resetsAt: NOW + HOUR, windowMinutes: 300 },
+      {
+        endpoint: "claude",
+        id: "five_hour",
+        at: NOW + 1000,
+        usedPercent: 55,
+        resetsAt: NOW + HOUR,
+        windowMinutes: 300,
+      },
       { endpoint: "claude", id: "seven_day", at: NOW - 1000, usedPercent: 3, resetsAt: null, windowMinutes: null },
     ]);
     // The same answer again (equal time) changes nothing and tells no one.
-    expect(store.record({ readings: [reading("claude", NOW + 1000, [{ id: "five_hour", usedPercent: 99 }])] }, endpoints, NOW)).toBe(0);
+    expect(
+      store.record(
+        { readings: [reading("claude", NOW + 1000, [{ id: "five_hour", usedPercent: 99 }])] },
+        endpoints,
+        NOW,
+      ),
+    ).toBe(0);
     expect(kept).toEqual([1, 2, 2]);
   });
 
   it("drops readings of unknown endpoints and from the future (counted as not kept)", () => {
     const store = limitStore(nodeSqlStorage());
-    expect(store.record({ readings: [reading("ghost", NOW, [{ id: "primary", usedPercent: 1 }])] }, endpoints, NOW)).toBe(0);
-    expect(store.record({ readings: [reading("claude", NOW + 2 * HOUR, [{ id: "five_hour", usedPercent: 1 }])] }, endpoints, NOW)).toBe(0);
-    expect(store.record({ readings: [reading("chatgpt", NOW, [{ id: "primary", usedPercent: 1 }])] }, endpoints, NOW)).toBe(1);
+    expect(
+      store.record({ readings: [reading("ghost", NOW, [{ id: "primary", usedPercent: 1 }])] }, endpoints, NOW),
+    ).toBe(0);
+    expect(
+      store.record(
+        { readings: [reading("claude", NOW + 2 * HOUR, [{ id: "five_hour", usedPercent: 1 }])] },
+        endpoints,
+        NOW,
+      ),
+    ).toBe(0);
+    expect(
+      store.record({ readings: [reading("chatgpt", NOW, [{ id: "primary", usedPercent: 1 }])] }, endpoints, NOW),
+    ).toBe(1);
     expect(store.read().map((window) => window.endpoint)).toEqual(["chatgpt"]);
   });
 
@@ -245,12 +405,23 @@ describe("the Environment's kept windows", () => {
     const store = limitStore(nodeSqlStorage());
     const told: Array<number> = [];
     store.subscribe(() => void told.push(store.read().length));
-    store.record({ readings: [reading("chatgpt", NOW, [{ id: "primary", usedPercent: 70 }]), reading("claude", NOW, [{ id: "five_hour", usedPercent: 5 }])] }, endpoints, NOW);
+    store.record(
+      {
+        readings: [
+          reading("chatgpt", NOW, [{ id: "primary", usedPercent: 70 }]),
+          reading("claude", NOW, [{ id: "five_hour", usedPercent: 5 }]),
+        ],
+      },
+      endpoints,
+      NOW,
+    );
     store.forget("chatgpt");
     store.forget("chatgpt");
     expect(store.read().map((window) => window.endpoint)).toEqual(["claude"]);
     // Re-added under the same id: no meter until an answer reads one.
-    expect(limitSnapshots(store.read(), endpoints, NOW).map((source) => source.id)).toEqual([`${LIMIT_SOURCE_PREFIX}claude`]);
+    expect(limitSnapshots(store.read(), endpoints, NOW).map((source) => source.id)).toEqual([
+      `${LIMIT_SOURCE_PREFIX}claude`,
+    ]);
     expect(told).toEqual([2, 1]);
   });
 
@@ -258,22 +429,37 @@ describe("the Environment's kept windows", () => {
     const store = limitStore(nodeSqlStorage());
     let stored: ModelEndpoints = endpoints;
     const wiring = limitWiring({ store: () => store, endpoints: () => stored, now: () => NOW });
-    expect(wiring.record({ readings: [reading("claude", NOW, [{ id: "five_hour", usedPercent: 5 }])] })).toEqual({ kept: 1 });
+    expect(wiring.record({ readings: [reading("claude", NOW, [{ id: "five_hour", usedPercent: 5 }])] })).toEqual({
+      kept: 1,
+    });
     stored = { revision: 2, endpoints: endpoints.endpoints.filter((endpoint) => endpoint.id !== "claude") };
-    expect(wiring.record({ readings: [reading("claude", NOW + 1, [{ id: "five_hour", usedPercent: 6 }])] })).toEqual({ kept: 0 });
+    expect(wiring.record({ readings: [reading("claude", NOW + 1, [{ id: "five_hour", usedPercent: 6 }])] })).toEqual({
+      kept: 0,
+    });
     wiring.removed("claude");
     expect(store.read()).toEqual([]);
   });
 
   it("outlives the object: a new store on the same database reads what an earlier one kept (eviction)", () => {
     const sql = nodeSqlStorage();
-    limitStore(sql).record({ readings: [reading("claude", NOW, [{ id: "seven_day", usedPercent: 7 }])] }, endpoints, NOW);
+    limitStore(sql).record(
+      { readings: [reading("claude", NOW, [{ id: "seven_day", usedPercent: 7 }])] },
+      endpoints,
+      NOW,
+    );
     expect(limitStore(sql).read()).toMatchObject([{ endpoint: "claude", id: "seven_day", usedPercent: 7 }]);
     expect(JSON.stringify(sql.db.prepare("SELECT * FROM t3flare_limit_windows").all())).not.toMatch(/sk-|@|org/);
   });
 });
 
-const stored = (endpoint: string, id: "primary" | "secondary" | "five_hour" | "seven_day", at: number, usedPercent: number, resetsAt: number | null, windowMinutes: number | null) => ({ endpoint, id, at, usedPercent, resetsAt, windowMinutes });
+const stored = (
+  endpoint: string,
+  id: "primary" | "secondary" | "five_hour" | "seven_day",
+  at: number,
+  usedPercent: number,
+  resetsAt: number | null,
+  windowMinutes: number | null,
+) => ({ endpoint, id, at, usedPercent, resetsAt, windowMinutes });
 
 describe("t3's limit sources: one per subscription endpoint", () => {
   const windows = [
@@ -297,22 +483,62 @@ describe("t3's limit sources: one per subscription endpoint", () => {
         usageLimits: {
           checkedAt: new Date(NOW - 60_000).toISOString(),
           windows: [
-            { id: "primary", kind: "session", label: "5-hour", usedPercent: 12.5, resetsAt: new Date(NOW + 2 * HOUR).toISOString(), windowDurationMins: 300 },
-            { id: "secondary", kind: "weekly", label: "Weekly", usedPercent: 40, resetsAt: new Date(NOW + 5 * DAY).toISOString(), windowDurationMins: 10080 },
+            {
+              id: "primary",
+              kind: "session",
+              label: "5-hour",
+              usedPercent: 12.5,
+              resetsAt: new Date(NOW + 2 * HOUR).toISOString(),
+              windowDurationMins: 300,
+            },
+            {
+              id: "secondary",
+              kind: "weekly",
+              label: "Weekly",
+              usedPercent: 40,
+              resetsAt: new Date(NOW + 5 * DAY).toISOString(),
+              windowDurationMins: 10080,
+            },
           ],
         },
       },
     ]);
     expect(sources[1]!.accounts[0]).toMatchObject({ id: "claude", driver: "claudeAgent" });
-    expect(sources.flatMap((source) => source.accounts).every((account) => account.email === undefined && account.workspaceId === undefined)).toBe(true);
+    expect(
+      sources
+        .flatMap((source) => source.accounts)
+        .every((account) => account.email === undefined && account.workspaceId === undefined),
+    ).toBe(true);
   });
 
   it("render through t3's own meter logic: a Codex pool and a Claude pool with their percentages, and no notice while fresh", () => {
-    const presentations = new Map([["env-1", { entry: { target: { label: "t3flare" } }, serverConfig: { providers: [], usageLimitSources: limitSnapshots(windows, endpoints, NOW) } }]]);
+    const presentations = new Map([
+      [
+        "env-1",
+        {
+          entry: { target: { label: "t3flare" } },
+          serverConfig: { providers: [], usageLimitSources: limitSnapshots(windows, endpoints, NOW) },
+        },
+      ],
+    ]);
     const pools = collectLimitPools(collectLimitAccounts(presentations as never), NOW);
-    expect(pools.map((pool) => [pool.driver, pool.windows.map((window) => [window.label, window.remainingPercent])])).toEqual([
-      ["codex", [["5-hour", 88], ["Weekly", 60]]],
-      ["claudeAgent", [["5-hour", 58], ["Weekly", 20]]],
+    expect(
+      pools.map((pool) => [pool.driver, pool.windows.map((window) => [window.label, window.remainingPercent])]),
+    ).toEqual([
+      [
+        "codex",
+        [
+          ["5-hour", 88],
+          ["Weekly", 60],
+        ],
+      ],
+      [
+        "claudeAgent",
+        [
+          ["5-hour", 58],
+          ["Weekly", 20],
+        ],
+      ],
     ]);
     expect(collectLimitNotices(presentations as never)).toEqual([]);
   });
@@ -324,7 +550,12 @@ describe("t3's limit sources: one per subscription endpoint", () => {
       "Last read 3 hours ago (limits are read from this endpoint's answers).",
       "Last read 3 hours ago (limits are read from this endpoint's answers).",
     ]);
-    const presentations = new Map([["env-1", { entry: { target: { label: "t3flare" } }, serverConfig: { providers: [], usageLimitSources: sources } }]]);
+    const presentations = new Map([
+      [
+        "env-1",
+        { entry: { target: { label: "t3flare" } }, serverConfig: { providers: [], usageLimitSources: sources } },
+      ],
+    ]);
     expect(collectLimitNotices(presentations as never)).toEqual([
       "ChatGPT plan: Last read 3 hours ago (limits are read from this endpoint's answers).",
       "Claude plan: Last read 3 hours ago (limits are read from this endpoint's answers).",
@@ -333,19 +564,35 @@ describe("t3's limit sources: one per subscription endpoint", () => {
     expect(collectLimitPools(collectLimitAccounts(presentations as never), later)).toHaveLength(2);
     const codex = { instanceId: "codex", driver: "codex", enabled: true, auth: {}, slashCommands: [] };
     const report = collectProviderUsageLimits("codex" as never, [codex] as never, sources, later);
-    expect(report?.notices).toEqual(["ChatGPT plan: Last read 3 hours ago (limits are read from this endpoint's answers)."]);
+    expect(report?.notices).toEqual([
+      "ChatGPT plan: Last read 3 hours ago (limits are read from this endpoint's answers).",
+    ]);
     expect(report?.accounts.map((account) => account.label)).toEqual(["ChatGPT plan · chatgpt"]);
   });
 
   it("goes stale at STALE_AFTER_MS, names each stale window when they differ, and shows a window past its reset as reset", () => {
     const fresh = [stored("claude", "five_hour", NOW, 42, NOW + HOUR, 300)];
     expect(limitSnapshots(fresh, endpoints, NOW + STALE_AFTER_MS - 1)[0]!.error).toBeUndefined();
-    expect(limitSnapshots(fresh, endpoints, NOW + STALE_AFTER_MS)[0]!.error).toBe("Last read 30 minutes ago (limits are read from this endpoint's answers).");
-    const mixed = [stored("claude", "five_hour", NOW, 42, NOW + HOUR, 300), stored("claude", "seven_day", NOW - 2 * DAY, 80, NOW + DAY, 10080)];
-    expect(limitSnapshots(mixed, endpoints, NOW)[0]!.error).toBe("Weekly last read 2 days ago (limits are read from this endpoint's answers).");
+    expect(limitSnapshots(fresh, endpoints, NOW + STALE_AFTER_MS)[0]!.error).toBe(
+      "Last read 30 minutes ago (limits are read from this endpoint's answers).",
+    );
+    const mixed = [
+      stored("claude", "five_hour", NOW, 42, NOW + HOUR, 300),
+      stored("claude", "seven_day", NOW - 2 * DAY, 80, NOW + DAY, 10080),
+    ];
+    expect(limitSnapshots(mixed, endpoints, NOW)[0]!.error).toBe(
+      "Weekly last read 2 days ago (limits are read from this endpoint's answers).",
+    );
     const [past] = limitSnapshots(fresh, endpoints, NOW + 2 * HOUR);
-    expect(past!.accounts[0]!.usageLimits.windows).toEqual([{ id: "five_hour", kind: "session", label: "5-hour", usedPercent: 0, windowDurationMins: 300 }]);
-    expect([agoText(59_999), agoText(HOUR), agoText(47 * HOUR), agoText(49 * HOUR)]).toEqual(["0 minutes ago", "1 hour ago", "47 hours ago", "2 days ago"]);
+    expect(past!.accounts[0]!.usageLimits.windows).toEqual([
+      { id: "five_hour", kind: "session", label: "5-hour", usedPercent: 0, windowDurationMins: 300 },
+    ]);
+    expect([agoText(59_999), agoText(HOUR), agoText(47 * HOUR), agoText(49 * HOUR)]).toEqual([
+      "0 minutes ago",
+      "1 hour ago",
+      "47 hours ago",
+      "2 days ago",
+    ]);
   });
 
   it("labels a window by its length, and an unknown length by its slot", () => {
@@ -374,21 +621,41 @@ describe("the endpoints' meters in t3's UsageLimitSources", () => {
     yield* TestClock.adjust(duration);
     for (let turn = 0; turn < 20; turn++) yield* Effect.yieldNow;
   });
-  const claudeAt = (usedPercent: number) => reading("claude", NOW + usedPercent, [{ id: "five_hour", usedPercent, resetsAt: NOW + 4 * HOUR, windowMinutes: 300 }]);
-  const shares = (sources: ReadonlyArray<UsageLimitSourceSnapshot>) => sources.filter((source) => source.id.startsWith(LIMIT_SOURCE_PREFIX)).map((source) => source.accounts[0]!.usageLimits.windows[0]!.usedPercent);
+  const claudeAt = (usedPercent: number) =>
+    reading("claude", NOW + usedPercent, [
+      { id: "five_hour", usedPercent, resetsAt: NOW + 4 * HOUR, windowMinutes: 300 },
+    ]);
+  const shares = (sources: ReadonlyArray<UsageLimitSourceSnapshot>) =>
+    sources
+      .filter((source) => source.id.startsWith(LIMIT_SOURCE_PREFIX))
+      .map((source) => source.accounts[0]!.usageLimits.windows[0]!.usedPercent);
 
   it("push a kept reading on t3's stream of sources, beside t3's own, look again on refresh, and refuse a reset claim", async () => {
     const store = limitStore(nodeSqlStorage());
     let now = NOW;
-    const hub = { id: "hub", kind: "cliproxy", label: "my hub", checkedAt: "2026-11-16T10:00:00.000Z", accounts: [] } as unknown as UsageLimitSourceSnapshot;
+    const hub = {
+      id: "hub",
+      kind: "cliproxy",
+      label: "my hub",
+      checkedAt: "2026-11-16T10:00:00.000Z",
+      accounts: [],
+    } as unknown as UsageLimitSourceSnapshot;
     const stock = { ...stockService, current: Effect.succeed([hub]), streamChanges: Stream.make([hub]) };
     const result = await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
-          const meters = yield* endpointMeterSources({ store, endpoints: () => endpoints, now: () => now, pushEvery: "5 millis" });
+          const meters = yield* endpointMeterSources({
+            store,
+            endpoints: () => endpoints,
+            now: () => now,
+            pushEvery: "5 millis",
+          });
           const service = withSources(stock as never, [meters]);
           const seen: Array<ReadonlyArray<UsageLimitSourceSnapshot>> = [];
-          yield* service.streamChanges.pipe(Stream.runForEach((sources) => Effect.sync(() => void seen.push(sources))), Effect.forkScoped);
+          yield* service.streamChanges.pipe(
+            Stream.runForEach((sources) => Effect.sync(() => void seen.push(sources))),
+            Effect.forkScoped,
+          );
           yield* pass("5 millis");
           const before = yield* service.current;
           store.record({ readings: [claudeAt(25)] }, endpoints, NOW);
@@ -398,19 +665,33 @@ describe("the endpoints' meters in t3's UsageLimitSources", () => {
           yield* service.refresh;
           yield* pass("50 millis");
           const stale = yield* service.current;
-          const claim = yield* Effect.flip(service.consumeResetCredit({ sourceId: `${LIMIT_SOURCE_PREFIX}claude`, accountId: "claude", creditId: "c" } as never));
+          const claim = yield* Effect.flip(
+            service.consumeResetCredit({
+              sourceId: `${LIMIT_SOURCE_PREFIX}claude`,
+              accountId: "claude",
+              creditId: "c",
+            } as never),
+          );
           return { before, after, stale, claim, seen };
         }),
       ).pipe(Effect.provide(TestClock.layer())),
     );
     expect(result.before.map((source) => source.id)).toEqual(["hub"]);
-    expect(result.after.map((source) => [source.id, source.accounts[0]?.usageLimits.windows[0]?.usedPercent, source.error])).toEqual([
+    expect(
+      result.after.map((source) => [source.id, source.accounts[0]?.usageLimits.windows[0]?.usedPercent, source.error]),
+    ).toEqual([
       ["hub", undefined, undefined],
       [`${LIMIT_SOURCE_PREFIX}claude`, 25, undefined],
     ]);
     // What t3's clients are pushed: t3's own source, then ours beside it once the reading is kept.
-    expect(result.seen.map((sources) => sources.map((source) => source.id))).toEqual([["hub"], ["hub", `${LIMIT_SOURCE_PREFIX}claude`], ["hub", `${LIMIT_SOURCE_PREFIX}claude`]]);
-    expect(result.seen.at(-1)!.at(-1)!.error).toBe("Last read 1 hour ago (limits are read from this endpoint's answers).");
+    expect(result.seen.map((sources) => sources.map((source) => source.id))).toEqual([
+      ["hub"],
+      ["hub", `${LIMIT_SOURCE_PREFIX}claude`],
+      ["hub", `${LIMIT_SOURCE_PREFIX}claude`],
+    ]);
+    expect(result.seen.at(-1)!.at(-1)!.error).toBe(
+      "Last read 1 hour ago (limits are read from this endpoint's answers).",
+    );
     expect(result.stale.at(-1)!.error).toBe("Last read 1 hour ago (limits are read from this endpoint's answers).");
     expect(result.claim.detail).toMatch(/with the vendor/);
   });
@@ -422,7 +703,12 @@ describe("the endpoints' meters in t3's UsageLimitSources", () => {
     const errors = await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
-          const meters = yield* endpointMeterSources({ store, endpoints: () => endpoints, now: () => now, every: "10 millis" });
+          const meters = yield* endpointMeterSources({
+            store,
+            endpoints: () => endpoints,
+            now: () => now,
+            every: "10 millis",
+          });
           const fresh = (yield* SubscriptionRef.get(meters.ref))[0]!.error;
           now = NOW + 2 * HOUR;
           yield* pass("200 millis");
@@ -437,19 +723,30 @@ describe("the endpoints' meters in t3's UsageLimitSources", () => {
     const store = limitStore(nodeSqlStorage());
     const seen: Array<ReadonlyArray<number>> = [];
     const listeners = { count: 0 };
-    const counted = { ...store, subscribe: (listener: () => void) => {
-      listeners.count += 1;
-      const off = store.subscribe(listener);
-      return () => {
-        listeners.count -= 1;
-        off();
-      };
-    } };
+    const counted = {
+      ...store,
+      subscribe: (listener: () => void) => {
+        listeners.count += 1;
+        const off = store.subscribe(listener);
+        return () => {
+          listeners.count -= 1;
+          off();
+        };
+      },
+    };
     await Effect.runPromise(
       Effect.gen(function* () {
         const scope = yield* Scope.make();
-        const meters = yield* endpointMeterSources({ store: counted, endpoints: () => endpoints, now: () => NOW + 1000, pushEvery: "100 millis" }).pipe(Scope.provide(scope));
-        yield* SubscriptionRef.changes(meters.ref).pipe(Stream.runForEach((sources) => Effect.sync(() => void seen.push(shares(sources)))), Effect.forkDetach);
+        const meters = yield* endpointMeterSources({
+          store: counted,
+          endpoints: () => endpoints,
+          now: () => NOW + 1000,
+          pushEvery: "100 millis",
+        }).pipe(Scope.provide(scope));
+        yield* SubscriptionRef.changes(meters.ref).pipe(
+          Stream.runForEach((sources) => Effect.sync(() => void seen.push(shares(sources)))),
+          Effect.forkDetach,
+        );
         yield* pass("5 millis");
         // A reading marks a push due; the scope closes before it runs.
         store.record({ readings: [claudeAt(10)] }, endpoints, NOW);
@@ -468,9 +765,17 @@ describe("the endpoints' meters in t3's UsageLimitSources", () => {
     const pushed = await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
-          const meters = yield* endpointMeterSources({ store, endpoints: () => endpoints, now: () => NOW + 1000, pushEvery: "100 millis" });
+          const meters = yield* endpointMeterSources({
+            store,
+            endpoints: () => endpoints,
+            now: () => NOW + 1000,
+            pushEvery: "100 millis",
+          });
           const seen: Array<ReadonlyArray<number>> = [];
-          yield* SubscriptionRef.changes(meters.ref).pipe(Stream.runForEach((sources) => Effect.sync(() => void seen.push(shares(sources)))), Effect.forkScoped);
+          yield* SubscriptionRef.changes(meters.ref).pipe(
+            Stream.runForEach((sources) => Effect.sync(() => void seen.push(shares(sources)))),
+            Effect.forkScoped,
+          );
           yield* pass("5 millis");
           // A CLI turn's requests, a few milliseconds apart: none pushed until the window ends.
           for (const used of [10, 20, 30, 40, 50]) {

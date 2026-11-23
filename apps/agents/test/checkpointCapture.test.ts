@@ -16,8 +16,22 @@ import { MAX_FILE_BYTES, MAX_TRACKED_FILES, MAX_WORKTREE_BYTES } from "../src/wo
 const root = mkdtempSync(join(tmpdir(), "t3flare-capture-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-const ENV = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
-const git = (cwd: string, ...args: Array<string>) => execFileSync("git", args, { cwd, env: ENV, maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] }).toString("utf8");
+const ENV = {
+  ...process.env,
+  GIT_AUTHOR_NAME: "t",
+  GIT_AUTHOR_EMAIL: "t@example.com",
+  GIT_COMMITTER_NAME: "t",
+  GIT_COMMITTER_EMAIL: "t@example.com",
+  GIT_CONFIG_GLOBAL: "/dev/null",
+  GIT_CONFIG_NOSYSTEM: "1",
+};
+const git = (cwd: string, ...args: Array<string>) =>
+  execFileSync("git", args, {
+    cwd,
+    env: ENV,
+    maxBuffer: 64 * 1024 * 1024,
+    stdio: ["ignore", "pipe", "ignore"],
+  }).toString("utf8");
 
 /** A Workspace: the DO's repo, the Container's pending writes, the change log, and the capture's deps. */
 const workspace = (name: string, tracked = 1) => {
@@ -42,7 +56,8 @@ const workspace = (name: string, tracked = 1) => {
     },
     repo: async () => ({ fs, dir, cache: {} }),
     revision: () => rev,
-    journalSince: (after, through) => journal.filter((entry) => entry.rev > after && entry.rev <= through).map((entry) => entry.path),
+    journalSince: (after, through) =>
+      journal.filter((entry) => entry.rev > after && entry.rev <= through).map((entry) => entry.path),
     last: () => last,
     remember: (next) => {
       last = next;
@@ -81,7 +96,9 @@ describe("captureTurn (SPI-1100)", () => {
     expect(ws.show("refs/t3/checkpoints/t/turn/0", "notes.txt")).toBeNull();
     expect(ws.show("refs/t3/checkpoints/t/turn/1", "notes.txt")).toBe("one\n");
     // Its diff, as t3 asks it: turn 0 to turn 1 adds the file.
-    expect(git(ws.dir, "diff", "--name-only", "refs/t3/checkpoints/t/turn/0", "refs/t3/checkpoints/t/turn/1").trim()).toBe("notes.txt");
+    expect(
+      git(ws.dir, "diff", "--name-only", "refs/t3/checkpoints/t/turn/0", "refs/t3/checkpoints/t/turn/1").trim(),
+    ).toBe("notes.txt");
     expect(readFileSync(join(ws.dir, "notes.txt"), "utf8")).toBe("one\n");
   });
 
@@ -99,7 +116,10 @@ describe("captureTurn (SPI-1100)", () => {
   it("a file past MAX_FILE_BYTES, or a working tree past MAX_WORKTREE_BYTES, puts a small repo above the guard (SPI-1050)", async () => {
     const ws = workspace("big-file");
     let sizes = { largest: MAX_FILE_BYTES, worktreeBytes: MAX_WORKTREE_BYTES };
-    const deps: CaptureDeps = { ...ws.deps, repo: async () => ({ fs, dir: ws.dir, cache: {}, fileSizes: () => sizes }) };
+    const deps: CaptureDeps = {
+      ...ws.deps,
+      repo: async () => ({ fs, dir: ws.dir, cache: {}, fileSizes: () => sizes }),
+    };
     expect(await captureTurn(deps, "refs/t3/checkpoints/t/turn/0")).toMatchObject({ ok: true, by: "do" });
     sizes = { largest: MAX_FILE_BYTES + 1, worktreeBytes: MAX_FILE_BYTES + 1 };
     ws.containerWrites("data.bin", "big\n");
@@ -114,7 +134,9 @@ describe("captureTurn (SPI-1100)", () => {
   it("fails the capture, writing no ref, when the pull fails", async () => {
     const ws = workspace("pull-fails");
     ws.containerWrites("notes.txt", "one\n");
-    await expect(captureTurn({ ...ws.deps, pull: () => Promise.reject(new Error("sync failed")) }, "refs/t3/checkpoints/t/turn/1")).rejects.toThrow("sync failed");
+    await expect(
+      captureTurn({ ...ws.deps, pull: () => Promise.reject(new Error("sync failed")) }, "refs/t3/checkpoints/t/turn/1"),
+    ).rejects.toThrow("sync failed");
     expect(git(ws.dir, "for-each-ref", "refs/t3").trim()).toBe("");
   });
 });

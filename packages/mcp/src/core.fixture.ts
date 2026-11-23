@@ -62,10 +62,7 @@ export const memoryStore = (initial?: Schema.Json) => {
 };
 
 /** Deps that reach the server through `fetch`, with fresh in-memory row stores unless given. */
-export const testDeps = (
-  fetch: typeof globalThis.fetch,
-  overrides?: Partial<McpDeps>,
-): McpDeps => ({
+export const testDeps = (fetch: typeof globalThis.fetch, overrides?: Partial<McpDeps>): McpDeps => ({
   fetch,
   eras: memoryStore().store,
   sessions: memoryStore().store,

@@ -30,5 +30,9 @@ export const OpenCodeCliDriver: ProviderDriver<OpenCodeSettings, OpenCodeCliDriv
   configSchema: OpenCodeSettings,
   // t3's OpenCode defaults to disabled (its native server needs a local install); here it is in the image.
   defaultConfig: () => decodeSettings({ enabled: true }),
-  create: (input) => createAcpCliInstance({ cli: "opencode", driver: OPENCODE_CLI_DRIVER, presentation: PRESENTATION, version: CLIS.opencode.version }, input),
+  create: (input) =>
+    createAcpCliInstance(
+      { cli: "opencode", driver: OPENCODE_CLI_DRIVER, presentation: PRESENTATION, version: CLIS.opencode.version },
+      input,
+    ),
 };

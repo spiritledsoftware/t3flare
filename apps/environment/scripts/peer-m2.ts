@@ -29,20 +29,29 @@ const fixture = await ensureCloudFixtureProject(cookie);
 const threads: Array<string> = [];
 const out: Record<string, unknown> = { fixture };
 /** A Session's T3 tool results as its committed entries hold them (the text the model saw). */
-const sessionResults = async (threadId: string): Promise<Array<{ readonly tool: string; readonly isError: boolean; readonly text: string }>> => {
+const sessionResults = async (
+  threadId: string,
+): Promise<Array<{ readonly tool: string; readonly isError: boolean; readonly text: string }>> => {
   const state = (await admin("GET", `/_t3flare/agents/session?thread=${encodeURIComponent(threadId)}`)).json;
   return (state?.entries ?? [])
     .filter((entry: any) => entry.role === "toolResult" && String(entry.toolName).startsWith("mcp__t3-code__"))
     .map((entry: any) => ({
       tool: String(entry.toolName).replace("mcp__t3-code__", ""),
       isError: entry.isError === true,
-      text: (entry.content ?? []).map((block: any) => block.text ?? "").join("").slice(0, 400),
+      text: (entry.content ?? [])
+        .map((block: any) => block.text ?? "")
+        .join("")
+        .slice(0, 400),
     }));
 };
-const titleOf = (request: any, p: any) => (p?.turnItems ?? []).find((item: any) => item.requestId === request.id)?.title ?? null;
+const titleOf = (request: any, p: any) =>
+  (p?.turnItems ?? []).find((item: any) => item.requestId === request.id)?.title ?? null;
 
 if (wants("delegate") || wants("restart")) {
-  const threadId = await createThread(cookie, fixture.projectId, { title: `m2 delegate ${stamp}`, runtimeMode: "approval-required" });
+  const threadId = await createThread(cookie, fixture.projectId, {
+    title: `m2 delegate ${stamp}`,
+    runtimeMode: "approval-required",
+  });
   threads.push(threadId);
   const nonce = `CHILD-${stamp}`;
   await say(
@@ -55,10 +64,28 @@ if (wants("delegate") || wants("restart")) {
   for (const request of answered) asked.push(`${request.kind}:${titleOf(request, p)}`);
   const calls = t3Calls(p);
   const subagent = (p?.turnItems ?? []).find((item: any) => item.type === "subagent");
-  out.delegate = { threadId, runs: p?.runs?.map((r: any) => r.status), asked, calls: calls.map((c: any) => `${c.tool}:${c.status}`), child: subagent?.childThreadId ?? null, childResult: String(subagent?.result ?? "").slice(0, 200), reply: replyOf(p).slice(0, 400) };
+  out.delegate = {
+    threadId,
+    runs: p?.runs?.map((r: any) => r.status),
+    asked,
+    calls: calls.map((c: any) => `${c.tool}:${c.status}`),
+    child: subagent?.childThreadId ?? null,
+    childResult: String(subagent?.result ?? "").slice(0, 200),
+    reply: replyOf(p).slice(0, 400),
+  };
   check("delegate: the run completes", p?.runs?.at(-1)?.status === "completed", out.delegate);
-  check("delegate: t3_thread_list, orchestrator_capabilities and delegate_task ran", ["t3_thread_list", "orchestrator_capabilities", "delegate_task"].every((tool) => calls.some((c: any) => c.tool === tool && c.status === "completed")), calls);
-  check("delegate: only delegate_task asked, as a permission by its tool name", asked.length === 1 && asked[0]!.startsWith("permission:") && asked[0]!.includes("delegate_task"), asked);
+  check(
+    "delegate: t3_thread_list, orchestrator_capabilities and delegate_task ran",
+    ["t3_thread_list", "orchestrator_capabilities", "delegate_task"].every((tool) =>
+      calls.some((c: any) => c.tool === tool && c.status === "completed"),
+    ),
+    calls,
+  );
+  check(
+    "delegate: only delegate_task asked, as a permission by its tool name",
+    asked.length === 1 && asked[0]!.startsWith("permission:") && asked[0]!.includes("delegate_task"),
+    asked,
+  );
   check("delegate: the child's result is the reply", replyOf(p).includes(nonce), out.delegate);
   if (subagent?.childThreadId) threads.push(subagent.childThreadId);
 
@@ -66,19 +93,37 @@ if (wants("delegate") || wants("restart")) {
     const before = (await admin("GET", `/_t3flare/agents/session-tools?thread=${threadId}`)).json;
     await admin("POST", "/_t3flare/restart");
     await sleep(5000);
-    await say(cookie, threadId, `Call the T3 tool t3_thread_read with threadId "${threadId}" and reply with its title.`);
+    await say(
+      cookie,
+      threadId,
+      `Call the T3 tool t3_thread_read with threadId "${threadId}" and reply with its title.`,
+    );
     await until(cookie, threadId, (q) => (q?.runs ?? []).length >= 2);
     // t3 annotates t3_thread_read as not read-only, so it asks in approval-required.
     const { projection: after } = await approveAll(cookie, threadId, 4 * 60_000);
     const read = t3Calls(after).filter((c: any) => c.tool === "t3_thread_read");
-    out.restart = { runs: after?.runs?.map((r: any) => r.status), read, toolsBefore: before?.tools?.length ?? null, reply: replyOf(after).slice(-300) };
-    check("restart: after an Environment restart a new turn's T3 tool works", read.length > 0 && read.at(-1).status === "completed" && !/unavailable/i.test(read.at(-1).output), out.restart);
+    out.restart = {
+      runs: after?.runs?.map((r: any) => r.status),
+      read,
+      toolsBefore: before?.tools?.length ?? null,
+      reply: replyOf(after).slice(-300),
+    };
+    check(
+      "restart: after an Environment restart a new turn's T3 tool works",
+      read.length > 0 && read.at(-1).status === "completed" && !/unavailable/i.test(read.at(-1).output),
+      out.restart,
+    );
   }
 }
 
 if (wants("fence")) {
-  const owner = await createThread(cookie, fixture.projectId, { title: `m2 owner target ${stamp}`, runtimeMode: "approval-required" });
-  const link = await signIn((await mintPairingCode(cookie, { label: `m2 ${stamp}` })).code, "auto-accept-edits", { clientName: `m2 link ${stamp}` });
+  const owner = await createThread(cookie, fixture.projectId, {
+    title: `m2 owner target ${stamp}`,
+    runtimeMode: "approval-required",
+  });
+  const link = await signIn((await mintPairingCode(cookie, { label: `m2 ${stamp}` })).code, "auto-accept-edits", {
+    clientName: `m2 link ${stamp}`,
+  });
   const mcp = new McpClient(link.token, { modeLimit: "full-access/default" });
   const launched = await mcp.call("t3_thread_launch", {
     projectId: fixture.projectId,
@@ -93,32 +138,89 @@ if (wants("fence")) {
     const { projection: p } = await approveAll(cookie, linked!, 6 * 60_000);
     const calls = t3Calls(p);
     const results = await sessionResults(linked!);
-    const outputOf = (tool: string) => results.filter((r) => r.tool === tool).map((r) => r.text).join(" ");
+    const outputOf = (tool: string) =>
+      results
+        .filter((r) => r.tool === tool)
+        .map((r) => r.text)
+        .join(" ");
     const tools = (await admin("GET", `/_t3flare/agents/session-tools?thread=${linked}`)).json;
-    out.fenceLinked = { calls, results, tools: { count: tools?.tools?.length, environmentLink: tools?.tools?.includes("t3_environment_link") ?? null, left: tools?.left } };
-    check("F1 (Session): the linked thread's agent may not rename the owner's thread", /capability_denied|linked environment/.test(outputOf("t3_thread_update")), outputOf("t3_thread_update"));
-    check("F1 (Session): the linked thread's agent may not send to the owner's thread", /capability_denied|linked environment/.test(outputOf("t3_thread_send")), outputOf("t3_thread_send"));
-    check("F3: the linked thread's agent may not use this Environment's links", /capability_denied|link/i.test(outputOf("t3_project_list")), outputOf("t3_project_list"));
-    check("F3: the linked Session offers no t3_environment_link", tools?.tools?.includes("t3_environment_link") === false, out.fenceLinked);
+    out.fenceLinked = {
+      calls,
+      results,
+      tools: {
+        count: tools?.tools?.length,
+        environmentLink: tools?.tools?.includes("t3_environment_link") ?? null,
+        left: tools?.left,
+      },
+    };
+    check(
+      "F1 (Session): the linked thread's agent may not rename the owner's thread",
+      /capability_denied|linked environment/.test(outputOf("t3_thread_update")),
+      outputOf("t3_thread_update"),
+    );
+    check(
+      "F1 (Session): the linked thread's agent may not send to the owner's thread",
+      /capability_denied|linked environment/.test(outputOf("t3_thread_send")),
+      outputOf("t3_thread_send"),
+    );
+    check(
+      "F3: the linked thread's agent may not use this Environment's links",
+      /capability_denied|link/i.test(outputOf("t3_project_list")),
+      outputOf("t3_project_list"),
+    );
+    check(
+      "F3: the linked Session offers no t3_environment_link",
+      tools?.tools?.includes("t3_environment_link") === false,
+      out.fenceLinked,
+    );
     const ownerAfter = await projection(cookie, owner);
-    check("F1 (Session): the owner's thread kept its title and got no message", ownerAfter?.thread?.title === `m2 owner target ${stamp}` && (ownerAfter?.runs ?? []).length === 0, ownerAfter?.thread?.title);
+    check(
+      "F1 (Session): the owner's thread kept its title and got no message",
+      ownerAfter?.thread?.title === `m2 owner target ${stamp}` && (ownerAfter?.runs ?? []).length === 0,
+      ownerAfter?.thread?.title,
+    );
   }
   // F13: the owner's own thread (no link origin) does the same through its Session tools.
-  const target = await createThread(cookie, fixture.projectId, { title: `m2 f13 target ${stamp}`, runtimeMode: "approval-required" });
+  const target = await createThread(cookie, fixture.projectId, {
+    title: `m2 f13 target ${stamp}`,
+    runtimeMode: "approval-required",
+  });
   const own = await createThread(cookie, fixture.projectId, { title: `m2 f13 ${stamp}`, runtimeMode: "full-access" });
   threads.push(own);
-  await say(cookie, own, `Use T3 tools and report each answer verbatim: 1) t3_thread_update with threadId "${target}", action "rename", title "renamed by owner". 2) t3_project_create with title "f13 ${stamp}", workspaceRoot "/w/f13-${stamp}" and createWorkspaceRootIfMissing true.`);
+  await say(
+    cookie,
+    own,
+    `Use T3 tools and report each answer verbatim: 1) t3_thread_update with threadId "${target}", action "rename", title "renamed by owner". 2) t3_project_create with title "f13 ${stamp}", workspaceRoot "/w/f13-${stamp}" and createWorkspaceRootIfMissing true.`,
+  );
   const { projection: q } = await approveAll(cookie, own, 4 * 60_000);
   const calls = t3Calls(q);
   const ownResults = await sessionResults(own);
   out.F13 = { calls, results: ownResults };
   const targetAfter = await projection(cookie, target);
-  check("F13: the owner's thread may rename another of the owner's threads", targetAfter?.thread?.title === "renamed by owner", { title: targetAfter?.thread?.title, calls });
-  check("F13: the owner's full-access thread may create a project", ownResults.some((r) => r.tool === "t3_project_create" && !r.isError), ownResults);
+  check(
+    "F13: the owner's thread may rename another of the owner's threads",
+    targetAfter?.thread?.title === "renamed by owner",
+    { title: targetAfter?.thread?.title, calls },
+  );
+  check(
+    "F13: the owner's full-access thread may create a project",
+    ownResults.some((r) => r.tool === "t3_project_create" && !r.isError),
+    ownResults,
+  );
   if (wants("leak")) {
-    const leak = (await admin("POST", "/_t3flare/check/peer-leak", { workspace: "step3-fixture", threads, extra: [{ name: "link-token", value: link.token }] })).json;
+    const leak = (
+      await admin("POST", "/_t3flare/check/peer-leak", {
+        workspace: "step3-fixture",
+        threads,
+        extra: [{ name: "link-token", value: link.token }],
+      })
+    ).json;
     out.leak = leak;
-    check("leak: no secret in the Container or the Sessions' state", leak?.leaked === 0 && leak?.credentialsFound > 0, leak);
+    check(
+      "leak: no secret in the Container or the Sessions' state",
+      leak?.leaked === 0 && leak?.credentialsFound > 0,
+      leak,
+    );
   }
 }
 

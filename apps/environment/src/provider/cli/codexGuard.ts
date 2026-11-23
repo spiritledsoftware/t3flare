@@ -20,7 +20,14 @@ const REFUSED_PREFIXES: ReadonlyArray<[string, string]> = [
 ];
 
 /** Thread params that would set a policy or a provider beside the guard's: dropped (the process defaults apply). */
-const DROPPED_THREAD_PARAMS = ["approvalPolicy", "approvalsReviewer", "sandbox", "sandboxPolicy", "modelProvider", "profile"];
+const DROPPED_THREAD_PARAMS = [
+  "approvalPolicy",
+  "approvalsReviewer",
+  "sandbox",
+  "sandboxPolicy",
+  "modelProvider",
+  "profile",
+];
 
 /** Thread config keys that would name another provider, profile or endpoint, or set a policy: dropped. */
 const isPinnedConfigKey = (key: string): boolean =>
@@ -68,9 +75,15 @@ export interface CodexRouteEndpoint {
  * Any other slug (an endpoint that is gone, or not Codex's) names its own endpoint's provider, which Codex does not have,
  * so Codex refuses it; with no endpoint at all, the model goes as sent to no provider.
  */
-export const codexModelRoute = (model: string, endpoints: ReadonlyArray<CodexRouteEndpoint>, providerOf: (endpointId: string) => string): CodexModelRoute => {
+export const codexModelRoute = (
+  model: string,
+  endpoints: ReadonlyArray<CodexRouteEndpoint>,
+  providerOf: (endpointId: string) => string,
+): CodexModelRoute => {
   const first = endpoints.find((endpoint) => endpoint.models.length > 0);
-  const slug = parseEndpointSlug(selectionSlug(model, first === undefined ? undefined : endpointSlug(first.id, first.models[0]!.id)));
+  const slug = parseEndpointSlug(
+    selectionSlug(model, first === undefined ? undefined : endpointSlug(first.id, first.models[0]!.id)),
+  );
   return slug === undefined ? { provider: "", model } : { provider: providerOf(slug.endpointId), model: slug.modelId };
 };
 
@@ -86,23 +99,36 @@ export interface TurnPolicy {
  */
 export const turnPolicy = (context: TurnContext, collaborationPlan: boolean): TurnPolicy => {
   const plan = collaborationPlan || (context.interactionMode !== undefined && context.interactionMode !== "default");
-  const known = context.runtimeMode === "full-access" || context.runtimeMode === "auto-accept-edits" || context.runtimeMode === "auto";
+  const known =
+    context.runtimeMode === "full-access" ||
+    context.runtimeMode === "auto-accept-edits" ||
+    context.runtimeMode === "auto";
   const mode = plan || !known ? "approval-required" : (context.runtimeMode as RuntimeMode);
-  if (mode === "full-access") return { approvalPolicy: "never", approvalsReviewer: "user", sandboxPolicy: { type: "dangerFullAccess" } };
-  if (!context.sandbox) return { approvalPolicy: "untrusted", approvalsReviewer: "user", sandboxPolicy: { type: "dangerFullAccess" } };
-  if (mode === "auto") return { approvalPolicy: "on-request", approvalsReviewer: "auto_review", sandboxPolicy: { type: "workspaceWrite" } };
-  if (mode === "auto-accept-edits") return { approvalPolicy: "on-request", approvalsReviewer: "user", sandboxPolicy: { type: "workspaceWrite" } };
+  if (mode === "full-access")
+    return { approvalPolicy: "never", approvalsReviewer: "user", sandboxPolicy: { type: "dangerFullAccess" } };
+  if (!context.sandbox)
+    return { approvalPolicy: "untrusted", approvalsReviewer: "user", sandboxPolicy: { type: "dangerFullAccess" } };
+  if (mode === "auto")
+    return {
+      approvalPolicy: "on-request",
+      approvalsReviewer: "auto_review",
+      sandboxPolicy: { type: "workspaceWrite" },
+    };
+  if (mode === "auto-accept-edits")
+    return { approvalPolicy: "on-request", approvalsReviewer: "user", sandboxPolicy: { type: "workspaceWrite" } };
   return { approvalPolicy: "untrusted", approvalsReviewer: "user", sandboxPolicy: { type: "readOnly" } };
 };
 
 export type Guarded = { readonly params: unknown } | { readonly refused: string };
 
-const record = (value: unknown): Record<string, unknown> => (value !== null && typeof value === "object" ? { ...(value as Record<string, unknown>) } : {});
+const record = (value: unknown): Record<string, unknown> =>
+  value !== null && typeof value === "object" ? { ...(value as Record<string, unknown>) } : {};
 
 const threadParams = (params: unknown, context: TurnContext): Record<string, unknown> => {
   const next = record(params);
   for (const key of DROPPED_THREAD_PARAMS) delete next[key];
-  if (next.config !== undefined) next.config = Object.fromEntries(Object.entries(record(next.config)).filter(([key]) => !isPinnedConfigKey(key)));
+  if (next.config !== undefined)
+    next.config = Object.fromEntries(Object.entries(record(next.config)).filter(([key]) => !isPinnedConfigKey(key)));
   if (context.route !== undefined && typeof next.model === "string") {
     const route = context.route(next.model);
     next.model = route.model;
@@ -122,13 +148,15 @@ const turnModel = (next: Record<string, unknown>, context: TurnContext): string 
   next.model = route.model;
   const mode = record(next.collaborationMode);
   const settings = record(mode.settings);
-  if (typeof settings.model === "string") next.collaborationMode = { ...mode, settings: { ...settings, model: context.route(settings.model).model } };
+  if (typeof settings.model === "string")
+    next.collaborationMode = { ...mode, settings: { ...settings, model: context.route(settings.model).model } };
   return undefined;
 };
 
 /** What reaches the app-server for t3's request, or why it does not. */
 export const guardRequest = (method: string, params: unknown, context: TurnContext): Guarded => {
-  for (const [prefix, why] of REFUSED_PREFIXES) if (method.startsWith(prefix)) return { refused: `t3flare refuses Codex's ${method}: ${why}` };
+  for (const [prefix, why] of REFUSED_PREFIXES)
+    if (method.startsWith(prefix)) return { refused: `t3flare refuses Codex's ${method}: ${why}` };
   switch (method) {
     case "thread/start":
     case "thread/resume":
@@ -150,4 +178,5 @@ export const guardRequest = (method: string, params: unknown, context: TurnConte
 };
 
 /** In plan mode a file change is declined before anyone is asked (plan §5.3). */
-export const declinesInPlan = (method: string): boolean => method === "item/fileChange/requestApproval" || method === "applyPatchApproval";
+export const declinesInPlan = (method: string): boolean =>
+  method === "item/fileChange/requestApproval" || method === "applyPatchApproval";

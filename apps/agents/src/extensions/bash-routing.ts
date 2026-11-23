@@ -71,9 +71,7 @@ export const CONTAINER_PROGRAMS: readonly string[] = names(
 const CONTAINER_PROGRAM_SET: ReadonlySet<string> = new Set(CONTAINER_PROGRAMS);
 
 /** Worker Shell programs that write files whatever their options; the others write only in the forms `writesOf` names. */
-const WRITERS: ReadonlySet<string> = new Set(
-  names("rm rmdir mkdir touch cp mv ln chmod tee split"),
-);
+const WRITERS: ReadonlySet<string> = new Set(names("rm rmdir mkdir touch cp mv ln chmod tee split"));
 
 const SHELL_BUILTINS: ReadonlySet<string> = new Set(WORKER_SHELL_BUILTINS);
 
@@ -144,9 +142,7 @@ type SimpleCommand = {
 type Shared = { readonly records: SimpleCommand[]; ids: number };
 
 /** Words that start a command position again, or close a compound command, and run nothing themselves. */
-const KEYWORDS: ReadonlySet<string> = new Set(
-  names("if then else elif fi while until do done { } !"),
-);
+const KEYWORDS: ReadonlySet<string> = new Set(names("if then else elif fi while until do done { } !"));
 
 /** Compound commands the heuristic leaves to the Container's bash. */
 const UNREAD_KEYWORDS: ReadonlySet<string> = new Set(names("select coproc"));
@@ -440,9 +436,7 @@ class Reader {
       this.#at = inner.#at;
       this.#inherit(inner);
 
-      this.unreadable ??= ended
-        ? "process substitution"
-        : "a process substitution that does not end";
+      this.unreadable ??= ended ? "process substitution" : "a process substitution that does not end";
 
       return;
     }
@@ -464,10 +458,7 @@ class Reader {
     }
 
     // Two-character operators: >>, >&, >|, <>, <&
-    const operator = this.#source.slice(
-      this.#at,
-      this.#at + (/[>&|<]/.test(this.#peek(1)) ? 2 : 1),
-    );
+    const operator = this.#source.slice(this.#at, this.#at + (/[>&|<]/.test(this.#peek(1)) ? 2 : 1));
 
     this.#at += operator.length;
 
@@ -869,9 +860,7 @@ const hasOption = (args: readonly Word[], options: readonly string[], short?: st
 const mayHaveOption = (args: readonly Word[], short: string, long: string): boolean =>
   args.some(
     (arg) =>
-      arg.text === long ||
-      arg.text.startsWith(`${long}=`) ||
-      new RegExp(`^-[A-Za-z0-9]*${short}`).test(arg.text),
+      arg.text === long || arg.text.startsWith(`${long}=`) || new RegExp(`^-[A-Za-z0-9]*${short}`).test(arg.text),
   );
 
 /**
@@ -898,22 +887,17 @@ const writesOf = (name: string, args: readonly Word[], context: Context): string
     case "awk":
       // `print > "f"`, `| "cmd"`, `system()`: anything that may redirect inside the program, or a program it reads
       // from a file (`-f`), which cannot be seen.
-      return mayHaveOption(args, "f", "--file") ||
-        operands(args).some((arg) => /system\s*\(|\||>(?!=)/.test(arg.text))
+      return mayHaveOption(args, "f", "--file") || operands(args).some((arg) => /system\s*\(|\||>(?!=)/.test(arg.text))
         ? "awk writing a file"
         : undefined;
 
     case "find":
-      return hasOption(args, ["-delete", "-fprint", "-fprint0", "-fprintf", "-fls"])
-        ? "find writing files"
-        : undefined;
+      return hasOption(args, ["-delete", "-fprint", "-fprint0", "-fprintf", "-fls"]) ? "find writing files" : undefined;
 
     case "tar": {
       const mode = args[0]?.text ?? "";
 
-      return hasOption(args, ["--list"], "t") || /^[a-z]*t[a-z]*$/.test(mode)
-        ? undefined
-        : "tar writing files";
+      return hasOption(args, ["--list"], "t") || /^[a-z]*t[a-z]*$/.test(mode) ? undefined : "tar writing files";
     }
 
     case "gzip":
@@ -970,9 +954,7 @@ const gitNeeds = (args: readonly Word[]): string | undefined => {
     }
   }
 
-  return oneOf
-    ? undefined
-    : `${label} without ${spec.oneOf?.join(" or ")}: its output is not git's`;
+  return oneOf ? undefined : `${label} without ${spec.oneOf?.join(" or ")}: its output is not git's`;
 };
 
 /** What reading a command found besides whether it needs the Container. */
@@ -1199,8 +1181,7 @@ export const routeCommand = (command: string): BashRoute => {
 
   return {
     backend: "worker",
-    reason:
-      unknown.length === 0 ? ON_WORKER : `on the Worker Shell if it has ${unknown.join(", ")}`,
+    reason: unknown.length === 0 ? ON_WORKER : `on the Worker Shell if it has ${unknown.join(", ")}`,
     unknown,
     writes: found.writes,
   };
@@ -1232,19 +1213,15 @@ const PROBE_END = "-- end of probe --";
  * `resolveRoute` asks it. Each is a plain program name (`routeCommand` sends any other to the Container).
  */
 export const probeScript = (programs: readonly string[]): string =>
-  [
-    ...programs.map((name) => `command -v '${name}' >/dev/null 2>&1 && echo '${name}'`),
-    `echo '${PROBE_END}'`,
-  ].join("\n");
+  [...programs.map((name) => `command -v '${name}' >/dev/null 2>&1 && echo '${name}'`), `echo '${PROBE_END}'`].join(
+    "\n",
+  );
 
 /**
  * Which of `programs` the Worker Shell has, from the stdout of {@link probeScript}; undefined when the output did not
  * end the way the script ends, so the answer cannot be trusted.
  */
-export const probeAnswer = (
-  programs: readonly string[],
-  stdout: string,
-): ReadonlySet<string> | undefined => {
+export const probeAnswer = (programs: readonly string[], stdout: string): ReadonlySet<string> | undefined => {
   const lines = stdout.split("\n");
 
   if (!lines.includes(PROBE_END)) return undefined;
@@ -1342,9 +1319,7 @@ const globPaths = (text: string): readonly string[] => {
   const first = segments.findIndex((segment) => WILDCARD.test(segment));
   const literal = segments.slice(0, first).join("/") || (text.startsWith("/") ? "/" : ".");
 
-  const last = segments.findLastIndex(
-    (segment, at) => at > first && segment !== "" && !WILDCARD.test(segment),
-  );
+  const last = segments.findLastIndex((segment, at) => at > first && segment !== "" && !WILDCARD.test(segment));
 
   return last === -1 ? [literal] : [literal, segments.slice(0, last + 1).join("/")];
 };
@@ -1369,9 +1344,7 @@ const wordPaths = (word: Word, cwd: string | undefined): readonly string[] => {
 
   if (text === "" || text === "-" || SHARED_FILES.has(text)) return [];
 
-  return (WILDCARD.test(text) ? globPaths(text) : [text]).flatMap(
-    (path) => resolvePath(path, cwd, tilde) ?? [],
-  );
+  return (WILDCARD.test(text) ? globPaths(text) : [text]).flatMap((path) => resolvePath(path, cwd, tilde) ?? []);
 };
 
 /** Where `cd` or `pushd` with `args`, run in `cwd`, goes; undefined when that cannot be told. */
@@ -1488,10 +1461,7 @@ const MISSING =
  * {@link commandPaths}: which one a message is about cannot be told). Only the shell's own messages (`bash: …`) are read
  * on stdout, where `2>&1` puts them, since a file the command prints may hold any line.
  */
-export const missingPaths = (
-  output: WorkerOutput,
-  directories: readonly string[],
-): readonly string[] => {
+export const missingPaths = (output: WorkerOutput, directories: readonly string[]): readonly string[] => {
   const named = [
     ...output.stderr.matchAll(MISSING),
     ...[...output.stdout.matchAll(MISSING)].filter((match) => match[1] === "bash"),

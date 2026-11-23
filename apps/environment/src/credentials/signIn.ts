@@ -84,7 +84,11 @@ export interface SignInUse {
 }
 
 export interface SignInVendor {
-  start(input: { readonly hostId: string; readonly registration?: SignInRegistration; readonly now: () => number }): Promise<{
+  start(input: {
+    readonly hostId: string;
+    readonly registration?: SignInRegistration;
+    readonly now: () => number;
+  }): Promise<{
     readonly authorizeUrl: string;
     readonly pending: PendingSignIn;
     readonly device?: DeviceCode;

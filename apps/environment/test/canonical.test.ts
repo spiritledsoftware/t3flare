@@ -20,17 +20,27 @@ const before = (value: unknown): string =>
 
 describe("canonicalJson", () => {
   it("sorts keys at every depth and drops undefined keys", () => {
-    expect(canonicalJson({ b: 1, a: { d: [{ z: 1, y: undefined }], c: null }, e: undefined })).toBe('{"a":{"c":null,"d":[{"z":1}]},"b":1}');
+    expect(canonicalJson({ b: 1, a: { d: [{ z: 1, y: undefined }], c: null }, e: undefined })).toBe(
+      '{"a":{"c":null,"d":[{"z":1}]},"b":1}',
+    );
   });
 
   it("keeps undefined keys for definitionHash, byte-identical to the hashes kept before", async () => {
     const definitions = [
       { name: "search", description: "Search", inputSchema: { type: "object", properties: { q: { type: "string" } } } },
-      { name: "write", title: "Write", inputSchema: { type: "object" }, annotations: { readOnlyHint: false, destructiveHint: undefined } },
+      {
+        name: "write",
+        title: "Write",
+        inputSchema: { type: "object" },
+        annotations: { readOnlyHint: false, destructiveHint: undefined },
+      },
       { name: "bare" },
     ];
     for (const definition of definitions) {
-      const { name, title, description, inputSchema, outputSchema, annotations } = definition as Record<string, unknown>;
+      const { name, title, description, inputSchema, outputSchema, annotations } = definition as Record<
+        string,
+        unknown
+      >;
       const fields = { name, title, description, inputSchema, outputSchema, annotations };
       expect(canonicalJson(fields, true)).toBe(before(fields));
       expect(await definitionHash(definition)).toBe((await sha256Hex(before(fields))).slice(0, 32));

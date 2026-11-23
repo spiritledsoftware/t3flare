@@ -7,7 +7,14 @@
 import { describe, expect, it } from "vitest";
 
 import { applyEnvironmentChange, EMPTY_ENVIRONMENT, readStoredEnvironment, resolveEnvironment } from "./environment.ts";
-import { fitVariableEnv, RESERVED_PREFIXES, SET_BY_T3FLARE, setByT3flare, variableEnv, withheldFromCommands } from "./variables.ts";
+import {
+  fitVariableEnv,
+  RESERVED_PREFIXES,
+  SET_BY_T3FLARE,
+  setByT3flare,
+  variableEnv,
+  withheldFromCommands,
+} from "./variables.ts";
 
 const apply = (variables: unknown) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { variables } });
 const refusal = (variables: unknown) => {
@@ -25,14 +32,21 @@ describe("Variables", () => {
     if (!applied.ok) throw new Error(applied.error);
     expect(applied.changed).toEqual(["variables"]);
     expect(applied.environment.revision).toBe(1);
-    expect(resolveEnvironment(applied.environment).variables).toEqual([plain("DATABASE_URL", "postgres://localhost/dev"), plain("NODE_ENV", "development")]);
+    expect(resolveEnvironment(applied.environment).variables).toEqual([
+      plain("DATABASE_URL", "postgres://localhost/dev"),
+      plain("NODE_ENV", "development"),
+    ]);
   });
 
   it("reads the old stored { NAME: value } shape as plain Variables, and takes it in a change too", () => {
     const old = { revision: 3, settings: { variables: { NODE_ENV: "test", LOG_LEVEL: "debug" } } };
     expect(resolveEnvironment(old).variables).toEqual([plain("NODE_ENV", "test"), plain("LOG_LEVEL", "debug")]);
     // The same Variables in the new shape are no change; a change stores the new shape.
-    expect(applyEnvironmentChange(old, { settings: { variables: [plain("NODE_ENV", "test"), plain("LOG_LEVEL", "debug")] } })).toMatchObject({ ok: true, changed: [] });
+    expect(
+      applyEnvironmentChange(old, {
+        settings: { variables: [plain("NODE_ENV", "test"), plain("LOG_LEVEL", "debug")] },
+      }),
+    ).toMatchObject({ ok: true, changed: [] });
     const moved = applyEnvironmentChange(old, { settings: { variables: { NODE_ENV: "production" } } });
     if (!moved.ok) throw new Error(moved.error);
     expect(moved.environment.settings.variables).toEqual([plain("NODE_ENV", "production")]);
@@ -41,9 +55,17 @@ describe("Variables", () => {
   it("a save with the same Variables moves nothing; a changed value, a Secret toggle or a removed Variable moves them", () => {
     const first = apply([plain("A", "1"), plain("B", "2")]);
     if (!first.ok) throw new Error(first.error);
-    expect(applyEnvironmentChange(first.environment, { settings: { variables: [plain("A", "1"), plain("B", "2")], containerBudget: 3 } })).toMatchObject({ ok: true, changed: [] });
-    expect(applyEnvironmentChange(first.environment, { settings: { variables: [plain("A", "1"), plain("B", "3")] } })).toMatchObject({ ok: true, changed: ["variables"] });
-    expect(applyEnvironmentChange(first.environment, { settings: { variables: [plain("A", "1"), sealedSecret("B")] } })).toMatchObject({ ok: true, changed: ["variables"] });
+    expect(
+      applyEnvironmentChange(first.environment, {
+        settings: { variables: [plain("A", "1"), plain("B", "2")], containerBudget: 3 },
+      }),
+    ).toMatchObject({ ok: true, changed: [] });
+    expect(
+      applyEnvironmentChange(first.environment, { settings: { variables: [plain("A", "1"), plain("B", "3")] } }),
+    ).toMatchObject({ ok: true, changed: ["variables"] });
+    expect(
+      applyEnvironmentChange(first.environment, { settings: { variables: [plain("A", "1"), sealedSecret("B")] } }),
+    ).toMatchObject({ ok: true, changed: ["variables"] });
     const removed = applyEnvironmentChange(first.environment, { settings: { variables: [plain("A", "1")] } });
     if (!removed.ok) throw new Error(removed.error);
     expect(resolveEnvironment(removed.environment).variables).toEqual([plain("A", "1")]);
@@ -54,25 +76,59 @@ describe("Variables", () => {
     expect(apply(fifty)).toMatchObject({ ok: true });
     expect(refusal([...fifty, plain("V50", "x")])).toBe("variables: at most 50 Variables (51 given)");
     expect(apply([plain(`N${"A".repeat(127)}`, "x")])).toMatchObject({ ok: true });
-    expect(refusal([plain(`N${"A".repeat(128)}`, "x")])).toBe(`variables: "N${"A".repeat(128)}" is longer than 128 characters`);
+    expect(refusal([plain(`N${"A".repeat(128)}`, "x")])).toBe(
+      `variables: "N${"A".repeat(128)}" is longer than 128 characters`,
+    );
     expect(apply([plain("BIG", "y".repeat(4096))])).toMatchObject({ ok: true });
     expect(refusal([plain("BIG", "y".repeat(4097))])).toBe('variables: "BIG"\'s value is longer than 4096 characters');
   });
 
   it("takes only names a shell can export, each once, and text values without a NUL", () => {
-    for (const name of ["", "1ABC", "MY-VAR", "MY VAR", "É"]) expect(refusal([plain(name, "x")])).toMatch(/^variables: /);
-    expect(refusal([plain("1ABC", "x")])).toBe('variables: "1ABC" is not a name a shell can export: letters, digits and _, not starting with a digit');
-    expect(refusal([plain("OK", "a\u0000b")])).toBe('variables: "OK"\'s value holds a NUL character, which no environment can');
+    for (const name of ["", "1ABC", "MY-VAR", "MY VAR", "É"])
+      expect(refusal([plain(name, "x")])).toMatch(/^variables: /);
+    expect(refusal([plain("1ABC", "x")])).toBe(
+      'variables: "1ABC" is not a name a shell can export: letters, digits and _, not starting with a digit',
+    );
+    expect(refusal([plain("OK", "a\u0000b")])).toBe(
+      'variables: "OK"\'s value holds a NUL character, which no environment can',
+    );
     expect(refusal([{ name: "OK", value: 3 }])).toBe('variables: "OK"\'s value is not text');
     expect(refusal([plain("A", "1"), plain("A", "2")])).toBe('variables: "A" is listed twice');
-    expect(refusal("A=1")).toBe('variables: a list of Variables, [{ "name": "NAME", "value": "value", "secret": false }]');
+    expect(refusal("A=1")).toBe(
+      'variables: a list of Variables, [{ "name": "NAME", "value": "value", "secret": false }]',
+    );
     expect(apply([plain("_private", "x"), plain("lower_case", "multi\nline")])).toMatchObject({ ok: true });
   });
 
   it("refuses nothing else: the old refused names, prefixes, loader hooks, credential segments and credential values all store (ADR-0046 §3)", () => {
-    const names = ["PATH", "HOME", "T3CODE_THREAD_ID", "MISE_ENV", "GIT_DIR", "GH_TOKEN", "GITHUB_TOKEN", "SSH_AUTH_SOCK", "LD_PRELOAD", "NODE_OPTIONS", "BASH_ENV", "ENV", "PROMPT_COMMAND", "NPM_TOKEN", "STRIPE_API_KEY", "DB_PASSWORD", "ANTHROPIC_BASE_URL", "HTTPS_PROXY"];
+    const names = [
+      "PATH",
+      "HOME",
+      "T3CODE_THREAD_ID",
+      "MISE_ENV",
+      "GIT_DIR",
+      "GH_TOKEN",
+      "GITHUB_TOKEN",
+      "SSH_AUTH_SOCK",
+      "LD_PRELOAD",
+      "NODE_OPTIONS",
+      "BASH_ENV",
+      "ENV",
+      "PROMPT_COMMAND",
+      "NPM_TOKEN",
+      "STRIPE_API_KEY",
+      "DB_PASSWORD",
+      "ANTHROPIC_BASE_URL",
+      "HTTPS_PROXY",
+    ];
     expect(apply(names.map((name) => plain(name, "x")))).toMatchObject({ ok: true });
-    const values = [`sk-${"a".repeat(24)}`, `ghp_${"b".repeat(36)}`, `npm_${"f".repeat(36)}`, "AKIAABCDEFGHIJKLMNOP", "-----BEGIN OPENSSH PRIVATE KEY-----"];
+    const values = [
+      `sk-${"a".repeat(24)}`,
+      `ghp_${"b".repeat(36)}`,
+      `npm_${"f".repeat(36)}`,
+      "AKIAABCDEFGHIJKLMNOP",
+      "-----BEGIN OPENSSH PRIVATE KEY-----",
+    ];
     expect(apply(values.map((value, at) => plain(`V${at}`, value)))).toMatchObject({ ok: true });
   });
 
@@ -83,7 +139,17 @@ describe("Variables", () => {
   });
 
   it("reads a stored Variable that no longer fits as gone, keeping the others", () => {
-    const stored = { revision: 7, settings: { variables: [plain("NODE_ENV", "test"), plain("BAD-NAME", "x"), { name: "N", value: 3 }, plain("NODE_ENV", "again")] } };
+    const stored = {
+      revision: 7,
+      settings: {
+        variables: [
+          plain("NODE_ENV", "test"),
+          plain("BAD-NAME", "x"),
+          { name: "N", value: 3 },
+          plain("NODE_ENV", "again"),
+        ],
+      },
+    };
     expect(resolveEnvironment(stored).variables).toEqual([plain("NODE_ENV", "test")]);
     expect(resolveEnvironment({ revision: 7, settings: { variables: "A=1" } }).variables).toEqual([]);
   });
@@ -92,12 +158,24 @@ describe("Variables", () => {
 describe("secret Variables (ADR-0046)", () => {
   it("are stored sealed only: a secret's value in clear, or one not sealed, is refused", () => {
     expect(apply([sealedSecret("NPM_TOKEN")])).toMatchObject({ ok: true });
-    expect(refusal([{ name: "NPM_TOKEN", value: "npm_x", secret: true }])).toBe('variables: "NPM_TOKEN"\'s secret value is not sealed');
-    expect(refusal([{ name: "NPM_TOKEN", value: "npm_x", secret: true, sealed: SEALED }])).toBe('variables: "NPM_TOKEN" is secret: its value is stored sealed only');
-    expect(refusal([{ name: "NPM_TOKEN", value: "", secret: true, valueRedacted: true }])).toBe('variables: "NPM_TOKEN" keeps a secret value, and none is stored under that name: give its value');
-    expect(refusal([{ name: "NPM_TOKEN", value: "", secret: true, sealed: { iv: 1 } }])).toBe('variables: "NPM_TOKEN"\'s sealed value is malformed');
-    expect(refusal([{ name: "A", value: "", secret: false, valueRedacted: true }])).toBe('variables: "A" is not secret: give its value');
-    expect(refusal([{ name: "A", value: "1", secret: false, sealed: SEALED }])).toBe('variables: "A" is not secret: a sealed value is a secret\'s only');
+    expect(refusal([{ name: "NPM_TOKEN", value: "npm_x", secret: true }])).toBe(
+      'variables: "NPM_TOKEN"\'s secret value is not sealed',
+    );
+    expect(refusal([{ name: "NPM_TOKEN", value: "npm_x", secret: true, sealed: SEALED }])).toBe(
+      'variables: "NPM_TOKEN" is secret: its value is stored sealed only',
+    );
+    expect(refusal([{ name: "NPM_TOKEN", value: "", secret: true, valueRedacted: true }])).toBe(
+      'variables: "NPM_TOKEN" keeps a secret value, and none is stored under that name: give its value',
+    );
+    expect(refusal([{ name: "NPM_TOKEN", value: "", secret: true, sealed: { iv: 1 } }])).toBe(
+      'variables: "NPM_TOKEN"\'s sealed value is malformed',
+    );
+    expect(refusal([{ name: "A", value: "", secret: false, valueRedacted: true }])).toBe(
+      'variables: "A" is not secret: give its value',
+    );
+    expect(refusal([{ name: "A", value: "1", secret: false, sealed: SEALED }])).toBe(
+      'variables: "A" is not secret: a sealed value is a secret\'s only',
+    );
     expect(refusal([{ name: "A", value: "1", secret: "yes" }])).toBe('variables: "A"\'s secret is true or false');
   });
 
@@ -113,12 +191,23 @@ describe("secret Variables (ADR-0046)", () => {
   it("moves on a new fingerprint only: the same value sealed again is no change", () => {
     const first = apply([sealedSecret("T")]);
     if (!first.ok) throw new Error(first.error);
-    expect(applyEnvironmentChange(first.environment, { settings: { variables: [sealedSecret("T", { ...SEALED, iv: "b3RoZXJpdm90aGVy", data: "b3RoZXI=" })] } })).toMatchObject({ ok: true, changed: [] });
-    expect(applyEnvironmentChange(first.environment, { settings: { variables: [sealedSecret("T", { ...SEALED, fingerprint: "ffffffff" })] } })).toMatchObject({ ok: true, changed: ["variables"] });
+    expect(
+      applyEnvironmentChange(first.environment, {
+        settings: { variables: [sealedSecret("T", { ...SEALED, iv: "b3RoZXJpdm90aGVy", data: "b3RoZXI=" })] },
+      }),
+    ).toMatchObject({ ok: true, changed: [] });
+    expect(
+      applyEnvironmentChange(first.environment, {
+        settings: { variables: [sealedSecret("T", { ...SEALED, fingerprint: "ffffffff" })] },
+      }),
+    ).toMatchObject({ ok: true, changed: ["variables"] });
   });
 
   it("keep their value in the Environment DO's answer to a Workspace DO, and reach a command", () => {
-    const answer = { revision: 2, settings: { variables: [plain("A", "1"), { name: "NPM_TOKEN", value: "npm_live", secret: true }] } };
+    const answer = {
+      revision: 2,
+      settings: { variables: [plain("A", "1"), { name: "NPM_TOKEN", value: "npm_live", secret: true }] },
+    };
     const variables = resolveEnvironment(answer).variables;
     expect(variables).toEqual([plain("A", "1"), { name: "NPM_TOKEN", value: "npm_live", secret: true }]);
     expect(variableEnv(variables)).toEqual({ A: "1", NPM_TOKEN: "npm_live" });
@@ -127,17 +216,25 @@ describe("secret Variables (ADR-0046)", () => {
 
 describe("what a command gets (variableEnv)", () => {
   it("leaves out a redacted secret, which has no value to give, and the names the Container's shell sets", () => {
-    const variables = resolveEnvironment({ revision: 1, settings: { variables: [plain("A", "1"), sealedSecret("S"), plain("PATH", "/nope"), plain("HOME", "/elsewhere")] } }).variables;
+    const variables = resolveEnvironment({
+      revision: 1,
+      settings: {
+        variables: [plain("A", "1"), sealedSecret("S"), plain("PATH", "/nope"), plain("HOME", "/elsewhere")],
+      },
+    }).variables;
     expect(variableEnv(variables)).toEqual({ A: "1" });
   });
 
   it("leaves out every name under t3flare's and t3's reserved prefixes: their internal markers win (ADR-0046 §3)", () => {
-    const variables = ["T3FLARE_PASSIVE_READ", "T3FLARE_EXEC", "T3CODE_THREAD_ID", "T3_OK", "NODE_ENV"].map((name) => plain(name, "1"));
+    const variables = ["T3FLARE_PASSIVE_READ", "T3FLARE_EXEC", "T3CODE_THREAD_ID", "T3_OK", "NODE_ENV"].map((name) =>
+      plain(name, "1"),
+    );
     // Stored as the Owner gave them; only what a command gets leaves them out.
     expect(apply(variables)).toMatchObject({ ok: true });
     expect(variableEnv(variables)).toEqual({ T3_OK: "1", NODE_ENV: "1" });
     expect(RESERVED_PREFIXES).toEqual(["T3FLARE_", "T3CODE_"]);
-    for (const name of ["T3FLARE_PASSIVE_READ", "T3CODE_THREAD_ID", "PATH"]) expect(withheldFromCommands(name)).toBe(true);
+    for (const name of ["T3FLARE_PASSIVE_READ", "T3CODE_THREAD_ID", "PATH"])
+      expect(withheldFromCommands(name)).toBe(true);
     expect(withheldFromCommands("T3_OK")).toBe(false);
   });
 
@@ -151,7 +248,8 @@ describe("what a command gets (variableEnv)", () => {
 describe("the names t3flare sets (the Settings page's note)", () => {
   it("are listed once each, and looked up by setByT3flare", () => {
     expect(new Set(SET_BY_T3FLARE).size).toBe(SET_BY_T3FLARE.length);
-    for (const name of ["PATH", "HOME", "ANTHROPIC_BASE_URL", "MISE_YES", "BASH_ENV", "T3FLARE_MODEL_HANDLE"]) expect(setByT3flare(name)).toBe(true);
+    for (const name of ["PATH", "HOME", "ANTHROPIC_BASE_URL", "MISE_YES", "BASH_ENV", "T3FLARE_MODEL_HANDLE"])
+      expect(setByT3flare(name)).toBe(true);
     expect(setByT3flare("NODE_ENV")).toBe(false);
     // Every name under a reserved prefix is noted, listed or not.
     expect(setByT3flare("T3FLARE_PASSIVE_READ")).toBe(true);

@@ -85,12 +85,7 @@ describe.each(servers)("completion against a %s server", (_name, makeServer) => 
         const connection = yield* connect(TARGET, testDeps(fetchTo(server)));
 
         return yield* Effect.flip(
-          connection.complete(
-            { type: "ref/prompt", name: "p" },
-            { name: "a", value: "" },
-            undefined,
-            OWNER,
-          ),
+          connection.complete({ type: "ref/prompt", name: "p" }, { name: "a", value: "" }, undefined, OWNER),
         );
       }),
     );
@@ -101,36 +96,28 @@ describe.each(servers)("completion against a %s server", (_name, makeServer) => 
 });
 
 // A Legacy server with no session has no way to be told: the request's connection is all it would see end.
-describe.each([servers[0]!, servers[2]!])(
-  "cancelling a completion against a %s server",
-  (_name, makeServer) => {
-    it("cancels the request of a completion that is interrupted", async () => {
-      const cancelled: Array<string> = [];
+describe.each([servers[0]!, servers[2]!])("cancelling a completion against a %s server", (_name, makeServer) => {
+  it("cancels the request of a completion that is interrupted", async () => {
+    const cancelled: Array<string> = [];
 
-      const server = makeServer({
-        cancelled,
-        completions: { hangs: true, complete: () => ({ values: [] }) },
-      });
-
-      const answered = await run(
-        Effect.gen(function* () {
-          const connection = yield* connect(TARGET, testDeps(fetchTo(server)));
-
-          return yield* connection
-            .complete(
-              { type: "ref/prompt", name: "p" },
-              { name: "repo", value: "c" },
-              undefined,
-              OWNER,
-            )
-            .pipe(Effect.timeoutOption(150));
-        }),
-      );
-
-      expect(answered._tag).toBe("None");
-      await vi.waitFor(() => {
-        expect(cancelled).toEqual(["repo"]);
-      });
+    const server = makeServer({
+      cancelled,
+      completions: { hangs: true, complete: () => ({ values: [] }) },
     });
-  },
-);
+
+    const answered = await run(
+      Effect.gen(function* () {
+        const connection = yield* connect(TARGET, testDeps(fetchTo(server)));
+
+        return yield* connection
+          .complete({ type: "ref/prompt", name: "p" }, { name: "repo", value: "c" }, undefined, OWNER)
+          .pipe(Effect.timeoutOption(150));
+      }),
+    );
+
+    expect(answered._tag).toBe("None");
+    await vi.waitFor(() => {
+      expect(cancelled).toEqual(["repo"]);
+    });
+  });
+});

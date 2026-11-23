@@ -9,10 +9,21 @@ import type { CatalogTool, McpCallAnswer } from "../extensions/t3-mcp.ts";
 
 export const MCP_PROTOCOL_VERSION = "2025-06-18";
 
-export const UNAVAILABLE = "T3's tools are unavailable until the next turn (T3 restarted or ended this provider session). Do not retry now.";
+export const UNAVAILABLE =
+  "T3's tools are unavailable until the next turn (T3 restarted or ended this provider session). Do not retry now.";
 
 interface JsonRpcMessage {
-  readonly result?: { readonly content?: ReadonlyArray<{ readonly type?: string; readonly text?: string; readonly data?: string; readonly mimeType?: string }>; readonly isError?: boolean; readonly tools?: ReadonlyArray<CatalogTool>; readonly structuredContent?: unknown };
+  readonly result?: {
+    readonly content?: ReadonlyArray<{
+      readonly type?: string;
+      readonly text?: string;
+      readonly data?: string;
+      readonly mimeType?: string;
+    }>;
+    readonly isError?: boolean;
+    readonly tools?: ReadonlyArray<CatalogTool>;
+    readonly structuredContent?: unknown;
+  };
   readonly error?: { readonly code: number; readonly message: string };
 }
 
@@ -41,9 +52,22 @@ export const MAX_RESULT_IMAGES = 4;
 export const MAX_IMAGE_BASE64 = 5 * 1024 * 1024;
 
 /** The MCP `image` parts of a tool result a model can see: t3's `html_preview` and `preview_snapshot` screenshots. */
-export const imagesOf = (content: ReadonlyArray<{ readonly type?: string; readonly text?: string; readonly data?: string; readonly mimeType?: string }>): ReadonlyArray<{ readonly data: string; readonly mimeType: string }> =>
+export const imagesOf = (
+  content: ReadonlyArray<{
+    readonly type?: string;
+    readonly text?: string;
+    readonly data?: string;
+    readonly mimeType?: string;
+  }>,
+): ReadonlyArray<{ readonly data: string; readonly mimeType: string }> =>
   content
-    .filter((part) => part.type === "image" && typeof part.data === "string" && part.data.length <= MAX_IMAGE_BASE64 && IMAGE_TYPES.has(part.mimeType ?? ""))
+    .filter(
+      (part) =>
+        part.type === "image" &&
+        typeof part.data === "string" &&
+        part.data.length <= MAX_IMAGE_BASE64 &&
+        IMAGE_TYPES.has(part.mimeType ?? ""),
+    )
     .slice(0, MAX_RESULT_IMAGES)
     .map((part) => ({ data: part.data!, mimeType: part.mimeType! }));
 
@@ -66,7 +90,11 @@ export class T3McpClient {
         jsonrpc: "2.0",
         id: 0,
         method: "initialize",
-        params: { protocolVersion: MCP_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "t3flare-session", version: "1" } },
+        params: {
+          protocolVersion: MCP_PROTOCOL_VERSION,
+          capabilities: {},
+          clientInfo: { name: "t3flare-session", version: "1" },
+        },
       }),
     });
     if (answer.status === 200 && answer.sessionId !== undefined) {
@@ -127,6 +155,11 @@ export class T3McpClient {
     const content = message?.result?.content ?? [];
     const text = content.map((part) => part.text ?? "").join("");
     const images = imagesOf(content);
-    return { kind: "result", text, isError: message?.result?.isError === true, ...(images.length === 0 ? {} : { images }) };
+    return {
+      kind: "result",
+      text,
+      isError: message?.result?.isError === true,
+      ...(images.length === 0 ? {} : { images }),
+    };
   }
 }

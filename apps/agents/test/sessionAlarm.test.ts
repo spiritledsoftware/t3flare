@@ -16,18 +16,27 @@ describe("nextAlarm", () => {
       at: NOW + 5_000,
       housekeepingAt: NOW + 5_000,
     });
-    expect(nextAlarm(NOW, { pushDue: false, candidates: [NOW - 10] })).toEqual({ at: NOW + 500, housekeepingAt: NOW - 10 });
+    expect(nextAlarm(NOW, { pushDue: false, candidates: [NOW - 10] })).toEqual({
+      at: NOW + 500,
+      housekeepingAt: NOW - 10,
+    });
   });
 
   it("arms now for a due push, without the 500 ms floor, and keeps the housekeeping time", () => {
     expect(nextAlarm(NOW, { pushDue: true, candidates: [] })).toEqual({ at: NOW, housekeepingAt: undefined });
-    expect(nextAlarm(NOW, { pushDue: true, candidates: [NOW + 60_000] })).toEqual({ at: NOW, housekeepingAt: NOW + 60_000 });
+    expect(nextAlarm(NOW, { pushDue: true, candidates: [NOW + 60_000] })).toEqual({
+      at: NOW,
+      housekeepingAt: NOW + 60_000,
+    });
   });
 });
 
 describe("alarmWork", () => {
   it("only pushes when the alarm was armed for a push before housekeeping is due", () => {
-    expect(alarmWork(NOW, { pushDue: true, housekeepingAt: NOW + 60_000 })).toEqual({ push: true, housekeeping: false });
+    expect(alarmWork(NOW, { pushDue: true, housekeepingAt: NOW + 60_000 })).toEqual({
+      push: true,
+      housekeeping: false,
+    });
     expect(alarmWork(NOW, { pushDue: true, housekeepingAt: undefined })).toEqual({ push: true, housekeeping: false });
   });
 
@@ -47,6 +56,9 @@ describe("alarmWork", () => {
 
   it("keeps house on any other alarm: one armed before a restart, or the constructor's fallback", () => {
     expect(alarmWork(NOW, { pushDue: false, housekeepingAt: undefined })).toEqual({ push: false, housekeeping: true });
-    expect(alarmWork(NOW, { pushDue: false, housekeepingAt: NOW + 60_000 })).toEqual({ push: false, housekeeping: true });
+    expect(alarmWork(NOW, { pushDue: false, housekeepingAt: NOW + 60_000 })).toEqual({
+      push: false,
+      housekeeping: true,
+    });
   });
 });

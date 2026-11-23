@@ -42,7 +42,8 @@ export const mintPairingCode = async (
     }),
   });
   const json = (await response.json().catch(() => undefined)) as { credential?: string; access?: string } | undefined;
-  if (response.status !== 200 || json?.credential === undefined) throw new Error(`pairing-token: HTTP ${response.status}`);
+  if (response.status !== 200 || json?.credential === undefined)
+    throw new Error(`pairing-token: HTTP ${response.status}`);
   return { code: json.credential, access: json.access };
 };
 
@@ -114,7 +115,11 @@ export const signIn = async (
   options: { readonly at?: URL; readonly peerLink?: boolean; readonly clientName?: string } = {},
 ): Promise<{ readonly token: string; readonly scope: string; readonly clientId: string }> => {
   const at = options.at ?? base;
-  const registered = await registerPeerClient(options.clientName ?? "t3flare step 3 harness", at, options.peerLink ?? true);
+  const registered = await registerPeerClient(
+    options.clientName ?? "t3flare step 3 harness",
+    at,
+    options.peerLink ?? true,
+  );
   const clientId = (registered.body as { client_id?: string }).client_id;
   if (registered.status >= 300 || clientId === undefined) throw new LinkError("register", registered);
   const { answer, verifier, state } = await decide(clientId, code, access, at);
@@ -126,7 +131,14 @@ export const signIn = async (
   const token = await post(
     at,
     "/oauth/mcp/token",
-    { grant_type: "authorization_code", code: authCode, redirect_uri: PEER_LINK_REDIRECT_URI, client_id: clientId, code_verifier: verifier, resource: `${at.origin}/mcp` },
+    {
+      grant_type: "authorization_code",
+      code: authCode,
+      redirect_uri: PEER_LINK_REDIRECT_URI,
+      client_id: clientId,
+      code_verifier: verifier,
+      resource: `${at.origin}/mcp`,
+    },
     true,
   );
   const body = token.body as { access_token?: string; scope?: string };
@@ -139,7 +151,9 @@ export interface McpAnswer {
   readonly sessionId?: string;
   readonly contentType: string;
   /** The JSON-RPC message (a JSON body, or the one SSE event's data). */
-  readonly message?: { readonly result?: any; readonly error?: { readonly code: number; readonly message: string } } | undefined;
+  readonly message?:
+    | { readonly result?: any; readonly error?: { readonly code: number; readonly message: string } }
+    | undefined;
   readonly text: string;
 }
 
@@ -204,19 +218,36 @@ export class McpClient {
         "content-type": "application/json",
         authorization: `Bearer ${this.#token}`,
         ...(this.#limit === undefined ? {} : { "t3-mode-limit": this.#limit }),
-        ...(sessionId === undefined ? {} : { "mcp-session-id": sessionId, "mcp-protocol-version": MCP_PROTOCOL_VERSION }),
+        ...(sessionId === undefined
+          ? {}
+          : { "mcp-session-id": sessionId, "mcp-protocol-version": MCP_PROTOCOL_VERSION }),
       },
       body: JSON.stringify(message),
     });
     const text = await response.text();
     const contentType = response.headers.get("content-type") ?? "";
     const id = response.headers.get("mcp-session-id") ?? undefined;
-    return { status: response.status, contentType, text, ...(id === undefined ? {} : { sessionId: id }), message: parseMcp(contentType, text) };
+    return {
+      status: response.status,
+      contentType,
+      text,
+      ...(id === undefined ? {} : { sessionId: id }),
+      message: parseMcp(contentType, text),
+    };
   }
 
   async initialize(): Promise<McpAnswer> {
     const answer = await this.raw(
-      { jsonrpc: "2.0", id: 0, method: "initialize", params: { protocolVersion: MCP_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "t3flare-peer-harness", version: "1" } } },
+      {
+        jsonrpc: "2.0",
+        id: 0,
+        method: "initialize",
+        params: {
+          protocolVersion: MCP_PROTOCOL_VERSION,
+          capabilities: {},
+          clientInfo: { name: "t3flare-peer-harness", version: "1" },
+        },
+      },
       null,
     );
     this.initialisations.push(answer.status);
@@ -250,7 +281,9 @@ export class McpClient {
   async call(tool: string, args: Record<string, unknown>): Promise<ToolAnswer> {
     const answer = await this.request("tools/call", { name: tool, arguments: args });
     const result = answer.message?.result;
-    const text = Array.isArray(result?.content) ? result.content.map((part: { text?: string }) => part.text ?? "").join("") : answer.text.slice(0, 2000);
+    const text = Array.isArray(result?.content)
+      ? result.content.map((part: { text?: string }) => part.text ?? "").join("")
+      : answer.text.slice(0, 2000);
     let json: any;
     try {
       json = result?.structuredContent ?? JSON.parse(text);
@@ -270,14 +303,21 @@ export class McpClient {
    * `t3_thread_wait` in pieces of at most WAIT_CHUNK_MS from the start, as `PeerForwarding` waits, until the answer
    * is not a timeout or `totalMs` passes.
    */
-  async waitThread(args: Record<string, unknown>, totalMs: number): Promise<{ readonly answer: ToolAnswer; readonly pieces: number }> {
+  async waitThread(
+    args: Record<string, unknown>,
+    totalMs: number,
+  ): Promise<{ readonly answer: ToolAnswer; readonly pieces: number }> {
     const started = Date.now();
     let pieces = 0;
     for (;;) {
       const left = totalMs - (Date.now() - started);
-      const answer = await this.call("t3_thread_wait", { ...args, timeoutMs: Math.max(1000, Math.min(WAIT_CHUNK_MS, left)) });
+      const answer = await this.call("t3_thread_wait", {
+        ...args,
+        timeoutMs: Math.max(1000, Math.min(WAIT_CHUNK_MS, left)),
+      });
       pieces++;
-      if (answer.isError || answer.json?.timedOut !== true || Date.now() - started >= totalMs) return { answer, pieces };
+      if (answer.isError || answer.json?.timedOut !== true || Date.now() - started >= totalMs)
+        return { answer, pieces };
     }
   }
 }

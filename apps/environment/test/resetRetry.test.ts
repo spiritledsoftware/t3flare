@@ -4,7 +4,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import { isConnectionReset, withResetRetry } from "../scripts/lib/resetRetry.ts";
 
-const reset = () => Object.assign(new TypeError("fetch failed"), { cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }) });
+const reset = () =>
+  Object.assign(new TypeError("fetch failed"), {
+    cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
+  });
 
 describe("withResetRetry", () => {
   it("sends a bodiless or string-body request again after a reset, and answers with the retry's response", async () => {
@@ -39,13 +42,17 @@ describe("withResetRetry", () => {
     expect(refused).toHaveBeenCalledTimes(1);
 
     const streamed = vi.fn<typeof fetch>().mockRejectedValue(reset());
-    await expect(withResetRetry(streamed)("https://stage.example/api", { method: "POST", body: new Uint8Array([1]) })).rejects.toThrow("fetch failed");
+    await expect(
+      withResetRetry(streamed)("https://stage.example/api", { method: "POST", body: new Uint8Array([1]) }),
+    ).rejects.toThrow("fetch failed");
     expect(streamed).toHaveBeenCalledTimes(1);
 
     const controller = new AbortController();
     controller.abort();
     const aborted = vi.fn<typeof fetch>().mockRejectedValue(reset());
-    await expect(withResetRetry(aborted)("https://stage.example/api", { signal: controller.signal })).rejects.toThrow("fetch failed");
+    await expect(withResetRetry(aborted)("https://stage.example/api", { signal: controller.signal })).rejects.toThrow(
+      "fetch failed",
+    );
     expect(aborted).toHaveBeenCalledTimes(1);
   });
 });

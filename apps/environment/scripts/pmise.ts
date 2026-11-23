@@ -11,14 +11,33 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { ensureProject } from "./lib/cliTurn.ts";
-import { admin, DEFAULT_MODEL, dispatch, itemsOf, pair, projectionOf, runsOf, sendMessage, SETTLED, sleep, threadWindow, uuid, wsCall, wsFirst, wsStream } from "./lib/client.ts";
+import {
+  admin,
+  DEFAULT_MODEL,
+  dispatch,
+  itemsOf,
+  pair,
+  projectionOf,
+  runsOf,
+  sendMessage,
+  SETTLED,
+  sleep,
+  threadWindow,
+  uuid,
+  wsCall,
+  wsFirst,
+  wsStream,
+} from "./lib/client.ts";
 import { tailing } from "./lib/tail.ts";
 import { attachTerminal, stripAnsi } from "./lib/terminal.ts";
 
 const HARNESS = process.env.T3FLARE_HARNESS_URL ?? "";
 const T3 = process.env.T3_URL ?? "";
 const OUT = path.resolve(import.meta.dirname, "../../../.evidence/global-mise");
-const accessHeaders = { "cf-access-client-id": process.env.T3FLARE_ACCESS_CLIENT_ID ?? "", "cf-access-client-secret": process.env.T3FLARE_ACCESS_CLIENT_SECRET ?? "" };
+const accessHeaders = {
+  "cf-access-client-id": process.env.T3FLARE_ACCESS_CLIENT_ID ?? "",
+  "cf-access-client-secret": process.env.T3FLARE_ACCESS_CLIENT_SECRET ?? "",
+};
 const scriptHeaders = { ...accessHeaders, authorization: `Bearer ${process.env.T3FLARE_ADMIN_TOKEN ?? ""}` };
 const WORKSPACE = "pmise";
 const SONNET = process.env.T3FLARE_PMISE_MODEL ?? "anthropic/claude-sonnet-5-5";
@@ -33,11 +52,15 @@ const CLIS = {
 type Cli = keyof typeof CLIS;
 
 /** The deployed build's commit (the Worker's `/_t3flare/health`), so each evidence file names the code it ran against. */
-const deployedCommit = async (): Promise<string | null> => (await admin("GET", "/_t3flare/health")).json?.build?.commit ?? null;
+const deployedCommit = async (): Promise<string | null> =>
+  (await admin("GET", "/_t3flare/health")).json?.build?.commit ?? null;
 
 const writeEvidence = async (name: string, value: Record<string, unknown>) => {
   fs.mkdirSync(OUT, { recursive: true });
-  fs.writeFileSync(path.join(OUT, name), `${JSON.stringify({ at: new Date().toISOString(), host: new URL(T3).host, commit: await deployedCommit(), ...value }, null, 1)}\n`);
+  fs.writeFileSync(
+    path.join(OUT, name),
+    `${JSON.stringify({ at: new Date().toISOString(), host: new URL(T3).host, commit: await deployedCommit(), ...value }, null, 1)}\n`,
+  );
   console.log(`wrote .evidence/global-mise/${name} (ok: ${String(value.ok)})`);
 };
 
@@ -61,26 +84,49 @@ const harness = async (method: string, pathname: string, body?: unknown) => {
 
 const setEnvironment = async (settings: Record<string, unknown>) => {
   const answer = await harness("POST", "/_t3flare/settings/api/environment", { settings });
-  if (answer.status !== 200) throw new Error(`environment change refused: ${answer.status} ${JSON.stringify(answer.json)}`);
+  if (answer.status !== 200)
+    throw new Error(`environment change refused: ${answer.status} ${JSON.stringify(answer.json)}`);
   return answer.json as { revision: number; resolved: Record<string, unknown> };
 };
 
 /** One Workspace call, its whole answer kept. */
 const callOn = async (id: string, body: unknown) => {
-  const response = await fetch(new URL(`/_t3flare/agents/workspace-call?id=${id}`, T3), { method: "POST", redirect: "manual", headers: { ...scriptHeaders, "content-type": "application/json" }, body: JSON.stringify(body) });
+  const response = await fetch(new URL(`/_t3flare/agents/workspace-call?id=${id}`, T3), {
+    method: "POST",
+    redirect: "manual",
+    headers: { ...scriptHeaders, "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
   const text = await response.text();
   try {
-    return { status: response.status, ...JSON.parse(text) } as { status: number; result: any; container: any; text?: string };
+    return { status: response.status, ...JSON.parse(text) } as {
+      status: number;
+      result: any;
+      container: any;
+      text?: string;
+    };
   } catch {
-    return { status: response.status, result: undefined, container: undefined, text } as { status: number; result: any; container: any; text?: string };
+    return { status: response.status, result: undefined, container: undefined, text } as {
+      status: number;
+      result: any;
+      container: any;
+      text?: string;
+    };
   }
 };
 const execOn = async (id: string, script: string, timeoutMs = 120_000) => {
   const answer = await callOn(id, { exec: { script, timeoutMs } });
-  return { exitCode: answer.result?.exitCode as number | undefined, stdout: String(answer.result?.stdout ?? ""), stderr: String(answer.result?.stderr ?? answer.text ?? "").slice(0, 600) };
+  return {
+    exitCode: answer.result?.exitCode as number | undefined,
+    stdout: String(answer.result?.stdout ?? ""),
+    stderr: String(answer.result?.stderr ?? answer.text ?? "").slice(0, 600),
+  };
 };
 const stopOn = (id: string) => admin("POST", `/_t3flare/agents/workspace-stop?id=${id}`);
-const stateOf = async (id: string) => ((await admin("GET", "/_t3flare/agents/workspaces")).json?.workspaces as Array<any> | undefined)?.find((row) => row.id === id)?.container;
+const stateOf = async (id: string) =>
+  ((await admin("GET", "/_t3flare/agents/workspaces")).json?.workspaces as Array<any> | undefined)?.find(
+    (row) => row.id === id,
+  )?.container;
 
 let cookie = "";
 
@@ -91,18 +137,44 @@ interface Case {
 }
 
 /** One turn on a new thread of `instance`, every request accepted; its runs, answer and tool items. */
-const turn = async (projectId: string, model: { instanceId: string; model: string; options: [] }, prompt: string, timeoutMs = 8 * 60_000) => {
+const turn = async (
+  projectId: string,
+  model: { instanceId: string; model: string; options: [] },
+  prompt: string,
+  timeoutMs = 8 * 60_000,
+) => {
   const threadId = uuid();
-  await dispatch(cookie, { type: "thread.create", commandId: uuid(), threadId, projectId, title: `pmise ${model.instanceId}`, modelSelection: model, runtimeMode: "full-access", interactionMode: "default", branch: null, worktreePath: null, createdBy: "user", creationSource: "web" });
+  await dispatch(cookie, {
+    type: "thread.create",
+    commandId: uuid(),
+    threadId,
+    projectId,
+    title: `pmise ${model.instanceId}`,
+    modelSelection: model,
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    branch: null,
+    worktreePath: null,
+    createdBy: "user",
+    creationSource: "web",
+  });
   await sendMessage(cookie, threadId, prompt, model);
   const started = Date.now();
   const answered = new Set<string>();
   let view: any;
   while (Date.now() - started < timeoutMs) {
     view = projectionOf(await threadWindow(cookie, threadId).catch(() => undefined));
-    for (const request of (view?.runtimeRequests ?? []).filter((r: any) => r.status === "pending" && !answered.has(r.id))) {
+    for (const request of (view?.runtimeRequests ?? []).filter(
+      (r: any) => r.status === "pending" && !answered.has(r.id),
+    )) {
       answered.add(request.id);
-      await dispatch(cookie, { type: "runtime-request.respond", commandId: uuid(), threadId, requestId: request.id, decision: "accept" }).catch(() => undefined);
+      await dispatch(cookie, {
+        type: "runtime-request.respond",
+        commandId: uuid(),
+        threadId,
+        requestId: request.id,
+        decision: "accept",
+      }).catch(() => undefined);
     }
     const runs = runsOf(view);
     if (runs.length > 0 && runs.every((run) => SETTLED.has(run.status))) break;
@@ -113,14 +185,24 @@ const turn = async (projectId: string, model: { instanceId: string; model: strin
     threadId,
     runs: runsOf(view).map((run: any) => ({ status: run.status, failure: run.failure ?? null })),
     answer: String(items.filter((item: any) => item.type === "assistant_message").at(-1)?.text ?? "").slice(-400),
-    tools: items.filter((item: any) => item.type === "command_execution").map((item: any) => String(item.input ?? "").slice(0, 200)),
+    tools: items
+      .filter((item: any) => item.type === "command_execution")
+      .map((item: any) => String(item.input ?? "").slice(0, 200)),
     // A command's output as t3's client expands it (the thread window omits it): what the agent's tool returned.
     outputs: await Promise.all(
       items
         .filter((item: any) => item.type === "command_execution")
-        .map(async (item: any) => JSON.stringify(await wsFirst(cookie, "orchestration.subscribeCommandOutput", { threadId, itemId: item.id }).catch((error: unknown) => ({ error: String(error).slice(0, 200) }))).slice(0, 800)),
+        .map(async (item: any) =>
+          JSON.stringify(
+            await wsFirst(cookie, "orchestration.subscribeCommandOutput", { threadId, itemId: item.id }).catch(
+              (error: unknown) => ({ error: String(error).slice(0, 200) }),
+            ),
+          ).slice(0, 800),
+        ),
     ),
-    errors: items.filter((item: any) => item.type === "error").map((item: any) => String(item.detail ?? item.message ?? item.text ?? JSON.stringify(item)).slice(-1200)),
+    errors: items
+      .filter((item: any) => item.type === "error")
+      .map((item: any) => String(item.detail ?? item.message ?? item.text ?? JSON.stringify(item)).slice(-1200)),
     ms: Date.now() - started,
   };
 };
@@ -128,17 +210,47 @@ const turn = async (projectId: string, model: { instanceId: string; model: strin
 const durableModel = DEFAULT_MODEL as { instanceId: string; model: string; options: [] };
 const cliModel = (cli: Cli) => ({ instanceId: CLIS[cli].instanceId, model: CLIS[cli].model, options: [] as [] });
 const enableAll = async () => {
-  await wsCall(cookie, "server.updateSettings", { patch: {}, providerInstanceMutation: { operation: "upsert", instanceId: "piDurable", instance: { driver: "piDurable", enabled: true } } });
-  for (const cli of Object.values(CLIS)) await wsCall(cookie, "server.updateSettings", { patch: {}, providerInstanceMutation: { operation: "upsert", instanceId: cli.instanceId, instance: { driver: cli.driver, enabled: true } } });
+  await wsCall(cookie, "server.updateSettings", {
+    patch: {},
+    providerInstanceMutation: {
+      operation: "upsert",
+      instanceId: "piDurable",
+      instance: { driver: "piDurable", enabled: true },
+    },
+  });
+  for (const cli of Object.values(CLIS))
+    await wsCall(cookie, "server.updateSettings", {
+      patch: {},
+      providerInstanceMutation: {
+        operation: "upsert",
+        instanceId: cli.instanceId,
+        instance: { driver: cli.driver, enabled: true },
+      },
+    });
   // Each instance's provider list fresh, as the client asks for it before a thread (OpenCode's session opens after it).
-  for (const cli of Object.values(CLIS)) await wsCall(cookie, "server.refreshProviders", { instanceId: cli.instanceId, fresh: true }).catch(() => undefined);
+  for (const cli of Object.values(CLIS))
+    await wsCall(cookie, "server.refreshProviders", { instanceId: cli.instanceId, fresh: true }).catch(() => undefined);
 };
 
 // ── variables.json ──────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** The names COMMAND_ENV sets for mise: each one's value, or `unset`, as a command's own environment has it. */
-const NAMES = ["MISE_SYSTEM_CONFIG_FILE", "MISE_GLOBAL_CONFIG_FILE", "MISE_GITHUB_GH_CLI_TOKENS", "MISE_GITHUB_USE_GIT_CREDENTIALS", "MISE_GITHUB_CREDENTIAL_COMMAND", "MISE_DISABLE_TOOLS", "MISE_DISABLE_BACKENDS"];
-const SETTINGS = ["github.gh_cli_tokens", "github.use_git_credentials", "github.credential_command", "disable_tools", "disable_backends"];
+const NAMES = [
+  "MISE_SYSTEM_CONFIG_FILE",
+  "MISE_GLOBAL_CONFIG_FILE",
+  "MISE_GITHUB_GH_CLI_TOKENS",
+  "MISE_GITHUB_USE_GIT_CREDENTIALS",
+  "MISE_GITHUB_CREDENTIAL_COMMAND",
+  "MISE_DISABLE_TOOLS",
+  "MISE_DISABLE_BACKENDS",
+];
+const SETTINGS = [
+  "github.gh_cli_tokens",
+  "github.use_git_credentials",
+  "github.credential_command",
+  "disable_tools",
+  "disable_backends",
+];
 const VARS_DIR = "/workspace/.pmise";
 
 /**
@@ -208,7 +320,10 @@ const variables = async () => {
   await setEnvironment({ globalMiseConfig: NODE_PIN });
   // A running Container keeps what it started with: every path starts a new one.
   await stopAll();
-  const written = await execOn(WORKSPACE, `mkdir -p ${VARS_DIR} && cat > ${VARS_DIR}/vars.sh <<'PMISE_EOF'\n${VARS_SCRIPT}PMISE_EOF\necho ok`);
+  const written = await execOn(
+    WORKSPACE,
+    `mkdir -p ${VARS_DIR} && cat > ${VARS_DIR}/vars.sh <<'PMISE_EOF'\n${VARS_SCRIPT}PMISE_EOF\necho ok`,
+  );
   if (!written.stdout.includes("ok")) throw new Error(`could not write the check: ${JSON.stringify(written)}`);
   const paths: Array<{ who: string; how: string; detail: unknown }> = [];
   const run = `bash ${VARS_DIR}/vars.sh`;
@@ -217,23 +332,39 @@ const variables = async () => {
   const wanted = (who: string) => only.length === 0 || only.includes(who);
 
   // The Workspace DO's own command (computerd's env, WorkspaceDO.exec).
-  if (wanted("workspace-exec")) paths.push({ who: "workspace-exec", how: "the Workspace DO's exec (t3's git and the admin route take this path)", detail: await execOn(WORKSPACE, `${run} workspace-exec`) });
+  if (wanted("workspace-exec"))
+    paths.push({
+      who: "workspace-exec",
+      how: "the Workspace DO's exec (t3's git and the admin route take this path)",
+      detail: await execOn(WORKSPACE, `${run} workspace-exec`),
+    });
 
   // A Durable agent's bash (computer's stub from the Session, computerd's env).
-  if (wanted("durable")) paths.push({
-    who: "durable",
-    how: "a Durable agent's bash on the Container",
-    detail: await turn(projectId, durableModel, `Call the bash tool once with command \`${run} durable\` and backend \`container\`. Then reply with the single word done.`),
-  });
+  if (wanted("durable"))
+    paths.push({
+      who: "durable",
+      how: "a Durable agent's bash on the Container",
+      detail: await turn(
+        projectId,
+        durableModel,
+        `Call the bash tool once with command \`${run} durable\` and backend \`container\`. Then reply with the single word done.`,
+      ),
+    });
 
   // A t3 Terminal (the platform's exec, terminalEnv).
   if (wanted("terminal")) {
-  const terminal = await attachTerminal(cookie, { threadId: `pmise-${uuid()}`, terminalId: "default", cwd: root });
-  await terminal.until(/[$#] $/, 180_000);
-  const typed = await terminal.run(`${run} terminal`, 120_000).catch((error: unknown) => ({ ms: -1, text: String(error).slice(0, 400) }));
-  await terminal.close(true).catch(() => undefined);
-  await terminal.detach().catch(() => undefined);
-  paths.push({ who: "terminal", how: "a t3 Terminal", detail: { ms: typed.ms, tail: stripAnsi(typed.text).slice(-300) } });
+    const terminal = await attachTerminal(cookie, { threadId: `pmise-${uuid()}`, terminalId: "default", cwd: root });
+    await terminal.until(/[$#] $/, 180_000);
+    const typed = await terminal
+      .run(`${run} terminal`, 120_000)
+      .catch((error: unknown) => ({ ms: -1, text: String(error).slice(0, 400) }));
+    await terminal.close(true).catch(() => undefined);
+    await terminal.detach().catch(() => undefined);
+    paths.push({
+      who: "terminal",
+      how: "a t3 Terminal",
+      detail: { ms: typed.ms, tail: stripAnsi(typed.text).slice(-300) },
+    });
   }
 
   // A command each CLI agent runs (the platform's exec, then each CLI's own handling of its children's environment).
@@ -244,7 +375,11 @@ const variables = async () => {
     paths.push({
       who: cli,
       how: `a shell command ${cli} runs`,
-      detail: await turn(projectId, cliModel(cli), `Run this exact shell command once with your shell tool, from any directory: \`${run} ${cli}\` . Do not change it. Then reply with the single word done.`).catch((error: unknown) => ({
+      detail: await turn(
+        projectId,
+        cliModel(cli),
+        `Run this exact shell command once with your shell tool, from any directory: \`${run} ${cli}\` . Do not change it. Then reply with the single word done.`,
+      ).catch((error: unknown) => ({
         error: String(error).slice(0, 400),
       })),
     });
@@ -264,12 +399,40 @@ const variables = async () => {
     const text = files[entry.who];
     if (text === undefined) return { ...entry, ranAt: new Date().toISOString(), ran: false, ok: false };
     const parsed = parseVars(text);
-    const arrived = Object.fromEntries(Object.entries(EXPECTED_ENV).map(([name, value]) => [name, parsed.env[name] === value]));
+    const arrived = Object.fromEntries(
+      Object.entries(EXPECTED_ENV).map(([name, value]) => [name, parsed.env[name] === value]),
+    );
     const falseGuards = arrived.MISE_GITHUB_GH_CLI_TOKENS === true && arrived.MISE_GITHUB_USE_GIT_CREDENTIALS === true;
-    const emptyGuards = arrived.MISE_GITHUB_CREDENTIAL_COMMAND === true && arrived.MISE_DISABLE_TOOLS === true && arrived.MISE_DISABLE_BACKENDS === true;
-    return { ...entry, ranAt: new Date().toISOString(), ran: true, ...parsed, arrived, falseGuards, emptyGuards, noToken: parsed.token !== null && parsed.token.includes("(none)"), sharesInstall: parsed.pinned["pinned-node"] === "v24.11.1" && parsed.miseDirs.data === "~/.local/share/mise" && parsed.pinned["other-data"] === "none", ok: falseGuards && emptyGuards && parsed.token?.includes("(none)") === true && parsed.pinned["pinned-node"] === "v24.11.1" && parsed.miseDirs.data === "~/.local/share/mise" && parsed.pinned["other-data"] === "none" };
+    const emptyGuards =
+      arrived.MISE_GITHUB_CREDENTIAL_COMMAND === true &&
+      arrived.MISE_DISABLE_TOOLS === true &&
+      arrived.MISE_DISABLE_BACKENDS === true;
+    return {
+      ...entry,
+      ranAt: new Date().toISOString(),
+      ran: true,
+      ...parsed,
+      arrived,
+      falseGuards,
+      emptyGuards,
+      noToken: parsed.token !== null && parsed.token.includes("(none)"),
+      sharesInstall:
+        parsed.pinned["pinned-node"] === "v24.11.1" &&
+        parsed.miseDirs.data === "~/.local/share/mise" &&
+        parsed.pinned["other-data"] === "none",
+      ok:
+        falseGuards &&
+        emptyGuards &&
+        parsed.token?.includes("(none)") === true &&
+        parsed.pinned["pinned-node"] === "v24.11.1" &&
+        parsed.miseDirs.data === "~/.local/share/mise" &&
+        parsed.pinned["other-data"] === "none",
+    };
   });
-  const earlier: Array<any> = only.length === 0 || !fs.existsSync(path.join(OUT, "variables.json")) ? [] : JSON.parse(fs.readFileSync(path.join(OUT, "variables.json"), "utf8")).results ?? [];
+  const earlier: Array<any> =
+    only.length === 0 || !fs.existsSync(path.join(OUT, "variables.json"))
+      ? []
+      : (JSON.parse(fs.readFileSync(path.join(OUT, "variables.json"), "utf8")).results ?? []);
   const merged = [...earlier.filter((entry) => !only.includes(entry.who)), ...results];
   await writeEvidence("variables.json", {
     note: "Each path ran `vars.sh` with a gh hosts.yml in its own home and the Global mise config `node = \"24.11.1\"` (the image has 26.13.0): the variables as its command has them (null: unset), mise's resolved settings and effective directories (`mise doctor`; ~ is /root), its XDG_* values, the pinned node with mise's auto-install off, any install under its own XDG_DATA_HOME, and the token mise would send.",
@@ -283,12 +446,16 @@ const opencodeDebug = async () => {
   cookie ||= await pair();
   const { projectId } = await ensureProject(cookie, WORKSPACE);
   await enableAll();
-  const { result, text } = await tailing([new URL(T3).hostname.split(".")[0]!, `t3flare-agents-pmise`], () => turn(projectId, cliModel("opencode"), "Reply with the single word done."));
+  const { result, text } = await tailing([new URL(T3).hostname.split(".")[0]!, `t3flare-agents-pmise`], () =>
+    turn(projectId, cliModel("opencode"), "Reply with the single word done."),
+  );
   const lines = text.split("\n").filter((line) => /opencode|acp|process-start|refus|error/i.test(line));
   console.log(JSON.stringify(result.runs));
-  for (const line of lines.slice(0, 60)) console.log(line.replace(/(bearer|token|key|secret)([^,}]{0,10})["':= ]+[^"',} ]+/gi, "$1$2=<redacted>").slice(0, 600));
+  for (const line of lines.slice(0, 60))
+    console.log(
+      line.replace(/(bearer|token|key|secret)([^,}]{0,10})["':= ]+[^"',} ]+/gi, "$1$2=<redacted>").slice(0, 600),
+    );
 };
-
 
 // ── The Global mise config's cases ───────────────────────────────────────────────────────────────────────────────
 
@@ -298,8 +465,12 @@ const NODE_PIN = '[tools]\nnode = "24.11.1"\n';
 const OUT_DIR = "/workspace/.pmise";
 
 const setMise = (text: string) => setEnvironment({ globalMiseConfig: text });
-const status = async () => (await harness("GET", "/_t3flare/settings/api/status")).json?.["last Global mise lay-down"] ?? null;
-const sha256 = async (text: string) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+const status = async () =>
+  (await harness("GET", "/_t3flare/settings/api/status")).json?.["last Global mise lay-down"] ?? null;
+const sha256 = async (text: string) =>
+  [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 
 /** Stops every pmise Workspace's Container and waits until each is stopped. */
 const stopAll = async (ids: ReadonlyArray<string> = [WORKSPACE]) => {
@@ -315,7 +486,11 @@ const stopAll = async (ids: ReadonlyArray<string> = [WORKSPACE]) => {
 
 /** A Durable agent's bash on the Container: one command, its tool output as t3's client expands it. */
 const durableBash = async (projectId: string, command: string, extra = "") =>
-  turn(projectId, durableModel, `Call the bash tool once with command \`${command}\` and backend \`container\`${extra}. Do not retry or run anything else. Then reply with the tool's output or error text, quoted exactly.`);
+  turn(
+    projectId,
+    durableModel,
+    `Call the bash tool once with command \`${command}\` and backend \`container\`${extra}. Do not retry or run anything else. Then reply with the tool's output or error text, quoted exactly.`,
+  );
 
 /** A file the paths write their answers to, read through the Workspace DO (null when absent). */
 const readOut = async (name: string) => {
@@ -336,19 +511,40 @@ const install = async () => {
     const detail = await run();
     const text = await readOut(`node-${who}.txt`);
     const state = await stateOf(WORKSPACE);
-    results.push({ name: who, node: text, globalMise: state?.globalMise ?? null, launch: state?.launch?.globalMise ?? null, detail, ok: text === "v24.11.1" && state?.globalMise?.outcome === "laid" });
+    results.push({
+      name: who,
+      node: text,
+      globalMise: state?.globalMise ?? null,
+      launch: state?.launch?.globalMise ?? null,
+      detail,
+      ok: text === "v24.11.1" && state?.globalMise?.outcome === "laid",
+    });
   };
   await check("durable", () => durableBash(projectId, `node --version > ${OUT_DIR}/node-durable.txt 2>&1`));
-  await check("pi", () => turn(projectId, cliModel("pi"), `Run this exact shell command once with your shell tool: \`node --version > ${OUT_DIR}/node-pi.txt 2>&1\` . Then reply with the single word done.`));
+  await check("pi", () =>
+    turn(
+      projectId,
+      cliModel("pi"),
+      `Run this exact shell command once with your shell tool: \`node --version > ${OUT_DIR}/node-pi.txt 2>&1\` . Then reply with the single word done.`,
+    ),
+  );
   await check("terminal", async () => {
     const terminal = await attachTerminal(cookie, { threadId: `pmise-${uuid()}`, terminalId: "default", cwd: root });
     await terminal.until(/[$#] $/, 600_000);
-    const typed = await terminal.run(`node --version > ${OUT_DIR}/node-terminal.txt 2>&1`, 120_000).catch((error: unknown) => ({ ms: -1, text: String(error).slice(0, 300) }));
+    const typed = await terminal
+      .run(`node --version > ${OUT_DIR}/node-terminal.txt 2>&1`, 120_000)
+      .catch((error: unknown) => ({ ms: -1, text: String(error).slice(0, 300) }));
     await terminal.close(true).catch(() => undefined);
     await terminal.detach().catch(() => undefined);
     return { ms: typed.ms };
   });
-  await writeEvidence("install.json", { pin: NODE_PIN, imageNode: "26.13.0", status: await status(), results, ok: results.every((entry) => entry.ok) });
+  await writeEvidence("install.json", {
+    pin: NODE_PIN,
+    imageNode: "26.13.0",
+    status: await status(),
+    results,
+    ok: results.every((entry) => entry.ok),
+  });
 };
 
 const override = async () => {
@@ -378,11 +574,27 @@ const override = async () => {
 
 /** t3's commit action (the git panel's Commit) of one new file, and the commit it made; the repo reset after. */
 const t3Commit = async (root: string, label: string) => {
-  await execOn(WORKSPACE, `cd /workspace/repo && git reset -q --hard origin/main && git clean -fdq && echo "${label} $(date +%s)" > pmise-commit.txt`);
-  const events = (await wsStream(cookie, "git.runStackedAction", { actionId: uuid(), cwd: root, action: "commit", commitMessage: `pmise: ${label}`, filePaths: ["pmise-commit.txt"] }).catch((error: unknown) => [{ error: String(error).slice(0, 400) }])) as Array<any>;
-  const head = await execOn(WORKSPACE, "cd /workspace/repo && git log -1 --format=%s && git reset -q --hard origin/main && git clean -fdq");
+  await execOn(
+    WORKSPACE,
+    `cd /workspace/repo && git reset -q --hard origin/main && git clean -fdq && echo "${label} $(date +%s)" > pmise-commit.txt`,
+  );
+  const events = (await wsStream(cookie, "git.runStackedAction", {
+    actionId: uuid(),
+    cwd: root,
+    action: "commit",
+    commitMessage: `pmise: ${label}`,
+    filePaths: ["pmise-commit.txt"],
+  }).catch((error: unknown) => [{ error: String(error).slice(0, 400) }])) as Array<any>;
+  const head = await execOn(
+    WORKSPACE,
+    "cd /workspace/repo && git log -1 --format=%s && git reset -q --hard origin/main && git clean -fdq",
+  );
   const failed = events.find((event) => event?.kind === "action_failed" || event?.error !== undefined);
-  return { events: events.map((event) => event?.kind ?? null), failure: failed === undefined ? null : String(failed.error ?? JSON.stringify(failed)).slice(0, 400), head: head.stdout.trim().split("\n")[0] ?? "" };
+  return {
+    events: events.map((event) => event?.kind ?? null),
+    failure: failed === undefined ? null : String(failed.error ?? JSON.stringify(failed)).slice(0, 400),
+    head: head.stdout.trim().split("\n")[0] ?? "",
+  };
 };
 
 const gitGh = async () => {
@@ -397,12 +609,34 @@ const gitGh = async () => {
   await setMise(NODE_PIN);
   await stopAll();
   const gh = await execOn(WORKSPACE, "gh --version | head -1; git --version; node --version");
-  const statusAnswer = await wsCall(cookie, "vcs.refreshStatus", { cwd: root }).catch((error: unknown) => ({ error: String(error).slice(0, 300) }));
+  const statusAnswer = await wsCall(cookie, "vcs.refreshStatus", { cwd: root }).catch((error: unknown) => ({
+    error: String(error).slice(0, 300),
+  }));
   const underPin = await t3Commit(root, "under the node pin");
   await execOn(WORKSPACE, `cd /workspace/repo && echo "pmise $(date +%s)" > pmise-commit.txt`);
-  const add = await callOn(WORKSPACE, { git: { argv: ["add", "pmise-commit.txt"], cwd: "/workspace/repo", startContainer: true } });
-  const commit = await callOn(WORKSPACE, { git: { argv: ["-c", "user.name=pmise", "-c", "user.email=pmise@example.invalid", "commit", "-q", "-m", "pmise: the Workspace's git under the node pin"], cwd: "/workspace/repo", startContainer: true } });
-  const head = await execOn(WORKSPACE, "cd /workspace/repo && git log -1 --format=%s && git reset -q --hard origin/main && git clean -fdq");
+  const add = await callOn(WORKSPACE, {
+    git: { argv: ["add", "pmise-commit.txt"], cwd: "/workspace/repo", startContainer: true },
+  });
+  const commit = await callOn(WORKSPACE, {
+    git: {
+      argv: [
+        "-c",
+        "user.name=pmise",
+        "-c",
+        "user.email=pmise@example.invalid",
+        "commit",
+        "-q",
+        "-m",
+        "pmise: the Workspace's git under the node pin",
+      ],
+      cwd: "/workspace/repo",
+      startContainer: true,
+    },
+  });
+  const head = await execOn(
+    WORKSPACE,
+    "cd /workspace/repo && git log -1 --format=%s && git reset -q --hard origin/main && git clean -fdq",
+  );
   cases.push({
     name: "t3's git status, a commit, and gh, under a node pin",
     gh: gh.stdout.trim().split("\n"),
@@ -411,15 +645,24 @@ const gitGh = async () => {
       control,
       underPin,
       // SPI-1186 bridged t3's commit draft (its temporary object directory and alternates); before it, both failed alike.
-      note: underPin.failure === null ? "t3's commit action commits, with and without a Global mise config (SPI-1186)" : "t3's commit action fails the same way with no Global mise config (SPI-1186)",
+      note:
+        underPin.failure === null
+          ? "t3's commit action commits, with and without a Global mise config (SPI-1186)"
+          : "t3's commit action fails the same way with no Global mise config (SPI-1186)",
     },
-    workspaceGit: { add: add.result?.exitCode ?? null, commit: commit.result?.exitCode ?? null, head: head.stdout.trim().split("\n")[0] ?? "" },
+    workspaceGit: {
+      add: add.result?.exitCode ?? null,
+      commit: commit.result?.exitCode ?? null,
+      head: head.stdout.trim().split("\n")[0] ?? "",
+    },
     ok:
       gh.stdout.startsWith("gh version") &&
       gh.stdout.includes("v24.11.1") &&
       !JSON.stringify(statusAnswer).includes('"error"') &&
       head.stdout.startsWith("pmise: the Workspace's git under the node pin") &&
-      (underPin.failure === null ? underPin.head === "pmise: under the node pin" : underPin.failure === control.failure),
+      (underPin.failure === null
+        ? underPin.head === "pmise: under the node pin"
+        : underPin.failure === control.failure),
   });
   // An owner-pinned conda:git: the lay-down gives it the image's system gitconfig (the credential helper).
   const pinned = '[tools]\n"conda:git" = "2.49.0"\n';
@@ -436,13 +679,18 @@ const gitGh = async () => {
     stdout: fetched.stdout.trim().split("\n"),
     stderr: fetched.stderr,
     globalMise: (await stateOf(WORKSPACE))?.globalMise ?? null,
-    ok: fetched.stdout.includes("git version 2.49.0") && fetched.stdout.includes("helper 1") && fetched.stdout.includes("password 1") && fetched.stdout.includes("fetched"),
+    ok:
+      fetched.stdout.includes("git version 2.49.0") &&
+      fetched.stdout.includes("helper 1") &&
+      fetched.stdout.includes("password 1") &&
+      fetched.stdout.includes("fetched"),
   });
   await writeEvidence("git-gh.json", { cases, ok: cases.every((entry) => entry.ok) });
 };
 
 /** A pin whose install takes more than a minute on a cpu-1 Container (one job at a time; measured in the file). */
-const LONG_PIN = '[settings]\njobs = 1\n\n[tools]\nnode = "24.11.1"\nrust = "1.91.1"\ngo = "1.25.4"\npython = "3.12.8"\njava = "temurin-21.0.5+11.0.LTS"\ndeno = "2.1.4"\nzig = "0.13.0"\nterraform = "1.10.3"\ndotnet = "9.0.101"\nkotlin = "2.1.0"\ngradle = "8.12"\n';
+const LONG_PIN =
+  '[settings]\njobs = 1\n\n[tools]\nnode = "24.11.1"\nrust = "1.91.1"\ngo = "1.25.4"\npython = "3.12.8"\njava = "temurin-21.0.5+11.0.LTS"\ndeno = "2.1.4"\nzig = "0.13.0"\nterraform = "1.10.3"\ndotnet = "9.0.101"\nkotlin = "2.1.0"\ngradle = "8.12"\n';
 
 const hold = async () => {
   cookie ||= await pair();
@@ -456,12 +704,17 @@ const hold = async () => {
   const started = Date.now();
   // From a Durable agent's bash: computer's path, where the Workspace DO's exec does not hold the Container itself.
   const agent = durableBash(projectId, `node --version > ${OUT_DIR}/node-hold.txt 2>&1`);
-  const samples: Array<{ readonly s: number; readonly running: boolean | null; readonly globalMise: string | null }> = [];
+  const samples: Array<{ readonly s: number; readonly running: boolean | null; readonly globalMise: string | null }> =
+    [];
   let refused: unknown = null;
   let reason: unknown = null;
   while (Date.now() - started < 12 * 60_000) {
     const state = await stateOf(WORKSPACE);
-    samples.push({ s: Math.round((Date.now() - started) / 1000), running: state?.running ?? null, globalMise: state?.globalMise?.outcome ?? null });
+    samples.push({
+      s: Math.round((Date.now() - started) / 1000),
+      running: state?.running ?? null,
+      globalMise: state?.globalMise?.outcome ?? null,
+    });
     if (reason === null && state?.running === true && Date.now() - started > 35_000) {
       reason = (await callOn(WORKSPACE, { reclaimReason: true })).result;
       // A second Workspace's start at a budget of 1: refused, and the reclaim leaves this one alone.
@@ -486,7 +739,12 @@ const hold = async () => {
     agent: turned,
     node,
     globalMise: state?.globalMise ?? null,
-    ok: (state?.globalMise?.answer?.ms ?? 0) > 60_000 && reason === "in use" && samples.every((sample) => sample.running !== false || sample.s < 10) && state?.globalMise?.outcome === "laid" && node === "v24.11.1",
+    ok:
+      (state?.globalMise?.answer?.ms ?? 0) > 60_000 &&
+      reason === "in use" &&
+      samples.every((sample) => sample.running !== false || sample.s < 10) &&
+      state?.globalMise?.outcome === "laid" &&
+      node === "v24.11.1",
   });
 };
 
@@ -499,15 +757,28 @@ const restart = async () => {
   await stopAll();
   const a = await execOn(WORKSPACE, `cat ${GLOBAL_FILE}; node --version`, 600_000);
   await setMise(second);
-  const b = await execOn(WORKSPACE, `cat ${GLOBAL_FILE}; node --version; echo '# an agent edit' >> ${GLOBAL_FILE}; tail -1 ${GLOBAL_FILE}`, 600_000);
+  const b = await execOn(
+    WORKSPACE,
+    `cat ${GLOBAL_FILE}; node --version; echo '# an agent edit' >> ${GLOBAL_FILE}; tail -1 ${GLOBAL_FILE}`,
+    600_000,
+  );
   const running = await stateOf(WORKSPACE);
   await stopAll();
   const c = await execOn(WORKSPACE, `cat ${GLOBAL_FILE}; node --version`, 600_000);
   const next = await stateOf(WORKSPACE);
   await writeEvidence("restart.json", {
     first: { text: first, file: a.stdout },
-    changedWhileRunning: { text: second, file: b.stdout, launchSha256: running?.launch?.globalMise?.sha256 ?? null, firstSha256: await sha256(first) },
-    nextStart: { file: c.stdout, launchSha256: next?.launch?.globalMise?.sha256 ?? null, secondSha256: await sha256(second) },
+    changedWhileRunning: {
+      text: second,
+      file: b.stdout,
+      launchSha256: running?.launch?.globalMise?.sha256 ?? null,
+      firstSha256: await sha256(first),
+    },
+    nextStart: {
+      file: c.stdout,
+      launchSha256: next?.launch?.globalMise?.sha256 ?? null,
+      secondSha256: await sha256(second),
+    },
     ok:
       a.stdout.includes("v24.11.1") &&
       b.stdout.startsWith(first) &&
@@ -525,10 +796,24 @@ const invalid = async () => {
   const text = "this is = = not toml\n";
   await setMise(text);
   await stopAll();
-  const run = await execOn(WORKSPACE, `git --version; gh --version | head -1; test -f ${GLOBAL_FILE} && echo laid || echo not-laid`);
+  const run = await execOn(
+    WORKSPACE,
+    `git --version; gh --version | head -1; test -f ${GLOBAL_FILE} && echo laid || echo not-laid`,
+  );
   const state = await stateOf(WORKSPACE);
   const shown = await status();
-  await writeEvidence("invalid.json", { text, stdout: run.stdout.trim().split("\n"), globalMise: state?.globalMise ?? null, status: shown, ok: run.stdout.includes("git version") && run.stdout.includes("gh version") && run.stdout.includes("not-laid") && state?.globalMise?.outcome === "not-laid" && String(shown).includes("not laid down") });
+  await writeEvidence("invalid.json", {
+    text,
+    stdout: run.stdout.trim().split("\n"),
+    globalMise: state?.globalMise ?? null,
+    status: shown,
+    ok:
+      run.stdout.includes("git version") &&
+      run.stdout.includes("gh version") &&
+      run.stdout.includes("not-laid") &&
+      state?.globalMise?.outcome === "not-laid" &&
+      String(shown).includes("not laid down"),
+  });
 };
 
 const size = async () => {
@@ -541,11 +826,29 @@ const size = async () => {
   text += "#".repeat(16 * 1024 - new TextEncoder().encode(text).length - 1) + "\n";
   const bytes = new TextEncoder().encode(text).length;
   const saved = await setMise(text);
-  const over = await harness("POST", "/_t3flare/settings/api/environment", { settings: { globalMiseConfig: `${text}#` } });
+  const over = await harness("POST", "/_t3flare/settings/api/environment", {
+    settings: { globalMiseConfig: `${text}#` },
+  });
   await stopAll();
-  const run = await execOn(WORKSPACE, `wc -c < ${GLOBAL_FILE}; sha256sum ${GLOBAL_FILE} | cut -c1-64; node --version`, 600_000);
+  const run = await execOn(
+    WORKSPACE,
+    `wc -c < ${GLOBAL_FILE}; sha256sum ${GLOBAL_FILE} | cut -c1-64; node --version`,
+    600_000,
+  );
   const [readBytes, readSha, node] = run.stdout.trim().split("\n");
-  await writeEvidence("size.json", { bytes, revision: saved.revision, oneByteMore: { status: over.status, answer: over.json }, read: { bytes: Number(readBytes), sha256: readSha, node }, expectedSha256: await sha256(text), ok: bytes === 16 * 1024 && over.status === 400 && Number(readBytes) === bytes && readSha === (await sha256(text)) && node === "v24.11.1" });
+  await writeEvidence("size.json", {
+    bytes,
+    revision: saved.revision,
+    oneByteMore: { status: over.status, answer: over.json },
+    read: { bytes: Number(readBytes), sha256: readSha, node },
+    expectedSha256: await sha256(text),
+    ok:
+      bytes === 16 * 1024 &&
+      over.status === 400 &&
+      Number(readBytes) === bytes &&
+      readSha === (await sha256(text)) &&
+      node === "v24.11.1",
+  });
 };
 
 /** Seconds from a stopped Container to its first command's answer, through the Workspace DO's exec. */
@@ -553,7 +856,11 @@ const startToFirst = async () => {
   await stopAll();
   const started = Date.now();
   const run = await execOn(WORKSPACE, "true", 900_000);
-  return { seconds: (Date.now() - started) / 1000, exitCode: run.exitCode, globalMise: (await stateOf(WORKSPACE))?.globalMise ?? null };
+  return {
+    seconds: (Date.now() - started) / 1000,
+    exitCode: run.exitCode,
+    globalMise: (await stateOf(WORKSPACE))?.globalMise ?? null,
+  };
 };
 
 const cost = async () => {
@@ -563,7 +870,15 @@ const cost = async () => {
   const without = [await startToFirst(), await startToFirst()];
   await setMise(NODE_PIN);
   const withPin = [await startToFirst(), await startToFirst()];
-  await writeEvidence("cost.json", { note: "No install cache: every start installs the owner's tools again.", pin: NODE_PIN, without, withPin, ok: withPin.every((entry) => entry.exitCode === 0 && entry.globalMise?.outcome === "laid") && without.every((entry) => entry.exitCode === 0) });
+  await writeEvidence("cost.json", {
+    note: "No install cache: every start installs the owner's tools again.",
+    pin: NODE_PIN,
+    without,
+    withPin,
+    ok:
+      withPin.every((entry) => entry.exitCode === 0 && entry.globalMise?.outcome === "laid") &&
+      without.every((entry) => entry.exitCode === 0),
+  });
 };
 
 const empty = async () => {
@@ -571,7 +886,10 @@ const empty = async () => {
   await ensureProject(cookie, WORKSPACE);
   await setMise("");
   const starts = [await startToFirst(), await startToFirst()];
-  const run = await execOn(WORKSPACE, `test -e ${GLOBAL_FILE} && echo present || echo absent; ls /var/lib/t3flare/mise 2>/dev/null | wc -l; node --version; git --version`);
+  const run = await execOn(
+    WORKSPACE,
+    `test -e ${GLOBAL_FILE} && echo present || echo absent; ls /var/lib/t3flare/mise 2>/dev/null | wc -l; node --version; git --version`,
+  );
   // A cleared config reports too: Status no longer shows an older start's file.
   const shown = await status();
   await writeEvidence("empty.json", {
@@ -579,7 +897,13 @@ const empty = async () => {
     starts,
     status: shown,
     after: run.stdout.trim().split("\n"),
-    ok: starts.every((entry) => entry.exitCode === 0 && entry.globalMise?.outcome === "none" && entry.globalMise?.answer === undefined) && String(shown).includes("no Global mise config") && run.stdout.startsWith("absent\n0\nv26.13.0"),
+    ok:
+      starts.every(
+        (entry) =>
+          entry.exitCode === 0 && entry.globalMise?.outcome === "none" && entry.globalMise?.answer === undefined,
+      ) &&
+      String(shown).includes("no Global mise config") &&
+      run.stdout.startsWith("absent\n0\nv26.13.0"),
   });
 };
 
@@ -606,7 +930,9 @@ const late = async () => {
     agent: turned,
     ranAfterwards: ran !== null,
     globalMise: (await stateOf(WORKSPACE))?.globalMise ?? null,
-    ok: ran === null && turned.outputs.some((output) => output.includes("the Container was installing the Global mise config")),
+    ok:
+      ran === null &&
+      turned.outputs.some((output) => output.includes("the Container was installing the Global mise config")),
   });
 };
 
@@ -623,7 +949,13 @@ const passiveFirst = async () => {
   await stopAll();
   const started = Date.now();
   // The admin route's exec with \`passive\`: what t3's first status read does when it starts a stopped Container.
-  const read = callOn(WORKSPACE, { exec: { script: `test -f ${GLOBAL_FILE} && echo global-present || echo global-absent; sleep 25; echo read-done`, passive: true, timeoutMs: 180_000 } });
+  const read = callOn(WORKSPACE, {
+    exec: {
+      script: `test -f ${GLOBAL_FILE} && echo global-present || echo global-absent; sleep 25; echo read-done`,
+      passive: true,
+      timeoutMs: 180_000,
+    },
+  });
   // Until the Container runs under the passive read, then the agent's command.
   while (Date.now() - started < 120_000 && (await stateOf(WORKSPACE))?.running !== true) await sleep(1_000);
   const agent = await durableBash(projectId, `node --version > ${OUT_DIR}/node-passive-first.txt 2>&1`);
@@ -632,11 +964,19 @@ const passiveFirst = async () => {
   const state = await stateOf(WORKSPACE);
   await writeEvidence("passive-first.json", {
     pin: NODE_PIN,
-    passiveRead: { stdout: String(readAnswer.result?.stdout ?? "").trim().split("\n"), exitCode: readAnswer.result?.exitCode ?? null },
+    passiveRead: {
+      stdout: String(readAnswer.result?.stdout ?? "")
+        .trim()
+        .split("\n"),
+      exitCode: readAnswer.result?.exitCode ?? null,
+    },
     agent,
     node,
     globalMise: state?.globalMise ?? null,
-    ok: String(readAnswer.result?.stdout ?? "").includes("global-absent") && node === "v24.11.1" && state?.globalMise?.outcome === "laid",
+    ok:
+      String(readAnswer.result?.stdout ?? "").includes("global-absent") &&
+      node === "v24.11.1" &&
+      state?.globalMise?.outcome === "laid",
   });
 };
 
@@ -650,12 +990,20 @@ const passiveSpawn = async () => {
   await setMise(NODE_PIN);
   await stopAll();
   const started = Date.now();
-  const read = callOn(WORKSPACE, { exec: { script: `test -f ${GLOBAL_FILE} && echo global-present || echo global-absent; sleep 25`, passive: true, timeoutMs: 180_000 } });
+  const read = callOn(WORKSPACE, {
+    exec: {
+      script: `test -f ${GLOBAL_FILE} && echo global-present || echo global-absent; sleep 25`,
+      passive: true,
+      timeoutMs: 180_000,
+    },
+  });
   while (Date.now() - started < 120_000 && (await stateOf(WORKSPACE))?.running !== true) await sleep(1_000);
   const before = await stateOf(WORKSPACE);
   const terminal = await attachTerminal(cookie, { threadId: `pmise-${uuid()}`, terminalId: "default", cwd: root });
   await terminal.until(/[$#] $/, 600_000);
-  const typed = await terminal.run("node --version", 120_000).catch((error: unknown) => ({ ms: -1, text: String(error).slice(0, 300) }));
+  const typed = await terminal
+    .run("node --version", 120_000)
+    .catch((error: unknown) => ({ ms: -1, text: String(error).slice(0, 300) }));
   await terminal.close(true).catch(() => undefined);
   await terminal.detach().catch(() => undefined);
   const readAnswer = await read;
@@ -667,11 +1015,30 @@ const passiveSpawn = async () => {
     startedAt: { beforeSpawn: before?.startedAt ?? null, afterSpawn: after?.startedAt ?? null },
     node,
     globalMise: after?.globalMise ?? null,
-    ok: String(readAnswer.result?.stdout ?? "").includes("global-absent") && node === "v24.11.1" && before?.startedAt === after?.startedAt && after?.globalMise?.outcome === "laid",
+    ok:
+      String(readAnswer.result?.stdout ?? "").includes("global-absent") &&
+      node === "v24.11.1" &&
+      before?.startedAt === after?.startedAt &&
+      after?.globalMise?.outcome === "laid",
   });
 };
 
-const commands: Record<string, () => Promise<void>> = { variables, install, override, "git-gh": gitGh, hold, restart, invalid, size, cost, empty, late, "passive-first": passiveFirst, "passive-spawn": passiveSpawn, "opencode-debug": opencodeDebug };
+const commands: Record<string, () => Promise<void>> = {
+  variables,
+  install,
+  override,
+  "git-gh": gitGh,
+  hold,
+  restart,
+  invalid,
+  size,
+  cost,
+  empty,
+  late,
+  "passive-first": passiveFirst,
+  "passive-spawn": passiveSpawn,
+  "opencode-debug": opencodeDebug,
+};
 const command = commands[process.argv[2] ?? ""];
 if (command === undefined) {
   console.error(`usage: pmise.ts ${Object.keys(commands).join(" | ")}`);

@@ -17,23 +17,61 @@ const CHATGPT: ModelEndpoint = {
   baseUrl: "https://api.openai.com/v1",
   auth: "chatgpt",
   headers: {},
-  models: [{ id: "gpt-6.1-sol", name: "GPT-6.1 Sol", reasoning: false, input: ["text"], contextWindow: 400_000, maxTokens: 128_000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, known: false }],
+  models: [
+    {
+      id: "gpt-6.1-sol",
+      name: "GPT-6.1 Sol",
+      reasoning: false,
+      input: ["text"],
+      contextWindow: 400_000,
+      maxTokens: 128_000,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      known: false,
+    },
+  ],
 };
 
 /** A Responses stream that answers `text`. */
 const responsesStream = (text: string): Response => {
-  const response = { id: "resp_1", object: "response", status: "completed", model: "gpt-6.1-sol", output: [], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2, input_tokens_details: { cached_tokens: 0 }, output_tokens_details: { reasoning_tokens: 0 } } };
-  const item = { id: "msg_1", type: "message", role: "assistant", status: "completed", content: [{ type: "output_text", text, annotations: [] }] };
+  const response = {
+    id: "resp_1",
+    object: "response",
+    status: "completed",
+    model: "gpt-6.1-sol",
+    output: [],
+    usage: {
+      input_tokens: 1,
+      output_tokens: 1,
+      total_tokens: 2,
+      input_tokens_details: { cached_tokens: 0 },
+      output_tokens_details: { reasoning_tokens: 0 },
+    },
+  };
+  const item = {
+    id: "msg_1",
+    type: "message",
+    role: "assistant",
+    status: "completed",
+    content: [{ type: "output_text", text, annotations: [] }],
+  };
   const events = [
     { type: "response.created", response: { ...response, status: "in_progress" } },
     { type: "response.output_item.added", output_index: 0, item: { ...item, status: "in_progress", content: [] } },
-    { type: "response.content_part.added", output_index: 0, content_index: 0, item_id: "msg_1", part: { type: "output_text", text: "", annotations: [] } },
+    {
+      type: "response.content_part.added",
+      output_index: 0,
+      content_index: 0,
+      item_id: "msg_1",
+      part: { type: "output_text", text: "", annotations: [] },
+    },
     { type: "response.output_text.delta", output_index: 0, content_index: 0, item_id: "msg_1", delta: text },
     { type: "response.output_text.done", output_index: 0, content_index: 0, item_id: "msg_1", text },
     { type: "response.output_item.done", output_index: 0, item },
     { type: "response.completed", response: { ...response, output: [item] } },
   ];
-  return new Response(events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
+  return new Response(events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), {
+    headers: { "content-type": "text/event-stream" },
+  });
 };
 
 interface Sent {
@@ -43,13 +81,21 @@ interface Sent {
 }
 
 /** A Session's endpoints over a stand-in for the broker: `answer` is what `endpointCredential` gives at each ask. */
-const sessionWith = (answer: (asked: number) => EndpointCredential, reply: (sent: Sent) => Response = () => responsesStream("ok"), endpoint: ModelEndpoint = CHATGPT) => {
+const sessionWith = (
+  answer: (asked: number) => EndpointCredential,
+  reply: (sent: Sent) => Response = () => responsesStream("ok"),
+  endpoint: ModelEndpoint = CHATGPT,
+) => {
   let clock = 1_000_000;
   let asked = 0;
   const sent: Array<Sent> = [];
   const fetcher = (async (input: unknown, init?: RequestInit) => {
     const request = input instanceof Request ? input : new Request(String(input), init);
-    const entry = { url: request.url, authorization: request.headers.get("authorization"), body: JSON.parse(await request.text()) as Record<string, unknown> };
+    const entry = {
+      url: request.url,
+      authorization: request.headers.get("authorization"),
+      body: JSON.parse(await request.text()) as Record<string, unknown>,
+    };
     sent.push(entry);
     return reply(entry);
   }) as typeof fetch;
@@ -71,15 +117,37 @@ const sessionWith = (answer: (asked: number) => EndpointCredential, reply: (sent
     }),
   });
   const request = async (system?: string, extra: { readonly reasoning?: "high"; readonly tools?: boolean } = {}) => {
-    const tools = extra.tools === true ? [{ name: "read", description: "Read a file", parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } }] : undefined;
+    const tools =
+      extra.tools === true
+        ? [
+            {
+              name: "read",
+              description: "Read a file",
+              parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+            },
+          ]
+        : undefined;
     const message = await models.completeSimple(
       models.getModel("chatgpt", endpoint.models[0]!.id)!,
-      { ...(system === undefined ? {} : { systemPrompt: system }), messages: [{ role: "user", content: "hi", timestamp: 0 }], ...(tools === undefined ? {} : { tools: tools as never }) },
+      {
+        ...(system === undefined ? {} : { systemPrompt: system }),
+        messages: [{ role: "user", content: "hi", timestamp: 0 }],
+        ...(tools === undefined ? {} : { tools: tools as never }),
+      },
       { maxTokens: 500, temperature: 0.2, ...(extra.reasoning === undefined ? {} : { reasoning: extra.reasoning }) },
     );
     return message.errorMessage ?? message.content.map((block) => (block.type === "text" ? block.text : "")).join("");
   };
-  return { endpoints, request, sent, map, recorded, asked: () => asked, advance: (ms: number) => void (clock += ms), now: () => clock };
+  return {
+    endpoints,
+    request,
+    sent,
+    map,
+    recorded,
+    asked: () => asked,
+    advance: (ms: number) => void (clock += ms),
+    now: () => clock,
+  };
 };
 
 describe("a Session on a sign-in endpoint", () => {
@@ -98,7 +166,11 @@ describe("a Session on a sign-in endpoint", () => {
 
   it("keeps the token until shortly before it expires, so a long turn's next request takes the refreshed one", async () => {
     // The broker's side: the first token has 4 minutes left; once it is near its end, the broker has refreshed it.
-    const session = sessionWith((asked) => (asked === 1 ? { apiKey: "at-before", expiresAt: 1_000_000 + 4 * 60_000 } : { apiKey: "at-after", expiresAt: 1_000_000 + 64 * 60_000 }));
+    const session = sessionWith((asked) =>
+      asked === 1
+        ? { apiKey: "at-before", expiresAt: 1_000_000 + 4 * 60_000 }
+        : { apiKey: "at-after", expiresAt: 1_000_000 + 64 * 60_000 },
+    );
     await session.endpoints.take();
     await session.request();
     session.advance(60_000);
@@ -108,14 +180,30 @@ describe("a Session on a sign-in endpoint", () => {
     // Two minutes before its expiry (well inside the five a key is kept), the same turn's next request asks again.
     session.advance(90_000);
     await session.request();
-    expect(session.sent.map((entry) => entry.authorization)).toEqual(["Bearer at-before", "Bearer at-before", "Bearer at-after"]);
+    expect(session.sent.map((entry) => entry.authorization)).toEqual([
+      "Bearer at-before",
+      "Bearer at-before",
+      "Bearer at-after",
+    ]);
   });
 
   it("drops the token on a 401, and asks again at the next request", async () => {
     let refuse = true;
     const session = sessionWith(
       (asked) => ({ apiKey: `at-${asked}`, expiresAt: 1_000_000 + 3_600_000 }),
-      () => (refuse ? Response.json({ error: { message: "bad token", type: "invalid_request_error", code: "subscription_sharing_invalid_user" } }, { status: 401 }) : responsesStream("ok")),
+      () =>
+        refuse
+          ? Response.json(
+              {
+                error: {
+                  message: "bad token",
+                  type: "invalid_request_error",
+                  code: "subscription_sharing_invalid_user",
+                },
+              },
+              { status: 401 },
+            )
+          : responsesStream("ok"),
     );
     await session.endpoints.take();
     await session.request();
@@ -134,17 +222,37 @@ describe("a Session on a sign-in endpoint", () => {
   });
 
   it("fails a turn on a signed-out endpoint naming the sign-in, and stores no token", async () => {
-    const session = sessionWith(() => ({ apiKey: null, signedOut: true, problem: "ChatGPT refused to renew the sign-in (invalid_grant): it is signed out" }));
+    const session = sessionWith(() => ({
+      apiKey: null,
+      signedOut: true,
+      problem: "ChatGPT refused to renew the sign-in (invalid_grant): it is signed out",
+    }));
     await session.endpoints.take();
     const error = await session.request();
-    expect(error).toMatch(/The Model endpoint "chatgpt" is not signed in to ChatGPT \(ChatGPT refused to renew the sign-in \(invalid_grant\): it is signed out\): sign in with ChatGPT again on the Settings page\./);
+    expect(error).toMatch(
+      /The Model endpoint "chatgpt" is not signed in to ChatGPT \(ChatGPT refused to renew the sign-in \(invalid_grant\): it is signed out\): sign in with ChatGPT again on the Settings page\./,
+    );
     expect(session.sent).toEqual([]);
-    const transient = sessionWith(() => ({ apiKey: null, problem: "its ChatGPT sign-in could not be renewed yet: retry the turn" }));
+    const transient = sessionWith(() => ({
+      apiKey: null,
+      problem: "its ChatGPT sign-in could not be renewed yet: retry the turn",
+    }));
     await transient.endpoints.take();
-    expect(await transient.request()).toMatch(/The Model endpoint "chatgpt" could not get a ChatGPT token \(its ChatGPT sign-in could not be renewed yet: retry the turn\)/);
+    expect(await transient.request()).toMatch(
+      /The Model endpoint "chatgpt" could not get a ChatGPT token \(its ChatGPT sign-in could not be renewed yet: retry the turn\)/,
+    );
     // Each failure is recorded typed for the differ, and cleared once a request gets a token again.
-    expect(session.recorded).toEqual([{ endpointId: "chatgpt", kind: "signed_out", message: expect.stringMatching(/is not signed in to ChatGPT/), retryable: false }]);
-    expect(transient.recorded).toEqual([{ endpointId: "chatgpt", kind: "unavailable", message: expect.stringMatching(/retry the turn/), retryable: true }]);
+    expect(session.recorded).toEqual([
+      {
+        endpointId: "chatgpt",
+        kind: "signed_out",
+        message: expect.stringMatching(/is not signed in to ChatGPT/),
+        retryable: false,
+      },
+    ]);
+    expect(transient.recorded).toEqual([
+      { endpointId: "chatgpt", kind: "unavailable", message: expect.stringMatching(/retry the turn/), retryable: true },
+    ]);
   });
 
   it("keeps no token in its storage", async () => {
@@ -163,8 +271,24 @@ describe("a Session on a sign-in endpoint", () => {
           ...CHATGPT.models[0]!,
           reasoning: true,
           known: true,
-          thinkingLevelMap: { off: null, minimal: null, low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" },
-          compat: { supportsStrictMode: true, supportsOpenAIGrammarTools: true, supportsAdditionalTools: true, supportsToolSearch: true, supportsMidConvoSystemMessages: true, supportsExplicitPromptCacheMode: true, supportsMidConvoEffort: true },
+          thinkingLevelMap: {
+            off: null,
+            minimal: null,
+            low: "low",
+            medium: "medium",
+            high: "high",
+            xhigh: "xhigh",
+            max: "max",
+          },
+          compat: {
+            supportsStrictMode: true,
+            supportsOpenAIGrammarTools: true,
+            supportsAdditionalTools: true,
+            supportsToolSearch: true,
+            supportsMidConvoSystemMessages: true,
+            supportsExplicitPromptCacheMode: true,
+            supportsMidConvoEffort: true,
+          },
         },
       ],
     };

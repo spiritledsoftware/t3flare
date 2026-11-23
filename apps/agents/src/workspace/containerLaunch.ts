@@ -113,7 +113,10 @@ export interface ContainerLaunch {
 }
 
 /** `launch` with the Global mise config and the Container setup of `taken` (their digests are async, so apart from `launchOf`). */
-export const withContainerSteps = async (launch: ContainerLaunch, { settings, source }: TakenEnvironment): Promise<ContainerLaunch> => ({
+export const withContainerSteps = async (
+  launch: ContainerLaunch,
+  { settings, source }: TakenEnvironment,
+): Promise<ContainerLaunch> => ({
   ...launch,
   globalMise: {
     text: settings.globalMiseConfig,
@@ -150,10 +153,18 @@ export const secretValuesOf = (launch: ContainerLaunch | undefined): ReadonlyArr
  */
 export const shownLaunch = (
   launch: ContainerLaunch,
-): Omit<ContainerLaunch, "globalMise" | "containerSetup"> & { readonly globalMise?: Omit<GlobalMiseLaunch, "text">; readonly containerSetup?: Omit<ContainerSetupLaunch, "text"> } => {
+): Omit<ContainerLaunch, "globalMise" | "containerSetup"> & {
+  readonly globalMise?: Omit<GlobalMiseLaunch, "text">;
+  readonly containerSetup?: Omit<ContainerSetupLaunch, "text">;
+} => {
   const { globalMise, containerSetup, ...rest } = launch;
   const secrets = new Set(launch.secretVariables ?? []);
-  const variables = rest.variables === undefined || secrets.size === 0 ? rest.variables : Object.fromEntries(Object.entries(rest.variables).map(([name, value]) => [name, secrets.has(name) ? SECRET_SHOWN : value]));
+  const variables =
+    rest.variables === undefined || secrets.size === 0
+      ? rest.variables
+      : Object.fromEntries(
+          Object.entries(rest.variables).map(([name, value]) => [name, secrets.has(name) ? SECRET_SHOWN : value]),
+        );
   const digestOnly = <T extends { readonly text: string }>(script: T): Omit<T, "text"> => {
     const { text: _text, ...digest } = script;
     return digest;
@@ -174,6 +185,8 @@ export const launchOf = ({ settings, source }: TakenEnvironment): ContainerLaunc
   ...(source === "environment" ? { budget: settings.containerBudget } : {}),
   revision: settings.revision,
   variables: variableEnv(settings.variables),
-  ...(settings.variables.some((variable) => variable.secret) ? { secretVariables: settings.variables.filter((variable) => variable.secret).map((variable) => variable.name) } : {}),
+  ...(settings.variables.some((variable) => variable.secret)
+    ? { secretVariables: settings.variables.filter((variable) => variable.secret).map((variable) => variable.name) }
+    : {}),
   terminalsReadBashrc: settings.terminalsReadBashrc,
 });

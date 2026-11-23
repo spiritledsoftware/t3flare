@@ -35,10 +35,11 @@ const percentile = (values: ReadonlyArray<number>, p: number) => {
 
 const workspaceCall = (id: string, body: unknown) => admin("POST", `/_t3flare/agents/workspace-call?id=${id}`, body);
 const ps = async (id: string, pattern: string) => {
-  const result = await workspaceCall(id, { exec: { script: `grep -l -a ${pattern} /proc/[0-9]*/environ 2>/dev/null | wc -l`, passive: true } });
+  const result = await workspaceCall(id, {
+    exec: { script: `grep -l -a ${pattern} /proc/[0-9]*/environ 2>/dev/null | wc -l`, passive: true },
+  });
   return Number(String(result.json?.result?.stdout ?? "").trim());
 };
-
 
 const cookie = await pair();
 
@@ -52,7 +53,9 @@ if (scenario === "noproject") {
   report.shown = stripAnsi(terminal.output()).trim().slice(-400);
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline && !terminal.events.some((e) => e.event.type === "exited")) await sleep(50);
-  report.events = terminal.events.map((e) => (e.event.type === "snapshot" ? `snapshot:${e.event.snapshot?.status}` : e.event.type));
+  report.events = terminal.events.map((e) =>
+    e.event.type === "snapshot" ? `snapshot:${e.event.snapshot?.status}` : e.event.type,
+  );
   check("the reason shown within 5 s", shown !== null && (report.shownMs as number) < 5000, report);
   check("terminal exited", (report.events as Array<string>).includes("exited"), report.events);
   await terminal.close(true).catch(() => undefined);
@@ -67,9 +70,10 @@ let id = arg("workspace");
 if (id === undefined) {
   id = `term-${Date.now().toString(36)}`;
   const started = Date.now();
-  const cloned = (await wsCall(cookie, "sourceControl.cloneRepository", { remoteUrl: `https://github.com/${FIXTURE}.git`, destinationPath: `/w/${id}` }).catch(
-    (error: unknown) => ({ error: String(error).slice(0, 500) }),
-  )) as { cwd?: string; error?: string };
+  const cloned = (await wsCall(cookie, "sourceControl.cloneRepository", {
+    remoteUrl: `https://github.com/${FIXTURE}.git`,
+    destinationPath: `/w/${id}`,
+  }).catch((error: unknown) => ({ error: String(error).slice(0, 500) }))) as { cwd?: string; error?: string };
   report.clone = { id, ms: Date.now() - started, error: cloned.error ?? null };
   if (!check("clone", cloned.cwd === `/w/${id}`, report.clone)) {
     console.log(JSON.stringify({ ...report, failures }, null, 2));
@@ -83,12 +87,18 @@ if (scenario === "basic") {
   await admin("POST", `/_t3flare/agents/workspace-stop?id=${id}`);
   report.containerBefore = (await workspaceCall(id, { killExecs: [] })).json?.container ?? null;
   const opened = Date.now();
-  const terminal = await attachTerminal(cookie, { threadId, terminalId: "default", cwd: `/w/${id}`, cols: 100, rows: 30 });
+  const terminal = await attachTerminal(cookie, {
+    threadId,
+    terminalId: "default",
+    cwd: `/w/${id}`,
+    cols: 100,
+    rows: 30,
+  });
   const status = await terminal.until(/Starting the Workspace's Container/, 30_000).catch(() => null);
   report.statusLineMs = status === null ? null : Date.now() - opened;
   const prompt = await terminal.until(/[$#] $/, 90_000);
   report.promptMs = Date.now() - opened;
-  check("prompt within 40 s", report.promptMs as number < 40_000, report.promptMs);
+  check("prompt within 40 s", (report.promptMs as number) < 40_000, report.promptMs);
   const pwd = await terminal.run("pwd");
   report.pwd = pwd.text.split("\n").find((line) => line.startsWith("/w/")) ?? pwd.text;
   check("pwd is /w/<id>", report.pwd === `/w/${id}`, pwd.text);
@@ -115,7 +125,11 @@ if (scenario === "basic") {
 
   // Throughput: 5 MiB of base64.
   const flood = await terminal.run("head -c 3932160 /dev/zero | base64 -w 160", 180_000);
-  report.throughput = { bytes: 5 * 1024 * 1024, ms: flood.ms, mibPerSecond: Number(((5 * 1000) / flood.ms).toFixed(2)) };
+  report.throughput = {
+    bytes: 5 * 1024 * 1024,
+    ms: flood.ms,
+    mibPerSecond: Number(((5 * 1000) / flood.ms).toFixed(2)),
+  };
 
   // Ctrl-C reaches the foreground job.
   await terminal.write("sleep 30\r");
@@ -165,8 +179,16 @@ if (scenario === "basic") {
     .filter((name): name is string => name !== undefined)
     .toSorted();
   report.leak = leak.json;
-  check("no binding value in the terminal's env", Array.isArray(leak.json?.leaked) && leak.json.leaked.length === 0 && leak.json.checked.length > 0, leak.json);
-  check("process.env empty in the Environment DO", Array.isArray(leak.json?.processEnvKeys) && leak.json.processEnvKeys.length === 0, leak.json?.processEnvKeys);
+  check(
+    "no binding value in the terminal's env",
+    Array.isArray(leak.json?.leaked) && leak.json.leaked.length === 0 && leak.json.checked.length > 0,
+    leak.json,
+  );
+  check(
+    "process.env empty in the Environment DO",
+    Array.isArray(leak.json?.processEnvKeys) && leak.json.processEnvKeys.length === 0,
+    leak.json?.processEnvKeys,
+  );
 
   // Close: no marked process left.
   await terminal.run("sleep 600 & :");
@@ -193,7 +215,12 @@ if (scenario === "settle") {
   // closeIdle is not a client RPC; t3 runs it on settle. The admin route asks t3's TerminalManager directly.
   report.closeIdleBusy = (await admin("POST", `/_t3flare/check/terminal-close-idle?thread=${threadId}`)).json;
   await sleep(1000);
-  report.aliveAfterBusyCloseIdle = !/exited|closed/.test(terminal.events.slice(-5).map((e) => e.event.type).join(","));
+  report.aliveAfterBusyCloseIdle = !/exited|closed/.test(
+    terminal.events
+      .slice(-5)
+      .map((e) => e.event.type)
+      .join(","),
+  );
   check("busy terminal kept", report.aliveAfterBusyCloseIdle === true, terminal.events.slice(-5));
   await terminal.until(/SLE1PT/, 60_000);
   await terminal.until(/[$#] $/, 10_000, terminal.output().lastIndexOf("SLE1PT"));
@@ -201,7 +228,11 @@ if (scenario === "settle") {
   report.closeIdleIdle = (await admin("POST", `/_t3flare/check/terminal-close-idle?thread=${threadId}`)).json;
   await sleep(2000);
   report.lastEvents = terminal.events.slice(-3).map((e) => e.event.type);
-  check("idle terminal closed", (report.lastEvents as Array<string>).some((type) => type === "closed" || type === "exited"), report.lastEvents);
+  check(
+    "idle terminal closed",
+    (report.lastEvents as Array<string>).some((type) => type === "closed" || type === "exited"),
+    report.lastEvents,
+  );
   await terminal.detach();
 }
 
@@ -235,7 +266,8 @@ if (scenario === "restart") {
   await again.detach();
 }
 
-const containerOf = async (id: string) => (await workspaceCall(id, { killExecs: [] })).json?.container as { running: boolean } | undefined;
+const containerOf = async (id: string) =>
+  (await workspaceCall(id, { killExecs: [] })).json?.container as { running: boolean } | undefined;
 
 if (scenario === "clients-gone") {
   // D1: terminals end with their Environment; then the Container stops.
@@ -265,7 +297,11 @@ if (scenario === "clients-gone") {
   report.containerStoppedMs = containerStoppedMs;
   report.environment = (await admin("GET", "/_t3flare/health")).json?.runtime ?? null;
   check("shells gone within 4 min", shellsGoneMs !== null && shellsGoneMs < 4 * 60_000, shellsGoneMs);
-  check("Container stopped within 7 min", containerStoppedMs !== null && containerStoppedMs < 7 * 60_000, containerStoppedMs);
+  check(
+    "Container stopped within 7 min",
+    containerStoppedMs !== null && containerStoppedMs < 7 * 60_000,
+    containerStoppedMs,
+  );
 }
 
 if (scenario === "idle-hold") {
@@ -300,10 +336,16 @@ if (scenario === "budget") {
   // With 3 Containers held (scratch Workspace DOs outside the registry), a terminal shows the budget's refusal.
   await admin("POST", `/_t3flare/agents/workspace-stop?id=${id}`);
   const holders = ["budget-a", "budget-b", "budget-c"];
-  for (const holder of holders) report[holder] = (await workspaceCall(holder, { exec: { script: "echo started" } })).json?.container ?? null;
+  for (const holder of holders)
+    report[holder] = (await workspaceCall(holder, { exec: { script: "echo started" } })).json?.container ?? null;
   const terminal = await attachTerminal(cookie, { threadId, terminalId: "default", cwd: `/w/${id}` });
-  const refused = await terminal.until(/cannot start|budget|Containers/i, 60_000).catch((error: unknown) => ({ ms: -1, text: String(error) }));
-  report.refusal = refused.text.split("\n").filter((line) => /t3flare/.test(line)).slice(-2);
+  const refused = await terminal
+    .until(/cannot start|budget|Containers/i, 60_000)
+    .catch((error: unknown) => ({ ms: -1, text: String(error) }));
+  report.refusal = refused.text
+    .split("\n")
+    .filter((line) => /t3flare/.test(line))
+    .slice(-2);
   await sleep(1000);
   report.exitedShown = terminal.events.some((e) => e.event.type === "exited");
   check("refusal shown", refused.ms >= 0, refused.text.slice(-300));
@@ -317,10 +359,16 @@ if (scenario === "push") {
   const terminal = await attachTerminal(cookie, { threadId, terminalId: "default", cwd: `/w/${id}` });
   await terminal.until(/[$#] $/, 90_000);
   const branch = `t3flare-terminal-${Date.now()}`;
-  const pushed = await terminal.run(`git push origin HEAD:refs/heads/${branch} 2>&1 | tail -3; echo "exit=\${PIPESTATUS[0]}"`, 120_000);
+  const pushed = await terminal.run(
+    `git push origin HEAD:refs/heads/${branch} 2>&1 | tail -3; echo "exit=\${PIPESTATUS[0]}"`,
+    120_000,
+  );
   report.push = pushed.text.split("\n").slice(-6);
   check("push", /exit=0/.test(pushed.text), pushed.text.slice(-400));
-  const deleted = await terminal.run(`git push origin --delete ${branch} 2>&1 | tail -2; echo "exit=\${PIPESTATUS[0]}"`, 120_000);
+  const deleted = await terminal.run(
+    `git push origin --delete ${branch} 2>&1 | tail -2; echo "exit=\${PIPESTATUS[0]}"`,
+    120_000,
+  );
   report.delete = deleted.text.split("\n").slice(-4);
   check("branch deleted", /exit=0/.test(deleted.text), deleted.text.slice(-300));
   await terminal.close();

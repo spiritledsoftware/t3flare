@@ -80,7 +80,9 @@ const jsonSegment = (segment: string): Record<string, unknown> | undefined => {
   if (bytes === undefined) return undefined;
   try {
     const value: unknown = JSON.parse(decoder.decode(bytes));
-    return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+    return value !== null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : undefined;
   } catch {
     return undefined;
   }
@@ -123,7 +125,8 @@ export const classifyAssertion = async (
   if (claims === undefined) return refuse("malformed");
   if (claims.iss !== `https://${config.teamDomain}`) return refuse("wrong_issuer");
   if (typeof claims.exp !== "number" || claims.exp <= nowSeconds) return refuse("expired");
-  if (typeof claims.nbf === "number" && claims.nbf > nowSeconds + NOT_BEFORE_LEEWAY_SECONDS) return refuse("not_yet_valid");
+  if (typeof claims.nbf === "number" && claims.nbf > nowSeconds + NOT_BEFORE_LEEWAY_SECONDS)
+    return refuse("not_yet_valid");
   const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
   if (!audiences.includes(config.audience)) return refuse("wrong_audience");
 
@@ -147,11 +150,18 @@ const importTeamKeys = async (body: string): Promise<Map<string, TeamKey>> => {
   const parsed = JSON.parse(body) as { keys?: Array<Record<string, unknown>> };
   const keys = new Map<string, TeamKey>();
   for (const jwk of parsed.keys ?? []) {
-    if (jwk.kty !== "RSA" || typeof jwk.kid !== "string" || typeof jwk.n !== "string" || typeof jwk.e !== "string") continue;
+    if (jwk.kty !== "RSA" || typeof jwk.kid !== "string" || typeof jwk.n !== "string" || typeof jwk.e !== "string")
+      continue;
     try {
       keys.set(
         jwk.kid,
-        await crypto.subtle.importKey("jwk", { kty: "RSA", n: jwk.n, e: jwk.e, alg: "RS256", ext: true }, KEY_ALGORITHM, false, ["verify"]),
+        await crypto.subtle.importKey(
+          "jwk",
+          { kty: "RSA", n: jwk.n, e: jwk.e, alg: "RS256", ext: true },
+          KEY_ALGORITHM,
+          false,
+          ["verify"],
+        ),
       );
     } catch {
       // A key that cannot be imported finds nothing; the others still do.
@@ -234,10 +244,17 @@ export const verifyHarnessRequest = async (
  * guards refuse a browser), or the stage's service token with the admin token. An assertion for the panel's application
  * is refused here, as this application's is at the panel. Never throws.
  */
-export const verifySettingsRequest = async (request: Request, config: GuardConfig, keys: TeamKeyLookup, nowSeconds: number = Math.floor(Date.now() / 1000)): Promise<Verdict> => {
+export const verifySettingsRequest = async (
+  request: Request,
+  config: GuardConfig,
+  keys: TeamKeyLookup,
+  nowSeconds: number = Math.floor(Date.now() / 1000),
+): Promise<Verdict> => {
   const verdict = await verifyHarnessRequest(request, config, keys, nowSeconds);
   // The `sub` keys the caps and decides who may answer the caller's Open changes: an empty one is refused, never shared.
-  return verdict.admitted && verdict.caller.kind === "owner" && (verdict.caller.subject ?? "") === "" ? refuse("malformed") : verdict;
+  return verdict.admitted && verdict.caller.kind === "owner" && (verdict.caller.subject ?? "") === ""
+    ? refuse("malformed")
+    : verdict;
 };
 
 /** The whole admin check: the Access assertion, then the admin token. Never throws. */

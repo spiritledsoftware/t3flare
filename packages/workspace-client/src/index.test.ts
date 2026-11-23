@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { fromWorkspace, fromWorkspaceText, isAnyWorkspaceId, isUnderW, isWorkspaceId, isWorktreeId, toWorkspace, worktreeDirOf } from "./index.ts";
+import {
+  fromWorkspace,
+  fromWorkspaceText,
+  isAnyWorkspaceId,
+  isUnderW,
+  isWorkspaceId,
+  isWorktreeId,
+  toWorkspace,
+  worktreeDirOf,
+} from "./index.ts";
 
 describe("path translation", () => {
   it("maps /w/<id>/… to the repo inside the Workspace and back", () => {

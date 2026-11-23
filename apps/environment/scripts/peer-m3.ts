@@ -33,9 +33,16 @@ const fixture = await ensureCloudFixtureProject(cookie);
 const out: Record<string, unknown> = {};
 
 const questionOf = (p: any) => pendingOf(p).find((request: any) => request.kind === "user_input");
-const questionItem = (p: any, request: any) => (p?.turnItems ?? []).find((item: any) => item.type === "user_input_request" && item.requestId === request.id);
+const questionItem = (p: any, request: any) =>
+  (p?.turnItems ?? []).find((item: any) => item.type === "user_input_request" && item.requestId === request.id);
 const answerAsOwner = (threadId: string, request: any, value: string) =>
-  dispatch(cookie, { type: "runtime-request.respond", commandId: uuid(), threadId, requestId: request.id, answers: { [questionItem(lastSeen.get(threadId), request)?.questions?.[0]?.id ?? ""]: value } });
+  dispatch(cookie, {
+    type: "runtime-request.respond",
+    commandId: uuid(),
+    threadId,
+    requestId: request.id,
+    answers: { [questionItem(lastSeen.get(threadId), request)?.questions?.[0]?.id ?? ""]: value },
+  });
 const lastSeen = new Map<string, any>();
 const waitQuestion = async (threadId: string) => {
   const p = await until(cookie, threadId, (q) => questionOf(q) !== undefined || settled(q));
@@ -50,28 +57,63 @@ if (wants("question")) {
   await say(cookie, threadId, ASK(`q-${stamp}`));
   const { p, request } = await waitQuestion(threadId);
   const item = request === undefined ? undefined : questionItem(p, request);
-  out.question = { threadId, request: request === undefined ? null : { kind: request.kind, capability: request.responseCapability?.type }, item: item?.questions ?? null };
-  if (check("question: the thread's question is a user_input request with its choices", item?.questions?.[0]?.options?.length === 2, out.question)) {
+  out.question = {
+    threadId,
+    request: request === undefined ? null : { kind: request.kind, capability: request.responseCapability?.type },
+    item: item?.questions ?? null,
+  };
+  if (
+    check(
+      "question: the thread's question is a user_input request with its choices",
+      item?.questions?.[0]?.options?.length === 2,
+      out.question,
+    )
+  ) {
     await answerAsOwner(threadId, request, "blue");
     const done = await until(cookie, threadId, settled);
     (out.question as Record<string, unknown>).reply = replyOf(done).slice(-200);
-    check("question: the answer reaches the agent", /blue/i.test(replyOf(done)) && done?.runs?.at(-1)?.status === "completed", out.question);
+    check(
+      "question: the answer reaches the agent",
+      /blue/i.test(replyOf(done)) && done?.runs?.at(-1)?.status === "completed",
+      out.question,
+    );
   }
 }
 
 if (wants("question-mcp")) {
-  const link = await signIn((await mintPairingCode(cookie, { label: `m3 ${stamp}` })).code, "auto-accept-edits", { clientName: `m3 link ${stamp}` });
+  const link = await signIn((await mintPairingCode(cookie, { label: `m3 ${stamp}` })).code, "auto-accept-edits", {
+    clientName: `m3 link ${stamp}`,
+  });
   const mcp = new McpClient(link.token, { modeLimit: "auto-accept-edits/default" });
-  const launched = await mcp.call("t3_thread_launch", { projectId: fixture.projectId, title: `m3 linked question ${stamp}`, modelSelection: MODEL, clientRequestId: `m3-q-${stamp}`, message: ASK(`m-${stamp}`) });
+  const launched = await mcp.call("t3_thread_launch", {
+    projectId: fixture.projectId,
+    title: `m3 linked question ${stamp}`,
+    modelSelection: MODEL,
+    clientRequestId: `m3-q-${stamp}`,
+    message: ASK(`m-${stamp}`),
+  });
   const threadId: string | undefined = launched.json?.threadId;
   if (check("question-mcp: launch", threadId !== undefined, launched.text.slice(0, 300))) {
     const { request } = await waitQuestion(threadId!);
     const listed = await mcp.call("t3_pending_request", { action: "list", threadId });
     const questionId = questionItem(lastSeen.get(threadId!), request)?.questions?.[0]?.id;
-    const responded = await mcp.call("t3_pending_request", { action: "respond", threadId, requestId: request?.id, answers: { [questionId]: "red" } });
+    const responded = await mcp.call("t3_pending_request", {
+      action: "respond",
+      threadId,
+      requestId: request?.id,
+      answers: { [questionId]: "red" },
+    });
     const done = await until(cookie, threadId!, settled);
-    out.questionMcp = { listed: listed.text.slice(0, 300), responded: { isError: responded.isError, text: responded.text.slice(0, 300) }, reply: replyOf(done).slice(-200) };
-    check("question-mcp: the link's MCP client answers the question with t3_pending_request", !responded.isError && /red/i.test(replyOf(done)), out.questionMcp);
+    out.questionMcp = {
+      listed: listed.text.slice(0, 300),
+      responded: { isError: responded.isError, text: responded.text.slice(0, 300) },
+      reply: replyOf(done).slice(-200),
+    };
+    check(
+      "question-mcp: the link's MCP client answers the question with t3_pending_request",
+      !responded.isError && /red/i.test(replyOf(done)),
+      out.questionMcp,
+    );
   }
 }
 
@@ -89,8 +131,18 @@ if (wants("restart")) {
     const still = questionOf(await projection(cookie, threadId));
     await answerAsOwner(threadId, request, "blue");
     const done = await until(cookie, threadId, settled);
-    out.restart = { constructedBefore: before?.constructed ?? null, constructedAfter: after?.constructed ?? null, stillPending: still?.id === request.id, reply: replyOf(done).slice(-200), runs: done?.runs?.map((r: any) => r.status) };
-    check("restart: after Session restarts the same question still waits and its answer arrives", still?.id === request.id && /blue/i.test(replyOf(done)), out.restart);
+    out.restart = {
+      constructedBefore: before?.constructed ?? null,
+      constructedAfter: after?.constructed ?? null,
+      stillPending: still?.id === request.id,
+      reply: replyOf(done).slice(-200),
+      runs: done?.runs?.map((r: any) => r.status),
+    };
+    check(
+      "restart: after Session restarts the same question still waits and its answer arrives",
+      still?.id === request.id && /blue/i.test(replyOf(done)),
+      out.restart,
+    );
   }
 }
 
@@ -101,10 +153,23 @@ if (wants("env-restart")) {
   if (check("env-restart: the question waits", request !== undefined)) {
     await admin("POST", "/_t3flare/restart");
     await sleep(8000);
-    const p = await until(cookie, threadId, (q) => q?.runtimeRequests?.some((r: any) => r.id === request.id && r.responseCapability?.type !== "live"), 60_000);
+    const p = await until(
+      cookie,
+      threadId,
+      (q) => q?.runtimeRequests?.some((r: any) => r.id === request.id && r.responseCapability?.type !== "live"),
+      60_000,
+    );
     const same = p?.runtimeRequests?.find((r: any) => r.id === request.id);
-    const pending = pendingOf(p).map((r: any) => ({ id: r.id === request.id ? "same" : "new", kind: r.kind, capability: r.responseCapability?.type }));
-    out.envRestart = { original: same === undefined ? null : { status: same.status, capability: same.responseCapability }, pending, runs: p?.runs?.map((r: any) => r.status) };
+    const pending = pendingOf(p).map((r: any) => ({
+      id: r.id === request.id ? "same" : "new",
+      kind: r.kind,
+      capability: r.responseCapability?.type,
+    }));
+    out.envRestart = {
+      original: same === undefined ? null : { status: same.status, capability: same.responseCapability },
+      pending,
+      runs: p?.runs?.map((r: any) => r.status),
+    };
     // Answer whatever question is pending now, and see where the answer goes.
     const now = questionOf(p);
     if (now !== undefined) {
@@ -112,14 +177,24 @@ if (wants("env-restart")) {
       await answerAsOwner(threadId, now, "blue");
     }
     const done = await until(cookie, threadId, (q) => settled(q) && pendingOf(q).length === 0, 240_000);
-    (out.envRestart as Record<string, unknown>).after = { runs: done?.runs?.map((r: any) => r.status), reply: replyOf(done).slice(-300), pending: pendingOf(done).length };
-    check("env-restart: the question survives an Environment restart and its answer reaches the agent", /blue/i.test(replyOf(done)), out.envRestart);
+    (out.envRestart as Record<string, unknown>).after = {
+      runs: done?.runs?.map((r: any) => r.status),
+      reply: replyOf(done).slice(-300),
+      pending: pendingOf(done).length,
+    };
+    check(
+      "env-restart: the question survives an Environment restart and its answer reaches the agent",
+      /blue/i.test(replyOf(done)),
+      out.envRestart,
+    );
   }
 }
 
 if (wants("env-restart-delegated")) {
   // Review C2: a thread delegated from another environment (`delegatedFrom`), its question cut by an Environment restart.
-  const link = await signIn((await mintPairingCode(cookie, { label: `m3 c2 ${stamp}` })).code, "auto-accept-edits", { clientName: `m3 c2 link ${stamp}` });
+  const link = await signIn((await mintPairingCode(cookie, { label: `m3 c2 ${stamp}` })).code, "auto-accept-edits", {
+    clientName: `m3 c2 link ${stamp}`,
+  });
   const mcp = new McpClient(link.token, { modeLimit: "auto-accept-edits/default" });
   const launched = await mcp.call("t3_thread_launch", {
     projectId: fixture.projectId,
@@ -127,48 +202,109 @@ if (wants("env-restart-delegated")) {
     modelSelection: MODEL,
     clientRequestId: `m3-c2-${stamp}`,
     message: ASK(`d-${stamp}`),
-    delegatedFrom: { environmentId: "00000000-0000-4000-8000-000000000002", threadId: `laptop-c2-${stamp}`, title: "laptop parent" },
+    delegatedFrom: {
+      environmentId: "00000000-0000-4000-8000-000000000002",
+      threadId: `laptop-c2-${stamp}`,
+      title: "laptop parent",
+    },
   });
   const threadId: string | undefined = launched.json?.threadId;
   const runId: string | undefined = launched.json?.runId;
-  if (check("env-restart-delegated: launch", threadId !== undefined && runId !== undefined, launched.text.slice(0, 300))) {
+  if (
+    check("env-restart-delegated: launch", threadId !== undefined && runId !== undefined, launched.text.slice(0, 300))
+  ) {
     const { request } = await waitQuestion(threadId!);
     if (check("env-restart-delegated: the question waits", request !== undefined)) {
       await admin("POST", "/_t3flare/restart");
       await sleep(5000);
       // What the laptop's follower asks (RemoteDelegation.followOnce): has the task's run settled, with its delegated work?
-      const early = await mcp.call("t3_thread_wait", { threadId, runId, untilDelegatedWorkSettled: true, timeoutMs: 5_000 });
-      const p = await until(cookie, threadId!, (q) => questionOf(q) !== undefined && questionOf(q).id !== request.id, 180_000);
+      const early = await mcp.call("t3_thread_wait", {
+        threadId,
+        runId,
+        untilDelegatedWorkSettled: true,
+        timeoutMs: 5_000,
+      });
+      const p = await until(
+        cookie,
+        threadId!,
+        (q) => questionOf(q) !== undefined && questionOf(q).id !== request.id,
+        180_000,
+      );
       const original = p?.runtimeRequests?.find((r: any) => r.id === request.id);
       const again = questionOf(p);
       lastSeen.set(threadId!, p);
       out.envRestartDelegated = {
-        followerAfterRestart: { timedOut: early.json?.timedOut ?? null, status: early.json?.status ?? null, run: early.json?.runId ?? null },
-        original: original === undefined ? null : { status: original.status, capability: original.responseCapability?.type },
-        raisedAgain: again === undefined ? null : { question: questionItem(p, again)?.questions?.[0]?.question ?? null, capability: again.responseCapability?.type },
-        runs: p?.runs?.map((r: any) => ({ status: r.status, continuationOf: r.restartContinuationOfRunId === undefined ? null : r.restartContinuationOfRunId === runId ? "the cut run" : "other" })),
+        followerAfterRestart: {
+          timedOut: early.json?.timedOut ?? null,
+          status: early.json?.status ?? null,
+          run: early.json?.runId ?? null,
+        },
+        original:
+          original === undefined ? null : { status: original.status, capability: original.responseCapability?.type },
+        raisedAgain:
+          again === undefined
+            ? null
+            : {
+                question: questionItem(p, again)?.questions?.[0]?.question ?? null,
+                capability: again.responseCapability?.type,
+              },
+        runs: p?.runs?.map((r: any) => ({
+          status: r.status,
+          continuationOf:
+            r.restartContinuationOfRunId === undefined
+              ? null
+              : r.restartContinuationOfRunId === runId
+                ? "the cut run"
+                : "other",
+        })),
       };
-      check("env-restart-delegated: the follower does not read the cut run as the task's end", early.json?.timedOut === true, out.envRestartDelegated);
-      check("env-restart-delegated: the question is raised again in a continuation of the cut run", again !== undefined && (p?.runs ?? []).some((r: any) => r.restartContinuationOfRunId === runId), out.envRestartDelegated);
-      check("env-restart-delegated: the stale request is closed", original?.status !== "pending", out.envRestartDelegated);
+      check(
+        "env-restart-delegated: the follower does not read the cut run as the task's end",
+        early.json?.timedOut === true,
+        out.envRestartDelegated,
+      );
+      check(
+        "env-restart-delegated: the question is raised again in a continuation of the cut run",
+        again !== undefined && (p?.runs ?? []).some((r: any) => r.restartContinuationOfRunId === runId),
+        out.envRestartDelegated,
+      );
+      check(
+        "env-restart-delegated: the stale request is closed",
+        original?.status !== "pending",
+        out.envRestartDelegated,
+      );
       if (again !== undefined) {
         await answerAsOwner(threadId!, again, "blue");
         const { answer } = await mcp.waitThread({ threadId, runId, untilDelegatedWorkSettled: true }, 4 * 60_000);
         const read = await mcp.call("t3_thread_read", { threadId });
-        (out.envRestartDelegated as Record<string, unknown>).final = { status: answer.json?.status ?? null, resultRun: answer.json?.resultRun?.runId === runId ? "the cut run" : answer.json?.resultRun?.runId ?? null, blue: read.text.includes("blue") };
-        check("env-restart-delegated: the follower's wait ends with the answered run, completed", answer.json?.status === "completed" && read.text.includes("blue"), out.envRestartDelegated);
+        (out.envRestartDelegated as Record<string, unknown>).final = {
+          status: answer.json?.status ?? null,
+          resultRun: answer.json?.resultRun?.runId === runId ? "the cut run" : (answer.json?.resultRun?.runId ?? null),
+          blue: read.text.includes("blue"),
+        };
+        check(
+          "env-restart-delegated: the follower's wait ends with the answered run, completed",
+          answer.json?.status === "completed" && read.text.includes("blue"),
+          out.envRestartDelegated,
+        );
       }
     }
   }
 }
 
 if (wants("push")) {
-  const remoteMain = () => spawnSync("git", ["ls-remote", `https://github.com/${fixtureRepo()}.git`, "refs/heads/main"], { encoding: "utf8", env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }).stdout.split(/\s/)[0] ?? "";
+  const remoteMain = () =>
+    spawnSync("git", ["ls-remote", `https://github.com/${fixtureRepo()}.git`, "refs/heads/main"], {
+      encoding: "utf8",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    }).stdout.split(/\s/)[0] ?? "";
   // gh's credentials for this machine's own git (the owner's), never the stage's.
   const ghGit = (args: Array<string>) => spawnSync("gh", ["api", ...args], { encoding: "utf8" });
   const originalMain = remoteMain();
   out.push = { originalMain };
-  const link = await signIn((await mintPairingCode(cookie, { label: `m3 push ${stamp}` })).code, "auto-accept-edits", { clientName: `m3 push link ${stamp}` });
+  const link = await signIn((await mintPairingCode(cookie, { label: `m3 push ${stamp}` })).code, "auto-accept-edits", {
+    clientName: `m3 push link ${stamp}`,
+  });
   const mcp = new McpClient(link.token, { modeLimit: "auto-accept-edits/default" });
   const file = `linked-${stamp}.txt`;
   const launched = await mcp.call("t3_thread_launch", {
@@ -201,7 +337,13 @@ if (wants("push")) {
         const title = (p?.turnItems ?? []).find((item: any) => item.requestId === request.id)?.title ?? "";
         const isPush = title === "Allow git push?";
         const decision = isPush ? (pushDecisions.shift() ?? "accept") : "acceptForSession";
-        await dispatch(cookie, { type: "runtime-request.respond", commandId: uuid(), threadId, requestId: request.id, decision });
+        await dispatch(cookie, {
+          type: "runtime-request.respond",
+          commandId: uuid(),
+          threadId,
+          requestId: request.id,
+          decision,
+        });
         await sleep(isPush ? 8000 : 0);
         answers.push({ title, decision, ...(isPush ? { mainAfter: remoteMain() } : {}) });
       }
@@ -211,12 +353,28 @@ if (wants("push")) {
     const pushes = answers.filter((a) => a.title === "Allow git push?");
     const finalMain = remoteMain();
     out.push = { ...(out.push as object), answers, finalMain, reply: replyOf(p).slice(-500) };
-    check("push: each of the three pushes asked on its own (also after accept-for-session on commands and on a push), and the fetch did not", pushes.length === 3, answers);
+    check(
+      "push: each of the three pushes asked on its own (also after accept-for-session on commands and on a push), and the fetch did not",
+      pushes.length === 3,
+      answers,
+    );
     check("push: the declined push left the remote main unchanged", pushes[0]?.mainAfter === originalMain, answers);
-    check("push: the approved push pushed once", pushes[1] !== undefined && pushes[1].mainAfter !== originalMain, answers);
+    check(
+      "push: the approved push pushed once",
+      pushes[1] !== undefined && pushes[1].mainAfter !== originalMain,
+      answers,
+    );
     // Restore the fixture's main (the owner's gh, this machine).
     if (finalMain !== originalMain) {
-      const restored = ghGit(["-X", "PATCH", `repos/${fixtureRepo()}/git/refs/heads/main`, "-f", `sha=${originalMain}`, "-F", "force=true"]);
+      const restored = ghGit([
+        "-X",
+        "PATCH",
+        `repos/${fixtureRepo()}/git/refs/heads/main`,
+        "-f",
+        `sha=${originalMain}`,
+        "-F",
+        "force=true",
+      ]);
       (out.push as Record<string, unknown>).restored = { status: restored.status, main: remoteMain() };
       check("push: the fixture's main is restored", remoteMain() === originalMain, out.push);
     }

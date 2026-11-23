@@ -44,7 +44,12 @@ export interface FixtureReport {
 const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.5" } as const;
 
 /** The domain events of one completed run with a user message, reasoning, a command, a file change and a reply. */
-const runEvents = (threadId: ThreadId, ordinal: number, marker: string, at: DateTime.Utc): Array<OrchestrationV2DomainEvent> => {
+const runEvents = (
+  threadId: ThreadId,
+  ordinal: number,
+  marker: string,
+  at: DateTime.Utc,
+): Array<OrchestrationV2DomainEvent> => {
   const key = `${threadId}:${ordinal}`;
   const runId = RunId.make(`run:fixture:${key}`);
   const nodeId = NodeId.make(`node:fixture:${key}`);
@@ -82,7 +87,8 @@ const runEvents = (threadId: ThreadId, ordinal: number, marker: string, at: Date
     updatedAt: at,
   };
   const userText = `Fixture request ${ordinal} for ${marker}: list the files and summarise the build.`;
-  const replyText = `Fixture reply ${ordinal} (${marker}): the build bundles the Worker and uploads it unbundled. `.repeat(8);
+  const replyText =
+    `Fixture reply ${ordinal} (${marker}): the build bundles the Worker and uploads it unbundled. `.repeat(8);
   const items: Array<OrchestrationV2TurnItem> = [
     {
       ...base,
@@ -97,7 +103,15 @@ const runEvents = (threadId: ThreadId, ordinal: number, marker: string, at: Date
       text: userText,
       attachments: [],
     } as unknown as OrchestrationV2TurnItem,
-    { ...base, id: TurnItemId.make(`item:fixture:${key}:reasoning`), ordinal: 2, title: "Thinking", type: "reasoning", text: `Considering ${marker}.`, streaming: false },
+    {
+      ...base,
+      id: TurnItemId.make(`item:fixture:${key}:reasoning`),
+      ordinal: 2,
+      title: "Thinking",
+      type: "reasoning",
+      text: `Considering ${marker}.`,
+      streaming: false,
+    },
     {
       ...base,
       id: TurnItemId.make(`item:fixture:${key}:command`),
@@ -105,7 +119,9 @@ const runEvents = (threadId: ThreadId, ordinal: number, marker: string, at: Date
       title: "ls -la",
       type: "command_execution",
       input: "ls -la",
-      output: Array.from({ length: 40 }, (_, i) => `-rw-r--r--  1 t3 t3 ${1000 + i} Nov 10 12:00 file-${i}.ts`).join("\n"),
+      output: Array.from({ length: 40 }, (_, i) => `-rw-r--r--  1 t3 t3 ${1000 + i} Nov 10 12:00 file-${i}.ts`).join(
+        "\n",
+      ),
       exitCode: 0,
     },
     {
@@ -144,9 +160,21 @@ const runEvents = (threadId: ThreadId, ordinal: number, marker: string, at: Date
     createdAt: at,
     updatedAt: at,
   });
-  const common = { threadId, runId, nodeId, driver: "codex", providerInstanceId: modelSelection.instanceId, occurredAt: at };
+  const common = {
+    threadId,
+    runId,
+    nodeId,
+    driver: "codex",
+    providerInstanceId: modelSelection.instanceId,
+    occurredAt: at,
+  };
   return [
-    { ...common, id: event("message-user"), type: "message.updated", payload: message(userMessageId, "user", userText) },
+    {
+      ...common,
+      id: event("message-user"),
+      type: "message.updated",
+      payload: message(userMessageId, "user", userText),
+    },
     { ...common, id: event("run-created"), type: "run.created", payload: run },
     {
       ...common,
@@ -170,9 +198,24 @@ const runEvents = (threadId: ThreadId, ordinal: number, marker: string, at: Date
         completedAt: at,
       },
     },
-    ...items.map((item, i) => ({ ...common, id: event(`item-${i}`), type: "turn-item.updated" as const, payload: item })),
-    { ...common, id: event("message-assistant"), type: "message.updated", payload: message(assistantMessageId, "assistant", replyText) },
-    { ...common, id: event("run-completed"), type: "run.updated", payload: { ...run, status: "completed", completedAt: at } },
+    ...items.map((item, i) => ({
+      ...common,
+      id: event(`item-${i}`),
+      type: "turn-item.updated" as const,
+      payload: item,
+    })),
+    {
+      ...common,
+      id: event("message-assistant"),
+      type: "message.updated",
+      payload: message(assistantMessageId, "assistant", replyText),
+    },
+    {
+      ...common,
+      id: event("run-completed"),
+      type: "run.updated",
+      payload: { ...run, status: "completed", completedAt: at },
+    },
   ] as unknown as Array<OrchestrationV2DomainEvent>;
 };
 

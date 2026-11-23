@@ -14,7 +14,10 @@ describe("DO SQLite adapter", () => {
       expect(() => state.storage.sql.exec(union(6)).toArray()).toThrow();
       const sql = adaptSqlStorage(state.storage.sql);
       const before = sqlStats.compoundsRewritten;
-      const rows = sql.exec(`${union(12)} ORDER BY v`).toArray().map((row) => row.v);
+      const rows = sql
+        .exec(`${union(12)} ORDER BY v`)
+        .toArray()
+        .map((row) => row.v);
       expect(rows).toEqual(Array.from({ length: 12 }, (_, i) => i));
       expect(sqlStats.compoundsRewritten).toBe(before + 1);
     });
@@ -29,7 +32,9 @@ describe("DO SQLite adapter", () => {
       expect(() => state.storage.sql.exec(`INSERT INTO t (id, label) VALUES ${placeholders}`, ...values)).toThrow();
       const sql = adaptSqlStorage(state.storage.sql);
       sql.exec(`INSERT INTO t (id, label) VALUES ${placeholders}`, ...values);
-      const found = sql.exec(`SELECT COUNT(*) AS n FROM t WHERE id IN (${ids.map(() => "?").join(", ")})`, ...ids).one();
+      const found = sql
+        .exec(`SELECT COUNT(*) AS n FROM t WHERE id IN (${ids.map(() => "?").join(", ")})`, ...ids)
+        .one();
       expect(found.n).toBe(150);
       expect(sql.exec("SELECT label FROM t WHERE id = ?", 7).one().label).toBe("it's 7?");
     });

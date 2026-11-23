@@ -24,7 +24,13 @@ const memory = () => {
 };
 
 /** The Container budget DO's state as the panel reads it: two Containers running. */
-const RUNNING = { max: 3, leases: [{ holder: "a1", until: NOW + 60_000, workspace: "web-app" }, { holder: "b2", until: NOW + 60_000, workspace: null }] };
+const RUNNING = {
+  max: 3,
+  leases: [
+    { holder: "a1", until: NOW + 60_000, workspace: "web-app" },
+    { holder: "b2", until: NOW + 60_000, workspace: null },
+  ],
+};
 
 const setup = (caller: AccessCaller = owner) => {
   const kv = memory();
@@ -61,18 +67,35 @@ describe("Environment settings in the panel", () => {
     expect((await post(deps, "extensions", { extension: "advisor", enabled: false }, headers)).status).toBe(200);
     expect(store.load().revision).toBe(1);
     expect(store.loadEnvironment().revision).toBe(1);
-    expect(await getJson(deps, "environment")).toMatchObject({ revision: 1, resolved: { containerSize: "standard-2", containerIdleMinutes: 2, containerBudget: 3 } });
+    expect(await getJson(deps, "environment")).toMatchObject({
+      revision: 1,
+      resolved: { containerSize: "standard-2", containerIdleMinutes: 2, containerBudget: 3 },
+    });
   });
 
   it("audits an Environment change with entity environment and the changed settings before and after; old entries read as harness", async () => {
     const { kv, store, deps } = setup({ kind: "service-token" });
-    kv.put(AUDIT_KEY, [{ at: NOW - 1000, caller: "service-token", action: "extension.change", target: "codemode", after: { enabled: false } }]);
+    kv.put(AUDIT_KEY, [
+      {
+        at: NOW - 1000,
+        caller: "service-token",
+        action: "extension.change",
+        target: "codemode",
+        after: { enabled: false },
+      },
+    ]);
     await post(deps, "environment", { settings: { containerSize: "standard-3", containerIdleMinutes: 10 } }, {});
     await post(deps, "environment", { settings: { containerIdleMinutes: 5 } }, {});
     await post(deps, "extensions", { extension: "advisor", enabled: true }, {});
     expect(store.auditLog(10)).toMatchObject([
       { entity: "harness", action: "extension.change", target: "advisor" },
-      { entity: "environment", action: "environment.change", target: "containerIdleMinutes", before: { containerIdleMinutes: 10 }, after: { containerIdleMinutes: 5 } },
+      {
+        entity: "environment",
+        action: "environment.change",
+        target: "containerIdleMinutes",
+        before: { containerIdleMinutes: 10 },
+        after: { containerIdleMinutes: 5 },
+      },
       {
         entity: "environment",
         action: "environment.change",
@@ -89,7 +112,9 @@ describe("Environment settings in the panel", () => {
     const { store, deps } = setup({ kind: "service-token" });
     const all = { containerSize: "standard-2", containerIdleMinutes: 2, containerBudget: 3 };
     await post(deps, "environment", { settings: all }, {});
-    expect(store.auditLog(5)).toMatchObject([{ target: "containerSize", before: { containerSize: "cpu-1" }, after: { containerSize: "standard-2" } }]);
+    expect(store.auditLog(5)).toMatchObject([
+      { target: "containerSize", before: { containerSize: "cpu-1" }, after: { containerSize: "standard-2" } },
+    ]);
     expect(store.auditLog(5)[0]?.after).toEqual({ containerSize: "standard-2" });
     const same = await post(deps, "environment", { settings: all }, {});
     expect(await same.json()).toMatchObject({ ok: true, unchanged: true, revision: 1 });
@@ -99,14 +124,22 @@ describe("Environment settings in the panel", () => {
 
   it("labels an audit entity the page does not know by its stored name (the audit entity is an open set)", async () => {
     const { kv, deps } = setup();
-    kv.put(AUDIT_KEY, [{ at: NOW, entity: "models", caller: "owner:owner-sub", action: "models.change", target: "openai" }]);
+    kv.put(AUDIT_KEY, [
+      { at: NOW, entity: "models", caller: "owner:owner-sub", action: "models.change", target: "openai" },
+    ]);
     const html = await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), deps)).text();
     expect(html).toContain('<td data-label="Settings"><div>models</div></td>');
   });
 
   it("refuses an invalid change with the setting named, and stores and audits nothing", async () => {
     const { store, deps } = setup({ kind: "service-token" });
-    for (const body of [{ settings: { containerSize: "lite" } }, { settings: { containerIdleMinutes: 0 } }, { settings: { secrets: "x" } }, { containerSize: "standard-1" }, "[]"]) {
+    for (const body of [
+      { settings: { containerSize: "lite" } },
+      { settings: { containerIdleMinutes: 0 } },
+      { settings: { secrets: "x" } },
+      { containerSize: "standard-1" },
+      "[]",
+    ]) {
       expect((await post(deps, "environment", body, {})).status).toBe(400);
     }
     const response = await post(deps, "environment", { settings: { containerIdleMinutes: 10_081 } }, {});
@@ -122,7 +155,10 @@ describe("Environment settings in the panel", () => {
     expect((await post(deps, "environment", body, { ...good, [CSRF_HEADER]: "" })).status).toBe(403);
     expect((await post(deps, "environment", body, { ...good, origin: "https://evil.example" })).status).toBe(403);
     expect((await post(deps, "environment", body, { ...good, "sec-fetch-site": "cross-site" })).status).toBe(403);
-    expect((await post(deps, "environment", "settings=x", { ...good, "content-type": "application/x-www-form-urlencoded" })).status).toBe(403);
+    expect(
+      (await post(deps, "environment", "settings=x", { ...good, "content-type": "application/x-www-form-urlencoded" }))
+        .status,
+    ).toBe(403);
     const script = setup({ kind: "service-token" });
     expect((await post(script.deps, "environment", body, { origin: "https://evil.example" })).status).toBe(403);
     expect(store.loadEnvironment().revision).toBe(0);
@@ -133,7 +169,13 @@ describe("Environment settings in the panel", () => {
     await post(deps, "environment", { settings: { containerBudget: 5 } }, await ownerHeaders(store));
     const answer = await getJson(deps, "environment");
     expect(answer.revision).toBe(1);
-    expect(answer.schema.containerSize.schema.values).toEqual(["cpu-1", "standard-1", "standard-2", "standard-3", "standard-4"]);
+    expect(answer.schema.containerSize.schema.values).toEqual([
+      "cpu-1",
+      "standard-1",
+      "standard-2",
+      "standard-3",
+      "standard-4",
+    ]);
     expect(answer.schema.containerBudget.schema).toMatchObject({ minimum: 1, maximum: 100, default: 3 });
     expect(answer.costs.budget).toBe(5);
     expect(answer.costs.rows).toHaveLength(5);
@@ -165,8 +207,10 @@ describe("Environment settings in the panel", () => {
 
   it("refuses a budget out of 1 to 100", async () => {
     const { deps } = setup({ kind: "service-token" });
-    for (const budget of [11, 100]) expect((await post(deps, "environment", { settings: { containerBudget: budget } }, {})).status).toBe(200);
-    for (const budget of [0, 101]) expect((await post(deps, "environment", { settings: { containerBudget: budget } }, {})).status).toBe(400);
+    for (const budget of [11, 100])
+      expect((await post(deps, "environment", { settings: { containerBudget: budget } }, {})).status).toBe(200);
+    for (const budget of [0, 101])
+      expect((await post(deps, "environment", { settings: { containerBudget: budget } }, {})).status).toBe(400);
   });
 
   it("shows an Environment section with the size, the idle time, the budget beside the running Containers, and the cost table", async () => {
@@ -185,7 +229,8 @@ describe("Environment settings in the panel", () => {
     expect(html).toContain("data-budget-head>3 Containers, an hour<");
     expect(html).toContain("web-app");
     // The budget's consequence, stated once, and rewritten by the script as the budget input changes.
-    const note = "Each running Container is billed for its size; at this budget, up to 3 can run at once. Your Cloudflare account&#39;s own Container limits (concurrent memory, vCPU and disk) also apply; t3flare does not check them.";
+    const note =
+      "Each running Container is billed for its size; at this budget, up to 3 can run at once. Your Cloudflare account&#39;s own Container limits (concurrent memory, vCPU and disk) also apply; t3flare does not check them.";
     expect(html.split(note)).toHaveLength(2);
     expect(html).toContain('aria-describedby="environment-containerBudget-hint environment-containerBudget-note"');
     expect(html).toContain(`<p class="hint" id="environment-containerBudget-note" data-budget-note>${note}</p>`);
@@ -205,7 +250,9 @@ describe("Environment settings in the panel", () => {
       expect.objectContaining({
         entity: "environment",
         target: "globalMiseConfig",
-        before: { globalMiseConfig: { bytes: 0, sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" } },
+        before: {
+          globalMiseConfig: { bytes: 0, sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
+        },
         after: { globalMiseConfig: { bytes: 25, sha256: SHA_OF_TEXT } },
       }),
     ]);
@@ -228,32 +275,78 @@ describe("Environment settings in the panel", () => {
   it("shows the last Global mise lay-down in Status, and refuses a malformed one", async () => {
     const { store, deps } = setup();
     expect((await getJson(deps, "status"))["last Global mise lay-down"]).toBeNull();
-    const report = { workspace: "web-app", runtime: "r1", revision: 3, sha256: SHA_OF_TEXT, bytes: 25, source: "environment", outcome: "not-laid", install: 1, timedOut: false, ms: 900, at: NOW };
+    const report = {
+      workspace: "web-app",
+      runtime: "r1",
+      revision: 3,
+      sha256: SHA_OF_TEXT,
+      bytes: 25,
+      source: "environment",
+      outcome: "not-laid",
+      install: 1,
+      timedOut: false,
+      ms: 900,
+      at: NOW,
+    };
     expect(store.noteGlobalMise(report)).toBe(true);
     expect(store.noteGlobalMise({ ...report, workspace: "x".repeat(10_000) })).toBe(false);
     expect(store.noteGlobalMise({ ...report, outcome: "maybe" })).toBe(false);
-    expect((await getJson(deps, "status"))["last Global mise lay-down"]).toBe("web-app at revision 3: not laid down (mise install exit 1), 2026-11-13T10:30:00.000Z");
+    expect((await getJson(deps, "status"))["last Global mise lay-down"]).toBe(
+      "web-app at revision 3: not laid down (mise install exit 1), 2026-11-13T10:30:00.000Z",
+    );
   });
 
   it("shows the last Container setup in Status with the end of its output, and refuses a malformed report (ADR-0047 §7)", async () => {
     const { store, deps } = setup();
     expect((await getJson(deps, "status"))["last Container setup"]).toBeNull();
     expect((await getJson(deps, "status"))["last Container setup output"]).toBeNull();
-    const report = { workspace: "web-app", runtime: "r1", revision: 4, sha256: SHA_OF_TEXT, bytes: 25, source: "environment", outcome: "failed", exitCode: 2, timedOut: false, output: "E: Unable to locate package ripgrep\n", failure: "carryOn", ms: 2_400, at: NOW };
+    const report = {
+      workspace: "web-app",
+      runtime: "r1",
+      revision: 4,
+      sha256: SHA_OF_TEXT,
+      bytes: 25,
+      source: "environment",
+      outcome: "failed",
+      exitCode: 2,
+      timedOut: false,
+      output: "E: Unable to locate package ripgrep\n",
+      failure: "carryOn",
+      ms: 2_400,
+      at: NOW,
+    };
     expect(store.noteContainerSetup(report)).toBe(true);
     expect(store.noteContainerSetup({ ...report, output: 7 })).toBe(false);
     expect(store.noteContainerSetup({ ...report, outcome: "maybe" })).toBe(false);
     const status = await getJson(deps, "status");
-    expect(status["last Container setup"]).toBe("web-app at revision 4: failed, exit 2 after 2.4 s, 2026-11-13T10:30:00.000Z");
+    expect(status["last Container setup"]).toBe(
+      "web-app at revision 4: failed, exit 2 after 2.4 s, 2026-11-13T10:30:00.000Z",
+    );
     expect(status["last Container setup output"]).toBe("E: Unable to locate package ripgrep\n");
     const html = await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), deps)).text();
     // A region named by its label, opening at the end of the output (column-reverse around one span).
-    expect(html).toMatch(/<dt id="status-container-setup-output">last Container setup output<\/dt><dd><pre class="status-output" tabindex="0" role="region" aria-labelledby="status-container-setup-output"><span>E: Unable to locate package ripgrep\n<\/span><\/pre>/);
+    expect(html).toMatch(
+      /<dt id="status-container-setup-output">last Container setup output<\/dt><dd><pre class="status-output" tabindex="0" role="region" aria-labelledby="status-container-setup-output"><span>E: Unable to locate package ripgrep\n<\/span><\/pre>/,
+    );
   });
 
   it("shows a Container setup with no output as a block that says so, and one line of output as a block too", async () => {
     const { store, deps } = setup();
-    const report = { workspace: "web-app", runtime: "r1", revision: 4, sha256: SHA_OF_TEXT, bytes: 25, source: "environment", outcome: "ok", exitCode: 0, timedOut: false, output: "", failure: "carryOn", ms: 10, at: NOW };
+    const report = {
+      workspace: "web-app",
+      runtime: "r1",
+      revision: 4,
+      sha256: SHA_OF_TEXT,
+      bytes: 25,
+      source: "environment",
+      outcome: "ok",
+      exitCode: 0,
+      timedOut: false,
+      output: "",
+      failure: "carryOn",
+      ms: 10,
+      at: NOW,
+    };
     store.noteContainerSetup(report);
     const page = async () => (await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), deps)).text();
     expect(await page()).toMatch(/<pre class="status-output"[^>]*><span>\(no output\)<\/span><\/pre>/);
@@ -264,10 +357,15 @@ describe("Environment settings in the panel", () => {
   it("renders the Container setup's time limit and failure policy in its row, the policy by label", async () => {
     const { deps } = setup();
     const html = await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), deps)).text();
-    const row = /<div class="row"><div class="row-title"><h3>Container setup<\/h3>[\s\S]*?<\/div><\/div><\/div>/.exec(html)?.[0] ?? "";
+    const row =
+      /<div class="row"><div class="row-title"><h3>Container setup<\/h3>[\s\S]*?<\/div><\/div><\/div>/.exec(
+        html,
+      )?.[0] ?? "";
     expect(row).toContain('data-setting="containerSetup"');
     expect(row).toContain('data-setting="containerSetupMinutes"');
-    expect(row).toContain('<option value="carryOn" selected>Carry on</option><option value="refuse">Refuse commands</option>');
+    expect(row).toContain(
+      '<option value="carryOn" selected>Carry on</option><option value="refuse">Refuse commands</option>',
+    );
     const containers = /<h3>Containers<\/h3>[\s\S]*?<\/div><\/div><\/div>/.exec(html)?.[0] ?? "";
     expect(containers).not.toContain("containerSetup");
   });
@@ -275,7 +373,10 @@ describe("Environment settings in the panel", () => {
   it("renders the Global mise install time limit in the Global mise config's row (SPI-1313)", async () => {
     const { deps } = setup();
     const html = await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), deps)).text();
-    const row = /<div class="row"><div class="row-title"><h3>Global mise config<\/h3>[\s\S]*?<\/div><\/div><\/div>/.exec(html)?.[0] ?? "";
+    const row =
+      /<div class="row"><div class="row-title"><h3>Global mise config<\/h3>[\s\S]*?<\/div><\/div><\/div>/.exec(
+        html,
+      )?.[0] ?? "";
     expect(row).toContain('data-setting="globalMiseInstallMinutes"');
     expect(row).toContain('min="1" max="10080" step="1" value="10"');
     const containers = /<h3>Containers<\/h3>[\s\S]*?<\/div><\/div><\/div>/.exec(html)?.[0] ?? "";
@@ -289,12 +390,30 @@ describe("Variables in the panel", () => {
   it("stores a set of Variables through the same route and audits their names and values before and after", async () => {
     const { store, deps } = setup();
     const headers = await ownerHeaders(store);
-    expect((await post(deps, "environment", { settings: { variables: { NODE_ENV: "development" } } }, headers)).status).toBe(200);
+    expect(
+      (await post(deps, "environment", { settings: { variables: { NODE_ENV: "development" } } }, headers)).status,
+    ).toBe(200);
     const logged: Array<string> = [];
     const log = console.log;
     console.log = (line: string) => void logged.push(line);
     try {
-      expect((await post(deps, "environment", { settings: { variables: [{ name: "NODE_ENV", value: "test", secret: false }, { name: "REGION", value: "eu", secret: false }] } }, headers)).status).toBe(200);
+      expect(
+        (
+          await post(
+            deps,
+            "environment",
+            {
+              settings: {
+                variables: [
+                  { name: "NODE_ENV", value: "test", secret: false },
+                  { name: "REGION", value: "eu", secret: false },
+                ],
+              },
+            },
+            headers,
+          )
+        ).status,
+      ).toBe(200);
     } finally {
       console.log = log;
     }
@@ -304,28 +423,56 @@ describe("Variables in the panel", () => {
     ];
     expect(await getJson(deps, "environment")).toMatchObject({ revision: 2, resolved: { variables: now } });
     expect(store.auditLog(1)).toMatchObject([
-      { entity: "environment", action: "environment.change", target: "variables", before: { variables: [{ name: "NODE_ENV", value: "development", secret: false }] }, after: { variables: now } },
+      {
+        entity: "environment",
+        action: "environment.change",
+        target: "variables",
+        before: { variables: [{ name: "NODE_ENV", value: "development", secret: false }] },
+        after: { variables: now },
+      },
     ]);
     expect(logged).toHaveLength(1);
-    expect(JSON.parse(logged[0]!)).toEqual({ t3flare: "harness-change", entity: "environment", caller: "owner", action: "environment.change", target: "variables" });
+    expect(JSON.parse(logged[0]!)).toEqual({
+      t3flare: "harness-change",
+      entity: "environment",
+      caller: "owner",
+      action: "environment.change",
+      target: "variables",
+    });
   });
 
   it("refuses only what breaks t3flare, with the whole reason, and stores nothing (ADR-0046 §3)", async () => {
     const { store, deps } = setup({ kind: "service-token" });
     const named = await post(deps, "environment", { settings: { variables: { "MY-VAR": "x" } } }, {});
     expect(named.status).toBe(400);
-    expect(await named.text()).toBe('variables: "MY-VAR" is not a name a shell can export: letters, digits and _, not starting with a digit\n');
+    expect(await named.text()).toBe(
+      'variables: "MY-VAR" is not a name a shell can export: letters, digits and _, not starting with a digit\n',
+    );
     const value = await post(deps, "environment", { settings: { variables: { OK: "a\u0000b" } } }, {});
     expect(await value.text()).toBe('variables: "OK"\'s value holds a NUL character, which no environment can\n');
     expect(store.loadEnvironment().revision).toBe(0);
     expect(store.auditLog(5)).toEqual([]);
     // What the old rules refused now stores: a credential-looking name and value, a name t3flare sets.
-    expect((await post(deps, "environment", { settings: { variables: { GITHUB_TOKEN: `ghp_${"b".repeat(36)}`, PATH: "/opt/bin" } } }, {})).status).toBe(200);
+    expect(
+      (
+        await post(
+          deps,
+          "environment",
+          { settings: { variables: { GITHUB_TOKEN: `ghp_${"b".repeat(36)}`, PATH: "/opt/bin" } } },
+          {},
+        )
+      ).status,
+    ).toBe(200);
   });
 
   it("shows the Variables as a list in the Environment section: each name and value, escaped, and a way to add one", async () => {
     const { store, deps } = setup();
-    await post(deps, "environment", { settings: { variables: { NODE_ENV: "test", GREETING: '<b>"hi"</b>' } } }, await ownerHeaders(store));
+    await post(
+      deps,
+      "environment",
+      { settings: { variables: { NODE_ENV: "test", GREETING: '<b>"hi"</b>' } } },
+      await ownerHeaders(store),
+    );
     const html = await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), deps)).text();
     expect(html).toContain('data-setting="variables" data-kind="variables"');
     expect(html).toContain('<input type="text" data-variable-name aria-label="Name" value="NODE_ENV"');

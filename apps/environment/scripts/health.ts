@@ -11,4 +11,6 @@ const response = await fetch(new URL("/_t3flare/health", process.env.T3_URL), {
 });
 const health = (await response.json()) as Record<string, unknown>;
 const fields = (process.argv[2] ?? "").split(",").filter(Boolean);
-console.log(JSON.stringify(fields.length > 0 ? Object.fromEntries(fields.map((f) => [f, health[f]])) : health, null, 1));
+console.log(
+  JSON.stringify(fields.length > 0 ? Object.fromEntries(fields.map((f) => [f, health[f]])) : health, null, 1),
+);

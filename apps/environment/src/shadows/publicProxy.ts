@@ -6,7 +6,10 @@
 // `headlessChrome.ts` passes its port in a flag the bridge ignores, and there are never fake-IP hosts to report.
 import * as Effect from "effect/Effect";
 
-export const publicProxy: Effect.Effect<{ readonly port: number; readonly fakeIpHosts: ReadonlyMap<string, string> }, Error> = Effect.succeed({
+export const publicProxy: Effect.Effect<
+  { readonly port: number; readonly fakeIpHosts: ReadonlyMap<string, string> },
+  Error
+> = Effect.succeed({
   port: 0,
   fakeIpHosts: new Map<string, string>(),
 });

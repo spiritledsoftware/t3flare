@@ -8,7 +8,16 @@
 import type { StoredEnvironment } from "@t3flare/harness-registry";
 
 import { type ChangeRecord, CLOSED_KEPT_MS, type ClosedBy, durationText } from "../settings/changes.ts";
-import { askedByText, changeHead, keptOf, keptText, lineDiff, purgeDueText, shownCallArgs, sizeText } from "../settings/render.ts";
+import {
+  askedByText,
+  changeHead,
+  keptOf,
+  keptText,
+  lineDiff,
+  purgeDueText,
+  shownCallArgs,
+  sizeText,
+} from "../settings/render.ts";
 import type { ChangeItem, ShownSkill, ShownVariableValue } from "../settings/types.ts";
 import { fileUrl } from "../skills/api.ts";
 import { CHANGE_SCRIPT } from "./changePageScript.ts";
@@ -18,11 +27,16 @@ import { SETTINGS_PAGE_PATH, OPEN_CHANGES_PATH } from "./paths.ts";
 import { STYLE } from "./pageStyle.ts";
 
 /** A value as JSON text, safe. */
-const value = (raw: unknown): string => (raw === undefined ? '<span class="desc">unset</span>' : `<code>${visibleHtml(typeof raw === "string" ? raw : JSON.stringify(raw))}</code>`);
+const value = (raw: unknown): string =>
+  raw === undefined
+    ? '<span class="desc">unset</span>'
+    : `<code>${visibleHtml(typeof raw === "string" ? raw : JSON.stringify(raw))}</code>`;
 
 /** A Variable's value on the page: a plain one's text; a secret one only as set, or as changed after a secret (ADR-0046). */
 const variableValue = (shown: ShownVariableValue, replacesSecret = false): string =>
-  typeof shown === "string" ? value(shown) : `<span class="desc">${replacesSecret ? "secret, changed" : "secret, set"}</span>`;
+  typeof shown === "string"
+    ? value(shown)
+    : `<span class="desc">${replacesSecret ? "secret, changed" : "secret, set"}</span>`;
 
 /** A URL with its host set apart (plan D10: an MCP `add` shows where it goes). */
 const urlWithHost = (url: string, host: string): string => {
@@ -33,7 +47,10 @@ const urlWithHost = (url: string, host: string): string => {
 
 const diffBlock = (before: string, after: string): string =>
   `<pre class="diff">${lineDiff(before, after)
-    .map((line) => `<span class="${line.op === "+" ? "add" : line.op === "-" ? "del" : "ctx"}">${line.op} ${visibleHtml(line.text)}</span>`)
+    .map(
+      (line) =>
+        `<span class="${line.op === "+" ? "add" : line.op === "-" ? "del" : "ctx"}">${line.op} ${visibleHtml(line.text)}</span>`,
+    )
     .join("")}</pre>`;
 
 const skillBlock = (repo: string, commit: string, skill: ShownSkill): string => {
@@ -46,7 +63,9 @@ const skillBlock = (repo: string, commit: string, skill: ShownSkill): string => 
   return `<div class="change-block"><h3>${visibleHtml(skill.name)} <span class="ident">${visibleHtml(skill.path === "" ? "the repo's root" : skill.path)}</span></h3>
 <p class="desc">${visibleHtml(skill.description)}</p>
 <p class="desc">${skill.files} ${skill.files === 1 ? "file" : "files"}, ${sizeText(skill.bytes)}; digest <code>${visibleHtml(skill.digest.slice(0, 16))}</code></p>${
-    skill.problems.length === 0 ? "" : `<div class="callout" role="note"><div><strong>Cannot be installed</strong><ul>${skill.problems.map((problem) => `<li>${visibleHtml(problem)}</li>`).join("")}</ul></div></div>`
+    skill.problems.length === 0
+      ? ""
+      : `<div class="callout" role="note"><div><strong>Cannot be installed</strong><ul>${skill.problems.map((problem) => `<li>${visibleHtml(problem)}</li>`).join("")}</ul></div></div>`
   }
 <details open><summary>SKILL.md${skill.skillMdCut === true ? " (cut: open it on GitHub for the rest)" : ""}</summary><pre class="text">${visibleHtml(skill.skillMd)}</pre></details>
 <details><summary>Files at the commit</summary><ul>${files}</ul>${skill.morePaths === undefined ? "" : `<p class="desc">and ${skill.morePaths} more</p>`}</details></div>`;
@@ -59,12 +78,18 @@ const itemBlock = (item: ChangeItem, needsSecret: boolean): string => {
       return `<div class="change-block"><h3>${visibleHtml(item.name)}</h3><dl class="kv"><div><dt>Before</dt><dd>${value(item.before)}</dd></div><div><dt>After</dt><dd>${value(item.after)}</dd></div></dl></div>`;
     case "variables": {
       const rows = [
-        ...item.added.map(([name, after]) => `<tr><td data-label="Change"><div>added</div></td><td data-label="Name"><div><code>${visibleHtml(name)}</code></div></td><td data-label="Before"><div>—</div></td><td data-label="After"><div>${variableValue(after)}</div></td></tr>`),
+        ...item.added.map(
+          ([name, after]) =>
+            `<tr><td data-label="Change"><div>added</div></td><td data-label="Name"><div><code>${visibleHtml(name)}</code></div></td><td data-label="Before"><div>—</div></td><td data-label="After"><div>${variableValue(after)}</div></td></tr>`,
+        ),
         ...item.changed.map(
           ([name, before, after]) =>
             `<tr><td data-label="Change"><div>changed</div></td><td data-label="Name"><div><code>${visibleHtml(name)}</code></div></td><td data-label="Before"><div>${variableValue(before)}</div></td><td data-label="After"><div>${variableValue(after, typeof before !== "string")}</div></td></tr>`,
         ),
-        ...item.removed.map(([name, before]) => `<tr><td data-label="Change"><div>removed</div></td><td data-label="Name"><div><code>${visibleHtml(name)}</code></div></td><td data-label="Before"><div>${variableValue(before)}</div></td><td data-label="After"><div>—</div></td></tr>`),
+        ...item.removed.map(
+          ([name, before]) =>
+            `<tr><td data-label="Change"><div>removed</div></td><td data-label="Name"><div><code>${visibleHtml(name)}</code></div></td><td data-label="Before"><div>${variableValue(before)}</div></td><td data-label="After"><div>—</div></td></tr>`,
+        ),
       ];
       return `<div class="change-block"><h3>${visibleHtml(item.name)}</h3><div class="table-wrap"><table class="stacked"><thead><tr><th scope="col">Change</th><th scope="col">Name</th><th scope="col">Before</th><th scope="col">After</th></tr></thead><tbody>${rows.join("")}</tbody></table></div></div>`;
     }
@@ -72,7 +97,11 @@ const itemBlock = (item: ChangeItem, needsSecret: boolean): string => {
       return `<div class="change-block"><h3>${visibleHtml(item.name)}</h3>${diffBlock(item.before, item.after)}</div>`;
     case "mcp-add":
       return `<div class="change-block"><h3>Add the MCP server ${visibleHtml(item.server)}</h3><dl class="kv"><div><dt>URL</dt><dd>${urlWithHost(item.url, item.host)}</dd></div><div><dt>Host</dt><dd><strong>${visibleHtml(item.host)}</strong></dd></div><div><dt>Sign-in</dt><dd>${
-        item.auth === "header" ? `a header, <code>${visibleHtml(item.header ?? "")}</code>` : item.auth === "oauth" ? "OAuth, started later" : "none"
+        item.auth === "header"
+          ? `a header, <code>${visibleHtml(item.header ?? "")}</code>`
+          : item.auth === "oauth"
+            ? "OAuth, started later"
+            : "none"
       }</dd></div></dl>${needsSecret ? secretField(item.header ?? "header") : ""}</div>`;
     case "mcp-remove":
       return `<div class="change-block"><h3>Remove the MCP server ${visibleHtml(item.server)}</h3>${item.url === undefined ? "" : `<p><code>${visibleHtml(item.url)}</code></p>`}<p class="desc">Its stored header value and OAuth sign-in are deleted at once.</p></div>`;
@@ -88,14 +117,22 @@ const itemBlock = (item: ChangeItem, needsSecret: boolean): string => {
         .join("")}`;
     case "skill":
       return `<div class="change-block"><h3>${item.op === "enable" ? "Enable" : item.op === "disable" ? "Disable" : "Remove"} the Environment skill ${visibleHtml(item.name)}</h3>${
-        item.repo === undefined ? "" : `<p class="desc">From <code>${visibleHtml(item.repo)}</code>${item.commit === undefined ? "" : ` at <code>${visibleHtml(item.commit.slice(0, 7))}</code>`}</p>`
+        item.repo === undefined
+          ? ""
+          : `<p class="desc">From <code>${visibleHtml(item.repo)}</code>${item.commit === undefined ? "" : ` at <code>${visibleHtml(item.commit.slice(0, 7))}</code>`}</p>`
       }</div>`;
     case "purge":
       return `<div class="change-block"><h3>Purge <code>${visibleHtml(item.id)}</code> now</h3><dl class="kv"><div><dt>Workspace</dt><dd>${item.workspaceKind === "project" ? "a project's" : "a Worktree Workspace"}, ${visibleHtml(item.title)}, ${visibleHtml(item.status)}</dd></div><div><dt>Worktree Workspaces with it</dt><dd>${
-        item.worktrees.length === 0 ? "none" : `<ul>${item.worktrees.map((worktree) => `<li><code>${visibleHtml(worktree.id)}</code> ${visibleHtml(worktree.status)}</li>`).join("")}</ul>`
-      }</dd></div><div><dt>Sessions destroyed</dt><dd>${item.sessions}</dd></div><div><dt>Without this</dt><dd>${visibleHtml(purgeDueText(item.purgeDue))}</dd></div></dl>${keptOf(item)
+        item.worktrees.length === 0
+          ? "none"
+          : `<ul>${item.worktrees.map((worktree) => `<li><code>${visibleHtml(worktree.id)}</code> ${visibleHtml(worktree.status)}</li>`).join("")}</ul>`
+      }</dd></div><div><dt>Sessions destroyed</dt><dd>${item.sessions}</dd></div><div><dt>Without this</dt><dd>${visibleHtml(purgeDueText(item.purgeDue))}</dd></div></dl>${keptOf(
+        item,
+      )
         .map((ids) => `<p class="desc"><strong>${visibleHtml(keptText(ids))}</strong></p>`)
-        .join("")}<p class="desc">Its files go for good; it cannot be undone. t3's project and threads are not touched.</p></div>`;
+        .join(
+          "",
+        )}<p class="desc">Its files go for good; it cannot be undone. t3's project and threads are not touched.</p></div>`;
   }
 };
 
@@ -144,36 +181,66 @@ export const renderGonePage = (csrf: string): string =>
  * The Change page for `record` (plan D10). `now` decides the time left. `environment` is the Environment settings as
  * stored now: the call's secret Variables show as set or changed against it (`shownCallArgs`), never their sealed values.
  */
-export const renderChangePage = (record: ChangeRecord, input: { readonly csrf: string; readonly now: number; readonly environment?: StoredEnvironment }): string => {
+export const renderChangePage = (
+  record: ChangeRecord,
+  input: { readonly csrf: string; readonly now: number; readonly environment?: StoredEnvironment },
+): string => {
   const view = record.shown;
   const open = record.state === "open";
   const left = Math.max(0, Math.ceil(((record.expiresAt ?? record.createdAt) - input.now) / 60_000));
   const needsSecret = record.needsPage === "secret";
-  const title = view === undefined ? "A change" : view.entity === "workspaces" ? changeHead(view) : `A change to ${view.subject}`;
+  const title =
+    view === undefined ? "A change" : view.entity === "workspaces" ? changeHead(view) : `A change to ${view.subject}`;
   const facts = [
     ["State", `<strong>${STATE_TEXT[record.state]}</strong>`],
     ["Asked by", visibleHtml(askedByText(record.caller))],
-    ["Answered", record.mode === "card" ? "on its card on the thread, or here" : `in the client's ${visibleHtml(record.mode ?? "")} mode, or here`],
+    [
+      "Answered",
+      record.mode === "card"
+        ? "on its card on the thread, or here"
+        : `in the client's ${visibleHtml(record.mode ?? "")} mode, or here`,
+    ],
     // A Purge names no revision (ADR-0044 §5): its references are read again when it is approved.
     view?.entity === "workspaces"
       ? ["Bound to", "nothing referencing it when it is approved: read again then"]
-      : ["Revision", `${view?.entity === "environment" ? "Environment" : "Harness"} settings at ${record.expectedRevision ?? "?"}`],
+      : [
+          "Revision",
+          `${view?.entity === "environment" ? "Environment" : "Harness"} settings at ${record.expectedRevision ?? "?"}`,
+        ],
     ["Asked at", time(record.createdAt)],
-    ...(open ? [["Time left", `${left} ${left === 1 ? "minute" : "minutes"} (until ${time(record.expiresAt ?? record.createdAt)})`]] : []),
+    ...(open
+      ? [
+          [
+            "Time left",
+            `${left} ${left === 1 ? "minute" : "minutes"} (until ${time(record.expiresAt ?? record.createdAt)})`,
+          ],
+        ]
+      : []),
     ...(record.closed === undefined
       ? []
-      : [["Closed", `${time(record.closed.at)}${record.closed.by === undefined ? "" : ` by ${CLOSED_BY_TEXT[record.closed.by]}`}${record.closed.revision === undefined ? "" : `, revision ${record.closed.revision}`}`]]),
+      : [
+          [
+            "Closed",
+            `${time(record.closed.at)}${record.closed.by === undefined ? "" : ` by ${CLOSED_BY_TEXT[record.closed.by]}`}${record.closed.revision === undefined ? "" : `, revision ${record.closed.revision}`}`,
+          ],
+        ]),
     ...(record.closed?.error === undefined ? [] : [["Why", visibleHtml(record.closed.error)]]),
     ["Change", `<code>${visibleHtml(record.id)}</code>`],
   ]
     .map(([term, detail]) => `<div><dt>${term}</dt><dd>${detail}</dd></div>`)
     .join("");
   const reasons = (view?.reasons ?? []).map((reason) => `<li>${visibleHtml(reason)}</li>`).join("");
-  const lines = (view?.lines ?? []).map((line) => `<div class="callout callout-warn" role="note"><div><p>${visibleHtml(line)}</p></div></div>`).join("");
+  const lines = (view?.lines ?? [])
+    .map((line) => `<div class="callout callout-warn" role="note"><div><p>${visibleHtml(line)}</p></div></div>`)
+    .join("");
   const items = (view?.items ?? []).map((item) => itemBlock(item, open && needsSecret)).join("");
   const answer = open
     ? `<form class="group change-answer" id="change-answer" data-change="${escapeHtml(record.id)}" autocomplete="off" novalidate><button type="button" class="btn btn-primary" data-action="approve">${
-        record.needsPage === "sign-in" ? "Approve and sign in" : view?.entity === "workspaces" ? "Approve and purge" : "Approve"
+        record.needsPage === "sign-in"
+          ? "Approve and sign in"
+          : view?.entity === "workspaces"
+            ? "Approve and purge"
+            : "Approve"
       }</button><button type="button" class="btn" data-action="decline">Decline</button><p class="desc">The first answer wins: the card on the thread and this page answer the same change.</p></form>`
     : "";
   return `${head(title, input.csrf)}<body><main class="change-main" id="main">${brandLink}

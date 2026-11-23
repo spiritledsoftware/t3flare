@@ -3,8 +3,23 @@
 // stops it, with pi-termctrl's result texts; `bash`'s background job; an exit told after the tool round; and the
 // approvals the thread's mode asks for (`terminal_start` and typing ask, a poll does not).
 // @effect-diagnostics globalTimers:off globalDate:off
-import { type AssistantMessage, createModels, fauxAssistantMessage, fauxProvider, fauxToolCall, type ToolResultMessage } from "@earendil-works/pi-ai";
-import { createRegistry, defineExtension, defineTool, type Extension, Harness, MemoryStorage, type ToolExecutionResult } from "@earendil-works/pi-durable";
+import {
+  type AssistantMessage,
+  createModels,
+  fauxAssistantMessage,
+  fauxProvider,
+  fauxToolCall,
+  type ToolResultMessage,
+} from "@earendil-works/pi-ai";
+import {
+  createRegistry,
+  defineExtension,
+  defineTool,
+  type Extension,
+  Harness,
+  MemoryStorage,
+  type ToolExecutionResult,
+} from "@earendil-works/pi-durable";
 import { obj } from "@earendil-works/pi-schema";
 import type { AgentTerminalRequest, AgentTerminalResult } from "@t3flare/workspace-client";
 import { describe, expect, it } from "vitest";
@@ -29,7 +44,8 @@ const workspace = () => {
     host: {
       open: (input) => {
         if (input.command.includes("sleep 0")) setTimeout(() => (emit(input.key, "quick\r\n"), exit(input.key, 0)), 5);
-        else if (input.command === "short-lived") setTimeout(() => (emit(input.key, "bye\r\n"), setTimeout(() => exit(input.key, 0), 300)), 5);
+        else if (input.command === "short-lived")
+          setTimeout(() => (emit(input.key, "bye\r\n"), setTimeout(() => exit(input.key, 0), 300)), 5);
         else if (input.command.includes("tee")) setTimeout(() => emit(input.key, "serving on :3000\r\n"), 5);
         else setTimeout(() => emit(input.key, "> "), 5);
         return Promise.resolve();
@@ -73,10 +89,24 @@ const workspace = () => {
 /** A tool that takes 600 ms and sees nothing. */
 const nap = defineExtension({
   name: "nap",
-  tools: [defineTool({ name: "nap", description: "wait", parameters: obj({}), execute: () => new Promise<ToolExecutionResult>((resolve) => setTimeout(() => resolve({ output: [{ type: "text" as const, text: "rested" }] }), 600)) })],
+  tools: [
+    defineTool({
+      name: "nap",
+      description: "wait",
+      parameters: obj({}),
+      execute: () =>
+        new Promise<ToolExecutionResult>((resolve) =>
+          setTimeout(() => resolve({ output: [{ type: "text" as const, text: "rested" }] }), 600),
+        ),
+    }),
+  ],
 });
 
-const run = async (extensions: (harness: () => Promise<Harness>) => ReadonlyArray<Extension>, responses: ReadonlyArray<AssistantMessage>, more: ReadonlyArray<Extension> = []) => {
+const run = async (
+  extensions: (harness: () => Promise<Harness>) => ReadonlyArray<Extension>,
+  responses: ReadonlyArray<AssistantMessage>,
+  more: ReadonlyArray<Extension> = [],
+) => {
   const faux = fauxProvider();
   const models = createModels();
   models.setProvider(faux.provider);
@@ -91,13 +121,17 @@ const run = async (extensions: (harness: () => Promise<Harness>) => ReadonlyArra
   return { harness, root };
 };
 
-const call = (name: string, args: Record<string, unknown>, id: string) => fauxAssistantMessage([fauxToolCall(name, args as never, { id })], { stopReason: "toolUse" });
-const text = (message: ToolResultMessage | undefined) => message?.content.map((block) => ("text" in block ? block.text : "")).join("") ?? "";
+const call = (name: string, args: Record<string, unknown>, id: string) =>
+  fauxAssistantMessage([fauxToolCall(name, args as never, { id })], { stopReason: "toolUse" });
+const text = (message: ToolResultMessage | undefined) =>
+  message?.content.map((block) => ("text" in block ? block.text : "")).join("") ?? "";
 
 const results = async (root: Awaited<ReturnType<typeof run>>["root"]) => {
   const page = await root.entries({ order: "ascending" }, 200, undefined, context);
   return {
-    tools: page.items.flatMap((entry) => (entry.model?.[0]?.role === "toolResult" ? [entry.model[0] as ToolResultMessage] : [])),
+    tools: page.items.flatMap((entry) =>
+      entry.model?.[0]?.role === "toolResult" ? [entry.model[0] as ToolResultMessage] : [],
+    ),
     entries: page.items,
   };
 };
@@ -133,7 +167,10 @@ describe("termctrl", () => {
   it("runs bash in the background: a quick command answers as bash, a long one becomes b2", async () => {
     const ws = workspace();
     const { root } = await run(
-      (harness) => [codingTools({ jobs: backgroundJobs(ws.host) }), termctrlExtension(harness, { host: ws.host, used: ws.used })],
+      (harness) => [
+        codingTools({ jobs: backgroundJobs(ws.host) }),
+        termctrlExtension(harness, { host: ws.host, used: ws.used }),
+      ],
       [
         call("bash", { command: "sleep 0; echo quick", background: true }, "c1"),
         call("bash", { command: "npm run dev", background: true }, "c2"),
@@ -153,7 +190,11 @@ describe("termctrl", () => {
     const ws = workspace();
     const { root } = await run(
       (harness) => [termctrlExtension(harness, { host: ws.host, used: ws.used })],
-      [call("terminal_start", { command: "short-lived", wait_ms: 100 }, "c1"), call("nap", {}, "c2"), fauxAssistantMessage("done")],
+      [
+        call("terminal_start", { command: "short-lived", wait_ms: 100 }, "c1"),
+        call("nap", {}, "c2"),
+        fauxAssistantMessage("done"),
+      ],
       [nap],
     );
     // The program exits while the agent naps: its exit is due at that round's end.
@@ -167,15 +208,29 @@ describe("termctrl", () => {
   it("asks before terminal_start and typing as before bash, never before a poll", async () => {
     const ws = workspace();
     const store = new ApprovalStore(memoryKv(), () => {});
-    const host = { store, mode: () => "approval-required" as const, interaction: () => "default" as const, turn: () => "turn-1", workspaceId: () => "fixture" };
+    const host = {
+      store,
+      mode: () => "approval-required" as const,
+      interaction: () => "default" as const,
+      turn: () => "turn-1",
+      workspaceId: () => "fixture",
+    };
     const { root } = await run(
       (harness) => [termctrlExtension(harness, { host: ws.host, used: ws.used }), permissions(host)],
-      [call("terminal_start", { command: "python3" }, "c1"), call("terminal_send", { id: "t1", wait_ms: 100 }, "c2"), call("terminal_send", { id: "t1", text: "1+1\n" }, "c3"), fauxAssistantMessage("done")],
+      [
+        call("terminal_start", { command: "python3" }, "c1"),
+        call("terminal_send", { id: "t1", wait_ms: 100 }, "c2"),
+        call("terminal_send", { id: "t1", text: "1+1\n" }, "c3"),
+        fauxAssistantMessage("done"),
+      ],
     );
     await until(() => store.pending().length === 1, "the start's card");
     expect(store.pending()[0]).toMatchObject({ tool: "terminal_start", kind: "command", summary: "Terminal: python3" });
     store.answer(store.pending()[0]!.requestId, "accept");
-    await until(() => store.pending().length === 1 && store.pending()[0]!.tool === "terminal_send", "the typing's card");
+    await until(
+      () => store.pending().length === 1 && store.pending()[0]!.tool === "terminal_send",
+      "the typing's card",
+    );
     expect(store.pending()[0]!.summary).toBe('Type into t1: "1+1\\n"');
     store.answer(store.pending()[0]!.requestId, "decline");
     await root.waitForIdle(context);

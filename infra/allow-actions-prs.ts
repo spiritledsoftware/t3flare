@@ -17,7 +17,16 @@ const endpoint = `repos/${repository}/actions/permissions/workflow`;
 
 execFileSync(
   "gh",
-  ["api", "--method", "PUT", endpoint, "-f", "default_workflow_permissions=read", "-F", "can_approve_pull_request_reviews=true"],
+  [
+    "api",
+    "--method",
+    "PUT",
+    endpoint,
+    "-f",
+    "default_workflow_permissions=read",
+    "-F",
+    "can_approve_pull_request_reviews=true",
+  ],
   { stdio: "inherit" },
 );
 const settings = JSON.parse(execFileSync("gh", ["api", endpoint], { encoding: "utf8" })) as {

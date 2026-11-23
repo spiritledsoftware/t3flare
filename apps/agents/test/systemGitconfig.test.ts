@@ -10,7 +10,13 @@ import { describe, expect, it } from "vitest";
 
 import { CREDENTIAL_HELPER } from "../src/workspace/credentialHelper.ts";
 
-const gitEnv = (home: string): NodeJS.ProcessEnv => ({ PATH: process.env.PATH, HOME: home, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0" });
+const gitEnv = (home: string): NodeJS.ProcessEnv => ({
+  PATH: process.env.PATH,
+  HOME: home,
+  GIT_CONFIG_GLOBAL: "/dev/null",
+  GIT_CONFIG_NOSYSTEM: "1",
+  GIT_TERMINAL_PROMPT: "0",
+});
 const tempDir = (prefix: string): string => fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 
 const SYSTEM = path.join(import.meta.dirname, "../../sandbox-image/image/gitconfig");

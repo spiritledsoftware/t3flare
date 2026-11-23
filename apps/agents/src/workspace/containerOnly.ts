@@ -55,21 +55,29 @@ export const submodulePattern = (path: string): string | undefined => {
  */
 export const submoduleDirsScript = (patterns: ReadonlyArray<string>): string => {
   const dirs = patterns.flatMap((pattern) =>
-    pattern.startsWith(`${REPO_PATTERN}/`) && pattern.endsWith("/**") ? [`${WORKSPACE_ROOT}${pattern.slice(0, -3)}`] : [],
+    pattern.startsWith(`${REPO_PATTERN}/`) && pattern.endsWith("/**")
+      ? [`${WORKSPACE_ROOT}${pattern.slice(0, -3)}`]
+      : [],
   );
   // Only in a repo: a clone starts by removing the repo, which a directory made here (computer mounts the Container's
   // own disk on it) would make fail.
-  return dirs.length === 0 ? "" : `[ -e ${REPO_ROOT}/.git ] && mkdir -p -- ${dirs.map((dir) => `'${dir}'`).join(" ")} 2>/dev/null\n`;
+  return dirs.length === 0
+    ? ""
+    : `[ -e ${REPO_ROOT}/.git ] && mkdir -p -- ${dirs.map((dir) => `'${dir}'`).join(" ")} 2>/dev/null\n`;
 };
 
 /**
  * A command as the Workspace DO runs it in the Container: the Environment skills' lock first (SPI-1148, ADR-0033), so
  * nothing reads the mount before it is read-only, then the submodules' directories, then the command.
  */
-export const containerScript = (patterns: ReadonlyArray<string>, body: string): string => `${SKILLS_LOCK_SCRIPT}${submoduleDirsScript(patterns)}${body}`;
+export const containerScript = (patterns: ReadonlyArray<string>, body: string): string =>
+  `${SKILLS_LOCK_SCRIPT}${submoduleDirsScript(patterns)}${body}`;
 
 /** The ignore patterns a Container starts with: the static ones, the submodules' git directories, then each submodule. */
-export const containerPatterns = (base: ReadonlyArray<string>, submodules: ReadonlyArray<string>): ReadonlyArray<string> => {
+export const containerPatterns = (
+  base: ReadonlyArray<string>,
+  submodules: ReadonlyArray<string>,
+): ReadonlyArray<string> => {
   const extra = [SUBMODULE_GIT_DIRS, WORKTREE_GIT_DIRS, ...submodules.flatMap((path) => submodulePattern(path) ?? [])];
   // The base list ends with its re-includes (`!/.t3flare…`): the last matching pattern wins, so ours go before them.
   const firstInclude = base.findIndex((pattern) => pattern.startsWith("!"));
@@ -135,7 +143,12 @@ export class ContainerOnlyBackend implements WorkspaceBackend {
   async connect(host: Parameters<WorkspaceBackend["connect"]>[0]): ReturnType<WorkspaceBackend["connect"]> {
     const patterns = await this.#options.patterns();
     if (!samePatterns(patterns, this.#current.patterns)) {
-      this.#options.log?.({ t3flare: "container-patterns", from: this.#current.patterns.length, to: patterns.length, patterns });
+      this.#options.log?.({
+        t3flare: "container-patterns",
+        from: this.#current.patterns.length,
+        to: patterns.length,
+        patterns,
+      });
       this.#current = { patterns, backend: this.#options.make(patterns) };
     }
     const backend = this.#current.backend;

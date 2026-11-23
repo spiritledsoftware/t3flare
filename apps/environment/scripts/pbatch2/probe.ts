@@ -41,7 +41,8 @@ export class ProbeLog extends DurableObject {
   }
 }
 
-const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "cache-control": "no-store" } });
+const json = (value: unknown, status = 200) =>
+  Response.json(value, { status, headers: { "cache-control": "no-store" } });
 
 /** What an OTLP/JSON export held: its service, its span or metric names (a sample), its counts. */
 const summarize = (signal: string, body: any) => {
@@ -69,7 +70,9 @@ export default {
     const authorization = request.headers.get("authorization");
 
     if (url.pathname === "/log" && request.method === "GET") {
-      return authorization === `Bearer ${env.PROBE_KEY}` ? json(await log.entries()) : json({ error: "unauthorized" }, 401);
+      return authorization === `Bearer ${env.PROBE_KEY}`
+        ? json(await log.entries())
+        : json({ error: "unauthorized" }, 401);
     }
 
     if (url.pathname.startsWith("/relay/v1/")) {
@@ -103,9 +106,26 @@ export default {
         const asked = (await request.json().catch(() => ({}))) as { model?: unknown; stream?: unknown };
         const model = typeof asked.model === "string" ? asked.model : "standin";
         const usage = { input_tokens: 1000, cache_read_input_tokens: 300, cache_creation_input_tokens: 0 };
-        const message = { id: "msg_standin", type: "message", role: "assistant", model, content: [] as Array<unknown>, stop_reason: null, stop_sequence: null, usage: { ...usage, output_tokens: 1 } };
+        const message = {
+          id: "msg_standin",
+          type: "message",
+          role: "assistant",
+          model,
+          content: [] as Array<unknown>,
+          stop_reason: null,
+          stop_sequence: null,
+          usage: { ...usage, output_tokens: 1 },
+        };
         if (asked.stream !== true) {
-          return Response.json({ ...message, content: [{ type: "text", text: "ready" }], stop_reason: "end_turn", usage: { ...usage, output_tokens: 3 } }, { headers: { "cache-control": "no-store", ...limits } });
+          return Response.json(
+            {
+              ...message,
+              content: [{ type: "text", text: "ready" }],
+              stop_reason: "end_turn",
+              usage: { ...usage, output_tokens: 3 },
+            },
+            { headers: { "cache-control": "no-store", ...limits } },
+          );
         }
         const event = (data: { readonly type: string }) => `event: ${data.type}\ndata: ${JSON.stringify(data)}\n\n`;
         const encoder = new TextEncoder();
@@ -117,7 +137,11 @@ export default {
               { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
               { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "ready" } },
               { type: "content_block_stop", index: 0 },
-              { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 3 } },
+              {
+                type: "message_delta",
+                delta: { stop_reason: "end_turn", stop_sequence: null },
+                usage: { output_tokens: 3 },
+              },
               { type: "message_stop" },
             ]) {
               controller.enqueue(encoder.encode(event(data)));
@@ -125,7 +149,9 @@ export default {
             controller.close();
           },
         });
-        return new Response(stream, { headers: { "content-type": "text/event-stream", "cache-control": "no-store", ...limits } });
+        return new Response(stream, {
+          headers: { "content-type": "text/event-stream", "cache-control": "no-store", ...limits },
+        });
       }
       if (url.pathname === "/relay/v1/responses" && request.method === "POST") {
         const limits = {
@@ -138,28 +164,79 @@ export default {
         };
         const asked = (await request.json().catch(() => ({}))) as { model?: unknown };
         const model = typeof asked.model === "string" ? asked.model : "standin";
-        const item = { id: "msg_standin", type: "message", role: "assistant", status: "completed", content: [{ type: "output_text", text: "ready", annotations: [] }] };
-        const response = { id: "resp_standin", object: "response", created_at: Math.floor(Date.now() / 1000), model, status: "in_progress", output: [] as Array<unknown> };
-        const usage = { input_tokens: 1500, input_tokens_details: { cached_tokens: 500 }, output_tokens: 4, output_tokens_details: { reasoning_tokens: 0 }, total_tokens: 1504 };
+        const item = {
+          id: "msg_standin",
+          type: "message",
+          role: "assistant",
+          status: "completed",
+          content: [{ type: "output_text", text: "ready", annotations: [] }],
+        };
+        const response = {
+          id: "resp_standin",
+          object: "response",
+          created_at: Math.floor(Date.now() / 1000),
+          model,
+          status: "in_progress",
+          output: [] as Array<unknown>,
+        };
+        const usage = {
+          input_tokens: 1500,
+          input_tokens_details: { cached_tokens: 500 },
+          output_tokens: 4,
+          output_tokens_details: { reasoning_tokens: 0 },
+          total_tokens: 1504,
+        };
         const events = [
           { type: "response.created", sequence_number: 0, response },
-          { type: "response.output_item.added", sequence_number: 1, output_index: 0, item: { ...item, status: "in_progress", content: [] } },
-          { type: "response.output_text.delta", sequence_number: 2, item_id: item.id, output_index: 0, content_index: 0, delta: "ready" },
+          {
+            type: "response.output_item.added",
+            sequence_number: 1,
+            output_index: 0,
+            item: { ...item, status: "in_progress", content: [] },
+          },
+          {
+            type: "response.output_text.delta",
+            sequence_number: 2,
+            item_id: item.id,
+            output_index: 0,
+            content_index: 0,
+            delta: "ready",
+          },
           { type: "response.output_item.done", sequence_number: 3, output_index: 0, item },
-          { type: "response.completed", sequence_number: 4, response: { ...response, status: "completed", output: [item], usage } },
+          {
+            type: "response.completed",
+            sequence_number: 4,
+            response: { ...response, status: "completed", output: [item], usage },
+          },
         ];
-        return new Response(events.map((data) => `event: ${data.type}\ndata: ${JSON.stringify(data)}\n\n`).join(""), { headers: { "content-type": "text/event-stream", "cache-control": "no-store", ...limits } });
+        return new Response(events.map((data) => `event: ${data.type}\ndata: ${JSON.stringify(data)}\n\n`).join(""), {
+          headers: { "content-type": "text/event-stream", "cache-control": "no-store", ...limits },
+        });
       }
       if (url.pathname === "/relay/v1/chat/completions" && request.method === "POST") {
         const asked = (await request.json().catch(() => ({}))) as { model?: unknown; stream?: unknown };
         const model = typeof asked.model === "string" ? asked.model : "standin";
-        const usage = { prompt_tokens: 1200, completion_tokens: 3, total_tokens: 1203, prompt_tokens_details: { cached_tokens: 200 } };
+        const usage = {
+          prompt_tokens: 1200,
+          completion_tokens: 3,
+          total_tokens: 1203,
+          prompt_tokens_details: { cached_tokens: 200 },
+        };
         const base = { id: "chatcmpl-standin", created: Math.floor(Date.now() / 1000), model };
         if (asked.stream === false) {
-          return json({ ...base, object: "chat.completion", choices: [{ index: 0, message: { role: "assistant", content: "ready" }, finish_reason: "stop" }], usage });
+          return json({
+            ...base,
+            object: "chat.completion",
+            choices: [{ index: 0, message: { role: "assistant", content: "ready" }, finish_reason: "stop" }],
+            usage,
+          });
         }
         const chunks = [
-          { ...base, object: "chat.completion.chunk", choices: [{ index: 0, delta: { role: "assistant", content: "ready" }, finish_reason: null }] },
+          {
+            ...base,
+            object: "chat.completion.chunk",
+            choices: [{ index: 0, delta: { role: "assistant", content: "ready" }, finish_reason: null }],
+          },
           { ...base, object: "chat.completion.chunk", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] },
           { ...base, object: "chat.completion.chunk", choices: [], usage },
         ];
@@ -175,14 +252,21 @@ export default {
         const started = Date.now();
         const stream = new ReadableStream<Uint8Array>({
           async start(controller) {
-            const event = (n: number) => controller.enqueue(encoder.encode(`data: ${JSON.stringify({ n, s: Math.round((Date.now() - started) / 1000) })}\n\n`));
+            const event = (n: number) =>
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ n, s: Math.round((Date.now() - started) / 1000) })}\n\n`),
+              );
             event(0);
             for (const [at, gap] of gaps.entries()) {
               await new Promise((resolve) => setTimeout(resolve, gap * 1000));
               event(at + 1);
             }
             controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-            await log.append({ at: new Date().toISOString(), kind: "relay-drip-done", seconds: Math.round((Date.now() - started) / 1000) });
+            await log.append({
+              at: new Date().toISOString(),
+              kind: "relay-drip-done",
+              seconds: Math.round((Date.now() - started) / 1000),
+            });
             controller.close();
           },
         });

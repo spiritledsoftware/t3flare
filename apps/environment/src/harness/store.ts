@@ -4,7 +4,20 @@
 // other's readers take it again. Sessions take a new Harness revision at a turn's start; Workspace DOs take a new
 // Environment revision before a Container start. One audit log for both, append-only, 1 000 entries kept, each with its
 // `entity`; it holds no secret value (parts 2-4's secrets are masked before an entry is written).
-import { type BaseBuildRecord, baseBuildRecord, type ContainerSetupReport, containerSetupReport, EMPTY_ENVIRONMENT, EMPTY_HARNESS, type GlobalMiseReport, globalMiseReport, type StoredEnvironment, type StoredHarness, type T3ToolListing, t3ToolListing } from "@t3flare/harness-registry";
+import {
+  type BaseBuildRecord,
+  baseBuildRecord,
+  type ContainerSetupReport,
+  containerSetupReport,
+  EMPTY_ENVIRONMENT,
+  EMPTY_HARNESS,
+  type GlobalMiseReport,
+  globalMiseReport,
+  type StoredEnvironment,
+  type StoredHarness,
+  type T3ToolListing,
+  t3ToolListing,
+} from "@t3flare/harness-registry";
 
 import { keptKey, type KvStorage } from "./keys.ts";
 

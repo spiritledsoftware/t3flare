@@ -69,6 +69,7 @@ Before SPI-1040 a linked CLI thread could not push at all (step 4a F8: the crede
 ## Refinement (tools step): CLI agents get MCP tools through the relay
 
 OD-3 is lifted. Each CLI gets MCP entries only in its managed or system scope: third-party servers at the MCP relay (`http://computer.internal/t3flare/mcp/<server>`, ADR-0028) with a per-process tool handle, and t3's own as stock t3 hands it, with t3's bearer at t3's public `/mcp` (owner, 2026-11-12, back to stock; ADR-0022):
+
 - **Codex:** `mcp_servers.<name>` on argv, approval mode `approve`, a 900 s timeout.
 - **Claude Code:** the relay's servers per session over ACP, pre-allowed in the managed `permissions.allow` (the admission lock by URL pattern was removed, owner 2026-11-12, back to stock).
 - **OpenCode:** the relay's servers and `t3-code` pre-allowed by `tool.use` (the `mcp.use` deny was removed, owner 2026-11-12, back to stock).

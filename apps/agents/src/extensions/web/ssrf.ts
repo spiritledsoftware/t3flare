@@ -7,14 +7,7 @@ import * as Option from "effect/Option";
 /** An IPv4 range: its first address as a number, and its prefix length. */
 type Range4 = { readonly base: number; readonly bits: number; readonly reason: string };
 
-const range4 = (
-  a: number,
-  b: number,
-  c: number,
-  d: number,
-  bits: number,
-  reason: string,
-): Range4 => ({
+const range4 = (a: number, b: number, c: number, d: number, bits: number, reason: string): Range4 => ({
   base: a * 2 ** 24 + b * 2 ** 16 + c * 2 ** 8 + d,
   bits,
   reason,
@@ -78,11 +71,7 @@ const inetAton = (labels: readonly string[]): number | undefined => {
 
   if (last >= 2 ** (8 * (5 - labels.length))) return undefined;
 
-  return Arr.reduce(
-    leading,
-    last,
-    (sum, value, index) => sum + (value ?? 0) * 2 ** (8 * (3 - index)),
-  );
+  return Arr.reduce(leading, last, (sum, value, index) => sum + (value ?? 0) * 2 ** (8 * (3 - index)));
 };
 
 /** The 16-bit groups of an IPv6 address, without brackets, or undefined when it is not one. */
@@ -140,8 +129,7 @@ const v4Of = (high: number, low: number): number => high * 65_536 + low;
 const v6Reason = (g: readonly number[]): string | undefined => {
   const at = (index: number): number => g[index] ?? 0;
 
-  const zeros = (from: number, to: number): boolean =>
-    Arr.every(g.slice(from, to), (group) => group === 0);
+  const zeros = (from: number, to: number): boolean => Arr.every(g.slice(from, to), (group) => group === 0);
 
   if (zeros(0, 8)) return "unspecified address";
 
@@ -198,15 +186,7 @@ export const blockedAddressReason = (address: string): string | undefined => {
 };
 
 /** Names no public DNS answers for, and the suffixes that mean a private network or the platform's metadata. */
-const BLOCKED_SUFFIXES = [
-  "localhost",
-  "local",
-  "localdomain",
-  "internal",
-  "lan",
-  "intranet",
-  "home.arpa",
-] as const;
+const BLOCKED_SUFFIXES = ["localhost", "local", "localdomain", "internal", "lan", "intranet", "home.arpa"] as const;
 
 /**
  * Why `hostname`, as the WHATWG URL parser leaves it in `URL.hostname` (IPv6 in brackets), is not a host

@@ -27,7 +27,9 @@ export type WorktreeSetupResult =
  */
 const KEPT_GIT_VARIABLES = /^GIT_(CONFIG_GLOBAL|CONFIG_SYSTEM|CONFIG_NOSYSTEM|AUTHOR_\w+|COMMITTER_\w+)$/;
 const childEnv = (): NodeJS.ProcessEnv =>
-  Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_") || KEPT_GIT_VARIABLES.test(key)));
+  Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_") || KEPT_GIT_VARIABLES.test(key)),
+  );
 
 const git = (args: ReadonlyArray<string>) => {
   // submodule.recurse is off for every command here: with the pointer broken, a recursing command fails on it.
@@ -44,7 +46,8 @@ const realpath = (target: string): string | undefined => {
 };
 
 /** Whether `dir` is a git dir whose HEAD names a commit it has: an unborn or dangling HEAD is not a usable checkout. */
-const hasCommitAtHead = (dir: string) => git([`--git-dir=${dir}`, "rev-parse", "--verify", "--quiet", "HEAD^{commit}"]).ok;
+const hasCommitAtHead = (dir: string) =>
+  git([`--git-dir=${dir}`, "rev-parse", "--verify", "--quiet", "HEAD^{commit}"]).ok;
 
 /** The directory a gitfile names, resolved against the file's own directory as git does; undefined if it names none. */
 export const gitfileTarget = (gitfile: string): string | undefined => {
@@ -78,22 +81,36 @@ type Inspection =
 export const inspectCheckout = (root: string): Inspection => {
   const gitDir = git(["-C", root, "rev-parse", "--absolute-git-dir"]);
   const commonDir = git(["-C", root, "rev-parse", "--path-format=absolute", "--git-common-dir"]);
-  if (!gitDir.ok || !commonDir.ok) return { kind: "failed", message: `${root} is not a git checkout: ${gitDir.err || commonDir.err}` };
-  const subPath = git(["-C", root, "config", "--file", ".gitmodules", "--get", `submodule.${SUBMODULE}.path`]).out || SUBMODULE;
+  if (!gitDir.ok || !commonDir.ok)
+    return { kind: "failed", message: `${root} is not a git checkout: ${gitDir.err || commonDir.err}` };
+  const subPath =
+    git(["-C", root, "config", "--file", ".gitmodules", "--get", `submodule.${SUBMODULE}.path`]).out || SUBMODULE;
   const workTree = path.join(root, subPath);
   const gitfile = path.join(workTree, ".git");
   const moduleDir = path.join(gitDir.out, "modules", SUBMODULE);
-  const layout = { root, subPath, workTree, gitfile, moduleDir, mainModuleDir: path.join(commonDir.out, "modules", SUBMODULE) };
+  const layout = {
+    root,
+    subPath,
+    workTree,
+    gitfile,
+    moduleDir,
+    mainModuleDir: path.join(commonDir.out, "modules", SUBMODULE),
+  };
 
   const stat = fs.lstatSync(gitfile, { throwIfNoEntry: false });
-  if (stat === undefined) return { kind: "uninitialised", message: `${subPath} is not checked out; run: ${INIT_COMMAND}` };
+  if (stat === undefined)
+    return { kind: "uninitialised", message: `${subPath} is not checked out; run: ${INIT_COMMAND}` };
   if (stat.isDirectory()) {
     // An embedded repository: the checkout's own, never rewritten here.
     if (hasCommitAtHead(gitfile)) return { kind: "healthy" };
-    return { kind: "failed", message: `${subPath}/.git is a repository with no commit at HEAD; move ${subPath} aside and run: ${INIT_COMMAND}` };
+    return {
+      kind: "failed",
+      message: `${subPath}/.git is a repository with no commit at HEAD; move ${subPath} aside and run: ${INIT_COMMAND}`,
+    };
   }
   const target = gitfileTarget(gitfile);
-  if (target !== undefined && realpath(target) === realpath(moduleDir) && hasCommitAtHead(target)) return { kind: "healthy" };
+  if (target !== undefined && realpath(target) === realpath(moduleDir) && hasCommitAtHead(target))
+    return { kind: "healthy" };
 
   const pin = /^160000 commit ([0-9a-f]+)\t/.exec(git(["-C", root, "ls-tree", "HEAD", subPath]).out)?.[1];
   if (pin === undefined) return { kind: "failed", message: `${subPath} is not a submodule at HEAD of ${root}` };
@@ -108,7 +125,8 @@ const replaceFile = (file: string, content: string) => {
 };
 
 /** A link from `from` to `to` that survives a symlinked path to either. */
-const relativeLink = (from: string, to: string) => path.relative(realpath(from) ?? from, path.join(realpath(path.dirname(to)) ?? path.dirname(to), path.basename(to)));
+const relativeLink = (from: string, to: string) =>
+  path.relative(realpath(from) ?? from, path.join(realpath(path.dirname(to)) ?? path.dirname(to), path.basename(to)));
 
 /**
  * Gives a broken checkout its own module dir. It is prepared beside its final place and verified to have the pinned
@@ -120,13 +138,19 @@ const repair = ({ layout, pin }: { layout: Layout; pin: string }): WorktreeSetup
   const pointAtModuleDir = () => replaceFile(gitfile, `gitdir: ${relativeLink(workTree, moduleDir)}\n`);
   if (fs.existsSync(moduleDir)) {
     if (!hasCommitAtHead(moduleDir)) {
-      return { kind: "failed", message: `${subPath}/.git points nowhere and this checkout's ${moduleDir} has no commit at HEAD; move both aside and run: ${INIT_COMMAND}` };
+      return {
+        kind: "failed",
+        message: `${subPath}/.git points nowhere and this checkout's ${moduleDir} has no commit at HEAD; move both aside and run: ${INIT_COMMAND}`,
+      };
     }
     pointAtModuleDir();
     return { kind: "repaired", message: `re-pointed ${subPath}/.git at this checkout's ${moduleDir}` };
   }
   if (!fs.existsSync(path.join(mainModuleDir, "objects"))) {
-    return { kind: "uninitialised", message: `${subPath}/.git points nowhere and the main checkout has no ${SUBMODULE} objects to borrow; run: ${INIT_COMMAND}` };
+    return {
+      kind: "uninitialised",
+      message: `${subPath}/.git points nowhere and the main checkout has no ${SUBMODULE} objects to borrow; run: ${INIT_COMMAND}`,
+    };
   }
 
   // A sibling of the module dir, so the relative core.worktree written into it holds after the rename.
@@ -159,16 +183,25 @@ const repair = ({ layout, pin }: { layout: Layout; pin: string }): WorktreeSetup
     }
     if (!result.ok) {
       fs.rmSync(staged, { recursive: true, force: true });
-      return { kind: "failed", message: `could not repair ${subPath}/.git (${result.err}); move ${subPath} aside and run: ${INIT_COMMAND}` };
+      return {
+        kind: "failed",
+        message: `could not repair ${subPath}/.git (${result.err}); move ${subPath} aside and run: ${INIT_COMMAND}`,
+      };
     }
   }
   try {
     fs.renameSync(staged, moduleDir);
     pointAtModuleDir();
   } catch (error) {
-    return { kind: "failed", message: `could not repair ${subPath}/.git (${error instanceof Error ? error.message : String(error)}); move ${subPath} aside and run: ${INIT_COMMAND}` };
+    return {
+      kind: "failed",
+      message: `could not repair ${subPath}/.git (${error instanceof Error ? error.message : String(error)}); move ${subPath} aside and run: ${INIT_COMMAND}`,
+    };
   }
-  return { kind: "repaired", message: `${subPath}/.git pointed nowhere; gave this checkout its own ${moduleDir}, borrowing the main checkout's objects` };
+  return {
+    kind: "repaired",
+    message: `${subPath}/.git pointed nowhere; gave this checkout its own ${moduleDir}, borrowing the main checkout's objects`,
+  };
 };
 
 /**

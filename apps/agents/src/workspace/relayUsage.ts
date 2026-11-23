@@ -14,7 +14,14 @@
 //   without `alt=sse` is one JSON array.
 // - Mistral: the `conversation.response.done` event's usage (Conversations), or Chat Completions' shape.
 import type { EndpointApi } from "@t3flare/models/endpoints";
-import { isUsageAgent, tokenCount, type UsageAgent, type UsageEntry, usageEntryOf, type UsageTokens } from "@t3flare/models/usage";
+import {
+  isUsageAgent,
+  tokenCount,
+  type UsageAgent,
+  type UsageEntry,
+  usageEntryOf,
+  type UsageTokens,
+} from "@t3flare/models/usage";
 
 /** The longest stream line, or JSON body, the reader copies: past it, it stops reading (the answer still goes through). */
 export const MAX_USAGE_COPY_CHARS = 4 * 1024 * 1024;
@@ -37,7 +44,8 @@ type Counts = { -readonly [K in keyof UsageTokens]: UsageTokens[K] } & { model: 
 
 type Json = Record<string, unknown>;
 
-const object = (value: unknown): Json | undefined => (typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Json) : undefined);
+const object = (value: unknown): Json | undefined =>
+  typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Json) : undefined;
 /** A vendor's count, or undefined when it gives none (so the count it gave earlier stands). */
 const num = (value: unknown): number | undefined => (typeof value === "number" ? tokenCount(value) : undefined);
 const text = (value: unknown): string | undefined => (typeof value === "string" && value !== "" ? value : undefined);
@@ -61,7 +69,13 @@ const anthropicUsage = (counts: Counts, usage: Json | undefined) => {
 };
 
 /** OpenAI's shapes, whose input counts include the cached tokens. */
-const promptUsage = (counts: Counts, input: number | undefined, cached: number | undefined, output: number | undefined, reasoning: number | undefined) => {
+const promptUsage = (
+  counts: Counts,
+  input: number | undefined,
+  cached: number | undefined,
+  output: number | undefined,
+  reasoning: number | undefined,
+) => {
   if (input !== undefined) put(counts, "input", Math.max(0, input - (cached ?? 0)));
   put(counts, "cacheRead", cached);
   put(counts, "output", output);
@@ -70,12 +84,24 @@ const promptUsage = (counts: Counts, input: number | undefined, cached: number |
 
 const responsesUsage = (counts: Counts, usage: Json | undefined) => {
   if (usage === undefined) return;
-  promptUsage(counts, num(usage.input_tokens), num(object(usage.input_tokens_details)?.cached_tokens), num(usage.output_tokens), num(object(usage.output_tokens_details)?.reasoning_tokens));
+  promptUsage(
+    counts,
+    num(usage.input_tokens),
+    num(object(usage.input_tokens_details)?.cached_tokens),
+    num(usage.output_tokens),
+    num(object(usage.output_tokens_details)?.reasoning_tokens),
+  );
 };
 
 const completionsUsage = (counts: Counts, usage: Json | undefined) => {
   if (usage === undefined) return;
-  promptUsage(counts, num(usage.prompt_tokens), num(object(usage.prompt_tokens_details)?.cached_tokens), num(usage.completion_tokens), num(object(usage.completion_tokens_details)?.reasoning_tokens));
+  promptUsage(
+    counts,
+    num(usage.prompt_tokens),
+    num(object(usage.prompt_tokens_details)?.cached_tokens),
+    num(usage.completion_tokens),
+    num(object(usage.completion_tokens_details)?.reasoning_tokens),
+  );
 };
 
 const googleUsage = (counts: Counts, usage: Json | undefined) => {
@@ -111,7 +137,12 @@ const readValue = (api: EndpointApi, counts: Counts, value: unknown): void => {
       return;
     }
     case "openai-responses": {
-      const response = typeof event.type === "string" && event.type.startsWith("response.") ? object(event.response) : event.object === "response" ? event : undefined;
+      const response =
+        typeof event.type === "string" && event.type.startsWith("response.")
+          ? object(event.response)
+          : event.object === "response"
+            ? event
+            : undefined;
       nameModel(counts, response?.model);
       responsesUsage(counts, object(response?.usage));
       return;
@@ -135,7 +166,8 @@ const readValue = (api: EndpointApi, counts: Counts, value: unknown): void => {
 };
 
 /** The agent a CLI process records under, or undefined for a process that is not a CLI agent's. */
-const agentOf = (cli: string): UsageAgent | undefined => (isUsageAgent(cli) && cli !== "durable" && cli !== "text-generation" ? cli : undefined);
+const agentOf = (cli: string): UsageAgent | undefined =>
+  isUsageAgent(cli) && cli !== "durable" && cli !== "text-generation" ? cli : undefined;
 
 /** A copy of an answer's text, read as it passes: by line (a stream) or whole (a JSON body). */
 class Reader {
@@ -221,7 +253,11 @@ class Reader {
  * whose usage can be read (a failure, a body neither a stream nor JSON, a process that is not a CLI agent's). A stream
  * the CLI cancels, or that fails, is recorded with the counts read so far (Anthropic's input is in its first event), once.
  */
-export const observeUsage = (response: Response, call: RelayCall, record: (entry: UsageEntry) => void): ReadableStream<Uint8Array> | null => {
+export const observeUsage = (
+  response: Response,
+  call: RelayCall,
+  record: (entry: UsageEntry) => void,
+): ReadableStream<Uint8Array> | null => {
   const body = response.body;
   const agent = agentOf(call.cli);
   if (body === null || agent === undefined || response.status < 200 || response.status >= 300) return body;
@@ -249,7 +285,15 @@ export const observeUsage = (response: Response, call: RelayCall, record: (entry
       // The id the request named wins over the answer's (which may be a dated version of it).
       const model = call.modelId ?? named;
       if (model === null) return;
-      const entry = usageEntryOf({ agent, endpointId: call.endpointId, modelId: model, at: call.at, session: call.session, ...tokens, costUsd: null });
+      const entry = usageEntryOf({
+        agent,
+        endpointId: call.endpointId,
+        modelId: model,
+        at: call.at,
+        session: call.session,
+        ...tokens,
+        costUsd: null,
+      });
       if (entry !== undefined) record(entry);
     });
   };

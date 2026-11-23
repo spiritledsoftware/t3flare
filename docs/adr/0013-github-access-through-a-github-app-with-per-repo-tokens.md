@@ -29,6 +29,7 @@ Work started over a Peer link may `git push` the project's repo, but **every pus
 t3's GitHub features act as the **App**, not as the owner. They call GitHub with an installation token, so GitHub attributes what they do (a pull request opened, a comment, a review) to the App's bot account, and pushes use App tokens.
 
 Some features need an owner's user token, and they are missing by this decision, not by a bug:
+
 - "my PRs" filters
 - starred repositories
 - publishing a new repository
@@ -54,6 +55,7 @@ Supersedes step 3's residual risk and the write half of step 2a's Container toke
 - **A card shows GitHub's truth** (the tips GitHub advertised, the exact refs and ids) beside what the Workspace reports (commit subjects, fast-forward), labelled as the Workspace's claim (review M6). A card whose git went away is withdrawn (review M7).
 
 Accepted costs and residual risks:
+
 - **100 MiB per push.** Cloudflare caps a request body through an outbound handler at 100 MiB (P3: 90 MiB landed, 110 MiB got 413). A bigger push fails; split it. A ticket asks Cloudflare to raise the cap.
 - **Git LFS** uploads go to GitHub's LFS API, not receive-pack; with a read-only token they fail. Ticketed.
 - **GitHub Actions.** An approved push can still change `.github/workflows` in an opted-in Workspace, and any pushed branch runs the repo's existing workflows with their secrets: approving a push is approving what CI will run. Recommended for the owner's repos: default workflow permissions read-only (`GITHUB_TOKEN`), and branch protection on the default branch.

@@ -45,30 +45,15 @@ export class ComputerBinaryReader implements BinaryReader {
     return info.ok ? ok({ ...info.value, name: this.#name(), path: this.#path }) : info;
   }
 
-  async read(
-    offset: number,
-    length: number,
-    context: Context,
-  ): Promise<Result<Uint8Array, FileError>> {
+  async read(offset: number, length: number, context: Context): Promise<Result<Uint8Array, FileError>> {
     const aborted = abortedResult<Uint8Array>(context, this.#path);
 
     if (aborted !== undefined) return aborted;
 
     if (this.#closed) return closed("Binary reader", this.#path);
 
-    if (
-      !Number.isSafeInteger(offset) ||
-      offset < 0 ||
-      !Number.isSafeInteger(length) ||
-      length < 0
-    ) {
-      return err(
-        new FileError(
-          "invalid",
-          "Offset and length must be non-negative safe integers",
-          this.#path,
-        ),
-      );
+    if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(length) || length < 0) {
+      return err(new FileError("invalid", "Offset and length must be non-negative safe integers", this.#path));
     }
 
     return this.#call(context, "read", this.#handle, offset, length);
@@ -122,10 +107,7 @@ export class ComputerDirReader implements DirReader {
     this.#names = names;
   }
 
-  async next(
-    maxEntries: number,
-    context: Context,
-  ): Promise<Result<{ entries: FileInfo[]; done: boolean }, FileError>> {
+  async next(maxEntries: number, context: Context): Promise<Result<{ entries: FileInfo[]; done: boolean }, FileError>> {
     const aborted = abortedResult<{ entries: FileInfo[]; done: boolean }>(context, this.#path);
 
     if (aborted !== undefined) return aborted;
@@ -133,9 +115,7 @@ export class ComputerDirReader implements DirReader {
     if (this.#closed) return closed("Directory reader", this.#path);
 
     if (!Number.isSafeInteger(maxEntries) || maxEntries <= 0) {
-      return err(
-        new FileError("invalid", "maxEntries must be a positive safe integer", this.#path),
-      );
+      return err(new FileError("invalid", "maxEntries must be a positive safe integer", this.#path));
     }
 
     const entries: FileInfo[] = [];

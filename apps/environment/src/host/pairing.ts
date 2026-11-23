@@ -39,18 +39,25 @@ export const arm = async (storage: KeyValue, minutes: number, now: Date): Promis
   return until;
 };
 
-const jsonAnswer = (value: unknown, status: number) => new Response(JSON.stringify(value, null, 2), { status, headers: { "content-type": "application/json" } });
+const jsonAnswer = (value: unknown, status: number) =>
+  new Response(JSON.stringify(value, null, 2), { status, headers: { "content-type": "application/json" } });
 
 /**
  * `POST /_t3flare/arm-bootstrap?minutes=N` (admin.ts): opens the window for N minutes, DEFAULT_ARM_MINUTES without it.
  * A non-numeric or non-positive N is refused (400), as is one whose close a Date cannot hold (about 270,000 years
  * past 1970: the stored close is a Date's ISO string); nothing is armed then.
  */
-export const armRoute = async (url: URL, deps: { readonly arm: (minutes: number) => Promise<Date> }, now: Date = new Date()): Promise<Response> => {
+export const armRoute = async (
+  url: URL,
+  deps: { readonly arm: (minutes: number) => Promise<Date> },
+  now: Date = new Date(),
+): Promise<Response> => {
   const raw = url.searchParams.get("minutes");
   const minutes = raw === null ? DEFAULT_ARM_MINUTES : raw.trim() === "" ? Number.NaN : Number(raw);
-  if (!Number.isFinite(minutes) || minutes <= 0) return jsonAnswer({ error: `minutes must be a positive number, not ${JSON.stringify(raw)}` }, 400);
-  if (Number.isNaN(new Date(now.getTime() + minutes * 60_000).getTime())) return jsonAnswer({ error: `minutes is past the latest time a Date can hold: ${raw}` }, 400);
+  if (!Number.isFinite(minutes) || minutes <= 0)
+    return jsonAnswer({ error: `minutes must be a positive number, not ${JSON.stringify(raw)}` }, 400);
+  if (Number.isNaN(new Date(now.getTime() + minutes * 60_000).getTime()))
+    return jsonAnswer({ error: `minutes is past the latest time a Date can hold: ${raw}` }, 400);
   const until = await deps.arm(minutes);
   return jsonAnswer({ armedUntil: until.toISOString(), note: PAIRING_CONSEQUENCE }, 200);
 };
@@ -74,7 +81,11 @@ export const keepWindowClosing = async (storage: PairingStorage): Promise<void> 
  * What the alarm does about the window when it fires: `close-window` once a seeded grant outlives it (restart t3 without
  * it); otherwise `keep`, after setting the alarm again for the close, since an earlier alarm may have displaced it.
  */
-export const onAlarm = async (storage: PairingStorage, runtime: { readonly seeded: boolean }, now: Date): Promise<"close-window" | "keep"> => {
+export const onAlarm = async (
+  storage: PairingStorage,
+  runtime: { readonly seeded: boolean },
+  now: Date,
+): Promise<"close-window" | "keep"> => {
   if (!runtime.seeded) return "keep";
   if (!(await isArmed(storage, now))) return "close-window";
   await keepWindowClosing(storage);
@@ -87,7 +98,11 @@ export const onAlarm = async (storage: PairingStorage, runtime: { readonly seede
  * (`/oauth/mcp/decision`; t3 itself refuses a grant that is not one-time there, so this is defence in depth). t3's
  * `/oauth/mcp/approval` carries no credential.
  */
-export const BOOTSTRAP_EXCHANGE_PATHS: ReadonlySet<string> = new Set(["/api/auth/browser-session", "/oauth/token", "/oauth/mcp/decision"]);
+export const BOOTSTRAP_EXCHANGE_PATHS: ReadonlySet<string> = new Set([
+  "/api/auth/browser-session",
+  "/oauth/token",
+  "/oauth/mcp/decision",
+]);
 
 /** The credential fields of t3's bootstrap exchanges: `/api/auth/browser-session` (JSON) and `/oauth/token` (form). */
 const CREDENTIAL_FIELDS = ["credential", "subject_token"] as const;

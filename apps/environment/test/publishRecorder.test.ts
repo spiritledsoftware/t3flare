@@ -25,13 +25,22 @@ describe("publish recorder", () => {
   });
 
   it("matches messages t3's relay still logs: a renamed one would leave the recorder blind (U28)", () => {
-    const source = fs.readFileSync(new URL("../../../t3code/apps/server/src/relay/AgentAwarenessRelay.ts", import.meta.url), "utf8");
+    const source = fs.readFileSync(
+      new URL("../../../t3code/apps/server/src/relay/AgentAwarenessRelay.ts", import.meta.url),
+      "utf8",
+    );
     for (const message of Object.keys(MESSAGES)) expect(source, message).toContain(`"${message}"`);
   });
 
   it("records a publish from its start to the relay's answer, holding the reset until it lands", () => {
     const recorder = makePublishRecorder(memoryStore());
-    recorder.record(["publishing agent activity for thread", { threadId: T1, statePhase: "running", hasState: true, reason: "snapshot" }], at(1));
+    recorder.record(
+      [
+        "publishing agent activity for thread",
+        { threadId: T1, statePhase: "running", hasState: true, reason: "snapshot" },
+      ],
+      at(1),
+    );
     expect(Idle.activeHolds(at(2).getTime())).toEqual([`publish:${T1}`]);
     recorder.record(["agent activity publish completed", { threadId: T1, ok: true, deliveries }], at(2));
     expect(Idle.activeHolds(at(3).getTime())).toEqual([]);
@@ -43,9 +52,18 @@ describe("publish recorder", () => {
 
   it("holds through the completion's 5 s confirmation and through retries, and lets go once retries are exhausted", () => {
     const recorder = makePublishRecorder(memoryStore());
-    recorder.record(["agent activity publish deferred pending confirmation", { threadId: T1, statePhase: "completed", reason: "snapshot" }], at(1));
+    recorder.record(
+      [
+        "agent activity publish deferred pending confirmation",
+        { threadId: T1, statePhase: "completed", reason: "snapshot" },
+      ],
+      at(1),
+    );
     expect(Idle.activeHolds(at(5).getTime())).toEqual([`publish:${T1}`]);
-    recorder.record(["agent activity publish failed", { threadId: T1, cause: "RelayRequestError: Service Unavailable (status 503)" }], at(7));
+    recorder.record(
+      ["agent activity publish failed", { threadId: T1, cause: "RelayRequestError: Service Unavailable (status 503)" }],
+      at(7),
+    );
     expect(Idle.activeHolds(at(30).getTime())).toEqual([`publish:${T1}`]);
     recorder.record(["agent activity publish retry budget exhausted; retrying every minute", { threadId: T1 }], at(40));
     expect(Idle.activeHolds(at(41).getTime())).toEqual([]);
@@ -55,7 +73,8 @@ describe("publish recorder", () => {
 
   it("classifies a refusal by its status and keeps none of the failure's text", () => {
     const recorder = makePublishRecorder(memoryStore());
-    const cause = "Unauthorized (status 401) Bearer abcdefghijklmnop https://relay.t3.codes/v1/environments/e/threads/t";
+    const cause =
+      "Unauthorized (status 401) Bearer abcdefghijklmnop https://relay.t3.codes/v1/environments/e/threads/t";
     recorder.record(["agent activity publish failed", { threadId: T1, cause }], at(1));
     const [entry] = recorder.entries();
     expect(entry).toMatchObject({ event: "failed", status: 401, rejected: true });
@@ -65,8 +84,20 @@ describe("publish recorder", () => {
 
   it("reads the status from the relay's named error, as t3's Cause.pretty gives it (seen on the stage, M2 row j)", () => {
     const recorder = makePublishRecorder(memoryStore());
-    recorder.record(["agent activity publish failed", { threadId: T1, cause: "RelayAuthInvalidError: Relay authentication failed: invalid_bearer\n    at …" }], at(1));
-    recorder.record(["agent activity publish failed", { threadId: T1, cause: "RelayAgentActivityPublishProofExpiredError: proof expired" }], at(2));
+    recorder.record(
+      [
+        "agent activity publish failed",
+        { threadId: T1, cause: "RelayAuthInvalidError: Relay authentication failed: invalid_bearer\n    at …" },
+      ],
+      at(1),
+    );
+    recorder.record(
+      [
+        "agent activity publish failed",
+        { threadId: T1, cause: "RelayAgentActivityPublishProofExpiredError: proof expired" },
+      ],
+      at(2),
+    );
     expect(recorder.entries().map(({ status, errorTag, rejected }) => ({ status, errorTag, rejected }))).toEqual([
       { status: 401, errorTag: "RelayAuthInvalidError", rejected: true },
       { status: 401, errorTag: "RelayAgentActivityPublishProofExpiredError", rejected: false },
@@ -78,7 +109,8 @@ describe("publish recorder", () => {
     const recorder = makePublishRecorder(store);
     recorder.record(["something else entirely", { threadId: T1 }], at(1));
     recorder.record("a plain message", at(1));
-    for (let i = 0; i < 120; i++) recorder.record(["publishing agent activity for thread", { threadId: `t${i}`, statePhase: "running" }], at(2));
+    for (let i = 0; i < 120; i++)
+      recorder.record(["publishing agent activity for thread", { threadId: `t${i}`, statePhase: "running" }], at(2));
     expect(recorder.entries()).toHaveLength(100);
     expect(makePublishRecorder(store).entries()).toEqual(recorder.entries());
   });

@@ -31,7 +31,10 @@ const memory = () => {
 let logged: Array<string> = [];
 beforeEach(() => {
   logged = [];
-  for (const level of ["log", "warn", "error", "info"] as const) vi.spyOn(console, level).mockImplementation((...args: Array<unknown>) => void logged.push(args.map(String).join(" ")));
+  for (const level of ["log", "warn", "error", "info"] as const)
+    vi.spyOn(console, level).mockImplementation(
+      (...args: Array<unknown>) => void logged.push(args.map(String).join(" ")),
+    );
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -40,7 +43,12 @@ const setup = async (options: { readonly credentialsKey?: string } = {}) => {
   const now = () => clock;
   const vendor = await fakeOpenAI({ now });
   const kv = memory();
-  const broker = credentialBroker({ kv, sealed: sealedStore(kv, options.credentialsKey ?? KEY, now), vendors: { chatgpt: chatgptSignIn({ fetch: vendor.fetch, now }) }, now });
+  const broker = credentialBroker({
+    kv,
+    sealed: sealedStore(kv, options.credentialsKey ?? KEY, now),
+    vendors: { chatgpt: chatgptSignIn({ fetch: vendor.fetch, now }) },
+    now,
+  });
   return { kv, vendor, broker, advance: (ms: number) => void (clock += ms), now };
 };
 
@@ -64,7 +72,13 @@ describe("the Credential broker", () => {
   it("signs in from a pasted redirect, seals the tokens and gives the access token with its expiry", async () => {
     const { kv, vendor, broker, now } = await setup();
     expect(await signIn(broker, vendor)).toMatchObject({ ok: true });
-    expect(broker.status("chatgpt")).toMatchObject({ signedIn: true, email: "owner@example.com", expiresAt: now() + HOUR, pendingSince: null, problem: null });
+    expect(broker.status("chatgpt")).toMatchObject({
+      signedIn: true,
+      email: "owner@example.com",
+      expiresAt: now() + HOUR,
+      pendingSince: null,
+      problem: null,
+    });
     const access = await broker.access("chatgpt");
     expect(access).toEqual({ ok: true, accessToken: vendor.issued[0], expiresAt: now() + HOUR });
     expect((await broker.read("chatgpt"))?.type).toBe("oauth");
@@ -125,7 +139,10 @@ describe("the Credential broker", () => {
     const answer = await broker.access("chatgpt");
     expect(answer).toMatchObject({ ok: false, signedOut: true });
     if (!answer.ok) expect(answer.problem).toMatch(/ChatGPT refused to renew the sign-in \(invalid_grant\)/);
-    expect(broker.status("chatgpt")).toMatchObject({ signedIn: false, problem: expect.stringMatching(/invalid_grant/) });
+    expect(broker.status("chatgpt")).toMatchObject({
+      signedIn: false,
+      problem: expect.stringMatching(/invalid_grant/),
+    });
     expect(await broker.read("chatgpt")).toBeUndefined();
     // No retry loop: the next ask fails at once, without another refresh.
     expect(await broker.access("chatgpt")).toMatchObject({ ok: false, signedOut: true });
@@ -163,7 +180,9 @@ describe("the Credential broker", () => {
     const refused = broker.access("chatgpt");
     await slow.arrived;
     let settled = false;
-    const again = broker.complete("chatgpt", vendor.approve(authorizeUrl, { sub: "user-7" })).finally(() => (settled = true));
+    const again = broker
+      .complete("chatgpt", vendor.approve(authorizeUrl, { sub: "user-7" }))
+      .finally(() => (settled = true));
     // However long it is given, the completion cannot finish while the refusal holds the lock (only the negative
     // direction rests on this wait).
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -185,7 +204,9 @@ describe("the Credential broker", () => {
     expect(broker.status("chatgpt").subject).toBeNull();
     vendor.options.refreshError = undefined;
     const { authorizeUrl } = await broker.start("chatgpt", "chatgpt");
-    expect(await broker.complete("chatgpt", vendor.approve(authorizeUrl, { sub: "user-9", email: "other@example.com" }))).toMatchObject({ ok: true });
+    expect(
+      await broker.complete("chatgpt", vendor.approve(authorizeUrl, { sub: "user-9", email: "other@example.com" })),
+    ).toMatchObject({ ok: true });
     scan(kv, vendor);
   });
 
@@ -207,7 +228,9 @@ describe("the Credential broker", () => {
     await Promise.all([refreshing, out]);
     const { authorizeUrl } = await started;
     expect(broker.status("chatgpt").pendingSince).not.toBeNull();
-    expect(await broker.complete("chatgpt", vendor.approve(authorizeUrl, { sub: "user-7" }))).toMatchObject({ ok: true });
+    expect(await broker.complete("chatgpt", vendor.approve(authorizeUrl, { sub: "user-7" }))).toMatchObject({
+      ok: true,
+    });
     scan(kv, vendor);
   });
 
@@ -286,7 +309,9 @@ describe("the Credential broker", () => {
     const order: Array<string> = [];
     const out = await broker.signOut("chatgpt", {
       beforeRevoke: async () => {
-        order.push(`removed: ${(await broker.read("chatgpt")) === undefined}, revocations: ${vendor.counts.revocations}`);
+        order.push(
+          `removed: ${(await broker.read("chatgpt")) === undefined}, revocations: ${vendor.counts.revocations}`,
+        );
       },
     });
     expect(out).toEqual({ signedOut: true, revoked: true });
@@ -338,9 +363,16 @@ describe("the Credential broker", () => {
     const result = await signIn(broker, vendor);
     expect(result).toMatchObject({ ok: false });
     if (!result.ok) expect(result.problem).toMatch(/Plus or Pro/);
-    expect(broker.status("chatgpt")).toMatchObject({ signedIn: false, pendingSince: null, problem: expect.stringMatching(/invalid_grant/) });
+    expect(broker.status("chatgpt")).toMatchObject({
+      signedIn: false,
+      pendingSince: null,
+      problem: expect.stringMatching(/invalid_grant/),
+    });
     // The code is spent: a second paste finds no sign-in waiting.
-    expect(await broker.complete("chatgpt", "http://127.0.0.1:1455/auth/callback?code=x&state=y")).toMatchObject({ ok: false, problem: expect.stringMatching(/No sign-in is waiting/) });
+    expect(await broker.complete("chatgpt", "http://127.0.0.1:1455/auth/callback?code=x&state=y")).toMatchObject({
+      ok: false,
+      problem: expect.stringMatching(/No sign-in is waiting/),
+    });
     scan(kv, vendor);
   });
 
@@ -352,7 +384,10 @@ describe("the Credential broker", () => {
     expect(await broker.complete("chatgpt", callback)).toMatchObject({ ok: true });
     const again = await broker.start("chatgpt", "chatgpt");
     advance(31 * 60_000);
-    expect(await broker.complete("chatgpt", vendor.approve(again.authorizeUrl))).toMatchObject({ ok: false, problem: expect.stringMatching(/lapsed/) });
+    expect(await broker.complete("chatgpt", vendor.approve(again.authorizeUrl))).toMatchObject({
+      ok: false,
+      problem: expect.stringMatching(/lapsed/),
+    });
     scan(kv, vendor);
   });
 
@@ -392,7 +427,10 @@ describe("the Credential broker", () => {
     await slow.arrived;
     expect(await broker.signOut("chatgpt")).toEqual({ signedOut: false, revoked: false });
     slow.open();
-    expect(await completing).toMatchObject({ ok: false, problem: expect.stringMatching(/signed out or started again/) });
+    expect(await completing).toMatchObject({
+      ok: false,
+      problem: expect.stringMatching(/signed out or started again/),
+    });
     expect(await broker.read("chatgpt")).toBeUndefined();
     expect(broker.status("chatgpt")).toMatchObject({ signedIn: false, pendingSince: null });
     expect(vendor.revoked.has(vendor.currentRefresh()!)).toBe(true);
@@ -417,7 +455,9 @@ describe("the Credential broker", () => {
     await broker.signOut("chatgpt");
     expect(broker.status("chatgpt").subject).toBeNull();
     const { authorizeUrl } = await broker.start("chatgpt", "chatgpt");
-    expect(await broker.complete("chatgpt", vendor.approve(authorizeUrl, { sub: "user-8", email: "other@example.com" }))).toMatchObject({ ok: true });
+    expect(
+      await broker.complete("chatgpt", vendor.approve(authorizeUrl, { sub: "user-8", email: "other@example.com" })),
+    ).toMatchObject({ ok: true });
     expect(broker.status("chatgpt")).toMatchObject({ signedIn: true, email: "other@example.com" });
     scan(kv, vendor);
   });
@@ -425,9 +465,10 @@ describe("the Credential broker", () => {
   it("revokes at sign-out even when stopping the Sessions failed", async () => {
     const { kv, vendor, broker } = await setup();
     await signIn(broker, vendor);
-    expect(await broker.signOut("chatgpt", { beforeRevoke: () => Promise.reject(new Error("a Session broke")) })).toEqual({ signedOut: true, revoked: true });
+    expect(
+      await broker.signOut("chatgpt", { beforeRevoke: () => Promise.reject(new Error("a Session broke")) }),
+    ).toEqual({ signedOut: true, revoked: true });
     expect(vendor.counts.revocations).toBe(1);
     scan(kv, vendor);
   });
 });
-

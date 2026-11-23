@@ -11,8 +11,24 @@
 // @effect-diagnostics extendsNativeError:off -- `GithubReadError` is thrown from Promise code and read with `instanceof`.
 import { frontmatterFields, sha256Hex } from "@t3flare/skills";
 
-import { MAX_BLOB_READS, MAX_FILE_BYTES, MAX_SKILL_CANDIDATES, MAX_SKILL_DESCRIPTION_LENGTH, problemsIn, skillNameProblem, treeProblems } from "./checks.ts";
-import { findSkillMdPaths, folderHashOf, linksIn, skillFilesIn, skillFolderOf, skillMdIn, type TreeEntry } from "./paths.ts";
+import {
+  MAX_BLOB_READS,
+  MAX_FILE_BYTES,
+  MAX_SKILL_CANDIDATES,
+  MAX_SKILL_DESCRIPTION_LENGTH,
+  problemsIn,
+  skillNameProblem,
+  treeProblems,
+} from "./checks.ts";
+import {
+  findSkillMdPaths,
+  folderHashOf,
+  linksIn,
+  skillFilesIn,
+  skillFolderOf,
+  skillMdIn,
+  type TreeEntry,
+} from "./paths.ts";
 import type { SkillSourceInput } from "./source.ts";
 
 /** A repo on GitHub. */
@@ -28,7 +44,16 @@ export interface RepoTree {
   readonly truncated: boolean;
 }
 
-export type FetchFailureKind = "not_found" | "rate_limited" | "refused" | "truncated" | "bad_ref" | "no_skills" | "no_match" | "too_many" | "failed";
+export type FetchFailureKind =
+  | "not_found"
+  | "rate_limited"
+  | "refused"
+  | "truncated"
+  | "bad_ref"
+  | "no_skills"
+  | "no_match"
+  | "too_many"
+  | "failed";
 
 /** A failed read of GitHub: what kind of failure, and what to tell. */
 export class GithubReadError extends Error {
@@ -90,10 +115,14 @@ export const readSkillMd = (text: string): SkillMdInfo => {
   if (name === "") return { ok: false, message: "SKILL.md's frontmatter sets no name" };
   if (description === "") return { ok: false, message: "SKILL.md's frontmatter sets no description" };
   if (description.length > MAX_SKILL_DESCRIPTION_LENGTH) {
-    return { ok: false, message: `SKILL.md's description is ${description.length} characters, more than the ${MAX_SKILL_DESCRIPTION_LENGTH} it may be` };
+    return {
+      ok: false,
+      message: `SKILL.md's description is ${description.length} characters, more than the ${MAX_SKILL_DESCRIPTION_LENGTH} it may be`,
+    };
   }
   const metadata = fields.metadata;
-  const internal = typeof metadata === "object" && metadata !== null && (metadata as Record<string, unknown>).internal === true;
+  const internal =
+    typeof metadata === "object" && metadata !== null && (metadata as Record<string, unknown>).internal === true;
   return { ok: true, name, description, internal, disableModelInvocation: fields["disable-model-invocation"] === true };
 };
 
@@ -110,7 +139,9 @@ const basename = (path: string): string => path.slice(path.lastIndexOf("/") + 1)
 
 /** Whether the Skill named `skill.name` in folder `skill.path` is the one `name` asks for. */
 export const isNamedSkill = (skill: { readonly name: string; readonly path: string }, name: string): boolean =>
-  skill.name.toLowerCase() === name.toLowerCase() || slug(skill.name) === slug(name) || slug(basename(skill.path)) === slug(name);
+  skill.name.toLowerCase() === name.toLowerCase() ||
+  slug(skill.name) === slug(name) ||
+  slug(basename(skill.path)) === slug(name);
 
 /** The most blobs read at once. */
 const CONCURRENCY = 6;
@@ -143,7 +174,11 @@ const decoder = new TextDecoder();
  * The commit `ref` names and its tree. A ref the repo does not have is told apart from a repo that cannot be read: when
  * the ref is not found, the default branch is asked, so a repo that answers it has no such ref.
  */
-const readRepoAt = async (reader: RepoReader, repo: SkillRepo, ref: string | null): Promise<{ readonly commit: string; readonly tree: RepoTree }> => {
+const readRepoAt = async (
+  reader: RepoReader,
+  repo: SkillRepo,
+  ref: string | null,
+): Promise<{ readonly commit: string; readonly tree: RepoTree }> => {
   const name = `${repo.owner}/${repo.name}`;
   const commit = await reader.commit(repo, ref).catch(async (cause: unknown) => {
     if (ref !== null && cause instanceof GithubReadError && cause.kind === "not_found") {
@@ -151,13 +186,20 @@ const readRepoAt = async (reader: RepoReader, repo: SkillRepo, ref: string | nul
         () => true,
         () => false,
       );
-      if (head) throw new GithubReadError("bad_ref", `${name} has no ref ${JSON.stringify(ref)} (a branch, a tag or a commit).`);
+      if (head)
+        throw new GithubReadError(
+          "bad_ref",
+          `${name} has no ref ${JSON.stringify(ref)} (a branch, a tag or a commit).`,
+        );
     }
     throw cause;
   });
   const tree = await reader.tree(repo, commit);
   if (tree.truncated) {
-    throw new GithubReadError("truncated", `GitHub listed only part of ${name}'s files (the repo is larger than one listing holds), so its Skills cannot be found reliably. Install from a smaller repo, or fork the Skills into one.`);
+    throw new GithubReadError(
+      "truncated",
+      `GitHub listed only part of ${name}'s files (the repo is larger than one listing holds), so its Skills cannot be found reliably. Install from a smaller repo, or fork the Skills into one.`,
+    );
   }
   return { commit, tree };
 };
@@ -208,7 +250,9 @@ const previewProblems = (tree: RepoTree, skillMdPath: string, name: string, skil
 /** A tree entry as the checks take it: its path in the folder, `SKILL.md` in that case. */
 const fileOf =
   (skillMdPath: string) =>
-  (entry: TreeEntry & { readonly relative: string }): { readonly relative: string; readonly size?: number | undefined } => ({
+  (
+    entry: TreeEntry & { readonly relative: string },
+  ): { readonly relative: string; readonly size?: number | undefined } => ({
     relative: entry.path === skillMdPath ? "SKILL.md" : entry.relative,
     size: entry.size,
   });
@@ -218,15 +262,22 @@ const fileOf =
  * it. Reads one commit, one tree and the candidates' `SKILL.md` (at most `MAX_SKILL_CANDIDATES`); no other file, so the
  * content checks of the other files run at install.
  */
-export const previewSkills = async (reader: RepoReader, source: SkillSourceInput, options: { readonly detail?: boolean } = {}): Promise<Preview | Failed> => {
+export const previewSkills = async (
+  reader: RepoReader,
+  source: SkillSourceInput,
+  options: { readonly detail?: boolean } = {},
+): Promise<Preview | Failed> => {
   const repo: SkillRepo = { owner: source.owner, name: source.name };
   try {
     const { commit, tree } = await readRepoAt(reader, repo, source.ref);
     const where = source.path === "" ? source.repo : `${source.repo} under ${source.path}`;
-    const found = findSkillMdPaths({ tree: tree.entries }, source.path || undefined).filter((path) => basename(path).toLowerCase() === "skill.md");
+    const found = findSkillMdPaths({ tree: tree.entries }, source.path || undefined).filter(
+      (path) => basename(path).toLowerCase() === "skill.md",
+    );
     if (found.length === 0) return failed("no_skills", `${where} holds no Skill (no folder with a SKILL.md).`);
     // A named Skill whose folder is named so is found without reading the others' `SKILL.md`.
-    const byFolder = source.skill === null ? [] : found.filter((path) => slug(basename(skillFolderOf(path))) === slug(source.skill!));
+    const byFolder =
+      source.skill === null ? [] : found.filter((path) => slug(basename(skillFolderOf(path))) === slug(source.skill!));
     const walk = byFolder.length > 0 ? byFolder : found;
     const toRead = walk.slice(0, MAX_SKILL_CANDIDATES);
     const entryOf = new Map(tree.entries.map((entry) => [entry.path, entry] as const));
@@ -235,7 +286,15 @@ export const previewSkills = async (reader: RepoReader, source: SkillSourceInput
       const entry = entryOf.get(skillMdPath)!;
       const folder = skillFolderOf(skillMdPath);
       if (entry.size !== undefined && entry.size > MAX_FILE_BYTES) {
-        return { folder, skillMdPath, info: { ok: false, message: `SKILL.md: ${entry.size} bytes, more than the ${MAX_FILE_BYTES} a Skill's file may be` } as SkillMdInfo, bytes: new Uint8Array() };
+        return {
+          folder,
+          skillMdPath,
+          info: {
+            ok: false,
+            message: `SKILL.md: ${entry.size} bytes, more than the ${MAX_FILE_BYTES} a Skill's file may be`,
+          } as SkillMdInfo,
+          bytes: new Uint8Array(),
+        };
       }
       const bytes = await reader.blob(repo, entry.sha);
       return { folder, skillMdPath, info: readSkillMd(decoder.decode(bytes)), bytes };
@@ -267,13 +326,24 @@ export const previewSkills = async (reader: RepoReader, source: SkillSourceInput
         internal: info.internal,
         digest: await folderHashOf({ tree: tree.entries }, skillMdPath),
         problems,
-        ...(options.detail === true ? { skillMd: decoder.decode(bytes), paths: entries.map((entry) => fileOf(skillMdPath)(entry).relative) } : {}),
+        ...(options.detail === true
+          ? { skillMd: decoder.decode(bytes), paths: entries.map((entry) => fileOf(skillMdPath)(entry).relative) }
+          : {}),
       });
     }
     if (source.skill !== null && skills.length === 0) {
       return failed("no_match", `${where} has no Skill named ${JSON.stringify(source.skill)}.`);
     }
-    return { status: "listed", repo: source.repo, ref: source.ref, commit, skills, unreadable, internal, omitted: walk.length - toRead.length };
+    return {
+      status: "listed",
+      repo: source.repo,
+      ref: source.ref,
+      commit,
+      skills,
+      unreadable,
+      internal,
+      omitted: walk.length - toRead.length,
+    };
   } catch (cause) {
     return asFailure(cause);
   }
@@ -313,23 +383,34 @@ export interface Fetched {
  * why not. Each folder's `SKILL.md` is read first (for its name), then the folder is checked from the tree; the other
  * files are read only when the checks pass, and none when they are more than `MAX_BLOB_READS` together.
  */
-export const fetchSkills = async (reader: RepoReader, request: { readonly repo: SkillRepo; readonly commit: string; readonly folders: ReadonlyArray<string> }): Promise<Fetched | Failed> => {
+export const fetchSkills = async (
+  reader: RepoReader,
+  request: { readonly repo: SkillRepo; readonly commit: string; readonly folders: ReadonlyArray<string> },
+): Promise<Fetched | Failed> => {
   const { repo, folders } = request;
   const where = `${repo.owner}/${repo.name}`;
   try {
     const tree = await reader.tree(repo, request.commit);
-    if (tree.truncated) return failed("truncated", `GitHub listed only part of ${where}'s files (the repo is larger than one listing holds), so its Skills cannot be read reliably.`);
+    if (tree.truncated)
+      return failed(
+        "truncated",
+        `GitHub listed only part of ${where}'s files (the repo is larger than one listing holds), so its Skills cannot be read reliably.`,
+      );
     const refused: Array<{ readonly path: string; readonly message: string }> = [];
     const located = folders.flatMap((folder) => {
       const skillMdPath = skillMdIn({ tree: tree.entries }, folder);
       if (skillMdPath === undefined) {
-        refused.push({ path: folder, message: `${folder === "" ? where : `${where}/${folder}`} holds no SKILL.md at ${request.commit.slice(0, 7)}` });
+        refused.push({
+          path: folder,
+          message: `${folder === "" ? where : `${where}/${folder}`} holds no SKILL.md at ${request.commit.slice(0, 7)}`,
+        });
         return [];
       }
       return [{ folder, skillMdPath, entries: skillFilesIn({ tree: tree.entries }, skillMdPath) }];
     });
     const reads = located.reduce((sum, skill) => sum + skill.entries.length, 0);
-    if (reads > MAX_BLOB_READS) return failed("too_many", `These skills hold ${reads} files; install at most ${MAX_BLOB_READS} files at a time.`);
+    if (reads > MAX_BLOB_READS)
+      return failed("too_many", `These skills hold ${reads} files; install at most ${MAX_BLOB_READS} files at a time.`);
     await reader.beforeBlobs?.(reads);
     // A blob two Skills share is asked once.
     const blobs = new Map<string, Promise<Uint8Array>>();
@@ -352,7 +433,11 @@ export const fetchSkills = async (reader: RepoReader, request: { readonly repo: 
         refused.push({ path: folder, message: `${info.name}: ${before.join("; ")}` });
         continue;
       }
-      const contents = await mapLimited(entries, async (entry) => ({ path: fileOf(skillMdPath)(entry).relative, entry, bytes: await blob(entry.sha) }));
+      const contents = await mapLimited(entries, async (entry) => ({
+        path: fileOf(skillMdPath)(entry).relative,
+        entry,
+        bytes: await blob(entry.sha),
+      }));
       const problems = contents.flatMap(({ path, bytes }) => (path === "SKILL.md" ? [] : problemsIn(path, bytes)));
       if (problems.length > 0) {
         refused.push({ path: folder, message: `${info.name}: ${problems.join("; ")}` });
@@ -408,7 +493,10 @@ export interface Checked {
  * Whether the Skills `kept` of `repo` have moved at `ref`'s latest commit: one commit and one tree for all of them, and
  * no file read. A folder that lost its `SKILL.md` is `gone`; a name changed in the frontmatter is told at the update.
  */
-export const checkSkills = async (reader: RepoReader, request: { readonly repo: SkillRepo; readonly ref: string | null; readonly kept: ReadonlyArray<KeptForCheck> }): Promise<Checked | Failed> => {
+export const checkSkills = async (
+  reader: RepoReader,
+  request: { readonly repo: SkillRepo; readonly ref: string | null; readonly kept: ReadonlyArray<KeptForCheck> },
+): Promise<Checked | Failed> => {
   const { repo } = request;
   try {
     const { commit, tree } = await readRepoAt(reader, repo, request.ref);
@@ -416,20 +504,31 @@ export const checkSkills = async (reader: RepoReader, request: { readonly repo: 
     for (const skill of request.kept) {
       const skillMdPath = skillMdIn({ tree: tree.entries }, skill.path);
       if (skillMdPath === undefined) {
-        results.push({ name: skill.name, status: "gone", message: `No longer in ${repo.owner}/${repo.name} at ${request.ref ?? "the default branch"}` });
+        results.push({
+          name: skill.name,
+          status: "gone",
+          message: `No longer in ${repo.owner}/${repo.name} at ${request.ref ?? "the default branch"}`,
+        });
         continue;
       }
       if ((await folderHashOf({ tree: tree.entries }, skillMdPath)) === skill.digest) {
         results.push({ name: skill.name, status: "current" });
         continue;
       }
-      const now = new Map(skillFilesIn({ tree: tree.entries }, skillMdPath).map((entry) => [fileOf(skillMdPath)(entry).relative, entry.sha] as const));
+      const now = new Map(
+        skillFilesIn({ tree: tree.entries }, skillMdPath).map(
+          (entry) => [fileOf(skillMdPath)(entry).relative, entry.sha] as const,
+        ),
+      );
       const before = new Map(Object.entries(skill.files));
       results.push({
         name: skill.name,
         status: "update",
         added: [...now.keys()].filter((path) => !before.has(path)).sort(),
-        changed: [...now].filter(([path, sha]) => before.has(path) && before.get(path) !== sha).map(([path]) => path).sort(),
+        changed: [...now]
+          .filter(([path, sha]) => before.has(path) && before.get(path) !== sha)
+          .map(([path]) => path)
+          .sort(),
         removed: [...before.keys()].filter((path) => !now.has(path)).sort(),
       });
     }

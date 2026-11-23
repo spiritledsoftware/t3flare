@@ -26,7 +26,11 @@ export interface SweepWakeDeps<R> {
  * turned off forgets when it was turned on (ADR-0043 §4) at once, not at the next Sweep: turned on again inside the wake's
  * quiet, it starts a new Grace.
  */
-export const graceMoved = (deps: { readonly purging: boolean; readonly clearPurgingSince: () => void; readonly wake: () => void }): void => {
+export const graceMoved = (deps: {
+  readonly purging: boolean;
+  readonly clearPurgingSince: () => void;
+  readonly wake: () => void;
+}): void => {
   if (!deps.purging) deps.clearPurgingSince();
   deps.wake();
 };

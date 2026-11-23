@@ -105,9 +105,7 @@ function parsePage(html: string): ParsedPage {
                 : parentElement.section,
           insideChrome:
             parentElement !== undefined &&
-            (parentElement.insideChrome ||
-              isNavigation(parentElement) ||
-              BANNER_ELEMENTS.has(parentElement.name)),
+            (parentElement.insideChrome || isNavigation(parentElement) || BANNER_ELEMENTS.has(parentElement.name)),
           end: undefined,
         });
         open.push(index);
@@ -269,11 +267,7 @@ function outsideHeadings(elements: readonly ParsedElement[], header: Span): Span
  * as Wikipedia's language menu beside the article title). A `<header>` inside an `<article>` or
  * `<section>` within the main keeps its byline and summary.
  */
-function contentCuts(
-  elements: readonly ParsedElement[],
-  content: Span,
-  mainIndex: number | undefined,
-): Span[] {
+function contentCuts(elements: readonly ParsedElement[], content: Span, mainIndex: number | undefined): Span[] {
   const cuts: Span[] = [];
   let coveredUntil = content.start;
 
@@ -290,11 +284,7 @@ function contentCuts(
     if (isNavigation(element)) {
       cuts.push(span);
       coveredUntil = span.end;
-    } else if (
-      mainIndex !== undefined &&
-      element.name === "header" &&
-      element.section <= mainIndex
-    ) {
+    } else if (mainIndex !== undefined && element.name === "header" && element.section <= mainIndex) {
       cuts.push(...outsideHeadings(elements, span));
       coveredUntil = span.end;
     }
@@ -316,11 +306,7 @@ function sliceWithout(html: string, within: Span, cuts: readonly Span[]): string
 }
 
 /** Visible text outside the kept part of the page, such as navigation labels. */
-function droppedVisibleText(
-  texts: readonly ParsedText[],
-  within: Span,
-  cuts: readonly Span[],
-): boolean {
+function droppedVisibleText(texts: readonly ParsedText[], within: Span, cuts: readonly Span[]): boolean {
   return countTexts(texts, within) < texts.length || cuts.some((cut) => hasText(texts, cut));
 }
 
@@ -333,12 +319,7 @@ function sum(values: readonly number[]): number {
   return values.reduce((total, value) => total + value, 0);
 }
 
-function select(
-  page: ParsedPage,
-  html: string,
-  within: Span,
-  cuts: readonly Span[],
-): HtmlMainContent {
+function select(page: ParsedPage, html: string, within: Span, cuts: readonly Span[]): HtmlMainContent {
   const keptChars = countChars(page, within) - sum(cuts.map((cut) => countChars(page, cut)));
   const removedChars = page.totalChars - keptChars;
 

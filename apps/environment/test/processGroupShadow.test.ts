@@ -24,7 +24,11 @@ describe("the processGroup Shadow", () => {
         return { epoch: 1, unknown: [], batch: 0, frames: [] };
       },
     };
-    const processes = new ProcessChannel({ environmentEpoch: 1, place: () => ({ workspace: "demo", t3Path: "/w/demo", remote }), newKey: () => "proc-1" });
+    const processes = new ProcessChannel({
+      environmentEpoch: 1,
+      place: () => ({ workspace: "demo", t3Path: "/w/demo", remote }),
+      newKey: () => "proc-1",
+    });
     bindEnvironmentServices({ processes } as unknown as EnvironmentServices);
     const process = await processes.start({ cli: "pi", cwd: "/w/demo", argv: ["/opt/t3flare/bin/pi"], env: {} });
     expect(() => signalProcessGroup(process.pid, 0)).not.toThrow();

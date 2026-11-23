@@ -41,7 +41,15 @@ import * as Schedule from "effect/Schedule";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
-import { defaultModelSlug, EMPTY_ENDPOINTS, endpointSlug, findEndpointModel, type ModelEndpoints, parseEndpointSlug, selectionSlug } from "@t3flare/models/endpoints";
+import {
+  defaultModelSlug,
+  EMPTY_ENDPOINTS,
+  endpointSlug,
+  findEndpointModel,
+  type ModelEndpoints,
+  parseEndpointSlug,
+  selectionSlug,
+} from "@t3flare/models/endpoints";
 import { toWorkspace } from "@t3flare/workspace-client";
 
 import { environmentServices, turnLimitMsNow } from "../agents/bindings.ts";
@@ -51,7 +59,14 @@ import { durableModeRecord } from "./threadCaller.ts";
 import { PI_DURABLE_DRIVER, PiDurableCapabilities } from "./capabilities.ts";
 import { type AttachmentReader, turnPrompt } from "./attachments.ts";
 import { messageSkillsFor, type SkillsAccess } from "./skills.ts";
-import { approvalIdOf, diff, forgetProposedPlan, makeDifferState, type DifferState, type TurnContext } from "./differ.ts";
+import {
+  approvalIdOf,
+  diff,
+  forgetProposedPlan,
+  makeDifferState,
+  type DifferState,
+  type TurnContext,
+} from "./differ.ts";
 
 const driver = PI_DURABLE_DRIVER;
 const derive = IdAllocator.derive;
@@ -71,10 +86,14 @@ const THINKING = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "m
  * no endpoint to fall back to it is passed on as it is, and the Session refuses it as a model it does not have. A slug of
  * an endpoint that is gone is passed on too: the turn fails saying so (SPI-1162).
  */
-export const modelOf = (selection: ModelSelection, endpoints: ModelEndpoints): { readonly model: ModelRef; readonly thinking: ThinkingLevel | null } => {
+export const modelOf = (
+  selection: ModelSelection,
+  endpoints: ModelEndpoints,
+): { readonly model: ModelRef; readonly thinking: ThinkingLevel | null } => {
   const slug = selectionSlug(selection.model, defaultModelSlug(endpoints));
   const parsed = parseEndpointSlug(slug);
-  const model = parsed === undefined ? { provider: "", modelId: slug } : { provider: parsed.endpointId, modelId: parsed.modelId };
+  const model =
+    parsed === undefined ? { provider: "", modelId: slug } : { provider: parsed.endpointId, modelId: parsed.modelId };
   const thinking = getModelSelectionStringOptionValue(selection, "thinking");
   return { model, thinking: thinking !== undefined && THINKING.has(thinking) ? (thinking as ThinkingLevel) : null };
 };
@@ -90,7 +109,8 @@ const endpointModelOf = (selection: ModelSelection) => {
 };
 
 /** The Workspace id of a cwd under `/w/<id>` (ADR-0008), or null. */
-export const workspaceOfCwd = (cwd: string | null | undefined): string | null => (cwd ? (toWorkspace(cwd)?.id ?? null) : null);
+export const workspaceOfCwd = (cwd: string | null | undefined): string | null =>
+  cwd ? (toWorkspace(cwd)?.id ?? null) : null;
 
 const protocolError = (detail: string, cause?: unknown) =>
   new ProviderAdapter.ProviderAdapterProtocolError({ driver, detail, ...(cause === undefined ? {} : { cause }) });
@@ -109,14 +129,20 @@ export const linkedWorkOf = (threadId: string): LinkedWork | null => {
   if (row?.origin == null) return null;
   try {
     const origin = JSON.parse(row.origin) as { label?: unknown; access?: unknown };
-    return { label: typeof origin.label === "string" ? origin.label : "a linked environment", access: typeof origin.access === "string" ? origin.access : null };
+    return {
+      label: typeof origin.label === "string" ? origin.label : "a linked environment",
+      access: typeof origin.access === "string" ? origin.access : null,
+    };
   } catch {
     return { label: "a linked environment", access: null };
   }
 };
 
 const call = <A>(what: string, thunk: () => Promise<A>) =>
-  Effect.tryPromise({ try: thunk, catch: (cause) => protocolError(`The agent's session did not answer ${what}`, cause) });
+  Effect.tryPromise({
+    try: thunk,
+    catch: (cause) => protocolError(`The agent's session did not answer ${what}`, cause),
+  });
 
 export const makePiDurableAdapter = (
   instanceId: ProviderInstanceId,
@@ -141,7 +167,11 @@ export const makePiDurableAdapter = (
       const t3Mcp = Effect.map(mcpSessions.read(input.threadId), (config): T3McpCredential | undefined =>
         config === undefined
           ? undefined
-          : { authorization: config.authorizationHeader, providerSessionId: config.providerSessionId, instructions: T3_CODE_ORCHESTRATION_INSTRUCTIONS },
+          : {
+              authorization: config.authorizationHeader,
+              providerSessionId: config.providerSessionId,
+              instructions: T3_CODE_ORCHESTRATION_INSTRUCTIONS,
+            },
       );
       const workspaceId = workspaceOfCwd(input.runtimePolicy.cwd);
       const workspaceInnerCwd = input.runtimePolicy.cwd ? (toWorkspace(input.runtimePolicy.cwd)?.inner ?? null) : null;
@@ -170,7 +200,10 @@ export const makePiDurableAdapter = (
         updatedAt: now,
         lastError: null,
       };
-      const events = yield* Queue.unbounded<ProviderAdapter.ProviderAdapterV2Event, ProviderAdapter.ProviderAdapterV2Error | Cause.Done>();
+      const events = yield* Queue.unbounded<
+        ProviderAdapter.ProviderAdapterV2Event,
+        ProviderAdapter.ProviderAdapterV2Error | Cause.Done
+      >();
       const offer = (event: ProviderAdapter.ProviderAdapterV2Event) => Queue.offerUnsafe(events, event);
       const differ: DifferState = makeDifferState(sessionName);
       let thread: OrchestrationV2ProviderThread | null = null;
@@ -194,26 +227,26 @@ export const makePiDurableAdapter = (
 
       /** Applies the Session's state: the differ's events, then the bookkeeping of turns that settled. */
       const apply = Effect.fn("PiDurableAdapter.apply")(function* (state: SessionState) {
-          const at = yield* DateTime.now;
-          const before = new Set(differ.terminated);
-          const events = diff(differ, state, at, pathOut, textOut);
-          for (const event of events) offer(event);
-          let settled = false;
-          for (const event of events) {
-            if (event.type !== "turn.terminal" || event.status !== "completed") continue;
-            const context = differ.turns.get(event.providerTurnId);
-            if (context?.suggests === true) yield* suggest(context);
-          }
-          for (const id of differ.terminated) {
-            if (before.has(id)) continue;
-            differ.turns.delete(id);
-            lastPushAt.delete(id);
-            settled = true;
-          }
-          if (settled && differ.turns.size === 0) {
-            emitThread({ status: "idle" }, at);
-            emitSession("ready", at);
-          }
+        const at = yield* DateTime.now;
+        const before = new Set(differ.terminated);
+        const events = diff(differ, state, at, pathOut, textOut);
+        for (const event of events) offer(event);
+        let settled = false;
+        for (const event of events) {
+          if (event.type !== "turn.terminal" || event.status !== "completed") continue;
+          const context = differ.turns.get(event.providerTurnId);
+          if (context?.suggests === true) yield* suggest(context);
+        }
+        for (const id of differ.terminated) {
+          if (before.has(id)) continue;
+          differ.turns.delete(id);
+          lastPushAt.delete(id);
+          settled = true;
+        }
+        if (settled && differ.turns.size === 0) {
+          emitThread({ status: "idle" }, at);
+          emitSession("ready", at);
+        }
       });
 
       const promptSuggestions = input.promptSuggestions ?? Effect.succeed(false);
@@ -224,7 +257,9 @@ export const makePiDurableAdapter = (
       const suggest = Effect.fn("PiDurableAdapter.suggest")(
         function* (context: TurnContext) {
           if (!(yield* promptSuggestions)) return;
-          const { text } = yield* call("suggestPrompt", () => client().suggestPrompt({ providerTurnId: context.providerTurnId }));
+          const { text } = yield* call("suggestPrompt", () =>
+            client().suggestPrompt({ providerTurnId: context.providerTurnId }),
+          );
           if (text === "" || closed || differ.turns.size > 0) return;
           offer({ type: "prompt_suggestion.updated", driver, threadId: context.threadId, runId: context.runId, text });
         },
@@ -260,7 +295,9 @@ export const makePiDurableAdapter = (
               for (const id of differ.turns.keys()) if (push.turns[id] !== undefined) lastPushAt.set(id, nowMs);
               // Live turns of the Session that this provider session did not start: orphans (step 2a plan, section 2).
               const orphans = Object.entries(push.turns)
-                .filter(([id, turn]) => (turn.status === "queued" || turn.status === "running") && !differ.turns.has(id))
+                .filter(
+                  ([id, turn]) => (turn.status === "queued" || turn.status === "running") && !differ.turns.has(id),
+                )
                 .map(([id]) => id);
               const gap = cursor === null || cursor.epoch !== push.epoch || push.prevSeq !== cursor.seq || push.more;
               if (gap) {
@@ -278,7 +315,10 @@ export const makePiDurableAdapter = (
       // The Settings server's record of this session's threads' modes (plan D3), cleared when it unregisters.
       const modes = durableModeRecord();
       const noteModes = (threadId: string, runtimeMode: string, interactionMode: string) =>
-        modes.note(threadId, { runtimeMode: runtimeModeOf(runtimeMode), interactionMode: interactionModeOf(interactionMode) });
+        modes.note(threadId, {
+          runtimeMode: runtimeModeOf(runtimeMode),
+          interactionMode: interactionModeOf(interactionMode),
+        });
 
       // The inverse guard: an open turn with no push for SILENT_TURN_MS pulls a snapshot; a turn the Session no longer
       // has is ended as lost, so a lost Session cannot keep a t3 run (and the Environment) open forever.
@@ -306,7 +346,9 @@ export const makePiDurableAdapter = (
               }
               return apply({ ...state, turns });
             }),
-            Effect.catch((error) => Effect.logWarning("The agent's session did not answer the silent-turn check", error)),
+            Effect.catch((error) =>
+              Effect.logWarning("The agent's session did not answer the silent-turn check", error),
+            ),
           ),
         );
       }).pipe(Effect.repeat(Schedule.spaced("30 seconds")), Effect.forkIn(scope));
@@ -356,7 +398,13 @@ export const makePiDurableAdapter = (
         }
         thread =
           registerInput.existing !== undefined
-            ? { ...registerInput.existing, providerSessionId: session.id, nativeThreadRef: ref(sessionName), status: "idle", updatedAt: at }
+            ? {
+                ...registerInput.existing,
+                providerSessionId: session.id,
+                nativeThreadRef: ref(sessionName),
+                status: "idle",
+                updatedAt: at,
+              }
             : {
                 id: derive.providerThread({ driver, nativeThreadId: sessionName }),
                 driver,
@@ -400,7 +448,10 @@ export const makePiDurableAdapter = (
             interactionMode: threadInput.runtimePolicy.interactionMode,
             resume: false,
           }).pipe(
-            Effect.mapError((cause) => new ProviderAdapter.ProviderAdapterEnsureThreadError({ driver, threadId: threadInput.threadId, cause })),
+            Effect.mapError(
+              (cause) =>
+                new ProviderAdapter.ProviderAdapterEnsureThreadError({ driver, threadId: threadInput.threadId, cause }),
+            ),
           ),
         resumeThread: (threadInput) =>
           register({
@@ -440,7 +491,11 @@ export const makePiDurableAdapter = (
             const catalogModel = endpointModelOf(turnInput.modelSelection);
             // A model no endpoint lists gets the images (its turn fails anyway): pi-durable shows a text-only model a placeholder.
             const acceptsImages = catalogModel === undefined || catalogModel.input.includes("image");
-            const prompt = yield* turnPrompt(turnInput.message, { acceptsImages, reader: attachments, skills: threadSkills });
+            const prompt = yield* turnPrompt(turnInput.message, {
+              acceptsImages,
+              reader: attachments,
+              skills: threadSkills,
+            });
             const context: TurnContext = {
               providerTurnId: providerTurn.id,
               threadId: turnInput.threadId,
@@ -464,7 +519,11 @@ export const makePiDurableAdapter = (
             if (thread === null || thread.id !== turnInput.providerThread.id) thread = turnInput.providerThread;
             offer({ type: "provider_turn.updated", driver, threadId: turnInput.threadId, providerTurn });
             emitThread(
-              { status: "active", firstRunOrdinal: thread.firstRunOrdinal ?? turnInput.runOrdinal, lastRunOrdinal: turnInput.runOrdinal },
+              {
+                status: "active",
+                firstRunOrdinal: thread.firstRunOrdinal ?? turnInput.runOrdinal,
+                lastRunOrdinal: turnInput.runOrdinal,
+              },
               startedAt,
             );
             emitSession("running", startedAt, turnInput.modelSelection.model);
@@ -514,7 +573,11 @@ export const makePiDurableAdapter = (
         ),
         steerTurn: Effect.fn("PiDurableAdapter.steerTurn")(function* (steerInput) {
           const acceptsImages = differ.turns.get(steerInput.providerTurnId)?.acceptsImages ?? true;
-          const prompt = yield* turnPrompt(steerInput.message, { acceptsImages, reader: attachments, skills: threadSkills });
+          const prompt = yield* turnPrompt(steerInput.message, {
+            acceptsImages,
+            reader: attachments,
+            skills: threadSkills,
+          });
           yield* call("steer", () =>
             client().steer({
               providerTurnId: steerInput.providerTurnId,
@@ -537,7 +600,9 @@ export const makePiDurableAdapter = (
         interruptTurn: Effect.fn("PiDurableAdapter.interruptTurn")(function* (interruptInput) {
           const context = differ.turns.get(interruptInput.providerTurnId);
           if (context !== undefined) context.interruptRequested = true;
-          yield* call("abort", () => client().abort({ providerTurnId: interruptInput.providerTurnId, reason: "interrupt" })).pipe(
+          yield* call("abort", () =>
+            client().abort({ providerTurnId: interruptInput.providerTurnId, reason: "interrupt" }),
+          ).pipe(
             Effect.mapError(
               (cause) =>
                 new ProviderAdapter.ProviderAdapterInterruptError({
@@ -553,9 +618,13 @@ export const makePiDurableAdapter = (
           const decision = requestInput.decision ?? "cancel";
           const approvalId = approvalIdOf(sessionName, requestInput.requestId);
           if (approvalId === undefined) {
-            return yield* new ProviderAdapter.ProviderAdapterRuntimeRequestResponseError({ driver, requestId: requestInput.requestId });
+            return yield* new ProviderAdapter.ProviderAdapterRuntimeRequestResponseError({
+              driver,
+              requestId: requestInput.requestId,
+            });
           }
-          const answerDecision = decision === "accept" || decision === "acceptForSession" || decision === "decline" ? decision : "cancel";
+          const answerDecision =
+            decision === "accept" || decision === "acceptForSession" || decision === "decline" ? decision : "cancel";
           // Kept before the call, so the push that drops the request closes it as resolved, not cancelled.
           // A question's answer (step 3, `ask_user`) comes as `answers` by question id, which is the Session's request id.
           const answers = requestInput.answers;
@@ -573,16 +642,29 @@ export const makePiDurableAdapter = (
             }),
           ).pipe(
             Effect.mapError(
-              (cause) => new ProviderAdapter.ProviderAdapterRuntimeRequestResponseError({ driver, requestId: requestInput.requestId, cause }),
+              (cause) =>
+                new ProviderAdapter.ProviderAdapterRuntimeRequestResponseError({
+                  driver,
+                  requestId: requestInput.requestId,
+                  cause,
+                }),
             ),
           );
           if (!answered.applied) {
             differ.decisions.delete(requestInput.requestId);
-            return yield* new ProviderAdapter.ProviderAdapterRuntimeRequestResponseError({ driver, requestId: requestInput.requestId });
+            return yield* new ProviderAdapter.ProviderAdapterRuntimeRequestResponseError({
+              driver,
+              requestId: requestInput.requestId,
+            });
           }
         }),
         readThreadSnapshot: Effect.fn("PiDurableAdapter.readThreadSnapshot")(function (snapshotInput) {
-          return Effect.succeed({ providerThread: snapshotInput.providerThread, providerTurns: [], messages: [], runtimeRequests: [] });
+          return Effect.succeed({
+            providerThread: snapshotInput.providerThread,
+            providerTurns: [],
+            messages: [],
+            runtimeRequests: [],
+          });
         }),
         /**
          * G6 (SPI-987): the conversation goes back to the checkpoint's turn (the Session forks its pi-durable conversation
@@ -595,8 +677,11 @@ export const makePiDurableAdapter = (
             if (rollbackInput.providerThread.nativeThreadRef?.nativeId !== sessionName) {
               return yield* protocolError("Rollback requested for a thread this session does not host");
             }
-            const ordinal = rollbackInput.target.type === "thread_start" ? 0 : rollbackInput.target.providerTurn.ordinal;
-            const dropTurns = rollbackInput.providerThreadTurns.filter((turn) => turn.ordinal > ordinal).map((turn) => turn.id);
+            const ordinal =
+              rollbackInput.target.type === "thread_start" ? 0 : rollbackInput.target.providerTurn.ordinal;
+            const dropTurns = rollbackInput.providerThreadTurns
+              .filter((turn) => turn.ordinal > ordinal)
+              .map((turn) => turn.id);
             const answer = yield* call("rollback", () => client().rollback({ dropTurns }));
             yield* Effect.logInfo("pi-durable rollback", { sessionName, ordinal, ...answer });
             const at = yield* DateTime.now;
@@ -624,10 +709,16 @@ export const makePiDurableAdapter = (
          */
         forkThread: Effect.fn("PiDurableAdapter.forkThread")(
           function* (forkInput) {
-            if (forkInput.targetThreadId !== input.threadId) return yield* protocolError("A fork opens in the target thread's own session");
+            if (forkInput.targetThreadId !== input.threadId)
+              return yield* protocolError("A fork opens in the target thread's own session");
             if (differ.turns.size > 0) return yield* protocolError("Cannot fork while a turn is running");
             const source = forkInput.sourceProviderThread.nativeThreadRef;
-            if (source?.driver !== driver || source.nativeId === null || !source.nativeId.startsWith("thread:") || source.nativeId === sessionName) {
+            if (
+              source?.driver !== driver ||
+              source.nativeId === null ||
+              !source.nativeId.startsWith("thread:") ||
+              source.nativeId === sessionName
+            ) {
               return yield* protocolError("The fork's source is not another Durable agent session");
             }
             const policy = forkInput.runtimePolicy ?? input.runtimePolicy;
@@ -644,7 +735,10 @@ export const makePiDurableAdapter = (
               ownerNodeId: forkInput.ownerNodeId ?? null,
             });
             const answer = yield* call("fork", () =>
-              client().fork({ source: source.nativeId!, ...(forkInput.providerTurnId === undefined ? {} : { providerTurnId: forkInput.providerTurnId }) }),
+              client().fork({
+                source: source.nativeId!,
+                ...(forkInput.providerTurnId === undefined ? {} : { providerTurnId: forkInput.providerTurnId }),
+              }),
             );
             yield* Effect.logInfo("pi-durable fork", { sessionName, source: source.nativeId, ...answer });
             return forked;
@@ -652,7 +746,12 @@ export const makePiDurableAdapter = (
           (effect, forkInput) =>
             effect.pipe(
               Effect.mapError(
-                (cause) => new ProviderAdapter.ProviderAdapterForkThreadError({ driver, providerThreadId: forkInput.sourceProviderThread.id, cause }),
+                (cause) =>
+                  new ProviderAdapter.ProviderAdapterForkThreadError({
+                    driver,
+                    providerThreadId: forkInput.sourceProviderThread.id,
+                    cause,
+                  }),
               ),
             ),
         ),

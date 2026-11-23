@@ -5,7 +5,16 @@
 //
 // `resume` (plan D12) is not among them: it is `RESUME_TOOL`, the Owner-client endpoint's alone in `model` (M5b,
 // SPI-1201), never the in-process server's.
-import { BUILTIN_TOOLS, ENVIRONMENT_SETTINGS, type EnvironmentFieldSchema, EXPOSURES, EXTENSIONS, MAX_VARIABLES, OFFERED_PRESETS, type ToolClass } from "@t3flare/harness-registry";
+import {
+  BUILTIN_TOOLS,
+  ENVIRONMENT_SETTINGS,
+  type EnvironmentFieldSchema,
+  EXPOSURES,
+  EXTENSIONS,
+  MAX_VARIABLES,
+  OFFERED_PRESETS,
+  type ToolClass,
+} from "@t3flare/harness-registry";
 
 import { CHANGE_TTL_MS, durationText } from "./changes.ts";
 
@@ -21,18 +30,17 @@ const SETTINGS_SCOPE =
   "t3flare's own settings: the Harness settings (Pi Durable's extensions and the MCP server set), the Environment settings (Container size, idle time, budget, the CLI agents' processes per Workspace, the Turn limit, Variables, Global mise config, whether Terminals and CLI agents read the Owner's dotfiles, the Grace) and the Environment skills; and the Workspaces, which list_workspaces reads and purge_workspace asks to purge (their files only: a Workspace something in t3 references is refused, and deleting a project or thread stays t3's). These are not t3's preferences (t3_environment_preferences_update). Read tools run.";
 
 /** What both doors say of a Purge (ADR-0044 §5). */
-const PURGE_NOTE = "A Purge (purge_workspace) names no revision and always waits for the owner's answer, in every mode.";
+const PURGE_NOTE =
+  "A Purge (purge_workspace) names no revision and always waits for the owner's answer, in every mode.";
 
 /** What agents are told about the server (plan D17): its instructions and its tools' descriptions, nothing else. */
-export const SETTINGS_INSTRUCTIONS =
-  `${SETTINGS_SCOPE} Every settings write names the expectedRevision it read, and the thread's mode rules it: plan mode refuses writes; outside full access a write waits for the owner's card; a change that widens what agents have or can do always waits for the owner's answer on a card or its Change page (at most ${durationText(CHANGE_TTL_MS)}, one at a time per thread). ${PURGE_NOTE} Do not repeat a declined change.`;
+export const SETTINGS_INSTRUCTIONS = `${SETTINGS_SCOPE} Every settings write names the expectedRevision it read, and the thread's mode rules it: plan mode refuses writes; outside full access a write waits for the owner's card; a change that widens what agents have or can do always waits for the owner's answer on a card or its Change page (at most ${durationText(CHANGE_TTL_MS)}, one at a time per thread). ${PURGE_NOTE} Do not repeat a declined change.`;
 
 /**
  * The same for an Owner client (plan D11, D12): it has no thread mode, and its asked changes wait on the Change page in
  * its Elicitation mode.
  */
-export const SETTINGS_OWNER_INSTRUCTIONS =
-  `${SETTINGS_SCOPE} Every settings write names the expectedRevision it read. ${PURGE_NOTE} A change that narrows what agents have or can do applies at once; one that widens it waits for the owner's answer on its Change page (at most ${durationText(CHANGE_TTL_MS)}): open the link the result or the question gives, and do not repeat the call; read the settings to see whether it applied. Do not repeat a declined change.`;
+export const SETTINGS_OWNER_INSTRUCTIONS = `${SETTINGS_SCOPE} Every settings write names the expectedRevision it read. ${PURGE_NOTE} A change that narrows what agents have or can do applies at once; one that widens it waits for the owner's answer on its Change page (at most ${durationText(CHANGE_TTL_MS)}): open the link the result or the question gives, and do not repeat the call; read the settings to see whether it applied. Do not repeat a declined change.`;
 
 /**
  * What an Owner client is told besides, by its Elicitation mode (plan D12): the mode the owner set for this client on the
@@ -40,14 +48,20 @@ export const SETTINGS_OWNER_INSTRUCTIONS =
  */
 export const OWNER_MODE_INSTRUCTIONS = {
   browser: "",
-  native: " This client is in the native Elicitation mode: such a change is asked as a form in your client, and its Accept applies it.",
+  native:
+    " This client is in the native Elicitation mode: such a change is asked as a form in your client, and its Accept applies it.",
   model:
     " This client is in the model Elicitation mode: such a change answers approval-required with a requestId: show it to the user, then call resume with the requestId and their answer. A change that takes a secret, starts a sign-in or installs or updates skills waits on its Change page instead.",
 } as const;
 
-const ASKED_NOTE = "Changes that widen what agents have or can do (the Change tier `asked`) wait for the owner's answer, on his card or the Change page, before they apply; turning things down is `free`.";
+const ASKED_NOTE =
+  "Changes that widen what agents have or can do (the Change tier `asked`) wait for the owner's answer, on his card or the Change page, before they apply; turning things down is `free`.";
 
-const expectedRevision = (entity: string) => ({ type: "integer", minimum: 0, description: `The ${entity} revision you read (get_settings or a write's result); a moved one is refused with the current revision.` });
+const expectedRevision = (entity: string) => ({
+  type: "integer",
+  minimum: 0,
+  description: `The ${entity} revision you read (get_settings or a write's result); a moved one is refused with the current revision.`,
+});
 
 /** One setting's schema as JSON Schema. */
 const fieldJson = (schema: EnvironmentFieldSchema): Record<string, unknown> => {
@@ -72,7 +86,10 @@ const fieldJson = (schema: EnvironmentFieldSchema): Record<string, unknown> => {
             name: { type: "string", description: "A name a shell can export." },
             value: { type: "string", description: "The value. A secret's read back as empty, with valueRedacted." },
             secret: { type: "boolean", description: "Whether the value is secret: stored sealed, never read back." },
-            valueRedacted: { type: "boolean", description: "On a secret: true keeps the value stored under its name, as the read gave it." },
+            valueRedacted: {
+              type: "boolean",
+              description: "On a secret: true keeps the value stored under its name, as the read gave it.",
+            },
           },
           required: ["name"],
         },
@@ -83,7 +100,11 @@ const fieldJson = (schema: EnvironmentFieldSchema): Record<string, unknown> => {
 };
 
 /** The changeable extensions (a locked one, or one with no switch and no settings, cannot be changed by anyone). */
-const CHANGEABLE = EXTENSIONS.filter((entry) => entry.locked === undefined && ((entry.default !== "always" && entry.tools === undefined) || Object.keys(entry.settings).length > 0));
+const CHANGEABLE = EXTENSIONS.filter(
+  (entry) =>
+    entry.locked === undefined &&
+    ((entry.default !== "always" && entry.tools === undefined) || Object.keys(entry.settings).length > 0),
+);
 
 const extensionSettings = (): string =>
   CHANGEABLE.filter((entry) => Object.keys(entry.settings).length > 0)
@@ -98,18 +119,25 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
     class: "read",
     description:
       "Reads the Harness settings (entity harness: each Pi Durable extension's switch and settings) or the Environment settings (entity environment: Container size, idle time, budget, the CLI agents' processes per Workspace cliProcessesPerWorkspace and their reclaim delay cliReclaimSeconds, the Turn limit turnLimitMinutes, Variables, Global mise config, the dotfiles toggles terminalsReadBashrc and agentsReadDotfiles, with the running Containers and costs): the revision, every setting resolved, its limits and its Change tier rule.",
-    inputSchema: { type: "object", required: ["entity"], properties: { entity: { type: "string", enum: ["harness", "environment"] } }, additionalProperties: false },
+    inputSchema: {
+      type: "object",
+      required: ["entity"],
+      properties: { entity: { type: "string", enum: ["harness", "environment"] } },
+      additionalProperties: false,
+    },
   },
   {
     name: "list_mcp_servers",
     class: "read",
-    description: "Lists the MCP server set with the Harness revision: each server's kind, switch, Exposure and sign-in state (a secret only as set or not). Name a server to list its tools with class, hint and Exposure.",
+    description:
+      "Lists the MCP server set with the Harness revision: each server's kind, switch, Exposure and sign-in state (a secret only as set or not). Name a server to list its tools with class, hint and Exposure.",
     inputSchema: { type: "object", properties: { server: { type: "string" } }, additionalProperties: false },
   },
   {
     name: "list_skills",
     class: "read",
-    description: "Lists the Environment skills with the Environment revision. Name a skill to read its SKILL.md and its files.",
+    description:
+      "Lists the Environment skills with the Environment revision. Name a skill to read its SKILL.md and its files.",
     inputSchema: { type: "object", properties: { name: { type: "string" } }, additionalProperties: false },
   },
   {
@@ -122,32 +150,54 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
   {
     name: "get_status",
     class: "read",
-    description: "The Settings page's Status (which revisions Sessions and Workspaces took, skills, the Base snapshot), the Base snapshot's record (baseSnapshot: its state, a failed build's output), the last Test base build's (testBaseBuild), the Settings server's access switch, and this caller's open changes.",
+    description:
+      "The Settings page's Status (which revisions Sessions and Workspaces took, skills, the Base snapshot), the Base snapshot's record (baseSnapshot: its state, a failed build's output), the last Test base build's (testBaseBuild), the Settings server's access switch, and this caller's open changes.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "read_audit",
     class: "read",
-    description: "Reads the settings' audit log, newest first: 20 entries by default, at most 50; pass the answer's `before` to page.",
-    inputSchema: { type: "object", properties: { limit: { type: "integer", minimum: 1, maximum: 50 }, before: { type: "integer", minimum: 0 } }, additionalProperties: false },
+    description:
+      "Reads the settings' audit log, newest first: 20 entries by default, at most 50; pass the answer's `before` to page.",
+    inputSchema: {
+      type: "object",
+      properties: { limit: { type: "integer", minimum: 1, maximum: 50 }, before: { type: "integer", minimum: 0 } },
+      additionalProperties: false,
+    },
   },
   {
     name: "test_mcp_server",
     class: "read",
     description: "Lists one MCP server's tools now, as the panel's Test does, and answers its status.",
-    inputSchema: { type: "object", required: ["server"], properties: { server: { type: "string" } }, additionalProperties: false },
+    inputSchema: {
+      type: "object",
+      required: ["server"],
+      properties: { server: { type: "string" } },
+      additionalProperties: false,
+    },
   },
   {
     name: "preview_skills",
     class: "read",
-    description: "Previews the skills at a GitHub source (owner/repo, a tree URL, or owner/repo/path@ref): the candidates at the resolved commit, with digests. Installs nothing.",
-    inputSchema: { type: "object", required: ["source"], properties: { source: { type: "string" } }, additionalProperties: false },
+    description:
+      "Previews the skills at a GitHub source (owner/repo, a tree URL, or owner/repo/path@ref): the candidates at the resolved commit, with digests. Installs nothing.",
+    inputSchema: {
+      type: "object",
+      required: ["source"],
+      properties: { source: { type: "string" } },
+      additionalProperties: false,
+    },
   },
   {
     name: "check_skill_updates",
     class: "read",
-    description: "Checks the kept Environment skills (all, or those named) against their source: per skill, current or the commit to update to.",
-    inputSchema: { type: "object", properties: { names: { type: "array", items: { type: "string" } } }, additionalProperties: false },
+    description:
+      "Checks the kept Environment skills (all, or those named) against their source: per skill, current or the commit to update to.",
+    inputSchema: {
+      type: "object",
+      properties: { names: { type: "array", items: { type: "string" } } },
+      additionalProperties: false,
+    },
   },
   {
     name: "change_extension",
@@ -160,7 +210,11 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
         expectedRevision: expectedRevision("Harness"),
         extension: { type: "string", enum: CHANGEABLE.map((entry) => entry.id) },
         enabled: { type: "boolean" },
-        settings: { type: "object", propertyNames: { enum: settingNames }, description: "Some of the extension's settings, by name; get_settings lists each one's limits." },
+        settings: {
+          type: "object",
+          propertyNames: { enum: settingNames },
+          description: "Some of the extension's settings, by name; get_settings lists each one's limits.",
+        },
       },
       additionalProperties: false,
     },
@@ -175,12 +229,18 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
       properties: {
         expectedRevision: expectedRevision("Harness"),
         preset: { type: "string", enum: Object.keys(OFFERED_PRESETS) },
-        tools: { type: "object", additionalProperties: { anyOf: [{ type: "string", enum: [...EXPOSURES] }, { type: "null" }] } },
+        tools: {
+          type: "object",
+          additionalProperties: { anyOf: [{ type: "string", enum: [...EXPOSURES] }, { type: "null" }] },
+        },
         t3: {
           type: "object",
           properties: {
             exposure: { type: "string", enum: [...EXPOSURES] },
-            tools: { type: "object", additionalProperties: { anyOf: [{ type: "string", enum: [...EXPOSURES] }, { type: "null" }] } },
+            tools: {
+              type: "object",
+              additionalProperties: { anyOf: [{ type: "string", enum: [...EXPOSURES] }, { type: "null" }] },
+            },
           },
           additionalProperties: false,
         },
@@ -205,7 +265,10 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
             server: { type: "string" },
             enabled: { type: "boolean" },
             exposure: { type: "string", enum: [...EXPOSURES] },
-            toolExposure: { type: "object", additionalProperties: { anyOf: [{ type: "string", enum: [...EXPOSURES] }, { type: "null" }] } },
+            toolExposure: {
+              type: "object",
+              additionalProperties: { anyOf: [{ type: "string", enum: [...EXPOSURES] }, { type: "null" }] },
+            },
             writes: { type: "boolean" },
             tool: { type: "string" },
             class: { anyOf: [{ type: "string", enum: ["read", "write"] }, { type: "null" }] },
@@ -226,8 +289,14 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
   {
     name: "start_mcp_sign_in",
     class: "write",
-    description: "Asks the owner to start an OAuth sign-in for a Direct server added with auth oauth. The sign-in happens in the owner's browser from the Change page, never through an agent.",
-    inputSchema: { type: "object", required: ["expectedRevision", "server"], properties: { expectedRevision: expectedRevision("Harness"), server: { type: "string" } }, additionalProperties: false },
+    description:
+      "Asks the owner to start an OAuth sign-in for a Direct server added with auth oauth. The sign-in happens in the owner's browser from the Change page, never through an agent.",
+    inputSchema: {
+      type: "object",
+      required: ["expectedRevision", "server"],
+      properties: { expectedRevision: expectedRevision("Harness"), server: { type: "string" } },
+      additionalProperties: false,
+    },
   },
   {
     name: "change_environment",
@@ -240,7 +309,12 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
         expectedRevision: expectedRevision("Environment"),
         settings: {
           type: "object",
-          properties: Object.fromEntries(Object.entries(ENVIRONMENT_SETTINGS).map(([key, entry]) => [key, fieldJson(entry.schema as EnvironmentFieldSchema)])),
+          properties: Object.fromEntries(
+            Object.entries(ENVIRONMENT_SETTINGS).map(([key, entry]) => [
+              key,
+              fieldJson(entry.schema as EnvironmentFieldSchema),
+            ]),
+          ),
           additionalProperties: false,
         },
       },
@@ -280,7 +354,12 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
     inputSchema: {
       type: "object",
       required: ["imageSetup"],
-      properties: { imageSetup: { type: "string", description: "The whole proposed Image setup: a bash script of at most 256 KiB." } },
+      properties: {
+        imageSetup: {
+          type: "string",
+          description: "The whole proposed Image setup: a bash script of at most 256 KiB.",
+        },
+      },
       additionalProperties: false,
     },
   },
@@ -298,7 +377,8 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
   },
 ];
 
-export const settingsToolOf = (name: string): SettingsTool | undefined => SETTINGS_TOOLS.find((tool) => tool.name === name);
+export const settingsToolOf = (name: string): SettingsTool | undefined =>
+  SETTINGS_TOOLS.find((tool) => tool.name === name);
 
 /**
  * `resume` (plan D12's `model`): Executor's shape, a `requestId` and a `response` with its `action`, so that
@@ -314,13 +394,23 @@ export const RESUME_TOOL: SettingsTool = {
     required: ["requestId", "response"],
     properties: {
       requestId: { type: "string" },
-      response: { type: "object", required: ["action"], properties: { action: { enum: ["accept", "decline", "cancel"] }, content: { type: "object" } } },
+      response: {
+        type: "object",
+        required: ["action"],
+        properties: { action: { enum: ["accept", "decline", "cancel"] }, content: { type: "object" } },
+      },
     },
   },
 };
 
 /** A tool as an MCP definition: its name, description, input schema, and `readOnlyHint` from its class. */
-export const toolDefinition = (tool: SettingsTool) => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema, annotations: { readOnlyHint: tool.class === "read" } });
+export const toolDefinition = (tool: SettingsTool) => ({
+  name: tool.name,
+  description: tool.description,
+  inputSchema: tool.inputSchema,
+  annotations: { readOnlyHint: tool.class === "read" },
+});
 
 /** The tools as MCP definitions, by name: what the MCP host lists as the server's inventory. */
-export const settingsDefinitions = (): Readonly<Record<string, Readonly<Record<string, unknown>>>> => Object.fromEntries(SETTINGS_TOOLS.map((tool) => [tool.name, toolDefinition(tool)]));
+export const settingsDefinitions = (): Readonly<Record<string, Readonly<Record<string, unknown>>>> =>
+  Object.fromEntries(SETTINGS_TOOLS.map((tool) => [tool.name, toolDefinition(tool)]));

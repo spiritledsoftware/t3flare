@@ -21,7 +21,19 @@ import * as path from "node:path";
 
 import { type AuthMcpClientAccess, mcpClientScopes } from "@t3tools/contracts";
 
-import { admin, base, createProjectAndThread, dispatch, itemsOf, pair, runsOf, sleep, updateSettings, uuid, wsCall } from "./lib/client.ts";
+import {
+  admin,
+  base,
+  createProjectAndThread,
+  dispatch,
+  itemsOf,
+  pair,
+  runsOf,
+  sleep,
+  updateSettings,
+  uuid,
+  wsCall,
+} from "./lib/client.ts";
 import { MODEL, pendingOf, projection, replyOf, say, settled, t3Calls, until } from "./lib/cloudThread.ts";
 import { writeEvidence } from "./lib/evidence.ts";
 import { HELD_WAIT_FLOOR_MS, McpClient, mintPairingCode, signIn } from "./lib/peer.ts";
@@ -40,7 +52,9 @@ const stateFile = path.join(import.meta.dirname, "../.alchemy", `outbound-${stag
 const stamp = Date.now().toString(36);
 const started = Date.now();
 const log = (what: string, detail: unknown = "") =>
-  console.log(`[${new Date().toISOString().slice(11, 19)} +${Math.round((Date.now() - started) / 1000)}s] ${what} ${typeof detail === "string" ? detail : JSON.stringify(detail).slice(0, 400)}`);
+  console.log(
+    `[${new Date().toISOString().slice(11, 19)} +${Math.round((Date.now() - started) / 1000)}s] ${what} ${typeof detail === "string" ? detail : JSON.stringify(detail).slice(0, 400)}`,
+  );
 const failures: Array<string> = [];
 const out: Record<string, unknown> = { phase, stage };
 const check = (name: string, ok: boolean, detail?: unknown) => {
@@ -56,7 +70,10 @@ interface State {
   readonly standinProjectId?: string | undefined;
   readonly cloudProjectId?: string;
 }
-let state: State = fs.existsSync(stateFile) && !process.argv.includes("--fresh") ? (JSON.parse(fs.readFileSync(stateFile, "utf8")) as State) : {};
+let state: State =
+  fs.existsSync(stateFile) && !process.argv.includes("--fresh")
+    ? (JSON.parse(fs.readFileSync(stateFile, "utf8")) as State)
+    : {};
 const saveState = (next: Partial<State>) => {
   state = { ...state, ...next };
   fs.mkdirSync(path.dirname(stateFile), { recursive: true });
@@ -77,12 +94,21 @@ const cookie = await pair();
 await updateSettings(cookie, { linkedEnvironmentsEnabled: true });
 await wsCall(cookie, "server.updateSettings", {
   patch: {},
-  providerInstanceMutation: { operation: "upsert", instanceId: "piDurable", instance: { driver: "piDurable", enabled: true } },
+  providerInstanceMutation: {
+    operation: "upsert",
+    instanceId: "piDurable",
+    instance: { driver: "piDurable", enabled: true },
+  },
 });
-const cloud = (await (await fetch(new URL("/.well-known/t3/environment", base))).json()) as { environmentId: string; label: string };
+const cloud = (await (await fetch(new URL("/.well-known/t3/environment", base))).json()) as {
+  environmentId: string;
+  label: string;
+};
 out.cloud = { environmentId: cloud.environmentId, label: cloud.label };
 
-const running = spawnSync("docker", ["inspect", "-f", "{{.State.Running}}", standin.name], { encoding: "utf8" }).stdout.trim() === "true";
+const running =
+  spawnSync("docker", ["inspect", "-f", "{{.State.Running}}", standin.name], { encoding: "utf8" }).stdout.trim() ===
+  "true";
 if (!running || state.standinId === undefined || process.argv.includes("--fresh")) {
   log("starting the stand-in");
   const described = await standin.start();
@@ -93,11 +119,22 @@ const sc = standin.client;
 await sc.updateSettings(sCookie, { linkedEnvironmentsEnabled: true });
 await sc.wsCall(sCookie, "server.updateSettings", {
   patch: {},
-  providerInstanceMutation: { operation: "upsert", instanceId: "pi", instance: { driver: "pi", enabled: true, config: { binaryPath: "/usr/local/bin/pi" } } },
+  providerInstanceMutation: {
+    operation: "upsert",
+    instanceId: "pi",
+    instance: { driver: "pi", enabled: true, config: { binaryPath: "/usr/local/bin/pi" } },
+  },
 });
 if (state.standinProjectId === undefined) {
   const projectId = uuid();
-  await sc.mutateProject(sCookie, { type: "project.create", commandId: uuid(), projectId, title: "scratch", workspaceRoot: "/work/scratch", createWorkspaceRootIfMissing: true });
+  await sc.mutateProject(sCookie, {
+    type: "project.create",
+    commandId: uuid(),
+    projectId,
+    title: "scratch",
+    workspaceRoot: "/work/scratch",
+    createWorkspaceRootIfMissing: true,
+  });
   saveState({ standinProjectId: projectId });
 }
 const sId = state.standinId!;
@@ -125,7 +162,11 @@ const dialogLink = async (access: AuthMcpClientAccess) => {
     expectedLabel: sLabel,
   }).then(
     (value) => ({ ok: true as const, value: value as any, error: undefined as any }),
-    (error: unknown) => ({ ok: false as const, value: undefined as any, error: JSON.parse(JSON.stringify(error ?? null)) as any }),
+    (error: unknown) => ({
+      ok: false as const,
+      value: undefined as any,
+      error: JSON.parse(JSON.stringify(error ?? null)) as any,
+    }),
   );
   return { answer, ms: Date.now() - at, pairingCode };
 };
@@ -141,7 +182,11 @@ const ensureLinked = async (access: AuthMcpClientAccess = "approval-required") =
 
 /** An MCP client of the cloud's `/mcp` (an Inbound link at full access, which may use this Environment's links). */
 const cloudMcp = async () => {
-  const link = await signIn((await mintPairingCode(cookie, { label: `outbound harness ${stamp}` })).code, "full-access", { clientName: `outbound harness ${stamp}` });
+  const link = await signIn(
+    (await mintPairingCode(cookie, { label: `outbound harness ${stamp}` })).code,
+    "full-access",
+    { clientName: `outbound harness ${stamp}` },
+  );
   return new McpClient(link.token, { modeLimit: "full-access/default" });
 };
 
@@ -169,13 +214,19 @@ const cloudThread = async (title: string) => {
   return threadId;
 };
 
-const remoteTask = (p: any) => itemsOf(p).find((item: any) => item.type === "subagent" && item.remoteChild !== undefined);
+const remoteTask = (p: any) =>
+  itemsOf(p).find((item: any) => item.type === "subagent" && item.remoteChild !== undefined);
 const health = async () => (await admin("GET", "/_t3flare/health")).json;
 const delegateArgs = (task: string, extra: Record<string, unknown> = {}) =>
   JSON.stringify({
     task,
     title: `outbound ${stamp}`,
-    target: { environmentId: sId, projectId: state.standinProjectId, providerInstanceId: standinModel().instanceId, model: standinModel().model },
+    target: {
+      environmentId: sId,
+      projectId: state.standinProjectId,
+      providerInstanceId: standinModel().instanceId,
+      model: standinModel().model,
+    },
     mode: "async",
     ...extra,
   });
@@ -185,7 +236,13 @@ const standinThread = async (threadId: string) => sc.projectionOf(await sc.threa
 const approveOnStandin = async (threadId: string) => {
   const p = await standinThread(threadId).catch(() => undefined);
   for (const request of pendingOf(p)) {
-    await sc.dispatch(sCookie, { type: "runtime-request.respond", commandId: uuid(), threadId, requestId: request.id, decision: "accept" });
+    await sc.dispatch(sCookie, {
+      type: "runtime-request.respond",
+      commandId: uuid(),
+      threadId,
+      requestId: request.id,
+      decision: "accept",
+    });
   }
   return pendingOf(p).length;
 };
@@ -202,15 +259,34 @@ const finish = (): never => {
 if (phase === "link") {
   // G1. The Route: the descriptor over the tunnel, and t3's own auth as the only thing in front.
   const descriptor = await standin.descriptor("public");
-  check("G1: the stand-in's descriptor answers at the Route (https, no Access)", descriptor.environmentId === sId, { environmentId: descriptor.environmentId });
-  const unauthenticated = await fetch(new URL("/mcp", standin.publicUrl), { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" }, body: "{}" });
-  check("G1: /mcp without a bearer is 401 at the Route", unauthenticated.status === 401, { status: unauthenticated.status });
+  check("G1: the stand-in's descriptor answers at the Route (https, no Access)", descriptor.environmentId === sId, {
+    environmentId: descriptor.environmentId,
+  });
+  const unauthenticated = await fetch(new URL("/mcp", standin.publicUrl), {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+    body: "{}",
+  });
+  check("G1: /mcp without a bearer is 401 at the Route", unauthenticated.status === 401, {
+    status: unauthenticated.status,
+  });
   // An outside MCP client over the Route: t3's sign-in issues for the public hostname, so `Host` and `X-Forwarded-Proto`
   // pass through the tunnel as t3 needs; and a tool's answer comes back (JSON or SSE).
-  const direct = await signIn(await mintOnStandin("read-only"), "read-only", { at: standin.publicUrl, peerLink: false, clientName: `route probe ${stamp}` });
-  const listed = await new McpClient(direct.token, { at: standin.publicUrl }).request("tools/call", { name: "t3_project_list", arguments: {} });
+  const direct = await signIn(await mintOnStandin("read-only"), "read-only", {
+    at: standin.publicUrl,
+    peerLink: false,
+    clientName: `route probe ${stamp}`,
+  });
+  const listed = await new McpClient(direct.token, { at: standin.publicUrl }).request("tools/call", {
+    name: "t3_project_list",
+    arguments: {},
+  });
   out.routeAnswer = { status: listed.status, contentType: listed.contentType };
-  check("G1: a sign-in and a tool call over the Route (issuer from Host and X-Forwarded-Proto)", listed.status === 200 && JSON.stringify(listed.message ?? "").includes("scratch"), out.routeAnswer);
+  check(
+    "G1: a sign-in and a tool call over the Route (issuer from Host and X-Forwarded-Proto)",
+    listed.status === 200 && JSON.stringify(listed.message ?? "").includes("scratch"),
+    out.routeAnswer,
+  );
 
   // The stock Link dialog: a code minted on the stand-in, then `peerLinks.link` here. Unlinked first, so this is a link.
   if ((await linkToStandin()) !== undefined) await wsCall(cookie, "peerLinks.unlink", { environmentId: sId });
@@ -219,19 +295,42 @@ if (phase === "link") {
     ok: linked.answer.ok,
     ms: linked.ms,
     value: linked.answer.ok
-      ? { environmentId: linked.answer.value.environmentId, label: linked.answer.value.label, access: linked.answer.value.access, urls: linked.answer.value.urls, expiresAt: linked.answer.value.expiresAt }
+      ? {
+          environmentId: linked.answer.value.environmentId,
+          label: linked.answer.value.label,
+          access: linked.answer.value.access,
+          urls: linked.answer.value.urls,
+          expiresAt: linked.answer.value.expiresAt,
+        }
       : linked.answer.error,
   };
-  check("C1/G1: the stock dialog's link to the stand-in is made, at the access picked (Supervised)", linked.answer.ok && linked.answer.value.environmentId === sId && linked.answer.value.access === "approval-required", out.link);
+  check(
+    "C1/G1: the stock dialog's link to the stand-in is made, at the access picked (Supervised)",
+    linked.answer.ok && linked.answer.value.environmentId === sId && linked.answer.value.access === "approval-required",
+    out.link,
+  );
   const listedLink = await linkToStandin();
-  check("G1: t3's list shows it reachable", listedLink?.status === "reachable", listedLink === undefined ? null : { status: listedLink.status, urls: listedLink.urls, lastError: listedLink.lastError });
+  check(
+    "G1: t3's list shows it reachable",
+    listedLink?.status === "reachable",
+    listedLink === undefined
+      ? null
+      : { status: listedLink.status, urls: listedLink.urls, lastError: listedLink.lastError },
+  );
   const access = await sc.wsFirst(sCookie, "subscribeAuthAccess", {});
-  check("the stand-in's Sharing & access lists the link's session", findSession(access, `T3 Code · ${cloud.label}`) !== undefined);
+  check(
+    "the stand-in's Sharing & access lists the link's session",
+    findSession(access, `T3 Code · ${cloud.label}`) !== undefined,
+  );
 
   // Forwarded calls, through the cloud's own client (PeerMcpClient), and a 50 s wait piece.
   const mcp = await cloudMcp();
   const forwardedList = await mcp.call("t3_project_list", { environmentId: sId });
-  check("G1: a forwarded call answers (t3_project_list there)", !forwardedList.isError && forwardedList.text.includes("scratch"), forwardedList.text.slice(0, 300));
+  check(
+    "G1: a forwarded call answers (t3_project_list there)",
+    !forwardedList.isError && forwardedList.text.includes("scratch"),
+    forwardedList.text.slice(0, 300),
+  );
   const launched = await mcp.call("t3_thread_launch", {
     environmentId: sId,
     projectId: state.standinProjectId,
@@ -241,7 +340,11 @@ if (phase === "link") {
     clientRequestId: `wait-${stamp}`,
   });
   const waitThread = launched.json?.threadId as string | undefined;
-  check("G1: a forwarded launch starts a thread on the stand-in", !launched.isError && waitThread !== undefined, launched.text.slice(0, 300));
+  check(
+    "G1: a forwarded launch starts a thread on the stand-in",
+    !launched.isError && waitThread !== undefined,
+    launched.text.slice(0, 300),
+  );
   if (waitThread !== undefined) {
     // Its bash asks there (the link is Supervised), so the run waits; a 50 s wait then holds (to t3's 45 s cap) and times out as a wait.
     const at = Date.now();
@@ -253,12 +356,24 @@ if (phase === "link") {
     check("the stand-in's agent asks there for its bash (the link's Supervised access)", asked > 0);
     const waitAt = Date.now();
     const held = await mcp.call("t3_thread_wait", { environmentId: sId, threadId: waitThread, timeoutMs: 50_000 });
-    out.waitPiece = { ms: Date.now() - waitAt, timedOut: held.json?.timedOut ?? null, isError: held.isError, text: held.isError ? held.text.slice(0, 300) : undefined };
-    check("G1: a 50 s wait piece survives the Route and times out as a wait", held.json?.timedOut === true && Date.now() - waitAt >= HELD_WAIT_FLOOR_MS, out.waitPiece);
+    out.waitPiece = {
+      ms: Date.now() - waitAt,
+      timedOut: held.json?.timedOut ?? null,
+      isError: held.isError,
+      text: held.isError ? held.text.slice(0, 300) : undefined,
+    };
+    check(
+      "G1: a 50 s wait piece survives the Route and times out as a wait",
+      held.json?.timedOut === true && Date.now() - waitAt >= HELD_WAIT_FLOOR_MS,
+      out.waitPiece,
+    );
     await approveOnStandin(waitThread);
     const done = await mcp.call("t3_thread_wait", { environmentId: sId, threadId: waitThread, timeoutMs: 50_000 });
     const read = await mcp.call("t3_thread_read", { environmentId: sId, threadId: waitThread });
-    check("approved there, the thread completes and reads back here", read.text.includes("waited"), { wait: done.json?.status, read: read.text.slice(0, 200) });
+    check("approved there, the thread completes and reads back here", read.text.includes("waited"), {
+      wait: done.json?.status,
+      read: read.text.slice(0, 200),
+    });
   }
 
   // The laptop asleep: the connector stopped, the Route answers 530, t3 lists it unreachable and a call fails plainly.
@@ -267,8 +382,17 @@ if (phase === "link") {
   const asleep = await linkToStandin();
   const failed = await mcp.call("t3_project_list", { environmentId: sId });
   const afterFail = await linkToStandin();
-  out.asleep = { route: down, listed: asleep?.status, call: failed.text.slice(0, 300), lastError: afterFail?.lastError ?? null };
-  check("G1: a stopped connector reads as unreachable (530 at the Route)", down.status === 530 && asleep?.status === "unreachable" && failed.isError, out.asleep);
+  out.asleep = {
+    route: down,
+    listed: asleep?.status,
+    call: failed.text.slice(0, 300),
+    lastError: afterFail?.lastError ?? null,
+  };
+  check(
+    "G1: a stopped connector reads as unreachable (530 at the Route)",
+    down.status === 530 && asleep?.status === "unreachable" && failed.isError,
+    out.asleep,
+  );
   standin.connectorStart();
   out.awake = await standin.awaitRoute("up");
   check("the connector back, t3 lists it reachable again", (await linkToStandin())?.status === "reachable");
@@ -285,30 +409,76 @@ if (phase === "card") {
     threadId,
     `I want you to work on my laptop "${sLabel}", which is not linked yet. Call the T3 tool t3_environment_link (if it is deferred, load it with tool_search first) once with {"hint": "${sLabel}", "reason": "To run a task on your laptop."}, then reply WAITING and stop. When you hear the outcome, reply exactly LINK-OUTCOME followed by the outcome in a few words.`,
   );
-  const asked = await until(cookie, threadId, (p) => itemsOf(p).some((item: any) => item.type === "link_request") && settled(p), 240_000);
+  const asked = await until(
+    cookie,
+    threadId,
+    (p) => itemsOf(p).some((item: any) => item.type === "link_request") && settled(p),
+    240_000,
+  );
   const card = itemsOf(asked).find((item: any) => item.type === "link_request");
   const tools = (await admin("GET", `/_t3flare/agents/session-tools?thread=${threadId}`)).json;
-  const offered = { link: tools?.tools?.includes("t3_environment_link") ?? null, unlink: tools?.tools?.includes("t3_environment_unlink") ?? null, left: tools?.left };
+  const offered = {
+    link: tools?.tools?.includes("t3_environment_link") ?? null,
+    unlink: tools?.tools?.includes("t3_environment_unlink") ?? null,
+    left: tools?.left,
+  };
   out.offered = offered;
-  check("C2: the Durable agent is offered t3_environment_link and t3_environment_unlink", offered.link === true && offered.unlink === true, offered);
-  out.card = card === undefined ? null : { id: card.id, linkStatus: card.linkStatus, hint: card.hint, reason: card.reason };
-  if (!check("G2/C2: t3's link card is raised in the agent's thread", card !== undefined && card.linkStatus === "pending", { card: out.card, calls: t3Calls(asked) })) finish();
+  check(
+    "C2: the Durable agent is offered t3_environment_link and t3_environment_unlink",
+    offered.link === true && offered.unlink === true,
+    offered,
+  );
+  out.card =
+    card === undefined ? null : { id: card.id, linkStatus: card.linkStatus, hint: card.hint, reason: card.reason };
+  if (
+    !check(
+      "G2/C2: t3's link card is raised in the agent's thread",
+      card !== undefined && card.linkStatus === "pending",
+      { card: out.card, calls: t3Calls(asked) },
+    )
+  )
+    finish();
   const pairingCode = await mintOnStandin("approval-required");
   await wsCall(cookie, "peerLinks.answerRequest", {
     threadId,
     turnItemId: card.id,
-    answer: { type: "link", environmentId: sId, label: sLabel, urls: [standin.publicUrl.origin], access: "approval-required", pairingCode },
+    answer: {
+      type: "link",
+      environmentId: sId,
+      label: sLabel,
+      urls: [standin.publicUrl.origin],
+      access: "approval-required",
+      pairingCode,
+    },
   });
   const woke = await until(
     cookie,
     threadId,
-    (p) => itemsOf(p).find((each: any) => each.id === card.id)?.linkStatus !== "pending" && runsOf(p).length >= 2 && settled(p),
+    (p) =>
+      itemsOf(p).find((each: any) => each.id === card.id)?.linkStatus !== "pending" &&
+      runsOf(p).length >= 2 &&
+      settled(p),
     300_000,
   );
   const answered = itemsOf(woke).find((item: any) => item.id === card.id);
-  out.answered = { linkStatus: answered?.linkStatus, linkedEnvironmentId: answered?.linkedEnvironmentId, linkedAccess: answered?.linkedAccess, failure: answered?.failure, runs: runsOf(woke).map((run) => run.status), reply: replyOf(woke).slice(-300) };
-  check("G2/C2: the owner's answer makes the link", answered?.linkStatus === "linked" && answered?.linkedEnvironmentId === sId, out.answered);
-  check("G2/C2: the agent is woken with the outcome", runsOf(woke).length >= 2 && /LINK-OUTCOME/.test(replyOf(woke)), out.answered);
+  out.answered = {
+    linkStatus: answered?.linkStatus,
+    linkedEnvironmentId: answered?.linkedEnvironmentId,
+    linkedAccess: answered?.linkedAccess,
+    failure: answered?.failure,
+    runs: runsOf(woke).map((run) => run.status),
+    reply: replyOf(woke).slice(-300),
+  };
+  check(
+    "G2/C2: the owner's answer makes the link",
+    answered?.linkStatus === "linked" && answered?.linkedEnvironmentId === sId,
+    out.answered,
+  );
+  check(
+    "G2/C2: the agent is woken with the outcome",
+    runsOf(woke).length >= 2 && /LINK-OUTCOME/.test(replyOf(woke)),
+    out.answered,
+  );
   const transcript = JSON.stringify(await projection(cookie, threadId));
   check("C2: the pairing code is in no transcript", !transcript.includes(pairingCode), { bytes: transcript.length });
   check("the link is t3's, listed reachable", (await linkToStandin())?.status === "reachable");
@@ -326,26 +496,68 @@ if (phase === "delegate") {
     threadId,
     `Call the T3 tool delegate_task (if it is deferred, load it with tool_search first) exactly once with these arguments: ${delegateArgs(`Reply with exactly ${nonce} and nothing else. Use no tools.`)}. Then reply DELEGATED and stop. When the task's result arrives, reply exactly RESULT followed by the task's reply.`,
   );
-  const done = await until(cookie, threadId, (p) => remoteTask(p)?.status === "completed" && runsOf(p).length >= 2 && settled(p), 360_000);
+  const done = await until(
+    cookie,
+    threadId,
+    (p) => remoteTask(p)?.status === "completed" && runsOf(p).length >= 2 && settled(p),
+    360_000,
+  );
   const task = remoteTask(done);
-  out.task = task === undefined ? null : { status: task.status, remoteChild: task.remoteChild, result: JSON.stringify(task.result ?? null).slice(0, 300) };
+  out.task =
+    task === undefined
+      ? null
+      : {
+          status: task.status,
+          remoteChild: task.remoteChild,
+          result: JSON.stringify(task.result ?? null).slice(0, 300),
+        };
   out.runs = runsOf(done).map((run) => run.status);
   out.reply = replyOf(done).slice(-300);
   out.calls = t3Calls(done);
-  if (check("C1: a Remote task is recorded with the stand-in as its machine", task?.remoteChild?.environmentId === sId, out.task)) {
+  if (
+    check(
+      "C1: a Remote task is recorded with the stand-in as its machine",
+      task?.remoteChild?.environmentId === sId,
+      out.task,
+    )
+  ) {
     const there = await standinThread(task.remoteChild.threadId);
-    out.there = { delegatedFrom: there?.thread?.delegatedFrom ?? null, linkOrigin: there?.thread?.linkOrigin ?? null, runtimeMode: there?.thread?.runtimeMode, reply: replyOf(there).slice(-200) };
-    check("C1: the thread runs on the stand-in marked From the stage", there?.thread?.delegatedFrom?.environmentId === cloud.environmentId, out.there);
-    check("C1: it runs under the link's access there (Supervised)", there?.thread?.runtimeMode === "approval-required", out.there);
-    check("C1: its last reply completes the task here", task.status === "completed" && JSON.stringify(task).includes(nonce), out.task);
-    check("C1: the parent wakes with it", runsOf(done).length >= 2 && replyOf(done).includes(nonce), { runs: out.runs, reply: out.reply });
+    out.there = {
+      delegatedFrom: there?.thread?.delegatedFrom ?? null,
+      linkOrigin: there?.thread?.linkOrigin ?? null,
+      runtimeMode: there?.thread?.runtimeMode,
+      reply: replyOf(there).slice(-200),
+    };
+    check(
+      "C1: the thread runs on the stand-in marked From the stage",
+      there?.thread?.delegatedFrom?.environmentId === cloud.environmentId,
+      out.there,
+    );
+    check(
+      "C1: it runs under the link's access there (Supervised)",
+      there?.thread?.runtimeMode === "approval-required",
+      out.there,
+    );
+    check(
+      "C1: its last reply completes the task here",
+      task.status === "completed" && JSON.stringify(task).includes(nonce),
+      out.task,
+    );
+    check("C1: the parent wakes with it", runsOf(done).length >= 2 && replyOf(done).includes(nonce), {
+      runs: out.runs,
+      reply: out.reply,
+    });
   }
   // C3: what t3_environment_links answers names only tools the agent is offered.
   const tools = (await admin("GET", `/_t3flare/agents/session-tools?thread=${threadId}`)).json;
   const linksAnswer = await (await cloudMcp()).call("t3_environment_links", {});
   const named = [...new Set([...linksAnswer.text.matchAll(/\bt3_[a-z_]+\b/g)].map((m) => m[0]))];
   out.c3 = { offered: tools?.tools?.length, left: tools?.left, linksNames: named };
-  check("C3: t3_environment_links names only tools the agent is offered", named.every((name) => tools?.tools?.includes(name)), out.c3);
+  check(
+    "C3: t3_environment_links names only tools the agent is offered",
+    named.every((name) => tools?.tools?.includes(name)),
+    out.c3,
+  );
   finish();
 }
 
@@ -370,7 +582,15 @@ if (phase === "long") {
   const timeline: Array<Record<string, any>> = [];
   const sample = async (note: string) => {
     const h = await health();
-    const entry = { t: Math.round((Date.now() - started) / 1000), note, runtime: h?.runtime, alarm: h?.alarm, remoteRetry: h?.remoteRetry ?? null, openWork: h?.openWork, constructedAt: h?.object?.constructedAt };
+    const entry = {
+      t: Math.round((Date.now() - started) / 1000),
+      note,
+      runtime: h?.runtime,
+      alarm: h?.alarm,
+      remoteRetry: h?.remoteRetry ?? null,
+      openWork: h?.openWork,
+      constructedAt: h?.object?.constructedAt,
+    };
     timeline.push(entry);
     log(note, { runtime: entry.runtime, alarm: entry.alarm, retry: entry.remoteRetry, work: entry.openWork });
     return entry;
@@ -386,17 +606,40 @@ if (phase === "long") {
   };
   // 1. The laptop answers: the Environment stays up past the idle delay, holding for the task, with an alarm standing.
   const held = await watch(180, "answering: held?");
-  check("C4/G3: an open Remote task whose machine answers holds the Environment up past the idle delay, an alarm standing", held.runtime === "running" && held.openWork?.remoteTasksAnswering >= 1 && held.alarm !== null, held);
+  check(
+    "C4/G3: an open Remote task whose machine answers holds the Environment up past the idle delay, an alarm standing",
+    held.runtime === "running" && held.openWork?.remoteTasksAnswering >= 1 && held.alarm !== null,
+    held,
+  );
   // 2. A deploy lands while it is held: the standing alarm brings t3 back with no client, and its follower resumes.
   if (process.argv.includes("--deploy")) {
     const before = held.constructedAt;
     log("deploying");
-    const deployed = spawnSync(process.execPath, [path.join(import.meta.dirname, "stage.ts"), "deploy", stage], { stdio: "inherit", env: { ...process.env, T3FLARE_STANDIN: "1" } });
+    const deployed = spawnSync(process.execPath, [path.join(import.meta.dirname, "stage.ts"), "deploy", stage], {
+      stdio: "inherit",
+      env: { ...process.env, T3FLARE_STANDIN: "1" },
+    });
     check("the deploy succeeds", deployed.status === 0);
-    const back = await watch(480, "after deploy", (entry) => entry.constructedAt !== before && entry.runtime === "running");
-    check("C4: after a deploy, the standing alarm boots t3 again with no client", back.constructedAt !== before && back.runtime === "running", back);
-    const following = await watch(120, "after deploy: answering?", (entry) => entry.openWork?.remoteTasksAnswering >= 1);
-    check("C4: after the deploy, the follower reaches the stand-in again", following.openWork?.remoteTasksAnswering >= 1, following);
+    const back = await watch(
+      480,
+      "after deploy",
+      (entry) => entry.constructedAt !== before && entry.runtime === "running",
+    );
+    check(
+      "C4: after a deploy, the standing alarm boots t3 again with no client",
+      back.constructedAt !== before && back.runtime === "running",
+      back,
+    );
+    const following = await watch(
+      120,
+      "after deploy: answering?",
+      (entry) => entry.openWork?.remoteTasksAnswering >= 1,
+    );
+    check(
+      "C4: after the deploy, the follower reaches the stand-in again",
+      following.openWork?.remoteTasksAnswering >= 1,
+      following,
+    );
   }
   // 3. The laptop asleep for ten minutes: the hold lapses, the Environment resets, the alarm retries at 5 then 15 minutes.
   standin.connectorStop();
@@ -404,18 +647,52 @@ if (phase === "long") {
   await watch(600, "connector stopped");
   standin.connectorStart();
   out.up = await standin.awaitRoute("up");
-  const retries = [...new Map(timeline.filter((entry) => entry.remoteRetry !== null).map((entry) => [JSON.stringify(entry.remoteRetry), entry.remoteRetry])).values()];
+  const retries = [
+    ...new Map(
+      timeline
+        .filter((entry) => entry.remoteRetry !== null)
+        .map((entry) => [JSON.stringify(entry.remoteRetry), entry.remoteRetry]),
+    ).values(),
+  ];
   out.retries = retries.map((retry: any) => ({ attempt: retry.attempt, at: new Date(retry.at).toISOString() }));
-  check("C4: with the connector stopped, the hold lapsed and the Environment reset", timeline.some((entry) => entry.note === "connector stopped" && entry.runtime === "stopped"), { samples: timeline.length });
-  check("C4: the retry backs off 5 then 15 minutes, its state in DO storage across resets", retries.length >= 2 && retries[0].attempt === 0 && retries[1].attempt === 1 && retries[1].at - retries[0].at >= 14 * 60_000, out.retries);
+  check(
+    "C4: with the connector stopped, the hold lapsed and the Environment reset",
+    timeline.some((entry) => entry.note === "connector stopped" && entry.runtime === "stopped"),
+    { samples: timeline.length },
+  );
+  check(
+    "C4: the retry backs off 5 then 15 minutes, its state in DO storage across resets",
+    retries.length >= 2 &&
+      retries[0].attempt === 0 &&
+      retries[1].attempt === 1 &&
+      retries[1].at - retries[0].at >= 14 * 60_000,
+    out.retries,
+  );
   // 4. Back: the next retry boots t3, the follower reaches the stand-in and completes the task.
-  const finished = await watch(32 * 60, "waiting for the task", (entry) => entry.runtime === "running" && entry.openWork?.remoteTasksAnswering === 0 && entry.openWork?.remoteTasksUnanswered === 0);
+  const finished = await watch(
+    32 * 60,
+    "waiting for the task",
+    (entry) =>
+      entry.runtime === "running" &&
+      entry.openWork?.remoteTasksAnswering === 0 &&
+      entry.openWork?.remoteTasksUnanswered === 0,
+  );
   out.timeline = timeline;
-  const done = await until(cookie, threadId, (p) => remoteTask(p)?.status === "completed" && settled(p) && runsOf(p).length >= 2, 600_000);
+  const done = await until(
+    cookie,
+    threadId,
+    (p) => remoteTask(p)?.status === "completed" && settled(p) && runsOf(p).length >= 2,
+    600_000,
+  );
   const task = remoteTask(done);
-  out.task = task === undefined ? null : { status: task.status, result: JSON.stringify(task.result ?? null).slice(0, 300) };
+  out.task =
+    task === undefined ? null : { status: task.status, result: JSON.stringify(task.result ?? null).slice(0, 300) };
   out.reply = replyOf(done).slice(-300);
-  check("C4: the task completes after the outage", task?.status === "completed" && JSON.stringify(task).includes(nonce), { task: out.task, finished });
+  check(
+    "C4: the task completes after the outage",
+    task?.status === "completed" && JSON.stringify(task).includes(nonce),
+    { task: out.task, finished },
+  );
   check("C4: the parent wakes with its result", replyOf(done).includes(nonce), out.reply);
   // Read the thread above (a client's request), so the next reset is at least the idle delay away; it clears the retry.
   const after = await watch(180, "after the task", (entry) => entry.remoteRetry === null);
@@ -429,31 +706,64 @@ if (phase === "many") {
   await ensureLinked();
   const count = Number(arg("count", "8"));
   const threadId = await cloudThread(`many ${stamp}`);
-  const tasks = Array.from({ length: count }, (_, i) => delegateArgs(`Run the bash command \`echo many-${i}\` and reply with its output.`, { title: `many ${i} ${stamp}`, clientRequestId: `many-${i}-${stamp}` }));
-  await say(cookie, threadId, `Call the T3 tool delegate_task (if it is deferred, load it with tool_search first) ${count} times, once with each of these argument objects:\n${tasks.join("\n")}\nThen reply DELEGATED and stop. Do not reply again until all ${count} results have arrived; then reply ALL-DONE.`);
-  const delegated = await until(cookie, threadId, (p) => itemsOf(p).filter((item: any) => item.type === "subagent" && item.remoteChild !== undefined).length >= count && settled(p), 600_000);
+  const tasks = Array.from({ length: count }, (_, i) =>
+    delegateArgs(`Run the bash command \`echo many-${i}\` and reply with its output.`, {
+      title: `many ${i} ${stamp}`,
+      clientRequestId: `many-${i}-${stamp}`,
+    }),
+  );
+  await say(
+    cookie,
+    threadId,
+    `Call the T3 tool delegate_task (if it is deferred, load it with tool_search first) ${count} times, once with each of these argument objects:\n${tasks.join("\n")}\nThen reply DELEGATED and stop. Do not reply again until all ${count} results have arrived; then reply ALL-DONE.`,
+  );
+  const delegated = await until(
+    cookie,
+    threadId,
+    (p) =>
+      itemsOf(p).filter((item: any) => item.type === "subagent" && item.remoteChild !== undefined).length >= count &&
+      settled(p),
+    600_000,
+  );
   const remote = itemsOf(delegated).filter((item: any) => item.type === "subagent" && item.remoteChild !== undefined);
   out.delegated = remote.length;
-  check(`G4: ${count} Remote tasks are open at once`, remote.length >= count, { delegated: remote.length, calls: t3Calls(delegated).length });
+  check(`G4: ${count} Remote tasks are open at once`, remote.length >= count, {
+    delegated: remote.length,
+    calls: t3Calls(delegated).length,
+  });
   await sleep(60_000);
   const probe = await cloudThread(`many probe ${stamp}`);
   const at = Date.now();
   await say(cookie, probe, "Reply with exactly PONG and nothing else. Use no tools.");
   const answered = await until(cookie, probe, (p) => settled(p), 240_000);
-  out.modelCall = { ms: Date.now() - at, runs: runsOf(answered).map((run) => run.status), reply: replyOf(answered).slice(0, 50) };
-  check(`G4: with ${remote.length} Remote tasks waiting, a model call still goes through`, /PONG/.test(replyOf(answered)), out.modelCall);
+  out.modelCall = {
+    ms: Date.now() - at,
+    runs: runsOf(answered).map((run) => run.status),
+    reply: replyOf(answered).slice(0, 50),
+  };
+  check(
+    `G4: with ${remote.length} Remote tasks waiting, a model call still goes through`,
+    /PONG/.test(replyOf(answered)),
+    out.modelCall,
+  );
   const ids = remote.map((item: any) => item.remoteChild.threadId as string);
   const releaseAt = Date.now();
   let statuses: Array<string> = [];
   while (Date.now() - releaseAt < 600_000) {
     for (const id of ids) await approveOnStandin(id);
-    statuses = itemsOf(await projection(cookie, threadId)).filter((item: any) => item.type === "subagent" && item.remoteChild !== undefined).map((item: any) => item.status);
+    statuses = itemsOf(await projection(cookie, threadId))
+      .filter((item: any) => item.type === "subagent" && item.remoteChild !== undefined)
+      .map((item: any) => item.status);
     if (statuses.length >= count && statuses.every((s) => s === "completed")) break;
     await sleep(10_000);
   }
   out.statuses = statuses;
   out.releaseMs = Date.now() - releaseAt;
-  check(`G4: all ${count} complete once approved there`, statuses.length >= count && statuses.every((s) => s === "completed"), statuses);
+  check(
+    `G4: all ${count} complete once approved there`,
+    statuses.length >= count && statuses.every((s) => s === "completed"),
+    statuses,
+  );
   out.publish = "not measured: a stage has no T3 Connect link (step 3+ links prod only)";
   finish();
 }
@@ -462,45 +772,83 @@ if (phase === "leak") {
   // C6: forced transport errors at sign-in and on a call, with Workers Logs tailed; then C5, the leak scan.
   await ensureLinked();
   const codes: Array<string> = [];
-  const { result, text, workers } = await tailing([`t3flare-environment-${stage}`, `t3flare-agents-${stage}`], async () => {
-    // At sign-in: the descriptor and the decision answer; the token exchange's connection is cut.
-    await wsCall(cookie, "peerLinks.unlink", { environmentId: sId });
-    standin.fault("signin");
-    const signin = await dialogLink("approval-required");
-    codes.push(signin.pairingCode);
-    standin.fault("none");
-    // Linked again; then on a call: the forwarded `/mcp` request's connection is cut.
-    const relinked = await dialogLink("approval-required");
-    codes.push(relinked.pairingCode);
-    const mcp = await cloudMcp();
-    standin.fault("call");
-    const call = await mcp.call("t3_project_list", { environmentId: sId });
-    standin.fault("none");
-    const row = (await admin("POST", "/_t3flare/sql", { sql: "SELECT last_error FROM peer_environment_links WHERE environment_id = ?", params: [sId] })).json;
-    return { signin: signin.answer, relinked: relinked.answer.ok, call: { isError: call.isError, text: call.text.slice(0, 400) }, lastError: row };
-  });
+  const { result, text, workers } = await tailing(
+    [`t3flare-environment-${stage}`, `t3flare-agents-${stage}`],
+    async () => {
+      // At sign-in: the descriptor and the decision answer; the token exchange's connection is cut.
+      await wsCall(cookie, "peerLinks.unlink", { environmentId: sId });
+      standin.fault("signin");
+      const signin = await dialogLink("approval-required");
+      codes.push(signin.pairingCode);
+      standin.fault("none");
+      // Linked again; then on a call: the forwarded `/mcp` request's connection is cut.
+      const relinked = await dialogLink("approval-required");
+      codes.push(relinked.pairingCode);
+      const mcp = await cloudMcp();
+      standin.fault("call");
+      const call = await mcp.call("t3_project_list", { environmentId: sId });
+      standin.fault("none");
+      const row = (
+        await admin("POST", "/_t3flare/sql", {
+          sql: "SELECT last_error FROM peer_environment_links WHERE environment_id = ?",
+          params: [sId],
+        })
+      ).json;
+      return {
+        signin: signin.answer,
+        relinked: relinked.answer.ok,
+        call: { isError: call.isError, text: call.text.slice(0, 400) },
+        lastError: row,
+      };
+    },
+  );
   out.signin = result.signin.ok ? "linked (no fault seen)" : result.signin.error;
   out.call = result.call;
   out.lastError = result.lastError;
   out.workers = workers;
   const replies = JSON.stringify(result);
-  check("C6: a cut sign-in fails with t3's reason and no cause in the WS reply", !result.signin.ok && result.signin.error?.cause === undefined && typeof result.signin.error?.reason === "string", out.signin);
-  check("C6: a cut call fails plainly; last_error is recorded", result.call.isError && result.relinked, { call: result.call, lastError: result.lastError });
+  check(
+    "C6: a cut sign-in fails with t3's reason and no cause in the WS reply",
+    !result.signin.ok && result.signin.error?.cause === undefined && typeof result.signin.error?.reason === "string",
+    out.signin,
+  );
+  check("C6: a cut call fails plainly; last_error is recorded", result.call.isError && result.relinked, {
+    call: result.call,
+    lastError: result.lastError,
+  });
   const leak = (await admin("POST", "/_t3flare/check/connect-leak", { text: `${replies}\n${text}` })).json;
   const codesSeen = codes.filter((code) => text.includes(code) || replies.includes(code));
   out.c6 = { checked: leak?.checked, leaked: leak?.leaked, logBytes: text.length, pairingCodesSeen: codesSeen.length };
   check(
     "C6: no bearer in the WS reply, last_error or Workers Logs",
-    Array.isArray(leak?.leaked) && leak.leaked.length === 0 && (leak.checked as Array<string>).some((name) => name.startsWith("peer-link:")),
+    Array.isArray(leak?.leaked) &&
+      leak.leaked.length === 0 &&
+      (leak.checked as Array<string>).some((name) => name.startsWith("peer-link:")),
     out.c6,
   );
   check("C6: no pairing code in the WS reply, last_error or Workers Logs", codesSeen.length === 0, out.c6);
 
   // C5: the leak scan after C1–C4, the bearer as a canary: the named Sessions, a Workspace's Container, snapshots.
   const threads = arg("threads", "").split(",").filter(Boolean);
-  const scan = (await admin("POST", "/_t3flare/check/peer-leak", { workspace: arg("workspace", "link-scratch"), threads, extra: [{ name: "standin-tunnel-token", value: standin.tunnelToken }] })).json;
-  out.c5 = { checked: scan?.checked, container: scan?.container, sessions: scan?.sessions, credentialsFound: scan?.credentialsFound, leaked: scan?.leaked };
-  check("C5: the bearer is among the canaries", (scan?.checked ?? []).some((name: string) => name.startsWith("peer-link:")), scan?.checked);
+  const scan = (
+    await admin("POST", "/_t3flare/check/peer-leak", {
+      workspace: arg("workspace", "link-scratch"),
+      threads,
+      extra: [{ name: "standin-tunnel-token", value: standin.tunnelToken }],
+    })
+  ).json;
+  out.c5 = {
+    checked: scan?.checked,
+    container: scan?.container,
+    sessions: scan?.sessions,
+    credentialsFound: scan?.credentialsFound,
+    leaked: scan?.leaked,
+  };
+  check(
+    "C5: the bearer is among the canaries",
+    (scan?.checked ?? []).some((name: string) => name.startsWith("peer-link:")),
+    scan?.checked,
+  );
   check("C5: no secret in any Session, the Workspace's Container or a snapshot", scan?.leaked === 0, out.c5);
   finish();
 }
@@ -522,21 +870,38 @@ if (phase === "revoke") {
     headers: { cookie: sCookie, origin: standin.local.origin, "content-type": "application/json" },
     body: JSON.stringify({ sessionId: session?.sessionId }),
   });
-  check("the owner revokes the link's session in the stand-in's Sharing & access", session !== undefined && revoked.status === 200, { found: session !== undefined, status: revoked.status });
+  check(
+    "the owner revokes the link's session in the stand-in's Sharing & access",
+    session !== undefined && revoked.status === 200,
+    { found: session !== undefined, status: revoked.status },
+  );
   const mcp = await cloudMcp();
   const call = await mcp.call("t3_project_list", { environmentId: sId });
   out.call = call.text.slice(0, 300);
-  check("C7: a tool call names it (t3's own answer)", call.isError && /no longer accepts this link|revoked/i.test(call.text), out.call);
+  check(
+    "C7: a tool call names it (t3's own answer)",
+    call.isError && /no longer accepts this link|revoked/i.test(call.text),
+    out.call,
+  );
   const failed = await until(cookie, threadId, (p) => remoteTask(p)?.status === "failed" && settled(p), 15 * 60_000);
   const task = remoteTask(failed);
-  out.task = task === undefined ? null : { status: task.status, result: JSON.stringify(task.result ?? null).slice(0, 300) };
+  out.task =
+    task === undefined ? null : { status: task.status, result: JSON.stringify(task.result ?? null).slice(0, 300) };
   out.reply = replyOf(failed).slice(-300);
-  check("C7: the open task fails with that reason", task?.status === "failed" && /no longer accepts this link|revoked/i.test(JSON.stringify(task)), out.task);
+  check(
+    "C7: the open task fails with that reason",
+    task?.status === "failed" && /no longer accepts this link|revoked/i.test(JSON.stringify(task)),
+    out.task,
+  );
   // Unlink here (t3's own), and the next call answers t3's "not linked".
   await wsCall(cookie, "peerLinks.unlink", { environmentId: sId });
   const unlinked = await mcp.call("t3_project_list", { environmentId: sId });
   out.unlinked = unlinked.text.slice(0, 300);
-  check("C7: after Unlink, t3's own answer names the missing link", unlinked.isError && /not linked/i.test(unlinked.text), out.unlinked);
+  check(
+    "C7: after Unlink, t3's own answer names the missing link",
+    unlinked.isError && /not linked/i.test(unlinked.text),
+    out.unlinked,
+  );
   finish();
 }
 

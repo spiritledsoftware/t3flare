@@ -37,7 +37,10 @@ export class Laptop {
   }
 
   /** `t3 <args>` at this version against this base directory; its stdout. Throws on a non-zero exit. */
-  cli(args: ReadonlyArray<string>, options: { readonly allowFailure?: boolean } = {}): { readonly status: number; readonly stdout: string; readonly stderr: string } {
+  cli(
+    args: ReadonlyArray<string>,
+    options: { readonly allowFailure?: boolean } = {},
+  ): { readonly status: number; readonly stdout: string; readonly stderr: string } {
     fs.mkdirSync(this.options.dir, { recursive: true });
     const result = spawnSync("npx", ["-y", `t3@${this.options.version}`, ...args, "--base-dir", this.options.dir], {
       encoding: "utf8",
@@ -61,8 +64,25 @@ export class Laptop {
     this.#log = fs.createWriteStream(this.logFile, { flags: "a" });
     const child = spawn(
       "npx",
-      ["-y", `t3@${this.options.version}`, "serve", "--base-dir", this.options.dir, "--port", String(this.options.port), "--host", "127.0.0.1", "--no-browser", cwd],
-      { cwd: this.options.dir, env: { ...process.env, ...this.options.env }, detached: true, stdio: ["ignore", "pipe", "pipe"] },
+      [
+        "-y",
+        `t3@${this.options.version}`,
+        "serve",
+        "--base-dir",
+        this.options.dir,
+        "--port",
+        String(this.options.port),
+        "--host",
+        "127.0.0.1",
+        "--no-browser",
+        cwd,
+      ],
+      {
+        cwd: this.options.dir,
+        env: { ...process.env, ...this.options.env },
+        detached: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
     );
     child.stdout?.pipe(this.#log);
     child.stderr?.pipe(this.#log);
@@ -77,7 +97,11 @@ export class Laptop {
     throw new Error(`t3 serve did not answer within 120 s; see ${this.logFile}`);
   }
 
-  async descriptor(): Promise<{ readonly environmentId: string; readonly serverVersion: string; readonly [key: string]: unknown }> {
+  async descriptor(): Promise<{
+    readonly environmentId: string;
+    readonly serverVersion: string;
+    readonly [key: string]: unknown;
+  }> {
     const response = await fetch(new URL("/.well-known/t3/environment", this.url));
     if (response.status !== 200) throw new Error(`descriptor ${response.status}`);
     return (await response.json()) as never;
@@ -107,7 +131,9 @@ export class Laptop {
 
   /** A pairing token from the server's CLI (`t3 auth pairing create`), exchanged for a browser session's cookie. */
   async pair(): Promise<string> {
-    const issued = JSON.parse(this.cli(["auth", "pairing", "create", "--json", "--label", "t3flare harness"]).stdout) as { credential?: string; token?: string };
+    const issued = JSON.parse(
+      this.cli(["auth", "pairing", "create", "--json", "--label", "t3flare harness"]).stdout,
+    ) as { credential?: string; token?: string };
     const credential = issued.credential ?? issued.token;
     if (credential === undefined) throw new Error("t3 auth pairing create printed no credential");
     const response = await fetch(new URL("/api/auth/browser-session", this.url), {
@@ -115,7 +141,11 @@ export class Laptop {
       headers: { "content-type": "application/json", origin: this.url.origin },
       body: JSON.stringify({ credential }),
     });
-    if (response.status !== 200) throw new Error(`laptop pairing failed: ${response.status} ${(await response.text()).slice(0, 300)}`);
-    return response.headers.getSetCookie().map((cookie) => cookie.split(";")[0]).join("; ");
+    if (response.status !== 200)
+      throw new Error(`laptop pairing failed: ${response.status} ${(await response.text()).slice(0, 300)}`);
+    return response.headers
+      .getSetCookie()
+      .map((cookie) => cookie.split(";")[0])
+      .join("; ");
   }
 }

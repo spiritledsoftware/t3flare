@@ -6,6 +6,7 @@ The stock clients decide what to offer from two things the server sends: the des
 - **t3flare ships a managed policy.** This is t3's administrator policy (`ManagedPolicyDocument`), which is normally a machine-wide file. Here it is built in: `t3/managedPolicy.ts` provides t3's `ManagedPolicy` service from `fromDocument` instead of `ManagedPolicy.layer`, which reads the host. It locks the settings of features that have no capability flag, and clients show them as "Managed by t3flare". Writes to a locked setting are refused ("… is managed by t3flare and cannot be changed"). It locks `guestSharingEnabled`, the device settings (`enableDeviceSupport`, `enableAgentDeviceAccess`, `simlockDeviceHostsEnabled`) and `idleCompaction` (ADR-0015's step 4b refinement), and sets two limits: product analytics off (see Consequences) and the preview tunnel off (2026-11-20 refinement).
 
 Stripped today:
+
 - Host-bound: `serverBrowser`, `voiceTranscription`, `localServerStop`, `fastWorktreeCheckout`, `triage`.
 - Self-update: `serverSelfUpdate`, `serverSelfUpdateProgress`, `serverUpdateThreadContinuation`, `serverInstallation`, `npmReleaseLookup`, `desktopAppUpdate`, `desktopAppChannelSwitch` (ADR-0017).
 - Not built: `threadProjectFromScratch` (parity G4).
@@ -27,7 +28,6 @@ Stripped today:
 `textGenerators` is no longer locked, and `cloudVoiceTranscription` is kept (ADR-0012's back-to-stock refinement):
 clients offer custom text generators and cloud voice as stock t3 does. Until then the policy locked `textGenerators`
 empty and the capability was stripped as "refused for now (owner decision D5)".
-
 
 ## Refinement (G11, 2026-11-13): `serverBrowser` and `localServerStop` are advertised
 

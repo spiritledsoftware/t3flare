@@ -14,7 +14,9 @@ export const PROMPT_SUGGESTION_PROMPT =
   "Predict the next message the user will send in this conversation. Reply with only that message, written as the user would type it, in under 20 words. Do not use tools. If there is no clear next step, reply with nothing.";
 
 /** The model that predicts: small and fast, the Guardian's default (`defaultSmallModel`), as `{ provider, modelId }`; none without an endpoint. */
-export const suggestionModelOf = (endpoints: ModelEndpoints): { readonly provider: string; readonly modelId: string } | undefined => {
+export const suggestionModelOf = (
+  endpoints: ModelEndpoints,
+): { readonly provider: string; readonly modelId: string } | undefined => {
   const slug = defaultSmallModel(endpoints);
   const parsed = slug === undefined ? undefined : parseEndpointSlug(slug);
   return parsed === undefined ? undefined : { provider: parsed.endpointId, modelId: parsed.modelId };
@@ -25,7 +27,8 @@ export const SUGGESTION_TIMEOUT_MS = 20_000;
 /** Most characters of a suggestion t3 is given. */
 const MAX_SUGGESTION = 300;
 
-const excerpt = (text: string): string => (text.length <= SUGGESTION_EXCERPT ? text : `…${text.slice(-SUGGESTION_EXCERPT)}`);
+const excerpt = (text: string): string =>
+  text.length <= SUGGESTION_EXCERPT ? text : `…${text.slice(-SUGGESTION_EXCERPT)}`;
 
 /** The request the model answers: the turn's user message and the agent's answer, then t3's prompt. */
 export const suggestionContext = (user: string, answer: string): Context => ({
@@ -40,14 +43,22 @@ export const suggestionContext = (user: string, answer: string): Context => ({
 });
 
 /** The suggestion, or "" when the model has none or fails (best effort, as t3's adapters treat it). */
-export const suggestPrompt = async (models: Pick<Models, "completeSimple">, model: Model<Api>, user: string, answer: string): Promise<string> => {
+export const suggestPrompt = async (
+  models: Pick<Models, "completeSimple">,
+  model: Model<Api>,
+  user: string,
+  answer: string,
+): Promise<string> => {
   if (user.trim() === "" || answer.trim() === "") return "";
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error("prompt suggestion timed out")), SUGGESTION_TIMEOUT_MS);
   try {
     const reply = await models.completeSimple(model, suggestionContext(user, answer), { signal: controller.signal });
     if (reply.stopReason === "error" || reply.stopReason === "aborted") return "";
-    const text = reply.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("").trim();
+    const text = reply.content
+      .flatMap((block) => (block.type === "text" ? [block.text] : []))
+      .join("")
+      .trim();
     return text.length > MAX_SUGGESTION ? "" : text.replace(/^["']|["']$/g, "").trim();
   } catch {
     return "";

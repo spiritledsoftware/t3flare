@@ -15,5 +15,7 @@ export const canonicalJson = (value: unknown, keepUndefined = false): string =>
       : `{${Object.keys(value as object)
           .sort()
           .filter((key) => keepUndefined || (value as Record<string, unknown>)[key] !== undefined)
-          .map((key) => `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key], keepUndefined)}`)
+          .map(
+            (key) => `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key], keepUndefined)}`,
+          )
           .join(",")}}`;

@@ -50,7 +50,13 @@ import { COMPATIBILITY } from "./build.ts";
 import { type DeploymentSettingName, optionalSetting, requiredSetting } from "./scripts/lib/deploymentSettings.ts";
 import { credentialsFile, standinFile } from "./stage-files.ts";
 import { stageNames } from "./stage-names.ts";
-import { ownerEndpointOn, SETTINGS_MCP_PATH, SETTINGS_OAUTH_GRANT, SETTINGS_OAUTH_REDIRECT_URIS, settingsMcpUrl } from "./src/settings/endpointLayout.ts";
+import {
+  ownerEndpointOn,
+  SETTINGS_MCP_PATH,
+  SETTINGS_OAUTH_GRANT,
+  SETTINGS_OAUTH_REDIRECT_URIS,
+  settingsMcpUrl,
+} from "./src/settings/endpointLayout.ts";
 
 const here = import.meta.dirname;
 
@@ -86,7 +92,14 @@ const required = Effect.fn("required")(function* (name: DeploymentSettingName) {
  * session lasts 30 days (apps/server/src/auth/SessionStore.ts:428) and an MCP client's 30 days
  * (apps/server/src/auth/EnvironmentAuth.ts:79), so these routes see a request only when something pairs or signs in.
  */
-const AUTH_PATHS = ["/oauth/token", "/api/auth/browser-session", "/oauth/mcp/register", "/oauth/mcp/approval", "/oauth/mcp/decision", "/oauth/mcp/token"];
+const AUTH_PATHS = [
+  "/oauth/token",
+  "/api/auth/browser-session",
+  "/oauth/mcp/register",
+  "/oauth/mcp/approval",
+  "/oauth/mcp/decision",
+  "/oauth/mcp/token",
+];
 
 /**
  * 10 such requests per 10 s from one IP (per Cloudflare data center), then 429 for 10 s. The zone (prod's, at first) is
@@ -109,9 +122,17 @@ export default Alchemy.Stack(
     const stage = yield* Alchemy.Stage;
     // The names derived from the stage, kept with the bound they put on a Stage name (stage-names.ts).
     const names = stageNames(stage);
-    const { environment: name, agents: agentsName, codemode: codemodeName, mcp: mcpName, mcpFixture: fixtureName, probe: probeName } = names;
+    const {
+      environment: name,
+      agents: agentsName,
+      codemode: codemodeName,
+      mcp: mcpName,
+      mcpFixture: fixtureName,
+      probe: probeName,
+    } = names;
     // Test stages: the tools step's fixture MCP server, when the stage has its bearer (scripts/stage.ts).
-    const fixtureBearer = stage === "prod" ? "" : yield* Config.String("T3FLARE_FIXTURE_BEARER").pipe(Config.withDefault(""));
+    const fixtureBearer =
+      stage === "prod" ? "" : yield* Config.String("T3FLARE_FIXTURE_BEARER").pipe(Config.withDefault(""));
     // The account's workers.dev subdomain: the Worker's host has to be known to name the Access destination.
     const workersDevHost = `${name}.${yield* required("T3FLARE_WORKERS_DEV_SUBDOMAIN")}.workers.dev`;
     // The stage's custom domain, if it has one (unset or empty: workers.dev only).
@@ -120,7 +141,9 @@ export default Alchemy.Stack(
     // finds it by domain) and the zone's rate-limit ruleset (owned whole by one stage); stage.ts refuses it first
     // (scripts/lib/deployPlan.ts), and this refuses a direct alchemy run.
     if (domain !== "" && stage !== "prod") {
-      return yield* Effect.die(new Error(`T3FLARE_DOMAIN is set (to ${domain}) for the stage ${stage}: only prod has a custom domain`));
+      return yield* Effect.die(
+        new Error(`T3FLARE_DOMAIN is set (to ${domain}) for the stage ${stage}: only prod has a custom domain`),
+      );
     }
     const host = domain === "" ? workersDevHost : domain;
     // The Access team (`<team>.cloudflareaccess.com`) of the Owner's account, and the one person it admits.
@@ -131,7 +154,9 @@ export default Alchemy.Stack(
     // its prod, so another stage given one is refused (stage.ts refuses it first, scripts/lib/deployPlan.ts).
     const updateRepo = yield* optional("T3FLARE_UPDATE_REPO");
     if (stage !== "prod" && updateRepo !== undefined) {
-      return yield* Effect.die(new Error(`T3FLARE_UPDATE_REPO is set for the stage ${stage}: only prod has an update target`));
+      return yield* Effect.die(
+        new Error(`T3FLARE_UPDATE_REPO is set for the stage ${stage}: only prod has an update target`),
+      );
     }
     // A shorter idle delay for test stages (ADR-0003's default is 60 s).
     const idleAfterMs = yield* Config.String("T3FLARE_IDLE_AFTER_MS").pipe(Config.withDefault(""));
@@ -171,7 +196,11 @@ export default Alchemy.Stack(
       ...(ownerEndpoint ? { pathCookieAttribute: true } : {}),
       policies: [
         { name: "owner", decision: "allow", include: [{ email: ownerEmail }] },
-        { name: "stage service token", decision: "non_identity", include: [{ serviceToken: serviceToken.serviceTokenId }] },
+        {
+          name: "stage service token",
+          decision: "non_identity",
+          include: [{ serviceToken: serviceToken.serviceTokenId }],
+        },
       ],
     } as never);
     // The Owner-client endpoint's own Access application (ADR-0036, plan D13; layout (B), src/settings/endpointLayout.ts),
@@ -183,23 +212,32 @@ export default Alchemy.Stack(
     // plus Cursor's custom scheme, pending owner step 2; no https redirect.
     const settingsAccess = ownerEndpoint
       ? yield* Cloudflare.Access.Application("SettingsAccess", {
-        name: `${name} settings`,
-        type: "self_hosted",
-        domain: `${host}${SETTINGS_MCP_PATH}`,
-        destinations: [{ type: "public", uri: `${host}${SETTINGS_MCP_PATH}` }],
-        sessionDuration: "24h",
-        appLauncherVisible: false,
-        pathCookieAttribute: true,
-        oauthConfiguration: {
-          enabled: true,
-          grant: { ...SETTINGS_OAUTH_GRANT },
-          dynamicClientRegistration: { enabled: true, allowAnyOnLocalhost: true, allowAnyOnLoopback: true, allowedUris: [...SETTINGS_OAUTH_REDIRECT_URIS] },
-        },
-        policies: [
-          { name: "owner", decision: "allow", include: [{ email: ownerEmail }] },
-          { name: "stage service token", decision: "non_identity", include: [{ serviceToken: serviceToken.serviceTokenId }] },
-        ],
-      } as never)
+          name: `${name} settings`,
+          type: "self_hosted",
+          domain: `${host}${SETTINGS_MCP_PATH}`,
+          destinations: [{ type: "public", uri: `${host}${SETTINGS_MCP_PATH}` }],
+          sessionDuration: "24h",
+          appLauncherVisible: false,
+          pathCookieAttribute: true,
+          oauthConfiguration: {
+            enabled: true,
+            grant: { ...SETTINGS_OAUTH_GRANT },
+            dynamicClientRegistration: {
+              enabled: true,
+              allowAnyOnLocalhost: true,
+              allowAnyOnLoopback: true,
+              allowedUris: [...SETTINGS_OAUTH_REDIRECT_URIS],
+            },
+          },
+          policies: [
+            { name: "owner", decision: "allow", include: [{ email: ownerEmail }] },
+            {
+              name: "stage service token",
+              decision: "non_identity",
+              include: [{ serviceToken: serviceToken.serviceTokenId }],
+            },
+          ],
+        } as never)
       : undefined;
 
     // Models are the owner's Model endpoints (ADR-0034), set on the Settings page; no Worker holds a model setting. The GitHub App (ADR-0013) comes from
@@ -278,13 +316,19 @@ export default Alchemy.Stack(
       workersDev: { enabled: false, previewsEnabled: false },
       env: {
         SESSIONS: Cloudflare.DurableObject("SessionDO", { className: "SessionDO" }),
-        WORKSPACES: Cloudflare.DurableObject("WorkspaceDO", { className: "WorkspaceDO", containers: [workspaceContainer] } as never),
+        WORKSPACES: Cloudflare.DurableObject("WorkspaceDO", {
+          className: "WorkspaceDO",
+          containers: [workspaceContainer],
+        } as never),
         CONTAINER_BUDGET: Cloudflare.DurableObject("ContainerBudget", { className: "ContainerBudget" }),
         ...(bootstrapPass
           ? {}
           : {
               ENVIRONMENT: Cloudflare.DurableObject("EnvironmentDO", { className: "EnvironmentDO", scriptName: name }),
-              CODEMODE_SANDBOX: Cloudflare.DurableObject("CodemodeSandbox", { className: "CodemodeSandbox", scriptName: codemodeName }),
+              CODEMODE_SANDBOX: Cloudflare.DurableObject("CodemodeSandbox", {
+                className: "CodemodeSandbox",
+                scriptName: codemodeName,
+              }),
             }),
         LOADER: Cloudflare.WorkerLoader(),
         // The model fault route (step 2a part 2) answers on test stages only.
@@ -331,7 +375,10 @@ export default Alchemy.Stack(
           : {
               SESSIONS: Cloudflare.DurableObject("SessionDO", { className: "SessionDO", scriptName: agentsName }),
               WORKSPACES: Cloudflare.DurableObject("WorkspaceDO", { className: "WorkspaceDO", scriptName: agentsName }),
-              CONTAINER_BUDGET: Cloudflare.DurableObject("ContainerBudget", { className: "ContainerBudget", scriptName: agentsName }),
+              CONTAINER_BUDGET: Cloudflare.DurableObject("ContainerBudget", {
+                className: "ContainerBudget",
+                scriptName: agentsName,
+              }),
               // G11 (ADR-0031): the Container previews' way in, one method of the Workspace DO (`WorkspaceContainerPreviews`).
               WORKSPACE_PREVIEWS: Cloudflare.WorkerEntrypoint(agents as never, "WorkspaceContainerPreviews"),
               // SPI-1163: text generation on a Model endpoint's model, one pi-ai request (`EndpointTextGeneration`).
@@ -354,7 +401,17 @@ export default Alchemy.Stack(
         notFoundHandling: "single-page-application",
         // t3's server paths (DEV_PROXIED_PATH_PREFIXES) reach the Worker before the assets.
         // `/t3flare/oauth/*`: the direct MCP servers' OAuth callback and client document (public; ADR-0026, ADR-0010).
-        runWorkerFirst: ["/api/*", "/ws", "/oauth/*", "/.well-known/*", "/mcp", "/mcp/*", "/_t3flare", "/_t3flare/*", "/t3flare/oauth/*"],
+        runWorkerFirst: [
+          "/api/*",
+          "/ws",
+          "/oauth/*",
+          "/.well-known/*",
+          "/mcp",
+          "/mcp/*",
+          "/_t3flare",
+          "/_t3flare/*",
+          "/t3flare/oauth/*",
+        ],
       },
       observability: { enabled: true, logs: { enabled: true, invocationLogs: true } },
     });
@@ -363,7 +420,9 @@ export default Alchemy.Stack(
       // Owns the zone's whole http_ratelimit entrypoint (one per zone; the Free plan allows one rule in it), so only one
       // stage may have a domain in a given zone.
       const { accountId } = yield* yield* Cloudflare.CloudflareEnvironment;
-      const zoneId = yield* Cloudflare.Zone.resolveZoneId({ accountId, zone: undefined, hostname: domain }).pipe(Effect.orDie);
+      const zoneId = yield* Cloudflare.Zone.resolveZoneId({ accountId, zone: undefined, hostname: domain }).pipe(
+        Effect.orDie,
+      );
       yield* Cloudflare.Ruleset.Ruleset("AuthRateLimit", {
         zone: { zoneId } as never,
         phase: "http_ratelimit",
@@ -393,10 +452,15 @@ export default Alchemy.Stack(
       const tunnel = yield* Cloudflare.Tunnel.Tunnel("StandinTunnel", {
         name: names.standin,
         // cloudflared runs in the stand-in's container, beside t3; `Host` is passed as it is, which t3 needs.
-        ingress: [{ hostname: standinHost, service: `http://localhost:${STANDIN_PORT}` }, { service: "http_status:404" }],
+        ingress: [
+          { hostname: standinHost, service: `http://localhost:${STANDIN_PORT}` },
+          { service: "http_status:404" },
+        ],
       });
       const { accountId } = yield* yield* Cloudflare.CloudflareEnvironment;
-      const zoneId = yield* Cloudflare.Zone.resolveZoneId({ accountId, zone: undefined, hostname: standinHost }).pipe(Effect.orDie);
+      const zoneId = yield* Cloudflare.Zone.resolveZoneId({ accountId, zone: undefined, hostname: standinHost }).pipe(
+        Effect.orDie,
+      );
       yield* Cloudflare.DNS.Record("StandinDns", {
         zoneId,
         name: standinHost,
@@ -409,7 +473,11 @@ export default Alchemy.Stack(
       standinCredentials = Output.map(tunnel.token, (token) => {
         const file = standinFile(stage);
         fs.mkdirSync(path.dirname(file), { recursive: true });
-        fs.writeFileSync(file, JSON.stringify({ host, port: STANDIN_PORT, token: Redacted.value(token as Redacted.Redacted<string>) }), { mode: 0o600 });
+        fs.writeFileSync(
+          file,
+          JSON.stringify({ host, port: STANDIN_PORT, token: Redacted.value(token as Redacted.Redacted<string>) }),
+          { mode: 0o600 },
+        );
         return path.relative(here, file);
       });
     }
@@ -425,7 +493,12 @@ export default Alchemy.Stack(
           fs.mkdirSync(path.dirname(file), { recursive: true });
           fs.writeFileSync(
             file,
-            JSON.stringify({ url, ...(ownerEndpoint ? { settingsMcpUrl: settingsMcpUrl(host) } : {}), clientId, clientSecret: Redacted.value(clientSecret as Redacted.Redacted<string>) }),
+            JSON.stringify({
+              url,
+              ...(ownerEndpoint ? { settingsMcpUrl: settingsMcpUrl(host) } : {}),
+              clientId,
+              clientSecret: Redacted.value(clientSecret as Redacted.Redacted<string>),
+            }),
             { mode: 0o600 },
           );
         }
@@ -436,7 +509,9 @@ export default Alchemy.Stack(
       url: environment.url,
       host,
       accessAud: admin.aud,
-      ...(settingsAccess === undefined ? {} : { settingsAccessAud: settingsAccess.aud, settingsMcpUrl: settingsMcpUrl(host) }),
+      ...(settingsAccess === undefined
+        ? {}
+        : { settingsAccessAud: settingsAccess.aud, settingsMcpUrl: settingsMcpUrl(host) }),
       credentials,
       agents: agents.workerName,
       ...(standin ? { standin: standinCredentials as never, standinHost } : {}),

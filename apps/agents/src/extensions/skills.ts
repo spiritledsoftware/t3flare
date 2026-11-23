@@ -21,7 +21,8 @@ export const SKILLS_EXTENSION = "skills";
 /** An environment that finds its cwd's Skills itself (`ComputerExecutionEnv`, asking the Workspace DO). */
 type SkillSource = { readonly discoverSkills: (context: typeof BACKGROUND_CONTEXT) => Promise<WireSkillDiscovery> };
 
-const isSkillSource = (env: object): env is SkillSource => "discoverSkills" in env && typeof env.discoverSkills === "function";
+const isSkillSource = (env: object): env is SkillSource =>
+  "discoverSkills" in env && typeof env.discoverSkills === "function";
 
 /** The section's text for `env`: the listing in `<skills>`, empty when there is nothing to list, undefined without a Workspace. */
 export const skillsSectionText = async (env: PromptInput["env"]): Promise<string | undefined> => {

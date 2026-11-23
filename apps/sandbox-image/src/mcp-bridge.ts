@@ -164,12 +164,7 @@ export const mcpBridgeConfigHeader = (config: McpBridgeConfig): string => {
 export const mcpBridgeKey = async (config: McpBridgeConfig): Promise<string> => {
   const entries = Object.entries(config.env ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 
-  const canonical = JSON.stringify([
-    config.command,
-    config.args ?? [],
-    entries,
-    config.cwd ?? null,
-  ]);
+  const canonical = JSON.stringify([config.command, config.args ?? [], entries, config.cwd ?? null]);
 
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
 

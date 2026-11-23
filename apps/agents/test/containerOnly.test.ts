@@ -8,7 +8,14 @@ import { SKILLS_LOCK_SCRIPT } from "@t3flare/workspace-client";
 import { describe, expect, it } from "vitest";
 
 import { CONTAINER_IGNORE } from "../src/workspace/constants.ts";
-import { containerPatterns, ContainerOnlyBackend, containerScript, type PatternedBackend, submoduleDirsScript, submodulePaths } from "../src/workspace/containerOnly.ts";
+import {
+  containerPatterns,
+  ContainerOnlyBackend,
+  containerScript,
+  type PatternedBackend,
+  submoduleDirsScript,
+  submodulePaths,
+} from "../src/workspace/containerOnly.ts";
 
 describe("the patterns a Container starts with", () => {
   it("names t3flare's own submodule from its .gitmodules", () => {
@@ -17,13 +24,21 @@ describe("the patterns a Container starts with", () => {
   });
 
   it("reads every submodule's path, quoted or nested, once", () => {
-    const text = '[submodule "a"]\n\tpath = vendor/a\n\turl = x\n[submodule "b"]\n  path = "libs/b"\n[submodule "a2"]\n\tpath = vendor/a\n';
+    const text =
+      '[submodule "a"]\n\tpath = vendor/a\n\turl = x\n[submodule "b"]\n  path = "libs/b"\n[submodule "a2"]\n\tpath = vendor/a\n';
     expect(submodulePaths(text)).toEqual(["vendor/a", "libs/b"]);
   });
 
   it("keeps submodules and their git directories on the Container's disk, before the harness's re-includes", () => {
     const patterns = containerPatterns(CONTAINER_IGNORE, ["t3code", "vendor/a", "we,ird", "../escape", "glob*"]);
-    expect(patterns.slice(-6)).toEqual(["/repo/.git/modules", "/repo/.git/worktrees", "/repo/t3code/**", "/repo/vendor/a/**", "!/.t3flare", "!/.t3flare/**"]);
+    expect(patterns.slice(-6)).toEqual([
+      "/repo/.git/modules",
+      "/repo/.git/worktrees",
+      "/repo/t3code/**",
+      "/repo/vendor/a/**",
+      "!/.t3flare",
+      "!/.t3flare/**",
+    ]);
     expect(patterns.filter((pattern) => /we,ird|escape|glob/.test(pattern))).toEqual([]);
   });
 
@@ -35,12 +50,21 @@ describe("the patterns a Container starts with", () => {
   });
 
   it("a repo without submodules still keeps `.git/modules` and `.git/worktrees` local", () => {
-    expect(containerPatterns(CONTAINER_IGNORE, [])).toEqual([...CONTAINER_IGNORE.slice(0, -2), "/repo/.git/modules", "/repo/.git/worktrees", ...CONTAINER_IGNORE.slice(-2)]);
+    expect(containerPatterns(CONTAINER_IGNORE, [])).toEqual([
+      ...CONTAINER_IGNORE.slice(0, -2),
+      "/repo/.git/modules",
+      "/repo/.git/worktrees",
+      ...CONTAINER_IGNORE.slice(-2),
+    ]);
   });
 });
 
 describe("the Container backend made again when the patterns change", () => {
-  const harness = (needed: Array<ReadonlyArray<string>>, failFirst?: string, connected?: (handle: { readonly runtimeId?: string }) => Promise<void>) => {
+  const harness = (
+    needed: Array<ReadonlyArray<string>>,
+    failFirst?: string,
+    connected?: (handle: { readonly runtimeId?: string }) => Promise<void>,
+  ) => {
     const made: Array<ReadonlyArray<string>> = [];
     let runtimes = 0;
     const connects: Array<ReadonlyArray<string>> = [];
@@ -48,7 +72,12 @@ describe("the Container backend made again when the patterns change", () => {
     let failures = failFirst === undefined ? 0 : 1;
     const backend = new ContainerOnlyBackend({
       initial: ["/a"],
-      ...(connected === undefined ? {} : { connected: (handle: { readonly runtimeId?: string | undefined }) => connected(handle.runtimeId === undefined ? {} : { runtimeId: handle.runtimeId }) }),
+      ...(connected === undefined
+        ? {}
+        : {
+            connected: (handle: { readonly runtimeId?: string | undefined }) =>
+              connected(handle.runtimeId === undefined ? {} : { runtimeId: handle.runtimeId }),
+          }),
       patterns: () => Promise.resolve(needed.shift() ?? ["/a"]),
       stop: () => {
         stops++;
@@ -134,6 +163,8 @@ describe("the Workspace DO's own Container commands", () => {
   it("are what the Workspace DO runs on the Container backend", () => {
     // No harness drives the DO's `exec` on a Container, so the call site is pinned by its text until one does.
     const source = fs.readFileSync(join(import.meta.dirname, "../src/workspace/WorkspaceDO.ts"), "utf8");
-    expect(source).toMatch(/backend === CONTAINER_BACKEND \? containerScript\(await this\.#containerPatterns\(\), body\) : body/);
+    expect(source).toMatch(
+      /backend === CONTAINER_BACKEND \? containerScript\(await this\.#containerPatterns\(\), body\) : body/,
+    );
   });
 });

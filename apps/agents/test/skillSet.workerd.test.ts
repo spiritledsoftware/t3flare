@@ -22,7 +22,9 @@ describe("the Environment skill set in a Workspace", () => {
       ["a", "/workspace/.agents/skills/a/SKILL.md"],
       ["b", "/workspace/.agents/skills/b/SKILL.md"],
     ]);
-    expect(await p.write("/workspace/.agents/skills/a/new.md")).toMatch(/read-only mount at \/workspace\/\.agents\/skills/);
+    expect(await p.write("/workspace/.agents/skills/a/new.md")).toMatch(
+      /read-only mount at \/workspace\/\.agents\/skills/,
+    );
     expect(await p.write("/workspace/.agents/skills/c/SKILL.md")).toMatch(/read-only mount/);
     const second = await skillSetOf({ "a/SKILL.md": md("a", "PLUM-10") });
     expect(await p.take(second)).toEqual({ hash: second.hash });
@@ -37,7 +39,9 @@ describe("the Environment skill set in a Workspace", () => {
     await p.take(held);
     const failing = await skillSetOf({ "boom/SKILL.md": md("boom") });
     const answer = await p.take(failing);
-    expect(answer.error).toMatch(/^The Environment skill set could not be mounted, and the Workspace keeps the one it held: .*boom/);
+    expect(answer.error).toMatch(
+      /^The Environment skill set could not be mounted, and the Workspace keeps the one it held: .*boom/,
+    );
     expect(answer.hash).toBe(held.hash);
     expect(await p.read("/workspace/.agents/skills/a/SKILL.md")).toBe(md("a"));
     expect(await p.write("/workspace/.agents/skills/a/x.md")).toMatch(/read-only mount/);

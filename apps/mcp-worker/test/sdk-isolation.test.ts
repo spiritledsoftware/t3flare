@@ -34,7 +34,10 @@ const planted = (entry: string, extra: ReadonlyArray<string>): Plugin => ({
   },
   load(id) {
     if (id !== PLANTED) return null;
-    return [`import * as entry from ${JSON.stringify(entry)}; globalThis.entry = entry;`, ...extra.map((source) => `import ${JSON.stringify(source)};`)].join("\n");
+    return [
+      `import * as entry from ${JSON.stringify(entry)}; globalThis.entry = entry;`,
+      ...extra.map((source) => `import ${JSON.stringify(source)};`),
+    ].join("\n");
   },
 });
 
@@ -44,7 +47,10 @@ const graphOf = async (entry: string, extra: ReadonlyArray<string> = []): Promis
     input: extra.length === 0 ? entry : PLANTED,
     cwd: here(".."),
     external: ["cloudflare:workers", "cloudflare:sockets"],
-    plugins: [...(extra.length === 0 ? [] : [planted(entry, extra)]), cloudflare({ compatibilityDate: "2026-11-01", compatibilityFlags: ["nodejs_compat"] })],
+    plugins: [
+      ...(extra.length === 0 ? [] : [planted(entry, extra)]),
+      cloudflare({ compatibilityDate: "2026-11-01", compatibilityFlags: ["nodejs_compat"] }),
+    ],
     checks: { unresolvedImport: false, ineffectiveDynamicImport: false },
     logLevel: "silent",
   });
@@ -65,7 +71,12 @@ const sources = (dir: string): ReadonlyArray<string> =>
 const forbiddenImports = (text: string): ReadonlyArray<string> =>
   [...text.matchAll(/from\s+"([^"]+)"|import\(\s*"([^"]+)"\s*\)/g)]
     .map((match) => match[1] ?? match[2] ?? "")
-    .filter((source) => source.startsWith(SDK) || (source.startsWith("@t3flare/mcp") && !["@t3flare/mcp/types", "@t3flare/mcp/oauth", "@t3flare/mcp/elicitation-url"].includes(source)));
+    .filter(
+      (source) =>
+        source.startsWith(SDK) ||
+        (source.startsWith("@t3flare/mcp") &&
+          !["@t3flare/mcp/types", "@t3flare/mcp/oauth", "@t3flare/mcp/elicitation-url"].includes(source)),
+    );
 
 describe("the MCP SDK stays in the MCP Worker", () => {
   it("the agents Worker's graph has no SDK module, and a planted import is caught", async () => {
@@ -81,7 +92,9 @@ describe("the MCP SDK stays in the MCP Worker", () => {
   }, 120_000);
 
   it("the Environment Worker's sources import neither the SDK nor @t3flare/mcp's core", () => {
-    const found = sources(ENVIRONMENT_SRC).flatMap((file) => forbiddenImports(fs.readFileSync(file, "utf8")).map((source) => `${file}: ${source}`));
+    const found = sources(ENVIRONMENT_SRC).flatMap((file) =>
+      forbiddenImports(fs.readFileSync(file, "utf8")).map((source) => `${file}: ${source}`),
+    );
     expect(found).toEqual([]);
     expect(forbiddenImports(`import { connect } from "@t3flare/mcp";`)).toEqual(["@t3flare/mcp"]);
   });

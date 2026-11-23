@@ -14,7 +14,10 @@ import { CdpClient, openCdpSocket } from "./cdpSocket.ts";
 
 /** The fork's entry points, typed with t3's own `playwright-core` types (the fork's resolve to `any` here). */
 interface Playwright {
-  launch(binding: unknown, options: { keep_alive?: number; outboundByHost?: unknown }): Promise<Browser & { sessionId(): string }>;
+  launch(
+    binding: unknown,
+    options: { keep_alive?: number; outboundByHost?: unknown },
+  ): Promise<Browser & { sessionId(): string }>;
   connect(binding: unknown, sessionId: string): Promise<Browser>;
 }
 
@@ -60,7 +63,9 @@ const playwright = async (): Promise<Playwright> => (await import("@cloudflare/p
 /** Question 1 (and M2, M6 of the review): every Playwright call t3 makes, against one browser with the routes. */
 const playwrightCalls = async (storage: DurableObjectStorage): Promise<Array<Line>> => {
   const lines: Array<Line> = [];
-  const pw = (await step(lines, "import @cloudflare/playwright", () => playwright().then((module) => module))) as Playwright | undefined;
+  const pw = (await step(lines, "import @cloudflare/playwright", () => playwright().then((module) => module))) as
+    | Playwright
+    | undefined;
   if (pw === undefined) return lines;
   const workspace = "spike-a";
   const browser = (await step(lines, "launch (outboundByHost via ctx.exports, keep_alive 600 s)", () =>
@@ -75,13 +80,19 @@ const playwrightCalls = async (storage: DurableObjectStorage): Promise<Array<Lin
   if (context === undefined) return lines;
   const page = (await step(lines, "context.newPage", () => context.newPage())) as Page | undefined;
   if (page === undefined) return lines;
-  const cdp = (await step(lines, "context.newCDPSession(page)", () => context.newCDPSession(page))) as CDPSession | undefined;
+  const cdp = (await step(lines, "context.newCDPSession(page)", () => context.newCDPSession(page))) as
+    | CDPSession
+    | undefined;
   await step(lines, "cdp Browser.getVersion + Emulation.setUserAgentOverride (presentAsChrome)", async () => {
     const version = (await cdp!.send("Browser.getVersion")) as { userAgent: string; product: string };
-    await cdp!.send("Emulation.setUserAgentOverride", { userAgent: version.userAgent.replace("HeadlessChrome", "Chrome") });
+    await cdp!.send("Emulation.setUserAgentOverride", {
+      userAgent: version.userAgent.replace("HeadlessChrome", "Chrome"),
+    });
     return version.product;
   });
-  await step(lines, "context.grantPermissions(['clipboard-write'])", () => context.grantPermissions(["clipboard-write"]));
+  await step(lines, "context.grantPermissions(['clipboard-write'])", () =>
+    context.grantPermissions(["clipboard-write"]),
+  );
   await step(lines, "page.emulateMedia({ colorScheme: 'dark' })", () => page.emulateMedia({ colorScheme: "dark" }));
   await step(lines, "context.addInitScript", () => context.addInitScript({ content: "globalThis.__spikeInit = 1;" }));
   await step(lines, "page.exposeFunction", () => page.exposeFunction("__spikeExposed", () => "exposed"));
@@ -90,20 +101,38 @@ const playwrightCalls = async (storage: DurableObjectStorage): Promise<Array<Lin
   // Question 2's first leg: the route reaches the entrypoint with this browser's props.
   await step(lines, "goto http://5173.t3flare.internal/ (props through outboundByHost)", async () => {
     const response = await page.goto(`http://${containerPreviewHost(5173)}/`, { waitUntil: "load" });
-    return { status: response?.status(), props: await page.locator("#props").textContent(), host: await page.locator("#host").textContent() };
+    return {
+      status: response?.status(),
+      props: await page.locator("#props").textContent(),
+      host: await page.locator("#host").textContent(),
+    };
   });
-  await step(lines, "initScript ran", () => page.evaluate(() => (globalThis as unknown as { __spikeInit?: number }).__spikeInit));
-  await step(lines, "exposeFunction callable", () => page.evaluate(() => (globalThis as unknown as { __spikeExposed: () => Promise<string> }).__spikeExposed()));
-  await step(lines, "page.ariaSnapshot({ mode: 'ai', boxes: true })", async () => (await page.ariaSnapshot({ mode: "ai", boxes: true, timeout: 10_000 } as never)).slice(0, 200));
-  await step(lines, "locator.fill / click / hover / selectOption / boundingBox / scrollIntoViewIfNeeded / count", async () => {
-    await page.locator("#t").fill("typed");
-    await page.locator("#s").selectOption("b");
-    await page.locator("#b").hover();
-    await page.locator("#b").scrollIntoViewIfNeeded();
-    const box = await page.locator("#b").boundingBox();
-    await page.locator("#b").click();
-    return { value: await page.locator("#t").inputValue(), box: box !== null, count: await page.locator("button").count() };
-  });
+  await step(lines, "initScript ran", () =>
+    page.evaluate(() => (globalThis as unknown as { __spikeInit?: number }).__spikeInit),
+  );
+  await step(lines, "exposeFunction callable", () =>
+    page.evaluate(() => (globalThis as unknown as { __spikeExposed: () => Promise<string> }).__spikeExposed()),
+  );
+  await step(lines, "page.ariaSnapshot({ mode: 'ai', boxes: true })", async () =>
+    (await page.ariaSnapshot({ mode: "ai", boxes: true, timeout: 10_000 } as never)).slice(0, 200),
+  );
+  await step(
+    lines,
+    "locator.fill / click / hover / selectOption / boundingBox / scrollIntoViewIfNeeded / count",
+    async () => {
+      await page.locator("#t").fill("typed");
+      await page.locator("#s").selectOption("b");
+      await page.locator("#b").hover();
+      await page.locator("#b").scrollIntoViewIfNeeded();
+      const box = await page.locator("#b").boundingBox();
+      await page.locator("#b").click();
+      return {
+        value: await page.locator("#t").inputValue(),
+        box: box !== null,
+        count: await page.locator("button").count(),
+      };
+    },
+  );
   await step(lines, "keyboard.insertText / press, mouse.move / click", async () => {
     await page.locator("#t").focus();
     await page.keyboard.insertText("!");
@@ -130,14 +159,22 @@ const playwrightCalls = async (storage: DurableObjectStorage): Promise<Array<Lin
         resolve(event.data.length);
       });
     });
-    await cdp!.send("Page.startScreencast", { format: "jpeg", quality: 60, maxWidth: 640, maxHeight: 400, everyNthFrame: 1 });
+    await cdp!.send("Page.startScreencast", {
+      format: "jpeg",
+      quality: 60,
+      maxWidth: 640,
+      maxHeight: 400,
+      everyNthFrame: 1,
+    });
     await page.mouse.move(20, 20);
     const bytes = await frame;
     await cdp!.send("Page.stopScreencast");
     return { base64Bytes: bytes };
   });
   await step(lines, "page.on('dialog') + dialog.accept", async () => {
-    const seen = new Promise<string>((resolve) => page.once("dialog", (dialog) => void dialog.accept().then(() => resolve(dialog.type()))));
+    const seen = new Promise<string>((resolve) =>
+      page.once("dialog", (dialog) => void dialog.accept().then(() => resolve(dialog.type()))),
+    );
     await page.evaluate(() => setTimeout(() => alert("spike"), 10));
     return seen;
   });
@@ -162,8 +199,14 @@ const playwrightCalls = async (storage: DurableObjectStorage): Promise<Array<Lin
       const native = NodeFS.statSync(path).size;
       // t3's own `node:fs` is the State directory (ADR-0007): the alias does not see the fork's file.
       const { promises: shim } = await import("../shims/node-fs.ts");
-      const aliased = await shim.stat(path).then((stat) => stat.size, (error: unknown) => `alias: ${clip(error)}`);
-      const stream = await download.createReadStream().then((readable) => (readable === null ? "null" : "stream"), (error: unknown) => clip(error));
+      const aliased = await shim.stat(path).then(
+        (stat) => stat.size,
+        (error: unknown) => `alias: ${clip(error)}`,
+      );
+      const stream = await download.createReadStream().then(
+        (readable) => (readable === null ? "null" : "stream"),
+        (error: unknown) => clip(error),
+      );
       return { failure, suggested: download.suggestedFilename(), native, aliased, stream };
     } finally {
       await downloadPage.close();
@@ -181,7 +224,11 @@ const playwrightCalls = async (storage: DurableObjectStorage): Promise<Array<Lin
     await page.locator("#f").click();
     const fromPath = await (await chooser2).setFiles("/tmp/spike-upload.txt").then(
       async () => {
-        await page.waitForFunction(() => document.getElementById("out")?.textContent?.includes("spike-upload"), undefined, { timeout: 5_000 });
+        await page.waitForFunction(
+          () => document.getElementById("out")?.textContent?.includes("spike-upload"),
+          undefined,
+          { timeout: 5_000 },
+        );
         return page.locator("#out").textContent();
       },
       (error: unknown) => `refused: ${clip(error)}`,
@@ -189,7 +236,9 @@ const playwrightCalls = async (storage: DurableObjectStorage): Promise<Array<Lin
     return { fromBuffer, fromPath };
   });
   await step(lines, "locator.setInputFiles(buffer)", async () => {
-    await page.locator("#f").setInputFiles({ name: "b.txt", mimeType: "text/plain", buffer: Buffer.from("locator-upload") });
+    await page
+      .locator("#f")
+      .setInputFiles({ name: "b.txt", mimeType: "text/plain", buffer: Buffer.from("locator-upload") });
     await page.waitForFunction(() => document.getElementById("out")?.textContent?.includes("b.txt"));
     return page.locator("#out").textContent();
   });
@@ -230,7 +279,10 @@ const playwrightCalls = async (storage: DurableObjectStorage): Promise<Array<Lin
   await step(lines, "goto http://localhost:5173/ with no route (R1)", async () => {
     const probe = await context.newPage();
     try {
-      return await probe.goto("http://localhost:5173/", { timeout: 10_000 }).then((response) => `loaded ${response?.status()}`, (error: unknown) => clip(error));
+      return await probe.goto("http://localhost:5173/", { timeout: 10_000 }).then(
+        (response) => `loaded ${response?.status()}`,
+        (error: unknown) => clip(error),
+      );
     } finally {
       await probe.close();
     }
@@ -241,12 +293,21 @@ const playwrightCalls = async (storage: DurableObjectStorage): Promise<Array<Lin
     await routed.route(/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//, async (route) => {
       fired++;
       const target = new URL(route.request().url());
-      await route.fulfill({ status: 302, headers: { location: `http://${target.port || "80"}.t3flare.internal${target.pathname}` } });
+      await route.fulfill({
+        status: 302,
+        headers: { location: `http://${target.port || "80"}.t3flare.internal${target.pathname}` },
+      });
     });
     const probe = await routed.newPage();
     try {
       const outcome = await probe.goto("http://localhost:5173/", { timeout: 10_000 }).then(
-        async () => ({ url: probe.url(), props: await probe.locator("#props").textContent().catch(() => null) }),
+        async () => ({
+          url: probe.url(),
+          props: await probe
+            .locator("#props")
+            .textContent()
+            .catch(() => null),
+        }),
         (error: unknown) => clip(error),
       );
       return { fired, outcome };
@@ -283,7 +344,14 @@ const playwrightCalls = async (storage: DurableObjectStorage): Promise<Array<Lin
     return out;
   });
   await step(lines, "workerd WebSocket bufferedAmount (H1)", async () => {
-    const pair = new (globalThis as unknown as { WebSocketPair: new () => Record<0 | 1, { accept(): void; send(data: string): void; bufferedAmount?: number; close(): void }> }).WebSocketPair();
+    const pair = new (
+      globalThis as unknown as {
+        WebSocketPair: new () => Record<
+          0 | 1,
+          { accept(): void; send(data: string): void; bufferedAmount?: number; close(): void }
+        >;
+      }
+    ).WebSocketPair();
     pair[1].accept();
     pair[1].send("x".repeat(1024));
     const amount = pair[1].bufferedAmount;
@@ -301,13 +369,22 @@ const playwrightCalls = async (storage: DurableObjectStorage): Promise<Array<Lin
 const routeCheck = async (storage: DurableObjectStorage): Promise<Array<Line>> => {
   const lines: Array<Line> = [];
   const stored = storage.kv.get<{ sessionId: string; workspace: string; at: number }>(SESSION_KEY);
-  lines.push({ name: "stored session", ok: stored !== undefined, ms: 0, detail: stored === undefined ? null : { ageMs: Date.now() - stored.at, workspace: stored.workspace } });
+  lines.push({
+    name: "stored session",
+    ok: stored !== undefined,
+    ms: 0,
+    detail: stored === undefined ? null : { ageMs: Date.now() - stored.at, workspace: stored.workspace },
+  });
   if (spikeBrowser !== undefined) {
     await step(lines, "kept browser: new page on 5173.t3flare.internal", async () => {
       const page = await spikeBrowser!.browser.newPage();
       try {
         await page.goto(`http://${containerPreviewHost(5173)}/`, { timeout: 15_000 });
-        return { props: await page.locator("#props").textContent(), connected: spikeBrowser!.browser.isConnected(), ageMs: Date.now() - spikeBrowser!.at };
+        return {
+          props: await page.locator("#props").textContent(),
+          connected: spikeBrowser!.browser.isConnected(),
+          ageMs: Date.now() - spikeBrowser!.at,
+        };
       } finally {
         await page.close();
       }
@@ -334,15 +411,21 @@ const routeCheck = async (storage: DurableObjectStorage): Promise<Array<Line>> =
 /** Question 3 (review M3): stock `headlessChrome.ts`'s sequence over a raw browser-level CDP socket to a route-less browser. */
 const htmlPageCheck = async (pageOrigin: string): Promise<Array<Line>> => {
   const lines: Array<Line> = [];
-  const opened = (await step(lines, "launch route-less + CDP socket", () => openCdpSocket(binding(), { keepAliveMs: 60_000 }))) as
-    | Awaited<ReturnType<typeof openCdpSocket>>
-    | undefined;
+  const opened = (await step(lines, "launch route-less + CDP socket", () =>
+    openCdpSocket(binding(), { keepAliveMs: 60_000 }),
+  )) as Awaited<ReturnType<typeof openCdpSocket>> | undefined;
   if (opened === undefined) return lines;
   const cdp = new CdpClient(opened.socket);
   try {
-    const { browserContextId } = (await step(lines, "Target.createBrowserContext", () => cdp.send("Target.createBrowserContext"))) as { browserContextId: string };
-    const { targetId } = (await step(lines, "Target.createTarget", () => cdp.send("Target.createTarget", { url: "about:blank", browserContextId }))) as { targetId: string };
-    const { sessionId } = (await step(lines, "Target.attachToTarget flatten", () => cdp.send("Target.attachToTarget", { targetId, flatten: true }))) as {
+    const { browserContextId } = (await step(lines, "Target.createBrowserContext", () =>
+      cdp.send("Target.createBrowserContext"),
+    )) as { browserContextId: string };
+    const { targetId } = (await step(lines, "Target.createTarget", () =>
+      cdp.send("Target.createTarget", { url: "about:blank", browserContextId }),
+    )) as { targetId: string };
+    const { sessionId } = (await step(lines, "Target.attachToTarget flatten", () =>
+      cdp.send("Target.attachToTarget", { targetId, flatten: true }),
+    )) as {
       sessionId: string;
     };
     const paused: Array<string> = [];
@@ -357,13 +440,18 @@ const htmlPageCheck = async (pageOrigin: string): Promise<Array<Line>> => {
           urls.set(event.requestId, event.request.url);
         }
         if (method === "Network.responseReceived") {
-          const event = params as { requestId: string; response: { status: number; remoteIPAddress?: string; headers?: Record<string, string> } };
+          const event = params as {
+            requestId: string;
+            response: { status: number; remoteIPAddress?: string; headers?: Record<string, string> };
+          };
           const url = urls.get(event.requestId) ?? "?";
-          network[url] = `${event.response.status} from ${event.response.remoteIPAddress ?? "?"} server=${event.response.headers?.server ?? event.response.headers?.Server ?? ""}`;
+          network[url] =
+            `${event.response.status} from ${event.response.remoteIPAddress ?? "?"} server=${event.response.headers?.server ?? event.response.headers?.Server ?? ""}`;
         }
         if (method === "Network.loadingFailed") {
           const event = params as { requestId: string; errorText: string; blockedReason?: string };
-          network[urls.get(event.requestId) ?? "?"] = `failed ${event.errorText}${event.blockedReason ? ` (${event.blockedReason})` : ""}`;
+          network[urls.get(event.requestId) ?? "?"] =
+            `failed ${event.errorText}${event.blockedReason ? ` (${event.blockedReason})` : ""}`;
         }
         if (method === "Page.loadEventFired") resolve();
         if (method === "Fetch.requestPaused") {
@@ -371,7 +459,16 @@ const htmlPageCheck = async (pageOrigin: string): Promise<Array<Line>> => {
           paused.push(`${event.resourceType}:${event.request.url}`);
           if (event.request.url.startsWith(`${pageOrigin}/page.html`)) {
             const body = btoa(probePage(""));
-            void cdp.send("Fetch.fulfillRequest", { requestId: event.requestId, responseCode: 200, responseHeaders: [{ name: "Content-Type", value: "text/html; charset=utf-8" }], body }, sessionId);
+            void cdp.send(
+              "Fetch.fulfillRequest",
+              {
+                requestId: event.requestId,
+                responseCode: 200,
+                responseHeaders: [{ name: "Content-Type", value: "text/html; charset=utf-8" }],
+                body,
+              },
+              sessionId,
+            );
           } else {
             void cdp.send("Fetch.failRequest", { requestId: event.requestId, errorReason: "AccessDenied" }, sessionId);
           }
@@ -383,27 +480,51 @@ const htmlPageCheck = async (pageOrigin: string): Promise<Array<Line>> => {
       await cdp.send("Network.enable", {}, sessionId);
       await cdp.send("Runtime.enable", {}, sessionId);
       await cdp.send("Log.enable", {}, sessionId);
-      await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source: "delete window.RTCPeerConnection;", runImmediately: true }, sessionId);
+      await cdp.send(
+        "Page.addScriptToEvaluateOnNewDocument",
+        { source: "delete window.RTCPeerConnection;", runImmediately: true },
+        sessionId,
+      );
     });
     await step(lines, "Fetch.enable (t3-page.localhost + every Document)", () =>
-      cdp.send("Fetch.enable", { patterns: [{ urlPattern: `${pageOrigin}/*` }, { urlPattern: "*", resourceType: "Document" }] }, sessionId),
+      cdp.send(
+        "Fetch.enable",
+        { patterns: [{ urlPattern: `${pageOrigin}/*` }, { urlPattern: "*", resourceType: "Document" }] },
+        sessionId,
+      ),
     );
     await step(lines, `Page.navigate ${pageOrigin}/page.html, then the probe's answers (Q3, L3)`, async () => {
-      const navigation = (await cdp.send("Page.navigate", { url: `${pageOrigin}/page.html#theme` }, sessionId)) as { errorText?: string };
+      const navigation = (await cdp.send("Page.navigate", { url: `${pageOrigin}/page.html#theme` }, sessionId)) as {
+        errorText?: string;
+      };
       if (navigation.errorText) return { errorText: navigation.errorText, paused };
-      await Promise.race([loaded, new Promise((_, reject) => setTimeout(() => reject(new Error("no load in 10 s")), 10_000))]);
+      await Promise.race([
+        loaded,
+        new Promise((_, reject) => setTimeout(() => reject(new Error("no load in 10 s")), 10_000)),
+      ]);
       await new Promise((resolve) => setTimeout(resolve, 6_000));
-      const out = (await cdp.send("Runtime.evaluate", { expression: "document.getElementById('out').textContent", returnByValue: true }, sessionId)) as { result: { value: string } };
+      const out = (await cdp.send(
+        "Runtime.evaluate",
+        { expression: "document.getElementById('out').textContent", returnByValue: true },
+        sessionId,
+      )) as { result: { value: string } };
       return { probe: JSON.parse(out.result.value) as unknown, network, paused: paused.slice(0, 12) };
     });
-    await step(lines, "Page.captureScreenshot", async () => ((await cdp.send("Page.captureScreenshot", { format: "png" }, sessionId)) as { data: string }).data.length);
+    await step(
+      lines,
+      "Page.captureScreenshot",
+      async () =>
+        ((await cdp.send("Page.captureScreenshot", { format: "png" }, sessionId)) as { data: string }).data.length,
+    );
     await step(lines, "Target.closeTarget + Browser.close", async () => {
       await cdp.send("Target.closeTarget", { targetId });
       await cdp.send("Browser.close").catch((error: unknown) => clip(error));
     });
   } finally {
     cdp.close();
-    await binding().closeSession(opened.sessionId).catch(() => undefined);
+    await binding()
+      .closeSession(opened.sessionId)
+      .catch(() => undefined);
   }
   return lines;
 };
@@ -447,7 +568,9 @@ const probePage = (extra: string) =>
 </script><script src="https://cdn.jsdelivr.net/npm/d3@7"></script></body></html>`;
 
 /** M1: stock `headlessChrome.ts`, unchanged, through the bridge (`htmlBrowser.ts`): a capture, heights, and the probe. */
-const htmlCapture = async (environment: { boot(trigger: string): Promise<{ run<A, E, R>(effect: import("effect/Effect").Effect<A, E, R>): Promise<A> }> }): Promise<Array<Line>> => {
+const htmlCapture = async (environment: {
+  boot(trigger: string): Promise<{ run<A, E, R>(effect: import("effect/Effect").Effect<A, E, R>): Promise<A> }>;
+}): Promise<Array<Line>> => {
   const lines: Array<Line> = [];
   const runtime = await environment.boot("previews-spike");
   const HeadlessChrome = await import("t3/src/htmlRender/headlessChrome.ts");
@@ -455,12 +578,27 @@ const htmlCapture = async (environment: { boot(trigger: string): Promise<{ run<A
   const chart = `<!doctype html><html><head><title>chart</title></head><body style="margin:0"><svg width="400" height="300"><rect width="400" height="300" fill="steelblue"/></svg><p id="theme"></p><script>document.getElementById("theme").textContent = location.hash</script></body></html>`;
   await step(lines, "captureHtmlScreenshot (stock, bridged)", async () => {
     const shot = await runtime.run(
-      HeadlessChrome.captureHtmlScreenshot({ executable: HTML_BROWSER_EXECUTABLE, noSandbox: false, html: chart, width: 640, urlFragment: "#t3-theme=dark", appearance: "dark" }),
+      HeadlessChrome.captureHtmlScreenshot({
+        executable: HTML_BROWSER_EXECUTABLE,
+        noSandbox: false,
+        html: chart,
+        width: 640,
+        urlFragment: "#t3-theme=dark",
+        appearance: "dark",
+      }),
     );
     return { pngBase64: shot.png.length, contentHeight: shot.contentHeight, console: shot.consoleMessages };
   });
   await step(lines, "measureHtmlHeights (stock, bridged)", () =>
-    runtime.run(HeadlessChrome.measureHtmlHeights({ executable: HTML_BROWSER_EXECUTABLE, noSandbox: false, html: chart, widths: [360, 720, 1280], urlFragment: "" })),
+    runtime.run(
+      HeadlessChrome.measureHtmlHeights({
+        executable: HTML_BROWSER_EXECUTABLE,
+        noSandbox: false,
+        html: chart,
+        widths: [360, 720, 1280],
+        urlFragment: "",
+      }),
+    ),
   );
   return lines;
 };
@@ -471,7 +609,14 @@ const sessionsNow = async (): Promise<Array<Line>> => {
   for (const session of environmentServices().previewStore.sessions()) {
     await step(lines, `session ${session.kind} ${session.workspace ?? "-"}`, async () => {
       const seen = (await binding().getSession(session.id)) as { closeReason?: string; endTime?: number } | null;
-      return { id: session.id, ageMs: Date.now() - session.openedAt, browserRun: seen === null ? null : { closed: seen.endTime !== undefined && seen.endTime !== null, closeReason: seen.closeReason ?? null } };
+      return {
+        id: session.id,
+        ageMs: Date.now() - session.openedAt,
+        browserRun:
+          seen === null
+            ? null
+            : { closed: seen.endTime !== undefined && seen.endTime !== null, closeReason: seen.closeReason ?? null },
+      };
     });
   }
   return lines;
@@ -483,22 +628,41 @@ const sessionsNow = async (): Promise<Array<Line>> => {
  */
 const tabEval = async (match: string, expression: string): Promise<Array<Line>> => {
   const lines: Array<Line> = [];
-  for (const session of environmentServices().previewStore.sessions().filter((entry) => entry.kind === "workspace")) {
+  for (const session of environmentServices()
+    .previewStore.sessions()
+    .filter((entry) => entry.kind === "workspace")) {
     await step(lines, `tab in ${session.workspace}`, async () => {
       const connection = await binding().connectSession(session.id);
-      const response = await connection.webSocket.fetch("https://browser-binding.invalid", { headers: { Upgrade: "websocket" } });
+      const response = await connection.webSocket.fetch("https://browser-binding.invalid", {
+        headers: { Upgrade: "websocket" },
+      });
       const socket = (response as unknown as { webSocket: import("./cdpSocket.ts").CdpWebSocket }).webSocket;
       socket.accept();
       const cdp = new CdpClient(socket);
       try {
-        const { targetInfos } = await cdp.send<{ targetInfos: Array<{ targetId: string; type: string; url: string }> }>("Target.getTargets");
+        const { targetInfos } = await cdp.send<{ targetInfos: Array<{ targetId: string; type: string; url: string }> }>(
+          "Target.getTargets",
+        );
         const pages = targetInfos.filter((target) => target.type === "page");
         const page = pages.find((target) => target.url.includes(match));
         if (page === undefined) return { urls: pages.map((target) => target.url) };
-        const { sessionId } = await cdp.send<{ sessionId: string }>("Target.attachToTarget", { targetId: page.targetId, flatten: true });
-        const result = await cdp.send<{ result: { value?: unknown }; exceptionDetails?: { text: string } }>("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true, userGesture: true }, sessionId);
+        const { sessionId } = await cdp.send<{ sessionId: string }>("Target.attachToTarget", {
+          targetId: page.targetId,
+          flatten: true,
+        });
+        const result = await cdp.send<{ result: { value?: unknown }; exceptionDetails?: { text: string } }>(
+          "Runtime.evaluate",
+          { expression, returnByValue: true, awaitPromise: true, userGesture: true },
+          sessionId,
+        );
         await cdp.send("Target.detachFromTarget", { sessionId }).catch(() => undefined);
-        return { url: page.url, value: result.exceptionDetails === undefined ? (result.result.value ?? null) : `exception: ${result.exceptionDetails.text}` };
+        return {
+          url: page.url,
+          value:
+            result.exceptionDetails === undefined
+              ? (result.result.value ?? null)
+              : `exception: ${result.exceptionDetails.text}`,
+        };
       } finally {
         cdp.close();
       }
@@ -510,7 +674,9 @@ const tabEval = async (match: string, expression: string): Promise<Array<Line>> 
 export const runSpike = async (
   op: string,
   storage: DurableObjectStorage,
-  environment?: { boot(trigger: string): Promise<{ run<A, E, R>(effect: import("effect/Effect").Effect<A, E, R>): Promise<A> }> },
+  environment?: {
+    boot(trigger: string): Promise<{ run<A, E, R>(effect: import("effect/Effect").Effect<A, E, R>): Promise<A> }>;
+  },
   options: { readonly match?: string; readonly expression?: string } = {},
 ): Promise<{ readonly op: string; readonly lines: ReadonlyArray<Line> }> => {
   switch (op) {
@@ -521,9 +687,21 @@ export const runSpike = async (
       const ids = new Set((options.match ?? "").split(","));
       const lines: Array<Line> = [];
       await step(lines, "history", async () =>
-        ((await binding().history({ limit: 100 })) as Array<{ sessionId: string; startTime?: number; endTime?: number; closeReasonText?: string }>)
+        (
+          (await binding().history({ limit: 100 })) as Array<{
+            sessionId: string;
+            startTime?: number;
+            endTime?: number;
+            closeReasonText?: string;
+          }>
+        )
           .filter((session) => ids.has(session.sessionId))
-          .map((session) => ({ id: session.sessionId, lifeS: session.endTime && session.startTime ? Math.round((session.endTime - session.startTime) / 1000) : null, closeReason: session.closeReasonText ?? null })),
+          .map((session) => ({
+            id: session.sessionId,
+            lifeS:
+              session.endTime && session.startTime ? Math.round((session.endTime - session.startTime) / 1000) : null,
+            closeReason: session.closeReasonText ?? null,
+          })),
       );
       return { op, lines };
     }
@@ -531,8 +709,13 @@ export const runSpike = async (
       // Stage checks: Browser Run's own view of one session (review M5's close at boot).
       const lines: Array<Line> = [];
       await step(lines, `session ${options.match ?? ""}`, async () => {
-        const seen = (await binding().getSession(options.match ?? "")) as { closeReason?: string; endTime?: number } | null;
-        return seen === null ? null : { closed: seen.endTime !== undefined && seen.endTime !== null, closeReason: seen.closeReason ?? null };
+        const seen = (await binding().getSession(options.match ?? "")) as {
+          closeReason?: string;
+          endTime?: number;
+        } | null;
+        return seen === null
+          ? null
+          : { closed: seen.endTime !== undefined && seen.endTime !== null, closeReason: seen.closeReason ?? null };
       });
       return { op, lines };
     }
@@ -546,7 +729,13 @@ export const runSpike = async (
     case "routes":
       return { op, lines: await routeCheck(storage) };
     case "html-page":
-      return { op, lines: [...(await htmlPageCheck("https://t3-page.t3flare.internal")), ...(await htmlPageCheck("http://t3-page.t3flare.internal"))] };
+      return {
+        op,
+        lines: [
+          ...(await htmlPageCheck("https://t3-page.t3flare.internal")),
+          ...(await htmlPageCheck("http://t3-page.t3flare.internal")),
+        ],
+      };
     case "close":
       return { op, lines: await closeAll(storage) };
     default:

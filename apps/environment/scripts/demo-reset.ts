@@ -26,8 +26,7 @@ try {
     30_000,
   );
   const left = stripAnsi(text).match(/^\s*(\d+)\s*$/m)?.[1];
-  if (left !== "0")
-    throw new Error(`${checkout} is not clean: ${stripAnsi(text).trim().slice(-200)}`);
+  if (left !== "0") throw new Error(`${checkout} is not clean: ${stripAnsi(text).trim().slice(-200)}`);
   console.log(`${checkout} is clean`);
 } finally {
   await terminal.close(true);

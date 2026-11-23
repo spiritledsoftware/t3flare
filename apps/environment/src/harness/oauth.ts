@@ -49,11 +49,40 @@ type Answer<T> = { readonly ok: true; readonly value: T } | { readonly ok: false
 
 /** The MCP Worker's `McpOAuth` entrypoint, as bound (`MCP_OAUTH`). */
 export interface McpOAuthBinding {
-  begin(input: { serverUrl: string; redirectUrl: string; clientMetadataUrl: string; clientName: string; state: string; client?: ClientInformation }): Promise<
-    Answer<{ authorizationUrl: string; codeVerifier: string; client: ClientInformation; authorizationServerUrl: string; metadata?: Metadata; resource?: string; registration: string }>
+  begin(input: {
+    serverUrl: string;
+    redirectUrl: string;
+    clientMetadataUrl: string;
+    clientName: string;
+    state: string;
+    client?: ClientInformation;
+  }): Promise<
+    Answer<{
+      authorizationUrl: string;
+      codeVerifier: string;
+      client: ClientInformation;
+      authorizationServerUrl: string;
+      metadata?: Metadata;
+      resource?: string;
+      registration: string;
+    }>
   >;
-  exchange(input: { authorizationServerUrl: string; metadata?: Metadata; client: ClientInformation; resource?: string; code: string; codeVerifier: string; redirectUrl: string }): Promise<Answer<Tokens>>;
-  refresh(input: { authorizationServerUrl: string; metadata?: Metadata; client: ClientInformation; resource?: string; refreshToken: string }): Promise<Answer<Tokens>>;
+  exchange(input: {
+    authorizationServerUrl: string;
+    metadata?: Metadata;
+    client: ClientInformation;
+    resource?: string;
+    code: string;
+    codeVerifier: string;
+    redirectUrl: string;
+  }): Promise<Answer<Tokens>>;
+  refresh(input: {
+    authorizationServerUrl: string;
+    metadata?: Metadata;
+    client: ClientInformation;
+    resource?: string;
+    refreshToken: string;
+  }): Promise<Answer<Tokens>>;
 }
 
 /** What is kept of a server's authorization server (no secret). */
@@ -94,10 +123,17 @@ const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (char) => `&#${cha
 const page = (status: number, title: string, text: string) =>
   new Response(`<!doctype html><meta charset="utf-8"><title>${escapeHtml(title)}</title><p>${escapeHtml(text)}</p>\n`, {
     status,
-    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'", "referrer-policy": "no-referrer", "x-frame-options": "DENY" },
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+      "content-security-policy": "default-src 'none'",
+      "referrer-policy": "no-referrer",
+      "x-frame-options": "DENY",
+    },
   });
 
-const randomState = () => [...crypto.getRandomValues(new Uint8Array(32))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+const randomState = () =>
+  [...crypto.getRandomValues(new Uint8Array(32))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 
 export class HarnessOAuth {
   readonly #deps: OAuthDeps;
@@ -147,7 +183,9 @@ export class HarnessOAuth {
   async #keepTokens(server: string, tokens: Tokens, previous?: KeptTokens): Promise<KeptTokens> {
     const kept: KeptTokens = {
       access: tokens.access_token,
-      ...((tokens.refresh_token ?? previous?.refresh) === undefined ? {} : { refresh: (tokens.refresh_token ?? previous?.refresh)! }),
+      ...((tokens.refresh_token ?? previous?.refresh) === undefined
+        ? {}
+        : { refresh: (tokens.refresh_token ?? previous?.refresh)! }),
       ...(tokens.expires_in === undefined ? {} : { expiresAt: this.#now() + tokens.expires_in * 1000 }),
     };
     await this.#deps.secrets.put(server, "oauth-tokens", JSON.stringify(kept));
@@ -155,13 +193,24 @@ export class HarnessOAuth {
   }
 
   /** Whether `server` holds tokens, and until when (no value). */
-  status(server: string): { readonly signedIn: boolean; readonly expiresAt: number | null; readonly refreshable: boolean } {
+  status(server: string): {
+    readonly signedIn: boolean;
+    readonly expiresAt: number | null;
+    readonly refreshable: boolean;
+  } {
     const tokens = this.#tokens(server);
-    return { signedIn: tokens !== undefined, expiresAt: tokens?.expiresAt ?? null, refreshable: tokens?.refresh !== undefined };
+    return {
+      signedIn: tokens !== undefined,
+      expiresAt: tokens?.expiresAt ?? null,
+      refreshable: tokens?.refresh !== undefined,
+    };
   }
 
   /** Starts a sign-in to `server` at `serverUrl`: the URL the owner's browser opens. */
-  async begin(server: string, serverUrl: string): Promise<Answer<{ readonly authorizationUrl: string; readonly registration: string }>> {
+  async begin(
+    server: string,
+    serverUrl: string,
+  ): Promise<Answer<{ readonly authorizationUrl: string; readonly registration: string }>> {
     if (this.#deps.engine === undefined) return { ok: false, error: "the MCP Worker's OAuth entrypoint is not bound" };
     const state = randomState();
     const kept = this.#client(server);
@@ -186,31 +235,52 @@ export class HarnessOAuth {
       expiresAt: this.#now() + STATE_TTL_MS,
     };
     this.#deps.kv.put(stateKey(state), pending);
-    this.#deps.audit?.({ action: "mcp.oauth.begin", target: server, after: { registration: answer.value.registration, authorizationServer: authorizationServerUrl } });
-    return { ok: true, value: { authorizationUrl: answer.value.authorizationUrl, registration: answer.value.registration } };
+    this.#deps.audit?.({
+      action: "mcp.oauth.begin",
+      target: server,
+      after: { registration: answer.value.registration, authorizationServer: authorizationServerUrl },
+    });
+    return {
+      ok: true,
+      value: { authorizationUrl: answer.value.authorizationUrl, registration: answer.value.registration },
+    };
   }
 
   /** The authorization server's redirect back (public, Access Bypass): the code exchanged, the tokens kept. */
   async callback(url: URL): Promise<Response> {
     const state = url.searchParams.get("state") ?? "";
-    if (!/^[0-9a-f]{64}$/.test(state)) return page(400, "Sign-in refused", "This sign-in link is not one t3flare started.");
+    if (!/^[0-9a-f]{64}$/.test(state))
+      return page(400, "Sign-in refused", "This sign-in link is not one t3flare started.");
     const pending = this.#deps.kv.get<PendingState>(stateKey(state));
     // Single use: gone whatever happens next.
     this.#deps.kv.delete(stateKey(state));
-    if (pending === undefined || pending.expiresAt < this.#now()) return page(400, "Sign-in refused", "This sign-in expired or was already used; start it again from the Settings page.");
+    if (pending === undefined || pending.expiresAt < this.#now())
+      return page(
+        400,
+        "Sign-in refused",
+        "This sign-in expired or was already used; start it again from the Settings page.",
+      );
     const error = url.searchParams.get("error");
     if (error !== null) {
-      this.#deps.audit?.({ action: "mcp.oauth.refused", target: pending.server, after: { error: error.slice(0, 100) } });
+      this.#deps.audit?.({
+        action: "mcp.oauth.refused",
+        target: pending.server,
+        after: { error: error.slice(0, 100) },
+      });
       return page(400, "Sign-in refused", `The server refused the sign-in: ${error.slice(0, 100)}`);
     }
     const issuer = pending.metadata?.issuer;
     const iss = url.searchParams.get("iss");
-    if ((iss !== null && issuer !== undefined && iss !== issuer) || (iss === null && pending.metadata?.authorization_response_iss_parameter_supported === true)) {
+    if (
+      (iss !== null && issuer !== undefined && iss !== issuer) ||
+      (iss === null && pending.metadata?.authorization_response_iss_parameter_supported === true)
+    ) {
       this.#deps.audit?.({ action: "mcp.oauth.refused", target: pending.server, after: { error: "issuer mismatch" } });
       return page(400, "Sign-in refused", "The answer did not come from the server's authorization server (iss).");
     }
     const code = url.searchParams.get("code");
-    if (code === null || code === "" || this.#deps.engine === undefined) return page(400, "Sign-in refused", "No authorization code came back.");
+    if (code === null || code === "" || this.#deps.engine === undefined)
+      return page(400, "Sign-in refused", "No authorization code came back.");
     const exchanged = await this.#deps.engine.exchange({
       authorizationServerUrl: pending.authorizationServerUrl,
       ...(pending.metadata === undefined ? {} : { metadata: pending.metadata }),
@@ -221,13 +291,25 @@ export class HarnessOAuth {
       redirectUrl: this.redirectUrl,
     });
     if (!exchanged.ok) {
-      this.#deps.audit?.({ action: "mcp.oauth.failed", target: pending.server, after: { error: exchanged.error.slice(0, 200) } });
+      this.#deps.audit?.({
+        action: "mcp.oauth.failed",
+        target: pending.server,
+        after: { error: exchanged.error.slice(0, 200) },
+      });
       return page(502, "Sign-in failed", `The token exchange failed: ${exchanged.error.slice(0, 200)}`);
     }
     const kept = await this.#keepTokens(pending.server, exchanged.value);
-    const server: AuthServer = { authorizationServerUrl: pending.authorizationServerUrl, ...(pending.metadata === undefined ? {} : { metadata: pending.metadata }), ...(pending.resource === undefined ? {} : { resource: pending.resource }) };
+    const server: AuthServer = {
+      authorizationServerUrl: pending.authorizationServerUrl,
+      ...(pending.metadata === undefined ? {} : { metadata: pending.metadata }),
+      ...(pending.resource === undefined ? {} : { resource: pending.resource }),
+    };
     this.#deps.kv.put(asKey(pending.server), server);
-    this.#deps.audit?.({ action: "mcp.oauth.signed-in", target: pending.server, after: { expiresAt: kept.expiresAt ?? null, refreshable: kept.refresh !== undefined } });
+    this.#deps.audit?.({
+      action: "mcp.oauth.signed-in",
+      target: pending.server,
+      after: { expiresAt: kept.expiresAt ?? null, refreshable: kept.refresh !== undefined },
+    });
     return page(200, "Signed in", `Signed in to ${pending.server}. You can close this tab.`);
   }
 
@@ -250,7 +332,8 @@ export class HarnessOAuth {
   async #refresh(server: string, tokens: KeptTokens): Promise<string | undefined> {
     const as = this.#deps.kv.get<AuthServer>(asKey(server));
     const client = this.#client(server);
-    if (tokens.refresh === undefined || as === undefined || client === undefined || this.#deps.engine === undefined) return undefined;
+    if (tokens.refresh === undefined || as === undefined || client === undefined || this.#deps.engine === undefined)
+      return undefined;
     const answer = await this.#deps.engine.refresh({ ...as, client, refreshToken: tokens.refresh });
     if (!answer.ok) {
       console.warn(JSON.stringify({ t3flare: "mcp-oauth-refresh-failed", server, error: answer.error.slice(0, 200) }));

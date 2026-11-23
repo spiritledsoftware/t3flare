@@ -33,6 +33,10 @@ export const refuseOwnerOnly = (body: string): string | undefined => {
   if (!messages.some(isOurs)) return undefined;
   const answers = messages
     .filter((message): message is { id: unknown } => typeof message === "object" && message !== null && "id" in message)
-    .map((message) => ({ jsonrpc: "2.0", id: message.id, result: { content: [{ type: "text", text: OWNER_ONLY_REFUSAL }], isError: true } }));
+    .map((message) => ({
+      jsonrpc: "2.0",
+      id: message.id,
+      result: { content: [{ type: "text", text: OWNER_ONLY_REFUSAL }], isError: true },
+    }));
   return JSON.stringify(Array.isArray(parsed) ? answers : answers[0]);
 };

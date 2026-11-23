@@ -116,7 +116,9 @@ describe("code mode: nested calls are judged like direct ones", () => {
       "full-access",
       [
         script(
-          reporting(`[["write", () => tools.write({ path: "/workspace/repo/a", content: "x" })], ["edit", () => tools.edit({ path: "/workspace/repo/a", edits: [{ oldText: "a", newText: "b" }] })], ["bash", () => tools.bash({ command: "echo x > f" })]]`),
+          reporting(
+            `[["write", () => tools.write({ path: "/workspace/repo/a", content: "x" })], ["edit", () => tools.edit({ path: "/workspace/repo/a", edits: [{ oldText: "a", newText: "b" }] })], ["bash", () => tools.bash({ command: "echo x > f" })]]`,
+          ),
         ),
         fauxAssistantMessage("done"),
       ],
@@ -136,7 +138,10 @@ describe("code mode: nested calls are judged like direct ones", () => {
   }, 30_000);
 
   it("approval-required: a nested command asks, survives restarts with one card, and runs once when approved", async () => {
-    const run = await setup("approval-required", [script(`text(await tools.bash({ command: "rm -rf build" }))`), fauxAssistantMessage("done")]);
+    const run = await setup("approval-required", [
+      script(`text(await tools.bash({ command: "rm -rf build" }))`),
+      fauxAssistantMessage("done"),
+    ]);
     await until(() => run.store().pending().length === 1, "the card");
     const requestId = run.store().pending()[0]!.requestId;
     // Restarts land mid-resume (the code mode call re-running while its nested call waits again) as well as after it
@@ -148,7 +153,12 @@ describe("code mode: nested calls are judged like direct ones", () => {
       expect(run.store().pending()[0]!.requestId).toBe(requestId);
       await new Promise((resolve) => setTimeout(resolve, pauseMs));
     }
-    expect(run.store().pending().map((card) => card.requestId)).toEqual([requestId]);
+    expect(
+      run
+        .store()
+        .pending()
+        .map((card) => card.requestId),
+    ).toEqual([requestId]);
     expect(run.ran).toEqual([]);
     expect(run.store().answer(requestId, "accept")).toBe(true);
     expect(textOf(await run.result())).toContain("ran rm -rf build");
@@ -157,7 +167,11 @@ describe("code mode: nested calls are judged like direct ones", () => {
 
   it("auto-accept-edits: a nested edit runs without a card, a nested command asks", async () => {
     const run = await setup("auto-accept-edits", [
-      script(reporting(`[["edit", () => tools.edit({ path: "/workspace/repo/a", edits: [{ oldText: "a", newText: "b" }] })], ["bash", () => tools.bash({ command: "make" })]]`)),
+      script(
+        reporting(
+          `[["edit", () => tools.edit({ path: "/workspace/repo/a", edits: [{ oldText: "a", newText: "b" }] })], ["bash", () => tools.bash({ command: "make" })]]`,
+        ),
+      ),
       fauxAssistantMessage("done"),
     ]);
     await until(() => run.store().pending().length === 1, "the command's card");
@@ -169,13 +183,20 @@ describe("code mode: nested calls are judged like direct ones", () => {
   }, 30_000);
 
   it("full access: a nested command runs without a card", async () => {
-    const run = await setup("full-access", [script(`text(await tools.bash({ command: "ls" }))`), fauxAssistantMessage("done")]);
+    const run = await setup("full-access", [
+      script(`text(await tools.bash({ command: "ls" }))`),
+      fauxAssistantMessage("done"),
+    ]);
     expect(textOf(await run.result())).toContain("ran ls");
     expect(run.store().pending()).toEqual([]);
   }, 30_000);
 
   it("accept for the session on a script's card covers a later direct command (the same key)", async () => {
-    const run = await setup("approval-required", [script(`text(await tools.bash({ command: "one" }))`), direct("two", "call-direct"), fauxAssistantMessage("done")]);
+    const run = await setup("approval-required", [
+      script(`text(await tools.bash({ command: "one" }))`),
+      direct("two", "call-direct"),
+      fauxAssistantMessage("done"),
+    ]);
     await until(() => run.store().pending().length === 1, "the script's card");
     run.store().answer(run.store().pending()[0]!.requestId, "acceptForSession");
     await until(() => run.ran.length === 2, "both commands");
@@ -202,7 +223,9 @@ describe("code mode: nested calls are judged like direct ones", () => {
 
   it("a script's concurrent asks wait their turn past 8 pending (review M8), and every one is asked", async () => {
     const run = await setup("approval-required", [
-      script(`await Promise.all(Array.from({ length: 12 }, (_, i) => tools.bash({ command: "n" + i }))); text("done");`),
+      script(
+        `await Promise.all(Array.from({ length: 12 }, (_, i) => tools.bash({ command: "n" + i }))); text("done");`,
+      ),
       fauxAssistantMessage("done"),
     ]);
     await until(() => run.store().pending().length === 8, "eight cards");

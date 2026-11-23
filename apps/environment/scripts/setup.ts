@@ -19,13 +19,30 @@ const report: Record<string, unknown> = { scenario, at: new Date().toISOString()
 const failures: Array<string> = [];
 const cookie = await pair();
 
-
 if (scenario === "scripts") {
   // Only sets the project's scripts (a thread is then launched from the web client).
   const projectId = arg("project")!;
   const scripts = [
-    { id: "setup", name: "Setup", command: arg("command")!, icon: "configure", runOnWorktreeCreate: true, ...(args.includes("--blocking") ? { async: false } : {}) },
-    ...(arg("settle") === undefined ? [] : [{ id: "settle", name: "Settle", command: arg("settle")!, icon: "configure", runOnWorktreeCreate: false, runOnSettle: true }]),
+    {
+      id: "setup",
+      name: "Setup",
+      command: arg("command")!,
+      icon: "configure",
+      runOnWorktreeCreate: true,
+      ...(args.includes("--blocking") ? { async: false } : {}),
+    },
+    ...(arg("settle") === undefined
+      ? []
+      : [
+          {
+            id: "settle",
+            name: "Settle",
+            command: arg("settle")!,
+            icon: "configure",
+            runOnWorktreeCreate: false,
+            runOnSettle: true,
+          },
+        ]),
   ];
   await updateSettings(cookie, { projectSettingsOverrides: { [projectId]: { defaultProjectScripts: scripts } } });
   report.scripts = scripts;
@@ -38,9 +55,19 @@ if (scenario === "inspect") {
   const worktreePath: string | null = projection?.thread?.worktreePath ?? projection?.worktreePath ?? null;
   report.threadId = threadId;
   report.worktreePath = worktreePath;
-  const terminal = await attachTerminal(cookie, { threadId, terminalId: arg("terminal") ?? "setup-setup", resume: true }).catch(() => undefined);
+  const terminal = await attachTerminal(cookie, {
+    threadId,
+    terminalId: arg("terminal") ?? "setup-setup",
+    resume: true,
+  }).catch(() => undefined);
   await sleep(3000);
-  report.setupTerminal = terminal === undefined ? null : stripAnsi(terminal.output()).split("\n").filter((line) => line.trim() !== "").slice(-40);
+  report.setupTerminal =
+    terminal === undefined
+      ? null
+      : stripAnsi(terminal.output())
+          .split("\n")
+          .filter((line) => line.trim() !== "")
+          .slice(-40);
   await terminal?.detach();
   if (worktreePath !== null) {
     const id = worktreePath.replace(/^\/w\//, "");
@@ -48,9 +75,13 @@ if (scenario === "inspect") {
     report.viewInWorktree = await readDoText(id, "/workspace/.t3flare/project-root/.env");
   }
   // t3's own record of the launch's stages (WorktreeSetupTracker), as the thread's setup card shows them.
-  report.worktreeSetup = await wsFirst(cookie, "subscribeWorktreeSetup", { threadId }).catch((error: unknown) => String(error).slice(0, 300));
+  report.worktreeSetup = await wsFirst(cookie, "subscribeWorktreeSetup", { threadId }).catch((error: unknown) =>
+    String(error).slice(0, 300),
+  );
   const text = JSON.stringify(projection ?? {});
-  report.setupMentions = [...new Set(text.match(/[^"]{0,80}(?:[Ss]etup script|setup-script|exited with)[^"]{0,120}/g) ?? [])].slice(0, 12);
+  report.setupMentions = [
+    ...new Set(text.match(/[^"]{0,80}(?:[Ss]etup script|setup-script|exited with)[^"]{0,120}/g) ?? []),
+  ].slice(0, 12);
 }
 
 report.failures = failures;

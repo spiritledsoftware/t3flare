@@ -51,11 +51,7 @@ export interface TaskRequestOptions {
 
 export interface TaskWire {
   /** Sends `method` with `params` and resolves to its `result`. */
-  readonly call: (
-    method: string,
-    params: TaskParams,
-    options: TaskRequestOptions,
-  ) => Promise<Result>;
+  readonly call: (method: string, params: TaskParams, options: TaskRequestOptions) => Promise<Result>;
   readonly close: () => Promise<void>;
 }
 

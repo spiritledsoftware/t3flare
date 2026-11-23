@@ -27,7 +27,8 @@ export const claudeRelayPayload = (body: unknown): unknown => {
   const identity = { type: "text", text: CLAUDE_CODE_IDENTITY };
   const { system } = body;
   if (system === undefined || system === null || system === "") return { ...body, system: [identity] };
-  if (typeof system === "string") return opensWithIdentity(system) ? body : { ...body, system: [identity, { type: "text", text: system }] };
+  if (typeof system === "string")
+    return opensWithIdentity(system) ? body : { ...body, system: [identity, { type: "text", text: system }] };
   if (!Array.isArray(system)) return body;
   if (system.some((block: unknown) => isRecord(block) && opensWithIdentity(block.text))) return body;
   return { ...body, system: [identity, ...system] };

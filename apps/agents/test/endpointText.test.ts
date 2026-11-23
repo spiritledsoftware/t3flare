@@ -11,19 +11,46 @@ const COST = { input: 1, output: 5, cacheRead: 0, cacheWrite: 0 };
 const KEY = "sk-secret-123";
 const VENDOR_BODY = "upstream said: request id req_9 for key sk-secret-123 refused";
 
-const endpoint = (api: ModelEndpoint["api"], auth: ModelEndpoint["auth"] = "api-key", maxTokens = 4_000): ModelEndpoint => ({
+const endpoint = (
+  api: ModelEndpoint["api"],
+  auth: ModelEndpoint["auth"] = "api-key",
+  maxTokens = 4_000,
+): ModelEndpoint => ({
   id: "gw",
   label: "Gateway",
   api,
   baseUrl: "https://gw.example/v1",
   auth,
   headers: { "X-Org": "acme" },
-  models: [{ id: "small-mini", name: "Small", reasoning: false, input: ["text"], contextWindow: 100_000, maxTokens, cost: COST, known: true }],
+  models: [
+    {
+      id: "small-mini",
+      name: "Small",
+      reasoning: false,
+      input: ["text"],
+      contextWindow: 100_000,
+      maxTokens,
+      cost: COST,
+      known: true,
+    },
+  ],
 });
 
 const anthropicOk = (text: string) => {
   const sse = [
-    { type: "message_start", message: { id: "msg_1", type: "message", role: "assistant", model: "small-mini", content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } } },
+    {
+      type: "message_start",
+      message: {
+        id: "msg_1",
+        type: "message",
+        role: "assistant",
+        model: "small-mini",
+        content: [],
+        stop_reason: null,
+        stop_sequence: null,
+        usage: { input_tokens: 1, output_tokens: 1 },
+      },
+    },
     { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
     { type: "content_block_delta", index: 0, delta: { type: "text_delta", text } },
     { type: "content_block_stop", index: 0 },
@@ -53,12 +80,22 @@ const recorder = (answer: (init?: RequestInit) => Response | Promise<Response>) 
 
 const keyFor = (answer: EndpointCredential = { apiKey: KEY }) => {
   const asked: Array<{ readonly endpointId: string; readonly target: EndpointTarget }> = [];
-  return { asked, credential: async (endpointId: string, target: EndpointTarget) => (asked.push({ endpointId, target }), answer) };
+  return {
+    asked,
+    credential: async (endpointId: string, target: EndpointTarget) => (asked.push({ endpointId, target }), answer),
+  };
 };
 
 /** One request for `gw`'s `modelId`, the Environment holding `held`. */
-const generate = (held: ModelEndpoint, access: Partial<Omit<EndpointTextAccess, "usage">> & Pick<EndpointTextAccess, "credential">, modelId = "small-mini") =>
-  generateEndpointText({ endpointId: "gw", modelId, prompt: "Name this thread." }, { endpoints: async () => ({ revision: 2, endpoints: [held] }), usage: () => undefined, ...access });
+const generate = (
+  held: ModelEndpoint,
+  access: Partial<Omit<EndpointTextAccess, "usage">> & Pick<EndpointTextAccess, "credential">,
+  modelId = "small-mini",
+) =>
+  generateEndpointText(
+    { endpointId: "gw", modelId, prompt: "Name this thread." },
+    { endpoints: async () => ({ revision: 2, endpoints: [held] }), usage: () => undefined, ...access },
+  );
 
 const errorOf = (answer: Awaited<ReturnType<typeof generateEndpointText>>) => (answer.ok ? "" : answer.error);
 
@@ -70,7 +107,12 @@ describe("generateEndpointText", () => {
     const key = keyFor();
     const answer = await generate(endpoint("anthropic-messages"), { credential: key.credential, fetch: wire.fetch });
     expect(answer).toEqual({ ok: true, text: '{"title":"Fix the build"}' });
-    expect(key.asked).toEqual([{ endpointId: "gw", target: { api: "anthropic-messages", baseUrl: "https://gw.example/v1", headers: { "X-Org": "acme" } } }]);
+    expect(key.asked).toEqual([
+      {
+        endpointId: "gw",
+        target: { api: "anthropic-messages", baseUrl: "https://gw.example/v1", headers: { "X-Org": "acme" } },
+      },
+    ]);
     expect(wire.sent).toHaveLength(1);
     expect(wire.sent[0]!.url.startsWith("https://gw.example/v1")).toBe(true);
     expect(wire.sent[0]!.headers).toMatchObject({ "x-api-key": KEY, "x-org": "acme" });
@@ -83,7 +125,10 @@ describe("generateEndpointText", () => {
       [128_000, 8_192],
     ] as const) {
       const wire = recorder(() => anthropicOk("ok"));
-      await generate(endpoint("anthropic-messages", "api-key", limit), { credential: keyFor().credential, fetch: wire.fetch });
+      await generate(endpoint("anthropic-messages", "api-key", limit), {
+        credential: keyFor().credential,
+        fetch: wire.fetch,
+      });
       expect((JSON.parse(wire.sent[0]!.body) as { max_tokens: number }).max_tokens).toBe(sent);
     }
   });
@@ -91,7 +136,10 @@ describe("generateEndpointText", () => {
   it("sends the placeholder key, and asks for none, on an endpoint with no auth", async () => {
     const wire = recorder(() => anthropicOk("ok"));
     const key = keyFor();
-    const answer = await generate(endpoint("anthropic-messages", "none"), { credential: key.credential, fetch: wire.fetch });
+    const answer = await generate(endpoint("anthropic-messages", "none"), {
+      credential: key.credential,
+      fetch: wire.fetch,
+    });
     expect(answer).toEqual({ ok: true, text: "ok" });
     expect(key.asked).toEqual([]);
     expect(wire.sent[0]!.headers["x-api-key"]).toBe("none");
@@ -119,18 +167,56 @@ describe("generateEndpointText", () => {
 
   // SPI-1172: classified by the endpoint's API and auth from the recorded vendor answers.
   for (const [name, api, auth, says] of [
-    ["anthropicSubscriptionLimit", "anthropic-messages", "api-key", 'The Model endpoint "gw" reached its usage limit. It resets at 2026-11-16T12:00:00.000Z.'],
-    ["anthropicSpendCap", "anthropic-messages", "api-key", `The Model endpoint "gw"'s account is out of quota, credit or its spend limit: raise it with the vendor.`],
+    [
+      "anthropicSubscriptionLimit",
+      "anthropic-messages",
+      "api-key",
+      'The Model endpoint "gw" reached its usage limit. It resets at 2026-11-16T12:00:00.000Z.',
+    ],
+    [
+      "anthropicSpendCap",
+      "anthropic-messages",
+      "api-key",
+      `The Model endpoint "gw"'s account is out of quota, credit or its spend limit: raise it with the vendor.`,
+    ],
     ["anthropicOverloaded", "anthropic-messages", "api-key", 'The Model endpoint "gw" is overloaded (HTTP 529).'],
-    ["openaiInsufficientQuota", "openai-responses", "api-key", `The Model endpoint "gw"'s account is out of quota, credit or its spend limit: raise it with the vendor.`],
-    ["openaiRateLimit", "openai-completions", "api-key", 'The Model endpoint "gw" is rate-limited (HTTP 429). It resets at '],
-    ["openaiKeyRefused", "openai-responses", "api-key", 'The Model endpoint "gw" refused its API key (HTTP 401): check it on the Settings page.'],
-    ["chatgptUsageLimitReached", "openai-responses", "api-key", 'The Model endpoint "gw" reached its usage limit. It resets at 2026-11-16T13:00:00.000Z.'],
+    [
+      "openaiInsufficientQuota",
+      "openai-responses",
+      "api-key",
+      `The Model endpoint "gw"'s account is out of quota, credit or its spend limit: raise it with the vendor.`,
+    ],
+    [
+      "openaiRateLimit",
+      "openai-completions",
+      "api-key",
+      'The Model endpoint "gw" is rate-limited (HTTP 429). It resets at ',
+    ],
+    [
+      "openaiKeyRefused",
+      "openai-responses",
+      "api-key",
+      'The Model endpoint "gw" refused its API key (HTTP 401): check it on the Settings page.',
+    ],
+    [
+      "chatgptUsageLimitReached",
+      "openai-responses",
+      "api-key",
+      'The Model endpoint "gw" reached its usage limit. It resets at 2026-11-16T13:00:00.000Z.',
+    ],
   ] as const) {
     it(`classifies ${name} by the endpoint's API (${api}), never echoing the body`, async () => {
       const answer = fixtures.answers[name];
-      const wire = recorder(() => new Response(answer.body, { status: answer.status, headers: { ...answer.headers, "content-type": "application/json" } }));
-      const error = errorOf(await generate(endpoint(api, auth), { credential: keyFor().credential, fetch: wire.fetch }));
+      const wire = recorder(
+        () =>
+          new Response(answer.body, {
+            status: answer.status,
+            headers: { ...answer.headers, "content-type": "application/json" },
+          }),
+      );
+      const error = errorOf(
+        await generate(endpoint(api, auth), { credential: keyFor().credential, fetch: wire.fetch }),
+      );
       expect(error.startsWith(says), error).toBe(true);
       expect(error).not.toContain("sk-proj");
     });
@@ -138,7 +224,11 @@ describe("generateEndpointText", () => {
 
   it("says an endpoint with no auth refused the request, not a key", async () => {
     const wire = recorder(() => Response.json({ error: { message: VENDOR_BODY } }, { status: 401 }));
-    expect(errorOf(await generate(endpoint("openai-completions", "none"), { credential: keyFor().credential, fetch: wire.fetch }))).toBe(
+    expect(
+      errorOf(
+        await generate(endpoint("openai-completions", "none"), { credential: keyFor().credential, fetch: wire.fetch }),
+      ),
+    ).toBe(
       'The Model endpoint "gw" refused the request without a credential (HTTP 401): check its auth on the Settings page.',
     );
   });
@@ -152,7 +242,9 @@ describe("generateEndpointText", () => {
   });
 
   it("says a Google endpoint failed when it answered an error, though its adapter reports no status", async () => {
-    const wire = recorder(() => Response.json({ error: { code: 401, message: VENDOR_BODY, status: "UNAUTHENTICATED" } }, { status: 401 }));
+    const wire = recorder(() =>
+      Response.json({ error: { code: 401, message: VENDOR_BODY, status: "UNAUTHENTICATED" } }, { status: 401 }),
+    );
     vi.stubGlobal("fetch", wire.fetch);
     const error = errorOf(await generate(endpoint("google-generative-ai"), { credential: keyFor().credential }));
     expect(error).toBe('The Model endpoint "gw" failed (its API reports no status here).');
@@ -163,71 +255,142 @@ describe("generateEndpointText", () => {
     const fetch = (async () => {
       throw new TypeError(`connect failed for ${KEY}`);
     }) as typeof globalThis.fetch;
-    expect(await generate(endpoint("openai-responses"), { credential: keyFor().credential, fetch })).toEqual({ ok: false, error: 'The Model endpoint "gw" could not be reached.' });
+    expect(await generate(endpoint("openai-responses"), { credential: keyFor().credential, fetch })).toEqual({
+      ok: false,
+      error: 'The Model endpoint "gw" could not be reached.',
+    });
   });
 
   it("says the endpoint did not answer in time when the request outlives its bound", async () => {
     const fetch = ((_url: unknown, init?: RequestInit) =>
-      new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason)))) as typeof globalThis.fetch;
-    expect(await generate(endpoint("anthropic-messages"), { credential: keyFor().credential, fetch, timeoutMs: 50 })).toEqual({ ok: false, error: 'The Model endpoint "gw" did not answer in time.' });
+      new Promise<Response>((_resolve, reject) =>
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
+      )) as typeof globalThis.fetch;
+    expect(
+      await generate(endpoint("anthropic-messages"), { credential: keyFor().credential, fetch, timeoutMs: 50 }),
+    ).toEqual({ ok: false, error: 'The Model endpoint "gw" did not answer in time.' });
   });
 
   it("says why there is no key, as a Session's turn does, and sends nothing", async () => {
     for (const [credential, says] of [
       [{ apiKey: null }, 'The Model endpoint "gw" has no API key: set one on the Settings page.'],
-      [{ apiKey: null, unreadable: true }, `The Model endpoint "gw"'s API key can no longer be read (this Environment's credentials key changed): enter it again on the Settings page.`],
-      [{ apiKey: null, changed: true }, 'The Model endpoint "gw" changed or was removed while the text was being generated: try again.'],
+      [
+        { apiKey: null, unreadable: true },
+        `The Model endpoint "gw"'s API key can no longer be read (this Environment's credentials key changed): enter it again on the Settings page.`,
+      ],
+      [
+        { apiKey: null, changed: true },
+        'The Model endpoint "gw" changed or was removed while the text was being generated: try again.',
+      ],
     ] as const) {
       const wire = recorder(() => anthropicOk("never"));
-      expect(errorOf(await generate(endpoint("anthropic-messages"), { credential: keyFor(credential).credential, fetch: wire.fetch }))).toBe(says);
+      expect(
+        errorOf(
+          await generate(endpoint("anthropic-messages"), {
+            credential: keyFor(credential).credential,
+            fetch: wire.fetch,
+          }),
+        ),
+      ).toBe(says);
       expect(wire.sent).toEqual([]);
     }
   });
 
   it("refuses a model the endpoint does not list, and an endpoint the Environment no longer has, sending nothing", async () => {
     const wire = recorder(() => anthropicOk("never"));
-    expect(await generate(endpoint("anthropic-messages"), { credential: keyFor().credential, fetch: wire.fetch }, "gone")).toEqual({ ok: false, error: 'The Model endpoint "gw" does not list the model gone.' });
     expect(
-      await generateEndpointText({ endpointId: "gw", modelId: "small-mini", prompt: "p" }, { endpoints: async () => ({ revision: 3, endpoints: [] }), credential: keyFor().credential, fetch: wire.fetch, usage: () => undefined }),
+      await generate(endpoint("anthropic-messages"), { credential: keyFor().credential, fetch: wire.fetch }, "gone"),
+    ).toEqual({ ok: false, error: 'The Model endpoint "gw" does not list the model gone.' });
+    expect(
+      await generateEndpointText(
+        { endpointId: "gw", modelId: "small-mini", prompt: "p" },
+        {
+          endpoints: async () => ({ revision: 3, endpoints: [] }),
+          credential: keyFor().credential,
+          fetch: wire.fetch,
+          usage: () => undefined,
+        },
+      ),
     ).toEqual({ ok: false, error: 'The Model endpoint "gw" was removed: pick another model for text generation.' });
     expect(
-      await generateEndpointText({ endpointId: "gw", modelId: "small-mini", prompt: "p" }, { endpoints: () => Promise.reject(new Error("rpc")), credential: keyFor().credential, fetch: wire.fetch, usage: () => undefined }),
+      await generateEndpointText(
+        { endpointId: "gw", modelId: "small-mini", prompt: "p" },
+        {
+          endpoints: () => Promise.reject(new Error("rpc")),
+          credential: keyFor().credential,
+          fetch: wire.fetch,
+          usage: () => undefined,
+        },
+      ),
     ).toEqual({ ok: false, error: 'The Model endpoint "gw" could not be read from the Environment: try again.' });
     expect(wire.sent).toEqual([]);
   });
 
   it("refuses a malformed request before reading anything", async () => {
     let read = false;
-    for (const input of [undefined, null, "gw/small-mini", { endpointId: "gw", modelId: "small-mini" }, { endpointId: 1, modelId: "m", prompt: "p" }, { endpoint: { id: "gw" }, modelId: "m", prompt: "p" }]) {
+    for (const input of [
+      undefined,
+      null,
+      "gw/small-mini",
+      { endpointId: "gw", modelId: "small-mini" },
+      { endpointId: 1, modelId: "m", prompt: "p" },
+      { endpoint: { id: "gw" }, modelId: "m", prompt: "p" },
+    ]) {
       const answer = await generateEndpointText(input, {
         endpoints: async () => ((read = true), { revision: 1, endpoints: [] }),
         credential: keyFor().credential,
         usage: () => undefined,
       });
-      expect(answer).toEqual({ ok: false, error: "The text generation request was malformed: it names no Model endpoint, model and prompt." });
+      expect(answer).toEqual({
+        ok: false,
+        error: "The text generation request was malformed: it names no Model endpoint, model and prompt.",
+      });
     }
     expect(read).toBe(false);
   });
 
   it("says the model returned no text when it answered none", async () => {
     const wire = recorder(() => anthropicOk(""));
-    expect(await generate(endpoint("anthropic-messages"), { credential: keyFor().credential, fetch: wire.fetch })).toEqual({ ok: false, error: 'The Model endpoint "gw"\'s model small-mini returned no text.' });
+    expect(
+      await generate(endpoint("anthropic-messages"), { credential: keyFor().credential, fetch: wire.fetch }),
+    ).toEqual({ ok: false, error: 'The Model endpoint "gw"\'s model small-mini returned no text.' });
   });
 
   it("generates on a ChatGPT sign-in endpoint with the broker's token and plan usage's body, and names the sign-in when refused", async () => {
-    const chatgpt: ModelEndpoint = { ...endpoint("openai-responses", "chatgpt"), baseUrl: "https://api.openai.com/v1", headers: {} };
-    const refused = recorder(() => Response.json({ error: { message: VENDOR_BODY, code: "subscription_sharing_user_not_eligible" } }, { status: 403 }));
-    const error = errorOf(await generate(chatgpt, { credential: keyFor({ apiKey: "at-chatgpt", expiresAt: 4_000_000_000_000 }).credential, fetch: refused.fetch }));
+    const chatgpt: ModelEndpoint = {
+      ...endpoint("openai-responses", "chatgpt"),
+      baseUrl: "https://api.openai.com/v1",
+      headers: {},
+    };
+    const refused = recorder(() =>
+      Response.json(
+        { error: { message: VENDOR_BODY, code: "subscription_sharing_user_not_eligible" } },
+        { status: 403 },
+      ),
+    );
+    const error = errorOf(
+      await generate(chatgpt, {
+        credential: keyFor({ apiKey: "at-chatgpt", expiresAt: 4_000_000_000_000 }).credential,
+        fetch: refused.fetch,
+      }),
+    );
     // SPI-1172: plan usage's code says why: the plan, not the sign-in.
-    expect(error).toBe('The Model endpoint "gw"\'s ChatGPT account cannot use its plan for this request (HTTP 403): ChatGPT plan usage needs a Plus or Pro plan; otherwise sign in again on the Settings page.');
+    expect(error).toBe(
+      'The Model endpoint "gw"\'s ChatGPT account cannot use its plan for this request (HTTP 403): ChatGPT plan usage needs a Plus or Pro plan; otherwise sign in again on the Settings page.',
+    );
     expect(refused.sent[0]!.headers.authorization).toBe("Bearer at-chatgpt");
     const body = JSON.parse(refused.sent[0]!.body) as Record<string, unknown>;
     expect(body).toMatchObject({ store: false, stream: true });
     expect(body).not.toHaveProperty("max_output_tokens");
     const signedOut = recorder(() => anthropicOk("never"));
-    expect(errorOf(await generate(chatgpt, { credential: keyFor({ apiKey: null, signedOut: true }).credential, fetch: signedOut.fetch }))).toBe(
-      'The Model endpoint "gw" is not signed in to ChatGPT: sign in with ChatGPT again on the Settings page.',
-    );
+    expect(
+      errorOf(
+        await generate(chatgpt, {
+          credential: keyFor({ apiKey: null, signedOut: true }).credential,
+          fetch: signedOut.fetch,
+        }),
+      ),
+    ).toBe('The Model endpoint "gw" is not signed in to ChatGPT: sign in with ChatGPT again on the Settings page.');
     expect(signedOut.sent).toEqual([]);
   });
 });

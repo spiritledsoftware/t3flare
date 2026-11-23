@@ -22,12 +22,24 @@ const capabilities: Record<string, unknown> = config.environment?.capabilities ?
 const stripped = Object.entries(CAPABILITIES).flatMap(([key, value]) => ("strip" in value ? [key] : []));
 const advertisedStripped = stripped.filter((key) => key in capabilities);
 check("no stripped capability is advertised", advertisedStripped.length === 0, advertisedStripped);
-check("kept capabilities are advertised", capabilities.pullRequests === true && capabilities.peerLinks === true, capabilities);
+check(
+  "kept capabilities are advertised",
+  capabilities.pullRequests === true && capabilities.peerLinks === true,
+  capabilities,
+);
 check("the managed policy is t3flare's", config.managedPolicy?.organization === "t3flare", config.managedPolicy);
 check("product analytics is off (SPI-995)", config.managedPolicy?.limits?.telemetry === false, config.managedPolicy);
-check("guest links are locked", (config.managedPolicy?.lockedSettings ?? []).includes("guestSharingEnabled"), config.managedPolicy);
+check(
+  "guest links are locked",
+  (config.managedPolicy?.lockedSettings ?? []).includes("guestSharingEnabled"),
+  config.managedPolicy,
+);
 // D5 lifted (owner, 2026-11-12, back to stock): t3's typed-key settings work as stock.
-check("custom text generators are unlocked", !(config.managedPolicy?.lockedSettings ?? []).includes("textGenerators"), config.managedPolicy);
+check(
+  "custom text generators are unlocked",
+  !(config.managedPolicy?.lockedSettings ?? []).includes("textGenerators"),
+  config.managedPolicy,
+);
 check("cloud voice transcription is advertised", capabilities.cloudVoiceTranscription === true, capabilities);
 
 const refused = await wsCall(cookie, "server.updateSettings", { patch: { guestSharingEnabled: true } }).then(
@@ -35,7 +47,10 @@ const refused = await wsCall(cookie, "server.updateSettings", { patch: { guestSh
   (error: unknown) => ({ ok: false, error: String((error as { message?: string })?.message ?? error).slice(0, 300) }),
 );
 const after = (await wsCall(cookie, "server.getConfig", {})) as any;
-check("turning guest links on is refused", after.settings?.guestSharingEnabled === false, { refused, after: after.settings?.guestSharingEnabled });
+check("turning guest links on is refused", after.settings?.guestSharingEnabled === false, {
+  refused,
+  after: after.settings?.guestSharingEnabled,
+});
 
 const report = {
   at: new Date().toISOString(),

@@ -2,7 +2,13 @@
 // writable from the Container's own git, and `workflows` only for a Workspace the owner opted in (K7).
 import { describe, expect, it } from "vitest";
 
-import { containerGitHubPermissions, ENVIRONMENT_GITHUB_PERMISSIONS, GITHUB_APP_PERMISSIONS, SKILL_FETCH_GITHUB_PERMISSIONS, UPDATE_DISPATCH_GITHUB_PERMISSIONS } from "./permissions.ts";
+import {
+  containerGitHubPermissions,
+  ENVIRONMENT_GITHUB_PERMISSIONS,
+  GITHUB_APP_PERMISSIONS,
+  SKILL_FETCH_GITHUB_PERMISSIONS,
+  UPDATE_DISPATCH_GITHUB_PERMISSIONS,
+} from "./permissions.ts";
 
 describe("containerGitHubPermissions", () => {
   it("writes code and pull requests, never workflows unless opted in", () => {
@@ -10,7 +16,12 @@ describe("containerGitHubPermissions", () => {
   });
 
   it("adds workflows for an opted-in Workspace", () => {
-    expect(containerGitHubPermissions(true)).toEqual({ contents: "write", pull_requests: "write", metadata: "read", workflows: "write" });
+    expect(containerGitHubPermissions(true)).toEqual({
+      contents: "write",
+      pull_requests: "write",
+      metadata: "read",
+      workflows: "write",
+    });
   });
 });
 
@@ -21,7 +32,12 @@ describe("the update dispatch token (ADR-0037)", () => {
   });
 
   it("is the only list that writes Actions", () => {
-    for (const list of [containerGitHubPermissions(false), containerGitHubPermissions(true), ENVIRONMENT_GITHUB_PERMISSIONS, SKILL_FETCH_GITHUB_PERMISSIONS]) {
+    for (const list of [
+      containerGitHubPermissions(false),
+      containerGitHubPermissions(true),
+      ENVIRONMENT_GITHUB_PERMISSIONS,
+      SKILL_FETCH_GITHUB_PERMISSIONS,
+    ]) {
       expect((list as Record<string, string>).actions).not.toBe("write");
     }
   });

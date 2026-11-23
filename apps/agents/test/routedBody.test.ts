@@ -2,7 +2,13 @@
 // body's bytes; the slug's model id written in place; the cap and the nesting limit.
 import { describe, expect, it } from "vitest";
 
-import { MAX_NESTING, MAX_ROUTED_BODY_BYTES, readCapped, routeBody, topLevelModel } from "../src/workspace/routedBody.ts";
+import {
+  MAX_NESTING,
+  MAX_ROUTED_BODY_BYTES,
+  readCapped,
+  routeBody,
+  topLevelModel,
+} from "../src/workspace/routedBody.ts";
 
 const bytes = (text: string) => new TextEncoder().encode(text);
 const text = (value: Uint8Array) => new TextDecoder().decode(value);
@@ -38,11 +44,14 @@ describe("the model-routed body's scan", () => {
   });
 
   it("names no endpoint for a model without a slug, or with an id that is not an endpoint's", () => {
-    for (const body of ['{"model":"claude"}', '{"model":"_/m"}', '{"model":"A/m"}', '{"model":"comm/"}']) expect(routeBody(bytes(body)), body).toBeUndefined();
+    for (const body of ['{"model":"claude"}', '{"model":"_/m"}', '{"model":"A/m"}', '{"model":"comm/"}'])
+      expect(routeBody(bytes(body)), body).toBeUndefined();
   });
 
   it("reads a body into one buffer, refusing a stream over the cap (a declared length over it is the route's 413)", async () => {
-    expect(text(((await readCapped(streamOf('{"model":', '"comm/a"}'), undefined)) as { bytes: Uint8Array }).bytes)).toBe('{"model":"comm/a"}');
+    expect(
+      text(((await readCapped(streamOf('{"model":', '"comm/a"}'), undefined)) as { bytes: Uint8Array }).bytes),
+    ).toBe('{"model":"comm/a"}');
     expect(text(((await readCapped(streamOf("ab", "cd"), 2)) as { bytes: Uint8Array }).bytes)).toBe("abcd");
     expect(await readCapped(streamOf("x".repeat(MAX_ROUTED_BODY_BYTES), "y"), undefined)).toEqual({ tooLarge: true });
   });

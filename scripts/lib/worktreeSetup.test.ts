@@ -25,7 +25,10 @@ const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "worktree-
 after(() => fs.rmSync(scratch, { recursive: true, force: true }));
 
 const git = (cwd: string, ...args: ReadonlyArray<string>) => {
-  const result = spawnSync("git", ["-c", "protocol.file.allow=always", "-c", "init.defaultBranch=main", ...args], { cwd, encoding: "utf8" });
+  const result = spawnSync("git", ["-c", "protocol.file.allow=always", "-c", "init.defaultBranch=main", ...args], {
+    cwd,
+    encoding: "utf8",
+  });
   assert.equal(result.status, 0, `git ${args.join(" ")} in ${cwd}: ${result.stderr}`);
   return result.stdout.trim();
 };
@@ -94,15 +97,24 @@ await describe("worktreeSetup", async () => {
 
     const own = path.join(gitDirOf(worktree), "modules", "t3code");
     assert.equal(gitfileTarget(path.join(worktree, "t3code", ".git")), own);
-    assert.equal(fs.readFileSync(path.join(worktree, "t3code", ".git"), "utf8"), `gitdir: ${path.relative(path.join(worktree, "t3code"), own)}\n`);
-    assert.equal(fs.readFileSync(path.join(own, "objects", "info", "alternates"), "utf8").trim(), path.join(fixture.main, ".git", "modules", "t3code", "objects"));
+    assert.equal(
+      fs.readFileSync(path.join(worktree, "t3code", ".git"), "utf8"),
+      `gitdir: ${path.relative(path.join(worktree, "t3code"), own)}\n`,
+    );
+    assert.equal(
+      fs.readFileSync(path.join(own, "objects", "info", "alternates"), "utf8").trim(),
+      path.join(fixture.main, ".git", "modules", "t3code", "objects"),
+    );
     assert.equal(git(path.join(worktree, "t3code"), "rev-parse", "HEAD"), fixture.second);
     assert.equal(git(path.join(worktree, "t3code"), "remote", "get-url", "origin"), path.join(fixture.dir, "upstream"));
     assert.equal(git(worktree, "status", "--porcelain"), "");
     assert.equal(git(worktree, "submodule", "update", "--init"), "");
     assert.equal(git(worktree, "rev-parse", "HEAD:t3code"), fixture.second);
     // A leading space: initialised and at the pinned commit (not "-" uninitialised, "+" off the pin, or "U" conflicted).
-    assert.match(spawnSync("git", ["submodule", "status"], { cwd: worktree, encoding: "utf8" }).stdout, new RegExp(`^ ${fixture.second} t3code `));
+    assert.match(
+      spawnSync("git", ["submodule", "status"], { cwd: worktree, encoding: "utf8" }).stdout,
+      new RegExp(`^ ${fixture.second} t3code `),
+    );
 
     // A switch to a commit pinning another submodule commit recurses into it.
     git(worktree, "switch", "--quiet", "--detach", "old");
@@ -129,7 +141,10 @@ await describe("worktreeSetup", async () => {
     fs.writeFileSync(path.join(fixture.main, "t3code", ".git"), "gitdir: ../nowhere/modules/t3code\n");
     const result = worktreeSetup(fixture.main);
     assert.equal(result.kind, "repaired");
-    assert.equal(gitfileTarget(path.join(fixture.main, "t3code", ".git")), path.join(fixture.main, ".git", "modules", "t3code"));
+    assert.equal(
+      gitfileTarget(path.join(fixture.main, "t3code", ".git")),
+      path.join(fixture.main, ".git", "modules", "t3code"),
+    );
     assert.equal(git(fixture.main, "status", "--porcelain"), "");
   });
 
@@ -164,7 +179,10 @@ await describe("worktreeSetup", async () => {
     const result = worktreeSetup(worktree);
     assert.equal(result.kind, "uninitialised");
     if (result.kind === "uninitialised") assert.match(result.message, /git submodule update --init t3code$/);
-    assert.equal(fs.readFileSync(path.join(worktree, "t3code", ".git"), "utf8"), "gitdir: ../../.git/worktrees/elsewhere/modules/t3code\n");
+    assert.equal(
+      fs.readFileSync(path.join(worktree, "t3code", ".git"), "utf8"),
+      "gitdir: ../../.git/worktrees/elsewhere/modules/t3code\n",
+    );
   });
 
   await it("fails when the borrowed objects lack the pinned commit, and keeps failing: never healthy", () => {
@@ -177,7 +195,10 @@ await describe("worktreeSetup", async () => {
       const result = worktreeSetup(worktree);
       assert.equal(result.kind, "failed", `run ${run}`);
       if (result.kind === "failed") assert.match(result.message, /git submodule update --init t3code$/);
-      assert.equal(fs.readFileSync(path.join(worktree, "t3code", ".git"), "utf8"), "gitdir: ../../.git/worktrees/elsewhere/modules/t3code\n");
+      assert.equal(
+        fs.readFileSync(path.join(worktree, "t3code", ".git"), "utf8"),
+        "gitdir: ../../.git/worktrees/elsewhere/modules/t3code\n",
+      );
       assert.equal(fs.existsSync(own), false);
       assert.deepEqual(fs.readdirSync(path.dirname(own)), []);
     }
@@ -191,7 +212,10 @@ await describe("worktreeSetup", async () => {
     fs.chmodSync(modules, 0o555);
     try {
       assert.equal(worktreeSetup(worktree).kind, "failed");
-      assert.equal(fs.readFileSync(path.join(worktree, "t3code", ".git"), "utf8"), "gitdir: ../../.git/worktrees/elsewhere/modules/t3code\n");
+      assert.equal(
+        fs.readFileSync(path.join(worktree, "t3code", ".git"), "utf8"),
+        "gitdir: ../../.git/worktrees/elsewhere/modules/t3code\n",
+      );
       assert.equal(worktreeSetup(worktree).kind, "failed");
     } finally {
       fs.chmodSync(modules, 0o755);

@@ -71,28 +71,19 @@ describe("findSkillMdPaths — bounded depth-3 inside skill container prefixes (
   });
 
   it("skips depth-2 entries whose intermediate dir is an ignored directory", () => {
-    const tree = makeTree([
-      "skills/node_modules/pkg-skill/SKILL.md",
-      "skills/real-category/real-skill/SKILL.md",
-    ]);
+    const tree = makeTree(["skills/node_modules/pkg-skill/SKILL.md", "skills/real-category/real-skill/SKILL.md"]);
 
     expect(findSkillMdPaths(tree)).toEqual(["skills/real-category/real-skill/SKILL.md"]);
   });
 
   it("does not surface depth-2 entries under the root prefix", () => {
-    const tree = makeTree([
-      "examples/category/example-skill/SKILL.md",
-      "skills/real-skill/SKILL.md",
-    ]);
+    const tree = makeTree(["examples/category/example-skill/SKILL.md", "skills/real-skill/SKILL.md"]);
 
     expect(findSkillMdPaths(tree)).toEqual(["skills/real-skill/SKILL.md"]);
   });
 
   it("respects the subpath filter while applying depth-2 discovery", () => {
-    const tree = makeTree([
-      "skills/category/in-scope/SKILL.md",
-      "other/category/out-of-scope/SKILL.md",
-    ]);
+    const tree = makeTree(["skills/category/in-scope/SKILL.md", "other/category/out-of-scope/SKILL.md"]);
 
     expect(findSkillMdPaths(tree, "skills")).toEqual(["skills/category/in-scope/SKILL.md"]);
   });
@@ -118,9 +109,7 @@ describe("findSkillMdPaths — the rest of the function", () => {
   });
 
   it("takes a Skill one folder below the repo's root", () => {
-    expect(findSkillMdPaths(makeTree(["grill-me/SKILL.md", "docs/readme.md"]))).toEqual([
-      "grill-me/SKILL.md",
-    ]);
+    expect(findSkillMdPaths(makeTree(["grill-me/SKILL.md", "docs/readme.md"]))).toEqual(["grill-me/SKILL.md"]);
   });
 
   it("falls back to every SKILL.md at most six segments deep when no priority directory has one", () => {
@@ -152,7 +141,6 @@ describe("findSkillMdPaths — the rest of the function", () => {
 
     expect(findSkillMdPaths(tree)).toEqual([]);
   });
-
 });
 
 describe("a Skill's folder and files", () => {
@@ -212,11 +200,7 @@ describe("a Skill's folder and files", () => {
   });
 
   it("digests the files a Skill installs and nothing else, whatever the order of the tree", async () => {
-    const files = [
-      blob("skills/foo/SKILL.md"),
-      blob("skills/foo/references/a.md"),
-      blob("skills/foo/metadata.json"),
-    ];
+    const files = [blob("skills/foo/SKILL.md"), blob("skills/foo/references/a.md"), blob("skills/foo/metadata.json")];
 
     const hash = await folderHashOf({ tree: files }, "skills/foo/SKILL.md");
 
@@ -238,14 +222,10 @@ describe("a Skill's folder and files", () => {
     ).toBe(hash);
     // A file of the Skill that changed, or one it gained, does.
 
-    const changed = files.map((entry) =>
-      entry.path.endsWith("a.md") ? { ...entry, sha: "new" } : entry,
-    );
+    const changed = files.map((entry) => (entry.path.endsWith("a.md") ? { ...entry, sha: "new" } : entry));
 
     expect(await folderHashOf({ tree: changed }, "skills/foo/SKILL.md")).not.toBe(hash);
-    expect(
-      await folderHashOf({ tree: [...files, blob("skills/foo/more.md")] }, "skills/foo/SKILL.md"),
-    ).not.toBe(hash);
+    expect(await folderHashOf({ tree: [...files, blob("skills/foo/more.md")] }, "skills/foo/SKILL.md")).not.toBe(hash);
   });
 
   it("takes only the SKILL.md of a Skill at the repo's root (the CLI's root-level rule)", () => {

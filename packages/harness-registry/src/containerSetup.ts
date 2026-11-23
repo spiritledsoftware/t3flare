@@ -94,7 +94,8 @@ export const describeContainerSetup = (report: ContainerSetupReport): string => 
   else if (report.outcome === "exec-failed") what = "not run (the Container's exec failed; tried again)";
   else if (report.outcome === "deadline") what = "failed, no answer within the deadline";
   else if (report.timedOut) what = `failed, stopped at its time limit after ${seconds(report.ms)} s`;
-  else what = `${report.outcome === "ok" ? "ran" : "failed"}, exit ${String(report.exitCode)} after ${seconds(report.ms)} s`;
+  else
+    what = `${report.outcome === "ok" ? "ran" : "failed"}, exit ${String(report.exitCode)} after ${seconds(report.ms)} s`;
   const refused = report.failure === "refuse" && report.outcome !== "ok" && report.outcome !== "none";
   if (refused) what = `${what}; its Container refuses commands`;
   return `${report.workspace ?? "a Workspace"} at revision ${report.revision}: ${what}, ${new Date(report.at).toISOString()}`;

@@ -27,9 +27,7 @@ export type RiskCategory = (typeof riskCategories)[number];
  * Security Policy for the call to violate.
  */
 export function validRiskCategories(securityPolicy: boolean): readonly RiskCategory[] {
-  return securityPolicy
-    ? riskCategories
-    : riskCategories.filter((name) => name !== "security_policy");
+  return securityPolicy ? riskCategories : riskCategories.filter((name) => name !== "security_policy");
 }
 
 /** A stated category in canonical form: `Data-Egress` and `data egress` mean `data_egress`. */
@@ -50,7 +48,12 @@ function normalizedCategory(value: string | null | undefined): string | undefine
  */
 const isAssessment = (
   value: unknown,
-): value is { risk_level: RiskLevel; user_authorization: UserAuthorization; risk_category?: string | null; rationale?: string | null } => {
+): value is {
+  risk_level: RiskLevel;
+  user_authorization: UserAuthorization;
+  risk_category?: string | null;
+  rationale?: string | null;
+} => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const fields = value as Record<string, unknown>;
   const optionalText = (field: unknown) => field === undefined || field === null || typeof field === "string";
@@ -72,10 +75,7 @@ export type Assessment = {
 
 /** Whether a `high` or `critical` assessment names no valid Risk Category. */
 export function uncategorized(assessment: Assessment): boolean {
-  return (
-    (assessment.risk === "high" || assessment.risk === "critical") &&
-    assessment.category === undefined
-  );
+  return (assessment.risk === "high" || assessment.risk === "critical") && assessment.category === undefined;
 }
 
 /** The risk the Decision Table uses: `medium` for an uncategorized `high` or `critical`. */
@@ -115,17 +115,13 @@ function objectSpans(text: string): string[] {
     if (character === '"' && depth > 0) inString = true;
     else if (character === "{") {
       if (depth++ === 0) start = index;
-    } else if (character === "}" && depth > 0 && --depth === 0)
-      spans.push(text.slice(start, index + 1));
+    } else if (character === "}" && depth > 0 && --depth === 0) spans.push(text.slice(start, index + 1));
   }
   return spans;
 }
 
 /** The assessment a JSON text holds, if it is a valid one. */
-function assessmentIn(
-  candidate: string,
-  categories: readonly RiskCategory[],
-): Assessment | undefined {
+function assessmentIn(candidate: string, categories: readonly RiskCategory[]): Assessment | undefined {
   let parsed: unknown;
   try {
     parsed = JSON.parse(candidate);
@@ -144,9 +140,7 @@ function assessmentIn(
 
 /** Valid assessments in a reply: the whole text, or each top-level JSON object in it. */
 function assessments(text: string, categories: readonly RiskCategory[]): Assessment[] {
-  return [text.trim(), ...objectSpans(text)].flatMap(
-    (candidate) => assessmentIn(candidate, categories) ?? [],
-  );
+  return [text.trim(), ...objectSpans(text)].flatMap((candidate) => assessmentIn(candidate, categories) ?? []);
 }
 
 /** The index of the `}` closing the JSON object that opens at `start`, skipping strings. */
@@ -185,8 +179,7 @@ export function parseFinalAssessment(
     const assessment = assessmentIn(text.slice(start, end + 1), categories);
     if (assessment) found = { assessment, end };
   }
-  if (!found)
-    throw new Error("Guardian returned malformed output (expected the assessment JSON object)");
+  if (!found) throw new Error("Guardian returned malformed output (expected the assessment JSON object)");
   return found.assessment;
 }
 
@@ -200,12 +193,9 @@ export function parseAssessment(
   categories: readonly RiskCategory[] = validRiskCategories(false),
 ): Assessment {
   const [first, ...rest] = assessments(text, categories);
-  if (!first)
-    throw new Error("Guardian returned malformed output (expected the assessment JSON object)");
+  if (!first) throw new Error("Guardian returned malformed output (expected the assessment JSON object)");
   if (rest.some((other) => JSON.stringify(other) !== JSON.stringify(first)))
-    throw new Error(
-      "Guardian returned malformed output (more than one differing assessment JSON object)",
-    );
+    throw new Error("Guardian returned malformed output (more than one differing assessment JSON object)");
   return first;
 }
 

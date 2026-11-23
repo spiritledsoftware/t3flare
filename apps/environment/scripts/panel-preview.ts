@@ -26,7 +26,9 @@ if (first === "serve") {
     process.exit(2);
   }
   const preview = await servePreview({ port });
-  console.log(`Settings page preview at ${preview.url} (127.0.0.1 only; state is in memory and resets on restart; Ctrl-C stops it)`);
+  console.log(
+    `Settings page preview at ${preview.url} (127.0.0.1 only; state is in memory and resets on restart; Ctrl-C stops it)`,
+  );
 } else if (first === undefined) {
   console.error(USAGE);
   process.exit(2);

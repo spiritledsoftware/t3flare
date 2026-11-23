@@ -49,9 +49,7 @@ const treeOf = (files: Readonly<Record<string, string>>) => {
 
       return [...nodes.entries()]
         .flatMap(([path, type]) =>
-          path !== "/" && path.startsWith(prefix) && !path.slice(prefix.length).includes("/")
-            ? [{ path, type }]
-            : [],
+          path !== "/" && path.startsWith(prefix) && !path.slice(prefix.length).includes("/") ? [{ path, type }] : [],
         )
         .toSorted((a, b) => (a.path < b.path ? -1 : 1));
     },
@@ -61,11 +59,8 @@ const treeOf = (files: Readonly<Record<string, string>>) => {
   return { fs: fs as unknown as Workspace["fs"], walked };
 };
 
-const paths = async (
-  tree: ReturnType<typeof treeOf>,
-  path: string,
-  options: Parameters<typeof listFiles>[2] = {},
-) => (await listFiles(tree.fs, path, options)).entries.map((entry) => entry.path);
+const paths = async (tree: ReturnType<typeof treeOf>, path: string, options: Parameters<typeof listFiles>[2] = {}) =>
+  (await listFiles(tree.fs, path, options)).entries.map((entry) => entry.path);
 
 describe("listFiles' walk", () => {
   it("never walks a directory it skips: excluded, ignored, or .git", async () => {
@@ -77,11 +72,7 @@ describe("listFiles' walk", () => {
       "/w/node_modules/m/i.js": "",
     });
 
-    expect(await paths(tree, "/w", { exclude: ["node_modules"] })).toEqual([
-      ".gitignore",
-      "src",
-      "src/a.ts",
-    ]);
+    expect(await paths(tree, "/w", { exclude: ["node_modules"] })).toEqual([".gitignore", "src", "src/a.ts"]);
     expect(tree.walked).toEqual(["/w", "/w/src"]);
   });
 

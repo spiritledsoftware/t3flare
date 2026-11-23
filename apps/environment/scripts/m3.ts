@@ -14,11 +14,27 @@
 // Each prints a JSON report (also written to /tmp/m3-<check>.json).
 import * as fs from "node:fs";
 
-import { admin, dispatch, itemsOf, pair, projectionOf, runsOf, SETTLED, sendMessage, sleep, threadWindow, uuid } from "./lib/client.ts";
+import {
+  admin,
+  dispatch,
+  itemsOf,
+  pair,
+  projectionOf,
+  runsOf,
+  SETTLED,
+  sendMessage,
+  sleep,
+  threadWindow,
+  uuid,
+} from "./lib/client.ts";
 
 const FIXTURE_PROJECT = process.env.T3FLARE_FIXTURE_PROJECT ?? "945fed9f-4b65-4c0d-89a1-cae2ef93839f";
 const WORKSPACE = "t3flare-fixture";
-const MODEL = { instanceId: "piDurable", model: "anthropic/claude-haiku-5-5", options: [{ id: "thinking", value: "low" }] };
+const MODEL = {
+  instanceId: "piDurable",
+  model: "anthropic/claude-haiku-5-5",
+  options: [{ id: "thinking", value: "low" }],
+};
 
 const [check = "approve", ...flags] = process.argv.slice(2);
 const minutes = Number(flags[flags.indexOf("--minutes") + 1] ?? 7);
@@ -81,7 +97,9 @@ const runTurn = async (
     last = await projection(threadId);
     for (const request of pending(last)) {
       if (answered.has(request.id)) continue;
-      const item = itemsOf(last).find((candidate: any) => candidate.type === "approval_request" && candidate.requestId === request.id);
+      const item = itemsOf(last).find(
+        (candidate: any) => candidate.type === "approval_request" && candidate.requestId === request.id,
+      );
       const response = answer(request, item);
       if (response === undefined) continue;
       answered.set(request.id, { decision: response.decision, at: Date.now() - started, prompt: item?.prompt ?? null });
@@ -107,8 +125,12 @@ const toolItems = (p: any) =>
       type: item.type,
       status: item.status,
       title: item.title,
-      ...(item.type === "command_execution" ? { input: item.input, exitCode: item.exitCode, output: String(item.output ?? "").slice(0, 600) } : {}),
-      ...(item.type === "file_change" ? { fileName: item.fileName, diffStr: String(item.diffStr ?? "").slice(0, 800) } : {}),
+      ...(item.type === "command_execution"
+        ? { input: item.input, exitCode: item.exitCode, output: String(item.output ?? "").slice(0, 600) }
+        : {}),
+      ...(item.type === "file_change"
+        ? { fileName: item.fileName, diffStr: String(item.diffStr ?? "").slice(0, 800) }
+        : {}),
       ...(item.type === "dynamic_tool" ? { toolName: item.toolName, input: item.input } : {}),
       ...(item.type === "approval_request" ? { requestKind: item.requestKind, prompt: item.prompt } : {}),
     }));
@@ -142,7 +164,12 @@ switch (check) {
       threadId,
       runs: runsOf(turn.projection).map((run) => ({ id: run.id, status: run.status })),
       answered: turn.answered,
-      runtimeRequests: (turn.projection?.runtimeRequests ?? []).map((request: any) => ({ id: request.id, kind: request.kind, status: request.status, decision: request.decision })),
+      runtimeRequests: (turn.projection?.runtimeRequests ?? []).map((request: any) => ({
+        id: request.id,
+        kind: request.kind,
+        status: request.status,
+        decision: request.decision,
+      })),
       tools: toolItems(turn.projection),
       answer: assistantText(turn.projection),
       checkpoints: await checkpoints(),
@@ -162,7 +189,13 @@ switch (check) {
       threadId,
       runs: runsOf(turn.projection).map((run) => ({ id: run.id, status: run.status })),
       answered: turn.answered,
-      runtimeRequests: (turn.projection?.runtimeRequests ?? []).map((request: any) => ({ id: request.id, kind: request.kind, status: request.status, decision: request.decision, feedback: request.feedback })),
+      runtimeRequests: (turn.projection?.runtimeRequests ?? []).map((request: any) => ({
+        id: request.id,
+        kind: request.kind,
+        status: request.status,
+        decision: request.decision,
+        feedback: request.feedback,
+      })),
       tools: toolItems(turn.projection),
       answer: assistantText(turn.projection),
       ms: turn.ms,
@@ -198,7 +231,11 @@ switch (check) {
       containerAfter: await container(),
       statusReads,
       checkpoints: await checkpoints(),
-      router: trace.map((entry: any) => ({ argv: entry.argv?.join(" ").slice(0, 160), route: entry.route, detail: entry.detail })),
+      router: trace.map((entry: any) => ({
+        argv: entry.argv?.join(" ").slice(0, 160),
+        route: entry.route,
+        detail: entry.detail,
+      })),
       ms: turn.ms,
     });
     break;
@@ -220,7 +257,9 @@ switch (check) {
       await sleep(30_000);
       const p = await projection(threadId);
       // `--quiet`: the Session is left alone (no snapshot calls wake it), so only its own alarm (the heartbeat) does.
-      const session = flags.includes("--quiet") ? {} : (await admin("GET", `/_t3flare/agents/session?thread=${threadId}`)).json;
+      const session = flags.includes("--quiet")
+        ? {}
+        : (await admin("GET", `/_t3flare/agents/session?thread=${threadId}`)).json;
       samples.push({
         t: Math.round((Date.now() - started) / 1000),
         pending: pending(p).map((r: any) => r.id),
@@ -267,9 +306,20 @@ switch (check) {
     const session = (await admin("GET", `/_t3flare/agents/session?thread=${threadId}`)).json;
     const bashResults = (session.entries ?? [])
       .filter((entry: any) => entry.role === "toolResult" && entry.toolName === "bash")
-      .map((entry: any) => ({ exitCode: entry.details?.exitCode ?? null, isError: entry.isError, output: entry.content.map((block: any) => block.text ?? "").join("").slice(0, 600) }));
+      .map((entry: any) => ({
+        exitCode: entry.details?.exitCode ?? null,
+        isError: entry.isError,
+        output: entry.content
+          .map((block: any) => block.text ?? "")
+          .join("")
+          .slice(0, 600),
+      }));
     const bashCalls = (session.entries ?? []).flatMap((entry: any) =>
-      entry.role === "assistant" ? entry.content.filter((block: any) => block.type === "toolCall" && block.name === "bash").map((block: any) => block.arguments.command) : [],
+      entry.role === "assistant"
+        ? entry.content
+            .filter((block: any) => block.type === "toolCall" && block.name === "bash")
+            .map((block: any) => block.arguments.command)
+        : [],
     );
     await report("agent-push", {
       threadId,

@@ -4,14 +4,14 @@ Our composition provides t3's `SqlClient` as the stock `@effect/sql-sqlite-do`, 
 
 DO SQLite refuses some of what t3's queries do, so the client goes through an adapter in our SQL Layer:
 
-| DO SQLite limit | t3's need | Adapter |
-|---|---|---|
-| 100 bound parameters | 16 remaining `sql.in(...)` call sites | inline escaped literals above 100 |
-| 5 terms per compound `SELECT` | 12 in the thread window | regroup `UNION` chains into nested subqueries of at most 5 |
-| About 100 view and subquery expansions per statement, **production only** | the thread window's inlined CTE | on that error, run each CTE as its own statement and pass its rows on as a `json_each` parameter, with no DDL |
-| 50-byte `LIKE` patterns | our own prefix matches | key ranges instead |
-| PRAGMAs refused | `Sqlite.layerSetup` | run only t3's migrations |
-| `PRAGMA auto_vacuum`, `page_count` and `freelist_count` refused | `DatabaseStorage`'s reads every minute | answer their read form with 0 (no automatic vacuum), so its reclaim does nothing; its history compaction still runs |
+| DO SQLite limit                                                           | t3's need                              | Adapter                                                                                                             |
+| ------------------------------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| 100 bound parameters                                                      | 16 remaining `sql.in(...)` call sites  | inline escaped literals above 100                                                                                   |
+| 5 terms per compound `SELECT`                                             | 12 in the thread window                | regroup `UNION` chains into nested subqueries of at most 5                                                          |
+| About 100 view and subquery expansions per statement, **production only** | the thread window's inlined CTE        | on that error, run each CTE as its own statement and pass its rows on as a `json_each` parameter, with no DDL       |
+| 50-byte `LIKE` patterns                                                   | our own prefix matches                 | key ranges instead                                                                                                  |
+| PRAGMAs refused                                                           | `Sqlite.layerSetup`                    | run only t3's migrations                                                                                            |
+| `PRAGMA auto_vacuum`, `page_count` and `freelist_count` refused           | `DatabaseStorage`'s reads every minute | answer their read form with 0 (no automatic vacuum), so its reclaim does nothing; its history compaction still runs |
 
 ## Consequences
 

@@ -9,7 +9,9 @@ const register = (thread: string, decision: "accept" | "acceptForSession" | "dec
   const unregister = registerCliAsker(thread, {
     ask: async (ask) => {
       asked.push(ask);
-      return decision === "decline" ? { approved: false, reason: "decline" } : { approved: true, forSession: decision === "acceptForSession" };
+      return decision === "decline"
+        ? { approved: false, reason: "decline" }
+        : { approved: true, forSession: decision === "acceptForSession" };
     },
     state: () => ({ runtimeMode: "approval-required", interactionMode: "default", workspace: "ws-1" }),
   });
@@ -37,7 +39,11 @@ describe("tool cards on a CLI thread", () => {
 
   it("give the relay the calling thread's modes (none without a live turn)", () => {
     const r = register("t-mode", "accept");
-    expect(cliThreadState("t-mode")).toEqual({ runtimeMode: "approval-required", interactionMode: "default", workspace: "ws-1" });
+    expect(cliThreadState("t-mode")).toEqual({
+      runtimeMode: "approval-required",
+      interactionMode: "default",
+      workspace: "ws-1",
+    });
     expect(cliThreadState("t-gone")).toBeUndefined();
     r.unregister();
   });

@@ -19,12 +19,23 @@ describe("takeSkillsForTurn", () => {
 
   it("keeps going when the Workspace refuses, fails or predates the call", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    expect(await takeSkillsForTurn("h", { takeEnvironmentSkills: async () => ({ taken: false, hash: "h0", error: "refused" }) })).toEqual({ taken: false, hash: "h0", error: "refused" });
-    expect(await takeSkillsForTurn("h", { takeEnvironmentSkills: () => Promise.reject(new TypeError("The RPC receiver does not implement the method \"takeEnvironmentSkills\".")) })).toBe("failed");
+    expect(
+      await takeSkillsForTurn("h", {
+        takeEnvironmentSkills: async () => ({ taken: false, hash: "h0", error: "refused" }),
+      }),
+    ).toEqual({ taken: false, hash: "h0", error: "refused" });
+    expect(
+      await takeSkillsForTurn("h", {
+        takeEnvironmentSkills: () =>
+          Promise.reject(new TypeError('The RPC receiver does not implement the method "takeEnvironmentSkills".')),
+      }),
+    ).toBe("failed");
   });
 
   it("stops waiting at its bound", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    expect(await takeSkillsForTurn("h", { takeEnvironmentSkills: () => new Promise(() => undefined) }, 20)).toBe("timeout");
+    expect(await takeSkillsForTurn("h", { takeEnvironmentSkills: () => new Promise(() => undefined) }, 20)).toBe(
+      "timeout",
+    );
   });
 });

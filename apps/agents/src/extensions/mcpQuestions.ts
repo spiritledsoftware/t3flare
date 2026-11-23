@@ -7,7 +7,14 @@
 // cancelled), and the answer never touches the Session's storage (never kept). Stop, the turn's end,
 // the server's own withdrawal and the host's timeout close the card.
 // @effect-diagnostics globalDate:off
-import type { AnswerInput, McpAsker, McpQuestionAnswer, McpQuestionCard, PendingApproval, PendingQuestion } from "@t3flare/session-protocol";
+import type {
+  AnswerInput,
+  McpAsker,
+  McpQuestionAnswer,
+  McpQuestionCard,
+  PendingApproval,
+  PendingQuestion,
+} from "@t3flare/session-protocol";
 
 interface Waiting {
   readonly approval?: PendingApproval;
@@ -48,15 +55,19 @@ export class McpQuestions {
   answer(input: AnswerInput): boolean {
     const waiting = this.#pending.get(input.requestId);
     if (waiting === undefined) return false;
-    if (waiting.question !== undefined && input.answers !== undefined) return this.#settle(input.requestId, { decision: "accept", answers: input.answers });
-    return this.#settle(input.requestId, { decision: input.decision === "accept" && waiting.question !== undefined ? "cancel" : input.decision });
+    if (waiting.question !== undefined && input.answers !== undefined)
+      return this.#settle(input.requestId, { decision: "accept", answers: input.answers });
+    return this.#settle(input.requestId, {
+      decision: input.decision === "accept" && waiting.question !== undefined ? "cancel" : input.decision,
+    });
   }
 
   /** Closes the cards of turns no longer live. */
   dropAbandoned(liveTurns: ReadonlySet<string>): void {
     for (const [requestId, waiting] of this.#pending) {
       const turn = waiting.approval?.turn ?? waiting.question?.turn ?? null;
-      if (turn === null || !liveTurns.has(turn)) this.#settle(requestId, { decision: "cancel", reason: "the turn ended" });
+      if (turn === null || !liveTurns.has(turn))
+        this.#settle(requestId, { decision: "cancel", reason: "the turn ended" });
     }
   }
 
@@ -77,9 +88,25 @@ export class McpQuestions {
           this.#pending.set(
             card.id,
             card.kind === "form" && card.questions !== undefined
-              ? { question: { ...base, question: card.title, options: [], allowFreeText: false, questions: card.questions }, resolve: done }
+              ? {
+                  question: {
+                    ...base,
+                    question: card.title,
+                    options: [],
+                    allowFreeText: false,
+                    questions: card.questions,
+                  },
+                  resolve: done,
+                }
               : {
-                  approval: { ...base, tool: card.server, kind: "mcp-elicitation", title: card.title, summary: card.prompt, ...(card.options === undefined ? {} : { options: card.options }) },
+                  approval: {
+                    ...base,
+                    tool: card.server,
+                    kind: "mcp-elicitation",
+                    title: card.title,
+                    summary: card.prompt,
+                    ...(card.options === undefined ? {} : { options: card.options }),
+                  },
                   resolve: done,
                 },
           );

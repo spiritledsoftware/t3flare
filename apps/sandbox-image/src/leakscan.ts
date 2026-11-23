@@ -99,7 +99,12 @@ process.stdout.write(JSON.stringify({ hits, files, bytes, ms: Date.now() - start
 `;
 
 /** argv for the platform's exec: the image's Node running the scanner on `input`. */
-export const leakScanArgv = (input: LeakScanInput): ReadonlyArray<string> => [IMAGE_NODE, "-e", LEAKSCAN_JS, JSON.stringify(input)];
+export const leakScanArgv = (input: LeakScanInput): ReadonlyArray<string> => [
+  IMAGE_NODE,
+  "-e",
+  LEAKSCAN_JS,
+  JSON.stringify(input),
+];
 
 /**
  * The shortest credential scanned for by its pattern: a shorter one's unsalted hash, beside its prefix and length in the

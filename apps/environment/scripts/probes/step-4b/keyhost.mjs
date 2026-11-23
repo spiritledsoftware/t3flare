@@ -13,7 +13,12 @@ http
     const url = new URL(req.url, "http://computer.internal");
     if (url.pathname === "/t3flare/model-key") {
       grants++;
-      log({ event: "model-key", cli: url.searchParams.get("cli"), nonce: req.headers["x-t3flare-nonce"] ?? null, grants });
+      log({
+        event: "model-key",
+        cli: url.searchParams.get("cli"),
+        nonce: req.headers["x-t3flare-nonce"] ?? null,
+        grants,
+      });
       res.writeHead(KEY === "" ? 403 : 200, { "content-type": "text/plain", "cache-control": "no-store" });
       res.end(KEY);
       return;

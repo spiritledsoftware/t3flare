@@ -77,10 +77,7 @@ describe("secretsOf", () => {
   } as const;
 
   it("takes the Secret values the host named, as far as four characters", () => {
-    expect(secretsOf({ ...target, redact: ["abcdefgh", "abcd", "abc"] })).toEqual([
-      "abcdefgh",
-      "abcd",
-    ]);
+    expect(secretsOf({ ...target, redact: ["abcdefgh", "abcd", "abc"] })).toEqual(["abcdefgh", "abcd"]);
     expect(secretsOf(target)).toEqual([]);
   });
 
@@ -98,23 +95,15 @@ describe("secretsOf", () => {
           accept: "application/json",
         },
       }),
-    ).toEqual([
-      "named-secret",
-      "abcdefgh",
-      btoa("user:pa:ss"),
-      "pa:ss",
-      "one-value",
-      "two-value",
-      "key-0123456789",
-    ]);
+    ).toEqual(["named-secret", "abcdefgh", btoa("user:pa:ss"), "pa:ss", "one-value", "two-value", "key-0123456789"]);
   });
 
   it("finds nothing in a Basic credential that is not base64, or has no password", () => {
     expect(secretsOf({ ...target, headers: { authorization: "Basic !!!not-base64!!!" } })).toEqual([
       "!!!not-base64!!!",
     ]);
-    expect(
-      secretsOf({ ...target, headers: { authorization: `Basic ${btoa("only-a-user")}` } }),
-    ).toEqual([btoa("only-a-user")]);
+    expect(secretsOf({ ...target, headers: { authorization: `Basic ${btoa("only-a-user")}` } })).toEqual([
+      btoa("only-a-user"),
+    ]);
   });
 });

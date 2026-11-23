@@ -24,7 +24,8 @@ export type Cli = "codex" | "pi" | "claude" | "opencode";
 
 export const docker = (args: ReadonlyArray<string>, options: { quiet?: boolean } = {}) => {
   const result = spawnSync("docker", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-  if (result.status !== 0 && options.quiet !== true) throw new Error(`docker ${args.slice(0, 3).join(" ")} failed: ${(result.stderr ?? "").slice(-1500)}`);
+  if (result.status !== 0 && options.quiet !== true)
+    throw new Error(`docker ${args.slice(0, 3).join(" ")} failed: ${(result.stderr ?? "").slice(-1500)}`);
   return result;
 };
 
@@ -37,7 +38,22 @@ export const removeMounted = (dir: string, image: string = IMAGE) => {
   try {
     fs.rmSync(dir, { recursive: true, force: true });
   } catch {
-    docker(["run", "--rm", "--user", "0", "--entrypoint", "sh", "-v", `${dir}:/gone`, image, "-c", "find /gone -mindepth 1 -delete"], { quiet: true });
+    docker(
+      [
+        "run",
+        "--rm",
+        "--user",
+        "0",
+        "--entrypoint",
+        "sh",
+        "-v",
+        `${dir}:/gone`,
+        image,
+        "-c",
+        "find /gone -mindepth 1 -delete",
+      ],
+      { quiet: true },
+    );
     fs.rmSync(dir, { recursive: true, force: true });
   }
 };
@@ -53,12 +69,32 @@ export const readMounted = (file: string, image: string = IMAGE) => {
     return fs.readFileSync(file, "utf8");
   } catch {
     const dir = path.dirname(file);
-    return docker(["run", "--rm", "--user", "0", "--entrypoint", "cat", "-v", `${dir}:/mounted:ro`, image, `/mounted/${path.basename(file)}`]).stdout;
+    return docker([
+      "run",
+      "--rm",
+      "--user",
+      "0",
+      "--entrypoint",
+      "cat",
+      "-v",
+      `${dir}:/mounted:ro`,
+      image,
+      `/mounted/${path.basename(file)}`,
+    ]).stdout;
   }
 };
 
 /** The probe endpoint's one model (no model is called). */
-const PROBE_MODEL: EndpointModel = { id: "claude-haiku-5-5", name: "Probe", reasoning: false, input: ["text"], contextWindow: 200_000, maxTokens: 32_000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, known: false };
+const PROBE_MODEL: EndpointModel = {
+  id: "claude-haiku-5-5",
+  name: "Probe",
+  reasoning: false,
+  input: ["text"],
+  contextWindow: 200_000,
+  maxTokens: 32_000,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  known: false,
+};
 /** Every CLI's relay on one probe Anthropic Messages endpoint (Codex's a Responses one of the same id). */
 const PROBE = { id: "probe", label: "Probe", api: "anthropic-messages" as const, models: [PROBE_MODEL] };
 const PROBE_SLUG = `${PROBE.id}/${PROBE_MODEL.id}`;
@@ -71,7 +107,13 @@ export const launchOf = (input: Omit<LaunchInput, "allowProbe" | "cwd">): Launch
       readStateFile: (file) => (file === EXTENSION ? PI_T3_MCP_EXTENSION_SOURCE : undefined),
       piExtensionSource: PI_T3_MCP_EXTENSION_SOURCE,
       endpoints: [PROBE],
-      claudeRelay: { endpoints: [PROBE.id], models: [PROBE_SLUG], backgroundModel: PROBE_SLUG, opusModel: PROBE_SLUG, sonnetModel: PROBE_SLUG },
+      claudeRelay: {
+        endpoints: [PROBE.id],
+        models: [PROBE_SLUG],
+        backgroundModel: PROBE_SLUG,
+        opusModel: PROBE_SLUG,
+        sonnetModel: PROBE_SLUG,
+      },
       opencodeRelay: { endpoints: [PROBE], model: PROBE_SLUG, smallModel: PROBE_SLUG },
       piRelay: { endpoints: [PROBE], model: PROBE_SLUG },
     },
@@ -82,7 +124,21 @@ export const launchOf = (input: Omit<LaunchInput, "allowProbe" | "cwd">): Launch
 
 /** pi's launch as t3 asks for it. */
 export const piLaunchOf = (key: string): Launch =>
-  launchOf({ cli: "pi", args: ["--mode", "rpc", "--extension", EXTENSION, "--provider", "t3flare-endpoint-probe", "--model", "claude-haiku-5-5"], key, env: { T3_PI_RUNTIME_MODE: "approval-required" } });
+  launchOf({
+    cli: "pi",
+    args: [
+      "--mode",
+      "rpc",
+      "--extension",
+      EXTENSION,
+      "--provider",
+      "t3flare-endpoint-probe",
+      "--model",
+      "claude-haiku-5-5",
+    ],
+    key,
+    env: { T3_PI_RUNTIME_MODE: "approval-required" },
+  });
 
 /** The image built, and the stand-in key host up on its internal network; `stop` removes both containers' network. */
 export const startHarness = (name: string, options: { readonly modelHandle?: string } = {}) => {
@@ -94,15 +150,50 @@ export const startHarness = (name: string, options: { readonly modelHandle?: str
   };
   stop();
   docker([
-    "build", "-q", "-t", IMAGE, "-f", path.join(here, "Dockerfile"),
-    "--build-arg", `CODEX_VERSION=${CLIS.codex.version}`, "--build-arg", `CODEX_SHA256=${CLIS.codex.sha256}`, "--build-arg", `CODEX_SHA256_ARM64=${CLIS.codex.sha256Arm64}`,
-    "--build-arg", `OPENCODE_VERSION=${CLIS.opencode.version}`, "--build-arg", `OPENCODE_SHA256=${CLIS.opencode.sha256}`, "--build-arg", `OPENCODE_SHA256_ARM64=${CLIS.opencode.sha256Arm64}`,
+    "build",
+    "-q",
+    "-t",
+    IMAGE,
+    "-f",
+    path.join(here, "Dockerfile"),
+    "--build-arg",
+    `CODEX_VERSION=${CLIS.codex.version}`,
+    "--build-arg",
+    `CODEX_SHA256=${CLIS.codex.sha256}`,
+    "--build-arg",
+    `CODEX_SHA256_ARM64=${CLIS.codex.sha256Arm64}`,
+    "--build-arg",
+    `OPENCODE_VERSION=${CLIS.opencode.version}`,
+    "--build-arg",
+    `OPENCODE_SHA256=${CLIS.opencode.sha256}`,
+    "--build-arg",
+    `OPENCODE_SHA256_ARM64=${CLIS.opencode.sha256Arm64}`,
     imageContext,
   ]);
   docker(["network", "create", "--internal", network]);
   // The stand-in `computer.internal`: NXDOMAIN for every name; with `modelHandle`, a stand-in model relay (SPI-1168).
-  docker(["run", "-d", "--name", keyhost, "--network", network, "--network-alias", "computer.internal", ...(options.modelHandle === undefined ? [] : ["-e", `KEYHOST_MODEL_HANDLE=${options.modelHandle}`]), "-v", `${here}:/k:ro`, "node:26.13.0-bookworm-slim", "node", "/k/keyhost.mjs"]);
-  const keyhostIp = docker(["inspect", "-f", `{{(index .NetworkSettings.Networks "${network}").IPAddress}}`, keyhost]).stdout.trim();
+  docker([
+    "run",
+    "-d",
+    "--name",
+    keyhost,
+    "--network",
+    network,
+    "--network-alias",
+    "computer.internal",
+    ...(options.modelHandle === undefined ? [] : ["-e", `KEYHOST_MODEL_HANDLE=${options.modelHandle}`]),
+    "-v",
+    `${here}:/k:ro`,
+    "node:26.13.0-bookworm-slim",
+    "node",
+    "/k/keyhost.mjs",
+  ]);
+  const keyhostIp = docker([
+    "inspect",
+    "-f",
+    `{{(index .NetworkSettings.Networks "${network}").IPAddress}}`,
+    keyhost,
+  ]).stdout.trim();
   return { network, keyhostIp, stop };
 };
 
@@ -139,16 +230,34 @@ export const runCommand = (input: RunInput): Array<string> => {
     ...(input.launch.links ? { links: input.launch.links } : {}),
   });
   return [
-    "docker", "run", "--rm", "-i", "--name", `${input.name}-${input.marker}`, "--network", input.harness.network, "--dns", input.harness.keyhostIp,
-    "-v", `${input.workspace}:/workspace`, ...(input.dockerArgs ?? []),
+    "docker",
+    "run",
+    "--rm",
+    "-i",
+    "--name",
+    `${input.name}-${input.marker}`,
+    "--network",
+    input.harness.network,
+    "--dns",
+    input.harness.keyhostIp,
+    "-v",
+    `${input.workspace}:/workspace`,
+    ...(input.dockerArgs ?? []),
     ...Object.entries(env).flatMap(([name, value]) => ["-e", `${name}=${value}`]),
-    IMAGE, PROCESS_SHELL, "-c", `${input.setup ?? ""}\n${command}`,
+    IMAGE,
+    PROCESS_SHELL,
+    "-c",
+    `${input.setup ?? ""}\n${command}`,
   ];
 };
 
 /** Runs a JSON-RPC driver (`codex-rpc.mjs`, `pi-rpc.mjs`, `acp-rpc.mjs`) over `command`; its summary, or why it failed. */
 export const drive = (driver: string, scenario: unknown, command: ReadonlyArray<string>): any => {
-  const result = spawnSync("node", [path.join(here, driver), JSON.stringify(scenario), "--", ...command], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, timeout: 300_000 });
+  const result = spawnSync("node", [path.join(here, driver), JSON.stringify(scenario), "--", ...command], {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+    timeout: 300_000,
+  });
   const line = (result.stdout ?? "").trim().split("\n").at(-1) ?? "";
   try {
     return JSON.parse(line);
@@ -158,7 +267,9 @@ export const drive = (driver: string, scenario: unknown, command: ReadonlyArray<
 };
 
 /** OpenCode's Skills for the fixture's cwd from its own server's `GET /api/skill` (it lists none over ACP), with the profile's environment and system configuration. */
-export const openCodeServedSkills = (input: Omit<RunInput, "argv">): { readonly skills: ReadonlyArray<any>; readonly raw: unknown } => {
+export const openCodeServedSkills = (
+  input: Omit<RunInput, "argv">,
+): { readonly skills: ReadonlyArray<any>; readonly raw: unknown } => {
   const home = `/var/lib/t3flare/cli/${input.marker}`;
   const script = [
     "set -eu",
@@ -170,7 +281,11 @@ export const openCodeServedSkills = (input: Omit<RunInput, "argv">): { readonly 
     "sleep 5",
     `curl -fsS -u opencode:probe -G --data-urlencode 'location[directory]=${T3_PATH}' http://127.0.0.1:4096/api/skill`,
   ].join("\n");
-  const [binary, ...args] = runCommand({ ...input, files: [...(input.files ?? []), { path: `${home}/serve.sh`, text: script, mode: 0o700 }], argv: ["/bin/bash", `${home}/serve.sh`] });
+  const [binary, ...args] = runCommand({
+    ...input,
+    files: [...(input.files ?? []), { path: `${home}/serve.sh`, text: script, mode: 0o700 }],
+    argv: ["/bin/bash", `${home}/serve.sh`],
+  });
   const serve = spawnSync(binary!, args, { encoding: "utf8", maxBuffer: 16 * 1024 * 1024, timeout: 180_000 });
   let served: any;
   try {
@@ -179,5 +294,12 @@ export const openCodeServedSkills = (input: Omit<RunInput, "argv">): { readonly 
     served = undefined;
   }
   const skills: ReadonlyArray<any> = Array.isArray(served) ? served : (served?.data ?? served?.value ?? []);
-  return { skills, raw: { status: serve.status, stdout: skills.length > 0 ? undefined : String(serve.stdout).slice(0, 1500), stderr: String(serve.stderr ?? "").slice(-1200) } };
+  return {
+    skills,
+    raw: {
+      status: serve.status,
+      stdout: skills.length > 0 ? undefined : String(serve.stdout).slice(0, 1500),
+      stderr: String(serve.stderr ?? "").slice(-1200),
+    },
+  };
 };

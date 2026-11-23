@@ -19,7 +19,19 @@ const ENDPOINTS: ModelEndpoints = {
       baseUrl: "https://api.openai.com/v1",
       auth: "api-key",
       headers: { "OpenAI-Organization": "org-1" },
-      models: [{ id: "gpt-5-mini", name: "GPT-5 Mini", reasoning: true, input: ["text", "image"], contextWindow: 400_000, maxTokens: 128_000, cost: COST, known: true, thinkingLevelMap: { off: null } }],
+      models: [
+        {
+          id: "gpt-5-mini",
+          name: "GPT-5 Mini",
+          reasoning: true,
+          input: ["text", "image"],
+          contextWindow: 400_000,
+          maxTokens: 128_000,
+          cost: COST,
+          known: true,
+          thinkingLevelMap: { off: null },
+        },
+      ],
     },
     {
       id: "commissary",
@@ -28,9 +40,28 @@ const ENDPOINTS: ModelEndpoints = {
       baseUrl: "https://proxy.example",
       auth: "api-key",
       headers: {},
-      models: [{ id: "claude-haiku-5-5", name: "Claude Haiku 5.5", reasoning: true, input: ["text"], contextWindow: 200_000, maxTokens: 64_000, cost: COST, known: true }],
+      models: [
+        {
+          id: "claude-haiku-5-5",
+          name: "Claude Haiku 5.5",
+          reasoning: true,
+          input: ["text"],
+          contextWindow: 200_000,
+          maxTokens: 64_000,
+          cost: COST,
+          known: true,
+        },
+      ],
     },
-    { id: "local", label: "Local", api: "openai-completions", baseUrl: "https://llm.example/v1", auth: "none", headers: {}, models: [] },
+    {
+      id: "local",
+      label: "Local",
+      api: "openai-completions",
+      baseUrl: "https://llm.example/v1",
+      auth: "none",
+      headers: {},
+      models: [],
+    },
   ],
 };
 
@@ -57,7 +88,10 @@ describe("endpointProviders", () => {
       cost: COST,
       thinkingLevelMap: { off: null },
     });
-    expect(models.getModel("commissary", "claude-haiku-5-5")).toMatchObject({ api: "anthropic-messages", baseUrl: "https://proxy.example" });
+    expect(models.getModel("commissary", "claude-haiku-5-5")).toMatchObject({
+      api: "anthropic-messages",
+      baseUrl: "https://proxy.example",
+    });
   });
 
   it("resolves each endpoint's key at use time, from the credential source", async () => {
@@ -67,7 +101,10 @@ describe("endpointProviders", () => {
       return { apiKey: `key-of-${id}` };
     });
     expect(asked).toEqual([]);
-    expect((await models.getAuth("openai"))?.auth).toMatchObject({ apiKey: "key-of-openai", baseUrl: "https://api.openai.com/v1" });
+    expect((await models.getAuth("openai"))?.auth).toMatchObject({
+      apiKey: "key-of-openai",
+      baseUrl: "https://api.openai.com/v1",
+    });
     expect((await models.getAuth("commissary"))?.auth.apiKey).toBe("key-of-commissary");
     expect((await models.getAuth("local"))?.auth.apiKey).toBe(NO_KEY);
     expect(asked).toEqual(["openai", "commissary"]);
@@ -84,7 +121,11 @@ describe("endpointProviders", () => {
   });
 
   // On the wire: pi-ai reads no provider-level headers, so the endpoint's go out as the resolved auth's headers.
-  for (const api of ["openai-completions", "openai-responses", "anthropic-messages"] as const satisfies ReadonlyArray<EndpointApi>) {
+  for (const api of [
+    "openai-completions",
+    "openai-responses",
+    "anthropic-messages",
+  ] as const satisfies ReadonlyArray<EndpointApi>) {
     for (const auth of ["api-key", "none"] as const satisfies ReadonlyArray<EndpointAuth>) {
       it(`sends the endpoint's headers with each ${api} request (${auth})`, async () => {
         const sent: Array<Record<string, string>> = [];
@@ -95,11 +136,35 @@ describe("endpointProviders", () => {
         }) as typeof globalThis.fetch;
         const endpoints: ModelEndpoints = {
           revision: 1,
-          endpoints: [{ id: "gw", label: "GW", api, baseUrl: "https://gw.example/v1", auth, headers: { "X-Org": "acme", "Helicone-Target-Url": "https://upstream.example" }, models: [{ id: "m1", name: "m", reasoning: false, input: ["text"], contextWindow: 100_000, maxTokens: 1_000, cost: COST, known: false }] }],
+          endpoints: [
+            {
+              id: "gw",
+              label: "GW",
+              api,
+              baseUrl: "https://gw.example/v1",
+              auth,
+              headers: { "X-Org": "acme", "Helicone-Target-Url": "https://upstream.example" },
+              models: [
+                {
+                  id: "m1",
+                  name: "m",
+                  reasoning: false,
+                  input: ["text"],
+                  contextWindow: 100_000,
+                  maxTokens: 1_000,
+                  cost: COST,
+                  known: false,
+                },
+              ],
+            },
+          ],
         };
         const models = createModels();
-        for (const provider of endpointProviders(endpoints, { credential: async () => ({ apiKey: "sk-wire" }), fetch })) models.setProvider(provider);
-        await models.completeSimple(models.getModel("gw", "m1")!, { messages: [{ role: "user", content: "hi", timestamp: 0 }] });
+        for (const provider of endpointProviders(endpoints, { credential: async () => ({ apiKey: "sk-wire" }), fetch }))
+          models.setProvider(provider);
+        await models.completeSimple(models.getModel("gw", "m1")!, {
+          messages: [{ role: "user", content: "hi", timestamp: 0 }],
+        });
         expect(sent.length).toBeGreaterThan(0);
         expect(sent[0]).toMatchObject({ "x-org": "acme", "helicone-target-url": "https://upstream.example" });
         expect(sent[0]?.url?.startsWith("https://gw.example/v1")).toBe(true);

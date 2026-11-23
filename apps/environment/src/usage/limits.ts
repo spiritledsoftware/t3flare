@@ -58,7 +58,14 @@ export const resetLimitStoreForTests = (): void => {
   ready = new WeakSet();
 };
 
-type Row = { endpoint: string; window: string; at: number; used_percent: number; resets_at: number | null; window_minutes: number | null };
+type Row = {
+  endpoint: string;
+  window: string;
+  at: number;
+  used_percent: number;
+  resets_at: number | null;
+  window_minutes: number | null;
+};
 
 export const limitStore = (sql: SqlStorage): LimitStore => {
   const listeners = new Set<() => void>();
@@ -74,7 +81,8 @@ export const limitStore = (sql: SqlStorage): LimitStore => {
   return {
     record(input, endpoints, now) {
       ensure(sql);
-      const raw = typeof input === "object" && input !== null ? (input as { readonly readings?: unknown }).readings : undefined;
+      const raw =
+        typeof input === "object" && input !== null ? (input as { readonly readings?: unknown }).readings : undefined;
       const current = new Set(endpoints.endpoints.map((endpoint) => endpoint.id));
       let kept = 0;
       for (const value of Array.isArray(raw) ? raw.slice(0, MAX_LIMIT_READINGS) : []) {
@@ -82,19 +90,21 @@ export const limitStore = (sql: SqlStorage): LimitStore => {
         if (reading === undefined || !current.has(reading.endpointId) || reading.at > now + FUTURE_SLACK_MS) continue;
         for (const window of reading.windows) {
           // Only a later answer's reading replaces a window: the send that arrives last may carry the older answer.
-          const changed = sql.exec(
-            `INSERT INTO t3flare_limit_windows (endpoint, window, at, used_percent, resets_at, window_minutes) VALUES (?, ?, ?, ?, ?, ?)
+          const changed = sql
+            .exec(
+              `INSERT INTO t3flare_limit_windows (endpoint, window, at, used_percent, resets_at, window_minutes) VALUES (?, ?, ?, ?, ?, ?)
              ON CONFLICT (endpoint, window) DO UPDATE SET at = excluded.at, used_percent = excluded.used_percent, resets_at = excluded.resets_at,
                window_minutes = excluded.window_minutes
              WHERE excluded.at > t3flare_limit_windows.at
              RETURNING endpoint`,
-            reading.endpointId,
-            window.id,
-            reading.at,
-            window.usedPercent,
-            window.resetsAt ?? null,
-            window.windowMinutes ?? null,
-          ).toArray();
+              reading.endpointId,
+              window.id,
+              reading.at,
+              window.usedPercent,
+              window.resetsAt ?? null,
+              window.windowMinutes ?? null,
+            )
+            .toArray();
           if (changed.length > 0) kept += 1;
         }
       }
@@ -103,12 +113,18 @@ export const limitStore = (sql: SqlStorage): LimitStore => {
     },
     forget(endpointId) {
       ensure(sql);
-      if (sql.exec("DELETE FROM t3flare_limit_windows WHERE endpoint = ? RETURNING endpoint", endpointId).toArray().length > 0) tell();
+      if (
+        sql.exec("DELETE FROM t3flare_limit_windows WHERE endpoint = ? RETURNING endpoint", endpointId).toArray()
+          .length > 0
+      )
+        tell();
     },
     read() {
       ensure(sql);
       return sql
-        .exec<Row>("SELECT endpoint, window, at, used_percent, resets_at, window_minutes FROM t3flare_limit_windows ORDER BY endpoint, window")
+        .exec<Row>(
+          "SELECT endpoint, window, at, used_percent, resets_at, window_minutes FROM t3flare_limit_windows ORDER BY endpoint, window",
+        )
         .toArray()
         .flatMap((row): ReadonlyArray<StoredWindow> => {
           const id = LIMIT_WINDOW_IDS.find((known) => known === row.window);
@@ -136,7 +152,13 @@ export const limitStore = (sql: SqlStorage): LimitStore => {
  * What the Environment DO wires to the store (`EnvironmentDO.recordLimits` and the Settings page's endpoint removal): a
  * reading checked against the endpoints stored now, and a removed endpoint forgotten.
  */
-export const limitWiring = (deps: { readonly store: () => LimitStore; readonly endpoints: () => ModelEndpoints; readonly now: () => number }) => ({
-  record: (input: unknown): { readonly kept: number } => ({ kept: deps.store().record(input, deps.endpoints(), deps.now()) }),
+export const limitWiring = (deps: {
+  readonly store: () => LimitStore;
+  readonly endpoints: () => ModelEndpoints;
+  readonly now: () => number;
+}) => ({
+  record: (input: unknown): { readonly kept: number } => ({
+    kept: deps.store().record(input, deps.endpoints(), deps.now()),
+  }),
   removed: (endpointId: string): void => deps.store().forget(endpointId),
 });

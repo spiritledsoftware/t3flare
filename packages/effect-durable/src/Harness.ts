@@ -17,13 +17,13 @@ import * as Schema from "effect/Schema";
 import { ChordContext } from "./chord.ts";
 
 /** A pi-durable call failed. */
-export class HarnessError extends Schema.TaggedError<
-  HarnessError,
-  { readonly brand: unique symbol }
->()("HarnessError", {
-  operation: Schema.String,
-  message: Schema.String,
-}) {}
+export class HarnessError extends Schema.TaggedError<HarnessError, { readonly brand: unique symbol }>()(
+  "HarnessError",
+  {
+    operation: Schema.String,
+    message: Schema.String,
+  },
+) {}
 
 /**
  * Call pi-durable Promise code `run` from a fiber, as `operation`. `run` gets the fiber's `ChordContext`, cancelled
@@ -59,9 +59,7 @@ export type HarnessService = {
 };
 
 /** The open pi-durable Harness of this Durable Object. */
-export class Harness extends Context.Service<Harness, HarnessService>()(
-  "@t3flare/effect-durable/Harness",
-) {}
+export class Harness extends Context.Service<Harness, HarnessService>()("@t3flare/effect-durable/Harness") {}
 
 /**
  * Open a Harness on `storage` with an empty registry of its own; install extensions with `install` before `resume`, so
@@ -74,9 +72,7 @@ export const openHarness = (
   Effect.gen(function* () {
     const registry = createRegistry();
 
-    const harness = yield* callDurable("open", (context) =>
-      PiHarness.open(storage, { ...options, registry }, context),
-    );
+    const harness = yield* callDurable("open", (context) => PiHarness.open(storage, { ...options, registry }, context));
 
     return {
       harness,

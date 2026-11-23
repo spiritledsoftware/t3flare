@@ -16,10 +16,32 @@ import { layerSeedTextGenerationModel, syncTextGenerationDefault } from "../src/
 import { endpointsChanged } from "../src/endpoints/changes.ts";
 
 const PI = ProviderInstanceId.make("piDurable");
-const model = (id: string): EndpointModel => ({ id, name: id, reasoning: false, input: ["text"], contextWindow: 1, maxTokens: 1, cost: { input: 0, output: 1, cacheRead: 0, cacheWrite: 0 }, known: true });
+const model = (id: string): EndpointModel => ({
+  id,
+  name: id,
+  reasoning: false,
+  input: ["text"],
+  contextWindow: 1,
+  maxTokens: 1,
+  cost: { input: 0, output: 1, cacheRead: 0, cacheWrite: 0 },
+  known: true,
+});
 const withModels = (...ids: ReadonlyArray<string>): ModelEndpoints => ({
   revision: 1,
-  endpoints: ids.length === 0 ? [] : [{ id: "openai", label: "OpenAI", api: "openai-responses", baseUrl: "https://api.openai.com/v1", auth: "api-key", headers: {}, models: ids.map(model) }],
+  endpoints:
+    ids.length === 0
+      ? []
+      : [
+          {
+            id: "openai",
+            label: "OpenAI",
+            api: "openai-responses",
+            baseUrl: "https://api.openai.com/v1",
+            auth: "api-key",
+            headers: {},
+            models: ids.map(model),
+          },
+        ],
 });
 
 /** The Environment as the sync sees it: its endpoints now, and the model it last wrote. */
@@ -39,12 +61,17 @@ const registry = Layer.succeed(ProviderInstanceRegistry.ProviderInstanceRegistry
 } as unknown as ProviderInstanceRegistry.ProviderInstanceRegistry["Service"]);
 
 /** The Pi Durable instance as the Environment configures it, so t3's settings read keeps a selection of it. */
-const INSTANCES = { providerInstances: { [PI]: { driver: "piDurable", config: {} } } } as Parameters<typeof ServerSettings.layerTest>[0];
+const INSTANCES = { providerInstances: { [PI]: { driver: "piDurable", config: {} } } } as Parameters<
+  typeof ServerSettings.layerTest
+>[0];
 
 type Settings = ServerSettings.ServerSettingsService["Service"];
 
 /** Runs the sync once per step over one settings service (each step first changes what it will), then reads the setting. */
-const settingsAfter = (overrides: Parameters<typeof ServerSettings.layerTest>[0], steps: ReadonlyArray<(settings: Settings) => Effect.Effect<unknown, ServerSettingsError> | void>) =>
+const settingsAfter = (
+  overrides: Parameters<typeof ServerSettings.layerTest>[0],
+  steps: ReadonlyArray<(settings: Settings) => Effect.Effect<unknown, ServerSettingsError> | void>,
+) =>
   Effect.runPromise(
     Effect.gen(function* () {
       const service = yield* ServerSettings.ServerSettingsService;
@@ -74,7 +101,10 @@ describe("the text-generation setting's default", () => {
     try {
       const { selection } = await settingsAfter({}, [() => undefined]);
       expect(selection).toMatchObject({ instanceId: PI, model: "openai/gpt-5-mini" });
-      const picked = await settingsAfter({ textGenerationModelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" } }, [() => undefined]);
+      const picked = await settingsAfter(
+        { textGenerationModelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" } },
+        [() => undefined],
+      );
       expect(picked.selection).toMatchObject({ instanceId: "codex", model: "gpt-5.4" });
     } finally {
       registered = [PI];
@@ -103,7 +133,8 @@ describe("the text-generation setting's default", () => {
     const state = environment(withModels("gpt-5-mini", "gpt-5.4"));
     const { seen } = await settingsAfter({}, [
       () => undefined,
-      (settings) => settings.updateSettings({ textGenerationModelSelection: { instanceId: PI, model: "openai/gpt-5.4" } }),
+      (settings) =>
+        settings.updateSettings({ textGenerationModelSelection: { instanceId: PI, model: "openai/gpt-5.4" } }),
       () => void (state.endpoints = withModels("gpt-5-nano", "gpt-5.4")),
     ]);
     expect(seen).toEqual(["openai/gpt-5-mini", "openai/gpt-5.4", "openai/gpt-5.4"]);
@@ -120,7 +151,11 @@ describe("the text-generation setting's default", () => {
 const withSettings = <E>(
   overrides: Parameters<typeof ServerSettings.layerTest>[0],
   decorate: (settings: Settings) => Settings,
-  body: Effect.Effect<unknown, E, ServerSettings.ServerSettingsService | ProviderInstanceRegistry.ProviderInstanceRegistry>,
+  body: Effect.Effect<
+    unknown,
+    E,
+    ServerSettings.ServerSettingsService | ProviderInstanceRegistry.ProviderInstanceRegistry
+  >,
 ) =>
   Effect.runPromise(
     Effect.gen(function* () {
@@ -134,7 +169,10 @@ describe("what counts as unset, clause by clause", () => {
   it("an instance this Environment does not have, though it is not t3's default", async () => {
     environment(withModels("gpt-5-mini"));
     const { selection } = await settingsAfter(
-      { providerInstances: { [PI]: { driver: "piDurable", config: {} }, ghost: { driver: "ghost", config: {} } }, textGenerationModelSelection: { instanceId: ProviderInstanceId.make("ghost"), model: "ghost-1" } } as Parameters<typeof ServerSettings.layerTest>[0],
+      {
+        providerInstances: { [PI]: { driver: "piDurable", config: {} }, ghost: { driver: "ghost", config: {} } },
+        textGenerationModelSelection: { instanceId: ProviderInstanceId.make("ghost"), model: "ghost-1" },
+      } as Parameters<typeof ServerSettings.layerTest>[0],
       [nothing],
     );
     expect(selection).toMatchObject({ instanceId: PI, model: "openai/gpt-5-mini" });
@@ -143,7 +181,9 @@ describe("what counts as unset, clause by clause", () => {
   it("`default` on Pi Durable, though the record names another model", async () => {
     const state = environment(withModels("gpt-5-mini"));
     state.seeded = "openai/gpt-4o-mini";
-    const { selection } = await settingsAfter({ textGenerationModelSelection: { instanceId: PI, model: "default" } }, [nothing]);
+    const { selection } = await settingsAfter({ textGenerationModelSelection: { instanceId: PI, model: "default" } }, [
+      nothing,
+    ]);
     expect(selection).toMatchObject({ instanceId: PI, model: "openai/gpt-5-mini" });
   });
 });
@@ -151,7 +191,10 @@ describe("what counts as unset, clause by clause", () => {
 describe("the sync's record and its order", () => {
   it("records the default only once the setting holds it", async () => {
     const state = environment(withModels("gpt-5-mini"));
-    const failing = (settings: Settings): Settings => ({ ...settings, updateSettings: () => Effect.fail(new Error("write failed") as never) });
+    const failing = (settings: Settings): Settings => ({
+      ...settings,
+      updateSettings: () => Effect.fail(new Error("write failed") as never),
+    });
     const selection = await withSettings({}, failing, syncTextGenerationDefault);
     expect(selection.model).not.toBe("openai/gpt-5-mini");
     expect(state.seeded).toBeUndefined();
@@ -173,7 +216,8 @@ describe("the sync's record and its order", () => {
     let writes = 0;
     const slow = (settings: Settings): Settings => ({
       ...settings,
-      updateSettings: (patch) => Effect.sleep(writes++ === 0 ? 30 : 1).pipe(Effect.andThen(settings.updateSettings(patch))),
+      updateSettings: (patch) =>
+        Effect.sleep(writes++ === 0 ? 30 : 1).pipe(Effect.andThen(settings.updateSettings(patch))),
     });
     const selection = await withSettings(
       { textGenerationModelSelection: { instanceId: PI, model: "openai/gpt-5-mini" } },
@@ -194,7 +238,12 @@ describe("the sync's record and its order", () => {
           expect((yield* service.getSettings).textGenerationModelSelection.model).toBe("openai/gpt-5-mini");
           state.endpoints = withModels("gpt-5-nano");
           endpointsChanged();
-          for (let tries = 0; tries < 50 && (yield* service.getSettings).textGenerationModelSelection.model !== "openai/gpt-5-nano"; tries++) yield* Effect.sleep(5);
+          for (
+            let tries = 0;
+            tries < 50 && (yield* service.getSettings).textGenerationModelSelection.model !== "openai/gpt-5-nano";
+            tries++
+          )
+            yield* Effect.sleep(5);
           return (yield* service.getSettings).textGenerationModelSelection;
         }),
       ).pipe(Effect.provide(Layer.merge(ServerSettings.layerTest({ ...INSTANCES }), registry))),
@@ -209,9 +258,17 @@ describe("the sync's record and its order", () => {
         const inner = yield* ServerSettings.ServerSettingsService;
         // After the boot's sync, every settings read hangs (a stuck storage read).
         let reads = 0;
-        const hanging: Settings = { ...inner, getSettings: Effect.suspend(() => (reads++ < 1 ? inner.getSettings : Effect.never)) };
+        const hanging: Settings = {
+          ...inner,
+          getSettings: Effect.suspend(() => (reads++ < 1 ? inner.getSettings : Effect.never)),
+        };
         const scope = yield* Scope.make();
-        yield* Layer.buildWithScope(layerSeedTextGenerationModel.pipe(Layer.provide(Layer.succeed(ServerSettings.ServerSettingsService, hanging))), scope);
+        yield* Layer.buildWithScope(
+          layerSeedTextGenerationModel.pipe(
+            Layer.provide(Layer.succeed(ServerSettings.ServerSettingsService, hanging)),
+          ),
+          scope,
+        );
         state.endpoints = withModels("gpt-5-nano");
         endpointsChanged();
         yield* Effect.sleep(20);

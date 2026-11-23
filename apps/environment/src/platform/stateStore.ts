@@ -389,7 +389,11 @@ export const remove = (
     const children = db().exec(`SELECT 1 FROM t3flare_files WHERE parent = ? LIMIT 1`, path).toArray();
     if (children.length > 0 && !options.recursive) throw new FsError("ENOTEMPTY", "rmdir", path);
     transactionSync(() => {
-      db().exec(`DELETE FROM t3flare_file_chunks WHERE path = ? OR (path > ? AND path < ?)`, path, ...descendants(path));
+      db().exec(
+        `DELETE FROM t3flare_file_chunks WHERE path = ? OR (path > ? AND path < ?)`,
+        path,
+        ...descendants(path),
+      );
       db().exec(`DELETE FROM t3flare_files WHERE path = ? OR (path > ? AND path < ?)`, path, ...descendants(path));
     });
     return;

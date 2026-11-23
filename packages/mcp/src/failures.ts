@@ -144,9 +144,7 @@ const decodeErrorBody = Schema.decodeUnknownOption(
       error: Schema.Struct({
         code: Schema.Int,
         message: Schema.String,
-        data: Schema.optionalKey(
-          Schema.Struct({ supported: Schema.optionalKey(Schema.String.pipe(Schema.Array)) }),
-        ),
+        data: Schema.optionalKey(Schema.Struct({ supported: Schema.optionalKey(Schema.String.pipe(Schema.Array)) })),
       }),
     }),
   ),
@@ -169,9 +167,7 @@ const causes = (cause: unknown) => {
 
 const fromStatus = (status: number, message: string, request: FailedRequest): McpError => {
   if (status === 401) {
-    const message = request.tokenSent
-      ? "The server refused the access token"
-      : "The server requires signing in";
+    const message = request.tokenSent ? "The server refused the access token" : "The server requires signing in";
 
     return signInRequired(message, request.tokenSent, request.challenge);
   }
@@ -220,8 +216,7 @@ const taskNeeded = (
   request.tasksDeclared !== true &&
   Option.exists(
     required,
-    ({ requiredCapabilities }) =>
-      requiredCapabilities.extensions?.[MCP_TASKS_EXTENSION] !== undefined,
+    ({ requiredCapabilities }) => requiredCapabilities.extensions?.[MCP_TASKS_EXTENSION] !== undefined,
   )
     ? ServerError.make({
         message: `${request.serverName ?? "The server"} needs to run this as an MCP task, which t3flare couldn't offer here: ${message}`,

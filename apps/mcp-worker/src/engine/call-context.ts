@@ -92,10 +92,7 @@ const notifier = (opened: NonNullable<McpEngineHooks["opened"]>) => () => {
  * milliseconds.
  */
 // @effect-diagnostics-next-line missingPipeableSignature:off -- a hook of two values, not a combinator.
-export const progressTo = (
-  onProgress: NonNullable<McpEngineHooks["onProgress"]>,
-  now: () => number,
-) => {
+export const progressTo = (onProgress: NonNullable<McpEngineHooks["onProgress"]>, now: () => number) => {
   const gap = 1000 / MCP_PROGRESS_PER_SECOND;
   let last = Number.NEGATIVE_INFINITY;
 
@@ -115,19 +112,18 @@ export const progressTo = (
 };
 
 /** The host's `auth` hook as the core's, remembering each token it gives. */
-const authFrom =
-  (auth: NonNullable<McpEngineHooks["auth"]>, tokens: Set<string>) => (stale: boolean) =>
-    Effect.tryPromise(() => auth(stale)).pipe(
-      Effect.tap((token) =>
-        Effect.sync(() => {
-          if (token !== undefined) {
-            tokens.add(token);
-          }
-        }),
-      ),
-      // A host that cannot answer gives no token, so the server asks for a sign-in as it would without one.
-      Effect.orElseSucceed(() => undefined),
-    );
+const authFrom = (auth: NonNullable<McpEngineHooks["auth"]>, tokens: Set<string>) => (stale: boolean) =>
+  Effect.tryPromise(() => auth(stale)).pipe(
+    Effect.tap((token) =>
+      Effect.sync(() => {
+        if (token !== undefined) {
+          tokens.add(token);
+        }
+      }),
+    ),
+    // A host that cannot answer gives no token, so the server asks for a sign-in as it would without one.
+    Effect.orElseSucceed(() => undefined),
+  );
 
 /** What the server gets of a question the caller cannot take: the question is cancelled, and it may ask again. */
 const CANCELLED: McpInputAnswer = { kind: "answered", result: { action: "cancel" } };
@@ -159,24 +155,22 @@ const inputFrom =
     );
 
 /** A host's notice of question `key` (`onInputEnded`, `onInputComplete`) as the core's: one that is lost fails nothing. */
-const noticeFrom =
-  (notice: NonNullable<McpEngineHooks["onInputEnded" | "onInputComplete"]>) => (key: string) => {
-    try {
-      void Promise.resolve(notice(key)).catch(() => undefined);
-    } catch {
-      // A stub whose caller is gone may throw at once: the notice is dropped.
-    }
-  };
+const noticeFrom = (notice: NonNullable<McpEngineHooks["onInputEnded" | "onInputComplete"]>) => (key: string) => {
+  try {
+    void Promise.resolve(notice(key)).catch(() => undefined);
+  } catch {
+    // A stub whose caller is gone may throw at once: the notice is dropped.
+  }
+};
 
 /** The host's `onDeprecated` hook as the core's: a note that is lost fails nothing. */
-const deprecatedFrom =
-  (noted: NonNullable<McpEngineHooks["onDeprecated"]>) => (feature: string) => {
-    try {
-      void Promise.resolve(noted(feature)).catch(() => undefined);
-    } catch {
-      // A stub whose caller is gone may throw at once: the note is dropped.
-    }
-  };
+const deprecatedFrom = (noted: NonNullable<McpEngineHooks["onDeprecated"]>) => (feature: string) => {
+  try {
+    void Promise.resolve(noted(feature)).catch(() => undefined);
+  } catch {
+    // A stub whose caller is gone may throw at once: the note is dropped.
+  }
+};
 
 /** Opens one call's context: its rows, its lease on the byte budget and its deps. */
 export const openCall = Effect.fn("mcp.engine.openCall")(function* (
@@ -198,8 +192,7 @@ export const openCall = Effect.fn("mcp.engine.openCall")(function* (
 
   // The core hands `fetch` a URL (or a `Request`, whose URL is all that is read) and an `init` that carries the method,
   // headers, body and signal: a bridge's `fetch` builds its own request from them.
-  const routed: typeof globalThis.fetch = (input, init) =>
-    route(input instanceof Request ? input.url : input, init);
+  const routed: typeof globalThis.fetch = (input, init) => route(input instanceof Request ? input.url : input, init);
 
   const logs = callLogs({
     now: () => Effect.runSyncWith(context)(Clock.currentTimeMillis),
@@ -207,14 +200,9 @@ export const openCall = Effect.fn("mcp.engine.openCall")(function* (
   });
 
   const base = {
-    fetch: meteredFetch(
-      routed,
-      lease,
-      hooks.opened === undefined ? undefined : notifier(hooks.opened),
-      (read) => {
-        bytes += read;
-      },
-    ),
+    fetch: meteredFetch(routed, lease, hooks.opened === undefined ? undefined : notifier(hooks.opened), (read) => {
+      bytes += read;
+    }),
     eras: eras.store,
     sessions: sessions.store,
     // Roots are offered on a bridge connection only (`routeVia`). A Legacy connection declares an elicitation's form and
@@ -230,8 +218,7 @@ export const openCall = Effect.fn("mcp.engine.openCall")(function* (
         : ctx.answers?.elicitation === true && hooks.onInput !== undefined
           ? {
               elicitation:
-                (ctx.answers.defer === true && ctx.answers.pages === true) ||
-                ctx.answers.livePages === true
+                (ctx.answers.defer === true && ctx.answers.pages === true) || ctx.answers.livePages === true
                   ? { form: {}, url: {} }
                   : { form: {} },
             }

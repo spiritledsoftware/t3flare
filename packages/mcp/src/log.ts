@@ -46,5 +46,4 @@ const RANK: Readonly<Record<string, number>> = Record.fromEntries(
 );
 
 /** Whether `level` is `warning` or above: what becomes a span event. A level this build does not know counts as one. */
-export const isWarningOrAbove = (level: string): boolean =>
-  (RANK[level] ?? Infinity) >= (RANK[MCP_LOG_LEVEL] ?? 0);
+export const isWarningOrAbove = (level: string): boolean => (RANK[level] ?? Infinity) >= (RANK[MCP_LOG_LEVEL] ?? 0);

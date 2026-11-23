@@ -31,7 +31,11 @@ export const skillSetStore = (storage: SkillSetStorage) => {
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
   let held: { readonly hash: string; readonly listing: ReadonlyArray<Skill> } | undefined;
-  const current = () => (held ??= { hash: storage.kv.get<string>(HASH_KEY) ?? EMPTY_SKILL_SET_HASH, listing: storage.kv.get<ReadonlyArray<Skill>>(LISTING_KEY) ?? [] });
+  const current = () =>
+    (held ??= {
+      hash: storage.kv.get<string>(HASH_KEY) ?? EMPTY_SKILL_SET_HASH,
+      listing: storage.kv.get<ReadonlyArray<Skill>>(LISTING_KEY) ?? [],
+    });
   return {
     hash: (): string => current().hash,
     /** The Skills the held set declares, at `SKILLS_MOUNT`. */
@@ -39,7 +43,8 @@ export const skillSetStore = (storage: SkillSetStorage) => {
     /** The held set's files, read from storage now (never kept in memory). */
     files: (): Record<string, string> => {
       const files: Record<string, string> = {};
-      for (const [key, content] of storage.kv.list<Uint8Array>({ prefix: FILE_PREFIX })) files[key.slice(FILE_PREFIX.length)] = decoder.decode(content);
+      for (const [key, content] of storage.kv.list<Uint8Array>({ prefix: FILE_PREFIX }))
+        files[key.slice(FILE_PREFIX.length)] = decoder.decode(content);
       return files;
     },
     /** Keeps `set` in place of the one held, in one transaction. The empty set is kept as nothing. */
@@ -50,7 +55,8 @@ export const skillSetStore = (storage: SkillSetStorage) => {
         storage.kv.delete(HASH_KEY);
         storage.kv.delete(LISTING_KEY);
         if (set.hash === EMPTY_SKILL_SET_HASH) return;
-        for (const [path, content] of Object.entries(set.files)) storage.kv.put(`${FILE_PREFIX}${path}`, encoder.encode(content));
+        for (const [path, content] of Object.entries(set.files))
+          storage.kv.put(`${FILE_PREFIX}${path}`, encoder.encode(content));
         storage.kv.put(HASH_KEY, set.hash);
         storage.kv.put(LISTING_KEY, listing);
       });
@@ -80,7 +86,12 @@ export const skillSetMount = (store: Pick<SkillSetStore, "hash" | "files">): Eag
  * its copy fails, so the set held before is kept and mounted again, and when that fails too, the empty set (E1): the
  * mount is read-only again either way.
  */
-export const mountWithFallback = async (store: Pick<SkillSetStore, "hash" | "files" | "replace">, remount: () => Promise<void>, set: SkillSet, warn: (message: string) => void): Promise<{ readonly error?: string }> => {
+export const mountWithFallback = async (
+  store: Pick<SkillSetStore, "hash" | "files" | "replace">,
+  remount: () => Promise<void>,
+  set: SkillSet,
+  warn: (message: string) => void,
+): Promise<{ readonly error?: string }> => {
   const previous: SkillSet = { hash: store.hash(), files: store.files() };
   try {
     store.replace(set);
@@ -93,9 +104,17 @@ export const mountWithFallback = async (store: Pick<SkillSetStore, "hash" | "fil
         await remount();
         break;
       } catch (again) {
-        warn(JSON.stringify({ t3flare: "skills-remount-failed", fallback: fallback.hash.slice(0, 12), error: String(again).slice(0, 300) }));
+        warn(
+          JSON.stringify({
+            t3flare: "skills-remount-failed",
+            fallback: fallback.hash.slice(0, 12),
+            error: String(again).slice(0, 300),
+          }),
+        );
       }
     }
-    return { error: `The Environment skill set could not be mounted, and the Workspace keeps the one it held: ${String(cause).slice(0, 300)}` };
+    return {
+      error: `The Environment skill set could not be mounted, and the Workspace keeps the one it held: ${String(cause).slice(0, 300)}`,
+    };
   }
 };

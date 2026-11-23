@@ -10,7 +10,11 @@ export interface CliAsk {
   readonly askId: string;
   readonly summary: string;
   readonly detail: string;
-  readonly options: ReadonlyArray<{ readonly decision: ApprovalDecision; readonly label: string; readonly warning?: string }>;
+  readonly options: ReadonlyArray<{
+    readonly decision: ApprovalDecision;
+    readonly label: string;
+    readonly warning?: string;
+  }>;
   readonly title: string;
   /** t3's request kind of an approval card: `permission` (a tool) unless set (`mcp-elicitation`, SPI-1079). */
   readonly requestKind?: "permission" | "mcp-elicitation";
@@ -31,7 +35,11 @@ export interface CliAnswer {
 /** A live turn's way to ask: resolves with the owner's answer, or a refusal when the turn ends or the ask is withdrawn. */
 export interface CliAsker {
   /** The thread's modes as its session last set them, and its Workspace (the relay's decision, review M7). */
-  readonly state?: () => { readonly runtimeMode: string | undefined; readonly interactionMode: string | undefined; readonly workspace: string | null };
+  readonly state?: () => {
+    readonly runtimeMode: string | undefined;
+    readonly interactionMode: string | undefined;
+    readonly workspace: string | null;
+  };
   readonly ask: (ask: CliAsk, signal: AbortSignal) => Promise<CliAnswer>;
 }
 
@@ -53,13 +61,22 @@ export const registerCliAsker = (thread: string, asker: CliAsker): (() => void) 
 export const cancelCliAsk = (askId: string): void => withdrawals.get(askId)?.abort();
 
 /** A CLI thread's modes, for the relay: the call follows its own thread's (undefined when it has no live session). */
-export const cliThreadState = (thread: string): { readonly runtimeMode: string | undefined; readonly interactionMode: string | undefined } | undefined => askers.get(thread)?.state?.();
+export const cliThreadState = (
+  thread: string,
+): { readonly runtimeMode: string | undefined; readonly interactionMode: string | undefined } | undefined =>
+  askers.get(thread)?.state?.();
 
 /**
  * The relay's question about one tool call (ADR-0028), on the calling thread's live turn, linked threads included
  * (owner, 2026-11-12, back to stock: no per-call rule).
  */
-export const approveCliTool = async (input: { readonly thread: string; readonly askId: string; readonly title: string; readonly summary: string; readonly detail: string }): Promise<CliAnswer> => {
+export const approveCliTool = async (input: {
+  readonly thread: string;
+  readonly askId: string;
+  readonly title: string;
+  readonly summary: string;
+  readonly detail: string;
+}): Promise<CliAnswer> => {
   const asker = askers.get(input.thread);
   if (asker === undefined) return { approved: false, reason: `no live turn to ask on (thread ${input.thread})` };
   const options: CliAsk["options"] = [
@@ -74,7 +91,8 @@ export const approveCliTool = async (input: { readonly thread: string; readonly 
       { askId: input.askId, summary: input.summary, detail: input.detail, options, title: input.title },
       AbortSignal.any([AbortSignal.timeout(CLI_ASK_MS), withdrawn.signal]),
     );
-    if (answer.reason === "withdrawn") return { approved: false, reason: withdrawn.signal.aborted ? "the agent went away" : "no answer in time" };
+    if (answer.reason === "withdrawn")
+      return { approved: false, reason: withdrawn.signal.aborted ? "the agent went away" : "no answer in time" };
     if (!answer.approved) return { approved: false, reason: answer.reason ?? "declined" };
     return { approved: true, forSession: answer.forSession === true };
   } finally {
@@ -105,10 +123,15 @@ export const cliQuestionAsker = (thread: string): McpAsker => ({
         },
         AbortSignal.any([AbortSignal.timeout(CLI_ASK_MS), withdrawn.signal]),
       );
-      if (answer.reason === "withdrawn") return { decision: "cancel", reason: withdrawn.signal.aborted ? "withdrawn" : "no answer in time" };
+      if (answer.reason === "withdrawn")
+        return { decision: "cancel", reason: withdrawn.signal.aborted ? "withdrawn" : "no answer in time" };
       // No decision from t3 means no owner answered (no live turn, the session ended): a cancel, never a decline.
       const decision = answer.decision ?? (answer.approved ? "accept" : "cancel");
-      return { decision, ...(answer.answers === undefined ? {} : { answers: answer.answers }), ...(answer.approved || answer.reason === undefined ? {} : { reason: answer.reason }) };
+      return {
+        decision,
+        ...(answer.answers === undefined ? {} : { answers: answer.answers }),
+        ...(answer.approved || answer.reason === undefined ? {} : { reason: answer.reason }),
+      };
     } finally {
       withdrawals.delete(card.id);
     }

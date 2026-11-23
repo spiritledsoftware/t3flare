@@ -47,10 +47,7 @@ export const pushedThrough = (sql: ChangeLogSql, backend: string): number => {
     .toArray();
 
   const [watermark] = sql
-    .exec<{ v: number }>(
-      "SELECT v FROM _vfs_watermark WHERE k = 'pushRev' AND backend = ?",
-      backend,
-    )
+    .exec<{ v: number }>("SELECT v FROM _vfs_watermark WHERE k = 'pushRev' AND backend = ?", backend)
     .toArray();
 
   const mark = watermark?.v ?? 0;
@@ -139,7 +136,11 @@ export const repoFileSizes = (sql: ChangeLogSql, dir: string): RepoFileSizes => 
   let inode = ROOT_INODE;
   for (const name of dir.split("/").filter(Boolean)) {
     const [row] = sql
-      .exec<{ child: number }>("SELECT child_inode AS child FROM vfs_dirents WHERE parent_inode = ? AND name = ?", inode, name)
+      .exec<{ child: number }>(
+        "SELECT child_inode AS child FROM vfs_dirents WHERE parent_inode = ? AND name = ?",
+        inode,
+        name,
+      )
       .toArray();
     if (row === undefined) return { largest: 0, worktreeBytes: 0 };
     inode = row.child;

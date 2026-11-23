@@ -6,19 +6,45 @@ import { describeGlobalMise, ENVIRONMENT_SETTINGS, type GlobalMiseReport } from 
 import { parseGlobalMiseArgv } from "@t3flare/sandbox-image/globalMise";
 import { describe, expect, it, vi } from "vitest";
 
-import { GLOBAL_MISE_AFTER_SETUP_KEY, GLOBAL_MISE_KEY, GlobalMise, type GlobalMiseExec, type GlobalMiseLaunch, type GlobalMiseState, MAX_ATTEMPTS } from "../src/workspace/globalMise.ts";
+import {
+  GLOBAL_MISE_AFTER_SETUP_KEY,
+  GLOBAL_MISE_KEY,
+  GlobalMise,
+  type GlobalMiseExec,
+  type GlobalMiseLaunch,
+  type GlobalMiseState,
+  MAX_ATTEMPTS,
+} from "../src/workspace/globalMise.ts";
 
 const SHA = "a".repeat(64);
 /** The install time limit's default (`globalMiseInstallMinutes`). */
 const DEFAULT_MINUTES = ENVIRONMENT_SETTINGS.globalMiseInstallMinutes.schema.default;
-const LAUNCH: GlobalMiseLaunch = { text: '[tools]\nnode = "24.11.1"\n', bytes: 25, sha256: SHA, revision: 4, source: "environment", installMinutes: DEFAULT_MINUTES };
-const answer = (laid: boolean, extra: Record<string, unknown> = {}) => `${JSON.stringify({ revision: 4, sha256: SHA, source: "environment", laid, install: 0, timedOut: false, ms: 5, bytes: 25, ...extra })}\n`;
+const LAUNCH: GlobalMiseLaunch = {
+  text: '[tools]\nnode = "24.11.1"\n',
+  bytes: 25,
+  sha256: SHA,
+  revision: 4,
+  source: "environment",
+  installMinutes: DEFAULT_MINUTES,
+};
+const answer = (laid: boolean, extra: Record<string, unknown> = {}) =>
+  `${JSON.stringify({ revision: 4, sha256: SHA, source: "environment", laid, install: 0, timedOut: false, ms: 5, bytes: 25, ...extra })}\n`;
 
 type Step = { readonly stdout?: string; readonly throws?: string; readonly hang?: boolean };
 
-const setup = (steps: Array<Step>, options: { launch?: GlobalMiseLaunch | undefined; deadlineMs?: (minutes: number) => number; map?: Map<string, unknown> } = {}) => {
+const setup = (
+  steps: Array<Step>,
+  options: {
+    launch?: GlobalMiseLaunch | undefined;
+    deadlineMs?: (minutes: number) => number;
+    map?: Map<string, unknown>;
+  } = {},
+) => {
   const map = options.map ?? new Map<string, unknown>();
-  const storage = { get: <T>(key: string) => map.get(key) as T | undefined, put: <T>(key: string, value: T) => void map.set(key, structuredClone(value)) };
+  const storage = {
+    get: <T>(key: string) => map.get(key) as T | undefined,
+    put: <T>(key: string, value: T) => void map.set(key, structuredClone(value)),
+  };
   const calls: Array<{ argv: ReadonlyArray<string>; stdin: string }> = [];
   const reports: Array<GlobalMiseReport> = [];
   const events: Array<string> = [];
@@ -32,7 +58,10 @@ const setup = (steps: Array<Step>, options: { launch?: GlobalMiseLaunch | undefi
       const step = steps.shift() ?? { stdout: answer(true) };
       if (step.throws !== undefined) throw new Error(step.throws);
       return {
-        output: step.hang === true ? new Promise(() => undefined) : new Promise((resolve) => setTimeout(() => resolve({ stdout: step.stdout ?? "", exitCode: 0 }), 5)),
+        output:
+          step.hang === true
+            ? new Promise(() => undefined)
+            : new Promise((resolve) => setTimeout(() => resolve({ stdout: step.stdout ?? "", exitCode: 0 }), 5)),
         kill: () => void killed++,
       };
     },
@@ -48,7 +77,17 @@ const setup = (steps: Array<Step>, options: { launch?: GlobalMiseLaunch | undefi
     now: () => Date.now(),
     deadlineMs: options.deadlineMs ?? (() => 1_000),
   };
-  return { mise: new GlobalMise(deps), deps, map, calls, reports, events, storage, holds: () => holds, killed: () => killed };
+  return {
+    mise: new GlobalMise(deps),
+    deps,
+    map,
+    calls,
+    reports,
+    events,
+    storage,
+    holds: () => holds,
+    killed: () => killed,
+  };
 };
 
 describe("GlobalMise", () => {
@@ -60,12 +99,20 @@ describe("GlobalMise", () => {
     await t.mise.ensure("r1");
     expect(t.calls).toHaveLength(1);
     expect(t.calls[0]!.stdin).toBe(LAUNCH.text);
-    expect(parseGlobalMiseArgv(t.calls[0]!.argv)).toMatchObject({ revision: 4, sha256: SHA, source: "environment", mode: "lay-down" });
+    expect(parseGlobalMiseArgv(t.calls[0]!.argv)).toMatchObject({
+      revision: 4,
+      sha256: SHA,
+      source: "environment",
+      mode: "lay-down",
+    });
   });
 
   it("bounds the install by the launch's time limit (SPI-1313), and waits for the exec at that limit", async () => {
     const asked: Array<number> = [];
-    const t = setup([{ stdout: answer(true) }], { launch: { ...LAUNCH, installMinutes: 45 }, deadlineMs: (minutes) => (asked.push(minutes), 1_000) });
+    const t = setup([{ stdout: answer(true) }], {
+      launch: { ...LAUNCH, installMinutes: 45 },
+      deadlineMs: (minutes) => (asked.push(minutes), 1_000),
+    });
     await t.mise.ensure("r1");
     expect(parseGlobalMiseArgv(t.calls[0]!.argv)).toMatchObject({ mode: "lay-down", installSeconds: 45 * 60 });
     expect(asked).toEqual([45]);
@@ -74,7 +121,10 @@ describe("GlobalMise", () => {
   it("gives a launch kept from before the time limit (none recorded) the setting's default", async () => {
     const { installMinutes: _installMinutes, ...before } = LAUNCH;
     const asked: Array<number> = [];
-    const t = setup([{ stdout: answer(true) }], { launch: before, deadlineMs: (minutes) => (asked.push(minutes), 1_000) });
+    const t = setup([{ stdout: answer(true) }], {
+      launch: before,
+      deadlineMs: (minutes) => (asked.push(minutes), 1_000),
+    });
     await t.mise.ensure("r1");
     expect(parseGlobalMiseArgv(t.calls[0]!.argv)).toMatchObject({ installSeconds: DEFAULT_MINUTES * 60 });
     expect(asked).toEqual([DEFAULT_MINUTES]);
@@ -114,7 +164,12 @@ describe("GlobalMise", () => {
   });
 
   it("retries a failed exec once at once, then from the alarm, at most three times in all", async () => {
-    const t = setup([{ throws: "exec refused" }, { throws: "exec refused" }, { throws: "exec refused" }, { stdout: answer(true) }]);
+    const t = setup([
+      { throws: "exec refused" },
+      { throws: "exec refused" },
+      { throws: "exec refused" },
+      { stdout: answer(true) },
+    ]);
     expect(await t.mise.ensure("r1")).toMatchObject({ outcome: "exec-failed", attempts: 2 });
     expect(t.calls).toHaveLength(2);
     expect(t.mise.catchUp("r1")).toBe(true);
@@ -128,14 +183,19 @@ describe("GlobalMise", () => {
   });
 
   it("treats a run without an answer, or one that found the lock held, as an exec failure", async () => {
-    const t = setup([{ stdout: "bash: mise: command not found\n" }, { stdout: answer(false, { locked: true, install: null }) }]);
+    const t = setup([
+      { stdout: "bash: mise: command not found\n" },
+      { stdout: answer(false, { locked: true, install: null }) },
+    ]);
     expect(await t.mise.ensure("r1")).toMatchObject({ outcome: "exec-failed", attempts: 2 });
   });
 
   it("reports a file not laid down with its install's exit", async () => {
     const t = setup([{ stdout: `mise WARN noise\n${answer(false, { install: 1 })}` }]);
     expect(await t.mise.ensure("r1")).toMatchObject({ outcome: "not-laid" });
-    expect(t.reports).toMatchObject([{ outcome: "not-laid", install: 1, timedOut: false, revision: 4, sha256: SHA, bytes: 25, source: "environment" }]);
+    expect(t.reports).toMatchObject([
+      { outcome: "not-laid", install: 1, timedOut: false, revision: 4, sha256: SHA, bytes: 25, source: "environment" },
+    ]);
   });
 
   it("runs the script with no text for a launch from before (no Global mise config recorded)", async () => {
@@ -166,10 +226,13 @@ describe("GlobalMise", () => {
     let reads = 0;
     const t = setup([], { map });
     // The launch read throws on every attempt.
-    const broken = new GlobalMise({ ...t.deps, launch: () => {
-      reads++;
-      throw new Error("storage");
-    } });
+    const broken = new GlobalMise({
+      ...t.deps,
+      launch: () => {
+        reads++;
+        throw new Error("storage");
+      },
+    });
     expect(await broken.ensure("r1")).toMatchObject({ runtime: "r1", outcome: "exec-failed", attempts: 2 });
     expect(await broken.ensure("r1")).toMatchObject({ outcome: "exec-failed", attempts: MAX_ATTEMPTS });
     expect(await broken.ensure("r1")).toMatchObject({ attempts: MAX_ATTEMPTS });
@@ -177,7 +240,12 @@ describe("GlobalMise", () => {
     expect(broken.due("r1")).toBe(false);
   });
 
-  const EMPTY = { ...LAUNCH, text: "", bytes: 0, sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" };
+  const EMPTY = {
+    ...LAUNCH,
+    text: "",
+    bytes: 0,
+    sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  };
 
   it("reports a Container started with no text and no dotfiles' mise config as none, so Status no longer shows an older start's file", async () => {
     const t = setup([{ stdout: answer(false, { install: null, bytes: 0, dotfiles: false }) }], { launch: EMPTY });
@@ -198,10 +266,15 @@ describe("GlobalMise", () => {
   });
 
   describe("after the Container setup (ADR-0047 §10)", () => {
-    const after = (t: ReturnType<typeof setup>, setupText: string | undefined) => new GlobalMise({ ...t.deps, afterSetup: { setupText: () => setupText } });
+    const after = (t: ReturnType<typeof setup>, setupText: string | undefined) =>
+      new GlobalMise({ ...t.deps, afterSetup: { setupText: () => setupText } });
 
     it("runs nothing when the launch has Global mise text (it wins), or the Container had no Container setup", async () => {
-      for (const [launch, setupText] of [[LAUNCH, "chezmoi apply\n"], [EMPTY, ""], [EMPTY, undefined]] as const) {
+      for (const [launch, setupText] of [
+        [LAUNCH, "chezmoi apply\n"],
+        [EMPTY, ""],
+        [EMPTY, undefined],
+      ] as const) {
         const t = setup([], { launch });
         expect(await after(t, setupText).ensure("r1")).toMatchObject({ runtime: "r1", outcome: "none" });
         expect(t.calls).toHaveLength(0);
@@ -221,13 +294,18 @@ describe("GlobalMise", () => {
     });
 
     it("leaves a correct Status after an exec failure then an unchanged answer: the retry's report replaces the failure's", async () => {
-      const t = setup([{ throws: "exec refused" }, { stdout: answer(true, { bytes: 30, dotfiles: true, unchanged: true }) }], { launch: EMPTY });
+      const t = setup(
+        [{ throws: "exec refused" }, { stdout: answer(true, { bytes: 30, dotfiles: true, unchanged: true }) }],
+        { launch: EMPTY },
+      );
       expect(await after(t, "chezmoi apply\n").ensure("r1")).toMatchObject({ outcome: "laid", attempts: 2 });
       expect(t.reports.map((report) => [report.outcome, report.dotfiles])).toEqual([
         ["exec-failed", undefined],
         ["laid", true],
       ]);
-      expect(describeGlobalMise(t.reports.at(-1)!)).toContain("the dotfiles' ~/.config/mise/config.toml is mise's global config");
+      expect(describeGlobalMise(t.reports.at(-1)!)).toContain(
+        "the dotfiles' ~/.config/mise/config.toml is mise's global config",
+      );
     });
 
     it("reports a dotfiles' mise file the setup wrote or changed as the first lay-down does", async () => {

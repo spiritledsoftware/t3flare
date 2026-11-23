@@ -22,10 +22,16 @@ export interface NextAlarm {
 }
 
 /** The alarm for a due push (now) and for the earliest housekeeping `candidates` (at least `HOUSEKEEPING_FLOOR_MS` away). */
-export const nextAlarm = (now: number, input: { readonly pushDue: boolean; readonly candidates: ReadonlyArray<number> }): NextAlarm => {
+export const nextAlarm = (
+  now: number,
+  input: { readonly pushDue: boolean; readonly candidates: ReadonlyArray<number> },
+): NextAlarm => {
   const housekeepingAt = input.candidates.length === 0 ? undefined : Math.min(...input.candidates);
   if (input.pushDue) return { at: now, housekeepingAt };
-  return { at: housekeepingAt === undefined ? null : Math.max(now + HOUSEKEEPING_FLOOR_MS, housekeepingAt), housekeepingAt };
+  return {
+    at: housekeepingAt === undefined ? null : Math.max(now + HOUSEKEEPING_FLOOR_MS, housekeepingAt),
+    housekeepingAt,
+  };
 };
 
 /**

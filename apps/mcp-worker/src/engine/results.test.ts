@@ -66,10 +66,7 @@ describe("scrubError", () => {
     const refreshed = `${old}-refreshed`;
 
     const scrubbed = await Effect.runPromise(
-      scrubError(
-        ServerError.make({ message: `refused ${refreshed} and ${old}` }),
-        new Set([old, refreshed]),
-      ),
+      scrubError(ServerError.make({ message: `refused ${refreshed} and ${old}` }), new Set([old, refreshed])),
     );
 
     expect(scrubbed).toMatchObject({ message: "refused [REDACTED] and [REDACTED]" });

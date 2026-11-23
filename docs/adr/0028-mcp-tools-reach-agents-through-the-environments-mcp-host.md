@@ -10,6 +10,7 @@ Agents in t3flare had t3's own tools and nothing else. The owner wants Commissar
    - their credentials.
 
    Every MCP request goes through it.
+
 2. **The engine is a Worker of its own**, `t3flare-mcp-<stage>`. It runs the MCP core (`packages/mcp`, official SDK 2.4.0) behind two entrypoints, `McpEngine` and `McpOAuth`. It has **no bindings** and `global_fetch_strictly_public`, and it makes every outbound MCP and OAuth request: discovery, registration, token exchange, refresh, list and call. Each request goes through a guard on every URL and hop, with `redirect: "manual"`. Its logs pass through `engine/scrub.ts`. The Environment DO calls it over service bindings and sends the credential with each request; the engine keeps none.
 3. **Commissary's key** is the Workers-only `MODEL_PROXY_API_KEY`, read through `toolsKeyOf(env)` so a dedicated key can replace it. It never enters a Container (owner decision; no new secret). A **direct server** signs in with a header the owner types once, or with OAuth that he completes in the panel (DCR or CIMD, PKCE, single-use `state`, an `iss` check, one refresh in flight). Its credentials are kept write-only in the Environment DO's secret store (ADR-0012's tools refinement).
 4. **A tool's class is read or write**: the tool's own `readOnlyHint` (true is read; anything else, write), as t3 does, unless the owner overrides it in the panel. Colliding sanitised names are refused. "Accept for the session" covers one tool definition (its hash): a changed definition asks again.
@@ -19,6 +20,7 @@ Agents in t3flare had t3's own tools and nothing else. The owner wants Commissar
    - otherwise a write runs in full access or after "accept for the session", and asks in any other mode.
 
    A linked thread follows its own mode and sees every enabled server, as any thread does.
+
 6. **Durable agents** get MCP tools from the Session's `mcp` extension, namespaced `mcp__<server>__<tool>`. They are deferred by default (reached by `tool_search` or from a code mode script, ADR-0027). A server removed or disabled mid-turn answers a tool error, and its tools are gone at the next turn.
 7. **CLI agents** get one entry per server at `http://computer.internal/t3flare/mcp/<server>`, the **MCP relay**. `WorkspaceProxy` hands each request to `EnvironmentDO.mcpRelay`, where an MCP server of ours ends the protocol and calls through the same host.
    - The CLI authenticates with a **tool handle**: a per-process bearer that the Workspace DO issues at spawn and revokes at exit. It never sits in a Container-wide file (review H2).

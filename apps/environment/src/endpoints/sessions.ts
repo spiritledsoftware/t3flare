@@ -14,7 +14,9 @@ export const SESSION_ANSWER_MS = 5_000;
 
 /** What a sign-out asks of a Session (the agents Worker's `SessionDO`). */
 export interface SignedOutSession {
-  endpointSignedOut(input: { readonly endpointId: string }): Promise<{ readonly dropped: boolean; readonly stopped: boolean }>;
+  endpointSignedOut(input: {
+    readonly endpointId: string;
+  }): Promise<{ readonly dropped: boolean; readonly stopped: boolean }>;
 }
 
 /**
@@ -23,7 +25,11 @@ export interface SignedOutSession {
  */
 export const stopSessionsOn = async (
   endpointId: string,
-  sessions: { readonly open: () => ReadonlyArray<string>; readonly session: (name: string) => SignedOutSession; readonly timeoutMs?: number },
+  sessions: {
+    readonly open: () => ReadonlyArray<string>;
+    readonly session: (name: string) => SignedOutSession;
+    readonly timeoutMs?: number;
+  },
 ): Promise<{ readonly told: number; readonly stopped: number }> => {
   const timeoutMs = sessions.timeoutMs ?? SESSION_ANSWER_MS;
   const tell = async (name: string) => {
@@ -31,7 +37,9 @@ export const stopSessionsOn = async (
     try {
       return await Promise.race([
         sessions.session(name).endpointSignedOut({ endpointId }),
-        new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error(`no answer in ${timeoutMs} ms`)), timeoutMs))),
+        new Promise<never>(
+          (_, reject) => (timer = setTimeout(() => reject(new Error(`no answer in ${timeoutMs} ms`)), timeoutMs)),
+        ),
       ]);
     } finally {
       clearTimeout(timer);
@@ -46,7 +54,14 @@ export const stopSessionsOn = async (
       told += 1;
       if (answer.value.stopped) stopped += 1;
     } else {
-      console.warn(JSON.stringify({ t3flare: "sign-out-session-failed", endpoint: endpointId, session: names[index], error: String(answer.reason).slice(0, 200) }));
+      console.warn(
+        JSON.stringify({
+          t3flare: "sign-out-session-failed",
+          endpoint: endpointId,
+          session: names[index],
+          error: String(answer.reason).slice(0, 200),
+        }),
+      );
     }
   });
   console.log(JSON.stringify({ t3flare: "sign-out-sessions", endpoint: endpointId, told, stopped }));

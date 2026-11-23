@@ -51,7 +51,13 @@ interface RunJson {
   readonly display_title?: string;
 }
 
-const runOf = (json: RunJson): WorkflowRun => ({ id: json.id, url: json.html_url, status: json.status, conclusion: json.conclusion, started: !WAITING.has(json.status) });
+const runOf = (json: RunJson): WorkflowRun => ({
+  id: json.id,
+  url: json.html_url,
+  status: json.status,
+  conclusion: json.conclusion,
+  started: !WAITING.has(json.status),
+});
 
 export interface ActionsClient {
   /** Dispatches `workflow` on `main` with `inputs`. */
@@ -63,7 +69,11 @@ export interface ActionsClient {
   readonly failedStep: (id: number) => Promise<string | undefined>;
 }
 
-export const actionsClient = (input: { readonly repo: UpdateRepo; readonly token: () => Promise<string>; readonly fetch: ActionsFetch }): ActionsClient => {
+export const actionsClient = (input: {
+  readonly repo: UpdateRepo;
+  readonly token: () => Promise<string>;
+  readonly fetch: ActionsFetch;
+}): ActionsClient => {
   const repoPath = `/repos/${encodeURIComponent(input.repo.owner)}/${encodeURIComponent(input.repo.name)}`;
 
   const request = async (method: string, pathname: string, body?: unknown): Promise<Response> => {
@@ -90,7 +100,9 @@ export const actionsClient = (input: { readonly repo: UpdateRepo; readonly token
           return text.slice(0, 200);
         }
       })();
-      throw new ActionsError(`GitHub answered ${method} ${pathname.split("?")[0]} with ${response.status}${message === "" ? "" : `: ${message}`}`);
+      throw new ActionsError(
+        `GitHub answered ${method} ${pathname.split("?")[0]} with ${response.status}${message === "" ? "" : `: ${message}`}`,
+      );
     }
     return response;
   };
@@ -103,19 +115,35 @@ export const actionsClient = (input: { readonly repo: UpdateRepo; readonly token
     },
     findRun: async (workflow, runName, since) => {
       const created = new Date(since).toISOString().replace(/\.\d{3}Z$/, "Z");
-      const response = await request("GET", `${workflowPath(workflow)}/runs?event=workflow_dispatch&per_page=50&created=${encodeURIComponent(`>=${created}`)}`);
+      const response = await request(
+        "GET",
+        `${workflowPath(workflow)}/runs?event=workflow_dispatch&per_page=50&created=${encodeURIComponent(`>=${created}`)}`,
+      );
       const json = (await response.json()) as { workflow_runs?: ReadonlyArray<RunJson> };
-      const run = (json.workflow_runs ?? []).find((candidate) => (candidate.display_title ?? candidate.name) === runName);
+      const run = (json.workflow_runs ?? []).find(
+        (candidate) => (candidate.display_title ?? candidate.name) === runName,
+      );
       return run === undefined ? undefined : runOf(run);
     },
     getRun: async (id) => runOf((await (await request("GET", `/actions/runs/${id}`)).json()) as RunJson),
     failedStep: async (id) => {
       const json = (await (await request("GET", `/actions/runs/${id}/jobs?filter=latest&per_page=100`)).json()) as {
-        jobs?: ReadonlyArray<{ name: string; conclusion: string | null; steps?: ReadonlyArray<{ name: string; conclusion: string | null }> }>;
+        jobs?: ReadonlyArray<{
+          name: string;
+          conclusion: string | null;
+          steps?: ReadonlyArray<{ name: string; conclusion: string | null }>;
+        }>;
       };
-      const failed = (json.jobs ?? []).filter((job) => job.conclusion === "failure" || job.conclusion === "timed_out" || job.conclusion === "cancelled");
+      const failed = (json.jobs ?? []).filter(
+        (job) => job.conclusion === "failure" || job.conclusion === "timed_out" || job.conclusion === "cancelled",
+      );
       for (const job of failed) {
-        const step = job.steps?.find((candidate) => candidate.conclusion === "failure" || candidate.conclusion === "timed_out" || candidate.conclusion === "cancelled");
+        const step = job.steps?.find(
+          (candidate) =>
+            candidate.conclusion === "failure" ||
+            candidate.conclusion === "timed_out" ||
+            candidate.conclusion === "cancelled",
+        );
         if (step !== undefined) return `${job.name} / ${step.name}`;
       }
       return failed[0]?.name;

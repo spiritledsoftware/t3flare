@@ -20,7 +20,12 @@ const log: Array<string> = [];
 /** The Environment's services as the take and the spawner read them: Workspace `demo`, the set's hash `h1`. */
 const bind = (hash: () => string = () => "h1") =>
   bindEnvironmentServices({
-    workspaces: { list: () => [], resolve: (id: string) => (id === "demo" ? { id } : undefined), get: () => undefined, worktreesOf: () => [] },
+    workspaces: {
+      list: () => [],
+      resolve: (id: string) => (id === "demo" ? { id } : undefined),
+      get: () => undefined,
+      worktreesOf: () => [],
+    },
     agents: {
       WORKSPACES: {
         idFromName: (name: string) => name,
@@ -41,7 +46,17 @@ const bind = (hash: () => string = () => "h1") =>
       newKey: () => "proc-1",
       start: async (input: { cli: string }) => {
         log.push(`start ${input.cli}`);
-        return { cli: input.cli, pid: 1, running: true, exit: new Promise(() => undefined), kill: () => undefined, write: async () => undefined, closeStdin: async () => undefined, stdout: (async function* () {})(), stderr: (async function* () {})() };
+        return {
+          cli: input.cli,
+          pid: 1,
+          running: true,
+          exit: new Promise(() => undefined),
+          kill: () => undefined,
+          write: async () => undefined,
+          closeStdin: async () => undefined,
+          stdout: (async function* () {})(),
+          stderr: (async function* () {})(),
+        };
       },
     },
   } as unknown as EnvironmentServices);
@@ -55,7 +70,12 @@ describe("takeEnvironmentSkillsAt", () => {
   it("has the Workspace of the cwd take the Environment's hash", async () => {
     const taker = { takeEnvironmentSkills: vi.fn(async (hash: string) => ({ taken: true, hash })) };
     vi.spyOn(console, "log").mockImplementation(() => undefined);
-    await Effect.runPromise(takeEnvironmentSkillsAt("/w/demo/pkg", { hash: () => "h1", workspace: (cwd) => (cwd.startsWith("/w/demo") ? taker : undefined) }));
+    await Effect.runPromise(
+      takeEnvironmentSkillsAt("/w/demo/pkg", {
+        hash: () => "h1",
+        workspace: (cwd) => (cwd.startsWith("/w/demo") ? taker : undefined),
+      }),
+    );
     expect(taker.takeEnvironmentSkills).toHaveBeenCalledWith("h1");
   });
 
@@ -77,9 +97,20 @@ describe("takeEnvironmentSkillsAt", () => {
         },
       }),
     );
-    await Effect.runPromise(takeEnvironmentSkillsAt("/w/demo", { hash: () => "h1", workspace: () => ({ takeEnvironmentSkills: () => Promise.reject(new Error("down")) }) }));
+    await Effect.runPromise(
+      takeEnvironmentSkillsAt("/w/demo", {
+        hash: () => "h1",
+        workspace: () => ({ takeEnvironmentSkills: () => Promise.reject(new Error("down")) }),
+      }),
+    );
     const started = Date.now();
-    await Effect.runPromise(takeEnvironmentSkillsAt("/w/demo", { hash: () => "h1", workspace: () => ({ takeEnvironmentSkills: () => new Promise(() => undefined) }) }, 30));
+    await Effect.runPromise(
+      takeEnvironmentSkillsAt(
+        "/w/demo",
+        { hash: () => "h1", workspace: () => ({ takeEnvironmentSkills: () => new Promise(() => undefined) }) },
+        30,
+      ),
+    );
     expect(Date.now() - started).toBeLessThan(2000);
   });
 
@@ -101,7 +132,11 @@ describe("spawnCli", () => {
   it("has the Workspace take the set before the process channel starts the CLI", async () => {
     bind();
     vi.spyOn(console, "log").mockImplementation(() => undefined);
-    await Effect.runPromise(spawnCli(ChildProcess.make("t3flare-probe", [], { cwd: "/w/demo" }) as ChildProcess.StandardCommand).pipe(Effect.scoped));
+    await Effect.runPromise(
+      spawnCli(ChildProcess.make("t3flare-probe", [], { cwd: "/w/demo" }) as ChildProcess.StandardCommand).pipe(
+        Effect.scoped,
+      ),
+    );
     expect(log).toEqual(["take demo h1", "start probe"]);
   });
 
@@ -110,7 +145,11 @@ describe("spawnCli", () => {
       throw new Error("the store is down");
     });
     vi.spyOn(console, "log").mockImplementation(() => undefined);
-    await Effect.runPromise(spawnCli(ChildProcess.make("t3flare-probe", [], { cwd: "/w/demo" }) as ChildProcess.StandardCommand).pipe(Effect.scoped));
+    await Effect.runPromise(
+      spawnCli(ChildProcess.make("t3flare-probe", [], { cwd: "/w/demo" }) as ChildProcess.StandardCommand).pipe(
+        Effect.scoped,
+      ),
+    );
     expect(log).toEqual(["start probe"]);
   });
 });
@@ -134,10 +173,26 @@ const innerAdapter = (driver: string) =>
   }) as unknown as ProviderAdapter.ProviderAdapterV2["Service"];
 
 const policy = { runtimeMode: "full-access", interactionMode: "default", cwd: "/w/demo" };
-const turnInput = { threadId: "t1", runId: "r1", rootNodeId: "n1", providerThread: { id: "pt1" }, providerTurnOrdinal: 1, runtimePolicy: policy, message: { text: "hello" } } as never;
+const turnInput = {
+  threadId: "t1",
+  runId: "r1",
+  rootNodeId: "n1",
+  providerThread: { id: "pt1" },
+  providerTurnOrdinal: 1,
+  runtimePolicy: policy,
+  message: { text: "hello" },
+} as never;
 
 const openWrapped = (driver: string, sessions: CliSessions, take?: (cwd: string | null) => Effect.Effect<void>) =>
-  wrapCliAdapter(innerAdapter(driver), { sessions, ...(take === undefined ? {} : { takeEnvironmentSkills: take }) }).openSession({ threadId: "t1", providerSessionId: "s1", runtimePolicy: policy, modelSelection: { instanceId: driver, model: "gpt-6-luna" } } as never);
+  wrapCliAdapter(innerAdapter(driver), {
+    sessions,
+    ...(take === undefined ? {} : { takeEnvironmentSkills: take }),
+  }).openSession({
+    threadId: "t1",
+    providerSessionId: "s1",
+    runtimePolicy: policy,
+    modelSelection: { instanceId: driver, model: "gpt-6-luna" },
+  } as never);
 
 describe("wrapCliAdapter's take", () => {
   it("is every driver's by default: the Workspace takes the set before the inner adapter's turn", async () => {

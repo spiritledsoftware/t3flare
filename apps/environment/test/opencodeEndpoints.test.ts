@@ -5,7 +5,12 @@
 import type { ModelEndpoints } from "@t3flare/models/endpoints";
 import { describe, expect, it } from "vitest";
 
-import { opencodeEndpoints, opencodeModelId, opencodeModelsOf, opencodeRelayOf } from "../src/provider/cli/opencodeEndpoints.ts";
+import {
+  opencodeEndpoints,
+  opencodeModelId,
+  opencodeModelsOf,
+  opencodeRelayOf,
+} from "../src/provider/cli/opencodeEndpoints.ts";
 
 const model = (id: string, extra: { reasoning?: boolean } = {}) => ({
   id,
@@ -20,22 +25,92 @@ const model = (id: string, extra: { reasoning?: boolean } = {}) => ({
 const endpoints: ModelEndpoints = {
   revision: 3,
   endpoints: [
-    { id: "gem", label: "Gemini", api: "google-generative-ai", baseUrl: "https://g.example", auth: "api-key", headers: {}, models: [model("gemini-x")] },
-    { id: "comm", label: "Commissary", api: "anthropic-messages", baseUrl: "https://c.example", auth: "api-key", headers: {}, models: [model("claude-sonnet-5-5", { reasoning: true }), model("claude-haiku-5-5")] },
-    { id: "openai", label: "OpenAI", api: "openai-responses", baseUrl: "https://api.openai.com/v1", auth: "api-key", headers: {}, models: [model("gpt-5-mini")] },
-    { id: "or", label: "OpenRouter", api: "openai-completions", baseUrl: "https://openrouter.ai/api/v1", auth: "api-key", headers: {}, models: [model("anthropic/claude-opus-5-5")] },
-    { id: "empty", label: "Empty", api: "anthropic-messages", baseUrl: "https://e.example", auth: "none", headers: {}, models: [] },
+    {
+      id: "gem",
+      label: "Gemini",
+      api: "google-generative-ai",
+      baseUrl: "https://g.example",
+      auth: "api-key",
+      headers: {},
+      models: [model("gemini-x")],
+    },
+    {
+      id: "comm",
+      label: "Commissary",
+      api: "anthropic-messages",
+      baseUrl: "https://c.example",
+      auth: "api-key",
+      headers: {},
+      models: [model("claude-sonnet-5-5", { reasoning: true }), model("claude-haiku-5-5")],
+    },
+    {
+      id: "openai",
+      label: "OpenAI",
+      api: "openai-responses",
+      baseUrl: "https://api.openai.com/v1",
+      auth: "api-key",
+      headers: {},
+      models: [model("gpt-5-mini")],
+    },
+    {
+      id: "or",
+      label: "OpenRouter",
+      api: "openai-completions",
+      baseUrl: "https://openrouter.ai/api/v1",
+      auth: "api-key",
+      headers: {},
+      models: [model("anthropic/claude-opus-5-5")],
+    },
+    {
+      id: "empty",
+      label: "Empty",
+      api: "anthropic-messages",
+      baseUrl: "https://e.example",
+      auth: "none",
+      headers: {},
+      models: [],
+    },
   ],
 };
 
 describe("OpenCode's Model endpoints", () => {
   it("takes every sign-in through the relay (SPI-1171): ChatGPT, Claude and GitHub Copilot", () => {
-    const chatgpt = { id: "chatgpt", label: "ChatGPT", api: "openai-responses" as const, baseUrl: "https://api.openai.com/v1", auth: "chatgpt" as const, headers: {}, models: [model("gpt-6.1-sol")] };
-    const claude = { ...chatgpt, id: "claude", label: "Claude", api: "anthropic-messages" as const, baseUrl: "https://api.anthropic.com", auth: "claude" as const, models: [model("claude-haiku-5-5")] };
-    const copilot = { ...chatgpt, id: "copilot", label: "GitHub Copilot", baseUrl: "https://api.individual.githubcopilot.com", auth: "copilot" as const };
-    expect(opencodeEndpoints({ revision: 1, endpoints: [chatgpt] }).map((endpoint) => endpoint.id)).toEqual(["chatgpt"]);
-    expect(opencodeRelayOf({ revision: 1, endpoints: [chatgpt] }, undefined)?.endpoints.map((endpoint) => endpoint.id)).toEqual(["chatgpt"]);
-    expect(opencodeEndpoints({ revision: 1, endpoints: [...endpoints.endpoints, chatgpt, claude, copilot] }).map((endpoint) => endpoint.id)).toEqual(["comm", "openai", "or", "chatgpt", "claude", "copilot"]);
+    const chatgpt = {
+      id: "chatgpt",
+      label: "ChatGPT",
+      api: "openai-responses" as const,
+      baseUrl: "https://api.openai.com/v1",
+      auth: "chatgpt" as const,
+      headers: {},
+      models: [model("gpt-6.1-sol")],
+    };
+    const claude = {
+      ...chatgpt,
+      id: "claude",
+      label: "Claude",
+      api: "anthropic-messages" as const,
+      baseUrl: "https://api.anthropic.com",
+      auth: "claude" as const,
+      models: [model("claude-haiku-5-5")],
+    };
+    const copilot = {
+      ...chatgpt,
+      id: "copilot",
+      label: "GitHub Copilot",
+      baseUrl: "https://api.individual.githubcopilot.com",
+      auth: "copilot" as const,
+    };
+    expect(opencodeEndpoints({ revision: 1, endpoints: [chatgpt] }).map((endpoint) => endpoint.id)).toEqual([
+      "chatgpt",
+    ]);
+    expect(
+      opencodeRelayOf({ revision: 1, endpoints: [chatgpt] }, undefined)?.endpoints.map((endpoint) => endpoint.id),
+    ).toEqual(["chatgpt"]);
+    expect(
+      opencodeEndpoints({ revision: 1, endpoints: [...endpoints.endpoints, chatgpt, claude, copilot] }).map(
+        (endpoint) => endpoint.id,
+      ),
+    ).toEqual(["comm", "openai", "or", "chatgpt", "claude", "copilot"]);
   });
 
   it("takes the endpoints of the three APIs OpenCode speaks that list a model, in the owner's order", () => {
@@ -50,9 +125,12 @@ describe("OpenCode's Model endpoints", () => {
     expect(relay?.smallModel).toBe("comm/claude-haiku-5-5");
     // The text-generation model when it is one of theirs; another API's (Google's) or a stale one is not.
     expect(opencodeRelayOf(endpoints, "openai/gpt-5-mini")?.smallModel).toBe("openai/gpt-5-mini");
-    for (const text of ["gem/gemini-x", "comm/gone", "anthropic/claude-haiku-5-5"]) expect(opencodeRelayOf(endpoints, text)?.smallModel, text).toBe("comm/claude-haiku-5-5");
+    for (const text of ["gem/gemini-x", "comm/gone", "anthropic/claude-haiku-5-5"])
+      expect(opencodeRelayOf(endpoints, text)?.smallModel, text).toBe("comm/claude-haiku-5-5");
     // Only another API's endpoint, or one with no model: none.
-    expect(opencodeRelayOf({ revision: 1, endpoints: [endpoints.endpoints[0]!, endpoints.endpoints[4]!] }, undefined)).toBeUndefined();
+    expect(
+      opencodeRelayOf({ revision: 1, endpoints: [endpoints.endpoints[0]!, endpoints.endpoints[4]!] }, undefined),
+    ).toBeUndefined();
     expect(opencodeRelayOf(undefined, undefined)).toBeUndefined();
   });
 
@@ -72,7 +150,9 @@ describe("OpenCode's Model endpoints", () => {
 
   it("names an endpoint's model by its provider, a model id holding `/` kept whole; an old selection the default model (SPI-1176)", () => {
     expect(opencodeModelId("comm/claude-haiku-5-5", endpoints)).toBe("t3flare-endpoint-comm/claude-haiku-5-5");
-    expect(opencodeModelId("or/anthropic/claude-opus-5-5", endpoints)).toBe("t3flare-endpoint-or/anthropic/claude-opus-5-5");
+    expect(opencodeModelId("or/anthropic/claude-opus-5-5", endpoints)).toBe(
+      "t3flare-endpoint-or/anthropic/claude-opus-5-5",
+    );
     // An old selection (`anthropic/…`, a bare id) and `default`: the default model, the first, even where an endpoint
     // OpenCode reaches lists a model of the old id (`comm`'s haiku, `openai`'s gpt-5-mini): ADR-0034 §3.
     for (const old of ["anthropic/claude-haiku-5-5", "claude-haiku-5-5", "gpt-5-mini", "gemini-x", "default"]) {

@@ -13,7 +13,14 @@ import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { acquireOptions } from "../src/preview/cdpSocket.ts";
-import { BRIDGED_PAGE_ORIGIN, fromBrowser, HTML_BROWSER_EXECUTABLE, spawnHtmlBrowser, STOCK_PAGE_ORIGIN, toBrowser } from "../src/preview/htmlBrowser.ts";
+import {
+  BRIDGED_PAGE_ORIGIN,
+  fromBrowser,
+  HTML_BROWSER_EXECUTABLE,
+  spawnHtmlBrowser,
+  STOCK_PAGE_ORIGIN,
+  toBrowser,
+} from "../src/preview/htmlBrowser.ts";
 import { type Lookups, normalizeConfiguredUrls, serversOf, threadWorkspaceFrom } from "../src/preview/portDiscovery.ts";
 import { closeLeftoverSessions } from "../src/preview/sessions.ts";
 import { PROFILE_MAX_BYTES, previewStore, profileChunks } from "../src/preview/store.ts";
@@ -24,7 +31,9 @@ import { nodeSqlStorage } from "./nodeSqlStorage.ts";
 
 describe("a navigation to localhost in Browser Run (R1, review L6)", () => {
   it("goes to the port's Container preview host, path and query kept, for each loopback name", () => {
-    expect(Shadow.translatePreviewUrl("http://localhost:5173/app?x=1#h")).toBe("http://5173.t3flare.internal/app?x=1#h");
+    expect(Shadow.translatePreviewUrl("http://localhost:5173/app?x=1#h")).toBe(
+      "http://5173.t3flare.internal/app?x=1#h",
+    );
     expect(Shadow.translatePreviewUrl("http://127.0.0.1:3000/")).toBe("http://3000.t3flare.internal/");
     expect(Shadow.translatePreviewUrl("https://[::1]:8787/api")).toBe("http://8787.t3flare.internal/api");
     expect(Shadow.translatePreviewUrl("http://0.0.0.0:4173")).toBe("http://4173.t3flare.internal/");
@@ -43,7 +52,11 @@ describe("a navigation to localhost in Browser Run (R1, review L6)", () => {
 });
 
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
-const scan = (listeners: PortScan["listeners"], computerd: number | null = 7): PortScan => ({ computerd, listeners, table: [] });
+const scan = (listeners: PortScan["listeners"], computerd: number | null = 7): PortScan => ({
+  computerd,
+  listeners,
+  table: [],
+});
 const listener = (over: Partial<PortScan["listeners"][number]>): PortScan["listeners"][number] => ({
   port: 5173,
   host: "0.0.0.0",
@@ -74,18 +87,54 @@ describe("port discovery from a Container's scan (C1, review M7)", () => {
   it("lists a terminal's server as the terminal's, and an agent's (CLI key or thread variable) as the agent's", () => {
     const servers = serversOf(
       "ws-a",
-      scan([listener({ port: 5173, exec: "term-a" }), listener({ port: 3000, pid: 101, exec: "proc-a" }), listener({ port: 8000, pid: 102, exec: "exec-9", thread: "thread-a" })]),
+      scan([
+        listener({ port: 5173, exec: "term-a" }),
+        listener({ port: 3000, pid: 101, exec: "proc-a" }),
+        listener({ port: 8000, pid: 102, exec: "exec-9", thread: "thread-a" }),
+      ]),
       LOOKUPS,
     );
     expect(servers).toEqual([
-      { host: "localhost", port: 3000, url: "http://localhost:3000", processName: "node", pid: 101, terminal: null, agent: { threadId: "thread-a" } },
-      { host: "localhost", port: 5173, url: "http://localhost:5173", processName: "node", pid: 100, terminal: { threadId: "thread-a", terminalId: "default" }, agent: null },
-      { host: "localhost", port: 8000, url: "http://localhost:8000", processName: "node", pid: 102, terminal: null, agent: { threadId: "thread-a" } },
+      {
+        host: "localhost",
+        port: 3000,
+        url: "http://localhost:3000",
+        processName: "node",
+        pid: 101,
+        terminal: null,
+        agent: { threadId: "thread-a" },
+      },
+      {
+        host: "localhost",
+        port: 5173,
+        url: "http://localhost:5173",
+        processName: "node",
+        pid: 100,
+        terminal: { threadId: "thread-a", terminalId: "default" },
+        agent: null,
+      },
+      {
+        host: "localhost",
+        port: 8000,
+        url: "http://localhost:8000",
+        processName: "node",
+        pid: 102,
+        terminal: null,
+        agent: { threadId: "thread-a" },
+      },
     ]);
   });
 
   it("leaves out what stock leaves out: an unattributed server, computerd and its port", () => {
-    const servers = serversOf("ws-a", scan([listener({ exec: null }), listener({ port: 8080, pid: 7, comm: "computerd" }), listener({ port: 9000, pid: 7, exec: "term-a" })]), LOOKUPS);
+    const servers = serversOf(
+      "ws-a",
+      scan([
+        listener({ exec: null }),
+        listener({ port: 8080, pid: 7, comm: "computerd" }),
+        listener({ port: 9000, pid: 7, exec: "term-a" }),
+      ]),
+      LOOKUPS,
+    );
     expect(servers).toEqual([]);
   });
 
@@ -105,7 +154,11 @@ describe("port discovery from a Container's scan (C1, review M7)", () => {
   });
 
   it("keeps a hostile process name as data, clipped", () => {
-    const [server] = serversOf("ws-a", scan([listener({ exec: "term-a", comm: `"><img src=x>\n${"y".repeat(100)}` })]), LOOKUPS);
+    const [server] = serversOf(
+      "ws-a",
+      scan([listener({ exec: "term-a", comm: `"><img src=x>\n${"y".repeat(100)}` })]),
+      LOOKUPS,
+    );
     expect(server?.processName).toBe(`"><img src=x>\n${"y".repeat(100)}`.trim().slice(0, 64));
   });
 
@@ -120,7 +173,15 @@ describe("port discovery from a Container's scan (C1, review M7)", () => {
 describe("configured preview URLs (review M4)", () => {
   it("are taken only on loopback, as stock takes them: nothing else is ever probed", () => {
     expect(
-      normalizeConfiguredUrls(["http://localhost:5173/", "http://0.0.0.0:3000/x", "https://example.com/", "http://169.254.169.254/", "http://10.0.0.1/", "file:///etc/passwd", "nonsense"]),
+      normalizeConfiguredUrls([
+        "http://localhost:5173/",
+        "http://0.0.0.0:3000/x",
+        "https://example.com/",
+        "http://169.254.169.254/",
+        "http://10.0.0.1/",
+        "file:///etc/passwd",
+        "nonsense",
+      ]),
     ).toEqual(["http://localhost:5173/", "http://localhost:3000/x"]);
   });
 });
@@ -129,10 +190,14 @@ describe("a thread's Workspace, from t3's projection", () => {
   it("is its worktree's, else its project's, and none for a deleted thread or an unreadable table", () => {
     const sql = nodeSqlStorage();
     sql.exec("CREATE TABLE projection_projects (project_id TEXT, workspace_root TEXT)");
-    sql.exec("CREATE TABLE orchestration_v2_projection_threads (thread_id TEXT, project_id TEXT, payload_json TEXT, deleted_at TEXT)");
+    sql.exec(
+      "CREATE TABLE orchestration_v2_projection_threads (thread_id TEXT, project_id TEXT, payload_json TEXT, deleted_at TEXT)",
+    );
     sql.exec("INSERT INTO projection_projects VALUES ('p', '/w/demo')");
     sql.exec("INSERT INTO orchestration_v2_projection_threads VALUES ('t1', 'p', '{}', NULL)");
-    sql.exec(`INSERT INTO orchestration_v2_projection_threads VALUES ('t2', 'p', '{"worktreePath":"/w/.wt/demo/feature"}', NULL)`);
+    sql.exec(
+      `INSERT INTO orchestration_v2_projection_threads VALUES ('t2', 'p', '{"worktreePath":"/w/.wt/demo/feature"}', NULL)`,
+    );
     sql.exec("INSERT INTO orchestration_v2_projection_threads VALUES ('t3', 'p', '{}', '2026-01-01')");
     const of = threadWorkspaceFrom(sql);
     expect(of("t1")).toBe("demo");
@@ -148,7 +213,12 @@ describe("the Environment's Browser Run records (reviews L4, M5)", () => {
     store.sessionOpened({ id: "s1", kind: "workspace", workspace: "demo", openedAt: 1 });
     store.sessionOpened({ id: "s2", kind: "html", workspace: null, openedAt: 2 });
     const closed: Array<string> = [];
-    expect(await closeLeftoverSessions({ closeSession: async (id: string) => (closed.push(id), { status: "closed" }) } as never, store)).toBe(2);
+    expect(
+      await closeLeftoverSessions(
+        { closeSession: async (id: string) => (closed.push(id), { status: "closed" }) } as never,
+        store,
+      ),
+    ).toBe(2);
     expect(closed).toEqual(["s1", "s2"]);
     expect(store.sessions()).toEqual([]);
   });
@@ -184,7 +254,8 @@ const fakeSocket = () => {
     close: () => {
       for (const listener of listeners.close ?? []) listener({ data: null });
     },
-    addEventListener: (type: string, listener: (event: { data: unknown }) => void) => void (listeners[type] ??= []).push(listener),
+    addEventListener: (type: string, listener: (event: { data: unknown }) => void) =>
+      void (listeners[type] ??= []).push(listener),
   };
   return { socket, sent, emit: (data: string) => (listeners.message ?? []).forEach((listener) => listener({ data })) };
 };
@@ -200,10 +271,13 @@ describe("t3's HTML-render Chrome, bridged to Browser Run (review M3)", () => {
     const out = await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
-          const handle = yield* spawnHtmlBrowser(ChildProcess.make(HTML_BROWSER_EXECUTABLE, ["--version"]) as ChildProcess.StandardCommand, {
-            binding: () => undefined,
-            store: () => previewStore(nodeSqlStorage()),
-          });
+          const handle = yield* spawnHtmlBrowser(
+            ChildProcess.make(HTML_BROWSER_EXECUTABLE, ["--version"]) as ChildProcess.StandardCommand,
+            {
+              binding: () => undefined,
+              store: () => previewStore(nodeSqlStorage()),
+            },
+          );
           return yield* Stream.mkString(Stream.decodeText(handle.stdout));
         }),
       ),
@@ -225,7 +299,12 @@ describe("t3's HTML-render Chrome, bridged to Browser Run (review M3)", () => {
     const encoder = new TextEncoder();
     const commands = [
       JSON.stringify({ id: 1, method: "Target.createBrowserContext", params: {} }),
-      JSON.stringify({ id: 2, method: "Page.navigate", params: { url: `${STOCK_PAGE_ORIGIN}/page.html` }, sessionId: "s" }),
+      JSON.stringify({
+        id: 2,
+        method: "Page.navigate",
+        params: { url: `${STOCK_PAGE_ORIGIN}/page.html` },
+        sessionId: "s",
+      }),
       JSON.stringify({ id: 3, method: "Browser.close", params: {} }),
     ];
     const output = await Effect.runPromise(
@@ -237,8 +316,12 @@ describe("t3's HTML-render Chrome, bridged to Browser Run (review M3)", () => {
                 fd3: {
                   type: "input",
                   // As t3 sends them: Browser.close after the context's reply came back.
-                  stream: Stream.fromIterable(commands.slice(0, 2).map((command) => encoder.encode(`${command}\0`))).pipe(
-                    Stream.concat(Stream.fromEffect(Effect.sleep(50).pipe(Effect.as(encoder.encode(`${commands[2]}\0`))))),
+                  stream: Stream.fromIterable(
+                    commands.slice(0, 2).map((command) => encoder.encode(`${command}\0`)),
+                  ).pipe(
+                    Stream.concat(
+                      Stream.fromEffect(Effect.sleep(50).pipe(Effect.as(encoder.encode(`${commands[2]}\0`)))),
+                    ),
                     Stream.concat(Stream.never),
                   ),
                 },
@@ -249,7 +332,13 @@ describe("t3's HTML-render Chrome, bridged to Browser Run (review M3)", () => {
           );
           yield* Effect.sleep(10);
           fake.emit(yield* encodeJson({ id: 1, result: { browserContextId: "ctx-1" } }));
-          fake.emit(yield* encodeJson({ method: "Fetch.requestPaused", params: { request: { url: `${BRIDGED_PAGE_ORIGIN}/page.html` } }, sessionId: "s" }));
+          fake.emit(
+            yield* encodeJson({
+              method: "Fetch.requestPaused",
+              params: { request: { url: `${BRIDGED_PAGE_ORIGIN}/page.html` } },
+              sessionId: "s",
+            }),
+          );
           const text = yield* Stream.mkString(Stream.decodeText(handle.getOutputFd(4)));
           const code = yield* handle.exitCode;
           return { text, code };
@@ -262,7 +351,12 @@ describe("t3's HTML-render Chrome, bridged to Browser Run (review M3)", () => {
     expect(fake.sent.some((message) => message.includes("Browser.close"))).toBe(false);
     expect(fake.sent.at(-1)).toContain('"Target.disposeBrowserContext"');
     expect(fake.sent.at(-1)).toContain("ctx-1");
-    expect(output.text.split("\0").filter(Boolean).map((line) => JSON.parse(line))).toEqual([
+    expect(
+      output.text
+        .split("\0")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line)),
+    ).toEqual([
       { id: 1, result: { browserContextId: "ctx-1" } },
       { method: "Fetch.requestPaused", params: { request: { url: `${STOCK_PAGE_ORIGIN}/page.html` } }, sessionId: "s" },
       { id: 3, result: {} },
@@ -276,7 +370,9 @@ describe("t3's HTML-render Chrome, bridged to Browser Run (review M3)", () => {
 describe("the preview stream's socket (review H1)", () => {
   it("is the request as Effect reads it, with a socket whose destroy closes the WebSocket", async () => {
     let destroyed = 0;
-    const request = new Request("https://t3.example/api/preview-stream/ws?threadId=t", { headers: { "sec-websocket-extensions": "permessage-deflate" } });
+    const request = new Request("https://t3.example/api/preview-stream/ws?threadId=t", {
+      headers: { "sec-websocket-extensions": "permessage-deflate" },
+    });
     const shim = nodeSocketShim(request, () => {
       destroyed++;
       throw new Error("already closed");
@@ -297,8 +393,24 @@ describe("the ServerBrowserContexts Shadow (U59)", () => {
   it("exports what stock exports, and the class has stock's public methods", () => {
     expect(Object.keys(Shadow)).toEqual(expect.arrayContaining(Object.keys(Stock)));
     const methods = (prototype: object) =>
-      Object.getOwnPropertyNames(prototype).filter((name) => name !== "constructor" && typeof Object.getOwnPropertyDescriptor(prototype, name)?.value === "function");
-    const stock = methods(Stock.ServerBrowserContexts.prototype).filter((name) => !["launchOptions", "launch", "sharedBrowser", "sharedContext", "retireWhenIdle", "retire", "createContext", "profileDirectory", "dispose"].includes(name));
+      Object.getOwnPropertyNames(prototype).filter(
+        (name) =>
+          name !== "constructor" && typeof Object.getOwnPropertyDescriptor(prototype, name)?.value === "function",
+      );
+    const stock = methods(Stock.ServerBrowserContexts.prototype).filter(
+      (name) =>
+        ![
+          "launchOptions",
+          "launch",
+          "sharedBrowser",
+          "sharedContext",
+          "retireWhenIdle",
+          "retire",
+          "createContext",
+          "profileDirectory",
+          "dispose",
+        ].includes(name),
+    );
     expect(methods(Shadow.ServerBrowserContexts.prototype)).toEqual(expect.arrayContaining(stock));
   });
 });
@@ -376,7 +488,10 @@ describe("a profile context's saves (SPI-1123)", () => {
     vi.useFakeTimers();
     const fake = fakeProfileContext({ cookies: [{ name: "a" }] });
     const writes: Array<string> = [];
-    const saver = Shadow.profileSaver(fake.context, { saved: JSON.stringify({ cookies: [{ name: "a" }] }), write: (state) => void writes.push(state) });
+    const saver = Shadow.profileSaver(fake.context, {
+      saved: JSON.stringify({ cookies: [{ name: "a" }] }),
+      write: (state) => void writes.push(state),
+    });
     fake.response();
     await vi.advanceTimersByTimeAsync(MINUTE);
     expect(fake.storageState).toHaveBeenCalledTimes(1);

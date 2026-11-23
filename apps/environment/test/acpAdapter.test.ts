@@ -35,7 +35,11 @@ const AGENT = path.join(import.meta.dirname, "fixtures/fake-acp-agent.mjs");
 const CLAUDE = {
   initialize: {
     protocolVersion: 1,
-    agentCapabilities: { loadSession: true, promptCapabilities: { image: true, embeddedContext: true }, sessionCapabilities: { close: {}, fork: {}, resume: {} } },
+    agentCapabilities: {
+      loadSession: true,
+      promptCapabilities: { image: true, embeddedContext: true },
+      sessionCapabilities: { close: {}, fork: {}, resume: {} },
+    },
     authMethods: [],
     agentInfo: { name: "@agentclientprotocol/claude-agent-acp", title: "Claude Agent", version: "0.106.0" },
   },
@@ -43,8 +47,22 @@ const CLAUDE = {
     sessionId: "claude-session",
     modes: { currentModeId: current, availableModes: modes.map((id) => ({ id, name: id })) },
     configOptions: [
-      { id: "mode", name: "Mode", category: "mode", type: "select", currentValue: current, options: modes.map((value) => ({ value, name: value })) },
-      { id: "model", name: "Model", category: "model", type: "select", currentValue: "default", options: ["default", "comm/claude-sonnet-5-5", "comm/gpt-6-luna"].map((value) => ({ value, name: value })) },
+      {
+        id: "mode",
+        name: "Mode",
+        category: "mode",
+        type: "select",
+        currentValue: current,
+        options: modes.map((value) => ({ value, name: value })),
+      },
+      {
+        id: "model",
+        name: "Model",
+        category: "model",
+        type: "select",
+        currentValue: "default",
+        options: ["default", "comm/claude-sonnet-5-5", "comm/gpt-6-luna"].map((value) => ({ value, name: value })),
+      },
     ],
   }),
   editOptions: [
@@ -54,7 +72,11 @@ const CLAUDE = {
   ],
   exitPlanOptions: [
     { optionId: "exit-plan-default", name: "Yes, manually approve edits", kind: "allow_once" },
-    { optionId: "exit-plan-clear-accept-edits", name: "Yes, clear context and auto-accept edits", kind: "allow_always" },
+    {
+      optionId: "exit-plan-clear-accept-edits",
+      name: "Yes, clear context and auto-accept edits",
+      kind: "allow_always",
+    },
     { optionId: "exit-plan-accept-edits", name: "Yes, auto-accept edits", kind: "allow_always" },
     { optionId: "reject", name: "No, keep planning", kind: "reject_once" },
   ],
@@ -64,15 +86,36 @@ const CLAUDE = {
 const OPENCODE = {
   initialize: {
     protocolVersion: 1,
-    agentCapabilities: { loadSession: true, promptCapabilities: { image: true, embeddedContext: true }, sessionCapabilities: { close: {}, fork: {}, resume: {} } },
+    agentCapabilities: {
+      loadSession: true,
+      promptCapabilities: { image: true, embeddedContext: true },
+      sessionCapabilities: { close: {}, fork: {}, resume: {} },
+    },
     authMethods: [{ id: "opencode-login", name: "Login" }],
     agentInfo: { name: "OpenCode", version: "2.2.7" },
   },
   sessionNew: () => ({
     sessionId: "ses_opencode",
     configOptions: [
-      { id: "model", name: "Model", category: "model", type: "select", currentValue: "t3flare-endpoint-comm/claude-sonnet-5-5", options: ["t3flare-endpoint-comm/claude-sonnet-5-5", "t3flare-endpoint-comm/gpt-6-luna"].map((value) => ({ value, name: value })) },
-      { id: "mode", name: "Mode", category: "mode", type: "select", currentValue: "build", options: ["build", "plan"].map((value) => ({ value, name: value })) },
+      {
+        id: "model",
+        name: "Model",
+        category: "model",
+        type: "select",
+        currentValue: "t3flare-endpoint-comm/claude-sonnet-5-5",
+        options: ["t3flare-endpoint-comm/claude-sonnet-5-5", "t3flare-endpoint-comm/gpt-6-luna"].map((value) => ({
+          value,
+          name: value,
+        })),
+      },
+      {
+        id: "mode",
+        name: "Mode",
+        category: "mode",
+        type: "select",
+        currentValue: "build",
+        options: ["build", "plan"].map((value) => ({ value, name: value })),
+      },
     ],
   }),
   options: [
@@ -96,12 +139,33 @@ interface Script {
   readonly prompts: ReadonlyArray<ReadonlyArray<Record<string, unknown>>>;
 }
 
-const permission = (kind: string, paths: ReadonlyArray<string>, options: ReadonlyArray<unknown>, rawInput: unknown = {}) => ({
-  request: { method: "session/request_permission", params: { toolCall: { toolCallId: `tc-${kind}-${paths.length}`, kind, title: `${kind} ${paths.join(" ")}`, locations: paths.map((p) => ({ path: p })), rawInput }, options } },
+const permission = (
+  kind: string,
+  paths: ReadonlyArray<string>,
+  options: ReadonlyArray<unknown>,
+  rawInput: unknown = {},
+) => ({
+  request: {
+    method: "session/request_permission",
+    params: {
+      toolCall: {
+        toolCallId: `tc-${kind}-${paths.length}`,
+        kind,
+        title: `${kind} ${paths.join(" ")}`,
+        locations: paths.map((p) => ({ path: p })),
+        rawInput,
+      },
+      options,
+    },
+  },
 });
 
 /** An adapter session over the scripted agent, one turn started; its events and the agent's log. */
-const session = Effect.fn("session")(function* (cli: AcpCli, build: (cwd: string) => Script, policy: { readonly runtimeMode: string; readonly interactionMode?: "default" | "plan" }) {
+const session = Effect.fn("session")(function* (
+  cli: AcpCli,
+  build: (cwd: string) => Script,
+  policy: { readonly runtimeMode: string; readonly interactionMode?: "default" | "plan" },
+) {
   const fileSystem = yield* FileSystem.FileSystem;
   const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3flare-acp-" });
   const scriptPath = path.join(cwd, "..", `${path.basename(cwd)}.script.json`);
@@ -110,11 +174,24 @@ const session = Effect.fn("session")(function* (cli: AcpCli, build: (cwd: string
   yield* fileSystem.writeFileString(logPath, "");
   const PATH = yield* Config.String("PATH").pipe(Config.withDefault(""));
   const spawn = Effect.fn("spawn")(function* (input: AcpAdapterV2RuntimeInput) {
-    const { processEnvironment: _env, runtimePolicy: _policy, mcpServers: _mcp, acpMcpServers: _acp, httpMcpServers: _http, ...options } = input;
+    const {
+      processEnvironment: _env,
+      runtimePolicy: _policy,
+      mcpServers: _mcp,
+      acpMcpServers: _acp,
+      httpMcpServers: _http,
+      ...options
+    } = input;
     const context = yield* Layer.build(
       AcpSessionRuntime.layer({
         ...options,
-        spawn: { command: process.execPath, args: [AGENT], cwd: input.cwd, env: { PATH, FAKE_ACP_SCRIPT: scriptPath, FAKE_ACP_LOG: logPath }, extendEnv: false },
+        spawn: {
+          command: process.execPath,
+          args: [AGENT],
+          cwd: input.cwd,
+          env: { PATH, FAKE_ACP_SCRIPT: scriptPath, FAKE_ACP_LOG: logPath },
+          extendEnv: false,
+        },
         authenticateOnAuthRequired: false,
         // As in production (acpDriver.ts): the process group is ours.
         ownDetachedProcessGroup: true,
@@ -125,11 +202,24 @@ const session = Effect.fn("session")(function* (cli: AcpCli, build: (cwd: string
   });
   const driver = ProviderDriverKind.make(cli === "claude" ? "claudeAgent" : "opencode");
   const instanceId = ProviderInstanceId.make(cli === "claude" ? "claudeAgent" : "opencode");
-  const adapter = yield* makeAcpAdapterV2({ instanceId, flavor: acpFlavor(cli, driver, { spawn }), selfInvocation: { command: "none", entrypoint: undefined } });
+  const adapter = yield* makeAcpAdapterV2({
+    instanceId,
+    flavor: acpFlavor(cli, driver, { spawn }),
+    selfInvocation: { command: "none", entrypoint: undefined },
+  });
   const threadId = ThreadId.make(`thread-${cli}`);
   const modelSelection = { instanceId, model: "comm/claude-sonnet-5-5" } as const;
-  const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({ runtimeMode: policy.runtimeMode as never, interactionMode: policy.interactionMode ?? "default", cwd });
-  const runtime = yield* adapter.openSession({ threadId, providerSessionId: ProviderSessionId.make(`session-${cli}`), modelSelection, runtimePolicy });
+  const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+    runtimeMode: policy.runtimeMode as never,
+    interactionMode: policy.interactionMode ?? "default",
+    cwd,
+  });
+  const runtime = yield* adapter.openSession({
+    threadId,
+    providerSessionId: ProviderSessionId.make(`session-${cli}`),
+    modelSelection,
+    runtimePolicy,
+  });
   const events = yield* Queue.unbounded<ProviderAdapter.ProviderAdapterV2Event>();
   const seen: Array<ProviderAdapter.ProviderAdapterV2Event> = [];
   yield* runtime.events.pipe(
@@ -137,7 +227,9 @@ const session = Effect.fn("session")(function* (cli: AcpCli, build: (cwd: string
     Effect.forkScoped,
   );
   const providerThread = yield* runtime.ensureThread({ threadId, modelSelection, runtimePolicy });
-  yield* runtime.startTurn(makeTurnInput({ threadId, providerThread, instanceId, runtimePolicy, now: yield* DateTime.now, modelSelection }));
+  yield* runtime.startTurn(
+    makeTurnInput({ threadId, providerThread, instanceId, runtimePolicy, now: yield* DateTime.now, modelSelection }),
+  );
   const until = Effect.fn("until")(function* (predicate: (event: ProviderAdapter.ProviderAdapterV2Event) => boolean) {
     while (true) {
       const event = yield* Queue.take(events);
@@ -149,14 +241,27 @@ const session = Effect.fn("session")(function* (cli: AcpCli, build: (cwd: string
       .readFileSync(logPath, "utf8")
       .split("\n")
       .filter((line) => line.length > 0)
-      .map((line) => JSON.parse(line) as { received?: string; answered?: string; params?: Record<string, unknown>; result?: { outcome?: { outcome: string; optionId?: string } } });
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            received?: string;
+            answered?: string;
+            params?: Record<string, unknown>;
+            result?: { outcome?: { outcome: string; optionId?: string } };
+          },
+      );
   return { runtime, cwd, until, seen, agentLog, terminal: until((event) => event.type === "turn.terminal") };
 });
 
-const pendingRequest = (event: ProviderAdapter.ProviderAdapterV2Event) => event.type === "runtime_request.updated" && event.runtimeRequest.status === "pending";
-const answers = (log: ReturnType<Effect.Success<ReturnType<typeof session>>["agentLog"]>) => log.filter((entry) => entry.answered !== undefined).map((entry) => entry.result?.outcome?.optionId ?? entry.result?.outcome?.outcome);
+const pendingRequest = (event: ProviderAdapter.ProviderAdapterV2Event) =>
+  event.type === "runtime_request.updated" && event.runtimeRequest.status === "pending";
+const answers = (log: ReturnType<Effect.Success<ReturnType<typeof session>>["agentLog"]>) =>
+  log
+    .filter((entry) => entry.answered !== undefined)
+    .map((entry) => entry.result?.outcome?.optionId ?? entry.result?.outcome?.outcome);
 const run = <A, E>(effect: Effect.Effect<A, E, never>) => Effect.runPromise(effect);
-const test = <A, E>(body: Effect.Effect<A, E, Layer.Success<typeof layerTest> | import("effect/Scope").Scope>) => run(body.pipe(Effect.scoped, Effect.provide(layerTest)));
+const test = <A, E>(body: Effect.Effect<A, E, Layer.Success<typeof layerTest> | import("effect/Scope").Scope>) =>
+  run(body.pipe(Effect.scoped, Effect.provide(layerTest)));
 
 describe("Claude Code through t3's ACP adapter", () => {
   it("asks the owner for an edit at approval-required, and 'for the session' picks the agent's own (stock t3)", () =>
@@ -164,12 +269,24 @@ describe("Claude Code through t3's ACP adapter", () => {
       Effect.gen(function* () {
         const harness = yield* session(
           "claude",
-          (cwd) => ({ initialize: CLAUDE.initialize, sessionNew: CLAUDE.sessionNew(), prompts: [[permission("edit", [`${cwd}/a.txt`], CLAUDE.editOptions), permission("execute", [cwd], CLAUDE.editOptions)]] }),
+          (cwd) => ({
+            initialize: CLAUDE.initialize,
+            sessionNew: CLAUDE.sessionNew(),
+            prompts: [
+              [
+                permission("edit", [`${cwd}/a.txt`], CLAUDE.editOptions),
+                permission("execute", [cwd], CLAUDE.editOptions),
+              ],
+            ],
+          }),
           { runtimeMode: "approval-required" },
         );
         const first = yield* harness.until(pendingRequest);
         if (first.type !== "runtime_request.updated") throw new Error("expected a request");
-        yield* harness.runtime.respondToRuntimeRequest({ requestId: first.runtimeRequest.id, decision: "acceptForSession" });
+        yield* harness.runtime.respondToRuntimeRequest({
+          requestId: first.runtimeRequest.id,
+          decision: "acceptForSession",
+        });
         const second = yield* harness.until(pendingRequest);
         if (second.type !== "runtime_request.updated") throw new Error("expected a request");
         yield* harness.runtime.respondToRuntimeRequest({ requestId: second.runtimeRequest.id, decision: "accept" });
@@ -179,8 +296,13 @@ describe("Claude Code through t3's ACP adapter", () => {
         // "For the session" is the agent's allow_always, as stock t3 answers it; "accept" its allow_once.
         expect(answers(log)).toEqual(["allow-with-updates", "allow-once"]);
         // Pinned to `default`, the endpoint's slug chosen as the model (the relay routes by it).
-        expect(log.find((entry) => entry.received === "session/set_config_option" && entry.params?.configId === "model")?.params?.value).toBe("comm/claude-sonnet-5-5");
-        expect(log.some((entry) => entry.received === "session/set_mode" && entry.params?.modeId !== "default")).toBe(false);
+        expect(
+          log.find((entry) => entry.received === "session/set_config_option" && entry.params?.configId === "model")
+            ?.params?.value,
+        ).toBe("comm/claude-sonnet-5-5");
+        expect(log.some((entry) => entry.received === "session/set_mode" && entry.params?.modeId !== "default")).toBe(
+          false,
+        );
       }),
     ));
 
@@ -190,18 +312,37 @@ describe("Claude Code through t3's ACP adapter", () => {
         const plan = "# Add d.txt\n\n1. Write d.txt containing z.";
         const harness = yield* session(
           "claude",
-          () => ({ initialize: CLAUDE.initialize, sessionNew: CLAUDE.sessionNew(), prompts: [[permission("switch_mode", [], CLAUDE.exitPlanOptions, { plan }), { result: { stopReason: "cancelled" } }]] }),
+          () => ({
+            initialize: CLAUDE.initialize,
+            sessionNew: CLAUDE.sessionNew(),
+            prompts: [
+              [
+                permission("switch_mode", [], CLAUDE.exitPlanOptions, { plan }),
+                { result: { stopReason: "cancelled" } },
+              ],
+            ],
+          }),
           { runtimeMode: "full-access", interactionMode: "plan" },
         );
         const terminal = yield* harness.terminal;
         const log = harness.agentLog();
         const toPlan = (entry: (typeof log)[number]) =>
-          (entry.received === "session/set_mode" && entry.params?.modeId === "plan") || (entry.received === "session/set_config_option" && entry.params?.configId === "mode" && entry.params.value === "plan");
-        expect(log.some(toPlan), yield* encodeJson(log.map((entry) => [entry.received, entry.params?.modeId ?? entry.params?.configId, entry.params?.value]))).toBe(true);
+          (entry.received === "session/set_mode" && entry.params?.modeId === "plan") ||
+          (entry.received === "session/set_config_option" &&
+            entry.params?.configId === "mode" &&
+            entry.params.value === "plan");
+        expect(
+          log.some(toPlan),
+          yield* encodeJson(
+            log.map((entry) => [entry.received, entry.params?.modeId ?? entry.params?.configId, entry.params?.value]),
+          ),
+        ).toBe(true);
         // Denied even at full-access: `reject`, never `exit-plan-default` (Claude would implement in the plan turn).
         expect(answers(log)).toEqual(["reject"]);
         expect(yield* encodeJson(harness.seen)).toContain("Write d.txt containing z.");
-        expect(harness.seen.some((event) => event.type === "turn_item.updated" && event.turnItem.type === "proposed_plan")).toBe(true);
+        expect(
+          harness.seen.some((event) => event.type === "turn_item.updated" && event.turnItem.type === "proposed_plan"),
+        ).toBe(true);
         // Claude stops the prompt as cancelled after the denial; the plan turn completed with its plan.
         expect(terminal.type === "turn.terminal" && terminal.status).toBe("completed");
       }),
@@ -215,7 +356,12 @@ describe("Claude Code through t3's ACP adapter", () => {
           (cwd) => ({
             initialize: CLAUDE.initialize,
             sessionNew: CLAUDE.sessionNew(),
-            prompts: [[{ update: { sessionUpdate: "current_mode_update", currentModeId: "acceptEdits" } }, permission("execute", [cwd], CLAUDE.editOptions)]],
+            prompts: [
+              [
+                { update: { sessionUpdate: "current_mode_update", currentModeId: "acceptEdits" } },
+                permission("execute", [cwd], CLAUDE.editOptions),
+              ],
+            ],
           }),
           { runtimeMode: "approval-required" },
         );
@@ -233,7 +379,11 @@ describe("Claude Code through t3's ACP adapter", () => {
       Effect.gen(function* () {
         const harness = yield* session(
           "claude",
-          (cwd) => ({ initialize: CLAUDE.initialize, sessionNew: CLAUDE.sessionNew(["default", "acceptEdits", "plan", "auto"]), prompts: [[permission("execute", [cwd], CLAUDE.editOptions)]] }),
+          (cwd) => ({
+            initialize: CLAUDE.initialize,
+            sessionNew: CLAUDE.sessionNew(["default", "acceptEdits", "plan", "auto"]),
+            prompts: [[permission("execute", [cwd], CLAUDE.editOptions)]],
+          }),
           { runtimeMode: "auto" },
         );
         const asked = yield* harness.until(pendingRequest);
@@ -241,7 +391,11 @@ describe("Claude Code through t3's ACP adapter", () => {
         yield* harness.runtime.respondToRuntimeRequest({ requestId: asked.runtimeRequest.id, decision: "accept" });
         yield* harness.terminal;
         const log = harness.agentLog();
-        const toAuto = (entry: (typeof log)[number]) => (entry.received === "session/set_mode" && entry.params?.modeId === "auto") || (entry.received === "session/set_config_option" && entry.params?.configId === "mode" && entry.params.value === "auto");
+        const toAuto = (entry: (typeof log)[number]) =>
+          (entry.received === "session/set_mode" && entry.params?.modeId === "auto") ||
+          (entry.received === "session/set_config_option" &&
+            entry.params?.configId === "mode" &&
+            entry.params.value === "auto");
         expect(log.some(toAuto)).toBe(true);
         expect(answers(log)).toEqual(["allow-once"]);
       }),
@@ -252,7 +406,11 @@ describe("Claude Code through t3's ACP adapter", () => {
       Effect.gen(function* () {
         const harness = yield* session(
           "claude",
-          (cwd) => ({ initialize: CLAUDE.initialize, sessionNew: CLAUDE.sessionNew(), prompts: [[permission("execute", [cwd], CLAUDE.editOptions)]] }),
+          (cwd) => ({
+            initialize: CLAUDE.initialize,
+            sessionNew: CLAUDE.sessionNew(),
+            prompts: [[permission("execute", [cwd], CLAUDE.editOptions)]],
+          }),
           { runtimeMode: "auto" },
         );
         const asked = yield* harness.until(pendingRequest);
@@ -260,7 +418,15 @@ describe("Claude Code through t3's ACP adapter", () => {
         yield* harness.runtime.respondToRuntimeRequest({ requestId: asked.runtimeRequest.id, decision: "accept" });
         const terminal = yield* harness.terminal;
         expect(terminal.type === "turn.terminal" && terminal.status).toBe("completed");
-        expect(harness.agentLog().some((entry) => (entry.received === "session/set_mode" && entry.params?.modeId === "auto") || (entry.received === "session/set_config_option" && entry.params?.value === "auto"))).toBe(false);
+        expect(
+          harness
+            .agentLog()
+            .some(
+              (entry) =>
+                (entry.received === "session/set_mode" && entry.params?.modeId === "auto") ||
+                (entry.received === "session/set_config_option" && entry.params?.value === "auto"),
+            ),
+        ).toBe(false);
       }),
     ));
 });
@@ -274,7 +440,13 @@ describe("OpenCode through t3's ACP adapter", () => {
           (cwd) => ({
             initialize: OPENCODE.initialize,
             sessionNew: OPENCODE.sessionNew(),
-            prompts: [[permission("edit", [`${cwd}/src/a.ts`], OPENCODE.options), permission("edit", ["/etc/opencode/opencode.json"], OPENCODE.options), permission("edit", [`${cwd}/.opencode/opencode.json`], OPENCODE.options)]],
+            prompts: [
+              [
+                permission("edit", [`${cwd}/src/a.ts`], OPENCODE.options),
+                permission("edit", ["/etc/opencode/opencode.json"], OPENCODE.options),
+                permission("edit", [`${cwd}/.opencode/opencode.json`], OPENCODE.options),
+              ],
+            ],
           }),
           { runtimeMode: "auto-accept-edits" },
         );
@@ -284,7 +456,14 @@ describe("OpenCode through t3's ACP adapter", () => {
         expect(answers(log)).toEqual(["once", "once", "once"]);
         expect(harness.seen.some(pendingRequest)).toBe(false);
         // The endpoint's model is already OpenCode's current value: no other model is set.
-        expect(log.filter((entry) => entry.received === "session/set_config_option" && entry.params?.configId === "model" && entry.params.value !== "t3flare-endpoint-comm/claude-sonnet-5-5")).toEqual([]);
+        expect(
+          log.filter(
+            (entry) =>
+              entry.received === "session/set_config_option" &&
+              entry.params?.configId === "model" &&
+              entry.params.value !== "t3flare-endpoint-comm/claude-sonnet-5-5",
+          ),
+        ).toEqual([]);
       }),
     ));
 
@@ -293,12 +472,23 @@ describe("OpenCode through t3's ACP adapter", () => {
       Effect.gen(function* () {
         const harness = yield* session(
           "opencode",
-          (cwd) => ({ initialize: OPENCODE.initialize, sessionNew: OPENCODE.sessionNew(), prompts: [[permission("edit", [`${cwd}/d.txt`], OPENCODE.options)]] }),
+          (cwd) => ({
+            initialize: OPENCODE.initialize,
+            sessionNew: OPENCODE.sessionNew(),
+            prompts: [[permission("edit", [`${cwd}/d.txt`], OPENCODE.options)]],
+          }),
           { runtimeMode: "full-access", interactionMode: "plan" },
         );
         yield* harness.terminal;
         const log = harness.agentLog();
-        expect(log.some((entry) => entry.received === "session/set_config_option" && entry.params?.configId === "mode" && entry.params.value === "plan")).toBe(true);
+        expect(
+          log.some(
+            (entry) =>
+              entry.received === "session/set_config_option" &&
+              entry.params?.configId === "mode" &&
+              entry.params.value === "plan",
+          ),
+        ).toBe(true);
         expect(answers(log)).toEqual(["reject"]);
       }),
     ));

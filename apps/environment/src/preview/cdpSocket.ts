@@ -33,7 +33,9 @@ export const openCdpSocket = async (
 ): Promise<{ readonly sessionId: string; readonly socket: CdpWebSocket }> => {
   const connection = await binding.launch(acquireOptions(input) as never);
   try {
-    const response = await connection.webSocket.fetch("https://browser-binding.invalid", { headers: { Upgrade: "websocket" } });
+    const response = await connection.webSocket.fetch("https://browser-binding.invalid", {
+      headers: { Upgrade: "websocket" },
+    });
     const socket = (response as unknown as { webSocket: CdpWebSocket | null }).webSocket;
     if (socket === null) throw new Error("Browser Run did not return a WebSocket");
     socket.accept();
@@ -68,7 +70,12 @@ export class CdpClient {
     return this.#closed;
   }
 
-  send<A = unknown>(method: string, params: Record<string, unknown> = {}, sessionId?: string, timeoutMs = 30_000): Promise<A> {
+  send<A = unknown>(
+    method: string,
+    params: Record<string, unknown> = {},
+    sessionId?: string,
+    timeoutMs = 30_000,
+  ): Promise<A> {
     if (this.#closed) return Promise.reject(new Error("CDP socket closed"));
     const id = ++this.#nextId;
     return new Promise<A>((resolve, reject) => {
@@ -107,7 +114,14 @@ export class CdpClient {
 
   #receive(data: unknown): void {
     const text = typeof data === "string" ? data : new TextDecoder().decode(data as ArrayBuffer);
-    let message: { id?: number; method?: string; params?: unknown; sessionId?: string; result?: unknown; error?: { message: string } };
+    let message: {
+      id?: number;
+      method?: string;
+      params?: unknown;
+      sessionId?: string;
+      result?: unknown;
+      error?: { message: string };
+    };
     try {
       message = JSON.parse(text) as typeof message;
     } catch {
@@ -120,6 +134,7 @@ export class CdpClient {
       else waiter?.resolve(message.result);
       return;
     }
-    if (message.method !== undefined) for (const listener of this.#listeners) listener(message.method, message.params, message.sessionId);
+    if (message.method !== undefined)
+      for (const listener of this.#listeners) listener(message.method, message.params, message.sessionId);
   }
 }

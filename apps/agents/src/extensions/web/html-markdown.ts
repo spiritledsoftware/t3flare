@@ -319,8 +319,7 @@ export const htmlToMarkdown = (html: string): string => {
     if (pre !== undefined) {
       if (name === "br") pre.text += "\n";
       else if (name === "code" && pre.language === "") {
-        pre.language =
-          /(?:^|\s)(?:language|lang)-([\w+#.-]+)/.exec(attributes.class ?? "")?.[1] ?? "";
+        pre.language = /(?:^|\s)(?:language|lang)-([\w+#.-]+)/.exec(attributes.class ?? "")?.[1] ?? "";
       }
 
       return;
@@ -361,7 +360,10 @@ export const htmlToMarkdown = (html: string): string => {
         const source = attributes.src ?? "";
 
         if (source !== "" && !source.startsWith("data:")) {
-          const alt = (attributes.alt ?? "").replace(/\s+/g, " ").trim().replace(/[\\[\]]/g, "\\$&");
+          const alt = (attributes.alt ?? "")
+            .replace(/\s+/g, " ")
+            .trim()
+            .replace(/[\\[\]]/g, "\\$&");
 
           put(`${pendingSpace ? " " : ""}![${alt}](${destination(source)})`);
           pendingSpace = false;
@@ -400,9 +402,7 @@ export const htmlToMarkdown = (html: string): string => {
         const href = attributes.href ?? "";
 
         // A link without a usable destination is only its text; the span keeps the nesting even so.
-        openSpan(
-          href === "" || /^\s*javascript:/i.test(href) ? { kind: "plain" } : { kind: "link", href },
-        );
+        openSpan(href === "" || /^\s*javascript:/i.test(href) ? { kind: "plain" } : { kind: "link", href });
 
         return;
       }

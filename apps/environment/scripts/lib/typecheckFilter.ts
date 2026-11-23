@@ -16,7 +16,8 @@ export interface Diagnostic {
 }
 
 /** The heading the typecheck prints over t3's errors, and how the bump reads their count back from its output. */
-export const t3ErrorsHeading = (count: number): string => `${count} error(s) in t3's own files, which only this program's configuration sees (fragility U10); not failing:`;
+export const t3ErrorsHeading = (count: number): string =>
+  `${count} error(s) in t3's own files, which only this program's configuration sees (fragility U10); not failing:`;
 export const T3_ERRORS_COUNT = /^(\d+) error\(s\) in t3's own files, which only this program's configuration sees/m;
 
 const START = /^(.+?)\((\d+),(\d+)\): (error|warning|suggestion|message) TS\d+: /;
@@ -26,7 +27,9 @@ const START = /^(.+?)\((\d+),(\d+)\): (error|warning|suggestion|message) TS\d+: 
  * continuation lines are indented; an unindented line that starts none (a global `error TS…` with no file, a panic, a
  * refused configuration) is `unparsed`.
  */
-export const parseDiagnostics = (output: string): { readonly diagnostics: Array<Diagnostic>; readonly unparsed: Array<string> } => {
+export const parseDiagnostics = (
+  output: string,
+): { readonly diagnostics: Array<Diagnostic>; readonly unparsed: Array<string> } => {
   const diagnostics: Array<{ file: string; category: string; lines: Array<string> }> = [];
   const unparsed: Array<string> = [];
   for (const line of output.split(/\r?\n/)) {
@@ -36,7 +39,10 @@ export const parseDiagnostics = (output: string): { readonly diagnostics: Array<
     else if (/^\s/.test(line) && diagnostics.length > 0) diagnostics.at(-1)!.lines.push(line);
     else unparsed.push(line);
   }
-  return { diagnostics: diagnostics.map(({ file, category, lines }) => ({ file, category, text: lines.join("\n") })), unparsed };
+  return {
+    diagnostics: diagnostics.map(({ file, category, lines }) => ({ file, category, text: lines.join("\n") })),
+    unparsed,
+  };
 };
 
 /** `file` as the compiler printed it (relative to `cwd`, absolute, `./`-prefixed, either separator), resolved. */
@@ -49,7 +55,8 @@ export const isT3File = (file: string, cwd: string, t3Root: string): boolean => 
 };
 
 /** `file` resolved and made relative to the package at `cwd`, with `/` separators: `test/x.ts`, or `../…` outside it. */
-export const packagePath = (file: string, cwd: string): string => path.relative(cwd, resolveFile(file, cwd)).split(path.sep).join("/");
+export const packagePath = (file: string, cwd: string): string =>
+  path.relative(cwd, resolveFile(file, cwd)).split(path.sep).join("/");
 
 /**
  * Which program owns a file, given its `packagePath`: `true` this one, `false` another program (it checks the file
@@ -91,7 +98,13 @@ export interface TypecheckVerdict {
  * narrows our own files (by default every file outside t3's) to the ones this program owns, judged on each file's
  * `packagePath`; errors in files another program owns pass too, and errors in files it cannot place fail.
  */
-export const typecheckVerdict = (status: number | null, output: string, cwd: string, t3Root: string, ownership: Ownership = () => true): TypecheckVerdict => {
+export const typecheckVerdict = (
+  status: number | null,
+  output: string,
+  cwd: string,
+  t3Root: string,
+  ownership: Ownership = () => true,
+): TypecheckVerdict => {
   const { diagnostics, unparsed } = parseDiagnostics(output);
   const t3 = (d: Diagnostic) => isT3File(d.file, cwd, t3Root);
   const owner = (d: Diagnostic) => ownership(packagePath(d.file, cwd));
@@ -102,10 +115,24 @@ export const typecheckVerdict = (status: number | null, output: string, cwd: str
   const ourErrors = ours.filter((d) => d.category === "error");
   const base = { ours, t3Errors, elsewhereErrors, unownedErrors };
   if (ourErrors.length > 0) return { ok: false, ...base };
-  if (unownedErrors.length > 0) return { ok: false, ...base, reason: `errors in files no program owns: ${unownedErrors.slice(0, 5).map((d) => d.file).join(" | ")}` };
+  if (unownedErrors.length > 0)
+    return {
+      ok: false,
+      ...base,
+      reason: `errors in files no program owns: ${unownedErrors
+        .slice(0, 5)
+        .map((d) => d.file)
+        .join(" | ")}`,
+    };
   if (status === 0) return { ok: true, ...base };
   if (status === null) return { ok: false, ...base, reason: "the compiler was killed by a signal" };
-  if (unparsed.length > 0) return { ok: false, ...base, reason: `the compiler exited ${status} and printed lines that are not diagnostics: ${unparsed.slice(0, 5).join(" | ")}` };
-  if (t3Errors.length === 0 && elsewhereErrors.length === 0) return { ok: false, ...base, reason: `the compiler exited ${status} with no error diagnostic` };
+  if (unparsed.length > 0)
+    return {
+      ok: false,
+      ...base,
+      reason: `the compiler exited ${status} and printed lines that are not diagnostics: ${unparsed.slice(0, 5).join(" | ")}`,
+    };
+  if (t3Errors.length === 0 && elsewhereErrors.length === 0)
+    return { ok: false, ...base, reason: `the compiler exited ${status} with no error diagnostic` };
   return { ok: true, ...base };
 };

@@ -34,14 +34,28 @@ const open = () => new Promise<never>(() => undefined);
  */
 const workspaces = () => {
   const sql = t3Tables();
-  sql.exec("INSERT INTO projection_projects VALUES ('p-acme', 'Acme', '/w/acme', '2026-03-01T00:00:00Z', '2026-06-01T00:00:00Z', NULL)");
+  sql.exec(
+    "INSERT INTO projection_projects VALUES ('p-acme', 'Acme', '/w/acme', '2026-03-01T00:00:00Z', '2026-06-01T00:00:00Z', NULL)",
+  );
   sql.exec("INSERT INTO projection_projects VALUES ('p-live', 'Live', '/w/live', '2026-03-01T00:00:00Z', NULL, NULL)");
-  sql.exec(`INSERT INTO orchestration_v2_projection_threads VALUES ('t1', 'p-acme', 'Feature A', '2026-06-01T00:00:00Z', NULL, '{"worktreePath":"/w/.wt/acme/feat-a"}')`);
-  sql.exec(`INSERT INTO orchestration_v2_projection_threads VALUES ('t0', 'p-acme', 'Plain', '2026-06-01T00:00:00Z', NULL, '{"worktreePath":null}')`);
+  sql.exec(
+    `INSERT INTO orchestration_v2_projection_threads VALUES ('t1', 'p-acme', 'Feature A', '2026-06-01T00:00:00Z', NULL, '{"worktreePath":"/w/.wt/acme/feat-a"}')`,
+  );
+  sql.exec(
+    `INSERT INTO orchestration_v2_projection_threads VALUES ('t0', 'p-acme', 'Plain', '2026-06-01T00:00:00Z', NULL, '{"worktreePath":null}')`,
+  );
   const rows: Array<WorkspaceRecord> = [
     record({ id: "acme", unreferencedSince: Date.UTC(2026, 10, 10) }),
     record({ id: ".wt/acme/feat-a", kind: "worktree", parent: "acme", branch: "feat-a" }),
-    record({ id: ".wt/acme/feat-b", kind: "worktree", parent: "acme", branch: "feat-b", state: "tombstoned", deletedAt: Date.UTC(2026, 10, 12), purgeAfter: Date.UTC(2026, 10, 19) }),
+    record({
+      id: ".wt/acme/feat-b",
+      kind: "worktree",
+      parent: "acme",
+      branch: "feat-b",
+      state: "tombstoned",
+      deletedAt: Date.UTC(2026, 10, 12),
+      purgeAfter: Date.UTC(2026, 10, 19),
+    }),
     record({ id: "live" }),
   ];
   const purged: Array<string> = [];
@@ -73,7 +87,12 @@ const pagePost = async (run: SettingsFixture, id: string, body: Record<string, u
   return handleHarness(
     new Request(`https://${HOST}${CHANGES_API_PATH}/${id}`, {
       method: "POST",
-      headers: { "content-type": "application/json", origin: `https://${HOST}`, "sec-fetch-site": "same-origin", "x-t3flare-csrf": csrf },
+      headers: {
+        "content-type": "application/json",
+        origin: `https://${HOST}`,
+        "sec-fetch-site": "same-origin",
+        "x-t3flare-csrf": csrf,
+      },
       body: JSON.stringify(body),
     }),
     run.panel(),
@@ -97,7 +116,9 @@ describe("purge_workspace: planning (ADR-0044 §5)", () => {
 
   it("refuses a project whose worktree is referenced, and an unknown Workspace", async () => {
     const ws = workspaces();
-    ws.sql.exec(`INSERT INTO orchestration_v2_projection_threads VALUES ('t9', 'p-live', 'Still working', NULL, NULL, '{"worktreePath":"/w/.wt/acme/feat-a"}')`);
+    ws.sql.exec(
+      `INSERT INTO orchestration_v2_projection_threads VALUES ('t9', 'p-live', 'Still working', NULL, NULL, '{"worktreePath":"/w/.wt/acme/feat-a"}')`,
+    );
     fixture = settingsFixture({ workspaces: ws.deps });
     const run = fixture;
     const held = await run.call(run.durable("thread-a", "full-access"), "purge_workspace", PURGE);
@@ -117,12 +138,18 @@ describe("purge_workspace: planning (ADR-0044 §5)", () => {
     const run = fixture;
     const owner = {};
     noteDurableModes("thread-plan", { runtimeMode: "full-access", interactionMode: "plan" }, owner);
-    expect(textOf(await run.call({ door: "own", thread: "thread-plan", agent: "piDurable" }, "purge_workspace", PURGE))).toBe(PLAN_REFUSAL);
-    expect(textOf(await run.call(run.durable("thread-linked", "full-access"), "purge_workspace", PURGE))).toBe(LINKED_REFUSAL);
+    expect(
+      textOf(await run.call({ door: "own", thread: "thread-plan", agent: "piDurable" }, "purge_workspace", PURGE)),
+    ).toBe(PLAN_REFUSAL);
+    expect(textOf(await run.call(run.durable("thread-linked", "full-access"), "purge_workspace", PURGE))).toBe(
+      LINKED_REFUSAL,
+    );
     const readOnly = applyMcpChange(EMPTY_HARNESS, { op: "server", server: "settings", writes: false });
     if (!readOnly.ok) throw new Error(readOnly.error);
     run.store.save(readOnly.harness);
-    expect(textOf(await run.call(run.durable("thread-a", "full-access"), "purge_workspace", PURGE))).toBe(READ_ONLY_REFUSAL);
+    expect(textOf(await run.call(run.durable("thread-a", "full-access"), "purge_workspace", PURGE))).toBe(
+      READ_ONLY_REFUSAL,
+    );
     expect(reads).toBe(0);
     expect(run.cards).toEqual([]);
     expect(ws.purged).toEqual([]);
@@ -143,7 +170,9 @@ describe("purge_workspace: always asked (ADR-0044 §5)", () => {
     expect(prompt.startsWith("A Purge of the Workspace acme:")).toBe(true);
     expect(prompt).not.toContain("revision");
     expect(prompt).toContain(`It waits for the owner because:\n- ${REASON}`);
-    expect(prompt).toContain("With it, its Worktree Workspaces: .wt/acme/feat-a (unreferenced), .wt/acme/feat-b (tombstone).");
+    expect(prompt).toContain(
+      "With it, its Worktree Workspaces: .wt/acme/feat-a (unreferenced), .wt/acme/feat-b (tombstone).",
+    );
     expect(prompt).not.toContain("Kept Tombstones");
     expect(prompt).toContain(APPLIES_AT.purge);
     expect(ws.purged).toEqual([".wt/acme/feat-a", ".wt/acme/feat-b", "acme"]);
@@ -166,7 +195,12 @@ describe("purge_workspace: always asked (ADR-0044 §5)", () => {
     ]);
     // The record: entity workspaces at the constant revision 0, the purge item (ADR-0044 §5).
     const [closed] = run.deps.changes.closedBy("own:thread-a", 0);
-    expect(closed).toMatchObject({ entity: "workspaces", expectedRevision: 0, state: "applied", shown: { entity: "workspaces", revision: 0, appliesAt: APPLIES_AT.purge } });
+    expect(closed).toMatchObject({
+      entity: "workspaces",
+      expectedRevision: 0,
+      state: "applied",
+      shown: { entity: "workspaces", revision: 0, appliesAt: APPLIES_AT.purge },
+    });
     expect(closed!.shown!.items).toEqual([
       {
         kind: "purge",
@@ -188,7 +222,9 @@ describe("purge_workspace: always asked (ADR-0044 §5)", () => {
     const ws = workspaces();
     fixture = settingsFixture({ workspaces: ws.deps, answer: open });
     const run = fixture;
-    const pending = run.call(run.durable("thread-a", "approval-required"), "purge_workspace", { workspace: ".wt/acme/feat-b" });
+    const pending = run.call(run.durable("thread-a", "approval-required"), "purge_workspace", {
+      workspace: ".wt/acme/feat-b",
+    });
     await until(() => run.cards.length === 1);
     const [record] = run.deps.changes.open();
     expect(record).toMatchObject({ tool: "purge_workspace", entity: "workspaces", mode: "card" });
@@ -200,7 +236,15 @@ describe("purge_workspace: always asked (ADR-0044 §5)", () => {
     expect(posted.status).toBe(200);
     expect(structured(await pending)).toMatchObject({ status: "applied", changeId: record!.id });
     expect(ws.purged).toEqual([".wt/acme/feat-b"]);
-    expect(ws.audit).toMatchObject([{ entity: "workspaces", action: "workspace.purge", target: ".wt/acme/feat-b", answeredBy: "page", caller: "agent:thread-a" }]);
+    expect(ws.audit).toMatchObject([
+      {
+        entity: "workspaces",
+        action: "workspace.purge",
+        target: ".wt/acme/feat-b",
+        answeredBy: "page",
+        caller: "agent:thread-a",
+      },
+    ]);
     expect(run.withdrawn).toEqual([run.cards[0]!.id]);
   });
 
@@ -210,7 +254,9 @@ describe("purge_workspace: always asked (ADR-0044 §5)", () => {
       workspaces: ws.deps,
       answer: async () => {
         // A thread in t3 takes the worktree while the card waits.
-        ws.sql.exec(`INSERT INTO orchestration_v2_projection_threads VALUES ('t7', 'p-live', 'Took it back', NULL, NULL, '{"worktreePath":"/w/.wt/acme/feat-a"}')`);
+        ws.sql.exec(
+          `INSERT INTO orchestration_v2_projection_threads VALUES ('t7', 'p-live', 'Took it back', NULL, NULL, '{"worktreePath":"/w/.wt/acme/feat-a"}')`,
+        );
         return { decision: "accept" };
       },
     });
@@ -235,7 +281,9 @@ describe("purge_workspace: always asked (ADR-0044 §5)", () => {
     fixture = settingsFixture({ workspaces: deps });
     const run = fixture;
     const answer = await run.call(run.durable("thread-a", "full-access"), "purge_workspace", PURGE);
-    expect(textOf(answer)).toContain("the Purge could not finish: Error: audit log full; list_workspaces shows what is left");
+    expect(textOf(answer)).toContain(
+      "the Purge could not finish: Error: audit log full; list_workspaces shows what is left",
+    );
     expect(textOf(answer)).not.toContain("nothing was purged");
     expect(ws.purged.length).toBeGreaterThan(0);
   });
@@ -246,7 +294,8 @@ describe("purge_workspace: always asked (ADR-0044 §5)", () => {
     let reads = 0;
     const deps: WorkspaceActionsDeps = {
       ...ws.deps,
-      terminals: async (id) => (id === "acme" && ++reads === 3 ? Promise.reject(new Error("Workspace DO unreachable")) : ws.deps.terminals(id)),
+      terminals: async (id) =>
+        id === "acme" && ++reads === 3 ? Promise.reject(new Error("Workspace DO unreachable")) : ws.deps.terminals(id),
     };
     fixture = settingsFixture({ workspaces: deps });
     const run = fixture;
@@ -268,7 +317,9 @@ describe("purge_workspace: always asked (ADR-0044 §5)", () => {
     const again = await run.call(caller, "purge_workspace", PURGE);
     expect(structured(again)).toMatchObject({ status: "refused", reason: "declined-repeat" });
     expect(run.cards).toHaveLength(1);
-    expect(structured(await run.call(caller, "purge_workspace", { workspace: ".wt/acme/feat-b" }))).toMatchObject({ status: "declined" });
+    expect(structured(await run.call(caller, "purge_workspace", { workspace: ".wt/acme/feat-b" }))).toMatchObject({
+      status: "declined",
+    });
     expect(run.cards).toHaveLength(2);
     run.advance(DECLINED_REPEAT_MS + 1);
     expect(structured(await run.call(caller, "purge_workspace", PURGE))).toMatchObject({ status: "declined" });
@@ -280,7 +331,12 @@ describe("purge_workspace: always asked (ADR-0044 §5)", () => {
     const ws = workspaces();
     fixture = settingsFixture({ workspaces: ws.deps });
     const run = fixture;
-    const opened = await settingsOwnerCall(run.deps, { tool: "purge_workspace", args: PURGE, caller: { door: "owner", kind: "owner", key: "owner-sub" }, mode: "browser" });
+    const opened = await settingsOwnerCall(run.deps, {
+      tool: "purge_workspace",
+      args: PURGE,
+      caller: { door: "owner", kind: "owner", key: "owner-sub" },
+      mode: "browser",
+    });
     expect(opened.kind).toBe("open");
     if (opened.kind !== "open") return;
     expect(opened.record).toMatchObject({ entity: "workspaces", expectedRevision: 0, mode: "browser" });
@@ -298,7 +354,11 @@ describe("list_workspaces and the texts (ADR-0044 §5)", () => {
     const listed = structured(await run.call(run.durable("thread-a", "approval-required"), "list_workspaces"));
     expect(listed).toMatchObject({ purging: true, graceDays: 7 });
     expect(listed.rows.map((row: { id: string }) => row.id)).toEqual(["acme", "live"]);
-    expect(listed.rows[0]).toMatchObject({ title: "Acme", can: { purge: true }, worktrees: [{ id: ".wt/acme/feat-a" }, { id: ".wt/acme/feat-b" }] });
+    expect(listed.rows[0]).toMatchObject({
+      title: "Acme",
+      can: { purge: true },
+      worktrees: [{ id: ".wt/acme/feat-a" }, { id: ".wt/acme/feat-b" }],
+    });
     expect(listed.rows[1]).toMatchObject({ status: "in use", references: ["project “Live”"], can: { purge: false } });
     expect(JSON.stringify(listed)).not.toContain("bytes");
     expect(run.cards).toEqual([]);
@@ -308,7 +368,11 @@ describe("list_workspaces and the texts (ADR-0044 §5)", () => {
     expect(SETTINGS_TOOLS.find((tool) => tool.name === "list_workspaces")?.class).toBe("read");
     const purge = SETTINGS_TOOLS.find((tool) => tool.name === "purge_workspace")!;
     expect(purge.class).toBe("write");
-    expect(purge.inputSchema).toMatchObject({ required: ["workspace"], properties: { workspace: { type: "string" } }, additionalProperties: false });
+    expect(purge.inputSchema).toMatchObject({
+      required: ["workspace"],
+      properties: { workspace: { type: "string" } },
+      additionalProperties: false,
+    });
     expect(JSON.stringify(purge.inputSchema)).not.toContain("expectedRevision");
     expect(JSON.stringify(purge.inputSchema)).not.toContain("force");
     // GLOSSARY: the owner answers an Open change; a Purge is never "deleted" or "removed" (t3's words).
@@ -321,17 +385,33 @@ describe("list_workspaces and the texts (ADR-0044 §5)", () => {
 
   it("a kept Tombstone in the set is called out on the card and the Change page: work a removal could not check", async () => {
     const ws = workspaces();
-    ws.rows.splice(2, 1, record({ id: ".wt/acme/feat-b", kind: "worktree", parent: "acme", branch: "feat-b", state: "tombstoned", deletedAt: Date.UTC(2026, 10, 12), purgeAfter: null }));
+    ws.rows.splice(
+      2,
+      1,
+      record({
+        id: ".wt/acme/feat-b",
+        kind: "worktree",
+        parent: "acme",
+        branch: "feat-b",
+        state: "tombstoned",
+        deletedAt: Date.UTC(2026, 10, 12),
+        purgeAfter: null,
+      }),
+    );
     fixture = settingsFixture({ workspaces: ws.deps, answer: open });
     const run = fixture;
     void run.call(run.durable("thread-a", "approval-required"), "purge_workspace", PURGE);
     await until(() => run.cards.length === 1);
     const prompt = run.cards[0]!.prompt;
     expect(prompt).toContain(".wt/acme/feat-b (tombstone (kept))");
-    expect(prompt).toContain("Kept Tombstones, holding work a removal could not check, go with it for good: .wt/acme/feat-b.");
+    expect(prompt).toContain(
+      "Kept Tombstones, holding work a removal could not check, go with it for good: .wt/acme/feat-b.",
+    );
     const page = renderChangePage(run.deps.changes.open()[0]!, { csrf: "tok", now: run.now() });
     expect(page).toContain("<li><code>.wt/acme/feat-b</code> tombstone (kept)</li>");
-    expect(page).toContain("Kept Tombstones, holding work a removal could not check, go with it for good: .wt/acme/feat-b.");
+    expect(page).toContain(
+      "Kept Tombstones, holding work a removal could not check, go with it for good: .wt/acme/feat-b.",
+    );
   });
 
   it("the card's text and the Change page render the purge item", () => {
@@ -356,11 +436,27 @@ describe("list_workspaces and the texts (ADR-0044 §5)", () => {
       lines: [],
     };
     const text = changeText(view);
-    expect(text).toContain('- Purge the project Workspace acme ("<b>Acme</b>", unreferenced) now, with its files, for good.');
+    expect(text).toContain(
+      '- Purge the project Workspace acme ("<b>Acme</b>", unreferenced) now, with its files, for good.',
+    );
     expect(text).toContain("The Sweep would purge it at 2026-11-24T00:00:00.000Z.");
     expect(text).toContain("Applies at once; it cannot be undone.");
     const page = renderChangePage(
-      { id: "chg_x", entity: "workspaces", expectedRevision: 0, tool: "purge_workspace", args: PURGE, hash: "h", tier: "asked", shown: view, mode: "card", caller: { door: "own", key: "t", principal: "agent", thread: "t", agent: "piDurable" }, createdAt: 0, expiresAt: 1, state: "applied" },
+      {
+        id: "chg_x",
+        entity: "workspaces",
+        expectedRevision: 0,
+        tool: "purge_workspace",
+        args: PURGE,
+        hash: "h",
+        tier: "asked",
+        shown: view,
+        mode: "card",
+        caller: { door: "own", key: "t", principal: "agent", thread: "t", agent: "piDurable" },
+        createdAt: 0,
+        expiresAt: 1,
+        state: "applied",
+      },
       { csrf: "tok", now: 0 },
     );
     expect(page).toContain("&lt;b&gt;Acme&lt;/b&gt;");

@@ -62,10 +62,23 @@ import { type SkillsTaker, takeSkillsForTurn } from "@t3flare/skills";
 import { type AgentTerminalRequest, type AgentTerminalResult, REPO_ROOT } from "@t3flare/workspace-client";
 import { DurableObject } from "cloudflare:workers";
 
-import { EMPTY_HARNESS, extensionOf, ownEntry, resolvedToolsOf, resolveHarness, type ResolvedHarness } from "@t3flare/harness-registry";
+import {
+  EMPTY_HARNESS,
+  extensionOf,
+  ownEntry,
+  resolvedToolsOf,
+  resolveHarness,
+  type ResolvedHarness,
+} from "@t3flare/harness-registry";
 
 import { type EnvironmentDO, environmentStub, limitsSender, usageSender } from "../environment.ts";
-import { type CodemodeSandboxNamespace, codemodeExtension, offeredToolsExtension, remoteSandbox, toolSearchExtension } from "../extensions/codemode.ts";
+import {
+  type CodemodeSandboxNamespace,
+  codemodeExtension,
+  offeredToolsExtension,
+  remoteSandbox,
+  toolSearchExtension,
+} from "../extensions/codemode.ts";
 import { mcpExtension, mcpNamespaces, type McpView } from "../extensions/mcp.ts";
 import { codingTools } from "../extensions/coding-tools.ts";
 import { fileTools } from "../extensions/files.ts";
@@ -78,12 +91,26 @@ import { CONTEXT_EXTENSION, CONTEXT_NAMESPACE, contextExtension } from "../exten
 import { ADVISOR_EXTENSION, AdvisorObserver, type AdvisorSettings, advisorExtension } from "../extensions/advisor.ts";
 import { GUARDIAN_EXTENSION, guardianExtension } from "../extensions/guardian.ts";
 import type { GuardianThinkingLevel } from "../extensions/guardian/review.ts";
-import { backgroundJobs, TERMCTRL_EXTENSION, TERMCTRL_NAMESPACE, type TermctrlHost, termctrlExtension } from "../extensions/termctrl.ts";
+import {
+  backgroundJobs,
+  TERMCTRL_EXTENSION,
+  TERMCTRL_NAMESPACE,
+  type TermctrlHost,
+  termctrlExtension,
+} from "../extensions/termctrl.ts";
 import { SKILLS_EXTENSION, skillsExtension } from "../extensions/skills.ts";
 import { TODO_EXTENSION, TodoDoc, todoExtension } from "../extensions/todo.ts";
 import { WEB_EXTENSION, WEB_NAMESPACE, webExtension } from "../extensions/web.ts";
 import { type SearchTarget, searchChoice } from "../extensions/web/search.ts";
-import { catalogOf, T3_EXTENSION, t3ListingOf, type T3Catalog, t3McpExtension, t3RegisteredExposure, t3ToolName } from "../extensions/t3-mcp.ts";
+import {
+  catalogOf,
+  T3_EXTENSION,
+  t3ListingOf,
+  type T3Catalog,
+  t3McpExtension,
+  t3RegisteredExposure,
+  t3ToolName,
+} from "../extensions/t3-mcp.ts";
 import { T3McpClient } from "./t3McpClient.ts";
 import { NO_KEY, sessionModels } from "./models.ts";
 import { credentialFailure } from "./credentialFailure.ts";
@@ -91,7 +118,15 @@ import { modelSettingSlug } from "@t3flare/models/endpoints";
 import { SessionEndpoints } from "./endpoints.ts";
 import { noteTurnProvider, runsOn } from "./signOut.ts";
 import { suggestionModelOf, suggestPrompt } from "./promptSuggestion.ts";
-import { armFault, compactionLimits, type Fault, modelLimits, type ModelLimitsOptions, recordingFetch, sessionLimits } from "./modelLimits.ts";
+import {
+  armFault,
+  compactionLimits,
+  type Fault,
+  modelLimits,
+  type ModelLimitsOptions,
+  recordingFetch,
+  sessionLimits,
+} from "./modelLimits.ts";
 import { KILL_RETRY_MS, RunningExecs } from "./runningExecs.ts";
 import { FORK_PAGE_BYTES, forkPage, forkPoint, freshConversation, rewind, rollbackPlan, seed } from "./branches.ts";
 import type { WorkspaceDO } from "../workspace/WorkspaceDO.ts";
@@ -170,7 +205,10 @@ const isLive = isLiveTurn;
 const userContent = (text: string, images: ReadonlyArray<ImageInput>) =>
   images.length === 0
     ? text
-    : [{ type: "text" as const, text }, ...images.map((image) => ({ type: "image" as const, data: image.data, mimeType: image.mimeType }))];
+    : [
+        { type: "text" as const, text },
+        ...images.map((image) => ({ type: "image" as const, data: image.data, mimeType: image.mimeType })),
+      ];
 
 export class SessionDO extends DurableObject<SessionEnv> {
   #opening: Promise<Harness>;
@@ -226,7 +264,11 @@ export class SessionDO extends DurableObject<SessionEnv> {
     this.#execs = new RunningExecs(ctx.storage.kv, (ids) => this.#killExecs(ids));
     const registry = createRegistry();
     // SPI-1172: each failed answer replaces the turn's record, classified by its Model endpoint's API and auth.
-    this.#limits = sessionLimits({ last: recorder.last, note: (update) => this.#noteProxy(update), endpoints: { endpoint: (id) => this.#endpoints.endpoint(id), secrets: (id) => this.#endpoints.secrets(id) } });
+    this.#limits = sessionLimits({
+      last: recorder.last,
+      note: (update) => this.#noteProxy(update),
+      endpoints: { endpoint: (id) => this.#endpoints.endpoint(id), secrets: (id) => this.#endpoints.secrets(id) },
+    });
     registry.install(modelLimits(this.#limits));
     registry.install(codingTools());
     registry.install(fileTools(() => this.#files()));
@@ -273,7 +315,10 @@ export class SessionDO extends DurableObject<SessionEnv> {
         }),
       // Each answer on an endpoint (a turn's, compaction's, an extension's), kept by the Environment for t3's Usage page
       // (SPI-1173). Sent after the answer; a failed send loses the record only.
-      usage: { session: () => ctx.id.name ?? ctx.id.toString(), record: usageSender(ctx, () => environmentStub(env.ENVIRONMENT)) },
+      usage: {
+        session: () => ctx.id.name ?? ctx.id.toString(),
+        record: usageSender(ctx, () => environmentStub(env.ENVIRONMENT)),
+      },
       // Each answer's limit windows (its rate-limit headers), kept by the Environment for t3's limit meters (SPI-1174).
       limits: limitsSender(ctx, () => environmentStub(env.ENVIRONMENT)),
     });
@@ -345,7 +390,14 @@ export class SessionDO extends DurableObject<SessionEnv> {
    */
   #noteT3Tools(catalog: T3Catalog, listedAt: number): void {
     this.#t3Noted = true;
-    this.ctx.waitUntil(environmentStub(this.env.ENVIRONMENT).noteT3Tools(t3ListingOf(catalog, listedAt)).then(() => undefined, () => undefined));
+    this.ctx.waitUntil(
+      environmentStub(this.env.ENVIRONMENT)
+        .noteT3Tools(t3ListingOf(catalog, listedAt))
+        .then(
+          () => undefined,
+          () => undefined,
+        ),
+    );
   }
 
   /**
@@ -378,7 +430,14 @@ export class SessionDO extends DurableObject<SessionEnv> {
       this.#registryWriter.install(this.#t3Extension(catalog));
       // tool_search's deferral wraps name every other tool: t3's changed.
       this.#installHarness(kv.get<ResolvedHarness>(HARNESS_KEY) ?? resolveHarness(EMPTY_HARNESS));
-      console.log(JSON.stringify({ t3flare: "t3-mcp-catalog", tools: catalog.tools.length, left: catalog.left.length, hash: catalog.hash }));
+      console.log(
+        JSON.stringify({
+          t3flare: "t3-mcp-catalog",
+          tools: catalog.tools.length,
+          left: catalog.left.length,
+          hash: catalog.hash,
+        }),
+      );
     } catch (error) {
       console.warn(JSON.stringify({ t3flare: "t3-mcp-catalog-failed", error: String(error).slice(0, 300) }));
     }
@@ -395,7 +454,8 @@ export class SessionDO extends DurableObject<SessionEnv> {
     const choice = searchChoice(setting, this.#endpoints.current());
     if ("error" in choice) return choice;
     const { endpoint, model, slug } = choice;
-    if (endpoint.auth === "none") return { baseUrl: endpoint.baseUrl, headers: endpoint.headers, apiKey: NO_KEY, slug, modelId: model.id };
+    if (endpoint.auth === "none")
+      return { baseUrl: endpoint.baseUrl, headers: endpoint.headers, apiKey: NO_KEY, slug, modelId: model.id };
     const credential = await this.#endpoints.credential(endpoint);
     if (credential.apiKey === null) return { error: credentialFailure(endpoint, credential).message };
     return { baseUrl: endpoint.baseUrl, headers: endpoint.headers, apiKey: credential.apiKey, slug, modelId: model.id };
@@ -423,7 +483,8 @@ export class SessionDO extends DurableObject<SessionEnv> {
       registry.uninstall({ name: WEB_EXTENSION });
     }
     // The owner's own question tools may come from an MCP server instead.
-    if (extensionOf(harness, ASK_USER_EXTENSION).enabled) registry.install(askUser({ store: this.#questions, turn: () => this.#liveTurn() }));
+    if (extensionOf(harness, ASK_USER_EXTENSION).enabled)
+      registry.install(askUser({ store: this.#questions, turn: () => this.#liveTurn() }));
     else registry.uninstall({ name: ASK_USER_EXTENSION });
     if (extensionOf(harness, TODO_EXTENSION).enabled) registry.install(todoExtension(() => this.#opening));
     else registry.uninstall({ name: TODO_EXTENSION });
@@ -433,13 +494,28 @@ export class SessionDO extends DurableObject<SessionEnv> {
     const termctrl = extensionOf(harness, TERMCTRL_EXTENSION);
     if (termctrl.enabled) {
       const host = this.#termctrlHost({ cols: Number(termctrl.settings.cols), rows: Number(termctrl.settings.rows) });
-      registry.install(termctrlExtension(() => this.#opening, { host, used: () => this.ctx.storage.kv.get(TERMCTRL_USED_KEY) === true }));
+      registry.install(
+        termctrlExtension(() => this.#opening, {
+          host,
+          used: () => this.ctx.storage.kv.get(TERMCTRL_USED_KEY) === true,
+        }),
+      );
       namespaces.push(TERMCTRL_NAMESPACE);
     } else {
       registry.uninstall({ name: TERMCTRL_EXTENSION });
     }
     // `bash`'s `background` with Background jobs on; installed again in place, so the permissions' wraps stay outside it.
-    registry.install(codingTools(termctrl.enabled && termctrl.settings.backgroundBash !== false ? { jobs: backgroundJobs(this.#termctrlHost({ cols: Number(termctrl.settings.cols), rows: Number(termctrl.settings.rows) })) } : {}));
+    registry.install(
+      codingTools(
+        termctrl.enabled && termctrl.settings.backgroundBash !== false
+          ? {
+              jobs: backgroundJobs(
+                this.#termctrlHost({ cols: Number(termctrl.settings.cols), rows: Number(termctrl.settings.rows) }),
+              ),
+            }
+          : {},
+      ),
+    );
     const guardian = extensionOf(harness, GUARDIAN_EXTENSION);
     if (guardian.enabled) {
       registry.install(
@@ -473,7 +549,8 @@ export class SessionDO extends DurableObject<SessionEnv> {
         thinkingLevel: String(advisor.settings.thinkingLevel) as AdvisorSettings["thinkingLevel"],
         correctiveTurns: Number(advisor.settings.correctiveTurns),
       };
-      if (this.#advisor === undefined) this.#advisor = new AdvisorObserver(() => this.#opening, this.ctx.storage.kv, settings);
+      if (this.#advisor === undefined)
+        this.#advisor = new AdvisorObserver(() => this.#opening, this.ctx.storage.kv, settings);
       else this.#advisor.configure(settings);
       registry.install(advisorExtension(this.#advisor));
     } else {
@@ -481,7 +558,11 @@ export class SessionDO extends DurableObject<SessionEnv> {
     }
     const contextManagement = extensionOf(harness, CONTEXT_EXTENSION);
     if (contextManagement.enabled) {
-      registry.install(contextExtension(() => this.#opening, { rolloverOnCompaction: contextManagement.settings.rolloverOnCompaction !== false }));
+      registry.install(
+        contextExtension(() => this.#opening, {
+          rolloverOnCompaction: contextManagement.settings.rolloverOnCompaction !== false,
+        }),
+      );
       namespaces.push(CONTEXT_NAMESPACE);
     } else {
       registry.uninstall({ name: CONTEXT_EXTENSION });
@@ -509,11 +590,17 @@ export class SessionDO extends DurableObject<SessionEnv> {
       .tools()
       .flatMap(({ extension, tool }) => {
         if (extension.name === "tool-search") return [];
-        if (extension.name === T3_EXTENSION) return [{ name: tool.name, exposure: t3RegisteredExposure(tools.t3, catalog, tool.name) }];
+        if (extension.name === T3_EXTENSION)
+          return [{ name: tool.name, exposure: t3RegisteredExposure(tools.t3, catalog, tool.name) }];
         const own = ownEntry(tools.tools, tool.name);
         return [own === undefined ? { name: tool.name } : { name: tool.name, exposure: own }];
       });
-    registry.install(offeredToolsExtension(chosen, { toolSearch: harness.toolSearch.enabled, codemode: harness.codemode.enabled && sandbox !== undefined }));
+    registry.install(
+      offeredToolsExtension(chosen, {
+        toolSearch: harness.toolSearch.enabled,
+        codemode: harness.codemode.enabled && sandbox !== undefined,
+      }),
+    );
   }
 
   /**
@@ -538,10 +625,13 @@ export class SessionDO extends DurableObject<SessionEnv> {
       toToolPath: (text) => toToolPath(text, this.#meta()?.workspaceId ?? null),
       call: async <R extends AgentTerminalRequest>(request: R): Promise<AgentTerminalResult<R["op"]>> => {
         const id = this.#meta()?.workspaceId;
-        if (id === undefined || id === null) return { ok: false, error: "This thread has no Workspace, so it has no container to run a Terminal in." };
+        if (id === undefined || id === null)
+          return { ok: false, error: "This thread has no Workspace, so it has no container to run a Terminal in." };
         // SAFETY: the stub's RPC typing drops `agentTerminal`'s type parameter (its answer is the union of every op's);
         // the Workspace DO's own signature ties the answer to `request.op`.
-        const answer = (await this.env.WORKSPACES.get(this.env.WORKSPACES.idFromName(id)).agentTerminal(request)) as AgentTerminalResult<R["op"]>;
+        const answer = (await this.env.WORKSPACES.get(this.env.WORKSPACES.idFromName(id)).agentTerminal(
+          request,
+        )) as AgentTerminalResult<R["op"]>;
         if (request.op === "start" && answer.ok) this.ctx.storage.kv.put(TERMCTRL_USED_KEY, true);
         return answer;
       },
@@ -558,9 +648,16 @@ export class SessionDO extends DurableObject<SessionEnv> {
       turn: () => this.#liveTurn(),
       // The thread it was opened with (plan D3): the Environment derives everything else about the caller itself.
       call: ({ callId, ...input }) =>
-        environmentStub(this.env.ENVIRONMENT).mcpCall({ ...input, thread: this.#meta()?.threadId ?? "", ...(callId === undefined ? {} : { stopId: this.#mcpStopId(callId) }) }),
+        environmentStub(this.env.ENVIRONMENT).mcpCall({
+          ...input,
+          thread: this.#meta()?.threadId ?? "",
+          ...(callId === undefined ? {} : { stopId: this.#mcpStopId(callId) }),
+        }),
       // A Stop of a Settings server call (plan D9): the Environment withdraws the Open change the call holds.
-      stop: (callId) => void environmentStub(this.env.ENVIRONMENT).cancelAsk({ askId: this.#mcpStopId(callId) }).catch(() => undefined),
+      stop: (callId) =>
+        void environmentStub(this.env.ENVIRONMENT)
+          .cancelAsk({ askId: this.#mcpStopId(callId) })
+          .catch(() => undefined),
       asker: (callId, signal) => this.#mcpQuestions.asker(this.#liveTurn(), callId, signal),
     });
   }
@@ -599,11 +696,18 @@ export class SessionDO extends DurableObject<SessionEnv> {
       if (kv.get<{ version: string }>(MCP_BUILD_KEY)?.version === view.version) return;
       const text = JSON.stringify(view);
       const chunks = Math.max(1, Math.ceil(text.length / MCP_CHUNK_CHARS));
-      for (let index = 0; index < chunks; index++) kv.put(`${MCP_BUILD_KEY}:${index}`, text.slice(index * MCP_CHUNK_CHARS, (index + 1) * MCP_CHUNK_CHARS));
+      for (let index = 0; index < chunks; index++)
+        kv.put(`${MCP_BUILD_KEY}:${index}`, text.slice(index * MCP_CHUNK_CHARS, (index + 1) * MCP_CHUNK_CHARS));
       kv.put(MCP_BUILD_KEY, { version: view.version, chunks });
       this.#registryWriter.install(this.#mcpExtension(view));
       this.#installHarness(kv.get<ResolvedHarness>(HARNESS_KEY) ?? resolveHarness(EMPTY_HARNESS));
-      console.log(JSON.stringify({ t3flare: "mcp-view", version: view.version, servers: view.servers.map((server) => [server.name, server.tools.length, server.state]) }));
+      console.log(
+        JSON.stringify({
+          t3flare: "mcp-view",
+          version: view.version,
+          servers: view.servers.map((server) => [server.name, server.tools.length, server.state]),
+        }),
+      );
     } catch (error) {
       console.warn(JSON.stringify({ t3flare: "mcp-view-failed", error: String(error).slice(0, 300) }));
     }
@@ -653,7 +757,9 @@ export class SessionDO extends DurableObject<SessionEnv> {
   #turnsWithProxy(): Turns {
     const turns = this.#turns();
     const proxy = this.ctx.storage.kv.get<Record<string, ProxyRecord>>(PROXY_KEY) ?? {};
-    return Object.fromEntries(Object.entries(turns).map(([id, turn]) => [id, proxy[id] === undefined ? turn : { ...turn, proxy: proxy[id] }]));
+    return Object.fromEntries(
+      Object.entries(turns).map(([id, turn]) => [id, proxy[id] === undefined ? turn : { ...turn, proxy: proxy[id] }]),
+    );
   }
 
   /** Updates the model record of the turn running now: the live turn started first (a follow-up waits for it). */
@@ -739,7 +845,10 @@ export class SessionDO extends DurableObject<SessionEnv> {
       if (conversation !== undefined) return conversation;
       console.error(JSON.stringify({ t3flare: "session-conversation-missing", conversation: moved }));
     }
-    return harness.root(context, model === undefined ? undefined : { agent: { model, thinkingLevel: thinking ?? null } });
+    return harness.root(
+      context,
+      model === undefined ? undefined : { agent: { model, thinkingLevel: thinking ?? null } },
+    );
   }
 
   /** Runs `next` from now on (G6): the watch of the previous one ends, and the next push reads `next`. */
@@ -818,7 +927,9 @@ export class SessionDO extends DurableObject<SessionEnv> {
     const live = Object.values(this.#turns()).some(isLive);
     if (live) void this.#watch();
     const lastPush = this.ctx.storage.kv.get<number>(LAST_PUSH_KEY) ?? 0;
-    return this.ctx.storage.kv.get<number>(RETRY_KEY) !== undefined || (live && now - lastPush >= LIVENESS_PUSH_MS - 5_000);
+    return (
+      this.ctx.storage.kv.get<number>(RETRY_KEY) !== undefined || (live && now - lastPush >= LIVENESS_PUSH_MS - 5_000)
+    );
   }
 
   // -------------------------------------------------------------------------------------------------------------------
@@ -838,7 +949,11 @@ export class SessionDO extends DurableObject<SessionEnv> {
     await this.#takeT3Mcp(input.t3Mcp);
     const conversation = await this.#conversation(input.model, input.thinking);
     // The agent works in its Workspace's repo (t3's `/w/<id>`), or a folder in it (a scratch thread's), or nowhere without one.
-    const cwd = input.cwd !== undefined && (input.cwd === REPO_ROOT || (input.cwd.startsWith(`${REPO_ROOT}/`) && !input.cwd.split("/").includes(".."))) ? input.cwd : REPO_ROOT;
+    const cwd =
+      input.cwd !== undefined &&
+      (input.cwd === REPO_ROOT || (input.cwd.startsWith(`${REPO_ROOT}/`) && !input.cwd.split("/").includes("..")))
+        ? input.cwd
+        : REPO_ROOT;
     if (input.workspaceId !== null) await conversation.configure({ cwd }, context);
     const turns = this.#turnsWithProxy();
     return { epoch, busy: Object.values(turns).some(isLive), turns };
@@ -874,7 +989,12 @@ export class SessionDO extends DurableObject<SessionEnv> {
     this.#saveTurns(turns);
     await this.#arm();
     const submission = await conversation.submit(
-      { type: "input", content: userContent(input.text, input.images), requestId: input.providerTurnId, whenBusy: "followUp" },
+      {
+        type: "input",
+        content: userContent(input.text, input.images),
+        requestId: input.providerTurnId,
+        whenBusy: "followUp",
+      },
       context,
     );
     const after = this.#turns();
@@ -891,7 +1011,13 @@ export class SessionDO extends DurableObject<SessionEnv> {
     const conversation = await this.#conversation();
     const submission = await conversation.submit(
       // Only into a run in progress: a steer that finds the Session idle is refused, never a run t3 did not start.
-      { type: "input", content: userContent(input.text, input.images), requestId: input.key, whenBusy: "steer", whenIdle: "reject" },
+      {
+        type: "input",
+        content: userContent(input.text, input.images),
+        requestId: input.key,
+        whenBusy: "steer",
+        whenIdle: "reject",
+      },
       context,
     );
     const turns = this.#turns();
@@ -906,11 +1032,16 @@ export class SessionDO extends DurableObject<SessionEnv> {
 
   async abort(input: AbortInput): Promise<{ readonly aborted: boolean }> {
     const turns = this.#turns();
-    const targets = input.all === true
-      ? Object.entries(turns).filter(([, turn]) => isLive(turn)).map(([id]) => id)
-      : input.providerTurnId !== undefined && turns[input.providerTurnId] !== undefined && isLive(turns[input.providerTurnId]!)
-        ? [input.providerTurnId]
-        : [];
+    const targets =
+      input.all === true
+        ? Object.entries(turns)
+            .filter(([, turn]) => isLive(turn))
+            .map(([id]) => id)
+        : input.providerTurnId !== undefined &&
+            turns[input.providerTurnId] !== undefined &&
+            isLive(turns[input.providerTurnId]!)
+          ? [input.providerTurnId]
+          : [];
     for (const id of targets) await this.#abortTurn(id, input.reason);
     this.#schedulePush(0);
     return { aborted: targets.length > 0 };
@@ -921,10 +1052,14 @@ export class SessionDO extends DurableObject<SessionEnv> {
    * dropped, so nothing more is sent with it, and when its turns run on that endpoint (as its storage says) its live
    * turns stop (`signed_out`).
    */
-  async endpointSignedOut(input: { readonly endpointId: string }): Promise<{ readonly dropped: boolean; readonly stopped: boolean }> {
+  async endpointSignedOut(input: {
+    readonly endpointId: string;
+  }): Promise<{ readonly dropped: boolean; readonly stopped: boolean }> {
     const endpointId = String(input.endpointId);
     const dropped = this.#endpoints.drop(endpointId);
-    const stopped = runsOn(this.ctx.storage.kv, endpointId) ? (await this.abort({ all: true, reason: "signed_out" })).aborted : false;
+    const stopped = runsOn(this.ctx.storage.kv, endpointId)
+      ? (await this.abort({ all: true, reason: "signed_out" })).aborted
+      : false;
     console.log(JSON.stringify({ t3flare: "endpoint-signed-out", endpoint: endpointId, dropped, stopped }));
     return { dropped, stopped };
   }
@@ -933,7 +1068,8 @@ export class SessionDO extends DurableObject<SessionEnv> {
     const harness = await this.#opening;
     const turn = this.#turns()[providerTurnId];
     if (turn === undefined) return;
-    const record = turn.submissionId === "" ? undefined : await harness.submission(submissionIdOf(turn.submissionId), context);
+    const record =
+      turn.submissionId === "" ? undefined : await harness.submission(submissionIdOf(turn.submissionId), context);
     const status = record === undefined ? undefined : (await record.status(context)).status;
     if (record !== undefined && status === "queued") await record.abort(context);
     else if (status === "placed") {
@@ -955,18 +1091,34 @@ export class SessionDO extends DurableObject<SessionEnv> {
     if (this.#mcpQuestions.has(input.requestId)) {
       const applied = this.#mcpQuestions.answer(input);
       // The decision only: an MCP form's answers are never logged or kept (SPI-1079).
-      console.log(JSON.stringify({ t3flare: "mcp-question-answer", requestId: input.requestId, decision: input.decision, answered: input.answers !== undefined, applied }));
+      console.log(
+        JSON.stringify({
+          t3flare: "mcp-question-answer",
+          requestId: input.requestId,
+          decision: input.decision,
+          answered: input.answers !== undefined,
+          applied,
+        }),
+      );
       return Promise.resolve({ applied });
     }
     if (this.#questions.pending().some((question) => question.requestId === input.requestId)) {
-      const given = Object.values(input.answers ?? {}).map(answerText).find((text) => text !== undefined && text.trim() !== "");
-      const text = given ?? (input.decision === "decline" || input.decision === "cancel" ? "(no answer: the owner dismissed the question)" : "(no answer)");
+      const given = Object.values(input.answers ?? {})
+        .map(answerText)
+        .find((text) => text !== undefined && text.trim() !== "");
+      const text =
+        given ??
+        (input.decision === "decline" || input.decision === "cancel"
+          ? "(no answer: the owner dismissed the question)"
+          : "(no answer)");
       const applied = this.#questions.answer(input.requestId, text);
       console.log(JSON.stringify({ t3flare: "question-answer", requestId: input.requestId, applied }));
       return Promise.resolve({ applied });
     }
     const applied = this.#approvals.answer(input.requestId, input.decision, input.feedback);
-    console.log(JSON.stringify({ t3flare: "approval-answer", requestId: input.requestId, decision: input.decision, applied }));
+    console.log(
+      JSON.stringify({ t3flare: "approval-answer", requestId: input.requestId, decision: input.decision, applied }),
+    );
     return Promise.resolve({ applied });
   }
 
@@ -988,11 +1140,23 @@ export class SessionDO extends DurableObject<SessionEnv> {
     const conversation = await this.#conversation();
     const textOf = (entry: EntryRecord): { readonly role: string; readonly text: string } => {
       const pushed = pushedEntry(entry, null);
-      return { role: pushed.role, text: pushed.content.flatMap((block) => (block.type === "text" && typeof block.text === "string" ? [block.text] : [])).join("") };
+      return {
+        role: pushed.role,
+        text: pushed.content
+          .flatMap((block) => (block.type === "text" && typeof block.text === "string" ? [block.text] : []))
+          .join(""),
+      };
     };
-    const first = (await conversation.entries({ minEntryId: entryIdOf(turn.inputEntry), order: "ascending" }, 1, undefined, context)).items[0];
+    const first = (
+      await conversation.entries({ minEntryId: entryIdOf(turn.inputEntry), order: "ascending" }, 1, undefined, context)
+    ).items[0];
     const user = first === undefined ? "" : textOf(first);
-    const newest = await conversation.entries({ minEntryId: entryIdOf(turn.inputEntry), order: "descending" }, 20, undefined, context);
+    const newest = await conversation.entries(
+      { minEntryId: entryIdOf(turn.inputEntry), order: "descending" },
+      20,
+      undefined,
+      context,
+    );
     const answer = newest.items.map(textOf).find((entry) => entry.role === "assistant" && entry.text.trim() !== "");
     if (user === "" || user.role !== "user" || answer === undefined) return { text: "" };
     const models = this.#endpoints.sideModels();
@@ -1038,10 +1202,18 @@ export class SessionDO extends DurableObject<SessionEnv> {
       for (const id of drop) delete turns[id];
       this.#saveTurns(turns);
       const proxy = this.ctx.storage.kv.get<Record<string, ProxyRecord>>(PROXY_KEY);
-      if (proxy !== undefined) this.ctx.storage.kv.put(PROXY_KEY, Object.fromEntries(Object.entries(proxy).filter(([id]) => !drop.has(id))));
+      if (proxy !== undefined)
+        this.ctx.storage.kv.put(PROXY_KEY, Object.fromEntries(Object.entries(proxy).filter(([id]) => !drop.has(id))));
     }
     this.#dropAbandonedApprovals();
-    console.log(JSON.stringify({ t3flare: "session-rollback", conversation: Number(conversation.id), boundary: boundary ?? null, dropped: drop.size }));
+    console.log(
+      JSON.stringify({
+        t3flare: "session-rollback",
+        conversation: Number(conversation.id),
+        boundary: boundary ?? null,
+        dropped: drop.size,
+      }),
+    );
     this.#schedulePush(0);
     return { conversation: String(conversation.id), rewound: boundary !== undefined, dropped: drop.size };
   }
@@ -1055,10 +1227,12 @@ export class SessionDO extends DurableObject<SessionEnv> {
     const kv = this.ctx.storage.kv;
     const done = kv.get<ForkInput & ForkAnswer>(FORK_KEY);
     if (done !== undefined) {
-      if (done.source === input.source && done.providerTurnId === input.providerTurnId) return { conversation: done.conversation, messages: done.messages };
+      if (done.source === input.source && done.providerTurnId === input.providerTurnId)
+        return { conversation: done.conversation, messages: done.messages };
       throw new Error("t3flare: this Session was already forked from another conversation");
     }
-    if (Object.keys(this.#turns()).length > 0) throw new Error("t3flare: this Session has turns of its own; only a new thread is forked");
+    if (Object.keys(this.#turns()).length > 0)
+      throw new Error("t3flare: this Session has turns of its own; only a new thread is forked");
     if (input.source === (this.ctx.id.name ?? "")) throw new Error("t3flare: a Session cannot fork itself");
     const sessions = this.env.SESSIONS;
     if (sessions === undefined) throw new Error("t3flare: this Worker has no SESSIONS binding");
@@ -1073,7 +1247,11 @@ export class SessionDO extends DurableObject<SessionEnv> {
       let page: ForkSourcePage | undefined;
       let offset: number | null = 0;
       while (offset !== null) {
-        page = await source.forkSource({ providerTurnId: input.providerTurnId, offset, ...(page === undefined ? {} : { at: page.at }) });
+        page = await source.forkSource({
+          providerTurnId: input.providerTurnId,
+          offset,
+          ...(page === undefined ? {} : { at: page.at }),
+        });
         await seed(target, page.messages, { source: input.source, at: page.at }, context);
         messages += page.messages.length;
         offset = page.next;
@@ -1082,7 +1260,9 @@ export class SessionDO extends DurableObject<SessionEnv> {
     await this.#moveTo(target);
     const answer: ForkAnswer = { conversation: String(target.id), messages };
     kv.put(FORK_KEY, { ...input, ...answer });
-    console.log(JSON.stringify({ t3flare: "session-fork", source: input.source, conversation: Number(target.id), messages }));
+    console.log(
+      JSON.stringify({ t3flare: "session-fork", source: input.source, conversation: Number(target.id), messages }),
+    );
     this.#schedulePush(0);
     return answer;
   }
@@ -1091,7 +1271,10 @@ export class SessionDO extends DurableObject<SessionEnv> {
   async forkSource(input: ForkSourceInput): Promise<ForkSourcePage> {
     await this.#refreshTurns();
     const conversation = await this.#conversation();
-    const at = input.at === undefined ? await forkPoint(conversation, this.#turns(), input.providerTurnId, context) : entryIdOf(input.at);
+    const at =
+      input.at === undefined
+        ? await forkPoint(conversation, this.#turns(), input.providerTurnId, context)
+        : entryIdOf(input.at);
     return forkPage(conversation, at, input.offset, FORK_PAGE_BYTES, context);
   }
 
@@ -1102,7 +1285,12 @@ export class SessionDO extends DurableObject<SessionEnv> {
   }
 
   /** Step 3: the T3 tools offered and those left out (names only, never the credential). */
-  t3Tools(): Promise<{ readonly tools: ReadonlyArray<string>; readonly left: ReadonlyArray<string>; readonly hash: string | null; readonly credential: boolean }> {
+  t3Tools(): Promise<{
+    readonly tools: ReadonlyArray<string>;
+    readonly left: ReadonlyArray<string>;
+    readonly hash: string | null;
+    readonly credential: boolean;
+  }> {
     const catalog = this.ctx.storage.kv.get<T3Catalog>(T3_CATALOG_KEY);
     return Promise.resolve({
       tools: (catalog?.tools ?? []).map((tool) => tool.name),
@@ -1155,7 +1343,9 @@ export class SessionDO extends DurableObject<SessionEnv> {
   }
 
   /** M0's check: the Environment calls this, and it calls the Environment back over its own binding. */
-  async ping(echo: string): Promise<{ readonly session: string; readonly echo: string; readonly environment: unknown }> {
+  async ping(
+    echo: string,
+  ): Promise<{ readonly session: string; readonly echo: string; readonly environment: unknown }> {
     return {
       session: this.ctx.id.toString(),
       echo,
@@ -1212,7 +1402,11 @@ export class SessionDO extends DurableObject<SessionEnv> {
 
   /** Requests of turns no longer live are withdrawn (their calls were aborted or ended). */
   #dropAbandonedApprovals(): void {
-    const live = new Set(Object.entries(this.#turns()).filter(([, turn]) => isLive(turn)).map(([id]) => id));
+    const live = new Set(
+      Object.entries(this.#turns())
+        .filter(([, turn]) => isLive(turn))
+        .map(([id]) => id),
+    );
     this.#approvals.dropAbandoned(live);
     this.#questions.dropAbandoned(live);
     this.#mcpQuestions.dropAbandoned(live);
@@ -1221,7 +1415,10 @@ export class SessionDO extends DurableObject<SessionEnv> {
   // -------------------------------------------------------------------------------------------------------------------
   // State and pushes
 
-  async #state(fromEntry: number | undefined, bound: number): Promise<SessionState & { readonly lastEntry: number | undefined }> {
+  async #state(
+    fromEntry: number | undefined,
+    bound: number,
+  ): Promise<SessionState & { readonly lastEntry: number | undefined }> {
     const conversation = await this.#conversation();
     const turns = this.#turnsWithProxy();
     const entries: Array<PushedEntry> = [];
@@ -1261,7 +1458,8 @@ export class SessionDO extends DurableObject<SessionEnv> {
       more,
       live: liveOf(view?.docs["pi.live"], () => liveTurn),
       agent: { model: agentDoc.model ?? null, thinking: agentDoc.thinkingLevel ?? null },
-      usage: usageOf((view?.docs["pi.usage"] as { total?: unknown } | undefined)?.total ?? view?.docs["pi.usage"]) ?? null,
+      usage:
+        usageOf((view?.docs["pi.usage"] as { total?: unknown } | undefined)?.total ?? view?.docs["pi.usage"]) ?? null,
       inbox: { pending: inbox.items?.length ?? 0 },
       approvals: [...this.#approvals.pending(), ...this.#mcpQuestions.approvals()],
       questions: [...this.#questions.pending(), ...this.#mcpQuestions.questions()],
@@ -1275,7 +1473,10 @@ export class SessionDO extends DurableObject<SessionEnv> {
   async #todo(conversation: Conversation): Promise<TodoSlim | null> {
     const state = await (await this.#opening).snapshot(TodoDoc, conversation.id, context);
     if (state === undefined || state.rev === 0) return null;
-    return { rev: state.rev, tasks: state.tasks.map((task) => ({ id: task.id, title: task.title, status: task.status })) };
+    return {
+      rev: state.rev,
+      tasks: state.tasks.map((task) => ({ id: task.id, title: task.title, status: task.status })),
+    };
   }
 
   /** The conversation's current view (documents), read through a one-shot watch. */
@@ -1323,7 +1524,9 @@ export class SessionDO extends DurableObject<SessionEnv> {
     this.#pushTimer = setTimeout(() => {
       this.#pushTimer = undefined;
       this.#pushDue = true;
-      void this.#arm().catch((error: unknown) => console.warn(JSON.stringify({ t3flare: "session-push-arm-failed", error: String(error).slice(0, 300) })));
+      void this.#arm().catch((error: unknown) =>
+        console.warn(JSON.stringify({ t3flare: "session-push-arm-failed", error: String(error).slice(0, 300) })),
+      );
     }, delayMs);
   }
 

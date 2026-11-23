@@ -11,8 +11,19 @@
 // again only when it is not the file the last finished run saw; either way it is reported (an unchanged file with that
 // run's answer). Nothing is run when the
 // launch has text (it wins) or no Container setup.
-import { ENVIRONMENT_SETTINGS, type GlobalMiseOutcome, type GlobalMiseReport, type SettingsSource } from "@t3flare/harness-registry";
-import { type GlobalMiseAnswer, globalMiseArgv, globalMiseDeadlineMs, type GlobalMiseMode, parseGlobalMiseAnswer } from "@t3flare/sandbox-image/globalMise";
+import {
+  ENVIRONMENT_SETTINGS,
+  type GlobalMiseOutcome,
+  type GlobalMiseReport,
+  type SettingsSource,
+} from "@t3flare/harness-registry";
+import {
+  type GlobalMiseAnswer,
+  globalMiseArgv,
+  globalMiseDeadlineMs,
+  type GlobalMiseMode,
+  parseGlobalMiseAnswer,
+} from "@t3flare/sandbox-image/globalMise";
 
 import { type ContainerExec, ContainerStep, MAX_ATTEMPTS, type RunStep } from "./containerStep.ts";
 
@@ -141,11 +152,18 @@ const layDown = async (
   const started = deps.now();
   const mode: GlobalMiseMode = deps.afterSetup === undefined ? "lay-down" : "if-changed";
   // After the setup: nothing to check when the launch has text (it wins), or there was no setup to change the file.
-  if (deps.afterSetup !== undefined && (known === undefined || known.text !== "" || (deps.afterSetup.setupText() ?? "") === "")) {
+  if (
+    deps.afterSetup !== undefined &&
+    (known === undefined || known.text !== "" || (deps.afterSetup.setupText() ?? "") === "")
+  ) {
     return { runtime, outcome: "none", attempts: attemptsBefore + 1, at: started };
   }
   const minutes = installMinutesOf(known);
-  const result = await run(globalMiseArgv({ revision: launch.revision, sha256: launch.sha256, source: launch.source, mode, minutes }), launch.text, (deps.deadlineMs ?? globalMiseDeadlineMs)(minutes));
+  const result = await run(
+    globalMiseArgv({ revision: launch.revision, sha256: launch.sha256, source: launch.source, mode, minutes }),
+    launch.text,
+    (deps.deadlineMs ?? globalMiseDeadlineMs)(minutes),
+  );
   let outcome: GlobalMiseOutcome = "exec-failed";
   let answer: GlobalMiseAnswer | undefined;
   let error: string | undefined;
@@ -154,11 +172,24 @@ const layDown = async (
   else {
     answer = parseGlobalMiseAnswer(result.stdout);
     // No file at all (no text, no dotfiles' config: nothing installed) is `none`.
-    outcome = answer === undefined || answer.locked === true ? "exec-failed" : answer.laid ? "laid" : answer.install === null && !answer.timedOut ? "none" : "not-laid";
+    outcome =
+      answer === undefined || answer.locked === true
+        ? "exec-failed"
+        : answer.laid
+          ? "laid"
+          : answer.install === null && !answer.timedOut
+            ? "none"
+            : "not-laid";
     if (answer === undefined) error = `no answer (exit ${String(result.exitCode)})`;
   }
   const at = deps.now();
-  const state: GlobalMiseState = { runtime, outcome, attempts: attemptsBefore + 1, ...(answer === undefined ? {} : { answer }), at };
+  const state: GlobalMiseState = {
+    runtime,
+    outcome,
+    attempts: attemptsBefore + 1,
+    ...(answer === undefined ? {} : { answer }),
+    at,
+  };
   // An `unchanged` answer is the last finished run's answer again: reported as it is, so Status shows the file's real
   // state even when this step's own first attempt failed and was reported so.
   const report: GlobalMiseReport = {
@@ -176,7 +207,12 @@ const layDown = async (
     ms: Math.max(0, at - started),
     at,
   };
-  deps.log?.({ t3flare: deps.afterSetup === undefined ? "global-mise" : "global-mise-after-setup", ...report, attempt: state.attempts, ...(error === undefined ? {} : { error }) });
+  deps.log?.({
+    t3flare: deps.afterSetup === undefined ? "global-mise" : "global-mise-after-setup",
+    ...report,
+    attempt: state.attempts,
+    ...(error === undefined ? {} : { error }),
+  });
   deps.report(report);
   return state;
 };

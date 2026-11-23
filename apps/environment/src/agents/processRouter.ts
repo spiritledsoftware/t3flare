@@ -3,7 +3,16 @@
 // t3 spawns is answered here. `git` in a Workspace (`/w/<id>/…`) runs in that Workspace's Container; t3's clone into
 // `/w` makes a Workspace; `gh auth token` is the Environment's own GitHub token (t3's PR features); everything else is
 // a missing binary, as in step 1. Every routed command is kept in a short trace (admin `GET /_t3flare/agents/router-trace`).
-import { describeFailure, fromWorkspaceText, isUnderW, normalize, REPO_ROOT, startRefusal, toWorkspace, WORKTREES_ROOT } from "@t3flare/workspace-client";
+import {
+  describeFailure,
+  fromWorkspaceText,
+  isUnderW,
+  normalize,
+  REPO_ROOT,
+  startRefusal,
+  toWorkspace,
+  WORKTREES_ROOT,
+} from "@t3flare/workspace-client";
 import { containerGitHubPermissions, ENVIRONMENT_GITHUB_PERMISSIONS } from "@t3flare/github-app/permissions";
 import * as Clock from "effect/Clock";
 import * as Deferred from "effect/Deferred";
@@ -42,7 +51,23 @@ import { isCliUpdateSpawn, runCliUpdate } from "../updates/cliUpdate.ts";
 /** Commands t3 tried to spawn that nothing answers (step 1's report). */
 export const spawnAttempts = new Map<string, number>();
 
-export type Route = "protocol" | "process" | "container" | "cache" | "stale-patched" | "stale-last-answer" | "container-stopped" | "clone" | "worktree" | "scratch" | "gh-token" | "update" | "emulated" | "no-workspace" | "not-found" | "error";
+export type Route =
+  | "protocol"
+  | "process"
+  | "container"
+  | "cache"
+  | "stale-patched"
+  | "stale-last-answer"
+  | "container-stopped"
+  | "clone"
+  | "worktree"
+  | "scratch"
+  | "gh-token"
+  | "update"
+  | "emulated"
+  | "no-workspace"
+  | "not-found"
+  | "error";
 
 export interface TraceEntry {
   readonly at: number;
@@ -62,7 +87,16 @@ export const routerTrace = (): ReadonlyArray<TraceEntry> => [...trace];
 
 /** Step 4a: a CLI protocol step worth proving later (a native thread resumed), in the same trace. */
 export const traceProtocol = (cli: string, step: string, detail: string): void =>
-  record({ at: Date.now(), command: cli, argv: [step], cwd: null, route: "protocol", exitCode: null, ms: 0, detail: detail.slice(0, 300) });
+  record({
+    at: Date.now(),
+    command: cli,
+    argv: [step],
+    cwd: null,
+    route: "protocol",
+    exitCode: null,
+    ms: 0,
+    detail: detail.slice(0, 300),
+  });
 export const clearRouterTrace = (): void => void trace.splice(0);
 
 const record = (entry: TraceEntry) => {
@@ -91,25 +125,50 @@ const traceArgv = (args: ReadonlyArray<string>) =>
 
 const ghToken = async (): Promise<Answer> => {
   const services = environmentServices();
-  const repos = services.workspaces.list().filter((ws) => ws.host === "github.com" && ws.owner !== null && ws.name !== null);
+  const repos = services.workspaces
+    .list()
+    .filter((ws) => ws.host === "github.com" && ws.owner !== null && ws.name !== null);
   const owner = repos[0]?.owner;
   if (owner === undefined || owner === null) {
-    return { exitCode: 1, stdout: "", stderr: "no oauth token: no GitHub Workspace in this Environment\n", route: "gh-token" };
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr: "no oauth token: no GitHub Workspace in this Environment\n",
+      route: "gh-token",
+    };
   }
   const names = [...new Set(repos.filter((ws) => ws.owner === owner).map((ws) => ws.name!))];
-  const minted = await services.github().mint({ owner, repositories: names, permissions: ENVIRONMENT_GITHUB_PERMISSIONS });
-  return { exitCode: 0, stdout: `${minted.token}\n`, stderr: "", route: "gh-token", detail: `${owner}: ${names.join(",")}` };
+  const minted = await services
+    .github()
+    .mint({ owner, repositories: names, permissions: ENVIRONMENT_GITHUB_PERMISSIONS });
+  return {
+    exitCode: 0,
+    stdout: `${minted.token}\n`,
+    stderr: "",
+    route: "gh-token",
+    detail: `${owner}: ${names.join(",")}`,
+  };
 };
 
 const clone = async (request: { readonly id: string; readonly url: string }): Promise<Answer> => {
   const services = environmentServices();
   const remote = remoteRepoOf(request.url);
   const url = remote?.https ?? request.url;
-  const fields = { host: remote?.host ?? null, owner: remote?.owner ?? null, name: remote?.name ?? null, cloneUrl: url };
+  const fields = {
+    host: remote?.host ?? null,
+    owner: remote?.owner ?? null,
+    name: remote?.name ?? null,
+    cloneUrl: url,
+  };
   // t3 creates the project, and with it the folder (an empty Workspace), before it clones into it.
   const existing = services.workspaces.get(request.id);
   if (existing !== undefined && existing.cloneUrl !== null) {
-    return { exitCode: 128, stdout: "", stderr: `fatal: destination path '${request.id}' already exists and is not an empty directory.\n`, route: "clone" };
+    return {
+      exitCode: 128,
+      stdout: "",
+      stderr: `fatal: destination path '${request.id}' already exists and is not an empty directory.\n`,
+      route: "clone",
+    };
   }
   try {
     if (existing === undefined) services.workspaces.create({ id: request.id, ...fields });
@@ -138,15 +197,22 @@ const clone = async (request: { readonly id: string; readonly url: string }): Pr
  */
 export const workspaceGitHubToken = async (
   id: string,
-): Promise<{ readonly token: string; readonly expiresAt: number; readonly repo: { readonly owner: string; readonly name: string } } | null> => {
+): Promise<{
+  readonly token: string;
+  readonly expiresAt: number;
+  readonly repo: { readonly owner: string; readonly name: string };
+} | null> => {
   const record = environmentServices().workspaces.resolve(id);
-  if (record === undefined || record.host !== "github.com" || record.owner === null || record.name === null) return null;
+  if (record === undefined || record.host !== "github.com" || record.owner === null || record.name === null)
+    return null;
   try {
-    const minted = await environmentServices().github().mint({
-      owner: record.owner.toLowerCase(),
-      repositories: [record.name],
-      permissions: containerGitHubPermissions(record.workflows),
-    });
+    const minted = await environmentServices()
+      .github()
+      .mint({
+        owner: record.owner.toLowerCase(),
+        repositories: [record.name],
+        permissions: containerGitHubPermissions(record.workflows),
+      });
     return { token: minted.token, expiresAt: minted.expiresAt, repo: { owner: record.owner, name: record.name } };
   } catch (error) {
     console.warn(JSON.stringify({ t3flare: "container-token-failed", id, error: String(error).slice(0, 300) }));
@@ -186,10 +252,16 @@ export const gitBridge = makeGitBridge({
 });
 
 /** git's environment for Workspace `id`: translated (`gitEnvOf`), its alternates checked, t3's temp material bridged. */
-const bridgedGitEnv = async (id: string, env: Readonly<Record<string, unknown>> | undefined): Promise<Record<string, string>> => {
+const bridgedGitEnv = async (
+  id: string,
+  env: Readonly<Record<string, unknown>> | undefined,
+): Promise<Record<string, string>> => {
   const dropped: Array<string> = [];
   const translated = gitEnvOf(id, env, { onT3Side, dropped });
-  if (dropped.length > 0) console.warn(JSON.stringify({ t3flare: "git-alternate-dropped", id, dropped: dropped.map((entry) => entry.slice(0, 300)) }));
+  if (dropped.length > 0)
+    console.warn(
+      JSON.stringify({ t3flare: "git-alternate-dropped", id, dropped: dropped.map((entry) => entry.slice(0, 300)) }),
+    );
   return gitBridge.bridge(id, translated);
 };
 
@@ -202,21 +274,29 @@ const git = async (
 ): Promise<Answer> => {
   const at = toWorkspace(cwd);
   if (at === null || environmentServices().workspaces.resolve(at.id) === undefined) {
-    return { exitCode: 128, stdout: "", stderr: `fatal: cannot change to '${cwd}': No such file or directory\n`, route: "no-workspace" };
+    return {
+      exitCode: 128,
+      stdout: "",
+      stderr: `fatal: cannot change to '${cwd}': No such file or directory\n`,
+      route: "no-workspace",
+    };
   }
   const startContainer = options.action === true || mayStartContainer(args);
   // Drafts whose t3 copy is gone lose their bridged folders (never one in flight); t3's polls make this prompt.
-  void gitBridge.reap().catch((error: unknown) => console.warn(JSON.stringify({ t3flare: "git-bridge-reap-failed", error: String(error).slice(0, 300) })));
+  void gitBridge
+    .reap()
+    .catch((error: unknown) =>
+      console.warn(JSON.stringify({ t3flare: "git-bridge-reap-failed", error: String(error).slice(0, 300) })),
+    );
   // No token goes with any git command: the Container's credential helper asks for the Workspace's (ADR-0013).
-  const answer = await workspaceRpc(at.id)
-    .git({
-      argv: args.map((arg) => intoWorkspace(at.id, arg)),
-      cwd: at.inner,
-      env: await bridgedGitEnv(at.id, env),
-      ...(stdin === undefined ? {} : { stdin }),
-      startContainer,
-      readScope: readScopeOf(args),
-    });
+  const answer = await workspaceRpc(at.id).git({
+    argv: args.map((arg) => intoWorkspace(at.id, arg)),
+    cwd: at.inner,
+    env: await bridgedGitEnv(at.id, env),
+    ...(stdin === undefined ? {} : { stdin }),
+    startContainer,
+    readScope: readScopeOf(args),
+  });
   if (!answer.ran) {
     const stopped = answer.reason === "container_stopped";
     return {
@@ -231,7 +311,9 @@ const git = async (
     exitCode: answer.exitCode,
     stdout: redactTokens(fromWorkspaceText(at.id, answer.stdout)),
     stderr: redactTokens(fromWorkspaceText(at.id, answer.stderr)),
-    route: options.route ?? (answer.stale !== undefined ? `stale-${answer.stale}` : answer.cached === true ? "cache" : "container"),
+    route:
+      options.route ??
+      (answer.stale !== undefined ? `stale-${answer.stale}` : answer.cached === true ? "cache" : "container"),
     // An action's failure keeps git's own words in the trace (tokens taken out), as the evidence of what the remote said.
     detail: `${startContainer ? "action" : "passive"} ${answer.ms}ms${answer.startedContainer === undefined ? "" : ` started the Container: first ${answer.startedContainer} read`}${
       startContainer && answer.exitCode !== 0 ? `: ${redactTokens(answer.stderr).trim().slice(0, 400)}` : ""
@@ -276,19 +358,24 @@ const worktreeAdd = async (cwd: string, command: Extract<WorktreeCommand, { verb
   const services = environmentServices();
   if (command.detach) {
     // Review F6: only t3's scratch checkouts are detached (`scratchAdd`); a worktree Workspace is made on a branch.
-    return fail(`fatal: t3flare: a detached worktree is made only in a scratch directory t3 made in ${WORKTREES_ROOT} (asked for '${command.path}')`, "detached refused");
+    return fail(
+      `fatal: t3flare: a detached worktree is made only in a scratch directory t3 made in ${WORKTREES_ROOT} (asked for '${command.path}')`,
+      "detached refused",
+    );
   }
   const destination = worktreeDestinationOf(cwd, command.path);
   if ("refused" in destination) return fail(destination.refused, "destination refused");
   const project = toWorkspace(cwd);
   const parent = project === null ? undefined : services.workspaces.resolve(project.id);
-  if (parent === undefined || parent.kind !== "project") return fail(`fatal: t3flare: the project at ${cwd} is not a Workspace`);
+  if (parent === undefined || parent.kind !== "project")
+    return fail(`fatal: t3flare: the project at ${cwd} is not a Workspace`);
   const ref = command.newBranch ?? command.ref;
   if (ref === null) return fail("fatal: t3flare: a worktree needs a branch");
   const id = destination.id;
   const existing = services.workspaces.get(id);
   if (existing !== undefined) {
-    if (existing.state === "ready" || existing.state === "provisioning") return fail(`fatal: '${command.path}' already exists`);
+    if (existing.state === "ready" || existing.state === "provisioning")
+      return fail(`fatal: '${command.path}' already exists`);
     // Review F5: t3 makes a worktree's path from its branch, and re-creates a missing one at the same path. A tombstone
     // there is restored (its work kept); a removal still under way is finished first; a failed attempt starts again.
     if (existing.state === "tombstoned") {
@@ -297,13 +384,21 @@ const worktreeAdd = async (cwd: string, command: Extract<WorktreeCommand, { verb
         () => undefined,
         (error: unknown) => String(error).slice(0, 300),
       );
-      if (restoreError !== undefined) return fail(`fatal: t3flare: '${command.path}' could not be restored: ${restoreError}`);
-      return { exitCode: 0, stdout: "", stderr: `Preparing worktree (restoring '${command.path}')\n`, route: "worktree", detail: "tombstone restored" };
+      if (restoreError !== undefined)
+        return fail(`fatal: t3flare: '${command.path}' could not be restored: ${restoreError}`);
+      return {
+        exitCode: 0,
+        stdout: "",
+        stderr: `Preparing worktree (restoring '${command.path}')\n`,
+        route: "worktree",
+        detail: "tombstone restored",
+      };
     }
     if (existing.state === "deleting") {
       const { purgeWorkspace, referencesFrom } = await import("./deletion.ts");
       const purged = await purgeWorkspace(id, referencesFrom(services.sql).deletedThreads.get(id) ?? []);
-      if (!purged.destroyed) return fail(`fatal: t3flare: '${command.path}' is still being removed: ${purged.error ?? ""}`, "deleting");
+      if (!purged.destroyed)
+        return fail(`fatal: t3flare: '${command.path}' is still being removed: ${purged.error ?? ""}`, "deleting");
     } else services.workspaces.remove(id);
   }
   const started = Date.now();
@@ -323,28 +418,56 @@ const worktreeAdd = async (cwd: string, command: Extract<WorktreeCommand, { verb
     const budget = startRefusal(raw);
     const reason = budget === undefined ? raw : `the Container cannot start: ${budget}`;
     services.workspaces.setState(id, "failed", { lastError: raw });
-    console.warn(JSON.stringify({ t3flare: "worktree-failed", id, reason: redactTokens(reason).slice(0, 500), timings }));
-    return fail(`fatal: t3flare: the worktree Workspace was not made: ${redactTokens(reason).slice(0, 800)}`, JSON.stringify(timings));
+    console.warn(
+      JSON.stringify({ t3flare: "worktree-failed", id, reason: redactTokens(reason).slice(0, 500), timings }),
+    );
+    return fail(
+      `fatal: t3flare: the worktree Workspace was not made: ${redactTokens(reason).slice(0, 800)}`,
+      JSON.stringify(timings),
+    );
   };
   try {
     const worktree = workspaceRpc(id);
     const cloned = await step("clone", () => worktree.worktreeClone({ id, url: parent.cloneUrl, parent: parent.id }));
     if (!cloned.ok) return failed(`clone: ${cloned.error ?? "failed"}`);
-    const name = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(id)))].slice(0, 8).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    const name = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(id)))]
+      .slice(0, 8)
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
     const projectRpc = workspaceRpc(parent.id);
     const bundled = await step("bundle", () => projectRpc.worktreeBundle({ ref, tips: cloned.tips, name }));
     if (!bundled.ok || bundled.commit === undefined) return failed(`bundle: ${bundled.error ?? "failed"}`);
     const finished = await step("checkout", () =>
-      worktree.worktreeFinish({ parent: parent.id, bundle: bundled.bundle ?? null, ref, commit: bundled.commit!, config: bundled.config ?? [] }),
+      worktree.worktreeFinish({
+        parent: parent.id,
+        bundle: bundled.bundle ?? null,
+        ref,
+        commit: bundled.commit!,
+        config: bundled.config ?? [],
+      }),
     );
-    if (bundled.bundle) await projectRpc.fs({ op: "remove", path: bundled.bundle, options: { force: true } }).catch(() => undefined);
+    if (bundled.bundle)
+      await projectRpc.fs({ op: "remove", path: bundled.bundle, options: { force: true } }).catch(() => undefined);
     if (!finished.ok) return failed(`checkout: ${finished.error ?? "failed"}`);
     // The project-root view (plan section 4.2): the project's untracked files, for setup scripts' `$T3CODE_PROJECT_ROOT`.
-    const view = await step("projectRoot", () => worktree.seedProjectRoot({ parent: parent.id })).catch((error: unknown) => ({ error: describeFailure(error).slice(0, 300) }));
+    const view = await step("projectRoot", () => worktree.seedProjectRoot({ parent: parent.id })).catch(
+      (error: unknown) => ({ error: describeFailure(error).slice(0, 300) }),
+    );
     services.workspaces.setState(id, "ready", { lastError: null });
-    const detail = JSON.stringify({ ...timings, totalMs: Date.now() - started, bundled: bundled.bundle !== null && bundled.bundle !== undefined, projectRoot: view });
+    const detail = JSON.stringify({
+      ...timings,
+      totalMs: Date.now() - started,
+      bundled: bundled.bundle !== null && bundled.bundle !== undefined,
+      projectRoot: view,
+    });
     console.log(JSON.stringify({ t3flare: "worktree-ready", id, detail }));
-    return { exitCode: 0, stdout: "", stderr: `Preparing worktree (checking out '${ref}')\nHEAD is now at ${bundled.commit.slice(0, 7)}\n`, route: "worktree", detail };
+    return {
+      exitCode: 0,
+      stdout: "",
+      stderr: `Preparing worktree (checking out '${ref}')\nHEAD is now at ${bundled.commit.slice(0, 7)}\n`,
+      route: "worktree",
+      detail,
+    };
   } catch (error) {
     return failed(describeFailure(error));
   }
@@ -354,19 +477,37 @@ const worktreeAdd = async (cwd: string, command: Extract<WorktreeCommand, { verb
  * `git worktree list --porcelain [-z]` in a project: the project's own entry (its real answer, passive), then one per
  * worktree Workspace of it, with HEAD and branch read from that Workspace's own files (never starting a Container).
  */
-const worktreeList = async (args: ReadonlyArray<string>, cwd: string, env: Readonly<Record<string, unknown>> | undefined, command: Extract<WorktreeCommand, { verb: "list" }>): Promise<Answer> => {
+const worktreeList = async (
+  args: ReadonlyArray<string>,
+  cwd: string,
+  env: Readonly<Record<string, unknown>> | undefined,
+  command: Extract<WorktreeCommand, { verb: "list" }>,
+): Promise<Answer> => {
   const own = await git(args, cwd, env, undefined);
   if (own.exitCode !== 0 || !command.porcelain) return own;
   const project = toWorkspace(cwd)!;
-  const worktrees = environmentServices().workspaces.worktreesOf(project.id).filter((ws) => ws.state === "ready");
+  const worktrees = environmentServices()
+    .workspaces.worktreesOf(project.id)
+    .filter((ws) => ws.state === "ready");
   const entries = await Promise.all(
     worktrees.map(async (ws) => {
-      const head = await workspaceRpc(ws.id).worktreeHead().catch(() => ({ head: null, branch: null }));
-      return { path: `/w/${ws.id}`, head: head.head, branch: head.branch ?? (ws.branch === null ? null : `refs/heads/${ws.branch}`) };
+      const head = await workspaceRpc(ws.id)
+        .worktreeHead()
+        .catch(() => ({ head: null, branch: null }));
+      return {
+        path: `/w/${ws.id}`,
+        head: head.head,
+        branch: head.branch ?? (ws.branch === null ? null : `refs/heads/${ws.branch}`),
+      };
     }),
   );
   const main = parseWorktreeList(own.stdout, command.z).slice(0, 1);
-  return { ...own, stdout: worktreeListPorcelain([...main, ...entries], command.z), route: "worktree", detail: `${entries.length} worktree Workspaces` };
+  return {
+    ...own,
+    stdout: worktreeListPorcelain([...main, ...entries], command.z),
+    route: "worktree",
+    detail: `${entries.length} worktree Workspaces`,
+  };
 };
 
 /** The worktree verbs in a project; null for a worktree command that its own Workspace's git answers. */
@@ -379,7 +520,8 @@ const worktreeRouteOf = (
   if (command === null || at === null || at.id.startsWith(".wt/")) return null;
   switch (command.verb) {
     case "add":
-      if (command.detach && isScratchDir(command.path.replace(/\/[^/]+\/?$/, ""))) return (env) => scratchAdd(args, cwd, command, env);
+      if (command.detach && isScratchDir(command.path.replace(/\/[^/]+\/?$/, "")))
+        return (env) => scratchAdd(args, cwd, command, env);
       return () => worktreeAdd(cwd, command);
     case "list":
       return (env) => worktreeList(args, cwd, env, command);
@@ -388,15 +530,23 @@ const worktreeRouteOf = (
       return async () => ({ exitCode: 0, stdout: "", stderr: "", route: "worktree" });
     case "remove":
       // t3's own removal of a scratch checkout, as written, in the project's Container.
-      if (scratchProjectOf(command.path) === at.id) return (env) => git(args, cwd, env, undefined, { action: true, route: "scratch" });
+      if (scratchProjectOf(command.path) === at.id)
+        return (env) => git(args, cwd, env, undefined, { action: true, route: "scratch" });
       return async () => {
         const { removeWorktree } = await import("./deletion.ts");
         const services = environmentServices();
         const answer = await removeWorktree(cwd, command.path, command.force, services.sql, services.sweep());
-        return { exitCode: answer.exitCode, stdout: "", stderr: answer.stderr, route: "worktree", detail: answer.detail };
+        return {
+          exitCode: answer.exitCode,
+          stdout: "",
+          stderr: answer.stderr,
+          route: "worktree",
+          detail: answer.detail,
+        };
       };
     case "unsupported":
-      return async () => fail(`fatal: t3flare: 'git worktree ${command.name}' is not supported in the Cloud Environment`);
+      return async () =>
+        fail(`fatal: t3flare: 'git worktree ${command.name}' is not supported in the Cloud Environment`);
   }
 };
 
@@ -404,7 +554,10 @@ const worktreeRouteOf = (
 const GIT_VERSION = "git version 2.56.0";
 
 /** `-C <dir>` options folded into the cwd, as git applies them (each relative to the last). */
-const withoutDashC = (argv: ReadonlyArray<string>, cwd: string | undefined): { readonly args: ReadonlyArray<string>; readonly cwd: string | undefined } => {
+const withoutDashC = (
+  argv: ReadonlyArray<string>,
+  cwd: string | undefined,
+): { readonly args: ReadonlyArray<string>; readonly cwd: string | undefined } => {
   const args: Array<string> = [];
   let at = cwd;
   let i = 0;
@@ -435,14 +588,18 @@ const ghAuthStatus = async (): Promise<Answer> => {
     .workspaces.list()
     .find((ws) => ws.host === "github.com" && ws.owner !== null)?.owner;
   const login = owner ?? GH_APP_LOGIN;
-  const hosts = { "github.com": [{ state: "success", active: true, host: "github.com", login, tokenSource: "t3flare-github-app" }] };
+  const hosts = {
+    "github.com": [{ state: "success", active: true, host: "github.com", login, tokenSource: "t3flare-github-app" }],
+  };
   return { exitCode: 0, stdout: `${JSON.stringify({ hosts })}\n`, stderr: "", route: "emulated" };
 };
 
 /** gh as t3's GitHub provider uses it: its version, its sign-in, and its token, from the GitHub App. */
 const ghRouteOf = (args: ReadonlyArray<string>): (() => Promise<Answer>) | null => {
-  if (args[0] === "--version") return async () => ({ exitCode: 0, stdout: "gh version 2.83.0 (t3flare)\n", stderr: "", route: "emulated" });
-  if (args[0] === "config" && args[1] === "get") return async () => ({ exitCode: 0, stdout: "\n", stderr: "", route: "emulated" });
+  if (args[0] === "--version")
+    return async () => ({ exitCode: 0, stdout: "gh version 2.83.0 (t3flare)\n", stderr: "", route: "emulated" });
+  if (args[0] === "config" && args[1] === "get")
+    return async () => ({ exitCode: 0, stdout: "\n", stderr: "", route: "emulated" });
   if (args[0] === "auth" && args[1] === "token") return () => ghToken();
   if (args[0] === "auth" && args[1] === "status") return () => ghAuthStatus();
   return null;
@@ -456,7 +613,8 @@ const routeOf = (
 ): ((env: Readonly<Record<string, unknown>> | undefined, stdin: string | undefined) => Promise<Answer>) | null => {
   if (name === "gh") return ghRouteOf(argv);
   if (name !== "git") return null;
-  if (argv.length === 1 && argv[0] === "--version") return async () => ({ exitCode: 0, stdout: `${GIT_VERSION}\n`, stderr: "", route: "emulated" });
+  if (argv.length === 1 && argv[0] === "--version")
+    return async () => ({ exitCode: 0, stdout: `${GIT_VERSION}\n`, stderr: "", route: "emulated" });
   // `git -C <dir> …`: the directory is the command's cwd.
   const { args, cwd } = withoutDashC(argv, spawnCwd);
   if (cwd === undefined) return null;
@@ -466,7 +624,8 @@ const routeOf = (
   // A command in a scratch checkout (parity G7): in its project's Container, at t3's path, never from the read cache.
   const scratchProject = scratchProjectOf(normal);
   if (scratchProject !== undefined) {
-    return (env, stdin) => git(["-C", normal, ...args], `/w/${scratchProject}`, env, stdin, { action: true, route: "scratch" });
+    return (env, stdin) =>
+      git(["-C", normal, ...args], `/w/${scratchProject}`, env, stdin, { action: true, route: "scratch" });
   }
   const worktree = worktreeRouteOf(args, normal);
   if (worktree !== null) return worktree;
@@ -504,7 +663,10 @@ export const spawn = (command: ChildProcess.Command) =>
     }
     // G11 (ADR-0031): t3's HTML renders' Chrome is a bridge to Browser Run (`preview/htmlBrowser.ts`).
     if (command.command === HTML_BROWSER_EXECUTABLE) {
-      return yield* spawnHtmlBrowser(command, { binding: () => environmentServices().browserRun, store: () => environmentServices().previewStore });
+      return yield* spawnHtmlBrowser(command, {
+        binding: () => environmentServices().browserRun,
+        store: () => environmentServices().previewStore,
+      });
     }
     const name = command.command.replace(/^.*\//, "");
     const args = command.args.map((word) => (typeof word === "string" ? word : Redacted.value(word)));
@@ -513,18 +675,55 @@ export const spawn = (command: ChildProcess.Command) =>
     if (CLI_NAMES.has(name)) {
       const started = yield* Clock.currentTimeMillis;
       return yield* spawnCli(command).pipe(
-        Effect.tap(() => Effect.map(Clock.currentTimeMillis, (now) => record({ at: started, command: name, argv: traceArgv(args.slice(0, 4)), cwd: cwd ?? null, route: "process", exitCode: null, ms: now - started }))),
-        Effect.tapError((error) => Effect.map(Clock.currentTimeMillis, (now) => record({ at: started, command: name, argv: traceArgv(args.slice(0, 4)), cwd: cwd ?? null, route: "error", exitCode: null, ms: now - started, detail: String(error).slice(0, 300) }))),
+        Effect.tap(() =>
+          Effect.map(Clock.currentTimeMillis, (now) =>
+            record({
+              at: started,
+              command: name,
+              argv: traceArgv(args.slice(0, 4)),
+              cwd: cwd ?? null,
+              route: "process",
+              exitCode: null,
+              ms: now - started,
+            }),
+          ),
+        ),
+        Effect.tapError((error) =>
+          Effect.map(Clock.currentTimeMillis, (now) =>
+            record({
+              at: started,
+              command: name,
+              argv: traceArgv(args.slice(0, 4)),
+              cwd: cwd ?? null,
+              route: "error",
+              exitCode: null,
+              ms: now - started,
+              detail: String(error).slice(0, 300),
+            }),
+          ),
+        ),
       );
     }
     // In-app updates (ADR-0037, plan D21): t3's provider-update runner's command dispatches a CLI bump and follows its
     // run; only with this isolate's token in its environment and exactly its argv (review A4), else a missing binary.
-    const route = isCliUpdateSpawn(command.command, args, command.options.env as Readonly<Record<string, unknown>> | undefined)
+    const route = isCliUpdateSpawn(
+      command.command,
+      args,
+      command.options.env as Readonly<Record<string, unknown>> | undefined,
+    )
       ? async () => ({ ...(await runCliUpdate(args)), route: "update" as const })
       : routeOf(name, args, cwd);
     if (route === null) {
       spawnAttempts.set(name, (spawnAttempts.get(name) ?? 0) + 1);
-      record({ at: yield* Clock.currentTimeMillis, command: name, argv: traceArgv(args), cwd: cwd ?? null, route: "not-found", exitCode: null, ms: 0 });
+      record({
+        at: yield* Clock.currentTimeMillis,
+        command: name,
+        argv: traceArgv(args),
+        cwd: cwd ?? null,
+        route: "not-found",
+        exitCode: null,
+        ms: 0,
+      });
       return yield* notFound(name);
     }
 
@@ -539,7 +738,10 @@ export const spawn = (command: ChildProcess.Command) =>
       Effect.gen(function* () {
         yield* Effect.sleep(5);
         if (stdinStarted) yield* Deferred.await(stdinDone);
-        const stdin = stdinChunks.length === 0 ? undefined : stdinChunks.map((chunk) => decoder.decode(chunk, { stream: true })).join("");
+        const stdin =
+          stdinChunks.length === 0
+            ? undefined
+            : stdinChunks.map((chunk) => decoder.decode(chunk, { stream: true })).join("");
         return yield* Effect.tryPromise({
           try: () => route(env, stdin),
           catch: (cause) =>
@@ -568,7 +770,16 @@ export const spawn = (command: ChildProcess.Command) =>
         ),
         Effect.tapError((error) =>
           Effect.map(Clock.currentTimeMillis, (now) =>
-            record({ at: started, command: name, argv: traceArgv(args), cwd: cwd ?? null, route: "error", exitCode: null, ms: now - started, detail: String(error).slice(0, 300) }),
+            record({
+              at: started,
+              command: name,
+              argv: traceArgv(args),
+              cwd: cwd ?? null,
+              route: "error",
+              exitCode: null,
+              ms: now - started,
+              detail: String(error).slice(0, 300),
+            }),
           ),
         ),
       ),

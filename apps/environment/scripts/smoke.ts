@@ -38,7 +38,12 @@ const rootOAuthFailure = async (): Promise<string | undefined> => {
   }
   const protectedResource = await wellKnown("/.well-known/oauth-protected-resource");
   const servers = protectedResource.json?.authorization_servers;
-  if (protectedResource.status !== 200 || protectedResource.json?.resource !== `${origin}/mcp` || !Array.isArray(servers) || !servers.every((server) => server === origin)) {
+  if (
+    protectedResource.status !== 200 ||
+    protectedResource.json?.resource !== `${origin}/mcp` ||
+    !Array.isArray(servers) ||
+    !servers.every((server) => server === origin)
+  ) {
     return `the root protected-resource document is not t3's /mcp (${protectedResource.status}, resource ${String(protectedResource.json?.resource)})`;
   }
   return undefined;
@@ -55,14 +60,20 @@ const attempt = async (): Promise<string | undefined> => {
     },
   });
   if (response.status !== 200) return `GET /_t3flare/health answered ${response.status}`;
-  const health = (await response.json()) as { build?: { commit?: string }; safeMode?: { on?: boolean }; runtime?: string };
+  const health = (await response.json()) as {
+    build?: { commit?: string };
+    safeMode?: { on?: boolean };
+    runtime?: string;
+  };
   console.log(JSON.stringify({ build: health.build, safeMode: health.safeMode, runtime: health.runtime }));
-  if (expected !== "" && health.build?.commit !== expected) return `build ${health.build?.commit}, expected ${expected}`;
+  if (expected !== "" && health.build?.commit !== expected)
+    return `build ${health.build?.commit}, expected ${expected}`;
   if (health.safeMode?.on) return "the Environment is in safe mode";
   if (expectedServerVersion !== "") {
     const descriptor = await wellKnown("/.well-known/t3/environment");
     const serverVersion = descriptor.json?.serverVersion;
-    if (serverVersion !== expectedServerVersion) return `t3's descriptor reports serverVersion ${String(serverVersion)}, expected ${expectedServerVersion}`;
+    if (serverVersion !== expectedServerVersion)
+      return `t3's descriptor reports serverVersion ${String(serverVersion)}, expected ${expectedServerVersion}`;
   }
   return rootOAuthFailure();
 };

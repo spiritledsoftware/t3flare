@@ -18,7 +18,8 @@ const advertise = (why: string): Classification => ({ advertise: why });
 
 const SELF_UPDATE = "the Environment is updated by the t3 bump and a deploy, never by itself (ADR-0017, ADR-0041)";
 /** What a stock client's server Update does here (ADR-0037): the DO dispatches CI, which proves and lands the bump. */
-const UPDATE_BY_CI = "a stock client's server Update dispatches a t3 bump that CI proves and lands (ADR-0037); t3flare's own ServerSelfUpdate answers it";
+const UPDATE_BY_CI =
+  "a stock client's server Update dispatches a t3 bump that CI proves and lands (ADR-0037); t3flare's own ServerSelfUpdate answers it";
 
 export const CAPABILITIES = {
   repositoryIdentity: keep,
@@ -49,7 +50,9 @@ export const CAPABILITIES = {
   projectWorktreeCleanup: keep,
   settledWorktreeCleanup: keep,
   worktreesDirectory: keep,
-  fastWorktreeCheckout: strip("a copy-on-write cache on the host's disk; every worktree is a Workspace of its own (step 2b)"),
+  fastWorktreeCheckout: strip(
+    "a copy-on-write cache on the host's disk; every worktree is a Workspace of its own (step 2b)",
+  ),
   threadAutoSettlementScope: keep,
   threadRestartContinuation: keep,
   projectSettingsOverrides: keep,
@@ -120,11 +123,14 @@ export const CAPABILITIES = {
   // `issues.linkedThreads`: t3's own `/ws` read over its own SQL, through the ported ThreadIssueService.
   issueLinkedThreads: keep,
   // The managed policy keeps the tunnel itself off (fragility U4).
-  previewTunnelSetting: strip("the preview tunnel reaches the host's loopback ports, where nothing listens in the DO (host-bound)"),
+  previewTunnelSetting: strip(
+    "the preview tunnel reaches the host's loopback ports, where nothing listens in the DO (host-bound)",
+  ),
 } as const satisfies { readonly [K in keyof ExecutionEnvironmentCapabilities]?: Classification };
 
 /** The flags of t3's descriptor (`fields`, its schema's keys) that are not classified here: each is stripped. */
-export const unclassifiedCapabilities = (fields: ReadonlyArray<string>): Array<string> => fields.filter((key) => !Object.hasOwn(CAPABILITIES, key));
+export const unclassifiedCapabilities = (fields: ReadonlyArray<string>): Array<string> =>
+  fields.filter((key) => !Object.hasOwn(CAPABILITIES, key));
 
 /** The values t3flare advertises for its `advertise` keys, each sent only where its feature is configured. */
 export interface AdvertisedCapabilities {
@@ -133,7 +139,10 @@ export interface AdvertisedCapabilities {
 }
 
 /** The capabilities the Cloud Environment advertises: t3's kept ones, and t3flare's own where configured. */
-export const cloudCapabilities = (capabilities: ExecutionEnvironmentCapabilities, advertised: AdvertisedCapabilities = {}): ExecutionEnvironmentCapabilities =>
+export const cloudCapabilities = (
+  capabilities: ExecutionEnvironmentCapabilities,
+  advertised: AdvertisedCapabilities = {},
+): ExecutionEnvironmentCapabilities =>
   ({
     ...Object.fromEntries(
       Object.entries(capabilities).filter(([key]) => {
@@ -143,6 +152,8 @@ export const cloudCapabilities = (capabilities: ExecutionEnvironmentCapabilities
       }),
     ),
     ...Object.fromEntries(
-      Object.entries(advertised).filter(([key, value]) => value !== undefined && "advertise" in (CAPABILITIES as Record<string, Classification>)[key]!),
+      Object.entries(advertised).filter(
+        ([key, value]) => value !== undefined && "advertise" in (CAPABILITIES as Record<string, Classification>)[key]!,
+      ),
     ),
   }) as ExecutionEnvironmentCapabilities;

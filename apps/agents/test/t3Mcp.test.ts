@@ -7,16 +7,38 @@ import type { InteractionMode, RuntimeMode } from "@t3flare/session-protocol";
 import { describe, expect, it } from "vitest";
 
 import { ApprovalStore, PLAN_MODE_REFUSAL } from "../src/extensions/permissions.ts";
-import { type CatalogTool, catalogOf, type McpCallAnswer, t3McpExtension, t3ToolName } from "../src/extensions/t3-mcp.ts";
+import {
+  type CatalogTool,
+  catalogOf,
+  type McpCallAnswer,
+  t3McpExtension,
+  t3ToolName,
+} from "../src/extensions/t3-mcp.ts";
 import { context, memoryKv, restartingHarness, textOf, until } from "./harness.fixture.ts";
 
 const schema = (properties: Record<string, unknown>) => ({ type: "object", properties });
 
 const LISTED: ReadonlyArray<CatalogTool> = [
-  { name: "t3_thread_read", inputSchema: schema({ threadId: { type: "string" } }), annotations: { readOnlyHint: true } },
-  { name: "delegate_task", inputSchema: schema({ task: { type: "string" }, clientRequestId: { type: "string" } }), annotations: { readOnlyHint: false } },
-  { name: "t3_thread_update", inputSchema: schema({ threadId: { type: "string" }, action: { type: "string" } }), annotations: { readOnlyHint: false } },
-  { name: "t3_thread_wait", inputSchema: schema({ threadId: { type: "string" }, timeoutMs: { type: "number" } }), annotations: { readOnlyHint: true } },
+  {
+    name: "t3_thread_read",
+    inputSchema: schema({ threadId: { type: "string" } }),
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: "delegate_task",
+    inputSchema: schema({ task: { type: "string" }, clientRequestId: { type: "string" } }),
+    annotations: { readOnlyHint: false },
+  },
+  {
+    name: "t3_thread_update",
+    inputSchema: schema({ threadId: { type: "string" }, action: { type: "string" } }),
+    annotations: { readOnlyHint: false },
+  },
+  {
+    name: "t3_thread_wait",
+    inputSchema: schema({ threadId: { type: "string" }, timeoutMs: { type: "number" } }),
+    annotations: { readOnlyHint: true },
+  },
   { name: "request_secret", inputSchema: schema({}), annotations: { readOnlyHint: false } },
   { name: "preview_open", inputSchema: schema({}), annotations: { readOnlyHint: false } },
   { name: "t3_environment_link", inputSchema: schema({}), annotations: { readOnlyHint: false } },
@@ -47,7 +69,10 @@ const setup = (options: Setup = {}) => {
       instructions: () => "## T3 Code orchestration",
       call: (tool, args) => {
         calls.push({ tool, args });
-        return options.answer?.(tool, args, calls.length) ?? Promise.resolve({ kind: "result", text: `{"ok":"${tool}"}`, isError: false });
+        return (
+          options.answer?.(tool, args, calls.length) ??
+          Promise.resolve({ kind: "result", text: `{"ok":"${tool}"}`, isError: false })
+        );
       },
     });
   return {
@@ -62,7 +87,13 @@ const setup = (options: Setup = {}) => {
 
 describe("t3-mcp catalog", () => {
   it("offers every listed tool but the denied ones under t3's names, and reports what it left out", () => {
-    const catalog = catalogOf([...LISTED, { name: "t3_brand_new_tool" }, { name: "t3_environment_unlink" }, { name: "t3_attachment_prepare_upload" }, { name: "t3_worktree_handoff" }]);
+    const catalog = catalogOf([
+      ...LISTED,
+      { name: "t3_brand_new_tool" },
+      { name: "t3_environment_unlink" },
+      { name: "t3_attachment_prepare_upload" },
+      { name: "t3_worktree_handoff" },
+    ]);
     expect(catalog.tools.map((tool) => tool.name)).toEqual([
       "delegate_task",
       "preview_open",
@@ -86,7 +117,9 @@ describe("t3-mcp catalog", () => {
   it("changes its hash when t3's catalog changes, and only then", () => {
     const first = catalogOf(LISTED);
     expect(catalogOf([...LISTED].reverse()).hash).toBe(first.hash);
-    expect(catalogOf(LISTED.map((tool) => (tool.name === "delegate_task" ? { ...tool, description: "new" } : tool))).hash).not.toBe(first.hash);
+    expect(
+      catalogOf(LISTED.map((tool) => (tool.name === "delegate_task" ? { ...tool, description: "new" } : tool))).hash,
+    ).not.toBe(first.hash);
     expect(catalogOf([...LISTED, { name: "device_screenshot" }]).hash).toBe(first.hash);
   });
 });
@@ -94,7 +127,10 @@ describe("t3-mcp catalog", () => {
 describe("t3-mcp tools", () => {
   it("a read-only tool runs without asking in approval-required", async () => {
     const host = setup();
-    const harness = await restartingHarness([host.extension()], [call("t3_thread_read", { threadId: "a" }), fauxAssistantMessage("ok")]);
+    const harness = await restartingHarness(
+      [host.extension()],
+      [call("t3_thread_read", { threadId: "a" }), fauxAssistantMessage("ok")],
+    );
     await until(async () => (await harness.lastToolResult()) !== undefined, "the result");
     expect(textOf(await harness.lastToolResult())).toBe('{"ok":"t3_thread_read"}');
     expect(host.calls).toEqual([{ tool: "t3_thread_read", args: { threadId: "a" } }]);
@@ -102,7 +138,10 @@ describe("t3-mcp tools", () => {
 
   it("a tool that changes state asks as an MCP tool by name, and sends its task's clientRequestId once accepted", async () => {
     const host = setup();
-    const harness = await restartingHarness([host.extension()], [call("delegate_task", { task: "x" }), fauxAssistantMessage("ok")]);
+    const harness = await restartingHarness(
+      [host.extension()],
+      [call("delegate_task", { task: "x" }), fauxAssistantMessage("ok")],
+    );
     await until(() => host.store.pending().length === 1, "the request");
     const request = host.store.pending()[0]!;
     expect(request.kind).toBe("mcp-tool");
@@ -117,27 +156,43 @@ describe("t3-mcp tools", () => {
 
   it("nothing asks in full access", async () => {
     const host = setup({ mode: "full-access" });
-    const harness = await restartingHarness([host.extension()], [call("t3_thread_update", { threadId: "a", action: "rename" }), fauxAssistantMessage("ok")]);
+    const harness = await restartingHarness(
+      [host.extension()],
+      [call("t3_thread_update", { threadId: "a", action: "rename" }), fauxAssistantMessage("ok")],
+    );
     await until(async () => (await harness.lastToolResult()) !== undefined, "the result");
     expect(host.calls.length).toBe(1);
   });
 
   it("in plan mode a tool that changes state is refused and a read-only one runs", async () => {
     const refused = setup({ mode: "full-access", interaction: "plan" });
-    const first = await restartingHarness([refused.extension()], [call("t3_thread_update", { threadId: "a", action: "rename" }), fauxAssistantMessage("ok")]);
+    const first = await restartingHarness(
+      [refused.extension()],
+      [call("t3_thread_update", { threadId: "a", action: "rename" }), fauxAssistantMessage("ok")],
+    );
     await until(async () => (await first.lastToolResult()) !== undefined, "the refusal");
     expect(textOf(await first.lastToolResult())).toBe(PLAN_MODE_REFUSAL);
     expect(refused.calls).toEqual([]);
     expect(refused.store.pending()).toEqual([]);
     const read = setup({ mode: "full-access", interaction: "plan" });
-    const second = await restartingHarness([read.extension()], [call("t3_thread_read", { threadId: "a" }), fauxAssistantMessage("ok")]);
+    const second = await restartingHarness(
+      [read.extension()],
+      [call("t3_thread_read", { threadId: "a" }), fauxAssistantMessage("ok")],
+    );
     await until(async () => (await second.lastToolResult()) !== undefined, "the read");
     expect(read.calls.map((c) => c.tool)).toEqual(["t3_thread_read"]);
   });
 
   it("a keyed call cut off by a Session restart runs again with the same clientRequestId", async () => {
-    const host = setup({ mode: "full-access", answer: (_tool, _args, nth) => (nth === 1 ? new Promise(() => {}) : Promise.resolve({ kind: "result", text: "{}", isError: false })) });
-    const harness = await restartingHarness([host.extension()], [call("delegate_task", { task: "x" }), fauxAssistantMessage("ok")]);
+    const host = setup({
+      mode: "full-access",
+      answer: (_tool, _args, nth) =>
+        nth === 1 ? new Promise(() => {}) : Promise.resolve({ kind: "result", text: "{}", isError: false }),
+    });
+    const harness = await restartingHarness(
+      [host.extension()],
+      [call("delegate_task", { task: "x" }), fauxAssistantMessage("ok")],
+    );
     await until(() => host.calls.length === 1, "the first call");
     await harness.restart();
     await until(() => host.calls.length === 2, "the rerun");
@@ -146,7 +201,10 @@ describe("t3-mcp tools", () => {
 
   it("a call cut off and rerun under a credential t3 issued again is refused, not repeated (review C9)", async () => {
     const host = setup({ mode: "full-access", answer: () => new Promise(() => {}) });
-    const harness = await restartingHarness([host.extension()], [call("delegate_task", { task: "x" }), fauxAssistantMessage("ok")]);
+    const harness = await restartingHarness(
+      [host.extension()],
+      [call("delegate_task", { task: "x" }), fauxAssistantMessage("ok")],
+    );
     await until(() => host.calls.length === 1, "the first call");
     host.reissue();
     await harness.restart();
@@ -157,7 +215,10 @@ describe("t3-mcp tools", () => {
 
   it("an unkeyed call that changes state is not run again after it started", async () => {
     const host = setup({ mode: "full-access", answer: () => new Promise(() => {}) });
-    const harness = await restartingHarness([host.extension()], [call("t3_thread_update", { threadId: "a", action: "rename" }), fauxAssistantMessage("ok")]);
+    const harness = await restartingHarness(
+      [host.extension()],
+      [call("t3_thread_update", { threadId: "a", action: "rename" }), fauxAssistantMessage("ok")],
+    );
     await until(() => host.calls.length === 1, "the first call");
     await harness.restart();
     await until(async () => (await harness.lastToolResult()) !== undefined, "the result");
@@ -166,8 +227,15 @@ describe("t3-mcp tools", () => {
   });
 
   it("t3's tools unavailable (a 401) is a tool error the model sees", async () => {
-    const host = setup({ mode: "full-access", answer: () => Promise.resolve({ kind: "unavailable", message: "T3's tools are unavailable until the next turn." }) });
-    const harness = await restartingHarness([host.extension()], [call("t3_thread_read", { threadId: "a" }), fauxAssistantMessage("ok")]);
+    const host = setup({
+      mode: "full-access",
+      answer: () =>
+        Promise.resolve({ kind: "unavailable", message: "T3's tools are unavailable until the next turn." }),
+    });
+    const harness = await restartingHarness(
+      [host.extension()],
+      [call("t3_thread_read", { threadId: "a" }), fauxAssistantMessage("ok")],
+    );
     await until(async () => (await harness.lastToolResult()) !== undefined, "the result");
     const result = await harness.lastToolResult();
     expect(result?.isError).toBe(true);
@@ -176,9 +244,17 @@ describe("t3-mcp tools", () => {
 
   it("a wait goes to t3 in pieces of at most 50 s until it is not a timeout", async () => {
     const host = setup({
-      answer: (_tool, _args, nth) => Promise.resolve({ kind: "result", text: nth < 3 ? '{"timedOut":true}' : '{"status":"completed","timedOut":false}', isError: false }),
+      answer: (_tool, _args, nth) =>
+        Promise.resolve({
+          kind: "result",
+          text: nth < 3 ? '{"timedOut":true}' : '{"status":"completed","timedOut":false}',
+          isError: false,
+        }),
     });
-    const harness = await restartingHarness([host.extension()], [call("t3_thread_wait", { threadId: "a", timeoutMs: 600_000 }), fauxAssistantMessage("ok")]);
+    const harness = await restartingHarness(
+      [host.extension()],
+      [call("t3_thread_wait", { threadId: "a", timeoutMs: 600_000 }), fauxAssistantMessage("ok")],
+    );
     await until(async () => (await harness.lastToolResult()) !== undefined, "the result");
     expect(host.calls.length).toBe(3);
     expect(host.calls.every((c) => typeof c.args.timeoutMs === "number" && c.args.timeoutMs <= 50_000)).toBe(true);
@@ -238,7 +314,10 @@ describe("t3-mcp guidance (SPI-1060)", () => {
   });
 
   it("keeps a bullet naming a tool it does not know: t3's own guidance, as stock t3 gives it", async () => {
-    const text = await render("- Call `delegate_task`.\n- Call `t3_brand_new_tool`.").sections![0]!.render({} as never, context);
+    const text = await render("- Call `delegate_task`.\n- Call `t3_brand_new_tool`.").sections![0]!.render(
+      {} as never,
+      context,
+    );
     expect(text).toBe("- Call `delegate_task`.\n- Call `t3_brand_new_tool`.");
   });
 
@@ -253,6 +332,8 @@ describe("t3-mcp guidance (SPI-1060)", () => {
       ...LISTED,
     ];
     const tool = render("", listed).tools!.find((each) => each.name === t3ToolName("t3_environment_links"))!;
-    expect(tool.description).toBe("List linked environments and whether each answers now. Pass one's `environmentId` to a tool; `delegate_task` takes it.");
+    expect(tool.description).toBe(
+      "List linked environments and whether each answers now. Pass one's `environmentId` to a tool; `delegate_task` takes it.",
+    );
   });
 });

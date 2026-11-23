@@ -77,7 +77,9 @@ class SharedHtmlBrowser {
         }
         try {
           const connection = await binding.connectSession(sessionId);
-          const response = await connection.webSocket.fetch("https://browser-binding.invalid", { headers: { Upgrade: "websocket" } });
+          const response = await connection.webSocket.fetch("https://browser-binding.invalid", {
+            headers: { Upgrade: "websocket" },
+          });
           const socket = (response as unknown as { webSocket: CdpWebSocket | null }).webSocket;
           if (socket === null) throw new Error("Browser Run did not return a WebSocket");
           socket.accept();
@@ -120,7 +122,10 @@ class SharedHtmlBrowser {
     const sessionId = await pending.catch(() => undefined);
     if (sessionId === undefined) return;
     deps.store().sessionClosed(sessionId);
-    await deps.binding()?.closeSession(sessionId).catch(() => undefined);
+    await deps
+      .binding()
+      ?.closeSession(sessionId)
+      .catch(() => undefined);
   }
 }
 
@@ -134,7 +139,7 @@ const spawnError = (description: string, cause?: unknown) =>
     _tag: "Unknown",
     module: "ChildProcess",
     method: "spawn",
-    description: `t3flare: ${description}${cause === undefined ? "" : `: ${(cause instanceof Error ? cause.message : JSON.stringify(cause) ?? "").slice(0, 200)}`}`,
+    description: `t3flare: ${description}${cause === undefined ? "" : `: ${(cause instanceof Error ? cause.message : (JSON.stringify(cause) ?? "")).slice(0, 200)}`}`,
     pathOrDescriptor: HTML_BROWSER_EXECUTABLE,
   });
 
@@ -209,7 +214,11 @@ export const spawnHtmlBrowser = (command: ChildProcess.StandardCommand, deps: Ht
       if (pendingContexts.size > 0) {
         try {
           const reply = JSON.parse(text) as { id?: number; result?: { browserContextId?: string } };
-          if (reply.id !== undefined && pendingContexts.delete(reply.id) && reply.result?.browserContextId !== undefined) {
+          if (
+            reply.id !== undefined &&
+            pendingContexts.delete(reply.id) &&
+            reply.result?.browserContextId !== undefined
+          ) {
             contexts.add(reply.result.browserContextId);
           }
         } catch {
@@ -251,11 +260,7 @@ export const spawnHtmlBrowser = (command: ChildProcess.StandardCommand, deps: Ht
           at = partial.indexOf("\0");
         }
       }),
-    ).pipe(
-      Effect.ensuring(Effect.sync(() => end(0))),
-      Effect.ignore,
-      Effect.forkScoped,
-    );
+    ).pipe(Effect.ensuring(Effect.sync(() => end(0))), Effect.ignore, Effect.forkScoped);
     yield* Effect.addFinalizer(() => Effect.sync(() => end(0)));
 
     return ChildProcessSpawner.makeHandle({

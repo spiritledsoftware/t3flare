@@ -41,22 +41,36 @@ const BASH = ["/opt/homebrew/bin/bash", "/usr/bin/bash", "/bin/bash"].find((cand
 const PYTHON = spawnSync("python3", ["-c", "import pty"]).status === 0 ? "python3" : undefined;
 
 let dir: string;
-let runtime: ManagedRuntime.ManagedRuntime<TerminalManager.TerminalManager | SetupRunner.ProjectSetupScriptRunner, never>;
+let runtime: ManagedRuntime.ManagedRuntime<
+  TerminalManager.TerminalManager | SetupRunner.ProjectSetupScriptRunner,
+  never
+>;
 const shells: Array<ReturnType<typeof spawn>> = [];
 const demo = () => path.join(dir, "demo");
 
 /** A real bash under a real PTY with our rc file, as the platform's PTY exec runs the wrapper's last `exec bash`. */
 const spawnShell = (env: Record<string, string>): ShellProcess => {
   const rc = path.join(dir, `rc-${shells.length}`);
-  fs.writeFileSync(rc, `${terminalRc().replace(/^HISTFILE=.*$/m, `HISTFILE=${dir}/history`).replace(/^.*mise activate.*$/m, "")}\n`);
+  fs.writeFileSync(
+    rc,
+    `${terminalRc()
+      .replace(/^HISTFILE=.*$/m, `HISTFILE=${dir}/history`)
+      .replace(/^.*mise activate.*$/m, "")}\n`,
+  );
   const command = [BASH!, "--rcfile", rc, "-i"];
   const argv = ["-c", "import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)", ...command];
-  const child = spawn(PYTHON!, argv, { cwd: dir, env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: dir, ...env }, stdio: ["pipe", "pipe", "inherit"] });
+  const child = spawn(PYTHON!, argv, {
+    cwd: dir,
+    env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: dir, ...env },
+    stdio: ["pipe", "pipe", "inherit"],
+  });
   shells.push(child);
   return {
     stdin: Writable.toWeb(child.stdin!) as WritableStream,
     stdout: Readable.toWeb(child.stdout!) as ReadableStream,
-    exitCode: new Promise((resolve) => child.on("exit", (code, signal) => resolve(code ?? (signal === null ? 1 : 128)))),
+    exitCode: new Promise((resolve) =>
+      child.on("exit", (code, signal) => resolve(code ?? (signal === null ? 1 : 128))),
+    ),
     resize: () => undefined,
   };
 };
@@ -111,14 +125,22 @@ beforeAll(async () => {
     Layer.succeed(HostProcess.Architecture, "x64"),
     Layer.succeed(HostProcess.HomeDirectory, dir),
   );
-  const terminals = Layer.effect(TerminalManager.TerminalManager, TerminalManager.makeWithOptions(terminalManagerOptions(processes, path.join(dir, "logs"))).pipe(Effect.provideService(SpawnExecutableResolution, containerShell))).pipe(
-    Layer.provide(ProcessRunner.layer),
-  );
+  const terminals = Layer.effect(
+    TerminalManager.TerminalManager,
+    TerminalManager.makeWithOptions(terminalManagerOptions(processes, path.join(dir, "logs"))).pipe(
+      Effect.provideService(SpawnExecutableResolution, containerShell),
+    ),
+  ).pipe(Layer.provide(ProcessRunner.layer));
   const fakes = Layer.mergeAll(
     Layer.succeed(ProjectionStore.ProjectionStoreV2, { getThreadShell: () => Effect.succeed(null) } as never),
     Layer.succeed(ProjectService.ProjectService, {} as never),
     Layer.succeed(ServerSettings.ServerSettingsService, {
-      getSettings: Effect.succeed({ projectSettingsOverrides: {}, projectSettingsFolded: false, projectScriptOverrides: {}, defaultProjectScripts: [] }),
+      getSettings: Effect.succeed({
+        projectSettingsOverrides: {},
+        projectSettingsFolded: false,
+        projectScriptOverrides: {},
+        defaultProjectScripts: [],
+      }),
     } as never),
   );
   const runner = Layer.effect(SetupRunner.ProjectSetupScriptRunner, SetupRunner.make).pipe(Layer.provide(fakes));
@@ -166,7 +188,12 @@ const attachAndRead = (threadId: string, cwd: string, ms = 3000) =>
         .pipe(Stream.takeUntil((event) => event.type === "exited" || event.type === "error"));
       yield* Stream.runForEach(stream, (event) =>
         Effect.sync(() => {
-          const any = event as { type: string; data?: string; message?: string; snapshot?: { history?: string; status?: string } };
+          const any = event as {
+            type: string;
+            data?: string;
+            message?: string;
+            snapshot?: { history?: string; status?: string };
+          };
           types.push(any.type === "snapshot" ? `snapshot:${any.snapshot?.status}` : any.type);
           if (any.type === "snapshot") shown += any.snapshot?.history ?? "";
           if (any.type === "output") shown += any.data ?? "";
@@ -196,55 +223,65 @@ describe("a terminal whose cwd is in no Workspace (t3's No project)", () => {
   }, 20_000);
 });
 
-describe.skipIf(BASH === undefined || PYTHON === undefined)("t3's terminal and setup runner over ours, on a real PTY", () => {
-  it("runs a setup script with T3CODE_* set and reports exit code 0, ", async () => {
-    const result = await runSetup("thread-ok", 'echo "root=$T3CODE_PROJECT_ROOT tree=$T3CODE_WORKTREE_PATH"; echo setup-ran');
-    expect(result.started.status).toBe("started");
-    expect(result.completion?.exitCode).toBe(0);
-    expect(result.lines.join("\n")).toContain(`root=${demo()} tree=${demo()}`);
-    expect(result.lines.join("\n")).toContain("setup-ran");
-    expect(result.lines.join("\n")).not.toContain("6973"); // the markers never reach t3
-  }, 60_000);
+describe.skipIf(BASH === undefined || PYTHON === undefined)(
+  "t3's terminal and setup runner over ours, on a real PTY",
+  () => {
+    it("runs a setup script with T3CODE_* set and reports exit code 0, ", async () => {
+      const result = await runSetup(
+        "thread-ok",
+        'echo "root=$T3CODE_PROJECT_ROOT tree=$T3CODE_WORKTREE_PATH"; echo setup-ran',
+      );
+      expect(result.started.status).toBe("started");
+      expect(result.completion?.exitCode).toBe(0);
+      expect(result.lines.join("\n")).toContain(`root=${demo()} tree=${demo()}`);
+      expect(result.lines.join("\n")).toContain("setup-ran");
+      expect(result.lines.join("\n")).not.toContain("6973"); // the markers never reach t3
+    }, 60_000);
 
-  it("reports a failing script's exit code", async () => {
-    const result = await runSetup("thread-fail", "echo failing; exit 3");
-    expect(result.completion?.exitCode).toBe(3);
-  }, 60_000);
+    it("reports a failing script's exit code", async () => {
+      const result = await runSetup("thread-fail", "echo failing; exit 3");
+      expect(result.completion?.exitCode).toBe(3);
+    }, 60_000);
 
-  it("keeps a terminal whose foreground runs a command through closeIdle, and closes it once the prompt is back (review F1)", async () => {
-    const output = await runtime.runPromise(
-      Effect.gen(function* () {
-        const terminals = yield* TerminalManager.TerminalManager;
-        const seen: Array<string> = [];
-        const exits: Array<string> = [];
-        yield* terminals.subscribe((event) =>
-          Effect.sync(() => {
-            if (event.threadId !== "thread-busy") return;
-            if (event.type === "output") seen.push(event.data);
-            if (event.type === "exited" || event.type === "closed") exits.push(event.type);
-          }),
-        );
-        yield* terminals.open({ threadId: "thread-busy", terminalId: "default", cwd: demo(), cols: 80, rows: 24 });
-        /** Polls `check` every 20 ms for up to `ms`; its last answer. */
-        const waitFor = Effect.fn("waitFor")(function* (check: () => boolean, ms: number) {
-          const end = (yield* Clock.currentTimeMillis) + ms;
-          while ((yield* Clock.currentTimeMillis) < end && !check()) yield* Effect.sleep("20 millis");
-          return check();
-        });
-        const until = (pattern: RegExp, ms = 15_000) => waitFor(() => pattern.test(seen.join("")), ms);
-        yield* until(/\$ $/);
-        yield* terminals.write({ threadId: "thread-busy", terminalId: "default", data: "sleep 2; echo SL$((1))EPT\r" });
-        yield* Effect.sleep("500 millis");
-        yield* terminals.closeIdle({ threadId: "thread-busy" });
-        yield* Effect.sleep("300 millis");
-        const keptWhileBusy = exits.length === 0;
-        const finished = yield* until(/SL1EPT[\s\S]*\$ $/, 10_000);
-        yield* Effect.sleep("300 millis");
-        yield* terminals.closeIdle({ threadId: "thread-busy" });
-        const closed = yield* until(/./, 10).pipe(Effect.andThen(waitFor(() => exits.length > 0, 5000)));
-        return { keptWhileBusy, finished, closed };
-      }),
-    );
-    expect(output).toEqual({ keptWhileBusy: true, finished: true, closed: true });
-  }, 60_000);
-});
+    it("keeps a terminal whose foreground runs a command through closeIdle, and closes it once the prompt is back (review F1)", async () => {
+      const output = await runtime.runPromise(
+        Effect.gen(function* () {
+          const terminals = yield* TerminalManager.TerminalManager;
+          const seen: Array<string> = [];
+          const exits: Array<string> = [];
+          yield* terminals.subscribe((event) =>
+            Effect.sync(() => {
+              if (event.threadId !== "thread-busy") return;
+              if (event.type === "output") seen.push(event.data);
+              if (event.type === "exited" || event.type === "closed") exits.push(event.type);
+            }),
+          );
+          yield* terminals.open({ threadId: "thread-busy", terminalId: "default", cwd: demo(), cols: 80, rows: 24 });
+          /** Polls `check` every 20 ms for up to `ms`; its last answer. */
+          const waitFor = Effect.fn("waitFor")(function* (check: () => boolean, ms: number) {
+            const end = (yield* Clock.currentTimeMillis) + ms;
+            while ((yield* Clock.currentTimeMillis) < end && !check()) yield* Effect.sleep("20 millis");
+            return check();
+          });
+          const until = (pattern: RegExp, ms = 15_000) => waitFor(() => pattern.test(seen.join("")), ms);
+          yield* until(/\$ $/);
+          yield* terminals.write({
+            threadId: "thread-busy",
+            terminalId: "default",
+            data: "sleep 2; echo SL$((1))EPT\r",
+          });
+          yield* Effect.sleep("500 millis");
+          yield* terminals.closeIdle({ threadId: "thread-busy" });
+          yield* Effect.sleep("300 millis");
+          const keptWhileBusy = exits.length === 0;
+          const finished = yield* until(/SL1EPT[\s\S]*\$ $/, 10_000);
+          yield* Effect.sleep("300 millis");
+          yield* terminals.closeIdle({ threadId: "thread-busy" });
+          const closed = yield* until(/./, 10).pipe(Effect.andThen(waitFor(() => exits.length > 0, 5000)));
+          return { keptWhileBusy, finished, closed };
+        }),
+      );
+      expect(output).toEqual({ keptWhileBusy: true, finished: true, closed: true });
+    }, 60_000);
+  },
+);

@@ -8,7 +8,11 @@ import type { McpView } from "../src/mcp/host.ts";
 import { relayMessage, type RelayDeps } from "../src/mcp/relay.ts";
 import { codexRelayOverrides, profileLaunch } from "../src/agents/cliProfiles.ts";
 
-const tool = (upstream: string, cls: "read" | "write", exposure: "direct" | "deferred" | "codemode" | "hidden" = "deferred") => ({
+const tool = (
+  upstream: string,
+  cls: "read" | "write",
+  exposure: "direct" | "deferred" | "codemode" | "hidden" = "deferred",
+) => ({
   name: `mcp__commissary__${upstream}`,
   upstream,
   description: upstream,
@@ -39,7 +43,12 @@ interface Harness {
   readonly calls: Array<{ tool: string }>;
 }
 
-const harness = (options: { modes?: Record<string, { runtimeMode?: string; interactionMode?: string }>; answer?: { approved: boolean; forSession?: boolean; reason?: string } } = {}): Harness => {
+const harness = (
+  options: {
+    modes?: Record<string, { runtimeMode?: string; interactionMode?: string }>;
+    answer?: { approved: boolean; forSession?: boolean; reason?: string };
+  } = {},
+): Harness => {
   const asks: Harness["asks"] = [];
   const calls: Harness["calls"] = [];
   const accepted = new Map<string, Set<string>>();
@@ -53,7 +62,10 @@ const harness = (options: { modes?: Record<string, { runtimeMode?: string; inter
         calls.push({ tool: input.tool });
         return { kind: "result", isError: false, text: `ran ${input.tool}` };
       },
-      state: (thread) => (modes[thread] === undefined ? undefined : { runtimeMode: modes[thread]!.runtimeMode, interactionMode: modes[thread]!.interactionMode }),
+      state: (thread) =>
+        modes[thread] === undefined
+          ? undefined
+          : { runtimeMode: modes[thread]!.runtimeMode, interactionMode: modes[thread]!.interactionMode },
       ask: async (input) => {
         asks.push({ thread: input.thread, title: input.title });
         return options.answer ?? { approved: true };
@@ -77,24 +89,47 @@ const input = (message: unknown, extra: Partial<McpRelayInput> = {}): McpRelayIn
   ...extra,
 });
 
-const call = (name: string, id = 7) => ({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: { text: "hi" } } });
+const call = (name: string, id = 7) => ({
+  jsonrpc: "2.0",
+  id,
+  method: "tools/call",
+  params: { name, arguments: { text: "hi" } },
+});
 const resultOf = (answer: Awaited<ReturnType<typeof relayMessage>>) => {
   if (answer.kind !== "response") throw new Error(`not a response: ${answer.kind}`);
-  return (answer.body as { result?: { isError?: boolean; content?: Array<{ text: string }>; tools?: Array<{ name: string; annotations: { readOnlyHint: boolean } }> } }).result!;
+  return (
+    answer.body as {
+      result?: {
+        isError?: boolean;
+        content?: Array<{ text: string }>;
+        tools?: Array<{ name: string; annotations: { readOnlyHint: boolean } }>;
+      };
+    }
+  ).result!;
 };
 
 describe("the relay's MCP server", () => {
   it("answers initialize with the client's protocol version and only tools", async () => {
-    const answer = await relayMessage(input({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26" } }), harness().deps);
-    expect(answer).toMatchObject({ kind: "response", body: { id: 1, result: { protocolVersion: "2025-03-26", capabilities: { tools: { listChanged: false } } } } });
+    const answer = await relayMessage(
+      input({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26" } }),
+      harness().deps,
+    );
+    expect(answer).toMatchObject({
+      kind: "response",
+      body: { id: 1, result: { protocolVersion: "2025-03-26", capabilities: { tools: { listChanged: false } } } },
+    });
   });
 
   it("accepts notifications without an answer", async () => {
-    expect(await relayMessage(input({ jsonrpc: "2.0", method: "notifications/initialized" }), harness().deps)).toEqual({ kind: "accepted" });
+    expect(await relayMessage(input({ jsonrpc: "2.0", method: "notifications/initialized" }), harness().deps)).toEqual({
+      kind: "accepted",
+    });
   });
 
   it("lists the server's tools by upstream name with the class as the hint, without scripts-only and hidden ones (M10)", async () => {
-    const tools = resultOf(await relayMessage(input({ jsonrpc: "2.0", id: 2, method: "tools/list" }), harness().deps)).tools!;
+    const tools = resultOf(
+      await relayMessage(input({ jsonrpc: "2.0", id: 2, method: "tools/list" }), harness().deps),
+    ).tools!;
     expect(tools.map((entry) => [entry.name, entry.annotations.readOnlyHint])).toEqual([
       ["fixture_echo", true],
       ["fixture_note", false],
@@ -127,7 +162,12 @@ describe("the relay's MCP server", () => {
   });
 
   it("decides by the calling thread's own mode, whatever other threads of the Workspace run in", async () => {
-    const h = harness({ modes: { "thread-1": { runtimeMode: "full-access", interactionMode: "default" }, "thread-2": { runtimeMode: "approval-required", interactionMode: "default" } } });
+    const h = harness({
+      modes: {
+        "thread-1": { runtimeMode: "full-access", interactionMode: "default" },
+        "thread-2": { runtimeMode: "approval-required", interactionMode: "default" },
+      },
+    });
     await relayMessage(input(call("fixture_note")), h.deps);
     expect(h.asks).toEqual([]);
     await relayMessage(input(call("fixture_note"), { thread: "thread-2" }), h.deps);
@@ -164,7 +204,12 @@ describe("the CLIs' relay entries (H2, M11)", () => {
     const handle = "a".repeat(64);
     const launch = profileLaunch(
       { cli: "codex", args: ["app-server"], key: "proc-1", cwd: "/w/demo", env: {}, allowProbe: false },
-      { readStateFile: () => undefined, piExtensionSource: "", relay: { handle, servers: ["commissary"] }, endpoints: [{ id: "openai", label: "OpenAI", models: [{ id: "gpt-5-mini" }] }] },
+      {
+        readStateFile: () => undefined,
+        piExtensionSource: "",
+        relay: { handle, servers: ["commissary"] },
+        endpoints: [{ id: "openai", label: "OpenAI", models: [{ id: "gpt-5-mini" }] }],
+      },
     );
     if ("refused" in launch) throw new Error(launch.refused);
     expect(launch.env.T3FLARE_TOOL_HANDLE).toBe(handle);
@@ -177,12 +222,40 @@ describe("pi's t3 entry (SPI-1039, as stock t3 hands it)", () => {
   const handle = "f".repeat(64);
   const pi = (env: Record<string, string>) =>
     profileLaunch(
-      { cli: "pi", args: ["--mode", "rpc", "--extension", "/s/ext.ts"], key: "k", cwd: "/w/x", env: { T3_PI_RUNTIME_MODE: "approval-required", ...env }, allowProbe: false },
+      {
+        cli: "pi",
+        args: ["--mode", "rpc", "--extension", "/s/ext.ts"],
+        key: "k",
+        cwd: "/w/x",
+        env: { T3_PI_RUNTIME_MODE: "approval-required", ...env },
+        allowProbe: false,
+      },
       {
         readStateFile: () => "SRC",
         piExtensionSource: "SRC",
         relay: { handle, servers: [] },
-        piRelay: { endpoints: [{ id: "e", label: "E", api: "anthropic-messages", models: [{ id: "m", name: "M", reasoning: false, input: ["text"], contextWindow: 1, maxTokens: 1, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, known: false }] }], model: "e/m" },
+        piRelay: {
+          endpoints: [
+            {
+              id: "e",
+              label: "E",
+              api: "anthropic-messages",
+              models: [
+                {
+                  id: "m",
+                  name: "M",
+                  reasoning: false,
+                  input: ["text"],
+                  contextWindow: 1,
+                  maxTokens: 1,
+                  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+                  known: false,
+                },
+              ],
+            },
+          ],
+          model: "e/m",
+        },
       },
     );
   it("passes t3's MCP variables when the URL is an https `/mcp`; anything else, none", () => {
@@ -200,7 +273,9 @@ describe("pi's t3 entry (SPI-1039, as stock t3 hands it)", () => {
 describe("the relay and MCP apps (G11, review L10)", () => {
   const appView: McpView = {
     version: "v",
-    servers: [{ ...VIEW.servers[0]!, tools: [{ ...tool("get_time", "read"), ui: { resourceUri: "ui://time/app.html" } }] }],
+    servers: [
+      { ...VIEW.servers[0]!, tools: [{ ...tool("get_time", "read"), ui: { resourceUri: "ui://time/app.html" } }] },
+    ],
   };
   const deps = (reads: Array<string>): RelayDeps => ({
     ...harness().deps,
@@ -208,7 +283,9 @@ describe("the relay and MCP apps (G11, review L10)", () => {
     call: async () => ({ kind: "result", isError: false, text: "12:00", structured: { time: "12:00" } }),
     readAppResource: async ({ uri }) => {
       reads.push(uri);
-      return uri === "ui://time/app.html" ? { kind: "result", value: { contents: [{ uri, text: "<p>t</p>" }] } } : { kind: "refused", message: "no App there" };
+      return uri === "ui://time/app.html"
+        ? { kind: "result", value: { contents: [{ uri, text: "<p>t</p>" }] } }
+        : { kind: "refused", message: "no App there" };
     },
   });
 
@@ -217,31 +294,66 @@ describe("the relay and MCP apps (G11, review L10)", () => {
     const init = await relayMessage(input({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }), deps(reads));
     expect(init).toMatchObject({ body: { result: { capabilities: { resources: {} } } } });
     const listed = await relayMessage(input({ jsonrpc: "2.0", id: 2, method: "tools/list" }), deps(reads));
-    expect(listed).toMatchObject({ body: { result: { tools: [{ name: "get_time", _meta: { ui: { resourceUri: "ui://time/app.html" } } }] } } });
+    expect(listed).toMatchObject({
+      body: { result: { tools: [{ name: "get_time", _meta: { ui: { resourceUri: "ui://time/app.html" } } }] } },
+    });
     const called = await relayMessage(input(call("get_time")), deps(reads));
     expect(called).toMatchObject({ body: { result: { structuredContent: { time: "12:00" } } } });
   });
 
   it("reads a ui:// resource through the host, and refuses any other URI before it", async () => {
     const reads: Array<string> = [];
-    expect(await relayMessage(input({ jsonrpc: "2.0", id: 3, method: "resources/read", params: { uri: "ui://time/app.html" } }), deps(reads))).toMatchObject({
+    expect(
+      await relayMessage(
+        input({ jsonrpc: "2.0", id: 3, method: "resources/read", params: { uri: "ui://time/app.html" } }),
+        deps(reads),
+      ),
+    ).toMatchObject({
       body: { result: { contents: [{ text: "<p>t</p>" }] } },
     });
-    expect(await relayMessage(input({ jsonrpc: "2.0", id: 4, method: "resources/read", params: { uri: "file:///etc/passwd" } }), deps(reads))).toMatchObject({ body: { error: { code: -32602 } } });
-    expect(await relayMessage(input({ jsonrpc: "2.0", id: 5, method: "resources/read", params: { uri: "ui://other/app.html" } }), deps(reads))).toMatchObject({ body: { error: { code: -32002 } } });
+    expect(
+      await relayMessage(
+        input({ jsonrpc: "2.0", id: 4, method: "resources/read", params: { uri: "file:///etc/passwd" } }),
+        deps(reads),
+      ),
+    ).toMatchObject({ body: { error: { code: -32602 } } });
+    expect(
+      await relayMessage(
+        input({ jsonrpc: "2.0", id: 5, method: "resources/read", params: { uri: "ui://other/app.html" } }),
+        deps(reads),
+      ),
+    ).toMatchObject({ body: { error: { code: -32002 } } });
     expect(reads).toEqual(["ui://time/app.html", "ui://other/app.html"]);
     // Without the host's reader (a relay built before G11), resources are not offered at all.
-    expect(await relayMessage(input({ jsonrpc: "2.0", id: 6, method: "resources/read", params: { uri: "ui://time/app.html" } }), harness().deps)).toMatchObject({ body: { error: { code: -32601 } } });
+    expect(
+      await relayMessage(
+        input({ jsonrpc: "2.0", id: 6, method: "resources/read", params: { uri: "ui://time/app.html" } }),
+        harness().deps,
+      ),
+    ).toMatchObject({ body: { error: { code: -32601 } } });
   });
 });
 
 // T-own (plan §5, D7), M3 (SPI-1198): the Settings server judges its own writes with one card of its own, so the relay
 // keeps only plan mode's refusal for it and raises no card; every other server still gets the relay's card.
 describe("the relay and the Settings server", () => {
-  const settingsTool = (upstream: string, cls: "read" | "write") => ({ ...tool(upstream, cls), name: `mcp__settings__${upstream}` });
+  const settingsTool = (upstream: string, cls: "read" | "write") => ({
+    ...tool(upstream, cls),
+    name: `mcp__settings__${upstream}`,
+  });
   const withSettings: McpView = {
     ...VIEW,
-    servers: [...VIEW.servers, { name: "settings", kind: "settings", state: "available", listedAt: 1, exposure: "deferred", tools: [settingsTool("get_settings", "read"), settingsTool("change_environment", "write")] }],
+    servers: [
+      ...VIEW.servers,
+      {
+        name: "settings",
+        kind: "settings",
+        state: "available",
+        listedAt: 1,
+        exposure: "deferred",
+        tools: [settingsTool("get_settings", "read"), settingsTool("change_environment", "write")],
+      },
+    ],
   };
   const relayed = (modes: { runtimeMode: string; interactionMode: string }) => {
     const run = harness({ modes: { "thread-1": modes } });
@@ -278,7 +390,13 @@ describe("the relay and the Settings server", () => {
     const run = relayed({ runtimeMode: "approval-required", interactionMode: "default" });
     await relayMessage(input(call("fixture_note")), run.deps);
     expect(run.asks.length).toBe(1);
-    const initialized = await relayMessage(input({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } }, { server: "settings" }), run.deps);
+    const initialized = await relayMessage(
+      input(
+        { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } },
+        { server: "settings" },
+      ),
+      run.deps,
+    );
     expect(JSON.stringify(initialized)).toContain("not t3's preferences");
   });
 });

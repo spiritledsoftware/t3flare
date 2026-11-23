@@ -7,18 +7,36 @@ import { type ContainerSetupReport, EMPTY_ENVIRONMENT, resolveEnvironment } from
 import { describe, expect, it } from "vitest";
 
 import { launchOf, secretValuesOf, withContainerSteps } from "../src/workspace/containerLaunch.ts";
-import { blankSecrets, CONTAINER_SETUP_KEY, ContainerSetup, type ContainerSetupLaunch } from "../src/workspace/containerSetup.ts";
+import {
+  blankSecrets,
+  CONTAINER_SETUP_KEY,
+  ContainerSetup,
+  type ContainerSetupLaunch,
+} from "../src/workspace/containerSetup.ts";
 import type { ContainerExec } from "../src/workspace/containerStep.ts";
 import { SECRET_MARGIN_BYTES } from "@t3flare/sandbox-image/containerSetup";
 
 const SHA = "c".repeat(64);
-const LAUNCH: ContainerSetupLaunch = { text: "apt-get install -y ripgrep\n", bytes: 27, sha256: SHA, revision: 3, source: "environment", minutes: 5, failure: "carryOn", outputBytes: 32 * 1024 };
+const LAUNCH: ContainerSetupLaunch = {
+  text: "apt-get install -y ripgrep\n",
+  bytes: 27,
+  sha256: SHA,
+  revision: 3,
+  source: "environment",
+  minutes: 5,
+  failure: "carryOn",
+  outputBytes: 32 * 1024,
+};
 const MARK = "@@t3flare-container-setup@@";
-const answered = (output: string, answer: Record<string, unknown>) => `${output}\n${MARK}${JSON.stringify({ sha256: SHA, exitCode: 0, timedOut: false, ms: 40, ...answer })}\n`;
+const answered = (output: string, answer: Record<string, unknown>) =>
+  `${output}\n${MARK}${JSON.stringify({ sha256: SHA, exitCode: 0, timedOut: false, ms: 40, ...answer })}\n`;
 
 type Step = { readonly stdout?: string; readonly throws?: string; readonly hang?: boolean };
 
-const setup = (steps: Array<Step>, options: { launch?: ContainerSetupLaunch | undefined; secrets?: () => ReadonlyArray<string> } = {}) => {
+const setup = (
+  steps: Array<Step>,
+  options: { launch?: ContainerSetupLaunch | undefined; secrets?: () => ReadonlyArray<string> } = {},
+) => {
   const map = new Map<string, unknown>();
   const calls: Array<{ argv: ReadonlyArray<string>; stdin: string }> = [];
   const reports: Array<ContainerSetupReport> = [];
@@ -30,7 +48,10 @@ const setup = (steps: Array<Step>, options: { launch?: ContainerSetupLaunch | un
       const step = steps.shift() ?? { stdout: answered("", {}) };
       if (step.throws !== undefined) throw new Error(step.throws);
       return {
-        output: step.hang === true ? new Promise(() => undefined) : Promise.resolve({ stdout: step.stdout ?? "", exitCode: 0 }),
+        output:
+          step.hang === true
+            ? new Promise(() => undefined)
+            : Promise.resolve({ stdout: step.stdout ?? "", exitCode: 0 }),
         kill: () => void killed++,
       };
     },
@@ -39,7 +60,10 @@ const setup = (steps: Array<Step>, options: { launch?: ContainerSetupLaunch | un
     hold: () => () => undefined,
     used: async () => undefined,
     report: (report) => void reports.push(report),
-    storage: { get: <T>(key: string) => map.get(key) as T | undefined, put: <T>(key: string, value: T) => void map.set(key, structuredClone(value)) },
+    storage: {
+      get: <T>(key: string) => map.get(key) as T | undefined,
+      put: <T>(key: string, value: T) => void map.set(key, structuredClone(value)),
+    },
     workspace: () => "/w/app",
     now: () => Date.now(),
     deadlineMs: () => 20,
@@ -53,7 +77,20 @@ describe("ContainerSetup", () => {
     expect(await t.container.ensure("r1")).toMatchObject({ runtime: "r1", outcome: "ok", exitCode: 0 });
     expect(t.calls[0]!.stdin).toBe(LAUNCH.text);
     expect(t.calls[0]!.argv.slice(-3)).toEqual([SHA, "300", String(48 * 1024)]);
-    expect(t.reports).toEqual([expect.objectContaining({ workspace: "/w/app", runtime: "r1", revision: 3, sha256: SHA, bytes: 27, source: "environment", outcome: "ok", exitCode: 0, timedOut: false, output: "installed\n" })]);
+    expect(t.reports).toEqual([
+      expect.objectContaining({
+        workspace: "/w/app",
+        runtime: "r1",
+        revision: 3,
+        sha256: SHA,
+        bytes: 27,
+        source: "environment",
+        outcome: "ok",
+        exitCode: 0,
+        timedOut: false,
+        output: "installed\n",
+      }),
+    ]);
     expect(t.map.get(CONTAINER_SETUP_KEY)).toMatchObject({ runtime: "r1", outcome: "ok" });
   });
 
@@ -72,7 +109,10 @@ describe("ContainerSetup", () => {
   });
 
   it("treats a run without an answer, or one that found the lock held, as an exec failure, tried again at once", async () => {
-    const t = setup([{ stdout: "bash: flock: command not found\n" }, { stdout: answered("", { exitCode: null, locked: true }) }]);
+    const t = setup([
+      { stdout: "bash: flock: command not found\n" },
+      { stdout: answered("", { exitCode: null, locked: true }) },
+    ]);
     expect(await t.container.ensure("r1")).toMatchObject({ outcome: "exec-failed", attempts: 2 });
     expect(t.container.due("r1")).toBe(true);
   });
@@ -91,7 +131,9 @@ describe("ContainerSetup", () => {
   });
 
   it("blanks every secret Variable's value in the reported output", async () => {
-    const t = setup([{ stdout: answered("token=s3cr3t-value\nnpm ok with s3cr3t-value\n", {}) }], { secrets: () => ["s3cr3t-value"] });
+    const t = setup([{ stdout: answered("token=s3cr3t-value\nnpm ok with s3cr3t-value\n", {}) }], {
+      secrets: () => ["s3cr3t-value"],
+    });
     await t.container.ensure("r1");
     expect(t.reports[0]!.output).toBe("token=***\nnpm ok with ***\n");
   });
@@ -101,15 +143,31 @@ describe("ContainerSetup", () => {
       { name: "DOTFILES_TOKEN", value: "ghp_live_0123456789", secret: true },
       { name: "NODE_ENV", value: "production", secret: false },
     ];
-    const taken = { settings: { ...resolveEnvironment(EMPTY_ENVIRONMENT), variables, containerSetup: "git clone https://$DOTFILES_TOKEN@github.com/me/dotfiles\n" }, source: "environment" as const };
+    const taken = {
+      settings: {
+        ...resolveEnvironment(EMPTY_ENVIRONMENT),
+        variables,
+        containerSetup: "git clone https://$DOTFILES_TOKEN@github.com/me/dotfiles\n",
+      },
+      source: "environment" as const,
+    };
     const launch = await withContainerSteps(launchOf(taken), taken);
-    const t = setup([{ stdout: answered("+ git clone https://ghp_live_0123456789@github.com/me/dotfiles\nNODE_ENV=production\n", {}) }], { launch: launch.containerSetup, secrets: () => secretValuesOf(launch) });
+    const t = setup(
+      [
+        {
+          stdout: answered("+ git clone https://ghp_live_0123456789@github.com/me/dotfiles\nNODE_ENV=production\n", {}),
+        },
+      ],
+      { launch: launch.containerSetup, secrets: () => secretValuesOf(launch) },
+    );
     await t.container.ensure("r1");
     expect(t.reports[0]!.output).toBe("+ git clone https://***@github.com/me/dotfiles\nNODE_ENV=production\n");
   });
 
   it("keeps the last setupOutputKiB of output, and asks the wrapper for that and 16 KiB more", async () => {
-    const t = setup([{ stdout: answered(`${"a".repeat(5000)}END\n`, {}) }], { launch: { ...LAUNCH, outputBytes: 4 * 1024 } });
+    const t = setup([{ stdout: answered(`${"a".repeat(5000)}END\n`, {}) }], {
+      launch: { ...LAUNCH, outputBytes: 4 * 1024 },
+    });
     await t.container.ensure("r1");
     expect(t.reports[0]!.output).toBe(`${"a".repeat(4096 - 4)}END\n`);
     expect(t.calls[0]!.argv.at(-1)).toBe(String(4 * 1024 + 16 * 1024));
@@ -118,17 +176,27 @@ describe("ContainerSetup", () => {
   it("refuses the Container's commands after a failure only when the Owner set refuse", async () => {
     const carry = setup([{ stdout: answered("", { exitCode: 1 }) }]);
     expect(carry.container.refusal(await carry.container.ensure("r1"))).toBeUndefined();
-    const refuse = setup([{ stdout: answered("", { exitCode: 1 }) }, { stdout: answered("", {}) }], { launch: { ...LAUNCH, failure: "refuse" } });
+    const refuse = setup([{ stdout: answered("", { exitCode: 1 }) }, { stdout: answered("", {}) }], {
+      launch: { ...LAUNCH, failure: "refuse" },
+    });
     expect(refuse.container.refusal(await refuse.container.ensure("r1"))).toMatch(/Container setup failed \(exit 1\)/);
     expect(refuse.container.refusal(await refuse.container.ensure("r2"))).toBeUndefined();
     // Not judged (its run threw, or an earlier step held it): refused under refuse, unless there is no script.
     expect(refuse.container.refusal(undefined)).toMatch(/Container setup has not run.*The next command tries it again/);
     // Its text matches its state: still to run (attempts left) or final.
-    expect(refuse.container.refusal({ outcome: "exec-failed", exitCode: null, timedOut: false, attempts: 1 })).toMatch(/exec failed.*The next command tries it again/);
-    expect(refuse.container.refusal({ outcome: "exec-failed", exitCode: null, timedOut: false, attempts: 3 })).toMatch(/exec failed.*A new Container runs it again/);
-    expect(refuse.container.refusal({ outcome: "failed", exitCode: 1, timedOut: false, attempts: 1 })).toMatch(/exit 1.*A new Container runs it again/);
+    expect(refuse.container.refusal({ outcome: "exec-failed", exitCode: null, timedOut: false, attempts: 1 })).toMatch(
+      /exec failed.*The next command tries it again/,
+    );
+    expect(refuse.container.refusal({ outcome: "exec-failed", exitCode: null, timedOut: false, attempts: 3 })).toMatch(
+      /exec failed.*A new Container runs it again/,
+    );
+    expect(refuse.container.refusal({ outcome: "failed", exitCode: 1, timedOut: false, attempts: 1 })).toMatch(
+      /exit 1.*A new Container runs it again/,
+    );
     expect(carry.container.refusal(undefined)).toBeUndefined();
-    expect(setup([], { launch: { ...LAUNCH, text: "", failure: "refuse" } }).container.refusal(undefined)).toBeUndefined();
+    expect(
+      setup([], { launch: { ...LAUNCH, text: "", failure: "refuse" } }).container.refusal(undefined),
+    ).toBeUndefined();
   });
 });
 
