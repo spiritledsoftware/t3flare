@@ -683,7 +683,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     const [
       { settingsChanges },
       { harnessStatus, refreshedTestRecord, runningContainers },
-      { threadLinkIn, durableModes },
+      { durableModes },
       { cliThreadState },
     ] = await Promise.all([
       import("./settings/changes.ts"),
@@ -706,7 +706,6 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
         now: () => Date.now(),
       },
       oauthStatus: (server) => this.harnessOAuth.status(server),
-      link: (thread) => threadLinkIn(this.ctx.storage.sql, thread),
       // A Durable thread's modes are the adapter's record; a CLI thread's are its live session's (plan D3).
       modes: (caller) =>
         caller.thread === undefined

@@ -31,7 +31,8 @@ behind the admin token. The Owner wanted them on the Settings page, and wanted a
 5. **The Settings server gets `list_workspaces` and `purge_workspace`.** A Purge asked through it is always asked,
    whatever the thread's mode, and waits as an **Open change**: the Owner-only card or the Change page for t3flare's own
    agents, the client's Elicitation mode for an Owner client. It names no revision; what it is bound to is checked when
-   it is applied, by reading the references again. Plan mode refuses it and Linked work cannot ask, as for every write.
+   it is applied, by reading the references again. Plan mode refuses it, as for every write. (Linked work could not ask; since ADR-0035's SPI-1356 refinement it asks
+   as the owner's own thread does.)
 6. **A Purge is not answered on the Change page alone.** It reaches only what nothing references, so it shortens a Grace
    that would end anyway.
 

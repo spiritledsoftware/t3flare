@@ -1,8 +1,8 @@
 // @effect-diagnostics globalDate:off
 // T-purge (ADR-0044 §5–6): `purge_workspace` and `list_workspaces` on the Settings server. A
 // Purge of a referenced or unknown Workspace is refused before anything opens; otherwise it is always asked, in every
-// mode, as an Open change with no revision, answered on the owner-only card or the Change page; plan mode and Linked work
-// refuse it; a reference appearing between the ask and the answer fails it, naming the reference; a declined Purge is
+// mode, as an Open change with no revision, answered on the owner-only card or the Change page; plan mode refuses it
+// (Linked work asks as the owner's own thread does, SPI-1356); a reference appearing between the ask and the answer fails it, naming the reference; a declined Purge is
 // not asked again for a while. It purges through `workspaceActions.ts` with the asker as the audit's actor.
 import { applyMcpChange, EMPTY_HARNESS, PLAN_REFUSAL, DEFAULT_SETTINGS_SERVER_LIMITS } from "@t3flare/harness-registry";
 import { afterEach, describe, expect, it } from "vitest";
@@ -17,7 +17,7 @@ import { CHANGES_API_PATH } from "../src/harness/paths.ts";
 import type { AuditEntry } from "../src/harness/store.ts";
 import { noteDurableModes } from "../src/provider/threadCaller.ts";
 import { changeText } from "../src/settings/render.ts";
-import { APPLIES_AT, LINKED_REFUSAL, READ_ONLY_REFUSAL, settingsOwnerCall } from "../src/settings/server.ts";
+import { APPLIES_AT, READ_ONLY_REFUSAL, settingsOwnerCall } from "../src/settings/server.ts";
 import { settingsInstructions, settingsOwnerInstructions, SETTINGS_TOOLS } from "../src/settings/tools.ts";
 import { GRACE, record, t3Tables, viewDeps } from "./fixtures/workspaces.ts";
 import { HOST, NOW, settingsFixture, type SettingsFixture, structured, textOf, until } from "./settingsFixture.ts";
@@ -132,20 +132,17 @@ describe("purge_workspace: planning (ADR-0044 §5)", () => {
     expect(ws.purged).toEqual([]);
   });
 
-  it("is refused in plan mode, for Linked work and with the server read-only, before the references are read", async () => {
+  it("is refused in plan mode and with the server read-only, before the references are read", async () => {
     const ws = workspaces();
     let reads = 0;
     const counted: WorkspaceActionsDeps = { ...ws.deps, terminals: async (id) => (reads++, ws.deps.terminals(id)) };
-    fixture = settingsFixture({ workspaces: counted, links: { "thread-linked": "linked" } });
+    fixture = settingsFixture({ workspaces: counted });
     const run = fixture;
     const owner = {};
     noteDurableModes("thread-plan", { runtimeMode: "full-access", interactionMode: "plan" }, owner);
     expect(
       textOf(await run.call({ door: "own", thread: "thread-plan", agent: "piDurable" }, "purge_workspace", PURGE)),
     ).toBe(PLAN_REFUSAL);
-    expect(textOf(await run.call(run.durable("thread-linked", "full-access"), "purge_workspace", PURGE))).toBe(
-      LINKED_REFUSAL,
-    );
     const readOnly = applyMcpChange(EMPTY_HARNESS, { op: "server", server: "settings", writes: false });
     if (!readOnly.ok) throw new Error(readOnly.error);
     run.store.save(readOnly.harness);

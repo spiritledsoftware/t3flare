@@ -36,8 +36,9 @@ nor changes them, and `read_audit` shows their entries without key fingerprints.
 4. **The thread's mode still rules.** Plan mode refuses every write. Outside full access every write asks. In full
    access a free change runs and an asked change still asks, as an elicitation does in every mode. There is one card,
    never the generic write card followed by a second.
-5. **Linked work reads only.** A thread that carries a link's origin, or whose origin the Environment cannot establish,
-   may read settings and change none. The laptop's way to change them is an Owner client.
+5. ~~**Linked work reads only.** A thread that carries a link's origin, or whose origin the Environment cannot establish,
+   may read settings and change none. The laptop's way to change them is an Owner client.~~ Superseded by the SPI-1356
+   refinement below: Linked work changes settings as the owner's own thread does.
 6. **An asked change is an Open change**: kept by the Environment DO for at most 10 minutes, bound to the revision it
    was asked against, answered once.
 7. **t3flare's own agents get the owner-only card.** An asked change raises a Server question as an approval card on the
@@ -75,7 +76,7 @@ nor changes them, and `read_audit` shows their entries without key fingerprints.
   origin could not tell which thread called.
 - **Every write asked.** Rejected: turning things down should be frictionless, and the owner spoke of "risky writes".
 - **Linked work with writes at full access**, as t3's Link fence would allow. Rejected: the laptop already has an
-  owner-authenticated door.
+  owner-authenticated door. (Reversed, and widened to every mode, by the SPI-1356 refinement below.)
 - **The Owner-client endpoint under the existing `/_t3flare` Access application.** Rejected: a managed-OAuth token is
   valid for its whole application, so an Owner client's token would also be admitted at the panel and the Change page.
 - **One answer path for Owner clients, the Change page.** Proposed in the design interview, because a client's answer
@@ -178,3 +179,41 @@ open row, and it is the most either open count may be), and the hour each per-ho
 A closed change is kept the longest any check looks back: the strike window plus the lock, the declined repeat, or an
 hour, whichever is longest. Lowering a limit prunes sooner; rows pruned under a shorter earlier limit are not recovered
 when it is raised again.
+
+## Refinement (SPI-1356, 2026-11-23): Linked work changes settings as the owner's own thread does
+
+Supersedes §5. The owner reversed it after a delegated task and a top-level thread, both started from the laptop over
+its Peer link, were refused every write (a Test base build included) while saving an Image setup and a Container setup:
+"That constraint is ridiculous… It literally defeats the purpose of linked environments." A linked environment exists so
+the owner's other machine can run their agents' work there, settings included; an Owner client is a second sign-in for
+the same person, not the laptop's way in.
+
+- **Linked work takes the own agents' write path.** The Settings server no longer asks where a thread came from: a
+  thread with a link's origin, its children, and a thread t3's projection has no row for write as the owner's own thread
+  does. Everything else in this ADR holds for them: the access switch (§1, read-only and off), plan mode refuses (§4),
+  outside full access every write asks and an asked change asks in every mode (§3, §4), an asked change is an Open
+  change on the owner-only card and the Change page (§6, §7), secrets, sign-ins, skill installs and `oversize` changes
+  happen on the Change page only (§9), Model endpoints stay panel-only, and the caps count per thread (plan D16).
+- **What still fails closed** is the thread's modes: the Environment's own record (the Durable adapter's, or a CLI's
+  live session), never the caller's word. A thread with no record, and a call that names no thread, is refused
+  (`NO_MODES_REFUSAL`).
+- **A link below full access** caps the modes of the work it starts (t3's Link fence), so its threads' writes ask on a
+  card, as an approval-required thread's of the owner's own do.
+- **Gone**: `threadLinkIn` (the projection read, [U70](../upstream-fragility.md#u70-the-settings-servers-caller-retired-at-spi-1356)), the `link` dependency, and the
+  `linked` and `unknown-thread` refusals. `linkedWorkOf` (the adapter's, for ADR-0013's push gate) and the step-3 check
+  in `host/admin.ts` are unrelated and stay.
+
+**Where a linked thread's card appears.** The card is a runtime request on the calling thread, which lives in the
+Environment the link signed in to (the Cloud Environment), marked "From <the laptop's label>". The owner answers it
+there in any t3 client connected to that Environment (the web client at its host, or a desktop or mobile client that has
+added it); the laptop's own client shows another Environment's thread only when it is connected to that Environment too
+(t3's `ChatView`: "Only an environment this client is connected to can open the parent"). It can also be answered on the
+Change page, whose link the card carries when the host is configured, or from the Settings page's Open changes list; the
+first answer wins. No agent answers it, the laptop's included: the laptop's `t3_pending_request` is forwarded over the
+link to the Cloud Environment's `/mcp`, where `refuseOwnerOnly` (`mcp/ownerOnly.ts`, SPI-1079) refuses `read` and
+`respond` on the card and `list` only shows its id.
+
+**Consequence**: an agent on the laptop that can start or steer Linked work in the Cloud Environment can now ask for any
+Settings change there, as an agent in the owner's own cloud thread can. Each one it asks for still needs the owner's
+answer on a card or the Change page unless it is a free change in a full-access thread, the same as for the owner's own
+thread.

@@ -944,7 +944,7 @@ mkdir -p .pi && printf '%s' '{"mcpServers":{"settings":{"url":"http://127.0.0.1:
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
-// M3: own agents read and make a free change; plan, linked and unknown-thread refusals
+// M3: own agents read and make a free change; the plan refusal; Linked work writes as the owner's own thread (SPI-1356)
 
 const m3 = async (kind: Kind) => {
   const FILE =
@@ -1072,7 +1072,10 @@ const m3 = async (kind: Kind) => {
   }
 };
 
-/** M3's Linked refusal: a thread launched through a peer link (Durable and Codex), its read runs and its write is refused. */
+/**
+ * M3's Linked work (SPI-1356): a thread launched through a peer link (Durable and Codex) reads, and its free change
+ * applies as the owner's own thread's does. A card it raises (the thread's mode asks) is approved, as the owner would.
+ */
 const m3Linked = async (kind: "durable" | "codex") => {
   const FILE = kind === "durable" ? "m3-settings-own.json" : "m3-settings-cli-codex.json";
   await enableKind(kind);
@@ -1100,7 +1103,7 @@ const m3Linked = async (kind: "durable" | "codex") => {
     const threadId: string | undefined = launched.json?.threadId;
     if (threadId === undefined) {
       await record(FILE, "5-linked", {
-        name: `${kind}: a Linked thread reads; its write is refused`,
+        name: `${kind}: a Linked thread reads and changes a setting`,
         launch: launched.text.slice(0, 400),
         verdict: "fail",
         why: "the linked launch failed",
@@ -1121,14 +1124,14 @@ const m3Linked = async (kind: "durable" | "codex") => {
           request,
           itemsOf(projection).find((c: any) => c.requestId === request.id),
         );
-        card.decision = "decline";
+        card.decision = "accept";
         cards.push(card);
         await dispatch(cookie, {
           type: "runtime-request.respond",
           commandId: uuid(),
           threadId,
           requestId: request.id,
-          decision: "decline",
+          decision: "accept",
         }).catch(() => undefined);
       }
       const runs = runsOf(projection);
@@ -1149,15 +1152,14 @@ const m3Linked = async (kind: "durable" | "codex") => {
   const after = await environment();
   if (kind === "codex") await stopCliProcesses();
   const text = `${output}\n${reply}`;
-  const lines = settingsLines(tail.text).filter(
-    (line) => line.reason === "linked" || JSON.stringify(line).includes(threadId),
-  );
+  const lines = settingsLines(tail.text).filter((line) => JSON.stringify(line).includes(threadId));
   const ok =
-    after.revision === env.revision &&
-    (/Linked|linked/.test(text) || lines.some((line) => line.reason === "linked")) &&
-    /containerBudget|revision/.test(text);
+    after.revision === env.revision + 1 &&
+    !/Linked work/.test(text) &&
+    !lines.some((line) => line.t3flare === "settings-refused") &&
+    /revision/.test(text);
   await record(FILE, "5-linked", {
-    name: `${kind}: a Linked thread (launched through a peer link) reads; its write is refused (reason linked), no revision moved`,
+    name: `${kind}: a Linked thread (launched through a peer link) reads and its free change applies: the revision moved by one, no refusal`,
     threadId,
     cards,
     output: output.slice(0, 3000),
@@ -1165,52 +1167,6 @@ const m3Linked = async (kind: "durable" | "codex") => {
     settingsLines: lines,
     revisions: { before: env.revision, after: after.revision },
     verdict: ok ? "pass" : "fail",
-  });
-};
-
-/**
- * M3's unknown-thread refusal, from a CLI's relay: a live Codex process's handle (read from /proc, as relay-hostile
- * does) after its thread was deleted from t3's projection. The handle stays in the Container's shell.
- */
-const m3Unknown = async () => {
-  const FILE = "m3-settings-cli-codex.json";
-  await enableKind("codex");
-  const threadId = await newThread("codex", "m3 unknown", "full-access");
-  const run = await turn("codex", threadId, cliCall("get_status", {}), () => "accept");
-  await dispatch(cookie, { type: "thread.delete", commandId: uuid(), threadId }).catch((error: unknown) =>
-    console.log(`delete: ${String(error).slice(0, 200)}`),
-  );
-  await sleep(3000);
-  const env = await environment();
-  const body = JSON.stringify({
-    jsonrpc: "2.0",
-    id: 9,
-    method: "tools/call",
-    params: {
-      name: "change_environment",
-      arguments: {
-        expectedRevision: env.revision,
-        settings: { containerIdleMinutes: Math.max(1, Number(env.resolved.containerIdleMinutes) - 1) },
-      },
-    },
-  });
-  const steal = `H=$(for p in /proc/[0-9]*; do tr '\\0' '\\n' < $p/environ 2>/dev/null | sed -n 's/^T3FLARE_TOOL_HANDLE=//p'; done | head -1); test -n "$H" && echo found || echo none;`;
-  const answer = await exec(
-    WORKSPACE.cli,
-    `${steal} curl -s -o /tmp/unk.out -w '%{http_code}' -X POST -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' -H "authorization: Bearer $H" --data '${body}' http://computer.internal/t3flare/mcp/settings; echo; head -c 1200 /tmp/unk.out`,
-  );
-  const after = await environment();
-  await stopCliProcesses();
-  const out = String(answer.stdout ?? "");
-  const ok = out.startsWith("found") && after.revision === env.revision && /unknown|not.*thread|Not changed/i.test(out);
-  await record(FILE, "6-unknown-thread", {
-    name: "codex: a write whose thread is not in t3's projection (deleted while its process lived; its handle replayed from the Container) is refused, no revision moved",
-    threadId,
-    firstTurn: { status: run.status, reply: run.reply.slice(-300) },
-    relayAnswer: out.slice(0, 1400),
-    revisions: { before: env.revision, after: after.revision },
-    verdict: ok ? "pass" : out.startsWith("none") ? "not-run" : "fail",
-    ...(out.startsWith("none") ? { why: "no live Codex process held a handle after the thread was deleted" } : {}),
   });
 };
 
@@ -3576,7 +3532,6 @@ switch (command) {
   case "m3":
     if (arg === "linked-durable") await m3Linked("durable");
     else if (arg === "linked-codex") await m3Linked("codex");
-    else if (arg === "unknown") await m3Unknown();
     else await m3(arg as Kind);
     break;
   case "m4":
@@ -3623,7 +3578,7 @@ switch (command) {
     break;
   default:
     console.error(
-      "usage: settings.ts setup|m1|m1-cold|m2|m3 <kind|linked-durable|linked-codex|unknown>|m4 <item>|m4-page|m5a|m5a-prod|m5b|m6 <item>|changes",
+      "usage: settings.ts setup|m1|m1-cold|m2|m3 <kind|linked-durable|linked-codex>|m4 <item>|m4-page|m5a|m5a-prod|m5b|m6 <item>|changes",
     );
     process.exit(2);
 }
