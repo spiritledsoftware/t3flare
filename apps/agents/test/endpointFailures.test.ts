@@ -327,7 +327,10 @@ describe("a Session's Model endpoint failures (SPI-1172)", () => {
     const at = (retryAfter: string, retries: number) =>
       submit(
         () =>
-          new Response(answerOf("anthropicRateLimitBare").body, { status: 429, headers: { "retry-after": retryAfter } }),
+          new Response(answerOf("anthropicRateLimitBare").body, {
+            status: 429,
+            headers: { "retry-after": retryAfter },
+          }),
         { retries },
       );
     // Five retries span 62 s: a 60 s reset is waited through, every retry tried.

@@ -129,9 +129,9 @@ describe("t3flare's managed policy", () => {
   // starts them off, as t3flare always had them.
   it("starts git's automatic fetch and idle compaction off, and leaves both to the Owner", async () => {
     const { settings } = await policy;
-    expect(Duration.toMillis(resolveServerBackgroundActivitySettings(settings.defaults).automaticGitFetchInterval)).toBe(
-      0,
-    );
+    expect(
+      Duration.toMillis(resolveServerBackgroundActivitySettings(settings.defaults).automaticGitFetchInterval),
+    ).toBe(0);
     expect(globalIdleCompaction(settings.defaults)).toBe("off");
     const decoded = settings.defaults;
     for (const patch of [
