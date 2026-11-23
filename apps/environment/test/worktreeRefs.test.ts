@@ -80,7 +80,12 @@ interface Asked {
  * The project `t3flare` over `dir` (real git while running, the DO's stale rule once stopped), and one worktree
  * Workspace of it whose own files say it is on `refs/heads/t3/reply-done` (t3's first-turn rename, in its clone).
  */
-const environmentOver = (dir: string, worktree: { state: WorkspaceState; branch: string | null }) => {
+const environmentOver = (
+  dir: string,
+  worktree: { state: WorkspaceState; branch: string | null },
+  /** The worktree's clone: its Container stopped, its ref snapshot never answered, every other read answered. */
+  worktreeDir?: string,
+) => {
   const answers = new Map<string, { exitCode: number; stdout: string; stderr: string }>();
   const state = { running: true };
   const asked: Array<Asked> = [];
@@ -122,6 +127,13 @@ const environmentOver = (dir: string, worktree: { state: WorkspaceState; branch:
   };
   const worktreeStub = {
     worktreeHead: async () => ({ head: "a".repeat(40), branch: "refs/heads/t3/reply-done" }),
+    git: async (run: { argv: ReadonlyArray<string>; cwd: string }) => {
+      if (worktreeDir === undefined || (run.argv.includes("for-each-ref") && run.argv.includes("refs/remotes")))
+        return { ran: false, reason: "container_stopped", detail: "no earlier answer" };
+      const inClone = (word: string) => word.replaceAll(REPO_ROOT, worktreeDir);
+      const answer = git(inClone(run.cwd), run.argv.map(inClone));
+      return { ran: true, ...answer, stdout: answer.stdout.replaceAll(worktreeDir, REPO_ROOT), ms: 0, cached: true };
+    },
   };
   const projectRecord = {
     id: "t3flare",
@@ -141,7 +153,8 @@ const environmentOver = (dir: string, worktree: { state: WorkspaceState; branch:
   } as unknown as WorkspaceRecord;
   bindEnvironmentServices({
     workspaces: {
-      resolve: (id: string) => (id === "t3flare" ? projectRecord : undefined),
+      resolve: (id: string) =>
+        id === "t3flare" ? projectRecord : id === WORKTREE_ID && worktreeDir !== undefined ? worktreeRecord : undefined,
       get: () => projectRecord,
       list: () => [projectRecord],
       worktreesOf: (parent: string) => (parent === "t3flare" ? [worktreeRecord] : []),
@@ -261,6 +274,22 @@ describe(
       expect(result.refs.filter((ref) => ref.name === "t3/reply-done").map((ref) => ref.worktreePath)).toEqual([
         WORKTREE_PATH,
       ]);
+    });
+
+    it("the selector's confirming read in the worktree, its Container stopped and never asked before, finds its branch checked out", async () => {
+      const dir = project("confirm");
+      const clone = join(root, "confirm-worktree");
+      git(root, ["clone", "-q", dir, clone]);
+      git(clone, ["checkout", "-q", "-b", "t3/reply-done"]);
+      environmentOver(dir, { state: "ready", branch: "t3/520ecfd8" }, clone);
+      // t3's `readSelectedRef`: the worktree's local refs, the listed name, one result; kept only when it is current.
+      const confirming = await driver((git) =>
+        git.listRefs({ cwd: WORKTREE_PATH, query: "t3/reply-done", refKind: "local", limit: 1, refresh: true }),
+      );
+      expect(confirming.refs.map((ref) => [ref.name, ref.current])).toEqual([["t3/reply-done", true]]);
+      expect(
+        ProcessRouter.routerTrace().find((entry) => entry.cwd === WORKTREE_PATH && entry.argv.includes("refs/remotes")),
+      ).toMatchObject({ route: "worktree", exitCode: 0, detail: expect.stringMatching(/^its current branch only/) });
     });
 
     it("a new worktree based on a branch only the worktree's clone holds: the router's reason names that worktree", async () => {

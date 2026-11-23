@@ -665,24 +665,29 @@ if (["wake", "purge-now", "restore", "tool", "never"].includes(scenario)) {
     await stopContainer(r.ws);
     const stoppedRefs = await refsOf();
     const stoppedListed = stoppedRefs.find((ref) => ref.worktreePath === path);
-    const confirming = ((
-      (await wsCall(cookie, "vcs.listRefs", {
-        cwd: path,
-        query: firstBranch ?? "",
-        refKind: "local",
-        limit: 1,
-      }).catch((error: unknown) => ({ error: String(error) }))) as any
-    )?.refs ?? []) as Array<any>;
+    const confirmingReply = (await wsCall(cookie, "vcs.listRefs", {
+      cwd: path,
+      query: firstBranch ?? "",
+      refKind: "local",
+      limit: 1,
+    }).catch((error: unknown) => ({ error: String(error).slice(0, 600) }))) as any;
+    const confirming = (confirmingReply?.refs ?? []) as Array<any>;
     report.listedStopped = {
       listed: stoppedListed ?? null,
-      confirming: confirming.map((ref) => `${ref.name} ${ref.worktreePath}`),
+      confirming: confirming.map((ref) => `${ref.name} current=${ref.current}`),
+      confirmingError: confirmingReply?.error ?? null,
+      worktreeReads: (((await admin("GET", "/_t3flare/agents/router-trace")).json?.entries ?? []) as Array<any>)
+        .filter((entry) => entry.cwd === path)
+        .slice(-8)
+        .map((entry) => ({ argv: entry.argv, route: entry.route, exitCode: entry.exitCode, detail: entry.detail })),
       snapshot: await lastSnapshot(),
       containers: { worktree: await containerOf(wt), project: await containerOf(r.ws) },
     };
     check(
       "step 4: with both Containers stopped, the worktree is listed under its branch and the confirming read finds it",
       stoppedListed?.name === firstBranch &&
-        confirming.some((ref) => ref.name === firstBranch) &&
+        // t3 keeps the worktree only when this read finds the branch checked out (`resolveConfirmedSelectedRef`).
+        confirming.some((ref) => ref.name === firstBranch && ref.current === true) &&
         (report.listedStopped as any).snapshot?.route === "worktree" &&
         !/started the Container/.test(String((report.listedStopped as any).snapshot?.detail)),
       report.listedStopped,

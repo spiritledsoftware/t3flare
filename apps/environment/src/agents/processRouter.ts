@@ -595,6 +595,47 @@ const refsSnapshot = async (
 };
 
 /**
+ * t3's ref snapshot in a worktree Workspace's own cwd: t3's branch selector reads it to confirm a worktree it lists
+ * (`readSelectedRef`) and keeps the worktree only when the read finds that branch. The Workspace's current branch, read
+ * from its own files, is added when its answer lacks it (a last answer from before t3's rename), and once its Container
+ * is stopped with no earlier answer to serve, the answer is that branch alone rather than a failure.
+ */
+const worktreeOwnSnapshot = async (
+  args: ReadonlyArray<string>,
+  cwd: string,
+  env: Readonly<Record<string, unknown>> | undefined,
+): Promise<Answer> => {
+  const own = await git(args, cwd, env, undefined);
+  const id = toWorkspace(cwd)!.id;
+  const record = environmentServices().workspaces.resolve(id);
+  if (record === undefined || record.kind !== "worktree" || record.state !== "ready") return own;
+  if (own.exitCode !== 0 && own.route !== "container-stopped") return own;
+  const head = await workspaceRpc(id)
+    .worktreeHead()
+    .catch(() => ({ head: null, branch: null }));
+  const self = {
+    path: `/w/${id}`,
+    head: head.head,
+    branch: head.branch ?? (record.branch === null ? null : `refs/heads/${record.branch}`),
+    createdAt: record.createdAt,
+  };
+  if (own.exitCode !== 0) {
+    if (self.branch === null) return own;
+    return {
+      exitCode: 0,
+      stdout: withWorktreeBranches("", [self]),
+      stderr: "",
+      route: "worktree",
+      detail: `its current branch only: ${own.detail ?? "the Container is stopped"}`,
+    };
+  }
+  const stdout = withWorktreeBranches(own.stdout, [self]);
+  return stdout === own.stdout
+    ? own
+    : { ...own, stdout, route: "worktree", detail: `its current branch added (${own.route} ${own.detail ?? ""})` };
+};
+
+/**
  * A failed project command whose start point is a branch only a worktree Workspace's clone holds (the ref snapshot
  * offers it, the project's refs lack it): the reason names that worktree, which t3 shows (Patch 0008). Anything else
  * is returned as it is.
@@ -735,6 +776,8 @@ const routeOf = (
   const worktree = worktreeRouteOf(args, normal);
   if (worktree !== null) return worktree;
   const project = toWorkspace(normal);
+  if (project !== null && project.id.startsWith(".wt/") && isRefsSnapshot(args))
+    return (env) => worktreeOwnSnapshot(args, normal, env);
   if (project !== null && !project.id.startsWith(".wt/")) {
     if (isRefsSnapshot(args)) return (env) => refsSnapshot(args, normal, env);
     const start = startPointOf(args);
