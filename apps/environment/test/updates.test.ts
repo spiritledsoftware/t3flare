@@ -7,7 +7,6 @@ import { actionsClient, updateRepoOf, type ActionsClient, type WorkflowRun } fro
 import { serverUpdateRefusal, tagOf } from "../src/updates/policy.ts";
 import {
   NO_UPDATE_TARGET,
-  QUEUED_CEILING_MS,
   UNLISTED_MS,
   UPDATE_EXPIRY_MS,
   UpdateRefused,
@@ -209,12 +208,16 @@ describe("the update records", () => {
     expect((await subject.settle("t3"))?.outcome).toBeNull();
   });
 
-  it("fails a run still queued past the ceiling, and a dispatch GitHub never lists", async () => {
+  it("keeps a queued run in flight for as long as GitHub queues it, ends it as GitHub does, and fails a dispatch GitHub never lists (SPI-1366)", async () => {
     const queued = setup();
     await queued.subject.press(serverPress(NEXT));
-    queued.actions.start("Update id-1", null);
-    queued.advance(QUEUED_CEILING_MS + 1);
-    expect((await queued.subject.settle("t3"))?.outcome?.reason).toMatch(/waited its turn for 3 hours/);
+    const run = queued.actions.start("Update id-1", null);
+    // A day queued behind the Owner's own CI: still in flight, no ceiling of t3flare's own.
+    queued.advance(24 * 60 * 60_000);
+    expect((await queued.subject.settle("t3"))?.outcome).toBeNull();
+    // GitHub drops it (its own queue limit) or the Owner cancels it: the run's end is the outcome.
+    queued.actions.end(run, "cancelled");
+    expect((await queued.subject.settle("t3"))?.outcome?.status).toBe("failed");
     const unlisted = setup();
     await unlisted.subject.press(serverPress(NEXT));
     unlisted.advance(UNLISTED_MS + 1);

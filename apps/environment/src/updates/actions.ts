@@ -121,7 +121,8 @@ export const actionsClient = (input: {
       const created = new Date(since).toISOString().replace(/\.\d{3}Z$/, "Z");
       const response = await request(
         "GET",
-        `${workflowPath(workflow)}/runs?event=workflow_dispatch&per_page=50&created=${encodeURIComponent(`>=${created}`)}`,
+        // GitHub's largest page (100): the dispatched runs of this workflow since the dispatch, never more in practice.
+        `${workflowPath(workflow)}/runs?event=workflow_dispatch&per_page=100&created=${encodeURIComponent(`>=${created}`)}`,
       );
       const json = (await response.json()) as { workflow_runs?: ReadonlyArray<RunJson> };
       const run = (json.workflow_runs ?? []).find(
