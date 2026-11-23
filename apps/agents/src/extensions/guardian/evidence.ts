@@ -95,8 +95,27 @@ const shorten = (entry: EvidenceEntry, limit: number): EvidenceEntry => {
 };
 
 /**
+ * `entry` shortened so its message takes at most `room` characters as JSON, the shortened form's wrapper, marker and
+ * escapes counted; undefined when not even the marker fits.
+ */
+const fitTo = (
+  entry: EvidenceEntry,
+  room: number,
+): { readonly shown: EvidenceEntry; readonly size: number } | undefined => {
+  let limit = room;
+  for (;;) {
+    const shown = shorten(entry, limit);
+    const size = JSON.stringify(shown.message).length;
+    if (size <= room) return { shown, size };
+    if (limit === 0) return undefined;
+    // The cut text grows by its escapes and the wrapper once written again: cut it in that proportion, and a little more.
+    limit = Math.max(0, Math.floor((limit * room) / size) - 1);
+  }
+};
+
+/**
  * The evidence blocks of a review, in conversation order, within `budget` characters: trusted entries first, newest
- * first, each shortened to the budget; then the newest untrusted ones in what is left, each shortened only when it alone
+ * first, each shortened to the room left (so the newest always goes in); then the newest untrusted ones in what is left, each shortened only when it alone
  * exceeds a quarter of the budget. An omission note says what was left out. `skipCalls`: the Reviewed Call's own
  * response, which the Reviewed Call shows.
  *
@@ -132,20 +151,22 @@ export const selectEvidence = async (
     for (const entry of page.items) {
       const evidence = entryEvidence(entry, options.trustUser, options.skipCalls);
       if (evidence === undefined) continue;
-      const shown = shorten(evidence, evidence.trusted ? budget : Math.floor(budget / 4));
-      const size = JSON.stringify(shown.message).length;
       if (evidence.trusted) {
-        if (trustedUsed + size > budget) {
+        // Shortened to the room trusted evidence has left, so the newest trusted message always goes in.
+        const fitted = fitTo(evidence, budget - trustedUsed);
+        if (fitted === undefined) {
           // Trusted evidence fills the budget: nothing older can take a place in it.
           full = true;
           omitted++;
           break;
         }
-        trustedUsed += size;
-        kept.push({ evidence: shown, size });
+        trustedUsed += fitted.size;
+        kept.push({ evidence: fitted.shown, size: fitted.size });
         while (trustedUsed + untrustedUsed > budget && dropOldestUntrusted());
         continue;
       }
+      const shown = shorten(evidence, Math.floor(budget / 4));
+      const size = JSON.stringify(shown.message).length;
       if (trustedUsed + untrustedUsed + size > budget) {
         omitted++;
         // With no trusted evidence to come, a full budget is final.

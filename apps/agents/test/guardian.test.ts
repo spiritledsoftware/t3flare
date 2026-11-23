@@ -35,7 +35,7 @@ import {
   guardianSettings,
 } from "../src/extensions/guardian.ts";
 import { parseAssessment } from "../src/extensions/guardian/assessment.ts";
-import { renderReviewedCall, selectEvidence } from "../src/extensions/guardian/evidence.ts";
+import { EVIDENCE_CHARACTERS, renderReviewedCall, selectEvidence } from "../src/extensions/guardian/evidence.ts";
 import {
   judgeCommand,
   parseEntries,
@@ -408,15 +408,46 @@ describe("the Guardian's evidence (SPI-1362)", () => {
   });
 
   it("bounds trusted evidence by the budget too, newest first, and stops reading once it is full", async () => {
-    // 300 pasted logs of 4,000 characters, the newest last: only the newest two fit 10,000 characters.
+    // 300 pasted logs of 4,000 characters, the newest last: only the newest fit 10,000 characters.
     const entries = Array.from({ length: 300 }, (_, at) => user(at + 1, `log ${at} ${"z".repeat(4_000)}`));
     const { api, read } = history(entries);
     const blocks = await selectEvidence(api, context, { trustUser: true, skipCalls: new Set(), budget: 10_000 });
     const trusted = blocks.filter((block) => block.startsWith("Evidence (TRUSTED"));
-    expect(trusted.map((block) => /log (\d+)/.exec(block)![1])).toEqual(["298", "299"]);
+    // The newest two whole, and the third cut to the room they leave.
+    expect(trusted.map((block) => /log (\d+)/.exec(block)![1])).toEqual(["297", "298", "299"]);
+    expect(trusted[0]).toContain("characters omitted]");
     expect(trusted.reduce((sum, block) => sum + block.length, 0)).toBeLessThan(10_500);
     expect(blocks[0]).toContain("the older History not read");
     expect(read()).toBeLessThan(entries.length);
+  });
+
+  it("keeps the newest trusted message shortened however long, and one that fills the budget exactly whole", async () => {
+    // t3 lets the Owner send 120,000 characters, past the 96,000 the evidence holds.
+    const pasted = user(3, `deploy it: ${"p".repeat(120_000)}`);
+    const long = await selectEvidence(history([user(1, "older"), call(2), pasted]).api, context, {
+      trustUser: true,
+      skipCalls: new Set(),
+    });
+    const kept = long.filter((block) => block.startsWith("Evidence (TRUSTED"));
+    expect(kept).toHaveLength(1);
+    expect(kept[0]).toContain("deploy it: ppp");
+    expect(kept[0]).toContain("characters omitted]");
+    expect(kept[0]!.length).toBeLessThan(EVIDENCE_CHARACTERS + 200);
+    // A message whose JSON is exactly the budget is kept whole, and leaves no room for an older one.
+    const exact = (budget: number) => {
+      const message = { role: "user", content: "" };
+      const text = "e".repeat(budget - JSON.stringify(message).length);
+      return user(5, text);
+    };
+    const filled = await selectEvidence(history([user(4, "older"), exact(2_000)]).api, context, {
+      trustUser: true,
+      skipCalls: new Set(),
+      budget: 2_000,
+    });
+    const whole = filled.filter((block) => block.startsWith("Evidence (TRUSTED"));
+    expect(whole).toHaveLength(1);
+    expect(whole[0]).not.toContain("shortenedJson");
+    expect(filled[0]).toMatch(/^\[1 evidence entries omitted/);
   });
 
   it("gives a trusted message the room of newer untrusted ones, and stops at a full budget with nothing trusted", async () => {

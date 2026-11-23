@@ -635,8 +635,8 @@ export const TOOL_OUTPUT_BYTES = T3_ON_DEMAND_BYTES;
 /** The largest message one Durable Object RPC carries: Cloudflare's 32 MiB. A push is one. */
 export const RPC_MESSAGE_BYTES = 32 * MIB;
 /**
- * Full-size tool results (`TOOL_OUTPUT_BYTES`) one push carries: a round of parallel calls, so a burst of results
- * settles in one push, not a page and a snapshot. A taste choice, bounded by `PUSH_ENTRIES_BYTES`'s constraint.
+ * Full-size tool results (`TOOL_OUTPUT_BYTES`) of plain text one push carries: a round of parallel calls, so a burst
+ * of results settles in one push, not a page and a snapshot. A taste choice, bounded by `PUSH_ENTRIES_BYTES`'s constraint.
  */
 export const PUSH_BURST_RESULTS = 16;
 /** What a pushed entry holds beside its text: its ids, turn, tool name and JSON structure. */
@@ -644,7 +644,9 @@ const PUSHED_ENTRY_ROOM = 4 * 1024;
 /**
  * The most JSON characters a push's entries may hold; past it, `more`, and the adapter pulls a snapshot (the push carries
  * every turn's newest status, which the differ must not apply before the turn's last entries). A burst of
- * `PUSH_BURST_RESULTS` full-size results fits. A named constraint: the page, the one entry that may pass it (a whole
+ * `PUSH_BURST_RESULTS` full-size results fits when their text has no JSON escapes; an escape takes more characters in
+ * the page's count (two for a newline or a quote, six for a control character), so fewer fit: about 15 of ordinary
+ * output, as few as 2 of text that is all control characters. A named constraint: the page, the one entry that may pass it (a whole
  * Session row, `SESSION_ROW_BYTES`), and the push's live state go in one RPC (`RPC_MESSAGE_BYTES`), at most 2 bytes per
  * character as structured clone writes a string: about 24.5 MB of the 32 MiB, the rest for the live state.
  */
