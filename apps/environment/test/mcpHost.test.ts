@@ -465,11 +465,12 @@ describe("McpHost and MCP apps (G11, review L10)", () => {
         },
       });
     const result = JSON.stringify({ content: [{ type: "text", text: "x".repeat(100) }] });
+    const { engine: lister } = fakeEngine(() => [tool("fixture_echo", true)]);
     const host = (max: number) =>
       new McpHost({
         kv: memory(),
         engine: {
-          discover: fakeEngine(() => [tool("fixture_echo", true)]).engine.discover,
+          discover: (target, prior, hooks) => lister.discover(target, prior, hooks),
           request: async () =>
             ({
               kind: "complete",
