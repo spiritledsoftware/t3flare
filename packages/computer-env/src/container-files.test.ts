@@ -308,22 +308,29 @@ describe("grep's bounds (SPI-1361)", () => {
     5_000,
   );
 
-  it.skipIf(!hasRg)("reads at most GREP_OUTPUT_BYTES of ripgrep's events, whatever the limit and context", async () => {
-    const path = join(root, "big.txt");
-    writeFileSync(path, "match this line\n".repeat(200_000));
-    const found = await files().grep("match", path, {
-      ignoreCase: false,
-      regex: false,
-      context: 1_000,
-      limit: 1_000_000,
-      include: undefined,
-      exclude: [],
-    });
-    expect(found.length).toBeGreaterThan(0);
-    expect(found.length).toBeLessThan(200_000);
-    // Each event is a JSON object of well over 64 bytes, so the matches read fit the byte bound.
-    expect(found.length * 64).toBeLessThan(GREP_OUTPUT_BYTES);
-  });
+  // A 200,000-line file with context 1,000 and limit 1,000,000 makes ripgrep emit more than GREP_OUTPUT_BYTES of events,
+  // which the bound must cut, so it cannot shrink. It takes about 3 s alone but 30-40 s under the full check's load on
+  // CI runners, past vitest's 30 s default, hence its own timeout.
+  it.skipIf(!hasRg)(
+    "reads at most GREP_OUTPUT_BYTES of ripgrep's events, whatever the limit and context",
+    async () => {
+      const path = join(root, "big.txt");
+      writeFileSync(path, "match this line\n".repeat(200_000));
+      const found = await files().grep("match", path, {
+        ignoreCase: false,
+        regex: false,
+        context: 1_000,
+        limit: 1_000_000,
+        include: undefined,
+        exclude: [],
+      });
+      expect(found.length).toBeGreaterThan(0);
+      expect(found.length).toBeLessThan(200_000);
+      // Each event is a JSON object of well over 64 bytes, so the matches read fit the byte bound.
+      expect(found.length * 64).toBeLessThan(GREP_OUTPUT_BYTES);
+    },
+    120_000,
+  );
 });
 
 // ADR-0032 §7: a Container-only path's file operation whose Container start the budget refused shows the whole refusal,
