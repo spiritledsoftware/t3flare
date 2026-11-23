@@ -300,7 +300,8 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
       },
       catchUpBacklog: {
         title: "Catch-up backlog (turns)",
-        description: "Unreviewed turns at which the agent waits for the Review under way before going on.",
+        description:
+          "When this many turns wait unreviewed, the agent pauses for the Review under way, for up to the Catch-up wait.",
         // 1000: a sanity bound, nothing in t3flare forces it (ADR-0048).
         schema: { type: "integer", minimum: 1, maximum: 1_000, default: 3 },
         tier: "free",
