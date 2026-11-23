@@ -83,9 +83,18 @@ interface Asked {
 const environmentOver = (
   dir: string,
   worktree: { state: WorkspaceState; branch: string | null },
-  /** The worktree's clone: its Container stopped, its ref snapshot never answered, every other read answered. */
-  worktreeDir?: string,
+  /**
+   * The worktree's clone and how its ref snapshot is answered: `live` (its Container running), `stale` (a last answer,
+   * its Container stopped) or `none` (stopped, never answered); every other read is answered. `head` is what its own
+   * files say (default: on `t3/reply-done`).
+   */
+  clone?: {
+    readonly dir: string;
+    readonly snapshot: "live" | "stale" | "none";
+    readonly head?: { readonly head: string | null; readonly branch: string | null };
+  },
 ) => {
+  const worktreeDir = clone?.dir;
   const answers = new Map<string, { exitCode: number; stdout: string; stderr: string }>();
   const state = { running: true };
   const asked: Array<Asked> = [];
@@ -126,13 +135,16 @@ const environmentOver = (
     },
   };
   const worktreeStub = {
-    worktreeHead: async () => ({ head: "a".repeat(40), branch: "refs/heads/t3/reply-done" }),
+    worktreeHead: async () => clone?.head ?? { head: "a".repeat(40), branch: "refs/heads/t3/reply-done" },
     git: async (run: { argv: ReadonlyArray<string>; cwd: string }) => {
-      if (worktreeDir === undefined || (run.argv.includes("for-each-ref") && run.argv.includes("refs/remotes")))
+      const snapshot = run.argv.includes("for-each-ref") && run.argv.includes("refs/remotes");
+      if (worktreeDir === undefined || (snapshot && clone?.snapshot === "none"))
         return { ran: false, reason: "container_stopped", detail: "no earlier answer" };
       const inClone = (word: string) => word.replaceAll(REPO_ROOT, worktreeDir);
       const answer = git(inClone(run.cwd), run.argv.map(inClone));
-      return { ran: true, ...answer, stdout: answer.stdout.replaceAll(worktreeDir, REPO_ROOT), ms: 0, cached: true };
+      const back = { ran: true, ...answer, stdout: answer.stdout.replaceAll(worktreeDir, REPO_ROOT), ms: 0 };
+      if (snapshot && clone?.snapshot === "live") return back;
+      return snapshot ? { ...back, cached: true, stale: "last-answer" } : { ...back, cached: true };
     },
   };
   const projectRecord = {
@@ -281,7 +293,7 @@ describe(
       const clone = join(root, "confirm-worktree");
       git(root, ["clone", "-q", dir, clone]);
       git(clone, ["checkout", "-q", "-b", "t3/reply-done"]);
-      environmentOver(dir, { state: "ready", branch: "t3/520ecfd8" }, clone);
+      environmentOver(dir, { state: "ready", branch: "t3/520ecfd8" }, { dir: clone, snapshot: "none" });
       // t3's `readSelectedRef`: the worktree's local refs, the listed name, one result; kept only when it is current.
       const confirming = await driver((git) =>
         git.listRefs({ cwd: WORKTREE_PATH, query: "t3/reply-done", refKind: "local", limit: 1, refresh: true }),
@@ -290,6 +302,51 @@ describe(
       expect(
         ProcessRouter.routerTrace().find((entry) => entry.cwd === WORKTREE_PATH && entry.argv.includes("refs/remotes")),
       ).toMatchObject({ route: "worktree", exitCode: 0, detail: expect.stringMatching(/^its current branch only/) });
+    });
+
+    /** A clone of a new project, on the creation-time name `t3/520ecfd8` (its last answer from before the rename). */
+    const cloneOnOldName = (name: string) => {
+      const dir = project(name);
+      const clone = join(root, `${name}-worktree`);
+      git(root, ["clone", "-q", dir, clone]);
+      git(clone, ["checkout", "-q", "-b", "t3/520ecfd8"]);
+      return { dir, clone };
+    };
+    const ownSnapshot = () =>
+      ProcessRouter.routerTrace().find((entry) => entry.cwd === WORKTREE_PATH && entry.argv.includes("refs/remotes"));
+    const inWorktree = () =>
+      driver((git) => git.listRefs({ cwd: WORKTREE_PATH, refKind: "local", refresh: true })).then((result) =>
+        result.refs.map((ref) => ref.name),
+      );
+
+    it("in the worktree, a last answer lacking its current branch gets it added", async () => {
+      const { dir, clone } = cloneOnOldName("own-stale");
+      environmentOver(dir, { state: "ready", branch: "t3/520ecfd8" }, { dir: clone, snapshot: "stale" });
+      expect(await inWorktree()).toContain("t3/reply-done");
+      expect(ownSnapshot()).toMatchObject({
+        route: "worktree",
+        detail: expect.stringMatching(/^its current branch added \(stale-last-answer/),
+      });
+    });
+
+    it("in the worktree, a live answer is git's own", async () => {
+      const { dir, clone } = cloneOnOldName("own-live");
+      environmentOver(dir, { state: "ready", branch: "t3/520ecfd8" }, { dir: clone, snapshot: "live" });
+      expect(await inWorktree()).not.toContain("t3/reply-done");
+      expect(ownSnapshot()?.route).toBe("container");
+    });
+
+    it("in the worktree, a detached HEAD adds nothing, not even the registry's name", async () => {
+      const { dir, clone } = cloneOnOldName("own-detached");
+      git(clone, ["checkout", "-q", "-b", "elsewhere"]);
+      git(clone, ["branch", "-q", "-D", "t3/520ecfd8"]);
+      environmentOver(
+        dir,
+        { state: "ready", branch: "t3/520ecfd8" },
+        { dir: clone, snapshot: "stale", head: { head: "a".repeat(40), branch: null } },
+      );
+      expect(await inWorktree()).not.toContain("t3/520ecfd8");
+      expect(ownSnapshot()?.route).toBe("stale-last-answer");
     });
 
     it("a new worktree based on a branch only the worktree's clone holds: the router's reason names that worktree", async () => {

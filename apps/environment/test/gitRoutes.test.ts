@@ -413,22 +413,24 @@ describe("t3's ref snapshot in a project (SPI-1307)", () => {
 
   it("withWorktreeBranches: adds a missing branch in t3's four-field form, ending in a newline", () => {
     const own = "refs/heads/main\t1763600000\t\trefs/remotes/origin/main\nrefs/heads/t3/520ecfd8\t1763600001\t\t\n";
-    expect(withWorktreeBranches(own, [entry("refs/heads/t3/reply-done")])).toBe(
-      `${own}refs/heads/t3/reply-done\t1763700000\t\t\n`,
-    );
+    expect(withWorktreeBranches(own, [entry("refs/heads/t3/reply-done")])).toEqual({
+      stdout: `${own}refs/heads/t3/reply-done\t1763700000\t\t\n`,
+      added: 1,
+    });
     // An answer missing its final newline still gets one line per ref.
-    expect(withWorktreeBranches("refs/heads/main\t1\t\t", [entry("refs/heads/b")])).toBe(
+    expect(withWorktreeBranches("refs/heads/main\t1\t\t", [entry("refs/heads/b")]).stdout).toBe(
       "refs/heads/main\t1\t\t\nrefs/heads/b\t1763700000\t\t\n",
     );
-    expect(withWorktreeBranches("", [entry("refs/heads/b")])).toBe("refs/heads/b\t1763700000\t\t\n");
+    expect(withWorktreeBranches("", [entry("refs/heads/b")]).stdout).toBe("refs/heads/b\t1763700000\t\t\n");
   });
 
   it("withWorktreeBranches: leaves a listed branch, a detached worktree and a duplicate alone", () => {
     const own = "refs/heads/main\t1763600000\t\t\n";
-    expect(withWorktreeBranches(own, [entry("refs/heads/main"), entry(null)])).toBe(own);
-    expect(withWorktreeBranches(own, [entry("refs/heads/b"), entry("refs/heads/b", 5_000)])).toBe(
-      `${own}refs/heads/b\t1763700000\t\t\n`,
-    );
+    expect(withWorktreeBranches(own, [entry("refs/heads/main"), entry(null)])).toEqual({ stdout: own, added: 0 });
+    expect(withWorktreeBranches(own, [entry("refs/heads/b"), entry("refs/heads/b", 5_000)])).toEqual({
+      stdout: `${own}refs/heads/b\t1763700000\t\t\n`,
+      added: 1,
+    });
   });
 
   it("startPointOf: t3's new branch's start and worktree add's ref; nothing for other forms", () => {

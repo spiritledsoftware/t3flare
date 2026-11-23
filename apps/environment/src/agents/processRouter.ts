@@ -7,6 +7,7 @@ import {
   describeFailure,
   fromWorkspaceText,
   isUnderW,
+  isWorktreeId,
   normalize,
   REPO_ROOT,
   startRefusal,
@@ -49,6 +50,7 @@ import {
 import { makeGitBridge } from "./gitBridge.ts";
 import { bindScratchCheckout, isScratchDir, scratchProjectOf } from "./scratch.ts";
 import { workspaceRpc } from "./workspaceClient.ts";
+import type { WorkspaceRecord } from "./workspaces.ts";
 import { CLI_NAMES, spawnCli } from "./cliProcess.ts";
 import { HTML_BROWSER_EXECUTABLE, spawnHtmlBrowser } from "../preview/htmlBrowser.ts";
 import { isCliUpdateSpawn, runCliUpdate } from "../updates/cliUpdate.ts";
@@ -509,9 +511,25 @@ const worktreeAdd = async (cwd: string, command: Extract<WorktreeCommand, { verb
 };
 
 /**
- * Each ready worktree Workspace of project `projectId`: its path, and HEAD and current branch read from its own files
- * (never starting a Container), falling back to the registry's branch. t3 reads the worktree list and the ref snapshot
- * together, so one read feeds both answers for about a second: a rename landing between them cannot split the pair.
+ * A worktree Workspace as its project presents it: its path, and HEAD and current branch read from its own files (never
+ * starting a Container). The registry's branch stands in only when its files gave neither (a detached HEAD has none).
+ */
+const worktreeEntryOf = async (ws: WorkspaceRecord): Promise<WorktreeEntry> => {
+  const head = await workspaceRpc(ws.id)
+    .worktreeHead()
+    .catch(() => ({ head: null, branch: null }));
+  return {
+    path: `/w/${ws.id}`,
+    head: head.head,
+    branch: head.branch ?? (head.head !== null || ws.branch === null ? null : `refs/heads/${ws.branch}`),
+    createdAt: ws.createdAt,
+  };
+};
+
+/**
+ * Each ready worktree Workspace of project `projectId` (`worktreeEntryOf`). t3 reads the worktree list and the ref
+ * snapshot together, so one read feeds both answers for about a second: a rename landing between them cannot split
+ * the pair.
  */
 const WORKTREE_ENTRIES_MS = 1_000;
 const worktreeEntriesMemo = new Map<
@@ -523,21 +541,11 @@ const worktreeEntriesOf = (projectId: string): Promise<ReadonlyArray<WorktreeEnt
   const memo = worktreeEntriesMemo.get(projectId);
   if (memo !== undefined && now - memo.at < WORKTREE_ENTRIES_MS) return memo.entries;
   for (const [id, old] of worktreeEntriesMemo) if (now - old.at >= WORKTREE_ENTRIES_MS) worktreeEntriesMemo.delete(id);
-  const worktrees = environmentServices()
-    .workspaces.worktreesOf(projectId)
-    .filter((ws) => ws.state === "ready");
   const entries = Promise.all(
-    worktrees.map(async (ws) => {
-      const head = await workspaceRpc(ws.id)
-        .worktreeHead()
-        .catch(() => ({ head: null, branch: null }));
-      return {
-        path: `/w/${ws.id}`,
-        head: head.head,
-        branch: head.branch ?? (ws.branch === null ? null : `refs/heads/${ws.branch}`),
-        createdAt: ws.createdAt,
-      };
-    }),
+    environmentServices()
+      .workspaces.worktreesOf(projectId)
+      .filter((ws) => ws.state === "ready")
+      .map(worktreeEntryOf),
   );
   worktreeEntriesMemo.set(projectId, { at: now, entries });
   return entries;
@@ -580,25 +588,20 @@ const refsSnapshot = async (
 ): Promise<Answer> => {
   const own = await git(args, cwd, env, undefined);
   if (own.exitCode !== 0) return own;
-  const entries = await worktreeEntriesOf(toWorkspace(cwd)!.id);
-  const stdout = withWorktreeBranches(own.stdout, entries);
-  const added = stdout
-    .slice(own.stdout.length)
-    .split("\n")
-    .filter((line) => line !== "").length;
-  return {
-    ...own,
-    stdout,
-    route: "worktree",
-    detail: `${added} worktree branches added (${own.route}${own.detail === undefined ? "" : ` ${own.detail}`})`,
-  };
+  const { stdout, added } = withWorktreeBranches(own.stdout, await worktreeEntriesOf(toWorkspace(cwd)!.id));
+  if (added === 0) return own;
+  return { ...own, stdout, route: "worktree", detail: addedDetail(`${added} worktree branches added`, own) };
 };
+
+/** A detail for an answer the router added to: what it added, then the read's own route and detail. */
+const addedDetail = (what: string, own: Answer): string =>
+  `${what} (${own.route}${own.detail === undefined ? "" : ` ${own.detail}`})`;
 
 /**
  * t3's ref snapshot in a worktree Workspace's own cwd: t3's branch selector reads it to confirm a worktree it lists
- * (`readSelectedRef`) and keeps the worktree only when the read finds that branch. The Workspace's current branch, read
- * from its own files, is added when its answer lacks it (a last answer from before t3's rename), and once its Container
- * is stopped with no earlier answer to serve, the answer is that branch alone rather than a failure.
+ * (`readSelectedRef`) and keeps the worktree only when the read finds that branch checked out. A live answer is git's
+ * own. One that is not (a last answer, perhaps from before t3's rename, or none at all with the Container stopped) gets
+ * the Workspace's current branch from its own files: added when missing, or alone when there is no earlier answer.
  */
 const worktreeOwnSnapshot = async (
   args: ReadonlyArray<string>,
@@ -606,33 +609,16 @@ const worktreeOwnSnapshot = async (
   env: Readonly<Record<string, unknown>> | undefined,
 ): Promise<Answer> => {
   const own = await git(args, cwd, env, undefined);
-  const id = toWorkspace(cwd)!.id;
-  const record = environmentServices().workspaces.resolve(id);
+  const notLive = own.route === "container-stopped" || own.route.startsWith("stale-");
+  if (!notLive || (own.exitCode !== 0 && own.route !== "container-stopped")) return own;
+  const record = environmentServices().workspaces.resolve(toWorkspace(cwd)!.id);
   if (record === undefined || record.kind !== "worktree" || record.state !== "ready") return own;
-  if (own.exitCode !== 0 && own.route !== "container-stopped") return own;
-  const head = await workspaceRpc(id)
-    .worktreeHead()
-    .catch(() => ({ head: null, branch: null }));
-  const self = {
-    path: `/w/${id}`,
-    head: head.head,
-    branch: head.branch ?? (record.branch === null ? null : `refs/heads/${record.branch}`),
-    createdAt: record.createdAt,
-  };
-  if (own.exitCode !== 0) {
-    if (self.branch === null) return own;
-    return {
-      exitCode: 0,
-      stdout: withWorktreeBranches("", [self]),
-      stderr: "",
-      route: "worktree",
-      detail: `its current branch only: ${own.detail ?? "the Container is stopped"}`,
-    };
-  }
-  const stdout = withWorktreeBranches(own.stdout, [self]);
-  return stdout === own.stdout
-    ? own
-    : { ...own, stdout, route: "worktree", detail: `its current branch added (${own.route} ${own.detail ?? ""})` };
+  const self = await worktreeEntryOf(record);
+  const { stdout, added } = withWorktreeBranches(own.exitCode === 0 ? own.stdout : "", [self]);
+  if (added === 0) return own;
+  if (own.exitCode !== 0)
+    return { exitCode: 0, stdout, stderr: "", route: "worktree", detail: addedDetail("its current branch only", own) };
+  return { ...own, stdout, route: "worktree", detail: addedDetail("its current branch added", own) };
 };
 
 /**
@@ -775,14 +761,14 @@ const routeOf = (
   }
   const worktree = worktreeRouteOf(args, normal);
   if (worktree !== null) return worktree;
-  const project = toWorkspace(normal);
-  if (project !== null && project.id.startsWith(".wt/") && isRefsSnapshot(args))
-    return (env) => worktreeOwnSnapshot(args, normal, env);
-  if (project !== null && !project.id.startsWith(".wt/")) {
+  const workspace = toWorkspace(normal);
+  if (workspace !== null && isWorktreeId(workspace.id)) {
+    if (isRefsSnapshot(args)) return (env) => worktreeOwnSnapshot(args, normal, env);
+  } else if (workspace !== null) {
     if (isRefsSnapshot(args)) return (env) => refsSnapshot(args, normal, env);
     const start = startPointOf(args);
     if (start !== null)
-      return async (env, stdin) => explainHeldBase(project.id, start, await git(args, normal, env, stdin));
+      return async (env, stdin) => explainHeldBase(workspace.id, start, await git(args, normal, env, stdin));
   }
   // Outside the Workspaces there is no repository: git says so, as it would on a laptop.
   if (!normal.startsWith("/w/")) {

@@ -312,11 +312,7 @@ const projectAt = async (cookie: string, tag: string) => {
   return { ws, projectId, title: ws };
 };
 
-/**
- * A thread launched as the client's composer launches one (`orchestration.launchThread`), on a new worktree or on an
- * existing one; its worktree's path once t3 has prepared it, and its first turn settled (a removal or deletion that beats
- * a pending turn is undone by t3's restore: lib/terminalWorktree.ts).
- */
+/** A Workspace's row in the admin view, and whether its Container runs and holds a lease. */
 const workspaceRow = async (id: string) =>
   (((await admin("GET", "/_t3flare/agents/workspaces")).json?.workspaces ?? []) as Array<any>).find(
     (row) => row.id === id,
@@ -336,6 +332,11 @@ const stopContainer = async (id: string) => {
   throw new Error(`the Container of ${id} did not stop`);
 };
 
+/**
+ * A thread launched as the client's composer launches one (`orchestration.launchThread`), on a new worktree or on an
+ * existing one; its worktree's path once t3 has prepared it, and its first turn settled (a removal or deletion that beats
+ * a pending turn is undone by t3's restore: lib/terminalWorktree.ts).
+ */
 const launch = async (cookie: string, projectId: string, title: string, strategy: Record<string, unknown>) => {
   const threadId = uuid();
   await wsCall(cookie, "orchestration.launchThread", {

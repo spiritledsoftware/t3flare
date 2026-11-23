@@ -437,9 +437,13 @@ export interface WorktreeEntry extends WorktreeListEntry {
 
 /**
  * The ref snapshot's stdout with each worktree Workspace's current branch added in t3's four-field form
- * (`<ref>\t<committer seconds>\t\t`), unless a line already names it. Detached entries add nothing.
+ * (`<ref>\t<committer seconds>\t\t`), unless a line already names it, and how many lines were added. Detached entries
+ * add nothing.
  */
-export const withWorktreeBranches = (stdout: string, entries: ReadonlyArray<WorktreeEntry>): string => {
+export const withWorktreeBranches = (
+  stdout: string,
+  entries: ReadonlyArray<WorktreeEntry>,
+): { readonly stdout: string; readonly added: number } => {
   const listed = new Set(stdout.split("\n").map((line) => line.split("\t")[0]));
   const added: Array<string> = [];
   for (const entry of entries) {
@@ -447,9 +451,9 @@ export const withWorktreeBranches = (stdout: string, entries: ReadonlyArray<Work
     listed.add(entry.branch);
     added.push(`${entry.branch}\t${Math.floor(entry.createdAt / 1000)}\t\t\n`);
   }
-  if (added.length === 0) return stdout;
+  if (added.length === 0) return { stdout, added: 0 };
   const base = stdout === "" || stdout.endsWith("\n") ? stdout : `${stdout}\n`;
-  return `${base}${added.join("")}`;
+  return { stdout: `${base}${added.join("")}`, added: added.length };
 };
 
 /**

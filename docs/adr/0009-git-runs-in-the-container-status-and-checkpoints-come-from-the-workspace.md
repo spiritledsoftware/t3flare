@@ -39,9 +39,7 @@ Evidence: `steps-evidence-1:docs/steps/step-2b/m2-watch.json` (a primed worktree
 **A worktree Workspace has its own `.git`** (a full clone, not `gitdir:`/`commondir`), so checkpoints, stale reads, the
 read cache and the 2,000-file guard work per Workspace unchanged. `rev-parse --git-common-dir` in a worktree answers its
 own `.git`; t3 uses it only for its config lock and the worktree directory's hash (the router trace audit in
-`steps-evidence-1:docs/steps/step-2b/m2-trace.json`). The project's worktree list and its ref snapshot both present each worktree Workspace's
-current branch, read from the Workspace's own files and never starting a Container, so t3's branch selector pairs a
-worktree whose branch was renamed in its clone (SPI-1307).
+`steps-evidence-1:docs/steps/step-2b/m2-trace.json`).
 
 ## Refinement (large repos and submodules, the prod bug of 2026-11-11)
 
@@ -101,6 +99,24 @@ Considered: starting the Container (a passive read never does); the Worker Shell
 Recomputed paths now pair exact renames as git does (the same blob, of the same type, deleted on one path and added on another; a mode change rides along, empty files pair too, and pairs are made in path order, a deleted file with the added one's basename first), and a file that became a symlink, or back, is git's type change (`T` in the diffs and in status, patched as a delete and an add); a patched status still shows a staged rename as its two sides; an inexact rename in a last answer that a journal path touches is still shown as its two sides. The stats read's `--raw` records name the working tree's blob when the file is its index entry unchanged or a rename's new side, and zeros otherwise; git also writes zeros for such a file whose stat it has not refreshed, which the Workspace's files cannot tell (t3 reads only the status letter and the paths).
 
 Evidence: `apps/environment/test/statusOverStale.test.ts` drives t3's real `getReviewDiffPreview`, `statusDetails` and `statusDetailsLocal` over a stopped Workspace through the process router (the whole diff of both sources, then one file at a time, including one opened while the Container ran, files changed before and after it stopped, a deleted file and an exact rename; and a repo that hides untracked files): every working-tree read is answered `stale-patched` and equals real git's, and none starts the Container. `apps/agents/test/staleReads.test.ts` compares each shape with real git, and holds the refusals: an inexact rename read with both paths, a directory, a read above the guard, a whole-diff read with no last answer.
+
+## Refinement (SPI-1307): a project's ref snapshot presents its worktrees' branches
+
+t3's branch selector pairs a project's refs with its worktree list by branch name. A worktree Workspace is a full
+clone, so t3's first-turn rename (`git branch -m` in the worktree) never reaches the project's refs, and the selector
+stopped listing the worktree. **The project's worktree list and its ref snapshot both present each ready worktree
+Workspace's current branch**, read from the Workspace's own files and never starting a Container: the snapshot is the
+project's own refs plus a line for each worktree branch the project lacks.
+
+**A worktree's own ref snapshot is a computed answer when it is not live.** The selector confirms a worktree it lists
+with that read in the worktree, and keeps it only when the branch is found checked out. Where the M3 refinement gives a
+stopped Workspace's `for-each-ref` the last real answer alone, a worktree's snapshot that is not live gets its current
+branch added when the last answer lacks it (one from before the rename), or that branch alone when there is no earlier
+answer. A live answer stays git's own. With no earlier answer, the worktree's own branch list therefore shows only its
+current branch until t3's next refresh after its Container runs.
+
+Evidence: `apps/environment/test/worktreeRefs.test.ts` (t3's real `listRefs` over the process router) and
+`scripts/delete.ts restore` on a Stage; the limits are in `docs/upstream-fragility.md` U18.
 
 ## Refinement (SPI-1004): automatic fetch is off, and why
 
