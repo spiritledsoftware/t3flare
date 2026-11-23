@@ -4,9 +4,25 @@
 // Session's own models (its Model endpoints', `api.models`) with `completeSimple`; there is no classifier First Pass, no cache
 // breakpoint helper and no token calibration (evidence is bounded in characters, `evidence.ts`).
 // @effect-diagnostics globalDate:off globalTimers:off
-import { type Api, type AssistantMessage, clampThinkingLevel, type Context, type Model, type Models } from "@earendil-works/pi-ai";
+import {
+  type Api,
+  type AssistantMessage,
+  clampThinkingLevel,
+  type Context,
+  type Model,
+  type Models,
+} from "@earendil-works/pi-ai";
 
-import { type Assessment, decide, decidedRisk, type Outcome, parseAssessment, parseFinalAssessment, type RiskCategory, uncategorized } from "./assessment.ts";
+import {
+  type Assessment,
+  decide,
+  decidedRisk,
+  type Outcome,
+  parseAssessment,
+  parseFinalAssessment,
+  type RiskCategory,
+  uncategorized,
+} from "./assessment.ts";
 
 export type GuardianThinkingLevel = "off" | "low" | "medium" | "high";
 
@@ -44,7 +60,8 @@ export const correctiveMessage =
 export const categoryCorrectiveMessage = (categories: ReadonlyArray<RiskCategory>): string =>
   `Your assessment rated the risk high or critical without naming a valid Risk Category. \`high\` and \`critical\` risk require exactly one of: ${categories.join(", ")}. If one concretely applies to this exact call, respond again with exactly one JSON object naming it in "risk_category", with a "rationale"; if none applies, the risk is \`low\` or \`medium\`, so respond with that assessment instead. Respond with the JSON object and nothing else.`;
 
-const replyText = (reply: AssistantMessage): string => reply.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("");
+const replyText = (reply: AssistantMessage): string =>
+  reply.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("");
 const errorMessage = (cause: unknown): string => (cause instanceof Error ? cause.message : String(cause));
 
 export const modelName = (model: Pick<Model<Api>, "provider" | "id">): string => `${model.provider}/${model.id}`;
@@ -60,7 +77,13 @@ export const runGuardianReview = async (input: GuardianReviewInput): Promise<Rev
       tokens += usage.totalTokens;
       cost = cost !== null && Number.isFinite(usage.cost.total) ? cost + usage.cost.total : null;
     }
-    return { model: modelName(input.model), durationMs: Date.now() - started, tokens, cost: replies.length === 0 ? null : cost, ...(replies.length > 1 ? { retried: true } : {}) };
+    return {
+      model: modelName(input.model),
+      durationMs: Date.now() - started,
+      tokens,
+      cost: replies.length === 0 ? null : cost,
+      ...(replies.length > 1 ? { retried: true } : {}),
+    };
   };
   const aborted = () => input.signal?.aborted === true;
   if (aborted()) return { kind: "aborted", ...measured() };
@@ -68,31 +91,57 @@ export const runGuardianReview = async (input: GuardianReviewInput): Promise<Rev
   const timer = setTimeout(() => timeout.abort(), input.timeoutMs);
   const signal = input.signal === undefined ? timeout.signal : AbortSignal.any([input.signal, timeout.signal]);
   const level = input.model.reasoning ? clampThinkingLevel(input.model, input.thinkingLevel) : "off";
-  const assessed = (assessment: Assessment): ReviewResult => ({ kind: "assessed", assessment, outcome: decide(decidedRisk(assessment), assessment.authorization), ...measured() });
+  const assessed = (assessment: Assessment): ReviewResult => ({
+    kind: "assessed",
+    assessment,
+    outcome: decide(decidedRisk(assessment), assessment.authorization),
+    ...measured(),
+  });
   let context = input.context;
   try {
     for (;;) {
       let reply: AssistantMessage | undefined;
       let failure: string | undefined;
       try {
-        reply = await input.models.completeSimple(input.model, context, { signal, sessionId: input.sessionId, ...(level === "off" ? {} : { reasoning: level }) });
+        reply = await input.models.completeSimple(input.model, context, {
+          signal,
+          sessionId: input.sessionId,
+          ...(level === "off" ? {} : { reasoning: level }),
+        });
       } catch (cause) {
         failure = errorMessage(cause);
       }
       if (reply !== undefined) replies.push(reply);
       if (aborted()) return { kind: "aborted", ...measured() };
-      if (timeout.signal.aborted) return { kind: "failed", failure: `Guardian Review timed out after ${input.timeoutMs / 1_000}s`, ...measured() };
-      if (failure !== undefined || reply === undefined) return { kind: "failed", failure: `Guardian model request failed: ${failure ?? "no response"}`, ...measured() };
-      if (reply.stopReason === "error" || reply.stopReason === "aborted") return { kind: "failed", failure: `Guardian model request failed: ${reply.errorMessage ?? reply.stopReason}`, ...measured() };
+      if (timeout.signal.aborted)
+        return {
+          kind: "failed",
+          failure: `Guardian Review timed out after ${input.timeoutMs / 1_000}s`,
+          ...measured(),
+        };
+      if (failure !== undefined || reply === undefined)
+        return { kind: "failed", failure: `Guardian model request failed: ${failure ?? "no response"}`, ...measured() };
+      if (reply.stopReason === "error" || reply.stopReason === "aborted")
+        return {
+          kind: "failed",
+          failure: `Guardian model request failed: ${reply.errorMessage ?? reply.stopReason}`,
+          ...measured(),
+        };
       let corrective = correctiveMessage;
       try {
-        const assessment = (input.reasoned === true ? parseFinalAssessment : parseAssessment)(replyText(reply), [...input.categories]);
+        const assessment = (input.reasoned === true ? parseFinalAssessment : parseAssessment)(replyText(reply), [
+          ...input.categories,
+        ]);
         if (!uncategorized(assessment) || replies.length > 1) return assessed(assessment);
         corrective = categoryCorrectiveMessage(input.categories);
       } catch (cause) {
-        if (replies.length > 1) return { kind: "failed", failure: `${errorMessage(cause)}, even after a corrective retry`, ...measured() };
+        if (replies.length > 1)
+          return { kind: "failed", failure: `${errorMessage(cause)}, even after a corrective retry`, ...measured() };
       }
-      context = { ...input.context, messages: [...input.context.messages, reply, { role: "user", content: corrective, timestamp: 0 }] };
+      context = {
+        ...input.context,
+        messages: [...input.context.messages, reply, { role: "user", content: corrective, timestamp: 0 }],
+      };
     }
   } finally {
     clearTimeout(timer);
@@ -103,7 +152,10 @@ export const runGuardianReview = async (input: GuardianReviewInput): Promise<Rev
  * A First Pass with its Escalation Pass (`withEscalation`, trigger `rejected`): the second pass decides when it assessed;
  * when it failed, the First Pass's Rejection stands, so an escalation never allows by failing.
  */
-export const withEscalation = (first: ReviewResult & { readonly kind: "assessed" }, pass: ReviewResult): ReviewResult => {
+export const withEscalation = (
+  first: ReviewResult & { readonly kind: "assessed" },
+  pass: ReviewResult,
+): ReviewResult => {
   const metrics = {
     model: first.model,
     durationMs: first.durationMs + pass.durationMs,
@@ -112,6 +164,7 @@ export const withEscalation = (first: ReviewResult & { readonly kind: "assessed"
     escalated: { firstPass: first.assessment },
   };
   if (pass.kind === "aborted") return { kind: "aborted", ...metrics };
-  if (pass.kind === "assessed") return { kind: "assessed", assessment: pass.assessment, outcome: pass.outcome, ...metrics };
+  if (pass.kind === "assessed")
+    return { kind: "assessed", assessment: pass.assessment, outcome: pass.outcome, ...metrics };
   return { kind: "assessed", assessment: first.assessment, outcome: first.outcome, ...metrics };
 };

@@ -34,7 +34,9 @@ describe("StoppedExecsBackend", () => {
     const sent: Array<string> = [];
     const handle = await new StoppedExecsBackend(inner(sent), stopped).connect({} as never);
     stopped.stopped(["exec-a"]);
-    await expect(handle.rpc.shell.exec({ source: "touch x", env: { T3FLARE_EXEC: "exec-a" } } as never)).rejects.toThrow("stopped before it started");
+    await expect(
+      handle.rpc.shell.exec({ source: "touch x", env: { T3FLARE_EXEC: "exec-a" } } as never),
+    ).rejects.toThrow("stopped before it started");
     await handle.rpc.shell.exec({ source: "true", env: { T3FLARE_EXEC: "exec-b" } } as never);
     await handle.rpc.shell.exec({ source: "true" } as never);
     expect(sent).toEqual(["exec-b", "?"]);

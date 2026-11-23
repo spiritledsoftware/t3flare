@@ -36,16 +36,31 @@ child.stdout.on("data", (chunk) => {
     note("in", msg);
     summary.events[msg.type] = (summary.events[msg.type] ?? 0) + 1;
     if (msg.type === "response") {
-      summary.responses.push({ command: msg.command, success: msg.success, error: msg.error ?? null, data: msg.command === "get_state" ? { sessionFile: msg.data?.sessionFile, sessionId: msg.data?.sessionId, model: msg.data?.model?.id } : undefined });
+      summary.responses.push({
+        command: msg.command,
+        success: msg.success,
+        error: msg.error ?? null,
+        data:
+          msg.command === "get_state"
+            ? { sessionFile: msg.data?.sessionFile, sessionId: msg.data?.sessionId, model: msg.data?.model?.id }
+            : undefined,
+      });
       if (waiter?.kind === "response" && msg.id === waiter.id) waiter.resolve();
     }
     if (msg.type === "extension_ui_request") {
-      summary.uiRequests.push({ method: msg.method, title: msg.title ?? null, message: (msg.message ?? "").slice(0, 200) });
-      if (msg.method === "confirm") send({ type: "extension_ui_response", id: msg.id, confirmed: scenario.confirm ?? true });
+      summary.uiRequests.push({
+        method: msg.method,
+        title: msg.title ?? null,
+        message: (msg.message ?? "").slice(0, 200),
+      });
+      if (msg.method === "confirm")
+        send({ type: "extension_ui_response", id: msg.id, confirmed: scenario.confirm ?? true });
       else if (msg.method === "select") send({ type: "extension_ui_response", id: msg.id, value: msg.options?.[0] });
     }
-    if (msg.type === "tool_execution_start") summary.toolCalls.push({ tool: msg.toolName, args: JSON.stringify(msg.args ?? {}).slice(0, 160) });
-    if (msg.type === "message_update" && msg.assistantMessageEvent?.type === "text_delta") summary.text += msg.assistantMessageEvent.delta;
+    if (msg.type === "tool_execution_start")
+      summary.toolCalls.push({ tool: msg.toolName, args: JSON.stringify(msg.args ?? {}).slice(0, 160) });
+    if (msg.type === "message_update" && msg.assistantMessageEvent?.type === "text_delta")
+      summary.text += msg.assistantMessageEvent.delta;
     if (msg.type === "message_end" && msg.message?.errorMessage) summary.errors.push(msg.message.errorMessage);
     if (msg.type === "agent_end" && waiter?.kind === "agent_end") waiter.resolve();
   }

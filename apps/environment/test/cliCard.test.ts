@@ -36,21 +36,45 @@ const AGENT = path.join(import.meta.dirname, "fixtures/fake-acp-agent.mjs");
 
 const INITIALIZE = {
   protocolVersion: 1,
-  agentCapabilities: { loadSession: true, promptCapabilities: { image: true, embeddedContext: true }, sessionCapabilities: { close: {}, fork: {}, resume: {} } },
+  agentCapabilities: {
+    loadSession: true,
+    promptCapabilities: { image: true, embeddedContext: true },
+    sessionCapabilities: { close: {}, fork: {}, resume: {} },
+  },
   authMethods: [],
   agentInfo: { name: "@agentclientprotocol/claude-agent-acp", title: "Claude Agent", version: "0.106.0" },
 };
 const SESSION_NEW = {
   sessionId: "claude-session",
-  modes: { currentModeId: "default", availableModes: ["default", "acceptEdits", "plan"].map((id) => ({ id, name: id })) },
-  configOptions: [{ id: "model", name: "Model", category: "model", type: "select", currentValue: "default", options: ["default", "comm/claude-sonnet-5-5"].map((value) => ({ value, name: value })) }],
+  modes: {
+    currentModeId: "default",
+    availableModes: ["default", "acceptEdits", "plan"].map((id) => ({ id, name: id })),
+  },
+  configOptions: [
+    {
+      id: "model",
+      name: "Model",
+      category: "model",
+      type: "select",
+      currentValue: "default",
+      options: ["default", "comm/claude-sonnet-5-5"].map((value) => ({ value, name: value })),
+    },
+  ],
 };
 const OPTIONS = [
   { optionId: "allow-once", name: "Yes", kind: "allow_once" },
   { optionId: "reject", name: "No", kind: "reject_once" },
 ];
 /** The agent's own request: holds the turn open until the test answers it. */
-const HOLD = { request: { method: "session/request_permission", params: { toolCall: { toolCallId: "tc-hold", kind: "execute", title: "execute ls", locations: [], rawInput: {} }, options: OPTIONS } } };
+const HOLD = {
+  request: {
+    method: "session/request_permission",
+    params: {
+      toolCall: { toolCallId: "tc-hold", kind: "execute", title: "execute ls", locations: [], rawInput: {} },
+      options: OPTIONS,
+    },
+  },
+};
 
 const layerTest = Layer.mergeAll(
   NodeServices.layer,
@@ -70,15 +94,31 @@ const session = Effect.fn("session")(function* () {
   const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3flare-cli-card-" });
   const scriptPath = path.join(cwd, "..", `${path.basename(cwd)}.script.json`);
   const logPath = path.join(cwd, "..", `${path.basename(cwd)}.log`);
-  yield* fileSystem.writeFileString(scriptPath, yield* encodeJson({ initialize: INITIALIZE, sessionNew: SESSION_NEW, prompts: [[HOLD]] }));
+  yield* fileSystem.writeFileString(
+    scriptPath,
+    yield* encodeJson({ initialize: INITIALIZE, sessionNew: SESSION_NEW, prompts: [[HOLD]] }),
+  );
   yield* fileSystem.writeFileString(logPath, "");
   const PATH = yield* Config.String("PATH").pipe(Config.withDefault(""));
   const spawn = Effect.fn("spawn")(function* (input: AcpAdapterV2RuntimeInput) {
-    const { processEnvironment: _env, runtimePolicy: _policy, mcpServers: _mcp, acpMcpServers: _acp, httpMcpServers: _http, ...rest } = input;
+    const {
+      processEnvironment: _env,
+      runtimePolicy: _policy,
+      mcpServers: _mcp,
+      acpMcpServers: _acp,
+      httpMcpServers: _http,
+      ...rest
+    } = input;
     const context = yield* Layer.build(
       AcpSessionRuntime.layer({
         ...rest,
-        spawn: { command: process.execPath, args: [AGENT], cwd: input.cwd, env: { PATH, FAKE_ACP_SCRIPT: scriptPath, FAKE_ACP_LOG: logPath }, extendEnv: false },
+        spawn: {
+          command: process.execPath,
+          args: [AGENT],
+          cwd: input.cwd,
+          env: { PATH, FAKE_ACP_SCRIPT: scriptPath, FAKE_ACP_LOG: logPath },
+          extendEnv: false,
+        },
         authenticateOnAuthRequired: false,
         ownDetachedProcessGroup: true,
         processGroupPlatform: process.platform,
@@ -88,13 +128,25 @@ const session = Effect.fn("session")(function* () {
   });
   const driver = ProviderDriverKind.make("claudeAgent");
   const instanceId = ProviderInstanceId.make("claudeAgent");
-  const adapter = wrapCliAdapter(yield* makeAcpAdapterV2(acpAdapterOptions(instanceId, acpFlavor("claude", driver, { spawn }), undefined)), {
-    sessions: new Map(),
-  });
+  const adapter = wrapCliAdapter(
+    yield* makeAcpAdapterV2(acpAdapterOptions(instanceId, acpFlavor("claude", driver, { spawn }), undefined)),
+    {
+      sessions: new Map(),
+    },
+  );
   const threadId = ThreadId.make(`thread-card-${++threads}`);
   const modelSelection = { instanceId, model: "comm/claude-sonnet-5-5" } as const;
-  const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({ runtimeMode: "approval-required", interactionMode: "default", cwd });
-  const runtime = yield* adapter.openSession({ threadId, providerSessionId: ProviderSessionId.make(`session-card-${threads}`), modelSelection, runtimePolicy });
+  const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+    runtimeMode: "approval-required",
+    interactionMode: "default",
+    cwd,
+  });
+  const runtime = yield* adapter.openSession({
+    threadId,
+    providerSessionId: ProviderSessionId.make(`session-card-${threads}`),
+    modelSelection,
+    runtimePolicy,
+  });
   const queue = yield* Queue.unbounded<Event>();
   const seen: Array<Event> = [];
   yield* runtime.events.pipe(
@@ -121,20 +173,35 @@ type Harness = Effect.Success<ReturnType<typeof session>>;
 
 const startTurn = Effect.fn("startTurn")(function* (harness: Harness) {
   const { runtime, threadId, providerThread, instanceId, runtimePolicy, modelSelection } = harness;
-  yield* runtime.startTurn(makeTurnInput({ threadId, providerThread, instanceId, runtimePolicy, now: yield* DateTime.now, modelSelection }));
+  yield* runtime.startTurn(
+    makeTurnInput({ threadId, providerThread, instanceId, runtimePolicy, now: yield* DateTime.now, modelSelection }),
+  );
   // The agent's own request: the turn is live, and its provider turn known.
-  const hold = yield* harness.until((event) => event.type === "runtime_request.updated" && event.runtimeRequest.status === "pending");
+  const hold = yield* harness.until(
+    (event) => event.type === "runtime_request.updated" && event.runtimeRequest.status === "pending",
+  );
   if (hold.type !== "runtime_request.updated") throw new Error("expected the agent's request");
   return hold.runtimeRequest;
 });
 
-const isCard = (event: Event) => event.type === "runtime_request.updated" && event.runtimeRequest.id.includes(":t3flare-ask:");
-const cardOpened = (event: Event) => isCard(event) && event.type === "runtime_request.updated" && event.runtimeRequest.status === "pending";
+const isCard = (event: Event) =>
+  event.type === "runtime_request.updated" && event.runtimeRequest.id.includes(":t3flare-ask:");
+const cardOpened = (event: Event) =>
+  isCard(event) && event.type === "runtime_request.updated" && event.runtimeRequest.status === "pending";
 
 const ask = (harness: Harness, askId: string) =>
-  Effect.promise(() => approveCliTool({ thread: harness.threadId, askId, title: "Allow fixture: fixture_note?", summary: "fixture_note {\"line\":\"x\"}", detail: "fixture: fixture_note" }));
+  Effect.promise(() =>
+    approveCliTool({
+      thread: harness.threadId,
+      askId,
+      title: "Allow fixture: fixture_note?",
+      summary: 'fixture_note {"line":"x"}',
+      detail: "fixture: fixture_note",
+    }),
+  );
 
-const test = <A, E>(body: Effect.Effect<A, E, Layer.Success<typeof layerTest> | import("effect/Scope").Scope>) => Effect.runPromise(body.pipe(Effect.scoped, Effect.provide(layerTest)));
+const test = <A, E>(body: Effect.Effect<A, E, Layer.Success<typeof layerTest> | import("effect/Scope").Scope>) =>
+  Effect.runPromise(body.pipe(Effect.scoped, Effect.provide(layerTest)));
 
 describe("a relay tool call asked on a CLI thread (ADR-0028, M9)", () => {
   it("raises t3's approval card on the live turn and answers with the owner's decision", () =>
@@ -149,21 +216,44 @@ describe("a relay tool call asked on a CLI thread (ADR-0028, M9)", () => {
         expect(opened.runtimeRequest.providerTurnId).toBe(hold.providerTurnId);
         expect(opened.runtimeRequest.kind).toBe("permission");
         expect(opened.runtimeRequest.responseCapability).toMatchObject({ type: "live" });
-        const node = yield* harness.until((event) => event.type === "node.updated" && event.node.runtimeRequestId === opened.runtimeRequest.id);
-        expect(node.type === "node.updated" && [node.node.kind, node.node.status, node.node.parentNodeId]).toEqual(["approval_request", "waiting", node.type === "node.updated" ? node.node.rootNodeId : null]);
-        const item = yield* harness.until((event) => event.type === "turn_item.updated" && "requestId" in event.turnItem && event.turnItem.requestId === opened.runtimeRequest.id);
-        if (item.type !== "turn_item.updated" || item.turnItem.type !== "approval_request") throw new Error("expected the card's turn item");
+        const node = yield* harness.until(
+          (event) => event.type === "node.updated" && event.node.runtimeRequestId === opened.runtimeRequest.id,
+        );
+        expect(node.type === "node.updated" && [node.node.kind, node.node.status, node.node.parentNodeId]).toEqual([
+          "approval_request",
+          "waiting",
+          node.type === "node.updated" ? node.node.rootNodeId : null,
+        ]);
+        const item = yield* harness.until(
+          (event) =>
+            event.type === "turn_item.updated" &&
+            "requestId" in event.turnItem &&
+            event.turnItem.requestId === opened.runtimeRequest.id,
+        );
+        if (item.type !== "turn_item.updated" || item.turnItem.type !== "approval_request")
+          throw new Error("expected the card's turn item");
         expect(item.turnItem.title).toBe("Allow fixture: fixture_note?");
         expect(item.turnItem.prompt).toContain("fixture_note");
-        expect(item.turnItem.options?.map((option) => option.decision)).toEqual(["accept", "acceptForSession", "decline"]);
+        expect(item.turnItem.options?.map((option) => option.decision)).toEqual([
+          "accept",
+          "acceptForSession",
+          "decline",
+        ]);
         // The agent's own items are numbered from the turn's ordinal; the card comes after them.
-        const ordinals = harness.seen.flatMap((event) => (event.type === "turn_item.updated" && event.turnItem.id !== item.turnItem.id ? [event.turnItem.ordinal] : []));
+        const ordinals = harness.seen.flatMap((event) =>
+          event.type === "turn_item.updated" && event.turnItem.id !== item.turnItem.id ? [event.turnItem.ordinal] : [],
+        );
         expect(item.turnItem.ordinal).toBeGreaterThan(Math.max(0, ...ordinals));
 
-        yield* harness.runtime.respondToRuntimeRequest({ requestId: opened.runtimeRequest.id, decision: "acceptForSession" });
+        yield* harness.runtime.respondToRuntimeRequest({
+          requestId: opened.runtimeRequest.id,
+          decision: "acceptForSession",
+        });
         expect(yield* Fiber.join(answer)).toEqual({ approved: true, forSession: true });
         const closed = yield* harness.until(isCard);
-        expect(closed.type === "runtime_request.updated" && [closed.runtimeRequest.status, closed.runtimeRequest.decision]).toEqual(["resolved", "acceptForSession"]);
+        expect(
+          closed.type === "runtime_request.updated" && [closed.runtimeRequest.status, closed.runtimeRequest.decision],
+        ).toEqual(["resolved", "acceptForSession"]);
         // The CLI never saw the card: only its own request was answered to it.
         expect(harness.agentLog().filter((entry) => entry.received === "response")).toHaveLength(0);
 
@@ -184,7 +274,9 @@ describe("a relay tool call asked on a CLI thread (ADR-0028, M9)", () => {
         yield* harness.runtime.respondToRuntimeRequest({ requestId: card.runtimeRequest.id, decision: "decline" });
         expect(yield* Fiber.join(answer)).toEqual({ approved: false, reason: "decline" });
         // As t3's adapters answer an unknown request.
-        const late = yield* harness.runtime.respondToRuntimeRequest({ requestId: card.runtimeRequest.id, decision: "accept" }).pipe(Effect.flip);
+        const late = yield* harness.runtime
+          .respondToRuntimeRequest({ requestId: card.runtimeRequest.id, decision: "accept" })
+          .pipe(Effect.flip);
         expect(late._tag).toBe("ProviderAdapterRuntimeRequestResponseError");
       }),
     ));
@@ -216,7 +308,13 @@ describe("a relay tool call asked on a CLI thread (ADR-0028, M9)", () => {
         yield* harness.runtime.respondToRuntimeRequest({ requestId: hold.id, decision: "accept" });
         yield* harness.until((event) => event.type === "turn.terminal");
         expect(yield* Fiber.join(answer)).toEqual({ approved: false, reason: "the turn ended" });
-        const order = harness.seen.flatMap((event) => (event.type === "turn.terminal" ? ["terminal"] : isCard(event) && event.type === "runtime_request.updated" && event.runtimeRequest.status === "cancelled" ? ["cancelled"] : []));
+        const order = harness.seen.flatMap((event) =>
+          event.type === "turn.terminal"
+            ? ["terminal"]
+            : isCard(event) && event.type === "runtime_request.updated" && event.runtimeRequest.status === "cancelled"
+              ? ["cancelled"]
+              : [],
+        );
         expect(order).toEqual(["cancelled", "terminal"]);
         expect(yield* ask(harness, "ask-9")).toEqual({ approved: false, reason: "no live turn to ask on" });
       }),
@@ -231,8 +329,22 @@ describe("an MCP server's question asked on a CLI thread (SPI-1079)", () => {
     title: "fixture asks",
     prompt: "fixture asks: Colour?",
     questions: [
-      { id: "colour", header: "Colour", question: "fixture asks: Colour?", options: [{ label: "red", description: "red", value: "red" }], allowCustomAnswer: false, required: true },
-      { id: "t3flare_send", header: "Send", question: "Send?", options: [{ label: "Send", description: "Send", value: "send" }], allowCustomAnswer: false, required: true },
+      {
+        id: "colour",
+        header: "Colour",
+        question: "fixture asks: Colour?",
+        options: [{ label: "red", description: "red", value: "red" }],
+        allowCustomAnswer: false,
+        required: true,
+      },
+      {
+        id: "t3flare_send",
+        header: "Send",
+        question: "Send?",
+        options: [{ label: "Send", description: "Send", value: "send" }],
+        allowCustomAnswer: false,
+        required: true,
+      },
     ],
   };
 
@@ -241,16 +353,30 @@ describe("an MCP server's question asked on a CLI thread (SPI-1079)", () => {
       Effect.gen(function* () {
         const harness = yield* session();
         yield* startTurn(harness);
-        const answer = yield* Effect.promise(() => cliQuestionAsker(harness.threadId).ask(formCard)).pipe(Effect.forkScoped);
+        const answer = yield* Effect.promise(() => cliQuestionAsker(harness.threadId).ask(formCard)).pipe(
+          Effect.forkScoped,
+        );
         const opened = yield* harness.until(cardOpened);
         if (opened.type !== "runtime_request.updated") throw new Error("expected the card");
         expect(opened.runtimeRequest.kind).toBe("user_input");
         expect(opened.runtimeRequest.id).toContain(":t3flare-ask:t3flare-elicit-form-1");
-        const item = yield* harness.until((event) => event.type === "turn_item.updated" && "requestId" in event.turnItem && event.turnItem.requestId === opened.runtimeRequest.id);
-        if (item.type !== "turn_item.updated" || item.turnItem.type !== "user_input_request") throw new Error("expected a user_input item");
+        const item = yield* harness.until(
+          (event) =>
+            event.type === "turn_item.updated" &&
+            "requestId" in event.turnItem &&
+            event.turnItem.requestId === opened.runtimeRequest.id,
+        );
+        if (item.type !== "turn_item.updated" || item.turnItem.type !== "user_input_request")
+          throw new Error("expected a user_input item");
         expect(item.turnItem.questions.map((question) => question.id)).toEqual(["colour", "t3flare_send"]);
-        yield* harness.runtime.respondToRuntimeRequest({ requestId: opened.runtimeRequest.id, answers: { colour: "red", t3flare_send: "send" } });
-        expect(yield* Fiber.join(answer)).toEqual({ decision: "accept", answers: { colour: "red", t3flare_send: "send" } });
+        yield* harness.runtime.respondToRuntimeRequest({
+          requestId: opened.runtimeRequest.id,
+          answers: { colour: "red", t3flare_send: "send" },
+        });
+        expect(yield* Fiber.join(answer)).toEqual({
+          decision: "accept",
+          answers: { colour: "red", t3flare_send: "send" },
+        });
       }),
     ));
 
@@ -258,15 +384,35 @@ describe("an MCP server's question asked on a CLI thread (SPI-1079)", () => {
     test(
       Effect.gen(function* () {
         const harness = yield* session();
-        expect(yield* Effect.promise(() => cliQuestionAsker(harness.threadId).ask({ ...formCard, id: "t3flare-elicit-0" }))).toMatchObject({ decision: "cancel" });
+        expect(
+          yield* Effect.promise(() => cliQuestionAsker(harness.threadId).ask({ ...formCard, id: "t3flare-elicit-0" })),
+        ).toMatchObject({ decision: "cancel" });
         yield* startTurn(harness);
-        const card = { id: "t3flare-elicit-confirm-1", kind: "approval" as const, server: "fixture", title: "fixture asks", prompt: "Delete it?", options: [{ decision: "accept" as const, label: "Approve" }, { decision: "decline" as const, label: "Decline" }] };
-        const answer = yield* Effect.promise(() => cliQuestionAsker(harness.threadId).ask(card)).pipe(Effect.forkScoped);
+        const card = {
+          id: "t3flare-elicit-confirm-1",
+          kind: "approval" as const,
+          server: "fixture",
+          title: "fixture asks",
+          prompt: "Delete it?",
+          options: [
+            { decision: "accept" as const, label: "Approve" },
+            { decision: "decline" as const, label: "Decline" },
+          ],
+        };
+        const answer = yield* Effect.promise(() => cliQuestionAsker(harness.threadId).ask(card)).pipe(
+          Effect.forkScoped,
+        );
         const opened = yield* harness.until(cardOpened);
         if (opened.type !== "runtime_request.updated") throw new Error("expected the card");
         expect(opened.runtimeRequest.kind).toBe("mcp-elicitation");
-        const item = yield* harness.until((event) => event.type === "turn_item.updated" && "requestId" in event.turnItem && event.turnItem.requestId === opened.runtimeRequest.id);
-        if (item.type !== "turn_item.updated" || item.turnItem.type !== "approval_request") throw new Error("expected an approval item");
+        const item = yield* harness.until(
+          (event) =>
+            event.type === "turn_item.updated" &&
+            "requestId" in event.turnItem &&
+            event.turnItem.requestId === opened.runtimeRequest.id,
+        );
+        if (item.type !== "turn_item.updated" || item.turnItem.type !== "approval_request")
+          throw new Error("expected an approval item");
         expect([item.turnItem.requestKind, item.turnItem.prompt]).toEqual(["mcp-elicitation", "Delete it?"]);
         yield* harness.runtime.respondToRuntimeRequest({ requestId: opened.runtimeRequest.id, decision: "decline" });
         expect(yield* Fiber.join(answer)).toMatchObject({ decision: "decline" });
@@ -278,7 +424,11 @@ describe("the ACP driver's adapter options", () => {
   it("never gives t3's adapter client terminals: the agent's commands run in the Workspace, not in t3", () =>
     test(
       Effect.gen(function* () {
-        const options = acpAdapterOptions(ProviderInstanceId.make("claudeAgent"), acpFlavor("claude", ProviderDriverKind.make("claudeAgent"), {}), undefined);
+        const options = acpAdapterOptions(
+          ProviderInstanceId.make("claudeAgent"),
+          acpFlavor("claude", ProviderDriverKind.make("claudeAgent"), {}),
+          undefined,
+        );
         expect("clientTerminals" in options).toBe(false);
         const harness = yield* session();
         const hold = yield* startTurn(harness);

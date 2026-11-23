@@ -16,6 +16,7 @@ pi-durable's `codemode` tool lets the model write one short JavaScript program t
    - controls and format characters shown escaped.
 
    A card raised inside a script names the script.
+
 8. **A lost sandbox ends the script** with "script failed, completed calls listed", and its card is withdrawn. pi-codemode commits a failed remote as the outcome, so the script is never silently re-run (review M6; `m0-p14-sandbox-loss.json`).
 
 ## Considered options

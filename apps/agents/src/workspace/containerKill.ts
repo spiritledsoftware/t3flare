@@ -17,7 +17,10 @@ export interface KillOutput {
 }
 
 /** Runs the kill script on `markers` in `container` and gives its output; undefined when it is not running (or none). */
-export const killInRunningContainer = async (container: RunningContainer | undefined, markers: ReadonlyArray<string>): Promise<KillOutput | undefined> => {
+export const killInRunningContainer = async (
+  container: RunningContainer | undefined,
+  markers: ReadonlyArray<string>,
+): Promise<KillOutput | undefined> => {
   const argv = killArgv(markers);
   if (container === undefined || !container.running || argv.length === 0) return undefined;
   let output: ExecOutput;

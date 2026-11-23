@@ -70,9 +70,7 @@ export const publicFetchRefusal = (url: string): string | undefined => {
 };
 
 /** `headers` with only {@link PUBLIC_FETCH_HEADERS}, by lowercase name: what a read passes on, on both sides of the RPC. */
-export const publicFetchHeaders = (
-  headers: Readonly<Record<string, string>> | undefined,
-): Record<string, string> => {
+export const publicFetchHeaders = (headers: Readonly<Record<string, string>> | undefined): Record<string, string> => {
   const kept: Record<string, string> = {};
 
   for (const [name, value] of Record.toEntries(headers ?? {})) {
@@ -112,9 +110,7 @@ export const fetchPublic = async (
       signal,
     });
 
-    const body = BODYLESS_STATUSES.includes(response.status)
-      ? ""
-      : await boundedText(response, MAX_METADATA_BYTES);
+    const body = BODYLESS_STATUSES.includes(response.status) ? "" : await boundedText(response, MAX_METADATA_BYTES);
 
     if (body === undefined) {
       return refused(`The response is longer than ${MAX_METADATA_BYTES / 1024} KiB`);

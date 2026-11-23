@@ -21,25 +21,36 @@ let t3Tools: ReadonlyArray<CatalogTool> = [];
 
 beforeAll(async () => {
   const dirs = NodeFs.readdirSync(TOOLKITS).filter((dir) => NodeFs.existsSync(new URL(`${dir}/tools.ts`, TOOLKITS)));
-  const modules = await Promise.all(dirs.map((dir) => import(new URL(`${dir}/tools.ts`, TOOLKITS).href) as Promise<Record<string, unknown>>));
+  const modules = await Promise.all(
+    dirs.map((dir) => import(new URL(`${dir}/tools.ts`, TOOLKITS).href) as Promise<Record<string, unknown>>),
+  );
   const byName = new Map<string, CatalogTool>();
   for (const exported of modules.flatMap((module) => Object.values(module))) {
     const tools = (exported as { tools?: unknown } | null)?.tools;
     if (tools === null || typeof tools !== "object") continue;
     for (const tool of Object.values(tools as Record<string, { name: string; description?: string }>)) {
-      if (typeof tool?.name === "string" && tool.name !== TOOL_SEARCH) byName.set(tool.name, { name: tool.name, ...(tool.description === undefined ? {} : { description: tool.description }) });
+      if (typeof tool?.name === "string" && tool.name !== TOOL_SEARCH)
+        byName.set(tool.name, {
+          name: tool.name,
+          ...(tool.description === undefined ? {} : { description: tool.description }),
+        });
     }
   }
   t3Tools = [...byName.values()];
 }, 120_000);
 
 const isT3Tool = (name: string) =>
-  name.endsWith("*") ? t3Tools.some((tool) => tool.name.startsWith(name.slice(0, -1))) : t3Tools.some((tool) => tool.name === name);
+  name.endsWith("*")
+    ? t3Tools.some((tool) => tool.name.startsWith(name.slice(0, -1)))
+    : t3Tools.some((tool) => tool.name === name);
 
 describe("the denylist (U49)", () => {
   it("names only t3's tools: each name, and each family's prefix, is still a tool t3 defines", () => {
     expect(t3Tools.length).toBeGreaterThan(40);
-    expect([...T3_TOOL_DENYLIST].filter((name) => !isT3Tool(name)), "t3 renamed or dropped these; update packages/harness-registry/src/t3Tools.ts").toEqual([]);
+    expect(
+      [...T3_TOOL_DENYLIST].filter((name) => !isT3Tool(name)),
+      "t3 renamed or dropped these; update packages/harness-registry/src/t3Tools.ts",
+    ).toEqual([]);
   });
 
   it("leaves request_secret and t3's orchestration tools offered (D5 lifted)", () => {

@@ -53,7 +53,11 @@ const lsTool = (files: FilesOf) =>
         .map((entry) => `${entry.name}${entry.isDirectory ? "/" : ""}`)
         .toSorted((left, right) => left.localeCompare(right));
       const shown = names.slice(0, limit);
-      return text(shown.length === 0 ? "(empty directory)" : `${shown.join("\n")}${names.length > limit ? `\n… ${names.length - limit} more` : ""}`);
+      return text(
+        shown.length === 0
+          ? "(empty directory)"
+          : `${shown.join("\n")}${names.length > limit ? `\n… ${names.length - limit} more` : ""}`,
+      );
     },
   });
 
@@ -71,8 +75,14 @@ const findTool = (files: FilesOf) =>
       const directory = resolvePath(api.env?.cwd ?? "/workspace", args.path);
       const limit = Math.min(args.limit ?? MAX_FIND, MAX_FIND);
       const found = await need(files).find(directory, args.pattern, { limit: limit + 1, exclude: EXCLUDE });
-      const paths = found.slice(0, limit).map((entry) => `${relativeTo(directory, entry.path)}${entry.type === "dir" ? "/" : ""}`);
-      return text(paths.length === 0 ? "No files found." : `${paths.join("\n")}${found.length > limit ? `\n… more results; narrow the pattern` : ""}`);
+      const paths = found
+        .slice(0, limit)
+        .map((entry) => `${relativeTo(directory, entry.path)}${entry.type === "dir" ? "/" : ""}`);
+      return text(
+        paths.length === 0
+          ? "No files found."
+          : `${paths.join("\n")}${found.length > limit ? `\n… more results; narrow the pattern` : ""}`,
+      );
     },
   });
 
@@ -105,9 +115,18 @@ const grepTool = (files: FilesOf) =>
       const lines = matches.slice(0, limit).flatMap((match) => {
         const path = relativeTo(base, match.path);
         if (match.context === undefined || match.context.length === 0) return [`${path}:${match.line}: ${match.text}`];
-        return [...match.context.map((line) => `${path}${line.isMatch ? ":" : "-"}${line.line}${line.isMatch ? ":" : "-"} ${line.text}`), "--"];
+        return [
+          ...match.context.map(
+            (line) => `${path}${line.isMatch ? ":" : "-"}${line.line}${line.isMatch ? ":" : "-"} ${line.text}`,
+          ),
+          "--",
+        ];
       });
-      return text(lines.length === 0 ? "No matches found." : `${lines.join("\n")}${matches.length > limit ? "\n… more matches; narrow the search" : ""}`);
+      return text(
+        lines.length === 0
+          ? "No matches found."
+          : `${lines.join("\n")}${matches.length > limit ? "\n… more matches; narrow the search" : ""}`,
+      );
     },
   });
 

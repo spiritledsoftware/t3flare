@@ -16,7 +16,16 @@ const log = fs.createWriteStream(process.env.LOG ?? "/dev/null", { flags: "a" })
 const started = Date.now();
 const note = (dir, msg) => log.write(`${JSON.stringify({ t: Date.now() - started, dir, msg })}\n`);
 const child = spawn(command[0], command.slice(1), { stdio: ["pipe", "pipe", "pipe"], env: process.env });
-const summary = { commandUpdates: [], sessionId: null, errors: [], stderr: "", text: "", toolCalls: [], toolResults: [], requests: {} };
+const summary = {
+  commandUpdates: [],
+  sessionId: null,
+  errors: [],
+  stderr: "",
+  text: "",
+  toolCalls: [],
+  toolResults: [],
+  requests: {},
+};
 let nextId = 1;
 const pending = new Map();
 let lastUpdate = 0;
@@ -54,20 +63,38 @@ child.stdout.on("data", (chunk) => {
     } else if (msg.id !== undefined) {
       summary.requests[msg.method] = (summary.requests[msg.method] ?? 0) + 1;
       if (msg.method === "session/request_permission") {
-        const option = (msg.params?.options ?? []).find((candidate) => candidate.kind === "allow_once") ?? msg.params?.options?.[0];
-        send({ jsonrpc: "2.0", id: msg.id, result: { outcome: option ? { outcome: "selected", optionId: option.optionId } : { outcome: "cancelled" } } });
+        const option =
+          (msg.params?.options ?? []).find((candidate) => candidate.kind === "allow_once") ?? msg.params?.options?.[0];
+        send({
+          jsonrpc: "2.0",
+          id: msg.id,
+          result: { outcome: option ? { outcome: "selected", optionId: option.optionId } : { outcome: "cancelled" } },
+        });
       } else send({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: "not offered by the probe" } });
     } else if (msg.method === "session/update") {
       const update = msg.params?.update ?? {};
       if (update.sessionUpdate === "available_commands_update") {
-        summary.commandUpdates.push((update.availableCommands ?? []).map((entry) => ({ name: entry.name, description: entry.description ?? null })));
+        summary.commandUpdates.push(
+          (update.availableCommands ?? []).map((entry) => ({
+            name: entry.name,
+            description: entry.description ?? null,
+          })),
+        );
         lastUpdate = Date.now();
       }
-      if (update.sessionUpdate === "agent_message_chunk" && update.content?.type === "text") summary.text += update.content.text;
-      if (update.sessionUpdate === "tool_call") summary.toolCalls.push({ title: update.title ?? null, kind: update.kind ?? null });
+      if (update.sessionUpdate === "agent_message_chunk" && update.content?.type === "text")
+        summary.text += update.content.text;
+      if (update.sessionUpdate === "tool_call")
+        summary.toolCalls.push({ title: update.title ?? null, kind: update.kind ?? null });
       // What a finished tool call returned, cut short: why a command failed is in it.
-      if (update.sessionUpdate === "tool_call_update" && (update.status === "completed" || update.status === "failed") && summary.toolResults.length < 4) {
-        const text = (update.content ?? []).map((part) => part.content?.text ?? part.text ?? "").join("") || JSON.stringify(update.rawOutput ?? null);
+      if (
+        update.sessionUpdate === "tool_call_update" &&
+        (update.status === "completed" || update.status === "failed") &&
+        summary.toolResults.length < 4
+      ) {
+        const text =
+          (update.content ?? []).map((part) => part.content?.text ?? part.text ?? "").join("") ||
+          JSON.stringify(update.rawOutput ?? null);
         summary.toolResults.push({ status: update.status, output: String(text).slice(0, 400) });
       }
     }
@@ -78,19 +105,37 @@ child.on("exit", (code, signal) => (summary.exit = { code, signal }));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const deadline = started + (scenario.timeoutMs ?? 180_000);
 try {
-  summary.initialize = await request("initialize", { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false } }).then((result) => ({
+  summary.initialize = await request("initialize", {
+    protocolVersion: 1,
+    clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+  }).then((result) => ({
     agentInfo: result?.agentInfo ?? null,
     protocolVersion: result?.protocolVersion ?? null,
   }));
   const session = await request("session/new", { cwd: scenario.cwd, mcpServers: [] });
   summary.sessionId = session?.sessionId ?? null;
   // The models the session offers: ACP v1's model state, or v2's `model` config option.
-  const modelOption = (session?.configOptions ?? []).find((option) => option.id === "model" || option.category === "model");
-  summary.configOptions = (session?.configOptions ?? []).map((option) => ({ id: option.id, values: (option.options ?? []).flatMap((entry) => ("value" in entry ? [entry.value] : (entry.options ?? []).map((choice) => choice.value))).slice(0, 12) }));
-  summary.models = session?.models?.availableModels?.map((entry) => entry.modelId) ?? (modelOption?.options ?? []).flatMap((entry) => ("value" in entry ? [entry.value] : (entry.options ?? []).map((choice) => choice.value)));
+  const modelOption = (session?.configOptions ?? []).find(
+    (option) => option.id === "model" || option.category === "model",
+  );
+  summary.configOptions = (session?.configOptions ?? []).map((option) => ({
+    id: option.id,
+    values: (option.options ?? [])
+      .flatMap((entry) => ("value" in entry ? [entry.value] : (entry.options ?? []).map((choice) => choice.value)))
+      .slice(0, 12),
+  }));
+  summary.models =
+    session?.models?.availableModels?.map((entry) => entry.modelId) ??
+    (modelOption?.options ?? []).flatMap((entry) =>
+      "value" in entry ? [entry.value] : (entry.options ?? []).map((choice) => choice.value),
+    );
   // The session's model, as t3's adapter writes it before a turn (its `model` config option).
   if (scenario.model !== undefined && summary.sessionId !== null) {
-    await request("session/set_config_option", { sessionId: summary.sessionId, configId: "model", value: scenario.model }).catch((error) => summary.errors.push({ setModel: error.rpc ?? String(error) }));
+    await request("session/set_config_option", {
+      sessionId: summary.sessionId,
+      configId: "model",
+      value: scenario.model,
+    }).catch((error) => summary.errors.push({ setModel: error.rpc ?? String(error) }));
   }
   // The commands come after `session/new`; wait for the first, then until they settle.
   const waitUntil = Date.now() + (scenario.waitMs ?? 60_000);
@@ -108,8 +153,13 @@ try {
     for (const turn of scenario.turns ?? []) {
       const entry = { model: turn.model, stopReason: null, error: null };
       try {
-        await request("session/set_config_option", { sessionId: summary.sessionId, configId: "model", value: turn.model });
-        for (const [configId, value] of Object.entries(turn.config ?? {})) await request("session/set_config_option", { sessionId: summary.sessionId, configId, value });
+        await request("session/set_config_option", {
+          sessionId: summary.sessionId,
+          configId: "model",
+          value: turn.model,
+        });
+        for (const [configId, value] of Object.entries(turn.config ?? {}))
+          await request("session/set_config_option", { sessionId: summary.sessionId, configId, value });
         const answer = await Promise.race([
           request("session/prompt", { sessionId: summary.sessionId, prompt: [{ type: "text", text: turn.prompt }] }),
           sleep(Math.max(deadline - Date.now(), 0)).then(() => ({ stopReason: "probe timeout" })),

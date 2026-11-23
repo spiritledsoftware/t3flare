@@ -19,10 +19,16 @@ export type Checkout = { readonly root: string } | { readonly reason: string };
  * `workspaceDirs` are the realpaths of every workspace dir pnpm was given (workspaceDirsOf), `checkout` the realpath
  * of the root of the checkout the command was typed in. With no checkout there is nothing to compare: allow, and say so.
  */
-export const workspaceGuard = (workspaceDirs: ReadonlyArray<WorkspaceDir>, checkout: Checkout): WorkspaceGuardDecision => {
+export const workspaceGuard = (
+  workspaceDirs: ReadonlyArray<WorkspaceDir>,
+  checkout: Checkout,
+): WorkspaceGuardDecision => {
   if (workspaceDirs.length === 0) return { ok: true };
   if ("reason" in checkout) {
-    return { ok: true, warning: `workspace guard: could not check ${workspaceDirs.map((entry) => entry.variable).join(" and ")}: ${checkout.reason}` };
+    return {
+      ok: true,
+      warning: `workspace guard: could not check ${workspaceDirs.map((entry) => entry.variable).join(" and ")}: ${checkout.reason}`,
+    };
   }
   const other = workspaceDirs.find((entry) => entry.dir !== checkout.root);
   if (other === undefined) return { ok: true };
@@ -41,12 +47,16 @@ export const workspaceGuard = (workspaceDirs: ReadonlyArray<WorkspaceDir>, check
  * The workspace dir pnpm reads: NPM_CONFIG_WORKSPACE_DIR, else its lowercase npm_config_workspace_dir (pnpm ignores the
  * lowercase one when the uppercase is set), resolved against the directory the command was typed in, as pnpm resolves it.
  */
-export const workspaceDirsOf = (env: Readonly<Record<string, string | undefined>>, typedIn: string): Array<WorkspaceDir> => {
+export const workspaceDirsOf = (
+  env: Readonly<Record<string, string | undefined>>,
+  typedIn: string,
+): Array<WorkspaceDir> => {
   const variable = ["NPM_CONFIG_WORKSPACE_DIR", "npm_config_workspace_dir"].find((name) => env[name]);
   return variable === undefined ? [] : [{ variable, dir: path.resolve(typedIn, env[variable]!) }];
 };
 
-const gitRevParse = (dir: string, flag: string, git: string) => spawnSync(git, ["rev-parse", flag], { cwd: dir, encoding: "utf8" });
+const gitRevParse = (dir: string, flag: string, git: string) =>
+  spawnSync(git, ["rev-parse", flag], { cwd: dir, encoding: "utf8" });
 
 /** The root of the git checkout holding `dir`; inside the t3code submodule, its superproject's. */
 export const checkoutRootOf = (dir: string, git = "git"): Checkout => {

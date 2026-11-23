@@ -18,7 +18,11 @@ export interface Line {
   readonly detail?: unknown;
 }
 
-export const step = async (lines: Array<Line>, name: string, run: () => Promise<{ readonly ok: boolean; readonly detail?: unknown }>) => {
+export const step = async (
+  lines: Array<Line>,
+  name: string,
+  run: () => Promise<{ readonly ok: boolean; readonly detail?: unknown }>,
+) => {
   const started = Date.now();
   try {
     const { ok, detail } = await run();
@@ -33,10 +37,19 @@ export const step = async (lines: Array<Line>, name: string, run: () => Promise<
 };
 
 /** The first value of a streaming WS method `match` accepts, or undefined after `ms`. */
-export const wsFind = (cookie: string, method: string, payload: unknown, match: (value: any) => boolean, ms: number): Promise<any> =>
+export const wsFind = (
+  cookie: string,
+  method: string,
+  payload: unknown,
+  match: (value: any) => boolean,
+  ms: number,
+): Promise<any> =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const client = (yield* RpcClient.make(WsRpcGroup)) as unknown as Record<string, (input: unknown) => Stream.Stream<unknown, unknown>>;
+      const client = (yield* RpcClient.make(WsRpcGroup)) as unknown as Record<
+        string,
+        (input: unknown) => Stream.Stream<unknown, unknown>
+      >;
       return yield* Stream.runHead(client[method]!(payload).pipe(Stream.filter(match)));
     }).pipe(Effect.provide(protocol(cookie)), Effect.scoped, Effect.timeoutOption(ms)),
   ).then((head: any) => (head?._tag === "Some" && head.value?._tag === "Some" ? head.value.value : undefined));
@@ -70,7 +83,9 @@ export const watchStream = (
     const url = new URL("/api/preview-stream/ws", base);
     url.protocol = "wss:";
     for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
-    const socket = new WebSocket(url, { headers: { ...(cookie === null ? {} : { cookie }), origin: base.origin } } as never);
+    const socket = new WebSocket(url, {
+      headers: { ...(cookie === null ? {} : { cookie }), origin: base.origin },
+    } as never);
     socket.binaryType = "arraybuffer";
     let frames = 0;
     let jpeg = false;
@@ -107,7 +122,13 @@ export const streamStatus = (cookie: string | null, query: Record<string, string
     const url = new URL("/api/preview-stream/ws", base);
     for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
     const request = https.request(url, {
-      headers: { upgrade: "websocket", connection: "Upgrade", "sec-websocket-version": "13", "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==", ...(cookie === null ? {} : { cookie }) },
+      headers: {
+        upgrade: "websocket",
+        connection: "Upgrade",
+        "sec-websocket-version": "13",
+        "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
+        ...(cookie === null ? {} : { cookie }),
+      },
     });
     request.on("upgrade", (response, socket) => {
       socket.destroy();
@@ -136,7 +157,9 @@ export const waitFor = async <A>(what: string, read: () => Promise<A | undefined
     }
     await sleep(1500);
   }
-  throw new Error(`timed out: ${what}${last === undefined ? "" : ` (${(last instanceof Error ? last.message : JSON.stringify(last)).slice(0, 200)})`}`);
+  throw new Error(
+    `timed out: ${what}${last === undefined ? "" : ` (${(last instanceof Error ? last.message : JSON.stringify(last)).slice(0, 200)})`}`,
+  );
 };
 
 /** The dev server's files: a page with a marker for HMR, and the hostile page (preview JS against t3, M3 hostile). */
@@ -167,7 +190,10 @@ export const VITE_APP = (t3Origin: string) => ({
  */
 export const viteAppCommand = (t3Origin: string, extra: Record<string, string> = {}): string => {
   const write = Object.entries({ ...VITE_APP(t3Origin), ...extra })
-    .map(([name, text]) => `mkdir -p "$(dirname ${name})" && echo ${Buffer.from(text).toString("base64")} | base64 -d > ${name}`)
+    .map(
+      ([name, text]) =>
+        `mkdir -p "$(dirname ${name})" && echo ${Buffer.from(text).toString("base64")} | base64 -d > ${name}`,
+    )
     .join(" && ");
   return `pkill -f 'vite --host' ; mkdir -p /tmp/vapp && cd /tmp/vapp && ${write} && (test -d node_modules/vite || (npm init -y >/dev/null && npm i --silent vite@6 >/dev/null 2>&1))`;
 };

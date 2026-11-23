@@ -7,21 +7,34 @@ import { CodemodeStoreDoc } from "@earendil-works/pi-durable/codemode";
 import type { TurnState } from "@t3flare/session-protocol";
 import { describe, expect, it } from "vitest";
 
-import { FORK_ENTRY_KIND, forkPage, forkPoint, freshConversation, rewind, rollbackPlan, seed } from "../src/session/branches.ts";
+import {
+  FORK_ENTRY_KIND,
+  forkPage,
+  forkPoint,
+  freshConversation,
+  rewind,
+  rollbackPlan,
+  seed,
+} from "../src/session/branches.ts";
 import { context } from "./harness.fixture.ts";
 
 const userTexts = (messages: ReadonlyArray<{ readonly role: string; readonly content: unknown }>): Array<string> =>
-  messages.flatMap((message) => (message.role === "user" && typeof message.content === "string" ? [message.content] : []));
+  messages.flatMap((message) =>
+    message.role === "user" && typeof message.content === "string" ? [message.content] : [],
+  );
 
 const open = async () => {
   const faux = fauxProvider();
   const models = createModels();
   models.setProvider(faux.provider);
-  const answer = (transcript: { readonly messages: ReadonlyArray<{ readonly role: string; readonly content: unknown }> }) =>
-    fauxAssistantMessage(`saw ${userTexts(transcript.messages).join(",")}`);
+  const answer = (transcript: {
+    readonly messages: ReadonlyArray<{ readonly role: string; readonly content: unknown }>;
+  }) => fauxAssistantMessage(`saw ${userTexts(transcript.messages).join(",")}`);
   faux.setResponses(Array.from({ length: 20 }, () => answer));
   const harness = await HarnessApi.open(new MemoryStorage(), { models, registry: createRegistry() }, context);
-  const root = await harness.root(context, { agent: { model: { provider: "faux", modelId: "faux-1" }, thinkingLevel: "low" } });
+  const root = await harness.root(context, {
+    agent: { model: { provider: "faux", modelId: "faux-1" }, thinkingLevel: "low" },
+  });
   await root.configure({ cwd: "/workspace/repo" }, context);
   harness.resume();
   return { harness, root };
@@ -31,12 +44,22 @@ const open = async () => {
 const turn = async (conversation: Conversation, text: string): Promise<TurnState> => {
   const submission = await conversation.submit({ type: "input", content: text }, context);
   const status = (await submission.wait(context)) as { readonly entry?: number };
-  return { submissionId: String(submission.id), runId: text, attemptId: text, status: "answered", startedAt: 0, inputEntry: String(status.entry) };
+  return {
+    submissionId: String(submission.id),
+    runId: text,
+    attemptId: text,
+    status: "answered",
+    startedAt: 0,
+    inputEntry: String(status.entry),
+  };
 };
 
 const lastAnswer = async (conversation: Conversation): Promise<string> => {
   const { messages } = await conversation.context(context);
-  const last = messages.at(-1) as { readonly role: string; readonly content: ReadonlyArray<{ readonly text?: string }> };
+  const last = messages.at(-1) as {
+    readonly role: string;
+    readonly content: ReadonlyArray<{ readonly text?: string }>;
+  };
   expect(last.role).toBe("assistant");
   return last.content.map((block) => block.text ?? "").join("");
 };
@@ -81,7 +104,11 @@ describe("rollback (SPI-987)", () => {
     expect(await lastAnswer(next)).toBe("saw alpha,delta");
     // The agent is the one the turns had: model, thinking level and cwd.
     const agent = await next.agent(context);
-    expect([agent.model, agent.thinkingLevel, agent.cwd]).toEqual([{ provider: "faux", modelId: "faux-1" }, "low", "/workspace/repo"]);
+    expect([agent.model, agent.thinkingLevel, agent.cwd]).toEqual([
+      { provider: "faux", modelId: "faux-1" },
+      "low",
+      "/workspace/repo",
+    ]);
     // The old conversation is history, unchanged.
     expect(userTexts((await root.context(context)).messages)).toEqual(["alpha", "bravo", "charlie"]);
   });
@@ -160,7 +187,11 @@ describe("fork (SPI-997)", () => {
   it("batches seeded messages into entries", async () => {
     const target = await open();
     const conversation = await freshConversation(target.harness, target.root, context);
-    const messages = Array.from({ length: 5 }, (_, index) => ({ role: "user", content: `m${index}`, timestamp: index }));
+    const messages = Array.from({ length: 5 }, (_, index) => ({
+      role: "user",
+      content: `m${index}`,
+      timestamp: index,
+    }));
     await seed(conversation, messages, { source: "s", at: "1" }, context);
     const entries = await conversation.entries({ order: "ascending" }, 10, undefined, context);
     expect(entries.items).toHaveLength(1);

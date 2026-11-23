@@ -27,7 +27,12 @@ type OtlpFields = Pick<
 export const otlpConfigFromSettings = (raw: string | undefined): OtlpFields => {
   const saved = parsePersistedServerObservabilitySettings(raw ?? "");
   const resolve = (signal: "traces" | "metrics" | "logs", settingsUrl: string | undefined) =>
-    OtelEnvironment.resolveSignalEndpoint(OtelEnvironment.none, signal, { url: undefined, export: DEFAULT_SIGNAL_EXPORT }, { bootstrapUrl: undefined, settingsUrl });
+    OtelEnvironment.resolveSignalEndpoint(
+      OtelEnvironment.none,
+      signal,
+      { url: undefined, export: DEFAULT_SIGNAL_EXPORT },
+      { bootstrapUrl: undefined, settingsUrl },
+    );
   const traces = resolve("traces", saved.otlpTracesUrl);
   const metrics = resolve("metrics", saved.otlpMetricsUrl);
   const logs = resolve("logs", saved.otlpLogsUrl);

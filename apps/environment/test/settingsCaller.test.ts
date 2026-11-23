@@ -6,7 +6,14 @@ import { describe, expect, it } from "vitest";
 
 import { harnessStore } from "../src/harness/store.ts";
 import { McpHost } from "../src/mcp/host.ts";
-import { DURABLE_AGENT, durableModeRecord, durableModes, forgetDurableModes, noteDurableModes, threadLinkIn } from "../src/provider/threadCaller.ts";
+import {
+  DURABLE_AGENT,
+  durableModeRecord,
+  durableModes,
+  forgetDurableModes,
+  noteDurableModes,
+  threadLinkIn,
+} from "../src/provider/threadCaller.ts";
 import { settingsChanges } from "../src/settings/changes.ts";
 import type { OwnCaller } from "../src/settings/caller.ts";
 import { LINKED_REFUSAL, NO_MODES_REFUSAL, settingsCall, UNKNOWN_REFUSAL } from "../src/settings/server.ts";
@@ -16,8 +23,16 @@ const projection = () => {
   const sql = nodeSqlStorage();
   sql.exec("CREATE TABLE orchestration_v2_projection_threads (thread_id TEXT, payload_json TEXT, deleted_at TEXT)");
   const thread = (id: string, payload: Record<string, unknown> | string) =>
-    sql.exec("INSERT INTO orchestration_v2_projection_threads VALUES (?, ?, NULL)", id, typeof payload === "string" ? payload : JSON.stringify(payload));
-  const lineage = (parent: string | null) => ({ parentThreadId: parent, relationshipToParent: parent === null ? null : "subagent", rootThreadId: parent ?? "x" });
+    sql.exec(
+      "INSERT INTO orchestration_v2_projection_threads VALUES (?, ?, NULL)",
+      id,
+      typeof payload === "string" ? payload : JSON.stringify(payload),
+    );
+  const lineage = (parent: string | null) => ({
+    parentThreadId: parent,
+    relationshipToParent: parent === null ? null : "subagent",
+    rootThreadId: parent ?? "x",
+  });
   thread("own", { lineage: lineage(null) });
   thread("linked", { lineage: lineage(null), linkOrigin: { sessionId: "s", label: "laptop", access: "full-access" } });
   thread("malformed-origin", { lineage: lineage(null), linkOrigin: "not an origin" });
@@ -106,7 +121,11 @@ describe("the adapter's part of the record (durableModeRecord, as makePiDurableA
 describe("a Settings server write from a caller the Environment cannot vouch for", () => {
   const setup = () => {
     const map = new Map<string, unknown>();
-    const kv = { get: <T>(key: string) => map.get(key) as T | undefined, put: <T>(key: string, value: T) => void map.set(key, structuredClone(value)), delete: (key: string) => map.delete(key) };
+    const kv = {
+      get: <T>(key: string) => map.get(key) as T | undefined,
+      put: <T>(key: string, value: T) => void map.set(key, structuredClone(value)),
+      delete: (key: string) => map.delete(key),
+    };
     const store = harnessStore(kv);
     const sql = projection();
     const host: McpHost = new McpHost({
@@ -126,18 +145,29 @@ describe("a Settings server write from a caller the Environment cannot vouch for
         ),
     });
     const owner = {};
-    for (const thread of ["own", "linked", "child-of-linked", "missing"]) noteDurableModes(thread, { runtimeMode: "full-access", interactionMode: "default" }, owner);
+    for (const thread of ["own", "linked", "child-of-linked", "missing"])
+      noteDurableModes(thread, { runtimeMode: "full-access", interactionMode: "default" }, owner);
     const caller = (thread: string): OwnCaller => ({ door: "own", thread, agent: DURABLE_AGENT });
-    const call = (thread: string, tool: string, args: Record<string, unknown>) => host.call({ server: "settings", tool, args, caller: caller(thread) });
-    return { store, call, done: () => ["own", "linked", "child-of-linked", "missing"].forEach((thread) => forgetDurableModes(thread, owner)) };
+    const call = (thread: string, tool: string, args: Record<string, unknown>) =>
+      host.call({ server: "settings", tool, args, caller: caller(thread) });
+    return {
+      store,
+      call,
+      done: () =>
+        ["own", "linked", "child-of-linked", "missing"].forEach((thread) => forgetDurableModes(thread, owner)),
+    };
   };
   const write = { expectedRevision: 0, settings: { containerIdleMinutes: 1 } };
-  const text = (answer: Awaited<ReturnType<ReturnType<typeof setup>["call"]>>) => (answer.kind === "result" ? answer.text : answer.message);
+  const text = (answer: Awaited<ReturnType<ReturnType<typeof setup>["call"]>>) =>
+    answer.kind === "result" ? answer.text : answer.message;
 
   it("linked work and its children: reads run, writes are refused", async () => {
     const run = setup();
     for (const thread of ["linked", "child-of-linked"]) {
-      expect(await run.call(thread, "get_settings", { entity: "environment" })).toMatchObject({ kind: "result", isError: false });
+      expect(await run.call(thread, "get_settings", { entity: "environment" })).toMatchObject({
+        kind: "result",
+        isError: false,
+      });
       expect(text(await run.call(thread, "change_environment", write))).toBe(LINKED_REFUSAL);
     }
     expect(run.store.loadEnvironment().revision).toBe(0);

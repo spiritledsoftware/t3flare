@@ -118,10 +118,17 @@ export interface ChangeRecord {
   readonly expiresAt?: number;
   readonly state: ChangeState;
   /** `cut`: a `native` stream the client ended unanswered withdrew it (plan D12). */
-  readonly closed?: { readonly at: number; readonly by?: ClosedBy; readonly revision?: number; readonly error?: string; readonly cut?: true };
+  readonly closed?: {
+    readonly at: number;
+    readonly by?: ClosedBy;
+    readonly revision?: number;
+    readonly error?: string;
+    readonly cut?: true;
+  };
 }
 
-export const isOpen = (record: Pick<ChangeRecord, "state">): boolean => record.state === "open" || record.state === "applying";
+export const isOpen = (record: Pick<ChangeRecord, "state">): boolean =>
+  record.state === "open" || record.state === "applying";
 
 /**
  * The key a caller's caps, open changes and reads are counted under (plan D16): its door and its own key, so a thread id
@@ -207,7 +214,11 @@ export const closedLine = (record: ChangeRecord): Record<string, unknown> => ({
  * The table over `sql`. `log` gets the line of each change the table itself closes (an expiry, or an apply the
  * Environment's restart cut off), since no answerer is there to write it.
  */
-export const settingsChanges = (sql: Pick<SqlStorage, "exec">, now: () => number = Date.now, log?: (event: Record<string, unknown>) => void): SettingsChanges => {
+export const settingsChanges = (
+  sql: Pick<SqlStorage, "exec">,
+  now: () => number = Date.now,
+  log?: (event: Record<string, unknown>) => void,
+): SettingsChanges => {
   let ready = false;
   const write = (record: ChangeRecord) =>
     sql.exec(
@@ -236,7 +247,9 @@ export const settingsChanges = (sql: Pick<SqlStorage, "exec">, now: () => number
       );
       sql.exec(`CREATE INDEX IF NOT EXISTS ${CHANGES_TABLE}_caller ON ${CHANGES_TABLE} (caller_key, state, closed_at)`);
       sql.exec(`CREATE INDEX IF NOT EXISTS ${CHANGES_TABLE}_hash ON ${CHANGES_TABLE} (hash)`);
-      sql.exec(`CREATE TABLE IF NOT EXISTS ${READS_TABLE} (caller_key TEXT NOT NULL, kind TEXT NOT NULL, at INTEGER NOT NULL)`);
+      sql.exec(
+        `CREATE TABLE IF NOT EXISTS ${READS_TABLE} (caller_key TEXT NOT NULL, kind TEXT NOT NULL, at INTEGER NOT NULL)`,
+      );
       sql.exec(`CREATE INDEX IF NOT EXISTS ${READS_TABLE}_caller ON ${READS_TABLE} (caller_key, at)`);
       ready = true;
     }
@@ -248,7 +261,14 @@ export const settingsChanges = (sql: Pick<SqlStorage, "exec">, now: () => number
         record.state === "open" && expiresAt <= at
           ? { ...record, state: "expired", closed: { at: expiresAt } }
           : record.state === "applying" && expiresAt + APPLYING_GRACE_MS <= at
-            ? { ...record, state: "failed", closed: { at, error: "the Environment restarted while the change applied; read the settings to see whether it did" } }
+            ? {
+                ...record,
+                state: "failed",
+                closed: {
+                  at,
+                  error: "the Environment restarted while the change applied; read the settings to see whether it did",
+                },
+              }
             : undefined;
       if (closed === undefined) continue;
       write(closed);
@@ -260,7 +280,13 @@ export const settingsChanges = (sql: Pick<SqlStorage, "exec">, now: () => number
   return {
     appliedSince: (key, since) => {
       prepare();
-      const row = sql.exec<{ count: number }>(`SELECT COUNT(*) AS count FROM ${CHANGES_TABLE} WHERE caller_key = ? AND state = 'applied' AND closed_at >= ?`, key, since).toArray()[0];
+      const row = sql
+        .exec<{ count: number }>(
+          `SELECT COUNT(*) AS count FROM ${CHANGES_TABLE} WHERE caller_key = ? AND state = 'applied' AND closed_at >= ?`,
+          key,
+          since,
+        )
+        .toArray()[0];
       return Number(row?.count ?? 0);
     },
     openedSince: (key, since) => {
@@ -290,7 +316,11 @@ export const settingsChanges = (sql: Pick<SqlStorage, "exec">, now: () => number
     },
     closedBy: (key, since) => {
       prepare();
-      return rows(`caller_key = ? AND closed_at IS NOT NULL AND closed_at >= ? ORDER BY closed_at DESC, created_at DESC`, key, since).filter((record) => record.tier === "asked");
+      return rows(
+        `caller_key = ? AND closed_at IS NOT NULL AND closed_at >= ? ORDER BY closed_at DESC, created_at DESC`,
+        key,
+        since,
+      ).filter((record) => record.tier === "asked");
     },
     noteRead: (key, kind, at) => {
       prepare();
@@ -299,7 +329,11 @@ export const settingsChanges = (sql: Pick<SqlStorage, "exec">, now: () => number
     readsSince: (key, kind, since) => {
       prepare();
       const row = sql
-        .exec<{ count: number }>(`SELECT COUNT(*) AS count FROM ${READS_TABLE} WHERE caller_key = ? AND at >= ?${kind === "network" ? " AND kind = 'network'" : ""}`, key, since)
+        .exec<{ count: number }>(
+          `SELECT COUNT(*) AS count FROM ${READS_TABLE} WHERE caller_key = ? AND at >= ?${kind === "network" ? " AND kind = 'network'" : ""}`,
+          key,
+          since,
+        )
         .toArray()[0];
       return Number(row?.count ?? 0);
     },

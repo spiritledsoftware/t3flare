@@ -29,14 +29,28 @@ const endpoint: ModelEndpoint = {
   baseUrl: "https://gw.example",
   auth: "api-key",
   headers: {},
-  models: [model("claude-haiku-5-5", { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 }), model("house-model", { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })],
+  models: [
+    model("claude-haiku-5-5", { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 }),
+    model("house-model", { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }),
+  ],
 };
 
 /** Anthropic's stream for one short answer with the usage given. */
 const answer = (modelId: string, usage: Record<string, number>) =>
   new Response(
     [
-      { type: "message_start", message: { id: "msg_1", type: "message", role: "assistant", model: modelId, content: [], stop_reason: null, usage: { ...usage, output_tokens: 1 } } },
+      {
+        type: "message_start",
+        message: {
+          id: "msg_1",
+          type: "message",
+          role: "assistant",
+          model: modelId,
+          content: [],
+          stop_reason: null,
+          usage: { ...usage, output_tokens: 1 },
+        },
+      },
       { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
       { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "ok" } },
       { type: "content_block_stop", index: 0 },
@@ -58,7 +72,10 @@ const sessionWith = (fetcher: typeof fetch) => {
     fetch: fetcher,
     readMs: 50,
     now: () => 5_000,
-    source: () => ({ modelEndpoints: async () => ({ revision: 1, endpoints: [endpoint] }), endpointCredential: async () => ({ apiKey: "sk-gw" }) }),
+    source: () => ({
+      modelEndpoints: async () => ({ revision: 1, endpoints: [endpoint] }),
+      endpointCredential: async () => ({ apiKey: "sk-gw" }),
+    }),
     usage: { session: () => "session-1", record: (entry) => void recorded.push(entry) },
     limits: () => undefined,
   });
@@ -69,10 +86,18 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("a Session's usage records", () => {
   it("records each answer on an endpoint with pi-ai's usage, and its cost when the model has a price", async () => {
-    const usage = { input_tokens: 1_000, cache_read_input_tokens: 10_000, cache_creation_input_tokens: 2_000, output_tokens: 400 };
-    const { recorded, models, endpoints } = sessionWith((async () => answer("claude-haiku-5-5", usage)) as unknown as typeof fetch);
+    const usage = {
+      input_tokens: 1_000,
+      cache_read_input_tokens: 10_000,
+      cache_creation_input_tokens: 2_000,
+      output_tokens: 400,
+    };
+    const { recorded, models, endpoints } = sessionWith((async () =>
+      answer("claude-haiku-5-5", usage)) as unknown as typeof fetch);
     await endpoints.take();
-    const message = await models.completeSimple(models.getModel("gw", "claude-haiku-5-5")!, { messages: [{ role: "user", content: "hi", timestamp: 0 }] });
+    const message = await models.completeSimple(models.getModel("gw", "claude-haiku-5-5")!, {
+      messages: [{ role: "user", content: "hi", timestamp: 0 }],
+    });
     await settle();
     expect(recorded).toEqual([
       {
@@ -95,7 +120,9 @@ describe("a Session's usage records", () => {
   it("leaves the cost to the Environment for a model with no price, and records nothing for a refused request", async () => {
     let refuse = false;
     const { recorded, models, endpoints } = sessionWith((async () =>
-      refuse ? Response.json({ type: "error", error: { type: "authentication_error", message: "no" } }, { status: 401 }) : answer("house-model", { input_tokens: 30, output_tokens: 7 })) as unknown as typeof fetch);
+      refuse
+        ? Response.json({ type: "error", error: { type: "authentication_error", message: "no" } }, { status: 401 })
+        : answer("house-model", { input_tokens: 30, output_tokens: 7 })) as unknown as typeof fetch);
     await endpoints.take();
     const house = models.getModel("gw", "house-model")!;
     await models.completeSimple(house, { messages: [{ role: "user", content: "hi", timestamp: 0 }] });
@@ -113,22 +140,39 @@ describe("a Session's usage records", () => {
       {
         endpoints: async () => ({ revision: 1, endpoints: [endpoint] }),
         credential: async () => ({ apiKey: "sk-gw" }),
-        fetch: (async () => answer("claude-haiku-5-5", { input_tokens: 50, output_tokens: 6 })) as unknown as typeof fetch,
+        fetch: (async () =>
+          answer("claude-haiku-5-5", { input_tokens: 50, output_tokens: 6 })) as unknown as typeof fetch,
         usage: (entry) => void recorded.push(entry),
       },
     );
     expect(result).toEqual({ ok: true, text: "ok" });
-    expect(recorded).toMatchObject([{ agent: "text-generation", endpointId: "gw", modelId: "claude-haiku-5-5", session: "", input: 50, output: 6 }]);
+    expect(recorded).toMatchObject([
+      { agent: "text-generation", endpointId: "gw", modelId: "claude-haiku-5-5", session: "", input: 50, output: 6 },
+    ]);
   });
 });
 
 describe("the usage sender every recorder uses (the Session, text generation, the relay's WorkspaceProxy)", () => {
-  const entry: UsageEntry = { agent: "codex", endpointId: "gw", modelId: "m", at: 1, session: "proc-1", input: 1, cacheRead: 0, cacheWrite: 0, output: 1, reasoning: 0, costUsd: null };
+  const entry: UsageEntry = {
+    agent: "codex",
+    endpointId: "gw",
+    modelId: "m",
+    at: 1,
+    session: "proc-1",
+    input: 1,
+    cacheRead: 0,
+    cacheWrite: 0,
+    output: 1,
+    reasoning: 0,
+    costUsd: null,
+  };
 
   it("sends the record to the Environment's recordUsage, kept alive by waitUntil", async () => {
     const sent: Array<unknown> = [];
     const kept: Array<Promise<unknown>> = [];
-    usageSender({ waitUntil: (promise) => void kept.push(promise) }, () => ({ recordUsage: async (input) => (sent.push(input), { kept: 1 }) }))(entry);
+    usageSender({ waitUntil: (promise) => void kept.push(promise) }, () => ({
+      recordUsage: async (input) => (sent.push(input), { kept: 1 }),
+    }))(entry);
     await Promise.all(kept);
     expect(sent).toEqual([{ entries: [entry] }]);
     expect(kept).toHaveLength(1);
@@ -138,10 +182,18 @@ describe("the usage sender every recorder uses (the Session, text generation, th
     const lines: Array<string> = [];
     const kept: Array<Promise<unknown>> = [];
     const ctx = { waitUntil: (promise: Promise<unknown>) => void kept.push(promise) };
-    usageSender(ctx, () => ({ recordUsage: () => Promise.reject(new TypeError("sk-secret in a message")) }), (line) => void lines.push(line))(entry);
-    usageSender(ctx, () => {
-      throw new Error("no binding");
-    }, (line) => void lines.push(line))(entry);
+    usageSender(
+      ctx,
+      () => ({ recordUsage: () => Promise.reject(new TypeError("sk-secret in a message")) }),
+      (line) => void lines.push(line),
+    )(entry);
+    usageSender(
+      ctx,
+      () => {
+        throw new Error("no binding");
+      },
+      (line) => void lines.push(line),
+    )(entry);
     await Promise.all(kept);
     expect(lines.map((line) => JSON.parse(line))).toEqual([
       { t3flare: "usage-record-failed", agent: "codex", endpoint: "gw", error: "TypeError" },

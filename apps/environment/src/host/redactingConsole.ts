@@ -43,7 +43,19 @@ const redactArgument = (value: unknown): unknown => {
   return value;
 };
 
-const PRINTING = new Set(["log", "info", "warn", "error", "debug", "trace", "dir", "dirxml", "table", "group", "groupCollapsed"]);
+const PRINTING = new Set([
+  "log",
+  "info",
+  "warn",
+  "error",
+  "debug",
+  "trace",
+  "dir",
+  "dirxml",
+  "table",
+  "group",
+  "groupCollapsed",
+]);
 
 /** A console whose printing methods drop pairing lines and redact credentials. */
 export const redactingConsole = (target: globalThis.Console = globalThis.console): Console.Console =>

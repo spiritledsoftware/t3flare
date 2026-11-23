@@ -46,21 +46,38 @@ export const leakTargets = async (
   /** Credentials looked for in the Container only, not in the DO's files (a sign-in's tokens, given as hashes), by name. */
   readonly containerOnly: ReadonlyArray<string>;
 }> => {
-  const values = credentials.filter((credential) => credential.value.length >= MIN_SEARCHED_VALUE_LENGTH).map((credential) => [credential.name, credential.value] as const);
-  const patterns = await Promise.all(credentials.filter((credential) => credential.value.length >= MIN_SCANNED_KEY_LENGTH).map((credential) => patternOf(credential.name, credential.value)));
+  const values = credentials
+    .filter((credential) => credential.value.length >= MIN_SEARCHED_VALUE_LENGTH)
+    .map((credential) => [credential.name, credential.value] as const);
+  const patterns = await Promise.all(
+    credentials
+      .filter((credential) => credential.value.length >= MIN_SCANNED_KEY_LENGTH)
+      .map((credential) => patternOf(credential.name, credential.value)),
+  );
   const skipped = credentials
     .filter((credential) => credential.value.length < MIN_SCANNED_KEY_LENGTH)
-    .map((credential) => ({ name: credential.name, where: credential.value.length < MIN_SEARCHED_VALUE_LENGTH ? ("everywhere" as const) : ("container" as const) }));
+    .map((credential) => ({
+      name: credential.name,
+      where: credential.value.length < MIN_SEARCHED_VALUE_LENGTH ? ("everywhere" as const) : ("container" as const),
+    }));
   // SPI-1171: a sign-in's tokens come as their patterns only (the Environment hashes them): never a value here, so they
   // are scanned for in the Container and not in the DO's files (`containerOnly` names them). What reaches the DO's files
   // passes the sync guard, which looks only for the newest access token the relay used per endpoint, kept in memory, never
   // a refresh token. One that is malformed or too short is named in `skipped`, not scanned.
   const scannable = (pattern: CredentialPattern) =>
-    pattern.length >= MIN_SCANNED_KEY_LENGTH && pattern.prefix.length <= 4 && pattern.prefix.length < pattern.length && /^[0-9a-f]{64}$/.test(pattern.sha256);
+    pattern.length >= MIN_SCANNED_KEY_LENGTH &&
+    pattern.prefix.length <= 4 &&
+    pattern.prefix.length < pattern.length &&
+    /^[0-9a-f]{64}$/.test(pattern.sha256);
   return {
     values,
     patterns: [...patterns, ...hashed.filter(scannable)],
-    skipped: [...skipped, ...hashed.filter((pattern) => !scannable(pattern)).map((pattern) => ({ name: pattern.name, where: "everywhere" as const }))],
+    skipped: [
+      ...skipped,
+      ...hashed
+        .filter((pattern) => !scannable(pattern))
+        .map((pattern) => ({ name: pattern.name, where: "everywhere" as const })),
+    ],
     containerOnly: hashed.filter(scannable).map((pattern) => pattern.name),
   };
 };

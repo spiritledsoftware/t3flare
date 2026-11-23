@@ -28,7 +28,10 @@ const SHAPES: ReadonlyArray<{ readonly pattern: RegExp; readonly keep?: true }> 
   // (A JSON key is quoted, so this never meets a JSON value: `"api_key": 12` is the first shape's or none.)
   { pattern: new RegExp(String.raw`(\b${KEY_NAMES}\s*[:=]\s*)${FRESH}[^\s"'\\,;&)}\]]+`, "gi"), keep: true },
   // A URL's credential parameter (`?key=…`, `#token=…`, `&credential=…`).
-  { pattern: new RegExp(String.raw`([?#&](?:key|token|credential|sig|signature)=)${FRESH}[^\s"'\\&#)]+`, "gi"), keep: true },
+  {
+    pattern: new RegExp(String.raw`([?#&](?:key|token|credential|sig|signature)=)${FRESH}[^\s"'\\&#)]+`, "gi"),
+    keep: true,
+  },
   // A bearer or basic credential of any shape: one with a character a word has not (a digit, `.`, `-`, `=`, …), or 16
   // letters or more, so prose ("Bearer authentication failed") is left alone.
   { pattern: /((?:Bearer|Basic)\s+)(?:(?=[A-Za-z]*[0-9._~+/=-])[A-Za-z0-9._~+/=-]{8,}|[A-Za-z]{16,})/gi, keep: true },
@@ -51,6 +54,7 @@ const SHAPES: ReadonlyArray<{ readonly pattern: RegExp; readonly keep?: true }> 
 export const redactSecrets = (text: string, known: ReadonlyArray<string> = []): string => {
   let out = text;
   for (const value of known) if (value.length >= MIN_KNOWN) out = out.split(value).join(REDACTED);
-  for (const { pattern, keep } of SHAPES) out = out.replace(pattern, (...match) => (keep === true ? `${String(match[1])}${REDACTED}` : REDACTED));
+  for (const { pattern, keep } of SHAPES)
+    out = out.replace(pattern, (...match) => (keep === true ? `${String(match[1])}${REDACTED}` : REDACTED));
   return out;
 };

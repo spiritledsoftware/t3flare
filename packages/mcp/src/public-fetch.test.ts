@@ -43,9 +43,7 @@ describe("a public read's URL", () => {
 
 describe("fetchPublic", () => {
   it("sends a GET with no redirect followed and only the content-negotiation headers", async () => {
-    const { fetch, sent } = answering(() =>
-      Response.json({ resource: "https://t3flare.example.com/mcp" }),
-    );
+    const { fetch, sent } = answering(() => Response.json({ resource: "https://t3flare.example.com/mcp" }));
 
     const answer = await fetchPublic(
       {
@@ -74,15 +72,12 @@ describe("fetchPublic", () => {
       code: 200,
       body: JSON.stringify({ resource: "https://t3flare.example.com/mcp" }),
     });
-    expect(answer.status === "fetched" && answer.headers["content-type"]).toContain(
-      "application/json",
-    );
+    expect(answer.status === "fetched" && answer.headers["content-type"]).toContain("application/json");
   });
 
   it("answers a redirect as it is, with its location, for the caller to check and follow", async () => {
     const { fetch } = answering(
-      () =>
-        new Response(null, { status: 302, headers: { location: "https://elsewhere.example/" } }),
+      () => new Response(null, { status: 302, headers: { location: "https://elsewhere.example/" } }),
     );
 
     const answer = await fetchPublic({ url: URL_OF }, fetch);

@@ -8,7 +8,13 @@
 // for the session), linked threads included (owner, 2026-11-12, back to stock). A write is memoed before it is sent: a restart
 // after that answers "cut off", never sends it twice (ADR-0022's rule; Commissary keeps no idempotency key).
 import type { Context } from "@earendil-works/chord";
-import { defineExtension, type Extension, section, type ToolExecutionApi, type ToolRegistration } from "@earendil-works/pi-durable";
+import {
+  defineExtension,
+  type Extension,
+  section,
+  type ToolExecutionApi,
+  type ToolRegistration,
+} from "@earendil-works/pi-durable";
 import type { CodemodeNamespace } from "@earendil-works/pi-durable/codemode";
 import { decideCall, type ToolClass } from "@t3flare/harness-registry/mcp";
 import type { InteractionMode, McpAsker, RuntimeMode } from "@t3flare/session-protocol";
@@ -64,9 +70,17 @@ export interface McpHostOfSession {
   readonly asker?: (callId: string, signal: AbortSignal | undefined) => McpAsker;
 }
 
-const result = (text: string, isError: boolean, details: Record<string, string>) => ({ output: [{ type: "text" as const, text }], isError, details });
+const result = (text: string, isError: boolean, details: Record<string, string>) => ({
+  output: [{ type: "text" as const, text }],
+  isError,
+  details,
+});
 
-const toolOf = (server: McpView["servers"][number], tool: McpView["servers"][number]["tools"][number], host: McpHostOfSession): ToolRegistration => {
+const toolOf = (
+  server: McpView["servers"][number],
+  tool: McpView["servers"][number]["tools"][number],
+  host: McpHostOfSession,
+): ToolRegistration => {
   const details = { server: server.name, tool: tool.upstream, class: tool.class };
   return {
     name: tool.name,
@@ -112,7 +126,14 @@ const toolOf = (server: McpView["servers"][number], tool: McpView["servers"][num
       if (stoppable) context.abortSignal?.addEventListener("abort", onStop, { once: true });
       let answer: McpCallAnswer;
       try {
-        answer = await host.call({ server: server.name, tool: tool.upstream, args, judged: tool.class, ...(asker === undefined ? {} : { asker }), ...(stoppable ? { callId: api.callId } : {}) });
+        answer = await host.call({
+          server: server.name,
+          tool: tool.upstream,
+          args,
+          judged: tool.class,
+          ...(asker === undefined ? {} : { asker }),
+          ...(stoppable ? { callId: api.callId } : {}),
+        });
       } finally {
         if (stoppable) context.abortSignal?.removeEventListener("abort", onStop);
       }
@@ -134,14 +155,20 @@ export const mcpNamespaces = (view: McpView): ReadonlyArray<CodemodeNamespace> =
 export const mcpExtension = (view: McpView, host: McpHostOfSession): Extension =>
   defineExtension({
     name: "mcp",
-    tools: view.servers.flatMap((server) => server.tools.filter((tool) => tool.exposure !== "hidden").map((tool) => toolOf(server, tool, host))),
+    tools: view.servers.flatMap((server) =>
+      server.tools.filter((tool) => tool.exposure !== "hidden").map((tool) => toolOf(server, tool, host)),
+    ),
     sections: [
       section("tool_sources", () => {
         if (view.servers.length === 0) return undefined;
         const lines = view.servers.map(
           (server) =>
             `- ${server.name}: ${server.tools.length} tools (mcp__${server.name}__*), ${
-              server.state === "available" ? "available" : server.state === "stale" ? `stale since its last list failed` : "unavailable: never listed"
+              server.state === "available"
+                ? "available"
+                : server.state === "stale"
+                  ? `stale since its last list failed`
+                  : "unavailable: never listed"
             }`,
         );
         return `MCP tool sources. Deferred tools are found with tool_search or, in code mode, searchTools()/describeNamespace(). Read tools run; write tools may ask the owner.\n${lines.join("\n")}`;

@@ -38,6 +38,7 @@ Shadows 2 (unchanged; `builtInDrivers` now also lists usage readers in `BUILT_IN
 ## Counts after G11 (previews)
 
 Shadows 4, Patches 5.
+
 - Shadow `apps/server/src/preview/ServerBrowserContexts.ts`: a class `ServerBrowser.make` builds with `new`, whose whole job is getting Playwright browsers, which is exactly the seam.
 - Shadow `apps/server/src/htmlRender/publicProxy.ts`: workerd has no `node:net` server, and Browser Run's egress stands in for its guard. It replaces the plan's Shadow of `headlessChrome.ts` (638 lines), which stays stock behind a CDP bridge in our process router (a Layer).
 - Patch `0005-server-browser-context-thread.patch`: one argument at the one `contextFor` call, the tab's thread. A Shadow of the 3,011-line `ServerBrowser.ts` would be far worse.
@@ -47,11 +48,13 @@ Port discovery, `PreviewBrowser` and agent browser access are Layers, or the rem
 ## Counts after SPI-1162 (Model endpoints)
 
 Shadows 4 (unchanged), Patches 6.
+
 - Patch `0006-endpoint-models-are-not-retained.patch`: one line at the top of `ProviderRegistry.ts`'s `shouldRetainMissingProviderModels`, so `piDurable` and the CLI drivers (`codex`, `claudeAgent`, `opencode`, `pi`, since SPI-1176) retain no model they stopped listing: a removed Model endpoint's models leave the picker, and a provider in the setup state lists none. No Layer reaches the registry's merge, and a Shadow would copy the 1,194-line file. Evidence: `docs-archive-1:docs/steps/spi-1162.md`.
 
 ## Counts after the Settings server (SPI-1195)
 
 Shadows 4 (unchanged), Patches 7.
+
 - Patch `0007-pi-relay-tools-are-judged-by-the-relay.patch` (SPI-1076): t3's pi extension does not ask "Allow …?" for a `builtin:mcp` tool (`getAllTools()` source) whose server is one the relay serves this process (`T3FLARE_RELAY_SERVERS`), matched as pi names its tools; t3flare's MCP relay judges and asks for it; see U71 in `docs/upstream-fragility.md`. A Layer cannot reach it: `mcpExtensionSource.ts` is the text of a program pi runs in the Container (`FS_ALIAS_SKIP`), and the CLI profile requires the extension's content to be t3's own. A Shadow would freeze the whole extension for one early return.
 
 ## Counts after in-app updates (ADR-0037)

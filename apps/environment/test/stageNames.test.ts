@@ -9,7 +9,8 @@ import { stageScript } from "../scripts/lib/stageScript.ts";
 
 describe("stageNameProblem", () => {
   it("accepts lowercase names of letters, digits and inner dashes", () => {
-    for (const stage of ["a", "7", "p1338", "snapspike1", "spi-1338", "a-b-c", "1-2"]) expect(stageNameProblem(stage)).toBeUndefined();
+    for (const stage of ["a", "7", "p1338", "snapspike1", "spi-1338", "a-b-c", "1-2"])
+      expect(stageNameProblem(stage)).toBeUndefined();
   });
 
   it("accepts prod and bump, whose own guards stay in stage.ts", () => {
@@ -18,7 +19,8 @@ describe("stageNameProblem", () => {
   });
 
   it("refuses an empty name, capitals, underscores, dots, spaces and an outer dash", () => {
-    for (const stage of ["", "P1338", "p_1338", "p.1338", "p 1338", "-p1338", "p1338-", "-"]) expect(stageNameProblem(stage)).toBeDefined();
+    for (const stage of ["", "P1338", "p_1338", "p.1338", "p 1338", "-p1338", "p1338-", "-"])
+      expect(stageNameProblem(stage)).toBeDefined();
   });
 
   it("bounds the name by Cloudflare's 54-character limit on the Environment Worker, whose previews are on", () => {

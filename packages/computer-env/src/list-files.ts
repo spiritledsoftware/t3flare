@@ -59,14 +59,10 @@ const exists = async (fs: WorkspaceFilesystem, path: string): Promise<boolean> =
   }
 };
 
-const child = (directory: string, name: string) =>
-  directory === "/" ? `/${name}` : `${directory}/${name}`;
+const child = (directory: string, name: string) => (directory === "/" ? `/${name}` : `${directory}/${name}`);
 
 /** The innermost directory at or above `directory` that holds `.git`: the root of its git work tree. */
-const workTreeRoot = async (
-  fs: WorkspaceFilesystem,
-  directory: string,
-): Promise<string | undefined> => {
+const workTreeRoot = async (fs: WorkspaceFilesystem, directory: string): Promise<string | undefined> => {
   for (const candidate of [directory, ...ancestors(directory)]) {
     if (await exists(fs, child(candidate, ".git"))) return candidate;
   }
@@ -74,11 +70,7 @@ const workTreeRoot = async (
   return undefined;
 };
 
-const layer = async (
-  fs: WorkspaceFilesystem,
-  base: string,
-  file: string,
-): Promise<IgnoreLayer | undefined> => {
+const layer = async (fs: WorkspaceFilesystem, base: string, file: string): Promise<IgnoreLayer | undefined> => {
   const text = await readText(fs, file);
 
   return text === undefined ? undefined : { base, rules: ignore().add(text) };
@@ -143,11 +135,7 @@ export const listFiles = async (
   let truncated = false;
 
   /** List `directory`'s entries and walk the directories among them; true once a bound stopped the listing. */
-  const walk = async (
-    directory: string,
-    inherited: readonly IgnoreLayer[],
-    inWorkTree: boolean,
-  ): Promise<boolean> => {
+  const walk = async (directory: string, inherited: readonly IgnoreLayer[], inWorkTree: boolean): Promise<boolean> => {
     const children = await fs.find(directory, undefined, { exclude: CHILDREN_ONLY });
     let layers = inherited;
     let tracked = inWorkTree;

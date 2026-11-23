@@ -6,13 +6,7 @@
  */
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vitest";
-import {
-  HostFailed,
-  McpApplySet,
-  McpApplySignIns,
-  McpSetSource,
-  readMcpApplyResult,
-} from "./types.ts";
+import { HostFailed, McpApplySet, McpApplySignIns, McpSetSource, readMcpApplyResult } from "./types.ts";
 
 /** An `apply` answer as the edge carries it: JSON text. */
 const read = (text: string) => readMcpApplyResult(JSON.parse(text));

@@ -46,9 +46,20 @@ describe("t3 tracks", () => {
   });
 
   it("finds the newest tag on a track by semver: a nightly by version, then date, then run", () => {
-    const tags = ["v0.1.11-nightly.20261117.4851", "v0.1.11-nightly.20261117.999", "v0.1.10-nightly.20261118.1", "v0.1.9", "v0.1.11", "v0.1.10", "v0.1.10-preview.20261112.4593", "nightly"];
+    const tags = [
+      "v0.1.11-nightly.20261117.4851",
+      "v0.1.11-nightly.20261117.999",
+      "v0.1.10-nightly.20261118.1",
+      "v0.1.9",
+      "v0.1.11",
+      "v0.1.10",
+      "v0.1.10-preview.20261112.4593",
+      "nightly",
+    ];
     expect(newestOnTrack(tags, "nightly")).toBe("v0.1.11-nightly.20261117.4851");
-    expect(newestOnTrack(["v0.1.11-nightly.20261117.4851", "v0.1.11-nightly.20261118.1"], "nightly")).toBe("v0.1.11-nightly.20261118.1");
+    expect(newestOnTrack(["v0.1.11-nightly.20261117.4851", "v0.1.11-nightly.20261118.1"], "nightly")).toBe(
+      "v0.1.11-nightly.20261118.1",
+    );
     expect(newestOnTrack(tags, "stable")).toBe("v0.1.11");
     expect(newestOnTrack(["v0.2.0"], "nightly")).toBeUndefined();
     expect(newestOnTrack(["v0.1.11-nightly.20261117.4851"], "stable")).toBeUndefined();
@@ -84,7 +95,10 @@ describe("bump branches", () => {
     expect(pinOfBranch("main")).toBeUndefined();
     expect(pinOf({ kind: "cli", cli: "opencode", version: "1.0.0" })).toMatch(/not an updatable CLI/);
     expect(pinOf({ kind: "cli", cli: "codex", version: "1.0.0; rm" })).toMatch(/not an exact version/);
-    expect(pinOf({ kind: "t3", tag: "v0.1.11-nightly.20261117.4851" })).toEqual({ kind: "t3", tag: "v0.1.11-nightly.20261117.4851" });
+    expect(pinOf({ kind: "t3", tag: "v0.1.11-nightly.20261117.4851" })).toEqual({
+      kind: "t3",
+      tag: "v0.1.11-nightly.20261117.4851",
+    });
     expect(pinOf({ kind: "t3", tag: "v0.1.12" })).toEqual({ kind: "t3", tag: "v0.1.12" });
     expect(pinOf({ kind: "t3", tag: "v0.1.10-preview.20261112.4593" })).toMatch(/not a t3 release tag/);
     expect(branchOf({ kind: "t3", tag: "v0.1.12" })).toBe("bump/v0.1.12");
@@ -103,21 +117,40 @@ describe("bump branches", () => {
       "bump/cli-pi-0.0.1-beta",
       "feature/x",
     ];
-    expect(landedBranches({ kind: "t3", tag: "v0.1.11-nightly.20261117.4851" }, branches)).toEqual(["bump/v0.1.11-nightly.20261117.4825", "bump/v0.1.11-nightly.20261117.4851"]);
+    expect(landedBranches({ kind: "t3", tag: "v0.1.11-nightly.20261117.4851" }, branches)).toEqual([
+      "bump/v0.1.11-nightly.20261117.4825",
+      "bump/v0.1.11-nightly.20261117.4851",
+    ]);
     // A stable lands above its own nightlies.
-    expect(landedBranches({ kind: "t3", tag: "v0.1.11" }, [...branches, "bump/v0.1.11", "bump/v0.1.12-nightly.20261120.4994"])).toEqual([
+    expect(
+      landedBranches({ kind: "t3", tag: "v0.1.11" }, [
+        ...branches,
+        "bump/v0.1.11",
+        "bump/v0.1.12-nightly.20261120.4994",
+      ]),
+    ).toEqual([
       "bump/v0.1.11-nightly.20261117.4825",
       "bump/v0.1.11-nightly.20261117.4851",
       "bump/v0.1.11-nightly.20261118.1",
       "bump/v0.1.11",
     ]);
-    expect(landedBranches({ kind: "cli", cli: "codex", version: "0.169.0" }, branches)).toEqual(["bump/cli-codex-0.167.2", "bump/cli-codex-0.169.0"]);
+    expect(landedBranches({ kind: "cli", cli: "codex", version: "0.169.0" }, branches)).toEqual([
+      "bump/cli-codex-0.167.2",
+      "bump/cli-codex-0.169.0",
+    ]);
   });
 });
 
 describe("the proven status (A1, B1)", () => {
   const url = "https://github.com/ian-pascoe/t3flare/actions/runs/42";
-  const status = (patch: Record<string, unknown>) => ({ context: "t3flare/proven", state: "success", description: "gate=full", target_url: url, creator: { login: "github-actions[bot]" }, ...patch });
+  const status = (patch: Record<string, unknown>) => ({
+    context: "t3flare/proven",
+    state: "success",
+    description: "gate=full",
+    target_url: url,
+    creator: { login: "github-actions[bot]" },
+    ...patch,
+  });
 
   it("reads the newest t3flare/proven success set by GitHub Actions, with the run it names", () => {
     expect(provenStatus([status({})])).toEqual({ gate: "full", runId: 42, repository: "ian-pascoe/t3flare" });
@@ -134,7 +167,14 @@ describe("the proven status (A1, B1)", () => {
   });
 
   it("counts only a run of a proving workflow, on main, from a schedule or a dispatch, in this repository", () => {
-    const run = (patch: Record<string, unknown>) => ({ path: ".github/workflows/bump.yml", head_branch: "main", event: "workflow_dispatch", repository: { full_name: "o/r" }, head_repository: { full_name: "o/r" }, ...patch });
+    const run = (patch: Record<string, unknown>) => ({
+      path: ".github/workflows/bump.yml",
+      head_branch: "main",
+      event: "workflow_dispatch",
+      repository: { full_name: "o/r" },
+      head_repository: { full_name: "o/r" },
+      ...patch,
+    });
     expect(proofRunRefusal(run({}), "o/r")).toBeUndefined();
     expect(proofRunRefusal(run({ path: ".github/workflows/cli-bump.yml", event: "schedule" }), "o/r")).toBeUndefined();
     expect(proofRunRefusal(run({ path: ".github/workflows/forge.yml" }), "o/r")).toMatch(/not a proving workflow/);
@@ -146,7 +186,11 @@ describe("the proven status (A1, B1)", () => {
 
 describe("a pin as one string (A12)", () => {
   it("round-trips, and refuses anything else", () => {
-    for (const pin of [{ kind: "t3", tag: "v0.1.11-nightly.20261117.4851" }, { kind: "cli", cli: "claude", version: "0.108.0" }] as const) expect(parsePin(pinText(pin))).toEqual(pin);
+    for (const pin of [
+      { kind: "t3", tag: "v0.1.11-nightly.20261117.4851" },
+      { kind: "cli", cli: "claude", version: "0.108.0" },
+    ] as const)
+      expect(parsePin(pinText(pin))).toEqual(pin);
     expect(parsePin("cli:codex:0.169.0:x")).toMatch(/not a pin/);
     expect(parsePin("cli:codex:main")).toMatch(/not an exact version/);
     expect(parsePin("t3:main")).toMatch(/not a t3 release tag/);
@@ -156,7 +200,9 @@ describe("a pin as one string (A12)", () => {
 
 describe("the CLI list", () => {
   it("is cli-bump.yml's choice of CLIs", () => {
-    const workflow = parse(fs.readFileSync(path.resolve(import.meta.dirname, "../../../.github/workflows/cli-bump.yml"), "utf8")) as { on: { workflow_dispatch: { inputs: { cli: { options: Array<string> } } } } };
+    const workflow = parse(
+      fs.readFileSync(path.resolve(import.meta.dirname, "../../../.github/workflows/cli-bump.yml"), "utf8"),
+    ) as { on: { workflow_dispatch: { inputs: { cli: { options: Array<string> } } } } };
     expect(workflow.on.workflow_dispatch.inputs.cli.options).toEqual([...UPDATABLE_CLIS]);
   });
 });

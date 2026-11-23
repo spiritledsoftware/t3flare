@@ -11,23 +11,50 @@ import { cliSnapshotForCwd, piDurableSnapshotForCwd, type SkillsAccess } from ".
 const machine = { instanceId: "piDurable", skills: [], slashCommands: [], models: [] } as unknown as ServerProvider;
 const discovery: SkillDiscovery = {
   skills: [
-    { name: "fruit-code", description: "  The fruit code.  ", filePath: "/workspace/repo/.agents/skills/fruit-code/SKILL.md", disableModelInvocation: false },
-    { name: "owner-only", description: "Only when named.", filePath: "/workspace/repo/.claude/skills/owner-only/SKILL.md", disableModelInvocation: true },
+    {
+      name: "fruit-code",
+      description: "  The fruit code.  ",
+      filePath: "/workspace/repo/.agents/skills/fruit-code/SKILL.md",
+      disableModelInvocation: false,
+    },
+    {
+      name: "owner-only",
+      description: "Only when named.",
+      filePath: "/workspace/repo/.claude/skills/owner-only/SKILL.md",
+      disableModelInvocation: true,
+    },
   ],
   skipped: [],
   omitted: 0,
 };
 const templates: ReadonlyArray<PromptTemplate> = [
-  { name: "echo", description: "Reply with exactly: ECHO $1 ${2:-none}", filePath: "/workspace/repo/.pi/prompts/echo.md" },
-  { name: "review", description: "", argumentHint: "<file> [focus]", filePath: "/workspace/repo/.pi/prompts/review.md" },
+  {
+    name: "echo",
+    description: "Reply with exactly: ECHO $1 ${2:-none}",
+    filePath: "/workspace/repo/.pi/prompts/echo.md",
+  },
+  {
+    name: "review",
+    description: "",
+    argumentHint: "<file> [focus]",
+    filePath: "/workspace/repo/.pi/prompts/review.md",
+  },
 ];
 
-const access = (options: { enabled?: boolean; rows?: Array<{ name: string; description: string; disableModelInvocation: boolean }>; discovery?: SkillDiscovery } = {}): SkillsAccess & { asked: Array<string> } => {
+const access = (
+  options: {
+    enabled?: boolean;
+    rows?: Array<{ name: string; description: string; disableModelInvocation: boolean }>;
+    discovery?: SkillDiscovery;
+  } = {},
+): SkillsAccess & { asked: Array<string> } => {
   const asked: Array<string> = [];
   return {
     asked,
     enabled: () => options.enabled ?? true,
-    ...(options.rows === undefined ? {} : { environment: { entries: () => options.rows!, skillMd: () => undefined, hash: () => "h" } }),
+    ...(options.rows === undefined
+      ? {}
+      : { environment: { entries: () => options.rows!, skillMd: () => undefined, hash: () => "h" } }),
     locate: (cwd) => {
       const match = /^\/w\/(proj)(\/.*)?$/.exec(cwd);
       if (match === null) return undefined;
@@ -35,9 +62,16 @@ const access = (options: { enabled?: boolean; rows?: Array<{ name: string; descr
         id: match[1]!,
         inner: `/workspace/repo${match[2] ?? ""}`,
         workspace: {
-          skills: (inner, agent, opts) =>
-            (asked.push(`skills ${inner}${agent === undefined ? "" : ` ${agent}`}${opts?.repoOnly === true ? " repo-only" : ""}`), Promise.resolve(options.discovery ?? discovery)),
-          prompts: (inner, agent) => (asked.push(`prompts ${inner}${agent === undefined ? "" : ` ${agent}`}`), Promise.resolve(templates)),
+          skills: (inner, agent, opts) => (
+            asked.push(
+              `skills ${inner}${agent === undefined ? "" : ` ${agent}`}${opts?.repoOnly === true ? " repo-only" : ""}`,
+            ),
+            Promise.resolve(options.discovery ?? discovery)
+          ),
+          prompts: (inner, agent) => (
+            asked.push(`prompts ${inner}${agent === undefined ? "" : ` ${agent}`}`),
+            Promise.resolve(templates)
+          ),
           readText: () => Promise.resolve(null),
         },
       };
@@ -45,15 +79,30 @@ const access = (options: { enabled?: boolean; rows?: Array<{ name: string; descr
   };
 };
 
-const snapshot = (cwd: string, skills: SkillsAccess) => Effect.runPromise(piDurableSnapshotForCwd(machine, cwd, skills));
+const snapshot = (cwd: string, skills: SkillsAccess) =>
+  Effect.runPromise(piDurableSnapshotForCwd(machine, cwd, skills));
 
 describe("Pi Durable's snapshotForCwd", () => {
   it("answers the Workspace's skills, scope project, in t3 paths, with userInvocationOnly from disable-model-invocation", async () => {
     const skills = access();
     const answer = await snapshot("/w/proj", skills);
     expect(answer.skills).toEqual([
-      { name: "fruit-code", description: "The fruit code.", path: "/w/proj/.agents/skills/fruit-code/SKILL.md", scope: "project", enabled: true, userInvocationOnly: false },
-      { name: "owner-only", description: "Only when named.", path: "/w/proj/.claude/skills/owner-only/SKILL.md", scope: "project", enabled: true, userInvocationOnly: true },
+      {
+        name: "fruit-code",
+        description: "The fruit code.",
+        path: "/w/proj/.agents/skills/fruit-code/SKILL.md",
+        scope: "project",
+        enabled: true,
+        userInvocationOnly: false,
+      },
+      {
+        name: "owner-only",
+        description: "Only when named.",
+        path: "/w/proj/.claude/skills/owner-only/SKILL.md",
+        scope: "project",
+        enabled: true,
+        userInvocationOnly: true,
+      },
     ]);
     expect(skills.asked).toEqual(["skills /workspace/repo repo-only", "prompts /workspace/repo"]);
     expect(answer.instanceId).toBe("piDurable");
@@ -81,10 +130,27 @@ describe("Pi Durable's snapshotForCwd", () => {
   });
 
   it("puts the Environment skills first, scope user, at the Workspace's mount, beating a Repo skill of the same name (SPI-1148)", async () => {
-    const answer = await snapshot("/w/proj", access({ rows: [{ name: "fruit-code", description: "The Environment's.", disableModelInvocation: true }] }));
+    const answer = await snapshot(
+      "/w/proj",
+      access({ rows: [{ name: "fruit-code", description: "The Environment's.", disableModelInvocation: true }] }),
+    );
     expect(answer.skills).toEqual([
-      { name: "fruit-code", description: "The Environment's.", path: "/workspace/.agents/skills/fruit-code/SKILL.md", scope: "user", enabled: true, userInvocationOnly: true },
-      { name: "owner-only", description: "Only when named.", path: "/w/proj/.claude/skills/owner-only/SKILL.md", scope: "project", enabled: true, userInvocationOnly: true },
+      {
+        name: "fruit-code",
+        description: "The Environment's.",
+        path: "/workspace/.agents/skills/fruit-code/SKILL.md",
+        scope: "user",
+        enabled: true,
+        userInvocationOnly: true,
+      },
+      {
+        name: "owner-only",
+        description: "Only when named.",
+        path: "/w/proj/.claude/skills/owner-only/SKILL.md",
+        scope: "project",
+        enabled: true,
+        userInvocationOnly: true,
+      },
     ]);
     // Removed or disabled: the rows no longer hold it, and the Repo skill is back at once.
     expect((await snapshot("/w/proj", access({ rows: [] }))).skills.map((skill) => [skill.name, skill.scope])).toEqual([
@@ -96,7 +162,8 @@ describe("Pi Durable's snapshotForCwd", () => {
 
 describe("a CLI agent's snapshotForCwd (SPI-1151)", () => {
   const builtIns = { ...machine, slashCommands: [{ name: "compact", description: "Compact" }] } as ServerProvider;
-  const cli = (cwd: string, skills: SkillsAccess, agent: CliAgent = "claude") => Effect.runPromise(cliSnapshotForCwd(builtIns, cwd, skills, agent));
+  const cli = (cwd: string, skills: SkillsAccess, agent: CliAgent = "claude") =>
+    Effect.runPromise(cliSnapshotForCwd(builtIns, cwd, skills, agent));
 
   it("asks the Workspace for that CLI's roots, and answers its Skills in t3 paths and its commands after the built-ins", async () => {
     const skills = access();
@@ -116,8 +183,18 @@ describe("a CLI agent's snapshotForCwd (SPI-1151)", () => {
   });
 
   it("keeps a built-in over a repo command of the same name", async () => {
-    const answer = await Effect.runPromise(cliSnapshotForCwd({ ...machine, slashCommands: [{ name: "echo", description: "built in" }] } as ServerProvider, "/w/proj", access(), "pi"));
-    expect(answer.slashCommands).toEqual([{ name: "echo", description: "built in" }, { name: "review", input: { hint: "<file> [focus]" } }]);
+    const answer = await Effect.runPromise(
+      cliSnapshotForCwd(
+        { ...machine, slashCommands: [{ name: "echo", description: "built in" }] } as ServerProvider,
+        "/w/proj",
+        access(),
+        "pi",
+      ),
+    );
+    expect(answer.slashCommands).toEqual([
+      { name: "echo", description: "built in" },
+      { name: "review", input: { hint: "<file> [focus]" } },
+    ]);
   });
 
   it("lists no repo commands when told not to (OpenCode's), its Skills still", async () => {
@@ -131,16 +208,43 @@ describe("a CLI agent's snapshotForCwd (SPI-1151)", () => {
       { name: "fruit-code", description: "The Environment's.", disableModelInvocation: false },
       { name: "grill-me", description: "Only the Environment's.", disableModelInvocation: false },
     ];
-    const listed = async (agent: CliAgent, repo?: SkillDiscovery) => (await cli("/w/proj", access({ rows, ...(repo === undefined ? {} : { discovery: repo }) }), agent)).skills.map((skill) => [skill.name, skill.scope, skill.path]);
+    const listed = async (agent: CliAgent, repo?: SkillDiscovery) =>
+      (await cli("/w/proj", access({ rows, ...(repo === undefined ? {} : { discovery: repo }) }), agent)).skills.map(
+        (skill) => [skill.name, skill.scope, skill.path],
+      );
     const environment = (name: string) => [name, "user", `/workspace/.agents/skills/${name}/SKILL.md`];
     const repo = (name: string, root: string) => [name, "project", `/w/proj/${root}/${name}/SKILL.md`];
     // The fixture's fruit-code is in `.agents/skills`. Claude Code, pi and OpenCode keep the Environment's of it.
-    for (const agent of ["claude", "pi", "opencode"] as const) expect(await listed(agent), agent).toEqual([environment("fruit-code"), environment("grill-me"), repo("owner-only", ".claude/skills")]);
+    for (const agent of ["claude", "pi", "opencode"] as const)
+      expect(await listed(agent), agent).toEqual([
+        environment("fruit-code"),
+        environment("grill-me"),
+        repo("owner-only", ".claude/skills"),
+      ]);
     // Codex lists both, the Repo's first, as it does; t3's menu shows the first of a name.
-    expect(await listed("codex")).toEqual([environment("grill-me"), repo("fruit-code", ".agents/skills"), repo("owner-only", ".claude/skills"), environment("fruit-code")]);
+    expect(await listed("codex")).toEqual([
+      environment("grill-me"),
+      repo("fruit-code", ".agents/skills"),
+      repo("owner-only", ".claude/skills"),
+      environment("fruit-code"),
+    ]);
     // OpenCode keeps a Repo skill in `.opencode/skills` over the Environment's.
-    const inOpencode: SkillDiscovery = { skills: [{ name: "fruit-code", description: "Repo.", filePath: "/workspace/repo/.opencode/skills/fruit-code/SKILL.md", disableModelInvocation: false }], skipped: [], omitted: 0 };
-    expect(await listed("opencode", inOpencode)).toEqual([environment("grill-me"), repo("fruit-code", ".opencode/skills")]);
+    const inOpencode: SkillDiscovery = {
+      skills: [
+        {
+          name: "fruit-code",
+          description: "Repo.",
+          filePath: "/workspace/repo/.opencode/skills/fruit-code/SKILL.md",
+          disableModelInvocation: false,
+        },
+      ],
+      skipped: [],
+      omitted: 0,
+    };
+    expect(await listed("opencode", inOpencode)).toEqual([
+      environment("grill-me"),
+      repo("fruit-code", ".opencode/skills"),
+    ]);
   });
 
   it("is the built-ins alone outside a Workspace", async () => {

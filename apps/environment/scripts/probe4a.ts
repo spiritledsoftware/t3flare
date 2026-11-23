@@ -13,7 +13,8 @@ import * as path from "node:path";
 
 import { writeEvidence as writeAt } from "./lib/evidence.ts";
 
-const writeEvidence = (name: string, value: unknown) => writeAt(path.resolve(import.meta.dirname, "../../../.evidence/step-4a", name), value);
+const writeEvidence = (name: string, value: unknown) =>
+  writeAt(path.resolve(import.meta.dirname, "../../../.evidence/step-4a", name), value);
 
 const [scenario = "workspace", ...args] = process.argv.slice(2);
 const arg = (name: string) => {
@@ -21,7 +22,8 @@ const arg = (name: string) => {
   return index === -1 ? undefined : args[index + 1];
 };
 const workspace = arg("workspace") ?? "step3-fixture";
-const call = async (body: unknown) => (await admin("POST", `/_t3flare/agents/workspace-call?id=${encodeURIComponent(workspace)}`, body)).json;
+const call = async (body: unknown) =>
+  (await admin("POST", `/_t3flare/agents/workspace-call?id=${encodeURIComponent(workspace)}`, body)).json;
 const exec = async (script: string, timeoutMs = 120_000) => (await call({ exec: { script, timeoutMs } }))?.result;
 
 switch (scenario) {
@@ -77,10 +79,21 @@ switch (scenario) {
         600_000,
       );
       const pulled = await exec("true", 600_000);
-      pulls.push({ mb, bytes: String(grow?.stdout ?? "").trim(), growMs: grow?.ms, pullAndExecMs: pulled?.ms, totalMs: Date.now() - started });
+      pulls.push({
+        mb,
+        bytes: String(grow?.stdout ?? "").trim(),
+        growMs: grow?.ms,
+        pullAndExecMs: pulled?.ms,
+        totalMs: Date.now() - started,
+      });
       console.log(JSON.stringify(pulls.at(-1)));
     }
-    const result = { scenario, sqlite, pulls, note: "DO CPU and rows per pull: read from the agents Worker's telemetry for this window" };
+    const result = {
+      scenario,
+      sqlite,
+      pulls,
+      note: "DO CPU and rows per pull: read from the agents Worker's telemetry for this window",
+    };
     writeEvidence("m0-p8.json", result);
     console.log(JSON.stringify(result, null, 1).slice(0, 4000));
     break;

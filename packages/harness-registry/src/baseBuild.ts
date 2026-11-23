@@ -94,12 +94,19 @@ export interface BaseBuildRecord {
 /** The most output a record may carry: the most `setupOutputKiB` keeps. */
 const MAX_OUTPUT = MAX_SETUP_OUTPUT_KIB * 1024;
 
-const isObject = (value: unknown): value is Readonly<Record<string, unknown>> => value !== null && typeof value === "object" && !Array.isArray(value);
+const isObject = (value: unknown): value is Readonly<Record<string, unknown>> =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
 const isTime = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0;
 const isText = (value: unknown, max: number) => typeof value === "string" && value.length <= max;
 
 const isSnapshot = (value: unknown): value is BaseSnapshot =>
-  isObject(value) && isText(value.id, 512) && isTime(value.size) && isText(value.key, 128) && isText(value.imageDigest, 512) && isTime(value.builtAt) && isTime(value.tookMs);
+  isObject(value) &&
+  isText(value.id, 512) &&
+  isTime(value.size) &&
+  isText(value.key, 128) &&
+  isText(value.imageDigest, 512) &&
+  isTime(value.builtAt) &&
+  isTime(value.tookMs);
 
 const isFailure = (value: unknown): value is BaseBuildFailure =>
   isObject(value) &&
@@ -153,26 +160,37 @@ export const buildDurationText = (ms: number): string => {
 const iso = (at: number) => new Date(at).toISOString();
 
 /** A failure as one line: when, its exit code, and why. */
-const failureText = (failure: BaseBuildFailure): string => `failed ${iso(failure.at)}${failure.exitCode === null ? "" : ` (exit ${failure.exitCode})`}: ${failure.message}`;
+const failureText = (failure: BaseBuildFailure): string =>
+  `failed ${iso(failure.at)}${failure.exitCode === null ? "" : ` (exit ${failure.exitCode})`}: ${failure.message}`;
 
 /** The record as Status's one line; the failed build's output is shown apart from it. */
 export const describeBaseBuild = (record: BaseBuildRecord): string => {
   switch (record.state) {
     case "none":
-      return record.nothingToBuild === true ? "none: no Image setup and no Global mise config, so Containers start from the Workspace image" : "none yet";
+      return record.nothingToBuild === true
+        ? "none: no Image setup and no Global mise config, so Containers start from the Workspace image"
+        : "none yet";
     case "building": {
-      const step = record.waitingForBudget === true ? "waiting for room under the Container budget" : (record.phase ?? "starting");
+      const step =
+        record.waitingForBudget === true ? "waiting for room under the Container budget" : (record.phase ?? "starting");
       return `building since ${iso(record.since ?? record.at)} (${step}${record.reason === undefined ? "" : `; ${record.reason}`})`;
     }
     case "ready": {
-      const ready = record.good === null ? "ready" : `ready: built ${iso(record.good.builtAt)}, ${snapshotSizeText(record.good.size)}, took ${buildDurationText(record.good.tookMs)}`;
+      const ready =
+        record.good === null
+          ? "ready"
+          : `ready: built ${iso(record.good.builtAt)}, ${snapshotSizeText(record.good.size)}, took ${buildDurationText(record.good.tookMs)}`;
       // A rebuild of the same settings that failed (a scheduled one): the good one stays in use.
-      return record.failure === undefined ? ready : `${ready}; a rebuild failed ${iso(record.failure.at)}${record.failure.exitCode === null ? "" : ` (exit ${record.failure.exitCode})`}: ${record.failure.message}`;
+      return record.failure === undefined
+        ? ready
+        : `${ready}; a rebuild failed ${iso(record.failure.at)}${record.failure.exitCode === null ? "" : ` (exit ${record.failure.exitCode})`}: ${record.failure.message}`;
     }
     case "failed": {
       const failure = record.failure;
       const what = failure === undefined ? "failed" : failureText(failure);
-      return record.good === null ? what : `${what}; the last good one (built ${iso(record.good.builtAt)}) is for older settings`;
+      return record.good === null
+        ? what
+        : `${what}; the last good one (built ${iso(record.good.builtAt)}) is for older settings`;
     }
   }
 };
@@ -181,13 +199,18 @@ export const describeBaseBuild = (record: BaseBuildRecord): string => {
 export const describeTestBaseBuild = (record: BaseBuildRecord): string => {
   switch (record.state) {
     case "none":
-      return record.nothingToBuild === true ? "nothing to build: the proposed Image setup is empty and there is no Global mise config" : "no test yet";
+      return record.nothingToBuild === true
+        ? "nothing to build: the proposed Image setup is empty and there is no Global mise config"
+        : "no test yet";
     case "building": {
-      const step = record.waitingForBudget === true ? "waiting for room under the Container budget" : (record.phase ?? "starting");
+      const step =
+        record.waitingForBudget === true ? "waiting for room under the Container budget" : (record.phase ?? "starting");
       return `testing since ${iso(record.since ?? record.at)} (${step})`;
     }
     case "ready":
-      return record.good === null ? "passed" : `passed ${iso(record.good.builtAt)}: ${snapshotSizeText(record.good.size)}, took ${buildDurationText(record.good.tookMs)}`;
+      return record.good === null
+        ? "passed"
+        : `passed ${iso(record.good.builtAt)}: ${snapshotSizeText(record.good.size)}, took ${buildDurationText(record.good.tookMs)}`;
     case "failed":
       return record.failure === undefined ? "failed" : failureText(record.failure);
   }

@@ -2,9 +2,12 @@
 // in place of a Container, so the browser side can be checked without one. Never reached on prod: `ContainerPreviews`
 // answers them only with `T3FLARE_FAULTS=1` and a `spike-…` Workspace.
 const html = (body: string, headers: Record<string, string> = {}) =>
-  new Response(`<!doctype html><html><head><meta charset="utf-8"><title>spike</title></head><body>${body}</body></html>`, {
-    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", ...headers },
-  });
+  new Response(
+    `<!doctype html><html><head><meta charset="utf-8"><title>spike</title></head><body>${body}</body></html>`,
+    {
+      headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", ...headers },
+    },
+  );
 
 const escape = (value: string) => value.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
@@ -13,7 +16,10 @@ export const spikePage = (request: Request, workspace: string, port: number): Re
   switch (url.pathname) {
     case "/download":
       return new Response("download-ok\n", {
-        headers: { "content-type": "application/octet-stream", "content-disposition": 'attachment; filename="probe.txt"' },
+        headers: {
+          "content-type": "application/octet-stream",
+          "content-disposition": 'attachment; filename="probe.txt"',
+        },
       });
     case "/upload":
       return html(
@@ -22,7 +28,13 @@ export const spikePage = (request: Request, workspace: string, port: number): Re
     case "/frame":
       return html(`<p id="inner">frame-${escape(workspace)}</p>`);
     case "/echo":
-      return Response.json({ workspace, port, method: request.method, host: request.headers.get("host"), path: url.pathname });
+      return Response.json({
+        workspace,
+        port,
+        method: request.method,
+        host: request.headers.get("host"),
+        path: url.pathname,
+      });
     case "/cookie":
       return html(`<p>cookie</p>`, { "set-cookie": "spike=1; Path=/; Max-Age=3600" });
     case "/ws":

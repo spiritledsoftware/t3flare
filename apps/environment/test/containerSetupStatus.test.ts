@@ -36,7 +36,9 @@ describe("a secret Variable in the Container setup's output", () => {
     expect(run.store.noteContainerSetup(REPORT)).toBe(true);
     const status = structured(await run.call(run.durable(), "get_status"));
     expect(status.status[CONTAINER_SETUP_OUTPUT_STATUS]).toBe(REPORT.output);
-    expect(status.status["last Container setup"]).toBe("web-app at revision 2: ran, exit 0 after 0.9 s, 2026-11-22T12:00:00.000Z");
+    expect(status.status["last Container setup"]).toBe(
+      "web-app at revision 2: ran, exit 0 after 0.9 s, 2026-11-22T12:00:00.000Z",
+    );
     const html = await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), run.panel())).text();
     expect(html).toContain("+ git clone https://***@github.com/me/dotfiles");
   });

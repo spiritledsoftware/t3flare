@@ -99,10 +99,20 @@ printf '\\n${MARK}%s\\n' "$line"
  * The argv the platform's exec runs for a script of SHA-256 `sha256` at a limit of `seconds`, answering the last
  * `windowBytes` of its output; the script goes on stdin.
  */
-export const containerSetupArgv = (sha256: string, seconds: number, windowBytes: number): ReadonlyArray<string> => ["bash", "-c", CONTAINER_SETUP_SCRIPT, "t3flare-container-setup", sha256, String(seconds), String(windowBytes)];
+export const containerSetupArgv = (sha256: string, seconds: number, windowBytes: number): ReadonlyArray<string> => [
+  "bash",
+  "-c",
+  CONTAINER_SETUP_SCRIPT,
+  "t3flare-container-setup",
+  sha256,
+  String(seconds),
+  String(windowBytes),
+];
 
 /** The output and the answer from the wrapper's stdout, or undefined when it holds no answer, field by field. */
-export const parseContainerSetupAnswer = (stdout: string): { readonly output: string; readonly answer: ContainerSetupAnswer } | undefined => {
+export const parseContainerSetupAnswer = (
+  stdout: string,
+): { readonly output: string; readonly answer: ContainerSetupAnswer } | undefined => {
   const at = stdout.lastIndexOf(`\n${MARK}`);
   if (at < 0) return undefined;
   let value: unknown;

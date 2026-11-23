@@ -26,14 +26,24 @@ const lsRemote = (repo: string, token: string) =>
 const REPO = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
 
 /** The check's two repositories from its query, or the reason it is refused (400). No default: they are the Owner's. */
-export const agentsCheckRepos = (url: URL): { readonly repo: string; readonly other: string } | { readonly error: string } => {
+export const agentsCheckRepos = (
+  url: URL,
+): { readonly repo: string; readonly other: string } | { readonly error: string } => {
   const repo = url.searchParams.get("repo") ?? "";
   const other = url.searchParams.get("other") ?? "";
-  if (!REPO.test(repo) || !REPO.test(other)) return { error: "repo and other are required query parameters, each owner/name: the repo a Container token is minted for, and one outside it" };
+  if (!REPO.test(repo) || !REPO.test(other))
+    return {
+      error:
+        "repo and other are required query parameters, each owner/name: the repo a Container token is minted for, and one outside it",
+    };
   return { repo, other };
 };
 
-export const agentsCheck = async (environment: EnvironmentDO, request: Request, repos: { readonly repo: string; readonly other: string }) => {
+export const agentsCheck = async (
+  environment: EnvironmentDO,
+  request: Request,
+  repos: { readonly repo: string; readonly other: string },
+) => {
   const url = new URL(request.url);
   const agents = environment.agents;
   const report: Record<string, unknown> = { at: new Date().toISOString() };
@@ -77,14 +87,23 @@ export const agentsCheck = async (environment: EnvironmentDO, request: Request, 
       );
     const stateWhileFull = await budget.state();
     for (const holder of held) await budget.release(holder);
-    report.budget = { acquired: acquired.map((a) => a.ok), fourthStart: refused, stateWhileFull, after: await budget.state() };
+    report.budget = {
+      acquired: acquired.map((a) => a.ok),
+      fourthStart: refused,
+      stateWhileFull,
+      after: await budget.state(),
+    };
   }
 
   // 4. A Container token names its one repo.
   const { repo, other } = repos;
   if (environment.github.configured) {
     const [owner = "", name = ""] = repo.split("/");
-    const minted = await environment.github.mint({ owner, repositories: [name], permissions: CONTAINER_GITHUB_PERMISSIONS });
+    const minted = await environment.github.mint({
+      owner,
+      repositories: [name],
+      permissions: CONTAINER_GITHUB_PERMISSIONS,
+    });
     const workspace = byName(agents.WORKSPACES, "m0-a", "WORKSPACES");
     const result = await workspace.exec({
       script: `echo "own: $(${lsRemote(repo, "$T")})"; echo "other: $(${lsRemote(other, "$T")})"`,

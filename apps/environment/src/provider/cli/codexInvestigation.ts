@@ -28,7 +28,12 @@ export const execOutcome = (jsonl: string): { readonly message: string } | { rea
   const seen = new Map<string, number>();
   for (const line of jsonl.split("\n")) {
     if (!line.startsWith("{")) continue;
-    let event: { type?: string; item?: { type?: string; text?: string }; error?: { message?: string }; message?: string };
+    let event: {
+      type?: string;
+      item?: { type?: string; text?: string };
+      error?: { message?: string };
+      message?: string;
+    };
     try {
       event = JSON.parse(line);
     } catch {
@@ -36,7 +41,12 @@ export const execOutcome = (jsonl: string): { readonly message: string } | { rea
     }
     const kind = `${event.type ?? "?"}${event.item?.type === undefined ? "" : `:${event.item.type}`}`;
     seen.set(kind, (seen.get(kind) ?? 0) + 1);
-    if (event.type === "item.completed" && (event.item?.type === "agent_message" || event.item?.type === "assistant_message") && typeof event.item.text === "string") message = event.item.text;
+    if (
+      event.type === "item.completed" &&
+      (event.item?.type === "agent_message" || event.item?.type === "assistant_message") &&
+      typeof event.item.text === "string"
+    )
+      message = event.item.text;
     else if (event.type === "turn.failed") error = event.error?.message ?? "the turn failed";
     else if (event.type === "error" && typeof event.message === "string") error = event.message;
   }
@@ -56,13 +66,19 @@ const text = <E>(stream: Stream.Stream<Uint8Array, E>) =>
 
 /** `run` with `investigate` requests answered by `codex exec -s read-only` in the cwd's Container. */
 export const withCodexInvestigation =
-  (spawner: ChildProcessSpawner.ChildProcessSpawner["Service"], fileSystem: FileSystem.FileSystem, run: TextGenerationOperations.Runner): TextGenerationOperations.Runner =>
+  (
+    spawner: ChildProcessSpawner.ChildProcessSpawner["Service"],
+    fileSystem: FileSystem.FileSystem,
+    run: TextGenerationOperations.Runner,
+  ): TextGenerationOperations.Runner =>
   (request) => {
     if (request.investigate === undefined) return run(request);
     const operation = request.operation;
     const timeoutMs = request.investigate.timeoutMs;
     return Effect.gen(function* () {
-      const schemaPath = yield* fileSystem.makeTempFile({ prefix: "t3flare-codex-schema-" }).pipe(Effect.mapError((cause) => fail(operation, "Failed to write temp file", cause)));
+      const schemaPath = yield* fileSystem
+        .makeTempFile({ prefix: "t3flare-codex-schema-" })
+        .pipe(Effect.mapError((cause) => fail(operation, "Failed to write temp file", cause)));
       const answer = yield* Effect.gen(function* () {
         yield* fileSystem
           // @effect-diagnostics-next-line globalJsonInEffect:off -- a JSON Schema object is plain data: stringify cannot throw
@@ -75,10 +91,14 @@ export const withCodexInvestigation =
               stdin: { stream: Stream.encodeText(Stream.make(request.prompt)) },
             }),
           )
-          .pipe(Effect.mapError((cause) => fail(operation, `Failed to spawn Codex CLI process: ${String(cause).slice(0, 300)}`, cause)));
-        const [stdout, stderr, exitCode] = yield* Effect.all([text(child.stdout), text(child.stderr), child.exitCode], { concurrency: "unbounded" }).pipe(
-          Effect.mapError((cause) => fail(operation, "Failed to collect process output", cause)),
-        );
+          .pipe(
+            Effect.mapError((cause) =>
+              fail(operation, `Failed to spawn Codex CLI process: ${String(cause).slice(0, 300)}`, cause),
+            ),
+          );
+        const [stdout, stderr, exitCode] = yield* Effect.all([text(child.stdout), text(child.stderr), child.exitCode], {
+          concurrency: "unbounded",
+        }).pipe(Effect.mapError((cause) => fail(operation, "Failed to collect process output", cause)));
         const outcome = execOutcome(stdout);
         if ("error" in outcome) {
           const detail = `${outcome.error}; exit ${exitCode}${stderr.trim() === "" ? "" : `; stderr: ${stderr.trim().slice(-1500)}`}`;

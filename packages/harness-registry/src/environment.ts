@@ -89,7 +89,9 @@ export const MAX_SETUP_BYTES = 256 * 1024;
 /** Why `text` cannot be an Image setup (a Test base build's proposal included): past `MAX_SETUP_BYTES`; undefined when it fits. */
 export const imageSetupTooLong = (text: string): string | undefined => {
   const bytes = new TextEncoder().encode(text).length;
-  return bytes > MAX_SETUP_BYTES ? `the Image setup is at most ${MAX_SETUP_BYTES / 1024} KiB, not ${bytes} bytes` : undefined;
+  return bytes > MAX_SETUP_BYTES
+    ? `the Image setup is at most ${MAX_SETUP_BYTES / 1024} KiB, not ${bytes} bytes`
+    : undefined;
 };
 
 /**
@@ -123,7 +125,14 @@ export type WhileBuildingNewImage = (typeof WHILE_BUILDING_NEW_IMAGE)[number];
 export const BUILDER_SAME_SIZE = "sameAsContainer";
 
 /** The Environment settings a Base build reads besides the Global mise config and the Variables (ADR-0047 §9). */
-export const BASE_BUILD_SETTING_KEYS = ["imageSetup", "imageSetupMinutes", "snapshotMinutes", "builderSize", "builderInBudget", "rebuildEveryDays"] as const;
+export const BASE_BUILD_SETTING_KEYS = [
+  "imageSetup",
+  "imageSetupMinutes",
+  "snapshotMinutes",
+  "builderSize",
+  "builderInBudget",
+  "rebuildEveryDays",
+] as const;
 
 /** The Grace's default and bounds, in days (ADR-0043 §1): no zero, since at once is the Owner's own Purge. */
 export const DEFAULT_GRACE_DAYS = 7;
@@ -197,8 +206,12 @@ export const containerInstance = (size: ContainerSize): ContainerInstance => {
 };
 
 /** What the Builder's Container starts with (ADR-0047 §9): its own size, or the Container size. */
-export const builderInstance = (settings: Pick<ResolvedEnvironment, "containerSize" | "builderSize">): ContainerInstance =>
-  containerInstance(settings.builderSize === BUILDER_SAME_SIZE ? settings.containerSize : (settings.builderSize as ContainerSize));
+export const builderInstance = (
+  settings: Pick<ResolvedEnvironment, "containerSize" | "builderSize">,
+): ContainerInstance =>
+  containerInstance(
+    settings.builderSize === BUILDER_SAME_SIZE ? settings.containerSize : (settings.builderSize as ContainerSize),
+  );
 
 /** What the Environment DO stores (`t3flare:environment:settings`): the settings set explicitly. */
 export interface StoredEnvironment {
@@ -213,12 +226,14 @@ export const EMPTY_ENVIRONMENT: StoredEnvironment = { revision: 0, settings: {} 
 export const ENVIRONMENT_SETTINGS = {
   containerSize: {
     title: "Container size",
-    description: "The vCPU, memory and disk a Workspace's Container starts with. Applies at each Workspace's next Container start; a running Container keeps its size.",
+    description:
+      "The vCPU, memory and disk a Workspace's Container starts with. Applies at each Workspace's next Container start; a running Container keeps its size.",
     schema: { type: "enum", values: CONTAINER_SIZE_NAMES, default: DEFAULT_CONTAINER_SIZE },
   },
   containerIdleMinutes: {
     title: "Idle time (minutes)",
-    description: "A Container stops after this long without a command; its memory and disk are billed while it waits idle. Applies at each Workspace's next Container start.",
+    description:
+      "A Container stops after this long without a command; its memory and disk are billed while it waits idle. Applies at each Workspace's next Container start.",
     // t3flare's own alarm stops an idle Container (WorkspaceDO `#scheduleAlarm`); the platform's `setInactivityTimeout`
     // (at most 6 hours) is never set, so the shared sanity maximum applies.
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: 2 },
@@ -236,7 +251,12 @@ export const ENVIRONMENT_SETTINGS = {
     description:
       "How many CLI agents' processes one Workspace's Container may run at once; Claude Code's and OpenCode's each count as two. Each CLI agent's process takes about 150 to 200 MB of the Container's memory; past what the Container size has, commands fail for memory. Applies at each CLI agent's next start; lowering it ends no running process, and new starts are refused until fewer run.",
     // A sanity bound (ADR-0048): the Container's memory is the real one, which the description states.
-    schema: { type: "integer", minimum: 1, maximum: MAX_CLI_PROCESSES_PER_WORKSPACE, default: DEFAULT_CLI_PROCESSES_PER_WORKSPACE },
+    schema: {
+      type: "integer",
+      minimum: 1,
+      maximum: MAX_CLI_PROCESSES_PER_WORKSPACE,
+      default: DEFAULT_CLI_PROCESSES_PER_WORKSPACE,
+    },
     tier: "down-free",
   },
   cliReclaimSeconds: {
@@ -292,8 +312,14 @@ export const ENVIRONMENT_SETTINGS = {
   },
   containerSetupFailure: {
     title: "When the Container setup fails",
-    description: "A non-zero exit, the time limit, or a Container that could not run it. Refuse commands: that Container runs no command, Terminal or CLI agent until a new Container starts.",
-    schema: { type: "enum", values: CONTAINER_SETUP_FAILURES, default: "carryOn", labels: { carryOn: "Carry on", refuse: "Refuse commands" } },
+    description:
+      "A non-zero exit, the time limit, or a Container that could not run it. Refuse commands: that Container runs no command, Terminal or CLI agent until a new Container starts.",
+    schema: {
+      type: "enum",
+      values: CONTAINER_SETUP_FAILURES,
+      default: "carryOn",
+      labels: { carryOn: "Carry on", refuse: "Refuse commands" },
+    },
     row: "containerSetup",
   },
   setupOutputKiB: {
@@ -312,27 +338,36 @@ export const ENVIRONMENT_SETTINGS = {
   },
   imageSetupMinutes: {
     title: "Image setup time limit (minutes)",
-    description: "How long the Builder's Container may take to start and run the Image setup before the Base build fails.",
+    description:
+      "How long the Builder's Container may take to start and run the Image setup before the Base build fails.",
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: 30 },
     tier: "down-free",
     row: "imageSetup",
   },
   snapshotMinutes: {
     title: "Snapshot time limit (minutes)",
-    description: "How long the snapshot and the start from it that proves it may take before the Base build is reported failed. A snapshot that finishes later is still kept if nothing changed meanwhile.",
+    description:
+      "How long the snapshot and the start from it that proves it may take before the Base build is reported failed. A snapshot that finishes later is still kept if nothing changed meanwhile.",
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: 5 },
     tier: "down-free",
     row: "imageSetup",
   },
   builderSize: {
     title: "Builder size",
-    description: "The vCPU, memory and disk the Builder's Container runs the Image setup with. Every Container size starts from the Base snapshot it makes.",
-    schema: { type: "enum", values: [BUILDER_SAME_SIZE, ...CONTAINER_SIZE_NAMES], default: BUILDER_SAME_SIZE, labels: { [BUILDER_SAME_SIZE]: "Same as Container size" } },
+    description:
+      "The vCPU, memory and disk the Builder's Container runs the Image setup with. Every Container size starts from the Base snapshot it makes.",
+    schema: {
+      type: "enum",
+      values: [BUILDER_SAME_SIZE, ...CONTAINER_SIZE_NAMES],
+      default: BUILDER_SAME_SIZE,
+      labels: { [BUILDER_SAME_SIZE]: "Same as Container size" },
+    },
     row: "imageSetup",
   },
   builderInBudget: {
     title: "Builder counts against the Container budget",
-    description: "On, the Builder waits for room under the Container budget before it starts, and holds one place while it runs. Off, it runs beside the budget's Containers.",
+    description:
+      "On, the Builder waits for room under the Container budget before it starts, and holds one place while it runs. Off, it runs beside the budget's Containers.",
     schema: { type: "boolean", default: false },
     row: "imageSetup",
   },
@@ -346,14 +381,24 @@ export const ENVIRONMENT_SETTINGS = {
     title: "While a Base build runs",
     description:
       "What a Workspace's new Container starts from while the Base snapshot is being built. Last good Base snapshot: the one made before on this Workspace image, though its Image setup may be older. Wait: up to the Image setup and Snapshot time limits (35 minutes by default), then from the new Base snapshot, or the Workspace image if the build failed. Workspace image: starts at once, without the Image setup. A running Container keeps what it started from.",
-    schema: { type: "enum", values: WHILE_BUILDING, default: "lastGood", labels: { lastGood: "Last good Base snapshot", wait: "Wait for the build", image: "Workspace image" } },
+    schema: {
+      type: "enum",
+      values: WHILE_BUILDING,
+      default: "lastGood",
+      labels: { lastGood: "Last good Base snapshot", wait: "Wait for the build", image: "Workspace image" },
+    },
     row: "imageSetup",
   },
   whileBuildingNewImage: {
     title: "With no last good Base snapshot on this Workspace image",
     description:
       "Only when the setting above starts from the last good Base snapshot and none was made on the current Workspace image (a deploy changed the image, or none was ever made). Wait: up to the Image setup and Snapshot time limits. Workspace image: starts at once, without the Image setup.",
-    schema: { type: "enum", values: WHILE_BUILDING_NEW_IMAGE, default: "wait", labels: { wait: "Wait for the build", image: "Workspace image" } },
+    schema: {
+      type: "enum",
+      values: WHILE_BUILDING_NEW_IMAGE,
+      default: "wait",
+      labels: { wait: "Wait for the build", image: "Workspace image" },
+    },
     row: "imageSetup",
   },
   terminalsReadBashrc: {
@@ -417,7 +462,10 @@ export const fitsEnvironmentSetting = (key: EnvironmentKey, value: unknown): boo
  * The settings every Workspace DO starts its Container with. `settings` is what was stored, or an answer from an
  * Environment newer or older than this Worker: a value that is missing or no longer fits reads as its default.
  */
-export const resolveEnvironment = (stored: { readonly revision: number; readonly settings: Readonly<Record<string, unknown>> }): ResolvedEnvironment => {
+export const resolveEnvironment = (stored: {
+  readonly revision: number;
+  readonly settings: Readonly<Record<string, unknown>>;
+}): ResolvedEnvironment => {
   const resolved: Record<string, unknown> = { revision: stored.revision };
   for (const key of ENVIRONMENT_KEYS) {
     const value = stored.settings[key];
@@ -435,13 +483,21 @@ export const resolveEnvironment = (stored: { readonly revision: number; readonly
  * secret's sealed value as its fingerprint. Everything else as stored.
  */
 export const readStoredEnvironment = (stored: StoredEnvironment): StoredEnvironment =>
-  stored.settings.variables === undefined ? stored : { ...stored, settings: { ...stored.settings, variables: fitVariables(stored.settings.variables) } };
+  stored.settings.variables === undefined
+    ? stored
+    : { ...stored, settings: { ...stored.settings, variables: fitVariables(stored.settings.variables) } };
 
 /**
  * Whether two settings' values, as read, are equal: a scalar by identity, Variables by their names, values and Secret
  * toggles in order, a secret by its fingerprint (the same value sealed again is no change).
  */
-const sameValue = (a: unknown, b: unknown): boolean => a === b || (typeof a === "object" && a !== null && typeof b === "object" && b !== null && JSON.stringify(a) === JSON.stringify(b));
+const sameValue = (a: unknown, b: unknown): boolean =>
+  a === b ||
+  (typeof a === "object" &&
+    a !== null &&
+    typeof b === "object" &&
+    b !== null &&
+    JSON.stringify(a) === JSON.stringify(b));
 
 /** One change from the panel or a script: some of the settings. */
 export interface EnvironmentChange {
@@ -455,21 +511,35 @@ export interface EnvironmentChange {
 export const applyEnvironmentChange = (
   stored: StoredEnvironment,
   change: EnvironmentChange,
-): { readonly ok: true; readonly environment: StoredEnvironment; readonly changed: ReadonlyArray<EnvironmentKey> } | { readonly ok: false; readonly error: string } => {
+):
+  | { readonly ok: true; readonly environment: StoredEnvironment; readonly changed: ReadonlyArray<EnvironmentKey> }
+  | { readonly ok: false; readonly error: string } => {
   if (Object.keys(change.settings).length === 0) return { ok: false, error: "the change sets nothing" };
-  for (const key of Object.keys(change.settings)) if (!Object.hasOwn(ENVIRONMENT_SETTINGS, key)) return { ok: false, error: `${key}: no such setting` };
-  const entries = Object.entries(change.settings).map(([key, value]) => [key, normalizeField(settingOf(key as EnvironmentKey).schema, value)] as const);
+  for (const key of Object.keys(change.settings))
+    if (!Object.hasOwn(ENVIRONMENT_SETTINGS, key)) return { ok: false, error: `${key}: no such setting` };
+  const entries = Object.entries(change.settings).map(
+    ([key, value]) => [key, normalizeField(settingOf(key as EnvironmentKey).schema, value)] as const,
+  );
   for (const [key, value] of entries) {
     const why = fieldProblem(settingOf(key as EnvironmentKey).schema, value);
     if (why !== undefined) return { ok: false, error: `${key}: ${why}` };
   }
   const before: Readonly<Record<string, unknown>> = resolveEnvironment(stored);
   // Compared as read: a set of Variables as `fitVariables` reads it, its secrets by their fingerprints.
-  const moved = entries.filter(([key, value]) => !sameValue(before[key], settingOf(key as EnvironmentKey).schema.type === "variables" ? fitVariables(value) : value));
+  const moved = entries.filter(
+    ([key, value]) =>
+      !sameValue(
+        before[key],
+        settingOf(key as EnvironmentKey).schema.type === "variables" ? fitVariables(value) : value,
+      ),
+  );
   if (moved.length === 0) return { ok: true, environment: stored, changed: [] };
   return {
     ok: true,
-    environment: { revision: stored.revision + 1, settings: { ...stored.settings, ...(Object.fromEntries(moved) as Record<string, EnvironmentValue>) } },
+    environment: {
+      revision: stored.revision + 1,
+      settings: { ...stored.settings, ...(Object.fromEntries(moved) as Record<string, EnvironmentValue>) },
+    },
     changed: moved.map(([key]) => key as EnvironmentKey),
   };
 };

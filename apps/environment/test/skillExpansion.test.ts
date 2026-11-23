@@ -3,13 +3,26 @@
 // passes the thread's skills (the Pi Durable adapter, for a new turn and a steer; of the ACP flavors, OpenCode's only).
 import * as NodeFs from "node:fs";
 
-import { type ChatAttachment, MessageId, ProviderDriverKind, ProviderInstanceId, ProviderSessionId, ThreadId } from "@t3tools/contracts";
+import {
+  type ChatAttachment,
+  MessageId,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  ProviderSessionId,
+  ThreadId,
+} from "@t3tools/contracts";
 import type * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import type * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { matchInlineSkills } from "@t3tools/shared/inlineSkills";
 import type { SubmitTurnInput, SteerInput } from "@t3flare/session-protocol";
-import { isMentionable, type PromptTemplate, SKILL_TOKEN_REGEX, type Skill, type SkillDiscovery } from "@t3flare/skills";
+import {
+  isMentionable,
+  type PromptTemplate,
+  SKILL_TOKEN_REGEX,
+  type Skill,
+  type SkillDiscovery,
+} from "@t3flare/skills";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import type * as FileSystem from "effect/FileSystem";
@@ -34,12 +47,15 @@ const skill = (name: string, extra: Partial<Skill> = {}): Skill => ({
   ...extra,
 });
 const files: Record<string, string> = {
-  [`${SKILLS}/fruit-code/SKILL.md`]: "---\nname: fruit-code\ndescription: The fruit code.\n---\n\nRead reference/code.md for the code.\n",
+  [`${SKILLS}/fruit-code/SKILL.md`]:
+    "---\nname: fruit-code\ndescription: The fruit code.\n---\n\nRead reference/code.md for the code.\n",
   [`${SKILLS}/veg/SKILL.md`]: "---\nname: veg\ndescription: Veg.\n---\nEat greens.",
   [`${SKILLS}/huge/SKILL.md`]: `---\nname: huge\ndescription: Huge.\n---\n${"h".repeat(130_000)}`,
   "/workspace/repo/.pi/prompts/echo.md": "---\ndescription: Echo\n---\nReply with exactly: ECHO $1 ${2:-none}",
 };
-const templates: ReadonlyArray<PromptTemplate> = [{ name: "echo", description: "Echo", filePath: "/workspace/repo/.pi/prompts/echo.md" }];
+const templates: ReadonlyArray<PromptTemplate> = [
+  { name: "echo", description: "Echo", filePath: "/workspace/repo/.pi/prompts/echo.md" },
+];
 
 const fruitBlock = `<skill name="fruit-code" location="${SKILLS}/fruit-code/SKILL.md">\nReferences are relative to ${SKILLS}/fruit-code.\n\nRead reference/code.md for the code.\n</skill>`;
 const vegBlock = `<skill name="veg" location="${SKILLS}/veg/SKILL.md">\nReferences are relative to ${SKILLS}/veg.\n\nEat greens.\n</skill>`;
@@ -50,15 +66,25 @@ const thread = (): MessageSkills & { loads: number } => {
     load: () =>
       Effect.sync(() => {
         state.loads++;
-        return { skills: [skill("fruit-code"), skill("veg"), skill("huge")], templates, read: (path: string) => Effect.succeed(files[path] ?? null) };
+        return {
+          skills: [skill("fruit-code"), skill("veg"), skill("huge")],
+          templates,
+          read: (path: string) => Effect.succeed(files[path] ?? null),
+        };
       }),
   };
   return state;
 };
 const noFiles: AttachmentReader = { bytes: () => Effect.succeed(null), extractedText: () => Effect.succeed(null) };
 /** `null`: no skills passed, as the ACP builder calls it. */
-const expand = (text: string, skills: MessageSkills | null = thread(), attachments: ReadonlyArray<ChatAttachment> = []) =>
-  Effect.runPromise(turnPrompt({ text, attachments }, { acceptsImages: true, reader: noFiles, ...(skills === null ? {} : { skills }) })).then((prompt) => prompt.text);
+const expand = (
+  text: string,
+  skills: MessageSkills | null = thread(),
+  attachments: ReadonlyArray<ChatAttachment> = [],
+) =>
+  Effect.runPromise(
+    turnPrompt({ text, attachments }, { acceptsImages: true, reader: noFiles, ...(skills === null ? {} : { skills }) }),
+  ).then((prompt) => prompt.text);
 
 describe("Skill mentions", () => {
   it("appends a <skill name location> block for a $name, as t3's Pi provider does", async () => {
@@ -66,11 +92,18 @@ describe("Skill mentions", () => {
   });
 
   it("embeds two skills, and a repeated one once", async () => {
-    expect(await expand("$fruit-code then $veg and $fruit-code again")).toBe(`$fruit-code then $veg and $fruit-code again\n\n${fruitBlock}\n\n${vegBlock}`);
+    expect(await expand("$fruit-code then $veg and $fruit-code again")).toBe(
+      `$fruit-code then $veg and $fruit-code again\n\n${fruitBlock}\n\n${vegBlock}`,
+    );
   });
 
   it("leaves an unknown $foo, a URL and an inline code span untouched", async () => {
-    for (const text of ["say $nope", "see https://example.com/?q=$fruit-code", "type `$fruit-code` to pick it", "type ` $fruit-code ` here"]) {
+    for (const text of [
+      "say $nope",
+      "see https://example.com/?q=$fruit-code",
+      "type `$fruit-code` to pick it",
+      "type ` $fruit-code ` here",
+    ]) {
       expect(await expand(text)).toBe(text);
     }
   });
@@ -134,16 +167,25 @@ describe("the caller's switch", () => {
     const host = {} as ProviderHost.ProviderHost["Service"];
     const fileSystem = {} as FileSystem.FileSystem;
     const rewrite = (cli: "claude" | "opencode") => {
-      const flavor = acpInstanceFlavor({ cli, driver: ProviderDriverKind.make(cli) }, host, fileSystem, workspaceAccess());
+      const flavor = acpInstanceFlavor(
+        { cli, driver: ProviderDriverKind.make(cli) },
+        host,
+        fileSystem,
+        workspaceAccess(),
+      );
       if (flavor.rewriteUserText === undefined) return Promise.resolve("(no rewrite)");
       const turn = {} as ProviderAdapter.ProviderAdapterV2TurnInput;
-      const rewritten = flavor.rewriteUserText("$fruit-code", turn).pipe(Effect.provideService(CliTurn, { cwd: "/w/proj" }));
+      const rewritten = flavor
+        .rewriteUserText("$fruit-code", turn)
+        .pipe(Effect.provideService(CliTurn, { cwd: "/w/proj" }));
       // Never spawns: the hooks' requirement is t3's, for flavors that run a process to rewrite.
       // @effect-diagnostics-next-line unsafeEffectTypeAssertion:off -- OpenCode's rewrite never reaches the spawner the type requires.
       return Effect.runPromise(rewritten as Effect.Effect<string>);
     };
     // As OpenCode's skill tool returns it (cliSkillDispatch.test.ts pins the block).
-    expect(await rewrite("opencode")).toContain(`$fruit-code\n\n<skill_content name="fruit-code">\n# Skill: fruit-code\n\nRead reference/code.md for the code.`);
+    expect(await rewrite("opencode")).toContain(
+      `$fruit-code\n\n<skill_content name="fruit-code">\n# Skill: fruit-code\n\nRead reference/code.md for the code.`,
+    );
     expect(await rewrite("claude")).toBe("(no rewrite)");
   });
 
@@ -160,18 +202,40 @@ describe("the caller's switch", () => {
       sql: { exec: () => ({ toArray: () => [] }) },
       turnLimitMs: () => 45 * 60_000,
     } as unknown as EnvironmentServices);
-    const mcpSessions = { read: () => Effect.undefined } as unknown as McpProviderSessions.McpProviderSessions["Service"];
+    const mcpSessions = {
+      read: () => Effect.undefined,
+    } as unknown as McpProviderSessions.McpProviderSessions["Service"];
     const instanceId = ProviderInstanceId.make("piDurable");
-    const access: SkillsAccess = { ...workspaceAccess(), environment: { entries: () => [], skillMd: () => undefined, hash: () => "env-hash" } };
+    const access: SkillsAccess = {
+      ...workspaceAccess(),
+      environment: { entries: () => [], skillMd: () => undefined, hash: () => "env-hash" },
+    };
     const adapter = makePiDurableAdapter(instanceId, mcpSessions, noFiles, access);
     const threadId = ThreadId.make("thread-skills");
     const modelSelection = { instanceId, model: "comm/claude-sonnet-5-5" } as const;
-    const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({ runtimeMode: "full-access", interactionMode: "default", cwd: "/w/proj" });
+    const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      cwd: "/w/proj",
+    });
     await Effect.runPromise(
       Effect.gen(function* () {
-        const runtime = yield* adapter.openSession({ threadId, providerSessionId: ProviderSessionId.make("session-skills"), modelSelection, runtimePolicy });
+        const runtime = yield* adapter.openSession({
+          threadId,
+          providerSessionId: ProviderSessionId.make("session-skills"),
+          modelSelection,
+          runtimePolicy,
+        });
         const providerThread = yield* runtime.ensureThread({ threadId, modelSelection, runtimePolicy });
-        const turn = makeTurnInput({ threadId, providerThread, instanceId, runtimePolicy, now: yield* DateTime.now, modelSelection, messageText: "what is it? $fruit-code" });
+        const turn = makeTurnInput({
+          threadId,
+          providerThread,
+          instanceId,
+          runtimePolicy,
+          now: yield* DateTime.now,
+          modelSelection,
+          messageText: "what is it? $fruit-code",
+        });
         yield* runtime.startTurn(turn);
         yield* runtime.steerTurn({
           threadId,
@@ -182,7 +246,9 @@ describe("the caller's switch", () => {
         });
       }).pipe(Effect.scoped),
     );
-    expect(submitted.map(({ text, environmentSkillsHash, turnLimitMs }) => ({ text, environmentSkillsHash, turnLimitMs }))).toEqual([
+    expect(
+      submitted.map(({ text, environmentSkillsHash, turnLimitMs }) => ({ text, environmentSkillsHash, turnLimitMs })),
+    ).toEqual([
       { text: `what is it? $fruit-code\n\n${fruitBlock}`, environmentSkillsHash: "env-hash", turnLimitMs: 45 * 60_000 },
     ]);
     expect(steered.map(({ text }) => text)).toEqual([`and $veg\n\n${vegBlock}`]);
@@ -197,7 +263,11 @@ describe("the caller's switch", () => {
           ? {
               id: "proj",
               inner: "/workspace/repo",
-              workspace: { skills: () => Promise.resolve(discovery), prompts: () => Promise.resolve([]), readText: (path) => Promise.resolve(files[path] ?? null) },
+              workspace: {
+                skills: () => Promise.resolve(discovery),
+                prompts: () => Promise.resolve([]),
+                readText: (path) => Promise.resolve(files[path] ?? null),
+              },
             }
           : undefined,
     });
@@ -210,14 +280,20 @@ describe("the caller's switch", () => {
 describe("Environment skills in a message (SPI-1148)", () => {
   const ENV = "/workspace/.agents/skills";
   const repoFruit = { skills: [skill("fruit-code")], skipped: [], omitted: 0 };
-  const access = (rows: Array<{ name: string; description: string; disableModelInvocation: boolean }>, held: SkillDiscovery = repoFruit): SkillsAccess & { repoOnly: Array<boolean> } => {
+  const access = (
+    rows: Array<{ name: string; description: string; disableModelInvocation: boolean }>,
+    held: SkillDiscovery = repoFruit,
+  ): SkillsAccess & { repoOnly: Array<boolean> } => {
     const repoOnly: Array<boolean> = [];
     return {
       repoOnly,
       enabled: () => true,
       environment: {
         entries: () => rows,
-        skillMd: (name) => (name === "fruit-code" ? "---\nname: fruit-code\ndescription: The Environment's.\n---\nThe code is PLUM-9.\n" : undefined),
+        skillMd: (name) =>
+          name === "fruit-code"
+            ? "---\nname: fruit-code\ndescription: The Environment's.\n---\nThe code is PLUM-9.\n"
+            : undefined,
         hash: () => "h",
       },
       locate: () => ({
@@ -254,24 +330,59 @@ describe("upstream pins (U64)", () => {
   });
 
   it("discovery's isMentionable agrees with matchInlineSkills on which names t3 can mention", () => {
-    const names = ["_private", "-x", ":ns", "5k", "2e5", "123", "fruit-code", "ns:tool_1", "a", "x9", "A-b_c:d", "5kiwi", "e5", "a".repeat(64)];
+    const names = [
+      "_private",
+      "-x",
+      ":ns",
+      "5k",
+      "2e5",
+      "123",
+      "fruit-code",
+      "ns:tool_1",
+      "a",
+      "x9",
+      "A-b_c:d",
+      "5kiwi",
+      "e5",
+      "a".repeat(64),
+    ];
     for (const name of names) {
       expect(isMentionable(name), name).toBe([...matchInlineSkills(`$${name}`, [{ name }])].length === 1);
     }
-    expect(names.filter((name) => isMentionable(name))).toEqual(["fruit-code", "ns:tool_1", "a", "x9", "A-b_c:d", "5kiwi", "e5", "a".repeat(64)]);
+    expect(names.filter((name) => isMentionable(name))).toEqual([
+      "fruit-code",
+      "ns:tool_1",
+      "a",
+      "x9",
+      "A-b_c:d",
+      "5kiwi",
+      "e5",
+      "a".repeat(64),
+    ]);
   });
 
   it("discovery's copy of t3's mention token is still t3's (inlineSkills.ts)", () => {
-    const source = NodeFs.readFileSync(new URL("../../../t3code/packages/shared/src/inlineSkills.ts", import.meta.url), "utf8");
+    const source = NodeFs.readFileSync(
+      new URL("../../../t3code/packages/shared/src/inlineSkills.ts", import.meta.url),
+      "utf8",
+    );
     const t3 = /const SKILL_TOKEN_REGEX =\s*\/(.+)\/([a-z]*);/.exec(source);
     expect(t3, "t3 moved SKILL_TOKEN_REGEX; re-read U64").not.toBeNull();
-    expect({ source: SKILL_TOKEN_REGEX.source, flags: SKILL_TOKEN_REGEX.flags }).toEqual({ source: t3![1], flags: t3![2] });
+    expect({ source: SKILL_TOKEN_REGEX.source, flags: SKILL_TOKEN_REGEX.flags }).toEqual({
+      source: t3![1],
+      flags: t3![2],
+    });
   });
 
   // Not a fingerprint literal: that would watch ChatComposer.tsx byte for byte, and t3 changes it most nights.
   it("t3's composer inserts `$<name> ` for a picked skill (ChatComposer.tsx)", () => {
-    const source = NodeFs.readFileSync(new URL("../../../t3code/apps/web/src/components/chat/ChatComposer.tsx", import.meta.url), "utf8");
-    expect(normalise(source), "t3's composer changed what it inserts for a skill; re-read U64").toContain(normalise('if (item.type === "skill") { const replacement = `$${item.skill.name} `;'));
+    const source = NodeFs.readFileSync(
+      new URL("../../../t3code/apps/web/src/components/chat/ChatComposer.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(normalise(source), "t3's composer changed what it inserts for a skill; re-read U64").toContain(
+      normalise('if (item.type === "skill") { const replacement = `$${item.skill.name} `;'),
+    );
     // `normalise` drops the space before the backtick; the template itself is text a reformat leaves alone.
     expect(source).toContain("`$${item.skill.name} `");
   });

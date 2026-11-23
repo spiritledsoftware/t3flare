@@ -120,7 +120,8 @@ const scanTopLevel = (text: string, visit: (index: number) => number | void) => 
 };
 
 /** The text from `index` when a word starts there, else "". */
-const wordAt = (text: string, index: number) => (index === 0 || !/[\w$]/.test(text[index - 1]!) ? text.slice(index) : "");
+const wordAt = (text: string, index: number) =>
+  index === 0 || !/[\w$]/.test(text[index - 1]!) ? text.slice(index) : "";
 
 const rewriteLevel = (text: string): string => {
   // Children first: every parenthesized region is a query level of its own.
@@ -277,8 +278,26 @@ export const splitWith = (query: string): { ctes: Array<Cte>; main: string } | n
 };
 
 const NOT_ALIAS = new Set([
-  "WHERE", "JOIN", "LEFT", "RIGHT", "INNER", "CROSS", "FULL", "OUTER", "NATURAL", "ON", "USING",
-  "GROUP", "ORDER", "LIMIT", "UNION", "INTERSECT", "EXCEPT", "WINDOW", "HAVING", "AS",
+  "WHERE",
+  "JOIN",
+  "LEFT",
+  "RIGHT",
+  "INNER",
+  "CROSS",
+  "FULL",
+  "OUTER",
+  "NATURAL",
+  "ON",
+  "USING",
+  "GROUP",
+  "ORDER",
+  "LIMIT",
+  "UNION",
+  "INTERSECT",
+  "EXCEPT",
+  "WINDOW",
+  "HAVING",
+  "AS",
 ]);
 
 /** A cursor over rows already read: what `materializeCtes` returns in place of `SqlStorage.exec`'s. */
@@ -381,7 +400,9 @@ const counted = (cursor: Rows): Rows => {
           const out: unknown = value.apply(target, args);
           settle();
           if (out === target) return proxy;
-          return typeof out === "object" && out !== null && typeof (out as { next?: unknown }).next === "function" ? settling(out) : out;
+          return typeof out === "object" && out !== null && typeof (out as { next?: unknown }).next === "function"
+            ? settling(out)
+            : out;
         };
       },
     });

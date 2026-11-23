@@ -4,11 +4,11 @@ The Cloud Environment links to your laptop with t3's own Peer link, as one stock
 
 Three kinds of Route work. You can give a link more than one: t3 keeps every address that answered, and each call uses the first that still does.
 
-| Kind | Address | What the laptop runs | Notes |
-|---|---|---|---|
-| T3 Connect | the tunnel hostname T3 Connect gave the laptop | nothing new: T3 Connect is on in the desktop app | The Link dialog offers it when your app knows the laptop. The relay operator is in the path. |
-| Tailscale Funnel | `https://<node>.<tailnet>.ts.net` (port 443, 8443 or 10000) | `tailscale funnel` to t3's port | Not a tailnet-only address: the cloud is not on your tailnet. The hostname is published in certificate logs. |
-| Your own Cloudflare Tunnel | a hostname of yours | `cloudflared` as a launch agent, the hostname to `http://localhost:<t3's port>` | No Access in front. Leave `Host` as it is (no `httpHostHeader`). |
+| Kind                       | Address                                                     | What the laptop runs                                                            | Notes                                                                                                        |
+| -------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| T3 Connect                 | the tunnel hostname T3 Connect gave the laptop              | nothing new: T3 Connect is on in the desktop app                                | The Link dialog offers it when your app knows the laptop. The relay operator is in the path.                 |
+| Tailscale Funnel           | `https://<node>.<tailnet>.ts.net` (port 443, 8443 or 10000) | `tailscale funnel` to t3's port                                                 | Not a tailnet-only address: the cloud is not on your tailnet. The hostname is published in certificate logs. |
+| Your own Cloudflare Tunnel | a hostname of yours                                         | `cloudflared` as a launch agent, the hostname to `http://localhost:<t3's port>` | No Access in front. Leave `Host` as it is (no `httpHostHeader`).                                             |
 
 ## Before you start: find and pin t3's port
 

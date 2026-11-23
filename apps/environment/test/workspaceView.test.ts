@@ -16,13 +16,34 @@ const deletedProject = () => {
   const sql = t3Tables();
   // Deleted before the Sweep marked them (NOW - 2 days), so the marks rule their dates.
   const deleted = new Date(NOW - 5 * DAY).toISOString();
-  sql.exec(`INSERT INTO projection_projects VALUES ('p-old', 'Acme (old)', '/w/acme', '1970-01-01T00:00:00Z', '${new Date(NOW - 50 * DAY).toISOString()}', NULL)`);
-  sql.exec(`INSERT INTO projection_projects VALUES ('p-acme', 'Acme', '/w/acme', '1970-01-02T00:00:00Z', '${deleted}', NULL)`);
-  sql.exec(`INSERT INTO orchestration_v2_projection_threads VALUES ('t1', 'p-acme', 'Feature A', '${deleted}', NULL, '{"worktreePath":"/w/.wt/acme/feat-a"}')`);
+  sql.exec(
+    `INSERT INTO projection_projects VALUES ('p-old', 'Acme (old)', '/w/acme', '1970-01-01T00:00:00Z', '${new Date(NOW - 50 * DAY).toISOString()}', NULL)`,
+  );
+  sql.exec(
+    `INSERT INTO projection_projects VALUES ('p-acme', 'Acme', '/w/acme', '1970-01-02T00:00:00Z', '${deleted}', NULL)`,
+  );
+  sql.exec(
+    `INSERT INTO orchestration_v2_projection_threads VALUES ('t1', 'p-acme', 'Feature A', '${deleted}', NULL, '{"worktreePath":"/w/.wt/acme/feat-a"}')`,
+  );
   const rows = [
     record({ id: "acme", unreferencedSince: NOW - 2 * DAY }),
-    record({ id: ".wt/acme/feat-a", kind: "worktree", parent: "acme", branch: "feat-a", unreferencedSince: NOW - 2 * DAY }),
-    record({ id: ".wt/acme/feat-b", kind: "worktree", parent: "acme", branch: "t3/feat-b", state: "tombstoned", deletedAt: NOW - 3 * DAY, purgeAfter: NOW + 4 * DAY, lastError: "uncommitted work (--force)" }),
+    record({
+      id: ".wt/acme/feat-a",
+      kind: "worktree",
+      parent: "acme",
+      branch: "feat-a",
+      unreferencedSince: NOW - 2 * DAY,
+    }),
+    record({
+      id: ".wt/acme/feat-b",
+      kind: "worktree",
+      parent: "acme",
+      branch: "t3/feat-b",
+      state: "tombstoned",
+      deletedAt: NOW - 3 * DAY,
+      purgeAfter: NOW + 4 * DAY,
+      lastError: "uncommitted work (--force)",
+    }),
   ];
   return { sql, rows };
 };
@@ -51,31 +72,63 @@ describe("the Workspaces view (ADR-0044 §1)", () => {
       [".wt/acme/feat-b", "t3/feat-b", "tombstone"],
     ]);
     const [a, b] = project!.worktrees;
-    expect(a).toMatchObject({ purgeDue: NOW - 2 * DAY + GRACE, sessions: 1, confirmName: "feat-a", can: { purge: true, restore: false, stop: true }, worktrees: [] });
-    expect(b).toMatchObject({ purgeDue: NOW - 3 * DAY + GRACE, deletedAt: NOW - 3 * DAY, lastError: "uncommitted work (--force)", confirmName: "feat-b", can: { purge: true, restore: true, stop: false } });
+    expect(a).toMatchObject({
+      purgeDue: NOW - 2 * DAY + GRACE,
+      sessions: 1,
+      confirmName: "feat-a",
+      can: { purge: true, restore: false, stop: true },
+      worktrees: [],
+    });
+    expect(b).toMatchObject({
+      purgeDue: NOW - 3 * DAY + GRACE,
+      deletedAt: NOW - 3 * DAY,
+      lastError: "uncommitted work (--force)",
+      confirmName: "feat-b",
+      can: { purge: true, restore: true, stop: false },
+    });
   });
 
   it("dates a stale mark from the later deletion of a thread that took the Workspace before any Sweep cleared it (ADR-0043 §2)", async () => {
     const sql = t3Tables();
     const deleted = NOW - DAY;
-    sql.exec(`INSERT INTO orchestration_v2_projection_threads VALUES ('t5', 'p-x', 'Took it', '${new Date(deleted).toISOString()}', NULL, '{"worktreePath":"/w/.wt/acme/feat-a"}')`);
-    const rows = [record({ id: ".wt/acme/feat-a", kind: "worktree", parent: "acme", branch: "feat-a", unreferencedSince: NOW - GRACE })];
+    sql.exec(
+      `INSERT INTO orchestration_v2_projection_threads VALUES ('t5', 'p-x', 'Took it', '${new Date(deleted).toISOString()}', NULL, '{"worktreePath":"/w/.wt/acme/feat-a"}')`,
+    );
+    const rows = [
+      record({
+        id: ".wt/acme/feat-a",
+        kind: "worktree",
+        parent: "acme",
+        branch: "feat-a",
+        unreferencedSince: NOW - GRACE,
+      }),
+    ];
     const [row] = (await workspacesView(viewDeps(rows, { sql }), NOW)).rows;
     expect(row).toMatchObject({ purgeDue: deleted + GRACE, planned: { action: "skip" } });
   });
 
   it("dates nothing before one Grace after purging was turned on, and a Sweep that has not run since counts from now", async () => {
     const { sql, rows } = deletedProject();
-    expect((await workspacesView(viewDeps(rows, { sql, purgingSince: NOW - DAY }), NOW)).rows[0]!.purgeDue).toBe(NOW - DAY + GRACE);
-    expect((await workspacesView(viewDeps(rows, { sql, purgingSince: null }), NOW)).rows[0]!.purgeDue).toBe(NOW + GRACE);
+    expect((await workspacesView(viewDeps(rows, { sql, purgingSince: NOW - DAY }), NOW)).rows[0]!.purgeDue).toBe(
+      NOW - DAY + GRACE,
+    );
+    expect((await workspacesView(viewDeps(rows, { sql, purgingSince: null }), NOW)).rows[0]!.purgeDue).toBe(
+      NOW + GRACE,
+    );
   });
 
   it("a referenced project is in use, its references named by their titles, with no date and no Purge; a referenced worktree holds its project's Purge", async () => {
     const sql = t3Tables();
-    sql.exec("INSERT INTO projection_projects VALUES ('p-live', 'Live app', '/w/live', '2026-03-01T00:00:00Z', NULL, '2026-04-01T00:00:00Z')");
-    sql.exec(`INSERT INTO orchestration_v2_projection_threads VALUES ('t2', 'p-live', 'Fix the bug', NULL, NULL, '{"worktreePath":null}')`);
+    sql.exec(
+      "INSERT INTO projection_projects VALUES ('p-live', 'Live app', '/w/live', '2026-03-01T00:00:00Z', NULL, '2026-04-01T00:00:00Z')",
+    );
+    sql.exec(
+      `INSERT INTO orchestration_v2_projection_threads VALUES ('t2', 'p-live', 'Fix the bug', NULL, NULL, '{"worktreePath":null}')`,
+    );
     sql.exec("INSERT INTO orchestration_v2_projection_runs VALUES ('t2', 'running')");
-    sql.exec(`INSERT INTO orchestration_v2_projection_threads VALUES ('t3', 'p-gone', 'Still open', NULL, NULL, '{"worktreePath":"/w/.wt/gone/keep"}')`);
+    sql.exec(
+      `INSERT INTO orchestration_v2_projection_threads VALUES ('t3', 'p-gone', 'Still open', NULL, NULL, '{"worktreePath":"/w/.wt/gone/keep"}')`,
+    );
     const rows = [
       record({ id: "gone", unreferencedSince: NOW - DAY }),
       record({ id: ".wt/gone/keep", kind: "worktree", parent: "gone", branch: "keep" }),
@@ -92,15 +145,38 @@ describe("the Workspaces view (ADR-0044 §1)", () => {
       planned: { action: "clear-unreferenced" },
       can: { purge: false, restore: false, stop: true },
     });
-    expect(byId.get("terminal")).toMatchObject({ title: "terminal", repo: null, status: "in use", references: ["2 open terminals"], can: { purge: false } });
+    expect(byId.get("terminal")).toMatchObject({
+      title: "terminal",
+      repo: null,
+      status: "in use",
+      references: ["2 open terminals"],
+      can: { purge: false },
+    });
     expect(byId.get("gone")).toMatchObject({ status: "unreferenced", can: { purge: false } });
-    expect(byId.get("gone")!.worktrees[0]).toMatchObject({ status: "in use", references: ["thread “Still open”"], can: { purge: false } });
+    expect(byId.get("gone")!.worktrees[0]).toMatchObject({
+      status: "in use",
+      references: ["thread “Still open”"],
+      can: { purge: false },
+    });
   });
 
   it("with purging off, dates nothing and says so in each plan; an overridden Grace is reported", async () => {
     const { sql, rows } = deletedProject();
-    const view = await workspacesView(viewDeps(rows, { sql, settings: { purging: false, graceMs: 180_000, graceDays: 9, overridden: true }, purgingSince: null }), NOW);
-    expect(view).toMatchObject({ purging: false, graceDays: 9, graceMs: 180_000, overridden: true, purgingSince: null });
+    const view = await workspacesView(
+      viewDeps(rows, {
+        sql,
+        settings: { purging: false, graceMs: 180_000, graceDays: 9, overridden: true },
+        purgingSince: null,
+      }),
+      NOW,
+    );
+    expect(view).toMatchObject({
+      purging: false,
+      graceDays: 9,
+      graceMs: 180_000,
+      overridden: true,
+      purgingSince: null,
+    });
     const all = [view.rows[0]!, ...view.rows[0]!.worktrees];
     expect(all.map((row) => row.purgeDue)).toEqual([null, null, null]);
     for (const row of all) expect(row.planned.why).toContain("purging is off");
@@ -110,7 +186,15 @@ describe("the Workspaces view (ADR-0044 §1)", () => {
 
   it("names every other state: kept Tombstone, purging, provisioning, failed; a worktree whose project is gone is a row of its own", async () => {
     const rows = [
-      record({ id: ".wt/old/kept", kind: "worktree", parent: "old", branch: "kept", state: "tombstoned", deletedAt: NOW - DAY, purgeAfter: null }),
+      record({
+        id: ".wt/old/kept",
+        kind: "worktree",
+        parent: "old",
+        branch: "kept",
+        state: "tombstoned",
+        deletedAt: NOW - DAY,
+        purgeAfter: null,
+      }),
       record({ id: "deleting", state: "deleting" }),
       record({ id: "new", state: "provisioning", createdAt: NOW - 60_000 }),
       record({ id: "broken", state: "failed", lastError: "clone failed" }),
@@ -127,7 +211,9 @@ describe("the Workspaces view (ADR-0044 §1)", () => {
   it("fails when a read fails: t3's tables, or a Workspace that cannot say whether its Terminals are open", async () => {
     const rows = [record({ id: "acme" })];
     await expect(workspacesView({ ...viewDeps(rows), sql: nodeSqlStorage() }, NOW)).rejects.toThrow();
-    await expect(workspacesView({ ...viewDeps(rows), terminals: async () => Promise.reject(new Error("no answer")) }, NOW)).rejects.toThrow("no answer");
+    await expect(
+      workspacesView({ ...viewDeps(rows), terminals: async () => Promise.reject(new Error("no answer")) }, NOW),
+    ).rejects.toThrow("no answer");
   });
 });
 
@@ -181,16 +267,41 @@ describe("the dry Sweep's preview (ADR-0044 §1)", () => {
   });
 
   it("says nothing would be purged when purging is off, and carries a failed read's error", () => {
-    expect(sweepPreview(report({ purging: false, actions: [{ id: "acme", action: "skip", why: "unreferenced; purging is off" }] })).summary).toBe(
-      "Purging is off: the Sweep would purge nothing and destroy no Session.",
-    );
-    expect(sweepPreview(report({ purging: false, costGuard: [{ holder: "a", action: "would stop" }, { holder: "b", action: "would stop" }] })).summary).toBe(
+    expect(
+      sweepPreview(
+        report({ purging: false, actions: [{ id: "acme", action: "skip", why: "unreferenced; purging is off" }] }),
+      ).summary,
+    ).toBe("Purging is off: the Sweep would purge nothing and destroy no Session.");
+    expect(
+      sweepPreview(
+        report({
+          purging: false,
+          costGuard: [
+            { holder: "a", action: "would stop" },
+            { holder: "b", action: "would stop" },
+          ],
+        }),
+      ).summary,
+    ).toBe(
       "Purging is off: the Sweep would purge nothing and destroy no Session. It would stop 2 Containers no Workspace holds.",
     );
     // A Purge already under way is finished with purging off too (ADR-0043 §4): the preview says so.
-    expect(sweepPreview(report({ purging: false, actions: [{ id: "gone", action: "purge", why: "left in deleting" }, { id: "acme", action: "skip", why: "unreferenced; purging is off" }] })).summary).toBe(
+    expect(
+      sweepPreview(
+        report({
+          purging: false,
+          actions: [
+            { id: "gone", action: "purge", why: "left in deleting" },
+            { id: "acme", action: "skip", why: "unreferenced; purging is off" },
+          ],
+        }),
+      ).summary,
+    ).toBe(
       "Purging is off: the Sweep would start no Purge and destroy no Session on its own; it would finish purging 1 Workspace left purging, with its deleted threads' Sessions.",
     );
-    expect(sweepPreview(report({ ok: false, error: "the sweep read failed, nothing done: boom" }))).toMatchObject({ ok: false, summary: "the sweep read failed, nothing done: boom" });
+    expect(sweepPreview(report({ ok: false, error: "the sweep read failed, nothing done: boom" }))).toMatchObject({
+      ok: false,
+      summary: "the sweep read failed, nothing done: boom",
+    });
   });
 });

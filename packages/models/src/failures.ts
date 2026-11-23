@@ -94,7 +94,8 @@ interface Read {
   readonly at: number;
 }
 
-const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> => typeof value === "object" && value !== null && !Array.isArray(value);
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 const str = (value: unknown): string | undefined => (typeof value === "string" && value !== "" ? value : undefined);
 
 /** The first JSON object in `text`: a body, or one inside pi-ai's text (`429 {…}`, `Error: {…}`). */
@@ -136,7 +137,8 @@ const read = (answer: FailedAnswer): Read => {
     if (coded !== null) code = coded[1];
   }
   const inStream = answer.status < 400;
-  const implied = (code !== undefined ? IMPLIED_STATUS[code] : undefined) ?? (type !== undefined ? IMPLIED_STATUS[type] : undefined);
+  const implied =
+    (code !== undefined ? IMPLIED_STATUS[code] : undefined) ?? (type !== undefined ? IMPLIED_STATUS[type] : undefined);
   return {
     status: inStream ? implied : answer.status,
     type,
@@ -173,7 +175,10 @@ export const errorBodyOf = async (response: Response, limit = ERROR_BODY_BYTES):
  * Up to `limit` bytes of an answer's body, read from a copy so its reader still gets the answer whole, and whether there
  * was more (the rest is cancelled, never read). Undefined when it cannot be read.
  */
-export const readBody = async (response: Response, limit: number): Promise<{ readonly text: string; readonly over: boolean } | undefined> => {
+export const readBody = async (
+  response: Response,
+  limit: number,
+): Promise<{ readonly text: string; readonly over: boolean } | undefined> => {
   try {
     const body = response.clone().body;
     if (body === null) return { text: "", over: false };
@@ -218,7 +223,8 @@ const retryAfter = (r: Read): number | undefined => {
 
 /** Epoch seconds as ms, when the value is one. */
 const epochSeconds = (value: unknown): number | undefined => {
-  const seconds = typeof value === "number" ? value : typeof value === "string" && /^\d+$/.test(value) ? Number(value) : undefined;
+  const seconds =
+    typeof value === "number" ? value : typeof value === "string" && /^\d+$/.test(value) ? Number(value) : undefined;
   return seconds === undefined || seconds <= 0 ? undefined : seconds * 1000;
 };
 
@@ -272,32 +278,75 @@ interface Row {
   readonly reset?: (r: Read) => number | undefined;
 }
 
-const named = (r: Read, ...names: ReadonlyArray<string>): boolean => names.includes(r.type ?? "") || names.includes(r.code ?? "");
-const status = (r: Read, ...statuses: ReadonlyArray<number>): boolean => r.status !== undefined && statuses.includes(r.status);
+const named = (r: Read, ...names: ReadonlyArray<string>): boolean =>
+  names.includes(r.type ?? "") || names.includes(r.code ?? "");
+const status = (r: Read, ...statuses: ReadonlyArray<number>): boolean =>
+  r.status !== undefined && statuses.includes(r.status);
 
-const OPENAI_SPEND = ["insufficient_quota", "credit_balance_exhausted", "organization_spend_limit_exceeded", "project_spend_limit_exceeded", "organization_usage_limit_exceeded"];
+const OPENAI_SPEND = [
+  "insufficient_quota",
+  "credit_balance_exhausted",
+  "organization_spend_limit_exceeded",
+  "project_spend_limit_exceeded",
+  "organization_usage_limit_exceeded",
+];
 
 const ROWS: ReadonlyArray<Row> = [
   // Anthropic Messages (platform.claude.com/docs/en/api/errors, /rate-limits; Claude Code's unified headers).
-  { families: ["anthropic"], when: (r) => status(r, 429) && r.header("anthropic-ratelimit-unified-status") === "rejected", code: "usage_limit", reset: unifiedOrRetryAfter },
-  { families: ["anthropic"], when: (r) => r.detailCode === "enforced_spend_limit_reached" || named(r, "billing_error") || status(r, 402), code: "spend_limit" },
+  {
+    families: ["anthropic"],
+    when: (r) => status(r, 429) && r.header("anthropic-ratelimit-unified-status") === "rejected",
+    code: "usage_limit",
+    reset: unifiedOrRetryAfter,
+  },
+  {
+    families: ["anthropic"],
+    when: (r) => r.detailCode === "enforced_spend_limit_reached" || named(r, "billing_error") || status(r, 402),
+    code: "spend_limit",
+  },
   // An owner-set spend limit: 400 `invalid_request_error`, which the rate-limits page tells apart only by the message's
   // documented opening ("You have reached your specified API usage limits", or "… workspace API usage limits").
-  { families: ["anthropic"], when: (r) => status(r, 400) && named(r, "invalid_request_error") && /^You have reached your specified (?:workspace )?API usage limits/.test(r.message), code: "spend_limit" },
+  {
+    families: ["anthropic"],
+    when: (r) =>
+      status(r, 400) &&
+      named(r, "invalid_request_error") &&
+      /^You have reached your specified (?:workspace )?API usage limits/.test(r.message),
+    code: "spend_limit",
+  },
   { families: ["anthropic"], when: (r) => named(r, "overloaded_error") || status(r, 529), code: "overloaded" },
   // ChatGPT's Codex backend (codex-rs api_bridge.rs) and plan usage (developers.openai.com/siwc/…/errors-and-recovery).
   { families: ["openai"], when: (r) => named(r, "usage_limit_reached"), code: "usage_limit", reset: chatgptReset },
   { families: ["openai"], when: (r) => named(r, "usage_not_included"), code: "plan_not_eligible" },
   { families: ["openai"], when: (r) => named(r, "subscription_sharing_usage_limit_exceeded"), code: "usage_limit" },
-  { families: ["openai"], when: (r) => named(r, "subscription_sharing_workplace_individual_usage_limit_exceeded"), code: "workspace_limit" },
   {
     families: ["openai"],
-    when: (r) => named(r, "subscription_sharing_user_not_eligible", "subscription_sharing_route_not_supported", "chatpass_v2_scope_not_authorized", "chatpass_v2_invalid_authorization_context"),
+    when: (r) => named(r, "subscription_sharing_workplace_individual_usage_limit_exceeded"),
+    code: "workspace_limit",
+  },
+  {
+    families: ["openai"],
+    when: (r) =>
+      named(
+        r,
+        "subscription_sharing_user_not_eligible",
+        "subscription_sharing_route_not_supported",
+        "chatpass_v2_scope_not_authorized",
+        "chatpass_v2_invalid_authorization_context",
+      ),
     code: "plan_not_eligible",
   },
   { families: ["openai"], when: (r) => named(r, "subscription_sharing_invalid_user"), code: "sign_in_refused" },
-  { families: ["openai"], when: (r) => named(r, "subscription_sharing_usage_unavailable", "subscription_sharing_user_unavailable"), code: "unavailable" },
-  { families: ["openai"], when: (r) => named(r, "subscription_sharing_unsupported_capability"), code: "unsupported_request" },
+  {
+    families: ["openai"],
+    when: (r) => named(r, "subscription_sharing_usage_unavailable", "subscription_sharing_user_unavailable"),
+    code: "unavailable",
+  },
+  {
+    families: ["openai"],
+    when: (r) => named(r, "subscription_sharing_unsupported_capability"),
+    code: "unsupported_request",
+  },
   // OpenAI's API (platform.openai.com/docs/guides/error-codes, /rate-limits).
   { families: ["openai"], when: (r) => named(r, ...OPENAI_SPEND) || status(r, 402), code: "spend_limit" },
   { families: ["openai"], when: (r) => status(r, 429), code: "rate_limited", reset: openaiReset },
@@ -324,11 +373,25 @@ export const SHORT_RESET_MS = 14_000;
 export const MIN_RESET_MS = 30_000;
 
 /** A usage limit's reset as t3 takes it (ISO, at least `MIN_RESET_MS` after `now`), or null for another class or none. */
-export const heldReset = (failure: { readonly class: string; readonly resetAt?: number }, now: number): string | null =>
-  failure.class === "usage_limit" && failure.resetAt !== undefined ? new Date(Math.max(failure.resetAt, now + MIN_RESET_MS)).toISOString() : null;
+export const heldReset = (
+  failure: { readonly class: string; readonly resetAt?: number },
+  now: number,
+): string | null =>
+  failure.class === "usage_limit" && failure.resetAt !== undefined
+    ? new Date(Math.max(failure.resetAt, now + MIN_RESET_MS)).toISOString()
+    : null;
 
 /** Each code's class, whether a retry can help, and whether one is worth making before the reset (or at all). */
-const KINDS: Readonly<Record<ModelFailureCode, { readonly class: ModelFailure["class"]; readonly retryable: boolean; readonly stop: "always" | "long-reset" | "never" }>> = {
+const KINDS: Readonly<
+  Record<
+    ModelFailureCode,
+    {
+      readonly class: ModelFailure["class"];
+      readonly retryable: boolean;
+      readonly stop: "always" | "long-reset" | "never";
+    }
+  >
+> = {
   usage_limit: { class: "usage_limit", retryable: true, stop: "always" },
   workspace_limit: { class: "usage_limit", retryable: false, stop: "always" },
   spend_limit: { class: "usage_limit", retryable: false, stop: "always" },
@@ -356,22 +419,41 @@ export const modelFailureOf = (code: ModelFailureCode): ModelFailure => {
 export const classifyModelFailure = (answer: FailedAnswer, endpoint: FailedEndpoint): ModelFailure | undefined => {
   const r = read(answer);
   const family = FAMILY[endpoint.api];
-  const row = ROWS.find((entry) => (entry.families === "any" || (family !== undefined && entry.families.includes(family))) && (entry.auths === undefined || entry.auths.includes(endpoint.auth)) && entry.when(r));
+  const row = ROWS.find(
+    (entry) =>
+      (entry.families === "any" || (family !== undefined && entry.families.includes(family))) &&
+      (entry.auths === undefined || entry.auths.includes(endpoint.auth)) &&
+      entry.when(r),
+  );
   if (row === undefined) return undefined;
   const kind = KINDS[row.code];
   const resetAt = row.reset?.(r);
-  const stop = kind.stop === "always" || (kind.stop === "long-reset" && resetAt !== undefined && resetAt - answer.at > SHORT_RESET_MS);
-  return { class: kind.class, code: row.code, ...(resetAt === undefined ? {} : { resetAt }), retryable: kind.retryable, stop };
+  const stop =
+    kind.stop === "always" ||
+    (kind.stop === "long-reset" && resetAt !== undefined && resetAt - answer.at > SHORT_RESET_MS);
+  return {
+    class: kind.class,
+    code: row.code,
+    ...(resetAt === undefined ? {} : { resetAt }),
+    retryable: kind.retryable,
+    stop,
+  };
 };
 
 /** The failure's text for t3: fixed by its code, naming the endpoint; never the vendor's body. */
-export const modelFailureMessage = (failure: ModelFailure, endpoint: Pick<FailedEndpoint, "id" | "auth">, status?: number): string => {
+export const modelFailureMessage = (
+  failure: ModelFailure,
+  endpoint: Pick<FailedEndpoint, "id" | "auth">,
+  status?: number,
+): string => {
   const name = endpointLabel(endpoint.id);
   const signIn = signInOf(endpoint.auth);
   const http = status === undefined || status < 400 ? "" : ` (HTTP ${status})`;
   switch (failure.code) {
     case "usage_limit":
-      return signIn === undefined ? `${name} reached its usage limit.` : `${name} reached its ${signIn.title} usage limit.`;
+      return signIn === undefined
+        ? `${name} reached its usage limit.`
+        : `${name} reached its ${signIn.title} usage limit.`;
     case "workspace_limit":
       return `${name} reached the usage limit its workspace's admin set${signIn === undefined ? "" : ` for ${signIn.title}`}; only the admin can raise it.`;
     case "spend_limit":
@@ -381,7 +463,9 @@ export const modelFailureMessage = (failure: ModelFailure, endpoint: Pick<Failed
     case "key_refused":
       return `${name} refused its API key${http}: check it on the Settings page.`;
     case "sign_in_refused":
-      return signIn === undefined ? `${name} refused its sign-in${http}: sign in again on the Settings page.` : `${name} refused its ${signIn.title} sign-in${http}: ${signIn.refused}`;
+      return signIn === undefined
+        ? `${name} refused its sign-in${http}: sign in again on the Settings page.`
+        : `${name} refused its ${signIn.title} sign-in${http}: ${signIn.refused}`;
     case "credential_needed":
       return `${name} refused the request without a credential${http}: check its auth on the Settings page.`;
     case "plan_not_eligible":
@@ -407,12 +491,16 @@ export interface DescribedFailure extends ModelFailure {
 /** The answer classified by the endpoint's API and auth, with its text (`modelFailureMessage`); undefined when unknown. */
 export const describeFailure = (answer: FailedAnswer, endpoint: FailedEndpoint): DescribedFailure | undefined => {
   const failure = classifyModelFailure(answer, endpoint);
-  return failure === undefined ? undefined : { ...failure, message: modelFailureMessage(failure, endpoint, answer.status) };
+  return failure === undefined
+    ? undefined
+    : { ...failure, message: modelFailureMessage(failure, endpoint, answer.status) };
 };
 
 /** A usage limit's reset as one sentence ("It resets at <ISO>."), or "" for another class or no reset. */
 export const resetSentence = (failure: Pick<ModelFailure, "class" | "resetAt">): string =>
-  failure.class === "usage_limit" && failure.resetAt !== undefined ? ` It resets at ${new Date(failure.resetAt).toISOString()}.` : "";
+  failure.class === "usage_limit" && failure.resetAt !== undefined
+    ? ` It resets at ${new Date(failure.resetAt).toISOString()}.`
+    : "";
 
 /**
  * The error text the Session leaves in pi-durable for a classified failure. One it stops the retries of matches no retry
@@ -446,5 +534,7 @@ const retriedWords = (code: ModelFailureCode): string | undefined => {
 
 export const modelFailureDetail = (failure: ModelFailure): string => {
   const words = failure.stop ? undefined : retriedWords(failure.code);
-  return words === undefined ? `${MODEL_FAILURE_PREFIX}${failure.class}, not retried` : `${MODEL_FAILURE_PREFIX}${failure.code} (${words}, retried)`;
+  return words === undefined
+    ? `${MODEL_FAILURE_PREFIX}${failure.class}, not retried`
+    : `${MODEL_FAILURE_PREFIX}${failure.code} (${words}, retried)`;
 };

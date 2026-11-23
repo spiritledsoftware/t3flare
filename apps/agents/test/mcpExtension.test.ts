@@ -28,8 +28,24 @@ const VIEW: McpView = {
       listedAt: 1,
       exposure: "deferred",
       tools: [
-        { name: "mcp__commissary__fixture_echo", upstream: "fixture_echo", description: "echo", inputSchema: { type: "object", properties: { text: { type: "string" } } }, hash: "h-echo", class: "read", exposure: "direct" },
-        { name: "mcp__commissary__fixture_note", upstream: "fixture_note", description: "note", inputSchema: { type: "object", properties: { line: { type: "string" } } }, hash: "h-note", class: "write", exposure: "direct" },
+        {
+          name: "mcp__commissary__fixture_echo",
+          upstream: "fixture_echo",
+          description: "echo",
+          inputSchema: { type: "object", properties: { text: { type: "string" } } },
+          hash: "h-echo",
+          class: "read",
+          exposure: "direct",
+        },
+        {
+          name: "mcp__commissary__fixture_note",
+          upstream: "fixture_note",
+          description: "note",
+          inputSchema: { type: "object", properties: { line: { type: "string" } } },
+          hash: "h-note",
+          class: "write",
+          exposure: "direct",
+        },
       ],
     },
     {
@@ -39,7 +55,15 @@ const VIEW: McpView = {
       listedAt: 1,
       exposure: "deferred",
       tools: [
-        { name: "mcp__settings__change_environment", upstream: "change_environment", description: "change", inputSchema: { type: "object", properties: {} }, hash: "h-env", class: "write", exposure: "direct" },
+        {
+          name: "mcp__settings__change_environment",
+          upstream: "change_environment",
+          description: "change",
+          inputSchema: { type: "object", properties: {} },
+          hash: "h-env",
+          class: "write",
+          exposure: "direct",
+        },
       ],
     },
   ],
@@ -48,7 +72,11 @@ const VIEW: McpView = {
 const call = (tool: string, args: Record<string, string>, id: string): AssistantMessage =>
   fauxAssistantMessage([fauxToolCall(tool, args, { id })], { stopReason: "toolUse" });
 
-const setup = async (mode: RuntimeMode, responses: ReadonlyArray<AssistantMessage>, options: { interaction?: InteractionMode; hold?: Promise<void> } = {}) => {
+const setup = async (
+  mode: RuntimeMode,
+  responses: ReadonlyArray<AssistantMessage>,
+  options: { interaction?: InteractionMode; hold?: Promise<void> } = {},
+) => {
   const kv = memoryKv();
   const store = new ApprovalStore(kv, () => {});
   const sent: Array<string> = [];
@@ -74,14 +102,27 @@ const setup = async (mode: RuntimeMode, responses: ReadonlyArray<AssistantMessag
     ],
     responses,
   );
-  return { store, sent, askers, harness, result: async () => (await until(async () => (await harness.lastToolResult()) !== undefined, "a result"), harness.lastToolResult()) };
+  return {
+    store,
+    sent,
+    askers,
+    harness,
+    result: async () => (
+      await until(async () => (await harness.lastToolResult()) !== undefined, "a result"),
+      harness.lastToolResult()
+    ),
+  };
 };
 
 const note = (id: string, line = "x") => call("mcp__commissary__fixture_note", { line }, id);
 
 describe("mcp extension", () => {
   it("a read runs without a card in every mode, plan included", async () => {
-    const run = await setup("approval-required", [call("mcp__commissary__fixture_echo", { text: "hi" }, "c1"), fauxAssistantMessage("done")], { interaction: "plan" });
+    const run = await setup(
+      "approval-required",
+      [call("mcp__commissary__fixture_echo", { text: "hi" }, "c1"), fauxAssistantMessage("done")],
+      { interaction: "plan" },
+    );
     expect(textOf(await run.result())).toBe("fixture_echo ok");
     expect(run.store.pending()).toEqual([]);
     // SPI-1079: every call carries the Session's asker, so the server's questions reach the owner as cards.
@@ -95,7 +136,11 @@ describe("mcp extension", () => {
   });
 
   it("an owner's write asks with its arguments on the card, and an acceptance for the session covers the next call", async () => {
-    const run = await setup("approval-required", [note("c1", "first"), note("c2", "second"), fauxAssistantMessage("done")]);
+    const run = await setup("approval-required", [
+      note("c1", "first"),
+      note("c2", "second"),
+      fauxAssistantMessage("done"),
+    ]);
     await until(() => run.store.pending().length === 1, "the card");
     const card = run.store.pending()[0]!;
     expect(card).toMatchObject({ kind: "mcp-tool", tool: "mcp__commissary__fixture_note" });
@@ -104,8 +149,12 @@ describe("mcp extension", () => {
     await until(() => run.sent.length === 2, "both writes");
     expect(run.store.pending()).toEqual([]);
     // The acceptance covers that definition only: a changed definition (hash) asks again (review H3).
-    expect(run.store.acceptedFor({ tool: "mcp__commissary__fixture_note", kind: "mcp-tool", definition: "h-note" })).toBe(true);
-    expect(run.store.acceptedFor({ tool: "mcp__commissary__fixture_note", kind: "mcp-tool", definition: "h-changed" })).toBe(false);
+    expect(
+      run.store.acceptedFor({ tool: "mcp__commissary__fixture_note", kind: "mcp-tool", definition: "h-note" }),
+    ).toBe(true);
+    expect(
+      run.store.acceptedFor({ tool: "mcp__commissary__fixture_note", kind: "mcp-tool", definition: "h-changed" }),
+    ).toBe(false);
   });
 
   it("full access runs an owner's write without a card", async () => {
@@ -146,11 +195,15 @@ describe("mcp extension", () => {
   });
 
   it("plan mode still refuses a Settings server write, directly and from a script", async () => {
-    const direct = await setup("full-access", [settingsWrite("s1"), fauxAssistantMessage("done")], { interaction: "plan" });
+    const direct = await setup("full-access", [settingsWrite("s1"), fauxAssistantMessage("done")], {
+      interaction: "plan",
+    });
     expect(textOf(await direct.result())).toContain("plan mode");
     expect(direct.sent).toEqual([]);
     const code = `const r = await tools.mcp__settings__change_environment({ line: "x" }); text(JSON.stringify(r));`;
-    const scripted = await setup("full-access", [call("codemode", { code }, "cm"), fauxAssistantMessage("done")], { interaction: "plan" });
+    const scripted = await setup("full-access", [call("codemode", { code }, "cm"), fauxAssistantMessage("done")], {
+      interaction: "plan",
+    });
     expect(textOf(await scripted.result())).toContain("plan mode");
     expect(scripted.sent).toEqual([]);
   });
@@ -196,7 +249,10 @@ describe("mcp extension", () => {
       await aborted;
       return { calls, stopped };
     };
-    expect(await stopRun("mcp__settings__change_environment")).toEqual({ calls: [{ server: "settings", callId: "c1" }], stopped: ["c1"] });
+    expect(await stopRun("mcp__settings__change_environment")).toEqual({
+      calls: [{ server: "settings", callId: "c1" }],
+      stopped: ["c1"],
+    });
     expect(await stopRun("mcp__commissary__fixture_note")).toEqual({ calls: [{ server: "commissary" }], stopped: [] });
   });
 });

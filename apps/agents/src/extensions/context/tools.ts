@@ -9,10 +9,30 @@
 // holds its whole transcript in memory at once; the Notes' total size is bounded.
 // @effect-diagnostics globalDate:off extendsNativeError:off
 import type { Context } from "@earendil-works/chord";
-import { type ConversationId, type Cursor, defineTool, type EntryRecord, type JsonObject, type ToolExecutionApi, type ToolRegistration } from "@earendil-works/pi-durable";
+import {
+  type ConversationId,
+  type Cursor,
+  defineTool,
+  type EntryRecord,
+  type JsonObject,
+  type ToolExecutionApi,
+  type ToolRegistration,
+} from "@earendil-works/pi-durable";
 import { int, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
 
-import { callRange, describeEntry, entryRef, matchesFilter, PAGE_SIZE, parseRef, READ_CHARACTERS, search, type SearchItem, type SearchMatch, timestampOf } from "./history.ts";
+import {
+  callRange,
+  describeEntry,
+  entryRef,
+  matchesFilter,
+  PAGE_SIZE,
+  parseRef,
+  READ_CHARACTERS,
+  search,
+  type SearchItem,
+  type SearchMatch,
+  timestampOf,
+} from "./history.ts";
 import {
   ContextDoc,
   type ContextState,
@@ -31,14 +51,18 @@ import {
 export const CONTEXT_GUIDELINES = {
   context_notes: "Keep named Notes with context_notes; read full Notes only when needed.",
   context_history: "Earlier History, including entries from before a Handoff, is available through context_history.",
-  context_rollover: "Before Rollover, update Notes with context_notes, then call context_rollover alone with an explicit continuation Handoff.",
+  context_rollover:
+    "Before Rollover, update Notes with context_notes, then call context_rollover alone with an explicit continuation Handoff.",
 } as const;
 
 /** A decision a commit refuses: it rolls the commit back and becomes the call's error. */
 export class Refusal extends Error {}
 
 /** The model reads the JSON text; scripts get the same value as an object. */
-const result = (data: JsonObject) => ({ output: [{ type: "text" as const, text: JSON.stringify(data) }], structuredOutput: data });
+const result = (data: JsonObject) => ({
+  output: [{ type: "text" as const, text: JSON.stringify(data) }],
+  structuredOutput: data,
+});
 
 /** Where the next page starts, or null after the last. */
 const nextOffset = (offset: number, shown: number, total: number) => (offset + shown < total ? offset + shown : null);
@@ -48,26 +72,44 @@ const fail = (message: string): never => {
 };
 
 /** Conversation `conversationId`'s Notes and saved Handoff. */
-export const readContext = async (api: Pick<ToolExecutionApi, "snapshot">, conversationId: ConversationId, context: Context): Promise<ContextState> =>
-  (await api.snapshot(ContextDoc, conversationId, context)) ?? EMPTY_STATE;
+export const readContext = async (
+  api: Pick<ToolExecutionApi, "snapshot">,
+  conversationId: ConversationId,
+  context: Context,
+): Promise<ContextState> => (await api.snapshot(ContextDoc, conversationId, context)) ?? EMPTY_STATE;
 
 /** Stored entries read per page (each page is one read). */
 const SCAN_PAGE = 200;
 
 /** Every stored entry of conversation `conversationId`, oldest first, including those before a Handoff, a page at a time. */
-export async function* storedEntries(api: ToolExecutionApi, conversationId: ConversationId, context: Context): AsyncGenerator<EntryRecord> {
+export async function* storedEntries(
+  api: ToolExecutionApi,
+  conversationId: ConversationId,
+  context: Context,
+): AsyncGenerator<EntryRecord> {
   let cursor: Cursor | undefined;
   do {
     // One page at a time keeps memory bounded.
-    const page = await api.commit((tx) => tx.scanEntries({ conversationId, order: "ascending" }, SCAN_PAGE, cursor), context);
+    const page = await api.commit(
+      (tx) => tx.scanEntries({ conversationId, order: "ascending" }, SCAN_PAGE, cursor),
+      context,
+    );
     yield* page.items;
     cursor = page.next;
   } while (cursor !== undefined);
 }
 
 /** Entry `id`, when the conversation can see it. */
-export const readEntry = (api: ToolExecutionApi, conversationId: ConversationId, id: EntryRecord["id"], context: Context) =>
-  api.commit(async (tx) => (await tx.scanEntries({ conversationId, minEntryId: id, maxEntryId: id }, 1)).items[0], context);
+export const readEntry = (
+  api: ToolExecutionApi,
+  conversationId: ConversationId,
+  id: EntryRecord["id"],
+  context: Context,
+) =>
+  api.commit(
+    async (tx) => (await tx.scanEntries({ conversationId, minEntryId: id, maxEntryId: id }, 1)).items[0],
+    context,
+  );
 
 /** The Note a reference names: one of this conversation's own. */
 const noteAt = async (api: ToolExecutionApi, ref: string, context: Context) => {
@@ -99,15 +141,29 @@ const notesTool = async (args: NotesArgs, api: ToolExecutionApi, context: Contex
       const { notes } = await readContext(api, self, context);
       const page = notes.slice(offset, offset + pageSize);
       return result({
-        notes: page.map((note) => ({ name: note.name, updated_at: new Date(note.updatedAt).toISOString(), ref: noteRef(self, note.name), characters: note.content.length })),
+        notes: page.map((note) => ({
+          name: note.name,
+          updated_at: new Date(note.updatedAt).toISOString(),
+          ref: noteRef(self, note.name),
+          characters: note.content.length,
+        })),
         total: notes.length,
         next_offset: nextOffset(offset, page.length, notes.length),
       });
     }
     case "search": {
       if (args.query === undefined) return fail("A non-empty literal query is required");
-      const notes = (await readContext(api, self, context)).notes.filter((note) => args.name === undefined || note.name === args.name);
-      return result(search(notes.map((note): SearchItem => ({ ref: noteRef(self, note.name), content: note.content, name: note.name })), args.query, offset, pageSize));
+      const notes = (await readContext(api, self, context)).notes.filter(
+        (note) => args.name === undefined || note.name === args.name,
+      );
+      return result(
+        search(
+          notes.map((note): SearchItem => ({ ref: noteRef(self, note.name), content: note.content, name: note.name })),
+          args.query,
+          offset,
+          pageSize,
+        ),
+      );
     }
     case "read": {
       const note =
@@ -132,11 +188,13 @@ const notesTool = async (args: NotesArgs, api: ToolExecutionApi, context: Contex
     case "delete":
     case "copy": {
       const action = args.action;
-      if (action === "copy" && args.ref === undefined) return fail("copy needs the ref of a Note from context_notes list or search");
+      if (action === "copy" && args.ref === undefined)
+        return fail("copy needs the ref of a Note from context_notes list or search");
       const source = action === "copy" && args.ref !== undefined ? await noteAt(api, args.ref, context) : undefined;
       const name = args.name ?? source?.name;
       if (name === undefined) return fail("A Note name is required");
-      if ((action === "write" || action === "append") && args.content === undefined) return fail("Note content is required");
+      if ((action === "write" || action === "append") && args.content === undefined)
+        return fail("Note content is required");
       const now = api.now();
       try {
         await api.commit(async (tx) => {
@@ -149,14 +207,22 @@ const notesTool = async (args: NotesArgs, api: ToolExecutionApi, context: Contex
             return;
           }
           if (action === "copy" && existing !== undefined) {
-            throw new Refusal(`A Note named ${JSON.stringify(name)} already exists; pass name to copy under another name`);
+            throw new Refusal(
+              `A Note named ${JSON.stringify(name)} already exists; pass name to copy under another name`,
+            );
           }
-          if (existing === undefined && state.notes.length >= MAX_NOTES) throw new Refusal("Note limit reached; delete an obsolete Note first");
-          const content = action === "append" ? joinAppend(existing?.content ?? "", args.content ?? "") : (source?.content ?? args.content ?? "");
+          if (existing === undefined && state.notes.length >= MAX_NOTES)
+            throw new Refusal("Note limit reached; delete an obsolete Note first");
+          const content =
+            action === "append"
+              ? joinAppend(existing?.content ?? "", args.content ?? "")
+              : (source?.content ?? args.content ?? "");
           if (content.length > MAX_NOTE_CHARACTERS) throw new Refusal(`Note exceeds ${MAX_NOTE_CHARACTERS} characters`);
           const others = state.notes.reduce((sum, note) => sum + (note === existing ? 0 : note.content.length), 0);
           if (others + content.length > MAX_TOTAL_NOTE_CHARACTERS) {
-            throw new Refusal(`Notes would exceed ${MAX_TOTAL_NOTE_CHARACTERS} characters in all; shorten or delete obsolete Notes first`);
+            throw new Refusal(
+              `Notes would exceed ${MAX_TOTAL_NOTE_CHARACTERS} characters in all; shorten or delete obsolete Notes first`,
+            );
           }
           if (existing === undefined) state.notes.push({ name, content, updatedAt: now });
           else {
@@ -225,7 +291,8 @@ const historyTool = async (args: HistoryArgs, api: ToolExecutionApi, context: Co
   let startId: EntryRecord["id"] | undefined;
   if (args.window !== undefined) {
     const parsed = parseRef(args.window);
-    if (parsed?.type !== "entry" || parsed.conversationId !== self) return fail("No such Context Window in this conversation");
+    if (parsed?.type !== "entry" || parsed.conversationId !== self)
+      return fail("No such Context Window in this conversation");
     startId = parsed.entryId;
   }
   const noWindow = () => fail("No such Context Window in this conversation");
@@ -247,7 +314,10 @@ const historyTool = async (args: HistoryArgs, api: ToolExecutionApi, context: Co
     if (args.action === "windows") {
       const page = windows.slice(offset, offset + pageSize);
       return result({
-        windows: page.map((window) => ({ ref: entryRef(self, lines[window.start]!.id), items: window.end - window.start })),
+        windows: page.map((window) => ({
+          ref: entryRef(self, lines[window.start]!.id),
+          items: window.end - window.start,
+        })),
         total: windows.length,
         next_offset: nextOffset(offset, page.length, windows.length),
       });
@@ -257,10 +327,18 @@ const historyTool = async (args: HistoryArgs, api: ToolExecutionApi, context: Co
       const window = windows.find((each) => lines[each.start]?.id === startId) ?? noWindow();
       scoped = lines.slice(window.start, window.end);
     }
-    const listed = scoped.filter((line) => (args.type === undefined || line.kind === args.type) && (args.role === undefined || line.role === args.role));
+    const listed = scoped.filter(
+      (line) =>
+        (args.type === undefined || line.kind === args.type) && (args.role === undefined || line.role === args.role),
+    );
     const page = listed.slice(offset, offset + pageSize);
     return result({
-      items: page.map((line) => ({ ref: entryRef(self, line.id), type: line.kind, timestamp: line.timestamp, preview: line.preview })),
+      items: page.map((line) => ({
+        ref: entryRef(self, line.id),
+        type: line.kind,
+        timestamp: line.timestamp,
+        preview: line.preview,
+      })),
       total: listed.length,
       next_offset: nextOffset(offset, page.length, listed.length),
     });
@@ -286,7 +364,12 @@ const historyTool = async (args: HistoryArgs, api: ToolExecutionApi, context: Co
     const content = JSON.stringify(entry);
     // A direct search call does not match its own tool-call block.
     const skip = entry.model?.[0]?.role === "assistant" ? callRange(entry, content, api.callId) : undefined;
-    for (const match of search([{ ref: entryRef(self, entry.id), content, recorded: true, skip }], args.query, 0, Number.MAX_SAFE_INTEGER).matches) {
+    for (const match of search(
+      [{ ref: entryRef(self, entry.id), content, recorded: true, skip }],
+      args.query,
+      0,
+      Number.MAX_SAFE_INTEGER,
+    ).matches) {
       if (skipped < offset) skipped++;
       else if (matches.length < pageSize) matches.push(match);
       else return result({ matches, next_offset: offset + matches.length });
@@ -327,8 +410,19 @@ export const contextHistoryTool = (): ToolRegistration =>
       action: oneOf(HISTORY_ACTIONS),
       ref: opt(REF),
       window: opt(REF),
-      type: opt(str({ maxLength: 64, description: 'list/search: only entries of this kind, e.g. "pi.user", "pi.assistant", "pi.tool-result", "pi.reset", "pi.compaction"' })),
-      role: opt(str({ maxLength: 64, description: 'list/search: only entries whose message has this role, e.g. "user", "assistant", "toolResult"' })),
+      type: opt(
+        str({
+          maxLength: 64,
+          description:
+            'list/search: only entries of this kind, e.g. "pi.user", "pi.assistant", "pi.tool-result", "pi.reset", "pi.compaction"',
+        }),
+      ),
+      role: opt(
+        str({
+          maxLength: 64,
+          description: 'list/search: only entries whose message has this role, e.g. "user", "assistant", "toolResult"',
+        }),
+      ),
       query: opt(QUERY),
       offset: opt(int({ minimum: 0 })),
       limit: opt(int({ minimum: 1, maximum: READ_CHARACTERS })),

@@ -11,7 +11,14 @@
 // - Sensitive Paths are judged lexically, against the Workspace's repo (`/workspace/repo`); symlinks, hard links and
 //   Pi's own directories are not resolved (the Workspace has none of Pi's files).
 // - Read-only tools come from t3flare's own knowledge (the MCP tools' classes, t3's annotations), not Pi annotations.
-import { commandStarts, commandWords, looseCommands, safeRedirect, splitSegments, type Segments } from "./shell-syntax.ts";
+import {
+  commandStarts,
+  commandWords,
+  looseCommands,
+  safeRedirect,
+  splitSegments,
+  type Segments,
+} from "./shell-syntax.ts";
 
 export type ToolPolicy = "allow" | "review" | "deny";
 export type PolicyEntries = Record<string, ToolPolicy>;
@@ -108,9 +115,32 @@ const rejectOptions =
   (...forbidden: Array<string>): ArgumentCheck =>
   (args) =>
     !args.some((arg) => forbidden.some((option) => arg === option || arg.startsWith(`${option}=`)));
-const findActions = new Set(["-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls"]);
+const findActions = new Set([
+  "-exec",
+  "-execdir",
+  "-ok",
+  "-okdir",
+  "-delete",
+  "-fprint",
+  "-fprint0",
+  "-fprintf",
+  "-fls",
+]);
 const gitOutputOptions = rejectOptions("--output", "--ext-diff", "--textconv");
-const gitBranchListing = new Set(["-a", "-r", "-v", "-vv", "-l", "--list", "--all", "--remotes", "--verbose", "--show-current", "--no-color", "--color"]);
+const gitBranchListing = new Set([
+  "-a",
+  "-r",
+  "-v",
+  "-vv",
+  "-l",
+  "--list",
+  "--all",
+  "--remotes",
+  "--verbose",
+  "--show-current",
+  "--no-color",
+  "--color",
+]);
 const gitSubcommands = new Map<string, ArgumentCheck>([
   ["status", anyArguments],
   ["log", gitOutputOptions],
@@ -121,12 +151,29 @@ const gitSubcommands = new Map<string, ArgumentCheck>([
 ]);
 const sedAddress = String.raw`(?:\d+|\$|/[^/\\\n\r]+/)`;
 const sedPrintScript = new RegExp(String.raw`^${sedAddress}(?:,${sedAddress})?p$`);
-const sedPrintOnly: ArgumentCheck = ([flag, script, ...files]) => flag === "-n" && script !== undefined && sedPrintScript.test(script) && !files.some((file) => file.startsWith("-"));
+const sedPrintOnly: ArgumentCheck = ([flag, script, ...files]) =>
+  flag === "-n" && script !== undefined && sedPrintScript.test(script) && !files.some((file) => file.startsWith("-"));
 
 const builtInPrograms = new Map<string, ArgumentCheck>([
-  ...["ls", "pwd", "cat", "head", "tail", "wc", "echo", "stat", "du", "df", "basename", "dirname", "realpath", "which", "whoami", "uname", "grep"].map(
-    (name) => [name, anyArguments] as const,
-  ),
+  ...[
+    "ls",
+    "pwd",
+    "cat",
+    "head",
+    "tail",
+    "wc",
+    "echo",
+    "stat",
+    "du",
+    "df",
+    "basename",
+    "dirname",
+    "realpath",
+    "which",
+    "whoami",
+    "uname",
+    "grep",
+  ].map((name) => [name, anyArguments] as const),
   ["sed", sedPrintOnly],
   ["rg", rejectOptions("--pre", "--pre-glob", "--hostname-bin")],
   ["find", (args) => !args.some((arg) => findActions.has(arg))],
@@ -152,7 +199,8 @@ const matchRule = (words: ReadonlyArray<string>, rules: Readonly<PolicyEntries>)
     const prefixWords = literalWords(prefix);
     if (prefixWords === undefined || prefixWords.length === 0 || prefixWords.length > words.length) continue;
     if (!prefixWords.every((word, index) => words[index] === word)) continue;
-    if (best === undefined || prefixWords.length > best.length) best = { rule: { prefix, policy }, length: prefixWords.length };
+    if (best === undefined || prefixWords.length > best.length)
+      best = { rule: { prefix, policy }, length: prefixWords.length };
   }
   return best?.rule;
 };
@@ -201,7 +249,9 @@ export const judgeCommand = (command: string, rules: Readonly<PolicyEntries> = {
   const reviewed = candidates.find((rule) => rule.policy === "review");
   if (reviewed !== undefined) return { verdict: "review", rule: reviewed };
   const matched = words.map((segmentWords) => matchRule(segmentWords, rules));
-  return split.operators.every((operator) => safeOperators.has(operator)) && safeSegments(split, matched) ? { verdict: "allow" } : { verdict: "review", rule: undefined };
+  return split.operators.every((operator) => safeOperators.has(operator)) && safeSegments(split, matched)
+    ? { verdict: "allow" }
+    : { verdict: "review", rule: undefined };
 };
 
 // ── Sensitive Paths (sensitive-paths.ts), lexically against the repo ────────────────────────────────────────────────
@@ -220,8 +270,30 @@ const normalize = (path: string): string => {
 
 const contextFileNames = new Set(["agents.md", "agents.override.md", "claude.md"]);
 const persistenceNames = new Set([
-  ".bashrc", ".bash_profile", ".bash_login", ".bash_logout", ".bash_aliases", ".profile", ".zshrc", ".zprofile", ".zshenv", ".zlogin", ".zlogout",
-  ".ssh", ".gnupg", ".aws", ".azure", ".config", ".gitconfig", ".git-credentials", ".npmrc", ".yarnrc", ".pypirc", ".netrc", ".docker", ".kube",
+  ".bashrc",
+  ".bash_profile",
+  ".bash_login",
+  ".bash_logout",
+  ".bash_aliases",
+  ".profile",
+  ".zshrc",
+  ".zprofile",
+  ".zshenv",
+  ".zlogin",
+  ".zlogout",
+  ".ssh",
+  ".gnupg",
+  ".aws",
+  ".azure",
+  ".config",
+  ".gitconfig",
+  ".git-credentials",
+  ".npmrc",
+  ".yarnrc",
+  ".pypirc",
+  ".netrc",
+  ".docker",
+  ".kube",
 ]);
 const persistencePairs: ReadonlyArray<readonly [string, string]> = [
   [".local", "bin"],
@@ -246,7 +318,9 @@ const persistenceAt = (components: ReadonlyArray<string>, index: number): Readon
   if (name === undefined) return undefined;
   if (persistenceNames.has(name)) return components.slice(index, index + 1);
   const next = components[index + 1]?.toLowerCase();
-  return persistencePairs.some(([first, second]) => first === name && second === next) ? components.slice(index, index + 2) : undefined;
+  return persistencePairs.some(([first, second]) => first === name && second === next)
+    ? components.slice(index, index + 2)
+    : undefined;
 };
 
 const sensitiveComponent = (components: ReadonlyArray<string>): string | undefined => {
@@ -256,19 +330,23 @@ const sensitiveComponent = (components: ReadonlyArray<string>): string | undefin
     if (name.startsWith(".env")) return `a secret or environment file (${quoted([component])})`;
     const configuration = workspaceConfiguration.get(name);
     if (configuration !== undefined) return `${configuration} (${quoted([component])})`;
-    if (name === ".github" && components[index + 1]?.toLowerCase() === "workflows") return `CI workflows (${quoted(components.slice(index, index + 2))})`;
+    if (name === ".github" && components[index + 1]?.toLowerCase() === "workflows")
+      return `CI workflows (${quoted(components.slice(index, index + 2))})`;
     const persistent = persistenceAt(components, index);
-    if (persistent !== undefined) return `a shell startup, credential, or persistence file (${quoted(persistent)}) that takes effect once linked or copied into the home directory`;
+    if (persistent !== undefined)
+      return `a shell startup, credential, or persistence file (${quoted(persistent)}) that takes effect once linked or copied into the home directory`;
   }
   const last = components.at(-1);
-  if (last !== undefined && contextFileNames.has(last.toLowerCase())) return `a context file the agent loads as instructions (${quoted([last])})`;
+  if (last !== undefined && contextFileNames.has(last.toLowerCase()))
+    return `a context file the agent loads as instructions (${quoted([last])})`;
   return undefined;
 };
 
 /** Why changing `path` (absolute, or relative to `cwd`) is sensitive; undefined for an ordinary repo path. */
 export const sensitivePathReason = (path: string, cwd: string = REPO): string | undefined => {
   const resolved = normalize(path.startsWith("/") ? path : `${cwd}/${path}`);
-  if (resolved !== REPO && !resolved.startsWith(`${REPO}/`)) return `outside the workspace root (${JSON.stringify(resolved)})`;
+  if (resolved !== REPO && !resolved.startsWith(`${REPO}/`))
+    return `outside the workspace root (${JSON.stringify(resolved)})`;
   return sensitiveComponent(resolved === REPO ? [] : resolved.slice(REPO.length + 1).split("/"));
 };
 
@@ -284,7 +362,8 @@ export interface ToolPolicyInput {
 }
 
 const commandRulesNote = (rules: Readonly<PolicyEntries>): string | undefined => {
-  const named = (policy: ToolPolicy) => Object.entries(rules).flatMap(([prefix, value]) => (value === policy ? [JSON.stringify(prefix)] : []));
+  const named = (policy: ToolPolicy) =>
+    Object.entries(rules).flatMap(([prefix, value]) => (value === policy ? [JSON.stringify(prefix)] : []));
   const denied = named("deny");
   const reviewed = named("review");
   const parts: Array<string> = [];
@@ -303,23 +382,35 @@ const builtInDefault = (call: ToolPolicyInput): ResolvedToolPolicy | undefined =
   if (allowedByDefault.includes(toolName)) return { policy: "allow", source: "default" };
   if (reviewedByDefault.includes(toolName)) {
     // A poll types nothing (pi-termctrl's `terminal_send` without text or keys): it only reads the screen.
-    if (toolName === "terminal_send" && (typeof input.text !== "string" || input.text === "") && (!Array.isArray(input.keys) || input.keys.length === 0)) {
+    if (
+      toolName === "terminal_send" &&
+      (typeof input.text !== "string" || input.text === "") &&
+      (!Array.isArray(input.keys) || input.keys.length === 0)
+    ) {
       return { policy: "allow", source: "default" };
     }
     const rules = commandRulesNote(call.commands);
-    return rules === undefined ? { policy: "review", source: "default" } : { policy: "review", source: "default", detail: rules };
+    return rules === undefined
+      ? { policy: "review", source: "default" }
+      : { policy: "review", source: "default", detail: rules };
   }
   if (isFileWrite(toolName)) {
     const path = input.path;
-    if (typeof path !== "string") return { policy: "review", source: "default", detail: "the target path is not a string" };
+    if (typeof path !== "string")
+      return { policy: "review", source: "default", detail: "the target path is not a string" };
     const reason = sensitivePathReason(path);
-    return reason === undefined ? { policy: "allow", source: "default" } : { policy: "review", source: "default", detail: `Sensitive Path: ${reason}` };
+    return reason === undefined
+      ? { policy: "allow", source: "default" }
+      : { policy: "review", source: "default", detail: `Sensitive Path: ${reason}` };
   }
   if (toolName === "bash") {
     const command = input.command;
     const judged = typeof command === "string" ? judgeCommand(command, call.commands) : undefined;
     if (judged?.verdict === "allow") return { policy: "allow", source: "default" };
-    const reason = judged?.verdict === "review" && judged.rule !== undefined ? `the user's Command Rule ${JSON.stringify(judged.rule.prefix)} requires review` : "not a Safe Command";
+    const reason =
+      judged?.verdict === "review" && judged.rule !== undefined
+        ? `the user's Command Rule ${JSON.stringify(judged.rule.prefix)} requires review`
+        : "not a Safe Command";
     return { policy: "review", source: "default", detail: withCommandRules(reason, call.commands) };
   }
   return undefined;
@@ -332,7 +423,12 @@ export const resolveToolPolicy = (call: ToolPolicyInput): ResolvedToolPolicy => 
   const command = shellCommandTools.includes(call.toolName) ? call.input.command : undefined;
   if (typeof command === "string") {
     const judged = judgeCommand(command, call.commands);
-    if (judged.verdict === "deny") return { policy: "deny", source: "command", detail: `the user's Command Rule ${JSON.stringify(judged.rule.prefix)} denies this command` };
+    if (judged.verdict === "deny")
+      return {
+        policy: "deny",
+        source: "command",
+        detail: `the user's Command Rule ${JSON.stringify(judged.rule.prefix)} denies this command`,
+      };
   }
   const configured = Object.hasOwn(call.configured, call.toolName) ? call.configured[call.toolName] : undefined;
   if (configured !== undefined) return { policy: configured, source: "setting" };
@@ -346,7 +442,9 @@ export const resolveToolPolicy = (call: ToolPolicyInput): ResolvedToolPolicy => 
  * The panel's `name=policy, …` text (pi-guardian's menu takes Command Rules typed this way) as entries; an invalid pair
  * is named in `errors` and skipped.
  */
-export const parseEntries = (text: string): { readonly entries: PolicyEntries; readonly errors: ReadonlyArray<string> } => {
+export const parseEntries = (
+  text: string,
+): { readonly entries: PolicyEntries; readonly errors: ReadonlyArray<string> } => {
   const entries: PolicyEntries = {};
   const errors: Array<string> = [];
   for (const raw of text.split(/[,\n]/)) {
@@ -354,7 +452,13 @@ export const parseEntries = (text: string): { readonly entries: PolicyEntries; r
     if (pair === "") continue;
     const at = pair.lastIndexOf("=");
     const key = at === -1 ? "" : pair.slice(0, at).trim();
-    const value = at === -1 ? "" : pair.slice(at + 1).trim().toLowerCase();
+    const value =
+      at === -1
+        ? ""
+        : pair
+            .slice(at + 1)
+            .trim()
+            .toLowerCase();
     if (key === "" || (value !== "allow" && value !== "review" && value !== "deny")) errors.push(pair);
     else entries[key] = value;
   }

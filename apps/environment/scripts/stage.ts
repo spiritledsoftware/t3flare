@@ -69,7 +69,8 @@ const requireLocalFiles = (file: string, wayThrough: string) => {
 const STAGE_SECRETS = ["T3_BOOTSTRAP_TOKEN", "T3FLARE_ADMIN_TOKEN"];
 const inCI = process.env.GITHUB_ACTIONS === "true";
 const stageSecrets = (): Record<string, string> => {
-  if (STAGE_SECRETS.every((name) => process.env[name])) return Object.fromEntries(STAGE_SECRETS.map((name) => [name, process.env[name]!]));
+  if (STAGE_SECRETS.every((name) => process.env[name]))
+    return Object.fromEntries(STAGE_SECRETS.map((name) => [name, process.env[name]!]));
   if (fs.existsSync(secretsFile)) {
     const kept = JSON.parse(fs.readFileSync(secretsFile, "utf8")) as Record<string, string>;
     // The tools step's fixture MCP server's bearer (test stages): made once, kept with the stage's tokens, destroyed with
@@ -90,7 +91,11 @@ const stageSecrets = (): Record<string, string> => {
     console.error(`t3flare: CI needs prod's ${STAGE_SECRETS.join(" and ")} (the GitHub environment \`prod\`)`);
     process.exit(1);
   }
-  const secrets = { T3_BOOTSTRAP_TOKEN: token(), T3FLARE_ADMIN_TOKEN: token(), ...(stage === "prod" ? {} : { T3FLARE_FIXTURE_BEARER: token(), T3FLARE_PROBE_KEY: token() }) };
+  const secrets = {
+    T3_BOOTSTRAP_TOKEN: token(),
+    T3FLARE_ADMIN_TOKEN: token(),
+    ...(stage === "prod" ? {} : { T3FLARE_FIXTURE_BEARER: token(), T3FLARE_PROBE_KEY: token() }),
+  };
   fs.mkdirSync(path.dirname(secretsFile), { recursive: true });
   fs.writeFileSync(secretsFile, JSON.stringify(secrets), { mode: 0o600 });
   return secrets;
@@ -124,15 +129,26 @@ const setUpEndpoint = async (endpoint: ModelEndpointSpecResult): Promise<number>
     console.log(`t3flare: no Model endpoint set up: ${endpoint.reason}`);
     return 0;
   }
-  const access = JSON.parse(fs.readFileSync(credentialsFile(stage), "utf8")) as { url: string; clientId: string; clientSecret: string };
-  const admin = adminClient({ url: access.url, adminToken: stageSecrets().T3FLARE_ADMIN_TOKEN!, clientId: access.clientId, clientSecret: access.clientSecret });
+  const access = JSON.parse(fs.readFileSync(credentialsFile(stage), "utf8")) as {
+    url: string;
+    clientId: string;
+    clientSecret: string;
+  };
+  const admin = adminClient({
+    url: access.url,
+    adminToken: stageSecrets().T3FLARE_ADMIN_TOKEN!,
+    clientId: access.clientId,
+    clientSecret: access.clientSecret,
+  });
   for (const spec of endpoint.specs) {
     const result = await ensureModelEndpoint(admin, spec, { overwrite: stage !== "prod", waitMs: 5 * 60_000 });
     if (!result.ok) {
       console.error(`t3flare: deployed, but the Model endpoint "${spec.id}" was not set up: ${result.error}`);
       return 1;
     }
-    console.log(`t3flare: Model endpoint "${result.id}" ${result.outcome} (from ${endpoint.source}, ${result.models} models; its small model ${result.turnModel})`);
+    console.log(
+      `t3flare: Model endpoint "${result.id}" ${result.outcome} (from ${endpoint.source}, ${result.models} models; its small model ${result.turnModel})`,
+    );
   }
   return 0;
 };
@@ -140,11 +156,15 @@ const setUpEndpoint = async (endpoint: ModelEndpointSpecResult): Promise<number>
 /** Runs alchemy, streaming its output live (it prints no secrets) while keeping a copy for the retry decision. */
 const alchemy = (args: Array<string>, env: Record<string, string>) =>
   new Promise<{ status: number; output: string }>((resolve) => {
-    const child = spawn(path.join(here, "node_modules/.bin/alchemy"), [...args, "--stage", stage, "--yes", "--no-input"], {
-      cwd: here,
-      stdio: ["inherit", "pipe", "pipe"],
-      env: { ...process.env, ...env },
-    });
+    const child = spawn(
+      path.join(here, "node_modules/.bin/alchemy"),
+      [...args, "--stage", stage, "--yes", "--no-input"],
+      {
+        cwd: here,
+        stdio: ["inherit", "pipe", "pipe"],
+        env: { ...process.env, ...env },
+      },
+    );
     let output = "";
     child.stdout.on("data", (chunk: Buffer) => {
       output += chunk.toString();
@@ -179,12 +199,19 @@ switch (command) {
     }
     // A pnpm or vp command run inside t3code/ installs it as its own workspace and repoints t3's packages.
     if (fs.existsSync(path.join(repoRoot, "t3code/node_modules/.pnpm"))) {
-      console.error("t3flare: t3code/node_modules/.pnpm exists (a pnpm command ran inside t3code/); remove t3code/node_modules and run `pnpm install`");
+      console.error(
+        "t3flare: t3code/node_modules/.pnpm exists (a pnpm command ran inside t3code/); remove t3code/node_modules and run `pnpm install`",
+      );
       process.exit(2);
     }
     // SPI-1175: what is bound and set up, decided before anything is built (lib/deployPlan.ts): the stage's Model endpoints
     // come from T3FLARE_MODEL_ENDPOINT, else a logged skip (the stage then starts in the setup state).
-    const plan = deployPlan({ stage, args: rest, read: deploySecrets([MODEL_ENDPOINT_VAR, ...OPTIONAL_DEPLOY_SETTINGS]), env: process.env });
+    const plan = deployPlan({
+      stage,
+      args: rest,
+      read: deploySecrets([MODEL_ENDPOINT_VAR, ...OPTIONAL_DEPLOY_SETTINGS]),
+      env: process.env,
+    });
     if (!plan.ok) {
       console.error(plan.error);
       process.exit(1);
@@ -196,11 +223,17 @@ switch (command) {
     const track = t3TrackSetting(plan.alchemyEnv);
     const serverVersion = t3ServerVersion(track);
     if (stage === "prod" && !serverVersion.exact) {
-      console.error("t3flare: t3code is not at a t3 release tag (git -C t3code tag --points-at HEAD); prod deploys only a tagged pin");
+      console.error(
+        "t3flare: t3code is not at a t3 release tag (git -C t3code tag --points-at HEAD); prod deploys only a tagged pin",
+      );
       process.exit(2);
     }
     if (rest.includes("--web") || !fs.existsSync(path.join(here, "dist/web/index.html"))) {
-      const web = spawnSync("pnpm", ["run", "prepare:web"], { cwd: here, stdio: "inherit", env: { ...process.env, APP_VERSION: serverVersion.version } });
+      const web = spawnSync("pnpm", ["run", "prepare:web"], {
+        cwd: here,
+        stdio: "inherit",
+        env: { ...process.env, APP_VERSION: serverVersion.version },
+      });
       if (web.status !== 0) process.exit(web.status ?? 1);
     }
     await buildWorker({ track });
@@ -212,7 +245,9 @@ switch (command) {
     // exist yet (isDurableObjectClassNotFound). Deploy both once without the cross-Worker bindings, then again with
     // them. Any other failure exits as is: the first pass would unbind a live stage.
     if (status !== 0 && isDurableObjectClassNotFound(attempt.output)) {
-      console.error("t3flare: Durable Object class not found; retrying in two passes (the first without cross-Worker bindings)");
+      console.error(
+        "t3flare: Durable Object class not found; retrying in two passes (the first without cross-Worker bindings)",
+      );
       const first = await alchemy(["deploy"], { ...env, T3FLARE_DEPLOY_BOOTSTRAP: "1" });
       status = first.status === 0 ? (await alchemy(["deploy"], env)).status : first.status;
     }
@@ -232,26 +267,41 @@ switch (command) {
       process.exit(2);
     }
     requireLocalFiles(credentialsFile(stage), `deploy it with node scripts/stage.ts deploy ${stage}`);
-    const access = JSON.parse(fs.readFileSync(credentialsFile(stage), "utf8")) as { url: string; adminUrl?: string; settingsMcpUrl?: string; clientId: string; clientSecret: string };
+    const access = JSON.parse(fs.readFileSync(credentialsFile(stage), "utf8")) as {
+      url: string;
+      adminUrl?: string;
+      settingsMcpUrl?: string;
+      clientId: string;
+      clientSecret: string;
+    };
     // Each script's fetch retries a connection Cloudflare's edge reset (lib/resetRetry.ts).
     const installResetRetry = url.pathToFileURL(path.join(here, "scripts/lib/installResetRetry.ts")).href;
-    const result = spawnSync(process.execPath, ["--import", installResetRetry, stageScript(script, { scriptsDir: path.join(here, "scripts"), cwd: process.cwd() }), ...args], {
-      cwd: here,
-      stdio: "inherit",
-      env: {
-        ...process.env,
-        ...stageSecrets(),
-        // The Model endpoint's setting too (SPI-1175): acceptance.ts sets it up before its turns. And the Deployment
-        // settings, the fixture repository among them, which the scripts read through lib/scriptSettings.ts.
-        ...deploySecrets([MODEL_ENDPOINT_VAR, ...OPTIONAL_DEPLOY_SETTINGS]),
-        T3_URL: access.url,
-        T3FLARE_HARNESS_URL: access.url,
-        // The Settings server's Owner-client endpoint (ADR-0035, plan D13), for the stage's MCP clients.
-        ...(access.settingsMcpUrl === undefined ? {} : { T3FLARE_SETTINGS_MCP_URL: access.settingsMcpUrl }),
-        T3FLARE_ACCESS_CLIENT_ID: access.clientId,
-        T3FLARE_ACCESS_CLIENT_SECRET: access.clientSecret,
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--import",
+        installResetRetry,
+        stageScript(script, { scriptsDir: path.join(here, "scripts"), cwd: process.cwd() }),
+        ...args,
+      ],
+      {
+        cwd: here,
+        stdio: "inherit",
+        env: {
+          ...process.env,
+          ...stageSecrets(),
+          // The Model endpoint's setting too (SPI-1175): acceptance.ts sets it up before its turns. And the Deployment
+          // settings, the fixture repository among them, which the scripts read through lib/scriptSettings.ts.
+          ...deploySecrets([MODEL_ENDPOINT_VAR, ...OPTIONAL_DEPLOY_SETTINGS]),
+          T3_URL: access.url,
+          T3FLARE_HARNESS_URL: access.url,
+          // The Settings server's Owner-client endpoint (ADR-0035, plan D13), for the stage's MCP clients.
+          ...(access.settingsMcpUrl === undefined ? {} : { T3FLARE_SETTINGS_MCP_URL: access.settingsMcpUrl }),
+          T3FLARE_ACCESS_CLIENT_ID: access.clientId,
+          T3FLARE_ACCESS_CLIENT_SECRET: access.clientSecret,
+        },
       },
-    });
+    );
     process.exit(result.status ?? 1);
   }
   case "destroy": {
@@ -261,7 +311,10 @@ switch (command) {
     }
     // CI passes the stage's tokens in the environment instead of a file (stageSecrets); so can a stage's other checkout.
     if (!STAGE_SECRETS.every((name) => process.env[name])) {
-      requireLocalFiles(secretsFile, `to destroy a Stage deployed from another checkout, set its ${STAGE_SECRETS.join(" and ")} in the environment`);
+      requireLocalFiles(
+        secretsFile,
+        `to destroy a Stage deployed from another checkout, set its ${STAGE_SECRETS.join(" and ")} in the environment`,
+      );
     }
     const { status } = await alchemy(["destroy"], { ...stageSecrets(), ...deploySecrets(OPTIONAL_DEPLOY_SETTINGS) });
     if (status === 0) {

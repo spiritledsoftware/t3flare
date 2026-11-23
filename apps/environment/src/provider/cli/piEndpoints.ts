@@ -25,10 +25,12 @@ import { snapshotModels } from "../models.ts";
 export const piServes = (endpoint: ModelEndpoint): boolean => endpoint.models.length > 0;
 
 /** The endpoints pi reaches through the model relay, in the owner's order: the relay's for pi, each listing a model. */
-export const piEndpoints = (endpoints: ModelEndpoints | undefined): ReadonlyArray<ModelEndpoint> => relayedEndpoints(endpoints, "pi").filter(piServes);
+export const piEndpoints = (endpoints: ModelEndpoints | undefined): ReadonlyArray<ModelEndpoint> =>
+  relayedEndpoints(endpoints, "pi").filter(piServes);
 
 /** The picker's rows of pi's endpoints: by slug, grouped by endpoint, pi's thinking picker on reasoning models, the first the default. */
-const pickerOf = (own: ReadonlyArray<ModelEndpoint>): ReadonlyArray<ServerProviderModel> => snapshotModels({ revision: 0, endpoints: own });
+const pickerOf = (own: ReadonlyArray<ModelEndpoint>): ReadonlyArray<ServerProviderModel> =>
+  snapshotModels({ revision: 0, endpoints: own });
 
 /**
  * pi's relay configuration for the endpoints as stored now (each one pi serves, so each lists a model), or undefined when
@@ -41,7 +43,8 @@ export const piRelayOf = (endpoints: ModelEndpoints | undefined): PiRelay | unde
 };
 
 /** pi's model list: the endpoints pi serves, their models (`pickerOf`); empty without one. */
-export const piModelsOf = (endpoints: ModelEndpoints | undefined): ReadonlyArray<ServerProviderModel> => pickerOf(piEndpoints(endpoints));
+export const piModelsOf = (endpoints: ModelEndpoints | undefined): ReadonlyArray<ServerProviderModel> =>
+  pickerOf(piEndpoints(endpoints));
 
 /** An old thread's provider in a `set_model`: a reserved endpoint id (`RESERVED_ENDPOINT_IDS`). */
 const RETIRED_PROVIDER = "anthropic";
@@ -60,10 +63,13 @@ export const piLineToPi = (line: string, endpointIds: ReadonlySet<string>, fallb
   } catch {
     return line;
   }
-  if (typeof command !== "object" || command === null || (command as { type?: unknown }).type !== "set_model") return line;
+  if (typeof command !== "object" || command === null || (command as { type?: unknown }).type !== "set_model")
+    return line;
   const provider = (command as { provider?: unknown }).provider;
-  const retired = provider === RETIRED_PROVIDER ? (fallback === undefined ? undefined : parseEndpointSlug(fallback)) : undefined;
-  if (retired !== undefined && endpointIds.has(retired.endpointId)) return JSON.stringify({ ...command, provider: endpointProviderId(retired.endpointId), modelId: retired.modelId });
+  const retired =
+    provider === RETIRED_PROVIDER ? (fallback === undefined ? undefined : parseEndpointSlug(fallback)) : undefined;
+  if (retired !== undefined && endpointIds.has(retired.endpointId))
+    return JSON.stringify({ ...command, provider: endpointProviderId(retired.endpointId), modelId: retired.modelId });
   if (typeof provider !== "string" || !endpointIds.has(provider)) return line;
   return JSON.stringify({ ...command, provider: endpointProviderId(provider) });
 };
@@ -79,9 +85,16 @@ const asEndpointId = (provider: unknown, endpointIds: ReadonlySet<string>): unkn
 
 /** A pi Model object (or anything else) with its `provider` as t3 names it. */
 const withEndpointId = (model: unknown, endpointIds: ReadonlySet<string>): unknown =>
-  typeof model === "object" && model !== null && !Array.isArray(model) && "provider" in model ? { ...model, provider: asEndpointId((model as { provider: unknown }).provider, endpointIds) } : model;
+  typeof model === "object" && model !== null && !Array.isArray(model) && "provider" in model
+    ? { ...model, provider: asEndpointId((model as { provider: unknown }).provider, endpointIds) }
+    : model;
 
-type Line = { readonly type?: unknown; readonly command?: unknown; readonly data?: unknown; readonly message?: unknown };
+type Line = {
+  readonly type?: unknown;
+  readonly command?: unknown;
+  readonly data?: unknown;
+  readonly message?: unknown;
+};
 
 /**
  * A line pi sends t3's Pi adapter, with the model's provider named as t3 names it where pi puts one and t3's adapter
@@ -90,7 +103,8 @@ type Line = { readonly type?: unknown; readonly command?: unknown; readonly data
  * (a tool call's arguments that name a provider stay as they are). Every other line passes as it is (unparsed).
  */
 export const piLineFromPi = (line: string, endpointIds: ReadonlySet<string>): string => {
-  if (!line.includes(PROVIDER_PREFIX) || !(line.includes('"type":"response"') || line.includes('"type":"message_end"'))) return line;
+  if (!line.includes(PROVIDER_PREFIX) || !(line.includes('"type":"response"') || line.includes('"type":"message_end"')))
+    return line;
   let event: Line;
   try {
     event = JSON.parse(line) as Line;
@@ -99,7 +113,8 @@ export const piLineFromPi = (line: string, endpointIds: ReadonlySet<string>): st
   }
   if (typeof event !== "object" || event === null) return line;
   const data = event.data as { readonly model?: unknown; readonly models?: unknown } | null | undefined;
-  if (event.type === "message_end") return JSON.stringify({ ...event, message: withEndpointId(event.message, endpointIds) });
+  if (event.type === "message_end")
+    return JSON.stringify({ ...event, message: withEndpointId(event.message, endpointIds) });
   if (event.type !== "response" || typeof data !== "object" || data === null) return line;
   switch (event.command) {
     case "set_model":
@@ -108,7 +123,12 @@ export const piLineFromPi = (line: string, endpointIds: ReadonlySet<string>): st
     case "cycle_model":
       return JSON.stringify({ ...event, data: { ...data, model: withEndpointId(data.model, endpointIds) } });
     case "get_available_models":
-      return Array.isArray(data.models) ? JSON.stringify({ ...event, data: { ...data, models: data.models.map((model: unknown) => withEndpointId(model, endpointIds)) } }) : line;
+      return Array.isArray(data.models)
+        ? JSON.stringify({
+            ...event,
+            data: { ...data, models: data.models.map((model: unknown) => withEndpointId(model, endpointIds)) },
+          })
+        : line;
     default:
       return line;
   }

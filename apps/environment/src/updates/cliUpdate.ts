@@ -54,14 +54,16 @@ const POLL_MS = 20_000;
 /** The command gives up a little after t3's runner (30 minutes) would kill it. */
 const COMMAND_DEADLINE_MS = 31 * 60_000;
 
-
 type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 
 /** A package's name as one segment of a registry URL: a scope's `/` encoded (every one, should a name hold more). */
 const registryName = (name: string): string => name.replaceAll("/", "%2F");
 
 const npmDocument = async (fetchFn: Fetch, path: string): Promise<Record<string, unknown> | null> => {
-  const response = await fetchFn(`https://registry.npmjs.org/${path}`, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS) });
+  const response = await fetchFn(`https://registry.npmjs.org/${path}`, {
+    headers: { accept: "application/json" },
+    signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
+  });
   return response.ok ? ((await response.json()) as Record<string, unknown>) : null;
 };
 
@@ -71,10 +73,14 @@ const stringField = (document: Record<string, unknown> | null, field: string): s
 };
 
 /** The newest version of `cli` as its card compares it with the pin, or null when npm does not say. */
-export const lookupLatestCliVersion = async (cli: UpdatableCli, fetchFn: Fetch = (url, init) => fetch(url, init)): Promise<string | null> => {
+export const lookupLatestCliVersion = async (
+  cli: UpdatableCli,
+  fetchFn: Fetch = (url, init) => fetch(url, init),
+): Promise<string | null> => {
   try {
     if (cli === "codex") return stringField(await npmDocument(fetchFn, "@openai%2Fcodex/latest"), "version");
-    if (cli === "pi") return stringField(await npmDocument(fetchFn, `${registryName(CLIS.pi.package)}/latest`), "version");
+    if (cli === "pi")
+      return stringField(await npmDocument(fetchFn, `${registryName(CLIS.pi.package)}/latest`), "version");
     const adapter = await npmDocument(fetchFn, `${registryName(CLIS.claude.package)}/latest`);
     const range = (adapter?.dependencies as Record<string, unknown> | undefined)?.["@anthropic-ai/claude-agent-sdk"];
     const sdk = typeof range === "string" ? /\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/.exec(range)?.[0] : undefined;
@@ -95,7 +101,11 @@ const configuredUpdates = (): Updates | undefined => {
  * `cli`'s maintenance capabilities: with an update target, a real `update` (`t3flare-cli-update <cli>`, its own lock key)
  * and the npm advisory; without one, manual-only as before (ADR-0024).
  */
-export const cliMaintenance = (provider: ProviderDriverKind, cli: UpdatableCli, options: { readonly configured?: boolean; readonly fetch?: Fetch } = {}): ProviderMaintenanceCapabilities =>
+export const cliMaintenance = (
+  provider: ProviderDriverKind,
+  cli: UpdatableCli,
+  options: { readonly configured?: boolean; readonly fetch?: Fetch } = {},
+): ProviderMaintenanceCapabilities =>
   (options.configured ?? configuredUpdates() !== undefined)
     ? makeProviderMaintenanceCapabilities({
         provider,
@@ -128,7 +138,9 @@ export const cliVersionAdvisory = (maintenance: ProviderMaintenanceCapabilities)
       readonly snapshot: ServerProvider;
       readonly publishSnapshot: (snapshot: ServerProvider) => Effect.Effect<void>;
     }) =>
-      enrichProviderSnapshotWithVersionAdvisory(input.snapshot, maintenance, { enableProviderUpdateChecks: input.settings.enableProviderUpdateChecks }).pipe(
+      enrichProviderSnapshotWithVersionAdvisory(input.snapshot, maintenance, {
+        enableProviderUpdateChecks: input.settings.enableProviderUpdateChecks,
+      }).pipe(
         Effect.provideService(HttpClient.HttpClient, httpClient),
         Effect.provideService(ProviderLatestVersions.ProviderLatestVersions, latestVersions),
         Effect.flatMap(input.publishSnapshot),
@@ -148,10 +160,15 @@ export interface CommandAnswer {
  */
 export const runCliUpdate = async (
   argv: ReadonlyArray<string>,
-  options: { readonly updates?: Updates | undefined; readonly now?: () => number; readonly sleep?: (ms: number) => Promise<void> } = {},
+  options: {
+    readonly updates?: Updates | undefined;
+    readonly now?: () => number;
+    readonly sleep?: (ms: number) => Promise<void>;
+  } = {},
 ): Promise<CommandAnswer> => {
   const cli = argv[0];
-  if (!isUpdatableCli(cli) || argv.length !== 1) return { exitCode: 2, stdout: "", stderr: `usage: ${CLI_UPDATE_COMMAND} pi|codex|claude\n` };
+  if (!isUpdatableCli(cli) || argv.length !== 1)
+    return { exitCode: 2, stdout: "", stderr: `usage: ${CLI_UPDATE_COMMAND} pi|codex|claude\n` };
   const updates = "updates" in options ? options.updates : configuredUpdates();
   if (updates === undefined) return { exitCode: 1, stdout: "", stderr: `${NO_UPDATE_TARGET}\n` };
   const now = options.now ?? (() => Date.now());
@@ -175,14 +192,24 @@ export const runCliUpdate = async (
   const id = pressed.record.id;
   for (;;) {
     const record = await updates.settle(`cli:${cli}`).catch(() => updates.record(`cli:${cli}`));
-    if (record === undefined || record.id !== id) return { exitCode: 1, stdout: "", stderr: `The update of ${CLI_LABELS[cli]} lost its record.\n` };
+    if (record === undefined || record.id !== id)
+      return { exitCode: 1, stdout: "", stderr: `The update of ${CLI_LABELS[cli]} lost its record.\n` };
     if (record.outcome !== null) {
       return record.outcome.status === "succeeded"
-        ? { exitCode: 0, stdout: `Landed ${CLI_LABELS[cli]}'s update; prod restarts on it. ${record.outcome.reason}\n`, stderr: "", detail: record.run?.url ?? id }
+        ? {
+            exitCode: 0,
+            stdout: `Landed ${CLI_LABELS[cli]}'s update; prod restarts on it. ${record.outcome.reason}\n`,
+            stderr: "",
+            detail: record.run?.url ?? id,
+          }
         : { exitCode: 1, stdout: "", stderr: `${record.outcome.reason}\n`, detail: record.run?.url ?? id };
     }
     if (now() - started > COMMAND_DEADLINE_MS) {
-      return { exitCode: 1, stdout: "", stderr: `The update of ${CLI_LABELS[cli]} is still running${record.run === null ? "" : `: ${record.run.url}`}. Press Update again to follow it.\n` };
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr: `The update of ${CLI_LABELS[cli]} is still running${record.run === null ? "" : `: ${record.run.url}`}. Press Update again to follow it.\n`,
+      };
     }
     await sleep(POLL_MS);
   }
@@ -192,5 +219,13 @@ export const runCliUpdate = async (
  * Whether a spawn is t3's provider-update runner running a CLI update (review A4): exactly `t3flare-cli-update <cli>`,
  * with this isolate's token in its environment. Anything else is not answered (a missing binary).
  */
-export const isCliUpdateSpawn = (command: string, argv: ReadonlyArray<string>, env: Readonly<Record<string, unknown>> | undefined): boolean =>
-  command === CLI_UPDATE_COMMAND && argv.length === 1 && isUpdatableCli(argv[0]) && token !== undefined && env?.[CLI_UPDATE_TOKEN_ENV] === token;
+export const isCliUpdateSpawn = (
+  command: string,
+  argv: ReadonlyArray<string>,
+  env: Readonly<Record<string, unknown>> | undefined,
+): boolean =>
+  command === CLI_UPDATE_COMMAND &&
+  argv.length === 1 &&
+  isUpdatableCli(argv[0]) &&
+  token !== undefined &&
+  env?.[CLI_UPDATE_TOKEN_ENV] === token;

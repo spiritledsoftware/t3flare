@@ -24,16 +24,7 @@ import {
 import { type McpProgress, ServerError, Unsupported } from "./types.ts";
 import { connect } from "./index.ts";
 import type { McpCallContext } from "./types.ts";
-import {
-  HOST,
-  AGENT,
-  OWNER,
-  completed,
-  run,
-  testDeps,
-  TARGET,
-  failedWith,
-} from "./core.fixture.ts";
+import { HOST, AGENT, OWNER, completed, run, testDeps, TARGET, failedWith } from "./core.fixture.ts";
 
 /** `echo`, declared with an outputSchema its answers never meet. */
 const COUNTING_TOOL = {
@@ -46,9 +37,7 @@ const COUNTING_TOOL = {
 };
 
 /** Each fake: its name, how to make it, its era, and whether it answers a call on a stream it can send progress on. */
-const servers: ReadonlyArray<
-  readonly [string, (options?: FakeOptions) => FakeServer, string, boolean]
-> = [
+const servers: ReadonlyArray<readonly [string, (options?: FakeOptions) => FakeServer, string, boolean]> = [
   ["Modern", modernServer, "modern", true],
   ["Legacy stateless", legacyStatelessServer, "legacy", false],
   ["Legacy stateful with a GET stream", legacyStatefulServer, "legacy", true],
@@ -63,10 +52,7 @@ describe.each(servers)("against a %s server", (_name, makeServer, era, streams) 
         const connection = yield* connect(TARGET, testDeps(fetchTo(server)));
         const tools = yield* connection.list("tools", HOST);
 
-        const called = yield* connection.callTool(
-          { tool: SHOUT_TOOL, arguments: { text: "hi" } },
-          AGENT,
-        );
+        const called = yield* connection.callTool({ tool: SHOUT_TOOL, arguments: { text: "hi" } }, AGENT);
 
         return { tools, called, connectedEra: connection.era };
       }),
@@ -122,9 +108,7 @@ describe.each(servers)("against a %s server", (_name, makeServer, era, streams) 
           arguments: [{ name: "pr_number", required: true }],
           get: (args) => ({
             description: "Review a PR",
-            messages: [
-              { role: "user", content: { type: "text", text: `Review PR ${args["pr_number"]}` } },
-            ],
+            messages: [{ role: "user", content: { type: "text", text: `Review PR ${args["pr_number"]}` } }],
           }),
         },
       ],
@@ -143,9 +127,7 @@ describe.each(servers)("against a %s server", (_name, makeServer, era, streams) 
 
     expect(listed.value.map((prompt) => prompt.name)).toEqual(["review_pr"]);
     expect(got.kind).toBe("complete");
-    expect(got.value.messages).toEqual([
-      { role: "user", content: { type: "text", text: "Review PR 123" } },
-    ]);
+    expect(got.value.messages).toEqual([{ role: "user", content: { type: "text", text: "Review PR 123" } }]);
     expect(missing._tag).toBe("ServerError");
     expect(rpcMethods(server).filter((method) => method === "prompts/get")).toHaveLength(2);
   });
@@ -161,10 +143,7 @@ describe.each(servers)("against a %s server", (_name, makeServer, era, streams) 
           onProgress: (progress) => seen.push(progress),
         });
 
-        const withProgress = yield* connection.callTool(
-          { tool: PROGRESS_TOOL, arguments: { steps: 2 } },
-          AGENT,
-        );
+        const withProgress = yield* connection.callTool({ tool: PROGRESS_TOOL, arguments: { steps: 2 } }, AGENT);
 
         const quiet = yield* connect(TARGET, testDeps(fetchTo(server)));
 
@@ -187,9 +166,7 @@ describe.each(servers)("against a %s server", (_name, makeServer, era, streams) 
     // The call without `onProgress` asked for none: its request carried no progress token.
     const calls = server.received.filter((received) => received.rpc?.method === "tools/call");
 
-    expect(calls.map((received) => JSON.stringify(received.rpc).includes("progressToken"))).toEqual(
-      [true, false],
-    );
+    expect(calls.map((received) => JSON.stringify(received.rpc).includes("progressToken"))).toEqual([true, false]);
   });
 
   it("leaves structuredContent to the host: a tool with an outputSchema may answer without it", async () => {
@@ -199,10 +176,7 @@ describe.each(servers)("against a %s server", (_name, makeServer, era, streams) 
       Effect.gen(function* () {
         const connection = yield* connect(TARGET, testDeps(fetchTo(server)));
 
-        return yield* connection.callTool(
-          { tool: COUNTING_TOOL, arguments: { text: "hi" } },
-          AGENT,
-        );
+        return yield* connection.callTool({ tool: COUNTING_TOOL, arguments: { text: "hi" } }, AGENT);
       }),
     );
 
@@ -230,8 +204,7 @@ describe("a Legacy session's GET stream", () => {
 
     expect(
       server.received.some(
-        (received) =>
-          received.method === "GET" && received.headers.get("mcp-session-id") === "session-1",
+        (received) => received.method === "GET" && received.headers.get("mcp-session-id") === "session-1",
       ),
     ).toBe(true);
     expect(announced()).toBe(true);
@@ -317,9 +290,7 @@ describe("what the client declares", () => {
 
   const rpc = (server: FakeServer, method: string) =>
     server.received.flatMap((received) =>
-      received.rpc?.method === method && received.rpc.params !== undefined
-        ? [received.rpc.params]
-        : [],
+      received.rpc?.method === method && received.rpc.params !== undefined ? [received.rpc.params] : [],
     );
 
   it("declares MCP Apps and the injected extensions at a Legacy initialize, with clientInfo", async () => {

@@ -15,7 +15,8 @@ const headers = {
   authorization: `Bearer ${process.env.T3FLARE_ADMIN_TOKEN}`,
 };
 const outFile = process.argv.includes("--out") ? process.argv[process.argv.indexOf("--out") + 1] : undefined;
-const admin = async (method: string, pathname: string) => (await fetch(new URL(pathname, base), { method, headers })).json() as Promise<any>;
+const admin = async (method: string, pathname: string) =>
+  (await fetch(new URL(pathname, base), { method, headers })).json() as Promise<any>;
 const client = async () => {
   const response = await fetch(new URL("/api/auth/session", base));
   const body = await response.text();

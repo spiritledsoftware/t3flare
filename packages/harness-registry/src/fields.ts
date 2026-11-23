@@ -7,7 +7,12 @@ export type FieldSchema =
   | { readonly type: "boolean"; readonly default: boolean }
   | { readonly type: "integer"; readonly minimum: number; readonly maximum: number; readonly default: number }
   /** `labels`: what the panel shows for a value, where its stored name is not words; the value itself otherwise. */
-  | { readonly type: "enum"; readonly values: ReadonlyArray<string>; readonly default: string; readonly labels?: Readonly<Record<string, string>> }
+  | {
+      readonly type: "enum";
+      readonly values: ReadonlyArray<string>;
+      readonly default: string;
+      readonly labels?: Readonly<Record<string, string>>;
+    }
   /** Free text (SPI-1058: guardian's rules and policy, typed as pi-guardian's menu takes them); `multiline` is a text area. */
   | { readonly type: "text"; readonly maxLength: number; readonly default: string; readonly multiline?: boolean }
   /**
@@ -21,7 +26,9 @@ export type FieldSchema =
  * An Environment setting's schema: a field's, or Variables (SPI-1152, ADR-0046): a list of `{ name, value, secret }`,
  * checked by `variablesProblem`, which the panel renders as a list. Harness settings hold scalars only.
  */
-export type EnvironmentFieldSchema = FieldSchema | { readonly type: "variables"; readonly default: ReadonlyArray<StoredVariable> };
+export type EnvironmentFieldSchema =
+  | FieldSchema
+  | { readonly type: "variables"; readonly default: ReadonlyArray<StoredVariable> };
 
 export type SettingValue = boolean | number | string;
 
@@ -61,7 +68,8 @@ const utf8 = new TextEncoder();
 const fileProblem = (text: string, maxBytes: number): string | undefined => {
   if (text.includes("\u0000")) return "contains a NUL character";
   // A UTF-16 unit is at most 3 bytes of UTF-8 (a surrogate pair 4 for 2 units): only a long text needs encoding.
-  if (text.length > maxBytes / 3 && utf8.encode(text).length > maxBytes) return `is longer than ${maxBytes / 1024} KiB of UTF-8`;
+  if (text.length > maxBytes / 3 && utf8.encode(text).length > maxBytes)
+    return `is longer than ${maxBytes / 1024} KiB of UTF-8`;
   return undefined;
 };
 
@@ -84,9 +92,13 @@ export const fieldProblem = (schema: EnvironmentFieldSchema, value: unknown): st
       if (value < schema.minimum) return `at least ${schema.minimum}`;
       return value > schema.maximum ? `at most ${schema.maximum}` : undefined;
     case "enum":
-      return typeof value === "string" && schema.values.includes(value) ? undefined : `one of ${schema.values.join(", ")}`;
+      return typeof value === "string" && schema.values.includes(value)
+        ? undefined
+        : `one of ${schema.values.join(", ")}`;
     case "text":
-      return typeof value === "string" && value.length <= schema.maxLength ? undefined : `text of at most ${schema.maxLength} characters`;
+      return typeof value === "string" && value.length <= schema.maxLength
+        ? undefined
+        : `text of at most ${schema.maxLength} characters`;
     case "variables":
       return variablesProblem(value);
     case "file":

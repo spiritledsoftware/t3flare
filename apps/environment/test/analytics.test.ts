@@ -29,10 +29,20 @@ const sends = <E>(policy: Layer.Layer<ManagedPolicy.ManagedPolicy, E>) => {
     Layer.provideMerge(ServerConfig.ServerConfig.layerTest(process.cwd(), { prefix: "t3flare-analytics-" })),
     Layer.provide(
       ConfigProvider.layer(
-        ConfigProvider.fromUnknown({ T3CODE_TELEMETRY_ENABLED: true, T3CODE_POSTHOG_KEY: "phc_test", T3CODE_POSTHOG_HOST: "http://ingest.test" }),
+        ConfigProvider.fromUnknown({
+          T3CODE_TELEMETRY_ENABLED: true,
+          T3CODE_POSTHOG_KEY: "phc_test",
+          T3CODE_POSTHOG_HOST: "http://ingest.test",
+        }),
       ),
     ),
-    Layer.provide(Layer.mergeAll(Layer.succeed(HostProcess.Platform, "linux"), Layer.succeed(HttpClient.HttpClient, client), policy)),
+    Layer.provide(
+      Layer.mergeAll(
+        Layer.succeed(HostProcess.Platform, "linux"),
+        Layer.succeed(HttpClient.HttpClient, client),
+        policy,
+      ),
+    ),
   );
   return Effect.runPromise(
     Effect.gen(function* () {
@@ -41,7 +51,10 @@ const sends = <E>(policy: Layer.Layer<ManagedPolicy.ManagedPolicy, E>) => {
       yield* analytics.record("t3flare.test.two");
       yield* analytics.flush;
       return posted;
-    }).pipe(Effect.provide(layer.pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)))), Effect.scoped),
+    }).pipe(
+      Effect.provide(layer.pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)))),
+      Effect.scoped,
+    ),
   );
 };
 

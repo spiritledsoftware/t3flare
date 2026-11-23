@@ -51,7 +51,14 @@ export type ChangeItem =
     }
   /** A `file` or multiline `text` setting: the whole text before and after (the renderer diffs it by line). */
   | { readonly kind: "text"; readonly name: string; readonly before: string; readonly after: string }
-  | { readonly kind: "mcp-add"; readonly server: string; readonly url: string; readonly host: string; readonly auth: "none" | "header" | "oauth"; readonly header?: string }
+  | {
+      readonly kind: "mcp-add";
+      readonly server: string;
+      readonly url: string;
+      readonly host: string;
+      readonly auth: "none" | "header" | "oauth";
+      readonly header?: string;
+    }
   | { readonly kind: "mcp-remove"; readonly server: string; readonly url?: string }
   /** A header value for an existing header-auth Direct server: typed on the page. */
   | { readonly kind: "header-value"; readonly server: string; readonly header: string; readonly set: boolean }
@@ -67,7 +74,13 @@ export type ChangeItem =
       readonly from?: string;
       readonly skills: ReadonlyArray<ShownSkill>;
     }
-  | { readonly kind: "skill"; readonly op: "enable" | "disable" | "remove"; readonly name: string; readonly repo?: string; readonly commit?: string }
+  | {
+      readonly kind: "skill";
+      readonly op: "enable" | "disable" | "remove";
+      readonly name: string;
+      readonly repo?: string;
+      readonly commit?: string;
+    }
   /**
    * A Purge asked through the Settings server (ADR-0044 §5): the Workspace, its t3 title, the Worktree
    * Workspaces that go with it, each with its status (a `tombstone (kept)` is called out), the deleted threads' Sessions

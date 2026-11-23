@@ -98,8 +98,14 @@ export interface UnlinkOutcome {
 /** A failure as the status route shows it: t3's error tag and message, credentials redacted, never a cause chain. */
 export const describeFailure = (cause: Cause.Cause<unknown>): string => {
   const error = Cause.squash(cause);
-  const tag = typeof error === "object" && error !== null && "_tag" in error ? String((error as { _tag: unknown })._tag) : "Error";
-  const rejection = typeof error === "object" && error !== null && "rejection" in error ? `:${String((error as { rejection: unknown }).rejection)}` : "";
+  const tag =
+    typeof error === "object" && error !== null && "_tag" in error
+      ? String((error as { _tag: unknown })._tag)
+      : "Error";
+  const rejection =
+    typeof error === "object" && error !== null && "rejection" in error
+      ? `:${String((error as { rejection: unknown }).rejection)}`
+      : "";
   const message = error instanceof Error ? error.message : String(error);
   return redact(`${tag}${rejection}: ${message}`).slice(0, 300);
 };
@@ -150,8 +156,13 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
     let flow: SignInFlow = { state: "idle" };
     let pending: { readonly prompt: Deferred.Deferred<SignInPrompt, ConnectError>; readonly until: number } | undefined;
 
-    const fail = (reason: string, detail?: string) => new ConnectError({ reason, ...(detail === undefined ? {} : { detail }) });
-    const has = (name: string) => secrets.get(name).pipe(Effect.map(Option.isSome), Effect.orElseSucceed(() => false));
+    const fail = (reason: string, detail?: string) =>
+      new ConnectError({ reason, ...(detail === undefined ? {} : { detail }) });
+    const has = (name: string) =>
+      secrets.get(name).pipe(
+        Effect.map(Option.isSome),
+        Effect.orElseSucceed(() => false),
+      );
     const text = (name: string) =>
       secrets.get(name).pipe(
         Effect.map((value) => (Option.isSome(value) ? new TextDecoder().decode(value.value) : null)),
@@ -163,10 +174,15 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
 
     /** t3's link step, made publish-only whatever was stored (review finding 2). Holds the lock. */
     const linkNow = Effect.gen(function* () {
-      yield* setCliDesiredCloudLink(true, "publish_only").pipe(withSecrets, Effect.mapError((e) => fail("store-desired-link", e.message)));
+      yield* setCliDesiredCloudLink(true, "publish_only").pipe(
+        withSecrets,
+        Effect.mapError((e) => fail("store-desired-link", e.message)),
+      );
       // As `t3 connect link --publish-only`: publishing on, unless the owner turned it off before a relink.
       if (!(yield* has(PUBLISH_AGENT_ACTIVITY_SECRET))) {
-        yield* secrets.set(PUBLISH_AGENT_ACTIVITY_SECRET, new TextEncoder().encode("true")).pipe(Effect.mapError((e) => fail("store-publish-flag", e.message)));
+        yield* secrets
+          .set(PUBLISH_AGENT_ACTIVITY_SECRET, new TextEncoder().encode("true"))
+          .pipe(Effect.mapError((e) => fail("store-publish-flag", e.message)));
       }
       const result = yield* Effect.exit(cloudLink.reconcileDesiredLinkIfStillDesired(LINK_ORIGIN));
       const tunnel = yield* has(CLOUD_ENDPOINT_RUNTIME_CONFIG);
@@ -174,11 +190,18 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
       if (tunnel || (Exit.isSuccess(result) && mode !== "publish_only")) {
         // Never a managed tunnel (ADR-0010): undo the link here; the relay keeps a link the owner removes in the app.
         yield* cloudLink.unlink().pipe(Effect.ignore);
-        return yield* fail("not-publish-only", tunnel ? "the relay returned a managed tunnel" : `t3 linked in mode ${String(mode)}`);
+        return yield* fail(
+          "not-publish-only",
+          tunnel ? "the relay returned a managed tunnel" : `t3 linked in mode ${String(mode)}`,
+        );
       }
       if (Exit.isFailure(result)) return yield* fail("link-failed", describeFailure(result.cause));
       yield* secrets.remove(CLOUD_MINT_PUBLIC_KEY).pipe(Effect.mapError((e) => fail("remove-mint-key", e.message)));
-      return { mode: "publish_only", accountTokenKept: policy.keepAccountToken, mintKeyRemoved: true } satisfies LinkOutcome;
+      return {
+        mode: "publish_only",
+        accountTokenKept: policy.keepAccountToken,
+        mintKeyRemoved: true,
+      } satisfies LinkOutcome;
     }).pipe(
       // D2: where the token is not kept, it goes whether or not the link was made, so a failed link leaves none behind.
       Effect.ensuring(policy.keepAccountToken ? Effect.void : tokens.clear.pipe(Effect.ignore)),
@@ -186,10 +209,16 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
     const link = lock.withPermits(1)(linkNow);
 
     const linkWith = (token: CliTokenManager.PersistedToken) =>
-      lock.withPermits(1)(tokens.store(token).pipe(Effect.mapError((e) => fail("store-account-token", e.message)), Effect.andThen(linkNow)));
+      lock.withPermits(1)(
+        tokens.store(token).pipe(
+          Effect.mapError((e) => fail("store-account-token", e.message)),
+          Effect.andThen(linkNow),
+        ),
+      );
 
     const signIn = Effect.gen(function* () {
-      if (pending !== undefined && (yield* Clock.currentTimeMillis) < pending.until) return yield* Deferred.await(pending.prompt);
+      if (pending !== undefined && (yield* Clock.currentTimeMillis) < pending.until)
+        return yield* Deferred.await(pending.prompt);
       const prompt = yield* Deferred.make<SignInPrompt, ConnectError>();
       const startedAt = yield* Clock.currentTimeMillis;
       // Until the code arrives, a short hold; then until it expires (plan section 2.1).
@@ -239,7 +268,8 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
 
     const deleteRelayLink = Effect.gen(function* () {
       const token = yield* tokens.getExisting.pipe(Effect.option, Effect.map(Option.flatten));
-      if (Option.isNone(token)) return { skipped: "no account token held (remove the environment in the T3 apps)" } as const;
+      if (Option.isNone(token))
+        return { skipped: "no account token held (remove the environment in the T3 apps)" } as const;
       const url = yield* relayUrl;
       if (url === null) return { skipped: "no relay URL" } as const;
       const environmentId = yield* environment.getEnvironmentId;
@@ -253,7 +283,9 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
           }),
         catch: () => fail("relay-unreachable"),
       }).pipe(Effect.option);
-      return Option.isSome(response) ? ({ status: response.value.status } as const) : ({ skipped: "the relay did not answer" } as const);
+      return Option.isSome(response)
+        ? ({ status: response.value.status } as const)
+        : ({ skipped: "the relay did not answer" } as const);
     });
 
     const unlinkNow = (clearToken: boolean) =>
@@ -276,13 +308,22 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
         Effect.tryPromise({
           try: async () => {
             // @effect-diagnostics-next-line globalFetchInEffect:off -- the Worker's global fetch, as before: connectLink.test.ts stubs it, and the HttpClient service in scope is t3's sign-in client
-            const response = await fetch(`${url}${path}`, { headers: { authorization: `Bearer ${token.value.accessToken}` }, signal: AbortSignal.timeout(10_000) });
-            return { status: response.status, body: response.ok ? ((await response.json()) as Record<string, unknown>) : null };
+            const response = await fetch(`${url}${path}`, {
+              headers: { authorization: `Bearer ${token.value.accessToken}` },
+              signal: AbortSignal.timeout(10_000),
+            });
+            return {
+              status: response.status,
+              body: response.ok ? ((await response.json()) as Record<string, unknown>) : null,
+            };
           },
           catch: () => fail("relay-unreachable"),
         }).pipe(Effect.orElseSucceed(() => ({ status: 0, body: null })));
-      const [environments, devices] = yield* Effect.all([get("/v1/environments"), get("/v2/client/devices")], { concurrency: 2 });
-      const list = (body: Record<string, unknown> | null, key: string) => (Array.isArray(body?.[key]) ? (body[key] as Array<Record<string, any>>) : []);
+      const [environments, devices] = yield* Effect.all([get("/v1/environments"), get("/v2/client/devices")], {
+        concurrency: 2,
+      });
+      const list = (body: Record<string, unknown> | null, key: string) =>
+        Array.isArray(body?.[key]) ? (body[key] as Array<Record<string, any>>) : [];
       return {
         environments: {
           status: environments.status,
@@ -295,7 +336,11 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
         },
         devices: {
           status: devices.status,
-          items: list(devices.body, "devices").map((d) => ({ platform: d.platform, appVersion: d.appVersion, notifications: d.notifications })),
+          items: list(devices.body, "devices").map((d) => ({
+            platform: d.platform,
+            appVersion: d.appVersion,
+            notifications: d.notifications,
+          })),
         },
       };
     });
@@ -307,8 +352,14 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
           flow,
           link: yield* cloudLink.linkState().pipe(Effect.orElseSucceed(() => null)),
           desired: {
-            marked: yield* readCliDesiredCloudLink.pipe(withSecrets, Effect.orElseSucceed(() => false)),
-            mode: yield* readCliDesiredLinkMode.pipe(withSecrets, Effect.orElseSucceed(() => null)),
+            marked: yield* readCliDesiredCloudLink.pipe(
+              withSecrets,
+              Effect.orElseSucceed(() => false),
+            ),
+            mode: yield* readCliDesiredLinkMode.pipe(
+              withSecrets,
+              Effect.orElseSucceed(() => null),
+            ),
           },
           secretsHeld: {
             environmentCredential: yield* has(RELAY_ENVIRONMENT_CREDENTIAL_SECRET),
@@ -318,7 +369,11 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
           accountToken: Exit.isSuccess(token)
             ? Option.match(token.value, {
                 onNone: () => ({ held: false }),
-                onSome: (value) => ({ held: true, expiresAt: new Date(value.expiresAtEpochMs).toISOString(), identity: value.identity ?? null }),
+                onSome: (value) => ({
+                  held: true,
+                  expiresAt: new Date(value.expiresAtEpochMs).toISOString(),
+                  identity: value.identity ?? null,
+                }),
               })
             : { held: true, error: describeFailure(token.cause) },
           policy,
@@ -335,16 +390,25 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
       signOut: unlinkNow(true),
       relayUnlinkOnly: lock.withPermits(1)(deleteRelayLink),
       republishLastLive: Effect.gen(function* () {
-        const live = [...recorder.lastPublishedPhases()].filter(([, phase]) => phase !== null && LIVE_PHASES.has(phase)).map(([threadId]) => threadId);
-        yield* Effect.forEach(live, (threadId) => awareness.publishThread(threadId as ThreadId).pipe(Effect.ignore), { discard: true });
+        const live = [...recorder.lastPublishedPhases()]
+          .filter(([, phase]) => phase !== null && LIVE_PHASES.has(phase))
+          .map(([threadId]) => threadId);
+        yield* Effect.forEach(live, (threadId) => awareness.publishThread(threadId as ThreadId).pipe(Effect.ignore), {
+          discard: true,
+        });
         return live;
       }),
-      setPublishing: (on) => cloudLink.updatePreferences({ publishAgentActivity: on }).pipe(Effect.asVoid, Effect.mapError((e) => fail("preferences", e.message))),
+      setPublishing: (on) =>
+        cloudLink.updatePreferences({ publishAgentActivity: on }).pipe(
+          Effect.asVoid,
+          Effect.mapError((e) => fail("preferences", e.message)),
+        ),
       status,
     });
   });
 
-export const layer = (policy: ConnectPolicy, recorder: PublishRecorder) => Layer.effect(Connect, make(policy, recorder));
+export const layer = (policy: ConnectPolicy, recorder: PublishRecorder) =>
+  Layer.effect(Connect, make(policy, recorder));
 
 /**
  * The `CloudLink` t3's HTTP routes get (review finding 1): the four calls only the relay or a client-driven link make

@@ -16,7 +16,13 @@ const providerSessionId = ProviderSessionId.make("session-1");
 const instanceId = ProviderInstanceId.make("codex");
 const refusal = noEndpointFor("Codex", "OpenAI Responses");
 const spawnError = (tag: "PermissionDenied" | "Unknown", description: string) =>
-  PlatformError.systemError({ _tag: tag, module: "ChildProcess", method: "spawn", description, pathOrDescriptor: "codex" });
+  PlatformError.systemError({
+    _tag: tag,
+    module: "ChildProcess",
+    method: "spawn",
+    description,
+    pathOrDescriptor: "codex",
+  });
 
 describe("the CLI wrapper's open (SPI-1176)", () => {
   /** A stand-in for t3's adapter whose open fails as t3's Codex adapter's does on a refused spawn. */
@@ -26,7 +32,8 @@ describe("the CLI wrapper's open (SPI-1176)", () => {
       driver,
       getCapabilities: () => Effect.die("unused"),
       planSelectionTransition: () => Effect.die("unused"),
-      openSession: () => Effect.fail(new ProviderAdapter.ProviderAdapterOpenSessionError({ driver, providerSessionId, cause })),
+      openSession: () =>
+        Effect.fail(new ProviderAdapter.ProviderAdapterOpenSessionError({ driver, providerSessionId, cause })),
     }) as unknown as ProviderAdapter.ProviderAdapterV2["Service"];
   const open = (adapter: ProviderAdapter.ProviderAdapterV2["Service"]) =>
     Effect.runPromise(
@@ -35,7 +42,11 @@ describe("the CLI wrapper's open (SPI-1176)", () => {
           threadId: ThreadId.make("thread-refused"),
           providerSessionId,
           modelSelection: { instanceId, model: "x" },
-          runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({ runtimeMode: "full-access", interactionMode: "default", cwd: "/w/x" }),
+          runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            cwd: "/w/x",
+          }),
         } as never),
       ).pipe(Effect.flip),
     );
@@ -43,7 +54,11 @@ describe("the CLI wrapper's open (SPI-1176)", () => {
   it("fails a refused spawn's open with the refusal as t3's failure text", async () => {
     const cause = spawnError("PermissionDenied", `t3flare: ${refusal}`);
     // Unmapped, t3's own open error shows nothing: the refusal reaches t3 through the wrapper alone.
-    expect(knownProviderFailureMessage({ cause: new ProviderAdapter.ProviderAdapterOpenSessionError({ driver, providerSessionId, cause }) })).toBeUndefined();
+    expect(
+      knownProviderFailureMessage({
+        cause: new ProviderAdapter.ProviderAdapterOpenSessionError({ driver, providerSessionId, cause }),
+      }),
+    ).toBeUndefined();
     const failed = await open(refusing(cause));
     expect(failed._tag).toBe("ProviderAdapterOpenSessionError");
     expect(knownProviderFailureMessage({ cause: failed })).toBe(`${refusal}.`);

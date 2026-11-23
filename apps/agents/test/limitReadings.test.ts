@@ -39,15 +39,51 @@ const CLAUDE_WINDOWS = [
   { id: "seven_day", usedPercent: 10, resetsAt: IN_5D * 1000, windowMinutes: 10080 },
 ];
 
-const model = (id: string) => ({ id, name: id, reasoning: false, input: ["text" as const], contextWindow: 200_000, maxTokens: 1_000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, known: true });
+const model = (id: string) => ({
+  id,
+  name: id,
+  reasoning: false,
+  input: ["text" as const],
+  contextWindow: 200_000,
+  maxTokens: 1_000,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  known: true,
+});
 
-const anthropicEndpoint: ModelEndpoint = { id: "claude", label: "Claude", api: "anthropic-messages", baseUrl: "https://claude.example", auth: "api-key", headers: {}, models: [model("claude-haiku-5-5")] };
-const responsesEndpoint: ModelEndpoint = { id: "chatgpt", label: "ChatGPT", api: "openai-responses", baseUrl: "https://chatgpt.example/v1", auth: "api-key", headers: {}, models: [model("gpt-6.1-sol")] };
+const anthropicEndpoint: ModelEndpoint = {
+  id: "claude",
+  label: "Claude",
+  api: "anthropic-messages",
+  baseUrl: "https://claude.example",
+  auth: "api-key",
+  headers: {},
+  models: [model("claude-haiku-5-5")],
+};
+const responsesEndpoint: ModelEndpoint = {
+  id: "chatgpt",
+  label: "ChatGPT",
+  api: "openai-responses",
+  baseUrl: "https://chatgpt.example/v1",
+  auth: "api-key",
+  headers: {},
+  models: [model("gpt-6.1-sol")],
+};
 
 const anthropicAnswer = (headers: Record<string, string>) =>
   new Response(
     [
-      { type: "message_start", message: { id: "msg_1", type: "message", role: "assistant", model: "claude-haiku-5-5", content: [], stop_reason: null, usage: { input_tokens: 3, output_tokens: 1 } } },
+      {
+        type: "message_start",
+        message: {
+          id: "msg_1",
+          type: "message",
+          role: "assistant",
+          model: "claude-haiku-5-5",
+          content: [],
+          stop_reason: null,
+          usage: { input_tokens: 3, output_tokens: 1 },
+        },
+      },
       { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
       { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "ok" } },
       { type: "content_block_stop", index: 0 },
@@ -60,8 +96,24 @@ const anthropicAnswer = (headers: Record<string, string>) =>
   );
 
 const responsesAnswer = (headers: Record<string, string>) => {
-  const response = { id: "resp_1", object: "response", status: "completed", model: "gpt-6.1-sol", output: [], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2, input_tokens_details: { cached_tokens: 0 }, output_tokens_details: { reasoning_tokens: 0 } } };
-  return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response })}\n\n`, { status: 200, headers: { "content-type": "text/event-stream", ...headers } });
+  const response = {
+    id: "resp_1",
+    object: "response",
+    status: "completed",
+    model: "gpt-6.1-sol",
+    output: [],
+    usage: {
+      input_tokens: 1,
+      output_tokens: 1,
+      total_tokens: 2,
+      input_tokens_details: { cached_tokens: 0 },
+      output_tokens_details: { reasoning_tokens: 0 },
+    },
+  };
+  return new Response(
+    `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response })}\n\n`,
+    { status: 200, headers: { "content-type": "text/event-stream", ...headers } },
+  );
 };
 
 const sessionWith = (endpoint: ModelEndpoint, fetcher: typeof fetch) => {
@@ -73,21 +125,26 @@ const sessionWith = (endpoint: ModelEndpoint, fetcher: typeof fetch) => {
     models,
     fetch: fetcher,
     readMs: 50,
-    source: () => ({ modelEndpoints: async () => ({ revision: 1, endpoints: [endpoint] }), endpointCredential: async () => ({ apiKey: "sk-test-key" }) }),
+    source: () => ({
+      modelEndpoints: async () => ({ revision: 1, endpoints: [endpoint] }),
+      endpointCredential: async () => ({ apiKey: "sk-test-key" }),
+    }),
     usage: { session: () => "s", record: () => undefined },
     limits: (reading) => void readings.push(reading),
   });
   return { readings, models, endpoints };
 };
 
-const ask = (models: ReturnType<typeof createModels>, provider: string, id: string) => models.completeSimple(models.getModel(provider, id)!, { messages: [{ role: "user", content: "hi", timestamp: 0 }] });
+const ask = (models: ReturnType<typeof createModels>, provider: string, id: string) =>
+  models.completeSimple(models.getModel(provider, id)!, { messages: [{ role: "user", content: "hi", timestamp: 0 }] });
 
 describe("a Session's limit readings", () => {
   it("reads Claude's unified windows from an Anthropic Messages answer, under the endpoint and the answer's time", async () => {
     const realNow = Date.now;
     Date.now = () => NOW;
     try {
-      const { readings, models, endpoints } = sessionWith(anthropicEndpoint, (async () => anthropicAnswer(CLAUDE_HEADERS)) as unknown as typeof fetch);
+      const { readings, models, endpoints } = sessionWith(anthropicEndpoint, (async () =>
+        anthropicAnswer(CLAUDE_HEADERS)) as unknown as typeof fetch);
       await endpoints.take();
       await ask(models, "claude", "claude-haiku-5-5");
       expect(readings).toEqual([{ endpointId: "claude", at: NOW, windows: CLAUDE_WINDOWS }]);
@@ -102,8 +159,14 @@ describe("a Session's limit readings", () => {
     const realNow = Date.now;
     Date.now = () => NOW;
     try {
-      const signIn: ModelEndpoint = { ...anthropicEndpoint, id: "claude-plan", auth: "claude", baseUrl: "https://api.anthropic.com" };
-      const { readings, models, endpoints } = sessionWith(signIn, (async () => anthropicAnswer(CLAUDE_HEADERS)) as unknown as typeof fetch);
+      const signIn: ModelEndpoint = {
+        ...anthropicEndpoint,
+        id: "claude-plan",
+        auth: "claude",
+        baseUrl: "https://api.anthropic.com",
+      };
+      const { readings, models, endpoints } = sessionWith(signIn, (async () =>
+        anthropicAnswer(CLAUDE_HEADERS)) as unknown as typeof fetch);
       await endpoints.take();
       const message = await ask(models, "claude-plan", "claude-haiku-5-5");
       expect(message.stopReason).toBe("stop");
@@ -117,7 +180,8 @@ describe("a Session's limit readings", () => {
     const realNow = Date.now;
     Date.now = () => NOW;
     try {
-      const { readings, models, endpoints } = sessionWith(responsesEndpoint, (async () => responsesAnswer(CODEX_HEADERS)) as unknown as typeof fetch);
+      const { readings, models, endpoints } = sessionWith(responsesEndpoint, (async () =>
+        responsesAnswer(CODEX_HEADERS)) as unknown as typeof fetch);
       await endpoints.take();
       await ask(models, "chatgpt", "gpt-6.1-sol");
       expect(readings).toEqual([
@@ -152,8 +216,18 @@ describe("a Session's limit readings", () => {
       await ask(models, "claude", "claude-haiku-5-5");
       faulted = false;
       await ask(models, "claude", "claude-haiku-5-5");
-      expect(readings).toEqual([{ endpointId: "claude", at: NOW, windows: [{ id: "five_hour", usedPercent: 100, resetsAt: IN_2H * 1000, windowMinutes: 300 }] }]);
-      expect(faultAnswer({ fixture: "anthropicUsageLimit", resetAt: IN_2H * 1000 }, NOW).headers.get("anthropic-ratelimit-unified-representative-claim")).toBe("five_hour");
+      expect(readings).toEqual([
+        {
+          endpointId: "claude",
+          at: NOW,
+          windows: [{ id: "five_hour", usedPercent: 100, resetsAt: IN_2H * 1000, windowMinutes: 300 }],
+        },
+      ]);
+      expect(
+        faultAnswer({ fixture: "anthropicUsageLimit", resetAt: IN_2H * 1000 }, NOW).headers.get(
+          "anthropic-ratelimit-unified-representative-claim",
+        ),
+      ).toBe("five_hour");
     } finally {
       Date.now = realNow;
     }
@@ -166,13 +240,16 @@ describe("a Session's limit readings", () => {
       {
         endpoints: async () => ({ revision: 1, endpoints: [anthropicEndpoint] }),
         credential: async () => ({ apiKey: "sk-test-key" }),
-        fetch: (async () => anthropicAnswer({ "anthropic-ratelimit-unified-5h-utilization": "0.5" })) as unknown as typeof fetch,
+        fetch: (async () =>
+          anthropicAnswer({ "anthropic-ratelimit-unified-5h-utilization": "0.5" })) as unknown as typeof fetch,
         usage: () => undefined,
         limits: (reading) => void readings.push(reading),
       },
     );
     expect(result).toEqual({ ok: true, text: "ok" });
-    expect(readings).toMatchObject([{ endpointId: "claude", windows: [{ id: "five_hour", usedPercent: 50, windowMinutes: 300 }] }]);
+    expect(readings).toMatchObject([
+      { endpointId: "claude", windows: [{ id: "five_hour", usedPercent: 50, windowMinutes: 300 }] },
+    ]);
   });
 
   it("an answer whose reading throws still reaches pi-ai whole", async () => {
@@ -182,7 +259,10 @@ describe("a Session's limit readings", () => {
       models,
       fetch: (async () => anthropicAnswer(CLAUDE_HEADERS)) as unknown as typeof fetch,
       readMs: 50,
-      source: () => ({ modelEndpoints: async () => ({ revision: 1, endpoints: [anthropicEndpoint] }), endpointCredential: async () => ({ apiKey: "sk-test-key" }) }),
+      source: () => ({
+        modelEndpoints: async () => ({ revision: 1, endpoints: [anthropicEndpoint] }),
+        endpointCredential: async () => ({ apiKey: "sk-test-key" }),
+      }),
       usage: { session: () => "s", record: () => undefined },
       limits: () => {
         throw new Error("lost");
@@ -200,7 +280,12 @@ const grant = (api: "openai-responses" | "anthropic-messages"): ModelRelayGrant 
   handleId: "proc-1",
   cli: api === "openai-responses" ? "codex" : "claude",
   workspace: "ws-1",
-  target: { api, auth: "api-key", baseUrl: "https://up.example/v1", headers: { authorization: "Bearer sk-endpoint-secret" } },
+  target: {
+    api,
+    auth: "api-key",
+    baseUrl: "https://up.example/v1",
+    headers: { authorization: "Bearer sk-endpoint-secret" },
+  },
 });
 
 const relay = (api: "openai-responses" | "anthropic-messages", upstream: () => Response) => {
@@ -213,7 +298,11 @@ const relay = (api: "openai-responses" | "anthropic-messages", upstream: () => R
     usage: () => undefined,
     limits: (reading) => void readings.push(reading),
   };
-  const request = new Request("http://computer.internal/t3flare/model/sub/responses", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${HANDLE}` }, body: "{}" });
+  const request = new Request("http://computer.internal/t3flare/model/sub/responses", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${HANDLE}` },
+    body: "{}",
+  });
   return { readings, answer: () => handleModelRelay(request, deps) };
 };
 
@@ -239,13 +328,28 @@ describe("the model relay's limit readings", () => {
     const limited = relay("anthropic-messages", () =>
       Response.json(
         { type: "error", error: { type: "rate_limit_error", message: "limited" } },
-        { status: 429, headers: { "anthropic-ratelimit-unified-status": "rejected", "anthropic-ratelimit-unified-representative-claim": "seven_day", "anthropic-ratelimit-unified-reset": String(IN_5D) } },
+        {
+          status: 429,
+          headers: {
+            "anthropic-ratelimit-unified-status": "rejected",
+            "anthropic-ratelimit-unified-representative-claim": "seven_day",
+            "anthropic-ratelimit-unified-reset": String(IN_5D),
+          },
+        },
       ),
     );
     expect((await limited.answer()).status).toBe(429);
-    expect(limited.readings).toEqual([{ endpointId: "sub", at: NOW, windows: [{ id: "seven_day", usedPercent: 100, resetsAt: IN_5D * 1000, windowMinutes: 10080 }] }]);
+    expect(limited.readings).toEqual([
+      {
+        endpointId: "sub",
+        at: NOW,
+        windows: [{ id: "seven_day", usedPercent: 100, resetsAt: IN_5D * 1000, windowMinutes: 10080 }],
+      },
+    ]);
 
-    const garbage = relay("openai-responses", () => responsesAnswer({ "x-codex-primary-used-percent": "lots", "anthropic-ratelimit-unified-5h-utilization": "-1" }));
+    const garbage = relay("openai-responses", () =>
+      responsesAnswer({ "x-codex-primary-used-percent": "lots", "anthropic-ratelimit-unified-5h-utilization": "-1" }),
+    );
     expect((await garbage.answer()).status).toBe(200);
     expect(garbage.readings).toEqual([]);
   });
@@ -261,7 +365,14 @@ describe("the model relay's limit readings", () => {
         throw new Error("lost");
       },
     };
-    const response = await handleModelRelay(new Request("http://computer.internal/t3flare/model/sub/messages", { method: "POST", headers: { authorization: `Bearer ${HANDLE}` }, body: "{}" }), deps);
+    const response = await handleModelRelay(
+      new Request("http://computer.internal/t3flare/model/sub/messages", {
+        method: "POST",
+        headers: { authorization: `Bearer ${HANDLE}` },
+        body: "{}",
+      }),
+      deps,
+    );
     expect(response.status).toBe(200);
     expect(await response.text()).toContain("message_stop");
   });
@@ -276,9 +387,15 @@ describe("the limits sender (the Session, text generation, the relay's Workspace
     const lines: Array<string> = [];
     const ctx = { waitUntil: (promise: Promise<unknown>) => void kept.push(promise) };
     limitsSender(ctx, () => ({ recordLimits: async (input) => (sent.push(input), { kept: 1 }) }))(reading);
-    limitsSender(ctx, () => ({ recordLimits: () => Promise.reject(new TypeError("sk-secret")) }), (line) => void lines.push(line))(reading);
+    limitsSender(
+      ctx,
+      () => ({ recordLimits: () => Promise.reject(new TypeError("sk-secret")) }),
+      (line) => void lines.push(line),
+    )(reading);
     await Promise.all(kept);
     expect(sent).toEqual([{ readings: [reading] }]);
-    expect(lines.map((line) => JSON.parse(line))).toEqual([{ t3flare: "limit-reading-failed", endpoint: "sub", error: "TypeError" }]);
+    expect(lines.map((line) => JSON.parse(line))).toEqual([
+      { t3flare: "limit-reading-failed", endpoint: "sub", error: "TypeError" },
+    ]);
   });
 });

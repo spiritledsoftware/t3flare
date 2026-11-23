@@ -45,7 +45,12 @@ const nameOf = (path: string): { readonly name: string; readonly rest: string } 
  * directory or the prefix is not one t3 sends. Nothing is written: `git worktree add` makes the directory in the
  * Container.
  */
-export const makeScratchDir = (directory: string, prefix: string | undefined, now: number, random: () => string): string | undefined => {
+export const makeScratchDir = (
+  directory: string,
+  prefix: string | undefined,
+  now: number,
+  random: () => string,
+): string | undefined => {
   if (normalize(directory) !== WORKTREES_ROOT) return undefined;
   const head = prefix ?? "scratch-";
   if (!PREFIX.test(head)) return undefined;
@@ -72,12 +77,17 @@ export const dropScratchDir = (path: string): void => {
  * Binds the checkout `path` (one segment below a scratch directory) to `project`, for `git worktree add --detach` in
  * that project. Answers the refusal's reason when the path is not such a checkout, or is bound to another project.
  */
-export const bindScratchCheckout = (path: string, project: string): { readonly ok: true } | { readonly refused: string } => {
+export const bindScratchCheckout = (
+  path: string,
+  project: string,
+): { readonly ok: true } | { readonly refused: string } => {
   const at = nameOf(path);
   if (at === undefined) return { refused: "not in a scratch directory t3 made" };
-  if (!/^\/[^/]+$/.test(at.rest)) return { refused: "a scratch checkout is one directory directly in its scratch directory" };
+  if (!/^\/[^/]+$/.test(at.rest))
+    return { refused: "a scratch checkout is one directory directly in its scratch directory" };
   const scratch = scratches.get(at.name)!;
-  if (scratch.project !== null && scratch.project !== project) return { refused: `the scratch directory belongs to the project ${scratch.project}` };
+  if (scratch.project !== null && scratch.project !== project)
+    return { refused: `the scratch directory belongs to the project ${scratch.project}` };
   scratch.project = project;
   return { ok: true };
 };

@@ -36,11 +36,9 @@ export type ElicitationPageProblem = {
   readonly reason: string;
 };
 
-const declined = (reason: string) =>
-  Result.fail({ kind: "declined", reason } satisfies ElicitationPageProblem);
+const declined = (reason: string) => Result.fail({ kind: "declined", reason } satisfies ElicitationPageProblem);
 
-const malformed = (reason: string) =>
-  Result.fail({ kind: "malformed", reason } satisfies ElicitationPageProblem);
+const malformed = (reason: string) => Result.fail({ kind: "malformed", reason } satisfies ElicitationPageProblem);
 
 /** The four bytes of an IPv4 literal in dotted decimal, which the URL parser normalizes every IPv4 host to. */
 const ipv4Of = (host: string): ReadonlyArray<number> | undefined => {
@@ -87,13 +85,9 @@ const ipv6Of = (host: string): ReadonlyArray<number> | undefined => {
 
   const all = [...head, ...Arr.makeBy(parts.length === 2 ? fill : 0, () => "0"), ...tail];
 
-  const numbers = Arr.map(all, (group) =>
-    /^[0-9a-f]{1,4}$/.test(group) ? parseInt(group, 16) : NaN,
-  );
+  const numbers = Arr.map(all, (group) => (/^[0-9a-f]{1,4}$/.test(group) ? parseInt(group, 16) : NaN));
 
-  return numbers.length === 8 && numbers.every((group) => !Number.isNaN(group))
-    ? numbers
-    : undefined;
+  return numbers.length === 8 && numbers.every((group) => !Number.isNaN(group)) ? numbers : undefined;
 };
 
 /** Whether an IPv6 address is unspecified, loopback, link-local, ULA, or wraps a private IPv4 address. */
@@ -112,22 +106,13 @@ const privateV6 = (groups: ReadonlyArray<number>): boolean => {
     // ::ffff:a.b.c.d (mapped) and ::a.b.c.d (compatible): the IPv4 address they carry
     (((zeros(5) && g5 === 0xffff) || zeros(6)) && privateV4(embedded)) ||
     // 64:ff9b::a.b.c.d (NAT64)
-    (g0 === 0x64 &&
-      g1 === 0xff9b &&
-      g2 === 0 &&
-      g3 === 0 &&
-      g4 === 0 &&
-      g5 === 0 &&
-      privateV4(embedded))
+    (g0 === 0x64 && g1 === 0xff9b && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0 && privateV4(embedded))
   );
 };
 
 /** Whether `host`, lowercase with no trailing dot, is a name that is local by its suffix. */
 const localName = (host: string) =>
-  host === "localhost" ||
-  host.endsWith(".localhost") ||
-  host.endsWith(".local") ||
-  host.endsWith(".internal");
+  host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal");
 
 /** The scripts a label's letters are told apart by; any other letter counts for none. */
 const SCRIPTS = [
@@ -159,8 +144,7 @@ const mixesScripts = (host: string): boolean =>
  * `github.io`, and `auth.example.co.uk` is `example.co.uk`. A host that is itself a suffix, an IP literal and a name the
  * list does not cover are their own.
  */
-export const registrableDomain = (host: string): string =>
-  getDomain(host, { allowPrivateDomains: true }) ?? host;
+export const registrableDomain = (host: string): string => getDomain(host, { allowPrivateDomains: true }) ?? host;
 
 /**
  * The page `text` names, or why it is not shown. `isOwnHost` says whether a host (lowercase, ASCII) is one of t3flare's
@@ -206,8 +190,6 @@ export const checkElicitationUrl = (
   if (mixesScripts(host)) return Result.succeed({ ...base, warning: "mixed_script" });
 
   return Result.succeed(
-    Arr.some(host.split("."), (label) => label.startsWith("xn--"))
-      ? { ...base, warning: "idn" }
-      : base,
+    Arr.some(host.split("."), (label) => label.startsWith("xn--")) ? { ...base, warning: "idn" } : base,
   );
 };

@@ -5,5 +5,4 @@
  * matched here, and a failure it does not recognise is not a missing method. No SDK import: `./types` re-exports it.
  */
 // @effect-diagnostics missingPipeableSignature:off -- a predicate over a message.
-export const isMissingMethod = (message: string): boolean =>
-  /does not implement|is not a function/i.test(message);
+export const isMissingMethod = (message: string): boolean => /does not implement|is not a function/i.test(message);

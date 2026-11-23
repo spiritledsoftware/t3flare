@@ -4,7 +4,12 @@
 import { MAX_REPO_SKILLS, type SkillDiscovery } from "./discovery.ts";
 
 const escapeXml = (text: string): string =>
-  text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+  text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 
 /** The listing of `discovery`'s skills; empty when there is nothing to list. */
 export const formatSkills = (discovery: Pick<SkillDiscovery, "skills" | "omitted">): string => {
@@ -24,6 +29,8 @@ export const formatSkills = (discovery: Pick<SkillDiscovery, "skills" | "omitted
       "  </skill>",
     ]),
     "</available_skills>",
-    ...(discovery.omitted > 0 ? [`${discovery.omitted} more skills in this repository are not listed: at most ${MAX_REPO_SKILLS} are.`] : []),
+    ...(discovery.omitted > 0
+      ? [`${discovery.omitted} more skills in this repository are not listed: at most ${MAX_REPO_SKILLS} are.`]
+      : []),
   ].join("\n");
 };

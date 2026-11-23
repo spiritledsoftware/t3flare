@@ -80,6 +80,8 @@ describe("Container-only paths", () => {
     };
     const rounds = [0, 1, 2, 3, 4].map(round);
 
-    expect(Math.min(...rounds.map((each) => each.took))).toBeLessThan(Math.min(...rounds.map((each) => each.baseline)) * 8);
+    expect(Math.min(...rounds.map((each) => each.took))).toBeLessThan(
+      Math.min(...rounds.map((each) => each.baseline)) * 8,
+    );
   });
 });

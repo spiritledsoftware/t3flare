@@ -12,12 +12,17 @@ import { layerSeedLinkedEnvironmentsOn } from "../src/agents/seedSettings.ts";
 
 const bindMarks = () => {
   const marks = new Map<string, number>();
-  bindEnvironmentServices({ marks: { has: (key: string) => marks.has(key), set: (key: string) => void marks.set(key, 1) } } as unknown as EnvironmentServices);
+  bindEnvironmentServices({
+    marks: { has: (key: string) => marks.has(key), set: (key: string) => void marks.set(key, 1) },
+  } as unknown as EnvironmentServices);
   return marks;
 };
 
 /** Boots `seed` over `settings` (one boot), then reads the settings. */
-const boot = <E>(settings: Layer.Layer<ServerSettings.ServerSettingsService, E>, seed: Layer.Layer<never, never, ServerSettings.ServerSettingsService>) =>
+const boot = <E>(
+  settings: Layer.Layer<ServerSettings.ServerSettingsService, E>,
+  seed: Layer.Layer<never, never, ServerSettings.ServerSettingsService>,
+) =>
   Effect.runPromise(
     Effect.gen(function* () {
       const service = yield* ServerSettings.ServerSettingsService;
@@ -28,7 +33,10 @@ const boot = <E>(settings: Layer.Layer<ServerSettings.ServerSettingsService, E>,
 describe("seeded settings (step 3)", () => {
   it("turns Linked environments on at the first boot", async () => {
     const marks = bindMarks();
-    const settings = await boot(ServerSettings.layerTest({ linkedEnvironmentsEnabled: false }), layerSeedLinkedEnvironmentsOn);
+    const settings = await boot(
+      ServerSettings.layerTest({ linkedEnvironmentsEnabled: false }),
+      layerSeedLinkedEnvironmentsOn,
+    );
     expect(settings.linkedEnvironmentsEnabled).toBe(true);
     expect(marks.size).toBe(1);
   });
@@ -36,7 +44,10 @@ describe("seeded settings (step 3)", () => {
   it("leaves Linked environments off once the owner turned it off after the seed", async () => {
     bindMarks();
     await boot(ServerSettings.layerTest({ linkedEnvironmentsEnabled: false }), layerSeedLinkedEnvironmentsOn);
-    const later = await boot(ServerSettings.layerTest({ linkedEnvironmentsEnabled: false }), layerSeedLinkedEnvironmentsOn);
+    const later = await boot(
+      ServerSettings.layerTest({ linkedEnvironmentsEnabled: false }),
+      layerSeedLinkedEnvironmentsOn,
+    );
     expect(later.linkedEnvironmentsEnabled).toBe(false);
   });
 });

@@ -34,7 +34,7 @@ export const guidanceFor = (text: string): string => {
     else units.push({ kind: "text", lines: [line] });
   }
   const kept = units.filter((unit) => unit.kind !== "text" || namesNoDenied(unit.lines.join("\n")));
-  const hadText = (from: ReadonlyArray<typeof units[number]>, heading: (typeof units)[number]) => {
+  const hadText = (from: ReadonlyArray<(typeof units)[number]>, heading: (typeof units)[number]) => {
     const at = from.indexOf(heading);
     const next = from.findIndex((unit, index) => index > at && unit.kind === "heading");
     return from.slice(at + 1, next === -1 ? undefined : next).some((unit) => unit.kind === "text");

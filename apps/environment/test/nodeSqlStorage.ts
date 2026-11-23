@@ -3,7 +3,9 @@
 import { DatabaseSync } from "node:sqlite";
 import type { SqlStorage } from "@cloudflare/workers-types/index.ts";
 
-export const nodeSqlStorage = (db: DatabaseSync = new DatabaseSync(":memory:")): SqlStorage & { readonly db: DatabaseSync } => {
+export const nodeSqlStorage = (
+  db: DatabaseSync = new DatabaseSync(":memory:"),
+): SqlStorage & { readonly db: DatabaseSync } => {
   const exec = (query: string, ...params: Array<unknown>) => {
     const statement = db.prepare(query);
     const reader = /^\s*(SELECT|WITH|PRAGMA|EXPLAIN|VALUES)\b/i.test(query) || /\bRETURNING\b/i.test(query);

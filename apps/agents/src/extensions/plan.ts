@@ -34,16 +34,32 @@ export const proposePlan = (interaction: () => InteractionMode): Extension =>
         callers: ["model"],
         replay: "safe",
         async execute(args) {
-          if (interaction() !== "plan") return { output: [{ type: "text" as const, text: PLAN_OUTSIDE_PLAN_MODE }], isError: true };
+          if (interaction() !== "plan")
+            return { output: [{ type: "text" as const, text: PLAN_OUTSIDE_PLAN_MODE }], isError: true };
           const plan = args.plan.trim();
-          if (plan === "") return { output: [{ type: "text" as const, text: "Refused: the plan is empty." }], isError: true };
+          if (plan === "")
+            return { output: [{ type: "text" as const, text: "Refused: the plan is empty." }], isError: true };
           if (plan.length > MAX_PLAN) {
-            return { output: [{ type: "text" as const, text: `Refused: the plan has ${plan.length} characters; at most ${MAX_PLAN}. Shorten it and call again.` }], isError: true };
+            return {
+              output: [
+                {
+                  type: "text" as const,
+                  text: `Refused: the plan has ${plan.length} characters; at most ${MAX_PLAN}. Shorten it and call again.`,
+                },
+              ],
+              isError: true,
+            };
           }
           // The differ reads the plan from the call's arguments (unbounded in a push; `details` are cut at 64 KiB).
-          return { output: [{ type: "text" as const, text: PLAN_CAPTURED }], details: { proposedPlan: true }, control: { terminate: true } };
+          return {
+            output: [{ type: "text" as const, text: PLAN_CAPTURED }],
+            details: { proposedPlan: true },
+            control: { terminate: true },
+          };
         },
       }),
     ],
-    sections: [section("t3flare_propose_plan", () => (interaction() === "plan" ? PROPOSE_PLAN_INSTRUCTION : undefined))],
+    sections: [
+      section("t3flare_propose_plan", () => (interaction() === "plan" ? PROPOSE_PLAN_INSTRUCTION : undefined)),
+    ],
   });

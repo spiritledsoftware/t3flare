@@ -14,7 +14,9 @@ import { CREDENTIAL_HELPER, CREDENTIAL_PATH } from "../src/workspace/credentialH
 
 const bin = fs.mkdtempSync(path.join(os.tmpdir(), "helper-"));
 const asked = path.join(bin, "asked");
-fs.writeFileSync(path.join(bin, "curl"), `#!/bin/sh\nprintf '%s\\n' "$@" > ${asked}\nprintf test-token\n`, { mode: 0o755 });
+fs.writeFileSync(path.join(bin, "curl"), `#!/bin/sh\nprintf '%s\\n' "$@" > ${asked}\nprintf test-token\n`, {
+  mode: 0o755,
+});
 
 const run = (stdin: string, op = "get") => {
   fs.rmSync(asked, { force: true });
@@ -28,7 +30,9 @@ const run = (stdin: string, op = "get") => {
 
 describe("credential helper", () => {
   it("answers github.com over https", () => {
-    expect(run("protocol=https\nhost=github.com\npath=o/r.git\n\n")).toBe("username=x-access-token\npassword=test-token\n");
+    expect(run("protocol=https\nhost=github.com\npath=o/r.git\n\n")).toBe(
+      "username=x-access-token\npassword=test-token\n",
+    );
   });
 
   it("asks the Workspace DO's credential path as the new helper (v=2), naming the host", () => {

@@ -38,13 +38,26 @@ const docker = (args: ReadonlyArray<string>, input?: string) => {
 };
 
 /** The platform's exec as the Builder calls it: argv, an environment, stdin. */
-const exec = (argv: ReadonlyArray<string>, options: { readonly env?: Readonly<Record<string, string>>; readonly stdin?: string } = {}) =>
-  docker(["exec", ...(options.stdin === undefined ? [] : ["-i"]), ...Object.entries(options.env ?? {}).flatMap(([name, value]) => ["-e", `${name}=${value}`]), NAME, ...argv], options.stdin);
+const exec = (
+  argv: ReadonlyArray<string>,
+  options: { readonly env?: Readonly<Record<string, string>>; readonly stdin?: string } = {},
+) =>
+  docker(
+    [
+      "exec",
+      ...(options.stdin === undefined ? [] : ["-i"]),
+      ...Object.entries(options.env ?? {}).flatMap(([name, value]) => ["-e", `${name}=${value}`]),
+      NAME,
+      ...argv,
+    ],
+    options.stdin,
+  );
 
 /** The log's last `bytes`, as the Builder reads them. */
 const tail = (bytes: number) => exec(["bash", "-c", TAIL_SCRIPT, "t3flare-builder", String(bytes)]).stdout;
 
-const write = (file: string, text: string) => expect(exec(["bash", "-c", WRITE_SCRIPT, "t3flare-builder", file], { stdin: text }).code).toBe(0);
+const write = (file: string, text: string) =>
+  expect(exec(["bash", "-c", WRITE_SCRIPT, "t3flare-builder", file], { stdin: text }).code).toBe(0);
 
 /** Writes the files and launches the run as `#starting` does; answers the exit code once the exit file holds it. */
 const build = async (setup: string, mise: string, variables: Readonly<Record<string, string>>): Promise<number> => {
@@ -53,7 +66,22 @@ const build = async (setup: string, mise: string, variables: Readonly<Record<str
   write(BUILDER_FILES.laydown, LAYDOWN_SCRIPT);
   write(BUILDER_FILES.run, RUN_SCRIPT);
   const sha = createHash("sha256").update(mise).digest("hex");
-  const launched = exec(["bash", "-c", LAUNCH_SCRIPT, "t3flare-builder", ...globalMiseArgs({ revision: 7, sha256: sha, source: "environment", mode: "lay-down", minutes: ENVIRONMENT_SETTINGS.globalMiseInstallMinutes.schema.default })], { env: { ...variables, ...COMMAND_ENV, HOME: "/root" } });
+  const launched = exec(
+    [
+      "bash",
+      "-c",
+      LAUNCH_SCRIPT,
+      "t3flare-builder",
+      ...globalMiseArgs({
+        revision: 7,
+        sha256: sha,
+        source: "environment",
+        mode: "lay-down",
+        minutes: ENVIRONMENT_SETTINGS.globalMiseInstallMinutes.schema.default,
+      }),
+    ],
+    { env: { ...variables, ...COMMAND_ENV, HOME: "/root" } },
+  );
   expect(launched.stdout.trim()).toBe("launched");
   for (let i = 0; i < 600; i++) {
     const code = exec(["bash", "-c", EXIT_SCRIPT]).stdout.trim();
@@ -67,7 +95,21 @@ beforeAll(() => {
   console.log("building the Workspace image (linux/amd64)…");
   const built = docker(["build", "-q", "--platform", "linux/amd64", "-t", IMAGE, imageContext]);
   if (built.code !== 0) throw new Error(built.stderr);
-  const started = docker(["run", "-d", "--rm", "--platform", "linux/amd64", "--name", NAME, "--tmpfs", "/run", "--entrypoint", "sleep", IMAGE, "infinity"]);
+  const started = docker([
+    "run",
+    "-d",
+    "--rm",
+    "--platform",
+    "linux/amd64",
+    "--name",
+    NAME,
+    "--tmpfs",
+    "/run",
+    "--entrypoint",
+    "sleep",
+    IMAGE,
+    "infinity",
+  ]);
   if (started.code !== 0) throw new Error(started.stderr);
 }, 1_800_000);
 

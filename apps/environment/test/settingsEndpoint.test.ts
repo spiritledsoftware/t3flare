@@ -8,10 +8,31 @@ import { applyMcpChange } from "@t3flare/harness-registry";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { BODY_MAX, LEGACY_VERSIONS, MODERN_VERSION, SUPPORTED_VERSIONS } from "../src/settings/endpoint.ts";
-import { isSettingsMcpPath, ownerEndpointOn, SETTINGS_MCP_PATH, settingsMcpUrl } from "../src/settings/endpointLayout.ts";
+import {
+  isSettingsMcpPath,
+  ownerEndpointOn,
+  SETTINGS_MCP_PATH,
+  settingsMcpUrl,
+} from "../src/settings/endpointLayout.ts";
 import { SETTINGS_TOOLS } from "../src/settings/tools.ts";
 import { signToken } from "../src/settings/tokens.ts";
-import { ASKED, BOTH, bodyOf, ENDPOINT, endpointOf, FREE, initialize, KEY, legacy, modern, modernMeta, post, setAccess, structuredOf, SUB } from "./settingsEndpointFixture.ts";
+import {
+  ASKED,
+  BOTH,
+  bodyOf,
+  ENDPOINT,
+  endpointOf,
+  FREE,
+  initialize,
+  KEY,
+  legacy,
+  modern,
+  modernMeta,
+  post,
+  setAccess,
+  structuredOf,
+  SUB,
+} from "./settingsEndpointFixture.ts";
 import { NOW, settingsFixture, type SettingsFixture } from "./settingsFixture.ts";
 
 let fixture: SettingsFixture | undefined;
@@ -23,19 +44,31 @@ afterEach(() => fixture?.dispose());
 
 describe("T-guards: D11's guards, before the body is parsed", () => {
   it.each(["GET", "DELETE", "OPTIONS", "PUT"])("answers %s with 405", async (method) => {
-    const response = await endpointOf(world())(new Request(ENDPOINT, { method, headers: { accept: "text/event-stream" } }));
+    const response = await endpointOf(world())(
+      new Request(ENDPOINT, { method, headers: { accept: "text/event-stream" } }),
+    );
     expect(response.status).toBe(405);
     expect(response.headers.get("allow")).toBe("POST");
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
 
-  it.each(["text/plain", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x", ""])("answers Content-Type %j with 415", async (type) => {
-    const response = await endpointOf(world())(new Request(ENDPOINT, { method: "POST", headers: type === "" ? {} : { "content-type": type }, body: "{}" }));
-    expect(response.status).toBe(415);
-  });
+  it.each(["text/plain", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x", ""])(
+    "answers Content-Type %j with 415",
+    async (type) => {
+      const response = await endpointOf(world())(
+        new Request(ENDPOINT, { method: "POST", headers: type === "" ? {} : { "content-type": type }, body: "{}" }),
+      );
+      expect(response.status).toBe(415);
+    },
+  );
 
   it("takes application/json with a charset", async () => {
-    const response = await endpointOf(world())(post({ jsonrpc: "2.0", id: 1, method: "ping" }, { headers: { "content-type": "application/json; charset=utf-8" } }));
+    const response = await endpointOf(world())(
+      post(
+        { jsonrpc: "2.0", id: 1, method: "ping" },
+        { headers: { "content-type": "application/json; charset=utf-8" } },
+      ),
+    );
     expect(response.status).toBe(200);
   });
 
@@ -50,7 +83,12 @@ describe("T-guards: D11's guards, before the body is parsed", () => {
   });
 
   it("does not refuse Sec-Fetch-Mode alone (pi's undici sends cors, M0)", async () => {
-    const response = await endpointOf(world())(post({ jsonrpc: "2.0", id: 1, method: "ping" }, { headers: { "sec-fetch-mode": "cors", "user-agent": "undici" } }));
+    const response = await endpointOf(world())(
+      post(
+        { jsonrpc: "2.0", id: 1, method: "ping" },
+        { headers: { "sec-fetch-mode": "cors", "user-agent": "undici" } },
+      ),
+    );
     expect(response.status).toBe(200);
   });
 
@@ -65,7 +103,12 @@ describe("T-guards: D11's guards, before the body is parsed", () => {
         controller.close();
       },
     });
-    const streamed = new Request(ENDPOINT, { method: "POST", headers: { "content-type": "application/json" }, body: chunks, duplex: "half" } as RequestInit);
+    const streamed = new Request(ENDPOINT, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: chunks,
+      duplex: "half",
+    } as RequestInit);
     expect((await endpoint(streamed)).status).toBe(413);
   });
 
@@ -76,14 +119,26 @@ describe("T-guards: D11's guards, before the body is parsed", () => {
     ["a mis-cased name", "?Elicitation_Mode=browser"],
     ["an empty value", "?elicitation_mode="],
   ])("answers %s of elicitation_mode with 400 at initialize, naming the three", async (_name, query) => {
-    const response = await endpointOf(world())(post({ jsonrpc: "2.0", id: 0, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {} } }, { query }));
+    const response = await endpointOf(world())(
+      post(
+        { jsonrpc: "2.0", id: 0, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {} } },
+        { query },
+      ),
+    );
     expect(response.status).toBe(400);
     expect((await bodyOf(response)).error?.message).toMatch(/browser, native or model/);
   });
 
   it("takes each of the three values, and ignores every other query parameter (OpenCode's codemode=false)", async () => {
     const endpoint = endpointOf(world());
-    for (const query of ["?elicitation_mode=browser", "?elicitation_mode=native", "?elicitation_mode=model", "?elicitation_mode=native&codemode=false", "?codemode=false", ""]) {
+    for (const query of [
+      "?elicitation_mode=browser",
+      "?elicitation_mode=native",
+      "?elicitation_mode=model",
+      "?elicitation_mode=native&codemode=false",
+      "?codemode=false",
+      "",
+    ]) {
       expect((await endpoint(post({ jsonrpc: "2.0", id: 1, method: "ping" }, { query }))).status).toBe(200);
     }
   });
@@ -104,44 +159,81 @@ describe("T-guards: D11's guards, before the body is parsed", () => {
 });
 
 describe("T-endpoint: versions and methods", () => {
-  it.each(LEGACY_VERSIONS)("initialize at %s answers that version, the tools capability and a session", async (version) => {
-    const { response, session, body } = await initialize(endpointOf(world()), version);
-    expect(response.status).toBe(200);
-    expect(body.result).toMatchObject({ protocolVersion: version, capabilities: { tools: { listChanged: false } }, serverInfo: { name: "t3flare-settings" } });
-    expect(typeof body.result.instructions).toBe("string");
-    expect(session).toMatch(/^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
-  });
+  it.each(LEGACY_VERSIONS)(
+    "initialize at %s answers that version, the tools capability and a session",
+    async (version) => {
+      const { response, session, body } = await initialize(endpointOf(world()), version);
+      expect(response.status).toBe(200);
+      expect(body.result).toMatchObject({
+        protocolVersion: version,
+        capabilities: { tools: { listChanged: false } },
+        serverInfo: { name: "t3flare-settings" },
+      });
+      expect(typeof body.result.instructions).toBe("string");
+      expect(session).toMatch(/^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+    },
+  );
 
   it("initialize at an unknown or 2026 version answers the newest 2025 version", async () => {
-    for (const asked of ["1999-01-01", MODERN_VERSION]) expect((await initialize(endpointOf(world()), asked)).body.result.protocolVersion).toBe("2025-11-25");
+    for (const asked of ["1999-01-01", MODERN_VERSION])
+      expect((await initialize(endpointOf(world()), asked)).body.result.protocolVersion).toBe("2025-11-25");
   });
 
   it("2026: server/discover lists every version, the tools capability, resultType and cache fields", async () => {
     const body = await bodyOf(await endpointOf(world())(modern("server/discover")));
-    expect(body.result).toMatchObject({ resultType: "complete", supportedVersions: [...SUPPORTED_VERSIONS], capabilities: { tools: { listChanged: false } }, ttlMs: 0, cacheScope: "private" });
+    expect(body.result).toMatchObject({
+      resultType: "complete",
+      supportedVersions: [...SUPPORTED_VERSIONS],
+      capabilities: { tools: { listChanged: false } },
+      ttlMs: 0,
+      cacheScope: "private",
+    });
     expect(SUPPORTED_VERSIONS).toEqual(["2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"]);
   });
 
   it("2026: every result carries resultType; ping is empty but for it", async () => {
     const endpoint = endpointOf(world());
     expect((await bodyOf(await endpoint(modern("ping")))).result).toMatchObject({ resultType: "complete" });
-    expect((await bodyOf(await endpoint(modern("tools/list")))).result).toMatchObject({ resultType: "complete", ttlMs: 0, cacheScope: "private" });
-    expect((await bodyOf(await endpoint(modern("tools/call", { name: "get_status", arguments: {} })))).result).toMatchObject({ resultType: "complete", isError: false });
+    expect((await bodyOf(await endpoint(modern("tools/list")))).result).toMatchObject({
+      resultType: "complete",
+      ttlMs: 0,
+      cacheScope: "private",
+    });
+    expect(
+      (await bodyOf(await endpoint(modern("tools/call", { name: "get_status", arguments: {} })))).result,
+    ).toMatchObject({ resultType: "complete", isError: false });
   });
 
   it("2025: no result carries resultType", async () => {
     const endpoint = endpointOf(world());
     const { session } = await initialize(endpoint, "2025-11-25");
     expect((await bodyOf(await endpoint(legacy("ping", {}, { session })))).result).toEqual({});
-    expect((await bodyOf(await endpoint(legacy("tools/list", {}, { session })))).result).not.toHaveProperty("resultType");
+    expect((await bodyOf(await endpoint(legacy("tools/list", {}, { session })))).result).not.toHaveProperty(
+      "resultType",
+    );
   });
 
   it("2026: an unsupported version is 400 with -32022 naming the supported ones; a mismatched header is 400 with -32020", async () => {
     const endpoint = endpointOf(world());
-    const unsupported = await endpoint(post({ jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: { "io.modelcontextprotocol/protocolVersion": "2027-01-01" } } }));
+    const unsupported = await endpoint(
+      post({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/list",
+        params: { _meta: { "io.modelcontextprotocol/protocolVersion": "2027-01-01" } },
+      }),
+    );
     expect(unsupported.status).toBe(400);
-    expect((await bodyOf(unsupported)).error).toMatchObject({ code: -32022, data: { supported: [...SUPPORTED_VERSIONS], requested: "2027-01-01" } });
-    const mismatch = await endpoint(post({ jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: modernMeta() } }, { headers: { "mcp-protocol-version": "2025-11-25" } }));
+    expect((await bodyOf(unsupported)).error).toMatchObject({
+      code: -32022,
+      data: { supported: [...SUPPORTED_VERSIONS], requested: "2027-01-01" },
+    });
+    const mismatch = await endpoint(
+      post(
+        { jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: modernMeta() } },
+        { headers: { "mcp-protocol-version": "2025-11-25" } },
+      ),
+    );
     expect(mismatch.status).toBe(400);
     expect((await bodyOf(mismatch)).error?.code).toBe(-32020);
   });
@@ -149,39 +241,68 @@ describe("T-endpoint: versions and methods", () => {
   it("2026: MCP-Protocol-Version and Mcp-Method on every request and Mcp-Name on tools/call are required and must match the body (-32020, 400)", async () => {
     const endpoint = endpointOf(world());
     const send = async (method: string, params: Record<string, unknown>, headers: Record<string, string>) => {
-      const response = await endpoint(post({ jsonrpc: "2.0", id: 1, method, params: { ...params, _meta: modernMeta() } }, { headers }));
+      const response = await endpoint(
+        post({ jsonrpc: "2.0", id: 1, method, params: { ...params, _meta: modernMeta() } }, { headers }),
+      );
       return { status: response.status, code: (await bodyOf(response)).error?.code };
     };
     const base = { "mcp-protocol-version": MODERN_VERSION, "mcp-method": "tools/list" };
     expect(await send("tools/list", {}, { "mcp-method": "tools/list" })).toEqual({ status: 400, code: -32020 });
-    expect(await send("tools/list", {}, { "mcp-protocol-version": MODERN_VERSION })).toEqual({ status: 400, code: -32020 });
+    expect(await send("tools/list", {}, { "mcp-protocol-version": MODERN_VERSION })).toEqual({
+      status: 400,
+      code: -32020,
+    });
     expect(await send("tools/list", {}, { ...base, "mcp-method": "ping" })).toEqual({ status: 400, code: -32020 });
     expect(await send("tools/list", {}, base)).toEqual({ status: 200, code: undefined });
     const call = { name: "get_status", arguments: {} };
     const callHeaders = { "mcp-protocol-version": MODERN_VERSION, "mcp-method": "tools/call" };
     expect(await send("tools/call", call, callHeaders)).toEqual({ status: 400, code: -32020 });
-    expect(await send("tools/call", call, { ...callHeaders, "mcp-name": "get_settings" })).toEqual({ status: 400, code: -32020 });
-    expect(await send("tools/call", call, { ...callHeaders, "mcp-name": "get_status" })).toEqual({ status: 200, code: undefined });
+    expect(await send("tools/call", call, { ...callHeaders, "mcp-name": "get_settings" })).toEqual({
+      status: 400,
+      code: -32020,
+    });
+    expect(await send("tools/call", call, { ...callHeaders, "mcp-name": "get_status" })).toEqual({
+      status: 200,
+      code: undefined,
+    });
     // The Base64 sentinel form is decoded before it is compared.
-    expect(await send("tools/call", call, { ...callHeaders, "mcp-name": `=?base64?${btoa("get_status")}?=` })).toEqual({ status: 200, code: undefined });
-    expect(await send("tools/call", call, { ...callHeaders, "mcp-name": "=?base64?***?=" })).toEqual({ status: 400, code: -32020 });
+    expect(await send("tools/call", call, { ...callHeaders, "mcp-name": `=?base64?${btoa("get_status")}?=` })).toEqual({
+      status: 200,
+      code: undefined,
+    });
+    expect(await send("tools/call", call, { ...callHeaders, "mcp-name": "=?base64?***?=" })).toEqual({
+      status: 400,
+      code: -32020,
+    });
   });
 
   it("2025: an unknown MCP-Protocol-Version is 400; a missing one is 2025-03-26; initialize's header is not judged", async () => {
     const endpoint = endpointOf(world());
-    const unknown = await endpoint(post({ jsonrpc: "2.0", id: 1, method: "tools/list" }, { headers: { "mcp-protocol-version": "2024-01-01" } }));
+    const unknown = await endpoint(
+      post({ jsonrpc: "2.0", id: 1, method: "tools/list" }, { headers: { "mcp-protocol-version": "2024-01-01" } }),
+    );
     expect(unknown.status).toBe(400);
     expect((await bodyOf(unknown)).error).toMatchObject({ code: -32600, data: { requested: "2024-01-01" } });
     // A 2026 header with no 2026 `_meta`: the header and the body disagree, -32020 (SPI-1201 review), on any method.
     for (const method of ["tools/list", "server/discover"]) {
-      const disagreeing = await endpoint(post({ jsonrpc: "2.0", id: 1, method, params: {} }, { headers: { "mcp-protocol-version": MODERN_VERSION, "mcp-method": method } }));
+      const disagreeing = await endpoint(
+        post(
+          { jsonrpc: "2.0", id: 1, method, params: {} },
+          { headers: { "mcp-protocol-version": MODERN_VERSION, "mcp-method": method } },
+        ),
+      );
       expect(disagreeing.status).toBe(400);
       expect((await bodyOf(disagreeing)).error).toMatchObject({ code: -32020 });
     }
     const missing = await endpoint(post({ jsonrpc: "2.0", id: 1, method: "tools/list" }));
     expect(missing.status).toBe(200);
     expect((await bodyOf(missing)).result).not.toHaveProperty("resultType");
-    const init = await endpoint(post({ jsonrpc: "2.0", id: 0, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {} } }, { headers: { "mcp-protocol-version": "1999-01-01" } }));
+    const init = await endpoint(
+      post(
+        { jsonrpc: "2.0", id: 0, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {} } },
+        { headers: { "mcp-protocol-version": "1999-01-01" } },
+      ),
+    );
     expect(init.status).toBe(200);
   });
 
@@ -211,7 +332,10 @@ describe("T-endpoint: versions and methods", () => {
     const body = await bodyOf(await endpointOf(world())(modern("tools/list")));
     const tools = body.result?.tools as Array<{ name: string; annotations: { readOnlyHint: boolean } }>;
     expect(tools.map((tool) => tool.name)).toEqual(SETTINGS_TOOLS.map((tool) => tool.name));
-    for (const tool of tools) expect(tool.annotations.readOnlyHint).toBe(SETTINGS_TOOLS.find((each) => each.name === tool.name)!.class === "read");
+    for (const tool of tools)
+      expect(tool.annotations.readOnlyHint).toBe(
+        SETTINGS_TOOLS.find((each) => each.name === tool.name)!.class === "read",
+      );
     expect(tools.map((tool) => tool.name)).not.toContain("resume");
   });
 
@@ -220,9 +344,15 @@ describe("T-endpoint: versions and methods", () => {
     const endpoint = endpointOf(f);
     setAccess(f, { writes: false });
     const readOnly = (await bodyOf(await endpoint(modern("tools/list")))).result?.tools as Array<{ name: string }>;
-    expect(readOnly.map((tool) => tool.name)).toEqual(SETTINGS_TOOLS.filter((tool) => tool.class === "read").map((tool) => tool.name));
-    expect(await structuredOf(await endpoint(modern("tools/call", { name: "change_environment", arguments: FREE })))).toEqual({ status: "refused" });
-    expect((await bodyOf(await endpoint(modern("tools/call", { name: "get_status", arguments: {} })))).result?.isError).toBe(false);
+    expect(readOnly.map((tool) => tool.name)).toEqual(
+      SETTINGS_TOOLS.filter((tool) => tool.class === "read").map((tool) => tool.name),
+    );
+    expect(
+      await structuredOf(await endpoint(modern("tools/call", { name: "change_environment", arguments: FREE }))),
+    ).toEqual({ status: "refused" });
+    expect(
+      (await bodyOf(await endpoint(modern("tools/call", { name: "get_status", arguments: {} })))).result?.isError,
+    ).toBe(false);
     setAccess(f, { enabled: false });
     expect((await bodyOf(await endpoint(modern("tools/list")))).result?.tools).toEqual([]);
     for (const name of ["get_status", "change_environment"]) {
@@ -235,11 +365,17 @@ describe("T-endpoint: versions and methods", () => {
   it("SPI-1195 review: a tool the owner hid on the Settings server's entry is neither listed nor run, as at the own door", async () => {
     const f = world();
     const endpoint = endpointOf(f);
-    const hid = applyMcpChange(f.store.load(), { op: "server", server: "settings", toolExposure: { change_environment: "hidden", get_status: "hidden" } });
+    const hid = applyMcpChange(f.store.load(), {
+      op: "server",
+      server: "settings",
+      toolExposure: { change_environment: "hidden", get_status: "hidden" },
+    });
     if (!hid.ok) throw new Error(hid.error);
     f.store.save(hid.harness);
     const listed = (await bodyOf(await endpoint(modern("tools/list")))).result?.tools as Array<{ name: string }>;
-    expect(listed.map((tool) => tool.name)).toEqual(SETTINGS_TOOLS.map((tool) => tool.name).filter((name) => name !== "change_environment" && name !== "get_status"));
+    expect(listed.map((tool) => tool.name)).toEqual(
+      SETTINGS_TOOLS.map((tool) => tool.name).filter((name) => name !== "change_environment" && name !== "get_status"),
+    );
     const revision = f.store.loadEnvironment().revision;
     for (const name of ["get_status", "change_environment"]) {
       const result = (await bodyOf(await endpoint(modern("tools/call", { name, arguments: FREE })))).result;
@@ -248,14 +384,28 @@ describe("T-endpoint: versions and methods", () => {
     }
     expect(f.store.loadEnvironment().revision).toBe(revision);
     // The own door refuses the same tools the same way (McpHost.call).
-    expect(await f.call(f.durable(), "change_environment", FREE)).toMatchObject({ kind: "unavailable", message: "change_environment is hidden by the owner." });
-    expect((await bodyOf(await endpoint(modern("tools/call", { name: "get_settings", arguments: { entity: "environment" } })))).result?.isError).toBe(false);
+    expect(await f.call(f.durable(), "change_environment", FREE)).toMatchObject({
+      kind: "unavailable",
+      message: "change_environment is hidden by the owner.",
+    });
+    expect(
+      (
+        await bodyOf(
+          await endpoint(modern("tools/call", { name: "get_settings", arguments: { entity: "environment" } })),
+        )
+      ).result?.isError,
+    ).toBe(false);
   });
 
   it("SPI-1195 review: the server's own exposure hidden hides every tool on both doors, but a tool's own exposure overrides it", async () => {
     const f = world();
     const endpoint = endpointOf(f);
-    const hid = applyMcpChange(f.store.load(), { op: "server", server: "settings", exposure: "hidden", toolExposure: { get_settings: "direct" } });
+    const hid = applyMcpChange(f.store.load(), {
+      op: "server",
+      server: "settings",
+      exposure: "hidden",
+      toolExposure: { get_settings: "direct" },
+    });
     if (!hid.ok) throw new Error(hid.error);
     f.store.save(hid.harness);
     const listed = (await bodyOf(await endpoint(modern("tools/list")))).result?.tools as Array<{ name: string }>;
@@ -264,35 +414,63 @@ describe("T-endpoint: versions and methods", () => {
       const result = (await bodyOf(await endpoint(modern("tools/call", { name, arguments: FREE })))).result;
       expect(result).toMatchObject({ isError: true });
       expect(JSON.stringify(result?.content)).toContain(`${name} is hidden by the owner.`);
-      expect(await f.call(f.durable(), name, FREE)).toMatchObject({ kind: "unavailable", message: `${name} is hidden by the owner.` });
+      expect(await f.call(f.durable(), name, FREE)).toMatchObject({
+        kind: "unavailable",
+        message: `${name} is hidden by the owner.`,
+      });
     }
     expect(f.store.loadEnvironment().revision).toBe(0);
-    expect((await bodyOf(await endpoint(modern("tools/call", { name: "get_settings", arguments: { entity: "environment" } })))).result?.isError).toBe(false);
-    expect(await f.call(f.durable(), "get_settings", { entity: "environment" })).toMatchObject({ kind: "result", isError: false });
+    expect(
+      (
+        await bodyOf(
+          await endpoint(modern("tools/call", { name: "get_settings", arguments: { entity: "environment" } })),
+        )
+      ).result?.isError,
+    ).toBe(false);
+    expect(await f.call(f.durable(), "get_settings", { entity: "environment" })).toMatchObject({
+      kind: "result",
+      isError: false,
+    });
   });
 
   it("an unknown tool or arguments that are not an object is -32602", async () => {
     const endpoint = endpointOf(world());
-    expect((await bodyOf(await endpoint(modern("tools/call", { name: "resume", arguments: {} })))).error?.code).toBe(-32602);
-    expect((await bodyOf(await endpoint(modern("tools/call", { name: "get_status", arguments: [] })))).error?.code).toBe(-32602);
+    expect((await bodyOf(await endpoint(modern("tools/call", { name: "resume", arguments: {} })))).error?.code).toBe(
+      -32602,
+    );
+    expect(
+      (await bodyOf(await endpoint(modern("tools/call", { name: "get_status", arguments: [] })))).error?.code,
+    ).toBe(-32602);
   });
 
   it("a read runs and a free change applies at once, audited as the Owner client's with its label (unverified) and no subject read back", async () => {
     const f = world();
     const endpoint = endpointOf(f);
-    const read = (await bodyOf(await endpoint(modern("tools/call", { name: "get_settings", arguments: { entity: "environment" } })))).result;
+    const read = (
+      await bodyOf(await endpoint(modern("tools/call", { name: "get_settings", arguments: { entity: "environment" } })))
+    ).result;
     expect(read).toMatchObject({ isError: false, structuredContent: { entity: "environment", revision: 0 } });
-    expect(await structuredOf(await endpoint(modern("tools/call", { name: "change_environment", arguments: FREE })))).toMatchObject({ status: "applied", revision: 1 });
+    expect(
+      await structuredOf(await endpoint(modern("tools/call", { name: "change_environment", arguments: FREE }))),
+    ).toMatchObject({ status: "applied", revision: 1 });
     const [entry] = f.store.auditLog(1);
-    expect(entry).toMatchObject({ via: "mcp", caller: `owner:${SUB}`, tier: "free", client: { name: "claude-code 2.1.322", source: "clientInfo in _meta" } });
+    expect(entry).toMatchObject({
+      via: "mcp",
+      caller: `owner:${SUB}`,
+      tier: "free",
+      client: { name: "claude-code 2.1.322", source: "clientInfo in _meta" },
+    });
     expect(entry).not.toHaveProperty("thread");
-    const audit = (await bodyOf(await endpoint(modern("tools/call", { name: "read_audit", arguments: {} })))).result?.structuredContent as { entries: Array<Record<string, unknown>> };
+    const audit = (await bodyOf(await endpoint(modern("tools/call", { name: "read_audit", arguments: {} })))).result
+      ?.structuredContent as { entries: Array<Record<string, unknown>> };
     expect(JSON.stringify(audit)).not.toContain(SUB);
   });
 
   it("the service token is its own caller, audited as service-token", async () => {
     const f = world();
-    await endpointOf(f)(modern("tools/call", { name: "change_environment", arguments: FREE }), { kind: "service-token" });
+    await endpointOf(f)(modern("tools/call", { name: "change_environment", arguments: FREE }), {
+      kind: "service-token",
+    });
     expect(f.store.auditLog(1)[0]).toMatchObject({ via: "mcp", caller: "service-token", tier: "free" });
   });
 
@@ -302,10 +480,26 @@ describe("T-endpoint: versions and methods", () => {
     const { session } = await initialize(endpoint, "2025-11-25");
     await endpoint(legacy("tools/call", { name: "change_environment", arguments: FREE }, { session }));
     expect(f.store.auditLog(1)[0]?.client).toEqual({ name: "opencode 2.2.7", source: "clientInfo at initialize" });
-    await endpoint(post({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "change_environment", arguments: { expectedRevision: 1, settings: { graceDays: 8 } } } }, { headers: { "user-agent": `agent/${"x".repeat(100)}` } }));
+    await endpoint(
+      post(
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "change_environment", arguments: { expectedRevision: 1, settings: { graceDays: 8 } } },
+        },
+        { headers: { "user-agent": `agent/${"x".repeat(100)}` } },
+      ),
+    );
     expect(f.store.auditLog(1)[0]?.client).toEqual({ name: `agent/${"x".repeat(54)}`, source: "User-Agent" });
     const hostile = { name: `evil\u202Eclient\u0007${"x".repeat(100)}`, version: "1" };
-    await endpoint(modern("tools/call", { name: "change_environment", arguments: { expectedRevision: 2, settings: { graceDays: 9 } }, _meta: { "io.modelcontextprotocol/clientInfo": hostile } }));
+    await endpoint(
+      modern("tools/call", {
+        name: "change_environment",
+        arguments: { expectedRevision: 2, settings: { graceDays: 9 } },
+        _meta: { "io.modelcontextprotocol/clientInfo": hostile },
+      }),
+    );
     const label = f.store.auditLog(1)[0]?.client;
     expect(label?.source).toBe("clientInfo in _meta");
     expect(label?.name).toHaveLength(60);
@@ -317,8 +511,15 @@ describe("T-state: capabilities per request (2026) and from the signed session (
   it("2026: each request's _meta decides; the same client with and without url elicitation gets input_required and then the link", async () => {
     const f = world();
     const endpoint = endpointOf(f);
-    expect((await bodyOf(await endpoint(modern("tools/call", { name: "change_environment", arguments: ASKED })))).result?.resultType).toBe("input_required");
-    const formOnly = await bodyOf(await endpoint(modern("tools/call", { name: "change_environment", arguments: ASKED }, { capabilities: { elicitation: {} } })));
+    expect(
+      (await bodyOf(await endpoint(modern("tools/call", { name: "change_environment", arguments: ASKED })))).result
+        ?.resultType,
+    ).toBe("input_required");
+    const formOnly = await bodyOf(
+      await endpoint(
+        modern("tools/call", { name: "change_environment", arguments: ASKED }, { capabilities: { elicitation: {} } }),
+      ),
+    );
     expect(formOnly.result).toMatchObject({ resultType: "complete", structuredContent: { status: "waiting" } });
   });
 
@@ -328,16 +529,32 @@ describe("T-state: capabilities per request (2026) and from the signed session (
     const { session } = await initialize(endpoint, "2025-11-25");
     const forged = `${session.slice(0, -4)}AAAA`;
     const other = (await initialize(endpoint, "2025-11-25", BOTH, { kind: "owner", subject: "someone-else" })).session;
-    const expired = await signToken(KEY, { kind: "session", sub: SUB, exp: NOW - 1, protocolVersion: "2025-11-25", elicitation: { form: true, url: true } });
-    const wrongKind = await signToken(KEY, { kind: "state", sub: SUB, exp: NOW + 60_000, protocolVersion: "2025-11-25", elicitation: { form: true, url: true } });
+    const expired = await signToken(KEY, {
+      kind: "session",
+      sub: SUB,
+      exp: NOW - 1,
+      protocolVersion: "2025-11-25",
+      elicitation: { form: true, url: true },
+    });
+    const wrongKind = await signToken(KEY, {
+      kind: "state",
+      sub: SUB,
+      exp: NOW + 60_000,
+      protocolVersion: "2025-11-25",
+      elicitation: { form: true, url: true },
+    });
     for (const each of [forged, other, expired, wrongKind, undefined]) {
-      const response = await endpoint(legacy("tools/call", { name: "get_status", arguments: {} }, each === undefined ? {} : { session: each }));
+      const response = await endpoint(
+        legacy("tools/call", { name: "get_status", arguments: {} }, each === undefined ? {} : { session: each }),
+      );
       expect(response.headers.get("content-type")).toBe("application/json");
       expect((await bodyOf(response)).result?.isError).toBe(false);
     }
     // Asked with each: the link in the result, never a stream.
     for (const each of [forged, other, expired, wrongKind]) {
-      const response = await endpoint(legacy("tools/call", { name: "change_environment", arguments: ASKED }, { session: each }));
+      const response = await endpoint(
+        legacy("tools/call", { name: "change_environment", arguments: ASKED }, { session: each }),
+      );
       expect(response.headers.get("content-type")).toBe("application/json");
       expect(await structuredOf(response)).toMatchObject({ status: "waiting" });
     }
@@ -350,7 +567,9 @@ describe("T-state: capabilities per request (2026) and from the signed session (
     const endpoint = endpointOf(world());
     for (const version of ["2025-06-18", "2025-03-26", "2024-11-05"]) {
       const { session } = await initialize(endpoint, version);
-      const response = await endpoint(legacy("tools/call", { name: "change_environment", arguments: ASKED }, { session, version }));
+      const response = await endpoint(
+        legacy("tools/call", { name: "change_environment", arguments: ASKED }, { session, version }),
+      );
       expect(response.headers.get("content-type")).toBe("application/json");
       expect(await structuredOf(response)).toMatchObject({ status: "waiting" });
     }
@@ -363,7 +582,8 @@ describe("layout (B): the endpoint's paths (settings/endpointLayout.ts)", () => 
     expect(settingsMcpUrl("t3.example.dev")).toBe(ENDPOINT);
     expect(isSettingsMcpPath("/_t3flare/mcp")).toBe(true);
     expect(isSettingsMcpPath("/_t3flare/mcp/anything")).toBe(true);
-    for (const path of ["/_t3flare/mcpx", "/_t3flare/settings", "/_t3flare", "/mcp", "/_t3flare/mc"]) expect(isSettingsMcpPath(path)).toBe(false);
+    for (const path of ["/_t3flare/mcpx", "/_t3flare/settings", "/_t3flare", "/mcp", "/_t3flare/mc"])
+      expect(isSettingsMcpPath(path)).toBe(false);
   });
 
   it("SPI-1195 review: prod is deployed without the endpoint until the owner turns it on, and bump (the t3 bump's) without it; every other stage with it", () => {

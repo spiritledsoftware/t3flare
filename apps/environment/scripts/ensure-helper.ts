@@ -5,5 +5,12 @@
 import { admin } from "./lib/client.ts";
 
 const id = process.argv[2] ?? "";
-const answer = await admin("POST", `/_t3flare/agents/workspace-call?id=${encodeURIComponent(id)}`, { credentialHelper: true });
-console.log(JSON.stringify({ exitCode: answer.json?.result?.exitCode, helperSet: String(answer.json?.result?.stdout ?? "").includes("op=") }));
+const answer = await admin("POST", `/_t3flare/agents/workspace-call?id=${encodeURIComponent(id)}`, {
+  credentialHelper: true,
+});
+console.log(
+  JSON.stringify({
+    exitCode: answer.json?.result?.exitCode,
+    helperSet: String(answer.json?.result?.stdout ?? "").includes("op="),
+  }),
+);

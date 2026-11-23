@@ -9,6 +9,7 @@ Measured in step 2a (`steps-evidence-1:docs/steps/step-2a/m3-memory.json`): the 
 ## Refinement (tools step): four Workers
 
 A stage now runs four Workers:
+
 - **environment**;
 - **agents**;
 - **codemode** (`t3flare-codemode-<stage>`): pi-codemode's sandbox Durable Object, so a computing script never holds the Session's isolate (ADR-0027);

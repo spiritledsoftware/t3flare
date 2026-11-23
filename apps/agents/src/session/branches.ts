@@ -22,12 +22,20 @@ const ownerless = { ownership: { kind: "ownerless" } } as const;
 const sizeOf = (value: unknown): number => (JSON.stringify(value) ?? "").length;
 
 /** A conversation as a thread starts one: `from`'s model, thinking level and cwd, no entries, no documents. */
-export const freshConversation = async (harness: Harness, from: Conversation, context: Context): Promise<Conversation> => {
+export const freshConversation = async (
+  harness: Harness,
+  from: Conversation,
+  context: Context,
+): Promise<Conversation> => {
   const agent = await from.agent(context);
   return harness.createConversation(
     {
       ...ownerless,
-      agent: { ...(agent.model === undefined ? {} : { model: agent.model }), thinkingLevel: agent.thinkingLevel, ...(agent.cwd === undefined ? {} : { cwd: agent.cwd }) },
+      agent: {
+        ...(agent.model === undefined ? {} : { model: agent.model }),
+        thinkingLevel: agent.thinkingLevel,
+        ...(agent.cwd === undefined ? {} : { cwd: agent.cwd }),
+      },
     },
     context,
   );
@@ -47,15 +55,25 @@ export const rollbackPlan = (
   const boundary = placed.length === 0 ? undefined : Math.min(...placed);
   const drop = new Set(named);
   if (boundary !== undefined) {
-    for (const [id, turn] of Object.entries(turns)) if (turn.inputEntry !== undefined && Number(turn.inputEntry) >= boundary) drop.add(id);
+    for (const [id, turn] of Object.entries(turns))
+      if (turn.inputEntry !== undefined && Number(turn.inputEntry) >= boundary) drop.add(id);
   }
   return { boundary, drop };
 };
 
 /** `current` as it was just before entry `boundary`: a fork at the entry before it, or a fresh conversation when none is. */
-export const rewind = async (harness: Harness, current: Conversation, boundary: number, context: Context): Promise<Conversation> => {
-  const before = (await current.entries({ maxEntryId: entryIdOf(boundary - 1), order: "descending" }, 1, undefined, context)).items[0];
-  return before === undefined ? freshConversation(harness, current, context) : current.fork(before.id, ownerless, context);
+export const rewind = async (
+  harness: Harness,
+  current: Conversation,
+  boundary: number,
+  context: Context,
+): Promise<Conversation> => {
+  const before = (
+    await current.entries({ maxEntryId: entryIdOf(boundary - 1), order: "descending" }, 1, undefined, context)
+  ).items[0];
+  return before === undefined
+    ? freshConversation(harness, current, context)
+    : current.fork(before.id, ownerless, context);
 };
 
 /**
@@ -70,15 +88,30 @@ export const forkPoint = async (
 ): Promise<EntryId> => {
   const input = turns[providerTurnId]?.inputEntry;
   if (input === undefined) throw new Error(`t3flare: turn ${providerTurnId} is not in this Session's conversation`);
-  const later = Object.values(turns).flatMap((turn) => (turn.inputEntry !== undefined && Number(turn.inputEntry) > Number(input) ? [Number(turn.inputEntry)] : []));
+  const later = Object.values(turns).flatMap((turn) =>
+    turn.inputEntry !== undefined && Number(turn.inputEntry) > Number(input) ? [Number(turn.inputEntry)] : [],
+  );
   const next = later.length === 0 ? undefined : Math.min(...later);
-  const last = (await current.entries({ ...(next === undefined ? {} : { maxEntryId: entryIdOf(next - 1) }), order: "descending" }, 1, undefined, context)).items[0];
+  const last = (
+    await current.entries(
+      { ...(next === undefined ? {} : { maxEntryId: entryIdOf(next - 1) }), order: "descending" },
+      1,
+      undefined,
+      context,
+    )
+  ).items[0];
   if (last === undefined) throw new Error(`t3flare: turn ${providerTurnId} has no entries`);
   return last.id;
 };
 
 /** A page of the model context `current` had at entry `at`, from message `offset`, about `bytes` long (one at least). */
-export const forkPage = async (current: Conversation, at: EntryId, offset: number, bytes: number, context: Context): Promise<ForkSourcePage> => {
+export const forkPage = async (
+  current: Conversation,
+  at: EntryId,
+  offset: number,
+  bytes: number,
+  context: Context,
+): Promise<ForkSourcePage> => {
   const { messages } = await current.context(context, { at });
   const page: Array<unknown> = [];
   let size = 0;
@@ -94,12 +127,20 @@ export const forkPage = async (current: Conversation, at: EntryId, offset: numbe
 };
 
 /** Writes `messages` into `target` as model context, in entries of about SEED_ENTRY_BYTES (one message at least). */
-export const seed = async (target: Conversation, messages: ReadonlyArray<unknown>, data: { readonly source: string; readonly at: string }, context: Context): Promise<void> => {
+export const seed = async (
+  target: Conversation,
+  messages: ReadonlyArray<unknown>,
+  data: { readonly source: string; readonly at: string },
+  context: Context,
+): Promise<void> => {
   let batch: Array<Message> = [];
   let size = 0;
   const flush = async () => {
     if (batch.length === 0) return;
-    const submission = await target.submit({ type: "write", entry: { kind: FORK_ENTRY_KIND, model: batch, data } }, context);
+    const submission = await target.submit(
+      { type: "write", entry: { kind: FORK_ENTRY_KIND, model: batch, data } },
+      context,
+    );
     await submission.wait(context);
     batch = [];
     size = 0;

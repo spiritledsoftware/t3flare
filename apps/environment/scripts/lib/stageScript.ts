@@ -5,4 +5,6 @@
 import * as path from "node:path";
 
 export const stageScript = (script: string, where: { readonly scriptsDir: string; readonly cwd: string }): string =>
-  script.includes("/") || script.includes(path.sep) || script.endsWith(".ts") ? path.resolve(where.cwd, script) : path.join(where.scriptsDir, `${script}.ts`);
+  script.includes("/") || script.includes(path.sep) || script.endsWith(".ts")
+    ? path.resolve(where.cwd, script)
+    : path.join(where.scriptsDir, `${script}.ts`);

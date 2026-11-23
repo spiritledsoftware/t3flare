@@ -22,7 +22,21 @@
 // - The Workspaces (ADR-0044 §4): `GET …/api/workspaces` (the view), `…/usage?id=` (one row's Files, ADR-0044 §1)
 //   and `…/sweep` (the dry Sweep); `POST …/api/workspaces/purge` `{ id, confirm }`, `/restore` `{ id }`, `/stop` `{ id }`
 //   and `/sweep`, behind the same write guard: the Owner's own acts (workspaceActions.ts), audited, never Open changes.
-import { type BaseBuildRecord, BUILTIN_TOOLS, imageSetupTooLong, CONTAINER_SETUP_OUTPUT_STATUS, describeBaseBuild, describeContainerSetup, describeGlobalMise, ENVIRONMENT_SETTINGS, EXTENSIONS, ignoredServersOf, readStoredEnvironment, resolveHarness, type ToolsChange } from "@t3flare/harness-registry";
+import {
+  type BaseBuildRecord,
+  BUILTIN_TOOLS,
+  imageSetupTooLong,
+  CONTAINER_SETUP_OUTPUT_STATUS,
+  describeBaseBuild,
+  describeContainerSetup,
+  describeGlobalMise,
+  ENVIRONMENT_SETTINGS,
+  EXTENSIONS,
+  ignoredServersOf,
+  readStoredEnvironment,
+  resolveHarness,
+  type ToolsChange,
+} from "@t3flare/harness-registry";
 
 import type { AccessCaller } from "../access.ts";
 import type { ValueSealer } from "../credentials/sealed.ts";
@@ -33,8 +47,22 @@ import { resolvedForRead } from "./variableSeal.ts";
 
 import { decodeHarnessChange, decodeMcpChange } from "./changeBodies.ts";
 
-import { SKILLS_WRITE_ROUTES, type SkillsAnswer, type SkillsApiDeps, skillsOverview, viewSkill } from "../skills/api.ts";
-import { ENDPOINTS_PATHS, endpointsChange, endpointsDiscover, type EndpointsAnswer, type EndpointsApiDeps, endpointsOverview, endpointsSignIn } from "../endpoints/api.ts";
+import {
+  SKILLS_WRITE_ROUTES,
+  type SkillsAnswer,
+  type SkillsApiDeps,
+  skillsOverview,
+  viewSkill,
+} from "../skills/api.ts";
+import {
+  ENDPOINTS_PATHS,
+  endpointsChange,
+  endpointsDiscover,
+  type EndpointsAnswer,
+  type EndpointsApiDeps,
+  endpointsOverview,
+  endpointsSignIn,
+} from "../endpoints/api.ts";
 import { containerCostTable } from "./containerCost.ts";
 import { csrfToken, csrfValid } from "./csrf.ts";
 import {
@@ -65,7 +93,6 @@ import { type AuditActor, auditWorkspace, type HarnessStore } from "./store.ts";
 
 export const CSRF_HEADER = "x-t3flare-csrf";
 
-
 export interface HarnessDeps {
   readonly caller: AccessCaller;
   /** The t3 host as configured (`T3FLARE_HOST`): what `Origin` must name. */
@@ -81,7 +108,10 @@ export interface HarnessDeps {
   readonly oauth?: Pick<HarnessOAuth, "begin" | "status" | "forget">;
   readonly now?: () => number;
   /** The Container budget DO's state (ADR-0032): its leases, each with the Workspace that holds it when known. */
-  readonly budget?: () => Promise<{ readonly max: number; readonly leases: ReadonlyArray<{ readonly holder: string; readonly workspace?: string | null }> }>;
+  readonly budget?: () => Promise<{
+    readonly max: number;
+    readonly leases: ReadonlyArray<{ readonly holder: string; readonly workspace?: string | null }>;
+  }>;
   /** The Environment skills (SPI-1148): their store and GitHub reads. */
   readonly skills?: Omit<SkillsApiDeps, "caller" | "now">;
   /** The Model endpoints (SPI-1162): their store, their model lists' read, and who to tell of a change. */
@@ -122,7 +152,10 @@ export const TEST_BASE_PATH = `${SETTINGS_PAGE_PATH}/api/base/test`;
  * reports are not awaited, so a lost one (the last above all) would otherwise leave a test building forever. A read that
  * fails keeps the record kept; the next read tries again.
  */
-export const refreshedTestRecord = async (store: Pick<HarnessStore, "lastTestBaseBuild" | "noteTestBaseBuild">, read: (() => Promise<BaseBuildRecord>) | undefined): Promise<BaseBuildRecord | undefined> => {
+export const refreshedTestRecord = async (
+  store: Pick<HarnessStore, "lastTestBaseBuild" | "noteTestBaseBuild">,
+  read: (() => Promise<BaseBuildRecord>) | undefined,
+): Promise<BaseBuildRecord | undefined> => {
   const kept = store.lastTestBaseBuild();
   if (kept?.state !== "building" || read === undefined) return kept;
   try {
@@ -137,7 +170,9 @@ export const refreshedTestRecord = async (store: Pick<HarnessStore, "lastTestBas
 const testAnswer = (record: BaseBuildRecord | undefined) => ({ record: record ?? null, view: testBuildView(record) });
 
 /** The Containers running now, by their Workspaces (a holder's DO id when its Workspace is unknown); null without the budget. */
-export const runningContainers = async (deps: Pick<HarnessDeps, "budget">): Promise<{ readonly count: number; readonly holders: ReadonlyArray<string> } | null> => {
+export const runningContainers = async (
+  deps: Pick<HarnessDeps, "budget">,
+): Promise<{ readonly count: number; readonly holders: ReadonlyArray<string> } | null> => {
   if (deps.budget === undefined) return null;
   try {
     const { leases } = await deps.budget();
@@ -157,13 +192,17 @@ export const mcpOverview = async (deps: HarnessDeps) => {
     rows.push({
       name,
       setting: server,
-      ...(server.auth?.kind === "header" && deps.secrets !== undefined ? { secret: deps.secrets.mark(name, "header") } : {}),
+      ...(server.auth?.kind === "header" && deps.secrets !== undefined
+        ? { secret: deps.secrets.mark(name, "header") }
+        : {}),
       ...(server.auth?.kind === "oauth" && deps.oauth !== undefined ? { oauth: deps.oauth.status(name) } : {}),
       status: inventory.status,
       listedAt: inventory.listedAt > 0 ? inventory.listedAt : null,
       error: inventory.error ?? null,
       tools: tools.map(({ inputSchema: _schema, ...tool }) => tool),
-      overrides: Object.fromEntries(Object.entries(server.classes ?? {}).filter(([, value]) => value === "read" || value === "write")),
+      overrides: Object.fromEntries(
+        Object.entries(server.classes ?? {}).filter(([, value]) => value === "read" || value === "write"),
+      ),
       toolExposure: server.toolExposure ?? {},
       refused,
     });
@@ -171,7 +210,8 @@ export const mcpOverview = async (deps: HarnessDeps) => {
   return rows;
 };
 
-export const isSettingsPagePath = (pathname: string) => pathname === SETTINGS_PAGE_PATH || pathname.startsWith(`${SETTINGS_PAGE_PATH}/`);
+export const isSettingsPagePath = (pathname: string) =>
+  pathname === SETTINGS_PAGE_PATH || pathname.startsWith(`${SETTINGS_PAGE_PATH}/`);
 
 const SECURITY_HEADERS = {
   "cache-control": "no-store",
@@ -181,7 +221,11 @@ const SECURITY_HEADERS = {
 };
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: SECURITY_HEADERS });
-const refused = (status: number, reason: string) => new Response(`${reason}\n`, { status, headers: { ...SECURITY_HEADERS, "content-type": "text/plain; charset=utf-8" } });
+const refused = (status: number, reason: string) =>
+  new Response(`${reason}\n`, {
+    status,
+    headers: { ...SECURITY_HEADERS, "content-type": "text/plain; charset=utf-8" },
+  });
 
 const callerName = (caller: AccessCaller) => (caller.kind === "owner" ? `owner:${caller.subject}` : "service-token");
 
@@ -211,7 +255,11 @@ export const harnessStatus = (deps: Pick<HarnessDeps, "store" | "skills">) => {
     Skills: skillsStatus(deps),
     "last Environment skill set refused": latestRefusal(deps) ?? null,
     // A server stored under the Settings server's reserved name or kind (plan D2): ignored until the next MCP change drops it.
-    ...(ignored.length === 0 ? {} : { "ignored MCP servers": `${ignored.join(", ")}: stored under a name or kind reserved for the Settings server; add again under another name` }),
+    ...(ignored.length === 0
+      ? {}
+      : {
+          "ignored MCP servers": `${ignored.join(", ")}: stored under a name or kind reserved for the Settings server; add again under another name`,
+        }),
   };
 };
 
@@ -225,7 +273,9 @@ const skillsStatus = (deps: Pick<HarnessDeps, "skills">): string => {
 /** The latest Workspace refusal of the Environment skill set (plan §4.5), as one line. */
 const latestRefusal = (deps: Pick<HarnessDeps, "skills">): string | undefined => {
   const refusal = deps.skills?.store.refusals().at(-1);
-  return refusal === undefined ? undefined : `${refusal.workspace} at ${new Date(refusal.at).toISOString()}: ${refusal.message}`;
+  return refusal === undefined
+    ? undefined
+    : `${refusal.workspace} at ${new Date(refusal.at).toISOString()}: ${refusal.message}`;
 };
 
 /** Why a state-changing request is refused before its body is read, or undefined. */
@@ -239,7 +289,8 @@ const unsafeWrite = async (request: Request, deps: HarnessDeps): Promise<string 
   if (deps.caller.kind === "owner") {
     if (origin === null) return "a browser change needs its Origin";
     const now = deps.now?.() ?? Date.now();
-    if (!(await csrfValid(deps.store.csrfKey(), deps.caller.subject, request.headers.get(CSRF_HEADER), now))) return "bad CSRF token";
+    if (!(await csrfValid(deps.store.csrfKey(), deps.caller.subject, request.headers.get(CSRF_HEADER), now)))
+      return "bad CSRF token";
   }
   return undefined;
 };
@@ -272,40 +323,87 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
         ...(deps.store.lastT3Tools() === undefined ? {} : { t3Tools: deps.store.lastT3Tools()! }),
         ...(deps.skills === undefined ? {} : { skills: skillsOverview(deps.skills) }),
         ...(deps.endpoints === undefined ? {} : { endpoints: await endpointsOverview(deps.endpoints) }),
-        ...(deps.changes === undefined ? {} : { openChanges: deps.changes.list().map((record) => openChangeSummary(record, undefined)) }),
+        ...(deps.changes === undefined
+          ? {}
+          : { openChanges: deps.changes.list().map((record) => openChangeSummary(record, undefined)) }),
         // A failed read is the section's error, not the page's (ADR-0044 §1): the rest of the page still serves.
         ...(deps.workspaces === undefined
           ? {}
-          : { workspaces: await workspacesView(deps.workspaces.deps, deps.now?.() ?? Date.now()).catch((error: unknown) => ({ error: String(error).slice(0, 300) })) }),
+          : {
+              workspaces: await workspacesView(deps.workspaces.deps, deps.now?.() ?? Date.now()).catch(
+                (error: unknown) => ({ error: String(error).slice(0, 300) }),
+              ),
+            }),
         ...(deps.clients === undefined && deps.ownerEndpoint === undefined
           ? {}
-          : { ownerClients: { ...(deps.ownerEndpoint === undefined ? {} : { endpoint: deps.ownerEndpoint }), clients: deps.clients?.list() ?? [], viewer: subject } }),
+          : {
+              ownerClients: {
+                ...(deps.ownerEndpoint === undefined ? {} : { endpoint: deps.ownerEndpoint }),
+                clients: deps.clients?.list() ?? [],
+                viewer: subject,
+              },
+            }),
       });
-      return new Response(html, { headers: { ...SECURITY_HEADERS, "content-type": "text/html; charset=utf-8", "content-security-policy": await pageCsp() } });
+      return new Response(html, {
+        headers: {
+          ...SECURITY_HEADERS,
+          "content-type": "text/html; charset=utf-8",
+          "content-security-policy": await pageCsp(),
+        },
+      });
     }
     if (path.startsWith(`${CHANGES_PATH}/`) && deps.changes !== undefined) {
       const id = path.slice(`${CHANGES_PATH}/`.length);
       const subject = deps.caller.kind === "owner" ? deps.caller.subject : "";
       const csrf = subject === "" ? "" : await csrfToken(deps.store.csrfKey(), subject, deps.now?.() ?? Date.now());
       const record = isChangeId(id) ? deps.changes.get(id) : undefined;
-      const html = record === undefined || record.tier !== "asked" ? renderGonePage(csrf) : renderChangePage(record, { csrf, now: deps.now?.() ?? Date.now(), environment: deps.store.loadEnvironment() });
+      const html =
+        record === undefined || record.tier !== "asked"
+          ? renderGonePage(csrf)
+          : renderChangePage(record, {
+              csrf,
+              now: deps.now?.() ?? Date.now(),
+              environment: deps.store.loadEnvironment(),
+            });
       return new Response(html, {
         status: record === undefined ? 404 : 200,
-        headers: { ...SECURITY_HEADERS, "content-type": "text/html; charset=utf-8", "content-security-policy": await pageCsp(CHANGE_SCRIPT) },
+        headers: {
+          ...SECURITY_HEADERS,
+          "content-type": "text/html; charset=utf-8",
+          "content-security-policy": await pageCsp(CHANGE_SCRIPT),
+        },
       });
     }
     if (path === CHANGES_API_PATH && deps.changes !== undefined) {
-      return json({ changes: deps.changes.list().map((record) => openChangeSummary(record, `https://${deps.host}${changePagePath(record.id)}`)) });
+      return json({
+        changes: deps.changes
+          .list()
+          .map((record) => openChangeSummary(record, `https://${deps.host}${changePagePath(record.id)}`)),
+      });
     }
     if (path === `${SETTINGS_PAGE_PATH}/api/settings`) {
       const stored = deps.store.load();
-      return json({ revision: stored.revision, resolved: resolveHarness(stored), registry: EXTENSIONS, tools: BUILTIN_TOOLS, t3Tools: deps.store.lastT3Tools() ?? null, stored });
+      return json({
+        revision: stored.revision,
+        resolved: resolveHarness(stored),
+        registry: EXTENSIONS,
+        tools: BUILTIN_TOOLS,
+        t3Tools: deps.store.lastT3Tools() ?? null,
+        stored,
+      });
     }
     if (path === `${SETTINGS_PAGE_PATH}/api/environment`) {
       const stored = deps.store.loadEnvironment();
       const resolved = await resolvedForRead(stored, deps.variableSealer);
       // `stored` as read (ADR-0046): a secret Variable's sealed value is shown as its fingerprint, as `resolved` shows it.
-      return json({ revision: stored.revision, resolved, schema: ENVIRONMENT_SETTINGS, costs: containerCostTable(resolved.containerBudget), running: await runningContainers(deps), stored: readStoredEnvironment(stored) });
+      return json({
+        revision: stored.revision,
+        resolved,
+        schema: ENVIRONMENT_SETTINGS,
+        costs: containerCostTable(resolved.containerBudget),
+        running: await runningContainers(deps),
+        stored: readStoredEnvironment(stored),
+      });
     }
     if (path === `${SETTINGS_PAGE_PATH}/api/status`) return json(harnessStatus(deps));
     // The last Test base build (SPI-1334): the page polls it while a test runs. A read: it starts nothing.
@@ -316,7 +414,8 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
     if (path.startsWith(WORKSPACES_API_PATH) && deps.workspaces !== undefined) {
       const workspaces = deps.workspaces;
       try {
-        if (path === WORKSPACES_API_PATH) return json(await workspacesView(workspaces.deps, deps.now?.() ?? Date.now()));
+        if (path === WORKSPACES_API_PATH)
+          return json(await workspacesView(workspaces.deps, deps.now?.() ?? Date.now()));
         if (path === `${WORKSPACES_API_PATH}/usage`) {
           // ADR-0044 §1: one row's size and Container state, loaded after the table renders; never starts a Container.
           const id = url.searchParams.get("id") ?? "";
@@ -329,21 +428,51 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
         return refused(503, `the Workspaces could not be read: ${String(error).slice(0, 300)}`);
       }
     }
-    if (path === `${SETTINGS_PAGE_PATH}/api/skills` && deps.skills !== undefined) return json(skillsOverview(deps.skills));
-    if (path === `${SETTINGS_PAGE_PATH}/api/skills/view` && deps.skills !== undefined) return skillsResponse(viewSkill(deps.skills, url.searchParams.get("name") ?? ""));
-    if (path === `${SETTINGS_PAGE_PATH}${ENDPOINTS_PATHS.list}` && deps.endpoints !== undefined) return json(await endpointsOverview(deps.endpoints));
+    if (path === `${SETTINGS_PAGE_PATH}/api/skills` && deps.skills !== undefined)
+      return json(skillsOverview(deps.skills));
+    if (path === `${SETTINGS_PAGE_PATH}/api/skills/view` && deps.skills !== undefined)
+      return skillsResponse(viewSkill(deps.skills, url.searchParams.get("name") ?? ""));
+    if (path === `${SETTINGS_PAGE_PATH}${ENDPOINTS_PATHS.list}` && deps.endpoints !== undefined)
+      return json(await endpointsOverview(deps.endpoints));
     return refused(404, "Not found");
   }
   if (request.method !== "POST") return refused(405, "Method not allowed");
-  const routes = [`${SETTINGS_PAGE_PATH}/api/extensions`, `${SETTINGS_PAGE_PATH}/api/tools`, `${SETTINGS_PAGE_PATH}/api/environment`, `${SETTINGS_PAGE_PATH}/api/mcp`, `${SETTINGS_PAGE_PATH}/api/mcp/test`, `${SETTINGS_PAGE_PATH}/api/mcp/servers`, `${SETTINGS_PAGE_PATH}/api/mcp/oauth`, `${SETTINGS_PAGE_PATH}/api/mcp/secret`];
+  const routes = [
+    `${SETTINGS_PAGE_PATH}/api/extensions`,
+    `${SETTINGS_PAGE_PATH}/api/tools`,
+    `${SETTINGS_PAGE_PATH}/api/environment`,
+    `${SETTINGS_PAGE_PATH}/api/mcp`,
+    `${SETTINGS_PAGE_PATH}/api/mcp/test`,
+    `${SETTINGS_PAGE_PATH}/api/mcp/servers`,
+    `${SETTINGS_PAGE_PATH}/api/mcp/oauth`,
+    `${SETTINGS_PAGE_PATH}/api/mcp/secret`,
+  ];
   const skillsRoute = SKILLS_WRITE_ROUTES.find((route) => path === `${SETTINGS_PAGE_PATH}/api/skills${route}`);
-  const endpointsRoute = deps.endpoints === undefined ? undefined : Object.values(ENDPOINTS_PATHS).find((route) => path === `${SETTINGS_PAGE_PATH}${route}`);
-  const changeRoute = path.startsWith(`${CHANGES_API_PATH}/`) && deps.changes !== undefined ? path.slice(`${CHANGES_API_PATH}/`.length) : undefined;
+  const endpointsRoute =
+    deps.endpoints === undefined
+      ? undefined
+      : Object.values(ENDPOINTS_PATHS).find((route) => path === `${SETTINGS_PAGE_PATH}${route}`);
+  const changeRoute =
+    path.startsWith(`${CHANGES_API_PATH}/`) && deps.changes !== undefined
+      ? path.slice(`${CHANGES_API_PATH}/`.length)
+      : undefined;
   const clientsRoute = path === CLIENTS_API_PATH && deps.clients !== undefined;
-  const workspacesRoute = deps.workspaces === undefined ? undefined : WORKSPACES_ACTIONS.find((route) => path === `${WORKSPACES_API_PATH}${route}`);
+  const workspacesRoute =
+    deps.workspaces === undefined
+      ? undefined
+      : WORKSPACES_ACTIONS.find((route) => path === `${WORKSPACES_API_PATH}${route}`);
   const rebuildRoute = path === REBUILD_BASE_PATH && deps.rebuildBase !== undefined;
   const testRoute = path === TEST_BASE_PATH && deps.testBase !== undefined;
-  if (!routes.includes(path) && (skillsRoute === undefined || deps.skills === undefined) && endpointsRoute === undefined && changeRoute === undefined && !clientsRoute && workspacesRoute === undefined && !rebuildRoute && !testRoute) {
+  if (
+    !routes.includes(path) &&
+    (skillsRoute === undefined || deps.skills === undefined) &&
+    endpointsRoute === undefined &&
+    changeRoute === undefined &&
+    !clientsRoute &&
+    workspacesRoute === undefined &&
+    !rebuildRoute &&
+    !testRoute
+  ) {
     return refused(404, "Not found");
   }
   const why = await unsafeWrite(request, deps);
@@ -351,7 +480,8 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
     console.log(JSON.stringify({ t3flare: "harness-refused", reason: why, caller: deps.caller.kind }));
     return refused(403, why);
   }
-  if (changeRoute !== undefined && deps.changes !== undefined) return answerChange(deps.changes, changeRoute, await bodyOf(request), deps.caller);
+  if (changeRoute !== undefined && deps.changes !== undefined)
+    return answerChange(deps.changes, changeRoute, await bodyOf(request), deps.caller);
   if (clientsRoute && deps.clients !== undefined) return changeClient(deps, deps.clients, await bodyOf(request));
   if (rebuildRoute && deps.rebuildBase !== undefined) {
     // Free (ADR-0047 §5): it builds the settings already saved, a build under way goes on.
@@ -384,7 +514,10 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
     } catch (error) {
       // A Purge's failed reference read is its own refusal (purgeNow); what throws here may have come after some of the
       // act was done (an audit write), so the answer says nothing about what was left.
-      return refused(503, `the act could not finish: ${String(error).slice(0, 300)}; the Workspaces section shows what is left`);
+      return refused(
+        503,
+        `the act could not finish: ${String(error).slice(0, 300)}; the Workspaces section shows what is left`,
+      );
     }
   }
   const ops = opsOf(deps);
@@ -399,7 +532,13 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
     const body = await bodyOf(request);
     if (body === undefined) return refused(400, "the body is a JSON object");
     const endpoints = deps.endpoints;
-    const audit: Parameters<typeof endpointsChange>[2] = (entry) => deps.store.audit({ ...entry, entity: "endpoints", at: deps.now?.() ?? Date.now(), caller: callerName(deps.caller) });
+    const audit: Parameters<typeof endpointsChange>[2] = (entry) =>
+      deps.store.audit({
+        ...entry,
+        entity: "endpoints",
+        at: deps.now?.() ?? Date.now(),
+        caller: callerName(deps.caller),
+      });
     return endpointsResponse(
       endpointsRoute === ENDPOINTS_PATHS.discover
         ? await endpointsDiscover(endpoints, body)
@@ -413,16 +552,31 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
   if (options === undefined) return refused(400, EXPECTED_REVISION);
   if (path === `${SETTINGS_PAGE_PATH}/api/environment`) {
     const settings = body?.settings;
-    if (settings === null || typeof settings !== "object" || Array.isArray(settings)) return refused(400, "the body is one change: { settings: { … } }");
+    if (settings === null || typeof settings !== "object" || Array.isArray(settings))
+      return refused(400, "the body is one change: { settings: { … } }");
     return answer(await changeEnvironment(ops, settings as Record<string, unknown>, options));
   }
   if (path === `${SETTINGS_PAGE_PATH}/api/tools`) {
     if (body === undefined) return refused(400, "the body is one change: { preset?, tools?, t3? }");
     const { preset, tools, t3 } = changeOf(body);
-    if ((tools !== undefined && (tools === null || typeof tools !== "object")) || (t3 !== undefined && (t3 === null || typeof t3 !== "object"))) return refused(400, "tools and t3 are objects");
+    if (
+      (tools !== undefined && (tools === null || typeof tools !== "object")) ||
+      (t3 !== undefined && (t3 === null || typeof t3 !== "object"))
+    )
+      return refused(400, "tools and t3 are objects");
     // SAFETY: `applyToolsChange` judges each field as unknown input (the preset, every Exposure, every tool name), and
     // refuses with its own reason; this only promises the shape, and the line above checks `tools` and `t3` are objects.
-    return answer(changeTools(ops, { ...(preset === undefined ? {} : { preset }), ...(tools === undefined ? {} : { tools }), ...(t3 === undefined ? {} : { t3 }) } as ToolsChange, options));
+    return answer(
+      changeTools(
+        ops,
+        {
+          ...(preset === undefined ? {} : { preset }),
+          ...(tools === undefined ? {} : { tools }),
+          ...(t3 === undefined ? {} : { t3 }),
+        } as ToolsChange,
+        options,
+      ),
+    );
   }
   if (path === `${SETTINGS_PAGE_PATH}/api/mcp/test`) {
     // The test's answer has no `ok`, as before the ops moved out.
@@ -432,7 +586,8 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
     return json(shown);
   }
   if (path === `${SETTINGS_PAGE_PATH}/api/mcp`) {
-    if (body === undefined || typeof body.op !== "string" || typeof body.server !== "string") return refused(400, "the body is one change: { op, server, … }");
+    if (body === undefined || typeof body.op !== "string" || typeof body.server !== "string")
+      return refused(400, "the body is one change: { op, server, … }");
     const decoded = decodeMcpChange(changeOf(body));
     if (!decoded.ok) return refused(400, `the body is one change: { op, server, … }: ${decoded.error}`);
     return answer(changeMcp(ops, decoded.change, options));
@@ -451,9 +606,18 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
       ),
     );
   }
-  if (path === `${SETTINGS_PAGE_PATH}/api/mcp/oauth`) return answer(await beginMcpSignIn(ops, typeof body?.server === "string" ? body.server : "", options));
-  if (path === `${SETTINGS_PAGE_PATH}/api/mcp/secret`) return answer(await setMcpHeader(ops, { server: typeof body?.server === "string" ? body.server : "", value: body?.value }, options));
-  if (body === undefined || typeof body.extension !== "string") return refused(400, "the body is one change: { extension, enabled?, settings? }");
+  if (path === `${SETTINGS_PAGE_PATH}/api/mcp/oauth`)
+    return answer(await beginMcpSignIn(ops, typeof body?.server === "string" ? body.server : "", options));
+  if (path === `${SETTINGS_PAGE_PATH}/api/mcp/secret`)
+    return answer(
+      await setMcpHeader(
+        ops,
+        { server: typeof body?.server === "string" ? body.server : "", value: body?.value },
+        options,
+      ),
+    );
+  if (body === undefined || typeof body.extension !== "string")
+    return refused(400, "the body is one change: { extension, enabled?, settings? }");
   const decoded = decodeHarnessChange(changeOf(body));
   if (!decoded.ok) return refused(400, `the body is one change: { extension, enabled?, settings? }: ${decoded.error}`);
   return answer(changeExtension(ops, decoded.change, options));
@@ -464,12 +628,24 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
  * header value goes from the body to the apply alone; the answer never carries it. A sign-in's authorization URL is in
  * this answer alone.
  */
-const answerChange = async (changes: ChangesApi, id: string, body: Record<string, unknown> | undefined, caller: AccessCaller): Promise<Response> => {
+const answerChange = async (
+  changes: ChangesApi,
+  id: string,
+  body: Record<string, unknown> | undefined,
+  caller: AccessCaller,
+): Promise<Response> => {
   if (!isChangeId(id)) return refused(404, "no such change");
-  if (body === undefined || (body.action !== "approve" && body.action !== "decline")) return refused(400, "the body is { action: approve | decline, value? }");
-  if (body.value !== undefined && typeof body.value !== "string") return refused(400, "value is the header's value, a string");
-  const answerer: Answerer = caller.kind === "owner" ? { kind: "owner", subject: caller.subject } : { kind: "service-token" };
-  const answered = await changes.answer(id, { answerer, action: body.action, ...(typeof body.value === "string" && body.action === "approve" ? { secret: body.value } : {}) });
+  if (body === undefined || (body.action !== "approve" && body.action !== "decline"))
+    return refused(400, "the body is { action: approve | decline, value? }");
+  if (body.value !== undefined && typeof body.value !== "string")
+    return refused(400, "value is the header's value, a string");
+  const answerer: Answerer =
+    caller.kind === "owner" ? { kind: "owner", subject: caller.subject } : { kind: "service-token" };
+  const answered = await changes.answer(id, {
+    answerer,
+    action: body.action,
+    ...(typeof body.value === "string" && body.action === "approve" ? { secret: body.value } : {}),
+  });
   if (!answered.ok) return refused(answered.status, answered.error);
   const { outcome } = answered;
   return json({
@@ -487,14 +663,29 @@ const answerChange = async (changes: ChangesApi, id: string, body: Record<string
  * applies at the client's next request (a change to or from `model` shows at its reconnect); an Open change keeps the
  * mode it was asked in.
  */
-const changeClient = (deps: HarnessDeps, clients: OwnerClients, body: Record<string, unknown> | undefined): Response => {
+const changeClient = (
+  deps: HarnessDeps,
+  clients: OwnerClients,
+  body: Record<string, unknown> | undefined,
+): Response => {
   const key = body?.key;
   const clientName = clientNameOf(body?.clientName);
   if (typeof key !== "string" || key === "" || clientName === undefined || clientName !== body?.clientName) {
-    return refused(400, "the body is { key, clientName, mode: browser | native | model } or { key, clientName, remove: true }");
+    return refused(
+      400,
+      "the body is { key, clientName, mode: browser | native | model } or { key, clientName, remove: true }",
+    );
   }
   const audit = (action: string, before: unknown, after: unknown) =>
-    deps.store.audit({ at: deps.now?.() ?? Date.now(), entity: "owner-clients", ...actorOf(deps), action, target: clientName, before, after });
+    deps.store.audit({
+      at: deps.now?.() ?? Date.now(),
+      entity: "owner-clients",
+      ...actorOf(deps),
+      action,
+      target: clientName,
+      before,
+      after,
+    });
   if (body?.remove === true) {
     const was = clients.list().find((entry) => entry.key === key && entry.clientName === clientName)?.mode;
     if (!clients.remove(key, clientName)) return refused(404, "no such client");
@@ -504,7 +695,8 @@ const changeClient = (deps: HarnessDeps, clients: OwnerClients, body: Record<str
   const mode = body?.mode;
   if (!isOwnerMode(mode)) return refused(400, "mode is browser, native or model");
   const before = clients.setMode(key, clientName, mode);
-  if (before === undefined) return refused(404, "no such client: a client is listed at its first request to the Owner-client endpoint");
+  if (before === undefined)
+    return refused(404, "no such client: a client is listed at its first request to the Owner-client endpoint");
   if (before !== mode) audit("client-mode", { mode: before }, { mode });
   return json({ key, clientName, mode });
 };
@@ -514,40 +706,60 @@ const changeClient = (deps: HarnessDeps, clients: OwnerClients, body: Record<str
  * its own audit entry (workspaceActions.ts). A Purge needs the Workspace's own name typed, compared here (ADR-0044 §4); the
  * page has no force.
  */
-const workspacesAction = async (deps: HarnessDeps, workspaces: WorkspacesApi, route: (typeof WORKSPACES_ACTIONS)[number], body: Record<string, unknown> | undefined): Promise<Response> => {
+const workspacesAction = async (
+  deps: HarnessDeps,
+  workspaces: WorkspacesApi,
+  route: (typeof WORKSPACES_ACTIONS)[number],
+  body: Record<string, unknown> | undefined,
+): Promise<Response> => {
   const actor = actorOf(deps);
   if (route === "/sweep") {
     const report = await workspaces.runSweep(false);
     const preview = sweepPreview(report);
     const purged = report.purged.filter((entry) => entry.destroyed).map((entry) => entry.id);
     workspaces.deps.audit(
-      auditWorkspace({ at: deps.now?.() ?? Date.now(), actor, action: "sweep.run", target: "sweep", after: { ok: report.ok, purged, sessions: preview.sessions.length, containers: preview.containers.length } }),
+      auditWorkspace({
+        at: deps.now?.() ?? Date.now(),
+        actor,
+        action: "sweep.run",
+        target: "sweep",
+        after: { ok: report.ok, purged, sessions: preview.sessions.length, containers: preview.containers.length },
+      }),
     );
     return json(preview);
   }
   const id = body?.id;
-  if (typeof id !== "string" || id === "") return refused(400, route === "/purge" ? "the body is { id, confirm }" : "the body is { id }");
+  if (typeof id !== "string" || id === "")
+    return refused(400, route === "/purge" ? "the body is { id, confirm }" : "the body is { id }");
   if (route === "/purge") {
     const name = confirmNameOf(id);
     if (body?.confirm !== name) return refused(400, `type ${name}, the Workspace's own name, to purge it`);
     return actionResponse(await purgeNow(workspaces.deps, id, { force: false, actor }));
   }
-  return actionResponse(route === "/restore" ? await restore(workspaces.deps, id, { actor }) : await stop(workspaces.deps, id, { actor }));
+  return actionResponse(
+    route === "/restore" ? await restore(workspaces.deps, id, { actor }) : await stop(workspaces.deps, id, { actor }),
+  );
 };
 
-const actionResponse = <T extends object>(outcome: ActionOutcome<T>): Response => (outcome.ok ? json(outcome) : refused(outcome.status, outcome.error));
+const actionResponse = <T extends object>(outcome: ActionOutcome<T>): Response =>
+  outcome.ok ? json(outcome) : refused(outcome.status, outcome.error);
 
-const skillsResponse = (answer: SkillsAnswer): Response => ("json" in answer ? json(answer.json, answer.status) : refused(answer.status, answer.text));
+const skillsResponse = (answer: SkillsAnswer): Response =>
+  "json" in answer ? json(answer.json, answer.status) : refused(answer.status, answer.text);
 
 /** An op's outcome as the panel answers it: the outcome as JSON, or the refusal's words with its status. */
-const answer = <T extends object>(outcome: Outcome<T>): Response => (outcome.ok ? json(outcome) : refused(outcome.status, outcome.error));
+const answer = <T extends object>(outcome: Outcome<T>): Response =>
+  outcome.ok ? json(outcome) : refused(outcome.status, outcome.error);
 
-const endpointsResponse = (answer: EndpointsAnswer): Response => ("json" in answer ? json(answer.json, answer.status) : refused(answer.status, answer.text));
+const endpointsResponse = (answer: EndpointsAnswer): Response =>
+  "json" in answer ? json(answer.json, answer.status) : refused(answer.status, answer.text);
 
 const bodyOf = async (request: Request): Promise<Record<string, unknown> | undefined> => {
   try {
     const body: unknown = await request.json();
-    return body !== null && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : undefined;
+    return body !== null && typeof body === "object" && !Array.isArray(body)
+      ? (body as Record<string, unknown>)
+      : undefined;
   } catch {
     return undefined;
   }

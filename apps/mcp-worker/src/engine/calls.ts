@@ -136,9 +136,7 @@ const withSampling = (deps: McpDeps, server: McpEngineTarget): McpDeps => {
 
       if (ctx === undefined) return { ...base, sampling: { tools: {} } };
 
-      return ctx.answers?.sampling === true && deps.onInput !== undefined
-        ? { ...base, sampling: { tools: {} } }
-        : base;
+      return ctx.answers?.sampling === true && deps.onInput !== undefined ? { ...base, sampling: { tools: {} } } : base;
     },
   };
 };
@@ -168,9 +166,7 @@ const abortedBy = (hooks: McpEngineHooks, mayHaveRun: boolean) => {
 
 const decodeTools = Schema.decodeUnknownEffect(Schema.Array(McpToolDefinition));
 
-const decodePrompts = Schema.decodeUnknownEffect(
-  Schema.Array(Schema.Record(Schema.String, Schema.Json)),
-);
+const decodePrompts = Schema.decodeUnknownEffect(Schema.Array(Schema.Record(Schema.String, Schema.Json)));
 
 const decodeAbout = Schema.decodeUnknownEffect(
   Schema.Struct({
@@ -180,8 +176,7 @@ const decodeAbout = Schema.decodeUnknownEffect(
 );
 
 /** Tools as the SDK listed them, as the definitions the host keeps. */
-const definitionsOf = (tools: Answer) =>
-  decodeTools(tools).pipe(Effect.mapError(() => malformed("a tool definition")));
+const definitionsOf = (tools: Answer) => decodeTools(tools).pipe(Effect.mapError(() => malformed("a tool definition")));
 
 const decodeEraRow = Schema.decodeUnknownOption(EraRowV1);
 
@@ -264,19 +259,14 @@ const runCall = Effect.fnUntraced(function* <A, R>(
         let bridge: StdioBridge | undefined;
 
         const outcome = yield* Schema.decodeEffect(McpEngineTarget)(input.target).pipe(
-          Effect.mapError(() =>
-            Unsupported.make({ message: "This engine cannot reach that kind of server" }),
-          ),
+          Effect.mapError(() => Unsupported.make({ message: "This engine cannot reach that kind of server" })),
           Effect.flatMap((server) =>
             Effect.gen(function* () {
               bridge = yield* reachBridge(server, rows.era, input.env, call, input.quiet === true);
 
               const connection = yield* connect(
                 connectTarget(server),
-                withSampling(
-                  withExtensions(call.deps, server.kind === "http" ? server.extensions : undefined),
-                  server,
-                ),
+                withSampling(withExtensions(call.deps, server.kind === "http" ? server.extensions : undefined), server),
               );
 
               wire = connection.stats;
@@ -370,10 +360,7 @@ const annotateWire = (
 
 /** The server's origin, scheme and host only: a URL's path and query may carry what a span must not. */
 const originOf = (url: string) =>
-  Option.map(
-    Option.liftThrowable(() => new URL(url))(),
-    ({ protocol, host }) => `${protocol}//${host}`,
-  );
+  Option.map(Option.liftThrowable(() => new URL(url))(), ({ protocol, host }) => `${protocol}//${host}`);
 
 /** `logs` as the result's gain-only field: absent when the call heard none. */
 const logsField = (logs: ReadonlyArray<McpLogEntry>) => (logs.length === 0 ? {} : { logs });
@@ -415,10 +402,7 @@ const vettedTools = Effect.fnUntraced(function* (
   return {
     kept: vetted.kept,
     tools,
-    problems: scrubValues(
-      [...toolsLeftOut(vetted.left), ...(yield* validators.compileAll(tools))],
-      tokens,
-    ),
+    problems: scrubValues([...toolsLeftOut(vetted.left), ...(yield* validators.compileAll(tools))], tokens),
   };
 });
 
@@ -438,9 +422,7 @@ export const discover = Effect.fn("mcp.engine.discover")(function* (
         const tools = yield* connection.list("tools", HOST_WORK);
         const prompts = yield* connection.list("prompts", HOST_WORK);
 
-        const promptsListed = yield* decodePrompts(prompts.value).pipe(
-          Effect.mapError(() => malformed("a prompt")),
-        );
+        const promptsListed = yield* decodePrompts(prompts.value).pipe(Effect.mapError(() => malformed("a prompt")));
 
         // What a server tells of itself is scrubbed in its string values only; a tool or prompt that holds a secret in a name
         // or a key is left out, since neither is ever rewritten (`scrub.ts`).
@@ -583,12 +565,7 @@ const runToolCall = Effect.fnUntraced(function* (
   validators: ValidatorsApi,
   bridge: StdioBridge | undefined,
 ) {
-  const { sent, tool, refreshed } = yield* callWithRefresh(
-    connection,
-    req,
-    validators,
-    call.tokens,
-  );
+  const { sent, tool, refreshed } = yield* callWithRefresh(connection, req, validators, call.tokens);
 
   return yield* callAnswer(
     sent,
@@ -737,10 +714,7 @@ const callAnswer = Effect.fnUntraced(function* (
   return completed;
 });
 
-type TaskOp = Extract<
-  McpEngineRequest,
-  { readonly op: "tasks/get" | "tasks/update" | "tasks/cancel" }
->;
+type TaskOp = Extract<McpEngineRequest, { readonly op: "tasks/get" | "tasks/update" | "tasks/cancel" }>;
 
 /** Whether `req` is for an MCP task: its `op`s share the `tasks/` prefix. */
 const isTaskRequest = (req: McpEngineRequest): req is TaskOp => req.op.startsWith("tasks/");
@@ -833,17 +807,12 @@ const runResourcePage = Effect.fnUntraced(function* (
     value,
     kind: _kind,
     ...meta
-  } = yield* connection.listPage(
-    templates ? "resources/templates" : "resources",
-    req.cursor,
-    req.ctx,
-  );
+  } = yield* connection.listPage(templates ? "resources/templates" : "resources", req.cursor, req.ctx);
 
   const items = [...value.items];
   const listed = templates ? { resourceTemplates: items } : { resources: items };
 
-  const page =
-    value.nextCursor === undefined ? listed : { ...listed, nextCursor: value.nextCursor };
+  const page = value.nextCursor === undefined ? listed : { ...listed, nextCursor: value.nextCursor };
 
   return {
     kind: "complete",
@@ -862,11 +831,7 @@ const runPrompt = Effect.fnUntraced(function* (
   req: PromptGet,
   env: CallEnvironment,
 ) {
-  const {
-    value,
-    kind: _kind,
-    ...meta
-  } = yield* connection.getPrompt(req.name, req.arguments, req.ctx);
+  const { value, kind: _kind, ...meta } = yield* connection.getPrompt(req.name, req.arguments, req.ctx);
 
   return {
     kind: "complete",
@@ -885,11 +850,7 @@ const runCompletion = Effect.fnUntraced(function* (
   req: Completion,
   env: CallEnvironment,
 ) {
-  const {
-    value,
-    kind: _kind,
-    ...meta
-  } = yield* connection.complete(req.ref, req.argument, req.context, req.ctx);
+  const { value, kind: _kind, ...meta } = yield* connection.complete(req.ref, req.argument, req.context, req.ctx);
 
   return {
     kind: "complete",
@@ -913,14 +874,9 @@ const runList = Effect.fnUntraced(function* (
 
   // A tool or a prompt that holds a secret in a name or a key is left out of what goes back, as a discovery leaves it out.
   const tools =
-    req.op === "tools/list"
-      ? Option.some(yield* vettedTools(value, validators, call.tokens))
-      : Option.none();
+    req.op === "tools/list" ? Option.some(yield* vettedTools(value, validators, call.tokens)) : Option.none();
 
-  const prompts =
-    req.op === "prompts/list"
-      ? Option.some(vetListed("prompt", value, call.tokens))
-      : Option.none();
+  const prompts = req.op === "prompts/list" ? Option.some(vetListed("prompt", value, call.tokens)) : Option.none();
 
   const problems = Option.map(tools, (listed) => listed.problems);
 
@@ -929,8 +885,7 @@ const runList = Effect.fnUntraced(function* (
     ...meta,
     result: yield* toEngineValue(
       Option.match(tools, {
-        onNone: () =>
-          Option.match(prompts, { onNone: () => value, onSome: (vetted) => vetted.kept }),
+        onNone: () => Option.match(prompts, { onNone: () => value, onSome: (vetted) => vetted.kept }),
         onSome: (listed) => listed.kept,
       }),
       call,
@@ -1149,9 +1104,7 @@ export const listen = Effect.fn("mcp.engine.listen")(function* (
             ...logsField(logs),
             ...spawnField(spawn),
           }).pipe(
-            Effect.tap((result) =>
-              Effect.sync(() => Deferred.doneUnsafe(answered, Effect.succeed(result))),
-            ),
+            Effect.tap((result) => Effect.sync(() => Deferred.doneUnsafe(answered, Effect.succeed(result)))),
             Effect.asVoid,
           ),
     ),

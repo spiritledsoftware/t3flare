@@ -45,17 +45,23 @@ export const sealVariablesIn = async (
   stored: StoredEnvironment,
   sealer: ValueSealer | undefined,
   sealing: Sealing = {},
-): Promise<{ readonly ok: true; readonly settings: Readonly<Record<string, unknown>> } | { readonly ok: false; readonly error: string }> => {
+): Promise<
+  | { readonly ok: true; readonly settings: Readonly<Record<string, unknown>> }
+  | { readonly ok: false; readonly error: string }
+> => {
   if (!Object.hasOwn(settings, "variables")) return { ok: true, settings };
   const entries = variableEntries(settings.variables);
   if (entries === undefined) return { ok: true, settings };
   const kept = new Map<string, SealedValue>();
-  for (const variable of fitStoredVariables(stored.settings.variables)) if (variable.sealed !== undefined) kept.set(variable.name, variable.sealed);
+  for (const variable of fitStoredVariables(stored.settings.variables))
+    if (variable.sealed !== undefined) kept.set(variable.name, variable.sealed);
   const out: Array<unknown> = [];
   const problems: Array<string> = [];
   for (const entry of entries) {
     if (isRecord(entry) && entry.sealed !== undefined && (sealing.sealedAtDoor !== true || entry.secret !== true)) {
-      problems.push(`${JSON.stringify(entry.name)} gives a sealed value: give its value, or valueRedacted to keep the one stored`);
+      problems.push(
+        `${JSON.stringify(entry.name)} gives a sealed value: give its value, or valueRedacted to keep the one stored`,
+      );
       continue;
     }
     if (!isRecord(entry) || entry.secret !== true || typeof entry.name !== "string") {
@@ -65,14 +71,18 @@ export const sealVariablesIn = async (
     const { name } = entry;
     const quoted = JSON.stringify(name);
     if (entry.sealed !== undefined) {
-      const opens = isSealedValue(entry.sealed) && sealer !== undefined && (await sealer.open(labelOf(name), entry.sealed)) !== undefined;
+      const opens =
+        isSealedValue(entry.sealed) &&
+        sealer !== undefined &&
+        (await sealer.open(labelOf(name), entry.sealed)) !== undefined;
       if (opens) out.push({ name, value: "", secret: true, sealed: entry.sealed });
       else problems.push(`${quoted}'s sealed value does not open here: give its value`);
       continue;
     }
     if (entry.valueRedacted === true) {
       const sealed = kept.get(name);
-      if (sealed === undefined) problems.push(`${quoted} keeps a secret value, and none is stored under that name: give its value`);
+      if (sealed === undefined)
+        problems.push(`${quoted} keeps a secret value, and none is stored under that name: give its value`);
       else out.push({ name, value: "", secret: true, sealed });
       continue;
     }
@@ -82,13 +92,21 @@ export const sealVariablesIn = async (
     }
     // An empty value with no redacted mark is a stored secret's box left blank (a page that lost its mark), not a value
     // to seal: sealing it would blank the secret without a word.
-    const why = variableNameProblem(name) ?? variableValueProblem(name, entry.value) ?? (entry.value === "" ? `${quoted} is secret and has no value: give its value` : undefined);
+    const why =
+      variableNameProblem(name) ??
+      variableValueProblem(name, entry.value) ??
+      (entry.value === "" ? `${quoted} is secret and has no value: give its value` : undefined);
     if (why !== undefined) {
       problems.push(why);
       continue;
     }
     // A Secret toggle needs somewhere to seal: without a credentials key no secret is stored (ADR-0016's sealed store).
-    if (sealer === undefined || !sealer.available) return { ok: false, error: "variables: this Environment has no credentials key (T3FLARE_CREDENTIALS_KEY), so it stores no secret Variable" };
+    if (sealer === undefined || !sealer.available)
+      return {
+        ok: false,
+        error:
+          "variables: this Environment has no credentials key (T3FLARE_CREDENTIALS_KEY), so it stores no secret Variable",
+      };
     out.push({ name, value: "", secret: true, sealed: await sealer.seal(labelOf(name), entry.value) });
   }
   if (problems.length > 0) return { ok: false, error: `variables: ${problems.join("; ")}` };
@@ -122,7 +140,10 @@ export const openVariables = async (
  * `unreadable` (ADR-0046): the Settings page and the Settings server say it must be typed again, since a Container
  * start leaves it out. Never a value.
  */
-export const readVariables = async (stored: StoredEnvironment, sealer: ValueSealer | undefined): Promise<ReadonlyArray<Variable>> =>
+export const readVariables = async (
+  stored: StoredEnvironment,
+  sealer: ValueSealer | undefined,
+): Promise<ReadonlyArray<Variable>> =>
   Promise.all(
     fitStoredVariables(stored.settings.variables).map(async (variable) => {
       const read = readVariable(variable);
@@ -133,7 +154,10 @@ export const readVariables = async (stored: StoredEnvironment, sealer: ValueSeal
   );
 
 /** The Environment settings as a read shows them: resolved, with the Variables as `readVariables` reads them. */
-export const resolvedForRead = async (stored: StoredEnvironment, sealer: ValueSealer | undefined): Promise<ResolvedEnvironment> => ({
+export const resolvedForRead = async (
+  stored: StoredEnvironment,
+  sealer: ValueSealer | undefined,
+): Promise<ResolvedEnvironment> => ({
   ...resolveEnvironment(stored),
   variables: await readVariables(stored, sealer),
 });

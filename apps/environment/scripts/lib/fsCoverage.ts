@@ -47,7 +47,11 @@ export interface FsModuleUsage {
 }
 
 export interface FsCoverage {
-  readonly uncovered: ReadonlyArray<{ readonly module: FsModule; readonly member: string; readonly importers: ReadonlyArray<string> }>;
+  readonly uncovered: ReadonlyArray<{
+    readonly module: FsModule;
+    readonly member: string;
+    readonly importers: ReadonlyArray<string>;
+  }>;
   /** `importer: description` for each opaque use. */
   readonly opaque: ReadonlyArray<string>;
   /** Allowances some bundled module uses, as `module.member`. */
@@ -58,11 +62,26 @@ export interface FsCoverage {
 
 type Node = { readonly type: string; readonly [key: string]: unknown };
 
-const isNode = (value: unknown): value is Node => typeof value === "object" && value !== null && typeof (value as { type?: unknown }).type === "string";
+const isNode = (value: unknown): value is Node =>
+  typeof value === "object" && value !== null && typeof (value as { type?: unknown }).type === "string";
 
 /** Keys and node types that hold TypeScript types only: a binding read there reads no member at run time. */
-const TYPE_KEYS = new Set(["typeAnnotation", "returnType", "typeParameters", "typeArguments", "superTypeArguments", "implements"]);
-const TYPE_NODES = new Set(["TSInterfaceDeclaration", "TSTypeAliasDeclaration", "TSDeclareFunction", "TSImportType", "TSTypeQuery", "TSQualifiedName"]);
+const TYPE_KEYS = new Set([
+  "typeAnnotation",
+  "returnType",
+  "typeParameters",
+  "typeArguments",
+  "superTypeArguments",
+  "implements",
+]);
+const TYPE_NODES = new Set([
+  "TSInterfaceDeclaration",
+  "TSTypeAliasDeclaration",
+  "TSDeclareFunction",
+  "TSImportType",
+  "TSTypeQuery",
+  "TSQualifiedName",
+]);
 
 const children = function* (node: Node): Generator<readonly [string, Node]> {
   for (const [key, value] of Object.entries(node)) {
@@ -128,7 +147,9 @@ export const fsUsageOf = (program: Program): FsUsage => {
   /** Records a read of `member` from `source`; node:fs's `promises` is itself a source, of node:fs/promises. */
   const read = (source: Source, member: string): Source | undefined => {
     uses.push({ module: source.module, member, via: source.via });
-    return source.module === "fs" && member === "promises" ? { module: "fs/promises", via: "named", name: `${source.name}.promises` } : undefined;
+    return source.module === "fs" && member === "promises"
+      ? { module: "fs/promises", via: "named", name: `${source.name}.promises` }
+      : undefined;
   };
 
   /** `const { a, b: c, promises: { d } } = source`: each key is a member read. */
@@ -136,7 +157,9 @@ export const fsUsageOf = (program: Program): FsUsage => {
     for (const property of pattern.properties as ReadonlyArray<Node>) {
       const member = property.type === "Property" && !property.computed ? nameOf(property.key) : undefined;
       if (member === undefined) {
-        opaque.push(`${source.name} (${label(source.module)}) destructured with ${property.type === "RestElement" ? "a rest element" : "a computed key"}`);
+        opaque.push(
+          `${source.name} (${label(source.module)}) destructured with ${property.type === "RestElement" ? "a rest element" : "a computed key"}`,
+        );
         continue;
       }
       const inner = read(source, member);
@@ -153,7 +176,12 @@ export const fsUsageOf = (program: Program): FsUsage => {
       const binding = bindings.get(node.name as string);
       return binding === undefined ? undefined : { source: { ...binding, name: node.name as string } };
     }
-    if (node.type === "MemberExpression" && !node.computed && isNode(node.object) && node.object.type === "Identifier") {
+    if (
+      node.type === "MemberExpression" &&
+      !node.computed &&
+      isNode(node.object) &&
+      node.object.type === "Identifier"
+    ) {
       const binding = bindings.get(node.object.name as string);
       const member = nameOf(node.property);
       if (binding === undefined || binding.module !== "fs" || member !== "promises") return undefined;
@@ -169,7 +197,12 @@ export const fsUsageOf = (program: Program): FsUsage => {
 
   const visit = (node: Node, parent: Node | undefined, key: string | undefined): void => {
     if (TYPE_NODES.has(node.type) || node.type === "ImportDeclaration") return;
-    if (node.type === "VariableDeclarator" && isNode(node.id) && node.id.type === "ObjectPattern" && isNode(node.init)) {
+    if (
+      node.type === "VariableDeclarator" &&
+      isNode(node.id) &&
+      node.id.type === "ObjectPattern" &&
+      isNode(node.init)
+    ) {
       const found = sourceAt(node.init);
       if (found !== undefined) {
         const source = found.read === undefined ? found.source : read(found.source, found.read)!;
@@ -193,7 +226,10 @@ export const fsUsageOf = (program: Program): FsUsage => {
           const inner = read(source, member);
           // `NodeFS.promises.readFile` reads node:fs/promises's readFile; `NodeFS.promises` anywhere else is opaque.
           if (inner !== undefined) {
-            const innerMember = parent?.type === "MemberExpression" && key === "object" && !parent.computed ? nameOf(parent.property) : undefined;
+            const innerMember =
+              parent?.type === "MemberExpression" && key === "object" && !parent.computed
+                ? nameOf(parent.property)
+                : undefined;
             if (innerMember === undefined) opaque.push(`${inner.name} (${label(inner.module)}) used as a value`);
             else read(inner, innerMember);
           }
@@ -203,8 +239,11 @@ export const fsUsageOf = (program: Program): FsUsage => {
     }
     if (node.type === "Identifier" && bindings.has(node.name as string)) {
       // A key or a non-computed member name is not a read of the binding.
-      const isKey = (parent?.type === "MemberExpression" && key === "property" && !parent.computed) || (parent?.type === "Property" && key === "key" && !parent.computed && !parent.shorthand);
-      if (!isKey) opaque.push(`${node.name as string} (${label(bindings.get(node.name as string)!.module)}) used as a value`);
+      const isKey =
+        (parent?.type === "MemberExpression" && key === "property" && !parent.computed) ||
+        (parent?.type === "Property" && key === "key" && !parent.computed && !parent.shorthand);
+      if (!isKey)
+        opaque.push(`${node.name as string} (${label(bindings.get(node.name as string)!.module)}) used as a value`);
       return;
     }
     for (const [childKey, child] of children(node)) visit(child, node, childKey);
@@ -232,7 +271,11 @@ export const shimSurfaceOf = (program: Program): ShimSurface => {
         }
       }
       for (const spec of (statement.specifiers ?? []) as ReadonlyArray<Node>) named.add(nameOf(spec.exported)!);
-    } else if (statement.type === "ExportDefaultDeclaration" && isNode(statement.declaration) && statement.declaration.type === "ObjectExpression") {
+    } else if (
+      statement.type === "ExportDefaultDeclaration" &&
+      isNode(statement.declaration) &&
+      statement.declaration.type === "ObjectExpression"
+    ) {
       for (const property of statement.declaration.properties as ReadonlyArray<Node>) {
         if (property.type !== "Property" || property.computed) continue;
         const name = nameOf(property.key);
@@ -244,7 +287,11 @@ export const shimSurfaceOf = (program: Program): ShimSurface => {
 };
 
 /** Each use no shim implements and no allowance explains, by member, with the modules that read it. */
-export const fsCoverage = (modules: ReadonlyArray<FsModuleUsage>, surfaces: Readonly<Record<FsModule, ShimSurface>>, allowances: FsAllowances): FsCoverage => {
+export const fsCoverage = (
+  modules: ReadonlyArray<FsModuleUsage>,
+  surfaces: Readonly<Record<FsModule, ShimSurface>>,
+  allowances: FsAllowances,
+): FsCoverage => {
   const uncovered = new Map<string, { module: FsModule; member: string; importers: Set<string> }>();
   const allowed = new Set<string>();
   const opaque: Array<string> = [];
@@ -280,10 +327,14 @@ export const fsCoverage = (modules: ReadonlyArray<FsModuleUsage>, surfaces: Read
 /** The coverage check's failure, naming what to do, or undefined when every read is implemented or allowed. */
 export const fsCoverageFailure = (coverage: FsCoverage): string | undefined => {
   if (coverage.uncovered.length === 0 && coverage.opaque.length === 0) return undefined;
-  const lines = ["t3flare: t3 reads node:fs members the State directory's shims may not implement, so they would reach workerd's own file system (SPI-1301):"];
+  const lines = [
+    "t3flare: t3 reads node:fs members the State directory's shims may not implement, so they would reach workerd's own file system (SPI-1301):",
+  ];
   if (coverage.uncovered.length > 0) {
     lines.push(
-      ...coverage.uncovered.map(({ module, member, importers }) => `  ${label(module)}.${member}, read by ${importers.join(", ")}`),
+      ...coverage.uncovered.map(
+        ({ module, member, importers }) => `  ${label(module)}.${member}, read by ${importers.join(", ")}`,
+      ),
       "Implement each in src/shims/node-fs.ts or node-fs-promises.ts, or allow it in build.ts's FS_ALLOWANCES with the reason it is safe.",
     );
   }

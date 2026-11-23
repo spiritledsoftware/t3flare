@@ -9,9 +9,7 @@ import { effectSection, frozenSection } from "./section.ts";
 import { obj } from "@earendil-works/pi-schema";
 
 /** The name the section greets: a service it reads. */
-class Greeted extends Context.Service<Greeted, string>()(
-  "@t3flare/effect-durable/section.test/Greeted",
-) {}
+class Greeted extends Context.Service<Greeted, string>()("@t3flare/effect-durable/section.test/Greeted") {}
 
 describe("effectSection", () => {
   it("renders an Effect with its services into the system prompt", async () => {
@@ -107,11 +105,7 @@ describe("frozenSection", () => {
 
     await prompt("hi");
 
-    expect(Arr.map(requests, (request) => request.sections["frozen"])).toEqual([
-      "read 1",
-      "read 1",
-      "read 1",
-    ]);
+    expect(Arr.map(requests, (request) => request.sections["frozen"])).toEqual(["read 1", "read 1", "read 1"]);
     expect(heard).toEqual(["read 1", "read 1"]);
   });
 });

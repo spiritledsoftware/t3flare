@@ -68,7 +68,14 @@ const valueEnd = (bytes: Uint8Array, at: number): number => {
     return -1;
   }
   let i = at;
-  while (i < bytes.length && !isWhitespace(bytes[i]) && bytes[i] !== COMMA && bytes[i] !== CLOSE_OBJECT && bytes[i] !== CLOSE_ARRAY) i++;
+  while (
+    i < bytes.length &&
+    !isWhitespace(bytes[i]) &&
+    bytes[i] !== COMMA &&
+    bytes[i] !== CLOSE_OBJECT &&
+    bytes[i] !== CLOSE_ARRAY
+  )
+    i++;
   return i === at ? -1 : i;
 };
 
@@ -77,7 +84,9 @@ const valueEnd = (bytes: Uint8Array, at: number): number => {
  * value. Keys are read as JSON reads them (`"mod\u0065l"` is `model`). Undefined when the bytes are not one object (a
  * BOM is not JSON), its `model` is not a string, it has none or two, or a value nests deeper than `MAX_NESTING`.
  */
-export const topLevelModel = (bytes: Uint8Array): { readonly start: number; readonly end: number; readonly value: string } | undefined => {
+export const topLevelModel = (
+  bytes: Uint8Array,
+): { readonly start: number; readonly end: number; readonly value: string } | undefined => {
   let i = 0;
   const skip = () => {
     while (i < bytes.length && isWhitespace(bytes[i])) i++;
@@ -158,7 +167,10 @@ export const declaredLength = (headers: Headers): number | undefined => {
  * A body read into one buffer, sized by its declared length when there is one (the caller refuses one over the cap),
  * or `tooLarge` once what it streams passes the cap (the rest is not read).
  */
-export const readCapped = async (body: ReadableStream<Uint8Array> | null, declared: number | undefined): Promise<{ readonly bytes: Uint8Array } | { readonly tooLarge: true }> => {
+export const readCapped = async (
+  body: ReadableStream<Uint8Array> | null,
+  declared: number | undefined,
+): Promise<{ readonly bytes: Uint8Array } | { readonly tooLarge: true }> => {
   if (body === null) return { bytes: new Uint8Array(0) };
   let buffer = new Uint8Array(Math.min(declared ?? 64 * 1024, MAX_ROUTED_BODY_BYTES));
   let size = 0;
@@ -171,7 +183,9 @@ export const readCapped = async (body: ReadableStream<Uint8Array> | null, declar
       return { tooLarge: true };
     }
     if (size + value.byteLength > buffer.length) {
-      const grown = new Uint8Array(Math.min(MAX_ROUTED_BODY_BYTES, Math.max(buffer.length * 2, size + value.byteLength)));
+      const grown = new Uint8Array(
+        Math.min(MAX_ROUTED_BODY_BYTES, Math.max(buffer.length * 2, size + value.byteLength)),
+      );
       grown.set(buffer.subarray(0, size));
       buffer = grown;
     }

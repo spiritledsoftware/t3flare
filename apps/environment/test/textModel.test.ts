@@ -41,17 +41,30 @@ describe("defaultTextModel", () => {
   });
 
   it("takes the cheapest small model by its known price, before one with no known price", () => {
-    const endpoints = of(endpoint("openai", [model("my-mini"), model("gpt-5-mini", 2), model("gpt-5-nano", 0.4), model("gpt-5.4", 10)]));
+    const endpoints = of(
+      endpoint("openai", [model("my-mini"), model("gpt-5-mini", 2), model("gpt-5-nano", 0.4), model("gpt-5.4", 10)]),
+    );
     expect(defaultTextModel(endpoints)).toBe("openai/gpt-5-nano");
   });
 
   it("knows the usual small families", () => {
-    for (const id of ["claude-haiku-4-5", "gpt-4o-mini", "o4-mini", "gemini-3-flash", "gemini-2.5-flash-lite", "mistral-small-latest", "gpt-5-nano", "openai/gpt-5-mini"]) {
+    for (const id of [
+      "claude-haiku-4-5",
+      "gpt-4o-mini",
+      "o4-mini",
+      "gemini-3-flash",
+      "gemini-2.5-flash-lite",
+      "mistral-small-latest",
+      "gpt-5-nano",
+      "openai/gpt-5-mini",
+    ]) {
       expect(defaultTextModel(of(endpoint("e", [model(id)])))).toBe(`e/${id}`);
     }
   });
 
   it("takes the first listed when no small model has a known price", () => {
-    expect(defaultTextModel(of(endpoint("local", [model("llama-3-8b"), model("qwen3-mini"), model("phi-4-mini")])))).toBe("local/qwen3-mini");
+    expect(
+      defaultTextModel(of(endpoint("local", [model("llama-3-8b"), model("qwen3-mini"), model("phi-4-mini")]))),
+    ).toBe("local/qwen3-mini");
   });
 });

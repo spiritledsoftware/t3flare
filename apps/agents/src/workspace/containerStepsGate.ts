@@ -22,7 +22,11 @@ export const PASSIVE_MARKER = "T3FLARE_PASSIVE_READ";
  * A Container command's environment from `WorkspaceDO.exec`: `base` under the caller's, the passive mark only when the
  * read is passive. A caller's own mark is dropped, so no active command can skip the steps.
  */
-export const commandEnvOf = (base: Readonly<Record<string, string>>, env: Readonly<Record<string, string>> | undefined, passive: boolean): Record<string, string> => {
+export const commandEnvOf = (
+  base: Readonly<Record<string, string>>,
+  env: Readonly<Record<string, string>> | undefined,
+  passive: boolean,
+): Record<string, string> => {
   const { [PASSIVE_MARKER]: _given, ...own } = env ?? {};
   return { ...base, ...own, ...(passive ? { [PASSIVE_MARKER]: "1" } : {}) };
 };
@@ -85,7 +89,10 @@ export const COMPUTER_RUNTIME_KEY = "computer:container-runtime-identity";
  * Container starts, while the DO's last-connect runtime still names a replaced Container until the new connect ends
  * (waiting on that one would join its kept outcome and not wait). The last connect's runtime only when nothing is stored.
  */
-export const spawnRuntime = async (stored: () => Promise<unknown>, lastConnect: string | undefined): Promise<string | undefined> => {
+export const spawnRuntime = async (
+  stored: () => Promise<unknown>,
+  lastConnect: string | undefined,
+): Promise<string | undefined> => {
   const value = await stored();
   const id = typeof value === "object" && value !== null ? (value as { readonly id?: unknown }).id : undefined;
   return typeof id === "string" && id !== "" ? id : lastConnect;
@@ -110,7 +117,10 @@ export const readyForSpawn = async (deps: SpawnReadiness): Promise<void> => {
   if (!deps.running()) return;
   // A spawn whose Container's steps cannot be judged: refused under refuse (fail closed), else logged and let through.
   const unjudged = (reason: string): void => {
-    if (deps.refuses()) throw new ContainerRefused(`Refused: this Container's Container setup cannot be checked (${reason}), and the Environment settings refuse commands in a Container whose setup failed. Try again in a moment.`);
+    if (deps.refuses())
+      throw new ContainerRefused(
+        `Refused: this Container's Container setup cannot be checked (${reason}), and the Environment settings refuse commands in a Container whose setup failed. Try again in a moment.`,
+      );
     deps.log({ t3flare: "container-steps-spawn", waited: false, reason });
   };
   let runtime: string | undefined;

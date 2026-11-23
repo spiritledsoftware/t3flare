@@ -24,7 +24,9 @@ export const endpointsChanged = (): void => {
 };
 
 /** Runs `refresh` at each change while the caller's scope is open (a driver's snapshot: its model list at once). */
-export const refreshOnEndpointsChanged = <E, R>(refresh: Effect.Effect<unknown, E, R>): Effect.Effect<void, never, R | Scope.Scope> =>
+export const refreshOnEndpointsChanged = <E, R>(
+  refresh: Effect.Effect<unknown, E, R>,
+): Effect.Effect<void, never, R | Scope.Scope> =>
   Effect.gen(function* () {
     const services = yield* Effect.context<R>();
     const stopHearing = onEndpointsChanged(() => void Effect.runForkWith(services)(refresh));

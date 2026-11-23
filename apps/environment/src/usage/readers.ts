@@ -27,11 +27,24 @@ const ownUsageReader = <Config>(provider: UsageProviderKind, store: () => UsageS
       }
       return agentsOf(provider).map((agent): ProviderUsageScan => {
         const dir = `t3flare://usage/${agent}`;
-        if (rows === undefined) return { dir, volumeId: "t3flare", status: "failed", message: "t3flare's usage records could not be read.", files: null };
-        return { dir, volumeId: "t3flare", status: "ok", files: [{ path: `${dir}/records`, records: rows.filter((row) => row.agent === agent).map(usageRecordOfRow) }] };
+        if (rows === undefined)
+          return {
+            dir,
+            volumeId: "t3flare",
+            status: "failed",
+            message: "t3flare's usage records could not be read.",
+            files: null,
+          };
+        return {
+          dir,
+          volumeId: "t3flare",
+          status: "ok",
+          files: [{ path: `${dir}/records`, records: rows.filter((row) => row.agent === agent).map(usageRecordOfRow) }],
+        };
       });
     }).pipe(Effect.withSpan("ownUsageReader.scan")),
 });
 
 /** The reader t3's usage service runs for `provider`: t3flare's own records. */
-export const usageReader = <Config>(provider: UsageProviderKind): ScanReader<Config> => ownUsageReader<Config>(provider, () => environmentServices().usage);
+export const usageReader = <Config>(provider: UsageProviderKind): ScanReader<Config> =>
+  ownUsageReader<Config>(provider, () => environmentServices().usage);

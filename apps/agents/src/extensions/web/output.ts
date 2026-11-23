@@ -157,11 +157,7 @@ export const fitWindowedOutput = (text: string, window: LineWindow): FittedOutpu
 
   if (!initial.truncated) return { content: `${text}${suffix}`, truncated: false };
 
-  const visible = head(
-    text,
-    OUTPUT_MAX_BYTES - largestSuffixBytes(window, textLines),
-    OUTPUT_MAX_LINES - NOTE_LINES,
-  );
+  const visible = head(text, OUTPUT_MAX_BYTES - largestSuffixBytes(window, textLines), OUTPUT_MAX_LINES - NOTE_LINES);
 
   const note = continuationSuffix(window, visible);
 
@@ -182,14 +178,9 @@ export const fitOutput = (text: string, advice: string): FittedOutput => {
 
   const total = countLines(text);
 
-  const note = (shown: number): string =>
-    `\n\n[Output truncated to the first ${shown} of ${total} lines. ${advice}]`;
+  const note = (shown: number): string => `\n\n[Output truncated to the first ${shown} of ${total} lines. ${advice}]`;
 
-  const visible = head(
-    text,
-    OUTPUT_MAX_BYTES - byteLength(note(OUTPUT_MAX_LINES)),
-    OUTPUT_MAX_LINES - NOTE_LINES,
-  );
+  const visible = head(text, OUTPUT_MAX_BYTES - byteLength(note(OUTPUT_MAX_LINES)), OUTPUT_MAX_LINES - NOTE_LINES);
 
   return { content: `${visible.content}${note(visible.lines)}`, truncated: true };
 };
@@ -199,9 +190,7 @@ export const selectLines = (
   content: string,
   offset: number | undefined,
   limit: number | undefined,
-):
-  | { readonly text: string; readonly window: LineWindow; readonly lastLine: number }
-  | undefined => {
+): { readonly text: string; readonly window: LineWindow; readonly lastLine: number } | undefined => {
   const lines = content.split("\n");
   const start = (offset ?? 1) - 1;
 

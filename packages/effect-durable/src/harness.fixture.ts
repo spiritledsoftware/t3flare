@@ -55,10 +55,7 @@ const declared = (messages: readonly Message[]): Declared => {
  * Open a Harness with `extensions` installed whose model answers with `responses` in turn, and its root conversation.
  * `requests` records what each model request declared.
  */
-export const openFauxHarness = async (
-  extensions: readonly Extension[],
-  responses: readonly AssistantMessage[],
-) => {
+export const openFauxHarness = async (extensions: readonly Extension[], responses: readonly AssistantMessage[]) => {
   const faux = fauxProvider();
   const models = createModels();
   const registry = createRegistry();
@@ -91,8 +88,7 @@ export const openFauxHarness = async (
   };
 
   /** Submit `content` to the root conversation and wait until its run settles. */
-  const prompt = async (content: string) =>
-    (await root.submit({ type: "input", content }, context)).wait(context);
+  const prompt = async (content: string) => (await root.submit({ type: "input", content }, context)).wait(context);
 
   return { harness, root, requests, prompt, lastToolResult };
 };

@@ -20,7 +20,14 @@ import {
 import { SECRET_MARGIN_BYTES } from "@t3flare/sandbox-image/containerSetup";
 import { globalMiseLockSeconds, parseGlobalMiseArgs } from "@t3flare/sandbox-image/globalMise";
 
-import { BUILDER_FILES, EXIT_SCRIPT, LAUNCH_SCRIPT, PROOF_SCRIPT, TAIL_SCRIPT, WRITE_SCRIPT } from "../src/workspace/builderScripts.ts";
+import {
+  BUILDER_FILES,
+  EXIT_SCRIPT,
+  LAUNCH_SCRIPT,
+  PROOF_SCRIPT,
+  TAIL_SCRIPT,
+  WRITE_SCRIPT,
+} from "../src/workspace/builderScripts.ts";
 
 const IMAGE = "registry/workspace@sha256:1111";
 const DAY = DAY_MS;
@@ -30,7 +37,7 @@ interface Deferred<T> {
   resolve(value: T): void;
   reject(error: unknown): void;
 }
-const deferred = <T,>(): Deferred<T> => {
+const deferred = <T>(): Deferred<T> => {
   let resolve!: (value: T) => void;
   let reject!: (error: unknown) => void;
   const promise = new Promise<T>((yes, no) => {
@@ -52,7 +59,10 @@ class FakeContainer implements BuilderContainer {
   exitCode: number | undefined;
   log = "";
   tailBytes: number | undefined;
-  snapshots: Array<{ readonly name: string; readonly answer: Deferred<{ readonly id: string; readonly size: number }> }> = [];
+  snapshots: Array<{
+    readonly name: string;
+    readonly answer: Deferred<{ readonly id: string; readonly size: number }>;
+  }> = [];
   refusedSnapshots = new Set<string>();
   destroys = 0;
   #monitor: Deferred<void> | undefined;
@@ -72,13 +82,22 @@ class FakeContainer implements BuilderContainer {
     this.#monitor.promise.catch(() => undefined);
     if ("snapshot" in options.from && this.refusedSnapshots.has(options.from.snapshot)) {
       const monitor = this.#monitor;
-      setTimeout(() => monitor.reject(new Error(`Snapshot "${"snapshot" in options.from ? options.from.snapshot : ""}" was not found.`)), 0);
+      setTimeout(
+        () =>
+          monitor.reject(
+            new Error(`Snapshot "${"snapshot" in options.from ? options.from.snapshot : ""}" was not found.`),
+          ),
+        0,
+      );
       return;
     }
     this.isRunning = true;
   }
 
-  async exec(argv: ReadonlyArray<string>, options: { readonly stdin?: string; readonly env?: Readonly<Record<string, string>>; readonly timeoutMs: number }) {
+  async exec(
+    argv: ReadonlyArray<string>,
+    options: { readonly stdin?: string; readonly env?: Readonly<Record<string, string>>; readonly timeoutMs: number },
+  ) {
     if (!this.isRunning || !this.booted) throw new Error("the Container is not running");
     const script = argv[2];
     if (argv[0] === "true") return { exitCode: 0, stdout: "" };
@@ -96,7 +115,10 @@ class FakeContainer implements BuilderContainer {
       // `tail -c N`: the last N bytes of the log.
       this.tailBytes = Number(argv[4]);
       const bytes = new TextEncoder().encode(this.log);
-      return { exitCode: 0, stdout: new TextDecoder().decode(bytes.slice(Math.max(0, bytes.length - Number(argv[4])))) };
+      return {
+        exitCode: 0,
+        stdout: new TextDecoder().decode(bytes.slice(Math.max(0, bytes.length - Number(argv[4])))),
+      };
     }
     if (script === PROOF_SCRIPT) {
       const last = this.starts.at(-1);
@@ -152,7 +174,11 @@ let randomCalls = 0;
 
 const deps = (): BaseBuildDeps => ({
   container,
-  storage: { get: <T,>(key: string) => store.get(key) as T | undefined, put: (key, value) => void store.set(key, value), delete: (key) => void store.delete(key) },
+  storage: {
+    get: <T>(key: string) => store.get(key) as T | undefined,
+    put: (key, value) => void store.set(key, value),
+    delete: (key) => void store.delete(key),
+  },
   inputs: async () => ({ settings: settingsNow(), image: imageNow }),
   image: () => imageNow,
   setAlarm: async (at) => void alarms.push(at),
@@ -229,18 +255,32 @@ beforeEach(() => {
   leases = { acquired: 0, released: 0, refuse: false };
   failInputs = false;
   imageNow = IMAGE;
-  settings = { imageSetup: "apt-get install -y jq\necho marker > /opt/marker\n", globalMiseConfig: "[tools]\nnode = '24'\n", containerSize: "standard-2" };
+  settings = {
+    imageSetup: "apt-get install -y jq\necho marker > /opt/marker\n",
+    globalMiseConfig: "[tools]\nnode = '24'\n",
+    containerSize: "standard-2",
+  };
 });
 
 describe("a Base build", () => {
   it("runs the Image setup on the image with sleep as its entrypoint, snapshots it, proves a start from it and records it", async () => {
     const build = builder();
     await toRunning(build);
-    expect(container.starts[0]).toEqual({ from: { image: IMAGE }, entrypoint: ["sleep", "infinity"], instance: "standard-2" });
+    expect(container.starts[0]).toEqual({
+      from: { image: IMAGE },
+      entrypoint: ["sleep", "infinity"],
+      instance: "standard-2",
+    });
     expect(container.files.get(BUILDER_FILES.setup)).toBe(settings.imageSetup);
     expect(container.files.get(BUILDER_FILES.mise)).toBe(settings.globalMiseConfig);
     // Every Variable (the secret opened), under COMMAND_ENV, then HOME=/root.
-    expect(container.launchEnv).toEqual({ PLAIN: "command-env-wins", NPM_TOKEN: "s3cr3t-value", MISE_YES: "1", BASH_ENV: COMMAND_ENV.BASH_ENV, HOME: "/root" });
+    expect(container.launchEnv).toEqual({
+      PLAIN: "command-env-wins",
+      NPM_TOKEN: "s3cr3t-value",
+      MISE_YES: "1",
+      BASH_ENV: COMMAND_ENV.BASH_ENV,
+      HOME: "/root",
+    });
     expect(container.launchArgs[0]).toBe("4");
 
     await ticks(build);
@@ -259,10 +299,15 @@ describe("a Base build", () => {
 
     await ticks(build);
     const record = build.record();
-    expect(record).toMatchObject({ state: "ready", good: { id: "snap-1", size: 34_500_000, imageDigest: IMAGE, key: record.key } });
+    expect(record).toMatchObject({
+      state: "ready",
+      good: { id: "snap-1", size: 34_500_000, imageDigest: IMAGE, key: record.key },
+    });
     expect(record.good!.tookMs).toBeGreaterThan(0);
     expect(container.isRunning).toBe(false);
-    expect(reports.map((each) => each.phase ?? each.state)).toEqual(expect.arrayContaining(["starting", "running", "snapshotting", "proving", "ready"]));
+    expect(reports.map((each) => each.phase ?? each.state)).toEqual(
+      expect.arrayContaining(["starting", "running", "snapshotting", "proving", "ready"]),
+    );
   });
 
   it("fails on the Image setup's exit with the end of its output, every secret value blanked; a boot does not run it again, a Rebuild does", async () => {
@@ -300,7 +345,10 @@ describe("a Base build", () => {
     const build = builder();
     await toRunning(build);
     await ticks(build, 1, 61_000);
-    expect(build.record()).toMatchObject({ state: "failed", failure: { exitCode: null, message: "the Image setup ran past its time limit (1 min)" } });
+    expect(build.record()).toMatchObject({
+      state: "failed",
+      failure: { exitCode: null, message: "the Image setup ran past its time limit (1 min)" },
+    });
     expect(container.isRunning).toBe(false);
   });
 
@@ -311,7 +359,10 @@ describe("a Base build", () => {
     container.exitCode = 0;
     await ticks(build);
     await ticks(build, 1, 61_000);
-    expect(build.record()).toMatchObject({ state: "failed", failure: { phase: "snapshotting", message: "the snapshot took longer than 1 min" } });
+    expect(build.record()).toMatchObject({
+      state: "failed",
+      failure: { phase: "snapshotting", message: "the snapshot took longer than 1 min" },
+    });
     expect(container.isRunning).toBe(true);
     expect(container.destroys).toBe(0);
 
@@ -369,7 +420,10 @@ describe("a Base build", () => {
     await settle();
     await ticks(build);
     await ticks(build);
-    expect(build.record()).toMatchObject({ state: "failed", failure: { phase: "proving", message: 'a start from the snapshot failed: Snapshot "snap-gone" was not found.' } });
+    expect(build.record()).toMatchObject({
+      state: "failed",
+      failure: { phase: "proving", message: 'a start from the snapshot failed: Snapshot "snap-gone" was not found.' },
+    });
   });
 
   it("says which revision of the Environment settings it last read (SPI-1333): a start's settings newer than it are not read yet", async () => {
@@ -405,7 +459,12 @@ describe("a Base build", () => {
   it("hands the Global mise lay-down the install time limit (SPI-1313), the Container start's own bounds", async () => {
     settings.globalMiseInstallMinutes = 45;
     await toRunning(builder());
-    expect(parseGlobalMiseArgs(container.launchArgs)).toMatchObject({ source: "environment", mode: "lay-down", installSeconds: 45 * 60, lockSeconds: globalMiseLockSeconds(45) });
+    expect(parseGlobalMiseArgs(container.launchArgs)).toMatchObject({
+      source: "environment",
+      mode: "lay-down",
+      installSeconds: 45 * 60,
+      lockSeconds: globalMiseLockSeconds(45),
+    });
   });
 
   it("keeps a Base snapshot current when only the Global mise install time limit changed: it is not part of the key", async () => {
@@ -435,7 +494,11 @@ describe("a Base build", () => {
     expect(build.record().state).toBe("ready");
     container.exitCode = undefined;
     expect(await build.refused("snap-other", "a start failed")).toMatchObject({ state: "ready" });
-    expect(await build.refused("snap-1", "a start failed")).toMatchObject({ state: "building", reason: "a start failed", good: null });
+    expect(await build.refused("snap-1", "a start failed")).toMatchObject({
+      state: "building",
+      reason: "a start failed",
+      good: null,
+    });
   });
 
   it("answers a Workspace's missing report once it read the settings, before the build's first step runs (SPI-1333)", async () => {
@@ -459,7 +522,11 @@ describe("a Base build", () => {
     expect(build.record().state).toBe("ready");
     imageNow = "registry/workspace@sha256:2222";
     await ticks(build, 1, IMAGE_WATCH_POLL_MS);
-    expect(build.record()).toMatchObject({ state: "building", reason: "the Workspace image changed", imageDigest: imageNow });
+    expect(build.record()).toMatchObject({
+      state: "building",
+      reason: "the Workspace image changed",
+      imageDigest: imageNow,
+    });
     expect(build.record().key).not.toBe(oldKey);
   });
 
@@ -673,7 +740,16 @@ describe("a Base build (review fixes)", () => {
 
   it("re-arms the alarm when the scheduled rebuild cannot read the settings", async () => {
     settings.rebuildEveryDays = 7;
-    const build = new BaseBuild({ ...deps(), inputs: async () => (failInputs ? Promise.reject(new Error("the Environment did not answer")) : { settings: settingsNow(), image: IMAGE }) }, { commandEnv: COMMAND_ENV });
+    const build = new BaseBuild(
+      {
+        ...deps(),
+        inputs: async () =>
+          failInputs
+            ? Promise.reject(new Error("the Environment did not answer"))
+            : { settings: settingsNow(), image: IMAGE },
+      },
+      { commandEnv: COMMAND_ENV },
+    );
     await toReady(build, "snap-1");
     clock += 7 * DAY;
     failInputs = true;
@@ -730,7 +806,11 @@ describe("a Base build (review cycle 2)", () => {
     container.exitCode = 0;
     await ticks(build);
     await ticks(build, 1, 61_000);
-    expect(store.get(BUILDER_KEYS.build)).toMatchObject({ phase: "failed", awaitingSnapshot: true, secrets: ["s3cr3t-value"] });
+    expect(store.get(BUILDER_KEYS.build)).toMatchObject({
+      phase: "failed",
+      awaitingSnapshot: true,
+      secrets: ["s3cr3t-value"],
+    });
     container.log = "t3flare: running the Image setup\nlogging in with s3cr3t-value\n";
     container.failDestroy = "the Container would not stop";
     container.snapshots[0]!.answer.resolve({ id: "snap-late", size: 1 });
@@ -803,7 +883,6 @@ describe("a Base build (review cycle 2)", () => {
   });
 });
 
-
 // SPI-1334 (ADR-0047 §8): a Test base build runs a proposed Image setup in the second Builder with the saved rest of the
 // settings, on the same machine; its snapshot is never the Base snapshot, a new test cancels one under way, and its
 // result is kept until the next test.
@@ -819,7 +898,11 @@ describe("a Test base build", () => {
     // The text it ran, by its digest: the page tells a result from an edited text's.
     const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(PROPOSED)));
     expect(started.setup).toBe([...digest].map((byte) => byte.toString(16).padStart(2, "0")).join(""));
-    expect(container.starts[0]).toEqual({ from: { image: IMAGE }, entrypoint: ["sleep", "infinity"], instance: "standard-2" });
+    expect(container.starts[0]).toEqual({
+      from: { image: IMAGE },
+      entrypoint: ["sleep", "infinity"],
+      instance: "standard-2",
+    });
     expect(container.files.get(BUILDER_FILES.setup)).toBe(PROPOSED);
     expect(container.files.get(BUILDER_FILES.mise)).toBe(settings.globalMiseConfig);
     expect(container.launchEnv).toMatchObject({ NPM_TOKEN: "s3cr3t-value", HOME: "/root" });
@@ -832,7 +915,11 @@ describe("a Test base build", () => {
     await ticks(test);
     await ticks(test);
     const record = test.record();
-    expect(record).toMatchObject({ test: true, state: "ready", good: { id: "snap-test", size: 1_200_000, imageDigest: IMAGE } });
+    expect(record).toMatchObject({
+      test: true,
+      state: "ready",
+      good: { id: "snap-test", size: 1_200_000, imageDigest: IMAGE },
+    });
     expect(record.good!.tookMs).toBeGreaterThan(0);
     expect(store.get(BUILDER_KEYS.good)).toBeUndefined();
     expect(container.isRunning).toBe(false);
@@ -851,7 +938,11 @@ describe("a Test base build", () => {
     container.log = "using s3cr3t-value\nE: Unable to locate package yq\n";
     container.exitCode = 100;
     await ticks(test);
-    expect(test.record()).toMatchObject({ test: true, state: "failed", failure: { exitCode: 100, phase: "running", message: "the Image setup exited 100" } });
+    expect(test.record()).toMatchObject({
+      test: true,
+      state: "failed",
+      failure: { exitCode: 100, phase: "running", message: "the Image setup exited 100" },
+    });
     expect(test.record().failure!.output).toBe("using ***\nE: Unable to locate package yq\n");
     await ticks(test, 3, DAY);
     expect(test.record()).toMatchObject({ state: "failed", failure: { exitCode: 100 } });

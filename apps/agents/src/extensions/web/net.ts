@@ -70,13 +70,18 @@ export const discardBody = async (response: Response): Promise<void> => {
   await response.body?.cancel().catch(() => undefined);
 };
 
-const formatByteLimit = (bytes: number): string => (bytes % (1024 * 1024) === 0 ? `${bytes / (1024 * 1024)} MiB` : `${bytes}-byte`);
+const formatByteLimit = (bytes: number): string =>
+  bytes % (1024 * 1024) === 0 ? `${bytes / (1024 * 1024)} MiB` : `${bytes}-byte`;
 
 /**
  * Read a response's body incrementally, never holding more than `maximumBytes`: a larger declared or streamed body
  * fails and the rest is cancelled.
  */
-export const readBoundedBody = async (response: Response, maximumBytes: number, signal?: AbortSignal): Promise<Uint8Array> => {
+export const readBoundedBody = async (
+  response: Response,
+  maximumBytes: number,
+  signal?: AbortSignal,
+): Promise<Uint8Array> => {
   const tooLarge = () => new WebToolError(`response body exceeds the ${formatByteLimit(maximumBytes)} limit`);
   const declared = Number.parseInt(response.headers.get("content-length") ?? "", 10);
   if (Number.isSafeInteger(declared) && declared > maximumBytes) {
@@ -128,10 +133,20 @@ const NXDOMAIN = 3;
  * The addresses `hostname` resolves to (A and AAAA), through `transport`. Fails closed: a lookup that cannot be made or
  * understood refuses, as does a name with no address records.
  */
-export const resolveHost = async (transport: WebTransport, hostname: string, signal?: AbortSignal): Promise<ReadonlyArray<string>> => {
+export const resolveHost = async (
+  transport: WebTransport,
+  hostname: string,
+  signal?: AbortSignal,
+): Promise<ReadonlyArray<string>> => {
   const unresolvable = () => new WebToolError("could not verify where the host resolves (DNS lookup failed)");
   const query = async (type: "A" | "AAAA"): Promise<ReadonlyArray<string>> => {
-    const response = await transport({ url: `${DOH_ENDPOINT}?name=${encodeURIComponent(hostname)}&type=${type}`, headers: { accept: "application/dns-json" } }, signal);
+    const response = await transport(
+      {
+        url: `${DOH_ENDPOINT}?name=${encodeURIComponent(hostname)}&type=${type}`,
+        headers: { accept: "application/dns-json" },
+      },
+      signal,
+    );
     if (!response.ok) {
       await discardBody(response);
       throw unresolvable();
@@ -144,8 +159,12 @@ export const resolveHost = async (transport: WebTransport, hostname: string, sig
     }
     if (answer.Status === NXDOMAIN) throw new WebToolError("host not found");
     if (answer.Status !== 0) throw unresolvable();
-    const records = Array.isArray(answer.Answer) ? (answer.Answer as ReadonlyArray<{ type?: unknown; data?: unknown }>) : [];
-    return records.flatMap((record) => (record.type === RECORD_TYPE[type] && typeof record.data === "string" ? [record.data] : []));
+    const records = Array.isArray(answer.Answer)
+      ? (answer.Answer as ReadonlyArray<{ type?: unknown; data?: unknown }>)
+      : [];
+    return records.flatMap((record) =>
+      record.type === RECORD_TYPE[type] && typeof record.data === "string" ? [record.data] : [],
+    );
   };
   const [v4, v6] = await Promise.all([query("A"), query("AAAA")]);
   const addresses = [...v4, ...v6];
@@ -159,14 +178,16 @@ export const MAX_REDIRECTS = 10;
 const REDIRECT_STATUSES: ReadonlySet<number> = new Set([301, 302, 303, 307, 308]);
 
 /** An IPv4 literal or a bracketed IPv6 literal needs no lookup: the host rules already judged the address. */
-const isLiteralAddress = (hostname: string): boolean => hostname.startsWith("[") || /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname);
+const isLiteralAddress = (hostname: string): boolean =>
+  hostname.startsWith("[") || /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname);
 
 /**
  * Check that `url` may be fetched: an HTTP(S) URL without credentials, whose host is neither a private name nor address
  * nor resolves to one. `hop` is 0 for the URL the model gave and above for a redirect's target.
  */
 const checkUrl = async (transport: WebTransport, url: URL, hop: number, signal?: AbortSignal): Promise<void> => {
-  const blocked = (reason: string) => new WebToolError(hop === 0 ? `blocked: ${reason}` : `redirect blocked: ${reason}`);
+  const blocked = (reason: string) =>
+    new WebToolError(hop === 0 ? `blocked: ${reason}` : `redirect blocked: ${reason}`);
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new WebToolError(`unsupported URL scheme ${url.protocol} (Web Fetch requires an HTTP or HTTPS URL)`);
   }
@@ -213,7 +234,12 @@ export const guardedFetch = async (
 };
 
 /** `run` with a deadline of `ms`: aborts `signal`'s child and fails with `timed out after …`. */
-export const withDeadline = async <T>(ms: number, label: string, outer: AbortSignal | undefined, run: (signal: AbortSignal) => Promise<T>): Promise<T> => {
+export const withDeadline = async <T>(
+  ms: number,
+  label: string,
+  outer: AbortSignal | undefined,
+  run: (signal: AbortSignal) => Promise<T>,
+): Promise<T> => {
   const controller = new AbortController();
   const onAbort = () => controller.abort(outer?.reason);
   outer?.addEventListener("abort", onAbort, { once: true });

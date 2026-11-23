@@ -65,12 +65,7 @@ const discovering = async (url: string, options: Discovering = {}) => {
   };
 
   const answer = await Effect.runPromise(
-    discover(
-      target,
-      {},
-      { auth: () => Promise.resolve(TOKEN) },
-      { version: "test", hold: () => undefined },
-    ).pipe(
+    discover(target, {}, { auth: () => Promise.resolve(TOKEN) }, { version: "test", hold: () => undefined }).pipe(
       Effect.provide(Layer.mergeAll(ByteBudget.layer, Validators.layer)),
       Effect.provideService(Tracer.Tracer, tracer),
     ),
@@ -81,9 +76,7 @@ const discovering = async (url: string, options: Discovering = {}) => {
 
 describe("an engine call's span", () => {
   it("records the wire's counts, the server's name and origin, and nothing it was sent or told", async () => {
-    const { answer, spans } = await discovering(
-      "https://mcp.example.test/private/path?key=querysecret",
-    );
+    const { answer, spans } = await discovering("https://mcp.example.test/private/path?key=querysecret");
 
     const call = spans.find((span) => span.name === "mcp.engine.discover");
 
@@ -95,9 +88,7 @@ describe("an engine call's span", () => {
       "mcp.logs": 1,
     });
 
-    const recorded = JSON.stringify(
-      spans.map((span) => [span.name, Record.fromEntries(span.attributes), span.events]),
-    );
+    const recorded = JSON.stringify(spans.map((span) => [span.name, Record.fromEntries(span.attributes), span.events]));
 
     for (const value of [SECRET, TOKEN, "querysecret", "/private/path", "Bearer"]) {
       expect(recorded).not.toContain(value);
@@ -109,9 +100,7 @@ describe("an engine call's span", () => {
 
     expect(answer).toMatchObject({
       kind: "discovered",
-      logs: [
-        { level: "warning", logger: "auth", data: "rejected Bearer [REDACTED] and [REDACTED]" },
-      ],
+      logs: [{ level: "warning", logger: "auth", data: "rejected Bearer [REDACTED] and [REDACTED]" }],
     });
     expect(JSON.stringify(answer)).not.toContain(SECRET);
     expect(JSON.stringify(answer)).not.toContain(TOKEN);
@@ -157,9 +146,7 @@ describe("an engine call's span", () => {
 
     if (answer.kind !== "discovered") throw new Error(JSON.stringify(answer));
 
-    expect(answer.tools.find((tool) => tool.name === "leak")?.description).toBe(
-      "calls with Bearer [REDACTED]",
-    );
+    expect(answer.tools.find((tool) => tool.name === "leak")?.description).toBe("calls with Bearer [REDACTED]");
     expect(JSON.stringify(answer)).not.toContain(SECRET);
   });
 
@@ -203,8 +190,7 @@ describe("an engine call's span", () => {
 
     if (answer.kind !== "discovered") throw new Error(JSON.stringify(answer));
 
-    const described = (name: string) =>
-      answer.tools.find((tool) => tool.name === name)?.description;
+    const described = (name: string) => answer.tools.find((tool) => tool.name === name)?.description;
 
     expect(described("acme_search")).toBe("Searches acme as application/json.");
     expect(described("echo_key")).toBe("Takes [REDACTED].");

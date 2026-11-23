@@ -2,7 +2,12 @@
 // refused by the Environment DO before t3 boots, for any method. t3's own app refuses them too (connect/service.ts,
 // `layerRefusingCloudLink`): this is the outer layer. A path is compared after percent-decoding, dot segments,
 // repeated and trailing slashes, `;` parameters and case, so no spelling t3's router could still match gets past.
-const REFUSED = new Set(["/api/connect/link-proof", "/api/connect/relay-config", "/api/t3-connect/health", "/api/t3-connect/mint-credential"]);
+const REFUSED = new Set([
+  "/api/connect/link-proof",
+  "/api/connect/relay-config",
+  "/api/t3-connect/health",
+  "/api/t3-connect/mint-credential",
+]);
 
 const normalize = (pathname: string): string | undefined => {
   let decoded = pathname;

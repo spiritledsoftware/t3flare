@@ -6,7 +6,14 @@ import { SKILLS_LOCK_FAILED } from "@t3flare/workspace-client";
 
 import { WORKSPACE_ROOT } from "./constants.ts";
 
-import { type ContainerExpectation, expectationInput, expectationOf, parseWait, skillsWaitScript, type WaitAnswer } from "./skillSetWait.ts";
+import {
+  type ContainerExpectation,
+  expectationInput,
+  expectationOf,
+  parseWait,
+  skillsWaitScript,
+  type WaitAnswer,
+} from "./skillSetWait.ts";
 
 /** How many times the wait for a running Container's copy looks, 200 ms apart (plan §4.2: up to 5 s). */
 const SKILLS_WAIT_LOOKS = 25;
@@ -53,15 +60,29 @@ export const takeSkillSet = async (deps: TakeDeps, hash: string): Promise<TakeAn
   if (refused?.hash === hash) return { taken: false, hash: held, error: refused.message };
   const refuse = async (refusedHash: string, message: string): Promise<TakeAnswer> => {
     store.refuse({ hash: refusedHash, message });
-    deps.warn(JSON.stringify({ t3flare: "skills-refused", workspace: deps.workspace, hash: refusedHash.slice(0, 12), message: message.slice(0, 300) }));
-    await deps.report(refusedHash, message).catch((error: unknown) => deps.warn(JSON.stringify({ t3flare: "skills-refusal-unreported", error: String(error).slice(0, 200) })));
+    deps.warn(
+      JSON.stringify({
+        t3flare: "skills-refused",
+        workspace: deps.workspace,
+        hash: refusedHash.slice(0, 12),
+        message: message.slice(0, 300),
+      }),
+    );
+    await deps
+      .report(refusedHash, message)
+      .catch((error: unknown) =>
+        deps.warn(JSON.stringify({ t3flare: "skills-refusal-unreported", error: String(error).slice(0, 200) })),
+      );
     return { taken: false, hash: store.hash(), error: message };
   };
   const set = await deps.read();
   const problem = skillSetProblem(set);
   if (problem !== undefined) {
     const declared = (set as { hash?: unknown } | null)?.hash;
-    return refuse(typeof declared === "string" && declared !== "" ? declared : hash, `The Environment skill set was refused: ${problem}`);
+    return refuse(
+      typeof declared === "string" && declared !== "" ? declared : hash,
+      `The Environment skill set was refused: ${problem}`,
+    );
   }
   const valid = set as SkillSet;
   if (valid.hash === held) return { taken: false, hash: held };
@@ -90,16 +111,35 @@ export interface WaitCommand {
  * lease and idle clock).
  */
 export const awaitContainerCopy = async (
-  deps: { readonly running: () => boolean; readonly exec: (command: WaitCommand) => Promise<{ readonly status: string; readonly stdout: string }>; readonly warn: (line: string) => void },
+  deps: {
+    readonly running: () => boolean;
+    readonly exec: (command: WaitCommand) => Promise<{ readonly status: string; readonly stdout: string }>;
+    readonly warn: (line: string) => void;
+  },
   expectation: ContainerExpectation,
 ): Promise<WaitAnswer | "stopped" | undefined> => {
   if (expectation.present.length === 0 && expectation.removed.length === 0) return undefined;
   if (!deps.running()) return "stopped";
   const result = await deps
-    .exec({ script: skillsWaitScript(SKILLS_MOUNT, SKILLS_WAIT_LOOKS, SKILLS_LOCK_FAILED), stdin: expectationInput(expectation), cwd: WORKSPACE_ROOT, passive: true, onlyIfRunning: true, timeoutMs: 15_000 })
+    .exec({
+      script: skillsWaitScript(SKILLS_MOUNT, SKILLS_WAIT_LOOKS, SKILLS_LOCK_FAILED),
+      stdin: expectationInput(expectation),
+      cwd: WORKSPACE_ROOT,
+      passive: true,
+      onlyIfRunning: true,
+      timeoutMs: 15_000,
+    })
     .catch((error: unknown) => ({ status: String(error).slice(0, 200), stdout: "" }));
   if (result.status === "not-running") return "stopped";
   const answer = parseWait(result.stdout);
-  if (!answer.caughtUp) deps.warn(JSON.stringify({ t3flare: "skills-container-stale", looks: answer.looks, stale: answer.stale.slice(0, 20), status: result.status }));
+  if (!answer.caughtUp)
+    deps.warn(
+      JSON.stringify({
+        t3flare: "skills-container-stale",
+        looks: answer.looks,
+        stale: answer.stale.slice(0, 20),
+        status: result.status,
+      }),
+    );
   return answer;
 };

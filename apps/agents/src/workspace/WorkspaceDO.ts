@@ -14,7 +14,13 @@ import {
   withWorkspaceContainer,
 } from "@cloudflare/computer/backends/container";
 import { WorkerShellBackend } from "@cloudflare/computer/backends/worker-shell";
-import { type EnvRequest, type EnvResponse, type HostOperation, withHarnessKept, WorkspaceEnvHost } from "@t3flare/computer-env";
+import {
+  type EnvRequest,
+  type EnvResponse,
+  type HostOperation,
+  withHarnessKept,
+  WorkspaceEnvHost,
+} from "@t3flare/computer-env";
 import { COMMAND_ENV, OWNER_HOME } from "@t3flare/sandbox-image/env";
 import { DurableObject } from "cloudflare:workers";
 
@@ -45,17 +51,61 @@ import * as git from "isomorphic-git";
 import { CREDENTIAL_HELPER, CREDENTIAL_PATH } from "./credentialHelper.ts";
 import { BUDGET_NAME, type ContainerBudget, RENEW_EVERY_MS } from "../budget.ts";
 import { type EnvironmentDO, environmentStub } from "../environment.ts";
-import { BASE_BUILD_CAPS, type BaseBuildRecord, BUILDERS, EMPTY_ENVIRONMENT, fitVariableEnv, type McpRelayAnswer, type ResolvedEnvironment, resolveEnvironment } from "@t3flare/harness-registry";
+import {
+  BASE_BUILD_CAPS,
+  type BaseBuildRecord,
+  BUILDERS,
+  EMPTY_ENVIRONMENT,
+  fitVariableEnv,
+  type McpRelayAnswer,
+  type ResolvedEnvironment,
+  resolveEnvironment,
+} from "@t3flare/harness-registry";
 import { BaseBuild } from "./baseBuild.ts";
-import { BASE_WAIT_POLL_MS, baseIdOf, type BaseSettings, BaseWaitBackend, BUILDER_READ_MS, type LaunchFrom, launchFrom, planBase, REFUSAL_WATCH_MS, startFromBase, startSpec, waitForBase, waitLimitMs } from "./baseStart.ts";
-import { type BuilderKind, builderKindOf, builderMark, platformContainer, proposedSetup, workspaceImage } from "./builder.ts";
+import {
+  BASE_WAIT_POLL_MS,
+  baseIdOf,
+  type BaseSettings,
+  BaseWaitBackend,
+  BUILDER_READ_MS,
+  type LaunchFrom,
+  launchFrom,
+  planBase,
+  REFUSAL_WATCH_MS,
+  startFromBase,
+  startSpec,
+  waitForBase,
+  waitLimitMs,
+} from "./baseStart.ts";
+import {
+  type BuilderKind,
+  builderKindOf,
+  builderMark,
+  platformContainer,
+  proposedSetup,
+  workspaceImage,
+} from "./builder.ts";
 import { changedBetween, currentRevision, repoFileSizes } from "./changeLog.ts";
-import { type ContainerLaunch, ENVIRONMENT_READ_MS, launchOf, secretValuesOf, shownLaunch, takeEnvironment, withContainerSteps } from "./containerLaunch.ts";
+import {
+  type ContainerLaunch,
+  ENVIRONMENT_READ_MS,
+  launchOf,
+  secretValuesOf,
+  shownLaunch,
+  takeEnvironment,
+  withContainerSteps,
+} from "./containerLaunch.ts";
 import { ContainerSetup, type ContainerSetupState } from "./containerSetup.ts";
 import { type ContainerExec, ContainerSteps, sequenced } from "./containerStep.ts";
 import { GlobalMise, type GlobalMiseState } from "./globalMise.ts";
 import { StoppedExecs, StoppedExecsBackend } from "./stoppedExecs.ts";
-import { commandEnvOf, COMPUTER_RUNTIME_KEY, ContainerStepsBackend, readyForSpawn, spawnRuntime } from "./containerStepsGate.ts";
+import {
+  commandEnvOf,
+  COMPUTER_RUNTIME_KEY,
+  ContainerStepsBackend,
+  readyForSpawn,
+  spawnRuntime,
+} from "./containerStepsGate.ts";
 import { commandEnv, VariablesBackend } from "./variables.ts";
 import { reclaimFor } from "./reclaim.ts";
 import { killInRunningContainer } from "./containerKill.ts";
@@ -85,7 +135,13 @@ import { readCache, readKey } from "./readCache.ts";
 import { authorizeModelRelay, type ModelRelayAsk, type ModelRelayGrant } from "./modelRelay.ts";
 import { RelayFailures } from "./relayFailures.ts";
 import { EndpointKeyPatterns, leakTargets } from "./endpointKeys.ts";
-import { type CredentialPattern, type LeakScanAnswer, type LeakScanInput, leakScanArgv, patternOf } from "@t3flare/sandbox-image/leakscan";
+import {
+  type CredentialPattern,
+  type LeakScanAnswer,
+  type LeakScanInput,
+  leakScanArgv,
+  patternOf,
+} from "@t3flare/sandbox-image/leakscan";
 import type { EndpointFailureRecord } from "@t3flare/session-protocol";
 import { ProcessHost, type ProcessMarker } from "./processHost.ts";
 import { AgentTerminals } from "./agentTerminals.ts";
@@ -96,7 +152,16 @@ import { awaitContainerCopy, type TakeAnswer, takeSkillSet } from "./skillSetTak
 import { ContainerGate } from "./containerGate.ts";
 import { TerminalHost } from "./terminalHost.ts";
 import { TerminalSync } from "./terminalSync.ts";
-import { carryInScript, carryOutScript, parseBundleAnswer, parseCarryOut, parseTips, worktreeBundleScript, worktreeCloneScript, worktreeFinishScript } from "./worktreeScripts.ts";
+import {
+  carryInScript,
+  carryOutScript,
+  parseBundleAnswer,
+  parseCarryOut,
+  parseTips,
+  worktreeBundleScript,
+  worktreeCloneScript,
+  worktreeFinishScript,
+} from "./worktreeScripts.ts";
 import {
   CONTAINER_BACKEND,
   CONTAINER_IGNORE,
@@ -141,7 +206,6 @@ export interface ExecInput {
   readonly onlyIfRunning?: boolean;
 }
 
-
 export interface ExecResult {
   readonly exitCode: number;
   readonly status: string;
@@ -153,16 +217,38 @@ export interface ExecResult {
 /** One file operation of the Environment's (`fs`). */
 export type FsOp =
   | { readonly op: "stat"; readonly path: string; readonly follow?: boolean }
-  | { readonly op: "read"; readonly path: string; readonly range?: { readonly offset: number; readonly length: number } }
-  | { readonly op: "write"; readonly path: string; readonly data: Uint8Array | string; readonly options?: { readonly append?: boolean; readonly exclusive?: boolean } }
+  | {
+      readonly op: "read";
+      readonly path: string;
+      readonly range?: { readonly offset: number; readonly length: number };
+    }
+  | {
+      readonly op: "write";
+      readonly path: string;
+      readonly data: Uint8Array | string;
+      readonly options?: { readonly append?: boolean; readonly exclusive?: boolean };
+    }
   | { readonly op: "readdir"; readonly path: string }
   | { readonly op: "mkdir"; readonly path: string; readonly recursive?: boolean }
-  | { readonly op: "remove"; readonly path: string; readonly options?: { readonly recursive?: boolean; readonly force?: boolean } }
+  | {
+      readonly op: "remove";
+      readonly path: string;
+      readonly options?: { readonly recursive?: boolean; readonly force?: boolean };
+    }
   | { readonly op: "rename"; readonly path: string; readonly to: string }
   | { readonly op: "realPath"; readonly path: string }
   | { readonly op: "find"; readonly path: string; readonly pattern?: string; readonly limit?: number }
-  | { readonly op: "grep"; readonly path: string; readonly pattern: string; readonly options?: { readonly ignoreCase?: boolean; readonly regex?: boolean; readonly limit?: number; readonly include?: string } };
-
+  | {
+      readonly op: "grep";
+      readonly path: string;
+      readonly pattern: string;
+      readonly options?: {
+        readonly ignoreCase?: boolean;
+        readonly regex?: boolean;
+        readonly limit?: number;
+        readonly include?: string;
+      };
+    };
 
 const LAST_USE_KEY = "t3flare:container-last-use";
 /** When the Container started (its lease taken): the idle stop logs its lifetime (cost audit F2). */
@@ -223,10 +309,19 @@ const LEAK_FLAG_KEY = "t3flare:credential-leak";
 /** Where the sync guard moves a file holding a credential: the Container's own disk, never synced. */
 const QUARANTINE = "/var/lib/t3flare/quarantine";
 /** Directories the sync guard never reads: they stay on the Container's disk (`CONTAINER_IGNORE`). */
-const SCAN_SKIP = ["node_modules", ".venv", "target", ".cache", ".pnpm-store", "__pycache__", ".turbo", ".next", ".gradle"];
+const SCAN_SKIP = [
+  "node_modules",
+  ".venv",
+  "target",
+  ".cache",
+  ".pnpm-store",
+  "__pycache__",
+  ".turbo",
+  ".next",
+  ".gradle",
+];
 /** How often terminals' heartbeats are checked while any is open. */
 const TERMINAL_EXPIRE_EVERY_MS = 15_000;
-
 
 /** The last checkpoint captured: its commit, the files' revision then, and HEAD then (the alias above the guard). */
 const LAST_CAPTURE_KEY = "t3flare:last-capture";
@@ -256,7 +351,10 @@ export class WorkspaceDO extends ContainerHost {
   /** Whether the Container may start, and the starts under way (`containerGate.ts`). */
   readonly #gate = new ContainerGate({
     closed: () => this.ctx.storage.kv.get<number>(CONTAINER_CLOSED_KEY) !== undefined,
-    setClosed: (closed) => (closed ? this.ctx.storage.kv.put(CONTAINER_CLOSED_KEY, Date.now()) : this.ctx.storage.kv.delete(CONTAINER_CLOSED_KEY)),
+    setClosed: (closed) =>
+      closed
+        ? this.ctx.storage.kv.put(CONTAINER_CLOSED_KEY, Date.now())
+        : this.ctx.storage.kv.delete(CONTAINER_CLOSED_KEY),
   });
   /** This instance (review F11): the adapter learns from a new epoch that the old instance's terminals are gone. */
   readonly #epoch = crypto.randomUUID();
@@ -362,12 +460,20 @@ export class WorkspaceDO extends ContainerHost {
       async (argv: ReadonlyArray<string>, stdin: string): Promise<ContainerExec> => {
         const container = this.ctx.container;
         if (container === undefined || !container.running) throw new Error("the Container is not running");
-        const process = await container.exec([...argv], { stdin: "pipe", stdout: "pipe", stderr: "pipe", env: commandEnv(this.#variables(), COMMAND_ENV, env) });
+        const process = await container.exec([...argv], {
+          stdin: "pipe",
+          stdout: "pipe",
+          stderr: "pipe",
+          env: commandEnv(this.#variables(), COMMAND_ENV, env),
+        });
         const writer = process.stdin?.getWriter();
         await writer?.write(new TextEncoder().encode(stdin));
         await writer?.close();
         return {
-          output: Promise.all([process.output(), process.exitCode.catch(() => null)]).then(([output, exitCode]) => ({ stdout: new TextDecoder().decode(output.stdout), exitCode })),
+          output: Promise.all([process.output(), process.exitCode.catch(() => null)]).then(([output, exitCode]) => ({
+            stdout: new TextDecoder().decode(output.stdout),
+            exitCode,
+          })),
           kill: () => process.kill(9),
         };
       };
@@ -390,7 +496,15 @@ export class WorkspaceDO extends ContainerHost {
       launch: () => ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY)?.globalMise,
       hold,
       used,
-      report: (report) => ctx.waitUntil(environmentStub(this.env.ENVIRONMENT).noteGlobalMise(report).then(() => undefined, () => undefined)),
+      report: (report) =>
+        ctx.waitUntil(
+          environmentStub(this.env.ENVIRONMENT)
+            .noteGlobalMise(report)
+            .then(
+              () => undefined,
+              () => undefined,
+            ),
+        ),
       storage: ctx.storage.kv,
       workspace: () => this.#workspaceId() ?? null,
       now: () => Date.now(),
@@ -403,7 +517,15 @@ export class WorkspaceDO extends ContainerHost {
       secrets: () => secretValuesOf(ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY)),
       hold,
       used,
-      report: (report) => ctx.waitUntil(environmentStub(this.env.ENVIRONMENT).noteContainerSetup(report).then(() => undefined, () => undefined)),
+      report: (report) =>
+        ctx.waitUntil(
+          environmentStub(this.env.ENVIRONMENT)
+            .noteContainerSetup(report)
+            .then(
+              () => undefined,
+              () => undefined,
+            ),
+        ),
       storage: ctx.storage.kv,
       workspace: () => this.#workspaceId() ?? null,
       now: () => Date.now(),
@@ -416,7 +538,15 @@ export class WorkspaceDO extends ContainerHost {
       launch: () => ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY)?.globalMise,
       hold,
       used,
-      report: (report) => ctx.waitUntil(environmentStub(this.env.ENVIRONMENT).noteGlobalMise(report).then(() => undefined, () => undefined)),
+      report: (report) =>
+        ctx.waitUntil(
+          environmentStub(this.env.ENVIRONMENT)
+            .noteGlobalMise(report)
+            .then(
+              () => undefined,
+              () => undefined,
+            ),
+        ),
       storage: ctx.storage.kv,
       workspace: () => this.#workspaceId() ?? null,
       now: () => Date.now(),
@@ -425,11 +555,21 @@ export class WorkspaceDO extends ContainerHost {
     });
     this.#steps = new ContainerSteps([
       sequenced({ step: this.#globalMise, doing: "installing the Global mise config" }),
-      sequenced({ step: this.#containerSetup, doing: "running the Container setup", refusal: (state) => this.#containerSetup.refusal(state) }),
-      sequenced({ step: this.#globalMiseAfterSetup, doing: "checking the dotfiles' mise config the Container setup wrote" }),
+      sequenced({
+        step: this.#containerSetup,
+        doing: "running the Container setup",
+        refusal: (state) => this.#containerSetup.refusal(state),
+      }),
+      sequenced({
+        step: this.#globalMiseAfterSetup,
+        doing: "checking the dotfiles' mise config the Container setup wrote",
+      }),
     ]);
     this.#reads = readCache(ctx.storage.sql);
-    this.#skillSet = skillSetStore({ kv: ctx.storage.kv, transactionSync: <T>(closure: () => T): T => ctx.storage.transactionSync(closure) });
+    this.#skillSet = skillSetStore({
+      kv: ctx.storage.kv,
+      transactionSync: <T>(closure: () => T): T => ctx.storage.transactionSync(closure),
+    });
     const skillSet = this.#skillSet;
     this.#workspace = new ComputerWorkspace({
       storage: ctx.storage,
@@ -437,7 +577,18 @@ export class WorkspaceDO extends ContainerHost {
       // hash replaces the copy (`takeEnvironmentSkills`).
       mounts: { [SKILLS_MOUNT]: skillSetMount(skillSet) },
       // The Variables under every command computer runs, on either backend (SPI-1152, `variables.ts`).
-      backends: [this.#withVariables(new WorkerShellBackend({ loader: env.LOADER, workspace: ref, ctx })), this.#withVariables(new ContainerStepsBackend(new StoppedExecsBackend(new BaseWaitBackend(this.#container, () => this.#waitForBase()), this.#stoppedExecs), (runtime) => this.#steps.ensure(runtime)))],
+      backends: [
+        this.#withVariables(new WorkerShellBackend({ loader: env.LOADER, workspace: ref, ctx })),
+        this.#withVariables(
+          new ContainerStepsBackend(
+            new StoppedExecsBackend(
+              new BaseWaitBackend(this.#container, () => this.#waitForBase()),
+              this.#stoppedExecs,
+            ),
+            (runtime) => this.#steps.ensure(runtime),
+          ),
+        ),
+      ],
     });
     // The model's file tools reach Container-only paths through the Container, as a script.
     this.#host = new WorkspaceEnvHost(this.#workspace, {
@@ -476,7 +627,11 @@ export class WorkspaceDO extends ContainerHost {
       spawn: async (argv, options) => {
         const container = this.ctx.container;
         if (container === undefined) throw new Error("no Container binding");
-        return container.exec([...argv], { pty: { cols: options.cols, rows: options.rows }, stdin: "pipe", env: this.#envWithVariables(options.env) });
+        return container.exec([...argv], {
+          pty: { cols: options.cols, rows: options.rows },
+          stdin: "pipe",
+          env: this.#envWithVariables(options.env),
+        });
       },
       kill: (markers) => this.#killMarkers(markers),
       push: async (push) => {
@@ -506,7 +661,11 @@ export class WorkspaceDO extends ContainerHost {
       spawn: async (argv, options) => {
         const container = this.ctx.container;
         if (container === undefined) throw new Error("no Container binding");
-        return container.exec([...argv], { pty: { cols: options.cols, rows: options.rows }, stdin: "pipe", env: this.#envWithVariables(options.env) });
+        return container.exec([...argv], {
+          pty: { cols: options.cols, rows: options.rows },
+          stdin: "pipe",
+          env: this.#envWithVariables(options.env),
+        });
       },
       kill: (markers) => this.#killMarkers(markers),
       push: (push) => Promise.resolve({ unknown: this.#agentTerminals.frames(push.frames) }),
@@ -545,7 +704,12 @@ export class WorkspaceDO extends ContainerHost {
       spawn: async (argv, env) => {
         const container = this.ctx.container;
         if (container === undefined) throw new Error("no Container binding");
-        return container.exec([...argv], { stdin: "pipe", stdout: "pipe", stderr: "pipe", env: this.#envWithVariables(env) });
+        return container.exec([...argv], {
+          stdin: "pipe",
+          stdout: "pipe",
+          stderr: "pipe",
+          env: this.#envWithVariables(env),
+        });
       },
       kill: (markers) => this.#killMarkers(markers),
       baseEnv: terminalEnv,
@@ -574,7 +738,10 @@ export class WorkspaceDO extends ContainerHost {
   }
 
   /** Runs the scanner in the running Container, straight through the platform's exec (no computer sync around it). */
-  async #scan(input: Omit<LeakScanInput, "patterns">, extra: ReadonlyArray<CredentialPattern> = []): Promise<LeakScanAnswer | undefined> {
+  async #scan(
+    input: Omit<LeakScanInput, "patterns">,
+    extra: ReadonlyArray<CredentialPattern> = [],
+  ): Promise<LeakScanAnswer | undefined> {
     const container = this.ctx.container;
     if (container === undefined || !container.running) return undefined;
     const patterns = [...this.#patterns(), ...extra];
@@ -586,7 +753,13 @@ export class WorkspaceDO extends ContainerHost {
       // SAFETY: the last line of `leakscan`'s output is its `LeakScanAnswer`; anything else is the "scan failed" below.
       return JSON.parse(text.trim().split("\n").at(-1) ?? "") as LeakScanAnswer;
     } catch {
-      console.warn(JSON.stringify({ t3flare: "leakscan-failed", workspace: this.#workspaceId() ?? null, stderr: new TextDecoder().decode(output.stderr).slice(0, 300) }));
+      console.warn(
+        JSON.stringify({
+          t3flare: "leakscan-failed",
+          workspace: this.#workspaceId() ?? null,
+          stderr: new TextDecoder().decode(output.stderr).slice(0, 300),
+        }),
+      );
       return undefined;
     }
   }
@@ -601,7 +774,12 @@ export class WorkspaceDO extends ContainerHost {
     if (this.#processes.size === 0 && !this.#cliSinceScan) return;
     this.#cliSinceScan = this.#processes.size > 0;
     const started = Date.now();
-    const answer = await this.#scan({ roots: ["/workspace"], since: this.#lastScan === 0 ? 0 : this.#lastScan - 2000, quarantine: QUARANTINE, skip: SCAN_SKIP }).catch(() => undefined);
+    const answer = await this.#scan({
+      roots: ["/workspace"],
+      since: this.#lastScan === 0 ? 0 : this.#lastScan - 2000,
+      quarantine: QUARANTINE,
+      skip: SCAN_SKIP,
+    }).catch(() => undefined);
     if (answer === undefined) return;
     this.#lastScan = started;
     if (answer.hits.length > 0) await this.#onLeak(answer.hits);
@@ -612,7 +790,13 @@ export class WorkspaceDO extends ContainerHost {
     const patterns = this.#patterns();
     if (patterns.length === 0) return undefined;
     const started = Date.now();
-    const argv = leakScanArgv({ patterns, roots: ["/workspace"], since: this.#lastScan === 0 ? 0 : this.#lastScan - 2000, quarantine: QUARANTINE, skip: SCAN_SKIP });
+    const argv = leakScanArgv({
+      patterns,
+      roots: ["/workspace"],
+      since: this.#lastScan === 0 ? 0 : this.#lastScan - 2000,
+      quarantine: QUARANTINE,
+      skip: SCAN_SKIP,
+    });
     this.#lastScan = started;
     const b64 = (text: string) => btoa(String.fromCharCode(...new TextEncoder().encode(text)));
     return `mkdir -p /var/lib/t3flare && ${argv[0]} -e "$(printf %s '${b64(argv[2]!)}' | base64 -d)" "$(printf %s '${b64(argv[3]!)}' | base64 -d)" > /var/lib/t3flare/last-scan.json 2>/dev/null`;
@@ -621,7 +805,9 @@ export class WorkspaceDO extends ContainerHost {
   async #readScanResult(): Promise<void> {
     const container = this.ctx.container;
     if (container === undefined || !container.running) return;
-    const process = await container.exec(["cat", "/var/lib/t3flare/last-scan.json"], { stdout: "pipe", stderr: "ignore" }).catch(() => undefined);
+    const process = await container
+      .exec(["cat", "/var/lib/t3flare/last-scan.json"], { stdout: "pipe", stderr: "ignore" })
+      .catch(() => undefined);
     if (process === undefined) return;
     const output = await process.output();
     try {
@@ -635,8 +821,18 @@ export class WorkspaceDO extends ContainerHost {
   }
 
   async #onLeak(hits: LeakScanAnswer["hits"]): Promise<void> {
-    console.error(JSON.stringify({ t3flare: "credential-in-workspace", workspace: this.#workspaceId() ?? null, hits: hits.map((hit) => ({ name: hit.name, path: hit.path, quarantined: hit.quarantined ?? null })) }));
-    this.ctx.storage.kv.put(LEAK_FLAG_KEY, { at: Date.now(), names: [...new Set(hits.map((hit) => hit.name))], paths: hits.map((hit) => hit.path).slice(0, 20) });
+    console.error(
+      JSON.stringify({
+        t3flare: "credential-in-workspace",
+        workspace: this.#workspaceId() ?? null,
+        hits: hits.map((hit) => ({ name: hit.name, path: hit.path, quarantined: hit.quarantined ?? null })),
+      }),
+    );
+    this.ctx.storage.kv.put(LEAK_FLAG_KEY, {
+      at: Date.now(),
+      names: [...new Set(hits.map((hit) => hit.name))],
+      paths: hits.map((hit) => hit.path).slice(0, 20),
+    });
     for (const key of this.#processes.keys()) await this.#processes.signal(key).catch(() => undefined);
   }
 
@@ -664,7 +860,12 @@ export class WorkspaceDO extends ContainerHost {
     this.#alive();
     await this.#ready();
     const values: Array<readonly [string, string]> = [];
-    const { values: endpointValues, patterns: extra, skipped, containerOnly } = await leakTargets(input.credentials ?? [], input.patterns ?? []);
+    const {
+      values: endpointValues,
+      patterns: extra,
+      skipped,
+      containerOnly,
+    } = await leakTargets(input.credentials ?? [], input.patterns ?? []);
     values.push(...endpointValues);
     const found: Array<{ name: string; path: string }> = [];
     for (const [credential, value] of values) {
@@ -672,8 +873,23 @@ export class WorkspaceDO extends ContainerHost {
       const matches = await this.#workspace.fs.grep(value, WORKSPACE_ROOT, { regex: false, limit: 200 });
       for (const path of new Set(matches.map((match) => match.path))) found.push({ name: credential, path });
     }
-    const container = (await this.#scan({ roots: ["/workspace", "/root", "/tmp", "/var/lib/t3flare", "/var/lib/computerd"], since: 0, procs: true, skip: [] }, extra).catch(() => undefined)) ?? null;
-    return { do: found, container, flagged: this.ctx.storage.kv.get(LEAK_FLAG_KEY) ?? null, notScanned: skipped, containerOnly };
+    const container =
+      (await this.#scan(
+        {
+          roots: ["/workspace", "/root", "/tmp", "/var/lib/t3flare", "/var/lib/computerd"],
+          since: 0,
+          procs: true,
+          skip: [],
+        },
+        extra,
+      ).catch(() => undefined)) ?? null;
+    return {
+      do: found,
+      container,
+      flagged: this.ctx.storage.kv.get(LEAK_FLAG_KEY) ?? null,
+      notScanned: skipped,
+      containerOnly,
+    };
   }
 
   /** bubblewrap in the running Container (Codex's Linux sandbox needs user namespaces): once per Container start. */
@@ -682,7 +898,10 @@ export class WorkspaceDO extends ContainerHost {
       const container = this.ctx.container;
       if (container === undefined || !container.running) return false;
       try {
-        const process = await container.exec(["bwrap", "--unshare-all", "--ro-bind", "/", "/", "true"], { stdout: "ignore", stderr: "ignore" });
+        const process = await container.exec(["bwrap", "--unshare-all", "--ro-bind", "/", "/", "true"], {
+          stdout: "ignore",
+          stderr: "ignore",
+        });
         const works = (await process.exitCode) === 0;
         console.log(JSON.stringify({ t3flare: "sandbox-probe", workspace: this.#workspaceId() ?? null, works }));
         return works;
@@ -731,14 +950,22 @@ export class WorkspaceDO extends ContainerHost {
     if (!this.containerRunning() || this.#running > 0 || this.#terminals.size > 0 || this.#agentHost.size > 0) return;
     const needed = await this.#containerPatterns();
     if (needed.every((pattern) => this.#container.patterns.includes(pattern))) return;
-    console.log(JSON.stringify({ t3flare: "container-restart-for-submodules", workspace: this.#workspaceId() ?? null, patterns: needed }));
+    console.log(
+      JSON.stringify({
+        t3flare: "container-restart-for-submodules",
+        workspace: this.#workspaceId() ?? null,
+        patterns: needed,
+      }),
+    );
     await this.stopContainer();
   }
 
   /** One sync with the Container backend to completion (review F9: never the default backend). */
   async #syncEntries(direction: "pull" | "push"): Promise<number> {
     let entries = 0;
-    for await (const progress of direction === "pull" ? this.#workspace.pull(CONTAINER_BACKEND) : this.#workspace.push(CONTAINER_BACKEND)) {
+    for await (const progress of direction === "pull"
+      ? this.#workspace.pull(CONTAINER_BACKEND)
+      : this.#workspace.push(CONTAINER_BACKEND)) {
       entries += progress.entries;
     }
     return entries;
@@ -825,11 +1052,18 @@ export class WorkspaceDO extends ContainerHost {
         workspace,
         store: this.#skillSet,
         read: () => environment.environmentSkillSet({ workspace }),
-        mount: (set) => this.ctx.blockConcurrencyWhile(() => mountWithFallback(this.#skillSet, () => this.#workspace.remount(), set, warn)),
+        mount: (set) =>
+          this.ctx.blockConcurrencyWhile(() =>
+            mountWithFallback(this.#skillSet, () => this.#workspace.remount(), set, warn),
+          ),
         report: (refused, message) => environment.skillSetRefused({ workspace, hash: refused, message }),
         awaitContainer: async (expectation) => {
-          const answer = await awaitContainerCopy({ running: () => this.containerRunning(), exec: (command) => this.exec(command), warn }, expectation);
-          if (typeof answer === "object" && answer.lockFailed !== undefined) await this.#logLockFailure(answer.lockFailed);
+          const answer = await awaitContainerCopy(
+            { running: () => this.containerRunning(), exec: (command) => this.exec(command), warn },
+            expectation,
+          );
+          if (typeof answer === "object" && answer.lockFailed !== undefined)
+            await this.#logLockFailure(answer.lockFailed);
           return answer;
         },
         warn,
@@ -865,10 +1099,12 @@ export class WorkspaceDO extends ContainerHost {
     // renews the lease it holds, so a kept launch's budget never overwrites a newer one (ADR-0032).
     const lease = async (budget: number | undefined) => {
       let answer = await this.#budget().acquire(this.ctx.id.toString(), budget);
-      if (!answer.ok && (await this.#reclaimFrom(answer.running, answer.max ?? answer.running.length))) answer = await this.#budget().acquire(this.ctx.id.toString(), budget);
+      if (!answer.ok && (await this.#reclaimFrom(answer.running, answer.max ?? answer.running.length)))
+        answer = await this.#budget().acquire(this.ctx.id.toString(), budget);
       if (!answer.ok) throw new Error(`t3flare: the Container cannot start: ${answer.reason}`);
       await this.ctx.storage.put(LEASED_KEY, true);
-      if ((await this.ctx.storage.get<number>(STARTED_AT_KEY)) === undefined) await this.ctx.storage.put(STARTED_AT_KEY, Date.now());
+      if ((await this.ctx.storage.get<number>(STARTED_AT_KEY)) === undefined)
+        await this.ctx.storage.put(STARTED_AT_KEY, Date.now());
       await this.#noteUse();
       await this.#scheduleAlarm();
     };
@@ -906,7 +1142,14 @@ export class WorkspaceDO extends ContainerHost {
           );
           if (!fresh && answer.outcome !== "adopted" && !refused && from !== undefined) {
             this.#recordFrom(from);
-            console.log(JSON.stringify({ t3flare: "container-base-replanned", workspace: this.#workspaceId() ?? null, outcome: answer.outcome, from }));
+            console.log(
+              JSON.stringify({
+                t3flare: "container-base-replanned",
+                workspace: this.#workspaceId() ?? null,
+                outcome: answer.outcome,
+                from,
+              }),
+            );
           }
           return answer;
         });
@@ -931,7 +1174,9 @@ export class WorkspaceDO extends ContainerHost {
     // A holder is a Workspace DO's id (`#budgeted`).
     const stub = (holder: string) => this.env.WORKSPACES.get(this.env.WORKSPACES.idFromString(holder));
     const failed = (holder: string) => (error: unknown) => {
-      console.warn(JSON.stringify({ t3flare: "container-reclaim-failed", from: holder, error: String(error).slice(0, 200) }));
+      console.warn(
+        JSON.stringify({ t3flare: "container-reclaim-failed", from: holder, error: String(error).slice(0, 200) }),
+      );
       return false;
     };
     const { released, enough } = await reclaimFor({
@@ -945,7 +1190,8 @@ export class WorkspaceDO extends ContainerHost {
           .then((answer) => answer.released)
           .catch(failed(holder)),
     });
-    for (const holder of released) console.log(JSON.stringify({ t3flare: "container-reclaimed", from: holder, for: this.#workspaceId() ?? null }));
+    for (const holder of released)
+      console.log(JSON.stringify({ t3flare: "container-reclaimed", from: holder, for: this.#workspaceId() ?? null }));
     return enough;
   }
 
@@ -962,7 +1208,8 @@ export class WorkspaceDO extends ContainerHost {
     const kv = this.ctx.storage.kv;
     const running = kv.get<ContainerLaunch>(LAUNCH_KEY);
     // Before the first recorded launch, a running Container started with the default (today's custom size).
-    if (this.containerRunning()) return running ?? launchOf({ settings: resolveEnvironment(EMPTY_ENVIRONMENT), source: "default" });
+    if (this.containerRunning())
+      return running ?? launchOf({ settings: resolveEnvironment(EMPTY_ENVIRONMENT), source: "default" });
     const taken = await this.#takeSettings();
     // What it starts from (SPI-1333): a wait was done before computer's connect (`#waitForBase`), so one left here starts
     // from the image; a key with no Base snapshot is reported to the Builder, which decides whether to build.
@@ -970,7 +1217,24 @@ export class WorkspaceDO extends ContainerHost {
     if (pick.kind === "image" && pick.missing === true) this.ctx.waitUntil(this.#reportToBuilder({ kind: "missing" }));
     const launch: ContainerLaunch = { ...(await withContainerSteps(launchOf(taken), taken)), from: launchFrom(pick) };
     kv.put(LAUNCH_KEY, launch);
-    console.log(JSON.stringify({ t3flare: "container-launch", workspace: this.#workspaceId() ?? null, source: taken.source, revision: launch.revision, size: launch.size, idleMs: launch.idleMs, budget: launch.budget, from: launch.from, globalMise: launch.globalMise === undefined ? null : { bytes: launch.globalMise.bytes, sha256: launch.globalMise.sha256 }, containerSetup: launch.containerSetup === undefined ? null : { bytes: launch.containerSetup.bytes, sha256: launch.containerSetup.sha256 } }));
+    console.log(
+      JSON.stringify({
+        t3flare: "container-launch",
+        workspace: this.#workspaceId() ?? null,
+        source: taken.source,
+        revision: launch.revision,
+        size: launch.size,
+        idleMs: launch.idleMs,
+        budget: launch.budget,
+        from: launch.from,
+        globalMise:
+          launch.globalMise === undefined ? null : { bytes: launch.globalMise.bytes, sha256: launch.globalMise.sha256 },
+        containerSetup:
+          launch.containerSetup === undefined
+            ? null
+            : { bytes: launch.containerSetup.bytes, sha256: launch.containerSetup.sha256 },
+      }),
+    );
     return launch;
   }
 
@@ -997,18 +1261,35 @@ export class WorkspaceDO extends ContainerHost {
   }
 
   /** A start's report to the Builder; a failure is logged (the next start reports again). */
-  async #reportToBuilder(input: { readonly kind: "missing" } | { readonly kind: "refused"; readonly id: string }): Promise<void> {
+  async #reportToBuilder(
+    input: { readonly kind: "missing" } | { readonly kind: "refused"; readonly id: string },
+  ): Promise<void> {
     try {
       await this.#builderStub().builderReport(input);
     } catch (error) {
-      console.warn(JSON.stringify({ t3flare: "builder-report-failed", workspace: this.#workspaceId() ?? null, kind: input.kind, error: String(error).slice(0, BASE_BUILD_CAPS.log) }));
+      console.warn(
+        JSON.stringify({
+          t3flare: "builder-report-failed",
+          workspace: this.#workspaceId() ?? null,
+          kind: input.kind,
+          error: String(error).slice(0, BASE_BUILD_CAPS.log),
+        }),
+      );
     }
   }
 
   /** What a fresh start with `settings` starts from (`planBase`): the Builder's record against this Workspace image. */
   #planBase(settings: BaseSettings, options: { readonly mayAsk?: boolean } = {}) {
     const stub = this.#builderStub();
-    return planBase({ builder: { record: () => stub.builderRecord(), missing: () => stub.builderReport({ kind: "missing" }) }, imageDigest: workspaceImage(this.ctx.container), boundMs: BUILDER_READ_MS }, settings, options);
+    return planBase(
+      {
+        builder: { record: () => stub.builderRecord(), missing: () => stub.builderReport({ kind: "missing" }) },
+        imageDigest: workspaceImage(this.ctx.container),
+        boundMs: BUILDER_READ_MS,
+      },
+      settings,
+      options,
+    );
   }
 
   /** The wait before computer's connect, shared by the connects that meet it; and whether one waits now (`containerStartingNote`). */
@@ -1042,7 +1323,16 @@ export class WorkspaceDO extends ContainerHost {
           limitMs: waitLimitMs(settings),
           pollMs: BASE_WAIT_POLL_MS,
         });
-        if (waited) console.log(JSON.stringify({ t3flare: "container-base-wait", workspace: this.#workspaceId() ?? null, ms: Date.now() - started, outcome: pick.kind, why: pick.why }));
+        if (waited)
+          console.log(
+            JSON.stringify({
+              t3flare: "container-base-wait",
+              workspace: this.#workspaceId() ?? null,
+              ms: Date.now() - started,
+              outcome: pick.kind,
+              why: pick.why,
+            }),
+          );
       } finally {
         this.#waitingForBase = false;
       }
@@ -1065,7 +1355,15 @@ export class WorkspaceDO extends ContainerHost {
    */
   #baseRefused(id: string, message: string, late: boolean): void {
     this.#recordFrom({ image: { why: `the platform refused the Base snapshot: ${message}` } });
-    console.warn(JSON.stringify({ t3flare: "container-base-refused", workspace: this.#workspaceId() ?? null, snapshot: id, late, message: message.slice(0, BASE_BUILD_CAPS.log) }));
+    console.warn(
+      JSON.stringify({
+        t3flare: "container-base-refused",
+        workspace: this.#workspaceId() ?? null,
+        snapshot: id,
+        late,
+        message: message.slice(0, BASE_BUILD_CAPS.log),
+      }),
+    );
     this.ctx.waitUntil(this.#reportToBuilder({ kind: "refused", id }));
   }
 
@@ -1089,14 +1387,18 @@ export class WorkspaceDO extends ContainerHost {
 
   /** The idle time the running Container started with (ADR-0032). */
   #idleMs(): number {
-    return this.ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY)?.idleMs ?? launchOf({ settings: resolveEnvironment(EMPTY_ENVIRONMENT), source: "default" }).idleMs;
+    return (
+      this.ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY)?.idleMs ??
+      launchOf({ settings: resolveEnvironment(EMPTY_ENVIRONMENT), source: "default" }).idleMs
+    );
   }
 
   async #scheduleAlarm(): Promise<void> {
     const lastUse = (await this.ctx.storage.get<number>(LAST_USE_KEY)) ?? Date.now();
     let at = Math.min(lastUse + this.#idleMs(), Date.now() + RENEW_EVERY_MS);
     // Open terminals: their heartbeats are checked and their hold measured at least every 30 s.
-    if (this.#terminals.size > 0 || this.#agentHost.size > 0 || this.#processes.size > 0 || this.#previewHolds > 0) at = Math.min(at, Date.now() + 30_000);
+    if (this.#terminals.size > 0 || this.#agentHost.size > 0 || this.#processes.size > 0 || this.#previewHolds > 0)
+      at = Math.min(at, Date.now() + 30_000);
     const current = await this.ctx.storage.getAlarm();
     if (current === null || current > at) await this.ctx.storage.setAlarm(Math.max(at, Date.now() + 1000));
   }
@@ -1114,24 +1416,33 @@ export class WorkspaceDO extends ContainerHost {
     this.#alive();
     const started = Date.now();
     const backend = input.backend === "worker-shell" ? WORKER_SHELL_BACKEND : CONTAINER_BACKEND;
-    if (backend === CONTAINER_BACKEND && input.passive !== true) await this.#restartForSubmodules().catch(() => undefined);
+    if (backend === CONTAINER_BACKEND && input.passive !== true)
+      await this.#restartForSubmodules().catch(() => undefined);
     this.#running++;
     try {
       await this.#ready();
       // The patterns this command's Container starts with, or started with (`containerOnly.ts`).
       // While a CLI process lives, the command's own pull (computer syncs when it ends) is guarded too (review F3): the
       // command runs in a subshell, then the scanner, before computer reads the files.
-      const guard = backend === CONTAINER_BACKEND && input.passive !== true && this.#processes.size > 0 ? await this.#scanSuffix() : undefined;
-      const body = guard === undefined ? input.script : `(\n${input.script}\n)\n__t3flare_rc=$?\n${guard}\nexit $__t3flare_rc`;
+      const guard =
+        backend === CONTAINER_BACKEND && input.passive !== true && this.#processes.size > 0
+          ? await this.#scanSuffix()
+          : undefined;
+      const body =
+        guard === undefined ? input.script : `(\n${input.script}\n)\n__t3flare_rc=$?\n${guard}\nexit $__t3flare_rc`;
       // SPI-1148: every Container command starts with the Environment skills' lock (ADR-0033).
       const script = backend === CONTAINER_BACKEND ? containerScript(await this.#containerPatterns(), body) : body;
-      if (input.onlyIfRunning === true && !this.containerRunning()) return { exitCode: -1, status: "not-running", stdout: "", stderr: "", ms: Date.now() - started };
+      if (input.onlyIfRunning === true && !this.containerRunning())
+        return { exitCode: -1, status: "not-running", stdout: "", stderr: "", ms: Date.now() - started };
       const handle = await this.#workspace.runtime.exec(script, {
         backend,
         cwd: input.cwd ?? WORKSPACE_ROOT,
         encoding: "utf8",
         // A passive read is marked so the Container's backend sends it without waiting for the lay-down (ADR-0032's Global mise config refinement).
-        env: backend === CONTAINER_BACKEND ? commandEnvOf(COMMAND_ENV, input.env, input.passive === true) : { ...input.env },
+        env:
+          backend === CONTAINER_BACKEND
+            ? commandEnvOf(COMMAND_ENV, input.env, input.passive === true)
+            : { ...input.env },
         ...(input.stdin === undefined ? {} : { stdin: input.stdin }),
         timeoutMs: input.timeoutMs ?? 120_000,
       });
@@ -1160,13 +1471,16 @@ export class WorkspaceDO extends ContainerHost {
    * Container never started, when it is not running, even when it stops during the kill (`containerKill.ts`): a stopped
    * Container has no processes.
    */
-  async killExecs(execIds: ReadonlyArray<string>): Promise<{ readonly running: boolean; readonly signalled: number; readonly survivors: number }> {
+  async killExecs(
+    execIds: ReadonlyArray<string>,
+  ): Promise<{ readonly running: boolean; readonly signalled: number; readonly survivors: number }> {
     // A command not sent yet (its Container still starting) is never sent now.
     this.#stoppedExecs.stopped(execIds);
     const result = await killInRunningContainer(this.ctx.container, execIds);
     if (result === undefined) return { running: false, signalled: 0, survivors: 0 };
     const answer = /\{"signalled":(\d+),"survivors":(\d+)\}/.exec(result.stdout);
-    if (answer === null) throw new Error(`t3flare: the kill script failed (exit ${result.exitCode}): ${result.stderr.slice(0, 300)}`);
+    if (answer === null)
+      throw new Error(`t3flare: the kill script failed (exit ${result.exitCode}): ${result.stderr.slice(0, 300)}`);
     return { running: true, signalled: Number(answer[1]), survivors: Number(answer[2]) };
   }
 
@@ -1228,12 +1542,15 @@ export class WorkspaceDO extends ContainerHost {
    * Container stays stopped (the parent's ruling on M2's deviation 2; ADR-0009 refinement).
    */
   async git(run: GitRun): Promise<GitAnswer> {
-    if (this.#isDestroyed()) return { ran: false, reason: "container_refused", detail: "t3flare: this Workspace was deleted" };
+    if (this.#isDestroyed())
+      return { ran: false, reason: "container_refused", detail: "t3flare: this Workspace was deleted" };
     const passive = !run.startContainer;
     // Step 2b (root's ruling, ADR-0009 refinement): the allow-listed `.git` reads are keyed without env and own
     // `--git-dir`, so the answers primed while the Container was up match t3's later reads.
     const allowed = passive ? allowedRead(run.argv, REPO_ROOT) : undefined;
-    const key = passive ? await readKey(allowed === undefined ? run : { argv: withoutOwnGitDir(run.argv, REPO_ROOT), cwd: run.cwd }) : null;
+    const key = passive
+      ? await readKey(allowed === undefined ? run : { argv: withoutOwnGitDir(run.argv, REPO_ROOT), cwd: run.cwd })
+      : null;
     const rev = passive ? this.#reads.revision(run.readScope ?? "repo") : -1;
     let startedBy: string | undefined;
     if (key !== null) {
@@ -1249,7 +1566,9 @@ export class WorkspaceDO extends ContainerHost {
       if (decision === "stale") return this.#stale(run, key);
       if (decision === "run-starting-container") {
         startedBy = allowed!.name;
-        console.log(JSON.stringify({ t3flare: "first-read-starts-container", read: allowed!.name, caller: allowed!.caller }));
+        console.log(
+          JSON.stringify({ t3flare: "first-read-starts-container", read: allowed!.name, caller: allowed!.caller }),
+        );
       }
     }
     const script = `exec git ${run.argv.map(shellWord).join(" ")}`;
@@ -1267,7 +1586,12 @@ export class WorkspaceDO extends ContainerHost {
       if (key !== null && result.status !== "timeout") this.#reads.put(key, rev, answer);
       // The Container is up: answer the allow-listed reads now (after an action, or a start a read caused).
       if (!passive || startedBy !== undefined) this.ctx.waitUntil(this.#prime().catch(() => undefined));
-      return { ran: true, ...answer, ms: result.ms, ...(startedBy === undefined ? {} : { startedContainer: startedBy }) };
+      return {
+        ran: true,
+        ...answer,
+        ms: result.ms,
+        ...(startedBy === undefined ? {} : { startedContainer: startedBy }),
+      };
     } catch (error) {
       return { ran: false, reason: "container_refused", detail: describeFailure(error).slice(0, 1000) };
     }
@@ -1284,7 +1608,11 @@ export class WorkspaceDO extends ContainerHost {
     const before = this.#reads.revision("git-dir");
     if (before === this.#primedRev) return;
     this.#primedRev = before;
-    const listed = await this.exec({ script: "git for-each-ref --format='%(refname)' refs/heads refs/remotes", cwd: REPO_ROOT, passive: true });
+    const listed = await this.exec({
+      script: "git for-each-ref --format='%(refname)' refs/heads refs/remotes",
+      cwd: REPO_ROOT,
+      passive: true,
+    });
     if (listed.exitCode !== 0 || !this.containerRunning()) return;
     const argvs = primeArgvs(listed.stdout.split("\n").filter((line) => line !== ""));
     const primed = await this.exec({ script: primeScript(argvs), cwd: REPO_ROOT, passive: true, timeoutMs: 60_000 });
@@ -1292,11 +1620,14 @@ export class WorkspaceDO extends ContainerHost {
     for (const answer of parsePrimed(primed.stdout)) {
       const argv = argvs[answer.index];
       if (argv === undefined) continue;
-      this.#reads.put(await readKey({ argv, cwd: REPO_ROOT }), rev, { exitCode: answer.exitCode, stdout: answer.stdout, stderr: "" });
+      this.#reads.put(await readKey({ argv, cwd: REPO_ROOT }), rev, {
+        exitCode: answer.exitCode,
+        stdout: answer.stdout,
+        stderr: "",
+      });
     }
     console.log(JSON.stringify({ t3flare: "git-reads-primed", reads: argvs.length }));
   }
-
 
   /**
    * A passive read with no earlier answer while the Container is stopped, answered from the repo's own files when its
@@ -1308,14 +1639,29 @@ export class WorkspaceDO extends ContainerHost {
       // t3's VCS driver detection (`GitVcsDriver`'s repository probe, the first read of a project's thread launch):
       // what git answers at the root of a repo with its own `.git`, which is every Workspace's.
       if (!("ok" in (await fileOps(this.#workspace).stat(`${REPO_ROOT}/.git`, false)))) return undefined;
-      return { ran: true, exitCode: 0, stdout: `true\n${REPO_ROOT}\n.git\n`, stderr: "", ms: 0, cached: true, stale: "patched" };
+      return {
+        ran: true,
+        exitCode: 0,
+        stdout: `true\n${REPO_ROOT}\n.git\n`,
+        stderr: "",
+        ms: 0,
+        cached: true,
+        stale: "patched",
+      };
     }
-    if (args[0] !== "remote" || (args.length > 1 && !(args.length === 2 && (args[1] === "-v" || args[1] === "--verbose")))) return undefined;
+    if (
+      args[0] !== "remote" ||
+      (args.length > 1 && !(args.length === 2 && (args[1] === "-v" || args[1] === "--verbose")))
+    )
+      return undefined;
     const repo = await this.#repo();
     const remotes = await git.listRemotes({ fs: repo.fs, dir: repo.dir });
-    const stdout = args.length === 1
-      ? remotes.map((remote) => `${remote.remote}\n`).join("")
-      : remotes.map((remote) => `${remote.remote}\t${remote.url} (fetch)\n${remote.remote}\t${remote.url} (push)\n`).join("");
+    const stdout =
+      args.length === 1
+        ? remotes.map((remote) => `${remote.remote}\n`).join("")
+        : remotes
+            .map((remote) => `${remote.remote}\t${remote.url} (fetch)\n${remote.remote}\t${remote.url} (push)\n`)
+            .join("");
     return { ran: true, exitCode: 0, stdout, stderr: "", ms: 0, cached: true, stale: "patched" };
   }
 
@@ -1334,23 +1680,41 @@ export class WorkspaceDO extends ContainerHost {
     let outcome: StaleOutcome;
     try {
       outcome = await staleRead(run, {
-        last: async (argv) => (argv === run.argv ? this.#reads.last(key) : this.#reads.last(await readKey({ ...run, argv }))),
+        last: async (argv) =>
+          argv === run.argv ? this.#reads.last(key) : this.#reads.last(await readKey({ ...run, argv })),
         journalSince: (rev) => this.#journalSince(rev, global),
         withinGuard: async () => withinGuard(await this.#repo()),
         facts: async (base) => repoFacts(await this.#repo(), base),
       });
     } catch (error) {
-      console.warn(JSON.stringify({ t3flare: "stale-read-patch-failed", argv: run.argv.slice(0, 3), error: String(error).slice(0, 500) }));
+      console.warn(
+        JSON.stringify({
+          t3flare: "stale-read-patch-failed",
+          argv: run.argv.slice(0, 3),
+          error: String(error).slice(0, 500),
+        }),
+      );
       const last = this.#reads.last(key);
       outcome = last === undefined ? { found: false } : { found: true, answer: last.answer, stale: "last-answer" };
     }
     if (!outcome.found) {
       const emulated = await this.#emulatedRead(run).catch(() => undefined);
       if (emulated !== undefined) return emulated;
-      return { ran: false, reason: "container_stopped", detail: "needs the Workspace's Container, which is stopped, and has no earlier answer" };
+      return {
+        ran: false,
+        reason: "container_stopped",
+        detail: "needs the Workspace's Container, which is stopped, and has no earlier answer",
+      };
     }
-    if (outcome.why !== undefined) console.log(JSON.stringify({ t3flare: "stale-read-last-answer", argv: run.argv.slice(0, 3), why: outcome.why }));
-    const answer: GitAnswer = { ran: true, ...outcome.answer, ms: outcome.stale === "patched" ? Date.now() - started : 0, cached: true, stale: outcome.stale };
+    if (outcome.why !== undefined)
+      console.log(JSON.stringify({ t3flare: "stale-read-last-answer", argv: run.argv.slice(0, 3), why: outcome.why }));
+    const answer: GitAnswer = {
+      ran: true,
+      ...outcome.answer,
+      ms: outcome.stale === "patched" ? Date.now() - started : 0,
+      cached: true,
+      stale: outcome.stale,
+    };
     this.#staleMemo.set(key, { global, answer });
     if (this.#staleMemo.size > 200) this.#staleMemo.delete(this.#staleMemo.keys().next().value!);
     return answer;
@@ -1361,7 +1725,9 @@ export class WorkspaceDO extends ContainerHost {
     const prefix = `${REPO_ROOT}/`;
     return changedBetween(this.ctx.storage.sql, after, through)
       .map((changed) => changed.path)
-      .filter((path) => path.startsWith(prefix) && path !== `${REPO_ROOT}/.git` && !path.startsWith(`${REPO_ROOT}/.git/`))
+      .filter(
+        (path) => path.startsWith(prefix) && path !== `${REPO_ROOT}/.git` && !path.startsWith(`${REPO_ROOT}/.git/`),
+      )
       .map((path) => path.slice(prefix.length));
   }
 
@@ -1371,7 +1737,12 @@ export class WorkspaceDO extends ContainerHost {
   async #repo(): Promise<Repo> {
     await this.#ready();
     this.#gitFs ??= isomorphicFs(this.#workspace);
-    return { fs: this.#gitFs, dir: REPO_ROOT, cache: {}, fileSizes: () => repoFileSizes(this.ctx.storage.sql, REPO_ROOT) };
+    return {
+      fs: this.#gitFs,
+      dir: REPO_ROOT,
+      cache: {},
+      fileSizes: () => repoFileSizes(this.ctx.storage.sql, REPO_ROOT),
+    };
   }
 
   // -------------------------------------------------------------------------------------------------------------------
@@ -1421,8 +1792,15 @@ export class WorkspaceDO extends ContainerHost {
         last: () => this.ctx.storage.kv.get<LastCapture>(LAST_CAPTURE_KEY),
         remember: (last) => this.ctx.storage.kv.put(LAST_CAPTURE_KEY, last),
         inContainer: async (at) => {
-          const result = await this.exec({ script: captureScript(at), cwd: REPO_ROOT, env: this.#identityEnv(), timeoutMs: 10 * 60_000 });
-          return result.exitCode === 0 ? { ok: true } : { ok: false, error: `git capture failed: ${result.stderr.slice(0, 1000)}` };
+          const result = await this.exec({
+            script: captureScript(at),
+            cwd: REPO_ROOT,
+            env: this.#identityEnv(),
+            timeoutMs: 10 * 60_000,
+          });
+          return result.exitCode === 0
+            ? { ok: true }
+            : { ok: false, error: `git capture failed: ${result.stderr.slice(0, 1000)}` };
         },
         nowSeconds: () => Math.floor(Date.now() / 1000),
       },
@@ -1441,19 +1819,38 @@ export class WorkspaceDO extends ContainerHost {
     if (from === null || to === null) return { ok: false, error: "Checkpoint ref is unavailable for diff operation." };
     if (this.containerRunning() || !within) {
       const argv = [
-        "-c", "diff.relative=false", "-c", "diff.suppressBlankEmpty=false", "diff",
+        "-c",
+        "diff.relative=false",
+        "-c",
+        "diff.suppressBlankEmpty=false",
+        "diff",
         ...(op.format === "numstat" ? ["--numstat", "-z"] : ["--patch"]),
-        "--no-color", "--no-ext-diff", "--no-textconv", "--submodule=short", "--src-prefix=a/", "--dst-prefix=b/",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--submodule=short",
+        "--src-prefix=a/",
+        "--dst-prefix=b/",
         ...(op.ignoreWhitespace ? ["--ignore-all-space"] : []),
-        `${from}^{commit}`, `${to}^{commit}`,
+        `${from}^{commit}`,
+        `${to}^{commit}`,
         ...(op.filePaths === undefined ? [] : ["--", ...op.filePaths.map((path) => `:(top,literal)${path}`)]),
       ];
       // Above the guard the Container may be starting cold, its files pushed first: as long as a capture may take.
-      const result = await this.exec({ script: `exec git ${argv.map(shellWord).join(" ")}`, cwd: REPO_ROOT, passive: true, ...(within ? {} : { timeoutMs: 10 * 60_000 }) });
+      const result = await this.exec({
+        script: `exec git ${argv.map(shellWord).join(" ")}`,
+        cwd: REPO_ROOT,
+        passive: true,
+        ...(within ? {} : { timeoutMs: 10 * 60_000 }),
+      });
       if (result.exitCode === 0) return { ok: true, value: result.stdout, by: "container" };
       if (!within) return { ok: false, error: `git diff failed: ${result.stderr.slice(0, 1000)}` };
     }
-    const value = await diffCommits(repo, from, to, { format: op.format, filePaths: op.filePaths, maxOutputBytes: op.maxOutputBytes });
+    const value = await diffCommits(repo, from, to, {
+      format: op.format,
+      filePaths: op.filePaths,
+      maxOutputBytes: op.maxOutputBytes,
+    });
     return { ok: true, value, by: "do" };
   }
 
@@ -1470,17 +1867,31 @@ export class WorkspaceDO extends ContainerHost {
       [endHead] = await parentsOf(repo, to);
     } else {
       // Above the guard the parents come from the Container's git: one line of parents per commit, in order.
-      const parents = await this.exec({ script: `exec git log --no-walk=unsorted --format=%P ${shellWord(from)} ${shellWord(to)}`, cwd: REPO_ROOT, passive: true, timeoutMs: 10 * 60_000 });
+      const parents = await this.exec({
+        script: `exec git log --no-walk=unsorted --format=%P ${shellWord(from)} ${shellWord(to)}`,
+        cwd: REPO_ROOT,
+        passive: true,
+        timeoutMs: 10 * 60_000,
+      });
       if (parents.exitCode !== 0) return { ok: false, error: parents.stderr.slice(0, 1000) };
       const lines = parents.stdout.split("\n");
       startHead = lines[0]?.split(" ")[0] || undefined;
       endHead = lines[1]?.split(" ")[0] || undefined;
     }
-    if (startHead === undefined || endHead === undefined || startHead === endHead) return { ok: true, value: null, by: within ? "do" : "container" };
+    if (startHead === undefined || endHead === undefined || startHead === endHead)
+      return { ok: true, value: null, by: within ? "do" : "container" };
     // HEAD moved between the checkpoints (a commit, in the Container): its git lists the paths, as t3's driver does.
-    const result = await this.exec({ script: authoredScript(from, to, startHead, endHead), cwd: REPO_ROOT, timeoutMs: 120_000 });
+    const result = await this.exec({
+      script: authoredScript(from, to, startHead, endHead),
+      cwd: REPO_ROOT,
+      timeoutMs: 120_000,
+    });
     if (result.exitCode !== 0) return { ok: false, error: result.stderr.slice(0, 1000) };
-    return { ok: true, value: [...new Set(result.stdout.split("\0").filter((path) => path.length > 0))], by: "container" };
+    return {
+      ok: true,
+      value: [...new Set(result.stdout.split("\0").filter((path) => path.length > 0))],
+      by: "container",
+    };
   }
 
   async #restore(repo: Repo, ref: string, fallbackToHead: boolean): Promise<CheckpointAnswer> {
@@ -1537,7 +1948,11 @@ export class WorkspaceDO extends ContainerHost {
   // the project has by a git bundle, read straight from the project's object.
 
   /** Step 1, in the worktree's object: a fresh clone without checkout (or `git init` with no remote); answers its tips. */
-  async worktreeClone(input: { readonly id: string; readonly url: string | null; readonly parent?: string }): Promise<{ readonly ok: boolean; readonly tips: ReadonlyArray<string>; readonly error?: string }> {
+  async worktreeClone(input: {
+    readonly id: string;
+    readonly url: string | null;
+    readonly parent?: string;
+  }): Promise<{ readonly ok: boolean; readonly tips: ReadonlyArray<string>; readonly error?: string }> {
     this.#revive();
     this.#rememberId(input.id);
     // A Container left by an earlier attempt starts again: its submodules' directories are mounts that the clone's
@@ -1545,7 +1960,12 @@ export class WorkspaceDO extends ContainerHost {
     if (this.containerRunning()) await this.stopContainer().catch(() => undefined);
     // The project's submodules, so the Container this clone starts keeps them local from the first command (t3 runs
     // `git submodule update` right after the checkout).
-    const projectModules = input.parent === undefined ? null : await this.#peer(input.parent).readText(`${REPO_ROOT}/.gitmodules`).catch(() => null);
+    const projectModules =
+      input.parent === undefined
+        ? null
+        : await this.#peer(input.parent)
+            .readText(`${REPO_ROOT}/.gitmodules`)
+            .catch(() => null);
     this.ctx.storage.kv.put(SUBMODULE_HINT_KEY, projectModules === null ? [] : submodulePaths(projectModules));
     const script = worktreeCloneScript({
       repo: REPO_ROOT,
@@ -1568,7 +1988,17 @@ export class WorkspaceDO extends ContainerHost {
    * clone's actual tips that this repo has (review F7: not `--not --remotes`, which trusts stale remote-tracking refs).
    * No bundle when the clone already has the commit. Also `ref`'s `branch.<ref>.*` config.
    */
-  async worktreeBundle(input: { readonly ref: string; readonly tips: ReadonlyArray<string>; readonly name: string }): Promise<{ readonly ok: boolean; readonly commit?: string; readonly bundle?: string | null; readonly config?: ReadonlyArray<string>; readonly error?: string }> {
+  async worktreeBundle(input: {
+    readonly ref: string;
+    readonly tips: ReadonlyArray<string>;
+    readonly name: string;
+  }): Promise<{
+    readonly ok: boolean;
+    readonly commit?: string;
+    readonly bundle?: string | null;
+    readonly config?: ReadonlyArray<string>;
+    readonly error?: string;
+  }> {
     this.#alive();
     const bundle = `${HARNESS_ROOT}/tmp/wt-${input.name.replace(/[^A-Za-z0-9-]/g, "")}.bundle`;
     const script = worktreeBundleScript({ ref: input.ref, tips: input.tips, bundle });
@@ -1584,7 +2014,11 @@ export class WorkspaceDO extends ContainerHost {
   }
 
   /** A slice of one of this object's own files (another Workspace DO copies a bundle with it). */
-  async readChunk(path: string, offset: number, length: number): Promise<{ readonly bytes: Uint8Array; readonly done: boolean } | { readonly error: string }> {
+  async readChunk(
+    path: string,
+    offset: number,
+    length: number,
+  ): Promise<{ readonly bytes: Uint8Array; readonly done: boolean } | { readonly error: string }> {
     this.#alive();
     await this.#ready();
     const answer = await fileOps(this.#workspace).read(path, { offset, length });
@@ -1616,7 +2050,13 @@ export class WorkspaceDO extends ContainerHost {
    * Step 3, in the worktree's object: copy the project's bundle (object to object, never through the Environment), fetch
    * it, check `ref` out at `commit`, copy `branch.<ref>.*`, and check HEAD.
    */
-  async worktreeFinish(input: { readonly parent: string; readonly bundle: string | null; readonly ref: string; readonly commit: string; readonly config: ReadonlyArray<string> }): Promise<{ readonly ok: boolean; readonly head?: string; readonly error?: string }> {
+  async worktreeFinish(input: {
+    readonly parent: string;
+    readonly bundle: string | null;
+    readonly ref: string;
+    readonly commit: string;
+    readonly config: ReadonlyArray<string>;
+  }): Promise<{ readonly ok: boolean; readonly head?: string; readonly error?: string }> {
     await this.#ready();
     let local: string | null = null;
     if (input.bundle !== null) {
@@ -1644,10 +2084,15 @@ export class WorkspaceDO extends ContainerHost {
    * from its own files (never the Container; the Container-only paths are not here at all), up to `maxFiles` and
    * `maxBytes`. Tracked files are not in it: a worktree has them at its own commit.
    */
-  async projectRootFiles(input: { readonly maxFiles: number; readonly maxBytes: number }): Promise<{ readonly files: ReadonlyArray<{ readonly path: string; readonly size: number }>; readonly capped: boolean }> {
+  async projectRootFiles(input: { readonly maxFiles: number; readonly maxBytes: number }): Promise<{
+    readonly files: ReadonlyArray<{ readonly path: string; readonly size: number }>;
+    readonly capped: boolean;
+  }> {
     this.#alive();
     const repo = await this.#repo();
-    const tracked = new Set(await git.listFiles({ fs: repo.fs, dir: repo.dir, cache: repo.cache }).catch(() => [] as Array<string>));
+    const tracked = new Set(
+      await git.listFiles({ fs: repo.fs, dir: repo.dir, cache: repo.cache }).catch(() => [] as Array<string>),
+    );
     const found = await fileOps(this.#workspace).find(REPO_ROOT, undefined, 50_000);
     if (!("ok" in found)) return { files: [], capped: false };
     const files: Array<{ path: string; size: number }> = [];
@@ -1670,19 +2115,44 @@ export class WorkspaceDO extends ContainerHost {
   }
 
   /** Copies the project's untracked files into this worktree's project-root view (step 2b), object to object. */
-  async seedProjectRoot(input: { readonly parent: string }): Promise<{ readonly files: number; readonly bytes: number; readonly capped: boolean; readonly names: ReadonlyArray<string> }> {
+  async seedProjectRoot(input: { readonly parent: string }): Promise<{
+    readonly files: number;
+    readonly bytes: number;
+    readonly capped: boolean;
+    readonly names: ReadonlyArray<string>;
+  }> {
     this.#alive();
     await this.#ready();
     const ops = fileOps(this.#workspace);
-    const listed = await this.#peer(input.parent).projectRootFiles({ maxFiles: PROJECT_ROOT_MAX_FILES, maxBytes: PROJECT_ROOT_MAX_BYTES });
+    const listed = await this.#peer(input.parent).projectRootFiles({
+      maxFiles: PROJECT_ROOT_MAX_FILES,
+      maxBytes: PROJECT_ROOT_MAX_BYTES,
+    });
     await ops.remove(PROJECT_ROOT_VIEW, { recursive: true, force: true });
     await ops.mkdir(PROJECT_ROOT_VIEW, true);
     let bytes = 0;
     for (const file of listed.files) {
-      if ((await this.#copyFrom(input.parent, `${REPO_ROOT}/${file.path}`, `${PROJECT_ROOT_VIEW}/${file.path}`)) === undefined) bytes += file.size;
+      if (
+        (await this.#copyFrom(input.parent, `${REPO_ROOT}/${file.path}`, `${PROJECT_ROOT_VIEW}/${file.path}`)) ===
+        undefined
+      )
+        bytes += file.size;
     }
-    if (listed.capped) console.warn(JSON.stringify({ t3flare: "project-root-view-capped", files: listed.files.length, maxFiles: PROJECT_ROOT_MAX_FILES, maxBytes: PROJECT_ROOT_MAX_BYTES }));
-    return { files: listed.files.length, bytes, capped: listed.capped, names: listed.files.slice(0, 20).map((file) => file.path) };
+    if (listed.capped)
+      console.warn(
+        JSON.stringify({
+          t3flare: "project-root-view-capped",
+          files: listed.files.length,
+          maxFiles: PROJECT_ROOT_MAX_FILES,
+          maxBytes: PROJECT_ROOT_MAX_BYTES,
+        }),
+      );
+    return {
+      files: listed.files.length,
+      bytes,
+      capped: listed.capped,
+      names: listed.files.slice(0, 20).map((file) => file.path),
+    };
   }
 
   /** HEAD and its branch from this object's own files (isomorphic-git), never starting the Container (`worktree list`). */
@@ -1725,7 +2195,10 @@ export class WorkspaceDO extends ContainerHost {
   async closeContainer(): Promise<{ readonly stopped: true }> {
     // The last writes come in while a start may still adopt the Container: once closed, a pull that needs one is refused.
     await this.#terminalSync.pullNow().catch(() => undefined);
-    if (!(await this.#gate.close())) console.warn(JSON.stringify({ t3flare: "container-close-start-pending", workspace: this.#workspaceId() ?? null }));
+    if (!(await this.#gate.close()))
+      console.warn(
+        JSON.stringify({ t3flare: "container-close-start-pending", workspace: this.#workspaceId() ?? null }),
+      );
     try {
       await this.stopContainer();
     } catch (error) {
@@ -1756,12 +2229,16 @@ export class WorkspaceDO extends ContainerHost {
     this.#processes.containerStopped();
     await this.#terminals.settled().catch(() => undefined);
     if (this.ctx.container?.running === true) await this.ctx.container.destroy().catch(() => undefined);
-    await this.#budget().release(this.ctx.id.toString()).catch(() => undefined);
+    await this.#budget()
+      .release(this.ctx.id.toString())
+      .catch(() => undefined);
     await this.ctx.storage.deleteAlarm();
     await this.ctx.storage.deleteAll();
     this.ctx.storage.kv.put(DESTROYED_KEY, Date.now());
     await this.ctx.storage.sync();
-    console.log(JSON.stringify({ t3flare: "workspace-destroyed", workspace: this.ctx.id.name ?? this.ctx.id.toString() }));
+    console.log(
+      JSON.stringify({ t3flare: "workspace-destroyed", workspace: this.ctx.id.name ?? this.ctx.id.toString() }),
+    );
     setTimeout(() => this.ctx.abort("t3flare: workspace destroyed"), 0);
     return { destroyed: true };
   }
@@ -1769,41 +2246,84 @@ export class WorkspaceDO extends ContainerHost {
   /** The project's ref tips (its Container), for what a removed worktree must carry home. */
   async refTips(): Promise<{ readonly ok: boolean; readonly tips: ReadonlyArray<string>; readonly error?: string }> {
     this.#alive();
-    const result = await this.exec({ script: "git for-each-ref --format='%(objectname)' | sort -u", cwd: REPO_ROOT, timeoutMs: 120_000 });
+    const result = await this.exec({
+      script: "git for-each-ref --format='%(objectname)' | sort -u",
+      cwd: REPO_ROOT,
+      timeoutMs: 120_000,
+    });
     if (result.exitCode !== 0) return { ok: false, tips: [], error: result.stderr.slice(-500) };
     return { ok: true, tips: parseTips(`TIPS\n${result.stdout}`) };
   }
 
   /** In a worktree being removed: whether it is dirty, and a bundle of the refs its project cannot reach (F8). */
-  async carryOut(input: { readonly projectTips: ReadonlyArray<string> }): Promise<{ readonly ok: boolean; readonly dirty: boolean; readonly carried: ReadonlyArray<{ readonly ref: string; readonly sha: string }>; readonly bundle: string | null; readonly error?: string }> {
+  async carryOut(input: { readonly projectTips: ReadonlyArray<string> }): Promise<{
+    readonly ok: boolean;
+    readonly dirty: boolean;
+    readonly carried: ReadonlyArray<{ readonly ref: string; readonly sha: string }>;
+    readonly bundle: string | null;
+    readonly error?: string;
+  }> {
     this.#alive();
     const bundle = `${HARNESS_ROOT}/tmp/carry.bundle`;
-    const result = await this.exec({ script: carryOutScript({ projectTips: input.projectTips, bundle }), cwd: REPO_ROOT, timeoutMs: 10 * 60_000 });
-    if (result.exitCode !== 0) return { ok: false, dirty: true, carried: [], bundle: null, error: result.stderr.slice(-500) };
+    const result = await this.exec({
+      script: carryOutScript({ projectTips: input.projectTips, bundle }),
+      cwd: REPO_ROOT,
+      timeoutMs: 10 * 60_000,
+    });
+    if (result.exitCode !== 0)
+      return { ok: false, dirty: true, carried: [], bundle: null, error: result.stderr.slice(-500) };
     const answer = parseCarryOut(result.stdout);
     return { ok: true, dirty: answer.dirty, carried: answer.carried, bundle: answer.bundled ? bundle : null };
   }
 
   /** In the project: fetch a removed worktree's carried refs from its bundle (object to object) and give each a home. */
-  async carryIn(input: { readonly worktree: string; readonly bundle: string; readonly dir: string; readonly carried: ReadonlyArray<{ readonly ref: string; readonly sha: string }> }): Promise<{ readonly ok: boolean; readonly lines: ReadonlyArray<string>; readonly error?: string }> {
+  async carryIn(input: {
+    readonly worktree: string;
+    readonly bundle: string;
+    readonly dir: string;
+    readonly carried: ReadonlyArray<{ readonly ref: string; readonly sha: string }>;
+  }): Promise<{ readonly ok: boolean; readonly lines: ReadonlyArray<string>; readonly error?: string }> {
     this.#alive();
     await this.#ready();
     const local = `${HARNESS_ROOT}/tmp/carry-in.bundle`;
     const copied = await this.#copyFrom(input.worktree, input.bundle, local);
-    if (copied !== undefined) return { ok: false, lines: [], error: `the worktree's bundle could not be copied: ${copied}` };
-    const result = await this.exec({ script: carryInScript({ bundle: local, dir: input.dir, carried: input.carried }), cwd: REPO_ROOT, timeoutMs: 10 * 60_000 });
+    if (copied !== undefined)
+      return { ok: false, lines: [], error: `the worktree's bundle could not be copied: ${copied}` };
+    const result = await this.exec({
+      script: carryInScript({ bundle: local, dir: input.dir, carried: input.carried }),
+      cwd: REPO_ROOT,
+      timeoutMs: 10 * 60_000,
+    });
     const lines = result.stdout.split("\n").filter((line) => /^(CREATED|FASTFORWARD|KEPT) /.test(line));
     if (result.exitCode !== 0) return { ok: false, lines, error: result.stderr.slice(-500) };
     return { ok: true, lines };
   }
 
   async info(): Promise<ProvisionInfo> {
-    if (this.#isDestroyed()) return { provisioned: false, repo: false, containerRunning: this.containerRunning(), revision: 0, gitRevision: 0, cachedReads: 0, id: null, destroyed: true };
+    if (this.#isDestroyed())
+      return {
+        provisioned: false,
+        repo: false,
+        containerRunning: this.containerRunning(),
+        revision: 0,
+        gitRevision: 0,
+        cachedReads: 0,
+        id: null,
+        destroyed: true,
+      };
     await this.#ready();
     const ops = fileOps(this.#workspace);
     const repo = "ok" in (await ops.stat(REPO_ROOT));
     const git = "ok" in (await ops.stat(`${REPO_ROOT}/.git`));
-    return { provisioned: repo, repo: git, containerRunning: this.containerRunning(), revision: this.#reads.revision(), gitRevision: this.#reads.revision("git-dir"), cachedReads: this.#reads.stats().rows, id: this.#workspaceId() ?? null };
+    return {
+      provisioned: repo,
+      repo: git,
+      containerRunning: this.containerRunning(),
+      revision: this.#reads.revision(),
+      gitRevision: this.#reads.revision("git-dir"),
+      cachedReads: this.#reads.stats().rows,
+      id: this.#workspaceId() ?? null,
+    };
   }
 
   // -------------------------------------------------------------------------------------------------------------------
@@ -1850,8 +2370,20 @@ export class WorkspaceDO extends ContainerHost {
   }
 
   /** Diagnosis: the open terminals, the sync's counts, the last input, the output batches pushed. */
-  terminalState(): { readonly epoch: string; readonly keys: ReadonlyArray<string>; readonly lastInput: number; readonly pushes: number; readonly sync: Readonly<Record<string, number>> } {
-    return { epoch: this.#epoch, keys: this.#terminals.keys(), lastInput: this.#terminals.lastInput, pushes: this.#terminals.pushes, sync: { ...this.#terminalSync.stats } };
+  terminalState(): {
+    readonly epoch: string;
+    readonly keys: ReadonlyArray<string>;
+    readonly lastInput: number;
+    readonly pushes: number;
+    readonly sync: Readonly<Record<string, number>>;
+  } {
+    return {
+      epoch: this.#epoch,
+      keys: this.#terminals.keys(),
+      lastInput: this.#terminals.lastInput,
+      pushes: this.#terminals.pushes,
+      sync: { ...this.#terminalSync.stats },
+    };
   }
 
   /**
@@ -1936,7 +2468,11 @@ export class WorkspaceDO extends ContainerHost {
   }
 
   /** Diagnosis: the live CLI processes and this object's boot counter. */
-  processState(): { readonly epoch: number; readonly processes: ReturnType<ProcessHost["state"]>; readonly pushes: number } {
+  processState(): {
+    readonly epoch: number;
+    readonly processes: ReturnType<ProcessHost["state"]>;
+    readonly pushes: number;
+  } {
     return { epoch: this.#boot, processes: this.#processes.state(), pushes: this.#processes.pushes };
   }
 
@@ -1945,7 +2481,8 @@ export class WorkspaceDO extends ContainerHost {
     // A Builder holding a lease (`builderInBudget`) gives it back when its build ends, never to a reclaim.
     if (this.#isBuilder()) return "the Builder";
     if (!this.containerRunning()) return "not running";
-    const busy = this.#running > 0 || this.#terminalsHold() || this.#processes.reclaimable().length < this.#processes.size;
+    const busy =
+      this.#running > 0 || this.#terminalsHold() || this.#processes.reclaimable().length < this.#processes.size;
     if (busy) return "in use";
     const lastUse = (await this.ctx.storage.get<number>(LAST_USE_KEY)) ?? 0;
     if (this.#processes.size === 0 && Date.now() - lastUse < 30_000) return "used in the last 30 s";
@@ -1971,7 +2508,14 @@ export class WorkspaceDO extends ContainerHost {
     const why = await this.#notReclaimable();
     if (why !== undefined) return { released: false, reason: why };
     const reclaimable = this.#processes.reclaimable();
-    console.log(JSON.stringify({ t3flare: "container-released-for-budget", workspace: this.#workspaceId() ?? null, processes: reclaimable.length, ...(await this.#usage()) }));
+    console.log(
+      JSON.stringify({
+        t3flare: "container-released-for-budget",
+        workspace: this.#workspaceId() ?? null,
+        processes: reclaimable.length,
+        ...(await this.#usage()),
+      }),
+    );
     await this.stopContainer();
     return { released: true, reason: "idle" };
   }
@@ -1984,7 +2528,12 @@ export class WorkspaceDO extends ContainerHost {
    */
   #someoneWorks(): boolean {
     const cap = this.#terminalIdleMs();
-    const lastInput = Math.max(this.#terminals.lastInput, this.#agentHost.lastInput, this.#processes.lastInput, this.#lastCommandAt);
+    const lastInput = Math.max(
+      this.#terminals.lastInput,
+      this.#agentHost.lastInput,
+      this.#processes.lastInput,
+      this.#lastCommandAt,
+    );
     return this.#running > 0 || Date.now() - lastInput < cap || this.#processes.holdsContainer(cap);
   }
 
@@ -1997,7 +2546,8 @@ export class WorkspaceDO extends ContainerHost {
    * Worker's `ContainerPreviews` entrypoint for this Workspace (`containerPreview.ts`). Never starts the Container.
    */
   containerPreview(request: Request, port: number): Promise<Response> {
-    if (this.#isDestroyed()) return Promise.resolve(new Response("t3flare: this Workspace was deleted", { status: 410 }));
+    if (this.#isDestroyed())
+      return Promise.resolve(new Response("t3flare: this Workspace was deleted", { status: 410 }));
     return this.#preview.serve(request, port);
   }
 
@@ -2015,12 +2565,20 @@ export class WorkspaceDO extends ContainerHost {
    * The Settings page's Files column (ADR-0044 §1): this object's own storage and whether its Container runs. Never
    * starts the Container and is not use; a destroyed Workspace answers zeros. A running Container's disk is not counted.
    */
-  async usage(): Promise<{ readonly bytes: number; readonly containerRunning: boolean; readonly startedFrom?: "base" | "image" }> {
+  async usage(): Promise<{
+    readonly bytes: number;
+    readonly containerRunning: boolean;
+    readonly startedFrom?: "base" | "image";
+  }> {
     if (this.#isDestroyed()) return { bytes: 0, containerRunning: false };
     if (!this.containerRunning()) return { bytes: this.ctx.storage.sql.databaseSize, containerRunning: false };
     // What the running Container started from (SPI-1333): the Base snapshot or the Workspace image.
     const from = this.ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY)?.from;
-    return { bytes: this.ctx.storage.sql.databaseSize, containerRunning: true, startedFrom: baseIdOf(from) === undefined ? "image" : "base" };
+    return {
+      bytes: this.ctx.storage.sql.databaseSize,
+      containerRunning: true,
+      startedFrom: baseIdOf(from) === undefined ? "image" : "base",
+    };
   }
 
   /** G11: stops process group `pgid` (stock's TERM, then KILL after 3 s); false when it was gone or nothing runs. */
@@ -2106,7 +2664,15 @@ export class WorkspaceDO extends ContainerHost {
       // CLI processes end first (they flush their session files), then the writes not yet pulled come into the DO.
       const stopped = await this.#processes.stopAll().catch(() => 0);
       const pulled = await this.#terminalSync.pullNow().catch(() => -1);
-      if (stopped > 0) console.log(JSON.stringify({ t3flare: "container-stop-cli", workspace: this.#workspaceId() ?? null, processes: stopped, pulled }));
+      if (stopped > 0)
+        console.log(
+          JSON.stringify({
+            t3flare: "container-stop-cli",
+            workspace: this.#workspaceId() ?? null,
+            processes: stopped,
+            pulled,
+          }),
+        );
       await this.ctx.container.destroy();
     }
     this.#terminals.containerStopped();
@@ -2123,14 +2689,22 @@ export class WorkspaceDO extends ContainerHost {
   }
 
   /** The stopping Container's memory peak and CPU time from its cgroup, and how long it ran (cost audit F2). */
-  async #usage(): Promise<{ readonly memoryPeakBytes: number | null; readonly cpuUsageUsec: number | null; readonly ranMs: number | null }> {
+  async #usage(): Promise<{
+    readonly memoryPeakBytes: number | null;
+    readonly cpuUsageUsec: number | null;
+    readonly ranMs: number | null;
+  }> {
     const startedAt = await this.ctx.storage.get<number>(STARTED_AT_KEY);
     const read = await this.exec({ script: USAGE_SCRIPT, passive: true, timeoutMs: 10_000 }).catch(() => undefined);
     const number = (pattern: RegExp) => {
       const match = read === undefined ? null : pattern.exec(read.stdout);
       return match === null ? null : Number(match[1]);
     };
-    return { memoryPeakBytes: number(/^peak (\d+)$/m), cpuUsageUsec: number(/^usage_usec (\d+)$/m), ranMs: startedAt === undefined ? null : Date.now() - startedAt };
+    return {
+      memoryPeakBytes: number(/^peak (\d+)$/m),
+      cpuUsageUsec: number(/^usage_usec (\d+)$/m),
+      ranMs: startedAt === undefined ? null : Date.now() - startedAt,
+    };
   }
 
   /** Idle stop and the budget lease's renewal: the object's one alarm. */
@@ -2156,13 +2730,16 @@ export class WorkspaceDO extends ContainerHost {
     // Terminals hold the Container until their last input is older than the hold (review F10: output is not use).
     const held = this.#terminalsHold() || this.#processes.holdsContainer() || this.#previewHold();
     if (this.#running === 0 && !held && Date.now() - lastUse >= this.#idleMs()) {
-      console.log(JSON.stringify({ t3flare: "container-idle-stop", workspace: this.ctx.id.toString(), ...(await this.#usage()) }));
+      console.log(
+        JSON.stringify({ t3flare: "container-idle-stop", workspace: this.ctx.id.toString(), ...(await this.#usage()) }),
+      );
       await this.stopContainer();
       return;
     }
     // A step whose exec failed, or that never ran (only passive reads connected), runs here, not awaited, whoever
     // calls next (ADR-0032's Global mise config refinement, ADR-0047 §7).
-    if (this.#steps.catchUp(this.#runtime)) console.log(JSON.stringify({ t3flare: "container-steps-catch-up", workspace: this.#workspaceId() ?? null }));
+    if (this.#steps.catchUp(this.#runtime))
+      console.log(JSON.stringify({ t3flare: "container-steps-catch-up", workspace: this.#workspaceId() ?? null }));
     const renewed = await this.#budget().renew(this.ctx.id.toString());
     if (!renewed.ok) console.warn(JSON.stringify({ t3flare: "container-lease-lost", reason: renewed.reason }));
     await this.#scheduleAlarm();
@@ -2201,11 +2778,23 @@ export class WorkspaceDO extends ContainerHost {
    * names a live process of this Workspace (revoked at its exit); the Environment DO decides by that process's thread's
    * own mode and calls. Never logs the handle.
    */
-  async mcpRelay(input: { readonly handle: string | null; readonly server: string; readonly message: unknown; readonly askId: string }): Promise<McpRelayAnswer> {
+  async mcpRelay(input: {
+    readonly handle: string | null;
+    readonly server: string;
+    readonly message: unknown;
+    readonly askId: string;
+  }): Promise<McpRelayAnswer> {
     const caller = this.#processes.toolCaller(input.handle);
     const workspace = this.#workspaceId() ?? null;
     if (caller === null || caller.thread === null || workspace === null) {
-      console.warn(JSON.stringify({ t3flare: "mcp-relay-refused", workspace, server: input.server, why: caller === null ? "unknown or revoked handle" : "no thread" }));
+      console.warn(
+        JSON.stringify({
+          t3flare: "mcp-relay-refused",
+          workspace,
+          server: input.server,
+          why: caller === null ? "unknown or revoked handle" : "no thread",
+        }),
+      );
       return { kind: "refused", status: 401, message: "unknown tool handle (a handle ends with its process)" };
     }
     return environmentStub(this.env.ENVIRONMENT).mcpRelay({
@@ -2239,7 +2828,6 @@ export class WorkspaceDO extends ContainerHost {
     });
   }
 
-
   /**
    * The credential helper's request (ADR-0013): the Workspace's one-repo token (`contents: write`; `workflows` only for
    * an opted-in Workspace), only for the current helper (`v=2`) asking about `https://github.com` (an older helper in a
@@ -2249,21 +2837,39 @@ export class WorkspaceDO extends ContainerHost {
     const id = this.#workspaceId();
     if (id === undefined) return new Response("", { status: 404 });
     const params = url.searchParams;
-    if (params.get("v") !== CREDENTIAL_HELPER_VERSION || params.get("protocol") !== "https" || params.get("host") !== "github.com") {
-      console.warn(JSON.stringify({ t3flare: "git-credential-refused", workspace: id, why: "not the current helper, or not https://github.com" }));
+    if (
+      params.get("v") !== CREDENTIAL_HELPER_VERSION ||
+      params.get("protocol") !== "https" ||
+      params.get("host") !== "github.com"
+    ) {
+      console.warn(
+        JSON.stringify({
+          t3flare: "git-credential-refused",
+          workspace: id,
+          why: "not the current helper, or not https://github.com",
+        }),
+      );
       return new Response("", { status: 403, headers: { "cache-control": "no-store" } });
     }
     try {
       if (this.#token === undefined || this.#token.expiresAt - Date.now() < TOKEN_RENEW_MS) {
         const minted = await environmentStub(this.env.ENVIRONMENT).workspaceToken(id);
-        this.#token = minted.token === null ? undefined : { token: minted.token, expiresAt: minted.expiresAt ?? Date.now() + 30 * 60_000 };
+        this.#token =
+          minted.token === null
+            ? undefined
+            : { token: minted.token, expiresAt: minted.expiresAt ?? Date.now() + 30 * 60_000 };
         if (minted.token !== null) await this.#rememberToken(minted.token);
       }
       const token = this.#token?.token ?? null;
       console.log(JSON.stringify({ t3flare: "git-credential", workspace: id, granted: token !== null }));
-      return new Response(token ?? "", { status: token === null ? 404 : 200, headers: { "cache-control": "no-store" } });
+      return new Response(token ?? "", {
+        status: token === null ? 404 : 200,
+        headers: { "cache-control": "no-store" },
+      });
     } catch (error) {
-      console.warn(JSON.stringify({ t3flare: "git-credential-failed", workspace: id, error: String(error).slice(0, 300) }));
+      console.warn(
+        JSON.stringify({ t3flare: "git-credential-failed", workspace: id, error: String(error).slice(0, 300) }),
+      );
       return new Response("", { status: 503 });
     }
   }
@@ -2315,8 +2921,14 @@ export class WorkspaceDO extends ContainerHost {
    */
   #becomeBuilder(kind: BuilderKind = "base"): BaseBuild {
     const name = this.ctx.id.name;
-    if (name !== undefined && name !== BUILDERS[kind]) throw new Error(kind === "base" ? "t3flare: only the Builder runs a Base build" : "t3flare: only the test Builder runs a Test base build");
-    if (this.ctx.storage.kv.get<string>(WORKSPACE_ID_KEY) !== undefined) throw new Error("t3flare: a Workspace is never the Builder");
+    if (name !== undefined && name !== BUILDERS[kind])
+      throw new Error(
+        kind === "base"
+          ? "t3flare: only the Builder runs a Base build"
+          : "t3flare: only the test Builder runs a Test base build",
+      );
+    if (this.ctx.storage.kv.get<string>(WORKSPACE_ID_KEY) !== undefined)
+      throw new Error("t3flare: a Workspace is never the Builder");
     const marked = builderKindOf(undefined, this.ctx.storage.kv.get<unknown>(BUILDER_MARK_KEY));
     if (marked !== undefined && marked !== kind) throw new Error("t3flare: this object is the other Builder");
     if (marked === undefined) this.ctx.storage.kv.put(BUILDER_MARK_KEY, builderMark(kind));
@@ -2343,7 +2955,12 @@ export class WorkspaceDO extends ContainerHost {
         waitUntil: (promise) => this.ctx.waitUntil(promise),
         report: (record) => {
           const environment = environmentStub(this.env.ENVIRONMENT);
-          this.ctx.waitUntil((test ? environment.noteTestBaseBuild(record) : environment.noteBaseBuild(record)).then(() => undefined, () => undefined));
+          this.ctx.waitUntil(
+            (test ? environment.noteTestBaseBuild(record) : environment.noteBaseBuild(record)).then(
+              () => undefined,
+              () => undefined,
+            ),
+          );
         },
         lease: {
           acquire: async (budget) => await this.#budget().acquire(this.ctx.id.toString(), budget),
@@ -2392,15 +3009,22 @@ export class WorkspaceDO extends ContainerHost {
    * A Workspace's start (SPI-1333): it found no Base snapshot for its key (`missing`), or the platform refused the one
    * it started from (`refused`, gone: built again).
    */
-  async builderReport(input: { readonly kind: "missing" } | { readonly kind: "refused"; readonly id: string }): Promise<BaseBuildRecord> {
+  async builderReport(
+    input: { readonly kind: "missing" } | { readonly kind: "refused"; readonly id: string },
+  ): Promise<BaseBuildRecord> {
     const builder = this.#becomeBuilder();
-    return input.kind === "refused" ? builder.refused(String(input.id), "a start from the Base snapshot failed") : builder.missing("a start found no Base snapshot for its settings");
+    return input.kind === "refused"
+      ? builder.refused(String(input.id), "a start from the Base snapshot failed")
+      : builder.missing("a start found no Base snapshot for its settings");
   }
 
   /** Points the repo's git credentials at `CREDENTIAL_HELPER` (repos cloned before it existed). */
   async ensureCredentialHelper(id?: string): Promise<ExecResult> {
     this.#alive();
     this.#rememberId(id);
-    return this.exec({ script: `git config credential.helper ${shellWord(CREDENTIAL_HELPER)} && git config --get credential.helper`, cwd: REPO_ROOT });
+    return this.exec({
+      script: `git config credential.helper ${shellWord(CREDENTIAL_HELPER)} && git config --get credential.helper`,
+      cwd: REPO_ROOT,
+    });
   }
 }

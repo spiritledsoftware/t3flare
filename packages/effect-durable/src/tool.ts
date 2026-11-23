@@ -2,11 +2,7 @@
 // typed failures as error results.
 import type { JsonValue } from "@earendil-works/chord";
 import type * as Chord from "@earendil-works/chord/context";
-import type {
-  ToolExecutionApi,
-  ToolExecutionResult,
-  ToolRegistration,
-} from "@earendil-works/pi-durable";
+import type { ToolExecutionApi, ToolExecutionResult, ToolRegistration } from "@earendil-works/pi-durable";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Record from "effect/Record";
@@ -67,8 +63,7 @@ const SNAKE_CASE = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/;
 const MCP_TOOL_NAME = /^mcp__[a-z0-9_]+__[a-z0-9]+(?:_[a-z0-9]+)*$/;
 
 /** Whether `name` may be a model-facing tool name: snake_case, or an MCP tool's `mcp__<server>__<tool>`. */
-export const isToolName = (name: string): boolean =>
-  SNAKE_CASE.test(name) || MCP_TOOL_NAME.test(name);
+export const isToolName = (name: string): boolean => SNAKE_CASE.test(name) || MCP_TOOL_NAME.test(name);
 
 /** Arguments the parameters do not model are rejected, by the JSON Schema and by the decoder alike. */
 const STRICT = { onExcessProperty: "error" } as const;
@@ -97,9 +92,7 @@ const jsonSchema = <Fields extends Schema.Struct.Fields>(
   }
 
   return Effect.succeed(
-    Record.isEmptyRecord(document.definitions)
-      ? document.schema
-      : { ...document.schema, $defs: document.definitions },
+    Record.isEmptyRecord(document.definitions) ? document.schema : { ...document.schema, $defs: document.definitions },
   );
 };
 
@@ -128,16 +121,10 @@ export const defineEffectTool = <
   TDetails extends JsonValue = JsonValue,
 >(
   tool: EffectToolDefinition<Fields, TDetails, E, R>,
-): Effect.Effect<
-  ToolRegistration<object, TDetails>,
-  never,
-  R | Schema.Struct<Fields>["DecodingServices"]
-> =>
+): Effect.Effect<ToolRegistration<object, TDetails>, never, R | Schema.Struct<Fields>["DecodingServices"]> =>
   Effect.gen(function* () {
     if (!isToolName(tool.name)) {
-      return yield* Effect.die(
-        new Error(`Tool name ${tool.name} is not snake_case or an MCP tool name`),
-      );
+      return yield* Effect.die(new Error(`Tool name ${tool.name} is not snake_case or an MCP tool name`));
     }
 
     const invoke = invoker(yield* Effect.context<R | Schema.Struct<Fields>["DecodingServices"]>());

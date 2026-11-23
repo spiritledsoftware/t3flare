@@ -24,8 +24,11 @@ const headers = {
 
 const profile = process.env.ALCHEMY_PROFILE ?? "default";
 const credentials = (() => {
-  if (process.env.CLOUDFLARE_API_TOKEN) return { token: process.env.CLOUDFLARE_API_TOKEN, accountId: process.env.CLOUDFLARE_ACCOUNT_ID };
-  const stored = JSON.parse(fs.readFileSync(path.join(os.homedir(), ".alchemy/profiles", profile, "cloudflare.json"), "utf8")).values;
+  if (process.env.CLOUDFLARE_API_TOKEN)
+    return { token: process.env.CLOUDFLARE_API_TOKEN, accountId: process.env.CLOUDFLARE_ACCOUNT_ID };
+  const stored = JSON.parse(
+    fs.readFileSync(path.join(os.homedir(), ".alchemy/profiles", profile, "cloudflare.json"), "utf8"),
+  ).values;
   return { token: stored.access as string, accountId: stored.accountId as string };
 })();
 

@@ -65,7 +65,8 @@ const HOLD_PREFIX = "publish:";
 
 const STATUS = /\bstatus(?:Code)?\D{0,3}([1-5]\d\d)\b/i;
 const BARE_STATUS = /\b(40[0-9]|429|5\d\d)\b/;
-const ERROR_TAG = /\b((?:Relay|HttpClient|HttpApiClient|Timeout|StatusCode|Transport|Response|Request)[A-Za-z]*Error)\b/;
+const ERROR_TAG =
+  /\b((?:Relay|HttpClient|HttpApiClient|Timeout|StatusCode|Transport|Response|Request)[A-Za-z]*Error)\b/;
 
 /**
  * The relay's publish errors and the HTTP status each is declared with (`RelayAgentActivityPublishErrors`,
@@ -81,10 +82,13 @@ const RELAY_ERROR_STATUS: Record<string, number> = {
 const failureOf = (cause: unknown): Pick<PublishEntry, "status" | "errorTag" | "rejected"> => {
   const text = typeof cause === "string" ? cause : "";
   const errorTag = ERROR_TAG.exec(text)?.[1];
-  const status = (errorTag === undefined ? undefined : RELAY_ERROR_STATUS[errorTag]) ?? (Number((STATUS.exec(text) ?? BARE_STATUS.exec(text))?.[1]) || undefined);
+  const status =
+    (errorTag === undefined ? undefined : RELAY_ERROR_STATUS[errorTag]) ??
+    (Number((STATUS.exec(text) ?? BARE_STATUS.exec(text))?.[1]) || undefined);
   // Refused credential (the link removed or revoked), not a proof the relay found stale: only the auth error, or a
   // bare 401/403 whose error is not named.
-  const rejected = errorTag === "RelayAuthInvalidError" || (errorTag === undefined && (status === 401 || status === 403));
+  const rejected =
+    errorTag === "RelayAuthInvalidError" || (errorTag === undefined && (status === 401 || status === 403));
   return { ...(status === undefined ? {} : { status }), ...(errorTag === undefined ? {} : { errorTag }), rejected };
 };
 
@@ -138,8 +142,12 @@ export const makePublishRecorder = (store: PublishStore): PublishRecorder => {
     const parsed = entryOf(message, date);
     if (parsed === undefined) return;
     // The relay's answer names no phase: it answers the thread's latest publish.
-    const publishing = parsed.event === "completed" || parsed.event === "failed" ? entries.findLast((e) => e.threadId === parsed.threadId && e.event === "publishing") : undefined;
-    const entry: PublishEntry = publishing?.phase === undefined || parsed.phase !== undefined ? parsed : { ...parsed, phase: publishing.phase };
+    const publishing =
+      parsed.event === "completed" || parsed.event === "failed"
+        ? entries.findLast((e) => e.threadId === parsed.threadId && e.event === "publishing")
+        : undefined;
+    const entry: PublishEntry =
+      publishing?.phase === undefined || parsed.phase !== undefined ? parsed : { ...parsed, phase: publishing.phase };
     entries.push(entry);
     if (entries.length > KEEP) entries.splice(0, entries.length - KEEP);
     const holdMs = HOLD_MS[entry.event];
@@ -159,7 +167,9 @@ export const makePublishRecorder = (store: PublishStore): PublishRecorder => {
       const lastSuccess = last((entry) => entry.event === "completed" && entry.ok === true);
       const lastFailure = last((entry) => entry.event === "failed");
       return {
-        pending: [...Idle.holds.keys()].filter((name) => name.startsWith(HOLD_PREFIX)).map((name) => name.slice(HOLD_PREFIX.length)),
+        pending: [...Idle.holds.keys()]
+          .filter((name) => name.startsWith(HOLD_PREFIX))
+          .map((name) => name.slice(HOLD_PREFIX.length)),
         lastSuccess,
         lastFailure,
         rejected: lastFailure?.rejected === true && (lastSuccess === null || lastSuccess.at < lastFailure.at),
@@ -167,7 +177,8 @@ export const makePublishRecorder = (store: PublishStore): PublishRecorder => {
     },
     lastPublishedPhases: () => {
       const phases = new Map<string, string | null>();
-      for (const entry of entries) if (entry.event === "publishing" && entry.phase !== undefined) phases.set(entry.threadId, entry.phase);
+      for (const entry of entries)
+        if (entry.event === "publishing" && entry.phase !== undefined) phases.set(entry.threadId, entry.phase);
       return phases;
     },
     logger: Logger.make((options) => record(options.message, options.date)),

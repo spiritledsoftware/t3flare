@@ -25,8 +25,7 @@ export { spawnAttempts } from "../agents/processRouter.ts";
 export const layerChildProcessSpawner = ProcessRouter.layer;
 
 export const layerPty = Layer.succeed(PtyAdapter.PtyAdapter, {
-  spawn: (input) =>
-    Effect.fail(new PtyAdapter.PtySpawnError({ adapter: "t3flare", shell: input.shell })),
+  spawn: (input) => Effect.fail(new PtyAdapter.PtySpawnError({ adapter: "t3flare", shell: input.shell })),
 });
 
 // No TTY: t3's CLI paths never run in the DO.

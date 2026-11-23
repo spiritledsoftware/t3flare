@@ -15,11 +15,13 @@ export interface ExpireHookDeps {
  * The Environment DO's own check, whoever calls its `expireSignIn` (the route is one caller): `expire` runs only where
  * `T3FLARE_FAULTS` is `"1"`; elsewhere nothing is touched and the answer is false.
  */
-export const expireOnStage = async (faults: string | undefined, expire: () => Promise<boolean>): Promise<boolean> => (faults === "1" ? expire() : false);
+export const expireOnStage = async (faults: string | undefined, expire: () => Promise<boolean>): Promise<boolean> =>
+  faults === "1" ? expire() : false;
 
 /** The admin route's answer for `url`. */
 export const expireRoute = async (url: URL, deps: ExpireHookDeps): Promise<Response> => {
-  const answer = (value: unknown, status: number) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
+  const answer = (value: unknown, status: number) =>
+    new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
   if (!deps.faults()) return answer({ error: "stages only" }, 403);
   const id = url.searchParams.get("id") ?? "";
   if (!ENDPOINT_ID.test(id)) return answer({ error: "?id= is a Model endpoint's id" }, 400);

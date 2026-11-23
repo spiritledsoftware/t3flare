@@ -4,7 +4,10 @@ import { SKILLS_LOCK_SCRIPT } from "@t3flare/workspace-client";
 import { describe, expect, it, vi } from "vitest";
 
 // env.ts loads computer, whose module loads `cloudflare:` URLs Node cannot; nothing of it runs here.
-vi.mock("@cloudflare/computer", () => ({ shellQuote: (word: string) => `'${word.replaceAll("'", "'\\''")}'`, getWorkspace: () => ({}) }));
+vi.mock("@cloudflare/computer", () => ({
+  shellQuote: (word: string) => `'${word.replaceAll("'", "'\\''")}'`,
+  getWorkspace: () => ({}),
+}));
 
 const { BACKENDS } = await import("./env.ts");
 const { inBash } = await import("./shell.ts");

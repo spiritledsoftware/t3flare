@@ -17,7 +17,14 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { checkFingerprint, FIXTURE_PATH, type Fingerprint, fingerprintFindings, gitBlobOf, updateFingerprint } from "./lib/upstreamFingerprint.ts";
+import {
+  checkFingerprint,
+  FIXTURE_PATH,
+  type Fingerprint,
+  fingerprintFindings,
+  gitBlobOf,
+  updateFingerprint,
+} from "./lib/upstreamFingerprint.ts";
 
 const root = path.resolve(import.meta.dirname, "../../..");
 const t3Root = path.join(root, "t3code");
@@ -47,13 +54,20 @@ if (process.argv.includes("--update")) {
   fs.writeFileSync(fixturePath, `${JSON.stringify(updated, null, 2)}\n`);
   const before = new Map(fingerprint.regions.map((region) => [`${region.file}#${region.symbol}`, region.hash]));
   const changed = updated.regions.filter((region) => before.get(`${region.file}#${region.symbol}`) !== region.hash);
-  console.log(`upstream fingerprint: ${changed.length} region(s) re-recorded, reviewed at t3code ${reviewedCommit.slice(0, 12)}`);
-  for (const region of changed) console.log(`  ${region.file} (${region.symbol}) for ${region.ourFile} (${region.entry})`);
+  console.log(
+    `upstream fingerprint: ${changed.length} region(s) re-recorded, reviewed at t3code ${reviewedCommit.slice(0, 12)}`,
+  );
+  for (const region of changed)
+    console.log(`  ${region.file} (${region.symbol}) for ${region.ourFile} (${region.entry})`);
 } else if (process.argv.includes("--json")) {
   console.log(JSON.stringify(fingerprintFindings(fingerprint, read, blobOf)));
 } else {
   const failures = checkFingerprint(fingerprint, read, blobOf);
   for (const failure of failures) console.log(failure);
-  console.log(failures.length === 0 ? "upstream fingerprint: as last reviewed" : `upstream fingerprint: ${failures.length} to review`);
+  console.log(
+    failures.length === 0
+      ? "upstream fingerprint: as last reviewed"
+      : `upstream fingerprint: ${failures.length} to review`,
+  );
   process.exit(failures.length === 0 ? 0 : 1);
 }

@@ -11,7 +11,15 @@ import { describe, expect, it } from "vitest";
 
 const src = path.resolve(import.meta.dirname, "../src");
 const files = (dir: string): Array<string> =>
-  fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? files(path.join(dir, entry.name)) : entry.name.endsWith(".ts") ? [path.join(dir, entry.name)] : []));
+  fs
+    .readdirSync(dir, { withFileTypes: true })
+    .flatMap((entry) =>
+      entry.isDirectory()
+        ? files(path.join(dir, entry.name))
+        : entry.name.endsWith(".ts")
+          ? [path.join(dir, entry.name)]
+          : [],
+    );
 
 describe("a sign-in's token and the Workspace side", () => {
   it("is asked for only by a Session and text generation, never by Workspace code", () => {
@@ -20,6 +28,7 @@ describe("a sign-in's token and the Workspace side", () => {
       .map((file) => path.relative(src, file))
       .sort();
     expect(callers).toEqual(["endpointTextGeneration.ts", "session/endpoints.ts"]);
-    for (const file of files(path.join(src, "workspace"))) expect(fs.readFileSync(file, "utf8"), file).not.toMatch(/endpointCredential|accessToken/);
+    for (const file of files(path.join(src, "workspace")))
+      expect(fs.readFileSync(file, "utf8"), file).not.toMatch(/endpointCredential|accessToken/);
   });
 });

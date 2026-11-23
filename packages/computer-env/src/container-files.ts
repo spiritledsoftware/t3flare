@@ -10,14 +10,7 @@ import { failureMessage } from "@t3flare/workspace-client";
 import { HARNESS_ROOT, isContainerOnly } from "./container-paths.ts";
 import { HostFailure } from "./failure.ts";
 import { basename } from "./paths.ts";
-import type {
-  DirectoryEntry,
-  FindOptions,
-  FoundEntry,
-  GrepLine,
-  GrepMatch,
-  GrepOptions,
-} from "./wire.ts";
+import type { DirectoryEntry, FindOptions, FoundEntry, GrepLine, GrepMatch, GrepOptions } from "./wire.ts";
 
 /** How a script on the Container ended: its exit status (null when it did not run to its end), and its two streams. */
 export type ContainerScriptRun = {
@@ -278,8 +271,7 @@ const excluded = (relative: string, exclude: ReadonlyArray<RegExp>): boolean => 
 };
 
 /** A path below `directory`, which may be the root. */
-const below = (directory: string, name: string): string =>
-  directory === "/" ? `/${name}` : `${directory}/${name}`;
+const below = (directory: string, name: string): string => (directory === "/" ? `/${name}` : `${directory}/${name}`);
 
 type RgText = { readonly text?: string; readonly bytes?: string };
 
@@ -308,8 +300,7 @@ const entriesOf = (out: string): DirectoryEntry[] =>
 const rgText = (value: RgText | undefined): string => {
   if (value?.text !== undefined) return value.text;
 
-  if (value?.bytes !== undefined)
-    return decoder.decode(Uint8Array.from(atob(value.bytes), (c) => c.charCodeAt(0)));
+  if (value?.bytes !== undefined) return decoder.decode(Uint8Array.from(atob(value.bytes), (c) => c.charCodeAt(0)));
 
   return "";
 };
@@ -502,18 +493,12 @@ export class ContainerFiles {
     // Each match brings at most its context on either side, and each file a begin and an end event.
     const events = options.limit * (2 * options.context + 3) + 1000;
 
-    const out = await this.#run(
-      path,
-      GREP,
-      { P: path, PATTERN: pattern, LIMIT: String(events) },
-      { args },
-    );
+    const out = await this.#run(path, GREP, { P: path, PATTERN: pattern, LIMIT: String(events) }, { args });
 
     // Every line of each file in order, then each match with the lines around it.
     const files = new Map<string, Map<number, GrepLine>>();
 
-    const matches: Array<{ readonly path: string; readonly line: number; readonly text: string }> =
-      [];
+    const matches: Array<{ readonly path: string; readonly line: number; readonly text: string }> = [];
 
     const [root = path, ...printed] = out.split("\n");
 
@@ -529,8 +514,7 @@ export class ContainerFiles {
         continue;
       }
 
-      if ((event.type !== "match" && event.type !== "context") || event.data === undefined)
-        continue;
+      if ((event.type !== "match" && event.type !== "context") || event.data === undefined) continue;
 
       // ripgrep names each file from the directory it ran in, as `./relative`.
       const file = below(root, rgText(event.data.path).replace(/^\.\//, ""));
@@ -592,10 +576,7 @@ export class ContainerFiles {
     path: string,
     script: string,
     env: Record<string, string>,
-    {
-      args = [],
-      writes = false,
-    }: { readonly args?: readonly string[]; readonly writes?: boolean } = {},
+    { args = [], writes = false }: { readonly args?: readonly string[]; readonly writes?: boolean } = {},
   ): Promise<string> {
     const quoted = args.map((arg) => `'${arg.replace(/'/g, `'\\''`)}'`).join(" ");
     const body = args.length === 0 ? script : `set -- ${quoted}\n${script}`;
@@ -616,19 +597,11 @@ export class ContainerFiles {
     if (ran.exitCode === 0) return ran.stdout;
 
     if (ran.exitCode === null) {
-      throw new HostFailure(
-        "unknown",
-        `The Container could not run the file operation: ${ran.stderr}`,
-        path,
-      );
+      throw new HostFailure("unknown", `The Container could not run the file operation: ${ran.stderr}`, path);
     }
 
     const message = ran.stderr.trim() || `exit status ${ran.exitCode}`;
 
-    throw new HostFailure(
-      FAILURES.get(ran.exitCode) ?? "unknown",
-      `${message} (on the Container)`,
-      path,
-    );
+    throw new HostFailure(FAILURES.get(ran.exitCode) ?? "unknown", `${message} (on the Container)`, path);
   }
 }

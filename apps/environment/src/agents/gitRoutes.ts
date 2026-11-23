@@ -3,10 +3,20 @@
 import { REPO_ROOT, normalize, toWorkspace } from "@t3flare/workspace-client";
 
 /** git's global options that take a value as the next word (`git -C <dir> …`, `git -c k=v …`). */
-const GLOBAL_WITH_VALUE = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"]);
+const GLOBAL_WITH_VALUE = new Set([
+  "-C",
+  "-c",
+  "--git-dir",
+  "--work-tree",
+  "--namespace",
+  "--exec-path",
+  "--config-env",
+]);
 
 /** The subcommand of a git argv, after its global options, and the subcommand's own arguments. */
-export const subcommandOf = (args: ReadonlyArray<string>): { readonly name: string | null; readonly rest: ReadonlyArray<string> } => {
+export const subcommandOf = (
+  args: ReadonlyArray<string>,
+): { readonly name: string | null; readonly rest: ReadonlyArray<string> } => {
   let i = 0;
   while (i < args.length) {
     const arg = args[i]!;
@@ -59,13 +69,33 @@ const writes = (name: string, rest: ReadonlyArray<string>): boolean => {
     case "config":
       return !rest.some((arg) => arg.startsWith("--get") || arg === "--list" || arg === "-l" || arg === "get");
     case "branch": {
-      const writing = ["-d", "-D", "-m", "-M", "-c", "-C", "-f", "--force", "--delete", "--move", "--copy", "--set-upstream-to", "-u", "--unset-upstream", "--track", "--no-track", "--edit-description"];
+      const writing = [
+        "-d",
+        "-D",
+        "-m",
+        "-M",
+        "-c",
+        "-C",
+        "-f",
+        "--force",
+        "--delete",
+        "--move",
+        "--copy",
+        "--set-upstream-to",
+        "-u",
+        "--unset-upstream",
+        "--track",
+        "--no-track",
+        "--edit-description",
+      ];
       if (rest.some((arg) => writing.includes(arg) || arg.startsWith("--set-upstream-to="))) return true;
       const listing = ["--list", "-l", "--show-current"];
       if (rest.some((arg) => listing.includes(arg) || /^--(no-)?(contains|merged|points-at)/.test(arg))) return false;
       // A branch name (before or after `--`) creates one: `git branch -- <name>`, as t3 sends it.
       const dashdash = rest.indexOf("--");
-      return rest.some((arg, at) => (dashdash >= 0 && at > dashdash) || (!arg.startsWith("-") && (dashdash < 0 || at < dashdash)));
+      return rest.some(
+        (arg, at) => (dashdash >= 0 && at > dashdash) || (!arg.startsWith("-") && (dashdash < 0 || at < dashdash)),
+      );
     }
     case "worktree":
       return rest[0] !== "list";
@@ -261,7 +291,13 @@ export { REPO_ROOT };
 // Worktrees (step 2b, plan section 3.5): t3's `git worktree …` in a project, given their cloud meaning.
 
 export type WorktreeCommand =
-  | { readonly verb: "add"; readonly path: string; readonly ref: string | null; readonly detach: boolean; readonly newBranch: string | null }
+  | {
+      readonly verb: "add";
+      readonly path: string;
+      readonly ref: string | null;
+      readonly detach: boolean;
+      readonly newBranch: string | null;
+    }
   | { readonly verb: "list"; readonly porcelain: boolean; readonly z: boolean }
   | { readonly verb: "remove"; readonly path: string; readonly force: boolean }
   | { readonly verb: "prune" }
@@ -313,12 +349,21 @@ export const worktreeCommandOf = (args: ReadonlyArray<string>): WorktreeCommand 
  * Where a project's worktree may go: `/w/.wt/<the cwd's project dir>/<one segment>` (t3 builds it from the basename of
  * the project's cwd and the branch). Answers the worktree Workspace's id, or the reason it is refused.
  */
-export const worktreeDestinationOf = (cwd: string, path: string): { readonly id: string } | { readonly refused: string } => {
+export const worktreeDestinationOf = (
+  cwd: string,
+  path: string,
+): { readonly id: string } | { readonly refused: string } => {
   const project = toWorkspace(cwd);
   const target = toWorkspace(path);
   const dir = normalize(cwd).split("/").at(-1) ?? "";
-  if (project === null || project.id.startsWith(".wt/")) return { refused: "fatal: t3flare: worktrees are made from a project in /w" };
-  if (target === null || !target.id.startsWith(".wt/") || target.inner !== REPO_ROOT || target.id.split("/")[1] !== (project.inner === REPO_ROOT ? project.id : dir)) {
+  if (project === null || project.id.startsWith(".wt/"))
+    return { refused: "fatal: t3flare: worktrees are made from a project in /w" };
+  if (
+    target === null ||
+    !target.id.startsWith(".wt/") ||
+    target.inner !== REPO_ROOT ||
+    target.id.split("/")[1] !== (project.inner === REPO_ROOT ? project.id : dir)
+  ) {
     return {
       refused: `fatal: t3flare: worktrees live under /w/.wt in the Cloud Environment; clear Settings → Worktrees → Location (asked for '${path}')`,
     };
@@ -338,7 +383,11 @@ export const worktreeListPorcelain = (entries: ReadonlyArray<WorktreeListEntry>,
   const end = z ? "\0" : "\n";
   return entries
     .map((entry) =>
-      [`worktree ${entry.path}`, ...(entry.head === null ? [] : [`HEAD ${entry.head}`]), entry.branch === null ? "detached" : `branch ${entry.branch}`]
+      [
+        `worktree ${entry.path}`,
+        ...(entry.head === null ? [] : [`HEAD ${entry.head}`]),
+        entry.branch === null ? "detached" : `branch ${entry.branch}`,
+      ]
         .map((line) => `${line}${end}`)
         .join(""),
     )

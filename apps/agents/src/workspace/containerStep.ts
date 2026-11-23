@@ -36,7 +36,10 @@ export interface StepState {
 }
 
 /** How one held, bounded exec ended: its output, the deadline, or an exec that could not start or broke. */
-export type StepRun = { readonly ended: "output"; readonly stdout: string; readonly exitCode: number | null } | { readonly ended: "deadline" } | { readonly ended: "failed"; readonly error: string };
+export type StepRun =
+  | { readonly ended: "output"; readonly stdout: string; readonly exitCode: number | null }
+  | { readonly ended: "deadline" }
+  | { readonly ended: "failed"; readonly error: string };
 
 /** Runs one script on the Container, held while it runs and killed at `deadlineMs`. */
 export type RunStep = (argv: ReadonlyArray<string>, stdin: string, deadlineMs: number) => Promise<StepRun>;
@@ -91,7 +94,12 @@ export class ContainerStep<State extends StepState> {
     const running = this.#running.get(key);
     if (running !== undefined) return running;
     const kept = this.state();
-    if (runtime !== undefined && kept?.runtime === runtime && (kept.outcome !== EXEC_FAILED || kept.attempts >= MAX_ATTEMPTS)) return Promise.resolve(kept);
+    if (
+      runtime !== undefined &&
+      kept?.runtime === runtime &&
+      (kept.outcome !== EXEC_FAILED || kept.attempts >= MAX_ATTEMPTS)
+    )
+      return Promise.resolve(kept);
     const before = runtime !== undefined && kept?.runtime === runtime ? kept.attempts : 0;
     const promise = (async () => {
       let state = await this.#attempt(key, before);
@@ -120,9 +128,16 @@ export class ContainerStep<State extends StepState> {
   async #attempt(runtime: string, attemptsBefore: number): Promise<State> {
     let state: State;
     try {
-      state = await this.#deps.attempt(runtime, attemptsBefore, (argv, stdin, deadlineMs) => this.#run(argv, stdin, deadlineMs));
+      state = await this.#deps.attempt(runtime, attemptsBefore, (argv, stdin, deadlineMs) =>
+        this.#run(argv, stdin, deadlineMs),
+      );
     } catch (error) {
-      this.#deps.log?.({ t3flare: "container-step-threw", key: this.#deps.key, runtime: runtime === "" ? "unknown" : runtime, error: String(error).slice(0, 300) });
+      this.#deps.log?.({
+        t3flare: "container-step-threw",
+        key: this.#deps.key,
+        runtime: runtime === "" ? "unknown" : runtime,
+        error: String(error).slice(0, 300),
+      });
       state = this.#deps.failed(runtime, attemptsBefore + 1);
     }
     // Kept only for a known Container: without a runtime id each call runs the (idempotent) script again.
@@ -167,11 +182,14 @@ export class ContainerRefused extends Error {
 }
 
 /** Whether `state` is final for its Container: any outcome but an exec failure, or one out of attempts. */
-export const isFinal = (state: Pick<StepState, "outcome" | "attempts">): boolean => state.outcome !== EXEC_FAILED || state.attempts >= MAX_ATTEMPTS;
+export const isFinal = (state: Pick<StepState, "outcome" | "attempts">): boolean =>
+  state.outcome !== EXEC_FAILED || state.attempts >= MAX_ATTEMPTS;
 
 /** One step of `ContainerSteps`: what it is doing while it runs, and when its outcome refuses the Container's commands. */
 export interface SequencedStep<State extends StepState> {
-  readonly step: Pick<ContainerStep<State>, "ensure" | "due" | "inFlight"> & { readonly state?: () => State | undefined };
+  readonly step: Pick<ContainerStep<State>, "ensure" | "due" | "inFlight"> & {
+    readonly state?: () => State | undefined;
+  };
   /** What a command cut off before it started waited for (computer-env's message). */
   readonly doing: string;
   /**
@@ -232,7 +250,8 @@ export class ContainerSteps {
       let { final, refused } = await step.run(runtime);
       // A step not final yet (an exec failure with attempts left) is driven by this caller, so the command waits for
       // every step: each run is bounded by its own deadline, and a step ends final within MAX_ATTEMPTS runs.
-      for (let more = 1; !final && refused === undefined && more < MAX_ATTEMPTS; more++) ({ final, refused } = await step.run(runtime));
+      for (let more = 1; !final && refused === undefined && more < MAX_ATTEMPTS; more++)
+        ({ final, refused } = await step.run(runtime));
       if (refused !== undefined) throw new ContainerRefused(refused);
       if (final) continue;
       // Not final: the steps after it wait for a later caller or the alarm; one that refuses when not judged refuses.

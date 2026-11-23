@@ -22,9 +22,7 @@ const ACCESS = "access-token-77ab";
 
 type MetadataExtras = Partial<
   Record<
-    | "revocation_endpoint"
-    | "revocation_endpoint_auth_methods_supported"
-    | "token_endpoint_auth_methods_supported",
+    "revocation_endpoint" | "revocation_endpoint_auth_methods_supported" | "token_endpoint_auth_methods_supported",
     string | ReadonlyArray<string> | undefined
   >
 >;
@@ -82,10 +80,7 @@ describe("revokeTokens", () => {
       { token: "access_token", status: "revoked" },
     ]);
     expect(asked.map((each) => each.body.get("token"))).toEqual([REFRESH, ACCESS]);
-    expect(asked.map((each) => each.body.get("token_type_hint"))).toEqual([
-      "refresh_token",
-      "access_token",
-    ]);
+    expect(asked.map((each) => each.body.get("token_type_hint"))).toEqual(["refresh_token", "access_token"]);
     expect(asked[0]?.url).toBe("https://auth.example.com/revoke");
     expect(asked[0]?.body.get("client_id")).toBe("https://pi.example/oauth/mcp/client.json");
     expect(asked[0]?.headers.get("authorization")).toBeNull();
@@ -106,9 +101,7 @@ describe("revokeTokens", () => {
   });
 
   it("never sends to an endpoint that is not https", () => {
-    expect(
-      revocationEndpoint(metadata({ revocation_endpoint: "http://auth.example.com/revoke" })),
-    ).toBe(undefined);
+    expect(revocationEndpoint(metadata({ revocation_endpoint: "http://auth.example.com/revoke" }))).toBe(undefined);
     expect(revocationEndpoint(metadata({ revocation_endpoint: "not a url" }))).toBe(undefined);
     expect(revocationEndpoint(metadata())?.href).toBe("https://auth.example.com/revoke");
   });
@@ -203,9 +196,7 @@ describe("revokeTokens", () => {
       fetch: () => Promise.reject(new TypeError(`connect failed for ${REFRESH}`)),
     });
 
-    expect(network).toEqual([
-      { token: "refresh_token", status: "failed", reason: "network error" },
-    ]);
+    expect(network).toEqual([{ token: "refresh_token", status: "failed", reason: "network error" }]);
 
     const timedOut = await revokeTokens({
       metadata: metadata(),
@@ -218,9 +209,7 @@ describe("revokeTokens", () => {
   });
 
   it("never lets a token reach a result, whatever the server says", async () => {
-    const { fetch } = fakeEndpoint(
-      () => new Response(`{"error":"${ACCESS} ${REFRESH}"}`, { status: 400 }),
-    );
+    const { fetch } = fakeEndpoint(() => new Response(`{"error":"${ACCESS} ${REFRESH}"}`, { status: 400 }));
 
     const results = await revokeTokens({
       metadata: metadata(),
@@ -246,27 +235,17 @@ describe("the issuer pin", () => {
 
   it("refuses an issuer other than the pinned one, and passes the same one or none pinned", () => {
     expect(issuerPinProblem({ issuer: "https://a.example/" }, "https://a.example")).toBeUndefined();
-    expect(
-      issuerPinProblem({ metadataIssuer: "https://a.example" }, "https://a.example/"),
-    ).toBeUndefined();
+    expect(issuerPinProblem({ metadataIssuer: "https://a.example" }, "https://a.example/")).toBeUndefined();
     expect(issuerPinProblem({}, "https://anything.example")).toBeUndefined();
-    expect(issuerPinProblem({ issuer: "https://a.example" }, "https://b.example")).toContain(
-      "https://b.example",
-    );
+    expect(issuerPinProblem({ issuer: "https://a.example" }, "https://b.example")).toContain("https://b.example");
   });
 
   it("needs both pins to agree", () => {
     expect(
-      issuerPinProblem(
-        { issuer: "https://a.example", metadataIssuer: "https://b.example" },
-        "https://a.example",
-      ),
+      issuerPinProblem({ issuer: "https://a.example", metadataIssuer: "https://b.example" }, "https://a.example"),
     ).toContain("disagree");
     expect(
-      issuerPinProblem(
-        { issuer: "https://a.example", metadataIssuer: "https://a.example/" },
-        "https://a.example",
-      ),
+      issuerPinProblem({ issuer: "https://a.example", metadataIssuer: "https://a.example/" }, "https://a.example"),
     ).toBeUndefined();
     expect(isPinned({})).toBe(false);
     expect(isPinned({ issuer: "https://a.example" })).toBe(true);
@@ -276,9 +255,7 @@ describe("the issuer pin", () => {
 
 describe("client_secret_expires_at", () => {
   it("reads epoch seconds as milliseconds, and 0 or absent as never", () => {
-    expect(clientSecretExpiresAt({ client_secret_expires_at: 1_700_000_000 })).toBe(
-      1_700_000_000_000,
-    );
+    expect(clientSecretExpiresAt({ client_secret_expires_at: 1_700_000_000 })).toBe(1_700_000_000_000);
     expect(clientSecretExpiresAt({ client_secret_expires_at: 0 })).toBeUndefined();
     expect(clientSecretExpiresAt({})).toBeUndefined();
     expect(clientSecretExpiresAt({ client_secret_expires_at: Number.NaN })).toBeUndefined();

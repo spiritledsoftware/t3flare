@@ -13,7 +13,13 @@
 // - Writes are queued and flushed in order, one RPC in flight per terminal; nothing is sent before the open answered.
 // - Liveness: one heartbeat per Workspace every 30 s. An answer from another Workspace DO instance (its epoch) or one
 //   naming a terminal unknown ends that terminal here (review F11): the DO restarted and lost the shell.
-import type { TerminalAnswer, TerminalFrame, TerminalOpenInput, TerminalPush, TerminalPushAnswer } from "@t3flare/workspace-client";
+import type {
+  TerminalAnswer,
+  TerminalFrame,
+  TerminalOpenInput,
+  TerminalPush,
+  TerminalPushAnswer,
+} from "@t3flare/workspace-client";
 
 export const HEARTBEAT_EVERY_MS = 30_000;
 
@@ -81,7 +87,14 @@ export class RefusedProcess {
   }
 }
 
-export const SHELLS: ReadonlySet<string> = new Set(["bash", "sh", "/bin/bash", "/bin/sh", "/usr/bin/bash", "/usr/bin/sh"]);
+export const SHELLS: ReadonlySet<string> = new Set([
+  "bash",
+  "sh",
+  "/bin/bash",
+  "/bin/sh",
+  "/usr/bin/bash",
+  "/usr/bin/sh",
+]);
 
 /** Env keys a terminal may receive. */
 export const allowedEnvKey = (key: string): boolean =>
@@ -92,7 +105,9 @@ export const allowedEnvKey = (key: string): boolean =>
 const CREDENTIAL_NAME = /TOKEN|KEY|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH/i;
 
 /** The allowlisted env; the dropped keys that look like credentials are returned by name for the log. */
-export const filterTerminalEnv = (env: Readonly<Record<string, string | undefined>>): { readonly env: Record<string, string>; readonly droppedCredentials: ReadonlyArray<string> } => {
+export const filterTerminalEnv = (
+  env: Readonly<Record<string, string | undefined>>,
+): { readonly env: Record<string, string>; readonly droppedCredentials: ReadonlyArray<string> } => {
   const kept: Record<string, string> = {};
   const droppedCredentials: Array<string> = [];
   for (const [key, value] of Object.entries(env)) {
@@ -175,7 +190,9 @@ export class TerminalProcess {
     this.place.remote
       .terminalInput(this.key, data)
       .then((answer) => this.checkAnswer(answer))
-      .catch((error: unknown) => console.warn(JSON.stringify({ t3flare: "terminal-input-failed", error: String(error).slice(0, 200) })))
+      .catch((error: unknown) =>
+        console.warn(JSON.stringify({ t3flare: "terminal-input-failed", error: String(error).slice(0, 200) })),
+      )
       .finally(() => {
         this.#writing = false;
         this.#flush();
@@ -284,7 +301,11 @@ export class TerminalProcesses {
   }
 
   /** G11: t3 named the thread and terminal of these shells (`registerTerminalProcesses`, from the inspector's pid). */
-  registerOwner(input: { readonly threadId: string; readonly terminalId: string; readonly processIds: ReadonlyArray<number> }): void {
+  registerOwner(input: {
+    readonly threadId: string;
+    readonly terminalId: string;
+    readonly processIds: ReadonlyArray<number>;
+  }): void {
     for (const pid of input.processIds) {
       const process = this.#byPid.get(pid);
       if (process !== undefined) process.owner = { threadId: input.threadId, terminalId: input.terminalId };
@@ -294,24 +315,35 @@ export class TerminalProcesses {
   /** G11: t3 closed that terminal. */
   unregisterOwner(input: { readonly threadId: string; readonly terminalId: string }): void {
     for (const process of this.#byPid.values()) {
-      if (process.owner?.threadId === input.threadId && process.owner.terminalId === input.terminalId) process.owner = undefined;
+      if (process.owner?.threadId === input.threadId && process.owner.terminalId === input.terminalId)
+        process.owner = undefined;
     }
   }
 
   /** Starts a shell (the open runs in the background; t3 gets the process at once). */
   spawn(input: SpawnInput): TerminalProcess | RefusedProcess {
-    if (!SHELLS.has(input.shell)) throw new SpawnRefused(`ENOENT: ${input.shell} not found in the Cloud Environment (bash only)`);
+    if (!SHELLS.has(input.shell))
+      throw new SpawnRefused(`ENOENT: ${input.shell} not found in the Cloud Environment (bash only)`);
     const place = this.#deps.place(input.cwd);
     if (place === undefined) return new RefusedProcess(this.#nextPid++, noWorkspaceMessage(input.cwd));
     const { env, droppedCredentials } = filterTerminalEnv(input.env);
-    if (droppedCredentials.length > 0) console.warn(JSON.stringify({ t3flare: "terminal-env-dropped", keys: droppedCredentials }));
+    if (droppedCredentials.length > 0)
+      console.warn(JSON.stringify({ t3flare: "terminal-env-dropped", keys: droppedCredentials }));
     const key = this.#deps.newKey();
     const process = new TerminalProcess(this, this.#nextPid++, key, place);
     this.#byKey.set(key, process);
     this.#byPid.set(process.pid, process);
     this.#startHeartbeat();
     place.remote
-      .terminalOpen({ key, t3Path: place.t3Path, cwd: input.cwd, cols: input.cols, rows: input.rows, env, ...(place.projectRoot === undefined ? {} : { projectRoot: place.projectRoot }) })
+      .terminalOpen({
+        key,
+        t3Path: place.t3Path,
+        cwd: input.cwd,
+        cols: input.cols,
+        rows: input.rows,
+        env,
+        ...(place.projectRoot === undefined ? {} : { projectRoot: place.projectRoot }),
+      })
       .then((answer) => process.opened(answer))
       .catch((error: unknown) => {
         process.emitData(`\x1b[31mt3flare: the terminal did not open: ${String(error).slice(0, 300)}\x1b[0m\r\n`);

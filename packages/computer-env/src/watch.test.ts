@@ -25,8 +25,7 @@ const scripted = (steps: ReadonlyArray<Snapshot | "unreachable">) => {
       if (current === steps.length) settle();
       const step = steps[Math.min(current, steps.length - 1)];
 
-      if (step === "unreachable")
-        throw new Error("Durable Object reset because its code was updated.");
+      if (step === "unreachable") throw new Error("Durable Object reset because its code was updated.");
 
       return { ok: true, value: step };
     },
@@ -40,13 +39,7 @@ const changes = async (steps: ReadonlyArray<Snapshot | "unreachable">) => {
   const { call, settled } = scripted(steps);
 
   const watcher = getOrThrow(
-    await PollingWatcher.open(
-      call,
-      [target],
-      (change) => seen.push(change),
-      { pollIntervalMs: 5 },
-      BACKGROUND_CONTEXT,
-    ),
+    await PollingWatcher.open(call, [target], (change) => seen.push(change), { pollIntervalMs: 5 }, BACKGROUND_CONTEXT),
   );
 
   await settled;
@@ -66,8 +59,6 @@ describe("PollingWatcher", () => {
   it("keeps polling through an unreachable Workspace DO and reports overflow once it answers", async () => {
     const snapshot: Snapshot = [["/workspace/a", "1"]];
 
-    expect(await changes([snapshot, "unreachable", "unreachable", snapshot])).toEqual([
-      { kind: "overflow" },
-    ]);
+    expect(await changes([snapshot, "unreachable", "unreachable", snapshot])).toEqual([{ kind: "overflow" }]);
   });
 });

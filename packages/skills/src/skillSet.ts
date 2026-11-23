@@ -28,17 +28,22 @@ export const MAX_SKILL_SEGMENT_BYTES = 255;
 
 const encoder = new TextEncoder();
 
-const hex = (bytes: ArrayBuffer): string => [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+const hex = (bytes: ArrayBuffer): string =>
+  [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 
 /** SHA-256 of `text`'s UTF-8, in hex. */
-export const sha256Hex = async (text: string): Promise<string> => hex(await crypto.subtle.digest("SHA-256", encoder.encode(text)));
+export const sha256Hex = async (text: string): Promise<string> =>
+  hex(await crypto.subtle.digest("SHA-256", encoder.encode(text)));
 
 /**
  * The set's hash: SHA-256 over each file's path, a NUL, its SHA-256 and a newline, in path order. `digests` gives a
  * file's SHA-256 where it is known (the Environment keeps one per file), so the hash needs no content; the rest are
  * made from `files`. No files hash as nothing (`EMPTY_SKILL_SET_HASH`).
  */
-export const skillSetHash = async (files: Readonly<Record<string, string>>, digests: Readonly<Record<string, string>> = {}): Promise<string> => {
+export const skillSetHash = async (
+  files: Readonly<Record<string, string>>,
+  digests: Readonly<Record<string, string>> = {},
+): Promise<string> => {
   const paths = [...new Set([...Object.keys(files), ...Object.keys(digests)])].sort();
   const lines: Array<string> = [];
   for (const path of paths) lines.push(`${path}\0${digests[path] ?? (await sha256Hex(files[path]!))}\n`);
@@ -46,7 +51,10 @@ export const skillSetHash = async (files: Readonly<Record<string, string>>, dige
 };
 
 /** A set of `files` with its hash. */
-export const skillSetOf = async (files: Readonly<Record<string, string>>): Promise<SkillSet> => ({ hash: await skillSetHash(files), files });
+export const skillSetOf = async (files: Readonly<Record<string, string>>): Promise<SkillSet> => ({
+  hash: await skillSetHash(files),
+  files,
+});
 
 /**
  * Why `path` is not a file's path under the mount as a walk of it lists it, or undefined: segments joined by `/`, none
@@ -59,16 +67,25 @@ export const skillFilePathProblem = (path: string): string | undefined => {
   // oxlint-disable-next-line no-control-regex -- control characters are what this refuses
   if (/[\u0001-\u001f\u007f]/.test(path)) return "has a control character";
   const segments = path.split("/");
-  if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) return "has an empty, `.` or `..` segment";
+  if (segments.some((segment) => segment === "" || segment === "." || segment === ".."))
+    return "has an empty, `.` or `..` segment";
   const bytes = encoder.encode(path).byteLength;
   if (bytes > MAX_SKILL_PATH_BYTES) return `is ${bytes} bytes, more than the ${MAX_SKILL_PATH_BYTES} a path may be`;
-  if (segments.some((segment) => encoder.encode(segment).byteLength > MAX_SKILL_SEGMENT_BYTES)) return `has a part longer than ${MAX_SKILL_SEGMENT_BYTES} bytes`;
+  if (segments.some((segment) => encoder.encode(segment).byteLength > MAX_SKILL_SEGMENT_BYTES))
+    return `has a part longer than ${MAX_SKILL_SEGMENT_BYTES} bytes`;
   return undefined;
 };
 
 /** The first of `paths` that is also a directory of another, or undefined. */
 export const pathAlsoDirectory = (paths: ReadonlyArray<string>): string | undefined => {
-  const directories = new Set(paths.flatMap((path) => path.split("/").slice(0, -1).map((_, index, segments) => segments.slice(0, index + 1).join("/"))));
+  const directories = new Set(
+    paths.flatMap((path) =>
+      path
+        .split("/")
+        .slice(0, -1)
+        .map((_, index, segments) => segments.slice(0, index + 1).join("/")),
+    ),
+  );
   return paths.find((path) => directories.has(path));
 };
 
@@ -105,8 +122,10 @@ export const environmentSkillPath = (name: string): string => `${SKILLS_MOUNT}/$
  * Repo-only discovery) is dropped: the Environment's rows are the current set, so a removed or disabled Environment
  * skill un-shadows its Repo namesake at once. The Repo skills' cap and `omitted` are untouched. Pi Durable's merge.
  */
-export const withEnvironmentSkills = (environment: ReadonlyArray<EnvironmentSkillEntry>, repo: SkillDiscovery): SkillDiscovery =>
-  withEnvironmentSkillsFor(() => "environment", environment, repo);
+export const withEnvironmentSkills = (
+  environment: ReadonlyArray<EnvironmentSkillEntry>,
+  repo: SkillDiscovery,
+): SkillDiscovery => withEnvironmentSkillsFor(() => "environment", environment, repo);
 
 /**
  * `repo` (a Repo-only discovery) with `environment` merged, each same-named pair settled by `precedenceOf` its Repo
@@ -116,11 +135,20 @@ export const withEnvironmentSkills = (environment: ReadonlyArray<EnvironmentSkil
  * them (t3's menu shows the first of a name). An Environment skill without a Repo namesake is listed first. Anything
  * the Workspace listed under `SKILLS_MOUNT` is dropped: the rows are the set.
  */
-export const withEnvironmentSkillsFor = (precedenceOf: (repoSkill: Skill) => EnvironmentPrecedence, environment: ReadonlyArray<EnvironmentSkillEntry>, repo: SkillDiscovery): SkillDiscovery => {
+export const withEnvironmentSkillsFor = (
+  precedenceOf: (repoSkill: Skill) => EnvironmentPrecedence,
+  environment: ReadonlyArray<EnvironmentSkillEntry>,
+  repo: SkillDiscovery,
+): SkillDiscovery => {
   const own = repo.skills.filter((skill) => !skill.filePath.startsWith(`${SKILLS_MOUNT}/`));
   const repoByName = new Map<string, Skill>();
   for (const skill of own) if (!repoByName.has(skill.name)) repoByName.set(skill.name, skill);
-  const atMount = (skill: EnvironmentSkillEntry): Skill => ({ name: skill.name, description: skill.description, filePath: environmentSkillPath(skill.name), disableModelInvocation: skill.disableModelInvocation });
+  const atMount = (skill: EnvironmentSkillEntry): Skill => ({
+    name: skill.name,
+    description: skill.description,
+    filePath: environmentSkillPath(skill.name),
+    disableModelInvocation: skill.disableModelInvocation,
+  });
   const by: Record<EnvironmentPrecedence, Array<EnvironmentSkillEntry>> = { environment: [], repo: [], both: [] };
   for (const skill of environment) {
     const namesake = repoByName.get(skill.name);
@@ -128,10 +156,22 @@ export const withEnvironmentSkillsFor = (precedenceOf: (repoSkill: Skill) => Env
   }
   const winning = new Set(by.environment.map((skill) => skill.name));
   return {
-    skills: [...by.environment.map(atMount), ...own.filter((skill) => !winning.has(skill.name)), ...by.both.map(atMount)],
+    skills: [
+      ...by.environment.map(atMount),
+      ...own.filter((skill) => !winning.has(skill.name)),
+      ...by.both.map(atMount),
+    ],
     skipped: [
-      ...own.filter((skill) => winning.has(skill.name)).map((skill) => ({ path: skill.filePath, reason: `"${skill.name}" is shadowed by the Environment skill ${skill.name}` })),
-      ...by.repo.map((skill) => ({ path: environmentSkillPath(skill.name), reason: `"${skill.name}" is shadowed by the Repo skill at ${repoByName.get(skill.name)!.filePath}` })),
+      ...own
+        .filter((skill) => winning.has(skill.name))
+        .map((skill) => ({
+          path: skill.filePath,
+          reason: `"${skill.name}" is shadowed by the Environment skill ${skill.name}`,
+        })),
+      ...by.repo.map((skill) => ({
+        path: environmentSkillPath(skill.name),
+        reason: `"${skill.name}" is shadowed by the Repo skill at ${repoByName.get(skill.name)!.filePath}`,
+      })),
       ...repo.skipped.filter((skip) => !skip.path.startsWith(`${SKILLS_MOUNT}/`)),
     ],
     omitted: repo.omitted,

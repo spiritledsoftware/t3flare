@@ -6,7 +6,12 @@
 // What this does not cover (docs/upstream-fragility.md, U7): the pin's own `/ws` refuses a socket without the
 // `orchestrationProtocol` query with 426, and the bare socket carries none; and the client waits only 4 minutes for a
 // compatible descriptor, while an Update takes 5–18.
-import { EnvironmentId, ExecutionEnvironmentDescriptor, ORCHESTRATION_PROTOCOL_VERSION, WS_METHODS } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ExecutionEnvironmentDescriptor,
+  ORCHESTRATION_PROTOCOL_VERSION,
+  WS_METHODS,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -43,7 +48,10 @@ const cloudDescriptor = (protocol: number, serverVersion: string): ExecutionEnvi
   platform: { os: "linux", arch: "x64" },
   serverVersion,
   orchestrationProtocolVersion: protocol,
-  capabilities: cloudCapabilities({ repositoryIdentity: true, serverSelfUpdateProgress: true } as ExecutionEnvironmentDescriptor["capabilities"], { serverSelfUpdate: "respawn" }),
+  capabilities: cloudCapabilities(
+    { repositoryIdentity: true, serverSelfUpdateProgress: true } as ExecutionEnvironmentDescriptor["capabilities"],
+    { serverSelfUpdate: "respawn" },
+  ),
 });
 
 const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
@@ -89,7 +97,11 @@ class CloudSocket {
     queueMicrotask(() =>
       this.#emit({
         type: "message",
-        data: encodeJson({ _tag: "Exit", requestId: message.id, exit: { _tag: "Success", value: { targetVersion: NEXT, method: "respawn", updateId: "update-1" } } }),
+        data: encodeJson({
+          _tag: "Exit",
+          requestId: message.id,
+          exit: { _tag: "Success", value: { targetVersion: NEXT, method: "respawn", updateId: "update-1" } },
+        }),
       }),
     );
   }
@@ -116,7 +128,18 @@ describe("a client blocked by a protocol mismatch", () => {
     await Effect.runPromise(
       Effect.gen(function* () {
         const entries = yield* SubscriptionRef.make<ReadonlyMap<EnvironmentId, ConnectionCatalogEntry>>(
-          new Map([[TARGET.environmentId, { target: TARGET, profile: Option.none(), enabled: false, unsupportedReason: blocked?.message ?? "", serverUpdateRequired: true }]]),
+          new Map([
+            [
+              TARGET.environmentId,
+              {
+                target: TARGET,
+                profile: Option.none(),
+                enabled: false,
+                unsupportedReason: blocked?.message ?? "",
+                serverUpdateRequired: true,
+              },
+            ],
+          ]),
         );
         const registry = EnvironmentRegistry.EnvironmentRegistry.of({
           entries,
@@ -130,7 +153,14 @@ describe("a client blocked by a protocol mismatch", () => {
           prepareForUpdate: () =>
             Effect.sync(() => ({
               descriptor: served,
-              prepared: { environmentId: TARGET.environmentId, label: TARGET.label, httpBaseUrl: TARGET.httpBaseUrl, socketUrl: "wss://t3.example.test/ws?wsTicket=ticket", httpAuthorization: null, target: TARGET },
+              prepared: {
+                environmentId: TARGET.environmentId,
+                label: TARGET.label,
+                httpBaseUrl: TARGET.httpBaseUrl,
+                socketUrl: "wss://t3.example.test/ws?wsTicket=ticket",
+                httpAuthorization: null,
+                target: TARGET,
+              },
             })),
         });
         const discovery = RelayEnvironmentDiscovery.RelayEnvironmentDiscovery.of({
@@ -143,10 +173,18 @@ describe("a client blocked by a protocol mismatch", () => {
               Layer.succeed(EnvironmentRegistry.EnvironmentRegistry, registry),
               Layer.succeed(ConnectionResolver.ConnectionResolver, resolver),
               Layer.succeed(RelayEnvironmentDiscovery.RelayEnvironmentDiscovery, discovery),
-              Layer.succeed(HttpClient.HttpClient, HttpClient.make((request) => Effect.sync(() => HttpClientResponse.fromWeb(request, new Response(encodeDescriptor(served)))))),
+              Layer.succeed(
+                HttpClient.HttpClient,
+                HttpClient.make((request) =>
+                  Effect.sync(() => HttpClientResponse.fromWeb(request, new Response(encodeDescriptor(served)))),
+                ),
+              ),
               Layer.succeed(Socket.WebSocketConstructor, (url) => {
                 // The landed bump restarts the Environment on the client's version and protocol.
-                const socket = new CloudSocket(url, () => (served = cloudDescriptor(ORCHESTRATION_PROTOCOL_VERSION, NEXT)));
+                const socket = new CloudSocket(
+                  url,
+                  () => (served = cloudDescriptor(ORCHESTRATION_PROTOCOL_VERSION, NEXT)),
+                );
                 sockets.push(socket);
                 return socket as unknown as globalThis.WebSocket;
               }),

@@ -12,7 +12,13 @@ describe("the Codex request guard", () => {
     expect(guardRequest("feedback/upload", {}, sandboxed)).toHaveProperty("refused");
     expect(guardRequest("account/rateLimits/read", {}, sandboxed)).toHaveProperty("refused");
     expect(guardRequest("account/login/start", {}, sandboxed)).toHaveProperty("refused");
-    for (const method of ["config/value/write", "command/exec", "fs/writeFile", "mcpServer/tool/call", "thread/brandNew"]) {
+    for (const method of [
+      "config/value/write",
+      "command/exec",
+      "fs/writeFile",
+      "mcpServer/tool/call",
+      "thread/brandNew",
+    ]) {
       expect(guardRequest(method, { a: 1 }, sandboxed), method).toEqual({ params: { a: 1 } });
     }
     expect(guardRequest("turn/interrupt", { threadId: "x" }, sandboxed)).toEqual({ params: { threadId: "x" } });
@@ -67,26 +73,77 @@ describe("the Codex request guard", () => {
     const turn = (runtimeMode: string | undefined, sandbox: boolean, plan = false) =>
       guardRequest(
         "turn/start",
-        { threadId: "n", approvalPolicy: "never", sandboxPolicy: { type: "dangerFullAccess" }, approvalsReviewer: "auto_review", collaborationMode: { mode: plan ? "plan" : "default" } },
+        {
+          threadId: "n",
+          approvalPolicy: "never",
+          sandboxPolicy: { type: "dangerFullAccess" },
+          approvalsReviewer: "auto_review",
+          collaborationMode: { mode: plan ? "plan" : "default" },
+        },
         { ...(runtimeMode === undefined ? {} : { runtimeMode }), sandbox },
       );
-    const policy = (answer: ReturnType<typeof turn>) => ("params" in answer ? (({ approvalPolicy, sandboxPolicy, approvalsReviewer }: any) => ({ approvalPolicy, sandboxPolicy, approvalsReviewer }))(answer.params) : answer);
-    expect(policy(turn("approval-required", true))).toEqual({ approvalPolicy: "untrusted", sandboxPolicy: { type: "readOnly" }, approvalsReviewer: "user" });
-    expect(policy(turn("auto-accept-edits", true))).toEqual({ approvalPolicy: "on-request", sandboxPolicy: { type: "workspaceWrite" }, approvalsReviewer: "user" });
-    expect(policy(turn("full-access", true))).toEqual({ approvalPolicy: "never", sandboxPolicy: { type: "dangerFullAccess" }, approvalsReviewer: "user" });
+    const policy = (answer: ReturnType<typeof turn>) =>
+      "params" in answer
+        ? (({ approvalPolicy, sandboxPolicy, approvalsReviewer }: any) => ({
+            approvalPolicy,
+            sandboxPolicy,
+            approvalsReviewer,
+          }))(answer.params)
+        : answer;
+    expect(policy(turn("approval-required", true))).toEqual({
+      approvalPolicy: "untrusted",
+      sandboxPolicy: { type: "readOnly" },
+      approvalsReviewer: "user",
+    });
+    expect(policy(turn("auto-accept-edits", true))).toEqual({
+      approvalPolicy: "on-request",
+      sandboxPolicy: { type: "workspaceWrite" },
+      approvalsReviewer: "user",
+    });
+    expect(policy(turn("full-access", true))).toEqual({
+      approvalPolicy: "never",
+      sandboxPolicy: { type: "dangerFullAccess" },
+      approvalsReviewer: "user",
+    });
     // t3's `auto` (CodexAdapterV2): on-request with Codex's own reviewer.
-    expect(policy(turn("auto", true))).toEqual({ approvalPolicy: "on-request", sandboxPolicy: { type: "workspaceWrite" }, approvalsReviewer: "auto_review" });
-    expect(policy(turn(undefined, true))).toEqual({ approvalPolicy: "untrusted", sandboxPolicy: { type: "readOnly" }, approvalsReviewer: "user" });
+    expect(policy(turn("auto", true))).toEqual({
+      approvalPolicy: "on-request",
+      sandboxPolicy: { type: "workspaceWrite" },
+      approvalsReviewer: "auto_review",
+    });
+    expect(policy(turn(undefined, true))).toEqual({
+      approvalPolicy: "untrusted",
+      sandboxPolicy: { type: "readOnly" },
+      approvalsReviewer: "user",
+    });
     // Without a sandbox: never less asking.
-    expect(policy(turn("approval-required", false))).toEqual({ approvalPolicy: "untrusted", sandboxPolicy: { type: "dangerFullAccess" }, approvalsReviewer: "user" });
-    expect(policy(turn("auto-accept-edits", false))).toEqual({ approvalPolicy: "untrusted", sandboxPolicy: { type: "dangerFullAccess" }, approvalsReviewer: "user" });
-    expect(policy(turn("auto", false))).toEqual({ approvalPolicy: "untrusted", sandboxPolicy: { type: "dangerFullAccess" }, approvalsReviewer: "user" });
+    expect(policy(turn("approval-required", false))).toEqual({
+      approvalPolicy: "untrusted",
+      sandboxPolicy: { type: "dangerFullAccess" },
+      approvalsReviewer: "user",
+    });
+    expect(policy(turn("auto-accept-edits", false))).toEqual({
+      approvalPolicy: "untrusted",
+      sandboxPolicy: { type: "dangerFullAccess" },
+      approvalsReviewer: "user",
+    });
+    expect(policy(turn("auto", false))).toEqual({
+      approvalPolicy: "untrusted",
+      sandboxPolicy: { type: "dangerFullAccess" },
+      approvalsReviewer: "user",
+    });
     // Plan is read-only whatever the mode.
-    expect(policy(turn("full-access", true, true))).toEqual({ approvalPolicy: "untrusted", sandboxPolicy: { type: "readOnly" }, approvalsReviewer: "user" });
+    expect(policy(turn("full-access", true, true))).toEqual({
+      approvalPolicy: "untrusted",
+      sandboxPolicy: { type: "readOnly" },
+      approvalsReviewer: "user",
+    });
   });
 
   it("runs an unknown interaction mode as plan", () => {
-    expect(turnPolicy({ runtimeMode: "full-access", interactionMode: "mystery", sandbox: true }, false).approvalPolicy).toBe("untrusted");
+    expect(
+      turnPolicy({ runtimeMode: "full-access", interactionMode: "mystery", sandbox: true }, false).approvalPolicy,
+    ).toBe("untrusted");
   });
 
   it("declines file changes in plan mode", () => {
@@ -105,32 +162,65 @@ describe("the Codex request guard", () => {
       expect(route("openai/gpt-5-mini")).toEqual({ provider: "t3flare-endpoint-openai", model: "gpt-5-mini" });
       expect(route("work/org/model-a")).toEqual({ provider: "t3flare-endpoint-work", model: "org/model-a" });
       // An old bare id, `anthropic/…`, and what is no slug: the first endpoint's first model.
-      for (const old of ["gpt-6-luna", "anthropic/claude-haiku-5-5", "openai/"]) expect(route(old), old).toEqual({ provider: "t3flare-endpoint-openai", model: "gpt-5-mini" });
+      for (const old of ["gpt-6-luna", "anthropic/claude-haiku-5-5", "openai/"])
+        expect(route(old), old).toEqual({ provider: "t3flare-endpoint-openai", model: "gpt-5-mini" });
       // Even where another Responses endpoint lists a model of the old id: the default model (ADR-0034 §3).
-      const listing = [{ id: "openai", models: [{ id: "gpt-5-mini" }] }, { id: "work", models: [{ id: "gpt-6-luna" }] }];
-      expect(codexModelRoute("gpt-6-luna", listing, (id) => `t3flare-endpoint-${id}`)).toEqual({ provider: "t3flare-endpoint-openai", model: "gpt-5-mini" });
+      const listing = [
+        { id: "openai", models: [{ id: "gpt-5-mini" }] },
+        { id: "work", models: [{ id: "gpt-6-luna" }] },
+      ];
+      expect(codexModelRoute("gpt-6-luna", listing, (id) => `t3flare-endpoint-${id}`)).toEqual({
+        provider: "t3flare-endpoint-openai",
+        model: "gpt-5-mini",
+      });
       // An endpoint that is gone: its own provider, which Codex does not have.
       expect(route("other/x")).toEqual({ provider: "t3flare-endpoint-other", model: "x" });
     });
 
     it("names each thread's provider from its model, over anything t3 or a config sent", () => {
       for (const method of ["thread/start", "thread/resume", "thread/fork"]) {
-        expect(guardRequest(method, { model: "openai/gpt-5-mini", modelProvider: "evil", config: { model_provider: "evil" } }, { ...sandboxed, route })).toEqual({
+        expect(
+          guardRequest(
+            method,
+            { model: "openai/gpt-5-mini", modelProvider: "evil", config: { model_provider: "evil" } },
+            { ...sandboxed, route },
+          ),
+        ).toEqual({
           params: { model: "gpt-5-mini", modelProvider: "t3flare-endpoint-openai", config: {} },
         });
       }
-      expect(guardRequest("thread/resume", { threadId: "t1" }, { ...sandboxed, route })).toEqual({ params: { threadId: "t1" } });
+      expect(guardRequest("thread/resume", { threadId: "t1" }, { ...sandboxed, route })).toEqual({
+        params: { threadId: "t1" },
+      });
     });
 
     it("gives a turn the model's own id, and refuses a turn on another provider than its thread's", () => {
-      const context = { ...sandboxed, route, threadProvider: (thread: string) => (thread === "t1" ? "t3flare-endpoint-openai" : undefined) };
-      const answer = guardRequest("turn/start", { threadId: "t1", model: "openai/gpt-5-mini", collaborationMode: { mode: "default", settings: { model: "openai/gpt-5-mini" } } }, context);
-      expect(answer).toMatchObject({ params: { model: "gpt-5-mini", collaborationMode: { mode: "default", settings: { model: "gpt-5-mini" } } } });
+      const context = {
+        ...sandboxed,
+        route,
+        threadProvider: (thread: string) => (thread === "t1" ? "t3flare-endpoint-openai" : undefined),
+      };
+      const answer = guardRequest(
+        "turn/start",
+        {
+          threadId: "t1",
+          model: "openai/gpt-5-mini",
+          collaborationMode: { mode: "default", settings: { model: "openai/gpt-5-mini" } },
+        },
+        context,
+      );
+      expect(answer).toMatchObject({
+        params: { model: "gpt-5-mini", collaborationMode: { mode: "default", settings: { model: "gpt-5-mini" } } },
+      });
       // An old model runs on the default model, here the thread's own provider's (SPI-1176).
-      expect(guardRequest("turn/start", { threadId: "t1", model: "gpt-6-luna" }, context)).toMatchObject({ params: { model: "gpt-5-mini" } });
+      expect(guardRequest("turn/start", { threadId: "t1", model: "gpt-6-luna" }, context)).toMatchObject({
+        params: { model: "gpt-5-mini" },
+      });
       expect(guardRequest("turn/start", { threadId: "t1", model: "work/m" }, context)).toHaveProperty("refused");
       // A thread the client has not seen yet is not judged.
-      expect(guardRequest("turn/start", { threadId: "t2", model: "work/m" }, context)).toMatchObject({ params: { model: "m" } });
+      expect(guardRequest("turn/start", { threadId: "t2", model: "work/m" }, context)).toMatchObject({
+        params: { model: "m" },
+      });
     });
   });
 });

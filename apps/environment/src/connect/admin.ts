@@ -25,9 +25,11 @@ import { decodeJsonObject } from "../platform/json.ts";
 import type { EnvironmentDO } from "../environmentDO.ts";
 import { Connect, type ConnectError } from "./service.ts";
 
-
 const json = (value: unknown, status = 200) =>
-  new Response(JSON.stringify(value, null, 2), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
+  new Response(JSON.stringify(value, null, 2), {
+    status,
+    headers: { "content-type": "application/json", "cache-control": "no-store" },
+  });
 
 const MUTATIONS = new Set([
   "POST /_t3flare/connect/sign-in",
@@ -54,7 +56,8 @@ export const callerMayRun = (route: string, caller: string | null, serviceTokenA
 const parseToken = (body: unknown): CliTokenManager.PersistedToken | undefined => {
   if (typeof body !== "object" || body === null) return undefined;
   const { accessToken, refreshToken, expiresAtEpochMs } = body as Record<string, unknown>;
-  if (typeof accessToken !== "string" || typeof refreshToken !== "string" || typeof expiresAtEpochMs !== "number") return undefined;
+  if (typeof accessToken !== "string" || typeof refreshToken !== "string" || typeof expiresAtEpochMs !== "number")
+    return undefined;
   return { accessToken, refreshToken, expiresAtEpochMs };
 };
 
@@ -105,7 +108,10 @@ export const handleConnectAdmin = async (request: Request, environment: Environm
   const caller = request.headers.get(ADMIN_CALLER_HEADER);
   if (!callerMayRun(route, caller, environment.connectServiceTokenAllowed)) {
     console.log(JSON.stringify({ t3flare: "connect-refused", route, caller }));
-    return json({ error: "owner only: sign in to Access as the owner (cloudflared access login), not with the service token" }, 403);
+    return json(
+      { error: "owner only: sign in to Access as the owner (cloudflared access login), not with the service token" },
+      403,
+    );
   }
   if (route === "POST /_t3flare/connect/sign-in" && (await environment.isArmed())) {
     // Disarming restarts t3 in place, which would end the sign-in's poll (review finding 4).
@@ -148,12 +154,31 @@ export const handleConnectAdmin = async (request: Request, environment: Environm
       const results: Record<string, { status: number; body: string }> = {};
       for (const path of REFUSED_ROUTES) {
         const body = path.endsWith("link-proof")
-          ? { challenge: "c", relayIssuer: "https://relay.t3.codes", endpoint: { httpBaseUrl: "http://127.0.0.1:443", wsBaseUrl: "ws://127.0.0.1:443", providerKind: "manual" }, origin: { localHttpHost: "127.0.0.1", localHttpPort: 443 } }
+          ? {
+              challenge: "c",
+              relayIssuer: "https://relay.t3.codes",
+              endpoint: {
+                httpBaseUrl: "http://127.0.0.1:443",
+                wsBaseUrl: "ws://127.0.0.1:443",
+                providerKind: "manual",
+              },
+              origin: { localHttpHost: "127.0.0.1", localHttpPort: 443 },
+            }
           : path.endsWith("relay-config")
-            ? { relayUrl: "https://relay.example", cloudUserId: "u", environmentCredential: "c", cloudMintPublicKey: "k", endpointRuntime: null }
+            ? {
+                relayUrl: "https://relay.example",
+                cloudUserId: "u",
+                environmentCredential: "c",
+                cloudMintPublicKey: "k",
+                endpointRuntime: null,
+              }
             : { proof: "a.b.c" };
         const response = await runtime.fetch(
-          new Request(new URL(path, url), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+          new Request(new URL(path, url), {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          }),
         );
         results[path] = { status: response.status, body: (await response.text()).slice(0, 300) };
       }

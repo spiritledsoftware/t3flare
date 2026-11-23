@@ -23,14 +23,8 @@ const STREAM_CHUNK = 64 * 1024;
 
 /** What a request completes with: a `tools/call` result, a `resources/read`, `prompts/get` or `completion/complete` result, or a list's items. */
 export type Answer =
-  | Extract<
-      Effect.Success<ReturnType<McpConnection["callTool"]>>,
-      { readonly kind: "complete" }
-    >["value"]
-  | Extract<
-      Effect.Success<ReturnType<McpConnection["readResource"]>>,
-      { readonly kind: "complete" }
-    >["value"]
+  | Extract<Effect.Success<ReturnType<McpConnection["callTool"]>>, { readonly kind: "complete" }>["value"]
+  | Extract<Effect.Success<ReturnType<McpConnection["readResource"]>>, { readonly kind: "complete" }>["value"]
   | Effect.Success<ReturnType<McpConnection["getPrompt"]>>["value"]
   | Effect.Success<ReturnType<McpConnection["complete"]>>["value"]
   | ReadonlyArray<ListItems[ListKind]>
@@ -58,10 +52,7 @@ const decodeError = Schema.decodeEffect(McpErrorWire);
  * sent; its code and shape stay. One that does not come back whole reads as a server not speaking MCP, never as the
  * original.
  */
-export const scrubError = Effect.fnUntraced(function* (
-  error: McpErrorWire,
-  tokens: ReadonlySet<string>,
-) {
+export const scrubError = Effect.fnUntraced(function* (error: McpErrorWire, tokens: ReadonlySet<string>) {
   if (tokens.size === 0) {
     return error;
   }

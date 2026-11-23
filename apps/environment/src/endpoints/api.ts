@@ -46,7 +46,11 @@ import { type EndpointStore, modelsWithMetadata } from "./store.ts";
 export interface EndpointsApiDeps {
   readonly store: EndpointStore;
   /** Reads an endpoint's model list (discover.ts). */
-  readonly discover: (target: Pick<ModelEndpoint, "api" | "baseUrl" | "headers">, apiKey: string | undefined, signIn?: SignIn) => Promise<Discovery>;
+  readonly discover: (
+    target: Pick<ModelEndpoint, "api" | "baseUrl" | "headers">,
+    apiKey: string | undefined,
+    signIn?: SignIn,
+  ) => Promise<Discovery>;
   /** The endpoints changed: the Pi Durable picker reads them again. */
   readonly changed?: () => void;
   /** The Credential broker (SPI-1164): the sign-ins' tokens. Without it no sign-in is offered. */
@@ -57,9 +61,15 @@ export interface EndpointsApiDeps {
   readonly removed?: (endpointId: string) => void;
 }
 
-export type EndpointsAnswer = { readonly status: number; readonly json: unknown } | { readonly status: number; readonly text: string };
+export type EndpointsAnswer =
+  | { readonly status: number; readonly json: unknown }
+  | { readonly status: number; readonly text: string };
 
-export const ENDPOINTS_PATHS = { list: "/api/endpoints", discover: "/api/endpoints/discover", signIn: "/api/endpoints/sign-in" } as const;
+export const ENDPOINTS_PATHS = {
+  list: "/api/endpoints",
+  discover: "/api/endpoints/discover",
+  signIn: "/api/endpoints/sign-in",
+} as const;
 
 /** An endpoint as audited: no key, and its headers' names only. */
 const audited = (endpoint: ModelEndpoint | undefined, key?: SealedMark) =>
@@ -107,7 +117,11 @@ export const endpointsOverview = async (deps: Pick<EndpointsApiDeps, "store" | "
 };
 
 /** A change to the endpoints, `audit`ed. */
-export const endpointsChange = async (deps: EndpointsApiDeps, body: Record<string, unknown>, audit: (entry: Omit<AuditEntry, "at" | "caller" | "entity">) => void): Promise<EndpointsAnswer> => {
+export const endpointsChange = async (
+  deps: EndpointsApiDeps,
+  body: Record<string, unknown>,
+  audit: (entry: Omit<AuditEntry, "at" | "caller" | "entity">) => void,
+): Promise<EndpointsAnswer> => {
   if (body.op === "remove") {
     const id = typeof body.id === "string" ? body.id : "";
     const removed = deps.store.remove(id);
@@ -115,26 +129,54 @@ export const endpointsChange = async (deps: EndpointsApiDeps, body: Record<strin
     // What else is kept of it (its limit readings) goes at once, before a sign-out that may fail.
     deps.removed?.(id);
     // A removed sign-in endpoint is signed out first (revoked where the vendor allows), and its Sessions stopped.
-    const signedOut = isSignIn(removed.removed.auth) && deps.signIns !== undefined ? await deps.signIns.forget(id, { beforeRevoke: async () => deps.signedOut?.(id) }) : undefined;
-    audit({ action: "endpoint.remove", target: id, before: audited(removed.removed), ...(signedOut === undefined ? {} : { after: { revoked: signedOut.revoked } }) });
+    const signedOut =
+      isSignIn(removed.removed.auth) && deps.signIns !== undefined
+        ? await deps.signIns.forget(id, { beforeRevoke: async () => deps.signedOut?.(id) })
+        : undefined;
+    audit({
+      action: "endpoint.remove",
+      target: id,
+      before: audited(removed.removed),
+      ...(signedOut === undefined ? {} : { after: { revoked: signedOut.revoked } }),
+    });
     deps.changed?.();
-    const kept = signedOut !== undefined && !signedOut.revoked && isSignIn(removed.removed.auth) ? revocationNote(removed.removed.auth) : {};
+    const kept =
+      signedOut !== undefined && !signedOut.revoked && isSignIn(removed.removed.auth)
+        ? revocationNote(removed.removed.auth)
+        : {};
     return { status: 200, json: { ok: true, revision: removed.endpoints.revision, ...kept } };
   }
-  if (body.op !== "save") return { status: 400, text: "the body is { op: \"save\", endpoint, apiKey? } or { op: \"remove\", id }" };
+  if (body.op !== "save")
+    return { status: 400, text: 'the body is { op: "save", endpoint, apiKey? } or { op: "remove", id }' };
   if (body.apiKey !== undefined && typeof body.apiKey !== "string") return { status: 400, text: "apiKey is a string" };
   const saved = await deps.store.save(body.endpoint, typeof body.apiKey === "string" ? { apiKey: body.apiKey } : {});
   if (!saved.ok) return { status: 400, text: saved.error };
-  audit({ action: saved.added ? "endpoint.add" : "endpoint.change", target: saved.endpoint.id, before: audited(saved.before), after: audited(saved.endpoint, saved.key) });
+  audit({
+    action: saved.added ? "endpoint.add" : "endpoint.change",
+    target: saved.endpoint.id,
+    before: audited(saved.before),
+    after: audited(saved.endpoint, saved.key),
+  });
   deps.changed?.();
-  return { status: 200, json: { ok: true, revision: saved.endpoints.revision, endpoint: saved.endpoint, key: saved.key } };
+  return {
+    status: 200,
+    json: { ok: true, revision: saved.endpoints.revision, endpoint: saved.endpoint, key: saved.key },
+  };
 };
 
 /** The model list of an endpoint being edited, with pi-ai's metadata: nothing is saved or audited. */
-export const endpointsDiscover = async (deps: EndpointsApiDeps, body: Record<string, unknown>): Promise<EndpointsAnswer> => {
+export const endpointsDiscover = async (
+  deps: EndpointsApiDeps,
+  body: Record<string, unknown>,
+): Promise<EndpointsAnswer> => {
   const given = isRecord(body.endpoint) ? body.endpoint : {};
   // The list is read before the endpoint has models or a final id: validate it with a stand-in for each.
-  const valid = validateEndpoint({ ...given, id: typeof given.id === "string" && given.id !== "" ? given.id : "unsaved", label: typeof given.label === "string" && given.label.trim() !== "" ? given.label : "unsaved", models: [] });
+  const valid = validateEndpoint({
+    ...given,
+    id: typeof given.id === "string" && given.id !== "" ? given.id : "unsaved",
+    label: typeof given.label === "string" && given.label.trim() !== "" ? given.label : "unsaved",
+    models: [],
+  });
   if (!valid.ok) return { status: 400, text: valid.error };
   const typed = typeof body.apiKey === "string" && body.apiKey !== "" ? body.apiKey : undefined;
   let apiKey: string | undefined;
@@ -144,7 +186,8 @@ export const endpointsDiscover = async (deps: EndpointsApiDeps, body: Record<str
   if (isSignIn(valid.endpoint.auth)) {
     // A sign-in's list is read with its own token, at its own target only.
     const saved = deps.store.load().endpoints.find((endpoint) => endpoint.id === valid.endpoint.id);
-    if (deps.signIns === undefined || saved === undefined || !isSignIn(saved.auth)) return { status: 400, text: "sign in first: the list is read with the sign-in's token" };
+    if (deps.signIns === undefined || saved === undefined || !isSignIn(saved.auth))
+      return { status: 400, text: "sign in first: the list is read with the sign-in's token" };
     const access = await deps.signIns.access(saved.id);
     if (!access.ok) return { status: 200, json: { ok: false, error: access.problem } };
     target = signInTarget(saved.auth, access);
@@ -155,7 +198,10 @@ export const endpointsDiscover = async (deps: EndpointsApiDeps, body: Record<str
       // The saved key goes only to the target it was saved with: the same API, base URL and headers.
       const saved = await deps.store.resolve(valid.endpoint.id);
       if (saved === undefined || saved.endpoint.auth === "none" || !sameTarget(saved.endpoint, valid.endpoint)) {
-        return { status: 400, text: "type the API key: a saved key is sent only to the API, base URL and headers it was saved with" };
+        return {
+          status: 400,
+          text: "type the API key: a saved key is sent only to the API, base URL and headers it was saved with",
+        };
       }
       if (saved.apiKey === undefined) return { status: 400, text: "the saved API key cannot be read: enter it again" };
       apiKey = saved.apiKey;
@@ -170,7 +216,14 @@ export const endpointsDiscover = async (deps: EndpointsApiDeps, body: Record<str
  * A sign-in's model list target: its own API and base URL (the one its token names, when it does: Copilot's), its token
  * in the headers its vendor takes it in, with the headers the broker gives beside it.
  */
-const signInTarget = (kind: SignIn, access: { readonly accessToken: string; readonly baseUrl?: string; readonly headers?: Readonly<Record<string, string>> }): Pick<ModelEndpoint, "api" | "baseUrl" | "headers"> => ({
+const signInTarget = (
+  kind: SignIn,
+  access: {
+    readonly accessToken: string;
+    readonly baseUrl?: string;
+    readonly headers?: Readonly<Record<string, string>>;
+  },
+): Pick<ModelEndpoint, "api" | "baseUrl" | "headers"> => ({
   api: SIGN_IN_KINDS[kind].api,
   baseUrl: access.baseUrl ?? SIGN_IN_KINDS[kind].baseUrl,
   headers: { ...access.headers, ...signInHeaders(kind, access.accessToken) },
@@ -183,12 +236,15 @@ const revocationNote = (kind: SignIn | null | undefined): { readonly revocation?
 };
 
 /** A label for a sign-in's endpoint: the given one, else the sign-in's title. */
-const signInLabel = (value: unknown, kind: SignIn): string => (typeof value === "string" && value.trim() !== "" ? value.trim().slice(0, 60) : SIGN_IN_KINDS[kind].title);
+const signInLabel = (value: unknown, kind: SignIn): string =>
+  typeof value === "string" && value.trim() !== "" ? value.trim().slice(0, 60) : SIGN_IN_KINDS[kind].title;
 
-const isSignInKind = (value: unknown): value is SignIn => typeof value === "string" && (SIGN_INS as ReadonlyArray<string>).includes(value);
+const isSignInKind = (value: unknown): value is SignIn =>
+  typeof value === "string" && (SIGN_INS as ReadonlyArray<string>).includes(value);
 
 /** Signs `id` out (after its tokens are gone here, its Sessions stopped; then revoked at the vendor where it can). */
-const signOutOf = (deps: EndpointsApiDeps, signIns: CredentialBroker, id: string) => signIns.signOut(id, { beforeRevoke: async () => deps.signedOut?.(id) });
+const signOutOf = (deps: EndpointsApiDeps, signIns: CredentialBroker, id: string) =>
+  signIns.signOut(id, { beforeRevoke: async () => deps.signedOut?.(id) });
 
 /**
  * A sign-in's completion: the pasted redirect exchanged, then its endpoint saved with the models its token lists (a
@@ -207,54 +263,99 @@ const completeSignIn = async (
   const started = signIns.status(id).kind;
   const device = started !== null && isDeviceSignIn(started);
   const pasted = device && body.pasted === undefined ? "" : body.pasted;
-  if (typeof pasted !== "string" || pasted.length > 8192) return { status: 400, text: "pasted is the address your browser landed on" };
+  if (typeof pasted !== "string" || pasted.length > 8192)
+    return { status: 400, text: "pasted is the address your browser landed on" };
   const result = await signIns.complete(id, pasted);
   const kind = signIns.status(id).kind;
   // Not approved yet: asked again after the vendor's interval; nothing to audit until it ends.
-  if (!result.ok && result.waiting === true) return { status: 200, json: { ok: false, waiting: true, error: result.problem } };
+  if (!result.ok && result.waiting === true)
+    return { status: 200, json: { ok: false, waiting: true, error: result.problem } };
   if (!result.ok || kind === null) {
     audit({ action: "endpoint.sign-in", target: id, after: { ok: false } });
-    return { status: 200, json: { ok: false, error: result.ok ? "the sign-in's kind is not known: start it again" : result.problem } };
+    return {
+      status: 200,
+      json: { ok: false, error: result.ok ? "the sign-in's kind is not known: start it again" : result.problem },
+    };
   }
   const target = SIGN_IN_KINDS[kind];
   let models: ReadonlyArray<{ readonly id: string; readonly name?: string }> = saved?.models ?? [];
   let modelsProblem: string | undefined;
   if (saved === undefined) {
     const access = await signIns.access(id);
-    const found = access.ok ? await deps.discover(signInTarget(kind, access), undefined, kind) : { ok: false as const, error: access.problem };
+    const found = access.ok
+      ? await deps.discover(signInTarget(kind, access), undefined, kind)
+      : { ok: false as const, error: access.problem };
     if (found.ok) models = found.models;
     else modelsProblem = found.error;
   }
   const stored = await deps.store.save(
-    { id, label: saved?.label ?? signInLabel(body.label, kind), api: target.api, baseUrl: target.baseUrl, auth: kind, headers: {}, models: models.map((model) => ({ id: model.id, ...(model.name === undefined ? {} : { name: model.name }) })) },
+    {
+      id,
+      label: saved?.label ?? signInLabel(body.label, kind),
+      api: target.api,
+      baseUrl: target.baseUrl,
+      auth: kind,
+      headers: {},
+      models: models.map((model) => ({ id: model.id, ...(model.name === undefined ? {} : { name: model.name }) })),
+    },
     {},
   );
   if (!stored.ok) {
     // No endpoint holds the fresh grant: it is revoked, not left behind.
     const { revoked } = await signOutOf(deps, signIns, id);
     audit({ action: "endpoint.sign-in", target: id, after: { ok: false, saved: false, revoked } });
-    const dropped = target.revocation === null ? "dropped (its revocation was not confirmed)" : `dropped here. ${target.revocation}`;
-    return { status: 200, json: { ok: false, error: `Signed in, but the endpoint could not be saved (${stored.error}), so the sign-in was ${revoked ? "revoked" : dropped}.` } };
+    const dropped =
+      target.revocation === null ? "dropped (its revocation was not confirmed)" : `dropped here. ${target.revocation}`;
+    return {
+      status: 200,
+      json: {
+        ok: false,
+        error: `Signed in, but the endpoint could not be saved (${stored.error}), so the sign-in was ${revoked ? "revoked" : dropped}.`,
+      },
+    };
   }
-  audit({ action: "endpoint.sign-in", target: id, before: audited(stored.before), after: { ok: true, ...audited(stored.endpoint) } });
+  audit({
+    action: "endpoint.sign-in",
+    target: id,
+    before: audited(stored.before),
+    after: { ok: true, ...audited(stored.endpoint) },
+  });
   deps.changed?.();
-  return { status: 200, json: { ok: true, email: result.status.email, models: stored.endpoint.models.length, ...(modelsProblem === undefined ? {} : { modelsProblem }) } };
+  return {
+    status: 200,
+    json: {
+      ok: true,
+      email: result.status.email,
+      models: stored.endpoint.models.length,
+      ...(modelsProblem === undefined ? {} : { modelsProblem }),
+    },
+  };
 };
 
 /**
  * A sign-in's steps (SPI-1164), for any kind of `SIGN_IN_KINDS`: start, complete with the pasted redirect, sign out.
  * Each audited, none with a token.
  */
-export const endpointsSignIn = async (deps: EndpointsApiDeps, body: Record<string, unknown>, audit: (entry: Omit<AuditEntry, "at" | "caller" | "entity">) => void): Promise<EndpointsAnswer> => {
+export const endpointsSignIn = async (
+  deps: EndpointsApiDeps,
+  body: Record<string, unknown>,
+  audit: (entry: Omit<AuditEntry, "at" | "caller" | "entity">) => void,
+): Promise<EndpointsAnswer> => {
   const signIns = deps.signIns;
   if (signIns === undefined) return { status: 404, text: "this Environment offers no sign-in" };
   const id = typeof body.id === "string" ? body.id : "";
-  if (!ENDPOINT_ID.test(id) || RESERVED_ENDPOINT_IDS.includes(id)) return { status: 400, text: "id is 1–32 of a–z, 0–9 and -, not a reserved one" };
+  if (!ENDPOINT_ID.test(id) || RESERVED_ENDPOINT_IDS.includes(id))
+    return { status: 400, text: "id is 1–32 of a–z, 0–9 and -, not a reserved one" };
   const saved = deps.store.load().endpoints.find((endpoint) => endpoint.id === id);
-  if (saved !== undefined && !isSignIn(saved.auth)) return { status: 400, text: `there is already an endpoint with an API key (or none) under the id ${id}: pick another id` };
+  if (saved !== undefined && !isSignIn(saved.auth))
+    return {
+      status: 400,
+      text: `there is already an endpoint with an API key (or none) under the id ${id}: pick another id`,
+    };
   if (body.op === "start") {
     if (!isSignInKind(body.signIn)) return { status: 400, text: `signIn is one of ${SIGN_INS.join(", ")}` };
-    if (saved !== undefined && saved.auth !== body.signIn) return { status: 400, text: `the endpoint ${id} is another sign-in: pick another id` };
+    if (saved !== undefined && saved.auth !== body.signIn)
+      return { status: 400, text: `the endpoint ${id} is another sign-in: pick another id` };
     // The owner's acknowledgement that complying with the vendor's terms is theirs: the panel's checkbox, required here
     // too, so no start skips it.
     if (body.acknowledgedTerms !== true) {
@@ -279,5 +380,8 @@ export const endpointsSignIn = async (deps: EndpointsApiDeps, body: Record<strin
     audit({ action: "endpoint.sign-out", target: id, after: { signedOut, revoked } });
     return { status: 200, json: { ok: true, signedOut, revoked, ...(revoked ? {} : revocationNote(kind)) } };
   }
-  return { status: 400, text: 'the body is { op: "start", id, signIn, label, acknowledgedTerms: true }, { op: "complete", id, label, pasted } or { op: "sign-out", id }' };
+  return {
+    status: 400,
+    text: 'the body is { op: "start", id, signIn, label, acknowledgedTerms: true }, { op: "complete", id, label, pasted } or { op: "sign-out", id }',
+  };
 };

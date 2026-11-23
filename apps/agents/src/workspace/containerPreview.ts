@@ -12,7 +12,11 @@
 // @effect-diagnostics globalTimers:off
 import { CONTAINER_PREVIEW_PORTS, containerPreviewHost } from "@t3flare/workspace-client";
 
-import { CONTAINER_PREVIEW_HEADER, CONTAINER_PREVIEW_SCRIPT, CONTAINER_PREVIEW_SOCKET_PATH } from "./containerPreviewScript.ts";
+import {
+  CONTAINER_PREVIEW_HEADER,
+  CONTAINER_PREVIEW_SCRIPT,
+  CONTAINER_PREVIEW_SOCKET_PATH,
+} from "./containerPreviewScript.ts";
 
 const isString = (value: unknown): value is string => typeof value === "string";
 const isNumber = (value: unknown): value is number => typeof value === "number";
@@ -52,13 +56,7 @@ export type ContainerPreviewDeps = {
  * Headers not passed on: the ones a request picks up on its way here, which are not the page's, and `Host`, which is the
  * dev server's own (`localhost:<port>`), as a dev server refuses a host it does not know (Vite's `allowedHosts`).
  */
-const DROPPED_HEADERS = [
-  "host",
-  "x-forwarded-host",
-  "x-forwarded-proto",
-  "x-real-ip",
-  "x-forwarded-for",
-];
+const DROPPED_HEADERS = ["host", "x-forwarded-host", "x-forwarded-proto", "x-real-ip", "x-forwarded-for"];
 
 /** The `Host` a dev server on `port` knows: its own, as on a laptop. */
 const devServerHost = (port: number) => `localhost:${port}`;
@@ -75,19 +73,14 @@ const containerPreviewLocation = (location: string, port: number): string => {
 
   const url = new URL(location);
 
-  if (
-    url.protocol !== "http:" ||
-    !LOOPBACK_HOSTS.includes(url.hostname) ||
-    url.port !== String(port)
-  ) {
+  if (url.protocol !== "http:" || !LOOPBACK_HOSTS.includes(url.hostname) || url.port !== String(port)) {
     return location;
   }
 
   return `http://${containerPreviewHost(port)}${url.pathname}${url.search}${url.hash}`;
 };
 
-const escapeHtml = (text: string) =>
-  text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+const escapeHtml = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
 /** A page of ours, in place of the dev server's, with `status`. */
 const page = (status: number, title: string, text: string) =>
@@ -101,7 +94,9 @@ const page = (status: number, title: string, text: string) =>
 
 /** Put the script at the start of an HTML page: in its `<head>`, else before anything but its doctype. */
 export const withContainerPreviewScript = (html: string, external = false): string => {
-  const script = external ? `<script src="${CONTAINER_PREVIEW_SOCKET_PATH}shim.js"></script>` : `<script>${CONTAINER_PREVIEW_SCRIPT}</script>`;
+  const script = external
+    ? `<script src="${CONTAINER_PREVIEW_SOCKET_PATH}shim.js"></script>`
+    : `<script>${CONTAINER_PREVIEW_SCRIPT}</script>`;
   const head = /<head(\s[^>]*)?>/i.exec(html);
 
   if (head !== null) {
@@ -173,7 +168,11 @@ export class ContainerPreview {
     // Review L8: the script as a file, for pages whose CSP allows `script-src 'self'` but no inline script.
     if (url.pathname === `${CONTAINER_PREVIEW_SOCKET_PATH}shim.js` && request.method === "GET") {
       return new Response(CONTAINER_PREVIEW_SCRIPT, {
-        headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" },
+        headers: {
+          "content-type": "text/javascript; charset=utf-8",
+          "cache-control": "no-store",
+          "x-content-type-options": "nosniff",
+        },
       });
     }
 
@@ -202,14 +201,12 @@ export class ContainerPreview {
     let response: Response;
 
     try {
-      response = await this.#deps
-        .port(port)
-        .fetch(`http://localhost:${port}${url.pathname}${url.search}`, {
-          method: request.method,
-          headers,
-          body: request.method === "GET" || request.method === "HEAD" ? null : request.body,
-          redirect: "manual",
-        });
+      response = await this.#deps.port(port).fetch(`http://localhost:${port}${url.pathname}${url.search}`, {
+        method: request.method,
+        headers,
+        body: request.method === "GET" || request.method === "HEAD" ? null : request.body,
+        redirect: "manual",
+      });
     } catch (cause) {
       return this.#unreachable(port, cause);
     }
@@ -237,16 +234,21 @@ export class ContainerPreview {
     // The page is longer and no longer the dev server's bytes.
     for (const name of ["content-length", "content-encoding", "etag"]) out.delete(name);
 
-    return new Response(withContainerPreviewScript(await response.text(), response.headers.has("content-security-policy")), {
-      status: response.status,
-      statusText: response.statusText,
-      headers: out,
-    });
+    return new Response(
+      withContainerPreviewScript(await response.text(), response.headers.has("content-security-policy")),
+      {
+        status: response.status,
+        statusText: response.statusText,
+        headers: out,
+      },
+    );
   }
 
   #unreachable(port: number, cause: unknown): Response {
     // The error's kind only: its message can carry the page's path (review L5).
-    this.#deps.warn(`Container preview: nothing answered on port ${port}: ${cause instanceof Error ? cause.name : "error"}`);
+    this.#deps.warn(
+      `Container preview: nothing answered on port ${port}: ${cause instanceof Error ? cause.name : "error"}`,
+    );
 
     return page(
       502,
@@ -260,10 +262,7 @@ export class ContainerPreview {
     const origin = request.headers.get("origin");
 
     // A page of another origin cannot send the header without a preflight, which nothing here answers.
-    if (
-      request.headers.get(CONTAINER_PREVIEW_HEADER) !== "1" ||
-      (origin !== null && origin !== url.origin)
-    ) {
+    if (request.headers.get(CONTAINER_PREVIEW_HEADER) !== "1" || (origin !== null && origin !== url.origin)) {
       return new Response("Forbidden", { status: 403 });
     }
 
@@ -280,9 +279,7 @@ export class ContainerPreview {
     if (op === "send") {
       try {
         carried.socket.send(
-          url.searchParams.get("binary") === "1"
-            ? await request.arrayBuffer()
-            : await request.text(),
+          url.searchParams.get("binary") === "1" ? await request.arrayBuffer() : await request.text(),
         );
       } catch (cause) {
         carried.end(1011, String(cause));
@@ -421,9 +418,7 @@ export class ContainerPreview {
 
     // Listening before the socket is accepted: the dev server's first message (Vite's `connected`) comes at once.
     socket.addEventListener("message", (event) => {
-      const data = isString(event.data)
-        ? { text: event.data }
-        : { binary: toBase64(new Uint8Array(event.data)) };
+      const data = isString(event.data) ? { text: event.data } : { binary: toBase64(new Uint8Array(event.data)) };
 
       void write(`data: ${JSON.stringify(data)}\n\n`);
     });

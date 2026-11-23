@@ -118,7 +118,9 @@ describe("ContainerGate", () => {
   it("refuses in the budget refusal's words, so every surface reads the removal as the reason", () => {
     expect(startRefusal(new Error(CLOSED_MESSAGE))).toBe("this Workspace was removed");
     // Through computer's wrapping too: the reason is read from the deepest cause.
-    expect(startRefusal(new Error("connect failed", { cause: new Error(CLOSED_MESSAGE) }))).toBe("this Workspace was removed");
+    expect(startRefusal(new Error("connect failed", { cause: new Error(CLOSED_MESSAGE) }))).toBe(
+      "this Workspace was removed",
+    );
   });
 
   it("starts again once reopened (a restored tombstone, a reprovisioned path)", async () => {

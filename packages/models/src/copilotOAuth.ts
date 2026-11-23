@@ -48,7 +48,10 @@ export const COPILOT_BASE_URL = /^https:\/\/(?:[a-z0-9-]+\.)+githubcopilot\.com$
 export const copilotBaseUrl = (token: string): string | undefined => {
   const match = /proxy-ep=([^;]+)/.exec(token);
   if (match === null) return COPILOT_DEFAULT_BASE_URL;
-  const host = match[1]!.trim().toLowerCase().replace(/^proxy\./, "api.");
+  const host = match[1]!
+    .trim()
+    .toLowerCase()
+    .replace(/^proxy\./, "api.");
   const url = `https://${host}`;
   return COPILOT_BASE_URL.test(url) ? url : undefined;
 };

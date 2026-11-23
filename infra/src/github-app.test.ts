@@ -12,17 +12,12 @@ const sourced = (text: string, name: string): string => {
 
   writeFileSync(file, text);
 
-  return execFileSync(
-    "bash",
-    ["-c", `set -a; . "$1"; set +a; printf '%s' "\${${name}}"`, "-", file],
-    {
-      encoding: "utf8",
-    },
-  );
+  return execFileSync("bash", ["-c", `set -a; . "$1"; set +a; printf '%s' "\${${name}}"`, "-", file], {
+    encoding: "utf8",
+  });
 };
 
-const KEY =
-  "-----BEGIN RSA PRIVATE KEY-----\nMIIEow'IBAAKCAQEA\nzz$HOME`x`\n-----END RSA PRIVATE KEY-----\n";
+const KEY = "-----BEGIN RSA PRIVATE KEY-----\nMIIEow'IBAAKCAQEA\nzz$HOME`x`\n-----END RSA PRIVATE KEY-----\n";
 
 describe("the dev.env the setup writes the app's secrets into", () => {
   it("gets them at its end, each read back by bash as written, the key over its lines", () => {
@@ -48,9 +43,7 @@ describe("the dev.env the setup writes the app's secrets into", () => {
       GITHUB_APP_PRIVATE_KEY: "new key",
     });
 
-    expect(after).toBe(
-      "A=1\n# a note\nGITHUB_APP_ID='2'\nGITHUB_APP_PRIVATE_KEY='new key'\nB=2\n",
-    );
+    expect(after).toBe("A=1\n# a note\nGITHUB_APP_ID='2'\nGITHUB_APP_PRIVATE_KEY='new key'\nB=2\n");
   });
 });
 

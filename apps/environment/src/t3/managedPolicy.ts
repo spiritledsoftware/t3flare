@@ -37,4 +37,7 @@ export const T3FLARE_POLICY = {
 export const T3FLARE_POLICY_SOURCE = "t3flare:built-in";
 
 /** t3's `ManagedPolicy` service from t3flare's policy, in place of `ManagedPolicy.layer` (which reads the host). */
-export const layerManagedPolicy = Layer.effect(ManagedPolicy.ManagedPolicy, ManagedPolicy.fromDocument(T3FLARE_POLICY_SOURCE, T3FLARE_POLICY));
+export const layerManagedPolicy = Layer.effect(
+  ManagedPolicy.ManagedPolicy,
+  ManagedPolicy.fromDocument(T3FLARE_POLICY_SOURCE, T3FLARE_POLICY),
+);

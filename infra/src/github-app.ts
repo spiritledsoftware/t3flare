@@ -57,10 +57,7 @@ const quotesOpen = (assignment: string): boolean => {
  * `text`, a dev.env that `set -a; . dev.env` loads, with `values` set: each assignment it had replaced where it was (all
  * of its lines), the others added at its end, every value single-quoted. Every other line is kept as it is.
  */
-export const withDevEnvValues = (
-  text: string,
-  values: Readonly<Record<string, string>>,
-): string => {
+export const withDevEnvValues = (text: string, values: Readonly<Record<string, string>>): string => {
   const lines = text === "" ? [] : text.replace(/\n$/, "").split("\n");
   const out: string[] = [];
   const written = new Set<string>();

@@ -10,14 +10,37 @@ import { MODEL_HANDLE_ENV } from "@t3flare/models/relay";
 import { describe, expect, it } from "vitest";
 
 import { claudeManagedSettings, claudeModeOf } from "../src/agents/acpProfiles.ts";
-import { CLI_PROFILE_NAMES, codexExecArgs, codexOverrides, type CliName, type LaunchInput, profileLaunch, type ProfileContext } from "../src/agents/cliProfiles.ts";
+import {
+  CLI_PROFILE_NAMES,
+  codexExecArgs,
+  codexOverrides,
+  type CliName,
+  type LaunchInput,
+  profileLaunch,
+  type ProfileContext,
+} from "../src/agents/cliProfiles.ts";
 import { TERMINAL_BASE_ENV } from "../src/terminal/layer.ts";
 
 const PI_EXTENSION = "/state/t3-pi-extension.js";
 const SCHEMA = "/state/output-schema.json";
-const MODEL = { id: "m", name: "M", reasoning: false, input: ["text" as const], contextWindow: 1, maxTokens: 1, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, known: false };
+const MODEL = {
+  id: "m",
+  name: "M",
+  reasoning: false,
+  input: ["text" as const],
+  contextWindow: 1,
+  maxTokens: 1,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  known: false,
+};
 const ENDPOINT = { id: "e", label: "E", api: "anthropic-messages" as const, models: [MODEL] };
-const CLAUDE_RELAY = { endpoints: ["e"], models: ["e/m"], backgroundModel: "e/m", opusModel: "e/m", sonnetModel: "e/m" };
+const CLAUDE_RELAY = {
+  endpoints: ["e"],
+  models: ["e/m"],
+  backgroundModel: "e/m",
+  opusModel: "e/m",
+  sonnetModel: "e/m",
+};
 /** Every CLI on one endpoint through the model relay (SPI-1176: there is no other way to run one). */
 const context: ProfileContext = {
   endpoints: [ENDPOINT],
@@ -36,19 +59,32 @@ const context: ProfileContext = {
 const LAUNCHES = {
   codex: [{ args: ["app-server"] }, { args: codexExecArgs("gpt-6-luna", SCHEMA) }],
   pi: [
-    { args: ["--mode", "rpc", "--extension", PI_EXTENSION], env: { T3_PI_RUNTIME_MODE: "full-access", T3_MCP_URL: "https://t3.example/mcp", T3_MCP_BEARER_TOKEN: "bearer" } },
+    {
+      args: ["--mode", "rpc", "--extension", PI_EXTENSION],
+      env: { T3_PI_RUNTIME_MODE: "full-access", T3_MCP_URL: "https://t3.example/mcp", T3_MCP_BEARER_TOKEN: "bearer" },
+    },
     { args: ["--mode", "rpc", "--no-extensions"] },
   ],
   claude: [{ args: [] }],
   opencode: [{ args: ["acp"] }],
   probe: [{ args: [] }],
-} satisfies Record<CliName, ReadonlyArray<{ readonly args: ReadonlyArray<string>; readonly env?: Record<string, string> }>>;
+} satisfies Record<
+  CliName,
+  ReadonlyArray<{ readonly args: ReadonlyArray<string>; readonly env?: Record<string, string> }>
+>;
 
 const launchNames = (): ReadonlyArray<string> =>
   Object.entries(LAUNCHES).flatMap(([cli, launches]) =>
     launches.flatMap(({ args, ...rest }) => {
       const env = "env" in rest ? rest.env : {};
-      const input: LaunchInput = { cli: cli as CliName, args, key: "k1", cwd: "/w/p/repo", env: { T3CODE_THREAD_ID: "t1", ...env }, allowProbe: true };
+      const input: LaunchInput = {
+        cli: cli as CliName,
+        args,
+        key: "k1",
+        cwd: "/w/p/repo",
+        env: { T3CODE_THREAD_ID: "t1", ...env },
+        allowProbe: true,
+      };
       const launch = profileLaunch(input, context);
       if ("refused" in launch) throw new Error(`${cli} ${args.join(" ")}: ${launch.refused}`);
       return Object.keys(launch.env);
@@ -56,7 +92,10 @@ const launchNames = (): ReadonlyArray<string> =>
   );
 
 /** The names Codex's shell policy sets in every command it runs (`shell_environment_policy.set.NAME=…`). */
-const codexShellNames = (): ReadonlyArray<string> => codexOverrides("k1", [ENDPOINT]).flatMap((value) => /^shell_environment_policy\.set\.([A-Za-z_][A-Za-z0-9_]*)=/.exec(value)?.[1] ?? []);
+const codexShellNames = (): ReadonlyArray<string> =>
+  codexOverrides("k1", [ENDPOINT]).flatMap(
+    (value) => /^shell_environment_policy\.set\.([A-Za-z_][A-Za-z0-9_]*)=/.exec(value)?.[1] ?? [],
+  );
 
 /** The shell variables a Terminal's rc file assigns after the shell starts (`NAME=…` at a line's start). */
 const terminalRcNames = (): ReadonlyArray<string> =>
@@ -88,7 +127,19 @@ describe("the names t3flare sets itself", () => {
     const names = derived();
     // Spot checks against each source, so an empty derivation cannot pass.
     expect(names).toEqual(
-      expect.arrayContaining(["ANTHROPIC_BASE_URL", "HTTPS_PROXY", "MISE_GLOBAL_CONFIG_FILE", "BASH_ENV", "CODEX_HOME", "T3FLARE_TOOL_HANDLE", "T3FLARE_MODEL_HANDLE", "T3FLARE_EXEC", "TERM", "HISTFILE", "PS1"]),
+      expect.arrayContaining([
+        "ANTHROPIC_BASE_URL",
+        "HTTPS_PROXY",
+        "MISE_GLOBAL_CONFIG_FILE",
+        "BASH_ENV",
+        "CODEX_HOME",
+        "T3FLARE_TOOL_HANDLE",
+        "T3FLARE_MODEL_HANDLE",
+        "T3FLARE_EXEC",
+        "TERM",
+        "HISTFILE",
+        "PS1",
+      ]),
     );
     expect(names.filter((name) => variableNameProblem(name) !== undefined)).toEqual([]);
     expect(names.filter((name) => !setByT3flare(name))).toEqual([]);

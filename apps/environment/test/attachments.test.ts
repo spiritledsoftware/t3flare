@@ -16,8 +16,12 @@ const reader = (files: Record<string, Uint8Array>, extracted: Record<string, str
   extractedText: (attachment) => Effect.succeed(extracted[attachment.id] ?? null),
 });
 const utf8 = (text: string) => new TextEncoder().encode(text);
-const prompt = (text: string, attachments: ReadonlyArray<ChatAttachment>, files: AttachmentReader, acceptsImages = true) =>
-  Effect.runPromise(turnPrompt({ text, attachments }, { acceptsImages, reader: files }));
+const prompt = (
+  text: string,
+  attachments: ReadonlyArray<ChatAttachment>,
+  files: AttachmentReader,
+  acceptsImages = true,
+) => Effect.runPromise(turnPrompt({ text, attachments }, { acceptsImages, reader: files }));
 
 describe("a message's attachments, as a Durable agent receives them", () => {
   it("sends an image inline and names it in the text", async () => {
@@ -31,7 +35,9 @@ describe("a message's attachments, as a Durable agent receives them", () => {
     const result = await prompt("", [image("small"), image("big")], reader({ small: new Uint8Array([1, 2, 3]), big }));
     expect(result.images).toEqual([{ data: "AQID", mimeType: "image/png" }]);
     expect(result.text).toContain('[Attached image "small.png" is shown inline.]');
-    expect(result.text).toContain('[Attached image "big.png" (0.9 MB) is not shown: a message takes at most 0.9 MB of images inline.');
+    expect(result.text).toContain(
+      '[Attached image "big.png" (0.9 MB) is not shown: a message takes at most 0.9 MB of images inline.',
+    );
   });
 
   it("sends no image to a model without image input", async () => {
@@ -64,12 +70,22 @@ describe("a message's attachments, as a Durable agent receives them", () => {
   });
 
   it("uses the text t3 extracted from a document", async () => {
-    const result = await prompt("", [file("doc", "spec.pdf", "application/pdf")], reader({ doc: utf8("%PDF-\u0000") }, { doc: "The spec." }));
-    expect(result.text).toBe('[Attached file "spec.pdf" (application/pdf), as extracted text:]\nThe spec.\n[End of "spec.pdf".]');
+    const result = await prompt(
+      "",
+      [file("doc", "spec.pdf", "application/pdf")],
+      reader({ doc: utf8("%PDF-\u0000") }, { doc: "The spec." }),
+    );
+    expect(result.text).toBe(
+      '[Attached file "spec.pdf" (application/pdf), as extracted text:]\nThe spec.\n[End of "spec.pdf".]',
+    );
   });
 
   it("cuts file text to the input budget and says so", async () => {
-    const result = await prompt("x", [file("huge", "huge.txt", "text/plain")], reader({ huge: utf8("a".repeat(200_000)) }));
+    const result = await prompt(
+      "x",
+      [file("huge", "huge.txt", "text/plain")],
+      reader({ huge: utf8("a".repeat(200_000)) }),
+    );
     expect(result.text.length).toBeLessThanOrEqual(120_000);
     expect(result.text).toContain('[Attached file "huge.txt" (text/plain), cut to fit the prompt:]');
     expect(result.text.endsWith('[End of "huge.txt": cut.]')).toBe(true);
@@ -92,7 +108,9 @@ describe("a message's attachments, as a Durable agent receives them", () => {
     );
     expect(read).toEqual([]);
     expect(result.text).toContain('[Attached image "photo.png" (5.0 MB) is not shown');
-    expect(result.text).toContain('[Attached file "big.log" (text/plain, 30.0 MB) is too large for this agent to read.]');
+    expect(result.text).toContain(
+      '[Attached file "big.log" (text/plain, 30.0 MB) is too large for this agent to read.]',
+    );
     expect(result.text).toContain('[Attached file "big.pdf" (application/pdf), as extracted text:]\nExtracted.');
   });
 

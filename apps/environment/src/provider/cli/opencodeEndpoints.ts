@@ -11,10 +11,14 @@ import { opencodeEndpointModel, type OpenCodeRelay, opencodeServes } from "../..
 import { relayPickerModels, relayTextModel } from "./relayModels.ts";
 
 /** The endpoints OpenCode reaches through the model relay: relayed, an API it has a provider package for, and a model. */
-export const opencodeEndpoints = (endpoints: ModelEndpoints | undefined): ReadonlyArray<ModelEndpoint> => relayedEndpoints(endpoints, "opencode").filter(opencodeServes);
+export const opencodeEndpoints = (endpoints: ModelEndpoints | undefined): ReadonlyArray<ModelEndpoint> =>
+  relayedEndpoints(endpoints, "opencode").filter(opencodeServes);
 
 /** OpenCode's relay configuration for the endpoints as stored now, or undefined when there is no such endpoint. */
-export const opencodeRelayOf = (endpoints: ModelEndpoints | undefined, textModel: string | undefined): OpenCodeRelay | undefined => {
+export const opencodeRelayOf = (
+  endpoints: ModelEndpoints | undefined,
+  textModel: string | undefined,
+): OpenCodeRelay | undefined => {
   const own = opencodeEndpoints(endpoints);
   if (own.length === 0) return undefined;
   const picker = relayPickerModels(own);
@@ -22,7 +26,8 @@ export const opencodeRelayOf = (endpoints: ModelEndpoints | undefined, textModel
 };
 
 /** OpenCode's model list: those endpoints' models by slug, grouped by endpoint, the first the default; empty without one. */
-export const opencodeModelsOf = (endpoints: ModelEndpoints | undefined): ReadonlyArray<ServerProviderModel> => relayPickerModels(opencodeEndpoints(endpoints));
+export const opencodeModelsOf = (endpoints: ModelEndpoints | undefined): ReadonlyArray<ServerProviderModel> =>
+  relayPickerModels(opencodeEndpoints(endpoints));
 
 /**
  * The model as OpenCode names it: an endpoint's slug as its provider's model (`t3flare-endpoint-<id>/<model>`). An old

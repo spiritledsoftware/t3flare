@@ -13,37 +13,24 @@ import { context, openFauxHarness } from "./harness.fixture.ts";
 import { effectTask } from "./task.ts";
 
 /** Who the task greets: a service its phases read. */
-class Greeted extends Context.Service<Greeted, string>()(
-  "@t3flare/effect-durable/task.test/Greeted",
-) {}
+class Greeted extends Context.Service<Greeted, string>()("@t3flare/effect-durable/task.test/Greeted") {}
 
-class GreetingRefused extends Schema.TaggedError<
-  GreetingRefused,
-  { readonly brand: unique symbol }
->()("GreetingRefused", { message: Schema.String }) {}
+class GreetingRefused extends Schema.TaggedError<GreetingRefused, { readonly brand: unique symbol }>()(
+  "GreetingRefused",
+  { message: Schema.String },
+) {}
 
 type GreetState = { phase: "prepare" } | { phase: "greet" };
 
 /** Move a task to the checkpoint of its next phase. */
 const advance = (runtime: TaskRuntime<string, GreetState, string, object>, next: GreetState) =>
-  callDurable("commit", (chord) =>
-    runtime.commit(() => ({ status: "running", checkpoint: next }), chord),
-  );
+  callDurable("commit", (chord) => runtime.commit(() => ({ status: "running", checkpoint: next }), chord));
 
 /** Open a Harness with `task` installed and start it, returning the harness and the new task's ID. */
-const start = async <I extends JsonValue, S extends { phase: string }, R>(
-  task: Task<I, S, R, object>,
-  input: I,
-) => {
-  const { harness, root } = await openFauxHarness(
-    [defineExtension({ name: "greeting", tasks: [task] })],
-    [],
-  );
+const start = async <I extends JsonValue, S extends { phase: string }, R>(task: Task<I, S, R, object>, input: I) => {
+  const { harness, root } = await openFauxHarness([defineExtension({ name: "greeting", tasks: [task] })], []);
 
-  const id = await root.commit(
-    (tx) => tx.createTask(task, input, { ownership: { kind: "conversation" } }),
-    context,
-  );
+  const id = await root.commit((tx) => tx.createTask(task, input, { ownership: { kind: "conversation" } }), context);
 
   harness.resume();
 

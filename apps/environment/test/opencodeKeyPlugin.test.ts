@@ -7,10 +7,30 @@ import { HANDLE as TS_HANDLE } from "@t3flare/workspace-client";
 import { describe, expect, it } from "vitest";
 
 import { OPENCODE_HANDLE_HOLDERS, OPENCODE_PACKAGES, opencodeConfig } from "../src/agents/acpProfiles.ts";
-import { ENDPOINT_ID, ENDPOINT_PROVIDER, HANDLE, HOLDER_CMDLINE, handleFrom, PACKAGE_PATHS, PLACEHOLDER, putHandle, RELAY, relayProviders } from "../../sandbox-image/image/opencode-key-plugin/relay.js";
+import {
+  ENDPOINT_ID,
+  ENDPOINT_PROVIDER,
+  HANDLE,
+  HOLDER_CMDLINE,
+  handleFrom,
+  PACKAGE_PATHS,
+  PLACEHOLDER,
+  putHandle,
+  RELAY,
+  relayProviders,
+} from "../../sandbox-image/image/opencode-key-plugin/relay.js";
 
 const handle = "a".repeat(64);
-const model = (id: string) => ({ id, name: id, reasoning: false, input: ["text" as const], contextWindow: 1, maxTokens: 1, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, known: false });
+const model = (id: string) => ({
+  id,
+  name: id,
+  reasoning: false,
+  input: ["text" as const],
+  contextWindow: 1,
+  maxTokens: 1,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  known: false,
+});
 /** The profile's own configuration for three endpoints, one per API. */
 const config = opencodeConfig({
   kind: "relay",
@@ -24,7 +44,9 @@ const config = opencodeConfig({
     smallModel: "comm/m",
   },
 }) as unknown as { providers: Record<string, Record<string, unknown>> };
-const withProvider = (id: string, provider: Record<string, unknown>) => ({ providers: { ...config.providers, [id]: provider } });
+const withProvider = (id: string, provider: Record<string, unknown>) => ({
+  providers: { ...config.providers, [id]: provider },
+});
 const comm = config.providers["t3flare-endpoint-comm"]!;
 
 describe("the key plugin's providers", () => {
@@ -39,25 +61,52 @@ describe("the key plugin's providers", () => {
   });
 
   it("refuses a provider whose base URL is not the relay's URL for its endpoint", () => {
-    for (const baseURL of ["https://evil.example/v1", "http://computer.internal/t3flare/model/oai/v1", "http://computer.internal/t3flare/model/comm", "http://computer.internal/t3flare/model/comm/v1/", undefined]) {
-      expect(relayProviders(withProvider("t3flare-endpoint-comm", { ...comm, settings: { baseURL } })).map((entry) => entry.endpoint), String(baseURL)).toEqual(["oai", "resp"]);
+    for (const baseURL of [
+      "https://evil.example/v1",
+      "http://computer.internal/t3flare/model/oai/v1",
+      "http://computer.internal/t3flare/model/comm",
+      "http://computer.internal/t3flare/model/comm/v1/",
+      undefined,
+    ]) {
+      expect(
+        relayProviders(withProvider("t3flare-endpoint-comm", { ...comm, settings: { baseURL } })).map(
+          (entry) => entry.endpoint,
+        ),
+        String(baseURL),
+      ).toEqual(["oai", "resp"]);
     }
   });
 
   it("refuses a provider whose package is not one of the three, whatever its base URL", () => {
     for (const pkg of ["@opencode/ai/providers/openai", "@opencode/ai/providers/anthropic", "toString", undefined]) {
       for (const baseURL of [`${RELAY}comm`, `${RELAY}comm/v1`, `${RELAY}comm${String(undefined)}`]) {
-        expect(relayProviders(withProvider("t3flare-endpoint-comm", { ...comm, package: pkg, settings: { baseURL } })).map((entry) => entry.endpoint), `${String(pkg)} ${baseURL}`).toEqual(["oai", "resp"]);
+        expect(
+          relayProviders(withProvider("t3flare-endpoint-comm", { ...comm, package: pkg, settings: { baseURL } })).map(
+            (entry) => entry.endpoint,
+          ),
+          `${String(pkg)} ${baseURL}`,
+        ).toEqual(["oai", "resp"]);
       }
     }
   });
 
   it("refuses a provider whose id is not an endpoint provider's, or names no endpoint id, even at its own relay URL", () => {
-    const ids = ["openai", "t3flare", "t3flare-endpoint-", "t3flare-endpoint-Evil", "t3flare-endpoint-a/b", "t3flare-endpoint-../x", `${"x".repeat(ENDPOINT_PROVIDER.length)}evil`];
+    const ids = [
+      "openai",
+      "t3flare",
+      "t3flare-endpoint-",
+      "t3flare-endpoint-Evil",
+      "t3flare-endpoint-a/b",
+      "t3flare-endpoint-../x",
+      `${"x".repeat(ENDPOINT_PROVIDER.length)}evil`,
+    ];
     for (const id of ids) {
       // The base URL the id would have if it were an endpoint provider's.
       const evil = { ...comm, settings: { baseURL: `${RELAY}${id.slice(ENDPOINT_PROVIDER.length)}/v1` } };
-      expect(relayProviders(withProvider(id, evil)).map((entry) => entry.providerID), id).toEqual(["t3flare-endpoint-comm", "t3flare-endpoint-oai", "t3flare-endpoint-resp"]);
+      expect(
+        relayProviders(withProvider(id, evil)).map((entry) => entry.providerID),
+        id,
+      ).toEqual(["t3flare-endpoint-comm", "t3flare-endpoint-oai", "t3flare-endpoint-resp"]);
     }
   });
 });
@@ -92,8 +141,22 @@ describe("the key plugin's requests", () => {
       expect(sent.get("x-api-key"), url).toBe(PLACEHOLDER);
     }
     // Not a handle, or a bad endpoint id: nothing.
-    expect(putHandle(headers({ "x-api-key": PLACEHOLDER }), "http://computer.internal/t3flare/model/comm/v1/messages", "comm", "nope")).toBe(false);
-    expect(putHandle(headers({ "x-api-key": PLACEHOLDER }), "http://computer.internal/t3flare/model/comm/v1/messages", "../comm", handle)).toBe(false);
+    expect(
+      putHandle(
+        headers({ "x-api-key": PLACEHOLDER }),
+        "http://computer.internal/t3flare/model/comm/v1/messages",
+        "comm",
+        "nope",
+      ),
+    ).toBe(false);
+    expect(
+      putHandle(
+        headers({ "x-api-key": PLACEHOLDER }),
+        "http://computer.internal/t3flare/model/comm/v1/messages",
+        "../comm",
+        handle,
+      ),
+    ).toBe(false);
   });
 });
 
@@ -101,17 +164,35 @@ describe("where the key plugin reads the handle", () => {
   const environ = (entries: ReadonlyArray<string>) => `${entries.join("\0")}\0`;
 
   it("from the launch chain's setsid of this process only", () => {
-    expect(handleFrom(HOLDER_CMDLINE, environ(["T3FLARE_EXEC=proc-1", `T3FLARE_MODEL_HANDLE=${handle}`]), "proc-1")).toBe(handle);
+    expect(
+      handleFrom(HOLDER_CMDLINE, environ(["T3FLARE_EXEC=proc-1", `T3FLARE_MODEL_HANDLE=${handle}`]), "proc-1"),
+    ).toBe(handle);
     // Another process's setsid, another command, no marker, no handle or a malformed one.
-    expect(handleFrom(HOLDER_CMDLINE, environ(["T3FLARE_EXEC=proc-2", `T3FLARE_MODEL_HANDLE=${handle}`]), "proc-1")).toBe("");
-    expect(handleFrom("setsid\0--wait\0/opt/t3flare/bin/claude-agent-acp\0", environ(["T3FLARE_EXEC=proc-1", `T3FLARE_MODEL_HANDLE=${handle}`]), "proc-1")).toBe("");
-    expect(handleFrom(HOLDER_CMDLINE, environ(["T3FLARE_EXEC=proc-1", `T3FLARE_MODEL_HANDLE=${handle}`]), undefined)).toBe("");
+    expect(
+      handleFrom(HOLDER_CMDLINE, environ(["T3FLARE_EXEC=proc-2", `T3FLARE_MODEL_HANDLE=${handle}`]), "proc-1"),
+    ).toBe("");
+    expect(
+      handleFrom(
+        "setsid\0--wait\0/opt/t3flare/bin/claude-agent-acp\0",
+        environ(["T3FLARE_EXEC=proc-1", `T3FLARE_MODEL_HANDLE=${handle}`]),
+        "proc-1",
+      ),
+    ).toBe("");
+    expect(
+      handleFrom(HOLDER_CMDLINE, environ(["T3FLARE_EXEC=proc-1", `T3FLARE_MODEL_HANDLE=${handle}`]), undefined),
+    ).toBe("");
     expect(handleFrom(HOLDER_CMDLINE, environ(["T3FLARE_EXEC=proc-1"]), "proc-1")).toBe("");
-    expect(handleFrom(HOLDER_CMDLINE, environ(["T3FLARE_EXEC=proc-1", "T3FLARE_MODEL_HANDLE=short"]), "proc-1")).toBe("");
+    expect(handleFrom(HOLDER_CMDLINE, environ(["T3FLARE_EXEC=proc-1", "T3FLARE_MODEL_HANDLE=short"]), "proc-1")).toBe(
+      "",
+    );
   });
 
   it("is the holder the stage script and test:docker expect", () => {
-    expect(OPENCODE_HANDLE_HOLDERS).toEqual([HOLDER_CMDLINE.split("\0").filter((word) => word !== "").join(" ")]);
+    expect(OPENCODE_HANDLE_HOLDERS).toEqual([
+      HOLDER_CMDLINE.split("\0")
+        .filter((word) => word !== "")
+        .join(" "),
+    ]);
   });
 });
 
@@ -121,6 +202,8 @@ describe("the key plugin's constants against their TypeScript sources", () => {
     expect(ENDPOINT_PROVIDER).toBe(endpointProviderId(""));
     expect(ENDPOINT_ID.source).toBe(TS_ENDPOINT_ID.source);
     expect(HANDLE.source).toBe(TS_HANDLE.source);
-    expect(PACKAGE_PATHS).toEqual(Object.fromEntries(Object.values(OPENCODE_PACKAGES).map((wiring) => [wiring!.package, wiring!.path])));
+    expect(PACKAGE_PATHS).toEqual(
+      Object.fromEntries(Object.values(OPENCODE_PACKAGES).map((wiring) => [wiring!.package, wiring!.path])),
+    );
   });
 });

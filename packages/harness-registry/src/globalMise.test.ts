@@ -20,22 +20,34 @@ const report = (fields: Partial<GlobalMiseReport>): GlobalMiseReport => ({
 
 describe("describeGlobalMise", () => {
   it("says why a file was not laid down", () => {
-    expect(describeGlobalMise(report({ outcome: "not-laid", install: 1 }))).toContain("not laid down (mise install exit 1)");
-    expect(describeGlobalMise(report({ outcome: "not-laid", install: 0 }))).toContain("not laid down (git or gh did not run under it)");
-    expect(describeGlobalMise(report({ outcome: "not-laid", install: 124, timedOut: true }))).toContain("not laid down (timed out)");
+    expect(describeGlobalMise(report({ outcome: "not-laid", install: 1 }))).toContain(
+      "not laid down (mise install exit 1)",
+    );
+    expect(describeGlobalMise(report({ outcome: "not-laid", install: 0 }))).toContain(
+      "not laid down (git or gh did not run under it)",
+    );
+    expect(describeGlobalMise(report({ outcome: "not-laid", install: 124, timedOut: true }))).toContain(
+      "not laid down (timed out)",
+    );
   });
 
   it("reads a run with no text (no install) as no Global mise config, never as git or gh failing", () => {
-    expect(describeGlobalMise(report({ outcome: "not-laid", install: null, bytes: 0 }))).toBe("app at revision 2: no Global mise config, 2026-11-14T00:00:00.000Z");
+    expect(describeGlobalMise(report({ outcome: "not-laid", install: null, bytes: 0 }))).toBe(
+      "app at revision 2: no Global mise config, 2026-11-14T00:00:00.000Z",
+    );
     expect(describeGlobalMise(report({ outcome: "none", install: null, bytes: 0 }))).toContain("no Global mise config");
   });
 
   it("says when the dotfiles' own mise config is mise's global config, and when t3flare pointed mise back at its own (ADR-0047 §10)", () => {
-    expect(describeGlobalMise(report({ outcome: "laid", dotfiles: true }))).toBe("app at revision 2: no Global mise config; the dotfiles' ~/.config/mise/config.toml is mise's global config, 2026-11-14T00:00:00.000Z");
+    expect(describeGlobalMise(report({ outcome: "laid", dotfiles: true }))).toBe(
+      "app at revision 2: no Global mise config; the dotfiles' ~/.config/mise/config.toml is mise's global config, 2026-11-14T00:00:00.000Z",
+    );
     expect(describeGlobalMise(report({ outcome: "not-laid", install: 0, dotfiles: true }))).toContain(
       "no Global mise config; the dotfiles' ~/.config/mise/config.toml is not used (git or gh did not run under it), so mise uses t3flare's own",
     );
-    expect(describeGlobalMise(report({ outcome: "not-laid", install: 124, timedOut: true, dotfiles: true }))).toContain("is not used (timed out)");
+    expect(describeGlobalMise(report({ outcome: "not-laid", install: 124, timedOut: true, dotfiles: true }))).toContain(
+      "is not used (timed out)",
+    );
   });
 
   it("takes a report's dotfiles field only as a boolean", () => {

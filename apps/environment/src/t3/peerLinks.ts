@@ -12,7 +12,11 @@ import * as PeerLinks from "t3/src/peer/PeerLinks.ts";
  * instead (`answeredAs`, which the message already names; clients tell "wrong environment" by it), nothing else (review M6).
  */
 export const withoutCause = (error: PeerLinkError) =>
-  new PeerLinkError({ reason: error.reason, message: error.message, ...(error.answeredAs === undefined ? {} : { answeredAs: error.answeredAs }) });
+  new PeerLinkError({
+    reason: error.reason,
+    message: error.message,
+    ...(error.answeredAs === undefined ? {} : { answeredAs: error.answeredAs }),
+  });
 
 /** t3's `PeerLinks`, every method as t3 has it, with no error carrying a `cause`. */
 export const layerPeerLinksWithoutCause = Layer.effect(

@@ -25,7 +25,17 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { Plugin } from "rolldown";
 
-import { type FsAllowances, type FsCoverage, type FsModuleUsage, type FsUsage, FS_MODULE_OF, fsCoverage, fsCoverageFailure, fsUsageOf, shimSurfaceOf } from "./scripts/lib/fsCoverage.ts";
+import {
+  type FsAllowances,
+  type FsCoverage,
+  type FsModuleUsage,
+  type FsUsage,
+  FS_MODULE_OF,
+  fsCoverage,
+  fsCoverageFailure,
+  fsUsageOf,
+  shimSurfaceOf,
+} from "./scripts/lib/fsCoverage.ts";
 import { stampedManifest, t3ServerVersion, t3TrackSetting } from "./serverVersion.ts";
 import type { T3Track } from "./src/updates/pins.ts";
 import { T3_CONNECT_DEFINES } from "./src/t3/connectPublicConfig.ts";
@@ -127,7 +137,12 @@ const git = (args: Array<string>, cwd: string) => {
 };
 
 export const patchFiles = () =>
-  fs.existsSync(PATCHES_DIR) ? fs.readdirSync(PATCHES_DIR).filter((f) => f.endsWith(".patch")).sort() : [];
+  fs.existsSync(PATCHES_DIR)
+    ? fs
+        .readdirSync(PATCHES_DIR)
+        .filter((f) => f.endsWith(".patch"))
+        .sort()
+    : [];
 
 /** `git apply --check` of every Patch against the submodule's pinned tree: what a bump validates first. */
 export const checkPatches = (): Array<{ readonly patch: string; readonly ok: boolean; readonly detail: string }> =>
@@ -137,7 +152,8 @@ export const checkPatches = (): Array<{ readonly patch: string; readonly ok: boo
   });
 
 /** The pin as the build report names it: its tag on the t3 track (ADR-0041), else what git describes. */
-const t3Version = (track: T3Track) => t3ServerVersion(track).tag ?? git(["describe", "--tags", "--always"], T3_ROOT).out;
+const t3Version = (track: T3Track) =>
+  t3ServerVersion(track).tag ?? git(["describe", "--tags", "--always"], T3_ROOT).out;
 const ourCommit = () => git(["rev-parse", "--short=12", "HEAD"], here).out;
 
 /** Patches applied in memory: `load` returns the patched text of each file a Patch touches. */
@@ -151,7 +167,8 @@ const patchedT3Modules = (applied: Array<string>): Plugin => {
       const files = patchFiles();
       if (files.length === 0) return;
       for (const result of checkPatches()) {
-        if (!result.ok) throw new Error(`t3flare: patch ${result.patch} does not apply to the pinned t3code:\n${result.detail}`);
+        if (!result.ok)
+          throw new Error(`t3flare: patch ${result.patch} does not apply to the pinned t3code:\n${result.detail}`);
       }
       const work = fs.mkdtempSync(path.join(os.tmpdir(), "t3flare-patches-"));
       const touched = new Set<string>();
@@ -228,7 +245,9 @@ const t3NodeFsAlias = (report: FsAliasReport): Plugin => {
       if (readsFs) {
         let usage: FsUsage;
         try {
-          usage = fsUsageOf(parseAst!(code, { lang: id.endsWith(".tsx") ? "tsx" : id.endsWith(".ts") ? "ts" : "js" }, id));
+          usage = fsUsageOf(
+            parseAst!(code, { lang: id.endsWith(".tsx") ? "tsx" : id.endsWith(".ts") ? "ts" : "js" }, id),
+          );
         } catch (error) {
           usage = { uses: [], opaque: [`not parsed: ${(error as Error).message.split("\n")[0]}`] };
         }
@@ -255,14 +274,22 @@ const FS_ALLOWANCES: FsAllowances = {
 /** The coverage of the State directory's shims over `usages`, as the report keeps it. */
 const checkFsCoverage = async (usages: ReadonlyArray<FsModuleUsage>): Promise<FsCoverage> => {
   const { parseAst } = await import("rolldown/parseAst");
-  const surface = (name: string) => shimSurfaceOf(parseAst(fs.readFileSync(shim(name), "utf8"), { lang: "ts" }, shim(name)));
-  return fsCoverage(usages, { fs: surface("node-fs.ts"), "fs/promises": surface("node-fs-promises.ts") }, FS_ALLOWANCES);
+  const surface = (name: string) =>
+    shimSurfaceOf(parseAst(fs.readFileSync(shim(name), "utf8"), { lang: "ts" }, shim(name)));
+  return fsCoverage(
+    usages,
+    { fs: surface("node-fs.ts"), "fs/promises": surface("node-fs-promises.ts") },
+    FS_ALLOWANCES,
+  );
 };
 
 /** Redirects every import that resolves to a shadowed t3 module to its Shadow. */
 const shadows = (applied: Set<string>): Plugin => {
   const byRealPath = new Map(
-    Object.entries(SHADOWS).map(([relative, ours]) => [fs.realpathSync(path.join(T3_ROOT, relative)), { relative, ours }]),
+    Object.entries(SHADOWS).map(([relative, ours]) => [
+      fs.realpathSync(path.join(T3_ROOT, relative)),
+      { relative, ours },
+    ]),
   );
   return {
     name: "t3flare:shadows",
@@ -322,7 +349,9 @@ const dependencyStubs = (): Plugin => ({
     let names: Array<string> = [];
     try {
       const resolved = createRequire(T3_SERVER_PACKAGE).resolve(source);
-      names = Object.keys(await import(resolved)).filter((name) => name !== "default" && /^[A-Za-z_$][\w$]*$/.test(name));
+      names = Object.keys(await import(resolved)).filter(
+        (name) => name !== "default" && /^[A-Za-z_$][\w$]*$/.test(name),
+      );
     } catch {
       names = [];
     }
@@ -341,7 +370,9 @@ const isMutableContainer = (init: AstNode | null | undefined): boolean => {
   if (init == null) return false;
   if (init.type === "NewExpression") {
     const callee = init.callee as AstNode;
-    return callee.type === "Identifier" && ["Map", "Set", "WeakMap", "WeakSet", "Array"].includes(callee.name as string);
+    return (
+      callee.type === "Identifier" && ["Map", "Set", "WeakMap", "WeakSet", "Array"].includes(callee.name as string)
+    );
   }
   if (init.type === "ArrayExpression") return (init.elements as Array<unknown>).length === 0;
   if (init.type === "ObjectExpression") return (init.properties as Array<unknown>).length === 0;
@@ -350,7 +381,9 @@ const isMutableContainer = (init: AstNode | null | undefined): boolean => {
 
 /** The module-state probe: appends a registration of t3's module-level mutable bindings to each t3 module. */
 const moduleStateProbe = (report: { modules: number; bindings: number }): Plugin => {
-  let parseAst: ((code: string, options: { lang: "ts" | "tsx" | "js" }, filename: string) => { body: Array<AstNode> }) | undefined;
+  let parseAst:
+    | ((code: string, options: { lang: "ts" | "tsx" | "js" }, filename: string) => { body: Array<AstNode> })
+    | undefined;
   return {
     name: "t3flare:module-state-probe",
     async buildStart() {
@@ -368,12 +401,18 @@ const moduleStateProbe = (report: { modules: number; bindings: number }): Plugin
       }
       const names: Array<string> = [];
       for (const statement of body) {
-        const declaration = (statement.type === "ExportNamedDeclaration" ? statement.declaration : statement) as AstNode | null;
+        const declaration = (
+          statement.type === "ExportNamedDeclaration" ? statement.declaration : statement
+        ) as AstNode | null;
         if (declaration?.type !== "VariableDeclaration" || declaration.declare === true) continue;
         for (const declarator of declaration.declarations as Array<AstNode>) {
           const binding = declarator.id as AstNode;
           if (binding.type !== "Identifier") continue;
-          if (declaration.kind === "let" || declaration.kind === "var" || isMutableContainer(declarator.init as AstNode | null)) {
+          if (
+            declaration.kind === "let" ||
+            declaration.kind === "var" ||
+            isMutableContainer(declarator.init as AstNode | null)
+          ) {
             names.push(binding.name as string);
           }
         }
@@ -413,13 +452,24 @@ export const buildWorker = async (options: {
   const write = options.write ?? true;
   const { rolldown } = await import("rolldown");
   const { default: cloudflare } = await import("@alchemy.run/cloudflare-runtime/rolldown");
-  const fsAlias: FsAliasReport = { rewritten: 0, importers: new Set<string>(), skippedDependencyImports: 0, usages: [] };
+  const fsAlias: FsAliasReport = {
+    rewritten: 0,
+    importers: new Set<string>(),
+    skippedDependencyImports: 0,
+    usages: [],
+  };
   const probe = { modules: 0, bindings: 0 };
   const stamp = { importers: 0 };
   const applied: Array<string> = [];
   const shadowed = new Set<string>();
   const serverVersion = t3ServerVersion(options.track);
-  const identity = { t3: t3Version(options.track), serverVersion: serverVersion.version, t3Track: options.track, commit: ourCommit(), builtAt: new Date().toISOString() };
+  const identity = {
+    t3: t3Version(options.track),
+    serverVersion: serverVersion.version,
+    t3Track: options.track,
+    commit: ourCommit(),
+    builtAt: new Date().toISOString(),
+  };
   const bundle = await rolldown({
     input: path.join(here, "src/worker.ts"),
     cwd: here,
@@ -439,7 +489,14 @@ export const buildWorker = async (options: {
     experimental: { lazyBarrel: true },
     optimization: { inlineConst: { mode: "smart", pass: 3 } },
   });
-  const outputOptions = { dir: path.join(here, "dist/worker"), format: "esm", sourcemap: "hidden", minify: true, keepNames: true, strictExecutionOrder: true } as const;
+  const outputOptions = {
+    dir: path.join(here, "dist/worker"),
+    format: "esm",
+    sourcemap: "hidden",
+    minify: true,
+    keepNames: true,
+    strictExecutionOrder: true,
+  } as const;
   if (write) fs.rmSync(path.join(here, "dist/worker"), { recursive: true, force: true });
   const out = write ? await bundle.write(outputOptions) : await bundle.generate(outputOptions);
   await bundle.close();
@@ -455,7 +512,12 @@ export const buildWorker = async (options: {
     patches: applied,
     shadows: [...shadowed].sort(),
     buildShims: {
-      fsAlias: { rewritten: fsAlias.rewritten, importers: fsAlias.importers.size, skippedDependencyImports: fsAlias.skippedDependencyImports, coverage },
+      fsAlias: {
+        rewritten: fsAlias.rewritten,
+        importers: fsAlias.importers.size,
+        skippedDependencyImports: fsAlias.skippedDependencyImports,
+        coverage,
+      },
       builtinStubs: Object.keys(BUILTIN_STUBS),
       dependencyStubs: Object.keys(DEPENDENCY_STUBS),
       defines: Object.keys(DEFINES),
@@ -481,7 +543,8 @@ export const buildWorker = async (options: {
 if (import.meta.main) {
   if (process.argv.includes("--check")) {
     const results = checkPatches();
-    for (const result of results) console.log(`${result.ok ? "ok  " : "FAIL"} ${result.patch}${result.ok ? "" : `\n${result.detail}`}`);
+    for (const result of results)
+      console.log(`${result.ok ? "ok  " : "FAIL"} ${result.patch}${result.ok ? "" : `\n${result.detail}`}`);
     process.exit(results.every((r) => r.ok) ? 0 : 1);
   }
   if (process.argv.includes("--check-fs")) {
@@ -494,7 +557,9 @@ if (import.meta.main) {
     const { coverage } = report.buildShims.fsAlias;
     console.log(
       `t3flare: node:fs coverage: every member t3 reads is implemented by a shim or allowed (${coverage.allowed.length} allowed: ${coverage.allowed.join(", ") || "none"})` +
-        (coverage.unusedAllowances.length === 0 ? "" : `; allowances no module reads any more, to delete from FS_ALLOWANCES: ${coverage.unusedAllowances.join(", ")}`),
+        (coverage.unusedAllowances.length === 0
+          ? ""
+          : `; allowances no module reads any more, to delete from FS_ALLOWANCES: ${coverage.unusedAllowances.join(", ")}`),
     );
     process.exit(0);
   }

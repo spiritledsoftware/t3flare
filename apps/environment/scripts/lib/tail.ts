@@ -8,13 +8,18 @@ import * as path from "node:path";
 
 import { sleep } from "./client.ts";
 
-export const tailing = async <T>(workers: ReadonlyArray<string>, work: () => Promise<T>): Promise<{ result: T; text: string; workers: Array<{ name: string; bytes: number }> }> => {
+export const tailing = async <T>(
+  workers: ReadonlyArray<string>,
+  work: () => Promise<T>,
+): Promise<{ result: T; text: string; workers: Array<{ name: string; bytes: number }> }> => {
   const here = path.resolve(import.meta.dirname, "../..");
   const profile = process.env.ALCHEMY_PROFILE ?? "default";
   const credentials = process.env.CLOUDFLARE_API_TOKEN
     ? { token: process.env.CLOUDFLARE_API_TOKEN, accountId: process.env.CLOUDFLARE_ACCOUNT_ID ?? "" }
     : (() => {
-        const stored = JSON.parse(fs.readFileSync(path.join(process.env.HOME ?? "", ".alchemy/profiles", profile, "cloudflare.json"), "utf8")).values;
+        const stored = JSON.parse(
+          fs.readFileSync(path.join(process.env.HOME ?? "", ".alchemy/profiles", profile, "cloudflare.json"), "utf8"),
+        ).values;
         return { token: stored.access as string, accountId: (stored.accountId as string) ?? "" };
       })();
   const chunks = new Map<string, Array<Buffer>>();
@@ -32,7 +37,11 @@ export const tailing = async <T>(workers: ReadonlyArray<string>, work: () => Pro
   try {
     const result = await work();
     await sleep(10_000);
-    return { result, text: [...chunks.values()].map((parts) => Buffer.concat(parts).toString("utf8")).join("\n"), workers: [...chunks].map(([name, parts]) => ({ name, bytes: Buffer.concat(parts).length })) };
+    return {
+      result,
+      text: [...chunks.values()].map((parts) => Buffer.concat(parts).toString("utf8")).join("\n"),
+      workers: [...chunks].map(([name, parts]) => ({ name, bytes: Buffer.concat(parts).length })),
+    };
   } finally {
     for (const tail of tails) tail.kill("SIGINT");
   }

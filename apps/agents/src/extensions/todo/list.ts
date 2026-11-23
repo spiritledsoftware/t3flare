@@ -107,15 +107,8 @@ export const formatTasks = (tasks: ReadonlyArray<TodoTask>): string =>
         })
         .join("\n");
 
-const newTask = (
-  id: number,
-  title: string,
-  description: string | undefined,
-  status: TodoStatus,
-): TodoTask =>
-  description === undefined || description === ""
-    ? { id, title, status }
-    : { id, title, description, status };
+const newTask = (id: number, title: string, description: string | undefined, status: TodoStatus): TodoTask =>
+  description === undefined || description === "" ? { id, title, status } : { id, title, description, status };
 
 type Draft = { readonly title: string; readonly description: string | undefined };
 
@@ -167,11 +160,7 @@ const addOne = (list: TodoList, input: TodoInput): TodoOutcome => {
 };
 
 /** Every draft is checked before any Task is created, so a batch is all-or-nothing. */
-const addMany = (
-  list: TodoList,
-  input: TodoInput,
-  tasks: ReadonlyArray<TodoDraft>,
-): TodoOutcome => {
+const addMany = (list: TodoList, input: TodoInput, tasks: ReadonlyArray<TodoDraft>): TodoOutcome => {
   if (input.title !== undefined || (input.description ?? undefined) !== undefined) {
     return failure("add", "provide either title or tasks, not both");
   }
@@ -197,9 +186,7 @@ const addMany = (
 
   const status = input.status ?? "pending";
 
-  const added = drafts.map((draft, index) =>
-    newTask(list.nextId + index, draft.title, draft.description, status),
-  );
+  const added = drafts.map((draft, index) => newTask(list.nextId + index, draft.title, draft.description, status));
 
   return {
     ok: true,
@@ -249,21 +236,14 @@ const change = (
   }
 
   if (description !== undefined && description.length > MAX_DESCRIPTION_CHARACTERS) {
-    return failure(
-      "update",
-      `${field}description is over ${MAX_DESCRIPTION_CHARACTERS} characters`,
-    );
+    return failure("update", `${field}description is over ${MAX_DESCRIPTION_CHARACTERS} characters`);
   }
 
   return newTask(task.id, title, description, edit.status ?? task.status);
 };
 
 /** Every change is checked before any Task changes, so a batch is all-or-nothing. */
-const updateMany = (
-  list: TodoList,
-  input: TodoInput,
-  updates: ReadonlyArray<TodoChange>,
-): TodoOutcome => {
+const updateMany = (list: TodoList, input: TodoInput, updates: ReadonlyArray<TodoChange>): TodoOutcome => {
   if (
     input.id !== undefined ||
     input.title !== undefined ||

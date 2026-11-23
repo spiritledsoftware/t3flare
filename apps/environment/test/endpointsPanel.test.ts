@@ -29,7 +29,10 @@ const memory = () => {
 const setup = (caller: AccessCaller = owner) => {
   const kv = memory();
   const store = harnessStore(kv);
-  const endpoints = endpointStore(kv, sealedStore(kv, "d".repeat(64), () => NOW));
+  const endpoints = endpointStore(
+    kv,
+    sealedStore(kv, "d".repeat(64), () => NOW),
+  );
   const discovered: Array<{ baseUrl: string; apiKey: string | undefined }> = [];
   let changes = 0;
   const removed: Array<string> = [];
@@ -59,14 +62,34 @@ const headersOf = async (store: ReturnType<typeof setup>["store"]) => ({
 });
 
 const post = async (deps: HarnessDeps, path: string, body: unknown, headers: Record<string, string>) =>
-  handleHarness(new Request(`https://${HOST}/_t3flare/settings/api/${path}`, { method: "POST", headers, body: typeof body === "string" ? body : JSON.stringify(body) }), deps);
+  handleHarness(
+    new Request(`https://${HOST}/_t3flare/settings/api/${path}`, {
+      method: "POST",
+      headers,
+      body: typeof body === "string" ? body : JSON.stringify(body),
+    }),
+    deps,
+  );
 
-const ENDPOINT = { id: "openai", label: "OpenAI", api: "openai-responses", baseUrl: "https://api.openai.com/v1", auth: "api-key", headers: { "OpenAI-Organization": "org-1" }, models: ["gpt-5-mini"] };
+const ENDPOINT = {
+  id: "openai",
+  label: "OpenAI",
+  api: "openai-responses",
+  baseUrl: "https://api.openai.com/v1",
+  auth: "api-key",
+  headers: { "OpenAI-Organization": "org-1" },
+  models: ["gpt-5-mini"],
+};
 
 describe("Model endpoints on the Settings page", () => {
   it("saves an endpoint with its key sealed: its own revision, audited with the key's mark only, listed without the key", async () => {
     const { store, endpoints, deps, changes } = setup();
-    const response = await post(deps, "endpoints", { op: "save", endpoint: ENDPOINT, apiKey: SECRET }, await headersOf(store));
+    const response = await post(
+      deps,
+      "endpoints",
+      { op: "save", endpoint: ENDPOINT, apiKey: SECRET },
+      await headersOf(store),
+    );
     expect(response.status).toBe(200);
     const answer = await response.text();
     expect(answer).not.toContain(SECRET);
@@ -75,7 +98,13 @@ describe("Model endpoints on the Settings page", () => {
     expect(store.load().revision).toBe(0);
     expect(changes()).toBe(1);
     const [entry] = store.auditLog(5);
-    expect(entry).toMatchObject({ entity: "endpoints", action: "endpoint.add", target: "openai", caller: "owner:owner-sub", after: { api: "openai-responses", headers: ["OpenAI-Organization"], models: ["gpt-5-mini"], key: { set: true } } });
+    expect(entry).toMatchObject({
+      entity: "endpoints",
+      action: "endpoint.add",
+      target: "openai",
+      caller: "owner:owner-sub",
+      after: { api: "openai-responses", headers: ["OpenAI-Organization"], models: ["gpt-5-mini"], key: { set: true } },
+    });
     expect(JSON.stringify(store.auditLog(5))).not.toContain(SECRET);
     // The header's value is not audited either: only its name.
     expect(JSON.stringify(store.auditLog(5))).not.toContain("org-1");
@@ -83,12 +112,22 @@ describe("Model endpoints on the Settings page", () => {
     const listed = await handleHarness(new Request(`https://${HOST}/_t3flare/settings/api/endpoints`), deps);
     const body = await listed.text();
     expect(body).not.toContain(SECRET);
-    expect(JSON.parse(body)).toMatchObject({ revision: 1, credentialsKey: true, endpoints: [{ id: "openai", key: { set: true, setAt: NOW } }], presets: expect.any(Array) });
+    expect(JSON.parse(body)).toMatchObject({
+      revision: 1,
+      credentialsKey: true,
+      endpoints: [{ id: "openai", key: { set: true, setAt: NOW } }],
+      presets: expect.any(Array),
+    });
   });
 
   it("shows each endpoint on the page, escaped, with its slugs and never its key", async () => {
     const { store, deps } = setup();
-    await post(deps, "endpoints", { op: "save", endpoint: { ...ENDPOINT, label: "<img src=x>" }, apiKey: SECRET }, await headersOf(store));
+    await post(
+      deps,
+      "endpoints",
+      { op: "save", endpoint: { ...ENDPOINT, label: "<img src=x>" }, apiKey: SECRET },
+      await headersOf(store),
+    );
     const html = await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), deps)).text();
     expect(html).toContain('id="endpoints"');
     expect(html).toContain("openai/gpt-5-mini");
@@ -99,15 +138,23 @@ describe("Model endpoints on the Settings page", () => {
 
   it("shows a key the credentials key no longer opens as one to enter again", async () => {
     const kv = memory();
-    await endpointStore(kv, sealedStore(kv, "d".repeat(64), () => NOW)).save(ENDPOINT, { apiKey: SECRET });
+    await endpointStore(
+      kv,
+      sealedStore(kv, "d".repeat(64), () => NOW),
+    ).save(ENDPOINT, { apiKey: SECRET });
     const deps: HarnessDeps = {
       caller: owner,
       host: HOST,
       store: harnessStore(kv),
       now: () => NOW,
-      endpoints: { store: endpointStore(kv, sealedStore(kv, "f".repeat(64))), discover: async () => ({ ok: true, models: [] }) },
+      endpoints: {
+        store: endpointStore(kv, sealedStore(kv, "f".repeat(64))),
+        discover: async () => ({ ok: true, models: [] }),
+      },
     };
-    const listed = await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings/api/endpoints`), deps)).json();
+    const listed = await (
+      await handleHarness(new Request(`https://${HOST}/_t3flare/settings/api/endpoints`), deps)
+    ).json();
     expect(listed).toMatchObject({ endpoints: [{ id: "openai", key: { set: true, readable: false } }] });
     const html = await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), deps)).text();
     expect(html).toContain("cannot be read: enter it again");
@@ -138,14 +185,24 @@ describe("Model endpoints on the Settings page", () => {
       },
       removed: (id: string) => void order.push(`removed ${id}`),
     } as unknown as EndpointsApiDeps;
-    await expect(endpointsChange(deps, { op: "remove", id: "chatgpt" }, () => undefined)).rejects.toThrow(/did not answer/);
+    await expect(endpointsChange(deps, { op: "remove", id: "chatgpt" }, () => undefined)).rejects.toThrow(
+      /did not answer/,
+    );
     expect(order).toEqual(["removed chatgpt", "sign-out"]);
   });
 
   it("reads a model list with the key given, or else the saved endpoint's own", async () => {
     const { store, deps, discovered } = setup();
-    const given = await post(deps, "endpoints/discover", { endpoint: { ...ENDPOINT, id: "new" }, apiKey: "sk-typed" }, await headersOf(store));
-    expect(await given.json()).toMatchObject({ ok: true, models: [{ id: "gpt-5-mini", name: "GPT-5 Mini", known: true }] });
+    const given = await post(
+      deps,
+      "endpoints/discover",
+      { endpoint: { ...ENDPOINT, id: "new" }, apiKey: "sk-typed" },
+      await headersOf(store),
+    );
+    expect(await given.json()).toMatchObject({
+      ok: true,
+      models: [{ id: "gpt-5-mini", name: "GPT-5 Mini", known: true }],
+    });
     await post(deps, "endpoints", { op: "save", endpoint: ENDPOINT, apiKey: SECRET }, await headersOf(store));
     await post(deps, "endpoints/discover", { endpoint: ENDPOINT }, await headersOf(store));
     expect(discovered).toEqual([
@@ -157,21 +214,51 @@ describe("Model endpoints on the Settings page", () => {
   it("never sends the saved key to another API or base URL, and refuses to rebind it on save", async () => {
     const { store, endpoints, deps, discovered } = setup();
     await post(deps, "endpoints", { op: "save", endpoint: ENDPOINT, apiKey: SECRET }, await headersOf(store));
-    const moved = await post(deps, "endpoints/discover", { endpoint: { ...ENDPOINT, baseUrl: "https://evil.example" } }, await headersOf(store));
+    const moved = await post(
+      deps,
+      "endpoints/discover",
+      { endpoint: { ...ENDPOINT, baseUrl: "https://evil.example" } },
+      await headersOf(store),
+    );
     expect(moved.status).toBe(400);
     expect(await moved.text()).toMatch(/type the API key/);
-    const otherApi = await post(deps, "endpoints/discover", { endpoint: { ...ENDPOINT, api: "openai-completions" } }, await headersOf(store));
+    const otherApi = await post(
+      deps,
+      "endpoints/discover",
+      { endpoint: { ...ENDPOINT, api: "openai-completions" } },
+      await headersOf(store),
+    );
     expect(otherApi.status).toBe(400);
     // A header is part of the target: a gateway may route by it.
-    const routed = await post(deps, "endpoints/discover", { endpoint: { ...ENDPOINT, headers: { ...ENDPOINT.headers, "Helicone-Target-Url": "https://evil.example" } } }, await headersOf(store));
+    const routed = await post(
+      deps,
+      "endpoints/discover",
+      { endpoint: { ...ENDPOINT, headers: { ...ENDPOINT.headers, "Helicone-Target-Url": "https://evil.example" } } },
+      await headersOf(store),
+    );
     expect(routed.status).toBe(400);
-    const savedHeader = await post(deps, "endpoints", { op: "save", endpoint: { ...ENDPOINT, headers: { "Helicone-Target-Url": "https://evil.example" } } }, await headersOf(store));
+    const savedHeader = await post(
+      deps,
+      "endpoints",
+      { op: "save", endpoint: { ...ENDPOINT, headers: { "Helicone-Target-Url": "https://evil.example" } } },
+      await headersOf(store),
+    );
     expect(savedHeader.status).toBe(400);
     expect(discovered).toEqual([]);
     // A no-auth endpoint is read with no key at all.
-    await post(deps, "endpoints/discover", { endpoint: { ...ENDPOINT, auth: "none", baseUrl: "https://evil.example" } }, await headersOf(store));
+    await post(
+      deps,
+      "endpoints/discover",
+      { endpoint: { ...ENDPOINT, auth: "none", baseUrl: "https://evil.example" } },
+      await headersOf(store),
+    );
     expect(discovered).toEqual([{ baseUrl: "https://evil.example", apiKey: undefined }]);
-    const rebound = await post(deps, "endpoints", { op: "save", endpoint: { ...ENDPOINT, baseUrl: "https://evil.example" } }, await headersOf(store));
+    const rebound = await post(
+      deps,
+      "endpoints",
+      { op: "save", endpoint: { ...ENDPOINT, baseUrl: "https://evil.example" } },
+      await headersOf(store),
+    );
     expect(rebound.status).toBe(400);
     expect(endpoints.load().endpoints[0]?.baseUrl).toBe("https://api.openai.com/v1");
     expect(store.auditLog(5).map((entry) => entry.action)).toEqual(["endpoint.add"]);
@@ -184,8 +271,16 @@ describe("Model endpoints on the Settings page", () => {
     expect((await post(deps, "endpoints", body, { ...good, [CSRF_HEADER]: "" })).status).toBe(403);
     expect((await post(deps, "endpoints", body, { ...good, origin: "https://evil.example" })).status).toBe(403);
     expect((await post(deps, "endpoints/discover", body, { ...good, [CSRF_HEADER]: "" })).status).toBe(403);
-    expect((await post(deps, "endpoints", "op=save", { ...good, "content-type": "application/x-www-form-urlencoded" })).status).toBe(403);
-    const invalid = await post(deps, "endpoints", { op: "save", endpoint: { ...ENDPOINT, id: "anthropic" }, apiKey: SECRET }, good);
+    expect(
+      (await post(deps, "endpoints", "op=save", { ...good, "content-type": "application/x-www-form-urlencoded" }))
+        .status,
+    ).toBe(403);
+    const invalid = await post(
+      deps,
+      "endpoints",
+      { op: "save", endpoint: { ...ENDPOINT, id: "anthropic" }, apiKey: SECRET },
+      good,
+    );
     expect(invalid.status).toBe(400);
     expect(endpoints.load().revision).toBe(0);
     expect(store.auditLog(5)).toEqual([]);
@@ -193,7 +288,12 @@ describe("Model endpoints on the Settings page", () => {
 
   it("lets the stage's script save without a CSRF token", async () => {
     const { deps, endpoints } = setup({ kind: "service-token" });
-    const response = await post(deps, "endpoints", { op: "save", endpoint: ENDPOINT, apiKey: SECRET }, { "content-type": "application/json" });
+    const response = await post(
+      deps,
+      "endpoints",
+      { op: "save", endpoint: ENDPOINT, apiKey: SECRET },
+      { "content-type": "application/json" },
+    );
     expect(response.status).toBe(200);
     expect(endpoints.load().endpoints).toHaveLength(1);
   });

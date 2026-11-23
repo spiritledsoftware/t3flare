@@ -6,14 +6,21 @@
 // Durable's), and the wrapper. Shown as "Pi", beside "Pi Durable".
 import { ProviderDriverKind, type ServerProvider } from "@t3tools/contracts";
 import { CLIS } from "@t3flare/sandbox-image/clis";
-import { defaultProviderContinuationIdentity, type ProviderDriver, type ProviderInstance } from "@t3tools/provider-core/server/driver";
+import {
+  defaultProviderContinuationIdentity,
+  type ProviderDriver,
+  type ProviderInstance,
+} from "@t3tools/provider-core/server/driver";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import { makeManagedServerProvider } from "@t3tools/provider-core/server/managedProvider";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { buildServerProvider } from "@t3tools/provider-core/server/snapshotProbe";
-import { haveProviderSnapshotSettingsChanged, makeProviderSnapshotSettingsSource } from "@t3tools/provider-core/server/snapshotSettings";
+import {
+  haveProviderSnapshotSettingsChanged,
+  makeProviderSnapshotSettingsSource,
+} from "@t3tools/provider-core/server/snapshotSettings";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -77,7 +84,10 @@ const snapshotOf = (enabled: boolean) =>
  * pi's managed snapshot (its model list): built from the Model endpoints (`piModelsOf`), checked when the driver starts,
  * and again at each endpoint change (SPI-1170) while the caller's scope is open.
  */
-export const piSnapshot = (effective: PiSettings, stamp: (draft: Omit<ServerProvider, "instanceId" | "driver">) => ServerProvider) =>
+export const piSnapshot = (
+  effective: PiSettings,
+  stamp: (draft: Omit<ServerProvider, "instanceId" | "driver">) => ServerProvider,
+) =>
   Effect.gen(function* () {
     const settingsSource = yield* makeProviderSnapshotSettingsSource(effective);
     // In-app updates (ADR-0037, plan D21): on prod, t3's provider-update button lands a CLI bump.
@@ -136,7 +146,12 @@ export const PiCliDriver: ProviderDriver<PiSettings, PiCliDriverEnv> = {
       enabled,
       snapshot,
       // SPI-1151: the Workspace's Repo skills and Prompt templates at pi's roots (the ones its profile names by flag).
-      snapshotForCwd: cliSnapshotForCwdOf({ machine: snapshot.getSnapshot, driver: PI_CLI_DRIVER, instanceId, agent: "pi" }),
+      snapshotForCwd: cliSnapshotForCwdOf({
+        machine: snapshot.getSnapshot,
+        driver: PI_CLI_DRIVER,
+        instanceId,
+        agent: "pi",
+      }),
       orchestrationAdapter: wrapCliAdapter(adapter, {
         sessions,
         dropEvent: (event) => JSON.stringify(event).includes(MCP_UNAVAILABLE_NOTICE),

@@ -8,7 +8,11 @@ import type { GitHubTokens } from "../agents/github.ts";
 import { actionsClient, updateRepoOf } from "./actions.ts";
 import { updates, type Updates, type UpdateStore } from "./records.ts";
 
-export const environmentUpdates = (input: { readonly target: string | undefined; readonly store: UpdateStore; readonly github: () => GitHubTokens }): Updates => {
+export const environmentUpdates = (input: {
+  readonly target: string | undefined;
+  readonly store: UpdateStore;
+  readonly github: () => GitHubTokens;
+}): Updates => {
   const repo = updateRepoOf(input.target);
   return updates({
     store: input.store,
@@ -17,7 +21,14 @@ export const environmentUpdates = (input: { readonly target: string | undefined;
         ? undefined
         : actionsClient({
             repo,
-            token: async () => (await input.github().mint({ owner: repo.owner.toLowerCase(), repositories: [repo.name], permissions: UPDATE_DISPATCH_GITHUB_PERMISSIONS })).token,
+            token: async () =>
+              (
+                await input.github().mint({
+                  owner: repo.owner.toLowerCase(),
+                  repositories: [repo.name],
+                  permissions: UPDATE_DISPATCH_GITHUB_PERMISSIONS,
+                })
+              ).token,
             fetch: (url, init) => fetch(url, init),
           }),
     now: () => Date.now(),

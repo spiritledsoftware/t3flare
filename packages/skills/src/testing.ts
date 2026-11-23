@@ -2,14 +2,18 @@
 import type { ListedEntry, SkillFiles } from "./discovery.ts";
 
 /** `files` as discovery reads them: a listing walks every file below a directory, with the directories between. */
-export const memoryFiles = (files: Readonly<Record<string, string>>): SkillFiles & { readonly reads: Array<string> } => {
+export const memoryFiles = (
+  files: Readonly<Record<string, string>>,
+): SkillFiles & { readonly reads: Array<string> } => {
   const reads: Array<string> = [];
   return {
     reads,
     list: (directory, maxEntries) => {
       const prefix = `${directory}/`;
       const entries = new Map<string, ListedEntry>();
-      for (const path of Object.keys(files).filter((path) => path.startsWith(prefix)).sort()) {
+      for (const path of Object.keys(files)
+        .filter((path) => path.startsWith(prefix))
+        .sort()) {
         const parts = path.slice(prefix.length).split("/");
         for (let depth = 1; depth < parts.length; depth++) {
           const dir = parts.slice(0, depth).join("/");

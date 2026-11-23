@@ -36,13 +36,7 @@ export interface RpcBody {
   readonly params?: { readonly [key: string]: Json };
 }
 
-type Json =
-  | null
-  | boolean
-  | number
-  | string
-  | ReadonlyArray<Json>
-  | { readonly [key: string]: Json };
+type Json = null | boolean | number | string | ReadonlyArray<Json> | { readonly [key: string]: Json };
 
 /** A fake MCP server: a `fetch` handler and the requests it received. */
 export interface FakeServer {
@@ -361,9 +355,7 @@ export interface FakeOptions {
     readonly complete: (params: {
       readonly ref: { readonly type: string; readonly name?: string; readonly uri?: string };
       readonly argument: { readonly name: string; readonly value: string };
-      readonly context?:
-        | { readonly arguments?: Readonly<Record<string, string>> | undefined }
-        | undefined;
+      readonly context?: { readonly arguments?: Readonly<Record<string, string>> | undefined } | undefined;
     }) => {
       readonly values: ReadonlyArray<string>;
       readonly total?: number;
@@ -448,11 +440,7 @@ const untilAborted = (signal: AbortSignal, aborted: () => void) =>
  * An SDK server answering `tools/list` a page at a time and `tools/call` for its tools: `echo` and `shout`, and
  * `big`, `hang`, `typed` and `region`, listed only with `listMore`, and `progress` and `ask`, listed only in `moreTools`.
  */
-const fakeMcp = (
-  sends?: (server: Server) => Promise<void>,
-  options: FakeOptions = {},
-  modern = false,
-) => {
+const fakeMcp = (sends?: (server: Server) => Promise<void>, options: FakeOptions = {}, modern = false) => {
   const capabilities: ServerCapabilities = { tools: { listChanged: true } };
 
   if (options.logs !== undefined) capabilities.logging = {};
@@ -489,9 +477,7 @@ const fakeMcp = (
     return request.params?.cursor === "page-2"
       ? {
           tools: [
-            ...(options.listMore === true
-              ? [SHOUT_TOOL, BIG_TOOL, HANG_TOOL, TYPED_TOOL, REGION_TOOL]
-              : [SHOUT_TOOL]),
+            ...(options.listMore === true ? [SHOUT_TOOL, BIG_TOOL, HANG_TOOL, TYPED_TOOL, REGION_TOOL] : [SHOUT_TOOL]),
             ...(options.moreTools ?? []),
           ],
         }
@@ -582,9 +568,7 @@ const fakeMcp = (
         });
 
         return {
-          contents: [
-            { uri: found.uri, mimeType: "application/json", text: JSON.stringify(responses["q1"]) },
-          ],
+          contents: [{ uri: found.uri, mimeType: "application/json", text: JSON.stringify(responses["q1"]) }],
         };
       }
 
@@ -598,9 +582,7 @@ const fakeMcp = (
         });
 
         return {
-          contents: [
-            { uri: found.uri, mimeType: "application/json", text: JSON.stringify({ ...answer }) },
-          ],
+          contents: [{ uri: found.uri, mimeType: "application/json", text: JSON.stringify({ ...answer }) }],
         };
       }
 
@@ -632,9 +614,7 @@ const fakeMcp = (
 
     server.setRequestHandler("completion/complete", async (request, ctx) => {
       if (completions.hangs === true) {
-        return untilAborted(ctx.mcpReq.signal, () =>
-          options.cancelled?.push(request.params.argument.name),
-        );
+        return untilAborted(ctx.mcpReq.signal, () => options.cancelled?.push(request.params.argument.name));
       }
 
       const { values, total, hasMore } = completions.complete(request.params);
@@ -655,15 +635,13 @@ const fakeMcp = (
     const { prompts } = options;
 
     server.setRequestHandler("prompts/list", async () => ({
-      prompts: prompts.map(
-        ({ get: _get, asks: _asks, hangs: _hangs, arguments: args, ...listed }) => {
-          const entry: Prompt = { ...listed };
+      prompts: prompts.map(({ get: _get, asks: _asks, hangs: _hangs, arguments: args, ...listed }) => {
+        const entry: Prompt = { ...listed };
 
-          if (args !== undefined) entry.arguments = [...args];
+        if (args !== undefined) entry.arguments = [...args];
 
-          return entry;
-        },
-      ),
+        return entry;
+      }),
     }));
     server.setRequestHandler("prompts/get", async (request, ctx) => {
       const found = prompts.find((each) => each.name === request.params.name);
@@ -696,9 +674,7 @@ const fakeMcp = (
 
       if (asks !== undefined) {
         const answered = (answer: Json | undefined): GetPromptResult => ({
-          messages: [
-            { role: "assistant", content: { type: "text", text: JSON.stringify(answer) } },
-          ],
+          messages: [{ role: "assistant", content: { type: "text", text: JSON.stringify(answer) } }],
         });
 
         // A Modern server asks in its answer: `input_required` first, then the get answered with the round's responses.
@@ -733,9 +709,7 @@ const fakeMcp = (
                     : "url" in asks
                       ? inputRequired.elicitUrl({ url: asks.url, message: "Open the page" })
                       : inputRequired.createMessage({
-                          messages: [
-                            { role: "user", content: { type: "text", text: asks.sample } },
-                          ],
+                          messages: [{ role: "user", content: { type: "text", text: asks.sample } }],
                           maxTokens: 100,
                         }),
                 ...morePages(),
@@ -820,9 +794,7 @@ const fakeMcp = (
         return untilAborted(ctx.mcpReq.signal, () => options.cancelled?.push(request.params.name));
 
       case "progress": {
-        const { steps, hang } = Schema.decodeUnknownSync(ProgressArguments)(
-          request.params.arguments,
-        );
+        const { steps, hang } = Schema.decodeUnknownSync(ProgressArguments)(request.params.arguments);
 
         const token = ctx.mcpReq._meta?.progressToken;
 
@@ -834,9 +806,7 @@ const fakeMcp = (
         }
 
         if (hang === true) {
-          return untilAborted(ctx.mcpReq.signal, () =>
-            options.cancelled?.push(request.params.name),
-          );
+          return untilAborted(ctx.mcpReq.signal, () => options.cancelled?.push(request.params.name));
         }
 
         return { content: [{ type: "text", text: "done" }] };
@@ -956,10 +926,7 @@ const fakeMcp = (
         } catch (error) {
           const text = error instanceof Error ? error.message : "failed";
 
-          const code =
-            Predicate.hasProperty(error, "code") && Predicate.isNumber(error.code)
-              ? error.code
-              : undefined;
+          const code = Predicate.hasProperty(error, "code") && Predicate.isNumber(error.code) ? error.code : undefined;
 
           options.sampled?.push({ error: text, code: code ?? null });
 
@@ -968,15 +935,8 @@ const fakeMcp = (
       }
 
       case "visit": {
-        const {
-          url,
-          message,
-          elicitationId,
-          completeAfterMs,
-          completeOnStandalone,
-          holdMs,
-          rounds,
-        } = Schema.decodeUnknownSync(VisitArguments)(request.params.arguments);
+        const { url, message, elicitationId, completeAfterMs, completeOnStandalone, holdMs, rounds } =
+          Schema.decodeUnknownSync(VisitArguments)(request.params.arguments);
 
         // Modern asks in an `input_required` round (`rounds`, default 1, each with the same page, keyed `page`) and reads
         // what the client answered from the retry, recording it in `asked` with the round it came back in.
@@ -1076,9 +1036,7 @@ const fakeMcp = (
         const { text } = Schema.decodeUnknownSync(EchoArguments)(request.params.arguments);
 
         return {
-          content: [
-            { type: "text", text: request.params.name === "shout" ? text.toUpperCase() : text },
-          ],
+          content: [{ type: "text", text: request.params.name === "shout" ? text.toUpperCase() : text }],
         };
       }
     }
@@ -1122,9 +1080,7 @@ const recording = (handle: (request: Request) => Promise<Response>): FakeServer 
  * A Modern (`2026-07-28`) server: stateless, and answering any Legacy request as unsupported. `notify` publishes a
  * change to the open `subscriptions/listen` streams, as the SDK's handler does.
  */
-export const modernServer = (
-  options?: FakeOptions,
-): FakeServer & Pick<McpHttpHandler, "notify"> => {
+export const modernServer = (options?: FakeOptions): FakeServer & Pick<McpHttpHandler, "notify"> => {
   const handler = createMcpHandler(() => fakeMcp(undefined, options, true), { legacy: "reject" });
 
   return { ...recording(handler.fetch), notify: handler.notify };
@@ -1200,10 +1156,7 @@ export const legacyStatefulServer = (options?: FakeOptions) => {
     });
 
     // A notification on the GET stream with every call, as servers announcing changes do.
-    const server = fakeMcp(
-      (each) => each.notification({ method: "notifications/tools/list_changed" }),
-      options,
-    );
+    const server = fakeMcp((each) => each.notification({ method: "notifications/tools/list_changed" }), options);
 
     await server.connect(transport);
 
@@ -1224,9 +1177,7 @@ export const legacyStatefulServer = (options?: FakeOptions) => {
     /** Tell every session's GET stream that a list changed. */
     listChanged: async (list: "tools" | "prompts" | "resources") => {
       await Promise.all(
-        [...servers.values()].map((each) =>
-          each.notification({ method: `notifications/${list}/list_changed` }),
-        ),
+        [...servers.values()].map((each) => each.notification({ method: `notifications/${list}/list_changed` })),
       );
     },
     /** Close every session's GET stream, as a server cutting them does; the sessions stay. */
@@ -1243,8 +1194,7 @@ export const legacyStatefulServer = (options?: FakeOptions) => {
 export const hostileServer = (
   base: FakeServer,
   answer: (request: Request, rpc: RpcBody | undefined) => Response | undefined,
-): FakeServer =>
-  recording(async (request) => answer(request, await readRpc(request)) ?? base.handle(request));
+): FakeServer => recording(async (request) => answer(request, await readRpc(request)) ?? base.handle(request));
 
 /** The `fetch` the core is given: every request goes to `server`, by any URL. */
 export const fetchTo =
@@ -1255,17 +1205,14 @@ export const fetchTo =
 /** The JSON-RPC requests (not notifications) a fake received, by method. */
 export const rpcMethods = (server: FakeServer) =>
   server.received.flatMap((received) =>
-    received.rpc?.method !== undefined && received.rpc.id !== undefined
-      ? [received.rpc.method]
-      : [],
+    received.rpc?.method !== undefined && received.rpc.id !== undefined ? [received.rpc.method] : [],
   );
 
 /** An SSE response carrying `events` as `message` events, then ending. */
 export const sse = (events: ReadonlyArray<Json>) =>
-  new Response(
-    events.map((event) => `event: message\ndata: ${JSON.stringify(event)}\n\n`).join(""),
-    { headers: { "content-type": "text/event-stream" } },
-  );
+  new Response(events.map((event) => `event: message\ndata: ${JSON.stringify(event)}\n\n`).join(""), {
+    headers: { "content-type": "text/event-stream" },
+  });
 
 // ---------------------------------------------------------------------------------------------------------------------
 // A fake Modern task server: a Modern server that advertises
@@ -1391,10 +1338,8 @@ const rpcError = (id: string | number | undefined, code: number, message: string
     { status: 400 },
   );
 
-const rpcResult = (
-  id: string | number | undefined,
-  result: { readonly [key: string]: Json | undefined },
-) => Response.json({ jsonrpc: "2.0", id: id ?? null, result });
+const rpcResult = (id: string | number | undefined, result: { readonly [key: string]: Json | undefined }) =>
+  Response.json({ jsonrpc: "2.0", id: id ?? null, result });
 
 const ID_PATTERN = /^[a-z0-9-]+$/;
 
@@ -1420,9 +1365,7 @@ export const modernTaskServer = (options: TaskServerOptions = {}): TaskServer =>
     listMore: true,
     moreTools: [
       ...(options.moreTools ?? []),
-      options.appUri === undefined
-        ? REPORT_TOOL
-        : { ...REPORT_TOOL, _meta: { ui: { resourceUri: options.appUri } } },
+      options.appUri === undefined ? REPORT_TOOL : { ...REPORT_TOOL, _meta: { ui: { resourceUri: options.appUri } } },
     ],
     extensions: options.unadvertised === true ? undefined : { [TASKS_EXTENSION]: {} },
   });
@@ -1562,10 +1505,7 @@ export const modernTaskServer = (options: TaskServerOptions = {}): TaskServer =>
     const task: FakeTask = {
       id: `task-${next}`,
       status:
-        given.ask === true ||
-        given.sample === true ||
-        given.page === true ||
-        given.unsupported === true
+        given.ask === true || given.sample === true || given.page === true || given.unsupported === true
           ? "input_required"
           : "working",
       pollsLeft: given.polls ?? 1,
@@ -1660,9 +1600,7 @@ export const modernTaskServer = (options: TaskServerOptions = {}): TaskServer =>
     if (method === "tools/call") {
       const call = Option.getOrUndefined(decodeReportCall(params));
 
-      return call?.name === "report"
-        ? report(id, request, call, extensionsOf(call._meta))
-        : undefined;
+      return call?.name === "report" ? report(id, request, call, extensionsOf(call._meta)) : undefined;
     }
 
     if (method === "tasks/get" || method === "tasks/update" || method === "tasks/cancel") {

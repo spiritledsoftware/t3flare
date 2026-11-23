@@ -19,7 +19,8 @@ const rows = (sql: ReturnType<typeof nodeSqlStorage>, query: string, ...params: 
 const seeded = () => {
   const sql = nodeSqlStorage();
   sql.exec("CREATE TABLE items (id INTEGER PRIMARY KEY, kind TEXT, label TEXT)");
-  for (let id = 1; id <= 40; id++) sql.exec("INSERT INTO items (id, kind, label) VALUES (?, ?, ?)", id, `k${id % 7}`, `it's ${id}`);
+  for (let id = 1; id <= 40; id++)
+    sql.exec("INSERT INTO items (id, kind, label) VALUES (?, ?, ?)", id, `k${id % 7}`, `it's ${id}`);
   return sql;
 };
 
@@ -35,7 +36,9 @@ describe("sqlLiteral and inlineParameters", () => {
   });
 
   it("replaces placeholders but not question marks in strings or comments", () => {
-    expect(inlineParameters("SELECT '?', ? -- why?\n, ? /* ? */", [1, "a'b"])).toBe("SELECT '?', 1 -- why?\n, 'a''b' /* ? */");
+    expect(inlineParameters("SELECT '?', ? -- why?\n, ? /* ? */", [1, "a'b"])).toBe(
+      "SELECT '?', 1 -- why?\n, 'a''b' /* ? */",
+    );
     expect(() => inlineParameters("SELECT ?, ?", [1])).toThrow("More placeholders");
     expect(() => inlineParameters("SELECT ?", [1, 2])).toThrow("More parameters");
   });

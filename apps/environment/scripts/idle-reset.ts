@@ -28,11 +28,17 @@ const dueInSeconds = Number(arg("due-in-seconds", "150"));
 const outFile = process.argv.includes("--out") ? arg("out", "") : undefined;
 const accessHeaders: Record<string, string> =
   process.env.T3FLARE_ACCESS_CLIENT_ID && process.env.T3FLARE_ACCESS_CLIENT_SECRET
-    ? { "cf-access-client-id": process.env.T3FLARE_ACCESS_CLIENT_ID, "cf-access-client-secret": process.env.T3FLARE_ACCESS_CLIENT_SECRET }
+    ? {
+        "cf-access-client-id": process.env.T3FLARE_ACCESS_CLIENT_ID,
+        "cf-access-client-secret": process.env.T3FLARE_ACCESS_CLIENT_SECRET,
+      }
     : {};
 
 const admin = async (method: string, pathname: string) => {
-  const response = await fetch(new URL(pathname, base), { method, headers: { ...accessHeaders, authorization: `Bearer ${adminToken}` } });
+  const response = await fetch(new URL(pathname, base), {
+    method,
+    headers: { ...accessHeaders, authorization: `Bearer ${adminToken}` },
+  });
   return (await response.json()) as any;
 };
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -55,17 +61,26 @@ const pair = await fetch(new URL("/api/auth/browser-session", base), {
   headers: { "content-type": "application/json", origin: base.origin },
   body: JSON.stringify({ credential: bootstrapToken }),
 });
-const cookie = pair.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+const cookie = pair.headers
+  .getSetCookie()
+  .map((c) => c.split(";")[0])
+  .join("; ");
 await admin("POST", "/_t3flare/disarm-bootstrap");
 
 const socketUrl = new URL("/ws?orchestrationProtocol=2", base);
 socketUrl.protocol = base.protocol === "https:" ? "wss:" : "ws:";
-const layerProtocol = Layer.effect(RpcClient.Protocol, RpcClient.makeProtocolSocket({ retryTransientErrors: false })).pipe(
+const layerProtocol = Layer.effect(
+  RpcClient.Protocol,
+  RpcClient.makeProtocolSocket({ retryTransientErrors: false }),
+).pipe(
   Layer.provide(
     Layer.mergeAll(
       Socket.layerWebSocket(socketUrl.toString()).pipe(
         Layer.provide(
-          Layer.succeed(Socket.WebSocketConstructor, (url) => new WebSocket(url, { headers: { cookie, origin: base.origin } } as never)),
+          Layer.succeed(
+            Socket.WebSocketConstructor,
+            (url) => new WebSocket(url, { headers: { cookie, origin: base.origin } } as never),
+          ),
         ),
       ),
       RpcSerialization.layerJson,
@@ -101,7 +116,11 @@ const created = await Effect.runPromise(
   }).pipe(Effect.provide(layerProtocol), Effect.scoped),
 );
 const startedAt = Date.now();
-timeline.push({ event: "socket closed; scheduled task due", runAt: runAt.toISOString(), ...summary(await admin("GET", "/_t3flare/health")) });
+timeline.push({
+  event: "socket closed; scheduled task due",
+  runAt: runAt.toISOString(),
+  ...summary(await admin("GET", "/_t3flare/health")),
+});
 
 let reset: any;
 let woke: any;
@@ -111,7 +130,11 @@ while (Date.now() - startedAt < (dueInSeconds + 180) * 1000) {
   const now = summary(await admin("GET", "/_t3flare/health"));
   if (reset === undefined && now.runtime === "stopped" && now.constructions !== before.constructions) {
     reset = now;
-    timeline.push({ event: "reset (new object, t3 stopped, alarm set)", secondsAfterClose: Math.round((Date.now() - startedAt) / 1000), ...now });
+    timeline.push({
+      event: "reset (new object, t3 stopped, alarm set)",
+      secondsAfterClose: Math.round((Date.now() - startedAt) / 1000),
+      ...now,
+    });
   }
   if (reset !== undefined && now.runtime === "running" && now.lastBootTrigger === "alarm") {
     woke = now;
@@ -124,7 +147,11 @@ const result = {
   task: (created.task as any)?.id ?? created.task,
   runAt: runAt.toISOString(),
   timeline,
-  ok: reset !== undefined && woke !== undefined && reset.alarm !== null && Math.abs(new Date(reset.alarm).getTime() - runAt.getTime()) < 5000,
+  ok:
+    reset !== undefined &&
+    woke !== undefined &&
+    reset.alarm !== null &&
+    Math.abs(new Date(reset.alarm).getTime() - runAt.getTime()) < 5000,
 };
 const text = JSON.stringify(result, null, 2);
 console.log(text);

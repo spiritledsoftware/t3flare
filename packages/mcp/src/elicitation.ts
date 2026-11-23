@@ -10,7 +10,12 @@
  * - **The validator** checks the owner's values against the form, in the web before Submit and again in the Session.
  */
 // @effect-diagnostics missingPipeableSignature:off preferEffectArray:off preferEffectRecord:off -- plain functions over values, with loops that end early.
-import { type ElicitationContent, type ElicitationField, type ElicitationForm, type ElicitationOption } from "./elicitation-form.ts";
+import {
+  type ElicitationContent,
+  type ElicitationField,
+  type ElicitationForm,
+  type ElicitationOption,
+} from "./elicitation-form.ts";
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
@@ -79,12 +84,7 @@ export const McpElicitResult = Schema.Struct({
   content: Schema.optionalKey(
     Schema.Record(
       Schema.String,
-      Schema.Union([
-        Schema.String,
-        Schema.Finite,
-        Schema.Boolean,
-        Schema.Array(Schema.String).pipe(Schema.mutable),
-      ]),
+      Schema.Union([Schema.String, Schema.Finite, Schema.Boolean, Schema.Array(Schema.String).pipe(Schema.mutable)]),
     ),
   ),
 });
@@ -178,8 +178,7 @@ export const plainLine = (text: string, max: number): string =>
  * model reads: plain text, cut to `max`, with the quote marks, angle brackets and backslashes it could close a quote or
  * open a tag with dropped.
  */
-export const safeName = (text: string, max = 60): string =>
-  plainLine(text, max).replace(/[<>'`\\]/g, "");
+export const safeName = (text: string, max = 60): string => plainLine(text, max).replace(/[<>'`\\]/g, "");
 
 /** `text` as a field's name between quotes, in words the model or the owner reads. */
 export const quote = (text: string): string => `'${safeName(text)}'`;
@@ -188,12 +187,10 @@ export const quote = (text: string): string => `'${safeName(text)}'`;
 export const messageIsCut = (text: string): boolean => plainMessage(text) !== plainWhole(text);
 
 /** A server's message whole: no control, bidi-override or zero-width characters (newlines kept). */
-const plainWhole = (text: string): string =>
-  text.replace(UNSAFE_CHARS, "").replace(/\r\n?/g, "\n").trim();
+const plainWhole = (text: string): string => text.replace(UNSAFE_CHARS, "").replace(/\r\n?/g, "\n").trim();
 
 /** A server's message, which may span lines: no control or bidi-override characters (newlines kept), cut to 4,000. */
-export const plainMessage = (text: string): string =>
-  cut(plainWhole(text), ELICITATION_BOUNDS.message);
+export const plainMessage = (text: string): string => cut(plainWhole(text), ELICITATION_BOUNDS.message);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // The credential rule
@@ -320,10 +317,7 @@ const KNOWN_KEYWORDS: ReadonlySet<string> = new Set([
 /** Keywords that put a property outside the spec's subset. */
 const REFUSED_KEYWORDS = ["$ref", "allOf", "not", "if", "then", "else"] as const;
 
-type TextField = Extract<
-  ElicitationField,
-  { kind: "text" | "email" | "url" | "date" | "date_time" }
->;
+type TextField = Extract<ElicitationField, { kind: "text" | "email" | "url" | "date" | "date_time" }>;
 
 type NumberField = Extract<ElicitationField, { kind: "number" | "integer" }>;
 
@@ -403,14 +397,8 @@ const titled = (
 
   if (names === undefined) return options;
 
-  if (
-    !isJsonArray(names) ||
-    names.length !== options.length ||
-    !Arr.every(names, Predicate.isString)
-  ) {
-    notes.lines.push(
-      `${quote(name)} has enumNames that do not match its enum; the values are shown`,
-    );
+  if (!isJsonArray(names) || names.length !== options.length || !Arr.every(names, Predicate.isString)) {
+    notes.lines.push(`${quote(name)} has enumNames that do not match its enum; the values are shown`);
 
     return options;
   }
@@ -436,9 +424,7 @@ const stringField = (name: string, property: JsonObject, notes: Notes, common: C
     if (given !== undefined && Arr.some(options, (option) => option.value === given)) {
       field.default = given;
     } else if (property["default"] !== undefined) {
-      notes.lines.push(
-        `${quote(name)} has a default that is not one of its options; it was dropped`,
-      );
+      notes.lines.push(`${quote(name)} has a default that is not one of its options; it was dropped`);
     }
 
     return { field, freeText: property["writeOnly"] === true };
@@ -448,9 +434,7 @@ const stringField = (name: string, property: JsonObject, notes: Notes, common: C
   const kind = format === undefined ? undefined : STRING_FORMATS.get(format);
 
   if (format !== undefined && kind === undefined && format !== "password") {
-    notes.lines.push(
-      `${quote(name)} has an unknown format ${quote(format)}; it is shown as plain text`,
-    );
+    notes.lines.push(`${quote(name)} has an unknown format ${quote(format)}; it is shown as plain text`);
   }
 
   const field: Mutable<TextField> = { ...common, kind: kind ?? "text" };
@@ -517,11 +501,7 @@ const multiField = (name: string, property: JsonObject, notes: Notes, common: Co
   const raw = items === undefined ? undefined : (listOf(items, "enum") ?? listOf(items, "anyOf"));
   const itemType = items === undefined ? undefined : items["type"];
 
-  if (
-    items === undefined ||
-    raw === undefined ||
-    (itemType !== undefined && itemType !== "string")
-  ) {
+  if (items === undefined || raw === undefined || (itemType !== undefined && itemType !== "string")) {
     return refuse(`${quote(name)} is a list of something other than choices`);
   }
 
@@ -566,17 +546,11 @@ type Common = {
 };
 
 /** One property as a field, or a throw naming why it is outside the subset. */
-const readField = (
-  name: string,
-  property: Schema.Json | undefined,
-  required: boolean,
-  notes: Notes,
-): Read => {
+const readField = (name: string, property: Schema.Json | undefined, required: boolean, notes: Notes): Read => {
   if (!isJsonObject(property)) return refuse(`${quote(name)} is not a schema`);
 
   for (const keyword of REFUSED_KEYWORDS) {
-    if (keyword in property)
-      return refuse(`${quote(name)} uses ${keyword}, which is not supported`);
+    if (keyword in property) return refuse(`${quote(name)} uses ${keyword}, which is not supported`);
   }
 
   for (const key of Object.keys(property)) if (!KNOWN_KEYWORDS.has(key)) notes.ignored.add(key);
@@ -645,9 +619,7 @@ export type NormalizedForm = {
  * ignored (unknown keywords, an unknown `format`, an invalid default) goes in `notes`. A form asking for a credential
  * is returned with `credential` set, and is to be declined unseen.
  */
-export const normalizeElicitationForm = (
-  requested: Schema.Json | undefined,
-): Result.Result<NormalizedForm, string> => {
+export const normalizeElicitationForm = (requested: Schema.Json | undefined): Result.Result<NormalizedForm, string> => {
   const bytes = new TextEncoder().encode(JSON.stringify(requested ?? null)).byteLength;
 
   if (bytes > ELICITATION_BOUNDS.schemaBytes) return Result.fail("the schema is over 64 KiB");
@@ -667,9 +639,7 @@ export const normalizeElicitationForm = (
   }
 
   // A name is the key the server reads the answer by, so it is never cleaned: one that is not plain is malformed.
-  if (
-    Arr.some(names, (name) => name === "" || plainLine(name, ELICITATION_BOUNDS.title) !== name)
-  ) {
+  if (Arr.some(names, (name) => name === "" || plainLine(name, ELICITATION_BOUNDS.title) !== name)) {
     return Result.fail(
       `a field has a name that is empty, over ${ELICITATION_BOUNDS.title} characters, or has control characters or extra spaces`,
     );
@@ -704,8 +674,7 @@ export const normalizeElicitationForm = (
         credential === undefined &&
         isJsonObject(property) &&
         mayHoldCredential(property, read) &&
-        (endsInCredential(name) ||
-          (read.field.title !== undefined && endsInCredential(read.field.title)))
+        (endsInCredential(name) || (read.field.title !== undefined && endsInCredential(read.field.title)))
       ) {
         credential = read.field.title ?? read.field.name;
       }
@@ -741,8 +710,7 @@ const byteLength = (text: string) => encoder.encode(text).byteLength;
 
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-const DATE_TIME =
-  /^(\d{4}-\d{2}-\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:[Zz]|[+-](\d{2}):(\d{2}))$/;
+const DATE_TIME = /^(\d{4}-\d{2}-\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:[Zz]|[+-](\d{2}):(\d{2}))$/;
 
 /**
  * `local@domain` with a `.` in the domain that neither starts nor ends it, no space and one `@`. The domain's first
@@ -781,14 +749,7 @@ const isDateTime = (text: string) => {
     Number(match[6] ?? 0),
   ];
 
-  return (
-    isDate(match[1] ?? "") &&
-    hour <= 23 &&
-    minute <= 59 &&
-    second <= 60 &&
-    zoneHour <= 23 &&
-    zoneMinute <= 59
-  );
+  return isDate(match[1] ?? "") && hour <= 23 && minute <= 59 && second <= 60 && zoneHour <= 23 && zoneMinute <= 59;
 };
 
 const isUrl = (text: string) => Option.isSome(Option.liftThrowable(() => new URL(text))());
@@ -824,10 +785,7 @@ export type Entered = Readonly<Record<string, Schema.Json | undefined>>;
 
 /** Whether `value` is empty as far as an optional field goes: nothing was entered. */
 const isEmpty = (value: Schema.Json | undefined) =>
-  value === undefined ||
-  value === null ||
-  value === "" ||
-  (Arr.isArray(value) && value.length === 0);
+  value === undefined || value === null || value === "" || (Arr.isArray(value) && value.length === 0);
 
 type Checked = { readonly problem: string } | { readonly value: ElicitationContent[string] };
 
@@ -838,11 +796,9 @@ const checkNumber = (field: NumberField, value: Schema.Json | undefined): Checke
     return { problem: "must be a whole number" };
   }
 
-  if (field.min !== undefined && value < field.min)
-    return { problem: `must be at least ${field.min}` };
+  if (field.min !== undefined && value < field.min) return { problem: `must be at least ${field.min}` };
 
-  if (field.max !== undefined && value > field.max)
-    return { problem: `must be at most ${field.max}` };
+  if (field.max !== undefined && value > field.max) return { problem: `must be at most ${field.max}` };
 
   return { value };
 };
@@ -893,8 +849,7 @@ const checkField = (field: ElicitationField, value: Schema.Json | undefined): Ch
     case "boolean":
       return Predicate.isBoolean(value) ? { value } : { problem: "must be yes or no" };
     case "choice":
-      return Predicate.isString(value) &&
-        Arr.some(field.options, (option) => option.value === value)
+      return Predicate.isString(value) && Arr.some(field.options, (option) => option.value === value)
         ? { value }
         : { problem: "must be one of the options" };
     case "multi_choice":
@@ -938,10 +893,7 @@ export const validateElicitation = (
 
   const answered: ElicitationContent = Object.fromEntries(content);
 
-  if (
-    errors.length === 0 &&
-    byteLength(JSON.stringify(answered)) > ELICITATION_BOUNDS.answerBytes
-  ) {
+  if (errors.length === 0 && byteLength(JSON.stringify(answered)) > ELICITATION_BOUNDS.answerBytes) {
     errors.push(["", "the answer is over 64 KiB"]);
   }
 
@@ -949,10 +901,7 @@ export const validateElicitation = (
 };
 
 /** The names of the fields `content` answers, in the form's order: all a record keeps of an answer, never a value. */
-export const answeredFields = (
-  form: ElicitationForm,
-  content: ElicitationContent,
-): ReadonlyArray<string> =>
+export const answeredFields = (form: ElicitationForm, content: ElicitationContent): ReadonlyArray<string> =>
   Arr.map(
     Arr.filter(form.fields, (field) => Object.hasOwn(content, field.name)),
     (field) => field.name,

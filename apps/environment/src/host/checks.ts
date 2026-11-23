@@ -19,12 +19,14 @@ export const sqlChecks = Effect.gen(function* () {
   yield* sql`CREATE TABLE t3flare_probe (id INTEGER PRIMARY KEY, label TEXT NOT NULL)`;
 
   // 1. withTransaction with rollback, and a nested savepoint rolled back on its own.
-  yield* sql.withTransaction(
-    Effect.gen(function* () {
-      yield* sql`INSERT INTO t3flare_probe (id, label) VALUES (1, 'rolled back')`;
-      return yield* Effect.fail(new Rollback());
-    }),
-  ).pipe(Effect.catchTag("Rollback", () => Effect.void));
+  yield* sql
+    .withTransaction(
+      Effect.gen(function* () {
+        yield* sql`INSERT INTO t3flare_probe (id, label) VALUES (1, 'rolled back')`;
+        return yield* Effect.fail(new Rollback());
+      }),
+    )
+    .pipe(Effect.catchTag("Rollback", () => Effect.void));
   const afterRollback = yield* sql<{ n: number }>`SELECT COUNT(*) AS n FROM t3flare_probe`;
   yield* sql.withTransaction(
     Effect.gen(function* () {
@@ -69,13 +71,17 @@ export const sqlChecks = Effect.gen(function* () {
   const t0 = performance.now();
   yield* Effect.all(
     [
-      sql.withTransaction(
-        Effect.gen(function* () {
-          yield* sql`UPDATE t3flare_probe SET label = 'locked' WHERE id = 2`;
-          yield* Effect.sleep("50 millis");
-          order.push(`tx-body-end@${(yield* Clock.currentTimeMillis) - wall0}`);
-        }),
-      ).pipe(Effect.tap(() => Effect.map(Clock.currentTimeMillis, (now) => order.push(`tx-committed@${now - wall0}`)))),
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* sql`UPDATE t3flare_probe SET label = 'locked' WHERE id = 2`;
+            yield* Effect.sleep("50 millis");
+            order.push(`tx-body-end@${(yield* Clock.currentTimeMillis) - wall0}`);
+          }),
+        )
+        .pipe(
+          Effect.tap(() => Effect.map(Clock.currentTimeMillis, (now) => order.push(`tx-committed@${now - wall0}`))),
+        ),
       Effect.gen(function* () {
         yield* Effect.sleep("5 millis");
         const start = performance.now();
@@ -122,4 +128,3 @@ export const sqlChecks = Effect.gen(function* () {
   yield* sql`DROP TABLE t3flare_probe`;
   return results;
 });
-

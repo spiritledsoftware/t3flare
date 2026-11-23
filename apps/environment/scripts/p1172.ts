@@ -28,7 +28,22 @@ import * as path from "node:path";
 
 import { cliTurn as acpCliTurn, enable as acpEnable } from "./lib/acpTurn.ts";
 import { cliTurn as cli4aTurn, enable as cli4aEnable } from "./lib/cliTurn.ts";
-import { admin, base, dispatch, itemsOf, mutateProject, pair, runsOf, sendMessage, SETTLED, sleep, updateSettings, uuid, waitFor, wsCall } from "./lib/client.ts";
+import {
+  admin,
+  base,
+  dispatch,
+  itemsOf,
+  mutateProject,
+  pair,
+  runsOf,
+  sendMessage,
+  SETTLED,
+  sleep,
+  updateSettings,
+  uuid,
+  waitFor,
+  wsCall,
+} from "./lib/client.ts";
 import { fixtureRepo } from "./lib/scriptSettings.ts";
 
 /** The made-up credentials the `anthropicKeyRefused` fault echoes (apps/agents/src/session/proxyLimits.ts). */
@@ -37,14 +52,20 @@ const ECHOED = [
   "eyJhbGciOiJIUzI1NiJ9.eyJ0M2ZsYXJlIjoiZmF1bHQtZWNobyJ9.dDNmbGFyZS1mYXVsdC1zaWduYXR1cmU",
 ] as const;
 
-const [step = "limit"] = process.argv.slice(2).filter((arg, index, all) => !arg.startsWith("--") && !["--out", "--model"].includes(all[index - 1] ?? ""));
+const [step = "limit"] = process.argv
+  .slice(2)
+  .filter((arg, index, all) => !arg.startsWith("--") && !["--out", "--model"].includes(all[index - 1] ?? ""));
 const flag = (name: string) => process.argv.includes(`--${name}`);
 const option = (name: string, fallback: string) => {
   const index = process.argv.indexOf(`--${name}`);
   return index === -1 ? fallback : process.argv[index + 1]!;
 };
 const out = flag("out") ? option("out", "") : undefined;
-const MODEL = { instanceId: "piDurable", model: option("model", "commissary/claude-haiku-5-5"), options: [{ id: "thinking", value: "low" }] };
+const MODEL = {
+  instanceId: "piDurable",
+  model: option("model", "commissary/claude-haiku-5-5"),
+  options: [{ id: "thinking", value: "low" }],
+};
 const ENDPOINT = MODEL.model.split("/")[0]!;
 const report: Record<string, unknown> = { step, at: new Date().toISOString(), model: MODEL.model };
 const failures: Array<string> = [];
@@ -62,7 +83,8 @@ const finish = (): never => {
 };
 
 /** The Session's view of the thread (its turns, each with its model record), as it would push it. */
-const session = async (threadId: string) => (await admin("GET", `/_t3flare/agents/session?thread=${threadId}`)).json ?? {};
+const session = async (threadId: string) =>
+  (await admin("GET", `/_t3flare/agents/session?thread=${threadId}`)).json ?? {};
 
 const fixtureFile = path.resolve(import.meta.dirname, `../.alchemy/stages/${base.host}.p1172.json`);
 const fixture = (): { readonly projectId: string } => JSON.parse(fs.readFileSync(fixtureFile, "utf8"));
@@ -97,7 +119,8 @@ const tail = (): (() => Promise<{ readonly text: string; readonly file: string; 
   const profile = process.env.ALCHEMY_PROFILE ?? "default";
   const stored = process.env.CLOUDFLARE_API_TOKEN
     ? { access: process.env.CLOUDFLARE_API_TOKEN, accountId: process.env.CLOUDFLARE_ACCOUNT_ID }
-    : (JSON.parse(fs.readFileSync(path.join(os.homedir(), ".alchemy/profiles", profile, "cloudflare.json"), "utf8")).values as { access: string; accountId?: string });
+    : (JSON.parse(fs.readFileSync(path.join(os.homedir(), ".alchemy/profiles", profile, "cloudflare.json"), "utf8"))
+        .values as { access: string; accountId?: string });
   const file = path.join(os.tmpdir(), `t3flare-p1172-tail-${Date.now()}.ndjson`);
   const fd = fs.openSync(file, "w", 0o600);
   const procs = [`t3flare-environment-${stage}`, `t3flare-agents-${stage}`].map((worker) =>
@@ -121,24 +144,42 @@ const tail = (): (() => Promise<{ readonly text: string; readonly file: string; 
 const failedTurn = async (title: string, fixtureName: string, resetS: number) => {
   const threadId = await threadOn(title);
   const resetAt = Date.now() + resetS * 1000;
-  report.fault = (await admin("POST", `/_t3flare/agents/proxy-fault?thread=${threadId}`, { fixture: fixtureName, resetAt })).json;
+  report.fault = (
+    await admin("POST", `/_t3flare/agents/proxy-fault?thread=${threadId}`, { fixture: fixtureName, resetAt })
+  ).json;
   await sendMessage(cookie, threadId, "Reply with the single word: pong", MODEL);
   const failed = await waitFor(cookie, threadId, (p) => SETTLED.has(runsOf(p)[0]?.status ?? ""), 300_000);
   const run = runsOf(failed.projection)[0]!;
   const errors = itemsOf(failed.projection).filter((item: any) => item.type === "error");
   const turns = Object.values((await session(threadId)).turns ?? {}) as Array<any>;
   report.threadId = threadId;
-  report.first = { run: run.status, failure: errors[0]?.failure ?? errors[0] ?? null, model: turns[0]?.proxy ?? null, detail: turns[0]?.detail ?? null, faultResetAt: new Date(resetAt).toISOString() };
+  report.first = {
+    run: run.status,
+    failure: errors[0]?.failure ?? errors[0] ?? null,
+    model: turns[0]?.proxy ?? null,
+    detail: turns[0]?.detail ?? null,
+    faultResetAt: new Date(resetAt).toISOString(),
+  };
   check("the first run failed", run.status === "failed", run);
   check("one error item in the thread", errors.length === 1, errors);
-  return { threadId, resetAt, failure: (errors[0]?.failure ?? {}) as Record<string, any>, turn: turns[0] ?? {}, projection: failed.projection };
+  return {
+    threadId,
+    resetAt,
+    failure: (errors[0]?.failure ?? {}) as Record<string, any>,
+    turn: turns[0] ?? {},
+    projection: failed.projection,
+  };
 };
 
 switch (step) {
   case "setup": {
     await wsCall(cookie, "server.updateSettings", {
       patch: {},
-      providerInstanceMutation: { operation: "upsert", instanceId: "piDurable", instance: { driver: "piDurable", enabled: true } },
+      providerInstanceMutation: {
+        operation: "upsert",
+        instanceId: "piDurable",
+        instance: { driver: "piDurable", enabled: true },
+      },
     });
     const id = `p1172-${stamp}`;
     const destination = `/w/${id}`;
@@ -147,7 +188,14 @@ switch (step) {
       destinationPath: destination,
     })) as { cwd?: string };
     const projectId = uuid();
-    await mutateProject(cookie, { type: "project.create", commandId: uuid(), projectId, title: id, workspaceRoot: destination, createWorkspaceRootIfMissing: false });
+    await mutateProject(cookie, {
+      type: "project.create",
+      commandId: uuid(),
+      projectId,
+      title: id,
+      workspaceRoot: destination,
+      createWorkspaceRootIfMissing: false,
+    });
     fs.mkdirSync(path.dirname(fixtureFile), { recursive: true });
     fs.writeFileSync(fixtureFile, JSON.stringify({ projectId, workspaceId: id, destination }));
     report.setup = { projectId, workspaceId: id, cloned: cloned.cwd === destination };
@@ -156,29 +204,62 @@ switch (step) {
   }
   case "limit": {
     await updateSettings(cookie, { autoResumeLimitedThreads: true });
-    const { threadId, resetAt, failure, turn } = await failedTurn(`limit ${stamp}`, "anthropicUsageLimit", Number(option("reset-s", "120")));
+    const { threadId, resetAt, failure, turn } = await failedTurn(
+      `limit ${stamp}`,
+      "anthropicUsageLimit",
+      Number(option("reset-s", "120")),
+    );
     check("one model request", turn.proxy?.requests === 1, turn.proxy);
-    check("the Session classified it by the endpoint's API: a usage limit", turn.proxy?.endpointFailure?.code === "usage_limit" && turn.proxy?.endpointFailure?.endpointId === ENDPOINT, turn.proxy);
-    check("t3's failure: a usage limit naming the endpoint", failure.class === "usage_limit" && failure.code === "usage_limit" && String(failure.message).includes(`"${ENDPOINT}"`), failure);
+    check(
+      "the Session classified it by the endpoint's API: a usage limit",
+      turn.proxy?.endpointFailure?.code === "usage_limit" && turn.proxy?.endpointFailure?.endpointId === ENDPOINT,
+      turn.proxy,
+    );
+    check(
+      "t3's failure: a usage limit naming the endpoint",
+      failure.class === "usage_limit" &&
+        failure.code === "usage_limit" &&
+        String(failure.message).includes(`"${ENDPOINT}"`),
+      failure,
+    );
     // The fault's unified reset is in whole seconds: within 2 s of the armed time.
-    check("its reset is the vendor's (within 2 s)", Math.abs(Date.parse(failure.resetAt ?? "") - resetAt) <= 2000, { resetAt: failure.resetAt, expected: new Date(resetAt).toISOString() });
+    check("its reset is the vendor's (within 2 s)", Math.abs(Date.parse(failure.resetAt ?? "") - resetAt) <= 2000, {
+      resetAt: failure.resetAt,
+      expected: new Date(resetAt).toISOString(),
+    });
     // The Environment goes idle, and its alarm brings it back at the reset.
     await sleep(5000);
     report.idle = (await admin("POST", "/_t3flare/idle-check?force=1")).json;
-    const resumed = await waitFor(cookie, threadId, (p) => runsOf(p).length > 1 && SETTLED.has(runsOf(p).at(-1)?.status ?? ""), resetAt - Date.now() + 300_000);
+    const resumed = await waitFor(
+      cookie,
+      threadId,
+      (p) => runsOf(p).length > 1 && SETTLED.has(runsOf(p).at(-1)?.status ?? ""),
+      resetAt - Date.now() + 300_000,
+    );
     const runs = runsOf(resumed.projection);
-    const answer = itemsOf(resumed.projection).filter((item: any) => item.type === "assistant_message").at(-1);
+    const answer = itemsOf(resumed.projection)
+      .filter((item: any) => item.type === "assistant_message")
+      .at(-1);
     const turns = Object.values((await session(threadId)).turns ?? {}) as Array<any>;
     report.resumed = {
-      runs: runs.map((run: any) => ({ id: run.id, status: run.status, startedAt: run.startedAt ?? run.createdAt ?? null })),
-      secondRunStartedAfterResetMs: Date.parse(String((runs.at(-1) as any)?.startedAt ?? (runs.at(-1) as any)?.createdAt ?? 0)) - resetAt,
+      runs: runs.map((run: any) => ({
+        id: run.id,
+        status: run.status,
+        startedAt: run.startedAt ?? run.createdAt ?? null,
+      })),
+      secondRunStartedAfterResetMs:
+        Date.parse(String((runs.at(-1) as any)?.startedAt ?? (runs.at(-1) as any)?.createdAt ?? 0)) - resetAt,
       answer: String(answer?.text ?? "").slice(0, 200),
       // The resumed turn's model record: its requests went to the same endpoint (the slug's), never another.
       turns: turns.map((entry) => ({ status: entry.status, proxy: entry.proxy ?? null })),
       health: (await admin("GET", "/_t3flare/health")).json?.boot ?? null,
     };
     check("the thread resumed by itself and completed", runs.at(-1)?.status === "completed", runs);
-    check("the resumed run started after the reset", (report.resumed as any).secondRunStartedAfterResetMs >= 0, report.resumed);
+    check(
+      "the resumed run started after the reset",
+      (report.resumed as any).secondRunStartedAfterResetMs >= 0,
+      report.resumed,
+    );
     finish();
   }
   case "key": {
@@ -188,20 +269,35 @@ switch (step) {
     check("one model request", turn.proxy?.requests === 1, turn.proxy);
     check(
       "a refused key whose error names the endpoint",
-      failure.class === "permission_error" && failure.code === "key_refused" && failure.message === `The Model endpoint "${ENDPOINT}" refused its API key (HTTP 401): check it on the Settings page.`,
+      failure.class === "permission_error" &&
+        failure.code === "key_refused" &&
+        failure.message ===
+          `The Model endpoint "${ENDPOINT}" refused its API key (HTTP 401): check it on the Settings page.`,
       failure,
     );
     check("no pause: no reset", (failure.resetAt ?? null) === null, failure);
     // What t3 has (the thread) and what the Session pushes (its state) hold none of the fault's echoed credentials.
     const everything = JSON.stringify([projection, await session(threadId)]);
     report.echoedInThreadOrSession = ECHOED.map((secret) => everything.split(secret).length - 1);
-    check("no echoed credential reaches t3 or the push", (report.echoedInThreadOrSession as Array<number>).every((n) => n === 0), report.echoedInThreadOrSession);
+    check(
+      "no echoed credential reaches t3 or the push",
+      (report.echoedInThreadOrSession as Array<number>).every((n) => n === 0),
+      report.echoedInThreadOrSession,
+    );
     if (stop !== undefined) {
       const logs = await stop();
       const counts = ECHOED.map((secret) => logs.text.split(secret).length - 1);
-      report.logs = { tailEvents: logs.events, echoed: counts, redactedMarks: logs.text.split("[redacted]").length - 1 };
+      report.logs = {
+        tailEvents: logs.events,
+        echoed: counts,
+        redactedMarks: logs.text.split("[redacted]").length - 1,
+      };
       check("the logs were tailed", logs.events > 0, report.logs);
-      check("no echoed credential in either Worker's logs", counts.every((n) => n === 0), report.logs);
+      check(
+        "no echoed credential in either Worker's logs",
+        counts.every((n) => n === 0),
+        report.logs,
+      );
       // The raw tail holds no secret when the check passes; when it fails it may, so it stays in a 0600 temp file.
       if (counts.every((n) => n === 0)) fs.rmSync(logs.file);
     }
@@ -211,7 +307,11 @@ switch (step) {
     const { failure, turn } = await failedTurn(`overload ${stamp}`, "overloaded", 120);
     // pi-durable retries an overload (3 retries): four answers, then a provider error.
     check("four model requests (retried)", turn.proxy?.requests === 4, turn.proxy);
-    check("a provider error, not a usage limit", failure.class === "provider_error" && failure.code === "overloaded", failure);
+    check(
+      "a provider error, not a usage limit",
+      failure.class === "provider_error" && failure.code === "overloaded",
+      failure,
+    );
     finish();
   }
   case "cli": {
@@ -219,19 +319,41 @@ switch (step) {
     if (!check("the stage's script has MODEL_PROXY_URL (dev.env)", proxyUrl !== "")) finish();
     // A made-up key of no vendor's shape: only the relay's known-value redaction would catch an echo of it.
     const refusedKey = `p1172-refused-${stamp}-not-a-real-key`;
-    const api = (method: string, pathname: string, body?: unknown) => admin(method, `/_t3flare/settings/api/${pathname}`, body);
+    const api = (method: string, pathname: string, body?: unknown) =>
+      admin(method, `/_t3flare/settings/api/${pathname}`, body);
     const cli = option("cli", "pi");
     // Codex speaks OpenAI Responses (Commissary's at `/v1`); pi and Claude Code, Anthropic Messages.
     const responses = cli === "codex";
     const modelId = responses ? "gemini-3-flash" : "claude-haiku-5-5";
-    const endpoint = { api: responses ? "openai-responses" : "anthropic-messages", baseUrl: responses ? `${proxyUrl}/v1` : proxyUrl, auth: "api-key", headers: {}, models: [modelId] };
+    const endpoint = {
+      api: responses ? "openai-responses" : "anthropic-messages",
+      baseUrl: responses ? `${proxyUrl}/v1` : proxyUrl,
+      auth: "api-key",
+      headers: {},
+      models: [modelId],
+    };
     const control = flag("control");
-    const saved = await api("POST", "endpoints", { op: "save", endpoint: { id: "badkey", label: "Refused key", ...endpoint }, apiKey: control ? process.env.MODEL_PROXY_API_KEY : refusedKey });
-    check(control ? "the endpoint saved with the stage's working key" : "the endpoint with a refused key saved", saved.status === 200, saved.status);
+    const saved = await api("POST", "endpoints", {
+      op: "save",
+      endpoint: { id: "badkey", label: "Refused key", ...endpoint },
+      apiKey: control ? process.env.MODEL_PROXY_API_KEY : refusedKey,
+    });
+    check(
+      control ? "the endpoint saved with the stage's working key" : "the endpoint with a refused key saved",
+      saved.status === 200,
+      saved.status,
+    );
     if (cli === "claude") await acpEnable(cookie, "claude");
     else await cli4aEnable(cookie, cli, cli);
     await sleep(3000);
-    const turnOptions = { cli, workspace: `p1172-cli-${stamp}`, model: `badkey/${modelId}`, mode: "full-access", plan: false, prompt: "Reply with the single word: pong" };
+    const turnOptions = {
+      cli,
+      workspace: `p1172-cli-${stamp}`,
+      model: `badkey/${modelId}`,
+      mode: "full-access",
+      plan: false,
+      prompt: "Reply with the single word: pong",
+    };
     const turn = cli === "claude" ? await acpCliTurn(cookie, turnOptions) : await cli4aTurn(cookie, turnOptions);
     report.cliAgent = cli;
     if (control) {
@@ -240,16 +362,24 @@ switch (step) {
       finish();
     }
     const projection = await waitFor(cookie, turn.threadId, () => true, 10_000);
-    const errors = itemsOf(projection.projection).filter((item: any) => item.type === "error").map((item: any) => item.failure);
+    const errors = itemsOf(projection.projection)
+      .filter((item: any) => item.type === "error")
+      .map((item: any) => item.failure);
     const failure = (turn.runs.at(-1)?.failure ?? errors.at(-1) ?? {}) as Record<string, any>;
     report.cli = { runs: turn.runs.map((run: any) => ({ status: run.status })), failure, errorItems: errors };
     check(`the ${cli} turn failed`, turn.runs.at(-1)?.status === "failed", turn.runs);
     check(
       `t3's failure on ${cli} is the relay's: a refused key naming the endpoint`,
-      failure.class === "permission_error" && failure.code === "key_refused" && String(failure.message).startsWith('The Model endpoint "badkey" refused its API key (HTTP 401)'),
+      failure.class === "permission_error" &&
+        failure.code === "key_refused" &&
+        String(failure.message).startsWith('The Model endpoint "badkey" refused its API key (HTTP 401)'),
       failure,
     );
-    check("not the Model proxy key's text", !JSON.stringify(report.cli).includes("COMMISSARY_CONTAINER_API_KEY"), report.cli);
+    check(
+      "not the Model proxy key's text",
+      !JSON.stringify(report.cli).includes("COMMISSARY_CONTAINER_API_KEY"),
+      report.cli,
+    );
     check("the refused key is in no answer", !JSON.stringify(projection.projection).includes(refusedKey));
     await api("POST", "endpoints", { op: "remove", id: "badkey" });
     finish();

@@ -19,24 +19,38 @@ export interface BaseKeyInputs {
 }
 
 /** `bytes` in lowercase hex. */
-export const hex = (bytes: ArrayBuffer | Uint8Array): string => [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+export const hex = (bytes: ArrayBuffer | Uint8Array): string =>
+  [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 
 /** `text` (lowercase hex) as bytes. */
-export const unhex = (text: string): Uint8Array => new Uint8Array((text.match(/../g) ?? []).map((pair) => Number.parseInt(pair, 16)));
+export const unhex = (text: string): Uint8Array =>
+  new Uint8Array((text.match(/../g) ?? []).map((pair) => Number.parseInt(pair, 16)));
 
 const utf8 = new TextEncoder();
 
 /** The SHA-256 of `text`'s UTF-8, in hex. */
-export const sha256Hex = async (text: string): Promise<string> => hex(await crypto.subtle.digest("SHA-256", utf8.encode(text)));
+export const sha256Hex = async (text: string): Promise<string> =>
+  hex(await crypto.subtle.digest("SHA-256", utf8.encode(text)));
 
 /** The key of `inputs`: a SHA-256 in hex. `secretKey` is the Builder's own random HMAC key. */
-export const baseKey = async (inputs: BaseKeyInputs, secretKey: Uint8Array, format: number = BUILDER_FORMAT): Promise<string> => {
+export const baseKey = async (
+  inputs: BaseKeyInputs,
+  secretKey: Uint8Array,
+  format: number = BUILDER_FORMAT,
+): Promise<string> => {
   const hmac = await crypto.subtle.importKey("raw", secretKey, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   // Sorted by name: their order reaches no command (each is one variable of the environment).
   const variables = await Promise.all(
     [...inputs.variables]
       .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
-      .map(async (variable) => [variable.name, variable.secret, variable.secret ? hex(await crypto.subtle.sign("HMAC", hmac, utf8.encode(variable.value))) : variable.value] as const),
+      .map(
+        async (variable) =>
+          [
+            variable.name,
+            variable.secret,
+            variable.secret ? hex(await crypto.subtle.sign("HMAC", hmac, utf8.encode(variable.value))) : variable.value,
+          ] as const,
+      ),
   );
   const canonical = JSON.stringify([format, inputs.imageDigest, inputs.imageSetup, inputs.globalMiseConfig, variables]);
   return sha256Hex(canonical);

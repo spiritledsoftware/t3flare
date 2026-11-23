@@ -29,7 +29,8 @@ export const REPO_COMMAND_CANDIDATES: Readonly<Record<string, string>> = {
   ".codex/prompts/r-codex-prompt.md": "r-codex-prompt",
 };
 
-export const skillMd = (name: string, description: string) => `---\nname: ${name}\ndescription: ${description}\n---\n\nProbe marker ${name}.\n`;
+export const skillMd = (name: string, description: string) =>
+  `---\nname: ${name}\ndescription: ${description}\n---\n\nProbe marker ${name}.\n`;
 export const commandMd = (name: string) => `---\ndescription: Probe command ${name}\n---\n\nSay ${name}.\n`;
 
 /** The repo's files, by path relative to the repo. */
@@ -46,12 +47,19 @@ export const repoFixture = (): Readonly<Record<string, string>> => {
 
 /** What one CLI reported: skills (name, description, path when told) and commands. */
 export interface Loaded {
-  readonly skills: ReadonlyArray<{ readonly name: string; readonly description: string | null; readonly path: string | null; readonly scope?: string | null }>;
+  readonly skills: ReadonlyArray<{
+    readonly name: string;
+    readonly description: string | null;
+    readonly path: string | null;
+    readonly scope?: string | null;
+  }>;
   readonly commands: ReadonlyArray<string>;
 }
 
 /** The CLIs and the report key each one's skills and commands are read from. */
-export const PROBED: Readonly<Record<"codex" | "pi" | "claude" | "opencode", { readonly skills: string; readonly commands: string }>> = {
+export const PROBED: Readonly<
+  Record<"codex" | "pi" | "claude" | "opencode", { readonly skills: string; readonly commands: string }>
+> = {
   codex: { skills: "codex", commands: "codex" },
   // t3flare's profile: the repo's skills through `--skill`, its templates through `--prompt-template` (M2).
   pi: { skills: "pi", commands: "pi" },
@@ -74,7 +82,14 @@ export const repoView = (skills: Loaded, commands: Loaded) => ({
   skills: Object.fromEntries(
     [...new Set(skills.skills.map((skill) => skill.name).filter((name) => isRepoName(name) && !isCommandName(name)))]
       .sort()
-      .map((name) => [name, [...new Set(skills.skills.filter((skill) => skill.name === name).map((skill) => fileDescription(skill.description)))].sort()]),
+      .map((name) => [
+        name,
+        [
+          ...new Set(
+            skills.skills.filter((skill) => skill.name === name).map((skill) => fileDescription(skill.description)),
+          ),
+        ].sort(),
+      ]),
   ),
   commands: [...new Set(commands.commands.filter((name) => isRepoName(name) && isCommandName(name)))].sort(),
 });

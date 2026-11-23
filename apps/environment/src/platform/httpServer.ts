@@ -54,7 +54,10 @@ const isPreviewStream = (request: Request) => new URL(request.url).pathname.star
  * What t3's preview stream reads of a Node `IncomingMessage` (H1): the web request itself, as Effect's own fields read it
  * (`url`, `method`, `headers`), with a `socket`. t3 deletes a key off `headers`, which on a web `Headers` is a no-op.
  */
-export const nodeSocketShim = (request: Request, destroy: () => void): Request & { readonly socket: { readonly writableLength: number; destroy(): void } } => {
+export const nodeSocketShim = (
+  request: Request,
+  destroy: () => void,
+): Request & { readonly socket: { readonly writableLength: number; destroy(): void } } => {
   const socket = {
     writableLength: 0,
     destroy: () => {
@@ -163,4 +166,3 @@ export const make = () => {
 };
 
 export const layer = (made: ReturnType<typeof make>) => Layer.succeed(HttpServer.HttpServer, made.server);
-

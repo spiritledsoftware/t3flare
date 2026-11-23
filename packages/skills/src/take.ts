@@ -22,7 +22,11 @@ export interface SkillsTaker {
 }
 
 /** Has `workspace` take the set `hash`, at most `waitMs`; logs what came of it, never throws. */
-export const takeSkillsForTurn = async (hash: string | undefined, workspace: SkillsTaker | undefined, waitMs: number = SKILLS_TAKE_MS): Promise<TakeAnswer | "timeout" | "failed" | undefined> => {
+export const takeSkillsForTurn = async (
+  hash: string | undefined,
+  workspace: SkillsTaker | undefined,
+  waitMs: number = SKILLS_TAKE_MS,
+): Promise<TakeAnswer | "timeout" | "failed" | undefined> => {
   if (hash === undefined || workspace === undefined) return undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -32,12 +36,25 @@ export const takeSkillsForTurn = async (hash: string | undefined, workspace: Ski
         timer = setTimeout(() => resolve("timeout"), waitMs);
       }),
     ]);
-    if (answer === "timeout") console.warn(JSON.stringify({ t3flare: "skills-take-timeout", hash: hash.slice(0, 12), waitMs }));
-    else if (answer.error !== undefined) console.warn(JSON.stringify({ t3flare: "skills-take-refused", hash: hash.slice(0, 12), error: answer.error.slice(0, 300) }));
-    else if (answer.taken) console.log(JSON.stringify({ t3flare: "skills-taken", hash: answer.hash.slice(0, 12), container: answer.container ?? null }));
+    if (answer === "timeout")
+      console.warn(JSON.stringify({ t3flare: "skills-take-timeout", hash: hash.slice(0, 12), waitMs }));
+    else if (answer.error !== undefined)
+      console.warn(
+        JSON.stringify({ t3flare: "skills-take-refused", hash: hash.slice(0, 12), error: answer.error.slice(0, 300) }),
+      );
+    else if (answer.taken)
+      console.log(
+        JSON.stringify({
+          t3flare: "skills-taken",
+          hash: answer.hash.slice(0, 12),
+          container: answer.container ?? null,
+        }),
+      );
     return answer;
   } catch (error) {
-    console.warn(JSON.stringify({ t3flare: "skills-take-failed", hash: hash.slice(0, 12), error: String(error).slice(0, 300) }));
+    console.warn(
+      JSON.stringify({ t3flare: "skills-take-failed", hash: hash.slice(0, 12), error: String(error).slice(0, 300) }),
+    );
     return "failed";
   } finally {
     clearTimeout(timer);

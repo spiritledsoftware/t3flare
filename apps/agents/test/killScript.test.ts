@@ -41,9 +41,16 @@ for dir in /proc/[0-9]*; do
   echo "PROC $pid $3 \${mark:--} $(tr '\\0' ' ' < "$dir/cmdline")"
 done
 `;
-  const result = spawnSync("docker", ["run", "--rm", "-i", IMAGE, "bash", "-s"], { input: script, encoding: "utf8", timeout: 60_000 });
+  const result = spawnSync("docker", ["run", "--rm", "-i", IMAGE, "bash", "-s"], {
+    input: script,
+    encoding: "utf8",
+    timeout: 60_000,
+  });
   const lines = result.stdout.split("\n");
-  const answer = JSON.parse(lines.find((line) => line.startsWith("ANSWER "))?.slice(7) ?? "null") as { signalled: number; survivors: number } | null;
+  const answer = JSON.parse(lines.find((line) => line.startsWith("ANSWER "))?.slice(7) ?? "null") as {
+    signalled: number;
+    survivors: number;
+  } | null;
   const ms = Number(lines.find((line) => line.startsWith("MS "))?.slice(3));
   const left: Array<Proc> = lines
     .filter((line) => line.startsWith("PROC "))
@@ -55,7 +62,11 @@ done
   return { answer, ms, left, info, stderr: result.stderr };
 };
 
-const sleeps = (left: ReadonlyArray<Proc>) => left.filter((proc) => proc.args.startsWith("sleep")).map((proc) => proc.args).toSorted();
+const sleeps = (left: ReadonlyArray<Proc>) =>
+  left
+    .filter((proc) => proc.args.startsWith("sleep"))
+    .map((proc) => proc.args)
+    .toSorted();
 
 // Each case starts a Docker container, which takes seconds under the full parallel check.
 describe.skipIf(!docker)("the kill script", { timeout: 60_000 }, () => {
@@ -94,8 +105,13 @@ describe.skipIf(!docker)("the kill script", { timeout: 60_000 }, () => {
 
   it("a Container command (computer-env's wrapper under /bin/sh -c) leads its own group, and keeps its exit status", () => {
     const quoted = (script: string) => `'${inBash(script).replaceAll("'", "'\\''")}'`;
-    const probe = quoted('read -r stat < /proc/$$/stat; rest=${stat##*) }; set -- $rest; echo "INFO group $(( $3 == $$ ))"; exit 3');
-    const result = run(`T3FLARE_EXEC=b sh -c ${probe}; echo "INFO exit $?"\nT3FLARE_EXEC=a sh -c ${quoted("sleep 600 & sleep 601")} &`, ["a"]);
+    const probe = quoted(
+      'read -r stat < /proc/$$/stat; rest=${stat##*) }; set -- $rest; echo "INFO group $(( $3 == $$ ))"; exit 3',
+    );
+    const result = run(
+      `T3FLARE_EXEC=b sh -c ${probe}; echo "INFO exit $?"\nT3FLARE_EXEC=a sh -c ${quoted("sleep 600 & sleep 601")} &`,
+      ["a"],
+    );
     expect(result.info).toEqual(["group 1", "exit 3"]);
     expect(result.answer).toMatchObject({ survivors: 0 });
     expect(sleeps(result.left)).toEqual([]);

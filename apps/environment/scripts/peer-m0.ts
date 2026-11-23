@@ -11,7 +11,9 @@ import { McpClient, mintPairingCode, registerPeerClient, signIn } from "./lib/pe
 
 const out: Record<string, unknown> = {};
 const cookie = await pair();
-const settings = (await updateSettings(cookie, {}).catch(() => undefined)) as { linkedEnvironmentsEnabled?: boolean } | undefined;
+const settings = (await updateSettings(cookie, {}).catch(() => undefined)) as
+  | { linkedEnvironmentsEnabled?: boolean }
+  | undefined;
 out.linkedEnvironmentsBefore = settings?.linkedEnvironmentsEnabled ?? "unknown";
 
 await updateSettings(cookie, { linkedEnvironmentsEnabled: false });
@@ -31,7 +33,10 @@ out.minted = { plain: minted.access === undefined };
 const link = await signIn(minted.code, "auto-accept-edits");
 out.signIn = { scope: link.scope, tokenLength: link.token.length };
 
-const { projectId, threadId } = await createProjectAndThread(cookie, { title: "step3 m0", workspaceRoot: `/w/scratch-step3-m0-${Date.now()}` });
+const { projectId, threadId } = await createProjectAndThread(cookie, {
+  title: "step3 m0",
+  workspaceRoot: `/w/scratch-step3-m0-${Date.now()}`,
+});
 const mcp = new McpClient(link.token, { modeLimit: "full-access/default" });
 const init = await mcp.initialize();
 out.initialize = {
@@ -45,7 +50,12 @@ const tools = await mcp.listTools();
 out.tools = { count: tools.length, names: tools.map((tool) => tool.name).sort() };
 
 const projects = await mcp.call("t3_project_list", {});
-out.projectList = { http: projects.http, isError: projects.isError, found: projects.text.includes(projectId), sample: projects.text.slice(0, 400) };
+out.projectList = {
+  http: projects.http,
+  isError: projects.isError,
+  found: projects.text.includes(projectId),
+  sample: projects.text.slice(0, 400),
+};
 const read = await mcp.call("t3_thread_read", { threadId });
 out.threadRead = { http: read.http, isError: read.isError, sample: read.text.slice(0, 400) };
 
@@ -59,7 +69,12 @@ await sleep(3000);
 const afterRestart = await mcp.raw({ jsonrpc: "2.0", id: 99, method: "tools/list", params: {} });
 out.afterRestartRaw = { status: afterRestart.status };
 const again = await mcp.call("t3_project_list", {});
-out.afterRestart = { http: again.http, isError: again.isError, reinitialised: mcp.sessionId !== before, initialisations: mcp.initialisations };
+out.afterRestart = {
+  http: again.http,
+  isError: again.isError,
+  reinitialised: mcp.sessionId !== before,
+  initialisations: mcp.initialisations,
+};
 
 await updateSettings(cookie, { linkedEnvironmentsEnabled: false });
 const off = await mcp.raw({ jsonrpc: "2.0", id: 100, method: "tools/list", params: {} });

@@ -39,7 +39,9 @@ describe("baseKey", () => {
   });
 
   it("ignores the Variables' order, which reaches no command", async () => {
-    expect(await baseKey({ ...inputs, variables: [...inputs.variables].reverse() }, SECRET_KEY)).toBe(await baseKey(inputs, SECRET_KEY));
+    expect(await baseKey({ ...inputs, variables: [...inputs.variables].reverse() }, SECRET_KEY)).toBe(
+      await baseKey(inputs, SECRET_KEY),
+    );
   });
 
   it("takes a secret value through the Builder's own key: another key gives another digest, a plain one does not", async () => {

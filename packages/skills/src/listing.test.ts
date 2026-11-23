@@ -14,7 +14,7 @@ const skill = (name: string, extra: Partial<Skill> = {}): Skill => ({
 
 describe("the listing", () => {
   it("lists each skill's name, description and SKILL.md path, escaped, as pi does", () => {
-    expect(formatSkills({ skills: [skill("fruit-code", { description: "The <fruit> & \"code\"" })], omitted: 0 })).toBe(
+    expect(formatSkills({ skills: [skill("fruit-code", { description: 'The <fruit> & "code"' })], omitted: 0 })).toBe(
       [
         "The following skills provide specialized instructions for specific tasks.",
         "Use the read tool to load a skill's file when the task matches its description.",
@@ -32,7 +32,10 @@ describe("the listing", () => {
   });
 
   it("leaves out a disable-model-invocation skill", () => {
-    const text = formatSkills({ skills: [skill("listed"), skill("owner-only", { disableModelInvocation: true })], omitted: 0 });
+    const text = formatSkills({
+      skills: [skill("listed"), skill("owner-only", { disableModelInvocation: true })],
+      omitted: 0,
+    });
     expect(text).toContain("<name>listed</name>");
     expect(text).not.toContain("owner-only");
   });

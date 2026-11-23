@@ -5,7 +5,8 @@
 // the channel's state. Exports the same name as the module it replaces.
 import { environmentServices } from "../agents/bindings.ts";
 
-const esrch = (pid: number) => Object.assign(new Error(`kill ESRCH: no such process group (${pid})`), { code: "ESRCH" });
+const esrch = (pid: number) =>
+  Object.assign(new Error(`kill ESRCH: no such process group (${pid})`), { code: "ESRCH" });
 
 export function signalProcessGroup(pid: number, signal: NodeJS.Signals | 0): void {
   if (!Number.isSafeInteger(pid) || pid <= 1) {

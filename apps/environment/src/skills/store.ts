@@ -58,7 +58,18 @@ export type SkillChange =
   | { readonly kind: "enable"; readonly name: string; readonly enabled: boolean };
 
 export type ChangeAnswer =
-  | { readonly ok: true; readonly action: "skill-install" | "skill-update" | "skill-remove" | "skill-enable" | "skill-disable" | "unchanged"; readonly revision: number; readonly hash: string }
+  | {
+      readonly ok: true;
+      readonly action:
+        | "skill-install"
+        | "skill-update"
+        | "skill-remove"
+        | "skill-enable"
+        | "skill-disable"
+        | "unchanged";
+      readonly revision: number;
+      readonly hash: string;
+    }
   /** `moved`: the change named the revision it expected and the Environment settings are at `revision` (plan D15). */
   | { readonly ok: false; readonly error: string; readonly moved?: { readonly revision: number } };
 
@@ -85,11 +96,14 @@ const SCHEMA = [
 ];
 
 /** A SQL value as text (every text column holds text; a number is printed). */
-const str = (value: unknown): string => (typeof value === "string" ? value : typeof value === "number" ? String(value) : "");
+const str = (value: unknown): string =>
+  typeof value === "string" ? value : typeof value === "number" ? String(value) : "";
 
 /** What an audit entry says of a Skill: its source and switch, never its files. */
 const auditView = (row: EnvironmentSkillRow | undefined) =>
-  row === undefined ? null : { repo: row.repo, path: row.path, ref: row.ref, commit: row.commit, digest: row.digest, enabled: row.enabled };
+  row === undefined
+    ? null
+    : { repo: row.repo, path: row.path, ref: row.ref, commit: row.commit, digest: row.digest, enabled: row.enabled };
 
 export interface SkillStoreOptions {
   readonly sql: SqlStorage;
@@ -120,7 +134,8 @@ export const skillStore = (options: SkillStoreOptions) => {
     files: Number(row.files),
   });
 
-  const list = (): ReadonlyArray<EnvironmentSkillRow> => sql.exec("SELECT * FROM t3flare_env_skills ORDER BY name").toArray().map(rowOf);
+  const list = (): ReadonlyArray<EnvironmentSkillRow> =>
+    sql.exec("SELECT * FROM t3flare_env_skills ORDER BY name").toArray().map(rowOf);
   const get = (name: string): EnvironmentSkillRow | undefined => {
     const [row] = sql.exec("SELECT * FROM t3flare_env_skills WHERE name = ?", name).toArray();
     return row === undefined ? undefined : rowOf(row);
@@ -131,7 +146,9 @@ export const skillStore = (options: SkillStoreOptions) => {
       .toArray()
       .map((row) => ({ path: str(row.path), blob: str(row.blob), size: Number(row.size), sha256: str(row.sha256) }));
   const content = (name: string, path: string): string | undefined => {
-    const [row] = sql.exec("SELECT content FROM t3flare_env_skill_files WHERE name = ? AND path = ?", name, path).toArray();
+    const [row] = sql
+      .exec("SELECT content FROM t3flare_env_skill_files WHERE name = ? AND path = ?", name, path)
+      .toArray();
     return row === undefined ? undefined : str(row.content);
   };
   const hash = (): string => {
@@ -152,7 +169,8 @@ export const skillStore = (options: SkillStoreOptions) => {
       if (enabled.get(name) === true) digests[`${name}/${str(row.path)}`] = str(row.sha256);
     }
     if (change.kind === "install" && enabled.get(change.skill.name) === true) {
-      for (const [path, file] of Object.entries(change.skill.files)) digests[`${change.skill.name}/${path}`] = file.sha256;
+      for (const [path, file] of Object.entries(change.skill.files))
+        digests[`${change.skill.name}/${path}`] = file.sha256;
     }
     return digests;
   };
@@ -163,7 +181,13 @@ export const skillStore = (options: SkillStoreOptions) => {
     let action: Extract<ChangeAnswer, { ok: true }>["action"];
     if (change.kind === "install") {
       const { skill, source } = change;
-      if (before !== undefined && before.digest === skill.digest && before.repo === source.repo && before.path === source.path && before.ref === source.ref) {
+      if (
+        before !== undefined &&
+        before.digest === skill.digest &&
+        before.repo === source.repo &&
+        before.path === source.path &&
+        before.ref === source.ref
+      ) {
         return { ok: true, action: "unchanged", revision: harness.loadEnvironment().revision, hash: hash() };
       }
       const problem = setProblem(
@@ -192,7 +216,15 @@ export const skillStore = (options: SkillStoreOptions) => {
         Object.keys(skill.files).length,
       );
       for (const [path, file] of Object.entries(skill.files)) {
-        sql.exec("INSERT INTO t3flare_env_skill_files (name, path, blob, size, sha256, content) VALUES (?, ?, ?, ?, ?, ?)", skill.name, path, file.blob, file.size, file.sha256, file.text);
+        sql.exec(
+          "INSERT INTO t3flare_env_skill_files (name, path, blob, size, sha256, content) VALUES (?, ?, ?, ?, ?, ?)",
+          skill.name,
+          path,
+          file.blob,
+          file.size,
+          file.sha256,
+          file.text,
+        );
       }
       action = before === undefined ? "skill-install" : "skill-update";
     } else if (change.kind === "remove") {
@@ -202,16 +234,28 @@ export const skillStore = (options: SkillStoreOptions) => {
       action = "skill-remove";
     } else {
       if (before === undefined) return { ok: false, error: `no Environment skill is named ${change.name}` };
-      if (before.enabled === change.enabled) return { ok: true, action: "unchanged", revision: harness.loadEnvironment().revision, hash: hash() };
+      if (before.enabled === change.enabled)
+        return { ok: true, action: "unchanged", revision: harness.loadEnvironment().revision, hash: hash() };
       sql.exec("UPDATE t3flare_env_skills SET enabled = ? WHERE name = ?", change.enabled ? 1 : 0, change.name);
       action = change.enabled ? "skill-enable" : "skill-disable";
     }
-    sql.exec("INSERT INTO t3flare_env_skill_meta (key, value) VALUES ('hash', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", next);
+    sql.exec(
+      "INSERT INTO t3flare_env_skill_meta (key, value) VALUES ('hash', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      next,
+    );
     const environment = harness.loadEnvironment();
     const revision = environment.revision + 1;
     harness.saveEnvironment({ ...environment, revision });
     const name = change.kind === "install" ? change.skill.name : change.name;
-    const entry: AuditEntry = { ...actor, entity: "environment", at, action, target: name, before: auditView(before), after: auditView(get(name)) };
+    const entry: AuditEntry = {
+      ...actor,
+      entity: "environment",
+      at,
+      action,
+      target: name,
+      before: auditView(before),
+      after: auditView(get(name)),
+    };
     harness.audit(entry);
     return { ok: true, action, revision, hash: next };
   };
@@ -227,7 +271,9 @@ export const skillStore = (options: SkillStoreOptions) => {
     set: (): SkillSet => {
       const files: Record<string, string> = {};
       for (const row of sql
-        .exec("SELECT f.name AS name, f.path AS path, f.content AS content FROM t3flare_env_skill_files f JOIN t3flare_env_skills s ON s.name = f.name WHERE s.enabled = 1")
+        .exec(
+          "SELECT f.name AS name, f.path AS path, f.content AS content FROM t3flare_env_skill_files f JOIN t3flare_env_skills s ON s.name = f.name WHERE s.enabled = 1",
+        )
         .toArray()) {
         files[`${str(row.name)}/${str(row.path)}`] = str(row.content);
       }
@@ -238,7 +284,12 @@ export const skillStore = (options: SkillStoreOptions) => {
      * all) when the revision moved while the set's hash was made; with it (plan D15) it never retries, and a revision other
      * than the one expected refuses the change as `moved`.
      */
-    apply: async (change: SkillChange, caller: string | AuditActor, at: number, expectedRevision?: number): Promise<ChangeAnswer> => {
+    apply: async (
+      change: SkillChange,
+      caller: string | AuditActor,
+      at: number,
+      expectedRevision?: number,
+    ): Promise<ChangeAnswer> => {
       const actor: AuditActor = typeof caller === "string" ? { caller } : caller;
       if (expectedRevision !== undefined) {
         const moved = (revision: number): ChangeAnswer => ({
@@ -257,21 +308,36 @@ export const skillStore = (options: SkillStoreOptions) => {
       for (let attempt = 0; attempt < 3; attempt++) {
         const revision = harness.loadEnvironment().revision;
         const next = await skillSetHash({}, digestsAfter(change));
-        const answer = options.transactionSync(() => (harness.loadEnvironment().revision === revision ? write(change, next, actor, at) : undefined));
+        const answer = options.transactionSync(() =>
+          harness.loadEnvironment().revision === revision ? write(change, next, actor, at) : undefined,
+        );
         if (answer !== undefined) return answer;
       }
       return { ok: false, error: "the Environment settings kept changing while this change was made; try again" };
     },
     /** A Workspace that refused or could not mount the set `hash` (plan §4.5): kept until it takes one. */
     noteRefusal: (refusal: SkillSetRefusal): void => {
-      const kept = (options.kv.get<Array<SkillSetRefusal>>(REFUSALS_KEY) ?? []).filter((entry) => entry.workspace !== refusal.workspace);
+      const kept = (options.kv.get<Array<SkillSetRefusal>>(REFUSALS_KEY) ?? []).filter(
+        (entry) => entry.workspace !== refusal.workspace,
+      );
       options.kv.put(REFUSALS_KEY, [...kept, refusal].slice(-REFUSALS_KEPT));
-      console.log(JSON.stringify({ t3flare: "skill-set-refused", workspace: refusal.workspace, hash: refusal.hash.slice(0, 12), message: refusal.message.slice(0, 300) }));
+      console.log(
+        JSON.stringify({
+          t3flare: "skill-set-refused",
+          workspace: refusal.workspace,
+          hash: refusal.hash.slice(0, 12),
+          message: refusal.message.slice(0, 300),
+        }),
+      );
     },
     /** A Workspace read the set: its refusal, if any, is dropped (it reports again if it refuses this one). */
     noteTaken: (workspace: string): void => {
       const kept = options.kv.get<Array<SkillSetRefusal>>(REFUSALS_KEY) ?? [];
-      if (kept.some((entry) => entry.workspace === workspace)) options.kv.put(REFUSALS_KEY, kept.filter((entry) => entry.workspace !== workspace));
+      if (kept.some((entry) => entry.workspace === workspace))
+        options.kv.put(
+          REFUSALS_KEY,
+          kept.filter((entry) => entry.workspace !== workspace),
+        );
     },
     refusals: (): ReadonlyArray<SkillSetRefusal> => options.kv.get<Array<SkillSetRefusal>>(REFUSALS_KEY) ?? [],
   };

@@ -17,7 +17,14 @@ import * as ServerSettings from "t3/src/serverSettings.ts";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { bindEnvironmentServices, type EnvironmentServices } from "../src/agents/bindings.ts";
-import { FLARE_DARK, FLARE_LIGHT, FLARE_THEME, FLARE_THEME_ID, FLARE_THEME_JSON, layerFlareTheme } from "../src/t3/flareTheme.ts";
+import {
+  FLARE_DARK,
+  FLARE_LIGHT,
+  FLARE_THEME,
+  FLARE_THEME_ID,
+  FLARE_THEME_JSON,
+  layerFlareTheme,
+} from "../src/t3/flareTheme.ts";
 
 /** WCAG 2 contrast ratio of two opaque hex colours. */
 const contrast = (a: string, b: string) => {
@@ -67,7 +74,9 @@ afterEach(() => {
 
 const bindMarks = () => {
   const marks = new Map<string, number>();
-  bindEnvironmentServices({ marks: { has: (key: string) => marks.has(key), set: (key: string) => void marks.set(key, 1) } } as unknown as EnvironmentServices);
+  bindEnvironmentServices({
+    marks: { has: (key: string) => marks.has(key), set: (key: string) => void marks.set(key, 1) },
+  } as unknown as EnvironmentServices);
   return marks;
 };
 
@@ -129,7 +138,10 @@ describe("the t3flare theme's seed", () => {
     bindMarks();
     const base = tempBase();
     const first = await boot(base);
-    NodeFS.writeFileSync(NodePath.join(first.themesDir, `${FLARE_THEME_ID}.json`), JSON.stringify({ name: "edited", appearance: "light", canvas: "#ffffff", accent: "#000000" }));
+    NodeFS.writeFileSync(
+      NodePath.join(first.themesDir, `${FLARE_THEME_ID}.json`),
+      JSON.stringify({ name: "edited", appearance: "light", canvas: "#ffffff", accent: "#000000" }),
+    );
     const second = await boot(base);
     expect(second.file).toBe(FLARE_THEME_JSON);
   });

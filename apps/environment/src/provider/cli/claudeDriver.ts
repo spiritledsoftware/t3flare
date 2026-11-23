@@ -28,5 +28,9 @@ export const ClaudeCliDriver: ProviderDriver<ClaudeSettings, ClaudeCliDriverEnv>
   configSchema: ClaudeSettings,
   // Idle compaction is never this instance's: it would start a Container for a `/compact` turn (review F7).
   defaultConfig: () => decodeSettings({ idleCompaction: "off" }),
-  create: (input) => createAcpCliInstance({ cli: "claude", driver: CLAUDE_CLI_DRIVER, presentation: PRESENTATION, version: CLIS.claude.version }, input),
+  create: (input) =>
+    createAcpCliInstance(
+      { cli: "claude", driver: CLAUDE_CLI_DRIVER, presentation: PRESENTATION, version: CLIS.claude.version },
+      input,
+    ),
 };

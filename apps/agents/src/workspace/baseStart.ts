@@ -15,10 +15,24 @@
 //   snapshot (missing or expired) is seen within a second, not at the end of computer's 60 s connect deadline (one budget its attempts share), and the start goes again
 //   from the Workspace image, once.
 import type { BackendHandle, WorkspaceBackend } from "@cloudflare/computer";
-import { BASE_BUILD_CAPS, type BaseBuildRecord, type BaseSnapshot, type ResolvedEnvironment } from "@t3flare/harness-registry";
+import {
+  BASE_BUILD_CAPS,
+  type BaseBuildRecord,
+  type BaseSnapshot,
+  type ResolvedEnvironment,
+} from "@t3flare/harness-registry";
 
 /** The settings a pick reads. */
-export type BaseSettings = Pick<ResolvedEnvironment, "revision" | "imageSetup" | "globalMiseConfig" | "whileBuilding" | "whileBuildingNewImage" | "imageSetupMinutes" | "snapshotMinutes">;
+export type BaseSettings = Pick<
+  ResolvedEnvironment,
+  | "revision"
+  | "imageSetup"
+  | "globalMiseConfig"
+  | "whileBuilding"
+  | "whileBuildingNewImage"
+  | "imageSetupMinutes"
+  | "snapshotMinutes"
+>;
 
 /**
  * What a fresh start starts from: a Base snapshot; the Workspace image (`missing`: the Builder is told no Base snapshot is
@@ -32,13 +46,17 @@ export type BasePick =
   | { readonly kind: "ask"; readonly why: string };
 
 /** What a Container started from, kept in its launch (`ContainerLaunch.from`): a running Container keeps it. */
-export type LaunchFrom = { readonly base: { readonly snapshotId: string; readonly key: string } } | { readonly image: { readonly why: string } };
+export type LaunchFrom =
+  | { readonly base: { readonly snapshotId: string; readonly key: string } }
+  | { readonly image: { readonly why: string } };
 
-const image = (why: string, missing = false): BasePick => (missing ? { kind: "image", why, missing: true } : { kind: "image", why });
+const image = (why: string, missing = false): BasePick =>
+  missing ? { kind: "image", why, missing: true } : { kind: "image", why };
 
 /** The image without asking the Builder: nothing to build, or no image digest to match a Base snapshot against. */
 const withoutBuilder = (settings: BaseSettings, imageDigest: string | undefined): BasePick | undefined => {
-  if (settings.imageSetup === "" && settings.globalMiseConfig === "") return image("no Image setup and no Global mise config");
+  if (settings.imageSetup === "" && settings.globalMiseConfig === "")
+    return image("no Image setup and no Global mise config");
   if (imageDigest === undefined) return image("no Workspace image digest here");
   return undefined;
 };
@@ -47,7 +65,12 @@ const withoutBuilder = (settings: BaseSettings, imageDigest: string | undefined)
  * What a fresh start starts from (ADR-0047 §6). `asked`: the Builder already read the start's settings for it (a `missing`
  * report), so it is not asked or told again.
  */
-export const pickBase = (record: BaseBuildRecord | undefined, settings: BaseSettings, imageDigest: string | undefined, options: { readonly asked?: boolean } = {}): BasePick => {
+export const pickBase = (
+  record: BaseBuildRecord | undefined,
+  settings: BaseSettings,
+  imageDigest: string | undefined,
+  options: { readonly asked?: boolean } = {},
+): BasePick => {
   const asked = options.asked === true;
   const local = withoutBuilder(settings, imageDigest);
   if (local !== undefined) return local;
@@ -58,28 +81,38 @@ export const pickBase = (record: BaseBuildRecord | undefined, settings: BaseSett
   const behind = record.revision === undefined || record.revision < settings.revision;
   if (!asked && behind) return { kind: "ask", why: "the Builder has not read these settings yet" };
   if (!asked && otherImage) return { kind: "ask", why: "the Builder has not read this Workspace image yet" };
-  const onImage = (snapshot: BaseSnapshot | null): snapshot is BaseSnapshot => snapshot !== null && snapshot.imageDigest === imageDigest;
+  const onImage = (snapshot: BaseSnapshot | null): snapshot is BaseSnapshot =>
+    snapshot !== null && snapshot.imageDigest === imageDigest;
   const good = record.good;
   /** What a start does while a build runs, or is about to (ADR-0047 §6). */
   const duringBuild = (what: string): BasePick => {
-    if (settings.whileBuilding === "image") return image(`${what}, and the settings start from the Workspace image meanwhile`);
+    if (settings.whileBuilding === "image")
+      return image(`${what}, and the settings start from the Workspace image meanwhile`);
     if (settings.whileBuilding === "wait") return { kind: "wait", why: `${what}, and the settings wait for it` };
     // A good one on this image: the current settings' own (a Rebuild, a scheduled rebuild) or older ones'.
     if (onImage(good)) return { kind: "base", base: good, why: `the last good Base snapshot, while ${what}` };
     return settings.whileBuildingNewImage === "wait"
-      ? { kind: "wait", why: `${what} with no last good Base snapshot on this Workspace image, and the settings wait for it` }
+      ? {
+          kind: "wait",
+          why: `${what} with no last good Base snapshot on this Workspace image, and the settings wait for it`,
+        }
       : image(`${what} with no last good Base snapshot on this Workspace image`);
   };
   // Asked, and still on another image. Which of the two is newer cannot be told: a build under way is waited for as any
   // is; otherwise this start runs the image this object sees (the Builder's watch builds a newer one when it lands).
-  if (otherImage) return record.state === "building" ? duringBuild("a Base build runs on another Workspace image") : image("the Builder reads another Workspace image");
+  if (otherImage)
+    return record.state === "building"
+      ? duringBuild("a Base build runs on another Workspace image")
+      : image("the Builder reads another Workspace image");
   // Asked, and still behind this start's settings: never ready for them; the while-building settings apply.
   if (behind) return duringBuild("the Builder has not read these settings yet");
   switch (record.state) {
     case "ready":
       if (onImage(good)) return { kind: "base", base: good, why: "the Base snapshot is ready" };
       // An older Builder's record (no image digest): its key is for another image.
-      return asked ? image("the Base snapshot was made on another Workspace image") : { kind: "ask", why: "the Base snapshot was made on another Workspace image" };
+      return asked
+        ? image("the Base snapshot was made on another Workspace image")
+        : { kind: "ask", why: "the Base snapshot was made on another Workspace image" };
     case "building":
       return duringBuild("a Base build runs");
     case "none":
@@ -103,7 +136,10 @@ export const BUILDER_READ_MS = 5_000;
 const bounded = async <T>(promise: () => Promise<T>, ms: number): Promise<T | undefined> => {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await Promise.race([promise(), new Promise<undefined>((resolve) => (timer = setTimeout(() => resolve(undefined), ms)))]);
+    return await Promise.race([
+      promise(),
+      new Promise<undefined>((resolve) => (timer = setTimeout(() => resolve(undefined), ms))),
+    ]);
   } catch {
     return undefined;
   } finally {
@@ -122,10 +158,13 @@ export const planBase = async (
 ): Promise<BasePick> => {
   const local = withoutBuilder(settings, deps.imageDigest);
   if (local !== undefined) return local;
-  const pick = pickBase(await bounded(deps.builder.record, deps.boundMs), settings, deps.imageDigest, { asked: options.mayAsk === false });
+  const pick = pickBase(await bounded(deps.builder.record, deps.boundMs), settings, deps.imageDigest, {
+    asked: options.mayAsk === false,
+  });
   if (pick.kind !== "ask") return pick;
   // The report is serialised behind the Builder's alarm; past the bound, its record (never serialised) says what it began.
-  const answered = (await bounded(deps.builder.missing, deps.boundMs)) ?? (await bounded(deps.builder.record, deps.boundMs));
+  const answered =
+    (await bounded(deps.builder.missing, deps.boundMs)) ?? (await bounded(deps.builder.record, deps.boundMs));
   return pickBase(answered, settings, deps.imageDigest, { asked: true });
 };
 
@@ -133,7 +172,8 @@ export const planBase = async (
  * How long a start waits for a Base build at most: the build's own limits, the Image setup's (from its Container's start)
  * then the snapshot's and the proof's, each `snapshotMinutes`. The Builder ends a build at them itself.
  */
-export const waitLimitMs = (settings: Pick<ResolvedEnvironment, "imageSetupMinutes" | "snapshotMinutes">): number => (settings.imageSetupMinutes + 2 * settings.snapshotMinutes) * 60_000;
+export const waitLimitMs = (settings: Pick<ResolvedEnvironment, "imageSetupMinutes" | "snapshotMinutes">): number =>
+  (settings.imageSetupMinutes + 2 * settings.snapshotMinutes) * 60_000;
 
 /** How often a waiting start reads the Builder's record. Fixed: a poll of another object, not a policy (the limit is the settings'). */
 export const BASE_WAIT_POLL_MS = 5_000;
@@ -151,7 +191,8 @@ export const waitForBase = async (deps: {
     const pick = await deps.plan();
     if (pick.kind !== "wait") return pick;
     const left = until - deps.now();
-    if (left <= 0) return image(`the Base build did not end within its time limits (${Math.round(deps.limitMs / 60_000)} min)`);
+    if (left <= 0)
+      return image(`the Base build did not end within its time limits (${Math.round(deps.limitMs / 60_000)} min)`);
     await deps.sleep(Math.min(deps.pollMs, left));
   }
 };
@@ -210,7 +251,10 @@ export interface BaseStartDeps<Answer extends { readonly outcome: string }> {
  * reports it, and starts once more from the Workspace image; never a second snapshot. A Container computer adopted is not
  * watched (nothing was started).
  */
-export const startFromBase = async <Answer extends { readonly outcome: string }>(deps: BaseStartDeps<Answer>, snapshotId: string | undefined): Promise<Answer> => {
+export const startFromBase = async <Answer extends { readonly outcome: string }>(
+  deps: BaseStartDeps<Answer>,
+  snapshotId: string | undefined,
+): Promise<Answer> => {
   if (snapshotId === undefined) return deps.start(undefined);
   const answer = await deps.start(snapshotId);
   if (answer.outcome === "adopted") return answer;
@@ -228,7 +272,10 @@ export const startFromBase = async <Answer extends { readonly outcome: string }>
         const message = messageOf(error).slice(0, BASE_BUILD_CAPS.log);
         if (watching) return resolve(message);
         // Past the window: computer is connecting to a Container that never ran. It is told, and the next start differs.
-        void deps.destroy().catch(() => undefined).then(() => deps.refused(snapshotId, message, true));
+        void deps
+          .destroy()
+          .catch(() => undefined)
+          .then(() => deps.refused(snapshotId, message, true));
       },
     );
   });
@@ -245,15 +292,22 @@ export const startFromBase = async <Answer extends { readonly outcome: string }>
  * and `containerSnapshot` only when a Base snapshot was picked. Nothing else of computer's spec moves, so `sameLaunch`
  * adopts a running Container as before.
  */
-export const startSpec = <Spec extends object, Instance>(spec: Spec, instance: Instance, snapshotId: string | undefined) => ({
+export const startSpec = <Spec extends object, Instance>(
+  spec: Spec,
+  instance: Instance,
+  snapshotId: string | undefined,
+) => ({
   ...spec,
   instance,
   ...(snapshotId === undefined ? {} : { containerSnapshot: { id: snapshotId } }),
 });
 
 /** The Base snapshot a launch started from, or undefined (the image, or a launch recorded before SPI-1333). */
-export const baseIdOf = (from: LaunchFrom | undefined): string | undefined => (from !== undefined && "base" in from ? from.base.snapshotId : undefined);
+export const baseIdOf = (from: LaunchFrom | undefined): string | undefined =>
+  from !== undefined && "base" in from ? from.base.snapshotId : undefined;
 
 /** What a pick records in the launch: a wait the start did not finish starts from the image. */
 export const launchFrom = (pick: BasePick): LaunchFrom =>
-  pick.kind === "base" ? { base: { snapshotId: pick.base.id, key: pick.base.key } } : { image: { why: pick.kind === "wait" ? `${pick.why}; this start did not wait` : pick.why } };
+  pick.kind === "base"
+    ? { base: { snapshotId: pick.base.id, key: pick.base.key } }
+    : { image: { why: pick.kind === "wait" ? `${pick.why}; this start did not wait` : pick.why } };

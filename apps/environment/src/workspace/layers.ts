@@ -3,7 +3,16 @@
 // WorkspaceFileSystem read the disk through `node:fs` and index it with fff; a Workspace's files are its Durable
 // Object's, over RPC. These Layers answer `/w/…` from the Workspace DO and hand every other path to the stock service.
 import type { FilesystemEntryMetadata, ProjectContentMatch, ProjectEntry } from "@t3tools/contracts";
-import { W_ROOT, isUnderW, normalize, type DirEntry, type FileStat, type FoundEntry, type FsAnswer, type GrepMatch } from "@t3flare/workspace-client";
+import {
+  W_ROOT,
+  isUnderW,
+  normalize,
+  type DirEntry,
+  type FileStat,
+  type FoundEntry,
+  type FsAnswer,
+  type GrepMatch,
+} from "@t3flare/workspace-client";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -32,11 +41,14 @@ const call = <A>(at: Located, op: FsOp): Effect.Effect<A, WorkspaceRpcError> =>
     catch: (cause) => new WorkspaceRpcError({ code: "EIO", detail: String(cause).slice(0, 300) }),
   }).pipe(
     Effect.flatMap((answer) =>
-      "ok" in answer ? Effect.succeed(answer.ok as A) : Effect.fail(new WorkspaceRpcError({ code: answer.error, detail: answer.message })),
+      "ok" in answer
+        ? Effect.succeed(answer.ok as A)
+        : Effect.fail(new WorkspaceRpcError({ code: answer.error, detail: answer.message })),
     ),
   );
 
-const expandHome = (value: string) => (value === "~" ? W_ROOT : value.startsWith("~/") ? `${W_ROOT}/${value.slice(2)}` : value);
+const expandHome = (value: string) =>
+  value === "~" ? W_ROOT : value.startsWith("~/") ? `${W_ROOT}/${value.slice(2)}` : value;
 
 /** A path the Workspace DO answered, relative to the repo root (`inner`). */
 const relativeTo = (inner: string, path: string) => {
@@ -98,7 +110,11 @@ export const layerWorkspaceEntries = <E, R>(stock: Layer.Layer<WorkspaceEntries.
 
       const browse: WorkspaceEntries.WorkspaceEntries["Service"]["browse"] = (input) => {
         const partial = expandHome(input.partialPath);
-        const absolute = partial.startsWith("/") ? partial : input.cwd === undefined ? partial : `${expandHome(input.cwd)}/${partial}`;
+        const absolute = partial.startsWith("/")
+          ? partial
+          : input.cwd === undefined
+            ? partial
+            : `${expandHome(input.cwd)}/${partial}`;
         if (!absolute.startsWith("/") || !isUnderW(absolute)) return base.browse(input);
         const endsWithSeparator = input.partialPath.endsWith("/") || input.partialPath === "~";
         const resolved = normalize(absolute);
@@ -107,10 +123,17 @@ export const layerWorkspaceEntries = <E, R>(stock: Layer.Layer<WorkspaceEntries.
         const showHidden = endsWithSeparator || prefix.startsWith(".");
         const keep = (name: string) => name.toLowerCase().startsWith(prefix) && (showHidden || !name.startsWith("."));
         if (parentPath === W_ROOT || parentPath === "/") {
-          const names = parentPath === W_ROOT ? environmentServices().workspaces.list().map((ws) => ws.id) : ["w"];
+          const names =
+            parentPath === W_ROOT
+              ? environmentServices()
+                  .workspaces.list()
+                  .map((ws) => ws.id)
+              : ["w"];
           return Effect.succeed({
             parentPath,
-            entries: names.filter(keep).map((name) => ({ name, fullPath: `${parentPath === "/" ? "" : parentPath}/${name}` })),
+            entries: names
+              .filter(keep)
+              .map((name) => ({ name, fullPath: `${parentPath === "/" ? "" : parentPath}/${name}` })),
           });
         }
         const at = locate(parentPath);
@@ -133,14 +156,22 @@ export const layerWorkspaceEntries = <E, R>(stock: Layer.Layer<WorkspaceEntries.
         const directory = (input.directoryPath ?? "").replace(/^\/+|\/+$/g, "");
         if (input.directoryPath === undefined) return Effect.mapError(findAll(at), readError(input.cwd, "", input.cwd));
         if (directory.split("/").some((segment) => segment === ".." || segment === ".git")) {
-          return Effect.fail(readError(input.cwd, directory, input.cwd)(new Error("Directory must be inside the workspace and outside .git.")));
+          return Effect.fail(
+            readError(
+              input.cwd,
+              directory,
+              input.cwd,
+            )(new Error("Directory must be inside the workspace and outside .git.")),
+          );
         }
         const inner = directory === "" ? at.inner : `${at.inner}/${directory}`;
         return call<ReadonlyArray<DirEntry>>(at, { op: "readdir", path: inner }).pipe(
           Effect.map((entries) => ({
             entries: entries.flatMap((entry): Array<ProjectEntry> => {
               const kind = kindOf(entry.kind);
-              return entry.name === ".git" || kind === undefined ? [] : [{ path: directory === "" ? entry.name : `${directory}/${entry.name}`, kind }];
+              return entry.name === ".git" || kind === undefined
+                ? []
+                : [{ path: directory === "" ? entry.name : `${directory}/${entry.name}`, kind }];
             }),
             truncated: false,
           })),
@@ -151,17 +182,27 @@ export const layerWorkspaceEntries = <E, R>(stock: Layer.Layer<WorkspaceEntries.
       const search: WorkspaceEntries.WorkspaceEntries["Service"]["search"] = (input) => {
         const at = mine(input.cwd);
         if (at === undefined) return base.search(input);
-        const query = input.query.trim().replace(/^[@./]+/, "").toLowerCase();
+        const query = input.query
+          .trim()
+          .replace(/^[@./]+/, "")
+          .toLowerCase();
         return findAll(at).pipe(
           Effect.map(({ entries }) => {
             const ranked = entries
-              .filter((entry) => (input.kind === undefined || entry.kind === input.kind) && (input.imageOnly !== true || IMAGE.test(entry.path)))
+              .filter(
+                (entry) =>
+                  (input.kind === undefined || entry.kind === input.kind) &&
+                  (input.imageOnly !== true || IMAGE.test(entry.path)),
+              )
               .flatMap((entry) => {
                 const score = rank(entry.path, query);
                 return score === null ? [] : [{ entry, score }];
               })
               .toSorted((left, right) => left.score - right.score || left.entry.path.length - right.entry.path.length);
-            return { entries: ranked.slice(0, input.limit).map((item) => item.entry), truncated: ranked.length > input.limit };
+            return {
+              entries: ranked.slice(0, input.limit).map((item) => item.entry),
+              truncated: ranked.length > input.limit,
+            };
           }),
           Effect.mapError(readError(input.cwd, input.query, input.cwd)),
         );
@@ -187,7 +228,16 @@ export const layerWorkspaceEntries = <E, R>(stock: Layer.Layer<WorkspaceEntries.
           Effect.map((found) => ({
             matches: found.slice(0, input.limit).flatMap((match): Array<ProjectContentMatch> => {
               const path = relativeTo(at.inner, match.path);
-              return path === "" ? [] : [{ path, lineNumber: Math.max(1, match.line), lineContent: match.text, matchRanges: rangesOf(match.text, pattern) }];
+              return path === ""
+                ? []
+                : [
+                    {
+                      path,
+                      lineNumber: Math.max(1, match.line),
+                      lineContent: match.text,
+                      matchRanges: rangesOf(match.text, pattern),
+                    },
+                  ];
             }) as Array<ProjectContentMatch>,
             truncated: found.length > input.limit,
           })),
@@ -200,7 +250,10 @@ export const layerWorkspaceEntries = <E, R>(stock: Layer.Layer<WorkspaceEntries.
         list,
         search,
         searchContents,
-        listIgnoredFiles: (input) => (mine(input.cwd) === undefined ? base.listIgnoredFiles(input) : Effect.succeed({ files: [], truncated: false })),
+        listIgnoredFiles: (input) =>
+          mine(input.cwd) === undefined
+            ? base.listIgnoredFiles(input)
+            : Effect.succeed({ files: [], truncated: false }),
         refresh: (cwd) => (mine(cwd) === undefined ? base.refresh(cwd) : Effect.void),
       });
     }),
@@ -214,7 +267,8 @@ export const layerWorkspaceFileSystem = <E, R>(stock: Layer.Layer<WorkspaceFileS
     Effect.gen(function* () {
       const base = yield* WorkspaceFileSystem.WorkspaceFileSystem;
       const home = yield* HostProcess.HomeDirectory;
-      const expand = (value: string) => (value === "~" ? home : value.startsWith("~/") ? `${home}/${value.slice(2)}` : value);
+      const expand = (value: string) =>
+        value === "~" ? home : value.startsWith("~/") ? `${home}/${value.slice(2)}` : value;
 
       const metadataOf = (path: string): Effect.Effect<FilesystemEntryMetadata | null> => {
         const at = locate(normalize(path));
@@ -235,7 +289,9 @@ export const layerWorkspaceFileSystem = <E, R>(stock: Layer.Layer<WorkspaceFileS
       const getMetadata: WorkspaceFileSystem.WorkspaceFileSystem["Service"]["getMetadata"] = (input) =>
         Effect.gen(function* () {
           const expanded = input.paths.map(expand);
-          const theirs = input.paths.filter((_, index) => !(expanded[index]!.startsWith("/") && isUnderW(expanded[index]!)));
+          const theirs = input.paths.filter(
+            (_, index) => !(expanded[index]!.startsWith("/") && isUnderW(expanded[index]!)),
+          );
           const stockAnswer = theirs.length === 0 ? [] : (yield* base.getMetadata({ paths: theirs })).entries;
           let next = 0;
           return {
@@ -257,15 +313,17 @@ export const layerWorkspaceFileSystem = <E, R>(stock: Layer.Layer<WorkspaceFileS
         return at === undefined ? null : { at, absolute };
       };
 
-      const operationError = (cwd: string, relativePath: string, resolved: string, operation: "read" | "write-file" | "stat") => (cause: unknown) =>
-        new WorkspaceFileSystem.WorkspaceFileSystemOperationError({
-          workspaceRoot: cwd,
-          relativePath,
-          resolvedPath: resolved,
-          operationPath: resolved,
-          operation,
-          cause,
-        });
+      const operationError =
+        (cwd: string, relativePath: string, resolved: string, operation: "read" | "write-file" | "stat") =>
+        (cause: unknown) =>
+          new WorkspaceFileSystem.WorkspaceFileSystemOperationError({
+            workspaceRoot: cwd,
+            relativePath,
+            resolvedPath: resolved,
+            operationPath: resolved,
+            operation,
+            cause,
+          });
 
       const readFile: WorkspaceFileSystem.WorkspaceFileSystem["Service"]["readFile"] = (input) => {
         const target = targetOf(input.cwd, input.relativePath);
@@ -281,7 +339,11 @@ export const layerWorkspaceFileSystem = <E, R>(stock: Layer.Layer<WorkspaceFileS
           Effect.flatMap(({ exists, bytes }) => {
             if (bytes.subarray(0, 8000).includes(0)) {
               return Effect.fail(
-                new WorkspaceFileSystem.WorkspaceBinaryFileError({ workspaceRoot: input.cwd, relativePath: input.relativePath, resolvedPath: absolute }),
+                new WorkspaceFileSystem.WorkspaceBinaryFileError({
+                  workspaceRoot: input.cwd,
+                  relativePath: input.relativePath,
+                  resolvedPath: absolute,
+                }),
               );
             }
             const truncated = bytes.byteLength > READ_MAX_BYTES;
@@ -302,8 +364,18 @@ export const layerWorkspaceFileSystem = <E, R>(stock: Layer.Layer<WorkspaceFileS
         const relative = input.relativePath.trim();
         const absolute = normalize(`${cwd}/${relative}`);
         const at = locate(cwd);
-        if (relative.startsWith("/") || relative.startsWith("~") || !absolute.startsWith(`${cwd}/`) || at === undefined) {
-          return Effect.fail(new WorkspacePaths.WorkspacePathOutsideRootError({ workspaceRoot: input.cwd, relativePath: input.relativePath }));
+        if (
+          relative.startsWith("/") ||
+          relative.startsWith("~") ||
+          !absolute.startsWith(`${cwd}/`) ||
+          at === undefined
+        ) {
+          return Effect.fail(
+            new WorkspacePaths.WorkspacePathOutsideRootError({
+              workspaceRoot: input.cwd,
+              relativePath: input.relativePath,
+            }),
+          );
         }
         if (relative.split("/").some(isGitSegment)) {
           return Effect.fail(

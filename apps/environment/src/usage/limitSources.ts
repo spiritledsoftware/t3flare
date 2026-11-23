@@ -56,10 +56,15 @@ export const withSources = (stock: Service, extras: ReadonlyArray<ExtraSources>)
     get streamChanges() {
       return Stream.zipLatestWith(stock.streamChanges, ours, combine).pipe(Stream.changes);
     },
-    refresh: Effect.all([stock.refresh, ...extras.map((extra) => extra.refresh)], { concurrency: "unbounded", discard: true }),
+    refresh: Effect.all([stock.refresh, ...extras.map((extra) => extra.refresh)], {
+      concurrency: "unbounded",
+      discard: true,
+    }),
     consumeResetCredit: (input) => {
       const owner = extras.find((extra) => extra.owns(input.sourceId));
-      return owner === undefined ? stock.consumeResetCredit(input) : Effect.fail(new UsageLimitSourceError({ detail: owner.noReset }));
+      return owner === undefined
+        ? stock.consumeResetCredit(input)
+        : Effect.fail(new UsageLimitSourceError({ detail: owner.noReset }));
     },
   } satisfies Service;
 };
@@ -104,12 +109,21 @@ export const endpointMeterSources = Effect.fn("endpointMeterSources")(function* 
   // one waits are dropped). A scoped fiber pushes a burst once, `pushEvery` after its first mark, with what is kept then;
   // a mark made while that push builds makes the next. The fiber and the subscription end with the scope.
   const due = yield* Queue.dropping<void>(1);
-  yield* Queue.take(due).pipe(Effect.andThen(Effect.sleep(deps.pushEvery ?? ENDPOINT_METERS_PUSH_EVERY)), Effect.andThen(update), Effect.forever, Effect.forkScoped);
+  yield* Queue.take(due).pipe(
+    Effect.andThen(Effect.sleep(deps.pushEvery ?? ENDPOINT_METERS_PUSH_EVERY)),
+    Effect.andThen(update),
+    Effect.forever,
+    Effect.forkScoped,
+  );
   yield* Effect.acquireRelease(
     Effect.sync(() => deps.store.subscribe(() => void Queue.offerUnsafe(due, undefined))),
     (unsubscribe) => Effect.sync(unsubscribe),
   );
-  yield* Effect.sleep(deps.every ?? ENDPOINT_METERS_EVERY).pipe(Effect.andThen(update), Effect.forever, Effect.forkScoped);
+  yield* Effect.sleep(deps.every ?? ENDPOINT_METERS_EVERY).pipe(
+    Effect.andThen(update),
+    Effect.forever,
+    Effect.forkScoped,
+  );
   return {
     ref,
     refresh: update,
@@ -126,7 +140,8 @@ export const layer = (meters: () => Omit<EndpointMetersDeps, "now"> | undefined 
       const stock = yield* UsageLimitSources.UsageLimitSources;
       const endpointMeters = meters();
       const extras: Array<ExtraSources> = [];
-      if (endpointMeters !== undefined) extras.push(yield* endpointMeterSources({ ...endpointMeters, now: () => Date.now() }));
+      if (endpointMeters !== undefined)
+        extras.push(yield* endpointMeterSources({ ...endpointMeters, now: () => Date.now() }));
       return withSources(stock, extras);
     }),
   ).pipe(Layer.provide(UsageLimitSources.layer));

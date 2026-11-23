@@ -83,7 +83,8 @@ export const RESERVED_PREFIXES: ReadonlyArray<string> = ["T3FLARE_", "T3CODE_"];
 export const reservedPrefix = (name: string): boolean => RESERVED_PREFIXES.some((prefix) => name.startsWith(prefix));
 
 /** Whether a Variable named `name` is left out of every command: the Container's shell's own, or a reserved prefix. */
-export const withheldFromCommands = (name: string): boolean => SET_BY_THE_CONTAINER.includes(name) || reservedPrefix(name);
+export const withheldFromCommands = (name: string): boolean =>
+  SET_BY_THE_CONTAINER.includes(name) || reservedPrefix(name);
 
 /**
  * Every name t3flare sets or pins for a command, a Terminal or a CLI agent: the Container's shell's own
@@ -205,21 +206,24 @@ export const SET_BY_T3FLARE: ReadonlyArray<string> = [
 export const setByT3flare = (name: string): boolean => SET_BY_T3FLARE.includes(name) || reservedPrefix(name);
 
 /** Whether `value` is a plain object: a Variable's entry, a set of them in the old shape, a sealed value. */
-export const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> => value !== null && typeof value === "object" && !Array.isArray(value);
+export const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
 
 /** Why `name` cannot be a Variable's, or undefined when it can. */
 export const variableNameProblem = (name: string): string | undefined => {
   const quoted = JSON.stringify(name);
   if (name === "") return "a Variable's name may not be empty";
   if (name.length > MAX_VARIABLE_NAME_LENGTH) return `${quoted} is longer than ${MAX_VARIABLE_NAME_LENGTH} characters`;
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return `${quoted} is not a name a shell can export: letters, digits and _, not starting with a digit`;
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
+    return `${quoted} is not a name a shell can export: letters, digits and _, not starting with a digit`;
   return undefined;
 };
 
 /** Why `value` cannot be Variable `name`'s, or undefined when it can. */
 export const variableValueProblem = (name: string, value: string): string | undefined => {
   const quoted = JSON.stringify(name);
-  if (value.length > MAX_VARIABLE_VALUE_LENGTH) return `${quoted}'s value is longer than ${MAX_VARIABLE_VALUE_LENGTH} characters`;
+  if (value.length > MAX_VARIABLE_VALUE_LENGTH)
+    return `${quoted}'s value is longer than ${MAX_VARIABLE_VALUE_LENGTH} characters`;
   if (value.includes("\u0000")) return `${quoted}'s value holds a NUL character, which no environment can`;
   return undefined;
 };
@@ -254,7 +258,8 @@ export const normalizeVariables = (value: unknown): unknown => (isRecord(value) 
 
 /** Why `entry` cannot be stored as a Variable, or undefined. */
 const storedEntryProblem = (entry: unknown): string | undefined => {
-  if (!isRecord(entry) || typeof entry.name !== "string") return 'a Variable is { "name": "NAME", "value": "value", "secret": false }';
+  if (!isRecord(entry) || typeof entry.name !== "string")
+    return 'a Variable is { "name": "NAME", "value": "value", "secret": false }';
   const { name } = entry;
   const quoted = JSON.stringify(name);
   const nameProblem = variableNameProblem(name);
@@ -263,7 +268,10 @@ const storedEntryProblem = (entry: unknown): string | undefined => {
   if (entry.secret === true) {
     // The sealing step (`variableSeal.ts`) turns a secret's value, or `valueRedacted`, into `sealed` before this runs:
     // a secret without it here would be stored in clear, so it is refused.
-    if (entry.sealed === undefined) return entry.valueRedacted === true ? `${quoted} keeps a secret value, and none is stored under that name: give its value` : `${quoted}'s secret value is not sealed`;
+    if (entry.sealed === undefined)
+      return entry.valueRedacted === true
+        ? `${quoted} keeps a secret value, and none is stored under that name: give its value`
+        : `${quoted}'s secret value is not sealed`;
     if (!isSealedValue(entry.sealed)) return `${quoted}'s sealed value is malformed`;
     if (entry.value !== undefined && entry.value !== "") return `${quoted} is secret: its value is stored sealed only`;
     return undefined;
@@ -304,11 +312,27 @@ export const fitStoredVariables = (value: unknown): ReadonlyArray<StoredVariable
   const seen = new Set<string>();
   for (const entry of variableEntries(value) ?? []) {
     if (kept.length === MAX_VARIABLES) break;
-    if (!isRecord(entry) || typeof entry.name !== "string" || variableNameProblem(entry.name) !== undefined || seen.has(entry.name)) continue;
+    if (
+      !isRecord(entry) ||
+      typeof entry.name !== "string" ||
+      variableNameProblem(entry.name) !== undefined ||
+      seen.has(entry.name)
+    )
+      continue;
     const { name } = entry;
     if (entry.secret === true && isSealedValue(entry.sealed)) {
-      kept.push({ name, value: "", secret: true, sealed: { iv: entry.sealed.iv, data: entry.sealed.data, fingerprint: entry.sealed.fingerprint } });
-    } else if (entry.sealed === undefined && entry.valueRedacted !== true && typeof entry.value === "string" && variableValueProblem(name, entry.value) === undefined) {
+      kept.push({
+        name,
+        value: "",
+        secret: true,
+        sealed: { iv: entry.sealed.iv, data: entry.sealed.data, fingerprint: entry.sealed.fingerprint },
+      });
+    } else if (
+      entry.sealed === undefined &&
+      entry.valueRedacted !== true &&
+      typeof entry.value === "string" &&
+      variableValueProblem(name, entry.value) === undefined
+    ) {
       kept.push({ name, value: entry.value, secret: entry.secret === true });
     } else continue;
     seen.add(name);
@@ -318,7 +342,9 @@ export const fitStoredVariables = (value: unknown): ReadonlyArray<StoredVariable
 
 /** A stored Variable as read: a sealed secret redacted to its fingerprint. */
 export const readVariable = (stored: StoredVariable): Variable =>
-  stored.sealed === undefined ? { name: stored.name, value: stored.value, secret: stored.secret } : { name: stored.name, value: "", secret: true, valueRedacted: true, fingerprint: stored.sealed.fingerprint };
+  stored.sealed === undefined
+    ? { name: stored.name, value: stored.value, secret: stored.secret }
+    : { name: stored.name, value: "", secret: true, valueRedacted: true, fingerprint: stored.sealed.fingerprint };
 
 /** The Variables of a set as read (`fitStoredVariables`, then `readVariable`): no stored secret's value is in it. */
 export const fitVariables = (value: unknown): ReadonlyArray<Variable> => fitStoredVariables(value).map(readVariable);
@@ -329,7 +355,11 @@ export const fitVariables = (value: unknown): ReadonlyArray<Variable> => fitStor
  * command (SET_BY_THE_CONTAINER, whose value wins), and a name under RESERVED_PREFIXES (t3flare's and t3's own markers).
  */
 export const variableEnv = (variables: ReadonlyArray<Variable>): Readonly<Record<string, string>> =>
-  Object.fromEntries(variables.filter((variable) => variable.valueRedacted !== true && !withheldFromCommands(variable.name)).map((variable) => [variable.name, variable.value]));
+  Object.fromEntries(
+    variables
+      .filter((variable) => variable.valueRedacted !== true && !withheldFromCommands(variable.name))
+      .map((variable) => [variable.name, variable.value]),
+  );
 
 /**
  * A kept `{ NAME: "value" }` (a Container launch's Variables) that still fits: names a shell can export, text values
@@ -340,7 +370,13 @@ export const fitVariableEnv = (value: unknown): Readonly<Record<string, string>>
   if (!isRecord(value)) return {};
   return Object.fromEntries(
     Object.entries(value)
-      .filter((entry): entry is [string, string] => typeof entry[1] === "string" && variableNameProblem(entry[0]) === undefined && variableValueProblem(entry[0], entry[1]) === undefined && !withheldFromCommands(entry[0]))
+      .filter(
+        (entry): entry is [string, string] =>
+          typeof entry[1] === "string" &&
+          variableNameProblem(entry[0]) === undefined &&
+          variableValueProblem(entry[0], entry[1]) === undefined &&
+          !withheldFromCommands(entry[0]),
+      )
       .slice(0, MAX_VARIABLES),
   );
 };

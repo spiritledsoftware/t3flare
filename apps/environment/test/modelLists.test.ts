@@ -16,8 +16,20 @@ const PLAIN = {
 /** Anthropic's shape, with names and limits, a model that is not Claude under Commissary's alias. */
 const ANTHROPIC = {
   data: [
-    { id: "claude-fable-5-dd-eerf-maeb", type: "model", display_name: "Beam Free", max_input_tokens: 1048576, max_tokens: 131072 },
-    { id: "claude-haiku-5-5", type: "model", display_name: "Claude Haiku 5.5", max_input_tokens: 1000000, max_tokens: 128000 },
+    {
+      id: "claude-fable-5-dd-eerf-maeb",
+      type: "model",
+      display_name: "Beam Free",
+      max_input_tokens: 1048576,
+      max_tokens: 131072,
+    },
+    {
+      id: "claude-haiku-5-5",
+      type: "model",
+      display_name: "Claude Haiku 5.5",
+      max_input_tokens: 1000000,
+      max_tokens: 128000,
+    },
   ],
   has_more: false,
   first_id: "claude-fable-5-dd-eerf-maeb",
@@ -27,8 +39,15 @@ const ANTHROPIC = {
 describe("reading a model list", () => {
   it("reads both shapes, every field but the id optional", () => {
     expect(parseList(PLAIN)?.models.map((model) => model.id)).toEqual(["beam-free", "claude-haiku-5-5"]);
-    expect(parseList(ANTHROPIC)?.models[0]).toEqual({ id: "claude-fable-5-dd-eerf-maeb", displayName: "Beam Free", contextWindow: 1048576, maxTokens: 131072 });
-    expect(parseList({ data: [{ id: "x", display_name: null, max_tokens: 0 }, { nope: 1 }, "x"] })?.models).toEqual([{ id: "x" }]);
+    expect(parseList(ANTHROPIC)?.models[0]).toEqual({
+      id: "claude-fable-5-dd-eerf-maeb",
+      displayName: "Beam Free",
+      contextWindow: 1048576,
+      maxTokens: 131072,
+    });
+    expect(parseList({ data: [{ id: "x", display_name: null, max_tokens: 0 }, { nope: 1 }, "x"] })?.models).toEqual([
+      { id: "x" },
+    ]);
     expect(parseList({ data: [], has_more: true, last_id: "z" })?.lastId).toBe("z");
     expect(parseList({ data: [], has_more: false, last_id: "z" })?.lastId).toBeUndefined();
     expect(parseList({ models: [] })).toBeUndefined();

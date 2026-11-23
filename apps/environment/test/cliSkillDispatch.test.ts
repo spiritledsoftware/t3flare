@@ -51,12 +51,18 @@ describe("Claude Code's rewrite of a Skill mention (stock's planClaudeSkillDispa
   });
 
   it("makes any other mention an inline /name with a note in stock's wording naming its SKILL.md, once per Skill", () => {
-    expect(claudeSkillText("what is the code? $fruit-code", skills)).toBe(`what is the code? /fruit-code${note("fruit-code")}`);
-    expect(claudeSkillText("use $veg then $fruit-code and $veg", skills)).toBe(`use /veg${note("veg")} then /fruit-code${note("fruit-code")} and /veg`);
+    expect(claudeSkillText("what is the code? $fruit-code", skills)).toBe(
+      `what is the code? /fruit-code${note("fruit-code")}`,
+    );
+    expect(claudeSkillText("use $veg then $fruit-code and $veg", skills)).toBe(
+      `use /veg${note("veg")} then /fruit-code${note("fruit-code")} and /veg`,
+    );
   });
 
   it("keeps an opening mention native, unnoted, when others follow: the rest are noted (Claude expands one Skill a message)", () => {
-    expect(claudeSkillText("$fruit-code then $veg and $fruit-code", skills)).toBe(`/fruit-code then /veg${note("veg")} and /fruit-code`);
+    expect(claudeSkillText("$fruit-code then $veg and $fruit-code", skills)).toBe(
+      `/fruit-code then /veg${note("veg")} and /fruit-code`,
+    );
     expect(claudeSkillText("  $fruit-code then $veg", skills)).toBe(`/fruit-code then /veg${note("veg")}`);
   });
 
@@ -65,19 +71,34 @@ describe("Claude Code's rewrite of a Skill mention (stock's planClaudeSkillDispa
   });
 
   it("leaves a message with no known mention as typed", () => {
-    for (const text of ["say $nope", "costs $5", "plain", "x$fruit-code"]) expect(claudeSkillText(text, skills)).toBe(text);
+    for (const text of ["say $nope", "costs $5", "plain", "x$fruit-code"])
+      expect(claudeSkillText(text, skills)).toBe(text);
   });
 
   it("finds the mentions the planner does: its SKILL_MENTION_PATTERN is the copied SKILL_TOKEN_REGEX (ClaudeSkillDispatch.ts)", () => {
-    const source = fs.readFileSync(new URL("../../../t3code/apps/server/src/provider/Drivers/ClaudeSkillDispatch.ts", import.meta.url), "utf8");
+    const source = fs.readFileSync(
+      new URL("../../../t3code/apps/server/src/provider/Drivers/ClaudeSkillDispatch.ts", import.meta.url),
+      "utf8",
+    );
     const planner = /const SKILL_MENTION_PATTERN =\s*\/(.+)\/([a-z]*);/.exec(source);
     expect(planner, "t3 moved SKILL_MENTION_PATTERN; re-read U65").not.toBeNull();
-    expect({ source: SKILL_TOKEN_REGEX.source, flags: SKILL_TOKEN_REGEX.flags }).toEqual({ source: planner![1], flags: planner![2] });
+    expect({ source: SKILL_TOKEN_REGEX.source, flags: SKILL_TOKEN_REGEX.flags }).toEqual({
+      source: planner![1],
+      flags: planner![2],
+    });
   });
 
   it("words the note as stock does: an earlier user-only Skill is noted in stock's wording (planClaudeSkillDispatch)", () => {
-    const planned = planClaudeSkillDispatch("$a then $b", new Map([["a", { path: "/p/a", userInvocationOnly: true }], ["b", { path: "/p/b" }]]));
-    expect(planned?.leadingText, "t3 changed its Claude skill note; re-read U65").toContain(` ${CLAUDE_SKILL_NOTE}/p/a]`);
+    const planned = planClaudeSkillDispatch(
+      "$a then $b",
+      new Map([
+        ["a", { path: "/p/a", userInvocationOnly: true }],
+        ["b", { path: "/p/b" }],
+      ]),
+    );
+    expect(planned?.leadingText, "t3 changed its Claude skill note; re-read U65").toContain(
+      ` ${CLAUDE_SKILL_NOTE}/p/a]`,
+    );
   });
 
   it("asks the Workspace at Claude Code's roots only for a message with a sigil, and keeps the text when it cannot answer", async () => {
@@ -90,14 +111,18 @@ describe("Claude Code's rewrite of a Skill mention (stock's planClaudeSkillDispa
               id: "proj",
               inner: "/workspace/repo",
               workspace: {
-                skills: (_inner, agent) => (asked.push(String(agent)), fail ? Promise.reject(new Error("down")) : Promise.resolve(discovery(["fruit-code"]))),
+                skills: (_inner, agent) => (
+                  asked.push(String(agent)),
+                  fail ? Promise.reject(new Error("down")) : Promise.resolve(discovery(["fruit-code"]))
+                ),
                 prompts: () => Promise.resolve([]),
                 readText: () => Promise.resolve(null),
               },
             }
           : undefined,
     });
-    const rewrite = (text: string, cwd: string | null, fail = false) => Effect.runPromise(claudeMentionRewrite(access(fail))(text, cwd));
+    const rewrite = (text: string, cwd: string | null, fail = false) =>
+      Effect.runPromise(claudeMentionRewrite(access(fail))(text, cwd));
     expect(await rewrite("plain", "/w/proj")).toBe("plain");
     expect(asked).toEqual([]);
     expect(await rewrite("$fruit-code go", "/w/proj")).toBe("/fruit-code go");
@@ -111,7 +136,12 @@ describe("Claude Code's rewrite of a Skill mention (stock's planClaudeSkillDispa
 const discovery = (names: ReadonlyArray<string>): SkillDiscovery => ({
   skills: names.map((entry) => {
     const name = entry.includes("/") ? entry.split("/").at(-2)! : entry;
-    return { name, description: `${name} things`, filePath: entry.includes("/") ? entry : `${INNER}/${name}/SKILL.md`, disableModelInvocation: false };
+    return {
+      name,
+      description: `${name} things`,
+      filePath: entry.includes("/") ? entry : `${INNER}/${name}/SKILL.md`,
+      disableModelInvocation: false,
+    };
   }),
   skipped: [],
   omitted: 0,
@@ -127,23 +157,48 @@ const layerTest = Layer.mergeAll(
 
 const INITIALIZE = {
   protocolVersion: 1,
-  agentCapabilities: { loadSession: true, promptCapabilities: { image: true, embeddedContext: true }, sessionCapabilities: { close: {}, fork: {}, resume: {} } },
+  agentCapabilities: {
+    loadSession: true,
+    promptCapabilities: { image: true, embeddedContext: true },
+    sessionCapabilities: { close: {}, fork: {}, resume: {} },
+  },
   authMethods: [],
   agentInfo: { name: "agent", version: "0" },
 };
 const SESSION_NEW = {
   sessionId: "session",
-  configOptions: [{ id: "model", name: "Model", category: "model", type: "select", currentValue: "comm/claude-sonnet-5-5", options: ["comm/claude-sonnet-5-5", "t3flare-endpoint-comm/claude-sonnet-5-5"].map((value) => ({ value, name: value })) }],
+  configOptions: [
+    {
+      id: "model",
+      name: "Model",
+      category: "model",
+      type: "select",
+      currentValue: "comm/claude-sonnet-5-5",
+      options: ["comm/claude-sonnet-5-5", "t3flare-endpoint-comm/claude-sonnet-5-5"].map((value) => ({
+        value,
+        name: value,
+      })),
+    },
+  ],
 };
 
 /** The prompt the scripted agent received for one turn of `text`, through the wrapper and t3's adapter. */
 /** `rows`: the Environment skills (SPI-1153), each name's `SKILL.md`. */
-const promptFor = Effect.fn("promptFor")(function* (cli: "claude" | "opencode", text: string, files: Record<string, string>, rows: Record<string, string> = {}, order?: Array<string>) {
+const promptFor = Effect.fn("promptFor")(function* (
+  cli: "claude" | "opencode",
+  text: string,
+  files: Record<string, string>,
+  rows: Record<string, string> = {},
+  order?: Array<string>,
+) {
   const fileSystem = yield* FileSystem.FileSystem;
   const dir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3flare-skill-" });
   const scriptPath = path.join(dir, "script.json");
   const logPath = path.join(dir, "agent.log");
-  yield* fileSystem.writeFileString(scriptPath, yield* encodeJson({ initialize: INITIALIZE, sessionNew: SESSION_NEW, prompts: [[]] }));
+  yield* fileSystem.writeFileString(
+    scriptPath,
+    yield* encodeJson({ initialize: INITIALIZE, sessionNew: SESSION_NEW, prompts: [[]] }),
+  );
   yield* fileSystem.writeFileString(logPath, "");
   const PATH = yield* Config.String("PATH").pipe(Config.withDefault(""));
   const cwd = "/w/proj";
@@ -151,7 +206,12 @@ const promptFor = Effect.fn("promptFor")(function* (cli: "claude" | "opencode", 
   const access: SkillsAccess = {
     enabled: () => false,
     environment: {
-      entries: () => Object.keys(rows).map((name) => ({ name, description: `The Environment's ${name}.`, disableModelInvocation: false })),
+      entries: () =>
+        Object.keys(rows).map((name) => ({
+          name,
+          description: `The Environment's ${name}.`,
+          disableModelInvocation: false,
+        })),
       skillMd: (name) => rows[name],
       hash: () => "h",
     },
@@ -161,20 +221,40 @@ const promptFor = Effect.fn("promptFor")(function* (cli: "claude" | "opencode", 
             id: "proj",
             inner: "/workspace/repo",
             workspace: {
-              skills: (_inner, agent) => (asked.push(agent), order?.push(`skills ${agent}`), Promise.resolve(discovery(Object.keys(files).filter((file) => file.endsWith("/SKILL.md"))))),
-              prompts: (_inner, agent): Promise<ReadonlyArray<PromptTemplate>> => (asked.push(agent), Promise.resolve([])),
+              skills: (_inner, agent) => (
+                asked.push(agent),
+                order?.push(`skills ${agent}`),
+                Promise.resolve(discovery(Object.keys(files).filter((file) => file.endsWith("/SKILL.md"))))
+              ),
+              prompts: (_inner, agent): Promise<ReadonlyArray<PromptTemplate>> => (
+                asked.push(agent),
+                Promise.resolve([])
+              ),
               readText: (file) => Promise.resolve(files[file] ?? null),
             },
           }
         : undefined,
   };
   const spawn = Effect.fn("spawn")(function* (input: AcpAdapterV2RuntimeInput) {
-    const { processEnvironment: _env, runtimePolicy: _policy, mcpServers: _mcp, acpMcpServers: _acp, httpMcpServers: _http, ...options } = input;
+    const {
+      processEnvironment: _env,
+      runtimePolicy: _policy,
+      mcpServers: _mcp,
+      acpMcpServers: _acp,
+      httpMcpServers: _http,
+      ...options
+    } = input;
     const context = yield* Layer.build(
       AcpSessionRuntime.layer({
         ...options,
         cwd: dir,
-        spawn: { command: process.execPath, args: [AGENT], cwd: dir, env: { PATH, FAKE_ACP_SCRIPT: scriptPath, FAKE_ACP_LOG: logPath }, extendEnv: false },
+        spawn: {
+          command: process.execPath,
+          args: [AGENT],
+          cwd: dir,
+          env: { PATH, FAKE_ACP_SCRIPT: scriptPath, FAKE_ACP_LOG: logPath },
+          extendEnv: false,
+        },
         authenticateOnAuthRequired: false,
         ownDetachedProcessGroup: true,
         processGroupPlatform: process.platform,
@@ -184,21 +264,53 @@ const promptFor = Effect.fn("promptFor")(function* (cli: "claude" | "opencode", 
   });
   const driver = ProviderDriverKind.make(cli === "claude" ? "claudeAgent" : "opencode");
   const instanceId = ProviderInstanceId.make(cli === "claude" ? "claudeAgent" : "opencode");
-  const promptHooks = acpPromptBuilder(yield* ProviderHost.ProviderHost, fileSystem, cli === "opencode" ? access : undefined);
-  const adapter = yield* makeAcpAdapterV2({ instanceId, flavor: acpFlavor(cli, driver, { spawn, prompt: promptHooks }), selfInvocation: { command: "none", entrypoint: undefined } });
+  const promptHooks = acpPromptBuilder(
+    yield* ProviderHost.ProviderHost,
+    fileSystem,
+    cli === "opencode" ? access : undefined,
+  );
+  const adapter = yield* makeAcpAdapterV2({
+    instanceId,
+    flavor: acpFlavor(cli, driver, { spawn, prompt: promptHooks }),
+    selfInvocation: { command: "none", entrypoint: undefined },
+  });
   const wrapped = wrapCliAdapter(adapter, {
     sessions: new Map(),
     ...(cli === "claude" ? { rewriteTurnText: claudeMentionRewrite(access) } : {}),
-    ...(order === undefined ? {} : { takeEnvironmentSkills: (at: string | null) => Effect.sync(() => void order.push(`take ${at}`)) }),
+    ...(order === undefined
+      ? {}
+      : { takeEnvironmentSkills: (at: string | null) => Effect.sync(() => void order.push(`take ${at}`)) }),
   });
   const threadId = ThreadId.make(`thread-${cli}`);
   const modelSelection = { instanceId, model: "comm/claude-sonnet-5-5" } as const;
-  const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({ runtimeMode: "full-access", interactionMode: "default", cwd });
-  const runtime = yield* wrapped.openSession({ threadId, providerSessionId: ProviderSessionId.make(`session-${cli}`), modelSelection, runtimePolicy });
+  const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    cwd,
+  });
+  const runtime = yield* wrapped.openSession({
+    threadId,
+    providerSessionId: ProviderSessionId.make(`session-${cli}`),
+    modelSelection,
+    runtimePolicy,
+  });
   const events = yield* Queue.unbounded<ProviderAdapter.ProviderAdapterV2Event>();
-  yield* runtime.events.pipe(Stream.runForEach((event) => Queue.offer(events, event)), Effect.forkScoped);
+  yield* runtime.events.pipe(
+    Stream.runForEach((event) => Queue.offer(events, event)),
+    Effect.forkScoped,
+  );
   const providerThread = yield* runtime.ensureThread({ threadId, modelSelection, runtimePolicy });
-  yield* runtime.startTurn(makeTurnInput({ threadId, providerThread, instanceId, runtimePolicy, now: yield* DateTime.now, modelSelection, messageText: text }));
+  yield* runtime.startTurn(
+    makeTurnInput({
+      threadId,
+      providerThread,
+      instanceId,
+      runtimePolicy,
+      now: yield* DateTime.now,
+      modelSelection,
+      messageText: text,
+    }),
+  );
   yield* Effect.gen(function* () {
     while ((yield* Queue.take(events)).type !== "turn.terminal");
   }).pipe(Effect.timeout("20 seconds"));
@@ -206,31 +318,43 @@ const promptFor = Effect.fn("promptFor")(function* (cli: "claude" | "opencode", 
     .readFileSync(logPath, "utf8")
     .split("\n")
     .filter((line) => line.length > 0)
-    .map((line) => JSON.parse(line) as { received?: string; params?: { prompt?: ReadonlyArray<{ type: string; text?: string }> } })
+    .map(
+      (line) =>
+        JSON.parse(line) as { received?: string; params?: { prompt?: ReadonlyArray<{ type: string; text?: string }> } },
+    )
     .find((entry) => entry.received === "session/prompt")?.params?.prompt;
   return { blocks: prompt ?? [], asked };
 });
 
-const run = <A, E>(body: Effect.Effect<A, E, Layer.Success<typeof layerTest> | import("effect/Scope").Scope>) => Effect.runPromise(body.pipe(Effect.scoped, Effect.provide(layerTest)));
+const run = <A, E>(body: Effect.Effect<A, E, Layer.Success<typeof layerTest> | import("effect/Scope").Scope>) =>
+  Effect.runPromise(body.pipe(Effect.scoped, Effect.provide(layerTest)));
 
 const ENVIRONMENT_SKILL = "---\nname: env\ndescription: The Environment's.\n---\n\nInterview the owner.\n";
 const SKILL = "---\nname: fruit-code\ndescription: The fruit code.\n---\n\nRead reference/code.md for the code.\n";
 
 describe("through t3's ACP adapter", () => {
   it("Claude Code gets a leading mention as its native /name, sent alone (t3's native-slash rule)", async () => {
-    const { blocks, asked } = await run(promptFor("claude", "$fruit-code what is it?", { [`${INNER}/fruit-code/SKILL.md`]: SKILL }));
+    const { blocks, asked } = await run(
+      promptFor("claude", "$fruit-code what is it?", { [`${INNER}/fruit-code/SKILL.md`]: SKILL }),
+    );
     expect(blocks[0]).toEqual({ type: "text", text: "/fruit-code what is it?" });
     expect(blocks.filter((block) => block.type === "text")).toHaveLength(1);
     expect(asked).toEqual(["claude"]);
   });
 
   it("Claude Code gets any other mention inline with the note naming its SKILL.md in the Container's t3 path", async () => {
-    const { blocks } = await run(promptFor("claude", "what is it? $fruit-code", { [`${INNER}/fruit-code/SKILL.md`]: SKILL }));
-    expect(blocks[0]?.text).toContain(`what is it? /fruit-code [The user invoked this skill. Follow the instructions at: ${T3}/fruit-code/SKILL.md]`);
+    const { blocks } = await run(
+      promptFor("claude", "what is it? $fruit-code", { [`${INNER}/fruit-code/SKILL.md`]: SKILL }),
+    );
+    expect(blocks[0]?.text).toContain(
+      `what is it? /fruit-code [The user invoked this skill. Follow the instructions at: ${T3}/fruit-code/SKILL.md]`,
+    );
   });
 
   it("OpenCode gets the Skill embedded as its skill tool returns it: the body and its base directory", async () => {
-    const { blocks, asked } = await run(promptFor("opencode", "what is it? $fruit-code", { [`${INNER}/fruit-code/SKILL.md`]: SKILL }));
+    const { blocks, asked } = await run(
+      promptFor("opencode", "what is it? $fruit-code", { [`${INNER}/fruit-code/SKILL.md`]: SKILL }),
+    );
     const text = blocks[0]?.text ?? "";
     expect(text).toContain("what is it? $fruit-code");
     expect(text).toContain(
@@ -238,32 +362,73 @@ describe("through t3's ACP adapter", () => {
     );
     expect(asked).toEqual(["opencode"]);
     // t3's adapter writes the message's block itself and appends the flavor's attachment blocks: the text goes once.
-    expect(blocks.filter((block) => block.type === "text" && block.text?.includes("what is it? $fruit-code"))).toHaveLength(1);
+    expect(
+      blocks.filter((block) => block.type === "text" && block.text?.includes("what is it? $fruit-code")),
+    ).toHaveLength(1);
   });
 
   it("Claude Code gets an Environment skill's mention noted at the mount, and the Environment's of a same-named pair (SPI-1153)", async () => {
     const mount = "/workspace/.agents/skills";
-    const { blocks } = await run(promptFor("claude", "what is it? $grill-me then $fruit-code", { [`${INNER}/fruit-code/SKILL.md`]: SKILL }, { "grill-me": ENVIRONMENT_SKILL, "fruit-code": ENVIRONMENT_SKILL }));
-    expect(blocks[0]?.text).toContain(`/grill-me [The user invoked this skill. Follow the instructions at: ${mount}/grill-me/SKILL.md]`);
-    expect(blocks[0]?.text).toContain(`/fruit-code [The user invoked this skill. Follow the instructions at: ${mount}/fruit-code/SKILL.md]`);
+    const { blocks } = await run(
+      promptFor(
+        "claude",
+        "what is it? $grill-me then $fruit-code",
+        { [`${INNER}/fruit-code/SKILL.md`]: SKILL },
+        { "grill-me": ENVIRONMENT_SKILL, "fruit-code": ENVIRONMENT_SKILL },
+      ),
+    );
+    expect(blocks[0]?.text).toContain(
+      `/grill-me [The user invoked this skill. Follow the instructions at: ${mount}/grill-me/SKILL.md]`,
+    );
+    expect(blocks[0]?.text).toContain(
+      `/fruit-code [The user invoked this skill. Follow the instructions at: ${mount}/fruit-code/SKILL.md]`,
+    );
   });
 
   it("OpenCode gets an Environment skill embedded from its row with the mount as its base, and a same-named pair as OpenCode keeps it by root (SPI-1153)", async () => {
     const mount = "/workspace/.agents/skills";
     const rows = { "grill-me": ENVIRONMENT_SKILL, "fruit-code": ENVIRONMENT_SKILL };
     // The Repo's fruit-code in `.agents/skills`: OpenCode keeps the Environment's.
-    const agents = (await run(promptFor("opencode", "go $grill-me $fruit-code", { "/workspace/repo/.agents/skills/fruit-code/SKILL.md": SKILL }, rows))).blocks[0]?.text ?? "";
-    expect(agents).toContain(`<skill_content name="grill-me">\n# Skill: grill-me\n\nInterview the owner.\n\nBase directory for this skill: ${mount}/grill-me\n`);
-    expect(agents).toContain(`<skill_content name="fruit-code">\n# Skill: fruit-code\n\nInterview the owner.\n\nBase directory for this skill: ${mount}/fruit-code\n`);
+    const agents =
+      (
+        await run(
+          promptFor(
+            "opencode",
+            "go $grill-me $fruit-code",
+            { "/workspace/repo/.agents/skills/fruit-code/SKILL.md": SKILL },
+            rows,
+          ),
+        )
+      ).blocks[0]?.text ?? "";
+    expect(agents).toContain(
+      `<skill_content name="grill-me">\n# Skill: grill-me\n\nInterview the owner.\n\nBase directory for this skill: ${mount}/grill-me\n`,
+    );
+    expect(agents).toContain(
+      `<skill_content name="fruit-code">\n# Skill: fruit-code\n\nInterview the owner.\n\nBase directory for this skill: ${mount}/fruit-code\n`,
+    );
     // In `.opencode/skills`: OpenCode keeps the Repo's.
-    const own = (await run(promptFor("opencode", "go $fruit-code", { "/workspace/repo/.opencode/skills/fruit-code/SKILL.md": SKILL }, rows))).blocks[0]?.text ?? "";
-    expect(own).toContain(`<skill_content name="fruit-code">\n# Skill: fruit-code\n\nRead reference/code.md for the code.\n\nBase directory for this skill: /w/proj/.opencode/skills/fruit-code\n`);
+    const own =
+      (
+        await run(
+          promptFor(
+            "opencode",
+            "go $fruit-code",
+            { "/workspace/repo/.opencode/skills/fruit-code/SKILL.md": SKILL },
+            rows,
+          ),
+        )
+      ).blocks[0]?.text ?? "";
+    expect(own).toContain(
+      `<skill_content name="fruit-code">\n# Skill: fruit-code\n\nRead reference/code.md for the code.\n\nBase directory for this skill: /w/proj/.opencode/skills/fruit-code\n`,
+    );
   });
 
   it("has the thread's Workspace take the Environment skill set before the turn's text is read and sent (SPI-1153)", async () => {
     for (const cli of ["claude", "opencode"] as const) {
       const order: Array<string> = [];
-      const { blocks } = await run(promptFor(cli, "$fruit-code go", { [`${INNER}/fruit-code/SKILL.md`]: SKILL }, {}, order));
+      const { blocks } = await run(
+        promptFor(cli, "$fruit-code go", { [`${INNER}/fruit-code/SKILL.md`]: SKILL }, {}, order),
+      );
       expect(blocks.length).toBeGreaterThan(0);
       expect(order, cli).toEqual(["take /w/proj", `skills ${cli}`]);
     }
@@ -284,17 +449,29 @@ describe("the ACP flavors' attachment blocks (t3's buildAttachmentPrompt)", () =
     const blocks = await Effect.runPromise(
       Effect.gen(function* () {
         const { buildAttachmentPrompt } = acpPromptBuilder(host, yield* FileSystem.FileSystem);
-        return yield* buildAttachmentPrompt!({ text: "the message", attachments: [attachment], resolveAttachmentPath: () => null, promptCapabilities: undefined });
+        return yield* buildAttachmentPrompt!({
+          text: "the message",
+          attachments: [attachment],
+          resolveAttachmentPath: () => null,
+          promptCapabilities: undefined,
+        });
       }).pipe(Effect.provide(NodeServices.layer)),
     );
-    expect(blocks).toEqual([{ type: "text", text: '[Attached file "notes.txt" is unavailable: t3 has no saved file for it.]' }]);
+    expect(blocks).toEqual([
+      { type: "text", text: '[Attached file "notes.txt" is unavailable: t3 has no saved file for it.]' },
+    ]);
   });
 
   it("are none without attachments", async () => {
     const blocks = await Effect.runPromise(
       Effect.gen(function* () {
         const { buildAttachmentPrompt } = acpPromptBuilder(host, yield* FileSystem.FileSystem);
-        return yield* buildAttachmentPrompt!({ text: "the message", attachments: [], resolveAttachmentPath: () => null, promptCapabilities: undefined });
+        return yield* buildAttachmentPrompt!({
+          text: "the message",
+          attachments: [],
+          resolveAttachmentPath: () => null,
+          promptCapabilities: undefined,
+        });
       }).pipe(Effect.provide(NodeServices.layer)),
     );
     expect(blocks).toEqual([]);

@@ -10,12 +10,25 @@
 // A search spends a model request on the endpoint, so the harness setting keeps `web_search` off until the owner turns
 // it on (the registry's `web.search`).
 import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
-import { type EndpointModel, findEndpointModel, type ModelEndpoint, type ModelEndpoints, modelSettingSlug, SETUP_HINT } from "@t3flare/models/endpoints";
+import {
+  type EndpointModel,
+  findEndpointModel,
+  type ModelEndpoint,
+  type ModelEndpoints,
+  modelSettingSlug,
+  SETUP_HINT,
+} from "@t3flare/models/endpoints";
 import { int, obj, opt, str } from "@earendil-works/pi-schema";
 
 import { readBoundedBody, statusCause, type WebTransport, WebToolError, withDeadline } from "./net.ts";
 import { fitOutput } from "./output.ts";
-import { limitSearchText, MAX_CONTEXT_MAX_CHARACTERS, providerTextSanitizer, type Sanitize, truncateCodePoints } from "./shaping.ts";
+import {
+  limitSearchText,
+  MAX_CONTEXT_MAX_CHARACTERS,
+  providerTextSanitizer,
+  type Sanitize,
+  truncateCodePoints,
+} from "./shaping.ts";
 
 const DEFAULT_NUM_RESULTS = 8;
 const MAX_SEARCH_RESPONSE_BYTES = 512 * 1024;
@@ -37,12 +50,25 @@ export const WEB_SEARCH_TIMEOUT_MS = 90_000;
 export const searchChoice = (
   setting: string,
   endpoints: ModelEndpoints,
-): { readonly endpoint: ModelEndpoint; readonly model: EndpointModel; readonly slug: string } | { readonly error: string } => {
-  const usable: ModelEndpoints = { ...endpoints, endpoints: endpoints.endpoints.filter((endpoint) => endpoint.api === "anthropic-messages" && (endpoint.auth === "api-key" || endpoint.auth === "none")) };
+):
+  | { readonly endpoint: ModelEndpoint; readonly model: EndpointModel; readonly slug: string }
+  | { readonly error: string } => {
+  const usable: ModelEndpoints = {
+    ...endpoints,
+    endpoints: endpoints.endpoints.filter(
+      (endpoint) => endpoint.api === "anthropic-messages" && (endpoint.auth === "api-key" || endpoint.auth === "none"),
+    ),
+  };
   const slug = modelSettingSlug(setting, usable);
-  if (slug === undefined) return { error: `no Anthropic Messages Model endpoint with an API key or no auth lists a model to search with: ${SETUP_HINT}` };
+  if (slug === undefined)
+    return {
+      error: `no Anthropic Messages Model endpoint with an API key or no auth lists a model to search with: ${SETUP_HINT}`,
+    };
   const found = findEndpointModel(usable, slug);
-  if (found === undefined) return { error: `the search model ${slug} is not a model of an Anthropic Messages Model endpoint with an API key or no auth (the Settings page's Web tools)` };
+  if (found === undefined)
+    return {
+      error: `the search model ${slug} is not a model of an Anthropic Messages Model endpoint with an API key or no auth (the Settings page's Web tools)`,
+    };
   return { ...found, slug };
 };
 
@@ -71,10 +97,17 @@ const OUTPUT_SCHEMA = {
   type: "object",
   properties: {
     provider: { type: "string", description: "Who searched: the Model endpoint's search-capable model" },
-    content: { type: "string", description: "The results and summary, trimmed to numResults and cut at contextMaxCharacters (default 6,000)" },
+    content: {
+      type: "string",
+      description: "The results and summary, trimmed to numResults and cut at contextMaxCharacters (default 6,000)",
+    },
     results: {
       type: "array",
-      items: { type: "object", properties: { title: { type: "string" }, url: { type: "string" }, published: { type: "string" } }, required: ["url"] },
+      items: {
+        type: "object",
+        properties: { title: { type: "string" }, url: { type: "string" }, published: { type: "string" } },
+        required: ["url"],
+      },
     },
   },
   required: ["provider", "content", "results"],
@@ -89,14 +122,21 @@ export interface SearchResult {
 }
 
 type Json = Readonly<Record<string, unknown>>;
-const record = (value: unknown): Json => (typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Json) : {});
-const text = (value: unknown): string | undefined => (typeof value === "string" && value.trim() !== "" ? value : undefined);
+const record = (value: unknown): Json =>
+  typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Json) : {};
+const text = (value: unknown): string | undefined =>
+  typeof value === "string" && value.trim() !== "" ? value : undefined;
 
 /** What one Messages answer says: the pages the searches found (deduplicated, in order), the summary, any failure. */
 export const readAnswer = (
   body: unknown,
   sanitize: Sanitize,
-): { readonly results: ReadonlyArray<SearchResult>; readonly summary: string; readonly failure?: string; readonly usage?: Json } => {
+): {
+  readonly results: ReadonlyArray<SearchResult>;
+  readonly summary: string;
+  readonly failure?: string;
+  readonly usage?: Json;
+} => {
   const answer = record(body);
   const blocks = Array.isArray(answer.content) ? answer.content.map(record) : [];
   const byUrl = new Map<string, { title?: string; url: string; published?: string; snippets: Array<string> }>();
@@ -115,7 +155,12 @@ export const readAnswer = (
         if (raw.type !== "web_search_result" || url === undefined || byUrl.has(url)) continue;
         const title = text(raw.title);
         const published = text(raw.page_age);
-        byUrl.set(url, { url, snippets: [], ...(title === undefined ? {} : { title: sanitize(title) }), ...(published === undefined ? {} : { published: sanitize(published) }) });
+        byUrl.set(url, {
+          url,
+          snippets: [],
+          ...(title === undefined ? {} : { title: sanitize(title) }),
+          ...(published === undefined ? {} : { published: sanitize(published) }),
+        });
       }
     } else if (block.type === "text") {
       const said = text(block.text);
@@ -130,7 +175,9 @@ export const readAnswer = (
       }
     }
   }
-  const results = [...byUrl.values()].map(({ snippets, ...page }) => (snippets.length === 0 ? page : { ...page, snippet: snippets.join(" … ") }));
+  const results = [...byUrl.values()].map(({ snippets, ...page }) =>
+    snippets.length === 0 ? page : { ...page, snippet: snippets.join(" … ") },
+  );
   const usage = record(answer.usage);
   return {
     results,
@@ -143,9 +190,17 @@ export const readAnswer = (
 /** The results in Exa's `Title:`/`URL:` shape (so `limitSearchText` shares its budget), then the summary. */
 export const resultText = (results: ReadonlyArray<SearchResult>, summary: string): string => {
   const pages = results.map((page) =>
-    [`Title: ${page.title ?? page.url}`, `URL: ${page.url}`, ...(page.published === undefined ? [] : [`Published: ${page.published}`]), ...(page.snippet === undefined ? [] : [`Text: ${page.snippet}`])].join("\n"),
+    [
+      `Title: ${page.title ?? page.url}`,
+      `URL: ${page.url}`,
+      ...(page.published === undefined ? [] : [`Published: ${page.published}`]),
+      ...(page.snippet === undefined ? [] : [`Text: ${page.snippet}`]),
+    ].join("\n"),
   );
-  return [...pages, ...(summary === "" ? [] : [`Title: Summary from the search model\nURL: (none)\nText: ${summary}`])].join("\n\n");
+  return [
+    ...pages,
+    ...(summary === "" ? [] : [`Title: Summary from the search model\nURL: (none)\nText: ${summary}`]),
+  ].join("\n\n");
 };
 
 const usageOf = (usage: Json | undefined) => {
@@ -155,7 +210,14 @@ const usageOf = (usage: Json | undefined) => {
   const output = count(usage.output_tokens);
   const cacheRead = count(usage.cache_read_input_tokens);
   const cacheWrite = count(usage.cache_creation_input_tokens);
-  return { input, output, cacheRead, cacheWrite, totalTokens: input + output + cacheRead + cacheWrite, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+  return {
+    input,
+    output,
+    cacheRead,
+    cacheWrite,
+    totalTokens: input + output + cacheRead + cacheWrite,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  };
 };
 
 /** `web_search` through a Model endpoint's search-capable model (`search`), over `transport`. */
@@ -165,7 +227,13 @@ export const webSearchTool = (transport: WebTransport, search: SearchEndpoint): 
     description: DESCRIPTION,
     parameters: obj({
       query: str({ description: "Web Search query" }),
-      numResults: opt(int({ minimum: 1, maximum: 20, description: `Maximum number of results (default: ${DEFAULT_NUM_RESULTS}, maximum: 20)` })),
+      numResults: opt(
+        int({
+          minimum: 1,
+          maximum: 20,
+          description: `Maximum number of results (default: ${DEFAULT_NUM_RESULTS}, maximum: 20)`,
+        }),
+      ),
       contextMaxCharacters: opt(
         int({
           minimum: 1,
@@ -178,7 +246,8 @@ export const webSearchTool = (transport: WebTransport, search: SearchEndpoint): 
     structuredOutputSchema: OUTPUT_SCHEMA,
     replay: "safe",
     async execute(args, _api, context) {
-      if (args.query.trim() === "") throw new Error("Unable to search the web: query is empty (provide the text to search the web for)");
+      if (args.query.trim() === "")
+        throw new Error("Unable to search the web: query is empty (provide the text to search the web for)");
       const target = await search.resolve();
       if ("error" in target) throw new Error(`Unable to search the web for ${args.query}: ${target.error}`);
       const sanitize = providerTextSanitizer([target.apiKey]);
@@ -189,7 +258,12 @@ export const webSearchTool = (transport: WebTransport, search: SearchEndpoint): 
             {
               url: `${target.baseUrl.replace(/\/+$/, "")}/v1/messages`,
               method: "POST",
-              headers: { ...target.headers, "content-type": "application/json", "x-api-key": target.apiKey, "anthropic-version": "2023-06-01" },
+              headers: {
+                ...target.headers,
+                "content-type": "application/json",
+                "x-api-key": target.apiKey,
+                "anthropic-version": "2023-06-01",
+              },
               body: JSON.stringify({
                 model: target.modelId,
                 max_tokens: MAX_SUMMARY_TOKENS,
@@ -205,27 +279,48 @@ export const webSearchTool = (transport: WebTransport, search: SearchEndpoint): 
           try {
             parsed = JSON.parse(body);
           } catch {
-            throw new WebToolError(response.ok ? "the Model endpoint returned an unrecognized response" : statusCause(response.status));
+            throw new WebToolError(
+              response.ok ? "the Model endpoint returned an unrecognized response" : statusCause(response.status),
+            );
           }
           if (!response.ok) {
             const message = text(record(record(parsed).error).message);
-            throw new WebToolError(`${statusCause(response.status)}${message === undefined ? "" : `: ${sanitize(message)}`}`);
+            throw new WebToolError(
+              `${statusCause(response.status)}${message === undefined ? "" : `: ${sanitize(message)}`}`,
+            );
           }
           return readAnswer(parsed, sanitize);
         });
       } catch (error) {
-        throw new Error(`Unable to search the web for ${args.query}: ${error instanceof WebToolError ? error.message : "network error"}`, { cause: error });
+        throw new Error(
+          `Unable to search the web for ${args.query}: ${error instanceof WebToolError ? error.message : "network error"}`,
+          { cause: error },
+        );
       }
       if (read.failure !== undefined) throw new Error(`Unable to search the web for ${args.query}: ${read.failure}`);
       const results = read.results.slice(0, args.numResults ?? DEFAULT_NUM_RESULTS);
-      const content = results.length === 0 && read.summary === "" ? NO_SEARCH_RESULTS : limitSearchText(resultText(results, read.summary), args.contextMaxCharacters);
+      const content =
+        results.length === 0 && read.summary === ""
+          ? NO_SEARCH_RESULTS
+          : limitSearchText(resultText(results, read.summary), args.contextMaxCharacters);
       const fitted = fitOutput(content, "Lower contextMaxCharacters or narrow the query to read less per search.");
       const usage = usageOf(read.usage);
       return {
         output: [{ type: "text" as const, text: fitted.content }],
-        structuredOutput: { provider: `model-endpoint:${target.slug}`, content, results: results.map(({ snippet: _snippet, ...page }) => page) },
+        structuredOutput: {
+          provider: `model-endpoint:${target.slug}`,
+          content,
+          results: results.map(({ snippet: _snippet, ...page }) => page),
+        },
         // What t3's web item shows (the differ): the query and each page found.
-        details: { provider: `model-endpoint:${target.slug}`, query: args.query, results: results.map((page) => ({ ...page, ...(page.snippet === undefined ? {} : { snippet: page.snippet.slice(0, 300) }) })) },
+        details: {
+          provider: `model-endpoint:${target.slug}`,
+          query: args.query,
+          results: results.map((page) => ({
+            ...page,
+            ...(page.snippet === undefined ? {} : { snippet: page.snippet.slice(0, 300) }),
+          })),
+        },
         ...(usage === undefined ? {} : { usage }),
       };
     },

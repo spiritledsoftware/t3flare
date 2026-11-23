@@ -48,7 +48,8 @@ export const CREDENTIAL_PATTERNS: ReadonlyArray<RegExp> = [
 /** Why `bytes`, the contents of a Skill's file at `path`, may not be kept: none when it may. */
 export const problemsIn = (path: string, bytes: Uint8Array): Array<string> => {
   const problems: Array<string> = [];
-  if (bytes.length > MAX_FILE_BYTES) problems.push(`${path}: ${bytes.length} bytes, more than the ${MAX_FILE_BYTES} a Skill's file may be`);
+  if (bytes.length > MAX_FILE_BYTES)
+    problems.push(`${path}: ${bytes.length} bytes, more than the ${MAX_FILE_BYTES} a Skill's file may be`);
   if (bytes.includes(0)) return [...problems, `${path}: a binary file; a Skill holds text only`];
   let text: string;
   try {
@@ -57,7 +58,8 @@ export const problemsIn = (path: string, bytes: Uint8Array): Array<string> => {
     return [...problems, `${path}: not UTF-8 text; a Skill holds text only`];
   }
   for (const pattern of CREDENTIAL_PATTERNS) {
-    if (pattern.test(text)) problems.push(`${path}: matches ${String(pattern)}, which looks like a credential or a local path`);
+    if (pattern.test(text))
+      problems.push(`${path}: matches ${String(pattern)}, which looks like a credential or a local path`);
   }
   return problems;
 };
@@ -68,9 +70,11 @@ export const problemsIn = (path: string, bytes: Uint8Array): Array<string> => {
  */
 export const skillNameProblem = (name: string): string | undefined => {
   if (name.length === 0) return "a Skill's name may not be empty";
-  if (name.length > MAX_SKILL_NAME_LENGTH) return `${JSON.stringify(name.slice(0, 80))} is ${name.length} characters, more than the ${MAX_SKILL_NAME_LENGTH} a Skill's name may be`;
+  if (name.length > MAX_SKILL_NAME_LENGTH)
+    return `${JSON.stringify(name.slice(0, 80))} is ${name.length} characters, more than the ${MAX_SKILL_NAME_LENGTH} a Skill's name may be`;
   if (!/^[a-z0-9-]+$/.test(name)) return `${JSON.stringify(name)} may hold only lowercase letters, digits and hyphens`;
-  if (name.startsWith("-") || name.endsWith("-") || name.includes("--")) return `${JSON.stringify(name)} may not start or end with a hyphen, or hold two in a row`;
+  if (name.startsWith("-") || name.endsWith("-") || name.includes("--"))
+    return `${JSON.stringify(name)} may not start or end with a hyphen, or hold two in a row`;
   if (!/[a-z]/.test(name)) return `${JSON.stringify(name)} needs at least one letter, so t3 can mention it`;
   return undefined;
 };
@@ -85,20 +89,27 @@ export interface TreeFile {
  * Why a Skill named `name`, by its folder's tree entries, may not be kept, before any file is read: too many files or
  * bytes, a file too large, a path a Workspace would refuse, a link or a submodule.
  */
-export const treeProblems = (name: string, files: ReadonlyArray<TreeFile>, links: ReadonlyArray<string>): Array<string> => {
+export const treeProblems = (
+  name: string,
+  files: ReadonlyArray<TreeFile>,
+  links: ReadonlyArray<string>,
+): Array<string> => {
   const problems: Array<string> = [];
-  if (files.length > MAX_SKILL_FILES) problems.push(`the folder holds ${files.length} files, more than ${MAX_SKILL_FILES}`);
+  if (files.length > MAX_SKILL_FILES)
+    problems.push(`the folder holds ${files.length} files, more than ${MAX_SKILL_FILES}`);
   let total = 0;
   for (const file of files) {
     total += file.size ?? 0;
-    if (file.size !== undefined && file.size > MAX_FILE_BYTES) problems.push(`${file.relative}: ${file.size} bytes, more than the ${MAX_FILE_BYTES} a Skill's file may be`);
+    if (file.size !== undefined && file.size > MAX_FILE_BYTES)
+      problems.push(`${file.relative}: ${file.size} bytes, more than the ${MAX_FILE_BYTES} a Skill's file may be`);
     const path = `${name}/${file.relative}`;
     const problem = skillFilePathProblem(path);
     if (problem !== undefined) problems.push(`${file.relative}: the path ${problem}`);
   }
   const both = pathAlsoDirectory(files.map((file) => file.relative));
   if (both !== undefined) problems.push(`${both}: the path is also a directory`);
-  if (total > MAX_SKILL_BYTES) problems.push(`the files are ${total} bytes together, more than the ${MAX_SKILL_BYTES} a Skill may be`);
+  if (total > MAX_SKILL_BYTES)
+    problems.push(`the files are ${total} bytes together, more than the ${MAX_SKILL_BYTES} a Skill may be`);
   for (const link of links) problems.push(`${link}: a link or a submodule; a Skill may hold neither`);
   return problems;
 };
@@ -116,8 +127,10 @@ export interface KeptSize {
 export const setProblem = (kept: ReadonlyArray<KeptSize>, incoming: ReadonlyArray<KeptSize>): string | undefined => {
   const names = new Set(incoming.map((skill) => skill.name));
   const after = [...kept.filter((skill) => !names.has(skill.name)), ...incoming];
-  if (after.length > MAX_ENVIRONMENT_SKILLS) return `the Environment would hold ${after.length} skills, more than the ${MAX_ENVIRONMENT_SKILLS} it may (disabled ones count)`;
+  if (after.length > MAX_ENVIRONMENT_SKILLS)
+    return `the Environment would hold ${after.length} skills, more than the ${MAX_ENVIRONMENT_SKILLS} it may (disabled ones count)`;
   const bytes = after.reduce((sum, skill) => sum + skill.bytes, 0);
-  if (bytes > MAX_SET_BYTES) return `the Environment's skills would be ${bytes} bytes together, more than the ${MAX_SET_BYTES} they may be (disabled ones count)`;
+  if (bytes > MAX_SET_BYTES)
+    return `the Environment's skills would be ${bytes} bytes together, more than the ${MAX_SET_BYTES} they may be (disabled ones count)`;
   return undefined;
 };

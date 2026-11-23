@@ -20,8 +20,7 @@ const PREVIEW_LIMIT = 120;
 const ARGUMENT_LIMIT = 60;
 
 /** The reference of entry `id` of conversation `conversationId`. */
-export const entryRef = (conversationId: ConversationId, id: EntryId): string =>
-  `context:${conversationId}:${id}`;
+export const entryRef = (conversationId: ConversationId, id: EntryId): string => `context:${conversationId}:${id}`;
 
 export type ParsedRef =
   | { readonly type: "entry"; readonly conversationId: ConversationId; readonly entryId: EntryId }
@@ -63,9 +62,7 @@ const clip = (text: string, limit: number): string => {
 };
 
 const textOf = (content: Message["content"]): string =>
-  Predicate.isString(content)
-    ? content
-    : content.map((block) => (block.type === "text" ? block.text : "")).join(" ");
+  Predicate.isString(content) ? content : content.map((block) => (block.type === "text" ? block.text : "")).join(" ");
 
 const describeCall = (call: ToolCall): string => {
   const first = Record.values(call.arguments).find(Predicate.isString);
@@ -82,10 +79,7 @@ const labelled = (label: string, text: string): string => {
 const describeMessage = (entry: EntryRecord, message: Message): string => {
   switch (message.role) {
     case "user":
-      return labelled(
-        entry.kind === "pi.user" ? "user" : `user(${entry.kind})`,
-        textOf(message.content),
-      );
+      return labelled(entry.kind === "pi.user" ? "user" : `user(${entry.kind})`, textOf(message.content));
     case "assistant": {
       const text = clip(
         textOf(message.content) ||
@@ -102,10 +96,7 @@ const describeMessage = (entry: EntryRecord, message: Message): string => {
     }
 
     case "toolResult":
-      return labelled(
-        `toolResult(${message.toolName}${message.isError ? ", error" : ""})`,
-        textOf(message.content),
-      );
+      return labelled(`toolResult(${message.toolName}${message.isError ? ", error" : ""})`, textOf(message.content));
     case "system":
       return "system";
   }
@@ -120,20 +111,14 @@ export const describeEntry = (entry: EntryRecord): string => {
 
   try {
     if (entry.kind === "pi.reset") {
-      return clip(
-        message === undefined ? "reset" : labelled("handoff", textOf(message.content)),
-        PREVIEW_LIMIT,
-      );
+      return clip(message === undefined ? "reset" : labelled("handoff", textOf(message.content)), PREVIEW_LIMIT);
     }
 
     if (entry.kind === "pi.compaction" && message !== undefined) {
       return clip(labelled("compaction", textOf(message.content)), PREVIEW_LIMIT);
     }
 
-    return clip(
-      message === undefined ? entry.kind : describeMessage(entry, message),
-      PREVIEW_LIMIT,
-    );
+    return clip(message === undefined ? entry.kind : describeMessage(entry, message), PREVIEW_LIMIT);
   } catch {
     // An unfamiliar stored shape must not make the whole page unreadable.
     return entry.kind;
@@ -148,13 +133,8 @@ export const timestampOf = (entry: EntryRecord): string => {
 };
 
 /** Whether `entry` passes the `type` (entry kind) and `role` (message role) filters. */
-export const matchesFilter = (
-  entry: EntryRecord,
-  type: string | undefined,
-  role: string | undefined,
-): boolean =>
-  (type === undefined || entry.kind === type) &&
-  (role === undefined || entry.model?.[0]?.role === role);
+export const matchesFilter = (entry: EntryRecord, type: string | undefined, role: string | undefined): boolean =>
+  (type === undefined || entry.kind === type) && (role === undefined || entry.model?.[0]?.role === role);
 
 /** Something to search: a Note's text, or an entry's JSON, whose string values are searched decoded. */
 export type SearchItem = {
@@ -215,8 +195,7 @@ function* searchableText(item: SearchItem) {
 
     const decoded: unknown = JSON.parse(token[0]);
 
-    if (Predicate.isString(decoded))
-      yield { content: decoded, start: token.index, encoded: token[0] };
+    if (Predicate.isString(decoded)) yield { content: decoded, start: token.index, encoded: token[0] };
   }
 }
 
@@ -232,12 +211,7 @@ const encodedOffset = (encoded: string, offset: number): number => {
 };
 
 /** One page of the case-sensitive literal matches of `query` in `items`, from match `offset`. */
-export const search = (
-  items: Iterable<SearchItem>,
-  query: string,
-  offset: number,
-  limit: number,
-): SearchPage => {
+export const search = (items: Iterable<SearchItem>, query: string, offset: number, limit: number): SearchPage => {
   const matches: SearchMatch[] = [];
   let skipped = 0;
 
@@ -251,8 +225,7 @@ export const search = (
         else {
           const match: SearchMatch = {
             ref: item.ref,
-            offset:
-              part.encoded === "" ? position : part.start + encodedOffset(part.encoded, position),
+            offset: part.encoded === "" ? position : part.start + encodedOffset(part.encoded, position),
             // The decoded text, so escapes read as characters, not as JSON.
             preview: part.content.slice(Math.max(0, position - 20), position + 60),
           };

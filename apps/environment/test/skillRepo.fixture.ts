@@ -52,8 +52,16 @@ export const fakeGithub = () => {
       return {
         truncated,
         entries: Object.entries(files).map(([path, file]): TreeEntry => {
-          if (typeof file === "string") return { path, type: "blob", sha: fakeGitSha(file), size: new TextEncoder().encode(file).length, mode: "100644" };
-          if ("link" in file) return { path, type: "blob", sha: fakeGitSha(file.link), size: file.link.length, mode: "120000" };
+          if (typeof file === "string")
+            return {
+              path,
+              type: "blob",
+              sha: fakeGitSha(file),
+              size: new TextEncoder().encode(file).length,
+              mode: "100644",
+            };
+          if ("link" in file)
+            return { path, type: "blob", sha: fakeGitSha(file.link), size: file.link.length, mode: "120000" };
           return { path, type: "commit", sha: fakeGitSha(path) };
         }),
       };
@@ -63,7 +71,8 @@ export const fakeGithub = () => {
       failing(repo);
       for (const { repo: owner, files } of commits.values()) {
         if (owner !== key(repo)) continue;
-        for (const file of Object.values(files)) if (typeof file === "string" && fakeGitSha(file) === sha) return new TextEncoder().encode(file);
+        for (const file of Object.values(files))
+          if (typeof file === "string" && fakeGitSha(file) === sha) return new TextEncoder().encode(file);
       }
       throw new GithubReadError("not_found", `no blob ${sha}`);
     },
@@ -73,7 +82,9 @@ export const fakeGithub = () => {
     requests,
     /** Push `files` as a new commit of `repo`'s branch `ref` (`main`: the default branch); its SHA. */
     push: (repo: string, files: Files, ref = "main"): string => {
-      const commit = `${(next++).toString(16).padStart(2, "0")}${fakeGitSha(`${repo}${ref}${next}`)}`.slice(0, 40).padEnd(40, "0");
+      const commit = `${(next++).toString(16).padStart(2, "0")}${fakeGitSha(`${repo}${ref}${next}`)}`
+        .slice(0, 40)
+        .padEnd(40, "0");
       commits.set(commit, { repo, files });
       refs.set(`${repo}@${ref}`, commit);
       return commit;
@@ -93,4 +104,5 @@ export const fakeGithub = () => {
 };
 
 /** A `SKILL.md` that declares `name`. */
-export const skillMd = (name: string, body = "Steps.", extra = "") => `---\nname: ${name}\ndescription: What ${name} does.\n${extra}---\n${body}\n`;
+export const skillMd = (name: string, body = "Steps.", extra = "") =>
+  `---\nname: ${name}\ndescription: What ${name} does.\n${extra}---\n${body}\n`;

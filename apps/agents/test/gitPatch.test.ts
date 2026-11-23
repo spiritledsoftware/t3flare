@@ -24,7 +24,8 @@ const ENV = {
   GIT_CONFIG_NOSYSTEM: "1",
 };
 
-const git = (cwd: string, ...args: Array<string>): Buffer => execFileSync("git", args, { cwd, env: ENV, maxBuffer: 64 * 1024 * 1024 });
+const git = (cwd: string, ...args: Array<string>): Buffer =>
+  execFileSync("git", args, { cwd, env: ENV, maxBuffer: 64 * 1024 * 1024 });
 
 const repo = (name: string) => {
   const dir = join(root, name);
@@ -85,7 +86,8 @@ const ours = (dir: string, from: string, to: string, format: "patch" | "numstat"
   return asOutput(changes.map(format === "patch" ? filePatch : fileNumstat).join(""));
 };
 
-const lines = (count: number, prefix = "line") => Array.from({ length: count }, (_, at) => `${prefix} ${at + 1}\n`).join("");
+const lines = (count: number, prefix = "line") =>
+  Array.from({ length: count }, (_, at) => `${prefix} ${at + 1}\n`).join("");
 
 const check = (dir: string, from: string, to: string) => {
   expect(ours(dir, from, to, "patch")).toBe(realDiff(dir, from, to, "patch"));
@@ -100,9 +102,15 @@ const GIT_TEST_TIMEOUT_MS = 60_000;
 describe("checkpoint diffs match git's", { timeout: GIT_TEST_TIMEOUT_MS }, () => {
   it("edits in the middle, with a function line above", () => {
     const r = repo("edit");
-    r.put("src/main.ts", `import x from "x";\n\nfunction alpha() {\n${lines(20, "  a")}}\n\nfunction beta() {\n${lines(20, "  b")}}\n`);
+    r.put(
+      "src/main.ts",
+      `import x from "x";\n\nfunction alpha() {\n${lines(20, "  a")}}\n\nfunction beta() {\n${lines(20, "  b")}}\n`,
+    );
     const a = r.commit();
-    r.put("src/main.ts", `import x from "x";\n\nfunction alpha() {\n${lines(20, "  a").replace("  a 10\n", "  a 10 changed\n")}}\n\nfunction beta() {\n${lines(20, "  b").replace("  b 15\n", "")}}\n`);
+    r.put(
+      "src/main.ts",
+      `import x from "x";\n\nfunction alpha() {\n${lines(20, "  a").replace("  a 10\n", "  a 10 changed\n")}}\n\nfunction beta() {\n${lines(20, "  b").replace("  b 15\n", "")}}\n`,
+    );
     const b = r.commit();
     check(r.dir, a, b);
   });

@@ -25,14 +25,19 @@ const outFile = process.argv.includes("--out") ? process.argv[process.argv.index
 
 const profile = process.env.ALCHEMY_PROFILE ?? "default";
 const credentials = (() => {
-  if (process.env.CLOUDFLARE_API_TOKEN) return { token: process.env.CLOUDFLARE_API_TOKEN, accountId: process.env.CLOUDFLARE_ACCOUNT_ID };
-  const stored = JSON.parse(fs.readFileSync(path.join(os.homedir(), ".alchemy/profiles", profile, "cloudflare.json"), "utf8")).values;
+  if (process.env.CLOUDFLARE_API_TOKEN)
+    return { token: process.env.CLOUDFLARE_API_TOKEN, accountId: process.env.CLOUDFLARE_ACCOUNT_ID };
+  const stored = JSON.parse(
+    fs.readFileSync(path.join(os.homedir(), ".alchemy/profiles", profile, "cloudflare.json"), "utf8"),
+  ).values;
   return { token: stored.access as string, accountId: stored.accountId as string };
 })();
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const admin = (method: string, pathname: string) =>
-  fetch(new URL(pathname, base), { method, headers: { ...accessHeaders, authorization: `Bearer ${adminToken}` } }).then((r) => r.text());
+  fetch(new URL(pathname, base), { method, headers: { ...accessHeaders, authorization: `Bearer ${adminToken}` } }).then(
+    (r) => r.text(),
+  );
 
 const logFile = path.join(os.tmpdir(), `t3flare-tail-${Date.now()}.ndjson`);
 const out = fs.openSync(logFile, "w", 0o600);
@@ -77,7 +82,8 @@ const logLines: Array<string> = [];
 for (const chunk of chunks) {
   try {
     const event = JSON.parse(chunk) as { logs?: Array<{ message: Array<unknown> }> };
-    for (const log of event.logs ?? []) logLines.push(log.message.map((m) => (typeof m === "string" ? m : JSON.stringify(m))).join(" "));
+    for (const log of event.logs ?? [])
+      logLines.push(log.message.map((m) => (typeof m === "string" ? m : JSON.stringify(m))).join(" "));
   } catch {
     // An event cut off when the tail stopped.
   }

@@ -19,16 +19,25 @@ const SECRET_KEYS = /token|authorization|cookie|secret|bearer|credential|managem
 const redact = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(redact);
   if (value !== null && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, SECRET_KEYS.test(key) && typeof inner === "string" ? "[redacted]" : redact(inner)]));
+    return Object.fromEntries(
+      Object.entries(value).map(([key, inner]) => [
+        key,
+        SECRET_KEYS.test(key) && typeof inner === "string" ? "[redacted]" : redact(inner),
+      ]),
+    );
   }
-  if (typeof value === "string" && PROBE_KEY !== "" && value.includes(PROBE_KEY)) return value.replaceAll(PROBE_KEY, "[probe key]");
+  if (typeof value === "string" && PROBE_KEY !== "" && value.includes(PROBE_KEY))
+    return value.replaceAll(PROBE_KEY, "[probe key]");
   // t3flare's API keys' ids (not secret, but they name the keys): their shape only.
   return typeof value === "string" ? value.replace(/key:[0-9a-f]{8,}/g, "key:[id]") : value;
 };
 
 const writeEvidence = (name: string, value: Record<string, unknown>) => {
   fs.mkdirSync(EVIDENCE, { recursive: true });
-  fs.writeFileSync(path.join(EVIDENCE, `${name}.json`), `${JSON.stringify(redact({ at: new Date().toISOString(), host: base.host, ...value }), null, 1)}\n`);
+  fs.writeFileSync(
+    path.join(EVIDENCE, `${name}.json`),
+    `${JSON.stringify(redact({ at: new Date().toISOString(), host: base.host, ...value }), null, 1)}\n`,
+  );
   console.log(`${name}: ${value.ok === true ? "PASS" : "FAIL"} -> .evidence/parity-batch-2/${name}.json`);
   if (value.ok !== true) process.exitCode = 1;
 };
@@ -51,7 +60,11 @@ await admin("POST", "/_t3flare/disarm-bootstrap");
 switch (part) {
   case "registry": {
     const search = (await wsCall(cookie, "server.searchAcpRegistry", { query: "", limit: 100 })) as any;
-    const agents = (search?.agents ?? []).map((agent: any) => ({ id: agent.id, distribution: agent.distribution, lead: String(agent.description).split(". ")[0] }));
+    const agents = (search?.agents ?? []).map((agent: any) => ({
+      id: agent.id,
+      distribution: agent.distribution,
+      lead: String(agent.description).split(". ")[0],
+    }));
     const prepared: Record<string, unknown> = {};
     for (const agentId of ["claude-acp", "gemini", "cursor"]) {
       prepared[agentId] = await wsCall(cookie, "server.prepareAcpRegistryAgent", { agentId }).then(
@@ -60,7 +73,10 @@ switch (part) {
       );
     }
     const refusedAll = Object.values(prepared).every((answer: any) => answer.refused !== undefined);
-    const ok = agents.length > 20 && agents.find((a: any) => a.id === "claude-acp")?.lead.startsWith("Built in here") && refusedAll;
+    const ok =
+      agents.length > 20 &&
+      agents.find((a: any) => a.id === "claude-acp")?.lead.startsWith("Built in here") &&
+      refusedAll;
     writeEvidence("registry", { ok, count: agents.length, agents, prepared });
     break;
   }
@@ -76,13 +92,20 @@ switch (part) {
       (cause) => ({ refused: errorOf(cause) }),
     );
     const db = database as any;
-    const ok = db !== null && typeof db === "object" && db.databaseBytes > 0 && db.canReclaim === false && (reclaim as any).refused !== undefined;
+    const ok =
+      db !== null &&
+      typeof db === "object" &&
+      db.databaseBytes > 0 &&
+      db.canReclaim === false &&
+      (reclaim as any).refused !== undefined;
     writeEvidence("storage", { ok, database, reclaim, cleanup, sqlStats: health?.sqlStats ?? health?.sql });
     break;
   }
   case "otlp": {
     const before = (await probeLog()).filter((entry) => entry.kind === "otlp").length;
-    await wsCall(cookie, "server.updateSettings", { patch: { observability: { otlpTracesUrl: `${PROBE}/v1/traces`, otlpMetricsUrl: `${PROBE}/v1/metrics` } } });
+    await wsCall(cookie, "server.updateSettings", {
+      patch: { observability: { otlpTracesUrl: `${PROBE}/v1/traces`, otlpMetricsUrl: `${PROBE}/v1/metrics` } },
+    });
     // As on a laptop, the endpoints apply when t3 starts again.
     const restart = (await admin("POST", "/_t3flare/restart?mode=in-place")).json;
     const cookie2 = await pair().catch(() => cookie);
@@ -94,11 +117,19 @@ switch (part) {
     const traces = otlp.filter((entry) => entry.signal === "traces");
     const metrics = otlp.filter((entry) => entry.signal === "metrics");
     const ok = traces.some((entry) => entry.count > 0) && metrics.some((entry) => entry.count > 0);
-    writeEvidence("otlp", { ok, restart, observability: config?.observability ?? config?.settings?.observability, received: { traces: traces.length, metrics: metrics.length }, sample: otlp.slice(0, 6) });
+    writeEvidence("otlp", {
+      ok,
+      restart,
+      observability: config?.observability ?? config?.settings?.observability,
+      received: { traces: traces.length, metrics: metrics.length },
+      sample: otlp.slice(0, 6),
+    });
     break;
   }
   case "otlp-off": {
-    await wsCall(cookie, "server.updateSettings", { patch: { observability: { otlpTracesUrl: "", otlpMetricsUrl: "" } } });
+    await wsCall(cookie, "server.updateSettings", {
+      patch: { observability: { otlpTracesUrl: "", otlpMetricsUrl: "" } },
+    });
     await admin("POST", "/_t3flare/restart?mode=in-place");
     await sleep(15_000);
     const count = (await probeLog()).filter((entry) => entry.kind === "otlp").length;

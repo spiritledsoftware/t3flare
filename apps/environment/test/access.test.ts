@@ -35,7 +35,10 @@ const algorithm = { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" } as const;
 
 beforeAll(async () => {
   const generate = () =>
-    crypto.subtle.generateKey({ ...algorithm, modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]) }, true, ["sign", "verify"]);
+    crypto.subtle.generateKey({ ...algorithm, modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]) }, true, [
+      "sign",
+      "verify",
+    ]);
   keyPair = (await generate()) as CryptoKeyPair;
   otherPair = (await generate()) as CryptoKeyPair;
 });
@@ -43,7 +46,11 @@ beforeAll(async () => {
 const sign = async (claims: Record<string, unknown>, options: { kid?: string; alg?: string; key?: CryptoKey } = {}) => {
   const header = encode({ alg: options.alg ?? "RS256", kid: options.kid ?? "k1" });
   const payload = encode(claims);
-  const signature = await crypto.subtle.sign(algorithm, options.key ?? keyPair.privateKey, new TextEncoder().encode(`${header}.${payload}`));
+  const signature = await crypto.subtle.sign(
+    algorithm,
+    options.key ?? keyPair.privateKey,
+    new TextEncoder().encode(`${header}.${payload}`),
+  );
   return `${header}.${payload}.${Buffer.from(signature).toString("base64url")}`;
 };
 
@@ -60,9 +67,15 @@ const keys = async (kid: string): Promise<TeamKey | undefined> => (kid === "k1" 
 
 describe("classifyAssertion", () => {
   it("admits the owner and the stage's service token", async () => {
-    expect(await classifyAssertion(await sign(ownerClaims()), config, keys, NOW)).toEqual({ admitted: true, caller: { kind: "owner" } });
+    expect(await classifyAssertion(await sign(ownerClaims()), config, keys, NOW)).toEqual({
+      admitted: true,
+      caller: { kind: "owner" },
+    });
     const service = await sign(ownerClaims({ email: undefined, common_name: SERVICE_CLIENT }));
-    expect(await classifyAssertion(service, config, keys, NOW)).toEqual({ admitted: true, caller: { kind: "service-token" } });
+    expect(await classifyAssertion(service, config, keys, NOW)).toEqual({
+      admitted: true,
+      caller: { kind: "service-token" },
+    });
   });
 
   it.each([
@@ -80,9 +93,16 @@ describe("classifyAssertion", () => {
   it("refuses unsigned, unknown-key, badly signed and malformed assertions", async () => {
     const good = await sign(ownerClaims());
     const [header, payload] = good.split(".");
-    expect((await classifyAssertion(`${encode({ alg: "none", kid: "k1" })}.${payload}.`, config, keys, NOW)).admitted).toBe(false);
-    expect(await classifyAssertion(await sign(ownerClaims(), { kid: "k2" }), config, keys, NOW)).toEqual({ admitted: false, reason: "unknown_key" });
-    expect(await classifyAssertion(await sign(ownerClaims(), { key: otherPair.privateKey }), config, keys, NOW)).toEqual({ admitted: false, reason: "bad_signature" });
+    expect(
+      (await classifyAssertion(`${encode({ alg: "none", kid: "k1" })}.${payload}.`, config, keys, NOW)).admitted,
+    ).toBe(false);
+    expect(await classifyAssertion(await sign(ownerClaims(), { kid: "k2" }), config, keys, NOW)).toEqual({
+      admitted: false,
+      reason: "unknown_key",
+    });
+    expect(
+      await classifyAssertion(await sign(ownerClaims(), { key: otherPair.privateKey }), config, keys, NOW),
+    ).toEqual({ admitted: false, reason: "bad_signature" });
     const tampered = `${header}.${encode(ownerClaims({ email: "x@example.com" }))}.${good.split(".")[2]}`;
     expect(await classifyAssertion(tampered, config, keys, NOW)).toEqual({ admitted: false, reason: "bad_signature" });
     expect(await classifyAssertion("not-a-jwt", config, keys, NOW)).toEqual({ admitted: false, reason: "malformed" });
@@ -102,10 +122,36 @@ describe("verifyAdminRequest", () => {
 
   it("needs both the assertion and the admin token", async () => {
     const assertion = await sign(ownerClaims());
-    expect((await verifyAdminRequest(request({ "cf-access-jwt-assertion": assertion, authorization: "Bearer admin-token" }), config, keys, NOW)).admitted).toBe(true);
-    expect(await verifyAdminRequest(request({ "cf-access-jwt-assertion": assertion, authorization: "Bearer nope" }), config, keys, NOW)).toEqual({ admitted: false, reason: "bad_admin_token" });
-    expect(await verifyAdminRequest(request({ authorization: "Bearer admin-token" }), config, keys, NOW)).toEqual({ admitted: false, reason: "missing" });
-    expect(await verifyAdminRequest(request({ "cf-access-jwt-assertion": assertion, authorization: "Bearer admin-token" }), { ...config, adminToken: undefined }, keys, NOW)).toEqual({ admitted: false, reason: "not_configured" });
+    expect(
+      (
+        await verifyAdminRequest(
+          request({ "cf-access-jwt-assertion": assertion, authorization: "Bearer admin-token" }),
+          config,
+          keys,
+          NOW,
+        )
+      ).admitted,
+    ).toBe(true);
+    expect(
+      await verifyAdminRequest(
+        request({ "cf-access-jwt-assertion": assertion, authorization: "Bearer nope" }),
+        config,
+        keys,
+        NOW,
+      ),
+    ).toEqual({ admitted: false, reason: "bad_admin_token" });
+    expect(await verifyAdminRequest(request({ authorization: "Bearer admin-token" }), config, keys, NOW)).toEqual({
+      admitted: false,
+      reason: "missing",
+    });
+    expect(
+      await verifyAdminRequest(
+        request({ "cf-access-jwt-assertion": assertion, authorization: "Bearer admin-token" }),
+        { ...config, adminToken: undefined },
+        keys,
+        NOW,
+      ),
+    ).toEqual({ admitted: false, reason: "not_configured" });
   });
 
   it("refuses, never throws, when the key lookup fails", async () => {
@@ -113,40 +159,88 @@ describe("verifyAdminRequest", () => {
       throw new Error("down");
     };
     const assertion = await sign(ownerClaims());
-    expect(await verifyAdminRequest(request({ "cf-access-jwt-assertion": assertion, authorization: "Bearer admin-token" }), config, failing, NOW)).toEqual({ admitted: false, reason: "error" });
+    expect(
+      await verifyAdminRequest(
+        request({ "cf-access-jwt-assertion": assertion, authorization: "Bearer admin-token" }),
+        config,
+        failing,
+        NOW,
+      ),
+    ).toEqual({ admitted: false, reason: "error" });
   });
 
   it("local mode takes the admin token alone", () => {
     expect(verifyAdminToken(request({ authorization: "Bearer admin-token" }), config).admitted).toBe(true);
     expect(verifyAdminToken(request({}), config).admitted).toBe(false);
-    expect(verifyAdminToken(request({ authorization: "Bearer admin-token" }), { ...config, adminToken: undefined }).admitted).toBe(false);
+    expect(
+      verifyAdminToken(request({ authorization: "Bearer admin-token" }), { ...config, adminToken: undefined }).admitted,
+    ).toBe(false);
   });
 });
 
 describe("verifySettingsRequest (ADR-0035, plan D13): the Owner-client endpoint's own Access application", () => {
   const SETTINGS_AUD = "the-settings-aud";
   const settings: GuardConfig = { ...config, audience: SETTINGS_AUD };
-  const at = (path: string, headers: Record<string, string>) => new Request(`https://env.example${path}`, { method: "POST", headers });
+  const at = (path: string, headers: Record<string, string>) =>
+    new Request(`https://env.example${path}`, { method: "POST", headers });
 
   it("admits the owner's assertion for its own audience alone, with a sub, and the service token only with the admin token", async () => {
     const owner = await sign(ownerClaims({ aud: [SETTINGS_AUD], sub: "owner-sub" }));
-    expect(await verifySettingsRequest(at("/_t3flare/mcp", { "cf-access-jwt-assertion": owner }), settings, keys, NOW)).toEqual({ admitted: true, caller: { kind: "owner", subject: "owner-sub" } });
+    expect(
+      await verifySettingsRequest(at("/_t3flare/mcp", { "cf-access-jwt-assertion": owner }), settings, keys, NOW),
+    ).toEqual({ admitted: true, caller: { kind: "owner", subject: "owner-sub" } });
     const noSub = await sign(ownerClaims({ aud: [SETTINGS_AUD] }));
-    expect(await verifySettingsRequest(at("/_t3flare/mcp", { "cf-access-jwt-assertion": noSub }), settings, keys, NOW)).toEqual({ admitted: false, reason: "malformed" });
+    expect(
+      await verifySettingsRequest(at("/_t3flare/mcp", { "cf-access-jwt-assertion": noSub }), settings, keys, NOW),
+    ).toEqual({ admitted: false, reason: "malformed" });
     const emptySub = await sign(ownerClaims({ aud: [SETTINGS_AUD], sub: "" }));
-    expect(await verifySettingsRequest(at("/_t3flare/mcp", { "cf-access-jwt-assertion": emptySub }), settings, keys, NOW)).toEqual({ admitted: false, reason: "malformed" });
+    expect(
+      await verifySettingsRequest(at("/_t3flare/mcp", { "cf-access-jwt-assertion": emptySub }), settings, keys, NOW),
+    ).toEqual({ admitted: false, reason: "malformed" });
     const service = await sign(ownerClaims({ aud: [SETTINGS_AUD], email: undefined, common_name: SERVICE_CLIENT }));
-    expect(await verifySettingsRequest(at("/_t3flare/mcp", { "cf-access-jwt-assertion": service }), settings, keys, NOW)).toEqual({ admitted: false, reason: "bad_admin_token" });
-    expect(await verifySettingsRequest(at("/_t3flare/mcp", { "cf-access-jwt-assertion": service, authorization: "Bearer admin-token" }), settings, keys, NOW)).toEqual({ admitted: true, caller: { kind: "service-token" } });
-    expect(await verifySettingsRequest(at("/_t3flare/mcp", {}), { ...settings, audience: undefined }, keys, NOW)).toEqual({ admitted: false, reason: "not_configured" });
+    expect(
+      await verifySettingsRequest(at("/_t3flare/mcp", { "cf-access-jwt-assertion": service }), settings, keys, NOW),
+    ).toEqual({ admitted: false, reason: "bad_admin_token" });
+    expect(
+      await verifySettingsRequest(
+        at("/_t3flare/mcp", { "cf-access-jwt-assertion": service, authorization: "Bearer admin-token" }),
+        settings,
+        keys,
+        NOW,
+      ),
+    ).toEqual({ admitted: true, caller: { kind: "service-token" } });
+    expect(
+      await verifySettingsRequest(at("/_t3flare/mcp", {}), { ...settings, audience: undefined }, keys, NOW),
+    ).toEqual({ admitted: false, reason: "not_configured" });
   });
 
   it("refuses the panel's audience at the endpoint, and the endpoint's audience at the panel", async () => {
     const panelAssertion = await sign(ownerClaims({ sub: "owner-sub" }));
-    expect(await verifySettingsRequest(at("/_t3flare/mcp", { "cf-access-jwt-assertion": panelAssertion }), settings, keys, NOW)).toEqual({ admitted: false, reason: "wrong_audience" });
+    expect(
+      await verifySettingsRequest(
+        at("/_t3flare/mcp", { "cf-access-jwt-assertion": panelAssertion }),
+        settings,
+        keys,
+        NOW,
+      ),
+    ).toEqual({ admitted: false, reason: "wrong_audience" });
     const endpointAssertion = await sign(ownerClaims({ aud: [SETTINGS_AUD], sub: "owner-sub" }));
-    expect(await verifyHarnessRequest(at("/_t3flare/settings", { "cf-access-jwt-assertion": endpointAssertion }), config, keys, NOW)).toEqual({ admitted: false, reason: "wrong_audience" });
-    expect(await verifyAdminRequest(at("/_t3flare/health", { "cf-access-jwt-assertion": endpointAssertion, authorization: "Bearer admin-token" }), config, keys, NOW)).toEqual({
+    expect(
+      await verifyHarnessRequest(
+        at("/_t3flare/settings", { "cf-access-jwt-assertion": endpointAssertion }),
+        config,
+        keys,
+        NOW,
+      ),
+    ).toEqual({ admitted: false, reason: "wrong_audience" });
+    expect(
+      await verifyAdminRequest(
+        at("/_t3flare/health", { "cf-access-jwt-assertion": endpointAssertion, authorization: "Bearer admin-token" }),
+        config,
+        keys,
+        NOW,
+      ),
+    ).toEqual({
       admitted: false,
       reason: "wrong_audience",
     });
@@ -157,10 +251,18 @@ describe("teamKeys", () => {
   it("reads the team's keys once, then serves them from memory", async () => {
     const jwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
     let reads = 0;
-    const lookup = teamKeys(async () => {
-      reads++;
-      return JSON.stringify({ keys: [{ ...jwk, kid: "k1" }, { kty: "EC", kid: "skipped" }] });
-    }, () => 1000);
+    const lookup = teamKeys(
+      async () => {
+        reads++;
+        return JSON.stringify({
+          keys: [
+            { ...jwk, kid: "k1" },
+            { kty: "EC", kid: "skipped" },
+          ],
+        });
+      },
+      () => 1000,
+    );
     // The key served is the team's own: it verifies a signature made with the matching private key.
     const signed = new TextEncoder().encode("header.payload");
     const signature = await crypto.subtle.sign(algorithm, keyPair.privateKey, signed);

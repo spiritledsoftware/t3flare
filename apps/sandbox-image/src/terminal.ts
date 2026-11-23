@@ -145,7 +145,8 @@ export const scanMarkers = (carry: string, chunk: string): Scanned => {
   }
   // A trailing partial prefix (`ESC`, `ESC ]`, …) waits for the next chunk.
   for (let n = Math.min(MARK_PREFIX.length - 1, input.length); n > 0; n--) {
-    if (MARK_PREFIX.startsWith(input.slice(-n))) return { text: text + input.slice(0, -n), busy, prompts, carry: input.slice(-n) };
+    if (MARK_PREFIX.startsWith(input.slice(-n)))
+      return { text: text + input.slice(0, -n), busy, prompts, carry: input.slice(-n) };
   }
   return { text: text + input, busy, prompts, carry: "" };
 };

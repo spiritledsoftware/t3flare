@@ -89,7 +89,8 @@ export interface Updates {
   readonly fail: (key: UpdateKey, reason: string) => UpdateRecord | undefined;
 }
 
-export const isInFlight = (record: UpdateRecord | undefined): record is UpdateRecord => record !== undefined && record.outcome === null;
+export const isInFlight = (record: UpdateRecord | undefined): record is UpdateRecord =>
+  record !== undefined && record.outcome === null;
 
 export const updates = (deps: {
   readonly store: UpdateStore;
@@ -103,7 +104,8 @@ export const updates = (deps: {
     deps.store.put(storageKey(next.key), next);
     return next;
   };
-  const settleWith = (current: UpdateRecord, status: UpdateOutcome["status"], reason: string) => save({ ...current, outcome: { status, reason, at: deps.now() } });
+  const settleWith = (current: UpdateRecord, status: UpdateOutcome["status"], reason: string) =>
+    save({ ...current, outcome: { status, reason, at: deps.now() } });
 
   const settle = async (key: UpdateKey): Promise<UpdateRecord | undefined> => {
     let current = record(key);
@@ -120,19 +122,35 @@ export const updates = (deps: {
       if (run.status === "completed") {
         if (run.conclusion === "success") return settleWith(current, "succeeded", `${current.label}: ${run.url}`);
         const step = await actions.failedStep(run.id).catch(() => undefined);
-        return settleWith(current, "failed", `The update to ${current.label} failed${step === undefined ? "" : ` at "${step}"`} (${run.conclusion ?? "no conclusion"}). Press Update to retry: ${run.url}`);
+        return settleWith(
+          current,
+          "failed",
+          `The update to ${current.label} failed${step === undefined ? "" : ` at "${step}"`} (${run.conclusion ?? "no conclusion"}). Press Update to retry: ${run.url}`,
+        );
       }
     }
     const now = deps.now();
     const startedAt = current.startedAt ?? null;
     if (current.run === null && now - current.dispatchedAt > UNLISTED_MS) {
-      return settleWith(current, "failed", `The update to ${current.label} never started: GitHub lists no run for it ${UNLISTED_MS / 60_000} minutes after its dispatch.`);
+      return settleWith(
+        current,
+        "failed",
+        `The update to ${current.label} never started: GitHub lists no run for it ${UNLISTED_MS / 60_000} minutes after its dispatch.`,
+      );
     }
     if (startedAt !== null && now - startedAt > UPDATE_EXPIRY_MS) {
-      return settleWith(current, "failed", `The update to ${current.label} did not finish within ${UPDATE_EXPIRY_MS / 60_000} minutes of its start: ${current.run?.url ?? ""}`);
+      return settleWith(
+        current,
+        "failed",
+        `The update to ${current.label} did not finish within ${UPDATE_EXPIRY_MS / 60_000} minutes of its start: ${current.run?.url ?? ""}`,
+      );
     }
     if (startedAt === null && now - current.dispatchedAt > QUEUED_CEILING_MS) {
-      return settleWith(current, "failed", `The update to ${current.label} waited its turn for ${QUEUED_CEILING_MS / 3_600_000} hours without starting: ${current.run?.url ?? ""}`);
+      return settleWith(
+        current,
+        "failed",
+        `The update to ${current.label} waited its turn for ${QUEUED_CEILING_MS / 3_600_000} hours without starting: ${current.run?.url ?? ""}`,
+      );
     }
     return current;
   };
@@ -151,7 +169,9 @@ export const updates = (deps: {
       const existing = await settle(request.key).catch(() => record(request.key));
       if (isInFlight(existing)) {
         if (existing.target === request.target) return { record: existing, attached: true };
-        throw new UpdateRefused(`An update to ${existing.label} is already in progress${existing.run === null ? "" : `: ${existing.run.url}`}.`);
+        throw new UpdateRefused(
+          `An update to ${existing.label} is already in progress${existing.run === null ? "" : `: ${existing.run.url}`}.`,
+        );
       }
       const id = deps.newId();
       // The record is written before the dispatch: a reset between the two finds no run and expires; one written after
@@ -171,8 +191,14 @@ export const updates = (deps: {
       try {
         await deps.actions.dispatch(request.workflow, request.inputs(id));
       } catch (error) {
-        settleWith(created, "failed", `Could not start the update: ${error instanceof Error ? error.message : String(error)}`);
-        throw new UpdateRefused(`Could not start the update to ${request.label}: ${error instanceof Error ? error.message : String(error)}`);
+        settleWith(
+          created,
+          "failed",
+          `Could not start the update: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        throw new UpdateRefused(
+          `Could not start the update to ${request.label}: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
       return { record: created, attached: false };
     },

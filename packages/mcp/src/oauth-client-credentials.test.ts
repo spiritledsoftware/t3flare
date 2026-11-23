@@ -26,9 +26,7 @@ const TOKEN_ENDPOINT = "https://auth.example.com/oauth2/token";
 const NOW = 1_700_000_000_000;
 const JTI = "00112233445566778899aabbccddeeff";
 
-const metadata = (
-  extra: Partial<Record<string, ReadonlyArray<string>>> = {},
-): AuthorizationServerMetadata => ({
+const metadata = (extra: Partial<Record<string, ReadonlyArray<string>>> = {}): AuthorizationServerMetadata => ({
   issuer: "https://auth.example.com",
   authorization_endpoint: "https://auth.example.com/authorize",
   token_endpoint: TOKEN_ENDPOINT,
@@ -71,9 +69,7 @@ const ecKey = (namedCurve = "P-256") => pairOf({ name: "ECDSA", namedCurve });
 const decoder = new TextDecoder();
 
 const fromBase64Url = (text: string): Uint8Array =>
-  Uint8Array.from(atob(text.replaceAll("-", "+").replaceAll("_", "/")), (character) =>
-    character.charCodeAt(0),
-  );
+  Uint8Array.from(atob(text.replaceAll("-", "+").replaceAll("_", "/")), (character) => character.charCodeAt(0));
 
 /** The three parts of a compact JWS: header and payload as written, and the signature's bytes. */
 const partsOf = (jws: string) => {
@@ -87,9 +83,7 @@ const partsOf = (jws: string) => {
   };
 };
 
-const decodeClaims = Schema.decodeUnknownSync(
-  Schema.fromJsonString(Schema.Struct({ jti: Schema.String })),
-);
+const decodeClaims = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Struct({ jti: Schema.String })));
 
 describe("the assertion's claims", () => {
   it("are iss = sub = the client id, aud = the token endpoint, iat, exp = iat + 60 and the jti (golden)", () => {
@@ -221,9 +215,7 @@ describe("a private key", () => {
   it("is refused when it is RSA under 2048 bits, or a curve other than P-256, or garbage", async () => {
     expect(await problemOf((await rsaKey(1024)).pem)).toMatch(/1024 bits.*at least 2048/);
     expect(await problemOf((await ecKey("P-384")).pem)).toMatch(/neither an RSA key.*nor a P-256/);
-    expect(await problemOf("-----BEGIN PRIVATE KEY-----\n@@@@\n-----END PRIVATE KEY-----")).toMatch(
-      /Base64/,
-    );
+    expect(await problemOf("-----BEGIN PRIVATE KEY-----\n@@@@\n-----END PRIVATE KEY-----")).toMatch(/Base64/);
     expect(await problemOf("-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----")).toMatch(
       /neither an RSA key/,
     );
@@ -239,15 +231,11 @@ describe("how a secret is sent", () => {
         }),
       ),
     ).toBe("client_secret_post");
-    expect(
-      secretAuthMethod(
-        metadata({ token_endpoint_auth_methods_supported: ["client_secret_basic"] }),
-      ),
-    ).toBe("client_secret_basic");
+    expect(secretAuthMethod(metadata({ token_endpoint_auth_methods_supported: ["client_secret_basic"] }))).toBe(
+      "client_secret_basic",
+    );
     expect(secretAuthMethod(metadata())).toBe("client_secret_basic");
-    expect(
-      secretAuthMethod(metadata({ token_endpoint_auth_methods_supported: ["private_key_jwt"] })),
-    ).toBeUndefined();
+    expect(secretAuthMethod(metadata({ token_endpoint_auth_methods_supported: ["private_key_jwt"] }))).toBeUndefined();
   });
 });
 
@@ -277,10 +265,10 @@ const recording = (answer: (seen: Seen, index: number) => Response | Error) => {
 };
 
 const issued = (extra: { scope?: string; token_type?: string } = {}) =>
-  new Response(
-    JSON.stringify({ access_token: "at-1", token_type: "Bearer", expires_in: 3600, ...extra }),
-    { status: 200, headers: { "content-type": "application/json" } },
-  );
+  new Response(JSON.stringify({ access_token: "at-1", token_type: "Bearer", expires_in: 3600, ...extra }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
 
 const SECRET_AUTH: ClientCredentialsAuth = {
   kind: "secret",
@@ -403,9 +391,7 @@ describe("the token request with a key", () => {
     await requestClientCredentials({ ...input, fetch, now: NOW });
     await requestClientCredentials({ ...input, fetch, now: NOW });
 
-    const jtis = calls.map(
-      ({ form }) => decodeClaims(partsOf(form.get("client_assertion") ?? "").payload).jti,
-    );
+    const jtis = calls.map(({ form }) => decodeClaims(partsOf(form.get("client_assertion") ?? "").payload).jti);
 
     expect(new Set(jtis).size).toBe(2);
     expect(jtis.every((jti) => /^[0-9a-f]{32}$/.test(jti))).toBe(true);
@@ -417,11 +403,7 @@ describe("the token request with a key", () => {
     const auth = { kind: "key", clientId: CLIENT_ID, privateKey: pem } as const;
 
     expect(
-      await send(
-        fetch,
-        auth,
-        metadata({ token_endpoint_auth_methods_supported: ["client_secret_basic"] }),
-      ),
+      await send(fetch, auth, metadata({ token_endpoint_auth_methods_supported: ["client_secret_basic"] })),
     ).toMatchObject({ kind: "problem", message: expect.stringContaining("private_key_jwt") });
     expect(
       await send(
@@ -442,8 +424,7 @@ describe("the token request with a key", () => {
     const outcome = await send(fetch, {
       kind: "key",
       clientId: CLIENT_ID,
-      privateKey:
-        "-----BEGIN RSA PRIVATE KEY-----\nTOPSECRETKEYBODY\n-----END RSA PRIVATE KEY-----",
+      privateKey: "-----BEGIN RSA PRIVATE KEY-----\nTOPSECRETKEYBODY\n-----END RSA PRIVATE KEY-----",
     });
 
     expect(outcome.kind).toBe("problem");
@@ -454,9 +435,10 @@ describe("the token request with a key", () => {
 
 describe("pemSecrets", () => {
   it("is the block as written and its body without armor or whitespace", () => {
-    expect(
-      pemSecrets("-----BEGIN PRIVATE KEY-----\nAAAA\nBBBB\n-----END PRIVATE KEY-----"),
-    ).toEqual(["-----BEGIN PRIVATE KEY-----\nAAAA\nBBBB\n-----END PRIVATE KEY-----", "AAAABBBB"]);
+    expect(pemSecrets("-----BEGIN PRIVATE KEY-----\nAAAA\nBBBB\n-----END PRIVATE KEY-----")).toEqual([
+      "-----BEGIN PRIVATE KEY-----\nAAAA\nBBBB\n-----END PRIVATE KEY-----",
+      "AAAABBBB",
+    ]);
   });
 });
 
@@ -550,22 +532,23 @@ describe("what a request comes to", () => {
   });
 
   it("is refused by status when the body is not an OAuth error, a 5xx as server_error", async () => {
-    expect(
-      await send(
-        recording(() => new Response("<html>nope</html>", { status: 502 })).fetch,
-        SECRET_AUTH,
-      ),
-    ).toEqual({ kind: "refused", code: "server_error", message: "HTTP 502", status: 502 });
-    expect(
-      await send(recording(() => new Response("nope", { status: 403 })).fetch, SECRET_AUTH),
-    ).toEqual({ kind: "refused", code: "error", message: "HTTP 403", status: 403 });
+    expect(await send(recording(() => new Response("<html>nope</html>", { status: 502 })).fetch, SECRET_AUTH)).toEqual({
+      kind: "refused",
+      code: "server_error",
+      message: "HTTP 502",
+      status: 502,
+    });
+    expect(await send(recording(() => new Response("nope", { status: 403 })).fetch, SECRET_AUTH)).toEqual({
+      kind: "refused",
+      code: "error",
+      message: "HTTP 403",
+      status: 403,
+    });
   });
 
   it("takes an error code that is not a plain token as `error`", async () => {
     const outcome = await send(
-      recording(
-        () => new Response(JSON.stringify({ error: "<script>alert(1)</script>" }), { status: 400 }),
-      ).fetch,
+      recording(() => new Response(JSON.stringify({ error: "<script>alert(1)</script>" }), { status: 400 })).fetch,
       SECRET_AUTH,
     );
 
@@ -573,27 +556,27 @@ describe("what a request comes to", () => {
   });
 
   it("fails on a network error, a malformed token response and a token that is not a Bearer one", async () => {
+    expect(await send(recording(() => new Error(`connect failed with ${SECRET}`)).fetch, SECRET_AUTH)).toEqual({
+      kind: "failed",
+      message: "connect failed with [REDACTED]",
+      status: undefined,
+    });
+    expect(await send(recording(() => new Response("{}", { status: 200 })).fetch, SECRET_AUTH)).toMatchObject({
+      kind: "failed",
+      message: "The token response is not a token",
+    });
+    expect(await send(recording(() => issued({ token_type: "DPoP" })).fetch, SECRET_AUTH)).toMatchObject({
+      kind: "failed",
+      message: expect.stringContaining("not a Bearer one"),
+    });
     expect(
-      await send(recording(() => new Error(`connect failed with ${SECRET}`)).fetch, SECRET_AUTH),
-    ).toEqual({ kind: "failed", message: "connect failed with [REDACTED]", status: undefined });
-    expect(
-      await send(recording(() => new Response("{}", { status: 200 })).fetch, SECRET_AUTH),
-    ).toMatchObject({ kind: "failed", message: "The token response is not a token" });
-    expect(
-      await send(recording(() => issued({ token_type: "DPoP" })).fetch, SECRET_AUTH),
-    ).toMatchObject({ kind: "failed", message: expect.stringContaining("not a Bearer one") });
-    expect(
-      await send(
-        recording(() => new Response("x".repeat(70_000), { status: 200 })).fetch,
-        SECRET_AUTH,
-      ),
+      await send(recording(() => new Response("x".repeat(70_000), { status: 200 })).fetch, SECRET_AUTH),
     ).toMatchObject({ kind: "failed", message: "The token response is longer than 64 KiB" });
   });
 
   it("takes a token with no lifetime as one with none", async () => {
     const outcome = await send(
-      recording(() => new Response(JSON.stringify({ access_token: "at-2", token_type: "bearer" })))
-        .fetch,
+      recording(() => new Response(JSON.stringify({ access_token: "at-2", token_type: "bearer" }))).fetch,
       SECRET_AUTH,
     );
 

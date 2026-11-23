@@ -16,10 +16,20 @@ import { defaultTextModel, endpointSlug, type ModelEndpoint } from "@t3flare/mod
 import { type ModelEndpointSpec, scrubSecrets, secretsOf } from "./modelEndpointSpec.ts";
 
 /** One call of the panel's API as a script makes it: the path, and the JSON body of a change. */
-export type AdminCall = (method: "GET" | "POST", path: string, body?: unknown) => Promise<{ readonly status: number; readonly text: string }>;
+export type AdminCall = (
+  method: "GET" | "POST",
+  path: string,
+  body?: unknown,
+) => Promise<{ readonly status: number; readonly text: string }>;
 
 export type EnsureResult =
-  | { readonly ok: true; readonly outcome: "created" | "updated" | "kept"; readonly id: string; readonly models: number; readonly turnModel: string }
+  | {
+      readonly ok: true;
+      readonly outcome: "created" | "updated" | "kept";
+      readonly id: string;
+      readonly models: number;
+      readonly turnModel: string;
+    }
   | { readonly ok: false; readonly error: string };
 
 export interface EnsureOptions {
@@ -35,20 +45,27 @@ const PANEL = "/_t3flare/settings/api";
 const RETRY_MS = 5_000;
 
 /** The admin calls of a deployed stage: its URL, admin token and Access service token's credentials. */
-export const adminClient = (stage: { readonly url: string; readonly adminToken: string; readonly clientId: string; readonly clientSecret: string }): AdminCall => async (method, path, body) => {
-  const response = await fetch(new URL(path, stage.url), {
-    method,
-    redirect: "manual",
-    headers: {
-      "cf-access-client-id": stage.clientId,
-      "cf-access-client-secret": stage.clientSecret,
-      authorization: `Bearer ${stage.adminToken}`,
-      ...(body === undefined ? {} : { "content-type": "application/json" }),
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  return { status: response.status, text: await response.text() };
-};
+export const adminClient =
+  (stage: {
+    readonly url: string;
+    readonly adminToken: string;
+    readonly clientId: string;
+    readonly clientSecret: string;
+  }): AdminCall =>
+  async (method, path, body) => {
+    const response = await fetch(new URL(path, stage.url), {
+      method,
+      redirect: "manual",
+      headers: {
+        "cf-access-client-id": stage.clientId,
+        "cf-access-client-secret": stage.clientSecret,
+        authorization: `Bearer ${stage.adminToken}`,
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    return { status: response.status, text: await response.text() };
+  };
 
 const parsed = (text: string): any => {
   try {
@@ -59,9 +76,14 @@ const parsed = (text: string): any => {
 };
 
 /** The endpoint the turns and text generation use: its small model (SPI-1163's rule), else its first. */
-const turnModelOf = (endpoint: ModelEndpoint): string => defaultTextModel({ revision: 0, endpoints: [endpoint] }) ?? endpointSlug(endpoint.id, endpoint.models[0]?.id ?? "");
+const turnModelOf = (endpoint: ModelEndpoint): string =>
+  defaultTextModel({ revision: 0, endpoints: [endpoint] }) ?? endpointSlug(endpoint.id, endpoint.models[0]?.id ?? "");
 
-export const ensureModelEndpoint = async (admin: AdminCall, spec: ModelEndpointSpec, options: EnsureOptions): Promise<EnsureResult> => {
+export const ensureModelEndpoint = async (
+  admin: AdminCall,
+  spec: ModelEndpointSpec,
+  options: EnsureOptions,
+): Promise<EnsureResult> => {
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const now = options.now ?? Date.now;
   const secrets = secretsOf(spec);
@@ -71,10 +93,16 @@ export const ensureModelEndpoint = async (admin: AdminCall, spec: ModelEndpointS
   const list = async (): Promise<{ readonly endpoints: ReadonlyArray<ModelEndpoint> } | { readonly error: string }> => {
     const deadline = now() + options.waitMs;
     for (;;) {
-      const answer = await admin("GET", `${PANEL}/endpoints`).catch((error: unknown) => ({ status: 0, text: String(error) }));
+      const answer = await admin("GET", `${PANEL}/endpoints`).catch((error: unknown) => ({
+        status: 0,
+        text: String(error),
+      }));
       const json = answer.status === 200 ? parsed(answer.text) : undefined;
       if (Array.isArray(json?.endpoints)) return { endpoints: json.endpoints };
-      if (now() >= deadline) return { error: `the Settings page did not answer GET ${PANEL}/endpoints (${answer.status === 0 ? clean(answer.text) : `HTTP ${answer.status}`})` };
+      if (now() >= deadline)
+        return {
+          error: `the Settings page did not answer GET ${PANEL}/endpoints (${answer.status === 0 ? clean(answer.text) : `HTTP ${answer.status}`})`,
+        };
       await sleep(RETRY_MS);
     }
   };
@@ -82,25 +110,50 @@ export const ensureModelEndpoint = async (admin: AdminCall, spec: ModelEndpointS
   const before = await list();
   if ("error" in before) return fail(before.error);
   const existing = before.endpoints.find((endpoint) => endpoint.id === spec.id);
-  if (existing !== undefined && !options.overwrite) return { ok: true, outcome: "kept", id: spec.id, models: existing.models.length, turnModel: turnModelOf(existing) };
+  if (existing !== undefined && !options.overwrite)
+    return { ok: true, outcome: "kept", id: spec.id, models: existing.models.length, turnModel: turnModelOf(existing) };
 
-  const endpoint = { id: spec.id, label: spec.label, api: spec.api, baseUrl: spec.baseUrl, auth: "api-key", headers: spec.headers, models: [] as ReadonlyArray<string> };
+  const endpoint = {
+    id: spec.id,
+    label: spec.label,
+    api: spec.api,
+    baseUrl: spec.baseUrl,
+    auth: "api-key",
+    headers: spec.headers,
+    models: [] as ReadonlyArray<string>,
+  };
   let models = spec.models;
   if (models === undefined) {
     const found = await admin("POST", `${PANEL}/endpoints/discover`, { endpoint, apiKey: spec.apiKey });
     const json = found.status === 200 ? parsed(found.text) : undefined;
     if (json?.ok !== true || !Array.isArray(json.models)) {
-      return fail(`the Model endpoint "${spec.id}"'s model list could not be read (HTTP ${found.status}): ${typeof json?.error === "string" ? json.error : found.text}`);
+      return fail(
+        `the Model endpoint "${spec.id}"'s model list could not be read (HTTP ${found.status}): ${typeof json?.error === "string" ? json.error : found.text}`,
+      );
     }
     const listed: Array<string> = json.models.map((model: { id: string }) => model.id);
     const match = spec.match === undefined ? undefined : new RegExp(spec.match);
     models = match === undefined ? listed : listed.filter((id) => match.test(id));
-    if (models.length === 0) return fail(`the Model endpoint "${spec.id}" lists no model${match === undefined ? "" : ` matching ${spec.match}`} (${listed.length} listed)`);
+    if (models.length === 0)
+      return fail(
+        `the Model endpoint "${spec.id}" lists no model${match === undefined ? "" : ` matching ${spec.match}`} (${listed.length} listed)`,
+      );
   }
 
-  const saved = await admin("POST", `${PANEL}/endpoints`, { op: "save", endpoint: { ...endpoint, models }, apiKey: spec.apiKey });
+  const saved = await admin("POST", `${PANEL}/endpoints`, {
+    op: "save",
+    endpoint: { ...endpoint, models },
+    apiKey: spec.apiKey,
+  });
   const json = saved.status === 200 ? parsed(saved.text) : undefined;
-  if (json?.ok !== true || json.endpoint === undefined) return fail(`the Settings page refused the Model endpoint "${spec.id}" (HTTP ${saved.status}): ${saved.text}`);
+  if (json?.ok !== true || json.endpoint === undefined)
+    return fail(`the Settings page refused the Model endpoint "${spec.id}" (HTTP ${saved.status}): ${saved.text}`);
   const result: ModelEndpoint = json.endpoint;
-  return { ok: true, outcome: existing === undefined ? "created" : "updated", id: spec.id, models: result.models.length, turnModel: turnModelOf(result) };
+  return {
+    ok: true,
+    outcome: existing === undefined ? "created" : "updated",
+    id: spec.id,
+    models: result.models.length,
+    turnModel: turnModelOf(result),
+  };
 };

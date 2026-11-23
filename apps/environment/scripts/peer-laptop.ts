@@ -39,7 +39,11 @@ const cookie = await pair();
 await updateSettings(cookie, { linkedEnvironmentsEnabled: true });
 await wsCall(cookie, "server.updateSettings", {
   patch: {},
-  providerInstanceMutation: { operation: "upsert", instanceId: "piDurable", instance: { driver: "piDurable", enabled: true } },
+  providerInstanceMutation: {
+    operation: "upsert",
+    instanceId: "piDurable",
+    instance: { driver: "piDurable", enabled: true },
+  },
 });
 const cloudProject = await ensureCloudFixtureProject(cookie);
 out.cloudProject = cloudProject;
@@ -47,14 +51,28 @@ out.cloudProject = cloudProject;
 // `t3_thread_launch` refuses a model its provider does not list (`model_unavailable`), and the stage's models are its
 // Model endpoints' (e.g. `commissary/claude-haiku-5-5`), so a fixed id is refused. A small one, when listed. Reads
 // t3's `server.refreshProviders` reply (`providers[].models[].slug`): U30 in docs/upstream-fragility.md.
-const advertised: { readonly slugs: Array<string>; readonly error?: string } = await wsCall(cookie, "server.refreshProviders", { instanceId: "piDurable" })
+const advertised: { readonly slugs: Array<string>; readonly error?: string } = await wsCall(
+  cookie,
+  "server.refreshProviders",
+  { instanceId: "piDurable" },
+)
   .then((reply: any) => ({
-    slugs: ((reply?.providers ?? []).find((provider: any) => provider.instanceId === "piDurable")?.models ?? []).map((model: any) => String(model.slug)),
+    slugs: ((reply?.providers ?? []).find((provider: any) => provider.instanceId === "piDurable")?.models ?? []).map(
+      (model: any) => String(model.slug),
+    ),
   }))
   .catch((error: unknown) => ({ slugs: [], error: String(error).slice(0, 400) }));
 const launchModel = advertised.slugs.find((slug) => /haiku/.test(slug)) ?? advertised.slugs[0];
-out.launchModel = { model: launchModel ?? null, advertised: advertised.slugs.slice(0, 20), error: advertised.error ?? null };
-check("the stage's Durable agent advertises a model for the forwarded launch", launchModel !== undefined, out.launchModel);
+out.launchModel = {
+  model: launchModel ?? null,
+  advertised: advertised.slugs.slice(0, 20),
+  error: advertised.error ?? null,
+};
+check(
+  "the stage's Durable agent advertises a model for the forwarded launch",
+  launchModel !== undefined,
+  out.launchModel,
+);
 
 // The laptop.
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "t3flare-laptop-"));
@@ -81,7 +99,10 @@ try {
 
   // R2: link with the stock CLI.
   const code = (await mintPairingCode(cookie, { label: `laptop ${version}` })).code;
-  const linked = laptop.cli(["environment", "link", base.origin, "--pairing-code", code, "--access", "auto-accept-edits"], { allowFailure: true });
+  const linked = laptop.cli(
+    ["environment", "link", base.origin, "--pairing-code", code, "--access", "auto-accept-edits"],
+    { allowFailure: true },
+  );
   out.link = { status: linked.status, stdout: linked.stdout.slice(0, 600), stderr: linked.stderr.slice(-600) };
   check("t3 environment link succeeds", linked.status === 0, out.link);
   const listed = laptop.cli(["environment", "list", "--json"], { allowFailure: true });
@@ -94,24 +115,34 @@ try {
   out.list = links;
 
   // R3: an outside MCP client of the laptop (an app approval code at full access) forwards to the stage.
-  const appCode = (await mintPairingCode(laptopCookie, { access: "full-access", label: "harness app" }, laptop.url)).code;
+  const appCode = (await mintPairingCode(laptopCookie, { access: "full-access", label: "harness app" }, laptop.url))
+    .code;
   const app = await signIn(appCode, "full-access", { at: laptop.url, peerLink: false });
   const mcp = new McpClient(app.token, { at: laptop.url });
   const environments = await mcp.call("t3_environment_links", {});
   out.environmentLinks = { isError: environments.isError, sample: environments.text.slice(0, 800) };
-  const cloudId = ((await (await fetch(new URL("/.well-known/t3/environment", base))).json()) as { environmentId: string }).environmentId;
-  const cloudEnvironmentId: string | undefined = (environments.json?.links ?? []).find((link: any) => link.environmentId === cloudId)?.environmentId;
+  const cloudId = (
+    (await (await fetch(new URL("/.well-known/t3/environment", base))).json()) as { environmentId: string }
+  ).environmentId;
+  const cloudEnvironmentId: string | undefined = (environments.json?.links ?? []).find(
+    (link: any) => link.environmentId === cloudId,
+  )?.environmentId;
   check("the laptop lists the stage as a linked environment", cloudEnvironmentId !== undefined, out.environmentLinks);
   if (cloudEnvironmentId !== undefined) {
     const remoteProjects = await mcp.call("t3_project_list", { environmentId: cloudEnvironmentId });
     const localProjects = await mcp.call("t3_project_list", {});
     const remote = (remoteProjects.json?.projects ?? []).find((project: any) => project.id === cloudProject.projectId);
     const local = (localProjects.json?.projects ?? []).find((project: any) => project.id === laptopProjectId);
-    out.repoIdentity = { remote: remote?.repositoryIdentity ?? null, local: local?.repositoryIdentity ?? null, remoteError: remoteProjects.isError ? remoteProjects.text.slice(0, 300) : null };
+    out.repoIdentity = {
+      remote: remote?.repositoryIdentity ?? null,
+      local: local?.repositoryIdentity ?? null,
+      remoteError: remoteProjects.isError ? remoteProjects.text.slice(0, 300) : null,
+    };
     check(
       "R4: the stage's fixture project and the laptop's clone have the same canonicalKey",
       skipRepo ||
-      remote?.repositoryIdentity?.canonicalKey !== undefined && remote?.repositoryIdentity?.canonicalKey === local?.repositoryIdentity?.canonicalKey,
+        (remote?.repositoryIdentity?.canonicalKey !== undefined &&
+          remote?.repositoryIdentity?.canonicalKey === local?.repositoryIdentity?.canonicalKey),
       out.repoIdentity,
     );
     const launched = await mcp.call("t3_thread_launch", {
@@ -124,7 +155,11 @@ try {
     });
     out.launch = { isError: launched.isError, sample: launched.text.slice(0, 800) };
     const threadId: string | undefined = launched.json?.threadId ?? launched.json?.thread?.threadId;
-    check("a forwarded t3_thread_launch starts a thread on the stage", !launched.isError && threadId !== undefined, out.launch);
+    check(
+      "a forwarded t3_thread_launch starts a thread on the stage",
+      !launched.isError && threadId !== undefined,
+      out.launch,
+    );
     if (threadId !== undefined) {
       const started = Date.now();
       let waited = await mcp.call("t3_thread_wait", { environmentId: cloudEnvironmentId, threadId, timeoutMs: 50_000 });
@@ -132,9 +167,17 @@ try {
         waited = await mcp.call("t3_thread_wait", { environmentId: cloudEnvironmentId, threadId, timeoutMs: 50_000 });
       }
       out.wait = { isError: waited.isError, ms: Date.now() - started, sample: waited.text.slice(0, 600) };
-      check("a forwarded t3_thread_wait decodes and the run completes", !waited.isError && waited.json?.status === "completed", out.wait);
+      check(
+        "a forwarded t3_thread_wait decodes and the run completes",
+        !waited.isError && waited.json?.status === "completed",
+        out.wait,
+      );
       const read = await mcp.call("t3_thread_read", { environmentId: cloudEnvironmentId, threadId });
-      out.read = { isError: read.isError, pong: read.text.includes("PONG"), linkOrigin: read.text.includes("linkOrigin") };
+      out.read = {
+        isError: read.isError,
+        pong: read.text.includes("PONG"),
+        linkOrigin: read.text.includes("linkOrigin"),
+      };
       check("the reply reads back through the link", read.text.includes("PONG"), out.read);
     }
   }

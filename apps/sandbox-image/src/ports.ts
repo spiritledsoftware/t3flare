@@ -130,4 +130,3 @@ export const stopGroupArgv = (pgid: number, members: ReadonlyArray<number>): Rea
   const pids = members.filter((pid) => Number.isInteger(pid) && pid > 1).map(String);
   return ["bash", "-c", STOP_SCRIPT, "t3flare-stop", String(pgid), ...pids];
 };
-

@@ -21,13 +21,11 @@ const capabilitiesOf = (model: { readonly reasoning: boolean }): ModelCapabiliti
             id: "thinking",
             label: "Thinking",
             type: "select",
-            options: THINKING_LEVELS.map(
-              (level): ProviderOptionChoice => ({
-                id: level,
-                label: LABELS[level],
-                ...(level === DEFAULT_THINKING ? { isDefault: true } : {}),
-              }),
-            ),
+            options: THINKING_LEVELS.map((level): ProviderOptionChoice => ({
+              id: level,
+              label: LABELS[level],
+              ...(level === DEFAULT_THINKING ? { isDefault: true } : {}),
+            })),
           },
         ]
       : [],

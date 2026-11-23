@@ -89,7 +89,9 @@ export interface ProcessHostDeps {
   /** Whether `cli: "probe"` may start (test stages). */
   readonly allowProbe: boolean;
   /** Before a start: the profile's checks that need the Container (the sandbox probe), and env for the process. */
-  readonly beforeStart?: (input: ProcessStartInput) => Promise<{ readonly env?: Readonly<Record<string, string>>; readonly sandbox?: boolean } | void>;
+  readonly beforeStart?: (
+    input: ProcessStartInput,
+  ) => Promise<{ readonly env?: Readonly<Record<string, string>>; readonly sandbox?: boolean } | void>;
 }
 
 /**
@@ -105,7 +107,9 @@ const weightOf = (cli: string) => CLI_WEIGHT[cli] ?? 1;
  * read as its default when absent or out of the setting's bounds (an older or newer Environment), as the budget reads a
  * carried budget (apps/agents/src/budget.ts).
  */
-export const cliLimitsOf = (input: Pick<ProcessStartInput, "cliProcessesPerWorkspace" | "cliReclaimSeconds">): { readonly maxProcesses: number; readonly reclaimAfterMs: number } => ({
+export const cliLimitsOf = (
+  input: Pick<ProcessStartInput, "cliProcessesPerWorkspace" | "cliReclaimSeconds">,
+): { readonly maxProcesses: number; readonly reclaimAfterMs: number } => ({
   maxProcesses: carriedOr("cliProcessesPerWorkspace", input.cliProcessesPerWorkspace),
   reclaimAfterMs: carriedOr("cliReclaimSeconds", input.cliReclaimSeconds) * 1000,
 });
@@ -217,7 +221,13 @@ export class ProcessHost {
   }
 
   /** Diagnosis: each live process, its turn state and how long it has been quiet. */
-  state(): ReadonlyArray<{ readonly key: string; readonly thread: string | null; readonly environmentEpoch: number; readonly inTurn: boolean; readonly idleMs: number }> {
+  state(): ReadonlyArray<{
+    readonly key: string;
+    readonly thread: string | null;
+    readonly environmentEpoch: number;
+    readonly inTurn: boolean;
+    readonly idleMs: number;
+  }> {
     const now = this.#deps.now();
     return [...this.#procs.values()].map((proc) => ({
       key: proc.key,
@@ -239,7 +249,9 @@ export class ProcessHost {
   /** Whether CLI processes hold the Container: one is in a turn, or its last turn (or input) is recent. */
   holdsContainer(idleHoldMs = CLI_IDLE_HOLD_MS): boolean {
     const now = this.#deps.now();
-    return [...this.#procs.values()].some((proc) => !proc.exited && (proc.inTurn || now - Math.max(proc.turnEndedAt, proc.lastInput) < idleHoldMs));
+    return [...this.#procs.values()].some(
+      (proc) => !proc.exited && (proc.inTurn || now - Math.max(proc.turnEndedAt, proc.lastInput) < idleHoldMs),
+    );
   }
 
   /**
@@ -360,7 +372,10 @@ export class ProcessHost {
       const process = await this.#deps.spawn([PROCESS_SHELL, "-c", command], env);
       proc.process = process;
       proc.writer = process.stdin?.getWriter() as WritableStreamDefaultWriter<Uint8Array> | undefined;
-      const reads = Promise.all([this.#read(proc, process.stdout, "stdout"), this.#read(proc, process.stderr, "stderr")]);
+      const reads = Promise.all([
+        this.#read(proc, process.stdout, "stdout"),
+        this.#read(proc, process.stderr, "stderr"),
+      ]);
       void process.exitCode
         .then(
           (code) => code,
@@ -374,16 +389,29 @@ export class ProcessHost {
     } catch (error) {
       this.#procs.delete(input.key);
       this.#save();
-      return refuse(`the process did not start: ${String(error instanceof Error ? error.message : error).slice(0, 300)}`);
+      return refuse(
+        `the process did not start: ${String(error instanceof Error ? error.message : error).slice(0, 300)}`,
+      );
     }
     if (proc.killing) await this.#deps.kill([proc.key]);
-    console.log(JSON.stringify({ t3flare: "process-started", key: input.key, cli: input.cli, thread: input.thread ?? null, environmentEpoch: input.environmentEpoch, sandbox: sandbox ?? null }));
+    console.log(
+      JSON.stringify({
+        t3flare: "process-started",
+        key: input.key,
+        cli: input.cli,
+        thread: input.thread ?? null,
+        environmentEpoch: input.environmentEpoch,
+        sandbox: sandbox ?? null,
+      }),
+    );
     return { ok: true, epoch: this.#deps.epoch, ...(sandbox === undefined ? {} : { sandbox }) };
   }
 
   /** Kills every process of this Workspace started under another Environment epoch, or by an earlier instance of this object. */
   async #killOthers(environmentEpoch: number): Promise<void> {
-    const stale = this.#deps.remembered().filter((marker) => marker.environmentEpoch !== environmentEpoch || !this.#procs.has(marker.key));
+    const stale = this.#deps
+      .remembered()
+      .filter((marker) => marker.environmentEpoch !== environmentEpoch || !this.#procs.has(marker.key));
     if (stale.length === 0) return;
     console.log(JSON.stringify({ t3flare: "process-stale-killed", count: stale.length, environmentEpoch }));
     await this.#deps.kill(stale.map((marker) => marker.key));
@@ -399,7 +427,8 @@ export class ProcessHost {
     const reader = stream.getReader();
     try {
       for (;;) {
-        while (this.#pendingBytes >= BACKPRESSURE_BYTES) await new Promise<void>((resolve) => this.#drained.push(resolve));
+        while (this.#pendingBytes >= BACKPRESSURE_BYTES)
+          await new Promise<void>((resolve) => this.#drained.push(resolve));
         const { done, value } = await reader.read();
         if (done) break;
         const bytes = value as Uint8Array;
@@ -428,7 +457,8 @@ export class ProcessHost {
    */
   async read(input: ProcessReadInput): Promise<ProcessReadAnswer> {
     const answer = this.heartbeat(input.keys);
-    if (this.#sent !== undefined && input.ack !== this.#sent.batch) return { ...answer, batch: this.#sent.batch, frames: this.#sent.frames };
+    if (this.#sent !== undefined && input.ack !== this.#sent.batch)
+      return { ...answer, batch: this.#sent.batch, frames: this.#sent.frames };
     this.#sent = undefined;
     if (this.#pending.length === 0 && input.waitMs > 0) {
       await new Promise<void>((resolve) => {
@@ -440,7 +470,9 @@ export class ProcessHost {
       });
       // A request's answer comes in pieces: gather them for a moment (sooner while input is recent).
       if (this.#pending.length > 0 && this.#pendingBytes < BATCH_BYTES) {
-        await new Promise((resolve) => setTimeout(resolve, this.#deps.now() - this.#lastInput < ECHO_WINDOW_MS ? BATCH_MS : BATCH_MS * 2));
+        await new Promise((resolve) =>
+          setTimeout(resolve, this.#deps.now() - this.#lastInput < ECHO_WINDOW_MS ? BATCH_MS : BATCH_MS * 2),
+        );
       }
     }
     const frames: Array<ProcessFrame> = [];
@@ -558,10 +590,19 @@ export class ProcessHost {
   async expire(): Promise<number> {
     const now = this.#deps.now();
     const lapsed = [...this.#procs.values()].filter(
-      (proc) => !proc.exited && (now - proc.lastHeartbeat >= HEARTBEAT_LAPSE_MS || (!proc.inTurn && now - proc.lastIo >= BACKSTOP_MS)),
+      (proc) =>
+        !proc.exited &&
+        (now - proc.lastHeartbeat >= HEARTBEAT_LAPSE_MS || (!proc.inTurn && now - proc.lastIo >= BACKSTOP_MS)),
     );
     for (const proc of lapsed) {
-      console.log(JSON.stringify({ t3flare: "process-expired", key: proc.key, heartbeatAgoMs: now - proc.lastHeartbeat, ioAgoMs: now - proc.lastIo }));
+      console.log(
+        JSON.stringify({
+          t3flare: "process-expired",
+          key: proc.key,
+          heartbeatAgoMs: now - proc.lastHeartbeat,
+          ioAgoMs: now - proc.lastIo,
+        }),
+      );
       await this.signal(proc.key);
     }
     return lapsed.length;

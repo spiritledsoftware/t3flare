@@ -14,16 +14,37 @@ import type { EndpointFailureRecord } from "@t3flare/session-protocol";
 
 type Event = ProviderAdapter.ProviderAdapterV2Event;
 
-export const cliRelayFailure = (failure: OrchestrationV2ProviderFailure, relayed: EndpointFailureRecord | null, now: number): OrchestrationV2ProviderFailure =>
-  relayed === null ? failure : makeProviderFailure({ class: relayed.class, message: relayed.message, code: relayed.code, retryable: relayed.retryable, resetAt: heldReset(relayed, now) });
+export const cliRelayFailure = (
+  failure: OrchestrationV2ProviderFailure,
+  relayed: EndpointFailureRecord | null,
+  now: number,
+): OrchestrationV2ProviderFailure =>
+  relayed === null
+    ? failure
+    : makeProviderFailure({
+        class: relayed.class,
+        message: relayed.message,
+        code: relayed.code,
+        retryable: relayed.retryable,
+        resetAt: heldReset(relayed, now),
+      });
 
 /** The failure a failed turn's terminal or an error item carries; undefined for any other event. */
 export const failureOf = (event: Event): OrchestrationV2ProviderFailure | undefined =>
-  event.type === "turn.terminal" && event.status === "failed" ? event.failure : event.type === "turn_item.updated" && event.turnItem.type === "error" ? event.turnItem.failure : undefined;
+  event.type === "turn.terminal" && event.status === "failed"
+    ? event.failure
+    : event.type === "turn_item.updated" && event.turnItem.type === "error"
+      ? event.turnItem.failure
+      : undefined;
 
 /** The event with its failure as t3 shows it for the session (`cliRelayFailure`). */
 export const withRelayFailure = (event: Event, relayed: EndpointFailureRecord | null, now: number): Event => {
-  if (event.type === "turn.terminal" && event.status === "failed") return { ...event, failure: cliRelayFailure(event.failure, relayed, now) };
-  if (event.type === "turn_item.updated" && event.turnItem.type === "error") return { ...event, turnItem: { ...event.turnItem, failure: cliRelayFailure(event.turnItem.failure, relayed, now) } };
+  if (event.type === "turn.terminal" && event.status === "failed")
+    return { ...event, failure: cliRelayFailure(event.failure, relayed, now) };
+  if (event.type === "turn_item.updated" && event.turnItem.type === "error")
+    return {
+      ...event,
+      turnItem: { ...event.turnItem, failure: cliRelayFailure(event.turnItem.failure, relayed, now) },
+    };
   return event;
 };

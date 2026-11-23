@@ -7,7 +7,8 @@ import { describe, expect, it } from "vitest";
 import { askUser, answerText, QuestionStore } from "../src/extensions/ask-user.ts";
 import { instanceKv, memoryKv, restartingHarness, textOf, until } from "./harness.fixture.ts";
 
-const ask = (args: Record<string, unknown>) => fauxAssistantMessage([fauxToolCall("ask_user", args as never, { id: "ask-1" })], { stopReason: "toolUse" });
+const ask = (args: Record<string, unknown>) =>
+  fauxAssistantMessage([fauxToolCall("ask_user", args as never, { id: "ask-1" })], { stopReason: "toolUse" });
 
 describe("ask_user", () => {
   it("waits through restarts for the owner's answer, which is the tool's result", async () => {
@@ -19,10 +20,18 @@ describe("ask_user", () => {
       },
       turn: () => "turn-1",
     };
-    const harness = await restartingHarness([askUser(host)], [ask({ question: "Which color?", options: ["red", "blue"] }), fauxAssistantMessage("ok")]);
+    const harness = await restartingHarness(
+      [askUser(host)],
+      [ask({ question: "Which color?", options: ["red", "blue"] }), fauxAssistantMessage("ok")],
+    );
     await until(() => store.pending().length === 1, "the question");
     const question = store.pending()[0]!;
-    expect(question).toMatchObject({ question: "Which color?", options: ["red", "blue"], allowFreeText: true, turn: "turn-1" });
+    expect(question).toMatchObject({
+      question: "Which color?",
+      options: ["red", "blue"],
+      allowFreeText: true,
+      turn: "turn-1",
+    });
     for (let restart = 0; restart < 7; restart++) {
       store = new QuestionStore(open(), () => {});
       await harness.restart();

@@ -47,14 +47,17 @@ The proxy already holds the owner's subscriptions, pools several accounts per ve
 **Lifted** (owner, 2026-11-12, back to stock): see the last refinement.
 
 Some stock t3 features keep a credential the owner types into t3's settings: cloud voice transcription (a vendor speech key), custom text generators (a vendor key per generator), and `request_secret` (an agent asks the owner for a secret). Each would put a credential in t3flare beside the proxy key, which this ADR rules out. They are **refused for now**:
+
 - `cloudVoiceTranscription` is stripped.
 - `textGenerators` is locked empty by t3flare's managed policy (ADR-0023).
 - Agents are not offered `request_secret` (ADR-0022).
 
 Text generation itself runs on the proxy through the Durable agent provider. A secret provider such as 1Password may come later through the broker pattern: the Environment DO fetches a secret per use and never stores it (ADR-0018's shape). That would take its own decision.
+
 ## Refinement (tools step): owner-added MCP servers' credentials (owner decision (b))
 
 An exception to D5. A direct MCP server's credential is a header value the owner types once in the harness panel, or an OAuth sign-in he completes there (per server name and URL, owner-only, refreshed on use).
+
 - It is stored write-only in the Environment DO's secret store, never read back (the API answers `set`, `setAt` and an HMAC fingerprint), and never in a Session, a Workspace, a Container or a log.
 - Only the owner sets it, and removing the server deletes it at once.
 - It is sent only from the strictly public MCP Worker, to that server's URL (ADR-0028).
@@ -67,6 +70,7 @@ Subsumed by D5's lifting (below): what this exception allowed for MCP servers is
 
 Owner, 2026-11-12, back to stock (scope audit row 12). t3's typed-key settings work as in stock t3: the owner may type a
 vendor key into t3, and t3 keeps it in the Environment's secret store as it keeps its other secrets.
+
 - Custom text generators: `textGenerators` is no longer locked by the managed policy (ADR-0023).
 - Cloud voice transcription: `cloudVoiceTranscription` is advertised again. It is not host-bound: t3's `CloudSpeech`
   calls the vendor over fetch with the typed key, from the Environment DO.

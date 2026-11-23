@@ -13,7 +13,14 @@
 //
 // All rest on `details.todoRev`, the revision of the list that a result's text shows.
 import type { Message } from "@earendil-works/pi-ai";
-import { GenerationTask, type Harness, hook, type HookRegistration, type JsonObject, ToolTask } from "@earendil-works/pi-durable";
+import {
+  GenerationTask,
+  type Harness,
+  hook,
+  type HookRegistration,
+  type JsonObject,
+  ToolTask,
+} from "@earendil-works/pi-durable";
 
 import { EMPTY_TODO_STATE, TodoDoc, type TodoState } from "./doc.ts";
 import { formatTasks } from "./list.ts";
@@ -24,7 +31,8 @@ export const TODO_GUIDELINE =
   "Track this conversation's Tasks in the Todo List with todo. When it has Tasks, keep it current: mark a Task active when you start it and completed as soon as it is done, and bring it up to date before the context is compacted or rolled over.";
 
 /** Marks the text as the extension's, so the model does not read it as the user's. */
-export const SNAPSHOT_HEADER = "Todo List state at the start of this context, from the todo extension (not a user message):";
+export const SNAPSHOT_HEADER =
+  "Todo List state at the start of this context, from the todo extension (not a user message):";
 
 /** Marks a list a script changed, appended to the result of the call that ran the script. */
 export const CHANGED_HEADER = "Todo List after this call, from the todo extension:";
@@ -57,10 +65,14 @@ const withText = (message: Message, text: string): Message => {
   if (message.role === "user") {
     return {
       ...message,
-      content: typeof message.content === "string" ? `${message.content}\n\n${text}` : [...message.content, { type: "text", text: `\n${text}` }],
+      content:
+        typeof message.content === "string"
+          ? `${message.content}\n\n${text}`
+          : [...message.content, { type: "text", text: `\n${text}` }],
     };
   }
-  if (message.role === "toolResult") return { ...message, content: [...message.content, { type: "text", text: `\n${text}` }] };
+  if (message.role === "toolResult")
+    return { ...message, content: [...message.content, { type: "text", text: `\n${text}` }] };
   return message;
 };
 
@@ -91,7 +103,9 @@ export const todoWindow = (harness: () => Promise<Harness>): HookRegistration =>
         stale = kept !== null && kept.rev !== state.rev;
         if (kept === null && head !== undefined) {
           const recorded = { window, rev: state.rev, text: head };
-          await (await harness()).commit(async (tx) => {
+          await (
+            await harness()
+          ).commit(async (tx) => {
             (await tx.doc(TodoDoc, api.conversationId)).shown = recorded;
           }, context);
         }
@@ -129,7 +143,14 @@ export const todoResult = (): HookRegistration =>
       // pi-durable keeps the head of a result within its limits, after this hook: a list that would be cut is not shown,
       // so the result does not claim it is, and the request says the list changed.
       if (!withinLimits(result.output, added)) return undefined;
-      const kept = typeof result.details === "object" && result.details !== null && !Array.isArray(result.details) ? (result.details as JsonObject) : {};
-      return { ...result, output: [...result.output, { type: "text" as const, text: added }], details: { ...kept, [SHOWN_REV]: state.rev } };
+      const kept =
+        typeof result.details === "object" && result.details !== null && !Array.isArray(result.details)
+          ? (result.details as JsonObject)
+          : {};
+      return {
+        ...result,
+        output: [...result.output, { type: "text" as const, text: added }],
+        details: { ...kept, [SHOWN_REV]: state.rev },
+      };
     },
   });

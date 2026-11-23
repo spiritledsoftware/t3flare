@@ -55,7 +55,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { optionalSetting, requiredSettings } from "../apps/environment/scripts/lib/deploymentSettings.ts";
-import { MODEL_ENDPOINT_VAR, modelEndpointSecret, modelEndpointSpec } from "../apps/environment/scripts/lib/modelEndpointSpec.ts";
+import {
+  MODEL_ENDPOINT_VAR,
+  modelEndpointSecret,
+  modelEndpointSpec,
+} from "../apps/environment/scripts/lib/modelEndpointSpec.ts";
 
 /** Account-scoped "Access: Apps and Policies Write" (the catalog name is shared with a zone-scoped group). */
 const ACCESS_APPS_AND_POLICIES_WRITE = { id: "1e13c5124ca64b72b1969a67e8829049" };
@@ -130,10 +134,22 @@ export default Alchemy.Stack(
     // The Deployment settings every deploy needs (apps/environment/alchemy.run.ts), for every workflow: three repository
     // variables, and the Owner's email as a repository secret (a variable's value prints unmasked in the public logs).
     // The t3 track is the repository's, not an environment's: the bump's plan, the land and every deploy read it.
-    yield* GitHub.Variable("AccessTeamDomain", { ...repo, name: "T3FLARE_ACCESS_TEAM_DOMAIN", value: settings.value.T3FLARE_ACCESS_TEAM_DOMAIN });
-    yield* GitHub.Variable("WorkersDevSubdomain", { ...repo, name: "T3FLARE_WORKERS_DEV_SUBDOMAIN", value: settings.value.T3FLARE_WORKERS_DEV_SUBDOMAIN });
+    yield* GitHub.Variable("AccessTeamDomain", {
+      ...repo,
+      name: "T3FLARE_ACCESS_TEAM_DOMAIN",
+      value: settings.value.T3FLARE_ACCESS_TEAM_DOMAIN,
+    });
+    yield* GitHub.Variable("WorkersDevSubdomain", {
+      ...repo,
+      name: "T3FLARE_WORKERS_DEV_SUBDOMAIN",
+      value: settings.value.T3FLARE_WORKERS_DEV_SUBDOMAIN,
+    });
     yield* GitHub.Variable("T3Track", { ...repo, name: "T3FLARE_T3_TRACK", value: settings.value.T3FLARE_T3_TRACK });
-    yield* GitHub.Secret("OwnerEmail", { ...repo, name: "T3FLARE_OWNER_EMAIL", value: Redacted.make(settings.value.T3FLARE_OWNER_EMAIL) });
+    yield* GitHub.Secret("OwnerEmail", {
+      ...repo,
+      name: "T3FLARE_OWNER_EMAIL",
+      value: Redacted.make(settings.value.T3FLARE_OWNER_EMAIL),
+    });
 
     // Retained on destroy: deleting a GitHub environment also deletes whatever was set on it by hand. Deployable from
     // `main` only, like `prod`: bump.yml and cli-bump.yml run from `main`, and a run sends the whole policy, so one left
@@ -142,9 +158,7 @@ export default Alchemy.Stack(
       ...repo,
       name: "bump",
       deploymentBranchPolicy: { customBranchPolicies: ["main"] },
-    }).pipe(
-      Alchemy.RemovalPolicy.retain(),
-    );
+    }).pipe(Alchemy.RemovalPolicy.retain());
 
     // Everything `pnpm run bump` deploys and destroys on the `bump` stage.
     const token = yield* Cloudflare.ApiToken.AccountApiToken("BumpToken", {
@@ -174,15 +188,27 @@ export default Alchemy.Stack(
     });
 
     // The fixture repository the bump's acceptance test clones and pushes to.
-    yield* GitHub.Variable("BumpFixtureRepo", { ...repo, environment: bump, name: "T3FLARE_FIXTURE_REPO", value: settings.value.T3FLARE_FIXTURE_REPO });
+    yield* GitHub.Variable("BumpFixtureRepo", {
+      ...repo,
+      environment: bump,
+      name: "T3FLARE_FIXTURE_REPO",
+      value: settings.value.T3FLARE_FIXTURE_REPO,
+    });
 
     // SPI-1175: the Model endpoints both workflows' stages set up through the panel's API, one JSON secret holding their
     // keys: dev.env's T3FLARE_MODEL_ENDPOINT (an endpoint, or a list of them). Never printed.
     const endpoint = modelEndpointSpec(process.env);
     if (!endpoint.ok && endpoint.invalid) return yield* Effect.die(new Error(endpoint.reason));
     const endpointSecret = endpoint.ok ? Redacted.make(modelEndpointSecret(endpoint.specs)) : undefined;
-    if (endpointSecret === undefined) yield* Effect.logWarning(`ci:setup: no ${MODEL_ENDPOINT_VAR} secret: ${endpoint.ok ? "" : endpoint.reason}`);
-    else yield* GitHub.Secret("BumpModelEndpoint", { ...repo, environment: bump, name: MODEL_ENDPOINT_VAR, value: endpointSecret });
+    if (endpointSecret === undefined)
+      yield* Effect.logWarning(`ci:setup: no ${MODEL_ENDPOINT_VAR} secret: ${endpoint.ok ? "" : endpoint.reason}`);
+    else
+      yield* GitHub.Secret("BumpModelEndpoint", {
+        ...repo,
+        environment: bump,
+        name: MODEL_ENDPOINT_VAR,
+        value: endpointSecret,
+      });
 
     // prod (deploy-prod.yml): deployable from main only, retained on destroy like `bump`. Its own token, with the same
     // permissions (a prod deploy touches the same kinds of resource; Cloudflare cannot scope these groups to a stage),
@@ -205,7 +231,9 @@ export default Alchemy.Stack(
           effect: "allow",
           permissionGroups: ["Zone Read", "Workers Routes Write", "Zone WAF Write"],
           resources: {
-            [`com.cloudflare.api.account.${accountId}`]: { [`com.cloudflare.api.account.zone.${prodDomainZoneId}`]: "*" },
+            [`com.cloudflare.api.account.${accountId}`]: {
+              [`com.cloudflare.api.account.zone.${prodDomainZoneId}`]: "*",
+            },
           },
         },
       ],
@@ -246,8 +274,17 @@ export default Alchemy.Stack(
       value: prodDomain,
     });
     // prod's update target (in-app Updates, ADR-0037), when dev.env names one; deploy-prod.yml logs whether it is set.
-    if (updateRepo.value === undefined) yield* Effect.logWarning("ci:setup: no T3FLARE_UPDATE_REPO: prod gets no update target, so it has no in-app Update");
-    else yield* GitHub.Variable("ProdUpdateRepo", { ...repo, environment: prod, name: "T3FLARE_UPDATE_REPO", value: updateRepo.value });
+    if (updateRepo.value === undefined)
+      yield* Effect.logWarning(
+        "ci:setup: no T3FLARE_UPDATE_REPO: prod gets no update target, so it has no in-app Update",
+      );
+    else
+      yield* GitHub.Variable("ProdUpdateRepo", {
+        ...repo,
+        environment: prod,
+        name: "T3FLARE_UPDATE_REPO",
+        value: updateRepo.value,
+      });
 
     return { environments: ["bump", "prod"], tokens: ["t3flare-ci-bump", "t3flare-ci-prod"] };
   }),

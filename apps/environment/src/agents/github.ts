@@ -42,7 +42,10 @@ export class GitHubTokens {
   }
 
   #app(request: MintRequest): { readonly app: GitHubApp; readonly key: string } {
-    if (!this.configured) throw new Error("t3flare: the GitHub App is not configured (T3FLARE_GITHUB_APP_ID, T3FLARE_GITHUB_APP_PRIVATE_KEY)");
+    if (!this.configured)
+      throw new Error(
+        "t3flare: the GitHub App is not configured (T3FLARE_GITHUB_APP_ID, T3FLARE_GITHUB_APP_PRIVATE_KEY)",
+      );
     const repositories = [...request.repositories].map((name) => name.toLowerCase()).sort();
     const key = JSON.stringify([request.owner.toLowerCase(), repositories, request.permissions]);
     let app = this.#apps.get(key);
@@ -68,7 +71,8 @@ export class GitHubTokens {
   async mint(request: MintRequest): Promise<Minted> {
     const { app, key } = this.#app(request);
     const token = await app.token(request.owner);
-    const expiresAt = this.#minted.get(key)?.find((minted) => minted.token === token)?.expiresAt ?? Date.now() + 45 * 60_000;
+    const expiresAt =
+      this.#minted.get(key)?.find((minted) => minted.token === token)?.expiresAt ?? Date.now() + 45 * 60_000;
     return { token, expiresAt };
   }
 

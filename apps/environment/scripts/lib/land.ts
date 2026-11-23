@@ -2,8 +2,24 @@
 // updates plan D4; review F2, F3). The facts come from git and GitHub (`scripts/land-check.ts`, `scripts/updates-ci.ts`);
 // the files themselves were written by a job that ran upstream code, so nothing here trusts their content: each rule
 // checks it. Dependency-free.
-import { bareKey, closure, DEPENDENCY_FIELDS, importerKey, type Json, nameOfKey } from "../../../../scripts/lockGraph.ts";
-import { compareVersions, CLI_PIN_FILES, EXACT_VERSION, type Pin, T3_PIN_FILES, T3_TAG, type T3Track, trackOfTag } from "../../src/updates/pins.ts";
+import {
+  bareKey,
+  closure,
+  DEPENDENCY_FIELDS,
+  importerKey,
+  type Json,
+  nameOfKey,
+} from "../../../../scripts/lockGraph.ts";
+import {
+  compareVersions,
+  CLI_PIN_FILES,
+  EXACT_VERSION,
+  type Pin,
+  T3_PIN_FILES,
+  T3_TAG,
+  type T3Track,
+  trackOfTag,
+} from "../../src/updates/pins.ts";
 import { type Fingerprint, LIST_COMMAND, UPDATE_COMMAND, watchedFiles } from "./upstreamFingerprintFixture.ts";
 
 export const LAND_ALLOWLIST = { t3: T3_PIN_FILES, cli: CLI_PIN_FILES } as const;
@@ -23,7 +39,8 @@ export interface LandFacts {
 
 /** Why the candidate may not land by its shape (one commit, its kind's files, the tag's gitlink), or undefined. */
 export const landRefusal = (facts: LandFacts): string | undefined => {
-  if (!facts.mainIsAncestor) return "origin/main is not an ancestor of the branch: main moved on, or the branch is not a bump of it";
+  if (!facts.mainIsAncestor)
+    return "origin/main is not an ancestor of the branch: main moved on, or the branch is not a bump of it";
   if (facts.commits !== 1) return `the branch is ${facts.commits} commits on origin/main, not one`;
   const allowed = new Set<string>(LAND_ALLOWLIST[facts.pin.kind]);
   const outside = facts.files.filter((file) => !allowed.has(file));
@@ -42,8 +59,14 @@ export const landRefusal = (facts: LandFacts): string | undefined => {
  * deploys main's tip. That is how a press recovers a land whose push went through and whose deploy failed, whether or
  * not the branch is still there.
  */
-export const landMode = (pin: Pin, main: { readonly tag?: string | undefined; readonly cliVersion?: string | undefined }): "land" | "deploy-only" => {
-  if (pin.kind === "t3") return main.tag !== undefined && T3_TAG.test(main.tag) && compareVersions(main.tag.slice(1), pin.tag.slice(1)) >= 0 ? "deploy-only" : "land";
+export const landMode = (
+  pin: Pin,
+  main: { readonly tag?: string | undefined; readonly cliVersion?: string | undefined },
+): "land" | "deploy-only" => {
+  if (pin.kind === "t3")
+    return main.tag !== undefined && T3_TAG.test(main.tag) && compareVersions(main.tag.slice(1), pin.tag.slice(1)) >= 0
+      ? "deploy-only"
+      : "land";
   return main.cliVersion !== undefined && compareVersions(main.cliVersion, pin.version) >= 0 ? "deploy-only" : "land";
 };
 
@@ -87,7 +110,8 @@ export const lockProvenance = (after: LockDocuments, main: LockDocuments, t3: Lo
   const vouched = new Map<string, Set<string>>();
   for (const documents of [main, t3]) {
     for (const document of documents) {
-      for (const [key, entry] of Object.entries(document?.packages ?? {})) vouched.set(key, (vouched.get(key) ?? new Set()).add(stable(entry)));
+      for (const [key, entry] of Object.entries(document?.packages ?? {}))
+        vouched.set(key, (vouched.get(key) ?? new Set()).add(stable(entry)));
     }
   }
   const refused: Array<string> = [];
@@ -98,7 +122,13 @@ export const lockProvenance = (after: LockDocuments, main: LockDocuments, t3: Lo
       const match = /^(@?[^@]+)@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(key);
       const resolution = (entry as { resolution?: Record<string, unknown> } | null)?.resolution;
       const integrity = resolution?.integrity;
-      if (match === null || resolution === undefined || Object.keys(resolution).length !== 1 || typeof integrity !== "string" || !/^sha512-[A-Za-z0-9+/]+=*$/.test(integrity)) {
+      if (
+        match === null ||
+        resolution === undefined ||
+        Object.keys(resolution).length !== 1 ||
+        typeof integrity !== "string" ||
+        !/^sha512-[A-Za-z0-9+/]+=*$/.test(integrity)
+      ) {
         refused.push(key);
       } else registry.push({ name: match[1]!, version: match[2]!, integrity });
     }
@@ -163,25 +193,44 @@ export const t3LockRefusal = (input: T3LockInput): string | undefined => {
     Object.entries<string>(workspace.overrides ?? {}).map(([key, value]) => {
       const name = /^(@?[^@]+)/.exec(key.split(">").at(-1)!)?.[1] ?? key;
       const catalog = /^catalog:(.*)$/.exec(value);
-      return [key, catalog === null ? value : catalog[1] === "" || catalog[1] === "default" ? workspace.catalog?.[name] : workspace.catalogs?.[catalog[1]!]?.[name]];
+      return [
+        key,
+        catalog === null
+          ? value
+          : catalog[1] === "" || catalog[1] === "default"
+            ? workspace.catalog?.[name]
+            : workspace.catalogs?.[catalog[1]!]?.[name],
+      ];
     }),
   );
   if (!sameJson(lock.overrides ?? {}, resolved)) return "the lock's overrides are not the workspace's";
-  if (!sameJson(lock.patchedDependencies ?? {}, input.patchHashes)) return "the lock's patchedDependencies are not the workspace's patches";
-  const env = (documents: ReadonlyArray<Json>, mainDocument: Json) => documents.filter((document) => document !== mainDocument);
+  if (!sameJson(lock.patchedDependencies ?? {}, input.patchHashes))
+    return "the lock's patchedDependencies are not the workspace's patches";
+  const env = (documents: ReadonlyArray<Json>, mainDocument: Json) =>
+    documents.filter((document) => document !== mainDocument);
   if (!sameJson(env(after.documents, lock), env(t3.documents, t3.main))) return "pnpm's own document is not t3's";
 
   const t3Importers = (doc: Json) => Object.keys(doc.importers ?? {}).filter((dir) => dir.startsWith(T3_IMPORTER));
-  const ours = (doc: Json) => Object.keys(doc.importers ?? {}).filter((dir) => !dir.startsWith(T3_IMPORTER)).sort();
+  const ours = (doc: Json) =>
+    Object.keys(doc.importers ?? {})
+      .filter((dir) => !dir.startsWith(T3_IMPORTER))
+      .sort();
   const inT3 = closure(lock, t3Importers(lock));
   const versionsOf = (keys: Iterable<string>) => new Set([...keys].map(bareKey));
   const [beforeT3, afterT3] = [versionsOf(closure(base, t3Importers(base))), versionsOf(inT3)];
   const moved = workspaceMovedNames(input.mainWorkspace, input.afterWorkspace);
-  for (const key of [...beforeT3].filter((key) => !afterT3.has(key)).concat([...afterT3].filter((key) => !beforeT3.has(key)))) moved.add(nameOfKey(key));
+  for (const key of [...beforeT3]
+    .filter((key) => !afterT3.has(key))
+    .concat([...afterT3].filter((key) => !beforeT3.has(key))))
+    moved.add(nameOfKey(key));
 
   // What a lock holds (a snapshot or package key), on main or in t3's own lock at the tag: what a repointed entry may name.
   const known = (key: string) =>
-    base.snapshots?.[key] !== undefined || base.packages?.[bareKey(key)] !== undefined || t3.main.snapshots?.[key] !== undefined || t3.main.packages?.[bareKey(key)] !== undefined || afterT3.has(bareKey(key));
+    base.snapshots?.[key] !== undefined ||
+    base.packages?.[bareKey(key)] !== undefined ||
+    t3.main.snapshots?.[key] !== undefined ||
+    t3.main.packages?.[bareKey(key)] !== undefined ||
+    afterT3.has(bareKey(key));
   /** The package a dependency value names: `1.2.3(peer)` names `name` itself, an alias `other@1.2.3` names `other`. */
   const targetName = (name: string, value: string) => nameOfKey(importerKey(name, value) ?? `${name}@`);
 
@@ -189,8 +238,14 @@ export const t3LockRefusal = (input: T3LockInput): string | undefined => {
   // of the same package; or a peer suffix. Their other fields (`dependenciesMeta`, …) are main's.
   if (!sameJson(ours(lock), ours(base))) return "t3flare's importers are not main's";
   for (const dir of ours(lock)) {
-    const strip = (importer: Json) => Object.fromEntries(Object.entries(importer ?? {}).filter(([field]) => !(DEPENDENCY_FIELDS as ReadonlyArray<string>).includes(field)));
-    if (!sameJson(strip(lock.importers[dir]), strip(base.importers[dir]))) return `${dir}'s fields besides its dependencies are not main's`;
+    const strip = (importer: Json) =>
+      Object.fromEntries(
+        Object.entries(importer ?? {}).filter(
+          ([field]) => !(DEPENDENCY_FIELDS as ReadonlyArray<string>).includes(field),
+        ),
+      );
+    if (!sameJson(strip(lock.importers[dir]), strip(base.importers[dir])))
+      return `${dir}'s fields besides its dependencies are not main's`;
     for (const field of DEPENDENCY_FIELDS) {
       const [now, was] = [(lock.importers[dir][field] ?? {}) as Json, (base.importers[dir][field] ?? {}) as Json];
       if (!sameJson(Object.keys(now).sort(), Object.keys(was).sort())) return `${dir}'s ${field} are not main's`;
@@ -198,9 +253,14 @@ export const t3LockRefusal = (input: T3LockInput): string | undefined => {
         if (sameJson(now[name], was[name])) continue;
         const [version, previous] = [String(now[name].version), String(was[name].version)];
         // A peer suffix only (the same package at the same version, its peers moved): its snapshot is checked below.
-        if (now[name].specifier === was[name].specifier && bareKey(`${name}@${version}`) === bareKey(`${name}@${previous}`)) continue;
+        if (
+          now[name].specifier === was[name].specifier &&
+          bareKey(`${name}@${version}`) === bareKey(`${name}@${previous}`)
+        )
+          continue;
         if (!moved.has(name)) return `${dir} repoints ${name}, which t3 did not move`;
-        if (now[name].specifier !== was[name].specifier && !String(was[name].specifier).startsWith("catalog:")) return `${dir} changes ${name}'s specifier`;
+        if (now[name].specifier !== was[name].specifier && !String(was[name].specifier).startsWith("catalog:"))
+          return `${dir} changes ${name}'s specifier`;
         if (targetName(name, version) !== targetName(name, previous)) return `${dir} points ${name} at another package`;
         const key = importerKey(name, version);
         if (key === undefined) return `${dir} points ${name} at a workspace link`;
@@ -217,7 +277,10 @@ export const t3LockRefusal = (input: T3LockInput): string | undefined => {
     const { dependencies: d1, optionalDependencies: o1, ...rest1 } = now;
     const { dependencies: d2, optionalDependencies: o2, ...rest2 } = was;
     if (!sameJson(rest1, rest2)) return false;
-    for (const [a, b] of [[d1 ?? {}, d2 ?? {}], [o1 ?? {}, o2 ?? {}]] as Array<[Json, Json]>) {
+    for (const [a, b] of [
+      [d1 ?? {}, d2 ?? {}],
+      [o1 ?? {}, o2 ?? {}],
+    ] as Array<[Json, Json]>) {
       if (!sameJson(Object.keys(a).sort(), Object.keys(b).sort())) return false;
       for (const name of Object.keys(a)) {
         if (a[name] === b[name]) continue;
@@ -233,18 +296,21 @@ export const t3LockRefusal = (input: T3LockInput): string | undefined => {
   };
   const variants = new Map<string, Array<Json>>();
   for (const snapshots of [base.snapshots ?? {}, t3.main.snapshots ?? {}] as Array<Json>) {
-    for (const [key, entry] of Object.entries<Json>(snapshots)) variants.set(bareKey(key), [...(variants.get(bareKey(key)) ?? []), entry]);
+    for (const [key, entry] of Object.entries<Json>(snapshots))
+      variants.set(bareKey(key), [...(variants.get(bareKey(key)) ?? []), entry]);
   }
   for (const [key, entry] of Object.entries<Json>(lock.snapshots ?? {})) {
     if (free.has(key) || sameJson(entry, base.snapshots?.[key])) continue;
     const candidates = variants.get(bareKey(key)) ?? [];
     if (candidates.length === 0) return `the lock adds ${bareKey(key)} outside t3's graph`;
-    if (!candidates.some((variant) => differsOnlyWhereMoved(entry, variant))) return `the lock changes ${key} outside t3's graph`;
+    if (!candidates.some((variant) => differsOnlyWhereMoved(entry, variant)))
+      return `the lock changes ${key} outside t3's graph`;
   }
   // Packages: t3's graph's go to `lockProvenance`; any other is main's or t3's, exactly.
   const freeVersions = versionsOf(free);
   for (const [key, entry] of Object.entries(lock.packages ?? {})) {
-    if (freeVersions.has(key) || sameJson(entry, base.packages?.[key]) || sameJson(entry, t3.main.packages?.[key])) continue;
+    if (freeVersions.has(key) || sameJson(entry, base.packages?.[key]) || sameJson(entry, t3.main.packages?.[key]))
+      continue;
     return `the lock changes the package ${key} outside t3's graph`;
   }
   return undefined;
@@ -304,7 +370,9 @@ export interface BumpAttempt {
 const reportObject = (text: string): Record<string, unknown> | string => {
   try {
     const parsed: unknown = JSON.parse(text);
-    return parsed === null || typeof parsed !== "object" || Array.isArray(parsed) ? "the report is not a JSON object" : (parsed as Record<string, unknown>);
+    return parsed === null || typeof parsed !== "object" || Array.isArray(parsed)
+      ? "the report is not a JSON object"
+      : (parsed as Record<string, unknown>);
   } catch {
     return "the report is not JSON";
   }
@@ -326,7 +394,13 @@ export const bumpAttemptOf = (text: string): BumpAttempt | undefined => {
   if (typeof report.base !== "string" || !/^[0-9a-f]{40}$/.test(report.base)) return undefined;
   if (typeof report.to !== "string" || !T3_TAG.test(report.to)) return undefined;
   if (!Array.isArray(report.steps)) return undefined;
-  const failed = (report.steps as Array<unknown>).find((s): s is { name: string } => s !== null && typeof s === "object" && (s as { ok?: unknown }).ok === false && typeof (s as { name?: unknown }).name === "string");
+  const failed = (report.steps as Array<unknown>).find(
+    (s): s is { name: string } =>
+      s !== null &&
+      typeof s === "object" &&
+      (s as { ok?: unknown }).ok === false &&
+      typeof (s as { name?: unknown }).name === "string",
+  );
   return { base: report.base, to: report.to, failed: failed === undefined ? undefined : stepKindOf(failed.name) };
 };
 
@@ -337,10 +411,16 @@ const failedDeterministically = (attempt: BumpAttempt | undefined, tag: string, 
   attempt.failed !== undefined &&
   attempt.failed !== "other";
 
-export type T3Plan = { readonly mode: "skip" | "bump" | "land"; readonly tag: string; readonly reason: string; readonly proven?: boolean };
+export type T3Plan = {
+  readonly mode: "skip" | "bump" | "land";
+  readonly tag: string;
+  readonly reason: string;
+  readonly proven?: boolean;
+};
 
 /** `tag` is a release at or above `target` by semver: a stable is above its own nightlies (ADR-0041). */
-const atOrAbove = (tag: string | undefined, target: string) => tag !== undefined && T3_TAG.test(tag) && compareVersions(tag.slice(1), target.slice(1)) >= 0;
+const atOrAbove = (tag: string | undefined, target: string) =>
+  tag !== undefined && T3_TAG.test(tag) && compareVersions(tag.slice(1), target.slice(1)) >= 0;
 
 /**
  * What a `bump.yml` run does, decided by a trusted job before any upstream code runs (review F1, F2, A1):
@@ -356,27 +436,62 @@ export const planT3 = (input: T3PlanInput): T3Plan | string => {
   if (input.event === "schedule") {
     const newest = input.newest;
     if (newest === undefined) return { mode: "skip", tag: "", reason: `no tag on the ${input.track} track` };
-    if (atOrAbove(input.mainTag, newest)) return { mode: "skip", tag: newest, reason: input.mainTag === newest ? `${newest} is already pinned` : `main pins ${input.mainTag}, at or above ${newest}` };
-    if (input.branch?.gate === "full") return { mode: "skip", tag: newest, reason: `${newest} is already proposed through the Full gate` };
+    if (atOrAbove(input.mainTag, newest))
+      return {
+        mode: "skip",
+        tag: newest,
+        reason:
+          input.mainTag === newest
+            ? `${newest} is already pinned`
+            : `main pins ${input.mainTag}, at or above ${newest}`,
+      };
+    if (input.branch?.gate === "full")
+      return { mode: "skip", tag: newest, reason: `${newest} is already proposed through the Full gate` };
     // The same tag on the same main failed the same way: another hour changes nothing. A commit on main, a newer
     // tag or a run by hand tries again.
     const recent = (input.attempts ?? []).slice(0, DETERMINISTIC_FAILURES_TO_STOP);
-    if (input.mainSha !== undefined && recent.length === DETERMINISTIC_FAILURES_TO_STOP && recent.every((attempt) => failedDeterministically(attempt, newest, input.mainSha!))) {
-      return { mode: "skip", tag: newest, reason: `${newest} failed its ${recent[0]!.failed} step on this main ${DETERMINISTIC_FAILURES_TO_STOP} times; a change to main, a newer tag or a run by hand tries again` };
+    if (
+      input.mainSha !== undefined &&
+      recent.length === DETERMINISTIC_FAILURES_TO_STOP &&
+      recent.every((attempt) => failedDeterministically(attempt, newest, input.mainSha!))
+    ) {
+      return {
+        mode: "skip",
+        tag: newest,
+        reason: `${newest} failed its ${recent[0]!.failed} step on this main ${DETERMINISTIC_FAILURES_TO_STOP} times; a change to main, a newer tag or a run by hand tries again`,
+      };
     }
-    return { mode: "bump", tag: newest, reason: input.branch?.gate === "update" ? `${newest} was proven by the Update gate only; the Full gate proposes it` : `${newest} is new` };
+    return {
+      mode: "bump",
+      tag: newest,
+      reason:
+        input.branch?.gate === "update"
+          ? `${newest} was proven by the Update gate only; the Full gate proposes it`
+          : `${newest} is new`,
+    };
   }
   if (!input.land) return { mode: "bump", tag: input.tag ?? "", reason: "a bump by hand" };
-  if (input.tag === undefined || trackOfTag(input.tag) !== input.track) return `an Update needs a tag on the ${input.track} track, not ${JSON.stringify(input.tag)}`;
+  if (input.tag === undefined || trackOfTag(input.tag) !== input.track)
+    return `an Update needs a tag on the ${input.track} track, not ${JSON.stringify(input.tag)}`;
   // D6, review A11: an Update moves prod to exactly the client's tag. Main already past it means prod is about to move
   // past it too: refused, so the client is told why, rather than deploying the newer pin and failing its check later.
-  if (input.mainTag !== undefined && T3_TAG.test(input.mainTag) && compareVersions(input.mainTag.slice(1), input.tag.slice(1)) > 0) {
+  if (
+    input.mainTag !== undefined &&
+    T3_TAG.test(input.mainTag) &&
+    compareVersions(input.mainTag.slice(1), input.tag.slice(1)) > 0
+  ) {
     return `prod is moving to ${input.mainTag}, newer than ${input.tag}: update to ${input.mainTag} once it is deployed`;
   }
-  if (input.mainTag === input.tag) return { mode: "land", tag: input.tag, reason: `main already pins ${input.tag}; deploy it` };
+  if (input.mainTag === input.tag)
+    return { mode: "land", tag: input.tag, reason: `main already pins ${input.tag}; deploy it` };
   const branch = input.branch;
   if (branch !== undefined && branch.gate !== undefined && branch.mainIsAncestor && branch.commits === 1) {
-    return { mode: "land", tag: input.tag, reason: `bump/${input.tag} is proven (${branch.gate} gate) on top of main`, proven: true };
+    return {
+      mode: "land",
+      tag: input.tag,
+      reason: `bump/${input.tag} is proven (${branch.gate} gate) on top of main`,
+      proven: true,
+    };
   }
   return { mode: "bump", tag: input.tag, reason: `bump/${input.tag} is not proven on top of main` };
 };
@@ -390,25 +505,37 @@ export const readBumpReport = (
   expect:
     | { readonly kind: "t3"; readonly gate: "update" | "full"; readonly tag?: string | undefined }
     | { readonly kind: "cli"; readonly cli: string; readonly running?: string | undefined },
-): { readonly changed: boolean; readonly to: string; readonly gate: "update" | "full"; readonly callLand: boolean } | string => {
+):
+  | { readonly changed: boolean; readonly to: string; readonly gate: "update" | "full"; readonly callLand: boolean }
+  | string => {
   const report = reportObject(text);
   if (typeof report === "string") return report;
   if (report.ok !== true) return "the report is not a pass";
   if (typeof report.changed !== "boolean") return "report.changed is not a boolean";
   const changed = report.changed;
   if (expect.kind === "t3") {
-    if (typeof report.to !== "string" || !T3_TAG.test(report.to)) return `report.to is not a t3 release tag: ${JSON.stringify(report.to)}`;
+    if (typeof report.to !== "string" || !T3_TAG.test(report.to))
+      return `report.to is not a t3 release tag: ${JSON.stringify(report.to)}`;
     // Review A8: the gate is the one the run was asked for; the report must say it ran that one.
-    if (report.gate !== expect.gate) return `the report's gate is ${JSON.stringify(report.gate)}, not the requested ${expect.gate}`;
-    if (expect.tag !== undefined && report.to !== expect.tag) return `the report pins ${report.to}, not the requested ${expect.tag}`;
+    if (report.gate !== expect.gate)
+      return `the report's gate is ${JSON.stringify(report.gate)}, not the requested ${expect.gate}`;
+    if (expect.tag !== undefined && report.to !== expect.tag)
+      return `the report pins ${report.to}, not the requested ${expect.tag}`;
     return { changed, to: report.to, gate: expect.gate, callLand: changed };
   }
   if (report.cli !== expect.cli) return `the report is not ${expect.cli}'s`;
-  if (typeof report.to !== "string" || !EXACT_VERSION.test(report.to)) return `report.to is not a version: ${JSON.stringify(report.to)}`;
-  if (expect.running !== undefined && !EXACT_VERSION.test(expect.running)) return `the running version is not a version: ${JSON.stringify(expect.running)}`;
+  if (typeof report.to !== "string" || !EXACT_VERSION.test(report.to))
+    return `report.to is not a version: ${JSON.stringify(report.to)}`;
+  if (expect.running !== undefined && !EXACT_VERSION.test(expect.running))
+    return `the running version is not a version: ${JSON.stringify(expect.running)}`;
   // F2: a press while prod runs an older pin than main's newest lands nothing new, and only deploys (land.yml then
   // deploys main, whatever `to` says).
-  return { changed, to: report.to, gate: "update", callLand: changed || (expect.running !== undefined && expect.running !== report.to) };
+  return {
+    changed,
+    to: report.to,
+    gate: "update",
+    callLand: changed || (expect.running !== undefined && expect.running !== report.to),
+  };
 };
 
 const CAPABILITY_KEY = /^[A-Za-z][A-Za-z0-9]{0,63}$/;
@@ -422,15 +549,34 @@ const CAPABILITY_KEY = /^[A-Za-z][A-Za-z0-9]{0,63}$/;
  */
 export const bumpReportNotes = (
   text: string,
-): { readonly unclassified: ReadonlyArray<string>; readonly acceptanceRetried: boolean; readonly t3TypeErrors: number; readonly fingerprint: ReadonlyArray<string> } => {
+): {
+  readonly unclassified: ReadonlyArray<string>;
+  readonly acceptanceRetried: boolean;
+  readonly t3TypeErrors: number;
+  readonly fingerprint: ReadonlyArray<string>;
+} => {
   const parsed = reportObject(text);
   const report = typeof parsed === "string" ? {} : parsed;
   const unclassified = Array.isArray(report.unclassifiedCapabilities)
-    ? report.unclassifiedCapabilities.filter((key): key is string => typeof key === "string" && CAPABILITY_KEY.test(key)).slice(0, 50)
+    ? report.unclassifiedCapabilities
+        .filter((key): key is string => typeof key === "string" && CAPABILITY_KEY.test(key))
+        .slice(0, 50)
     : [];
-  const t3TypeErrors = Number.isInteger(report.t3TypeErrors) && (report.t3TypeErrors as number) >= 0 && (report.t3TypeErrors as number) < 100_000 ? (report.t3TypeErrors as number) : 0;
-  const fingerprint = Array.isArray(report.upstreamFingerprint) ? report.upstreamFingerprint.flatMap((finding) => findingSummary(finding) ?? []).slice(0, 50) : [];
-  return { unclassified, acceptanceRetried: report.acceptanceRetry !== undefined && report.acceptanceRetry !== null, t3TypeErrors, fingerprint };
+  const t3TypeErrors =
+    Number.isInteger(report.t3TypeErrors) &&
+    (report.t3TypeErrors as number) >= 0 &&
+    (report.t3TypeErrors as number) < 100_000
+      ? (report.t3TypeErrors as number)
+      : 0;
+  const fingerprint = Array.isArray(report.upstreamFingerprint)
+    ? report.upstreamFingerprint.flatMap((finding) => findingSummary(finding) ?? []).slice(0, 50)
+    : [];
+  return {
+    unclassified,
+    acceptanceRetried: report.acceptanceRetry !== undefined && report.acceptanceRetry !== null,
+    t3TypeErrors,
+    fingerprint,
+  };
 };
 
 const REPO_PATH = /^[A-Za-z0-9_][A-Za-z0-9._/-]{0,199}$/;
@@ -447,9 +593,25 @@ export const findingSummary = (finding: unknown): string | undefined => {
   const { kind, file, symbol, ourFile, entry } = finding as Record<string, unknown>;
   if (typeof file !== "string" || !REPO_PATH.test(file)) return undefined;
   if (kind === "moved") return `\`t3code/${file}\` changed outside the watched regions (nothing of ours to review)`;
-  if (typeof ourFile !== "string" || !REPO_PATH.test(ourFile) || typeof entry !== "string" || !REGISTER_ENTRY.test(entry)) return undefined;
-  const what = kind === "missing" ? "a literal" : (kind === "changed" || kind === "gone") && typeof symbol === "string" && symbol.length <= 100 && REGION_SYMBOL.test(symbol) ? symbol : undefined;
-  return what === undefined ? undefined : `review \`${ourFile}\` (${entry}) for \`t3code/${file}\` (${kind === "missing" ? what : `\`${what}\``})`;
+  if (
+    typeof ourFile !== "string" ||
+    !REPO_PATH.test(ourFile) ||
+    typeof entry !== "string" ||
+    !REGISTER_ENTRY.test(entry)
+  )
+    return undefined;
+  const what =
+    kind === "missing"
+      ? "a literal"
+      : (kind === "changed" || kind === "gone") &&
+          typeof symbol === "string" &&
+          symbol.length <= 100 &&
+          REGION_SYMBOL.test(symbol)
+        ? symbol
+        : undefined;
+  return what === undefined
+    ? undefined
+    : `review \`${ourFile}\` (${entry}) for \`t3code/${file}\` (${kind === "missing" ? what : `\`${what}\``})`;
 };
 
 /** What a person does with a bump the upstream fingerprint holds (ADR-0037's SPI-1011 refinement). */
@@ -464,17 +626,27 @@ export const HELD_BUMP_STEPS =
  * blob id (`gitBlobOf`), undefined when gone. Without a parser on the trusted runner, the check is coarser than the test's: any byte of a watched file
  * that moved since the review holds the pin for a person, even outside the watched regions.
  */
-export const upstreamFingerprintRefusal = (fixtureText: string, blobOf: (file: string) => string | undefined): string | undefined => {
+export const upstreamFingerprintRefusal = (
+  fixtureText: string,
+  blobOf: (file: string) => string | undefined,
+): string | undefined => {
   let fingerprint: Fingerprint;
   try {
     fingerprint = JSON.parse(fixtureText) as Fingerprint;
-    if (!Array.isArray(fingerprint.regions) || !Array.isArray(fingerprint.literals) || typeof fingerprint.files !== "object" || fingerprint.files === null) throw new Error("shape");
+    if (
+      !Array.isArray(fingerprint.regions) ||
+      !Array.isArray(fingerprint.literals) ||
+      typeof fingerprint.files !== "object" ||
+      fingerprint.files === null
+    )
+      throw new Error("shape");
   } catch {
     return "the upstream fingerprint's fixture was not read";
   }
   const files = watchedFiles(fingerprint);
   const unrecorded = files.filter((file) => typeof fingerprint.files[file] !== "string");
-  if (unrecorded.length > 0) return `the upstream fingerprint's fixture does not record ${unrecorded.join(", ")}: run ${UPDATE_COMMAND}`;
+  if (unrecorded.length > 0)
+    return `the upstream fingerprint's fixture does not record ${unrecorded.join(", ")}: run ${UPDATE_COMMAND}`;
   const moved = files.filter((file) => {
     const blob = blobOf(file);
     return blob === undefined || blob !== fingerprint.files[file];
@@ -494,9 +666,13 @@ export const landBindingRefusal = (input: {
   readonly branch: string;
   readonly sha: string | undefined;
   readonly tip: string | undefined;
-  readonly proof: { readonly gate: "update" | "full" } | { readonly gate: undefined; readonly reason: string } | undefined;
+  readonly proof:
+    | { readonly gate: "update" | "full" }
+    | { readonly gate: undefined; readonly reason: string }
+    | undefined;
 }): string | undefined => {
-  if (input.sha === undefined || !/^[0-9a-f]{40}$/.test(input.sha)) return `landing ${input.branch} needs the proven commit, not ${JSON.stringify(input.sha ?? "")}`;
+  if (input.sha === undefined || !/^[0-9a-f]{40}$/.test(input.sha))
+    return `landing ${input.branch} needs the proven commit, not ${JSON.stringify(input.sha ?? "")}`;
   if (input.tip !== input.sha) return `${input.branch} is at ${input.tip ?? "nothing"}, not the proven ${input.sha}`;
   if (input.proof === undefined) return `${input.sha}'s proof was not read`;
   if (input.proof.gate === undefined) return input.proof.reason;

@@ -40,15 +40,33 @@ import type { KvStorage } from "../harness/keys.ts";
 import { OFF_MESSAGE, type OwnCaller } from "../settings/caller.ts";
 import { settingsDefinitions } from "../settings/tools.ts";
 import { canonicalJson } from "./canonical.ts";
-import { type ElicitAnswer, type ElicitResultOrCancel, isPausingServer, pauseOf, planPause, planQuestion, type QuestionContext, type QuestionPlan } from "./elicitation.ts";
+import {
+  type ElicitAnswer,
+  type ElicitResultOrCancel,
+  isPausingServer,
+  pauseOf,
+  planPause,
+  planQuestion,
+  type QuestionContext,
+  type QuestionPlan,
+} from "./elicitation.ts";
 
 /** How long a server's question waits for the owner: the Legacy wait, and the CLI card's (`CLI_ASK_MS`). */
 export const QUESTION_WAIT_MS = MCP_ELICITATION_WAIT_MS;
 
 /** The MCP Worker's `McpEngine`, as the Environment binds it. */
 export interface McpEngineBinding {
-  discover(target: McpEngineTargetEncoded, prior: McpEnginePriorEncoded, hooks: McpEngineHooks): Promise<typeof McpEngineDiscoverResult.Encoded>;
-  request(target: McpEngineTargetEncoded, prior: McpEnginePriorEncoded, request: McpEngineRequestEncoded, hooks: McpEngineHooks): Promise<typeof McpEngineRequestResult.Encoded>;
+  discover(
+    target: McpEngineTargetEncoded,
+    prior: McpEnginePriorEncoded,
+    hooks: McpEngineHooks,
+  ): Promise<typeof McpEngineDiscoverResult.Encoded>;
+  request(
+    target: McpEngineTargetEncoded,
+    prior: McpEnginePriorEncoded,
+    request: McpEngineRequestEncoded,
+    hooks: McpEngineHooks,
+  ): Promise<typeof McpEngineRequestResult.Encoded>;
 }
 
 export const INVENTORY_TTL_MS = 10 * 60_000;
@@ -109,10 +127,13 @@ const priorKey = (server: string) => `t3flare:mcp:prior:${server}`;
 export const definitionHash = async (definition: Readonly<Record<string, unknown>>): Promise<string> => {
   const { name, title, description, inputSchema, outputSchema, annotations } = definition;
   // `keepUndefined`: byte-identical to the hashes kept with stored inventories (canonical.ts).
-  return (await sha256Hex(canonicalJson({ name, title, description, inputSchema, outputSchema, annotations }, true))).slice(0, 32);
+  return (
+    await sha256Hex(canonicalJson({ name, title, description, inputSchema, outputSchema, annotations }, true))
+  ).slice(0, 32);
 };
 
-const overrideOf = (value: unknown): ToolClass | undefined => (value === "read" || value === "write" ? value : undefined);
+const overrideOf = (value: unknown): ToolClass | undefined =>
+  value === "read" || value === "write" ? value : undefined;
 
 const errorText = (error: unknown): string => {
   const record = (error ?? {}) as { _tag?: unknown; message?: unknown; status?: unknown };
@@ -195,7 +216,11 @@ export class McpHost {
   }
 
   /** Keeps the engine's protocol state for `name`, unless `name` was forgotten since `generation` began. */
-  #keepState(name: string, state: { readonly era?: unknown; readonly session?: unknown } | undefined, generation: number) {
+  #keepState(
+    name: string,
+    state: { readonly era?: unknown; readonly session?: unknown } | undefined,
+    generation: number,
+  ) {
     if (state === undefined || generation !== this.#generation(name)) return;
     const prior: Record<string, unknown> = { ...this.#prior(name) };
     for (const key of ["era", "session"] as const) {
@@ -221,8 +246,17 @@ export class McpHost {
 
   inventory(name: string): Inventory {
     // The Settings server's tools are static (plan D2): no engine, no inventory kept, no credential, always listed.
-    if (ownEntry(this.servers(), name)?.kind === "settings") return { server: name, listedAt: this.#now(), status: "ok", definitions: settingsDefinitions(), refused: [] };
-    return this.#deps.kv.get<Inventory>(inventoryKey(name)) ?? { server: name, listedAt: 0, status: "never", definitions: {}, refused: [] };
+    if (ownEntry(this.servers(), name)?.kind === "settings")
+      return { server: name, listedAt: this.#now(), status: "ok", definitions: settingsDefinitions(), refused: [] };
+    return (
+      this.#deps.kv.get<Inventory>(inventoryKey(name)) ?? {
+        server: name,
+        listedAt: 0,
+        status: "never",
+        definitions: {},
+        refused: [],
+      }
+    );
   }
 
   /** Lists `name`'s tools now (one list in flight per server). */
@@ -243,7 +277,8 @@ export class McpHost {
     const before = this.inventory(name);
     const failed = (error: string): Inventory => {
       const next: Inventory = { ...before, status: "failed", error, listedAt: before.listedAt };
-      if (generation === this.#generation(name)) this.#deps.kv.put(inventoryKey(name), { ...next, failedAt: this.#now() });
+      if (generation === this.#generation(name))
+        this.#deps.kv.put(inventoryKey(name), { ...next, failedAt: this.#now() });
       console.warn(JSON.stringify({ t3flare: "mcp-list-failed", server: name, error: error.slice(0, 300) }));
       return next;
     };
@@ -260,7 +295,10 @@ export class McpHost {
     this.#keepState(name, result.state as never, generation);
     if (result.kind !== "discovered") return failed(errorText(result.error));
     const definitions: Record<string, Readonly<Record<string, unknown>>> = {};
-    const refused: Array<{ tool: string; reason: string }> = (result.problems ?? []).map((problem) => ({ tool: problem.tool, reason: problem.problem }));
+    const refused: Array<{ tool: string; reason: string }> = (result.problems ?? []).map((problem) => ({
+      tool: problem.tool,
+      reason: problem.problem,
+    }));
     let bytes = 0;
     for (const tool of result.tools) {
       const size = JSON.stringify(tool).length;
@@ -282,12 +320,23 @@ export class McpHost {
     // Forgotten meanwhile (removed, or added again): the old server's tools are not kept under the new one's name.
     if (generation !== this.#generation(name)) return this.inventory(name);
     this.#deps.kv.put(inventoryKey(name), next);
-    console.log(JSON.stringify({ t3flare: "mcp-listed", server: name, tools: Object.keys(definitions).length, refused: refused.length }));
+    console.log(
+      JSON.stringify({
+        t3flare: "mcp-listed",
+        server: name,
+        tools: Object.keys(definitions).length,
+        refused: refused.length,
+      }),
+    );
     return next;
   }
 
   /** `name`'s tools with names, classes and exposure resolved. */
-  async tools(name: string, server: McpServerSetting, inventory: Inventory): Promise<{ readonly tools: ReadonlyArray<InventoryTool>; readonly refused: Inventory["refused"] }> {
+  async tools(
+    name: string,
+    server: McpServerSetting,
+    inventory: Inventory,
+  ): Promise<{ readonly tools: ReadonlyArray<InventoryTool>; readonly refused: Inventory["refused"] }> {
     const named = toolNamesOf(name, Object.keys(inventory.definitions));
     const tools: Array<InventoryTool> = [];
     for (const [upstream, toolName] of Object.entries(named.names)) {
@@ -296,11 +345,19 @@ export class McpHost {
       tools.push({
         name: toolName,
         upstream,
-        description: (typeof definition.description === "string" ? definition.description : typeof definition.title === "string" ? definition.title : upstream).slice(0, 4000),
+        description: (typeof definition.description === "string"
+          ? definition.description
+          : typeof definition.title === "string"
+            ? definition.title
+            : upstream
+        ).slice(0, 4000),
         inputSchema: (definition.inputSchema ?? { type: "object", properties: {} }) as Record<string, unknown>,
         hash: await definitionHash(definition),
         // Only "read" or "write" is an override (settings stored before the back-to-stock cut held hash pins: ignored).
-        class: classOf(annotations === undefined ? {} : { annotations }, overrideOf(ownEntry(server.classes, upstream))),
+        class: classOf(
+          annotations === undefined ? {} : { annotations },
+          overrideOf(ownEntry(server.classes, upstream)),
+        ),
         hinted: classOf(annotations === undefined ? {} : { annotations }, undefined),
         exposure: ownEntry(server.toolExposure, upstream) ?? server.exposure,
         ...uiOf(definition),
@@ -340,7 +397,13 @@ export class McpHost {
         ),
       });
     }
-    const version = await definitionHash({ name: "view", inputSchema: servers.map((server) => [server.name, server.tools.map((tool) => [tool.name, tool.hash, tool.class, tool.exposure])]) });
+    const version = await definitionHash({
+      name: "view",
+      inputSchema: servers.map((server) => [
+        server.name,
+        server.tools.map((tool) => [tool.name, tool.hash, tool.class, tool.exposure]),
+      ]),
+    });
     return { version, servers };
   }
 
@@ -363,13 +426,25 @@ export class McpHost {
   }): Promise<McpCallAnswer> {
     const server = ownEntry(this.servers(), input.server);
     // The Settings server switched off says so, and that only the panel turns it back on (plan D2).
-    if (server?.kind === "settings" && !server.enabled) return { kind: "unavailable", message: OFF_MESSAGE, mayHaveRun: false };
-    if (server === undefined || !server.enabled) return { kind: "unavailable", message: `The owner removed or disabled the MCP server ${input.server}; its tools are gone from the next turn.`, mayHaveRun: false };
+    if (server?.kind === "settings" && !server.enabled)
+      return { kind: "unavailable", message: OFF_MESSAGE, mayHaveRun: false };
+    if (server === undefined || !server.enabled)
+      return {
+        kind: "unavailable",
+        message: `The owner removed or disabled the MCP server ${input.server}; its tools are gone from the next turn.`,
+        mayHaveRun: false,
+      };
     if (server.kind === "settings") {
       // Fails closed (plan D3): without the Environment's caller nothing reaches the Settings server.
-      if (this.#deps.settingsServer === undefined || input.caller === undefined) return { kind: "unavailable", message: "The Settings server cannot tell who is calling, so it answers nothing.", mayHaveRun: false };
+      if (this.#deps.settingsServer === undefined || input.caller === undefined)
+        return {
+          kind: "unavailable",
+          message: "The Settings server cannot tell who is calling, so it answers nothing.",
+          mayHaveRun: false,
+        };
       // Hidden by the tool's exposure or the server's, as the listing reads it (`tools`), and as the Owner door's `hiddenTools`.
-      if ((ownEntry(server.toolExposure, input.tool) ?? server.exposure) === "hidden") return { kind: "unavailable", message: `${input.tool} is hidden by the owner.`, mayHaveRun: false };
+      if ((ownEntry(server.toolExposure, input.tool) ?? server.exposure) === "hidden")
+        return { kind: "unavailable", message: `${input.tool} is hidden by the owner.`, mayHaveRun: false };
       return this.#deps.settingsServer({
         tool: input.tool,
         args: input.args,
@@ -380,22 +455,54 @@ export class McpHost {
     }
     const inventory = this.inventory(input.server);
     const definition = ownEntry(inventory.definitions, input.tool);
-    if (definition === undefined) return { kind: "unavailable", message: `${input.server} has no tool ${input.tool} (any more).`, mayHaveRun: false };
-    if (ownEntry(server.toolExposure, input.tool) === "hidden") return { kind: "unavailable", message: `${input.tool} is hidden by the owner.`, mayHaveRun: false };
+    if (definition === undefined)
+      return {
+        kind: "unavailable",
+        message: `${input.server} has no tool ${input.tool} (any more).`,
+        mayHaveRun: false,
+      };
+    if (ownEntry(server.toolExposure, input.tool) === "hidden")
+      return { kind: "unavailable", message: `${input.tool} is hidden by the owner.`, mayHaveRun: false };
     const pausing = isPausingServer(inventory.definitions);
     // SPI-1079: a pausing server's `resume` is t3flare's to call, with the owner's answer, never the agent's.
-    if (pausing && input.tool === RESUME_TOOL) return { kind: "unavailable", message: RESUME_REFUSAL(input.server), mayHaveRun: false };
+    if (pausing && input.tool === RESUME_TOOL)
+      return { kind: "unavailable", message: RESUME_REFUSAL(input.server), mayHaveRun: false };
     if (input.judged !== "write") {
       // A class change applies to the next call (plan §6.2): a read the owner (or a new hint) made write asks.
-      const now = (await this.tools(input.server, server, inventory)).tools.find((tool) => tool.upstream === input.tool);
-      if (now?.class !== "read") return { kind: "unavailable", message: `${input.tool} is now a write tool; call it again and it asks the owner.`, mayHaveRun: false };
+      const now = (await this.tools(input.server, server, inventory)).tools.find(
+        (tool) => tool.upstream === input.tool,
+      );
+      if (now?.class !== "read")
+        return {
+          kind: "unavailable",
+          message: `${input.tool} is now a write tool; call it again and it asks the owner.`,
+          mayHaveRun: false,
+        };
     }
-    if (this.#deps.engine === undefined) return { kind: "unavailable", message: "The MCP engine is not bound.", mayHaveRun: false };
+    if (this.#deps.engine === undefined)
+      return { kind: "unavailable", message: "The MCP engine is not bound.", mayHaveRun: false };
     const target = await this.#target(input.server, server);
     if (typeof target === "string") return { kind: "unavailable", message: target, mayHaveRun: false };
-    const context: QuestionContext = { server: input.server, tool: input.tool, args: input.args, isOwnHost: (host) => host === this.#deps.ownHost?.()?.toLowerCase() };
-    const first = await this.#request(input.server, server, target, definition, input.args, input.signal, input.asker, context);
-    if (first.kind === "unavailable" || !pausing) return first.kind === "unavailable" ? first : { kind: "result", ...resultText(first.value), ...structuredOf(first.value) };
+    const context: QuestionContext = {
+      server: input.server,
+      tool: input.tool,
+      args: input.args,
+      isOwnHost: (host) => host === this.#deps.ownHost?.()?.toLowerCase(),
+    };
+    const first = await this.#request(
+      input.server,
+      server,
+      target,
+      definition,
+      input.args,
+      input.signal,
+      input.asker,
+      context,
+    );
+    if (first.kind === "unavailable" || !pausing)
+      return first.kind === "unavailable"
+        ? first
+        : { kind: "result", ...resultText(first.value), ...structuredOf(first.value) };
     return this.#answerPauses(input.server, server, target, first.value, input.signal, input.asker, context);
   }
 
@@ -404,12 +511,20 @@ export class McpHost {
    * own offered tools declares (`_meta.ui.resourceUri`), at most MCP_APP_HTML_MAX_BYTES of contents, the server's
    * `ReadResourceResult` as it is otherwise.
    */
-  async readAppResource(input: { readonly server: string; readonly uri: string }): Promise<{ readonly kind: "result"; readonly value: unknown } | { readonly kind: "refused"; readonly message: string }> {
+  async readAppResource(input: {
+    readonly server: string;
+    readonly uri: string;
+  }): Promise<
+    { readonly kind: "result"; readonly value: unknown } | { readonly kind: "refused"; readonly message: string }
+  > {
     const server = ownEntry(this.servers(), input.server);
     if (server === undefined || !server.enabled) return { kind: "refused", message: `${input.server} is not enabled.` };
     const { tools } = await this.tools(input.server, server, this.inventory(input.server));
-    const declared = tools.some((tool) => tool.exposure !== "hidden" && tool.exposure !== "codemode" && tool.ui?.resourceUri === input.uri);
-    if (!input.uri.startsWith("ui://") || !declared) return { kind: "refused", message: `${input.server} declares no App at ${input.uri.slice(0, 200)}.` };
+    const declared = tools.some(
+      (tool) => tool.exposure !== "hidden" && tool.exposure !== "codemode" && tool.ui?.resourceUri === input.uri,
+    );
+    if (!input.uri.startsWith("ui://") || !declared)
+      return { kind: "refused", message: `${input.server} declares no App at ${input.uri.slice(0, 200)}.` };
     if (this.#deps.engine === undefined) return { kind: "refused", message: "The MCP engine is not bound." };
     const target = await this.#target(input.server, server);
     if (typeof target === "string") return { kind: "refused", message: target };
@@ -426,9 +541,17 @@ export class McpHost {
       return { kind: "refused", message: `The read failed: ${String(error).slice(0, 300)}` };
     }
     this.#keepState(input.server, result.state as never, generation);
-    if (result.kind !== "complete") return { kind: "refused", message: `The read failed (${result.kind === "failed" ? errorText(result.error) : result.kind}).` };
-    const value = result.result.kind === "inline" ? result.result.value : await readStream(result.result.body as ReadableStream<Uint8Array>, MCP_APP_HTML_MAX_BYTES * 2);
-    if (JSON.stringify(value).length > MCP_APP_HTML_MAX_BYTES * 2) return { kind: "refused", message: "The App is larger than t3flare passes on." };
+    if (result.kind !== "complete")
+      return {
+        kind: "refused",
+        message: `The read failed (${result.kind === "failed" ? errorText(result.error) : result.kind}).`,
+      };
+    const value =
+      result.result.kind === "inline"
+        ? result.result.value
+        : await readStream(result.result.body as ReadableStream<Uint8Array>, MCP_APP_HTML_MAX_BYTES * 2);
+    if (JSON.stringify(value).length > MCP_APP_HTML_MAX_BYTES * 2)
+      return { kind: "refused", message: "The App is larger than t3flare passes on." };
     return { kind: "result", value };
   }
 
@@ -476,12 +599,23 @@ export class McpHost {
           op: "tools/call",
           tool: definition as never,
           arguments: args as never,
-          ctx: { origin: "agent", ...(asker === undefined ? {} : { answers: { elicitation: true, inputWaitMs: QUESTION_WAIT_MS } }) },
+          ctx: {
+            origin: "agent",
+            ...(asker === undefined ? {} : { answers: { elicitation: true, inputWaitMs: QUESTION_WAIT_MS } }),
+          },
         },
-        { ...this.#authHooks(name, server), ...(signal === undefined ? {} : { untilAborted: () => aborted }), ...questionHooks },
+        {
+          ...this.#authHooks(name, server),
+          ...(signal === undefined ? {} : { untilAborted: () => aborted }),
+          ...questionHooks,
+        },
       );
     } catch (error) {
-      return { kind: "unavailable", message: `The MCP call failed; it may have run: ${String(error).slice(0, 300)}`, mayHaveRun: true };
+      return {
+        kind: "unavailable",
+        message: `The MCP call failed; it may have run: ${String(error).slice(0, 300)}`,
+        mayHaveRun: true,
+      };
     }
     this.#keepState(name, result.state as never, generation);
     if (result.kind === "failed") {
@@ -490,8 +624,16 @@ export class McpHost {
       if (tag === "NotFound") this.#deps.background?.(this.list(name).catch(() => undefined));
       return { kind: "unavailable", message, mayHaveRun: true };
     }
-    if (result.kind !== "complete") return { kind: "unavailable", message: `The MCP server answered ${result.kind}, which t3flare does not take yet.`, mayHaveRun: true };
-    const value = result.result.kind === "inline" ? result.result.value : await readStream(result.result.body as ReadableStream<Uint8Array>);
+    if (result.kind !== "complete")
+      return {
+        kind: "unavailable",
+        message: `The MCP server answered ${result.kind}, which t3flare does not take yet.`,
+        mayHaveRun: true,
+      };
+    const value =
+      result.result.kind === "inline"
+        ? result.result.value
+        : await readStream(result.result.body as ReadableStream<Uint8Array>);
     return { kind: "value", value };
   }
 
@@ -499,8 +641,16 @@ export class McpHost {
    * A plan's answer: at once (declined unseen, or refused), or the owner's on the caller's card, which closes after
    * QUESTION_WAIT_MS unanswered. Logged with the fields answered, never a value.
    */
-  async #answer(plan: QuestionPlan, asker: McpAsker, context: QuestionContext, what: "question" | "pause"): Promise<Answered> {
-    const log = (event: Record<string, unknown>) => console.log(JSON.stringify({ t3flare: "mcp-question", what, server: context.server, tool: context.tool, ...event }));
+  async #answer(
+    plan: QuestionPlan,
+    asker: McpAsker,
+    context: QuestionContext,
+    what: "question" | "pause",
+  ): Promise<Answered> {
+    const log = (event: Record<string, unknown>) =>
+      console.log(
+        JSON.stringify({ t3flare: "mcp-question", what, server: context.server, tool: context.tool, ...event }),
+      );
     if (plan.kind === "now") {
       log({ outcome: "answered-unseen", why: plan.why });
       return { kind: "now", answer: plan.answer };
@@ -517,9 +667,16 @@ export class McpHost {
     } finally {
       clearTimeout(timer);
     }
-    if (answer.reason === "no answer in time") await Promise.resolve(asker.withdraw(plan.card.id)).catch(() => undefined);
+    if (answer.reason === "no answer in time")
+      await Promise.resolve(asker.withdraw(plan.card.id)).catch(() => undefined);
     const sent = plan.answerOf(answer);
-    log({ card: plan.card.kind, outcome: sent.result.action, fields: Object.keys(sent.result.content ?? {}), ...(answer.reason === undefined ? {} : { reason: answer.reason }), ...(sent.note === undefined ? {} : { note: sent.note }) });
+    log({
+      card: plan.card.kind,
+      outcome: sent.result.action,
+      fields: Object.keys(sent.result.content ?? {}),
+      ...(answer.reason === undefined ? {} : { reason: answer.reason }),
+      ...(sent.note === undefined ? {} : { note: sent.note }),
+    });
     return { kind: "card", ...sent };
   }
 
@@ -542,20 +699,47 @@ export class McpHost {
     for (let round = 0; ; round++) {
       const pause = pauseOf(current);
       if (pause === undefined) return { kind: "result", ...redactedResult(current) };
-      if (asker === undefined) return { kind: "result", isError: true, text: `${name} paused this call for the owner's ${pause.status === "approval-required" ? "approval" : "input"}, which this caller cannot ask for. It did not run.` };
-      if (round === MAX_PAUSES) return { kind: "unavailable", message: `${name} paused this call more than ${MAX_PAUSES} times; t3flare stopped answering. Some of its steps may have run.`, mayHaveRun: true };
+      if (asker === undefined)
+        return {
+          kind: "result",
+          isError: true,
+          text: `${name} paused this call for the owner's ${pause.status === "approval-required" ? "approval" : "input"}, which this caller cannot ask for. It did not run.`,
+        };
+      if (round === MAX_PAUSES)
+        return {
+          kind: "unavailable",
+          message: `${name} paused this call more than ${MAX_PAUSES} times; t3flare stopped answering. Some of its steps may have run.`,
+          mayHaveRun: true,
+        };
       const answer = await this.#answer(planPause(pause, context), asker, context, "pause");
       // Declined unseen or refused (a credential form, a malformed one): the server is told `decline`.
-      const response = answer.kind === "card" ? answer.result : answer.answer.kind === "answered" ? answer.answer.result : { action: "decline" };
-      const next = await this.#request(name, server, target, resume, { requestId: pause.requestId, response }, signal, asker, context);
-      if (next.kind === "unavailable") return { ...next, message: `Resuming ${name}'s paused call failed: ${next.message}` };
+      const response =
+        answer.kind === "card"
+          ? answer.result
+          : answer.answer.kind === "answered"
+            ? answer.answer.result
+            : { action: "decline" };
+      const next = await this.#request(
+        name,
+        server,
+        target,
+        resume,
+        { requestId: pause.requestId, response },
+        signal,
+        asker,
+        context,
+      );
+      if (next.kind === "unavailable")
+        return { ...next, message: `Resuming ${name}'s paused call failed: ${next.message}` };
       current = next.value;
     }
   }
 }
 
 /** A question's answer: at once, or from the owner's card. */
-type Answered = { readonly kind: "now"; readonly answer: ElicitAnswer } | ({ readonly kind: "card" } & ElicitResultOrCancel);
+type Answered =
+  | { readonly kind: "now"; readonly answer: ElicitAnswer }
+  | ({ readonly kind: "card" } & ElicitResultOrCancel);
 
 /** The tool a pausing server resumes a paused call with (Executor's). */
 const RESUME_TOOL = "resume";
@@ -566,9 +750,17 @@ const MAX_PAUSES = 16;
 
 /** A result as text, without a pause's `requestId` (an expired or busy outcome still carries one). */
 const redactedResult = (value: unknown): { readonly isError: boolean; readonly text: string } => {
-  const content = (value as { structuredContent?: unknown } | null)?.structuredContent as { requestId?: unknown; message?: unknown } | undefined;
+  const content = (value as { structuredContent?: unknown } | null)?.structuredContent as
+    | { requestId?: unknown; message?: unknown }
+    | undefined;
   if (content === undefined || content === null || typeof content.requestId !== "string") return resultText(value);
-  return { isError: (value as { isError?: unknown }).isError === true, text: typeof content.message === "string" ? content.message.replaceAll(content.requestId, "[request]") : "The server is still answering an earlier request for this call; try the call again." };
+  return {
+    isError: (value as { isError?: unknown }).isError === true,
+    text:
+      typeof content.message === "string"
+        ? content.message.replaceAll(content.requestId, "[request]")
+        : "The server is still answering an earlier request for this call; try the call again.",
+  };
 };
 
 const readStream = async (body: ReadableStream<Uint8Array>, max = MAX_RESULT_BYTES): Promise<unknown> => {
@@ -598,8 +790,19 @@ const readStream = async (body: ReadableStream<Uint8Array>, max = MAX_RESULT_BYT
 export const resultText = (value: unknown): { readonly isError: boolean; readonly text: string } => {
   const result = (value ?? {}) as { isError?: unknown; content?: unknown; structuredContent?: unknown };
   const blocks = Array.isArray(result.content) ? (result.content as Array<{ type?: unknown; text?: unknown }>) : [];
-  const texts = blocks.flatMap((block) => (block.type === "text" && typeof block.text === "string" ? [block.text] : typeof block.type === "string" ? [`[${block.type} content]`] : []));
-  const text = texts.length > 0 ? texts.join("\n") : result.structuredContent !== undefined ? JSON.stringify(result.structuredContent) : JSON.stringify(value);
+  const texts = blocks.flatMap((block) =>
+    block.type === "text" && typeof block.text === "string"
+      ? [block.text]
+      : typeof block.type === "string"
+        ? [`[${block.type} content]`]
+        : [],
+  );
+  const text =
+    texts.length > 0
+      ? texts.join("\n")
+      : result.structuredContent !== undefined
+        ? JSON.stringify(result.structuredContent)
+        : JSON.stringify(value);
   return { isError: result.isError === true, text: text.slice(0, MAX_RESULT_BYTES) };
 };
 

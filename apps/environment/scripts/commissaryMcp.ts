@@ -14,7 +14,20 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { cliTurn, enable as enableCli, ensureProject } from "./lib/cliTurn.ts";
-import { admin, dispatch, itemsOf, pair, projectionOf, runsOf, SETTLED, sendMessage, sleep, threadWindow, uuid, wsCall } from "./lib/client.ts";
+import {
+  admin,
+  dispatch,
+  itemsOf,
+  pair,
+  projectionOf,
+  runsOf,
+  SETTLED,
+  sendMessage,
+  sleep,
+  threadWindow,
+  uuid,
+  wsCall,
+} from "./lib/client.ts";
 
 const EVIDENCE = path.resolve(import.meta.dirname, "../../../.evidence/spi-1160");
 const HARNESS = process.env.T3FLARE_HARNESS_URL ?? "";
@@ -22,11 +35,20 @@ const KEY = process.env.T3FLARE_MCP_KEY ?? "";
 const API = (process.env.T3FLARE_MCP_API_URL ?? "").replace(/\/+$/, "");
 const URL_ = `${API}/mcp?toolkits=sandbox`;
 const SERVER = "commissary";
-const MODEL = { instanceId: "piDurable", model: process.env.T3FLARE_TOOLS_MODEL ?? "default", options: [{ id: "thinking", value: "low" }] };
-const accessHeaders = { "cf-access-client-id": process.env.T3FLARE_ACCESS_CLIENT_ID ?? "", "cf-access-client-secret": process.env.T3FLARE_ACCESS_CLIENT_SECRET ?? "" };
+const MODEL = {
+  instanceId: "piDurable",
+  model: process.env.T3FLARE_TOOLS_MODEL ?? "default",
+  options: [{ id: "thinking", value: "low" }],
+};
+const accessHeaders = {
+  "cf-access-client-id": process.env.T3FLARE_ACCESS_CLIENT_ID ?? "",
+  "cf-access-client-secret": process.env.T3FLARE_ACCESS_CLIENT_SECRET ?? "",
+};
 
 if (KEY === "" || API === "" || HARNESS === "") {
-  console.error("commissaryMcp: run through `node scripts/stage.ts run <stage> commissaryMcp …` (T3FLARE_MCP_API_URL and T3FLARE_MCP_KEY exported, the stage's URL)");
+  console.error(
+    "commissaryMcp: run through `node scripts/stage.ts run <stage> commissaryMcp …` (T3FLARE_MCP_API_URL and T3FLARE_MCP_KEY exported, the stage's URL)",
+  );
   process.exit(2);
 }
 
@@ -46,7 +68,11 @@ const harness = async (method: string, pathname: string, body?: unknown) => {
   const response = await fetch(new URL(pathname, HARNESS), {
     method,
     redirect: "manual",
-    headers: { ...accessHeaders, authorization: `Bearer ${process.env.T3FLARE_ADMIN_TOKEN ?? ""}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+    headers: {
+      ...accessHeaders,
+      authorization: `Bearer ${process.env.T3FLARE_ADMIN_TOKEN ?? ""}`,
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
+    },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const text = await response.text();
@@ -59,13 +85,20 @@ const harness = async (method: string, pathname: string, body?: unknown) => {
   return { status: response.status, json, text };
 };
 
-const rowOf = async () => ((await harness("GET", "/_t3flare/settings/api/mcp")).json?.servers ?? []).find((row: any) => row.name === SERVER);
+const rowOf = async () =>
+  ((await harness("GET", "/_t3flare/settings/api/mcp")).json?.servers ?? []).find((row: any) => row.name === SERVER);
 const sessionOf = (text: string) => text.match(/sbx_[0-9a-f]{8,}/)?.[0];
 
 const add = async () => {
   const answers: Array<string> = [];
-  if ((await rowOf()) !== undefined) answers.push((await harness("POST", "/_t3flare/settings/api/mcp", { op: "remove", server: SERVER })).text);
-  const added = await harness("POST", "/_t3flare/settings/api/mcp/servers", { server: SERVER, url: URL_, auth: { kind: "header", header: "x-api-key" }, value: KEY });
+  if ((await rowOf()) !== undefined)
+    answers.push((await harness("POST", "/_t3flare/settings/api/mcp", { op: "remove", server: SERVER })).text);
+  const added = await harness("POST", "/_t3flare/settings/api/mcp/servers", {
+    server: SERVER,
+    url: URL_,
+    auth: { kind: "header", header: "x-api-key" },
+    value: KEY,
+  });
   const tested = await harness("POST", "/_t3flare/settings/api/mcp/test", { server: SERVER });
   const listed = await harness("GET", "/_t3flare/settings/api/mcp");
   const page = await harness("GET", "/_t3flare/settings");
@@ -77,8 +110,19 @@ const add = async () => {
     note: "Commissary's MCP endpoint added through the panel's admin API as a direct server, signed in with an x-api-key header (T3FLARE_MCP_KEY, passed in by the script, never printed)",
     added: { status: added.status, answer: added.json },
     tested: { status: tested.status, answer: tested.json },
-    row: { name: row?.name, setting: row?.setting, secret: row?.secret === undefined ? null : { set: row.secret.set }, status: row?.status, error: row?.error, tools },
-    page: { status: page.status, showsServer: page.text.includes('id="srv-commissary"'), showsHeader: page.text.includes("<code>x-api-key</code>") },
+    row: {
+      name: row?.name,
+      setting: row?.setting,
+      secret: row?.secret === undefined ? null : { set: row.secret.set },
+      status: row?.status,
+      error: row?.error,
+      tools,
+    },
+    page: {
+      status: page.status,
+      showsServer: page.text.includes('id="srv-commissary"'),
+      showsHeader: page.text.includes("<code>x-api-key</code>"),
+    },
     keyInAnyAnswer: answers.some((text) => text.includes(KEY)),
     ok:
       added.status === 200 &&
@@ -86,7 +130,9 @@ const add = async () => {
       row?.setting?.kind === "direct" &&
       row?.setting?.auth?.header === "x-api-key" &&
       row?.secret?.set === true &&
-      ["sandbox_open:write", "sandbox_write:write", "sandbox_read:read", "sandbox_close:write"].every((tool) => tools.includes(tool)) &&
+      ["sandbox_open:write", "sandbox_write:write", "sandbox_read:read", "sandbox_close:write"].every((tool) =>
+        tools.includes(tool),
+      ) &&
       answers.every((text) => !text.includes(KEY)),
   });
 };
@@ -106,10 +152,18 @@ const runTurn = async (threadId: string, text: string, decision: "accept" | "dec
   let projection: any;
   while (Date.now() - started < 8 * 60_000) {
     projection = projectionOf(await threadWindow(cookie, threadId));
-    for (const request of (projection?.runtimeRequests ?? []).filter((r: any) => r.status === "pending" && !answered.has(r.id))) {
+    for (const request of (projection?.runtimeRequests ?? []).filter(
+      (r: any) => r.status === "pending" && !answered.has(r.id),
+    )) {
       const item = itemsOf(projection).find((candidate: any) => candidate.requestId === request.id);
       answered.add(request.id);
-      await dispatch(cookie, { type: "runtime-request.respond", commandId: uuid(), threadId, requestId: request.id, decision });
+      await dispatch(cookie, {
+        type: "runtime-request.respond",
+        commandId: uuid(),
+        threadId,
+        requestId: request.id,
+        decision,
+      });
       cards.push({ kind: request.kind, prompt: String(item?.prompt ?? "").slice(0, 800), decision });
     }
     const runs = runsOf(projection);
@@ -125,33 +179,91 @@ const verbatim = (code: string) =>
 /** The thread's code mode results, newest last, from the Session's committed entries. */
 const scriptOutputs = async (threadId: string): Promise<Array<string>> => {
   const state = (await admin("GET", `/_t3flare/agents/session?thread=${encodeURIComponent(threadId)}`)).json;
-  return (state?.entries ?? []).filter((entry: any) => entry.role === "toolResult" && entry.toolName === "codemode").map((entry: any) => (entry.content ?? []).map((block: any) => block.text ?? "").join(""));
+  return (state?.entries ?? [])
+    .filter((entry: any) => entry.role === "toolResult" && entry.toolName === "codemode")
+    .map((entry: any) => (entry.content ?? []).map((block: any) => block.text ?? "").join(""));
 };
 
 const durable = async () => {
-  await wsCall(cookie, "server.updateSettings", { patch: {}, providerInstanceMutation: { operation: "upsert", instanceId: "piDurable", instance: { driver: "piDurable", enabled: true } } });
+  await wsCall(cookie, "server.updateSettings", {
+    patch: {},
+    providerInstanceMutation: {
+      operation: "upsert",
+      instanceId: "piDurable",
+      instance: { driver: "piDurable", enabled: true },
+    },
+  });
   const marker = `spi1160-durable-${Date.now().toString(36)}`;
   const workspace = marker;
   const { projectId } = await ensureProject(cookie, workspace);
   const threadId = uuid();
-  await dispatch(cookie, { type: "thread.create", commandId: uuid(), threadId, projectId, title: marker, modelSelection: MODEL, runtimeMode: "approval-required", interactionMode: "default", branch: null, worktreePath: null, createdBy: "user", creationSource: "web" });
+  await dispatch(cookie, {
+    type: "thread.create",
+    commandId: uuid(),
+    threadId,
+    projectId,
+    title: marker,
+    modelSelection: MODEL,
+    runtimeMode: "approval-required",
+    interactionMode: "default",
+    branch: null,
+    worktreePath: null,
+    createdBy: "user",
+    creationSource: "web",
+  });
   const T = `tools.mcp__${SERVER}__`;
   const cases: Array<any> = [];
   const write = await runTurn(
     threadId,
-    verbatim(`const opened = String(await ${T}sandbox_open({}));\nconst session = opened.match(/sbx_[0-9a-f]+/)[0];\nconst wrote = await ${T}sandbox_write({ session, path: "note.txt", content: "${marker}" });\ntext(session + "\\n" + wrote);`),
+    verbatim(
+      `const opened = String(await ${T}sandbox_open({}));\nconst session = opened.match(/sbx_[0-9a-f]+/)[0];\nconst wrote = await ${T}sandbox_write({ session, path: "note.txt", content: "${marker}" });\ntext(session + "\\n" + wrote);`,
+    ),
     "accept",
   );
   const writeOut = (await scriptOutputs(threadId)).at(-1) ?? "";
   const session = sessionOf(writeOut);
-  cases.push({ name: "a write: sandbox_open and sandbox_write each raise a card in approval-required; accepted, they run", ...write, output: writeOut.slice(0, 600), ok: write.status === "completed" && write.cards.length === 2 && write.cards.every((card: any) => card.kind === "permission" && card.prompt.includes(`${SERVER}: sandbox_`)) && /wrote/i.test(writeOut) });
-  const read = await runTurn(threadId, verbatim(`text(await ${T}sandbox_read({ session: "${session}", path: "note.txt" }));`), "decline");
+  cases.push({
+    name: "a write: sandbox_open and sandbox_write each raise a card in approval-required; accepted, they run",
+    ...write,
+    output: writeOut.slice(0, 600),
+    ok:
+      write.status === "completed" &&
+      write.cards.length === 2 &&
+      write.cards.every((card: any) => card.kind === "permission" && card.prompt.includes(`${SERVER}: sandbox_`)) &&
+      /wrote/i.test(writeOut),
+  });
+  const read = await runTurn(
+    threadId,
+    verbatim(`text(await ${T}sandbox_read({ session: "${session}", path: "note.txt" }));`),
+    "decline",
+  );
   const readOut = (await scriptOutputs(threadId)).at(-1) ?? "";
-  cases.push({ name: "a read: sandbox_read runs without a card and shows what the write wrote", ...read, output: readOut.slice(0, 600), ok: read.status === "completed" && read.cards.length === 0 && readOut.includes(marker) });
-  const close = await runTurn(threadId, verbatim(`text(await ${T}sandbox_close({ session: "${session}" }));`), "accept");
+  cases.push({
+    name: "a read: sandbox_read runs without a card and shows what the write wrote",
+    ...read,
+    output: readOut.slice(0, 600),
+    ok: read.status === "completed" && read.cards.length === 0 && readOut.includes(marker),
+  });
+  const close = await runTurn(
+    threadId,
+    verbatim(`text(await ${T}sandbox_close({ session: "${session}" }));`),
+    "accept",
+  );
   const closeOut = (await scriptOutputs(threadId)).at(-1) ?? "";
-  cases.push({ name: "cleanup: sandbox_close (a write, its card accepted)", ...close, output: closeOut.slice(0, 300), ok: close.cards.length === 1 && /closed/i.test(closeOut) });
-  writeEvidence("durable.json", { agent: "Pi Durable", model: MODEL.model, threadId, mode: "approval-required", cases, ok: cases.every((c) => c.ok) });
+  cases.push({
+    name: "cleanup: sandbox_close (a write, its card accepted)",
+    ...close,
+    output: closeOut.slice(0, 300),
+    ok: close.cards.length === 1 && /closed/i.test(closeOut),
+  });
+  writeEvidence("durable.json", {
+    agent: "Pi Durable",
+    model: MODEL.model,
+    threadId,
+    mode: "approval-required",
+    cases,
+    ok: cases.every((c) => c.ok),
+  });
   await admin("POST", `/_t3flare/agents/workspace-stop?id=${workspace}`);
   await admin("POST", `/_t3flare/agents/workspace-remove?id=${workspace}`);
 };
@@ -168,20 +280,61 @@ const cli = async () => {
   // The projection's requests are the thread's: each turn counts only those it raised.
   const seen = new Set<string>();
   const turn = async (prompt: string, approve: "accept" | "decline", threadId?: string) => {
-    const result: any = await cliTurn(cookie, { cli: "codex", workspace, mode: "approval-required", plan: false, prompt, approve, ...(threadId === undefined ? {} : { threadId }) });
+    const result: any = await cliTurn(cookie, {
+      cli: "codex",
+      workspace,
+      mode: "approval-required",
+      plan: false,
+      prompt,
+      approve,
+      ...(threadId === undefined ? {} : { threadId }),
+    });
     const requests = result.requests.filter((request: any) => !seen.has(request.id));
     for (const request of requests) seen.add(request.id);
-    return { threadId: result.threadId as string, model: result.model, run: result.runs.at(-1) ?? null, cards: requests.filter(card), requests, text: String(result.text), items: result.items.filter((item: any) => /mcp|tool/i.test(item.type)).slice(0, 8) };
+    return {
+      threadId: result.threadId as string,
+      model: result.model,
+      run: result.runs.at(-1) ?? null,
+      cards: requests.filter(card),
+      requests,
+      text: String(result.text),
+      items: result.items.filter((item: any) => /mcp|tool/i.test(item.type)).slice(0, 8),
+    };
   };
   const cases: Array<any> = [];
-  const write = await turn(`Call the MCP tool sandbox_open of the "${SERVER}" MCP server with no arguments. Then call its sandbox_write with the session id it gave, path "note.txt" and content "${marker}". Reply with only the session id. ${only}`, "accept");
+  const write = await turn(
+    `Call the MCP tool sandbox_open of the "${SERVER}" MCP server with no arguments. Then call its sandbox_write with the session id it gave, path "note.txt" and content "${marker}". Reply with only the session id. ${only}`,
+    "accept",
+  );
   const session = sessionOf(write.text);
-  cases.push({ name: "a write: sandbox_open and sandbox_write each raise the relay's card in approval-required; accepted, they run", ...write, ok: write.run?.status === "completed" && write.cards.length === 2 && session !== undefined });
-  const read = await turn(`Call the MCP tool sandbox_read of the "${SERVER}" MCP server with session "${session}" and path "note.txt", and reply with exactly what it returned. ${only}`, "decline", write.threadId);
-  cases.push({ name: "a read: sandbox_read runs without a card and shows what the write wrote", ...read, ok: read.run?.status === "completed" && read.cards.length === 0 && read.text.includes(marker) });
-  const close = await turn(`Call the MCP tool sandbox_close of the "${SERVER}" MCP server with session "${session}". Then say done. ${only}`, "accept", write.threadId);
+  cases.push({
+    name: "a write: sandbox_open and sandbox_write each raise the relay's card in approval-required; accepted, they run",
+    ...write,
+    ok: write.run?.status === "completed" && write.cards.length === 2 && session !== undefined,
+  });
+  const read = await turn(
+    `Call the MCP tool sandbox_read of the "${SERVER}" MCP server with session "${session}" and path "note.txt", and reply with exactly what it returned. ${only}`,
+    "decline",
+    write.threadId,
+  );
+  cases.push({
+    name: "a read: sandbox_read runs without a card and shows what the write wrote",
+    ...read,
+    ok: read.run?.status === "completed" && read.cards.length === 0 && read.text.includes(marker),
+  });
+  const close = await turn(
+    `Call the MCP tool sandbox_close of the "${SERVER}" MCP server with session "${session}". Then say done. ${only}`,
+    "accept",
+    write.threadId,
+  );
   cases.push({ name: "cleanup: sandbox_close (a write, its card accepted)", ...close, ok: close.cards.length === 1 });
-  writeEvidence("cli-codex.json", { agent: "Codex", workspace, mode: "approval-required", cases, ok: cases.every((c) => c.ok) });
+  writeEvidence("cli-codex.json", {
+    agent: "Codex",
+    workspace,
+    mode: "approval-required",
+    cases,
+    ok: cases.every((c) => c.ok),
+  });
   await admin("POST", `/_t3flare/agents/workspace-stop?id=${workspace}`);
   await admin("POST", `/_t3flare/agents/workspace-remove?id=${workspace}`);
 };

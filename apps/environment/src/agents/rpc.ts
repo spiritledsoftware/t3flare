@@ -40,15 +40,38 @@ import type {
 /** One file operation of the Workspace DO's (`fs`); paths inside the Workspace. */
 export type FsOp =
   | { readonly op: "stat"; readonly path: string; readonly follow?: boolean }
-  | { readonly op: "read"; readonly path: string; readonly range?: { readonly offset: number; readonly length: number } }
-  | { readonly op: "write"; readonly path: string; readonly data: Uint8Array | string; readonly options?: { readonly append?: boolean; readonly exclusive?: boolean } }
+  | {
+      readonly op: "read";
+      readonly path: string;
+      readonly range?: { readonly offset: number; readonly length: number };
+    }
+  | {
+      readonly op: "write";
+      readonly path: string;
+      readonly data: Uint8Array | string;
+      readonly options?: { readonly append?: boolean; readonly exclusive?: boolean };
+    }
   | { readonly op: "readdir"; readonly path: string }
   | { readonly op: "mkdir"; readonly path: string; readonly recursive?: boolean }
-  | { readonly op: "remove"; readonly path: string; readonly options?: { readonly recursive?: boolean; readonly force?: boolean } }
+  | {
+      readonly op: "remove";
+      readonly path: string;
+      readonly options?: { readonly recursive?: boolean; readonly force?: boolean };
+    }
   | { readonly op: "rename"; readonly path: string; readonly to: string }
   | { readonly op: "realPath"; readonly path: string }
   | { readonly op: "find"; readonly path: string; readonly pattern?: string; readonly limit?: number }
-  | { readonly op: "grep"; readonly path: string; readonly pattern: string; readonly options?: { readonly ignoreCase?: boolean; readonly regex?: boolean; readonly limit?: number; readonly include?: string } };
+  | {
+      readonly op: "grep";
+      readonly path: string;
+      readonly pattern: string;
+      readonly options?: {
+        readonly ignoreCase?: boolean;
+        readonly regex?: boolean;
+        readonly limit?: number;
+        readonly include?: string;
+      };
+    };
 
 export interface ExecInput {
   readonly script: string;
@@ -72,15 +95,24 @@ export interface WorkspaceRpc {
   git(run: GitRun): Promise<GitAnswer>;
   checkpoint(op: CheckpointOp): Promise<CheckpointAnswer>;
   ensureCredentialHelper(id?: string): Promise<ExecResult>;
-  killExecs(execIds: ReadonlyArray<string>): Promise<{ readonly running: boolean; readonly signalled: number; readonly survivors: number }>;
+  killExecs(
+    execIds: ReadonlyArray<string>,
+  ): Promise<{ readonly running: boolean; readonly signalled: number; readonly survivors: number }>;
   /** G11: the Container's listeners; never starts it, not use. */
   listeners(): Promise<{ readonly running: boolean; readonly scan: PortScan | null }>;
   /** The Settings page's Files column (ADR-0044 §1): the DO's storage size and whether its Container runs; never starts it. */
-  usage(): Promise<{ readonly bytes: number; readonly containerRunning: boolean; readonly startedFrom?: "base" | "image" }>;
+  usage(): Promise<{
+    readonly bytes: number;
+    readonly containerRunning: boolean;
+    readonly startedFrom?: "base" | "image";
+  }>;
   /** G11: stops one process group in the Container (TERM, then KILL); false when gone or not running. */
   stopProcessGroup(pgid: number, members: ReadonlyArray<number>): Promise<boolean>;
   /** G11: a configured `localhost` preview URL's web probe on the Container's port; never starts it, not use. */
-  probePort(port: number, path: string): Promise<{ readonly status: number; readonly contentType: string | null; readonly location: string | null } | null>;
+  probePort(
+    port: number,
+    path: string,
+  ): Promise<{ readonly status: number; readonly contentType: string | null; readonly location: string | null } | null>;
   clone(input: CloneInput): Promise<GitAnswer>;
   info(): Promise<ProvisionInfo>;
   exec(input: ExecInput): Promise<ExecResult>;
@@ -97,7 +129,9 @@ export interface WorkspaceRpc {
       readonly budget?: number;
       readonly revision: number;
       /** What it started from (SPI-1333): the Base snapshot's id and key, or the Workspace image and why. */
-      readonly from?: { readonly base: { readonly snapshotId: string; readonly key: string } } | { readonly image: { readonly why: string } };
+      readonly from?:
+        | { readonly base: { readonly snapshotId: string; readonly key: string } }
+        | { readonly image: { readonly why: string } };
     } | null;
   }>;
   stopContainer(): Promise<void>;
@@ -120,16 +154,54 @@ export interface WorkspaceRpc {
   skills(cwd: string, agent?: CliAgent, options?: { readonly repoOnly?: boolean }): Promise<SkillDiscovery>;
   prompts(cwd: string, agent?: CliAgent): Promise<ReadonlyArray<PromptTemplate>>;
   /** SPI-1148: takes the Environment skill set from the Environment DO when `hash` differs from the one held. */
-  takeEnvironmentSkills(hash: string): Promise<{ readonly taken: boolean; readonly hash: string; readonly error?: string; readonly container?: unknown }>;
+  takeEnvironmentSkills(
+    hash: string,
+  ): Promise<{ readonly taken: boolean; readonly hash: string; readonly error?: string; readonly container?: unknown }>;
   writeText(path: string, text: string): Promise<void>;
-  worktreeClone(input: { readonly id: string; readonly url: string | null; readonly parent?: string }): Promise<{ readonly ok: boolean; readonly tips: ReadonlyArray<string>; readonly error?: string }>;
-  worktreeBundle(input: { readonly ref: string; readonly tips: ReadonlyArray<string>; readonly name: string }): Promise<{ readonly ok: boolean; readonly commit?: string; readonly bundle?: string | null; readonly config?: ReadonlyArray<string>; readonly error?: string }>;
-  worktreeFinish(input: { readonly parent: string; readonly bundle: string | null; readonly ref: string; readonly commit: string; readonly config: ReadonlyArray<string> }): Promise<{ readonly ok: boolean; readonly head?: string; readonly error?: string }>;
+  worktreeClone(input: {
+    readonly id: string;
+    readonly url: string | null;
+    readonly parent?: string;
+  }): Promise<{ readonly ok: boolean; readonly tips: ReadonlyArray<string>; readonly error?: string }>;
+  worktreeBundle(input: {
+    readonly ref: string;
+    readonly tips: ReadonlyArray<string>;
+    readonly name: string;
+  }): Promise<{
+    readonly ok: boolean;
+    readonly commit?: string;
+    readonly bundle?: string | null;
+    readonly config?: ReadonlyArray<string>;
+    readonly error?: string;
+  }>;
+  worktreeFinish(input: {
+    readonly parent: string;
+    readonly bundle: string | null;
+    readonly ref: string;
+    readonly commit: string;
+    readonly config: ReadonlyArray<string>;
+  }): Promise<{ readonly ok: boolean; readonly head?: string; readonly error?: string }>;
   destroy(): Promise<{ readonly destroyed: true }>;
   refTips(): Promise<{ readonly ok: boolean; readonly tips: ReadonlyArray<string>; readonly error?: string }>;
-  carryOut(input: { readonly projectTips: ReadonlyArray<string> }): Promise<{ readonly ok: boolean; readonly dirty: boolean; readonly carried: ReadonlyArray<{ readonly ref: string; readonly sha: string }>; readonly bundle: string | null; readonly error?: string }>;
-  carryIn(input: { readonly worktree: string; readonly bundle: string; readonly dir: string; readonly carried: ReadonlyArray<{ readonly ref: string; readonly sha: string }> }): Promise<{ readonly ok: boolean; readonly lines: ReadonlyArray<string>; readonly error?: string }>;
-  seedProjectRoot(input: { readonly parent: string }): Promise<{ readonly files: number; readonly bytes: number; readonly capped: boolean; readonly names: ReadonlyArray<string> }>;
+  carryOut(input: { readonly projectTips: ReadonlyArray<string> }): Promise<{
+    readonly ok: boolean;
+    readonly dirty: boolean;
+    readonly carried: ReadonlyArray<{ readonly ref: string; readonly sha: string }>;
+    readonly bundle: string | null;
+    readonly error?: string;
+  }>;
+  carryIn(input: {
+    readonly worktree: string;
+    readonly bundle: string;
+    readonly dir: string;
+    readonly carried: ReadonlyArray<{ readonly ref: string; readonly sha: string }>;
+  }): Promise<{ readonly ok: boolean; readonly lines: ReadonlyArray<string>; readonly error?: string }>;
+  seedProjectRoot(input: { readonly parent: string }): Promise<{
+    readonly files: number;
+    readonly bytes: number;
+    readonly capped: boolean;
+    readonly names: ReadonlyArray<string>;
+  }>;
   worktreeHead(): Promise<{ readonly head: string | null; readonly branch: string | null }>;
   terminalOpen(input: TerminalOpenInput): Promise<TerminalAnswer>;
   terminalInput(key: string, data: string): Promise<TerminalAnswer>;
@@ -145,21 +217,41 @@ export interface WorkspaceRpc {
   processRead(input: ProcessReadInput): Promise<ProcessReadAnswer>;
   /** SPI-1172: the process's last model relay answer this turn, classified (null: a success, or none). */
   processModelFailure(key: string): Promise<EndpointFailureRecord | null>;
-  processState(): Promise<{ readonly epoch: number; readonly processes: ReadonlyArray<unknown>; readonly pushes: number }>;
+  processState(): Promise<{
+    readonly epoch: number;
+    readonly processes: ReadonlyArray<unknown>;
+    readonly pushes: number;
+  }>;
   releaseIfIdle(): Promise<{ readonly released: boolean; readonly reason: string }>;
   /** Step 4a (plan §4.7): credentials in the DO's files (by value) and the Container (by hash); names and paths only. */
   leakCheck(input?: {
     readonly credentials?: ReadonlyArray<{ readonly name: string; readonly value: string }>;
     /** Credentials as their hashes only (a sign-in's tokens, SPI-1171): scanned for in the Container. */
-    readonly patterns?: ReadonlyArray<{ readonly name: string; readonly prefix: string; readonly length: number; readonly sha256: string }>;
-  }): Promise<{ readonly do: ReadonlyArray<{ readonly name: string; readonly path: string }>; readonly container: unknown; readonly flagged: unknown; readonly notScanned?: ReadonlyArray<{ readonly name: string; readonly where: string }> }>;
+    readonly patterns?: ReadonlyArray<{
+      readonly name: string;
+      readonly prefix: string;
+      readonly length: number;
+      readonly sha256: string;
+    }>;
+  }): Promise<{
+    readonly do: ReadonlyArray<{ readonly name: string; readonly path: string }>;
+    readonly container: unknown;
+    readonly flagged: unknown;
+    readonly notScanned?: ReadonlyArray<{ readonly name: string; readonly where: string }>;
+  }>;
   /** Step 4a M0 P1, test stages only. */
   probeProcess(op: unknown): Promise<unknown>;
   /** SPI-1333, test stages only: the next fresh start uses `snapshotId` as its Base snapshot (null clears it). */
   faultBaseSnapshot(input: { readonly snapshotId: string | null }): Promise<{ readonly armed: string | null }>;
   /** Why a reclaim would leave the running Container alone now, or null (SPI-1150's stage check). */
   reclaimReason(): Promise<string | null>;
-  terminalState(): Promise<{ readonly epoch: string; readonly keys: ReadonlyArray<string>; readonly lastInput: number; readonly pushes: number; readonly sync: Readonly<Record<string, number>> }>;
+  terminalState(): Promise<{
+    readonly epoch: string;
+    readonly keys: ReadonlyArray<string>;
+    readonly lastInput: number;
+    readonly pushes: number;
+    readonly sync: Readonly<Record<string, number>>;
+  }>;
 }
 
 export interface SessionRpc {
@@ -172,7 +264,9 @@ export interface SessionRpc {
    * SPI-1164: a sign-in endpoint was signed out: the Session drops any token it holds for it, and stops its live turns
    * when they run on it (its own storage says which endpoint they run on).
    */
-  endpointSignedOut(input: { readonly endpointId: string }): Promise<{ readonly dropped: boolean; readonly stopped: boolean }>;
+  endpointSignedOut(input: {
+    readonly endpointId: string;
+  }): Promise<{ readonly dropped: boolean; readonly stopped: boolean }>;
   answer(input: AnswerInput): Promise<{ readonly applied: boolean }>;
   snapshot(input?: SnapshotInput): Promise<SessionState>;
   /** G6 (SPI-987): the conversation back to before the first dropped turn. */
@@ -181,13 +275,21 @@ export interface SessionRpc {
   fork(input: ForkInput): Promise<ForkAnswer>;
   dropTurns(): Promise<{ readonly dropped: number }>;
   diagnostics(): Promise<Readonly<Record<string, number>>>;
-  proxyFault(input: { readonly fixture: string; readonly resetAt: number }): Promise<{ readonly armed: { readonly fixture: string; readonly resetAt: number } }>;
+  proxyFault(input: {
+    readonly fixture: string;
+    readonly resetAt: number;
+  }): Promise<{ readonly armed: { readonly fixture: string; readonly resetAt: number } }>;
   restart(): Promise<{ readonly restarting: true }>;
   destroy(): Promise<{ readonly destroyed: true }>;
   /** SPI-996: the owner's likely next message after an answered turn (t3's prompt suggestions); "" when none. */
   suggestPrompt(input: { readonly providerTurnId: string }): Promise<{ readonly text: string }>;
   /** Step 3: the T3 tools the Session offers and those its catalog left out (names only). */
-  t3Tools(): Promise<{ readonly tools: ReadonlyArray<string>; readonly left: ReadonlyArray<string>; readonly hash: string | null; readonly credential: boolean }>;
+  t3Tools(): Promise<{
+    readonly tools: ReadonlyArray<string>;
+    readonly left: ReadonlyArray<string>;
+    readonly hash: string | null;
+    readonly credential: boolean;
+  }>;
 }
 
 export type LeaseAnswer =
@@ -199,7 +301,10 @@ export interface BudgetRpc {
   /** `budget`: the Environment settings' Container budget, carried by a fresh start (ADR-0032). */
   acquire(holder: string, budget?: number): Promise<LeaseAnswer>;
   release(holder: string): Promise<void>;
-  state(): Promise<{ readonly max: number; readonly leases: ReadonlyArray<{ readonly holder: string; readonly until: number }> }>;
+  state(): Promise<{
+    readonly max: number;
+    readonly leases: ReadonlyArray<{ readonly holder: string; readonly until: number }>;
+  }>;
 }
 
 /** A Durable Object namespace, as much of it as this Worker uses. */

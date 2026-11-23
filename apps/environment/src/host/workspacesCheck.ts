@@ -49,7 +49,9 @@ export const workspacesCheck = async () => {
   );
   const stubsAfter = [...workspaceStubs.values()].reduce((sum, count) => sum + count, 0);
   const listing = await outcome(fs.readDirectory("/w"));
-  const registry = environmentServices().workspaces.list().map((record) => record.id);
+  const registry = environmentServices()
+    .workspaces.list()
+    .map((record) => record.id);
   const failedAsNotFound = Object.entries(fileOps).every(([name, result]) =>
     name === "exists" ? result.ok && result.value === false : !result.ok && result.error === "NotFound",
   );

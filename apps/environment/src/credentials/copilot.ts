@@ -75,19 +75,27 @@ const USER_CODE = /^[A-Z0-9]{4,8}(?:-[A-Z0-9]{4,8})?$/;
 /** GitHub's own device page: the only address the panel links to for this sign-in. */
 const DEVICE_PAGE_HOST = "github.com";
 
-const FORM = { accept: "application/json", "content-type": "application/x-www-form-urlencoded", "user-agent": COPILOT_USER_AGENT } as const;
+const FORM = {
+  accept: "application/json",
+  "content-type": "application/x-www-form-urlencoded",
+  "user-agent": COPILOT_USER_AGENT,
+} as const;
 
 const positive = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value > 0;
 
 /** GitHub's poll interval (seconds) as ms, never below a second; `fallback` when it names none. */
-const intervalOf = (seconds: unknown, fallback: number): number => (positive(seconds) ? Math.max(MIN_INTERVAL_MS, Math.floor(seconds * 1000)) : fallback);
+const intervalOf = (seconds: unknown, fallback: number): number =>
+  positive(seconds) ? Math.max(MIN_INTERVAL_MS, Math.floor(seconds * 1000)) : fallback;
 
 /** The shape of a code from GitHub that a text may name (`invalid_grant`, `subscription_ended`): never anything else of a body. */
 const CODE = /^[a-z_]{1,64}$/;
-const codeOf = (value: unknown): string | undefined => (typeof value === "string" && CODE.test(value) ? value : undefined);
+const codeOf = (value: unknown): string | undefined =>
+  typeof value === "string" && CODE.test(value) ? value : undefined;
 
 /** A new attempt: GitHub's device page and code for the owner, and what the polls need, kept sealed. */
-export const startCopilotSignIn = async (vendor: CopilotVendor): Promise<{ readonly authorizeUrl: string; readonly pending: PendingCopilotSignIn; readonly device: DeviceCode }> => {
+export const startCopilotSignIn = async (
+  vendor: CopilotVendor,
+): Promise<{ readonly authorizeUrl: string; readonly pending: PendingCopilotSignIn; readonly device: DeviceCode }> => {
   let response: Response;
   try {
     response = await vendor.fetch(GITHUB_DEVICE_CODE_URL, {
@@ -99,7 +107,8 @@ export const startCopilotSignIn = async (vendor: CopilotVendor): Promise<{ reado
   } catch {
     throw new Error("GitHub's device sign-in could not be reached: start it again.");
   }
-  if (!response.ok) throw new Error(`GitHub did not start the device sign-in (HTTP ${response.status}): start it again.`);
+  if (!response.ok)
+    throw new Error(`GitHub did not start the device sign-in (HTTP ${response.status}): start it again.`);
   const body: unknown = await response.json().catch(() => undefined);
   if (!isRecord(body)) throw new Error("GitHub's answer to the device sign-in was not usable: start it again.");
   const { device_code, user_code, verification_uri, expires_in, interval } = body;
@@ -134,7 +143,11 @@ export const startCopilotSignIn = async (vendor: CopilotVendor): Promise<{ reado
     expiresAt: now + expires_in * 1000,
     startedAt: now,
   };
-  return { authorizeUrl: pending.verificationUri, pending, device: { userCode: user_code, expiresAt: pending.expiresAt, intervalSeconds: intervalMs / 1000 } };
+  return {
+    authorizeUrl: pending.verificationUri,
+    pending,
+    device: { userCode: user_code, expiresAt: pending.expiresAt, intervalSeconds: intervalMs / 1000 },
+  };
 };
 
 /**
@@ -151,7 +164,9 @@ const RATE_LIMIT_CAP_MS = 15 * 60_000;
  * GitHub's error object (its API's `{ message }`, or an OAuth error), a code from it, and whether its message names a
  * rate limit; never the rest of the body.
  */
-const githubErrorOf = async (response: Response): Promise<{ readonly errorObject: boolean; readonly code: string | undefined; readonly rateLimit: boolean }> => {
+const githubErrorOf = async (
+  response: Response,
+): Promise<{ readonly errorObject: boolean; readonly code: string | undefined; readonly rateLimit: boolean }> => {
   let body: unknown;
   try {
     body = JSON.parse(await response.text());
@@ -172,7 +187,10 @@ const githubErrorOf = async (response: Response): Promise<{ readonly errorObject
  * message naming it: passing, never a refusal.
  */
 const rateLimited = (response: Response, rateLimitMessage: boolean): boolean =>
-  (response.status === 403 && rateLimitMessage) || response.status === 429 || response.headers.get("retry-after") !== null || response.headers.get("x-ratelimit-remaining") === "0";
+  (response.status === 403 && rateLimitMessage) ||
+  response.status === 429 ||
+  response.headers.get("retry-after") !== null ||
+  response.headers.get("x-ratelimit-remaining") === "0";
 
 /**
  * When a rate-limited renewal may be tried again: `retry-after` (seconds or a date), else the reset of an exhausted
@@ -194,7 +212,14 @@ const retryAtOf = (response: Response, now: number): number => {
 
 type CopilotToken =
   | { readonly ok: true; readonly token: string; readonly expires: number }
-  | { readonly ok: false; readonly refused: boolean; readonly status?: number; readonly code?: string; readonly problem: string; readonly retryAt?: number };
+  | {
+      readonly ok: false;
+      readonly refused: boolean;
+      readonly status?: number;
+      readonly code?: string;
+      readonly problem: string;
+      readonly retryAt?: number;
+    };
 
 /** A Copilot token for `githubToken` (pi-ai's request: the bearer and the editor headers), or why not. */
 const copilotToken = async (vendor: CopilotVendor, githubToken: string): Promise<CopilotToken> => {
@@ -218,28 +243,41 @@ const copilotToken = async (vendor: CopilotVendor, githubToken: string): Promise
       status: response.status,
       ...(code === undefined ? {} : { code }),
       ...(limited ? { retryAt: retryAtOf(response, vendor.now()) } : {}),
-      problem: refused ? `GitHub refused a Copilot token (${code ?? `HTTP ${response.status}`})` : `GitHub gave no Copilot token (HTTP ${response.status})`,
+      problem: refused
+        ? `GitHub refused a Copilot token (${code ?? `HTTP ${response.status}`})`
+        : `GitHub gave no Copilot token (HTTP ${response.status})`,
     };
   }
   const body: unknown = await response.json().catch(() => undefined);
   const now = vendor.now();
-  if (!isRecord(body) || typeof body.token !== "string" || body.token === "" || !positive(body.expires_at) || body.expires_at * 1000 <= now) {
+  if (
+    !isRecord(body) ||
+    typeof body.token !== "string" ||
+    body.token === "" ||
+    !positive(body.expires_at) ||
+    body.expires_at * 1000 <= now
+  ) {
     return { ok: false, refused: false, problem: "GitHub's Copilot token was not usable" };
   }
   // Its requests go where it says; a host outside GitHub Copilot's domain is not one we send it to.
-  if (copilotBaseUrl(body.token) === undefined) return { ok: false, refused: false, problem: "GitHub's Copilot token names an API host outside githubcopilot.com" };
+  if (copilotBaseUrl(body.token) === undefined)
+    return { ok: false, refused: false, problem: "GitHub's Copilot token names an API host outside githubcopilot.com" };
   return { ok: true, token: body.token, expires: body.expires_at * 1000 };
 };
 
 /** After GitHub issued its token but the sign-in did not keep it: nothing is stored, and only the owner can revoke it. */
-const LEFT = " Nothing was kept here; GitHub offers this app no revocation, so the approval stays on your GitHub account until you revoke it at github.com, under Settings, Applications.";
+const LEFT =
+  " Nothing was kept here; GitHub offers this app no revocation, so the approval stays on your GitHub account until you revoke it at github.com, under Settings, Applications.";
 const LAPSED = "GitHub's code lapsed before it was approved: start the sign-in again.";
 
 /**
  * Asks GitHub once whether `pending` was approved (no sooner than its interval allows), and on approval gets the first
  * Copilot token. A still-waiting attempt comes back as `waiting`, its next poll's time in it.
  */
-export const pollCopilotSignIn = async (vendor: CopilotVendor, pending: PendingCopilotSignIn): Promise<SignInResult> => {
+export const pollCopilotSignIn = async (
+  vendor: CopilotVendor,
+  pending: PendingCopilotSignIn,
+): Promise<SignInResult> => {
   const now = vendor.now();
   if (now >= pending.expiresAt) return { ok: false, problem: LAPSED, spent: true };
   const wait = (problem: string, intervalMs = pending.intervalMs): SignInResult => {
@@ -253,14 +291,19 @@ export const pollCopilotSignIn = async (vendor: CopilotVendor, pending: PendingC
     response = await vendor.fetch(GITHUB_ACCESS_TOKEN_URL, {
       method: "POST",
       headers: FORM,
-      body: new URLSearchParams({ client_id: COPILOT_CLIENT_ID, device_code: pending.deviceCode, grant_type: DEVICE_GRANT_TYPE }).toString(),
+      body: new URLSearchParams({
+        client_id: COPILOT_CLIENT_ID,
+        device_code: pending.deviceCode,
+        grant_type: DEVICE_GRANT_TYPE,
+      }).toString(),
       ...oauthRequestOptions({ timeoutMs: vendor.timeoutMs }),
     });
   } catch {
     return wait("GitHub could not be reached: still waiting.");
   }
   const body: unknown = await response.json().catch(() => undefined);
-  if (!response.ok || !isRecord(body)) return wait(`GitHub did not answer the sign-in's poll (HTTP ${response.status}): still waiting.`);
+  if (!response.ok || !isRecord(body))
+    return wait(`GitHub did not answer the sign-in's poll (HTTP ${response.status}): still waiting.`);
   if (typeof body.access_token !== "string" || body.access_token === "") {
     // GitHub answers a poll 200 with an OAuth error (RFC 8628 §3.5).
     switch (body.error) {
@@ -283,7 +326,9 @@ export const pollCopilotSignIn = async (vendor: CopilotVendor, pending: PendingC
   const githubToken = body.access_token;
   const copilot = await copilotToken(vendor, githubToken);
   if (!copilot.ok) {
-    const why = copilot.refused ? `${copilot.problem}: this GitHub account needs a Copilot plan.` : `${copilot.problem}: start the sign-in again.`;
+    const why = copilot.refused
+      ? `${copilot.problem}: this GitHub account needs a Copilot plan.`
+      : `${copilot.problem}: start the sign-in again.`;
     return { ok: false, problem: `Signed in at GitHub, but ${why}${LEFT}`, spent: true };
   }
   return {
@@ -314,11 +359,17 @@ export const refreshCopilot = async (vendor: CopilotVendor, credential: SignInCr
           problem: copilot.problem,
         };
   }
-  return { ok: true, credential: { ...credential, access: copilot.token, expires: copilot.expires, earliestRefreshAt: null } };
+  return {
+    ok: true,
+    credential: { ...credential, access: copilot.token, expires: copilot.expires, earliestRefreshAt: null },
+  };
 };
 
 /** Where a Copilot token's requests go (the host it names) and the editor headers they take. */
-export const copilotUse = (credential: SignInCredential) => ({ baseUrl: copilotBaseUrl(credential.access) ?? COPILOT_DEFAULT_BASE_URL, headers: { ...COPILOT_HEADERS } });
+export const copilotUse = (credential: SignInCredential) => ({
+  baseUrl: copilotBaseUrl(credential.access) ?? COPILOT_DEFAULT_BASE_URL,
+  headers: { ...COPILOT_HEADERS },
+});
 
 /** A GitHub Copilot plan as the Credential broker's vendor for the `copilot` sign-in. */
 export const copilotSignIn = (vendor: CopilotVendor): SignInVendor => ({

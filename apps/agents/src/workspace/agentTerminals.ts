@@ -59,7 +59,12 @@ const KEYS: Readonly<Record<string, string>> = {
   End: "\x1b[F",
   PageUp: "\x1b[5~",
   PageDown: "\x1b[6~",
-  ...Object.fromEntries(Array.from({ length: 26 }, (_, index) => [`Control+${String.fromCharCode(65 + index)}`, String.fromCharCode(index + 1)])),
+  ...Object.fromEntries(
+    Array.from({ length: 26 }, (_, index) => [
+      `Control+${String.fromCharCode(65 + index)}`,
+      String.fromCharCode(index + 1),
+    ]),
+  ),
 };
 export const KEY_NAMES: ReadonlyArray<string> = Object.keys(KEYS);
 
@@ -130,7 +135,11 @@ const shortHash = (text: string): string => {
 /** The xterm's internals this reads: the normal buffer's trims and whether the program hid the cursor. */
 interface XtermCore {
   readonly _core?: {
-    readonly _bufferService?: { readonly buffers?: { readonly normal?: { readonly lines?: { onTrim?: (listener: (amount: number) => void) => unknown } } } };
+    readonly _bufferService?: {
+      readonly buffers?: {
+        readonly normal?: { readonly lines?: { onTrim?: (listener: (amount: number) => void) => unknown } };
+      };
+    };
     readonly coreService?: { readonly isCursorHidden?: boolean };
   };
 }
@@ -172,7 +181,10 @@ export class AgentTerminals {
       }
       if (frame.exit !== undefined && entry.exit === null) {
         // 129 is the host's code for a shell the Container took with it (`containerStopped`, a kill before the start).
-        entry.exit = frame.exit.code === 129 ? { code: null, signal: "the Workspace's Container stopped" } : { code: frame.exit.code, signal: null };
+        entry.exit =
+          frame.exit.code === 129
+            ? { code: null, signal: "the Workspace's Container stopped" }
+            : { code: frame.exit.code, signal: null };
         entry.endedAt = this.#deps.now();
       }
     }
@@ -205,9 +217,15 @@ export class AgentTerminals {
       case "wait":
         return this.#wait(request);
       case "exits": {
-        const exits = this.#owned(request.owner).filter((entry) => entry.exit !== null && !entry.exitSeen && entry.notify);
+        const exits = this.#owned(request.owner).filter(
+          (entry) => entry.exit !== null && !entry.exitSeen && entry.notify,
+        );
         for (const entry of exits) entry.exitSeen = true;
-        return { exits: await Promise.all(exits.map(async (entry) => ({ ...this.#info(entry), tail: await this.#tail(entry, request.tailLines) }))) };
+        return {
+          exits: await Promise.all(
+            exits.map(async (entry) => ({ ...this.#info(entry), tail: await this.#tail(entry, request.tailLines) })),
+          ),
+        };
       }
     }
   }
@@ -220,7 +238,9 @@ export class AgentTerminals {
     const entry = this.#entries.get(`${owner}\u0000${id}`);
     if (entry !== undefined) return entry;
     const ids = this.#owned(owner).map((known) => known.id);
-    throw new Error(`Unknown terminal or Background job ${id}.${ids.length === 0 ? " There are none." : ` Known: ${ids.join(", ")}.`}`);
+    throw new Error(
+      `Unknown terminal or Background job ${id}.${ids.length === 0 ? " There are none." : ` Known: ${ids.join(", ")}.`}`,
+    );
   }
 
   #queued<T>(entry: Entry, run: () => Promise<T>): Promise<T> {
@@ -254,7 +274,12 @@ export class AgentTerminals {
     const id = `${prefix}${this.#deps.nextId(request.owner, request.kind)}`;
     const marker = `term-agent-${shortHash(request.owner)}-${id}`;
     const logPath = request.kind === "background_job" ? `${JOB_LOG_DIR}/${marker}.log` : undefined;
-    const term = new Terminal({ cols: request.cols, rows: request.rows, scrollback: SCROLLBACK, allowProposedApi: true });
+    const term = new Terminal({
+      cols: request.cols,
+      rows: request.rows,
+      scrollback: SCROLLBACK,
+      allowProposedApi: true,
+    });
     const now = this.#deps.now();
     const entry: Entry = {
       id,
@@ -287,7 +312,15 @@ export class AgentTerminals {
       logPath === undefined
         ? request.command
         : `mkdir -p ${JOB_LOG_DIR} && set -o pipefail && { ${request.command}\n} 2>&1 | tee -a ${quote(logPath)}`;
-    await this.#deps.host.open({ key: marker, t3Path: this.#deps.repo, cwd: request.cwd, cols: request.cols, rows: request.rows, env: this.#deps.env, command });
+    await this.#deps.host.open({
+      key: marker,
+      t3Path: this.#deps.repo,
+      cwd: request.cwd,
+      cols: request.cols,
+      rows: request.rows,
+      env: this.#deps.env,
+      command,
+    });
     return { entry: this.#info(entry) };
   }
 
@@ -308,15 +341,23 @@ export class AgentTerminals {
   async #type(entry: Entry, text: string | undefined, keys: ReadonlyArray<string> | undefined): Promise<void> {
     if ((text === undefined || text === "") && (keys === undefined || keys.length === 0)) return;
     if (entry.exit !== null) {
-      throw new Error(`${entry.id} has exited (${describeExit(entry.exit)}); it takes no input. Poll it without text or keys for its final screen.`);
+      throw new Error(
+        `${entry.id} has exited (${describeExit(entry.exit)}); it takes no input. Poll it without text or keys for its final screen.`,
+      );
     }
     const unknown = (keys ?? []).filter((key) => !(key in KEYS));
-    if (unknown.length > 0) throw new Error(`Unknown key${unknown.length === 1 ? "" : "s"} ${unknown.join(", ")}. Keys: ${KEY_NAMES.join(", ")}.`);
+    if (unknown.length > 0)
+      throw new Error(
+        `Unknown key${unknown.length === 1 ? "" : "s"} ${unknown.join(", ")}. Keys: ${KEY_NAMES.join(", ")}.`,
+      );
     const data = (text ?? "") + (keys ?? []).map((key) => KEYS[key]).join("");
     await this.#deps.host.input(entry.marker, data);
   }
 
-  async #settle(entry: Entry, request: Extract<AgentTerminalRequest, { op: "settle" }>): Promise<AgentTerminalAnswers["settle"]> {
+  async #settle(
+    entry: Entry,
+    request: Extract<AgentTerminalRequest, { op: "settle" }>,
+  ): Promise<AgentTerminalAnswers["settle"]> {
     await entry.writing;
     const startScreen = request.since ?? this.#screen(entry).screen;
     // Input goes first, in the slice that starts the wait.
@@ -333,7 +374,13 @@ export class AgentTerminals {
       if (matches !== undefined && changed && matches(screen)) reason = "matched";
       else if (entry.exit !== null) reason = "exited";
       // With a pattern, quiet alone never ends the wait; a poll settles on quiet only after new output.
-      else if (matches === undefined && now - entry.lastOutputAt >= QUIET_MS && now - typedAt >= QUIET_MS && (request.mode !== "poll" || entry.lastOutputAt > typedAt || changed)) reason = "quiet";
+      else if (
+        matches === undefined &&
+        now - entry.lastOutputAt >= QUIET_MS &&
+        now - typedAt >= QUIET_MS &&
+        (request.mode !== "poll" || entry.lastOutputAt > typedAt || changed)
+      )
+        reason = "quiet";
       else if (now >= request.deadline) reason = "timeout";
       else if (now >= sliceEnd) reason = "chunk";
       if (reason !== undefined) break;
@@ -346,7 +393,8 @@ export class AgentTerminals {
     if (entry.exit === null) {
       await this.#deps.host.close(entry.marker);
       const deadline = this.#deps.now() + STOP_GRACE_MS;
-      while (entry.exit === null && this.#deps.now() < deadline) await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+      while (entry.exit === null && this.#deps.now() < deadline)
+        await new Promise((resolve) => setTimeout(resolve, POLL_MS));
       if (entry.exit === null) {
         entry.exit = { code: null, signal: "SIGKILL" };
         entry.endedAt = this.#deps.now();
@@ -362,7 +410,10 @@ export class AgentTerminals {
   async #wait(request: Extract<AgentTerminalRequest, { op: "wait" }>): Promise<AgentTerminalAnswers["wait"]> {
     const owned = this.#owned(request.owner);
     if (request.ids !== null) for (const id of request.ids) this.#entry(request.owner, id);
-    const targets = request.ids === null ? owned.filter((entry) => entry.exit === null) : owned.filter((entry) => request.ids!.includes(entry.id));
+    const targets =
+      request.ids === null
+        ? owned.filter((entry) => entry.exit === null)
+        : owned.filter((entry) => request.ids!.includes(entry.id));
     const sliceEnd = Math.min(request.deadline, this.#deps.now() + request.chunkMs);
     for (;;) {
       const exited = targets.filter((entry) => entry.exit !== null);
@@ -385,11 +436,16 @@ export class AgentTerminals {
   #screen(entry: Entry): { readonly screen: string; readonly cursor: AgentCursor | null; readonly top: number } {
     const buffer = entry.term.buffer.active;
     const rows: Array<string> = [];
-    for (let row = 0; row < entry.term.rows; row++) rows.push(buffer.getLine(buffer.baseY + row)?.translateToString(true) ?? "");
+    for (let row = 0; row < entry.term.rows; row++)
+      rows.push(buffer.getLine(buffer.baseY + row)?.translateToString(true) ?? "");
     while (rows.length > 0 && rows[rows.length - 1] === "") rows.pop();
     const hidden = (entry.term as unknown as XtermCore)._core?.coreService?.isCursorHidden === true;
     const normal = buffer.type === "normal";
-    return { screen: rows.join("\n"), cursor: hidden ? null : { x: buffer.cursorX, y: buffer.cursorY }, top: (normal ? entry.trimmed : 0) + buffer.baseY };
+    return {
+      screen: rows.join("\n"),
+      cursor: hidden ? null : { x: buffer.cursorX, y: buffer.cursorY },
+      top: (normal ? entry.trimmed : 0) + buffer.baseY,
+    };
   }
 
   /** The screen, what scrolled off since the owner's previous view, and that view; `record`: this is the owner's view now. */
@@ -402,7 +458,8 @@ export class AgentTerminals {
     if (buffer.type === "normal") {
       const from = entry.seen?.top ?? entry.trimmed;
       if (from < entry.trimmed) outputMissing = true;
-      for (let line = Math.max(from, entry.trimmed); line < top; line++) scrolledOff.push(buffer.getLine(line - entry.trimmed)?.translateToString(true) ?? "");
+      for (let line = Math.max(from, entry.trimmed); line < top; line++)
+        scrolledOff.push(buffer.getLine(line - entry.trimmed)?.translateToString(true) ?? "");
     }
     const previous = entry.seen === null ? null : { screen: entry.seen.screen, cursorRow: entry.seen.cursorRow };
     const shift = entry.seen === null || outputMissing || top < entry.seen.top ? null : top - entry.seen.top;
@@ -456,4 +513,5 @@ export const patternOf = (pattern: string): ((screen: string) => boolean) => {
   return (screen) => screen.includes(pattern);
 };
 
-export const describeExit = (exit: AgentExit): string => (exit.code !== null ? `exit code ${exit.code}` : `ended by ${exit.signal ?? "a signal"}`);
+export const describeExit = (exit: AgentExit): string =>
+  exit.code !== null ? `exit code ${exit.code}` : `ended by ${exit.signal ?? "a signal"}`;

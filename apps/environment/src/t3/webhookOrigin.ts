@@ -4,4 +4,5 @@
 import { WEBHOOK_ROUTE_PREFIX } from "t3/src/scheduledTasks/ScheduledTaskService.ts";
 
 /** The base t3 appends `/<task id>/<token>` to, or null without a public origin (no hook URL, as stock t3 without a relay). */
-export const webhookBaseUrl = (origin: string | null): string | null => (origin === null ? null : `${origin.replace(/\/+$/, "")}${WEBHOOK_ROUTE_PREFIX}`);
+export const webhookBaseUrl = (origin: string | null): string | null =>
+  origin === null ? null : `${origin.replace(/\/+$/, "")}${WEBHOOK_ROUTE_PREFIX}`;

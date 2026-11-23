@@ -14,7 +14,14 @@
 // only, never an elicitation, so `initialize`, `ping`, `tools/list` and `tools/call` are the whole surface, and the MCP
 // Worker keeps no inbound entrypoint. G11 (MCP apps, review L10) adds a tool's `_meta.ui` to `tools/list`, a result's
 // `structuredContent`, and `resources/read` of a `ui://` resource one of this server's offered tools declares.
-import { cardText, decideCall, SETTINGS_SERVER, type McpRelayAnswer, type McpRelayInput, type ToolClass } from "@t3flare/harness-registry";
+import {
+  cardText,
+  decideCall,
+  SETTINGS_SERVER,
+  type McpRelayAnswer,
+  type McpRelayInput,
+  type ToolClass,
+} from "@t3flare/harness-registry";
 
 import type { McpAsker } from "@t3flare/session-protocol";
 
@@ -42,25 +49,47 @@ export interface RelayDeps {
     readonly stopId?: string;
   }) => Promise<McpCallAnswer>;
   /** G11 (MCP apps): an App's `ui://` resource of `server` (`McpHost.readAppResource`); absent, no resource is read. */
-  readonly readAppResource?: (input: { readonly server: string; readonly uri: string }) => Promise<{ readonly kind: "result"; readonly value: unknown } | { readonly kind: "refused"; readonly message: string }>;
+  readonly readAppResource?: (input: {
+    readonly server: string;
+    readonly uri: string;
+  }) => Promise<
+    { readonly kind: "result"; readonly value: unknown } | { readonly kind: "refused"; readonly message: string }
+  >;
   /** The cards for a server's questions on the calling thread (SPI-1079). */
   readonly asker?: (thread: string) => McpAsker;
   /** The calling thread's modes: the call follows them (owner, 2026-11-12, back to stock: no strictest-mode rule). */
-  readonly state: (thread: string) => { readonly runtimeMode: string | undefined; readonly interactionMode: string | undefined } | undefined;
-  readonly ask: (input: { readonly thread: string; readonly askId: string; readonly title: string; readonly summary: string; readonly detail: string }) => Promise<{ readonly approved: boolean; readonly forSession?: boolean; readonly reason?: string }>;
+  readonly state: (
+    thread: string,
+  ) => { readonly runtimeMode: string | undefined; readonly interactionMode: string | undefined } | undefined;
+  readonly ask: (input: {
+    readonly thread: string;
+    readonly askId: string;
+    readonly title: string;
+    readonly summary: string;
+    readonly detail: string;
+  }) => Promise<{ readonly approved: boolean; readonly forSession?: boolean; readonly reason?: string }>;
   /** "Accept for the session" by thread, keyed by server, upstream name and definition hash. */
   readonly accepted: { has(thread: string, key: string): boolean; add(thread: string, key: string): void };
   readonly log: (event: Record<string, unknown>) => void;
 }
 
-const ok = (id: unknown, result: unknown): McpRelayAnswer => ({ kind: "response", body: { jsonrpc: "2.0", id, result } });
-const fail = (id: unknown, code: number, message: string): McpRelayAnswer => ({ kind: "response", body: { jsonrpc: "2.0", id: id ?? null, error: { code, message } } });
-const toolError = (id: unknown, text: string): McpRelayAnswer => ok(id, { content: [{ type: "text", text }], isError: true });
+const ok = (id: unknown, result: unknown): McpRelayAnswer => ({
+  kind: "response",
+  body: { jsonrpc: "2.0", id, result },
+});
+const fail = (id: unknown, code: number, message: string): McpRelayAnswer => ({
+  kind: "response",
+  body: { jsonrpc: "2.0", id: id ?? null, error: { code, message } },
+});
+const toolError = (id: unknown, text: string): McpRelayAnswer =>
+  ok(id, { content: [{ type: "text", text }], isError: true });
 
 /** Tools a CLI may call: the view's, without the owner's hidden ones and the scripts-only ones (review M10). */
 const offered = (view: McpView, server: string) => {
   const entry = view.servers.find((candidate) => candidate.name === server);
-  return entry === undefined ? undefined : { ...entry, tools: entry.tools.filter((tool) => tool.exposure !== "hidden" && tool.exposure !== "codemode") };
+  return entry === undefined
+    ? undefined
+    : { ...entry, tools: entry.tools.filter((tool) => tool.exposure !== "hidden" && tool.exposure !== "codemode") };
 };
 
 /** One MCP message from a CLI process (a server other than t3's own). */
@@ -73,13 +102,19 @@ export const relayMessage = async (input: McpRelayInput, deps: RelayDeps): Promi
   switch (method) {
     case "initialize": {
       const asked = (message.params as { protocolVersion?: unknown } | undefined)?.protocolVersion;
-      const protocolVersion = typeof asked === "string" && RELAY_PROTOCOL_VERSIONS.includes(asked) ? asked : RELAY_PROTOCOL_VERSIONS[1]!;
+      const protocolVersion =
+        typeof asked === "string" && RELAY_PROTOCOL_VERSIONS.includes(asked) ? asked : RELAY_PROTOCOL_VERSIONS[1]!;
       return ok(id, {
         protocolVersion,
-        capabilities: { tools: { listChanged: false }, ...(deps.readAppResource === undefined ? {} : { resources: {} }) },
+        capabilities: {
+          tools: { listChanged: false },
+          ...(deps.readAppResource === undefined ? {} : { resources: {} }),
+        },
         serverInfo: { name: `t3flare-${input.server}`, version: "1" },
         instructions:
-          input.server === SETTINGS_SERVER ? SETTINGS_INSTRUCTIONS : `Tools of the MCP server "${input.server}" through t3flare. Write tools may wait for the owner's approval on this thread.`,
+          input.server === SETTINGS_SERVER
+            ? SETTINGS_INSTRUCTIONS
+            : `Tools of the MCP server "${input.server}" through t3flare. Write tools may wait for the owner's approval on this thread.`,
       });
     }
     case "ping":
@@ -101,18 +136,37 @@ export const relayMessage = async (input: McpRelayInput, deps: RelayDeps): Promi
       const params = (message.params ?? {}) as { name?: unknown; arguments?: unknown };
       if (typeof params.name !== "string") return fail(id, -32602, "tools/call needs a tool name");
       const args = params.arguments === undefined ? {} : params.arguments;
-      if (args === null || typeof args !== "object" || Array.isArray(args)) return fail(id, -32602, "arguments must be an object");
+      if (args === null || typeof args !== "object" || Array.isArray(args))
+        return fail(id, -32602, "arguments must be an object");
       const server = offered(await deps.view(), input.server);
       const tool = server?.tools.find((candidate) => candidate.upstream === params.name);
-      if (server === undefined || tool === undefined) return toolError(id, `${input.server} offers no tool ${params.name} to this thread.`);
+      if (server === undefined || tool === undefined)
+        return toolError(id, `${input.server} offers no tool ${params.name} to this thread.`);
       // The thread's own modes; a thread whose state is unknown is judged as approval-required.
       const state = deps.state(input.thread);
       const mode = state?.runtimeMode ?? "approval-required";
       const interaction = state?.interactionMode ?? "default";
       const acceptKey = `${input.server}/${tool.upstream}@${tool.hash}`;
-      const verdict = decideCall({ class: tool.class, mode, interaction, accepted: deps.accepted.has(input.thread, acceptKey) });
+      const verdict = decideCall({
+        class: tool.class,
+        mode,
+        interaction,
+        accepted: deps.accepted.has(input.thread, acceptKey),
+      });
       const log = (outcome: string, extra: Record<string, unknown> = {}) =>
-        deps.log({ t3flare: "mcp-relay-call", workspace: input.workspace, thread: input.thread, cli: input.cli, server: input.server, tool: tool.upstream, class: tool.class, mode, interaction, outcome, ...extra });
+        deps.log({
+          t3flare: "mcp-relay-call",
+          workspace: input.workspace,
+          thread: input.thread,
+          cli: input.cli,
+          server: input.server,
+          tool: tool.upstream,
+          class: tool.class,
+          mode,
+          interaction,
+          outcome,
+          ...extra,
+        });
       if (verdict.kind === "refuse") {
         log("refused");
         return toolError(id, verdict.reason);
@@ -146,14 +200,26 @@ export const relayMessage = async (input: McpRelayInput, deps: RelayDeps): Promi
         ...(server.kind === "settings" ? { stopId: input.askId } : {}),
       });
       if (result.kind === "unavailable") return toolError(id, result.message);
-      return ok(id, { content: [{ type: "text", text: result.text }], isError: result.isError, ...(result.structured === undefined ? {} : { structuredContent: result.structured }) });
+      return ok(id, {
+        content: [{ type: "text", text: result.text }],
+        isError: result.isError,
+        ...(result.structured === undefined ? {} : { structuredContent: result.structured }),
+      });
     }
     case "resources/read": {
       const uri = (message.params as { uri?: unknown } | undefined)?.uri;
       if (deps.readAppResource === undefined) return fail(id, -32601, "resources/read is not offered by the relay");
-      if (typeof uri !== "string" || !uri.startsWith("ui://")) return fail(id, -32602, "the relay reads only an App's ui:// resource");
+      if (typeof uri !== "string" || !uri.startsWith("ui://"))
+        return fail(id, -32602, "the relay reads only an App's ui:// resource");
       const read = await deps.readAppResource({ server: input.server, uri });
-      deps.log({ t3flare: "mcp-relay-app-read", workspace: input.workspace, thread: input.thread, cli: input.cli, server: input.server, outcome: read.kind });
+      deps.log({
+        t3flare: "mcp-relay-app-read",
+        workspace: input.workspace,
+        thread: input.thread,
+        cli: input.cli,
+        server: input.server,
+        outcome: read.kind,
+      });
       return read.kind === "result" ? ok(id, read.value) : fail(id, -32002, read.message);
     }
     default:

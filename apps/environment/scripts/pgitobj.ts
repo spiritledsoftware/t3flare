@@ -20,18 +20,32 @@ const OUT = path.resolve(import.meta.dirname, "../../../.evidence/spi-1186");
 const WORKSPACE = "pgitobj";
 const TMP = "/workspace/.t3flare/tmp";
 
-const deployedCommit = async (): Promise<string | null> => (await admin("GET", "/_t3flare/health")).json?.build?.commit ?? null;
+const deployedCommit = async (): Promise<string | null> =>
+  (await admin("GET", "/_t3flare/health")).json?.build?.commit ?? null;
 const evidence = async (name: string, value: Record<string, unknown>) =>
-  writeEvidence(path.join(OUT, name), { host: new URL(process.env.T3_URL ?? "").host, commit: await deployedCommit(), ...value });
+  writeEvidence(path.join(OUT, name), {
+    host: new URL(process.env.T3_URL ?? "").host,
+    commit: await deployedCommit(),
+    ...value,
+  });
 
-const call = async (id: string, body: unknown) => (await admin("POST", `/_t3flare/agents/workspace-call?id=${encodeURIComponent(id)}`, body)).json;
-const containerOf = async (id: string) => (await call(id, { reclaimReason: true }))?.container as { running: boolean; startedAt: number | null } | undefined;
+const call = async (id: string, body: unknown) =>
+  (await admin("POST", `/_t3flare/agents/workspace-call?id=${encodeURIComponent(id)}`, body)).json;
+const containerOf = async (id: string) =>
+  (await call(id, { reclaimReason: true }))?.container as { running: boolean; startedAt: number | null } | undefined;
 /** A file written to the Workspace's files: never starts its Container. */
-const writeFile = (id: string, file: string, text: string) => call(id, { fs: { op: "write", path: `/workspace/repo/${file}`, data: text } });
+const writeFile = (id: string, file: string, text: string) =>
+  call(id, { fs: { op: "write", path: `/workspace/repo/${file}`, data: text } });
 /** The bridge's folders in the Workspace's harness tmp/, from its files (never starts its Container). */
 const bridgedFolders = async (id: string) =>
-  (((await call(id, { fs: { op: "readdir", path: TMP } }))?.result?.ok ?? []) as Array<{ name: string }>).map((entry) => entry.name).filter((name) => /^(index|objects)-[0-9a-f]{24}$/.test(name));
-const trace = async (clear = false) => (await admin("GET", `/_t3flare/agents/router-trace${clear ? "?clear=1" : ""}`)).json as { entries: Array<any>; gitBridges: Array<unknown> };
+  (((await call(id, { fs: { op: "readdir", path: TMP } }))?.result?.ok ?? []) as Array<{ name: string }>)
+    .map((entry) => entry.name)
+    .filter((name) => /^(index|objects)-[0-9a-f]{24}$/.test(name));
+const trace = async (clear = false) =>
+  (await admin("GET", `/_t3flare/agents/router-trace${clear ? "?clear=1" : ""}`)).json as {
+    entries: Array<any>;
+    gitBridges: Array<unknown>;
+  };
 
 const stop = async (id: string) => {
   const started = Date.now();
@@ -44,7 +58,8 @@ const stop = async (id: string) => {
 };
 
 /** The repo back at origin/main, clean (the Workspace's git, starting its Container). */
-const reset = (id: string) => workspaceGit(id, ["reset", "-q", "--hard", "origin/main"]).then(() => workspaceGit(id, ["clean", "-fdq"]));
+const reset = (id: string) =>
+  workspaceGit(id, ["reset", "-q", "--hard", "origin/main"]).then(() => workspaceGit(id, ["clean", "-fdq"]));
 
 /**
  * The router trace's git commands in `cwd`, as the evidence keeps them, in the order they started: the trace appends an
@@ -54,7 +69,14 @@ const gitIn = (entries: Array<any>, cwd: string) =>
   entries
     .filter((entry) => entry.command === "git" && entry.cwd === cwd)
     .toSorted((left, right) => left.at - right.at)
-    .map((entry) => ({ at: entry.at, ms: entry.ms, argv: entry.argv.join(" "), route: entry.route, exitCode: entry.exitCode, detail: entry.detail ?? null }));
+    .map((entry) => ({
+      at: entry.at,
+      ms: entry.ms,
+      argv: entry.argv.join(" "),
+      route: entry.route,
+      exitCode: entry.exitCode,
+      detail: entry.detail ?? null,
+    }));
 
 const DRAFT_READS = ["rev-parse --git-path index --git-path objects", "count-objects -v"];
 
@@ -82,11 +104,23 @@ const commit = async () => {
       name: "with a message: the picked file alone is committed",
       report: withMessage,
       leftUncommitted: status.stdout.split("\n").filter(Boolean),
-      ok: committed(withMessage, ["picked.txt"], subject) && !withMessage.head!.files.includes("left.txt") && status.stdout.includes("left.txt"),
+      ok:
+        committed(withMessage, ["picked.txt"], subject) &&
+        !withMessage.head!.files.includes("left.txt") &&
+        status.stdout.includes("left.txt"),
     },
-    { name: "with a drafted message (the staged patch read through the draft)", report: drafted, ok: committed(drafted, ["drafted.txt"]) },
+    {
+      name: "with a drafted message (the staged patch read through the draft)",
+      report: drafted,
+      ok: committed(drafted, ["drafted.txt"]),
+    },
   ];
-  await evidence("commit.json", { root, cases, trace: { withMessage: draftTrace, drafted: draftedTrace }, ok: cases.every((entry) => entry.ok) });
+  await evidence("commit.json", {
+    root,
+    cases,
+    trace: { withMessage: draftTrace, drafted: draftedTrace },
+    ok: cases.every((entry) => entry.ok),
+  });
   await reset(WORKSPACE);
 };
 
@@ -103,28 +137,52 @@ const cleanup = async () => {
     let watching = true;
     const watch = (async () => {
       while (watching) {
-        const [live, folders] = await Promise.all([trace().then((answer) => answer.gitBridges as Array<{ bridged: string }>), bridgedFolders(WORKSPACE)]);
+        const [live, folders] = await Promise.all([
+          trace().then((answer) => answer.gitBridges as Array<{ bridged: string }>),
+          bridgedFolders(WORKSPACE),
+        ]);
         for (const entry of live) seen.liveBridges.add(entry.bridged);
         for (const folder of folders) seen.folders.add(folder);
       }
     })();
-    const done = await t3Commit(cookie, { id: WORKSPACE, cwd: root, filePaths: [`round-${round}.txt`], message: `pgitobj: cleanup round ${round}` });
+    const done = await t3Commit(cookie, {
+      id: WORKSPACE,
+      cwd: root,
+      filePaths: [`round-${round}.txt`],
+      message: `pgitobj: cleanup round ${round}`,
+    });
     watching = false;
     await watch;
     // t3's status poll runs git, which reaps the drafts t3 has ended.
     await wsCall(cookie, "vcs.refreshStatus", { cwd: root }).catch(() => undefined);
     await sleep(2_000);
-    rounds.push({ committed: committed(done, [`round-${round}.txt`]), duringDraft: { liveBridges: [...seen.liveBridges], folders: [...seen.folders] }, liveBridges: (await trace()).gitBridges, bridgedFolders: await bridgedFolders(WORKSPACE) });
+    rounds.push({
+      committed: committed(done, [`round-${round}.txt`]),
+      duringDraft: { liveBridges: [...seen.liveBridges], folders: [...seen.folders] },
+      liveBridges: (await trace()).gitBridges,
+      bridgedFolders: await bridgedFolders(WORKSPACE),
+    });
   }
   // The Container's copy of the harness tmp/ (the Workspace's files are the truth; the Container's is synced).
-  const inContainer = await call(WORKSPACE, { exec: { script: `ls -1 ${TMP} 2>/dev/null | grep -E '^(index|objects)-' || true`, timeoutMs: 60_000 } });
+  const inContainer = await call(WORKSPACE, {
+    exec: { script: `ls -1 ${TMP} 2>/dev/null | grep -E '^(index|objects)-' || true`, timeoutMs: 60_000 },
+  });
   const after = await bridgedFolders(WORKSPACE);
   await evidence("cleanup.json", {
     before,
     rounds,
     after,
-    inContainer: String(inContainer?.result?.stdout ?? "").split("\n").filter(Boolean),
-    ok: rounds.every((round) => round.committed === true && (round.duringDraft as { folders: Array<string> }).folders.length > 0 && (round.liveBridges as Array<unknown>).length === 0 && (round.bridgedFolders as Array<string>).length === 0) && after.length === 0,
+    inContainer: String(inContainer?.result?.stdout ?? "")
+      .split("\n")
+      .filter(Boolean),
+    ok:
+      rounds.every(
+        (round) =>
+          round.committed === true &&
+          (round.duringDraft as { folders: Array<string> }).folders.length > 0 &&
+          (round.liveBridges as Array<unknown>).length === 0 &&
+          (round.bridgedFolders as Array<string>).length === 0,
+      ) && after.length === 0,
   });
   await reset(WORKSPACE);
 };
@@ -151,7 +209,12 @@ const commitWhileStopped = async (id: string, root: string, primed: boolean) => 
   // t3's status poll first: passive, the Container stays stopped.
   await wsCall(cookie, "vcs.refreshStatus", { cwd: root }).catch(() => undefined);
   const afterPoll = await containerOf(id);
-  const done = await t3Commit(cookie, { id, cwd: root, filePaths: ["while-stopped.txt"], message: `pgitobj: committed while stopped ${stamp}` });
+  const done = await t3Commit(cookie, {
+    id,
+    cwd: root,
+    filePaths: ["while-stopped.txt"],
+    message: `pgitobj: committed while stopped ${stamp}`,
+  });
   const commands = gitIn((await trace(true)).entries, root);
   const draftReads = commands.filter((entry) => DRAFT_READS.includes(entry.argv));
   const firstInContainer = commands.find((entry) => entry.route === "container") ?? null;
@@ -163,7 +226,12 @@ const commitWhileStopped = async (id: string, root: string, primed: boolean) => 
     draftReads,
     firstInContainer,
     commands,
-    ok: stopped && afterPoll?.running === false && committed(done, ["while-stopped.txt"]) && firstInContainer !== null && String(firstInContainer.detail).startsWith("action"),
+    ok:
+      stopped &&
+      afterPoll?.running === false &&
+      committed(done, ["while-stopped.txt"]) &&
+      firstInContainer !== null &&
+      String(firstInContainer.detail).startsWith("action"),
   };
 };
 
@@ -172,7 +240,12 @@ const stoppedCase = async () => {
   const { root } = await ensureProject(cookie, WORKSPACE);
   const result = await commitWhileStopped(WORKSPACE, root, true);
   // Primed: neither of the draft's first reads ran in the Container; an action started it (checked in the result).
-  const ok = result.ok && result.draftReads.length === 2 && result.draftReads.every((entry) => entry.route !== "container" && !String(entry.detail).includes("started the Container"));
+  const ok =
+    result.ok &&
+    result.draftReads.length === 2 &&
+    result.draftReads.every(
+      (entry) => entry.route !== "container" && !String(entry.detail).includes("started the Container"),
+    );
   await evidence("stopped.json", { root, ...result, ok });
   await reset(WORKSPACE);
 };
@@ -182,16 +255,28 @@ const fresh = async () => {
   const id = `pgitobj-${Date.now().toString(36)}`;
   const { root } = await ensureProject(cookie, id);
   // Leftovers as an earlier isolate would leave them (the bridge's map is in memory), beside a file of the Workspace's.
-  const planted = ["index-000000000000000000000000/index", "objects-111111111111111111111111/info/t3flare-draft", "keep.bundle"];
+  const planted = [
+    "index-000000000000000000000000/index",
+    "objects-111111111111111111111111/info/t3flare-draft",
+    "keep.bundle",
+  ];
   for (const file of planted) {
     const target = `${TMP}/${file}`;
     await call(id, { fs: { op: "mkdir", path: target.slice(0, target.lastIndexOf("/")), recursive: true } });
     await call(id, { fs: { op: "write", path: target, data: "x" } });
   }
-  const before = (((await call(id, { fs: { op: "readdir", path: TMP } }))?.result?.ok ?? []) as Array<{ name: string }>).map((entry) => entry.name);
+  const before = (
+    ((await call(id, { fs: { op: "readdir", path: TMP } }))?.result?.ok ?? []) as Array<{ name: string }>
+  ).map((entry) => entry.name);
   const result = await commitWhileStopped(id, root, false);
-  const after = (((await call(id, { fs: { op: "readdir", path: TMP } }))?.result?.ok ?? []) as Array<{ name: string }>).map((entry) => entry.name);
-  const sweep = { before, after, ok: after.includes("keep.bundle") && !after.some((name) => /^(index|objects)-/.test(name)) };
+  const after = (
+    ((await call(id, { fs: { op: "readdir", path: TMP } }))?.result?.ok ?? []) as Array<{ name: string }>
+  ).map((entry) => entry.name);
+  const sweep = {
+    before,
+    after,
+    ok: after.includes("keep.bundle") && !after.some((name) => /^(index|objects)-/.test(name)),
+  };
   // Its draft reads have answers by now (the refresh's fetch primed them), so the allow-list path does not run here: it
   // runs in apps/agents/test/gitDirReads.test.ts only.
   await evidence("fresh.json", { root, ...result, sweep, ok: result.ok && sweep.ok });

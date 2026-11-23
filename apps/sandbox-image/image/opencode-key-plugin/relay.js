@@ -48,7 +48,12 @@ export const atRelay = (url, endpoint) => {
     return false;
   }
   const relay = new URL(RELAY);
-  return parsed.origin === relay.origin && parsed.username === "" && parsed.password === "" && parsed.pathname.startsWith(`${relay.pathname}${endpoint}/`);
+  return (
+    parsed.origin === relay.origin &&
+    parsed.username === "" &&
+    parsed.password === "" &&
+    parsed.pathname.startsWith(`${relay.pathname}${endpoint}/`)
+  );
 };
 
 /**

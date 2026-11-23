@@ -57,7 +57,11 @@ export default {
       }
     });
     for (const { providerID, endpoint } of PROVIDERS) {
-      await ctx.session.hook("http.request", (input) => void putHandle(input.request.headers, input.request.url, endpoint, HANDLE), { providerID });
+      await ctx.session.hook(
+        "http.request",
+        (input) => void putHandle(input.request.headers, input.request.url, endpoint, HANDLE),
+        { providerID },
+      );
     }
   },
 };

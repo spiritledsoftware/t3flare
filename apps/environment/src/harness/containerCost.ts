@@ -3,7 +3,13 @@
 // Containers on the Workers Paid plan (https://developers.cloudflare.com/containers/pricing/, 2026-10; checked against
 // docs-archive-1:docs/steps/spi-1001-research-container-sizes.md §5): memory and disk are billed while a Container runs,
 // CPU on active use only, so a real hour costs less. The plan's monthly allowance is the account's, so it is not taken off.
-import { CONTAINER_SIZE_NAMES, CONTAINER_SIZES, type ContainerResources, type ContainerSize, DEFAULT_CONTAINER_SIZE } from "@t3flare/harness-registry";
+import {
+  CONTAINER_SIZE_NAMES,
+  CONTAINER_SIZES,
+  type ContainerResources,
+  type ContainerSize,
+  DEFAULT_CONTAINER_SIZE,
+} from "@t3flare/harness-registry";
 
 /** US dollars per unit-second. */
 const CONTAINER_PRICES = {
@@ -31,7 +37,10 @@ export interface ContainerCostTable {
 }
 
 const hourOf = ({ vcpu, memoryMib, diskMb }: ContainerResources): number =>
-  3600 * (vcpu * CONTAINER_PRICES.vcpuSecond + (memoryMib / 1024) * CONTAINER_PRICES.memoryGibSecond + (diskMb / 1000) * CONTAINER_PRICES.diskGbSecond);
+  3600 *
+  (vcpu * CONTAINER_PRICES.vcpuSecond +
+    (memoryMib / 1024) * CONTAINER_PRICES.memoryGibSecond +
+    (diskMb / 1000) * CONTAINER_PRICES.diskGbSecond);
 
 /** Every offered size, in the settings' order, priced for `budget` Containers at once. */
 export const containerCostTable = (budget: number): ContainerCostTable => ({
@@ -39,6 +48,12 @@ export const containerCostTable = (budget: number): ContainerCostTable => ({
   rows: CONTAINER_SIZE_NAMES.map((size) => {
     const resources = CONTAINER_SIZES[size].resources;
     const perContainerHour = hourOf(resources);
-    return { size, default: size === DEFAULT_CONTAINER_SIZE, resources, perContainerHour, budgetHour: perContainerHour * budget };
+    return {
+      size,
+      default: size === DEFAULT_CONTAINER_SIZE,
+      resources,
+      perContainerHour,
+      budgetHour: perContainerHour * budget,
+    };
   }),
 });

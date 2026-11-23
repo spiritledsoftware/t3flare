@@ -13,9 +13,19 @@ import { CONTEXT_GUIDELINES, contextHistoryTool, contextNotesTool } from "./cont
 
 export const CONTEXT_EXTENSION = "context";
 
-export { ContextDoc, type ContextState, MAX_NOTE_CHARACTERS, MAX_NOTES, MAX_TOTAL_NOTE_CHARACTERS } from "./context/notes.ts";
+export {
+  ContextDoc,
+  type ContextState,
+  MAX_NOTE_CHARACTERS,
+  MAX_NOTES,
+  MAX_TOTAL_NOTE_CHARACTERS,
+} from "./context/notes.ts";
 
-export const CONTEXT_NAMESPACE: CodemodeNamespace = { name: "context", description: "This thread's Notes and stored History", prefix: "context_" };
+export const CONTEXT_NAMESPACE: CodemodeNamespace = {
+  name: "context",
+  description: "This thread's Notes and stored History",
+  prefix: "context_",
+};
 
 export interface ContextOptions {
   /** Turn automatic compaction into a Rollover (the harness setting); off: pi-durable summarizes as before. */
@@ -31,7 +41,9 @@ export const contextExtension = (harness: () => Promise<Harness>, options: Conte
     // The guideline of each context tool the request offers, as pi-context-management adds them to the prompt.
     sections: [
       section("context_management", (input) => {
-        const lines = Object.entries(CONTEXT_GUIDELINES).flatMap(([tool, line]) => (input.agent.tools.some((offered) => offered.name === tool) ? [`- ${line}`] : []));
+        const lines = Object.entries(CONTEXT_GUIDELINES).flatMap(([tool, line]) =>
+          input.agent.tools.some((offered) => offered.name === tool) ? [`- ${line}`] : [],
+        );
         return lines.length === 0 ? undefined : lines.join("\n");
       }),
     ],

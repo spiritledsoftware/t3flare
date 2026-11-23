@@ -36,7 +36,12 @@ import { flush, NOW, settingsFixture, type SettingsFixture, until } from "./sett
 import { skillMd } from "./skillRepo.fixture.ts";
 
 const OWN: ChangeCaller = { door: "own", key: "thread-1", principal: "agent", thread: "thread-1", agent: "piDurable" };
-const OWNER: ChangeCaller = { door: "owner", key: "sub-1", principal: "owner", client: { name: "Claude Code", source: "clientInfo" } };
+const OWNER: ChangeCaller = {
+  door: "owner",
+  key: "sub-1",
+  principal: "owner",
+  client: { name: "Claude Code", source: "clientInfo" },
+};
 const TOKEN: ChangeCaller = { door: "owner", key: "service-token", principal: "service-token" };
 
 /** A unit world: the table over Node's SQLite, a revision, and an apply that records its calls. */
@@ -47,7 +52,11 @@ const world = () => {
   const applied: Array<{ id: string; by: string; secret?: string }> = [];
   const logs: Array<Record<string, unknown>> = [];
   const deps = (): AnswerDeps => ({
-    changes: settingsChanges(sql, () => now, (event) => void logs.push(event)),
+    changes: settingsChanges(
+      sql,
+      () => now,
+      (event) => void logs.push(event),
+    ),
     now: () => now,
     revisionOf: () => revision,
     apply: async (record, input) => {
@@ -78,7 +87,17 @@ const world = () => {
     deps().changes.insert(record);
     return record;
   };
-  return { sql, deps, open, applied, logs, advance: (ms: number) => (now += ms), now: () => now, revision: () => revision, setRevision: (value: number) => (revision = value) };
+  return {
+    sql,
+    deps,
+    open,
+    applied,
+    logs,
+    advance: (ms: number) => (now += ms),
+    now: () => now,
+    revision: () => revision,
+    setRevision: (value: number) => (revision = value),
+  };
 };
 
 describe("an Open change has one answer", () => {
@@ -87,13 +106,23 @@ describe("an Open change has one answer", () => {
     const record = w.open(OWN);
     const [first, second] = await Promise.all([
       answerOpenChange(w.deps(), record.id, { by: "card", answerer: { kind: "card" }, action: "approve" }),
-      answerOpenChange(w.deps(), record.id, { by: "page", answerer: { kind: "owner", subject: "owner-sub" }, action: "approve" }),
+      answerOpenChange(w.deps(), record.id, {
+        by: "page",
+        answerer: { kind: "owner", subject: "owner-sub" },
+        action: "approve",
+      }),
     ]);
     expect(first).toMatchObject({ ok: true, outcome: { state: "applied", revision: 5, by: "card" } });
     expect(second).toMatchObject({ ok: false, status: 409 });
     expect(w.applied).toEqual([{ id: record.id, by: "card" }]);
     // A later answer finds it closed, with its outcome.
-    expect(await answerOpenChange(w.deps(), record.id, { by: "page", answerer: { kind: "owner", subject: "owner-sub" }, action: "decline" })).toMatchObject({
+    expect(
+      await answerOpenChange(w.deps(), record.id, {
+        by: "page",
+        answerer: { kind: "owner", subject: "owner-sub" },
+        action: "decline",
+      }),
+    ).toMatchObject({
       ok: false,
       status: 409,
       closed: { state: "applied", revision: 5 },
@@ -104,7 +133,11 @@ describe("an Open change has one answer", () => {
     const w = world();
     const record = w.open(OWN);
     const waiter = waitForChange(record.id);
-    await answerOpenChange(w.deps(), record.id, { by: "page", answerer: { kind: "owner", subject: "owner-sub" }, action: "decline" });
+    await answerOpenChange(w.deps(), record.id, {
+      by: "page",
+      answerer: { kind: "owner", subject: "owner-sub" },
+      action: "decline",
+    });
     expect(await waiter.closed).toMatchObject({ state: "declined", by: "page" });
   });
 });
@@ -120,8 +153,22 @@ describe("expiry and pruning", () => {
     // An expiry is a log line (plan D15), `settings-change` as a change's own end, written once, by the table that
     // closed it.
     w.deps().changes.get(record.id);
-    expect(w.logs).toEqual([{ t3flare: "settings-change", via: "mcp", door: "own", tool: "change_environment", change: record.id, tier: "asked", mode: "card", outcome: "expired", answeredBy: null }]);
-    expect(await answerOpenChange(w.deps(), record.id, { by: "card", answerer: { kind: "card" }, action: "approve" })).toMatchObject({ ok: false, status: 409 });
+    expect(w.logs).toEqual([
+      {
+        t3flare: "settings-change",
+        via: "mcp",
+        door: "own",
+        tool: "change_environment",
+        change: record.id,
+        tier: "asked",
+        mode: "card",
+        outcome: "expired",
+        answeredBy: null,
+      },
+    ]);
+    expect(
+      await answerOpenChange(w.deps(), record.id, { by: "card", answerer: { kind: "card" }, action: "approve" }),
+    ).toMatchObject({ ok: false, status: 409 });
     expect(w.applied).toEqual([]);
   });
 
@@ -140,7 +187,13 @@ describe("expiry and pruning", () => {
     const record = w.open(OWN);
     const fresh = settingsChanges(w.sql, w.now);
     expect(fresh.get(record.id)).toMatchObject({ id: record.id, state: "open", caller: OWN });
-    expect(await answerOpenChange({ ...w.deps(), changes: fresh }, record.id, { by: "page", answerer: { kind: "owner", subject: "x" }, action: "approve" })).toMatchObject({
+    expect(
+      await answerOpenChange({ ...w.deps(), changes: fresh }, record.id, {
+        by: "page",
+        answerer: { kind: "owner", subject: "x" },
+        action: "approve",
+      }),
+    ).toMatchObject({
       ok: true,
       outcome: { state: "applied" },
     });
@@ -152,52 +205,105 @@ describe("D8's answerer table", () => {
   it("card: only a change asked on a card", async () => {
     const w = world();
     const browser = w.open(OWNER);
-    expect(await answerOpenChange(w.deps(), browser.id, { by: "card", answerer: { kind: "card" }, action: "approve" })).toMatchObject({ ok: false, status: 403 });
+    expect(
+      await answerOpenChange(w.deps(), browser.id, { by: "card", answerer: { kind: "card" }, action: "approve" }),
+    ).toMatchObject({ ok: false, status: 403 });
     const card = w.open(OWN);
-    expect(await answerOpenChange(w.deps(), card.id, { by: "card", answerer: { kind: "card" }, action: "decline" })).toMatchObject({ ok: true, outcome: { state: "declined", by: "card" } });
+    expect(
+      await answerOpenChange(w.deps(), card.id, { by: "card", answerer: { kind: "card" }, action: "decline" }),
+    ).toMatchObject({ ok: true, outcome: { state: "declined", by: "card" } });
   });
 
   it("page: any admitted owner for an own agent's change, never the service token", async () => {
     const w = world();
     const record = w.open(OWN);
-    expect(await answerOpenChange(w.deps(), record.id, { by: "page", answerer: { kind: "service-token" }, action: "approve" })).toMatchObject({ ok: false, status: 403 });
-    expect(await answerOpenChange(w.deps(), record.id, { by: "page", answerer: owner("anyone-admitted"), action: "approve" })).toMatchObject({ ok: true, outcome: { state: "applied" } });
+    expect(
+      await answerOpenChange(w.deps(), record.id, {
+        by: "page",
+        answerer: { kind: "service-token" },
+        action: "approve",
+      }),
+    ).toMatchObject({ ok: false, status: 403 });
+    expect(
+      await answerOpenChange(w.deps(), record.id, {
+        by: "page",
+        answerer: owner("anyone-admitted"),
+        action: "approve",
+      }),
+    ).toMatchObject({ ok: true, outcome: { state: "applied" } });
   });
 
   it("page: an Owner client's change by the same sub only; a service-token change by the service token only", async () => {
     const w = world();
     const mine = w.open(OWNER);
-    expect(await answerOpenChange(w.deps(), mine.id, { by: "page", answerer: owner("sub-2"), action: "approve" })).toMatchObject({ ok: false, status: 403 });
-    expect(await answerOpenChange(w.deps(), mine.id, { by: "page", answerer: { kind: "service-token" }, action: "approve" })).toMatchObject({ ok: false, status: 403 });
-    expect(await answerOpenChange(w.deps(), mine.id, { by: "page", answerer: owner("sub-1"), action: "approve" })).toMatchObject({ ok: true });
+    expect(
+      await answerOpenChange(w.deps(), mine.id, { by: "page", answerer: owner("sub-2"), action: "approve" }),
+    ).toMatchObject({ ok: false, status: 403 });
+    expect(
+      await answerOpenChange(w.deps(), mine.id, { by: "page", answerer: { kind: "service-token" }, action: "approve" }),
+    ).toMatchObject({ ok: false, status: 403 });
+    expect(
+      await answerOpenChange(w.deps(), mine.id, { by: "page", answerer: owner("sub-1"), action: "approve" }),
+    ).toMatchObject({ ok: true });
     const token = w.open(TOKEN, { expectedRevision: w.revision() });
-    expect(await answerOpenChange(w.deps(), token.id, { by: "page", answerer: owner("sub-1"), action: "approve" })).toMatchObject({ ok: false, status: 403 });
-    expect(await answerOpenChange(w.deps(), token.id, { by: "page", answerer: { kind: "service-token" }, action: "approve" })).toMatchObject({ ok: true });
+    expect(
+      await answerOpenChange(w.deps(), token.id, { by: "page", answerer: owner("sub-1"), action: "approve" }),
+    ).toMatchObject({ ok: false, status: 403 });
+    expect(
+      await answerOpenChange(w.deps(), token.id, {
+        by: "page",
+        answerer: { kind: "service-token" },
+        action: "approve",
+      }),
+    ).toMatchObject({ ok: true });
   });
 
   it("client: native mode and the same sub; agent: model mode and the same sub", async () => {
     const w = world();
     const native = w.open(OWNER, { mode: "native" });
-    expect(await answerOpenChange(w.deps(), native.id, { by: "agent", answerer: owner("sub-1"), action: "approve" })).toMatchObject({ ok: false, status: 403 });
-    expect(await answerOpenChange(w.deps(), native.id, { by: "client", answerer: owner("sub-2"), action: "approve" })).toMatchObject({ ok: false, status: 403 });
-    expect(await answerOpenChange(w.deps(), native.id, { by: "client", answerer: owner("sub-1"), action: "approve" })).toMatchObject({ ok: true, outcome: { by: "client" } });
+    expect(
+      await answerOpenChange(w.deps(), native.id, { by: "agent", answerer: owner("sub-1"), action: "approve" }),
+    ).toMatchObject({ ok: false, status: 403 });
+    expect(
+      await answerOpenChange(w.deps(), native.id, { by: "client", answerer: owner("sub-2"), action: "approve" }),
+    ).toMatchObject({ ok: false, status: 403 });
+    expect(
+      await answerOpenChange(w.deps(), native.id, { by: "client", answerer: owner("sub-1"), action: "approve" }),
+    ).toMatchObject({ ok: true, outcome: { by: "client" } });
     const model = w.open(OWNER, { mode: "model", expectedRevision: w.revision() });
-    expect(await answerOpenChange(w.deps(), model.id, { by: "client", answerer: owner("sub-1"), action: "approve" })).toMatchObject({ ok: false, status: 403 });
-    expect(await answerOpenChange(w.deps(), model.id, { by: "agent", answerer: owner("sub-1"), action: "approve" })).toMatchObject({ ok: true, outcome: { by: "agent" } });
+    expect(
+      await answerOpenChange(w.deps(), model.id, { by: "client", answerer: owner("sub-1"), action: "approve" }),
+    ).toMatchObject({ ok: false, status: 403 });
+    expect(
+      await answerOpenChange(w.deps(), model.id, { by: "agent", answerer: owner("sub-1"), action: "approve" }),
+    ).toMatchObject({ ok: true, outcome: { by: "agent" } });
   });
 
   it("a change that needs the page is approved there alone, and a secret one needs its value", async () => {
     const w = world();
     const record = w.open(OWN, { needsPage: "secret" });
-    expect(await answerOpenChange(w.deps(), record.id, { by: "card", answerer: { kind: "card" }, action: "approve" })).toMatchObject({ ok: false, status: 403 });
-    expect(await answerOpenChange(w.deps(), record.id, { by: "page", answerer: owner("o"), action: "approve" })).toMatchObject({ ok: false, status: 400 });
-    expect(await answerOpenChange(w.deps(), record.id, { by: "page", answerer: owner("o"), action: "approve", secret: "v4lue" })).toMatchObject({ ok: true });
+    expect(
+      await answerOpenChange(w.deps(), record.id, { by: "card", answerer: { kind: "card" }, action: "approve" }),
+    ).toMatchObject({ ok: false, status: 403 });
+    expect(
+      await answerOpenChange(w.deps(), record.id, { by: "page", answerer: owner("o"), action: "approve" }),
+    ).toMatchObject({ ok: false, status: 400 });
+    expect(
+      await answerOpenChange(w.deps(), record.id, {
+        by: "page",
+        answerer: owner("o"),
+        action: "approve",
+        secret: "v4lue",
+      }),
+    ).toMatchObject({ ok: true });
     expect(w.applied).toEqual([{ id: record.id, by: "page", secret: "v4lue" }]);
     // The secret is in no record.
     expect(JSON.stringify(w.deps().changes.get(record.id))).not.toContain("v4lue");
     // Anyone who may answer may decline it.
     const other = w.open(OWN, { needsPage: "oversize" });
-    expect(await answerOpenChange(w.deps(), other.id, { by: "card", answerer: { kind: "card" }, action: "decline" })).toMatchObject({ ok: true, outcome: { state: "declined" } });
+    expect(
+      await answerOpenChange(w.deps(), other.id, { by: "card", answerer: { kind: "card" }, action: "decline" }),
+    ).toMatchObject({ ok: true, outcome: { state: "declined" } });
   });
 });
 
@@ -206,7 +312,9 @@ describe("revisions", () => {
     const w = world();
     const record = w.open(OWN);
     w.setRevision(9);
-    expect(await answerOpenChange(w.deps(), record.id, { by: "card", answerer: { kind: "card" }, action: "approve" })).toMatchObject({ ok: true, outcome: { state: "moved", revision: 9 } });
+    expect(
+      await answerOpenChange(w.deps(), record.id, { by: "card", answerer: { kind: "card" }, action: "approve" }),
+    ).toMatchObject({ ok: true, outcome: { state: "moved", revision: 9 } });
     expect(w.applied).toEqual([]);
   });
 
@@ -214,8 +322,12 @@ describe("revisions", () => {
     const w = world();
     const first = w.open(OWN);
     const second = w.open({ ...OWN, key: "thread-2", thread: "thread-2" });
-    expect(await answerOpenChange(w.deps(), first.id, { by: "card", answerer: { kind: "card" }, action: "approve" })).toMatchObject({ ok: true, outcome: { state: "applied" } });
-    expect(await answerOpenChange(w.deps(), second.id, { by: "card", answerer: { kind: "card" }, action: "approve" })).toMatchObject({ ok: true, outcome: { state: "moved" } });
+    expect(
+      await answerOpenChange(w.deps(), first.id, { by: "card", answerer: { kind: "card" }, action: "approve" }),
+    ).toMatchObject({ ok: true, outcome: { state: "applied" } });
+    expect(
+      await answerOpenChange(w.deps(), second.id, { by: "card", answerer: { kind: "card" }, action: "approve" }),
+    ).toMatchObject({ ok: true, outcome: { state: "moved" } });
     expect(w.applied.map((each) => each.id)).toEqual([first.id]);
   });
 });
@@ -224,7 +336,10 @@ describe("D16's caps", () => {
   it("one open per own-agent thread, naming it; two per Owner sub", () => {
     const w = world();
     const record = w.open(OWN);
-    expect(capRefusal(w.deps().changes, OWN, "hash-b", w.now())).toMatchObject({ reason: "open-thread", changeId: record.id });
+    expect(capRefusal(w.deps().changes, OWN, "hash-b", w.now())).toMatchObject({
+      reason: "open-thread",
+      changeId: record.id,
+    });
     for (let index = 0; index < OPEN_PER_OWNER; index++) {
       expect(capRefusal(w.deps().changes, OWNER, `hash-${index}`, w.now())).toBeUndefined();
       w.open(OWNER, { hash: `hash-${index}` });
@@ -234,8 +349,15 @@ describe("D16's caps", () => {
 
   it(`at most ${OPEN_ACROSS} across the Environment, naming the panel's list; the 17th child is refused`, () => {
     const w = world();
-    for (let index = 0; index < OPEN_ACROSS; index++) w.open({ ...OWN, key: `child-${index}`, thread: `child-${index}` });
-    const refusal = capRefusal(w.deps().changes, { ...OWN, key: "child-16", thread: "child-16" }, "hash-a", w.now(), "https://h/_t3flare/settings#changes");
+    for (let index = 0; index < OPEN_ACROSS; index++)
+      w.open({ ...OWN, key: `child-${index}`, thread: `child-${index}` });
+    const refusal = capRefusal(
+      w.deps().changes,
+      { ...OWN, key: "child-16", thread: "child-16" },
+      "hash-a",
+      w.now(),
+      "https://h/_t3flare/settings#changes",
+    );
     expect(refusal).toMatchObject({ reason: "open-across" });
     expect(refusal!.text).toContain("https://h/_t3flare/settings#changes");
   });
@@ -254,7 +376,8 @@ describe("D16's caps", () => {
     const w = world();
     const strike = async (index: number, how: "decline" | "expire") => {
       const record = w.open(OWN, { hash: `hash-${index}` });
-      if (how === "decline") await answerOpenChange(w.deps(), record.id, { by: "card", answerer: { kind: "card" }, action: "decline" });
+      if (how === "decline")
+        await answerOpenChange(w.deps(), record.id, { by: "card", answerer: { kind: "card" }, action: "decline" });
       else w.advance(CHANGE_TTL_MS);
       w.advance(1_000);
     };
@@ -264,7 +387,9 @@ describe("D16's caps", () => {
     await strike(3, "decline");
     expect(capRefusal(w.deps().changes, OWN, "hash-9", w.now())).toMatchObject({ reason: "strikes" });
     // Another caller is not locked.
-    expect(capRefusal(w.deps().changes, { ...OWN, key: "thread-9", thread: "thread-9" }, "hash-9", w.now())).toBeUndefined();
+    expect(
+      capRefusal(w.deps().changes, { ...OWN, key: "thread-9", thread: "thread-9" }, "hash-9", w.now()),
+    ).toBeUndefined();
     w.advance(STRIKE_LOCK_MS);
     expect(capRefusal(w.deps().changes, OWN, "hash-9", w.now())).toBeUndefined();
     // Two strikes, an applied change, one strike: no run of three.
@@ -299,7 +424,11 @@ describe("D16's caps", () => {
     expect(capRefusal(w.deps().changes, OWNER, "hash-9", w.now())).toBeUndefined();
     for (let index = 0; index < 3; index++) {
       const record = w.open(OWNER, { hash: `d-${index}` });
-      await answerOpenChange(w.deps(), record.id, { by: "page", answerer: { kind: "owner", subject: "sub-1" }, action: "decline" });
+      await answerOpenChange(w.deps(), record.id, {
+        by: "page",
+        answerer: { kind: "owner", subject: "sub-1" },
+        action: "decline",
+      });
     }
     expect(capRefusal(w.deps().changes, OWNER, "hash-9", w.now())).toMatchObject({ reason: "strikes" });
   });
@@ -323,7 +452,9 @@ describe("D16's caps", () => {
     );
     // Per caller and per door: another sub, and an own thread whose key is this sub, are not capped.
     expect(capRefusal(w.deps().changes, { ...OWNER, key: "sub-2" }, "hash-new", w.now())).toBeUndefined();
-    expect(capRefusal(w.deps().changes, { ...OWN, key: "sub-1", thread: "sub-1" }, "hash-new", w.now())).toBeUndefined();
+    expect(
+      capRefusal(w.deps().changes, { ...OWN, key: "sub-1", thread: "sub-1" }, "hash-new", w.now()),
+    ).toBeUndefined();
     // The window slides: the first falls out of it an hour after it opened, and the cap lifts.
     w.advance(first + OPENED_WINDOW_MS - 1 - w.now());
     expect(capRefusal(w.deps().changes, OWNER, "hash-new", w.now())).toMatchObject({ reason: "opened-cap" });
@@ -335,7 +466,18 @@ describe("D16's caps", () => {
     const w = world();
     const changes = w.deps().changes;
     for (let index = 0; index < APPLIED_CAP; index++) {
-      changes.recordApplied({ id: newChangeId(), entity: "harness", tool: "change_extension", args: {}, hash: `h${index}`, tier: index % OPENED_CAP === 0 ? "asked" : "free", caller: OWN, createdAt: w.now(), state: "applied", closed: { at: w.now() } });
+      changes.recordApplied({
+        id: newChangeId(),
+        entity: "harness",
+        tool: "change_extension",
+        args: {},
+        hash: `h${index}`,
+        tier: index % OPENED_CAP === 0 ? "asked" : "free",
+        caller: OWN,
+        createdAt: w.now(),
+        state: "applied",
+        closed: { at: w.now() },
+      });
     }
     expect(capRefusal(changes, OWN, "hash-a", w.now())).toMatchObject({ reason: "applied-cap" });
     w.advance(60 * 60_000 + 1);
@@ -349,21 +491,42 @@ describe("through the Settings server", () => {
 
   it("a skill install keeps each skill's digest at ask time, and one that differs at apply is refused", async () => {
     let release: (() => void) | undefined;
-    fixture = settingsFixture({ answer: () => new Promise((resolve) => (release = () => resolve({ decision: "accept" }))) });
+    fixture = settingsFixture({
+      answer: () => new Promise((resolve) => (release = () => resolve({ decision: "accept" }))),
+    });
     const run = fixture;
     const commit = run.github.push("o/r", { "skills/a/SKILL.md": skillMd("a", "Do <b>a</b>."), "skills/a/x.md": "x" });
-    const pending = run.call(run.durable(), "change_skills", { expectedRevision: 0, op: "install", source: "o/r", commit, folders: ["skills/a"] });
+    const pending = run.call(run.durable(), "change_skills", {
+      expectedRevision: 0,
+      op: "install",
+      source: "o/r",
+      commit,
+      folders: ["skills/a"],
+    });
     await until(() => run.cards.length === 1);
     const [record] = run.deps.changes.open();
     const item = record!.shown!.items[0]!;
-    expect(item).toMatchObject({ kind: "skills", op: "install", commit, skills: [{ name: "a", path: "skills/a", files: 2, skillMd: skillMd("a", "Do <b>a</b>."), paths: ["SKILL.md", "x.md"] }] });
+    expect(item).toMatchObject({
+      kind: "skills",
+      op: "install",
+      commit,
+      skills: [
+        { name: "a", path: "skills/a", files: 2, skillMd: skillMd("a", "Do <b>a</b>."), paths: ["SKILL.md", "x.md"] },
+      ],
+    });
     // The files at the commit differ from what the owner was shown: the apply refuses them and keeps nothing.
     if (item.kind !== "skills") throw new Error("not a skills item");
-    const tampered: ChangeRecord = { ...record!, shown: { ...record!.shown!, items: [{ ...item, skills: [{ ...item.skills[0]!, digest: "0".repeat(64) }] }] } };
+    const tampered: ChangeRecord = {
+      ...record!,
+      shown: { ...record!.shown!, items: [{ ...item, skills: [{ ...item.skills[0]!, digest: "0".repeat(64) }] }] },
+    };
     expect(run.deps.changes.replace(record!.id, ["open"], tampered)).toBe(true);
     // The card offers only "Opened it" for an install (its SKILL.md text is on the page alone): the page approves it.
     release!();
-    await changesApiOf(run.deps).answer(record!.id, { answerer: { kind: "owner", subject: "owner-sub" }, action: "approve" });
+    await changesApiOf(run.deps).answer(record!.id, {
+      answerer: { kind: "owner", subject: "owner-sub" },
+      action: "approve",
+    });
     const answer = await pending;
     expect(answer).toMatchObject({ kind: "result", isError: true, structured: { status: "refused" } });
     expect(answer.kind === "result" ? answer.text : "").toContain("differ from what the owner was shown");
@@ -371,18 +534,33 @@ describe("through the Settings server", () => {
     expect(run.deps.changes.get(record!.id)?.state).toBe("failed");
   });
 
-  it("a skill install is approved on the page alone, its card offering only \"Opened it\", and the page's approval keeps it", async () => {
+  it('a skill install is approved on the page alone, its card offering only "Opened it", and the page\'s approval keeps it', async () => {
     fixture = settingsFixture();
     const run = fixture;
     const commit = run.github.push("o/r", { "skills/a/SKILL.md": skillMd("a") });
-    const pending = run.call(run.durable(), "change_skills", { expectedRevision: 0, op: "install", source: "o/r", commit, folders: ["skills/a"] });
+    const pending = run.call(run.durable(), "change_skills", {
+      expectedRevision: 0,
+      op: "install",
+      source: "o/r",
+      commit,
+      folders: ["skills/a"],
+    });
     await until(() => run.cards.length === 1);
     expect(run.cards[0]!.options?.map((option) => option.label)).toEqual(["Opened it", "Decline", "Cancel"]);
     expect(run.cards[0]!.prompt).toContain("SKILL.md text and files are shown on the Change page");
     const [record] = run.deps.changes.open();
     expect(record?.needsPage).toBe("skills");
-    expect(await answerOpenChange(answerDepsOf(run.deps), record!.id, { by: "card", answerer: { kind: "card" }, action: "approve" })).toMatchObject({ ok: false, status: 403 });
-    await changesApiOf(run.deps).answer(record!.id, { answerer: { kind: "owner", subject: "owner-sub" }, action: "approve" });
+    expect(
+      await answerOpenChange(answerDepsOf(run.deps), record!.id, {
+        by: "card",
+        answerer: { kind: "card" },
+        action: "approve",
+      }),
+    ).toMatchObject({ ok: false, status: 403 });
+    await changesApiOf(run.deps).answer(record!.id, {
+      answerer: { kind: "owner", subject: "owner-sub" },
+      action: "approve",
+    });
     const answer = await pending;
     expect(answer).toMatchObject({ kind: "result", isError: false, structured: { status: "applied", revision: 1 } });
     expect(run.skills.store.list().map((skill) => skill.name)).toEqual(["a"]);
@@ -394,11 +572,26 @@ describe("through the Settings server", () => {
     void run.call(run.durable(), "change_environment", { expectedRevision: 0, settings: { containerBudget: 4 } });
     await until(() => run.cards.length === 1);
     const [record] = run.deps.changes.open();
-    const second = await run.call(run.durable(), "change_environment", { expectedRevision: 0, settings: { containerSize: "standard-3" } });
-    expect(second).toMatchObject({ kind: "result", isError: true, structured: { status: "refused", reason: "open-thread", changeId: record!.id } });
+    const second = await run.call(run.durable(), "change_environment", {
+      expectedRevision: 0,
+      settings: { containerSize: "standard-3" },
+    });
+    expect(second).toMatchObject({
+      kind: "result",
+      isError: true,
+      structured: { status: "refused", reason: "open-thread", changeId: record!.id },
+    });
     expect(run.cards.length).toBe(1);
     const status = await run.call(run.durable(), "get_status");
-    expect(status.kind === "result" ? status.structured : undefined).toMatchObject({ openChanges: [{ changeId: record!.id, url: `https://t3.example.dev${changePagePath(record!.id)}`, tool: "change_environment" }] });
+    expect(status.kind === "result" ? status.structured : undefined).toMatchObject({
+      openChanges: [
+        {
+          changeId: record!.id,
+          url: `https://t3.example.dev${changePagePath(record!.id)}`,
+          tool: "change_environment",
+        },
+      ],
+    });
   });
 });
 
@@ -409,30 +602,57 @@ describe("D16's caps under parallel calls (SPI-1199 review)", () => {
   it("parallel skill installs on one thread open one change; the others are refused naming it", async () => {
     fixture = settingsFixture({ answer: () => new Promise(() => undefined) });
     const run = fixture;
-    const commit = run.github.push("o/r", { "skills/a/SKILL.md": skillMd("a"), "skills/b/SKILL.md": skillMd("b"), "skills/c/SKILL.md": skillMd("c") });
+    const commit = run.github.push("o/r", {
+      "skills/a/SKILL.md": skillMd("a"),
+      "skills/b/SKILL.md": skillMd("b"),
+      "skills/c/SKILL.md": skillMd("c"),
+    });
     const caller = run.durable();
-    const calls = ["skills/a", "skills/b", "skills/c"].map((folder) => run.call(caller, "change_skills", { expectedRevision: 0, op: "install", source: "o/r", commit, folders: [folder] }));
+    const calls = ["skills/a", "skills/b", "skills/c"].map((folder) =>
+      run.call(caller, "change_skills", {
+        expectedRevision: 0,
+        op: "install",
+        source: "o/r",
+        commit,
+        folders: [folder],
+      }),
+    );
     // Two of the three answer at once, refused; the third waits on its card.
     const refused: Array<unknown> = [];
     for (const each of calls) void each.then((answer) => refused.push(answer));
     await until(() => refused.length === 2 && run.cards.length === 1);
     const open = run.deps.changes.open();
     expect(open).toHaveLength(1);
-    for (const each of refused) expect(each).toMatchObject({ kind: "result", structured: { status: "refused", reason: "open-thread", changeId: open[0]!.id } });
+    for (const each of refused)
+      expect(each).toMatchObject({
+        kind: "result",
+        structured: { status: "refused", reason: "open-thread", changeId: open[0]!.id },
+      });
   });
 
   it("parallel asked calls of one Owner sub open at most two", async () => {
     fixture = settingsFixture();
     const run = fixture;
-    const commit = run.github.push("o/r", { "skills/a/SKILL.md": skillMd("a"), "skills/b/SKILL.md": skillMd("b"), "skills/c/SKILL.md": skillMd("c"), "skills/d/SKILL.md": skillMd("d") });
+    const commit = run.github.push("o/r", {
+      "skills/a/SKILL.md": skillMd("a"),
+      "skills/b/SKILL.md": skillMd("b"),
+      "skills/c/SKILL.md": skillMd("c"),
+      "skills/d/SKILL.md": skillMd("d"),
+    });
     const answers = await Promise.all(
       ["skills/a", "skills/b", "skills/c", "skills/d"].map((folder) =>
-        settingsOwnerCall(run.deps, { tool: "change_skills", args: { expectedRevision: 0, op: "install", source: "o/r", commit, folders: [folder] }, caller: { door: "owner", kind: "owner", key: "sub-1" }, mode: "browser" }),
+        settingsOwnerCall(run.deps, {
+          tool: "change_skills",
+          args: { expectedRevision: 0, op: "install", source: "o/r", commit, folders: [folder] },
+          caller: { door: "owner", kind: "owner", key: "sub-1" },
+          mode: "browser",
+        }),
       ),
     );
     expect(answers.filter((each) => each.kind === "open")).toHaveLength(OPEN_PER_OWNER);
     expect(run.deps.changes.open()).toHaveLength(OPEN_PER_OWNER);
-    for (const each of answers.filter((answer) => answer.kind === "result")) expect(each).toMatchObject({ answer: { structured: { status: "refused", reason: "open-owner" } } });
+    for (const each of answers.filter((answer) => answer.kind === "result"))
+      expect(each).toMatchObject({ answer: { structured: { status: "refused", reason: "open-owner" } } });
   });
 });
 
@@ -474,48 +694,105 @@ describe("SPI-1199 review: the strike lock, the declined-repeat hash, a skill pr
   it("a declined change asked again with junk keys added is still the same change", async () => {
     fixture = settingsFixture({ answer: { decision: "decline" } });
     const run = fixture;
-    expect(await run.call(run.durable(), "change_environment", { expectedRevision: 0, settings: { containerBudget: 4 } })).toMatchObject({ structured: { status: "declined" } });
-    const again = await run.call(run.durable(), "change_environment", { expectedRevision: 0, settings: { containerBudget: 4 }, junk: 1, also: "x" });
+    expect(
+      await run.call(run.durable(), "change_environment", { expectedRevision: 0, settings: { containerBudget: 4 } }),
+    ).toMatchObject({ structured: { status: "declined" } });
+    const again = await run.call(run.durable(), "change_environment", {
+      expectedRevision: 0,
+      settings: { containerBudget: 4 },
+      junk: 1,
+      also: "x",
+    });
     expect(again).toMatchObject({ structured: { status: "refused", reason: "declined-repeat" } });
-    const mcp = await run.call(run.durable("thread-2"), "change_mcp", { expectedRevision: 0, change: { op: "add", server: "x", url: "https://x.example/mcp", auth: { kind: "none" } } });
+    const mcp = await run.call(run.durable("thread-2"), "change_mcp", {
+      expectedRevision: 0,
+      change: { op: "add", server: "x", url: "https://x.example/mcp", auth: { kind: "none" } },
+    });
     expect(mcp).toMatchObject({ structured: { status: "declined" } });
-    const junked = await run.call(run.durable("thread-2"), "change_mcp", { expectedRevision: 0, change: { op: "add", server: "x", url: "https://x.example/mcp", auth: { kind: "none", extra: true }, note: "please" } });
+    const junked = await run.call(run.durable("thread-2"), "change_mcp", {
+      expectedRevision: 0,
+      change: {
+        op: "add",
+        server: "x",
+        url: "https://x.example/mcp",
+        auth: { kind: "none", extra: true },
+        note: "please",
+      },
+    });
     expect(junked).toMatchObject({ structured: { status: "refused", reason: "declined-repeat" } });
   });
 
   it("SPI-1200 review: a respelled add URL or install source is still the same change", async () => {
     fixture = settingsFixture({ answer: { decision: "decline" } });
     const run = fixture;
-    const add = (url: string) => run.call(run.durable("thread-3"), "change_mcp", { expectedRevision: 0, change: { op: "add", server: "y", url, auth: { kind: "none" } } });
+    const add = (url: string) =>
+      run.call(run.durable("thread-3"), "change_mcp", {
+        expectedRevision: 0,
+        change: { op: "add", server: "y", url, auth: { kind: "none" } },
+      });
     expect(await add("https://y.example/mcp")).toMatchObject({ structured: { status: "declined" } });
-    for (const url of ["https://Y.EXAMPLE/mcp", "https://y.example:443/mcp"]) expect(await add(url)).toMatchObject({ structured: { status: "refused", reason: "declined-repeat" } });
+    for (const url of ["https://Y.EXAMPLE/mcp", "https://y.example:443/mcp"])
+      expect(await add(url)).toMatchObject({ structured: { status: "refused", reason: "declined-repeat" } });
     const commit = run.github.push("o/r", { "skills/a/SKILL.md": skillMd("a") });
-    const install = (source: string) => run.call(run.durable("thread-4"), "change_skills", { expectedRevision: 0, op: "install", source, commit, folders: ["skills/a"] });
+    const install = (source: string) =>
+      run.call(run.durable("thread-4"), "change_skills", {
+        expectedRevision: 0,
+        op: "install",
+        source,
+        commit,
+        folders: ["skills/a"],
+      });
     expect(await install("o/r")).toMatchObject({ structured: { status: "declined" } });
-    for (const source of ["https://github.com/o/r", "O/R", `https://github.com/o/r/tree/${commit}`, "https://github.com/o/r?tab=readme"]) {
-      expect([source, await install(source)]).toMatchObject([source, { structured: { status: "refused", reason: "declined-repeat" } }]);
+    for (const source of [
+      "https://github.com/o/r",
+      "O/R",
+      `https://github.com/o/r/tree/${commit}`,
+      "https://github.com/o/r?tab=readme",
+    ]) {
+      expect([source, await install(source)]).toMatchObject([
+        source,
+        { structured: { status: "refused", reason: "declined-repeat" } },
+      ]);
     }
   });
 
   it("SPI-1201 review: a URL's fragment or empty query, a tree URL with a path, a skill name, and folders repeated or reordered are the same change", async () => {
     fixture = settingsFixture({ answer: { decision: "decline" } });
     const run = fixture;
-    const add = (url: string) => run.call(run.durable("thread-5"), "change_mcp", { expectedRevision: 0, change: { op: "add", server: "z", url, auth: { kind: "none" } } });
+    const add = (url: string) =>
+      run.call(run.durable("thread-5"), "change_mcp", {
+        expectedRevision: 0,
+        change: { op: "add", server: "z", url, auth: { kind: "none" } },
+      });
     expect(await add("https://z.example/mcp")).toMatchObject({ structured: { status: "declined" } });
     for (const url of ["https://z.example/mcp#top", "https://z.example/mcp?", "https://z.example/mcp?#"]) {
-      expect([url, await add(url)]).toMatchObject([url, { structured: { status: "refused", reason: "declined-repeat" } }]);
+      expect([url, await add(url)]).toMatchObject([
+        url,
+        { structured: { status: "refused", reason: "declined-repeat" } },
+      ]);
     }
     // A real query is another URL.
     expect(await add("https://z.example/mcp?key=1")).toMatchObject({ structured: { status: "declined" } });
     const commit = run.github.push("o/r", { "skills/a/SKILL.md": skillMd("a"), "skills/b/SKILL.md": skillMd("b") });
-    const install = (source: string, folders: ReadonlyArray<string>) => run.call(run.durable("thread-6"), "change_skills", { expectedRevision: 0, op: "install", source, commit, folders });
+    const install = (source: string, folders: ReadonlyArray<string>) =>
+      run.call(run.durable("thread-6"), "change_skills", {
+        expectedRevision: 0,
+        op: "install",
+        source,
+        commit,
+        folders,
+      });
     expect(await install("o/r", ["skills/a", "skills/b"])).toMatchObject({ structured: { status: "declined" } });
     for (const [source, folders] of [
       ["o/r", ["skills/b", "skills/a", "skills/a"]],
       [`https://github.com/o/r/tree/${commit}/skills`, ["skills/a", "skills/b"]],
       ["o/r@a", ["skills/b", "skills/a"]],
     ] as const) {
-      expect([source, folders, await install(source, folders)]).toMatchObject([source, folders, { structured: { status: "refused", reason: "declined-repeat" } }]);
+      expect([source, folders, await install(source, folders)]).toMatchObject([
+        source,
+        folders,
+        { structured: { status: "refused", reason: "declined-repeat" } },
+      ]);
     }
     // Other folders are another change.
     expect(await install("o/r", ["skills/a"])).toMatchObject({ structured: { status: "declined" } });
@@ -525,10 +802,23 @@ describe("SPI-1199 review: the strike lock, the declined-repeat hash, a skill pr
     fixture = settingsFixture({ answer: { decision: "decline" } });
     const run = fixture;
     const commit = run.github.push("o/r", { "skills/a/SKILL.md": skillMd("a") });
-    await run.call(run.durable(), "change_skills", { expectedRevision: 0, op: "install", source: "o/r", commit, folders: ["skills/missing"] });
+    await run.call(run.durable(), "change_skills", {
+      expectedRevision: 0,
+      op: "install",
+      source: "o/r",
+      commit,
+      folders: ["skills/missing"],
+    });
     expect(run.deps.changes.readsSince("own:thread-d", "network", 0)).toBe(1);
-    for (let index = 1; index < NETWORK_READ_CAP; index++) run.deps.changes.noteRead("own:thread-d", "network", run.now());
-    const refused = await run.call(run.durable(), "change_skills", { expectedRevision: 0, op: "install", source: "o/r", commit, folders: ["skills/a"] });
+    for (let index = 1; index < NETWORK_READ_CAP; index++)
+      run.deps.changes.noteRead("own:thread-d", "network", run.now());
+    const refused = await run.call(run.durable(), "change_skills", {
+      expectedRevision: 0,
+      op: "install",
+      source: "o/r",
+      commit,
+      folders: ["skills/a"],
+    });
     expect(refused).toMatchObject({ structured: { status: "refused" } });
     expect(JSON.stringify(refused)).toContain(`${NETWORK_READ_CAP} reads that reach GitHub`);
     expect(run.deps.changes.open()).toEqual([]);
@@ -548,16 +838,38 @@ describe("SPI-1201 review: caps and lists are scoped by door", () => {
     const [own] = run.deps.changes.open();
     expect(own!.caller).toMatchObject({ door: "own", key: SUB });
     // The Owner client's get_status lists none of it; the thread's lists it.
-    expect((await structuredOf(await endpoint(modern("tools/call", { name: "get_status", arguments: {} }))))?.openChanges).toEqual([]);
+    expect(
+      (await structuredOf(await endpoint(modern("tools/call", { name: "get_status", arguments: {} }))))?.openChanges,
+    ).toEqual([]);
     const status = await run.call(run.durable(SUB), "get_status");
-    expect(status.kind === "result" ? status.structured : undefined).toMatchObject({ openChanges: [{ changeId: own!.id }] });
+    expect(status.kind === "result" ? status.structured : undefined).toMatchObject({
+      openChanges: [{ changeId: own!.id }],
+    });
     // resume finds no change of its own under that id, as for a made-up one.
-    const resumed = await bodyOf(await endpoint(modern("tools/call", { name: "resume", arguments: { requestId: own!.id, response: { action: "accept" } } }, { query: "?elicitation_mode=model", id: 3 })));
+    const resumed = await bodyOf(
+      await endpoint(
+        modern(
+          "tools/call",
+          { name: "resume", arguments: { requestId: own!.id, response: { action: "accept" } } },
+          { query: "?elicitation_mode=model", id: 3 },
+        ),
+      ),
+    );
     expect(resumed.result).toMatchObject({ isError: true, structuredContent: { status: "refused" } });
     expect(JSON.stringify(resumed.result?.content)).toContain("no change of yours");
     // The Owner client's open cap does not count the thread's change: two of its own still open.
-    await endpoint(modern("tools/call", { name: "change_environment", arguments: { expectedRevision: 0, settings: { containerBudget: 5 } } }));
-    await endpoint(modern("tools/call", { name: "change_environment", arguments: { expectedRevision: 0, settings: { containerBudget: 6 } } }));
+    await endpoint(
+      modern("tools/call", {
+        name: "change_environment",
+        arguments: { expectedRevision: 0, settings: { containerBudget: 5 } },
+      }),
+    );
+    await endpoint(
+      modern("tools/call", {
+        name: "change_environment",
+        arguments: { expectedRevision: 0, settings: { containerBudget: 6 } },
+      }),
+    );
     expect(run.deps.changes.open().filter((record) => record.caller.door === "owner")).toHaveLength(OPEN_PER_OWNER);
     expect(run.deps.changes.get(own!.id)?.state).toBe("open");
   });

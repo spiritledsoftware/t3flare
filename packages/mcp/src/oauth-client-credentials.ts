@@ -23,13 +23,7 @@ import {
   randomJti,
   signClientAssertion,
 } from "./client-assertion.ts";
-import {
-  basicAuthorization,
-  boundedText,
-  MAX_SIGN_IN_ERROR_LENGTH,
-  type OAuthFetch,
-  scrubbed,
-} from "./oauth-http.ts";
+import { basicAuthorization, boundedText, MAX_SIGN_IN_ERROR_LENGTH, type OAuthFetch, scrubbed } from "./oauth-http.ts";
 
 /** What a token response is held to. */
 const MAX_TOKEN_RESPONSE_BYTES = 64 * 1024;
@@ -48,9 +42,7 @@ export type ClientCredentialsAuth =
 /** The metadata fields client authentication reads, which the metadata's open record leaves unchecked. */
 const AuthMetadata = Schema.Struct({
   token_endpoint_auth_methods_supported: Schema.optionalKey(Schema.String.pipe(Schema.Array)),
-  token_endpoint_auth_signing_alg_values_supported: Schema.optionalKey(
-    Schema.String.pipe(Schema.Array),
-  ),
+  token_endpoint_auth_signing_alg_values_supported: Schema.optionalKey(Schema.String.pipe(Schema.Array)),
 });
 
 const readAuthMetadata = Schema.decodeUnknownOption(AuthMetadata);
@@ -59,9 +51,7 @@ const readAuthMetadata = Schema.decodeUnknownOption(AuthMetadata);
 export const secretAuthMethod = (
   metadata: AuthorizationServerMetadata,
 ): "client_secret_post" | "client_secret_basic" | undefined => {
-  const listed = Option.getOrUndefined(
-    readAuthMetadata(metadata),
-  )?.token_endpoint_auth_methods_supported;
+  const listed = Option.getOrUndefined(readAuthMetadata(metadata))?.token_endpoint_auth_methods_supported;
 
   if (listed?.includes("client_secret_post") === true) return "client_secret_post";
 
@@ -164,11 +154,7 @@ export const requestClientCredentials = async (input: {
 
     if (method === "client_secret_post") {
       // A server that echoes the form it was sent repeats the secret as it was encoded.
-      sent.push(
-        new URLSearchParams({ client_secret: auth.clientSecret })
-          .toString()
-          .slice("client_secret=".length),
-      );
+      sent.push(new URLSearchParams({ client_secret: auth.clientSecret }).toString().slice("client_secret=".length));
       body.set("client_id", auth.clientId);
       body.set("client_secret", auth.clientSecret);
     } else {
@@ -186,8 +172,7 @@ export const requestClientCredentials = async (input: {
     ) {
       return {
         kind: "problem",
-        message:
-          "The authorization server does not list private_key_jwt as a client authentication",
+        message: "The authorization server does not list private_key_jwt as a client authentication",
       };
     }
 
@@ -276,9 +261,7 @@ export const requestClientCredentials = async (input: {
       kind: "refused",
       code,
       message:
-        description === undefined || description === ""
-          ? code
-          : scrubbed(description, sent, MAX_SIGN_IN_ERROR_LENGTH),
+        description === undefined || description === "" ? code : scrubbed(description, sent, MAX_SIGN_IN_ERROR_LENGTH),
       status: response.status,
     };
   } catch (failure) {

@@ -12,4 +12,3 @@ export const guardedFetch =
     if (url.username !== "" || url.password !== "") throw new Error("OAuth URLs carry no credentials");
     return base(url, { ...init, redirect: "manual", signal: AbortSignal.timeout(OAUTH_REQUEST_TIMEOUT_MS) });
   };
-

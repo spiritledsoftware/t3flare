@@ -228,9 +228,7 @@ export const McpSignInStartAnswer = Schema.Union([
 export type McpSignInStartAnswer = typeof McpSignInStartAnswer.Type;
 
 /** The start answer as this build knows it: what it does not know is a problem with a generic message. */
-export const readMcpSignInStartAnswer = (
-  answer: McpSignInStartAnswer,
-): typeof KnownStartAnswer.Type =>
+export const readMcpSignInStartAnswer = (answer: McpSignInStartAnswer): typeof KnownStartAnswer.Type =>
   Schema.is(KnownStartAnswer)(answer)
     ? answer
     : {
@@ -261,9 +259,7 @@ export const McpSignInConfirmAnswer = Schema.Union([
 export type McpSignInConfirmAnswer = typeof McpSignInConfirmAnswer.Type;
 
 /** The confirm answer as this build knows it, an unknown one being a problem. */
-export const readMcpSignInConfirmAnswer = (
-  answer: McpSignInConfirmAnswer,
-): typeof KnownConfirmAnswer.Type =>
+export const readMcpSignInConfirmAnswer = (answer: McpSignInConfirmAnswer): typeof KnownConfirmAnswer.Type =>
   Schema.is(KnownConfirmAnswer)(answer)
     ? answer
     : {
@@ -340,15 +336,10 @@ export type McpSignInCompleteAnswer = typeof McpSignInCompleteAnswer.Type;
 export type McpSignInKnownCompleteAnswer = typeof KnownCompleteAnswer.Type;
 
 /** A callback that saved nothing. */
-export type McpSignInFailure = Exclude<
-  McpSignInKnownCompleteAnswer,
-  { readonly status: "signed_in" }
->;
+export type McpSignInFailure = Exclude<McpSignInKnownCompleteAnswer, { readonly status: "signed_in" }>;
 
 /** The complete answer as this build knows it: one it does not know is `unavailable`, which saved nothing as far as it can tell. */
-export const readMcpSignInCompleteAnswer = (
-  answer: McpSignInCompleteAnswer,
-): typeof KnownCompleteAnswer.Type =>
+export const readMcpSignInCompleteAnswer = (answer: McpSignInCompleteAnswer): typeof KnownCompleteAnswer.Type =>
   Schema.is(KnownCompleteAnswer)(answer)
     ? answer
     : {
@@ -417,10 +408,7 @@ const KnownAskAnswer = Schema.Union([
   }),
 ]);
 
-export const McpSignInAskAnswer = Schema.Union([
-  ...KnownAskAnswer.members,
-  Schema.Struct({ status: Schema.String }),
-]);
+export const McpSignInAskAnswer = Schema.Union([...KnownAskAnswer.members, Schema.Struct({ status: Schema.String })]);
 
 export type McpSignInAskAnswer = typeof McpSignInAskAnswer.Type;
 

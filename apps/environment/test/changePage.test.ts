@@ -36,7 +36,15 @@ const record = (items: ReadonlyArray<ChangeItem>, extra: Partial<ChangeRecord> =
   args: { expectedRevision: 3, change: { op: "add", server: HOSTILE } },
   hash: "h",
   tier: "asked",
-  shown: { entity: "harness", subject: "the MCP server set", revision: 3, appliesAt: HOSTILE, reasons: [HOSTILE], items, lines: [HOSTILE] },
+  shown: {
+    entity: "harness",
+    subject: "the MCP server set",
+    revision: 3,
+    appliesAt: HOSTILE,
+    reasons: [HOSTILE],
+    items,
+    lines: [HOSTILE],
+  },
   mode: "card",
   caller: { door: "own", key: "thread-1", principal: "agent", thread: HOSTILE, agent: HOSTILE },
   createdAt: NOW,
@@ -47,9 +55,27 @@ const record = (items: ReadonlyArray<ChangeItem>, extra: Partial<ChangeRecord> =
 
 const EVERY_KIND: ReadonlyArray<ChangeItem> = [
   { kind: "scalar", name: HOSTILE, before: HOSTILE, after: { nested: HOSTILE } },
-  { kind: "variables", name: "variables", added: [[HOSTILE, HOSTILE]], changed: [["B", HOSTILE, "x"]], removed: [["C", HOSTILE]] },
-  { kind: "text", name: "globalMiseConfig", before: `[tools]\n${HOSTILE}\nnode = "22"`, after: `[tools]\nnode = "24"\n${HOSTILE}` },
-  { kind: "mcp-add", server: HOSTILE, url: `https://evil.example/${HOSTILE}`, host: "evil.example", auth: "header", header: HOSTILE },
+  {
+    kind: "variables",
+    name: "variables",
+    added: [[HOSTILE, HOSTILE]],
+    changed: [["B", HOSTILE, "x"]],
+    removed: [["C", HOSTILE]],
+  },
+  {
+    kind: "text",
+    name: "globalMiseConfig",
+    before: `[tools]\n${HOSTILE}\nnode = "22"`,
+    after: `[tools]\nnode = "24"\n${HOSTILE}`,
+  },
+  {
+    kind: "mcp-add",
+    server: HOSTILE,
+    url: `https://evil.example/${HOSTILE}`,
+    host: "evil.example",
+    auth: "header",
+    header: HOSTILE,
+  },
   { kind: "mcp-remove", server: HOSTILE, url: `https://x.example/${HOSTILE}` },
   { kind: "header-value", server: HOSTILE, header: HOSTILE, set: true },
   { kind: "sign-in", server: HOSTILE, url: `https://x.example/${HOSTILE}` },
@@ -60,7 +86,19 @@ const EVERY_KIND: ReadonlyArray<ChangeItem> = [
     repo: "o/r",
     ref: HOSTILE,
     commit: "a".repeat(40),
-    skills: [{ name: HOSTILE, description: HOSTILE, path: "skills/a", files: 2, bytes: 10, digest: "d".repeat(64), skillMd: `---\nname: a\n---\n${HOSTILE}`, paths: ["SKILL.md", HOSTILE], problems: [HOSTILE] }],
+    skills: [
+      {
+        name: HOSTILE,
+        description: HOSTILE,
+        path: "skills/a",
+        files: 2,
+        bytes: 10,
+        digest: "d".repeat(64),
+        skillMd: `---\nname: a\n---\n${HOSTILE}`,
+        paths: ["SKILL.md", HOSTILE],
+        problems: [HOSTILE],
+      },
+    ],
   },
   { kind: "skill", op: "remove", name: HOSTILE, repo: "o/r", commit: "b".repeat(40) },
 ];
@@ -92,21 +130,43 @@ describe("the Change page renders every kind escaped, a hostile value inert", ()
   });
 
   it("a closed change shows its outcome and no answer; an unknown id is gone", async () => {
-    const closed = renderChangePage(record(EVERY_KIND.slice(0, 1), { state: "declined", closed: { at: NOW, by: "card" } }), { csrf: "", now: NOW });
+    const closed = renderChangePage(
+      record(EVERY_KIND.slice(0, 1), { state: "declined", closed: { at: NOW, by: "card" } }),
+      { csrf: "", now: NOW },
+    );
     expect(closed).toContain("Declined");
     expect(closed).not.toContain('data-action="approve"');
     fixture = settingsFixture();
-    const response = await handleHarness(new Request(`https://${HOST}${changePagePath(newChangeId())}`), fixture.panel());
+    const response = await handleHarness(
+      new Request(`https://${HOST}${changePagePath(newChangeId())}`),
+      fixture.panel(),
+    );
     expect(response.status).toBe(404);
     expect(await response.text()).toContain("This change is gone");
-    const bad = await handleHarness(new Request(`https://${HOST}/_t3flare/settings/changes/chg_short%3Cscript%3E`), fixture.panel());
+    const bad = await handleHarness(
+      new Request(`https://${HOST}/_t3flare/settings/changes/chg_short%3Cscript%3E`),
+      fixture.panel(),
+    );
     expect(bad.status).toBe(404);
   });
 });
 
 describe("the Change page's POST", () => {
-  const post = async (run: SettingsFixture, id: string, body: unknown, headers: Record<string, string>, caller: AccessCaller = OWNER) =>
-    handleHarness(new Request(`https://${HOST}${CHANGES_API_PATH}/${id}`, { method: "POST", headers, body: typeof body === "string" ? body : JSON.stringify(body) }), run.panel(caller));
+  const post = async (
+    run: SettingsFixture,
+    id: string,
+    body: unknown,
+    headers: Record<string, string>,
+    caller: AccessCaller = OWNER,
+  ) =>
+    handleHarness(
+      new Request(`https://${HOST}${CHANGES_API_PATH}/${id}`, {
+        method: "POST",
+        headers,
+        body: typeof body === "string" ? body : JSON.stringify(body),
+      }),
+      run.panel(caller),
+    );
   const good = async (run: SettingsFixture) => ({
     "content-type": "application/json",
     origin: `https://${HOST}`,
@@ -123,14 +183,23 @@ describe("the Change page's POST", () => {
     const id = open!.id;
     const headers = await good(run);
     expect((await post(run, id, { action: "approve" }, { ...headers, "content-type": "text/plain" })).status).toBe(403);
-    expect((await post(run, id, { action: "approve" }, { ...headers, origin: "https://evil.example" })).status).toBe(403);
-    expect((await post(run, id, { action: "approve" }, { ...headers, "sec-fetch-site": "cross-site" })).status).toBe(403);
+    expect((await post(run, id, { action: "approve" }, { ...headers, origin: "https://evil.example" })).status).toBe(
+      403,
+    );
+    expect((await post(run, id, { action: "approve" }, { ...headers, "sec-fetch-site": "cross-site" })).status).toBe(
+      403,
+    );
     const { "x-t3flare-csrf": _csrf, ...noCsrf } = headers;
     expect((await post(run, id, { action: "approve" }, noCsrf)).status).toBe(403);
-    expect((await handleHarness(new Request(`https://${HOST}${CHANGES_API_PATH}/${id}?action=approve`), run.panel())).status).toBe(404);
+    expect(
+      (await handleHarness(new Request(`https://${HOST}${CHANGES_API_PATH}/${id}?action=approve`), run.panel())).status,
+    ).toBe(404);
     expect((await post(run, id, { action: "maybe" }, headers)).status).toBe(400);
     // The service token answers its own changes only, never an agent's.
-    expect((await post(run, id, { action: "approve" }, { "content-type": "application/json" }, { kind: "service-token" })).status).toBe(403);
+    expect(
+      (await post(run, id, { action: "approve" }, { "content-type": "application/json" }, { kind: "service-token" }))
+        .status,
+    ).toBe(403);
     expect(run.store.loadEnvironment().revision).toBe(0);
     expect(run.deps.changes.get(id)?.state).toBe("open");
     const answered = await post(run, id, { action: "approve" }, headers);
@@ -143,9 +212,23 @@ describe("the Change page's POST", () => {
     fixture = settingsFixture({ answer: { decision: "accept" } });
     const run = fixture;
     const lines: Array<string> = [];
-    vi.spyOn(console, "log").mockImplementation((...args: Array<unknown>) => void lines.push(args.map(String).join(" ")));
-    await addMcpServer(run.deps.ops, { server: "keyed", url: "https://keyed.example/mcp", auth: { kind: "header", header: "X-Key" }, value: "old-value" }, { actor: { caller: "owner:o" } });
-    const pending = run.call(run.durable(), "change_mcp", { expectedRevision: 1, change: { op: "header-value", server: "keyed" } });
+    vi.spyOn(console, "log").mockImplementation(
+      (...args: Array<unknown>) => void lines.push(args.map(String).join(" ")),
+    );
+    await addMcpServer(
+      run.deps.ops,
+      {
+        server: "keyed",
+        url: "https://keyed.example/mcp",
+        auth: { kind: "header", header: "X-Key" },
+        value: "old-value",
+      },
+      { actor: { caller: "owner:o" } },
+    );
+    const pending = run.call(run.durable(), "change_mcp", {
+      expectedRevision: 1,
+      change: { op: "header-value", server: "keyed" },
+    });
     await until(() => run.cards.length === 1);
     const [open] = run.deps.changes.open();
     const page = await handleHarness(new Request(`https://${HOST}${changePagePath(open!.id)}`), run.panel());
@@ -159,7 +242,16 @@ describe("the Change page's POST", () => {
     expect(answered.status).toBe(200);
     const result = await pending;
     expect(run.secrets.read("keyed", "header")).toBe(SECRET);
-    for (const text of [pageHtml, answerText, JSON.stringify(result), JSON.stringify(run.logs), lines.join("\n"), JSON.stringify(run.store.auditLog(50)), JSON.stringify(run.deps.changes.get(open!.id)), JSON.stringify(run.cards)]) {
+    for (const text of [
+      pageHtml,
+      answerText,
+      JSON.stringify(result),
+      JSON.stringify(run.logs),
+      lines.join("\n"),
+      JSON.stringify(run.store.auditLog(50)),
+      JSON.stringify(run.deps.changes.get(open!.id)),
+      JSON.stringify(run.cards),
+    ]) {
       expect(text).not.toContain(SECRET);
     }
     expect(run.store.auditLog(1)[0]).toMatchObject({ action: "mcp.secret.set", answeredBy: "page", tier: "asked" });
@@ -170,8 +262,14 @@ describe("the Change page's POST", () => {
     fixture = settingsFixture({ answer: { decision: "accept" } });
     const run = fixture;
     const lines: Array<string> = [];
-    vi.spyOn(console, "log").mockImplementation((...args: Array<unknown>) => void lines.push(args.map(String).join(" ")));
-    await addMcpServer(run.deps.ops, { server: "oauthy", url: "https://oauthy.example/mcp", auth: { kind: "oauth" } }, { actor: { caller: "owner:o" } });
+    vi.spyOn(console, "log").mockImplementation(
+      (...args: Array<unknown>) => void lines.push(args.map(String).join(" ")),
+    );
+    await addMcpServer(
+      run.deps.ops,
+      { server: "oauthy", url: "https://oauthy.example/mcp", auth: { kind: "oauth" } },
+      { actor: { caller: "owner:o" } },
+    );
     const pending = run.call(run.durable(), "start_mcp_sign_in", { expectedRevision: 1, server: "oauthy" });
     await until(() => run.cards.length === 1);
     const [open] = run.deps.changes.open();
@@ -180,7 +278,14 @@ describe("the Change page's POST", () => {
     expect(run.begun).toEqual(["oauthy"]);
     const result = await pending;
     expect(result).toMatchObject({ kind: "result", structured: { status: "applied" } });
-    for (const text of [JSON.stringify(result), JSON.stringify(run.logs), lines.join("\n"), JSON.stringify(run.store.auditLog(50)), JSON.stringify(run.deps.changes.get(open!.id)), JSON.stringify(run.cards)]) {
+    for (const text of [
+      JSON.stringify(result),
+      JSON.stringify(run.logs),
+      lines.join("\n"),
+      JSON.stringify(run.store.auditLog(50)),
+      JSON.stringify(run.deps.changes.get(open!.id)),
+      JSON.stringify(run.cards),
+    ]) {
       expect(text).not.toContain("auth.example");
       expect(text).not.toContain("s3cr3t-state");
     }
@@ -190,9 +295,19 @@ describe("the Change page's POST", () => {
     fixture = settingsFixture({ answer: { decision: "accept" } });
     const run = fixture;
     const lines: Array<string> = [];
-    vi.spyOn(console, "log").mockImplementation((...args: Array<unknown>) => void lines.push(args.map(String).join(" ")));
-    await addMcpServer(run.deps.ops, { server: "oauthy", url: "https://oauthy.example/mcp", auth: { kind: "oauth" } }, { actor: { caller: "owner:o" } });
-    run.oauth.begin = async () => ({ ok: false, error: "discovery failed at https://oauthy.example/.well-known/oauth-authorization-server?key=k3y-s3cr3t" }) as never;
+    vi.spyOn(console, "log").mockImplementation(
+      (...args: Array<unknown>) => void lines.push(args.map(String).join(" ")),
+    );
+    await addMcpServer(
+      run.deps.ops,
+      { server: "oauthy", url: "https://oauthy.example/mcp", auth: { kind: "oauth" } },
+      { actor: { caller: "owner:o" } },
+    );
+    run.oauth.begin = async () =>
+      ({
+        ok: false,
+        error: "discovery failed at https://oauthy.example/.well-known/oauth-authorization-server?key=k3y-s3cr3t",
+      }) as never;
     const pending = run.call(run.durable(), "start_mcp_sign_in", { expectedRevision: 1, server: "oauthy" });
     await until(() => run.cards.length === 1);
     const [open] = run.deps.changes.open();
@@ -202,7 +317,14 @@ describe("the Change page's POST", () => {
     const record = run.deps.changes.get(open!.id);
     expect(record?.state).toBe("failed");
     expect(record?.closed?.error).toContain("https://oauthy.example/.well-known/oauth-authorization-server");
-    for (const text of [answerText, JSON.stringify(result), JSON.stringify(run.logs), lines.join("\n"), JSON.stringify(record), JSON.stringify(run.deps.changes.closedBy("own:thread-d", 0))]) {
+    for (const text of [
+      answerText,
+      JSON.stringify(result),
+      JSON.stringify(run.logs),
+      lines.join("\n"),
+      JSON.stringify(record),
+      JSON.stringify(run.deps.changes.closedBy("own:thread-d", 0)),
+    ]) {
       expect(text).not.toContain("k3y-s3cr3t");
     }
   });
@@ -234,7 +356,11 @@ describe("the Change page's CSP and the panel's list", () => {
     const panel = await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), run.panel())).text();
     expect(panel).toContain('id="changes"');
     expect(panel).toContain(changePagePath(open!.id));
-    const listed = (await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings/api/changes`), run.panel())).json()) as { changes: Array<Record<string, unknown>> };
-    expect(listed.changes).toMatchObject([{ changeId: open!.id, thread: "thread-d", agent: "piDurable", url: `https://${HOST}${changePagePath(open!.id)}` }]);
+    const listed = (await (
+      await handleHarness(new Request(`https://${HOST}/_t3flare/settings/api/changes`), run.panel())
+    ).json()) as { changes: Array<Record<string, unknown>> };
+    expect(listed.changes).toMatchObject([
+      { changeId: open!.id, thread: "thread-d", agent: "piDurable", url: `https://${HOST}${changePagePath(open!.id)}` },
+    ]);
   });
 });

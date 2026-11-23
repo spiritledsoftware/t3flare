@@ -28,7 +28,20 @@ import * as Stream from "effect/Stream";
 import { RpcClient } from "effect/rpc";
 
 import { cliTurn as acpTurn, enable as enableAcp } from "./lib/acpTurn.ts";
-import { admin, base, createProjectAndThread, pair, projectionOf, protocol, runsOf, sendMessage, SETTLED, sleep, threadWindow, wsCall } from "./lib/client.ts";
+import {
+  admin,
+  base,
+  createProjectAndThread,
+  pair,
+  projectionOf,
+  protocol,
+  runsOf,
+  sendMessage,
+  SETTLED,
+  sleep,
+  threadWindow,
+  wsCall,
+} from "./lib/client.ts";
 import { cliTurn } from "./lib/cliTurn.ts";
 import { workersDevUrl } from "./lib/scriptSettings.ts";
 
@@ -63,7 +76,8 @@ const finish = (): never => {
   if (out !== undefined) fs.writeFileSync(out, `${text}\n`);
   process.exit(report.ok ? 0 : 1);
 };
-const api = (method: string, pathname: string, body?: unknown) => admin(method, `/_t3flare/settings/api/${pathname}`, body);
+const api = (method: string, pathname: string, body?: unknown) =>
+  admin(method, `/_t3flare/settings/api/${pathname}`, body);
 
 // `--scan <dir>`: the leak scan of the evidence (every file in `dir`) for the stage's own secrets, which only this run's
 // environment holds; it prints only which secret names matched where, never a value.
@@ -94,9 +108,23 @@ if (scanDir !== undefined) {
   const files = all.filter((name) => !BINARY.test(name));
   const hits = files.flatMap((name) => {
     const text = fs.readFileSync(`${scanDir}/${name}`, "utf8");
-    return [...named.filter(([, value]) => text.includes(value)).map(([key]) => `${name}: ${key}`), ...shapes.filter(([, shape]) => shape.test(text)).map(([what]) => `${name}: ${what}`)];
+    return [
+      ...named.filter(([, value]) => text.includes(value)).map(([key]) => `${name}: ${key}`),
+      ...shapes.filter(([, shape]) => shape.test(text)).map(([what]) => `${name}: ${what}`),
+    ];
   });
-  console.log(JSON.stringify({ scanned: files, skipped: { binary: all.filter((name) => BINARY.test(name)), note: "images, checked by eye" }, secrets: named.map(([key]) => key), hits }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        scanned: files,
+        skipped: { binary: all.filter((name) => BINARY.test(name)), note: "images, checked by eye" },
+        secrets: named.map(([key]) => key),
+        hits,
+      },
+      null,
+      2,
+    ),
+  );
   process.exit(hits.length === 0 ? 0 : 1);
 }
 
@@ -114,8 +142,15 @@ const OURS = "t3flare-endpoint-";
 const sourcesNow = async (): Promise<Array<any>> => {
   const event = await Effect.runPromise(
     Effect.gen(function* () {
-      const client = (yield* RpcClient.make(WsRpcGroup)) as unknown as Record<string, (input: unknown) => Stream.Stream<any, unknown>>;
-      return yield* Stream.runHead(client[WS_METHODS.subscribeServerConfig]!({ usageLimitSources: true }).pipe(Stream.filter((item: any) => item?.type === "usageLimitSourcesUpdated")));
+      const client = (yield* RpcClient.make(WsRpcGroup)) as unknown as Record<
+        string,
+        (input: unknown) => Stream.Stream<any, unknown>
+      >;
+      return yield* Stream.runHead(
+        client[WS_METHODS.subscribeServerConfig]!({ usageLimitSources: true }).pipe(
+          Stream.filter((item: any) => item?.type === "usageLimitSourcesUpdated"),
+        ),
+      );
     }).pipe(Effect.provide(protocol(cookie)), Effect.scoped, Effect.timeout("30 seconds")),
   );
   return event._tag === "Some" ? ((event.value as any).payload?.sources ?? []) : [];
@@ -132,21 +167,59 @@ const sourcesWhen = async (ready: (sources: Array<any>) => boolean, ms = 60_000)
   }
   return sources;
 };
-const sourceOf = (sources: Array<any>, endpoint: string) => sources.find((source) => source.id === `${OURS}${endpoint}`);
-const windowOf = (source: any, id: string) => source?.accounts?.[0]?.usageLimits?.windows?.find((window: any) => window.id === id);
-const hoursAhead = (iso: string | undefined) => (iso === undefined ? null : Math.round(((Date.parse(iso) - Date.now()) / 3_600_000) * 10) / 10);
+const sourceOf = (sources: Array<any>, endpoint: string) =>
+  sources.find((source) => source.id === `${OURS}${endpoint}`);
+const windowOf = (source: any, id: string) =>
+  source?.accounts?.[0]?.usageLimits?.windows?.find((window: any) => window.id === id);
+const hoursAhead = (iso: string | undefined) =>
+  iso === undefined ? null : Math.round(((Date.parse(iso) - Date.now()) / 3_600_000) * 10) / 10;
 const LEAK = /sk-[a-z0-9]|Bearer|eyJ[a-zA-Z0-9]|@[a-z0-9-]+\.[a-z]|org-|anthropic-organization/i;
 
 // The endpoints: the stand-in's two APIs on the probe key, each serving one model.
 const STANDIN_MODEL = "claude-fable-5-2";
 const STANDIN_RESP_MODEL = "gpt-5.1-codex";
 const saved = {
-  anth: (await api("POST", "endpoints", { op: "save", endpoint: { id: "standin-anth", label: "Stand-in Claude plan", api: "anthropic-messages", baseUrl: `${PROBE}/relay`, auth: "api-key", headers: {}, models: [STANDIN_MODEL] }, apiKey: probeKey })).status,
-  resp: (await api("POST", "endpoints", { op: "save", endpoint: { id: "standin-resp", label: "Stand-in ChatGPT plan", api: "openai-responses", baseUrl: `${PROBE}/relay/v1`, auth: "api-key", headers: {}, models: [STANDIN_RESP_MODEL] }, apiKey: probeKey })).status,
+  anth: (
+    await api("POST", "endpoints", {
+      op: "save",
+      endpoint: {
+        id: "standin-anth",
+        label: "Stand-in Claude plan",
+        api: "anthropic-messages",
+        baseUrl: `${PROBE}/relay`,
+        auth: "api-key",
+        headers: {},
+        models: [STANDIN_MODEL],
+      },
+      apiKey: probeKey,
+    })
+  ).status,
+  resp: (
+    await api("POST", "endpoints", {
+      op: "save",
+      endpoint: {
+        id: "standin-resp",
+        label: "Stand-in ChatGPT plan",
+        api: "openai-responses",
+        baseUrl: `${PROBE}/relay/v1`,
+        auth: "api-key",
+        headers: {},
+        models: [STANDIN_RESP_MODEL],
+      },
+      apiKey: probeKey,
+    })
+  ).status,
 };
 check("the two stand-in endpoints saved", saved.anth === 200 && saved.resp === 200, saved);
 const SLUG = { anth: `standin-anth/${STANDIN_MODEL}`, resp: `standin-resp/${STANDIN_RESP_MODEL}` };
-await wsCall(cookie, "server.updateSettings", { patch: {}, providerInstanceMutation: { operation: "upsert", instanceId: "piDurable", instance: { driver: "piDurable", enabled: true } } });
+await wsCall(cookie, "server.updateSettings", {
+  patch: {},
+  providerInstanceMutation: {
+    operation: "upsert",
+    instanceId: "piDurable",
+    instance: { driver: "piDurable", enabled: true },
+  },
+});
 
 const steps: Record<string, unknown> = {};
 const snapshot = (sources: Array<any>) =>
@@ -160,7 +233,10 @@ const snapshot = (sources: Array<any>) =>
         id: account.id,
         driver: account.driver,
         email: account.email ?? null,
-        windows: account.usageLimits.windows.map((window: any) => ({ ...window, resetsInHours: hoursAhead(window.resetsAt) })),
+        windows: account.usageLimits.windows.map((window: any) => ({
+          ...window,
+          resetsInHours: hoursAhead(window.resetsAt),
+        })),
       })),
     })),
   );
@@ -175,8 +251,15 @@ const snapshot = (sources: Array<any>) =>
 // 2. A Durable turn on the Claude stand-in.
 const run = Date.now().toString(36);
 {
-  const { threadId } = await createProjectAndThread(cookie, { title: "Limits", workspaceRoot: `/w/p1174-durable-${run}` });
-  await sendMessage(cookie, threadId, "Reply with the single word: ready.", { instanceId: "piDurable", model: SLUG.anth, options: [] });
+  const { threadId } = await createProjectAndThread(cookie, {
+    title: "Limits",
+    workspaceRoot: `/w/p1174-durable-${run}`,
+  });
+  await sendMessage(cookie, threadId, "Reply with the single word: ready.", {
+    instanceId: "piDurable",
+    model: SLUG.anth,
+    options: [],
+  });
   const started = Date.now();
   let runs: Array<any> = [];
   while (Date.now() - started < 5 * 60_000) {
@@ -188,12 +271,23 @@ const run = Date.now().toString(36);
   const sources = await sourcesWhen((list) => sourceOf(list, "standin-anth") !== undefined);
   const claude = sourceOf(sources, "standin-anth");
   steps.durable = { run: runs.at(-1)?.status, sources: snapshot(sources) };
-  check("the Durable turn's answer shows a Claude meter under the endpoint's label", claude?.label === "Stand-in Claude plan" && claude?.accounts?.[0]?.driver === "claudeAgent", claude);
+  check(
+    "the Durable turn's answer shows a Claude meter under the endpoint's label",
+    claude?.label === "Stand-in Claude plan" && claude?.accounts?.[0]?.driver === "claudeAgent",
+    claude,
+  );
   const five = windowOf(claude, "five_hour");
   const seven = windowOf(claude, "seven_day");
   check(
     "its five-hour window: a plausible share and a reset about 2 h away; its weekly window 30 % and about 3 days away",
-    five !== undefined && five.usedPercent > 0 && five.usedPercent < 100 && Math.abs(hoursAhead(five.resetsAt)! - 2) < 0.2 && five.label === "5-hour" && seven?.usedPercent === 30 && Math.abs(hoursAhead(seven.resetsAt)! - 72) < 0.2 && seven.label === "Weekly",
+    five !== undefined &&
+      five.usedPercent > 0 &&
+      five.usedPercent < 100 &&
+      Math.abs(hoursAhead(five.resetsAt)! - 2) < 0.2 &&
+      five.label === "5-hour" &&
+      seven?.usedPercent === 30 &&
+      Math.abs(hoursAhead(seven.resetsAt)! - 72) < 0.2 &&
+      seven.label === "Weekly",
     claude,
   );
   check("fresh: no stale notice", claude?.error === undefined, claude);
@@ -204,22 +298,48 @@ const durableClaude = sourceOf(ours(await sourcesNow()), "standin-anth");
 {
   await enableAcp(cookie, "claude");
   await sleep(2000);
-  const answer = await acpTurn(cookie, { cli: "claude", workspace: `limits-acp-${run}`, model: SLUG.anth, mode: "full-access", plan: false, prompt: "Reply with the single word: ready." });
-  check("a Claude Code turn on the Claude stand-in, model-routed through the relay", answer.runs.at(-1)?.status === "completed", clean({ runs: answer.runs.slice(-1), text: answer.text }));
-  const sources = await sourcesWhen((list) => Date.parse(sourceOf(list, "standin-anth")?.checkedAt ?? "0") > Date.parse(durableClaude?.checkedAt ?? "0"));
+  const answer = await acpTurn(cookie, {
+    cli: "claude",
+    workspace: `limits-acp-${run}`,
+    model: SLUG.anth,
+    mode: "full-access",
+    plan: false,
+    prompt: "Reply with the single word: ready.",
+  });
+  check(
+    "a Claude Code turn on the Claude stand-in, model-routed through the relay",
+    answer.runs.at(-1)?.status === "completed",
+    clean({ runs: answer.runs.slice(-1), text: answer.text }),
+  );
+  const sources = await sourcesWhen(
+    (list) =>
+      Date.parse(sourceOf(list, "standin-anth")?.checkedAt ?? "0") > Date.parse(durableClaude?.checkedAt ?? "0"),
+  );
   const claude = sourceOf(sources, "standin-anth");
   steps.claudeCode = { run: answer.runs.at(-1)?.status, sources: snapshot(sources) };
   check(
     "the relayed CLI's answers update the same meter: read later, its five-hour share moved on",
-    Date.parse(claude?.checkedAt ?? "0") > Date.parse(durableClaude?.checkedAt ?? "0") && windowOf(claude, "five_hour")?.usedPercent !== windowOf(durableClaude, "five_hour")?.usedPercent,
+    Date.parse(claude?.checkedAt ?? "0") > Date.parse(durableClaude?.checkedAt ?? "0") &&
+      windowOf(claude, "five_hour")?.usedPercent !== windowOf(durableClaude, "five_hour")?.usedPercent,
     { before: durableClaude, after: claude },
   );
 }
 
 // 4. A Codex turn on the ChatGPT stand-in, through the relay.
 {
-  const answer = await cliTurn(cookie, { cli: "codex", workspace: `limits-cli-${run}`, model: SLUG.resp, mode: "full-access", plan: false, prompt: "Reply with the single word: ready." });
-  check("a Codex turn on the ChatGPT stand-in, through the relay", answer.runs.at(-1)?.status === "completed", clean({ runs: answer.runs.slice(-1), text: answer.text }));
+  const answer = await cliTurn(cookie, {
+    cli: "codex",
+    workspace: `limits-cli-${run}`,
+    model: SLUG.resp,
+    mode: "full-access",
+    plan: false,
+    prompt: "Reply with the single word: ready.",
+  });
+  check(
+    "a Codex turn on the ChatGPT stand-in, through the relay",
+    answer.runs.at(-1)?.status === "completed",
+    clean({ runs: answer.runs.slice(-1), text: answer.text }),
+  );
   const sources = await sourcesWhen((list) => sourceOf(list, "standin-resp") !== undefined);
   const chatgpt = sourceOf(sources, "standin-resp");
   steps.codex = { run: answer.runs.at(-1)?.status, sources: snapshot(sources) };
@@ -227,13 +347,25 @@ const durableClaude = sourceOf(ours(await sourcesNow()), "standin-anth");
   const secondary = windowOf(chatgpt, "secondary");
   check(
     "a ChatGPT (Codex) meter: its 5-hour primary window with a plausible share and reset, its weekly secondary at 30 %",
-    chatgpt?.accounts?.[0]?.driver === "codex" && primary?.label === "5-hour" && primary.kind === "session" && primary.usedPercent > 0 && primary.usedPercent < 100 && Math.abs(hoursAhead(primary.resetsAt)! - 2) < 0.2 && secondary?.label === "Weekly" && secondary.usedPercent === 30,
+    chatgpt?.accounts?.[0]?.driver === "codex" &&
+      primary?.label === "5-hour" &&
+      primary.kind === "session" &&
+      primary.usedPercent > 0 &&
+      primary.usedPercent < 100 &&
+      Math.abs(hoursAhead(primary.resetsAt)! - 2) < 0.2 &&
+      secondary?.label === "Weekly" &&
+      secondary.usedPercent === 30,
     chatgpt,
   );
 }
 
 const fresh = ours(await sourcesNow());
-check("no token, email or organization in the meters", !LEAK.test(JSON.stringify(fresh)) && fresh.every((source) => source.accounts.every((account: any) => account.email === undefined)), fresh);
+check(
+  "no token, email or organization in the meters",
+  !LEAK.test(JSON.stringify(fresh)) &&
+    fresh.every((source) => source.accounts.every((account: any) => account.email === undefined)),
+  fresh,
+);
 
 // 5. Stale: nothing more is asked of either endpoint for a while.
 if (staleWaitMin > 0) {
@@ -241,11 +373,19 @@ if (staleWaitMin > 0) {
   const waitMs = lastRead + staleWaitMin * 60_000 - Date.now();
   console.error(`waiting ${Math.round(waitMs / 60_000)} min for the meters to go stale…`);
   if (waitMs > 0) await sleep(waitMs);
-  const stale = await sourcesWhen((list) => list.length === 2 && list.every((source) => typeof source.error === "string"), 3 * 60_000);
+  const stale = await sourcesWhen(
+    (list) => list.length === 2 && list.every((source) => typeof source.error === "string"),
+    3 * 60_000,
+  );
   steps.stale = { waitedMin: staleWaitMin, sources: snapshot(stale) };
   check(
     "a meter not read for a while says when it was last read, beside its windows",
-    stale.length === 2 && stale.every((source) => /^Last read \d+ minutes ago \(limits are read from this endpoint's answers\)\.$/.test(source.error) && source.accounts[0].usageLimits.windows.length === 2),
+    stale.length === 2 &&
+      stale.every(
+        (source) =>
+          /^Last read \d+ minutes ago \(limits are read from this endpoint's answers\)\.$/.test(source.error) &&
+          source.accounts[0].usageLimits.windows.length === 2,
+      ),
     stale,
   );
 }

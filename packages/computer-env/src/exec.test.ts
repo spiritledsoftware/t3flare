@@ -9,7 +9,10 @@ const REASON = "Container budget (1) reached: raise it at /_t3flare/settings#env
 /** The error a refused start rejects with, as computer wraps it after a Container exited before (met on stage). */
 const refused = () => {
   const inner = new Error(`t3flare: the Container cannot start: ${REASON}`);
-  const backend = new Error(`ContainerBackend(container-shell): connect failed at stage=start priorExit="Container exited with unexpected ex lastError=t3flare: the Container cannot start: Container budget (1`, { cause: inner });
+  const backend = new Error(
+    `ContainerBackend(container-shell): connect failed at stage=start priorExit="Container exited with unexpected ex lastError=t3flare: the Container cannot start: Container budget (1`,
+    { cause: inner },
+  );
   return new Error("WorkspaceTransportError: shell.exec failed after 1 reconnect retry", { cause: backend });
 };
 
@@ -37,7 +40,13 @@ describe("exec", () => {
   it("shows a refused Container start as the budget's whole refusal", async () => {
     fake.exec = () => Promise.reject(refused());
     const result = await exec(
-      { workspace: {} as never, backend: undefined, cwd: "/workspace/repo", spill: async () => undefined, running: new Set() },
+      {
+        workspace: {} as never,
+        backend: undefined,
+        cwd: "/workspace/repo",
+        spill: async () => undefined,
+        running: new Set(),
+      },
       "true",
       undefined,
       BACKGROUND_CONTEXT,
@@ -79,9 +88,23 @@ describe("exec", () => {
   it("kills a command that timed out before it started as soon as it is dispatched, and hands it to the ledger again", async () => {
     const order = lateStart(800);
     const ledger = { started: vi.fn(), ended: vi.fn(), stopped: vi.fn() };
-    const result = await exec({ workspace: {} as never, backend: undefined, cwd: "/workspace/repo", spill: async () => undefined, running: new Set(), ledger, startingNote: async () => undefined }, "sleep 100", { timeout: 0.05 }, BACKGROUND_CONTEXT);
+    const result = await exec(
+      {
+        workspace: {} as never,
+        backend: undefined,
+        cwd: "/workspace/repo",
+        spill: async () => undefined,
+        running: new Set(),
+        ledger,
+        startingNote: async () => undefined,
+      },
+      "sleep 100",
+      { timeout: 0.05 },
+      BACKGROUND_CONTEXT,
+    );
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.message).toBe("Command timed out before it started (the Container was starting)");
+    if (!result.ok)
+      expect(result.error.message).toBe("Command timed out before it started (the Container was starting)");
     expect(ledger.stopped).toHaveBeenCalledTimes(1);
     await vi.waitFor(() => expect(order).toContain("kill id after dispatch"), { timeout: 3_000 });
     expect(ledger.stopped).toHaveBeenCalledTimes(2);
@@ -92,24 +115,46 @@ describe("exec", () => {
     lateStart(300);
     const output: Array<string> = [];
     const result = await exec(
-      { workspace: {} as never, backend: undefined, cwd: "/workspace/repo", spill: async () => undefined, running: new Set(), startingNote: async () => "installing the Global mise config" },
+      {
+        workspace: {} as never,
+        backend: undefined,
+        cwd: "/workspace/repo",
+        spill: async () => undefined,
+        running: new Set(),
+        startingNote: async () => "installing the Global mise config",
+      },
       "node --version",
       { timeout: 0.05, onOutput: (text) => void output.push(text) },
       BACKGROUND_CONTEXT,
     );
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.message).toBe("Command timed out before it started (the Container was installing the Global mise config)");
+    if (!result.ok)
+      expect(result.error.message).toBe(
+        "Command timed out before it started (the Container was installing the Global mise config)",
+      );
     // In the output too: pi-durable's bash replaces a timeout's message with its own and keeps the output.
-    expect(output).toEqual(["t3flare: the command did not start: the Container was installing the Global mise config\n"]);
+    expect(output).toEqual([
+      "t3flare: the command did not start: the Container was installing the Global mise config\n",
+    ]);
   });
 
   it("says nothing of a Container for a command cut off on the Worker Shell (no startingNote)", async () => {
     lateStart(300);
     const output: Array<string> = [];
-    const result = await exec({ workspace: {} as never, backend: undefined, cwd: "/workspace/repo", spill: async () => undefined, running: new Set() }, "true", { timeout: 0.05, onOutput: (text) => void output.push(text) }, BACKGROUND_CONTEXT);
+    const result = await exec(
+      {
+        workspace: {} as never,
+        backend: undefined,
+        cwd: "/workspace/repo",
+        spill: async () => undefined,
+        running: new Set(),
+      },
+      "true",
+      { timeout: 0.05, onOutput: (text) => void output.push(text) },
+      BACKGROUND_CONTEXT,
+    );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.message).toBe("Command timed out");
     expect(output).toEqual([]);
   });
 });
-

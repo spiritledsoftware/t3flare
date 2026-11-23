@@ -207,7 +207,8 @@ describe("a change to the Grace (ADR-0043 §4, §5)", () => {
   it("turning purging off forgets when it was turned on at once, so on again inside the quiet starts a new Grace", () => {
     let purgingSince: number | null = 1_000;
     let wakes = 0;
-    const moved = (purging: boolean) => graceMoved({ purging, clearPurgingSince: () => void (purgingSince = null), wake: () => void wakes++ });
+    const moved = (purging: boolean) =>
+      graceMoved({ purging, clearPurgingSince: () => void (purgingSince = null), wake: () => void wakes++ });
     moved(true);
     expect(purgingSince).toBe(1_000);
     moved(false);

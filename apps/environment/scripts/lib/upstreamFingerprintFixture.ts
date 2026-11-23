@@ -60,8 +60,11 @@ export const watchedFiles = (fingerprint: Pick<Fingerprint, "regions" | "literal
 export const gitBlobOf =
   (t3Dir: string) =>
   (file: string): string | undefined => {
-    const result = spawnSync("git", ["-C", t3Dir, "rev-parse", "--verify", "--quiet", `HEAD:${file}`], { encoding: "utf8" });
-    if (result.error !== undefined) throw new Error(`upstream fingerprint: git could not be run: ${result.error.message}`);
+    const result = spawnSync("git", ["-C", t3Dir, "rev-parse", "--verify", "--quiet", `HEAD:${file}`], {
+      encoding: "utf8",
+    });
+    if (result.error !== undefined)
+      throw new Error(`upstream fingerprint: git could not be run: ${result.error.message}`);
     const id = result.stdout.trim();
     return result.status === 0 && /^[0-9a-f]{40}$/.test(id) ? id : undefined;
   };
@@ -69,8 +72,20 @@ export const gitBlobOf =
 /** What changed since the last review. */
 export type Finding =
   /** A watched region whose hash moved, or that is gone. */
-  | { readonly kind: "changed" | "gone"; readonly file: string; readonly symbol: string; readonly ourFile: string; readonly entry: string }
+  | {
+      readonly kind: "changed" | "gone";
+      readonly file: string;
+      readonly symbol: string;
+      readonly ourFile: string;
+      readonly entry: string;
+    }
   /** A literal t3's source no longer contains. */
-  | { readonly kind: "missing"; readonly file: string; readonly literal: string; readonly ourFile: string; readonly entry: string }
+  | {
+      readonly kind: "missing";
+      readonly file: string;
+      readonly literal: string;
+      readonly ourFile: string;
+      readonly entry: string;
+    }
   /** A watched file whose bytes moved with no finding above: nothing of ours to review, but the land check holds the pin. */
   | { readonly kind: "moved"; readonly file: string };

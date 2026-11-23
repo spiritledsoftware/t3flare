@@ -5,7 +5,16 @@ import { ENVIRONMENT_NAME } from "@t3flare/session-protocol";
 
 import type { McpAsker, McpRpcAnswer, McpRpcRequest, SessionPush, SessionPushAnswer } from "@t3flare/session-protocol";
 import type { TerminalPush, TerminalPushAnswer } from "@t3flare/workspace-client";
-import type { BaseBuildRecord, ContainerSetupReport, GlobalMiseReport, McpRelayAnswer, McpRelayInput, ResolvedEnvironment, ResolvedHarness, T3ToolListing } from "@t3flare/harness-registry";
+import type {
+  BaseBuildRecord,
+  ContainerSetupReport,
+  GlobalMiseReport,
+  McpRelayAnswer,
+  McpRelayInput,
+  ResolvedEnvironment,
+  ResolvedHarness,
+  T3ToolListing,
+} from "@t3flare/harness-registry";
 import type { SkillSet } from "@t3flare/skills";
 import type { EndpointCredential, EndpointCredentialRequest, ModelEndpoints } from "@t3flare/models/endpoints";
 import type { LimitReading } from "@t3flare/models/limits";
@@ -21,7 +30,11 @@ export interface EnvironmentRpc {
    * A Workspace's token for its one repo (ADR-0013), for the git credential helper in its Container: `contents: write`
    * (`workflows` only for an opted-in Workspace) and `pull_requests: write` for `gh`. With the repo and its expiry.
    */
-  workspaceToken(id: string): Promise<{ readonly token: string | null; readonly expiresAt?: number; readonly repo?: { readonly owner: string; readonly name: string } }>;
+  workspaceToken(id: string): Promise<{
+    readonly token: string | null;
+    readonly expiresAt?: number;
+    readonly repo?: { readonly owner: string; readonly name: string };
+  }>;
   /**
    * The CLI relay's card for a call whose CLI went away (ADR-0028) is withdrawn; a Settings server call held under the
    * id (a relayed one, or a Session's `mcpCall` with this `stopId`) withdraws its Open change (plan D9).
@@ -58,7 +71,11 @@ export interface EnvironmentRpc {
    */
   environmentSkillSet(input: { readonly workspace: string }): Promise<SkillSet>;
   /** A Workspace refused or could not mount the set `hash` (SPI-1148): shown on the Settings page's Status. */
-  skillSetRefused(input: { readonly workspace: string; readonly hash: string; readonly message: string }): Promise<void>;
+  skillSetRefused(input: {
+    readonly workspace: string;
+    readonly hash: string;
+    readonly message: string;
+  }): Promise<void>;
   /** A Global mise lay-down at a Container start (SPI-1150), for the panel's Status. Never boots t3. */
   noteGlobalMise(report: GlobalMiseReport): Promise<{ readonly kept: boolean }>;
   /** A Container setup run in a new Container (ADR-0047 §7), for the panel's Status. Never boots t3. */
@@ -88,7 +105,11 @@ export interface EnvironmentRpc {
  * alive by `waitUntil`. A failed send loses that record only, and is logged by the record's names, never a value.
  */
 export const usageSender =
-  (ctx: { waitUntil(promise: Promise<unknown>): void }, environment: () => Pick<EnvironmentRpc, "recordUsage">, warn: (line: string) => void = console.warn) =>
+  (
+    ctx: { waitUntil(promise: Promise<unknown>): void },
+    environment: () => Pick<EnvironmentRpc, "recordUsage">,
+    warn: (line: string) => void = console.warn,
+  ) =>
   (entry: UsageEntry): void => {
     let sent: Promise<unknown>;
     try {
@@ -99,7 +120,15 @@ export const usageSender =
     ctx.waitUntil(
       sent.then(
         () => undefined,
-        (error: unknown) => warn(JSON.stringify({ t3flare: "usage-record-failed", agent: entry.agent, endpoint: entry.endpointId, error: error instanceof Error ? error.name : "error" })),
+        (error: unknown) =>
+          warn(
+            JSON.stringify({
+              t3flare: "usage-record-failed",
+              agent: entry.agent,
+              endpoint: entry.endpointId,
+              error: error instanceof Error ? error.name : "error",
+            }),
+          ),
       ),
     );
   };
@@ -110,7 +139,11 @@ export const usageSender =
  * only, and is logged by its endpoint, never a value.
  */
 export const limitsSender =
-  (ctx: { waitUntil(promise: Promise<unknown>): void }, environment: () => Pick<EnvironmentRpc, "recordLimits">, warn: (line: string) => void = console.warn) =>
+  (
+    ctx: { waitUntil(promise: Promise<unknown>): void },
+    environment: () => Pick<EnvironmentRpc, "recordLimits">,
+    warn: (line: string) => void = console.warn,
+  ) =>
   (reading: LimitReading): void => {
     let sent: Promise<unknown>;
     try {
@@ -121,7 +154,14 @@ export const limitsSender =
     ctx.waitUntil(
       sent.then(
         () => undefined,
-        (error: unknown) => warn(JSON.stringify({ t3flare: "limit-reading-failed", endpoint: reading.endpointId, error: error instanceof Error ? error.name : "error" })),
+        (error: unknown) =>
+          warn(
+            JSON.stringify({
+              t3flare: "limit-reading-failed",
+              endpoint: reading.endpointId,
+              error: error instanceof Error ? error.name : "error",
+            }),
+          ),
       ),
     );
   };
@@ -129,4 +169,5 @@ export const limitsSender =
 /** The Environment DO as the agents Worker sees it: its RPC methods, branded so that its namespace types its stubs. */
 export type EnvironmentDO = EnvironmentRpc & Rpc.DurableObjectBranded;
 
-export const environmentStub = (namespace: DurableObjectNamespace<EnvironmentDO>): EnvironmentRpc => namespace.get(namespace.idFromName(ENVIRONMENT_NAME));
+export const environmentStub = (namespace: DurableObjectNamespace<EnvironmentDO>): EnvironmentRpc =>
+  namespace.get(namespace.idFromName(ENVIRONMENT_NAME));

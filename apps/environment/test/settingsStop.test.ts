@@ -14,7 +14,10 @@ import { waitingOn } from "../src/settings/openChanges.ts";
 import { flush, settingsFixture, type SettingsFixture, until } from "./settingsFixture.ts";
 
 /** A header add: it takes a secret, so it is answered on the Change page alone and its card offers "Opened it". */
-const ADD = { expectedRevision: 0, change: { op: "add", server: "notes", url: "https://notes.example/mcp", auth: { kind: "header", header: "X-Key" } } };
+const ADD = {
+  expectedRevision: 0,
+  change: { op: "add", server: "notes", url: "https://notes.example/mcp", auth: { kind: "header", header: "X-Key" } },
+};
 
 let fixture: SettingsFixture | undefined;
 const unregisters: Array<() => void> = [];
@@ -24,12 +27,27 @@ afterEach(() => {
   forgetEarlyStopsForTests();
 });
 
-describe("a Stop withdraws the Open change after \"Opened it\" (plan D9)", () => {
+describe('a Stop withdraws the Open change after "Opened it" (plan D9)', () => {
   it("a Session's call: its Stop names the call's stopId (cancelAsk), and the Open change closes withdrawn by stop", async () => {
     const f = (fixture = settingsFixture({ answer: { decision: "accept" } }));
     const caller = f.durable("thread-stop");
     const withdrawn: Array<string> = [];
-    const pending = sessionMcpCall(f.host, { server: "settings", tool: "change_mcp", args: ADD, judged: "write", asker: { ask: async (card) => (f.cards.push(card), { decision: "accept" }), withdraw: (id) => void withdrawn.push(id) }, thread: caller.thread!, stopId: "session:s1:call-1" }, DURABLE_AGENT);
+    const pending = sessionMcpCall(
+      f.host,
+      {
+        server: "settings",
+        tool: "change_mcp",
+        args: ADD,
+        judged: "write",
+        asker: {
+          ask: async (card) => (f.cards.push(card), { decision: "accept" }),
+          withdraw: (id) => void withdrawn.push(id),
+        },
+        thread: caller.thread!,
+        stopId: "session:s1:call-1",
+      },
+      DURABLE_AGENT,
+    );
     await until(() => f.cards.length === 1);
     const [record] = f.deps.changes.open();
     expect(record?.needsPage).toBe("secret");
@@ -48,16 +66,34 @@ describe("a Stop withdraws the Open change after \"Opened it\" (plan D9)", () =>
   it("a Session's call of another server is never given the stop", async () => {
     const seen: Array<unknown> = [];
     const host = {
-      servers: () => ({ docs: { kind: "direct" as const, url: "https://docs.example/mcp", enabled: true, exposure: "deferred" as const } }),
+      servers: () => ({
+        docs: {
+          kind: "direct" as const,
+          url: "https://docs.example/mcp",
+          enabled: true,
+          exposure: "deferred" as const,
+        },
+      }),
       call: async (input: unknown) => (seen.push(input), { kind: "result" as const, isError: false, text: "ok" }),
     };
-    await sessionMcpCall(host, { server: "docs", tool: "echo", args: {}, thread: "t", stopId: "session:s1:call-2" }, DURABLE_AGENT);
-    expect(seen).toEqual([{ server: "docs", tool: "echo", args: {}, caller: { door: "own", thread: "t", agent: DURABLE_AGENT } }]);
+    await sessionMcpCall(
+      host,
+      { server: "docs", tool: "echo", args: {}, thread: "t", stopId: "session:s1:call-2" },
+      DURABLE_AGENT,
+    );
+    expect(seen).toEqual([
+      { server: "docs", tool: "echo", args: {}, caller: { door: "own", thread: "t", agent: DURABLE_AGENT } },
+    ]);
   });
 
   it("a CLI's relayed call: the CLI going away (cancelAsk with its askId) withdraws the Open change", async () => {
     const f = (fixture = settingsFixture({ answer: { decision: "accept" } }));
-    unregisters.push(registerCliAsker("thread-cli", { state: () => ({ runtimeMode: "approval-required", interactionMode: "default", workspace: "ws-1" }), ask: async () => ({ approved: false }) }));
+    unregisters.push(
+      registerCliAsker("thread-cli", {
+        state: () => ({ runtimeMode: "approval-required", interactionMode: "default", workspace: "ws-1" }),
+        ask: async () => ({ approved: false }),
+      }),
+    );
     const input: McpRelayInput = {
       workspace: "ws-1",
       thread: "thread-cli",

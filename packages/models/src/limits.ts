@@ -49,7 +49,9 @@ export const WEEK_MINUTES = 7 * DAY_MINUTES;
  * Each window's facts: its vendor, and how it is named and of what kind when its length is not known (Codex names slots,
  * so its primary is its short window).
  */
-export const LIMIT_WINDOWS: Readonly<Record<LimitWindowId, { readonly family: LimitFamily; readonly label: string; readonly kind: LimitWindowKind }>> = {
+export const LIMIT_WINDOWS: Readonly<
+  Record<LimitWindowId, { readonly family: LimitFamily; readonly label: string; readonly kind: LimitWindowKind }>
+> = {
   primary: { family: "codex", label: "Primary", kind: "session" },
   secondary: { family: "codex", label: "Secondary", kind: "weekly" },
   five_hour: { family: "claude", label: "5-hour", kind: "session" },
@@ -149,7 +151,12 @@ const resetOf = (text: string | undefined, at: number): number | undefined => {
 export const MAX_SHARE_OVERSHOOT = 0.5;
 
 /** One window, or none when its share is not plausible: its share clamped to 100 %, and only the reset and length given. */
-const window = (read: { readonly id: LimitWindowId; readonly usedPercent: number; readonly resetsAt?: number | undefined; readonly windowMinutes?: number | undefined }): ReadonlyArray<LimitWindowReading> =>
+const window = (read: {
+  readonly id: LimitWindowId;
+  readonly usedPercent: number;
+  readonly resetsAt?: number | undefined;
+  readonly windowMinutes?: number | undefined;
+}): ReadonlyArray<LimitWindowReading> =>
   read.usedPercent > 100 + MAX_SHARE_OVERSHOOT
     ? []
     : [
@@ -170,7 +177,12 @@ const codexWindows = (headers: HeaderSource, at: number): ReadonlyArray<LimitWin
     const rawReset = header(headers, `x-codex-${id}-reset-at`);
     // Codex drops a window that says nothing: no use, no length, no reset.
     if (used === 0 && (rawMinutes === undefined || rawMinutes === 0) && rawReset === undefined) return [];
-    return window({ id, usedPercent: used, resetsAt: resetOf(rawReset, at), windowMinutes: plausibleMinutes(rawMinutes) });
+    return window({
+      id,
+      usedPercent: used,
+      resetsAt: resetOf(rawReset, at),
+      windowMinutes: plausibleMinutes(rawMinutes),
+    });
   });
 
 /**
@@ -184,10 +196,17 @@ const claudeWindows = (headers: HeaderSource, at: number): ReadonlyArray<LimitWi
     const prefix = `anthropic-ratelimit-unified-${claim}`;
     const utilization = numberOf(header(headers, `${prefix}-utilization`));
     const resetsAt = resetOf(header(headers, `${prefix}-reset`), at);
-    if (utilization !== undefined) return window({ id, usedPercent: utilization * 100, resetsAt, windowMinutes: minutes });
-    if (header(headers, `${prefix}-status`) === "rejected") return window({ id, usedPercent: 100, resetsAt, windowMinutes: minutes });
+    if (utilization !== undefined)
+      return window({ id, usedPercent: utilization * 100, resetsAt, windowMinutes: minutes });
+    if (header(headers, `${prefix}-status`) === "rejected")
+      return window({ id, usedPercent: 100, resetsAt, windowMinutes: minutes });
     if (overall === "rejected" && representative === id) {
-      return window({ id, usedPercent: 100, resetsAt: resetsAt ?? resetOf(header(headers, "anthropic-ratelimit-unified-reset"), at), windowMinutes: minutes });
+      return window({
+        id,
+        usedPercent: 100,
+        resetsAt: resetsAt ?? resetOf(header(headers, "anthropic-ratelimit-unified-reset"), at),
+        windowMinutes: minutes,
+      });
     }
     return [];
   });
@@ -215,7 +234,12 @@ export const limitReadingOf = (endpointId: string, headers: HeaderSource, at: nu
  * What every reader does with an answer's headers (the Session's fetch, the model relay): its reading, if any, to `send`.
  * Never throws: a reading that fails is lost, never the answer.
  */
-export const noteLimitReading = (endpointId: string, headers: HeaderSource, at: number, send: (reading: LimitReading) => void): void => {
+export const noteLimitReading = (
+  endpointId: string,
+  headers: HeaderSource,
+  at: number,
+  send: (reading: LimitReading) => void,
+): void => {
   try {
     const reading = limitReadingOf(endpointId, headers, at);
     if (reading !== undefined) send(reading);
@@ -224,7 +248,8 @@ export const noteLimitReading = (endpointId: string, headers: HeaderSource, at: 
   }
 };
 
-const isWindowId = (value: unknown): value is LimitWindowId => typeof value === "string" && (LIMIT_WINDOW_IDS as ReadonlyArray<string>).includes(value);
+const isWindowId = (value: unknown): value is LimitWindowId =>
+  typeof value === "string" && (LIMIT_WINDOW_IDS as ReadonlyArray<string>).includes(value);
 
 /**
  * A reading as the Environment accepts it from the agents Worker, or undefined: an endpoint id, a time, and windows each
@@ -241,13 +266,17 @@ export const acceptedLimitReading = (value: unknown): LimitReading | undefined =
     if (typeof raw !== "object" || raw === null) return [];
     const { id, usedPercent, resetsAt, windowMinutes } = raw as Record<string, unknown>;
     if (!isWindowId(id) || seen.has(id)) return [];
-    if (typeof usedPercent !== "number" || !Number.isFinite(usedPercent) || usedPercent < 0 || usedPercent > 100) return [];
+    if (typeof usedPercent !== "number" || !Number.isFinite(usedPercent) || usedPercent < 0 || usedPercent > 100)
+      return [];
     seen.add(id);
     return window({
       id,
       usedPercent,
       resetsAt: plausibleReset(typeof resetsAt === "number" ? Math.trunc(resetsAt) : undefined, at),
-      windowMinutes: typeof windowMinutes === "number" && Number.isInteger(windowMinutes) ? plausibleMinutes(windowMinutes) : undefined,
+      windowMinutes:
+        typeof windowMinutes === "number" && Number.isInteger(windowMinutes)
+          ? plausibleMinutes(windowMinutes)
+          : undefined,
     });
   });
   return kept.length === 0 ? undefined : { endpointId, at: Math.trunc(at), windows: kept };

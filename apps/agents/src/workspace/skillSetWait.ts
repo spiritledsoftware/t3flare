@@ -9,9 +9,13 @@ export interface ContainerExpectation {
 }
 
 /** The files of `next` that are new or changed against `previous`, and the paths `previous` had and `next` lacks. */
-export const expectationOf = async (previous: Readonly<Record<string, string>>, next: Readonly<Record<string, string>>): Promise<ContainerExpectation> => {
+export const expectationOf = async (
+  previous: Readonly<Record<string, string>>,
+  next: Readonly<Record<string, string>>,
+): Promise<ContainerExpectation> => {
   const present: Array<{ readonly path: string; readonly sha256: string }> = [];
-  for (const [path, text] of Object.entries(next)) if (previous[path] !== text) present.push({ path, sha256: await sha256Hex(text) });
+  for (const [path, text] of Object.entries(next))
+    if (previous[path] !== text) present.push({ path, sha256: await sha256Hex(text) });
   return { present, removed: Object.keys(previous).filter((path) => next[path] === undefined) };
 };
 
@@ -21,7 +25,12 @@ export const expectationOf = async (previous: Readonly<Record<string, string>>, 
  * (`skillFilePathProblem`) keeps them free of newlines.
  */
 export const expectationInput = (expectation: ContainerExpectation): string =>
-  [...expectation.present.map((file) => `${file.sha256}  ${file.path}`), "--removed--", ...expectation.removed, ""].join("\n");
+  [
+    ...expectation.present.map((file) => `${file.sha256}  ${file.path}`),
+    "--removed--",
+    ...expectation.removed,
+    "",
+  ].join("\n");
 
 /**
  * The passive command that waits for a running Container's copy (plan §4.2): in `dir`, every 200 ms for up to `tries`
@@ -104,6 +113,8 @@ export const keepPriorSkills = async (options: PriorSkillsOptions): Promise<stri
   let target = priorSkillsDir(mount);
   for (let attempt = 2; (await lstatOrNull(target)) !== null; attempt++) target = `${priorSkillsDir(mount)}-${attempt}`;
   await fs.rename(mount, target);
-  options.warn(`${mount} is the Environment skills' read-only mount now: what the Workspace had there was moved to ${target}`);
+  options.warn(
+    `${mount} is the Environment skills' read-only mount now: what the Workspace had there was moved to ${target}`,
+  );
   return target;
 };

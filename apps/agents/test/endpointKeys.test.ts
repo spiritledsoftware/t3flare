@@ -4,7 +4,13 @@
 import { patternOf } from "@t3flare/sandbox-image/leakscan";
 import { describe, expect, it } from "vitest";
 
-import { EndpointKeyPatterns, leakTargets, MAX_ENDPOINT_KEYS, MIN_SCANNED_KEY_LENGTH, MIN_SEARCHED_VALUE_LENGTH } from "../src/workspace/endpointKeys.ts";
+import {
+  EndpointKeyPatterns,
+  leakTargets,
+  MAX_ENDPOINT_KEYS,
+  MIN_SCANNED_KEY_LENGTH,
+  MIN_SEARCHED_VALUE_LENGTH,
+} from "../src/workspace/endpointKeys.ts";
 
 const LONG = "sk-endpoint-key-0123456789abcdef";
 

@@ -6,7 +6,11 @@
 // The bound is the Session's storage: pi-durable keeps each submission and each message as one DO SQLite row, and a row
 // holds at most 2 MB. A message's images inline take at most INLINE_IMAGE_BUDGET_CHARS of base64, and its text at most
 // t3's own PROVIDER_SEND_TURN_MAX_INPUT_CHARS, so the two together stay under the row.
-import { type ChatAttachment, isProviderSendTurnSupportedImageMimeType, PROVIDER_SEND_TURN_MAX_INPUT_CHARS } from "@t3tools/contracts";
+import {
+  type ChatAttachment,
+  isProviderSendTurnSupportedImageMimeType,
+  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
+} from "@t3tools/contracts";
 import type * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import type { ImageInput } from "@t3flare/session-protocol";
 import * as Effect from "effect/Effect";
@@ -29,7 +33,10 @@ export interface AttachmentReader {
 }
 
 /** t3's attachment store, through its own path resolution (the Environment's state directory). */
-export const attachmentReader = (host: ProviderHost.ProviderHost["Service"], fileSystem: FileSystem.FileSystem): AttachmentReader => ({
+export const attachmentReader = (
+  host: ProviderHost.ProviderHost["Service"],
+  fileSystem: FileSystem.FileSystem,
+): AttachmentReader => ({
   bytes: (attachment) => {
     const path = host.resolveAttachmentPath(attachment);
     return path === null ? Effect.succeed(null) : fileSystem.readFile(path).pipe(Effect.orElseSucceed(() => null));
@@ -37,11 +44,15 @@ export const attachmentReader = (host: ProviderHost.ProviderHost["Service"], fil
   extractedText: (attachment) => {
     const path = host.resolveAttachmentPath(attachment);
     if (path === null || host.resolveExtractedTextPath === undefined) return Effect.succeed(null);
-    return host.resolveExtractedTextPath(path).pipe(
-      Effect.flatMap((extracted) =>
-        extracted === undefined ? Effect.succeed(null) : fileSystem.readFileString(extracted).pipe(Effect.orElseSucceed(() => null)),
-      ),
-    );
+    return host
+      .resolveExtractedTextPath(path)
+      .pipe(
+        Effect.flatMap((extracted) =>
+          extracted === undefined
+            ? Effect.succeed(null)
+            : fileSystem.readFileString(extracted).pipe(Effect.orElseSucceed(() => null)),
+        ),
+      );
   },
 });
 
@@ -70,16 +81,26 @@ const asText = (bytes: Uint8Array): string | null => {
  */
 export const turnPrompt = Effect.fn("PiDurable.turnPrompt")(function* (
   message: { readonly text: string; readonly attachments: ReadonlyArray<ChatAttachment> },
-  options: { readonly acceptsImages: boolean; readonly reader: AttachmentReader; readonly skills?: MessageSkills; readonly reservedChars?: number },
+  options: {
+    readonly acceptsImages: boolean;
+    readonly reader: AttachmentReader;
+    readonly skills?: MessageSkills;
+    readonly reservedChars?: number;
+  },
 ) {
   const budget = PROVIDER_SEND_TURN_MAX_INPUT_CHARS - 200 * message.attachments.length;
-  const catalog = options.skills !== undefined && hasCommandOrSigil(message.text) ? yield* options.skills.load() : undefined;
+  const catalog =
+    options.skills !== undefined && hasCommandOrSigil(message.text) ? yield* options.skills.load() : undefined;
   const messageText = catalog === undefined ? message.text : yield* expandMessage(message.text, catalog, budget);
   const notes: Array<string> = [];
   const images: Array<ImageInput> = [];
   let imageChars = 0;
   // Each file's text is cut to what is left of the input budget after the message and every attachment's note.
-  let textLeft = PROVIDER_SEND_TURN_MAX_INPUT_CHARS - (options.reservedChars ?? 0) - messageText.length - 200 * message.attachments.length;
+  let textLeft =
+    PROVIDER_SEND_TURN_MAX_INPUT_CHARS -
+    (options.reservedChars ?? 0) -
+    messageText.length -
+    200 * message.attachments.length;
   for (const attachment of message.attachments) {
     const label = `${attachment.type} "${attachment.name}"`;
     const inlineImage = attachment.type === "image" && isProviderSendTurnSupportedImageMimeType(attachment.mimeType);
@@ -88,7 +109,8 @@ export const turnPrompt = Effect.fn("PiDurable.turnPrompt")(function* (
       continue;
     }
     // Too big to send or to scan for text: named without reading it (t3's extracted text, if any, still goes in).
-    const overImageBudget = inlineImage && imageChars + Math.ceil(attachment.sizeBytes / 3) * 4 > INLINE_IMAGE_BUDGET_CHARS;
+    const overImageBudget =
+      inlineImage && imageChars + Math.ceil(attachment.sizeBytes / 3) * 4 > INLINE_IMAGE_BUDGET_CHARS;
     const overFileCap = !inlineImage && attachment.sizeBytes > FILE_READ_CAP_BYTES;
     const bytes = overImageBudget || overFileCap ? new Uint8Array(0) : yield* options.reader.bytes(attachment);
     if (bytes === null) {
@@ -111,7 +133,9 @@ export const turnPrompt = Effect.fn("PiDurable.turnPrompt")(function* (
     const extracted = yield* options.reader.extractedText(attachment);
     const content = extracted ?? (overFileCap ? null : asText(bytes));
     if (content === null && overFileCap) {
-      notes.push(`[Attached ${label} (${attachment.mimeType}, ${megabytes(attachment.sizeBytes)}) is too large for this agent to read.]`);
+      notes.push(
+        `[Attached ${label} (${attachment.mimeType}, ${megabytes(attachment.sizeBytes)}) is too large for this agent to read.]`,
+      );
       continue;
     }
     if (content === null) {
@@ -123,7 +147,9 @@ export const turnPrompt = Effect.fn("PiDurable.turnPrompt")(function* (
     const kept = cut ? content.slice(0, room) : content;
     textLeft -= kept.length;
     const how = cut ? ", cut to fit the prompt" : extracted === null ? "" : ", as extracted text";
-    notes.push(`[Attached ${label} (${attachment.mimeType})${how}:]\n${kept}\n[End of "${attachment.name}"${cut ? ": cut" : ""}.]`);
+    notes.push(
+      `[Attached ${label} (${attachment.mimeType})${how}:]\n${kept}\n[End of "${attachment.name}"${cut ? ": cut" : ""}.]`,
+    );
   }
   const text = [messageText, ...notes].filter((part) => part.length > 0).join("\n\n");
   return { text, images } satisfies TurnPrompt;

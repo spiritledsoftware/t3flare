@@ -17,7 +17,10 @@ export const REQUIRED_DEPLOY_SETTINGS = [...DEPLOY_SECRETS, ...EVERY_DEPLOY_SETT
 export const OPTIONAL_DEPLOY_SETTINGS = ["T3FLARE_STANDIN_ZONE", "T3FLARE_FIXTURE_REPO"] as const;
 
 /** Every deploy-wide setting `stage.ts` reads, then `extra` (such as T3FLARE_MODEL_ENDPOINT). */
-export const allDeploySettings = (extra: ReadonlyArray<string> = []): ReadonlyArray<string> => [...REQUIRED_DEPLOY_SETTINGS, ...extra];
+export const allDeploySettings = (extra: ReadonlyArray<string> = []): ReadonlyArray<string> => [
+  ...REQUIRED_DEPLOY_SETTINGS,
+  ...extra,
+];
 
 /**
  * The names to read from ~/.config/t3flare/dev.env, given the settings the environment has (shell variables win):
@@ -30,7 +33,10 @@ export const allDeploySettings = (extra: ReadonlyArray<string> = []): ReadonlyAr
  *
  * The middle row keeps CI's settings as they are while a laptop's T3FLARE_MODEL_ENDPOINT still comes from dev.env.
  */
-export const devEnvNames = (fromEnv: Readonly<Record<string, string>>, extra: ReadonlyArray<string>): ReadonlyArray<string> => {
+export const devEnvNames = (
+  fromEnv: Readonly<Record<string, string>>,
+  extra: ReadonlyArray<string>,
+): ReadonlyArray<string> => {
   const hasCore = REQUIRED_DEPLOY_SETTINGS.every((name) => fromEnv[name] !== undefined);
   if (!hasCore) return allDeploySettings(extra);
   return extra.filter((name) => fromEnv[name] === undefined);
@@ -64,13 +70,26 @@ export const deployPlan = (input: {
   // Access application (found by domain) and the zone's rate-limit ruleset (owned whole by the stage that has the
   // domain). An environment that carries prod's T3FLARE_DOMAIN (a sourced dev.env) is refused, not stripped.
   const domain = env.T3FLARE_DOMAIN ?? "";
-  if (stage !== "prod" && domain !== "") return { ok: false, error: `t3flare: T3FLARE_DOMAIN is set (to ${domain}) for the stage ${stage}: only prod has a custom domain; unset it (was dev.env sourced into the shell?)` };
+  if (stage !== "prod" && domain !== "")
+    return {
+      ok: false,
+      error: `t3flare: T3FLARE_DOMAIN is set (to ${domain}) for the stage ${stage}: only prod has a custom domain; unset it (was dev.env sourced into the shell?)`,
+    };
   // A press on a stage with an update target lands a bump on the Deployment repository's main, which deploys prod.
-  if (stage !== "prod" && (env.T3FLARE_UPDATE_REPO ?? "") !== "") return { ok: false, error: `t3flare: T3FLARE_UPDATE_REPO is set for the stage ${stage}: only prod has an update target (a press would land on main and deploy prod); unset it` };
-  if (args.includes("--no-model-proxy")) return { ok: false, error: "t3flare: --no-model-proxy is gone: there is no Model proxy; deploy without it" };
+  if (stage !== "prod" && (env.T3FLARE_UPDATE_REPO ?? "") !== "")
+    return {
+      ok: false,
+      error: `t3flare: T3FLARE_UPDATE_REPO is set for the stage ${stage}: only prod has an update target (a press would land on main and deploy prod); unset it`,
+    };
+  if (args.includes("--no-model-proxy"))
+    return { ok: false, error: "t3flare: --no-model-proxy is gone: there is no Model proxy; deploy without it" };
   const deployEnv = Object.fromEntries(Object.entries(read).filter(([name]) => name !== MODEL_ENDPOINT_VAR));
   const missing = DEPLOY_SECRETS.filter((name) => deployEnv[name] === undefined);
-  if (missing.length > 0) return { ok: false, error: `t3flare: missing ${missing.join(", ")} (set them, or put them in ~/.config/t3flare/dev.env)` };
+  if (missing.length > 0)
+    return {
+      ok: false,
+      error: `t3flare: missing ${missing.join(", ")} (set them, or put them in ~/.config/t3flare/dev.env)`,
+    };
   // The Deployment settings, checked before anything is built; alchemy.run.ts checks them again.
   const problems = [
     requiredSettings(deployEnv, EVERY_DEPLOY_SETTINGS),

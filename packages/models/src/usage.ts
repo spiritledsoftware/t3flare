@@ -17,7 +17,8 @@ import { ENDPOINT_ID } from "./endpoints.ts";
 export const USAGE_AGENTS = ["durable", "text-generation", "codex", "claude", "opencode", "pi"] as const;
 export type UsageAgent = (typeof USAGE_AGENTS)[number];
 
-export const isUsageAgent = (value: unknown): value is UsageAgent => typeof value === "string" && (USAGE_AGENTS as ReadonlyArray<string>).includes(value);
+export const isUsageAgent = (value: unknown): value is UsageAgent =>
+  typeof value === "string" && (USAGE_AGENTS as ReadonlyArray<string>).includes(value);
 
 /** Token counts as pi-ai splits them: `input` is the uncached input; `reasoning` is part of `output`. */
 export interface UsageTokens {
@@ -55,19 +56,30 @@ export const MAX_USAGE_ENTRIES = 64;
 export const MAX_USAGE_NAME = 200;
 
 /** A token count: a positive finite number, whole; anything else counts 0. */
-export const tokenCount = (value: unknown): number => (typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.min(Math.trunc(value), Number.MAX_SAFE_INTEGER) : 0);
+export const tokenCount = (value: unknown): number =>
+  typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.min(Math.trunc(value), Number.MAX_SAFE_INTEGER)
+    : 0;
 
 /** The counts of anything shaped like `UsageTokens` (pi-ai's `Usage` is), each through `tokenCount`; reasoning at most the output. */
 export const tokensOf = (source: { readonly [K in keyof UsageTokens]?: unknown }): UsageTokens => {
   const output = tokenCount(source.output);
-  return { input: tokenCount(source.input), cacheRead: tokenCount(source.cacheRead), cacheWrite: tokenCount(source.cacheWrite), output, reasoning: Math.min(tokenCount(source.reasoning), output) };
+  return {
+    input: tokenCount(source.input),
+    cacheRead: tokenCount(source.cacheRead),
+    cacheWrite: tokenCount(source.cacheWrite),
+    output,
+    reasoning: Math.min(tokenCount(source.reasoning), output),
+  };
 };
 
 /** A cost in dollars when it is a positive finite number; null otherwise (unknown, or a model with no price). */
-export const positiveCost = (value: unknown): number | null => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null);
+export const positiveCost = (value: unknown): number | null =>
+  typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
 
 /** Whether an entry counts any token: one with none is not kept. */
-export const hasTokens = (tokens: UsageTokens): boolean => tokens.input + tokens.cacheRead + tokens.cacheWrite + tokens.output > 0;
+export const hasTokens = (tokens: UsageTokens): boolean =>
+  tokens.input + tokens.cacheRead + tokens.cacheWrite + tokens.output > 0;
 
 /**
  * An entry as the Environment accepts it from the agents Worker, or undefined: a known agent, an endpoint id, a bounded
@@ -81,12 +93,21 @@ export const usageEntryOf = (value: unknown): UsageEntry | undefined => {
   if (!isUsageAgent(agent) || typeof endpointId !== "string" || !ENDPOINT_ID.test(endpointId)) return undefined;
   // oxlint-disable-next-line no-control-regex -- control characters are what this refuses
   const control = /[\u0000-\u001f\u007f]/;
-  const name = (text: unknown): text is string => typeof text === "string" && text.length <= MAX_USAGE_NAME && !control.test(text);
+  const name = (text: unknown): text is string =>
+    typeof text === "string" && text.length <= MAX_USAGE_NAME && !control.test(text);
   if (!name(modelId) || modelId.trim() === "" || !name(session)) return undefined;
   if (typeof at !== "number" || !Number.isFinite(at) || at <= 0) return undefined;
   const tokens = tokensOf(entry);
   if (!hasTokens(tokens)) return undefined;
-  return { agent, endpointId, modelId: modelId.trim(), at: Math.trunc(at), session, ...tokens, costUsd: positiveCost(costUsd) };
+  return {
+    agent,
+    endpointId,
+    modelId: modelId.trim(),
+    at: Math.trunc(at),
+    session,
+    ...tokens,
+    costUsd: positiveCost(costUsd),
+  };
 };
 
 /** What a pi-ai assistant message carries that a record reads (pi-ai's `AssistantMessage`, structurally). */
@@ -107,7 +128,10 @@ export interface PiAnswer {
  * The record of a pi-ai answer on an endpoint (a Session's, text generation's), or undefined when it counts no token (a
  * request that failed before any usage). pi-ai's cost is kept when it is positive: zero means the model has no price.
  */
-export const usageOfPiAnswer = (answer: PiAnswer, call: { readonly agent: UsageAgent; readonly endpointId: string; readonly session: string; readonly now: number }): UsageEntry | undefined => {
+export const usageOfPiAnswer = (
+  answer: PiAnswer,
+  call: { readonly agent: UsageAgent; readonly endpointId: string; readonly session: string; readonly now: number },
+): UsageEntry | undefined => {
   const usage = answer.usage;
   if (usage === undefined) return undefined;
   const tokens = tokensOf(usage);

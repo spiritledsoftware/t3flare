@@ -24,7 +24,8 @@ const inObject = <T>(name: string, run: () => T | Promise<T>) =>
     return run();
   });
 
-const GUARDED_READ = NodeFS.constants.O_RDONLY | (NodeFS.constants.O_NOFOLLOW ?? 0) | (NodeFS.constants.O_NONBLOCK ?? 0);
+const GUARDED_READ =
+  NodeFS.constants.O_RDONLY | (NodeFS.constants.O_NOFOLLOW ?? 0) | (NodeFS.constants.O_NONBLOCK ?? 0);
 
 /** t3's `readThemeFileGuarded`, minus its error handling. */
 const guardedRead = (path: string): string => {
@@ -62,7 +63,8 @@ describe("node:fs shim descriptors", () => {
       expect(() => fs.openSync("/t3/themes/missing.json", GUARDED_READ)).toThrow(/ENOENT/);
       fs.writeFileSync("/t3/themes/real.json", "{}");
       fs.symlinkSync("/t3/themes/real.json", "/t3/themes/link.json");
-      if (NodeFS.constants.O_NOFOLLOW !== undefined) expect(() => fs.openSync("/t3/themes/link.json", GUARDED_READ)).toThrow(/ELOOP/);
+      if (NodeFS.constants.O_NOFOLLOW !== undefined)
+        expect(() => fs.openSync("/t3/themes/link.json", GUARDED_READ)).toThrow(/ELOOP/);
     });
   });
 
@@ -88,13 +90,22 @@ describe("node:fs shim descriptors", () => {
       store.mkdir("/t3/c", { recursive: true });
       fs.writeFileSync("/t3/c/f", "abc");
       fs.symlinkSync("/t3/c/f", "/t3/c/link");
-      const realpath = (path: string) => new Promise<string>((resolve, reject) => fs.realpath(path, (error: Error | null, resolved?: string) => (error ? reject(error) : resolve(resolved!))));
-      const stat = (path: string) => new Promise<{ size: number }>((resolve, reject) => fs.stat(path, (error: Error | null, stats?: { size: number }) => (error ? reject(error) : resolve(stats!))));
+      const realpath = (path: string) =>
+        new Promise<string>((resolve, reject) =>
+          fs.realpath(path, (error: Error | null, resolved?: string) => (error ? reject(error) : resolve(resolved!))),
+        );
+      const stat = (path: string) =>
+        new Promise<{ size: number }>((resolve, reject) =>
+          fs.stat(path, (error: Error | null, stats?: { size: number }) => (error ? reject(error) : resolve(stats!))),
+        );
       expect(await realpath("/t3/c/link")).toBe("/t3/c/f");
       expect((await stat("/t3/c/f")).size).toBe(3);
       await expect(stat("/t3/c/missing")).rejects.toThrow(/ENOENT/);
       // As t3's usage reader calls it: promisified, with options.
-      expect((await new Promise<{ size: number }>((resolve) => fs.stat("/t3/c/f", {}, (_error, stats) => resolve(stats)))).size).toBe(3);
+      expect(
+        (await new Promise<{ size: number }>((resolve) => fs.stat("/t3/c/f", {}, (_error, stats) => resolve(stats))))
+          .size,
+      ).toBe(3);
       expect(fs.constants).toBe(NodeFS.constants);
     });
   });

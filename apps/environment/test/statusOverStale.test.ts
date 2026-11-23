@@ -46,10 +46,20 @@ const ENV = {
 };
 const git = (cwd: string, args: ReadonlyArray<string>, env: Record<string, string> = {}) => {
   try {
-    return { exitCode: 0, stdout: execFileSync("git", args, { cwd, env: { ...ENV, ...env }, stdio: ["ignore", "pipe", "pipe"] }).toString("utf8"), stderr: "" };
+    return {
+      exitCode: 0,
+      stdout: execFileSync("git", args, { cwd, env: { ...ENV, ...env }, stdio: ["ignore", "pipe", "pipe"] }).toString(
+        "utf8",
+      ),
+      stderr: "",
+    };
   } catch (error) {
     const failed = error as { status: number; stdout: Buffer; stderr: Buffer };
-    return { exitCode: failed.status ?? 1, stdout: failed.stdout?.toString("utf8") ?? "", stderr: failed.stderr?.toString("utf8") ?? "" };
+    return {
+      exitCode: failed.status ?? 1,
+      stdout: failed.stdout?.toString("utf8") ?? "",
+      stderr: failed.stderr?.toString("utf8") ?? "",
+    };
   }
 };
 
@@ -81,14 +91,23 @@ interface StoppedRead {
 
 /** A Workspace DO over `dir`: real git while `running`, the DO's stale rule once stopped. */
 const workspaceOver = (dir: string) => {
-  const answers = new Map<string, { readonly rev: number; readonly answer: { exitCode: number; stdout: string; stderr: string } }>();
+  const answers = new Map<
+    string,
+    { readonly rev: number; readonly answer: { exitCode: number; stdout: string; stderr: string } }
+  >();
   const state = { running: true, rev: 0, journal: [] as Array<string> };
   const stopped: Array<StoppedRead> = [];
   const keyOf = (argv: ReadonlyArray<string>, env: Readonly<Record<string, string>> | undefined) =>
     JSON.stringify([argv, Object.entries(env ?? {}).toSorted(([a], [b]) => a.localeCompare(b))]);
   const inDir = (word: string) => word.replaceAll(REPO_ROOT, dir);
   const stub = {
-    git: async (run: { argv: ReadonlyArray<string>; cwd: string; env?: Record<string, string>; startContainer: boolean; readScope?: "git-dir" | "repo" }) => {
+    git: async (run: {
+      argv: ReadonlyArray<string>;
+      cwd: string;
+      env?: Record<string, string>;
+      startContainer: boolean;
+      readScope?: "git-dir" | "repo";
+    }) => {
       if (!state.running) {
         if (run.startContainer) {
           stopped.push({ argv: run.argv, route: "would-start-container", asGit: false });
@@ -102,22 +121,49 @@ const workspaceOver = (dir: string) => {
         });
         if (!outcome.found) {
           stopped.push({ argv: run.argv, route: "container-stopped", asGit: false });
-          return { ran: false, reason: "container_stopped", detail: "needs the Workspace's Container, which is stopped, and has no earlier answer" };
+          return {
+            ran: false,
+            reason: "container_stopped",
+            detail: "needs the Workspace's Container, which is stopped, and has no earlier answer",
+          };
         }
-        const now = git(inDir(run.cwd), run.argv.map(inDir), Object.fromEntries(Object.entries(run.env ?? {}).map(([key, value]) => [key, inDir(value)])));
-        stopped.push({ argv: run.argv, route: `stale-${outcome.stale}`, asGit: outcome.answer.stdout === now.stdout.replaceAll(dir, REPO_ROOT) });
+        const now = git(
+          inDir(run.cwd),
+          run.argv.map(inDir),
+          Object.fromEntries(Object.entries(run.env ?? {}).map(([key, value]) => [key, inDir(value)])),
+        );
+        stopped.push({
+          argv: run.argv,
+          route: `stale-${outcome.stale}`,
+          asGit: outcome.answer.stdout === now.stdout.replaceAll(dir, REPO_ROOT),
+        });
         return { ran: true, ...outcome.answer, ms: 0, cached: true, stale: outcome.stale };
       }
       const env = Object.fromEntries(Object.entries(run.env ?? {}).map(([key, value]) => [key, inDir(value)]));
       const answer = git(inDir(run.cwd), run.argv.map(inDir), env);
-      const back = { ...answer, stdout: answer.stdout.replaceAll(dir, REPO_ROOT), stderr: answer.stderr.replaceAll(dir, REPO_ROOT) };
+      const back = {
+        ...answer,
+        stdout: answer.stdout.replaceAll(dir, REPO_ROOT),
+        stderr: answer.stderr.replaceAll(dir, REPO_ROOT),
+      };
       if (!run.startContainer) answers.set(keyOf(run.argv, run.env), { rev: state.rev, answer: back });
       return { ran: true, ...back, ms: 0 };
     },
   };
-  const record = { id: "t3flare", kind: "project", state: "ready", host: "github.com", owner: "ian-pascoe", name: "t3flare" } as unknown as WorkspaceRecord;
+  const record = {
+    id: "t3flare",
+    kind: "project",
+    state: "ready",
+    host: "github.com",
+    owner: "ian-pascoe",
+    name: "t3flare",
+  } as unknown as WorkspaceRecord;
   bindEnvironmentServices({
-    workspaces: { resolve: (id: string) => (id === "t3flare" ? record : undefined), get: () => record, list: () => [record] },
+    workspaces: {
+      resolve: (id: string) => (id === "t3flare" ? record : undefined),
+      get: () => record,
+      list: () => [record],
+    },
     github: () => ({ live: () => [], mint: () => Promise.reject(new Error("no GitHub in this test")) }),
     agents: { WORKSPACES: { idFromName: (name: string) => name, get: () => stub } },
   } as unknown as EnvironmentServices);
@@ -189,16 +235,26 @@ describe("t3's status over the Workspace's passive answers, on a repo with a sub
 
 /** t3's reads of the working tree, as opposed to its `.git`-only reads (refs, config), which keep their last answer. */
 const isWorkingTreeRead = (argv: ReadonlyArray<string>) =>
-  argv[0] === "status" || argv[0] === "diff-index" || argv[0] === "ls-files" || (argv[0] === "-c" && argv[2] === "diff");
+  argv[0] === "status" ||
+  argv[0] === "diff-index" ||
+  argv[0] === "ls-files" ||
+  (argv[0] === "-c" && argv[2] === "diff");
 
 /** The working-tree reads answered since the Container stopped, each as `<route> <asGit> <argv>`, for one readable diff. */
 const workingTreeReads = (reads: ReadonlyArray<StoppedRead>) =>
-  reads.filter((read) => isWorkingTreeRead(read.argv)).map((read) => `${read.route} ${read.asGit ? "as-git" : "NOT-as-git"} ${read.argv.join(" ")}`);
+  reads
+    .filter((read) => isWorkingTreeRead(read.argv))
+    .map((read) => `${read.route} ${read.asGit ? "as-git" : "NOT-as-git"} ${read.argv.join(" ")}`);
 
 describe("t3's diff panel over the Workspace's passive answers (SPI-1295)", { timeout: 60_000 }, () => {
   it("whole-diff and one-file review reads are patched or computed, and each equals git's; none starts the Container", async () => {
     const dir = project("review");
-    for (const [path, content] of Object.entries({ "a.ts": "export const a = 1;\n", "before.ts": "export const b = 1;\n", "gone.ts": "gone\n", "ren.txt": "r1\nr2\nr3\nr4\n" })) {
+    for (const [path, content] of Object.entries({
+      "a.ts": "export const a = 1;\n",
+      "before.ts": "export const b = 1;\n",
+      "gone.ts": "gone\n",
+      "ren.txt": "r1\nr2\nr3\nr4\n",
+    })) {
       fs.writeFileSync(join(dir, path), content);
     }
     git(dir, ["add", "-A"]);
@@ -217,7 +273,13 @@ describe("t3's diff panel over the Workspace's passive answers (SPI-1295)", { ti
       ["before.ts", "moved.txt"],
       ["a.ts", "before.ts", "moved.txt"],
     ]);
-    await driver((git) => git.getReviewDiffPreview({ cwd, baseRef: "main", file: { path: "a.ts", previousPath: null, sourceKind: "working-tree" } }));
+    await driver((git) =>
+      git.getReviewDiffPreview({
+        cwd,
+        baseRef: "main",
+        file: { path: "a.ts", previousPath: null, sourceKind: "working-tree" },
+      }),
+    );
     // It stops; then files change in the Workspace (the journal).
     workspace.stop(["a.ts", "gone.ts"]);
     fs.writeFileSync(join(dir, "a.ts"), "export const a = 3;\n");
@@ -235,7 +297,9 @@ describe("t3's diff panel over the Workspace's passive answers (SPI-1295)", { ti
       { path: "moved.txt", previousPath: "ren.txt" },
     ]) {
       for (const sourceKind of ["working-tree", "branch-range"] as const) {
-        const one = await driver((git) => git.getReviewDiffPreview({ cwd, baseRef: "main", sourceKind, file: { ...file, sourceKind } }));
+        const one = await driver((git) =>
+          git.getReviewDiffPreview({ cwd, baseRef: "main", sourceKind, file: { ...file, sourceKind } }),
+        );
         expect(one.sources[0]?.diff, `${file.path} ${sourceKind}`).toContain(`b/${file.path}`);
       }
     }

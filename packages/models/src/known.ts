@@ -50,9 +50,15 @@ const hostOf = (baseUrl: string): string | undefined => {
  * pi-ai's metadata for `id` at an endpoint of `api` at `baseUrl`, or undefined when no catalog read here has it. The
  * model's compatibility overrides come along only from a catalog entry of the same API.
  */
-export const knownModel = (id: string, endpoint: { readonly api: EndpointApi; readonly baseUrl: string }): KnownModel | undefined => {
+export const knownModel = (
+  id: string,
+  endpoint: { readonly api: EndpointApi; readonly baseUrl: string },
+): KnownModel | undefined => {
   const host = hostOf(endpoint.baseUrl);
-  const ordered = [...CATALOGS.filter((catalog) => catalog.host === host), ...CATALOGS.filter((catalog) => catalog.host !== host && catalog.own !== true)];
+  const ordered = [
+    ...CATALOGS.filter((catalog) => catalog.host === host),
+    ...CATALOGS.filter((catalog) => catalog.host !== host && catalog.own !== true),
+  ];
   for (const catalog of ordered) {
     const model = catalog.models[id];
     if (model === undefined || (model.type !== undefined && model.type !== "chat")) continue;
@@ -63,9 +69,18 @@ export const knownModel = (id: string, endpoint: { readonly api: EndpointApi; re
       input: input.length === 0 ? ["text"] : input,
       contextWindow: model.contextWindow,
       maxTokens: model.maxTokens,
-      cost: { input: model.cost.input, output: model.cost.output, cacheRead: model.cost.cacheRead, cacheWrite: model.cost.cacheWrite },
-      ...(model.thinkingLevelMap === undefined ? {} : { thinkingLevelMap: model.thinkingLevelMap as Readonly<Record<string, string | null>> }),
-      ...(model.compat === undefined || model.api !== endpoint.api ? {} : { compat: model.compat as Readonly<Record<string, unknown>> }),
+      cost: {
+        input: model.cost.input,
+        output: model.cost.output,
+        cacheRead: model.cost.cacheRead,
+        cacheWrite: model.cost.cacheWrite,
+      },
+      ...(model.thinkingLevelMap === undefined
+        ? {}
+        : { thinkingLevelMap: model.thinkingLevelMap as Readonly<Record<string, string | null>> }),
+      ...(model.compat === undefined || model.api !== endpoint.api
+        ? {}
+        : { compat: model.compat as Readonly<Record<string, unknown>> }),
     };
   }
   return undefined;

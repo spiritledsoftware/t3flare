@@ -51,17 +51,26 @@ export const syncTextGenerationDefault = Effect.gen(function* () {
   // records nothing. Known gap: t3's `updateSettings` writes inside an uninterruptible region, so a write that outlasts
   // the timeout (or the runtime's disposal) can land while the exit reads as interrupted. The new default then goes
   // unrecorded and reads as the owner's pick, and stops following the endpoints until the owner picks again.
-  yield* settings.updateSettings({ textGenerationModelSelection: { instanceId, model } }).pipe(Effect.onExit((exit) => (Exit.isSuccess(exit) ? record : Effect.void)));
-  yield* Effect.logInfo("t3flare: text generation's default model", { model, replaced: `${current.instanceId}/${current.model}` });
+  yield* settings
+    .updateSettings({ textGenerationModelSelection: { instanceId, model } })
+    .pipe(Effect.onExit((exit) => (Exit.isSuccess(exit) ? record : Effect.void)));
+  yield* Effect.logInfo("t3flare: text generation's default model", {
+    model,
+    replaced: `${current.instanceId}/${current.model}`,
+  });
 }).pipe(Effect.timeout(SYNC_TIMEOUT_MS), syncing.withPermits(1));
 
 export const layerSeedTextGenerationModel = Layer.effectDiscard(
   Effect.gen(function* () {
-    const sync = syncTextGenerationDefault.pipe(Effect.catchCause((cause) => Effect.logWarning("t3flare: text generation's default model was not set", cause)));
+    const sync = syncTextGenerationDefault.pipe(
+      Effect.catchCause((cause) => Effect.logWarning("t3flare: text generation's default model was not set", cause)),
+    );
     yield* sync;
     // A changed endpoint list can change the default: an unset setting follows it at once. Each sync is forked into the
     // layer's scope, so the runtime's disposal interrupts one still running; the listener stops first.
-    const context = yield* Effect.context<ServerSettings.ServerSettingsService | ProviderInstanceRegistry.ProviderInstanceRegistry>();
+    const context = yield* Effect.context<
+      ServerSettings.ServerSettingsService | ProviderInstanceRegistry.ProviderInstanceRegistry
+    >();
     const scope = yield* Effect.scope;
     const stopHearing = onEndpointsChanged(() => void Effect.runForkWith(context)(Effect.forkIn(sync, scope)));
     yield* Effect.addFinalizer(() => Effect.sync(stopHearing));
@@ -81,7 +90,11 @@ export const layerFollowTextGenerationModel = Layer.effectDiscard(
     // Subscribed before the read, so no change between them is missed.
     const changes = yield* settings.subscribeChanges;
     textGenerationModel = (yield* settings.getSettings).textGenerationModelSelection.model;
-    yield* Effect.forkScoped(Stream.runForEach(changes, (next) => Effect.sync(() => void (textGenerationModel = next.textGenerationModelSelection.model))));
+    yield* Effect.forkScoped(
+      Stream.runForEach(changes, (next) =>
+        Effect.sync(() => void (textGenerationModel = next.textGenerationModelSelection.model)),
+      ),
+    );
   }).pipe(Effect.catchCause((cause) => Effect.logWarning("t3flare: the text-generation model is not followed", cause))),
 );
 

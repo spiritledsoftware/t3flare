@@ -22,11 +22,21 @@ let ok = false;
 try {
   await laptop.start();
   const cookie = await laptop.pair();
-  await laptop.client.wsCall(cookie, "server.updateSettings", { patch: {}, providerInstanceMutation: piInstanceMutation() });
+  await laptop.client.wsCall(cookie, "server.updateSettings", {
+    patch: {},
+    providerInstanceMutation: piInstanceMutation(),
+  });
   const work = path.join(dir, "project");
   fs.mkdirSync(work, { recursive: true });
   const projectId = uuid();
-  await laptop.client.mutateProject(cookie, { type: "project.create", commandId: uuid(), projectId, title: "r6", workspaceRoot: work, createWorkspaceRootIfMissing: false });
+  await laptop.client.mutateProject(cookie, {
+    type: "project.create",
+    commandId: uuid(),
+    projectId,
+    title: "r6",
+    workspaceRoot: work,
+    createWorkspaceRootIfMissing: false,
+  });
   const threadId = uuid();
   await laptop.client.dispatch(cookie, {
     type: "thread.create",
@@ -42,12 +52,38 @@ try {
     createdBy: "user",
     creationSource: "web",
   });
-  await laptop.client.sendMessage(cookie, threadId, "Call the T3 Code tool orchestrator_capabilities with no arguments, then reply with the word DONE and the number of providers it listed.", laptopModel() as never);
-  const { projection, ms } = await waitFor(cookie, threadId, (p) => runsOf(p).length > 0 && runsOf(p).every((run) => SETTLED.has(run.status)), 240_000, laptop.client);
+  await laptop.client.sendMessage(
+    cookie,
+    threadId,
+    "Call the T3 Code tool orchestrator_capabilities with no arguments, then reply with the word DONE and the number of providers it listed.",
+    laptopModel() as never,
+  );
+  const { projection, ms } = await waitFor(
+    cookie,
+    threadId,
+    (p) => runsOf(p).length > 0 && runsOf(p).every((run) => SETTLED.has(run.status)),
+    240_000,
+    laptop.client,
+  );
   const items = itemsOf(projection);
-  const tools = items.filter((item: any) => /tool|mcp/.test(String(item.type))).map((item: any) => ({ type: item.type, name: item.toolName ?? item.name ?? item.server ?? null, status: item.status }));
-  const reply = items.filter((item: any) => item.type === "assistant_message").map((item: any) => String(item.text ?? "")).join("\n");
-  out.turn = { ms, runs: runsOf(projection).map((run) => run.status), tools, reply: reply.slice(0, 400), types: [...new Set(items.map((item: any) => item.type))] };
+  const tools = items
+    .filter((item: any) => /tool|mcp/.test(String(item.type)))
+    .map((item: any) => ({
+      type: item.type,
+      name: item.toolName ?? item.name ?? item.server ?? null,
+      status: item.status,
+    }));
+  const reply = items
+    .filter((item: any) => item.type === "assistant_message")
+    .map((item: any) => String(item.text ?? ""))
+    .join("\n");
+  out.turn = {
+    ms,
+    runs: runsOf(projection).map((run) => run.status),
+    tools,
+    reply: reply.slice(0, 400),
+    types: [...new Set(items.map((item: any) => item.type))],
+  };
   ok = runsOf(projection)[0]?.status === "completed" && JSON.stringify(tools).includes("orchestrator_capabilities");
 } catch (error) {
   out.error = String(error).slice(0, 1000);

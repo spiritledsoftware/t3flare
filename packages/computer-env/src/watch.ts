@@ -125,8 +125,7 @@ export class PollingWatcher implements FileWatcher {
       if (this.#snapshot.get(path) !== entry) changed.add(this.#reported(path));
     }
 
-    for (const path of this.#snapshot.keys())
-      if (!next.has(path)) changed.add(this.#reported(path));
+    for (const path of this.#snapshot.keys()) if (!next.has(path)) changed.add(this.#reported(path));
 
     return changed;
   }

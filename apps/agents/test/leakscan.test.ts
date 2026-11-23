@@ -26,7 +26,10 @@ describe("the leak scanner", () => {
     fs.mkdirSync(path.join(synced, "sessions"), { recursive: true });
     fs.mkdirSync(path.join(synced, "node_modules"), { recursive: true });
     fs.writeFileSync(path.join(synced, "sessions", "rollout.jsonl"), `{"type":"tool","output":"key=${KEY}\\n"}\n`);
-    fs.writeFileSync(path.join(synced, "sessions", "near-miss.jsonl"), `${KEY.slice(0, -1)}X ghs_short ${KEY.slice(0, 20)}\n`);
+    fs.writeFileSync(
+      path.join(synced, "sessions", "near-miss.jsonl"),
+      `${KEY.slice(0, -1)}X ghs_short ${KEY.slice(0, 20)}\n`,
+    );
     fs.writeFileSync(path.join(synced, "token.txt"), `x${GH}y`);
     fs.writeFileSync(path.join(synced, "node_modules", "skipped.js"), KEY);
     const old = path.join(synced, "old.txt");
@@ -35,8 +38,18 @@ describe("the leak scanner", () => {
     fs.utimesSync(old, new Date(before - 60_000), new Date(before - 60_000));
     const patterns = [await patternOf("model-key", KEY), await patternOf("github-token", GH)];
     expect(JSON.stringify(patterns)).not.toContain(KEY.slice(4));
-    const answer = scan({ patterns, roots: [synced], since: before, quarantine: path.join(root, "quarantine"), skip: ["node_modules"] });
-    expect(answer.hits.map((hit) => [hit.name, path.relative(synced, hit.path)]).toSorted((a, b) => a.join().localeCompare(b.join()))).toEqual([
+    const answer = scan({
+      patterns,
+      roots: [synced],
+      since: before,
+      quarantine: path.join(root, "quarantine"),
+      skip: ["node_modules"],
+    });
+    expect(
+      answer.hits
+        .map((hit) => [hit.name, path.relative(synced, hit.path)])
+        .toSorted((a, b) => a.join().localeCompare(b.join())),
+    ).toEqual([
       ["github-token", "token.txt"],
       ["model-key", "sessions/rollout.jsonl"],
     ]);
@@ -44,6 +57,9 @@ describe("the leak scanner", () => {
     expect(fs.readdirSync(path.join(root, "quarantine"))).toHaveLength(2);
     expect(fs.existsSync(old)).toBe(true);
     const full = scan({ patterns, roots: [synced], since: 0 });
-    expect(full.hits.map((hit) => path.relative(synced, hit.path)).toSorted((a, b) => a.localeCompare(b))).toEqual(["node_modules/skipped.js", "old.txt"]);
+    expect(full.hits.map((hit) => path.relative(synced, hit.path)).toSorted((a, b) => a.localeCompare(b))).toEqual([
+      "node_modules/skipped.js",
+      "old.txt",
+    ]);
   });
 });

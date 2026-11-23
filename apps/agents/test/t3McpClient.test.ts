@@ -27,8 +27,13 @@ const fakeEnvironment = () => {
       return json(200, { jsonrpc: "2.0", id: 0, result: {} }, id);
     }
     if (input.sessionId === undefined || !live.has(input.sessionId)) return json(404, {});
-    if (body.method === "tools/list") return json(200, { jsonrpc: "2.0", id: 1, result: { tools: [{ name: "t3_thread_read" }] } });
-    return { status: 200, contentType: "text/event-stream", body: `event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id: 2, result: { content: [{ type: "text", text: "hi" }] } })}\n\n` };
+    if (body.method === "tools/list")
+      return json(200, { jsonrpc: "2.0", id: 1, result: { tools: [{ name: "t3_thread_read" }] } });
+    return {
+      status: 200,
+      contentType: "text/event-stream",
+      body: `event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id: 2, result: { content: [{ type: "text", text: "hi" }] } })}\n\n`,
+    };
   };
   return {
     post,
@@ -40,7 +45,11 @@ const fakeEnvironment = () => {
   };
 };
 
-const credential = (n: number): T3McpCredential => ({ authorization: `Bearer token-${n}`, providerSessionId: `ps-${n}`, instructions: "" });
+const credential = (n: number): T3McpCredential => ({
+  authorization: `Bearer token-${n}`,
+  providerSessionId: `ps-${n}`,
+  instructions: "",
+});
 
 describe("the Session's MCP client", () => {
   it("initialises once, lists and calls, and reads an SSE answer", async () => {
@@ -67,7 +76,12 @@ describe("the Session's MCP client", () => {
   it("a 401 or no credential is 'unavailable'", async () => {
     const environment = fakeEnvironment();
     environment.revoke();
-    expect(await new T3McpClient(environment.post, () => credential(1)).callTool("t3_thread_read", {})).toEqual({ kind: "unavailable", message: UNAVAILABLE });
-    expect((await new T3McpClient(environment.post, () => undefined).callTool("t3_thread_read", {})).kind).toBe("unavailable");
+    expect(await new T3McpClient(environment.post, () => credential(1)).callTool("t3_thread_read", {})).toEqual({
+      kind: "unavailable",
+      message: UNAVAILABLE,
+    });
+    expect((await new T3McpClient(environment.post, () => undefined).callTool("t3_thread_read", {})).kind).toBe(
+      "unavailable",
+    );
   });
 });

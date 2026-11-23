@@ -10,10 +10,26 @@ import * as path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { carryInScript, carryOutScript, parseBundleAnswer, parseCarryOut, parseTips, worktreeBundleScript, worktreeCloneScript, worktreeFinishScript } from "../src/workspace/worktreeScripts.ts";
+import {
+  carryInScript,
+  carryOutScript,
+  parseBundleAnswer,
+  parseCarryOut,
+  parseTips,
+  worktreeBundleScript,
+  worktreeCloneScript,
+  worktreeFinishScript,
+} from "../src/workspace/worktreeScripts.ts";
 
 let dir: string;
-const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t", GIT_CONFIG_NOSYSTEM: "1" };
+const env = {
+  ...process.env,
+  GIT_AUTHOR_NAME: "t",
+  GIT_AUTHOR_EMAIL: "t@t",
+  GIT_COMMITTER_NAME: "t",
+  GIT_COMMITTER_EMAIL: "t@t",
+  GIT_CONFIG_NOSYSTEM: "1",
+};
 
 const sh = (cwd: string, script: string) => {
   const result = spawnSync("bash", ["-c", script], { cwd, encoding: "utf8", env });
@@ -44,7 +60,10 @@ const provision = (project: string, url: string | null, ref: string) => {
   // The bundle crosses from one object's files to the other's.
   const seed = path.join(dir, "worktree-seed.bundle");
   if (answer.bundled) fs.copyFileSync(bundlePath, seed);
-  const finished = sh(worktree, worktreeFinishScript({ bundle: answer.bundled ? seed : null, ref, commit: answer.commit!, config: answer.config }));
+  const finished = sh(
+    worktree,
+    worktreeFinishScript({ bundle: answer.bundled ? seed : null, ref, commit: answer.commit!, config: answer.config }),
+  );
   return { worktree, tips, answer, finished };
 };
 
@@ -92,7 +111,9 @@ describe("worktree provisioning scripts", { timeout: 30_000 }, () => {
     const header = fs.readFileSync(path.join(dir, "project-tmp", "wt.bundle"), "latin1").split("\n\n")[0]!;
     expect(header).toContain("refs/heads/local");
     // Its one prerequisite is the clone's tip: the bundle holds b and c, not a.
-    expect(header.split("\n").filter((line) => line.startsWith("-"))).toEqual([`-${git(project, "rev-parse origin/main")} a`]);
+    expect(header.split("\n").filter((line) => line.startsWith("-"))).toEqual([
+      `-${git(project, "rev-parse origin/main")} a`,
+    ]);
     expect(finished.code, finished.stderr).toBe(0);
     expect(git(worktree, "rev-parse HEAD")).toBe(head);
     expect(git(worktree, "log --format=%s")).toBe("c\nb\na");
@@ -186,7 +207,12 @@ describe("carrying a removed worktree's work home (review F8)", { timeout: 30_00
     git(worktree, "stash -q");
     const { answer, lines } = carry(project, worktree);
     expect(answer.dirty).toBe(false);
-    expect(answer.carried.map((c) => c.ref).toSorted()).toEqual(["refs/heads/feature", "refs/heads/only-here", "refs/heads/other", "refs/stash"]);
+    expect(answer.carried.map((c) => c.ref).toSorted()).toEqual([
+      "refs/heads/feature",
+      "refs/heads/only-here",
+      "refs/heads/other",
+      "refs/stash",
+    ]);
     expect(lines.toSorted()).toEqual([
       "CREATED refs/heads/only-here",
       "FASTFORWARD refs/heads/feature",

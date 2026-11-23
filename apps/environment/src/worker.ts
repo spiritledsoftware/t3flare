@@ -77,12 +77,25 @@ export default {
       const config = { ...guardConfig(env), audience: env.T3FLARE_ACCESS_SETTINGS_AUD };
       // Local mode (local workerd only): the admin token alone, on loopback, as the service-token caller (plan D17).
       const local = env.T3FLARE_LOCAL_MODE === "true" && LOOPBACK_HOST.test(url.host);
-      const verdict = local ? Access.verifyAdminToken(request, config) : await Access.verifySettingsRequest(request, config, keysFor(config.teamDomain ?? ""));
+      const verdict = local
+        ? Access.verifyAdminToken(request, config)
+        : await Access.verifySettingsRequest(request, config, keysFor(config.teamDomain ?? ""));
       if (!verdict.admitted || url.pathname !== SETTINGS_MCP_PATH) {
-        console.log(JSON.stringify({ t3flare: "settings-refused", via: "mcp", door: "owner", reason: verdict.admitted ? "path" : verdict.reason, path: url.pathname }));
+        console.log(
+          JSON.stringify({
+            t3flare: "settings-refused",
+            via: "mcp",
+            door: "owner",
+            reason: verdict.admitted ? "path" : verdict.reason,
+            path: url.pathname,
+          }),
+        );
         return new Response("Not found\n", { status: 404, headers: { "cache-control": "no-store" } });
       }
-      const caller: AccessCaller = !local && verdict.caller.kind === "owner" ? { kind: "owner", subject: verdict.caller.subject ?? "" } : { kind: "service-token" };
+      const caller: AccessCaller =
+        !local && verdict.caller.kind === "owner"
+          ? { kind: "owner", subject: verdict.caller.subject ?? "" }
+          : { kind: "service-token" };
       return env.ENVIRONMENT.getByName(ENVIRONMENT_NAME).settingsMcp(request, caller);
     }
     // The Settings page (ADR-0026) at `/_t3flare/settings`, behind the `/_t3flare` Access application (owner, 2026-11-12,
@@ -96,8 +109,15 @@ export default {
         console.log(JSON.stringify({ t3flare: "harness-refused", reason: verdict.reason, path: url.pathname }));
         return new Response("Not found\n", { status: 404 });
       }
-      if (moved !== undefined) return new Response(null, { status: 308, headers: { location: `${moved}${url.search}`, "cache-control": "no-store" } });
-      const caller: AccessCaller = verdict.caller.kind === "owner" ? { kind: "owner", subject: verdict.caller.subject ?? "" } : { kind: "service-token" };
+      if (moved !== undefined)
+        return new Response(null, {
+          status: 308,
+          headers: { location: `${moved}${url.search}`, "cache-control": "no-store" },
+        });
+      const caller: AccessCaller =
+        verdict.caller.kind === "owner"
+          ? { kind: "owner", subject: verdict.caller.subject ?? "" }
+          : { kind: "service-token" };
       return env.ENVIRONMENT.getByName(ENVIRONMENT_NAME).harness(request, caller);
     }
     if (url.pathname === "/_t3flare" || url.pathname.startsWith("/_t3flare/")) {

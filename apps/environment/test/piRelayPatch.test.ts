@@ -55,7 +55,11 @@ const extensionSource = async (patched: boolean): Promise<string> => {
 };
 
 /** Loads the extension with pi's packages stubbed out (the hook uses neither) and returns its `tool_call` hook. */
-const toolCallHook = async (source: string, name: string, tools: () => ReadonlyArray<ToolInfo> | undefined): Promise<Hook> => {
+const toolCallHook = async (
+  source: string,
+  name: string,
+  tools: () => ReadonlyArray<ToolInfo> | undefined,
+): Promise<Hook> => {
   let text = replaceOnce(
     source,
     'import { stripFrontmatter, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";',
@@ -99,7 +103,10 @@ const TOOLS: ReadonlyArray<ToolInfo> = [
   { name: "mcp__stranger__write", sourceInfo: { path: "builtin:mcp" } },
   // A tool of another extension that takes an MCP-shaped name.
   { name: "mcp__lookalike__write", sourceInfo: { path: "/root/.pi/agent/extensions/other.ts" } },
-  { name: "mcp__t3-code__delegate_task", sourceInfo: { path: "/var/lib/t3flare/cli/proc-1/ext/pi-t3-mcp-extension.ts" } },
+  {
+    name: "mcp__t3-code__delegate_task",
+    sourceInfo: { path: "/var/lib/t3flare/cli/proc-1/ext/pi-t3-mcp-extension.ts" },
+  },
   // pi's resource tools come from its MCP extension too, but are not a relayed server's tool.
   { name: "read_mcp_resource", sourceInfo: { path: "builtin:mcp" } },
   { name: "bash", sourceInfo: { path: "builtin:bash" } },
@@ -110,7 +117,10 @@ const TOOLS: ReadonlyArray<ToolInfo> = [
 const asks = async (hook: Hook, mode: string, toolName: string): Promise<boolean> => {
   process.env.T3_PI_RUNTIME_MODE = mode;
   const confirm = vi.fn(async () => false);
-  const result = await hook({ type: "tool_call", toolName, toolCallId: "call-1", input: {} }, { ui: { confirm, notify: () => undefined }, signal: undefined });
+  const result = await hook(
+    { type: "tool_call", toolName, toolCallId: "call-1", input: {} },
+    { ui: { confirm, notify: () => undefined }, signal: undefined },
+  );
   expect(result?.block === true).toBe(confirm.mock.calls.length > 0);
   return confirm.mock.calls.length > 0;
 };
@@ -167,7 +177,14 @@ describe("Patch 0007: pi's relay tools are judged by the relay", () => {
 
   it("asks, as stock t3 does, for every tool not from pi's built-in MCP client", async () => {
     for (const mode of ["approval-required", "auto-accept-edits"]) {
-      for (const tool of ["mcp__lookalike__write", "mcp__t3-code__delegate_task", "read_mcp_resource", "bash", "mcp__unlisted__call", "mcp__stranger__write"]) {
+      for (const tool of [
+        "mcp__lookalike__write",
+        "mcp__t3-code__delegate_task",
+        "read_mcp_resource",
+        "bash",
+        "mcp__unlisted__call",
+        "mcp__stranger__write",
+      ]) {
         expect([mode, tool, await asks(patched, mode, tool)]).toEqual([mode, tool, true]);
         expect([mode, tool, await asks(stock, mode, tool)]).toEqual([mode, tool, true]);
       }

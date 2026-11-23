@@ -16,17 +16,28 @@ const bootstrapToken = process.env.T3_BOOTSTRAP_TOKEN ?? "local-bootstrap-token-
 const adminToken = process.env.T3FLARE_ADMIN_TOKEN ?? "local-admin-token";
 const accessHeaders: Record<string, string> =
   process.env.T3FLARE_ACCESS_CLIENT_ID && process.env.T3FLARE_ACCESS_CLIENT_SECRET
-    ? { "cf-access-client-id": process.env.T3FLARE_ACCESS_CLIENT_ID, "cf-access-client-secret": process.env.T3FLARE_ACCESS_CLIENT_SECRET }
+    ? {
+        "cf-access-client-id": process.env.T3FLARE_ACCESS_CLIENT_ID,
+        "cf-access-client-secret": process.env.T3FLARE_ACCESS_CLIENT_SECRET,
+      }
     : {};
 
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 export const uuid = () => crypto.randomUUID();
 
-export const admin = async (method: string, pathname: string, body?: unknown): Promise<{ status: number; json: any }> => {
+export const admin = async (
+  method: string,
+  pathname: string,
+  body?: unknown,
+): Promise<{ status: number; json: any }> => {
   const response = await fetch(new URL(pathname, base), {
     method,
     redirect: "manual",
-    headers: { ...accessHeaders, authorization: `Bearer ${adminToken}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+    headers: {
+      ...accessHeaders,
+      authorization: `Bearer ${adminToken}`,
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
+    },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const text = await response.text();
@@ -46,7 +57,10 @@ export const pair = async (): Promise<string> => {
     body: JSON.stringify({ credential: bootstrapToken }),
   });
   if (response.status !== 200) throw new Error(`pairing failed: ${response.status} ${await response.text()}`);
-  return response.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+  return response.headers
+    .getSetCookie()
+    .map((c) => c.split(";")[0])
+    .join("; ");
 };
 
 /** The WebSocket and HTTP helpers against one t3 server: the stage's, or the laptop's (step 3). */
@@ -59,7 +73,10 @@ export const clientAt = (base: URL) => {
         Layer.mergeAll(
           Socket.layerWebSocket(socketUrl.toString()).pipe(
             Layer.provide(
-              Layer.succeed(Socket.WebSocketConstructor, (url) => new WebSocket(url, { headers: { cookie, origin: base.origin } } as never)),
+              Layer.succeed(
+                Socket.WebSocketConstructor,
+                (url) => new WebSocket(url, { headers: { cookie, origin: base.origin } } as never),
+              ),
             ),
           ),
           RpcSerialization.layerJson,
@@ -82,7 +99,10 @@ export const clientAt = (base: URL) => {
   const wsCall = withSocketRetry((cookie, method, payload) =>
     Effect.runPromise(
       Effect.gen(function* () {
-        const client = (yield* RpcClient.make(WsRpcGroup)) as unknown as Record<string, (input: unknown) => Effect.Effect<unknown, unknown>>;
+        const client = (yield* RpcClient.make(WsRpcGroup)) as unknown as Record<
+          string,
+          (input: unknown) => Effect.Effect<unknown, unknown>
+        >;
         return yield* client[method]!(payload);
       }).pipe(Effect.provide(protocol(cookie)), Effect.scoped),
     ),
@@ -92,7 +112,10 @@ export const clientAt = (base: URL) => {
   const wsStream = (cookie: string, method: string, payload: unknown): Promise<ReadonlyArray<unknown>> =>
     Effect.runPromise(
       Effect.gen(function* () {
-        const client = (yield* RpcClient.make(WsRpcGroup)) as unknown as Record<string, (input: unknown) => Stream.Stream<unknown, unknown>>;
+        const client = (yield* RpcClient.make(WsRpcGroup)) as unknown as Record<
+          string,
+          (input: unknown) => Stream.Stream<unknown, unknown>
+        >;
         return yield* Stream.runCollect(client[method]!(payload));
       }).pipe(Effect.provide(protocol(cookie)), Effect.scoped),
     ).then((chunk) => [...chunk]);
@@ -102,7 +125,10 @@ export const clientAt = (base: URL) => {
   const wsFirst = withSocketRetry((cookie, method, payload) =>
     Effect.runPromise(
       Effect.gen(function* () {
-        const client = (yield* RpcClient.make(WsRpcGroup)) as unknown as Record<string, (input: unknown) => Stream.Stream<unknown, unknown>>;
+        const client = (yield* RpcClient.make(WsRpcGroup)) as unknown as Record<
+          string,
+          (input: unknown) => Stream.Stream<unknown, unknown>
+        >;
         return yield* Stream.runHead(client[method]!(payload));
       }).pipe(Effect.provide(protocol(cookie)), Effect.scoped),
     ).then((head) => (head._tag === "Some" ? head.value : undefined)),
@@ -136,7 +162,11 @@ export const clientAt = (base: URL) => {
   /** Finds the projection inside the bounded snapshot's answer, whatever wraps it. */
   const projectionOf = (window: any): any => window?.projection ?? window?.snapshot?.projection ?? window;
 
-  const DEFAULT_MODEL = { instanceId: "piDurable", model: "anthropic/claude-haiku-5-5", options: [{ id: "thinking", value: "low" }] };
+  const DEFAULT_MODEL = {
+    instanceId: "piDurable",
+    model: "anthropic/claude-haiku-5-5",
+    options: [{ id: "thinking", value: "low" }],
+  };
 
   const createProjectAndThread = async (
     cookie: string,
@@ -169,7 +199,13 @@ export const clientAt = (base: URL) => {
     return { projectId, threadId };
   };
 
-  const sendMessage = (cookie: string, threadId: string, text: string, model = DEFAULT_MODEL, extra: Record<string, unknown> = {}) => {
+  const sendMessage = (
+    cookie: string,
+    threadId: string,
+    text: string,
+    model = DEFAULT_MODEL,
+    extra: Record<string, unknown> = {},
+  ) => {
     const messageId = uuid();
     return dispatch(cookie, {
       type: "message.dispatch",
@@ -185,7 +221,20 @@ export const clientAt = (base: URL) => {
       ...extra,
     }).then(() => messageId);
   };
-  return { protocol, dispatch, wsCall, wsStream, wsFirst, updateSettings, mutateProject, threadWindow, projectionOf, DEFAULT_MODEL, createProjectAndThread, sendMessage };
+  return {
+    protocol,
+    dispatch,
+    wsCall,
+    wsStream,
+    wsFirst,
+    updateSettings,
+    mutateProject,
+    threadWindow,
+    projectionOf,
+    DEFAULT_MODEL,
+    createProjectAndThread,
+    sendMessage,
+  };
 };
 
 const stage = clientAt(base);
@@ -214,7 +263,11 @@ export interface RunView {
  * fallback. Undefined without one (a stage in the setup state).
  */
 export const endpointModelFor = async (cli: "codex" | "pi" | "claude" | "opencode"): Promise<string | undefined> => {
-  const listed = ((await admin("GET", "/_t3flare/settings/api/endpoints")).json?.endpoints ?? []) as Array<{ id: string; api: string; models?: Array<{ id: string }> }>;
+  const listed = ((await admin("GET", "/_t3flare/settings/api/endpoints")).json?.endpoints ?? []) as Array<{
+    id: string;
+    api: string;
+    models?: Array<{ id: string }>;
+  }>;
   const apis = CLI_APIS[cli] as ReadonlyArray<string>;
   const endpoint = listed.find((entry) => apis.includes(entry.api) && (entry.models?.length ?? 0) > 0);
   return endpoint === undefined ? undefined : `${endpoint.id}/${endpoint.models![0]!.id}`;
@@ -251,7 +304,9 @@ export const SETTLED = new Set(["completed", "failed", "interrupted", "cancelled
 
 /** A file of a Workspace DO's own files (never its Container), as text; "" when it is missing. */
 export const readDoText = async (id: string, path: string): Promise<string> => {
-  const read = await admin("POST", `/_t3flare/agents/workspace-call?id=${encodeURIComponent(id)}`, { fs: { op: "read", path } });
+  const read = await admin("POST", `/_t3flare/agents/workspace-call?id=${encodeURIComponent(id)}`, {
+    fs: { op: "read", path },
+  });
   const ok = read.json?.result?.ok;
   if (ok === undefined || ok === null) return "";
   return typeof ok === "string" ? ok : Buffer.from(Object.values(ok as Record<string, number>)).toString("utf8");
@@ -264,12 +319,19 @@ export const readDoText = async (id: string, path: string): Promise<string> => {
 export const enablePiDurable = (cookie: string) =>
   wsCall(cookie, "server.updateSettings", {
     patch: {},
-    providerInstanceMutation: { operation: "upsert", instanceId: "piDurable", instance: { driver: "piDurable", enabled: true } },
+    providerInstanceMutation: {
+      operation: "upsert",
+      instanceId: "piDurable",
+      instance: { driver: "piDurable", enabled: true },
+    },
   });
 
 /** The text-generation setting as t3 resolves it (`server.getConfig`), or null. */
-export const textGenerationSetting = async (cookie: string): Promise<{ readonly instanceId: string; readonly model: string } | null> => {
-  const selection = ((await wsCall(cookie, "server.getConfig", {})) as any)?.settings?.textGenerationModelSelection ?? null;
+export const textGenerationSetting = async (
+  cookie: string,
+): Promise<{ readonly instanceId: string; readonly model: string } | null> => {
+  const selection =
+    ((await wsCall(cookie, "server.getConfig", {})) as any)?.settings?.textGenerationModelSelection ?? null;
   return selection === null ? null : { instanceId: selection.instanceId, model: selection.model };
 };
 
@@ -308,7 +370,12 @@ export const regenerateTitle = async (cookie: string, threadId: string, timeoutM
   while (Date.now() - started < timeoutMs) {
     const projection = projectionOf(await threadWindow(cookie, threadId).catch(() => undefined));
     const last = findKey(projection, "lastTitleRegeneration");
-    if (last?.requestId === commandId) return { outcome: last.status as string, message: (last.message ?? null) as string | null, title: findKey(projection, "title") as string | null };
+    if (last?.requestId === commandId)
+      return {
+        outcome: last.status as string,
+        message: (last.message ?? null) as string | null,
+        title: findKey(projection, "title") as string | null,
+      };
     await sleep(1500);
   }
   return { outcome: "timeout", message: null, title: null };

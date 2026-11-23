@@ -3,9 +3,23 @@
 // name as an `instance` that is never omitted, the idle time, and the budget carried only when it was read fresh.
 import { describe, expect, it } from "vitest";
 
-import { EMPTY_ENVIRONMENT, ENVIRONMENT_SETTINGS, MAX_CONTAINER_BUDGET, MAX_TIMED_MINUTES, type ResolvedEnvironment, resolveEnvironment } from "@t3flare/harness-registry";
+import {
+  EMPTY_ENVIRONMENT,
+  ENVIRONMENT_SETTINGS,
+  MAX_CONTAINER_BUDGET,
+  MAX_TIMED_MINUTES,
+  type ResolvedEnvironment,
+  resolveEnvironment,
+} from "@t3flare/harness-registry";
 
-import { launchOf, SECRET_SHOWN, secretValuesOf, shownLaunch, takeEnvironment, withContainerSteps } from "../src/workspace/containerLaunch.ts";
+import {
+  launchOf,
+  SECRET_SHOWN,
+  secretValuesOf,
+  shownLaunch,
+  takeEnvironment,
+  withContainerSteps,
+} from "../src/workspace/containerLaunch.ts";
 import { type GlobalMiseLaunch, installMinutesOf } from "../src/workspace/globalMise.ts";
 
 const CPU_1 = { vcpu: 1, memoryMib: 3072, diskMb: 12000 };
@@ -20,26 +34,55 @@ const never = () => new Promise<ResolvedEnvironment>(() => undefined);
 
 describe("takeEnvironment", () => {
   it("takes the Environment's answer and keeps it", async () => {
-    const store = keeper({ ...DEFAULTS, revision: 1, containerSize: "standard-1", containerIdleMinutes: 3, containerBudget: 2 });
-    const answer: ResolvedEnvironment = { ...DEFAULTS, revision: 2, containerSize: "standard-3", containerIdleMinutes: 9, containerBudget: 5 };
-    expect(await takeEnvironment({ read: async () => answer, kept: store.kept, keep: store.keep, waitMs: 50 })).toEqual({ settings: answer, source: "environment" });
+    const store = keeper({
+      ...DEFAULTS,
+      revision: 1,
+      containerSize: "standard-1",
+      containerIdleMinutes: 3,
+      containerBudget: 2,
+    });
+    const answer: ResolvedEnvironment = {
+      ...DEFAULTS,
+      revision: 2,
+      containerSize: "standard-3",
+      containerIdleMinutes: 9,
+      containerBudget: 5,
+    };
+    expect(await takeEnvironment({ read: async () => answer, kept: store.kept, keep: store.keep, waitMs: 50 })).toEqual(
+      { settings: answer, source: "environment" },
+    );
     expect(store.now()).toEqual(answer);
   });
 
   it("falls back to its kept copy when the Environment does not answer in time, or fails", async () => {
-    const copy: ResolvedEnvironment = { ...DEFAULTS, revision: 4, containerSize: "standard-2", containerIdleMinutes: 7, containerBudget: 2 };
+    const copy: ResolvedEnvironment = {
+      ...DEFAULTS,
+      revision: 4,
+      containerSize: "standard-2",
+      containerIdleMinutes: 7,
+      containerBudget: 2,
+    };
     const store = keeper(copy);
-    expect(await takeEnvironment({ read: never, kept: store.kept, keep: store.keep, waitMs: 20 })).toEqual({ settings: copy, source: "kept" });
+    expect(await takeEnvironment({ read: never, kept: store.kept, keep: store.keep, waitMs: 20 })).toEqual({
+      settings: copy,
+      source: "kept",
+    });
     const failing = async (): Promise<ResolvedEnvironment> => {
       throw new Error("the Environment DO reset");
     };
-    expect(await takeEnvironment({ read: failing, kept: store.kept, keep: store.keep, waitMs: 20 })).toEqual({ settings: copy, source: "kept" });
+    expect(await takeEnvironment({ read: failing, kept: store.kept, keep: store.keep, waitMs: 20 })).toEqual({
+      settings: copy,
+      source: "kept",
+    });
     expect(store.now()).toEqual(copy);
   });
 
   it("starts with the defaults when the Environment does not answer and nothing is kept", async () => {
     const store = keeper();
-    expect(await takeEnvironment({ read: never, kept: store.kept, keep: store.keep, waitMs: 20 })).toEqual({ settings: DEFAULTS, source: "default" });
+    expect(await takeEnvironment({ read: never, kept: store.kept, keep: store.keep, waitMs: 20 })).toEqual({
+      settings: DEFAULTS,
+      source: "default",
+    });
   });
 
   it("reads its kept copy against this Worker's schema: an unknown size starts the default, a missing setting its default", async () => {
@@ -47,14 +90,23 @@ describe("takeEnvironment", () => {
     const odd = { revision: 6, containerSize: "standard-9", containerBudget: 2 } as unknown as ResolvedEnvironment;
     const store = keeper(odd);
     const taken = await takeEnvironment({ read: never, kept: store.kept, keep: store.keep, waitMs: 20 });
-    expect(taken).toEqual({ settings: { ...DEFAULTS, revision: 6, containerSize: "cpu-1", containerIdleMinutes: 2, containerBudget: 2 }, source: "kept" });
+    expect(taken).toEqual({
+      settings: { ...DEFAULTS, revision: 6, containerSize: "cpu-1", containerIdleMinutes: 2, containerBudget: 2 },
+      source: "kept",
+    });
     expect(launchOf(taken).instance).toEqual(CPU_1);
   });
 
   it("reads an answer from an Environment newer or older than this Worker against this Worker's schema", async () => {
     const store = keeper();
     // SAFETY: deliberately outside the type, as another Worker's version may answer.
-    const odd = { revision: 9, containerSize: "standard-9", containerIdleMinutes: MAX_TIMED_MINUTES + 1, containerBudget: MAX_CONTAINER_BUDGET + 1, misePolicy: "x" } as unknown as ResolvedEnvironment;
+    const odd = {
+      revision: 9,
+      containerSize: "standard-9",
+      containerIdleMinutes: MAX_TIMED_MINUTES + 1,
+      containerBudget: MAX_CONTAINER_BUDGET + 1,
+      misePolicy: "x",
+    } as unknown as ResolvedEnvironment;
     const taken = await takeEnvironment({ read: async () => odd, kept: store.kept, keep: store.keep, waitMs: 50 });
     expect(taken).toEqual({ settings: { ...DEFAULTS, revision: 9 }, source: "environment" });
     expect(store.now()).toEqual({ ...DEFAULTS, revision: 9 });
@@ -64,7 +116,9 @@ describe("takeEnvironment", () => {
 describe("launchOf", () => {
   it("launches with the Variables it took, fresh or kept: a running Container keeps them (SPI-1152)", () => {
     const variables = [{ name: "NODE_ENV", value: "test", secret: false }];
-    expect(launchOf({ settings: { ...DEFAULTS, variables }, source: "environment" }).variables).toEqual({ NODE_ENV: "test" });
+    expect(launchOf({ settings: { ...DEFAULTS, variables }, source: "environment" }).variables).toEqual({
+      NODE_ENV: "test",
+    });
     expect(launchOf({ settings: { ...DEFAULTS, variables }, source: "kept" }).variables).toEqual({ NODE_ENV: "test" });
   });
 
@@ -83,7 +137,18 @@ describe("launchOf", () => {
   });
 
   it("launches a named size by its name and cpu-1 as its resources, with the idle time in milliseconds", () => {
-    expect(launchOf({ settings: { ...DEFAULTS, revision: 3, containerSize: "standard-4", containerIdleMinutes: 10, containerBudget: 4 }, source: "environment" })).toEqual({
+    expect(
+      launchOf({
+        settings: {
+          ...DEFAULTS,
+          revision: 3,
+          containerSize: "standard-4",
+          containerIdleMinutes: 10,
+          containerBudget: 4,
+        },
+        source: "environment",
+      }),
+    ).toEqual({
       size: "standard-4",
       instance: "standard-4",
       idleMs: 600_000,
@@ -92,15 +157,31 @@ describe("launchOf", () => {
       variables: {},
       terminalsReadBashrc: true,
     });
-    expect(launchOf({ settings: DEFAULTS, source: "environment" })).toEqual({ size: "cpu-1", instance: CPU_1, idleMs: 120_000, budget: 3, revision: 0, variables: {}, terminalsReadBashrc: true });
+    expect(launchOf({ settings: DEFAULTS, source: "environment" })).toEqual({
+      size: "cpu-1",
+      instance: CPU_1,
+      idleMs: 120_000,
+      budget: 3,
+      revision: 0,
+      variables: {},
+      terminalsReadBashrc: true,
+    });
   });
 
   it("keeps whether its Terminals read ~/.bashrc (ADR-0047 §9): a running Container's Terminals keep what it started with", () => {
-    expect(launchOf({ settings: { ...DEFAULTS, terminalsReadBashrc: false }, source: "kept" }).terminalsReadBashrc).toBe(false);
+    expect(
+      launchOf({ settings: { ...DEFAULTS, terminalsReadBashrc: false }, source: "kept" }).terminalsReadBashrc,
+    ).toBe(false);
   });
 
   it("carries no budget unless it was read fresh: a kept copy or the defaults never overwrite the owner's", () => {
-    const copy: ResolvedEnvironment = { ...DEFAULTS, revision: 4, containerSize: "standard-2", containerIdleMinutes: 7, containerBudget: 1 };
+    const copy: ResolvedEnvironment = {
+      ...DEFAULTS,
+      revision: 4,
+      containerSize: "standard-2",
+      containerIdleMinutes: 7,
+      containerBudget: 1,
+    };
     expect(launchOf({ settings: copy, source: "kept" }).budget).toBeUndefined();
     expect(launchOf({ settings: DEFAULTS, source: "default" }).budget).toBeUndefined();
     expect(launchOf({ settings: copy, source: "kept" }).instance).toBe("standard-2");
@@ -108,16 +189,40 @@ describe("launchOf", () => {
 });
 
 describe("the launch's Global mise config", () => {
-  const taken = { settings: { ...DEFAULTS, revision: 7, containerSize: "cpu-1" as const, containerIdleMinutes: 2, containerBudget: 3, globalMiseConfig: '[tools]\nnode = "24.11.1"\n', globalMiseInstallMinutes: 45 }, source: "kept" as const };
+  const taken = {
+    settings: {
+      ...DEFAULTS,
+      revision: 7,
+      containerSize: "cpu-1" as const,
+      containerIdleMinutes: 2,
+      containerBudget: 3,
+      globalMiseConfig: '[tools]\nnode = "24.11.1"\n',
+      globalMiseInstallMinutes: 45,
+    },
+    source: "kept" as const,
+  };
 
   it("carries the start's text, its size and SHA-256, its revision, where the settings came from and its install time limit", async () => {
     const launch = await withContainerSteps(launchOf(taken), taken);
-    expect(launch.globalMise).toEqual({ text: '[tools]\nnode = "24.11.1"\n', bytes: 25, sha256: "0eb09ceb981ac62b1ed4ebb30295ad081a471bb40b9ebda4eb48fcf45aae8cf3", revision: 7, source: "kept", installMinutes: 45 });
+    expect(launch.globalMise).toEqual({
+      text: '[tools]\nnode = "24.11.1"\n',
+      bytes: 25,
+      sha256: "0eb09ceb981ac62b1ed4ebb30295ad081a471bb40b9ebda4eb48fcf45aae8cf3",
+      revision: 7,
+      source: "kept",
+      installMinutes: 45,
+    });
   });
 
   it("is shown by its digest only, never its text", async () => {
     const shown = shownLaunch(await withContainerSteps(launchOf(taken), taken));
-    expect(shown.globalMise).toEqual({ bytes: 25, sha256: "0eb09ceb981ac62b1ed4ebb30295ad081a471bb40b9ebda4eb48fcf45aae8cf3", revision: 7, source: "kept", installMinutes: 45 });
+    expect(shown.globalMise).toEqual({
+      bytes: 25,
+      sha256: "0eb09ceb981ac62b1ed4ebb30295ad081a471bb40b9ebda4eb48fcf45aae8cf3",
+      revision: 7,
+      source: "kept",
+      installMinutes: 45,
+    });
     expect(JSON.stringify(shown)).not.toContain("24.11.1");
   });
 });
@@ -139,26 +244,58 @@ describe("the launch's Global mise install time limit (SPI-1313)", () => {
 });
 
 describe("the launch's Container setup (ADR-0047 §7)", () => {
-  const taken = { settings: { ...DEFAULTS, revision: 8, containerSetup: "apt-get install -y ripgrep\n", containerSetupMinutes: 12, containerSetupFailure: "refuse" as const, setupOutputKiB: 64 }, source: "environment" as const };
+  const taken = {
+    settings: {
+      ...DEFAULTS,
+      revision: 8,
+      containerSetup: "apt-get install -y ripgrep\n",
+      containerSetupMinutes: 12,
+      containerSetupFailure: "refuse" as const,
+      setupOutputKiB: 64,
+    },
+    source: "environment" as const,
+  };
   const SHA = "65de07bbb8dacf17ecd6ba438aa4087ef6d70a6a2f2f4987df5ab9b46833c0db";
 
   it("carries the start's script, its size and SHA-256, its revision, time limit and failure policy", async () => {
     const launch = await withContainerSteps(launchOf(taken), taken);
-    expect(launch.containerSetup).toEqual({ text: "apt-get install -y ripgrep\n", bytes: 27, sha256: SHA, revision: 8, source: "environment", minutes: 12, failure: "refuse", outputBytes: 64 * 1024 });
+    expect(launch.containerSetup).toEqual({
+      text: "apt-get install -y ripgrep\n",
+      bytes: 27,
+      sha256: SHA,
+      revision: 8,
+      source: "environment",
+      minutes: 12,
+      failure: "refuse",
+      outputBytes: 64 * 1024,
+    });
   });
 
   it("is shown by its digest only, never its text", async () => {
     const shown = shownLaunch(await withContainerSteps(launchOf(taken), taken));
-    expect(shown.containerSetup).toEqual({ bytes: 27, sha256: SHA, revision: 8, source: "environment", minutes: 12, failure: "refuse", outputBytes: 64 * 1024 });
+    expect(shown.containerSetup).toEqual({
+      bytes: 27,
+      sha256: SHA,
+      revision: 8,
+      source: "environment",
+      minutes: 12,
+      failure: "refuse",
+      outputBytes: 64 * 1024,
+    });
     expect(JSON.stringify(shown)).not.toContain("ripgrep");
   });
 });
 
 describe("what a launch started from (SPI-1333)", () => {
   it("is kept with the launch and shown as it is: the Base snapshot's id and key, or the image and why", () => {
-    const launch = { ...launchOf({ settings: DEFAULTS, source: "environment" }), from: { base: { snapshotId: "snap-1", key: "k".repeat(64) } } };
+    const launch = {
+      ...launchOf({ settings: DEFAULTS, source: "environment" }),
+      from: { base: { snapshotId: "snap-1", key: "k".repeat(64) } },
+    };
     expect(shownLaunch(launch).from).toEqual({ base: { snapshotId: "snap-1", key: "k".repeat(64) } });
-    expect(shownLaunch({ ...launch, from: { image: { why: "no Image setup and no Global mise config" } } }).from).toEqual({ image: { why: "no Image setup and no Global mise config" } });
+    expect(
+      shownLaunch({ ...launch, from: { image: { why: "no Image setup and no Global mise config" } } }).from,
+    ).toEqual({ image: { why: "no Image setup and no Global mise config" } });
   });
 });
 

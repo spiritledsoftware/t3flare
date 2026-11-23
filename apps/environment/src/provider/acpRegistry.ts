@@ -77,7 +77,10 @@ const DESCRIPTION_MAX = 1_024;
 export const annotated = (agent: AcpRegistrySearchAgent): AcpRegistrySearchAgent => {
   const lead = standingText(standingOf(agent.id));
   const description = agent.description === "" ? lead : `${lead} ${agent.description}`;
-  return { ...agent, description: description.length > DESCRIPTION_MAX ? `${description.slice(0, DESCRIPTION_MAX - 1)}…` : description };
+  return {
+    ...agent,
+    description: description.length > DESCRIPTION_MAX ? `${description.slice(0, DESCRIPTION_MAX - 1)}…` : description,
+  };
 };
 
 const refusal = (agentId: string | undefined) =>
@@ -90,8 +93,11 @@ const refusal = (agentId: string | undefined) =>
   });
 
 /** t3's catalog with every install refused, by the agent's standing. */
-export const refusingCatalog = (stock: AcpRegistrySupport.AcpRegistryCatalog["Service"]): AcpRegistrySupport.AcpRegistryCatalog["Service"] => ({
-  search: (input) => stock.search(input).pipe(Effect.map((result) => ({ ...result, agents: result.agents.map(annotated) }))),
+export const refusingCatalog = (
+  stock: AcpRegistrySupport.AcpRegistryCatalog["Service"],
+): AcpRegistrySupport.AcpRegistryCatalog["Service"] => ({
+  search: (input) =>
+    stock.search(input).pipe(Effect.map((result) => ({ ...result, agents: result.agents.map(annotated) }))),
   prepare: (input) => Effect.fail(refusal(input.agentId)),
   inspect: (settings) => Effect.fail(refusal(settings.agentId === "" ? undefined : settings.agentId)),
   resolve: (settings) => Effect.fail(refusal(settings.agentId === "" ? undefined : settings.agentId)),

@@ -55,7 +55,8 @@ const setup = (remote = fakeRemote()) => {
   let n = 0;
   const processes = new TerminalProcesses({
     newKey: () => `term-k${++n}`,
-    place: (cwd) => (cwd.startsWith("/w/demo") ? { workspace: "demo", t3Path: "/w/demo", remote: remote.remote } : undefined),
+    place: (cwd) =>
+      cwd.startsWith("/w/demo") ? { workspace: "demo", t3Path: "/w/demo", remote: remote.remote } : undefined,
   });
   return { processes, remote };
 };
@@ -96,14 +97,21 @@ describe("the terminal env", () => {
 describe("TerminalProcesses", () => {
   it("refuses other shells as not found, so t3 tries its next shell", () => {
     const { processes } = setup();
-    expect(() => processes.spawn({ shell: "/bin/zsh", cwd: "/w/demo", cols: 80, rows: 24, env: {} })).toThrow(SpawnRefused);
+    expect(() => processes.spawn({ shell: "/bin/zsh", cwd: "/w/demo", cols: 80, rows: 24, env: {} })).toThrow(
+      SpawnRefused,
+    );
   });
 
   it("opens with the filtered env, queues writes until the open answers, then sends them in order, one RPC at a time", async () => {
     const { processes, remote } = setup();
     const process = spawn(processes, { SECRET_KEY: "x", T3CODE_PROJECT_ROOT: "/w/demo" });
     expect(process.pid).toBeGreaterThanOrEqual(100_000);
-    expect(remote.opens[0]).toMatchObject({ key: "term-k1", t3Path: "/w/demo", cwd: "/w/demo", env: { TERM: "xterm-256color", T3CODE_PROJECT_ROOT: "/w/demo" } });
+    expect(remote.opens[0]).toMatchObject({
+      key: "term-k1",
+      t3Path: "/w/demo",
+      cwd: "/w/demo",
+      env: { TERM: "xterm-256color", T3CODE_PROJECT_ROOT: "/w/demo" },
+    });
     process.write("a");
     process.write("b");
     process.resize(100, 30);
@@ -117,7 +125,10 @@ describe("TerminalProcesses", () => {
     process.write("c");
     process.write("d");
     await tick();
-    expect(remote.calls.filter((call) => call.startsWith("input"))).toEqual(['input term-k1 "ab"', 'input term-k1 "slow"']);
+    expect(remote.calls.filter((call) => call.startsWith("input"))).toEqual([
+      'input term-k1 "ab"',
+      'input term-k1 "slow"',
+    ]);
     remote.releaseInput();
     await tick();
     expect(remote.calls.filter((call) => call.startsWith("input")).at(-1)).toBe('input term-k1 "cd"');
@@ -142,12 +153,23 @@ describe("TerminalProcesses", () => {
       ],
     });
     expect(seen).toEqual(["__T3_SETUP_DONE__:0\r\n|busy=false"]);
-    expect(processes.deliver({ workspace: "demo", epoch: "e1", frames: [{ key: "term-k1", seq: 2, busy: true }, { key: "term-zz", seq: 0, data: "x" }] })).toEqual({ unknown: ["term-zz"] });
+    expect(
+      processes.deliver({
+        workspace: "demo",
+        epoch: "e1",
+        frames: [
+          { key: "term-k1", seq: 2, busy: true },
+          { key: "term-zz", seq: 0, data: "x" },
+        ],
+      }),
+    ).toEqual({ unknown: ["term-zz"] });
     expect(processes.busy(process.pid)).toBe(true);
     processes.deliver({ workspace: "demo", epoch: "e1", frames: [{ key: "term-k1", seq: 3, exit: { code: 3 } }] });
     expect(exits).toEqual([3]);
     expect(processes.size).toBe(0);
-    expect(processes.deliver({ workspace: "demo", epoch: "e1", frames: [{ key: "term-k1", seq: 4, data: "late" }] })).toEqual({ unknown: ["term-k1"] });
+    expect(
+      processes.deliver({ workspace: "demo", epoch: "e1", frames: [{ key: "term-k1", seq: 4, data: "late" }] }),
+    ).toEqual({ unknown: ["term-k1"] });
   });
 
   it("sends one close for t3's SIGTERM and SIGKILL, and a kill before the open answers is sent after it", async () => {
@@ -173,7 +195,10 @@ describe("TerminalProcesses", () => {
     expect(exits).toEqual([]);
     remote.restart("e2");
     await processes.beat();
-    expect(remote.calls.filter((call) => call.startsWith("heartbeat"))).toEqual(["heartbeat term-k1", "heartbeat term-k1"]);
+    expect(remote.calls.filter((call) => call.startsWith("heartbeat"))).toEqual([
+      "heartbeat term-k1",
+      "heartbeat term-k1",
+    ]);
     expect(exits).toEqual([129]);
   });
 });

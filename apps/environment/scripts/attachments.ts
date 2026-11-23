@@ -10,7 +10,17 @@ import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import { deflateSync } from "node:zlib";
 
-import { createProjectAndThread, itemsOf, pair, runsOf, sendMessage, SETTLED, uuid, waitFor, wsCall } from "./lib/client.ts";
+import {
+  createProjectAndThread,
+  itemsOf,
+  pair,
+  runsOf,
+  sendMessage,
+  SETTLED,
+  uuid,
+  waitFor,
+  wsCall,
+} from "./lib/client.ts";
 
 const outIndex = process.argv.indexOf("--out");
 const out = outIndex === -1 ? undefined : process.argv[outIndex + 1];
@@ -21,7 +31,11 @@ const check = (name: string, ok: boolean, detail?: unknown) => {
 };
 
 /** A PNG of `width`×`height` RGB pixels from `pixel(x, y)`. */
-const png = (width: number, height: number, pixel: (x: number, y: number) => readonly [number, number, number]): Buffer => {
+const png = (
+  width: number,
+  height: number,
+  pixel: (x: number, y: number) => readonly [number, number, number],
+): Buffer => {
   const crcTable = Array.from({ length: 256 }, (_, n) => {
     let c = n;
     for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
@@ -48,14 +62,27 @@ const png = (width: number, height: number, pixel: (x: number, y: number) => rea
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) rows.set(pixel(x, y), y * (width * 3 + 1) + 1 + x * 3);
   }
-  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header), chunk("IDAT", deflateSync(rows)), chunk("IEND", Buffer.alloc(0))]);
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk("IHDR", header),
+    chunk("IDAT", deflateSync(rows)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
 };
 
 const persist = async (cookie: string, threadId: string, messageId: string, name: string, bytes: Buffer) => {
   const result = (await wsCall(cookie, WS_METHODS.assetsPersistChatAttachments, {
     threadId,
     messageId,
-    attachments: [{ type: "image", name, mimeType: "image/png", sizeBytes: bytes.length, dataUrl: `data:image/png;base64,${bytes.toString("base64")}` }],
+    attachments: [
+      {
+        type: "image",
+        name,
+        mimeType: "image/png",
+        sizeBytes: bytes.length,
+        dataUrl: `data:image/png;base64,${bytes.toString("base64")}`,
+      },
+    ],
   })) as { attachments: Array<Record<string, unknown>> };
   return result.attachments;
 };
@@ -71,10 +98,17 @@ const cookie = await pair();
 // A new Environment has the provider off (onboarding turns it on).
 await wsCall(cookie, "server.updateSettings", {
   patch: {},
-  providerInstanceMutation: { operation: "upsert", instanceId: "piDurable", instance: { driver: "piDurable", enabled: true } },
+  providerInstanceMutation: {
+    operation: "upsert",
+    instanceId: "piDurable",
+    instance: { driver: "piDurable", enabled: true },
+  },
 });
 const stamp = Date.now().toString(36);
-const { threadId } = await createProjectAndThread(cookie, { title: `attachments ${stamp}`, workspaceRoot: `/t3/home/attachments-${stamp}` });
+const { threadId } = await createProjectAndThread(cookie, {
+  title: `attachments ${stamp}`,
+  workspaceRoot: `/t3/home/attachments-${stamp}`,
+});
 
 // 1. A green square: the model must see it to name the colour.
 const green = png(64, 64, () => [20, 190, 40]);
@@ -116,8 +150,17 @@ await sendMessage(
 );
 const second = await waitFor(cookie, threadId, (p) => runsOf(p).filter((r) => SETTLED.has(r.status)).length >= 2);
 const secondAnswer = assistantText(second.projection, before);
-report.overBudget = { ms: second.ms, imageBytes: big.length, run: runsOf(second.projection).map((r) => r.status), answer: secondAnswer };
-check("the over-budget run completed", runsOf(second.projection).every((r) => r.status === "completed"), runsOf(second.projection));
+report.overBudget = {
+  ms: second.ms,
+  imageBytes: big.length,
+  run: runsOf(second.projection).map((r) => r.status),
+  answer: secondAnswer,
+};
+check(
+  "the over-budget run completed",
+  runsOf(second.projection).every((r) => r.status === "completed"),
+  runsOf(second.projection),
+);
 check("the agent was told the image is not shown", /not shown/i.test(secondAnswer), secondAnswer);
 
 report.ok = failures.length === 0;

@@ -32,9 +32,7 @@ const textBase64Url = (text: string): string => toBase64Url(encoder.encode(text)
 
 /** A 128-bit `jti`, as 32 hexadecimal digits. */
 export const randomJti = (): string =>
-  Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
+  Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
 
 /** The claims of a client assertion, in the order they are written (`iat` and `exp` in seconds). */
 export const clientAssertionClaims = (input: {
@@ -107,16 +105,13 @@ export const importSigningKey = async (pem: string): Promise<SigningKey | KeyPro
     return { problem: "The private key's PEM block is not valid Base64" };
   }
 
-  const asRsa = await crypto.subtle
-    .importKey("pkcs8", der, RSA_IMPORT, false, ["sign"])
-    .catch(() => undefined);
+  const asRsa = await crypto.subtle.importKey("pkcs8", der, RSA_IMPORT, false, ["sign"]).catch(() => undefined);
 
   if (asRsa !== undefined) {
     const { algorithm } = asRsa;
 
     const modulusLength =
-      Predicate.hasProperty(algorithm, "modulusLength") &&
-      Predicate.isNumber(algorithm.modulusLength)
+      Predicate.hasProperty(algorithm, "modulusLength") && Predicate.isNumber(algorithm.modulusLength)
         ? algorithm.modulusLength
         : 0;
 
@@ -127,9 +122,7 @@ export const importSigningKey = async (pem: string): Promise<SigningKey | KeyPro
         };
   }
 
-  const asEc = await crypto.subtle
-    .importKey("pkcs8", der, EC_IMPORT, false, ["sign"])
-    .catch(() => undefined);
+  const asEc = await crypto.subtle.importKey("pkcs8", der, EC_IMPORT, false, ["sign"]).catch(() => undefined);
 
   return asEc === undefined
     ? { problem: "The private key is neither an RSA key (2048 bits or more) nor a P-256 key" }
@@ -137,8 +130,7 @@ export const importSigningKey = async (pem: string): Promise<SigningKey | KeyPro
 };
 
 /** Whether `found` is a key problem. */
-export const isKeyProblem = (found: SigningKey | KeyProblem): found is KeyProblem =>
-  "problem" in found;
+export const isKeyProblem = (found: SigningKey | KeyProblem): found is KeyProblem => "problem" in found;
 
 /**
  * A signed client assertion (a JWS, compact): the header `{ alg, typ: "JWT", kid? }`, the claims of

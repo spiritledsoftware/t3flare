@@ -18,7 +18,13 @@
 //   computerd as the server, refuses a group that holds a shell, a CLI agent or computerd (`shared-group`).
 // - `registerTerminalProcesses`, `unregisterTerminal` and `trackAgent` are no-ops: the terminal layer names its shells'
 //   owners itself, and attribution comes from markers, not pids.
-import { CONFIGURED_LOCAL_SERVER_URLS_MAX_ITEMS, type DiscoveredLocalServer, PREVIEW_URL_MAX_LENGTH, PreviewStopLocalServerError, ThreadId } from "@t3tools/contracts";
+import {
+  CONFIGURED_LOCAL_SERVER_URLS_MAX_ITEMS,
+  type DiscoveredLocalServer,
+  PREVIEW_URL_MAX_LENGTH,
+  PreviewStopLocalServerError,
+  ThreadId,
+} from "@t3tools/contracts";
 import { isLoopbackHost } from "@t3tools/shared/preview";
 import { toWorkspace } from "@t3flare/workspace-client";
 import type { PortScan, ScannedListener } from "@t3flare/sandbox-image/ports";
@@ -42,7 +48,12 @@ const NAVIGATION_REDIRECTS = new Set([301, 302, 303, 307, 308]);
 
 export interface Lookups {
   /** A live shell by key: its Workspace and t3's owner, if t3 named one. */
-  readonly terminal: (key: string) => { readonly workspace: string; readonly owner: { readonly threadId: string; readonly terminalId: string } | undefined } | undefined;
+  readonly terminal: (key: string) =>
+    | {
+        readonly workspace: string;
+        readonly owner: { readonly threadId: string; readonly terminalId: string } | undefined;
+      }
+    | undefined;
   /** A live CLI process by key: its Workspace and thread. */
   readonly process: (key: string) => { readonly workspace: string; readonly thread: string | undefined } | undefined;
   /** The Workspace a thread works in (its worktree's, else its project's). */
@@ -56,7 +67,10 @@ const ownerOf = (workspace: string, listener: ScannedListener, lookups: Lookups)
   if (exec.startsWith("term-")) {
     const shell = lookups.terminal(exec);
     if (shell?.workspace === workspace && shell.owner !== undefined) {
-      return { terminal: { threadId: ThreadId.make(shell.owner.threadId), terminalId: shell.owner.terminalId }, agent: null };
+      return {
+        terminal: { threadId: ThreadId.make(shell.owner.threadId), terminalId: shell.owner.terminalId },
+        agent: null,
+      };
     }
     return undefined;
   }
@@ -76,11 +90,22 @@ const ownerOf = (workspace: string, listener: ScannedListener, lookups: Lookups)
 };
 
 /** The owned servers of one Workspace's scan, as stock lists them: one per port, unowned ones left out. */
-export const serversOf = (workspace: string, scan: PortScan, lookups: Lookups): ReadonlyArray<DiscoveredLocalServer> => {
+export const serversOf = (
+  workspace: string,
+  scan: PortScan,
+  lookups: Lookups,
+): ReadonlyArray<DiscoveredLocalServer> => {
   const byPort = new Map<number, DiscoveredLocalServer>();
   for (const listener of scan.listeners) {
     if (listener.port === COMPUTERD_PORT || listener.pid === scan.computerd || byPort.has(listener.port)) continue;
-    if (!Number.isInteger(listener.port) || listener.port <= 0 || listener.port > 65_535 || !Number.isInteger(listener.pid) || listener.pid <= 0) continue;
+    if (
+      !Number.isInteger(listener.port) ||
+      listener.port <= 0 ||
+      listener.port > 65_535 ||
+      !Number.isInteger(listener.pid) ||
+      listener.pid <= 0
+    )
+      continue;
     const owner = ownerOf(workspace, listener, lookups);
     if (owner === undefined) continue;
     const name = listener.comm.trim().slice(0, 64);
@@ -118,21 +143,25 @@ export const normalizeConfiguredUrls = (urls: ReadonlyArray<string>): ReadonlyAr
 const portOf = (url: URL) => (url.port === "" ? (url.protocol === "http:" ? 80 : 443) : Number(url.port));
 
 /** The Workspace of a thread, from t3's projection: its worktree's, else its project's (as `deletion.ts` reads it). */
-export const threadWorkspaceFrom = (sql: SqlStorage) => (threadId: string): string | undefined => {
-  try {
-    const row = sql
-      .exec<{ worktree: string | null; root: string | null }>(
-        "SELECT json_extract(t.payload_json, '$.worktreePath') AS worktree, p.workspace_root AS root FROM orchestration_v2_projection_threads t LEFT JOIN projection_projects p ON p.project_id = t.project_id WHERE t.thread_id = ? AND t.deleted_at IS NULL",
-        threadId,
-      )
-      .toArray()[0];
-    if (row === undefined) return undefined;
-    return (row.worktree ? toWorkspace(row.worktree)?.id : undefined) ?? (row.root ? toWorkspace(row.root)?.id : undefined);
-  } catch {
-    // A table t3 renamed: no attribution rather than a wrong one (fragility U60).
-    return undefined;
-  }
-};
+export const threadWorkspaceFrom =
+  (sql: SqlStorage) =>
+  (threadId: string): string | undefined => {
+    try {
+      const row = sql
+        .exec<{ worktree: string | null; root: string | null }>(
+          "SELECT json_extract(t.payload_json, '$.worktreePath') AS worktree, p.workspace_root AS root FROM orchestration_v2_projection_threads t LEFT JOIN projection_projects p ON p.project_id = t.project_id WHERE t.thread_id = ? AND t.deleted_at IS NULL",
+          threadId,
+        )
+        .toArray()[0];
+      if (row === undefined) return undefined;
+      return (
+        (row.worktree ? toWorkspace(row.worktree)?.id : undefined) ?? (row.root ? toWorkspace(row.root)?.id : undefined)
+      );
+    } catch {
+      // A table t3 renamed: no attribution rather than a wrong one (fragility U60).
+      return undefined;
+    }
+  };
 
 const lookups = (): Lookups => {
   const services = environmentServices();
@@ -151,7 +180,9 @@ const runningWorkspaces = async (): Promise<ReadonlyArray<string>> => {
   const services = environmentServices();
   if (services.agents.CONTAINER_BUDGET === undefined || services.agents.WORKSPACES === undefined) return [];
   const state = await byName(services.agents.CONTAINER_BUDGET, "budget", "CONTAINER_BUDGET").state();
-  const names = new Map(services.workspaces.list().map((ws) => [String(services.agents.WORKSPACES?.idFromName(ws.id)), ws.id]));
+  const names = new Map(
+    services.workspaces.list().map((ws) => [String(services.agents.WORKSPACES?.idFromName(ws.id)), ws.id]),
+  );
   return state.leases.flatMap((lease) => {
     const id = names.get(lease.holder);
     return id === undefined ? [] : [id];
@@ -176,7 +207,11 @@ const scanAll = async (): Promise<ReadonlyArray<Scanned>> => {
   return scanned.filter((entry): entry is Scanned => entry !== undefined);
 };
 
-const isWebAnswer = (probe: { readonly status: number; readonly contentType: string | null; readonly location: string | null }) => {
+const isWebAnswer = (probe: {
+  readonly status: number;
+  readonly contentType: string | null;
+  readonly location: string | null;
+}) => {
   if (NAVIGATION_REDIRECTS.has(probe.status) && probe.location) return true;
   if (probe.status < 200 || probe.status >= 300 || probe.status === 204 || probe.status === 205) return false;
   const type = probe.contentType?.split(";", 1)[0]?.trim().toLowerCase();
@@ -208,7 +243,10 @@ export const make = Effect.gen(function* () {
     return web;
   };
 
-  const project = async (scanned: ReadonlyArray<Scanned>, configuredUrls: ReadonlyArray<string>): Promise<ReadonlyArray<DiscoveredLocalServer>> => {
+  const project = async (
+    scanned: ReadonlyArray<Scanned>,
+    configuredUrls: ReadonlyArray<string>,
+  ): Promise<ReadonlyArray<DiscoveredLocalServer>> => {
     const servers = scanned.flatMap((entry) => entry.servers);
     const configured: Array<DiscoveredLocalServer> = [];
     const opened = new Set<DiscoveredLocalServer>();
@@ -222,11 +260,18 @@ export const make = Effect.gen(function* () {
         configured.push(...listed.map((server) => ({ ...server, url: raw })));
         continue;
       }
-      if (await probeConfigured(raw, scanned.map((entry) => entry.workspace))) {
+      if (
+        await probeConfigured(
+          raw,
+          scanned.map((entry) => entry.workspace),
+        )
+      ) {
         configured.push({ host: url.hostname, port, url: raw, processName: null, pid: null, terminal: null });
       }
     }
-    return [...configured, ...servers.filter((server) => !opened.has(server))].toSorted((left, right) => left.port - right.port);
+    return [...configured, ...servers.filter((server) => !opened.has(server))].toSorted(
+      (left, right) => left.port - right.port,
+    );
   };
 
   const scanOnce = (configuredUrls: ReadonlyArray<string> = []) =>
@@ -236,7 +281,10 @@ export const make = Effect.gen(function* () {
 
   type Listener = (servers: ReadonlyArray<DiscoveredLocalServer>) => Effect.Effect<void>;
   const state = yield* Ref.make<{
-    readonly listeners: ReadonlyMap<Listener, { readonly configuredUrls: ReadonlyArray<string>; readonly lastSnapshot: ReadonlyArray<DiscoveredLocalServer> }>;
+    readonly listeners: ReadonlyMap<
+      Listener,
+      { readonly configuredUrls: ReadonlyArray<string>; readonly lastSnapshot: ReadonlyArray<DiscoveredLocalServer> }
+    >;
     readonly retainCount: number;
   }>({ listeners: new Map(), retainCount: 0 });
 
@@ -257,11 +305,15 @@ export const make = Effect.gen(function* () {
     }
   }).pipe(Effect.catchCause((cause) => Effect.logWarning("preview port scan failed", cause)));
 
-  const pollIfRetained = Ref.get(state).pipe(Effect.flatMap((current) => (current.retainCount > 0 ? pollTick : Effect.void)));
+  const pollIfRetained = Ref.get(state).pipe(
+    Effect.flatMap((current) => (current.retainCount > 0 ? pollTick : Effect.void)),
+  );
   yield* Effect.forkScoped(pollIfRetained.pipe(Effect.repeat(Schedule.spaced(POLL_MS))));
 
   const retain = Effect.acquireRelease(
-    Ref.update(state, (current) => ({ ...current, retainCount: current.retainCount + 1 })).pipe(Effect.andThen(pollTick)),
+    Ref.update(state, (current) => ({ ...current, retainCount: current.retainCount + 1 })).pipe(
+      Effect.andThen(pollTick),
+    ),
     () => Ref.update(state, (current) => ({ ...current, retainCount: Math.max(0, current.retainCount - 1) })),
   ).pipe(Effect.asVoid);
 
@@ -269,7 +321,10 @@ export const make = Effect.gen(function* () {
     Effect.acquireRelease(
       Ref.update(state, (current) => {
         const listeners = new Map(current.listeners);
-        listeners.set(listener, { configuredUrls: normalizeConfiguredUrls(input.configuredUrls), lastSnapshot: input.initialSnapshot });
+        listeners.set(listener, {
+          configuredUrls: normalizeConfiguredUrls(input.configuredUrls),
+          lastSnapshot: input.initialSnapshot,
+        });
         return { ...current, listeners };
       }),
       () =>
@@ -282,8 +337,13 @@ export const make = Effect.gen(function* () {
 
   const stopServer: PortScanner.PortDiscovery["Service"]["stopServer"] = (input) =>
     Effect.gen(function* () {
-      const scanned = yield* Effect.tryPromise({ try: () => scanAll(), catch: (cause) => new PreviewStopLocalServerError({ reason: "signal-failed", cause }) });
-      const holders = scanned.filter((entry) => entry.servers.some((server) => server.pid === input.pid && server.port === input.port));
+      const scanned = yield* Effect.tryPromise({
+        try: () => scanAll(),
+        catch: (cause) => new PreviewStopLocalServerError({ reason: "signal-failed", cause }),
+      });
+      const holders = scanned.filter((entry) =>
+        entry.servers.some((server) => server.pid === input.pid && server.port === input.port),
+      );
       // Unknown, or the same (pid, port) in two Workspaces: the client scans again (plan §2.1).
       if (holders.length !== 1) return yield* new PreviewStopLocalServerError({ reason: "not-found" });
       const { workspace, scan } = holders[0]!;

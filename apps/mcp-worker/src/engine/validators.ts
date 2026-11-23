@@ -39,9 +39,7 @@ type Compiled =
 
 export interface ValidatorsApi {
   /** Compiles each tool's `outputSchema` into the cache, yielding between them; the tools TypeBox rejected. */
-  readonly compileAll: (
-    tools: ReadonlyArray<McpToolDefinition>,
-  ) => Effect.Effect<ReadonlyArray<McpToolProblem>>;
+  readonly compileAll: (tools: ReadonlyArray<McpToolDefinition>) => Effect.Effect<ReadonlyArray<McpToolProblem>>;
   /** How `structuredContent` fits `outputSchema`. */
   readonly check: (
     outputSchema: JsonObject,
@@ -49,9 +47,7 @@ export interface ValidatorsApi {
   ) => Effect.Effect<McpStructuredOutput>;
 }
 
-export class Validators extends Context.Service<Validators, ValidatorsApi>()(
-  "@t3flare/mcp-worker/engine/validators",
-) {
+export class Validators extends Context.Service<Validators, ValidatorsApi>()("@t3flare/mcp-worker/engine/validators") {
   static readonly layer = Layer.sync(Validators, () => makeValidators());
 }
 
@@ -61,14 +57,10 @@ const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Json));
 const hashOf = (schema: JsonObject) =>
   encodeJson(schema).pipe(
     Effect.orDie,
-    Effect.flatMap((json) =>
-      Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(json))),
-    ),
+    Effect.flatMap((json) => Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(json)))),
     Effect.map((digest) =>
       Arr.join(
-        Arr.map(Arr.fromIterable(new Uint8Array(digest)), (byte) =>
-          byte.toString(16).padStart(2, "0"),
-        ),
+        Arr.map(Arr.fromIterable(new Uint8Array(digest)), (byte) => byte.toString(16).padStart(2, "0")),
         "",
       ),
     ),

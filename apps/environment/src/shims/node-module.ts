@@ -38,7 +38,12 @@ const NATIVE = new Set(["@ff-labs/fff-node", "node-pty", "ffi-rs", "transcribe-c
 export const createRequire = (from: string | URL) => {
   const require = real.createRequire(from);
   const wrapped = ((id: string) => (NATIVE.has(id) ? unavailable(id) : require(id))) as NodeJS.Require;
-  return Object.assign(wrapped, { resolve: require.resolve, cache: require.cache, main: require.main, extensions: require.extensions });
+  return Object.assign(wrapped, {
+    resolve: require.resolve,
+    cache: require.cache,
+    main: require.main,
+    extensions: require.extensions,
+  });
 };
 
 // `real` is the module namespace, not a class: its own exports are what is spread.

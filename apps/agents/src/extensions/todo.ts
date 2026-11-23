@@ -19,5 +19,7 @@ export const todoExtension = (harness: () => Promise<Harness>): Extension =>
     tools: [todoTool()],
     hooks: [todoWindow(harness), todoResult()],
     // Fixed text, so it never moves the cache prefix.
-    sections: [section("todo", (input) => (input.agent.tools.some((tool) => tool.name === "todo") ? TODO_GUIDELINE : undefined))],
+    sections: [
+      section("todo", (input) => (input.agent.tools.some((tool) => tool.name === "todo") ? TODO_GUIDELINE : undefined)),
+    ],
   });

@@ -86,7 +86,8 @@ export class ByteQueue {
       return;
     }
     if (this.#mode === "wait") {
-      while (this.#bytes > 0 && this.#bytes + chunk.byteLength > this.#limit && !this.#ended) await new Promise<void>((resolve) => this.#room.push(resolve));
+      while (this.#bytes > 0 && this.#bytes + chunk.byteLength > this.#limit && !this.#ended)
+        await new Promise<void>((resolve) => this.#room.push(resolve));
       if (this.#ended) return;
     }
     this.#chunks.push(chunk);
@@ -187,7 +188,8 @@ export class ChannelProcess {
   /** Queues stdin bytes, in pieces, after every earlier write. */
   write(chunk: Uint8Array): Promise<void> {
     const pieces: Array<Uint8Array> = [];
-    for (let at = 0; at < chunk.byteLength; at += INPUT_PIECE_BYTES) pieces.push(chunk.subarray(at, Math.min(chunk.byteLength, at + INPUT_PIECE_BYTES)));
+    for (let at = 0; at < chunk.byteLength; at += INPUT_PIECE_BYTES)
+      pieces.push(chunk.subarray(at, Math.min(chunk.byteLength, at + INPUT_PIECE_BYTES)));
     for (const piece of pieces) this.#writes = this.#writes.then(() => this.#send(piece));
     return this.#writes;
   }
@@ -212,7 +214,9 @@ export class ChannelProcess {
         return;
       } catch (error) {
         if (attempt >= INPUT_RETRIES) {
-          console.warn(JSON.stringify({ t3flare: "process-input-failed", key: this.key, error: String(error).slice(0, 200) }));
+          console.warn(
+            JSON.stringify({ t3flare: "process-input-failed", key: this.key, error: String(error).slice(0, 200) }),
+          );
           this.kill();
           this.finish(129);
           return;
@@ -230,7 +234,9 @@ export class ChannelProcess {
       .processSignal(this.key)
       .then((answer) => this.checkAnswer(answer))
       .catch((error: unknown) => {
-        console.warn(JSON.stringify({ t3flare: "process-signal-failed", key: this.key, error: String(error).slice(0, 200) }));
+        console.warn(
+          JSON.stringify({ t3flare: "process-signal-failed", key: this.key, error: String(error).slice(0, 200) }),
+        );
         this.finish(129);
       });
   }
@@ -264,15 +270,17 @@ export class ChannelProcess {
     else if (frame.stream === "stderr" && frame.data !== undefined) {
       this.#stderrTail = (this.#stderrTail + this.#decoder.decode(frame.data, { stream: true })).slice(-STDERR_TAIL);
       await this.stderr.offer(frame.data);
-    }
-    else if (frame.stream === "exit") this.finish(frame.code ?? 129);
+    } else if (frame.stream === "exit") this.finish(frame.code ?? 129);
   }
 
   finish(code: number): void {
     if (this.exitCode !== undefined) return;
     this.exitCode = code;
     // A CLI that ends on its own with an error: its last words, for diagnosis (t3 shows only that it exited).
-    if (code !== 0 && code !== 143 && code !== 137) console.warn(JSON.stringify({ t3flare: "cli-exited", key: this.key, cli: this.cli, code, stderrTail: this.#stderrTail }));
+    if (code !== 0 && code !== 143 && code !== 137)
+      console.warn(
+        JSON.stringify({ t3flare: "cli-exited", key: this.key, cli: this.cli, code, stderrTail: this.#stderrTail }),
+      );
     this.stdout.end();
     this.stderr.end();
     this.#channel.forget(this);
@@ -353,7 +361,10 @@ export class ProcessChannel {
   /** Starts a process; resolves once it runs in the Container, or rejects with the Workspace's reason. */
   async start(input: ChannelStart): Promise<ChannelProcess> {
     const place = this.#deps.place(input.cwd);
-    if (place === undefined) throw new ProcessRefused(`${({ pi: "Pi", codex: "Codex", claude: "Claude Code", opencode: "OpenCode" } as Record<string, string>)[input.cli] ?? input.cli} runs in a Workspace's Container, and ${input.cwd} is in none; start the thread in a project`);
+    if (place === undefined)
+      throw new ProcessRefused(
+        `${({ pi: "Pi", codex: "Codex", claude: "Claude Code", opencode: "OpenCode" } as Record<string, string>)[input.cli] ?? input.cli} runs in a Workspace's Container, and ${input.cwd} is in none; start the thread in a project`,
+      );
     const key = input.key ?? this.#deps.newKey();
     const process = new ChannelProcess(this, this.#nextPid++, key, place, input.cli);
     this.#byKey.set(key, process);
@@ -442,11 +453,22 @@ export class ProcessChannel {
       const started = processes.filter((process) => process.epoch !== undefined);
       let answer: ProcessReadAnswer;
       try {
-        answer = await place.remote.processRead({ keys: started.map((process) => process.key), ack, waitMs: READ_WAIT_MS });
+        answer = await place.remote.processRead({
+          keys: started.map((process) => process.key),
+          ack,
+          waitMs: READ_WAIT_MS,
+        });
         failures = 0;
       } catch (error) {
         failures++;
-        console.warn(JSON.stringify({ t3flare: "process-read-failed", workspace: place.workspace, failures, error: String(error).slice(0, 200) }));
+        console.warn(
+          JSON.stringify({
+            t3flare: "process-read-failed",
+            workspace: place.workspace,
+            failures,
+            error: String(error).slice(0, 200),
+          }),
+        );
         if (failures >= READ_FAILURES) {
           for (const process of this.#inWorkspace(place.workspace)) process.finish(129);
           continue;

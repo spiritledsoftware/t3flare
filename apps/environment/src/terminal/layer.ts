@@ -50,7 +50,12 @@ export const makeTerminalProcesses = (): TerminalProcesses =>
       const located = locate(cwd);
       if (located === undefined) return undefined;
       const parent = located.record.kind === "worktree" ? located.record.parent : null;
-      return { workspace: located.id, t3Path: `/w/${located.id}`, remote: located.rpc, ...(parent === null ? {} : { projectRoot: `/w/${parent}` }) };
+      return {
+        workspace: located.id,
+        t3Path: `/w/${located.id}`,
+        remote: located.rpc,
+        ...(parent === null ? {} : { projectRoot: `/w/${parent}` }),
+      };
     },
   });
 
@@ -68,10 +73,15 @@ export const terminalManagerOptions = (processes: TerminalProcesses, logsDir: st
         catch: (cause) => new PtyAdapter.PtySpawnError({ adapter: "t3flare", shell: input.shell, cause }),
       }),
   },
-  subprocessInspector: (pid: number) => Effect.succeed({ hasRunningSubprocess: processes.busy(pid), childCommand: null, processIds: [pid] }),
-  registerTerminalProcesses: (input: { readonly threadId: string; readonly terminalId: string; readonly processIds: ReadonlyArray<number> }) =>
-    Effect.sync(() => processes.registerOwner(input)),
-  unregisterTerminal: (input: { readonly threadId: string; readonly terminalId: string }) => Effect.sync(() => processes.unregisterOwner(input)),
+  subprocessInspector: (pid: number) =>
+    Effect.succeed({ hasRunningSubprocess: processes.busy(pid), childCommand: null, processIds: [pid] }),
+  registerTerminalProcesses: (input: {
+    readonly threadId: string;
+    readonly terminalId: string;
+    readonly processIds: ReadonlyArray<number>;
+  }) => Effect.sync(() => processes.registerOwner(input)),
+  unregisterTerminal: (input: { readonly threadId: string; readonly terminalId: string }) =>
+    Effect.sync(() => processes.unregisterOwner(input)),
 });
 
 /** A shell as the Container resolves it: one of `SHELLS` is itself (the PTY adapter runs it there), any other none. */

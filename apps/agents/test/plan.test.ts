@@ -7,15 +7,24 @@ import { describe, expect, it } from "vitest";
 
 import { ALWAYS_OFFERED } from "../src/extensions/codemode.ts";
 import { allowedByDefault } from "../src/extensions/guardian/policy.ts";
-import { PLAN_CAPTURED, PLAN_OUTSIDE_PLAN_MODE, PROPOSE_PLAN_INSTRUCTION, proposePlan } from "../src/extensions/plan.ts";
+import {
+  PLAN_CAPTURED,
+  PLAN_OUTSIDE_PLAN_MODE,
+  PROPOSE_PLAN_INSTRUCTION,
+  proposePlan,
+} from "../src/extensions/plan.ts";
 import { context, restartingHarness, textOf, until } from "./harness.fixture.ts";
 
 const PLAN = "# Add a cache\n\n1. Read the config.\n2. Add the cache.";
-const propose = () => fauxAssistantMessage([fauxToolCall(PROPOSE_PLAN_TOOL, { plan: PLAN }, { id: "plan-1" })], { stopReason: "toolUse" });
+const propose = () =>
+  fauxAssistantMessage([fauxToolCall(PROPOSE_PLAN_TOOL, { plan: PLAN }, { id: "plan-1" })], { stopReason: "toolUse" });
 
 describe("propose_plan", () => {
   it("in plan mode hands the plan over and ends the run without another model request", async () => {
-    const harness = await restartingHarness([proposePlan(() => "plan")], [propose(), fauxAssistantMessage("AFTER THE PLAN")]);
+    const harness = await restartingHarness(
+      [proposePlan(() => "plan")],
+      [propose(), fauxAssistantMessage("AFTER THE PLAN")],
+    );
     await until(async () => (await harness.lastToolResult()) !== undefined, "the result");
     const result = await harness.lastToolResult();
     expect(textOf(result)).toBe(PLAN_CAPTURED);
@@ -25,8 +34,14 @@ describe("propose_plan", () => {
   });
 
   it("outside plan mode refuses, and the run goes on", async () => {
-    const harness = await restartingHarness([proposePlan(() => "default")], [propose(), fauxAssistantMessage("carried on")]);
-    await until(async () => (await harness.messages()).some((message) => message.text === "carried on"), "the next answer");
+    const harness = await restartingHarness(
+      [proposePlan(() => "default")],
+      [propose(), fauxAssistantMessage("carried on")],
+    );
+    await until(
+      async () => (await harness.messages()).some((message) => message.text === "carried on"),
+      "the next answer",
+    );
     const result = await harness.lastToolResult();
     expect(textOf(result)).toBe(PLAN_OUTSIDE_PLAN_MODE);
     expect(result?.isError).toBe(true);

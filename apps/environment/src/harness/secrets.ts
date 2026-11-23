@@ -22,7 +22,10 @@ export interface HarnessSecrets {
   hmac(value: string): Promise<string>;
 }
 
-export const harnessSecrets = (kv: KvStorage & { delete(key: string): unknown }, now: () => number = Date.now): HarnessSecrets => {
+export const harnessSecrets = (
+  kv: KvStorage & { delete(key: string): unknown },
+  now: () => number = Date.now,
+): HarnessSecrets => {
   const fingerprintKey = () => {
     const kept = kv.get<ArrayBuffer>(FINGERPRINT_KEY);
     if (kept !== undefined) return new Uint8Array(kept);
@@ -31,12 +34,18 @@ export const harnessSecrets = (kv: KvStorage & { delete(key: string): unknown },
     return key;
   };
   const hmac = async (value: string) => {
-    const key = await crypto.subtle.importKey("raw", fingerprintKey(), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-    return [...new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value)))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    const key = await crypto.subtle.importKey("raw", fingerprintKey(), { name: "HMAC", hash: "SHA-256" }, false, [
+      "sign",
+    ]);
+    return [...new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value)))]
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
   };
   const mark = (server: string, field: string): SecretMark => {
     const stored = kv.get<{ value: string; setAt: number; fingerprint: string }>(keyOf(server, field));
-    return stored === undefined ? { set: false, setAt: null, fingerprint: null } : { set: true, setAt: stored.setAt, fingerprint: stored.fingerprint };
+    return stored === undefined
+      ? { set: false, setAt: null, fingerprint: null }
+      : { set: true, setAt: stored.setAt, fingerprint: stored.fingerprint };
   };
   return {
     hmac,

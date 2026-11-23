@@ -30,7 +30,11 @@ export const environmentSkillsTakeAccess = (): CliSkillsTakeAccess => ({
 });
 
 /** Has the Workspace of t3 path `cwd` take the Environment skill set now, at most `waitMs`; never fails. */
-export const takeEnvironmentSkillsAt = (cwd: string | null | undefined, access: CliSkillsTakeAccess = environmentSkillsTakeAccess(), waitMs?: number): Effect.Effect<void> =>
+export const takeEnvironmentSkillsAt = (
+  cwd: string | null | undefined,
+  access: CliSkillsTakeAccess = environmentSkillsTakeAccess(),
+  waitMs?: number,
+): Effect.Effect<void> =>
   cwd === null || cwd === undefined
     ? Effect.void
     : Effect.promise(async () => {

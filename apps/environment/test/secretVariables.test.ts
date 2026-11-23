@@ -12,7 +12,15 @@ import { csrfToken } from "../src/harness/csrf.ts";
 import { CSRF_HEADER, handleHarness, type HarnessDeps } from "../src/harness/panel.ts";
 import { openVariables, readVariables, sealVariablesIn } from "../src/harness/variableSeal.ts";
 import { settingsCall } from "../src/settings/server.ts";
-import { CREDENTIALS_KEY, HOST, NOW, settingsFixture, type SettingsFixture, structured, textOf } from "./settingsFixture.ts";
+import {
+  CREDENTIALS_KEY,
+  HOST,
+  NOW,
+  settingsFixture,
+  type SettingsFixture,
+  structured,
+  textOf,
+} from "./settingsFixture.ts";
 
 const SECRET = "npm_l1ve_s3cret_value";
 const OTHER = "npm_0ther_s3cret_value";
@@ -34,10 +42,26 @@ const opened = async (stored: StoredEnvironment) => (await openVariables(stored,
 
 describe("sealing (variableSeal.ts)", () => {
   it("seals a secret's value: the stored change holds its sealed value and fingerprint, never the value", async () => {
-    const sealed = await sealVariablesIn({ variables: [plain("A", "1"), secret("NPM_TOKEN", SECRET)] }, EMPTY_ENVIRONMENT, sealer);
+    const sealed = await sealVariablesIn(
+      { variables: [plain("A", "1"), secret("NPM_TOKEN", SECRET)] },
+      EMPTY_ENVIRONMENT,
+      sealer,
+    );
     if (!sealed.ok) throw new Error(sealed.error);
     expect(JSON.stringify(sealed.settings)).not.toContain(SECRET);
-    expect(sealed.settings.variables).toEqual([plain("A", "1"), { name: "NPM_TOKEN", value: "", secret: true, sealed: { iv: expect.any(String), data: expect.any(String), fingerprint: expect.stringMatching(/^[0-9a-f]{8}$/) } }]);
+    expect(sealed.settings.variables).toEqual([
+      plain("A", "1"),
+      {
+        name: "NPM_TOKEN",
+        value: "",
+        secret: true,
+        sealed: {
+          iv: expect.any(String),
+          data: expect.any(String),
+          fingerprint: expect.stringMatching(/^[0-9a-f]{8}$/),
+        },
+      },
+    ]);
   });
 
   it("keeps a redacted secret's stored value, refuses one with nothing stored, and leaves the rest as given", async () => {
@@ -45,9 +69,18 @@ describe("sealing (variableSeal.ts)", () => {
     if (!first.ok) throw new Error(first.error);
     const stored: StoredEnvironment = { revision: 1, settings: first.settings as StoredEnvironment["settings"] };
     const again = await sealVariablesIn({ variables: [kept("T"), plain("B", "2")] }, stored, sealer);
-    expect(again).toEqual({ ok: true, settings: first.ok ? { variables: [...(first.settings.variables as Array<unknown>), plain("B", "2")] } : {} });
-    expect(await sealVariablesIn({ variables: [kept("U")] }, stored, sealer)).toEqual({ ok: false, error: 'variables: "U" keeps a secret value, and none is stored under that name: give its value' });
-    expect(await sealVariablesIn({ containerBudget: 4 }, stored, sealer)).toEqual({ ok: true, settings: { containerBudget: 4 } });
+    expect(again).toEqual({
+      ok: true,
+      settings: first.ok ? { variables: [...(first.settings.variables as Array<unknown>), plain("B", "2")] } : {},
+    });
+    expect(await sealVariablesIn({ variables: [kept("U")] }, stored, sealer)).toEqual({
+      ok: false,
+      error: 'variables: "U" keeps a secret value, and none is stored under that name: give its value',
+    });
+    expect(await sealVariablesIn({ containerBudget: 4 }, stored, sealer)).toEqual({
+      ok: true,
+      settings: { containerBudget: 4 },
+    });
   });
 
   it("refuses a sealed value from outside; the door's own replay keeps one only if it opens under its name", async () => {
@@ -56,9 +89,19 @@ describe("sealing (variableSeal.ts)", () => {
     const entry = (first.settings.variables as Array<{ sealed: unknown }>)[0]!;
     const given = { variables: [{ name: "T", value: "", secret: true, sealed: entry.sealed }] };
     // ADR-0046 §1: a change gives a value or valueRedacted; a sealed value seen once could bring back an old value.
-    expect(await sealVariablesIn(given, EMPTY_ENVIRONMENT, sealer)).toEqual({ ok: false, error: 'variables: "T" gives a sealed value: give its value, or valueRedacted to keep the one stored' });
+    expect(await sealVariablesIn(given, EMPTY_ENVIRONMENT, sealer)).toEqual({
+      ok: false,
+      error: 'variables: "T" gives a sealed value: give its value, or valueRedacted to keep the one stored',
+    });
     expect(await sealVariablesIn(given, EMPTY_ENVIRONMENT, sealer, { sealedAtDoor: true })).toMatchObject({ ok: true });
-    expect(await sealVariablesIn({ variables: [{ name: "MOVED", value: "", secret: true, sealed: entry.sealed }] }, EMPTY_ENVIRONMENT, sealer, { sealedAtDoor: true })).toEqual({
+    expect(
+      await sealVariablesIn(
+        { variables: [{ name: "MOVED", value: "", secret: true, sealed: entry.sealed }] },
+        EMPTY_ENVIRONMENT,
+        sealer,
+        { sealedAtDoor: true },
+      ),
+    ).toEqual({
       ok: false,
       error: 'variables: "MOVED"\'s sealed value does not open here: give its value',
     });
@@ -69,39 +112,68 @@ describe("sealing (variableSeal.ts)", () => {
     if (!first.ok) throw new Error(first.error);
     const entry = (first.settings.variables as Array<{ sealed: unknown }>)[0]!;
     const plainSealed = { variables: [{ name: "X", value: "1", secret: false, sealed: entry.sealed }] };
-    const refused = { ok: false, error: 'variables: "X" gives a sealed value: give its value, or valueRedacted to keep the one stored' };
+    const refused = {
+      ok: false,
+      error: 'variables: "X" gives a sealed value: give its value, or valueRedacted to keep the one stored',
+    };
     expect(await sealVariablesIn(plainSealed, EMPTY_ENVIRONMENT, sealer)).toEqual(refused);
     expect(await sealVariablesIn(plainSealed, EMPTY_ENVIRONMENT, sealer, { sealedAtDoor: true })).toEqual(refused);
   });
 
   it("refuses a secret with an empty value and no redacted mark: it would blank the stored secret", async () => {
-    expect(await sealVariablesIn({ variables: [secret("T", "")] }, EMPTY_ENVIRONMENT, sealer)).toEqual({ ok: false, error: 'variables: "T" is secret and has no value: give its value' });
+    expect(await sealVariablesIn({ variables: [secret("T", "")] }, EMPTY_ENVIRONMENT, sealer)).toEqual({
+      ok: false,
+      error: 'variables: "T" is secret and has no value: give its value',
+    });
   });
 
   it("reads a secret this key does not open as unreadable, never with a value", async () => {
-    const first = await sealVariablesIn({ variables: [plain("A", "1"), secret("T", SECRET)] }, EMPTY_ENVIRONMENT, sealer);
+    const first = await sealVariablesIn(
+      { variables: [plain("A", "1"), secret("T", SECRET)] },
+      EMPTY_ENVIRONMENT,
+      sealer,
+    );
     if (!first.ok) throw new Error(first.error);
     const stored: StoredEnvironment = { revision: 1, settings: first.settings as StoredEnvironment["settings"] };
     const set = { name: "T", value: "", secret: true, valueRedacted: true, fingerprint: expect.any(String) };
     expect(await readVariables(stored, sealer)).toEqual([plain("A", "1"), set]);
-    expect(await readVariables(stored, valueSealer("d".repeat(64)))).toEqual([plain("A", "1"), { ...set, unreadable: true }]);
+    expect(await readVariables(stored, valueSealer("d".repeat(64)))).toEqual([
+      plain("A", "1"),
+      { ...set, unreadable: true },
+    ]);
     expect(await readVariables(stored, undefined)).toEqual([plain("A", "1"), { ...set, unreadable: true }]);
   });
 
   it("refuses a secret to seal without a credentials key, and a value with a NUL before sealing it", async () => {
-    expect(await sealVariablesIn({ variables: [secret("T", SECRET)] }, EMPTY_ENVIRONMENT, valueSealer(undefined))).toEqual({
+    expect(
+      await sealVariablesIn({ variables: [secret("T", SECRET)] }, EMPTY_ENVIRONMENT, valueSealer(undefined)),
+    ).toEqual({
       ok: false,
-      error: "variables: this Environment has no credentials key (T3FLARE_CREDENTIALS_KEY), so it stores no secret Variable",
+      error:
+        "variables: this Environment has no credentials key (T3FLARE_CREDENTIALS_KEY), so it stores no secret Variable",
     });
-    expect(await sealVariablesIn({ variables: [secret("T", "a\u0000b")] }, EMPTY_ENVIRONMENT, sealer)).toEqual({ ok: false, error: 'variables: "T"\'s value holds a NUL character, which no environment can' });
+    expect(await sealVariablesIn({ variables: [secret("T", "a\u0000b")] }, EMPTY_ENVIRONMENT, sealer)).toEqual({
+      ok: false,
+      error: 'variables: "T"\'s value holds a NUL character, which no environment can',
+    });
   });
 
   it("opens each secret for a Container start, and leaves out one this key does not open, by name", async () => {
-    const first = await sealVariablesIn({ variables: [plain("A", "1"), secret("T", SECRET)] }, EMPTY_ENVIRONMENT, sealer);
+    const first = await sealVariablesIn(
+      { variables: [plain("A", "1"), secret("T", SECRET)] },
+      EMPTY_ENVIRONMENT,
+      sealer,
+    );
     if (!first.ok) throw new Error(first.error);
     const stored: StoredEnvironment = { revision: 1, settings: first.settings as StoredEnvironment["settings"] };
-    expect(await openVariables(stored, sealer)).toEqual({ variables: [plain("A", "1"), secret("T", SECRET)], unreadable: [] });
-    expect(await openVariables(stored, valueSealer("d".repeat(64)))).toEqual({ variables: [plain("A", "1")], unreadable: ["T"] });
+    expect(await openVariables(stored, sealer)).toEqual({
+      variables: [plain("A", "1"), secret("T", SECRET)],
+      unreadable: [],
+    });
+    expect(await openVariables(stored, valueSealer("d".repeat(64)))).toEqual({
+      variables: [plain("A", "1")],
+      unreadable: ["T"],
+    });
   });
 });
 
@@ -113,8 +185,16 @@ describe("secret Variables on the Settings page", () => {
     [CSRF_HEADER]: await csrfToken(deps.store.csrfKey(), "owner-sub", NOW),
   });
   const save = async (deps: HarnessDeps, variables: unknown) =>
-    handleHarness(new Request(`https://${HOST}/_t3flare/settings/api/environment`, { method: "POST", headers: await headers(deps), body: JSON.stringify({ settings: { variables } }) }), deps);
-  const read = async (deps: HarnessDeps, path = "/api/environment") => (await handleHarness(new Request(`https://${HOST}/_t3flare/settings${path}`), deps)).text();
+    handleHarness(
+      new Request(`https://${HOST}/_t3flare/settings/api/environment`, {
+        method: "POST",
+        headers: await headers(deps),
+        body: JSON.stringify({ settings: { variables } }),
+      }),
+      deps,
+    );
+  const read = async (deps: HarnessDeps, path = "/api/environment") =>
+    (await handleHarness(new Request(`https://${HOST}/_t3flare/settings${path}`), deps)).text();
 
   it("stores a secret sealed, and no read shows its value: the page, its API, the audit log", async () => {
     fixture = settingsFixture();
@@ -123,13 +203,23 @@ describe("secret Variables on the Settings page", () => {
     expect((await save(deps, [plain("NODE_ENV", "test"), secret("NPM_TOKEN", SECRET)])).status).toBe(200);
     expect(everything(run)).not.toContain(SECRET);
     const api = JSON.parse(await read(deps));
-    const shown = { name: "NPM_TOKEN", value: "", secret: true, valueRedacted: true, fingerprint: expect.stringMatching(/^[0-9a-f]{8}$/) };
+    const shown = {
+      name: "NPM_TOKEN",
+      value: "",
+      secret: true,
+      valueRedacted: true,
+      fingerprint: expect.stringMatching(/^[0-9a-f]{8}$/),
+    };
     expect(api.resolved.variables).toEqual([plain("NODE_ENV", "test"), shown]);
     expect(api.stored.settings.variables).toEqual([plain("NODE_ENV", "test"), shown]);
     const page = await read(deps, "");
     expect(page).not.toContain(SECRET);
-    expect(page).toContain('<div class="variable is-secret" data-variable data-variable-stored="NPM_TOKEN"><input type="text" data-variable-name aria-label="Name" value="NPM_TOKEN"');
-    expect(page).toContain('placeholder="Set, not shown. Type to replace it" spellcheck="false" autocomplete="off"></textarea><label class="variable-secret"><input type="checkbox" data-variable-secret checked>Secret</label>');
+    expect(page).toContain(
+      '<div class="variable is-secret" data-variable data-variable-stored="NPM_TOKEN"><input type="text" data-variable-name aria-label="Name" value="NPM_TOKEN"',
+    );
+    expect(page).toContain(
+      'placeholder="Set, not shown. Type to replace it" spellcheck="false" autocomplete="off"></textarea><label class="variable-secret"><input type="checkbox" data-variable-secret checked>Secret</label>',
+    );
     const audit = JSON.stringify(run.store.auditLog(5));
     expect(audit).not.toContain(SECRET);
     expect(audit).toContain("NPM_TOKEN");
@@ -173,10 +263,14 @@ describe("secret Variables on the Settings page", () => {
     const sealed = JSON.parse(JSON.stringify(run.store.loadEnvironment().settings.variables))[0].sealed;
     const replayed = await save(deps, [{ name: "OLD", value: "", secret: true, sealed }]);
     expect(replayed.status).toBe(400);
-    expect(await replayed.text()).toBe('variables: "OLD" gives a sealed value: give its value, or valueRedacted to keep the one stored\n');
+    expect(await replayed.text()).toBe(
+      'variables: "OLD" gives a sealed value: give its value, or valueRedacted to keep the one stored\n',
+    );
     const plainSealed = await save(deps, [{ name: "X", value: "1", secret: false, sealed }]);
     expect(plainSealed.status).toBe(400);
-    expect(await plainSealed.text()).toBe('variables: "X" gives a sealed value: give its value, or valueRedacted to keep the one stored\n');
+    expect(await plainSealed.text()).toBe(
+      'variables: "X" gives a sealed value: give its value, or valueRedacted to keep the one stored\n',
+    );
     const blank = await save(deps, [secret("NPM_TOKEN", "")]);
     expect(blank.status).toBe(400);
     expect(await blank.text()).toBe('variables: "NPM_TOKEN" is secret and has no value: give its value\n');
@@ -190,14 +284,29 @@ describe("secret Variables on the Settings page", () => {
     // The key changed since: the Container start leaves it out, and the page says so.
     const rotated: HarnessDeps = { ...run.panel(), variableSealer: valueSealer("d".repeat(64)) };
     const page = await read(rotated, "");
-    expect(page).toContain('data-variable data-variable-unreadable><input type="text" data-variable-name aria-label="Name" value="NPM_TOKEN"');
-    expect(page).toContain("This secret cannot be opened (the credentials key changed or is missing), so no Container gets it: type its value again.");
+    expect(page).toContain(
+      'data-variable data-variable-unreadable><input type="text" data-variable-name aria-label="Name" value="NPM_TOKEN"',
+    );
+    expect(page).toContain(
+      "This secret cannot be opened (the credentials key changed or is missing), so no Container gets it: type its value again.",
+    );
     expect(page).not.toContain('data-variable-stored="NPM_TOKEN"');
-    expect(JSON.parse(await read(rotated)).resolved.variables).toEqual([{ name: "NPM_TOKEN", value: "", secret: true, valueRedacted: true, fingerprint: expect.any(String), unreadable: true }]);
+    expect(JSON.parse(await read(rotated)).resolved.variables).toEqual([
+      {
+        name: "NPM_TOKEN",
+        value: "",
+        secret: true,
+        valueRedacted: true,
+        fingerprint: expect.any(String),
+        unreadable: true,
+      },
+    ]);
     // Typing it again under the new key opens.
     const typed = await save(rotated, [secret("NPM_TOKEN", OTHER)]);
     expect(typed.status).toBe(200);
-    expect((await openVariables(run.store.loadEnvironment(), valueSealer("d".repeat(64)))).variables).toEqual([secret("NPM_TOKEN", OTHER)]);
+    expect((await openVariables(run.store.loadEnvironment(), valueSealer("d".repeat(64)))).variables).toEqual([
+      secret("NPM_TOKEN", OTHER),
+    ]);
   });
 
   it("notes beside a Variable whose name t3flare sets itself, and only there", async () => {
@@ -205,11 +314,16 @@ describe("secret Variables on the Settings page", () => {
     const deps = fixture.panel();
     await save(deps, [plain("PATH", "/opt/bin"), plain("NODE_ENV", "test"), plain("T3FLARE_PASSIVE_READ", "1")]);
     const page = await read(deps, "");
-    const rowOf = (name: string) => page.slice(page.indexOf(`value="${name}"`), page.indexOf("</div>", page.indexOf(`value="${name}"`)));
-    expect(rowOf("PATH")).toContain('<p class="hint variable-note" data-variable-note>t3flare sets or keeps this name itself');
+    const rowOf = (name: string) =>
+      page.slice(page.indexOf(`value="${name}"`), page.indexOf("</div>", page.indexOf(`value="${name}"`)));
+    expect(rowOf("PATH")).toContain(
+      '<p class="hint variable-note" data-variable-note>t3flare sets or keeps this name itself',
+    );
     expect(rowOf("NODE_ENV")).toContain("data-variable-note hidden>");
     // A reserved prefix (t3flare's internal markers) is noted too, and the page's script gets the prefixes.
-    expect(rowOf("T3FLARE_PASSIVE_READ")).toContain('<p class="hint variable-note" data-variable-note>t3flare sets or keeps this name itself');
+    expect(rowOf("T3FLARE_PASSIVE_READ")).toContain(
+      '<p class="hint variable-note" data-variable-note>t3flare sets or keeps this name itself',
+    );
     expect(page).toContain('data-reserved-prefixes="T3FLARE_ T3CODE_"');
     expect(page).toContain('data-set-by-t3flare="');
   });
@@ -219,7 +333,12 @@ describe("secret Variables through the Settings server", () => {
   it("an agent sets one as an asked change; the card, the Change page, the Open change and the logs never hold its value", async () => {
     fixture = settingsFixture();
     const run = fixture;
-    const answer = structured(await run.call(run.durable("thread-s"), "change_environment", { expectedRevision: 0, settings: { variables: [plain("A", "1"), secret("NPM_TOKEN", SECRET)] } }));
+    const answer = structured(
+      await run.call(run.durable("thread-s"), "change_environment", {
+        expectedRevision: 0,
+        settings: { variables: [plain("A", "1"), secret("NPM_TOKEN", SECRET)] },
+      }),
+    );
     expect(answer).toMatchObject({ status: "applied" });
     const prompt = run.cards[0]!.prompt;
     expect(prompt).toContain("added NPM_TOKEN, secret (set, not shown)");
@@ -233,7 +352,9 @@ describe("secret Variables through the Settings server", () => {
     expect(page).toContain("secret, set");
     expect(page).not.toContain(SECRET);
     // Neither the card nor the Change page prints the sealed value (its IV or ciphertext): the call shows the secret as set.
-    const sealed = JSON.parse(JSON.stringify(run.store.loadEnvironment().settings.variables)).find((variable: { name: string }) => variable.name === "NPM_TOKEN").sealed;
+    const sealed = JSON.parse(JSON.stringify(run.store.loadEnvironment().settings.variables)).find(
+      (variable: { name: string }) => variable.name === "NPM_TOKEN",
+    ).sealed;
     for (const shown of [prompt, page]) {
       expect(shown).not.toContain(sealed.data);
       expect(shown).not.toContain(sealed.iv);
@@ -246,14 +367,29 @@ describe("secret Variables through the Settings server", () => {
   it("get_settings redacts it, and writing back what was read is unchanged; a new value is asked and shown as changed", async () => {
     fixture = settingsFixture();
     const run = fixture;
-    await run.call(run.durable("thread-a"), "change_environment", { expectedRevision: 0, settings: { variables: [secret("NPM_TOKEN", SECRET)] } });
+    await run.call(run.durable("thread-a"), "change_environment", {
+      expectedRevision: 0,
+      settings: { variables: [secret("NPM_TOKEN", SECRET)] },
+    });
     const read = structured(await run.call(run.durable("thread-b"), "get_settings", { entity: "environment" }))!;
     const variables = read.settings.find((setting: { key: string }) => setting.key === "variables").value;
-    expect(variables).toEqual([{ name: "NPM_TOKEN", value: "", secret: true, valueRedacted: true, fingerprint: expect.any(String) }]);
-    expect(textOf(await run.call(run.durable("thread-b"), "get_settings", { entity: "environment" }))).not.toContain(SECRET);
-    const back = structured(await run.call(run.durable("thread-c"), "change_environment", { expectedRevision: read.revision, settings: { variables } }));
+    expect(variables).toEqual([
+      { name: "NPM_TOKEN", value: "", secret: true, valueRedacted: true, fingerprint: expect.any(String) },
+    ]);
+    expect(textOf(await run.call(run.durable("thread-b"), "get_settings", { entity: "environment" }))).not.toContain(
+      SECRET,
+    );
+    const back = structured(
+      await run.call(run.durable("thread-c"), "change_environment", {
+        expectedRevision: read.revision,
+        settings: { variables },
+      }),
+    );
     expect(back).toEqual({ status: "unchanged", revision: read.revision });
-    await run.call(run.durable("thread-d"), "change_environment", { expectedRevision: read.revision, settings: { variables: [secret("NPM_TOKEN", OTHER)] } });
+    await run.call(run.durable("thread-d"), "change_environment", {
+      expectedRevision: read.revision,
+      settings: { variables: [secret("NPM_TOKEN", OTHER)] },
+    });
     const prompt = run.cards.at(-1)!.prompt;
     expect(prompt).toContain("changed NPM_TOKEN: a new secret value (not shown)");
     expect(prompt).toContain('"value": "secret, changed"');
@@ -265,28 +401,49 @@ describe("secret Variables through the Settings server", () => {
   it("refuses a kept secret with nothing stored under its name, logging no value", async () => {
     fixture = settingsFixture();
     const run = fixture;
-    const answer = await run.call(run.durable(), "change_environment", { expectedRevision: 0, settings: { variables: [kept("NPM_TOKEN")] } });
-    expect(textOf(answer)).toContain('"NPM_TOKEN" keeps a secret value, and none is stored under that name: give its value');
+    const answer = await run.call(run.durable(), "change_environment", {
+      expectedRevision: 0,
+      settings: { variables: [kept("NPM_TOKEN")] },
+    });
+    expect(textOf(answer)).toContain(
+      '"NPM_TOKEN" keeps a secret value, and none is stored under that name: give its value',
+    );
     expect(run.store.loadEnvironment().revision).toBe(0);
   });
 
   it("answers that a Variable under T3FLARE_ or T3CODE_ is stored but reaches no command (ADR-0046 §3)", async () => {
     fixture = settingsFixture();
     const run = fixture;
-    const answer = await run.call(run.durable("thread-a"), "change_environment", { expectedRevision: 0, settings: { variables: [plain("T3FLARE_PASSIVE_READ", "1"), plain("NODE_ENV", "test")] } });
+    const answer = await run.call(run.durable("thread-a"), "change_environment", {
+      expectedRevision: 0,
+      settings: { variables: [plain("T3FLARE_PASSIVE_READ", "1"), plain("NODE_ENV", "test")] },
+    });
     expect(structured(answer)).toMatchObject({ status: "applied" });
-    expect(textOf(answer)).toContain("T3FLARE_PASSIVE_READ is a name t3flare or the Container's shell keeps for itself: stored, but it reaches no command.");
-    const none = await run.call(run.durable("thread-b"), "change_environment", { expectedRevision: 1, settings: { variables: [plain("NODE_ENV", "dev")] } });
+    expect(textOf(answer)).toContain(
+      "T3FLARE_PASSIVE_READ is a name t3flare or the Container's shell keeps for itself: stored, but it reaches no command.",
+    );
+    const none = await run.call(run.durable("thread-b"), "change_environment", {
+      expectedRevision: 1,
+      settings: { variables: [plain("NODE_ENV", "dev")] },
+    });
     expect(textOf(none)).not.toContain("reaches no command");
   });
 
   it("refuses a sealed value an agent gives", async () => {
     fixture = settingsFixture();
     const run = fixture;
-    await run.call(run.durable("thread-a"), "change_environment", { expectedRevision: 0, settings: { variables: [secret("NPM_TOKEN", SECRET)] } });
+    await run.call(run.durable("thread-a"), "change_environment", {
+      expectedRevision: 0,
+      settings: { variables: [secret("NPM_TOKEN", SECRET)] },
+    });
     const sealed = JSON.parse(JSON.stringify(run.store.loadEnvironment().settings.variables))[0].sealed;
-    const answer = await run.call(run.durable("thread-b"), "change_environment", { expectedRevision: 1, settings: { variables: [{ name: "OLD", value: "", secret: true, sealed }] } });
-    expect(textOf(answer)).toContain('"OLD" gives a sealed value: give its value, or valueRedacted to keep the one stored');
+    const answer = await run.call(run.durable("thread-b"), "change_environment", {
+      expectedRevision: 1,
+      settings: { variables: [{ name: "OLD", value: "", secret: true, sealed }] },
+    });
+    expect(textOf(answer)).toContain(
+      '"OLD" gives a sealed value: give its value, or valueRedacted to keep the one stored',
+    );
     expect(run.store.loadEnvironment().revision).toBe(1);
   });
 
@@ -294,22 +451,43 @@ describe("secret Variables through the Settings server", () => {
     fixture = settingsFixture({ answer: { decision: "decline" } });
     const run = fixture;
     const args = { expectedRevision: 0, settings: { variables: [secret("NPM_TOKEN", SECRET)] } };
-    expect(structured(await run.call(run.durable("thread-a"), "change_environment", args))).toMatchObject({ status: "declined" });
+    expect(structured(await run.call(run.durable("thread-a"), "change_environment", args))).toMatchObject({
+      status: "declined",
+    });
     const again = await run.call(run.durable("thread-a"), "change_environment", args);
     expect(textOf(again)).toContain("the owner declined this same change");
     // Another value is another change.
-    const other = await run.call(run.durable("thread-a"), "change_environment", { expectedRevision: 0, settings: { variables: [secret("NPM_TOKEN", OTHER)] } });
+    const other = await run.call(run.durable("thread-a"), "change_environment", {
+      expectedRevision: 0,
+      settings: { variables: [secret("NPM_TOKEN", OTHER)] },
+    });
     expect(textOf(other)).not.toContain("declined this same change");
   });
 
   it("get_settings says a secret this key does not open must be typed again", async () => {
     fixture = settingsFixture();
     const run = fixture;
-    await run.call(run.durable("thread-a"), "change_environment", { expectedRevision: 0, settings: { variables: [secret("NPM_TOKEN", SECRET)] } });
+    await run.call(run.durable("thread-a"), "change_environment", {
+      expectedRevision: 0,
+      settings: { variables: [secret("NPM_TOKEN", SECRET)] },
+    });
     const rotated = { ...run.deps, ops: { ...run.deps.ops, variableSealer: valueSealer("d".repeat(64)) } };
-    const read = structured(await settingsCall(rotated, { tool: "get_settings", args: { entity: "environment" }, caller: run.durable("thread-b") }));
+    const read = structured(
+      await settingsCall(rotated, {
+        tool: "get_settings",
+        args: { entity: "environment" },
+        caller: run.durable("thread-b"),
+      }),
+    );
     expect(read.settings.find((setting: { key: string }) => setting.key === "variables").value).toEqual([
-      { name: "NPM_TOKEN", value: "", secret: true, valueRedacted: true, fingerprint: expect.any(String), unreadable: true },
+      {
+        name: "NPM_TOKEN",
+        value: "",
+        secret: true,
+        valueRedacted: true,
+        fingerprint: expect.any(String),
+        unreadable: true,
+      },
     ]);
   });
 });

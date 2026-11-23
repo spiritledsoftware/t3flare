@@ -14,6 +14,7 @@ So t3flare has its own **Harness panel**:
    - a JSON body.
 
    Scripts send the service token's assertion and the admin token, as on every admin route.
+
 3. **A page with no framework and nothing third-party.** It is server-rendered HTML. Every string that is not a literal is escaped. Its one script and one stylesheet are constants, allowed by their SHA-256 hashes in the CSP; there is no `'self'` and no inline allowance. Every action is a call to a JSON API that scripts use too.
 4. **Settings live in the Environment DO** with a revision. A Session reads the revision with the resolved, secret-free view at a turn's start, so a change applies at a thread's next turn. The relay reads the MCP server set per request. The settings are scoped: Global is the Cloud Environment now, with an empty per-Project override map kept for later.
 5. **An extension registry with settings schemas** (`packages/harness-registry`), imported by both Workers. The panel renders a form from each entry, the API validates against it, and the Session builds from the resolved settings. Core extensions are listed locked; `permissions` can never be turned off here.

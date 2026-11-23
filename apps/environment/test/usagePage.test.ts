@@ -47,7 +47,18 @@ describe("t3's Usage page, through the Shadow's readers", () => {
           baseUrl: "https://gw.example",
           auth: "api-key" as const,
           headers: {},
-          models: [{ id: "house-model", name: "House", reasoning: false, input: ["text" as const], contextWindow: 100_000, maxTokens: 8_000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, known: false }],
+          models: [
+            {
+              id: "house-model",
+              name: "House",
+              reasoning: false,
+              input: ["text" as const],
+              contextWindow: 100_000,
+              maxTokens: 8_000,
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+              known: false,
+            },
+          ],
         },
       ],
     };
@@ -55,8 +66,24 @@ describe("t3's Usage page, through the Shadow's readers", () => {
     const kept = acceptUsage(
       {
         entries: [
-          { agent: "durable", endpointId: "gw", modelId: "house-model", at: now - 60_000, session: "s1", ...tokens, costUsd: 0.25 },
-          { agent: "codex", endpointId: "gw", modelId: "house-model", at: now - 60_000, session: "proc-1", ...tokens, costUsd: null },
+          {
+            agent: "durable",
+            endpointId: "gw",
+            modelId: "house-model",
+            at: now - 60_000,
+            session: "s1",
+            ...tokens,
+            costUsd: 0.25,
+          },
+          {
+            agent: "codex",
+            endpointId: "gw",
+            modelId: "house-model",
+            at: now - 60_000,
+            session: "proc-1",
+            ...tokens,
+            costUsd: null,
+          },
         ],
       },
       { store, endpoints, now: () => now },
@@ -71,7 +98,12 @@ describe("t3's Usage page, through the Shadow's readers", () => {
       Layer.provideMerge(NodeServices.layer),
       Layer.provideMerge(Layer.succeed(HostProcess.Hostname, "usage-page-test")),
       Layer.provideMerge(Layer.succeed(HostProcess.Environment, { HOME: home })),
-      Layer.provideMerge(Layer.succeed(HttpClient.HttpClient, HttpClient.make((request) => Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(rates)))))),
+      Layer.provideMerge(
+        Layer.succeed(
+          HttpClient.HttpClient,
+          HttpClient.make((request) => Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(rates)))),
+        ),
+      ),
     );
     const day = UsageDay.make(new Date(now).toISOString().slice(0, 10));
     try {
@@ -84,14 +116,36 @@ describe("t3's Usage page, through the Shadow's readers", () => {
       type Summary = Effect.Effect<Effect.Success<typeof read>, Effect.Error<typeof read>>;
       // @effect-diagnostics-next-line unsafeEffectTypeAssertion:off -- t3's drivers' requirements, which the mocked Shadow's readers do not have (SAFETY above)
       const summary = await Effect.runPromise(read as Summary);
-      const ours = summary.buckets.map((bucket) => ({ provider: bucket.provider, source: bucket.sourcePath, model: bucket.model, costUsd: bucket.costUsd, costSource: bucket.costSource }));
+      const ours = summary.buckets.map((bucket) => ({
+        provider: bucket.provider,
+        source: bucket.sourcePath,
+        model: bucket.model,
+        costUsd: bucket.costUsd,
+        costSource: bucket.costSource,
+      }));
       expect(ours).toEqual(
         expect.arrayContaining([
-          { provider: "pi", source: "t3flare://usage/durable", model: "gw/house-model", costUsd: 0.25, costSource: "providerReported" },
-          { provider: "codex", source: "t3flare://usage/codex", model: "gw/house-model", costUsd: 2, costSource: "modelPriced" },
+          {
+            provider: "pi",
+            source: "t3flare://usage/durable",
+            model: "gw/house-model",
+            costUsd: 0.25,
+            costSource: "providerReported",
+          },
+          {
+            provider: "codex",
+            source: "t3flare://usage/codex",
+            model: "gw/house-model",
+            costUsd: 2,
+            costSource: "modelPriced",
+          },
         ]),
       );
-      expect(summary.sources.filter((source) => source.fingerprint.resolvedHomePath.startsWith("t3flare://")).map((source) => source.fingerprint.resolvedHomePath)).toEqual([
+      expect(
+        summary.sources
+          .filter((source) => source.fingerprint.resolvedHomePath.startsWith("t3flare://"))
+          .map((source) => source.fingerprint.resolvedHomePath),
+      ).toEqual([
         "t3flare://usage/durable",
         "t3flare://usage/text-generation",
         "t3flare://usage/pi",

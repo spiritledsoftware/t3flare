@@ -51,8 +51,12 @@ const permissionAnswer = (params) => {
   const choice = typeof policy === "string" ? policy : (policy[kind] ?? policy.default ?? "allow");
   if (choice === "cancel") return { outcome: { outcome: "cancelled" } };
   const wanted = choice === "allow" ? "allow_once" : choice === "always" ? "allow_always" : "reject_once";
-  const option = params.options.find((o) => o.kind === wanted) ?? (choice.startsWith?.("id:") ? params.options.find((o) => o.optionId === choice.slice(3)) : undefined);
-  return option ? { outcome: { outcome: "selected", optionId: option.optionId } } : { outcome: { outcome: "cancelled" } };
+  const option =
+    params.options.find((o) => o.kind === wanted) ??
+    (choice.startsWith?.("id:") ? params.options.find((o) => o.optionId === choice.slice(3)) : undefined);
+  return option
+    ? { outcome: { outcome: "selected", optionId: option.optionId } }
+    : { outcome: { outcome: "cancelled" } };
 };
 
 let buf = "";
@@ -138,29 +142,69 @@ try {
     clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
     clientInfo: { name: "t3flare-probe", version: "0" },
   });
-  const sessionParams = { cwd: scenario.cwd, mcpServers: [], ...(scenario.sessionMeta ? { _meta: scenario.sessionMeta } : {}) };
-  if (scenario.load) out.session = { ...(await request("session/load", { ...sessionParams, sessionId: scenario.load })), sessionId: scenario.load };
-  else if (scenario.resume) out.session = { ...(await request("session/resume", { ...sessionParams, sessionId: scenario.resume })), sessionId: scenario.resume };
+  const sessionParams = {
+    cwd: scenario.cwd,
+    mcpServers: [],
+    ...(scenario.sessionMeta ? { _meta: scenario.sessionMeta } : {}),
+  };
+  if (scenario.load)
+    out.session = {
+      ...(await request("session/load", { ...sessionParams, sessionId: scenario.load })),
+      sessionId: scenario.load,
+    };
+  else if (scenario.resume)
+    out.session = {
+      ...(await request("session/resume", { ...sessionParams, sessionId: scenario.resume })),
+      sessionId: scenario.resume,
+    };
   else out.session = await request("session/new", sessionParams);
   let sessionId = out.session.sessionId;
   for (const step of scenario.steps ?? []) {
     // { fork: true }: session/fork of the current session, then continue in the fork.
     if (step.fork) {
-      const r = await request("session/fork", { sessionId, cwd: scenario.cwd, mcpServers: [], ...(step.fork._meta ? { _meta: step.fork._meta } : {}) }).catch((e) => ({ error: e.rpc ?? String(e) }));
+      const r = await request("session/fork", {
+        sessionId,
+        cwd: scenario.cwd,
+        mcpServers: [],
+        ...(step.fork._meta ? { _meta: step.fork._meta } : {}),
+      }).catch((e) => ({ error: e.rpc ?? String(e) }));
       out.prompts.push({ fork: r.sessionId ?? null, error: r.error ?? null, keys: Object.keys(r) });
       if (r.sessionId) sessionId = r.sessionId;
     }
     if (step.sleepMs) await new Promise((r) => setTimeout(r, step.sleepMs));
-    if (step.setMode) out.prompts.push({ setMode: step.setMode, result: await request("session/set_mode", { sessionId, modeId: step.setMode }).then(() => "ok", (e) => e.rpc ?? String(e)) });
-    if (step.setConfig) out.prompts.push({ setConfig: step.setConfig, result: await request("session/set_config_option", { sessionId, ...step.setConfig }).then(() => "ok", (e) => e.rpc ?? String(e)) });
+    if (step.setMode)
+      out.prompts.push({
+        setMode: step.setMode,
+        result: await request("session/set_mode", { sessionId, modeId: step.setMode }).then(
+          () => "ok",
+          (e) => e.rpc ?? String(e),
+        ),
+      });
+    if (step.setConfig)
+      out.prompts.push({
+        setConfig: step.setConfig,
+        result: await request("session/set_config_option", { sessionId, ...step.setConfig }).then(
+          () => "ok",
+          (e) => e.rpc ?? String(e),
+        ),
+      });
     if (step.prompt !== undefined) {
       const t0 = Date.now();
       const textBefore = out.text.length;
       try {
         const r = await request("session/prompt", { sessionId, prompt: [{ type: "text", text: step.prompt }] });
-        out.prompts.push({ stopReason: r.stopReason, ms: Date.now() - t0, usage: r.usage ?? null, text: out.text.slice(textBefore).slice(-300) });
+        out.prompts.push({
+          stopReason: r.stopReason,
+          ms: Date.now() - t0,
+          usage: r.usage ?? null,
+          text: out.text.slice(textBefore).slice(-300),
+        });
       } catch (e) {
-        out.prompts.push({ error: e.rpc ?? String(e), ms: Date.now() - t0, text: out.text.slice(textBefore).slice(-300) });
+        out.prompts.push({
+          error: e.rpc ?? String(e),
+          ms: Date.now() - t0,
+          text: out.text.slice(textBefore).slice(-300),
+        });
       }
     }
   }

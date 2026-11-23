@@ -51,10 +51,7 @@ export type EffectTaskDefinition<
    * every task decides how it is cancelled; this adapter defaults to the common answer, committing `aborted`, so only a
    * task with something to clean up or a reason to record writes one.
    */
-  readonly abort?: (
-    task: RunningTask<I, S, R>,
-    runtime: TaskRuntime<I, S, R, H>,
-  ) => Effect.Effect<void, E, Services>;
+  readonly abort?: (task: RunningTask<I, S, R>, runtime: TaskRuntime<I, S, R, H>) => Effect.Effect<void, E, Services>;
 };
 
 const isHarnessError = Schema.is(HarnessError);
@@ -97,10 +94,7 @@ export const effectTask = <
 
       const { message } = settled.failure;
 
-      await runtime.commit(
-        () => ({ status: "terminal", outcome: { status: "failed", error: { message } } }),
-        context,
-      );
+      await runtime.commit(() => ({ status: "terminal", outcome: { status: "failed", error: { message } } }), context);
     };
 
     // SAFETY: `phases` has one handler per phase of `S`, which the task runs with the checkpoint narrowed to it.
@@ -108,23 +102,17 @@ export const effectTask = <
       phases as Readonly<
         Record<
           string,
-          (
-            task: RunningTask<I, S, R>,
-            runtime: TaskRuntime<I, S, R, H>,
-          ) => Effect.Effect<void, E, Services>
+          (task: RunningTask<I, S, R>, runtime: TaskRuntime<I, S, R, H>) => Effect.Effect<void, E, Services>
         >
       >,
-      (handler) =>
-        (task: RunningTask<I, S, R>, runtime: TaskRuntime<I, S, R, H>, context: Chord.Context) =>
-          run(handler(task, runtime), runtime, context),
+      (handler) => (task: RunningTask<I, S, R>, runtime: TaskRuntime<I, S, R, H>, context: Chord.Context) =>
+        run(handler(task, runtime), runtime, context),
     ) as TaskDefinition<I, S, R, H>["phases"];
 
     return defineTask({
       ...rest,
       phases: adapted,
       abort: (task, runtime, context) =>
-        abort === undefined
-          ? runtime.commit(() => aborted(), context)
-          : run(abort(task, runtime), runtime, context),
+        abort === undefined ? runtime.commit(() => aborted(), context) : run(abort(task, runtime), runtime, context),
     });
   });

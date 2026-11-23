@@ -40,7 +40,8 @@ export const CONTAINER_WORKFLOWS_PERMISSIONS = {
 } as const satisfies GitHubPermissions;
 
 /** The Container token's permissions for a Workspace, by its `workflows` opt-in. */
-export const containerGitHubPermissions = (workflows: boolean): GitHubPermissions => (workflows ? CONTAINER_WORKFLOWS_PERMISSIONS : CONTAINER_GITHUB_PERMISSIONS);
+export const containerGitHubPermissions = (workflows: boolean): GitHubPermissions =>
+  workflows ? CONTAINER_WORKFLOWS_PERMISSIONS : CONTAINER_GITHUB_PERMISSIONS;
 
 /** The Environment DO's own token for t3's PR features: never reaches a Container or a Session. */
 export const ENVIRONMENT_GITHUB_PERMISSIONS = {

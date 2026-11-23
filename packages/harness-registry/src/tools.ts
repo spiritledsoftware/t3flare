@@ -11,7 +11,30 @@ import { defaultSettingsServer, type Exposure, type McpServerSetting, ownEntry, 
 /** The offered-tools presets (plan §2.2, OD-T4): the tools a preset offers direct; the others it defers. */
 export const OFFERED_PRESETS = {
   /** B, the default: the core coding tools, `ask_user`, code mode, tool search and t3's own tools. */
-  core: ["read", "edit", "write", "bash", "ls", "find", "grep", "ask_user", "codemode", "tool_search", "mcp__t3-code__*", "web_fetch", "web_search", "todo", "context_notes", "context_history", "context_rollover", "terminal_start", "terminal_send", "terminal_stop", "terminal_list", "terminal_wait"],
+  core: [
+    "read",
+    "edit",
+    "write",
+    "bash",
+    "ls",
+    "find",
+    "grep",
+    "ask_user",
+    "codemode",
+    "tool_search",
+    "mcp__t3-code__*",
+    "web_fetch",
+    "web_search",
+    "todo",
+    "context_notes",
+    "context_history",
+    "context_rollover",
+    "terminal_start",
+    "terminal_send",
+    "terminal_stop",
+    "terminal_list",
+    "terminal_wait",
+  ],
   /** A: code mode and tool search; every other tool through a script or a search. */
   "codemode-only": ["codemode", "tool_search"],
   /** C: everything direct. */
@@ -36,13 +59,26 @@ export interface BuiltinTool {
   readonly hidingWidens?: string;
 }
 
-const tools = (extension: string, names: ReadonlyArray<string>, exposures: ReadonlyArray<Exposure> = EXPOSURES): Array<BuiltinTool> =>
-  names.map((name) => ({ name, extension, exposures }));
+const tools = (
+  extension: string,
+  names: ReadonlyArray<string>,
+  exposures: ReadonlyArray<Exposure> = EXPOSURES,
+): Array<BuiltinTool> => names.map((name) => ({ name, extension, exposures }));
 
 /** Every built-in tool, in the panel's order. `propose_plan` is not here: plan mode alone offers it. */
 export const BUILTIN_TOOLS: ReadonlyArray<BuiltinTool> = [
-  { name: "codemode", extension: "codemode", exposures: SWITCH, hidingWidens: "a tool set to codemode is offered deferred or direct instead" },
-  { name: "tool_search", extension: "tool-search", exposures: SWITCH, hidingWidens: "a deferred tool is offered direct instead" },
+  {
+    name: "codemode",
+    extension: "codemode",
+    exposures: SWITCH,
+    hidingWidens: "a tool set to codemode is offered deferred or direct instead",
+  },
+  {
+    name: "tool_search",
+    extension: "tool-search",
+    exposures: SWITCH,
+    hidingWidens: "a deferred tool is offered direct instead",
+  },
   ...tools("coding-tools", ["read", "edit", "write", "bash"]),
   ...tools("files", ["ls", "find", "grep"]),
   ...tools("ask-user", ["ask_user"]),
@@ -61,7 +97,8 @@ export const T3_SERVER = "t3-code";
 export const T3_DIRECT_ONLY: ReadonlySet<string> = new Set(["t3_thread_wait", "t3_background_wait"]);
 
 /** The Exposures t3's tool `tool` may have. */
-export const t3Exposures = (tool: string): ReadonlyArray<Exposure> => (T3_DIRECT_ONLY.has(tool) ? DIRECT_ONLY : EXPOSURES);
+export const t3Exposures = (tool: string): ReadonlyArray<Exposure> =>
+  T3_DIRECT_ONLY.has(tool) ? DIRECT_ONLY : EXPOSURES;
 
 /** A t3 tool name as t3 lists it. */
 const T3_TOOL_NAME = /^[A-Za-z0-9_.-]{1,64}$/;
@@ -109,7 +146,9 @@ export const matchesToolPattern = (pattern: string, name: string): boolean => {
 };
 
 const presetOf = (preset: unknown): ReadonlyArray<string> =>
-  typeof preset === "string" ? (ownEntry(OFFERED_PRESETS as Readonly<Record<string, ReadonlyArray<string>>>, preset) ?? OFFERED_PRESETS.core) : OFFERED_PRESETS.core;
+  typeof preset === "string"
+    ? (ownEntry(OFFERED_PRESETS as Readonly<Record<string, ReadonlyArray<string>>>, preset) ?? OFFERED_PRESETS.core)
+    : OFFERED_PRESETS.core;
 
 /** The legacy settings of a stored layer. */
 const legacyOf = (layer: HarnessLayer): Legacy => {
@@ -123,7 +162,8 @@ const legacyOf = (layer: HarnessLayer): Legacy => {
 };
 
 /** The Exposure `offered` gives a tool: direct when offered, else deferred. */
-const offeredExposure = (offered: ReadonlyArray<string>, name: string): Exposure => (offered.some((pattern) => matchesToolPattern(pattern, name)) ? "direct" : "deferred");
+const offeredExposure = (offered: ReadonlyArray<string>, name: string): Exposure =>
+  offered.some((pattern) => matchesToolPattern(pattern, name)) ? "direct" : "deferred";
 
 const legacyExposure = (legacy: Legacy, tool: BuiltinTool): Exposure => {
   if (legacy.off(tool.extension)) return "hidden";
@@ -137,9 +177,15 @@ const validExposure = (value: unknown, allowed: ReadonlyArray<Exposure>): Exposu
   typeof value === "string" && (allowed as ReadonlyArray<string>).includes(value) ? (value as Exposure) : undefined;
 
 const resolveWith = (layer: ToolsLayer, legacy: Legacy): ResolvedTools => ({
-  tools: Object.fromEntries(BUILTIN_TOOLS.map((tool) => [tool.name, validExposure(ownEntry(layer.tools, tool.name), tool.exposures) ?? legacyExposure(legacy, tool)])),
+  tools: Object.fromEntries(
+    BUILTIN_TOOLS.map((tool) => [
+      tool.name,
+      validExposure(ownEntry(layer.tools, tool.name), tool.exposures) ?? legacyExposure(legacy, tool),
+    ]),
+  ),
   t3: {
-    exposure: validExposure(layer.t3?.exposure, EXPOSURES) ?? offeredExposure(legacy.offered, `mcp__${T3_SERVER}__tool`),
+    exposure:
+      validExposure(layer.t3?.exposure, EXPOSURES) ?? offeredExposure(legacy.offered, `mcp__${T3_SERVER}__tool`),
     tools: Object.fromEntries(
       Object.entries(layer.t3?.tools ?? {}).flatMap(([tool, exposure]) => {
         const valid = validExposure(exposure, t3Exposures(tool));
@@ -158,7 +204,9 @@ export const resolveTools = (layer: HarnessLayer): ResolvedTools => resolveWith(
  */
 export const legacyResolvedTools = (view: {
   readonly offered?: ReadonlyArray<string>;
-  readonly extensions: Readonly<Record<string, { readonly enabled: boolean; readonly settings: Readonly<Record<string, unknown>> }>>;
+  readonly extensions: Readonly<
+    Record<string, { readonly enabled: boolean; readonly settings: Readonly<Record<string, unknown>> }>
+  >;
 }): ResolvedTools =>
   resolveWith(
     {},
@@ -177,7 +225,10 @@ export interface ToolsChange {
 }
 
 /** The tools' layer with `entries` set (a `null` removes one); a Map, so a name like `__proto__` is a key like any other. */
-const withEntries = (before: Readonly<Record<string, Exposure>> | undefined, entries: Iterable<readonly [string, Exposure | null]>): Record<string, Exposure> => {
+const withEntries = (
+  before: Readonly<Record<string, Exposure>> | undefined,
+  entries: Iterable<readonly [string, Exposure | null]>,
+): Record<string, Exposure> => {
   const map = new Map<string, Exposure>(Object.entries(before ?? {}));
   for (const [name, exposure] of entries) {
     if (exposure === null) map.delete(name);
@@ -187,7 +238,8 @@ const withEntries = (before: Readonly<Record<string, Exposure>> | undefined, ent
 };
 
 /** The Exposure `offered` gives an MCP server's tools: a preset names them by server, so any tool name stands for all. */
-const serverExposure = (offered: ReadonlyArray<string>, server: string): Exposure => offeredExposure(offered, `mcp__${server}__tool`);
+const serverExposure = (offered: ReadonlyArray<string>, server: string): Exposure =>
+  offeredExposure(offered, `mcp__${server}__tool`);
 
 /**
  * `preset` over `layer`: every built-in tool that is not hidden and is not a switch takes the Exposure the preset gives
@@ -197,13 +249,19 @@ const serverExposure = (offered: ReadonlyArray<string>, server: string): Exposur
 const withPreset = (layer: HarnessLayer, preset: OfferedPreset): HarnessLayer => {
   const current = resolveTools(layer);
   const offered = OFFERED_PRESETS[preset];
-  const builtins = BUILTIN_TOOLS.filter((tool) => tool.exposures !== SWITCH && current.tools[tool.name] !== "hidden").map((tool) => [tool.name, offeredExposure(offered, tool.name)] as const);
+  const builtins = BUILTIN_TOOLS.filter(
+    (tool) => tool.exposures !== SWITCH && current.tools[tool.name] !== "hidden",
+  ).map((tool) => [tool.name, offeredExposure(offered, tool.name)] as const);
   const t3Preset = serverExposure(offered, T3_SERVER);
   const t3Exposure = current.t3.exposure === "hidden" ? "hidden" : t3Preset;
   const t3Tools = Object.entries(current.t3.tools)
     .filter(([, exposure]) => exposure !== "hidden")
     .map(([tool]) => [tool, t3Preset] as const);
-  return { ...layer, tools: withEntries(layer.tools, builtins), t3: { exposure: t3Exposure, tools: withEntries(layer.t3?.tools, t3Tools) } };
+  return {
+    ...layer,
+    tools: withEntries(layer.tools, builtins),
+    t3: { exposure: t3Exposure, tools: withEntries(layer.t3?.tools, t3Tools) },
+  };
 };
 
 /** What a preset leaves on an MCP server: hidden, and code mode only, as the old preset's wrap did (it only deferred). */
@@ -220,7 +278,11 @@ const presetServer = (offered: ReadonlyArray<string>, name: string, server: McpS
     KEPT_BY_PRESET.includes(each) ? [[tool, each]] : kept ? [[tool, exposure]] : [],
   );
   const { toolExposure: _toolExposure, ...rest } = server;
-  return { ...rest, exposure: kept ? server.exposure : exposure, ...(own.length === 0 ? {} : { toolExposure: Object.fromEntries(own) }) };
+  return {
+    ...rest,
+    exposure: kept ? server.exposure : exposure,
+    ...(own.length === 0 ? {} : { toolExposure: Object.fromEntries(own) }),
+  };
 };
 
 /**
@@ -243,14 +305,19 @@ const withPresetServers = (stored: StoredHarness, preset: OfferedPreset): Stored
 };
 
 const exposureProblem = (name: string, value: unknown, allowed: ReadonlyArray<Exposure>): string | undefined =>
-  value === null || validExposure(value, allowed) !== undefined ? undefined : `${name}: one of ${allowed.join(", ")}, or null`;
+  value === null || validExposure(value, allowed) !== undefined
+    ? undefined
+    : `${name}: one of ${allowed.join(", ")}, or null`;
 
 /** `stored` with the tools `change` applied to Global and the revision bumped, or why it is refused. */
 export const applyToolsChange = (
   stored: StoredHarness,
   change: ToolsChange,
 ): { readonly ok: true; readonly harness: StoredHarness } | { readonly ok: false; readonly error: string } => {
-  if (change.preset !== undefined && (typeof change.preset !== "string" || !Object.hasOwn(OFFERED_PRESETS, change.preset))) {
+  if (
+    change.preset !== undefined &&
+    (typeof change.preset !== "string" || !Object.hasOwn(OFFERED_PRESETS, change.preset))
+  ) {
     return { ok: false, error: `preset: one of ${Object.keys(OFFERED_PRESETS).join(", ")}` };
   }
   const named = Object.entries(change.tools ?? {});
@@ -260,7 +327,8 @@ export const applyToolsChange = (
     const problem = exposureProblem(name, exposure, tool.exposures);
     if (problem !== undefined) return { ok: false, error: problem };
   }
-  if (change.t3?.exposure !== undefined && validExposure(change.t3.exposure, EXPOSURES) === undefined) return { ok: false, error: `t3 exposure: one of ${EXPOSURES.join(", ")}` };
+  if (change.t3?.exposure !== undefined && validExposure(change.t3.exposure, EXPOSURES) === undefined)
+    return { ok: false, error: `t3 exposure: one of ${EXPOSURES.join(", ")}` };
   const t3Named = Object.entries(change.t3?.tools ?? {});
   for (const [tool, exposure] of t3Named) {
     if (!T3_TOOL_NAME.test(tool)) return { ok: false, error: `${tool}: not a t3 tool name` };
@@ -275,8 +343,12 @@ export const applyToolsChange = (
     tools: withEntries(base.tools, named),
     t3: { ...(t3Exposure === undefined ? {} : { exposure: t3Exposure }), tools: withEntries(base.t3?.tools, t3Named) },
   };
-  if (Object.keys(global.t3?.tools ?? {}).length > MAX_T3_TOOLS) return { ok: false, error: `t3 tools: at most ${MAX_T3_TOOLS} set one by one` };
-  return { ok: true, harness: { ...stored, revision: stored.revision + 1, global, ...(mcp === undefined ? {} : { mcp }) } };
+  if (Object.keys(global.t3?.tools ?? {}).length > MAX_T3_TOOLS)
+    return { ok: false, error: `t3 tools: at most ${MAX_T3_TOOLS} set one by one` };
+  return {
+    ok: true,
+    harness: { ...stored, revision: stored.revision + 1, global, ...(mcp === undefined ? {} : { mcp }) },
+  };
 };
 
 /**
@@ -295,7 +367,12 @@ export const movedTools = (
     const to = after.tools[tool.name]!;
     if (from !== to) moves.push({ tool: tool.name, before: from, after: to });
   }
-  if (before.t3.exposure !== after.t3.exposure) moves.push({ tool: `${T3_SERVER} (tools without their own)`, before: before.t3.exposure, after: after.t3.exposure });
+  if (before.t3.exposure !== after.t3.exposure)
+    moves.push({
+      tool: `${T3_SERVER} (tools without their own)`,
+      before: before.t3.exposure,
+      after: after.t3.exposure,
+    });
   for (const tool of [...new Set([...Object.keys(before.t3.tools), ...Object.keys(after.t3.tools)])].sort()) {
     const asks = asksForDirect(tool);
     const own = [ownEntry(before.t3.tools, tool), ownEntry(after.t3.tools, tool)] as const;
@@ -321,8 +398,11 @@ export const movedServerTools = (
   for (const [server, from] of Object.entries(before)) {
     const to = ownEntry(after, server);
     if (to === undefined) continue;
-    if (from.exposure !== to.exposure) moves.push({ server, tool: `${server} (tools without their own)`, before: from.exposure, after: to.exposure });
-    for (const tool of [...new Set([...Object.keys(from.toolExposure ?? {}), ...Object.keys(to.toolExposure ?? {})])].sort()) {
+    if (from.exposure !== to.exposure)
+      moves.push({ server, tool: `${server} (tools without their own)`, before: from.exposure, after: to.exposure });
+    for (const tool of [
+      ...new Set([...Object.keys(from.toolExposure ?? {}), ...Object.keys(to.toolExposure ?? {})]),
+    ].sort()) {
       const was = ownEntry(from.toolExposure, tool) ?? from.exposure;
       const is = ownEntry(to.toolExposure, tool) ?? to.exposure;
       if (was !== is) moves.push({ server, tool: `${server}/${tool}`, before: was, after: is });
@@ -355,13 +435,31 @@ export const MAX_T3_DESCRIPTION = 400;
 export const t3ToolListing = (value: unknown): T3ToolListing | undefined => {
   if (value === null || typeof value !== "object") return undefined;
   const { listedAt, tools, left } = value as Record<string, unknown>;
-  if (typeof listedAt !== "number" || !Array.isArray(tools) || !Array.isArray(left) || tools.length > MAX_T3_TOOLS || left.length > MAX_T3_TOOLS) return undefined;
+  if (
+    typeof listedAt !== "number" ||
+    !Array.isArray(tools) ||
+    !Array.isArray(left) ||
+    tools.length > MAX_T3_TOOLS ||
+    left.length > MAX_T3_TOOLS
+  )
+    return undefined;
   const listed: Array<T3ListedTool> = [];
   for (const tool of tools as Array<unknown>) {
     if (tool === null || typeof tool !== "object") return undefined;
     const { name, description, readOnly, asksForDirect } = tool as Record<string, unknown>;
-    if (typeof name !== "string" || !T3_TOOL_NAME.test(name) || typeof readOnly !== "boolean" || typeof asksForDirect !== "boolean") return undefined;
-    listed.push({ name, readOnly, asksForDirect, ...(typeof description === "string" ? { description: description.slice(0, MAX_T3_DESCRIPTION) } : {}) });
+    if (
+      typeof name !== "string" ||
+      !T3_TOOL_NAME.test(name) ||
+      typeof readOnly !== "boolean" ||
+      typeof asksForDirect !== "boolean"
+    )
+      return undefined;
+    listed.push({
+      name,
+      readOnly,
+      asksForDirect,
+      ...(typeof description === "string" ? { description: description.slice(0, MAX_T3_DESCRIPTION) } : {}),
+    });
   }
   if (!left.every((name) => typeof name === "string" && T3_TOOL_NAME.test(name))) return undefined;
   return { listedAt, tools: listed, left: left as ReadonlyArray<string> };

@@ -5,7 +5,15 @@
 // script's edits show as its children, ADR-0027). It adds `bash`'s exit code in its result's `details`, which the
 // Environment's differ shows on the command item, and (SPI-1057) pi-termctrl's `background`.
 import type { Context } from "@earendil-works/chord";
-import { defineExtension, defineTool, type Extension, section, type ToolExecutionApi, type ToolExecutionResult, type ToolRegistration } from "@earendil-works/pi-durable";
+import {
+  defineExtension,
+  defineTool,
+  type Extension,
+  section,
+  type ToolExecutionApi,
+  type ToolExecutionResult,
+  type ToolRegistration,
+} from "@earendil-works/pi-durable";
 import type { ExecutionEnv, FileError, Result, ShellOutputInfo } from "@earendil-works/pi-durable/env";
 import { createBashTool, createEditTool, createReadTool, createWriteTool } from "@earendil-works/pi-durable/tools";
 import { bool, num, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
@@ -30,7 +38,8 @@ export interface BackendEnv {
   onBackend(backend: BashBackend): ExecutionEnv;
 }
 
-const hasBackends = (env: ExecutionEnv | undefined): env is ExecutionEnv & BackendEnv => env !== undefined && "onBackend" in env;
+const hasBackends = (env: ExecutionEnv | undefined): env is ExecutionEnv & BackendEnv =>
+  env !== undefined && "onBackend" in env;
 
 /** An execution environment that knows which paths are Container-only. */
 export interface ContainerOnlyEnv {
@@ -39,7 +48,11 @@ export interface ContainerOnlyEnv {
 
 const knowsContainerOnly = (env: ExecutionEnv): env is ExecutionEnv & ContainerOnlyEnv => "containerOnly" in env;
 
-const firstContainerOnly = async (env: ContainerOnlyEnv, paths: readonly string[], context: Context): Promise<string | undefined> => {
+const firstContainerOnly = async (
+  env: ContainerOnlyEnv,
+  paths: readonly string[],
+  context: Context,
+): Promise<string | undefined> => {
   if (paths.length === 0) return undefined;
   try {
     const result = await env.containerOnly(paths, context);
@@ -70,13 +83,19 @@ const backendDescription = [
 
 const commandField = str({ description: "Bash command to execute" });
 const timeoutField = opt(num({ description: "Timeout in seconds (optional, no default timeout)" }));
-const backendField = opt(oneOf(["worker", "container"], { description: "Where to run the command (default: chosen from the command)" }));
+const backendField = opt(
+  oneOf(["worker", "container"], { description: "Where to run the command (default: chosen from the command)" }),
+);
 
 const parameters = obj({
   command: commandField,
   timeout: timeoutField,
   backend: backendField,
-  background: opt(bool({ description: "Run in the background if still running after 2 seconds; returns a Background job id and log path" })),
+  background: opt(
+    bool({
+      description: "Run in the background if still running after 2 seconds; returns a Background job id and log path",
+    }),
+  ),
 });
 
 /**
@@ -90,11 +109,20 @@ export interface BackgroundJobs {
 // @effect-diagnostics-next-line extendsNativeError:off -- caught by `bash` itself.
 class RunOnContainer extends Error {}
 
-const workerHas = async (worker: ExecutionEnv, programs: readonly string[], known: Map<string, boolean>, context: Context): Promise<ReadonlySet<string>> => {
+const workerHas = async (
+  worker: ExecutionEnv,
+  programs: readonly string[],
+  known: Map<string, boolean>,
+  context: Context,
+): Promise<ReadonlySet<string>> => {
   const asked = programs.filter((name) => !known.has(name));
   if (asked.length > 0) {
     let stdout = "";
-    const result = await worker.exec(probeScript(asked), { onOutput: (text, _context, info) => (stdout += info.stream === "stdout" ? text : "") }, context);
+    const result = await worker.exec(
+      probeScript(asked),
+      { onOutput: (text, _context, info) => (stdout += info.stream === "stdout" ? text : "") },
+      context,
+    );
     const present = result.ok ? probeAnswer(asked, stdout) : undefined;
     if (present !== undefined) for (const name of asked) known.set(name, present.has(name));
   }
@@ -109,7 +137,8 @@ const containerReason = async (
   output: WorkerOutput,
   containerOnlyMissing: ((output: WorkerOutput) => Promise<string | undefined>) | undefined,
 ): Promise<string | undefined> => {
-  if (!result.ok) return result.error.code === "spawn_error" ? `the worker could not (${result.error.message})` : undefined;
+  if (!result.ok)
+    return result.error.code === "spawn_error" ? `the worker could not (${result.error.message})` : undefined;
   const cannot = workerShellCannot(output);
   if (cannot !== undefined) return `the worker could not (${cannot})`;
   const path = await containerOnlyMissing?.(output);
@@ -141,7 +170,9 @@ const attemptOn = (worker: ExecutionEnv, rerun: Rerun | undefined): ExecutionEnv
 /** `bash`'s exit code, from its structured output, in `details` too (the differ reads it there). */
 const withExitCode = <R extends { readonly structuredOutput?: unknown; readonly details?: unknown }>(result: R): R => {
   const exitCode = (result.structuredOutput as { exitCode?: unknown } | undefined)?.exitCode;
-  return typeof exitCode === "number" ? { ...result, details: { ...(result.details as object | undefined), exitCode } } : result;
+  return typeof exitCode === "number"
+    ? { ...result, details: { ...(result.details as object | undefined), exitCode } }
+    : result;
 };
 
 const bashTool = (known: Map<string, boolean>, jobs: BackgroundJobs | undefined): ToolRegistration =>
@@ -153,7 +184,8 @@ const bashTool = (known: Map<string, boolean>, jobs: BackgroundJobs | undefined)
     parameters: (jobs === undefined ? withoutBackground : parameters) as typeof parameters,
     async execute({ backend, background, ...args }, api, context) {
       const env = api.env;
-      if (background === true && jobs !== undefined) return jobs.run(args.command, env?.cwd ?? "/workspace/repo", api, context);
+      if (background === true && jobs !== undefined)
+        return jobs.run(args.command, env?.cwd ?? "/workspace/repo", api, context);
       const runOn = async (on: ExecutionEnv) => withExitCode(await base.execute(args, { ...api, env: on }, context));
       if (!hasBackends(env)) {
         if (backend !== "container") return withExitCode(await base.execute(args, api, context));
@@ -161,11 +193,17 @@ const bashTool = (known: Map<string, boolean>, jobs: BackgroundJobs | undefined)
       }
       if (backend !== undefined) return runOn(env.onBackend(backend));
       const worker = env.onBackend("worker");
-      const route: BashRoute = await resolveRoute(routeCommand(args.command), (programs) => workerHas(worker, programs, known, context));
+      const route: BashRoute = await resolveRoute(routeCommand(args.command), (programs) =>
+        workerHas(worker, programs, known, context),
+      );
       if (route.backend === "container") return runOn(env.onBackend("container"));
       const judge = knowsContainerOnly(env) ? env : undefined;
       const named = judge === undefined ? undefined : commandPaths(args.command, env.cwd);
-      if (judge !== undefined && named !== undefined && (await firstContainerOnly(judge, named.paths, context)) !== undefined) {
+      if (
+        judge !== undefined &&
+        named !== undefined &&
+        (await firstContainerOnly(judge, named.paths, context)) !== undefined
+      ) {
         return runOn(env.onBackend("container"));
       }
       const asked = new Set(named?.paths);
@@ -182,7 +220,11 @@ const bashTool = (known: Map<string, boolean>, jobs: BackgroundJobs | undefined)
         return await runOn(attemptOn(worker, route.writes === undefined ? { containerOnlyMissing } : undefined));
       } catch (error) {
         if (!(error instanceof RunOnContainer)) throw error;
-        api.diagnostic({ severity: "info", code: "container_fallback", message: `Ran on the container: ${error.message}` });
+        api.diagnostic({
+          severity: "info",
+          code: "container_fallback",
+          message: `Ran on the container: ${error.message}`,
+        });
         return runOn(env.onBackend("container"));
       }
     },
@@ -219,6 +261,11 @@ export const codingTools = (options: { readonly jobs?: BackgroundJobs } = {}): E
   defineExtension({
     name: "coding-tools",
     // `read` is replay-safe (tools step, plan §2.6): it has no effect, so a script's read cut off by a restart reruns.
-    tools: [throughContainer({ ...createReadTool(), replay: "safe" as const }), throughContainer(createWriteTool()), throughContainer(createEditTool()), bashTool(new Map(), options.jobs)],
+    tools: [
+      throughContainer({ ...createReadTool(), replay: "safe" as const }),
+      throughContainer(createWriteTool()),
+      throughContainer(createEditTool()),
+      bashTool(new Map(), options.jobs),
+    ],
     sections: [Guidelines],
   });

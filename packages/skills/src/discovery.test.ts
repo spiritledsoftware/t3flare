@@ -11,9 +11,18 @@ const at = (cwd: string, files: Record<string, string>, environment: ReadonlyArr
 
 describe("Repo skills' discovery", () => {
   it("finds a skill in .agents/skills with its name, description and SKILL.md path", async () => {
-    const found = await at(ROOT, { [`${ROOT}/.agents/skills/fruit/SKILL.md`]: skillMd({ name: "fruit", description: "The fruit code." }) });
+    const found = await at(ROOT, {
+      [`${ROOT}/.agents/skills/fruit/SKILL.md`]: skillMd({ name: "fruit", description: "The fruit code." }),
+    });
     expect(found).toEqual({
-      skills: [{ name: "fruit", description: "The fruit code.", filePath: `${ROOT}/.agents/skills/fruit/SKILL.md`, disableModelInvocation: false }],
+      skills: [
+        {
+          name: "fruit",
+          description: "The fruit code.",
+          filePath: `${ROOT}/.agents/skills/fruit/SKILL.md`,
+          disableModelInvocation: false,
+        },
+      ],
       skipped: [],
       omitted: 0,
     });
@@ -43,7 +52,10 @@ describe("Repo skills' discovery", () => {
       [`${ROOT}/.pi/skills/y/SKILL.md`]: skillMd({ name: "y", description: "root pi" }),
     });
     expect(found.skills.map((skill) => skill.description)).toEqual(["app agents", "pkg claude"]);
-    expect(found.skipped.map((skipped) => skipped.path)).toEqual([`${ROOT}/.pi/skills/y/SKILL.md`, `${ROOT}/.claude/skills/x/SKILL.md`]);
+    expect(found.skipped.map((skipped) => skipped.path)).toEqual([
+      `${ROOT}/.pi/skills/y/SKILL.md`,
+      `${ROOT}/.claude/skills/x/SKILL.md`,
+    ]);
   });
 });
 
@@ -56,21 +68,42 @@ describe("the rules, the same for the agent and the composer", () => {
 
   it("skips a SKILL.md with no frontmatter, a frontmatter that is not YAML, or no description", async () => {
     expect(await one("# Just a heading\n")).toEqual({ skill: undefined, skipped: ["no frontmatter"] });
-    expect(await one("---\nname: [unclosed\n---\n")).toEqual({ skill: undefined, skipped: ["the frontmatter is not YAML"] });
+    expect(await one("---\nname: [unclosed\n---\n")).toEqual({
+      skill: undefined,
+      skipped: ["the frontmatter is not YAML"],
+    });
     expect(await one("---\n- a list\n---\n")).toEqual({ skill: undefined, skipped: ["the frontmatter is not YAML"] });
     expect(await one(skillMd({ name: "s" }))).toEqual({ skill: undefined, skipped: ["no description"] });
-    expect(await one(skillMd({ name: "s", description: "  " }))).toEqual({ skill: undefined, skipped: ["no description"] });
+    expect(await one(skillMd({ name: "s", description: "  " }))).toEqual({
+      skill: undefined,
+      skipped: ["no description"],
+    });
   });
 
   it("names a skill without a name after its folder, and uses a frontmatter name that differs from it", async () => {
     expect((await one(skillMd({ description: "d" }), "folder-name")).skill?.name).toBe("folder-name");
-    expect(await one(skillMd({ name: "declared", description: "d" }), "folder-name")).toMatchObject({ skill: { name: "declared" }, skipped: [] });
+    expect(await one(skillMd({ name: "declared", description: "d" }), "folder-name")).toMatchObject({
+      skill: { name: "declared" },
+      skipped: [],
+    });
   });
 
   it("skips a name t3 cannot mention: over 64 characters, a character outside [a-zA-Z0-9:_-], no letter, a non-alphanumeric first character, or number-like", async () => {
     expect((await one(skillMd({ name: "a".repeat(64), description: "d" }))).skill?.name).toBe("a".repeat(64));
     expect((await one(skillMd({ name: "ns:tool_x-1", description: "d" }))).skill?.name).toBe("ns:tool_x-1");
-    for (const name of ["a".repeat(65), "has space", "dotted.name", "émoji", "123", "-_:", "_private", "-x", ":ns", "5k", "2e5"]) {
+    for (const name of [
+      "a".repeat(65),
+      "has space",
+      "dotted.name",
+      "émoji",
+      "123",
+      "-_:",
+      "_private",
+      "-x",
+      ":ns",
+      "5k",
+      "2e5",
+    ]) {
       const { skill, skipped } = await one(skillMd({ name, description: "d" }));
       expect(skill, name).toBeUndefined();
       expect(skipped[0], name).toMatch(/is not a name t3 can mention$/);
@@ -78,13 +111,21 @@ describe("the rules, the same for the agent and the composer", () => {
   });
 
   it("cuts a description to 1,024 characters", async () => {
-    expect((await one(skillMd({ name: "s", description: "x".repeat(1500) }))).skill?.description).toBe("x".repeat(1024));
+    expect((await one(skillMd({ name: "s", description: "x".repeat(1500) }))).skill?.description).toBe(
+      "x".repeat(1024),
+    );
   });
 
   it("ignores allowed-tools, and reads disable-model-invocation", async () => {
-    const text = "---\nname: s\ndescription: d\nallowed-tools: Bash(rm:*) Write\ndisable-model-invocation: true\n---\nBody\n";
+    const text =
+      "---\nname: s\ndescription: d\nallowed-tools: Bash(rm:*) Write\ndisable-model-invocation: true\n---\nBody\n";
     expect(await one(text)).toEqual({
-      skill: { name: "s", description: "d", filePath: `${ROOT}/.agents/skills/s/SKILL.md`, disableModelInvocation: true },
+      skill: {
+        name: "s",
+        description: "d",
+        filePath: `${ROOT}/.agents/skills/s/SKILL.md`,
+        disableModelInvocation: true,
+      },
       skipped: [],
     });
   });
@@ -117,7 +158,12 @@ describe("the rules, the same for the agent and the composer", () => {
 });
 
 describe("the Environment skill set", () => {
-  const environment: Skill = { name: "fruit", description: "the owner's", filePath: "/workspace/.t3flare/skills/fruit/SKILL.md", disableModelInvocation: false };
+  const environment: Skill = {
+    name: "fruit",
+    description: "the owner's",
+    filePath: "/workspace/.t3flare/skills/fruit/SKILL.md",
+    disableModelInvocation: false,
+  };
 
   it("comes first, and beats a Repo skill of the same name, which is reported as skipped", async () => {
     const found = await at(
@@ -129,17 +175,29 @@ describe("the Environment skill set", () => {
       [environment],
     );
     expect(found.skills.map((skill) => skill.description)).toEqual(["the owner's", "d"]);
-    expect(found.skipped).toEqual([{ path: `${ROOT}/.agents/skills/fruit/SKILL.md`, reason: `"fruit" is shadowed by ${environment.filePath}` }]);
+    expect(found.skipped).toEqual([
+      { path: `${ROOT}/.agents/skills/fruit/SKILL.md`, reason: `"fruit" is shadowed by ${environment.filePath}` },
+    ]);
   });
 
   it("with a CLI's roots (SPI-1151): a cwdOnly root counts at the cwd alone, the others up to the repo root", async () => {
     const found = await discoverSkills(
       memoryFiles({
         [`${ROOT}/.pi/skills/root-pi/SKILL.md`]: skillMd({ name: "root-pi", description: "pi at the root" }),
-        [`${ROOT}/.agents/skills/root-agents/SKILL.md`]: skillMd({ name: "root-agents", description: "agents at the root" }),
+        [`${ROOT}/.agents/skills/root-agents/SKILL.md`]: skillMd({
+          name: "root-agents",
+          description: "agents at the root",
+        }),
         [`${ROOT}/pkg/.pi/skills/here-pi/SKILL.md`]: skillMd({ name: "here-pi", description: "pi at the cwd" }),
       }),
-      { cwd: `${ROOT}/pkg`, root: ROOT, roots: [{ directory: ".pi/skills", cwdOnly: true }, { directory: ".agents/skills", cwdOnly: false }] },
+      {
+        cwd: `${ROOT}/pkg`,
+        root: ROOT,
+        roots: [
+          { directory: ".pi/skills", cwdOnly: true },
+          { directory: ".agents/skills", cwdOnly: false },
+        ],
+      },
     );
     expect(found.skills.map((skill) => skill.name)).toEqual(["here-pi", "root-agents"]);
   });
@@ -150,13 +208,20 @@ describe("the directories above a cwd", () => {
     expect(withoutTrailingSlashes("/workspace/repo///")).toBe("/workspace/repo");
     expect(withoutTrailingSlashes("///")).toBe("/");
     expect(withoutTrailingSlashes("")).toBe("/");
-    expect(directoriesUp("/workspace/repo/a/b//", "/workspace/repo")).toEqual(["/workspace/repo/a/b", "/workspace/repo/a", "/workspace/repo"]);
+    expect(directoriesUp("/workspace/repo/a/b//", "/workspace/repo")).toEqual([
+      "/workspace/repo/a/b",
+      "/workspace/repo/a",
+      "/workspace/repo",
+    ]);
   });
 
   it("trim a cwd with a long run of slashes inside it in linear time", () => {
     const started = performance.now();
     expect(withoutTrailingSlashes(`/workspace/repo${"/".repeat(60_000)}a`)).toHaveLength(60_016);
-    expect(directoriesUp(`/workspace/repo${"/".repeat(60_000)}a/`, "/workspace/repo")).toEqual(["/workspace/repo/a", "/workspace/repo"]);
+    expect(directoriesUp(`/workspace/repo${"/".repeat(60_000)}a/`, "/workspace/repo")).toEqual([
+      "/workspace/repo/a",
+      "/workspace/repo",
+    ]);
     expect(performance.now() - started).toBeLessThan(2_000);
   });
 });

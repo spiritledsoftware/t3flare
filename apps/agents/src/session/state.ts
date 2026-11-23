@@ -10,7 +10,12 @@ import type {
   UsageSlim,
 } from "@t3flare/session-protocol";
 import { redactSecrets } from "@t3flare/models/redact";
-import { NESTED_ARGS_BYTES, NESTED_OUTPUT_BYTES, TOOL_LIVE_OUTPUT_BYTES, TOOL_OUTPUT_BYTES } from "@t3flare/session-protocol";
+import {
+  NESTED_ARGS_BYTES,
+  NESTED_OUTPUT_BYTES,
+  TOOL_LIVE_OUTPUT_BYTES,
+  TOOL_OUTPUT_BYTES,
+} from "@t3flare/session-protocol";
 
 type Json = unknown;
 const record = (value: Json): Record<string, Json> =>
@@ -34,15 +39,23 @@ const cut = (text: string, bytes: number): string => {
 
 /** A message's content blocks, bounded: text of a tool result to TOOL_OUTPUT_BYTES, images without their bytes. */
 export const slimContent = (content: Json, bound = Number.POSITIVE_INFINITY): ReadonlyArray<ContentBlock> => {
-  if (typeof content === "string") return [{ type: "text", text: Number.isFinite(bound) ? cut(content, bound) : content }];
+  if (typeof content === "string")
+    return [{ type: "text", text: Number.isFinite(bound) ? cut(content, bound) : content }];
   if (!Array.isArray(content)) return [];
   return content.map((raw): ContentBlock => {
     const block = record(raw);
     switch (block.type) {
       case "text":
-        return { type: "text", text: Number.isFinite(bound) ? cut(str(block.text) ?? "", bound) : (str(block.text) ?? "") };
+        return {
+          type: "text",
+          text: Number.isFinite(bound) ? cut(str(block.text) ?? "", bound) : (str(block.text) ?? ""),
+        };
       case "thinking":
-        return { type: "thinking", thinking: str(block.thinking) ?? "", ...(block.redacted === true ? { redacted: true } : {}) };
+        return {
+          type: "thinking",
+          thinking: str(block.thinking) ?? "",
+          ...(block.redacted === true ? { redacted: true } : {}),
+        };
       case "toolCall":
         return {
           type: "toolCall",
@@ -74,7 +87,13 @@ export const usageOf = (value: Json): UsageSlim | undefined => {
 
 /** One committed entry as pushed. `turn` is the turn the Session attributes it to. */
 export const pushedEntry = (
-  entry: { readonly id: number | string; readonly kind: string; readonly model?: ReadonlyArray<Json>; readonly byTaskId?: number | string; readonly data?: Json },
+  entry: {
+    readonly id: number | string;
+    readonly kind: string;
+    readonly model?: ReadonlyArray<Json>;
+    readonly byTaskId?: number | string;
+    readonly data?: Json;
+  },
   turn: string | null,
 ): PushedEntry => {
   const message = record(entry.model?.[entry.model.length - 1]);
@@ -125,7 +144,12 @@ const boundedDetails = (details: Json): Json => {
 const nestedArgs = (raw: unknown): Readonly<Record<string, unknown>> => {
   const args = record(raw);
   if (encoder.encode(JSON.stringify(args) ?? "").length <= NESTED_ARGS_BYTES) return args;
-  return Object.fromEntries(Object.entries(args).map(([key, value]) => [key, typeof value === "string" ? cut(value, NESTED_ARGS_BYTES / 2) : "…"]));
+  return Object.fromEntries(
+    Object.entries(args).map(([key, value]) => [
+      key,
+      typeof value === "string" ? cut(value, NESTED_ARGS_BYTES / 2) : "…",
+    ]),
+  );
 };
 
 /** pi.live, slimmed: no tool output, nested tools with cut arguments and an output tail, the partial's blocks only. */
@@ -147,26 +171,28 @@ export const liveOf = (doc: Json, turnOfTask: (taskId: string) => string | null)
       ...(output === undefined || output === "" ? {} : { output: output.slice(-TOOL_LIVE_OUTPUT_BYTES) }),
     };
   });
-  const nestedTools: Array<NestedToolSlim> = (Array.isArray(live.nestedTools) ? live.nestedTools : []).flatMap((raw) => {
-    const slot = record(raw);
-    const callId = str(slot.callId);
-    const parentCallId = str(slot.parentCallId);
-    if (callId === undefined || parentCallId === undefined) return [];
-    const status = str(slot.status);
-    const summary = record(slot.summary);
-    const output = str(slot.output);
-    return [
-      {
-        callId,
-        parentCallId,
-        name: str(slot.name) ?? "tool",
-        args: nestedArgs(slot.arguments),
-        status: status === "running" || status === "done" ? status : "pending",
-        ...(summary.isError === true ? { isError: true } : {}),
-        ...(output === undefined || output === "" ? {} : { output: output.slice(-NESTED_OUTPUT_BYTES) }),
-      },
-    ];
-  });
+  const nestedTools: Array<NestedToolSlim> = (Array.isArray(live.nestedTools) ? live.nestedTools : []).flatMap(
+    (raw) => {
+      const slot = record(raw);
+      const callId = str(slot.callId);
+      const parentCallId = str(slot.parentCallId);
+      if (callId === undefined || parentCallId === undefined) return [];
+      const status = str(slot.status);
+      const summary = record(slot.summary);
+      const output = str(slot.output);
+      return [
+        {
+          callId,
+          parentCallId,
+          name: str(slot.name) ?? "tool",
+          args: nestedArgs(slot.arguments),
+          status: status === "running" || status === "done" ? status : "pending",
+          ...(summary.isError === true ? { isError: true } : {}),
+          ...(output === undefined || output === "" ? {} : { output: output.slice(-NESTED_OUTPUT_BYTES) }),
+        },
+      ];
+    },
+  );
   const runTask = idText(run.taskId);
   return {
     run: runTask === undefined ? null : { taskId: runTask, turn: turnOfTask(runTask) },
@@ -188,7 +214,8 @@ export const liveOf = (doc: Json, turnOfTask: (taskId: string) => string | null)
 };
 
 /** A turn's failure detail as the Session keeps and pushes it: redacted (SPI-1172), at most 2 KiB; undefined for none. */
-export const turnDetail = (detail: unknown): string | undefined => (typeof detail === "string" ? redactSecrets(detail).slice(0, 2048) : undefined);
+export const turnDetail = (detail: unknown): string | undefined =>
+  typeof detail === "string" ? redactSecrets(detail).slice(0, 2048) : undefined;
 
 /** The turn an entry belongs to: the latest turn whose input was placed at or before it. */
 export const turnOfEntry = (entryId: number, turns: Readonly<Record<string, TurnState>>): string | null => {

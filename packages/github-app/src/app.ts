@@ -60,10 +60,7 @@ export type InstallationTokens = {
  * From `tokens`, the token for the installation on `account`, else the app owner's (which reads any public repo): what
  * a command in `account`'s repos gets.
  */
-export const tokenFor = (
-  tokens: InstallationTokens,
-  account: string | undefined,
-): string | undefined =>
+export const tokenFor = (tokens: InstallationTokens, account: string | undefined): string | undefined =>
   (account === undefined ? undefined : tokens.byAccount[account.toLowerCase()]) ??
   (tokens.appAccount === undefined ? undefined : tokens.byAccount[tokens.appAccount]);
 
@@ -95,8 +92,7 @@ export class GitHubRefused extends Error {
 }
 
 /** `cause` as a sentence. */
-const messageOf = (cause: unknown): string =>
-  cause instanceof Error ? cause.message : String(cause);
+const messageOf = (cause: unknown): string => (cause instanceof Error ? cause.message : String(cause));
 
 /** Where GitHub tokens come from, for what hands them out and takes them out of output. */
 export type GitHubTokens = {
@@ -180,9 +176,7 @@ const der = (tag: number, content: ReadonlyArray<number> | Uint8Array): number[]
 ];
 
 /** `AlgorithmIdentifier { rsaEncryption (1.2.840.113549.1.1.1), NULL }`. */
-const RSA_ENCRYPTION = [
-  0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00,
-];
+const RSA_ENCRYPTION = [0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00];
 
 /** A PKCS#1 `RSAPrivateKey` as the PKCS#8 `PrivateKeyInfo` WebCrypto imports: version 0, the algorithm, the key. */
 const pkcs8OfPkcs1 = (pkcs1: Uint8Array): Uint8Array<ArrayBuffer> =>
@@ -195,31 +189,19 @@ const pemText = (pem: string): string => pem.replaceAll("\\n", "\n").trim();
 const pkcs8Of = (pem: string): Uint8Array<ArrayBuffer> => {
   const text = pemText(pem);
 
-  const match = /^-----BEGIN (RSA )?PRIVATE KEY-----([\s\S]+?)-----END \1?PRIVATE KEY-----$/.exec(
-    text,
-  );
+  const match = /^-----BEGIN (RSA )?PRIVATE KEY-----([\s\S]+?)-----END \1?PRIVATE KEY-----$/.exec(text);
 
   if (match === null) {
-    throw new Error(
-      "T3FLARE_GITHUB_APP_PRIVATE_KEY is not a PEM private key (-----BEGIN RSA PRIVATE KEY-----)",
-    );
+    throw new Error("T3FLARE_GITHUB_APP_PRIVATE_KEY is not a PEM private key (-----BEGIN RSA PRIVATE KEY-----)");
   }
 
-  const body = Uint8Array.from(atob((match[2] ?? "").replaceAll(/\s/g, "")), (char) =>
-    char.charCodeAt(0),
-  );
+  const body = Uint8Array.from(atob((match[2] ?? "").replaceAll(/\s/g, "")), (char) => char.charCodeAt(0));
 
   return match[1] === undefined ? body : pkcs8OfPkcs1(body);
 };
 
 const importKey = async (pem: string): Promise<CryptoKey> =>
-  crypto.subtle.importKey(
-    "pkcs8",
-    pkcs8Of(pem),
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
+  crypto.subtle.importKey("pkcs8", pkcs8Of(pem), { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
 
 /**
  * What is wrong with `pem` as the GitHub App's private key, if anything: checked when a Worker starts or is deployed, so
@@ -469,10 +451,7 @@ export class GitHubApp implements GitHubTokens {
 
     const answer = await this.#ask(`${API}/app/installations/${installation}/access_tokens`, {
       method: "POST",
-      body:
-        permissions === undefined && repositories === undefined
-          ? undefined
-          : JSON.stringify(narrowed),
+      body: permissions === undefined && repositories === undefined ? undefined : JSON.stringify(narrowed),
     });
 
     if (!answer.ok) {
@@ -569,8 +548,7 @@ export class GitHubApp implements GitHubTokens {
 
       const login = Option.getOrUndefined(decodeAppAnswer(answer.value))?.owner?.login;
 
-      if (login === undefined)
-        throw new Error("GitHub's answer to the GitHub App did not name its owner");
+      if (login === undefined) throw new Error("GitHub's answer to the GitHub App did not name its owner");
 
       this.#appAccount = login.toLowerCase();
 
@@ -634,9 +612,7 @@ export class GitHubApp implements GitHubTokens {
     const header = base64Url(encoder.encode(JSON.stringify({ alg: "RS256", typ: "JWT" })));
 
     const payload = base64Url(
-      encoder.encode(
-        JSON.stringify({ iat, exp: iat + JWT_LIFETIME_SECONDS, iss: this.#options.appId }),
-      ),
+      encoder.encode(JSON.stringify({ iat, exp: iat + JWT_LIFETIME_SECONDS, iss: this.#options.appId })),
     );
 
     const signature = await crypto.subtle.sign(

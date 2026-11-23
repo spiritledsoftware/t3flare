@@ -25,7 +25,13 @@ export const MODEL_ENDPOINT_VAR = "T3FLARE_MODEL_ENDPOINT";
  * The APIs an endpoint may speak: `ENDPOINT_APIS` of `@t3flare/models/endpoints`, restated so `infra` can read this file
  * without that package (modelEndpointSetup.test.ts checks the two are the same).
  */
-export const SPEC_APIS = ["anthropic-messages", "openai-responses", "openai-completions", "google-generative-ai", "mistral-conversations"] as const;
+export const SPEC_APIS = [
+  "anthropic-messages",
+  "openai-responses",
+  "openai-completions",
+  "google-generative-ai",
+  "mistral-conversations",
+] as const;
 export type SpecApi = (typeof SPEC_APIS)[number];
 
 export interface ModelEndpointSpec {
@@ -42,16 +48,28 @@ export interface ModelEndpointSpec {
 
 export type ModelEndpointSpecResult =
   /** `specs`: every endpoint given, in order; `spec`: the first. */
-  | { readonly ok: true; readonly spec: ModelEndpointSpec; readonly specs: ReadonlyArray<ModelEndpointSpec>; readonly source: typeof MODEL_ENDPOINT_VAR }
+  | {
+      readonly ok: true;
+      readonly spec: ModelEndpointSpec;
+      readonly specs: ReadonlyArray<ModelEndpointSpec>;
+      readonly source: typeof MODEL_ENDPOINT_VAR;
+    }
   /** `invalid`: the setting is there but unusable (a failure); otherwise there is nothing to set up (a skip). */
   | { readonly ok: false; readonly invalid: boolean; readonly reason: string };
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 const isText = (value: unknown): value is string => typeof value === "string" && value.trim() !== "";
 
-const invalid = (why: string): ModelEndpointSpecResult => ({ ok: false, invalid: true, reason: `${MODEL_ENDPOINT_VAR} ${why}` });
+const invalid = (why: string): ModelEndpointSpecResult => ({
+  ok: false,
+  invalid: true,
+  reason: `${MODEL_ENDPOINT_VAR} ${why}`,
+});
 
-type One = { readonly ok: true; readonly spec: ModelEndpointSpec } | { readonly ok: false; readonly invalid: true; readonly reason: string };
+type One =
+  | { readonly ok: true; readonly spec: ModelEndpointSpec }
+  | { readonly ok: false; readonly invalid: true; readonly reason: string };
 
 const parse = (text: string): ModelEndpointSpecResult => {
   let value: unknown;
@@ -69,7 +87,8 @@ const parse = (text: string): ModelEndpointSpecResult => {
   for (const [index, item] of value.entries()) {
     const one = parseOne(item);
     if (!one.ok) return { ...one, reason: one.reason.replace(MODEL_ENDPOINT_VAR, `${MODEL_ENDPOINT_VAR}[${index}]`) };
-    if (specs.some((spec) => spec.id === one.spec.id)) return invalid(`has the id ${JSON.stringify(one.spec.id)} twice`);
+    if (specs.some((spec) => spec.id === one.spec.id))
+      return invalid(`has the id ${JSON.stringify(one.spec.id)} twice`);
     specs.push(one.spec);
   }
   return { ok: true, source: MODEL_ENDPOINT_VAR, spec: specs[0]!, specs };
@@ -83,9 +102,15 @@ const parseOne = (value: unknown): One => {
   if (!isText(baseUrl)) return failed("has no baseUrl");
   if (!isText(apiKey)) return failed("has no apiKey");
   if (label !== undefined && !isText(label)) return failed("has a label that is not text");
-  if (api !== undefined && !SPEC_APIS.includes(api as SpecApi)) return failed(`has an api that is not one of ${SPEC_APIS.join(", ")}`);
-  if (headers !== undefined && !(isRecord(headers) && Object.values(headers).every((header) => typeof header === "string"))) return failed("has headers that are not names to text");
-  if (models !== undefined && !(Array.isArray(models) && models.every(isText))) return failed("has models that are not a list of ids");
+  if (api !== undefined && !SPEC_APIS.includes(api as SpecApi))
+    return failed(`has an api that is not one of ${SPEC_APIS.join(", ")}`);
+  if (
+    headers !== undefined &&
+    !(isRecord(headers) && Object.values(headers).every((header) => typeof header === "string"))
+  )
+    return failed("has headers that are not names to text");
+  if (models !== undefined && !(Array.isArray(models) && models.every(isText)))
+    return failed("has models that are not a list of ids");
   if (match !== undefined) {
     if (!isText(match)) return failed("has a match that is not text");
     try {
@@ -110,7 +135,8 @@ const parseOne = (value: unknown): One => {
 };
 
 /** The value of `T3FLARE_MODEL_ENDPOINT` that describes `specs` (what `ci:setup` stores as the secret): one object, or a list. */
-export const modelEndpointSecret = (specs: ReadonlyArray<ModelEndpointSpec>): string => JSON.stringify(specs.length === 1 ? specs[0] : specs);
+export const modelEndpointSecret = (specs: ReadonlyArray<ModelEndpointSpec>): string =>
+  JSON.stringify(specs.length === 1 ? specs[0] : specs);
 
 /** The CLI agents the acceptance test runs (`--codex`, `--pi`, `--claude`, `--opencode`), and the APIs each runs on. */
 export const CLI_APIS: Readonly<Record<"codex" | "pi" | "claude" | "opencode", ReadonlyArray<SpecApi>>> = {
@@ -124,8 +150,13 @@ export const CLI_APIS: Readonly<Record<"codex" | "pi" | "claude" | "opencode", R
  * Of `clis`, each one no endpoint of `specs` serves, with what it needs: the acceptance test fails on these before it
  * runs them (an uncovered CLI is refused at spawn, SPI-1176), never skipping one silently.
  */
-export const cliCoverage = (clis: ReadonlyArray<keyof typeof CLI_APIS>, specs: ReadonlyArray<Pick<ModelEndpointSpec, "api">>): ReadonlyArray<{ readonly cli: string; readonly needs: string }> =>
-  clis.filter((cli) => !specs.some((spec) => CLI_APIS[cli].includes(spec.api))).map((cli) => ({ cli, needs: `an endpoint speaking ${CLI_APIS[cli].join(" or ")} in ${MODEL_ENDPOINT_VAR}` }));
+export const cliCoverage = (
+  clis: ReadonlyArray<keyof typeof CLI_APIS>,
+  specs: ReadonlyArray<Pick<ModelEndpointSpec, "api">>,
+): ReadonlyArray<{ readonly cli: string; readonly needs: string }> =>
+  clis
+    .filter((cli) => !specs.some((spec) => CLI_APIS[cli].includes(spec.api)))
+    .map((cli) => ({ cli, needs: `an endpoint speaking ${CLI_APIS[cli].join(" or ")} in ${MODEL_ENDPOINT_VAR}` }));
 
 /** The endpoint to set up from `env`: `T3FLARE_MODEL_ENDPOINT` when set, else nothing, with the reason. */
 export const modelEndpointSpec = (env: Readonly<Record<string, string | undefined>>): ModelEndpointSpecResult => {
@@ -135,18 +166,24 @@ export const modelEndpointSpec = (env: Readonly<Record<string, string | undefine
 };
 
 /** The stages' rule (stage.ts and acceptance.ts), the same on a laptop and in CI. */
-export const stageEndpointSpec = (env: Readonly<Record<string, string | undefined>>): ModelEndpointSpecResult => modelEndpointSpec(env);
+export const stageEndpointSpec = (env: Readonly<Record<string, string | undefined>>): ModelEndpointSpecResult =>
+  modelEndpointSpec(env);
 
 /** Shorter values are not masked or scrubbed: no credential is that short, and masking one would garble every log line. */
 export const MIN_SECRET_LENGTH = 4;
 
 /** The values of `spec` no log, report or artifact may carry: its key and every header's value. */
 export const secretsOf = (spec: Pick<ModelEndpointSpec, "apiKey" | "headers">): ReadonlyArray<string> =>
-  [spec.apiKey, ...Object.values(spec.headers)].flatMap((value) => value.split(/\r?\n/)).map((value) => value.trim()).filter((value) => value.length >= MIN_SECRET_LENGTH);
+  [spec.apiKey, ...Object.values(spec.headers)]
+    .flatMap((value) => value.split(/\r?\n/))
+    .map((value) => value.trim())
+    .filter((value) => value.length >= MIN_SECRET_LENGTH);
 
 /** `text` with each of `secrets` replaced. For plain text; a value to serialize goes through `scrubValue` first. */
 export const scrubSecrets = (text: string, secrets: ReadonlyArray<string>): string =>
-  [...secrets].sort((a, b) => b.length - a.length).reduce((scrubbed, secret) => scrubbed.split(secret).join("[redacted]"), text);
+  [...secrets]
+    .sort((a, b) => b.length - a.length)
+    .reduce((scrubbed, secret) => scrubbed.split(secret).join("[redacted]"), text);
 
 /**
  * `value` with `secrets` replaced in every string in it (keys included), before it is serialized: scrubbing the JSON text
@@ -156,7 +193,10 @@ export const scrubValue = (value: unknown, secrets: ReadonlyArray<string>): unkn
   if (secrets.length === 0) return value;
   if (typeof value === "string") return scrubSecrets(value, secrets);
   if (Array.isArray(value)) return value.map((item) => scrubValue(item, secrets));
-  if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [scrubSecrets(key, secrets), scrubValue(item, secrets)]));
+  if (isRecord(value))
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [scrubSecrets(key, secrets), scrubValue(item, secrets)]),
+    );
   return value;
 };
 
@@ -168,7 +208,10 @@ export const scrubValue = (value: unknown, secrets: ReadonlyArray<string>): unkn
 export const keptReportJson = (report: unknown, env: Readonly<Record<string, string | undefined>>): string => {
   const endpoint = stageEndpointSpec(env);
   const ownerEmail = (env.T3FLARE_OWNER_EMAIL ?? "").trim();
-  const secrets = [...(endpoint.ok ? endpoint.specs.flatMap(secretsOf) : []), ...(ownerEmail.length >= MIN_SECRET_LENGTH ? [ownerEmail] : [])];
+  const secrets = [
+    ...(endpoint.ok ? endpoint.specs.flatMap(secretsOf) : []),
+    ...(ownerEmail.length >= MIN_SECRET_LENGTH ? [ownerEmail] : []),
+  ];
   return JSON.stringify(scrubValue(report, secrets), null, 2);
 };
 

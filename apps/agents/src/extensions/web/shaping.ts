@@ -30,9 +30,7 @@ const redactKeys = (message: string, keys: readonly string[]): string =>
   Arr.reduce(keys, message, (text, key) =>
     key === ""
       ? text
-      : Arr.reduce(secretVariants(key), text, (redacted, variant) =>
-          redacted.replaceAll(variant, "[REDACTED]"),
-        ),
+      : Arr.reduce(secretVariants(key), text, (redacted, variant) => redacted.replaceAll(variant, "[REDACTED]")),
   );
 
 // Terminal escape sequences start with ESC; they are removed from provider text.
@@ -101,10 +99,7 @@ const splitExaResults = (text: string): ExaResult[] | undefined => {
 
     return {
       header: Arr.join(
-        Arr.filter(
-          headerLines,
-          (line) => EXA_ESSENTIAL_LINE.test(line) || !EXA_EMPTY_HEADER_LINE.test(line),
-        ),
+        Arr.filter(headerLines, (line) => EXA_ESSENTIAL_LINE.test(line) || !EXA_EMPTY_HEADER_LINE.test(line)),
         "\n",
       ),
       essentialHeader: Arr.join(
@@ -127,9 +122,7 @@ const joinExaResults = (results: readonly ExaResult[]): string =>
  * an explicit budget is already the model's own choice.
  */
 const moreHint = (explicit: number | undefined): string =>
-  explicit === undefined
-    ? `; pass contextMaxCharacters (up to ${MAX_CONTEXT_MAX_CHARACTERS}) for more`
-    : "";
+  explicit === undefined ? `; pass contextMaxCharacters (up to ${MAX_CONTEXT_MAX_CHARACTERS}) for more` : "";
 
 type Body = { readonly length: number; readonly index: number };
 
@@ -221,8 +214,7 @@ const shareSearchBudget = (
 
   const label = cut.length === 1 ? "result" : "results";
 
-  const shortened =
-    cut.length === 0 ? "" : `; ${label} ${Arr.join(Arr.map(cut, String), ", ")} shortened`;
+  const shortened = cut.length === 0 ? "" : `; ${label} ${Arr.join(Arr.map(cut, String), ", ")} shortened`;
 
   const dropped = reduced ? "; metadata other than Title and URL dropped" : "";
 
@@ -245,4 +237,3 @@ export const limitSearchText = (providerText: string, explicit: number | undefin
 
   return shared ?? `${kept}\n\n[Search results cut at ${limit} characters${moreHint(explicit)}]`;
 };
-

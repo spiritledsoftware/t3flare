@@ -29,7 +29,9 @@ export interface CaptureDeps {
   readonly last: () => LastCapture | undefined;
   readonly remember: (last: LastCapture) => void;
   /** The capture in the Container's git (above the guard). */
-  readonly inContainer: (ref: string) => Promise<{ readonly ok: true } | { readonly ok: false; readonly error: string }>;
+  readonly inContainer: (
+    ref: string,
+  ) => Promise<{ readonly ok: true } | { readonly ok: false; readonly error: string }>;
   readonly nowSeconds: () => number;
 }
 

@@ -4,21 +4,40 @@ import { type EndpointCredential, endpointLabel, type ModelEndpoint, signInOf } 
 import type { EndpointCredentialFailure } from "@t3flare/session-protocol";
 
 /** Why the Environment gave no credential for an endpoint, typed, with the turn's (or the text generation's) text. */
-export const credentialFailure = (endpoint: Pick<ModelEndpoint, "id" | "auth">, { unreadable, changed, signedOut, problem }: EndpointCredential): EndpointCredentialFailure => {
+export const credentialFailure = (
+  endpoint: Pick<ModelEndpoint, "id" | "auth">,
+  { unreadable, changed, signedOut, problem }: EndpointCredential,
+): EndpointCredentialFailure => {
   const named = endpointLabel(endpoint.id);
-  const failure = (kind: EndpointCredentialFailure["kind"], message: string, retryable: boolean): EndpointCredentialFailure => ({ endpointId: endpoint.id, kind, message, retryable });
+  const failure = (
+    kind: EndpointCredentialFailure["kind"],
+    message: string,
+    retryable: boolean,
+  ): EndpointCredentialFailure => ({ endpointId: endpoint.id, kind, message, retryable });
   const signIn = signInOf(endpoint.auth);
-  if (changed === true) return failure("changed", `${named} changed or was removed since this Session took it: retry the turn.`, true);
+  if (changed === true)
+    return failure("changed", `${named} changed or was removed since this Session took it: retry the turn.`, true);
   if (signIn !== undefined) {
     const why = problem === undefined ? "" : ` (${problem})`;
     return signedOut === true
-      ? failure("signed_out", `${named} is not signed in to ${signIn.title}${why}: sign in with ${signIn.title} again on the Settings page.`, false)
+      ? failure(
+          "signed_out",
+          `${named} is not signed in to ${signIn.title}${why}: sign in with ${signIn.title} again on the Settings page.`,
+          false,
+        )
       : failure("unavailable", `${named} could not get a ${signIn.title} token${why}: retry the turn.`, true);
   }
   return unreadable === true
-    ? failure("unreadable", `${named}'s API key can no longer be read (this Environment's credentials key changed): enter it again on the Settings page.`, false)
+    ? failure(
+        "unreadable",
+        `${named}'s API key can no longer be read (this Environment's credentials key changed): enter it again on the Settings page.`,
+        false,
+      )
     : failure("no_key", `${named} has no API key: set one on the Settings page.`, false);
 };
 
 /** Why the Environment gave no credential for an endpoint, as the turn (or the text generation) says it. */
-export const credentialProblem = (endpoint: Pick<ModelEndpoint, "id" | "auth">, credential: EndpointCredential): string => credentialFailure(endpoint, credential).message;
+export const credentialProblem = (
+  endpoint: Pick<ModelEndpoint, "id" | "auth">,
+  credential: EndpointCredential,
+): string => credentialFailure(endpoint, credential).message;

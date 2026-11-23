@@ -35,17 +35,33 @@ const workspace = parse(fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), 
   overrides: Record<string, string>;
   patchedDependencies: Record<string, string>;
 };
-const members = workspace.packages.filter((entry) => entry.startsWith(PREFIX)).map((entry) => entry.slice(PREFIX.length));
+const members = workspace.packages
+  .filter((entry) => entry.startsWith(PREFIX))
+  .map((entry) => entry.slice(PREFIX.length));
 
-const importers: Record<string, unknown> = Object.fromEntries(members.sort().map((dir) => [`${PREFIX}${dir}`, t3.importers[dir]]));
+const importers: Record<string, unknown> = Object.fromEntries(
+  members.sort().map((dir) => [`${PREFIX}${dir}`, t3.importers[dir]]),
+);
 const reachable = closure(t3, members);
 const installed = new Set([...reachable].map(bareKey));
-const snapshots: Record<string, unknown> = Object.fromEntries(Object.entries(t3.snapshots).filter(([key]) => reachable.has(key)));
-const packages: Record<string, unknown> = Object.fromEntries(Object.entries(t3.packages).filter(([key]) => installed.has(key)));
+const snapshots: Record<string, unknown> = Object.fromEntries(
+  Object.entries(t3.snapshots).filter(([key]) => reachable.has(key)),
+);
+const packages: Record<string, unknown> = Object.fromEntries(
+  Object.entries(t3.packages).filter(([key]) => installed.has(key)),
+);
 
 const patchedDependencies = Object.fromEntries(
   Object.entries(workspace.patchedDependencies)
-    .map(([key, file]) => [key, createHash("sha256").update(fs.readFileSync(path.join(root, file))).digest("hex")] as const)
+    .map(
+      ([key, file]) =>
+        [
+          key,
+          createHash("sha256")
+            .update(fs.readFileSync(path.join(root, file)))
+            .digest("hex"),
+        ] as const,
+    )
     .sort(([a], [b]) => a.localeCompare(b)),
 );
 // Ours, as the current lock resolves them (ADR-0037, review B2): our importers, and what they install that t3's graph
@@ -53,13 +69,16 @@ const patchedDependencies = Object.fromEntries(
 // t3 installs is left out (kept, ours would win pnpm's deduplication and move t3's packages, see 4.): pnpm resolves
 // that dependency again against the seeded t3 graph.
 const currentFile = path.join(root, "pnpm-lock.yaml");
-const current = fs.existsSync(currentFile) && !process.argv.includes("--refresh") ? readLock(currentFile).main : undefined;
+const current =
+  fs.existsSync(currentFile) && !process.argv.includes("--refresh") ? readLock(currentFile).main : undefined;
 const t3Names = new Set([...installed].map((key) => key.replace(/^(@?[^@]+)@.*$/, "$1")));
 const nameOf = (key: string) => key.replace(/^(@?[^@]+)@.*$/, "$1");
 if (current !== undefined) {
   const ours = Object.keys(current.importers).filter((dir) => !dir.startsWith(PREFIX));
   for (const dir of ours) importers[dir] = current.importers[dir];
-  const kept = [...closure(current, ours)].filter((key) => !t3Names.has(nameOf(key)) && current.snapshots?.[key] !== undefined);
+  const kept = [...closure(current, ours)].filter(
+    (key) => !t3Names.has(nameOf(key)) && current.snapshots?.[key] !== undefined,
+  );
   for (const key of kept) {
     snapshots[key] = current.snapshots[key];
     if (current.packages?.[bareKey(key)] !== undefined) packages[bareKey(key)] = current.packages[bareKey(key)];
@@ -78,6 +97,11 @@ const seeded = {
 };
 fs.writeFileSync(
   path.join(root, "pnpm-lock.yaml"),
-  [env, seeded].filter((doc) => doc !== undefined).map((doc) => `---\n${stringify(doc, { lineWidth: 0 })}`).join("\n"),
+  [env, seeded]
+    .filter((doc) => doc !== undefined)
+    .map((doc) => `---\n${stringify(doc, { lineWidth: 0 })}`)
+    .join("\n"),
 );
-console.log(`seeded pnpm-lock.yaml: ${members.length} t3 importers, ${Object.keys(snapshots).length} snapshots from t3code`);
+console.log(
+  `seeded pnpm-lock.yaml: ${members.length} t3 importers, ${Object.keys(snapshots).length} snapshots from t3code`,
+);

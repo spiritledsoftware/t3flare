@@ -17,7 +17,18 @@ import { routing } from "../src/platform/routingFileSystem.ts";
 import { execOutcome } from "../src/provider/cli/codexInvestigation.ts";
 
 const record = (id: string): WorkspaceRecord =>
-  ({ id, host: "github.com", owner: "o", name: id, cloneUrl: `https://github.com/o/${id}.git`, state: "ready", kind: "project", parent: null, branch: null, workflows: false }) as unknown as WorkspaceRecord;
+  ({
+    id,
+    host: "github.com",
+    owner: "o",
+    name: id,
+    cloneUrl: `https://github.com/o/${id}.git`,
+    state: "ready",
+    kind: "project",
+    parent: null,
+    branch: null,
+    workflows: false,
+  }) as unknown as WorkspaceRecord;
 
 interface GitCall {
   readonly workspace: string;
@@ -31,7 +42,12 @@ const calls: Array<GitCall> = [];
 const bind = () => {
   const records = new Map([["demo", record("demo")]]);
   bindEnvironmentServices({
-    workspaces: { list: () => [...records.values()], resolve: (id: string) => records.get(id), get: (id: string) => records.get(id), worktreesOf: () => [] },
+    workspaces: {
+      list: () => [...records.values()],
+      resolve: (id: string) => records.get(id),
+      get: (id: string) => records.get(id),
+      worktreesOf: () => [],
+    },
     github: () => ({ live: () => [] }),
     agents: {
       WORKSPACES: {
@@ -51,7 +67,12 @@ const run = (args: ReadonlyArray<string>, cwd: string) =>
   Effect.runPromise(
     Effect.gen(function* () {
       const handle = yield* spawn(ChildProcess.make("git", [...args], { cwd }) as ChildProcess.Command);
-      const text = <E>(stream: Stream.Stream<Uint8Array, E>) => Stream.runFold(stream, () => "", (acc, bytes) => acc + new TextDecoder().decode(bytes));
+      const text = <E>(stream: Stream.Stream<Uint8Array, E>) =>
+        Stream.runFold(
+          stream,
+          () => "",
+          (acc, bytes) => acc + new TextDecoder().decode(bytes),
+        );
       const stderr = yield* text(handle.stderr);
       return { exitCode: yield* handle.exitCode, stderr };
     }).pipe(Effect.scoped),
@@ -72,28 +93,51 @@ describe("a review guide's scratch checkout", () => {
     expect(dir).toMatch(/^\/w\/\.wt\/review-guide-[0-9a-f]{16}$/);
     const checkout = `${dir}/checkout`;
 
-    const add = ["-c", "core.hooksPath=/dev/null", "worktree", "add", "--detach", "--quiet", checkout, "0123456789abcdef0123456789abcdef01234567"];
+    const add = [
+      "-c",
+      "core.hooksPath=/dev/null",
+      "worktree",
+      "add",
+      "--detach",
+      "--quiet",
+      checkout,
+      "0123456789abcdef0123456789abcdef01234567",
+    ];
     expect((await run(add, "/w/demo")).exitCode).toBe(0);
     expect(scratchProjectOf(checkout)).toBe("demo");
     expect(calls.at(-1)).toEqual({ workspace: "demo", argv: add, cwd: "/workspace/repo", startContainer: true });
 
     // merge-base and diff are passive reads elsewhere; in a scratch checkout they always run in the Container.
     expect((await run(["merge-base", "aaaa", "HEAD"], checkout)).exitCode).toBe(0);
-    expect(calls.at(-1)).toEqual({ workspace: "demo", argv: ["-C", checkout, "merge-base", "aaaa", "HEAD"], cwd: "/workspace/repo", startContainer: true });
+    expect(calls.at(-1)).toEqual({
+      workspace: "demo",
+      argv: ["-C", checkout, "merge-base", "aaaa", "HEAD"],
+      cwd: "/workspace/repo",
+      startContainer: true,
+    });
 
     const remove = ["-c", "status.showUntrackedFiles=normal", "worktree", "remove", "--force", "--", checkout];
     expect((await run(remove, "/w/demo")).exitCode).toBe(0);
     expect(calls.at(-1)).toEqual({ workspace: "demo", argv: remove, cwd: "/workspace/repo", startContainer: true });
 
     // t3's `FileSystem.exists` on the removed checkout answers false, and the directory's removal forgets it.
-    expect(await Effect.runPromise(fs.access(checkout).pipe(Effect.as(true), Effect.orElseSucceed(() => false)))).toBe(false);
+    expect(
+      await Effect.runPromise(
+        fs.access(checkout).pipe(
+          Effect.as(true),
+          Effect.orElseSucceed(() => false),
+        ),
+      ),
+    ).toBe(false);
     await Effect.runPromise(fs.remove(dir, { recursive: true }));
     expect(scratchProjectOf(checkout)).toBeUndefined();
   });
 
   it("forgets the directory when t3's scope closes", async () => {
     bind();
-    const dir = await Effect.runPromise(Effect.scoped(fs.makeTempDirectoryScoped({ directory: "/w/.wt", prefix: "review-guide-" })));
+    const dir = await Effect.runPromise(
+      Effect.scoped(fs.makeTempDirectoryScoped({ directory: "/w/.wt", prefix: "review-guide-" })),
+    );
     expect((await run(["worktree", "add", "--detach", `${dir}/checkout`, "HEAD"], "/w/demo")).exitCode).toBe(128);
   });
 
@@ -103,8 +147,22 @@ describe("a review guide's scratch checkout", () => {
     expect(answer.exitCode).toBe(128);
     expect(answer.stderr).toContain("scratch directory");
     expect(calls).toEqual([]);
-    expect(await Effect.runPromise(fs.makeTempDirectory({ directory: "/w/demo" }).pipe(Effect.as("made"), Effect.orElseSucceed(() => "refused")))).toBe("refused");
-    expect(await Effect.runPromise(fs.makeTempDirectory({ directory: "/w/.wt", prefix: "../x" }).pipe(Effect.as("made"), Effect.orElseSucceed(() => "refused")))).toBe("refused");
+    expect(
+      await Effect.runPromise(
+        fs.makeTempDirectory({ directory: "/w/demo" }).pipe(
+          Effect.as("made"),
+          Effect.orElseSucceed(() => "refused"),
+        ),
+      ),
+    ).toBe("refused");
+    expect(
+      await Effect.runPromise(
+        fs.makeTempDirectory({ directory: "/w/.wt", prefix: "../x" }).pipe(
+          Effect.as("made"),
+          Effect.orElseSucceed(() => "refused"),
+        ),
+      ),
+    ).toBe("refused");
   });
 
   it("binds a checkout to one project only", async () => {
@@ -117,28 +175,60 @@ describe("a review guide's scratch checkout", () => {
 
 describe("Codex's investigation (`codex exec`)", () => {
   const endpoints = [{ id: "openai", label: "OpenAI", models: [{ id: "gpt-5-mini" }] }];
-  const context = { endpoints, readStateFile: (path: string) => (path === "/t3/state/tmp/schema" ? '{"type":"object"}' : undefined), piExtensionSource: "" };
-  const launch = (args: ReadonlyArray<string>) => profileLaunch({ cli: "codex", args, key: "proc-1", cwd: "/w/.wt/review-guide-x/checkout", env: {}, allowProbe: false }, context);
+  const context = {
+    endpoints,
+    readStateFile: (path: string) => (path === "/t3/state/tmp/schema" ? '{"type":"object"}' : undefined),
+    piExtensionSource: "",
+  };
+  const launch = (args: ReadonlyArray<string>) =>
+    profileLaunch(
+      { cli: "codex", args, key: "proc-1", cwd: "/w/.wt/review-guide-x/checkout", env: {}, allowProbe: false },
+      context,
+    );
 
   it("runs read-only, never asking, with the schema copied into its home, on its model's endpoint through the relay", () => {
     const answer = launch(codexExecArgs("openai/gpt-5-mini", "/t3/state/tmp/schema"));
     if ("refused" in answer) throw new Error(answer.refused);
     // Codex names the model by its own id, on its endpoint's provider (SPI-1176: the investigation runs on the relay).
-    expect(answer.argv.slice(-11)).toEqual(["exec", "--json", "--ephemeral", "--skip-git-repo-check", "-s", "read-only", "--model", "gpt-5-mini", "--output-schema", "/var/lib/t3flare/cli/proc-1/output-schema.json", "-"]);
+    expect(answer.argv.slice(-11)).toEqual([
+      "exec",
+      "--json",
+      "--ephemeral",
+      "--skip-git-repo-check",
+      "-s",
+      "read-only",
+      "--model",
+      "gpt-5-mini",
+      "--output-schema",
+      "/var/lib/t3flare/cli/proc-1/output-schema.json",
+      "-",
+    ]);
     expect(answer.argv).toContain('model_provider="t3flare-endpoint-openai"');
     expect(answer.modelRelay).toEqual(["openai"]);
     // An old model runs on the default model.
     const old = launch(codexExecArgs("gpt-6-luna", "/t3/state/tmp/schema"));
     expect("refused" in old ? old.refused : old.argv.slice(-4, -3)).toEqual(["gpt-5-mini"]);
     expect(answer.argv).toContain('approval_policy="never"');
-    expect(answer.argv.filter((arg) => arg.startsWith("approval_policy=") || arg.startsWith("sandbox_mode="))).toEqual(['approval_policy="never"']);
+    expect(answer.argv.filter((arg) => arg.startsWith("approval_policy=") || arg.startsWith("sandbox_mode="))).toEqual([
+      'approval_policy="never"',
+    ]);
     expect(answer.argv.some((arg) => arg.startsWith("mcp_servers."))).toBe(false);
-    expect(answer.files).toContainEqual({ path: "/var/lib/t3flare/cli/proc-1/output-schema.json", text: '{"type":"object"}' });
+    expect(answer.files).toContainEqual({
+      path: "/var/lib/t3flare/cli/proc-1/output-schema.json",
+      text: '{"type":"object"}',
+    });
   });
 
   it("is refused without an OpenAI Responses endpoint, saying so (SPI-1176)", () => {
     const answer = profileLaunch(
-      { cli: "codex", args: codexExecArgs("gpt-6-luna", "/t3/state/tmp/schema"), key: "proc-1", cwd: "/w/.wt/review-guide-x/checkout", env: {}, allowProbe: false },
+      {
+        cli: "codex",
+        args: codexExecArgs("gpt-6-luna", "/t3/state/tmp/schema"),
+        key: "proc-1",
+        cwd: "/w/.wt/review-guide-x/checkout",
+        env: {},
+        allowProbe: false,
+      },
       { readStateFile: context.readStateFile, piExtensionSource: "" },
     );
     expect(answer).toHaveProperty("refused", expect.stringMatching(/^Codex has no Model endpoint to run on/));
@@ -147,7 +237,21 @@ describe("Codex's investigation (`codex exec`)", () => {
   it("refuses any other exec", () => {
     expect(launch(["exec", "hi"])).toHaveProperty("refused");
     expect(launch(codexExecArgs("gpt-6-luna", "/t3/state/other"))).toHaveProperty("refused");
-    expect(launch(["exec", "--json", "--ephemeral", "--skip-git-repo-check", "-s", "workspace-write", "--model", "m", "--output-schema", "/t3/state/tmp/schema", "-"])).toHaveProperty("refused");
+    expect(
+      launch([
+        "exec",
+        "--json",
+        "--ephemeral",
+        "--skip-git-repo-check",
+        "-s",
+        "workspace-write",
+        "--model",
+        "m",
+        "--output-schema",
+        "/t3/state/tmp/schema",
+        "-",
+      ]),
+    ).toHaveProperty("refused");
     expect(launch(codexExecArgs("m; rm -rf /", "/t3/state/tmp/schema"))).toHaveProperty("refused");
   });
 
@@ -159,9 +263,15 @@ describe("Codex's investigation (`codex exec`)", () => {
       { type: "item.completed", item: { id: "3", type: "agent_message", text: '{"summary":"x"}' } },
       { type: "turn.completed" },
     ];
-    expect(execOutcome(events.map((event) => JSON.stringify(event)).join("\n"))).toEqual({ message: '{"summary":"x"}' });
-    expect(execOutcome(`${JSON.stringify({ type: "turn.failed", error: { message: "quota" } })}\n`)).toEqual({ error: "quota" });
+    expect(execOutcome(events.map((event) => JSON.stringify(event)).join("\n"))).toEqual({
+      message: '{"summary":"x"}',
+    });
+    expect(execOutcome(`${JSON.stringify({ type: "turn.failed", error: { message: "quota" } })}\n`)).toEqual({
+      error: "quota",
+    });
     expect(execOutcome("")).toEqual({ error: "Codex gave no answer (events: none)" });
-    expect(execOutcome(`${JSON.stringify({ type: "turn.started" })}\n`)).toEqual({ error: "Codex gave no answer (events: turn.started\u00d71)" });
+    expect(execOutcome(`${JSON.stringify({ type: "turn.started" })}\n`)).toEqual({
+      error: "Codex gave no answer (events: turn.started\u00d71)",
+    });
   });
 });

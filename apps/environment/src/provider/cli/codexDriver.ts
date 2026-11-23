@@ -9,14 +9,21 @@ import { CLIS } from "@t3flare/sandbox-image/clis";
 import { toWorkspace } from "@t3flare/workspace-client";
 import * as CodexClient from "effect-codex-app-server/client";
 import * as CodexErrors from "effect-codex-app-server/errors";
-import { defaultProviderContinuationIdentity, type ProviderDriver, type ProviderInstance } from "@t3tools/provider-core/server/driver";
+import {
+  defaultProviderContinuationIdentity,
+  type ProviderDriver,
+  type ProviderInstance,
+} from "@t3tools/provider-core/server/driver";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import { makeManagedServerProvider } from "@t3tools/provider-core/server/managedProvider";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import { buildServerProvider } from "@t3tools/provider-core/server/snapshotProbe";
-import { haveProviderSnapshotSettingsChanged, makeProviderSnapshotSettingsSource } from "@t3tools/provider-core/server/snapshotSettings";
+import {
+  haveProviderSnapshotSettingsChanged,
+  makeProviderSnapshotSettingsSource,
+} from "@t3tools/provider-core/server/snapshotSettings";
 import * as Digest from "effect/crypto/Digest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -25,7 +32,10 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
-import { type CodexAppServerClientFactoryShape, makeCodexAdapterV2 } from "t3/src/orchestration-v2/Adapters/CodexAdapterV2.ts";
+import {
+  type CodexAppServerClientFactoryShape,
+  makeCodexAdapterV2,
+} from "t3/src/orchestration-v2/Adapters/CodexAdapterV2.ts";
 import { ServerConfig } from "t3/src/config.ts";
 
 import { environmentServices } from "../../agents/bindings.ts";
@@ -67,15 +77,20 @@ export type CodexCliDriverEnv =
   | ServerConfig;
 
 /** The OpenAI Responses endpoints' models as `<endpointId>/<modelId>` (SPI-1167), reached through the model relay. */
-export const codexModels = (): ReadonlyArray<ServerProviderModel> => codexModelsOf(environmentServices().modelEndpoints?.());
+export const codexModels = (): ReadonlyArray<ServerProviderModel> =>
+  codexModelsOf(environmentServices().modelEndpoints?.());
 
 /** The thread request methods whose answer names the thread's provider. */
 const THREAD_OPENERS = new Set(["thread/start", "thread/resume", "thread/fork"]);
 
-const refusedError = (method: string, why: string) => new CodexErrors.CodexAppServerRequestError({ code: -32601, errorMessage: why, method });
+const refusedError = (method: string, why: string) =>
+  new CodexErrors.CodexAppServerRequestError({ code: -32601, errorMessage: why, method });
 
 /** The client t3's adapter talks to: every request through the guard, plan mode's file changes declined. */
-export const guardClient = (client: CodexClient.CodexAppServerClient["Service"], session: CliSession): CodexClient.CodexAppServerClient["Service"] => {
+export const guardClient = (
+  client: CodexClient.CodexAppServerClient["Service"],
+  session: CliSession,
+): CodexClient.CodexAppServerClient["Service"] => {
   // SPI-1167: each thread's provider, as Codex answered its start, resume or fork.
   const providers = new Map<string, string>();
   const route = codexRouteFor(() => environmentServices().modelEndpoints?.());
@@ -97,44 +112,84 @@ export const guardClient = (client: CodexClient.CodexAppServerClient["Service"],
       return Effect.fail(refusedError(method, answer.refused));
     }
     const opened = send(answer.params as never);
-    const sent = THREAD_OPENERS.has(method) ? opened.pipe(Effect.tap((result) => Effect.sync(() => remember(result)))) : opened;
+    const sent = THREAD_OPENERS.has(method)
+      ? opened.pipe(Effect.tap((result) => Effect.sync(() => remember(result))))
+      : opened;
     if (method === "turn/start") {
       // SPI-1167: a turn Codex refuses to start names why in the Environment's log (t3 shows a generic failure).
-      return sent.pipe(Effect.tapError((error) => Effect.sync(() => workersLog("warn", { t3flare: "codex-turn-start-failed", error: String(error).slice(0, 300) }))));
+      return sent.pipe(
+        Effect.tapError((error) =>
+          Effect.sync(() =>
+            workersLog("warn", { t3flare: "codex-turn-start-failed", error: String(error).slice(0, 300) }),
+          ),
+        ),
+      );
     }
     // The resume proof (M5): Codex resumed this native thread itself, not a handoff.
     if (method !== "thread/resume") return sent;
     const threadId = (answer.params as { threadId?: unknown }).threadId;
     return sent.pipe(
       Effect.tap(() => Effect.sync(() => traceProtocol("codex", "thread/resume", `ok ${String(threadId)}`))),
-      Effect.tapError((error) => Effect.sync(() => traceProtocol("codex", "thread/resume", `failed ${String(threadId)}: ${String(error).slice(0, 200)}`))),
+      Effect.tapError((error) =>
+        Effect.sync(() =>
+          traceProtocol("codex", "thread/resume", `failed ${String(threadId)}: ${String(error).slice(0, 200)}`),
+        ),
+      ),
     );
   };
   return {
     ...client,
-    request: ((method: string, payload: unknown) => guarded(method, payload, (params) => client.request(method as never, params))) as typeof client.request,
-    raw: { ...client.raw, request: ((method: string, payload: unknown) => guarded(method, payload, (params) => client.raw.request(method as never, params))) as typeof client.raw.request },
-    handleServerRequest: ((method: string, handler: (payload: unknown) => Effect.Effect<unknown, CodexErrors.CodexAppServerError>) =>
-      client.handleServerRequest(method as never, ((payload: unknown) =>
-        declinesInPlan(method) && session.interactionMode === "plan" ? Effect.succeed({ decision: "decline" }) : handler(payload)) as never)) as typeof client.handleServerRequest,
+    request: ((method: string, payload: unknown) =>
+      guarded(method, payload, (params) => client.request(method as never, params))) as typeof client.request,
+    raw: {
+      ...client.raw,
+      request: ((method: string, payload: unknown) =>
+        guarded(method, payload, (params) => client.raw.request(method as never, params))) as typeof client.raw.request,
+    },
+    handleServerRequest: ((
+      method: string,
+      handler: (payload: unknown) => Effect.Effect<unknown, CodexErrors.CodexAppServerError>,
+    ) =>
+      client.handleServerRequest(
+        method as never,
+        ((payload: unknown) =>
+          declinesInPlan(method) && session.interactionMode === "plan"
+            ? Effect.succeed({ decision: "decline" })
+            : handler(payload)) as never,
+      )) as typeof client.handleServerRequest,
   };
 };
 
 /** Spawns `codex app-server` in the thread's Workspace (cwd: t3's spawn has none) and guards its client. */
-export const cliClientFactory = (spawner: ChildProcessSpawner.ChildProcessSpawner["Service"], sessions: CliSessions): CodexAppServerClientFactoryShape => ({
+export const cliClientFactory = (
+  spawner: ChildProcessSpawner.ChildProcessSpawner["Service"],
+  sessions: CliSessions,
+): CodexAppServerClientFactoryShape => ({
   open: Effect.fn("CodexCliDriver.open")(function* (input) {
-      const cwd = input.runtimePolicy.cwd;
-      const openError = (cause: unknown) => new ProviderAdapter.ProviderAdapterOpenSessionError({ driver: CODEX_DRIVER, providerSessionId: input.providerSessionId, cause });
-      if (cwd === null || toWorkspace(cwd) === null) return yield* openError("t3flare: Codex runs in a Workspace's Container; start the thread in a project");
-      const session = sessionFor(sessions, input.providerSessionId, cwd, input.threadId);
-      session.runtimeMode = input.runtimePolicy.runtimeMode;
-      session.interactionMode = input.runtimePolicy.interactionMode;
-      const handle = yield* spawner
-        .spawn(ChildProcess.make("codex", ["app-server"], { cwd, env: { T3CODE_THREAD_ID: input.threadId }, stdin: { stream: "pipe", endOnDone: false } }))
-        .pipe(Effect.mapError(openError));
-      const context = yield* Layer.build(CodexClient.layerChildProcess(handle, {}));
-      const client = yield* Effect.service(CodexClient.CodexAppServerClient).pipe(Effect.provide(context));
-      return guardClient(client, session);
+    const cwd = input.runtimePolicy.cwd;
+    const openError = (cause: unknown) =>
+      new ProviderAdapter.ProviderAdapterOpenSessionError({
+        driver: CODEX_DRIVER,
+        providerSessionId: input.providerSessionId,
+        cause,
+      });
+    if (cwd === null || toWorkspace(cwd) === null)
+      return yield* openError("t3flare: Codex runs in a Workspace's Container; start the thread in a project");
+    const session = sessionFor(sessions, input.providerSessionId, cwd, input.threadId);
+    session.runtimeMode = input.runtimePolicy.runtimeMode;
+    session.interactionMode = input.runtimePolicy.interactionMode;
+    const handle = yield* spawner
+      .spawn(
+        ChildProcess.make("codex", ["app-server"], {
+          cwd,
+          env: { T3CODE_THREAD_ID: input.threadId },
+          stdin: { stream: "pipe", endOnDone: false },
+        }),
+      )
+      .pipe(Effect.mapError(openError));
+    const context = yield* Layer.build(CodexClient.layerChildProcess(handle, {}));
+    const client = yield* Effect.service(CodexClient.CodexAppServerClient).pipe(Effect.provide(context));
+    return guardClient(client, session);
   }),
 });
 
@@ -157,7 +212,8 @@ export const snapshotOf = (enabled: boolean, setupMode: string | undefined) =>
             version: CLIS.codex.version,
             status: "error",
             auth: { status: "unauthenticated" },
-            message: "Codex's own ChatGPT sign-in is not offered here; sign in to ChatGPT as a Model endpoint on the Settings page instead (and set Codex's setup mode back).",
+            message:
+              "Codex's own ChatGPT sign-in is not offered here; sign in to ChatGPT as a Model endpoint on the Settings page instead (and set Codex's setup mode back).",
           }
         : readinessOf(models, CLIS.codex.version, `${noEndpointFor("Codex", "OpenAI Responses")}.`),
     });
@@ -202,7 +258,14 @@ export const CodexCliDriver: ProviderDriver<CodexSettings, CodexCliDriverEnv> = 
     // to stock; relayedMcp.ts).
     const relayed = t3McpForCli(realMcpSessions, () => environmentServices().t3McpUrl());
     // binaryPath, homePath and launchArgs are not used: the image's binary and the CLI profile decide (plan §3).
-    const settings = { ...config, enabled, setupMode: "existing" as const, binaryPath: "codex", homePath: "", launchArgs: "" } satisfies CodexSettings;
+    const settings = {
+      ...config,
+      enabled,
+      setupMode: "existing" as const,
+      binaryPath: "codex",
+      homePath: "",
+      launchArgs: "",
+    } satisfies CodexSettings;
     const continuationRequests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
     const fileSystem = yield* FileSystem.FileSystem;
     const adapter = yield* makeCodexAdapterV2({
@@ -225,11 +288,19 @@ export const CodexCliDriver: ProviderDriver<CodexSettings, CodexCliDriverEnv> = 
       enabled: enabled && config.setupMode !== "managed",
       snapshot,
       // SPI-1151: the Workspace's Repo skills at Codex's roots, from the Workspace DO (never a spawn in the project).
-      snapshotForCwd: cliSnapshotForCwdOf({ machine: snapshot.getSnapshot, driver: CODEX_DRIVER, instanceId, agent: "codex" }),
+      snapshotForCwd: cliSnapshotForCwdOf({
+        machine: snapshot.getSnapshot,
+        driver: CODEX_DRIVER,
+        instanceId,
+        agent: "codex",
+      }),
       orchestrationAdapter: wrapCliAdapter(adapter, { sessions }),
       // Pi Durable's text generation on the Model endpoints; a review guide's investigation runs `codex exec` read-only in
       // the checkout (G7).
-      textGeneration: TextGenerationOperations.fromRunner("CodexTextGeneration", withCodexInvestigation(spawner, fileSystem, runText)),
+      textGeneration: TextGenerationOperations.fromRunner(
+        "CodexTextGeneration",
+        withCodexInvestigation(spawner, fileSystem, runText),
+      ),
     } satisfies ProviderInstance;
   }),
 };

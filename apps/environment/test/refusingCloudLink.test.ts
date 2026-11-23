@@ -12,16 +12,29 @@ import { layerRefusingCloudLink } from "../src/connect/service.ts";
 const PROOF_REQUEST: RelayLinkProofRequest = {
   challenge: "challenge-1",
   relayIssuer: "https://relay.example.test",
-  endpoint: { providerKind: "cloudflare_tunnel", httpBaseUrl: "https://environment.example.test", wsBaseUrl: "wss://environment.example.test" },
+  endpoint: {
+    providerKind: "cloudflare_tunnel",
+    httpBaseUrl: "https://environment.example.test",
+    wsBaseUrl: "wss://environment.example.test",
+  },
   origin: { localHttpHost: "127.0.0.1", localHttpPort: 3773 },
 };
 
 it("refuses linkProof, applyRelayConfig, answerHealthRequest and mintCredential; keeps linkState, unlink and preferences", async () => {
   const calls: Array<string> = [];
   const names = [
-    "linkProof", "applyRelayConfig", "linkState", "unlink", "updatePreferences", "answerHealthRequest", "mintCredential",
-    "reconcileDesiredLinkIfStillDesired", "registerManagedTunnelRecovery", "recoverManagedTunnel",
-    "startManagedTunnelIfOriginConfirmed", "releaseManagedTunnelOnShutdown",
+    "linkProof",
+    "applyRelayConfig",
+    "linkState",
+    "unlink",
+    "updatePreferences",
+    "answerHealthRequest",
+    "mintCredential",
+    "reconcileDesiredLinkIfStillDesired",
+    "registerManagedTunnelRecovery",
+    "recoverManagedTunnel",
+    "startManagedTunnelIfOriginConfirmed",
+    "releaseManagedTunnelOnShutdown",
   ];
   const real = Object.fromEntries(
     names.map((name) => [name, () => Effect.sync(() => (calls.push(name), { called: name }))]),
@@ -36,7 +49,11 @@ it("refuses linkProof, applyRelayConfig, answerHealthRequest and mintCredential;
         answerHealthRequest: Effect.flip(link.answerHealthRequest({} as never)),
         mintCredential: Effect.flip(link.mintCredential({} as never)),
       });
-      const kept = [yield* link.linkState(), yield* link.unlink(), yield* link.updatePreferences({ publishAgentActivity: true })];
+      const kept = [
+        yield* link.linkState(),
+        yield* link.unlink(),
+        yield* link.updatePreferences({ publishAgentActivity: true }),
+      ];
       return { refused: Object.fromEntries(Object.entries(refused).map(([name, error]) => [name, error._tag])), kept };
     }).pipe(Effect.provide(layer)),
   );

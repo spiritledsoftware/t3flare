@@ -23,6 +23,8 @@ describe("a t3 tool result's images", () => {
   it("drops an oversized image and keeps at most four", () => {
     const big = { type: "image", data: "x".repeat(MAX_IMAGE_BASE64 + 1), mimeType: "image/png" };
     expect(imagesOf([big])).toEqual([]);
-    expect(imagesOf(Array.from({ length: 6 }, () => ({ type: "image", data: "A", mimeType: "image/jpeg" })))).toHaveLength(MAX_RESULT_IMAGES);
+    expect(
+      imagesOf(Array.from({ length: 6 }, () => ({ type: "image", data: "A", mimeType: "image/jpeg" }))),
+    ).toHaveLength(MAX_RESULT_IMAGES);
   });
 });

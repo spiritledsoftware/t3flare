@@ -6,9 +6,24 @@
 import { COMMAND_ENV } from "@t3flare/sandbox-image/env";
 import { describe, expect, it } from "vitest";
 
-import { CLI_PROFILE_NAMES, type CliName, type LaunchInput, profileLaunch, type ProfileContext } from "../src/agents/cliProfiles.ts";
+import {
+  CLI_PROFILE_NAMES,
+  type CliName,
+  type LaunchInput,
+  profileLaunch,
+  type ProfileContext,
+} from "../src/agents/cliProfiles.ts";
 
-const MODEL = { id: "m", name: "M", reasoning: false, input: ["text" as const], contextWindow: 1, maxTokens: 1, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, known: false };
+const MODEL = {
+  id: "m",
+  name: "M",
+  reasoning: false,
+  input: ["text" as const],
+  contextWindow: 1,
+  maxTokens: 1,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  known: false,
+};
 const ENDPOINT = { id: "e", label: "E", api: "anthropic-messages" as const, models: [MODEL] };
 const context: ProfileContext = {
   readStateFile: () => undefined,
@@ -19,7 +34,13 @@ const context: ProfileContext = {
   claudeRelay: { endpoints: ["e"], models: ["e/m"], backgroundModel: "e/m", opusModel: "e/m", sonnetModel: "e/m" },
   opencodeRelay: { endpoints: [ENDPOINT], model: "e/m", smallModel: "e/m" },
 };
-const ARGS: Record<CliName, ReadonlyArray<string>> = { codex: ["app-server"], pi: ["--mode", "rpc", "--no-extensions"], claude: [], opencode: ["acp"], probe: [] };
+const ARGS: Record<CliName, ReadonlyArray<string>> = {
+  codex: ["app-server"],
+  pi: ["--mode", "rpc", "--no-extensions"],
+  claude: [],
+  opencode: ["acp"],
+  probe: [],
+};
 
 /** Where mise puts its data, cache, state and config for `env`, as mise resolves them (its `dirs.rs`). */
 const miseDirs = (env: Readonly<Record<string, string | undefined>>) => {
@@ -37,16 +58,31 @@ const LAY_DOWN = miseDirs({ HOME: "/root", ...COMMAND_ENV });
 
 describe("mise's directories", () => {
   it("are the image's defaults under /root for the lay-down, so the shims on PATH are its installs'", () => {
-    expect(LAY_DOWN).toEqual({ data: "/root/.local/share/mise", cache: "/root/.cache/mise", state: "/root/.local/state/mise", config: "/root/.config/mise" });
+    expect(LAY_DOWN).toEqual({
+      data: "/root/.local/share/mise",
+      cache: "/root/.cache/mise",
+      state: "/root/.local/state/mise",
+      config: "/root/.config/mise",
+    });
   });
 
   it("are the lay-down's for every CLI agent's process, whatever HOME or XDG_* its profile sets", () => {
     for (const cli of CLI_PROFILE_NAMES) {
-      const input: LaunchInput = { cli, args: ARGS[cli], key: "k1", cwd: "/w/p/repo", env: { T3CODE_THREAD_ID: "t1" }, allowProbe: true };
+      const input: LaunchInput = {
+        cli,
+        args: ARGS[cli],
+        key: "k1",
+        cwd: "/w/p/repo",
+        env: { T3CODE_THREAD_ID: "t1" },
+        allowProbe: true,
+      };
       const launch = profileLaunch(input, context);
       if ("refused" in launch) throw new Error(`${cli}: ${launch.refused}`);
       // A process's environment: COMMAND_ENV under the profile's (processHost's spawn).
-      expect({ cli, dirs: miseDirs({ HOME: "/root", ...COMMAND_ENV, ...launch.env }) }).toEqual({ cli, dirs: LAY_DOWN });
+      expect({ cli, dirs: miseDirs({ HOME: "/root", ...COMMAND_ENV, ...launch.env }) }).toEqual({
+        cli,
+        dirs: LAY_DOWN,
+      });
     }
   });
 });

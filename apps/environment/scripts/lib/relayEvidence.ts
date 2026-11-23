@@ -11,17 +11,25 @@ import { admin } from "./client.ts";
 export const relayEvidence = (secrets: ReadonlyArray<string>) => {
   const index = process.argv.indexOf("--out");
   const out = index === -1 ? undefined : process.argv[index + 1];
-  const stage = new URL(process.env.T3_URL ?? "http://localhost").hostname.split(".")[0]!.replace(/^t3flare-environment-/, "");
+  const stage = new URL(process.env.T3_URL ?? "http://localhost").hostname
+    .split(".")[0]!
+    .replace(/^t3flare-environment-/, "");
   const git = (...args: Array<string>) => spawnSync("git", args, { encoding: "utf8" }).stdout.trim();
   // The code the evidence covers: the commit deployed (the working tree must be clean for it to be that commit).
-  const report: Record<string, unknown> = { at: new Date().toISOString(), stage, head: git("rev-parse", "HEAD"), clean: git("status", "--porcelain") === "" };
+  const report: Record<string, unknown> = {
+    at: new Date().toISOString(),
+    stage,
+    head: git("rev-parse", "HEAD"),
+    clean: git("status", "--porcelain") === "",
+  };
   const kept = secrets.filter((value) => value.length >= 8);
   const handles: Array<string> = [];
   const failures: Array<string> = [];
   const checks: Array<{ name: string; ok: boolean }> = [];
   function clean<T>(value: T): T {
     const text = JSON.stringify(value) ?? "";
-    for (const secret of [...kept, ...handles]) if (text.includes(secret)) throw new Error("a key or a handle reached an answer kept as evidence");
+    for (const secret of [...kept, ...handles])
+      if (text.includes(secret)) throw new Error("a key or a handle reached an answer kept as evidence");
     return value;
   }
   const check = (name: string, ok: boolean, detail?: unknown) => {
@@ -44,12 +52,26 @@ export const relayEvidence = (secrets: ReadonlyArray<string>) => {
 };
 
 /** The Settings page's API, a command in a Workspace's Container, and the leak check, through the admin routes. */
-export const panelApi = (method: string, pathname: string, body?: unknown) => admin(method, `/_t3flare/settings/api/${pathname}`, body);
+export const panelApi = (method: string, pathname: string, body?: unknown) =>
+  admin(method, `/_t3flare/settings/api/${pathname}`, body);
 export const workspaceExec = async (workspace: string, script: string, timeoutMs = 60_000) =>
-  ((await admin("POST", `/_t3flare/agents/workspace-call?id=${encodeURIComponent(workspace)}`, { exec: { script, timeoutMs } })).json as any)?.result ?? {};
-export const leakCheck = async (workspace: string) => (await admin("POST", `/_t3flare/check/leak?id=${encodeURIComponent(workspace)}`)).json;
+  (
+    (
+      await admin("POST", `/_t3flare/agents/workspace-call?id=${encodeURIComponent(workspace)}`, {
+        exec: { script, timeoutMs },
+      })
+    ).json as any
+  )?.result ?? {};
+export const leakCheck = async (workspace: string) =>
+  (await admin("POST", `/_t3flare/check/leak?id=${encodeURIComponent(workspace)}`)).json;
 /** A command's `name=value` lines. */
-export const linesOf = (stdout: string | undefined): Record<string, string> => Object.fromEntries((stdout ?? "").trim().split("\n").map((line: string) => line.split("=", 2) as [string, string]));
+export const linesOf = (stdout: string | undefined): Record<string, string> =>
+  Object.fromEntries(
+    (stdout ?? "")
+      .trim()
+      .split("\n")
+      .map((line: string) => line.split("=", 2) as [string, string]),
+  );
 
 /** The log lines of a Workers tail (`wrangler tail --format json`) whose JSON message starts with `{"t3flare":"<kind>`. */
 export const workerLogs = (raw: string, kind: string): Array<any> => {
@@ -58,7 +80,8 @@ export const workerLogs = (raw: string, kind: string): Array<any> => {
     try {
       const event = JSON.parse(chunk) as { logs?: Array<{ message: Array<unknown> }> };
       for (const log of event.logs ?? []) {
-        for (const message of log.message) if (typeof message === "string" && message.startsWith(`{"t3flare":"${kind}`)) found.push(JSON.parse(message));
+        for (const message of log.message)
+          if (typeof message === "string" && message.startsWith(`{"t3flare":"${kind}`)) found.push(JSON.parse(message));
       }
     } catch {
       // An event cut off when the tail stopped.

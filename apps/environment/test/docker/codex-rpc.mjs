@@ -17,7 +17,17 @@ const note = (dir, msg) => log.write(`${JSON.stringify({ t: Date.now() - started
 const child = spawn(command[0], command.slice(1), { stdio: ["pipe", "pipe", "pipe"], env: process.env });
 let nextId = 1;
 const pending = new Map();
-const summary = { threadId: null, items: [], approvals: [], errors: [], notifications: {}, agentText: "", stderr: "", turnStatus: null, requests: {} };
+const summary = {
+  threadId: null,
+  items: [],
+  approvals: [],
+  errors: [],
+  notifications: {},
+  agentText: "",
+  stderr: "",
+  turnStatus: null,
+  requests: {},
+};
 const send = (msg) => {
   note("out", msg);
   child.stdin.write(`${JSON.stringify(msg)}\n`);
@@ -54,11 +64,20 @@ child.stdout.on("data", (chunk) => {
       else p.resolve(msg.result);
     } else if (msg.id !== undefined) {
       summary.requests[msg.method] = (summary.requests[msg.method] ?? 0) + 1;
-      summary.approvals.push({ method: msg.method, command: msg.params?.command ?? null, reason: msg.params?.reason ?? null });
+      summary.approvals.push({
+        method: msg.method,
+        command: msg.params?.command ?? null,
+        reason: msg.params?.reason ?? null,
+      });
       send({ jsonrpc: "2.0", id: msg.id, result: { decision: scenario.approve ?? "accept" } });
     } else {
       summary.notifications[msg.method] = (summary.notifications[msg.method] ?? 0) + 1;
-      if (msg.method === "item/completed") summary.items.push({ type: msg.params?.item?.type, status: msg.params?.item?.status ?? null, command: msg.params?.item?.command ?? null });
+      if (msg.method === "item/completed")
+        summary.items.push({
+          type: msg.params?.item?.type,
+          status: msg.params?.item?.status ?? null,
+          command: msg.params?.item?.command ?? null,
+        });
       if (msg.method === "item/agentMessage/delta") summary.agentText += msg.params?.delta ?? "";
       if (msg.method === "error") summary.errors.push(msg.params);
       if (msg.method === "turn/completed") {
@@ -83,7 +102,10 @@ const timeout = setTimeout(() => {
 }, scenario.timeoutMs ?? 300_000);
 
 try {
-  summary.initialize = await request("initialize", { clientInfo: { name: "t3flare-probe", title: "t3flare probe", version: "0.0.0" }, capabilities: { experimentalApi: true } });
+  summary.initialize = await request("initialize", {
+    clientInfo: { name: "t3flare-probe", title: "t3flare probe", version: "0.0.0" },
+    capabilities: { experimentalApi: true },
+  });
   send({ jsonrpc: "2.0", method: "initialized" });
   for (const extraRequest of scenario.extraRequests ?? []) {
     try {
@@ -93,7 +115,12 @@ try {
     }
   }
   if (scenario.prompt !== undefined) {
-    const threadParams = { cwd: scenario.cwd, model: scenario.model, ...(scenario.threadConfig ? { config: scenario.threadConfig } : {}), ...scenario.threadParams };
+    const threadParams = {
+      cwd: scenario.cwd,
+      model: scenario.model,
+      ...(scenario.threadConfig ? { config: scenario.threadConfig } : {}),
+      ...scenario.threadParams,
+    };
     const thread = scenario.resume
       ? await request("thread/resume", { threadId: scenario.resume, ...threadParams })
       : await request("thread/start", threadParams);
@@ -101,7 +128,11 @@ try {
     summary.threadPath = thread.thread?.path ?? null;
     for (let turn = 0; turn < (scenario.turns ?? 1); turn++) {
       const done = new Promise((resolve) => (turnDone = resolve));
-      await request("turn/start", { threadId: summary.threadId, input: [{ type: "text", text: scenario.prompt, text_elements: [] }], ...scenario.turnParams });
+      await request("turn/start", {
+        threadId: summary.threadId,
+        input: [{ type: "text", text: scenario.prompt, text_elements: [] }],
+        ...scenario.turnParams,
+      });
       await done;
       summary.turnsCompleted = turn + 1;
       if (summary.exit) break;

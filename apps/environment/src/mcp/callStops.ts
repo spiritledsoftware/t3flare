@@ -29,7 +29,10 @@ const forgetOldStops = (now: number) => {
 };
 
 /** Runs `run` with a signal that `stopCall(id)` aborts while it runs. No id: no signal. */
-export const withCallStop = async <T>(id: string | undefined, run: (signal: AbortSignal | undefined) => Promise<T>): Promise<T> => {
+export const withCallStop = async <T>(
+  id: string | undefined,
+  run: (signal: AbortSignal | undefined) => Promise<T>,
+): Promise<T> => {
   if (id === undefined || id === "") return run(undefined);
   let entry = stops.get(id);
   if (entry === undefined) {
@@ -77,7 +80,9 @@ type HostInput = Parameters<HostCall>[0];
 export const stoppableCall =
   (host: Pick<McpHost, "call">) =>
   ({ stopId, ...call }: Omit<HostInput, "signal"> & { readonly stopId?: string }): Promise<McpCallAnswer> =>
-    withCallStop(call.judged === "write" ? stopId : undefined, (signal) => host.call({ ...call, ...(signal === undefined ? {} : { signal }) }));
+    withCallStop(call.judged === "write" ? stopId : undefined, (signal) =>
+      host.call({ ...call, ...(signal === undefined ? {} : { signal }) }),
+    );
 
 /**
  * A Session's MCP call (`EnvironmentDO.mcpCall`): its caller is a Durable agent on its thread (plan D3), and a Settings
@@ -90,7 +95,11 @@ export const sessionMcpCall = (
   agent: string,
 ): Promise<McpCallAnswer> => {
   const { thread, stopId, ...call } = input;
-  const caller = { door: "own" as const, thread: typeof thread === "string" && thread !== "" ? thread : undefined, agent };
+  const caller = {
+    door: "own" as const,
+    thread: typeof thread === "string" && thread !== "" ? thread : undefined,
+    agent,
+  };
   // The Settings server by its kind, as the relay judges it: a stored server under its name is not it.
   const settings = ownEntry(host.servers(), call.server)?.kind === "settings";
   return stoppableCall(host)({ ...call, caller, ...(settings && stopId !== undefined ? { stopId } : {}) });

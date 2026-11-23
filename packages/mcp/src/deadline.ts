@@ -21,11 +21,7 @@ export interface PausableDeadline {
   readonly clear: Effect.Effect<void>;
 }
 
-const deadlineOver = Effect.fnUntraced(function* (
-  controller: AbortController,
-  ms: number,
-  reason: () => Error,
-) {
+const deadlineOver = Effect.fnUntraced(function* (controller: AbortController, ms: number, reason: () => Error) {
   let remaining = ms;
   let startedAt = yield* Clock.currentTimeMillis;
   let paused = 0;
@@ -86,7 +82,5 @@ const deadlineOver = Effect.fnUntraced(function* (
  * A deadline `ms` away. The controller is made here, outside the Effect, as the lint rules ask; `reason` is what the
  * signal aborts with (the SDK's timeout error at the core's end).
  */
-export const pausableDeadline = (
-  ms: number,
-  reason: () => Error,
-): Effect.Effect<PausableDeadline> => deadlineOver(new AbortController(), ms, reason);
+export const pausableDeadline = (ms: number, reason: () => Error): Effect.Effect<PausableDeadline> =>
+  deadlineOver(new AbortController(), ms, reason);

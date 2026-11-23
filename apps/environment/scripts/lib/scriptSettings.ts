@@ -7,7 +7,8 @@ import { requireSetting } from "./deploymentSettings.ts";
 export const fixtureRepo = (): string => requireSetting(process.env, "T3FLARE_FIXTURE_REPO");
 
 /** The https URL of the account's Worker `worker` at its workers.dev host. */
-export const workersDevUrl = (worker: string): string => `https://${worker}.${requireSetting(process.env, "T3FLARE_WORKERS_DEV_SUBDOMAIN")}.workers.dev`;
+export const workersDevUrl = (worker: string): string =>
+  `https://${worker}.${requireSetting(process.env, "T3FLARE_WORKERS_DEV_SUBDOMAIN")}.workers.dev`;
 
 /** The account's Access team domain (`<team>.cloudflareaccess.com`). */
 export const accessTeamDomain = (): string => requireSetting(process.env, "T3FLARE_ACCESS_TEAM_DOMAIN");

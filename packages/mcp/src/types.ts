@@ -114,13 +114,7 @@ export type McpCallContext = typeof McpCallContext.Type;
 export const MCP_TASKS_EXTENSION = "io.modelcontextprotocol/tasks";
 
 /** The statuses of an MCP task. */
-export const McpTaskStatus = Schema.Literals([
-  "working",
-  "input_required",
-  "completed",
-  "failed",
-  "cancelled",
-]);
+export const McpTaskStatus = Schema.Literals(["working", "input_required", "completed", "failed", "cancelled"]);
 
 export type McpTaskStatus = typeof McpTaskStatus.Type;
 
@@ -279,37 +273,34 @@ export type SessionRow = typeof SessionRowV1.Type;
  * The server wants the owner signed in: a 401. `rejected` when it refused a token the core sent, twice. `challenge` is
  * the parameters of the 401's `WWW-Authenticate` header, when it had any (the host reports them to the Registry).
  */
-export class SignInRequired extends Schema.TaggedError<
-  SignInRequired,
-  { readonly brand: unique symbol }
->()("SignInRequired", {
-  message: Schema.String,
-  rejected: Schema.Boolean,
-  challenge: Schema.optionalKey(McpAuthChallenge),
-}) {}
+export class SignInRequired extends Schema.TaggedError<SignInRequired, { readonly brand: unique symbol }>()(
+  "SignInRequired",
+  {
+    message: Schema.String,
+    rejected: Schema.Boolean,
+    challenge: Schema.optionalKey(McpAuthChallenge),
+  },
+) {}
 
 /**
  * The server wants a token with more scope: a 403 with `insufficient_scope`; `challenge` is the parameters of its
  * `WWW-Authenticate` header.
  */
-export class StepUpRequired extends Schema.TaggedError<
-  StepUpRequired,
-  { readonly brand: unique symbol }
->()("StepUpRequired", {
-  message: Schema.String,
-  scope: Schema.optionalKey(Schema.String),
-  challenge: Schema.optionalKey(McpAuthChallenge),
-}) {}
+export class StepUpRequired extends Schema.TaggedError<StepUpRequired, { readonly brand: unique symbol }>()(
+  "StepUpRequired",
+  {
+    message: Schema.String,
+    scope: Schema.optionalKey(Schema.String),
+    challenge: Schema.optionalKey(McpAuthChallenge),
+  },
+) {}
 
 /**
  * The server could not be reached or is not answering for now: a network error, a 5xx, a 408 or a 429. `stopped` is set
  * for a stdio server whose Workspace's Container is not running (the bridge's `stopped` refusal): nothing was wrong, and
  * the host asks again only where the process runs. Optional, so an edge that does not know it reads the failure as any.
  */
-export class Unreachable extends Schema.TaggedError<
-  Unreachable,
-  { readonly brand: unique symbol }
->()("Unreachable", {
+export class Unreachable extends Schema.TaggedError<Unreachable, { readonly brand: unique symbol }>()("Unreachable", {
   message: Schema.String,
   status: Schema.optionalKey(Schema.Int),
   stopped: Schema.optionalKey(Schema.Boolean),
@@ -337,49 +328,34 @@ export class Cut extends Schema.TaggedError<Cut, { readonly brand: unique symbol
 }) {}
 
 /** The answer was over its byte limit and was dropped, never truncated. */
-export class TooLarge extends Schema.TaggedError<TooLarge, { readonly brand: unique symbol }>()(
-  "TooLarge",
-  {
-    message: Schema.String,
-    limit: Schema.Int,
-  },
-) {}
+export class TooLarge extends Schema.TaggedError<TooLarge, { readonly brand: unique symbol }>()("TooLarge", {
+  message: Schema.String,
+  limit: Schema.Int,
+}) {}
 
 /** No answer within the request's timeout. */
-export class TimedOut extends Schema.TaggedError<TimedOut, { readonly brand: unique symbol }>()(
-  "TimedOut",
-  {
-    message: Schema.String,
-  },
-) {}
+export class TimedOut extends Schema.TaggedError<TimedOut, { readonly brand: unique symbol }>()("TimedOut", {
+  message: Schema.String,
+}) {}
 
 /**
  * The server answered with an error: a JSON-RPC error (`code`), or an HTTP status that is not a sign-in, step-up or
  * unavailability (`status`: a 403 without `insufficient_scope`, a redirect to another origin).
  */
-export class ServerError extends Schema.TaggedError<
-  ServerError,
-  { readonly brand: unique symbol }
->()("ServerError", {
+export class ServerError extends Schema.TaggedError<ServerError, { readonly brand: unique symbol }>()("ServerError", {
   message: Schema.String,
   code: Schema.optionalKey(Schema.Int),
   status: Schema.optionalKey(Schema.Int),
 }) {}
 
 /** The tool, prompt or resource asked for does not exist (`-32002`, `-32602`). */
-export class NotFound extends Schema.TaggedError<NotFound, { readonly brand: unique symbol }>()(
-  "NotFound",
-  {
-    message: Schema.String,
-    code: Schema.Int,
-  },
-) {}
+export class NotFound extends Schema.TaggedError<NotFound, { readonly brand: unique symbol }>()("NotFound", {
+  message: Schema.String,
+  code: Schema.Int,
+}) {}
 
 /** The server and t3flare share no protocol version, or the server does not offer what was asked. */
-export class Unsupported extends Schema.TaggedError<
-  Unsupported,
-  { readonly brand: unique symbol }
->()("Unsupported", {
+export class Unsupported extends Schema.TaggedError<Unsupported, { readonly brand: unique symbol }>()("Unsupported", {
   message: Schema.String,
 }) {}
 
@@ -387,12 +363,12 @@ export class Unsupported extends Schema.TaggedError<
 export const MCP_URL_REQUIRED_CODE = -32042;
 
 /** The server answered with something that is not MCP: not JSON-RPC, the wrong content type, a malformed result. */
-export class ProtocolViolation extends Schema.TaggedError<
-  ProtocolViolation,
-  { readonly brand: unique symbol }
->()("ProtocolViolation", {
-  message: Schema.String,
-}) {}
+export class ProtocolViolation extends Schema.TaggedError<ProtocolViolation, { readonly brand: unique symbol }>()(
+  "ProtocolViolation",
+  {
+    message: Schema.String,
+  },
+) {}
 
 /** Every way a core request fails. */
 export const McpError = Schema.Union([
@@ -415,14 +391,14 @@ export type McpError = typeof McpError.Type;
  * one. It has a tag of its own, so nothing reads it as the tag it came with (`tag`), and it may have run unless it
  * says not (`mayHaveRun`).
  */
-export class OtherMcpError extends Schema.TaggedError<
-  OtherMcpError,
-  { readonly brand: unique symbol }
->()("OtherMcpError", {
-  message: Schema.String,
-  tag: Schema.String,
-  mayHaveRun: Schema.optionalKey(Schema.Boolean),
-}) {}
+export class OtherMcpError extends Schema.TaggedError<OtherMcpError, { readonly brand: unique symbol }>()(
+  "OtherMcpError",
+  {
+    message: Schema.String,
+    tag: Schema.String,
+    mayHaveRun: Schema.optionalKey(Schema.Boolean),
+  },
+) {}
 
 /** Any failure as it crosses the edge: its own tag, a message and, maybe, whether it may have run. */
 const AnyMcpErrorFields = Schema.Struct({
@@ -475,14 +451,7 @@ export const mayHaveRun = (error: McpErrorWire, method: string): boolean => {
     Match.tag("OtherMcpError", (other) => other.mayHaveRun ?? call),
     Match.tag("TimedOut", "TooLarge", "ProtocolViolation", () => call),
     Match.tag("Unreachable", ({ status }) => call && status !== undefined && status >= 500),
-    Match.tag(
-      "SignInRequired",
-      "StepUpRequired",
-      "ServerError",
-      "NotFound",
-      "Unsupported",
-      () => false,
-    ),
+    Match.tag("SignInRequired", "StepUpRequired", "ServerError", "NotFound", "Unsupported", () => false),
     Match.exhaustive,
   );
 };
@@ -870,9 +839,7 @@ export const McpEngineRequest = Schema.Union([
 export type McpEngineRequest = typeof McpEngineRequest.Type;
 
 /** A native byte stream: RPC passes it through without cloning or counting it, and the host returns it unread. */
-const ByteStream = Schema.declare(
-  (input): input is ReadableStream<Uint8Array> => input instanceof ReadableStream,
-);
+const ByteStream = Schema.declare((input): input is ReadableStream<Uint8Array> => input instanceof ReadableStream);
 
 /**
  * A result's value: inline up to 1 MiB of JSON, else the JSON's bytes as a native `ReadableStream` the engine produces
@@ -1121,9 +1088,7 @@ export interface McpEngineHooks {
    * gets, or rejects when the caller cannot answer (which reads as a `cancel`). The timeout of the call is paused while
    * it is pending. Absent for a call whose caller answers nothing: every question is then cancelled.
    */
-  readonly onInput?: (
-    request: typeof McpInputRequest.Encoded,
-  ) => Promise<typeof McpInputAnswer.Encoded>;
+  readonly onInput?: (request: typeof McpInputRequest.Encoded) => Promise<typeof McpInputAnswer.Encoded>;
   /** The server stopped waiting for question `key` (its own cancellation): the caller withdraws its card. */
   readonly onInputEnded?: (key: string) => void | Promise<void>;
   /**
@@ -1343,9 +1308,7 @@ export const appUriOfMeta = (meta: Schema.Json | undefined): string | undefined 
   const ui = isJsonObject(meta) ? meta["ui"] : undefined;
   const uri = isJsonObject(ui) ? ui["resourceUri"] : undefined;
 
-  return Predicate.isString(uri) && uri.startsWith("ui://") && uri.length <= MCP_APP_URI_MAX_LENGTH
-    ? uri
-    : undefined;
+  return Predicate.isString(uri) && uri.startsWith("ui://") && uri.length <= MCP_APP_URI_MAX_LENGTH ? uri : undefined;
 };
 
 /**
@@ -1356,9 +1319,7 @@ export const visibilityOfMeta = (meta: Schema.Json | undefined): ReadonlyArray<s
   const ui = isJsonObject(meta) ? meta["ui"] : undefined;
   const visibility = isJsonObject(ui) ? ui["visibility"] : undefined;
 
-  return Arr.isArray(visibility) && Arr.every(visibility, Predicate.isString)
-    ? visibility
-    : ["model", "app"];
+  return Arr.isArray(visibility) && Arr.every(visibility, Predicate.isString) ? visibility : ["model", "app"];
 };
 
 /** The most an App's HTML may weigh, as text. */
@@ -1391,10 +1352,7 @@ export type McpAppUiMeta = typeof McpAppUiMeta.Type;
 export const McpHostAppHtmlRequest = Schema.Struct({
   op: Schema.Literal("ui/html"),
   server: Schema.String,
-  params: Schema.Union([
-    Schema.Struct({ hash: Schema.String }),
-    Schema.Struct({ uri: Schema.String }),
-  ]),
+  params: Schema.Union([Schema.Struct({ hash: Schema.String }), Schema.Struct({ uri: Schema.String })]),
   ctx: McpHostRequestContext,
 });
 
@@ -1477,11 +1435,7 @@ export const McpHostTemplatesList = Schema.Struct({
 export type McpHostTemplatesList = typeof McpHostTemplatesList.Type;
 
 /** The resource requests a Session makes, beside the `McpHostRequest`s of its tool calls and tasks (`resources` feature). */
-export const McpHostResourceRequest = Schema.Union([
-  McpHostResourcesList,
-  McpHostTemplatesList,
-  McpHostResourceRead,
-]);
+export const McpHostResourceRequest = Schema.Union([McpHostResourcesList, McpHostTemplatesList, McpHostResourceRead]);
 
 export type McpHostResourceRequest = typeof McpHostResourceRequest.Type;
 
@@ -1543,9 +1497,7 @@ export interface McpHostRequestHooks {
    * server gets, or rejects when the caller cannot answer. The host passes it on to the engine, never keeping a
    * question or an answer.
    */
-  readonly onInput?: (
-    request: typeof McpInputRequest.Encoded,
-  ) => Promise<typeof McpInputAnswer.Encoded>;
+  readonly onInput?: (request: typeof McpInputRequest.Encoded) => Promise<typeof McpInputAnswer.Encoded>;
   /**
    * The server stopped waiting for question `key` (its own cancellation): the caller withdraws its card. The host also
    * calls it, with `reason`, for a question whose server a set change left changed, switched off or removed while the
@@ -1569,9 +1521,7 @@ export const McpHostCompleted = Schema.TaggedStruct("Completed", {
    * `viewHash` of the origin the server's Views are served on, when the host knows the Environment and source; the
    * call's record pins it, so a record of a server that has since been shadowed is not mounted at its successor's origin.
    */
-  app: Schema.optionalKey(
-    Schema.Struct({ htmlHash: Schema.String, viewHash: Schema.optionalKey(Schema.String) }),
-  ),
+  app: Schema.optionalKey(Schema.Struct({ htmlHash: Schema.String, viewHash: Schema.optionalKey(Schema.String) })),
   /** A `resources/read`: the SHA-256 (lowercase hex) of its contents, the baseline of a Resource watch (`resources`). */
   sha256: Schema.optionalKey(Schema.String),
   /**
@@ -1579,9 +1529,7 @@ export const McpHostCompleted = Schema.TaggedStruct("Completed", {
    * a server that cannot send updates, a read that did not complete, a watch the host could not store). The read's
    * contents are given either way. Gain-only: absent for a read that did not ask to watch.
    */
-  watch: Schema.optionalKey(
-    Schema.Struct({ started: Schema.Boolean, reason: Schema.optionalKey(Schema.String) }),
-  ),
+  watch: Schema.optionalKey(Schema.Struct({ started: Schema.Boolean, reason: Schema.optionalKey(Schema.String) })),
   /**
    * A stdio server's process that answered a `resume` or `resend` (its spawn id, as a task's): another one than the
    * `InputRequired` carried is a process that restarted while the questions waited. Gain-only; absent for an HTTP server
@@ -1745,8 +1693,7 @@ export type McpHostRequestResult = typeof McpHostRequestResult.Type;
  * `answer`, a `request` answer as it crossed the edge, as a result this build knows: a failure under a tag it does not
  * know, or anything that is no result, is `HostFailed`.
  */
-export const readMcpHostRequestResult: (
-  answer: typeof McpHostRequestResult.Encoded,
-) => McpHostRequestResult = hostAnswerReader(McpHostRequestResult, "the request");
+export const readMcpHostRequestResult: (answer: typeof McpHostRequestResult.Encoded) => McpHostRequestResult =
+  hostAnswerReader(McpHostRequestResult, "the request");
 
 export * from "./sign-in.ts";

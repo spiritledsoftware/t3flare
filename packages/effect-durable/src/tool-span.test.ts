@@ -2,12 +2,7 @@
 // Session's list, never another Session's with the same call ID, and nothing once the call is over.
 import * as Effect from "effect/Effect";
 import { describe, expect, it } from "vitest";
-import {
-  annotateToolSpan,
-  makeToolSpans,
-  type ToolSpanAttributes,
-  ToolSpans,
-} from "./tool-span.ts";
+import { annotateToolSpan, makeToolSpans, type ToolSpanAttributes, ToolSpans } from "./tool-span.ts";
 
 describe("a Session's tool spans", () => {
   it("annotate the listed span of the call in this Session only, while it runs", () => {
@@ -16,17 +11,9 @@ describe("a Session's tool spans", () => {
     const seen: ToolSpanAttributes[] = [];
     const unlist = mine.list("call-1", (attributes) => seen.push(attributes));
 
-    Effect.runSync(
-      annotateToolSpan("call-1", { "visual.bytes": 10 }).pipe(
-        Effect.provideService(ToolSpans, mine),
-      ),
-    );
+    Effect.runSync(annotateToolSpan("call-1", { "visual.bytes": 10 }).pipe(Effect.provideService(ToolSpans, mine)));
     // A Fork's list holds the same call ID: nothing it is told reaches this Session's span.
-    Effect.runSync(
-      annotateToolSpan("call-1", { "visual.bytes": 99 }).pipe(
-        Effect.provideService(ToolSpans, forked),
-      ),
-    );
+    Effect.runSync(annotateToolSpan("call-1", { "visual.bytes": 99 }).pipe(Effect.provideService(ToolSpans, forked)));
     unlist();
     mine.annotate("call-1", { "visual.bytes": 7 });
 

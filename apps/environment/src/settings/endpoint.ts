@@ -62,7 +62,14 @@ import {
 } from "./server.ts";
 import { PAGE_REASON } from "./render.ts";
 import { signToken, type TokenRefusal, verifyToken } from "./tokens.ts";
-import { OWNER_MODE_INSTRUCTIONS, RESUME_TOOL, SETTINGS_OWNER_INSTRUCTIONS, SETTINGS_TOOLS, settingsToolOf, toolDefinition } from "./tools.ts";
+import {
+  OWNER_MODE_INSTRUCTIONS,
+  RESUME_TOOL,
+  SETTINGS_OWNER_INSTRUCTIONS,
+  SETTINGS_TOOLS,
+  settingsToolOf,
+  toolDefinition,
+} from "./tools.ts";
 
 /** The 2026 version: per-request metadata, questions in results (MRTR). */
 export const MODERN_VERSION = "2026-07-28";
@@ -73,7 +80,12 @@ export const FORM_ELICITATION_VERSION = "2025-06-18";
 /** Tools with no elicitation: what a request with no session (or a forged one) reads as. */
 export const NO_ELICITATION_VERSION = "2025-03-26";
 /** The `initialize` versions, newest first. */
-export const LEGACY_VERSIONS: ReadonlyArray<string> = [URL_ELICITATION_VERSION, FORM_ELICITATION_VERSION, NO_ELICITATION_VERSION, "2024-11-05"];
+export const LEGACY_VERSIONS: ReadonlyArray<string> = [
+  URL_ELICITATION_VERSION,
+  FORM_ELICITATION_VERSION,
+  NO_ELICITATION_VERSION,
+  "2024-11-05",
+];
 export const SUPPORTED_VERSIONS: ReadonlyArray<string> = [MODERN_VERSION, ...LEGACY_VERSIONS];
 /** The largest body read (plan D11). */
 export const BODY_MAX = 256 * 1024;
@@ -165,15 +177,26 @@ interface Context {
 
 type Json = Readonly<Record<string, unknown>>;
 
-const objectOf = (value: unknown): Json | undefined => (value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Json) : undefined);
+const objectOf = (value: unknown): Json | undefined =>
+  value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Json) : undefined;
 
 const json = (body: unknown, status = 200, headers: Readonly<Record<string, string>> = {}) =>
-  new Response(JSON.stringify(body), { status, headers: { ...NO_STORE, "content-type": "application/json", ...headers } });
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { ...NO_STORE, "content-type": "application/json", ...headers },
+  });
 
 const plain = (status: number, text: string, headers: Readonly<Record<string, string>> = {}) =>
-  new Response(`${text}\n`, { status, headers: { ...NO_STORE, "content-type": "text/plain; charset=utf-8", ...headers } });
+  new Response(`${text}\n`, {
+    status,
+    headers: { ...NO_STORE, "content-type": "text/plain; charset=utf-8", ...headers },
+  });
 
-const rpcError = (id: unknown, code: number, message: string, data?: unknown) => ({ jsonrpc: "2.0", id: id ?? null, error: { code, message, ...(data === undefined ? {} : { data }) } });
+const rpcError = (id: unknown, code: number, message: string, data?: unknown) => ({
+  jsonrpc: "2.0",
+  id: id ?? null,
+  error: { code, message, ...(data === undefined ? {} : { data }) },
+});
 
 /** A client's own label (plan D11): display only, never trusted; no hidden character, cut to 60 characters. */
 const labelOf = (text: string): string => withoutHidden(text).slice(0, CLIENT_NAME_MAX);
@@ -185,7 +208,8 @@ const clientOf = (info: unknown, source: string): Context["client"] => {
   return name === "" ? undefined : { name, source };
 };
 
-const withClient = (client: Context["client"]): { readonly client?: NonNullable<Context["client"]> } => (client === undefined ? {} : { client });
+const withClient = (client: Context["client"]): { readonly client?: NonNullable<Context["client"]> } =>
+  client === undefined ? {} : { client };
 
 const withName = (name: unknown): { readonly clientName?: string } => {
   const clientName = clientNameOf(name);
@@ -210,7 +234,9 @@ export const elicitationModeOf = (url: URL): OwnerMode | null | undefined => {
   if (named.length === 0) return null;
   if (named.length > 1) return undefined;
   const [key, value] = named[0]!;
-  return key === "elicitation_mode" && (OWNER_MODES as ReadonlyArray<string>).includes(value) ? (value as OwnerMode) : undefined;
+  return key === "elicitation_mode" && (OWNER_MODES as ReadonlyArray<string>).includes(value)
+    ? (value as OwnerMode)
+    : undefined;
 };
 
 /** The body, or undefined past `BODY_MAX` (counted as it is read, so no length header is trusted). */
@@ -243,10 +269,19 @@ const readBody = async (request: Request): Promise<{ readonly text: string } | u
 /** A `tools/call` result from the server's answer (plan D11: text and `structuredContent`). */
 const toolResult = (answer: McpCallAnswer): Json =>
   answer.kind === "result"
-    ? { content: [{ type: "text", text: answer.text }], ...(answer.structured === undefined ? {} : { structuredContent: answer.structured }), isError: answer.isError }
+    ? {
+        content: [{ type: "text", text: answer.text }],
+        ...(answer.structured === undefined ? {} : { structuredContent: answer.structured }),
+        isError: answer.isError,
+      }
     : { content: [{ type: "text", text: answer.message }], structuredContent: { status: "refused" }, isError: true };
 
-const refusedResult = (text: string): McpCallAnswer => ({ kind: "result", isError: true, text, structured: { status: "refused" } });
+const refusedResult = (text: string): McpCallAnswer => ({
+  kind: "result",
+  isError: true,
+  text,
+  structured: { status: "refused" },
+});
 
 /** The digest a `requestState` binds: the call's tool and arguments, canonical (plan D12). */
 const callDigest = (tool: string, args: Json): Promise<string> => sha256Hex(canonicalJson({ tool, args }));
@@ -270,7 +305,9 @@ const headerValue = (raw: string): string | undefined => {
   if (!raw.startsWith(BASE64_HEADER_OPEN) || !raw.endsWith(BASE64_HEADER_CLOSE)) return raw;
   try {
     const encoded = raw.slice(BASE64_HEADER_OPEN.length, -BASE64_HEADER_CLOSE.length);
-    return new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0)));
+    return new TextDecoder("utf-8", { fatal: true }).decode(
+      Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0)),
+    );
   } catch {
     return undefined;
   }
@@ -294,29 +331,44 @@ const headerMismatch = (headers: Headers, version: unknown, method: string, name
  * One request to the Owner-client endpoint (plan D11). `caller` is the Worker's verdict; nothing in the request names who
  * calls.
  */
-export const handleSettingsMcp = async (request: Request, caller: AccessCaller, deps: EndpointDeps): Promise<Response> => {
+export const handleSettingsMcp = async (
+  request: Request,
+  caller: AccessCaller,
+  deps: EndpointDeps,
+): Promise<Response> => {
   const server = deps.server;
   const holds = deps.holds ?? ISOLATE_HOLDS;
   const now = deps.now ?? server.ops.now;
   const key = caller.kind === "owner" ? caller.subject : "service-token";
-  const log = (event: Record<string, unknown>) => server.log?.({ via: "mcp", door: "owner", principal: caller.kind, ...event });
+  const log = (event: Record<string, unknown>) =>
+    server.log?.({ via: "mcp", door: "owner", principal: caller.kind, ...event });
   const refuse = (status: number, reason: string, response: Response) => {
     log({ t3flare: "settings-refused", reason, status });
     return response;
   };
 
   // ── Guards, before the body is parsed ──
-  if (request.method !== "POST") return refuse(405, "method", plain(405, "The Settings server answers POST only.", { allow: "POST" }));
+  if (request.method !== "POST")
+    return refuse(405, "method", plain(405, "The Settings server answers POST only.", { allow: "POST" }));
   const type = (request.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
-  if (type !== "application/json") return refuse(415, "content-type", plain(415, "The Settings server takes application/json."));
-  if (request.headers.has("origin") || request.headers.has("sec-fetch-site")) return refuse(403, "browser", plain(403, "The Settings server answers MCP clients, not browsers."));
+  if (type !== "application/json")
+    return refuse(415, "content-type", plain(415, "The Settings server takes application/json."));
+  if (request.headers.has("origin") || request.headers.has("sec-fetch-site"))
+    return refuse(403, "browser", plain(403, "The Settings server answers MCP clients, not browsers."));
   const url = new URL(request.url);
   const explicit = elicitationModeOf(url);
   if (explicit === undefined) {
     return refuse(
       400,
       "elicitation-mode",
-      json(rpcError(null, -32602, "elicitation_mode is browser, native or model: once, in lowercase (absent means the client's mode on the Settings page, browser until the owner sets it)."), 400),
+      json(
+        rpcError(
+          null,
+          -32602,
+          "elicitation_mode is browser, native or model: once, in lowercase (absent means the client's mode on the Settings page, browser until the owner sets it).",
+        ),
+        400,
+      ),
     );
   }
   /**
@@ -329,7 +381,8 @@ export const handleSettingsMcp = async (request: Request, caller: AccessCaller, 
     return explicit ?? kept ?? "browser";
   };
   const raw = await readBody(request);
-  if (raw === undefined) return refuse(413, "too-large", plain(413, `The Settings server reads at most ${BODY_MAX} bytes.`));
+  if (raw === undefined)
+    return refuse(413, "too-large", plain(413, `The Settings server reads at most ${BODY_MAX} bytes.`));
 
   let parsed: unknown;
   try {
@@ -346,23 +399,49 @@ export const handleSettingsMcp = async (request: Request, caller: AccessCaller, 
 
   // A client's JSON-RPC response: its answer to a 2025 page elicitation (plan D12).
   if (method === undefined) {
-    if (id === undefined || !("result" in message || "error" in message)) return json(rpcError(null, -32600, "Invalid request"), 400);
+    if (id === undefined || !("result" in message || "error" in message))
+      return json(rpcError(null, -32600, "Invalid request"), 400);
     const verdict = await verifyToken(tokenKey, id, { kind: "elicit", sub: key, now: now() });
-    if (!verdict.ok) return refuse(400, `elicitation-id-${verdict.reason}`, json(rpcError(null, -32600, "This server asked no such question of this identity."), 400));
+    if (!verdict.ok)
+      return refuse(
+        400,
+        `elicitation-id-${verdict.reason}`,
+        json(rpcError(null, -32600, "This server asked no such question of this identity."), 400),
+      );
     const change = verdict.payload.change;
     const record = typeof change === "string" && isChangeId(change) ? server.changes.get(change) : undefined;
     const action = objectOf(message.result)?.action;
-    if (record !== undefined && record.caller.door === "owner" && record.caller.key === key && record.mode === "native") {
+    if (
+      record !== undefined &&
+      record.caller.door === "owner" &&
+      record.caller.key === key &&
+      record.mode === "native"
+    ) {
       // `native` (plan D12): the form's answer. `accept` applies the change (by `client`), `decline` declines it, `cancel`
       // withdraws it; the held call then writes its result. A response in another mode than the change's is refused:
       // the mode is this request's (its session's client name), so a client the owner moved off `native` since cannot
       // answer, and the change waits on its Change page.
-      const session = await verifyToken(tokenKey, request.headers.get("mcp-session-id"), { kind: "session", sub: key, now: now() });
+      const session = await verifyToken(tokenKey, request.headers.get("mcp-session-id"), {
+        kind: "session",
+        sub: key,
+        now: now(),
+      });
       if (modeOf(session.ok ? objectOf(session.payload.client)?.name : undefined) !== "native") {
         const why = session.ok
           ? "this client is in another now (its mode on the Settings page, or ?elicitation_mode=)"
           : "this request carries no valid Mcp-Session-Id, so its client is unknown here and the mode is browser (send the answer on the session that was asked, or add ?elicitation_mode=native)";
-        return refuse(400, "other-mode", json(rpcError(null, -32600, `This question was asked in the native Elicitation mode, and ${why}. Answer it on its Change page.`), 400));
+        return refuse(
+          400,
+          "other-mode",
+          json(
+            rpcError(
+              null,
+              -32600,
+              `This question was asked in the native Elicitation mode, and ${why}. Answer it on its Change page.`,
+            ),
+            400,
+          ),
+        );
       }
       // No stream of this isolate holds the question (the Environment reset since, or it ended unanswered): nobody waits
       // for the result, so the answer applies nothing and the change is withdrawn by `stop` (plan D12; SPI-1201 review).
@@ -371,35 +450,53 @@ export const handleSettingsMcp = async (request: Request, caller: AccessCaller, 
         log({ t3flare: "settings-refused", reason: "no-live-stream", change: record.id });
         return new Response(null, { status: 202, headers: NO_STORE });
       }
-      if (action === "accept" || action === "decline") await answerOwnerChange(server, record, { kind: caller.kind, key }, "client", action);
+      if (action === "accept" || action === "decline")
+        await answerOwnerChange(server, record, { kind: caller.kind, key }, "client", action);
       // `cancel`, or a JSON-RPC error in place of a result (the client could not ask): withdrawn, so the held call ends.
       else if (action === "cancel" || "error" in message) await withdrawOwnerChange(server, record.id);
       return new Response(null, { status: 202, headers: NO_STORE });
     }
     // In `browser`, `accept` means only "opened it"; `decline` and `cancel` withdraw the change if it is still open.
-    if (record !== undefined && record.caller.door === "owner" && record.caller.key === key && record.mode === "browser" && (action === "decline" || action === "cancel")) await withdrawOwnerChange(server, record.id);
+    if (
+      record !== undefined &&
+      record.caller.door === "owner" &&
+      record.caller.key === key &&
+      record.mode === "browser" &&
+      (action === "decline" || action === "cancel")
+    )
+      await withdrawOwnerChange(server, record.id);
     return new Response(null, { status: 202, headers: NO_STORE });
   }
   if (typeof method !== "string") return json(rpcError(null, -32600, "Invalid request"), 400);
   // A notification (`notifications/initialized`, `notifications/cancelled`): nothing to answer.
   if (id === undefined) return new Response(null, { status: 202, headers: NO_STORE });
   if (typeof id !== "string" && typeof id !== "number") return json(rpcError(null, -32600, "Invalid request id"), 400);
-  if (message.params !== undefined && objectOf(message.params) === undefined) return json(rpcError(id, -32602, "params is an object"), 400);
+  if (message.params !== undefined && objectOf(message.params) === undefined)
+    return json(rpcError(id, -32602, "params is an object"), 400);
   const params: Json = objectOf(message.params) ?? {};
   const meta = objectOf(params._meta);
   const userAgent = request.headers.get("user-agent");
-  const fromAgent = userAgent === null || labelOf(userAgent) === "" ? undefined : { name: labelOf(userAgent), source: "User-Agent" };
+  const fromAgent =
+    userAgent === null || labelOf(userAgent) === "" ? undefined : { name: labelOf(userAgent), source: "User-Agent" };
 
   // ── The request's version and what its client declared ──
   let context: Context;
   const metaVersion = meta?.[META_VERSION];
   if (method !== "initialize" && metaVersion !== undefined) {
     if (metaVersion !== MODERN_VERSION) {
-      return json(rpcError(id, -32022, "Unsupported protocol version", { supported: SUPPORTED_VERSIONS, requested: metaVersion }), 400);
+      return json(
+        rpcError(id, -32022, "Unsupported protocol version", { supported: SUPPORTED_VERSIONS, requested: metaVersion }),
+        400,
+      );
     }
     // 2026 Streamable HTTP's standard headers (spec, "Server Validation"): `MCP-Protocol-Version` and `Mcp-Method` on
     // every request and `Mcp-Name` on `tools/call`, each present and equal to the body's value, else `-32020` with 400.
-    const mismatch = headerMismatch(request.headers, metaVersion, method, method === "tools/call" ? params.name : undefined);
+    const mismatch = headerMismatch(
+      request.headers,
+      metaVersion,
+      method,
+      method === "tools/call" ? params.name : undefined,
+    );
     if (mismatch !== undefined) return json(rpcError(id, -32020, `Header mismatch: ${mismatch}`), 400);
     context = {
       modern: true,
@@ -409,21 +506,41 @@ export const handleSettingsMcp = async (request: Request, caller: AccessCaller, 
       ...withName(objectOf(meta?.[META_CLIENT])?.name),
     };
   } else {
-    const session = await verifyToken(tokenKey, request.headers.get("mcp-session-id"), { kind: "session", sub: key, now: now() });
+    const session = await verifyToken(tokenKey, request.headers.get("mcp-session-id"), {
+      kind: "session",
+      sub: key,
+      now: now(),
+    });
     const header = request.headers.get("mcp-protocol-version");
     // A 2026 header on a request whose body names no 2026 version in `_meta`: the header and the body disagree (2026
     // "Server Validation", -32020), which is not an unknown version (SPI-1201 review).
     if (method !== "initialize" && header === MODERN_VERSION) {
-      return json(rpcError(id, -32020, "Header mismatch: MCP-Protocol-Version is 2026-07-28 but the request's _meta names no protocol version"), 400);
+      return json(
+        rpcError(
+          id,
+          -32020,
+          "Header mismatch: MCP-Protocol-Version is 2026-07-28 but the request's _meta names no protocol version",
+        ),
+        400,
+      );
     }
     // 2025-06-18 and 2025-11-25 (Transports, "Protocol Version Header"): an invalid or unsupported version is 400; a
     // missing header is 2025-03-26. `initialize` negotiates in its body, so its header is not judged.
     if (method !== "initialize" && header !== null && !LEGACY_VERSIONS.includes(header)) {
-      return json(rpcError(id, -32600, "Unsupported MCP-Protocol-Version", { supported: SUPPORTED_VERSIONS, requested: header.slice(0, 40) }), 400);
+      return json(
+        rpcError(id, -32600, "Unsupported MCP-Protocol-Version", {
+          supported: SUPPORTED_VERSIONS,
+          requested: header.slice(0, 40),
+        }),
+        400,
+      );
     }
     if (session.ok) {
       const kept = session.payload;
-      const version = typeof kept.protocolVersion === "string" && LEGACY_VERSIONS.includes(kept.protocolVersion) ? kept.protocolVersion : NO_ELICITATION_VERSION;
+      const version =
+        typeof kept.protocolVersion === "string" && LEGACY_VERSIONS.includes(kept.protocolVersion)
+          ? kept.protocolVersion
+          : NO_ELICITATION_VERSION;
       const elicitation = objectOf(kept.elicitation);
       const client = objectOf(kept.client);
       context = {
@@ -435,7 +552,12 @@ export const handleSettingsMcp = async (request: Request, caller: AccessCaller, 
       };
     } else {
       // A missing, invalid or other identity's session reads as no elicitation declared (plan D11).
-      context = { modern: false, version: header !== null && LEGACY_VERSIONS.includes(header) ? header : NO_ELICITATION_VERSION, elicitation: NONE, ...withClient(fromAgent) };
+      context = {
+        modern: false,
+        version: header !== null && LEGACY_VERSIONS.includes(header) ? header : NO_ELICITATION_VERSION,
+        elicitation: NONE,
+        ...withClient(fromAgent),
+      };
     }
   }
 
@@ -443,7 +565,15 @@ export const handleSettingsMcp = async (request: Request, caller: AccessCaller, 
   const requested = modeOf(method === "initialize" ? objectOf(params.clientInfo)?.name : context.clientName);
   const instructions = `${SETTINGS_OWNER_INSTRUCTIONS}${OWNER_MODE_INSTRUCTIONS[requested]}`;
   const reply = (result: Json, headers: Readonly<Record<string, string>> = {}) =>
-    json({ jsonrpc: "2.0", id, result: context.modern ? { resultType: "complete", ...result, _meta: { [META_SERVER]: SERVER_INFO } } : result }, 200, headers);
+    json(
+      {
+        jsonrpc: "2.0",
+        id,
+        result: context.modern ? { resultType: "complete", ...result, _meta: { [META_SERVER]: SERVER_INFO } } : result,
+      },
+      200,
+      headers,
+    );
 
   switch (method) {
     case "initialize": {
@@ -451,7 +581,12 @@ export const handleSettingsMcp = async (request: Request, caller: AccessCaller, 
       const version = typeof asked === "string" && LEGACY_VERSIONS.includes(asked) ? asked : LEGACY_VERSIONS[0]!;
       // 2025-06-18 has form elicitation only; 2025-03-26 and older have none.
       const declared = declaredOf(params.capabilities);
-      const elicitation = version === URL_ELICITATION_VERSION ? declared : version === FORM_ELICITATION_VERSION ? { form: declared.form, url: false } : NONE;
+      const elicitation =
+        version === URL_ELICITATION_VERSION
+          ? declared
+          : version === FORM_ELICITATION_VERSION
+            ? { form: declared.form, url: false }
+            : NONE;
       const info = objectOf(params.clientInfo);
       const at = now();
       const session = await signToken(tokenKey, {
@@ -461,22 +596,46 @@ export const handleSettingsMcp = async (request: Request, caller: AccessCaller, 
         iat: at,
         protocolVersion: version,
         elicitation,
-        ...(info === undefined || typeof info.name !== "string" ? {} : { client: { name: labelOf(info.name), ...(typeof info.version === "string" ? { version: labelOf(info.version) } : {}) } }),
+        ...(info === undefined || typeof info.name !== "string"
+          ? {}
+          : {
+              client: {
+                name: labelOf(info.name),
+                ...(typeof info.version === "string" ? { version: labelOf(info.version) } : {}),
+              },
+            }),
       });
       return json(
-        { jsonrpc: "2.0", id, result: { protocolVersion: version, capabilities: { tools: { listChanged: false } }, serverInfo: SERVER_INFO, instructions } },
+        {
+          jsonrpc: "2.0",
+          id,
+          result: {
+            protocolVersion: version,
+            capabilities: { tools: { listChanged: false } },
+            serverInfo: SERVER_INFO,
+            instructions,
+          },
+        },
         200,
         { "mcp-session-id": session },
       );
     }
     case "server/discover":
-      return reply({ supportedVersions: SUPPORTED_VERSIONS, capabilities: { tools: { listChanged: false } }, serverInfo: SERVER_INFO, instructions, ...NO_CACHE });
+      return reply({
+        supportedVersions: SUPPORTED_VERSIONS,
+        capabilities: { tools: { listChanged: false } },
+        serverInfo: SERVER_INFO,
+        instructions,
+        ...NO_CACHE,
+      });
     case "ping":
       return reply({});
     case "tools/list": {
       const listed = ownerListed(server);
       // `resume` in `model` alone (plan D12), and only while writes are listed: it applies changes.
-      const tools = [...SETTINGS_TOOLS, ...(requested === "model" ? [RESUME_TOOL] : [])].filter(listed).map(toolDefinition);
+      const tools = [...SETTINGS_TOOLS, ...(requested === "model" ? [RESUME_TOOL] : [])]
+        .filter(listed)
+        .map(toolDefinition);
       return reply(context.modern ? { tools, ...NO_CACHE } : { tools });
     }
     case "tools/call":
@@ -490,10 +649,16 @@ export const handleSettingsMcp = async (request: Request, caller: AccessCaller, 
   const name = params.name;
   // `resume` is a tool of `model` alone (plan D12): to any other request it is as unknown as it is unlisted.
   const isResume = name === RESUME_TOOL.name && requested === "model";
-  if (typeof name !== "string" || (!isResume && settingsToolOf(name) === undefined)) return json(rpcError(id, -32602, `Unknown tool: ${typeof name === "string" ? name.slice(0, 100) : "(none)"}`));
+  if (typeof name !== "string" || (!isResume && settingsToolOf(name) === undefined))
+    return json(rpcError(id, -32602, `Unknown tool: ${typeof name === "string" ? name.slice(0, 100) : "(none)"}`));
   const args = params.arguments === undefined ? {} : objectOf(params.arguments);
   if (args === undefined) return json(rpcError(id, -32602, "arguments is an object"));
-  const owner: OwnerCaller = { door: "owner", kind: caller.kind, key, ...(context.client === undefined ? {} : { client: context.client }) };
+  const owner: OwnerCaller = {
+    door: "owner",
+    kind: caller.kind,
+    key,
+    ...(context.client === undefined ? {} : { client: context.client }),
+  };
   if (isResume) return reply(toolResult(await ownerResume(server, { args, caller: owner })));
   // The mode this request opens a change in (plan D12's fallbacks): `native` with no form elicitation declared is
   // `browser` for this request; a change that needs the page is `browser` whatever was asked (the server decides that).
@@ -507,7 +672,14 @@ export const handleSettingsMcp = async (request: Request, caller: AccessCaller, 
         ? "This client declared no form elicitation, so its native Elicitation mode falls back to the Change page."
         : undefined;
   const messageOf = (record: ChangeRecord, page: string | undefined): string =>
-    record.shown === undefined ? "A change waits for you on the Change page." : ownerMessage(record.shown, owner, record.mode === "native" || record.mode === "model" ? record.mode : "browser", page);
+    record.shown === undefined
+      ? "A change waits for you on the Change page."
+      : ownerMessage(
+          record.shown,
+          owner,
+          record.mode === "native" || record.mode === "model" ? record.mode : "browser",
+          page,
+        );
 
   /** Holds up to `ms` for Open change `change`'s answer; its outcome, or undefined when still open. */
   const hold = async (change: string, ms: number, signal?: AbortSignal): Promise<ChangeOutcome | undefined> => {
@@ -593,7 +765,12 @@ export const handleSettingsMcp = async (request: Request, caller: AccessCaller, 
           waited += slice;
           if (outcome !== undefined || closed || waited >= totalMs) break;
           tick += 1;
-          if (typeof progressToken === "string" || typeof progressToken === "number") send({ jsonrpc: "2.0", method: "notifications/progress", params: { progressToken, progress: tick, message: waiting.progress } });
+          if (typeof progressToken === "string" || typeof progressToken === "number")
+            send({
+              jsonrpc: "2.0",
+              method: "notifications/progress",
+              params: { progressToken, progress: tick, message: waiting.progress },
+            });
           else if (!closed) controller.enqueue(encoder.encode(`: ${waiting.comment}\n\n`));
         }
         if (closed && outcome === undefined) {
@@ -618,7 +795,10 @@ export const handleSettingsMcp = async (request: Request, caller: AccessCaller, 
       }
     })();
     deps.background?.(run);
-    return new Response(stream, { status: 200, headers: { ...NO_STORE, "content-type": "text/event-stream", "x-accel-buffering": "no" } });
+    return new Response(stream, {
+      status: 200,
+      headers: { ...NO_STORE, "content-type": "text/event-stream", "x-accel-buffering": "no" },
+    });
   };
 
   /** Why a new held stream on `record` would pass a cap (C3), said in the `W` it gets instead; undefined when it may hold. */
@@ -629,24 +809,46 @@ export const handleSettingsMcp = async (request: Request, caller: AccessCaller, 
         ? `${HOLDS_PER_CALLER} of your calls already wait on a question; answer them, or this change on its Change page.`
         : undefined;
 
-  const stateOf = async (record: ChangeRecord) => signToken(tokenKey, { kind: "state", sub: key, exp: record.expiresAt ?? now(), change: record.id, digest: await callDigest(name, args) });
+  const stateOf = async (record: ChangeRecord) =>
+    signToken(tokenKey, {
+      kind: "state",
+      sub: key,
+      exp: record.expiresAt ?? now(),
+      change: record.id,
+      digest: await callDigest(name, args),
+    });
 
   /** `browser` (plan D12): the page elicitation the client declared, or the link in the result; in `model`, always the link. */
   const deliverBrowser = async (record: ChangeRecord, page: string | undefined, text: string): Promise<Response> => {
     const note = noteOf(record);
-    if (requested === "model" || page === undefined || !context.elicitation.url) return reply(toolResult(ownerWaiting(record, page, note)));
+    if (requested === "model" || page === undefined || !context.elicitation.url)
+      return reply(toolResult(ownerWaiting(record, page, note)));
     if (context.modern) {
-      return reply({ resultType: "input_required", inputRequests: { change: { method: "elicitation/create", params: { mode: "url", message: text, url: page } } }, requestState: await stateOf(record) });
+      return reply({
+        resultType: "input_required",
+        inputRequests: { change: { method: "elicitation/create", params: { mode: "url", message: text, url: page } } },
+        requestState: await stateOf(record),
+      });
     }
     if (context.version !== URL_ELICITATION_VERSION) return reply(toolResult(ownerWaiting(record, page, note)));
     const full = holdsFull(record);
     if (full !== undefined) return reply(toolResult(ownerWaiting(record, page, full)));
     // 2025-11-25 with URL elicitation: the question and then the call's result on the call's stream; a cut stream leaves
     // the change open for the page (plan D12).
-    const elicitId = await signToken(tokenKey, { kind: "elicit", sub: key, exp: record.expiresAt ?? now(), change: record.id });
+    const elicitId = await signToken(tokenKey, {
+      kind: "elicit",
+      sub: key,
+      exp: record.expiresAt ?? now(),
+      change: record.id,
+    });
     return heldStream({
       record,
-      question: { jsonrpc: "2.0", id: elicitId, method: "elicitation/create", params: { mode: "url", message: text, url: page, elicitationId: record.id } },
+      question: {
+        jsonrpc: "2.0",
+        id: elicitId,
+        method: "elicitation/create",
+        params: { mode: "url", message: text, url: page, elicitationId: record.id },
+      },
       waiting: { progress: "Waiting for the owner on the Change page", comment: "waiting for the owner" },
       totalMs: deps.holdMs ?? HOLD_MS,
       finish: (outcome) => (outcome === undefined ? ownerWaiting(record, page, note) : ownerOutcome(outcome, record)),
@@ -661,23 +863,45 @@ export const handleSettingsMcp = async (request: Request, caller: AccessCaller, 
   const deliverNative = async (record: ChangeRecord, page: string | undefined, text: string): Promise<Response> => {
     const form = { message: text, requestedSchema: EMPTY_SCHEMA };
     if (context.modern) {
-      return reply({ resultType: "input_required", inputRequests: { change: { method: "elicitation/create", params: { mode: "form", ...form } } }, requestState: await stateOf(record) });
+      return reply({
+        resultType: "input_required",
+        inputRequests: { change: { method: "elicitation/create", params: { mode: "form", ...form } } },
+        requestState: await stateOf(record),
+      });
     }
     // Defensive, unreachable today: a native-mode change is opened only for a request that declared form elicitation,
     // which a 2025 context has only at 2025-06-18 or 2025-11-25 (`asked` above), and a repeat reuses only a change of
     // the request's own mode. Should that ever change, the client gets the link rather than a question it cannot show.
-    if (!context.elicitation.form || (context.version !== URL_ELICITATION_VERSION && context.version !== FORM_ELICITATION_VERSION)) return reply(toolResult(ownerWaiting(record, page, noteOf(record))));
+    if (
+      !context.elicitation.form ||
+      (context.version !== URL_ELICITATION_VERSION && context.version !== FORM_ELICITATION_VERSION)
+    )
+      return reply(toolResult(ownerWaiting(record, page, noteOf(record))));
     const full = holdsFull(record);
     if (full !== undefined) return reply(toolResult(ownerWaiting(record, page, full)));
-    const elicitId = await signToken(tokenKey, { kind: "elicit", sub: key, exp: record.expiresAt ?? now(), change: record.id });
+    const elicitId = await signToken(tokenKey, {
+      kind: "elicit",
+      sub: key,
+      exp: record.expiresAt ?? now(),
+      change: record.id,
+    });
     const untilExpiry = Math.max(0, (record.expiresAt ?? now()) - now());
     return heldStream({
       record,
       // 2025-06-18 has no `mode`.
-      question: { jsonrpc: "2.0", id: elicitId, method: "elicitation/create", params: context.version === FORM_ELICITATION_VERSION ? form : { mode: "form", ...form } },
+      question: {
+        jsonrpc: "2.0",
+        id: elicitId,
+        method: "elicitation/create",
+        params: context.version === FORM_ELICITATION_VERSION ? form : { mode: "form", ...form },
+      },
       waiting: { progress: "Waiting for the answer in the client's form", comment: "waiting for the form's answer" },
       totalMs: Math.min(untilExpiry, deps.formWaitMs ?? untilExpiry),
-      finish: async (outcome) => ownerOutcome(outcome ?? (await closeOrSettle(answerDepsOf(server), record.id, "expired")) ?? { state: "expired" }, record),
+      finish: async (outcome) =>
+        ownerOutcome(
+          outcome ?? (await closeOrSettle(answerDepsOf(server), record.id, "expired")) ?? { state: "expired" },
+          record,
+        ),
       // The client went away unanswered: the change is withdrawn (its close line says `cut`), and a response that arrives
       // later applies nothing.
       onCut: async () => void (await withdrawOwnerChange(server, record.id, "stop", true)),
@@ -712,13 +936,30 @@ export const handleSettingsMcp = async (request: Request, caller: AccessCaller, 
       return reply(toolResult(refusedResult(`Not changed: ${HIDDEN_SINCE_REFUSAL(name)}`)));
     }
     const verdict = await verifyToken(tokenKey, params.requestState, { kind: "state", sub: key, now: now() });
-    const stateProblem = !verdict.ok ? verdict.reason : verdict.payload.digest !== (await callDigest(name, args)) ? ("other-call" as const) : undefined;
+    const stateProblem = !verdict.ok
+      ? verdict.reason
+      : verdict.payload.digest !== (await callDigest(name, args))
+        ? ("other-call" as const)
+        : undefined;
     const change = verdict.ok ? verdict.payload.change : undefined;
-    const record = stateProblem === undefined && typeof change === "string" && isChangeId(change) ? server.changes.get(change) : undefined;
-    const problem = stateProblem ?? (record === undefined || record.caller.door !== "owner" || record.caller.key !== key ? ("gone" as const) : undefined);
+    const record =
+      stateProblem === undefined && typeof change === "string" && isChangeId(change)
+        ? server.changes.get(change)
+        : undefined;
+    const problem =
+      stateProblem ??
+      (record === undefined || record.caller.door !== "owner" || record.caller.key !== key
+        ? ("gone" as const)
+        : undefined);
     if (problem !== undefined || record === undefined) {
       log({ t3flare: "settings-refused", reason: `request-state-${problem ?? "gone"}`, tool: name });
-      return reply(toolResult(refusedResult(`Not changed: ${STATE_REFUSED[problem ?? "gone"]}. Call ${name} again without requestState to ask afresh.`)));
+      return reply(
+        toolResult(
+          refusedResult(
+            `Not changed: ${STATE_REFUSED[problem ?? "gone"]}. Call ${name} again without requestState to ask afresh.`,
+          ),
+        ),
+      );
     }
     // A retry in another mode than the change's is refused (plan D8: coherence, not a floor).
     const mode = modeFor(asked, record.needsPage);
@@ -733,22 +974,28 @@ export const handleSettingsMcp = async (request: Request, caller: AccessCaller, 
       );
     }
     const action = objectOf(objectOf(params.inputResponses)?.change)?.action;
-    if (record.mode === "native" && action === "decline" && isOpen(record)) return reply(toolResult(await answerOwnerChange(server, record, owner, "client", "decline")));
+    if (record.mode === "native" && action === "decline" && isOpen(record))
+      return reply(toolResult(await answerOwnerChange(server, record, owner, "client", "decline")));
     // `browser`'s decline and cancel, and `native`'s cancel: the client withdraws its question.
-    if (action === "decline" || action === "cancel") return reply(toolResult(ownerOutcome((await withdrawOwnerChange(server, record.id)) ?? outcomeOf(record), record)));
+    if (action === "decline" || action === "cancel")
+      return reply(
+        toolResult(ownerOutcome((await withdrawOwnerChange(server, record.id)) ?? outcomeOf(record), record)),
+      );
     if (!isOpen(record)) return reply(toolResult(ownerOutcome(outcomeOf(record), record)));
     // No answer to the question: ask it again, on the same Open change (MRTR: the server may ask again).
     if (action !== "accept") return deliver(record);
     // `native`: the client's accept applies the change (plan D12), answered by `client`.
-    if (record.mode === "native") return reply(toolResult(await answerOwnerChange(server, record, owner, "client", "accept")));
+    if (record.mode === "native")
+      return reply(toolResult(await answerOwnerChange(server, record, owner, "client", "accept")));
     // `browser`: accept means only "opened it": hold for the page's answer.
     const page = changeUrlOf(server, record.id);
     const outcome = await hold(record.id, deps.holdMs ?? HOLD_MS);
-    return reply(toolResult(outcome === undefined ? ownerWaiting(record, page, noteOf(record)) : ownerOutcome(outcome, record)));
+    return reply(
+      toolResult(outcome === undefined ? ownerWaiting(record, page, noteOf(record)) : ownerOutcome(outcome, record)),
+    );
   }
 
   const answered = await settingsOwnerCall(server, { tool: name, args, caller: owner, mode: asked });
   if (answered.kind === "result") return reply(toolResult(answered.answer));
   return deliver(answered.record);
 };
-

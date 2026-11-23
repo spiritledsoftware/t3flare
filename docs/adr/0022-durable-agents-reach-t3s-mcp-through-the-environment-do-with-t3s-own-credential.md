@@ -44,6 +44,7 @@ t3 lists for that credential and installed again when its hash changes, under t3
 **Superseded** by the back-to-stock refinement below (owner, 2026-11-12, back to stock).
 
 The tools listed above as not offered are refusals by design, not omissions:
+
 - `request_secret`: a credential typed into t3 (owner decision D5, ADR-0012's refinement).
 - `t3_attachment_*`: an upload URL for a shell. Attachments reach a Durable agent through its prompt instead (SPI-993).
 - `preview_*`, `html_*`, `device_*`: host-bound or not built yet (ADR-0024; previews come with SPI-1002).
@@ -63,6 +64,7 @@ First built (and removed, owner, 2026-11-12, back to stock): a relay at `compute
 
 Owner, 2026-11-12, back to stock (scope audit rows 7 and 12). A Durable agent is offered every tool t3 lists for its
 thread, as stock t3 offers it, but those that cannot work here (`T3_TOOL_DENYLIST`, `packages/harness-registry/src/t3Tools.ts`):
+
 - `t3_attachment_*` and `t3_thread_send_attachments`: an upload URL for a shell, and sending what was uploaded.
   Attachments reach a Durable agent through its prompt (SPI-993).
 - `html_*`, `preview_*`, `t3_preview_*`: headless Chromium on the host (`serverBrowser` stripped, ADR-0023).
@@ -77,7 +79,6 @@ is now "every denied name is still a real t3 tool" (`apps/environment/test/t3Gui
 
 Known gap: `request_secret`'s `delivery: "file"` writes the value into t3's State directory, on the Environment, which
 an agent's commands in a Container cannot read; `secretRef` and pasted values work as stock. SPI-1088.
-
 
 ## Refinement (G11, 2026-11-13): `html_*`, `preview_*` and `t3_preview_*` are offered
 

@@ -13,8 +13,12 @@ import { CLI_BUILT_IN_COMMANDS } from "../src/provider/cli/builtInCommands.ts";
 import { type Loaded, PROBED, repoFixture, repoView } from "./docker/skillsProbe.ts";
 
 const ROOT = "/workspace/repo";
-const recorded = JSON.parse(NodeFs.readFileSync(new URL("./fixtures/spi-1151/m0-roots.json", import.meta.url), "utf8")) as { readonly loaded: Readonly<Record<string, Loaded>> };
-const files: SkillFiles = memoryFiles(Object.fromEntries(Object.entries(repoFixture()).map(([file, text]) => [`${ROOT}/${file}`, text])));
+const recorded = JSON.parse(
+  NodeFs.readFileSync(new URL("./fixtures/spi-1151/m0-roots.json", import.meta.url), "utf8"),
+) as { readonly loaded: Readonly<Record<string, Loaded>> };
+const files: SkillFiles = memoryFiles(
+  Object.fromEntries(Object.entries(repoFixture()).map(([file, text]) => [`${ROOT}/${file}`, text])),
+);
 
 describe("the CLI agents' roots table", () => {
   for (const cli of CLI_AGENTS) {
@@ -31,7 +35,9 @@ describe("the CLI agents' roots table", () => {
 
 describe("the CLI agents' built-in commands (SPI-1151 §2)", () => {
   it("are stock's static entries that run on t3flare's path: /compact for Codex and pi, Codex's /goal, never /feedback", () => {
-    expect(Object.fromEntries(CLI_AGENTS.map((cli) => [cli, CLI_BUILT_IN_COMMANDS[cli].map((command) => command.name)]))).toEqual({
+    expect(
+      Object.fromEntries(CLI_AGENTS.map((cli) => [cli, CLI_BUILT_IN_COMMANDS[cli].map((command) => command.name)])),
+    ).toEqual({
       codex: ["compact", "goal"],
       pi: ["compact"],
       claude: [],
@@ -40,8 +46,13 @@ describe("the CLI agents' built-in commands (SPI-1151 §2)", () => {
   });
 
   it("restate stock's Codex /goal entry (CodexProvider.ts)", () => {
-    const source = NodeFs.readFileSync(new URL("../../../t3code/apps/server/src/provider/CodexProvider.ts", import.meta.url), "utf8");
+    const source = NodeFs.readFileSync(
+      new URL("../../../t3code/apps/server/src/provider/CodexProvider.ts", import.meta.url),
+      "utf8",
+    );
     const goal = CLI_BUILT_IN_COMMANDS.codex.find((command) => command.name === "goal")!;
-    expect(source, "t3 changed Codex's /goal entry; re-read U65").toContain(`name: "goal",\n        description: ${JSON.stringify(goal.description)},\n        input: { hint: ${JSON.stringify(goal.input?.hint)} },`);
+    expect(source, "t3 changed Codex's /goal entry; re-read U65").toContain(
+      `name: "goal",\n        description: ${JSON.stringify(goal.description)},\n        input: { hint: ${JSON.stringify(goal.input?.hint)} },`,
+    );
   });
 });

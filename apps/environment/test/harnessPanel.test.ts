@@ -55,17 +55,34 @@ const ownerHeaders = async (store: ReturnType<typeof setup>["store"], at = NOW) 
 describe("Settings page", () => {
   it("the owner's change with the page's token is stored, bumps the revision and is audited", async () => {
     const { store, deps } = setup();
-    const response = await change(deps, { extension: "codemode", settings: { inlineBudget: 3000 } }, await ownerHeaders(store));
+    const response = await change(
+      deps,
+      { extension: "codemode", settings: { inlineBudget: 3000 } },
+      await ownerHeaders(store),
+    );
     expect(response.status).toBe(200);
     expect(store.load().revision).toBe(1);
     expect(resolveHarness(store.load()).codemode.inlineBudget).toBe(3000);
-    expect(store.auditLog(5)).toMatchObject([{ caller: "owner:owner-sub", action: "extension.change", target: "codemode", after: { settings: { inlineBudget: 3000 } } }]);
+    expect(store.auditLog(5)).toMatchObject([
+      {
+        caller: "owner:owner-sub",
+        action: "extension.change",
+        target: "codemode",
+        after: { settings: { inlineBudget: 3000 } },
+      },
+    ]);
   });
 
   it("accepts the previous hour's token, refuses an older one", async () => {
     const { store, deps } = setup();
-    expect((await change(deps, { extension: "advisor", enabled: false }, await ownerHeaders(store, NOW - 60 * 60 * 1000))).status).toBe(200);
-    expect((await change(deps, { extension: "advisor", enabled: true }, await ownerHeaders(store, NOW - 2 * 60 * 60 * 1000))).status).toBe(403);
+    expect(
+      (await change(deps, { extension: "advisor", enabled: false }, await ownerHeaders(store, NOW - 60 * 60 * 1000)))
+        .status,
+    ).toBe(200);
+    expect(
+      (await change(deps, { extension: "advisor", enabled: true }, await ownerHeaders(store, NOW - 2 * 60 * 60 * 1000)))
+        .status,
+    ).toBe(403);
   });
 
   it("refuses the owner's change without a token, with another subject's token, without Origin, or from another origin", async () => {
@@ -73,7 +90,10 @@ describe("Settings page", () => {
     const good = await ownerHeaders(store);
     const body = { extension: "advisor", enabled: false };
     expect((await change(deps, body, { ...good, [CSRF_HEADER]: "" })).status).toBe(403);
-    expect((await change(deps, body, { ...good, [CSRF_HEADER]: await csrfToken(store.csrfKey(), "someone-else", NOW) })).status).toBe(403);
+    expect(
+      (await change(deps, body, { ...good, [CSRF_HEADER]: await csrfToken(store.csrfKey(), "someone-else", NOW) }))
+        .status,
+    ).toBe(403);
     const { origin: _origin, ...withoutOrigin } = good;
     expect((await change(deps, body, withoutOrigin)).status).toBe(403);
     expect((await change(deps, body, { ...good, origin: "https://t3.example.dev" })).status).toBe(403);
@@ -83,7 +103,9 @@ describe("Settings page", () => {
 
   it("refuses a form-encoded body before anything else, for any caller", async () => {
     const { store, deps } = setup({ kind: "service-token" });
-    const response = await change(deps, "extension=tool-search&enabled=false", { "content-type": "application/x-www-form-urlencoded" });
+    const response = await change(deps, "extension=tool-search&enabled=false", {
+      "content-type": "application/x-www-form-urlencoded",
+    });
     expect(response.status).toBe(403);
     expect(store.load().revision).toBe(0);
   });
@@ -91,20 +113,47 @@ describe("Settings page", () => {
   it("a script (service token + admin token, checked before) changes without a CSRF token; Origin, when sent, must still match", async () => {
     const { store, deps } = setup({ kind: "service-token" });
     expect((await change(deps, { extension: "codemode", settings: { inlineBudget: 3000 } }, {})).status).toBe(200);
-    expect((await change(deps, { extension: "codemode", settings: { inlineBudget: 2000 } }, { origin: "https://evil.example" })).status).toBe(403);
+    expect(
+      (
+        await change(
+          deps,
+          { extension: "codemode", settings: { inlineBudget: 2000 } },
+          { origin: "https://evil.example" },
+        )
+      ).status,
+    ).toBe(403);
     expect(store.auditLog(5)[0]?.caller).toBe("service-token");
   });
 
   it("sets tools' Exposures through /api/tools: a preset, built-in tools and t3's, audited; a malformed one refused", async () => {
     const { store, deps } = setup({ kind: "service-token" });
     const tools = (body: unknown) =>
-      handleHarness(new Request(`https://${HOST}/_t3flare/settings/api/tools`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }), deps);
-    expect((await tools({ preset: "codemode-only", tools: { ask_user: "hidden" }, t3: { tools: { t3_thread_read: "direct" } }, expectedRevision: 0 })).status).toBe(200);
+      handleHarness(
+        new Request(`https://${HOST}/_t3flare/settings/api/tools`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+        deps,
+      );
+    expect(
+      (
+        await tools({
+          preset: "codemode-only",
+          tools: { ask_user: "hidden" },
+          t3: { tools: { t3_thread_read: "direct" } },
+          expectedRevision: 0,
+        })
+      ).status,
+    ).toBe(200);
     const resolved = resolveHarness(store.load());
     expect(resolved.tools).toMatchObject({ read: "deferred", ask_user: "hidden", codemode: "direct" });
     expect(resolved.t3).toEqual({ exposure: "deferred", tools: { t3_thread_read: "direct" } });
     expect(resolved.extensions["ask-user"]?.enabled).toBe(false);
-    expect(store.auditLog(1)[0]).toMatchObject({ action: "tools.change", target: "preset codemode-only, ask_user, t3-code/t3_thread_read" });
+    expect(store.auditLog(1)[0]).toMatchObject({
+      action: "tools.change",
+      target: "preset codemode-only, ask_user, t3-code/t3_thread_read",
+    });
     const refused = await tools({ tools: { codemode: "deferred" } });
     expect(refused.status).toBe(400);
     expect(await refused.text()).toBe("codemode: one of direct, hidden, or null\n");
@@ -114,10 +163,16 @@ describe("Settings page", () => {
 
   it("keeps t3's tools as a Session last listed them when well-formed", () => {
     const { store } = setup();
-    const listing = { listedAt: NOW, tools: [{ name: "t3_thread_read", readOnly: true, asksForDirect: false, description: "x".repeat(1_000) }], left: ["device_list"] };
+    const listing = {
+      listedAt: NOW,
+      tools: [{ name: "t3_thread_read", readOnly: true, asksForDirect: false, description: "x".repeat(1_000) }],
+      left: ["device_list"],
+    };
     expect(store.noteT3Tools(listing)).toBe(true);
     expect(store.lastT3Tools()?.tools[0]?.description).toHaveLength(400);
-    expect(store.noteT3Tools({ ...listing, tools: [{ name: "a b", readOnly: true, asksForDirect: false }] })).toBe(false);
+    expect(store.noteT3Tools({ ...listing, tools: [{ name: "a b", readOnly: true, asksForDirect: false }] })).toBe(
+      false,
+    );
     expect(store.noteT3Tools({ ...listing, left: "device_list" })).toBe(false);
     expect(store.lastT3Tools()?.left).toEqual(["device_list"]);
     // The latest listing wins: an older one (a Session waking on its kept catalog) does not replace it.
@@ -136,9 +191,15 @@ describe("Settings page", () => {
 
   it("GET never changes state, and other methods are refused", async () => {
     const { store, deps } = setup();
-    const get = await handleHarness(new Request(`https://${HOST}/_t3flare/settings/api/extensions?extension=tool-search&enabled=false`), deps);
+    const get = await handleHarness(
+      new Request(`https://${HOST}/_t3flare/settings/api/extensions?extension=tool-search&enabled=false`),
+      deps,
+    );
     expect(get.status).toBe(404);
-    const put = await handleHarness(new Request(`https://${HOST}/_t3flare/settings/api/extensions`, { method: "PUT", body: "{}" }), deps);
+    const put = await handleHarness(
+      new Request(`https://${HOST}/_t3flare/settings/api/extensions`, { method: "PUT", body: "{}" }),
+      deps,
+    );
     expect(put.status).toBe(405);
     expect(store.load().revision).toBe(0);
   });
@@ -178,7 +239,12 @@ describe("Settings page", () => {
       new Request(`https://${HOST}/_t3flare/settings/api/mcp/servers`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ server: "fixture", url: "https://fixture.example.dev/mcp", auth: { kind: "header", header: "Authorization" }, value: VALUE }),
+        body: JSON.stringify({
+          server: "fixture",
+          url: "https://fixture.example.dev/mcp",
+          auth: { kind: "header", header: "Authorization" },
+          value: VALUE,
+        }),
       }),
       deps,
     );
@@ -198,7 +264,11 @@ describe("Settings page", () => {
     expect(secrets.read("fixture", "header")).toBe(VALUE);
     // Removing the server deletes its secret at once.
     await handleHarness(
-      new Request(`https://${HOST}/_t3flare/settings/api/mcp`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ op: "remove", server: "fixture" }) }),
+      new Request(`https://${HOST}/_t3flare/settings/api/mcp`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ op: "remove", server: "fixture" }),
+      }),
       deps,
     );
     expect(secrets.read("fixture", "header")).toBeUndefined();
@@ -207,30 +277,54 @@ describe("Settings page", () => {
   it("a stored settings document naming the retired built-in commissary server loads without it; Commissary is added by hand with its x-api-key header", async () => {
     const kv = memory();
     const store = harnessStore(kv);
-    store.save({ revision: 4, global: {}, overrides: {}, mcp: { servers: { commissary: { kind: "commissary", enabled: true, exposure: "deferred" } } } } as never);
+    store.save({
+      revision: 4,
+      global: {},
+      overrides: {},
+      mcp: { servers: { commissary: { kind: "commissary", enabled: true, exposure: "deferred" } } },
+    } as never);
     const secrets = harnessSecrets(kv);
     const mcp = new McpHost({ kv, engine: undefined, settings: () => store.load() });
     const deps = { caller: { kind: "service-token" } as AccessCaller, host: HOST, store, mcp, secrets, now: () => NOW };
-    const overview = async () => (await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings/api/mcp`), deps)).json()) as { servers: Array<{ name: string; setting: unknown }> };
+    const overview = async () =>
+      (await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings/api/mcp`), deps)).json()) as {
+        servers: Array<{ name: string; setting: unknown }>;
+      };
     expect((await overview()).servers.map((server) => server.name)).toEqual(["settings"]);
-    expect((await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), { ...deps, caller: owner })).status).toBe(200);
+    expect(
+      (await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), { ...deps, caller: owner })).status,
+    ).toBe(200);
     const url = "https://api.commissary.example/mcp?toolkits=fixture";
     const add = await handleHarness(
       new Request(`https://${HOST}/_t3flare/settings/api/mcp/servers`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ server: "commissary", url, auth: { kind: "header", header: "x-api-key" }, value: "cms-key" }),
+        body: JSON.stringify({
+          server: "commissary",
+          url,
+          auth: { kind: "header", header: "x-api-key" },
+          value: "cms-key",
+        }),
       }),
       deps,
     );
     expect(add.status).toBe(200);
     expect((await overview()).servers).toMatchObject([
-      { name: "commissary", setting: { kind: "direct", url, auth: { kind: "header", header: "x-api-key" }, enabled: true } },
+      {
+        name: "commissary",
+        setting: { kind: "direct", url, auth: { kind: "header", header: "x-api-key" }, enabled: true },
+      },
       { name: "settings", setting: { kind: "settings" } },
     ]);
     expect(store.load().mcp?.servers).toEqual({
       settings: defaultSettingsServer(),
-      commissary: { kind: "direct", url, auth: { kind: "header", header: "x-api-key" }, enabled: true, exposure: "deferred" },
+      commissary: {
+        kind: "direct",
+        url,
+        auth: { kind: "header", header: "x-api-key" },
+        enabled: true,
+        exposure: "deferred",
+      },
     });
     expect(secrets.read("commissary", "header")).toBe("cms-key");
   });
@@ -248,11 +342,35 @@ describe("Settings page", () => {
       request: async () => ({ kind: "failed", error: { _tag: "Unreachable", message: "x" }, state: {} }) as never,
     };
     const secrets = harnessSecrets(kv);
-    const mcp = new McpHost({ kv, engine, settings: () => store.load(), secret: async (server, field) => secrets.read(server, field), now: () => NOW });
+    const mcp = new McpHost({
+      kv,
+      engine,
+      settings: () => store.load(),
+      secret: async (server, field) => secrets.read(server, field),
+      now: () => NOW,
+    });
     const deps = { caller: { kind: "service-token" } as AccessCaller, host: HOST, store, mcp, secrets, now: () => NOW };
-    const post = (path: string, body: unknown) => handleHarness(new Request(`https://${HOST}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }), deps);
-    const overview = async () => ((await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings/api/mcp`), deps)).json()) as { servers: Array<{ name: string; status: string; tools: Array<{ upstream: string }> }> }).servers;
-    const add = { server: "commissary", url: "https://api.commissary.example/mcp", auth: { kind: "header", header: "x-api-key" }, value: "cms-key" };
+    const post = (path: string, body: unknown) =>
+      handleHarness(
+        new Request(`https://${HOST}${path}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+        deps,
+      );
+    const overview = async () =>
+      (
+        (await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings/api/mcp`), deps)).json()) as {
+          servers: Array<{ name: string; status: string; tools: Array<{ upstream: string }> }>;
+        }
+      ).servers;
+    const add = {
+      server: "commissary",
+      url: "https://api.commissary.example/mcp",
+      auth: { kind: "header", header: "x-api-key" },
+      value: "cms-key",
+    };
     expect((await post("/_t3flare/settings/api/mcp/servers", add)).status).toBe(200);
     await post("/_t3flare/settings/api/mcp/test", { server: "commissary" });
     expect((await overview())[0]).toMatchObject({ status: "ok", tools: [{ upstream: "old_tool" }] });
@@ -273,8 +391,17 @@ describe("Settings page", () => {
     expect(page).toContain("data-mcp-add");
     const url = "https://mcp.executor.example/mcp?connection=conn_1&elicitation_mode=browser";
     const post = async (path: string, body: unknown) =>
-      handleHarness(new Request(`https://${HOST}${path}`, { method: "POST", headers: { "content-type": "application/json", ...(await ownerHeaders(store)) }, body: JSON.stringify(body) }), deps);
-    expect((await post("/_t3flare/settings/api/mcp/servers", { server: "executor", url, auth: { kind: "oauth" } })).status).toBe(200);
+      handleHarness(
+        new Request(`https://${HOST}${path}`, {
+          method: "POST",
+          headers: { "content-type": "application/json", ...(await ownerHeaders(store)) },
+          body: JSON.stringify(body),
+        }),
+        deps,
+      );
+    expect(
+      (await post("/_t3flare/settings/api/mcp/servers", { server: "executor", url, auth: { kind: "oauth" } })).status,
+    ).toBe(200);
     expect(mcp.servers()["executor"]).toMatchObject({ kind: "direct", url, auth: { kind: "oauth" }, enabled: true });
     const shown = await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), deps)).text();
     expect(shown).toContain('data-mcp-oauth="executor"');
@@ -289,10 +416,21 @@ describe("Settings page", () => {
     const mcp = new McpHost({ kv, engine: undefined, settings: () => store.load() });
     const deps = { caller: owner, host: HOST, store, mcp, secrets: harnessSecrets(kv), now: () => NOW };
     const post = async (body: unknown, headers?: Record<string, string>) =>
-      handleHarness(new Request(`https://${HOST}/_t3flare/settings/api/mcp`, { method: "POST", headers: { "content-type": "application/json", ...(headers ?? (await ownerHeaders(store))) }, body: JSON.stringify(body) }), deps);
+      handleHarness(
+        new Request(`https://${HOST}/_t3flare/settings/api/mcp`, {
+          method: "POST",
+          headers: { "content-type": "application/json", ...(headers ?? (await ownerHeaders(store))) },
+          body: JSON.stringify(body),
+        }),
+        deps,
+      );
     const page = async () => (await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), deps)).text();
     await handleHarness(
-      new Request(`https://${HOST}/_t3flare/settings/api/mcp/servers`, { method: "POST", headers: { "content-type": "application/json", ...(await ownerHeaders(store)) }, body: JSON.stringify({ server: "executor", url: "https://mcp.executor.example/mcp", auth: { kind: "none" } }) }),
+      new Request(`https://${HOST}/_t3flare/settings/api/mcp/servers`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(await ownerHeaders(store)) },
+        body: JSON.stringify({ server: "executor", url: "https://mcp.executor.example/mcp", auth: { kind: "none" } }),
+      }),
       deps,
     );
     expect(await page()).toContain('data-mcp-exposure="executor"');
@@ -309,7 +447,14 @@ describe("Settings page", () => {
     expect((await post({ op: "server", server: "executor", exposure: "everywhere" })).status).toBe(400);
     expect((await post({ op: "server", server: "executor", toolExposure: { search: "everywhere" } })).status).toBe(400);
     expect((await post({ op: "server", server: "nope", exposure: "hidden" })).status).toBe(400);
-    expect((await post({ op: "server", server: "executor", exposure: "hidden" }, { origin: `https://${HOST}`, "sec-fetch-site": "same-origin" })).status).toBe(403);
+    expect(
+      (
+        await post(
+          { op: "server", server: "executor", exposure: "hidden" },
+          { origin: `https://${HOST}`, "sec-fetch-site": "same-origin" },
+        )
+      ).status,
+    ).toBe(403);
     expect(store.load().revision).toBe(revision);
     expect(mcp.servers()["executor"]?.exposure).toBe("direct");
   });
@@ -318,9 +463,18 @@ describe("Settings page", () => {
     const { deps } = setup({ kind: "service-token" });
     const kv = memory();
     const withSecrets = { ...deps, secrets: harnessSecrets(kv) };
-    for (const [server, url] of [["t3", "https://a.example/mcp"], ["x", "http://a.example/mcp"], ["y", "https://10.0.0.1/mcp"], ["z", "https://user:pw@a.example/mcp"]]) {
+    for (const [server, url] of [
+      ["t3", "https://a.example/mcp"],
+      ["x", "http://a.example/mcp"],
+      ["y", "https://10.0.0.1/mcp"],
+      ["z", "https://user:pw@a.example/mcp"],
+    ]) {
       const response = await handleHarness(
-        new Request(`https://${HOST}/_t3flare/settings/api/mcp/servers`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ server, url }) }),
+        new Request(`https://${HOST}/_t3flare/settings/api/mcp/servers`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ server, url }),
+        }),
         withSecrets,
       );
       expect(response.status).toBe(400);
@@ -335,7 +489,11 @@ describe("Settings page", () => {
       { server: "x", url: "https://a.example/mcp", auth: { kind: "header" }, value: "v" },
     ]) {
       const response = await handleHarness(
-        new Request(`https://${HOST}/_t3flare/settings/api/mcp/servers`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+        new Request(`https://${HOST}/_t3flare/settings/api/mcp/servers`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
         withSecrets,
       );
       expect(response.status).toBe(400);

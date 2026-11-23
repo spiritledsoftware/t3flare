@@ -47,17 +47,11 @@ const UNREACHABLE_KEYWORDS: ReadonlyArray<string> = [
 ];
 
 /** Of those, the ones whose value maps names to subschemas. */
-const NAMED_KEYWORDS: ReadonlyArray<string> = [
-  "patternProperties",
-  "dependentSchemas",
-  "$defs",
-  "definitions",
-];
+const NAMED_KEYWORDS: ReadonlyArray<string> = ["patternProperties", "dependentSchemas", "$defs", "definitions"];
 
 const isJsonArray = (value: Schema.Json): value is ReadonlyArray<Schema.Json> => Arr.isArray(value);
 
-const pathName = (path: ReadonlyArray<string>): string =>
-  path.length === 0 ? "<root>" : Arr.join(path, ".");
+const pathName = (path: ReadonlyArray<string>): string => (path.length === 0 ? "<root>" : Arr.join(path, "."));
 
 /** A header declared at `path`, for the uniqueness check. */
 interface Declared {
@@ -83,10 +77,7 @@ const declarationAt = (node: JsonObject, path: ReadonlyArray<string>, reachable:
   const at = pathName(path);
 
   if (!reachable || path.length === 0) {
-    return scanOf(
-      [],
-      [`${at}: x-mcp-header is only allowed on a property reached through 'properties' alone`],
-    );
+    return scanOf([], [`${at}: x-mcp-header is only allowed on a property reached through 'properties' alone`]);
   }
 
   const header = node[X_MCP_HEADER];
@@ -105,9 +96,7 @@ const declarationAt = (node: JsonObject, path: ReadonlyArray<string>, reachable:
     [{ header, path }],
     type !== undefined && PRIMITIVE_TYPES.includes(type)
       ? []
-      : [
-          `${at}: x-mcp-header is only allowed on a string, integer or boolean (got ${type ?? "none"})`,
-        ],
+      : [`${at}: x-mcp-header is only allowed on a string, integer or boolean (got ${type ?? "none"})`],
   );
 };
 
@@ -131,14 +120,10 @@ const walk = (node: Schema.Json, path: ReadonlyArray<string>, reachable: boolean
   const scans = [
     declarationAt(node, path, reachable),
     ...(isJsonObject(properties)
-      ? Arr.map(Record.toEntries(properties), ([key, child]) =>
-          walk(child, [...path, key], reachable),
-        )
+      ? Arr.map(Record.toEntries(properties), ([key, child]) => walk(child, [...path, key], reachable))
       : []),
     ...Arr.flatMap(UNREACHABLE_KEYWORDS, (keyword) =>
-      Arr.map(branchesOf(node, keyword), (branch) =>
-        walk(branch, [...path, `<${keyword}>`], false),
-      ),
+      Arr.map(branchesOf(node, keyword), (branch) => walk(branch, [...path, `<${keyword}>`], false)),
     ),
   ];
 
@@ -149,18 +134,13 @@ const walk = (node: Schema.Json, path: ReadonlyArray<string>, reachable: boolean
 };
 
 /** A header declared again, case-insensitively, after an earlier declaration. */
-const duplicateProblem = (
-  declared: ReadonlyArray<Declared>,
-  each: Declared,
-  index: number,
-): Option.Option<string> =>
+const duplicateProblem = (declared: ReadonlyArray<Declared>, each: Declared, index: number): Option.Option<string> =>
   Arr.findFirst(
     Arr.take(declared, index),
     (earlier) => earlier.header.toLowerCase() === each.header.toLowerCase(),
   ).pipe(
     Option.map(
-      (earlier) =>
-        `${pathName(each.path)}: x-mcp-header '${each.header}' is also declared as '${earlier.header}'`,
+      (earlier) => `${pathName(each.path)}: x-mcp-header '${each.header}' is also declared as '${earlier.header}'`,
     ),
   );
 
@@ -171,10 +151,7 @@ const duplicateProblem = (
 export const xMcpHeaderProblems = (inputSchema: Schema.Json): ReadonlyArray<string> => {
   const { declared, problems } = walk(inputSchema, [], true);
 
-  return [
-    ...problems,
-    ...Arr.getSomes(Arr.map(declared, (each, index) => duplicateProblem(declared, each, index))),
-  ];
+  return [...problems, ...Arr.getSomes(Arr.map(declared, (each, index) => duplicateProblem(declared, each, index)))];
 };
 
 /** The prefix of a header that mirrors a tool argument. */
@@ -241,10 +218,7 @@ const valueAt = (root: Schema.Json, path: ReadonlyArray<string>): Schema.Json | 
  * ASCII. A property that is absent, `null` or not a string, boolean or safe integer has no header. The core sends a
  * task-capable call on a transport of its own, which has to build them as the SDK's client does for any other.
  */
-export const xMcpHeaders = (
-  inputSchema: Schema.Json,
-  args: Schema.Json,
-): Readonly<Record<string, string>> => {
+export const xMcpHeaders = (inputSchema: Schema.Json, args: Schema.Json): Readonly<Record<string, string>> => {
   const { declared } = walk(inputSchema, [], true);
 
   return Record.fromEntries(

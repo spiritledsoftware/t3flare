@@ -13,7 +13,13 @@
 //   (cost audit F1): t3 re-attaches every open panel after an Environment restart, so an open must not hold the
 //   Container. A shell at its prompt holds it for less than one running a foreground command.
 import { scanMarkers, terminalCommand } from "@t3flare/sandbox-image/terminal";
-import type { TerminalAnswer, TerminalFrame, TerminalOpenInput, TerminalPush, TerminalPushAnswer } from "@t3flare/workspace-client";
+import type {
+  TerminalAnswer,
+  TerminalFrame,
+  TerminalOpenInput,
+  TerminalPush,
+  TerminalPushAnswer,
+} from "@t3flare/workspace-client";
 
 import { ContainerRefused } from "./containerStep.ts";
 
@@ -47,7 +53,10 @@ export interface TerminalHostDeps {
   /** Starts the Container through computer (the budget's lease); throws with the reason when refused. */
   readonly startContainer: () => Promise<void>;
   /** `ctx.container.exec` with a PTY. */
-  readonly spawn: (argv: ReadonlyArray<string>, options: { readonly cols: number; readonly rows: number; readonly env: Record<string, string> }) => Promise<ShellProcess>;
+  readonly spawn: (
+    argv: ReadonlyArray<string>,
+    options: { readonly cols: number; readonly rows: number; readonly env: Record<string, string> },
+  ) => Promise<ShellProcess>;
   /** Part 2's kill script on markers, in the Container; nothing when it is not running. */
   readonly kill: (markers: ReadonlyArray<string>) => Promise<void>;
   /** Pushes a batch to the Environment DO. */
@@ -187,7 +196,9 @@ export class TerminalHost {
       }
     }
     if (terminal.exited) return this.#answer([]);
-    await this.#killOrphans().catch((error: unknown) => console.warn(JSON.stringify({ t3flare: "terminal-orphans-failed", error: String(error) })));
+    await this.#killOrphans().catch((error: unknown) =>
+      console.warn(JSON.stringify({ t3flare: "terminal-orphans-failed", error: String(error) })),
+    );
     try {
       await this.#deps.beforeSpawn();
     } catch (error) {
@@ -197,14 +208,18 @@ export class TerminalHost {
         this.#refuse(terminal, error.message);
         return this.#answer([]);
       }
-      console.warn(JSON.stringify({ t3flare: "terminal-push-before-spawn-failed", error: String(error).slice(0, 300) }));
+      console.warn(
+        JSON.stringify({ t3flare: "terminal-push-before-spawn-failed", error: String(error).slice(0, 300) }),
+      );
     }
     try {
       const command = terminalCommand({
         marker: input.key,
         t3Path: input.t3Path,
         cwd: input.cwd,
-        ...(input.projectRoot === undefined ? {} : { projectRoot: { t3Path: input.projectRoot, view: this.#deps.projectRootView } }),
+        ...(input.projectRoot === undefined
+          ? {}
+          : { projectRoot: { t3Path: input.projectRoot, view: this.#deps.projectRootView } }),
         ...(input.command === undefined ? {} : { command: input.command }),
         readBashrc: this.#deps.readBashrc?.() !== false,
       });
@@ -224,7 +239,10 @@ export class TerminalHost {
       );
       if (terminal.closing) await this.#deps.kill([terminal.key]);
     } catch (error) {
-      this.#refuse(terminal, `the shell did not start: ${String(error instanceof Error ? error.message : error).slice(0, 300)}`);
+      this.#refuse(
+        terminal,
+        `the shell did not start: ${String(error instanceof Error ? error.message : error).slice(0, 300)}`,
+      );
     }
     return this.#answer([]);
   }
@@ -240,7 +258,8 @@ export class TerminalHost {
     const decoder = new TextDecoder();
     try {
       for (;;) {
-        while (this.#pendingBytes >= BACKPRESSURE_BYTES) await new Promise<void>((resolve) => this.#drained.push(resolve));
+        while (this.#pendingBytes >= BACKPRESSURE_BYTES)
+          await new Promise<void>((resolve) => this.#drained.push(resolve));
         const { done, value } = await reader.read();
         if (done) break;
         this.#output(terminal, decoder.decode(value as Uint8Array, { stream: true }));
@@ -258,7 +277,10 @@ export class TerminalHost {
     const text = final ? scanned.text + scanned.carry : scanned.text;
     if (scanned.busy !== undefined) terminal.busy = scanned.busy;
     if (text !== "" || scanned.busy !== undefined) {
-      this.#frame(terminal, { ...(text === "" ? {} : { data: text }), ...(scanned.busy === undefined ? {} : { busy: scanned.busy }) });
+      this.#frame(terminal, {
+        ...(text === "" ? {} : { data: text }),
+        ...(scanned.busy === undefined ? {} : { busy: scanned.busy }),
+      });
     }
     if (scanned.prompts > 0) {
       if (!terminal.prompted) {
@@ -310,7 +332,14 @@ export class TerminalHost {
         // Never dropped: a lost frame could be a setup script's sentinel. The batch goes back in front and is tried
         // again, backing off to 5 s; a terminal whose Environment is gone ends by the heartbeat's lapse.
         this.#pushFailures++;
-        console.warn(JSON.stringify({ t3flare: "terminal-push-failed", attempt: this.#pushFailures, frames: frames.length, error: String(error).slice(0, 300) }));
+        console.warn(
+          JSON.stringify({
+            t3flare: "terminal-push-failed",
+            attempt: this.#pushFailures,
+            frames: frames.length,
+            error: String(error).slice(0, 300),
+          }),
+        );
         this.#pending = [...frames, ...this.#pending];
         this.#pendingBytes += frames.reduce((sum, frame) => sum + (frame.data?.length ?? 16), 0);
         await new Promise((resolve) => setTimeout(resolve, Math.min(5000, 100 * 2 ** Math.min(this.#pushFailures, 6))));
@@ -331,13 +360,18 @@ export class TerminalHost {
       this.#inFlight = undefined;
       for (const resolve of this.#drained.splice(0)) resolve();
       // What came in meanwhile goes at once while typing or past a batch's bytes, else in the next 100 ms batch.
-      if (this.#pending.length > 0) this.#flushSoon(this.#pendingBytes >= BATCH_BYTES || this.#typing() ? 0 : BULK_BATCH_MS);
+      if (this.#pending.length > 0)
+        this.#flushSoon(this.#pendingBytes >= BATCH_BYTES || this.#typing() ? 0 : BULK_BATCH_MS);
     }
   }
 
   /** Waits until every frame so far was pushed (tests, and before an idle stop). */
   async settled(): Promise<void> {
-    for (let i = 0; i < 50 && (this.#pending.length > 0 || this.#inFlight !== undefined || this.#flushTimer !== undefined); i++) {
+    for (
+      let i = 0;
+      i < 50 && (this.#pending.length > 0 || this.#inFlight !== undefined || this.#flushTimer !== undefined);
+      i++
+    ) {
       if (this.#flushTimer !== undefined) {
         clearTimeout(this.#flushTimer);
         this.#flushTimer = undefined;
@@ -364,7 +398,11 @@ export class TerminalHost {
     const terminal = this.#terminals.get(key);
     if (terminal === undefined || terminal.exited) return this.#answer([key]);
     this.#lastInput = this.#deps.now();
-    if (this.#deps.holdFirstInput !== false && !terminal.prompted && this.#deps.now() - terminal.heldSince < FIRST_PROMPT_WAIT_MS) {
+    if (
+      this.#deps.holdFirstInput !== false &&
+      !terminal.prompted &&
+      this.#deps.now() - terminal.heldSince < FIRST_PROMPT_WAIT_MS
+    ) {
       terminal.held.push(data);
       return this.#answer([]);
     }
@@ -411,7 +449,9 @@ export class TerminalHost {
   /** Kills terminals whose Environment stopped heartbeating; run on a timer and from the alarm. */
   async expire(): Promise<number> {
     const now = this.#deps.now();
-    const lapsed = [...this.#terminals.values()].filter((terminal) => !terminal.exited && now - terminal.lastHeartbeat >= HEARTBEAT_LAPSE_MS);
+    const lapsed = [...this.#terminals.values()].filter(
+      (terminal) => !terminal.exited && now - terminal.lastHeartbeat >= HEARTBEAT_LAPSE_MS,
+    );
     for (const terminal of lapsed) {
       console.log(JSON.stringify({ t3flare: "terminal-heartbeat-lapsed", key: terminal.key }));
       await this.close(terminal.key);

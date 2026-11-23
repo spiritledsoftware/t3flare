@@ -59,7 +59,7 @@ describe("extractRegion", () => {
     "  const descriptor = { label, capabilities: { a: true, b: flag === 1, ...(c ? { c: true } : {}) } };",
     "  return descriptor;",
     "});",
-    "export class PeerLinks extends Context.Service<PeerLinks, { readonly link: () => void }>()(\"PeerLinks\") {}",
+    'export class PeerLinks extends Context.Service<PeerLinks, { readonly link: () => void }>()("PeerLinks") {}',
   ].join("\n");
 
   it("finds a top-level declaration by name, without its comments", () => {
@@ -74,7 +74,9 @@ describe("extractRegion", () => {
     expect(extractRegion(source, { symbol: "make.descriptor.capabilities" })).toBe(
       "capabilities: { a: true, b: flag === 1, ...(c ? { c: true } : {}) }",
     );
-    expect(extractRegion(source, { symbol: "make.capabilities" })).toBe(extractRegion(source, { symbol: "make.descriptor.capabilities" }));
+    expect(extractRegion(source, { symbol: "make.capabilities" })).toBe(
+      extractRegion(source, { symbol: "make.descriptor.capabilities" }),
+    );
   });
 
   it("can leave out an object's plain `true` flags, so a new flag alone does not change the hash", () => {
@@ -83,7 +85,9 @@ describe("extractRegion", () => {
     expect(extractRegion(source, region)).toBe("capabilities: {b: flag === 1,...(c ? { c: true } : {})}");
     expect(hashRegion(withNewFlag, region)).toBe(hashRegion(source, region));
     // A new conditional flag is a host condition: it changes the hash (fragility U4).
-    expect(hashRegion(source.replace("a: true,", "a: true, ...(onMac ? { d: true } : {}),"), region)).not.toBe(hashRegion(source, region));
+    expect(hashRegion(source.replace("a: true,", "a: true, ...(onMac ? { d: true } : {}),"), region)).not.toBe(
+      hashRegion(source, region),
+    );
     expect(hashRegion(source.replace("flag === 1", "flag === 2"), region)).not.toBe(hashRegion(source, region));
   });
 
@@ -121,7 +125,14 @@ describe("checkFingerprint", () => {
         entry: "U1",
       },
     ],
-    literals: [{ file: "apps/server/src/git.ts", literal: '"status", "-z"', ourFile: "apps/agents/src/workspace/staleReads.ts", entry: "U13" }],
+    literals: [
+      {
+        file: "apps/server/src/git.ts",
+        literal: '"status", "-z"',
+        ourFile: "apps/agents/src/workspace/staleReads.ts",
+        entry: "U13",
+      },
+    ],
     files: Object.fromEntries(Object.entries(files).map(([file, text]) => [file, `blob:${text}`])),
   };
   const blobOf = fakeBlobOf((file) => files[file]);
@@ -131,32 +142,51 @@ describe("checkFingerprint", () => {
   });
 
   it("names our file, its register entry, the diff to read and the update command when a region changed", () => {
-    files["apps/server/src/server.ts"] = "const layerA = Layer.effect(A, makeA);\nconst layerReactor = Layer.effectDiscard(start);";
+    files["apps/server/src/server.ts"] =
+      "const layerA = Layer.effect(A, makeA);\nconst layerReactor = Layer.effectDiscard(start);";
     const [failure, ...rest] = checkFingerprint(fingerprint, read, blobOf);
     files["apps/server/src/server.ts"] = "const layerA = Layer.effect(A, makeA);";
     expect(rest).toEqual([]);
-    expect(failure).toContain("t3code/apps/server/src/server.ts (*) changed: review apps/environment/src/t3/composition.ts (U1)");
+    expect(failure).toContain(
+      "t3code/apps/server/src/server.ts (*) changed: review apps/environment/src/t3/composition.ts (U1)",
+    );
     expect(failure).toContain("git -C t3code diff 0123456789ab -- apps/server/src/server.ts");
     expect(failure).toContain(UPDATE_COMMAND);
     files["apps/server/src/server.ts"] = "const layerB = 1;";
     expect(fingerprintFindings(fingerprint, read, blobOf)).toEqual([
-      { kind: "changed", file: "apps/server/src/server.ts", symbol: "*", ourFile: "apps/environment/src/t3/composition.ts", entry: "U1" },
+      {
+        kind: "changed",
+        file: "apps/server/src/server.ts",
+        symbol: "*",
+        ourFile: "apps/environment/src/t3/composition.ts",
+        entry: "U1",
+      },
     ]);
     files["apps/server/src/server.ts"] = "const layerA = Layer.effect(A, makeA);";
   });
 
   it("fails on a region whose symbol or file is gone", () => {
-    const gone = { ...fingerprint, regions: [{ ...fingerprint.regions[0]!, symbol: "layerB" }, { ...fingerprint.regions[0]!, file: "apps/server/src/gone.ts" }] };
+    const gone = {
+      ...fingerprint,
+      regions: [
+        { ...fingerprint.regions[0]!, symbol: "layerB" },
+        { ...fingerprint.regions[0]!, file: "apps/server/src/gone.ts" },
+      ],
+    };
     const failures = checkFingerprint(gone, read, blobOf);
     expect(failures).toHaveLength(2);
-    expect(failures[0]).toContain("t3code/apps/server/src/server.ts (layerB) is gone: review apps/environment/src/t3/composition.ts (U1)");
+    expect(failures[0]).toContain(
+      "t3code/apps/server/src/server.ts (layerB) is gone: review apps/environment/src/t3/composition.ts (U1)",
+    );
     expect(failures[1]).toContain("t3code/apps/server/src/gone.ts (*) is gone");
   });
 
   it("fails on a literal t3's source no longer contains, however t3 lays it out", () => {
     const moved = { ...fingerprint, literals: [{ ...fingerprint.literals[0]!, literal: '"status", "--porcelain=2"' }] };
     const [failure] = checkFingerprint(moved, read, blobOf);
-    expect(failure).toContain('t3code/apps/server/src/git.ts no longer contains `"status", "--porcelain=2"`: review apps/agents/src/workspace/staleReads.ts (U13)');
+    expect(failure).toContain(
+      't3code/apps/server/src/git.ts no longer contains `"status", "--porcelain=2"`: review apps/agents/src/workspace/staleReads.ts (U13)',
+    );
   });
 
   it("fails on a watched file whose bytes moved outside the watched regions: the land check compares whole files", () => {
@@ -189,8 +219,12 @@ describe("updateFingerprint", () => {
   });
 
   it("refuses a gone region or literal: the fixture names those by hand", () => {
-    expect(() => updateFingerprint({ ...stale, regions: [{ ...stale.regions[0]!, symbol: "gone" }] }, read, blobOf, "new")).toThrow(/a\.ts \(gone\) is gone/);
-    expect(() => updateFingerprint({ ...stale, literals: [{ ...stale.literals[0]!, literal: '["y"]' }] }, read, blobOf, "new")).toThrow(/no longer contains/);
+    expect(() =>
+      updateFingerprint({ ...stale, regions: [{ ...stale.regions[0]!, symbol: "gone" }] }, read, blobOf, "new"),
+    ).toThrow(/a\.ts \(gone\) is gone/);
+    expect(() =>
+      updateFingerprint({ ...stale, literals: [{ ...stale.literals[0]!, literal: '["y"]' }] }, read, blobOf, "new"),
+    ).toThrow(/no longer contains/);
   });
 });
 
@@ -204,7 +238,10 @@ describe("the pinned t3code against the checked-in fingerprint", () => {
     const covers = /^\| T2 +\|.*\| ((?:U\d+, )*U\d+) +\| [^|]* \|$/m.exec(register)?.[1];
     expect(covers, "docs/upstream-fragility.md's T2 row no longer ends with its Covers and Ticket cells").toBeDefined();
     const entries = new Set([...fingerprint.regions, ...fingerprint.literals].map((watched) => watched.entry));
-    expect([...entries].toSorted(), "the fixture's entries and T2's Covers cell differ: update the one that is wrong").toEqual(covers!.split(", ").toSorted());
+    expect(
+      [...entries].toSorted(),
+      "the fixture's entries and T2's Covers cell differ: update the one that is wrong",
+    ).toEqual(covers!.split(", ").toSorted());
   });
 
   it("records each watched file's blob id, for the land check", () => {
@@ -217,7 +254,11 @@ describe("the pinned t3code against the checked-in fingerprint", () => {
 
   // Under a full `pnpm run check` this parses t3's largest files on a loaded machine: well past vitest's 5 s default.
   // It is also the land check's byte-for-byte comparison: a watched file whose blob id moved is a `moved` finding.
-  it.skipIf(reportOnly)("matches: every watched region, literal and file is as last reviewed", () => {
-    expect(checkFingerprint(fingerprint, readT3, gitBlobOf(fileURLToPath(T3)))).toEqual([]);
-  }, 30_000);
+  it.skipIf(reportOnly)(
+    "matches: every watched region, literal and file is as last reviewed",
+    () => {
+      expect(checkFingerprint(fingerprint, readT3, gitBlobOf(fileURLToPath(T3)))).toEqual([]);
+    },
+    30_000,
+  );
 });

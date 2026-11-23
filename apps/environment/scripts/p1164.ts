@@ -20,7 +20,9 @@ import { defaultTextModel, type ModelEndpoints } from "@t3flare/models/endpoints
 import { admin, pair } from "./lib/client.ts";
 import { realTurn } from "./lib/realTurn.ts";
 
-const [step, file] = process.argv.slice(2).filter((arg, index, all) => !arg.startsWith("--") && all[index - 1] !== "--out");
+const [step, file] = process.argv
+  .slice(2)
+  .filter((arg, index, all) => !arg.startsWith("--") && all[index - 1] !== "--out");
 const outIndex = process.argv.indexOf("--out");
 const out = outIndex === -1 ? undefined : process.argv[outIndex + 1];
 const ID = "chatgpt";
@@ -38,13 +40,19 @@ const describeAuthorize = (url: string) => {
   const own = new Set(["state", "nonce", "code_challenge"]);
   return {
     endpoint: `${parsed.origin}${parsed.pathname}`,
-    params: Object.fromEntries([...parsed.searchParams].map(([name, value]) => [name, own.has(name) ? `<${value.length} chars>` : value])),
+    params: Object.fromEntries(
+      [...parsed.searchParams].map(([name, value]) => [name, own.has(name) ? `<${value.length} chars>` : value]),
+    ),
   };
 };
 
 if (step === "page") {
   const full = await fetch(new URL("/_t3flare/settings", process.env.T3_URL), {
-    headers: { "cf-access-client-id": process.env.T3FLARE_ACCESS_CLIENT_ID!, "cf-access-client-secret": process.env.T3FLARE_ACCESS_CLIENT_SECRET!, authorization: `Bearer ${process.env.T3FLARE_ADMIN_TOKEN}` },
+    headers: {
+      "cf-access-client-id": process.env.T3FLARE_ACCESS_CLIENT_ID!,
+      "cf-access-client-secret": process.env.T3FLARE_ACCESS_CLIENT_SECRET!,
+      authorization: `Bearer ${process.env.T3FLARE_ADMIN_TOKEN}`,
+    },
   });
   const page = await full.text();
   write({
@@ -53,12 +61,24 @@ if (step === "page") {
     startButton: page.includes("data-sign-in-start"),
     pasteField: page.includes('name="pasted"'),
     unverifiedNote: /ChatGPT plan usage is unverified in t3flare/.test(page) && /Plus or Pro/.test(page),
-    excerpt: (/<form class="group add" id="sign-in-form"[\s\S]*?<\/form>/.exec(page)?.[0] ?? page.slice(0, 500)).replace(/\s+/g, " ").slice(0, 3000),
+    excerpt: (/<form class="group add" id="sign-in-form"[\s\S]*?<\/form>/.exec(page)?.[0] ?? page.slice(0, 500))
+      .replace(/\s+/g, " ")
+      .slice(0, 3000),
   });
 } else if (step === "start") {
-  const answer = await api("POST", "endpoints/sign-in", { op: "start", id: ID, signIn: "chatgpt", label: "ChatGPT", acknowledgedTerms: true });
+  const answer = await api("POST", "endpoints/sign-in", {
+    op: "start",
+    id: ID,
+    signIn: "chatgpt",
+    label: "ChatGPT",
+    acknowledgedTerms: true,
+  });
   const url = typeof answer.json?.authorizeUrl === "string" ? answer.json.authorizeUrl : undefined;
-  write({ status: answer.status, ok: answer.json?.ok === true, authorize: url === undefined ? answer.json : describeAuthorize(url) });
+  write({
+    status: answer.status,
+    ok: answer.json?.ok === true,
+    authorize: url === undefined ? answer.json : describeAuthorize(url),
+  });
   // For the owner's browser (relayed): the link holds no secret, only this attempt's state and challenge.
   if (url !== undefined) console.error(`\nAUTHORIZE ${url}\n`);
 } else if (step === "complete") {
@@ -70,14 +90,32 @@ if (step === "page") {
   const code = new URL(pasted.startsWith("http") ? pasted : `http://${pasted}`).searchParams.get("code");
   const text = JSON.stringify(answer.json);
   if (code !== null && text.includes(code)) throw new Error("the pasted code reached the panel's answer");
-  write({ status: answer.status, ms: Date.now() - started, answer: answer.json, pastedShape: { length: pasted.length, scheme: pasted.split(":")[0], params: [...new URL(pasted.startsWith("http") ? pasted : `http://${pasted}`).searchParams.keys()] } });
+  write({
+    status: answer.status,
+    ms: Date.now() - started,
+    answer: answer.json,
+    pastedShape: {
+      length: pasted.length,
+      scheme: pasted.split(":")[0],
+      params: [...new URL(pasted.startsWith("http") ? pasted : `http://${pasted}`).searchParams.keys()],
+    },
+  });
 } else if (step === "status") {
   const listed = await api("GET", "endpoints");
   const endpoints = (listed.json?.endpoints ?? []) as Array<Record<string, unknown>>;
   write({
-    endpoints: endpoints.map((endpoint) => ({ id: endpoint.id, auth: endpoint.auth, api: endpoint.api, baseUrl: endpoint.baseUrl, models: (endpoint.models as Array<{ id: string }>).map((model) => model.id), signIn: endpoint.signIn ?? null })),
+    endpoints: endpoints.map((endpoint) => ({
+      id: endpoint.id,
+      auth: endpoint.auth,
+      api: endpoint.api,
+      baseUrl: endpoint.baseUrl,
+      models: (endpoint.models as Array<{ id: string }>).map((model) => model.id),
+      signIn: endpoint.signIn ?? null,
+    })),
     signIns: listed.json?.signIns ?? null,
-    audit: ((await api("GET", "audit")).json?.entries ?? []).filter((entry: { entity: string }) => entry.entity === "endpoints").slice(0, 10),
+    audit: ((await api("GET", "audit")).json?.entries ?? [])
+      .filter((entry: { entity: string }) => entry.entity === "endpoints")
+      .slice(0, 10),
   });
 } else if (step === "sign-out") {
   const answer = await api("POST", "endpoints/sign-in", { op: "sign-out", id: ID });
@@ -86,7 +124,10 @@ if (step === "page") {
   const listed = await api("GET", "endpoints");
   const endpoints = (listed.json?.endpoints ?? []) as ModelEndpoints["endpoints"];
   // The stage's API-key endpoint's small model, by text generation's rule (the cheapest known small model).
-  const model = defaultTextModel({ revision: 0, endpoints: endpoints.filter((endpoint) => endpoint.auth === "api-key") });
+  const model = defaultTextModel({
+    revision: 0,
+    endpoints: endpoints.filter((endpoint) => endpoint.auth === "api-key"),
+  });
   if (model === undefined) throw new Error("the stage has no API-key endpoint with a small model");
   const cookie = await pair();
   await admin("POST", "/_t3flare/disarm-bootstrap");

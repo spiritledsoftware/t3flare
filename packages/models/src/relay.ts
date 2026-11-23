@@ -5,7 +5,17 @@
 // Environment answers for an endpoint (its target with the credential in its header). A CLI adds only its own config.
 // SPI-1171: a sign-in's credential is the Credential broker's access token, asked for at each request, as a bearer; which
 // CLI takes which sign-in is `RELAYED_SIGN_INS`.
-import { ENDPOINT_APIS, type EndpointApi, type EndpointAuth, isSignIn, type ModelEndpoint, type ModelEndpoints, type SignIn, SIGN_INS, signInRequestTarget } from "./endpoints.ts";
+import {
+  ENDPOINT_APIS,
+  type EndpointApi,
+  type EndpointAuth,
+  isSignIn,
+  type ModelEndpoint,
+  type ModelEndpoints,
+  type SignIn,
+  SIGN_INS,
+  signInRequestTarget,
+} from "./endpoints.ts";
 
 /** The relay's path prefix in the Container's egress host. */
 export const MODEL_RELAY_PREFIX = "/t3flare/model/";
@@ -14,7 +24,8 @@ export const MODEL_RELAY_PREFIX = "/t3flare/model/";
 export const MODEL_HANDLE_ENV = "T3FLARE_MODEL_HANDLE";
 
 /** An endpoint's base URL as a CLI in the Container reaches it through the relay. */
-export const modelRelayUrl = (endpointId: string): string => `http://computer.internal${MODEL_RELAY_PREFIX}${endpointId}`;
+export const modelRelayUrl = (endpointId: string): string =>
+  `http://computer.internal${MODEL_RELAY_PREFIX}${endpointId}`;
 
 /**
  * The relay's id for a request routed by its body's model (SPI-1168): a CLI that takes one base URL per process (Claude
@@ -36,7 +47,9 @@ export const endpointProviderId = (endpointId: string): string => `t3flare-endpo
 /** The endpoint id a CLI's provider id names (`endpointProviderId`'s inverse), or undefined for any other provider id. */
 export const endpointIdOfProvider = (providerId: string): string | undefined => {
   const prefix = endpointProviderId("");
-  return providerId.startsWith(prefix) && providerId.length > prefix.length ? providerId.slice(prefix.length) : undefined;
+  return providerId.startsWith(prefix) && providerId.length > prefix.length
+    ? providerId.slice(prefix.length)
+    : undefined;
 };
 
 /**
@@ -68,11 +81,16 @@ export const RELAYED_SIGN_INS: Readonly<Record<RelayCli, ReadonlyArray<SignIn>>>
  * (`RELAYED_SIGN_INS`). Every CLI's list of endpoints starts here, so none lists one it cannot reach.
  */
 export const relayedEndpoints = (endpoints: ModelEndpoints | undefined, cli: RelayCli): ReadonlyArray<ModelEndpoint> =>
-  (endpoints?.endpoints ?? []).filter((endpoint) => !isSignIn(endpoint.auth) || RELAYED_SIGN_INS[cli].includes(endpoint.auth));
+  (endpoints?.endpoints ?? []).filter(
+    (endpoint) => !isSignIn(endpoint.auth) || RELAYED_SIGN_INS[cli].includes(endpoint.auth),
+  );
 
 /** The endpoints relayed for `cli` that speak `api`, in the owner's order: those it reaches through the relay. */
-export const endpointsOfApi = (endpoints: ModelEndpoints | undefined, api: EndpointApi, cli: RelayCli): ReadonlyArray<ModelEndpoint> =>
-  relayedEndpoints(endpoints, cli).filter((endpoint) => endpoint.api === api);
+export const endpointsOfApi = (
+  endpoints: ModelEndpoints | undefined,
+  api: EndpointApi,
+  cli: RelayCli,
+): ReadonlyArray<ModelEndpoint> => relayedEndpoints(endpoints, cli).filter((endpoint) => endpoint.api === api);
 
 // What each API knows of keys and headers, in one place: the header its key goes in, and the request headers a CLI's
 // client sends that the endpoint needs. The relay takes a handle from the key headers and forwards only the allowed
@@ -80,7 +98,10 @@ export const endpointsOfApi = (endpoints: ModelEndpoints | undefined, api: Endpo
 // host or a route from the Container).
 
 /** The header an API takes its key in, and the value it sends. */
-export const credentialHeaderOf = (api: EndpointApi, apiKey: string): { readonly name: string; readonly value: string } => {
+export const credentialHeaderOf = (
+  api: EndpointApi,
+  apiKey: string,
+): { readonly name: string; readonly value: string } => {
   switch (api) {
     case "anthropic-messages":
       return { name: "x-api-key", value: apiKey };
@@ -94,7 +115,9 @@ export const credentialHeaderOf = (api: EndpointApi, apiKey: string): { readonly
 };
 
 /** Every header a key goes in, for any API (lowercase), plus Azure's `api-key`: where a CLI's handle may come. */
-export const KEY_HEADERS: ReadonlyArray<string> = [...new Set([...ENDPOINT_APIS.map((api) => credentialHeaderOf(api, "").name), "api-key"])];
+export const KEY_HEADERS: ReadonlyArray<string> = [
+  ...new Set([...ENDPOINT_APIS.map((api) => credentialHeaderOf(api, "").name), "api-key"]),
+];
 
 /** Request headers every API's requests may carry: the body's type and length, and what the client accepts. */
 const FORWARDED_HEADERS: ReadonlyArray<string> = ["content-type", "content-length", "accept"];
@@ -109,14 +132,19 @@ const API_HEADERS: Readonly<Record<EndpointApi, ReadonlyArray<string>>> = {
 };
 
 /** The request headers the relay forwards for `api` (lowercase); every other header of the Container's is dropped. */
-export const forwardedHeadersOf = (api: EndpointApi): ReadonlySet<string> => new Set([...FORWARDED_HEADERS, ...API_HEADERS[api]]);
+export const forwardedHeadersOf = (api: EndpointApi): ReadonlySet<string> =>
+  new Set([...FORWARDED_HEADERS, ...API_HEADERS[api]]);
 
 /**
  * The header a credential goes in at the relay: an API key in its API's (`credentialHeaderOf`); a sign-in's access token
  * always as a bearer (`authorization`), on every sign-in's API (an Anthropic subscription token is refused as
  * `x-api-key`: SPI-1161 Q4).
  */
-export const credentialHeaderFor = (api: EndpointApi, auth: EndpointAuth, credential: string): { readonly name: string; readonly value: string } =>
+export const credentialHeaderFor = (
+  api: EndpointApi,
+  auth: EndpointAuth,
+  credential: string,
+): { readonly name: string; readonly value: string } =>
   isSignIn(auth) ? { name: "authorization", value: `Bearer ${credential}` } : credentialHeaderOf(api, credential);
 
 /** Where the relay sends an endpoint's request: its API, auth, base URL and the headers to add (its credential's among them). */
@@ -139,13 +167,20 @@ export interface SignInRefusal {
 }
 
 /** A sign-in's answer in an Environment with no Credential broker. */
-export const NO_CREDENTIAL_BROKER: SignInRefusal = { signedOut: true, problem: "this Environment has no Credential broker" };
+export const NO_CREDENTIAL_BROKER: SignInRefusal = {
+  signedOut: true,
+  problem: "this Environment has no Credential broker",
+};
 
 /**
  * A sign-in's refusal at the relay, by the one switch (`signedOut`): 401 and `sign_in_refused` signed out (sign in
  * again), 503 and `unavailable` a passing failure (retry); the codes are SPI-1172's table's.
  */
-export const signInRefusalOutcome = (refusal: SignInRefusal): { readonly status: 401; readonly code: "sign_in_refused" } | { readonly status: 503; readonly code: "unavailable" } =>
+export const signInRefusalOutcome = (
+  refusal: SignInRefusal,
+):
+  | { readonly status: 401; readonly code: "sign_in_refused" }
+  | { readonly status: 503; readonly code: "unavailable" } =>
   refusal.signedOut ? { status: 401, code: "sign_in_refused" } : { status: 503, code: "unavailable" };
 
 /** A sign-in's refusal at the relay, with the endpoint's API (the error's shape) and kind (the text's name). */
@@ -166,7 +201,12 @@ export type ModelRelayTarget =
 
 /** The Credential broker's answer for a sign-in, as the relay reads it (the Environment's `BrokerAccess`). */
 export type RelaySignInAccess =
-  | { readonly ok: true; readonly accessToken: string; readonly baseUrl?: string; readonly headers?: Readonly<Record<string, string>> }
+  | {
+      readonly ok: true;
+      readonly accessToken: string;
+      readonly baseUrl?: string;
+      readonly headers?: Readonly<Record<string, string>>;
+    }
   | ({ readonly ok: false } & SignInRefusal);
 
 /** What the store's `resolve` gives the relay: the endpoint with its key, or its sign-in's answer at this request. */
@@ -189,26 +229,57 @@ export const SIGN_IN_RELAY_PATHS: Readonly<Record<SignIn, ReadonlyArray<string>>
 };
 
 /** Whether the relay carries a `method` request to `path` (below the base URL, no query) on a `kind` sign-in. */
-export const signInRelayAllows = (kind: SignIn, method: string, path: string): boolean => method === "POST" && SIGN_IN_RELAY_PATHS[kind].includes(path);
+export const signInRelayAllows = (kind: SignIn, method: string, path: string): boolean =>
+  method === "POST" && SIGN_IN_RELAY_PATHS[kind].includes(path);
 
 /** A sign-in endpoint's target with the broker's token (`signInRequestTarget`, the Session's rule), or why not. */
 const signInRelayTarget = (endpoint: ModelEndpoint, kind: SignIn, access: RelaySignInAccess): ModelRelayTarget => {
   if (!access.ok) {
-    const signIn: RelaySignInRefusal = { api: endpoint.api, kind, signedOut: access.signedOut, problem: access.problem, ...(access.retryAt === undefined ? {} : { retryAt: access.retryAt }) };
-    return { ok: false, status: signInRefusalOutcome(signIn).status, message: `the Model endpoint ${endpoint.id}'s sign-in gave no token (${access.problem})`, signIn };
+    const signIn: RelaySignInRefusal = {
+      api: endpoint.api,
+      kind,
+      signedOut: access.signedOut,
+      problem: access.problem,
+      ...(access.retryAt === undefined ? {} : { retryAt: access.retryAt }),
+    };
+    return {
+      ok: false,
+      status: signInRefusalOutcome(signIn).status,
+      message: `the Model endpoint ${endpoint.id}'s sign-in gave no token (${access.problem})`,
+      signIn,
+    };
   }
   const sent = signInRequestTarget(endpoint, access);
   const credential = credentialHeaderFor(endpoint.api, kind, access.accessToken);
-  const headers = Object.fromEntries(Object.entries(sent.headers).filter(([name]) => name.toLowerCase() !== credential.name));
-  return { ok: true, api: endpoint.api, auth: kind, baseUrl: sent.baseUrl, headers: { ...headers, [credential.name]: credential.value }, key: access.accessToken };
+  const headers = Object.fromEntries(
+    Object.entries(sent.headers).filter(([name]) => name.toLowerCase() !== credential.name),
+  );
+  return {
+    ok: true,
+    api: endpoint.api,
+    auth: kind,
+    baseUrl: sent.baseUrl,
+    headers: { ...headers, [credential.name]: credential.value },
+    key: access.accessToken,
+  };
 };
 
 /** The relay's target for a resolved endpoint and its key or sign-in (pure; the store's `resolve` gives them). */
 export const relayTargetOf = (resolved: RelayResolved | undefined, endpointId: string): ModelRelayTarget => {
-  if (resolved === undefined) return { ok: false, status: 404, message: `no Model endpoint ${endpointId}: it was removed, or never saved` };
+  if (resolved === undefined)
+    return { ok: false, status: 404, message: `no Model endpoint ${endpointId}: it was removed, or never saved` };
   const { endpoint, apiKey } = resolved;
-  if (isSignIn(endpoint.auth)) return signInRelayTarget(endpoint, endpoint.auth, resolved.signIn ?? { ok: false, ...NO_CREDENTIAL_BROKER });
-  if (endpoint.auth === "none") return { ok: true, api: endpoint.api, auth: "none", baseUrl: endpoint.baseUrl, headers: { ...endpoint.headers }, key: null };
+  if (isSignIn(endpoint.auth))
+    return signInRelayTarget(endpoint, endpoint.auth, resolved.signIn ?? { ok: false, ...NO_CREDENTIAL_BROKER });
+  if (endpoint.auth === "none")
+    return {
+      ok: true,
+      api: endpoint.api,
+      auth: "none",
+      baseUrl: endpoint.baseUrl,
+      headers: { ...endpoint.headers },
+      key: null,
+    };
   if (apiKey === undefined) {
     return {
       ok: false,
@@ -220,6 +291,15 @@ export const relayTargetOf = (resolved: RelayResolved | undefined, endpointId: s
   }
   const credential = credentialHeaderOf(endpoint.api, apiKey);
   // The endpoint's own headers never carry a credential (validateEndpoint), so the key's header is the only one.
-  const headers = Object.fromEntries(Object.entries(endpoint.headers).filter(([name]) => name.toLowerCase() !== credential.name));
-  return { ok: true, api: endpoint.api, auth: "api-key", baseUrl: endpoint.baseUrl, headers: { ...headers, [credential.name]: credential.value }, key: apiKey };
+  const headers = Object.fromEntries(
+    Object.entries(endpoint.headers).filter(([name]) => name.toLowerCase() !== credential.name),
+  );
+  return {
+    ok: true,
+    api: endpoint.api,
+    auth: "api-key",
+    baseUrl: endpoint.baseUrl,
+    headers: { ...headers, [credential.name]: credential.value },
+    key: apiKey,
+  };
 };

@@ -41,10 +41,7 @@ const asking = (
 const call = (deps: McpDeps, ctx: McpCallContext, timeoutMs?: number) =>
   run(
     Effect.gen(function* () {
-      const connection = yield* connect(
-        timeoutMs === undefined ? TARGET : { ...TARGET, timeoutMs },
-        deps,
-      );
+      const connection = yield* connect(timeoutMs === undefined ? TARGET : { ...TARGET, timeoutMs }, deps);
 
       return yield* connection
         .callTool(
@@ -60,9 +57,7 @@ const call = (deps: McpDeps, ctx: McpCallContext, timeoutMs?: number) =>
 
 const textOf = (outcome: Awaited<ReturnType<typeof call>>) =>
   Result.isSuccess(outcome)
-    ? completed(outcome.success).value.content.map((block) =>
-        block.type === "text" ? block.text : "",
-      )
+    ? completed(outcome.success).value.content.map((block) => (block.type === "text" ? block.text : ""))
     : [];
 
 describe("a Legacy server's elicitation", () => {
@@ -113,9 +108,7 @@ describe("a Legacy server's elicitation", () => {
     const server = legacyStatefulServer(options);
 
     const outcome = await call(
-      asking(server, () =>
-        Effect.succeed({ kind: "refused" as const, message: "unsupported elicitation form: x" }),
-      ),
+      asking(server, () => Effect.succeed({ kind: "refused" as const, message: "unsupported elicitation form: x" })),
       ASKING,
     );
 

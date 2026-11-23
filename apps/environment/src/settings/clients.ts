@@ -53,7 +53,8 @@ export const clientNameOf = (name: unknown): string | undefined => {
   return kept === "" ? undefined : kept;
 };
 
-export const isOwnerMode = (value: unknown): value is OwnerMode => typeof value === "string" && (OWNER_MODES as ReadonlyArray<string>).includes(value);
+export const isOwnerMode = (value: unknown): value is OwnerMode =>
+  typeof value === "string" && (OWNER_MODES as ReadonlyArray<string>).includes(value);
 
 type Row = {
   key: string;
@@ -82,20 +83,30 @@ export const ownerClients = (sql: Pick<SqlStorage, "exec">, now: () => number = 
     ready = true;
   };
   const one = (key: string, clientName: string): Row | undefined =>
-    sql.exec<Row>(`SELECT key, client_name, mode, first_seen, last_seen FROM ${CLIENTS_TABLE} WHERE key = ? AND client_name = ?`, key, clientName).toArray()[0];
+    sql
+      .exec<Row>(
+        `SELECT key, client_name, mode, first_seen, last_seen FROM ${CLIENTS_TABLE} WHERE key = ? AND client_name = ?`,
+        key,
+        clientName,
+      )
+      .toArray()[0];
   return {
     seen: (key, clientName) => {
       prepare();
       const at = now();
       const row = one(key, clientName);
       if (row !== undefined) {
-        if (at - Number(row.last_seen) >= SEEN_EVERY_MS) sql.exec(`UPDATE ${CLIENTS_TABLE} SET last_seen = ? WHERE key = ? AND client_name = ?`, at, key, clientName);
+        if (at - Number(row.last_seen) >= SEEN_EVERY_MS)
+          sql.exec(`UPDATE ${CLIENTS_TABLE} SET last_seen = ? WHERE key = ? AND client_name = ?`, at, key, clientName);
         return entryOf(row).mode;
       }
       // Room for the new one first: this key's least recently seen `browser` rows go, then the least recently seen of any
       // mode (a row the owner set, `native` or `model`, sorts after every `browser` one).
       const spare = `ORDER BY (mode IN ('native', 'model')) ASC, last_seen ASC, first_seen ASC, client_name ASC LIMIT ?`;
-      const count = Number(sql.exec<{ count: number }>(`SELECT COUNT(*) AS count FROM ${CLIENTS_TABLE} WHERE key = ?`, key).toArray()[0]?.count ?? 0);
+      const count = Number(
+        sql.exec<{ count: number }>(`SELECT COUNT(*) AS count FROM ${CLIENTS_TABLE} WHERE key = ?`, key).toArray()[0]
+          ?.count ?? 0,
+      );
       if (count >= CLIENTS_PER_KEY) {
         sql.exec(
           `DELETE FROM ${CLIENTS_TABLE} WHERE key = ? AND client_name IN (SELECT client_name FROM ${CLIENTS_TABLE} WHERE key = ? ${spare})`,
@@ -104,12 +115,23 @@ export const ownerClients = (sql: Pick<SqlStorage, "exec">, now: () => number = 
           count - CLIENTS_PER_KEY + 1,
         );
       }
-      sql.exec(`INSERT INTO ${CLIENTS_TABLE} (key, client_name, mode, first_seen, last_seen) VALUES (?, ?, 'browser', ?, ?)`, key, clientName, at, at);
+      sql.exec(
+        `INSERT INTO ${CLIENTS_TABLE} (key, client_name, mode, first_seen, last_seen) VALUES (?, ?, 'browser', ?, ?)`,
+        key,
+        clientName,
+        at,
+        at,
+      );
       return "browser";
     },
     list: () => {
       prepare();
-      return sql.exec<Row>(`SELECT key, client_name, mode, first_seen, last_seen FROM ${CLIENTS_TABLE} ORDER BY key, last_seen DESC, client_name`).toArray().map(entryOf);
+      return sql
+        .exec<Row>(
+          `SELECT key, client_name, mode, first_seen, last_seen FROM ${CLIENTS_TABLE} ORDER BY key, last_seen DESC, client_name`,
+        )
+        .toArray()
+        .map(entryOf);
     },
     setMode: (key, clientName, mode) => {
       prepare();

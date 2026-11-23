@@ -37,7 +37,9 @@ const DESCRIPTION_LINE = 60;
 const splitFrontmatter = (content: string): { readonly yaml: string | undefined; readonly body: string } => {
   const normalized = content.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
   const end = normalized.startsWith("---") ? normalized.indexOf("\n---", 3) : -1;
-  return end === -1 ? { yaml: undefined, body: normalized } : { yaml: normalized.slice(4, end), body: normalized.slice(end + 4).trim() };
+  return end === -1
+    ? { yaml: undefined, body: normalized }
+    : { yaml: normalized.slice(4, end), body: normalized.slice(end + 4).trim() };
 };
 
 /** A Markdown file's body without its frontmatter, as a Skill's body is embedded. */
@@ -54,11 +56,15 @@ export const parseTemplate = (filePath: string, text: string): ParsedTemplate | 
       return undefined;
     }
   }
-  const record = typeof fields === "object" && fields !== null && !Array.isArray(fields) ? (fields as Readonly<Record<string, unknown>>) : {};
+  const record =
+    typeof fields === "object" && fields !== null && !Array.isArray(fields)
+      ? (fields as Readonly<Record<string, unknown>>)
+      : {};
   let description = typeof record.description === "string" ? record.description : "";
   if (description === "") {
     const first = body.split("\n").find((line) => line.trim() !== "");
-    if (first !== undefined) description = first.length > DESCRIPTION_LINE ? `${first.slice(0, DESCRIPTION_LINE)}...` : first;
+    if (first !== undefined)
+      description = first.length > DESCRIPTION_LINE ? `${first.slice(0, DESCRIPTION_LINE)}...` : first;
   }
   const hint = record["argument-hint"];
   return {
@@ -141,7 +147,9 @@ export const substituteArgs = (content: string, args: ReadonlyArray<string>): st
       if (slice !== null) {
         // `${@:0}` is `${@:1}`, as in bash, where the arguments start at 1.
         const start = Math.max(Number.parseInt(slice[1] ?? "0", 10) - 1, 0);
-        replacement = (slice[2] === undefined ? args.slice(start) : args.slice(start, start + Number.parseInt(slice[2], 10))).join(" ");
+        replacement = (
+          slice[2] === undefined ? args.slice(start) : args.slice(start, start + Number.parseInt(slice[2], 10))
+        ).join(" ");
         end = SLICE.lastIndex;
       }
     }
@@ -175,12 +183,16 @@ export const templateCall = <T extends { readonly name: string }>(
 };
 
 /** `text` expanded when it starts with one of `templates`' Slash commands; undefined for other text. */
-export const expandTemplate = (text: string, templates: ReadonlyArray<{ readonly name: string; readonly content: string }>): string | undefined => {
+export const expandTemplate = (
+  text: string,
+  templates: ReadonlyArray<{ readonly name: string; readonly content: string }>,
+): string | undefined => {
   const call = templateCall(text, templates);
   return call === undefined ? undefined : substituteArgs(call.template.content, call.args);
 };
 
-const byName = (a: { readonly name: string }, b: { readonly name: string }) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+const byName = (a: { readonly name: string }, b: { readonly name: string }) =>
+  a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
 
 /** The Durable agent's (and pi's) Prompt templates: the cwd's `.pi/prompts`, its files only. */
 const PI_PROMPTS: ReadonlyArray<CommandSource> = [{ directory: PROMPTS_DIRECTORY, nested: false }];
@@ -191,18 +203,39 @@ const PI_PROMPTS: ReadonlyArray<CommandSource> = [{ directory: PROMPTS_DIRECTORY
  * name found winning. A file whose name holds whitespace is not one (its Slash command would end at the space), nor one
  * over `MAX_TEMPLATE_BYTES`.
  */
-export const discoverPrompts = async (files: SkillFiles, cwd: string, sources: ReadonlyArray<CommandSource> = PI_PROMPTS): Promise<ReadonlyArray<PromptTemplate>> => {
+export const discoverPrompts = async (
+  files: SkillFiles,
+  cwd: string,
+  sources: ReadonlyArray<CommandSource> = PI_PROMPTS,
+): Promise<ReadonlyArray<PromptTemplate>> => {
   const base = withoutTrailingSlashes(cwd);
   const listed = await Promise.all(
     sources.map(async (source) => {
       const root = join(base, source.directory);
       const entries = await files.list(root, MAX_ENTRIES);
-      return entries
-        .filter((entry) => entry.kind !== "directory" && (source.nested || !entry.path.includes("/")) && !/\s/.test(entry.path) && entry.path.endsWith(".md"))
-        // A nested source's dot directories (`.git`-like) hold no commands; a file's own name is not judged here.
-        .filter((entry) => !entry.path.split("/").slice(0, -1).some((segment) => segment.startsWith(".")))
-        .map((entry) => ({ path: join(root, entry.path), name: entry.path.replace(/\.md$/, "").replaceAll("/", ":") }))
-        .sort(byName);
+      return (
+        entries
+          .filter(
+            (entry) =>
+              entry.kind !== "directory" &&
+              (source.nested || !entry.path.includes("/")) &&
+              !/\s/.test(entry.path) &&
+              entry.path.endsWith(".md"),
+          )
+          // A nested source's dot directories (`.git`-like) hold no commands; a file's own name is not judged here.
+          .filter(
+            (entry) =>
+              !entry.path
+                .split("/")
+                .slice(0, -1)
+                .some((segment) => segment.startsWith(".")),
+          )
+          .map((entry) => ({
+            path: join(root, entry.path),
+            name: entry.path.replace(/\.md$/, "").replaceAll("/", ":"),
+          }))
+          .sort(byName)
+      );
     }),
   );
   const seen = new Set<string>();

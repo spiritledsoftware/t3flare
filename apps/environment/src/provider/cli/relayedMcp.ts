@@ -8,8 +8,14 @@ import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderS
 import * as Effect from "effect/Effect";
 
 /** t3's MCP sessions as a CLI adapter reads them: t3's own config, at the endpoint a Container reaches. */
-export const t3McpForCli = (real: McpProviderSessions.McpProviderSessions["Service"], publicUrl: () => string): McpProviderSessions.McpProviderSessions["Service"] =>
+export const t3McpForCli = (
+  real: McpProviderSessions.McpProviderSessions["Service"],
+  publicUrl: () => string,
+): McpProviderSessions.McpProviderSessions["Service"] =>
   McpProviderSessions.McpProviderSessions.of({
     ...real,
-    read: (threadId) => real.read(threadId).pipe(Effect.map((config) => (config === undefined ? undefined : { ...config, endpoint: publicUrl() }))),
+    read: (threadId) =>
+      real
+        .read(threadId)
+        .pipe(Effect.map((config) => (config === undefined ? undefined : { ...config, endpoint: publicUrl() }))),
   });

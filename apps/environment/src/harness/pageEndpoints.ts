@@ -13,7 +13,17 @@
 // Each form's Start stays disabled until the owner ticks its acknowledgement of the vendor's terms (its kind's `terms`:
 // one sentence, linking to the docs that quote them), which the start carries and the Environment requires. A signed-out
 // card's Sign in leads to its kind's form, so every start passes that checkbox.
-import { endpointSlug, type EndpointApi, type EndpointPreset, isDeviceSignIn, isSignIn, type ModelEndpoint, SIGN_IN_KINDS, SIGN_INS, type SignIn } from "@t3flare/models/endpoints";
+import {
+  endpointSlug,
+  type EndpointApi,
+  type EndpointPreset,
+  isDeviceSignIn,
+  isSignIn,
+  type ModelEndpoint,
+  SIGN_IN_KINDS,
+  SIGN_INS,
+  type SignIn,
+} from "@t3flare/models/endpoints";
 
 import type { SignInStatus } from "../credentials/broker.ts";
 import type { SealedMark } from "../credentials/sealed.ts";
@@ -35,7 +45,8 @@ type Escape = (text: string) => string;
 const keyFact = (escape: Escape, endpoint: EndpointsView["endpoints"][number]): string => {
   if (endpoint.auth === "none") return "None";
   if (!endpoint.key.set) return '<span class="pill pill-warn">no key</span>';
-  if (endpoint.key.readable === false) return '<span class="pill pill-err" title="This Environment\'s credentials key no longer opens it">cannot be read: enter it again</span>';
+  if (endpoint.key.readable === false)
+    return '<span class="pill pill-err" title="This Environment\'s credentials key no longer opens it">cannot be read: enter it again</span>';
   return `Set${endpoint.key.fingerprint === null ? "" : ` <span class="ident" title="Fingerprint: an HMAC of the key, never the key">#${escape(endpoint.key.fingerprint)}</span>`}`;
 };
 
@@ -45,10 +56,14 @@ const when = (ms: number): string => new Date(ms).toISOString().slice(0, 16).rep
 /** A sign-in's facts: the account, the token's expiry, a sign-in waiting for its paste, the last problem. */
 const signInFacts = (escape: Escape, status: SignInStatus | undefined): string => {
   if (status === undefined) return "";
-  const account = status.signedIn ? escape(status.email ?? "signed in") : '<span class="pill pill-warn">not signed in</span>';
+  const account = status.signedIn
+    ? escape(status.email ?? "signed in")
+    : '<span class="pill pill-warn">not signed in</span>';
   const awaited = status.kind !== null && isDeviceSignIn(status.kind) ? "approval at the vendor" : "its paste";
   return `<div><dt>Account</dt><dd>${account}</dd></div>${status.signedIn && status.expiresAt !== null ? `<div><dt>Token</dt><dd>renews before ${escape(when(status.expiresAt))}</dd></div>` : ""}${
-    status.pendingSince === null ? "" : `<div><dt>Sign-in</dt><dd>waiting for ${awaited} since ${escape(when(status.pendingSince))}</dd></div>`
+    status.pendingSince === null
+      ? ""
+      : `<div><dt>Sign-in</dt><dd>waiting for ${awaited} since ${escape(when(status.pendingSince))}</dd></div>`
   }${status.problem === null ? "" : `<div><dt>Problem</dt><dd class="sign-in-problem">${escape(status.problem)}</dd></div>`}`;
 };
 
@@ -56,7 +71,15 @@ const endpointCard = (escape: Escape, endpoint: EndpointsView["endpoints"][numbe
   if (isSignIn(endpoint.auth)) return signInCard(escape, endpoint, endpoint.auth);
   const id = escape(`endpoint-${endpoint.id}`);
   // What the form needs to edit it: never the key, which the endpoint keeps unless a new one is typed.
-  const editable = { id: endpoint.id, label: endpoint.label, api: endpoint.api, baseUrl: endpoint.baseUrl, auth: endpoint.auth, headers: endpoint.headers, models: endpoint.models.map((model) => model.id) };
+  const editable = {
+    id: endpoint.id,
+    label: endpoint.label,
+    api: endpoint.api,
+    baseUrl: endpoint.baseUrl,
+    auth: endpoint.auth,
+    headers: endpoint.headers,
+    models: endpoint.models.map((model) => model.id),
+  };
   const models = endpoint.models
     .map(
       (model) =>
@@ -66,25 +89,45 @@ const endpointCard = (escape: Escape, endpoint: EndpointsView["endpoints"][numbe
   return `<article class="group server" aria-labelledby="${id}" data-endpoint-row="${escape(endpoint.id)}">
 <div class="server-head"><div><div class="server-name"><h3 id="${id}">${escape(endpoint.label)}</h3><span class="ident">${escape(endpoint.id)}</span><span class="tag">${escape(endpoint.api)}</span></div><p class="server-url">${escape(endpoint.baseUrl)}</p></div>
 <dl class="facts"><div><dt>Models</dt><dd>${endpoint.models.length}</dd></div><div><dt>API key</dt><dd>${keyFact(escape, endpoint)}</dd></div>${
-    Object.keys(endpoint.headers).length === 0 ? "" : `<div><dt>Headers</dt><dd>${Object.keys(endpoint.headers).map((name) => `<code>${escape(name)}</code>`).join(", ")}</dd></div>`
+    Object.keys(endpoint.headers).length === 0
+      ? ""
+      : `<div><dt>Headers</dt><dd>${Object.keys(endpoint.headers)
+          .map((name) => `<code>${escape(name)}</code>`)
+          .join(", ")}</dd></div>`
   }</dl></div>
 <div class="server-actions"><button type="button" class="btn btn-sm" data-endpoint-edit="${escape(JSON.stringify(editable))}">Edit</button><span class="spacer"></span><button type="button" class="btn btn-sm btn-danger" data-endpoint-remove="${escape(endpoint.id)}" aria-label="Remove ${escape(endpoint.label)}">${icon("trash")}Remove</button></div>
 <details class="tools"${endpoint.models.length <= 12 ? " open" : ""}><summary>${icon("chevron")}Models</summary><ul class="endpoint-models">${models}</ul></details></article>`;
 };
 
 /** Where a sign-in endpoint's requests go: its base URL, or for one whose token names it (Copilot's), the token's. */
-const baseUrlOf = (escape: Escape, endpoint: EndpointsView["endpoints"][number], signIn: (typeof SIGN_IN_KINDS)[SignIn]): string => {
+const baseUrlOf = (
+  escape: Escape,
+  endpoint: EndpointsView["endpoints"][number],
+  signIn: (typeof SIGN_IN_KINDS)[SignIn],
+): string => {
   if (signIn.credentialBaseUrl === null) return escape(endpoint.baseUrl);
   const named = endpoint.signIn?.baseUrl ?? null;
-  return named === null ? `set by its ${escape(signIn.title)} token` : `${escape(named)} (from its ${escape(signIn.title)} token)`;
+  return named === null
+    ? `set by its ${escape(signIn.title)} token`
+    : `${escape(named)} (from its ${escape(signIn.title)} token)`;
 };
 
 /** A sign-in endpoint's card: its account and Sign out (or Sign in again), its models; no key, no Edit of its target. */
 const signInCard = (escape: Escape, endpoint: EndpointsView["endpoints"][number], kind: SignIn): string => {
   const signIn = SIGN_IN_KINDS[kind];
   const id = escape(`endpoint-${endpoint.id}`);
-  const editable = { id: endpoint.id, label: endpoint.label, api: endpoint.api, baseUrl: endpoint.baseUrl, auth: endpoint.auth, headers: {}, models: endpoint.models.map((model) => model.id) };
-  const models = endpoint.models.map((model) => `<li><code>${escape(endpointSlug(endpoint.id, model.id))}</code> ${escape(model.name)}</li>`).join("");
+  const editable = {
+    id: endpoint.id,
+    label: endpoint.label,
+    api: endpoint.api,
+    baseUrl: endpoint.baseUrl,
+    auth: endpoint.auth,
+    headers: {},
+    models: endpoint.models.map((model) => model.id),
+  };
+  const models = endpoint.models
+    .map((model) => `<li><code>${escape(endpointSlug(endpoint.id, model.id))}</code> ${escape(model.name)}</li>`)
+    .join("");
   const action =
     endpoint.signIn?.signedIn === true
       ? `<button type="button" class="btn btn-sm" data-sign-in-out="${escape(endpoint.id)}" data-sign-in-title="${escape(signIn.title)}"${
@@ -105,7 +148,10 @@ const signInForm = (escape: Escape, view: EndpointsView, kind: SignIn): string =
   const signIn = SIGN_IN_KINDS[kind];
   const waiting = Object.entries(view.signIns).filter(([, status]) => status.kind === kind || status.kind === null);
   const notes = waiting
-    .map(([id, status]) => `<div class="field wide"><dl class="facts"><div><dt>Endpoint</dt><dd><code>${escape(id)}</code></dd></div>${signInFacts(escape, status)}</dl></div>`)
+    .map(
+      ([id, status]) =>
+        `<div class="field wide"><dl class="facts"><div><dt>Endpoint</dt><dd><code>${escape(id)}</code></dd></div>${signInFacts(escape, status)}</dl></div>`,
+    )
     .join("");
   const at = (name: string) => escape(`sign-in-${kind}-${name}`);
   const waitingHere = waiting.some(([, status]) => status.pendingSince !== null);
@@ -131,10 +177,16 @@ ${step}
 </form>`;
 };
 
-const form = (escape: Escape, view: EndpointsView): string => `<form class="group add" id="endpoint-form" data-endpoint-form autocomplete="off" aria-labelledby="endpoint-form-title">
+const form = (
+  escape: Escape,
+  view: EndpointsView,
+): string => `<form class="group add" id="endpoint-form" data-endpoint-form autocomplete="off" aria-labelledby="endpoint-form-title">
 <div class="row"><div><div class="row-title"><h3 id="endpoint-form-title" data-endpoint-form-title>Add an endpoint</h3></div><p class="desc">Start from a preset, or fill it in. Read the model list to fill the models; pi-ai's catalog gives the limits, thinking and prices of models it knows.</p>
 <p class="desc">${view.presets
-  .map((preset) => `<button type="button" class="btn btn-sm" data-endpoint-preset="${escape(JSON.stringify(preset))}">${escape(preset.title)}</button>`)
+  .map(
+    (preset) =>
+      `<button type="button" class="btn btn-sm" data-endpoint-preset="${escape(JSON.stringify(preset))}">${escape(preset.title)}</button>`,
+  )
   .join(" ")}</p></div></div>
 <div class="form-body">
 <div class="field"><label for="endpoint-id">Id</label><input id="endpoint-id" name="id" type="text" required pattern="[a-z0-9](?:[a-z0-9\\-]{0,30}[a-z0-9])?" placeholder="openai" autocapitalize="none" spellcheck="false" aria-describedby="endpoint-id-hint"><p class="hint" id="endpoint-id-hint">Fixed once saved: models are named id/model.</p></div>

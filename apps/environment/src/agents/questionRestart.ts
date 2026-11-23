@@ -15,7 +15,10 @@ import { environmentServices } from "./bindings.ts";
 type Candidate = { thread_id: string; runtime_request_id: string; node_id: string };
 
 /** The prompt that raises `question` again. */
-export const reraisePrompt = (question: { readonly question: string; readonly options: ReadonlyArray<string> }): string =>
+export const reraisePrompt = (question: {
+  readonly question: string;
+  readonly options: ReadonlyArray<string>;
+}): string =>
   [
     "T3 Code restarted while you were waiting for the owner's answer to your question, so the question was lost.",
     `Ask it again now with the ask_user tool, exactly: "${question.question}"${question.options.length === 0 ? "" : ` with the options ${JSON.stringify(question.options)}`}.`,
@@ -39,12 +42,21 @@ export const reraiseQuestionsAfterRestart = Effect.gen(function* () {
   let raised = 0;
   for (const candidate of candidates) {
     const threadId = candidate.thread_id as ThreadId;
-    const records = yield* threads.getThreadRecords(threadId, ["runs", "nodes", "turnItems"], { turnItemTypes: ["user_input_request"] });
+    const records = yield* threads.getThreadRecords(threadId, ["runs", "nodes", "turnItems"], {
+      turnItemTypes: ["user_input_request"],
+    });
     const runId = records.nodes.find((node) => node.id === candidate.node_id)?.runId ?? null;
     const run = records.runs.find((candidateRun) => candidateRun.id === runId);
     // Only a run the restart cancelled, with nothing after it: a later run (an answer, a continuation) owns the thread.
-    if (run === undefined || run.status !== "cancelled" || records.runs.some((other) => other.id !== run.id && runRanAfter(other, run))) continue;
-    const item = records.turnItems.find((turnItem) => turnItem.type === "user_input_request" && turnItem.requestId === candidate.runtime_request_id);
+    if (
+      run === undefined ||
+      run.status !== "cancelled" ||
+      records.runs.some((other) => other.id !== run.id && runRanAfter(other, run))
+    )
+      continue;
+    const item = records.turnItems.find(
+      (turnItem) => turnItem.type === "user_input_request" && turnItem.requestId === candidate.runtime_request_id,
+    );
     const question = item?.type === "user_input_request" ? item.questions[0] : undefined;
     if (question === undefined) continue;
     yield* threads.dispatch({
@@ -52,7 +64,10 @@ export const reraiseQuestionsAfterRestart = Effect.gen(function* () {
       commandId: `command:t3flare-question-reraise:${candidate.runtime_request_id}` as CommandId,
       threadId,
       messageId: `message:t3flare-question-reraise:${candidate.runtime_request_id}` as MessageId,
-      text: reraisePrompt({ question: question.question, options: question.options.map((option) => option.value ?? option.label) }),
+      text: reraisePrompt({
+        question: question.question,
+        options: question.options.map((option) => option.value ?? option.label),
+      }),
       attachments: [],
       modelSelection: run.modelSelection,
       dispatchMode: { type: "start_immediately" },
@@ -67,7 +82,14 @@ export const reraiseQuestionsAfterRestart = Effect.gen(function* () {
       requestId: candidate.runtime_request_id,
     } as never);
     raised++;
-    yield* Effect.logInfo("t3flare: a delegated task's question raised again after a restart", { threadId, runId: run.id });
+    yield* Effect.logInfo("t3flare: a delegated task's question raised again after a restart", {
+      threadId,
+      runId: run.id,
+    });
   }
   return raised;
-}).pipe(Effect.catchCause((cause) => Effect.logWarning("t3flare: delegated questions were not raised again", cause).pipe(Effect.as(0))));
+}).pipe(
+  Effect.catchCause((cause) =>
+    Effect.logWarning("t3flare: delegated questions were not raised again", cause).pipe(Effect.as(0)),
+  ),
+);

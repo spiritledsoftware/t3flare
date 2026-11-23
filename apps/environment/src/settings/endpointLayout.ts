@@ -31,7 +31,8 @@ export const ownerEndpointOn = (stage: string): boolean => !OWNER_ENDPOINT_EXCLU
 export const SETTINGS_MCP_PATH = "/_t3flare/mcp";
 
 /** Whether `pathname` is the endpoint's Access application's: the endpoint, or anything below it (answered 404). */
-export const isSettingsMcpPath = (pathname: string): boolean => pathname === SETTINGS_MCP_PATH || pathname.startsWith(`${SETTINGS_MCP_PATH}/`);
+export const isSettingsMcpPath = (pathname: string): boolean =>
+  pathname === SETTINGS_MCP_PATH || pathname.startsWith(`${SETTINGS_MCP_PATH}/`);
 
 /** The endpoint's URL for a host. */
 export const settingsMcpUrl = (host: string): string => `https://${host}${SETTINGS_MCP_PATH}`;

@@ -18,10 +18,32 @@
 //   - F10: Linked environments off answers 403, and on again the link works;
 //   - F9: revoking the link's client in the cloud answers 401.
 // F11 (the bootstrap token at `/oauth/mcp/decision`) runs in `acceptance.ts` around the Pairing window.
-import { base, dispatch, mutateProject, projectionOf, runsOf, SETTLED, sleep, threadWindow, updateSettings, uuid, wsCall, wsFirst } from "./client.ts";
+import {
+  base,
+  dispatch,
+  mutateProject,
+  projectionOf,
+  runsOf,
+  SETTLED,
+  sleep,
+  threadWindow,
+  updateSettings,
+  uuid,
+  wsCall,
+  wsFirst,
+} from "./client.ts";
 import { ensureCloudFixtureProject } from "./fixtureProject.ts";
 import { fixtureRepo } from "./scriptSettings.ts";
-import { decide, HELD_WAIT_FLOOR_MS, McpClient, mintPairingCode, registerPeerClient, signIn, type ToolAnswer, WAIT_CHUNK_MS } from "./peer.ts";
+import {
+  decide,
+  HELD_WAIT_FLOOR_MS,
+  McpClient,
+  mintPairingCode,
+  registerPeerClient,
+  signIn,
+  type ToolAnswer,
+  WAIT_CHUNK_MS,
+} from "./peer.ts";
 
 /**
  * The launches' model: the stage's Model endpoint's, when the caller names it. Since v0.1.11-nightly.20261117.4825 t3's
@@ -47,18 +69,25 @@ const threadMeta = (projection: any) => projection?.thread ?? {};
  * items count: t3's own `command_execution` items ("Preparing workspace", "Provider signed out") carry no `nativeItemRef`
  * (docs/upstream-fragility.md, U5).
  */
-export const planModeChecks = (projection: any): { readonly bashAttempted: boolean; readonly checks: ReadonlyArray<readonly [name: string, ok: boolean]> } => {
+export const planModeChecks = (
+  projection: any,
+): { readonly bashAttempted: boolean; readonly checks: ReadonlyArray<readonly [name: string, ok: boolean]> } => {
   const thread = threadMeta(projection);
   const items: ReadonlyArray<any> = projection?.turnItems ?? [];
   const commands = items.filter((item) => item.type === "command_execution" && item.nativeItemRef != null);
   const asked = (projection?.runtimeRequests ?? []).some((request: any) => request.kind === "command");
-  const ran = commands.filter((item) => item.status === "completed" || (item.status === "failed" && typeof item.exitCode === "number"));
+  const ran = commands.filter(
+    (item) => item.status === "completed" || (item.status === "failed" && typeof item.exitCode === "number"),
+  );
   return {
     bashAttempted: commands.length > 0 || asked,
     checks: [
       ["F6: the thread runs in plan", thread.interactionMode === "plan"],
       ["F6: the thread runs at approval-required", thread.runtimeMode === "approval-required"],
-      ["F6: write is refused in plan", !items.some((item) => item.type === "file_change" && item.status === "completed")],
+      [
+        "F6: write is refused in plan",
+        !items.some((item) => item.type === "file_change" && item.status === "completed"),
+      ],
       ["F6: no command runs without asking", ran.length === 0],
     ],
   };
@@ -67,7 +96,10 @@ export const planModeChecks = (projection: any): { readonly bashAttempted: boole
 /** A refusal t3's link fence answers: `capability_denied`, naming the link. */
 const denied = (answer: ToolAnswer) => answer.isError && /capability_denied|linked environment|link/i.test(answer.text);
 
-export const peerAcceptance = async (cookie: string, options: { readonly only?: ReadonlySet<string>; readonly model?: string } = {}): Promise<PeerReport> => {
+export const peerAcceptance = async (
+  cookie: string,
+  options: { readonly only?: ReadonlySet<string>; readonly model?: string } = {},
+): Promise<PeerReport> => {
   MODEL = { instanceId: "piDurable", model: options.model ?? DEFAULT_MODEL };
   const failures: Array<string> = [];
   const report: Record<string, unknown> = {};
@@ -81,22 +113,35 @@ export const peerAcceptance = async (cookie: string, options: { readonly only?: 
   await updateSettings(cookie, { linkedEnvironmentsEnabled: true });
   await wsCall(cookie, "server.updateSettings", {
     patch: {},
-    providerInstanceMutation: { operation: "upsert", instanceId: "piDurable", instance: { driver: "piDurable", enabled: true } },
+    providerInstanceMutation: {
+      operation: "upsert",
+      instanceId: "piDurable",
+      instance: { driver: "piDurable", enabled: true },
+    },
   });
   // SPI-1061 (ADR-0029): the stock client's "link" (t3's `peerLinks.link`) is t3's own again, with Pre-B gone. The
   // address cannot resolve, so t3 dials out and answers its own reason (not a T3 Code environment), never a refusal of
   // ours; the list is t3's. A link made to a real machine and used is `scripts/outbound.ts` (C1), against the stand-in.
   if (wants("outbound")) {
     const started = Date.now();
-    const answered = await wsCall(cookie, "peerLinks.link", { url: `https://outbound-${stamp}.invalid`, pairingCode: "ABCD-EFGH", access: "auto-accept-edits" }).then(
+    const answered = await wsCall(cookie, "peerLinks.link", {
+      url: `https://outbound-${stamp}.invalid`,
+      pairingCode: "ABCD-EFGH",
+      access: "auto-accept-edits",
+    }).then(
       (value) => ({ ok: true as const, value }),
-      (error: unknown) => ({ ok: false as const, error: JSON.parse(JSON.stringify(error ?? null)) as Record<string, unknown> | null }),
+      (error: unknown) => ({
+        ok: false as const,
+        error: JSON.parse(JSON.stringify(error ?? null)) as Record<string, unknown> | null,
+      }),
     );
     const listed = (await wsCall(cookie, "peerLinks.list", {})) as { links?: ReadonlyArray<unknown> };
     report.outbound = { answered, listed, ms: Date.now() - started };
     check(
       "a stock client's outbound link reaches t3's own dial-out (no refusal of ours)",
-      !answered.ok && ["not_a_t3_environment", "unreachable"].includes(String(answered.error?.reason)) && !/No machine is registered/.test(String(answered.error?.message)),
+      !answered.ok &&
+        ["not_a_t3_environment", "unreachable"].includes(String(answered.error?.reason)) &&
+        !/No machine is registered/.test(String(answered.error?.message)),
       answered,
     );
     check("its error carries no cause", !answered.ok && answered.error?.cause === undefined, answered);
@@ -108,26 +153,50 @@ export const peerAcceptance = async (cookie: string, options: { readonly only?: 
 
   // The link, with a plain pairing code (t3 refuses an access-bound code for a link, McpOAuth.approve).
   const clientName = `t3flare acceptance ${stamp}`;
-  const link = await signIn((await mintPairingCode(cookie, { label: `acceptance ${stamp}` })).code, "auto-accept-edits", { clientName });
+  const link = await signIn(
+    (await mintPairingCode(cookie, { label: `acceptance ${stamp}` })).code,
+    "auto-accept-edits",
+    { clientName },
+  );
   report.link = { scope: link.scope };
-  check("an auto-accept-edits link holds orchestration read and operate only", link.scope === "orchestration:read orchestration:operate", link.scope);
+  check(
+    "an auto-accept-edits link holds orchestration read and operate only",
+    link.scope === "orchestration:read orchestration:operate",
+    link.scope,
+  );
   const mcp = new McpClient(link.token, { modeLimit: "full-access/default" });
 
   // The cap (review C5): a plain code minted with read and operate only cannot sign a full-access link, and is not spent.
   if (wants("cap")) {
-    const capped = (await mintPairingCode(cookie, { label: `capped ${stamp}`, scopes: ["orchestration:read", "orchestration:operate"] })).code;
+    const capped = (
+      await mintPairingCode(cookie, {
+        label: `capped ${stamp}`,
+        scopes: ["orchestration:read", "orchestration:operate"],
+      })
+    ).code;
     const registered = await registerPeerClient(`capped ${stamp}`);
     const clientId = (registered.body as { client_id: string }).client_id;
     const full = await decide(clientId, capped, "full-access");
     const edits = await decide(clientId, capped, "auto-accept-edits");
     report.cap = { fullAccess: full.answer, autoAcceptEdits: edits.answer.status };
-    check("a code without settings and source-control scopes cannot link at full access", full.answer.status === 400 && /cannot grant this access/.test(JSON.stringify(full.answer.body)), full.answer);
+    check(
+      "a code without settings and source-control scopes cannot link at full access",
+      full.answer.status === 400 && /cannot grant this access/.test(JSON.stringify(full.answer.body)),
+      full.answer,
+    );
     check("the same code, unspent, links at auto-accept-edits", edits.answer.status === 200, edits.answer);
   }
 
   /** Launches a thread on the stage through the link. */
   const launch = (title: string, message: string, extra: Record<string, unknown> = {}) =>
-    mcp.call("t3_thread_launch", { projectId: fixture.projectId, title: `${title} ${stamp}`, message, modelSelection: MODEL, clientRequestId: `${title}-${stamp}`, ...extra });
+    mcp.call("t3_thread_launch", {
+      projectId: fixture.projectId,
+      title: `${title} ${stamp}`,
+      message,
+      modelSelection: MODEL,
+      clientRequestId: `${title}-${stamp}`,
+      ...extra,
+    });
   const threadOf = (answer: ToolAnswer): string | undefined => answer.json?.threadId;
   /** The cloud thread's projection, as the owner's client reads it. */
   const cloud = async (threadId: string) => projectionOf(await threadWindow(cookie, threadId));
@@ -141,18 +210,34 @@ export const peerAcceptance = async (cookie: string, options: { readonly only?: 
     }
     return projection;
   };
-  const pending = (projection: any) => (projection?.runtimeRequests ?? []).filter((request: any) => request.status === "pending");
-  const stop = (threadId: string) => mcp.call("t3_thread_interrupt", { threadId, stop: true, clientRequestId: `stop-${threadId}` });
+  const pending = (projection: any) =>
+    (projection?.runtimeRequests ?? []).filter((request: any) => request.status === "pending");
+  const stop = (threadId: string) =>
+    mcp.call("t3_thread_interrupt", { threadId, stop: true, clientRequestId: `stop-${threadId}` });
 
   // A forwarded launch, followed in 50 s waits, its last reply read back.
   if (wants("launch")) {
     const nonce = `pong-${stamp}`;
     const launched = await launch("forwarded", `Reply with exactly ${nonce} and nothing else. Use no tools.`, {
-      delegatedFrom: { environmentId: "00000000-0000-4000-8000-000000000001", threadId: `laptop-${stamp}`, title: "laptop parent" },
+      delegatedFrom: {
+        environmentId: "00000000-0000-4000-8000-000000000001",
+        threadId: `laptop-${stamp}`,
+        title: "laptop parent",
+      },
     });
     const threadId = threadOf(launched);
-    report.launch = { isError: launched.isError, threadId: threadId ?? null, text: launched.isError ? launched.text.slice(0, 400) : undefined };
-    if (check("a forwarded launch starts a thread", !launched.isError && threadId !== undefined, launched.text.slice(0, 400))) {
+    report.launch = {
+      isError: launched.isError,
+      threadId: threadId ?? null,
+      text: launched.isError ? launched.text.slice(0, 400) : undefined,
+    };
+    if (
+      check(
+        "a forwarded launch starts a thread",
+        !launched.isError && threadId !== undefined,
+        launched.text.slice(0, 400),
+      )
+    ) {
       const { answer, pieces } = await mcp.waitThread({ threadId }, 5 * 60_000);
       const read = await mcp.call("t3_thread_read", { threadId });
       const projection = await cloud(threadId!);
@@ -168,8 +253,16 @@ export const peerAcceptance = async (cookie: string, options: { readonly only?: 
       };
       check("the run completes", answer.json?.status === "completed", answer.text.slice(0, 300));
       check("the reply reads back through the link", read.text.includes(nonce), read.text.slice(0, 300));
-      check("the cloud thread carries the link's origin", meta.linkOrigin?.access === "auto-accept-edits", meta.linkOrigin);
-      check("the cloud thread runs at the link's access (capping a full-access caller)", meta.runtimeMode === "auto-accept-edits", meta.runtimeMode);
+      check(
+        "the cloud thread carries the link's origin",
+        meta.linkOrigin?.access === "auto-accept-edits",
+        meta.linkOrigin,
+      );
+      check(
+        "the cloud thread runs at the link's access (capping a full-access caller)",
+        meta.runtimeMode === "auto-accept-edits",
+        meta.runtimeMode,
+      );
     }
   }
 
@@ -178,25 +271,63 @@ export const peerAcceptance = async (cookie: string, options: { readonly only?: 
     const launched = await launch("f5", `Run the bash command \`echo f5-${stamp}\` and reply with its output.`);
     const threadId = threadOf(launched);
     if (check("F5 launch", threadId !== undefined, launched.text.slice(0, 300))) {
-      const projection = await until(threadId!, (p) => pending(p).length > 0 || runsOf(p).some((run) => SETTLED.has(run.status)));
+      const projection = await until(
+        threadId!,
+        (p) => pending(p).length > 0 || runsOf(p).some((run) => SETTLED.has(run.status)),
+      );
       const request = pending(projection)[0];
-      report.F5 = { runtimeMode: threadMeta(projection).runtimeMode, request: request === undefined ? null : { kind: request.kind, type: request.type } };
+      report.F5 = {
+        runtimeMode: threadMeta(projection).runtimeMode,
+        request: request === undefined ? null : { kind: request.kind, type: request.type },
+      };
       check("F5: the cloud thread's bash waits for approval", request !== undefined, report.F5);
       if (request !== undefined) {
         const started = Date.now();
         const held = await mcp.call("t3_thread_wait", { threadId, timeoutMs: WAIT_CHUNK_MS });
-        report.waitHold = { ms: Date.now() - started, timedOut: held.json?.timedOut ?? null, status: held.json?.status ?? null };
+        report.waitHold = {
+          ms: Date.now() - started,
+          timedOut: held.json?.timedOut ?? null,
+          status: held.json?.status ?? null,
+        };
         // Asked for 50 s, held to t3's 45 s cap (`T3_WAIT_CAP_MS`); the floor allows its jitter (`HELD_WAIT_FLOOR_MS`).
-        check("a 50 s wait asked on a waiting run holds in workerd (to t3's 45 s cap) and times out as a wait", held.json?.timedOut === true && Date.now() - started >= HELD_WAIT_FLOOR_MS, report.waitHold);
+        check(
+          "a 50 s wait asked on a waiting run holds in workerd (to t3's 45 s cap) and times out as a wait",
+          held.json?.timedOut === true && Date.now() - started >= HELD_WAIT_FLOOR_MS,
+          report.waitHold,
+        );
         // F7: the link cannot answer an approval; the owner's answer through the cloud client runs the call.
-        const respond = await mcp.call("t3_pending_request", { action: "respond", threadId, requestId: request.id, answers: { decision: "accept" } });
+        const respond = await mcp.call("t3_pending_request", {
+          action: "respond",
+          threadId,
+          requestId: request.id,
+          answers: { decision: "accept" },
+        });
         const afterLink = await cloud(threadId!);
-        report.F7 = { link: { isError: respond.isError, text: respond.text.slice(0, 300) }, stillPending: pending(afterLink).some((r: any) => r.id === request.id) };
-        check("F7: t3_pending_request through the link cannot answer the approval", respond.isError && pending(afterLink).some((r: any) => r.id === request.id), report.F7);
-        await dispatch(cookie, { type: "runtime-request.respond", commandId: uuid(), threadId, requestId: request.id, decision: "accept" });
-        const done = await until(threadId!, (p) => runsOf(p).length > 0 && runsOf(p).every((run) => SETTLED.has(run.status)));
+        report.F7 = {
+          link: { isError: respond.isError, text: respond.text.slice(0, 300) },
+          stillPending: pending(afterLink).some((r: any) => r.id === request.id),
+        };
+        check(
+          "F7: t3_pending_request through the link cannot answer the approval",
+          respond.isError && pending(afterLink).some((r: any) => r.id === request.id),
+          report.F7,
+        );
+        await dispatch(cookie, {
+          type: "runtime-request.respond",
+          commandId: uuid(),
+          threadId,
+          requestId: request.id,
+          decision: "accept",
+        });
+        const done = await until(
+          threadId!,
+          (p) => runsOf(p).length > 0 && runsOf(p).every((run) => SETTLED.has(run.status)),
+        );
         const read = await mcp.call("t3_thread_read", { threadId });
-        (report.F7 as Record<string, unknown>).owner = { runs: runsOf(done).map((run) => run.status), output: read.text.includes(`f5-${stamp}`) };
+        (report.F7 as Record<string, unknown>).owner = {
+          runs: runsOf(done).map((run) => run.status),
+          output: read.text.includes(`f5-${stamp}`),
+        };
         check("F7: the owner's approval runs the bash", read.text.includes(`f5-${stamp}`), report.F7);
       }
     }
@@ -212,7 +343,10 @@ export const peerAcceptance = async (cookie: string, options: { readonly only?: 
     mcp.modeLimit = "full-access/default";
     const threadId = threadOf(launched);
     if (check("F6 launch", threadId !== undefined, launched.text.slice(0, 300))) {
-      const projection = await until(threadId!, (p) => pending(p).length > 0 || runsOf(p).some((run) => SETTLED.has(run.status)));
+      const projection = await until(
+        threadId!,
+        (p) => pending(p).length > 0 || runsOf(p).some((run) => SETTLED.has(run.status)),
+      );
       const items = projection?.turnItems ?? [];
       const write = items.find((item: any) => item.type === "file_change");
       const request = pending(projection)[0];
@@ -221,10 +355,18 @@ export const peerAcceptance = async (cookie: string, options: { readonly only?: 
         runtimeMode: threadMeta(projection).runtimeMode,
         interactionMode: threadMeta(projection).interactionMode,
         bashAttempted: verdict.bashAttempted,
-        write: write === undefined ? null : { status: write.status, output: String(write.output ?? write.error ?? "").slice(0, 200) },
+        write:
+          write === undefined
+            ? null
+            : { status: write.status, output: String(write.output ?? write.error ?? "").slice(0, 200) },
         request: request === undefined ? null : { kind: request.kind },
         runs: runsOf(projection).map((run: any) => run.status),
-        items: items.map((item: any) => ({ type: item.type, status: item.status ?? null, provider: item.nativeItemRef != null, text: String(item.text ?? item.input ?? item.title ?? "").slice(0, 160) })),
+        items: items.map((item: any) => ({
+          type: item.type,
+          status: item.status ?? null,
+          provider: item.nativeItemRef != null,
+          text: String(item.text ?? item.input ?? item.title ?? "").slice(0, 160),
+        })),
       };
       for (const [name, ok] of verdict.checks) check(name, ok, report.F6);
       await stop(threadId!);
@@ -233,7 +375,14 @@ export const peerAcceptance = async (cookie: string, options: { readonly only?: 
 
   // F1 and F2: the fence, through an auto-accept-edits link.
   const owner = { projectId: uuid(), threadId: uuid() };
-  await mutateProject(cookie, { type: "project.create", commandId: uuid(), projectId: owner.projectId, title: `owner ${stamp}`, workspaceRoot: `/w/owner-${stamp}`, createWorkspaceRootIfMissing: true });
+  await mutateProject(cookie, {
+    type: "project.create",
+    commandId: uuid(),
+    projectId: owner.projectId,
+    title: `owner ${stamp}`,
+    workspaceRoot: `/w/owner-${stamp}`,
+    createWorkspaceRootIfMissing: true,
+  });
   await dispatch(cookie, {
     type: "thread.create",
     commandId: uuid(),
@@ -249,25 +398,66 @@ export const peerAcceptance = async (cookie: string, options: { readonly only?: 
     creationSource: "web",
   });
   const fenceCalls = (client: McpClient) => ({
-    send: () => client.call("t3_thread_send", { threadId: owner.threadId, message: "hello from the link", clientRequestId: `send-${uuid()}` }),
-    interrupt: () => client.call("t3_thread_interrupt", { threadId: owner.threadId, clientRequestId: `interrupt-${uuid()}` }),
-    rename: () => client.call("t3_thread_update", { threadId: owner.threadId, action: "rename", title: `renamed ${stamp}`, clientRequestId: `rename-${uuid()}` }),
+    send: () =>
+      client.call("t3_thread_send", {
+        threadId: owner.threadId,
+        message: "hello from the link",
+        clientRequestId: `send-${uuid()}`,
+      }),
+    interrupt: () =>
+      client.call("t3_thread_interrupt", { threadId: owner.threadId, clientRequestId: `interrupt-${uuid()}` }),
+    rename: () =>
+      client.call("t3_thread_update", {
+        threadId: owner.threadId,
+        action: "rename",
+        title: `renamed ${stamp}`,
+        clientRequestId: `rename-${uuid()}`,
+      }),
   });
   if (wants("F1")) {
     const calls = fenceCalls(mcp);
     const send = await calls.send();
     const interrupt = await calls.interrupt();
     const rename = await calls.rename();
-    report.F1 = { send: send.text.slice(0, 200), interrupt: interrupt.text.slice(0, 200), rename: rename.text.slice(0, 200) };
-    check("F1: the link may not send to, interrupt or rename the owner's thread", denied(send) && denied(interrupt) && denied(rename), report.F1);
+    report.F1 = {
+      send: send.text.slice(0, 200),
+      interrupt: interrupt.text.slice(0, 200),
+      rename: rename.text.slice(0, 200),
+    };
+    check(
+      "F1: the link may not send to, interrupt or rename the owner's thread",
+      denied(send) && denied(interrupt) && denied(rename),
+      report.F1,
+    );
   }
   if (wants("F2")) {
-    const create = await mcp.call("t3_project_create", { title: `link project ${stamp}`, workspaceRoot: `/w/link-${stamp}`, createWorkspaceRootIfMissing: true });
-    const clone = await mcp.call("t3_project_clone", { destinationPath: `/w/link-clone-${stamp}`, remoteUrl: `https://github.com/${fixtureRepo()}.git` });
+    const create = await mcp.call("t3_project_create", {
+      title: `link project ${stamp}`,
+      workspaceRoot: `/w/link-${stamp}`,
+      createWorkspaceRootIfMissing: true,
+    });
+    const clone = await mcp.call("t3_project_clone", {
+      destinationPath: `/w/link-clone-${stamp}`,
+      remoteUrl: `https://github.com/${fixtureRepo()}.git`,
+    });
     const prefs = await mcp.call("t3_environment_preferences_update", { newWorktreesStartFromOrigin: true });
-    const schedule = await mcp.call("schedule_task", { projectId: fixture.projectId, title: `link schedule ${stamp}`, prompt: "hi", schedule: { type: "interval", everyMs: 3_600_000 } });
-    report.F2 = { create: create.text.slice(0, 200), clone: clone.text.slice(0, 200), prefs: prefs.text.slice(0, 200), schedule: schedule.text.slice(0, 200) };
-    check("F2: the link may not create or clone projects, change preferences or schedule tasks", denied(create) && denied(clone) && denied(prefs) && denied(schedule), report.F2);
+    const schedule = await mcp.call("schedule_task", {
+      projectId: fixture.projectId,
+      title: `link schedule ${stamp}`,
+      prompt: "hi",
+      schedule: { type: "interval", everyMs: 3_600_000 },
+    });
+    report.F2 = {
+      create: create.text.slice(0, 200),
+      clone: clone.text.slice(0, 200),
+      prefs: prefs.text.slice(0, 200),
+      schedule: schedule.text.slice(0, 200),
+    };
+    check(
+      "F2: the link may not create or clone projects, change preferences or schedule tasks",
+      denied(create) && denied(clone) && denied(prefs) && denied(schedule),
+      report.F2,
+    );
   }
 
   // F4: a worktree launch through the link skips the project's setup script.
@@ -275,11 +465,23 @@ export const peerAcceptance = async (cookie: string, options: { readonly only?: 
     await wsCall(cookie, "server.updateSettings", {
       patch: {
         projectSettingsOverrides: {
-          [fixture.projectId]: { defaultProjectScripts: [{ id: "setup", name: "Setup", command: "echo setup-ran > setup.txt", icon: "configure", runOnWorktreeCreate: true }] },
+          [fixture.projectId]: {
+            defaultProjectScripts: [
+              {
+                id: "setup",
+                name: "Setup",
+                command: "echo setup-ran > setup.txt",
+                icon: "configure",
+                runOnWorktreeCreate: true,
+              },
+            ],
+          },
         },
       },
     });
-    const launched = await launch("f4", "Reply with OK. Use no tools.", { workspaceStrategy: { type: "worktree", baseRef: "main", branch: `link-${stamp}` } });
+    const launched = await launch("f4", "Reply with OK. Use no tools.", {
+      workspaceStrategy: { type: "worktree", baseRef: "main", branch: `link-${stamp}` },
+    });
     const threadId = threadOf(launched);
     if (check("F4 launch", threadId !== undefined, launched.text.slice(0, 300))) {
       let setup: any;
@@ -293,19 +495,29 @@ export const peerAcceptance = async (cookie: string, options: { readonly only?: 
       }
       const stages = (setup?.stages ?? []).map((s: any) => `${s.id}:${s.status}`);
       report.F4 = { stages, worktreePath: setup?.worktreePath ?? null, phase: setup?.phase ?? null };
-      check("F4: the worktree is provisioned and the setup script skipped for the link", setup?.worktreePath != null && stages.some((s: string) => /setup-script:skipped/.test(s)), report.F4);
+      check(
+        "F4: the worktree is provisioned and the setup script skipped for the link",
+        setup?.worktreePath != null && stages.some((s: string) => /setup-script:skipped/.test(s)),
+        report.F4,
+      );
       await stop(threadId!);
     }
   }
 
   // F12: a full-access link is not fenced (t3's documented exception).
   if (wants("F12")) {
-    const full = await signIn((await mintPairingCode(cookie, { label: `full ${stamp}` })).code, "full-access", { clientName: `full ${stamp}` });
+    const full = await signIn((await mintPairingCode(cookie, { label: `full ${stamp}` })).code, "full-access", {
+      clientName: `full ${stamp}`,
+    });
     const calls = fenceCalls(new McpClient(full.token, { modeLimit: "full-access/default" }));
     const rename = await calls.rename();
     const interrupt = await calls.interrupt();
     report.F12 = { scope: full.scope, rename: rename.text.slice(0, 200), interrupt: interrupt.text.slice(0, 200) };
-    check("F12: a full-access link may rename and interrupt the owner's thread", !rename.isError && !interrupt.isError, report.F12);
+    check(
+      "F12: a full-access link may rename and interrupt the owner's thread",
+      !rename.isError && !interrupt.isError,
+      report.F12,
+    );
   }
 
   // F10: Linked environments off answers 403; on again, the link works.
@@ -322,7 +534,10 @@ export const peerAcceptance = async (cookie: string, options: { readonly only?: 
   if (wants("F9")) {
     const access = (await wsFirst(cookie, "subscribeAuthAccess", {})) as any;
     const session = findSession(access, clientName);
-    report.F9 = { found: session !== undefined, accessKeys: session === undefined ? Object.keys(access ?? {}) : undefined };
+    report.F9 = {
+      found: session !== undefined,
+      accessKeys: session === undefined ? Object.keys(access ?? {}) : undefined,
+    };
     if (check("F9: the link's client is listed in Sharing & access", session !== undefined, report.F9)) {
       const revoked = await fetch(new URL("/api/auth/clients/revoke", base), {
         method: "POST",
@@ -332,7 +547,11 @@ export const peerAcceptance = async (cookie: string, options: { readonly only?: 
       const after = await mcp.raw({ jsonrpc: "2.0", id: 901, method: "tools/list", params: {} });
       (report.F9 as Record<string, unknown>).revoke = revoked.status;
       (report.F9 as Record<string, unknown>).after = after.status;
-      check("F9: after revocation the link's next call is 401", revoked.status === 200 && after.status === 401, report.F9);
+      check(
+        "F9: after revocation the link's next call is 401",
+        revoked.status === 200 && after.status === 401,
+        report.F9,
+      );
     }
   }
 
@@ -362,7 +581,10 @@ export const findSession = (value: unknown, label: string): any => {
  * refuses it before t3 sees it (L2, `{"error":"pairing is not armed"}`); armed (so the DO lets it through), t3 alone
  * refuses it as not a one-time pairing code, and the grant is not spent.
  */
-export const bootstrapAtDecision = async (bootstrapToken: string, armed: boolean): Promise<{ readonly ok: boolean; readonly status: number; readonly body: unknown }> => {
+export const bootstrapAtDecision = async (
+  bootstrapToken: string,
+  armed: boolean,
+): Promise<{ readonly ok: boolean; readonly status: number; readonly body: unknown }> => {
   const registered = await registerPeerClient(`f11 ${Date.now().toString(36)}`);
   const clientId = (registered.body as { client_id?: string }).client_id;
   if (clientId === undefined) return { ok: false, status: registered.status, body: registered.body };

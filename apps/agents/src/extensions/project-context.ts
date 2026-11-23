@@ -30,7 +30,8 @@ export const projectContext = (root: string): Extension =>
           for (const name of NAMES) {
             const read = await env.readTextFile(`${directory}/${name}`, context).catch(() => undefined);
             if (read === undefined || !read.ok) continue;
-            const body = read.value.length > MAX_FILE_CHARS ? `${read.value.slice(0, MAX_FILE_CHARS)}\n… [cut]` : read.value;
+            const body =
+              read.value.length > MAX_FILE_CHARS ? `${read.value.slice(0, MAX_FILE_CHARS)}\n… [cut]` : read.value;
             parts.push(`## ${directory}/${name}\n\n${body.trim()}`);
             break;
           }

@@ -31,13 +31,14 @@ export const restoreScript = (commit: string): string =>
   [
     "set -eu",
     `if [ -n "$(git ls-files --cached --with-tree=${commit} -z -- . | head -c 1)" ]; then git restore --source ${commit} --worktree --staged -- .; fi`,
-    "for pass in 1 2 3 4; do out=\"$(LC_ALL=C git clean -fd -- .)\"; case \"$out\" in *Removing*) ;; *) break ;; esac; done",
+    'for pass in 1 2 3 4; do out="$(LC_ALL=C git clean -fd -- .)"; case "$out" in *Removing*) ;; *) break ;; esac; done',
     "git reset --quiet -- .",
   ].join("\n");
 
 /** The four path lists of listAuthoredPaths, NUL-separated. */
 export const authoredScript = (from: string, to: string, startHead: string, endHead: string): string => {
-  const list = (args: string) => `git -c diff.relative=false -c log.showSignature=false ${args} --name-only -z --no-renames --no-ext-diff`;
+  const list = (args: string) =>
+    `git -c diff.relative=false -c log.showSignature=false ${args} --name-only -z --no-renames --no-ext-diff`;
   return [
     "set -eu",
     `captured="$(git log --no-walk --format=%ct ${from})"`,

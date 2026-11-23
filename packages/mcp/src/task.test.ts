@@ -20,17 +20,7 @@ import {
   TASKS_EXTENSION,
 } from "./fakes.fixture.ts";
 import { connect, type McpConnection } from "./index.ts";
-import {
-  AGENT,
-  completed,
-  failedWith,
-  HOST,
-  run,
-  settled,
-  started,
-  testDeps,
-  TARGET,
-} from "./core.fixture.ts";
+import { AGENT, completed, failedWith, HOST, run, settled, started, testDeps, TARGET } from "./core.fixture.ts";
 import {
   Cut,
   MCP_LARGE_RESULT_BYTES,
@@ -72,9 +62,7 @@ describe("a tools/call that may start an MCP task", () => {
   it("answers with the task the server started, declaring the extension only on that request", async () => {
     const server = modernTaskServer();
 
-    const outcome = await withConnection(server, (connection) =>
-      report(connection, { region: "eu" }),
-    );
+    const outcome = await withConnection(server, (connection) => report(connection, { region: "eu" }));
 
     expect(started(outcome).task).toMatchObject({
       taskId: "task-1",
@@ -105,25 +93,19 @@ describe("a tools/call that may start an MCP task", () => {
   it("base64-wraps a header value that is not plain ASCII", async () => {
     const server = modernTaskServer();
 
-    const outcome = await withConnection(server, (connection) =>
-      report(connection, { region: "é" }),
-    );
+    const outcome = await withConnection(server, (connection) => report(connection, { region: "é" }));
 
     // The fake decodes the wrapper and compares the value with the argument, so a task means the header matched.
     expect(outcome.kind).toBe("task");
     expect(
-      server.received
-        .find((received) => received.rpc?.method === "tools/call")
-        ?.headers.get("mcp-param-region"),
+      server.received.find((received) => received.rpc?.method === "tools/call")?.headers.get("mcp-param-region"),
     ).toBe("=?base64?w6k=?=");
   });
 
   it("never offers a task to a call without allowTask: the extension is not declared and the result is the tool's", async () => {
     const server = modernTaskServer();
 
-    const outcome = await withConnection(server, (connection) =>
-      report(connection, { region: "eu" }, AGENT),
-    );
+    const outcome = await withConnection(server, (connection) => report(connection, { region: "eu" }, AGENT));
 
     expect(completed(outcome).value.content).toEqual([{ type: "text", text: "report:eu" }]);
     expect(server.tasks.size).toBe(0);
@@ -147,9 +129,7 @@ describe("a tools/call that may start an MCP task", () => {
     expect(hosted.tasks.size + unadvertised.tasks.size).toBe(0);
     expect(hosted.declared).toEqual([{ method: "tools/call", tasks: false }]);
     expect(unadvertised.declared).toEqual([{ method: "tools/call", tasks: false }]);
-    expect(JSON.stringify(legacy.received.map((received) => received.rpc))).not.toContain(
-      TASKS_EXTENSION,
-    );
+    expect(JSON.stringify(legacy.received.map((received) => received.rpc))).not.toContain(TASKS_EXTENSION);
   });
 
   it("returns the result as a synchronous call does when the server completes it at once", async () => {
@@ -234,11 +214,7 @@ describe("tasks/get, tasks/update and tasks/cancel", () => {
         const id = yield* taskOf(connection, { region: "eu", ask: true });
         const asking = yield* connection.task.get(id, TASKING);
 
-        yield* connection.task.update(
-          id,
-          { which: { action: "accept", content: { region: "eu" } } },
-          TASKING,
-        );
+        yield* connection.task.update(id, { which: { action: "accept", content: { region: "eu" } } }, TASKING);
 
         return [asking, yield* connection.task.get(id, TASKING)];
       }),
@@ -263,10 +239,7 @@ describe("tasks/get, tasks/update and tasks/cancel", () => {
 
         yield* connection.task.cancel(slow, TASKING);
 
-        return [
-          yield* connection.task.get(slow, TASKING),
-          yield* connection.task.get(broken, TASKING),
-        ];
+        return [yield* connection.task.get(slow, TASKING), yield* connection.task.get(broken, TASKING)];
       }),
     );
 
@@ -332,9 +305,7 @@ const cutting = (base: FakeServer, method: string, times: number, streamed = fal
     cut += 1;
 
     if (streamed) {
-      return sse([
-        { jsonrpc: "2.0", method: "notifications/message", params: { level: "info", data: "x" } },
-      ]);
+      return sse([{ jsonrpc: "2.0", method: "notifications/message", params: { level: "info", data: "x" } }]);
     }
 
     throw new TypeError("network connection lost");
@@ -410,9 +381,7 @@ describe("a tasks/* request cut before its answer", () => {
   it("never sends a tools/call that may have run once more", async () => {
     const server = cutting(modernTaskServer(), "tools/call", 5);
 
-    const failed = await withConnection(server, (connection) =>
-      settled(report(connection, { region: "eu" })),
-    );
+    const failed = await withConnection(server, (connection) => settled(report(connection, { region: "eu" })));
 
     expect(failed).toEqual(failedWith(Cut, { mayHaveRun: true }));
     expect(rpcMethods(server).filter((method) => method === "tools/call")).toHaveLength(1);
@@ -469,9 +438,7 @@ describe("a request after the server's era dropped", () => {
       }),
     );
 
-    expect(failed).toEqual(
-      failedWith(Unsupported, { message: expect.stringContaining("no longer advertises") }),
-    );
+    expect(failed).toEqual(failedWith(Unsupported, { message: expect.stringContaining("no longer advertises") }));
     expect(rpcMethods(after)).not.toContain("tasks/cancel");
   });
 
@@ -479,24 +446,18 @@ describe("a request after the server's era dropped", () => {
     const legacy = legacyStatelessServer({ moreTools: [REPORT_TOOL] });
     const server = replacedAt("tools/call", modernTaskServer(), legacy);
 
-    const outcome = await withConnection(server, (connection) =>
-      report(connection, { text: "again" }),
-    );
+    const outcome = await withConnection(server, (connection) => report(connection, { text: "again" }));
 
     expect(outcome.kind).toBe("complete");
     expect(rpcMethods(legacy)).toContain("tools/call");
-    expect(JSON.stringify(legacy.received.map((received) => received.rpc))).not.toContain(
-      TASKS_EXTENSION,
-    );
+    expect(JSON.stringify(legacy.received.map((received) => received.rpc))).not.toContain(TASKS_EXTENSION);
   });
 
   it("sends a tools/call again to a Modern server that no longer advertises the extension without declaring it", async () => {
     const after = modernTaskServer({ unadvertised: true });
     const server = replacedAt("tools/call", modernTaskServer(), after);
 
-    const outcome = await withConnection(server, (connection) =>
-      report(connection, { region: "eu" }),
-    );
+    const outcome = await withConnection(server, (connection) => report(connection, { region: "eu" }));
 
     expect(completed(outcome).value.content).toEqual([{ type: "text", text: "report:eu" }]);
     expect(after.declared).toEqual([{ method: "tools/call", tasks: false }]);
@@ -508,13 +469,9 @@ describe("a task the request did not ask for", () => {
   it("is a protocol violation on the client's own path, and the caller never gets the task", async () => {
     const server = modernTaskServer({ alwaysTask: true });
 
-    const failed = await withConnection(server, (connection) =>
-      settled(report(connection, { region: "eu" }, AGENT)),
-    );
+    const failed = await withConnection(server, (connection) => settled(report(connection, { region: "eu" }, AGENT)));
 
-    expect(failed).toEqual(
-      failedWith(ProtocolViolation, { message: expect.stringContaining("not asked for") }),
-    );
+    expect(failed).toEqual(failedWith(ProtocolViolation, { message: expect.stringContaining("not asked for") }));
     expect(server.declared).toEqual([{ method: "tools/call", tasks: false }]);
   });
 });

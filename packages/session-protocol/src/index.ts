@@ -224,7 +224,12 @@ export interface ForkSourcePage {
 export type ContentBlock =
   | { readonly type: "text"; readonly text: string }
   | { readonly type: "thinking"; readonly thinking: string; readonly redacted?: boolean }
-  | { readonly type: "toolCall"; readonly id: string; readonly name: string; readonly arguments: Readonly<Record<string, unknown>> }
+  | {
+      readonly type: "toolCall";
+      readonly id: string;
+      readonly name: string;
+      readonly arguments: Readonly<Record<string, unknown>>;
+    }
   | { readonly type: "image"; readonly mimeType?: string }
   | { readonly type: string; readonly [key: string]: unknown };
 
@@ -295,7 +300,11 @@ export interface LiveSlim {
   /** The run in progress, if any: its generation task, and the turn it serves. */
   readonly run: { readonly taskId: string; readonly turn: string | null } | null;
   /** The in-flight response's committed partial: its generation task and its blocks. */
-  readonly generation: { readonly taskId: string; readonly attempt: number; readonly content: ReadonlyArray<ContentBlock> } | null;
+  readonly generation: {
+    readonly taskId: string;
+    readonly attempt: number;
+    readonly content: ReadonlyArray<ContentBlock>;
+  } | null;
   readonly tools: ReadonlyArray<ToolSlotSlim>;
   /** Code mode's nested calls (tools step); absent in pushes from before it. */
   readonly nestedTools?: ReadonlyArray<NestedToolSlim>;
@@ -396,7 +405,11 @@ export interface PendingApproval {
   readonly summary: string;
   readonly detail?: string;
   /** The card's own buttons (t3's `ProviderApprovalOption`s), instead of t3's defaults. */
-  readonly options?: ReadonlyArray<{ readonly decision: "accept" | "acceptForSession" | "decline" | "cancel"; readonly label: string; readonly warning?: string }>;
+  readonly options?: ReadonlyArray<{
+    readonly decision: "accept" | "acceptForSession" | "decline" | "cancel";
+    readonly label: string;
+    readonly warning?: string;
+  }>;
   /** A call a code mode script made (tools step, ADR-0027): the script's call and the start of its code. */
   readonly via?: { readonly parentCallId: string; readonly script: string };
   /** An MCP tool's definition hash (ADR-0028, review H3): an acceptance for the session covers that definition only. */
@@ -488,7 +501,11 @@ export interface SessionState {
 /** The Todo List as pushed: what t3's todo list shows of each Task (at most 200, as the `todo` tool keeps it). */
 export interface TodoSlim {
   readonly rev: number;
-  readonly tasks: ReadonlyArray<{ readonly id: number; readonly title: string; readonly status: "pending" | "active" | "completed" }>;
+  readonly tasks: ReadonlyArray<{
+    readonly id: number;
+    readonly title: string;
+    readonly status: "pending" | "active" | "completed";
+  }>;
 }
 
 export interface SessionPush extends SessionState {

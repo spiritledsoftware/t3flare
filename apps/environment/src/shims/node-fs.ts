@@ -20,7 +20,9 @@ const pathOf = (input: unknown): string => {
 };
 
 const encodingOf = (options: unknown): BufferEncoding | undefined =>
-  typeof options === "string" ? (options as BufferEncoding) : ((options as { encoding?: BufferEncoding } | undefined)?.encoding ?? undefined);
+  typeof options === "string"
+    ? (options as BufferEncoding)
+    : ((options as { encoding?: BufferEncoding } | undefined)?.encoding ?? undefined);
 
 const toBytes = (data: unknown, options?: unknown): Uint8Array => {
   if (typeof data === "string") return Buffer.from(data, encodingOf(options) ?? "utf8");
@@ -66,13 +68,27 @@ export class Stats {
   }
   /** As a `{ bigint: true }` stat has it: t3 keys an Environment theme's background on it. */
   mtimeNs: bigint;
-  isFile() { return this.#kind === "file"; }
-  isDirectory() { return this.#kind === "dir"; }
-  isSymbolicLink() { return this.#kind === "symlink"; }
-  isBlockDevice() { return false; }
-  isCharacterDevice() { return false; }
-  isFIFO() { return false; }
-  isSocket() { return false; }
+  isFile() {
+    return this.#kind === "file";
+  }
+  isDirectory() {
+    return this.#kind === "dir";
+  }
+  isSymbolicLink() {
+    return this.#kind === "symlink";
+  }
+  isBlockDevice() {
+    return false;
+  }
+  isCharacterDevice() {
+    return false;
+  }
+  isFIFO() {
+    return false;
+  }
+  isSocket() {
+    return false;
+  }
 }
 
 class Dirent {
@@ -85,13 +101,27 @@ class Dirent {
     this.parentPath = this.path = parentPath;
     this.#kind = kind;
   }
-  isFile() { return this.#kind === "file"; }
-  isDirectory() { return this.#kind === "dir"; }
-  isSymbolicLink() { return this.#kind === "symlink"; }
-  isBlockDevice() { return false; }
-  isCharacterDevice() { return false; }
-  isFIFO() { return false; }
-  isSocket() { return false; }
+  isFile() {
+    return this.#kind === "file";
+  }
+  isDirectory() {
+    return this.#kind === "dir";
+  }
+  isSymbolicLink() {
+    return this.#kind === "symlink";
+  }
+  isBlockDevice() {
+    return false;
+  }
+  isCharacterDevice() {
+    return false;
+  }
+  isFIFO() {
+    return false;
+  }
+  isSocket() {
+    return false;
+  }
 }
 
 export function existsSync(input: unknown): boolean {
@@ -139,7 +169,9 @@ export function writeFileSync(input: unknown, data: unknown, options?: unknown):
   store.writeFile(pathOf(input), toBytes(data, options), {
     append: flag?.startsWith("a") ?? false,
     exclusive: flag?.includes("x") ?? false,
-    ...((options as { mode?: number } | undefined)?.mode === undefined ? {} : { mode: (options as { mode: number }).mode }),
+    ...((options as { mode?: number } | undefined)?.mode === undefined
+      ? {}
+      : { mode: (options as { mode: number }).mode }),
   });
 }
 
@@ -147,7 +179,10 @@ export function appendFileSync(input: unknown, data: unknown, options?: unknown)
   store.writeFile(pathOf(input), toBytes(data, options), { append: true });
 }
 
-export function mkdirSync(input: unknown, options?: { recursive?: boolean; mode?: number } | number): string | undefined {
+export function mkdirSync(
+  input: unknown,
+  options?: { recursive?: boolean; mode?: number } | number,
+): string | undefined {
   return store.mkdir(pathOf(input), typeof options === "number" ? { mode: options } : (options ?? {}));
 }
 
@@ -278,8 +313,18 @@ const O_NOFOLLOW = real.constants?.O_NOFOLLOW ?? 0o400000;
 
 const openModeOf = (flags: string | number): OpenMode =>
   typeof flags === "number"
-    ? { create: (flags & O_CREAT) !== 0, exclusive: (flags & O_EXCL) !== 0, truncate: (flags & O_TRUNC) !== 0, nofollow: (flags & O_NOFOLLOW) !== 0 }
-    : { create: !flags.startsWith("r"), exclusive: flags.includes("x"), truncate: flags.startsWith("w"), nofollow: false };
+    ? {
+        create: (flags & O_CREAT) !== 0,
+        exclusive: (flags & O_EXCL) !== 0,
+        truncate: (flags & O_TRUNC) !== 0,
+        nofollow: (flags & O_NOFOLLOW) !== 0,
+      }
+    : {
+        create: !flags.startsWith("r"),
+        exclusive: flags.includes("x"),
+        truncate: flags.startsWith("w"),
+        nofollow: false,
+      };
 
 export function openSync(input: unknown, flags: string | number = "r", mode?: number): number {
   const path = pathOf(input);
@@ -300,7 +345,13 @@ export function openSync(input: unknown, flags: string | number = "r", mode?: nu
 type ReadOptions = { offset?: number; length?: number; position?: number | bigint | null };
 
 /** Node's `readSync(fd, buffer, offset, length, position)` and `readSync(fd, buffer, options)`. */
-export function readSync(fd: number, buffer: ArrayBufferView, offsetOrOptions?: number | ReadOptions, length?: number, position?: number | bigint | null): number {
+export function readSync(
+  fd: number,
+  buffer: ArrayBufferView,
+  offsetOrOptions?: number | ReadOptions,
+  length?: number,
+  position?: number | bigint | null,
+): number {
   const file = fds.get(fd);
   if (file === undefined) throw new store.FsError("EINVAL", "read", `fd ${fd}`);
   const options: ReadOptions =

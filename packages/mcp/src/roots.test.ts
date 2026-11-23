@@ -6,13 +6,7 @@
 // @effect-diagnostics asyncFunction:off preferEffectArray:off
 import * as Effect from "effect/Effect";
 import { describe, expect, it } from "vitest";
-import {
-  type FakeServer,
-  fetchTo,
-  legacyStatefulServer,
-  modernServer,
-  ROOTS_TOOL,
-} from "./fakes.fixture.ts";
+import { type FakeServer, fetchTo, legacyStatefulServer, modernServer, ROOTS_TOOL } from "./fakes.fixture.ts";
 import { AGENT, completed, run, TARGET, testDeps } from "./core.fixture.ts";
 import { connect } from "./index.ts";
 import type { McpRoot } from "./types.ts";
@@ -40,9 +34,7 @@ const rootsOf = (server: FakeServer, roots: ReadonlyArray<McpRoot> | undefined) 
 
 /** The capabilities the client declared: Legacy's `initialize`, or a Modern request's `_meta`. */
 const declared = (server: FakeServer) => {
-  const meta = server.received
-    .map((received) => received.rpc?.params?.["_meta"])
-    .find((found) => found !== undefined);
+  const meta = server.received.map((received) => received.rpc?.params?.["_meta"]).find((found) => found !== undefined);
 
   const initialize = server.received.find((received) => received.rpc?.method === "initialize");
 

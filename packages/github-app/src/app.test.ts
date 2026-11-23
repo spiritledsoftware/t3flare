@@ -18,8 +18,7 @@ const appKeys = () => {
 
 const KEYS = appKeys();
 
-const fromBase64 = (text: string): Uint8Array<ArrayBuffer> =>
-  Uint8Array.from(atob(text), (char) => char.charCodeAt(0));
+const fromBase64 = (text: string): Uint8Array<ArrayBuffer> => Uint8Array.from(atob(text), (char) => char.charCodeAt(0));
 
 const fromBase64Url = (text: string) => fromBase64(text.replaceAll("-", "+").replaceAll("_", "/"));
 
@@ -129,9 +128,7 @@ describe("GitHubApp", () => {
 
     expect(await app.botLogin()).toBe("t3flare-app[bot]");
     expect(await app.botLogin()).toBe("t3flare-app[bot]");
-    expect(github.seen.map(({ method, url }) => `${method} ${url}`)).toEqual([
-      "GET https://api.github.com/app",
-    ]);
+    expect(github.seen.map(({ method, url }) => `${method} ${url}`)).toEqual(["GET https://api.github.com/app"]);
   });
 
   it("mints a token for the installation on its own account with a JWT its PKCS#1 key signs", async () => {
@@ -263,9 +260,7 @@ describe("GitHubApp", () => {
         asked.push(url);
 
         return refusing
-          ? Promise.resolve(
-              Response.json({ message: "A JSON web token could not be decoded" }, { status: 401 }),
-            )
+          ? Promise.resolve(Response.json({ message: "A JSON web token could not be decoded" }, { status: 401 }))
           : github.fetch(url, init);
       },
       now: () => now,
@@ -390,8 +385,7 @@ describe("GitHubApp", () => {
     const app = new GitHubApp({
       appId: "1",
       privateKey: KEYS.privateKey,
-      fetch: (url, init) =>
-        down ? Promise.reject(new Error("connection refused")) : github.fetch(url, init),
+      fetch: (url, init) => (down ? Promise.reject(new Error("connection refused")) : github.fetch(url, init)),
       now: () => now,
     });
 
@@ -514,13 +508,10 @@ describe("GitHubApp", () => {
       privateKey: KEYS.privateKey,
       fetch: (url, init) => {
         if (url === "https://api.github.com/app/installations?per_page=100") {
-          return Promise.resolve(
-            Response.json([{ id: installation, account: { login: "ian-pascoe" } }]),
-          );
+          return Promise.resolve(Response.json([{ id: installation, account: { login: "ian-pascoe" } }]));
         }
 
-        return url === "https://api.github.com/app" ||
-          url.endsWith(`/installations/${installation}/access_tokens`)
+        return url === "https://api.github.com/app" || url.endsWith(`/installations/${installation}/access_tokens`)
           ? github.fetch(url, init)
           : Promise.resolve(Response.json({ message: "Not Found" }, { status: 404 }));
       },
@@ -533,9 +524,7 @@ describe("GitHubApp", () => {
     installation = 43;
     now += 1 * MINUTE;
     app.invalidate("ghs_token1");
-    await expect(app.token()).rejects.toThrow(
-      "GitHub refused the GitHub App's request (404: Not Found)",
-    );
+    await expect(app.token()).rejects.toThrow("GitHub refused the GitHub App's request (404: Not Found)");
 
     now += 1 * MINUTE;
     expect(await app.token()).toBe("ghs_token2");

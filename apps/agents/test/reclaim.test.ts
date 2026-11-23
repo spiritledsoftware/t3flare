@@ -21,24 +21,36 @@ const holders = (idle: ReadonlyArray<string>) => {
 describe("reclaimFor", () => {
   it("at the budget, asks the first idle holder to stop, as before", async () => {
     const h = holders(["b"]);
-    expect(await reclaimFor({ self: "me", running: ["a", "b"], max: 2, ...h.deps })).toEqual({ released: ["b"], enough: true });
+    expect(await reclaimFor({ self: "me", running: ["a", "b"], max: 2, ...h.deps })).toEqual({
+      released: ["b"],
+      enough: true,
+    });
     expect(h.released).toEqual(["b"]);
   });
 
   it("two running at a budget of 1, only one idle: asks none to stop, since one stop would not let the start through", async () => {
     const h = holders(["b"]);
-    expect(await reclaimFor({ self: "me", running: ["a", "b"], max: 1, ...h.deps })).toEqual({ released: [], enough: false });
+    expect(await reclaimFor({ self: "me", running: ["a", "b"], max: 1, ...h.deps })).toEqual({
+      released: [],
+      enough: false,
+    });
     expect(h.released).toEqual([]);
   });
 
   it("two running at a budget of 1, both idle: asks both to stop, which lets the start through", async () => {
     const h = holders(["a", "b"]);
-    expect(await reclaimFor({ self: "me", running: ["a", "b"], max: 1, ...h.deps })).toEqual({ released: ["a", "b"], enough: true });
+    expect(await reclaimFor({ self: "me", running: ["a", "b"], max: 1, ...h.deps })).toEqual({
+      released: ["a", "b"],
+      enough: true,
+    });
   });
 
   it("never counts or asks the starting Workspace itself", async () => {
     const h = holders(["me", "a"]);
-    expect(await reclaimFor({ self: "me", running: ["me", "a", "b"], max: 2, ...h.deps })).toEqual({ released: ["a"], enough: true });
+    expect(await reclaimFor({ self: "me", running: ["me", "a", "b"], max: 2, ...h.deps })).toEqual({
+      released: ["a"],
+      enough: true,
+    });
   });
 
   it("asks the idle holders to stop together, not one after another", async () => {

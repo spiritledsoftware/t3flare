@@ -14,7 +14,11 @@ export const RELAY_ERROR_BODY_BYTES = 1024 * 1024;
 
 /** A short error in the API's own shape, in place of an error body over `RELAY_ERROR_BODY_BYTES`. */
 export const oversizedError = (api: EndpointApi, status: number): string =>
-  relayErrorBody(api, status, `t3flare: the Model endpoint's error body (HTTP ${status}) was over ${RELAY_ERROR_BODY_BYTES} bytes and was not passed on`);
+  relayErrorBody(
+    api,
+    status,
+    `t3flare: the Model endpoint's error body (HTTP ${status}) was over ${RELAY_ERROR_BODY_BYTES} bytes and was not passed on`,
+  );
 
 /**
  * The relay's own error in the API's own shape, so the CLI shows `message` as it would a vendor's (an oversized body's
@@ -24,20 +28,35 @@ export const relayErrorBody = (api: EndpointApi, status: number, message: string
   const server = status >= 500;
   switch (api) {
     case "anthropic-messages":
-      return JSON.stringify({ type: "error", error: { type: server ? "api_error" : status === 401 ? "authentication_error" : "invalid_request_error", message } });
+      return JSON.stringify({
+        type: "error",
+        error: {
+          type: server ? "api_error" : status === 401 ? "authentication_error" : "invalid_request_error",
+          message,
+        },
+      });
     case "openai-responses":
     case "openai-completions":
-      return JSON.stringify({ error: { message, type: server ? "server_error" : "invalid_request_error", param: null, code: null } });
+      return JSON.stringify({
+        error: { message, type: server ? "server_error" : "invalid_request_error", param: null, code: null },
+      });
     case "google-generative-ai":
       // Google's `google.rpc.Status` error (ai.google.dev/api/rest, "Errors").
       return JSON.stringify({ error: { code: status, message, status: server ? "INTERNAL" : "INVALID_ARGUMENT" } });
     case "mistral-conversations":
       // Mistral's error object (docs.mistral.ai, API errors): `object: "error"` beside OpenAI's fields.
-      return JSON.stringify({ object: "error", message, type: server ? "internal_server_error" : "invalid_request_error", param: null, code: String(status) });
+      return JSON.stringify({
+        object: "error",
+        message,
+        type: server ? "internal_server_error" : "invalid_request_error",
+        param: null,
+        code: String(status),
+      });
   }
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** A stream event that is an error: as an error body the classifier reads, and the status it carries, if any. */
 export interface StreamError {
@@ -63,11 +82,18 @@ export const streamErrorBody = (data: string): StreamError | undefined => {
   if (!isRecord(event)) return undefined;
   if (event.type === "error" && isRecord(event.error)) return { body: data };
   if (event.type === undefined && isRecord(event.error)) return { body: data };
-  if (event.type === "error") return { body: JSON.stringify({ error: { code: event.code ?? null, message: event.message ?? null, type: event.type } }) };
-  if (event.type === "response.failed" && isRecord(event.response) && isRecord(event.response.error)) return { body: JSON.stringify({ error: event.response.error }) };
+  if (event.type === "error")
+    return {
+      body: JSON.stringify({ error: { code: event.code ?? null, message: event.message ?? null, type: event.type } }),
+    };
+  if (event.type === "response.failed" && isRecord(event.response) && isRecord(event.response.error))
+    return { body: JSON.stringify({ error: event.response.error }) };
   if (event.type === "conversation.response.error") {
     const code = typeof event.code === "number" && event.code >= 400 && event.code < 600 ? event.code : undefined;
-    return { body: JSON.stringify({ error: { message: event.message ?? null, type: event.type } }), ...(code === undefined ? {} : { status: code }) };
+    return {
+      body: JSON.stringify({ error: { message: event.message ?? null, type: event.type } }),
+      ...(code === undefined ? {} : { status: code }),
+    };
   }
   return undefined;
 };
@@ -78,7 +104,12 @@ export const streamErrorBody = (data: string): StreamError | undefined => {
  * Completions chunk's `{"error"`, Mistral's `conversation.response.error`. Each names its `type` (or `error`) as the
  * object's first key, as every vendor sends it; a line that opens otherwise is no error event and goes on as it comes.
  */
-const ERROR_OPENINGS = ['data:{"type":"error"', 'data:{"type":"response.failed"', 'data:{"error"', 'data:{"type":"conversation.response.error"'];
+const ERROR_OPENINGS = [
+  'data:{"type":"error"',
+  'data:{"type":"response.failed"',
+  'data:{"error"',
+  'data:{"type":"conversation.response.error"',
+];
 
 /**
  * A stream passed through as it comes (SPI-1173's usage reader and the CLI never wait for a line's end), but for a line
@@ -86,7 +117,10 @@ const ERROR_OPENINGS = ['data:{"type":"error"', 'data:{"type":"response.failed"'
  * (`onError`, awaited before the line goes on). A line is held only while its opening could still be one of them; once
  * a line is passing, the rest of it passes, whatever it holds. A line ends at `\n` (a `\r` before it stays in it).
  */
-export const sseErrors = (redact: (text: string) => string, onError: (error: StreamError) => Promise<void> | void): TransformStream<Uint8Array, Uint8Array> => {
+export const sseErrors = (
+  redact: (text: string) => string,
+  onError: (error: StreamError) => Promise<void> | void,
+): TransformStream<Uint8Array, Uint8Array> => {
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
   /** The current line's text not yet passed on, and whether it is passing (decided not to be an error event). */

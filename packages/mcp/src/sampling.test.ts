@@ -58,22 +58,15 @@ const call = (
 ) =>
   run(
     Effect.gen(function* () {
-      const connection = yield* connect(
-        timeoutMs === undefined ? TARGET : { ...TARGET, timeoutMs },
-        deps,
-      );
+      const connection = yield* connect(timeoutMs === undefined ? TARGET : { ...TARGET, timeoutMs }, deps);
 
-      return yield* connection
-        .callTool({ tool: SAMPLE_TOOL, arguments: args }, ctx)
-        .pipe(Effect.result);
+      return yield* connection.callTool({ tool: SAMPLE_TOOL, arguments: args }, ctx).pipe(Effect.result);
     }),
   );
 
 const textOf = (outcome: Awaited<ReturnType<typeof call>>) =>
   Result.isSuccess(outcome)
-    ? completed(outcome.success).value.content.map((block) =>
-        block.type === "text" ? block.text : "",
-      )
+    ? completed(outcome.success).value.content.map((block) => (block.type === "text" ? block.text : ""))
     : [];
 
 describe("a Legacy server's Sampling request", () => {
@@ -168,9 +161,7 @@ describe("a Legacy server's Sampling request", () => {
 
     expect(asked).toBe(0);
     expect(textOf(outcome)[0]).toContain("did not offer to answer a sampling request");
-    expect(options.sampled).toEqual([
-      { error: expect.stringContaining("did not offer"), code: -1 },
-    ]);
+    expect(options.sampled).toEqual([{ error: expect.stringContaining("did not offer"), code: -1 }]);
   });
 
   it("is refused, whatever the Session answers, when it was answered as a form or kept for later", async () => {
@@ -205,9 +196,7 @@ describe("a Legacy server's Sampling request", () => {
     );
 
     expect(asked).toBe(0);
-    expect(options.sampled).toEqual([
-      { error: expect.stringContaining("no conversation to sample in"), code: -1 },
-    ]);
+    expect(options.sampled).toEqual([{ error: expect.stringContaining("no conversation to sample in"), code: -1 }]);
   });
 
   it.each([
@@ -246,24 +235,17 @@ describe("a Legacy server's Sampling request", () => {
     );
 
     expect(asked).toBe(0);
-    expect(options.sampled).toEqual([
-      { error: expect.stringContaining("no conversation to sample in"), code: -1 },
-    ]);
+    expect(options.sampled).toEqual([{ error: expect.stringContaining("no conversation to sample in"), code: -1 }]);
   });
 
   it("is refused when no onInput is given, though the connection declares sampling", async () => {
     const options = { moreTools: [SAMPLE_TOOL], sampled: [] };
 
-    const { onInput: _none, ...without } = sampling(
-      legacyStatefulServer(options),
-      () => Effect.never,
-    );
+    const { onInput: _none, ...without } = sampling(legacyStatefulServer(options), () => Effect.never);
 
     await call(without, SAMPLING);
 
-    expect(options.sampled).toEqual([
-      { error: expect.stringContaining("no conversation to sample in"), code: -1 },
-    ]);
+    expect(options.sampled).toEqual([{ error: expect.stringContaining("no conversation to sample in"), code: -1 }]);
   });
 
   it("is refused once the wait ends, whatever onInput does", async () => {
@@ -274,9 +256,7 @@ describe("a Legacy server's Sampling request", () => {
       { ...SAMPLING, answers: { sampling: true, inputWaitMs: 80 } },
     );
 
-    expect(options.sampled).toEqual([
-      { error: expect.stringContaining("did not answer in time"), code: -1 },
-    ]);
+    expect(options.sampled).toEqual([{ error: expect.stringContaining("did not answer in time"), code: -1 }]);
   });
 
   it("pauses the call's timeout while it waits, up to the wait of its kind", async () => {
@@ -337,9 +317,7 @@ describe("a Legacy server's Sampling request", () => {
       SAMPLING,
     );
 
-    expect(server.received.every((received) => !received.headers.has("x-t3flare-call"))).toBe(
-      true,
-    );
+    expect(server.received.every((received) => !received.headers.has("x-t3flare-call"))).toBe(true);
   });
 
   it("is declared at initialize, and initializes again a session that was opened without it", async () => {
@@ -350,9 +328,7 @@ describe("a Legacy server's Sampling request", () => {
 
     expect(rpcMethods(server).filter((method) => method === "initialize")).toHaveLength(1);
 
-    await run(
-      connect(TARGET, { ...sampling(server, () => Effect.never), sessions: sessions.store }),
-    );
+    await run(connect(TARGET, { ...sampling(server, () => Effect.never), sessions: sessions.store }));
 
     const initializes = server.received.filter((received) => received.rpc?.method === "initialize");
 
@@ -360,9 +336,7 @@ describe("a Legacy server's Sampling request", () => {
     expect(initializes[1]?.rpc?.params).toMatchObject({ capabilities: DECLARES });
 
     // And the session now kept is used as it is by one declaring the same.
-    await run(
-      connect(TARGET, { ...sampling(server, () => Effect.never), sessions: sessions.store }),
-    );
+    await run(connect(TARGET, { ...sampling(server, () => Effect.never), sessions: sessions.store }));
 
     expect(rpcMethods(server).filter((method) => method === "initialize")).toHaveLength(2);
   });
@@ -406,9 +380,7 @@ describe("a Modern server", () => {
     // Only the probe (`server/discover`, which no server can answer with a request) carries the connection-wide
     // declaration, as it carries a form's; no call or list does.
     const sent = server.received.flatMap((received) =>
-      received.rpc === undefined || received.rpc.method === "server/discover"
-        ? []
-        : [JSON.stringify(received.rpc)],
+      received.rpc === undefined || received.rpc.method === "server/discover" ? [] : [JSON.stringify(received.rpc)],
     );
 
     expect(sent.some((rpc) => rpc.includes("clientCapabilities"))).toBe(true);

@@ -60,9 +60,20 @@ const base64 = (bytes: Uint8Array): string => btoa(String.fromCharCode(...bytes)
 const unbase64 = (text: string): Uint8Array<ArrayBuffer> => Uint8Array.from(atob(text), (char) => char.charCodeAt(0));
 const hex = (bytes: Uint8Array): string => [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 
-const derive = async (secret: string, info: string, algorithm: AesKeyGenParams | HmacImportParams, usages: Array<KeyUsage>): Promise<CryptoKey> => {
+const derive = async (
+  secret: string,
+  info: string,
+  algorithm: AesKeyGenParams | HmacImportParams,
+  usages: Array<KeyUsage>,
+): Promise<CryptoKey> => {
   const material = await crypto.subtle.importKey("raw", encoder.encode(secret), "HKDF", false, ["deriveKey"]);
-  return crypto.subtle.deriveKey({ name: "HKDF", hash: "SHA-256", salt: new Uint8Array(32), info: encoder.encode(info) }, material, algorithm, false, usages);
+  return crypto.subtle.deriveKey(
+    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(32), info: encoder.encode(info) },
+    material,
+    algorithm,
+    false,
+    usages,
+  );
 };
 
 /** A value sealed under the credentials key: what `ValueSealer.seal` gives and `open` takes. */
@@ -102,15 +113,28 @@ export const valueSealer = (credentialsKey: string | undefined): ValueSealer => 
     seal: async (label, value) => {
       const { seal, fingerprint } = await keysOf();
       const iv = crypto.getRandomValues(new Uint8Array(12));
-      const data = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: encoder.encode(label) }, seal, encoder.encode(value)));
-      const print = hex(new Uint8Array(await crypto.subtle.sign("HMAC", fingerprint, encoder.encode(value)))).slice(0, 8);
+      const data = new Uint8Array(
+        await crypto.subtle.encrypt(
+          { name: "AES-GCM", iv, additionalData: encoder.encode(label) },
+          seal,
+          encoder.encode(value),
+        ),
+      );
+      const print = hex(new Uint8Array(await crypto.subtle.sign("HMAC", fingerprint, encoder.encode(value)))).slice(
+        0,
+        8,
+      );
       return { iv: base64(iv), data: base64(data), fingerprint: print };
     },
     open: async (label, sealed) => {
       if (!available) return undefined;
       try {
         const { seal } = await keysOf();
-        const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unbase64(sealed.iv), additionalData: encoder.encode(label) }, seal, unbase64(sealed.data));
+        const plain = await crypto.subtle.decrypt(
+          { name: "AES-GCM", iv: unbase64(sealed.iv), additionalData: encoder.encode(label) },
+          seal,
+          unbase64(sealed.data),
+        );
         return new TextDecoder().decode(plain);
       } catch {
         return undefined;
@@ -119,11 +143,17 @@ export const valueSealer = (credentialsKey: string | undefined): ValueSealer => 
   };
 };
 
-export const sealedStore = (kv: KvStorage & { delete(key: string): unknown }, credentialsKey: string | undefined, now: () => number = Date.now): SealedStore => {
+export const sealedStore = (
+  kv: KvStorage & { delete(key: string): unknown },
+  credentialsKey: string | undefined,
+  now: () => number = Date.now,
+): SealedStore => {
   const sealer = valueSealer(credentialsKey);
   const mark = (name: string): SealedMark => {
     const record = kv.get<SealedRecord>(PREFIX + name);
-    return record === undefined ? { set: false, setAt: null, fingerprint: null } : { set: true, setAt: record.setAt, fingerprint: record.fingerprint };
+    return record === undefined
+      ? { set: false, setAt: null, fingerprint: null }
+      : { set: true, setAt: record.setAt, fingerprint: record.fingerprint };
   };
   const open = async (name: string): Promise<string | undefined> => {
     const record = kv.get<SealedRecord>(PREFIX + name);

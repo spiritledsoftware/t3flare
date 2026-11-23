@@ -264,14 +264,24 @@ export interface ProcessStartInput {
    * Copies of the Owner's config for the CLI from their home into its home, made first (ADR-0047 §9; `process.ts`
    * `ProcessSeed`): a directory's entries but `skip`, or a file.
    */
-  readonly seed?: ReadonlyArray<{ readonly from: string; readonly to: string; readonly skip?: ReadonlyArray<string>; readonly shadow?: { readonly dir: string; readonly by: string } }>;
+  readonly seed?: ReadonlyArray<{
+    readonly from: string;
+    readonly to: string;
+    readonly skip?: ReadonlyArray<string>;
+    readonly shadow?: { readonly dir: string; readonly by: string };
+  }>;
   /**
    * A check of what the seed copied (`process.ts` `ProcessCheck`): when `when` exists, `argv` runs first, and its failure
    * ends the launch with `failure` on stderr.
    */
   readonly check?: { readonly when: string; readonly argv: ReadonlyArray<string>; readonly failure: string };
   /** Files the profile writes on the Container's own disk before the start (the CLI's home), by absolute path; `keep`: only where the seed left none. */
-  readonly files?: ReadonlyArray<{ readonly path: string; readonly text: string; readonly mode?: number; readonly keep?: boolean }>;
+  readonly files?: ReadonlyArray<{
+    readonly path: string;
+    readonly text: string;
+    readonly mode?: number;
+    readonly keep?: boolean;
+  }>;
   /** Symbolic links made before the start (Codex's `sessions/` into the synced directory); `merge`: into a seeded directory, entry by entry. */
   readonly links?: ReadonlyArray<{ readonly path: string; readonly target: string; readonly merge?: boolean }>;
   /** Session retention: files under `dir` untouched for `days` are removed before the start. */
@@ -308,7 +318,8 @@ export interface ProcessStartInput {
 export const HANDLE = /^[0-9a-f]{64}$/;
 
 /** A new Tool handle or model handle (`HANDLE`). */
-export const newHandle = (): string => [...crypto.getRandomValues(new Uint8Array(32))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+export const newHandle = (): string =>
+  [...crypto.getRandomValues(new Uint8Array(32))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 
 /** Whether two handles are equal, in time that does not depend on where they differ. */
 export const sameHandle = (a: string, b: string): boolean => {
@@ -361,8 +372,9 @@ export interface ProcessReadAnswer extends ProcessAnswer {
 }
 
 /** `processInput`'s answer: `gap` and `failed` end the process (a write is never skipped, review F6). */
-export type ProcessInputAnswer = ProcessAnswer & { readonly accepted: "written" | "duplicate" | "gap" | "failed" | "unknown" };
-
+export type ProcessInputAnswer = ProcessAnswer & {
+  readonly accepted: "written" | "duplicate" | "gap" | "failed" | "unknown";
+};
 
 // ---------------------------------------------------------------------------------------------------------------------
 // The agent's Terminals and Background jobs (SPI-1057, pi-termctrl): PTYs in the Workspace's Container that a Durable
@@ -453,7 +465,13 @@ export type AgentTerminalRequest =
     }
   | { readonly op: "stop"; readonly owner: string; readonly id: string }
   | { readonly op: "list"; readonly owner: string }
-  | { readonly op: "wait"; readonly owner: string; readonly ids: ReadonlyArray<string> | null; readonly deadline: number; readonly chunkMs: number }
+  | {
+      readonly op: "wait";
+      readonly owner: string;
+      readonly ids: ReadonlyArray<string> | null;
+      readonly deadline: number;
+      readonly chunkMs: number;
+    }
   /** Exits the owner has not seen in a result, with their last lines; taken ones are not reported again. */
   | { readonly op: "exits"; readonly owner: string; readonly tailLines: number };
 
@@ -463,12 +481,18 @@ export interface AgentTerminalAnswers {
   readonly settle: { readonly view: AgentView; readonly reason: AgentSettleReason; readonly startScreen: string };
   readonly stop: { readonly stopped: AgentEntryInfo; readonly view: AgentView };
   readonly list: { readonly entries: ReadonlyArray<AgentEntryInfo> };
-  readonly wait: { readonly exited: ReadonlyArray<AgentEntryInfo>; readonly running: ReadonlyArray<AgentEntryInfo>; readonly timedOut: boolean };
+  readonly wait: {
+    readonly exited: ReadonlyArray<AgentEntryInfo>;
+    readonly running: ReadonlyArray<AgentEntryInfo>;
+    readonly timedOut: boolean;
+  };
   readonly exits: { readonly exits: ReadonlyArray<AgentEntryInfo & { readonly tail: string }> };
 }
 
 /** A request's answer, or why it failed (an unknown id, the cap, a refused Container start). */
-export type AgentTerminalResult<Op extends AgentTerminalRequest["op"]> = { readonly ok: true; readonly value: AgentTerminalAnswers[Op] } | { readonly ok: false; readonly error: string };
+export type AgentTerminalResult<Op extends AgentTerminalRequest["op"]> =
+  | { readonly ok: true; readonly value: AgentTerminalAnswers[Op] }
+  | { readonly ok: false; readonly error: string };
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Container previews (G11, ADR-0031): Browser Run routes at most eight hosts, HTTP on port 80, each to the Workspace the

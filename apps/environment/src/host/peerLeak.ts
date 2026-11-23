@@ -78,13 +78,18 @@ export const peerLinkSecrets = Effect.gen(function* () {
   const found: Array<Secret> = [];
   for (const row of rows) {
     const value = yield* store.get(row.secret_name).pipe(Effect.orElseSucceed(() => Option.none<Uint8Array>()));
-    if (Option.isSome(value)) found.push({ name: `peer-link:${row.environment_id}`, value: new TextDecoder().decode(value.value) });
+    if (Option.isSome(value))
+      found.push({ name: `peer-link:${row.environment_id}`, value: new TextDecoder().decode(value.value) });
   }
   return found;
 });
 
 export const leakedIn = (text: string, secrets: ReadonlyArray<Secret>): Array<string> =>
-  secrets.filter(({ value }) => text.includes(value) || value.split("\n").some((line) => line.length >= 16 && text.includes(line))).map(({ name }) => name);
+  secrets
+    .filter(
+      ({ value }) => text.includes(value) || value.split("\n").some((line) => line.length >= 16 && text.includes(line)),
+    )
+    .map(({ name }) => name);
 
 /**
  * Bindings that are public by design: the Worker's name and its hostname are in every URL the scan reads (the page, the
@@ -94,7 +99,12 @@ const PUBLIC_BINDINGS: ReadonlySet<string> = new Set(["ALCHEMY_WORKER_NAME", "T3
 
 export const peerLeakCheck = async (
   environment: EnvironmentDO,
-  input: { readonly workspace: string; readonly threads: ReadonlyArray<string>; readonly extra?: ReadonlyArray<Secret>; readonly text?: string },
+  input: {
+    readonly workspace: string;
+    readonly threads: ReadonlyArray<string>;
+    readonly extra?: ReadonlyArray<Secret>;
+    readonly text?: string;
+  },
 ) => {
   const env = (environment as unknown as { readonly env: Record<string, unknown> }).env;
   const secrets: Array<Secret> = [];
@@ -110,10 +120,15 @@ export const peerLeakCheck = async (
   secrets.push(...(await runtime.run(peerLinkSecrets)));
   const credentials: Array<string> = [];
   for (const threadId of input.threads) {
-    const config = await runtime.run(Effect.flatMap(McpProviderSessions.McpProviderSessions, (sessions) => sessions.read(threadId as ThreadId)));
+    const config = await runtime.run(
+      Effect.flatMap(McpProviderSessions.McpProviderSessions, (sessions) => sessions.read(threadId as ThreadId)),
+    );
     if (config === undefined) continue;
     credentials.push(threadId);
-    secrets.push({ name: `t3-mcp-credential:${threadId}`, value: config.authorizationHeader.replace(/^Bearer\s+/i, "") });
+    secrets.push({
+      name: `t3-mcp-credential:${threadId}`,
+      value: config.authorizationHeader.replace(/^Bearer\s+/i, ""),
+    });
   }
   // Tools step (ADR-0028): the direct servers' header values, OAuth tokens and client secrets.
   secrets.push(...environment.mcpLeakSecrets());
@@ -122,12 +137,21 @@ export const peerLeakCheck = async (
   const sessions: Array<{ readonly thread: string; readonly bytes: number; readonly leaked: Array<string> }> = [];
   for (const threadId of input.threads) {
     const session = byName(environment.agents.SESSIONS, `thread:${threadId}`, "SESSIONS");
-    const text = JSON.stringify(await session.snapshot({})) + JSON.stringify(await session.diagnostics()) + JSON.stringify(await session.t3Tools());
+    const text =
+      JSON.stringify(await session.snapshot({})) +
+      JSON.stringify(await session.diagnostics()) +
+      JSON.stringify(await session.t3Tools());
     sessions.push({ thread: threadId, bytes: text.length, leaked: leakedIn(text, secrets) });
   }
-  const container = { exitCode: dump.exitCode, bytes: dump.stdout.length, files: (dump.stdout.match(/^== \//gm) ?? []).length, leaked: leakedIn(dump.stdout, secrets) };
+  const container = {
+    exitCode: dump.exitCode,
+    bytes: dump.stdout.length,
+    files: (dump.stdout.match(/^== \//gm) ?? []).length,
+    leaked: leakedIn(dump.stdout, secrets),
+  };
   // Text the caller collected (Workers Logs from `wrangler tail`, a capture endpoint's log), compared here.
-  const text = input.text === undefined ? undefined : { bytes: input.text.length, leaked: leakedIn(input.text, secrets) };
+  const text =
+    input.text === undefined ? undefined : { bytes: input.text.length, leaked: leakedIn(input.text, secrets) };
   return {
     checked: secrets.map(({ name }) => name).toSorted(),
     /** The public-by-design bindings left out of the scan (names, never values). */
@@ -136,6 +160,7 @@ export const peerLeakCheck = async (
     container,
     sessions,
     ...(text === undefined ? {} : { text }),
-    leaked: container.leaked.length + sessions.reduce((sum, s) => sum + s.leaked.length, 0) + (text?.leaked.length ?? 0),
+    leaked:
+      container.leaked.length + sessions.reduce((sum, s) => sum + s.leaked.length, 0) + (text?.leaked.length ?? 0),
   };
 };

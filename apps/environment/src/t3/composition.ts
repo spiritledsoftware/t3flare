@@ -262,7 +262,9 @@ export const make = (options: CompositionOptions) => {
       yield* (yield* FileSystem.FileSystem).makeDirectory(derived.secretsDir, { recursive: true });
       // The home directory t3 offers when browsing for a project folder (HostProcess.HomeDirectory).
       yield* (yield* FileSystem.FileSystem).makeDirectory(`${BASE_DIR}/home`, { recursive: true });
-      const savedSettings = yield* (yield* FileSystem.FileSystem).readFileString(derived.settingsPath).pipe(Effect.option, Effect.map(Option.getOrUndefined));
+      const savedSettings = yield* (yield* FileSystem.FileSystem)
+        .readFileString(derived.settingsPath)
+        .pipe(Effect.option, Effect.map(Option.getOrUndefined));
       return ServerConfig.ServerConfig.of({
         logLevel: "Info",
         traceMinLevel: "Info",
@@ -303,18 +305,16 @@ export const make = (options: CompositionOptions) => {
 
   // t3flare: SQL is DO SQLite (ADR-0006). t3's Sqlite.layerSetup sets PRAGMAs DO SQLite
   // refuses (journal_mode, synchronous, …), so only its migrations run here.
-  const layerPersistence = Layer.effectDiscard(
-    runMigrations().pipe(Effect.withSpan("t3flare.migrations")),
-  ).pipe(Layer.provideMerge(DoSql.layer(options.storage)));
+  const layerPersistence = Layer.effectDiscard(runMigrations().pipe(Effect.withSpan("t3flare.migrations"))).pipe(
+    Layer.provideMerge(DoSql.layer(options.storage)),
+  );
 
   const layerSecretStore = SecretStore.layer(options.storage).pipe(Layer.provide(layerPlatformServices));
 
   const layerResourceAttribution = ResourceAttribution.layer;
   // t3flare: no event-loop monitor (perf_hooks.monitorEventLoopDelay is not in workerd);
   // EventLoopMonitor is a Reference whose default reports no stalls.
-  const layerApplicationObservability = Observability.layer.pipe(
-    Layer.provideMerge(layerResourceAttribution),
-  );
+  const layerApplicationObservability = Observability.layer.pipe(Layer.provideMerge(layerResourceAttribution));
 
   // t3flare: no provider event log files; providers run elsewhere (step 2a).
   const layerProviderEventLoggers = Layer.succeed(
@@ -330,9 +330,7 @@ export const make = (options: CompositionOptions) => {
   );
 
   const layerNativeTelemetry = NativeTelemetryClient.layer.pipe(Layer.provide(ResourceMonitorBinary.layer));
-  const layerDesktopTelemetryReceiver = DesktopTelemetryReceiver.layer.pipe(
-    Layer.provideMerge(layerServerSettings),
-  );
+  const layerDesktopTelemetryReceiver = DesktopTelemetryReceiver.layer.pipe(Layer.provideMerge(layerServerSettings));
   const layerResourceTelemetry = ResourceTelemetry.layer.pipe(
     Layer.provideMerge(layerNativeTelemetry),
     Layer.provideMerge(layerDesktopTelemetryReceiver),
@@ -345,9 +343,10 @@ export const make = (options: CompositionOptions) => {
 
   // t3flare: t3's usage-limit sources plus one source per subscription endpoint from the limit readings of its answers
   // (SPI-1174).
-  const layerUsageLimitSources = LimitSources.layer(
-    () => ({ store: environmentServices().limits, endpoints: () => environmentServices().modelEndpoints?.() ?? EMPTY_ENDPOINTS }),
-  );
+  const layerUsageLimitSources = LimitSources.layer(() => ({
+    store: environmentServices().limits,
+    endpoints: () => environmentServices().modelEndpoints?.() ?? EMPTY_ENDPOINTS,
+  }));
 
   const layerUsage = UsageService.layer.pipe(
     Layer.provide(
@@ -393,8 +392,7 @@ export const make = (options: CompositionOptions) => {
             if (provider.refineRepositoryIdentity === undefined) continue;
             const refined = yield* provider.refineRepositoryIdentity({
               identity,
-              resolveContext: (input) =>
-                registry.resolveHandle(input).pipe(Effect.map((handle) => handle.context)),
+              resolveContext: (input) => registry.resolveHandle(input).pipe(Effect.map((handle) => handle.context)),
             });
             if (refined !== identity) return refined;
           }
@@ -504,7 +502,10 @@ export const make = (options: CompositionOptions) => {
           label: "t3flare",
           platform: { ...descriptor.platform, os: "linux" as const, machine: "cloud" as const },
           // In-app updates (ADR-0037, plan D14): the server Update only where an update target is configured (prod).
-          capabilities: cloudCapabilities(descriptor.capabilities, environmentServices().updates?.configured === true ? { serverSelfUpdate: "respawn" } : {}),
+          capabilities: cloudCapabilities(
+            descriptor.capabilities,
+            environmentServices().updates?.configured === true ? { serverSelfUpdate: "respawn" } : {},
+          ),
         })),
       }),
     ),
@@ -890,7 +891,9 @@ export const make = (options: CompositionOptions) => {
         Layer.provideMerge(DoHttpServer.layer(httpServer)),
         // t3flare: t3's loggers, and the publish recorder beside them (step 3+).
         Layer.provide(
-          Logger.layer([publishRecorder.logger], { mergeWithExisting: true }).pipe(Layer.provideMerge(layerApplicationObservability)),
+          Logger.layer([publishRecorder.logger], { mergeWithExisting: true }).pipe(
+            Layer.provideMerge(layerApplicationObservability),
+          ),
         ),
         Layer.provideMerge(FetchHttpClient.layer),
         Layer.provide(VcsProcess.layer),
@@ -906,9 +909,7 @@ export const make = (options: CompositionOptions) => {
     // t3flare: no automatic fetches: each would start the Workspace's Container (step 2a plan, section 2). Both the
     // status broadcaster and GitVcsDriver's status reads take the interval, and GitVcsDriver is built in several places,
     // so it goes in context here, above every build (a Context.Reference: a missing one is t3's non-zero default).
-    Layer.provide(
-      Layer.succeed(VcsAutomaticFetchInterval.VcsAutomaticFetchInterval, Effect.succeed(Duration.zero)),
-    ),
+    Layer.provide(Layer.succeed(VcsAutomaticFetchInterval.VcsAutomaticFetchInterval, Effect.succeed(Duration.zero))),
     Layer.provide(layerConfig),
     Layer.provide(layerPlatformServices),
     Layer.provide(RedactingConsole.layer),
@@ -916,4 +917,3 @@ export const make = (options: CompositionOptions) => {
 
   return { layer, http: httpServer.http };
 };
-

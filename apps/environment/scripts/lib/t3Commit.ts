@@ -12,7 +12,11 @@ export interface T3CommitReport {
   /** The action's failure (an `action_failed` event or the stream's error), or null. */
   readonly failure: string | null;
   /** t3's own result: the commit step's status, sha and subject. */
-  readonly result: { readonly status: string | null; readonly commitSha: string | null; readonly subject: string | null };
+  readonly result: {
+    readonly status: string | null;
+    readonly commitSha: string | null;
+    readonly subject: string | null;
+  };
   /** The Workspace's HEAD after the action: its sha, subject and the files the commit lists. */
   readonly head: { readonly sha: string; readonly subject: string; readonly files: ReadonlyArray<string> } | null;
   readonly ms: number;
@@ -20,8 +24,14 @@ export interface T3CommitReport {
 
 /** One git command in Workspace `id` through the admin route (the Workspace's own git, starting its Container). */
 export const workspaceGit = async (id: string, argv: ReadonlyArray<string>) => {
-  const answer = await admin("POST", `/_t3flare/agents/workspace-call?id=${encodeURIComponent(id)}`, { git: { argv, cwd: "/workspace/repo", startContainer: true } });
-  return { exitCode: (answer.json?.result?.exitCode as number | undefined) ?? null, stdout: String(answer.json?.result?.stdout ?? ""), stderr: String(answer.json?.result?.stderr ?? "") };
+  const answer = await admin("POST", `/_t3flare/agents/workspace-call?id=${encodeURIComponent(id)}`, {
+    git: { argv, cwd: "/workspace/repo", startContainer: true },
+  });
+  return {
+    exitCode: (answer.json?.result?.exitCode as number | undefined) ?? null,
+    stdout: String(answer.json?.result?.stdout ?? ""),
+    stderr: String(answer.json?.result?.stderr ?? ""),
+  };
 };
 
 /** The commit at HEAD in Workspace `id`: sha, subject and the files it lists. */
@@ -33,7 +43,15 @@ export const headCommit = async (id: string) => {
 };
 
 /** t3's commit action of `filePaths` in the project at `cwd` (Workspace `id`), with `message` or a drafted one. */
-export const t3Commit = async (cookie: string, input: { readonly id: string; readonly cwd: string; readonly filePaths: ReadonlyArray<string>; readonly message?: string }): Promise<T3CommitReport> => {
+export const t3Commit = async (
+  cookie: string,
+  input: {
+    readonly id: string;
+    readonly cwd: string;
+    readonly filePaths: ReadonlyArray<string>;
+    readonly message?: string;
+  },
+): Promise<T3CommitReport> => {
   const started = Date.now();
   const events = (await wsStream(cookie, "git.runStackedAction", {
     actionId: uuid(),
@@ -47,7 +65,8 @@ export const t3Commit = async (cookie: string, input: { readonly id: string; rea
   const commit = finished?.result?.commit;
   return {
     events: events.map((event) => event?.kind ?? null),
-    failure: failed === undefined ? null : String(failed.error ?? failed.message ?? JSON.stringify(failed)).slice(0, 600),
+    failure:
+      failed === undefined ? null : String(failed.error ?? failed.message ?? JSON.stringify(failed)).slice(0, 600),
     result: { status: commit?.status ?? null, commitSha: commit?.commitSha ?? null, subject: commit?.subject ?? null },
     head: await headCommit(input.id),
     ms: Date.now() - started,

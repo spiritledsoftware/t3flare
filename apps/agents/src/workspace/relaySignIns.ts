@@ -24,14 +24,25 @@ import { relayErrorBody } from "./relayFailures.ts";
 import { declaredLength, MAX_ROUTED_BODY_BYTES, readCapped } from "./routedBody.ts";
 
 /** Why the relay does not carry this request on a `kind` sign-in (404), or undefined when it does. */
-export const signInPathRefusal = (kind: SignIn, method: string, path: string): { readonly status: 404; readonly why: string } | undefined =>
-  signInRelayAllows(kind, method, path) ? undefined : { status: 404, why: `a ${kind} sign-in carries only its inference calls (${method} ${path} is not one)` };
+export const signInPathRefusal = (
+  kind: SignIn,
+  method: string,
+  path: string,
+): { readonly status: 404; readonly why: string } | undefined =>
+  signInRelayAllows(kind, method, path)
+    ? undefined
+    : { status: 404, why: `a ${kind} sign-in carries only its inference calls (${method} ${path} is not one)` };
 
 /** A sign-in request's body, read whole (`routed` when the model-routed URL read it already), or 413 past the cap. */
-export const signInBody = async (request: Request, routed: Uint8Array | undefined): Promise<{ readonly bytes: Uint8Array | undefined } | { readonly status: 413; readonly why: string }> => {
+export const signInBody = async (
+  request: Request,
+  routed: Uint8Array | undefined,
+): Promise<{ readonly bytes: Uint8Array | undefined } | { readonly status: 413; readonly why: string }> => {
   if (routed !== undefined || request.method === "GET" || request.method === "HEAD") return { bytes: routed };
   const read = await readCapped(request.body, declaredLength(request.headers));
-  return "tooLarge" in read ? { status: 413, why: `the body is over ${MAX_ROUTED_BODY_BYTES} bytes` } : { bytes: read.bytes };
+  return "tooLarge" in read
+    ? { status: 413, why: `the body is over ${MAX_ROUTED_BODY_BYTES} bytes` }
+    : { bytes: read.bytes };
 };
 
 const parsed = (bytes: Uint8Array): unknown => {
@@ -56,17 +67,24 @@ const withOwnStream = (shaped: unknown, own: Record<string, unknown>): unknown =
  * A `kind` sign-in's request as the relay sends it: the body after the sign-in's rules (`bytes` itself when they change
  * nothing, or it is no JSON; undefined for none), and the headers they add.
  */
-export const signInRequest = (kind: SignIn, bytes: Uint8Array | undefined, incoming: Headers): { readonly body: Uint8Array | undefined; readonly changed: boolean; readonly headers: Record<string, string> } => {
+export const signInRequest = (
+  kind: SignIn,
+  bytes: Uint8Array | undefined,
+  incoming: Headers,
+): { readonly body: Uint8Array | undefined; readonly changed: boolean; readonly headers: Record<string, string> } => {
   const rules = SIGN_IN_REQUESTS[kind];
   const json = bytes === undefined ? undefined : parsed(bytes);
-  if (json === undefined) return { body: bytes, changed: false, headers: rules?.relay?.headers?.(undefined, incoming) ?? {} };
+  if (json === undefined)
+    return { body: bytes, changed: false, headers: rules?.relay?.headers?.(undefined, incoming) ?? {} };
   let shaped: unknown = json;
   if (rules?.payload !== undefined) shaped = rules.payload(shaped);
   if (rules?.relay?.payload !== undefined) shaped = rules.relay.payload(shaped);
   if (isRecord(json)) shaped = withOwnStream(shaped, json);
   const headers = rules?.relay?.headers?.(shaped, incoming) ?? {};
   const text = JSON.stringify(shaped);
-  return text === JSON.stringify(json) ? { body: bytes, changed: false, headers } : { body: new TextEncoder().encode(text), changed: true, headers };
+  return text === JSON.stringify(json)
+    ? { body: bytes, changed: false, headers }
+    : { body: new TextEncoder().encode(text), changed: true, headers };
 };
 
 /**
@@ -74,13 +92,24 @@ export const signInRequest = (kind: SignIn, bytes: Uint8Array | undefined, incom
  * Session's text naming the sign-in, `retry-after` while the vendor's back-off holds, and the failure for t3 as SPI-1172's
  * table classes it (`sign_in_refused` signed out, `unavailable` a passing failure).
  */
-export const signInRefusal = (endpointId: string, refusal: RelaySignInRefusal, now: number): { readonly response: Response; readonly failure: DescribedFailure } => {
-  const { message } = credentialFailure({ id: endpointId, auth: refusal.kind }, { apiKey: null, signedOut: refusal.signedOut, problem: refusal.problem });
+export const signInRefusal = (
+  endpointId: string,
+  refusal: RelaySignInRefusal,
+  now: number,
+): { readonly response: Response; readonly failure: DescribedFailure } => {
+  const { message } = credentialFailure(
+    { id: endpointId, auth: refusal.kind },
+    { apiKey: null, signedOut: refusal.signedOut, problem: refusal.problem },
+  );
   const { status, code } = signInRefusalOutcome(refusal);
   const failure: DescribedFailure = { ...modelFailureOf(code), message };
   const headers: Record<string, string> = { "content-type": "application/json", "cache-control": "no-store" };
-  if (!refusal.signedOut && refusal.retryAt !== undefined && refusal.retryAt > now) headers["retry-after"] = String(Math.ceil((refusal.retryAt - now) / 1000));
-  return { response: new Response(relayErrorBody(refusal.api, status, `t3flare: ${message}`), { status, headers }), failure };
+  if (!refusal.signedOut && refusal.retryAt !== undefined && refusal.retryAt > now)
+    headers["retry-after"] = String(Math.ceil((refusal.retryAt - now) / 1000));
+  return {
+    response: new Response(relayErrorBody(refusal.api, status, `t3flare: ${message}`), { status, headers }),
+    failure,
+  };
 };
 
 /** A log-only hash prefix of a sign-in's token: the first 8 hex digits of its SHA-256 (of a long random token only). */

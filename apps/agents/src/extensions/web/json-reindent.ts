@@ -16,14 +16,7 @@ const HEX_DIGIT = /^[0-9A-Fa-f]$/;
 type OpeningBracket = "{" | "[";
 
 /** The token the grammar allows next. `…OrClose` states follow an opening bracket. */
-type ExpectedToken =
-  | "value"
-  | "valueOrClose"
-  | "key"
-  | "keyOrClose"
-  | "colon"
-  | "commaOrClose"
-  | "end";
+type ExpectedToken = "value" | "valueOrClose" | "key" | "keyOrClose" | "colon" | "commaOrClose" | "end";
 
 function isJsonWhitespace(code: number): boolean {
   return code === 0x20 || code === 0x0a || code === 0x0d || code === 0x09;
@@ -133,9 +126,7 @@ export function reindentJson(source: string): string | undefined {
     const top = stack.at(-1);
 
     const closes =
-      (char === "]" &&
-        top === "[" &&
-        (expected === "valueOrClose" || expected === "commaOrClose")) ||
+      (char === "]" && top === "[" && (expected === "valueOrClose" || expected === "commaOrClose")) ||
       (char === "}" && top === "{" && (expected === "keyOrClose" || expected === "commaOrClose"));
 
     if (closes) {

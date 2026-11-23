@@ -2,15 +2,7 @@
 // Container; the "Workspace DO" side of the stage is the same disk.
 // @effect-diagnostics nodeBuiltinImport:off
 import { spawnSync } from "node:child_process";
-import {
-  chmodSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -104,16 +96,13 @@ describe("the Container's file operations", () => {
     },
   );
 
-  it.skipIf(!hasGnuTools)(
-    "read a file's bytes through the stage, and leave no stage behind",
-    async () => {
-      const read = await files().readFile(join(root, "pkg/node_modules/effect/package.json"));
+  it.skipIf(!hasGnuTools)("read a file's bytes through the stage, and leave no stage behind", async () => {
+    const read = await files().readFile(join(root, "pkg/node_modules/effect/package.json"));
 
-      expect(text(read)).toBe('{"name":"effect"}\n');
-      expect(spawnSync("ls", ["-A", join(root, ".stage")], { encoding: "utf8" }).stdout).toBe("");
-      expect((await failure(files().readFile(join(root, "pkg")))).code).toBe("is_directory");
-    },
-  );
+    expect(text(read)).toBe('{"name":"effect"}\n');
+    expect(spawnSync("ls", ["-A", join(root, ".stage")], { encoding: "utf8" }).stdout).toBe("");
+    expect((await failure(files().readFile(join(root, "pkg")))).code).toBe("is_directory");
+  });
 
   it("write a new file, making its parents, and append to it", async () => {
     const container = files();
@@ -125,22 +114,19 @@ describe("the Container's file operations", () => {
     expect(readFileSync(path, "utf8")).toBe("one\ntwo\n");
   });
 
-  it.skipIf(!hasGnuTools)(
-    "say a write changes the Container's disk, and a read does not",
-    async () => {
-      const container = files();
-      const path = join(root, "pkg/node_modules/new.txt");
+  it.skipIf(!hasGnuTools)("say a write changes the Container's disk, and a read does not", async () => {
+    const container = files();
+    const path = join(root, "pkg/node_modules/new.txt");
 
-      await container.writeFile(path, new TextEncoder().encode("one"), false);
+    await container.writeFile(path, new TextEncoder().encode("one"), false);
 
-      expect(writes).toEqual([true]);
+    expect(writes).toEqual([true]);
 
-      await container.readFile(path);
-      await container.info(path, true);
+    await container.readFile(path);
+    await container.info(path, true);
 
-      expect(writes).toEqual([true, false, false]);
-    },
-  );
+    expect(writes).toEqual([true, false, false]);
+  });
 
   it.skipIf(!hasGnuTools)("replace a file read before, keeping its mode", async () => {
     const container = files();
@@ -156,39 +142,28 @@ describe("the Container's file operations", () => {
     expect(statSync(path).mode & 0o777).toBe(0o755);
   });
 
-  it.skipIf(!hasGnuTools)(
-    "refuse to replace a file that changed on the Container since it was read",
-    async () => {
-      const container = files();
-      const path = join(root, "pkg/index.ts");
+  it.skipIf(!hasGnuTools)("refuse to replace a file that changed on the Container since it was read", async () => {
+    const container = files();
+    const path = join(root, "pkg/index.ts");
 
-      await container.readFile(path);
-      writeFileSync(path, "changed meanwhile\n");
+    await container.readFile(path);
+    writeFileSync(path, "changed meanwhile\n");
 
-      expect(
-        await failure(container.writeFile(path, new TextEncoder().encode("edited\n"), false)),
-      ).toEqual({
-        code: "invalid",
-        message:
-          "The file changed on the Container since it was read: read it again (on the Container)",
-      });
-      expect(readFileSync(path, "utf8")).toBe("changed meanwhile\n");
-    },
-  );
+    expect(await failure(container.writeFile(path, new TextEncoder().encode("edited\n"), false))).toEqual({
+      code: "invalid",
+      message: "The file changed on the Container since it was read: read it again (on the Container)",
+    });
+    expect(readFileSync(path, "utf8")).toBe("changed meanwhile\n");
+  });
 
-  it.skipIf(!hasGnuTools)(
-    "open a reader on a copy of the file, as it was, with the original's metadata",
-    async () => {
-      const path = join(root, "pkg/index.ts");
+  it.skipIf(!hasGnuTools)("open a reader on a copy of the file, as it was, with the original's metadata", async () => {
+    const path = join(root, "pkg/index.ts");
 
-      const { opened, info } = await files().openReader(path, false, async (stage) =>
-        readFileSync(stage, "utf8"),
-      );
+    const { opened, info } = await files().openReader(path, false, async (stage) => readFileSync(stage, "utf8"));
 
-      expect(opened).toBe("export const a = 1;\nexport const b = 2;\n");
-      expect(info).toMatchObject({ path, kind: "file", size: 40 });
-    },
-  );
+    expect(opened).toBe("export const a = 1;\nexport const b = 2;\n");
+    expect(info).toMatchObject({ path, kind: "file", size: 40 });
+  });
 
   it.skipIf(!hasGnuTools)(
     "list a directory, and a synced one's Container-only entries only while the Container runs",
@@ -248,9 +223,9 @@ describe("the Container's file operations", () => {
           exclude: ["**/node_modules/**", "**/my dir/**"],
         }),
       ).toEqual([]);
-      expect(
-        await files().find(join(root, "app/[slug]"), "**/*.tsx", { limit: 10, exclude: [] }),
-      ).toEqual([{ path: join(root, "app/[slug]/my dir/page.tsx"), type: "file" }]);
+      expect(await files().find(join(root, "app/[slug]"), "**/*.tsx", { limit: 10, exclude: [] })).toEqual([
+        { path: join(root, "app/[slug]/my dir/page.tsx"), type: "file" },
+      ]);
     },
   );
 
@@ -321,14 +296,22 @@ describe("a refused Container start", () => {
     running: () => false,
     run: async () => {
       const inner = new Error(`t3flare: the Container cannot start: ${REASON}`);
-      const backend = new Error(`ContainerBackend(container-shell): connect failed at stage=start priorExit="Container exited with unexpected ex lastError=t3flare: the Container cannot start: Container budget (1`, { cause: inner });
+      const backend = new Error(
+        `ContainerBackend(container-shell): connect failed at stage=start priorExit="Container exited with unexpected ex lastError=t3flare: the Container cannot start: Container budget (1`,
+        { cause: inner },
+      );
       throw new Error("WorkspaceTransportError: shell.exec failed after 1 reconnect retry", { cause: backend });
     },
   };
 
   it("is shown whole by a file tool on a Container-only path", async () => {
     const stage = { read: async () => new Uint8Array(), write: async () => undefined, remove: async () => undefined };
-    const failed = await failure(new ContainerFiles(refused, stage, "/tmp/stage").readFile("/workspace/repo/node_modules/x/index.js"));
-    expect(failed).toEqual({ code: "unknown", message: `The Container could not run the file operation: t3flare: the Container cannot start: ${REASON}` });
+    const failed = await failure(
+      new ContainerFiles(refused, stage, "/tmp/stage").readFile("/workspace/repo/node_modules/x/index.js"),
+    );
+    expect(failed).toEqual({
+      code: "unknown",
+      message: `The Container could not run the file operation: t3flare: the Container cannot start: ${REASON}`,
+    });
   });
 });

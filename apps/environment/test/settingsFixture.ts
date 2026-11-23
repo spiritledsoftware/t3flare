@@ -44,7 +44,8 @@ export const memory = () => {
  * A Settings call's structured result, or `{ unavailable }` with the host's message when the call reached no tool (the
  * server off, a hidden tool, no caller).
  */
-export const structured = (answer: McpCallAnswer): Record<string, any> => (answer.kind === "result" ? (answer.structured as Record<string, any>) : { unavailable: answer.message });
+export const structured = (answer: McpCallAnswer): Record<string, any> =>
+  answer.kind === "result" ? (answer.structured as Record<string, any>) : { unavailable: answer.message };
 
 /** A Settings call's text: its result's, or the host's message. */
 export const textOf = (answer: McpCallAnswer): string => (answer.kind === "result" ? answer.text : answer.message);
@@ -92,7 +93,11 @@ export const settingsFixture = (options: FixtureOptions = {}) => {
     accessToken: async () => undefined,
   };
   const github = fakeGithub();
-  const skills = { store: skillStore({ sql, transactionSync: (closure) => closure(), harness: store, kv }), reader: async () => ({ reader: github.reader, how: "installation" as const }), unauthenticated: () => false };
+  const skills = {
+    store: skillStore({ sql, transactionSync: (closure) => closure(), harness: store, kv }),
+    reader: async () => ({ reader: github.reader, how: "installation" as const }),
+    unauthenticated: () => false,
+  };
   const logs: Array<Record<string, unknown>> = [];
   const modesOwner = {};
   const noted: Array<string> = [];
@@ -106,7 +111,12 @@ export const settingsFixture = (options: FixtureOptions = {}) => {
     settingsServer: (input) => settingsCall(deps, input),
   });
   /** A new table over the same SQLite: an Environment reset between the ask and the answer. */
-  const changes = () => settingsChanges(sql, () => now, (event) => void logs.push(event));
+  const changes = () =>
+    settingsChanges(
+      sql,
+      () => now,
+      (event) => void logs.push(event),
+    );
   /** The Owner clients' modes, over the same SQLite (the panel sets them; the endpoint reads them). */
   const clients = ownerClients(sql, () => now);
   deps = {
@@ -114,10 +124,16 @@ export const settingsFixture = (options: FixtureOptions = {}) => {
     oauthStatus: oauth.status,
     link: (thread) => options.links?.[thread] ?? "own",
     // As the Environment DO wires it: a Durable thread's modes are the adapter's record, a CLI's its live session's.
-    modes: (caller) => (caller.thread === undefined ? undefined : caller.agent === DURABLE_AGENT ? durableModes(caller.thread) : cliThreadState(caller.thread)),
+    modes: (caller) =>
+      caller.thread === undefined
+        ? undefined
+        : caller.agent === DURABLE_AGENT
+          ? durableModes(caller.thread)
+          : cliThreadState(caller.thread),
     changes: changes(),
     origin: () => `https://${HOST}`,
-    status: () => (options.panelStatus === true ? harnessStatus({ store }) : { "settings revision": store.load().revision }),
+    status: () =>
+      options.panelStatus === true ? harnessStatus({ store }) : { "settings revision": store.load().revision },
     running: async () => ({ count: 0, holders: [] }),
     log: (event) => void logs.push(event),
     ...(options.cardWaitMs === undefined ? {} : { cardWaitMs: options.cardWaitMs }),
@@ -130,10 +146,25 @@ export const settingsFixture = (options: FixtureOptions = {}) => {
     }
     return { door: "own", thread, agent: DURABLE_AGENT };
   };
-  const call = (caller: OwnCaller, tool: string, args: Record<string, unknown> = {}, extra: { readonly signal?: AbortSignal; readonly asker?: McpAsker } = {}) =>
-    host.call({ server: "settings", tool, args, caller, asker: extra.asker ?? asker, ...(extra.signal === undefined ? {} : { signal: extra.signal }) });
+  const call = (
+    caller: OwnCaller,
+    tool: string,
+    args: Record<string, unknown> = {},
+    extra: { readonly signal?: AbortSignal; readonly asker?: McpAsker } = {},
+  ) =>
+    host.call({
+      server: "settings",
+      tool,
+      args,
+      caller,
+      asker: extra.asker ?? asker,
+      ...(extra.signal === undefined ? {} : { signal: extra.signal }),
+    });
   /** The panel's deps; `ownerEndpoint: false` is a stage without the Owner-client endpoint (no `ownerEndpoint`). */
-  const panel = (caller: AccessCaller = { kind: "owner", subject: "owner-sub" }, panelOptions: { readonly ownerEndpoint?: boolean } = {}): HarnessDeps => ({
+  const panel = (
+    caller: AccessCaller = { kind: "owner", subject: "owner-sub" },
+    panelOptions: { readonly ownerEndpoint?: boolean } = {},
+  ): HarnessDeps => ({
     caller,
     host: HOST,
     store,

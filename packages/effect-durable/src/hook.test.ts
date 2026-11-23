@@ -9,9 +9,7 @@ import { effectHook } from "./hook.ts";
 import { defineEffectTool } from "./tool.ts";
 
 /** Which tools may not run: a service the hook reads. */
-class Blocked extends Context.Service<Blocked, ReadonlySet<string>>()(
-  "@t3flare/effect-durable/hook.test/Blocked",
-) {}
+class Blocked extends Context.Service<Blocked, ReadonlySet<string>>()("@t3flare/effect-durable/hook.test/Blocked") {}
 
 describe("effectHook", () => {
   it("runs an Effect handler with its services and applies its decision", async () => {

@@ -77,12 +77,15 @@ while (queue.length > 0) {
   if (pkg === undefined || members.has(pkg.dir)) continue;
   members.add(pkg.dir);
   for (const field of ["dependencies", "devDependencies", "optionalDependencies"]) {
-    for (const [dep, spec] of Object.entries<string>(pkg.json[field] ?? {})) if (spec.startsWith("workspace:")) queue.push(dep);
+    for (const [dep, spec] of Object.entries<string>(pkg.json[field] ?? {}))
+      if (spec.startsWith("workspace:")) queue.push(dep);
   }
 }
 
 const ws = parse(fs.readFileSync(path.join(t3, "pnpm-workspace.yaml"), "utf8")) as Json;
-const unknown = Object.keys(ws).filter((key) => !(COPIED as ReadonlyArray<string>).includes(key) && !(ADJUSTED as ReadonlyArray<string>).includes(key));
+const unknown = Object.keys(ws).filter(
+  (key) => !(COPIED as ReadonlyArray<string>).includes(key) && !(ADJUSTED as ReadonlyArray<string>).includes(key),
+);
 if (unknown.length > 0) {
   console.error(`t3code/pnpm-workspace.yaml has settings gen-workspace.ts has not classified: ${unknown.join(", ")}.`);
   console.error("Classify each in COPIED or ADJUSTED (or drop it on purpose), then rerun.");
@@ -126,7 +129,10 @@ for (const [key, file] of Object.entries<string>(ws.patchedDependencies ?? {})) 
 }
 // Our own dependency patches (`patches/deps/<scope>__<name>@<version>.patch`): not t3 Patches (ADR-0001 counts those).
 const depPatches = path.join(root, "patches/deps");
-for (const file of fs.readdirSync(depPatches).filter((name) => name.endsWith(".patch")).sort()) {
+for (const file of fs
+  .readdirSync(depPatches)
+  .filter((name) => name.endsWith(".patch"))
+  .sort()) {
   const key = depPatchKey(file);
   if (ws.patchedDependencies?.[key] !== undefined) throw new Error(`patches/deps/${file}: t3 already patches ${key}`);
   patchedDependencies[key] = `patches/deps/${file}`;
@@ -145,15 +151,21 @@ const out: Json = {
 for (const key of Object.keys(ws)) {
   if (key === "packages") continue;
   if (key === "patchedDependencies") out.patchedDependencies = patchedDependencies;
-  else if (key === "allowBuilds") out.allowBuilds = Object.fromEntries(Object.entries(allowBuilds).sort(([a], [b]) => a.localeCompare(b)));
+  else if (key === "allowBuilds")
+    out.allowBuilds = Object.fromEntries(Object.entries(allowBuilds).sort(([a], [b]) => a.localeCompare(b)));
   else if (key === "overrides") {
-    const pins = Object.fromEntries(Object.entries(T3_EDGE_PINS).filter(([pin]) => ws.overrides[pin] === undefined).sort(([a], [b]) => a.localeCompare(b)));
+    const pins = Object.fromEntries(
+      Object.entries(T3_EDGE_PINS)
+        .filter(([pin]) => ws.overrides[pin] === undefined)
+        .sort(([a], [b]) => a.localeCompare(b)),
+    );
     out.overrides = { ...ws.overrides, ...OUR_OVERRIDES, ...pins };
-  }
-  else if (key === "peerDependencyRules") {
-    out.peerDependencyRules = { ...ws.peerDependencyRules, allowedVersions: { ...ws.peerDependencyRules.allowedVersions, ...OUR_ALLOWED_PEERS } };
-  }
-  else out[key] = ws[key];
+  } else if (key === "peerDependencyRules") {
+    out.peerDependencyRules = {
+      ...ws.peerDependencyRules,
+      allowedVersions: { ...ws.peerDependencyRules.allowedVersions, ...OUR_ALLOWED_PEERS },
+    };
+  } else out[key] = ws[key];
 }
 // A `pnpm run` with missing or stale dependencies fails instead of installing (review M3).
 out.verifyDepsBeforeRun = "error";
@@ -162,7 +174,9 @@ const t3Manifest = readJson(path.join(t3, "package.json"));
 const pnpmVersion = /^pnpm@(\d+\.\d+\.\d+)/.exec(t3Manifest.packageManager ?? "")?.[1];
 const nodeVersion = t3Manifest.engines?.node as string | undefined;
 if (pnpmVersion === undefined || nodeVersion === undefined || !/^\d+\.\d+\.\d+$/.test(nodeVersion)) {
-  throw new Error(`t3code/package.json: expected packageManager pnpm@x.y.z and an exact engines.node, got ${t3Manifest.packageManager} / ${nodeVersion}`);
+  throw new Error(
+    `t3code/package.json: expected packageManager pnpm@x.y.z and an exact engines.node, got ${t3Manifest.packageManager} / ${nodeVersion}`,
+  );
 }
 
 // vp (Vite+) is mise's `vp` tool at the version of t3's `vite-plus` catalog entry, so the owner's PATH, CI's setup-vp
@@ -197,16 +211,23 @@ files.set(
 );
 
 if (check) {
-  const stale = [...files].filter(([file, text]) => !fs.existsSync(path.join(root, file)) || fs.readFileSync(path.join(root, file), "utf8") !== text);
+  const stale = [...files].filter(
+    ([file, text]) => !fs.existsSync(path.join(root, file)) || fs.readFileSync(path.join(root, file), "utf8") !== text,
+  );
   // A pnpm command run inside t3code/ installs it as its own workspace (AGENTS.md).
   const nested = fs.existsSync(path.join(t3, "node_modules/.pnpm"));
   for (const [file] of stale) console.error(`${file} is stale: run \`pnpm run gen:workspace\``);
-  if (nested) console.error("t3code/node_modules/.pnpm exists: a pnpm or vp command ran inside t3code/. Remove t3code/node_modules and reinstall.");
+  if (nested)
+    console.error(
+      "t3code/node_modules/.pnpm exists: a pnpm or vp command ran inside t3code/. Remove t3code/node_modules and reinstall.",
+    );
   if (stale.length > 0 || nested) process.exit(1);
   console.log(`workspace ok: ${members.size} t3 packages, ${Object.keys(patchedDependencies).length} patches`);
 } else {
   for (const [file, text] of files) fs.writeFileSync(path.join(root, file), text);
   const dropped = Object.keys(ws.patchedDependencies ?? {}).filter((key) => patchedDependencies[key] === undefined);
   console.log(`workspace: ${members.size} t3 packages; pnpm ${pnpmVersion}, node ${nodeVersion}`);
-  console.log(`patches: ${Object.keys(patchedDependencies).length} kept; ${dropped.length} of t3's outside our install`);
+  console.log(
+    `patches: ${Object.keys(patchedDependencies).length} kept; ${dropped.length} of t3's outside our install`,
+  );
 }

@@ -8,7 +8,8 @@ import type { BackendHandle, WorkspaceBackend } from "@cloudflare/computer";
 type Env = Readonly<Record<string, string>>;
 
 /** A command's environment: `variables` first, then each layer over the one before. */
-export const commandEnv = (variables: Env, ...layers: ReadonlyArray<Env | undefined>): Record<string, string> => Object.assign({}, variables, ...layers);
+export const commandEnv = (variables: Env, ...layers: ReadonlyArray<Env | undefined>): Record<string, string> =>
+  Object.assign({}, variables, ...layers);
 
 /**
  * One of the Workspace's computer backends (the Container's, the Worker Shell's) with the Variables under every command

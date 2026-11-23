@@ -29,9 +29,7 @@ const LOGS = [
  * Name, a server sending `logs`, the level asked of one call on it, and whether its answers can carry notifications (a
  * JSON-only one cannot): `logging/setLevel` once for a Legacy server that keeps a session, nothing for one that does not.
  */
-const servers: ReadonlyArray<
-  readonly [string, (logs?: typeof LOGS) => FakeServer, ReadonlyArray<string>, boolean]
-> = [
+const servers: ReadonlyArray<readonly [string, (logs?: typeof LOGS) => FakeServer, ReadonlyArray<string>, boolean]> = [
   ["Modern", (logs) => modernServer({ logs }), ["tools/call:warning"], true],
   ["Legacy stateless, answering in JSON", (logs) => legacyStatelessServer({ logs }), [], false],
   ["Legacy stateful", (logs) => legacyStatefulServer({ logs }), ["setLevel:warning"], true],
@@ -78,41 +76,38 @@ const levelsAsked = (server: FakeServer) =>
     }),
   );
 
-describe.each(servers)(
-  "against a %s server that declares logging",
-  (_name, makeServer, asksOnCall, streams) => {
-    it("asks for warning, and hands onLog what the server sends", async () => {
-      const server = makeServer(LOGS);
-      const heard = await callHearing(server);
+describe.each(servers)("against a %s server that declares logging", (_name, makeServer, asksOnCall, streams) => {
+  it("asks for warning, and hands onLog what the server sends", async () => {
+    const server = makeServer(LOGS);
+    const heard = await callHearing(server);
 
-      // The level asked is `warning` in this era's way: `logging/setLevel` once for a Legacy session that is kept (a
-      // server that keeps none forgets it at once, and a call must not wait on the round trip), `_meta` on every Modern
-      // request.
-      expect(levelsAsked(server)).toEqual(asksOnCall);
+    // The level asked is `warning` in this era's way: `logging/setLevel` once for a Legacy session that is kept (a
+    // server that keeps none forgets it at once, and a call must not wait on the round trip), `_meta` on every Modern
+    // request.
+    expect(levelsAsked(server)).toEqual(asksOnCall);
 
-      // Only what the server's filter lets through arrives: nothing below `warning` where the filter holds.
-      expect(heard.map((log) => log.level)).toEqual(streams ? ["warning", "error"] : []);
+    // Only what the server's filter lets through arrives: nothing below `warning` where the filter holds.
+    expect(heard.map((log) => log.level)).toEqual(streams ? ["warning", "error"] : []);
 
-      if (streams) {
-        expect(heard[0]).toEqual({ level: "warning", logger: "disk", data: { note: "disk low" } });
-      }
-    });
+    if (streams) {
+      expect(heard[0]).toEqual({ level: "warning", logger: "disk", data: { note: "disk low" } });
+    }
+  });
 
-    it("asks for nothing when nothing listens", async () => {
-      const server = makeServer(LOGS);
+  it("asks for nothing when nothing listens", async () => {
+    const server = makeServer(LOGS);
 
-      await run(
-        Effect.gen(function* () {
-          const connection = yield* connect(TARGET, testDeps(fetchTo(server)));
+    await run(
+      Effect.gen(function* () {
+        const connection = yield* connect(TARGET, testDeps(fetchTo(server)));
 
-          yield* connection.callTool({ tool: ECHO_TOOL, arguments: { text: "hi" } }, AGENT);
-        }),
-      );
+        yield* connection.callTool({ tool: ECHO_TOOL, arguments: { text: "hi" } }, AGENT);
+      }),
+    );
 
-      expect(levelsAsked(server)).toEqual([]);
-    });
-  },
-);
+    expect(levelsAsked(server)).toEqual([]);
+  });
+});
 
 describe("a Legacy server's level", () => {
   const discover = (server: FakeServer) =>

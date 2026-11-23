@@ -41,7 +41,9 @@ const cli = option("cli");
 process.env.NPM_CONFIG_WORKSPACE_DIR = root;
 
 if (!isUpdatableCli(cli)) {
-  console.error("usage: pnpm run cli-bump --cli pi|codex|claude [--version <v>] [--commit] [--no-deploy] [--report <file>]");
+  console.error(
+    "usage: pnpm run cli-bump --cli pi|codex|claude [--version <v>] [--commit] [--no-deploy] [--report <file>]",
+  );
   process.exit(2);
 }
 const which: UpdatableCli = cli;
@@ -57,13 +59,22 @@ const DETAIL_CHARS = 4000;
 const LONG_DETAIL_CHARS = 24_000;
 
 const sh = (command: string, commandArgs: Array<string>, cwd: string, options: { quiet?: boolean } = {}) => {
-  const result = spawnSync(command, commandArgs, { cwd, encoding: "utf8", env: { ...process.env, FORCE_COLOR: "0" }, maxBuffer: 256 * 1024 * 1024 });
+  const result = spawnSync(command, commandArgs, {
+    cwd,
+    encoding: "utf8",
+    env: { ...process.env, FORCE_COLOR: "0" },
+    maxBuffer: 256 * 1024 * 1024,
+  });
   const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
   if (!options.quiet) process.stdout.write(output);
   return { ok: result.status === 0, output };
 };
 
-const step = async (name: string, run: () => { ok: boolean; detail?: string } | Promise<{ ok: boolean; detail?: string }>, detailChars = DETAIL_CHARS): Promise<boolean> => {
+const step = async (
+  name: string,
+  run: () => { ok: boolean; detail?: string } | Promise<{ ok: boolean; detail?: string }>,
+  detailChars = DETAIL_CHARS,
+): Promise<boolean> => {
   const started = performance.now();
   console.log(`\n== ${name}`);
   let result: { ok: boolean; detail?: string };
@@ -72,9 +83,15 @@ const step = async (name: string, run: () => { ok: boolean; detail?: string } | 
   } catch (error) {
     result = { ok: false, detail: String(error) };
   }
-  if (failAt !== undefined && name.startsWith(failAt)) result = { ok: false, detail: `forced to fail by --fail-at ${failAt}` };
+  if (failAt !== undefined && name.startsWith(failAt))
+    result = { ok: false, detail: `forced to fail by --fail-at ${failAt}` };
   const seconds = Math.round((performance.now() - started) / 100) / 10;
-  steps.push({ name, ok: result.ok, seconds, ...(result.detail === undefined ? {} : { detail: result.detail.slice(-detailChars) }) });
+  steps.push({
+    name,
+    ok: result.ok,
+    seconds,
+    ...(result.detail === undefined ? {} : { detail: result.detail.slice(-detailChars) }),
+  });
   console.log(`== ${name}: ${result.ok ? "ok" : "FAILED"} (${seconds} s)`);
   return result.ok;
 };
@@ -97,10 +114,14 @@ const finish = (ok: boolean, note?: string): never => {
     note: note ?? null,
     at: new Date().toISOString(),
     steps,
-    acceptance: fs.existsSync(path.join(environment, "dist/cli-bump-acceptance.json")) ? JSON.parse(fs.readFileSync(path.join(environment, "dist/cli-bump-acceptance.json"), "utf8")) : null,
+    acceptance: fs.existsSync(path.join(environment, "dist/cli-bump-acceptance.json"))
+      ? JSON.parse(fs.readFileSync(path.join(environment, "dist/cli-bump-acceptance.json"), "utf8"))
+      : null,
   };
   fs.writeFileSync(reportFile, `${keptReportJson(report, process.env)}\n`);
-  console.log(`\ncli-bump ${ok ? "PASSED" : "FAILED"}: ${which} ${from} → ${to ?? "?"}${note ? ` (${note})` : ""}; report in ${path.relative(root, reportFile)}`);
+  console.log(
+    `\ncli-bump ${ok ? "PASSED" : "FAILED"}: ${which} ${from} → ${to ?? "?"}${note ? ` (${note})` : ""}; report in ${path.relative(root, reportFile)}`,
+  );
   for (const s of steps) console.log(`  ${s.ok ? "ok  " : "FAIL"} ${s.name} (${s.seconds} s)`);
   process.exit(ok ? 0 : 1);
 };
@@ -137,7 +158,11 @@ const ok =
         let output = "";
         for (let attempt = 0; attempt < 12; attempt++) {
           if (attempt > 0) spawnSync("sleep", ["5"]);
-          const result = sh(process.execPath, ["scripts/stage.ts", "run", stage, "admin", "POST", "/_t3flare/safe-mode?on=0"], environment);
+          const result = sh(
+            process.execPath,
+            ["scripts/stage.ts", "run", stage, "admin", "POST", "/_t3flare/safe-mode?on=0"],
+            environment,
+          );
           output = result.output;
           if (result.ok && /^200 /m.test(output)) return { ok: true, detail: `attempt ${attempt + 1}: ${output}` };
         }
@@ -148,7 +173,24 @@ const ok =
         () => {
           const out = path.join(environment, "dist/cli-bump-acceptance.json");
           fs.rmSync(out, { force: true });
-          const result = sh(process.execPath, ["scripts/stage.ts", "run", stage, "acceptance", "--threads", "12", "--runs", "4", `--${which}`, "--out", out], environment, { quiet: true });
+          const result = sh(
+            process.execPath,
+            [
+              "scripts/stage.ts",
+              "run",
+              stage,
+              "acceptance",
+              "--threads",
+              "12",
+              "--runs",
+              "4",
+              `--${which}`,
+              "--out",
+              out,
+            ],
+            environment,
+            { quiet: true },
+          );
           return { ok: result.ok, detail: fs.existsSync(out) ? fs.readFileSync(out, "utf8") : result.output };
         },
         LONG_DETAIL_CHARS,
@@ -162,7 +204,11 @@ if (!ok) {
 if (flag("commit")) {
   await step("commit the new pin", () => {
     const add = sh("git", ["add", ...CLI_PIN_FILES], root);
-    const commit = sh("git", ["commit", "--quiet", "-m", `chore: bump ${which} to ${to}`, "-m", "Proven by the update gate."], root);
+    const commit = sh(
+      "git",
+      ["commit", "--quiet", "-m", `chore: bump ${which} to ${to}`, "-m", "Proven by the update gate."],
+      root,
+    );
     return { ok: add.ok && commit.ok, detail: commit.output };
   });
 }

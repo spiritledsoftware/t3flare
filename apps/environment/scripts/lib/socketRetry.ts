@@ -42,12 +42,18 @@ const IDEMPOTENT_METHODS: ReadonlySet<string> = new Set([
 ]);
 
 // Typed against effect's union, so a renamed reason fails the typecheck.
-const DROPS: ReadonlySet<string> = new Set(["SocketReadError", "SocketCloseError"] satisfies ReadonlyArray<RpcClientError["reason"]["_tag"]>);
+const DROPS: ReadonlySet<string> = new Set(["SocketReadError", "SocketCloseError"] satisfies ReadonlyArray<
+  RpcClientError["reason"]["_tag"]
+>);
 
 /** A /ws call's failure that is the socket dropping under it (an `RpcClientError` reading or closing), not an answer. */
 const isSocketDrop = (error: unknown): boolean => {
   const tagged = error as { _tag?: unknown; reason?: { _tag?: unknown } } | null | undefined;
-  return tagged?._tag === ("RpcClientError" satisfies RpcClientError["_tag"]) && typeof tagged.reason?._tag === "string" && DROPS.has(tagged.reason._tag);
+  return (
+    tagged?._tag === ("RpcClientError" satisfies RpcClientError["_tag"]) &&
+    typeof tagged.reason?._tag === "string" &&
+    DROPS.has(tagged.reason._tag)
+  );
 };
 
 /** A clone refused because its destination is taken: t3's own "Destination path already exists and is not empty."
@@ -55,7 +61,11 @@ const isSocketDrop = (error: unknown): boolean => {
  * empty directory." that the process router answers for a Workspace already cloning (src/agents/processRouter.ts). */
 const isDestinationTaken = (error: unknown): boolean => {
   const tagged = error as { _tag?: unknown; detail?: unknown } | null | undefined;
-  return tagged?._tag === ("SourceControlRepositoryError" satisfies SourceControlRepositoryError["_tag"]) && typeof tagged.detail === "string" && /already exists and is not (an )?empty/i.test(tagged.detail);
+  return (
+    tagged?._tag === ("SourceControlRepositoryError" satisfies SourceControlRepositoryError["_tag"]) &&
+    typeof tagged.detail === "string" &&
+    /already exists and is not (an )?empty/i.test(tagged.detail)
+  );
 };
 
 // How long a resent clone waits for the first attempt's clone: t3's own clone time limit (CLONE_TIMEOUT_MS).
@@ -71,7 +81,11 @@ const CLONE_POLL_MS = 2_000;
  * answers it redacted), sent without a `repository` lookup; any other clone throws the drop.
  */
 const finishedClone = async (inner: WsCall, cookie: string, payload: unknown, drop: unknown): Promise<unknown> => {
-  const { destinationPath, remoteUrl, repository } = (payload ?? {}) as { destinationPath?: unknown; remoteUrl?: unknown; repository?: unknown };
+  const { destinationPath, remoteUrl, repository } = (payload ?? {}) as {
+    destinationPath?: unknown;
+    remoteUrl?: unknown;
+    repository?: unknown;
+  };
   const answerable =
     typeof destinationPath === "string" &&
     /^(\/[^/]+)+$/.test(destinationPath) &&
@@ -83,8 +97,17 @@ const finishedClone = async (inner: WsCall, cookie: string, payload: unknown, dr
     repository === undefined;
   if (!answerable) throw drop;
   for (let waited = 0; waited <= CLONE_WAIT_MS; waited += CLONE_POLL_MS) {
-    const refs = await inner(cookie, "vcs.listRefs", { cwd: destinationPath, refKind: "local", refresh: true, limit: 200 }).catch(() => undefined);
-    if ((refs as { refs?: ReadonlyArray<{ current?: unknown }> } | undefined)?.refs?.some((ref) => ref.current === true) === true) {
+    const refs = await inner(cookie, "vcs.listRefs", {
+      cwd: destinationPath,
+      refKind: "local",
+      refresh: true,
+      limit: 200,
+    }).catch(() => undefined);
+    if (
+      (refs as { refs?: ReadonlyArray<{ current?: unknown }> } | undefined)?.refs?.some(
+        (ref) => ref.current === true,
+      ) === true
+    ) {
       return { cwd: destinationPath, remoteUrl, repository: null };
     }
     await new Promise((resolve) => setTimeout(resolve, CLONE_POLL_MS));
@@ -100,7 +123,8 @@ export const withSocketRetry =
       try {
         return await inner(cookie, method, payload);
       } catch (error) {
-        if (drop !== undefined && method === CLONE && isDestinationTaken(error)) return finishedClone(inner, cookie, payload, drop);
+        if (drop !== undefined && method === CLONE && isDestinationTaken(error))
+          return finishedClone(inner, cookie, payload, drop);
         if (attempt >= ATTEMPTS || !isSocketDrop(error) || !IDEMPOTENT_METHODS.has(method)) throw error;
         drop = error;
         console.error(`ws ${method}: socket dropped, attempt ${attempt + 1} of ${ATTEMPTS}`);

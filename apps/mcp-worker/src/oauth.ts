@@ -51,7 +51,10 @@ export interface TokenInput {
 
 export type OAuthAnswer<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: string };
 
-const failed = (error: unknown): { readonly ok: false; readonly error: string } => ({ ok: false, error: (error instanceof Error ? `${error.name}: ${error.message}` : String(error)).slice(0, 500) });
+const failed = (error: unknown): { readonly ok: false; readonly error: string } => ({
+  ok: false,
+  error: (error instanceof Error ? `${error.name}: ${error.message}` : String(error)).slice(0, 500),
+});
 
 /** The methods, apart from the entrypoint, so tests run them on a stubbed fetch. */
 export const oauthMethods = (fetcher: (input: string | URL, init?: RequestInit) => Promise<Response>) => ({
@@ -69,11 +72,22 @@ export const oauthMethods = (fetcher: (input: string | URL, init?: RequestInit) 
         } else if (metadata?.registration_endpoint !== undefined) {
           client = await registerClient(info.authorizationServerUrl, {
             ...(metadata === undefined ? {} : { metadata }),
-            clientMetadata: { redirect_uris: [input.redirectUrl], client_name: input.clientName, grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], token_endpoint_auth_method: "none" },
+            clientMetadata: {
+              redirect_uris: [input.redirectUrl],
+              client_name: input.clientName,
+              grant_types: ["authorization_code", "refresh_token"],
+              response_types: ["code"],
+              token_endpoint_auth_method: "none",
+            },
             fetch: fetcher,
           });
           registration = "dcr";
-        } else return { ok: false, error: "The server's authorization server takes neither a Client ID Metadata Document nor dynamic registration." };
+        } else
+          return {
+            ok: false,
+            error:
+              "The server's authorization server takes neither a Client ID Metadata Document nor dynamic registration.",
+          };
       }
       const scope = info.resourceMetadata?.scopes_supported?.join(" ");
       const started = await startAuthorization(info.authorizationServerUrl, {
@@ -101,7 +115,9 @@ export const oauthMethods = (fetcher: (input: string | URL, init?: RequestInit) 
     }
   },
 
-  async exchange(input: TokenInput & { readonly code: string; readonly codeVerifier: string; readonly redirectUrl: string }): Promise<OAuthAnswer<OAuthTokens>> {
+  async exchange(
+    input: TokenInput & { readonly code: string; readonly codeVerifier: string; readonly redirectUrl: string },
+  ): Promise<OAuthAnswer<OAuthTokens>> {
     try {
       return {
         ok: true,
@@ -146,7 +162,9 @@ export class McpOAuth extends WorkerEntrypoint {
     return this.#methods.begin(input);
   }
 
-  exchange(input: TokenInput & { readonly code: string; readonly codeVerifier: string; readonly redirectUrl: string }): Promise<OAuthAnswer<OAuthTokens>> {
+  exchange(
+    input: TokenInput & { readonly code: string; readonly codeVerifier: string; readonly redirectUrl: string },
+  ): Promise<OAuthAnswer<OAuthTokens>> {
     return this.#methods.exchange(input);
   }
 

@@ -18,6 +18,7 @@ repository: every push to its `main` deploys the Maintainer's `prod` (`deploy-pr
      a PR cannot widen them for itself. It is not required yet.
 
    No path filters: a required check that never runs would block a docs-only PR forever.
+
 2. **Outside contributors' runs wait for approval.** The repository requires a Maintainer's approval before a workflow
    runs for any outside contributor, not only a first-time one: GitHub's default stops asking after one merged change,
    however small.

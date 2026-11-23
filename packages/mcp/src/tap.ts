@@ -69,10 +69,7 @@ const LARGE_READ: Policy = {
 /** Each method's policy: the reads and `tools/call` get 16 MiB. A `Map`, so no method finds a prototype key. */
 const POLICIES = new Map<string, Policy>([
   ["server/discover", { ...OTHER, probe: true }],
-  [
-    "tools/call",
-    { limit: MCP_LARGE_RESULT_BYTES, readOnly: false, probe: false, mayHaveRun: true },
-  ],
+  ["tools/call", { limit: MCP_LARGE_RESULT_BYTES, readOnly: false, probe: false, mayHaveRun: true }],
   ["tools/list", LARGE_READ],
   ["prompts/list", LARGE_READ],
   ["resources/list", LARGE_READ],
@@ -231,9 +228,7 @@ const decodeStreamMessages = Schema.decodeUnknownOption(
 );
 
 /** The `params` of a `notifications/elicitation/complete`: the page that was finished. */
-const decodeCompletion = Schema.decodeUnknownOption(
-  Schema.Struct({ elicitationId: Schema.String }),
-);
+const decodeCompletion = Schema.decodeUnknownOption(Schema.Struct({ elicitationId: Schema.String }));
 
 /** What the tap does for the call whose POST stream it watches: tie a question to it, and hear a page's completion. */
 interface CallStream {
@@ -266,8 +261,7 @@ const decodeJsonRpcBody = Schema.decodeUnknownOption(
   Schema.fromJsonString(Schema.Union([JsonRpcAnswer, Schema.NonEmptyArray(JsonRpcAnswer)])),
 );
 
-const mediaType = (response: Response) =>
-  response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
+const mediaType = (response: Response) => response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
 
 /** `Retry-After` as a delay: seconds or an HTTP date, at most 10 s; 1 s when absent or unreadable. */
 const retryAfter = (response: Response, now: number) => {
@@ -280,9 +274,7 @@ const retryAfter = (response: Response, now: number) => {
   const seconds = Number(header);
   const delay = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header) - now;
 
-  return Number.isFinite(delay)
-    ? Math.min(Math.max(delay, 0), MAX_RETRY_AFTER_MS)
-    : DEFAULT_RETRY_AFTER_MS;
+  return Number.isFinite(delay) ? Math.min(Math.max(delay, 0), MAX_RETRY_AFTER_MS) : DEFAULT_RETRY_AFTER_MS;
 };
 
 /** A status that may pass if tried again. */
@@ -492,8 +484,7 @@ export const eventFields = (event: string) => {
  * resumed one. A line ending first, unless the unfinished event already ends in one: a blank line would make the SDK
  * dispatch it.
  */
-const discardEvent = (endsInLineEnd: boolean) =>
-  `${endsInLineEnd ? "" : "\n"}event: t3flare-discard\n\n`;
+const discardEvent = (endsInLineEnd: boolean) => `${endsInLineEnd ? "" : "\n"}event: t3flare-discard\n\n`;
 
 const eventTooLarge = () =>
   TooLarge.make({
@@ -546,9 +537,7 @@ class Resumer {
       return Resumption.Cut({
         error: cut(
           request,
-          broke
-            ? "The stream broke before its answer arrived"
-            : "The stream ended before its answer arrived",
+          broke ? "The stream broke before its answer arrived" : "The stream ended before its answer arrived",
         ),
       });
     }
@@ -561,9 +550,7 @@ class Resumer {
     for (;;) {
       if (this.failures >= MAX_RESUME_FAILURES) return failed();
 
-      await resume.sleep(
-        Math.min(Math.max(this.retryMs ?? DEFAULT_RESUME_MS, MIN_RESUME_MS), MAX_RESUME_MS),
-      );
+      await resume.sleep(Math.min(Math.max(this.retryMs ?? DEFAULT_RESUME_MS, MIN_RESUME_MS), MAX_RESUME_MS));
 
       if (this.stopped() || resume.aborted()) return Resumption.Stopped();
 
@@ -646,8 +633,7 @@ const watchStream = (
         // A question on this call's stream is tied to the call, before the SDK is given the event that carries it.
         if (
           call !== undefined &&
-          (message.method === "elicitation/create" ||
-            message.method === "sampling/createMessage") &&
+          (message.method === "elicitation/create" || message.method === "sampling/createMessage") &&
           message.id !== undefined &&
           message.id !== null
         ) {
@@ -664,8 +650,7 @@ const watchStream = (
 
       // The SDK matches an answer to its request by id, so an answer to another request must never reach it.
       const foreign = messages.some(
-        (message) =>
-          message.method === undefined && message.id !== undefined && message.id !== request.id,
+        (message) => message.method === undefined && message.id !== undefined && message.id !== request.id,
       );
 
       if (!foreign) kept.push(event);
@@ -728,9 +713,7 @@ const watchStream = (
 
           // The first stream is handed over as it came, so an event it left unfinished is cut off for the SDK.
           const unfinished =
-            resumer.resumed || /^\n*$/.test(splitter.unfinished)
-              ? undefined
-              : discardEvent(splitter.endsInLineEnd);
+            resumer.resumed || /^\n*$/.test(splitter.unfinished) ? undefined : discardEvent(splitter.endsInLineEnd);
 
           const next = await resumer.next(broke);
 
@@ -921,11 +904,7 @@ export const tapFetch = (
     return Response.json(verdictMessage(request, error, verdicts), { headers });
   };
 
-  const send = async (
-    input: string | URL,
-    init: RequestInit | undefined,
-    request: Outgoing | undefined,
-  ) => {
+  const send = async (input: string | URL, init: RequestInit | undefined, request: Outgoing | undefined) => {
     try {
       return await fetch(input, init);
     } catch (error) {
@@ -945,11 +924,7 @@ export const tapFetch = (
    * say which). The `GET` takes the POST's headers (session, version, authorization, the entry's own), without the
    * body's, and asks for a stream after the last event id; its failures are the caller's to count, never thrown.
    */
-  const resumeOf = (
-    input: string | URL,
-    init: RequestInit | undefined,
-    request: Outgoing,
-  ): Resume | undefined => {
+  const resumeOf = (input: string | URL, init: RequestInit | undefined, request: Outgoing): Resume | undefined => {
     if (init === undefined || request.policy.probe) return undefined;
 
     const post = new Headers(init.headers);
@@ -1042,12 +1017,7 @@ export const tapFetch = (
       );
     }
 
-    if (
-      request === undefined ||
-      !response.ok ||
-      response.status === 202 ||
-      response.body === null
-    ) {
+    if (request === undefined || !response.ok || response.status === 202 || response.body === null) {
       return response;
     }
 

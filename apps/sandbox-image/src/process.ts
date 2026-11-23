@@ -121,14 +121,19 @@ export interface ProcessCommandInput {
 
 /** Where a profile may write: the process's own home, or the synced harness directory (session directories only). */
 const writable = (marker: string, path: string): boolean =>
-  !path.includes("/../") && !path.endsWith("/..") && (path.startsWith(`${cliHomeOf(marker)}/`) || path.startsWith("/workspace/.t3flare/"));
+  !path.includes("/../") &&
+  !path.endsWith("/..") &&
+  (path.startsWith(`${cliHomeOf(marker)}/`) || path.startsWith("/workspace/.t3flare/"));
 
 /** Where a seed may copy: from the Owner's home into the process's own home, no `..` anywhere; a shadow names one directory. */
 const seedable = (marker: string, seed: ProcessSeed): boolean =>
-  ![seed.from, seed.to, ...(seed.shadow === undefined ? [] : [seed.shadow.by])].some((path) => path.includes("/../") || path.endsWith("/..")) &&
+  ![seed.from, seed.to, ...(seed.shadow === undefined ? [] : [seed.shadow.by])].some(
+    (path) => path.includes("/../") || path.endsWith("/.."),
+  ) &&
   seed.from.startsWith(`${OWNER_HOME}/`) &&
   seed.to.startsWith(`${cliHomeOf(marker)}/`) &&
-  (seed.shadow === undefined || (/^[A-Za-z0-9._-]+$/.test(seed.shadow.dir) && seed.shadow.dir !== ".." && seed.shadow.by.startsWith("/")));
+  (seed.shadow === undefined ||
+    (/^[A-Za-z0-9._-]+$/.test(seed.shadow.dir) && seed.shadow.dir !== ".." && seed.shadow.by.startsWith("/")));
 
 /**
  * The check's lines: nothing unless its file exists; the CLI's own loader, bounded, from `/`, its stdin closed (the
@@ -166,7 +171,10 @@ const seedLines = (seed: ProcessSeed): ReadonlyArray<string> => {
 
 /** A link's lines: a seeded directory at its path is merged into (`merge`) or replaced; one elsewhere is left as it was. */
 const linkLines = (home: string, link: ProcessLink): ReadonlyArray<string> => {
-  const make = [`/usr/bin/mkdir -p ${quote(link.target)} "$(/usr/bin/dirname ${quote(link.path)})"`, `/usr/bin/ln -sfn ${quote(link.target)} ${quote(link.path)}`];
+  const make = [
+    `/usr/bin/mkdir -p ${quote(link.target)} "$(/usr/bin/dirname ${quote(link.path)})"`,
+    `/usr/bin/ln -sfn ${quote(link.target)} ${quote(link.path)}`,
+  ];
   if (!link.path.startsWith(`${home}/`)) return make;
   const seeded = `[ -d ${quote(link.path)} ] && [ ! -L ${quote(link.path)} ]`;
   if (link.merge !== true) return [`${seeded} && /usr/bin/rm -rf -- ${quote(link.path)}`, ...make];
@@ -184,11 +192,17 @@ const linkLines = (home: string, link: ProcessLink): ReadonlyArray<string> => {
 /** The wrapper `bash -c` runs; it ends by becoming the CLI. */
 export const processCommand = (input: ProcessCommandInput): string => {
   if (!isProcessMarker(input.marker)) throw new Error(`t3flare: bad process marker ${input.marker}`);
-  if (input.argv.length === 0 || !input.argv[0]!.startsWith("/")) throw new Error("t3flare: a process's binary must be an absolute path");
-  for (const file of [...(input.files ?? []), ...(input.links ?? []), ...(input.prune ?? []).map((entry) => ({ path: `${entry.dir}/x` }))]) {
+  if (input.argv.length === 0 || !input.argv[0]!.startsWith("/"))
+    throw new Error("t3flare: a process's binary must be an absolute path");
+  for (const file of [
+    ...(input.files ?? []),
+    ...(input.links ?? []),
+    ...(input.prune ?? []).map((entry) => ({ path: `${entry.dir}/x` })),
+  ]) {
     if (!writable(input.marker, file.path)) throw new Error(`t3flare: a process may not write ${file.path}`);
   }
-  if (input.check !== undefined && !input.check.argv[0]?.startsWith("/")) throw new Error("t3flare: a check's program must be an absolute path");
+  if (input.check !== undefined && !input.check.argv[0]?.startsWith("/"))
+    throw new Error("t3flare: a check's program must be an absolute path");
   for (const seed of input.seed ?? []) {
     if (!seedable(input.marker, seed)) throw new Error(`t3flare: a process may not copy ${seed.from} to ${seed.to}`);
   }
@@ -213,11 +227,16 @@ export const processCommand = (input: ProcessCommandInput): string => {
         `printf %s ${quote(base64(file.text))} | /usr/bin/base64 -d > ${quote(file.path)}`,
         `/usr/bin/chmod ${(file.mode ?? 0o600).toString(8)} ${quote(file.path)}`,
       ];
-      return file.keep === true ? [`if [ ! -e ${quote(file.path)} ]; then`, ...write.map((line) => `  ${line}`), "fi"] : write;
+      return file.keep === true
+        ? [`if [ ! -e ${quote(file.path)} ]; then`, ...write.map((line) => `  ${line}`), "fi"]
+        : write;
     }),
     ...(input.links ?? []).flatMap((link) => linkLines(home, link)),
     ...(input.check === undefined ? [] : checkLines(input.check)),
-    ...(input.prune ?? []).map((entry) => `[ -d ${quote(entry.dir)} ] && /usr/bin/find ${quote(entry.dir)} -type f -mtime +${Math.max(1, Math.floor(entry.days))} -delete 2>/dev/null`),
+    ...(input.prune ?? []).map(
+      (entry) =>
+        `[ -d ${quote(entry.dir)} ] && /usr/bin/find ${quote(entry.dir)} -type f -mtime +${Math.max(1, Math.floor(entry.days))} -delete 2>/dev/null`,
+    ),
     `cd -- ${quote(input.cwd)} 2>/dev/null || cd -- ${quote(input.t3Path)}`,
     `exec 1>&3 3>&-`,
     `exec -a setsid /usr/bin/setsid --wait ${input.argv.map(quote).join(" ")}`,

@@ -134,11 +134,7 @@ export type HostOperations = {
   readonly canonical: (path: string) => Promise<WireResult<string>>;
   readonly readFile: (path: string) => Promise<WireResult<Uint8Array>>;
   /** Write or append `content`, creating missing parent directories. */
-  readonly writeFile: (
-    path: string,
-    content: string | Uint8Array,
-    append: boolean,
-  ) => Promise<WireResult<null>>;
+  readonly writeFile: (path: string, content: string | Uint8Array, append: boolean) => Promise<WireResult<null>>;
   readonly truncate: (path: string, size: number) => Promise<WireResult<null>>;
   /** Check that `path` is a file that can be flushed; the Workspace's storage is durable once written. */
   readonly flush: (path: string) => Promise<WireResult<null>>;
@@ -148,22 +144,11 @@ export type HostOperations = {
   readonly createTempDir: (prefix: string) => Promise<WireResult<string>>;
   readonly openReader: (path: string, noFollow: boolean) => Promise<WireResult<OpenedReader>>;
   readonly readerInfo: (handle: string) => Promise<WireResult<FileInfo>>;
-  readonly read: (
-    handle: string,
-    offset: number,
-    length: number,
-  ) => Promise<WireResult<Uint8Array>>;
-  readonly scanLines: (
-    handle: string,
-    startLine: number,
-    endLine: number | null,
-  ) => Promise<WireResult<LineScan>>;
+  readonly read: (handle: string, offset: number, length: number) => Promise<WireResult<Uint8Array>>;
+  readonly scanLines: (handle: string, startLine: number, endLine: number | null) => Promise<WireResult<LineScan>>;
   readonly closeReader: (handle: string) => Promise<WireResult<null>>;
   /** What every watch target covers now, for a polling watcher to compare with its last snapshot. */
-  readonly scan: (
-    targets: readonly ScanTarget[],
-    maxDirectories: number,
-  ) => Promise<WireResult<Snapshot>>;
+  readonly scan: (targets: readonly ScanTarget[], maxDirectories: number) => Promise<WireResult<Snapshot>>;
   readonly listFiles: (path: string, options: ListFilesOptions) => Promise<WireResult<FileListing>>;
   /** For each path, whether it is a Container-only path for the Container's current launch (`container-paths.ts`). */
   readonly containerOnly: (paths: readonly string[]) => Promise<WireResult<readonly boolean[]>>;
@@ -176,11 +161,7 @@ export type HostOperations = {
     options: FindOptions,
   ) => Promise<WireResult<readonly FoundEntry[]>>;
   /** The lines below `path` (or of the file itself) that match `pattern`, for `grep`. */
-  readonly grep: (
-    pattern: string,
-    path: string,
-    options: GrepOptions,
-  ) => Promise<WireResult<readonly GrepMatch[]>>;
+  readonly grep: (pattern: string, path: string, options: GrepOptions) => Promise<WireResult<readonly GrepMatch[]>>;
 };
 
 export type HostOperation = keyof HostOperations;
@@ -199,17 +180,14 @@ export type EnvRequest = {
 }[HostOperation];
 
 /** What the answer to `request` holds. */
-export type EnvResponse<Operation extends HostOperation> = Awaited<
-  ReturnType<HostOperations[Operation]>
->;
+export type EnvResponse<Operation extends HostOperation> = Awaited<ReturnType<HostOperations[Operation]>>;
 
 export const fromFileError = (error: FileError): WireError =>
   error.path === undefined
     ? { code: error.code, message: error.message }
     : { code: error.code, message: error.message, path: error.path };
 
-export const toFileError = (error: WireError): FileError =>
-  new FileError(error.code, error.message, error.path);
+export const toFileError = (error: WireError): FileError => new FileError(error.code, error.message, error.path);
 
 export const fromResult = <T>(result: WireResult<T>): Result<T, FileError> =>
   result.ok ? ok(result.value) : err(toFileError(result.error));

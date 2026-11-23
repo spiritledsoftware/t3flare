@@ -23,7 +23,17 @@ const differ = (): DifferState => {
     runOrdinal: 1,
     providerTurnOrdinal: 1,
     startedAt: now,
-    providerTurn: { id: TURN, providerThreadId: "provider-thread-1", nodeId: "node:root", runAttemptId: "attempt-1", nativeTurnRef: null, ordinal: 1, status: "running", startedAt: now, completedAt: null },
+    providerTurn: {
+      id: TURN,
+      providerThreadId: "provider-thread-1",
+      nodeId: "node:root",
+      runAttemptId: "attempt-1",
+      nativeTurnRef: null,
+      ordinal: 1,
+      status: "running",
+      startedAt: now,
+      completedAt: null,
+    },
     contextWindow: 400_000,
     providerSessionId: "provider-session-1",
   } as unknown as TurnContext);
@@ -39,7 +49,14 @@ const call = (id: string, name: string, args: Record<string, unknown>, entryId: 
   content: [{ type: "toolCall", id, name, arguments: args }],
 });
 
-const result = (id: string, name: string, text: string, details: unknown, entryId: string, isError = false): PushedEntry => ({
+const result = (
+  id: string,
+  name: string,
+  text: string,
+  details: unknown,
+  entryId: string,
+  isError = false,
+): PushedEntry => ({
   id: entryId,
   kind: "pi.tool-result",
   byTaskId: null,
@@ -66,7 +83,8 @@ export const sessionWith = (entries: ReadonlyArray<PushedEntry>, extra: Partial<
   ...extra,
 });
 
-const items = (events: ReturnType<typeof diff>) => events.flatMap((event) => (event.type === "turn_item.updated" ? [decodeItem(event.turnItem)] : []));
+const items = (events: ReturnType<typeof diff>) =>
+  events.flatMap((event) => (event.type === "turn_item.updated" ? [decodeItem(event.turnItem)] : []));
 
 describe("web tools in t3's thread (SPI-1054)", () => {
   it("shows web_search as t3's web search item, with the query and each page found", () => {
@@ -74,12 +92,28 @@ describe("web tools in t3's thread (SPI-1054)", () => {
       differ(),
       sessionWith([
         call("c1", "web_search", { query: "pi durable" }, "1"),
-        result("c1", "web_search", "Title: One…", { provider: "model-proxy:claude-haiku-5-5", query: "pi durable", results: [{ url: "https://a.example/one", title: "One", snippet: "agents" }, { url: "" }] }, "2"),
+        result(
+          "c1",
+          "web_search",
+          "Title: One…",
+          {
+            provider: "model-proxy:claude-haiku-5-5",
+            query: "pi durable",
+            results: [{ url: "https://a.example/one", title: "One", snippet: "agents" }, { url: "" }],
+          },
+          "2",
+        ),
       ]),
       now,
     );
     const [item] = items(events);
-    expect(item).toMatchObject({ type: "web_search", status: "completed", title: null, patterns: ["pi durable"], results: [{ url: "https://a.example/one", title: "One", snippet: "agents" }] });
+    expect(item).toMatchObject({
+      type: "web_search",
+      status: "completed",
+      title: null,
+      patterns: ["pi durable"],
+      results: [{ url: "https://a.example/one", title: "One", snippet: "agents" }],
+    });
   });
 
   it("shows web_fetch as a fetched page, and a failed call as a tool item with its error", () => {
@@ -94,7 +128,12 @@ describe("web tools in t3's thread (SPI-1054)", () => {
       now,
     );
     const [fetched, failed] = items(events);
-    expect(fetched).toMatchObject({ type: "web_search", title: "Fetched a page", patterns: ["https://example.com/a"], results: [{ url: "https://example.com/a", title: "Hello" }] });
+    expect(fetched).toMatchObject({
+      type: "web_search",
+      title: "Fetched a page",
+      patterns: ["https://example.com/a"],
+      results: [{ url: "https://example.com/a", title: "Hello" }],
+    });
     expect(failed).toMatchObject({ type: "dynamic_tool", status: "failed", toolName: "web_fetch" });
   });
 });
@@ -109,14 +148,27 @@ describe("the Todo List in t3's thread (SPI-1055)", () => {
     const state = differ();
     const first = diff(
       state,
-      sessionWith([call("c1", "todo", { action: "add", tasks: [{ title: "Task 1" }, { title: "Task 2" }] }, "1"), result("c1", "todo", "Added 2 Tasks", { todoRev: 1 }, "2")], {
-        todo: todo(1, ["pending", "pending"]),
-      }),
+      sessionWith(
+        [
+          call("c1", "todo", { action: "add", tasks: [{ title: "Task 1" }, { title: "Task 2" }] }, "1"),
+          result("c1", "todo", "Added 2 Tasks", { todoRev: 1 }, "2"),
+        ],
+        {
+          todo: todo(1, ["pending", "pending"]),
+        },
+      ),
       now,
     );
     const [row] = items(first);
     expect(items(first)).toHaveLength(1);
-    expect(row).toMatchObject({ type: "todo_list", title: "Todo list", steps: [{ id: "todo:1", text: "Task 1", status: "pending" }, { id: "todo:2", status: "pending" }] });
+    expect(row).toMatchObject({
+      type: "todo_list",
+      title: "Todo list",
+      steps: [
+        { id: "todo:1", text: "Task 1", status: "pending" },
+        { id: "todo:2", status: "pending" },
+      ],
+    });
     const plan = first.find((event) => event.type === "plan.updated");
     expect(plan).toMatchObject({ plan: { kind: "todo_list", status: "active", threadId: "thread-1", runId: "run-1" } });
     expect(() => Schema.decodeUnknownSync(OrchestrationV2PlanArtifact)((plan as { plan: unknown }).plan)).not.toThrow();
@@ -126,15 +178,28 @@ describe("the Todo List in t3's thread (SPI-1055)", () => {
     const [next] = items(second);
     expect(next?.id).not.toBe(row?.id);
     expect(next).toMatchObject({ steps: [{ status: "completed" }, { status: "running" }] });
-    expect(second.find((event) => event.type === "plan.updated")).toMatchObject({ plan: { id: (plan as { plan: { id: string } }).plan.id } });
+    expect(second.find((event) => event.type === "plan.updated")).toMatchObject({
+      plan: { id: (plan as { plan: { id: string } }).plan.id },
+    });
     const done = diff(state, sessionWith([], { todo: todo(3, ["completed", "completed"]) }), now);
     expect(done.find((event) => event.type === "plan.updated")).toMatchObject({ plan: { status: "completed" } });
   });
 
   it("keeps a failed todo call as a tool item, and shows no list outside a live turn", () => {
-    const failed = diff(differ(), sessionWith([call("c1", "todo", { action: "remove", id: 9 }, "1"), result("c1", "todo", "Todo remove failed: Task #9 was not found", undefined, "2", true)]), now);
+    const failed = diff(
+      differ(),
+      sessionWith([
+        call("c1", "todo", { action: "remove", id: 9 }, "1"),
+        result("c1", "todo", "Todo remove failed: Task #9 was not found", undefined, "2", true),
+      ]),
+      now,
+    );
     expect(items(failed)).toMatchObject([{ type: "dynamic_tool", status: "failed", toolName: "todo" }]);
-    const settled = sessionWith([], { todo: todo(1, ["pending"]), live: { run: null, generation: null, tools: [], runFailure: null }, turns: {} });
+    const settled = sessionWith([], {
+      todo: todo(1, ["pending"]),
+      live: { run: null, generation: null, tools: [], runFailure: null },
+      turns: {},
+    });
     expect(diff(differ(), settled, now)).toEqual([]);
   });
 });
@@ -149,7 +214,13 @@ describe("context management in t3's thread (SPI-1056)", () => {
         call("c2", "context_history", { action: "search", query: "plan" }, "3"),
         result("c2", "context_history", '{"matches":[],"next_offset":null}', undefined, "4"),
         call("c3", "context_rollover", { handoff: "Continue with step 2" }, "5"),
-        result("c3", "context_rollover", "Handoff saved. The new context starts from it after this tool round.", { handoffCharacters: 20, notes: 1 }, "6"),
+        result(
+          "c3",
+          "context_rollover",
+          "Handoff saved. The new context starts from it after this tool round.",
+          { handoffCharacters: 20, notes: 1 },
+          "6",
+        ),
       ]),
       now,
     );

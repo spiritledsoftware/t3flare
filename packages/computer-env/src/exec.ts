@@ -86,8 +86,7 @@ class Spill {
 
     const partial = text.endsWith("\n") ? 0 : 1;
 
-    this.#spilled ||=
-      this.#bytes > this.#options.afterBytes || this.#lines + partial > this.#options.afterLines;
+    this.#spilled ||= this.#bytes > this.#options.afterBytes || this.#lines + partial > this.#options.afterLines;
   }
 
   async write(writer: SpillWriter): Promise<string | undefined> {
@@ -221,26 +220,19 @@ export const exec = async (
 
     for await (const event of handle) {
       if (event.name === "exit") exitCode = event.code;
-      else if (
-        event.name === "stderr" &&
-        prepared.marker !== undefined &&
-        event.value.startsWith(prepared.marker)
-      ) {
+      else if (event.name === "stderr" && prepared.marker !== undefined && event.value.startsWith(prepared.marker)) {
         missing = true;
         deliver(event.value.slice(prepared.marker.length), "stderr");
       } else deliver(event.value, event.name);
     }
 
-    if (exitCode === undefined)
-      throw new Error("The command's output ended without an exit status");
+    if (exitCode === undefined) throw new Error("The command's output ended without an exit status");
 
     return exitCode;
   };
 
   const timeout =
-    options?.timeout === undefined
-      ? undefined
-      : setTimeout(() => kill("timeout"), options.timeout * 1000);
+    options?.timeout === undefined ? undefined : setTimeout(() => kill("timeout"), options.timeout * 1000);
 
   const onAbort = () => kill("aborted");
 
@@ -277,11 +269,7 @@ export const exec = async (
 
       const spillPath = await spill.write(host.spill);
 
-      return ok(
-        spillPath === undefined
-          ? { exitCode: first.exitCode }
-          : { exitCode: first.exitCode, spillPath },
-      );
+      return ok(spillPath === undefined ? { exitCode: first.exitCode } : { exitCode: first.exitCode, spillPath });
     }
 
     // Killed: wait briefly for the command to stop; a kill sent before it started is sent again.
@@ -290,11 +278,7 @@ export const exec = async (
     while (Date.now() < deadline) {
       await workspace.runtime.killExec(id).catch(() => undefined);
 
-      if (
-        (await Promise.race([finish.then(() => true), sleep(KILL_RETRY_MS).then(() => false)])) ===
-        true
-      )
-        break;
+      if ((await Promise.race([finish.then(() => true), sleep(KILL_RETRY_MS).then(() => false)])) === true) break;
     }
 
     // computerd's kill does not reach the command's children (nor, in M0, the command itself): the ledger's owner
@@ -304,11 +288,15 @@ export const exec = async (
     if (callbackError !== undefined) return err(callbackError);
 
     // Only a command on the Container waits for it (`startingNote` is the Container backend's): say what it waited for.
-    const waited = stoppedBeforeStart && host.startingNote !== undefined ? `the Container was ${(await host.startingNote().catch(() => undefined)) ?? "starting"}` : undefined;
+    const waited =
+      stoppedBeforeStart && host.startingNote !== undefined
+        ? `the Container was ${(await host.startingNote().catch(() => undefined)) ?? "starting"}`
+        : undefined;
     // The harness replaces a timeout's message with its own; the output it keeps says why the command never ran.
     if (waited !== undefined) deliver(`t3flare: the command did not start: ${waited}\n`, "stderr");
     let message = "aborted";
-    if (stopped === "timeout") message = waited === undefined ? "Command timed out" : `Command timed out before it started (${waited})`;
+    if (stopped === "timeout")
+      message = waited === undefined ? "Command timed out" : `Command timed out before it started (${waited})`;
     const error = new ExecutionError(stopped ?? "aborted", message);
 
     const spillPath = await spill.write(host.spill);

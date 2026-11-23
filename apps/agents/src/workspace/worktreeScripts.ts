@@ -41,7 +41,11 @@ export const parseTips = (stdout: string): ReadonlyArray<string> =>
  * whole of `ref`. No bundle when one of the clone's tips already reaches the commit. Prints `COMMIT`, `BUNDLE` and
  * `ref`'s `branch.<ref>.*` config as `CONFIG` lines.
  */
-export const worktreeBundleScript = (input: { readonly ref: string; readonly tips: ReadonlyArray<string>; readonly bundle: string }): string => {
+export const worktreeBundleScript = (input: {
+  readonly ref: string;
+  readonly tips: ReadonlyArray<string>;
+  readonly bundle: string;
+}): string => {
   const bundle = shellWord(input.bundle);
   return [
     "set -u",
@@ -61,9 +65,15 @@ export const worktreeBundleScript = (input: { readonly ref: string; readonly tip
   ].join("\n");
 };
 
-export const parseBundleAnswer = (stdout: string): { readonly commit: string | null; readonly bundled: boolean; readonly config: ReadonlyArray<string> } => {
+export const parseBundleAnswer = (
+  stdout: string,
+): { readonly commit: string | null; readonly bundled: boolean; readonly config: ReadonlyArray<string> } => {
   const lines = stdout.split("\n");
-  const commit = lines.find((line) => line.startsWith("COMMIT "))?.slice(7).trim() ?? null;
+  const commit =
+    lines
+      .find((line) => line.startsWith("COMMIT "))
+      ?.slice(7)
+      .trim() ?? null;
   return {
     commit: commit !== null && isObjectId(commit) ? commit : null,
     bundled: lines.includes("BUNDLE"),
@@ -81,11 +91,18 @@ export const worktreeFinishScript = (input: {
   if (!isObjectId(input.commit)) throw new Error(`t3flare: not a commit: ${input.commit}`);
   const config = input.config.flatMap((line) => {
     const at = line.indexOf(" ");
-    return at > 0 && line.startsWith("branch.") ? [`git config ${shellWord(line.slice(0, at))} ${shellWord(line.slice(at + 1))}`] : [];
+    return at > 0 && line.startsWith("branch.")
+      ? [`git config ${shellWord(line.slice(0, at))} ${shellWord(line.slice(at + 1))}`]
+      : [];
   });
   return [
     "set -eu",
-    ...(input.bundle === null ? [] : [`git fetch --quiet ${shellWord(input.bundle)} '+refs/*:refs/t3flare/seed/*' 2>/dev/null || git fetch --quiet ${shellWord(input.bundle)} ${input.commit}`, `rm -f ${shellWord(input.bundle)}`]),
+    ...(input.bundle === null
+      ? []
+      : [
+          `git fetch --quiet ${shellWord(input.bundle)} '+refs/*:refs/t3flare/seed/*' 2>/dev/null || git fetch --quiet ${shellWord(input.bundle)} ${input.commit}`,
+          `rm -f ${shellWord(input.bundle)}`,
+        ]),
     `git checkout --quiet -B ${shellWord(input.ref)} ${input.commit}`,
     `git for-each-ref --format='%(refname)' refs/t3flare/seed | while read -r seed; do git update-ref -d "$seed"; done`,
     ...config,
@@ -100,7 +117,10 @@ export const worktreeFinishScript = (input: {
  * In the worktree's Container: whether it has uncommitted work (`DIRTY`), and a bundle of every `refs/heads/*` and
  * `refs/stash` the project cannot reach (`CARRY <ref> <sha>` each, then `BUNDLE`), less the project's tips it has.
  */
-export const carryOutScript = (input: { readonly projectTips: ReadonlyArray<string>; readonly bundle: string }): string => {
+export const carryOutScript = (input: {
+  readonly projectTips: ReadonlyArray<string>;
+  readonly bundle: string;
+}): string => {
   const bundle = shellWord(input.bundle);
   return [
     "set -u",
@@ -119,7 +139,13 @@ export const carryOutScript = (input: { readonly projectTips: ReadonlyArray<stri
   ].join("\n");
 };
 
-export const parseCarryOut = (stdout: string): { readonly dirty: boolean; readonly carried: ReadonlyArray<{ readonly ref: string; readonly sha: string }>; readonly bundled: boolean } => {
+export const parseCarryOut = (
+  stdout: string,
+): {
+  readonly dirty: boolean;
+  readonly carried: ReadonlyArray<{ readonly ref: string; readonly sha: string }>;
+  readonly bundled: boolean;
+} => {
   const lines = stdout.split("\n");
   return {
     dirty: lines.includes("DIRTY"),
@@ -139,21 +165,29 @@ export const parseCarryOut = (stdout: string): { readonly dirty: boolean; readon
  * is created; one it has fast-forwards when that is a fast-forward and it is not the project's checked-out branch;
  * anything else (a diverged branch, the stash) is kept at `refs/t3flare/worktrees/<dir>/…`. Prints one line per ref.
  */
-export const carryInScript = (input: { readonly bundle: string; readonly dir: string; readonly carried: ReadonlyArray<{ readonly ref: string; readonly sha: string }> }): string => {
-  const keep = (rest: string) => shellWord(`refs/t3flare/worktrees/${input.dir.replace(/[^A-Za-z0-9._-]/g, "_")}/${rest}`);
+export const carryInScript = (input: {
+  readonly bundle: string;
+  readonly dir: string;
+  readonly carried: ReadonlyArray<{ readonly ref: string; readonly sha: string }>;
+}): string => {
+  const keep = (rest: string) =>
+    shellWord(`refs/t3flare/worktrees/${input.dir.replace(/[^A-Za-z0-9._-]/g, "_")}/${rest}`);
   return [
     "set -eu",
     `git fetch --quiet ${shellWord(input.bundle)} '+refs/*:refs/t3flare/carry/*'`,
     `cur=$(git symbolic-ref --quiet HEAD || true)`,
-    ...input.carried.filter((carry) => isObjectId(carry.sha)).map((carry) => {
-      if (!carry.ref.startsWith("refs/heads/")) return `git update-ref ${keep(carry.ref.replace(/^refs\//, ""))} ${carry.sha} && echo "KEPT ${carry.ref} ${keep(carry.ref.replace(/^refs\//, "")).slice(1, -1)}"`;
-      const ref = shellWord(carry.ref);
-      return [
-        `if ! git show-ref --verify --quiet ${ref}; then git update-ref ${ref} ${carry.sha} && echo "CREATED ${carry.ref}";`,
-        `elif [ ${ref} != "$cur" ] && git merge-base --is-ancestor ${ref} ${carry.sha}; then git update-ref ${ref} ${carry.sha} && echo "FASTFORWARD ${carry.ref}";`,
-        `else git update-ref ${keep(carry.ref.replace(/^refs\//, ""))} ${carry.sha} && echo "KEPT ${carry.ref} ${keep(carry.ref.replace(/^refs\//, "")).slice(1, -1)}"; fi`,
-      ].join(" ");
-    }),
+    ...input.carried
+      .filter((carry) => isObjectId(carry.sha))
+      .map((carry) => {
+        if (!carry.ref.startsWith("refs/heads/"))
+          return `git update-ref ${keep(carry.ref.replace(/^refs\//, ""))} ${carry.sha} && echo "KEPT ${carry.ref} ${keep(carry.ref.replace(/^refs\//, "")).slice(1, -1)}"`;
+        const ref = shellWord(carry.ref);
+        return [
+          `if ! git show-ref --verify --quiet ${ref}; then git update-ref ${ref} ${carry.sha} && echo "CREATED ${carry.ref}";`,
+          `elif [ ${ref} != "$cur" ] && git merge-base --is-ancestor ${ref} ${carry.sha}; then git update-ref ${ref} ${carry.sha} && echo "FASTFORWARD ${carry.ref}";`,
+          `else git update-ref ${keep(carry.ref.replace(/^refs\//, ""))} ${carry.sha} && echo "KEPT ${carry.ref} ${keep(carry.ref.replace(/^refs\//, "")).slice(1, -1)}"; fi`,
+        ].join(" ");
+      }),
     `git for-each-ref --format='%(refname)' refs/t3flare/carry | while read -r r; do git update-ref -d "$r"; done`,
     `rm -f ${shellWord(input.bundle)}`,
   ].join("\n");

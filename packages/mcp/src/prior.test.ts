@@ -30,10 +30,7 @@ const listAndCall = (deps: McpDeps) =>
       const connection = yield* connect(TARGET, deps);
       const tools = yield* connection.list("tools", HOST);
 
-      const called = yield* connection.callTool(
-        { tool: ECHO_TOOL, arguments: { text: "hi" } },
-        AGENT,
-      );
+      const called = yield* connection.callTool({ tool: ECHO_TOOL, arguments: { text: "hi" } }, AGENT);
 
       return {
         era: connection.era,
@@ -45,8 +42,7 @@ const listAndCall = (deps: McpDeps) =>
     }),
   );
 
-const count = (server: FakeServer, method: string) =>
-  rpcMethods(server).filter((sent) => sent === method).length;
+const count = (server: FakeServer, method: string) => rpcMethods(server).filter((sent) => sent === method).length;
 
 describe("the era row", () => {
   it("lets a Modern server reconnect with no round trip", async () => {

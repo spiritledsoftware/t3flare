@@ -41,13 +41,13 @@ takes a change at its next turn. Nothing is redeployed.
 
 ### Which agent uses which endpoint
 
-| Agent | Endpoints it runs on | How |
-| --- | --- | --- |
-| **Pi Durable** | every endpoint, every API | pi-ai in its Session, the key asked of the Environment at use time |
-| **Codex** | OpenAI Responses endpoints, and a ChatGPT sign-in | the model relay, one Codex provider per endpoint ([ADR-0016](adr/0016-no-vendor-credential-enters-a-container-and-cli-agents-reach-the-model-proxy.md)) |
-| **Claude Code** | Anthropic Messages endpoints, and a Claude sign-in | the model relay's model-routed URL |
-| **OpenCode** | Anthropic Messages, OpenAI Responses and OpenAI-compatible Completions endpoints, and every sign-in | the model relay, one OpenCode provider per endpoint |
-| **Pi** (the CLI) | every endpoint, and every sign-in | the model relay, one pi provider per endpoint |
+| Agent            | Endpoints it runs on                                                                                | How                                                                                                                                                     |
+| ---------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Pi Durable**   | every endpoint, every API                                                                           | pi-ai in its Session, the key asked of the Environment at use time                                                                                      |
+| **Codex**        | OpenAI Responses endpoints, and a ChatGPT sign-in                                                   | the model relay, one Codex provider per endpoint ([ADR-0016](adr/0016-no-vendor-credential-enters-a-container-and-cli-agents-reach-the-model-proxy.md)) |
+| **Claude Code**  | Anthropic Messages endpoints, and a Claude sign-in                                                  | the model relay's model-routed URL                                                                                                                      |
+| **OpenCode**     | Anthropic Messages, OpenAI Responses and OpenAI-compatible Completions endpoints, and every sign-in | the model relay, one OpenCode provider per endpoint                                                                                                     |
+| **Pi** (the CLI) | every endpoint, and every sign-in                                                                   | the model relay, one pi provider per endpoint                                                                                                           |
 
 A CLI agent never holds an endpoint's credential: its process gets a per-process handle, which the Workers swap for the
 key or token outside the Container (ADR-0016's model relay refinements). An endpoint must list at least one model to
@@ -281,14 +281,14 @@ the setup (`apps/environment/scripts/mask-endpoint.ts`) masks its key and each h
 
 ## Troubleshooting
 
-| Symptom | Likely cause |
-| --- | --- |
-| A provider shows **Needs attention**: "No Model endpoint is set up …" or "<agent> has no Model endpoint to run on …" | No endpoint lists a model of an API that agent speaks: do the setup step; for Codex, add an OpenAI Responses endpoint |
-| A Pi Durable turn fails "No Model endpoint is set up …" | The same, for a thread from before the hard cut that found no endpoint to fall back to |
-| "The model <slug> is not available: its Model endpoint was removed or no longer lists it" | The thread's model is gone: pick another |
-| "The Model endpoint "<id>" refused its API key …" | The key is wrong, revoked or out of scope: enter it again in the panel |
-| "… is not signed in to <vendor> …" | The sign-in was signed out or its renewal refused: sign in again in the panel |
-| Start sign-in stays disabled, or a start is refused "acknowledge <vendor>'s terms first …" | Tick the acknowledgement above Start, after reading [the vendor's terms](#subscription-sign-ins-and-the-vendors-terms); a script sends `acknowledgedTerms: true` |
-| "Usage limit reached" naming an endpoint | That endpoint's limit; the thread resumes at the reset, or pick another endpoint's model |
-| An old Codex thread fails "this Codex thread runs on another Model endpoint than …" | Codex cannot move a live thread between Model endpoints: start a new thread |
-| `web_search` says no Anthropic Messages endpoint can search | Add one with an API key (or set the search model to one) |
+| Symptom                                                                                                              | Likely cause                                                                                                                                                     |
+| -------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A provider shows **Needs attention**: "No Model endpoint is set up …" or "<agent> has no Model endpoint to run on …" | No endpoint lists a model of an API that agent speaks: do the setup step; for Codex, add an OpenAI Responses endpoint                                            |
+| A Pi Durable turn fails "No Model endpoint is set up …"                                                              | The same, for a thread from before the hard cut that found no endpoint to fall back to                                                                           |
+| "The model <slug> is not available: its Model endpoint was removed or no longer lists it"                            | The thread's model is gone: pick another                                                                                                                         |
+| "The Model endpoint "<id>" refused its API key …"                                                                    | The key is wrong, revoked or out of scope: enter it again in the panel                                                                                           |
+| "… is not signed in to <vendor> …"                                                                                   | The sign-in was signed out or its renewal refused: sign in again in the panel                                                                                    |
+| Start sign-in stays disabled, or a start is refused "acknowledge <vendor>'s terms first …"                           | Tick the acknowledgement above Start, after reading [the vendor's terms](#subscription-sign-ins-and-the-vendors-terms); a script sends `acknowledgedTerms: true` |
+| "Usage limit reached" naming an endpoint                                                                             | That endpoint's limit; the thread resumes at the reset, or pick another endpoint's model                                                                         |
+| An old Codex thread fails "this Codex thread runs on another Model endpoint than …"                                  | Codex cannot move a live thread between Model endpoints: start a new thread                                                                                      |
+| `web_search` says no Anthropic Messages endpoint can search                                                          | Add one with an API key (or set the search model to one)                                                                                                         |

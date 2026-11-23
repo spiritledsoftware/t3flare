@@ -84,10 +84,7 @@ describe.each(servers)("against a %s server", (_name, makeServer, era) => {
       }),
     );
 
-    expect(templates.value.items.map((item) => item.uriTemplate)).toEqual([
-      "file:///{path}",
-      "db:///{table}/{id}",
-    ]);
+    expect(templates.value.items.map((item) => item.uriTemplate)).toEqual(["file:///{path}", "db:///{table}/{id}"]);
     expect(none.value).toEqual({ items: [] });
     expect(rpcMethods(bare)).not.toContain("resources/list");
   });
@@ -124,12 +121,8 @@ describe.each(servers)("against a %s server", (_name, makeServer, era) => {
       }),
     );
 
-    expect(text.value.contents).toEqual([
-      { uri: NOTES.uri, mimeType: "text/markdown", text: "# Notes" },
-    ]);
-    expect(blob.value.contents).toEqual([
-      { uri: LOGO.uri, mimeType: "image/png", blob: "iVBORw0KGgo=" },
-    ]);
+    expect(text.value.contents).toEqual([{ uri: NOTES.uri, mimeType: "text/markdown", text: "# Notes" }]);
+    expect(blob.value.contents).toEqual([{ uri: LOGO.uri, mimeType: "image/png", blob: "iVBORw0KGgo=" }]);
     expect(text.sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(text.sha256).toBe(await contentsSha256(text.value.contents));
     expect(again.sha256).toBe(text.sha256);
@@ -168,9 +161,7 @@ describe("the SHA-256 of a read's contents", () => {
     expect(await contentsSha256([{ ...item, text: "two" }])).not.toBe(same);
     expect(await contentsSha256([{ ...item, uri: "file:///b" }])).not.toBe(same);
     expect(await contentsSha256([{ ...item, mimeType: "text/markdown" }])).not.toBe(same);
-    expect(
-      await contentsSha256([{ uri: item.uri, mimeType: item.mimeType, blob: "b25l" }]),
-    ).not.toBe(same);
+    expect(await contentsSha256([{ uri: item.uri, mimeType: item.mimeType, blob: "b25l" }])).not.toBe(same);
     expect(await contentsSha256([item, item])).not.toBe(same);
     expect(await contentsSha256([])).toMatch(/^[0-9a-f]{64}$/);
   });
@@ -189,12 +180,7 @@ describe("a read the Legacy server asks a question during", () => {
     asks: { message: "Who is reading?" },
   };
 
-  const read = (
-    server: FakeServer,
-    ctx: McpCallContext,
-    answer: McpInputAnswer,
-    asked: Array<string> = [],
-  ) =>
+  const read = (server: FakeServer, ctx: McpCallContext, answer: McpInputAnswer, asked: Array<string> = []) =>
     run(
       Effect.gen(function* () {
         const connection = yield* connect(TARGET, {
@@ -202,9 +188,7 @@ describe("a read the Legacy server asks a question during", () => {
           capabilities: () => ({ elicitation: { form: {} } }),
           onInput: (request) =>
             Effect.sync(() => {
-              asked.push(
-                Predicate.isString(request.params["message"]) ? request.params["message"] : "",
-              );
+              asked.push(Predicate.isString(request.params["message"]) ? request.params["message"] : "");
 
               return answer;
             }),
@@ -218,12 +202,7 @@ describe("a read the Legacy server asks a question during", () => {
     const asked: Array<string> = [];
     const server = legacyStatefulServer({ resources: [WHO] });
 
-    const outcome = await read(
-      server,
-      ASKING,
-      { kind: "answered", result: { action: "accept", content: {} } },
-      asked,
-    );
+    const outcome = await read(server, ASKING, { kind: "answered", result: { action: "accept", content: {} } }, asked);
 
     expect(asked).toEqual(["Who is reading?"]);
     expect(outcome).toEqual({
@@ -245,12 +224,7 @@ describe("a read the Legacy server asks a question during", () => {
     const asked: Array<string> = [];
     const server = legacyStatefulServer({ resources: [WHO] });
 
-    const outcome = await read(
-      server,
-      AGENT,
-      { kind: "answered", result: { action: "accept", content: {} } },
-      asked,
-    );
+    const outcome = await read(server, AGENT, { kind: "answered", result: { action: "accept", content: {} } }, asked);
 
     expect(asked).toEqual([]);
     expect(outcome).toEqual({

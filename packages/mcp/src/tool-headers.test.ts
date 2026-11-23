@@ -29,18 +29,14 @@ describe("xMcpHeaderProblems", () => {
     expect(xMcpHeaderProblems(objectWith({ a: { type: "string", "x-mcp-header": "" } }))).toEqual([
       "a: x-mcp-header must be a non-empty string",
     ]);
-    expect(
-      xMcpHeaderProblems(objectWith({ a: { type: "string", "x-mcp-header": "Bad Header" } })),
-    ).toEqual(["a: x-mcp-header 'Bad Header' is not an HTTP token"]);
+    expect(xMcpHeaderProblems(objectWith({ a: { type: "string", "x-mcp-header": "Bad Header" } }))).toEqual([
+      "a: x-mcp-header 'Bad Header' is not an HTTP token",
+    ]);
   });
 
   it("refuses a declaration on anything but a string, integer or boolean (number included)", () => {
-    expect(
-      xMcpHeaderProblems(objectWith({ a: { type: "number", "x-mcp-header": "A" } })),
-    ).toHaveLength(1);
-    expect(
-      xMcpHeaderProblems(objectWith({ a: { type: "object", "x-mcp-header": "A" } })),
-    ).toHaveLength(1);
+    expect(xMcpHeaderProblems(objectWith({ a: { type: "number", "x-mcp-header": "A" } }))).toHaveLength(1);
+    expect(xMcpHeaderProblems(objectWith({ a: { type: "object", "x-mcp-header": "A" } }))).toHaveLength(1);
     expect(xMcpHeaderProblems(objectWith({ a: { "x-mcp-header": "A" } }))).toEqual([
       "a: x-mcp-header is only allowed on a string, integer or boolean (got none)",
     ]);
@@ -58,18 +54,14 @@ describe("xMcpHeaderProblems", () => {
   });
 
   it("refuses a declaration at the root, or under a keyword a properties chain never passes through", () => {
-    expect(xMcpHeaderProblems(JSON.parse('{"type":"string","x-mcp-header":"Root"}'))).toHaveLength(
-      1,
-    );
+    expect(xMcpHeaderProblems(JSON.parse('{"type":"string","x-mcp-header":"Root"}'))).toHaveLength(1);
     expect(
       xMcpHeaderProblems(
         objectWith({
           list: { type: "array", items: { type: "string", "x-mcp-header": "Item" } },
         }),
       ),
-    ).toEqual([
-      "list.<items>: x-mcp-header is only allowed on a property reached through 'properties' alone",
-    ]);
+    ).toEqual(["list.<items>: x-mcp-header is only allowed on a property reached through 'properties' alone"]);
     expect(
       xMcpHeaderProblems(
         JSON.parse(
@@ -92,9 +84,11 @@ describe("xMcpHeaders", () => {
   });
 
   it("mirrors each declared argument in an Mcp-Param header, leaving the others out", () => {
-    expect(
-      xMcpHeaders(schema, { region: "eu", nested: { count: 3 }, dry: false, note: "x" }),
-    ).toEqual({ "Mcp-Param-Region": "eu", "Mcp-Param-Count": "3", "Mcp-Param-Dry-Run": "false" });
+    expect(xMcpHeaders(schema, { region: "eu", nested: { count: 3 }, dry: false, note: "x" })).toEqual({
+      "Mcp-Param-Region": "eu",
+      "Mcp-Param-Count": "3",
+      "Mcp-Param-Dry-Run": "false",
+    });
   });
 
   it("omits an argument that is absent, null, or not a string, boolean or safe integer", () => {

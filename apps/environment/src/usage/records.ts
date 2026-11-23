@@ -71,21 +71,42 @@ const DATED = /^-(?:\d{8}|\d{4}-\d{2}-\d{2})$/;
  * `gpt-5`). Undefined when the endpoint lists neither.
  */
 export const listedModelOf = (models: ReadonlyArray<EndpointModel>, modelId: string): EndpointModel | undefined =>
-  models.find((model) => model.id === modelId) ?? models.find((model) => modelId.startsWith(model.id) && DATED.test(modelId.slice(model.id.length)));
+  models.find((model) => model.id === modelId) ??
+  models.find((model) => modelId.startsWith(model.id) && DATED.test(modelId.slice(model.id.length)));
 
 /** What the tokens cost at the model's prices (dollars per million tokens), or null when it has none. */
 export const costAt = (cost: EndpointModelCost | undefined, entry: UsageTokens): number | null => {
   if (cost === undefined) return null;
-  const total = (entry.input * cost.input + entry.cacheRead * cost.cacheRead + entry.cacheWrite * cost.cacheWrite + entry.output * cost.output) / 1_000_000;
+  const total =
+    (entry.input * cost.input +
+      entry.cacheRead * cost.cacheRead +
+      entry.cacheWrite * cost.cacheWrite +
+      entry.output * cost.output) /
+    1_000_000;
   return Number.isFinite(total) && total > 0 ? total : null;
 };
 
 /** Each count's column. */
-const COLUMN: { readonly [K in keyof UsageTokens]: string } = { input: "input", cacheRead: "cache_read", cacheWrite: "cache_write", output: "output", reasoning: "reasoning" };
+const COLUMN: { readonly [K in keyof UsageTokens]: string } = {
+  input: "input",
+  cacheRead: "cache_read",
+  cacheWrite: "cache_write",
+  output: "output",
+  reasoning: "reasoning",
+};
 const COUNTS = Object.keys(COLUMN) as ReadonlyArray<keyof UsageTokens>;
 const COUNT_COLUMNS = COUNTS.map((field) => COLUMN[field]);
 
-type Row = { slot: number; agent: string; endpoint: string; model: string; session: string; priced: number; requests: number; cost_usd: number } & Record<string, number>;
+type Row = {
+  slot: number;
+  agent: string;
+  endpoint: string;
+  model: string;
+  session: string;
+  priced: number;
+  requests: number;
+  cost_usd: number;
+} & Record<string, number>;
 
 let ready = new WeakSet<SqlStorage>();
 
@@ -113,7 +134,11 @@ export const usageStore = (sql: SqlStorage, options: { readonly maxRows?: number
     prunedAt = now;
     sql.exec("DELETE FROM t3flare_usage WHERE slot < ?", now - USAGE_RETENTION_MS);
     const rows = Number(sql.exec("SELECT COUNT(*) AS n FROM t3flare_usage").toArray()[0]?.n ?? 0);
-    if (rows > maxRows) sql.exec("DELETE FROM t3flare_usage WHERE rowid IN (SELECT rowid FROM t3flare_usage ORDER BY slot LIMIT ?)", rows - maxRows);
+    if (rows > maxRows)
+      sql.exec(
+        "DELETE FROM t3flare_usage WHERE rowid IN (SELECT rowid FROM t3flare_usage ORDER BY slot LIMIT ?)",
+        rows - maxRows,
+      );
   };
   return {
     record(entries, endpoints, now) {
@@ -122,7 +147,10 @@ export const usageStore = (sql: SqlStorage, options: { readonly maxRows?: number
       for (const raw of entries) {
         const entry = usageEntryOf(raw);
         if (entry === undefined || entry.at < now - USAGE_RETENTION_MS || entry.at > now + FUTURE_SLACK_MS) continue;
-        const listed = listedModelOf(endpoints.endpoints.find((endpoint) => endpoint.id === entry.endpointId)?.models ?? [], entry.modelId);
+        const listed = listedModelOf(
+          endpoints.endpoints.find((endpoint) => endpoint.id === entry.endpointId)?.models ?? [],
+          entry.modelId,
+        );
         const cost = entry.costUsd ?? costAt(listed?.cost, entry);
         sql.exec(
           `INSERT INTO t3flare_usage (slot, agent, endpoint, model, session, priced, requests, ${COUNT_COLUMNS.join(", ")}, cost_usd)
@@ -189,9 +217,15 @@ export const usageRecordOfRow = (row: StoredUsage): UsageRecord => ({
 });
 
 /** What the `recordUsage` RPC keeps (`EnvironmentDO.recordUsage`): at most `MAX_USAGE_ENTRIES` valid entries, the rest dropped. */
-export const acceptUsage = (input: unknown, deps: { readonly store: UsageStore; readonly endpoints: ModelEndpoints; readonly now: () => number }): { readonly kept: number } => {
-  const raw = typeof input === "object" && input !== null ? (input as { readonly entries?: unknown }).entries : undefined;
-  const entries = (Array.isArray(raw) ? raw.slice(0, MAX_USAGE_ENTRIES) : []).flatMap((value: unknown) => usageEntryOf(value) ?? []);
+export const acceptUsage = (
+  input: unknown,
+  deps: { readonly store: UsageStore; readonly endpoints: ModelEndpoints; readonly now: () => number },
+): { readonly kept: number } => {
+  const raw =
+    typeof input === "object" && input !== null ? (input as { readonly entries?: unknown }).entries : undefined;
+  const entries = (Array.isArray(raw) ? raw.slice(0, MAX_USAGE_ENTRIES) : []).flatMap(
+    (value: unknown) => usageEntryOf(value) ?? [],
+  );
   if (entries.length === 0) return { kept: 0 };
   return { kept: deps.store.record(entries, deps.endpoints, deps.now()) };
 };

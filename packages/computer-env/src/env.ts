@@ -111,11 +111,7 @@ export class ComputerExecutionEnv implements ExecutionEnv {
    *   `cleanup()` kills them all.
    * @param backend The backend commands run on; undefined for the Workspace's default.
    */
-  constructor(
-    options: ComputerExecutionEnvOptions,
-    running = new Set<string>(),
-    backend?: BackendTarget,
-  ) {
+  constructor(options: ComputerExecutionEnvOptions, running = new Set<string>(), backend?: BackendTarget) {
     this.id = options.id;
     this.cwd = options.cwd;
     this.#options = options;
@@ -132,11 +128,7 @@ export class ComputerExecutionEnv implements ExecutionEnv {
    * time of the call, and its running commands, which this environment's `cleanup()` kills.
    */
   onBackend(backend: ComputerBackend): ComputerExecutionEnv {
-    return new ComputerExecutionEnv(
-      { ...this.#options, cwd: this.cwd },
-      this.#running,
-      BACKENDS[backend],
-    );
+    return new ComputerExecutionEnv({ ...this.#options, cwd: this.cwd }, this.#running, BACKENDS[backend]);
   }
 
   #resolve(path: string): string {
@@ -144,10 +136,7 @@ export class ComputerExecutionEnv implements ExecutionEnv {
   }
 
   /** For each path (resolved against `cwd`), whether it is a Container-only path for the Container's current launch. */
-  async containerOnly(
-    paths: readonly string[],
-    context: Context,
-  ): Promise<Result<readonly boolean[], FileError>> {
+  async containerOnly(paths: readonly string[], context: Context): Promise<Result<readonly boolean[], FileError>> {
     if (paths.length === 0) return ok([]);
 
     return this.#call(
@@ -171,10 +160,7 @@ export class ComputerExecutionEnv implements ExecutionEnv {
     return bytes.ok ? ok(decoder.decode(bytes.value)) : bytes;
   }
 
-  async openTextLineReader(
-    path: string,
-    context: Context,
-  ): Promise<Result<TextLineReader, FileError>> {
+  async openTextLineReader(path: string, context: Context): Promise<Result<TextLineReader, FileError>> {
     const reader = await this.openBinaryReader(path, undefined, context);
 
     return reader.ok ? ok(new ComputerTextLineReader(reader.value, this.#resolve(path))) : reader;
@@ -221,38 +207,22 @@ export class ComputerExecutionEnv implements ExecutionEnv {
     const resolved = this.#resolve(path);
     const opened = await this.#call(context, "openReader", resolved, options?.noFollow === true);
 
-    return opened.ok
-      ? ok(new ComputerBinaryReader(this.#call, opened.value.handle, resolved))
-      : opened;
+    return opened.ok ? ok(new ComputerBinaryReader(this.#call, opened.value.handle, resolved)) : opened;
   }
 
-  writeFile(
-    path: string,
-    content: string | Uint8Array,
-    context: Context,
-  ): Promise<Result<void, FileError>> {
+  writeFile(path: string, content: string | Uint8Array, context: Context): Promise<Result<void, FileError>> {
     return this.#void(this.#call(context, "writeFile", this.#resolve(path), content, false));
   }
 
-  appendFile(
-    path: string,
-    content: string | Uint8Array,
-    context: Context,
-  ): Promise<Result<void, FileError>> {
+  appendFile(path: string, content: string | Uint8Array, context: Context): Promise<Result<void, FileError>> {
     return this.#void(this.#call(context, "writeFile", this.#resolve(path), content, true));
   }
 
-  async truncateFile(
-    path: string,
-    size: number,
-    context: Context,
-  ): Promise<Result<void, FileError>> {
+  async truncateFile(path: string, size: number, context: Context): Promise<Result<void, FileError>> {
     const resolved = this.#resolve(path);
 
     if (!Number.isSafeInteger(size) || size < 0) {
-      return err(
-        new FileError("invalid", "File size must be a non-negative safe integer", resolved),
-      );
+      return err(new FileError("invalid", "File size must be a non-negative safe integer", resolved));
     }
 
     return this.#void(this.#call(context, "truncate", resolved, size));
@@ -262,14 +232,8 @@ export class ComputerExecutionEnv implements ExecutionEnv {
     return this.#void(this.#call(context, "flush", this.#resolve(path)));
   }
 
-  renameFile(
-    sourcePath: string,
-    destinationPath: string,
-    context: Context,
-  ): Promise<Result<void, FileError>> {
-    return this.#void(
-      this.#call(context, "rename", this.#resolve(sourcePath), this.#resolve(destinationPath)),
-    );
+  renameFile(sourcePath: string, destinationPath: string, context: Context): Promise<Result<void, FileError>> {
+    return this.#void(this.#call(context, "rename", this.#resolve(sourcePath), this.#resolve(destinationPath)));
   }
 
   fileInfo(path: string, context: Context): Promise<Result<FileInfo, FileError>> {
@@ -338,9 +302,7 @@ export class ComputerExecutionEnv implements ExecutionEnv {
     options: { recursive?: boolean } | undefined,
     context: Context,
   ): Promise<Result<void, FileError>> {
-    return this.#void(
-      this.#call(context, "createDir", this.#resolve(path), options?.recursive ?? true),
-    );
+    return this.#void(this.#call(context, "createDir", this.#resolve(path), options?.recursive ?? true));
   }
 
   remove(
@@ -349,13 +311,7 @@ export class ComputerExecutionEnv implements ExecutionEnv {
     context: Context,
   ): Promise<Result<void, FileError>> {
     return this.#void(
-      this.#call(
-        context,
-        "remove",
-        this.#resolve(path),
-        options?.recursive ?? false,
-        options?.force ?? false,
-      ),
+      this.#call(context, "remove", this.#resolve(path), options?.recursive ?? false, options?.force ?? false),
     );
   }
 
@@ -440,10 +396,7 @@ export class ComputerExecutionEnv implements ExecutionEnv {
    * The project instructions for the files of `directory` (absolute), found by the Workspace DO next to the files: one
    * RPC call however deep the directory is (the extensions package's `InstructionSource`).
    */
-  async discoverInstructions(
-    directory: string,
-    context: Context,
-  ): Promise<ReadonlyArray<WireInstructionFile>> {
+  async discoverInstructions(directory: string, context: Context): Promise<ReadonlyArray<WireInstructionFile>> {
     if (context.abortSignal?.aborted === true) throw new Error("aborted");
 
     // SAFETY: the Workspace DO answers `instructions` with the array of plain data it found; a stub's RPC types only

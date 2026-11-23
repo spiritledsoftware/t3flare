@@ -11,23 +11,24 @@ import { bindEnvironmentServices, type EnvironmentServices } from "../src/agents
 import { spawn } from "../src/agents/processRouter.ts";
 import type { WorkspaceRecord } from "../src/agents/workspaces.ts";
 
-const workspace = (owner: string, name: string): WorkspaceRecord => ({
-  id: name,
-  host: "github.com",
-  owner,
-  name,
-  cloneUrl: `https://github.com/${owner}/${name}.git`,
-  createdAt: 0,
-  state: "ready",
-  workflows: false,
-  kind: "project",
-  parent: null,
-  branch: null,
-  unreferencedSince: null,
-  deletedAt: null,
-  purgeAfter: null,
-  lastError: null,
-} as unknown as WorkspaceRecord);
+const workspace = (owner: string, name: string): WorkspaceRecord =>
+  ({
+    id: name,
+    host: "github.com",
+    owner,
+    name,
+    cloneUrl: `https://github.com/${owner}/${name}.git`,
+    createdAt: 0,
+    state: "ready",
+    workflows: false,
+    kind: "project",
+    parent: null,
+    branch: null,
+    unreferencedSince: null,
+    deletedAt: null,
+    purgeAfter: null,
+    lastError: null,
+  }) as unknown as WorkspaceRecord;
 
 /** The Environment's services with these Workspaces and no live GitHub token. */
 const bindWorkspaces = (records: ReadonlyArray<WorkspaceRecord>) =>
@@ -42,7 +43,11 @@ const runGh = (args: ReadonlyArray<string>) =>
     Effect.gen(function* () {
       const handle = yield* spawn(ChildProcess.make("gh", [...args]) as ChildProcess.Command);
       const text = <E>(stream: Stream.Stream<Uint8Array, E>) =>
-        Stream.runFold(stream, () => "", (acc, bytes) => acc + new TextDecoder().decode(bytes));
+        Stream.runFold(
+          stream,
+          () => "",
+          (acc, bytes) => acc + new TextDecoder().decode(bytes),
+        );
       const stdout = yield* text(handle.stdout);
       const stderr = yield* text(handle.stderr);
       const exitCode = yield* handle.exitCode;

@@ -43,7 +43,9 @@ const STAGE_NAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 
 /** Why `stage` cannot name a Stage, or undefined when it can. `prod` and `bump` are names like any other here. */
 export const stageNameProblem = (stage: string): string | undefined => {
-  if (!STAGE_NAME.test(stage)) return `the Stage name "${stage}" must be lowercase letters, digits and dashes, starting and ending with a letter or digit`;
-  if (stage.length > MAX_STAGE_NAME_LENGTH) return `the Stage name "${stage}" is ${stage.length} characters; at most ${MAX_STAGE_NAME_LENGTH} fit Cloudflare's limits on its Worker names`;
+  if (!STAGE_NAME.test(stage))
+    return `the Stage name "${stage}" must be lowercase letters, digits and dashes, starting and ending with a letter or digit`;
+  if (stage.length > MAX_STAGE_NAME_LENGTH)
+    return `the Stage name "${stage}" is ${stage.length} characters; at most ${MAX_STAGE_NAME_LENGTH} fit Cloudflare's limits on its Worker names`;
   return undefined;
 };

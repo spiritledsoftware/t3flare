@@ -11,7 +11,8 @@ export const CLAUDE_AUTHORIZE_URL = "https://claude.ai/oauth/authorize";
 export const CLAUDE_TOKEN_URL = "https://platform.claude.com/v1/oauth/token";
 /** Anthropic's page that shows the code to copy (`code#state`), for the copy-code flow. */
 export const CLAUDE_REDIRECT_URI = "https://platform.claude.com/oauth/code/callback";
-export const CLAUDE_SCOPES = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
+export const CLAUDE_SCOPES =
+  "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
 /** The scope a Claude sign-in needs for model requests. */
 export const CLAUDE_INFERENCE_SCOPE = "user:inference";
 

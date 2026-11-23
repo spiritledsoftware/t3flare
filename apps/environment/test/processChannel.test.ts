@@ -2,7 +2,13 @@
 // starts and refusals, ordered gap-free input that is retried but never skipped, output delivered in order with
 // duplicates dropped, backpressure on stdout, stderr that cannot stall it, and the epoch (review F6).
 // @effect-diagnostics globalTimers:off
-import type { ProcessAnswer, ProcessFrame, ProcessInputAnswer, ProcessStartAnswer, ProcessStartInput } from "@t3flare/workspace-client";
+import type {
+  ProcessAnswer,
+  ProcessFrame,
+  ProcessInputAnswer,
+  ProcessStartAnswer,
+  ProcessStartInput,
+} from "@t3flare/workspace-client";
 import { describe, expect, it, vi } from "vitest";
 
 import { ByteQueue, ProcessChannel, ProcessRefused, type ProcessRemote } from "../src/agents/processChannel.ts";
@@ -11,7 +17,9 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const tick = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const fakeWorkspace = (options: { start?: ProcessStartAnswer; loseAnswers?: number; inputAnswer?: ProcessInputAnswer["accepted"] } = {}) => {
+const fakeWorkspace = (
+  options: { start?: ProcessStartAnswer; loseAnswers?: number; inputAnswer?: ProcessInputAnswer["accepted"] } = {},
+) => {
   const starts: Array<ProcessStartInput> = [];
   const inputs: Array<{ key: string; seq: number; data: string | null }> = [];
   const signals: Array<string> = [];
@@ -53,19 +61,35 @@ const fakeWorkspace = (options: { start?: ProcessStartAnswer; loseAnswers?: numb
       return { ...answer(), batch: 0, frames: [] };
     },
   };
-  return { remote, starts, inputs, signals, turns, reads, script: (...answers: typeof scripted) => void scripted.push(...answers), restart: () => void (epoch += 1) };
+  return {
+    remote,
+    starts,
+    inputs,
+    signals,
+    turns,
+    reads,
+    script: (...answers: typeof scripted) => void scripted.push(...answers),
+    restart: () => void (epoch += 1),
+  };
 };
 
 const channel = (workspace: ReturnType<typeof fakeWorkspace>) => {
   let n = 0;
   return new ProcessChannel({
     environmentEpoch: 12,
-    place: (cwd) => (cwd.startsWith("/w/demo") ? { workspace: "demo", t3Path: "/w/demo", remote: workspace.remote } : undefined),
+    place: (cwd) =>
+      cwd.startsWith("/w/demo") ? { workspace: "demo", t3Path: "/w/demo", remote: workspace.remote } : undefined,
     newKey: () => `proc-${++n}`,
   });
 };
 
-const start = { cli: "codex" as const, cwd: "/w/demo", argv: ["/opt/t3flare/bin/codex", "app-server"], env: {}, thread: "t1" };
+const start = {
+  cli: "codex" as const,
+  cwd: "/w/demo",
+  argv: ["/opt/t3flare/bin/codex", "app-server"],
+  env: {},
+  thread: "t1",
+};
 const readAll = async (queue: ByteQueue) => {
   let text = "";
   for await (const chunk of queue) text += decoder.decode(chunk, { stream: true });
@@ -77,7 +101,13 @@ describe("ProcessChannel", () => {
     const ws = fakeWorkspace();
     const ch = channel(ws);
     const process = await ch.start(start);
-    expect(ws.starts[0]).toMatchObject({ key: "proc-1", environmentEpoch: 12, t3Path: "/w/demo", cwd: "/w/demo", thread: "t1" });
+    expect(ws.starts[0]).toMatchObject({
+      key: "proc-1",
+      environmentEpoch: 12,
+      t3Path: "/w/demo",
+      cwd: "/w/demo",
+      thread: "t1",
+    });
     expect(process.pid).toBeGreaterThan(1);
     await expect(ch.start({ ...start, cwd: "/t3/scratch" })).rejects.toThrow(/start the thread in a project/);
     expect(ws.starts).toHaveLength(1);
@@ -86,7 +116,15 @@ describe("ProcessChannel", () => {
   it("carries the Environment's CLI agents' processes per Workspace and reclaim delay, read at each start (SPI-1318)", async () => {
     const ws = fakeWorkspace();
     let limits = { cliProcessesPerWorkspace: 4, cliReclaimSeconds: 30 };
-    const ch = new ProcessChannel({ environmentEpoch: 12, place: () => ({ workspace: "demo", t3Path: "/w/demo", remote: ws.remote }), newKey: (() => { let n = 0; return () => `proc-${++n}`; })(), cliLimits: () => limits });
+    const ch = new ProcessChannel({
+      environmentEpoch: 12,
+      place: () => ({ workspace: "demo", t3Path: "/w/demo", remote: ws.remote }),
+      newKey: (() => {
+        let n = 0;
+        return () => `proc-${++n}`;
+      })(),
+      cliLimits: () => limits,
+    });
     await ch.start(start);
     limits = { cliProcessesPerWorkspace: 9, cliReclaimSeconds: 0 };
     await ch.start(start);
@@ -98,18 +136,34 @@ describe("ProcessChannel", () => {
 
   it("asks its Workspace for its last model relay failure by its key; none on an error or an older Workspace (SPI-1172)", async () => {
     const ws = fakeWorkspace();
-    const record = { endpointId: "e", class: "usage_limit" as const, code: "usage_limit", message: "m", retryable: true, stop: true, at: 1 };
+    const record = {
+      endpointId: "e",
+      class: "usage_limit" as const,
+      code: "usage_limit",
+      message: "m",
+      retryable: true,
+      stop: true,
+      at: 1,
+    };
     const asked: Array<string> = [];
-    const process = await channel({ ...ws, remote: { ...ws.remote, processModelFailure: async (key) => (asked.push(key), record) } }).start(start);
+    const process = await channel({
+      ...ws,
+      remote: { ...ws.remote, processModelFailure: async (key) => (asked.push(key), record) },
+    }).start(start);
     expect(await process.modelFailure()).toEqual(record);
     expect(asked).toEqual(["proc-1"]);
-    const failing = await channel({ ...ws, remote: { ...ws.remote, processModelFailure: async () => Promise.reject(new Error("rpc")) } }).start(start);
+    const failing = await channel({
+      ...ws,
+      remote: { ...ws.remote, processModelFailure: async () => Promise.reject(new Error("rpc")) },
+    }).start(start);
     expect(await failing.modelFailure()).toBeNull();
     expect(await (await channel(ws).start(start)).modelFailure()).toBeNull();
   });
 
   it("fails the start with the Workspace's reason (the budget's)", async () => {
-    const ws = fakeWorkspace({ start: { ok: false, epoch: 5, reason: "the Container cannot start: 3 Containers are running" } });
+    const ws = fakeWorkspace({
+      start: { ok: false, epoch: 5, reason: "the Container cannot start: 3 Containers are running" },
+    });
     await expect(channel(ws).start(start)).rejects.toThrow(ProcessRefused);
   });
 
@@ -138,8 +192,16 @@ describe("ProcessChannel", () => {
 
   it("reads frames in order, drops duplicates, acknowledges each batch, and ends with the exit code", async () => {
     const ws = fakeWorkspace();
-    const frame = (seq: number, text: string) => ({ key: "proc-1", seq, stream: "stdout" as const, data: encoder.encode(text) });
-    ws.script({ batch: 1, frames: [frame(0, "a"), frame(1, "b")] }, { batch: 2, frames: [frame(1, "b"), frame(2, "c"), { key: "proc-1", seq: 3, stream: "exit", code: 3 }] });
+    const frame = (seq: number, text: string) => ({
+      key: "proc-1",
+      seq,
+      stream: "stdout" as const,
+      data: encoder.encode(text),
+    });
+    ws.script(
+      { batch: 1, frames: [frame(0, "a"), frame(1, "b")] },
+      { batch: 2, frames: [frame(1, "b"), frame(2, "c"), { key: "proc-1", seq: 3, stream: "exit", code: 3 }] },
+    );
     const process = await channel(ws).start(start);
     expect(await readAll(process.stdout)).toBe("abc");
     expect(await process.exit).toBe(3);

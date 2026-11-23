@@ -41,14 +41,25 @@ describe("pi's argument substitution", () => {
       const all = args.join(" ");
       return content.replace(
         /\$\{(\d+|ARGUMENTS|@):-([^}]*)\}|\$\{@:(\d+)(?::(\d+))?\}|\$(ARGUMENTS|@|\d+)/g,
-        (_match, target: string | undefined, fallback: string | undefined, sliceStart: string | undefined, sliceLength: string | undefined, simple: string | undefined) => {
+        (
+          _match,
+          target: string | undefined,
+          fallback: string | undefined,
+          sliceStart: string | undefined,
+          sliceLength: string | undefined,
+          simple: string | undefined,
+        ) => {
           if (target !== undefined) {
             const value = target === "@" || target === "ARGUMENTS" ? all : args[Number.parseInt(target, 10) - 1];
             return value === undefined || value === "" ? (fallback ?? "") : value;
           }
           if (sliceStart !== undefined) {
             const start = Math.max(Number.parseInt(sliceStart, 10) - 1, 0);
-            return (sliceLength === undefined ? args.slice(start) : args.slice(start, start + Number.parseInt(sliceLength, 10))).join(" ");
+            return (
+              sliceLength === undefined
+                ? args.slice(start)
+                : args.slice(start, start + Number.parseInt(sliceLength, 10))
+            ).join(" ");
           }
           if (simple === "ARGUMENTS" || simple === "@") return all;
           return args[Number.parseInt(simple ?? "0", 10) - 1] ?? "";
@@ -80,7 +91,9 @@ describe("argument quoting", () => {
   });
 
   it("expands a leading /template with quoted arguments", () => {
-    expect(expandTemplate(`/echo "two words" x`, [{ name: "echo", content: "ECHO $1 ${2:-none}" }])).toBe("ECHO two words x");
+    expect(expandTemplate(`/echo "two words" x`, [{ name: "echo", content: "ECHO $1 ${2:-none}" }])).toBe(
+      "ECHO two words x",
+    );
     expect(expandTemplate("/other a", [{ name: "echo", content: "x" }])).toBeUndefined();
     expect(expandTemplate("say /echo a", [{ name: "echo", content: "x" }])).toBeUndefined();
   });
@@ -88,7 +101,12 @@ describe("argument quoting", () => {
 
 describe("a template's file", () => {
   it("reads description and argument-hint from the frontmatter, and the body without it", () => {
-    expect(parseTemplate("/r/.pi/prompts/review.md", "---\ndescription: Review a file\nargument-hint: <file> [focus]\n---\nReview $1.\n")).toEqual({
+    expect(
+      parseTemplate(
+        "/r/.pi/prompts/review.md",
+        "---\ndescription: Review a file\nargument-hint: <file> [focus]\n---\nReview $1.\n",
+      ),
+    ).toEqual({
       name: "review",
       description: "Review a file",
       argumentHint: "<file> [focus]",
@@ -98,7 +116,9 @@ describe("a template's file", () => {
   });
 
   it("falls back to the body's first line, cut to 60 characters, for a description", () => {
-    expect(parseTemplate("/r/a.md", "\nReply with exactly: ECHO $1\n")?.description).toBe("Reply with exactly: ECHO $1");
+    expect(parseTemplate("/r/a.md", "\nReply with exactly: ECHO $1\n")?.description).toBe(
+      "Reply with exactly: ECHO $1",
+    );
     expect(parseTemplate("/r/a.md", `${"y".repeat(70)}\n`)?.description).toBe(`${"y".repeat(60)}...`);
   });
 
@@ -145,11 +165,17 @@ describe("Prompt templates' discovery", () => {
       [`${ROOT}/.opencode/commands/a.md`]: "second",
       [`${ROOT}/.opencode/commands/sub/b.md`]: "not nested",
     });
-    expect((await discoverPrompts(files, ROOT, [{ directory: ".claude/commands", nested: true }])).map((template) => template.name)).toEqual(["sub:x", "top"]);
+    expect(
+      (await discoverPrompts(files, ROOT, [{ directory: ".claude/commands", nested: true }])).map(
+        (template) => template.name,
+      ),
+    ).toEqual(["sub:x", "top"]);
     const opencode = await discoverPrompts(files, ROOT, [
       { directory: ".opencode/command", nested: false },
       { directory: ".opencode/commands", nested: false },
     ]);
-    expect(opencode.map((template) => [template.name, template.filePath])).toEqual([["a", `${ROOT}/.opencode/command/a.md`]]);
+    expect(opencode.map((template) => [template.name, template.filePath])).toEqual([
+      ["a", `${ROOT}/.opencode/command/a.md`],
+    ]);
   });
 });

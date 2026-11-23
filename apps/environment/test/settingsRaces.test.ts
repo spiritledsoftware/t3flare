@@ -10,8 +10,21 @@ import { applyMcpChange } from "@t3flare/harness-registry";
 import type { McpAsker } from "@t3flare/session-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { EARLY_STOP_MS, EARLY_STOPS_MAX, forgetEarlyStopsForTests, stopCall, stoppableCall, withCallStop } from "../src/mcp/callStops.ts";
-import { answerOpenChange, APPLYING_WAIT_MS, closeOrSettle, OWN_APPLYING_WAIT_MS, waitingOn } from "../src/settings/openChanges.ts";
+import {
+  EARLY_STOP_MS,
+  EARLY_STOPS_MAX,
+  forgetEarlyStopsForTests,
+  stopCall,
+  stoppableCall,
+  withCallStop,
+} from "../src/mcp/callStops.ts";
+import {
+  answerOpenChange,
+  APPLYING_WAIT_MS,
+  closeOrSettle,
+  OWN_APPLYING_WAIT_MS,
+  waitingOn,
+} from "../src/settings/openChanges.ts";
 import { REQUEST_BUDGET_MS } from "../src/skills/api.ts";
 import { answerDepsOf, ownerOutcome } from "../src/settings/server.ts";
 import { ASKED, bodyOf, endpointOf, modern, setAccess, structuredOf, SUB } from "./settingsEndpointFixture.ts";
@@ -36,7 +49,11 @@ const approveOnPage = (f: SettingsFixture, id: string) => {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => (release = resolve));
   const deps = { ...answerDepsOf(f.deps), apply: async () => (await gate, { ok: true as const, revision: 7 }) };
-  const pending = answerOpenChange(deps, id, { by: "page", answerer: { kind: "owner", subject: "owner-sub" }, action: "approve" });
+  const pending = answerOpenChange(deps, id, {
+    by: "page",
+    answerer: { kind: "owner", subject: "owner-sub" },
+    action: "approve",
+  });
   expect(f.deps.changes.get(id)?.state).toBe("applying");
   return { pending, release };
 };
@@ -58,7 +75,9 @@ describe("an answer applying meanwhile is waited for", () => {
     await until(() => f.cards.length === 1);
     const [record] = f.deps.changes.open();
     const { pending: applying, release } = approveOnPage(f, record!.id);
-    expect(await releasedAfter(closeOrSettle(answerDepsOf(f.deps), record!.id, "withdrawn", "stop"), release, record!.id)).toMatchObject({ state: "applied", by: "page", revision: 7 });
+    expect(
+      await releasedAfter(closeOrSettle(answerDepsOf(f.deps), record!.id, "withdrawn", "stop"), release, record!.id),
+    ).toMatchObject({ state: "applied", by: "page", revision: 7 });
     await applying;
     // Forced to applying with nothing to finish it: the wait is bounded.
     const other = { ...record!, id: `${record!.id.slice(0, -1)}X`, hash: "other", state: "applying" as const };
@@ -71,7 +90,11 @@ describe("an answer applying meanwhile is waited for", () => {
     expect(gaveUp).toMatchObject({ state: "applying" });
     // That is an outcome not known yet, never "the change failed" (SPI-1201 review).
     const answer = ownerOutcome(gaveUp!, other);
-    expect(answer).toMatchObject({ kind: "result", isError: false, structured: { status: "waiting", changeId: other.id } });
+    expect(answer).toMatchObject({
+      kind: "result",
+      isError: false,
+      structured: { status: "waiting", changeId: other.id },
+    });
     expect(answer.kind === "result" ? answer.text : "").toContain("an answer is applying this change now");
     expect(answer.kind === "result" ? answer.text : "").not.toContain("failed");
   });
@@ -90,7 +113,10 @@ describe("an answer applying meanwhile is waited for", () => {
     const { pending: applying, release } = approveOnPage(f, record!.id);
     stop.abort();
     // The call's own card wait, and the Stop's wait for the applying answer.
-    expect(structured(await releasedAfter(pending, release, record!.id, 2))).toMatchObject({ status: "applied", revision: 7 });
+    expect(structured(await releasedAfter(pending, release, record!.id, 2))).toMatchObject({
+      status: "applied",
+      revision: 7,
+    });
     await applying;
   });
 
@@ -100,19 +126,40 @@ describe("an answer applying meanwhile is waited for", () => {
     const first = await bodyOf(await endpoint(modern("tools/call", { name: "change_environment", arguments: ASKED })));
     const [record] = f.deps.changes.open();
     const { pending: applying, release } = approveOnPage(f, record!.id);
-    const retry = modern("tools/call", { name: "change_environment", arguments: ASKED, requestState: first.result?.requestState, inputResponses: { change: { action: "decline" } } }, { id: 2 });
-    expect(await structuredOf(await releasedAfter(endpoint(retry), release, record!.id))).toMatchObject({ status: "applied", revision: 7 });
+    const retry = modern(
+      "tools/call",
+      {
+        name: "change_environment",
+        arguments: ASKED,
+        requestState: first.result?.requestState,
+        inputResponses: { change: { action: "decline" } },
+      },
+      { id: 2 },
+    );
+    expect(await structuredOf(await releasedAfter(endpoint(retry), release, record!.id))).toMatchObject({
+      status: "applied",
+      revision: 7,
+    });
     await applying;
   });
 
   it("resume's cancel while the page's approval applies answers applied", async () => {
     const f = world();
     const endpoint = endpointOf(f);
-    await endpoint(modern("tools/call", { name: "change_environment", arguments: ASKED }, { query: "?elicitation_mode=model" }));
+    await endpoint(
+      modern("tools/call", { name: "change_environment", arguments: ASKED }, { query: "?elicitation_mode=model" }),
+    );
     const [record] = f.deps.changes.open();
     const { pending: applying, release } = approveOnPage(f, record!.id);
-    const resume = modern("tools/call", { name: "resume", arguments: { requestId: record!.id, response: { action: "cancel" } } }, { query: "?elicitation_mode=model", id: 3 });
-    expect(await structuredOf(await releasedAfter(endpoint(resume), release, record!.id))).toMatchObject({ status: "applied", revision: 7 });
+    const resume = modern(
+      "tools/call",
+      { name: "resume", arguments: { requestId: record!.id, response: { action: "cancel" } } },
+      { query: "?elicitation_mode=model", id: 3 },
+    );
+    expect(await structuredOf(await releasedAfter(endpoint(resume), release, record!.id))).toMatchObject({
+      status: "applied",
+      revision: 7,
+    });
     await applying;
   });
 });
@@ -143,12 +190,25 @@ describe("the access switch on a 2026 retry (plan D2)", () => {
   ] as const)("%o: the retry is refused naming the panel, and the change stays as it was", async (access, words) => {
     const f = world();
     const endpoint = endpointOf(f);
-    const first = await bodyOf(await endpoint(modern("tools/call", { name: "change_environment", arguments: ASKED }, { query: "?elicitation_mode=native" })));
+    const first = await bodyOf(
+      await endpoint(
+        modern("tools/call", { name: "change_environment", arguments: ASKED }, { query: "?elicitation_mode=native" }),
+      ),
+    );
     const [record] = f.deps.changes.open();
     setAccess(f, access);
     const retry = await bodyOf(
       await endpoint(
-        modern("tools/call", { name: "change_environment", arguments: ASKED, requestState: first.result?.requestState, inputResponses: { change: { action: "accept" } } }, { query: "?elicitation_mode=native", id: 2 }),
+        modern(
+          "tools/call",
+          {
+            name: "change_environment",
+            arguments: ASKED,
+            requestState: first.result?.requestState,
+            inputResponses: { change: { action: "accept" } },
+          },
+          { query: "?elicitation_mode=native", id: 2 },
+        ),
       ),
     );
     expect(retry.result).toMatchObject({ isError: true, structuredContent: { status: "refused" } });
@@ -160,7 +220,10 @@ describe("the access switch on a 2026 retry (plan D2)", () => {
 });
 
 describe("a tool the owner hid after its change opened (SPI-1195 review)", () => {
-  const hide = (f: SettingsFixture, change: { readonly exposure?: "hidden"; readonly toolExposure?: Readonly<Record<string, "hidden">> }) => {
+  const hide = (
+    f: SettingsFixture,
+    change: { readonly exposure?: "hidden"; readonly toolExposure?: Readonly<Record<string, "hidden">> },
+  ) => {
     const applied = applyMcpChange(f.store.load(), { op: "server", server: "settings", ...change });
     if (!applied.ok) throw new Error(applied.error);
     f.store.save(applied.harness);
@@ -171,65 +234,105 @@ describe("a tool the owner hid after its change opened (SPI-1195 review)", () =>
   it.each([
     ["its own exposure", BY_TOOL],
     ["the server's exposure", BY_SERVER],
-  ] as const)("hidden by %s: an Owner client's 2026 accept retry is refused naming the panel, and nothing applies", async (_name, change) => {
-    const f = world();
-    const endpoint = endpointOf(f);
-    const first = await bodyOf(await endpoint(modern("tools/call", { name: "change_environment", arguments: ASKED }, { query: "?elicitation_mode=native" })));
-    const [record] = f.deps.changes.open();
-    hide(f, change);
-    const retry = await bodyOf(
-      await endpoint(
-        modern("tools/call", { name: "change_environment", arguments: ASKED, requestState: first.result?.requestState, inputResponses: { change: { action: "accept" } } }, { query: "?elicitation_mode=native", id: 2 }),
-      ),
-    );
-    expect(retry.result).toMatchObject({ isError: true, structuredContent: { status: "refused" } });
-    expect(JSON.stringify(retry.result?.content)).toContain("Settings page");
-    expect(f.deps.changes.get(record!.id)?.state).toBe("open");
-    expect(f.store.loadEnvironment().revision).toBe(0);
-  });
+  ] as const)(
+    "hidden by %s: an Owner client's 2026 accept retry is refused naming the panel, and nothing applies",
+    async (_name, change) => {
+      const f = world();
+      const endpoint = endpointOf(f);
+      const first = await bodyOf(
+        await endpoint(
+          modern("tools/call", { name: "change_environment", arguments: ASKED }, { query: "?elicitation_mode=native" }),
+        ),
+      );
+      const [record] = f.deps.changes.open();
+      hide(f, change);
+      const retry = await bodyOf(
+        await endpoint(
+          modern(
+            "tools/call",
+            {
+              name: "change_environment",
+              arguments: ASKED,
+              requestState: first.result?.requestState,
+              inputResponses: { change: { action: "accept" } },
+            },
+            { query: "?elicitation_mode=native", id: 2 },
+          ),
+        ),
+      );
+      expect(retry.result).toMatchObject({ isError: true, structuredContent: { status: "refused" } });
+      expect(JSON.stringify(retry.result?.content)).toContain("Settings page");
+      expect(f.deps.changes.get(record!.id)?.state).toBe("open");
+      expect(f.store.loadEnvironment().revision).toBe(0);
+    },
+  );
 
   it.each([
     ["its own exposure", BY_TOOL],
     ["the server's exposure", BY_SERVER],
-  ] as const)("hidden by %s: the page's approval of an Owner client's change applies nothing, naming the panel", async (_name, change) => {
-    const f = world();
-    await endpointOf(f)(modern("tools/call", { name: "change_environment", arguments: ASKED }));
-    const [record] = f.deps.changes.open();
-    hide(f, change);
-    const outcome = await answerOpenChange(answerDepsOf(f.deps), record!.id, { by: "page", answerer: { kind: "owner", subject: SUB }, action: "approve" });
-    expect(outcome).toMatchObject({ ok: true, outcome: { state: "failed", by: "page" } });
-    expect(outcome.ok ? outcome.outcome.error : "").toContain("Settings page");
-    expect(f.store.loadEnvironment().revision).toBe(0);
-  });
+  ] as const)(
+    "hidden by %s: the page's approval of an Owner client's change applies nothing, naming the panel",
+    async (_name, change) => {
+      const f = world();
+      await endpointOf(f)(modern("tools/call", { name: "change_environment", arguments: ASKED }));
+      const [record] = f.deps.changes.open();
+      hide(f, change);
+      const outcome = await answerOpenChange(answerDepsOf(f.deps), record!.id, {
+        by: "page",
+        answerer: { kind: "owner", subject: SUB },
+        action: "approve",
+      });
+      expect(outcome).toMatchObject({ ok: true, outcome: { state: "failed", by: "page" } });
+      expect(outcome.ok ? outcome.outcome.error : "").toContain("Settings page");
+      expect(f.store.loadEnvironment().revision).toBe(0);
+    },
+  );
 
   it.each([
     ["its own exposure", BY_TOOL],
     ["the server's exposure", BY_SERVER],
-  ] as const)("hidden by %s: an own agent's change approved on its card afterwards applies nothing, naming the panel", async (_name, change) => {
-    let f!: SettingsFixture;
-    f = world({
-      answer: async () => {
-        hide(f, change);
-        return { decision: "accept" };
-      },
-    });
-    const answer = await f.call(f.durable(), "change_environment", ASKED);
-    expect(structured(answer)).toMatchObject({ status: "refused" });
-    expect(textOf(answer)).toContain("Settings page");
-    expect(f.store.loadEnvironment().revision).toBe(0);
-  });
+  ] as const)(
+    "hidden by %s: an own agent's change approved on its card afterwards applies nothing, naming the panel",
+    async (_name, change) => {
+      let f!: SettingsFixture;
+      f = world({
+        answer: async () => {
+          hide(f, change);
+          return { decision: "accept" };
+        },
+      });
+      const answer = await f.call(f.durable(), "change_environment", ASKED);
+      expect(structured(answer)).toMatchObject({ status: "refused" });
+      expect(textOf(answer)).toContain("Settings page");
+      expect(f.store.loadEnvironment().revision).toBe(0);
+    },
+  );
 });
 
 describe("the call-stop registry (mcp/callStops.ts)", () => {
   const recordingHost = () => {
     const signals: Array<AbortSignal | undefined> = [];
-    return { signals, host: { call: async (input: { readonly signal?: AbortSignal }) => (signals.push(input.signal), { kind: "result" as const, isError: false, text: "ok" }) } };
+    return {
+      signals,
+      host: {
+        call: async (input: { readonly signal?: AbortSignal }) => (
+          signals.push(input.signal),
+          { kind: "result" as const, isError: false, text: "ok" }
+        ),
+      },
+    };
   };
 
   it("registers writes only", async () => {
     const { signals, host } = recordingHost();
     await stoppableCall(host)({ server: "settings", tool: "get_settings", args: {}, judged: "read", stopId: "read-1" });
-    await stoppableCall(host)({ server: "settings", tool: "change_environment", args: {}, judged: "write", stopId: "write-1" });
+    await stoppableCall(host)({
+      server: "settings",
+      tool: "change_environment",
+      args: {},
+      judged: "write",
+      stopId: "write-1",
+    });
     expect(signals[0]).toBeUndefined();
     expect(signals[1]).toBeInstanceOf(AbortSignal);
   });

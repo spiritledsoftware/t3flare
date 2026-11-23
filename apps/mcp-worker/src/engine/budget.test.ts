@@ -134,12 +134,7 @@ describe("the byte budget", () => {
   it("keeps a waiting call's bytes counted", async () => {
     const budget = makeBudget();
 
-    const [holder, growing, other, last] = [
-      budget.lease(),
-      budget.lease(),
-      budget.lease(),
-      budget.lease(),
-    ];
+    const [holder, growing, other, last] = [budget.lease(), budget.lease(), budget.lease(), budget.lease()];
 
     await holder.charge(10 * MiB);
     await growing.charge(3 * MiB);

@@ -36,7 +36,10 @@ import { readEntry } from "./tools.ts";
 export const PREPARE_ENTRY = { kind: "t3flare.context-prepare", data: { notice: "Rollover requested" } } as const;
 
 /** The entry of the input that continues the task after a Handoff. */
-export const CONTINUE_ENTRY = { kind: "t3flare.context-continue", data: { notice: "Continued after the Handoff" } } as const;
+export const CONTINUE_ENTRY = {
+  kind: "t3flare.context-continue",
+  data: { notice: "Continued after the Handoff" },
+} as const;
 
 /** The request ID prefix of Rollover requests; the suffix names the Context Window it was made in. */
 const PREPARE_REQUEST = "context-prepare:";
@@ -44,16 +47,27 @@ const PREPARE_REQUEST = "context-prepare:";
 export const PREPARE_PROMPT =
   "Prepare a Context Rollover for the current task: the context is nearly full. Update useful Notes, then call context_rollover as the only tool call of its round with an explicit Handoff containing the objective, decisions, current state, and next actions. Continue the task after the checkpoint.";
 
-export const CONTINUE_PROMPT = "The context rolled over. Continue the task from the Handoff above; read Notes and History when you need them.";
+export const CONTINUE_PROMPT =
+  "The context rolled over. Continue the task from the Handoff above; read Notes and History when you need them.";
 
-const HISTORY_HINT = "Earlier History, from before this Handoff, stays readable with context_history (windows, list, search, read).";
+const HISTORY_HINT =
+  "Earlier History, from before this Handoff, stays readable with context_history (windows, list, search, read).";
 
 /** The first message of a new context: the agent's Handoff, then the Note Index. */
 export const handoffText = (conversationId: ConversationId, handoff: string, notes: ReadonlyArray<Note>): string =>
-  ["Context Window Handoff", `Agent-written Handoff:\n\n${handoff}`, noteIndex(conversationId, notes), HISTORY_HINT].join("\n\n");
+  [
+    "Context Window Handoff",
+    `Agent-written Handoff:\n\n${handoff}`,
+    noteIndex(conversationId, notes),
+    HISTORY_HINT,
+  ].join("\n\n");
 
 /** The summary of an Emergency Rollover: the last saved Handoff, which may be stale, and the Note Index. */
-export const emergencyText = (conversationId: ConversationId, handoff: string | null, notes: ReadonlyArray<Note>): string =>
+export const emergencyText = (
+  conversationId: ConversationId,
+  handoff: string | null,
+  notes: ReadonlyArray<Note>,
+): string =>
   [
     "Context Window Handoff",
     "Emergency Rollover: the context filled up before a fresh Handoff, so the saved Handoff below may be stale or absent. Recover recent work from History before continuing.",
@@ -73,13 +87,15 @@ export const contextRolloverTool = (): ToolRegistration =>
       handoff: str({
         minLength: 1,
         maxLength: MAX_NOTE_CHARACTERS,
-        description: "What the next context needs to continue: the objective, decisions, current state, and next actions",
+        description:
+          "What the next context needs to continue: the objective, decisions, current state, and next actions",
       }),
     }),
     // Scripts cannot hand off: the Handoff ends the model's context.
     callers: ["model"],
     async execute(args, api, context) {
-      if (args.handoff.trim() === "") throw new Error(`Supply a non-empty Handoff of at most ${MAX_NOTE_CHARACTERS} characters`);
+      if (args.handoff.trim() === "")
+        throw new Error(`Supply a non-empty Handoff of at most ${MAX_NOTE_CHARACTERS} characters`);
       const task = await api.getTask(api.taskId, context);
       // SAFETY: a tool call's task is a `pi.tool` task, whose input is a `ToolTaskInput`.
       const input = task?.input as ToolTaskInput | undefined;
@@ -97,12 +113,25 @@ export const contextRolloverTool = (): ToolRegistration =>
       // pi-durable goes on with this run in the new context and places a steer queued now right after the Handoff, so the
       // next request asks the agent to continue. Never a run of its own: the run is live while this call is.
       const conversation = await api.conversation(api.conversationId, context);
-      await conversation?.submit(
-        { type: "input", content: CONTINUE_PROMPT, whenBusy: "steer", whenIdle: "reject", requestId: `context-continue:${api.taskId}`, entry: CONTINUE_ENTRY },
-        context,
-      ).catch((error: unknown) => console.warn(JSON.stringify({ t3flare: "context-continue-refused", error: String(error).slice(0, 300) })));
+      await conversation
+        ?.submit(
+          {
+            type: "input",
+            content: CONTINUE_PROMPT,
+            whenBusy: "steer",
+            whenIdle: "reject",
+            requestId: `context-continue:${api.taskId}`,
+            entry: CONTINUE_ENTRY,
+          },
+          context,
+        )
+        .catch((error: unknown) =>
+          console.warn(JSON.stringify({ t3flare: "context-continue-refused", error: String(error).slice(0, 300) })),
+        );
       return {
-        output: [{ type: "text" as const, text: "Handoff saved. The new context starts from it after this tool round." }],
+        output: [
+          { type: "text" as const, text: "Handoff saved. The new context starts from it after this tool round." },
+        ],
         details: { handoffCharacters: args.handoff.length, notes: notes.length },
         control: { handoff: handoffText(api.conversationId, args.handoff, notes) },
       };
@@ -140,7 +169,14 @@ export const prepareRollover = (harness: () => Promise<Harness>): HookRegistrati
       const window = compaction.entries[0]?.id ?? compaction.firstKept;
       await conversation
         .submit(
-          { type: "input", content: PREPARE_PROMPT, whenBusy: "steer", whenIdle: "reject", requestId: `${PREPARE_REQUEST}${window}`, entry: PREPARE_ENTRY },
+          {
+            type: "input",
+            content: PREPARE_PROMPT,
+            whenBusy: "steer",
+            whenIdle: "reject",
+            requestId: `${PREPARE_REQUEST}${window}`,
+            entry: PREPARE_ENTRY,
+          },
           context,
         )
         // The run ended meanwhile: nothing to steer, and the next input asks again.

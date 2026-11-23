@@ -77,12 +77,10 @@ export const byteLength = (text: string): number => encoder.encode(text).byteLen
 // The issuer pin ------------------------------------------------------------------------------------------------------
 
 /** An issuer as it is compared: one trailing `/` trimmed (`oauth.issuer`). */
-export const normalizeIssuer = (issuer: string): string =>
-  issuer.endsWith("/") ? issuer.slice(0, -1) : issuer;
+export const normalizeIssuer = (issuer: string): string => (issuer.endsWith("/") ? issuer.slice(0, -1) : issuer);
 
 /** Whether two issuers are the same one, after trimming one trailing `/` from each. */
-export const sameIssuer = (left: string, right: string): boolean =>
-  normalizeIssuer(left) === normalizeIssuer(right);
+export const sameIssuer = (left: string, right: string): boolean => normalizeIssuer(left) === normalizeIssuer(right);
 
 /** What pins an entry's authorization server: `oauth.issuer`, and/or the `issuer` of the document at `authServerMetadataUrl`. */
 export type IssuerPin = {
@@ -91,8 +89,7 @@ export type IssuerPin = {
 };
 
 /** Whether the entry pins its authorization server at all. */
-export const isPinned = (pin: IssuerPin): boolean =>
-  pin.issuer !== undefined || pin.metadataIssuer !== undefined;
+export const isPinned = (pin: IssuerPin): boolean => pin.issuer !== undefined || pin.metadataIssuer !== undefined;
 
 /**
  * Why `actual`, the issuer an authorization server answered with, is not the one `pin` names; undefined when it is, or
@@ -127,9 +124,7 @@ export const clientSecretExpiresAt = (information: {
 }): number | undefined => {
   const seconds = information.client_secret_expires_at;
 
-  return seconds === undefined || !Number.isFinite(seconds) || seconds <= 0
-    ? undefined
-    : seconds * 1000;
+  return seconds === undefined || !Number.isFinite(seconds) || seconds <= 0 ? undefined : seconds * 1000;
 };
 
 /** Whether `expiresAt` (epoch milliseconds; undefined: never) is within `margin` of `now`, or past. */
@@ -168,15 +163,11 @@ const RevocationMetadata = Schema.Struct({
 const readRevocationMetadata = Schema.decodeUnknownOption(RevocationMetadata);
 
 /** The server's `revocation_endpoint` (RFC 8414 §2), when it advertises one over https. */
-export const revocationEndpoint = (
-  metadata: AuthorizationServerMetadata | undefined,
-): URL | undefined =>
+export const revocationEndpoint = (metadata: AuthorizationServerMetadata | undefined): URL | undefined =>
   Option.getOrUndefined(
     Option.flatMap(Option.fromNullishOr(metadata), (known) =>
       Option.flatMap(readRevocationMetadata(known), ({ revocation_endpoint: advertised }) =>
-        advertised !== undefined &&
-        URL.canParse(advertised) &&
-        new URL(advertised).protocol === "https:"
+        advertised !== undefined && URL.canParse(advertised) && new URL(advertised).protocol === "https:"
           ? Option.some(new URL(advertised))
           : Option.none(),
       ),
@@ -198,9 +189,7 @@ const revocationAuth = (
 
   const known = Option.getOrUndefined(readRevocationMetadata(metadata));
 
-  const listed =
-    known?.revocation_endpoint_auth_methods_supported ??
-    known?.token_endpoint_auth_methods_supported;
+  const listed = known?.revocation_endpoint_auth_methods_supported ?? known?.token_endpoint_auth_methods_supported;
 
   if (listed?.includes("client_secret_post") === true) return "post";
 
@@ -293,28 +282,12 @@ export const revokeTokens = async (input: {
 
   if (input.refreshToken !== undefined) {
     results.push(
-      await revoke(
-        endpoint,
-        input.metadata,
-        input.client,
-        "refresh_token",
-        input.refreshToken,
-        input.fetch,
-      ),
+      await revoke(endpoint, input.metadata, input.client, "refresh_token", input.refreshToken, input.fetch),
     );
   }
 
   if (input.accessToken !== undefined) {
-    results.push(
-      await revoke(
-        endpoint,
-        input.metadata,
-        input.client,
-        "access_token",
-        input.accessToken,
-        input.fetch,
-      ),
-    );
+    results.push(await revoke(endpoint, input.metadata, input.client, "access_token", input.accessToken, input.fetch));
   }
 
   return results;

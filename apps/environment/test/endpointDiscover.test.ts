@@ -19,9 +19,16 @@ const fake = (answer: (url: URL) => unknown, status = 200) => {
 describe("discoverModels", () => {
   it("reads an OpenAI-shaped list with a bearer key and the endpoint's headers", async () => {
     const { seen, fetcher } = fake(() => ({ object: "list", data: [{ id: "gpt-5-mini" }, { id: "gpt-5" }] }));
-    const found = await discoverModels({ api: "openai-responses", baseUrl: "https://api.openai.com/v1", headers: { "X-Org": "me" } }, "sk-1", fetcher);
+    const found = await discoverModels(
+      { api: "openai-responses", baseUrl: "https://api.openai.com/v1", headers: { "X-Org": "me" } },
+      "sk-1",
+      fetcher,
+    );
     expect(found).toEqual({ ok: true, models: [{ id: "gpt-5" }, { id: "gpt-5-mini" }] });
-    expect(seen[0]).toMatchObject({ url: "https://api.openai.com/v1/models", headers: { authorization: "Bearer sk-1", "x-org": "me" } });
+    expect(seen[0]).toMatchObject({
+      url: "https://api.openai.com/v1/models",
+      headers: { authorization: "Bearer sk-1", "x-org": "me" },
+    });
   });
 
   it("reads ChatGPT plan usage's catalog: the slugs listed for display, with their names (SPI-1164)", async () => {
@@ -32,18 +39,40 @@ describe("discoverModels", () => {
         { slug: "gpt-5-mini", visibility: "list" },
       ],
     }));
-    const found = await discoverModels({ api: "openai-responses", baseUrl: "https://api.openai.com/v1", headers: {} }, "at-token", fetcher);
+    const found = await discoverModels(
+      { api: "openai-responses", baseUrl: "https://api.openai.com/v1", headers: {} },
+      "at-token",
+      fetcher,
+    );
     expect(found).toEqual({ ok: true, models: [{ id: "gpt-5-mini" }, { id: "gpt-6.1-sol", name: "GPT-6.1 Sol" }] });
-    expect(seen[0]).toMatchObject({ url: "https://api.openai.com/v1/models", headers: { authorization: "Bearer at-token" } });
+    expect(seen[0]).toMatchObject({
+      url: "https://api.openai.com/v1/models",
+      headers: { authorization: "Bearer at-token" },
+    });
   });
 
   it("reads Anthropic's paged list with its key header, names and limits", async () => {
     const { seen, fetcher } = fake((url) =>
       url.searchParams.get("after_id") === null
-        ? { data: [{ id: "claude-haiku-5-5", display_name: "Claude Haiku 5.5", max_input_tokens: 200_000, max_tokens: 64_000 }], has_more: true, last_id: "claude-haiku-5-5" }
+        ? {
+            data: [
+              {
+                id: "claude-haiku-5-5",
+                display_name: "Claude Haiku 5.5",
+                max_input_tokens: 200_000,
+                max_tokens: 64_000,
+              },
+            ],
+            has_more: true,
+            last_id: "claude-haiku-5-5",
+          }
         : { data: [{ id: "claude-sonnet-5-5", display_name: "Claude Sonnet 5.5" }], has_more: false },
     );
-    const found = await discoverModels({ api: "anthropic-messages", baseUrl: "https://api.anthropic.com", headers: {} }, "sk-ant", fetcher);
+    const found = await discoverModels(
+      { api: "anthropic-messages", baseUrl: "https://api.anthropic.com", headers: {} },
+      "sk-ant",
+      fetcher,
+    );
     expect(found).toEqual({
       ok: true,
       models: [
@@ -58,12 +87,25 @@ describe("discoverModels", () => {
   it("reads Google's list, keeping only the models that generate content", async () => {
     const { seen, fetcher } = fake(() => ({
       models: [
-        { name: "models/gemini-3-flash", displayName: "Gemini 3 Flash", inputTokenLimit: 1_000_000, outputTokenLimit: 65_536, supportedGenerationMethods: ["generateContent"] },
+        {
+          name: "models/gemini-3-flash",
+          displayName: "Gemini 3 Flash",
+          inputTokenLimit: 1_000_000,
+          outputTokenLimit: 65_536,
+          supportedGenerationMethods: ["generateContent"],
+        },
         { name: "models/text-embedding-9", supportedGenerationMethods: ["embedContent"] },
       ],
     }));
-    const found = await discoverModels({ api: "google-generative-ai", baseUrl: "https://generativelanguage.googleapis.com/v1beta", headers: {} }, "g-key", fetcher);
-    expect(found).toEqual({ ok: true, models: [{ id: "gemini-3-flash", name: "Gemini 3 Flash", contextWindow: 1_000_000, maxTokens: 65_536 }] });
+    const found = await discoverModels(
+      { api: "google-generative-ai", baseUrl: "https://generativelanguage.googleapis.com/v1beta", headers: {} },
+      "g-key",
+      fetcher,
+    );
+    expect(found).toEqual({
+      ok: true,
+      models: [{ id: "gemini-3-flash", name: "Gemini 3 Flash", contextWindow: 1_000_000, maxTokens: 65_536 }],
+    });
     expect(seen[0]!.headers["x-goog-api-key"]).toBe("g-key");
   });
 
@@ -73,7 +115,11 @@ describe("discoverModels", () => {
       seen.push(init);
       return new Response(null, { status: 302, headers: { location: "https://evil.example/models" } });
     }) as typeof fetch;
-    const found = await discoverModels({ api: "openai-responses", baseUrl: "https://api.openai.com/v1", headers: {} }, "sk-1", fetcher);
+    const found = await discoverModels(
+      { api: "openai-responses", baseUrl: "https://api.openai.com/v1", headers: {} },
+      "sk-1",
+      fetcher,
+    );
     expect(found).toMatchObject({ ok: false, error: expect.stringMatching(/redirected \(HTTP 302\)/) });
     expect(seen).toHaveLength(1);
     expect(seen[0]?.redirect).toBe("manual");
@@ -81,13 +127,24 @@ describe("discoverModels", () => {
 
   it("says why a list could not be read, without the key", async () => {
     const { fetcher } = fake(() => ({ error: { message: "Incorrect API key provided: sk-secret" } }), 401);
-    const found = await discoverModels({ api: "openai-completions", baseUrl: "https://example.test/v1", headers: {} }, "sk-secret", fetcher);
+    const found = await discoverModels(
+      { api: "openai-completions", baseUrl: "https://example.test/v1", headers: {} },
+      "sk-secret",
+      fetcher,
+    );
     expect(found).toMatchObject({ ok: false, error: expect.stringMatching(/HTTP 401/) });
     expect(JSON.stringify(found)).not.toContain("sk-secret");
   });
 
   it("reads GitHub Copilot's catalog by pi-ai's rules: chat models with tools the picker shows, on the endpoint's API (SPI-1166)", async () => {
-    const entry = (id: string, extra: Record<string, unknown> = {}) => ({ id, name: id.toUpperCase(), model_picker_enabled: true, policy: { state: "enabled" }, capabilities: { type: "chat", supports: { tool_calls: true } }, ...extra });
+    const entry = (id: string, extra: Record<string, unknown> = {}) => ({
+      id,
+      name: id.toUpperCase(),
+      model_picker_enabled: true,
+      policy: { state: "enabled" },
+      capabilities: { type: "chat", supports: { tool_calls: true } },
+      ...extra,
+    });
     const { seen, fetcher } = fake(() => ({
       object: "list",
       data: [
@@ -109,7 +166,11 @@ describe("discoverModels", () => {
         entry("grok-4.6", { policy: { state: "unconfigured" } }),
       ],
     }));
-    const target = { api: "openai-responses" as const, baseUrl: "https://api.individual.githubcopilot.com", headers: { authorization: "Bearer tid=1", "Copilot-Integration-Id": "vscode-chat" } };
+    const target = {
+      api: "openai-responses" as const,
+      baseUrl: "https://api.individual.githubcopilot.com",
+      headers: { authorization: "Bearer tid=1", "Copilot-Integration-Id": "vscode-chat" },
+    };
     expect(await discoverModels(target, undefined, fetcher, "copilot")).toEqual({
       ok: true,
       models: [
@@ -118,19 +179,52 @@ describe("discoverModels", () => {
         { id: "grok-4.6", name: "GROK-4.6" },
       ],
     });
-    expect(seen[0]).toMatchObject({ url: "https://api.individual.githubcopilot.com/models", headers: { authorization: "Bearer tid=1", "copilot-integration-id": "vscode-chat" } });
+    expect(seen[0]).toMatchObject({
+      url: "https://api.individual.githubcopilot.com/models",
+      headers: { authorization: "Bearer tid=1", "copilot-integration-id": "vscode-chat" },
+    });
   });
 
   it("falls back to an individual Copilot account's enabled policies when its picker shows none, as pi-ai does", async () => {
-    const entry = (id: string, state: string) => ({ id, model_picker_enabled: false, policy: { state }, capabilities: { type: "chat", supports: { tool_calls: true } } });
+    const entry = (id: string, state: string) => ({
+      id,
+      model_picker_enabled: false,
+      policy: { state },
+      capabilities: { type: "chat", supports: { tool_calls: true } },
+    });
     const { fetcher } = fake(() => ({ data: [entry("gpt-6.1-sol", "enabled"), entry("gpt-6-sol", "unconfigured")] }));
-    const individual = { api: "openai-responses" as const, baseUrl: "https://api.individual.githubcopilot.com", headers: {} };
-    expect(await discoverModels(individual, undefined, fetcher, "copilot")).toEqual({ ok: true, models: [{ id: "gpt-6.1-sol" }] });
-    expect(await discoverModels({ ...individual, baseUrl: "https://api.business.githubcopilot.com" }, undefined, fetcher, "copilot")).toEqual({ ok: true, models: [] });
+    const individual = {
+      api: "openai-responses" as const,
+      baseUrl: "https://api.individual.githubcopilot.com",
+      headers: {},
+    };
+    expect(await discoverModels(individual, undefined, fetcher, "copilot")).toEqual({
+      ok: true,
+      models: [{ id: "gpt-6.1-sol" }],
+    });
+    expect(
+      await discoverModels(
+        { ...individual, baseUrl: "https://api.business.githubcopilot.com" },
+        undefined,
+        fetcher,
+        "copilot",
+      ),
+    ).toEqual({ ok: true, models: [] });
   });
 
   it("reads a generic endpoint's list generically, whatever Copilot-like fields it carries: only a Copilot sign-in's is Copilot's catalog", async () => {
-    const { fetcher } = fake(() => ({ data: [{ id: "m1", model_picker_enabled: false, policy: { state: "disabled" } }, { id: "m2", model_picker_enabled: true }] }));
-    expect(await discoverModels({ api: "openai-responses", baseUrl: "https://gw.example.com/v1", headers: {} }, "sk-1", fetcher)).toEqual({ ok: true, models: [{ id: "m1" }, { id: "m2" }] });
+    const { fetcher } = fake(() => ({
+      data: [
+        { id: "m1", model_picker_enabled: false, policy: { state: "disabled" } },
+        { id: "m2", model_picker_enabled: true },
+      ],
+    }));
+    expect(
+      await discoverModels(
+        { api: "openai-responses", baseUrl: "https://gw.example.com/v1", headers: {} },
+        "sk-1",
+        fetcher,
+      ),
+    ).toEqual({ ok: true, models: [{ id: "m1" }, { id: "m2" }] });
   });
 });

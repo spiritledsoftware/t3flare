@@ -20,7 +20,12 @@ const read = (name: string) => fs.readFileSync(path.join(image, name), "utf8");
 describe("pi's launcher and handle command", () => {
   it("starts pi without the handle, by absolute paths, with the relay's host never proxied", () => {
     const script = read("t3flare-pi");
-    expect(script).toMatch(new RegExp(`^exec /usr/bin/env -u ${MODEL_HANDLE_ENV} no_proxy="\\$lower" NO_PROXY="\\$upper" /\\S+/node /\\S+/cli\\.js "\\$@"$`, "m"));
+    expect(script).toMatch(
+      new RegExp(
+        `^exec /usr/bin/env -u ${MODEL_HANDLE_ENV} no_proxy="\\$lower" NO_PROXY="\\$upper" /\\S+/node /\\S+/cli\\.js "\\$@"$`,
+        "m",
+      ),
+    );
     expect(script).toContain(`relay_host=${new URL(modelRelayUrl("x")).hostname}`);
   });
 
@@ -35,7 +40,9 @@ describe("pi's launcher and handle command", () => {
     expect(run({})).toBe("computer.internal|computer.internal");
     expect(run({ NO_PROXY: "example.org" })).toBe("example.org,computer.internal|example.org,computer.internal");
     expect(run({ no_proxy: "a.example" })).toBe("a.example,computer.internal|a.example,computer.internal");
-    expect(run({ no_proxy: "a.example", NO_PROXY: "b.example,.c.example" })).toBe("a.example,computer.internal|b.example,.c.example,computer.internal");
+    expect(run({ no_proxy: "a.example", NO_PROXY: "b.example,.c.example" })).toBe(
+      "a.example,computer.internal|b.example,.c.example,computer.internal",
+    );
     expect(run({ NO_PROXY: "*" })).toBe("*|*");
     expect(run({ no_proxy: "*", NO_PROXY: "b.example" })).toBe("*|b.example,computer.internal");
     expect(run({ no_proxy: "", NO_PROXY: "b.example" })).toBe("computer.internal|b.example,computer.internal");

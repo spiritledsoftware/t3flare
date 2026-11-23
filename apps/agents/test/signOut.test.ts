@@ -6,7 +6,10 @@ import { noteTurnProvider, runsOn } from "../src/session/signOut.ts";
 
 const storage = () => {
   const map = new Map<string, unknown>();
-  return { get: <T>(key: string) => map.get(key) as T | undefined, put: <T>(key: string, value: T) => void map.set(key, value) };
+  return {
+    get: <T>(key: string) => map.get(key) as T | undefined,
+    put: <T>(key: string, value: T) => void map.set(key, value),
+  };
 };
 
 describe("a Session's turns on a signed-out endpoint", () => {

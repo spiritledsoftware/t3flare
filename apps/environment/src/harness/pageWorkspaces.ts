@@ -79,8 +79,18 @@ const pathHtml = (escape: Escape, path: string): string => escape(path).replaceA
 /** One Workspace's row; a worktree under its project is indented. */
 const workspaceRow = (escape: Escape, time: Time, view: WorkspacesView, row: WorkspaceRow, nested: boolean): string => {
   const pill = PILLS[row.status];
-  const references = row.references.length > 0 ? escape(row.references.join("; ")) : row.unreferencedSince === null ? "nothing" : `nothing since ${time(row.unreferencedSince)}`;
-  const facts = [row.repo === null ? "" : escape(row.repo), row.deletedAt === null ? "" : `removed ${time(row.deletedAt)}`].filter((fact) => fact !== "").join(" · ");
+  const references =
+    row.references.length > 0
+      ? escape(row.references.join("; "))
+      : row.unreferencedSince === null
+        ? "nothing"
+        : `nothing since ${time(row.unreferencedSince)}`;
+  const facts = [
+    row.repo === null ? "" : escape(row.repo),
+    row.deletedAt === null ? "" : `removed ${time(row.deletedAt)}`,
+  ]
+    .filter((fact) => fact !== "")
+    .join(" · ");
   const purge = {
     id: row.id,
     name: row.confirmName,
@@ -93,9 +103,13 @@ const workspaceRow = (escape: Escape, time: Time, view: WorkspacesView, row: Wor
     row.can.purge
       ? `<button type="button" class="btn btn-sm btn-danger" data-workspace-purge="${escape(JSON.stringify(purge))}" aria-label="Purge now: ${escape(row.title)}">${icon("trash")}Purge now</button><span class="hint">purges its files for good</span>`
       : "",
-    row.can.restore ? `<button type="button" class="btn btn-sm" data-workspace-restore="${escape(row.id)}" aria-label="Restore ${escape(row.title)}">Restore</button>` : "",
+    row.can.restore
+      ? `<button type="button" class="btn btn-sm" data-workspace-restore="${escape(row.id)}" aria-label="Restore ${escape(row.title)}">Restore</button>`
+      : "",
     // Hidden until the Files column's read says its Container runs (or could not say): the registry's `ready` is not a running Container.
-    row.can.stop ? `<button type="button" class="btn btn-sm" data-workspace-stop="${escape(row.id)}" hidden aria-label="Stop the Container of ${escape(row.title)}">Stop Container</button>` : "",
+    row.can.stop
+      ? `<button type="button" class="btn btn-sm" data-workspace-stop="${escape(row.id)}" hidden aria-label="Stop the Container of ${escape(row.title)}">Stop Container</button>`
+      : "",
   ].filter((action) => action !== "");
   return `<tr data-workspace="${escape(row.id)}"${nested ? ' class="wt"' : ""}><td data-label="Workspace"><div><strong>${pathHtml(escape, row.title)}</strong><span class="src"><code>${pathHtml(escape, row.id)}</code>${facts === "" ? "" : ` · ${facts}`}</span></div></td><td data-label="Status"><div><span class="pill${pill === "" ? "" : ` ${pill}`}">${escape(row.status)}</span>${
     row.lastError === null ? "" : `<span class="src">${escape(row.lastError)}</span>`
@@ -117,7 +131,9 @@ const PURGE_DIALOG = `<dialog class="dialog" data-purge-dialog aria-labelledby="
 export const workspacesSection = (escape: Escape, time: Time, input: WorkspacesSectionInput | undefined): string => {
   if (input === undefined) return "";
   const head = `<div class="section-head"><h2 id="workspaces-title">${icon("folder")}Workspaces</h2>${
-    "error" in input ? "" : `<div class="section-actions"><button type="button" class="btn btn-sm" data-sweep-preview>Preview the Sweep</button><button type="button" class="btn btn-sm" data-sweep-run>${icon("play")}Run the Sweep</button></div>`
+    "error" in input
+      ? ""
+      : `<div class="section-actions"><button type="button" class="btn btn-sm" data-sweep-preview>Preview the Sweep</button><button type="button" class="btn btn-sm" data-sweep-run>${icon("play")}Run the Sweep</button></div>`
   }</div>
 <p class="section-desc">Every Workspace's files, kept while something in t3 references them: a live or archived project or thread, an open run, an open Terminal. When nothing does, the Sweep purges them once the Grace has passed; a Tombstone is a removed worktree kept for its Grace. Purge now purges a Workspace nothing references at once, with its Worktree Workspaces.</p>`;
   if ("error" in input) {
@@ -126,7 +142,10 @@ ${head}
 <div class="group"><div class="callout" role="note">${icon("alert")}<div><strong>The Workspaces could not be read</strong><p class="mono">${escape(input.error)}</p><p>Nothing can be purged until they can: a Purge reads the references first, as the Sweep does.</p></div></div></div>
 </section>`;
   }
-  const rows = input.rows.flatMap((row) => [workspaceRow(escape, time, input, row, false), ...row.worktrees.map((worktree) => workspaceRow(escape, time, input, worktree, true))]);
+  const rows = input.rows.flatMap((row) => [
+    workspaceRow(escape, time, input, row, false),
+    ...row.worktrees.map((worktree) => workspaceRow(escape, time, input, worktree, true)),
+  ]);
   const table =
     rows.length === 0
       ? `<div class="empty"><span class="empty-icon">${icon("folder")}</span><h3>No Workspaces</h3><p>A project or a worktree thread in t3 makes one.</p></div>`

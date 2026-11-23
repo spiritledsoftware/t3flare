@@ -42,14 +42,17 @@ export const boot = async (options: Composition.CompositionOptions): Promise<Run
   return {
     fetch: http.handle,
     // The context holds every service t3's graph built; an effect needing one it lacks dies at run time.
-    run: (effect) => Effect.runPromise(Effect.provideContext(effect, context as Context.Context<never>) as Effect.Effect<never>),
+    run: (effect) =>
+      Effect.runPromise(Effect.provideContext(effect, context as Context.Context<never>) as Effect.Effect<never>),
     context,
     dispose: () => Effect.runPromise(Scope.close(scope, Exit.void)),
     bootstrapSeeded: options.bootstrapToken !== undefined,
     commandReady: () =>
       Effect.runPromise(
         Effect.provideContext(
-          Effect.flatMap(ServerRuntimeStartup.ServerRuntimeStartup, (startup) => Effect.orDie(startup.awaitCommandReady)),
+          Effect.flatMap(ServerRuntimeStartup.ServerRuntimeStartup, (startup) =>
+            Effect.orDie(startup.awaitCommandReady),
+          ),
           context as Context.Context<never>,
         ) as Effect.Effect<void>,
       ),

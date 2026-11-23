@@ -35,7 +35,11 @@ const fakeStore = (latest: number, events: ReadonlyArray<ApplicationStoredEvent>
 const runLayer = async (store: ReturnType<typeof fakeStore>, wake: () => void) => {
   const logged: Array<Logger.Options<unknown>> = [];
   await Effect.runPromise(
-    Effect.scoped(Layer.build(layerDeletionWake(wake).pipe(Layer.provide(store.layer))).pipe(Effect.andThen(Effect.sleep("20 millis")))).pipe(
+    Effect.scoped(
+      Layer.build(layerDeletionWake(wake).pipe(Layer.provide(store.layer))).pipe(
+        Effect.andThen(Effect.sleep("20 millis")),
+      ),
+    ).pipe(
       Effect.provide(Logger.layer([Logger.make((entry) => void logged.push(entry))], { mergeWithExisting: false })),
     ),
   );
@@ -76,7 +80,9 @@ describe("layerDeletionWake", () => {
     const logged = await runLayer(store, wake);
     expect(wake).toHaveBeenCalledTimes(2);
     expect(store.asked).toEqual([0]);
-    expect(logged.map((entry) => [entry.logLevel, String(entry.message)])).toEqual([["Warn", expect.stringContaining("deletion-wake-stream-ended")]]);
+    expect(logged.map((entry) => [entry.logLevel, String(entry.message)])).toEqual([
+      ["Warn", expect.stringContaining("deletion-wake-stream-ended")],
+    ]);
     expect(Logger.formatLogFmt.log(logged[0]!)).toContain("the store went away");
   });
 });

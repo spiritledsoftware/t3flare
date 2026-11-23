@@ -17,7 +17,18 @@ import * as Effect from "effect/Effect";
 import { RpcClient } from "effect/rpc";
 
 import { ensureProject } from "./lib/cliTurn.ts";
-import { DEFAULT_MODEL, enablePiDurable, itemsOf, pair, projectionOf, protocol, runsOf, threadWindow, uuid, wsCall } from "./lib/client.ts";
+import {
+  DEFAULT_MODEL,
+  enablePiDurable,
+  itemsOf,
+  pair,
+  projectionOf,
+  protocol,
+  runsOf,
+  threadWindow,
+  uuid,
+  wsCall,
+} from "./lib/client.ts";
 
 const arg = (name: string) => {
   const index = process.argv.indexOf(name);
@@ -82,7 +93,8 @@ const projection = projectionOf(await threadWindow(cookie, threadId));
 const runs = runsOf(projection).map((run) => run.status);
 // Every turn the snapshot still shows (it keeps the latest items too) ran its command and answered with the output.
 const items = itemsOf(projection);
-const textsOf = (type: string) => items.filter((item: any) => item.type === type).map((item: any) => String(item.text ?? ""));
+const textsOf = (type: string) =>
+  items.filter((item: any) => item.type === type).map((item: any) => String(item.text ?? ""));
 const exact = (marker: string) => new RegExp(`\\b${marker}\\b`);
 const markers = textsOf("user_message").flatMap((text) => text.match(/turn-\d+/) ?? []);
 const ran = items
@@ -93,14 +105,25 @@ const missing = markers.filter(
     !ran.some((input) => exact(marker).test(input)) ||
     !textsOf("assistant_message").some((text) => exact(marker).test(text)),
 );
-const failures = items.filter((item: any) => item.type === "error").map((item: any) => item.failure?.message ?? item.title);
+const failures = items
+  .filter((item: any) => item.type === "error")
+  .map((item: any) => item.failure?.message ?? item.title);
 const ok =
   runs.length === turns &&
   runs.every((status) => status === "completed") &&
   markers.length > 0 &&
   missing.length === 0 &&
   failures.length === 0;
-const report = { at: new Date().toISOString(), threadId, turns, runs, checkedTurns: markers.length, missing, failures, ok };
+const report = {
+  at: new Date().toISOString(),
+  threadId,
+  turns,
+  runs,
+  checkedTurns: markers.length,
+  missing,
+  failures,
+  ok,
+};
 if (out !== undefined) fs.writeFileSync(out, `${JSON.stringify(report, null, 1)}\n`);
 console.log(ok ? `ok: ${turns} turns completed, each with its command's output` : `FAILED: ${JSON.stringify(report)}`);
 process.exit(ok ? 0 : 1);

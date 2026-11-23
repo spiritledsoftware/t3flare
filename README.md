@@ -99,13 +99,13 @@ The Workspace image's CLI agents are not part of t3flare and are not covered by 
 itself, downloading each CLI from its publisher, so by deploying you accept each one's terms. The project never
 publishes a prebuilt image ([ADR-0040](docs/adr/0040-the-workspace-image-is-built-by-each-owner-and-never-published.md)).
 
-| Agent | Publisher | Terms |
-| --- | --- | --- |
-| [Codex CLI](https://github.com/openai/codex) | OpenAI | Apache-2.0 |
-| [Claude Code](https://code.claude.com), with the Claude Agent SDK | Anthropic | Proprietary: use is subject to [Anthropic's legal agreements](https://code.claude.com/docs/en/legal-and-compliance) |
-| [claude-agent-acp](https://github.com/agentclientprotocol/claude-agent-acp), Claude Code's ACP adapter | Agent Client Protocol | Apache-2.0 |
-| [OpenCode](https://github.com/anomalyco/opencode) | Anomaly | MIT |
-| [pi](https://github.com/earendil-works/pi) | Earendil Works (Mario Zechner) | MIT |
+| Agent                                                                                                  | Publisher                      | Terms                                                                                                               |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| [Codex CLI](https://github.com/openai/codex)                                                           | OpenAI                         | Apache-2.0                                                                                                          |
+| [Claude Code](https://code.claude.com), with the Claude Agent SDK                                      | Anthropic                      | Proprietary: use is subject to [Anthropic's legal agreements](https://code.claude.com/docs/en/legal-and-compliance) |
+| [claude-agent-acp](https://github.com/agentclientprotocol/claude-agent-acp), Claude Code's ACP adapter | Agent Client Protocol          | Apache-2.0                                                                                                          |
+| [OpenCode](https://github.com/anomalyco/opencode)                                                      | Anomaly                        | MIT                                                                                                                 |
+| [pi](https://github.com/earendil-works/pi)                                                             | Earendil Works (Mario Zechner) | MIT                                                                                                                 |
 
 ## Support and contributing
 

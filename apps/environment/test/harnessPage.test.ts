@@ -4,7 +4,14 @@
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off
 import { Script } from "node:vm";
 
-import { applyToolsChange, BUILTIN_TOOLS, EMPTY_ENVIRONMENT, EMPTY_HARNESS, resolveEnvironment, resolveHarness } from "@t3flare/harness-registry";
+import {
+  applyToolsChange,
+  BUILTIN_TOOLS,
+  EMPTY_ENVIRONMENT,
+  EMPTY_HARNESS,
+  resolveEnvironment,
+  resolveHarness,
+} from "@t3flare/harness-registry";
 import { describe, expect, it } from "vitest";
 
 import { escapeHtml, type McpRow, renderPage, type SkillsView } from "../src/harness/page.ts";
@@ -44,18 +51,43 @@ interface Tag {
   readonly index: number;
 }
 
-const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
+const VOID = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "source",
+  "track",
+  "wbr",
+]);
 
 /** The page's markup with its constant stylesheet and script bodies left out. */
-const markup = (html: string) => html.replace(/<style>[\s\S]*?<\/style>/, "<style></style>").replace(/<script>[\s\S]*?<\/script>/, "<script></script>");
+const markup = (html: string) =>
+  html
+    .replace(/<style>[\s\S]*?<\/style>/, "<style></style>")
+    .replace(/<script>[\s\S]*?<\/script>/, "<script></script>");
 
 /** Every tag, in order, with its attributes (values unescaped only as far as the checks need: not at all). */
 const tagsOf = (html: string): Array<Tag> => {
   const tags: Array<Tag> = [];
-  for (const match of markup(html).matchAll(/<(\/?)([a-zA-Z][a-zA-Z0-9-]*)((?:\s+[^\s=>/]+(?:="[^"]*")?)*)\s*(\/?)>/g)) {
+  for (const match of markup(html).matchAll(
+    /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)((?:\s+[^\s=>/]+(?:="[^"]*")?)*)\s*(\/?)>/g,
+  )) {
     const attrs: Record<string, string> = {};
     for (const attr of match[3]!.matchAll(/([^\s=>/]+)(?:="([^"]*)")?/g)) attrs[attr[1]!] = attr[2] ?? "";
-    tags.push({ name: match[2]!.toLowerCase(), attrs, closing: match[1] === "/", selfClosing: match[4] === "/", index: match.index });
+    tags.push({
+      name: match[2]!.toLowerCase(),
+      attrs,
+      closing: match[1] === "/",
+      selfClosing: match[4] === "/",
+      index: match.index,
+    });
   }
   return tags;
 };
@@ -78,7 +110,11 @@ const textOf = (html: string, tags: ReadonlyArray<Tag>, start: number): string =
     const tag = tags[i]!;
     if (tag.name !== tags[start]!.name) continue;
     depth += tag.closing ? -1 : 1;
-    if (depth === 0) return markup(html).slice(tags[start]!.index, tag.index).replace(/<[^>]*>/g, "").trim();
+    if (depth === 0)
+      return markup(html)
+        .slice(tags[start]!.index, tag.index)
+        .replace(/<[^>]*>/g, "")
+        .trim();
   }
   return "";
 };
@@ -98,8 +134,24 @@ describe("harness page", () => {
   });
 
   it("links every section from the navigation, in order, each with its heading", () => {
-    const nav = tags.filter((tag) => tag.name === "a" && tag.attrs.href?.startsWith("#") && tag.attrs.href !== "#main" && tag.attrs.href !== "#add-server" && tag.attrs["data-jump"] === undefined);
-    expect(nav.map((tag) => tag.attrs.href)).toEqual(["#tools", "#extensions", "#mcp", "#environment", "#workspaces", "#skills", "#status", "#audit"]);
+    const nav = tags.filter(
+      (tag) =>
+        tag.name === "a" &&
+        tag.attrs.href?.startsWith("#") &&
+        tag.attrs.href !== "#main" &&
+        tag.attrs.href !== "#add-server" &&
+        tag.attrs["data-jump"] === undefined,
+    );
+    expect(nav.map((tag) => tag.attrs.href)).toEqual([
+      "#tools",
+      "#extensions",
+      "#mcp",
+      "#environment",
+      "#workspaces",
+      "#skills",
+      "#status",
+      "#audit",
+    ]);
     for (const link of nav) {
       const section = tags.find((tag) => tag.name === "section" && tag.attrs.id === link.attrs.href!.slice(1));
       expect(section?.attrs["aria-labelledby"]).toBeDefined();
@@ -109,14 +161,26 @@ describe("harness page", () => {
   });
 
   it("names every control: a label, aria-labelledby or aria-label for each field, text or aria-label for each button", () => {
-    const labelled = new Set(tags.filter((tag) => tag.name === "label" && tag.attrs.for !== undefined).map((tag) => tag.attrs.for));
+    const labelled = new Set(
+      tags.filter((tag) => tag.name === "label" && tag.attrs.for !== undefined).map((tag) => tag.attrs.for),
+    );
     tags.forEach((tag, index) => {
       if (tag.closing) return;
       if (tag.name === "input" || tag.name === "select") {
-        const insideLabel = tags.slice(0, index).reduce((depth, other) => (other.name === "label" ? depth + (other.closing ? -1 : 1) : depth), 0) > 0;
-        expect(insideLabel || labelled.has(tag.attrs.id) || tag.attrs["aria-labelledby"] !== undefined || tag.attrs["aria-label"] !== undefined, `${tag.name} ${JSON.stringify(tag.attrs)}`).toBe(true);
+        const insideLabel =
+          tags
+            .slice(0, index)
+            .reduce((depth, other) => (other.name === "label" ? depth + (other.closing ? -1 : 1) : depth), 0) > 0;
+        expect(
+          insideLabel ||
+            labelled.has(tag.attrs.id) ||
+            tag.attrs["aria-labelledby"] !== undefined ||
+            tag.attrs["aria-label"] !== undefined,
+          `${tag.name} ${JSON.stringify(tag.attrs)}`,
+        ).toBe(true);
       }
-      if (tag.name === "button") expect(tag.attrs["aria-label"] ?? textOf(html, tags, index), JSON.stringify(tag.attrs)).not.toBe("");
+      if (tag.name === "button")
+        expect(tag.attrs["aria-label"] ?? textOf(html, tags, index), JSON.stringify(tag.attrs)).not.toBe("");
     });
   });
 
@@ -134,11 +198,15 @@ describe("harness page", () => {
       expect(html).toContain(`data-mcp-test="${row.name}"`);
       expect(html).toContain(`data-test-result="${row.name}"`);
       expect(html).toContain(escapeHtml(JSON.stringify({ op: "server", server: row.name, enabled: false })));
-      expect(html.includes(escapeHtml(JSON.stringify({ op: "remove", server: row.name })))).toBe(row.setting.kind === "direct");
+      expect(html.includes(escapeHtml(JSON.stringify({ op: "remove", server: row.name })))).toBe(
+        row.setting.kind === "direct",
+      );
     }
     // The owner's class override is marked, with a way back to the tool's hint.
     expect(html).toContain("Set by you; its hint says read");
-    expect(html).toContain(escapeHtml(JSON.stringify({ op: "class", server: "fixture", tool: "fixture_echo", class: null })));
+    expect(html).toContain(
+      escapeHtml(JSON.stringify({ op: "class", server: "fixture", tool: "fixture_echo", class: null })),
+    );
     expect(html).toContain("1 tool refused");
   });
 
@@ -149,14 +217,26 @@ describe("harness page", () => {
       return tags.slice(tags.indexOf(select) + 1, end).filter((tag) => tag.name === "option" && !tag.closing);
     };
     // One per server, one per tool.
-    expect(selects.filter((tag) => tag.attrs["data-tool"] === undefined).map((tag) => tag.attrs["data-mcp-exposure"])).toEqual(FIXTURE_MCP.map((row) => row.name));
-    expect(selects.filter((tag) => tag.attrs["data-tool"] !== undefined)).toHaveLength(FIXTURE_MCP.reduce((sum, row) => sum + row.tools.length, 0));
-    const server = selects.find((tag) => tag.attrs["data-mcp-exposure"] === "fixture" && tag.attrs["data-tool"] === undefined)!;
+    expect(
+      selects.filter((tag) => tag.attrs["data-tool"] === undefined).map((tag) => tag.attrs["data-mcp-exposure"]),
+    ).toEqual(FIXTURE_MCP.map((row) => row.name));
+    expect(selects.filter((tag) => tag.attrs["data-tool"] !== undefined)).toHaveLength(
+      FIXTURE_MCP.reduce((sum, row) => sum + row.tools.length, 0),
+    );
+    const server = selects.find(
+      (tag) => tag.attrs["data-mcp-exposure"] === "fixture" && tag.attrs["data-tool"] === undefined,
+    )!;
     expect(optionsOf(server).map((option) => option.attrs.value)).toEqual(["direct", "deferred", "codemode", "hidden"]);
     expect(optionsOf(server).find((option) => option.attrs.selected !== undefined)?.attrs.value).toBe("deferred");
     // A tool without its own Exposure follows its server's; the owner's is selected.
     const echo = selects.find((tag) => tag.attrs["data-tool"] === "fixture_echo")!;
-    expect(optionsOf(echo).map((option) => option.attrs.value)).toEqual(["", "direct", "deferred", "codemode", "hidden"]);
+    expect(optionsOf(echo).map((option) => option.attrs.value)).toEqual([
+      "",
+      "direct",
+      "deferred",
+      "codemode",
+      "hidden",
+    ]);
     expect(optionsOf(echo).find((option) => option.attrs.selected !== undefined)?.attrs.value).toBe("");
     const note = selects.find((tag) => tag.attrs["data-tool"] === "fixture_note")!;
     expect(optionsOf(note).find((option) => option.attrs.selected !== undefined)?.attrs.value).toBe("hidden");
@@ -164,38 +244,77 @@ describe("harness page", () => {
   });
 
   it("draws the add form's three sign-in kinds, the header fields hidden until chosen", () => {
-    for (const kind of ["oauth", "header", "none"]) expect(tags.some((tag) => tag.name === "input" && tag.attrs.name === "auth" && tag.attrs.value === kind)).toBe(true);
+    for (const kind of ["oauth", "header", "none"])
+      expect(tags.some((tag) => tag.name === "input" && tag.attrs.name === "auth" && tag.attrs.value === kind)).toBe(
+        true,
+      );
     expect(tags.find((tag) => tag.attrs["data-header-fields"] !== undefined)?.attrs.hidden).toBe("");
     expect(tags.find((tag) => tag.attrs.name === "value")?.attrs.type).toBe("password");
   });
 
   it("draws the extension forms from the registry's schemas: tools first, then switches, settings, locked core extensions", () => {
-    expect(tags.filter((tag) => tag.name === "form" && tag.attrs["data-extension"] !== undefined).map((tag) => tag.attrs["data-extension"])).toEqual([
-      "codemode", "tool-search", "coding-tools", "files", "ask-user", "web", "todo", "context", "termctrl", "guardian", "advisor", "skills",
+    expect(
+      tags
+        .filter((tag) => tag.name === "form" && tag.attrs["data-extension"] !== undefined)
+        .map((tag) => tag.attrs["data-extension"]),
+    ).toEqual([
+      "codemode",
+      "tool-search",
+      "coding-tools",
+      "files",
+      "ask-user",
+      "web",
+      "todo",
+      "context",
+      "termctrl",
+      "guardian",
+      "advisor",
+      "skills",
     ]);
-    expect(tags.find((tag) => tag.attrs["data-setting"] === "inlineBudget")).toMatchObject({ attrs: { type: "number", min: "500", max: "20000", value: "3000" } });
+    expect(tags.find((tag) => tag.attrs["data-setting"] === "inlineBudget")).toMatchObject({
+      attrs: { type: "number", min: "500", max: "20000", value: "3000" },
+    });
     expect(tags.filter((tag) => tag.attrs["data-enabled"] !== undefined)).toHaveLength(3);
     expect(html).toContain("locked: the thread&#39;s modes and the link fence depend on it");
   });
 
   it("draws one Exposure select per built-in tool, codemode and tool_search with only direct or hidden, and the three presets", () => {
-    const selects = tags.filter((tag) => tag.name === "select" && tag.attrs["data-tool-exposure"] !== undefined && tag.attrs["data-t3"] === undefined);
+    const selects = tags.filter(
+      (tag) =>
+        tag.name === "select" && tag.attrs["data-tool-exposure"] !== undefined && tag.attrs["data-t3"] === undefined,
+    );
     expect(selects.map((tag) => tag.attrs["data-tool-exposure"])).toEqual(BUILTIN_TOOLS.map((tool) => tool.name));
-    expect(tags.filter((tag) => tag.attrs["data-tools-preset"] !== undefined).map((tag) => tag.attrs["data-tools-preset"])).toEqual(["core", "codemode-only", "everything"]);
+    expect(
+      tags.filter((tag) => tag.attrs["data-tools-preset"] !== undefined).map((tag) => tag.attrs["data-tools-preset"]),
+    ).toEqual(["core", "codemode-only", "everything"]);
     const tools = section(html, "tools");
-    expect(tools).toContain('<select class="sel-sm" data-tool-exposure="codemode" aria-label="codemode exposure"><option value="direct" selected title="in every request">direct</option><option value="hidden" title="not offered">hidden</option></select>');
+    expect(tools).toContain(
+      '<select class="sel-sm" data-tool-exposure="codemode" aria-label="codemode exposure"><option value="direct" selected title="in every request">direct</option><option value="hidden" title="not offered">hidden</option></select>',
+    );
     expect(tools).toContain('<option value="hidden" selected title="not offered">hidden</option>');
     expect(tools).toContain('<span class="pill" title="Every tool hidden">Off</span>');
   });
 
   it("says an extension's settings do nothing while every one of its tools is hidden", () => {
-    const hidden = applyToolsChange(EMPTY_HARNESS, { tools: Object.fromEntries(["terminal_start", "terminal_send", "terminal_stop", "terminal_list", "terminal_wait"].map((tool) => [tool, "hidden"])) });
+    const hidden = applyToolsChange(EMPTY_HARNESS, {
+      tools: Object.fromEntries(
+        ["terminal_start", "terminal_send", "terminal_stop", "terminal_list", "terminal_wait"].map((tool) => [
+          tool,
+          "hidden",
+        ]),
+      ),
+    });
     if (!hidden.ok) throw new Error(hidden.error);
     const terminals = (resolved: ReturnType<typeof resolveHarness>) => {
       const tools = section(renderPage(fixturePage({ resolved })), "tools");
-      return tools.slice(tools.indexOf('data-extension="termctrl"'), tools.indexOf("</form>", tools.indexOf('data-extension="termctrl"')));
+      return tools.slice(
+        tools.indexOf('data-extension="termctrl"'),
+        tools.indexOf("</form>", tools.indexOf('data-extension="termctrl"')),
+      );
     };
-    expect(terminals(resolveHarness(hidden.harness))).toContain("Every tool is hidden, so the extension is not installed and these settings do nothing until a tool is offered.");
+    expect(terminals(resolveHarness(hidden.harness))).toContain(
+      "Every tool is hidden, so the extension is not installed and these settings do nothing until a tool is offered.",
+    );
     expect(terminals(resolveHarness(EMPTY_HARNESS))).not.toContain("Every tool is hidden");
   });
 
@@ -228,19 +347,30 @@ describe("harness page", () => {
     expect(html.match(/<script/g)).toHaveLength(1);
     expect(html.match(/<style/g)).toHaveLength(1);
     for (const tag of tags) {
-      expect(Object.keys(tag.attrs).filter((name) => name === "style" || /^on/i.test(name)), tag.name).toEqual([]);
+      expect(
+        Object.keys(tag.attrs).filter((name) => name === "style" || /^on/i.test(name)),
+        tag.name,
+      ).toEqual([]);
       if (tag.name === "use") expect(tag.attrs.href).toMatch(/^#i-/);
       expect(["img", "iframe", "object", "embed"]).not.toContain(tag.name);
     }
     // The one link is the favicon, a `data:` URL: the only source the CSP's `img-src` allows.
-    expect(tags.filter((tag) => tag.name === "link").map((tag) => [tag.attrs.rel, tag.attrs.href?.slice(0, 19)])).toEqual([["icon", "data:image/svg+xml,"]]);
+    expect(
+      tags.filter((tag) => tag.name === "link").map((tag) => [tag.attrs.rel, tag.attrs.href?.slice(0, 19)]),
+    ).toEqual([["icon", "data:image/svg+xml,"]]);
   });
 
   it("escapes hostile strings in every server-supplied field", () => {
     const hostile = `"><img src=x onerror=alert(1)>'&<script>`;
     const row: McpRow = {
       name: hostile,
-      setting: { kind: "direct", enabled: true, exposure: hostile, url: hostile, auth: { kind: "header", header: hostile } },
+      setting: {
+        kind: "direct",
+        enabled: true,
+        exposure: hostile,
+        url: hostile,
+        auth: { kind: "header", header: hostile },
+      },
       secret: { set: true, setAt: FIXTURE_NOW, fingerprint: hostile },
       status: "failed",
       listedAt: FIXTURE_NOW,
@@ -254,8 +384,24 @@ describe("harness page", () => {
       resolved: resolveHarness(EMPTY_HARNESS),
       csrf: hostile,
       // A stored `enabled` is not type-checked by the registry: a string must not reach an attribute raw.
-      mcp: [row, { ...row, setting: { ...row.setting, enabled: hostile as unknown as boolean, auth: { kind: hostile } }, status: hostile }],
-      audit: [{ at: FIXTURE_NOW, entity: "harness", caller: hostile, action: hostile, target: hostile, after: { note: hostile } }],
+      mcp: [
+        row,
+        {
+          ...row,
+          setting: { ...row.setting, enabled: hostile as unknown as boolean, auth: { kind: hostile } },
+          status: hostile,
+        },
+      ],
+      audit: [
+        {
+          at: FIXTURE_NOW,
+          entity: "harness",
+          caller: hostile,
+          action: hostile,
+          target: hostile,
+          after: { note: hostile },
+        },
+      ],
       status: { [hostile]: hostile },
     });
     expect(page).not.toContain("<img");
@@ -269,22 +415,57 @@ describe("harness page", () => {
   });
 
   it("draws each Environment skill with its source, commit, switch and actions, and the totals with disabled ones apart (SPI-1148)", () => {
-    const page = renderPage(fixturePage({ skills: { ...NO_SKILLS, skills: [SKILL, { ...SKILL, name: "off", enabled: false }], totals: { ...NO_SKILLS.totals, count: 2, enabled: 1, disabled: 1, bytes: 2048, disabledBytes: 1024 } } }));
+    const page = renderPage(
+      fixturePage({
+        skills: {
+          ...NO_SKILLS,
+          skills: [SKILL, { ...SKILL, name: "off", enabled: false }],
+          totals: { ...NO_SKILLS.totals, count: 2, enabled: 1, disabled: 1, bytes: 2048, disabledBytes: 1024 },
+        },
+      }),
+    );
     const parsed = tagsOf(page);
-    expect(parsed.filter((tag) => tag.attrs["data-skill-enable"] !== undefined).map((tag) => [tag.attrs["data-skill-enable"], tag.attrs.checked !== undefined])).toEqual([
+    expect(
+      parsed
+        .filter((tag) => tag.attrs["data-skill-enable"] !== undefined)
+        .map((tag) => [tag.attrs["data-skill-enable"], tag.attrs.checked !== undefined]),
+    ).toEqual([
       ["grill-me", true],
       ["off", false],
     ]);
     expect(parsed.filter((tag) => tag.attrs["data-skill-remove"] !== undefined)).toHaveLength(2);
-    expect(page).toContain("From <code>mattpocock/skills/skills/grill-me</code> on the default branch, 2 files, 1.0 KiB");
-    expect(page).toContain("2 skills (1 enabled, 1 disabled) of 100; 2.0 KiB of 8.00 MiB, 1.0 KiB of it disabled. Disabled skills count toward the limits.");
+    expect(page).toContain(
+      "From <code>mattpocock/skills/skills/grill-me</code> on the default branch, 2 files, 1.0 KiB",
+    );
+    expect(page).toContain(
+      "2 skills (1 enabled, 1 disabled) of 100; 2.0 KiB of 8.00 MiB, 1.0 KiB of it disabled. Disabled skills count toward the limits.",
+    );
     expect(page).not.toContain("Reads from GitHub are unauthenticated");
-    expect(renderPage(fixturePage({ skills: { ...NO_SKILLS, unauthenticated: true } }))).toContain("Reads from GitHub are unauthenticated");
+    expect(renderPage(fixturePage({ skills: { ...NO_SKILLS, unauthenticated: true } }))).toContain(
+      "Reads from GitHub are unauthenticated",
+    );
   });
 
   it("escapes hostile strings in every Environment skill field: description, path, ref, repo (SPI-1148)", () => {
     const hostile = `"><img src=x onerror=alert(1)>'&<script>`;
-    const page = renderPage(fixturePage({ skills: { ...NO_SKILLS, skills: [{ ...SKILL, name: hostile, description: hostile, repo: hostile, path: hostile, ref: hostile, commit: hostile }] } }));
+    const page = renderPage(
+      fixturePage({
+        skills: {
+          ...NO_SKILLS,
+          skills: [
+            {
+              ...SKILL,
+              name: hostile,
+              description: hostile,
+              repo: hostile,
+              path: hostile,
+              ref: hostile,
+              commit: hostile,
+            },
+          ],
+        },
+      }),
+    );
     expect(page).not.toContain("<img");
     expect(page.match(/<script/g)).toHaveLength(1);
     const parsed = tagsOf(page);
@@ -307,12 +488,28 @@ describe("the Settings server's row", () => {
     listedAt: FIXTURE_NOW,
     error: null,
     tools: [
-      { name: "mcp__settings__get_settings", upstream: "get_settings", class: "read", hinted: "read", exposure: "deferred" },
-      { name: "mcp__settings__change_mcp", upstream: "change_mcp", class: "write", hinted: "write", exposure: "deferred" },
+      {
+        name: "mcp__settings__get_settings",
+        upstream: "get_settings",
+        class: "read",
+        hinted: "read",
+        exposure: "deferred",
+      },
+      {
+        name: "mcp__settings__change_mcp",
+        upstream: "change_mcp",
+        class: "write",
+        hinted: "write",
+        exposure: "deferred",
+      },
     ],
     refused: [],
   });
-  const section = (html: string) => html.slice(html.indexOf('aria-labelledby="srv-settings"'), html.indexOf("</article>", html.indexOf('aria-labelledby="srv-settings"')));
+  const section = (html: string) =>
+    html.slice(
+      html.indexOf('aria-labelledby="srv-settings"'),
+      html.indexOf("</article>", html.indexOf('aria-labelledby="srv-settings"')),
+    );
 
   it("offers off, read-only and read-write, the current one pressed", () => {
     for (const [setting, pressed] of [
@@ -323,8 +520,12 @@ describe("the Settings server's row", () => {
       const html = section(renderPage(fixturePage({ mcp: [row(setting)] })));
       expect(html).toContain('<span class="tag">Settings server</span>');
       expect(html).toContain(escapeHtml(JSON.stringify({ op: "server", server: "settings", enabled: false })));
-      expect(html).toContain(escapeHtml(JSON.stringify({ op: "server", server: "settings", enabled: true, writes: false })));
-      expect(html).toContain(escapeHtml(JSON.stringify({ op: "server", server: "settings", enabled: true, writes: true })));
+      expect(html).toContain(
+        escapeHtml(JSON.stringify({ op: "server", server: "settings", enabled: true, writes: false })),
+      );
+      expect(html).toContain(
+        escapeHtml(JSON.stringify({ op: "server", server: "settings", enabled: true, writes: true })),
+      );
       expect(html).toMatch(new RegExp(`aria-pressed="true"[^>]*>${pressed}<`));
       expect(html.match(/aria-pressed="true"/g)?.length).toBe(1);
       expect(html).not.toContain('role="switch"');
@@ -337,7 +538,11 @@ describe("the Settings server's row", () => {
 
 // The Environment section's dotfiles row (ADR-0047 §9): the two toggles, on by default, each saying when it applies.
 describe("the Environment section's dotfiles", () => {
-  const sectionOf = (html: string) => html.slice(html.indexOf('<section id="environment"'), html.indexOf("</section>", html.indexOf('<section id="environment"')));
+  const sectionOf = (html: string) =>
+    html.slice(
+      html.indexOf('<section id="environment"'),
+      html.indexOf("</section>", html.indexOf('<section id="environment"')),
+    );
 
   it("draws both toggles in a row of their own, checked by default, outside the Containers row, each saying when it applies", () => {
     const section = sectionOf(renderPage(fixturePage()));
@@ -345,7 +550,9 @@ describe("the Environment section's dotfiles", () => {
     // The Dotfiles row: from its heading to the next row (other rows hold checkboxes of their own, the Builder's).
     const start = section.indexOf('<h3 id="environment-dotfiles-title">');
     const row = section.slice(start, section.indexOf('<div class="row">', start));
-    const boxes = tagsOf(row).filter((tag) => tag.name === "input" && tag.attrs.type === "checkbox" && tag.attrs["data-setting"] !== undefined);
+    const boxes = tagsOf(row).filter(
+      (tag) => tag.name === "input" && tag.attrs.type === "checkbox" && tag.attrs["data-setting"] !== undefined,
+    );
     expect(boxes.map((tag) => [tag.attrs["data-setting"], tag.attrs.checked !== undefined])).toEqual([
       ["terminalsReadBashrc", true],
       ["agentsReadDotfiles", true],
@@ -355,8 +562,13 @@ describe("the Environment section's dotfiles", () => {
     expect(containers).not.toContain('data-setting="terminalsReadBashrc"');
     expect(section).toContain("Applies at each Workspace&#39;s next Container start");
     expect(section).toContain("Applies at each CLI agent&#39;s next start");
-    const group = tags.find((tag) => tag.attrs.role === "group" && tag.attrs["aria-labelledby"] === "environment-dotfiles-title");
-    expect(group?.attrs).toMatchObject({ "aria-labelledby": "environment-dotfiles-title", "aria-describedby": "environment-dotfiles-desc" });
+    const group = tags.find(
+      (tag) => tag.attrs.role === "group" && tag.attrs["aria-labelledby"] === "environment-dotfiles-title",
+    );
+    expect(group?.attrs).toMatchObject({
+      "aria-labelledby": "environment-dotfiles-title",
+      "aria-describedby": "environment-dotfiles-desc",
+    });
   });
 
   it("draws the agents' settings in an Agents row of their own, the Turn limit first, outside the Containers row (SPI-1315)", () => {
@@ -364,16 +576,25 @@ describe("the Environment section's dotfiles", () => {
     const start = section.indexOf('<h3 id="environment-agents-title">Agents</h3>');
     expect(start).toBeGreaterThan(-1);
     const row = section.slice(start, section.indexOf('<div class="row">', start));
-    const settings = tagsOf(row).filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined).map((tag) => tag.attrs["data-setting"]);
+    const settings = tagsOf(row)
+      .filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined)
+      .map((tag) => tag.attrs["data-setting"]);
     expect(settings).toEqual(["turnLimitMinutes", "cliProcessesPerWorkspace", "cliReclaimSeconds"]);
     const containers = section.slice(0, start);
     for (const key of settings) expect(containers).not.toContain(`data-setting="${key}"`);
-    const group = tagsOf(section).find((tag) => tag.attrs.role === "group" && tag.attrs["aria-labelledby"] === "environment-agents-title");
+    const group = tagsOf(section).find(
+      (tag) => tag.attrs.role === "group" && tag.attrs["aria-labelledby"] === "environment-agents-title",
+    );
     expect(group?.attrs["aria-describedby"]).toBe("environment-agents-desc");
   });
 
   it("draws a toggle the Owner turned off unchecked", () => {
-    const section = sectionOf(renderPage({ ...fixturePage(), environment: { ...resolveEnvironment(EMPTY_ENVIRONMENT), agentsReadDotfiles: false } }));
+    const section = sectionOf(
+      renderPage({
+        ...fixturePage(),
+        environment: { ...resolveEnvironment(EMPTY_ENVIRONMENT), agentsReadDotfiles: false },
+      }),
+    );
     const box = tagsOf(section).find((tag) => tag.attrs["data-setting"] === "agentsReadDotfiles");
     expect(box?.attrs.checked).toBeUndefined();
   });
@@ -382,7 +603,11 @@ describe("the Environment section's dotfiles", () => {
 // The Workspaces section (ADR-0044 §1, §4 and its Consequences): the Grace as one control, every Workspace with
 // a project's worktrees under it, the lazy Files column, and the Owner's three acts.
 describe("the Workspaces section", () => {
-  const sectionOf = (html: string) => html.slice(html.indexOf('<section id="workspaces"'), html.indexOf("</section>", html.indexOf('<section id="workspaces"')));
+  const sectionOf = (html: string) =>
+    html.slice(
+      html.indexOf('<section id="workspaces"'),
+      html.indexOf("</section>", html.indexOf('<section id="workspaces"')),
+    );
   const html = renderPage(fixturePage());
   const section = sectionOf(html);
   const tags = tagsOf(section);
@@ -393,22 +618,51 @@ describe("the Workspaces section", () => {
       ["days", true],
       ["never", false],
     ]);
-    expect(tags.find((tag) => tag.attrs["data-grace-days"] !== undefined)?.attrs).toMatchObject({ type: "number", min: "1", max: "3650", step: "1", value: "7" });
-    expect(textOf(section, tags, tags.findIndex((tag) => tag.name === "label" && tag.attrs.for === "grace-days"))).toBe("Purge after");
-    expect(textOf(section, tags, tags.findIndex((tag) => tag.name === "label" && tag.attrs.for === "grace-never"))).toBe("Never purge");
+    expect(tags.find((tag) => tag.attrs["data-grace-days"] !== undefined)?.attrs).toMatchObject({
+      type: "number",
+      min: "1",
+      max: "3650",
+      step: "1",
+      value: "7",
+    });
+    expect(
+      textOf(
+        section,
+        tags,
+        tags.findIndex((tag) => tag.name === "label" && tag.attrs.for === "grace-days"),
+      ),
+    ).toBe("Purge after");
+    expect(
+      textOf(
+        section,
+        tags,
+        tags.findIndex((tag) => tag.name === "label" && tag.attrs.for === "grace-never"),
+      ),
+    ).toBe("Never purge");
     expect(tags.some((tag) => tag.name === "form" && tag.attrs["data-grace"] !== undefined)).toBe(true);
-    const environment = html.slice(html.indexOf('<section id="environment"'), html.indexOf("</section>", html.indexOf('<section id="environment"')));
+    const environment = html.slice(
+      html.indexOf('<section id="environment"'),
+      html.indexOf("</section>", html.indexOf('<section id="environment"')),
+    );
     expect(environment).not.toContain('data-setting="sweepPurges"');
     expect(environment).not.toContain('data-setting="graceDays"');
     expect(section).not.toContain("T3FLARE_SWEEP_GRACE_MS");
-    const never = sectionOf(renderPage(fixturePage({ workspaces: { ...FIXTURE_WORKSPACES, purging: false, graceDays: 30 } })));
-    expect(tagsOf(never).filter((tag) => tag.attrs.type === "radio").map((tag) => tag.attrs.checked !== undefined)).toEqual([false, true]);
+    const never = sectionOf(
+      renderPage(fixturePage({ workspaces: { ...FIXTURE_WORKSPACES, purging: false, graceDays: 30 } })),
+    );
+    expect(
+      tagsOf(never)
+        .filter((tag) => tag.attrs.type === "radio")
+        .map((tag) => tag.attrs.checked !== undefined),
+    ).toEqual([false, true]);
     expect(never).toContain('value="30"');
     expect(never).toContain("Never purge: the Sweep marks what nothing references and purges nothing.");
   });
 
   it("says when a Stage's T3FLARE_SWEEP_GRACE_MS overrides the days (ADR-0043 §3)", () => {
-    const overridden = sectionOf(renderPage(fixturePage({ workspaces: { ...FIXTURE_WORKSPACES, overridden: true, graceMs: 180_000 } })));
+    const overridden = sectionOf(
+      renderPage(fixturePage({ workspaces: { ...FIXTURE_WORKSPACES, overridden: true, graceMs: 180_000 } })),
+    );
     expect(overridden).toContain("This Stage overrides the Grace");
     expect(overridden).toContain("<code>T3FLARE_SWEEP_GRACE_MS</code> sets it to 3 minutes");
   });
@@ -422,7 +676,11 @@ describe("the Workspaces section", () => {
       ["live", ""],
       [".wt/old/kept", ""],
     ]);
-    expect(tags.filter((tag) => tag.attrs["data-workspace-usage"] !== undefined).map((tag) => tag.attrs["data-workspace-usage"])).toEqual(["acme", ".wt/acme/feat-a", ".wt/acme/feat-b", "live", ".wt/old/kept"]);
+    expect(
+      tags
+        .filter((tag) => tag.attrs["data-workspace-usage"] !== undefined)
+        .map((tag) => tag.attrs["data-workspace-usage"]),
+    ).toEqual(["acme", ".wt/acme/feat-a", ".wt/acme/feat-b", "live", ".wt/old/kept"]);
     expect(section).toContain('<th scope="col" class="files">Files</th>');
     // A path or a branch wraps only after a slash, never mid-name.
     expect(section).toContain("<code>.wt/<wbr>acme/<wbr>feat-b</code>");
@@ -433,7 +691,9 @@ describe("the Workspaces section", () => {
     expect(section).toContain('<span class="pill">tombstone (kept)</span>');
     expect(section).toContain("project “Live app”; thread “Fix the bug”; 2 open terminals");
     expect(section).toContain("uncommitted work (--force)");
-    expect(section).toContain(`<time datetime="${new Date(FIXTURE_NOW + 5 * 24 * 60 * 60_000).toISOString()}" data-local>`);
+    expect(section).toContain(
+      `<time datetime="${new Date(FIXTURE_NOW + 5 * 24 * 60 * 60_000).toISOString()}" data-local>`,
+    );
     expect(section).toContain("never: kept");
     // In use, Referenced by names why; the Sweep's reason (the same references by id) is not repeated beneath.
     expect(section).toContain('<td data-label="Purged"><div>never while referenced</div></td>');
@@ -441,7 +701,7 @@ describe("the Workspaces section", () => {
     expect(section).toContain("Purging since");
   });
 
-  it("offers Purge now beside \"purges its files for good\", Restore for a Tombstone, and a hidden Stop for a ready Workspace; no Purge now for one in use", () => {
+  it('offers Purge now beside "purges its files for good", Restore for a Tombstone, and a hidden Stop for a ready Workspace; no Purge now for one in use', () => {
     const purges = tags.filter((tag) => tag.attrs["data-workspace-purge"] !== undefined);
     expect(purges.map((tag) => JSON.parse(tag.attrs["data-workspace-purge"]!.replaceAll("&quot;", '"')))).toEqual([
       {
@@ -455,9 +715,27 @@ describe("the Workspaces section", () => {
         ],
         sessions: 3,
       },
-      { id: ".wt/acme/feat-a", name: "feat-a", title: "feat-a", goes: [{ id: ".wt/acme/feat-a", status: "unreferenced" }], sessions: 1 },
-      { id: ".wt/acme/feat-b", name: "feat-b", title: "t3/feat-b", goes: [{ id: ".wt/acme/feat-b", status: "tombstone" }], sessions: 0 },
-      { id: ".wt/old/kept", name: "kept", title: "kept", goes: [{ id: ".wt/old/kept", status: "tombstone (kept)" }], sessions: 0 },
+      {
+        id: ".wt/acme/feat-a",
+        name: "feat-a",
+        title: "feat-a",
+        goes: [{ id: ".wt/acme/feat-a", status: "unreferenced" }],
+        sessions: 1,
+      },
+      {
+        id: ".wt/acme/feat-b",
+        name: "feat-b",
+        title: "t3/feat-b",
+        goes: [{ id: ".wt/acme/feat-b", status: "tombstone" }],
+        sessions: 0,
+      },
+      {
+        id: ".wt/old/kept",
+        name: "kept",
+        title: "kept",
+        goes: [{ id: ".wt/old/kept", status: "tombstone (kept)" }],
+        sessions: 0,
+      },
     ]);
     // A kept Tombstone in the set is called out: work a removal could not check (the script shows it).
     const kept = tags.find((tag) => tag.attrs["data-purge-kept"] !== undefined);
@@ -465,9 +743,15 @@ describe("the Workspaces section", () => {
     expect(textOf(section, tags, tags.indexOf(kept!))).toContain("work a removal could not check");
     for (const index of purges.map((tag) => tags.indexOf(tag))) {
       expect(textOf(section, tags, index)).toBe("Purge now");
-      expect(markupAfter(section, tags[index]!)).toMatch(/^<\/button><span class="hint">purges its files for good<\/span>/);
+      expect(markupAfter(section, tags[index]!)).toMatch(
+        /^<\/button><span class="hint">purges its files for good<\/span>/,
+      );
     }
-    expect(tags.filter((tag) => tag.attrs["data-workspace-restore"] !== undefined).map((tag) => tag.attrs["data-workspace-restore"])).toEqual([".wt/acme/feat-b", ".wt/old/kept"]);
+    expect(
+      tags
+        .filter((tag) => tag.attrs["data-workspace-restore"] !== undefined)
+        .map((tag) => tag.attrs["data-workspace-restore"]),
+    ).toEqual([".wt/acme/feat-b", ".wt/old/kept"]);
     const stops = tags.filter((tag) => tag.attrs["data-workspace-stop"] !== undefined);
     expect(stops.map((tag) => tag.attrs["data-workspace-stop"])).toEqual(["acme", ".wt/acme/feat-a", "live"]);
     // A ready Workspace's Container may not run: Stop stays hidden until the Files column's read says it does.
@@ -485,7 +769,9 @@ describe("the Workspaces section", () => {
   });
 
   it("draws its empty state, and a failed read as its error, never a table that could mislead", () => {
-    expect(sectionOf(renderPage(fixturePage({ workspaces: { ...FIXTURE_WORKSPACES, rows: [] } })))).toContain("No Workspaces");
+    expect(sectionOf(renderPage(fixturePage({ workspaces: { ...FIXTURE_WORKSPACES, rows: [] } })))).toContain(
+      "No Workspaces",
+    );
     const failed = sectionOf(renderPage(fixturePage({ workspaces: { error: "no such table: projection_projects" } })));
     expect(failed).toContain("The Workspaces could not be read");
     expect(failed).toContain("no such table: projection_projects");
@@ -501,7 +787,20 @@ describe("the Workspaces section", () => {
       fixturePage({
         workspaces: {
           ...FIXTURE_WORKSPACES,
-          rows: [{ ...acme!, id: hostile, title: hostile, repo: hostile, branch: hostile, confirmName: hostile, references: [hostile], lastError: hostile, planned: { action: "skip", why: hostile }, worktrees: [] }],
+          rows: [
+            {
+              ...acme!,
+              id: hostile,
+              title: hostile,
+              repo: hostile,
+              branch: hostile,
+              confirmName: hostile,
+              references: [hostile],
+              lastError: hostile,
+              planned: { action: "skip", why: hostile },
+              worktrees: [],
+            },
+          ],
         },
       }),
     );
@@ -517,7 +816,9 @@ describe("the Workspaces section", () => {
     // The page's one script parses whole: a name declared twice across its parts would stop all of it.
     expect(() => new Script(SCRIPT)).not.toThrow();
     expect(WORKSPACES_SCRIPT).not.toMatch(/innerHTML|outerHTML|insertAdjacentHTML|document\.write/);
-    expect(WORKSPACES_SCRIPT).toContain('post("/_t3flare/settings/api/workspaces/purge", { id: current.id, confirm: typed.value }, go)');
+    expect(WORKSPACES_SCRIPT).toContain(
+      'post("/_t3flare/settings/api/workspaces/purge", { id: current.id, confirm: typed.value }, go)',
+    );
     expect(WORKSPACES_SCRIPT).toContain("its Grace starts over now, unless a thread in t3 takes the worktree again");
     expect(WORKSPACES_SCRIPT).toContain('getJson("/_t3flare/settings/api/workspaces/sweep")');
     expect(WORKSPACES_SCRIPT).toContain('getJson("/_t3flare/settings/api/workspaces/usage?id=" + encodeURIComponent(');
@@ -526,9 +827,15 @@ describe("the Workspaces section", () => {
     expect(WORKSPACES_SCRIPT).toContain("if (stop) stop.hidden = !usage.containerRunning;");
     // What a running Container started from (SPI-1333): the Base snapshot or the Workspace image.
     expect(WORKSPACES_SCRIPT).toContain("cell.textContent = sizeOf(usage.bytes) + runningText(usage);");
-    const runningText = new Script(`${WORKSPACES_SCRIPT.match(/const runningText = [^\n]*/)![0]}; runningText`).runInNewContext() as (usage: object) => string;
-    expect(runningText({ containerRunning: true, startedFrom: "base" })).toBe(", Container running from the Base snapshot");
-    expect(runningText({ containerRunning: true, startedFrom: "image" })).toBe(", Container running from the Workspace image");
+    const runningText = new Script(
+      `${WORKSPACES_SCRIPT.match(/const runningText = [^\n]*/)![0]}; runningText`,
+    ).runInNewContext() as (usage: object) => string;
+    expect(runningText({ containerRunning: true, startedFrom: "base" })).toBe(
+      ", Container running from the Base snapshot",
+    );
+    expect(runningText({ containerRunning: true, startedFrom: "image" })).toBe(
+      ", Container running from the Workspace image",
+    );
     expect(runningText({ containerRunning: true })).toBe(", Container running");
     expect(runningText({ containerRunning: false })).toBe("");
     expect(WORKSPACES_SCRIPT).toMatch(/cell\.textContent = "unknown";\s*if \(stop\) stop\.hidden = false;/);

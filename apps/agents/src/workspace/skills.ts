@@ -3,14 +3,27 @@
 // request is one RPC and never starts the Container (ADR-0009). The Environment skill set is SPI-1148's; until then it
 // is empty.
 import type { ReadEnv } from "@t3flare/computer-env";
-import { CLI_ROOTS, type CliAgent, discoverPrompts, discoverSkills, type PromptTemplate, type Skill, type SkillDiscovery, type SkillFiles } from "@t3flare/skills";
+import {
+  CLI_ROOTS,
+  type CliAgent,
+  discoverPrompts,
+  discoverSkills,
+  type PromptTemplate,
+  type Skill,
+  type SkillDiscovery,
+  type SkillFiles,
+} from "@t3flare/skills";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 
 /** `env`'s file reads as discovery takes them: hidden names listed, git's ignore rules not applied, `node_modules` not walked. */
 export const skillFilesOf = (env: ReadEnv): SkillFiles => ({
   list: async (directory, maxEntries) => {
     if (env.listFiles === undefined) return [];
-    const listing = await env.listFiles(directory, { hidden: true, gitignore: false, exclude: ["node_modules"], maxEntries }, BACKGROUND_CONTEXT);
+    const listing = await env.listFiles(
+      directory,
+      { hidden: true, gitignore: false, exclude: ["node_modules"], maxEntries },
+      BACKGROUND_CONTEXT,
+    );
     if (listing.ok) return listing.value.entries;
     if (listing.error.code === "not_found" || listing.error.code === "not_directory") return [];
     throw new Error(`Cannot list skills in ${directory}: ${listing.error.message}`);
@@ -25,11 +38,28 @@ export const skillFilesOf = (env: ReadEnv): SkillFiles => ({
  * The Skills of a thread in `env`'s cwd, logging one line when any was skipped. With `agent` (a CLI agent's, SPI-1151):
  * that CLI's roots (`CLI_ROOTS`).
  */
-export const workspaceSkills = async (env: ReadEnv, root: string, environment: ReadonlyArray<Skill>, agent?: CliAgent): Promise<SkillDiscovery> => {
-  const found = await discoverSkills(skillFilesOf(env), { cwd: env.cwd, root, environment, roots: agent === undefined ? undefined : CLI_ROOTS[agent].skills });
+export const workspaceSkills = async (
+  env: ReadEnv,
+  root: string,
+  environment: ReadonlyArray<Skill>,
+  agent?: CliAgent,
+): Promise<SkillDiscovery> => {
+  const found = await discoverSkills(skillFilesOf(env), {
+    cwd: env.cwd,
+    root,
+    environment,
+    roots: agent === undefined ? undefined : CLI_ROOTS[agent].skills,
+  });
   if (found.skipped.length > 0) {
     console.log(
-      JSON.stringify({ t3flare: "skills", cwd: env.cwd, skills: found.skills.length, omitted: found.omitted, skipped: found.skipped.slice(0, 20), skippedCount: found.skipped.length }),
+      JSON.stringify({
+        t3flare: "skills",
+        cwd: env.cwd,
+        skills: found.skills.length,
+        omitted: found.omitted,
+        skipped: found.skipped.slice(0, 20),
+        skippedCount: found.skipped.length,
+      }),
     );
   }
   return found;

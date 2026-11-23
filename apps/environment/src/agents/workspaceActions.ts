@@ -8,7 +8,14 @@
 // purges anyway. Worktrees go first, then the project, each with its deleted threads' Sessions.
 import { type PurgeReport, purgeDue, purgeSubjectOf, type SweepReport, type SweptSessions } from "./deletion.ts";
 import type { WorkspaceKind, WorkspaceRecord } from "./workspaces.ts";
-import { readNamedReferences, sessionsOf, statusOf, titleOf, type WorkspacesDeps, type WorkspaceStatus } from "./workspaceView.ts";
+import {
+  readNamedReferences,
+  sessionsOf,
+  statusOf,
+  titleOf,
+  type WorkspacesDeps,
+  type WorkspaceStatus,
+} from "./workspaceView.ts";
 import { type AuditActor, type AuditEntry, auditWorkspace } from "../harness/store.ts";
 
 export interface WorkspaceActionsDeps extends WorkspacesDeps {
@@ -43,7 +50,12 @@ export interface WorkspacesApi {
 /** An act's outcome, or its refusal with an HTTP-like status. */
 export type ActionOutcome<T> =
   | ({ readonly ok: true } & T)
-  | { readonly ok: false; readonly status: 404 | 409 | 502 | 503; readonly error: string; readonly references?: Readonly<Record<string, ReadonlyArray<string>>> };
+  | {
+      readonly ok: false;
+      readonly status: 404 | 409 | 502 | 503;
+      readonly error: string;
+      readonly references?: Readonly<Record<string, ReadonlyArray<string>>>;
+    };
 
 const unknown = (id: string) => ({ ok: false, status: 404, error: `no Workspace ${id}` }) as const;
 
@@ -115,14 +127,22 @@ export interface PurgePlan {
  * Plans a Purge of `id` without purging (ADR-0044 §5): refused, as `purgeNow` would refuse it, when `id` is unknown or any
  * member of its set is referenced.
  */
-export const planPurge = async (deps: WorkspacesDeps, id: string, now: number): Promise<ActionOutcome<{ readonly plan: PurgePlan }>> => {
+export const planPurge = async (
+  deps: WorkspacesDeps,
+  id: string,
+  now: number,
+): Promise<ActionOutcome<{ readonly plan: PurgePlan }>> => {
   const read = await readPurgeSet(deps, id);
   if (read === undefined) return unknown(id);
   if (read.refusal !== undefined) return read.refusal;
   const { target, worktrees, references, titles } = read;
   const settings = deps.settings();
   const subject = purgeSubjectOf(target, references.released.get(id));
-  const grace = { purging: settings.purging, graceMs: settings.graceMs, purgingSince: settings.purging ? (deps.purgingSince() ?? now) : null };
+  const grace = {
+    purging: settings.purging,
+    graceMs: settings.graceMs,
+    purgingSince: settings.purging ? (deps.purgingSince() ?? now) : null,
+  };
   return {
     ok: true,
     plan: {
@@ -139,13 +159,21 @@ export const planPurge = async (deps: WorkspacesDeps, id: string, now: number): 
 };
 
 /** Purge `id` now, with its Worktree Workspaces (ADR-0044 §2–3). */
-export const purgeNow = async (deps: WorkspaceActionsDeps, id: string, options: { readonly force: boolean; readonly actor: AuditActor }): Promise<ActionOutcome<Purged>> => {
+export const purgeNow = async (
+  deps: WorkspaceActionsDeps,
+  id: string,
+  options: { readonly force: boolean; readonly actor: AuditActor },
+): Promise<ActionOutcome<Purged>> => {
   // Read again here, whatever the page or the ask showed; a failed read purges nothing.
   let read: Awaited<ReturnType<typeof readPurgeSet>>;
   try {
     read = await readPurgeSet(deps, id, options.force);
   } catch (error) {
-    return { ok: false, status: 503, error: `the Workspace's references could not be read, so nothing was purged: ${String(error).slice(0, 300)}` };
+    return {
+      ok: false,
+      status: 503,
+      error: `the Workspace's references could not be read, so nothing was purged: ${String(error).slice(0, 300)}`,
+    };
   }
   if (read === undefined) return unknown(id);
   if (read.refusal !== undefined && !options.force) return read.refusal;
@@ -156,7 +184,9 @@ export const purgeNow = async (deps: WorkspaceActionsDeps, id: string, options: 
   for (const row of set) {
     // A deleted worktree thread is under its project too: its Session goes once, with the first of them purged; one the
     // Sweep already destroyed is left.
-    const threads = (references.deletedThreads.get(row.id) ?? []).filter((thread) => !taken.has(thread.threadId) && deps.sweptSessions?.has(thread.threadId) !== true);
+    const threads = (references.deletedThreads.get(row.id) ?? []).filter(
+      (thread) => !taken.has(thread.threadId) && deps.sweptSessions?.has(thread.threadId) !== true,
+    );
     for (const thread of threads) taken.add(thread.threadId);
     const report = await deps.purge(row.id, threads);
     if (!report.destroyed) {
@@ -186,28 +216,57 @@ export const purgeNow = async (deps: WorkspaceActionsDeps, id: string, options: 
   );
   if (failed !== undefined) {
     const done = ids.length === 0 ? "nothing was purged" : `${ids.join(", ")} purged`;
-    return { ok: false, status: 502, error: `${failed.id} could not be purged: ${failed.error ?? "unknown"}. ${done}; the Sweep drives a Workspace left purging again within minutes.` };
+    return {
+      ok: false,
+      status: 502,
+      error: `${failed.id} could not be purged: ${failed.error ?? "unknown"}. ${done}; the Sweep drives a Workspace left purging again within minutes.`,
+    };
   }
   return { ok: true, ids, sessions, purged, ...(unread.length === 0 ? {} : { unread }) };
 };
 
 /** A Tombstone back at its path (ADR-0044's Consequences): its Grace starts over unless a thread in t3 takes the worktree again. */
-export const restore = async (deps: WorkspaceActionsDeps, id: string, options: { readonly actor: AuditActor }): Promise<ActionOutcome<{ readonly restored: WorkspaceRecord }>> => {
+export const restore = async (
+  deps: WorkspaceActionsDeps,
+  id: string,
+  options: { readonly actor: AuditActor },
+): Promise<ActionOutcome<{ readonly restored: WorkspaceRecord }>> => {
   const row = deps.registry.get(id);
   if (row === undefined) return unknown(id);
   if (row.state !== "tombstoned") return { ok: false, status: 409, error: `${id} is not a Tombstone` };
   const restored = await deps.restore(id);
   if (restored === undefined) return { ok: false, status: 409, error: `${id} is not a Tombstone` };
-  deps.audit(auditWorkspace({ at: deps.now(), actor: options.actor, action: "workspace.restore", target: id, before: { state: "tombstoned" }, after: { state: restored.state } }));
+  deps.audit(
+    auditWorkspace({
+      at: deps.now(),
+      actor: options.actor,
+      action: "workspace.restore",
+      target: id,
+      before: { state: "tombstoned" },
+      after: { state: restored.state },
+    }),
+  );
   return { ok: true, restored };
 };
 
 /** Stops a `ready` Workspace's Container now (ADR-0044 §1); it starts again at its next use. */
-export const stop = async (deps: WorkspaceActionsDeps, id: string, options: { readonly actor: AuditActor }): Promise<ActionOutcome<{ readonly stopped: string }>> => {
+export const stop = async (
+  deps: WorkspaceActionsDeps,
+  id: string,
+  options: { readonly actor: AuditActor },
+): Promise<ActionOutcome<{ readonly stopped: string }>> => {
   const row = deps.registry.get(id);
   if (row === undefined) return unknown(id);
   if (row.state !== "ready") return { ok: false, status: 409, error: `${id} is not ready: ${row.state}` };
   await deps.stop(id);
-  deps.audit(auditWorkspace({ at: deps.now(), actor: options.actor, action: "workspace.stop", target: id, after: { stopped: true } }));
+  deps.audit(
+    auditWorkspace({
+      at: deps.now(),
+      actor: options.actor,
+      action: "workspace.stop",
+      target: id,
+      after: { stopped: true },
+    }),
+  );
   return { ok: true, stopped: id };
 };

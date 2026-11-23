@@ -17,7 +17,14 @@ const gc = (globalThis as { gc?: () => void }).gc;
 if (gc === undefined) throw new Error("run with --expose-gc");
 const FILES = 2000;
 const dir = fs.mkdtempSync(join(tmpdir(), "t3flare-r5-"));
-const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@e", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@e", GIT_CONFIG_GLOBAL: "/dev/null" };
+const env = {
+  ...process.env,
+  GIT_AUTHOR_NAME: "t",
+  GIT_AUTHOR_EMAIL: "t@e",
+  GIT_COMMITTER_NAME: "t",
+  GIT_COMMITTER_EMAIL: "t@e",
+  GIT_CONFIG_GLOBAL: "/dev/null",
+};
 const git = (...args: Array<string>) => execFileSync("git", args, { cwd: dir, env }).toString();
 git("init", "-q", "-b", "main");
 for (let file = 0; file < FILES; file++) {
@@ -65,7 +72,9 @@ const start = await step("capture (from)", () => captureCheckpoint(repo(), "refs
 fs.appendFileSync(join(dir, "pkg0/mod0/file0.ts"), "// more\n");
 const end = await step("capture (to)", () => captureCheckpoint(repo(), "refs/t3/r5/to", 2));
 const patch = await step("diff (patch)", () => diffCommits(repo(), start, end, { format: "patch" }));
-await step("stale status patch (25 journal paths)", async () => patchAnswer({ kind: "status", base: "HEAD" }, status, journal, await repoFacts(repo())));
+await step("stale status patch (25 journal paths)", async () =>
+  patchAnswer({ kind: "status", base: "HEAD" }, status, journal, await repoFacts(repo())),
+);
 const out = {
   measured: true,
   where: "Node (V8) with --expose-gc; workerd has no heap API",

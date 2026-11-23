@@ -65,14 +65,16 @@ export const SKILL_TOKEN_REGEX =
   /(^|\s)\p{Sc}(?![0-9][0-9_]*(?:[kKmMbBtT]|[eE][0-9]+)?(?:\s|$))(?=[a-zA-Z0-9:_-]*[a-zA-Z])([a-zA-Z0-9][a-zA-Z0-9:_-]*)(?=\s|$)/gu;
 
 /** Whether `$name` is a mention t3 recognises (`SKILL_TOKEN_REGEX`), within the Agent Skills' 64 characters. */
-export const isMentionable = (name: string): boolean => name.length <= 64 && [...`$${name}`.matchAll(SKILL_TOKEN_REGEX)].some((match) => match[2] === name);
+export const isMentionable = (name: string): boolean =>
+  name.length <= 64 && [...`$${name}`.matchAll(SKILL_TOKEN_REGEX)].some((match) => match[2] === name);
 
 /** The most entries listed in one skills directory: far above any real one, below a walk of a whole tree. */
 const MAX_ROOT_ENTRIES = 5000;
 /** The most entries read from a directory a skills link points to: a link may lead anywhere. */
 const MAX_LINKED_ENTRIES = 200;
 
-export const join = (directory: string, path: string): string => (directory === "/" ? `/${path}` : `${directory}/${path}`);
+export const join = (directory: string, path: string): string =>
+  directory === "/" ? `/${path}` : `${directory}/${path}`;
 
 /** `path` without its trailing `/`s, `/` for the root: a loop, where a regex would take quadratic time over a run of them. */
 export const withoutTrailingSlashes = (path: string): string => {
@@ -89,10 +91,15 @@ const frontmatterOf = (text: string): string | undefined => {
   return end === -1 ? undefined : normalized.slice(4, end);
 };
 
-const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> => typeof value === "object" && value !== null && !Array.isArray(value);
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** `text`'s frontmatter as YAML fields, or why it has none: what a `SKILL.md` declares (also SPI-1148's install). */
-export const frontmatterFields = (text: string): { readonly ok: true; readonly fields: Readonly<Record<string, unknown>> } | { readonly ok: false; readonly reason: string } => {
+export const frontmatterFields = (
+  text: string,
+):
+  | { readonly ok: true; readonly fields: Readonly<Record<string, unknown>> }
+  | { readonly ok: false; readonly reason: string } => {
   const source = frontmatterOf(text);
   if (source === undefined) return { ok: false, reason: "no frontmatter" };
   let fields: unknown;
@@ -137,19 +144,29 @@ export const directoriesUp = (cwd: string, root: string): ReadonlyArray<string> 
 const skillFiles = (paths: ReadonlyArray<string>): ReadonlyArray<string> => {
   const candidates = paths.filter(
     (path) =>
-      (path === "SKILL.md" || path.endsWith("/SKILL.md")) && !path.split("/").some((segment) => segment.startsWith(".") || segment === "node_modules"),
+      (path === "SKILL.md" || path.endsWith("/SKILL.md")) &&
+      !path.split("/").some((segment) => segment.startsWith(".") || segment === "node_modules"),
   );
   const roots = candidates.map((path) => path.slice(0, -"SKILL.md".length));
   // A directory with a `SKILL.md` is a skill, and pi does not look below one.
-  return candidates.filter((path) => !roots.some((root) => root !== "" && path !== `${root}SKILL.md` && path.startsWith(root))).sort();
+  return candidates
+    .filter((path) => !roots.some((root) => root !== "" && path !== `${root}SKILL.md` && path.startsWith(root)))
+    .sort();
 };
 
 /** The paths below a skills directory that may be a `SKILL.md`, following its links to directories one level, as pi does. */
 const candidatePaths = async (files: SkillFiles, root: string): Promise<ReadonlyArray<string>> => {
   const entries = await files.list(root, MAX_ROOT_ENTRIES);
-  const links = entries.filter((entry) => entry.kind === "symlink" && !entry.path.split("/").some((part) => part.startsWith(".")));
+  const links = entries.filter(
+    (entry) => entry.kind === "symlink" && !entry.path.split("/").some((part) => part.startsWith(".")),
+  );
   const linked = await Promise.all(
-    links.map(async (link) => (await files.list(join(root, link.path), MAX_LINKED_ENTRIES)).map((entry) => ({ ...entry, path: `${link.path}/${entry.path}` }))),
+    links.map(async (link) =>
+      (await files.list(join(root, link.path), MAX_LINKED_ENTRIES)).map((entry) => ({
+        ...entry,
+        path: `${link.path}/${entry.path}`,
+      })),
+    ),
   );
   return [...entries, ...linked.flat()].filter((entry) => entry.kind !== "directory").map((entry) => entry.path);
 };
@@ -163,7 +180,12 @@ const candidatePaths = async (files: SkillFiles, root: string): Promise<Readonly
  */
 export const discoverSkills = async (
   files: SkillFiles,
-  options: { readonly cwd: string; readonly root: string; readonly environment?: ReadonlyArray<Skill>; readonly roots?: ReadonlyArray<SkillRoot> | undefined },
+  options: {
+    readonly cwd: string;
+    readonly root: string;
+    readonly environment?: ReadonlyArray<Skill>;
+    readonly roots?: ReadonlyArray<SkillRoot> | undefined;
+  },
 ): Promise<SkillDiscovery> => {
   const environment = options.environment ?? [];
   const taken = new Map<string, string>(environment.map((skill) => [skill.name, skill.filePath]));
@@ -172,7 +194,9 @@ export const discoverSkills = async (
     skillRoots.filter((root) => depth === 0 || !root.cwdOnly).map((root) => join(directory, root.directory)),
   );
   // Listed at once; read in order, since precedence decides which of two same-named skills is kept.
-  const listed = await Promise.all(roots.map(async (root) => skillFiles(await candidatePaths(files, root)).map((path) => join(root, path))));
+  const listed = await Promise.all(
+    roots.map(async (root) => skillFiles(await candidatePaths(files, root)).map((path) => join(root, path))),
+  );
   const skills: Array<Skill> = [...environment];
   const skipped: Array<SkippedSkill> = [];
   let repo = 0;

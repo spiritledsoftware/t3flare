@@ -24,7 +24,22 @@
 import * as fs from "node:fs";
 import { join, resolve } from "node:path";
 
-import { admin, base, dispatch, enablePiDurable, mutateProject, pair, projectionOf, runsOf, sendMessage, sleep, threadWindow, uuid, wsCall, wsFirst } from "./lib/client.ts";
+import {
+  admin,
+  base,
+  dispatch,
+  enablePiDurable,
+  mutateProject,
+  pair,
+  projectionOf,
+  runsOf,
+  sendMessage,
+  sleep,
+  threadWindow,
+  uuid,
+  wsCall,
+  wsFirst,
+} from "./lib/client.ts";
 import { settled, until } from "./lib/cloudThread.ts";
 import { fixtureRepo } from "./lib/scriptSettings.ts";
 import { attachTerminal } from "./lib/terminal.ts";
@@ -48,16 +63,25 @@ const state = async () => {
   const info = (await admin("POST", `/_t3flare/agents/workspace-call?id=${enc}`, { killExecs: [] })).json;
   const budget = (await admin("GET", "/_t3flare/agents/budget")).json;
   return {
-    row: row === null ? null : { state: row.state, references: row.references, lastError: row.lastError, purgeAfter: row.purgeAfter },
+    row:
+      row === null
+        ? null
+        : { state: row.state, references: row.references, lastError: row.lastError, purgeAfter: row.purgeAfter },
     container: info?.container ?? info,
-    leased: (budget?.leases ?? []).some((lease: any) => lease.workspace === id || (row === null && lease.workspace === null)),
+    leased: (budget?.leases ?? []).some(
+      (lease: any) => lease.workspace === id || (row === null && lease.workspace === null),
+    ),
     leases: budget?.leases ?? [],
   };
 };
 
 if (scenario === "before") {
   const cookie = await pair();
-  const terminal = await attachTerminal(cookie, { threadId: `delete-${uuid()}`, terminalId: "default", cwd: `/w/${id}` });
+  const terminal = await attachTerminal(cookie, {
+    threadId: `delete-${uuid()}`,
+    terminalId: "default",
+    cwd: `/w/${id}`,
+  });
   await terminal.until(/[$#] $/, 120_000);
   const stamp = Date.now();
   const out = await terminal.run(
@@ -78,25 +102,42 @@ if (scenario === "after") {
   let last: Awaited<ReturnType<typeof state>> | undefined;
   while (Date.now() - started < 60_000) {
     last = await state();
-    if ((last.row === null || last.row.state === "tombstoned") && last.container?.running !== true && !last.leased) break;
+    if ((last.row === null || last.row.state === "tombstoned") && last.container?.running !== true && !last.leased)
+      break;
     await sleep(2000);
   }
   report.ms = Date.now() - started;
   report.state = last;
-  const info = (await admin("POST", `/_t3flare/agents/workspace-call?id=${enc}`, { fs: { op: "stat", path: "/workspace/repo" } })).json;
+  const info = (
+    await admin("POST", `/_t3flare/agents/workspace-call?id=${enc}`, { fs: { op: "stat", path: "/workspace/repo" } })
+  ).json;
   report.doFiles = info?.result ?? info;
   const doInfo = (await admin("GET", "/_t3flare/agents/workspaces")).json;
   report.registryIds = (doInfo?.workspaces ?? []).map((ws: any) => `${ws.id} ${ws.state}`);
   check("registry row gone or tombstoned", last?.row === null || last?.row?.state === "tombstoned", last?.row);
   check("Container stopped", last?.container?.running !== true, last?.container);
   check("not in the budget", last?.leased === false, last?.leases);
-  if (last?.row === null) check("the DO refuses (purged)", JSON.stringify(report.doFiles).includes("deleted"), report.doFiles);
+  if (last?.row === null)
+    check("the DO refuses (purged)", JSON.stringify(report.doFiles).includes("deleted"), report.doFiles);
   if (branch !== undefined) {
     const project = id.split("/")[1]!;
-    const carried = (await admin("POST", `/_t3flare/agents/workspace-call?id=${encodeURIComponent(project)}`, {
-      git: { argv: ["for-each-ref", "--format=%(refname) %(objectname) %(subject)", `refs/heads/${branch}`, "refs/t3flare/worktrees"], cwd: "/workspace/repo", startContainer: true },
-    })).json?.result;
-    report.branchInProject = String(carried?.stdout ?? "").trim().split("\n");
+    const carried = (
+      await admin("POST", `/_t3flare/agents/workspace-call?id=${encodeURIComponent(project)}`, {
+        git: {
+          argv: [
+            "for-each-ref",
+            "--format=%(refname) %(objectname) %(subject)",
+            `refs/heads/${branch}`,
+            "refs/t3flare/worktrees",
+          ],
+          cwd: "/workspace/repo",
+          startContainer: true,
+        },
+      })
+    ).json?.result;
+    report.branchInProject = String(carried?.stdout ?? "")
+      .trim()
+      .split("\n");
     check("the branch is in the project's repo", String(carried?.stdout ?? "").includes("unpushed"), carried);
   }
 }
@@ -113,26 +154,51 @@ if (scenario === "sweep") {
   const graceMs = Number(arg("grace-ms") ?? 180_000);
   const steps: Record<string, unknown> = {};
   const archived = arg("archived-thread");
-  if (archived !== undefined) steps.archive = await dispatch(cookie, { type: "thread.archive", commandId: uuid(), threadId: archived }).then(() => "archived", (error: unknown) => String(error).slice(0, 200));
+  if (archived !== undefined)
+    steps.archive = await dispatch(cookie, { type: "thread.archive", commandId: uuid(), threadId: archived }).then(
+      () => "archived",
+      (error: unknown) => String(error).slice(0, 200),
+    );
   const tomb = arg("tombstone");
   if (tomb !== undefined) {
     steps.restore = (await admin("POST", `/_t3flare/agents/workspace-restore?id=${encodeURIComponent(tomb)}`)).json;
-    steps.reRemove = await wsCall(cookie, "vcs.removeWorktree", { cwd: `/w/${tomb.split("/")[1]}`, path: `/w/${tomb}`, force: true }).then(
+    steps.reRemove = await wsCall(cookie, "vcs.removeWorktree", {
+      cwd: `/w/${tomb.split("/")[1]}`,
+      path: `/w/${tomb}`,
+      force: true,
+    }).then(
       () => "removed",
       (error: unknown) => String(error).slice(0, 300),
     );
-    const row = (((await admin("GET", "/_t3flare/agents/workspaces")).json?.workspaces ?? []) as Array<any>).find((ws) => ws.id === tomb);
-    steps.tombstone = row === undefined ? null : { state: row.state, purgeAfter: row.purgeAfter, lastError: row.lastError };
+    const row = (((await admin("GET", "/_t3flare/agents/workspaces")).json?.workspaces ?? []) as Array<any>).find(
+      (ws) => ws.id === tomb,
+    );
+    steps.tombstone =
+      row === undefined ? null : { state: row.state, purgeAfter: row.purgeAfter, lastError: row.lastError };
   }
   // The cost guard: a Container whose lease no registered Workspace holds (a scratch Workspace DO).
-  steps.orphan = (await admin("POST", "/_t3flare/agents/workspace-call?id=orphan-cost-check", { exec: { script: "echo started" } })).json?.container ?? null;
+  steps.orphan =
+    (await admin("POST", "/_t3flare/agents/workspace-call?id=orphan-cost-check", { exec: { script: "echo started" } }))
+      .json?.container ?? null;
   const terminalAt = arg("terminal");
-  const terminal = terminalAt === undefined ? undefined : await attachTerminal(cookie, { threadId: `sweep-${uuid()}`, terminalId: "default", cwd: `/w/${terminalAt}` });
+  const terminal =
+    terminalAt === undefined
+      ? undefined
+      : await attachTerminal(cookie, { threadId: `sweep-${uuid()}`, terminalId: "default", cwd: `/w/${terminalAt}` });
   if (terminal !== undefined) await terminal.until(/[$#] $/, 120_000);
   const deleted = arg("delete-project");
   const readd = arg("readd-project");
   for (const projectId of [deleted, readd]) {
-    if (projectId !== undefined) steps[`delete ${projectId}`] = await mutateProject(cookie, { type: "project.delete", commandId: uuid(), projectId, force: true }).then(() => "deleted", (error: unknown) => String(error).slice(0, 200));
+    if (projectId !== undefined)
+      steps[`delete ${projectId}`] = await mutateProject(cookie, {
+        type: "project.delete",
+        commandId: uuid(),
+        projectId,
+        force: true,
+      }).then(
+        () => "deleted",
+        (error: unknown) => String(error).slice(0, 200),
+      );
   }
   report.steps = steps;
   report.dry = (await admin("GET", "/_t3flare/agents/sweep?dry=1")).json?.report;
@@ -140,7 +206,17 @@ if (scenario === "sweep") {
   if (readd !== undefined) {
     // Re-added within the grace: a new project at the same root references the Workspace again.
     const root = arg("readd-root")!;
-    steps.readd = await mutateProject(cookie, { type: "project.create", commandId: uuid(), projectId: uuid(), title: "re-added", workspaceRoot: root, createWorkspaceRootIfMissing: false }).then(() => root, (error: unknown) => String(error).slice(0, 200));
+    steps.readd = await mutateProject(cookie, {
+      type: "project.create",
+      commandId: uuid(),
+      projectId: uuid(),
+      title: "re-added",
+      workspaceRoot: root,
+      createWorkspaceRootIfMissing: false,
+    }).then(
+      () => root,
+      (error: unknown) => String(error).slice(0, 200),
+    );
   }
   await sleep(graceMs + 15_000);
   report.last = (await admin("POST", "/_t3flare/agents/sweep")).json?.report;
@@ -148,7 +224,9 @@ if (scenario === "sweep") {
     await terminal.close();
     await terminal.detach();
   }
-  report.after = (((await admin("GET", "/_t3flare/agents/workspaces")).json?.workspaces ?? []) as Array<any>).map((ws) => `${ws.id} ${ws.state}`);
+  report.after = (((await admin("GET", "/_t3flare/agents/workspaces")).json?.workspaces ?? []) as Array<any>).map(
+    (ws) => `${ws.id} ${ws.state}`,
+  );
   report.budget = (await admin("GET", "/_t3flare/agents/budget")).json?.leases;
 }
 
@@ -159,12 +237,22 @@ if (scenario === "sweep") {
 const panel = (method: string, sub: string, body?: unknown) => admin(method, `/_t3flare/settings/api${sub}`, body);
 const view = async (): Promise<any> => (await panel("GET", "/workspaces")).json;
 /** Every row of the view, a project's worktrees included. */
-const rowsOf = (seen: any): Array<any> => ((seen?.rows ?? []) as Array<any>).flatMap((row) => [row, ...(row.worktrees ?? [])]);
+const rowsOf = (seen: any): Array<any> =>
+  ((seen?.rows ?? []) as Array<any>).flatMap((row) => [row, ...(row.worktrees ?? [])]);
 const rowIn = (seen: any, ws: string) => rowsOf(seen).find((row) => row.id === ws);
 const brief = (row: any) =>
   row === undefined
     ? null
-    : { id: row.id, status: row.status, references: row.references, unreferencedSince: iso(row.unreferencedSince), deletedAt: iso(row.deletedAt), purgeDue: iso(row.purgeDue), planned: row.planned, sessions: row.sessions };
+    : {
+        id: row.id,
+        status: row.status,
+        references: row.references,
+        unreferencedSince: iso(row.unreferencedSince),
+        deletedAt: iso(row.deletedAt),
+        purgeDue: iso(row.purgeDue),
+        planned: row.planned,
+        sessions: row.sessions,
+      };
 const iso = (at: number | null | undefined) => (typeof at === "number" ? new Date(at).toISOString() : null);
 const auditLog = async (): Promise<Array<any>> => (await panel("GET", "/audit")).json?.entries ?? [];
 const stamp = () => Date.now().toString(36);
@@ -182,7 +270,12 @@ const pageHtml = async () => {
 };
 const grace = async () => {
   const seen = await view();
-  return { purging: seen?.purging, graceMs: seen?.graceMs, overridden: seen?.overridden, purgingSince: iso(seen?.purgingSince) };
+  return {
+    purging: seen?.purging,
+    graceMs: seen?.graceMs,
+    overridden: seen?.overridden,
+    purgingSince: iso(seen?.purgingSince),
+  };
 };
 
 /** Polls the view (the page's route, no Sweep) until `done` holds or `timeoutMs` passes; the last view and when. */
@@ -200,12 +293,22 @@ const watch = async (done: (seen: any) => boolean, timeoutMs: number, everyMs = 
 /** A fresh clone of the fixture as a t3 project. */
 const projectAt = async (cookie: string, tag: string) => {
   const ws = `purge-${tag}-${stamp()}`;
-  const cloned = (await wsCall(cookie, "sourceControl.cloneRepository", { remoteUrl: `https://github.com/${fixtureRepo()}.git`, destinationPath: `/w/${ws}` }).catch((error: unknown) => ({
+  const cloned = (await wsCall(cookie, "sourceControl.cloneRepository", {
+    remoteUrl: `https://github.com/${fixtureRepo()}.git`,
+    destinationPath: `/w/${ws}`,
+  }).catch((error: unknown) => ({
     error: String(error).slice(0, 300),
   }))) as { cwd?: string; error?: string };
   if (cloned.cwd !== `/w/${ws}`) throw new Error(`clone ${ws}: ${JSON.stringify(cloned)}`);
   const projectId = uuid();
-  await mutateProject(cookie, { type: "project.create", commandId: uuid(), projectId, title: ws, workspaceRoot: `/w/${ws}`, createWorkspaceRootIfMissing: false });
+  await mutateProject(cookie, {
+    type: "project.create",
+    commandId: uuid(),
+    projectId,
+    title: ws,
+    workspaceRoot: `/w/${ws}`,
+    createWorkspaceRootIfMissing: false,
+  });
   return { ws, projectId, title: ws };
 };
 
@@ -239,14 +342,20 @@ const launch = async (cookie: string, projectId: string, title: string, strategy
     await sleep(3000);
   }
   const turn = await until(cookie, threadId, settled, 4 * 60_000);
-  if (strategy.type !== "worktree") setup = await wsFirst(cookie, "subscribeWorktreeSetup", { threadId }).catch(() => undefined);
-  const path: string | null = setup?.worktreePath ?? (typeof strategy.worktreePath === "string" ? strategy.worktreePath : null);
+  if (strategy.type !== "worktree")
+    setup = await wsFirst(cookie, "subscribeWorktreeSetup", { threadId }).catch(() => undefined);
+  const path: string | null =
+    setup?.worktreePath ?? (typeof strategy.worktreePath === "string" ? strategy.worktreePath : null);
   return {
     threadId,
     title,
     path,
     worktree: path?.replace(/^\/w\//, "") ?? null,
-    setup: { phase: setup?.phase ?? null, stages: (setup?.stages ?? []).map((s: any) => `${s.id}:${s.status}`), error: setup?.error ?? null },
+    setup: {
+      phase: setup?.phase ?? null,
+      stages: (setup?.stages ?? []).map((s: any) => `${s.id}:${s.status}`),
+      error: setup?.error ?? null,
+    },
     runs: runsOf(turn).map((run) => run.status),
   };
 };
@@ -255,16 +364,34 @@ const launch = async (cookie: string, projectId: string, title: string, strategy
 let durableModel = process.env.T3FLARE_TOOLS_MODEL ?? "";
 const pickModel = async () => {
   if (durableModel !== "") return;
-  const endpoints = ((await panel("GET", "/endpoints")).json?.endpoints ?? []) as Array<{ id: string; models?: Array<{ id: string }> }>;
+  const endpoints = ((await panel("GET", "/endpoints")).json?.endpoints ?? []) as Array<{
+    id: string;
+    models?: Array<{ id: string }>;
+  }>;
   const endpoint = endpoints.find((entry) => (entry.models?.length ?? 0) > 0);
   const model = endpoint?.models?.find((entry) => /haiku/.test(entry.id)) ?? endpoint?.models?.[0];
-  durableModel = endpoint === undefined || model === undefined ? "anthropic/claude-haiku-5-5" : `${endpoint.id}/${model.id}`;
+  durableModel =
+    endpoint === undefined || model === undefined ? "anthropic/claude-haiku-5-5" : `${endpoint.id}/${model.id}`;
 };
 
 /** A worktree setup script on the project, so its first thread's worktree is dirty (a forced removal tombstones it). */
 const withSetupScript = (cookie: string, projectId: string) =>
   wsCall(cookie, "server.updateSettings", {
-    patch: { projectSettingsOverrides: { [projectId]: { defaultProjectScripts: [{ id: "setup", name: "Setup", command: "echo setup-ran > setup.txt", icon: "configure", runOnWorktreeCreate: true }] } } },
+    patch: {
+      projectSettingsOverrides: {
+        [projectId]: {
+          defaultProjectScripts: [
+            {
+              id: "setup",
+              name: "Setup",
+              command: "echo setup-ran > setup.txt",
+              icon: "configure",
+              runOnWorktreeCreate: true,
+            },
+          ],
+        },
+      },
+    },
   });
 
 /** A project with one worktree thread (steps 1, 3, 5), its first turn settled. */
@@ -290,10 +417,22 @@ if (scenario === "sweep-fixture") {
   const kept = await projectWithWorktree(cookie, "keep");
   const tombProject = await projectAt(cookie, "tomb");
   await withSetupScript(cookie, tombProject.projectId);
-  const tombThread = await launch(cookie, tombProject.projectId, `${tombProject.ws} wt`, { type: "worktree", baseRef: "main" });
+  const tombThread = await launch(cookie, tombProject.projectId, `${tombProject.ws} wt`, {
+    type: "worktree",
+    baseRef: "main",
+  });
   await wsCall(cookie, "vcs.removeWorktree", { cwd: `/w/${tombProject.ws}`, path: tombThread.path, force: true });
   const gone = await projectAt(cookie, "gone");
-  report.args = ["--archived-thread", kept.thread.threadId, "--tombstone", tombThread.worktree, "--project", tombProject.ws, "--delete-project", gone.projectId];
+  report.args = [
+    "--archived-thread",
+    kept.thread.threadId,
+    "--tombstone",
+    tombThread.worktree,
+    "--project",
+    tombProject.ws,
+    "--delete-project",
+    gone.projectId,
+  ];
   report.keep = { ws: kept.ws, worktree: kept.worktree, tombstoneProject: tombProject.ws, deleted: gone.ws };
 }
 
@@ -329,7 +468,12 @@ if (["wake", "purge-now", "restore", "tool", "never"].includes(scenario)) {
     report.deletedAt = iso(deletedAt);
     report.delete = await deleteProject(cookie, p.projectId);
     const ids = [p.ws, p.worktree];
-    const marked = await watch((seen) => ids.every((ws) => rowIn(seen, ws)?.status === "unreferenced" && typeof rowIn(seen, ws)?.purgeDue === "number"), 60_000, 2000);
+    const marked = await watch(
+      (seen) =>
+        ids.every((ws) => rowIn(seen, ws)?.status === "unreferenced" && typeof rowIn(seen, ws)?.purgeDue === "number"),
+      60_000,
+      2000,
+    );
     report.step1 = {
       msAfterDelete: marked.ms,
       held: marked.held,
@@ -340,11 +484,20 @@ if (["wake", "purge-now", "restore", "tool", "never"].includes(scenario)) {
     check("step 1: both unreferenced with a purge date within a minute, no admin call", marked.held, report.step1);
     for (const ws of ids) {
       const due = rowIn(marked.seen, ws)?.purgeDue ?? 0;
-      check(`step 1: ${ws}'s purge date is about a Grace after the deletion`, Math.abs(due - deletedAt - graceMs) < 60_000, { due: iso(due), deletedAt: iso(deletedAt), graceMs });
+      check(
+        `step 1: ${ws}'s purge date is about a Grace after the deletion`,
+        Math.abs(due - deletedAt - graceMs) < 60_000,
+        { due: iso(due), deletedAt: iso(deletedAt), graceMs },
+      );
     }
     // The page's HTML renders the section with both rows.
     const page = await pageHtml();
-    report.page = { status: page.status, section: /Workspaces/.test(page.text), rows: ids.map((ws) => page.text.includes(ws)), unreferenced: /unreferenced/.test(page.text) };
+    report.page = {
+      status: page.status,
+      section: /Workspaces/.test(page.text),
+      rows: ids.map((ws) => page.text.includes(ws)),
+      unreferenced: /unreferenced/.test(page.text),
+    };
     // Step 2: no call at all until a minute and a half past the later date, then the view and the audit log.
     const due = Math.max(...ids.map((ws) => rowIn(marked.seen, ws)?.purgeDue ?? 0));
     const quietUntil = due + 90_000;
@@ -356,10 +509,20 @@ if (["wake", "purge-now", "restore", "tool", "never"].includes(scenario)) {
       goneAt: iso(Date.now()),
       msPastQuiet: after.ms,
       rows: ids.map((ws) => brief(rowIn(after.seen, ws))),
-      audit: entries.map((entry) => ({ at: iso(entry.at), caller: entry.caller, action: entry.action, target: entry.target, after: entry.after })),
+      audit: entries.map((entry) => ({
+        at: iso(entry.at),
+        caller: entry.caller,
+        action: entry.action,
+        target: entry.target,
+        after: entry.after,
+      })),
     };
     check("step 2: both gone after the date, no sweep route called", after.held, report.step2);
-    check("step 2: two sweep.purge entries", entries.length === 2 && entries.every((entry) => entry.caller === "sweep" && entry.at >= due), entries);
+    check(
+      "step 2: two sweep.purge entries",
+      entries.length === 2 && entries.every((entry) => entry.caller === "sweep" && entry.at >= due),
+      entries,
+    );
   }
 
   if (scenario === "purge-now") {
@@ -368,23 +531,52 @@ if (["wake", "purge-now", "restore", "tool", "never"].includes(scenario)) {
     report.project = { ws: q.ws, worktree: q.worktree, thread: { runs: q.thread.runs, setup: q.thread.setup } };
     const live = await panel("POST", "/workspaces/purge", { id: q.ws, confirm: q.ws });
     report.live = live;
-    check("step 3: a live project's Purge refused (409), naming the project", live.status === 409 && JSON.stringify(live.json).includes(q.title), live);
+    check(
+      "step 3: a live project's Purge refused (409), naming the project",
+      live.status === 409 && JSON.stringify(live.json).includes(q.title),
+      live,
+    );
     const liveView = await view();
-    check("step 3: the live project and worktree are still there", rowIn(liveView, q.ws)?.status === "in use" && rowIn(liveView, q.worktree) !== undefined, [brief(rowIn(liveView, q.ws)), brief(rowIn(liveView, q.worktree))]);
+    check(
+      "step 3: the live project and worktree are still there",
+      rowIn(liveView, q.ws)?.status === "in use" && rowIn(liveView, q.worktree) !== undefined,
+      [brief(rowIn(liveView, q.ws)), brief(rowIn(liveView, q.worktree))],
+    );
     report.delete = await deleteProject(cookie, q.projectId);
-    await watch((seen) => rowIn(seen, q.ws)?.status === "unreferenced" && rowIn(seen, q.worktree)?.status === "unreferenced", 60_000, 2000);
+    await watch(
+      (seen) => rowIn(seen, q.ws)?.status === "unreferenced" && rowIn(seen, q.worktree)?.status === "unreferenced",
+      60_000,
+      2000,
+    );
     const wrong = await panel("POST", "/workspaces/purge", { id: q.ws, confirm: "not-its-name" });
     report.wrongName = wrong;
     check("step 3: a wrong name refused (400)", wrong.status === 400, wrong);
     const started = Date.now();
     const purged = await panel("POST", "/workspaces/purge", { id: q.ws, confirm: q.ws });
-    report.purged = { status: purged.status, ms: Date.now() - started, ids: purged.json?.ids, sessions: purged.json?.sessions, error: purged.json?.error ?? null };
+    report.purged = {
+      status: purged.status,
+      ms: Date.now() - started,
+      ids: purged.json?.ids,
+      sessions: purged.json?.sessions,
+      error: purged.json?.error ?? null,
+    };
     const afterView = await view();
     report.after = [brief(rowIn(afterView, q.ws)), brief(rowIn(afterView, q.worktree))];
-    check("step 3: with the name typed, it and its worktree purged at once (worktree first)", purged.status === 200 && JSON.stringify(purged.json?.ids) === JSON.stringify([q.worktree, q.ws]), report.purged);
-    check("step 3: both gone from the view", rowIn(afterView, q.ws) === undefined && rowIn(afterView, q.worktree) === undefined, report.after);
+    check(
+      "step 3: with the name typed, it and its worktree purged at once (worktree first)",
+      purged.status === 200 && JSON.stringify(purged.json?.ids) === JSON.stringify([q.worktree, q.ws]),
+      report.purged,
+    );
+    check(
+      "step 3: both gone from the view",
+      rowIn(afterView, q.ws) === undefined && rowIn(afterView, q.worktree) === undefined,
+      report.after,
+    );
     const entry = (await auditLog()).find((e) => e.action === "workspace.purge" && e.target === q.ws);
-    report.audit = entry === undefined ? null : { caller: entry.caller, action: entry.action, target: entry.target, after: entry.after };
+    report.audit =
+      entry === undefined
+        ? null
+        : { caller: entry.caller, action: entry.action, target: entry.target, after: entry.after };
     check("step 3: one workspace.purge audit entry", entry !== undefined, report.audit);
   }
 
@@ -399,7 +591,11 @@ if (["wake", "purge-now", "restore", "tool", "never"].includes(scenario)) {
     const path = first.path;
     // The control: what t3's branch selector lists for the live worktree, before any removal.
     const refsOf = async () =>
-      (((await wsCall(cookie, "vcs.listRefs", { cwd: `/w/${r.ws}`, limit: 200, refresh: true }).catch((error: unknown) => ({ error: String(error) }))) as any)?.refs ?? []) as Array<any>;
+      ((
+        (await wsCall(cookie, "vcs.listRefs", { cwd: `/w/${r.ws}`, limit: 200, refresh: true }).catch(
+          (error: unknown) => ({ error: String(error) }),
+        )) as any
+      )?.refs ?? []) as Array<any>;
     /** The process router's last `git worktree list` in the project: how many worktree Workspaces it answered. */
     const lastList = async () =>
       (((await admin("GET", "/_t3flare/agents/router-trace")).json?.entries ?? []) as Array<any>)
@@ -407,44 +603,89 @@ if (["wake", "purge-now", "restore", "tool", "never"].includes(scenario)) {
         .map((entry) => ({ argv: entry.argv, route: entry.route, detail: entry.detail }))
         .at(-1) ?? null;
     const firstShell = (await wsFirst(cookie, "orchestration.subscribeShell", {})) as any;
-    const firstThread = ((firstShell?.snapshot ?? firstShell)?.threads ?? []).find((t: any) => (t.id ?? t.threadId) === first.threadId);
+    const firstThread = ((firstShell?.snapshot ?? firstShell)?.threads ?? []).find(
+      (t: any) => (t.id ?? t.threadId) === first.threadId,
+    );
     report.firstBranch = firstThread?.branch ?? null;
     const liveRefs = await refsOf();
-    report.listedLive = { listed: liveRefs.some((ref) => ref.worktreePath === path), refs: liveRefs.map((ref) => `${ref.name} ${ref.worktreePath}`), worktreeList: await lastList() };
+    report.listedLive = {
+      listed: liveRefs.some((ref) => ref.worktreePath === path),
+      refs: liveRefs.map((ref) => `${ref.name} ${ref.worktreePath}`),
+      worktreeList: await lastList(),
+    };
     // setup.txt is untracked: the forced removal keeps it as a Tombstone.
     report.removed = await wsCall(cookie, "vcs.removeWorktree", { cwd: `/w/${r.ws}`, path, force: true }).then(
       () => "removed",
       (error: unknown) => String(error).slice(0, 300),
     );
-    report.deleteFirst = await dispatch(cookie, { type: "thread.delete", commandId: uuid(), threadId: first.threadId }).then(
+    report.deleteFirst = await dispatch(cookie, {
+      type: "thread.delete",
+      commandId: uuid(),
+      threadId: first.threadId,
+    }).then(
       () => "deleted",
       (error: unknown) => String(error).slice(0, 300),
     );
     const tomb = await watch((seen) => rowIn(seen, wt)?.status === "tombstone", 60_000, 2000);
     report.tombstone = brief(rowIn(tomb.seen, wt));
-    check("step 4: the removed dirty worktree is a Tombstone with a date", tomb.held && typeof rowIn(tomb.seen, wt)?.purgeDue === "number", report.tombstone);
+    check(
+      "step 4: the removed dirty worktree is a Tombstone with a date",
+      tomb.held && typeof rowIn(tomb.seen, wt)?.purgeDue === "number",
+      report.tombstone,
+    );
     const restored = await panel("POST", "/workspaces/restore", { id: wt });
-    report.restored = { status: restored.status, state: restored.json?.restored?.state, error: restored.json?.error ?? null };
+    report.restored = {
+      status: restored.status,
+      state: restored.json?.restored?.state,
+      error: restored.json?.error ?? null,
+    };
     const back = await view();
     report.afterRestore = brief(rowIn(back, wt));
-    check("step 4: restored to ready (unreferenced)", restored.status === 200 && rowIn(back, wt)?.status === "unreferenced", report.afterRestore);
+    check(
+      "step 4: restored to ready (unreferenced)",
+      restored.status === 200 && rowIn(back, wt)?.status === "unreferenced",
+      report.afterRestore,
+    );
     // What t3's branch selector lists: the branch with the restored worktree's path.
     const refs = await refsOf();
     const listed = refs.find((ref) => ref.worktreePath === path);
-    report.listed = { listed: listed ?? null, refs: refs.map((ref) => `${ref.name} ${ref.worktreePath}`), worktreeList: await lastList() };
+    report.listed = {
+      listed: listed ?? null,
+      refs: refs.map((ref) => `${ref.name} ${ref.worktreePath}`),
+      worktreeList: await lastList(),
+    };
     // Restore must list it as the live worktree was listed (the control); a gap the live one shares is not restore's.
-    check("step 4: t3's refs list the restored worktree as they listed it live", (listed !== undefined) === (report.listedLive as any).listed, report.listed);
-    const second = await launch(cookie, r.projectId, `${r.ws} second`, { type: "existing_worktree", worktreePath: path, ...(listed?.name === undefined ? {} : { branch: listed.name }) });
+    check(
+      "step 4: t3's refs list the restored worktree as they listed it live",
+      (listed !== undefined) === (report.listedLive as any).listed,
+      report.listed,
+    );
+    const second = await launch(cookie, r.projectId, `${r.ws} second`, {
+      type: "existing_worktree",
+      worktreePath: path,
+      ...(listed?.name === undefined ? {} : { branch: listed.name }),
+    });
     report.second = second;
     const shell = (await wsFirst(cookie, "orchestration.subscribeShell", {})) as any;
-    const thread = ((shell?.snapshot ?? shell)?.threads ?? []).find((t: any) => (t.id ?? t.threadId) === second.threadId);
-    report.secondThread = thread === undefined ? null : { worktreePath: thread.worktreePath ?? null, branch: thread.branch ?? null };
+    const thread = ((shell?.snapshot ?? shell)?.threads ?? []).find(
+      (t: any) => (t.id ?? t.threadId) === second.threadId,
+    );
+    report.secondThread =
+      thread === undefined ? null : { worktreePath: thread.worktreePath ?? null, branch: thread.branch ?? null };
     const taken = await view();
     report.afterTake = brief(rowIn(taken, wt));
-    const files = (await admin("POST", `/_t3flare/agents/workspace-call?id=${encodeURIComponent(wt)}`, { git: { argv: ["status", "--porcelain"], cwd: "/workspace/repo", startContainer: true } })).json?.result;
+    const files = (
+      await admin("POST", `/_t3flare/agents/workspace-call?id=${encodeURIComponent(wt)}`, {
+        git: { argv: ["status", "--porcelain"], cwd: "/workspace/repo", startContainer: true },
+      })
+    ).json?.result;
     report.files = String(files?.stdout ?? files?.detail ?? "").trim();
     check("step 4: the new thread is on the restored worktree", thread?.worktreePath === path, report.secondThread);
-    check("step 4: the restored Workspace is in use by the new thread", rowIn(taken, wt)?.status === "in use" && JSON.stringify(rowIn(taken, wt)?.references).includes(second.title), report.afterTake);
+    check(
+      "step 4: the restored Workspace is in use by the new thread",
+      rowIn(taken, wt)?.status === "in use" && JSON.stringify(rowIn(taken, wt)?.references).includes(second.title),
+      report.afterTake,
+    );
     check("step 4: its files came back (setup.txt untracked)", /setup\.txt/.test(String(report.files)), report.files);
     report.cleanup = await deleteProject(cookie, r.projectId);
   }
@@ -473,37 +714,85 @@ if (["wake", "purge-now", "restore", "tool", "never"].includes(scenario)) {
       creationSource: "web",
     });
     const code = `const r = await tools.mcp__settings__purge_workspace(${JSON.stringify({ workspace: s.ws })}).catch((e) => ({ threw: String(e && e.message || e) }));\ntext(JSON.stringify(r).slice(0, 4000));`;
-    await sendMessage(cookie, threadId, `Call the codemode tool exactly once, with exactly this code (verbatim, change nothing), then reply with the script's output and nothing else:\n\n\`\`\`js\n${code}\n\`\`\``, {
-      instanceId: "piDurable",
-      model: durableModel,
-      options: [{ id: "thinking", value: "low" }],
-    } as never);
+    await sendMessage(
+      cookie,
+      threadId,
+      `Call the codemode tool exactly once, with exactly this code (verbatim, change nothing), then reply with the script's output and nothing else:\n\n\`\`\`js\n${code}\n\`\`\``,
+      {
+        instanceId: "piDurable",
+        model: durableModel,
+        options: [{ id: "thinking", value: "low" }],
+      } as never,
+    );
     const cards: Array<any> = [];
     const started = Date.now();
     let projection: any;
     while (Date.now() - started < 8 * 60_000) {
       projection = projectionOf(await threadWindow(cookie, threadId).catch(() => undefined)) ?? projection;
-      for (const request of (projection?.runtimeRequests ?? []).filter((r: any) => r.status === "pending" && !cards.some((c) => c.id === r.id))) {
+      for (const request of (projection?.runtimeRequests ?? []).filter(
+        (r: any) => r.status === "pending" && !cards.some((c) => c.id === r.id),
+      )) {
         const item = (projection?.turnItems ?? []).find((candidate: any) => candidate.requestId === request.id);
         // The card while it waits: the view must still show the Workspace (nothing purged before the answer).
         const waiting = rowIn(await view(), s.ws);
-        cards.push({ id: request.id, kind: request.kind, prompt: String(item?.prompt ?? item?.detail ?? "").slice(0, 1500), options: (item?.options ?? []).map((o: any) => `${o.decision}:${o.label}`), whileWaiting: brief(waiting) });
-        await dispatch(cookie, { type: "runtime-request.respond", commandId: uuid(), threadId, requestId: request.id, decision: "accept" });
+        cards.push({
+          id: request.id,
+          kind: request.kind,
+          prompt: String(item?.prompt ?? item?.detail ?? "").slice(0, 1500),
+          options: (item?.options ?? []).map((o: any) => `${o.decision}:${o.label}`),
+          whileWaiting: brief(waiting),
+        });
+        await dispatch(cookie, {
+          type: "runtime-request.respond",
+          commandId: uuid(),
+          threadId,
+          requestId: request.id,
+          decision: "accept",
+        });
       }
       if (settled(projection) && cards.length > 0) break;
       if (settled(projection) && Date.now() - started > 60_000) break;
       await sleep(1500);
     }
     const session = (await admin("GET", `/_t3flare/agents/session?thread=${encodeURIComponent(threadId)}`)).json;
-    const outputs = ((session?.entries ?? []) as Array<any>).filter((entry) => entry.role === "toolResult" && entry.toolName === "codemode").map((entry) => (entry.content ?? []).map((block: any) => block.text ?? "").join(""));
-    report.turn = { runs: runsOf(projection).map((run) => run.status), cards, output: (outputs.at(-1) ?? "").slice(0, 2000) };
+    const outputs = ((session?.entries ?? []) as Array<any>)
+      .filter((entry) => entry.role === "toolResult" && entry.toolName === "codemode")
+      .map((entry) => (entry.content ?? []).map((block: any) => block.text ?? "").join(""));
+    report.turn = {
+      runs: runsOf(projection).map((run) => run.status),
+      cards,
+      output: (outputs.at(-1) ?? "").slice(0, 2000),
+    };
     const afterView = await view();
     report.after = [brief(rowIn(afterView, s.ws)), brief(rowIn(afterView, s.worktree))];
     const entry = (await auditLog()).find((e) => e.action === "workspace.purge" && e.target === s.ws);
-    report.audit = entry === undefined ? null : { caller: entry.caller, via: entry.via, tier: entry.tier, mode: entry.mode, answeredBy: entry.answeredBy, change: entry.change, after: entry.after };
-    check("step 5: one Owner-only card, nothing purged while it waited", cards.length === 1 && cards[0].whileWaiting?.status === "unreferenced", cards);
-    check("step 5: approved, the Workspace and its worktree purged", rowIn(afterView, s.ws) === undefined && rowIn(afterView, s.worktree) === undefined, report.after);
-    check("step 5: the audit entry says card", entry?.mode === "card" && entry?.answeredBy === "card" && entry?.via === "mcp", report.audit);
+    report.audit =
+      entry === undefined
+        ? null
+        : {
+            caller: entry.caller,
+            via: entry.via,
+            tier: entry.tier,
+            mode: entry.mode,
+            answeredBy: entry.answeredBy,
+            change: entry.change,
+            after: entry.after,
+          };
+    check(
+      "step 5: one Owner-only card, nothing purged while it waited",
+      cards.length === 1 && cards[0].whileWaiting?.status === "unreferenced",
+      cards,
+    );
+    check(
+      "step 5: approved, the Workspace and its worktree purged",
+      rowIn(afterView, s.ws) === undefined && rowIn(afterView, s.worktree) === undefined,
+      report.after,
+    );
+    check(
+      "step 5: the audit entry says card",
+      entry?.mode === "card" && entry?.answeredBy === "card" && entry?.via === "mcp",
+      report.audit,
+    );
     report.cleanup = await deleteProject(cookie, home.projectId);
   }
 
@@ -512,16 +801,29 @@ if (["wake", "purge-now", "restore", "tool", "never"].includes(scenario)) {
     const off = await panel("POST", "/environment", { settings: { sweepPurges: false } });
     report.off = { status: off.status, error: off.json?.error ?? null };
     report.graceOff = await grace();
-    check("step 6: purging off, purgingSince forgotten at once", off.status === 200 && (report.graceOff as any).purging === false && (report.graceOff as any).purgingSince === null, report.graceOff);
+    check(
+      "step 6: purging off, purgingSince forgotten at once",
+      off.status === 200 &&
+        (report.graceOff as any).purging === false &&
+        (report.graceOff as any).purgingSince === null,
+      report.graceOff,
+    );
     const u = await projectAt(cookie, "never");
     report.project = { ws: u.ws };
     const deletedAt = Date.now();
     report.delete = await deleteProject(cookie, u.projectId);
     const marked = await watch((seen) => typeof rowIn(seen, u.ws)?.unreferencedSince === "number", 60_000, 2000);
     report.marked = { ms: marked.ms, row: brief(rowIn(marked.seen, u.ws)) };
-    check("step 6: the Sweep marks with purging off (no purge date)", marked.held && rowIn(marked.seen, u.ws)?.purgeDue === null, report.marked);
+    check(
+      "step 6: the Sweep marks with purging off (no purge date)",
+      marked.held && rowIn(marked.seen, u.ws)?.purgeDue === null,
+      report.marked,
+    );
     const preview = await panel("GET", "/workspaces/sweep");
-    report.preview = { summary: preview.json?.summary, row: (preview.json?.rows ?? []).find((row: any) => row.id === u.ws) ?? null };
+    report.preview = {
+      summary: preview.json?.summary,
+      row: (preview.json?.rows ?? []).find((row: any) => row.id === u.ws) ?? null,
+    };
     // A Grace and a minute: nothing purged.
     await sleep(Math.max(0, deletedAt + graceMs + 60_000 - Date.now()));
     const kept = await view();
@@ -532,17 +834,41 @@ if (["wake", "purge-now", "restore", "tool", "never"].includes(scenario)) {
     report.on = { at: iso(onAt), status: on.status, error: on.json?.error ?? null };
     const since = await watch((seen) => typeof seen?.purgingSince === "number", 60_000, 2000);
     const purgingSince = since.seen?.purgingSince as number;
-    report.purgingSince = { at: iso(purgingSince), msAfterOn: purgingSince - onAt, row: brief(rowIn(since.seen, u.ws)) };
-    check("step 6: turned on, the woken Sweep starts purgingSince", since.held && purgingSince >= onAt, report.purgingSince);
-    check("step 6: its purge date is a Grace after purgingSince, not its old mark", Math.abs((rowIn(since.seen, u.ws)?.purgeDue ?? 0) - purgingSince - graceMs) < 5000, report.purgingSince);
+    report.purgingSince = {
+      at: iso(purgingSince),
+      msAfterOn: purgingSince - onAt,
+      row: brief(rowIn(since.seen, u.ws)),
+    };
+    check(
+      "step 6: turned on, the woken Sweep starts purgingSince",
+      since.held && purgingSince >= onAt,
+      report.purgingSince,
+    );
+    check(
+      "step 6: its purge date is a Grace after purgingSince, not its old mark",
+      Math.abs((rowIn(since.seen, u.ws)?.purgeDue ?? 0) - purgingSince - graceMs) < 5000,
+      report.purgingSince,
+    );
     await sleep(Math.max(0, purgingSince + graceMs - 20_000 - Date.now()));
     const held = await view();
     report.heldOn = { at: iso(Date.now()), row: brief(rowIn(held, u.ws)) };
     check("step 6: nothing purged for one Grace after turning it on", rowIn(held, u.ws) !== undefined, report.heldOn);
-    const gone = await watch((seen) => rowIn(seen, u.ws) === undefined, purgingSince + graceMs + 3 * 60_000 - Date.now(), 10_000);
+    const gone = await watch(
+      (seen) => rowIn(seen, u.ws) === undefined,
+      purgingSince + graceMs + 3 * 60_000 - Date.now(),
+      10_000,
+    );
     const entry = (await auditLog()).find((e) => e.action === "sweep.purge" && e.target === u.ws);
-    report.after = { held: gone.held, at: iso(Date.now()), audit: entry === undefined ? null : { at: iso(entry.at), caller: entry.caller, after: entry.after } };
-    check("step 6: purged after that Grace, by the Sweep", gone.held && entry !== undefined && entry.at >= purgingSince + graceMs, report.after);
+    report.after = {
+      held: gone.held,
+      at: iso(Date.now()),
+      audit: entry === undefined ? null : { at: iso(entry.at), caller: entry.caller, after: entry.after },
+    };
+    check(
+      "step 6: purged after that Grace, by the Sweep",
+      gone.held && entry !== undefined && entry.at >= purgingSince + graceMs,
+      report.after,
+    );
   }
 }
 

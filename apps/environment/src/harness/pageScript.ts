@@ -34,7 +34,8 @@ const BUDGET_NOTE = [
 ] as const;
 export const budgetNote = (budget: number): string => `${BUDGET_NOTE[0]}${budget}${BUDGET_NOTE[1]}`;
 
-export const SCRIPT = `"use strict";
+export const SCRIPT =
+  `"use strict";
 const csrf = document.querySelector('meta[name="t3flare-csrf"]').getAttribute("content");
 const notice = document.getElementById("result");
 const noticeText = notice.querySelector(".msg");
@@ -652,4 +653,6 @@ if ("IntersectionObserver" in window) {
     if (first !== undefined) mark(first);
   }, { rootMargin: "-20% 0px -60% 0px" });
   for (const id of links.keys()) { const section = document.getElementById(id); if (section !== null) observer.observe(section); }
-}` + ENDPOINTS_SCRIPT + WORKSPACES_SCRIPT;
+}` +
+  ENDPOINTS_SCRIPT +
+  WORKSPACES_SCRIPT;

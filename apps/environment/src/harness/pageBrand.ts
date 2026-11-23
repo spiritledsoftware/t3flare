@@ -16,7 +16,8 @@ const flareSvg = (gradientId: string, attributes: string) =>
 const BRAND_BODY = `<span class="brand-mark">${flareSvg("flare-gradient", 'class="flare" viewBox="-18 -18 36 36" aria-hidden="true" focusable="false"')}</span><div><strong><span class="wordmark">t3<span class="wordmark-flare">flare</span></span></strong><span>Settings</span></div>`;
 
 /** The brand, once per page (its gradient's id): a link to `href` when given. */
-export const brand = (href?: string): string => (href === undefined ? `<div class="brand">${BRAND_BODY}</div>` : `<a class="brand" href="${href}">${BRAND_BODY}</a>`);
+export const brand = (href?: string): string =>
+  href === undefined ? `<div class="brand">${BRAND_BODY}</div>` : `<a class="brand" href="${href}">${BRAND_BODY}</a>`;
 
 /** The browser tab's icon: the flare alone, square. */
 export const FAVICON = `<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,${encodeURIComponent(

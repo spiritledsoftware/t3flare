@@ -19,12 +19,30 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { ensureProject } from "./lib/cliTurn.ts";
-import { admin, DEFAULT_MODEL, dispatch, itemsOf, pair, projectionOf, runsOf, sendMessage, SETTLED, sleep, threadWindow, uuid, wsCall, wsFirst } from "./lib/client.ts";
+import {
+  admin,
+  DEFAULT_MODEL,
+  dispatch,
+  itemsOf,
+  pair,
+  projectionOf,
+  runsOf,
+  sendMessage,
+  SETTLED,
+  sleep,
+  threadWindow,
+  uuid,
+  wsCall,
+  wsFirst,
+} from "./lib/client.ts";
 
 const HARNESS = process.env.T3FLARE_HARNESS_URL ?? "";
 const T3 = process.env.T3_URL ?? "";
 const OUT = path.resolve(import.meta.dirname, "../../../.evidence/environment-settings");
-const accessHeaders = { "cf-access-client-id": process.env.T3FLARE_ACCESS_CLIENT_ID ?? "", "cf-access-client-secret": process.env.T3FLARE_ACCESS_CLIENT_SECRET ?? "" };
+const accessHeaders = {
+  "cf-access-client-id": process.env.T3FLARE_ACCESS_CLIENT_ID ?? "",
+  "cf-access-client-secret": process.env.T3FLARE_ACCESS_CLIENT_SECRET ?? "",
+};
 const scriptHeaders = { ...accessHeaders, authorization: `Bearer ${process.env.T3FLARE_ADMIN_TOKEN ?? ""}` };
 const WORKSPACE = "penv-sizes";
 const SIZES = ["cpu-1", "standard-1", "standard-2", "standard-3", "standard-4"] as const;
@@ -36,11 +54,15 @@ interface Case {
 }
 
 /** The deployed build's commit (the Worker's `/_t3flare/health`), so each evidence file names the code it ran against. */
-const deployedCommit = async (): Promise<string | null> => (await admin("GET", "/_t3flare/health")).json?.build?.commit ?? null;
+const deployedCommit = async (): Promise<string | null> =>
+  (await admin("GET", "/_t3flare/health")).json?.build?.commit ?? null;
 
 const writeEvidence = async (name: string, value: Record<string, unknown>) => {
   fs.mkdirSync(OUT, { recursive: true });
-  fs.writeFileSync(path.join(OUT, name), `${JSON.stringify({ at: new Date().toISOString(), host: new URL(T3).host, commit: await deployedCommit(), ...value }, null, 1)}\n`);
+  fs.writeFileSync(
+    path.join(OUT, name),
+    `${JSON.stringify({ at: new Date().toISOString(), host: new URL(T3).host, commit: await deployedCommit(), ...value }, null, 1)}\n`,
+  );
   console.log(`wrote .evidence/environment-settings/${name} (ok: ${String(value.ok)})`);
 };
 
@@ -64,7 +86,10 @@ const harness = async (method: string, pathname: string, body?: unknown, headers
 
 const setEnvironment = async (settings: Record<string, unknown>) => {
   const answer = await harness("POST", "/_t3flare/settings/api/environment", { settings });
-  if (answer.status !== 200) throw new Error(`environment change ${JSON.stringify(settings)} refused: ${answer.status} ${JSON.stringify(answer.json)}`);
+  if (answer.status !== 200)
+    throw new Error(
+      `environment change ${JSON.stringify(settings)} refused: ${answer.status} ${JSON.stringify(answer.json)}`,
+    );
   return answer.json as { revision: number; resolved: Record<string, unknown> };
 };
 
@@ -106,25 +131,48 @@ const ready = async () => {
 
 /** One Workspace call, its whole answer kept (a refused start answers 500 with the budget's reason in its text). */
 const callOn = async (id: string, body: unknown) => {
-  const response = await fetch(new URL(`/_t3flare/agents/workspace-call?id=${id}`, T3), { method: "POST", redirect: "manual", headers: { ...scriptHeaders, "content-type": "application/json" }, body: JSON.stringify(body) });
+  const response = await fetch(new URL(`/_t3flare/agents/workspace-call?id=${id}`, T3), {
+    method: "POST",
+    redirect: "manual",
+    headers: { ...scriptHeaders, "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
   const text = await response.text();
   try {
-    return { status: response.status, ...JSON.parse(text) } as { status: number; result: any; container: any; text?: string };
+    return { status: response.status, ...JSON.parse(text) } as {
+      status: number;
+      result: any;
+      container: any;
+      text?: string;
+    };
   } catch {
-    return { status: response.status, result: undefined, container: undefined, text } as { status: number; result: any; container: any; text?: string };
+    return { status: response.status, result: undefined, container: undefined, text } as {
+      status: number;
+      result: any;
+      container: any;
+      text?: string;
+    };
   }
 };
 const call = (body: unknown) => callOn(WORKSPACE, body);
 const stopOn = (id: string) => admin("POST", `/_t3flare/agents/workspace-stop?id=${id}`);
 const stop = () => stopOn(WORKSPACE);
 /** A Workspace's Container state without using it (the registry's listing never counts as use). */
-const stateOf = async (id: string) => ((await admin("GET", "/_t3flare/agents/workspaces")).json?.workspaces as Array<any> | undefined)?.find((row) => row.id === id)?.container;
+const stateOf = async (id: string) =>
+  ((await admin("GET", "/_t3flare/agents/workspaces")).json?.workspaces as Array<any> | undefined)?.find(
+    (row) => row.id === id,
+  )?.container;
 const state = () => stateOf(WORKSPACE);
 
 /** Starts the Container if stopped (a command is use), and reads its limits. */
 const measure = async () => {
   const answer = await call({ exec: { script: LIMITS, timeoutMs: 180_000 } });
-  return { exitCode: answer.result?.exitCode, limits: parseLimits(String(answer.result?.stdout ?? "")), container: answer.container, stderr: String(answer.result?.stderr ?? "").slice(0, 300) || undefined };
+  return {
+    exitCode: answer.result?.exitCode,
+    limits: parseLimits(String(answer.result?.stdout ?? "")),
+    container: answer.container,
+    stderr: String(answer.result?.stderr ?? "").slice(0, 300) || undefined,
+  };
 };
 
 /** Polls until the Container stops; the time it stopped, as first seen stopped. */
@@ -160,7 +208,10 @@ const fits = (size: keyof typeof EXPECTED, limits: Record<string, string>) => {
   const disk = Number(limits.rootdisk_bytes);
   const diskOk = Math.abs(disk / (expected.diskMb * 1e6) - 1) < 0.2;
   const [quota, period] = String(limits["cpu.max"] ?? "").split(" ");
-  const cpus = quota !== undefined && quota !== "max" && Number(period) > 0 ? Number(quota) / Number(period) : Number(limits.nproc);
+  const cpus =
+    quota !== undefined && quota !== "max" && Number(period) > 0
+      ? Number(quota) / Number(period)
+      : Number(limits.nproc);
   const cpuOk = Math.abs(cpus - Math.max(expected.vcpu, quota !== undefined && quota !== "max" ? 0 : 1)) < 0.05;
   return { memoryBytes, memoryOk, disk, diskOk, cpus, cpuOk, ok: memoryOk && diskOk && cpuOk };
 };
@@ -169,7 +220,10 @@ const fits = (size: keyof typeof EXPECTED, limits: Record<string, string>) => {
 
 /** On a deploy of main (before SPI-1149): one Harness change, so the audit log holds an entry written without `entity`. */
 const seedOld = async () => {
-  const answer = await harness("POST", "/_t3flare/settings/api/extensions", { extension: "codemode", settings: { inlineBudget: 2345 } });
+  const answer = await harness("POST", "/_t3flare/settings/api/extensions", {
+    extension: "codemode",
+    settings: { inlineBudget: 2345 },
+  });
   console.log(`seed-old: ${answer.status} ${JSON.stringify(answer.json).slice(0, 200)}`);
 };
 
@@ -203,7 +257,13 @@ const running = async () => {
   await setEnvironment({ containerSize: "standard-1", containerIdleMinutes: 2 });
   await stop();
   const first = await measure();
-  cases.push({ name: "started on standard-1 with a 2-minute idle time", startedAt: first.container?.startedAt, launch: first.container?.launch, limits: first.limits, ok: first.container?.launch?.size === "standard-1" && first.container?.launch?.idleMs === 120_000 });
+  cases.push({
+    name: "started on standard-1 with a 2-minute idle time",
+    startedAt: first.container?.startedAt,
+    launch: first.container?.launch,
+    limits: first.limits,
+    ok: first.container?.launch?.size === "standard-1" && first.container?.launch?.idleMs === 120_000,
+  });
   const changed = await setEnvironment({ containerSize: "standard-3", containerIdleMinutes: 1 });
   const during = await measure();
   cases.push({
@@ -222,7 +282,13 @@ const running = async () => {
   const lastUse = (await state())?.lastUse as number;
   const stopped = await untilStopped(6 * 60_000);
   const idleSeen = stopped.stoppedSeenAt === null ? null : stopped.stoppedSeenAt - lastUse;
-  cases.push({ name: "it stops after the idle time it started with (2 minutes), not the new one", lastUse, stoppedSeenAt: stopped.stoppedSeenAt, idleSeenMs: idleSeen, ok: idleSeen !== null && idleSeen >= 120_000 && idleSeen < 120_000 + 75_000 });
+  cases.push({
+    name: "it stops after the idle time it started with (2 minutes), not the new one",
+    lastUse,
+    stoppedSeenAt: stopped.stoppedSeenAt,
+    idleSeenMs: idleSeen,
+    ok: idleSeen !== null && idleSeen >= 120_000 && idleSeen < 120_000 + 75_000,
+  });
   const next = await measure();
   cases.push({
     name: "the next start has the new size and idle time",
@@ -230,7 +296,11 @@ const running = async () => {
     launch: next.container?.launch,
     limits: next.limits,
     fit: fits("standard-3", next.limits),
-    ok: next.container?.startedAt !== first.container?.startedAt && next.container?.launch?.size === "standard-3" && next.container?.launch?.idleMs === 60_000 && fits("standard-3", next.limits).ok,
+    ok:
+      next.container?.startedAt !== first.container?.startedAt &&
+      next.container?.launch?.size === "standard-3" &&
+      next.container?.launch?.idleMs === 60_000 &&
+      fits("standard-3", next.limits).ok,
   });
   await stop();
   await setEnvironment({ containerSize: "cpu-1", containerIdleMinutes: 2 });
@@ -248,10 +318,26 @@ const idle = async () => {
     const stopped = await untilStopped((minutes + 3) * 60_000);
     const seen = stopped.stoppedSeenAt === null ? null : stopped.stoppedSeenAt - lastUse;
     // Stopped no earlier than the idle time, and within the alarm's slack plus the 5 s poll.
-    cases.push({ name: `idle ${minutes} minute(s)`, launch: started.container?.launch, lastUse, stoppedSeenAt: stopped.stoppedSeenAt, idleSeenMs: seen, ok: started.container?.launch?.idleMs === minutes * 60_000 && seen !== null && seen >= minutes * 60_000 && seen < minutes * 60_000 + 75_000 });
+    cases.push({
+      name: `idle ${minutes} minute(s)`,
+      launch: started.container?.launch,
+      lastUse,
+      stoppedSeenAt: stopped.stoppedSeenAt,
+      idleSeenMs: seen,
+      ok:
+        started.container?.launch?.idleMs === minutes * 60_000 &&
+        seen !== null &&
+        seen >= minutes * 60_000 &&
+        seen < minutes * 60_000 + 75_000,
+    });
   }
   await setEnvironment({ containerIdleMinutes: 2 });
-  await writeEvidence("idle.json", { workspace: WORKSPACE, note: "idleSeenMs: from the last command to the first poll (every 5 s) that saw the Container stopped", cases, ok: cases.every((entry) => entry.ok) });
+  await writeEvidence("idle.json", {
+    workspace: WORKSPACE,
+    note: "idleSeenMs: from the last command to the first poll (every 5 s) that saw the Container stopped",
+    cases,
+    ok: cases.every((entry) => entry.ok),
+  });
 };
 
 const budget = async () => {
@@ -265,18 +351,36 @@ const budget = async () => {
   const start = async (id: string) => {
     const answer = await callOn(id, { git: { argv: ["--version"], cwd: "/workspace/repo", startContainer: true } });
     const ran = answer.result?.ran === true && answer.result?.exitCode === 0;
-    return { ok: ran, running: answer.container?.running ?? null, budget: answer.container?.launch?.budget ?? null, refusal: ran ? null : (answer.result?.detail ?? answer.text ?? null) };
+    return {
+      ok: ran,
+      running: answer.container?.running ?? null,
+      budget: answer.container?.launch?.budget ?? null,
+      refusal: ran ? null : (answer.result?.detail ?? answer.text ?? null),
+    };
   };
   // A holder busy with a command is never asked to give its lease up (ADR-0032 §7: a reclaim asks idle holders only).
-  const busy = (id: string, seconds: number) => void callOn(id, { exec: { script: `sleep ${seconds}`, timeoutMs: (seconds + 30) * 1000 } }).catch(() => undefined);
-  const leases = async () => ((await admin("GET", "/_t3flare/agents/budget")).json?.leases ?? []).map((lease: any) => lease.workspace ?? lease.holder);
+  const busy = (id: string, seconds: number) =>
+    void callOn(id, { exec: { script: `sleep ${seconds}`, timeoutMs: (seconds + 30) * 1000 } }).catch(() => undefined);
+  const leases = async () =>
+    ((await admin("GET", "/_t3flare/agents/budget")).json?.leases ?? []).map(
+      (lease: any) => lease.workspace ?? lease.holder,
+    );
 
   await setEnvironment({ containerBudget: 1 });
   const first = await start("penv-b1");
   busy("penv-b1", 60);
   await sleep(2_000);
   const second = await start("penv-b2");
-  cases.push({ name: "at a budget of 1, a second Workspace's start is refused, and the message names the budget", first, second, ok: first.ok && !second.ok && /Container budget \(1\)/.test(String(second.refusal)) && /harness#environment/.test(String(second.refusal)) });
+  cases.push({
+    name: "at a budget of 1, a second Workspace's start is refused, and the message names the budget",
+    first,
+    second,
+    ok:
+      first.ok &&
+      !second.ok &&
+      /Container budget \(1\)/.test(String(second.refusal)) &&
+      /harness#environment/.test(String(second.refusal)),
+  });
 
   await setEnvironment({ containerBudget: 2 });
   const raised = await start("penv-b2");
@@ -288,11 +392,26 @@ const budget = async () => {
   await sleep(2_000);
   const third = await start("penv-b3");
   const running = [await stateOf("penv-b1"), await stateOf("penv-b2")].map((row) => row?.running);
-  cases.push({ name: "lowered to 1 with two running: neither stops, and a third start is refused", third, running, leases: await leases(), ok: !third.ok && /Container budget \(1\)/.test(String(third.refusal)) && /harness#environment/.test(String(third.refusal)) && running.every((value) => value === true) });
+  cases.push({
+    name: "lowered to 1 with two running: neither stops, and a third start is refused",
+    third,
+    running,
+    leases: await leases(),
+    ok:
+      !third.ok &&
+      /Container budget \(1\)/.test(String(third.refusal)) &&
+      /harness#environment/.test(String(third.refusal)) &&
+      running.every((value) => value === true),
+  });
 
   await stopOn("penv-b1");
   const afterOne = await start("penv-b3");
-  cases.push({ name: "one stopped: one still runs at a budget of 1, so the third is still refused", afterOne, leases: await leases(), ok: !afterOne.ok });
+  cases.push({
+    name: "one stopped: one still runs at a budget of 1, so the third is still refused",
+    afterOne,
+    leases: await leases(),
+    ok: !afterOne.ok,
+  });
   await stopOn("penv-b2");
   const afterBoth = await start("penv-b3");
   cases.push({ name: "under the budget again: the third starts", afterBoth, leases: await leases(), ok: afterBoth.ok });
@@ -303,7 +422,8 @@ const budget = async () => {
 };
 
 /** The whole refusal a product surface must show (ADR-0032 §7): the budget, and where to change it. */
-const WHOLE_REFUSAL = "the Container cannot start: Container budget (1) reached: raise it at /_t3flare/settings#environment";
+const WHOLE_REFUSAL =
+  "the Container cannot start: Container budget (1) reached: raise it at /_t3flare/settings#environment";
 
 /**
  * At a budget of 1 with another Workspace's Container busy, what the product shows when a start is refused: a Durable
@@ -319,12 +439,21 @@ const surfaces = async () => {
   for (const id of [holder, agentWorkspace, WORKSPACE, "penv-b2", "penv-b3"]) await stopOn(id);
   await setEnvironment({ containerBudget: 1 });
   const busyFor = 240;
-  void callOn(holder, { exec: { script: `sleep ${busyFor}`, timeoutMs: (busyFor + 30) * 1000 } }).catch(() => undefined);
+  void callOn(holder, { exec: { script: `sleep ${busyFor}`, timeoutMs: (busyFor + 30) * 1000 } }).catch(
+    () => undefined,
+  );
   await sleep(3_000);
   const cases: Array<Case> = [];
 
   // 1. A Durable agent's command on the Container.
-  await wsCall(cookie, "server.updateSettings", { patch: {}, providerInstanceMutation: { operation: "upsert", instanceId: "piDurable", instance: { driver: "piDurable", enabled: true } } });
+  await wsCall(cookie, "server.updateSettings", {
+    patch: {},
+    providerInstanceMutation: {
+      operation: "upsert",
+      instanceId: "piDurable",
+      instance: { driver: "piDurable", enabled: true },
+    },
+  });
   const threadId = uuid();
   await dispatch(cookie, {
     type: "thread.create",
@@ -340,7 +469,12 @@ const surfaces = async () => {
     createdBy: "user",
     creationSource: "web",
   });
-  await sendMessage(cookie, threadId, "Call the bash tool once with command `python3 --version` and backend `container`. Do not retry or try anything else. Then reply with the tool's error text, quoted exactly.", DEFAULT_MODEL);
+  await sendMessage(
+    cookie,
+    threadId,
+    "Call the bash tool once with command `python3 --version` and backend `container`. Do not retry or try anything else. Then reply with the tool's error text, quoted exactly.",
+    DEFAULT_MODEL,
+  );
   const started = Date.now();
   let projection: any;
   while (Date.now() - started < 5 * 60_000) {
@@ -357,7 +491,9 @@ const surfaces = async () => {
       .map(async (item: any) => ({
         input: item.input,
         status: item.status,
-        output: await wsFirst(cookie, "orchestration.subscribeCommandOutput", { threadId, itemId: item.id }).catch((error: unknown) => ({ error: String(error).slice(0, 300) })),
+        output: await wsFirst(cookie, "orchestration.subscribeCommandOutput", { threadId, itemId: item.id }).catch(
+          (error: unknown) => ({ error: String(error).slice(0, 300) }),
+        ),
       })),
   );
   cases.push({
@@ -372,7 +508,9 @@ const surfaces = async () => {
   // Workspace's clone is the start the budget refuses (t3flare's worktree creation).
   await stopOn(holder);
   await sleep(2_000);
-  void callOn(agentWorkspace, { exec: { script: `sleep ${busyFor}`, timeoutMs: (busyFor + 30) * 1000 } }).catch(() => undefined);
+  void callOn(agentWorkspace, { exec: { script: `sleep ${busyFor}`, timeoutMs: (busyFor + 30) * 1000 } }).catch(
+    () => undefined,
+  );
   await sleep(20_000);
 
   // 2. A worktree thread's creation (t3's "New worktree").
@@ -400,9 +538,9 @@ const surfaces = async () => {
   // t3flare's worktree creation answers t3's `git worktree add` with the whole reason on stderr, and keeps it as the
   // worktree Workspace's `lastError`. t3's GitCommandError keeps only stderr's length (`stderrLength`), so t3's setup
   // error names the command, not the reason: recorded here as t3's text, a limit of t3's surface.
-  const worktreeRow = ((await admin("GET", "/_t3flare/agents/workspaces")).json?.workspaces as Array<any> | undefined)?.find(
-    (row) => String(row.id).startsWith(`.wt/${agentWorkspace}/`) && row.state === "failed",
-  );
+  const worktreeRow = (
+    (await admin("GET", "/_t3flare/agents/workspaces")).json?.workspaces as Array<any> | undefined
+  )?.find((row) => String(row.id).startsWith(`.wt/${agentWorkspace}/`) && row.state === "failed");
   cases.push({
     name: "a worktree thread's creation: t3flare's answer carries the whole refusal (t3's own setup error drops git's stderr)",
     threadId: worktreeThread,
@@ -415,7 +553,13 @@ const surfaces = async () => {
 
   for (const id of [holder, agentWorkspace]) await stopOn(id);
   await setEnvironment({ containerBudget: 3 });
-  await writeEvidence("surfaces.json", { holder, workspace: agentWorkspace, expected: WHOLE_REFUSAL, cases, ok: cases.every((entry) => entry.ok) });
+  await writeEvidence("surfaces.json", {
+    holder,
+    workspace: agentWorkspace,
+    expected: WHOLE_REFUSAL,
+    cases,
+    ok: cases.every((entry) => entry.ok),
+  });
 };
 
 const revisionsCase = async () => {
@@ -423,13 +567,38 @@ const revisionsCase = async () => {
   const before = await revisions();
   await setEnvironment({ containerIdleMinutes: 4 });
   const afterEnvironment = await revisions();
-  cases.push({ name: "an Environment change moves only the Environment revision", before, after: afterEnvironment, ok: afterEnvironment.environment === before.environment + 1 && afterEnvironment.harness === before.harness });
-  const harnessChange = await harness("POST", "/_t3flare/settings/api/extensions", { extension: "codemode", settings: { inlineBudget: 2100 } });
+  cases.push({
+    name: "an Environment change moves only the Environment revision",
+    before,
+    after: afterEnvironment,
+    ok: afterEnvironment.environment === before.environment + 1 && afterEnvironment.harness === before.harness,
+  });
+  const harnessChange = await harness("POST", "/_t3flare/settings/api/extensions", {
+    extension: "codemode",
+    settings: { inlineBudget: 2100 },
+  });
   const afterHarness = await revisions();
-  cases.push({ name: "a Harness change moves only the Harness revision", status: harnessChange.status, before: afterEnvironment, after: afterHarness, ok: afterHarness.harness === afterEnvironment.harness + 1 && afterHarness.environment === afterEnvironment.environment });
+  cases.push({
+    name: "a Harness change moves only the Harness revision",
+    status: harnessChange.status,
+    before: afterEnvironment,
+    after: afterHarness,
+    ok:
+      afterHarness.harness === afterEnvironment.harness + 1 &&
+      afterHarness.environment === afterEnvironment.environment,
+  });
   const status = (await harness("GET", "/_t3flare/settings/api/status")).json;
-  cases.push({ name: "Status shows both revisions and when a Workspace last took the Environment settings", status, ok: typeof status?.["Environment settings revision"] === "number" && typeof status?.["settings revision"] === "number" });
-  await harness("POST", "/_t3flare/settings/api/extensions", { extension: "codemode", settings: { inlineBudget: 2000 } });
+  cases.push({
+    name: "Status shows both revisions and when a Workspace last took the Environment settings",
+    status,
+    ok:
+      typeof status?.["Environment settings revision"] === "number" &&
+      typeof status?.["settings revision"] === "number",
+  });
+  await harness("POST", "/_t3flare/settings/api/extensions", {
+    extension: "codemode",
+    settings: { inlineBudget: 2000 },
+  });
   await setEnvironment({ containerIdleMinutes: 2 });
   await writeEvidence("revisions.json", { cases, ok: cases.every((entry) => entry.ok) });
 };
@@ -437,15 +606,33 @@ const revisionsCase = async () => {
 const audit = async () => {
   const entries = ((await harness("GET", "/_t3flare/settings/api/audit")).json?.entries ?? []) as Array<any>;
   const environment = entries.filter((entry) => entry.entity === "environment");
-  const old = entries.filter((entry) => entry.action === "extension.change" && entry.after?.settings?.inlineBudget === 2345);
+  const old = entries.filter(
+    (entry) => entry.action === "extension.change" && entry.after?.settings?.inlineBudget === 2345,
+  );
   const cases: Array<Case> = [
     {
       name: "Environment changes carry entity environment, with the changed settings before and after",
       sample: environment.slice(0, 3),
-      ok: environment.length > 0 && environment.every((entry) => entry.action === "environment.change" && entry.before !== undefined && entry.after !== undefined && Object.keys(entry.after).length > 0),
+      ok:
+        environment.length > 0 &&
+        environment.every(
+          (entry) =>
+            entry.action === "environment.change" &&
+            entry.before !== undefined &&
+            entry.after !== undefined &&
+            Object.keys(entry.after).length > 0,
+        ),
     },
-    { name: "the entry written on main's deploy, without entity, reads as harness", entries: old, ok: old.length === 1 && old[0].entity === "harness" },
-    { name: "every entry has an entity", entities: [...new Set(entries.map((entry) => entry.entity))], ok: entries.every((entry) => entry.entity === "harness" || entry.entity === "environment") },
+    {
+      name: "the entry written on main's deploy, without entity, reads as harness",
+      entries: old,
+      ok: old.length === 1 && old[0].entity === "harness",
+    },
+    {
+      name: "every entry has an entity",
+      entities: [...new Set(entries.map((entry) => entry.entity))],
+      ok: entries.every((entry) => entry.entity === "harness" || entry.entity === "environment"),
+    },
   ];
   await writeEvidence("audit.json", { entries: entries.length, cases, ok: cases.every((entry) => entry.ok) });
 };
@@ -454,22 +641,70 @@ const safety = async () => {
   const cases: Array<Case> = [];
   const url = (pathname: string) => new URL(pathname, T3);
   const get = await harness("GET", "/_t3flare/settings/api/environment");
-  cases.push({ name: "service token + admin token reads the Environment settings", status: get.status, ok: get.status === 200 && typeof get.json?.revision === "number" });
+  cases.push({
+    name: "service token + admin token reads the Environment settings",
+    status: get.status,
+    ok: get.status === 200 && typeof get.json?.revision === "number",
+  });
   const before = get.json?.revision;
   const statuses = async (headers: Record<string, string>, post: boolean) =>
-    (await fetch(url("/_t3flare/settings/api/environment"), { method: post ? "POST" : "GET", headers: { ...headers, ...(post ? { "content-type": "application/json" } : {}) }, ...(post ? { body: JSON.stringify({ settings: { containerSize: "standard-4" } }) } : {}), redirect: "manual" })).status;
+    (
+      await fetch(url("/_t3flare/settings/api/environment"), {
+        method: post ? "POST" : "GET",
+        headers: { ...headers, ...(post ? { "content-type": "application/json" } : {}) },
+        ...(post ? { body: JSON.stringify({ settings: { containerSize: "standard-4" } }) } : {}),
+        redirect: "manual",
+      })
+    ).status;
   const bare = [await statuses({}, false), await statuses({}, true)];
-  cases.push({ name: "no Access credentials (GET and a change): refused at the edge", statuses: bare, ok: bare.every((status) => [302, 401, 403].includes(status)) });
-  const forged = [await statuses({ "cf-access-jwt-assertion": "e30.e30.e30" }, false), await statuses({ "cf-access-jwt-assertion": "e30.e30.e30" }, true)];
-  cases.push({ name: "a forged Access assertion alone: refused at the edge", statuses: forged, ok: forged.every((status) => [302, 401, 403].includes(status)) });
+  cases.push({
+    name: "no Access credentials (GET and a change): refused at the edge",
+    statuses: bare,
+    ok: bare.every((status) => [302, 401, 403].includes(status)),
+  });
+  const forged = [
+    await statuses({ "cf-access-jwt-assertion": "e30.e30.e30" }, false),
+    await statuses({ "cf-access-jwt-assertion": "e30.e30.e30" }, true),
+  ];
+  cases.push({
+    name: "a forged Access assertion alone: refused at the edge",
+    statuses: forged,
+    ok: forged.every((status) => [302, 401, 403].includes(status)),
+  });
   const noToken = [await statuses(accessHeaders, false), await statuses(accessHeaders, true)];
-  cases.push({ name: "the service token without the admin token: refused", statuses: noToken, ok: noToken.every((status) => status === 404) });
-  const crossOrigin = await harness("POST", "/_t3flare/settings/api/environment", { settings: { containerSize: "standard-4" } }, { origin: "https://evil.example" });
-  const crossSite = await harness("POST", "/_t3flare/settings/api/environment", { settings: { containerSize: "standard-4" } }, { origin: url("/").origin, "sec-fetch-site": "cross-site" });
-  const form = await harness("POST", "/_t3flare/settings/api/environment", "settings=standard-4", { "content-type": "application/x-www-form-urlencoded" });
-  cases.push({ name: "a wrong Origin, a cross-site fetch and a form-encoded body: refused", statuses: [crossOrigin.status, crossSite.status, form.status], answers: [crossOrigin.json, crossSite.json, form.json], ok: [crossOrigin, crossSite, form].every((answer) => answer.status === 403) });
+  cases.push({
+    name: "the service token without the admin token: refused",
+    statuses: noToken,
+    ok: noToken.every((status) => status === 404),
+  });
+  const crossOrigin = await harness(
+    "POST",
+    "/_t3flare/settings/api/environment",
+    { settings: { containerSize: "standard-4" } },
+    { origin: "https://evil.example" },
+  );
+  const crossSite = await harness(
+    "POST",
+    "/_t3flare/settings/api/environment",
+    { settings: { containerSize: "standard-4" } },
+    { origin: url("/").origin, "sec-fetch-site": "cross-site" },
+  );
+  const form = await harness("POST", "/_t3flare/settings/api/environment", "settings=standard-4", {
+    "content-type": "application/x-www-form-urlencoded",
+  });
+  cases.push({
+    name: "a wrong Origin, a cross-site fetch and a form-encoded body: refused",
+    statuses: [crossOrigin.status, crossSite.status, form.status],
+    answers: [crossOrigin.json, crossSite.json, form.json],
+    ok: [crossOrigin, crossSite, form].every((answer) => answer.status === 403),
+  });
   const invalid = await harness("POST", "/_t3flare/settings/api/environment", { settings: { containerSize: "lite" } });
-  cases.push({ name: "a size not offered: refused with the setting named", status: invalid.status, answer: invalid.json, ok: invalid.status === 400 });
+  cases.push({
+    name: "a size not offered: refused with the setting named",
+    status: invalid.status,
+    answer: invalid.json,
+    ok: invalid.status === 400,
+  });
   const after = (await harness("GET", "/_t3flare/settings/api/environment")).json?.revision;
   cases.push({ name: "nothing refused was stored", before, after, ok: before === after });
   await writeEvidence("safety.json", {
@@ -481,7 +716,8 @@ const safety = async () => {
 
 const browser = (...args: Array<string>) => {
   const result = spawnSync("agent-browser", ["--session", "penv", ...args], { encoding: "utf8" });
-  if (result.status !== 0) throw new Error(`agent-browser ${args[0]} failed: ${(result.stderr || result.stdout).slice(0, 300)}`);
+  if (result.status !== 0)
+    throw new Error(`agent-browser ${args[0]} failed: ${(result.stderr || result.stdout).slice(0, 300)}`);
   return result.stdout;
 };
 
@@ -505,7 +741,8 @@ const shoot = async () => {
   const save = (name: string) => {
     const file = path.join(OUT, name);
     browser("screenshot", file);
-    const widthOf = () => Number(/pixelWidth: (\d+)/.exec(spawnSync("sips", ["-g", "pixelWidth", file], { encoding: "utf8" }).stdout)?.[1]);
+    const widthOf = () =>
+      Number(/pixelWidth: (\d+)/.exec(spawnSync("sips", ["-g", "pixelWidth", file], { encoding: "utf8" }).stdout)?.[1]);
     if (widthOf() > 1400) spawnSync("sips", ["--resampleWidth", "1400", file], { stdio: "ignore" });
     console.log(`wrote ${path.relative(process.cwd(), file)}`);
   };
@@ -515,7 +752,10 @@ const shoot = async () => {
   fs.mkdirSync(OUT, { recursive: true });
   const page = new URL("/_t3flare/settings", HARNESS).toString();
   for (const scheme of ["light", "dark"]) {
-    for (const [name, width, height, scale] of [["desktop", 1280, 1100, 1], ["phone", 390, 844, 2]] as const) {
+    for (const [name, width, height, scale] of [
+      ["desktop", 1280, 1100, 1],
+      ["phone", 390, 844, 2],
+    ] as const) {
       browser("--headers", JSON.stringify(scriptHeaders), "--color-scheme", scheme, "open", page);
       browser("set", "viewport", String(width), String(height), String(scale));
       browser("set", "media", scheme);
@@ -533,7 +773,12 @@ const shoot = async () => {
       browser("close");
     }
   }
-  const expected = { now: "With these settings, at most $2.01 an hour: 5 Containers of standard-4, every vCPU busy.", head: "5 Containers, an hour", current: "standard-4", cell: "$2.01" };
+  const expected = {
+    now: "With these settings, at most $2.01 an hour: 5 Containers of standard-4, every vCPU busy.",
+    head: "5 Containers, an hour",
+    current: "standard-4",
+    cell: "$2.01",
+  };
   await writeEvidence("cost-live.json", {
     note: "The Environment section's script on the stage's page (its CSP, its hashes): the size set to standard-4 and the budget to 5 in the form, not saved.",
     before,
@@ -543,7 +788,18 @@ const shoot = async () => {
   });
 };
 
-const commands: Record<string, () => Promise<void> | void> = { "seed-old": seedOld, sizes, running, idle, budget, surfaces, revisions: revisionsCase, audit, safety, shoot };
+const commands: Record<string, () => Promise<void> | void> = {
+  "seed-old": seedOld,
+  sizes,
+  running,
+  idle,
+  budget,
+  surfaces,
+  revisions: revisionsCase,
+  audit,
+  safety,
+  shoot,
+};
 const command = commands[process.argv[2] ?? ""];
 if (command === undefined) {
   console.error(`usage: penv.ts ${Object.keys(commands).join(" | ")}`);

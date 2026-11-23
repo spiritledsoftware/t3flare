@@ -4,11 +4,7 @@
  */
 // @effect-diagnostics asyncFunction:off preferEffectArray:off schemaSync:off globalDate:off
 import { type FakeServer, fetchTo, hostileServer, modernServer } from "@t3flare/mcp/testing";
-import {
-  type McpEngineRequestEncoded,
-  McpEngineDiscoverResult,
-  McpEngineRequestResult,
-} from "@t3flare/mcp/types";
+import { type McpEngineRequestEncoded, McpEngineDiscoverResult, McpEngineRequestResult } from "@t3flare/mcp/types";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -68,9 +64,7 @@ describe("vetListed", () => {
 
     expect(vetted.kept).toEqual([{ name: "fine", description: "about [REDACTED]" }]);
     expect(vetted.left).toEqual(["tool #1", "tool #2"]);
-    expect(JSON.stringify([toolsLeftOut(vetted.left), promptsLeftOut(vetted.left)])).not.toContain(
-      "acme",
-    );
+    expect(JSON.stringify([toolsLeftOut(vetted.left), promptsLeftOut(vetted.left)])).not.toContain("acme");
   });
 });
 
@@ -86,30 +80,17 @@ const targetOf = (redact: ReadonlyArray<string>) => ({
   redact,
 });
 
-const onEngine = <A>(
-  server: FakeServer,
-  work: Effect.Effect<A, never, ByteBudget | Validators>,
-) => {
+const onEngine = <A>(server: FakeServer, work: Effect.Effect<A, never, ByteBudget | Validators>) => {
   vi.stubGlobal("fetch", fetchTo(server));
 
-  return Effect.runPromise(
-    work.pipe(Effect.provide(Layer.mergeAll(ByteBudget.layer, Validators.layer))),
-  );
+  return Effect.runPromise(work.pipe(Effect.provide(Layer.mergeAll(ByteBudget.layer, Validators.layer))));
 };
 
 const discovered = async (server: FakeServer, redact: ReadonlyArray<string>) =>
-  Schema.decodeSync(McpEngineDiscoverResult)(
-    await onEngine(server, discover(targetOf(redact), {}, {}, ENV)),
-  );
+  Schema.decodeSync(McpEngineDiscoverResult)(await onEngine(server, discover(targetOf(redact), {}, {}, ENV)));
 
-const requested = async (
-  server: FakeServer,
-  redact: ReadonlyArray<string>,
-  input: McpEngineRequestEncoded,
-) =>
-  Schema.decodeSync(McpEngineRequestResult)(
-    await onEngine(server, request(targetOf(redact), {}, input, {}, ENV)),
-  );
+const requested = async (server: FakeServer, redact: ReadonlyArray<string>, input: McpEngineRequestEncoded) =>
+  Schema.decodeSync(McpEngineRequestResult)(await onEngine(server, request(targetOf(redact), {}, input, {}, ENV)));
 
 describe("a discovery whose Secret looks like what the engine itself reports", () => {
   it("keeps its own fields, whole, whatever a Secret holds, and scrubs the strings the server told", async () => {
@@ -164,9 +145,7 @@ describe("a tools/list result", () => {
     expect(tools).not.toContain("acme_search");
     expect(tools).toContain('"name":"plain"');
     expect(tools).toContain("about [REDACTED]");
-    expect(result.problems).toEqual([
-      expect.objectContaining({ problem: expect.stringContaining("left out") }),
-    ]);
+    expect(result.problems).toEqual([expect.objectContaining({ problem: expect.stringContaining("left out") })]);
   });
 });
 
@@ -205,12 +184,8 @@ describe("the tools listed again after a -32020", () => {
 
     expect(names).toContain("plain");
     expect(names).not.toContain("acme_search");
-    expect(result.tools?.find((tool) => tool.name === "plain")?.description).toBe(
-      "about [REDACTED]",
-    );
+    expect(result.tools?.find((tool) => tool.name === "plain")?.description).toBe("about [REDACTED]");
     expect(JSON.stringify(result.problems)).not.toContain("acme");
-    expect(result.problems).toContainEqual(
-      expect.objectContaining({ problem: expect.stringContaining("left out") }),
-    );
+    expect(result.problems).toContainEqual(expect.objectContaining({ problem: expect.stringContaining("left out") }));
   });
 });

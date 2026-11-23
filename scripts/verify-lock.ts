@@ -51,7 +51,9 @@ for (const dir of t3Importers) {
   const missing = [...theirs].filter((key) => !mine.has(key) && !driftT3.has(key));
   const extra = [...mine].filter((key) => !theirs.has(key) && !driftOurs(key));
   if (missing.length > 0 || extra.length > 0) {
-    failures.push(`${dir}: t3 installs but we do not: ${missing.join(", ") || "-"}; we install but t3 does not: ${extra.join(", ") || "-"}`);
+    failures.push(
+      `${dir}: t3 installs but we do not: ${missing.join(", ") || "-"}; we install but t3 does not: ${extra.join(", ") || "-"}`,
+    );
   }
 }
 
@@ -63,8 +65,11 @@ if (effect.length !== 1) failures.push(`effect resolves to ${effect.length} vers
 // Patches.
 const installed = new Set([...closure(ours, Object.keys(ours.importers))].map(bareKey));
 const patched = new Set(Object.keys(ours.patchedDependencies ?? {}));
-const t3Patches = Object.keys((parse(fs.readFileSync(path.join(root, "t3code/pnpm-workspace.yaml"), "utf8")) as Json).patchedDependencies ?? {});
-for (const key of t3Patches) if (installed.has(key) && !patched.has(key)) failures.push(`t3 patches ${key}, which we install unpatched`);
+const t3Patches = Object.keys(
+  (parse(fs.readFileSync(path.join(root, "t3code/pnpm-workspace.yaml"), "utf8")) as Json).patchedDependencies ?? {},
+);
+for (const key of t3Patches)
+  if (installed.has(key) && !patched.has(key)) failures.push(`t3 patches ${key}, which we install unpatched`);
 for (const file of fs.readdirSync(path.join(root, "patches/deps")).filter((name) => name.endsWith(".patch"))) {
   const key = depPatchKey(file);
   if (!patched.has(key)) failures.push(`patches/deps/${file} is not in the lock's patchedDependencies`);
