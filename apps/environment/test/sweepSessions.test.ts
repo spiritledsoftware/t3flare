@@ -48,6 +48,34 @@ const servicesWith = (
   } as unknown as EnvironmentServices);
 };
 
+/** The swept Sessions kept in `swept`, as the Environment DO keeps them in its storage. */
+const sweptIn = (swept: Set<string>) => ({
+  has: (thread: string) => swept.has(thread),
+  add: (thread: string) => void swept.add(thread),
+  keepOnly: (threads: ReadonlySet<string>) => {
+    for (const thread of swept) if (!threads.has(thread)) swept.delete(thread);
+  },
+});
+
+/** A deleted project `p1` at `/w/app` with `threads` deleted under it, and its Workspace marked unreferenced. */
+const deletedProject = (threads: ReadonlyArray<string>) => {
+  const sql = t3Tables();
+  const deletedAt = new Date(NOW - 10 * 60_000).toISOString();
+  sql.exec(
+    "INSERT INTO projection_projects (project_id, title, workspace_root, created_at, deleted_at) VALUES ('p1', 'app', '/w/app', ?, ?)",
+    deletedAt,
+    deletedAt,
+  );
+  for (const thread of threads)
+    sql.exec(
+      "INSERT INTO orchestration_v2_projection_threads (thread_id, project_id, title, deleted_at, payload_json) VALUES (?, 'p1', 'a thread', ?, ?)",
+      thread,
+      deletedAt,
+      JSON.stringify({ worktreePath: null }),
+    );
+  return sql;
+};
+
 // The binding outlives each test: unbind it, so the default access finds no services.
 // SAFETY: `undefined` is the binding's unset state, which its type does not name.
 afterEach(() => bindEnvironmentServices(undefined as unknown as EnvironmentServices));
@@ -121,7 +149,7 @@ describe("the Sweep's Purge of a deleted project with a worktree thread", () => 
       sql,
       { purging: true, graceMs: GRACE_MS, graceDays: 7, overridden: true, provisioningMs: 80 * 60_000, dry: false },
       NOW,
-      { has: (thread) => swept.has(thread), add: (thread) => void swept.add(thread) },
+      sweptIn(swept),
       { get: () => NOW - DAY, set: () => undefined },
       (purged) => void entries.push(purged),
     );
@@ -151,10 +179,58 @@ describe("the Sweep's Purge of a deleted project with a worktree thread", () => 
       sql,
       { purging: true, graceMs: GRACE_MS, graceDays: 7, overridden: true, provisioningMs: 80 * 60_000, dry: false },
       NOW,
-      { has: (thread) => swept.has(thread), add: (thread) => void swept.add(thread) },
+      sweptIn(swept),
       { get: () => NOW - DAY, set: () => undefined },
     );
     expect(rows[0]?.state).toBe("deleting");
     expect(report.sessions).toEqual(["t2"]);
+  });
+
+  it("destroys every deleted thread's Session that is due in one run, past fifty (SPI-1366: no count per run)", async () => {
+    const threads = Array.from({ length: 60 }, (_, n) => `t${n}`);
+    const sql = deletedProject(threads);
+    // The Workspace is kept (purging off for it is not this test's): its Sessions go by the Session pass.
+    const rows = [record({ id: "app" })];
+    const destroyedSessions: Array<string> = [];
+    servicesWith(rows, destroyedSessions);
+    const swept = new Set<string>();
+    const report = await sweep(
+      sql,
+      { purging: true, graceMs: GRACE_MS, graceDays: 7, overridden: true, provisioningMs: 80 * 60_000, dry: false },
+      NOW,
+      sweptIn(swept),
+      { get: () => NOW - DAY, set: () => undefined },
+    );
+    expect(new Set(report.sessions)).toEqual(new Set(threads));
+    expect(swept.size).toBe(60);
+  });
+
+  it("forgets a swept thread t3 no longer holds, and keeps the rest (SPI-1366: no count of swept threads)", async () => {
+    const sql = deletedProject(["t1"]);
+    servicesWith([record({ id: "app" })], []);
+    // t1's Session went in an earlier run; t0's thread is gone from t3's projection, so nothing can ask for it again.
+    const swept = new Set(["t0", "t1"]);
+    await sweep(
+      sql,
+      { purging: true, graceMs: GRACE_MS, graceDays: 7, overridden: true, provisioningMs: 80 * 60_000, dry: false },
+      NOW,
+      sweptIn(swept),
+      { get: () => NOW - DAY, set: () => undefined },
+    );
+    expect([...swept]).toEqual(["t1"]);
+  });
+
+  it("forgets nothing on a dry run", async () => {
+    const sql = deletedProject([]);
+    servicesWith([record({ id: "app" })], []);
+    const swept = new Set(["t0"]);
+    await sweep(
+      sql,
+      { purging: true, graceMs: GRACE_MS, graceDays: 7, overridden: true, provisioningMs: 80 * 60_000, dry: true },
+      NOW,
+      sweptIn(swept),
+      { get: () => NOW - DAY, set: () => undefined },
+    );
+    expect([...swept]).toEqual(["t0"]);
   });
 });

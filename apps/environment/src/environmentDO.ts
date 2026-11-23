@@ -29,13 +29,13 @@ import { bindEnvironmentServices, environmentServices, ownerAnswerMsNow } from "
 import { graceMoved, ownerSweep, SweepWake } from "./agents/sweepWake.ts";
 import { GitHubTokens } from "./agents/github.ts";
 import { deliverPush } from "./agents/sessionSink.ts";
-import { sweepSettingsOf } from "./agents/deletionSettings.ts";
+import { SWEEP_EVERY_MS, sweepSettingsOf } from "./agents/deletionSettings.ts";
 import { ProcessChannel } from "./agents/processChannel.ts";
 import { scratchProjectOf } from "./agents/scratch.ts";
 import { locate, workspaceRpc } from "./agents/workspaceClient.ts";
 import { workspaceRegistry } from "./agents/workspaces.ts";
 import type { AgentsBindings } from "./agents/rpc.ts";
-import type { PurgingSince, SweepReport } from "./agents/deletion.ts";
+import type { PurgingSince, SweepReport, SweptSessions } from "./agents/deletion.ts";
 import type { WorkspacesApi } from "./agents/workspaceActions.ts";
 import * as BootState from "./host/bootState.ts";
 import * as Idle from "./host/idle.ts";
@@ -159,8 +159,10 @@ export interface BootReport {
 /** When the Workspace sweep is next due, and its last report (step 2b, plan section 5.5). */
 const NEXT_SWEEP_KEY = "t3flare:next-sweep";
 const LAST_SWEEP_KEY = "t3flare:last-sweep";
-/** The deleted threads whose Sessions the sweep destroyed. */
+/** The swept Sessions as one list, before SPI-1366: read once, to move them into their own keys. */
 const SWEPT_SESSIONS_KEY = "t3flare:swept-sessions";
+/** One key per deleted thread whose Session the Sweep or a Purge destroyed (SPI-1366). */
+const SWEPT_SESSION_PREFIX = "t3flare:swept-session:";
 /** When purging was last turned on (ADR-0043 §4): nothing is purged before one Grace after it. */
 const PURGING_SINCE_KEY = "t3flare:purging-since";
 
@@ -1272,26 +1274,48 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
         : console.warn(JSON.stringify({ t3flare: "sweep-arm-failed", error: String(error).slice(0, 300) })),
   });
 
-  /** When the sweep is next due (the first is an hour after the first look). */
+  /**
+   * When the sweep is next due: the first one Sweep cadence after the first look (SPI-1366), as every later one is. A
+   * deletion in t3 brings it forward (the deletion wake, ADR-0043 §5).
+   */
   #nextSweep(now = Date.now()): number {
     const stored = this.ctx.storage.kv.get<number>(NEXT_SWEEP_KEY);
     if (stored !== undefined) return stored;
-    this.ctx.storage.kv.put(NEXT_SWEEP_KEY, now + 60 * 60_000);
-    return now + 60 * 60_000;
+    this.ctx.storage.kv.put(NEXT_SWEEP_KEY, now + SWEEP_EVERY_MS);
+    return now + SWEEP_EVERY_MS;
   }
 
   /**
    * The deleted threads' Sessions already destroyed, kept here so neither the Sweep nor a Purge now destroys or counts one
-   * twice across runs; written at each destroy, so a Purge now during a Sweep loses nothing.
+   * twice across runs; written at each destroy, so a Purge now during a Sweep loses nothing. One key a thread (SPI-1366),
+   * forgotten once t3 no longer holds the thread, so no count bounds it. A list kept under the old single key (at most
+   * 5,000 threads) moves into them at first use.
    */
-  readonly #sweptSessions = {
-    has: (threadId: string): boolean =>
-      (this.ctx.storage.kv.get<ReadonlyArray<string>>(SWEPT_SESSIONS_KEY) ?? []).includes(threadId),
-    add: (threadId: string): void => {
-      const swept = this.ctx.storage.kv.get<ReadonlyArray<string>>(SWEPT_SESSIONS_KEY) ?? [];
-      if (!swept.includes(threadId)) this.ctx.storage.kv.put(SWEPT_SESSIONS_KEY, [...swept, threadId].slice(-5000));
-    },
-  };
+  readonly #sweptSessions: SweptSessions = (() => {
+    const kv = this.ctx.storage.kv;
+    const keyOf = (threadId: string) => `${SWEPT_SESSION_PREFIX}${threadId}`;
+    const moveOldList = () => {
+      const old = kv.get<ReadonlyArray<string>>(SWEPT_SESSIONS_KEY);
+      if (old === undefined) return;
+      for (const threadId of old) kv.put(keyOf(threadId), 1);
+      kv.delete(SWEPT_SESSIONS_KEY);
+    };
+    return {
+      has: (threadId) => {
+        moveOldList();
+        return kv.get(keyOf(threadId)) !== undefined;
+      },
+      add: (threadId) => {
+        moveOldList();
+        kv.put(keyOf(threadId), 1);
+      },
+      keepOnly: (threadIds) => {
+        moveOldList();
+        for (const [key] of kv.list({ prefix: SWEPT_SESSION_PREFIX }))
+          if (!threadIds.has(key.slice(SWEPT_SESSION_PREFIX.length))) kv.delete(key);
+      },
+    };
+  })();
 
   /** When purging was last turned on (ADR-0043 §4), for the Sweep, the Workspaces section and a change to the Grace. */
   readonly #purgingSince: PurgingSince = {

@@ -9,11 +9,10 @@ import { toWorkspace } from "@t3flare/workspace-client";
 import { checkpointMsNow, environmentServices } from "./bindings.ts";
 import { byName, type Namespace } from "./rpc.ts";
 import { workspaceRpc } from "./workspaceClient.ts";
-import { DAY_MS, type SweepSettings } from "./deletionSettings.ts";
+import { DAY_MS, SWEEP_EVERY_MS, type SweepSettings } from "./deletionSettings.ts";
 import type { WorkspaceRecord } from "./workspaces.ts";
 
-export { type SweepSettings, sweepSettingsOf } from "./deletionSettings.ts";
-export const SWEEP_EVERY_MS = DAY_MS;
+export { SWEEP_EVERY_MS, type SweepSettings, sweepSettingsOf } from "./deletionSettings.ts";
 /** A `deleting` row is driven again this soon (review F5: t3 may re-create the same worktree path). */
 export const DELETING_RETRY_MS = 5 * 60_000;
 /** The Sweep never runs again sooner than this after a run (ADR-0043 §5). */
@@ -91,7 +90,7 @@ export const holderText = (holder: Holder): string =>
 export interface References {
   /** Why each Workspace id is referenced. */
   readonly byWorkspace: ReadonlyMap<string, ReadonlyArray<string>>;
-  /** The same, as the holders themselves (at most 5 a Workspace). */
+  /** The same, as the holders themselves: every one. */
   readonly holders: ReadonlyMap<string, ReadonlyArray<Holder>>;
   /** Deleted threads by the Workspace their worktree or project was in (their Sessions go with a purge). */
   readonly deletedThreads: ReadonlyMap<
@@ -100,6 +99,8 @@ export interface References {
   >;
   /** The latest t3 `deleted_at` of a deleted project or thread that referenced each Workspace (`purgeSubjectOf`). */
   readonly released: ReadonlyMap<string, number>;
+  /** Every thread t3's projection holds, deleted ones included: a swept Session of any other is forgotten. */
+  readonly threadIds: ReadonlySet<string>;
 }
 
 const OPEN_RUN_STATUSES = ["preparing", "queued", "starting", "running", "waiting"];
@@ -115,9 +116,7 @@ export const referencesFrom = (sql: SqlStorage): References => {
   const holders = new Map<string, Array<Holder>>();
   const add = (id: string | null, holder: Holder) => {
     if (id === null) return;
-    const list = holders.get(id) ?? [];
-    if (list.length < 5) list.push(holder);
-    holders.set(id, list);
+    holders.set(id, [...(holders.get(id) ?? []), holder]);
   };
   const projects = sql
     .exec<{ project_id: string; workspace_root: string; deleted_at: string | null; archived_at: string | null }>(
@@ -177,7 +176,13 @@ export const referencesFrom = (sql: SqlStorage): References => {
       for (const id of [idOf(thread.worktree), idOf(rootOf.get(thread.project_id))])
         add(id, { kind: "run", id: run.thread_id });
   }
-  return { byWorkspace: textsOf(holders), holders, deletedThreads, released };
+  return {
+    byWorkspace: textsOf(holders),
+    holders,
+    deletedThreads,
+    released,
+    threadIds: new Set(threads.map((thread) => thread.thread_id)),
+  };
 };
 
 const textsOf = (holders: ReadonlyMap<string, ReadonlyArray<Holder>>): ReadonlyMap<string, ReadonlyArray<string>> =>
@@ -204,7 +209,7 @@ export const readReferences = async (
     const count = await terminals(row.id);
     if (count > 0) holders.set(row.id, [...(holders.get(row.id) ?? []), { kind: "terminals", count }]);
   }
-  return { byWorkspace: textsOf(holders), holders, deletedThreads: read.deletedThreads, released: read.released };
+  return { ...read, byWorkspace: textsOf(holders), holders };
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -501,6 +506,11 @@ export interface PurgingSince {
 export interface SweptSessions {
   has(threadId: string): boolean;
   add(threadId: string): void;
+  /**
+   * Forgets every swept thread not in `threadIds`, the threads t3 still holds: no Sweep or Purge can meet one again, so
+   * the record is bounded by t3's own threads, never by a count.
+   */
+  keepOnly(threadIds: ReadonlySet<string>): void;
 }
 
 /** Told of each Workspace the Sweep purged (ADR-0044 §4: its `sweep.purge` audit entry). */
@@ -586,8 +596,7 @@ export const sweep = async (
   const dues = actions.flatMap((action) => (action.due === undefined ? [] : [action.due]));
   const purgedIds = new Set(purged.filter((p) => p.destroyed).flatMap((p) => p.sessionsDestroyed));
   for (const thread of purging ? [...references.deletedThreads.values()].flat() : []) {
-    if (sessions.length >= 50 || purgedIds.has(thread.threadId) || sweptSessions?.has(thread.threadId) === true)
-      continue;
+    if (purgedIds.has(thread.threadId) || sweptSessions?.has(thread.threadId) === true) continue;
     const due = purgeDue({ kind: "session", deletedAt: thread.deletedAt }, grace);
     if (due === null) continue;
     if (due > now) {
@@ -611,6 +620,8 @@ export const sweep = async (
     }
     sessions.push(thread.threadId);
   }
+  // Read whole above (the Sweep stops before here on a failed read): a thread t3 no longer holds is never met again.
+  if (!dry) sweptSessions?.keepOnly(references.threadIds);
   // The cost guard runs with purging off too (ADR-0043 §4): a Container no Workspace holds is stopped, no files go.
   const costGuard = await guardCost(dry);
   const deletingLeft = services.workspaces.list().some((ws) => ws.state === "deleting");

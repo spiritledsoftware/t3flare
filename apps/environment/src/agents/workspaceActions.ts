@@ -28,7 +28,7 @@ export interface WorkspaceActionsDeps extends WorkspacesDeps {
   readonly audit: (entry: AuditEntry) => void;
   readonly now: () => number;
   /** The deleted threads' Sessions the Sweep already destroyed, left alone and not counted again. */
-  readonly sweptSessions?: SweptSessions;
+  readonly sweptSessions?: Pick<SweptSessions, "has" | "add">;
 }
 
 /** A Workspace DO's size and Container state (ADR-0044 §1), read without starting it; zeros for a destroyed one. */
