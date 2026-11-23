@@ -710,7 +710,12 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
   async #clientsTable(): Promise<OwnerClients> {
     if (this.#ownerClients === undefined) {
       const { ownerClients } = await import("./settings/clients.ts");
-      this.#ownerClients ??= ownerClients(this.ctx.storage.sql);
+      this.#ownerClients ??= ownerClients(
+        this.ctx.storage.sql,
+        Date.now,
+        // Read at each new client (SPI-1366).
+        () => this.#environmentNow().clientsPerKey,
+      );
     }
     return this.#ownerClients;
   }

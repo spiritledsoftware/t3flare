@@ -11,7 +11,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { csrfToken } from "../src/harness/csrf.ts";
 import { SETTINGS_PAGE_PATH } from "../src/harness/paths.ts";
 import { CLIENTS_API_PATH, handleHarness } from "../src/harness/panel.ts";
-import { CLIENT_NAME_MAX, CLIENTS_PER_KEY, SEEN_EVERY_MS } from "../src/settings/clients.ts";
+import { CLIENT_NAME_MAX, CLIENTS_PER_KEY, ownerClients, SEEN_EVERY_MS } from "../src/settings/clients.ts";
+import { nodeSqlStorage } from "./nodeSqlStorage.ts";
 import { readAudit } from "../src/harness/ops.ts";
 import { MODERN_VERSION } from "../src/settings/endpoint.ts";
 import { OWNER_MODE_INSTRUCTIONS, RESUME_TOOL, SETTINGS_TOOLS } from "../src/settings/tools.ts";
@@ -270,6 +271,23 @@ describe("the table: keys isolated, capped per key, lastSeen throttled", () => {
     expect(mine.map((entry) => entry.clientName)).not.toContain("client-1");
     expect(modeOf(f, "client-0")).toBe("model");
     expect(f.clients.list().filter((entry) => entry.key === "service-token")).toHaveLength(1);
+  });
+
+  it("keeps as many clients per key as the setting says, read at each new client (SPI-1366)", () => {
+    let now = 1_000;
+    let perKey = 3;
+    const clients = ownerClients(nodeSqlStorage(), () => now, () => perKey);
+    for (let index = 0; index < 5; index++) {
+      now += 1000;
+      clients.seen(SUB, `client-${index}`);
+    }
+    expect(clients.list().map((entry) => entry.clientName).toSorted()).toEqual(["client-2", "client-3", "client-4"]);
+    perKey = 100;
+    for (let index = 5; index < 60; index++) {
+      now += 1000;
+      clients.seen(SUB, `client-${index}`);
+    }
+    expect(clients.list()).toHaveLength(58);
   });
 
   it("evicts the least recently seen browser row first: a flood of names never drops a mode the owner set", async () => {
