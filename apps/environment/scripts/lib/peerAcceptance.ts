@@ -9,7 +9,9 @@
 //   - F5: a link at auto-accept-edits caps a full-access caller: the cloud thread's `bash` waits for approval, and a
 //     50 s wait asked on it holds to t3's 45 s cap and times out as a wait (workerd holds it);
 //   - F7: `t3_pending_request respond` through the link cannot answer the child's approval; the owner's answer can;
-//   - F6: `T3-Mode-Limit: approval-required/plan` runs the thread in plan: `write` is refused, `bash` asks;
+//   - F6: `T3-Mode-Limit: approval-required/plan` reaches the thread: it runs in plan at approval-required, no write
+//     completes, and no command runs without asking. Whether the model tries `bash` is its choice (`bashAttempted`);
+//     the harness's Plan mode enforcement is proven in `apps/agents/test/permissions.test.ts`;
 //   - F1, F2: an auto-accept-edits link may not change the owner's threads, projects, settings or schedules;
 //   - F4: a worktree launch through the link provisions and skips the project's setup script (`skipped-for-link`);
 //   - F12: the same F1 calls through a full-access link are allowed (t3's documented exception);
@@ -34,6 +36,33 @@ export interface PeerReport {
   readonly failures: ReadonlyArray<string>;
   readonly [key: string]: unknown;
 }
+
+/** The thread's metadata in a projection, as the owner's client reads it. */
+const threadMeta = (projection: any) => projection?.thread ?? {};
+
+/**
+ * F6's checks on the plan-mode thread's projection. They hold whatever the model chooses: a model that obeys Plan mode
+ * calls no tool and passes, with `bashAttempted: false`. F6 answers no approval, so no command of the model's may have
+ * run: one that completed, or failed with an `exitCode` (a refused or denied call fails with none). Only the provider's
+ * items count: t3's own `command_execution` items ("Preparing workspace", "Provider signed out") carry no `nativeItemRef`
+ * (docs/upstream-fragility.md, U5).
+ */
+export const planModeChecks = (projection: any): { readonly bashAttempted: boolean; readonly checks: ReadonlyArray<readonly [name: string, ok: boolean]> } => {
+  const thread = threadMeta(projection);
+  const items: ReadonlyArray<any> = projection?.turnItems ?? [];
+  const commands = items.filter((item) => item.type === "command_execution" && item.nativeItemRef != null);
+  const asked = (projection?.runtimeRequests ?? []).some((request: any) => request.kind === "command");
+  const ran = commands.filter((item) => item.status === "completed" || (item.status === "failed" && typeof item.exitCode === "number"));
+  return {
+    bashAttempted: commands.length > 0 || asked,
+    checks: [
+      ["F6: the thread runs in plan", thread.interactionMode === "plan"],
+      ["F6: the thread runs at approval-required", thread.runtimeMode === "approval-required"],
+      ["F6: write is refused in plan", !items.some((item) => item.type === "file_change" && item.status === "completed")],
+      ["F6: no command runs without asking", ran.length === 0],
+    ],
+  };
+};
 
 /** A refusal t3's link fence answers: `capability_denied`, naming the link. */
 const denied = (answer: ToolAnswer) => answer.isError && /capability_denied|linked environment|link/i.test(answer.text);
@@ -114,7 +143,6 @@ export const peerAcceptance = async (cookie: string, options: { readonly only?: 
   };
   const pending = (projection: any) => (projection?.runtimeRequests ?? []).filter((request: any) => request.status === "pending");
   const stop = (threadId: string) => mcp.call("t3_thread_interrupt", { threadId, stop: true, clientRequestId: `stop-${threadId}` });
-  const threadMeta = (projection: any) => projection?.thread ?? {};
 
   // A forwarded launch, followed in 50 s waits, its last reply read back.
   if (wants("launch")) {
@@ -188,17 +216,17 @@ export const peerAcceptance = async (cookie: string, options: { readonly only?: 
       const items = projection?.turnItems ?? [];
       const write = items.find((item: any) => item.type === "file_change");
       const request = pending(projection)[0];
+      const verdict = planModeChecks(projection);
       report.F6 = {
         runtimeMode: threadMeta(projection).runtimeMode,
         interactionMode: threadMeta(projection).interactionMode,
+        bashAttempted: verdict.bashAttempted,
         write: write === undefined ? null : { status: write.status, output: String(write.output ?? write.error ?? "").slice(0, 200) },
         request: request === undefined ? null : { kind: request.kind },
         runs: runsOf(projection).map((run: any) => run.status),
-        items: items.map((item: any) => ({ type: item.type, status: item.status ?? null, text: String(item.text ?? item.input ?? item.title ?? "").slice(0, 160) })),
+        items: items.map((item: any) => ({ type: item.type, status: item.status ?? null, provider: item.nativeItemRef != null, text: String(item.text ?? item.input ?? item.title ?? "").slice(0, 160) })),
       };
-      check("F6: the thread runs in plan", threadMeta(projection).interactionMode === "plan", report.F6);
-      check("F6: write is refused in plan", write === undefined || write.status !== "completed", report.F6);
-      check("F6: bash asks in plan", request !== undefined, report.F6);
+      for (const [name, ok] of verdict.checks) check(name, ok, report.F6);
       await stop(threadId!);
     }
   }
