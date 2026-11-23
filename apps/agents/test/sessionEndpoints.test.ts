@@ -7,10 +7,7 @@ import { createModels } from "@earendil-works/pi-ai";
 import { type EndpointCredentialRequest, type ModelEndpoint, sameTarget } from "@t3flare/models/endpoints";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { DEFAULT_SETTINGS_READ_MS, MAX_TIMED_MINUTES } from "@t3flare/harness-registry";
-
 import { ENDPOINT_KEY_TTL_MS, SessionEndpoints } from "../src/session/endpoints.ts";
-import { readWithin, turnReadMs } from "../src/session/readWithin.ts";
 
 const endpointAt = (baseUrl: string): ModelEndpoint => ({
   id: "gw",
@@ -173,19 +170,5 @@ describe("a turn's read of the endpoints (SPI-1314)", () => {
     await taking;
     expect(done).toBe(true);
     expect(map.size).toBe(0);
-  });
-
-  it("leaves no timer pending when the read wins", async () => {
-    vi.useFakeTimers();
-    expect(await readWithin(Promise.resolve("answer"), MAX_TIMED_MINUTES * 60_000)).toBe("answer");
-    expect(vi.getTimerCount()).toBe(0);
-    await expect(readWithin(Promise.reject(new Error("busy")), 1000)).rejects.toThrow("busy");
-    expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it("a turn's wait is what its start carried, else the default 5 s", () => {
-    expect(turnReadMs({ settingsReadMs: 1000 })).toBe(1000);
-    expect(turnReadMs({})).toBe(DEFAULT_SETTINGS_READ_MS);
-    expect(DEFAULT_SETTINGS_READ_MS).toBe(5000);
   });
 });

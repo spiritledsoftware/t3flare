@@ -301,7 +301,7 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
   {
     name: "change_environment",
     class: "write",
-    description: `Changes some of the Environment settings. The Container settings apply when each Workspace's Container next starts, not in one running now (terminalsReadBashrc too); agentsReadDotfiles and cliProcessesPerWorkspace apply at each CLI agent's next start (a lower count ends no running process), cliReclaimSeconds to CLI agents' processes started after the change; turnLimitMinutes at each thread's next turn (a running turn keeps the limit it started with); settingsReadSeconds at each thread's next turn, and at each Workspace's Container start after the next one (a start waits as long as the settings it last read say); the Grace (sweepPurges, graceDays) applies at the next Sweep. ${ASKED_NOTE}`,
+    description: `Changes some of the Environment settings. The Container settings apply when each Workspace's Container next starts, not in one running now (terminalsReadBashrc too); agentsReadDotfiles and cliProcessesPerWorkspace apply at each CLI agent's next start (a lower count ends no running process), cliReclaimSeconds to CLI agents' processes started after the change; turnLimitMinutes at each thread's next turn (a running turn keeps the limit it started with); settingsReadSeconds at each thread's next turn, and at a Container start once the Workspace has kept it (a start uses the wait it last kept, so a change can take one more start to apply fully); the Grace (sweepPurges, graceDays) applies at the next Sweep. ${ASKED_NOTE}`,
     inputSchema: {
       type: "object",
       required: ["expectedRevision", "settings"],

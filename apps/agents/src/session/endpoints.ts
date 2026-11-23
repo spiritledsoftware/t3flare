@@ -22,7 +22,7 @@ import { type UsageEntry, usageOfPiAnswer } from "@t3flare/models/usage";
 import type { EndpointCredentialFailure } from "@t3flare/session-protocol";
 
 import { endpointProviders } from "./models.ts";
-import { readWithin } from "./readWithin.ts";
+import { readWithin } from "../readWithin.ts";
 
 /** The Model endpoints the Session last took, secret-free. */
 export const ENDPOINTS_KEY = "t3flare:model-endpoints";

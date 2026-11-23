@@ -115,7 +115,8 @@ import { NO_KEY, sessionModels } from "./models.ts";
 import { credentialFailure } from "./credentialFailure.ts";
 import { modelSettingSlug } from "@t3flare/models/endpoints";
 import { SessionEndpoints } from "./endpoints.ts";
-import { readWithin, turnReadMs } from "./readWithin.ts";
+import { readWithin } from "../readWithin.ts";
+import { turnReadMs } from "./turnReadMs.ts";
 import { noteTurnProvider, runsOn } from "./signOut.ts";
 import { suggestionModelOf, suggestPrompt } from "./promptSuggestion.ts";
 import {

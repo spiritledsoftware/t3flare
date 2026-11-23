@@ -287,7 +287,9 @@ The Session gets it the way it gets the Turn limit: the Environment DO reads it 
 It bounds that turn's reads of the Harness settings, the Model endpoints and the MCP view, and each read's timer is
 cleared when the read wins. A start without it (an Environment before it) waits the default, `DEFAULT_SETTINGS_READ_MS`.
 
-The Workspace DO cannot be told before it reads, so it bootstraps from the copy it kept: a start waits as long as that
-copy says (the default before it kept one), and a change it takes applies from the start after. The same wait bounds
-the start's reads of the Builder (`BUILDER_READ_MS` before). The skill set's copy (`SKILLS_TAKE_MS`) stays fixed: it
+The Workspace DO cannot be told before it reads, so it bootstraps from the copy it kept: each read of the settings at a
+start waits as long as that copy says (the default before it kept one). A fresh start reads twice, before computer's
+connect (`#waitForBase`) and at its launch, so a new wait it keeps at the first read already bounds the second; a change
+can take one more start to apply fully. The same wait bounds the start's reads of the Builder (`BUILDER_READ_MS`
+before). The skill set's copy (`SKILLS_TAKE_MS`) stays fixed: it
 bounds a copy of files, not a read of settings.

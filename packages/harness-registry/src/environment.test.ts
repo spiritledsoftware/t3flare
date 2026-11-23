@@ -409,7 +409,7 @@ describe("the settings read wait (SPI-1314)", () => {
     expect("row" in ENVIRONMENT_SETTINGS.settingsReadSeconds).toBe(false);
     expect(AGENT_SETTING_KEYS).not.toContain("settingsReadSeconds");
     expect(ENVIRONMENT_SETTINGS.settingsReadSeconds.description).toContain(
-      "Applies at each thread's next turn. A Workspace's next Container start still waits as long as the settings it last read say, so for a Container it applies at the start after that.",
+      "Applies at each thread's next turn. A Container start uses the wait it last kept, so a change can take one more start to apply fully.",
     );
   });
 });

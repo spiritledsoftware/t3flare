@@ -291,7 +291,7 @@ export const ENVIRONMENT_SETTINGS = {
   settingsReadSeconds: {
     title: "Settings read wait (seconds)",
     description:
-      "How long a Container start or a turn waits for the newest settings before it goes ahead with the ones it last read; a start waits as long to learn which Base snapshot it starts from. A long wait holds a start or a turn that long whenever the settings are slow to answer. Applies at each thread's next turn. A Workspace's next Container start still waits as long as the settings it last read say, so for a Container it applies at the start after that.",
+      "How long a Container start or a turn waits for the newest settings before it goes ahead with the ones it last read; a start waits as long to learn which Base snapshot it starts from. A long wait holds a start or a turn that long whenever the settings are slow to answer. Applies at each thread's next turn. A Container start uses the wait it last kept, so a change can take one more start to apply fully.",
     // t3flare times it itself (the Session's and the Workspace DO's timers), so the shared sanity maximum applies
     // (ADR-0048 §2), in seconds.
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES * 60, default: DEFAULT_SETTINGS_READ_SECONDS },

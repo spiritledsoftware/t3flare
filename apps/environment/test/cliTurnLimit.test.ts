@@ -6,7 +6,12 @@ import * as Stream from "effect/Stream";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { bindEnvironmentServices, type EnvironmentServices, turnLimitMsNow } from "../src/agents/bindings.ts";
+import {
+  bindEnvironmentServices,
+  type EnvironmentServices,
+  settingsReadMsNow,
+  turnLimitMsNow,
+} from "../src/agents/bindings.ts";
 import type { ChannelProcess } from "../src/agents/processChannel.ts";
 import { type CliSessions, wrapCliAdapter } from "../src/provider/cli/wrapper.ts";
 
@@ -91,5 +96,24 @@ describe("turnLimitMsNow", () => {
     expect(turnLimitMsNow()).toBe(120 * 60_000);
     bindEnvironmentServices(undefined as unknown as EnvironmentServices);
     expect(turnLimitMsNow()).toBe(120 * 60_000);
+  });
+});
+
+describe("settingsReadMsNow (SPI-1314)", () => {
+  afterEach(() => bindEnvironmentServices(undefined as unknown as EnvironmentServices));
+
+  it("reads the Environment's settings read wait, and the default (5 s) without services, a reader, or a readable store", () => {
+    bindEnvironmentServices({ settingsReadMs: () => 2000 } as unknown as EnvironmentServices);
+    expect(settingsReadMsNow()).toBe(2000);
+    bindEnvironmentServices({
+      settingsReadMs: () => {
+        throw new Error("storage reset");
+      },
+    } as unknown as EnvironmentServices);
+    expect(settingsReadMsNow()).toBe(5000);
+    bindEnvironmentServices({} as unknown as EnvironmentServices);
+    expect(settingsReadMsNow()).toBe(5000);
+    bindEnvironmentServices(undefined as unknown as EnvironmentServices);
+    expect(settingsReadMsNow()).toBe(5000);
   });
 });

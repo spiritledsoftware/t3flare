@@ -1122,6 +1122,7 @@ export class WorkspaceDO extends ContainerHost {
           const fresh = !this.containerRunning();
           const launch = await this.#launch();
           await lease(fresh ? launch.budget : undefined);
+          // The wait is the kept copy's, as every start's is (`#takeSettings`): a start learns a new wait only by keeping it.
           const kept = this.#keptSettings();
           const from = fresh ? launch.from : launchFrom(await this.#planBase(kept, readMsOf(kept), { mayAsk: false }));
           const snapshotId = baseIdOf(from);
