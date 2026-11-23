@@ -1,9 +1,12 @@
 // The Environment DO's boot record and safe mode (ADR-0010's admin routes), in DO key-value storage.
 //
 // Every boot of t3 is counted before it starts, so a boot that takes the isolate down with it still
-// counts as failed. After SAFE_MODE_AFTER_FAILURES boots in a row fail, the next boot does not start t3:
+// counts as failed. After `safeModeAfterFailures` boots in a row fail (an Environment setting, SPI-1366; 3 by default),
+// the next boot does not start t3:
 // the DO enters safe mode, where only the admin routes answer (health, read-only SQL, the toggle,
 // restart), until the owner turns it off. Safe mode can also be turned on by hand.
+
+import { DEFAULT_SAFE_MODE_AFTER_FAILURES } from "@t3flare/harness-registry";
 
 /** The part of DO storage this needs, so tests can pass a Map-backed fake. */
 export interface KeyValue {
@@ -12,7 +15,8 @@ export interface KeyValue {
   delete(key: string): Promise<boolean>;
 }
 
-export const SAFE_MODE_AFTER_FAILURES = 3;
+/** Failed boots in a row before safe mode when no setting reaches: the setting's default. */
+export const SAFE_MODE_AFTER_FAILURES = DEFAULT_SAFE_MODE_AFTER_FAILURES;
 
 export interface BootRecord {
   /** Boots started, ever. */
@@ -73,11 +77,15 @@ export type BootDecision =
  * Whether to start t3 now. Records the attempt before it runs, or enters safe mode when too many boots in a
  * row have failed.
  */
-export const beginBoot = async (kv: KeyValue, now: Date): Promise<BootDecision> => {
+export const beginBoot = async (
+  kv: KeyValue,
+  now: Date,
+  afterFailures: number = SAFE_MODE_AFTER_FAILURES,
+): Promise<BootDecision> => {
   const safeMode = await readSafeMode(kv);
   if (safeMode.on) return { start: false, safeMode };
   const record = await readBootRecord(kv);
-  if (record.consecutiveFailures >= SAFE_MODE_AFTER_FAILURES) {
+  if (record.consecutiveFailures >= afterFailures) {
     return { start: false, safeMode: await setSafeMode(kv, true, "boot-failures", now) };
   }
   const next: BootRecord = {

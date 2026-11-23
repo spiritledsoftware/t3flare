@@ -132,6 +132,31 @@ describe("the retry alarm", () => {
     expect(Idle.nextRemoteRetry({ attempt: 40, at: 0 }, at)).toEqual({ attempt: 41, at: at + minutes(30) });
   });
 
+  it("waits at most the Remote task retry setting: 5, 15, then it, each capped at it (SPI-1366)", () => {
+    const at = now.getTime();
+    const delays = (maxMs: number) => {
+      let retry: Idle.RemoteRetry | undefined;
+      return Array.from({ length: 4 }, () => {
+        retry = Idle.nextRemoteRetry(retry, at, maxMs);
+        return (retry.at - at) / 60_000;
+      });
+    };
+    expect(delays(minutes(60))).toEqual([5, 15, 60, 60]);
+    expect(delays(minutes(10))).toEqual([5, 10, 10, 10]);
+    expect(delays(minutes(1))).toEqual([1, 1, 1, 1]);
+    const work: Idle.OpenWork = {
+      openRuns: 0,
+      openProviderSessions: 0,
+      claimableEffects: 0,
+      remoteTasksAnswering: 0,
+      remoteTasksUnanswered: 1,
+    };
+    expect(Idle.planReset(work, { t3Due: null, sweep: at + minutes(90), retry: undefined }, at, minutes(2)).retry).toEqual({
+      attempt: 0,
+      at: at + minutes(2),
+    });
+  });
+
   it("plans the reset: a retry only while a task waits on a machine that does not answer, merged into one alarm", () => {
     const at = now.getTime();
     const work = (unanswered: number): Idle.OpenWork => ({

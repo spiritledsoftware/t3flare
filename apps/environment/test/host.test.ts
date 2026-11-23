@@ -42,6 +42,17 @@ describe("boot record and safe mode", () => {
     expect((await BootState.beginBoot(kv, now)).start).toBe(true);
   });
 
+  it("enters safe mode after the setting's count of failed boots, one or many (SPI-1366)", async () => {
+    for (const count of [1, 5]) {
+      const kv = memoryKv();
+      for (let i = 0; i < count; i++) {
+        expect((await BootState.beginBoot(kv, now, count)).start).toBe(true);
+        await BootState.bootFailed(kv, new Error(`boom ${i}`));
+      }
+      expect((await BootState.beginBoot(kv, now, count)).start).toBe(false);
+    }
+  });
+
   it("counts a boot that never reports back as failed, and a success resets the run", async () => {
     const kv = memoryKv();
     await BootState.beginBoot(kv, now);
@@ -191,6 +202,11 @@ describe("idle queries", () => {
     expect(Idle.idleVerdict(sql, now)).toMatchObject({
       reset: true,
       due: { at: new Date("2026-11-10T12:10:00.000Z") },
+    });
+    // The PR watch wake as set (SPI-1366): an hour.
+    expect(Idle.idleVerdict(sql, now, Idle.IDLE_AFTER_MS, 60 * 60_000)).toMatchObject({
+      reset: true,
+      due: { at: new Date("2026-11-10T13:00:00.000Z") },
     });
   });
 

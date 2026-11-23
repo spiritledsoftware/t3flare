@@ -1165,7 +1165,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
 
   async #startRuntime(trigger: string, request?: Request): Promise<Runtime> {
     const kv = this.ctx.storage;
-    const decision = await BootState.beginBoot(kv, new Date());
+    const decision = await BootState.beginBoot(kv, new Date(), this.#environmentNow().safeModeAfterFailures);
     if (!decision.start) {
       console.log(JSON.stringify({ t3flare: "safe-mode", ...decision.safeMode }));
       throw new SafeModeError(decision.safeMode);
@@ -1264,9 +1264,15 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     if (runtime?.bootstrapSeeded) await this.restartRuntime("disarm-bootstrap");
   }
 
+  /** The Environment settings as stored now (SPI-1366): the Sleep and wake settings read at each use. */
+  #environmentNow(): ResolvedEnvironment {
+    return resolveEnvironment(harnessStore(this.ctx.storage.kv).loadEnvironment());
+  }
+
+  /** The idle delay: a test's or the acceptance stage's `T3FLARE_IDLE_AFTER_MS`, else the setting (SPI-1366). */
   #idleAfterMs(): number {
     const value = Number(this.env.T3FLARE_IDLE_AFTER_MS);
-    return Number.isFinite(value) && value > 0 ? value : Idle.IDLE_AFTER_MS;
+    return Number.isFinite(value) && value > 0 ? value : this.#environmentNow().idleAfterSeconds * 1000;
   }
 
   #startIdleChecks() {
@@ -1442,18 +1448,24 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     if (current === null || current > at) await this.ctx.storage.setAlarm(Math.max(at, Date.now() + 1000));
   }
 
+  /** The last unreadable-tables failure logged, so a failure that stays is logged once. */
+  #unreadableLogged: string | undefined;
+
   /**
    * ADR-0003: when idle, set one alarm for t3's next due work and reset the object. Returns what it found
    * (for the admin route) and resets only when `reset` is true.
    */
-  /** The last unreadable-tables failure logged, so a failure that stays is logged once. */
-  #unreadableLogged: string | undefined;
-
   async checkIdle(options: { readonly force?: boolean } = {}): Promise<Idle.IdleVerdict & { alarm?: string | null }> {
     if (this.#runtime === undefined) return { reset: false, why: "t3 is not running" };
     void this.#sweepIfDue().catch(() => undefined);
     const now = new Date();
-    const verdict = Idle.idleVerdict(this.ctx.storage.sql, now, options.force ? 0 : this.#idleAfterMs());
+    const settings = this.#environmentNow();
+    const verdict = Idle.idleVerdict(
+      this.ctx.storage.sql,
+      now,
+      options.force ? 0 : this.#idleAfterMs(),
+      settings.prWatchWakeMinutes * 60_000,
+    );
     if (!verdict.reset) {
       if (verdict.work !== undefined) await this.#keepRemoteTasksAlarm(verdict.work, now.getTime());
       // Fail safe (fragility U2): the Environment stays up. Read again at each check; logged, as an error, when what
@@ -1474,6 +1486,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
         retry: this.ctx.storage.kv.get<Idle.RemoteRetry>(Idle.REMOTE_RETRY_KEY),
       },
       now.getTime(),
+      settings.remoteRetryMinutes * 60_000,
     );
     if (planned.retry === undefined) this.ctx.storage.kv.delete(Idle.REMOTE_RETRY_KEY);
     else this.ctx.storage.kv.put(Idle.REMOTE_RETRY_KEY, planned.retry);
