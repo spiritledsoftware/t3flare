@@ -433,25 +433,26 @@ describe("web_search", () => {
       numResults: 10_000,
       contextMaxCharacters: 100_000_000,
     });
-    const result = outcome.ok ? outcome.result : undefined;
-    expect((result?.structuredOutput as { truncated: boolean }).truncated).toBe(true);
+    if (!outcome.ok) throw new Error(outcome.error);
+    const result = outcome.result;
+    expect((result.structuredOutput as { truncated: boolean }).truncated).toBe(true);
     const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
     // pi-durable's NestedCallDoc row for a code-mode call, and the result entry of a model's call.
     const nested = {
       taskId: "t",
       result: {
         taskId: "t",
-        structuredOutput: result?.structuredOutput,
+        structuredOutput: result.structuredOutput,
         isError: false,
-        details: result?.details,
+        details: result.details,
         diagnostics: [],
-        usage: result?.usage,
+        usage: result.usage,
         durationMs: 1,
       },
     };
     expect(bytes(nested)).toBeLessThan(SESSION_ROW_BYTES - SESSION_ROW_ENVELOPE_BYTES);
     expect(
-      bytes({ output: result?.output, details: result?.details, structuredOutput: result?.structuredOutput }),
+      bytes({ output: result.output, details: result.details, structuredOutput: result.structuredOutput }),
     ).toBeLessThan(SESSION_ROW_BYTES - SESSION_ROW_ENVELOPE_BYTES);
   });
 
