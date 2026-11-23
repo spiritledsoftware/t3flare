@@ -149,12 +149,13 @@ export const linkedWorkOf = (threadId: string): LinkedWork | null => {
  */
 export const sessionCallError = (instanceId: ProviderInstanceId, what: string, cause: unknown) => {
   const causeText = cause instanceof Error ? cause.message : String(cause);
+  const unanswered = `The agent's session did not answer ${what}`;
   return protocolError(
-    `The agent's session did not answer ${what}`,
+    unanswered,
     new ProviderSetupError({
       instanceId,
       operation: what,
-      detail: withCause(`The agent's session did not answer ${what}.`, redactSecrets(causeText)),
+      detail: withCause(`${unanswered}.`, redactSecrets(causeText)),
       cause,
     }),
   );
