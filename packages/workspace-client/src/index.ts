@@ -152,6 +152,7 @@ export interface CloneInput {
   readonly id?: string;
   /** An https URL with no credentials; the credential helper asks the Workspace DO for the repo's token (ADR-0013). */
   readonly url: string;
+  /** The clone time limit (`cloneMinutes`, SPI-1324) in ms, carried by the Environment DO; absent, the default. */
   readonly timeoutMs?: number;
 }
 

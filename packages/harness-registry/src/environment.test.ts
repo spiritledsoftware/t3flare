@@ -9,6 +9,8 @@ import {
   BASE_BUILD_SETTING_KEYS,
   builderInstance,
   containerInstance,
+  DEFAULT_CHECKPOINT_MINUTES,
+  DEFAULT_CLONE_MINUTES,
   DEFAULT_OWNER_ANSWER_MS,
   DEFAULT_SETTINGS_READ_MS,
   DOTFILES_SETTING_KEYS,
@@ -53,6 +55,8 @@ const TUNABLE_DEFAULTS = {
   terminalPromptHoldMinutes: 10,
   terminalsPerWorkspace: 8,
   agentTerminalsPerWorkspace: 8,
+  cloneMinutes: 15,
+  checkpointMinutes: 10,
 } as const;
 
 describe("resolveEnvironment", () => {
@@ -435,6 +439,47 @@ describe("the Terminals' holds and counts (SPI-1317)", () => {
     expect(ENVIRONMENT_SETTINGS.agentTerminalsPerWorkspace.description).toContain(
       "Each Terminal and Background job uses memory in the Container.",
     );
+  });
+});
+
+describe("the clone and checkpoint time limits (SPI-1324)", () => {
+  const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
+  const keys = ["cloneMinutes", "checkpointMinutes"] as const;
+
+  it("are 15 and 10 minutes by default, the Workspace DO's fallbacks, 1 to MAX_TIMED_MINUTES whole minutes", () => {
+    expect(DEFAULT_CLONE_MINUTES).toBe(15);
+    expect(DEFAULT_CHECKPOINT_MINUTES).toBe(10);
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({ cloneMinutes: 15, checkpointMinutes: 10 });
+    for (const key of keys) {
+      for (const minutes of [1, 60, MAX_TIMED_MINUTES]) expect(set({ [key]: minutes })).toMatchObject({ ok: true });
+      for (const minutes of [0, MAX_TIMED_MINUTES + 1, 2.5, "15"])
+        expect(set({ [key]: minutes })).toMatchObject({ ok: false });
+    }
+    expect(resolveEnvironment({ revision: 1, settings: { cloneMinutes: 0, checkpointMinutes: -1 } })).toMatchObject({
+      cloneMinutes: 15,
+      checkpointMinutes: 10,
+    });
+  });
+
+  it("are down-free, in the Containers row, after the settings read wait", () => {
+    for (const key of keys) {
+      expect(ENVIRONMENT_SETTINGS[key]).toMatchObject({ tier: "down-free" });
+      expect("row" in ENVIRONMENT_SETTINGS[key]).toBe(false);
+      expect(AGENT_SETTING_KEYS as ReadonlyArray<string>).not.toContain(key);
+    }
+    const order = Object.keys(ENVIRONMENT_SETTINGS);
+    expect(order.slice(order.indexOf("setupOutputKiB") + 1, order.indexOf("imageSetup"))).toEqual([...keys]);
+  });
+
+  it("each state its consequence once, scoped to its own operations, and the checkpoint limit names its operations", () => {
+    expect(ENVIRONMENT_SETTINGS.cloneMinutes.description).toContain(
+      "A clone or checkout that runs longer than this fails; while it runs it holds the Container.",
+    );
+    expect(ENVIRONMENT_SETTINGS.checkpointMinutes.description).toContain(
+      "A checkpoint, bundle or carry that runs longer than this fails; while it runs it holds the Container.",
+    );
+    for (const named of ["a turn's checkpoint and its restore", "carrying a removed worktree's commits home"])
+      expect(ENVIRONMENT_SETTINGS.checkpointMinutes.description).toContain(named);
   });
 });
 

@@ -8,6 +8,8 @@ import * as Stream from "effect/Stream";
 import * as ChildProcess from "effect/process/ChildProcess";
 
 import { parseGitHubAuth } from "../../../t3code/packages/source-control-github/src/server/GitHubSourceControlProvider.ts";
+import { resolveEnvironment } from "@t3flare/harness-registry";
+
 import { bindEnvironmentServices, type EnvironmentServices } from "../src/agents/bindings.ts";
 import { T3FLARE_FATAL } from "../src/agents/gitRoutes.ts";
 import { spawn } from "../src/agents/processRouter.ts";
@@ -142,5 +144,93 @@ describe("a clone's stderr", () => {
     const answer = await run("git", cloneArgs, "/w");
     expect(answer.exitCode).toBe(128);
     expect(answer.stderr).toBe(`${T3FLARE_FATAL}refused at https://***@host/r.git\n`);
+  });
+});
+
+/** The calls each Workspace DO got, by its id, method and input. */
+type Calls = Array<{ readonly id: string; readonly method: string; readonly input: unknown }>;
+
+/**
+ * The Environment's services with the project `t3flare` at `/w/t3flare` and `settings` stored, whose Workspace DOs
+ * record each call and answer clone, worktree and fs calls as succeeding.
+ */
+const bindGitLimits = (calls: Calls, settings: Record<string, unknown>) => {
+  const project = workspace("ian-pascoe", "t3flare");
+  const stored = resolveEnvironment({ revision: 1, settings });
+  const answers: Record<string, unknown> = {
+    clone: { ran: true, exitCode: 0, stdout: "", stderr: "", ms: 0 },
+    worktreeClone: { ok: true, tips: [] },
+    worktreeBundle: { ok: true, commit: "c".repeat(40), bundle: null, config: [] },
+    worktreeFinish: { ok: true, head: "c".repeat(40) },
+    seedProjectRoot: { files: 0 },
+    fs: { ok: null },
+  };
+  bindEnvironmentServices({
+    workspaces: {
+      list: () => [project],
+      get: () => undefined,
+      resolve: (id: string) => (id === "t3flare" ? project : undefined),
+      create: () => undefined,
+      createWorktree: () => undefined,
+      remove: () => undefined,
+      setState: () => undefined,
+      setRemote: () => undefined,
+    },
+    github: () => ({ live: () => [] }),
+    cloneMs: () => stored.cloneMinutes * 60_000,
+    checkpointMs: () => stored.checkpointMinutes * 60_000,
+    agents: {
+      WORKSPACES: {
+        idFromName: (name: string) => name,
+        get: (id: string) =>
+          new Proxy(
+            {},
+            {
+              get: (_, method: string) => async (input: unknown) => {
+                calls.push({ id, method, input });
+                return answers[method];
+              },
+            },
+          ),
+      },
+    },
+  } as unknown as EnvironmentServices);
+};
+
+const limitOf = (calls: Calls, method: string) =>
+  (calls.find((call) => call.method === method)?.input as { timeoutMs?: number } | undefined)?.timeoutMs;
+
+describe("the clone and checkpoint time limits (SPI-1324)", () => {
+  it("a new Workspace's clone carries the stored cloneMinutes as timeoutMs", async () => {
+    const calls: Calls = [];
+    bindGitLimits(calls, { cloneMinutes: 60 });
+    const answer = await run("git", cloneArgs, "/w");
+    expect(answer.exitCode).toBe(0);
+    expect(limitOf(calls, "clone")).toBe(3_600_000);
+  });
+
+  it("a worktree's clone and checkout carry cloneMinutes, its seed bundle checkpointMinutes", async () => {
+    const calls: Calls = [];
+    bindGitLimits(calls, { cloneMinutes: 60, checkpointMinutes: 3 });
+    const answer = await run(
+      "git",
+      ["worktree", "add", "-b", "feature", "--", "/w/.wt/t3flare/x", "main"],
+      "/w/t3flare",
+    );
+    expect(answer.exitCode).toBe(0);
+    expect(limitOf(calls, "worktreeClone")).toBe(3_600_000);
+    expect(limitOf(calls, "worktreeFinish")).toBe(3_600_000);
+    expect(limitOf(calls, "worktreeBundle")).toBe(180_000);
+  });
+
+  it("carry the defaults, 15 and 10 minutes, when nothing is stored", async () => {
+    const calls: Calls = [];
+    bindGitLimits(calls, {});
+    await run("git", cloneArgs, "/w");
+    await run("git", ["worktree", "add", "-b", "feature", "--", "/w/.wt/t3flare/x", "main"], "/w/t3flare");
+    expect(limitOf(calls, "clone")).toBe(900_000);
+    expect(limitOf(calls, "worktreeClone")).toBe(900_000);
+    expect(limitOf(calls, "worktreeFinish")).toBe(900_000);
+    expect(limitOf(calls, "worktreeBundle")).toBe(600_000);
   });
 });

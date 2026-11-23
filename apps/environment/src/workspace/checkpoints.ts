@@ -12,6 +12,7 @@ import * as Layer from "effect/Layer";
 import type * as VcsDriver from "t3/src/vcs/VcsDriver.ts";
 import * as VcsDriverRegistry from "t3/src/vcs/VcsDriverRegistry.ts";
 
+import { checkpointMsNow } from "../agents/bindings.ts";
 import { locate } from "../agents/workspaceClient.ts";
 
 /** Checkpoint operations the Workspace DOs answered, by the side that made them (the admin trace). */
@@ -31,7 +32,8 @@ const call = (operation: string, cwd: string, op: CheckpointOp): Effect.Effect<u
   if (at === undefined) return Effect.fail(failure(operation, cwd, `No Workspace is at ${cwd}.`));
   const started = Date.now();
   return Effect.tryPromise({
-    try: (): Promise<CheckpointAnswer> => at.rpc.checkpoint(op),
+    // The checkpoint time limit as stored now (SPI-1324), carried to the Workspace DO.
+    try: (): Promise<CheckpointAnswer> => at.rpc.checkpoint(op, { timeoutMs: checkpointMsNow() }),
     catch: (cause) => failure(operation, cwd, `The Workspace did not answer: ${String(cause).slice(0, 300)}`),
   }).pipe(
     Effect.flatMap((answer) => {

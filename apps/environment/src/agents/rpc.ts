@@ -93,7 +93,8 @@ export interface ExecResult {
 export interface WorkspaceRpc {
   fs(op: FsOp): Promise<FsAnswer<unknown>>;
   git(run: GitRun): Promise<GitAnswer>;
-  checkpoint(op: CheckpointOp): Promise<CheckpointAnswer>;
+  /** SPI-1324: `timeoutMs`, the checkpoint time limit (`checkpointMinutes`) in ms; absent, the Workspace DO's default. */
+  checkpoint(op: CheckpointOp, options?: { readonly timeoutMs?: number }): Promise<CheckpointAnswer>;
   ensureCredentialHelper(id?: string): Promise<ExecResult>;
   killExecs(
     execIds: ReadonlyArray<string>,
@@ -162,11 +163,15 @@ export interface WorkspaceRpc {
     readonly id: string;
     readonly url: string | null;
     readonly parent?: string;
+    /** SPI-1324: the clone time limit (`cloneMinutes`) in ms; absent, the Workspace DO's default. */
+    readonly timeoutMs?: number;
   }): Promise<{ readonly ok: boolean; readonly tips: ReadonlyArray<string>; readonly error?: string }>;
   worktreeBundle(input: {
     readonly ref: string;
     readonly tips: ReadonlyArray<string>;
     readonly name: string;
+    /** SPI-1324: the checkpoint time limit (`checkpointMinutes`) in ms; absent, the Workspace DO's default. */
+    readonly timeoutMs?: number;
   }): Promise<{
     readonly ok: boolean;
     readonly commit?: string;
@@ -180,10 +185,19 @@ export interface WorkspaceRpc {
     readonly ref: string;
     readonly commit: string;
     readonly config: ReadonlyArray<string>;
+    /** SPI-1324: the clone time limit (`cloneMinutes`) in ms; absent, the Workspace DO's default. */
+    readonly timeoutMs?: number;
   }): Promise<{ readonly ok: boolean; readonly head?: string; readonly error?: string }>;
   destroy(): Promise<{ readonly destroyed: true }>;
-  refTips(): Promise<{ readonly ok: boolean; readonly tips: ReadonlyArray<string>; readonly error?: string }>;
-  carryOut(input: { readonly projectTips: ReadonlyArray<string> }): Promise<{
+  /** SPI-1324: `timeoutMs`, the checkpoint time limit (`checkpointMinutes`) in ms; absent, the Workspace DO's default. */
+  refTips(input?: {
+    readonly timeoutMs?: number;
+  }): Promise<{ readonly ok: boolean; readonly tips: ReadonlyArray<string>; readonly error?: string }>;
+  carryOut(input: {
+    readonly projectTips: ReadonlyArray<string>;
+    /** SPI-1324: the checkpoint time limit (`checkpointMinutes`) in ms; absent, the Workspace DO's default. */
+    readonly timeoutMs?: number;
+  }): Promise<{
     readonly ok: boolean;
     readonly dirty: boolean;
     readonly carried: ReadonlyArray<{ readonly ref: string; readonly sha: string }>;
@@ -195,6 +209,8 @@ export interface WorkspaceRpc {
     readonly bundle: string;
     readonly dir: string;
     readonly carried: ReadonlyArray<{ readonly ref: string; readonly sha: string }>;
+    /** SPI-1324: the checkpoint time limit (`checkpointMinutes`) in ms; absent, the Workspace DO's default. */
+    readonly timeoutMs?: number;
   }): Promise<{ readonly ok: boolean; readonly lines: ReadonlyArray<string>; readonly error?: string }>;
   seedProjectRoot(input: { readonly parent: string }): Promise<{
     readonly files: number;

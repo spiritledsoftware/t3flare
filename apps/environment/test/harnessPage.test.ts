@@ -724,6 +724,22 @@ describe("the Environment section's dotfiles", () => {
     expect(input?.attrs).toMatchObject({ type: "number", min: "1", value: "5" });
   });
 
+  it("draws the clone and checkpoint time limits last in the Containers row, which says what they bound (SPI-1324)", () => {
+    const section = sectionOf(renderPage(fixturePage()));
+    const containers = section.slice(
+      section.indexOf("<h3>Containers</h3>"),
+      section.indexOf('<h3 id="environment-agents-title">Agents</h3>'),
+    );
+    expect(containers).toContain("and how long a clone or a checkpoint may run.");
+    const settings = tagsOf(containers)
+      .map((tag) => tag.attrs["data-setting"])
+      .filter((key) => key !== undefined);
+    expect(settings.slice(-3)).toEqual(["settingsReadSeconds", "cloneMinutes", "checkpointMinutes"]);
+    const input = (key: string) => tagsOf(containers).find((tag) => tag.attrs["data-setting"] === key)?.attrs;
+    expect(input("cloneMinutes")).toMatchObject({ type: "number", min: "1", max: "10080", value: "15" });
+    expect(input("checkpointMinutes")).toMatchObject({ type: "number", min: "1", max: "10080", value: "10" });
+  });
+
   it("draws the Terminals' holds and counts in the Containers row, holds after the idle time, counts after the budget (SPI-1317)", () => {
     const section = sectionOf(renderPage(fixturePage()));
     const containers = section.slice(

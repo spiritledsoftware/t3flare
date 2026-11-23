@@ -78,6 +78,27 @@ export const DEFAULT_TURN_LIMIT_MINUTES = 120;
 export const DEFAULT_TURN_LIMIT_MS = DEFAULT_TURN_LIMIT_MINUTES * 60_000;
 
 /**
+ * The clone time limit's default, in minutes (`cloneMinutes`, SPI-1324): how long a Workspace's clone, and a worktree
+ * Workspace's clone and checkout, may run in its Container. The Workspace DO uses it for a call that carries no limit.
+ */
+export const DEFAULT_CLONE_MINUTES = 15;
+
+/** The clone time limit's default in ms: used where no setting reaches (a call that carries none, a test's services). */
+export const DEFAULT_CLONE_MS = DEFAULT_CLONE_MINUTES * 60_000;
+
+/**
+ * The checkpoint time limit's default, in minutes (`checkpointMinutes`, SPI-1324): how long a turn's checkpoint and its
+ * restore, a worktree's seed bundle, and carrying a removed worktree's commits home may run in the Container. The
+ * Workspace DO uses it for a call that carries no limit.
+ */
+export const DEFAULT_CHECKPOINT_MINUTES = 10;
+
+/**
+ * The checkpoint time limit's default in ms: used where no setting reaches (a call that carries none, a test's services).
+ */
+export const DEFAULT_CHECKPOINT_MS = DEFAULT_CHECKPOINT_MINUTES * 60_000;
+
+/**
  * The settings read wait's default, in seconds (`settingsReadSeconds`, SPI-1314): how long a Container start or a turn
  * waits for the newest settings before it runs with the ones it last took.
  */
@@ -452,6 +473,23 @@ export const ENVIRONMENT_SETTINGS = {
     schema: { type: "integer", minimum: 4, maximum: MAX_SETUP_OUTPUT_KIB, default: 32 },
     tier: "down-free",
     row: "containerSetup",
+  },
+  cloneMinutes: {
+    title: "Clone time limit (minutes)",
+    description:
+      "How long each clone may run in the Workspace's Container: a project's clone, and a new worktree's clone and its checkout. A clone or checkout that runs longer than this fails; while it runs it holds the Container. A new worktree's bundle counts against the Checkpoint time limit instead. Applies at the next clone or checkout; one already running keeps its limit.",
+    // computerd times each exec with its own timer and no maximum (computer 0.11.2), so the shared sanity maximum
+    // applies (ADR-0048 §2).
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_CLONE_MINUTES },
+    tier: "down-free",
+  },
+  checkpointMinutes: {
+    title: "Checkpoint time limit (minutes)",
+    description:
+      "How long each checkpoint may run in the Workspace's Container: a turn's checkpoint and its restore, bundling a project's commits into a new worktree, and carrying a removed worktree's commits home. A checkpoint, bundle or carry that runs longer than this fails; while it runs it holds the Container. A removed worktree whose commits could not be carried home is kept, not purged. Applies at the next checkpoint, bundle or carry; one already running keeps its limit.",
+    // As the clone time limit: computerd's own timer, no maximum, the shared sanity maximum (ADR-0048 §2).
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_CHECKPOINT_MINUTES },
+    tier: "down-free",
   },
   imageSetup: {
     title: "Image setup",
