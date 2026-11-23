@@ -65,6 +65,8 @@ export interface ProfileContext {
     readonly handle: string;
     readonly servers: ReadonlyArray<string>;
     readonly toolTimeoutSec: number;
+    /** How long Codex waits for each relay server to start, in seconds (`cliMcpStartSeconds` at the spawn, SPI-1366). */
+    readonly startTimeoutSec: number;
   };
   /**
    * The Model endpoints that speak OpenAI Responses (SPI-1167), as stored at the spawn: Codex gets one provider each,
@@ -152,12 +154,17 @@ const tomlString = (value: string) => JSON.stringify(value);
 /**
  * Codex's MCP relay entries (ADR-0028, plan §3.2): one server per relayed source, the handle from the process's
  * environment, Codex's own approval off for them (the relay decides and asks on the thread), the tool timeout
- * `toolTimeoutSec` above the relay's cards and a call (review M11, `cliToolTimeoutSec`).
+ * `toolTimeoutSec` above the relay's cards and a call (review M11, `cliToolTimeoutSec`), the start wait `startTimeoutSec`
+ * (`cliMcpStartSeconds`, SPI-1366: left out, Codex would wait its own 10 s).
  */
-export const codexRelayOverrides = (servers: ReadonlyArray<string>, toolTimeoutSec: number): ReadonlyArray<string> =>
+export const codexRelayOverrides = (
+  servers: ReadonlyArray<string>,
+  toolTimeoutSec: number,
+  startTimeoutSec: number,
+): ReadonlyArray<string> =>
   servers.map(
     (server) =>
-      `mcp_servers.${server}={url=${tomlString(relayUrl(server))},bearer_token_env_var=${tomlString(TOOL_HANDLE_ENV)},default_tools_approval_mode="approve",tool_timeout_sec=${toolTimeoutSec},startup_timeout_sec=20}`,
+      `mcp_servers.${server}={url=${tomlString(relayUrl(server))},bearer_token_env_var=${tomlString(TOOL_HANDLE_ENV)},default_tools_approval_mode="approve",tool_timeout_sec=${toolTimeoutSec},startup_timeout_sec=${startTimeoutSec}}`,
   );
 
 /**
@@ -326,7 +333,7 @@ const codexLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer 
   const relay = context.relay;
   const overrides = [
     ...codexOverrides(input.key, endpoints, context.model),
-    ...(relay === undefined ? [] : codexRelayOverrides(relay.servers, relay.toolTimeoutSec)),
+    ...(relay === undefined ? [] : codexRelayOverrides(relay.servers, relay.toolTimeoutSec, relay.startTimeoutSec)),
   ];
   return {
     argv: [`${CLI_BIN}/codex`, "app-server", ...overrides.flatMap((value) => ["-c", value])],

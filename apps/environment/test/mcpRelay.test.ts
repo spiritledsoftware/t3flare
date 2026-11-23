@@ -216,7 +216,7 @@ describe("the relay's MCP server", () => {
 
 describe("the CLIs' relay entries (H2, M11)", () => {
   it("gives Codex one entry per server with the handle from its environment, Codex's prompt off, the relay's timeout", () => {
-    expect(codexRelayOverrides(["commissary"], 1500)).toEqual([
+    expect(codexRelayOverrides(["commissary"], 1500, 20)).toEqual([
       'mcp_servers.commissary={url="http://computer.internal/t3flare/mcp/commissary",bearer_token_env_var="T3FLARE_TOOL_HANDLE",default_tools_approval_mode="approve",tool_timeout_sec=1500,startup_timeout_sec=20}',
     ]);
     const handle = "a".repeat(64);
@@ -225,13 +225,20 @@ describe("the CLIs' relay entries (H2, M11)", () => {
       {
         readStateFile: () => undefined,
         piExtensionSource: "",
-        relay: { handle, servers: ["commissary"], toolTimeoutSec: cliToolTimeoutSec(30 * 60_000, DEFAULT_MCP_CALL_MS) },
+        relay: {
+          handle,
+          servers: ["commissary"],
+          toolTimeoutSec: cliToolTimeoutSec(30 * 60_000, DEFAULT_MCP_CALL_MS),
+          startTimeoutSec: 90,
+        },
         endpoints: [{ id: "openai", label: "OpenAI", models: [{ id: "gpt-5-mini" }] }],
       },
     );
     if ("refused" in launch) throw new Error(launch.refused);
     // SPI-1316: a process spawned at a 30-minute Answer wait gets 3,900 s.
     expect(launch.argv.join(" ")).toContain("tool_timeout_sec=3900,");
+    // SPI-1366: the start wait is the CLI agent's MCP start wait as the spawn read it.
+    expect(launch.argv.join(" ")).toContain("startup_timeout_sec=90}");
     expect(launch.env.T3FLARE_TOOL_HANDLE).toBe(handle);
     expect(launch.argv.join(" ")).not.toContain(handle);
     expect(JSON.stringify(launch.files)).not.toContain(handle);
@@ -253,7 +260,7 @@ describe("pi's t3 entry (SPI-1039, as stock t3 hands it)", () => {
       {
         readStateFile: () => "SRC",
         piExtensionSource: "SRC",
-        relay: { handle, servers: [], toolTimeoutSec: 1500 },
+        relay: { handle, servers: [], toolTimeoutSec: 1500, startTimeoutSec: 20 },
         piRelay: {
           endpoints: [
             {

@@ -13,7 +13,7 @@ import * as Stream from "effect/Stream";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import type * as ChildProcess from "effect/process/ChildProcess";
 
-import { environmentServices, mcpCallMsNow, ownerAnswerMsNow } from "./bindings.ts";
+import { environmentNow, environmentServices, mcpCallMsNow, ownerAnswerMsNow } from "./bindings.ts";
 import { traceProtocol } from "./processRouter.ts";
 import { scratchProjectOf } from "./scratch.ts";
 import { type ChannelProcess, type ChannelStart, ProcessRefused } from "./processChannel.ts";
@@ -189,6 +189,7 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
           handle: toolHandle,
           servers: services.relayServers(),
           toolTimeoutSec: cliToolTimeoutSec(answerMs, mcpCallMsNow()),
+          startTimeoutSec: environmentNow().cliMcpStartSeconds,
         },
         endpoints: responsesEndpoints,
         ...(session?.model === undefined ? {} : { model: session.model }),
