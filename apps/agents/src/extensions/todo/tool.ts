@@ -9,8 +9,6 @@ import { MAX_CHANGED_BY, TODO_STATUSES, TodoDoc, type TodoState } from "./doc.ts
 import {
   applyTodo,
   formatTasks,
-  MAX_DESCRIPTION_CHARACTERS,
-  MAX_TITLE_CHARACTERS,
   TODO_ACTIONS,
   TODO_OUTPUT_LIMITS,
   type TodoInput,
@@ -26,8 +24,8 @@ export const SHOWN_REV = "todoRev";
 const taskId = (description?: string) =>
   int({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER, ...(description === undefined ? {} : { description }) });
 const status = (description: string) => oneOf(TODO_STATUSES, { description });
-const title = (description: string) => str({ maxLength: MAX_TITLE_CHARACTERS, description });
-const descriptionField = (description: string) => str({ maxLength: MAX_DESCRIPTION_CHARACTERS, description });
+const title = (description: string) => str({ description });
+const descriptionField = (description: string) => str({ description });
 
 /** Models often send `null` for a field they leave out, as pi-todo's `acceptNullForOptionalArguments` expects. */
 const PARAMETERS = obj({
@@ -36,14 +34,14 @@ const PARAMETERS = obj({
   title: opt(
     nullable(
       title(
-        `Task title (at most ${MAX_TITLE_CHARACTERS} characters) for add or update; not allowed with tasks or updates`,
+        "Task title for add or update; not allowed with tasks or updates",
       ),
     ),
   ),
   description: opt(
     nullable(
       descriptionField(
-        `Optional Task description (at most ${MAX_DESCRIPTION_CHARACTERS} characters); null removes it during update; not allowed with tasks or updates`,
+        "Optional Task description; null removes it during update; not allowed with tasks or updates",
       ),
     ),
   ),

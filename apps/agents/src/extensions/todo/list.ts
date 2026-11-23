@@ -8,14 +8,6 @@ export const TODO_ACTIONS = ["list", "add", "update", "remove", "clear"] as cons
 
 export type TodoAction = (typeof TODO_ACTIONS)[number];
 
-/** The most Tasks one list holds; it is a Durable Object document that every watching client is sent whole. */
-export const MAX_TASKS = 200;
-
-/** The longest Task title, and the longest description, in characters. */
-export const MAX_TITLE_CHARACTERS = 300;
-
-export const MAX_DESCRIPTION_CHARACTERS = 2_000;
-
 /**
  * The `todo` tool's own output limits (SPI-1359), which pi-durable keeps a result within. Every result shows the whole
  * list, so the list is bounded by them (`fits`) and is never cut in the very result that says it shows it. The bytes
@@ -125,18 +117,10 @@ const checkDraft = (
 
   if (trimmed === "") return failure(action, `${field}title must not be empty`);
 
-  if (trimmed.length > MAX_TITLE_CHARACTERS) {
-    return failure(action, `${field}title is over ${MAX_TITLE_CHARACTERS} characters`);
-  }
-
   const text = description?.trim();
 
   if (description !== undefined && description !== null && text === "") {
     return failure(action, `${field}description must not be empty`);
-  }
-
-  if (text !== undefined && text.length > MAX_DESCRIPTION_CHARACTERS) {
-    return failure(action, `${field}description is over ${MAX_DESCRIPTION_CHARACTERS} characters`);
   }
 
   return { title: trimmed, description: text };
@@ -146,10 +130,6 @@ const addOne = (list: TodoList, input: TodoInput): TodoOutcome => {
   const draft = checkDraft("add", input.title, input.description, "");
 
   if (isOutcome(draft)) return draft;
-
-  if (list.tasks.length >= MAX_TASKS) {
-    return failure("add", `the list holds ${taskCount(MAX_TASKS)}; remove some first`);
-  }
 
   const task = newTask(list.nextId, draft.title, draft.description, input.status ?? "pending");
 
@@ -177,13 +157,6 @@ const addMany = (list: TodoList, input: TodoInput, tasks: ReadonlyArray<TodoDraf
     if (isOutcome(draft)) return draft;
 
     drafts.push(draft);
-  }
-
-  if (list.tasks.length + drafts.length > MAX_TASKS) {
-    return failure(
-      "add",
-      `the list holds ${taskCount(list.tasks.length)} and takes at most ${MAX_TASKS}; remove some first`,
-    );
   }
 
   const status = input.status ?? "pending";
@@ -226,19 +199,11 @@ const change = (
 
   if (title === "") return failure("update", `${field}title must not be empty`);
 
-  if (title.length > MAX_TITLE_CHARACTERS) {
-    return failure("update", `${field}title is over ${MAX_TITLE_CHARACTERS} characters`);
-  }
-
   // `null` removes the description.
   const description = edit.description === undefined ? task.description : edit.description?.trim();
 
   if (edit.description !== undefined && edit.description !== null && description === "") {
     return failure("update", `${field}description must not be empty`);
-  }
-
-  if (description !== undefined && description.length > MAX_DESCRIPTION_CHARACTERS) {
-    return failure("update", `${field}description is over ${MAX_DESCRIPTION_CHARACTERS} characters`);
   }
 
   return newTask(task.id, title, description, edit.status ?? task.status);

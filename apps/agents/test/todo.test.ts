@@ -20,7 +20,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import { TodoDoc, todoExtension, type TodoState } from "../src/extensions/todo.ts";
-import { applyTodo, EMPTY_LIST, MAX_TASKS } from "../src/extensions/todo/list.ts";
+import { applyTodo, EMPTY_LIST } from "../src/extensions/todo/list.ts";
 import {
   fitsResult,
   SNAPSHOT_HEADER,
@@ -111,7 +111,7 @@ describe("todo (SPI-1055)", () => {
     // 200 Tasks of four lines each: 800 lines, past the old 500, in a few KB.
     const tall = applyTodo(EMPTY_LIST, {
       action: "add",
-      tasks: Array.from({ length: MAX_TASKS }, (_, index) => ({ title: `t${index}`, description: "a\nb\nc" })),
+      tasks: Array.from({ length: 200 }, (_, index) => ({ title: `t${index}`, description: "a\nb\nc" })),
     });
     expect(tall).toMatchObject({ ok: true });
     // 18,000 characters, under the old 20,000, but 54,000 bytes of UTF-8: past the tool's 50 KB, so it is refused.
@@ -133,18 +133,32 @@ describe("todo (SPI-1055)", () => {
     expect(fitsResult(output, "x".repeat(52_000), { maxBytes: 4 * 1024 * 1024, maxLines: 100_000 })).toBe(true);
   });
 
-  it("refuses past 200 Tasks and keeps the ids until a clear", () => {
-    const full = {
-      nextId: MAX_TASKS + 1,
-      tasks: Array.from({ length: MAX_TASKS }, (_, index) => ({
+  it("takes any count of Tasks, any title and any description the list's output limit holds, and keeps the ids until a clear", () => {
+    const many = {
+      nextId: 501,
+      tasks: Array.from({ length: 500 }, (_, index) => ({
         id: index + 1,
         title: `t${index}`,
         status: "pending" as const,
       })),
     };
-    expect(applyTodo(full, { action: "add", title: "one more" })).toMatchObject({ ok: false });
-    const cleared = applyTodo(full, { action: "clear" });
+    expect(applyTodo(many, { action: "add", title: "one more" })).toMatchObject({ ok: true });
+    expect(
+      applyTodo(many, { action: "add", tasks: [{ title: "x".repeat(1_000), description: "d".repeat(10_000) }] }),
+    ).toMatchObject({ ok: true });
+    expect(applyTodo(many, { action: "update", id: 1, title: "y".repeat(1_000) })).toMatchObject({ ok: true });
+    // The list's output limit is what still bounds them.
+    expect(applyTodo(EMPTY_LIST, { action: "add", title: "z".repeat(TODO_OUTPUT_LIMITS.maxBytes) })).toMatchObject({
+      ok: false,
+    });
+    const cleared = applyTodo(many, { action: "clear" });
     expect(cleared.ok && cleared.list).toEqual(EMPTY_LIST);
+  });
+
+  it("puts no maxLength on a Task's title or description", () => {
+    const text = JSON.stringify(todoTool().parameters);
+    expect(text).not.toContain("maxLength");
+    expect(text).not.toContain("at most");
   });
 
   describe("the list in front of a context that shows none", () => {
