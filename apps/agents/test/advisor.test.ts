@@ -386,6 +386,11 @@ describe("the Advisor", () => {
       evidence: { refs: ["r1"] },
     });
     expect(validFinding({ severity: "nit", message: "x", evidence: { refs: ["r2"] } }, known)).toBeUndefined();
+    // A long finding is kept whole: the Advisor's output tokens bound it.
+    const long = "m".repeat(10_000);
+    expect(validFinding({ severity: "concern", message: long, evidence: { refs: ["r1"] } }, known)).toMatchObject({
+      message: long,
+    });
     expect(validFinding({ severity: "urgent", message: "x", evidence: { quote: "q" } }, known)).toBeUndefined();
     const capped = capText("a".repeat(5_000));
     expect(capped).toContain("1000 characters omitted from this tool result");

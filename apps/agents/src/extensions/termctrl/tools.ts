@@ -26,11 +26,11 @@ import type {
   AgentView,
 } from "@t3flare/workspace-client";
 
-export const QUIET_MS = 250;
 export const START_WAIT_MS = 2_000;
 export const INPUT_WAIT_MS = 500;
 export const POLL_WAIT_MS = 30_000;
-export const MAX_WAIT_MS = 5 * 60_000;
+/** `terminal_wait`'s default wait. A wait the agent names may be any length: it runs in `SLICE_MS` slices. */
+export const TERMINAL_WAIT_MS = 5 * 60_000;
 /** How long one Workspace slice of a wait lasts before the tool checks for a steer. */
 export const SLICE_MS = 5_000;
 /** termctrl's `scrollback` default: scrolled-off lines a result shows. */
@@ -70,8 +70,8 @@ export interface TermctrlHost {
 const encoder = new TextEncoder();
 const bytes = (text: string) => encoder.encode(text).length;
 
-export const clampWait = (requested: number | undefined, fallback: number): number =>
-  Math.min(MAX_WAIT_MS, Math.max(0, requested ?? fallback));
+/** The wait a call asks for, else its tool's default; never negative. */
+export const waitOf = (requested: number | undefined, fallback: number): number => Math.max(0, requested ?? fallback);
 
 /** How a process ended (exit-notification.ts `describeExitStatus`). */
 export const describeExitStatus = (exit: AgentExit): string => {
@@ -333,7 +333,7 @@ export const terminalStartTool = (host: TermctrlHost): ToolRegistration =>
     parameters: obj({
       command: str({ description: "Shell command that starts the program" }),
       cwd: opt(str({ description: "Working directory (default: the repo)" })),
-      wait_ms: waitMs("Maximum milliseconds to wait (clamped to 300000)"),
+      wait_ms: waitMs("Maximum milliseconds to wait"),
       notify: opt(
         bool({
           description:
@@ -361,7 +361,7 @@ export const terminalStartTool = (host: TermctrlHost): ToolRegistration =>
       const { view, reason } = await settle(host, api, context, {
         id: entry.id,
         mode: "start",
-        waitMs: clampWait(args.wait_ms, START_WAIT_MS),
+        waitMs: waitOf(args.wait_ms, START_WAIT_MS),
       });
       const shown = terminalResult(view, reason, { fullScreen: true });
       return toolResult(shown.text, shown.result);
@@ -380,7 +380,7 @@ export const terminalSendTool = (host: TermctrlHost): ToolRegistration =>
         arr(str(), { description: `Keys pressed after text: ${TERMINAL_KEYS.join(", ")}, Control+A to Control+Z` }),
       ),
       wait_for_text: opt(str({ description: "Wait until the screen shows this text, or /regex/flags" })),
-      wait_ms: waitMs("Maximum milliseconds to wait (clamped to 300000)"),
+      wait_ms: waitMs("Maximum milliseconds to wait"),
       full_screen: opt(
         bool({
           description:
@@ -401,7 +401,7 @@ export const terminalSendTool = (host: TermctrlHost): ToolRegistration =>
         ...(args.text === undefined || args.text === "" ? {} : { text: args.text.replaceAll("\n", "\r") }),
         ...(keys.length === 0 ? {} : { keys }),
         mode: hasInput ? "input" : "poll",
-        waitMs: clampWait(args.wait_ms, hasInput ? INPUT_WAIT_MS : POLL_WAIT_MS),
+        waitMs: waitOf(args.wait_ms, hasInput ? INPUT_WAIT_MS : POLL_WAIT_MS),
         ...(args.wait_for_text === undefined ? {} : { pattern: args.wait_for_text }),
       });
       const shown = terminalResult(view, reason, {
@@ -488,16 +488,16 @@ export const terminalWaitTool = (host: TermctrlHost): ToolRegistration =>
   defineTool({
     name: "terminal_wait",
     description:
-      "Wait until one of your Terminals or Background jobs exits, then return every exit so far and what is still running. Returns early when wait_ms (default 300000) runs out or a steer is queued for you; whatever it waited on keeps running. Exits it returns send no Exit notification.",
+      "Wait until one of your Terminals or Background jobs exits, then return every exit so far and what is still running. Returns early when wait_ms runs out or a steer is queued for you; whatever it waited on keeps running. Exits it returns send no Exit notification.",
     parameters: obj({
       ids: opt(
         arr(str(), { description: "Terminal or Background job ids to wait for (default: all of yours still running)" }),
       ),
-      wait_ms: waitMs("Maximum milliseconds to wait (default and maximum 300000)"),
+      wait_ms: waitMs(`Maximum milliseconds to wait (default ${TERMINAL_WAIT_MS})`),
     }),
     structuredOutputSchema: OBJECT,
     async execute(args, api, context) {
-      const ms = clampWait(args.wait_ms, MAX_WAIT_MS);
+      const ms = waitOf(args.wait_ms, TERMINAL_WAIT_MS);
       const deadline = Date.now() + ms;
       let reason: "exited" | "timeout" | "steered" | "nothing_running" = "nothing_running";
       let answer:

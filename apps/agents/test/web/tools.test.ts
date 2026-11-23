@@ -8,11 +8,13 @@ import { describe, expect, it } from "vitest";
 import { webExtension } from "../../src/extensions/web.ts";
 import { UNCONVERTED_NOTE, webFetchTool } from "../../src/extensions/web/fetch.ts";
 import { DEFAULT_WEB_LIMITS, type WebLimits } from "../../src/extensions/web/limits.ts";
+import { STRUCTURED_MAX_BYTES } from "../../src/extensions/web/output.ts";
+import { SESSION_ROW_BYTES, SESSION_ROW_ENVELOPE_BYTES } from "@t3flare/session-protocol";
 import type { WebRequest, WebTransport } from "../../src/extensions/web/net.ts";
 import {
   ANSWER_MAX_BYTES,
-  answerBytes,
   readAnswer,
+  RESULTS_BYTES,
   systemPrompt,
   webSearchTool,
 } from "../../src/extensions/web/search.ts";
@@ -319,22 +321,38 @@ describe("web_search", () => {
     expect(outcome.ok && (outcome.result.details as { results: Array<unknown> }).results).toHaveLength(1);
   });
 
-  it("reads an answer sized for searchesPerCall and searchSummaryTokens, never under 512 KiB nor over the isolate's bound (SPI-1321)", async () => {
-    expect(answerBytes(DEFAULT_WEB_LIMITS)).toBe(536 * 1024);
-    expect(answerBytes(limits({ searchesPerCall: 1, searchSummaryTokens: 100 }))).toBe(512 * 1024);
-    expect(answerBytes(limits({ searchesPerCall: 10, searchSummaryTokens: 4_000 }))).toBe(2_623 * 1024);
-    expect(answerBytes(limits({ searchesPerCall: 50, searchSummaryTokens: 64_000 }))).toBe(ANSWER_MAX_BYTES);
-    // An answer of 1 MiB: refused at the defaults, read at ten searches per call.
+  it("reads any answer within the isolate's bound, whatever the settings (SPI-1361)", async () => {
+    // An answer of 1 MiB, refused at the defaults before SPI-1361, is read.
     const big = {
       ...answer,
       content: [...answer.content, { type: "text", text: " ".repeat(1024 * 1024) }],
     };
     const { transport } = network(() => Response.json(big));
-    expect(textOf(await run(webSearchTool(transport, endpoint), { query: "q" }))).toBe(
-      "Unable to search the web for q: response body exceeds the 536 KiB limit",
+    expect(textOf(await run(webSearchTool(transport, endpoint), { query: "q" }))).toContain("Title: One");
+    // Past the isolate's bound it is refused.
+    const huge = {
+      ...answer,
+      content: [...answer.content, { type: "text", text: " ".repeat(ANSWER_MAX_BYTES) }],
+    };
+    const refused = network(() => Response.json(huge));
+    expect(textOf(await run(webSearchTool(refused.transport, endpoint), { query: "q" }))).toBe(
+      `Unable to search the web for q: response body exceeds the ${ANSWER_MAX_BYTES / 1024 / 1024} MiB limit`,
     );
-    const raised = await run(webSearchTool(transport, endpoint, limits({ searchesPerCall: 10 })), { query: "q" });
-    expect(textOf(raised)).toContain("Title: One");
+  });
+
+  it("sends the whole query and keeps every cited snippet (SPI-1361)", async () => {
+    const cited = Array.from({ length: 5 }, (_, index) => ({
+      type: "web_search_result_location",
+      url: "https://a.example/one",
+      cited_text: `snippet ${index}`,
+    }));
+    const { transport, sent } = network(() =>
+      Response.json({ ...answer, content: [...answer.content, { type: "text", text: "more", citations: cited }] }),
+    );
+    const query = "q".repeat(10_000);
+    const outcome = await run(webSearchTool(transport, endpoint), { query });
+    expect(JSON.parse(sent[0]?.body ?? "{}").messages[0].content).toBe(query);
+    expect(textOf(outcome)).toContain("snippet 4");
   });
 
   it("tells the search model how many searches it may run (SPI-1321)", async () => {
@@ -345,15 +363,97 @@ describe("web_search", () => {
     expect(JSON.parse(sent[0]?.body ?? "{}").system).toBe(systemPrompt(5));
   });
 
-  it("allows numResults up to the larger of 20 and searchResults (SPI-1321)", () => {
-    expect(parameter(webSearchTool(hanging(), endpoint), "numResults")).toMatchObject({
-      maximum: 20,
-      description: "Maximum number of results (default: 8, maximum: 20)",
+  it("puts no maximum on numResults or contextMaxCharacters (SPI-1361)", () => {
+    const tool = webSearchTool(hanging(), endpoint);
+    expect(parameter(tool, "numResults")).toMatchObject({ description: "Maximum number of results (default: 8)" });
+    expect(parameter(tool, "numResults")?.maximum).toBeUndefined();
+    expect(parameter(tool, "contextMaxCharacters")?.maximum).toBeUndefined();
+    expect(parameter(tool, "contextMaxCharacters")?.description).not.toContain("50,000");
+  });
+
+  it("bounds a program's copy of the results text at the structured limit (SPI-1361)", async () => {
+    const long = {
+      ...answer,
+      content: [...answer.content, { type: "text", text: "z".repeat(2 * STRUCTURED_MAX_BYTES) }],
+    };
+    const { transport } = network(() => Response.json(long));
+    const outcome = await run(webSearchTool(transport, endpoint), {
+      query: "q",
+      contextMaxCharacters: 4 * STRUCTURED_MAX_BYTES,
     });
-    expect(parameter(webSearchTool(hanging(), endpoint, limits({ searchResults: 50 })), "numResults")).toMatchObject({
-      maximum: 50,
-      description: "Maximum number of results (default: 50, maximum: 50)",
+    const structured = outcome.ok
+      ? (outcome.result.structuredOutput as { content: string; truncated?: boolean })
+      : undefined;
+    expect(new TextEncoder().encode(structured?.content).length).toBeLessThanOrEqual(STRUCTURED_MAX_BYTES);
+    expect(structured?.truncated).toBe(true);
+  });
+
+  it("keeps the stored result lists within the Session row, saying so when it cuts them (SPI-1361)", async () => {
+    const pages = Array.from({ length: 2_000 }, (_, index) => ({
+      type: "web_search_result",
+      url: `https://a.example/${index}/${"p".repeat(2_000)}`,
+      title: `Page ${index}`,
+      encrypted_content: "x",
+    }));
+    const many = {
+      content: [{ type: "web_search_tool_result", tool_use_id: "s", content: pages }],
+    };
+    const { transport } = network(() => Response.json(many));
+    const outcome = await run(webSearchTool(transport, endpoint), { query: "q", numResults: 10_000 });
+    const result = outcome.ok ? outcome.result : undefined;
+    const structured = result?.structuredOutput as { results: unknown[]; truncated: boolean };
+    const details = result?.details as { results: unknown[] };
+    expect(structured.truncated).toBe(true);
+    expect(structured.results.length).toBeLessThan(2_000);
+    expect(details.results).toHaveLength(structured.results.length);
+    const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
+    expect(bytes(details.results) + bytes(structured.results)).toBeLessThanOrEqual(RESULTS_BYTES);
+    const few = await run(webSearchTool(network(() => Response.json(answer)).transport, endpoint), { query: "q" });
+    expect((few.ok ? few.result.structuredOutput : undefined) as { truncated: boolean }).toMatchObject({
+      truncated: false,
     });
+  });
+
+  it("keeps a result that is all JSON escapes within one Session row, as a nested call stores it (SPI-1361)", async () => {
+    const quotes = (count: number) => '"'.repeat(count - 1) + "\u0001";
+    const pages = Array.from({ length: 1_500 }, (_, index) => ({
+      type: "web_search_result",
+      url: `https://a.example/${index}/${quotes(1_000)}`,
+    }));
+    const escapes = {
+      content: [
+        { type: "web_search_tool_result", tool_use_id: "s", content: pages },
+        { type: "text", text: quotes(900_000) },
+      ],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    };
+    const { transport } = network(() => Response.json(escapes));
+    const outcome = await run(webSearchTool(transport, endpoint), {
+      query: quotes(10_000),
+      numResults: 10_000,
+      contextMaxCharacters: 100_000_000,
+    });
+    if (!outcome.ok) throw new Error(outcome.error);
+    const result = outcome.result;
+    expect((result.structuredOutput as { truncated: boolean }).truncated).toBe(true);
+    const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
+    // pi-durable's NestedCallDoc row for a code-mode call, and the result entry of a model's call.
+    const nested = {
+      taskId: "t",
+      result: {
+        taskId: "t",
+        structuredOutput: result.structuredOutput,
+        isError: false,
+        details: result.details,
+        diagnostics: [],
+        usage: result.usage,
+        durationMs: 1,
+      },
+    };
+    expect(bytes(nested)).toBeLessThan(SESSION_ROW_BYTES - SESSION_ROW_ENVELOPE_BYTES);
+    expect(
+      bytes({ output: result.output, details: result.details, structuredOutput: result.structuredOutput }),
+    ).toBeLessThan(SESSION_ROW_BYTES - SESSION_ROW_ENVELOPE_BYTES);
   });
 
   it("times a search out at searchTimeoutSeconds (SPI-1321)", async () => {

@@ -29,7 +29,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { obj, str } from "@earendil-works/pi-schema";
 
-import { ContextDoc, EMPTY_STATE, MAX_NOTE_CHARACTERS, type Note, noteIndex } from "./notes.ts";
+import { ContextDoc, EMPTY_STATE, type Note, noteIndex } from "./notes.ts";
 import { readEntry } from "./tools.ts";
 
 /** The Rollover request's entry: its own kind and a notice title, so the transcript shows it as a notice, not user input. */
@@ -86,7 +86,6 @@ export const contextRolloverTool = (): ToolRegistration =>
     parameters: obj({
       handoff: str({
         minLength: 1,
-        maxLength: MAX_NOTE_CHARACTERS,
         description:
           "What the next context needs to continue: the objective, decisions, current state, and next actions",
       }),
@@ -94,8 +93,7 @@ export const contextRolloverTool = (): ToolRegistration =>
     // Scripts cannot hand off: the Handoff ends the model's context.
     callers: ["model"],
     async execute(args, api, context) {
-      if (args.handoff.trim() === "")
-        throw new Error(`Supply a non-empty Handoff of at most ${MAX_NOTE_CHARACTERS} characters`);
+      if (args.handoff.trim() === "") throw new Error("Supply a non-empty Handoff");
       const task = await api.getTask(api.taskId, context);
       // SAFETY: a tool call's task is a `pi.tool` task, whose input is a `ToolTaskInput`.
       const input = task?.input as ToolTaskInput | undefined;

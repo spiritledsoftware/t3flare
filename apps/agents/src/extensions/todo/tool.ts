@@ -9,8 +9,6 @@ import { MAX_CHANGED_BY, TODO_STATUSES, TodoDoc, type TodoState } from "./doc.ts
 import {
   applyTodo,
   formatTasks,
-  MAX_DESCRIPTION_CHARACTERS,
-  MAX_TITLE_CHARACTERS,
   TODO_ACTIONS,
   TODO_OUTPUT_LIMITS,
   type TodoInput,
@@ -26,31 +24,26 @@ export const SHOWN_REV = "todoRev";
 const taskId = (description?: string) =>
   int({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER, ...(description === undefined ? {} : { description }) });
 const status = (description: string) => oneOf(TODO_STATUSES, { description });
-const title = (description: string) => str({ maxLength: MAX_TITLE_CHARACTERS, description });
-const descriptionField = (description: string) => str({ maxLength: MAX_DESCRIPTION_CHARACTERS, description });
 
 /** Models often send `null` for a field they leave out, as pi-todo's `acceptNullForOptionalArguments` expects. */
 const PARAMETERS = obj({
   action: oneOf(TODO_ACTIONS),
   id: opt(nullable(taskId("Task ID for update or remove; not allowed with updates"))),
-  title: opt(
-    nullable(
-      title(
-        `Task title (at most ${MAX_TITLE_CHARACTERS} characters) for add or update; not allowed with tasks or updates`,
-      ),
-    ),
-  ),
+  title: opt(nullable(str({ description: "Task title for add or update; not allowed with tasks or updates" }))),
   description: opt(
     nullable(
-      descriptionField(
-        `Optional Task description (at most ${MAX_DESCRIPTION_CHARACTERS} characters); null removes it during update; not allowed with tasks or updates`,
-      ),
+      str({
+        description: "Optional Task description; null removes it during update; not allowed with tasks or updates",
+      }),
     ),
   ),
   tasks: opt(
     nullable(
       arr(
-        obj({ title: title("Task title"), description: opt(nullable(descriptionField("Optional Task description"))) }),
+        obj({
+          title: str({ description: "Task title" }),
+          description: opt(nullable(str({ description: "Optional Task description" }))),
+        }),
         {
           minItems: 1,
           description:
@@ -65,8 +58,8 @@ const PARAMETERS = obj({
         obj({
           id: taskId("Task ID"),
           status: opt(nullable(status("New Task status"))),
-          title: opt(nullable(title("New Task title"))),
-          description: opt(nullable(descriptionField("New Task description; null removes it"))),
+          title: opt(nullable(str({ description: "New Task title" }))),
+          description: opt(nullable(str({ description: "New Task description; null removes it" }))),
         }),
         {
           minItems: 1,

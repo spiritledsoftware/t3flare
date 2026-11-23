@@ -13,13 +13,7 @@ import { CONTEXT_GUIDELINES, contextHistoryTool, contextNotesTool } from "./cont
 
 export const CONTEXT_EXTENSION = "context";
 
-export {
-  ContextDoc,
-  type ContextState,
-  MAX_NOTE_CHARACTERS,
-  MAX_NOTES,
-  MAX_TOTAL_NOTE_CHARACTERS,
-} from "./context/notes.ts";
+export { ContextDoc, type ContextState, MAX_TOTAL_NOTE_CHARACTERS } from "./context/notes.ts";
 
 export const CONTEXT_NAMESPACE: CodemodeNamespace = {
   name: "context",

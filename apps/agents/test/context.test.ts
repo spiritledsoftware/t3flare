@@ -18,7 +18,10 @@ import {
 } from "@earendil-works/pi-durable";
 import { describe, expect, it } from "vitest";
 
-import { ContextDoc, contextExtension, MAX_NOTE_CHARACTERS } from "../src/extensions/context.ts";
+import { ContextDoc, contextExtension, MAX_TOTAL_NOTE_CHARACTERS } from "../src/extensions/context.ts";
+import { READ_CHARACTERS } from "../src/extensions/context/history.ts";
+import { noteIndex } from "../src/extensions/context/notes.ts";
+import { conversationIdOf } from "../src/durableIds.ts";
 import { CONTINUE_PROMPT, emergencyText, PREPARE_PROMPT, prepareRollover } from "../src/extensions/context/rollover.ts";
 import { context } from "./harness.fixture.ts";
 
@@ -86,33 +89,73 @@ describe("context_notes", () => {
     expect(state?.notes.map((note) => note.name)).toEqual(["plan", "plan copy"]);
   });
 
-  it("refuses a Note past its bound, and Notes past their total", async () => {
-    const big = "x".repeat(MAX_NOTE_CHARACTERS);
+  it("bounds Notes only by their total, names counted, so one Note, a name and the count have no bound of their own", async () => {
+    const name = "n".repeat(200);
+    const { harness, root, results } = await open([
+      // One Note past the old 32,000-character bound, under a name past the old 64.
+      calls(["context_notes", { action: "write", name, content: "x".repeat(100_000) }]),
+      // The total counts names: this content fits the total by itself, not with the names already held.
+      calls([
+        "context_notes",
+        { action: "write", name: "b", content: "y".repeat(MAX_TOTAL_NOTE_CHARACTERS - 100_000 - 1) },
+      ]),
+      calls([
+        "context_notes",
+        { action: "write", name: "b", content: "y".repeat(MAX_TOTAL_NOTE_CHARACTERS - 100_000 - 200 - 1) },
+      ]),
+      calls(["context_notes", { action: "read", ref: `context:1:note:${name}`, offset: 99_990 }]),
+      fauxAssistantMessage("done"),
+    ]);
+    expect(results.map((result) => result.isError)).toEqual([false, true, false, false]);
+    expect(text(results[1])).toContain(`Notes would exceed ${MAX_TOTAL_NOTE_CHARACTERS} characters in all`);
+    expect(json(results[3])).toMatchObject({ content: "x".repeat(10), total_characters: 100_000 });
+    const state = await harness.snapshot(ContextDoc, root.id, context);
+    expect(state?.notes.map((note) => note.name)).toEqual([name, "b"]);
+  });
+
+  it("keeps more than 64 Notes, and lists as many as the agent asks for", async () => {
     const { results } = await open([
-      ...Array.from({ length: 8 }, (_, index) =>
-        calls(["context_notes", { action: "write", name: `n${index}`, content: big }]),
+      ...Array.from({ length: 70 }, (_, index) =>
+        calls(["context_notes", { action: "write", name: `n${index}`, content: "z" }]),
       ),
-      calls(["context_notes", { action: "append", name: "n0", content: "y" }]),
+      calls(["context_notes", { action: "list", limit: 50 }]),
+      calls(["context_notes", { action: "list" }]),
       fauxAssistantMessage("done"),
     ]);
-    expect(results.slice(0, 8).map((result) => result.isError)).toEqual([
-      false,
-      false,
-      false,
-      false,
-      false,
-      false,
-      false,
-      false,
-    ]);
-    expect(text(results[8])).toContain(`Note exceeds ${MAX_NOTE_CHARACTERS} characters`);
-    const { results: more } = await open([
-      ...Array.from({ length: 9 }, (_, index) =>
-        calls(["context_notes", { action: "write", name: `n${index}`, content: big }]),
+    expect(results.slice(0, 70).every((result) => !result.isError)).toBe(true);
+    expect(json(results[70])).toMatchObject({ total: 70, next_offset: 50 });
+    expect((json(results[70]).notes as unknown[]).length).toBe(50);
+    // With no limit a page is still 20.
+    expect((json(results[71]).notes as unknown[]).length).toBe(20);
+  });
+});
+
+describe("context_history pages", () => {
+  it("lists as many entries as the agent asks for, while a read still returns at most READ_CHARACTERS (SPI-1361)", async () => {
+    const { results } = await open([
+      ...Array.from({ length: 20 }, (_, index) =>
+        calls(["context_notes", { action: "write", name: `n${index}`, content: "z".repeat(3_000) }]),
       ),
+      calls(["context_history", { action: "list", limit: 30 }]),
+      calls(["context_history", { action: "read", ref: "context:1:11", limit: 5_000 }]),
       fauxAssistantMessage("done"),
     ]);
-    expect(text(more[8])).toContain("Notes would exceed 256000 characters in all");
+    expect(results[20]?.isError).toBe(false);
+    expect((json(results[20]).items as unknown[]).length).toBe(30);
+    expect((json(results[21]).content as string).length).toBe(READ_CHARACTERS);
+  });
+});
+
+describe("noteIndex", () => {
+  it("lists every Note's reference however many there are", () => {
+    const notes = Array.from({ length: 64 }, (_, index) => ({
+      name: `${"a".repeat(60)}${index}`,
+      content: "",
+      updatedAt: 0,
+    }));
+    const index = noteIndex(conversationIdOf("1"), notes);
+    expect(index.length).toBeGreaterThan(4_000);
+    for (const note of notes) expect(index).toContain(`context:1:note:${note.name}`);
   });
 });
 

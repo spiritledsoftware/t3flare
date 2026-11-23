@@ -305,7 +305,7 @@ export const summaryOf = (
       : "";
     return { summary: cardText(`Type into ${textOf(args.id)}: ${JSON.stringify(textOf(args.text))}${keys}`) };
   }
-  const path = cardText(textOf(args.path), 1_000);
+  const path = cardText(textOf(args.path));
   if (tool === "edit") {
     const edits = Array.isArray(args.edits)
       ? (args.edits as ReadonlyArray<{ oldText?: unknown; newText?: unknown }>)

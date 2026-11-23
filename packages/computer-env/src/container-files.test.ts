@@ -6,7 +6,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writ
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type ContainerAccess, ContainerFiles } from "./container-files.ts";
+import { type ContainerAccess, ContainerFiles, GREP_OUTPUT_BYTES } from "./container-files.ts";
 import { HostFailure } from "./failure.ts";
 
 const hasRg = spawnSync("rg", ["--version"]).status === 0;
@@ -32,6 +32,8 @@ const access: ContainerAccess = {
     const ran = spawnSync("bash", ["-c", script], {
       encoding: "utf8",
       env: { ...process.env, ...env },
+      // Above node's 1 MiB default, so a grep's whole bounded output arrives.
+      maxBuffer: 64 * 1024 * 1024,
     });
 
     return { exitCode: ran.status, stdout: ran.stdout, stderr: ran.stderr };
@@ -284,6 +286,43 @@ describe("the Container's file operations", () => {
         exclude: [],
       }),
     ).toEqual([]);
+  });
+});
+
+describe("grep's bounds (SPI-1361)", () => {
+  it.skipIf(!hasRg)(
+    "takes any context, showing the lines the file has",
+    async () => {
+      const path = join(root, "pkg/index.ts");
+      const found = await files().grep("const b", path, {
+        ignoreCase: false,
+        regex: false,
+        context: 1_000_000_000,
+        limit: 10,
+        include: undefined,
+        exclude: [],
+      });
+      expect(found[0]?.context?.map((line) => line.line)).toEqual([1, 2]);
+      // A walk over the whole range would take far longer than this.
+    },
+    5_000,
+  );
+
+  it.skipIf(!hasRg)("reads at most GREP_OUTPUT_BYTES of ripgrep's events, whatever the limit and context", async () => {
+    const path = join(root, "big.txt");
+    writeFileSync(path, "match this line\n".repeat(200_000));
+    const found = await files().grep("match", path, {
+      ignoreCase: false,
+      regex: false,
+      context: 1_000,
+      limit: 1_000_000,
+      include: undefined,
+      exclude: [],
+    });
+    expect(found.length).toBeGreaterThan(0);
+    expect(found.length).toBeLessThan(200_000);
+    // Each event is a JSON object of well over 64 bytes, so the matches read fit the byte bound.
+    expect(found.length * 64).toBeLessThan(GREP_OUTPUT_BYTES);
   });
 });
 

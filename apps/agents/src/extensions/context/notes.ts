@@ -1,25 +1,19 @@
 // A conversation's Notes (SPI-1056) and its last saved Handoff, as one pi-durable conversation document in the Session
 // DO's storage. Documents are not part of the transcript, so a Handoff or a compaction leaves them as they are.
-// Bounded, as the document is one stored value: at most 64 Notes of 32,000 characters and 256,000 characters in all,
-// and a Handoff of at most 32,000.
+// Bounded, as the document is one stored value: 256,000 characters in all, names and contents together. The Handoff is
+// the model's own tool argument, so its output tokens bound it.
 import { type ConversationId, defineDoc } from "@earendil-works/pi-durable";
 
-/** At most this many Notes per conversation. */
-export const MAX_NOTES = 64;
-
-/** The longest Note, and the longest Handoff. */
-export const MAX_NOTE_CHARACTERS = 32_000;
-
-/** The most characters all of a conversation's Notes may hold together. */
+/**
+ * The most characters all of a conversation's Notes may hold together, their names and contents. A sanity bound
+ * (ADR-0048) under a named constraint: the Notes and the Handoff are one stored document, one DO SQLite row of 8 MB, and
+ * 256,000 characters are at most about 1.5 MB of JSON (six bytes for an escaped character), leaving the rest of the row
+ * to the Handoff.
+ */
 export const MAX_TOTAL_NOTE_CHARACTERS = 256_000;
 
 /** A Note name: a label, not a path. */
 export const NOTE_NAME = /^[A-Za-z0-9][A-Za-z0-9 ._-]*$/;
-
-export const MAX_NOTE_NAME = 64;
-
-/** The longest Note Index a Handoff carries. */
-export const NOTE_INDEX_CHARACTERS = 4_000;
 
 export type Note = {
   name: string;
@@ -57,26 +51,17 @@ export const joinAppend = (existing: string, appended: string): string =>
   existing === "" || appended === "" || existing.endsWith("\n") ? existing + appended : `${existing}\n${appended}`;
 
 /**
- * The Note Index a new context gets: how many Notes there are and each one's reference, within `maxCharacters`, so the
- * agent can read them with `context_notes` instead of carrying them.
+ * The Note Index a new context gets: how many Notes there are and each one's reference, so the agent can read them with
+ * `context_notes` instead of carrying them. The Notes' total bounds it.
  */
-export const noteIndex = (
-  conversationId: ConversationId,
-  notes: ReadonlyArray<Note>,
-  maxCharacters = NOTE_INDEX_CHARACTERS,
-): string => {
-  const head = `Notes: ${notes.length}. Read them with context_notes.`;
-  const suffix = "\nUse context_notes list for the complete catalogue.";
-  let index = head;
-  let listed = 0;
-  for (const note of notes) {
-    const line = `\n${JSON.stringify(note.name)} ${noteRef(conversationId, note.name)}`;
-    if (index.length + line.length + suffix.length > maxCharacters) break;
-    index += line;
-    listed++;
-  }
-  return (listed < notes.length ? index + suffix : index).slice(0, maxCharacters);
-};
+export const noteIndex = (conversationId: ConversationId, notes: ReadonlyArray<Note>): string =>
+  [
+    `Notes: ${notes.length}. Read them with context_notes.`,
+    ...notes.map((note) => `${JSON.stringify(note.name)} ${noteRef(conversationId, note.name)}`),
+  ].join("\n");
+
+/** The characters Note `note` counts toward the total: its name and its content. */
+export const noteCharacters = (note: Pick<Note, "name" | "content">): number => note.name.length + note.content.length;
 
 /** Note `name`, if there is one. */
 export const findNote = (notes: ReadonlyArray<Note>, name: string): Note | undefined =>

@@ -12,10 +12,6 @@ import { type ApprovalStorage, WaitingRequests } from "./permissions.ts";
 
 const QUESTIONS_KEY = "t3flare:questions";
 const QUESTION_ANSWERS_KEY = "t3flare:question-answers";
-/** Most characters of a question, and of each choice. */
-const MAX_QUESTION = 2_000;
-const MAX_OPTION = 200;
-const MAX_OPTIONS = 10;
 
 /** The Session's questions to the owner. */
 export class QuestionStore extends WaitingRequests<PendingQuestion, { readonly text: string }> {
@@ -60,24 +56,21 @@ export const askUser = (host: AskUserHost): Extension =>
           "Ask the owner one question and wait for the answer. Use it only when a decision you cannot make yourself would change the result; give `options` when the answer is a choice. The owner may answer much later.",
         parameters: obj({
           question: str({ description: "The question, complete on its own." }),
-          options: opt(arr(str(), { description: "Choices the owner picks from (at most 10)." })),
+          options: opt(arr(str(), { description: "Choices the owner picks from." })),
           allowFreeText: opt(bool({ description: "Whether the owner may answer in their own words. Default true." })),
         }),
         // The wait is replay-safe: a rerun waits again for the same question, or takes the answer given meanwhile.
         replay: "safe",
         async execute(args, api: ToolExecutionApi, context: Context) {
           const requestId = String(api.taskId);
-          const options = (args.options ?? [])
-            .slice(0, MAX_OPTIONS)
-            .map((option) => option.slice(0, MAX_OPTION))
-            .filter((option) => option.trim() !== "");
+          const options = (args.options ?? []).filter((option) => option.trim() !== "");
           try {
             const answer = await host.store.ask(
               {
                 requestId,
                 turn: host.turn(),
                 callId: api.callId,
-                question: args.question.slice(0, MAX_QUESTION),
+                question: args.question,
                 options,
                 allowFreeText: args.allowFreeText ?? true,
                 createdAt: Date.now(),

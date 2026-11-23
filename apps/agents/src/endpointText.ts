@@ -31,8 +31,6 @@ import { endpointProviders } from "./session/models.ts";
 
 /** How long the one request may take, inside the Environment's own bound (120 s). */
 const TIMEOUT_MS = 110_000;
-/** Enough for a title or a PR body, and for a reasoning model's thinking before it; never above the model's own limit. */
-const MAX_TEXT_TOKENS = 8_192;
 
 export interface EndpointTextAccess {
   /** The Environment's endpoints now (`modelEndpoints`), secret-free. */
@@ -194,7 +192,8 @@ export const generateEndpointText = async (input: unknown, access: EndpointTextA
       model,
       { messages: [{ role: "user", content: jsonOnlyPrompt(request.prompt), timestamp: Date.now() }] },
       {
-        maxTokens: Math.min(model.maxTokens, MAX_TEXT_TOKENS),
+        // The model's own output limit: a reasoning model may spend much of it thinking before the text.
+        maxTokens: model.maxTokens,
         signal,
         // Mistral's adapter reports its status here (it takes no fetch from a Session); the others through `fetch`.
         onResponse: (response) => {

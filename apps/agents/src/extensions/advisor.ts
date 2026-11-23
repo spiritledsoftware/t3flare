@@ -198,8 +198,7 @@ export const validFinding = (raw: unknown, refs: ReadonlySet<string>): AdvisorFi
   if (typeof raw !== "object" || raw === null) return undefined;
   const fields = raw as { severity?: unknown; message?: unknown; evidence?: { refs?: unknown; quote?: unknown } };
   if (fields.severity !== "nit" && fields.severity !== "concern" && fields.severity !== "blocker") return undefined;
-  if (typeof fields.message !== "string" || fields.message.trim() === "" || fields.message.length > 4_000)
-    return undefined;
+  if (typeof fields.message !== "string" || fields.message.trim() === "") return undefined;
   const cited = Array.isArray(fields.evidence?.refs)
     ? fields.evidence.refs.filter((ref): ref is string => typeof ref === "string")
     : [];
