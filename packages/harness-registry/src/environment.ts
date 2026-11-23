@@ -83,12 +83,20 @@ export const DEFAULT_TURN_LIMIT_MS = DEFAULT_TURN_LIMIT_MINUTES * 60_000;
  */
 export const DEFAULT_CLONE_MINUTES = 15;
 
+/** The clone time limit's default in ms: used where no setting reaches (a call that carries none, a test's services). */
+export const DEFAULT_CLONE_MS = DEFAULT_CLONE_MINUTES * 60_000;
+
 /**
  * The checkpoint time limit's default, in minutes (`checkpointMinutes`, SPI-1324): how long a turn's checkpoint and its
  * restore, a worktree's seed bundle, and carrying a removed worktree's commits home may run in the Container. The
  * Workspace DO uses it for a call that carries no limit.
  */
 export const DEFAULT_CHECKPOINT_MINUTES = 10;
+
+/**
+ * The checkpoint time limit's default in ms: used where no setting reaches (a call that carries none, a test's services).
+ */
+export const DEFAULT_CHECKPOINT_MS = DEFAULT_CHECKPOINT_MINUTES * 60_000;
 
 /**
  * The settings read wait's default, in seconds (`settingsReadSeconds`, SPI-1314): how long a Container start or a turn

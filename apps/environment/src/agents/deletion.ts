@@ -332,7 +332,7 @@ export const removeWorktree = async (
   let tips: { readonly ok: boolean; readonly tips: ReadonlyArray<string>; readonly error?: string };
   let out: Awaited<ReturnType<ReturnType<typeof workspaceRpc>["carryOut"]>>;
   try {
-    tips = await workspaceRpc(project.id).refTips();
+    tips = await workspaceRpc(project.id).refTips({ timeoutMs: checkpointMsNow() });
     out = await workspaceRpc(id).carryOut({ projectTips: tips.ok ? tips.tips : [], timeoutMs: checkpointMsNow() });
   } catch (error) {
     // The check needs both Containers (a budget of 3): without it nothing is known, so nothing is purged.

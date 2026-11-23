@@ -2,8 +2,8 @@
 // the agents Worker's Durable Object bindings, the Model endpoints, and the GitHub minter. Set by the DO's constructor, before
 // t3 boots; module state, as the DO is the only one in its isolate.
 import {
-  DEFAULT_CHECKPOINT_MINUTES,
-  DEFAULT_CLONE_MINUTES,
+  DEFAULT_CHECKPOINT_MS,
+  DEFAULT_CLONE_MS,
   DEFAULT_OWNER_ANSWER_MS,
   DEFAULT_SETTINGS_READ_MS,
   DEFAULT_TURN_LIMIT_MS,
@@ -130,9 +130,9 @@ export const turnLimitMsNow = (): number => {
  */
 export const cloneMsNow = (): number => {
   try {
-    return current?.cloneMs?.() ?? DEFAULT_CLONE_MINUTES * 60_000;
+    return current?.cloneMs?.() ?? DEFAULT_CLONE_MS;
   } catch {
-    return DEFAULT_CLONE_MINUTES * 60_000;
+    return DEFAULT_CLONE_MS;
   }
 };
 
@@ -142,9 +142,9 @@ export const cloneMsNow = (): number => {
  */
 export const checkpointMsNow = (): number => {
   try {
-    return current?.checkpointMs?.() ?? DEFAULT_CHECKPOINT_MINUTES * 60_000;
+    return current?.checkpointMs?.() ?? DEFAULT_CHECKPOINT_MS;
   } catch {
-    return DEFAULT_CHECKPOINT_MINUTES * 60_000;
+    return DEFAULT_CHECKPOINT_MS;
   }
 };
 

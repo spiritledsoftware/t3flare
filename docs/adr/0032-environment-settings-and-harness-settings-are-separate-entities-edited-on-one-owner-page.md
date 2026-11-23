@@ -370,6 +370,11 @@ next clone, checkout or checkpoint, and one already running keeps its limit. A c
 Environment, the admin route's `checkpoint`) gets `DEFAULT_CLONE_MINUTES` or `DEFAULT_CHECKPOINT_MINUTES`
 (`gitLimits.ts`).
 
-Two Container git reads stay a fixed 120 s: the authored paths of a range where HEAD moved, and a project's ref tips
-before a worktree's removal (`refTips`). They are listings, quick on any repo, not the Owner's clone or checkpoint; the
-work they precede has its own limit.
+The checkpoint limit also bounds the two Container git reads that were a fixed 120 s: the authored paths of a range
+where HEAD moved (part of a turn's checkpoint) and a project's ref tips before a worktree's removal (`refTips`, part of
+the carry). No Cloudflare limit fixes either, and a repo with very many refs can pass any fixed bound.
+
+t3's own `sourceControlCloneRepository` WebSocket method still applies its 120 s `CLONE_TIMEOUT_MS`
+(`SourceControlRepositoryService`), so `cloneMinutes` cannot lengthen a clone started that way. t3's web client clones
+through `startProjectClone` (`ProjectCloneTracker`), which sets no t3-side deadline, so the clone limit is the only one
+there.

@@ -394,11 +394,12 @@ describe("a removed worktree's carry (SPI-1324)", () => {
   const limitOf = (calls: ReadonlyArray<{ method: string; input: unknown }>, method: string) =>
     (calls.find((call) => call.method === method)?.input as { timeoutMs?: number } | undefined)?.timeoutMs;
 
-  it("carryOut and carryIn carry the stored checkpointMinutes as timeoutMs", async () => {
+  it("refTips, carryOut and carryIn carry the stored checkpointMinutes as timeoutMs", async () => {
     const calls: Array<{ id: string; method: string; input: unknown }> = [];
     bindCarry(calls, 3);
     const answer = await removeWorktree("/w/p", "/w/.wt/p/x", false, t3Tables(), settings);
     expect(answer.exitCode).toBe(0);
+    expect(limitOf(calls, "refTips")).toBe(180_000);
     expect(limitOf(calls, "carryOut")).toBe(180_000);
     expect(limitOf(calls, "carryIn")).toBe(180_000);
   });
@@ -407,6 +408,7 @@ describe("a removed worktree's carry (SPI-1324)", () => {
     const calls: Array<{ id: string; method: string; input: unknown }> = [];
     bindCarry(calls);
     await removeWorktree("/w/p", "/w/.wt/p/x", false, t3Tables(), settings);
+    expect(limitOf(calls, "refTips")).toBe(600_000);
     expect(limitOf(calls, "carryOut")).toBe(600_000);
     expect(limitOf(calls, "carryIn")).toBe(600_000);
   });

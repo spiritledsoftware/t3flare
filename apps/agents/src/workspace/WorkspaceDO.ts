@@ -1898,12 +1898,11 @@ export class WorkspaceDO extends ContainerHost {
     }
     if (startHead === undefined || endHead === undefined || startHead === endHead)
       return { ok: true, value: null, by: within ? "do" : "container" };
-    // HEAD moved between the checkpoints (a commit, in the Container): its git lists the paths, as t3's driver does. A
-    // listing read, not the Owner's checkpoint: a fixed 120 s (ADR-0032's SPI-1324 refinement).
+    // HEAD moved between the checkpoints (a commit, in the Container): its git lists the paths, as t3's driver does.
     const result = await this.exec({
       script: authoredScript(from, to, startHead, endHead),
       cwd: REPO_ROOT,
-      timeoutMs: 120_000,
+      timeoutMs,
     });
     if (result.exitCode !== 0) return { ok: false, error: result.stderr.slice(0, 1000) };
     return {
@@ -2269,13 +2268,15 @@ export class WorkspaceDO extends ContainerHost {
   }
 
   /** The project's ref tips (its Container), for what a removed worktree must carry home. */
-  async refTips(): Promise<{ readonly ok: boolean; readonly tips: ReadonlyArray<string>; readonly error?: string }> {
+  async refTips(input?: {
+    /** The checkpoint time limit (`checkpointMinutes`), carried by the Environment DO. */
+    readonly timeoutMs?: number;
+  }): Promise<{ readonly ok: boolean; readonly tips: ReadonlyArray<string>; readonly error?: string }> {
     this.#alive();
-    // A listing read, not the Owner's clone or checkpoint: a fixed 120 s (ADR-0032's SPI-1324 refinement).
     const result = await this.exec({
       script: "git for-each-ref --format='%(objectname)' | sort -u",
       cwd: REPO_ROOT,
-      timeoutMs: 120_000,
+      timeoutMs: checkpointLimitMs(input?.timeoutMs),
     });
     if (result.exitCode !== 0) return { ok: false, tips: [], error: result.stderr.slice(-500) };
     return { ok: true, tips: parseTips(`TIPS\n${result.stdout}`) };

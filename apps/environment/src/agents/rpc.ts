@@ -189,7 +189,10 @@ export interface WorkspaceRpc {
     readonly timeoutMs?: number;
   }): Promise<{ readonly ok: boolean; readonly head?: string; readonly error?: string }>;
   destroy(): Promise<{ readonly destroyed: true }>;
-  refTips(): Promise<{ readonly ok: boolean; readonly tips: ReadonlyArray<string>; readonly error?: string }>;
+  /** SPI-1324: `timeoutMs`, the checkpoint time limit (`checkpointMinutes`) in ms; absent, the Workspace DO's default. */
+  refTips(input?: {
+    readonly timeoutMs?: number;
+  }): Promise<{ readonly ok: boolean; readonly tips: ReadonlyArray<string>; readonly error?: string }>;
   carryOut(input: {
     readonly projectTips: ReadonlyArray<string>;
     /** SPI-1324: the checkpoint time limit (`checkpointMinutes`) in ms; absent, the Workspace DO's default. */
