@@ -51,7 +51,7 @@ const remote = (environmentId: string, more: Record<string, unknown> = {}) => ({
 const link = (sql: Sql, environmentId: string, lastError: string | null) =>
   sql.exec("INSERT INTO peer_environment_links VALUES (?, '2026-11-13T11:00:00.000Z', ?)", environmentId, lastError);
 const idle = () =>
-  Object.assign(Idle.activity, { sockets: 0, inFlight: 0, idleSince: now.getTime() - 120_000, unreadableUntil: 0 });
+  Object.assign(Idle.activity, { sockets: 0, inFlight: 0, idleSince: now.getTime() - 120_000 });
 
 describe("open Remote tasks", () => {
   it("counts open tasks as t3's getOpenRemoteDelegatedTasks reads them, split by whether their machine answers", () => {

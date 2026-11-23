@@ -21,7 +21,7 @@ const deliveries = { total: 1, queued: 0, successful: 1, failed: 0, kinds: ["ale
 describe("publish recorder", () => {
   beforeEach(() => {
     Idle.holds.clear();
-    Object.assign(Idle.activity, { sockets: 0, inFlight: 0, idleSince: at(0).getTime(), unreadableUntil: 0 });
+    Object.assign(Idle.activity, { sockets: 0, inFlight: 0, idleSince: at(0).getTime() });
   });
 
   it("matches messages t3's relay still logs: a renamed one would leave the recorder blind (U28)", () => {

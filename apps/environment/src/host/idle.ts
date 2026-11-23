@@ -12,8 +12,6 @@ import type { SqlStorage } from "@cloudflare/workers-types/index.ts";
 export const IDLE_AFTER_MS = 60_000;
 /** How often the host checks whether it has gone idle. */
 export const IDLE_CHECK_EVERY_MS = 10_000;
-/** After a failed read of t3's tables, how long the idle check waits before reading them again. */
-export const UNREADABLE_BACKOFF_MS = 10 * 60_000;
 
 /** What keeps the Environment awake, counted by the host. Module state: the DO is the only one in its isolate. */
 export const activity = {
@@ -26,8 +24,6 @@ export const activity = {
   adminInFlight: 0,
   /** When the last socket closed or the last request ended (ms since epoch). */
   idleSince: Date.now(),
-  /** Until when the idle check backs off after t3's tables could not be read (ms since epoch; 0 for none). */
-  unreadableUntil: 0,
 };
 
 /**
@@ -354,8 +350,9 @@ export type IdleVerdict =
   | { readonly reset: true; readonly work: OpenWork; readonly due: NextDue };
 
 /**
- * Whether the Environment should reset now. When t3's tables cannot be read it does not reset, and reads them
- * again only after `UNREADABLE_BACKOFF_MS` (the verdict's `unreadable` says what failed; the caller logs it).
+ * Whether the Environment should reset now. When t3's tables cannot be read it does not reset, and reads them again at
+ * the next check (SPI-1366), so a fix or a restart is noticed at once (the verdict's `unreadable` says what failed; the
+ * caller logs it).
  */
 export const idleVerdict = (sql: SqlStorage, now: Date, idleAfterMs = IDLE_AFTER_MS): IdleVerdict => {
   if (activity.sockets > 0) return { reset: false, why: `${activity.sockets} client sockets` };
@@ -364,19 +361,12 @@ export const idleVerdict = (sql: SqlStorage, now: Date, idleAfterMs = IDLE_AFTER
   if (now.getTime() - activity.idleSince < idleAfterMs) return { reset: false, why: "not idle long enough" };
   const held = activeHolds(now.getTime());
   if (held.length > 0) return { reset: false, why: `held: ${held.join(", ")}` };
-  if (now.getTime() < activity.unreadableUntil) {
-    return {
-      reset: false,
-      why: `t3's tables were unreadable; next read after ${new Date(activity.unreadableUntil).toISOString()}`,
-    };
-  }
   try {
     const work = openWork(sql, now);
     if (hasOpenWork(work)) return { reset: false, why: `open work ${JSON.stringify(work)}`, work };
     return { reset: true, work, due: nextDue(sql, now, now.getTime() + PR_WATCH_WAKE_MS) };
   } catch (error) {
     if (!(error instanceof UnreadableTables)) throw error;
-    activity.unreadableUntil = now.getTime() + UNREADABLE_BACKOFF_MS;
     return { reset: false, why: "t3's tables are unreadable", unreadable: error.message };
   }
 };

@@ -610,7 +610,8 @@ export const handleAdmin = async (request: Request, environment: EnvironmentDO):
         const { writeFixtures } = await import("./fixtures.ts");
         const report = await writeFixtures(runtime, {
           threadIds: body.threadIds ?? [],
-          runs: Math.min(Math.max(body.runs ?? 3, 1), 50),
+          // The caller's own count, at least one (SPI-1366: no maximum; a large one is the caller's choice).
+          runs: Math.max(body.runs ?? 3, 1),
           marker: body.marker ?? "t3flare-fixture",
         });
         return json(report);

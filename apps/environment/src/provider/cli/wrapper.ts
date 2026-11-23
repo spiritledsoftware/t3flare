@@ -190,7 +190,8 @@ const answerOf = (decision: ProviderApprovalDecision): CliAnswer =>
 export const spawnRefusalOf = (error: unknown): string | undefined => {
   const seen = new Set<unknown>();
   let node = error;
-  for (let depth = 0; depth < 16 && typeof node === "object" && node !== null && !seen.has(node); depth++) {
+  // To the chain's end: a finite chain ends, and `seen` ends a cycle (SPI-1366: no depth bound).
+  while (typeof node === "object" && node !== null && !seen.has(node)) {
     seen.add(node);
     const reason = (node as { reason?: { _tag?: unknown; module?: unknown; method?: unknown; description?: unknown } })
       .reason;

@@ -255,6 +255,23 @@ describe("Codex's investigation (`codex exec`)", () => {
     expect(launch(codexExecArgs("m; rm -rf /", "/t3/state/tmp/schema"))).toHaveProperty("refused");
   });
 
+  it("takes a model name of any length an endpoint may list (SPI-1366: no 101-character cut)", () => {
+    const long = `vendor/${"m".repeat(190)}`;
+    const answer = profileLaunch(
+      {
+        cli: "codex",
+        args: codexExecArgs(`openai/${long}`, "/t3/state/tmp/schema"),
+        key: "proc-1",
+        cwd: "/w/.wt/review-guide-x/checkout",
+        env: {},
+        allowProbe: false,
+      },
+      { ...context, endpoints: [{ id: "openai", label: "OpenAI", models: [{ id: long }] }] },
+    );
+    if ("refused" in answer) throw new Error(answer.refused);
+    expect(answer.argv).toContain(long);
+  });
+
   it("answers the last agent message of `--json`'s events, or why the turn failed", () => {
     const events = [
       { type: "thread.started", thread_id: "t" },

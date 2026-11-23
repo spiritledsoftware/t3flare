@@ -121,6 +121,7 @@ import { readWithin } from "../readWithin.ts";
 import { turnReadMs } from "./turnReadMs.ts";
 import { noteTurnProvider, runsOn, TURN_PROVIDER_KEY } from "./signOut.ts";
 import {
+  newestMatch,
   PROMPT_SUGGESTIONS_EXTENSION,
   suggestionLimits,
   suggestionModelOf,
@@ -1131,13 +1132,19 @@ export class SessionDO extends DurableObject<SessionEnv> {
       await conversation.entries({ minEntryId: entryIdOf(turn.inputEntry), order: "ascending" }, 1, undefined, context)
     ).items[0];
     const user = first === undefined ? "" : textOf(first);
-    const newest = await conversation.entries(
-      { minEntryId: entryIdOf(turn.inputEntry), order: "descending" },
-      20,
-      undefined,
-      context,
+    // Paged back from the newest entry until the turn's last assistant text (SPI-1366): any number of tool entries.
+    const answer = await newestMatch(
+      async (cursor: Cursor | undefined) => {
+        const read = await conversation.entries(
+          { minEntryId: entryIdOf(turn.inputEntry!), order: "descending" },
+          20,
+          cursor,
+          context,
+        );
+        return { items: read.items.map(textOf), next: read.next };
+      },
+      (entry) => entry.role === "assistant" && entry.text.trim() !== "",
     );
-    const answer = newest.items.map(textOf).find((entry) => entry.role === "assistant" && entry.text.trim() !== "");
     if (user === "" || user.role !== "user" || answer === undefined) return { text: "" };
     const models = this.#endpoints.sideModels();
     const ref = suggestionModelOf(this.#endpoints.current());

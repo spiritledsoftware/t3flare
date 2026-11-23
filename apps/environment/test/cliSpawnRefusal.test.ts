@@ -82,6 +82,17 @@ describe("the CLI wrapper's open (SPI-1176)", () => {
   });
 });
 
+describe("a spawn refusal in an error's cause chain (SPI-1366)", () => {
+  it("is found at any depth, and a cycle ends the walk", () => {
+    let error: unknown = spawnError("PermissionDenied", `t3flare: ${refusal}`);
+    for (let depth = 0; depth < 40; depth++) error = { cause: error };
+    expect(spawnRefusalOf(error)).toBe(refusal);
+    const cycle: { cause?: unknown } = {};
+    cycle.cause = { cause: cycle };
+    expect(spawnRefusalOf(cycle)).toBeUndefined();
+  });
+});
+
 describe("the CLI wrapper's open on a relay failure (SPI-1223)", () => {
   const record: EndpointFailureRecord = {
     endpointId: "badkey",

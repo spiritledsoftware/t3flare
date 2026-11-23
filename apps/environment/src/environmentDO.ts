@@ -195,7 +195,6 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     Idle.activity.inFlight = 0;
     Idle.activity.adminInFlight = 0;
     Idle.activity.idleSince = Date.now();
-    Idle.activity.unreadableUntil = 0;
     // The sign-in's poll and the publishes the holds stood for went with the reset (step 3+).
     Idle.holds.clear();
     resetTerminals();
@@ -1423,25 +1422,21 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
    * ADR-0003: when idle, set one alarm for t3's next due work and reset the object. Returns what it found
    * (for the admin route) and resets only when `reset` is true.
    */
+  /** The last unreadable-tables failure logged, so a failure that stays is logged once. */
+  #unreadableLogged: string | undefined;
+
   async checkIdle(options: { readonly force?: boolean } = {}): Promise<Idle.IdleVerdict & { alarm?: string | null }> {
     if (this.#runtime === undefined) return { reset: false, why: "t3 is not running" };
     void this.#sweepIfDue().catch(() => undefined);
     const now = new Date();
-    // A forced check (the admin route) reads t3's tables again even while backing off.
-    if (options.force) Idle.activity.unreadableUntil = 0;
     const verdict = Idle.idleVerdict(this.ctx.storage.sql, now, options.force ? 0 : this.#idleAfterMs());
     if (!verdict.reset) {
       if (verdict.work !== undefined) await this.#keepRemoteTasksAlarm(verdict.work, now.getTime());
-      // Fail safe (fragility U2): the Environment stays up. Logged once per back-off, as an error.
-      if (verdict.unreadable !== undefined) {
-        console.error(
-          JSON.stringify({
-            t3flare: "idle-check-unreadable",
-            error: verdict.unreadable,
-            retryAfter: new Date(Idle.activity.unreadableUntil).toISOString(),
-          }),
-        );
-      }
+      // Fail safe (fragility U2): the Environment stays up. Read again at each check; logged, as an error, when what
+      // failed changes, not at every check.
+      if (verdict.unreadable !== undefined && verdict.unreadable !== this.#unreadableLogged)
+        console.error(JSON.stringify({ t3flare: "idle-check-unreadable", error: verdict.unreadable }));
+      this.#unreadableLogged = verdict.unreadable;
       return verdict;
     }
     // A pending arm window needs no alarm: the next boot reads it, and seeds the grant only if still armed.

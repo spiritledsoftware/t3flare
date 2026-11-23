@@ -187,7 +187,7 @@ describe("idle queries", () => {
     expect(reset.at?.toISOString()).toBe("2026-11-10T12:10:00.000Z");
     expect(reset.sources.pullRequestWatch).toBe("2026-11-10T12:10:00.000Z");
     expect(Idle.nextDue(sql, now).at?.toISOString()).toBe(now.toISOString());
-    Object.assign(Idle.activity, { sockets: 0, inFlight: 0, idleSince: now.getTime() - 120_000, unreadableUntil: 0 });
+    Object.assign(Idle.activity, { sockets: 0, inFlight: 0, idleSince: now.getTime() - 120_000 });
     expect(Idle.idleVerdict(sql, now)).toMatchObject({
       reset: true,
       due: { at: new Date("2026-11-10T12:10:00.000Z") },
@@ -215,31 +215,24 @@ describe("idle queries", () => {
     expect(() => Idle.nextDue(sql, now)).toThrow(Idle.UnreadableTables);
   });
 
-  it("does not reset when t3's tables cannot be read, and backs off before reading them again", () => {
+  it("does not reset when t3's tables cannot be read, and reads them again at the next check (SPI-1366: no back-off)", () => {
     const sql = nodeSqlStorage();
     sql.exec("CREATE TABLE orchestration_v2_projection_runs (run_id TEXT, status TEXT)");
-    Object.assign(Idle.activity, { sockets: 0, inFlight: 0, idleSince: now.getTime() - 120_000, unreadableUntil: 0 });
+    Object.assign(Idle.activity, { sockets: 0, inFlight: 0, idleSince: now.getTime() - 120_000 });
     const verdict = Idle.idleVerdict(sql, now);
     expect(verdict.reset).toBe(false);
     expect(verdict).toMatchObject({
       unreadable: expect.stringContaining("orchestration_v2_projection_provider_sessions"),
     });
-    expect(Idle.activity.unreadableUntil).toBe(now.getTime() + Idle.UNREADABLE_BACKOFF_MS);
-
-    const tables = t3Tables();
-    const soon = new Date(now.getTime() + 60_000);
-    expect(Idle.idleVerdict(tables, soon)).toEqual({
-      reset: false,
-      why: `t3's tables were unreadable; next read after ${new Date(Idle.activity.unreadableUntil).toISOString()}`,
-    });
-    const later = new Date(now.getTime() + Idle.UNREADABLE_BACKOFF_MS);
-    expect(Idle.idleVerdict(tables, later).reset).toBe(true);
+    // Readable at the next check, ten seconds on: the reset is not held back.
+    const soon = new Date(now.getTime() + Idle.IDLE_CHECK_EVERY_MS);
+    expect(Idle.idleVerdict(t3Tables(), soon).reset).toBe(true);
   });
 
   it("does not reset when the next due time cannot be read", () => {
     const sql = t3Tables();
     sql.exec("DROP TABLE scheduled_tasks");
-    Object.assign(Idle.activity, { sockets: 0, inFlight: 0, idleSince: now.getTime() - 120_000, unreadableUntil: 0 });
+    Object.assign(Idle.activity, { sockets: 0, inFlight: 0, idleSince: now.getTime() - 120_000 });
     expect(Idle.idleVerdict(sql, now)).toMatchObject({
       reset: false,
       unreadable: expect.stringContaining("scheduled_tasks"),
@@ -248,7 +241,7 @@ describe("idle queries", () => {
 
   it("holds the Environment up while a hold lasts, until it is released or expires", () => {
     const sql = t3Tables();
-    Object.assign(Idle.activity, { sockets: 0, inFlight: 0, idleSince: now.getTime() - 61_000, unreadableUntil: 0 });
+    Object.assign(Idle.activity, { sockets: 0, inFlight: 0, idleSince: now.getTime() - 61_000 });
     Idle.hold("connect-sign-in", now.getTime() + 600_000);
     expect(Idle.idleVerdict(sql, now)).toEqual({ reset: false, why: "held: connect-sign-in" });
     expect(Idle.idleVerdict(sql, new Date(now.getTime() + 600_001)).reset).toBe(true);
@@ -260,7 +253,7 @@ describe("idle queries", () => {
   it("honours a capped hold (a pending publish) for at most PUBLISH_HOLD_CAP_MS after the last activity", () => {
     const sql = t3Tables();
     const lastActivity = now.getTime() - 61_000;
-    Object.assign(Idle.activity, { sockets: 0, inFlight: 0, idleSince: lastActivity, unreadableUntil: 0 });
+    Object.assign(Idle.activity, { sockets: 0, inFlight: 0, idleSince: lastActivity });
     Idle.hold("publish:t1", now.getTime() + 3_600_000, { capped: true });
     expect(Idle.idleVerdict(sql, now)).toEqual({ reset: false, why: "held: publish:t1" });
     const atCap = new Date(lastActivity + Idle.PUBLISH_HOLD_CAP_MS);
@@ -270,7 +263,7 @@ describe("idle queries", () => {
 
   it("resets only with no socket, no request and the idle delay passed", () => {
     const sql = t3Tables();
-    Object.assign(Idle.activity, { sockets: 1, inFlight: 0, idleSince: now.getTime() - 120_000, unreadableUntil: 0 });
+    Object.assign(Idle.activity, { sockets: 1, inFlight: 0, idleSince: now.getTime() - 120_000 });
     expect(Idle.idleVerdict(sql, now).reset).toBe(false);
     // The last socket closing starts the idle clock at that moment.
     vi.useFakeTimers({ now });

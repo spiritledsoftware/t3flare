@@ -32,7 +32,6 @@ const idle = () =>
     inFlight: 0,
     adminInFlight: 0,
     idleSince: now.getTime() - 120_000,
-    unreadableUntil: 0,
   });
 
 const admin = (method: string, path: string) => new Request(`https://env.example${path}`, { method });
