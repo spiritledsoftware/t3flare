@@ -12,7 +12,7 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 
 import { DURABLE_AGENT, forgetDurableModes, noteDurableModes } from "../src/provider/threadCaller.ts";
-import { LINKED_REFUSAL, NO_MODES_REFUSAL, UNKNOWN_REFUSAL } from "../src/settings/server.ts";
+import { NO_MODES_REFUSAL } from "../src/settings/server.ts";
 import { settingsFixture, type SettingsFixture, structured, textOf } from "./settingsFixture.ts";
 import { skillMd } from "./skillRepo.fixture.ts";
 
@@ -108,16 +108,11 @@ describe("the read caps are the Settings server's limits (SPI-1322)", () => {
 });
 
 describe("preview_skills is for a caller that may write", () => {
-  it("is refused to Linked, unknown, mode-less and plan-mode threads, and runs for the owner's own thread", async () => {
-    fixture = settingsFixture({ links: { "thread-linked": "linked", "thread-unknown": "unknown" } });
+  it("is refused to mode-less and plan-mode threads, and runs for a thread that may write", async () => {
+    fixture = settingsFixture();
     const run = fixture;
     run.github.push("o/r", { "skills/a/SKILL.md": skillMd("a") });
     const before = run.github.requests.length;
-    const linked = await run.call(run.durable("thread-linked"), "preview_skills", { source: "o/r" });
-    expect(textOf(linked)).toContain(LINKED_REFUSAL);
-    expect(textOf(await run.call(run.durable("thread-unknown"), "preview_skills", { source: "o/r" }))).toContain(
-      UNKNOWN_REFUSAL,
-    );
     expect(
       textOf(
         await run.call({ door: "own", thread: "thread-fresh", agent: DURABLE_AGENT }, "preview_skills", {

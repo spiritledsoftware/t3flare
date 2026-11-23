@@ -16,7 +16,7 @@ import { cliThreadState } from "../src/provider/cli/cliAsk.ts";
 import { DURABLE_AGENT, durableModes, forgetDurableModes, noteDurableModes } from "../src/provider/threadCaller.ts";
 import { settingsChanges } from "../src/settings/changes.ts";
 import { ownerClients } from "../src/settings/clients.ts";
-import type { OwnCaller, ThreadLink } from "../src/settings/caller.ts";
+import type { OwnCaller } from "../src/settings/caller.ts";
 import { changesApiOf, settingsCall, type SettingsServerDeps } from "../src/settings/server.ts";
 import { skillStore } from "../src/skills/store.ts";
 import { nodeSqlStorage } from "./nodeSqlStorage.ts";
@@ -53,7 +53,6 @@ export const textOf = (answer: McpCallAnswer): string => (answer.kind === "resul
 export interface FixtureOptions {
   /** The owner's answer on each card: a value, or a function of the card (a never-settling promise leaves it open). */
   readonly answer?: McpQuestionAnswer | ((card: McpQuestionCard) => Promise<McpQuestionAnswer>);
-  readonly links?: Readonly<Record<string, ThreadLink>>;
   readonly harness?: StoredHarness;
   readonly cardWaitMs?: number;
   /** The Answer wait the changes table reads (SPI-1316); its default without it. */
@@ -130,7 +129,6 @@ export const settingsFixture = (options: FixtureOptions = {}) => {
   deps = {
     ops: { store, mcp: host, secrets, variableSealer, oauth, skills, now: () => now },
     oauthStatus: oauth.status,
-    link: (thread) => options.links?.[thread] ?? "own",
     // As the Environment DO wires it: a Durable thread's modes are the adapter's record, a CLI's its live session's.
     modes: (caller) =>
       caller.thread === undefined

@@ -31,14 +31,8 @@ import { registerCliAsker } from "../src/provider/cli/cliAsk.ts";
 import { cliThreadState } from "../src/provider/cli/cliAsk.ts";
 import { DURABLE_AGENT, durableModes, forgetDurableModes, noteDurableModes } from "../src/provider/threadCaller.ts";
 import { type ChangeRecord, settingsChanges } from "../src/settings/changes.ts";
-import { OFF_MESSAGE, type OwnCaller, type ThreadLink } from "../src/settings/caller.ts";
-import {
-  LINKED_REFUSAL,
-  NO_MODES_REFUSAL,
-  READ_ONLY_REFUSAL,
-  settingsCall,
-  UNKNOWN_REFUSAL,
-} from "../src/settings/server.ts";
+import { OFF_MESSAGE, type OwnCaller } from "../src/settings/caller.ts";
+import { NO_MODES_REFUSAL, READ_ONLY_REFUSAL, settingsCall } from "../src/settings/server.ts";
 import { SETTINGS_TOOLS } from "../src/settings/tools.ts";
 import { nodeSqlStorage } from "./nodeSqlStorage.ts";
 import { memory, structured, textOf } from "./settingsFixture.ts";
@@ -82,7 +76,6 @@ const recordModes = (caller: OwnCaller, mode: ModeName) => {
 
 const setup = (
   options: {
-    links?: Record<string, ThreadLink>;
     answer?: McpQuestionAnswer;
     harness?: StoredHarness;
     cardWaitMs?: number;
@@ -143,7 +136,6 @@ const setup = (
         {
           ops: { store, mcp: host, secrets, oauth, now: () => now },
           oauthStatus: oauth.status,
-          link: (thread) => options.links?.[thread] ?? "own",
           // As the Environment DO wires it: a Durable thread's modes are the adapter's record, a CLI's its live session's.
           modes: (caller) =>
             caller.thread === undefined
@@ -389,19 +381,13 @@ describe("the Settings server's card for a free change", () => {
 });
 
 describe("the Settings server's write checks", () => {
-  it("Linked and unknown work read and change nothing; a thread-less caller is unknown", async () => {
-    const run = setup({ links: { "thread-linked": "linked", "thread-unknown": "unknown" } });
-    for (const thread of ["thread-linked", "thread-unknown"]) {
-      recordModes(durable(thread), "full-access");
-      expect(structured(await run.call(durable(thread), "get_settings", { entity: "harness" }))).toMatchObject({
-        entity: "harness",
-      });
-      const answer = await run.call(durable(thread), "change_environment", FREE);
-      expect(textOf(answer)).toBe(thread === "thread-linked" ? LINKED_REFUSAL : UNKNOWN_REFUSAL);
-    }
-    expect(
-      textOf(await run.call({ door: "own", thread: undefined, agent: DURABLE_AGENT }, "change_environment", FREE)),
-    ).toBe(UNKNOWN_REFUSAL);
+  it("a thread-less caller has no mode record: it reads, and changes nothing", async () => {
+    const run = setup();
+    const caller: OwnCaller = { door: "own", thread: undefined, agent: DURABLE_AGENT };
+    expect(structured(await run.call(caller, "get_settings", { entity: "harness" }))).toMatchObject({
+      entity: "harness",
+    });
+    expect(textOf(await run.call(caller, "change_environment", FREE))).toBe(NO_MODES_REFUSAL);
     expect(run.store.loadEnvironment().revision).toBe(0);
   });
 

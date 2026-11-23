@@ -1,7 +1,7 @@
 // T-caller (plan §5, D3), M3 (SPI-1198): the Settings server's caller is derived by the Environment and fails closed.
-// Linked work from t3's projection (a missing row is unknown, a link origin linked, a child of a linked thread linked);
-// a Durable thread's modes from the adapter's record, written at `open` and `submitTurn` and cleared at unregister; and
-// a write from linked, unknown or mode-less work refused while its reads run.
+// A Durable thread's modes come from the adapter's record, written at `open` and `submitTurn` and cleared at
+// unregister; a write from a mode-less thread is refused while its reads run. Where the thread came from is not read:
+// Linked work writes as the owner's own thread does (ADR-0035's SPI-1356 refinement).
 import { describe, expect, it } from "vitest";
 
 import { harnessStore } from "../src/harness/store.ts";
@@ -12,74 +12,11 @@ import {
   durableModes,
   forgetDurableModes,
   noteDurableModes,
-  threadLinkIn,
 } from "../src/provider/threadCaller.ts";
 import { settingsChanges } from "../src/settings/changes.ts";
 import type { OwnCaller } from "../src/settings/caller.ts";
-import { LINKED_REFUSAL, NO_MODES_REFUSAL, settingsCall, UNKNOWN_REFUSAL } from "../src/settings/server.ts";
+import { NO_MODES_REFUSAL, settingsCall } from "../src/settings/server.ts";
 import { nodeSqlStorage } from "./nodeSqlStorage.ts";
-
-const projection = () => {
-  const sql = nodeSqlStorage();
-  sql.exec("CREATE TABLE orchestration_v2_projection_threads (thread_id TEXT, payload_json TEXT, deleted_at TEXT)");
-  const thread = (id: string, payload: Record<string, unknown> | string) =>
-    sql.exec(
-      "INSERT INTO orchestration_v2_projection_threads VALUES (?, ?, NULL)",
-      id,
-      typeof payload === "string" ? payload : JSON.stringify(payload),
-    );
-  const lineage = (parent: string | null) => ({
-    parentThreadId: parent,
-    relationshipToParent: parent === null ? null : "subagent",
-    rootThreadId: parent ?? "x",
-  });
-  thread("own", { lineage: lineage(null) });
-  thread("linked", { lineage: lineage(null), linkOrigin: { sessionId: "s", label: "laptop", access: "full-access" } });
-  thread("malformed-origin", { lineage: lineage(null), linkOrigin: "not an origin" });
-  thread("child-of-own", { lineage: lineage("own") });
-  thread("child-of-linked", { lineage: lineage("linked") });
-  thread("grandchild-of-linked", { lineage: lineage("child-of-linked") });
-  thread("child-of-gone", { lineage: lineage("gone") });
-  thread("loop-a", { lineage: lineage("loop-b") });
-  thread("loop-b", { lineage: lineage("loop-a") });
-  thread("not-json", "{");
-  thread("parent-number", { lineage: { parentThreadId: 42 } });
-  thread("parent-object", { lineage: { parentThreadId: { id: "own" } } });
-  thread("parent-empty", { lineage: { parentThreadId: "" } });
-  thread("parent-absent", { lineage: {} });
-  return sql;
-};
-
-describe("threadLinkIn", () => {
-  const sql = projection();
-
-  it("a thread with no projection row is unknown", () => {
-    expect(threadLinkIn(sql, "missing")).toBe("unknown");
-    expect(threadLinkIn(nodeSqlStorage(), "own")).toBe("unknown");
-  });
-
-  it("own work is own; a link origin, well-formed or not, is linked", () => {
-    expect(threadLinkIn(sql, "own")).toBe("own");
-    expect(threadLinkIn(sql, "child-of-own")).toBe("own");
-    expect(threadLinkIn(sql, "linked")).toBe("linked");
-    expect(threadLinkIn(sql, "malformed-origin")).toBe("linked");
-  });
-
-  it("a child of a linked thread is linked even without the origin; a broken lineage is unknown", () => {
-    expect(threadLinkIn(sql, "child-of-linked")).toBe("linked");
-    expect(threadLinkIn(sql, "grandchild-of-linked")).toBe("linked");
-    expect(threadLinkIn(sql, "child-of-gone")).toBe("unknown");
-    expect(threadLinkIn(sql, "loop-a")).toBe("unknown");
-    expect(threadLinkIn(sql, "not-json")).toBe("unknown");
-  });
-
-  it("a parent that is present but not a thread id reads as unknown, not as no parent (SPI-1198 review)", () => {
-    expect(threadLinkIn(sql, "parent-number")).toBe("unknown");
-    expect(threadLinkIn(sql, "parent-object")).toBe("unknown");
-    expect(threadLinkIn(sql, "parent-empty")).toBe("unknown");
-    expect(threadLinkIn(sql, "parent-absent")).toBe("own");
-  });
-});
 
 describe("the Durable mode record", () => {
   it("follows open and submitTurn, and is cleared at unregister by its own session only", () => {
@@ -118,7 +55,7 @@ describe("the adapter's part of the record (durableModeRecord, as makePiDurableA
   });
 });
 
-describe("a Settings server write from a caller the Environment cannot vouch for", () => {
+describe("a Settings server write from t3flare's own agent", () => {
   const setup = () => {
     const map = new Map<string, unknown>();
     const kv = {
@@ -127,7 +64,6 @@ describe("a Settings server write from a caller the Environment cannot vouch for
       delete: (key: string) => map.delete(key),
     };
     const store = harnessStore(kv);
-    const sql = projection();
     const host: McpHost = new McpHost({
       kv,
       engine: undefined,
@@ -136,7 +72,6 @@ describe("a Settings server write from a caller the Environment cannot vouch for
         settingsCall(
           {
             ops: { store, mcp: host, now: () => 0 },
-            link: (thread) => threadLinkIn(sql, thread),
             modes: (caller) => (caller.thread === undefined ? undefined : durableModes(caller.thread)),
             changes: settingsChanges(nodeSqlStorage(), () => 0),
             origin: () => undefined,
@@ -144,49 +79,48 @@ describe("a Settings server write from a caller the Environment cannot vouch for
           input,
         ),
     });
-    const owner = {};
-    for (const thread of ["own", "linked", "child-of-linked", "missing"])
-      noteDurableModes(thread, { runtimeMode: "full-access", interactionMode: "default" }, owner);
     const caller = (thread: string): OwnCaller => ({ door: "own", thread, agent: DURABLE_AGENT });
     const call = (thread: string, tool: string, args: Record<string, unknown>) =>
       host.call({ server: "settings", tool, args, caller: caller(thread) });
-    return {
-      store,
-      call,
-      done: () =>
-        ["own", "linked", "child-of-linked", "missing"].forEach((thread) => forgetDurableModes(thread, owner)),
-    };
+    return { store, call };
   };
-  const write = { expectedRevision: 0, settings: { containerIdleMinutes: 1 } };
+  // Each a free change (it lowers the idle time or the budget), at the revision the one before left.
+  const write = (revision: number) => ({
+    expectedRevision: revision,
+    settings: revision === 0 ? { containerIdleMinutes: 1 } : { containerBudget: 3 - revision },
+  });
   const text = (answer: Awaited<ReturnType<ReturnType<typeof setup>["call"]>>) =>
     answer.kind === "result" ? answer.text : answer.message;
 
-  it("linked work and its children: reads run, writes are refused", async () => {
+  it("a thread with no mode record: its reads run and its write is refused; with one it runs", async () => {
     const run = setup();
-    for (const thread of ["linked", "child-of-linked"]) {
-      expect(await run.call(thread, "get_settings", { entity: "environment" })).toMatchObject({
-        kind: "result",
-        isError: false,
-      });
-      expect(text(await run.call(thread, "change_environment", write))).toBe(LINKED_REFUSAL);
-    }
-    expect(run.store.loadEnvironment().revision).toBe(0);
-    run.done();
-  });
-
-  it("a thread with no projection row: its write is refused", async () => {
-    const run = setup();
-    expect(text(await run.call("missing", "change_environment", write))).toBe(UNKNOWN_REFUSAL);
-    run.done();
-  });
-
-  it("own work with no mode record: its write is refused; with one it runs", async () => {
-    const run = setup();
-    run.done();
-    expect(text(await run.call("own", "change_environment", write))).toBe(NO_MODES_REFUSAL);
-    noteDurableModes("own", { runtimeMode: "full-access", interactionMode: "default" }, run);
-    expect(await run.call("own", "change_environment", write)).toMatchObject({ kind: "result", isError: false });
-    forgetDurableModes("own", run);
+    expect(await run.call("own", "get_settings", { entity: "environment" })).toMatchObject({
+      kind: "result",
+      isError: false,
+    });
+    expect(text(await run.call("own", "change_environment", write(0)))).toBe(NO_MODES_REFUSAL);
+    const owner = {};
+    noteDurableModes("own", { runtimeMode: "full-access", interactionMode: "default" }, owner);
+    expect(await run.call("own", "change_environment", write(0))).toMatchObject({ kind: "result", isError: false });
+    forgetDurableModes("own", owner);
     expect(run.store.loadEnvironment().revision).toBe(1);
+  });
+
+  it("Linked work, and a thread t3's projection has no row for, write as the owner's own thread (SPI-1356)", async () => {
+    const run = setup();
+    const owner = {};
+    const threads = ["linked", "child-of-linked", "missing"];
+    for (const thread of threads)
+      noteDurableModes(thread, { runtimeMode: "full-access", interactionMode: "default" }, owner);
+    try {
+      for (const [index, thread] of threads.entries())
+        expect(await run.call(thread, "change_environment", write(index))).toMatchObject({
+          kind: "result",
+          isError: false,
+        });
+    } finally {
+      for (const thread of threads) forgetDurableModes(thread, owner);
+    }
+    expect(run.store.loadEnvironment().revision).toBe(3);
   });
 });

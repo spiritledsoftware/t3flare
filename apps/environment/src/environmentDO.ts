@@ -683,7 +683,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     const [
       { settingsChanges },
       { harnessStatus, refreshedTestRecord, runningContainers },
-      { threadLinkIn, durableModes },
+      { durableModes },
       { cliThreadState },
     ] = await Promise.all([
       import("./settings/changes.ts"),
@@ -706,7 +706,6 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
         now: () => Date.now(),
       },
       oauthStatus: (server) => this.harnessOAuth.status(server),
-      link: (thread) => threadLinkIn(this.ctx.storage.sql, thread),
       // A Durable thread's modes are the adapter's record; a CLI thread's are its live session's (plan D3).
       modes: (caller) =>
         caller.thread === undefined
@@ -839,7 +838,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     readonly args: Readonly<Record<string, unknown>>;
     readonly judged?: "read" | "write";
     readonly asker?: McpAsker;
-    /** The Session's thread (plan D3); absent from a Session before SPI-1198, judged as unknown work. */
+    /** The Session's thread (plan D3); absent from a Session before SPI-1198, which has no modes record and writes nothing. */
     readonly thread?: string;
     /** The id the Session's Stop names in `cancelAsk` (plan D9): a Settings server call is stopped by it. */
     readonly stopId?: string;

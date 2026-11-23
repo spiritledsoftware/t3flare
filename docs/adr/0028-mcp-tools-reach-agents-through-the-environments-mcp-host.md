@@ -161,7 +161,8 @@ was a built-in kind; this refinement follows the SPI-1160 refinement above).
    Item 5 ("one decision for every caller") is unchanged for every other server.
 3. **The caller reaches the host.** A Session's call now names its thread; the Environment derives the thread's modes
    and whether it is Linked work itself. A linked thread still sees every enabled server; the Settings server refuses
-   its writes inside the call.
+   its writes inside the call. (Since [ADR-0035](0035-agents-change-t3flares-settings-through-the-settings-server.md)'s
+   SPI-1356 refinement it does not: Linked work writes as the owner's own thread does, and only the modes are derived.)
 4. **The pi CLI gets the relay's servers** (SPI-1076), the enabled Direct servers and the Settings server, as every CLI
    agent does: one entry per server in its per-process `mcp.json`, with the Tool handle from its environment. This
    strikes the consequence above, "The pi CLI gets t3's tools only", and item 7's list of CLI agents now includes pi. t3flare grants pi no project trust, so a repository's `.pi/mcp.json` cannot

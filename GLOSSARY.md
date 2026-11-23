@@ -80,13 +80,14 @@ _Avoid_: transport, endpoint, tunnel (for the address)
 
 **Linked work**:
 Threads a Peer link started in the Environment it signed in to, and the work derived from them; each carries the link's
-`linkOrigin` (its client session, label and access).
+`linkOrigin` (its client session, label and access). It changes settings through the Settings server as the Owner's own
+thread does.
 _Avoid_: remote threads, foreign work
 
 **Link fence**:
-What Linked work from a link paired below full access may not do: change the Owner's threads, projects, settings or
-schedules, or use that Environment's own links (t3's), or exceed the modes the link hands down (t3's). Pushes and MCP
-tools follow the linked thread's own mode.
+What Linked work from a link paired below full access may not do through t3's tools: change the Owner's threads,
+projects, t3's settings or schedules, or use that Environment's own links, or exceed the modes the link hands down.
+Pushes, MCP tools and the Settings server follow the linked thread's own mode.
 _Avoid_: sandbox, isolation
 
 **Remote task**:
@@ -360,7 +361,7 @@ _Avoid_: external agent, laptop client (the Laptop Environment is t3's), remote 
 
 **Settings change**:
 One validated change to the Harness settings, the Environment settings or the Environment skills, made on the Harness
-panel or through the Settings server. Linked work makes none.
+panel or through the Settings server, Linked work's included.
 _Avoid_: Proposal, edit, mutation
 
 **Change tier**:

@@ -4,10 +4,9 @@
 // any inventory or pausing logic, with the caller the Environment derived (never one the agent states) and the call's
 // asker.
 //
-// - Reads run for every caller, Linked work included, and never carry a secret value, a fingerprint, a URL's query or an
-//   authorization URL (D14).
-// - A write is judged here, once (D7), in this order: the access switch; Linked or unknown work (D3); plan mode (and no
-//   mode record); validation by the registry; the expected revision (D15); the Change tier (D5); the caps (D16); then
+// - Reads run for every caller and never carry a secret value, a fingerprint, a URL's query or an authorization URL
+//   (D14). Linked work reads and writes as the owner's own thread does (ADR-0035's SPI-1356 refinement).
+// - A write is judged here, once (D7), in this order: the access switch; plan mode (and no mode record); validation by the registry; the expected revision (D15); the Change tier (D5); the caps (D16); then
 //   run, or ask the owner on one owner-only approval card on the calling thread. The Session's `mcp` extension and the
 //   relay keep only the plan refusal for this server and raise no card of their own.
 // - An asked change (D8, D9) always asks, in every mode: it becomes an Open change (openChanges.ts), shown on an
@@ -83,7 +82,7 @@ import { newCardId } from "../mcp/elicitation.ts";
 import type { McpCallAnswer, McpHost } from "../mcp/host.ts";
 import { previewAtCommit, viewSkill } from "../skills/api.ts";
 import { parseSkillSource } from "../skills/source.ts";
-import { OFF_MESSAGE, type OwnCaller, type OwnerCaller, type ThreadLink, type ThreadModes } from "./caller.ts";
+import { OFF_MESSAGE, type OwnCaller, type OwnerCaller, type ThreadModes } from "./caller.ts";
 import {
   type AnsweredBy,
   APPLIED_WINDOW_MS,
@@ -139,8 +138,6 @@ export interface SettingsServerDeps {
     readonly expiresAt: number | null;
     readonly refreshable: boolean;
   };
-  /** The thread's Linked work (`threadLinkIn`, provider/threadCaller.ts): fails closed, `"unknown"` with no projection row. */
-  readonly link: (thread: string) => ThreadLink;
   /** The thread's modes: the adapter's record for a Durable agent, `cliThreadState` for a CLI agent. */
   readonly modes: (caller: OwnCaller) => ThreadModes | undefined;
   readonly changes: SettingsChanges;
@@ -188,10 +185,6 @@ export type WriteStatus =
   | "moved"
   | "refused";
 
-export const LINKED_REFUSAL =
-  "This thread is Linked work; the owner changes settings from his own thread, the Settings page, or an Owner client.";
-export const UNKNOWN_REFUSAL =
-  "t3flare cannot establish where this thread comes from, so it may read settings and change none. The owner changes them from his own thread or the Settings page.";
 export const NO_MODES_REFUSAL =
   "t3flare has no record of this thread's modes (the Environment restarted during the turn), so it changes no settings now. Try again in the thread's next turn.";
 export const READ_ONLY_REFUSAL =
@@ -1789,10 +1782,6 @@ const mayNotWrite = (
 ): { readonly reason: string; readonly text: string } | undefined => {
   const barred = accessBar(deps);
   if (barred !== undefined) return barred;
-  // Linked or unknown work reads only (plan D3): decided by the Environment from the thread, never by the agent.
-  const link = caller.thread === undefined ? "unknown" : deps.link(caller.thread);
-  if (link === "linked") return { reason: "linked", text: LINKED_REFUSAL };
-  if (link !== "own") return { reason: "unknown-thread", text: UNKNOWN_REFUSAL };
   const modes = deps.modes(caller);
   if (modes === undefined) return { reason: "no-modes", text: NO_MODES_REFUSAL };
   if (modes.interactionMode === "plan") return { reason: "plan", text: PLAN_REFUSAL };
@@ -2075,7 +2064,7 @@ export const settingsCall = async (deps: SettingsServerDeps, input: SettingsCall
 // ── The Owner-client door (plan D11, D12; M5a, SPI-1200) ─────────────────────────────────────────────────────────
 //
 // The endpoint (endpoint.ts) reaches the same reads and the same planned writes as the own agents' door, through these
-// entry points. An Owner client has no thread, no Linked work and no runtime mode (plan D7's last column): a read runs, a
+// entry points. An Owner client has no thread and no runtime mode (plan D7's last column): a read runs, a
 // free change runs, and an asked change becomes an Open change in the client's Elicitation mode, which the endpoint
 // then delivers in the change's mode (D12: a page elicitation or the link, a form, or a Pause) and which the Change
 // page answers in every mode.
