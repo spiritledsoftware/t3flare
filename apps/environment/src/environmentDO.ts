@@ -22,6 +22,7 @@ import {
   type ResolvedEnvironment,
   resolveHarness,
   type ResolvedHarness,
+  settingsServerLimitsOf,
 } from "@t3flare/harness-registry";
 
 import { bindEnvironmentServices, environmentServices, ownerAnswerMsNow } from "./agents/bindings.ts";
@@ -709,6 +710,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
         Date.now,
         (event) => console.log(JSON.stringify(event)),
         ownerAnswerMsNow,
+        // SPI-1322: the Settings server's limits as stored now, which a closed row's keeping covers.
+        () => settingsServerLimitsOf(store.load()),
       ),
       origin: () =>
         this.env.T3FLARE_HOST === undefined && this.#host === undefined
@@ -868,6 +871,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
         ask: (ask) => approveCliTool({ ...ask, waitMs }),
         asker: (thread) => cliQuestionAsker(thread, waitMs),
         answerMs: () => waitMs,
+        openPerThread: () => settingsServerLimitsOf(harnessStore(this.ctx.storage.kv).load()).openPerThread,
         accepted: {
           has: (thread: string, key: string) => accepted.get(thread)?.has(key) === true,
           add: (thread: string, key: string) => {

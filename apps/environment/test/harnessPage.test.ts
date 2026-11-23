@@ -546,6 +546,46 @@ describe("the Settings server's row", () => {
       expect(html).not.toContain(escapeHtml('"op":"class"'));
     }
   });
+
+  it("has a Limits form of its ten limits, at their values, saving them as one change to its entry (SPI-1322)", () => {
+    const at = (setting: Partial<McpRow["setting"]>) => section(renderPage(fixturePage({ mcp: [row(setting)] })));
+    const inputs = (html: string) =>
+      tagsOf(html)
+        .filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined)
+        .map((tag) => [tag.attrs["data-setting"], tag.attrs.value, tag.attrs.min, tag.attrs.max]);
+    const html = at({});
+    expect(html).toContain('<form class="server-limits" data-mcp-limits="settings"');
+    expect(inputs(html)).toEqual([
+      ["strikes", "3", "1", "1000"],
+      ["strikeWindowMinutes", "60", "1", "10080"],
+      ["strikeLockMinutes", "60", "0", "10080"],
+      ["declinedRepeatMinutes", "10", "0", "10080"],
+      ["appliedPerHour", "30", "1", "100000"],
+      ["askedPerHour", "6", "1", "100000"],
+      ["readsPerHour", "240", "1", "100000"],
+      ["networkReadsPerHour", "20", "1", "100000"],
+      ["openPerThread", "1", "1", "16"],
+      ["openPerOwner", "2", "1", "16"],
+    ]);
+    // The consequence, once.
+    expect(html.split("Higher caps let an agent ask you, and change your settings, more often.").length).toBe(2);
+    // A stored value shows; one that no longer fits shows its default.
+    expect(inputs(at({ limits: { askedPerHour: 12, strikes: 0 } })).slice(0, 6)).toEqual([
+      ["strikes", "3", "1", "1000"],
+      ["strikeWindowMinutes", "60", "1", "10080"],
+      ["strikeLockMinutes", "60", "0", "10080"],
+      ["declinedRepeatMinutes", "10", "0", "10080"],
+      ["appliedPerHour", "30", "1", "100000"],
+      ["askedPerHour", "12", "1", "100000"],
+    ]);
+    // A Direct server has none.
+    expect(markup(renderPage(fixturePage()))).not.toContain("data-mcp-limits");
+    // The script posts every limit as one server change to the form's server.
+    expect(SCRIPT).toContain('document.querySelectorAll("form[data-mcp-limits]")');
+    expect(SCRIPT).toContain(
+      'post("/_t3flare/settings/api/mcp", { op: "server", server: form.dataset.mcpLimits, limits: settingsOf(form) }, save)',
+    );
+  });
 });
 
 // The Environment section's dotfiles row (ADR-0047 §9): the two toggles, on by default, each saying when it applies.

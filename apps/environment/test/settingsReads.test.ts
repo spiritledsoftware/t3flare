@@ -56,6 +56,49 @@ describe("reads leave the audit log alone and are capped", () => {
   });
 });
 
+/** The Harness settings with the Settings server's `limits` set (SPI-1322), as a saved Limits form stores them. */
+const withLimits = (stored: StoredHarness, limits: Record<string, number>): StoredHarness => {
+  const applied = applyMcpChange(stored, { op: "server", server: "settings", limits });
+  if (!applied.ok) throw new Error(applied.error);
+  return applied.harness;
+};
+
+describe("the read caps are the Settings server's limits (SPI-1322)", () => {
+  it("readsPerHour: 2 refuses the third read; networkReadsPerHour: 1 the second network read", async () => {
+    fixture = settingsFixture({ harness: withLimits(withDocs(), { readsPerHour: 2, networkReadsPerHour: 1 }) });
+    const run = fixture;
+    expect(await run.call(run.durable(), "get_status")).toMatchObject({ isError: false });
+    expect(await run.call(run.durable(), "get_status")).toMatchObject({ isError: false });
+    expect(textOf(await run.call(run.durable(), "get_status"))).toContain("made 2 settings reads in the last hour");
+    expect(structured(await run.call(run.durable("thread-net"), "test_mcp_server", { server: "docs" }))).toBeDefined();
+    expect(textOf(await run.call(run.durable("thread-net"), "test_mcp_server", { server: "docs" }))).toContain(
+      "made 1 reads that reach GitHub or an MCP server",
+    );
+  });
+
+  it("a raised cap applies at the caller's next read, to the reads already counted", async () => {
+    fixture = settingsFixture({ harness: withLimits(EMPTY_HARNESS, { readsPerHour: 1 }) });
+    const run = fixture;
+    expect(await run.call(run.durable(), "get_status")).toMatchObject({ isError: false });
+    expect(await run.call(run.durable(), "get_status")).toMatchObject({ isError: true });
+    run.store.save(withLimits(run.store.load(), { readsPerHour: 3 }));
+    expect(await run.call(run.durable(), "get_status")).toMatchObject({ isError: false });
+  });
+
+  it("list_mcp_servers shows the Settings server's limits, resolved", async () => {
+    fixture = settingsFixture({ harness: withLimits(EMPTY_HARNESS, { askedPerHour: 12 }) });
+    const run = fixture;
+    const listed = structured(await run.call(run.durable(), "list_mcp_servers", { server: "settings" })) as {
+      servers: Array<{ name: string; limits?: Record<string, number> }>;
+    };
+    expect(listed.servers.find((server) => server.name === "settings")?.limits).toMatchObject({
+      askedPerHour: 12,
+      strikes: 3,
+      readsPerHour: 240,
+    });
+  });
+});
+
 describe("preview_skills is for a caller that may write", () => {
   it("is refused to Linked, unknown, mode-less and plan-mode threads, and runs for the owner's own thread", async () => {
     fixture = settingsFixture({ links: { "thread-linked": "linked", "thread-unknown": "unknown" } });

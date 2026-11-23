@@ -76,6 +76,8 @@ export interface RelayDeps {
    * (`ownerAnswerMsNow`).
    */
   readonly answerMs?: () => number;
+  /** How many asked changes a thread may have open at once (SPI-1322, `openPerThread`), as stored now. Default: 1. */
+  readonly openPerThread?: () => number;
   readonly log: (event: Record<string, unknown>) => void;
 }
 
@@ -119,7 +121,7 @@ export const relayMessage = async (input: McpRelayInput, deps: RelayDeps): Promi
         serverInfo: { name: `t3flare-${input.server}`, version: "1" },
         instructions:
           input.server === SETTINGS_SERVER
-            ? settingsInstructions((deps.answerMs ?? ownerAnswerMsNow)())
+            ? settingsInstructions((deps.answerMs ?? ownerAnswerMsNow)(), deps.openPerThread?.())
             : `Tools of the MCP server "${input.server}" through t3flare. Write tools may wait for the owner's approval on this thread.`,
       });
     }

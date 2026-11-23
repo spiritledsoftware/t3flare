@@ -406,6 +406,16 @@ for (const form of document.querySelectorAll("form[data-environment]")) {
     if (await post("/_t3flare/settings/api/environment", { settings }, save)) done();
   });
 }
+// The Settings server's limits (SPI-1322): every limit posted as one change to its entry; one at its value moves nothing.
+for (const form of document.querySelectorAll("form[data-mcp-limits]")) {
+  const save = form.querySelector("[data-save]");
+  watchUnsaved(form);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    if (await post("/_t3flare/settings/api/mcp", { op: "server", server: form.dataset.mcpLimits, limits: settingsOf(form) }, save)) done();
+  });
+}
 for (const form of document.querySelectorAll("form[data-extension]")) {
   const save = form.querySelector("[data-save]");
   const send = async (control) => {

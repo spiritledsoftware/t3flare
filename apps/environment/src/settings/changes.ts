@@ -6,9 +6,15 @@
 // Kept in storage, not memory: the Environment resets after about 60 s idle (ADR-0003), which can fall between the ask
 // and the owner's click. Rows expire and are pruned lazily, on every read and write of the table: an open row past its
 // `expiresAt` closes as `expired`, and a closed row goes `keptMs` after it closed (the longest a cap looks back:
-// a run of strikes and the lock after its last). No alarm is added (ADR-0003: one alarm).
+// a run of strikes and the lock after its last, or the declined repeat, at the Settings server's limits now). No alarm is added (ADR-0003: one alarm).
 import type { SqlStorage } from "@cloudflare/workers-types/index.ts";
-import { DEFAULT_OWNER_ANSWER_MS, withoutQuery } from "@t3flare/harness-registry";
+import {
+  DEFAULT_OWNER_ANSWER_MS,
+  EMPTY_HARNESS,
+  type SettingsServerLimits,
+  settingsServerLimitsOf,
+  withoutQuery,
+} from "@t3flare/harness-registry";
 import { sha256Hex } from "@t3flare/skills";
 
 import { base64Url } from "../harness/keys.ts";
@@ -18,31 +24,46 @@ import type { ChangeEntity, ChangeView, PageReason } from "./types.ts";
 export const CHANGES_TABLE = "t3flare_settings_changes";
 
 /**
- * This many in a row declined (or, for own agents, unanswered), within `strikeWindowMs` of each other, refuse the
- * caller's asked changes for `STRIKE_LOCK_MS` from the last of them.
+ * The Settings server's limits at their defaults (SPI-1322): what a table or a check without the stored ones judges by.
+ * The limits themselves are its entry's settings (`SETTINGS_SERVER_LIMITS`), read at each request.
  */
-export const STRIKES = 3;
-/** Three strikes count as a run when they fall within this long of each other (plan D16), at least. */
-export const STRIKE_WINDOW_MS = 60 * 60_000;
-/** A run of strikes refuses the caller's asked changes this long after its last strike (plan D16). */
-export const STRIKE_LOCK_MS = 60 * 60_000;
+export const DEFAULT_LIMITS: SettingsServerLimits = settingsServerLimitsOf(EMPTY_HARNESS);
+
+/** The default run of strikes (`strikes`): this many in a row declined (or, for own agents, unanswered). */
+export const STRIKES = DEFAULT_LIMITS.strikes;
+/** The default strike window (`strikeWindowMinutes`): the least a run's strikes may span (plan D16). */
+export const STRIKE_WINDOW_MS = DEFAULT_LIMITS.strikeWindowMinutes * 60_000;
+/** The default strike lock (`strikeLockMinutes`): how long a run refuses asked changes after its last strike. */
+export const STRIKE_LOCK_MS = DEFAULT_LIMITS.strikeLockMinutes * 60_000;
 /** What a strike run's window has over its expiries' spacing: room for each next ask after an expiry. */
 const STRIKE_RUN_SLACK_MS = 5 * 60_000;
+/**
+ * The least a closed row is kept: the hourly caps' window (`APPLIED_WINDOW_MS`, `OPENED_WINDOW_MS`), whatever the
+ * strike and repeat limits are, so a lock of 0 still counts the last hour's changes.
+ */
+const KEPT_FLOOR_MS = 60 * 60_000;
 
 /**
  * How far apart a run of strikes may fall (SPI-1316), for the longest Answer wait `answerMs` among the run's changes:
- * `STRIKE_WINDOW_MS`, or more when the wait is long. One Open change per thread means its unanswered strikes come at
- * least a wait apart, so a run of expiries spans `STRIKES - 1` waits; a fixed window would never see one past a
+ * the strike window, or more when the wait is long. One Open change per thread means its unanswered strikes come at
+ * least a wait apart, so a run of expiries spans `strikes - 1` waits; a fixed window would never see one past a
  * 30-minute wait.
  */
-export const strikeWindowMs = (answerMs: number): number =>
-  Math.max(STRIKE_WINDOW_MS, (STRIKES - 1) * answerMs + STRIKE_RUN_SLACK_MS);
+export const strikeWindowMs = (answerMs: number, limits: SettingsServerLimits = DEFAULT_LIMITS): number =>
+  Math.max(limits.strikeWindowMinutes * 60_000, (limits.strikes - 1) * answerMs + STRIKE_RUN_SLACK_MS);
 
 /**
- * How long a closed row is kept: the longest a cap looks back, a run of strikes and the lock after it (plan D16), for
- * the longest Answer wait `answerMs` a run may have. Two hours at the default.
+ * How long a closed row is kept: the longest a check looks back (SPI-1322 review), for the longest Answer wait
+ * `answerMs` a run may have. A run of strikes and the lock after it (plan D16), the declined repeat, and the hourly caps'
+ * hour, whichever is longest. Two hours at the defaults. A limit lowered prunes sooner, and what was pruned is not
+ * recovered when it is raised again.
  */
-export const closedKeptMs = (answerMs: number): number => strikeWindowMs(answerMs) + STRIKE_LOCK_MS;
+export const closedKeptMs = (answerMs: number, limits: SettingsServerLimits = DEFAULT_LIMITS): number =>
+  Math.max(
+    KEPT_FLOOR_MS,
+    strikeWindowMs(answerMs, limits) + limits.strikeLockMinutes * 60_000,
+    limits.declinedRepeatMinutes * 60_000,
+  );
 
 /** The wait a change took when it opened (SPI-1316): its own deadline less its start; none for a free change. */
 export const waitOf = (record: Pick<ChangeRecord, "createdAt" | "expiresAt">): number =>
@@ -58,21 +79,30 @@ export const durationText = (ms: number): string => {
 /** An apply that never closed (the Environment reset while it ran) is closed as failed this long after its expiry. */
 export const APPLYING_GRACE_MS = 5 * 60_000;
 
-/** Applied changes of any tier, per caller, per hour (plan D16). */
-export const APPLIED_CAP = 30;
+/** Applied changes of any tier, per caller, per hour (plan D16): the default of `appliedPerHour`. */
+export const APPLIED_CAP = DEFAULT_LIMITS.appliedPerHour;
+/** Fixed: the hour the per-hour limits name. */
 export const APPLIED_WINDOW_MS = 60 * 60_000;
 
 /**
  * Asked changes opened per caller per hour, whatever their outcome (SPI-1195 review): a withdrawn change (a Stop, a
  * cancelled card, a cut stream) neither strikes nor counts as applied, so without this an agent could ask without end.
  */
-export const OPENED_CAP = 6;
+export const OPENED_CAP = DEFAULT_LIMITS.askedPerHour;
+/** Fixed: the hour `askedPerHour` names. */
 export const OPENED_WINDOW_MS = 60 * 60_000;
 
-/** Reads of any kind, per caller (`capKeyOf`), per hour (SPI-1198 review: reads are bounded as changes are, D16-style). */
-export const READ_CAP = 240;
-/** Reads that reach GitHub or an MCP server, per caller, per hour: they spend a token's or a server's limits. */
-export const NETWORK_READ_CAP = 20;
+/**
+ * Reads of any kind, per caller (`capKeyOf`), per hour (SPI-1198 review: reads are bounded as changes are, D16-style):
+ * the default of `readsPerHour`.
+ */
+export const READ_CAP = DEFAULT_LIMITS.readsPerHour;
+/**
+ * Reads that reach GitHub or an MCP server, per caller, per hour: they spend a token's or a server's limits. The default
+ * of `networkReadsPerHour`.
+ */
+export const NETWORK_READ_CAP = DEFAULT_LIMITS.networkReadsPerHour;
+/** Fixed: the hour the read limits name. */
 export const READ_WINDOW_MS = 60 * 60_000;
 /** The Settings server's reads that reach GitHub or an MCP server. */
 export const NETWORK_READS: ReadonlySet<string> = new Set(["test_mcp_server", "preview_skills", "check_skill_updates"]);
@@ -183,9 +213,11 @@ export interface SettingsChanges {
   readsSince(key: string, kind: "read" | "network", since: number): number;
   /** The Answer wait now (SPI-1316), in ms. */
   answerMs(): number;
+  /** The Settings server's limits now (SPI-1322), as stored. */
+  limits(): SettingsServerLimits;
   /**
-   * How long a closed row is kept (SPI-1316): `closedKeptMs` of the longest wait a run may have, the wait now or the
-   * longest any kept change took (a CLI agent's change takes the wait its process was spawned with).
+   * How long a closed row is kept (SPI-1316): `closedKeptMs` of the limits now and the longest wait a run may have, the
+   * wait now or the longest any kept change took (a CLI agent's change takes the wait its process was spawned with).
    */
   keptMs(): number;
 }
@@ -239,13 +271,14 @@ export const closedLine = (record: ChangeRecord): Record<string, unknown> => ({
 /**
  * The table over `sql`. `log` gets the line of each change the table itself closes (an expiry, or an apply the
  * Environment's restart cut off), since no answerer is there to write it. `answerMs` is the Answer wait now (SPI-1316),
- * which a closed row's keeping covers (`keptMs`).
+ * and `limits` the Settings server's limits now (SPI-1322), both of which a closed row's keeping covers (`keptMs`).
  */
 export const settingsChanges = (
   sql: Pick<SqlStorage, "exec">,
   now: () => number = Date.now,
   log?: (event: Record<string, unknown>) => void,
   answerMs: () => number = () => DEFAULT_OWNER_ANSWER_MS,
+  limits: () => SettingsServerLimits = () => DEFAULT_LIMITS,
 ): SettingsChanges => {
   let ready = false;
   const write = (record: ChangeRecord) =>
@@ -277,7 +310,7 @@ export const settingsChanges = (
       .toArray()[0];
     return Math.max(answerMs(), Number(row?.longest ?? 0));
   };
-  const keptMs = (): number => closedKeptMs(longestWait());
+  const keptMs = (): number => closedKeptMs(longestWait(), limits());
   /** Creates the table once, closes what has expired, and prunes what closed over `keptMs` ago. */
   const prepare = () => {
     if (!ready) {
@@ -330,7 +363,7 @@ export const settingsChanges = (
     },
     openedSince: (key, since) => {
       prepare();
-      // Closed rows are kept two hours at least (`closedKeptMs`), longer than any window this is asked about.
+      // Closed rows are kept an hour at least (`closedKeptMs`), as long as any window this is asked about.
       return rows(`caller_key = ? AND created_at >= ?`, key, since).filter((record) => record.tier === "asked").length;
     },
     recordApplied: (record) => {
@@ -366,6 +399,7 @@ export const settingsChanges = (
       sql.exec(`INSERT INTO ${READS_TABLE} (caller_key, kind, at) VALUES (?, ?, ?)`, key, kind, at);
     },
     answerMs,
+    limits,
     keptMs: () => {
       prepare();
       return keptMs();

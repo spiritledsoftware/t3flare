@@ -11,9 +11,10 @@
 //   outcome (`closeOrSettle`);
 // - the in-memory waiters a held call waits on. With no waiter (after an Environment restart the call is gone), the
 //   record still stands until it expires, and the Change page can still apply it.
+import { OPEN_ACROSS, type SettingsServerLimits } from "@t3flare/harness-registry";
+
 import {
   type AnsweredBy,
-  APPLIED_CAP,
   APPLIED_WINDOW_MS,
   capKeyOf,
   type ChangeCaller,
@@ -22,26 +23,29 @@ import {
   type ClosedBy,
   closedLine,
   durationText,
+  DEFAULT_LIMITS,
   isOpen,
-  OPENED_CAP,
   OPENED_WINDOW_MS,
   scrubUrls,
   type SettingsChanges,
-  STRIKE_LOCK_MS,
   strikeWindowMs,
-  STRIKES,
   waitOf,
 } from "./changes.ts";
 import { REQUEST_BUDGET_MS } from "../skills/api.ts";
 
-/** Open changes per own-agent thread (plan D16): a second asked call is refused, not queued. */
-export const OPEN_PER_THREAD = 1;
-/** Open changes per Owner `sub`. */
-export const OPEN_PER_OWNER = 2;
-/** Open changes across the Environment: a storage bound. */
-export const OPEN_ACROSS = 16;
-/** The same change (by hash) after a decline, per caller, is refused this long. */
-export const DECLINED_REPEAT_MS = 10 * 60_000;
+/**
+ * Open changes per own-agent thread (plan D16): one past it is refused, not queued. The default of `openPerThread`
+ * (SPI-1322).
+ */
+export const OPEN_PER_THREAD = DEFAULT_LIMITS.openPerThread;
+/** Open changes per Owner `sub`: the default of `openPerOwner`. */
+export const OPEN_PER_OWNER = DEFAULT_LIMITS.openPerOwner;
+/** Open changes across the Environment: a storage bound, fixed (the registry's `OPEN_ACROSS`). */
+export { OPEN_ACROSS };
+/**
+ * The same change (by hash) after a decline, per caller, is refused this long: the default of `declinedRepeatMinutes`.
+ */
+export const DECLINED_REPEAT_MS = DEFAULT_LIMITS.declinedRepeatMinutes * 60_000;
 
 /** A closed change's outcome, as a held call and an answerer read it. Never an authorization URL. */
 export interface ChangeOutcome {
@@ -67,7 +71,8 @@ export interface CapRefusal {
 
 /**
  * Why `caller` may not open an asked change of `hash` now (plan D16), or undefined. `openList` is the panel's Open
- * changes list, named by the Environment-wide cap's refusal.
+ * changes list, named by the Environment-wide cap's refusal. `limits` are the Settings server's (SPI-1322), as stored
+ * now: the counts already recorded are judged by them.
  */
 export const capRefusal = (
   changes: SettingsChanges,
@@ -75,17 +80,20 @@ export const capRefusal = (
   hash: string,
   now: number,
   openList?: string,
+  limits: SettingsServerLimits = changes.limits(),
 ): CapRefusal | undefined => {
   const capKey = capKeyOf(caller.door, caller.key);
   const mine = changes.openBy(capKey);
-  const perCaller = caller.door === "own" ? OPEN_PER_THREAD : OPEN_PER_OWNER;
+  const perCaller = caller.door === "own" ? limits.openPerThread : limits.openPerOwner;
   if (mine.length >= perCaller) {
     const [first] = mine;
     return {
       reason: caller.door === "own" ? "open-thread" : "open-owner",
       text:
         caller.door === "own"
-          ? `Not changed: this thread already has a change waiting for the owner (${first!.id}); ask for one at a time. Wait for its answer, or read get_status.`
+          ? perCaller === 1
+            ? `Not changed: this thread already has a change waiting for the owner (${first!.id}); ask for one at a time. Wait for its answer, or read get_status.`
+            : `Not changed: ${perCaller} changes of this thread already wait for the owner (${mine.map((record) => record.id).join(", ")}); ask for at most ${perCaller} at a time. Wait for an answer, or read get_status.`
           : `Not changed: ${perCaller} changes of yours already wait for an answer (${mine.map((record) => record.id).join(", ")}); answer or cancel one first.`,
       changeId: first!.id,
     };
@@ -96,25 +104,26 @@ export const capRefusal = (
       text: `Not changed: ${OPEN_ACROSS} changes already wait for the owner across this Environment, the most t3flare keeps. He sees them on the Settings page's Open changes list${openList === undefined ? "" : `: ${openList}`}.`,
     };
   }
-  if (changes.openedSince(capKey, now - OPENED_WINDOW_MS) >= OPENED_CAP) {
+  const opened = limits.askedPerHour;
+  if (changes.openedSince(capKey, now - OPENED_WINDOW_MS) >= opened) {
     return {
       reason: "opened-cap",
       text:
         caller.door === "own"
-          ? `Not changed: this thread asked for ${OPENED_CAP} changes in the last hour, answered or not, the most t3flare allows. Ask the owner in the thread; he changes settings on the Settings page${openList === undefined ? "" : ` (${openList})`}.`
-          : `Not changed: you asked for ${OPENED_CAP} changes in the last hour, answered or not, the most t3flare allows. Make the change on the Settings page${openList === undefined ? "" : ` (${openList})`}, or try again later.`,
+          ? `Not changed: this thread asked for ${opened} changes in the last hour, answered or not, the most t3flare allows. Ask the owner in the thread; he changes settings on the Settings page${openList === undefined ? "" : ` (${openList})`}.`
+          : `Not changed: you asked for ${opened} changes in the last hour, answered or not, the most t3flare allows. Make the change on the Settings page${openList === undefined ? "" : ` (${openList})`}, or try again later.`,
     };
   }
-  // Everything the table keeps: a run's window is known only once its changes are (SPI-1316).
+  // Everything the table keeps: a run's window is known only once its changes are (SPI-1316), and the kept time covers
+  // the declined repeat too (SPI-1322 review).
   const recent = changes.closedBy(capKey, now - changes.keptMs());
+  const repeatMs = limits.declinedRepeatMinutes * 60_000;
   if (
-    recent.some(
-      (record) => record.hash === hash && record.state === "declined" && record.closed!.at > now - DECLINED_REPEAT_MS,
-    )
+    recent.some((record) => record.hash === hash && record.state === "declined" && record.closed!.at > now - repeatMs)
   ) {
     return {
       reason: "declined-repeat",
-      text: `Not changed: the owner declined this same change less than ${durationText(DECLINED_REPEAT_MS)} ago. Do not ask again; ask him in the thread what he wants instead.`,
+      text: `Not changed: the owner declined this same change less than ${durationText(repeatMs)} ago. Do not ask again; ask him in the thread what he wants instead.`,
     };
   }
   // A strike is a decline; for own agents an expiry too (unanswered), never for an Owner client (a dropped stream or an
@@ -122,22 +131,24 @@ export const capRefusal = (
   const strike = (record: ChangeRecord) =>
     record.state === "declined" || (caller.door === "own" && record.state === "expired");
   // The lock runs from the last strike of the run (plan D16: refused for an hour after the third).
-  const run = recent.filter((record) => record.state === "applied" || strike(record)).slice(0, STRIKES);
+  const strikes = limits.strikes;
+  const lockMs = limits.strikeLockMinutes * 60_000;
+  const run = recent.filter((record) => record.state === "applied" || strike(record)).slice(0, strikes);
   const last = run[0]?.closed?.at ?? 0;
   const first = run.at(-1)?.closed?.at ?? 0;
   // SPI-1316: the run's window follows the longest wait its changes took, so a long wait's spaced-out expiries still
   // make a run, whatever the wait is now.
-  const window = strikeWindowMs(Math.max(0, ...run.map(waitOf)));
-  if (run.length === STRIKES && run.every(strike) && last - first <= window && now < last + STRIKE_LOCK_MS) {
+  const window = strikeWindowMs(Math.max(0, ...run.map(waitOf)), limits);
+  if (run.length === strikes && run.every(strike) && last - first <= window && now < last + lockMs) {
     return {
       reason: "strikes",
-      text: `Not changed: your last ${STRIKES} asked changes were ${caller.door === "own" ? "declined or unanswered" : "declined"}, so t3flare refuses your asked changes until ${new Date(last + STRIKE_LOCK_MS).toISOString()} (${durationText(STRIKE_LOCK_MS)} after the last). Ask the owner in the thread what he wants.`,
+      text: `Not changed: your last ${strikes === 1 ? "asked change was" : `${strikes} asked changes were`} ${caller.door === "own" ? "declined or unanswered" : "declined"}, so t3flare refuses your asked changes until ${new Date(last + lockMs).toISOString()} (${durationText(lockMs)} after the last). Ask the owner in the thread what he wants.`,
     };
   }
-  if (changes.appliedSince(capKey, now - APPLIED_WINDOW_MS) >= APPLIED_CAP) {
+  if (changes.appliedSince(capKey, now - APPLIED_WINDOW_MS) >= limits.appliedPerHour) {
     return {
       reason: "applied-cap",
-      text: `Not changed: ${caller.door === "own" ? "this thread" : "you"} made ${APPLIED_CAP} settings changes in the last hour, the most t3flare allows. Try again later, or ask the owner.`,
+      text: `Not changed: ${caller.door === "own" ? "this thread" : "you"} made ${limits.appliedPerHour} settings changes in the last hour, the most t3flare allows. Try again later, or ask the owner.`,
     };
   }
   return undefined;

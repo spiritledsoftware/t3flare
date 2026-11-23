@@ -440,6 +440,30 @@ describe("the Settings server's write checks", () => {
     expect(run.store.load().revision).toBe(2);
   });
 
+  it("SPI-1322: a move of the Settings server's limits is asked in either direction; one at its value is unchanged", async () => {
+    const run = setup({ answer: { decision: "decline" } });
+    recordModes(durable(), "full-access");
+    for (const limits of [{ askedPerHour: 60 }, { askedPerHour: 1 }, { strikeLockMinutes: 0 }]) {
+      const args = { expectedRevision: 0, change: { op: "server", server: "settings", limits } };
+      expect(structured(await run.call(durable(), "change_mcp", args)), JSON.stringify(limits)).toMatchObject({
+        status: "declined",
+      });
+    }
+    expect(run.cards.length).toBe(3);
+    // The card names the limit, from and to.
+    expect(JSON.stringify(run.cards[0])).toContain("settings.limits.askedPerHour");
+    expect(
+      structured(
+        await run.call(durable(), "change_mcp", {
+          expectedRevision: 0,
+          change: { op: "server", server: "settings", limits: { askedPerHour: 6 } },
+        }),
+      ),
+    ).toMatchObject({ status: "unchanged" });
+    expect(run.cards.length).toBe(3);
+    expect(run.store.load().revision).toBe(0);
+  });
+
   it(`at most ${APPLIED_CAP} applied changes per caller per hour`, async () => {
     const run = setup();
     recordModes(durable(), "full-access");

@@ -23,6 +23,7 @@ import {
   resolveEnvironment,
   resolveHarness,
   settingOf,
+  settingsServerLimitsOf,
   type StoredEnvironment,
   type StoredHarness,
   type Variable,
@@ -299,6 +300,15 @@ export const mcpItems = (
           before: (current.writes ?? true) ? "on" : "off",
           after: change.writes ? "on" : "off",
         });
+      }
+      // The Settings server's limits (SPI-1322): one item per limit the change moves, against its value now.
+      if (change.limits !== undefined && current.kind === "settings") {
+        const limits: Readonly<Record<string, unknown>> = settingsServerLimitsOf(stored);
+        for (const [key, after] of Object.entries(change.limits)) {
+          const before = ownEntry(limits, key);
+          if (before === after) continue;
+          items.push({ kind: "scalar", name: `${change.server}.limits.${key}`, before, after });
+        }
       }
       if (change.exposure !== undefined && change.exposure !== current.exposure)
         items.push({

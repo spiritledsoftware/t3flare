@@ -160,3 +160,21 @@ lowered time limit is free, every other change asked.
 refinement). An Open change takes the wait when it opens, as its `expiresAt`, and keeps it; one asked from a CLI agent
 takes the wait that agent's process was spawned with. The strike window widens with a long wait, so unanswered strikes
 still form a run.
+
+## Refinement (SPI-1322, 2026-11-23): the Settings server's limits are its entry's settings
+
+Plan D16's caps are now limits on the Settings server's own entry in the MCP server set (`limits`, kind `settings`
+only), each with today's value as its default: the run of strikes (`strikes`), the strike window and lock
+(`strikeWindowMinutes`, `strikeLockMinutes`; a lock of 0 turns it off), the declined repeat (`declinedRepeatMinutes`),
+the applied, asked, read and network-read caps per hour, and the open changes per thread and per Owner client. The Owner
+sets them in a Limits form on the Settings server's card. As every change to that entry, a change to them is asked in
+either direction (§3, plan D5). Each applies at the caller's next request, and the counts already recorded are judged by
+the new values. The strike window keeps the SPI-1316 refinement's run-based widening, with the strikes and the window in
+place of the constants.
+
+Fixed: the Environment-wide bound on open changes (16, a storage bound: every access to the changes table reads every
+open row, and it is the most either open count may be), and the hour each per-hour cap counts over.
+
+A closed change is kept the longest any check looks back: the strike window plus the lock, the declined repeat, or an
+hour, whichever is longest. Lowering a limit prunes sooner; rows pruned under a shorter earlier limit are not recovered
+when it is raised again.

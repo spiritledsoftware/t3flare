@@ -382,6 +382,47 @@ describe("Settings page", () => {
     expect(priors).toEqual([{}, {}]);
   });
 
+  it("the page's Settings server card has a Limits form; saving it stores its limits on the settings entry (SPI-1322)", async () => {
+    const kv = memory();
+    const store = harnessStore(kv);
+    const mcp = new McpHost({ kv, engine: undefined, settings: () => store.load() });
+    const deps = { caller: owner, host: HOST, store, mcp, secrets: harnessSecrets(kv), now: () => NOW };
+    const page = await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), deps)).text();
+    expect(page).toContain('data-mcp-limits="settings"');
+    expect(page).toContain('data-setting="askedPerHour" data-kind="integer"');
+    const post = async (body: unknown) =>
+      handleHarness(
+        new Request(`https://${HOST}/_t3flare/settings/api/mcp`, {
+          method: "POST",
+          headers: { "content-type": "application/json", ...(await ownerHeaders(store)) },
+          body: JSON.stringify(body),
+        }),
+        deps,
+      );
+    const limits = {
+      strikes: 3,
+      strikeWindowMinutes: 60,
+      strikeLockMinutes: 180,
+      declinedRepeatMinutes: 10,
+      appliedPerHour: 30,
+      askedPerHour: 12,
+      readsPerHour: 240,
+      networkReadsPerHour: 20,
+      openPerThread: 1,
+      openPerOwner: 3,
+    };
+    expect((await post({ op: "server", server: "settings", limits })).status).toBe(200);
+    expect(store.load().mcp?.servers.settings).toMatchObject({ kind: "settings", limits });
+    const shown = await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), deps)).text();
+    expect(shown).toMatch(/data-setting="askedPerHour"[^>]*value="12"/);
+    // Out of range, or on a Direct server: refused, and nothing stored.
+    const revision = store.load().revision;
+    const refused = await post({ op: "server", server: "settings", limits: { ...limits, openPerOwner: 17 } });
+    expect(refused.status).toBe(400);
+    expect(await refused.text()).toContain("limits.openPerOwner: at most 16");
+    expect(store.load().revision).toBe(revision);
+  });
+
   it("the owner adds an OAuth server from the page's form (a scoped URL with its query kept) and can remove it", async () => {
     const kv = memory();
     const store = harnessStore(kv);

@@ -5,7 +5,7 @@
 // hash-only and its script hash matches; the panel lists the Open changes.
 import { createHash } from "node:crypto";
 
-import { DEFAULT_OWNER_ANSWER_MS } from "@t3flare/harness-registry";
+import { applyMcpChange, DEFAULT_OWNER_ANSWER_MS, EMPTY_HARNESS } from "@t3flare/harness-registry";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { csrfToken } from "../src/harness/csrf.ts";
@@ -128,6 +128,22 @@ describe("the Change page renders every kind escaped, a hostile value inert", ()
     expect(html).toContain('data-action="approve"');
     // No attribute is opened by a value.
     expect(html).not.toMatch(/<[^>]*\son[a-z]+=/i);
+  });
+
+  it("the gone page names how long closed changes are kept, from the Settings server's limits (SPI-1322)", async () => {
+    const limited = applyMcpChange(EMPTY_HARNESS, {
+      op: "server",
+      server: "settings",
+      limits: { strikeLockMinutes: 180 },
+    });
+    if (!limited.ok) throw new Error(limited.error);
+    fixture = settingsFixture({ harness: limited.harness });
+    const response = await handleHarness(
+      new Request(`https://${HOST}${changePagePath(newChangeId())}`),
+      fixture.panel(),
+    );
+    expect(response.status).toBe(404);
+    expect(await response.text()).toContain("it closed over 4 hours ago, or never was");
   });
 
   it("a closed change shows its outcome and no answer; an unknown id is gone", async () => {

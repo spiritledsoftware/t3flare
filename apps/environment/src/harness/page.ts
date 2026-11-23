@@ -46,6 +46,10 @@ import {
   ownEntry,
   ownerAnswerMsOf,
   resolveEnvironment,
+  resolveSettingsServerLimits,
+  SETTINGS_SERVER_LIMIT_KEYS,
+  SETTINGS_SERVER_LIMITS,
+  SETTINGS_SERVER_LIMITS_NOTE,
   SWEEP_SETTING_KEYS,
   visible,
 } from "@t3flare/harness-registry";
@@ -494,6 +498,8 @@ export interface McpRow {
     readonly auth?: { readonly kind: string; readonly header?: string };
     /** The Settings server's writes switch (plan D2). */
     readonly writes?: boolean;
+    /** The Settings server's limits as set (SPI-1322); the card shows each resolved. */
+    readonly limits?: Readonly<Record<string, number>>;
   };
   readonly oauth?: { readonly signedIn: boolean };
   /** A header sign-in's value: whether it is set, when, and its fingerprint (never the value). */
@@ -629,6 +635,21 @@ const settingsAccess = (row: McpRow): string => {
     .join("")}</div>`;
 };
 
+/**
+ * The Settings server's limits (SPI-1322): a form of its ten limits, each at its value now, saved as one change to its
+ * entry through the panel's JSON API (pageScript.ts `form[data-mcp-limits]`). The consequence of raising them is said
+ * once, in its description.
+ */
+const settingsLimits = (row: McpRow): string => {
+  const limits = resolveSettingsServerLimits(row.setting.limits);
+  const id = escapeHtml(`srv-${row.name}-limits`);
+  const fields = SETTINGS_SERVER_LIMIT_KEYS.map((key) =>
+    field(`${row.name}-limits`, key, SETTINGS_SERVER_LIMITS[key], limits[key]),
+  ).join("");
+  return `<details class="tools" data-server-limits><summary id="${id}">${icon("chevron")}Limits <span>how often a caller may ask, change and read</span></summary>
+<form class="server-limits" data-mcp-limits="${escapeHtml(row.name)}" aria-labelledby="${id}" novalidate><p class="desc">Each caller (an agent's thread, or an Owner client's identity) is held to these. ${escapeHtml(SETTINGS_SERVER_LIMITS_NOTE)} A change applies at each caller's next request, and is asked like any change to this server.</p><div class="fields">${fields}</div><div class="save"><span class="save-note" data-save-note aria-live="polite"></span><button type="submit" class="btn btn-sm" data-save disabled>Save</button></div></form></details>`;
+};
+
 /** The Owner clients as the Settings server's card shows them (ADR-0035's 2026-11-15 refinement). */
 export interface OwnerClientsView {
   /** The Owner-client endpoint's URL, when it is deployed. */
@@ -725,7 +746,7 @@ ${
 }
 <dl class="facts">${facts}</dl></div>${error}${refused}
 <div class="server-actions">${row.setting.kind === "settings" ? "" : `<button type="button" class="btn btn-sm" data-mcp-test="${name}">${icon("play")}Test</button>`}${oauth}<label class="exposure">Exposure ${exposureSelect(row, row.setting.exposure)}</label><p class="test-result" data-test-result="${name}" role="status" aria-live="polite"></p><span class="spacer"></span>${remove}</div>
-${toolsTable(row)}${row.setting.kind === "settings" && owner !== undefined ? ownerClientsBlock(owner) : ""}</article>`;
+${toolsTable(row)}${row.setting.kind === "settings" ? settingsLimits(row) : ""}${row.setting.kind === "settings" && owner !== undefined ? ownerClientsBlock(owner) : ""}</article>`;
 };
 
 /**
