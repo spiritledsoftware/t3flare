@@ -81,8 +81,9 @@ describe("t3's Usage page, through the Shadow's readers", () => {
       }).pipe(Effect.provide(layer), Effect.scoped);
       // SAFETY: the type is t3's own drivers' (the mock is not seen by the typechecker): their readers need t3's usage
       // services (Antigravity, Codex history, Cursor, Muse); the Shadow's need none, which running it here shows.
+      type Summary = Effect.Effect<Effect.Success<typeof read>, Effect.Error<typeof read>>;
       // @effect-diagnostics-next-line unsafeEffectTypeAssertion:off -- t3's drivers' requirements, which the mocked Shadow's readers do not have (SAFETY above)
-      const summary = await Effect.runPromise(read as Effect.Effect<Effect.Success<typeof read>, Effect.Error<typeof read>>);
+      const summary = await Effect.runPromise(read as Summary);
       const ours = summary.buckets.map((bucket) => ({ provider: bucket.provider, source: bucket.sourcePath, model: bucket.model, costUsd: bucket.costUsd, costSource: bucket.costSource }));
       expect(ours).toEqual(
         expect.arrayContaining([

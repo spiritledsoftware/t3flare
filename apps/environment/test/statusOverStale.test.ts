@@ -139,8 +139,8 @@ const workspacePathsExist = Layer.effect(
   FileSystem.FileSystem,
   Effect.gen(function* () {
     const local = yield* FileSystem.FileSystem;
-    // @effect-diagnostics-next-line effectFnOpportunity:off -- a fake service's stub method: Effect.fn's span adds nothing to a stand-in
-    return FileSystem.FileSystem.of({ ...local, exists: (path) => (/^\/w\/[^/]+$/.test(path) ? Effect.succeed(true) : local.exists(path)) });
+    const exists = (path: string) => (/^\/w\/[^/]+$/.test(path) ? Effect.succeed(true) : local.exists(path));
+    return FileSystem.FileSystem.of({ ...local, exists });
   }),
 );
 

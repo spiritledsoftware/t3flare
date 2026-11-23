@@ -10,7 +10,8 @@ import { RpcClient } from "effect/rpc";
 import { protocol, sleep } from "./client.ts";
 
 // oxlint-disable-next-line no-control-regex -- ANSI escapes are what this strips
-export const stripAnsi = (text: string) => text.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b[()][A-Za-z0-9]|\r/g, "");
+const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b[()][A-Za-z0-9]|\r/g;
+export const stripAnsi = (text: string) => text.replace(ANSI, "");
 
 export interface TerminalEventLike {
   readonly type: string;

@@ -80,7 +80,8 @@ export const usageEntryOf = (value: unknown): UsageEntry | undefined => {
   const { agent, endpointId, modelId, at, session, costUsd } = entry;
   if (!isUsageAgent(agent) || typeof endpointId !== "string" || !ENDPOINT_ID.test(endpointId)) return undefined;
   // oxlint-disable-next-line no-control-regex -- control characters are what this refuses
-  const name = (text: unknown): text is string => typeof text === "string" && text.length <= MAX_USAGE_NAME && !/[\u0000-\u001f\u007f]/.test(text);
+  const control = /[\u0000-\u001f\u007f]/;
+  const name = (text: unknown): text is string => typeof text === "string" && text.length <= MAX_USAGE_NAME && !control.test(text);
   if (!name(modelId) || modelId.trim() === "" || !name(session)) return undefined;
   if (typeof at !== "number" || !Number.isFinite(at) || at <= 0) return undefined;
   const tokens = tokensOf(entry);

@@ -200,7 +200,8 @@ describe("the pinned t3code against the checked-in fingerprint", () => {
   // The register is the list of what is fingerprinted: T2's "Covers" cell names every entry the fixture watches.
   it("watches the register entries T2 names in docs/upstream-fragility.md, and no others", () => {
     const register = fs.readFileSync(new URL("docs/upstream-fragility.md", ROOT), "utf8");
-    const covers = /^\| T2 \|.*\| ((?:U\d+, )*U\d+) \| [^|]* \|$/m.exec(register)?.[1];
+    // Cells may be padded, as `vp fmt` aligns the table's columns.
+    const covers = /^\| T2 +\|.*\| ((?:U\d+, )*U\d+) +\| [^|]* \|$/m.exec(register)?.[1];
     expect(covers, "docs/upstream-fragility.md's T2 row no longer ends with its Covers and Ticket cells").toBeDefined();
     const entries = new Set([...fingerprint.regions, ...fingerprint.literals].map((watched) => watched.entry));
     expect([...entries].toSorted(), "the fixture's entries and T2's Covers cell differ: update the one that is wrong").toEqual(covers!.split(", ").toSorted());

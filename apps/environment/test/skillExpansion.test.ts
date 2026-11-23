@@ -135,11 +135,12 @@ describe("the caller's switch", () => {
     const fileSystem = {} as FileSystem.FileSystem;
     const rewrite = (cli: "claude" | "opencode") => {
       const flavor = acpInstanceFlavor({ cli, driver: ProviderDriverKind.make(cli) }, host, fileSystem, workspaceAccess());
-      return flavor.rewriteUserText === undefined
-        ? Promise.resolve("(no rewrite)")
-        : // Never spawns: the hooks' requirement is t3's, for flavors that run a process to rewrite.
-          // @effect-diagnostics-next-line unsafeEffectTypeAssertion:off -- OpenCode's rewrite never reaches the spawner the type requires.
-          Effect.runPromise(flavor.rewriteUserText("$fruit-code", {} as ProviderAdapter.ProviderAdapterV2TurnInput).pipe(Effect.provideService(CliTurn, { cwd: "/w/proj" })) as Effect.Effect<string>);
+      if (flavor.rewriteUserText === undefined) return Promise.resolve("(no rewrite)");
+      const turn = {} as ProviderAdapter.ProviderAdapterV2TurnInput;
+      const rewritten = flavor.rewriteUserText("$fruit-code", turn).pipe(Effect.provideService(CliTurn, { cwd: "/w/proj" }));
+      // Never spawns: the hooks' requirement is t3's, for flavors that run a process to rewrite.
+      // @effect-diagnostics-next-line unsafeEffectTypeAssertion:off -- OpenCode's rewrite never reaches the spawner the type requires.
+      return Effect.runPromise(rewritten as Effect.Effect<string>);
     };
     // As OpenCode's skill tool returns it (cliSkillDispatch.test.ts pins the block).
     expect(await rewrite("opencode")).toContain(`$fruit-code\n\n<skill_content name="fruit-code">\n# Skill: fruit-code\n\nRead reference/code.md for the code.`);
