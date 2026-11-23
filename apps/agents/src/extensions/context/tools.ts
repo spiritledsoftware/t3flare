@@ -270,7 +270,8 @@ const historyTool = async (args: HistoryArgs, api: ToolExecutionApi, context: Co
     const entry = await readEntry(api, self, parsed.entryId, context);
     if (entry === undefined) return fail("Entry not found in this conversation");
     const recorded = JSON.stringify(entry);
-    const content = recorded.slice(offset, offset + (args.limit ?? READ_CHARACTERS));
+    // `limit` is a page's size for list and search; a read returns at most READ_CHARACTERS of entry JSON per call.
+    const content = recorded.slice(offset, offset + Math.min(args.limit ?? READ_CHARACTERS, READ_CHARACTERS));
     return result({
       ref: args.ref,
       resolved_in_session: String(self),
@@ -418,7 +419,12 @@ export const contextHistoryTool = (): ToolRegistration =>
       ),
       query: opt(QUERY),
       offset: opt(int({ minimum: 0 })),
-      limit: opt(int({ minimum: 1, maximum: READ_CHARACTERS })),
+      limit: opt(
+        int({
+          minimum: 1,
+          description: `windows/list/search: items per page (default ${PAGE_SIZE}); read: characters, at most ${READ_CHARACTERS}`,
+        }),
+      ),
     }),
     executionMode: "sequential",
     replay: "safe",

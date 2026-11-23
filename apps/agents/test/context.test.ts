@@ -19,6 +19,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import { ContextDoc, contextExtension, MAX_TOTAL_NOTE_CHARACTERS } from "../src/extensions/context.ts";
+import { READ_CHARACTERS } from "../src/extensions/context/history.ts";
 import { noteIndex } from "../src/extensions/context/notes.ts";
 import { conversationIdOf } from "../src/durableIds.ts";
 import { CONTINUE_PROMPT, emergencyText, PREPARE_PROMPT, prepareRollover } from "../src/extensions/context/rollover.ts";
@@ -126,6 +127,22 @@ describe("context_notes", () => {
     expect((json(results[70]).notes as unknown[]).length).toBe(50);
     // With no limit a page is still 20.
     expect((json(results[71]).notes as unknown[]).length).toBe(20);
+  });
+});
+
+describe("context_history pages", () => {
+  it("lists as many entries as the agent asks for, while a read still returns at most READ_CHARACTERS (SPI-1361)", async () => {
+    const { results } = await open([
+      ...Array.from({ length: 20 }, (_, index) =>
+        calls(["context_notes", { action: "write", name: `n${index}`, content: "z".repeat(3_000) }]),
+      ),
+      calls(["context_history", { action: "list", limit: 30 }]),
+      calls(["context_history", { action: "read", ref: "context:1:11", limit: 5_000 }]),
+      fauxAssistantMessage("done"),
+    ]);
+    expect(results[20]?.isError).toBe(false);
+    expect((json(results[20]).items as unknown[]).length).toBe(30);
+    expect((json(results[21]).content as string).length).toBe(READ_CHARACTERS);
   });
 });
 

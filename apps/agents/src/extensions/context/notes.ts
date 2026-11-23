@@ -4,7 +4,12 @@
 // the model's own tool argument, so its output tokens bound it.
 import { type ConversationId, defineDoc } from "@earendil-works/pi-durable";
 
-/** The most characters all of a conversation's Notes may hold together, their names and contents. */
+/**
+ * The most characters all of a conversation's Notes may hold together, their names and contents. A sanity bound
+ * (ADR-0048) under a named constraint: the Notes and the Handoff are one stored document, one DO SQLite row of 8 MB, and
+ * 256,000 characters are at most about 1.5 MB of JSON (six bytes for an escaped character), leaving the rest of the row
+ * to the Handoff.
+ */
 export const MAX_TOTAL_NOTE_CHARACTERS = 256_000;
 
 /** A Note name: a label, not a path. */

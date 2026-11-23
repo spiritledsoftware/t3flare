@@ -21,10 +21,11 @@ import {
 import { int, obj, opt, str } from "@earendil-works/pi-schema";
 
 import { FETCH_CONVERT_MAX_KIB } from "@t3flare/harness-registry";
+import { SESSION_ROW_BYTES, SESSION_ROW_ENVELOPE_BYTES } from "@t3flare/session-protocol";
 
 import { DEFAULT_WEB_LIMITS, type WebLimits } from "./limits.ts";
 import { readBoundedBody, statusCause, type WebTransport, WebToolError, withDeadline } from "./net.ts";
-import { boundStructuredText, fitOutput } from "./output.ts";
+import { boundStructuredText, fitOutput, OUTPUT_MAX_BYTES, STRUCTURED_MAX_BYTES } from "./output.ts";
 import { limitSearchText, providerTextSanitizer, type Sanitize } from "./shaping.ts";
 
 /**
@@ -35,6 +36,35 @@ import { limitSearchText, providerTextSanitizer, type Sanitize } from "./shaping
  * it. Every answer is read up to it; one past it is refused.
  */
 export const ANSWER_MAX_BYTES = FETCH_CONVERT_MAX_KIB * 1024;
+
+/**
+ * The most bytes of JSON one stored copy of a search's result list takes. A named constraint: a result is kept as one
+ * Session row (`SESSION_ROW_BYTES` less its record), and the row also holds the model's text (`OUTPUT_MAX_BYTES`), a
+ * program's copy of it (`STRUCTURED_MAX_BYTES`) and the list twice (the program's, and `details` for t3's web item).
+ */
+export const RESULTS_BYTES = Math.floor(
+  (SESSION_ROW_BYTES - SESSION_ROW_ENVELOPE_BYTES - OUTPUT_MAX_BYTES - STRUCTURED_MAX_BYTES) / 2,
+);
+
+const encoder = new TextEncoder();
+
+/** The first of `results` whose JSON, as `details` stores it, fits `RESULTS_BYTES` (each result counted with its comma). */
+const fitResults = (results: ReadonlyArray<SearchResult>): ReadonlyArray<SearchResult> => {
+  let bytes = 2;
+  let kept = 0;
+  for (const page of results) {
+    bytes += encoder.encode(JSON.stringify(detailOf(page))).length + 1;
+    if (bytes > RESULTS_BYTES) break;
+    kept++;
+  }
+  return kept === results.length ? results : results.slice(0, kept);
+};
+
+/** A result as t3's web item shows it (`details`): its snippet cut to a line. */
+const detailOf = (page: SearchResult): SearchResult => ({
+  ...page,
+  ...(page.snippet === undefined ? {} : { snippet: page.snippet.slice(0, 300) }),
+});
 
 const NO_SEARCH_RESULTS = "No search results found. Please try a different query.";
 
@@ -100,7 +130,10 @@ const OUTPUT_SCHEMA = {
       description:
         "The results and summary, trimmed to numResults and cut at contextMaxCharacters (default 6,000), then at 1 MiB",
     },
-    truncated: { type: "boolean", description: "Whether content was cut at 1 MiB" },
+    truncated: {
+      type: "boolean",
+      description: "Whether content was cut at 1 MiB, or results cut short of numResults to fit the stored result",
+    },
     results: {
       type: "array",
       items: {
@@ -299,28 +332,28 @@ export const webSearchTool = (
         );
       }
       if (read.failure !== undefined) throw new Error(`Unable to search the web for ${args.query}: ${read.failure}`);
-      const results = read.results.slice(0, args.numResults ?? limits.searchResults);
+      const asked = read.results.slice(0, args.numResults ?? limits.searchResults);
+      const results = fitResults(asked);
       const content =
         results.length === 0 && read.summary === ""
           ? NO_SEARCH_RESULTS
           : limitSearchText(resultText(results, read.summary), args.contextMaxCharacters);
       const fitted = fitOutput(content, "Lower contextMaxCharacters or narrow the query to read less per search.");
       const usage = usageOf(read.usage);
+      const structured = boundStructuredText(content);
       return {
         output: [{ type: "text" as const, text: fitted.content }],
         structuredOutput: {
           provider: `model-endpoint:${target.slug}`,
-          ...boundStructuredText(content),
+          content: structured.content,
+          truncated: structured.truncated || results.length < asked.length,
           results: results.map(({ snippet: _snippet, ...page }) => page),
         },
         // What t3's web item shows (the differ): the query and each page found.
         details: {
           provider: `model-endpoint:${target.slug}`,
           query: args.query,
-          results: results.map((page) => ({
-            ...page,
-            ...(page.snippet === undefined ? {} : { snippet: page.snippet.slice(0, 300) }),
-          })),
+          results: results.map(detailOf),
         },
         ...(usage === undefined ? {} : { usage }),
       };

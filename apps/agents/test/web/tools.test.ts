@@ -10,7 +10,13 @@ import { UNCONVERTED_NOTE, webFetchTool } from "../../src/extensions/web/fetch.t
 import { DEFAULT_WEB_LIMITS, type WebLimits } from "../../src/extensions/web/limits.ts";
 import { STRUCTURED_MAX_BYTES } from "../../src/extensions/web/output.ts";
 import type { WebRequest, WebTransport } from "../../src/extensions/web/net.ts";
-import { ANSWER_MAX_BYTES, readAnswer, systemPrompt, webSearchTool } from "../../src/extensions/web/search.ts";
+import {
+  ANSWER_MAX_BYTES,
+  readAnswer,
+  RESULTS_BYTES,
+  systemPrompt,
+  webSearchTool,
+} from "../../src/extensions/web/search.ts";
 
 const PUBLIC = "93.184.215.14";
 
@@ -379,6 +385,31 @@ describe("web_search", () => {
       : undefined;
     expect(new TextEncoder().encode(structured?.content).length).toBeLessThanOrEqual(STRUCTURED_MAX_BYTES);
     expect(structured?.truncated).toBe(true);
+  });
+
+  it("keeps the stored result lists within the Session row, saying so when it cuts them (SPI-1361)", async () => {
+    const pages = Array.from({ length: 2_000 }, (_, index) => ({
+      type: "web_search_result",
+      url: `https://a.example/${index}/${"p".repeat(2_000)}`,
+      title: `Page ${index}`,
+      encrypted_content: "x",
+    }));
+    const many = {
+      content: [{ type: "web_search_tool_result", tool_use_id: "s", content: pages }],
+    };
+    const { transport } = network(() => Response.json(many));
+    const outcome = await run(webSearchTool(transport, endpoint), { query: "q", numResults: 10_000 });
+    const result = outcome.ok ? outcome.result : undefined;
+    const structured = result?.structuredOutput as { results: unknown[]; truncated: boolean };
+    const details = result?.details as { results: unknown[] };
+    expect(structured.truncated).toBe(true);
+    expect(structured.results.length).toBeLessThan(2_000);
+    expect(details.results).toHaveLength(structured.results.length);
+    expect(new TextEncoder().encode(JSON.stringify(details.results)).length).toBeLessThanOrEqual(RESULTS_BYTES);
+    const few = await run(webSearchTool(network(() => Response.json(answer)).transport, endpoint), { query: "q" });
+    expect((few.ok ? few.result.structuredOutput : undefined) as { truncated: boolean }).toMatchObject({
+      truncated: false,
+    });
   });
 
   it("times a search out at searchTimeoutSeconds (SPI-1321)", async () => {

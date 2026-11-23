@@ -575,7 +575,7 @@ export interface SessionState {
   readonly todo?: TodoSlim | null;
 }
 
-/** The Todo List as pushed: what t3's todo list shows of each Task (at most 200, as the `todo` tool keeps it). */
+/** The Todo List as pushed: what t3's todo list shows of each Task (as many as the `todo` tool's output limit holds). */
 export interface TodoSlim {
   readonly rev: number;
   readonly tasks: ReadonlyArray<{
