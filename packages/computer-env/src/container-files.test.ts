@@ -6,7 +6,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writ
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type ContainerAccess, ContainerFiles, GREP_OUTPUT_BYTES } from "./container-files.ts";
+import { type ContainerAccess, ContainerFiles, GREP_OUTPUT_BYTES, LISTING_BYTES } from "./container-files.ts";
 import { HostFailure } from "./failure.ts";
 
 const hasRg = spawnSync("rg", ["--version"]).status === 0;
@@ -40,9 +40,9 @@ const access: ContainerAccess = {
   },
 };
 
-const files = () =>
+const files = (over: ContainerAccess = access) =>
   new ContainerFiles(
-    access,
+    over,
     {
       read: async (path) => new Uint8Array(readFileSync(path)),
       write: async (path, bytes) => {
@@ -213,6 +213,52 @@ describe("the Container's file operations", () => {
     },
   );
 
+  it.skipIf(!hasGnuTools)("list every entry of a directory, however many it has", async () => {
+    mkdirSync(join(root, "many"));
+    spawnSync("bash", ["-c", 'seq 1 20001 | sed "s/^/f/" | xargs touch'], { cwd: join(root, "many") });
+
+    expect(await files().readdir(join(root, "many"))).toHaveLength(20_001);
+  });
+
+  it.skipIf(!hasGnuTools)(
+    "find stops on the Container at the caller's limit, counting exact matches only",
+    async () => {
+      // find's `-path` is a superset of the glob: `*.ts` there matches `sub/x.ts` too, which the glob does not.
+      mkdirSync(join(root, "tree/sub"), { recursive: true });
+      mkdirSync(join(root, "tree/gen"), { recursive: true });
+
+      for (const name of ["sub/x.ts", "sub/y.ts", "gen/a.ts", "gen/b.ts", "top.ts", "gen.ts"]) {
+        writeFileSync(join(root, "tree", name), "");
+      }
+
+      const limits: string[] = [];
+      const recording = files({
+        ...access,
+        run: async (script, env, options) => {
+          if (env["LIMIT"] !== undefined) limits.push(env["LIMIT"]);
+
+          return access.run(script, env, options);
+        },
+      });
+
+      const top = await recording.find(join(root, "tree"), "*.ts", { limit: 2, exclude: [] });
+
+      expect(top.map((entry) => entry.path).sort()).toEqual([join(root, "tree/gen.ts"), join(root, "tree/top.ts")]);
+      expect(limits).toEqual(["2"]);
+
+      // An exclude no directory name can prune is applied on the Container too, before the limit.
+      const kept = await recording.find(join(root, "tree"), "**/*.ts", { limit: 4, exclude: ["gen/*.ts"] });
+
+      expect(kept.map((entry) => entry.path).sort()).toEqual([
+        join(root, "tree/gen.ts"),
+        join(root, "tree/sub/x.ts"),
+        join(root, "tree/sub/y.ts"),
+        join(root, "tree/top.ts"),
+      ]);
+      expect(await recording.find(join(root, "tree"), "**/*.ts", { limit: 0, exclude: [] })).toEqual([]);
+    },
+  );
+
   it.skipIf(!hasGnuTools)(
     "find below a directory whose name has glob characters, and in a directory with spaces",
     async () => {
@@ -359,5 +405,41 @@ describe("a refused Container start", () => {
       code: "unknown",
       message: `The Container could not run the file operation: t3flare: the Container cannot start: ${REASON}`,
     });
+  });
+});
+
+describe("a listing's byte bound (SPI-1364)", () => {
+  /** A Container whose listing scripts answer `stdout`, recording the env each script ran with. */
+  const answering = (stdout: string) => {
+    const envs: Array<Readonly<Record<string, string>>> = [];
+    const access: ContainerAccess = {
+      patterns: async () => ["**/node_modules"],
+      running: () => true,
+      run: async (_script, env) => {
+        envs.push(env);
+        return { exitCode: 0, stdout, stderr: "" };
+      },
+    };
+    return { envs, access };
+  };
+
+  it("reads one byte past LISTING_BYTES, which fits a DO RPC message as UTF-16", async () => {
+    const run = answering("f\ta\n");
+    await files(run.access).readdir("/workspace/repo/node_modules");
+    await files(run.access).find("/workspace/repo/node_modules", "**", { limit: 10, exclude: [] });
+    expect(run.envs.map((env) => env.BYTES)).toEqual([String(LISTING_BYTES + 1), String(LISTING_BYTES + 1)]);
+    expect(LISTING_BYTES * 2).toBeLessThan(32 * 1024 * 1024);
+  });
+
+  it("fails a listing that reached the bound, saying so, rather than answering it cut", async () => {
+    const line = "f\tsome-file-name.txt\n";
+    const run = answering(line.repeat(Math.ceil((LISTING_BYTES + 1) / line.length)).slice(0, LISTING_BYTES + 1));
+    for (const listing of [
+      files(run.access).readdir("/workspace/repo/node_modules"),
+      files(run.access).find("/workspace/repo/node_modules", "**", { limit: 1_000_000, exclude: [] }),
+    ])
+      expect(await failure(listing)).toMatchObject({
+        message: expect.stringContaining(`The listing is more than ${LISTING_BYTES} bytes`),
+      });
   });
 });

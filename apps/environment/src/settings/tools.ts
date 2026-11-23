@@ -98,6 +98,14 @@ const fieldJson = (schema: EnvironmentFieldSchema): Record<string, unknown> => {
       return { type: "string", maxLength: schema.maxLength };
     case "file":
       return { type: "string", description: `At most ${schema.maxBytes} bytes of UTF-8.` };
+    case "ports":
+      return {
+        type: "array",
+        minItems: 1,
+        maxItems: schema.maxCount,
+        uniqueItems: true,
+        items: { type: "integer", minimum: 1, maximum: 65_535, not: { enum: [...schema.reserved] } },
+      };
     case "variables":
       return {
         type: "array",

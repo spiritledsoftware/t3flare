@@ -157,13 +157,19 @@ export const fileOps = (workspace: ComputerWorkspace) => {
         }
         return resolved === "" ? "/" : resolved;
       }),
+    /** Every match under `directory`, or the first `limit` of them. */
     find: (
       directory: string,
       pattern: string | undefined,
-      limit: number,
+      limit?: number,
     ): Promise<FsAnswer<ReadonlyArray<FoundEntry>>> =>
       run(async () =>
-        (await fs().find(directory, pattern, { limit, exclude: ["**/.git", "**/node_modules"] })).map((entry) => ({
+        (
+          await fs().find(directory, pattern, {
+            ...(limit === undefined ? {} : { limit }),
+            exclude: ["**/.git", "**/node_modules"],
+          })
+        ).map((entry) => ({
           path: entry.path,
           kind: entry.type === "dir" ? "directory" : "file",
         })),
@@ -186,4 +192,31 @@ export const fileOps = (workspace: ComputerWorkspace) => {
         })),
       ),
   };
+};
+
+/**
+ * How many matches one page of `grepPaths` holds. Not a cap on the result: each match carries its line's text into the
+ * isolate's 128 MB until its page is read, so the walk takes them a page at a time.
+ */
+export const GREP_PAGE = 200;
+
+/** The paths of every file under `root` holding `value` (a literal), each once, read a page of matches at a time. */
+export const grepPaths = async (
+  fs: {
+    grep(
+      pattern: string,
+      path: string,
+      options: { readonly regex: boolean; readonly limit: number; readonly offset: number },
+    ): Promise<ReadonlyArray<{ readonly path: string }>>;
+  },
+  value: string,
+  root: string,
+  page = GREP_PAGE,
+): Promise<ReadonlyArray<string>> => {
+  const paths = new Set<string>();
+  for (let offset = 0; ; offset += page) {
+    const matches = await fs.grep(value, root, { regex: false, limit: page, offset });
+    for (const match of matches) paths.add(match.path);
+    if (matches.length < page) return [...paths];
+  }
 };

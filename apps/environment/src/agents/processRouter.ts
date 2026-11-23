@@ -27,7 +27,7 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import type * as ChildProcess from "effect/process/ChildProcess";
 
 import * as StateStore from "../platform/stateStore.ts";
-import { checkpointMsNow, cloneMsNow, environmentNow, environmentServices } from "./bindings.ts";
+import { checkpointMsNow, cloneMsNow, environmentNow, environmentServices, routerTraceEntriesNow } from "./bindings.ts";
 import {
   cloneRequestOf,
   gitEnvOf,
@@ -87,7 +87,7 @@ export interface TraceEntry {
   readonly detail?: string;
 }
 
-const TRACE_MAX = 300;
+/** The latest routed commands, at most `routerTraceEntries` (SPI-1364): in memory, the only bound on it. */
 const trace: Array<TraceEntry> = [];
 
 export const routerTrace = (): ReadonlyArray<TraceEntry> => [...trace];
@@ -108,7 +108,8 @@ export const clearRouterTrace = (): void => void trace.splice(0);
 
 const record = (entry: TraceEntry) => {
   trace.push(entry);
-  if (trace.length > TRACE_MAX) trace.splice(0, trace.length - TRACE_MAX);
+  const max = routerTraceEntriesNow();
+  if (trace.length > max) trace.splice(0, trace.length - max);
 };
 
 interface Answer {
@@ -296,12 +297,22 @@ const bridgedGitEnv = async (
   return gitBridge.bridge(id, translated);
 };
 
+/**
+ * What answers one command: its env and stdin, and `signal`, aborted when t3 gives up on the command (its own timeout,
+ * or an interrupt) and closes the spawn's scope.
+ */
+type RouteRun = (
+  env: Readonly<Record<string, unknown>> | undefined,
+  stdin: string | undefined,
+  signal?: AbortSignal,
+) => Promise<Answer>;
+
 const git = async (
   args: ReadonlyArray<string>,
   cwd: string,
   env: Readonly<Record<string, unknown>> | undefined,
   stdin: string | undefined,
-  options: { readonly action?: boolean; readonly route?: Route } = {},
+  options: { readonly action?: boolean; readonly route?: Route; readonly signal?: AbortSignal | undefined } = {},
 ): Promise<Answer> => {
   const at = toWorkspace(cwd);
   if (at === null || environmentServices().workspaces.resolve(at.id) === undefined) {
@@ -319,15 +330,42 @@ const git = async (
     .catch((error: unknown) =>
       console.warn(JSON.stringify({ t3flare: "git-bridge-reap-failed", error: String(error).slice(0, 300) })),
     );
+  // SPI-1364: t3 times its git commands by giving up on them (GitVcsDriverCore's `timeoutMs`); the Workspace ends the
+  // command's exec then, by its run id. One t3 never gives up on ends at the Owner's command time limit.
+  const signal = options.signal;
+  // t3 gave up before the command was sent: nothing reads its answer, so it never runs.
+  if (signal?.aborted === true)
+    return {
+      exitCode: 128,
+      stdout: "",
+      stderr: routerLine(`${T3FLARE_FATAL}t3 gave up on this command`),
+      route: "error",
+    };
+  // @effect-diagnostics-next-line cryptoRandomUUID:off -- a plain async function, outside Effect: an id, not a secret
+  const runId = signal === undefined ? undefined : crypto.randomUUID();
+  let answered = false;
+  const cancel = () => {
+    if (!answered && runId !== undefined)
+      void workspaceRpc(at.id)
+        .cancelRun(runId)
+        .catch(() => undefined);
+  };
+  signal?.addEventListener("abort", cancel, { once: true });
   // No token goes with any git command: the Container's credential helper asks for the Workspace's (ADR-0013).
-  const answer = await workspaceRpc(at.id).git({
-    argv: args.map((arg) => intoWorkspace(at.id, arg)),
-    cwd: at.inner,
-    env: await bridgedGitEnv(at.id, env),
-    ...(stdin === undefined ? {} : { stdin }),
-    startContainer,
-    readScope: readScopeOf(args),
-  });
+  const answer = await workspaceRpc(at.id)
+    .git({
+      argv: args.map((arg) => intoWorkspace(at.id, arg)),
+      cwd: at.inner,
+      env: await bridgedGitEnv(at.id, env),
+      ...(stdin === undefined ? {} : { stdin }),
+      startContainer,
+      readScope: readScopeOf(args),
+      ...(runId === undefined ? {} : { runId }),
+    })
+    .finally(() => {
+      answered = true;
+      signal?.removeEventListener("abort", cancel);
+    });
   if (!answer.ran) {
     const stopped = answer.reason === "container_stopped";
     return {
@@ -650,10 +688,7 @@ const explainHeldBase = async (
 };
 
 /** The worktree verbs in a project; null for a worktree command that its own Workspace's git answers. */
-const worktreeRouteOf = (
-  args: ReadonlyArray<string>,
-  cwd: string,
-): ((env: Readonly<Record<string, unknown>> | undefined, stdin: string | undefined) => Promise<Answer>) | null => {
+const worktreeRouteOf = (args: ReadonlyArray<string>, cwd: string): RouteRun | null => {
   const command = worktreeCommandOf(args);
   const at = toWorkspace(cwd);
   if (command === null || at === null || at.id.startsWith(".wt/")) return null;
@@ -670,7 +705,7 @@ const worktreeRouteOf = (
     case "remove":
       // t3's own removal of a scratch checkout, as written, in the project's Container.
       if (scratchProjectOf(command.path) === at.id)
-        return (env) => git(args, cwd, env, undefined, { action: true, route: "scratch" });
+        return (env, _stdin, signal) => git(args, cwd, env, undefined, { action: true, route: "scratch", signal });
       return async () => {
         const { removeWorktree } = await import("./deletion.ts");
         const services = environmentServices();
@@ -745,11 +780,7 @@ const ghRouteOf = (args: ReadonlyArray<string>): (() => Promise<Answer>) | null 
 };
 
 /** What answers `command`, or null when nothing does (a missing binary). */
-const routeOf = (
-  name: string,
-  argv: ReadonlyArray<string>,
-  spawnCwd: string | undefined,
-): ((env: Readonly<Record<string, unknown>> | undefined, stdin: string | undefined) => Promise<Answer>) | null => {
+const routeOf = (name: string, argv: ReadonlyArray<string>, spawnCwd: string | undefined): RouteRun | null => {
   if (name === "gh") return ghRouteOf(argv);
   if (name !== "git") return null;
   if (argv.length === 1 && argv[0] === "--version")
@@ -763,8 +794,8 @@ const routeOf = (
   // A command in a scratch checkout (parity G7): in its project's Container, at t3's path, never from the read cache.
   const scratchProject = scratchProjectOf(normal);
   if (scratchProject !== undefined) {
-    return (env, stdin) =>
-      git(["-C", normal, ...args], `/w/${scratchProject}`, env, stdin, { action: true, route: "scratch" });
+    return (env, stdin, signal) =>
+      git(["-C", normal, ...args], `/w/${scratchProject}`, env, stdin, { action: true, route: "scratch", signal });
   }
   const worktree = worktreeRouteOf(args, normal);
   if (worktree !== null) return worktree;
@@ -775,7 +806,8 @@ const routeOf = (
     if (isRefsSnapshot(args)) return (env) => refsSnapshot(args, normal, env);
     const start = startPointOf(args);
     if (start !== null)
-      return async (env, stdin) => explainHeldBase(workspace.id, start, await git(args, normal, env, stdin));
+      return async (env, stdin, signal) =>
+        explainHeldBase(workspace.id, start, await git(args, normal, env, stdin, { signal }));
   }
   // Outside the Workspaces there is no repository: git says so, as it would on a laptop.
   if (!normal.startsWith("/w/")) {
@@ -786,7 +818,7 @@ const routeOf = (
       route: "no-workspace",
     });
   }
-  return (env, stdin) => git(args, normal, env, stdin);
+  return (env, stdin, signal) => git(args, normal, env, stdin, { signal });
 };
 
 const notFound = (name: string) =>
@@ -879,6 +911,8 @@ export const spawn = (command: ChildProcess.Command) =>
 
     // stdin arrives through the handle's sink, written alongside the output's reads; the command runs once it ends
     // (or at once, when nothing writes it within a few milliseconds).
+    // Aborted when t3 closes the spawn's scope: after the answer (nothing to do), or when it gave up on the command.
+    const abandoned = yield* Effect.abortSignal;
     const stdinChunks: Array<Uint8Array> = [];
     let stdinStarted = false;
     const stdinDone = yield* Deferred.make<void>();
@@ -893,7 +927,7 @@ export const spawn = (command: ChildProcess.Command) =>
             ? undefined
             : stdinChunks.map((chunk) => decoder.decode(chunk, { stream: true })).join("");
         return yield* Effect.tryPromise({
-          try: () => route(env, stdin),
+          try: () => route(env, stdin, abandoned),
           catch: (cause) =>
             PlatformError.systemError({
               _tag: "Unknown",

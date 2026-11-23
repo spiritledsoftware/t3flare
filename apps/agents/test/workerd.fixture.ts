@@ -119,7 +119,7 @@ export class VfsProbe extends DurableObject {
    * Workspace DO's `git()` does after a passive read: whether the put threw, and whether the same read then hits.
    */
   async cacheRead(count: number, char = "x"): Promise<{ readonly threw: string | null; readonly cached: boolean }> {
-    const cache = readCache(this.ctx.storage.sql);
+    const cache = readCache(this.ctx.storage.sql, () => 500);
     const answer = { exitCode: 0, stdout: char.repeat(count), stderr: "" };
     let threw: string | null = null;
     try {

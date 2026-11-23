@@ -60,6 +60,8 @@ describe("the patterns a Container starts with", () => {
 });
 
 describe("the Container backend made again when the patterns change", () => {
+  const timeouts: Array<number> = [];
+  let lastTimeout = 60_000;
   const harness = (
     needed: Array<ReadonlyArray<string>>,
     failFirst?: string,
@@ -68,6 +70,7 @@ describe("the Container backend made again when the patterns change", () => {
     const made: Array<ReadonlyArray<string>> = [];
     let runtimes = 0;
     const connects: Array<ReadonlyArray<string>> = [];
+    const madeWith: Array<number> = [];
     let stops = 0;
     let failures = failFirst === undefined ? 0 : 1;
     const backend = new ContainerOnlyBackend({
@@ -83,8 +86,10 @@ describe("the Container backend made again when the patterns change", () => {
         stops++;
         return Promise.resolve();
       },
-      make: (patterns): PatternedBackend => {
+      connectTimeoutMs: () => timeouts.shift() ?? lastTimeout,
+      make: (patterns, connectTimeoutMs): PatternedBackend => {
         made.push(patterns);
+        madeWith.push(connectTimeoutMs);
         return {
           id: "container-shell",
           type: "cloudflare-container",
@@ -103,7 +108,7 @@ describe("the Container backend made again when the patterns change", () => {
         };
       },
     });
-    return { backend, made, connects, stops: () => stops };
+    return { backend, made, madeWith, connects, stops: () => stops };
   };
 
   it("connects with the patterns each start needs, making a backend only when they change", async () => {
@@ -114,6 +119,15 @@ describe("the Container backend made again when the patterns change", () => {
     expect(h.made).toEqual([["/a"], ["/a", "/repo/t3code"]]);
     expect(h.backend.patterns).toEqual(["/a", "/repo/t3code"]);
     expect(await (await h.backend.handleFetch(new Request("http://x/"))).text()).toBe("/a,/repo/t3code");
+  });
+
+  it("makes the backend again when the connect wait changes (SPI-1364: computer takes it when made)", async () => {
+    timeouts.push(60_000, 60_000, 90_000, 90_000);
+    lastTimeout = 90_000;
+    const h = harness([["/a"], ["/a"], ["/a"]]);
+    for (let at = 0; at < 3; at++) await h.backend.connect({} as never);
+    expect(h.made).toEqual([["/a"], ["/a"]]);
+    expect(h.madeWith).toEqual([60_000, 90_000]);
   });
 
   it("a running Container started with other patterns is stopped and started again, once", async () => {

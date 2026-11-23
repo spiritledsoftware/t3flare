@@ -275,6 +275,39 @@ describe("agent terminals", () => {
     expect(terminals.live).toBe(1);
   });
 
+  // SPI-1364: the stop's grace and the settle's quiet are the Owner's termctrl settings, carried on each request.
+  it("waits the request's grace before killing again, and settles on the request's quiet", async () => {
+    const { terminals, killed } = fakeHost(repl, () => 8, {
+      close: () => ({ signalled: 1, survivors: 1, signal: "KILL" }),
+      kill: (_key, exit) => {
+        exit(137);
+        return { signalled: 1, survivors: 0, signal: "KILL" };
+      },
+    });
+    const id = await start(terminals);
+    const began = Date.now();
+    await terminals.handle({ op: "stop", owner, id, graceMs: 200 });
+    expect(killed[0]!.at - began).toBeGreaterThanOrEqual(200);
+    expect(killed[0]!.at - began).toBeLessThan(2_000);
+
+    const other = await start(terminals);
+    await settle(terminals, other, { mode: "start" });
+    const typedAt = Date.now();
+    const answer = await terminals.handle({
+      op: "settle",
+      owner,
+      id: other,
+      text: "abc\r",
+      mode: "input",
+      deadline: Date.now() + 5_000,
+      chunkMs: 5_000,
+      view: true,
+      quietMs: 1_000,
+    });
+    expect(answer.ok && answer.value.reason).toBe("quiet");
+    expect(Date.now() - typedAt).toBeGreaterThanOrEqual(1_000);
+  });
+
   it("runs a Background job with its output tee'd to a log, and reports an unseen exit once", async () => {
     const { terminals, opened } = fakeHost(repl);
     const id = await start(terminals, "background_job");

@@ -5,6 +5,10 @@ import {
   DEFAULT_CHECKPOINT_MS,
   DEFAULT_CLONE_MS,
   DEFAULT_MCP_CALL_MS,
+  DEFAULT_EXITED_TERMINALS_KEPT,
+  DEFAULT_PREVIEW_PORTS,
+  DEFAULT_ROUTER_TRACE_ENTRIES,
+  DEFAULT_TERMINAL_HISTORY_KIB,
   DEFAULT_OWNER_ANSWER_MS,
   DEFAULT_SETTINGS_READ_MS,
   DEFAULT_TURN_LIMIT_MS,
@@ -70,6 +74,12 @@ export interface EnvironmentServices {
    * applies at the next one. Absent (a test's services): the default.
    */
   readonly checkpointMs?: () => number;
+  /** SPI-1364: the Container preview ports (`previewPorts`) now. Absent (tests): the default. */
+  readonly previewPorts?: () => ReadonlyArray<number>;
+  /** SPI-1364: how many router trace entries are kept (`routerTraceEntries`) now. Absent (tests): the default. */
+  readonly routerTraceEntries?: () => number;
+  /** SPI-1364: t3's Terminals' history (`terminalHistoryKiB`, `exitedTerminalsKept`) when the layer is built. */
+  readonly terminalHistory?: () => TerminalHistoryLimits;
   /**
    * The Answer wait (SPI-1316, `ownerAnswerMinutes`) in ms, as stored now: read when a card is raised (an MCP server's
    * question, a CLI agent's tool approval, an Open change) and at each CLI spawn, so a change applies to the cards
@@ -164,6 +174,46 @@ export const checkpointMsNow = (): number => {
     return current?.checkpointMs?.() ?? DEFAULT_CHECKPOINT_MS;
   } catch {
     return DEFAULT_CHECKPOINT_MS;
+  }
+};
+
+/**
+ * The Container preview ports now (SPI-1364): the stored setting, or its default when the services or the store cannot be
+ * read, so a preview browser always routes some.
+ */
+export const previewPortsNow = (): ReadonlyArray<number> => {
+  try {
+    return current?.previewPorts?.() ?? DEFAULT_PREVIEW_PORTS;
+  } catch {
+    return DEFAULT_PREVIEW_PORTS;
+  }
+};
+
+/** How many router trace entries are kept now (SPI-1364): the stored setting, else its default. */
+export const routerTraceEntriesNow = (): number => {
+  try {
+    return current?.routerTraceEntries?.() ?? DEFAULT_ROUTER_TRACE_ENTRIES;
+  } catch {
+    return DEFAULT_ROUTER_TRACE_ENTRIES;
+  }
+};
+
+/** t3's Terminals' history limits as t3's TerminalManager takes them (SPI-1364). */
+export interface TerminalHistoryLimits {
+  readonly historyByteLimit: number;
+  readonly maxRetainedInactiveSessions: number;
+}
+
+/** t3's Terminals' history limits now (SPI-1364): the stored settings, else their defaults. */
+export const terminalHistoryNow = (): TerminalHistoryLimits => {
+  const defaults = {
+    historyByteLimit: DEFAULT_TERMINAL_HISTORY_KIB * 1024,
+    maxRetainedInactiveSessions: DEFAULT_EXITED_TERMINALS_KEPT,
+  };
+  try {
+    return current?.terminalHistory?.() ?? defaults;
+  } catch {
+    return defaults;
   }
 };
 

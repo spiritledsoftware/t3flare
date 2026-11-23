@@ -96,6 +96,18 @@ describe("the MCP relay route", () => {
     expect(d.seen).toEqual([]);
   });
 
+  it("passes a message of many MiB, up to what one DO RPC message carries", async () => {
+    // A DO RPC message holds 32 MiB, and a string with one character past Latin-1 crosses as UTF-16: 2 bytes a character.
+    expect(2 * MAX_RELAY_BYTES).toBeLessThan(32 * 1024 * 1024);
+    expect(MAX_RELAY_BYTES).toBeGreaterThan(15 * 1024 * 1024);
+
+    const d = deps();
+    const big = `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"x":"${"a".repeat(8 * 1024 * 1024)}"}}`;
+
+    expect((await handleRelayRequest(post(big), d.value)).status).toBe(200);
+    expect(d.seen).toHaveLength(1);
+  });
+
   it("withdraws the card when the CLI goes away", async () => {
     const abort = new AbortController();
     const d = deps();

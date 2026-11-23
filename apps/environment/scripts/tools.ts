@@ -1533,6 +1533,7 @@ const keyExfil = async () => {
         ...(leak?.text?.leaked ?? []),
       ].every((name: string) => NOT_SECRET.test(name)) &&
       wanted.every((name) => (leak?.checked ?? []).includes(name)) &&
+      leak?.complete === true &&
       (leak?.container?.bytes ?? 0) > 0 &&
       (leak?.text?.bytes ?? 0) > 0,
   });

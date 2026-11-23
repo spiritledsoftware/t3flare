@@ -604,7 +604,7 @@ to its real id when an endpoint is at Commissary): `apps/environment/test/modelL
 
 ### U62. Container previews and the carried-socket script (G11)
 
-- **Where**: `apps/agents/src/workspace/containerPreview.ts` and `containerPreviewScript.ts`, `WorkspaceDO.containerPreview` with its use and hold accounting (`#someoneWorks`, `#previewHold`), `WorkspaceContainerPreviews` (agents Worker) and `ContainerPreviews` (Environment Worker), the eight ports in `@t3flare/workspace-client`.
+- **Where**: `apps/agents/src/workspace/containerPreview.ts` and `containerPreviewScript.ts`, `WorkspaceDO.containerPreview` with its use and hold accounting (`#someoneWorks`, `#previewHold`), `WorkspaceContainerPreviews` (agents Worker) and `ContainerPreviews` (Environment Worker), the Owner's `previewPorts` (at most eight, never `RESERVED_CONTAINER_PORTS`; SPI-1364).
 - **Breaks when**: Browser Run starts routing WebSockets (the script becomes dead weight), a dev-server client changes how it opens sockets (Vite's `SharedWorker` ping), or Containers change `getTcpPort`.
 - **Detection**: `apps/agents/test/containerPreview.test.ts` (Host and Location, refusals, the script). **Silent**: HMR stops while pages still load. Cheapest check: `scripts/previews.ts browser` (its HMR line).
 - **Blast radius**: no live reload; pages still load.
@@ -1710,10 +1710,10 @@ Moved from U58 when its Commissary readers went (SPI-1176).
 
 ### U97. A Workspace's start from the Base snapshot, through computer's start and the raw `monitor()` beside it (SPI-1333, ADR-0047 §6)
 
-- **Where**: a Workspace's start from a Base snapshot passes `containerSnapshot: { id }` in the spec it hands computer (`WorkspaceDO`'s gated start, `startSpec` in `apps/agents/src/workspace/baseStart.ts`), and always its own `instance`. It leans on `@cloudflare/computer` 0.11.2's `WorkspaceContainerAPI` (`dist/backends/container/index.js`): `#launchAs` takes `containerSnapshot` out of the spec and starts `{ ...passthrough, env, containerSnapshot }` in place of `{ image }`, still adding its `RPC_CLIENT_SECRET` to `env` (the platform hands a snapshot start's env to PID 1); `sameLaunch` compares only the env digest, `instance`, `enableInternet` and `name`, so adopting a running Container ignores the snapshot, and shipping SPI-1333 (which adds no env) relaunches no running Container. The fast fallback (`startFromBase`) calls the platform's `ctx.container.monitor()` itself, beside the monitor computer installs, and reads its refusal by message (`Snapshot "<id>" was not found.`, `isSnapshotRefusal`) within `REFUSAL_WATCH_MS` of the start; it then destroys the Container and calls computer's start again without the snapshot. Computer can make a new Container though one runs: its `restart` (computerd unhealthy) and its `start` when it cannot adopt the running one (`sameLaunch` differs, or a prior exit); every start that is not a fresh one therefore picks its base again (the Builder's current key, against the settings revision and Variables the running Container took), and only an `adopted` outcome keeps the launch's `from`. The wait for a Base build sits in `BaseWaitBackend` around computer's `ContainerBackend.connect`, whose 60 s connect deadline starts before `host.start`. The Builder reads `ctx.container.images` on its alarm for `IMAGE_WATCH_MS` after every trigger (`baseBuild.ts`): a new image reached a Stage's objects about 4 minutes after its deploy, each in its own time, so a boot poke can still read the old one. The rest of the snapshot facts (a start needs `instance`, runs the image's ENTRYPOINT, an old snapshot starts silently on the old image) are U95's.
+- **Where**: a Workspace's start from a Base snapshot passes `containerSnapshot: { id }` in the spec it hands computer (`WorkspaceDO`'s gated start, `startSpec` in `apps/agents/src/workspace/baseStart.ts`), and always its own `instance`. It leans on `@cloudflare/computer` 0.11.2's `WorkspaceContainerAPI` (`dist/backends/container/index.js`): `#launchAs` takes `containerSnapshot` out of the spec and starts `{ ...passthrough, env, containerSnapshot }` in place of `{ image }`, still adding its `RPC_CLIENT_SECRET` to `env` (the platform hands a snapshot start's env to PID 1); `sameLaunch` compares only the env digest, `instance`, `enableInternet` and `name`, so adopting a running Container ignores the snapshot, and shipping SPI-1333 (which adds no env) relaunches no running Container. The fast fallback (`startFromBase`) calls the platform's `ctx.container.monitor()` itself, beside the monitor computer installs, and reads its refusal by message (`Snapshot "<id>" was not found.`, `isSnapshotRefusal`) within `REFUSAL_WATCH_MS` of the start; it then destroys the Container and calls computer's start again without the snapshot. Computer can make a new Container though one runs: its `restart` (computerd unhealthy) and its `start` when it cannot adopt the running one (`sameLaunch` differs, or a prior exit); every start that is not a fresh one therefore picks its base again (the Builder's current key, against the settings revision and Variables the running Container took), and only an `adopted` outcome keeps the launch's `from`. The wait for a Base build sits in `BaseWaitBackend` around computer's `ContainerBackend.connect`, whose connect deadline (`containerConnectSeconds`, 60 s by default; SPI-1364) starts before `host.start`. The Builder reads `ctx.container.images` on its alarm for `IMAGE_WATCH_MS` after every trigger (`baseBuild.ts`): a new image reached a Stage's objects about 4 minutes after its deploy, each in its own time, so a boot poke can still read the old one. The rest of the snapshot facts (a start needs `instance`, runs the image's ENTRYPOINT, an old snapshot starts silently on the old image) are U95's.
 - **Breaks when**: a computer bump drops `containerSnapshot` from `#launchAs` (it would start `{ image, containerSnapshot }`, which the platform refuses, or ignore the snapshot: every Container from the bare image, silently), adds the snapshot to `sameLaunch` (a running Container started from one would be relaunched by the next start), moves its connect deadline into `connect` before our wrapper, or owns `monitor()` exclusively; Cloudflare changes the refusal's message or when it comes (a refused snapshot is then seen only when computer's connect deadline ends, one 60 s budget its attempts share; the late report still marks it gone, so the next start does not pick it again).
 - **Detection**: `baseStart.test.ts` pins the spec computer gets (`startSpec`: `containerSnapshot` only for a picked base, `instance` always), the refusal's message and the one retry. **Silent**: computer's passthrough and `sameLaunch`; the cheapest check after a computer bump is to read `#launchAs` and `sameLaunch` in `dist/backends/container/index.js`, then, on a Stage with an Image setup, `containerState()`'s `launch.from` naming the Base snapshot and its marker present in a Workspace. A `container-base-refused` log line (agents Worker) is each refusal seen.
-- **Blast radius**: Workspaces start from the Workspace image (no Image setup in them), or a start on a refused snapshot waits out computer's 60 s connect deadline; never a wrong image (the digest is matched before the start).
+- **Blast radius**: Workspaces start from the Workspace image (no Image setup in them), or a start on a refused snapshot waits out computer's connect deadline (`containerConnectSeconds`); never a wrong image (the digest is matched before the start).
 - **Fix**: carry `containerSnapshot` through computer by Patch (ADR-0001) until its start passes it again; or match the platform's new refusal text in `isSnapshotRefusal`.
 
 ### U98. The stage scripts' /ws resend and its clone rescue (SPI-1255)
@@ -1761,6 +1761,55 @@ Moved from U58 when its Commissary readers went (SPI-1176).
   than t3 could. The model's copy is never affected.
 - **Fix**: read the three constants at the new pin and set the mirrors in `session-protocol` to them.
 
+### U101. t3's git timeouts are kept by cancelling the Container's run when t3 abandons it (SPI-1364)
+
+- **Where**: `apps/environment/src/agents/processRouter.ts`'s `spawn` takes `Effect.abortSignal` from the scope t3
+  spawns git in, and `git` sends a run id with each command and calls the Workspace DO's `cancelRun` when the signal
+  aborts before the answer; `apps/agents/src/workspace/runCancels.ts` ends that exec (TERM, then KILL after
+  `CANCEL_KILL_AFTER_MS`), and `gitDeadlineMs` gives a run with an id no `commandMinutes` cut, only
+  `CANCELLABLE_RUN_MS`. It leans on `t3code/apps/server/src/vcs/GitVcsDriverCore.ts`'s `executeRaw`: each command runs
+  in `runGitCommand().pipe(Effect.scoped)` and its `timeoutMs` (`DEFAULT_TIMEOUT_MS` 30 s, `FETCH_REMOTE_TIMEOUT_MS` 5
+  minutes, `null` for the push paths) is applied by `Effect.timeoutOption` around that scope, so a timeout closes the
+  spawn's scope; and on `forceKillAfter: "1 second"` for its own grace.
+- **Breaks when**: t3 passes `timeoutMs` to the spawner instead of interrupting (the router would then see neither),
+  spawns git outside a scope that a timeout closes, or keeps a run's scope open past giving up on it.
+- **Detection**: **silent** for the run's deadline. `apps/environment/test/processRouter.test.ts` ("a git command t3
+  gives up on") interrupts a spawn with `Effect.timeoutOption` and checks the `cancelRun`, so a change to our spawner
+  fails there; a change on t3's side shows only as a Container git that outlives t3's timeout. The cheapest check: on a
+  Stage, `git fetch` against a remote that never answers ends in the Container 5 minutes in (the Workspace's `#running`
+  falling to 0 is visible in `/state`).
+- **Blast radius**: a git command t3 gave up on keeps running in the Container until `CANCELLABLE_RUN_MS`
+  (`MAX_TIMED_MINUTES`), holding it and its lock files; a later git command in that repo may fail on `index.lock`.
+- **Fix**: `executeRaw`'s timeout and scope in `GitVcsDriverCore.ts`, then the router's `spawn`.
+
+### U102. t3's TerminalManager defaults are the Terminal history settings' maxima (SPI-1364)
+
+- **Where**: `packages/harness-registry/src/environment.ts`'s `MAX_TERMINAL_HISTORY_KIB` (8192) and
+  `MAX_EXITED_TERMINALS_KEPT` (128) are `t3code/apps/server/src/terminal/Manager.ts`'s `DEFAULT_HISTORY_BYTE_LIMIT` (8
+  MiB) and `DEFAULT_MAX_RETAINED_INACTIVE_SESSIONS` (128), not exported; `apps/environment/src/terminal/layer.ts` passes
+  the Owner's values as `makeWithOptions`' `historyByteLimit` and `maxRetainedInactiveSessions`.
+- **Breaks when**: t3 renames or drops either option (the Owner's settings then do nothing and t3's defaults apply), or
+  changes its defaults (the maxima then no longer say "stock t3's").
+- **Detection**: `apps/environment/test/environmentLimits.test.ts` reads `Manager.ts` and fails when either option or
+  default changes. The options object is built apart from the call, so the typecheck alone would not catch a dropped
+  one.
+- **Blast radius**: none for changed defaults (a sanity bound reads differently from stock); a dropped option leaves
+  every Terminal at t3's 8 MiB, which may run the Environment out of its 128 MB.
+- **Fix**: `Manager.ts`'s options and defaults; the two maxima in `environment.ts`.
+
+### U103. Stock's port stop grace and web probe wait as the Owner's defaults (SPI-1364)
+
+- **Where**: `portStopGraceSeconds` (3) and `portProbeMs` (1000) in `packages/harness-registry/src/environment.ts`
+  default to `t3code/apps/server/src/preview/PortScanner.ts`'s `STOP_GRACE_MS` (3 s, `signalUntilStopped`: TERM, then
+  KILL) and `WEB_PROBE_TIMEOUT` (1 s), both module-private; ours run in `apps/sandbox-image/src/ports.ts`'s port stop
+  and `apps/agents/src/workspace/ports.ts`'s `probeRunningPort`. (`abortGraceSeconds`' 2 s is t3flare's own kill
+  script's, not stock's.)
+- **Breaks when**: t3 changes either; ours stay at the copy.
+- **Detection**: `apps/environment/test/environmentLimits.test.ts` reads `PortScanner.ts` and fails when either value
+  changes.
+- **Blast radius**: none: the defaults differ from stock's, and the Owner sets either.
+- **Fix**: the two defaults in `environment.ts`, if parity is wanted.
+
 ### U104. Git's automatic fetch starts off through the managed policy's unlocked default (SPI-1367)
 
 (U101–U103 are left to SPI-1364, whose entries were written first; the gap is on purpose.)
@@ -1804,6 +1853,23 @@ Moved from U58 when its Commissary readers went (SPI-1176).
 - **Blast radius**: low. A wrong span pauses a thread for a reset the retries would have met, or retries a 429 into a
   reset they cannot reach (one wasted request each).
 - **Fix**: set the two mirrors to pi-durable's new values, or read them from its `DEFAULT_RETRY_POLICY`.
+
+### U106. t3's longest idle pin bounds the CLI process backstop (SPI-1364)
+
+- **Where**: `apps/agents/src/workspace/processHost.ts`'s `BACKSTOP_MS` is `2 × CLI_SESSION_RELEASE_MS +
+  T3_MAX_IDLE_PIN_MS + HEARTBEAT_LAPSE_MS`. `T3_MAX_IDLE_PIN_MS` (`packages/harness-registry/src/environment.ts`) is
+  `t3code/apps/server/src/orchestration-v2/ProviderSessionManager.ts`'s `DEFAULT_MAX_IDLE_PIN_MS` (4 hours, not
+  exported): `releaseIfStillIdle` defers the release of an idle session while its runtime's `hasPendingBackgroundWork`
+  (Claude's scheduled wakeups, background tasks and running subagents, silent on stdio) holds, rechecking once per idle
+  timeout, until the pin passes `maxIdlePinMs`. It also leans on provider activity restarting the pin, as output
+  restarts the backstop's I/O clock.
+- **Breaks when**: t3 raises the pin or makes it unbounded, or adds other ways to keep a silent session (a `get` already
+  restarts t3's idle clock with no I/O to the process, which the backstop does not cover).
+- **Detection**: `apps/agents/test/processHost.test.ts` ("names t3's longest idle pin") reads
+  `ProviderSessionManager.ts` and fails when the constant changes; a new way to keep a session is **silent**.
+- **Blast radius**: a CLI process t3 still holds is killed by the backstop: Claude's scheduled wakeup or background task
+  dies, and the thread's next turn starts a new process.
+- **Fix**: `T3_MAX_IDLE_PIN_MS`, or derive the backstop from whatever t3 pins on now.
 
 ## Retired entries
 

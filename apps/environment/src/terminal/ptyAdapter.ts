@@ -87,6 +87,12 @@ export class RefusedProcess {
   }
 }
 
+/**
+ * The shells t3 may ask for that are answered here. Fixed by the Container's terminal host: `terminalOpen` names no
+ * shell, and the Workspace DO always runs bash (`bash -c` of `terminalCommand`, which ends in `exec bash --rcfile … -i`;
+ * apps/sandbox-image `src/terminal.ts`), whose rc file prints the busy and prompt markers the DO reads. So `sh` gets
+ * that bash too, and any other shell is refused as not found (t3 then tries its next one).
+ */
 export const SHELLS: ReadonlySet<string> = new Set([
   "bash",
   "sh",

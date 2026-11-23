@@ -98,6 +98,9 @@ import {
   termctrlExtension,
   type TermctrlLimits,
   termctrlLimits,
+  type TermctrlView,
+  termctrlViewOf,
+  withTermctrlWaits,
 } from "../extensions/termctrl.ts";
 import { TOOL_OUTPUT_EXTENSION, toolOutputExtension, toolOutputLimits } from "../extensions/toolOutput.ts";
 import { SKILLS_EXTENSION, skillsExtension } from "../extensions/skills.ts";
@@ -520,10 +523,11 @@ export class SessionDO extends DurableObject<SessionEnv> {
     if (extensionOf(harness, SKILLS_EXTENSION).enabled) registry.install(skillsExtension());
     else registry.uninstall({ name: SKILLS_EXTENSION });
     const termctrl = extensionOf(harness, TERMCTRL_EXTENSION);
-    const viewport = { cols: Number(termctrl.settings.cols), rows: Number(termctrl.settings.rows) };
+    // The viewport, and the settle and stop waits each request carries (SPI-1364).
+    const view = termctrlViewOf(termctrl.settings);
     const terminalLimits = termctrlLimits(termctrl.settings, output);
     if (termctrl.enabled) {
-      const host = this.#termctrlHost(viewport, terminalLimits);
+      const host = this.#termctrlHost(view, terminalLimits);
       registry.install(
         termctrlExtension(() => this.#opening, {
           host,
@@ -545,7 +549,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
     registry.install(
       codingTools(
         termctrl.enabled && termctrl.settings.backgroundBash !== false
-          ? { jobs: backgroundJobs(this.#termctrlHost(viewport, terminalLimits)), output }
+          ? { jobs: backgroundJobs(this.#termctrlHost(view, terminalLimits)), output }
           : { output },
       ),
     );
@@ -595,7 +599,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
     if (harness.codemode.enabled && sandbox !== undefined) {
       const view = this.#mcpBuild();
       registry.install(
-        codemodeExtension(remoteSandbox(sandbox, sessionName), {
+        codemodeExtension(remoteSandbox(sandbox, sessionName, harness.codemode.interruptBudget), {
           inlineBudget: harness.codemode.inlineBudget,
           namespaces: [...namespaces, ...(view === undefined ? [] : mcpNamespaces(view))],
         }),
@@ -650,8 +654,9 @@ export class SessionDO extends DurableObject<SessionEnv> {
   }
 
   /** The agent's Terminals in the thread's Workspace (SPI-1057), owned by this Session. */
-  #termctrlHost(viewport: { readonly cols: number; readonly rows: number }, limits: TermctrlLimits): TermctrlHost {
+  #termctrlHost(view: TermctrlView, limits: TermctrlLimits): TermctrlHost {
     const sessionName = this.ctx.id.name ?? this.ctx.id.toString();
+    const viewport = { cols: view.cols, rows: view.rows };
     return {
       owner: () => sessionName,
       viewport: () => viewport,
@@ -664,7 +669,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
         // SAFETY: the stub's RPC typing drops `agentTerminal`'s type parameter (its answer is the union of every op's);
         // the Workspace DO's own signature ties the answer to `request.op`.
         const answer = (await this.env.WORKSPACES.get(this.env.WORKSPACES.idFromName(id)).agentTerminal(
-          request,
+          withTermctrlWaits(request, view),
         )) as AgentTerminalResult<R["op"]>;
         if (request.op === "start" && answer.ok) this.ctx.storage.kv.put(TERMCTRL_USED_KEY, true);
         return answer;

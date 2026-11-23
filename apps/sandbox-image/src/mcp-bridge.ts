@@ -4,8 +4,8 @@
 // @effect-diagnostics asyncFunction:off preferEffectRecord:off preferEffectArray:off
 
 /**
- * The port the bridge listens on, on `0.0.0.0` (computerd's is 8080, and the Container preview ports are
- * `CONTAINER_PREVIEW_PORTS`, `@t3flare/workspace-client`). Outside the range of the dev servers a project starts.
+ * The port the bridge listens on, on `0.0.0.0` (computerd's is 8080). Outside the range of the dev servers a project
+ * starts; no Container preview may reach it (`RESERVED_CONTAINER_PORTS`, @t3flare/harness-registry, which names it).
  */
 export const MCP_BRIDGE_PORT = 17_781;
 

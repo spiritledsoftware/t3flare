@@ -28,7 +28,8 @@ export type ContainerAccess = {
   /**
    * Run a bash script on the Container, starting it if it is stopped, with `env` in its environment. `writes` says
    * whether it may change the Container's disk (a write of a Container-only file), so its idle stop snapshots it;
-   * unsaid, it may.
+   * unsaid, it may. Its standard output is answered whole (SPI-1364: computer's default keeps only an exec's last 2,000
+   * lines or 64 KiB): every script here bounds its own (a stat line, a path, `LISTING_BYTES`, `GREP_OUTPUT_BYTES`).
    */
   readonly run: (
     script: string,
@@ -54,15 +55,21 @@ export const STAGE_DIR = `${HARNESS_ROOT}/tmp`;
  */
 export const MAX_CONTAINER_FILE_BYTES = 32 * 1024 * 1024;
 
-/** How many lines of a listing or a search a script prints at most, so a huge tree cannot flood the answer. */
-const MAX_LISTED = 20_000;
-
 /**
  * The most bytes of ripgrep's JSON events a grep reads. A sanity bound (ADR-0048) under the isolate's 128 MB: the events
  * are held as one string, split and parsed whole, which takes several times their size, and the matches' count times
  * their context would otherwise set no limit. 4 MiB is about 80 times the 50 KB the grep tool can show.
  */
 export const GREP_OUTPUT_BYTES = 4 * 1024 * 1024;
+
+/**
+ * The most bytes a listing (`readdir`, `find`) answers: 1 MiB. A named constraint: the Workspace DO's isolate memory
+ * (128 MB). The script's whole output is held as computer's chunks and their joined copy (2 times its bytes) and as a
+ * string (up to 2 more, as UTF-16), then as one entry object per line, about 100 bytes besides its name, which for short
+ * names (a line of about 10 bytes) is about 10 more, and as those objects' copy crossing DO RPC to the Session: about 20
+ * times in all, so a listing peaks near 20 MB. A listing past it fails, saying so, rather than coming back cut.
+ */
+export const LISTING_BYTES = 1024 * 1024;
 
 /** How many reads' hashes a write is checked against, so a long-lived Workspace DO does not keep one per file read. */
 const MAX_HASHED = 256;
@@ -144,15 +151,48 @@ fi
 rm -f -- "$S"
 `;
 
-/** Lists directory `$P`: one `kind<TAB>name` line per entry, the kind find's `%y` (`d`, `f`, `l`, …). */
+/**
+ * Lists directory `$P`: one `kind<TAB>name` line per entry, the kind find's `%y` (`d`, `f`, `l`, …). Every entry, as the
+ * Workspace's own `readdir` lists them: `readdir` has no limit, and `ls` counts the entries it leaves out. The listing
+ * is held whole in the Workspace DO's isolate (128 MB), as standard output.
+ */
 const LIST = String.raw`${PRELUDE}exists
 [ -d "$P" ] || fail 11 "Not a directory"
-find "$P" -mindepth 1 -maxdepth 1 -printf '%y\t%f\n' 2>/dev/null | head -n "$LIMIT"
+out=$(find "$P" -mindepth 1 -maxdepth 1 -printf '%y\t%f\n' 2>/dev/null | head -c "$BYTES")
+printf '%s\n' "$out"
 `;
 
 /**
- * Lists everything below directory `$P` whose path matches find's `-path` pattern `$GLOB` (a superset of the glob,
- * filtered exactly afterwards), pruning the directories named in the positional arguments: `kind<TAB>relative path`.
+ * Keeps the `kind<TAB>relative path` lines whose path matches the extended regular expression `$GLOB_RE` and is not left
+ * out by one of the newline-separated `$EXCLUDE_RE` (the path itself, or a directory above it, matches one, alone or
+ * with a `/` after it), and stops after `$LIMIT` of them: `globTest` and `excluded`, on the Container, so the limit
+ * counts exact matches.
+ */
+const KEEP = String.raw`awk '
+BEGIN {
+  limit = ENVIRON["LIMIT"] + 0
+  glob = ENVIRON["GLOB_RE"]
+  excludes = split(ENVIRON["EXCLUDE_RE"], exclude, "\n")
+  if (limit <= 0) exit
+}
+{
+  tab = index($0, "\t")
+  path = substr($0, tab + 1)
+  if (tab == 0 || path !~ glob) next
+  segments = split(path, segment, "/")
+  prefix = ""
+  for (i = 1; i <= segments; i++) {
+    prefix = (i == 1) ? segment[1] : (prefix "/" segment[i])
+    for (j = 1; j <= excludes; j++) if (prefix ~ exclude[j] || (prefix "/") ~ exclude[j]) next
+  }
+  print
+  if (++kept >= limit) exit
+}'`;
+
+/**
+ * Lists everything below directory `$P` whose path matches find's `-path` pattern `$GLOB` (a superset of the glob),
+ * pruning the directories named in the positional arguments, then keeps the exact matches up to `$LIMIT` (`KEEP`):
+ * `kind<TAB>relative path`.
  */
 const FIND = String.raw`${PRELUDE}exists
 [ -d "$P" ] || fail 11 "Not a directory"
@@ -161,11 +201,12 @@ for name in "$@"; do
   set -- "$@" -o -name "$name"
 done
 shift "$names"
-if [ "$#" -gt 0 ]; then
-  find "$P" -mindepth 1 \( -type d \( -false "$@" \) \) -prune -o -path "$GLOB" -printf '%y\t%P\n' 2>/dev/null | head -n "$LIMIT"
+out=$(if [ "$#" -gt 0 ]; then
+  find "$P" -mindepth 1 \( -type d \( -false "$@" \) \) -prune -o -path "$GLOB" -printf '%y\t%P\n' 2>/dev/null | ${KEEP}
 else
-  find "$P" -mindepth 1 -path "$GLOB" -printf '%y\t%P\n' 2>/dev/null | head -n "$LIMIT"
-fi
+  find "$P" -mindepth 1 -path "$GLOB" -printf '%y\t%P\n' 2>/dev/null | ${KEEP}
+fi | head -c "$BYTES")
+printf '%s\n' "$out"
 exit 0
 `;
 
@@ -220,10 +261,11 @@ const parseInfo = (path: string, line: string): FileInfo => {
 const escape = (text: string): string => text.replace(/[.+^${}()|[\]\\]/g, "\\$&");
 
 /**
- * A glob, as computer's `fs.find` and `fs.grep` take them, as a test of a path relative to the searched directory:
- * `**` any number of segments, `*` and `?` within one, `{a,b}` either.
+ * A glob, as computer's `fs.find` and `fs.grep` take them, as a regular expression for a path relative to the searched
+ * directory: `**` any number of segments, `*` and `?` within one, `{a,b}` either. Both JavaScript and POSIX extended
+ * regular expressions (`awk`'s) read it alike.
  */
-export const globTest = (glob: string): RegExp => {
+const globSource = (glob: string): string => {
   let source = "";
 
   for (let index = 0; index < glob.length; index++) {
@@ -232,7 +274,7 @@ export const globTest = (glob: string): RegExp => {
     if (char === "*" && glob[index + 1] === "*") {
       const slash = glob[index + 2] === "/";
 
-      source += slash ? "(?:.*/)?" : ".*";
+      source += slash ? "(.*/)?" : ".*";
       index += slash ? 2 : 1;
     } else if (char === "*") {
       source += "[^/]*";
@@ -244,10 +286,10 @@ export const globTest = (glob: string): RegExp => {
       if (close === -1) {
         source += "\\{";
       } else {
-        source += `(?:${glob
+        source += `(${glob
           .slice(index + 1, close)
           .split(",")
-          .map((part) => globTest(part).source.slice(1, -1))
+          .map(globSource)
           .join("|")})`;
         index = close;
       }
@@ -256,27 +298,22 @@ export const globTest = (glob: string): RegExp => {
     }
   }
 
-  return new RegExp(`^${source}$`);
+  return `^${source}$`;
 };
 
-/** The names of the directories `**` + `/NAME/**` excludes, which the Container can prune without walking them. */
+/** A glob as a test of a path relative to the searched directory (`globSource`). */
+export const globTest = (glob: string): RegExp => new RegExp(globSource(glob));
+
+/**
+ * The names of the directories `**` + `/NAME` and `**` + `/NAME/**` exclude, which the Container can prune without
+ * walking them.
+ */
 const prunedNames = (exclude: ReadonlyArray<string>): string[] =>
   exclude.flatMap((glob) => {
-    const name = /^\*\*\/([^/*?{}[\]]+)\/\*\*$/.exec(glob)?.[1];
+    const name = /^\*\*\/([^/*?{}[\]]+)(?:\/\*\*)?$/.exec(glob)?.[1];
 
     return name === undefined ? [] : [name];
   });
-
-/** `relative` is left out by one of the exclude globs: itself, or a directory above it. */
-const excluded = (relative: string, exclude: ReadonlyArray<RegExp>): boolean => {
-  const segments = relative.split("/");
-
-  return segments.some((_, index) => {
-    const prefix = segments.slice(0, index + 1).join("/");
-
-    return exclude.some((test) => test.test(prefix) || test.test(`${prefix}/`));
-  });
-};
 
 /** A path below `directory`, which may be the root. */
 const below = (directory: string, name: string): string => (directory === "/" ? `/${name}` : `${directory}/${name}`);
@@ -290,6 +327,22 @@ type RgEvent = {
     readonly lines?: RgText;
     readonly line_number?: number;
   };
+};
+
+/** What a listing script reads at most: one byte past `LISTING_BYTES`, so a longer listing shows as one. */
+const LISTING_CUT = String(LISTING_BYTES + 1);
+
+/**
+ * `out`, a listing script's answer, or a failure saying it was longer than `LISTING_BYTES` (the script read one byte
+ * more, and `$(...)` drops only trailing newlines, so a listing that long or longer was cut).
+ */
+const listed = (path: string, out: string): string => {
+  if (out.length * 3 < LISTING_BYTES || new TextEncoder().encode(out).byteLength < LISTING_BYTES) return out;
+  throw new HostFailure(
+    "invalid",
+    `The listing is more than ${LISTING_BYTES} bytes, more than one answer carries: list a narrower directory or pattern (on the Container)`,
+    path,
+  );
 };
 
 /** `LIST`'s `kind<TAB>name` lines as directory entries. */
@@ -422,7 +475,7 @@ export class ContainerFiles {
 
   /** The entries of Container directory `path`. */
   async readdir(path: string): Promise<DirectoryEntry[]> {
-    return entriesOf(await this.#run(path, LIST, { P: path, LIMIT: String(MAX_LISTED) }));
+    return entriesOf(listed(path, await this.#run(path, LIST, { P: path, BYTES: LISTING_CUT })));
   }
 
   /**
@@ -437,7 +490,7 @@ export class ContainerFiles {
     let out: string;
 
     try {
-      out = await this.#run(path, LIST, { P: path, LIMIT: String(MAX_LISTED) });
+      out = listed(path, await this.#run(path, LIST, { P: path, BYTES: LISTING_CUT }));
     } catch {
       // A listing that cannot ask the Container still lists the Workspace's own entries.
       return [];
@@ -449,8 +502,6 @@ export class ContainerFiles {
   }
 
   async find(directory: string, pattern: string, options: FindOptions): Promise<FoundEntry[]> {
-    const test = globTest(pattern);
-    const exclude = options.exclude.map(globTest);
     // find's `*` crosses `/`, so `**` and `*` both become it: every path the glob matches matches this too. What the
     // glob takes literally (and all of the directory) is escaped, as find would read `[` as a class.
     const literal = (text: string) => text.replace(/[*?[\]\\]/g, "\\$&");
@@ -460,11 +511,21 @@ export class ContainerFiles {
       .replace(/\*\*\/?/g, "*")
       .replace(/\{[^}]*\}/g, "*")}`;
 
-    const out = await this.#run(
+    const out = listed(
       directory,
-      FIND,
-      { P: directory, GLOB: approximate, LIMIT: String(MAX_LISTED) },
-      { args: prunedNames(options.exclude) },
+      await this.#run(
+        directory,
+        FIND,
+        {
+          P: directory,
+          BYTES: LISTING_CUT,
+          GLOB: approximate,
+          GLOB_RE: globSource(pattern),
+          EXCLUDE_RE: options.exclude.map(globSource).join("\n"),
+          LIMIT: String(options.limit),
+        },
+        { args: prunedNames(options.exclude) },
+      ),
     );
 
     const found: FoundEntry[] = [];
@@ -477,8 +538,6 @@ export class ContainerFiles {
       if (tab === -1) continue;
 
       const relative = line.slice(tab + 1);
-
-      if (!test.test(relative) || excluded(relative, exclude)) continue;
 
       found.push({
         path: below(directory, relative),

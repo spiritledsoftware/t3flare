@@ -45,6 +45,7 @@ import {
   type SettingsServerLimits,
   settingsServerLimitsOf,
   MCP_CALL_SETTING_KEYS,
+  ENVIRONMENT_RESTART_SETTING_KEYS,
   NEXT_USE_SETTING_KEYS,
   SWEEP_SETTING_KEYS,
   t3AsksForDirect,
@@ -214,6 +215,8 @@ export const APPLIES_AT = {
    * setting's description says which use.
    */
   nextUse: "Applies at each one's next use, as its description says; no Container start is needed.",
+  /** t3's Terminals' history (SPI-1364): t3 takes it when the Environment starts, never a Container. */
+  environmentRestart: "Applies when the Environment next restarts, as every deploy does; no Container start is needed.",
   skills: "Files at each thread's next turn; the listing at the next context window; the composer at once.",
   /** A Purge (ADR-0044 §5). */
   purge: "Applies at once; it cannot be undone.",
@@ -736,6 +739,7 @@ const environmentAppliesAt = (keys: ReadonlyArray<string>): string => {
     { keys: among(["piSessionRetentionDays"]), text: APPLIES_AT.piSessionRetention },
     { keys: among(MCP_CALL_SETTING_KEYS), text: APPLIES_AT.mcpCall },
     { keys: among(NEXT_USE_SETTING_KEYS), text: APPLIES_AT.nextUse },
+    { keys: among(ENVIRONMENT_RESTART_SETTING_KEYS), text: APPLIES_AT.environmentRestart },
   ].filter((group) => group.keys.length > 0);
   const rest = keys.length - own.reduce((sum, group) => sum + group.keys.length, 0);
   if (own.length === 0) return APPLIES_AT.environment;

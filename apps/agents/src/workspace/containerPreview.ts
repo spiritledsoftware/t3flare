@@ -10,7 +10,8 @@
 // decides (`used`, `hold`). Neither is the owner's or the agent's activity: an open page keeps the Container only while
 // someone works there. Nothing here logs a request's path, query or cookies (review L5).
 // @effect-diagnostics globalTimers:off
-import { CONTAINER_PREVIEW_PORTS, containerPreviewHost } from "@t3flare/workspace-client";
+import { RESERVED_CONTAINER_PORTS } from "@t3flare/harness-registry";
+import { containerPreviewHost } from "@t3flare/workspace-client";
 
 import {
   CONTAINER_PREVIEW_HEADER,
@@ -145,11 +146,12 @@ export class ContainerPreview {
 
   /** Answer `request`, made to the Container preview of `port`. */
   async serve(request: Request, port: number): Promise<Response> {
-    if (!CONTAINER_PREVIEW_PORTS.includes(port)) {
+    // Which ports a browser reaches is its routes, made from the Owner's `previewPorts` (SPI-1364); t3flare's own never.
+    if (RESERVED_CONTAINER_PORTS.includes(port) || !Number.isInteger(port) || port < 1 || port > 65_535) {
       return page(
         404,
         `Port ${port} has no Container preview`,
-        `A Container preview is on one of the ports ${CONTAINER_PREVIEW_PORTS.join(", ")}. Start the dev server on one of them.`,
+        `Port ${port} is t3flare's own. Start the dev server on another port, one of the Environment setting Container preview ports.`,
       );
     }
 

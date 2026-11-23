@@ -26,7 +26,14 @@ import { describe, expect, it } from "vitest";
 
 import { codingTools } from "../src/extensions/coding-tools.ts";
 import { ApprovalStore, permissions } from "../src/extensions/permissions.ts";
-import { backgroundJobs, EXIT_ENTRY, type TermctrlHost, termctrlExtension } from "../src/extensions/termctrl.ts";
+import {
+  backgroundJobs,
+  EXIT_ENTRY,
+  type TermctrlHost,
+  termctrlExtension,
+  termctrlViewOf,
+  withTermctrlWaits,
+} from "../src/extensions/termctrl.ts";
 import {
   DEFAULT_TERMCTRL_LIMITS,
   exitTails,
@@ -364,4 +371,25 @@ describe("termctrl", () => {
     expect(tools.map((result) => result.isError)).toEqual([false, false, true]);
     expect(text(tools[2])).toContain("Declined by the owner");
   }, 20_000);
+});
+
+describe("the Owner's termctrl waits on each request (SPI-1364)", () => {
+  const view = termctrlViewOf({ cols: 120, rows: 40, quietMs: 400, stopGraceSeconds: 7 });
+
+  it("reads the resolved settings, with termctrl's own values for a Harness older than the settings", () => {
+    expect(view).toEqual({ cols: 120, rows: 40, quietMs: 400, stopGraceSeconds: 7 });
+    expect(termctrlViewOf({ cols: 80, rows: 24 })).toEqual({ cols: 80, rows: 24, quietMs: 250, stopGraceSeconds: 3 });
+  });
+
+  it("puts the quiet on a settle and the grace on a stop, and nothing on the rest", () => {
+    const settle = { op: "settle", owner: "s", id: "t1", mode: "poll", deadline: 1, chunkMs: 1, view: true } as const;
+    expect(withTermctrlWaits(settle, view)).toEqual({ ...settle, quietMs: 400 });
+    expect(withTermctrlWaits({ op: "stop", owner: "s", id: "t1" } as const, view)).toEqual({
+      op: "stop",
+      owner: "s",
+      id: "t1",
+      graceMs: 7_000,
+    });
+    expect(withTermctrlWaits({ op: "list", owner: "s" } as const, view)).toEqual({ op: "list", owner: "s" });
+  });
 });

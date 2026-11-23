@@ -15,8 +15,17 @@ import {
   type WaitAnswer,
 } from "./skillSetWait.ts";
 
-/** How many times the wait for a running Container's copy looks, 200 ms apart (plan §4.2: up to 5 s). */
-const SKILLS_WAIT_LOOKS = 25;
+/** How far apart the wait for a running Container's copy looks, in ms (`skillsWaitScript`'s `sleep 0.2`). */
+export const SKILLS_LOOK_MS = 200;
+
+/**
+ * What the wait's exec may take past its looks: the lock, the reads of the stdin's paths and the exec's dispatch. Only a
+ * backstop for a script that hangs; the looks end the wait first.
+ */
+export const SKILLS_WAIT_MARGIN_MS = 10_000;
+
+/** How many times the wait looks for `waitMs` (`skillsWaitSeconds`, SPI-1364), at least once. */
+export const skillsWaitLooks = (waitMs: number): number => Math.max(1, Math.ceil(waitMs / SKILLS_LOOK_MS));
 
 /** What a take answers: whether the set was taken, the hash held, why not, and the Container's copy. */
 export interface TakeAnswer {
@@ -115,6 +124,8 @@ export const awaitContainerCopy = async (
     readonly running: () => boolean;
     readonly exec: (command: WaitCommand) => Promise<{ readonly status: string; readonly stdout: string }>;
     readonly warn: (line: string) => void;
+    /** How long the wait looks (`skillsWaitSeconds`, SPI-1364), in ms. */
+    readonly waitMs: number;
   },
   expectation: ContainerExpectation,
 ): Promise<WaitAnswer | "stopped" | undefined> => {
@@ -122,12 +133,12 @@ export const awaitContainerCopy = async (
   if (!deps.running()) return "stopped";
   const result = await deps
     .exec({
-      script: skillsWaitScript(SKILLS_MOUNT, SKILLS_WAIT_LOOKS, SKILLS_LOCK_FAILED),
+      script: skillsWaitScript(SKILLS_MOUNT, skillsWaitLooks(deps.waitMs), SKILLS_LOCK_FAILED),
       stdin: expectationInput(expectation),
       cwd: WORKSPACE_ROOT,
       passive: true,
       onlyIfRunning: true,
-      timeoutMs: 15_000,
+      timeoutMs: skillsWaitLooks(deps.waitMs) * SKILLS_LOOK_MS + SKILLS_WAIT_MARGIN_MS,
     })
     .catch((error: unknown) => ({ status: String(error).slice(0, 200), stdout: "" }));
   if (result.status === "not-running") return "stopped";

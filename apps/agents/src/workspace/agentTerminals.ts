@@ -14,7 +14,12 @@
 //   ADR-0021's 8 by default, not termctrl's 16); exited ones stay readable until stopped, as in termctrl, up to
 //   `MAX_KEPT` per owner: they keep their headless xterm outside the live count, bounded by `MAX_KEPT` alone;
 // - they end when the Container stops, as t3's terminals do, and when this object restarts (a deploy).
-import { ENVIRONMENT_SETTINGS, MAX_AGENT_TERMINALS_PER_WORKSPACE } from "@t3flare/harness-registry";
+import {
+  DEFAULT_TERMINAL_QUIET_MS,
+  DEFAULT_TERMINAL_STOP_GRACE_SECONDS,
+  ENVIRONMENT_SETTINGS,
+  MAX_AGENT_TERMINALS_PER_WORKSPACE,
+} from "@t3flare/harness-registry";
 import type { KillAnswer } from "@t3flare/sandbox-image/kill";
 import { Terminal } from "@xterm/headless/lib-headless/xterm-headless.mjs";
 import type {
@@ -41,14 +46,8 @@ import { DEFAULT_TOOL_OUTPUT_LIMITS, jobTailOf } from "../extensions/toolOutput.
  * Sessions the Workspace serves until this object restarts, pending SPI-978's measurement of the DO's memory.
  */
 export const MAX_KEPT = MAX_AGENT_TERMINALS_PER_WORKSPACE;
-/** termctrl's settle constants (`terminal-tools.ts`). */
-export const QUIET_MS = 250;
+/** termctrl's settle poll (`terminal-tools.ts`). The quiet that settles a wait is the request's (`termctrl.quietMs`). */
 const POLL_MS = 50;
-/**
- * How long a stop waits for the entry's exit after its close (the host's kill script: TERM, then KILL from 2 s) before
- * it kills the entry's processes again (termctrl's escalation to SIGKILL, `termctrl-registry.ts` DEFAULT_STOP_GRACE_MS).
- */
-const STOP_GRACE_MS = 3_000;
 /**
  * How long a stop waits for the exit frame once its kill saw every process die. Not a setting: the frame only has to
  * cross the host's batch (`BULK_BATCH_MS`, 100 ms) and its push; past this the stop reports the kill's own answer.
@@ -248,7 +247,13 @@ export class AgentTerminals {
       }
       case "stop": {
         const entry = this.#entry(request.owner, request.id);
-        return this.#queued(entry, () => this.#stop(entry, request.tail ?? DEFAULT_JOB_TAIL));
+        return this.#queued(entry, () =>
+          this.#stop(
+            entry,
+            request.tail ?? DEFAULT_JOB_TAIL,
+            request.graceMs ?? DEFAULT_TERMINAL_STOP_GRACE_SECONDS * 1000,
+          ),
+        );
       }
       case "list":
         return { entries: this.#owned(request.owner).map((entry) => this.#info(entry)) };
@@ -408,6 +413,7 @@ export class AgentTerminals {
     const typedAt = this.#deps.now();
     const sliceEnd = Math.min(request.deadline, this.#deps.now() + request.chunkMs);
     const matches = request.pattern === undefined ? undefined : patternOf(request.pattern);
+    const quietMs = request.quietMs ?? DEFAULT_TERMINAL_QUIET_MS;
     let reason: AgentSettleReason | undefined;
     for (;;) {
       await entry.writing;
@@ -419,8 +425,8 @@ export class AgentTerminals {
       // With a pattern, quiet alone never ends the wait; a poll settles on quiet only after new output.
       else if (
         matches === undefined &&
-        now - entry.lastOutputAt >= QUIET_MS &&
-        now - typedAt >= QUIET_MS &&
+        now - entry.lastOutputAt >= quietMs &&
+        now - typedAt >= quietMs &&
         (request.mode !== "poll" || entry.lastOutputAt > typedAt || changed)
       )
         reason = "quiet";
@@ -437,16 +443,17 @@ export class AgentTerminals {
   }
 
   /**
-   * Closes the entry (the host's kill script), and kills it again when it has not exited within the grace or the close's
+   * Closes the entry (the host's kill script), and kills it again when it has not exited within `graceMs` (the Owner's
+   * `termctrl.stopGraceSeconds`; with no deadline, a process that ignores the close would keep the stop waiting) or the close's
    * kill left survivors (SPI-1372). The exit is what happened: the host's exit frame; else the kill's own answer
    * (`exitWithoutFrame`). Survivors of a running entry are no exit: the stop fails, and the entry stays running; survivors
    * of an exited one are noted on its exit.
    */
-  async #stop(entry: Entry, tail: AgentTail): Promise<AgentTerminalAnswers["stop"]> {
+  async #stop(entry: Entry, tail: AgentTail, graceMs: number): Promise<AgentTerminalAnswers["stop"]> {
     let closed: KillAnswer | undefined;
     if (entry.exit === null) {
       closed = await this.#deps.host.closeAnswered(entry.marker);
-      await this.#exitWithin(entry, STOP_GRACE_MS);
+      await this.#exitWithin(entry, graceMs);
     }
     if (entry.exit === null || (closed?.survivors ?? 0) > 0) {
       const answer = await this.#deps.host.kill(entry.marker);

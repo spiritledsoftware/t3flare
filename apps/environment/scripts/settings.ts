@@ -3116,7 +3116,7 @@ const ownerItem = async (item: string) => {
       markAfter: after?.secret ?? null,
       nextCall: tested,
       leakScan: leak,
-      verdict: ok6 && leak?.leaked === 0 ? "pass" : "fail",
+      verdict: ok6 && leak?.complete === true && leak?.leaked === 0 ? "pass" : "fail",
     });
     await record("m6-settings-hostile.json", "3", {
       name: "a leak scan finds a typed secret nowhere but the secret store: the canary typed on the Change page; the next call authenticates; peer-leak over the Container, the Session and the text (Workers Logs tail, the page before and after, the panel's audit and changes APIs, the agent's read_audit, list_mcp_servers and get_status, the thread's transcript)",

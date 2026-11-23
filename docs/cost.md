@@ -62,7 +62,9 @@ What moves the total:
   (1.05 GB against 751 MB, `steps-evidence-1:docs/steps/step-4b/m1-image.json`), registry storage and a slower first pull, not a running
   cost. A cold Claude Code session answered its first prompt 18 s after its Container was stopped. Claude Code (its
   Node adapter and `claude`) peaked at 344 MiB and OpenCode (`opencode acp` and its `serve` child) at 439 MiB in a turn
-  running `npm ci && npm test`, so each counts twice against a Workspace's CLI agents' processes (`CLI_WEIGHT`; the setting `cliProcessesPerWorkspace`, default 4). An
+  running `npm ci && npm test`, about twice an idle Codex app-server. Each process counts once against a Workspace's
+  CLI agents' processes (the setting `cliProcessesPerWorkspace`, default 4, whose description states each CLI's memory;
+  SPI-1364). An
   `acp-request` log line (Environment Worker) records each session's `initialize`, `session/new` and `session/load`.
 
 ## Base snapshots (SPI-1332, ADR-0047)

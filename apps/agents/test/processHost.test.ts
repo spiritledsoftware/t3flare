@@ -8,6 +8,7 @@ import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  BACKSTOP_MS,
   bytes,
   CLI_IDLE_HOLD_MS,
   type CliProcess,
@@ -22,6 +23,7 @@ import {
   CLI_SESSION_RELEASE_MS,
   DEFAULT_CLI_RECLAIM_SECONDS,
   MAX_CLI_RECLAIM_SECONDS,
+  T3_MAX_IDLE_PIN_MS,
 } from "@t3flare/harness-registry";
 
 /** The reclaim delay's default (`cliReclaimSeconds`), as a start without one gets. */
@@ -166,13 +168,17 @@ describe("ProcessHost", () => {
     expect(h.spawned).toHaveLength(0);
   });
 
-  it("weighs Claude Code and OpenCode as two Codex processes each (step 4b, M0 P7's memory)", async () => {
+  it("counts every CLI's process once against the Owner's count, Claude Code's and OpenCode's too (SPI-1364)", async () => {
     const h = harness();
-    expect((await h.host.start(start("proc-a", { cli: "claude" }))).ok).toBe(true);
-    expect((await h.host.start(start("proc-b", { cli: "opencode" }))).ok).toBe(true);
-    const third = await h.host.start(start("proc-c", { cli: "codex" }));
-    expect(third.ok).toBe(false);
-    expect(h.spawned).toHaveLength(2);
+    for (const [key, cli] of [
+      ["a", "claude"],
+      ["b", "opencode"],
+      ["c", "claude"],
+      ["d", "codex"],
+    ] as const)
+      expect((await h.host.start(start(`proc-${key}`, { cli }))).ok).toBe(true);
+    expect((await h.host.start(start("proc-e", { cli: "codex" }))).ok).toBe(false);
+    expect(h.spawned).toHaveLength(4);
   });
 
   it("refuses past the count the start carries, naming the setting (SPI-1318)", async () => {
@@ -183,7 +189,7 @@ describe("ProcessHost", () => {
       ok: false,
       epoch: 7,
       reason:
-        "this Workspace's CLI agents' processes already count 1 of the 1 its Environment setting \"CLI agents' processes per Workspace\" (cliProcessesPerWorkspace) allows, and Claude Code's and OpenCode's count two each; let one finish first, or raise the setting",
+        "this Workspace already runs 1 of the 1 CLI agents' processes its Environment setting \"CLI agents' processes per Workspace\" (cliProcessesPerWorkspace) allows; let one finish first, or raise the setting",
     });
     expect(h.spawned).toHaveLength(1);
   });
@@ -339,6 +345,22 @@ describe("ProcessHost", () => {
     expect(h.killed).toContainEqual(["proc-a"]);
   });
 
+  it("leaves a silent process t3 keeps pinned for background work, and kills it past both cleanups (SPI-1364)", async () => {
+    // t3's release, its longest pin for background work, one more release to notice the pin ran out, then the lapse.
+    expect(BACKSTOP_MS).toBe(2 * CLI_SESSION_RELEASE_MS + T3_MAX_IDLE_PIN_MS + HEARTBEAT_LAPSE_MS);
+    const h = harness();
+    await h.host.start(start("proc-a"));
+    for (let elapsed = 0; elapsed < BACKSTOP_MS - 1; elapsed += 30_000) {
+      h.advance(Math.min(30_000, BACKSTOP_MS - 1 - elapsed));
+      h.host.heartbeat(["proc-a"]);
+    }
+    expect(await h.host.expire()).toBe(0);
+    h.advance(1);
+    h.host.heartbeat(["proc-a"]);
+    expect(await h.host.expire()).toBe(1);
+    expect(h.killed).toContainEqual(["proc-a"]);
+  });
+
   it("kills an earlier instance's process when the Environment heartbeats a key this instance does not hold", async () => {
     const h = harness();
     h.setRemembered([{ key: "proc-orphan", environmentEpoch: 3, thread: "t" }]);
@@ -429,6 +451,14 @@ describe("ProcessHost", () => {
       "utf8",
     );
     expect(patch).toContain(`+  idleTimeoutMs: ${CLI_SESSION_RELEASE_MS / 60_000} * 60_000,`);
+  });
+
+  it("names t3's longest idle pin, which the backstop waits out (SPI-1364)", () => {
+    const manager = readFileSync(
+      path.join(import.meta.dirname, "../../../t3code/apps/server/src/orchestration-v2/ProviderSessionManager.ts"),
+      "utf8",
+    );
+    expect(manager).toContain(`const DEFAULT_MAX_IDLE_PIN_MS = ${T3_MAX_IDLE_PIN_MS / 3_600_000} * 60 * 60 * 1000;`);
   });
 
   it("ends every process by marker before a stop and waits for their exits", async () => {

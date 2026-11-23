@@ -94,12 +94,17 @@ export interface PatternedBackend extends WorkspaceBackend {
 }
 
 /**
- * The Workspace's Container backend under computer, made again for each start whose patterns differ. A running
+ * The Workspace's Container backend under computer, made again for each start whose patterns or connect wait differ. A running
  * Container started with other patterns (an older deploy's, or a `.gitmodules` that changed) is refused by computer
  * (`ContainerIgnoreMismatchError`); it is stopped and started again once, with the patterns now needed.
  */
 export interface ContainerOnlyOptions {
-  readonly make: (patterns: ReadonlyArray<string>) => PatternedBackend;
+  readonly make: (patterns: ReadonlyArray<string>, connectTimeoutMs: number) => PatternedBackend;
+  /**
+   * computer's connect deadline for the next start, in ms (`containerConnectSeconds`, SPI-1364): computer takes it once,
+   * when the backend is made.
+   */
+  readonly connectTimeoutMs: () => number;
   /** The patterns the next start needs. */
   readonly patterns: () => Promise<ReadonlyArray<string>>;
   /** The patterns before any `.gitmodules` is read (the first backend's). */
@@ -119,12 +124,17 @@ export class ContainerOnlyBackend implements WorkspaceBackend {
   readonly type: string;
   readonly description: string;
   readonly #options: ContainerOnlyOptions;
-  #current: { readonly patterns: ReadonlyArray<string>; readonly backend: PatternedBackend };
+  #current: {
+    readonly patterns: ReadonlyArray<string>;
+    readonly connectTimeoutMs: number;
+    readonly backend: PatternedBackend;
+  };
 
   constructor(options: ContainerOnlyOptions) {
     this.#options = options;
-    const backend = options.make(options.initial);
-    this.#current = { patterns: options.initial, backend };
+    const connectTimeoutMs = options.connectTimeoutMs();
+    const backend = options.make(options.initial, connectTimeoutMs);
+    this.#current = { patterns: options.initial, connectTimeoutMs, backend };
     this.id = backend.id;
     this.type = backend.type;
     this.description = backend.description ?? "";
@@ -142,14 +152,17 @@ export class ContainerOnlyBackend implements WorkspaceBackend {
 
   async connect(host: Parameters<WorkspaceBackend["connect"]>[0]): ReturnType<WorkspaceBackend["connect"]> {
     const patterns = await this.#options.patterns();
-    if (!samePatterns(patterns, this.#current.patterns)) {
-      this.#options.log?.({
-        t3flare: "container-patterns",
-        from: this.#current.patterns.length,
-        to: patterns.length,
-        patterns,
-      });
-      this.#current = { patterns, backend: this.#options.make(patterns) };
+    const connectTimeoutMs = this.#options.connectTimeoutMs();
+    const samePattern = samePatterns(patterns, this.#current.patterns);
+    if (!samePattern || connectTimeoutMs !== this.#current.connectTimeoutMs) {
+      if (!samePattern)
+        this.#options.log?.({
+          t3flare: "container-patterns",
+          from: this.#current.patterns.length,
+          to: patterns.length,
+          patterns,
+        });
+      this.#current = { patterns, connectTimeoutMs, backend: this.#options.make(patterns, connectTimeoutMs) };
     }
     const backend = this.#current.backend;
     let handle: Awaited<ReturnType<WorkspaceBackend["connect"]>>;

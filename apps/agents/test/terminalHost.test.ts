@@ -58,6 +58,7 @@ const harness = (
     readBashrc?: () => boolean;
     maxTerminals?: () => number;
     killAnswer?: KillAnswer;
+    firstPromptMs?: () => number;
   } = {},
 ) => {
   let now = 1_000_000;
@@ -99,6 +100,7 @@ const harness = (
     projectRootView: "/workspace/.t3flare/project-root",
     ...(options.readBashrc === undefined ? {} : { readBashrc: options.readBashrc }),
     ...(options.maxTerminals === undefined ? {} : { maxTerminals: options.maxTerminals }),
+    ...(options.firstPromptMs === undefined ? {} : { firstPromptMs: options.firstPromptMs }),
   };
   const host = new TerminalHost(deps);
   return {
@@ -190,6 +192,25 @@ describe("TerminalHost", () => {
     expect(h.frames.filter((frame) => frame.busy !== undefined).map((frame) => frame.busy)).toEqual([false, true]);
     expect(h.frames.map((frame) => frame.seq)).toEqual([...h.frames.keys()]);
     expect(h.changes).toContain("prompt");
+  });
+
+  it("holds input before the first prompt for the Owner's wait (SPI-1364: firstPromptSeconds), 20 s by default", async () => {
+    const h = harness({ firstPromptMs: () => 5_000 });
+    await h.host.open(open("term-a1"));
+    await h.host.input("term-a1", "a");
+    h.advance(4_999);
+    await h.host.input("term-a1", "b");
+    expect(h.shells[0]!.typed).toEqual([]);
+    h.advance(1);
+    await h.host.input("term-a1", "c");
+    await tick();
+    expect(h.shells[0]!.typed.join("")).toBe("abc");
+    const plain = harness();
+    await plain.host.open(open("term-a1"));
+    await plain.host.input("term-a1", "a");
+    plain.advance(19_999);
+    await plain.host.input("term-a1", "b");
+    expect(plain.shells[0]!.typed).toEqual([]);
   });
 
   it("closes through the kill script on the marker, and reports the exit with the shell's code", async () => {

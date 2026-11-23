@@ -21,6 +21,7 @@ import {
 import {
   DEFAULT_TERMINALS_PER_WORKSPACE,
   ENVIRONMENT_SETTINGS,
+  MAX_STOP_GRACE_SECONDS,
   MAX_TIMED_MINUTES,
   MAX_TIMED_SECONDS,
 } from "./environment.ts";
@@ -76,6 +77,37 @@ const THINKING_LEVELS = ["off", "low", "medium", "high"] as const;
  * also the size limit before it was a setting, so every page that converted then still does.
  */
 export const FETCH_CONVERT_MAX_KIB = 5120;
+/**
+ * QuickJS interrupt polls per CPU second of a tight loop on Cloudflare Durable Objects, as pi-codemode measured them
+ * (`runtime/inline.d.ts`, October 2026): about 10,000. The rate depends on the code, so it converts only roughly.
+ */
+export const CODEMODE_POLLS_PER_SECOND = 10_000;
+
+/** A codemode script's interrupt budget by default (`codemode.interruptBudget`): pi-codemode's DEFAULT_INTERRUPT_BUDGET. */
+export const DEFAULT_CODEMODE_INTERRUPT_BUDGET = 100_000;
+
+/**
+ * The codemode sandbox Worker's CPU limit per request, in ms. A named constraint: apps/environment/alchemy.run.ts sets no
+ * `limits.cpu_ms` for it, so a Durable Object's default of 30 seconds applies. Change the two together.
+ */
+export const CODEMODE_CPU_LIMIT_MS = 30_000;
+
+/**
+ * The most a codemode script's interrupt budget may be set to (`codemode.interruptBudget`), derived from the sandbox's
+ * CPU limit at the measured poll rate: past it, the platform's CPU limit, not the budget, would stop a computing script
+ * (SPI-1364). The sandbox (apps/codemode-sandbox) allows a request up to this.
+ */
+export const MAX_CODEMODE_INTERRUPT_BUDGET = (CODEMODE_CPU_LIMIT_MS / 1000) * CODEMODE_POLLS_PER_SECOND;
+
+/** termctrl's settle constant (pi-termctrl's `terminal-tools.ts`): a Terminal's quiet before a wait answers, in ms. */
+export const DEFAULT_TERMINAL_QUIET_MS = 250;
+
+/**
+ * How long terminal_stop waits for an entry's exit after its close by default, in seconds: termctrl's
+ * DEFAULT_STOP_GRACE_MS (`termctrl-registry.ts`).
+ */
+export const DEFAULT_TERMINAL_STOP_GRACE_SECONDS = 3;
+
 /**
  * The most `fetchMaxKiB` may be set to. A named constraint: a Worker isolate's 128 MB holds the body, its decoded text
  * and the lines web_fetch pages through, beside the Session itself, and an isolate out of memory resets the Session
@@ -137,6 +169,18 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
           "Estimated tokens the tool declarations in the code mode section may use; past it, scripts find tools with searchTools().",
         schema: { type: "integer", minimum: 500, maximum: 20_000, default: 2_000 },
         tier: "free",
+      },
+      interruptBudget: {
+        title: "Script compute budget (polls)",
+        description: `How much uninterrupted computing one script may do, in QuickJS interrupt polls (about ${CODEMODE_POLLS_PER_SECOND.toLocaleString("en-US")} per CPU second on Cloudflare): a script that computes past it without calling a tool fails as timed out. Near the most, ${MAX_CODEMODE_INTERRUPT_BUDGET.toLocaleString("en-US")}, a script can reach the sandbox's CPU limit instead, which resets the sandbox and fails every script running in it. Applies at each thread's next turn.`,
+        // A named constraint (`MAX_CODEMODE_INTERRUPT_BUDGET`): the codemode sandbox Worker's CPU limit.
+        schema: {
+          type: "integer",
+          minimum: 1_000,
+          maximum: MAX_CODEMODE_INTERRUPT_BUDGET,
+          default: DEFAULT_CODEMODE_INTERRUPT_BUDGET,
+        },
+        tier: "down-free",
       },
     },
   },
@@ -391,6 +435,31 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // instead, so no value past the Tool output limit's own maximum can matter.
         schema: { type: "integer", minimum: 1, maximum: MAX_TOOL_OUTPUT_KIB, default: 16 },
         tier: "down-free",
+      },
+      quietMs: {
+        title: "Quiet before a Terminal settles (ms)",
+        description: `A wait on a Terminal answers once its screen has had no new output for this long. Shorter answers sooner but may catch a program between bursts of output, so the agent reads a screen that is still changing. At most ${MAX_TIMED_MINUTES * 60_000} (a week). Applies at each thread's next turn.`,
+        // Compared with the clock between 50 ms polls (agentTerminals.ts), no timer: the shared sanity maximum applies
+        // (ADR-0048 §2), in ms.
+        schema: {
+          type: "integer",
+          minimum: 50,
+          maximum: MAX_TIMED_MINUTES * 60_000,
+          default: DEFAULT_TERMINAL_QUIET_MS,
+        },
+        tier: "free",
+      },
+      stopGraceSeconds: {
+        title: "Stopped Terminal's wait (seconds)",
+        description: `How long terminal_stop waits for a Terminal or Background job to end after closing it, before it kills its processes again. A program that ignores the close keeps the stop waiting this long. At most ${MAX_STOP_GRACE_SECONDS}. Applies at each thread's next turn.`,
+        // A sanity bound (`MAX_STOP_GRACE_SECONDS`).
+        schema: {
+          type: "integer",
+          minimum: 1,
+          maximum: MAX_STOP_GRACE_SECONDS,
+          default: DEFAULT_TERMINAL_STOP_GRACE_SECONDS,
+        },
+        tier: "free",
       },
     },
   },
@@ -886,7 +955,7 @@ export interface ResolvedHarness extends Partial<ResolvedTools> {
   readonly extensions: Readonly<
     Record<string, { readonly enabled: boolean; readonly settings: Readonly<Record<string, SettingValue>> }>
   >;
-  readonly codemode: { readonly enabled: boolean; readonly inlineBudget: number };
+  readonly codemode: { readonly enabled: boolean; readonly inlineBudget: number; readonly interruptBudget: number };
   readonly toolSearch: { readonly enabled: boolean };
   /**
    * A view from before Exposures existed: names or patterns of the tools offered without a search. A Session keeps the
@@ -945,6 +1014,7 @@ export const resolveHarness = (
     codemode: {
       enabled: extensions.codemode!.enabled,
       inlineBudget: extensions.codemode!.settings.inlineBudget as number,
+      interruptBudget: extensions.codemode!.settings.interruptBudget as number,
     },
     toolSearch: { enabled: extensions["tool-search"]!.enabled },
     ...tools,

@@ -5,8 +5,12 @@
 import { MCP_RELAY_PREFIX, type McpRelayAnswer } from "@t3flare/harness-registry";
 import { HANDLE } from "@t3flare/workspace-client";
 
-/** Requests from the Container are capped (plan §3.2). */
-export const MAX_RELAY_BYTES = 1024 * 1024;
+/**
+ * The largest request body the relay takes: the message crosses DO RPC twice (Workspace DO, then the Environment DO's
+ * `mcpRelay`), and one DO RPC message holds 32 MiB. A string with a single character past Latin-1 crosses as UTF-16,
+ * 2 bytes a character, so a body of half that (less 64 KiB for the call's other fields) always fits.
+ */
+export const MAX_RELAY_BYTES = 16 * 1024 * 1024 - 64 * 1024;
 
 export interface RelayDeps {
   /** The Workspace DO's `mcpRelay`. May hold the request while the owner is asked. */

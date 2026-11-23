@@ -1,6 +1,8 @@
 // The kill script run on the Container only while it runs, never starting it (step 2a part 2's leftover race): the
 // platform's `ctx.container`, faked. Its `exec` never starts a Container (only `start()` does), so a Container that
 // stops between the check and the exec makes the exec fail rather than start it; that failure is "not running".
+import { KILL_GIVE_UP_MS } from "@t3flare/harness-registry";
+import { KILL_SCRIPT } from "@t3flare/sandbox-image/kill";
 import { describe, expect, it } from "vitest";
 
 import { killInRunningContainer, type RunningContainer } from "../src/workspace/containerKill.ts";
@@ -39,40 +41,50 @@ const fakeContainer = (options: {
 describe("the kill script on the Container", () => {
   it("runs straight on a running Container, with the markers as arguments", async () => {
     const { container, calls } = fakeContainer({ running: true, stdout: '{"signalled":2,"survivors":0}\n' });
-    expect(await killInRunningContainer(container, ["exec-1", "exec-2"])).toEqual({
+    expect(await killInRunningContainer(container, ["exec-1", "exec-2"], 2000)).toEqual({
       exitCode: 0,
       stdout: '{"signalled":2,"survivors":0}\n',
       stderr: "",
     });
     expect(calls).toHaveLength(1);
     expect(calls[0]?.slice(0, 2)).toEqual(["bash", "-c"]);
-    expect(calls[0]?.slice(3)).toEqual(["t3flare-kill", "exec-1", "exec-2"]);
+    expect(calls[0]?.slice(3)).toEqual(["t3flare-kill", "2000", "exec-1", "exec-2"]);
   });
 
   it("does nothing on a stopped Container, or without one, or without markers", async () => {
     const stopped = fakeContainer({ running: false });
-    expect(await killInRunningContainer(stopped.container, ["exec-1"])).toBeUndefined();
+    expect(await killInRunningContainer(stopped.container, ["exec-1"], 2000)).toBeUndefined();
     expect(stopped.calls).toHaveLength(0);
-    expect(await killInRunningContainer(undefined, ["exec-1"])).toBeUndefined();
+    expect(await killInRunningContainer(undefined, ["exec-1"], 2000)).toBeUndefined();
     const running = fakeContainer({ running: true });
-    expect(await killInRunningContainer(running.container, [])).toBeUndefined();
+    expect(await killInRunningContainer(running.container, [], 2000)).toBeUndefined();
     expect(running.calls).toHaveLength(0);
   });
 
   it("counts a Container that stopped between the check and the exec as not running, without starting it", async () => {
     const { container, calls } = fakeContainer({ running: true, stopsBeforeExec: true });
-    expect(await killInRunningContainer(container, ["exec-1"])).toBeUndefined();
+    expect(await killInRunningContainer(container, ["exec-1"], 2000)).toBeUndefined();
     expect(calls).toHaveLength(1);
   });
 
   it("fails when the exec fails on a Container still running", async () => {
     const { container } = fakeContainer({ running: true, execFails: new Error("internal error") });
-    await expect(killInRunningContainer(container, ["exec-1"])).rejects.toThrow("internal error");
+    await expect(killInRunningContainer(container, ["exec-1"], 2000)).rejects.toThrow("internal error");
+  });
+
+  it("passes the grace before KILL first, in whole ms (SPI-1364: abortGraceSeconds)", async () => {
+    const { container, calls } = fakeContainer({ running: true });
+    await killInRunningContainer(container, ["exec-1"], 10_000);
+    expect(calls[0]?.slice(3)).toEqual(["t3flare-kill", "10000", "exec-1"]);
+  });
+
+  it("gives up the second after KILL that harness-registry names (KILL_GIVE_UP_MS)", () => {
+    expect(KILL_SCRIPT).toContain(`$((grace + ${KILL_GIVE_UP_MS}))`);
   });
 
   it("passes only ids the kill script can take", async () => {
     const { container, calls } = fakeContainer({ running: true });
-    await killInRunningContainer(container, ["exec-1", "x; rm -rf /", "exec-2"]);
-    expect(calls[0]?.slice(3)).toEqual(["t3flare-kill", "exec-1", "exec-2"]);
+    await killInRunningContainer(container, ["exec-1", "x; rm -rf /", "exec-2"], 2000);
+    expect(calls[0]?.slice(3)).toEqual(["t3flare-kill", "2000", "exec-1", "exec-2"]);
   });
 });

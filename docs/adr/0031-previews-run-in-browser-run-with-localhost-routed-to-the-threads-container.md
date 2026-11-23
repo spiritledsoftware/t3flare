@@ -10,7 +10,7 @@ Stock t3's previews stay stock above three seams: where Chrome comes from, where
 
 The owner watches through t3's own screencast route (`/api/preview-stream/*`, t3's auth), so no dev-server byte reaches the owner's browser except as frames, and no new hostname, certificate or DNS record exists. HTML renders and MCP apps keep stock's opaque-origin sandbox on the t3 host. The tool denylist shrinks to `t3_attachment_*`, `t3_thread_send_attachments`, `device_*` and `t3_worktree_*`; `serverBrowser` and `localServerStop` are advertised; agent browser access is the owner's setting with stock's default.
 
-Forced by the platform or by cost, and kept: the eight-port list; the `*.t3flare.internal` names; a preview never starts a Container; a preview's requests and carried sockets keep a running Container only within ADR-0021's 30 minutes from the Workspace's last input; profiles are `storageState` in the Environment DO's own table (8 MiB a profile; superseded by the SPI-1365 refinement below); Browser Run sessions are recorded and closed when a new Environment instance starts; nothing records a session or mints a Live View link.
+Forced by the platform or by cost, and kept: the eight-port list (superseded by the SPI-1364 refinement); the `*.t3flare.internal` names; a preview never starts a Container; a preview's requests and carried sockets keep a running Container only within ADR-0021's 30 minutes from the Workspace's last input; profiles are `storageState` in the Environment DO's own table (8 MiB a profile; superseded by the SPI-1365 refinement below); Browser Run sessions are recorded and closed when a new Environment instance starts; nothing records a session or mints a Live View link.
 
 ## Considered options
 
@@ -34,3 +34,12 @@ Forced by the platform or by cost, and kept: the eight-port list; the `*.t3flare
 A profile's 8 MiB is removed: the state is already whole in memory when it is saved, and it is kept in rows of at most
 1.5 MB, under a DO SQLite row's 8 MB. A profile past 8 MiB was not saved, with only a log line, and its sign-ins were
 lost; now every profile is kept.
+
+## Refinement (SPI-1364, 2026-11-23): the preview ports are the Owner's
+
+This supersedes "the eight-port list" as fixed. Browser Run's `outboundByHost` routes at most eight hosts, so at most
+eight ports, but which eight is taste: the Environment setting `previewPorts`, by default the eight above. It refuses
+computerd's 8080 and the MCP bridge's 17781 (`RESERVED_CONTAINER_PORTS`). The Environment reads it when a preview
+browser is acquired, for its routes, and when it translates a `localhost` URL; a browser keeps the routes it was
+acquired with. The `ContainerPreviews` entrypoint and the Workspace DO take any port but the reserved ones: the
+browser's routes decide which ports it reaches.

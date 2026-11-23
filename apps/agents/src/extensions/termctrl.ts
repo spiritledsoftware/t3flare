@@ -24,6 +24,8 @@ import {
   type ToolExecutionApi,
 } from "@earendil-works/pi-durable";
 import type { CodemodeNamespace } from "@earendil-works/pi-durable/codemode";
+import { DEFAULT_TERMINAL_QUIET_MS, DEFAULT_TERMINAL_STOP_GRACE_SECONDS } from "@t3flare/harness-registry";
+import type { AgentTerminalRequest } from "@t3flare/workspace-client";
 
 import type { BackgroundJobs } from "./coding-tools.ts";
 import { jobTailOf } from "./toolOutput.ts";
@@ -52,6 +54,30 @@ export const TERMCTRL_NAMESPACE: CodemodeNamespace = {
   description: "Terminals and Background jobs in the Workspace's container",
   prefix: "terminal_",
 };
+
+/** termctrl's settings a Session's Terminals use (SPI-1057, SPI-1364): the viewport and the settle and stop waits. */
+export interface TermctrlView {
+  readonly cols: number;
+  readonly rows: number;
+  readonly quietMs: number;
+  readonly stopGraceSeconds: number;
+}
+
+/** `settings` (termctrl's resolved Harness settings) as the Session's Terminals use them. */
+export const termctrlViewOf = (settings: Readonly<Record<string, unknown>>): TermctrlView => ({
+  cols: Number(settings.cols),
+  rows: Number(settings.rows),
+  quietMs: Number(settings.quietMs ?? DEFAULT_TERMINAL_QUIET_MS),
+  stopGraceSeconds: Number(settings.stopGraceSeconds ?? DEFAULT_TERMINAL_STOP_GRACE_SECONDS),
+});
+
+/** `request` with the Owner's waits a Workspace applies: a settle's quiet, a stop's grace. */
+export const withTermctrlWaits = <R extends AgentTerminalRequest>(request: R, view: TermctrlView): R =>
+  request.op === "settle"
+    ? { ...request, quietMs: view.quietMs }
+    : request.op === "stop"
+      ? { ...request, graceMs: view.stopGraceSeconds * 1000 }
+      : request;
 
 export interface TermctrlOptions {
   readonly host: TermctrlHost;

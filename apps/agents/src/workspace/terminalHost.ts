@@ -12,7 +12,7 @@
 // - Only input is use (review F10): the Container's terminal hold is measured from the last input. Opening is not input
 //   (cost audit F1): t3 re-attaches every open panel after an Environment restart, so an open must not hold the
 //   Container. A shell at its prompt holds it for less than one running a foreground command.
-import { ENVIRONMENT_SETTINGS } from "@t3flare/harness-registry";
+import { DEFAULT_FIRST_PROMPT_SECONDS, ENVIRONMENT_SETTINGS } from "@t3flare/harness-registry";
 import type { KillAnswer } from "@t3flare/sandbox-image/kill";
 import { scanMarkers, terminalCommand } from "@t3flare/sandbox-image/terminal";
 import type {
@@ -36,8 +36,6 @@ export const BULK_BATCH_MS = 100;
 export const ECHO_WINDOW_MS = 1_000;
 /** Reading a shell's output pauses while this much waits to be pushed. */
 export const BACKPRESSURE_BYTES = 1024 * 1024;
-/** Input typed before the first prompt is held at most this long. */
-export const FIRST_PROMPT_WAIT_MS = 20_000;
 
 /** The part of the platform's `ExecProcess` used here. */
 export interface ShellProcess {
@@ -79,6 +77,11 @@ export interface TerminalHostDeps {
    * not the rc file's prompt, so its input goes at once (SPI-1057).
    */
   readonly holdFirstInput?: boolean;
+  /**
+   * How long input typed before the shell's first prompt is held (`firstPromptSeconds`, SPI-1364), in ms: past it, the
+   * next input is sent with what was held, for a shell that never prints the prompt marker.
+   */
+  readonly firstPromptMs?: () => number;
   /**
    * Whether a shell sources `~/.bashrc` (ADR-0047 §9): the running Container's launch's `terminalsReadBashrc`, read at
    * each open. Absent: it does, the setting's default (an agent's Terminal runs a command, not the rc file, either way).
@@ -419,7 +422,7 @@ export class TerminalHost {
     if (
       this.#deps.holdFirstInput !== false &&
       !terminal.prompted &&
-      this.#deps.now() - terminal.heldSince < FIRST_PROMPT_WAIT_MS
+      this.#deps.now() - terminal.heldSince < (this.#deps.firstPromptMs?.() ?? DEFAULT_FIRST_PROMPT_SECONDS * 1000)
     ) {
       terminal.held.push(data);
       return this.#answer([]);

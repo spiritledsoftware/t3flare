@@ -16,7 +16,11 @@ import {
   builtinTool,
   EMPTY_ENVIRONMENT,
   AGENT_SETTING_KEYS,
+  COMMAND_SETTING_KEYS,
   DOTFILES_SETTING_KEYS,
+  CONTAINER_PREVIEW_SETTING_KEYS,
+  KEPT_SETTING_KEYS,
+  TERMINAL_SETTING_KEYS,
   ENVIRONMENT_SETTINGS,
   type Exposure,
   EXPOSURES,
@@ -179,6 +183,10 @@ const field = (
       );
       return `<fieldset class="field" ${attrs} data-set-by-t3flare="${escapeHtml(SET_BY_T3FLARE.join(" "))}" data-reserved-prefixes="${escapeHtml(RESERVED_PREFIXES.join(" "))}"><legend class="sr">${escapeHtml(setting.title)}</legend><div class="variables" data-variable-rows>${rows.join("")}</div><template data-variable-template>${variableRow(undefined)}</template><div><button type="button" class="btn btn-sm" data-variable-add>${icon("plus")}Add a Variable</button></div>${hint}</fieldset>`;
     }
+    case "ports":
+      // Typed as text (a keypad with a comma or a space, not `numeric`'s); the script checks it at the field before a save
+      // as the API does (`normalizeField`), from its bounds here.
+      return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="text" required autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="3000, 5173" ${attrs} data-max-count="${setting.schema.maxCount}" data-reserved="${escapeHtml(setting.schema.reserved.join(" "))}" value="${escapeHtml(Array.isArray(value) ? value.join(", ") : "")}">${hint}</div>`;
     case "file":
       // No maxlength (it counts UTF-16 units; the API's byte limit refuses, whole). The newline after the tag is the one
       // an HTML parser drops, so a text that starts with one round-trips and an unrelated save changes nothing.
@@ -457,8 +465,9 @@ const environmentSection = (
   // The scalar settings share the Containers row. The agents' settings (SPI-1315: the Turn limit, the CLI agents'
   // processes) share an Agents row, the MCP calls' time limit and result size (SPI-1359) an MCP calls row, the outside
   // requests' time limit (SPI-1365) an Outside requests row, the Sleep and wake, Previews and access settings (SPI-1366)
-  // rows of their own, the retries and t3's trace (SPI-1367) rows of their own, how long
-  // history is kept (SPI-1323) a History row, and the dotfiles toggles (ADR-0047 §9) a Dotfiles row, each a `keyedRow`. A list (the Variables) and a file (the Global mise config, the
+  // rows of their own, the retries and t3's trace (SPI-1367) rows of their own, the commands' limits and the Terminals'
+  // (SPI-1364) a Commands and a Terminals row, the Container previews' (SPI-1364) the Previews row with SPI-1366's, how
+  // long history is kept (SPI-1323) a History row, and the dotfiles toggles (ADR-0047 §9) a Dotfiles row, each a `keyedRow`. A list (the Variables) and a file (the Global mise config, the
   // Container setup) each get a row of their own, which the settings that name it as their `row` join. One form, one
   // Save.
   const keyed: ReadonlyArray<string> = [
@@ -466,7 +475,11 @@ const environmentSection = (
     ...MCP_CALL_SETTING_KEYS,
     ...OUTSIDE_REQUEST_SETTING_KEYS,
     ...SKILLS_SETTING_KEYS,
+    ...COMMAND_SETTING_KEYS,
+    ...TERMINAL_SETTING_KEYS,
+    ...CONTAINER_PREVIEW_SETTING_KEYS,
     ...RETENTION_SETTING_KEYS,
+    ...KEPT_SETTING_KEYS,
     ...DOTFILES_SETTING_KEYS,
     ...LIFECYCLE_SETTING_KEYS,
     ...PREVIEW_SETTING_KEYS,
@@ -524,11 +537,23 @@ const environmentSection = (
     "How many of a repository's skills its agents are offered, and how far t3flare reads its skills and Prompt templates directories to find them.",
     SKILLS_SETTING_KEYS,
   );
+  const commands = keyedRow(
+    "commands",
+    "Commands",
+    "How long a command in a Workspace's Container may run, how long a start waits for the Container, how recent use keeps a Container from being reclaimed, how long a turn waits for new Environment skills, and how long a stopped command or port gets to end before it is killed.",
+    COMMAND_SETTING_KEYS,
+  );
+  const terminals = keyedRow(
+    "terminals",
+    "Terminals",
+    "How long a new Terminal waits for its first prompt, and how much of your Terminals' output t3 keeps.",
+    TERMINAL_SETTING_KEYS,
+  );
   const history = keyedRow(
     "history",
     "History",
-    "How long t3flare keeps its usage records, and Pi's and Claude Code's sessions.",
-    RETENTION_SETTING_KEYS,
+    "How long t3flare keeps its usage records, Pi's and Claude Code's sessions and its temp files, and how many git answers and traced commands it keeps.",
+    [...RETENTION_SETTING_KEYS, ...KEPT_SETTING_KEYS],
   );
   const dotfiles = keyedRow(
     "dotfiles",
@@ -545,8 +570,8 @@ const environmentSection = (
   const previews = keyedRow(
     "previews",
     "Previews",
-    "How often an open preview browser's profile is saved, and how long the browser that renders t3's HTML stays open after its last render.",
-    PREVIEW_SETTING_KEYS,
+    "Which Container ports a preview browser can open, how long a port check waits for an answer, how often an open preview browser's profile is saved, and how long the browser that renders t3's HTML stays open after its last render.",
+    [...CONTAINER_PREVIEW_SETTING_KEYS, ...PREVIEW_SETTING_KEYS],
   );
   const access = keyedRow(
     "access",
@@ -578,9 +603,9 @@ const environmentSection = (
   const save = `<div class="row"><div class="save"><span class="save-note" data-save-note aria-live="polite"></span><button type="submit" class="btn btn-sm" data-save disabled>Save</button></div></div>`;
   return `<section id="environment" aria-labelledby="environment-title">
 <div class="section-head"><h2 id="environment-title">${icon("container")}Environment</h2></div>
-<p class="section-desc">What every Workspace's Container gets, and how long t3flare keeps its history. A change applies at each Workspace's next Container start unless its setting says otherwise; a running Container keeps what it started with, and a lower budget stops none.</p>
+<p class="section-desc">What every Workspace's Container gets, how long its commands may run, its Terminals and previews, and what t3flare keeps and for how long. A change applies at each Workspace's next Container start unless its setting says otherwise; a running Container keeps what it started with, and a lower budget stops none.</p>
 <form class="group" data-environment aria-labelledby="environment-title" novalidate><div class="row"><div><div class="row-title"><h3>Containers</h3><span class="ident">revision ${environment.revision}</span></div><p class="desc">Their size, how long one may sit idle, how long open Terminals keep it running, how many may run at once, how many Terminals a Workspace may have, yours and agents', how much an agent's Terminal keeps of its scrollback, how long a start or a turn waits for the newest settings, and how long a clone or a checkpoint may run.</p></div>
-<div class="row-extra"><div class="fields">${fields.join("")}</div></div></div>${agents}${retries}${mcpCalls}${outside}${lifecycle}${previews}${access}${skills}${trace}${history}${dotfiles}${lists.join("")}${save}</form>
+<div class="row-extra"><div class="fields">${fields.join("")}</div></div></div>${agents}${retries}${mcpCalls}${outside}${lifecycle}${commands}${terminals}${previews}${access}${skills}${trace}${history}${dotfiles}${lists.join("")}${save}</form>
 <dl class="group kv"><div><dt>Running now</dt><dd>${
     running === null || running === undefined
       ? "unknown"

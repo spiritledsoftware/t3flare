@@ -722,7 +722,13 @@ describe("the Environment section's dotfiles", () => {
       "remoteRetryMinutes",
       "safeModeAfterFailures",
     ]);
-    expect(settingsOf("previews")).toEqual(["browserProfileSaveSeconds", "htmlBrowserKeepAliveSeconds"]);
+    // SPI-1364's Container preview ports and port check come first in the same row.
+    expect(settingsOf("previews")).toEqual([
+      "previewPorts",
+      "portProbeMs",
+      "browserProfileSaveSeconds",
+      "htmlBrowserKeepAliveSeconds",
+    ]);
     expect(settingsOf("access")).toEqual(["pageTokenHours", "clientsPerKey", "connectPublishLogKept"]);
   });
 
@@ -784,10 +790,19 @@ describe("the Environment section's dotfiles", () => {
     expect(agents).toBeGreaterThan(-1);
     const row = section.slice(start, section.indexOf('<div class="row">', start));
     const inputs = tagsOf(row).filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined);
-    expect(inputs.map((tag) => tag.attrs["data-setting"])).toEqual(["usageRetentionDays", "piSessionRetentionDays"]);
+    expect(inputs.map((tag) => tag.attrs["data-setting"])).toEqual([
+      "usageRetentionDays",
+      "piSessionRetentionDays",
+      "tempFilesHours",
+      "gitReadsKept",
+      "routerTraceEntries",
+    ]);
     expect(inputs.map((tag) => tag.attrs)).toMatchObject([
       { type: "number", min: "1", max: "3650", value: "92" },
       { type: "number", min: "1", max: "3650", value: "60" },
+      { type: "number", min: "1", max: "87600", value: "24" },
+      { type: "number", min: "1", max: "100000", value: "500" },
+      { type: "number", min: "1", max: "10000", value: "300" },
     ]);
     // Once on the page: never in the Containers row, nor in the Workspaces section beside the Grace.
     for (const key of ["usageRetentionDays", "piSessionRetentionDays"])
@@ -796,6 +811,44 @@ describe("the Environment section's dotfiles", () => {
       (tag) => tag.attrs.role === "group" && tag.attrs["aria-labelledby"] === "environment-history-title",
     );
     expect(group?.attrs["aria-describedby"]).toBe("environment-history-desc");
+  });
+
+  it("draws the commands', Terminals' and previews' limits in rows of their own after the Agents row, each once (SPI-1364)", () => {
+    const page = renderPage(fixturePage());
+    const section = sectionOf(page);
+    const rowKeys = (id: string) => {
+      const start = section.indexOf(`<h3 id="environment-${id}-title">`);
+      expect(start, id).toBeGreaterThan(section.indexOf('<h3 id="environment-agents-title">Agents</h3>'));
+      const row = section.slice(start, section.indexOf('<div class="row">', start));
+      return tagsOf(row)
+        .filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined)
+        .map((tag) => tag.attrs["data-setting"]);
+    };
+    expect(rowKeys("commands")).toEqual([
+      "commandMinutes",
+      "containerConnectSeconds",
+      "reclaimProtectionSeconds",
+      "skillsWaitSeconds",
+      "abortGraceSeconds",
+      "portStopGraceSeconds",
+    ]);
+    expect(rowKeys("terminals")).toEqual(["firstPromptSeconds", "terminalHistoryKiB", "exitedTerminalsKept"]);
+    // One Previews row with SPI-1366's preview browser cadences, after these.
+    expect(rowKeys("previews")).toEqual([
+      "previewPorts",
+      "portProbeMs",
+      "browserProfileSaveSeconds",
+      "htmlBrowserKeepAliveSeconds",
+    ]);
+    for (const key of ["commandMinutes", "previewPorts", "terminalHistoryKiB"])
+      expect(page.split(`data-setting="${key}"`)).toHaveLength(2);
+    // The ports are typed as text, the stored list shown comma-separated; the API reads them.
+    const ports = tagsOf(section).find((tag) => tag.attrs["data-setting"] === "previewPorts");
+    expect(ports?.attrs).toMatchObject({
+      type: "text",
+      "data-kind": "ports",
+      value: "3000, 3001, 4173, 4321, 5173, 5174, 8000, 8787",
+    });
   });
 
   it("draws the Answer wait after the Turn limit in the Agents row, default 10, and the Open changes text names it (SPI-1316)", () => {

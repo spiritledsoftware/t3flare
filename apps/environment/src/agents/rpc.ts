@@ -61,6 +61,8 @@ export type FsOp =
   | { readonly op: "rename"; readonly path: string; readonly to: string }
   | { readonly op: "realPath"; readonly path: string }
   | { readonly op: "find"; readonly path: string; readonly pattern?: string; readonly limit?: number }
+  /** SPI-1364: every entry under `path`, cut to fit `maxBytes` of a DO RPC answer (`fitFoundEntries`), the cut stated. */
+  | { readonly op: "index"; readonly path: string; readonly maxBytes: number }
   | {
       readonly op: "grep";
       readonly path: string;
@@ -80,6 +82,11 @@ export interface ExecInput {
   readonly env?: Readonly<Record<string, string>>;
   readonly stdin?: string;
   readonly timeoutMs?: number;
+  /**
+   * SPI-1364: the output whole, none of it saved in the Workspace's files, for a script that bounds its own; else an
+   * answer past the Workspace DO's `EXEC_OUTPUT_BYTES` fails rather than come back cut.
+   */
+  readonly wholeOutput?: boolean;
 }
 
 export interface ExecResult {
@@ -93,6 +100,8 @@ export interface ExecResult {
 export interface WorkspaceRpc {
   fs(op: FsOp): Promise<FsAnswer<unknown>>;
   git(run: GitRun): Promise<GitAnswer>;
+  /** SPI-1364: ends the git run `runId` t3 gave up on; whether it was running. */
+  cancelRun(runId: string): Promise<boolean>;
   /** SPI-1324: `timeoutMs`, the checkpoint time limit (`checkpointMinutes`) in ms; absent, the Workspace DO's default. */
   checkpoint(op: CheckpointOp, options?: { readonly timeoutMs?: number }): Promise<CheckpointAnswer>;
   ensureCredentialHelper(id?: string): Promise<ExecResult>;

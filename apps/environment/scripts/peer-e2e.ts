@@ -433,8 +433,8 @@ try {
     ).json;
     out.leak = leak;
     check(
-      "F8: no secret in the Container or the Session's state after a delegated task",
-      leak?.leaked === 0 && leak?.credentialsFound >= 0,
+      "F8: no secret in the Container or the Session's state after a delegated task, the dump scanned to its end",
+      leak?.complete === true && leak?.leaked === 0 && leak?.credentialsFound >= 0,
       leak,
     );
   }

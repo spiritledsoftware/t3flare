@@ -44,6 +44,11 @@ describe("credential helper", () => {
     expect(args).not.toContain("cmd=");
   });
 
+  it("sets no time limit of its own: git's caller has its deadline, and a Terminal's user can interrupt", () => {
+    run("protocol=https\nhost=github.com\n\n");
+    expect(fs.readFileSync(asked, "utf8")).not.toContain("--max-time");
+  });
+
   it("answers when stdin ends without a blank line", () => {
     expect(run("protocol=https\nhost=github.com\n")).toContain("password=test-token");
   });

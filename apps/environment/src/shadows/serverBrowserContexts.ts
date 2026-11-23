@@ -29,11 +29,11 @@
 // - Never `recording`, never a Live View URL, and no URL or cookie is logged (review L5).
 import { INCOGNITO_BROWSER_PROFILE_ID } from "@t3tools/contracts";
 import { DEFAULT_BROWSER_PROFILE_SAVE_SECONDS } from "@t3flare/harness-registry";
-import { CONTAINER_PREVIEW_PORTS, containerPreviewHost, toWorkspace } from "@t3flare/workspace-client";
+import { containerPreviewHost, toWorkspace } from "@t3flare/workspace-client";
 import * as NodeOS from "node:os";
 import type { Browser, BrowserContext, CDPSession, Download, Page } from "playwright-core";
 
-import { environmentNow, environmentServices } from "../agents/bindings.ts";
+import { environmentNow, environmentServices, previewPortsNow } from "../agents/bindings.ts";
 import { workspaceRpc } from "../agents/workspaceClient.ts";
 import { BROWSER_KEEP_ALIVE_MS } from "../preview/browserRun.ts";
 import { threadWorkspaceFrom } from "../preview/portDiscovery.ts";
@@ -117,10 +117,11 @@ export const translatePreviewUrl = (url: string): string => {
   }
   if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || !LOOPBACK.test(parsed.hostname)) return url;
   const port = parsed.port === "" ? (parsed.protocol === "http:" ? 80 : 443) : Number(parsed.port);
-  if (CONTAINER_PREVIEW_PORTS.includes(port))
+  const previewPorts = previewPortsNow();
+  if (previewPorts.includes(port))
     return `http://${containerPreviewHost(port)}${parsed.pathname}${parsed.search}${parsed.hash}`;
-  const ports = CONTAINER_PREVIEW_PORTS.join(", ");
-  const page = `<!doctype html><meta charset="utf-8"><title>Port ${port} has no preview</title><body style="font-family:system-ui,sans-serif;max-width:40rem;margin:4rem auto;line-height:1.5"><h1 style="font-size:1.25rem">Port ${port} has no preview</h1><p>The Cloud Environment previews a Workspace's dev server on ports ${ports}. Start it on one of them, listening on 0.0.0.0, then open it again.</p></body>`;
+  const ports = previewPorts.join(", ");
+  const page = `<!doctype html><meta charset="utf-8"><title>Port ${port} has no preview</title><body style="font-family:system-ui,sans-serif;max-width:40rem;margin:4rem auto;line-height:1.5"><h1 style="font-size:1.25rem">Port ${port} has no preview</h1><p>The Cloud Environment previews a Workspace's dev server on ports ${ports} (the Environment setting Container preview ports). Start it on one of them, listening on 0.0.0.0, or add its port to the setting, then open it again.</p></body>`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(page)}`;
 };
 
@@ -313,7 +314,7 @@ export class ServerBrowserContexts {
           ? undefined
           : (() => {
               const entry = environmentServices().containerPreviews(workspace);
-              return Object.fromEntries(CONTAINER_PREVIEW_PORTS.map((port) => [containerPreviewHost(port), entry]));
+              return Object.fromEntries(previewPortsNow().map((port) => [containerPreviewHost(port), entry]));
             })();
       const browser = await playwright.launch(binding, {
         keep_alive: BROWSER_KEEP_ALIVE_MS,

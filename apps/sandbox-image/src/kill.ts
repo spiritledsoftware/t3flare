@@ -10,7 +10,10 @@
 //   command's own group, and a group a marked process started with `setsid`;
 // - a marked process in a group with an unmarked leader is signalled alone: never computerd's, the supervisor's or
 //   another command's group;
-// - TERM first, KILL from 2 s; the processes are found again every 100 ms until none is left or 3 s have passed.
+// - TERM first, KILL from the grace (its first argument, in ms: the Owner's `abortGraceSeconds`, SPI-1364); the processes
+//   are found again every 100 ms until none is left or the grace and one second more have passed (harness-registry's
+//   `KILL_GIVE_UP_MS`; apps/agents/test/containerKill.test.ts keeps them equal). The second after KILL bounds the loop
+//   on a process KILL cannot end (one in uninterruptible sleep).
 //
 // It prints one JSON line: `{"signalled":<processes signalled>,"survivors":<marked processes still alive>,"signal":<the
 // last signal it sent, "TERM" or "KILL", or null when it sent none>}`. Not
@@ -18,6 +21,8 @@
 
 export const KILL_SCRIPT = String.raw`
 set -u
+grace=$1
+shift
 want=" $* "
 signalled=0
 sent=
@@ -87,8 +92,8 @@ sig=TERM
 while signal "$sig"; do
   now=\${EPOCHREALTIME/[.,]/}
   elapsed=$(( (now - start) / 1000 ))
-  [ $elapsed -ge 3000 ] && break
-  [ $elapsed -ge 2000 ] && sig=KILL
+  [ $elapsed -ge $((grace + 1000)) ] && break
+  [ $elapsed -ge "$grace" ] && sig=KILL
   sleep 0.1
 done
 survivors=$(marked | grep -c . || true)
@@ -117,12 +122,18 @@ export const killAnswer = (stdout: string): KillAnswer | undefined => {
 /** The ids the script takes: nothing a shell would read as more than a word. */
 const killIds = (execIds: ReadonlyArray<string>) => execIds.filter((id) => /^[A-Za-z0-9-]+$/.test(id));
 
-/** The argv that runs the script for `execIds`, as the Workspace DO execs it on the Container (empty: nothing to kill). */
-export const killArgv = (execIds: ReadonlyArray<string>): ReadonlyArray<string> => {
+/** A grace as the script takes it: whole non-negative milliseconds. */
+const graceArg = (graceMs: number): string => String(Math.max(0, Math.round(graceMs)));
+
+/**
+ * The argv that runs the script for `execIds`, TERM then KILL after `graceMs`, as the Workspace DO execs it on the
+ * Container (empty: nothing to kill).
+ */
+export const killArgv = (execIds: ReadonlyArray<string>, graceMs: number): ReadonlyArray<string> => {
   const ids = killIds(execIds);
-  return ids.length === 0 ? [] : ["bash", "-c", KILL_SCRIPT, "t3flare-kill", ...ids];
+  return ids.length === 0 ? [] : ["bash", "-c", KILL_SCRIPT, "t3flare-kill", graceArg(graceMs), ...ids];
 };
 
-/** The same as one `/bin/sh -c` command line (the kill script's tests run it so). */
-export const killCommand = (execIds: ReadonlyArray<string>): string =>
-  `exec bash -c '${KILL_SCRIPT.replaceAll("'", "'\\''")}' t3flare-kill ${killIds(execIds).join(" ")}`;
+/** The same as one `/bin/sh -c` command line (the kill script's tests run it so); 2 s is the setting's default. */
+export const killCommand = (execIds: ReadonlyArray<string>, graceMs = 2000): string =>
+  `exec bash -c '${KILL_SCRIPT.replaceAll("'", "'\\''")}' t3flare-kill ${graceArg(graceMs)} ${killIds(execIds).join(" ")}`;

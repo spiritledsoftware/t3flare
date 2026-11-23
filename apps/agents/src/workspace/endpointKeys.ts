@@ -8,9 +8,7 @@ import { type CredentialPattern, MIN_SCANNED_LENGTH, patternOf } from "@t3flare/
 /** Keys shorter than this are not scanned for in the Container (their unsalted hash would give them away). */
 export const MIN_SCANNED_KEY_LENGTH = MIN_SCANNED_LENGTH;
 
-/** The relay's keys by endpoint, by hash: one per endpoint, the newest, at most `MAX_ENDPOINT_KEYS`. */
-export const MAX_ENDPOINT_KEYS = 32;
-
+/** The relay's keys by endpoint, by hash: one per endpoint, the newest, so as many as the Owner has Model endpoints. */
 export class EndpointKeyPatterns {
   readonly #patterns = new Map<string, CredentialPattern>();
 
@@ -18,9 +16,7 @@ export class EndpointKeyPatterns {
     if (key.length < MIN_SCANNED_KEY_LENGTH) return;
     const pattern = await patternOf(`endpoint:${endpointId}`, key);
     if (this.#patterns.get(endpointId)?.sha256 === pattern.sha256) return;
-    this.#patterns.delete(endpointId);
     this.#patterns.set(endpointId, pattern);
-    if (this.#patterns.size > MAX_ENDPOINT_KEYS) this.#patterns.delete(this.#patterns.keys().next().value!);
   }
 
   values(): ReadonlyArray<CredentialPattern> {

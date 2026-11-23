@@ -4,4 +4,4 @@
 # CREDENTIAL_HELPER (apps/agents/src/workspace/credentialHelper.ts); apps/agents/test/systemGitconfig.test.ts keeps
 # them equal.
 [credential]
-	helper = "!f() { test \"$1\" = get || exit 0; pr=; h=; while IFS== read -r k v; do [ -n \"$k\" ] || break; case \"$k\" in protocol) pr=\"$v\";; host) h=\"$v\";; esac; done; [ \"$pr\" = https ] && [ \"$h\" = github.com ] || exit 0; t=\"$(curl -fsS --max-time 60 -G --data-urlencode v=2 --data-urlencode protocol=https --data-urlencode host=github.com http://computer.internal/t3flare/git-credential 2>/dev/null)\"; [ -n \"$t\" ] || exit 0; echo username=x-access-token; echo \"password=$t\"; }; f"
+	helper = "!f() { test \"$1\" = get || exit 0; pr=; h=; while IFS== read -r k v; do [ -n \"$k\" ] || break; case \"$k\" in protocol) pr=\"$v\";; host) h=\"$v\";; esac; done; [ \"$pr\" = https ] && [ \"$h\" = github.com ] || exit 0; t=\"$(curl -fsS -G --data-urlencode v=2 --data-urlencode protocol=https --data-urlencode host=github.com http://computer.internal/t3flare/git-credential 2>/dev/null)\"; [ -n \"$t\" ] || exit 0; echo username=x-access-token; echo \"password=$t\"; }; f"

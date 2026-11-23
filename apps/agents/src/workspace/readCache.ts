@@ -23,9 +23,6 @@ const SCHEMA = `CREATE TABLE IF NOT EXISTS t3flare_git_reads (
   used_at INTEGER NOT NULL
 )`;
 
-/** Most reads kept; t3's status poll uses about 30 shapes per branch. */
-const MAX_ROWS = 500;
-
 /**
  * The largest answer kept, in UTF-8 bytes of its JSON. A named constraint: a Durable Object SQLite row holds 8 MiB
  * (8,388,608 bytes: Cloudflare's "Maximum string, BLOB or table row size", past which an insert throws `SQLITE_TOOBIG`);
@@ -51,7 +48,18 @@ export const readKey = async (input: {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 };
 
-export const readCache = (sql: SqlStorage) => {
+/**
+ * Whether a read's answer is kept, by computer's exec status: one that ran to its end, whatever git's exit, never one
+ * that was killed (`cancelled`: computer's name for an exit of 129, 130, 137 or 143, which a timeout's or a cancel's kill
+ * gives; SPI-1364). A git that exits 129 by itself (a usage error) is not kept either, and only runs again.
+ */
+export const keepsAnswer = (status: string): boolean => status === "completed" || status === "failed";
+
+/**
+ * `maxRows`: how many answers are kept (`gitReadsKept`, SPI-1364), read at each `put`; the least recently used past it
+ * is deleted.
+ */
+export const readCache = (sql: SqlStorage, maxRows: () => number) => {
   let ready = false;
   const memo = new Map<"git-dir" | "repo", { readonly global: number; readonly rev: number }>();
   const ensure = () => {
@@ -145,7 +153,7 @@ export const readCache = (sql: SqlStorage) => {
       );
       sql.exec(
         "DELETE FROM t3flare_git_reads WHERE key IN (SELECT key FROM t3flare_git_reads ORDER BY used_at DESC LIMIT -1 OFFSET ?)",
-        MAX_ROWS,
+        maxRows(),
       );
     },
     stats(): { readonly rows: number } {

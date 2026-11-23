@@ -1,5 +1,5 @@
 // The Model endpoints' keys the Workspace DO looks for (SPI-1167): the relay's keys by hash for the sync guard, one per
-// endpoint and capped; the leak check's by value in the DO and by hash in the Container; a short key is never scanned for
+// endpoint; the leak check's by value in the DO and by hash in the Container; a short key is never scanned for
 // in the Container (its unsalted hash would go into the scanner's argv).
 import { patternOf } from "@t3flare/sandbox-image/leakscan";
 import { describe, expect, it } from "vitest";
@@ -7,7 +7,6 @@ import { describe, expect, it } from "vitest";
 import {
   EndpointKeyPatterns,
   leakTargets,
-  MAX_ENDPOINT_KEYS,
   MIN_SCANNED_KEY_LENGTH,
   MIN_SEARCHED_VALUE_LENGTH,
 } from "../src/workspace/endpointKeys.ts";
@@ -25,13 +24,13 @@ describe("the relay's endpoint keys for the sync guard", () => {
     expect(JSON.stringify(keys.values())).not.toContain(LONG);
   });
 
-  it("scans for no short key, and keeps at most MAX_ENDPOINT_KEYS endpoints, the oldest going first", async () => {
+  it("scans for no short key, and keeps one key for every endpoint, however many the Owner has", async () => {
     const keys = new EndpointKeyPatterns();
     await keys.remember("short", "x".repeat(MIN_SCANNED_KEY_LENGTH - 1));
     expect(keys.values()).toEqual([]);
-    for (let n = 0; n <= MAX_ENDPOINT_KEYS; n++) await keys.remember(`e${n}`, `${LONG}-${n}`);
-    expect(keys.values()).toHaveLength(MAX_ENDPOINT_KEYS);
-    expect(keys.values().map((pattern) => pattern.name)).not.toContain("endpoint:e0");
+    for (let n = 0; n < 100; n++) await keys.remember(`e${n}`, `${LONG}-${n}`);
+    expect(keys.values()).toHaveLength(100);
+    expect(keys.values().map((pattern) => pattern.name)).toContain("endpoint:e0");
   });
 });
 

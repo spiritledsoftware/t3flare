@@ -849,7 +849,11 @@ if (phase === "leak") {
     (scan?.checked ?? []).some((name: string) => name.startsWith("peer-link:")),
     scan?.checked,
   );
-  check("C5: no secret in any Session, the Workspace's Container or a snapshot", scan?.leaked === 0, out.c5);
+  check(
+    "C5: no secret in any Session, the Workspace's Container or a snapshot, the Container's dump scanned to its end",
+    scan?.complete === true && scan?.leaked === 0,
+    out.c5,
+  );
   finish();
 }
 

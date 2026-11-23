@@ -12,26 +12,19 @@
 //
 // This registry names the scratch directories t3 made and, once `git worktree add` ran, the project each belongs to, so
 // the process router and the process channel send a command whose cwd is in one to that project's Container. It lives
-// in the Environment DO's memory: a reset ends the run that used it.
+// in the Environment DO's memory: a reset ends the run that used it. An entry is forgotten only when t3 removes its
+// directory (`dropScratchDir`).
 import { WORKTREES_ROOT, isWorkspaceId, normalize } from "@t3flare/workspace-client";
 
 interface Scratch {
   /** The project Workspace whose Container holds the checkout; null until `git worktree add` names it. */
   project: string | null;
-  readonly createdAt: number;
 }
 
 const scratches = new Map<string, Scratch>();
 
-/** A scratch directory is forgotten this long after it was made, if t3 never removed it (a run's fetches and investigation take at most 25 min). */
-export const SCRATCH_TTL_MS = 2 * 60 * 60_000;
-
 /** A prefix t3 may give: the review guide's `review-guide-`. */
 const PREFIX = /^[A-Za-z0-9][A-Za-z0-9._-]{0,40}$/;
-
-const sweep = (now: number) => {
-  for (const [name, scratch] of scratches) if (now - scratch.createdAt > SCRATCH_TTL_MS) scratches.delete(name);
-};
 
 /** The scratch directory's name of a path in it (`/w/.wt/<name>[/...]`), when that name is registered. */
 const nameOf = (path: string): { readonly name: string; readonly rest: string } | undefined => {
@@ -48,16 +41,14 @@ const nameOf = (path: string): { readonly name: string; readonly rest: string } 
 export const makeScratchDir = (
   directory: string,
   prefix: string | undefined,
-  now: number,
   random: () => string,
 ): string | undefined => {
   if (normalize(directory) !== WORKTREES_ROOT) return undefined;
   const head = prefix ?? "scratch-";
   if (!PREFIX.test(head)) return undefined;
-  sweep(now);
   const name = `${head}${random()}`;
   if (!isWorkspaceId(name) || scratches.has(name)) return undefined;
-  scratches.set(name, { project: null, createdAt: now });
+  scratches.set(name, { project: null });
   return `${WORKTREES_ROOT}/${name}`;
 };
 

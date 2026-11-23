@@ -390,6 +390,24 @@ for (const list of document.querySelectorAll('[data-kind="variables"]')) {
     changed();
   });
 }
+// A ports field (SPI-1364) is checked where it is typed, as the API checks it, so a bad list is shown at the field.
+const portsProblem = (input) => {
+  const words = input.value.split(/[\\s,]+/).filter((word) => word !== "");
+  if (words.length === 0) return "List at least one port.";
+  const reserved = (input.dataset.reserved ?? "").split(" ");
+  for (const word of words) {
+    if (!/^\\d+$/.test(word) || Number(word) < 1 || Number(word) > 65535) return word + " is not a port from 1 to 65535.";
+    if (reserved.includes(String(Number(word)))) return word + " is t3flare's own port; choose another.";
+  }
+  const count = new Set(words.map(Number)).size;
+  const most = Number(input.dataset.maxCount);
+  return count > most ? "At most " + most + " ports, not " + count + "." : "";
+};
+for (const input of document.querySelectorAll('[data-kind="ports"]')) {
+  const check = () => input.setCustomValidity(portsProblem(input));
+  input.addEventListener("input", check);
+  check();
+}
 const watchUnsaved = (form) => {
   const save = form.querySelector("[data-save]");
   const note = form.querySelector("[data-save-note]");

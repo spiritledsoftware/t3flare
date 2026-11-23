@@ -17,7 +17,15 @@ export { posixCode } from "./failure.ts";
 
 export { ComputerFiles, type ComputerFilesOptions } from "./files.ts";
 
-export { ensureDirectory, READERS_DIR, type ReadEnv, TEMP_DIR, WorkspaceEnvHost } from "./host.ts";
+export {
+  DEFAULT_STALE_TEMP_MS,
+  ensureDirectory,
+  READERS_DIR,
+  type ReadEnv,
+  TEMP_DIR,
+  WorkspaceEnvHost,
+  type WorkspaceEnvHostOptions,
+} from "./host.ts";
 
 export type {
   DirectoryEntry,

@@ -8,11 +8,14 @@
 import { CodemodeSandboxDurableObject } from "@earendil-works/pi-codemode/cloudflare";
 
 /**
- * The sandbox with t3flare's limits. Interrupt budget: pi-codemode's default (100 000 polls, about 10 s of a tight loop on
- * Cloudflare). Memory: 16 MiB per VM, not 32 (review M6): every VM in an isolate shares its 128 MB, so a few Sessions'
- * scripts at 32 MiB could reset the isolate and fail every script in it.
+ * The sandbox with t3flare's limits. Interrupt budget: each Session asks for the Owner's `codemode.interruptBudget`
+ * (SPI-1364); this allows up to its maximum, harness-registry's MAX_CODEMODE_INTERRUPT_BUDGET (300,000 polls: this
+ * Worker's 30 s CPU limit at about 10,000 polls a second; apps/agents/test/codemodeSandbox.test.ts keeps them equal).
+ * Memory: 16 MiB per VM, not 32 (review M6): every VM in an isolate shares its 128 MB, so a few Sessions' scripts at
+ * 32 MiB could reset the isolate and fail every script in it.
  */
 export class CodemodeSandbox extends CodemodeSandboxDurableObject {
+  protected override maxInterruptBudget = 300_000;
   protected override maxMemoryLimitBytes = 16 * 1024 * 1024;
 }
 

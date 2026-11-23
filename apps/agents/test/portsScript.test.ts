@@ -10,7 +10,7 @@ const IMAGE = "node:24";
 const docker = spawnSync("docker", ["image", "inspect", IMAGE], { encoding: "utf8" }).status === 0;
 
 const run = (body: string) => {
-  const stop = stopGroupArgv(2, [2])[2]!;
+  const stop = stopGroupArgv(2, [2], 3000)[2]!;
   const script = `mkdir -p /t && cat > /t/scan.js <<'T3FLARE_SCAN_EOF'
 ${PORTS_NODE_SCRIPT}
 T3FLARE_SCAN_EOF
@@ -33,7 +33,7 @@ describe.skipIf(!docker)("the Container's port scan", () => {
 sleep 1
 node /t/scan.js
 pid=$(pgrep -f createServer | head -1); pg=$(ps -o pgid= -p "$pid" | tr -d ' ')
-bash /t/stop.sh "$pg" "$pid"
+bash /t/stop.sh "$pg" 30 "$pid"
 sleep 0.3
 node /t/scan.js`);
     const [first, stopped, second] = out.trim().split("\n");
