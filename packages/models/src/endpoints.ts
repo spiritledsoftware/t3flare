@@ -297,10 +297,7 @@ export const ENDPOINT_ID = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
  * for them; `default` is t3's word for the default model.
  */
 export const RESERVED_ENDPOINT_IDS: ReadonlyArray<string> = ["anthropic", "default"];
-export const MAX_ENDPOINTS = 32;
-export const MAX_ENDPOINT_MODELS = 200;
-const MAX_HEADERS = 16;
-const HEADER_NAME = /^[A-Za-z0-9-]{1,64}$/;
+const HEADER_NAME = /^[A-Za-z0-9-]+$/;
 /** Headers that carry a credential: the key goes in its sealed field, never here. */
 const CREDENTIAL_HEADERS = new Set([
   "authorization",
@@ -585,10 +582,8 @@ const modelInputOf = (value: unknown): EndpointModelInput | string => {
   if (typeof value === "string") value = { id: value };
   if (!isRecord(value)) return "each model is { id, name?, reasoning?, input?, contextWindow?, maxTokens? }";
   const id = typeof value.id === "string" ? value.id.trim() : "";
-  if (id === "" || id.length > 200 || /\s/.test(id))
-    return `a model id is 1–200 characters without spaces (${JSON.stringify(value.id)})`;
-  if (value.name !== undefined && (typeof value.name !== "string" || value.name.length > 200))
-    return `${id}: name is a text of up to 200 characters`;
+  if (id === "" || /\s/.test(id)) return `a model id is text without spaces (${JSON.stringify(value.id)})`;
+  if (value.name !== undefined && typeof value.name !== "string") return `${id}: name is a text`;
   if (value.reasoning !== undefined && typeof value.reasoning !== "boolean") return `${id}: reasoning is true or false`;
   if (
     value.input !== undefined &&
@@ -673,29 +668,30 @@ export const validateEndpoint = (
   const headers: Record<string, string> = {};
   const given = value.headers ?? {};
   if (!isRecord(given)) return { ok: false, error: "headers is an object of names to values" };
-  if (Object.keys(given).length > MAX_HEADERS) return { ok: false, error: `at most ${MAX_HEADERS} headers` };
   const names = new Set<string>();
   for (const [name, text] of Object.entries(given)) {
     if (!HEADER_NAME.test(name))
-      return { ok: false, error: `the header name ${JSON.stringify(name)} is 1–64 of A–Z, a–z, 0–9 and -` };
+      return { ok: false, error: `the header name ${JSON.stringify(name)} is A–Z, a–z, 0–9 and - only` };
     if (names.has(name.toLowerCase()))
       return { ok: false, error: `the header ${name} is given twice (header names ignore case)` };
     names.add(name.toLowerCase());
     if (CREDENTIAL_HEADERS.has(name.toLowerCase()))
       return { ok: false, error: `${name} carries a credential: put the key in the API key field, which is sealed` };
-    if (typeof text !== "string" || text.length > 1024 || /[\r\n]/.test(text))
-      return { ok: false, error: `the header ${name}'s value is one line of up to 1024 characters` };
+    // A line break would end the header and start another (HTTP's framing): t3flare's correctness, not a size.
+    if (typeof text !== "string" || /[\r\n]/.test(text))
+      return { ok: false, error: `the header ${name}'s value is one line of text` };
     headers[name] = text;
   }
   const listed = value.models ?? [];
   if (!Array.isArray(listed)) return { ok: false, error: "models is a list" };
-  if (listed.length > MAX_ENDPOINT_MODELS) return { ok: false, error: `at most ${MAX_ENDPOINT_MODELS} models` };
+  // No count: the endpoints are one stored value, which the store checks whole (apps/environment/src/endpoints/store.ts).
   const models: Array<EndpointModelInput> = [];
+  const ids = new Set<string>();
   for (const entry of listed) {
     const model = modelInputOf(entry);
     if (typeof model === "string") return { ok: false, error: model };
-    if (models.some((other) => other.id === model.id))
-      return { ok: false, error: `the model ${model.id} is listed twice` };
+    if (ids.has(model.id)) return { ok: false, error: `the model ${model.id} is listed twice` };
+    ids.add(model.id);
     models.push(model);
   }
   return {

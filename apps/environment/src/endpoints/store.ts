@@ -15,6 +15,7 @@
 // and base URL are the sign-in's own, it has no headers, and its auth never changes (remove it to change it). A Copilot
 // sign-in's (SPI-1166) stored base URL is a stand-in: the broker gives the one its token names, with the editor headers,
 // beside each token.
+import { DO_VALUE_BYTES, storedBytes } from "@t3flare/harness-registry";
 import { CLAUDE_OAUTH_TOKEN_MARK } from "@t3flare/models/claudeOAuth";
 import {
   EMPTY_ENDPOINTS,
@@ -26,7 +27,6 @@ import {
   type EndpointModel,
   type EndpointModelInput,
   isSignIn,
-  MAX_ENDPOINTS,
   type ModelEndpoint,
   type ModelEndpoints,
   sameTarget,
@@ -105,6 +105,14 @@ const withMetadata = (input: EndpointInput): ModelEndpoint => ({
   models: modelsWithMetadata(input, input.models),
 });
 
+/** `current` with `endpoint` added, or in place of the one with its id, at the next revision. */
+const withEndpoint = (current: ModelEndpoints, endpoint: ModelEndpoint): ModelEndpoints => ({
+  revision: current.revision + 1,
+  endpoints: current.endpoints.some((entry) => entry.id === endpoint.id)
+    ? current.endpoints.map((entry) => (entry.id === endpoint.id ? endpoint : entry))
+    : [...current.endpoints, endpoint],
+});
+
 /** A sign-in's answer in an Environment with no Credential broker. */
 const NO_BROKER: BrokerAccess = { ok: false, ...NO_CREDENTIAL_BROKER };
 
@@ -127,7 +135,10 @@ export const endpointStore = (
     const refusal = (): string | undefined => {
       const current = load();
       const seen = current.endpoints.find((entry) => entry.id === id);
-      if (seen === undefined && current.endpoints.length >= MAX_ENDPOINTS) return `at most ${MAX_ENDPOINTS} endpoints`;
+      // The one bound on how many endpoints and models: they are one Durable Object value together.
+      const bytes = storedBytes(withEndpoint(current, withMetadata(valid.endpoint)));
+      if (bytes > DO_VALUE_BYTES)
+        return `the endpoints would take ${bytes} bytes stored, past the ${DO_VALUE_BYTES} one Durable Object value holds`;
       if (
         seen !== undefined &&
         seen.auth !== valid.endpoint.auth &&
@@ -177,13 +188,7 @@ export const endpointStore = (
     }
     if (valid.endpoint.auth !== "api-key") sealed.remove(endpointKeyName(id));
     const endpoint = withMetadata(valid.endpoint);
-    const endpoints: ModelEndpoints = {
-      revision: current.revision + 1,
-      endpoints:
-        previous === undefined
-          ? [...current.endpoints, endpoint]
-          : current.endpoints.map((entry) => (entry.id === id ? endpoint : entry)),
-    };
+    const endpoints = withEndpoint(current, endpoint);
     kv.put(ENDPOINTS_KEY, endpoints);
     return { ok: true, endpoints, endpoint, before: previous, added: previous === undefined, key: keyMark(id) };
   };

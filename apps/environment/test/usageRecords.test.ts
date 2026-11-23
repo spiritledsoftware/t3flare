@@ -314,6 +314,11 @@ describe("the Environment's usage records", () => {
       ),
     ).toBe(0);
   });
+
+  it("keeps a model id of any length an endpoint may list (SPI-1365: no 200-character cut)", () => {
+    const store = usageStore(nodeSqlStorage());
+    expect(store.record([entry({ modelId: `vendor/${"m".repeat(500)}` })], endpoints, NOW)).toBe(1);
+  });
 });
 
 describe("the records' times and bounds", () => {
