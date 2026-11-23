@@ -483,6 +483,17 @@ export const modelFailureMessage = (
   }
 };
 
+/**
+ * `message` naming its cause (SPI-1305): `"… failed (HTTP 500)."` becomes `"… failed (HTTP 500) (cause: X)."`. The
+ * cause is a runtime's or the platform's text, never a vendor's body; the caller redacts it. No cause, or a blank one,
+ * leaves the message as it is.
+ */
+export const withCause = (message: string, cause: string | undefined): string => {
+  const text = cause?.trim();
+  if (text === undefined || text === "") return message;
+  return message.endsWith(".") ? `${message.slice(0, -1)} (cause: ${text}).` : `${message} (cause: ${text})`;
+};
+
 /** A classified failure with the text t3 shows for it. */
 export interface DescribedFailure extends ModelFailure {
   readonly message: string;

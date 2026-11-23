@@ -107,6 +107,8 @@ const openSession = async (
   let requests = 0;
   // Every failed answer's record, `undefined` where it cleared the record (an answer the table does not know).
   const records: Array<EndpointFailureRecord | undefined> = [];
+  // Every failed answer's cause (SPI-1305), `undefined` where it cleared it (an answer that came).
+  const causes: Array<string | undefined> = [];
   let stored = options.fault;
   const recorder = recordingFetch({
     fetch: (async (input: RequestInfo | URL) => {
@@ -149,6 +151,7 @@ const openSession = async (
         : { ...endpoint, baseUrl: options.baseUrl };
     },
     recordEndpoint: (failure: EndpointFailureRecord | undefined) => void records.push(failure),
+    recordCause: (cause: string | undefined) => void causes.push(cause),
     secrets: (id: string) => session.secrets(id),
   };
   compactionLimits(models, limits);
@@ -166,7 +169,7 @@ const openSession = async (
   const root = await harness.root(context, { agent: { model: { provider: on.id, modelId: model.id } } });
   harness.resume();
   return {
-    counts: () => ({ requests, sentTo, records }),
+    counts: () => ({ requests, sentTo, records, causes }),
     tick: (ms: number) => void (now += ms),
     submit: async () => {
       const submission = await root.submit({ type: "input", content: "hi" }, context);
@@ -356,6 +359,42 @@ describe("a Session's Model endpoint failures (SPI-1172)", () => {
   });
 });
 
+describe("a Session's model fetch that throws (SPI-1305)", () => {
+  const DEPTH = "Subrequest depth limit exceeded. This request recursed through Workers too many times.";
+
+  it("keeps the thrown message as the turn's cause, redacted; pi-durable retries it as before", async () => {
+    const key = `sk-ant-api03-${"z".repeat(40)}`;
+    const run = await submit(() => {
+      throw new Error(`${DEPTH} (${key})`);
+    });
+    // pi-ai's "Connection error." is retried by text, as it was before the cause was kept.
+    expect(run.requests).toBe(4);
+    expect(run.status.status).toBe("unanswered");
+    expect(run.causes.length).toBe(run.requests);
+    for (const cause of run.causes) {
+      expect(cause).toBe(`${DEPTH} ([redacted])`);
+    }
+    // The error text pi-durable keeps is untouched: no cause in it.
+    expect(String(run.status.detail)).not.toContain("Subrequest");
+  });
+
+  it("a 500 with Anthropic's api_error keeps no cause, and its body is never one", async () => {
+    const run = await submit(() => answerOf("anthropicApiError"));
+    expect(run.requests).toBe(4);
+    expect(run.causes).toEqual([undefined, undefined, undefined, undefined]);
+    expect(run.records.at(-1)).toMatchObject({ code: "server_error" });
+  });
+
+  it("an answer after a throw clears the cause", async () => {
+    let calls = 0;
+    const run = await submit(() => {
+      if (calls++ === 0) throw new Error(DEPTH);
+      return answerOf("anthropicSubscriptionLimit");
+    });
+    expect(run.causes).toEqual([DEPTH, undefined]);
+  });
+});
+
 describe("the recording fetch (SPI-1172)", () => {
   const recorder = (answer: () => Response) =>
     recordingFetch({
@@ -383,6 +422,22 @@ describe("the recording fetch (SPI-1172)", () => {
     expect(pulls).toBe(0);
     expect(r.last()?.body).toBeUndefined();
     expect(await response.text()).toBe("data: x\n\n");
+  });
+
+  it("keeps a thrown fetch's message (status 0, no answer) and rethrows it (SPI-1305)", async () => {
+    const thrown = new TypeError("Network connection lost.");
+    const r = recorder(() => {
+      throw thrown;
+    });
+    await expect(r.fetch("https://claude.example/v1/messages")).rejects.toBe(thrown);
+    expect(r.last()).toEqual({
+      status: 0,
+      retryAfter: null,
+      at: T0,
+      url: "https://claude.example/v1/messages",
+      headers: {},
+      thrown: "Network connection lost.",
+    });
   });
 
   it("keeps at most ERROR_BODY_BYTES of an error's body, and pi-ai still reads it whole", async () => {
@@ -497,6 +552,14 @@ describe("the Session's record of a turn's failures (sessionLimits, SPI-1172 rev
     });
     return { options, record: () => record };
   };
+
+  it("each failed request's cause replaces the record's, and undefined clears it (SPI-1305)", () => {
+    const s = session();
+    s.options.recordCause("Subrequest depth limit exceeded.");
+    expect(s.record()).toEqual({ requests: 3, cause: "Subrequest depth limit exceeded." });
+    s.options.recordCause(undefined);
+    expect(s.record()).toEqual({ requests: 3 });
+  });
 
   it("each failed answer replaces the record, and undefined clears it", () => {
     const s = session();

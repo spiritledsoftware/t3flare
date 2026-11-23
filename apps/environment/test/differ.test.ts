@@ -366,6 +366,30 @@ describe("differ", () => {
       });
     });
 
+    it("a cause the Session kept is appended to the endpoint's text and to either fallback (SPI-1305)", () => {
+      const cause = "Subrequest depth limit exceeded.";
+      const failure = {
+        endpointId: "e",
+        class: "provider_error" as const,
+        code: "overloaded",
+        message: 'The Model endpoint "e" is overloaded.',
+        retryable: true,
+        stop: false,
+        at: nowMs,
+      };
+      expect(failureOf(failed(failure, { cause }), now).message).toBe(
+        `The Model endpoint "e" is overloaded (cause: ${cause}).`,
+      );
+      expect(failureOf(failed(undefined, { cause }), now).message).toBe(
+        `The model provider reported an error (cause: ${cause}).`,
+      );
+      expect(failureOf({ ...failed(undefined, { cause }), detail: "503 upstream" }, now).message).toBe(
+        `The model provider returned HTTP 503 (cause: ${cause}).`,
+      );
+      // No cause: the texts are as they were.
+      expect(failureOf(failed(failure), now).message).toBe('The Model endpoint "e" is overloaded.');
+    });
+
     it("a credential the Session could not get comes first; the record wins over the error's text", () => {
       const credential = { endpointId: "e", kind: "no_key" as const, message: "no key", retryable: false };
       expect(

@@ -4,7 +4,13 @@
 // cited with its read date in packages/models/test/fixtures/vendors.json (made by packages/models/test/fixtures/gen-vendor-fixtures.mjs),
 // because no vendor was called with real credentials.
 import type { EndpointApi, EndpointAuth } from "@t3flare/models/endpoints";
-import { classifyModelFailure, type FailedAnswer, modelFailureMessage, SHORT_RESET_MS } from "@t3flare/models/failures";
+import {
+  classifyModelFailure,
+  type FailedAnswer,
+  modelFailureMessage,
+  SHORT_RESET_MS,
+  withCause,
+} from "@t3flare/models/failures";
 import { describe, expect, it } from "vitest";
 
 import fixtures from "../../../packages/models/test/fixtures/vendors.json" with { type: "json" };
@@ -400,5 +406,26 @@ describe("modelFailureMessage", () => {
       expect(text, name).toMatch(/^The Model endpoint "vendor"/);
       expect(text, name).not.toContain("sk-proj");
     }
+  });
+});
+
+describe("withCause (SPI-1305)", () => {
+  it("puts the cause inside the sentence, before its final stop", () => {
+    expect(withCause('The Model endpoint "x" failed (HTTP 500).', "Subrequest depth limit exceeded.")).toBe(
+      'The Model endpoint "x" failed (HTTP 500) (cause: Subrequest depth limit exceeded.).',
+    );
+    expect(withCause("The agent's session did not answer open.", "Network connection lost")).toBe(
+      "The agent's session did not answer open (cause: Network connection lost).",
+    );
+  });
+
+  it("appends to a message with no final stop", () => {
+    expect(withCause("did not answer", "boom")).toBe("did not answer (cause: boom)");
+  });
+
+  it("leaves the message as it is with no cause, or a blank one", () => {
+    const message = 'The Model endpoint "x" failed (HTTP 500).';
+    expect(withCause(message, undefined)).toBe(message);
+    expect(withCause(message, "  ")).toBe(message);
   });
 });
