@@ -162,10 +162,17 @@ export const approvalIdOf = (sessionName: string, runtimeRequestId: string): str
 
 const ref = (nativeId: string): OrchestrationV2ProviderRef => ({ driver, nativeId, strength: "strong" });
 
+/**
+ * How many ordinals each provider turn's items get (SPI-1371): turn N's items take N × span + 1 on, in first-seen order,
+ * so a re-diff after a restart gives them the same ordinals and every turn's items sort before the next turn's. Fixed by
+ * t3: its position store (`TurnItemPositionStore`) places a run's items in a range this wide, so a turn cannot show more.
+ */
+const TURN_ITEM_ORDINALS = 1_000_000;
+
 const ordinalOf = (state: DifferState, turn: TurnContext, key: string): number => {
   const existing = state.ordinals.get(key);
   if (existing !== undefined) return existing;
-  const next = state.nextOrdinal.get(turn.providerTurnId) ?? turn.providerTurnOrdinal * 100 + 1;
+  const next = state.nextOrdinal.get(turn.providerTurnId) ?? turn.providerTurnOrdinal * TURN_ITEM_ORDINALS + 1;
   state.ordinals.set(key, next);
   state.nextOrdinal.set(turn.providerTurnId, next + 1);
   return next;
