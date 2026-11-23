@@ -20,6 +20,21 @@ import { defineConfig } from "vite-plus";
 const each = (pkg: string, ...tasks: Array<string>) => tasks.map((task) => `${pkg}#${task}`);
 
 export default defineConfig({
+  // `vp fmt` (Oxfmt) at the repo's 120 columns; Oxfmt's other defaults (double quotes, semicolons, trailing commas)
+  // already match the code. Ignored: t3code (pinned, formatted by t3), tools/demo-video (its own workspace and
+  // .prettierrc), and what scripts/gen-workspace.ts and scripts/seed-lock.ts write byte for byte, which
+  // `check:workspace` compares exactly.
+  fmt: {
+    printWidth: 120,
+    ignorePatterns: [
+      "t3code/**",
+      "tools/demo-video/**",
+      "pnpm-workspace.yaml",
+      "pnpm-lock.yaml",
+      "/package.json",
+      "mise.toml",
+    ],
+  },
   run: {
     cache: false,
     tasks: {
