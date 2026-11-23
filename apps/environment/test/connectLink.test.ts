@@ -266,6 +266,17 @@ describe("the publish-only link step against a fake relay", () => {
     expect(h.secrets.has("cloud-cli-desired-link")).toBe(false);
   });
 
+  it("ends an unlink's relay call at the Outside request time limit, and unlinks here all the same (SPI-1366)", async () => {
+    const h = harness();
+    await run(h, STAGE, (connect) => connect.importToken(TOKEN));
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_input, init) =>
+        new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason))),
+    );
+    const unlinked = await run(h, { ...STAGE, requestMs: () => 20 }, (connect) => connect.unlink);
+    expect(unlinked).toEqual({ relay: { skipped: "the relay did not answer" }, local: true, accountTokenCleared: false });
+  });
+
   it("signs out: the relay's link, ours and the token go", async () => {
     const h = harness();
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ ok: true }));

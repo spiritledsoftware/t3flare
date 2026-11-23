@@ -1,9 +1,11 @@
 // The publish recorder (step 3+, plan section 4.4): t3's AgentAwarenessRelay calls T3 Connect through its own HTTP
-// client, so nothing of ours sees the relay's answer, but it logs each outcome. A Logger of ours keeps the last 100 of
-// those events (thread, phase, the relay's delivery counts, a failure's status), mirrored to DO storage so they survive
-// a reset, and holds the idle reset while a publish is still pending (review finding 3): a publish in flight, a
+// client, so nothing of ours sees the relay's answer, but it logs each outcome. A Logger of ours keeps the latest of
+// those events (thread, phase, the relay's delivery counts, a failure's status; as many as `connectPublishLogKept`,
+// SPI-1366), mirrored to DO storage so they survive a reset, and each live thread's last published phase apart from them
+// (for the republish after a boot, never cut by the log's length), and holds the idle reset while a publish is still pending (review finding 3): a publish in flight, a
 // completion inside t3's 5 s confirmation, or a failure t3 will retry. A refusal (401/403) is classified from the
 // failure's text, which is never kept (review finding 8). The messages it matches are t3's (fragility U28).
+import { DEFAULT_CONNECT_PUBLISH_LOG_KEPT } from "@t3flare/harness-registry";
 import * as Logger from "effect/Logger";
 
 import * as Idle from "../host/idle.ts";
@@ -60,8 +62,17 @@ const HOLD_MS: Partial<Record<PublishEvent, number>> = {
   failed: 30_000,
 };
 
-const KEEP = 100;
+/** The log's length when no setting reaches (`connectPublishLogKept`' default, SPI-1366). */
+const KEEP = DEFAULT_CONNECT_PUBLISH_LOG_KEPT;
 const HOLD_PREFIX = "publish:";
+
+/** The phases of a thread that is live: one republished after a boot (`republishLastLive`). */
+export const LIVE_PHASES: ReadonlySet<string> = new Set([
+  "starting",
+  "running",
+  "waiting_for_approval",
+  "waiting_for_input",
+]);
 
 const STATUS = /\bstatus(?:Code)?\D{0,3}([1-5]\d\d)\b/i;
 const BARE_STATUS = /\b(40[0-9]|429|5\d\d)\b/;
@@ -117,6 +128,9 @@ export const entryOf = (message: unknown, date: Date): PublishEntry | undefined 
 export interface PublishStore {
   readonly read: () => unknown;
   readonly write: (entries: ReadonlyArray<PublishEntry>) => void;
+  /** Each live thread's last published phase, kept apart from the log (SPI-1366). */
+  readonly readPhases?: () => unknown;
+  readonly writePhases?: (phases: Readonly<Record<string, string>>) => void;
 }
 
 export interface PublishRecorder {
@@ -129,15 +143,42 @@ export interface PublishRecorder {
     readonly lastFailure: PublishEntry | null;
     readonly rejected: boolean;
   };
-  /** The phase each thread was last published with (the newest `publishing` entry). */
-  readonly lastPublishedPhases: () => ReadonlyMap<string, string | null>;
+  /** Each live thread's last published phase (its newest `publishing` entry's), however old: none that is not live. */
+  readonly lastPublishedPhases: () => ReadonlyMap<string, string>;
   /** The t3 Logger that feeds it. */
   readonly logger: Logger.Logger<unknown, void>;
 }
 
-export const makePublishRecorder = (store: PublishStore): PublishRecorder => {
+export const makePublishRecorder = (
+  store: PublishStore,
+  /** The log's length, read at each publish (`connectPublishLogKept`, SPI-1366). */
+  keep: () => number = () => KEEP,
+): PublishRecorder => {
   const stored = store.read();
-  const entries: Array<PublishEntry> = Array.isArray(stored) ? (stored as Array<PublishEntry>).slice(-KEEP) : [];
+  const entries: Array<PublishEntry> = Array.isArray(stored) ? (stored as Array<PublishEntry>).slice(-keep()) : [];
+  const storedPhases = store.readPhases?.();
+  const phases = new Map<string, string>(
+    typeof storedPhases === "object" && storedPhases !== null
+      ? Object.entries(storedPhases).filter((entry): entry is [string, string] => typeof entry[1] === "string")
+      : // Kept before SPI-1366: the log's own `publishing` entries.
+        entries.flatMap((entry) =>
+          entry.event === "publishing" && typeof entry.phase === "string" ? [[entry.threadId, entry.phase] as const] : [],
+        ),
+  );
+  for (const [threadId, phase] of phases) if (!LIVE_PHASES.has(phase)) phases.delete(threadId);
+  /** A thread's phase as published: kept while it is live, forgotten when not, written back when it moved. */
+  const notePhase = (entry: PublishEntry) => {
+    if (entry.event !== "publishing" || entry.phase === undefined) return;
+    const before = phases.get(entry.threadId);
+    if (entry.phase !== null && LIVE_PHASES.has(entry.phase)) phases.set(entry.threadId, entry.phase);
+    else phases.delete(entry.threadId);
+    if (phases.get(entry.threadId) === before) return;
+    try {
+      store.writePhases?.(Object.fromEntries(phases));
+    } catch {
+      // Storage refused (a reset in progress): memory still has it.
+    }
+  };
   const record = (message: unknown, date: Date) => {
     const parsed = entryOf(message, date);
     if (parsed === undefined) return;
@@ -149,7 +190,9 @@ export const makePublishRecorder = (store: PublishStore): PublishRecorder => {
     const entry: PublishEntry =
       publishing?.phase === undefined || parsed.phase !== undefined ? parsed : { ...parsed, phase: publishing.phase };
     entries.push(entry);
-    if (entries.length > KEEP) entries.splice(0, entries.length - KEEP);
+    notePhase(entry);
+    const kept = keep();
+    if (entries.length > kept) entries.splice(0, entries.length - kept);
     const holdMs = HOLD_MS[entry.event];
     if (holdMs === undefined) Idle.release(`${HOLD_PREFIX}${entry.threadId}`);
     else Idle.hold(`${HOLD_PREFIX}${entry.threadId}`, date.getTime() + holdMs, { capped: true });
@@ -175,12 +218,7 @@ export const makePublishRecorder = (store: PublishStore): PublishRecorder => {
         rejected: lastFailure?.rejected === true && (lastSuccess === null || lastSuccess.at < lastFailure.at),
       };
     },
-    lastPublishedPhases: () => {
-      const phases = new Map<string, string | null>();
-      for (const entry of entries)
-        if (entry.event === "publishing" && entry.phase !== undefined) phases.set(entry.threadId, entry.phase);
-      return phases;
-    },
+    lastPublishedPhases: () => new Map(phases),
     logger: Logger.make((options) => record(options.message, options.date)),
   };
 };

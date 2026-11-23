@@ -61,7 +61,8 @@ const parseToken = (body: unknown): CliTokenManager.PersistedToken | undefined =
   return { accessToken, refreshToken, expiresAtEpochMs };
 };
 
-const probe = Effect.gen(function* () {
+/** The probe, bounded by `signal`, the admin request's own (SPI-1366): it ends when the caller stops waiting. */
+const probe = Effect.fn("probe")(function* (signal: AbortSignal) {
   const relayUrl = yield* relayUrlConfig;
   const oauth = yield* cloudCliOAuthConfig;
   return yield* Effect.promise(async () => {
@@ -75,14 +76,14 @@ const probe = Effect.gen(function* () {
         return { status: 0, ms: Date.now() - started, body: String(error).slice(0, 200) };
       }
     };
-    const health = await timed(() => fetch(`${relayUrl}/health`, { signal: AbortSignal.timeout(10_000) }));
+    const health = await timed(() => fetch(`${relayUrl}/health`, { signal }));
     // A device authorization started and dropped: nobody sees or approves its code.
     const device = await timed(() =>
       fetch(oauth.deviceAuthorizationEndpoint, {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({ client_id: oauth.clientId, scope: oauth.scopes.join(" ") }),
-        signal: AbortSignal.timeout(10_000),
+        signal,
       }),
     );
     // Not a JSON object: the status says enough.
@@ -143,12 +144,14 @@ export const handleConnectAdmin = async (request: Request, environment: Environm
       return answer((service) => Effect.as(service.setPublishing(on === "1"), { publishAgentActivity: on === "1" }));
     }
     case "GET /_t3flare/connect/status":
-      return answer((service) => service.status({ relay: url.searchParams.get("relay") === "1" }));
+      return answer((service) =>
+        service.status({ relay: url.searchParams.get("relay") === "1", signal: request.signal }),
+      );
     case "POST /_t3flare/connect/fault/relay-unlink":
       if (!environment.connectServiceTokenAllowed) return json({ error: "stages only" }, 404);
       return answer((service) => Effect.map(service.relayUnlinkOnly, (relay) => ({ relay })));
     case "POST /_t3flare/connect/probe":
-      return json(await runtime.run(probe));
+      return json(await runtime.run(probe(request.signal)));
     case "POST /_t3flare/check/connect-refusals": {
       // Past the DO's own 404 (environmentDO.ts): what t3's app answers, which must be a refusal, not a credential.
       const results: Record<string, { status: number; body: string }> = {};

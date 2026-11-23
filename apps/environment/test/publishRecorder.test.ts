@@ -11,7 +11,13 @@ import { MESSAGES, makePublishRecorder } from "../src/connect/recorder.ts";
 
 const memoryStore = () => {
   let value: unknown;
-  return { read: () => value, write: (next: unknown) => void (value = next) };
+  let phases: unknown;
+  return {
+    read: () => value,
+    write: (next: unknown) => void (value = next),
+    readPhases: () => phases,
+    writePhases: (next: unknown) => void (phases = next),
+  };
 };
 
 const at = (seconds: number) => new Date(Date.UTC(2026, 10, 11, 12, 0, seconds));
@@ -113,5 +119,34 @@ describe("publish recorder", () => {
       recorder.record(["publishing agent activity for thread", { threadId: `t${i}`, statePhase: "running" }], at(2));
     expect(recorder.entries()).toHaveLength(100);
     expect(makePublishRecorder(store).entries()).toEqual(recorder.entries());
+  });
+
+  it("keeps as many entries as the setting says, read at each publish (SPI-1366)", () => {
+    let kept = 5;
+    const recorder = makePublishRecorder(memoryStore(), () => kept);
+    const publish = (i: number) =>
+      recorder.record(["publishing agent activity for thread", { threadId: `t${i}`, statePhase: "running" }], at(2));
+    for (let i = 0; i < 20; i++) publish(i);
+    expect(recorder.entries()).toHaveLength(5);
+    kept = 300;
+    for (let i = 0; i < 250; i++) publish(i);
+    expect(recorder.entries()).toHaveLength(255);
+  });
+
+  it("remembers each live thread's last phase apart from the log, past any count, and forgets one no longer live (SPI-1366)", () => {
+    const store = memoryStore();
+    const recorder = makePublishRecorder(store, () => 10);
+    const publish = (threadId: string, statePhase: string | null) =>
+      recorder.record(["publishing agent activity for thread", { threadId, statePhase }], at(2));
+    publish(T1, "waiting_for_approval");
+    // Many other threads' publishes push T1's out of the log.
+    for (let i = 0; i < 50; i++) publish(`other-${i}`, "idle");
+    expect(recorder.entries().some((entry) => entry.threadId === T1)).toBe(false);
+    expect(recorder.lastPublishedPhases()).toEqual(new Map([[T1, "waiting_for_approval"]]));
+    // Read back after a reset.
+    expect(makePublishRecorder(store).lastPublishedPhases()).toEqual(new Map([[T1, "waiting_for_approval"]]));
+    // A thread that is no longer live, or gone (a tombstone), is forgotten.
+    publish(T1, null);
+    expect(recorder.lastPublishedPhases()).toEqual(new Map());
   });
 });

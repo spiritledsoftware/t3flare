@@ -1186,7 +1186,11 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
         storage: this.ctx.storage,
         bootstrapToken: armed ? this.env.T3_BOOTSTRAP_TOKEN : undefined,
         host,
-        connect: { keepAccountToken: this.env.T3FLARE_CONNECT_KEEP_ACCOUNT_TOKEN === "1" },
+        connect: {
+          keepAccountToken: this.env.T3FLARE_CONNECT_KEEP_ACCOUNT_TOKEN === "1",
+          // Read at each request to T3 Connect (SPI-1366).
+          requestMs: () => this.#outsideRequestMs(),
+        },
       });
       await BootState.bootSucceeded(kv, new Date());
       isolate.boots++;
