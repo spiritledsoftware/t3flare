@@ -32,6 +32,7 @@ import {
   type BaseBuildRecord,
   describeBaseBuild,
   describeTestBaseBuild,
+  type EnvironmentKey,
   type EnvironmentSettingEntry,
   type ExtensionEntry,
   EXTENSIONS,
@@ -437,34 +438,44 @@ const environmentSection = (
   );
   // The scalar settings share the Containers row. The agents' settings (SPI-1315: the Turn limit, the CLI agents'
   // processes) share an Agents row, how long history is kept (SPI-1323) a History row, and the dotfiles toggles
-  // (ADR-0047 §9) a Dotfiles row; a list (the
-  // Variables) and a file (the Global mise config, the Container setup) each get a row of their own, which the settings
-  // that name it as their `row` join. One form, one Save.
-  const dotfilesKey = (key: string) => (DOTFILES_SETTING_KEYS as ReadonlyArray<string>).includes(key);
-  const agentKey = (key: string) => (AGENT_SETTING_KEYS as ReadonlyArray<string>).includes(key);
-  const historyKey = (key: string) => (RETENTION_SETTING_KEYS as ReadonlyArray<string>).includes(key);
+  // (ADR-0047 §9) a Dotfiles row, each a `keyedRow`. A list (the Variables) and a file (the Global mise config, the
+  // Container setup) each get a row of their own, which the settings that name it as their `row` join. One form, one
+  // Save.
+  const keyed: ReadonlyArray<string> = [...AGENT_SETTING_KEYS, ...RETENTION_SETTING_KEYS, ...DOTFILES_SETTING_KEYS];
   const ownRow = (setting: EnvironmentSettingEntry) =>
     setting.schema.type === "variables" || setting.schema.type === "file";
   // The budget states its consequence once, under its own description, where the script rewrites it as the input changes.
   const noteFor = (key: string): FieldNote | undefined =>
     key === "containerBudget" ? { text: budgetNote(environment.containerBudget), data: "budget-note" } : undefined;
   const fields = entries
-    .filter(
-      ([key, setting]) =>
-        !ownRow(setting) && setting.row === undefined && !dotfilesKey(key) && !agentKey(key) && !historyKey(key),
-    )
+    .filter(([key, setting]) => !ownRow(setting) && setting.row === undefined && !keyed.includes(key))
     .map(([key, setting]) => field("environment", key, setting, values[key], false, noteFor(key)));
   const joining = (row: string) =>
     entries
       .filter(([, setting]) => setting.row === row)
       .map(([key, setting]) => field("environment", key, setting, values[key]));
   const entryOf = Object.fromEntries(entries);
-  const agents = `<div class="row"><div><div class="row-title"><h3 id="environment-agents-title">Agents</h3></div><p class="desc" id="environment-agents-desc">How long an agent's turn may run, how long a card waits for your answer, how many CLI agents' processes a Workspace's Container may run, and how long an idle process waits before it may be ended for another Workspace.</p></div><div class="row-extra"><div class="fields" role="group" aria-labelledby="environment-agents-title" aria-describedby="environment-agents-desc">${AGENT_SETTING_KEYS.map((key) => field("environment", key, entryOf[key]!, values[key])).join("")}</div></div></div>`;
-  const history = `<div class="row"><div><div class="row-title"><h3 id="environment-history-title">History</h3></div><p class="desc" id="environment-history-desc">How long t3flare keeps its usage records and Pi's sessions.</p></div><div class="row-extra"><div class="fields" role="group" aria-labelledby="environment-history-title" aria-describedby="environment-history-desc">${RETENTION_SETTING_KEYS.map((key) => field("environment", key, entryOf[key]!, values[key])).join("")}</div></div></div>`;
-  const dotfiles = `<div class="row"><div><div class="row-title"><h3 id="environment-dotfiles-title">Dotfiles</h3></div><p class="desc" id="environment-dotfiles-desc">Whether your own config in ~ (/root), from your Image setup or Container setup, reaches Terminals and CLI agents.</p></div><div class="row-extra"><div class="fields" role="group" aria-labelledby="environment-dotfiles-title" aria-describedby="environment-dotfiles-desc">${entries
-    .filter(([key]) => dotfilesKey(key))
-    .map(([key, setting]) => field("environment", key, setting, values[key]))
-    .join("")}</div></div></div>`;
+  // A row of the named settings, in this order, as one group named by its title and described by `desc` (trusted HTML).
+  const keyedRow = (id: string, title: string, desc: string, keys: ReadonlyArray<EnvironmentKey>) =>
+    `<div class="row"><div><div class="row-title"><h3 id="environment-${id}-title">${title}</h3></div><p class="desc" id="environment-${id}-desc">${desc}</p></div><div class="row-extra"><div class="fields" role="group" aria-labelledby="environment-${id}-title" aria-describedby="environment-${id}-desc">${keys.map((key) => field("environment", key, entryOf[key]!, values[key])).join("")}</div></div></div>`;
+  const agents = keyedRow(
+    "agents",
+    "Agents",
+    "How long an agent's turn may run, how long a card waits for your answer, how many CLI agents' processes a Workspace's Container may run, and how long an idle process waits before it may be ended for another Workspace.",
+    AGENT_SETTING_KEYS,
+  );
+  const history = keyedRow(
+    "history",
+    "History",
+    "How long t3flare keeps its usage records and Pi's sessions.",
+    RETENTION_SETTING_KEYS,
+  );
+  const dotfiles = keyedRow(
+    "dotfiles",
+    "Dotfiles",
+    "Whether your own config in ~ (/root), from your Image setup or Container setup, reaches Terminals and CLI agents.",
+    DOTFILES_SETTING_KEYS,
+  );
   const lists = entries
     .filter(([, setting]) => ownRow(setting))
     .map(([key, setting]) => {

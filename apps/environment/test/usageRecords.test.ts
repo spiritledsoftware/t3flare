@@ -284,6 +284,21 @@ describe("the Environment's usage records", () => {
     ]);
   });
 
+  it("caps rows at usageMaxRows of the retention when no maxRows is given (SPI-1323)", () => {
+    // MAX_USAGE_ROWS + 10 rows, one quarter hour each of their own session: 92 days keeps 50,000, 365 days keeps all.
+    const many = Array.from({ length: MAX_USAGE_ROWS + 10 }, (_, n) =>
+      entry({ at: NOW - DAY - (n % 96) * USAGE_SLOT_MS, session: `s${n}` }),
+    );
+    const at = (days: number) => {
+      const store = usageStore(nodeSqlStorage(), { retentionDays: () => days });
+      store.record(many, endpoints, NOW);
+      return store.read(0).length;
+    };
+    expect(at(DEFAULT_USAGE_RETENTION_DAYS)).toBe(MAX_USAGE_ROWS);
+    expect(usageMaxRows(365)).toBeGreaterThan(MAX_USAGE_ROWS + 10);
+    expect(at(365)).toBe(MAX_USAGE_ROWS + 10);
+  });
+
   it("drops an entry the agents Worker should never send: unknown agent, no tokens, a control character", () => {
     const store = usageStore(nodeSqlStorage());
     expect(

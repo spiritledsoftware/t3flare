@@ -383,22 +383,28 @@ there.
 
 How long t3flare keeps its own history is the Owner's. `usageRetentionDays` (92 by default, matching t3's own usage
 cache) bounds t3flare's usage records in the Environment DO; `piSessionRetentionDays` (60, review F2's) bounds the pi
-sessions synced beside the repo. Both take 1 to `MAX_RETENTION_DAYS` (3650). "Keep for good" is that maximum, ten
-years, not a 0 sentinel: under `up-free` a 0 would make 0 → 60 read as turned up, and so free, while it deletes every
-session older than 60 days. Both are `up-free`, as the Grace is: a shorter value destroys history, so it is asked.
+sessions synced beside the repo. Both take 1 to `MAX_RETENTION_DAYS`, the Grace's 3650 days: a sanity bound that
+nothing forces (ADR-0048 §1). "Keep for good" is that maximum, ten years, not a 0 sentinel: under `up-free` a 0 would
+make 0 → 60 read as turned up, and so free, while it deletes every session older than 60 days. Both are `up-free`, as
+the Grace is: a shorter value destroys history, so it is asked.
 
-The usage store reads `usageRetentionDays` at each record and each prune (`usageStore`'s `retentionDays`), so a change
-applies at the next prune, which runs as usage is recorded, at most once an hour, and to entries recorded from then on.
-Its runaway-writer guard scales with it: `usageMaxRows(days)` is `MAX_USAGE_ROWS` (50,000, sized for 92 days) times
-`days / 92`, never below 50,000, so a long retention is not cut by a guard sized for a short one; at 3650 days that is
-about 2M small rows, well within a DO's SQLite, and a read stays bounded by the page's window. t3's Usage page shows at
-most 90 days, so records kept longer are shown nowhere until t3 widens its window; the setting's description says so.
-The Environment DO reads `piSessionRetentionDays` at each CLI spawn into the profile's context, as it reads
-`agentsReadDotfiles`, so a change applies at each pi start.
+Each states its consequence once, in its description (ADR-0048 §6). `usageRetentionDays`: "Shortening this deletes the
+older records at the next prune; they cannot be restored. t3's Usage page shows at most 90 days, so records older than
+that are kept but shown nowhere until t3 widens its window." `piSessionRetentionDays`: "An older one is deleted at the
+next Pi start; t3 can no longer resume that thread's Pi conversation."
+
+The usage store reads `usageRetentionDays` at each record and passes it to that record's prune (`usageStore`'s
+`retentionDays`), so a change applies at the next prune, at most once an hour as usage is recorded, and to entries
+recorded from then on. Its runaway-writer guard scales with it: `usageMaxRows(days)` is `MAX_USAGE_ROWS` (50,000, sized
+for 92 days) times `days / 92`, never below 50,000, so a long retention is not cut by a guard sized for a short one; at
+3650 days that is about 2M small rows, well within a DO's SQLite, and a read stays bounded by the page's window. Its
+consequence, stated once, here: at 92 days or more, a writer averaging above about 543 rows a day (50,000 / 92) has its
+oldest rows trimmed before the Owner's chosen retention. The Environment DO reads `piSessionRetentionDays` at each CLI
+spawn into the profile's context, as it reads `agentsReadDotfiles`, so a change applies at each pi start.
 
 The Settings page shows both in a History row of their own, after the Agents row: they bound no Container start, so not
 the Containers row, and they are not the Sweep's, so not the Workspaces section beside the Grace. The Settings server's
-answer and card say when each applies instead of the Container start.
+answer and card say, per key, when each applies instead of the Container start.
 
 t3's own `usageHistoryRetentionDays` (default 92, or unlimited) is left alone: it governs t3's transcript cache, and our
 scan readers ignore its `retentionCutoffMs`, so the Owner controls t3flare's records with one setting.

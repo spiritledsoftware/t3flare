@@ -238,13 +238,15 @@ export const DOTFILES_SETTING_KEYS = ["terminalsReadBashrc", "agentsReadDotfiles
 
 /**
  * How long t3flare keeps its own usage records and pi's sessions (SPI-1323), in days. 92 matches t3's own usage cache
- * (`CACHE_RETENTION_DAYS`), past its Usage page's widest range (90 days); 60 is review F2's. The maximum, ten years, is
- * "keep for good": a sanity bound as `MAX_GRACE_DAYS` is, not a 0 sentinel, so turning the value up is always the
- * free direction.
+ * (`CACHE_RETENTION_DAYS`), past its Usage page's widest range (90 days); 60 is review F2's.
  */
 export const DEFAULT_USAGE_RETENTION_DAYS = 92;
 export const DEFAULT_PI_SESSION_RETENTION_DAYS = 60;
-export const MAX_RETENTION_DAYS = 3650;
+/**
+ * A sanity bound (ADR-0048 §1), the Grace's ten years: nothing forces it. It is also "keep for good", in place of a 0
+ * sentinel, so turning the value up is always the free direction.
+ */
+export const MAX_RETENTION_DAYS = MAX_GRACE_DAYS;
 
 /**
  * How long history is kept (SPI-1323): t3flare's usage records and pi's sessions. Neither bounds a Container start nor

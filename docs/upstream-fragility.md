@@ -1343,7 +1343,9 @@ is a pass-through observer: a vendor change that it cannot read loses records, a
   0: the reader keeps the last value it saw, so a moved cache count shows as uncached input); a CLI stops asking for
   Chat Completions' usage (above); t3 renames `UsageRecord` fields, drops `rateModel`, or changes how the scan kind's
   sources are bucketed (typecheck, or the page loses the split by source); t3 changes its retention (ours stays the
-  Owner's `usageRetentionDays`), or widens its Usage page past 90 days (rows the setting kept past 90 days show then).
+  Owner's `usageRetentionDays`), or widens its Usage page past 90 days (rows the setting kept past 90 days show then);
+  t3 starts applying `retentionCutoffMs` to scan results itself, not only to its transcript cache (rows the Owner kept
+  past t3's `usageHistoryRetentionDays` vanish from the page).
 - **Detection**: typecheck (`UsageRecord`, `ProviderUsageScan`, pi-ai's `AssistantMessage`; and the `usage` options of
   `SessionEndpoints`, `generateEndpointText` and `handleModelRelay` are required, so a recorder left unwired does not
   build); `relayUsage.test.ts` (each API's shapes, a broken stream, a failed answer holding usage, the 4 MiB cap, a
@@ -1351,7 +1353,10 @@ is a pass-through observer: a vendor change that it cannot read loses records, a
   endpoint provider and text generation; `usageSender`), `usageRecords.test.ts` (the rollup and its quarter hour, the
   split, a dated model, t3's aggregator pricing an unpriced model, retention, the row cap and the hourly prune, a
   failed source, the stale and future guards, the read window's floor, and `acceptUsage` as the RPC runs it, every endpoint counted once), `usagePage.test.ts` (t3's `UsageService` over the
-  Shadow). **Silent**: a vendor's new usage shape (records stop for that API; the relay still answers). Cheapest check:
+  Shadow; and a record past t3's `usageHistoryRetentionDays` still shown, which fails if t3 cuts scan results at
+  `retentionCutoffMs`). **Silent**: a vendor's new usage shape (records stop for that API; the relay still answers); t3
+  widening its Usage page past 90 days (harmless: older kept rows start to show; t3's widest range is the `days: 90`
+  shortcut in `apps/web/src/components/usage/usageShortcuts.ts`, worth a look at a bump). Cheapest check:
   a turn per agent on a stage (`scripts/p1176.ts` runs one each), then t3's Usage page.
 - **Blast radius**: the Usage page undercounts an agent or an API, or misprices a model. Never a turn, never a key: a record holds counts, names and a time.
 - **Fix**: on a pi-ai bump, re-read `Usage` in `dist/types.d.ts` and `openai-completions.js`'s `stream_options`; on an
