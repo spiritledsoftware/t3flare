@@ -34,13 +34,31 @@ describe("F6's checks on a plan-mode thread", () => {
     expect(failed(projection)).toEqual([]);
   });
 
-  it("pass when a command completed after an approval was raised for it", () => {
-    const projection = { thread: plan, turnItems: [preparing, { type: "command_execution", status: "completed", ...ref }], runtimeRequests: [{ kind: "command", status: "resolved" }] };
+  it("pass when the model's bash was refused or denied: it fails with no exit code", () => {
+    const projection = { thread: plan, turnItems: [preparing, { type: "command_execution", status: "failed", output: "refused", ...ref }], runtimeRequests: [] };
+    expect(planModeChecks(projection).bashAttempted).toBe(true);
     expect(failed(projection)).toEqual([]);
   });
 
-  it("fail when a command runs without asking", () => {
-    const projection = { thread: plan, turnItems: [{ type: "command_execution", status: "completed", ...ref }], runtimeRequests: [] };
+  it("fail when a command of the model's ran, even beside another command's pending approval", () => {
+    const projection = {
+      thread: plan,
+      turnItems: [
+        { type: "command_execution", status: "completed", ...ref },
+        { type: "command_execution", status: "running", ...ref },
+      ],
+      runtimeRequests: [{ kind: "command", status: "pending" }],
+    };
+    expect(failed(projection)).toEqual(["F6: no command runs without asking"]);
+  });
+
+  it("fail when a command ran after an approval: F6 answers none, so none can have run", () => {
+    const projection = { thread: plan, turnItems: [{ type: "command_execution", status: "completed", ...ref }], runtimeRequests: [{ kind: "command", status: "resolved" }] };
+    expect(failed(projection)).toEqual(["F6: no command runs without asking"]);
+  });
+
+  it("fail when a command of the model's ran and exited non-zero", () => {
+    const projection = { thread: plan, turnItems: [{ type: "command_execution", status: "failed", exitCode: 2, ...ref }], runtimeRequests: [] };
     expect(failed(projection)).toEqual(["F6: no command runs without asking"]);
   });
 

@@ -37,25 +37,29 @@ export interface PeerReport {
   readonly [key: string]: unknown;
 }
 
+/** The thread's metadata in a projection, as the owner's client reads it. */
+const threadMeta = (projection: any) => projection?.thread ?? {};
+
 /**
  * F6's checks on the plan-mode thread's projection. They hold whatever the model chooses: a model that obeys Plan mode
- * calls no tool and passes, with `bashAttempted: false`. A command fails F6 only when more of the provider's command items
- * completed than command approvals were raised (t3's requests name no item, so they are matched by count). t3's own
- * "Preparing workspace" item is a `command_execution` with no `nativeItemRef`; it is not the model's, so it is not counted.
+ * calls no tool and passes, with `bashAttempted: false`. F6 answers no approval, so no command of the model's may have
+ * run: one that completed, or failed with an `exitCode` (a refused or denied call fails with none). Only the provider's
+ * items count: t3's own `command_execution` items ("Preparing workspace", "Provider signed out") carry no `nativeItemRef`
+ * (docs/upstream-fragility.md, U5).
  */
 export const planModeChecks = (projection: any): { readonly bashAttempted: boolean; readonly checks: ReadonlyArray<readonly [name: string, ok: boolean]> } => {
-  const thread = projection?.thread ?? {};
+  const thread = threadMeta(projection);
   const items: ReadonlyArray<any> = projection?.turnItems ?? [];
   const commands = items.filter((item) => item.type === "command_execution" && item.nativeItemRef != null);
-  const asked = (projection?.runtimeRequests ?? []).filter((request: any) => request.kind === "command");
-  const ran = commands.filter((item) => item.status === "completed");
+  const asked = (projection?.runtimeRequests ?? []).some((request: any) => request.kind === "command");
+  const ran = commands.filter((item) => item.status === "completed" || (item.status === "failed" && typeof item.exitCode === "number"));
   return {
-    bashAttempted: commands.length > 0 || asked.length > 0,
+    bashAttempted: commands.length > 0 || asked,
     checks: [
       ["F6: the thread runs in plan", thread.interactionMode === "plan"],
       ["F6: the thread runs at approval-required", thread.runtimeMode === "approval-required"],
       ["F6: write is refused in plan", !items.some((item) => item.type === "file_change" && item.status === "completed")],
-      ["F6: no command runs without asking", ran.length <= asked.length],
+      ["F6: no command runs without asking", ran.length === 0],
     ],
   };
 };
@@ -139,7 +143,6 @@ export const peerAcceptance = async (cookie: string, options: { readonly only?: 
   };
   const pending = (projection: any) => (projection?.runtimeRequests ?? []).filter((request: any) => request.status === "pending");
   const stop = (threadId: string) => mcp.call("t3_thread_interrupt", { threadId, stop: true, clientRequestId: `stop-${threadId}` });
-  const threadMeta = (projection: any) => projection?.thread ?? {};
 
   // A forwarded launch, followed in 50 s waits, its last reply read back.
   if (wants("launch")) {
