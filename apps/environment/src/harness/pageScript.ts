@@ -15,6 +15,8 @@ export const ENTITY_LABELS: Readonly<Record<string, string>> = {
 
 /** Where the page asks for a new token (SPI-1366); panel.ts answers it. */
 export const TOKEN_PATH = "/_t3flare/settings/api/token";
+/** Where the page reads an older page of the audit log (SPI-1366); panel.ts answers it. */
+export const AUDIT_API_PATH = "/_t3flare/settings/api/audit";
 
 /** A stored secret Variable's placeholder while its value is kept (an empty box keeps it); page.ts renders it too. */
 export const KEPT_PLACEHOLDER = "Set, not shown. Type to replace it";
@@ -742,11 +744,17 @@ const cell = (label, className, child) => {
   return td;
 };
 if (older !== null && auditRows !== null) {
+  // Kept focusable while it reads (aria-disabled, not disabled), so keyboard focus stays on it; once the whole log is
+  // shown, the button goes and focus moves to the note that says so.
+  let reading = false;
   older.addEventListener("click", async () => {
-    busy(older, true);
+    if (reading) return;
+    reading = true;
+    older.setAttribute("aria-disabled", "true");
+    older.setAttribute("aria-busy", "true");
     auditNote.textContent = "Reading older changes…";
     try {
-      const page = await getJson("/_t3flare/settings/api/audit?before=" + encodeURIComponent(older.dataset.before));
+      const page = await getJson(${JSON.stringify(AUDIT_API_PATH)} + "?before=" + encodeURIComponent(older.dataset.before));
       for (const entry of page.entries) {
         const at = new Date(entry.at);
         const time = el("time", format.format(at));
@@ -763,12 +771,25 @@ if (older !== null && auditRows !== null) {
         );
         auditRows.append(row);
       }
-      auditNote.textContent = page.entries.length + " older changes shown.";
-      if (page.before === undefined) older.remove();
-      else { older.dataset.before = String(page.before); busy(older, false); }
+      const shown = auditRows.children.length;
+      if (page.before === undefined) {
+        older.remove();
+        auditNote.textContent = "All " + shown + " changes kept are shown.";
+        const desc = document.querySelector("[data-audit-desc]");
+        if (desc !== null) desc.textContent = "Every change kept, newest first.";
+        const count = document.querySelector("[data-audit-count]");
+        if (count !== null) count.textContent = String(shown);
+        auditNote.focus();
+      } else {
+        older.dataset.before = String(page.before);
+        auditNote.textContent = shown + " changes shown; older ones remain.";
+      }
     } catch (error) {
       auditNote.textContent = error && error.message ? error.message : String(error);
-      busy(older, false);
+    } finally {
+      reading = false;
+      older.removeAttribute("aria-disabled");
+      older.removeAttribute("aria-busy");
     }
   });
 }

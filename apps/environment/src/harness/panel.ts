@@ -91,7 +91,7 @@ import { renderChangePage, renderGonePage } from "./changePage.ts";
 import { CHANGE_SCRIPT } from "./changePageScript.ts";
 import { CHANGES_API_PATH, CHANGES_PATH, changePagePath, SETTINGS_PAGE_PATH } from "./paths.ts";
 import { pageCsp, renderPage, testBuildView } from "./page.ts";
-import { TOKEN_PATH } from "./pageScript.ts";
+import { AUDIT_API_PATH, TOKEN_PATH } from "./pageScript.ts";
 import { type AuditActor, auditWorkspace, type HarnessStore } from "./store.ts";
 
 export const CSRF_HEADER = "x-t3flare-csrf";
@@ -427,7 +427,7 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
     // The last Test base build (SPI-1334): the page polls it while a test runs. A read: it starts nothing.
     if (path === TEST_BASE_PATH) return json(testAnswer(await refreshedTestRecord(deps.store, deps.readTestBase)));
     if (path === `${SETTINGS_PAGE_PATH}/api/mcp`) return json({ servers: await mcpOverview(deps) });
-    if (path === `${SETTINGS_PAGE_PATH}/api/audit`) {
+    if (path === AUDIT_API_PATH) {
       // A page of the log (SPI-1366): the page's Show older asks for the next with the last one's `before`.
       const number = (name: string) => {
         const value = Number(url.searchParams.get(name));

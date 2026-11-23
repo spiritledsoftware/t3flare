@@ -1119,11 +1119,11 @@ const auditSection = (audit: ReadonlyArray<AuditEntry>, before?: number): string
           .join("")}</tbody></table></div>${
           before === undefined
             ? ""
-            : `<div class="audit-more"><button type="button" class="btn btn-sm btn-ghost" data-audit-older data-before="${before}">Show older changes</button><span class="save-note" data-audit-note aria-live="polite"></span></div>`
+            : `<div class="audit-more"><button type="button" class="btn btn-sm" data-audit-older data-before="${before}">Show older changes</button><span class="save-note" data-audit-note tabindex="-1" aria-live="polite"></span></div>`
         }`;
   return `<section id="audit" aria-labelledby="audit-title">
 <div class="section-head"><h2 id="audit-title">${icon("audit")}Audit log</h2></div>
-<p class="section-desc">${before === undefined ? "Every change kept" : `The latest ${audit.length} changes`}, newest first${before === undefined ? "." : "; older ones load below."}</p>
+<p class="section-desc" data-audit-desc>${before === undefined ? "Every change kept" : `The latest ${audit.length} changes`}, newest first${before === undefined ? "." : "; older ones load below."}</p>
 <div class="group">${body}</div>
 </section>`;
 };
@@ -1223,7 +1223,7 @@ ${navItem("mcp", "MCP servers", "server", failing > 0 ? `<span class="flag" role
 ${input.endpoints === undefined ? "" : `${navItem("endpoints", "Model endpoints", "key", `<span class="count">${input.endpoints.endpoints.length}</span>`)}\n`}${navItem("environment", "Environment", "container")}
 ${input.workspaces === undefined ? "" : `${navItem("workspaces", "Workspaces", "folder", "error" in input.workspaces ? "" : `<span class="count">${input.workspaces.rows.reduce((sum, row) => sum + 1 + row.worktrees.length, 0)}</span>`)}\n`}${navItem("skills", "Skills", "skills")}
 ${navItem("status", "Status", "status")}
-${navItem("audit", "Audit log", "audit", `<span class="count">${input.audit.length}${input.auditBefore === undefined ? "" : "+"}</span>`)}
+${navItem("audit", "Audit log", "audit", `<span class="count" data-audit-count>${input.audit.length}${input.auditBefore === undefined ? "" : "+"}</span>`)}
 </nav>
 <p class="side-foot">Harness revision <strong>${revision}</strong>, applied at each thread's next turn. Environment revision <strong>${environment.revision}</strong>: each setting applies when it says, most at each Container's next start; Environment skills at each thread's next turn.</p>
 </aside>

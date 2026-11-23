@@ -999,7 +999,7 @@ export const ENVIRONMENT_SETTINGS = {
     tier: "down-free",
   },
   githubRetrySeconds: {
-    title: "GitHub retry (seconds)",
+    title: "Wait before asking GitHub again (seconds)",
     description: `How long t3flare waits before asking GitHub again after it failed or was refused, unless GitHub named its own time, which is always kept. The GitHub App's token waits double with each failure in a row, up to ${GITHUB_RETRY_GROWTH} times this; a GitHub Copilot renewal waits this once. Meanwhile every agent and git operation that needs a token gets the same failure. A shorter wait asks GitHub more often while it fails, which can bring on its rate limits. At most ${MAX_TIMED_MINUTES * 60} (a week). Applies at the next failure.`,
     // t3flare's own wait, no platform limit: the shared sanity maximum applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES * 60, default: DEFAULT_GITHUB_RETRY_SECONDS },
@@ -1014,21 +1014,21 @@ export const ENVIRONMENT_SETTINGS = {
     tier: "down-free",
   },
   idleAfterSeconds: {
-    title: "Idle time before the Environment sleeps (seconds)",
+    title: "Environment sleeps after (seconds)",
     description: `How long the Environment waits with no open page, request or work before it sleeps; t3 starts again at the next request or wake, which takes a few seconds. While it waits it stays up, and Cloudflare bills its time. At most ${MAX_TIMED_MINUTES * 60} (a week). Applies at the next idle check.`,
     // t3flare's own check (an interval in the Environment DO), no platform limit: the shared sanity maximum applies.
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES * 60, default: DEFAULT_IDLE_AFTER_SECONDS },
     tier: "down-free",
   },
   prWatchWakeMinutes: {
-    title: "PR watch wake (minutes)",
+    title: "Pull request check while asleep (minutes)",
     description: `While a pull request is watched and the Environment sleeps, how often it wakes to check it: a merge or close is noticed up to this late. Each wake starts t3 for about a minute. At most ${MAX_TIMED_MINUTES} (a week). Applies at the next sleep.`,
     // t3flare's own alarm, no platform limit: the shared sanity maximum applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_PR_WATCH_WAKE_MINUTES },
     tier: "up-free",
   },
   remoteRetryMinutes: {
-    title: "Remote task retry (minutes)",
+    title: "Longest Remote task retry (minutes)",
     description: `The longest the Environment waits before trying again a Remote task whose machine does not answer: 5 minutes, then 15, then this, each capped at it. A machine that comes back is noticed up to this late; each try starts t3. At most ${MAX_TIMED_MINUTES} (a week). Applies at the next try.`,
     // t3flare's own alarm, no platform limit: the shared sanity maximum applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_REMOTE_RETRY_MINUTES },
@@ -1059,7 +1059,7 @@ export const ENVIRONMENT_SETTINGS = {
     tier: "free",
   },
   htmlBrowserKeepAliveSeconds: {
-    title: "HTML render browser kept (seconds)",
+    title: "Keep the HTML render browser (seconds)",
     description: `How long the browser that renders t3's HTML stays open after its last render; the next render after it pays a new browser's start. Browser Run bills the time it stays open. At most ${MAX_BROWSER_KEEP_ALIVE_SECONDS} (Browser Run's own maximum). Applies to the next browser opened.`,
     // A named constraint: Browser Run's `keep_alive` takes at most 10 minutes (`MAX_BROWSER_KEEP_ALIVE_SECONDS`).
     schema: {
@@ -1071,7 +1071,7 @@ export const ENVIRONMENT_SETTINGS = {
     tier: "down-free",
   },
   pageTokenHours: {
-    title: "Settings page token (hours)",
+    title: "Settings page token lifetime (hours)",
     description: `How long this page's token for changes lasts: at least this many hours and at most one more. The page fetches a new one when it runs out, so a page left open keeps working; a token copied out of it works as long. At most ${MAX_TIMED_MINUTES / 60} (a week). Applies to the next change.`,
     // Not timed by a timer (an HMAC of the hour), but a security window: the shared sanity maximum applies (ADR-0048).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES / 60, default: DEFAULT_PAGE_TOKEN_HOURS },
