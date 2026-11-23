@@ -116,6 +116,7 @@ import { reclaimFor } from "./reclaim.ts";
 import { killInRunningContainer } from "./containerKill.ts";
 import { ContainerPreview } from "./containerPreview.ts";
 import { type PortProbe, probeRunningPort, scanRunningContainer, stopGroupInRunningContainer } from "./ports.ts";
+import { type KillAnswer, killAnswer } from "@t3flare/sandbox-image/kill";
 import type { PortScan } from "@t3flare/sandbox-image/ports";
 import { authoredScript, captureScript, restoreScript, shellWord } from "./checkpointScripts.ts";
 import { captureTurn, type LastCapture } from "./checkpointCapture.ts";
@@ -719,7 +720,7 @@ export class WorkspaceDO extends ContainerHost {
           env: this.#envWithVariables(env),
         });
       },
-      kill: (markers) => this.#killMarkers(markers),
+      kill: async (markers) => void (await this.#killMarkers(markers)),
       baseEnv: terminalEnv,
       remember: (markers) => ctx.storage.kv.put(PROCESS_MARKERS_KEY, [...markers]),
       remembered: () => ctx.storage.kv.get<ReadonlyArray<ProcessMarker>>(PROCESS_MARKERS_KEY) ?? [],
@@ -979,11 +980,16 @@ export class WorkspaceDO extends ContainerHost {
     return entries;
   }
 
-  /** Part 2's kill script on terminal markers, run straight on the Container (never starting it). */
-  async #killMarkers(markers: ReadonlyArray<string>): Promise<void> {
+  /**
+   * Part 2's kill script on terminal markers, run straight on the Container (never starting it), and its answer;
+   * undefined when the Container is not running or the script gave none.
+   */
+  async #killMarkers(markers: ReadonlyArray<string>): Promise<KillAnswer | undefined> {
     const output = await killInRunningContainer(this.ctx.container, markers);
-    if (output === undefined) return;
+    if (output === undefined) return undefined;
     console.log(JSON.stringify({ t3flare: "terminal-kill", markers: markers.length, answer: output.stdout.trim() }));
+    // No answer: the script failed. Only an agent's stop (`TerminalHost.kill`) reads the answer; it reports that.
+    return killAnswer(output.stdout);
   }
 
   /** One of `ComputerExecutionEnv`'s file operations (the Session's tools), answered as plain data. */
@@ -1494,10 +1500,10 @@ export class WorkspaceDO extends ContainerHost {
     this.#stoppedExecs.stopped(execIds);
     const result = await killInRunningContainer(this.ctx.container, execIds);
     if (result === undefined) return { running: false, signalled: 0, survivors: 0 };
-    const answer = /\{"signalled":(\d+),"survivors":(\d+)\}/.exec(result.stdout);
-    if (answer === null)
+    const answer = killAnswer(result.stdout);
+    if (answer === undefined)
       throw new Error(`t3flare: the kill script failed (exit ${result.exitCode}): ${result.stderr.slice(0, 300)}`);
-    return { running: true, signalled: Number(answer[1]), survivors: Number(answer[2]) };
+    return { running: true, signalled: answer.signalled, survivors: answer.survivors };
   }
 
   /** Reads a text file from the Workspace's own files (never the Container). Paths inside the Workspace. */

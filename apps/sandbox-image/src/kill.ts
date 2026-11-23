@@ -12,13 +12,15 @@
 //   another command's group;
 // - TERM first, KILL from 2 s; the processes are found again every 100 ms until none is left or 3 s have passed.
 //
-// It prints one JSON line: `{"signalled":<processes signalled>,"survivors":<marked processes still alive>}`. Not
+// It prints one JSON line: `{"signalled":<processes signalled>,"survivors":<marked processes still alive>,"signal":<the
+// last signal it sent, "TERM" or "KILL", or null when it sent none>}`. Not
 // covered, by design: a process that clears its environment and starts its own session (`env -i setsid …`).
 
 export const KILL_SCRIPT = String.raw`
 set -u
 want=" $* "
 signalled=0
+sent=
 
 # The marked processes, one "pid pgid" per line. A process's environ is read with bash's own read: no fork per process.
 marked() {
@@ -75,6 +77,7 @@ signal() {
       kill -s "$sig" "$pid" 2>/dev/null
     fi
     signalled=$((signalled + 1))
+    sent=$sig
   done
   return 0
 }
@@ -89,8 +92,27 @@ while signal "$sig"; do
   sleep 0.1
 done
 survivors=$(marked | grep -c . || true)
-printf '{"signalled":%d,"survivors":%d}\n' "$signalled" "$survivors"
+if [ -n "$sent" ]; then sent="\"$sent\""; else sent=null; fi
+printf '{"signalled":%d,"survivors":%d,"signal":%s}\n' "$signalled" "$survivors" "$sent"
 `.replaceAll("\\${", "${"); // \${ keeps bash's own expansions out of the template literal
+
+/** The script's answer (its last JSON line). */
+export interface KillAnswer {
+  readonly signalled: number;
+  readonly survivors: number;
+  readonly signal: "TERM" | "KILL" | null;
+}
+
+/** The answer in the script's output; undefined when there is none (the script failed). */
+export const killAnswer = (stdout: string): KillAnswer | undefined => {
+  const answer = /\{"signalled":(\d+),"survivors":(\d+),"signal":(?:"(TERM|KILL)"|null)\}/.exec(stdout);
+  if (answer === null) return undefined;
+  return {
+    signalled: Number(answer[1]),
+    survivors: Number(answer[2]),
+    signal: (answer[3] as "TERM" | "KILL" | undefined) ?? null,
+  };
+};
 
 /** The ids the script takes: nothing a shell would read as more than a word. */
 const killIds = (execIds: ReadonlyArray<string>) => execIds.filter((id) => /^[A-Za-z0-9-]+$/.test(id));

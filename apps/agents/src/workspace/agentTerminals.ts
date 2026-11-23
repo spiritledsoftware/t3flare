@@ -40,8 +40,16 @@ export const MAX_KEPT = MAX_TERMINALS_PER_WORKSPACE;
 /** termctrl's settle constants (`terminal-tools.ts`). */
 export const QUIET_MS = 250;
 const POLL_MS = 50;
-/** termctrl escalates a stop to SIGKILL after this long (`termctrl-registry.ts` DEFAULT_STOP_GRACE_MS). */
+/**
+ * How long a stop waits for the entry's exit after its close (the host's kill script: TERM, then KILL from 2 s) before
+ * it kills the entry's processes again (termctrl's escalation to SIGKILL, `termctrl-registry.ts` DEFAULT_STOP_GRACE_MS).
+ */
 const STOP_GRACE_MS = 3_000;
+/**
+ * How long a stop waits for the exit frame once its kill saw every process die. Not a setting: the frame only has to
+ * cross the host's batch (`BULK_BATCH_MS`, 100 ms) and its push; past this the stop reports the kill's own answer.
+ */
+const EXIT_FRAME_MS = 1_000;
 /** Scrollback a Terminal keeps (termctrl's is several hundred lines). */
 const SCROLLBACK = 1_000;
 /** A Background job's output as a result shows it: pi-termctrl's `bashTail` (300 lines or 16 KB). */
@@ -87,6 +95,16 @@ export interface AgentTerminalHost {
   }): Promise<unknown>;
   input(key: string, data: string): Promise<unknown>;
   close(key: string): Promise<unknown>;
+  /** The kill script on `key` again, and its answer; undefined when the Container is not running. */
+  kill(key: string): Promise<AgentKillAnswer | undefined>;
+}
+
+/** The kill script's answer (`@t3flare/sandbox-image/kill`'s `KillAnswer`). */
+export interface AgentKillAnswer {
+  readonly signalled: number;
+  readonly survivors: number;
+  /** The last signal it sent; null when it found nothing to signal. */
+  readonly signal: "TERM" | "KILL" | null;
 }
 
 export interface AgentTerminalsDeps {
@@ -402,14 +420,31 @@ export class AgentTerminals {
     return { view: await this.#view(entry, request.view && reason !== "chunk"), reason, startScreen };
   }
 
+  /**
+   * Closes the entry (the host's kill script), and kills it again when it has not exited within the grace (SPI-1372).
+   * The exit is what happened: the host's exit frame; else, once the kill saw every process die, the signal it sent;
+   * else the Container's stop. Processes that survive the kill are no exit: the stop fails, and the entry stays running.
+   */
   async #stop(entry: Entry): Promise<AgentTerminalAnswers["stop"]> {
     if (entry.exit === null) {
       await this.#deps.host.close(entry.marker);
-      const deadline = this.#deps.now() + STOP_GRACE_MS;
-      while (entry.exit === null && this.#deps.now() < deadline)
-        await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+      await this.#exitWithin(entry, STOP_GRACE_MS);
+    }
+    if (entry.exit === null) {
+      const answer = await this.#deps.host.kill(entry.marker);
+      if (answer !== undefined && answer.survivors > 0) {
+        throw new Error(
+          `${entry.id} survived SIG${answer.signal ?? "KILL"}: ${answer.survivors} of its processes still ${answer.survivors === 1 ? "runs" : "run"} in the Workspace's Container. It stays listed as running; stop it again, or it ends when the Container stops.`,
+        );
+      }
+      await this.#exitWithin(entry, EXIT_FRAME_MS);
       if (entry.exit === null) {
-        entry.exit = { code: null, signal: "SIGKILL" };
+        entry.exit =
+          answer === undefined
+            ? { code: null, signal: "the Workspace's Container stopped" }
+            : answer.signal === null
+              ? { code: null, signal: "its stop (its processes were gone before the kill, their exit unreported)" }
+              : { code: null, signal: `SIG${answer.signal}` };
         entry.endedAt = this.#deps.now();
       }
     }
@@ -418,6 +453,13 @@ export class AgentTerminals {
     const stopped = this.#info(entry);
     this.#forget(entry);
     return { stopped, view };
+  }
+
+  /** Waits up to `ms` for the entry's exit frame. */
+  async #exitWithin(entry: Entry, ms: number): Promise<void> {
+    const deadline = this.#deps.now() + ms;
+    while (entry.exit === null && this.#deps.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, POLL_MS));
   }
 
   async #wait(request: Extract<AgentTerminalRequest, { op: "wait" }>): Promise<AgentTerminalAnswers["wait"]> {

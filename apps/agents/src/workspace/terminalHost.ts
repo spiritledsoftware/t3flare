@@ -13,6 +13,7 @@
 //   (cost audit F1): t3 re-attaches every open panel after an Environment restart, so an open must not hold the
 //   Container. A shell at its prompt holds it for less than one running a foreground command.
 import { ENVIRONMENT_SETTINGS } from "@t3flare/harness-registry";
+import type { KillAnswer } from "@t3flare/sandbox-image/kill";
 import { scanMarkers, terminalCommand } from "@t3flare/sandbox-image/terminal";
 import type {
   TerminalAnswer,
@@ -57,8 +58,8 @@ export interface TerminalHostDeps {
     argv: ReadonlyArray<string>,
     options: { readonly cols: number; readonly rows: number; readonly env: Record<string, string> },
   ) => Promise<ShellProcess>;
-  /** Part 2's kill script on markers, in the Container; nothing when it is not running. */
-  readonly kill: (markers: ReadonlyArray<string>) => Promise<void>;
+  /** Part 2's kill script on markers, in the Container, and its answer; undefined when it is not running or gave none. */
+  readonly kill: (markers: ReadonlyArray<string>) => Promise<KillAnswer | undefined>;
   /** Pushes a batch to the Environment DO. */
   readonly push: (push: Omit<TerminalPush, "workspace">) => Promise<TerminalPushAnswer>;
   /** The base env of a shell: the image's command env without `BASH_ENV`. */
@@ -451,6 +452,18 @@ export class TerminalHost {
     }
     await this.#deps.kill([key]);
     return this.#answer([]);
+  }
+
+  /**
+   * Part 2's kill script on `key` again, whatever this object knows of it, and the script's answer: what it signalled,
+   * the last signal it sent, and what survived; undefined when the Container is not running (nothing is left to kill).
+   * Throws when the script gave no answer.
+   */
+  async kill(key: string): Promise<KillAnswer | undefined> {
+    if (!this.#deps.running()) return undefined;
+    const answer = await this.#deps.kill([key]);
+    if (answer !== undefined || !this.#deps.running()) return answer;
+    throw new Error("the kill script gave no answer, so whether its processes died is unknown");
   }
 
   /** The adapter's liveness for `keys`; answers the keys this object does not hold. */

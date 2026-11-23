@@ -409,7 +409,7 @@ export const terminalStopTool = (host: TermctrlHost): ToolRegistration =>
   defineTool({
     name: "terminal_stop",
     description:
-      "Stop a Terminal (t1) or Background job (b1) and forget it. Running processes are killed; exited ones are removed. Returns a Terminal's final screen (omitted when unchanged since your previous result) and scrolled-off lines, or a Background job's recent output.",
+      "Stop a Terminal (t1) or Background job (b1) and forget it. Running processes are killed; exited ones are removed. If a process survives the kill, the stop fails and the entry stays running. Returns a Terminal's final screen (omitted when unchanged since your previous result) and scrolled-off lines, or a Background job's recent output.",
     parameters: obj({ id: str({ description: "A Terminal id (t1) or Background job id (b1)" }) }),
     structuredOutputSchema: OBJECT,
     async execute(args) {

@@ -6,15 +6,21 @@ import { spawnSync } from "node:child_process";
 import { terminalCommand } from "@t3flare/sandbox-image/terminal";
 import { describe, expect, it } from "vitest";
 
-import { AgentTerminals } from "../src/workspace/agentTerminals.ts";
+import { type AgentKillAnswer, AgentTerminals } from "../src/workspace/agentTerminals.ts";
 
 /** A host whose "programs" answer input as `program` says, pushing frames back as the real host does. */
 const fakeHost = (
   program: (data: string, emit: (data: string) => void, exit: (code: number) => void) => void,
   maxLive: () => number = () => 8,
+  /** What a close and a kill do to a key's process; by default a close ends it with 130 (a hangup). */
+  stops: {
+    readonly close?: (key: string, exit: (code: number) => void) => void;
+    readonly kill?: (key: string, exit: (code: number) => void) => AgentKillAnswer | undefined;
+  } = {},
 ) => {
   const opened: Array<{ key: string; command: string; cwd: string }> = [];
   const closed: Array<string> = [];
+  const killed: Array<{ key: string; at: number }> = [];
   let terminals: AgentTerminals | undefined;
   const seq = new Map<string, number>();
   const emitTo = (key: string) => (data: string) => {
@@ -36,8 +42,13 @@ const fakeHost = (
     },
     close: (key: string) => {
       closed.push(key);
-      setTimeout(() => exitTo(key)(130), 5);
+      if (stops.close === undefined) setTimeout(() => exitTo(key)(130), 5);
+      else stops.close(key, exitTo(key));
       return Promise.resolve();
+    },
+    kill: (key: string) => {
+      killed.push({ key, at: Date.now() });
+      return Promise.resolve(stops.kill?.(key, exitTo(key)));
     },
   };
   let n = 0;
@@ -49,7 +60,7 @@ const fakeHost = (
     repo: "/workspace/repo",
     maxLive,
   });
-  return { terminals, opened, closed };
+  return { terminals, opened, closed, killed };
 };
 
 const repl = (data: string, emit: (data: string) => void, exit: (code: number) => void) => {
@@ -189,6 +200,41 @@ describe("agent terminals", () => {
     const lowered = await terminals.handle({ ...fourth, kind: "terminal" });
     expect(lowered.ok ? "" : lowered.error).toContain("allows 1");
   });
+
+  // SPI-1372: a process that outlives the close's kill is killed again after the grace, and the stop says what happened.
+  it(
+    "kills a Terminal that ignores its close after the grace, and reports what the kill did",
+    { timeout: 15_000 },
+    async () => {
+      const SURVIVES = "-t3";
+      const { terminals, opened, killed } = fakeHost(repl, () => 8, {
+        close: () => undefined, // traps the hangup, TERM and KILL alike
+        kill: (key, exit) => {
+          if (key.endsWith("-t1")) {
+            setTimeout(() => exit(137), 5); // its shell's exit follows the kill
+            return { signalled: 2, survivors: 0, signal: "KILL" };
+          }
+          if (key.endsWith(SURVIVES)) return { signalled: 1, survivors: 1, signal: "KILL" };
+          return { signalled: 1, survivors: 0, signal: "KILL" }; // dead, its exit frame lost
+        },
+      });
+      const ids = [await start(terminals), await start(terminals), await start(terminals)];
+      const began = Date.now();
+      const [first, second, third] = await Promise.all(ids.map((id) => terminals.handle({ op: "stop", owner, id })));
+
+      expect(killed.map((kill) => kill.key)).toEqual(opened.map((open) => open.key));
+      for (const kill of killed) expect(kill.at - began).toBeGreaterThanOrEqual(3_000);
+      // The shell's own exit, as the host reported it.
+      expect(first?.ok && first.value.stopped.exit).toEqual({ code: 137, signal: null });
+      // No exit frame, but the kill saw its processes die: the signal it sent.
+      expect(second?.ok && second.value.stopped.exit).toEqual({ code: null, signal: "SIGKILL" });
+      // Still running: not reported as killed, and still listed.
+      expect(third!.ok ? "" : third!.error).toContain("t3 survived SIGKILL: 1 of its processes still runs");
+      const list = await terminals.handle({ op: "list", owner });
+      expect(list.ok && list.value.entries.map((entry) => [entry.id, entry.state])).toEqual([["t3", "running"]]);
+      expect(terminals.live).toBe(1);
+    },
+  );
 
   it("runs a Background job with its output tee'd to a log, and reports an unseen exit once", async () => {
     const { terminals, opened } = fakeHost(repl);

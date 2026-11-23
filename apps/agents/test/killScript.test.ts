@@ -5,7 +5,7 @@
 import { spawnSync } from "node:child_process";
 
 import { inBash } from "@t3flare/computer-env/shell";
-import { killCommand } from "@t3flare/sandbox-image/kill";
+import { killAnswer, killCommand } from "@t3flare/sandbox-image/kill";
 import { describe, expect, it } from "vitest";
 
 const IMAGE = "ubuntu:26.04";
@@ -50,6 +50,7 @@ done
   const answer = JSON.parse(lines.find((line) => line.startsWith("ANSWER "))?.slice(7) ?? "null") as {
     signalled: number;
     survivors: number;
+    signal: "TERM" | "KILL" | null;
   } | null;
   const ms = Number(lines.find((line) => line.startsWith("MS "))?.slice(3));
   const left: Array<Proc> = lines
@@ -68,11 +69,27 @@ const sleeps = (left: ReadonlyArray<Proc>) =>
     .map((proc) => proc.args)
     .toSorted();
 
+describe("the kill script's answer", () => {
+  it("reads the counts and the last signal sent, and nothing from output without an answer", () => {
+    expect(killAnswer('{"signalled":2,"survivors":1,"signal":"KILL"}\n')).toEqual({
+      signalled: 2,
+      survivors: 1,
+      signal: "KILL",
+    });
+    expect(killAnswer('{"signalled":0,"survivors":0,"signal":null}\n')).toEqual({
+      signalled: 0,
+      survivors: 0,
+      signal: null,
+    });
+    expect(killAnswer("bash: kill: oops\n")).toBeUndefined();
+  });
+});
+
 // Each case starts a Docker container, which takes seconds under the full parallel check.
 describe.skipIf(!docker)("the kill script", { timeout: 60_000 }, () => {
   it("kills a command's group: its shell, its child and its background grandchild", () => {
     const result = run(`T3FLARE_EXEC=a setsid bash -c 'sleep 600 & sleep 601' &`, ["a"]);
-    expect(result.answer).toMatchObject({ survivors: 0 });
+    expect(result.answer).toMatchObject({ survivors: 0, signal: "TERM" });
     expect(result.left.filter((proc) => proc.mark === "a")).toEqual([]);
     expect(result.ms).toBeLessThan(3000);
   });
@@ -97,7 +114,7 @@ describe.skipIf(!docker)("the kill script", { timeout: 60_000 }, () => {
 
   it("kills a group that ignores TERM with KILL, within 3 s", () => {
     const result = run(`T3FLARE_EXEC=a setsid bash -c 'trap "" TERM; sleep 600 & wait' &`, ["a"]);
-    expect(result.answer).toMatchObject({ survivors: 0 });
+    expect(result.answer).toMatchObject({ survivors: 0, signal: "KILL" });
     expect(sleeps(result.left)).toEqual([]);
     expect(result.ms).toBeGreaterThanOrEqual(2000);
     expect(result.ms).toBeLessThan(3500);
@@ -119,7 +136,7 @@ describe.skipIf(!docker)("the kill script", { timeout: 60_000 }, () => {
 
   it("with nothing to kill, answers at once", () => {
     const result = run(`sleep 600 &`, ["a"]);
-    expect(result.answer).toEqual({ signalled: 0, survivors: 0 });
+    expect(result.answer).toEqual({ signalled: 0, survivors: 0, signal: null });
     expect(result.ms).toBeLessThan(1000);
     expect(sleeps(result.left)).toEqual(["sleep 600"]);
   });
