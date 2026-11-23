@@ -2,7 +2,8 @@
 // 2.2.7 did in M0's probes (their recorded initialize, session/new and request shapes), runs one scripted list of
 // steps per prompt, and writes every message it receives to $FAKE_ACP_LOG, one JSON line each.
 //   FAKE_ACP_SCRIPT=<json file> FAKE_ACP_LOG=<file> node fake-acp-agent.mjs
-// Script: { initialize, sessionNew, prompts: [[step…]…] }; a step is { update } (a session/update), { request:
+// Script: { initialize, sessionNew, sessionNewError?, prompts: [[step…]…] } (`sessionNewError`: session/new's error
+// answer, e.g. ACP's -32000 auth_required); a step is { update } (a session/update), { request:
 // { method, params } } (waits for the answer), { result } (the prompt's own answer, default end_turn), or { respond }
 // (answers the prompt now and goes on: ACP v2, whose prompt is answered before the turn's work).
 import * as fs from "node:fs";
@@ -52,6 +53,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     case "initialize":
       return send({ id: message.id, result: script.initialize });
     case "session/new":
+      if (script.sessionNewError) return send({ id: message.id, error: script.sessionNewError });
       return send({ id: message.id, result: script.sessionNew });
     case "session/load":
     case "session/resume":
