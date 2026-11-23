@@ -5,7 +5,12 @@
 // its API is refused, saying so (SPI-1176). The pure part: no I/O beyond reading the State directory for pi's extension.
 import { isSignIn, type ModelEndpoint, parseEndpointSlug, SETUP_HINT, SIGN_IN_COMPAT } from "@t3flare/models/endpoints";
 import { endpointProviderId, MODEL_HANDLE_ENV, modelRelayUrl, type RelayedEndpoint } from "@t3flare/models/relay";
-import { MCP_RELAY_PREFIX, RELAY_SERVERS_ENV, TOOL_HANDLE_ENV } from "@t3flare/harness-registry";
+import {
+  DEFAULT_PI_SESSION_RETENTION_DAYS,
+  MCP_RELAY_PREFIX,
+  RELAY_SERVERS_ENV,
+  TOOL_HANDLE_ENV,
+} from "@t3flare/harness-registry";
 import { CLI_ROOTS, directoriesUp, SKILLS_MOUNT } from "@t3flare/skills";
 import { HARNESS_ROOT, normalize, REPO_ROOT, toWorkspace } from "@t3flare/workspace-client";
 
@@ -29,8 +34,6 @@ export const CLI_HOMES = "/var/lib/t3flare/cli";
 /** The synced session directories (beside the repo, outside every t3 path): the only CLI state that outlives a Container. */
 export const CODEX_SESSIONS = `${HARNESS_ROOT}/codex/sessions`;
 export const PI_SESSIONS = `${HARNESS_ROOT}/pi/sessions`;
-/** pi sessions untouched this long are removed at a pi start (review F2's retention). */
-export const PI_SESSION_RETENTION_DAYS = 60;
 /**
  * A CLI's refusal when no Model endpoint it can use lists a model (SPI-1176): which API it needs, and where to add one.
  */
@@ -81,6 +84,11 @@ export interface ProfileContext {
    * Owner's own config for it in their home (`dotfiles.ts`). Absent: on, the setting's default.
    */
   readonly dotfiles?: boolean;
+  /**
+   * SPI-1323: the Environment's `piSessionRetentionDays` at the spawn: pi sessions untouched this long are removed at
+   * this pi start (review F2). Absent: `DEFAULT_PI_SESSION_RETENTION_DAYS`, the setting's default.
+   */
+  readonly piSessionRetentionDays?: number;
 }
 
 /**
@@ -588,7 +596,7 @@ const piLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer => 
     // ADR-0047 §9: the Owner's user directory first; t3flare's models.json, settings.json and mcp.json over it.
     ...dotfilesLaunch("pi", home, context.dotfiles),
     files,
-    prune: [{ dir: PI_SESSIONS, days: PI_SESSION_RETENTION_DAYS }],
+    prune: [{ dir: PI_SESSIONS, days: context.piSessionRetentionDays ?? DEFAULT_PI_SESSION_RETENTION_DAYS }],
     ...(thread === undefined ? {} : { thread }),
     // SPI-1170: the Workspace DO gives the process a model handle for these endpoints, in its environment only.
     modelRelay: piRelay.endpoints.map((endpoint) => endpoint.id),

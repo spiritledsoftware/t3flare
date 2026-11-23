@@ -244,6 +244,9 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
         sweepSettingsOf(resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()), env.T3FLARE_SWEEP_GRACE_MS),
       // Read at each CLI spawn (ADR-0047 §9): a change applies at each CLI agent's next start.
       agentsReadDotfiles: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).agentsReadDotfiles,
+      // Read at each CLI spawn (SPI-1323): a change applies at each pi start.
+      piSessionRetentionDays: () =>
+        resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).piSessionRetentionDays,
       // Read at each turn's start (SPI-1315): a change applies at each thread's next turn; a running turn keeps its limit.
       turnLimitMs: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).turnLimitMinutes * 60_000,
       // Read at each turn's start (SPI-1314): how long the Session waits there for the newest settings.
@@ -274,7 +277,10 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       // t3's in-isolate address (owner, 2026-11-12, back to stock: t3's bearer goes to the CLI as stock t3 hands it).
       t3McpUrl: () => `https://${this.#configuredHost()}/mcp`,
       publicOrigin: () => (this.env.T3FLARE_HOST === undefined ? null : `https://${this.env.T3FLARE_HOST}`),
-      usage: usageStore(ctx.storage.sql),
+      // Read at each record and prune (SPI-1323): a change applies at the next prune and to entries recorded from then on.
+      usage: usageStore(ctx.storage.sql, {
+        retentionDays: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).usageRetentionDays,
+      }),
       limits: limitStore(ctx.storage.sql),
       browserRun: env.BROWSER,
       // SAFETY: the Worker's entry (`worker.ts`) exports `ContainerPreviews`; `ctx.exports` is untyped here.

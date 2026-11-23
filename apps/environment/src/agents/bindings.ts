@@ -40,6 +40,11 @@ export interface EnvironmentServices {
    */
   readonly agentsReadDotfiles?: () => boolean;
   /**
+   * How many days pi's sessions are kept (SPI-1323, `piSessionRetentionDays`), as stored now: read at each spawn, so a
+   * change applies at each pi start. Absent (a test's services): the setting's default.
+   */
+  readonly piSessionRetentionDays?: () => number;
+  /**
    * The Turn limit (SPI-1315, `turnLimitMinutes`) in ms, as stored now: read at each turn's start, by the CLI wrapper and
    * the Durable agent's adapter, so a change applies at each thread's next turn. Absent (a test's services): the default.
    */

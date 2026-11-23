@@ -3,6 +3,7 @@
 // record, rolled up by quarter hour, agent, endpoint, model and session, for at most the retention window; t3's Usage page
 // reads them through our scan readers, split by agent (t3's usage provider) and model (`<endpointId>/<modelId>`). A model
 // with no price of its own is priced by t3's rate table.
+import { DEFAULT_USAGE_RETENTION_DAYS, MAX_RETENTION_DAYS } from "@t3flare/harness-registry";
 import type { ModelEndpoints } from "@t3flare/models/endpoints";
 import type { UsageEntry } from "@t3flare/models/usage";
 import * as Effect from "effect/Effect";
@@ -16,14 +17,16 @@ import {
   acceptUsage,
   listedModelOf,
   MAX_USAGE_ROWS,
-  USAGE_RETENTION_MS,
   USAGE_SLOT_MS,
+  usageMaxRows,
   type UsageStore,
   usageStore,
 } from "../src/usage/records.ts";
 import { nodeSqlStorage } from "./nodeSqlStorage.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
+/** The default retention (`usageRetentionDays`' default, 92 days). */
+const USAGE_RETENTION_MS = DEFAULT_USAGE_RETENTION_DAYS * DAY;
 const NOW = Date.parse("2026-11-16T12:00:00Z");
 
 const endpoints: ModelEndpoints = {
@@ -243,6 +246,30 @@ describe("the Environment's usage records", () => {
     ]);
   });
 
+  it("keeps the Owner's retention (usageRetentionDays, SPI-1323), read at each record and prune", async () => {
+    const sql = nodeSqlStorage();
+    let days = 365;
+    const store = usageStore(sql, { retentionDays: () => days });
+    // 365 days: a 200-day-old record is kept, past the page's 90 days.
+    expect(store.record([entry({ at: NOW - 200 * DAY, session: "old" })], endpoints, NOW)).toBe(1);
+    expect((await scanOf(store, "pi", 0))[0]!.files![0]!.records).toHaveLength(1);
+    // Turned down to 30: a record older than 30 days is dropped, and the next prune deletes the 200-day-old row.
+    days = 30;
+    const later = NOW + 2 * 60 * 60_000;
+    expect(store.record([entry({ at: later - 31 * DAY })], endpoints, later)).toBe(0);
+    expect(store.record([entry({ at: later - 29 * DAY })], endpoints, later)).toBe(1);
+    expect(
+      (await scanOf(store, "pi", 0))[0]!.files![0]!.records.map((record) => (later - record.timestampMs) / DAY),
+    ).toEqual([expect.closeTo(29, 0)]);
+  });
+
+  it("scales MAX_USAGE_ROWS with the retention, never below it", () => {
+    expect(usageMaxRows(DEFAULT_USAGE_RETENTION_DAYS)).toBe(MAX_USAGE_ROWS);
+    expect(usageMaxRows(1)).toBe(MAX_USAGE_ROWS);
+    expect(usageMaxRows(365)).toBeGreaterThanOrEqual(Math.ceil((365 * MAX_USAGE_ROWS) / 92));
+    expect(usageMaxRows(MAX_RETENTION_DAYS)).toBe(Math.ceil((3650 * MAX_USAGE_ROWS) / 92));
+  });
+
   it("keeps at most MAX_USAGE_ROWS rows, the oldest dropped first", async () => {
     const store = usageStore(nodeSqlStorage(), { maxRows: 3 });
     expect(MAX_USAGE_ROWS).toBeGreaterThan(10_000);
@@ -255,6 +282,21 @@ describe("the Environment's usage records", () => {
     expect(records.map((record) => (NOW - record.timestampMs) / USAGE_SLOT_MS).sort((a, b) => a - b)).toEqual([
       1, 2, 3,
     ]);
+  });
+
+  it("caps rows at usageMaxRows of the retention when no maxRows is given (SPI-1323)", () => {
+    // MAX_USAGE_ROWS + 10 rows, one quarter hour each of their own session: 92 days keeps 50,000, 365 days keeps all.
+    const many = Array.from({ length: MAX_USAGE_ROWS + 10 }, (_, n) =>
+      entry({ at: NOW - DAY - (n % 96) * USAGE_SLOT_MS, session: `s${n}` }),
+    );
+    const at = (days: number) => {
+      const store = usageStore(nodeSqlStorage(), { retentionDays: () => days });
+      store.record(many, endpoints, NOW);
+      return store.read(0).length;
+    };
+    expect(at(DEFAULT_USAGE_RETENTION_DAYS)).toBe(MAX_USAGE_ROWS);
+    expect(usageMaxRows(365)).toBeGreaterThan(MAX_USAGE_ROWS + 10);
+    expect(at(365)).toBe(MAX_USAGE_ROWS + 10);
   });
 
   it("drops an entry the agents Worker should never send: unknown agent, no tokens, a control character", () => {

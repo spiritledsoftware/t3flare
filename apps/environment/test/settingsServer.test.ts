@@ -278,6 +278,38 @@ describe("the Settings server's card for a free change", () => {
     expect(SETTINGS_TOOLS.find((tool) => tool.name === "change_environment")!.description).toContain("next Sweep");
   });
 
+  it("a change to how long history is kept applies per key: at the next prune or at each Pi start, never a Container start (SPI-1323)", async () => {
+    const run = setup();
+    recordModes(durable(), "approval-required");
+    const usage = await run.call(durable(), "change_environment", {
+      expectedRevision: 0,
+      settings: { usageRetentionDays: 365 },
+    });
+    expect(structured(usage)).toMatchObject({
+      status: "applied",
+      appliesAt:
+        "Applies at the next prune of the usage records (at most once an hour, as usage is recorded) and to usage recorded from then on.",
+    });
+    const pi = await run.call(durable(), "change_environment", {
+      expectedRevision: 1,
+      settings: { piSessionRetentionDays: 120 },
+    });
+    expect(structured(pi)).toMatchObject({ status: "applied", appliesAt: "Applies at each Pi start." });
+    for (const card of run.cards) expect(card.prompt).not.toContain("Container next starts");
+    // Both, with a Container setting: each text names its keys.
+    await run.call(durable(), "change_environment", {
+      expectedRevision: 2,
+      settings: { usageRetentionDays: 400, piSessionRetentionDays: 200, containerIdleMinutes: 1 },
+    });
+    const both = run.cards[2]!.prompt;
+    expect(both).toContain("Container next starts");
+    expect(both).toContain("usageRetentionDays: Applies at the next prune");
+    expect(both).toContain("piSessionRetentionDays: Applies at each Pi start.");
+    const tool = SETTINGS_TOOLS.find((entry) => entry.name === "change_environment")!;
+    expect(tool.description).toContain("usageRetentionDays at the next prune");
+    expect(tool.description).toContain("piSessionRetentionDays at each Pi start");
+  });
+
   it("a decline changes nothing; an unanswered card is withdrawn and changes nothing", async () => {
     const declined = setup({ answer: { decision: "decline" } });
     recordModes(durable(), "approval-required");
