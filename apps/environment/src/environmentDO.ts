@@ -800,6 +800,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       engine: this.env.MCP_OAUTH,
       host: () => this.#configuredHost(),
       audit: (entry) => store.audit({ at: Date.now(), entity: "harness", caller: "oauth", ...entry }),
+      // Read at each start (SPI-1366): a change applies to sign-ins started after it.
+      stateTtlMs: () => resolveEnvironment(store.loadEnvironment()).mcpSignInMinutes * 60_000,
     });
     return this.#harnessOAuth;
   }
@@ -820,6 +822,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       callTimeoutMs: () =>
         resolveEnvironment(harnessStore(this.ctx.storage.kv).loadEnvironment()).mcpCallSeconds * 1000,
       resultBytes: () => resolveEnvironment(harnessStore(this.ctx.storage.kv).loadEnvironment()).mcpResultKiB * 1024,
+      // Read at each call (SPI-1366).
+      pausesPerCall: () => resolveEnvironment(harnessStore(this.ctx.storage.kv).loadEnvironment()).mcpPausesPerCall,
     });
     return this.#mcpHost;
   }

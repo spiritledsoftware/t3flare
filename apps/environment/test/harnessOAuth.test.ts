@@ -13,10 +13,11 @@ const memory = () => {
     put: <T>(key: string, value: T) => void map.set(key, structuredClone(value)),
     delete: (key: string) => map.delete(key),
     keys: () => [...map.keys()],
+    values: () => [...map.values()],
   };
 };
 
-const setup = (options: { issSupported?: boolean; expiresIn?: number } = {}) => {
+const setup = (options: { issSupported?: boolean; expiresIn?: number; stateTtlMs?: () => number } = {}) => {
   const kv = memory();
   let now = 1_000_000;
   const calls: Array<string> = [];
@@ -59,7 +60,14 @@ const setup = (options: { issSupported?: boolean; expiresIn?: number } = {}) => 
     },
   };
   const secrets = harnessSecrets(kv, () => now);
-  const oauth = new HarnessOAuth({ kv, secrets, engine, host: () => "t3.example", now: () => now });
+  const oauth = new HarnessOAuth({
+    kv,
+    secrets,
+    engine,
+    host: () => "t3.example",
+    now: () => now,
+    ...(options.stateTtlMs === undefined ? {} : { stateTtlMs: options.stateTtlMs }),
+  });
   const stateOf = (url: string) => new URL(url).searchParams.get("state")!;
   return { oauth, kv, calls, secrets, advance: (ms: number) => void (now += ms), stateOf, refreshes: () => refreshes };
 };
@@ -107,6 +115,25 @@ describe("OAuth sign-ins (review M4)", () => {
     expect((await h.oauth.callback(callback(await begin()))).status).toBe(400);
     expect(h.calls.filter((call) => call.startsWith("exchange"))).toEqual([]);
     expect(h.oauth.status("srv").signedIn).toBe(false);
+  });
+
+  it("keeps a sign-in's state as long as the MCP sign-in time, and deletes abandoned ones past it (SPI-1366)", async () => {
+    const h = setup({ stateTtlMs: () => 30 * 60_000 });
+    const begin = async () => {
+      const begun = await h.oauth.begin("srv", "https://srv.example/mcp");
+      if (!begun.ok) throw new Error(begun.error);
+      return h.stateOf(begun.value.authorizationUrl);
+    };
+    const abandoned = await begin();
+    const late = await begin();
+    // Past the old 10 minutes, inside the setting's 30: still taken.
+    h.advance(20 * 60_000);
+    expect((await h.oauth.callback(callback(late))).status).toBe(200);
+    // Past the setting, the next start deletes the abandoned state, which no redirect came back for.
+    h.advance(11 * 60_000);
+    await begin();
+    expect(h.kv.keys().some((key) => key.endsWith(abandoned))).toBe(false);
+    expect(JSON.stringify(h.kv.values())).not.toContain(abandoned);
   });
 
   it("refreshes an aging or refused token once, however many calls ask at the same time", async () => {

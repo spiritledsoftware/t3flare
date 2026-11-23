@@ -13,6 +13,7 @@
 import {
   classOf,
   DEFAULT_MCP_CALL_MS,
+  DEFAULT_MCP_PAUSES_PER_CALL,
   DEFAULT_MCP_RESULT_KIB,
   ENVIRONMENT_SETTINGS,
   type Exposure,
@@ -173,6 +174,11 @@ export interface McpHostDeps {
    * larger inline one cut. Default: `DEFAULT_MCP_RESULT_KIB`.
    */
   readonly resultBytes?: () => number;
+  /**
+   * How many of one call's pauses t3flare answers (`mcpPausesPerCall`, SPI-1366), read as each call starts. Default:
+   * `DEFAULT_MCP_PAUSES_PER_CALL`.
+   */
+  readonly pausesPerCall?: () => number;
   /**
    * The Settings server (ADR-0035, plan D2): a call to the `settings` entry goes here, with the caller the Environment
    * derived and the call's asker, before any inventory or pausing logic. Absent, its calls are refused.
@@ -718,7 +724,7 @@ export class McpHost {
 
   /**
    * A pausing server's result (Executor's model mode, SPI-1079): each pause becomes a card and t3flare calls `resume`
-   * with the owner's answer, at most MAX_PAUSES times; the agent gets the last result, never a `requestId`. An approval
+   * with the owner's answer, at most `mcpPausesPerCall` times; the agent gets the last result, never a `requestId`. An approval
    * is resumed with `accept` only when the owner accepted; a decline is sent as `decline`, an unanswered card as `cancel`.
    */
   async #answerPauses(
@@ -731,6 +737,8 @@ export class McpHost {
     context: QuestionContext,
   ): Promise<McpCallAnswer> {
     const resume = this.inventory(name).definitions[RESUME_TOOL]!;
+    // Read as the call starts (SPI-1366): a change applies at the next call.
+    const pauses = this.#deps.pausesPerCall?.() ?? DEFAULT_MCP_PAUSES_PER_CALL;
     let current = value;
     for (let round = 0; ; round++) {
       const pause = pauseOf(current);
@@ -741,10 +749,10 @@ export class McpHost {
           isError: true,
           text: `${name} paused this call for the owner's ${pause.status === "approval-required" ? "approval" : "input"}, which this caller cannot ask for. It did not run.`,
         };
-      if (round === MAX_PAUSES)
+      if (round === pauses)
         return {
           kind: "unavailable",
-          message: `${name} paused this call more than ${MAX_PAUSES} times; t3flare stopped answering. Some of its steps may have run.`,
+          message: `${name} paused this call more than ${pauses} times; t3flare stopped answering. Some of its steps may have run.`,
           mayHaveRun: true,
         };
       const answer = await this.#answer(planPause(pause, context), asker, context, "pause");
@@ -781,8 +789,6 @@ type Answered =
 const RESUME_TOOL = "resume";
 const RESUME_REFUSAL = (server: string) =>
   `t3flare answers ${server}'s approval and input requests itself, from the owner's card, and resumes the paused call; resume is not yours to call. If the call is still needed, call the original tool again.`;
-/** Most pauses of one call t3flare answers. */
-const MAX_PAUSES = 16;
 
 /** A result as text, without a pause's `requestId` (an expired or busy outcome still carries one). */
 const redactedResult = (value: unknown, max: number): { readonly isError: boolean; readonly text: string } => {

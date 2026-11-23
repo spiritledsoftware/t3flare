@@ -176,6 +176,7 @@ const hostOver = async (
   tools: Array<Record<string, unknown>>,
   respond: (request: any, hooks: any) => Promise<unknown>,
   questionWaitMs?: () => number,
+  pausesPerCall?: () => number,
 ) => {
   const added = applyMcpChange(EMPTY_HARNESS, {
     op: "add",
@@ -216,6 +217,7 @@ const hostOver = async (
     now: () => 1,
     ownHost: () => "t3.example.com",
     ...(questionWaitMs === undefined ? {} : { questionWaitMs }),
+    ...(pausesPerCall === undefined ? {} : { pausesPerCall }),
   });
   await host.list("fixture");
   return { host, requests };
@@ -411,6 +413,29 @@ describe("McpHost questions", () => {
       const owner = askerAnswering(() => ({ decision }));
       await host.call({ server: "fixture", tool: "call", args: {}, judged: "write", asker: owner.asker });
       expect(requests[1].arguments).toEqual({ requestId: "apr_1", response: { action } });
+    }
+  });
+
+  it("answers as many pauses of one call as the setting allows, then ends it as may have run (SPI-1366)", async () => {
+    for (const [allowed, expected] of [
+      [3, 3],
+      [20, 20],
+    ] as const) {
+      const { host, requests } = await hostOver(
+        executorTools,
+        async () => pause("approval-required"),
+        undefined,
+        () => allowed,
+      );
+      const owner = askerAnswering(() => ({ decision: "accept" }));
+      const answer = await host.call({ server: "fixture", tool: "call", args: {}, judged: "write", asker: owner.asker });
+      expect(owner.cards).toHaveLength(expected);
+      expect(requests.filter((request) => request.tool.name === "resume")).toHaveLength(expected);
+      expect(answer).toMatchObject({
+        kind: "unavailable",
+        mayHaveRun: true,
+        message: expect.stringContaining(`more than ${allowed} times`),
+      });
     }
   });
 

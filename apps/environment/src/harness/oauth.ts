@@ -5,11 +5,14 @@
 // Environment DO keeps the client and the tokens write-only in its secret store. Every outbound request (discovery,
 // registration, the token exchange, each refresh) is the MCP Worker's (`McpOAuth`, review M5).
 //
-// - `state`: 256 random bits, single use, 10 minutes, bound to the server it was made for.
+// - `state`: 256 random bits, single use, bound to the server it was made for, kept for the MCP sign-in time
+//   (`mcpSignInMinutes`, SPI-1366), then deleted at the next start if no redirect came back for it.
 // - PKCE (S256) always; the verifier never leaves this object but to the MCP Worker for the exchange.
 // - RFC 9207: an `iss` that differs from the authorization server's issuer is refused, and a server that says it sends
 //   `iss` must send it.
 // - Refresh: one in flight per server; a refreshed token replaces the old one at once (rotating refresh tokens).
+import { DEFAULT_MCP_SIGN_IN_MINUTES } from "@t3flare/harness-registry";
+
 import type { HarnessSecrets } from "./secrets.ts";
 import type { KvStorage } from "./keys.ts";
 
@@ -21,7 +24,8 @@ export const OAUTH_CLIENT_PATH = "/t3flare/oauth/client.json";
  */
 export const OAUTH_PUBLIC_PATHS: ReadonlySet<string> = new Set([OAUTH_CALLBACK_PATH, OAUTH_CLIENT_PATH]);
 
-export const STATE_TTL_MS = 10 * 60_000;
+/** How long a state lasts when no setting reaches (`mcpSignInMinutes`' default, SPI-1366). */
+export const STATE_TTL_MS = DEFAULT_MCP_SIGN_IN_MINUTES * 60_000;
 /** A token is refreshed this long before it expires. */
 export const REFRESH_MARGIN_MS = 60_000;
 
@@ -106,6 +110,8 @@ interface KeptTokens {
 }
 
 const stateKey = (state: string) => `t3flare:harness:oauth:state:${state}`;
+/** The states started and not yet used, with when each expires: a start deletes the expired ones (SPI-1366). */
+const STATES_KEY = "t3flare:harness:oauth:states";
 const asKey = (server: string) => `t3flare:harness:oauth:as:${server}`;
 
 export interface OAuthDeps {
@@ -115,6 +121,8 @@ export interface OAuthDeps {
   /** The t3 host (the Environment's public host), read when used. */
   readonly host: () => string;
   readonly now?: () => number;
+  /** How long a started sign-in's state lasts, read at each start (`mcpSignInMinutes`, SPI-1366); `STATE_TTL_MS` absent. */
+  readonly stateTtlMs?: () => number;
   readonly audit?: (entry: { readonly action: string; readonly target: string; readonly after?: unknown }) => void;
 }
 
@@ -232,8 +240,15 @@ export class HarnessOAuth {
       authorizationServerUrl,
       ...(metadata === undefined ? {} : { metadata }),
       ...(resource === undefined ? {} : { resource }),
-      expiresAt: this.#now() + STATE_TTL_MS,
+      expiresAt: this.#now() + (this.#deps.stateTtlMs?.() ?? STATE_TTL_MS),
     };
+    // The abandoned states (no redirect came back) go once past their time; this one joins the index.
+    const started = Object.entries(this.#deps.kv.get<Record<string, number>>(STATES_KEY) ?? {}).filter(([old, expiresAt]) => {
+      if (expiresAt >= this.#now()) return true;
+      this.#deps.kv.delete(stateKey(old));
+      return false;
+    });
+    this.#deps.kv.put(STATES_KEY, Object.fromEntries([...started, [state, pending.expiresAt]]));
     this.#deps.kv.put(stateKey(state), pending);
     this.#deps.audit?.({
       action: "mcp.oauth.begin",
@@ -254,6 +269,11 @@ export class HarnessOAuth {
     const pending = this.#deps.kv.get<PendingState>(stateKey(state));
     // Single use: gone whatever happens next.
     this.#deps.kv.delete(stateKey(state));
+    const started = this.#deps.kv.get<Record<string, number>>(STATES_KEY);
+    if (started !== undefined && state in started) {
+      const { [state]: _used, ...rest } = started;
+      this.#deps.kv.put(STATES_KEY, rest);
+    }
     if (pending === undefined || pending.expiresAt < this.#now())
       return page(
         400,
