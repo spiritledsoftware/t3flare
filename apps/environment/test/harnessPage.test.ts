@@ -11,10 +11,12 @@ import {
   EMPTY_HARNESS,
   resolveEnvironment,
   resolveHarness,
+  SETTINGS_SERVER_LIMIT_KEYS,
+  SETTINGS_SERVER_LIMITS_NOTE,
 } from "@t3flare/harness-registry";
 import { describe, expect, it } from "vitest";
 
-import { escapeHtml, type McpRow, renderPage, type SkillsView } from "../src/harness/page.ts";
+import { escapeHtml, LIMIT_GROUPS, type McpRow, renderPage, type SkillsView } from "../src/harness/page.ts";
 import { SCRIPT } from "../src/harness/pageScript.ts";
 
 const NO_SKILLS: SkillsView = {
@@ -567,8 +569,12 @@ describe("the Settings server's row", () => {
       ["openPerThread", "1", "1", "16"],
       ["openPerOwner", "2", "1", "16"],
     ]);
-    // The consequence, once.
-    expect(html.split("Higher caps let an agent ask you, and change your settings, more often.").length).toBe(2);
+    // The consequence, once; each limit's range and default in its hint.
+    expect(html.split(escapeHtml(SETTINGS_SERVER_LIMITS_NOTE)).length).toBe(2);
+    expect(html).toContain("1 to 100,000; 240 by default.");
+    // Three groups, under legends, covering every limit once.
+    expect(tagsOf(html).filter((tag) => tag.name === "legend" && !tag.closing).length).toBe(3);
+    expect(LIMIT_GROUPS.flatMap(([, keys]) => keys).sort()).toEqual([...SETTINGS_SERVER_LIMIT_KEYS].sort());
     // A stored value shows; one that no longer fits shows its default.
     expect(inputs(at({ limits: { askedPerHour: 12, strikes: 0 } })).slice(0, 6)).toEqual([
       ["strikes", "3", "1", "1000"],

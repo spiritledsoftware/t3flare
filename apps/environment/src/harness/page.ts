@@ -47,8 +47,8 @@ import {
   ownerAnswerMsOf,
   resolveEnvironment,
   resolveSettingsServerLimits,
-  SETTINGS_SERVER_LIMIT_KEYS,
   SETTINGS_SERVER_LIMITS,
+  type SettingsServerLimitKey,
   SETTINGS_SERVER_LIMITS_NOTE,
   SWEEP_SETTING_KEYS,
   visible,
@@ -635,6 +635,13 @@ const settingsAccess = (row: McpRow): string => {
     .join("")}</div>`;
 };
 
+/** The Settings server's limits in the groups the form shows them in: three mechanisms, each under its legend. */
+export const LIMIT_GROUPS: ReadonlyArray<readonly [string, ReadonlyArray<SettingsServerLimitKey>]> = [
+  ["Strikes and repeats", ["strikes", "strikeWindowMinutes", "strikeLockMinutes", "declinedRepeatMinutes"]],
+  ["Per hour", ["appliedPerHour", "askedPerHour", "readsPerHour", "networkReadsPerHour"]],
+  ["Waiting at once", ["openPerThread", "openPerOwner"]],
+];
+
 /**
  * The Settings server's limits (SPI-1322): a form of its ten limits, each at its value now, saved as one change to its
  * entry through the panel's JSON API (pageScript.ts `form[data-mcp-limits]`). The consequence of raising them is said
@@ -643,11 +650,21 @@ const settingsAccess = (row: McpRow): string => {
 const settingsLimits = (row: McpRow): string => {
   const limits = resolveSettingsServerLimits(row.setting.limits);
   const id = escapeHtml(`srv-${row.name}-limits`);
-  const fields = SETTINGS_SERVER_LIMIT_KEYS.map((key) =>
-    field(`${row.name}-limits`, key, SETTINGS_SERVER_LIMITS[key], limits[key]),
-  ).join("");
-  return `<details class="tools" data-server-limits><summary id="${id}">${icon("chevron")}Limits <span>how often a caller may ask, change and read</span></summary>
-<form class="server-limits" data-mcp-limits="${escapeHtml(row.name)}" aria-labelledby="${id}" novalidate><p class="desc">Each caller (an agent's thread, or an Owner client's identity) is held to these. ${escapeHtml(SETTINGS_SERVER_LIMITS_NOTE)} A change applies at each caller's next request, and is asked like any change to this server.</p><div class="fields">${fields}</div><div class="save"><span class="save-note" data-save-note aria-live="polite"></span><button type="submit" class="btn btn-sm" data-save disabled>Save</button></div></form></details>`;
+  const groups = LIMIT_GROUPS.map(([legend, keys]) => {
+    const fields = keys.map((key) => {
+      const setting = SETTINGS_SERVER_LIMITS[key];
+      const { minimum, maximum } = setting.schema;
+      // The range and default beside each description, from the schema the API checks against.
+      const ranged = {
+        ...setting,
+        description: `${setting.description} ${minimum} to ${maximum.toLocaleString("en-US")}; ${setting.schema.default} by default.`,
+      };
+      return field(`${row.name}-limits`, key, ranged, limits[key]);
+    });
+    return `<fieldset class="limit-group"><legend>${escapeHtml(legend)}</legend><div class="fields">${fields.join("")}</div></fieldset>`;
+  }).join("");
+  return `<details class="tools" data-server-limits id="${id}"><summary>${icon("chevron")}Limits <span>how often a caller may ask, change and read</span></summary>
+<form class="server-limits" data-mcp-limits="${escapeHtml(row.name)}" aria-label="Settings server limits" novalidate><p class="desc">Each caller, an agent's thread or an Owner client's identity, is held to these from its next request. An agent's change to them is asked, in either direction.</p><p class="desc limits-note">${escapeHtml(SETTINGS_SERVER_LIMITS_NOTE)}</p>${groups}<div class="save"><span class="save-note" data-save-note aria-live="polite"></span><button type="submit" class="btn btn-sm" data-save disabled>Save</button></div></form></details>`;
 };
 
 /** The Owner clients as the Settings server's card shows them (ADR-0035's 2026-11-15 refinement). */

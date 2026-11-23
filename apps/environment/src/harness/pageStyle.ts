@@ -191,6 +191,13 @@ details.tools[open]>summary svg.i{transform:rotate(90deg)}
 details.tools>summary span{font-weight:400;color:var(--muted-fg)}
 details.tools>summary:hover{background:var(--hover)}
 .empty-tools{padding:.75rem 1rem;font-size:.75rem;color:var(--muted-fg)}
+.server-limits{display:grid;gap:1rem;padding:.25rem 1rem 1rem}
+.server-limits>.desc{margin:0}
+.server-limits>.limits-note{color:var(--fg)}
+.limit-group{display:grid;gap:.75rem;border:0;border-top:1px solid var(--border);padding:.875rem 0 0;margin:0;min-width:0}
+.limit-group>legend{float:left;width:100%;padding:0;font-size:.8125rem;font-weight:550}
+.limit-group>.fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(15rem,100%),1fr));gap:1rem 1.5rem;max-width:none}
+.server-limits>.save{justify-content:flex-end}
 .table-wrap{overflow-x:auto}
 table{width:100%;border-collapse:collapse;font-size:.8125rem}
 th{padding:.5rem 1rem;text-align:left;font-size:.6875rem;font-weight:550;color:var(--muted-fg);background:var(--muted);border-bottom:1px solid var(--row-border);white-space:nowrap}

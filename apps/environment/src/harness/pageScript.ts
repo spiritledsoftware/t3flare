@@ -407,13 +407,19 @@ for (const form of document.querySelectorAll("form[data-environment]")) {
   });
 }
 // The Settings server's limits (SPI-1322): every limit posted as one change to its entry; one at its value moves nothing.
+// A save reloads onto the Limits section, open, so the saved values show where they were typed.
 for (const form of document.querySelectorAll("form[data-mcp-limits]")) {
   const save = form.querySelector("[data-save]");
+  const section = form.closest("details");
+  if (section !== null && section.id !== "" && location.hash === "#" + section.id) { section.open = true; section.scrollIntoView({ block: "start" }); }
   watchUnsaved(form);
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!form.reportValidity()) return;
-    if (await post("/_t3flare/settings/api/mcp", { op: "server", server: form.dataset.mcpLimits, limits: settingsOf(form) }, save)) done();
+    if (await post("/_t3flare/settings/api/mcp", { op: "server", server: form.dataset.mcpLimits, limits: settingsOf(form) }, save)) {
+      if (section !== null && section.id !== "") history.replaceState(null, "", "#" + section.id);
+      done();
+    }
   });
 }
 for (const form of document.querySelectorAll("form[data-extension]")) {

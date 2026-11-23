@@ -167,7 +167,7 @@ export const SETTINGS_SERVER_LIMITS = {
   strikes: {
     title: "Strikes",
     description:
-      "This many asked changes in a row declined (for an agent's thread, or unanswered) lock the caller's asked changes for the Strike lock.",
+      "This many asked changes in a row that you decline (or, from an agent's thread, leave unanswered) lock the caller out of asking for the Strike lock.",
     schema: { type: "integer", minimum: 1, maximum: 1000, default: 3 },
   },
   strikeWindowMinutes: {
@@ -188,12 +188,16 @@ export const SETTINGS_SERVER_LIMITS = {
       "How long the same change, once you decline it, is refused when the same caller asks it again. 0 allows it at once.",
     schema: { type: "integer", minimum: 0, maximum: MAX_TIMED_MINUTES, default: 10 },
   },
-  appliedPerHour: perHour("Changes an hour", "Settings changes applied per caller per hour, of any tier.", 30),
+  appliedPerHour: perHour(
+    "Changes an hour",
+    "Settings changes applied per caller per hour, whether they ran on their own or you approved them.",
+    30,
+  ),
   askedPerHour: perHour("Asked changes an hour", "Changes a caller may ask you for per hour, answered or not.", 6),
   readsPerHour: perHour("Reads an hour", "Settings reads per caller per hour.", 240),
   networkReadsPerHour: perHour(
     "Network reads an hour",
-    "Reads per caller per hour that reach GitHub or an MCP server (testing a server, previewing or checking skills): they spend a token's or a server's limits.",
+    "Reads per caller per hour that reach GitHub or an MCP server (testing a server, previewing or checking skills): they use up GitHub's or that server's own rate limits.",
     20,
   ),
   openPerThread: {
@@ -215,8 +219,9 @@ export type SettingsServerLimits = Readonly<Record<SettingsServerLimitKey, numbe
 
 export const SETTINGS_SERVER_LIMIT_KEYS = Object.keys(SETTINGS_SERVER_LIMITS) as ReadonlyArray<SettingsServerLimitKey>;
 
-/** What the consequence of raising them is, said once where they are set. */
-export const SETTINGS_SERVER_LIMITS_NOTE = "Higher caps let an agent ask you, and change your settings, more often.";
+/** What the consequence of loosening them is, said once where they are set. */
+export const SETTINGS_SERVER_LIMITS_NOTE =
+  "Looser limits (higher counts, or a shorter strike window, lock or repeat) let an agent ask you, and change your settings, more often.";
 
 /** Most tools taken from one server, and most bytes of their schemas (review M12). */
 export const MAX_TOOLS_PER_SERVER = 200;
