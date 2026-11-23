@@ -30,7 +30,7 @@
 //     stream, held until the response POST, the stream's end (which withdraws the change) or the change's expiry.
 //   - `model` (M5b): the result is Executor's Pause at once (every version), and `resume`, listed in this mode alone,
 //     answers it. A change that needs the page gets the link, never a Pause.
-import { withoutHidden } from "@t3flare/harness-registry";
+import { OPEN_ACROSS, withoutHidden } from "@t3flare/harness-registry";
 import { sha256Hex } from "@t3flare/skills";
 
 import type { AccessCaller } from "../access.ts";
@@ -146,9 +146,10 @@ const ISOLATE_HOLDS = streamHolds();
 export const HOLDS_PER_CHANGE = 2;
 /**
  * At most this many live held streams per caller (an Access `sub`, or the service token), across its changes: a
- * backstop, since `OPEN_PER_OWNER` changes of `HOLDS_PER_CHANGE` streams stay under it today.
+ * backstop. `openPerOwner` changes of `HOLDS_PER_CHANGE` streams stay under it at any value of that limit (SPI-1322),
+ * since `OPEN_ACROSS` bounds it.
  */
-export const HOLDS_PER_CALLER = 8;
+export const HOLDS_PER_CALLER = OPEN_ACROSS * HOLDS_PER_CHANGE;
 
 const countUp = (counts: Map<string, number>, key: string): void => void counts.set(key, (counts.get(key) ?? 0) + 1);
 /** Counts one holder of `key` down; answers how many remain. */

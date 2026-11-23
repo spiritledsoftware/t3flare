@@ -1,5 +1,7 @@
 // The MCP rules every caller shares (ADR-0028): the Durable agent's `mcp` extension, the MCP host, and the CLI relay
 // judge a call with the same function, and a tool's class is resolved the same way everywhere.
+import { MAX_TIMED_MINUTES } from "./environment.ts";
+import type { SettingEntry } from "./fields.ts";
 
 export type ToolClass = "read" | "write";
 export type RuntimeModeName = "approval-required" | "auto-accept-edits" | "full-access" | (string & {});
@@ -116,6 +118,11 @@ export interface McpServerSetting {
    * panel's three-way access switch: off, read-only, read-write.
    */
   readonly writes?: boolean;
+  /**
+   * Kind `settings` only (SPI-1322): its limits on asking, changing and reading (`SETTINGS_SERVER_LIMITS`), as set.
+   * A key not set, or one that no longer fits, reads as its default (`settingsServerLimitsOf`).
+   */
+  readonly limits?: Readonly<Record<string, number>>;
 }
 
 /** The Settings server's name in the MCP server set (plan D2): a Durable agent sees `mcp__settings__<tool>`. */
@@ -133,6 +140,96 @@ export const defaultSettingsServer = (): McpServerSetting => ({
   exposure: "deferred",
   writes: true,
 });
+
+/**
+ * Open changes across the Environment (plan D16): a storage bound, fixed. Every access to the changes table reads every
+ * open row (`settingsChanges`' prepare), so the per-caller open counts are bounded by it.
+ */
+export const OPEN_ACROSS = 16;
+
+/** The most a per-hour cap may be set to: a sanity bound (ADR-0048 §1). */
+const MAX_PER_HOUR = 100_000;
+/** The most strikes a run may need: a sanity bound (ADR-0048 §1), far past any run an Owner would wait for. */
+const MAX_STRIKES = 1000;
+/**
+ * The most minutes a strike window, lock or declined repeat may span: a sanity bound (ADR-0048 §1). These are look-back
+ * windows over kept rows, not timers t3flare runs, so ADR-0048 §2's timer limit does not bind them; the shared week is
+ * borrowed only as a familiar bound.
+ */
+const MAX_LOOKBACK_MINUTES = MAX_TIMED_MINUTES;
+
+const perHour = (title: string, description: string, fallback: number) =>
+  ({
+    title,
+    description,
+    schema: { type: "integer", minimum: 1, maximum: MAX_PER_HOUR, default: fallback },
+  }) as const;
+
+/**
+ * The Settings server's limits (SPI-1322, plan D16): how often a caller (an own agent's thread, or an Owner client's
+ * Access identity) may ask, change and read through it. Options on its own entry, so every change to them is asked,
+ * in either direction (plan D5). Each applies at the caller's next request; what is already recorded is judged by the
+ * new values. The per-hour windows themselves are fixed: they are the unit the keys name.
+ */
+export const SETTINGS_SERVER_LIMITS = {
+  strikes: {
+    title: "Strikes",
+    description:
+      "This many asked changes in a row that you decline (or, from an agent's thread, leave unanswered) lock the caller out of asking for the Strike lock.",
+    schema: { type: "integer", minimum: 1, maximum: MAX_STRIKES, default: 3 },
+  },
+  strikeWindowMinutes: {
+    title: "Strike window (minutes)",
+    description:
+      "The strikes count as a run when they fall within this long of each other, or within the Answer wait of each other's when that is longer.",
+    schema: { type: "integer", minimum: 1, maximum: MAX_LOOKBACK_MINUTES, default: 60 },
+  },
+  strikeLockMinutes: {
+    title: "Strike lock (minutes)",
+    description:
+      "How long a run of strikes refuses the caller's asked changes, from the last of them. 0 turns the lock off.",
+    schema: { type: "integer", minimum: 0, maximum: MAX_LOOKBACK_MINUTES, default: 60 },
+  },
+  declinedRepeatMinutes: {
+    title: "Declined repeat (minutes)",
+    description:
+      "How long the same change, once you decline it, is refused when the same caller asks it again. 0 allows it at once.",
+    schema: { type: "integer", minimum: 0, maximum: MAX_LOOKBACK_MINUTES, default: 10 },
+  },
+  appliedPerHour: perHour(
+    "Changes an hour",
+    "Settings changes applied per caller per hour, whether they ran on their own or you approved them.",
+    30,
+  ),
+  askedPerHour: perHour("Asked changes an hour", "Changes a caller may ask you for per hour, answered or not.", 6),
+  readsPerHour: perHour("Reads an hour", "Settings reads per caller per hour.", 240),
+  networkReadsPerHour: perHour(
+    "Network reads an hour",
+    "Reads per caller per hour that reach GitHub or an MCP server (testing a server, previewing or checking skills): they use up GitHub's or that server's own rate limits.",
+    20,
+  ),
+  openPerThread: {
+    title: "Open changes per thread",
+    description: "Asked changes one agent thread may have waiting for you at once.",
+    schema: { type: "integer", minimum: 1, maximum: OPEN_ACROSS, default: 1 },
+  },
+  openPerOwner: {
+    title: "Open changes per Owner client",
+    description: "Asked changes one Owner client's identity may have waiting for an answer at once.",
+    schema: { type: "integer", minimum: 1, maximum: OPEN_ACROSS, default: 2 },
+  },
+} as const satisfies Readonly<Record<string, SettingEntry>>;
+
+export type SettingsServerLimitKey = keyof typeof SETTINGS_SERVER_LIMITS;
+
+/** Every limit resolved: what the caps check. */
+export type SettingsServerLimits = Readonly<Record<SettingsServerLimitKey, number>>;
+
+export const SETTINGS_SERVER_LIMIT_KEYS = Object.keys(SETTINGS_SERVER_LIMITS) as ReadonlyArray<SettingsServerLimitKey>;
+
+/** What the consequence of loosening them is, said once where they are set. */
+export const SETTINGS_SERVER_LIMITS_NOTE =
+  "Looser limits (higher counts, or a shorter strike window, lock or repeat) let an agent ask you, and change your settings, more often.";
 
 /** Most tools taken from one server, and most bytes of their schemas (review M12). */
 export const MAX_TOOLS_PER_SERVER = 200;

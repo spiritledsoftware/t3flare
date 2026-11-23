@@ -43,6 +43,8 @@ import {
   resolveEnvironment,
   resolveHarness,
   SETTINGS_SERVER,
+  type SettingsServerLimits,
+  settingsServerLimitsOf,
   SWEEP_SETTING_KEYS,
   t3AsksForDirect,
   type TierVerdict,
@@ -84,7 +86,6 @@ import { parseSkillSource } from "../skills/source.ts";
 import { OFF_MESSAGE, type OwnCaller, type OwnerCaller, type ThreadLink, type ThreadModes } from "./caller.ts";
 import {
   type AnsweredBy,
-  APPLIED_CAP,
   APPLIED_WINDOW_MS,
   capKeyOf,
   type ChangeCaller,
@@ -94,11 +95,9 @@ import {
   durationText,
   isChangeId,
   isOpen,
-  NETWORK_READ_CAP,
   NETWORK_READS,
   newChangeId,
   type OwnerMode,
-  READ_CAP,
   READ_WINDOW_MS,
   scrubUrls,
   type SettingsChanges,
@@ -393,7 +392,9 @@ const listMcpServers = async (
       kind: server.kind,
       enabled: server.enabled,
       exposure: server.exposure,
-      ...(server.kind === SETTINGS_SERVER ? { writes: server.writes ?? true } : {}),
+      ...(server.kind === SETTINGS_SERVER
+        ? { writes: server.writes ?? true, limits: settingsServerLimitsOf(stored) }
+        : {}),
       ...(server.url === undefined ? {} : { url: withoutQuery(server.url) }),
       ...(server.auth === undefined ? {} : { auth: server.auth }),
       ...(secret === undefined ? {} : { secret: { set: secret.set, setAt: secret.setAt } }),
@@ -588,7 +589,7 @@ type McpOp = McpChange["op"];
 type McpOf<Op extends McpOp> = Extract<McpChange, { readonly op: Op }>;
 
 /** The optional fields each op takes besides `op` and `server` (what `normalizedMcp` keeps). */
-const SERVER_FIELDS = ["enabled", "exposure", "toolExposure", "writes"] as const satisfies ReadonlyArray<
+const SERVER_FIELDS = ["enabled", "exposure", "toolExposure", "writes", "limits"] as const satisfies ReadonlyArray<
   keyof McpOf<"server">
 >;
 const CLASS_FIELDS = ["tool", "class"] as const satisfies ReadonlyArray<keyof McpOf<"class">>;
@@ -1562,9 +1563,12 @@ const openAskedChange = async (deps: SettingsServerDeps, input: AskedInput): Pro
   };
   const first = reused();
   if (first !== undefined) return first;
-  const capped = capRefusal(deps.changes, caller, hash, deps.ops.now(), openListOf(deps));
+  // The Settings server's limits as stored now (SPI-1322, the changes table's `limits`), read once for this call: both
+  // checks below judge by the same.
+  const limits = deps.changes.limits();
+  const capped = capRefusal(deps.changes, caller, hash, deps.ops.now(), openListOf(deps), limits);
   if (capped !== undefined) return capAnswer(capped);
-  const spent = planned.network === true ? networkSpent(deps, input.reader) : undefined;
+  const spent = planned.network === true ? networkSpent(deps, input.reader, limits) : undefined;
   if (spent !== undefined) return refused("network-read-cap", written("refused", spent));
   const described = await planned.describe();
   if ("refused" in described)
@@ -1604,7 +1608,7 @@ const openAskedChange = async (deps: SettingsServerDeps, input: AskedInput): Pro
   };
   const again = reused();
   if (again !== undefined) return again;
-  const raced = capRefusal(deps.changes, caller, hash, now, openListOf(deps));
+  const raced = capRefusal(deps.changes, caller, hash, now, openListOf(deps), limits);
   if (raced !== undefined) return capAnswer(raced);
   deps.changes.insert(record);
   log("settings-change", { outcome: "open", change: id, tier: "asked", mode, needsPage: needsPage ?? null });
@@ -1801,18 +1805,20 @@ const ownReader = (deps: SettingsServerDeps, caller: OwnCaller): Reader => ({
  * An asked change whose description reads GitHub (a skill's preview at a commit) spends a network read as
  * `preview_skills` does (SPI-1199 review): why not, past the cap, else undefined, and the read is counted.
  */
-const networkSpent = (deps: SettingsServerDeps, reader: Reader): string | undefined => {
+const networkSpent = (deps: SettingsServerDeps, reader: Reader, limits: SettingsServerLimits): string | undefined => {
   const now = deps.ops.now();
-  if (deps.changes.readsSince(reader.key, "network", now - READ_WINDOW_MS) >= NETWORK_READ_CAP) {
-    return `Not changed: ${reader.who} made ${NETWORK_READ_CAP} reads that reach GitHub or an MCP server in the last hour, the most t3flare allows, and this change must preview its skills on GitHub. Try again later.`;
+  const cap = limits.networkReadsPerHour;
+  if (deps.changes.readsSince(reader.key, "network", now - READ_WINDOW_MS) >= cap) {
+    return `Not changed: ${reader.who} made ${cap} reads that reach GitHub or an MCP server in the last hour, the most t3flare allows, and this change must preview its skills on GitHub. Try again later.`;
   }
   deps.changes.noteRead(reader.key, "network", now);
   return undefined;
 };
 
 /**
- * The read caps (SPI-1198 review, D16-style): every read counts toward `READ_CAP` per caller (`capKeyOf`) per hour, and
- * a read that reaches GitHub or an MCP server (`NETWORK_READS`) toward `NETWORK_READ_CAP` as well. `preview_skills`
+ * The read caps (SPI-1198 review, D16-style): every read counts toward `readsPerHour` per caller (`capKeyOf`) per hour,
+ * and a read that reaches GitHub or an MCP server (`NETWORK_READS`) toward `networkReadsPerHour` as well (the Settings
+ * server's limits as stored now, SPI-1322). `preview_skills`
  * mints a GitHub App token for any installed repository, so only a caller that may write may preview (the owner's
  * decision). Undefined: the read runs, and is counted.
  */
@@ -1829,15 +1835,16 @@ const readLimit = (deps: SettingsServerDeps, reader: Reader, tool: string): McpC
   const key = reader.key;
   const now = deps.ops.now();
   const network = NETWORK_READS.has(tool);
-  if (deps.changes.readsSince(key, "read", now - READ_WINDOW_MS) >= READ_CAP)
+  const limits = deps.changes.limits();
+  if (deps.changes.readsSince(key, "read", now - READ_WINDOW_MS) >= limits.readsPerHour)
     return refused(
       "read-cap",
-      `Not read: ${reader.who} made ${READ_CAP} settings reads in the last hour, the most t3flare allows. Try again later.`,
+      `Not read: ${reader.who} made ${limits.readsPerHour} settings reads in the last hour, the most t3flare allows. Try again later.`,
     );
-  if (network && deps.changes.readsSince(key, "network", now - READ_WINDOW_MS) >= NETWORK_READ_CAP) {
+  if (network && deps.changes.readsSince(key, "network", now - READ_WINDOW_MS) >= limits.networkReadsPerHour) {
     return refused(
       "network-read-cap",
-      `Not read: ${reader.who} made ${NETWORK_READ_CAP} reads that reach GitHub or an MCP server in the last hour, the most t3flare allows. Try again later.`,
+      `Not read: ${reader.who} made ${limits.networkReadsPerHour} reads that reach GitHub or an MCP server in the last hour, the most t3flare allows. Try again later.`,
     );
   }
   deps.changes.noteRead(key, network ? "network" : "read", now);
@@ -1870,10 +1877,11 @@ const write = async (deps: SettingsServerDeps, input: SettingsCallInput): Promis
   const key = caller.thread!;
   // An asked change always asks, in every mode (plan D7): an Open change, answered on the card or the Change page.
   if (planned.verdict.tier !== "free") return ask(deps, input, planned, expected, key);
-  if (deps.changes.appliedSince(capKeyOf("own", key), deps.ops.now() - APPLIED_WINDOW_MS) >= APPLIED_CAP)
+  const applied = deps.changes.limits().appliedPerHour;
+  if (deps.changes.appliedSince(capKeyOf("own", key), deps.ops.now() - APPLIED_WINDOW_MS) >= applied)
     return refuse(
       "applied-cap",
-      `Not changed: this thread made ${APPLIED_CAP} settings changes in the last hour, the most t3flare allows. Try again later, or ask the owner.`,
+      `Not changed: this thread made ${applied} settings changes in the last hour, the most t3flare allows. Try again later, or ask the owner.`,
     );
   // The thread's mode (plan D7): full access runs a free change; any other mode asks the owner on one card.
   const onCard = modes.runtimeMode !== "full-access";
@@ -2296,10 +2304,11 @@ const ownerWrite = async (deps: SettingsServerDeps, input: OwnerCallInput): Prom
   if (prepared.kind === "result") return result(prepared.answer);
   const { planned, expected } = prepared;
   if (planned.verdict.tier !== "free") return ownerAsk(deps, input, planned, expected);
-  if (deps.changes.appliedSince(capKeyOf("owner", caller.key), deps.ops.now() - APPLIED_WINDOW_MS) >= APPLIED_CAP)
+  const applied = deps.changes.limits().appliedPerHour;
+  if (deps.changes.appliedSince(capKeyOf("owner", caller.key), deps.ops.now() - APPLIED_WINDOW_MS) >= applied)
     return refuse(
       "applied-cap",
-      `Not changed: you made ${APPLIED_CAP} settings changes in the last hour, the most t3flare allows. Try again later.`,
+      `Not changed: you made ${applied} settings changes in the last hour, the most t3flare allows. Try again later.`,
     );
   return result(
     await applyFree(deps, {

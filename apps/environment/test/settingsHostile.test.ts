@@ -2,6 +2,7 @@
 // doors as the Environment wires them (the MCP host, the CLI relay, the Owner-client endpoint, the Settings page). Each
 // `describe` names its line of the list; `docs-archive-1:docs/steps/settings-mcp.md` maps every line to its tests here and elsewhere,
 // and `docs-archive-1:docs/steps/settings-mcp/m6-stage-run.md` to what the stage run records.
+import { DEFAULT_SETTINGS_SERVER_LIMITS, OPEN_ACROSS } from "@t3flare/harness-registry";
 import {
   MCP_QUESTION_MARKER,
   type McpAsker,
@@ -20,11 +21,14 @@ import { relayMessage, type RelayDeps } from "../src/mcp/relay.ts";
 import { registerCliAsker } from "../src/provider/cli/cliAsk.ts";
 import { DURABLE_AGENT, forgetDurableModes, noteDurableModes } from "../src/provider/threadCaller.ts";
 import { OFF_MESSAGE, type OwnCaller } from "../src/settings/caller.ts";
-import { OPENED_CAP, scrubUrls, STRIKES } from "../src/settings/changes.ts";
-import { OPEN_ACROSS } from "../src/settings/openChanges.ts";
+import { scrubUrls } from "../src/settings/changes.ts";
 import { READ_ONLY_REFUSAL } from "../src/settings/server.ts";
 import { bodyOf, endpointOf, modern } from "./settingsEndpointFixture.ts";
 import { HOST, settingsFixture, type SettingsFixture, structured, textOf, until } from "./settingsFixture.ts";
+
+// The Settings server's limits at their defaults (SPI-1322: they are its entry's settings).
+const OPENED_CAP = DEFAULT_SETTINGS_SERVER_LIMITS.askedPerHour;
+const STRIKES = DEFAULT_SETTINGS_SERVER_LIMITS.strikes;
 
 let fixture: SettingsFixture | undefined;
 const unregisters: Array<() => void> = [];
@@ -92,6 +96,42 @@ describe("hostile: an injected agent asking repeatedly is stopped by the caps; 1
     }
     expect(f.cards).toHaveLength(STRIKES);
     expect(f.store.loadEnvironment().revision).toBe(0);
+  });
+
+  it("SPI-1322: with the strike lock at 0, three declines lock nothing; with strikes at 1, one does", async () => {
+    const f = world({ answer: { decision: "decline" } });
+    // The Owner saves the limits on the Settings page: the panel applies them at once (it is the Owner).
+    const saved = await panelPost(f, "/api/mcp", {
+      op: "server",
+      server: "settings",
+      limits: { strikeLockMinutes: 0 },
+    });
+    expect(saved.status).toBe(200);
+    expect(f.store.load().mcp?.servers.settings?.limits).toEqual({ strikeLockMinutes: 0 });
+    const agent = f.durable("thread-unlocked");
+    const ask = (settings: Record<string, unknown>) =>
+      f.call(agent, "change_environment", { expectedRevision: 0, settings });
+    for (const budget of [4, 5, 6])
+      expect(structured(await ask({ containerBudget: budget }))).toMatchObject({ status: "declined" });
+    // A fourth asks the owner again, on a card.
+    expect(structured(await ask({ containerBudget: 7 }))).toMatchObject({ status: "declined" });
+    expect(f.cards).toHaveLength(4);
+    // One strike in a row locks, for the default hour, once `strikes` is 1.
+    expect(
+      (
+        await panelPost(f, "/api/mcp", {
+          op: "server",
+          server: "settings",
+          limits: { strikes: 1, strikeLockMinutes: 60 },
+        })
+      ).status,
+    ).toBe(200);
+    expect(structured(await ask({ containerBudget: 8 }))).toMatchObject({ status: "refused", reason: "strikes" });
+    expect(f.cards).toHaveLength(4);
+    // The panel refuses a limit out of range, or on a Direct server.
+    expect((await panelPost(f, "/api/mcp", { op: "server", server: "settings", limits: { strikes: 0 } })).status).toBe(
+      400,
+    );
   });
 
   it(`SPI-1195 review: 40 asks each dropped by a Stop, or cancelled on the card: past ${OPENED_CAP} in an hour the rest are refused with no card, naming the panel`, async () => {

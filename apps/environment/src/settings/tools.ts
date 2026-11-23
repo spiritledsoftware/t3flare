@@ -6,6 +6,9 @@
 // `resume` (plan D12) is not among them: it is `RESUME_TOOL`, the Owner-client endpoint's alone in `model` (M5b,
 // SPI-1201), never the in-process server's.
 import {
+  DEFAULT_SETTINGS_SERVER_LIMITS,
+  SETTINGS_SERVER_LIMIT_KEYS,
+  SETTINGS_SERVER_LIMITS,
   BUILTIN_TOOLS,
   ENVIRONMENT_SETTINGS,
   type EnvironmentFieldSchema,
@@ -35,10 +38,14 @@ const PURGE_NOTE =
 
 /**
  * What agents are told about the server (plan D17): its instructions and its tools' descriptions, nothing else. Built
- * when served, with the Answer wait `answerMs` its asked changes wait (SPI-1316).
+ * when served, with the Answer wait `answerMs` its asked changes wait (SPI-1316) and how many may wait at once per
+ * thread, `openPerThread` (the Settings server's limit, SPI-1322).
  */
-export const settingsInstructions = (answerMs: number): string =>
-  `${SETTINGS_SCOPE} Every settings write names the expectedRevision it read, and the thread's mode rules it: plan mode refuses writes; outside full access a write waits for the owner's card; a change that widens what agents have or can do always waits for the owner's answer on a card or its Change page (at most ${durationText(answerMs)}, one at a time per thread). ${PURGE_NOTE} Do not repeat a declined change.`;
+export const settingsInstructions = (
+  answerMs: number,
+  openPerThread: number = DEFAULT_SETTINGS_SERVER_LIMITS.openPerThread,
+): string =>
+  `${SETTINGS_SCOPE} Every settings write names the expectedRevision it read, and the thread's mode rules it: plan mode refuses writes; outside full access a write waits for the owner's card; a change that widens what agents have or can do always waits for the owner's answer on a card or its Change page (at most ${durationText(answerMs)}, ${openPerThread === 1 ? "one at a time" : `at most ${openPerThread} at a time`} per thread). ${PURGE_NOTE} Do not repeat a declined change.`;
 
 /**
  * The same for an Owner client (plan D11, D12): it has no thread mode, and its asked changes wait on the Change page in
@@ -104,6 +111,15 @@ const fieldJson = (schema: EnvironmentFieldSchema): Record<string, unknown> => {
   }
 };
 
+/** The Settings server's limits as `change_mcp` takes them (SPI-1322), each from its schema. */
+const LIMITS_SCHEMA = {
+  type: "object",
+  properties: Object.fromEntries(
+    SETTINGS_SERVER_LIMIT_KEYS.map((key) => [key, fieldJson(SETTINGS_SERVER_LIMITS[key].schema)]),
+  ),
+  additionalProperties: false,
+};
+
 /** The changeable extensions (a locked one, or one with no switch and no settings, cannot be changed by anyone). */
 const CHANGEABLE = EXTENSIONS.filter(
   (entry) =>
@@ -135,7 +151,7 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
     name: "list_mcp_servers",
     class: "read",
     description:
-      "Lists the MCP server set with the Harness revision: each server's kind, switch, Exposure and sign-in state (a secret only as set or not). Name a server to list its tools with class, hint and Exposure.",
+      "Lists the MCP server set with the Harness revision: each server's kind, switch, Exposure and sign-in state (a secret only as set or not), and the Settings server's writes switch and limits. Name a server to list its tools with class, hint and Exposure.",
     inputSchema: { type: "object", properties: { server: { type: "string" } }, additionalProperties: false },
   },
   {
@@ -256,7 +272,7 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
   {
     name: "change_mcp",
     class: "write",
-    description: `Changes the MCP server set (the Harness settings): op server (enabled, exposure, toolExposure by upstream tool name with null for the server's, writes for the Settings server only), op class (a tool's class read, write, or null for its own hint), op add (a Direct server: url and auth none, header with the header's name, or oauth; a header value is typed by the owner on the Change page, never here), op remove, or op header-value (asks the owner to type a header server's value on the Change page). ${ASKED_NOTE}`,
+    description: `Changes the MCP server set (the Harness settings): op server (enabled, exposure, toolExposure by upstream tool name with null for the server's, writes and limits for the Settings server only: ${SETTINGS_SERVER_LIMIT_KEYS.join(", ")}, its caps on how often a caller may ask, change and read; a change to them is always asked), op class (a tool's class read, write, or null for its own hint), op add (a Direct server: url and auth none, header with the header's name, or oauth; a header value is typed by the owner on the Change page, never here), op remove, or op header-value (asks the owner to type a header server's value on the Change page). ${ASKED_NOTE}`,
     inputSchema: {
       type: "object",
       required: ["expectedRevision", "change"],
@@ -275,6 +291,7 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
               additionalProperties: { anyOf: [{ type: "string", enum: [...EXPOSURES] }, { type: "null" }] },
             },
             writes: { type: "boolean" },
+            limits: LIMITS_SCHEMA,
             tool: { type: "string" },
             class: { anyOf: [{ type: "string", enum: ["read", "write"] }, { type: "null" }] },
             url: { type: "string" },

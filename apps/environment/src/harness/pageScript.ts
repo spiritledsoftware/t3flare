@@ -406,6 +406,35 @@ for (const form of document.querySelectorAll("form[data-environment]")) {
     if (await post("/_t3flare/settings/api/environment", { settings }, save)) done();
   });
 }
+// The Settings server's limits (SPI-1322): every limit posted as one change to its entry; one at its value moves nothing.
+// Only the limits typed over are posted, so one save never pins the rest: a limit left alone keeps following t3flare's
+// default. A save reloads onto the Limits section, open, so the saved values show where they were typed.
+for (const form of document.querySelectorAll("form[data-mcp-limits]")) {
+  const save = form.querySelector("[data-save]");
+  const section = form.closest("details");
+  if (section !== null && section.id !== "" && location.hash === "#" + section.id) { section.open = true; section.scrollIntoView({ block: "start" }); }
+  watchUnsaved(form);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    let limits;
+    try {
+      const typed = settingsOf(form);
+      limits = {};
+      for (const input of form.querySelectorAll("[data-setting]")) {
+        if (Number(input.value) !== Number(input.defaultValue)) limits[input.dataset.setting] = typed[input.dataset.setting];
+      }
+    } catch (error) {
+      notify("err", error.message);
+      return;
+    }
+    if (Object.keys(limits).length === 0) { notify("ok", "Nothing to save: every limit is as it was."); return; }
+    if (await post("/_t3flare/settings/api/mcp", { op: "server", server: form.dataset.mcpLimits, limits }, save)) {
+      if (section !== null && section.id !== "") history.replaceState(null, "", "#" + section.id);
+      done();
+    }
+  });
+}
 for (const form of document.querySelectorAll("form[data-extension]")) {
   const save = form.querySelector("[data-save]");
   const send = async (control) => {

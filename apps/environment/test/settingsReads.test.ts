@@ -3,14 +3,22 @@
 // tightly; `preview_skills` (it mints a GitHub App token) is for a caller that may write; and only what describes the MCP
 // server set is scrubbed of URL queries, so Variables, the Global mise config and a SKILL.md read as they are and a
 // read-then-write round-trips unchanged.
-import { applyMcpChange, EMPTY_HARNESS, type StoredHarness } from "@t3flare/harness-registry";
+import {
+  applyMcpChange,
+  EMPTY_HARNESS,
+  type StoredHarness,
+  DEFAULT_SETTINGS_SERVER_LIMITS,
+} from "@t3flare/harness-registry";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { DURABLE_AGENT, forgetDurableModes, noteDurableModes } from "../src/provider/threadCaller.ts";
-import { NETWORK_READ_CAP, READ_CAP } from "../src/settings/changes.ts";
 import { LINKED_REFUSAL, NO_MODES_REFUSAL, UNKNOWN_REFUSAL } from "../src/settings/server.ts";
 import { settingsFixture, type SettingsFixture, structured, textOf } from "./settingsFixture.ts";
 import { skillMd } from "./skillRepo.fixture.ts";
+
+// The Settings server's limits at their defaults (SPI-1322: they are its entry's settings).
+const NETWORK_READ_CAP = DEFAULT_SETTINGS_SERVER_LIMITS.networkReadsPerHour;
+const READ_CAP = DEFAULT_SETTINGS_SERVER_LIMITS.readsPerHour;
 
 let fixture: SettingsFixture | undefined;
 afterEach(() => fixture?.dispose());
@@ -53,6 +61,49 @@ describe("reads leave the audit log alone and are capped", () => {
     expect(await run.call(run.durable("thread-other"), "get_status")).toMatchObject({ isError: false });
     run.advance(60 * 60_000 + 1);
     expect(await run.call(run.durable(), "get_status")).toMatchObject({ isError: false });
+  });
+});
+
+/** The Harness settings with the Settings server's `limits` set (SPI-1322), as a saved Limits form stores them. */
+const withLimits = (stored: StoredHarness, limits: Record<string, number>): StoredHarness => {
+  const applied = applyMcpChange(stored, { op: "server", server: "settings", limits });
+  if (!applied.ok) throw new Error(applied.error);
+  return applied.harness;
+};
+
+describe("the read caps are the Settings server's limits (SPI-1322)", () => {
+  it("readsPerHour: 2 refuses the third read; networkReadsPerHour: 1 the second network read", async () => {
+    fixture = settingsFixture({ harness: withLimits(withDocs(), { readsPerHour: 2, networkReadsPerHour: 1 }) });
+    const run = fixture;
+    expect(await run.call(run.durable(), "get_status")).toMatchObject({ isError: false });
+    expect(await run.call(run.durable(), "get_status")).toMatchObject({ isError: false });
+    expect(textOf(await run.call(run.durable(), "get_status"))).toContain("made 2 settings reads in the last hour");
+    expect(structured(await run.call(run.durable("thread-net"), "test_mcp_server", { server: "docs" }))).toBeDefined();
+    expect(textOf(await run.call(run.durable("thread-net"), "test_mcp_server", { server: "docs" }))).toContain(
+      "made 1 reads that reach GitHub or an MCP server",
+    );
+  });
+
+  it("a raised cap applies at the caller's next read, to the reads already counted", async () => {
+    fixture = settingsFixture({ harness: withLimits(EMPTY_HARNESS, { readsPerHour: 1 }) });
+    const run = fixture;
+    expect(await run.call(run.durable(), "get_status")).toMatchObject({ isError: false });
+    expect(await run.call(run.durable(), "get_status")).toMatchObject({ isError: true });
+    run.store.save(withLimits(run.store.load(), { readsPerHour: 3 }));
+    expect(await run.call(run.durable(), "get_status")).toMatchObject({ isError: false });
+  });
+
+  it("list_mcp_servers shows the Settings server's limits, resolved", async () => {
+    fixture = settingsFixture({ harness: withLimits(EMPTY_HARNESS, { askedPerHour: 12 }) });
+    const run = fixture;
+    const listed = structured(await run.call(run.durable(), "list_mcp_servers", { server: "settings" })) as {
+      servers: Array<{ name: string; limits?: Record<string, number> }>;
+    };
+    expect(listed.servers.find((server) => server.name === "settings")?.limits).toMatchObject({
+      askedPerHour: 12,
+      strikes: 3,
+      readsPerHour: 240,
+    });
   });
 });
 

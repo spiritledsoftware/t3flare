@@ -19,6 +19,7 @@ import {
   isRecord,
   isSealedValue,
   mcpServersOf,
+  movedLimits,
   ownEntry,
   resolveEnvironment,
   resolveHarness,
@@ -299,6 +300,12 @@ export const mcpItems = (
           before: (current.writes ?? true) ? "on" : "off",
           after: change.writes ? "on" : "off",
         });
+      }
+      // The Settings server's limits (SPI-1322): one item per limit the change moves, against its value now.
+      if (change.limits !== undefined && current.kind === "settings") {
+        for (const { key, before, after } of movedLimits(stored, change.limits))
+          if (before !== undefined)
+            items.push({ kind: "scalar", name: `${change.server}.limits.${key}`, before, after });
       }
       if (change.exposure !== undefined && change.exposure !== current.exposure)
         items.push({

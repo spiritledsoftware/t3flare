@@ -10,7 +10,10 @@ import {
   RESERVED_SERVER_NAMES,
   SERVER_NAME,
   SETTINGS_SERVER,
+  SETTINGS_SERVER_LIMIT_KEYS,
+  SETTINGS_SERVER_LIMITS,
   type ServerAuth,
+  type SettingsServerLimits,
   type ToolClass,
 } from "./mcp.ts";
 
@@ -530,6 +533,48 @@ const settingsEntryOf = (stored: StoredHarness): McpServerSetting => {
   return kept !== undefined && kept.kind === "settings" ? kept : defaultSettingsServer();
 };
 
+/**
+ * The Settings server's limits (SPI-1322) from the ones `set` on its entry: each one set, else its default. A value that
+ * no longer fits its schema (a store from another version) reads as its default, as `resolveEnvironment` reads one.
+ */
+export const resolveSettingsServerLimits = (set: Readonly<Record<string, unknown>> | undefined): SettingsServerLimits =>
+  Object.fromEntries(
+    SETTINGS_SERVER_LIMIT_KEYS.map((key) => {
+      const value = set === undefined || !Object.hasOwn(set, key) ? undefined : set[key];
+      const schema = SETTINGS_SERVER_LIMITS[key].schema;
+      return [key, value !== undefined && fieldProblem(schema, value) === undefined ? value : schema.default];
+    }),
+  ) as SettingsServerLimits;
+
+/** The Settings server's limits from the stored Harness settings (`resolveSettingsServerLimits` of its entry's). */
+export const settingsServerLimitsOf = (stored: StoredHarness): SettingsServerLimits =>
+  resolveSettingsServerLimits(settingsEntryOf(stored).limits);
+
+/** The Settings server's limits with none set: each its schema's default, today's values (SPI-1322). */
+export const DEFAULT_SETTINGS_SERVER_LIMITS: SettingsServerLimits = resolveSettingsServerLimits(undefined);
+
+/** One limit a change names (SPI-1322): its value now and the one asked for; `before` undefined: not a known limit. */
+export interface MovedLimit {
+  readonly key: string;
+  readonly before: number | undefined;
+  readonly after: unknown;
+}
+
+/**
+ * The limits `limits` moves against `stored`'s (SPI-1322): each named key that is not a limit, and each limit whose
+ * value differs from its value now. One set to its value now moves nothing. What `mcpTier` and the Change page judge.
+ */
+export const movedLimits = (
+  stored: StoredHarness,
+  limits: Readonly<Record<string, unknown>>,
+): ReadonlyArray<MovedLimit> => {
+  const now: Readonly<Record<string, number>> = settingsServerLimitsOf(stored);
+  return Object.entries(limits).flatMap(([key, after]) => {
+    const before = Object.hasOwn(now, key) ? now[key] : undefined;
+    return before === after ? [] : [{ key, before, after }];
+  });
+};
+
 /** The names of stored MCP entries the set ignores (`ignoredServer`), for the panel's Status. */
 export const ignoredServersOf = (stored: StoredHarness): ReadonlyArray<string> =>
   Object.entries(stored.mcp?.servers ?? {})
@@ -546,6 +591,11 @@ export type McpChange =
       readonly toolExposure?: Readonly<Record<string, Exposure | null>>;
       /** The Settings server's entry only (plan D2): whether its write tools are offered. */
       readonly writes?: boolean;
+      /**
+       * The Settings server's entry only (SPI-1322): some of its limits (`SETTINGS_SERVER_LIMITS`), merged over those
+       * set. Each is checked against its schema.
+       */
+      readonly limits?: Readonly<Record<string, unknown>>;
     }
   /** The owner's class for a tool; `null` returns it to the tool's own hint. */
   | { readonly op: "class"; readonly server: string; readonly tool: string; readonly class: ToolClass | null }
@@ -647,6 +697,21 @@ export const applyMcpChange = (
       return { ok: false, error: `${change.server}: only the Settings server has a writes switch` };
     if (typeof change.writes !== "boolean") return { ok: false, error: "writes: true or false" };
   }
+  const limits = new Map<string, number>(Object.entries(current.limits ?? {}));
+  if (change.limits !== undefined) {
+    if (current.kind !== "settings")
+      return { ok: false, error: `${change.server}: only the Settings server has limits` };
+    if (typeof change.limits !== "object" || change.limits === null || Array.isArray(change.limits))
+      return { ok: false, error: "limits: an object of limits" };
+    for (const [key, value] of Object.entries(change.limits)) {
+      const entry = (SETTINGS_SERVER_LIMITS as Readonly<Record<string, SettingEntry>>)[key];
+      if (entry === undefined || !Object.hasOwn(SETTINGS_SERVER_LIMITS, key))
+        return { ok: false, error: `limits.${key}: not a limit of the Settings server` };
+      const problem = fieldProblem(entry.schema, value);
+      if (problem !== undefined) return { ok: false, error: `limits.${key}: ${problem}` };
+      limits.set(key, value as number);
+    }
+  }
   // A Map, so a tool named `__proto__` is a key like any other (SPI-1198 review), never the object's prototype.
   const exposures = new Map<string, Exposure>(Object.entries(current.toolExposure ?? {}));
   for (const [tool, exposure] of Object.entries(change.toolExposure ?? {})) {
@@ -662,6 +727,7 @@ export const applyMcpChange = (
       ...(change.enabled === undefined ? {} : { enabled: change.enabled }),
       ...(change.exposure === undefined ? {} : { exposure: change.exposure }),
       ...(change.writes === undefined ? {} : { writes: change.writes }),
+      ...(change.limits === undefined ? {} : { limits: Object.fromEntries(limits) }),
       toolExposure,
     },
   });

@@ -46,6 +46,10 @@ import {
   ownEntry,
   ownerAnswerMsOf,
   resolveEnvironment,
+  resolveSettingsServerLimits,
+  SETTINGS_SERVER_LIMITS,
+  type SettingsServerLimitKey,
+  SETTINGS_SERVER_LIMITS_NOTE,
   SWEEP_SETTING_KEYS,
   visible,
 } from "@t3flare/harness-registry";
@@ -494,6 +498,8 @@ export interface McpRow {
     readonly auth?: { readonly kind: string; readonly header?: string };
     /** The Settings server's writes switch (plan D2). */
     readonly writes?: boolean;
+    /** The Settings server's limits as set (SPI-1322); the card shows each resolved. */
+    readonly limits?: Readonly<Record<string, number>>;
   };
   readonly oauth?: { readonly signedIn: boolean };
   /** A header sign-in's value: whether it is set, when, and its fingerprint (never the value). */
@@ -629,6 +635,38 @@ const settingsAccess = (row: McpRow): string => {
     .join("")}</div>`;
 };
 
+/** The Settings server's limits in the groups the form shows them in: three mechanisms, each under its legend. */
+export const LIMIT_GROUPS: ReadonlyArray<readonly [string, ReadonlyArray<SettingsServerLimitKey>]> = [
+  ["Strikes and repeats", ["strikes", "strikeWindowMinutes", "strikeLockMinutes", "declinedRepeatMinutes"]],
+  ["Per hour", ["appliedPerHour", "askedPerHour", "readsPerHour", "networkReadsPerHour"]],
+  ["Waiting at once", ["openPerThread", "openPerOwner"]],
+];
+
+/**
+ * The Settings server's limits (SPI-1322): a form of its ten limits, each at its value now, saved as one change to its
+ * entry through the panel's JSON API (pageScript.ts `form[data-mcp-limits]`). The consequence of raising them is said
+ * once, in its description.
+ */
+const settingsLimits = (row: McpRow): string => {
+  const limits = resolveSettingsServerLimits(row.setting.limits);
+  const id = escapeHtml(`srv-${row.name}-limits`);
+  const groups = LIMIT_GROUPS.map(([legend, keys]) => {
+    const fields = keys.map((key) => {
+      const setting = SETTINGS_SERVER_LIMITS[key];
+      const { minimum, maximum } = setting.schema;
+      // The range and default beside each description, from the schema the API checks against.
+      const ranged = {
+        ...setting,
+        description: `${setting.description} ${minimum} to ${maximum.toLocaleString("en-US")}; ${setting.schema.default} by default.`,
+      };
+      return field(`${row.name}-limits`, key, ranged, limits[key]);
+    });
+    return `<fieldset class="limit-group"><legend>${escapeHtml(legend)}</legend><div class="fields">${fields.join("")}</div></fieldset>`;
+  }).join("");
+  return `<details class="tools" data-server-limits id="${id}"><summary>${icon("chevron")}Limits <span>how often a caller may ask, change and read</span></summary>
+<form class="server-limits" data-mcp-limits="${escapeHtml(row.name)}" aria-label="Settings server limits" novalidate><p class="desc">Each caller, an agent's thread or an Owner client's identity, is held to these from its next request. An agent's change to them is asked, in either direction.</p><p class="desc limits-note">${escapeHtml(SETTINGS_SERVER_LIMITS_NOTE)}</p>${groups}<div class="save"><span class="save-note" data-save-note aria-live="polite"></span><button type="submit" class="btn btn-sm" data-save disabled>Save</button></div></form></details>`;
+};
+
 /** The Owner clients as the Settings server's card shows them (ADR-0035's 2026-11-15 refinement). */
 export interface OwnerClientsView {
   /** The Owner-client endpoint's URL, when it is deployed. */
@@ -725,7 +763,7 @@ ${
 }
 <dl class="facts">${facts}</dl></div>${error}${refused}
 <div class="server-actions">${row.setting.kind === "settings" ? "" : `<button type="button" class="btn btn-sm" data-mcp-test="${name}">${icon("play")}Test</button>`}${oauth}<label class="exposure">Exposure ${exposureSelect(row, row.setting.exposure)}</label><p class="test-result" data-test-result="${name}" role="status" aria-live="polite"></p><span class="spacer"></span>${remove}</div>
-${toolsTable(row)}${row.setting.kind === "settings" && owner !== undefined ? ownerClientsBlock(owner) : ""}</article>`;
+${toolsTable(row)}${row.setting.kind === "settings" ? settingsLimits(row) : ""}${row.setting.kind === "settings" && owner !== undefined ? ownerClientsBlock(owner) : ""}</article>`;
 };
 
 /**

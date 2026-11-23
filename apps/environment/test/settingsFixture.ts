@@ -2,7 +2,7 @@
 // One Environment's Settings server for M4's tests (SPI-1199): the stores in memory and Node's SQLite, the MCP host with
 // its settings branch, a fake GitHub for skills, a fake OAuth, an asker that records cards, and the Settings page's deps
 // with the Change page's API, all over the same storage as the Environment DO wires them.
-import type { StoredHarness } from "@t3flare/harness-registry";
+import { DEFAULT_OWNER_ANSWER_MS, settingsServerLimitsOf, type StoredHarness } from "@t3flare/harness-registry";
 import type { McpAsker, McpQuestionAnswer, McpQuestionCard } from "@t3flare/session-protocol";
 
 import type { AccessCaller } from "../src/access.ts";
@@ -121,7 +121,9 @@ export const settingsFixture = (options: FixtureOptions = {}) => {
       sql,
       () => now,
       (event) => void logs.push(event),
-      ...(options.answerMs === undefined ? [] : [options.answerMs]),
+      options.answerMs ?? (() => DEFAULT_OWNER_ANSWER_MS),
+      // As the Environment DO wires it (SPI-1322): the Settings server's limits as stored now.
+      () => settingsServerLimitsOf(store.load()),
     );
   /** The Owner clients' modes, over the same SQLite (the panel sets them; the endpoint reads them). */
   const clients = ownerClients(sql, () => now);

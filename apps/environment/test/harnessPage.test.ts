@@ -11,10 +11,12 @@ import {
   EMPTY_HARNESS,
   resolveEnvironment,
   resolveHarness,
+  SETTINGS_SERVER_LIMIT_KEYS,
+  SETTINGS_SERVER_LIMITS_NOTE,
 } from "@t3flare/harness-registry";
 import { describe, expect, it } from "vitest";
 
-import { escapeHtml, type McpRow, renderPage, type SkillsView } from "../src/harness/page.ts";
+import { escapeHtml, LIMIT_GROUPS, type McpRow, renderPage, type SkillsView } from "../src/harness/page.ts";
 import { SCRIPT } from "../src/harness/pageScript.ts";
 
 const NO_SKILLS: SkillsView = {
@@ -545,6 +547,96 @@ describe("the Settings server's row", () => {
       expect(html).not.toContain(escapeHtml('"op":"remove"'));
       expect(html).not.toContain(escapeHtml('"op":"class"'));
     }
+  });
+
+  it("has a Limits form of its ten limits, at their values, saving them as one change to its entry (SPI-1322)", () => {
+    const at = (setting: Partial<McpRow["setting"]>) => section(renderPage(fixturePage({ mcp: [row(setting)] })));
+    const inputs = (html: string) =>
+      tagsOf(html)
+        .filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined)
+        .map((tag) => [tag.attrs["data-setting"], tag.attrs.value, tag.attrs.min, tag.attrs.max]);
+    const html = at({});
+    expect(html).toContain('<form class="server-limits" data-mcp-limits="settings"');
+    expect(inputs(html)).toEqual([
+      ["strikes", "3", "1", "1000"],
+      ["strikeWindowMinutes", "60", "1", "10080"],
+      ["strikeLockMinutes", "60", "0", "10080"],
+      ["declinedRepeatMinutes", "10", "0", "10080"],
+      ["appliedPerHour", "30", "1", "100000"],
+      ["askedPerHour", "6", "1", "100000"],
+      ["readsPerHour", "240", "1", "100000"],
+      ["networkReadsPerHour", "20", "1", "100000"],
+      ["openPerThread", "1", "1", "16"],
+      ["openPerOwner", "2", "1", "16"],
+    ]);
+    // The consequence, once; each limit's range and default in its hint.
+    expect(html.split(escapeHtml(SETTINGS_SERVER_LIMITS_NOTE)).length).toBe(2);
+    expect(html).toContain("1 to 100,000; 240 by default.");
+    // Three groups, under legends, covering every limit once.
+    expect(tagsOf(html).filter((tag) => tag.name === "legend" && !tag.closing).length).toBe(3);
+    expect(LIMIT_GROUPS.flatMap(([, keys]) => keys).sort()).toEqual([...SETTINGS_SERVER_LIMIT_KEYS].sort());
+    // A stored value shows; one that no longer fits shows its default.
+    expect(inputs(at({ limits: { askedPerHour: 12, strikes: 0 } })).slice(0, 6)).toEqual([
+      ["strikes", "3", "1", "1000"],
+      ["strikeWindowMinutes", "60", "1", "10080"],
+      ["strikeLockMinutes", "60", "0", "10080"],
+      ["declinedRepeatMinutes", "10", "0", "10080"],
+      ["appliedPerHour", "30", "1", "100000"],
+      ["askedPerHour", "12", "1", "100000"],
+    ]);
+    // A Direct server has none.
+    expect(markup(renderPage(fixturePage()))).not.toContain("data-mcp-limits");
+  });
+
+  it("its script posts only the limits typed over, as one server change, and nothing when none moved (SPI-1322)", async () => {
+    const start = SCRIPT.indexOf('for (const form of document.querySelectorAll("form[data-mcp-limits]"))');
+    const handler = SCRIPT.slice(
+      start,
+      SCRIPT.indexOf('for (const form of document.querySelectorAll("form[data-extension]"))'),
+    );
+    expect(start).toBeGreaterThan(-1);
+    /** The handler over a stub form of three limits; `typed` is what the Owner typed over the stored values. */
+    const run = async (typed: Record<string, string>) => {
+      const stored: Record<string, string> = { strikes: "3", askedPerHour: "6", strikeLockMinutes: "60" };
+      const inputs = Object.entries(stored).map(([setting, value]) => ({
+        dataset: { setting, kind: "integer" },
+        defaultValue: value,
+        value: typed[setting] ?? value,
+      }));
+      let submit: ((event: { preventDefault(): void }) => Promise<void>) | undefined;
+      const form = {
+        dataset: { mcpLimits: "settings" },
+        closest: () => null,
+        querySelector: () => ({}),
+        querySelectorAll: () => inputs,
+        reportValidity: () => true,
+        addEventListener: (_: string, listener: typeof submit) => (submit = listener),
+      };
+      const posts: Array<unknown> = [];
+      const notes: Array<string> = [];
+      const context = {
+        document: { querySelectorAll: () => [form] },
+        location: { hash: "" },
+        history: { replaceState: () => undefined },
+        watchUnsaved: () => undefined,
+        settingsOf: () => Object.fromEntries(inputs.map((input) => [input.dataset.setting, Number(input.value)])),
+        notify: (_: string, text: string) => void notes.push(text),
+        post: async (_: string, body: unknown) => (posts.push(body), false),
+        done: () => undefined,
+      };
+      new Script(handler).runInNewContext(context);
+      await submit!({ preventDefault: () => undefined });
+      return { posts, notes };
+    };
+    expect((await run({ askedPerHour: "12" })).posts).toEqual([
+      { op: "server", server: "settings", limits: { askedPerHour: 12 } },
+    ]);
+    expect((await run({ askedPerHour: "12", strikeLockMinutes: "0" })).posts).toEqual([
+      { op: "server", server: "settings", limits: { askedPerHour: 12, strikeLockMinutes: 0 } },
+    ]);
+    const none = await run({ askedPerHour: "6" });
+    expect(none.posts).toEqual([]);
+    expect(none.notes).toEqual(["Nothing to save: every limit is as it was."]);
   });
 });
 

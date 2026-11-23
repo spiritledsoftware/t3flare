@@ -9,6 +9,9 @@ import {
   EMPTY_HARNESS,
   MAX_SETUP_BYTES,
   PLAN_REFUSAL,
+  DEFAULT_OWNER_ANSWER_MS,
+  DEFAULT_SETTINGS_SERVER_LIMITS,
+  settingsServerLimitsOf,
   type StoredHarness,
 } from "@t3flare/harness-registry";
 import {
@@ -27,7 +30,7 @@ import { type McpCallAnswer, McpHost } from "../src/mcp/host.ts";
 import { registerCliAsker } from "../src/provider/cli/cliAsk.ts";
 import { cliThreadState } from "../src/provider/cli/cliAsk.ts";
 import { DURABLE_AGENT, durableModes, forgetDurableModes, noteDurableModes } from "../src/provider/threadCaller.ts";
-import { APPLIED_CAP, type ChangeRecord, settingsChanges } from "../src/settings/changes.ts";
+import { type ChangeRecord, settingsChanges } from "../src/settings/changes.ts";
 import { OFF_MESSAGE, type OwnCaller, type ThreadLink } from "../src/settings/caller.ts";
 import {
   LINKED_REFUSAL,
@@ -39,6 +42,9 @@ import {
 import { SETTINGS_TOOLS } from "../src/settings/tools.ts";
 import { nodeSqlStorage } from "./nodeSqlStorage.ts";
 import { memory, structured, textOf } from "./settingsFixture.ts";
+
+// The Settings server's limits at their defaults (SPI-1322: they are its entry's settings).
+const APPLIED_CAP = DEFAULT_SETTINGS_SERVER_LIMITS.appliedPerHour;
 
 const NOW = Date.UTC(2026, 10, 14, 12, 0);
 const ORIGIN = "https://t3.example.dev";
@@ -112,7 +118,14 @@ const setup = (
     forget: () => undefined,
     accessToken: async () => undefined,
   };
-  const stored = settingsChanges(nodeSqlStorage(), () => now);
+  // As the Environment DO wires it (SPI-1322): the Settings server's limits as stored now.
+  const stored = settingsChanges(
+    nodeSqlStorage(),
+    () => now,
+    undefined,
+    () => DEFAULT_OWNER_ANSWER_MS,
+    () => settingsServerLimitsOf(store.load()),
+  );
   // Every applied change's row, as the changes table keeps it.
   const applied: Array<ChangeRecord> = [];
   const changes = {
@@ -438,6 +451,52 @@ describe("the Settings server's write checks", () => {
     }
     expect(run.cards.length).toBe(3);
     expect(run.store.load().revision).toBe(2);
+  });
+
+  it("SPI-1322: a move of the Settings server's limits is asked in either direction; one at its value is unchanged", async () => {
+    const run = setup({ answer: { decision: "decline" } });
+    recordModes(durable(), "full-access");
+    for (const limits of [{ askedPerHour: 60 }, { askedPerHour: 1 }, { strikeLockMinutes: 0 }]) {
+      const args = { expectedRevision: 0, change: { op: "server", server: "settings", limits } };
+      expect(structured(await run.call(durable(), "change_mcp", args)), JSON.stringify(limits)).toMatchObject({
+        status: "declined",
+      });
+    }
+    expect(run.cards.length).toBe(3);
+    // The card names the limit, from and to.
+    expect(JSON.stringify(run.cards[0])).toContain("settings.limits.askedPerHour");
+    expect(
+      structured(
+        await run.call(durable(), "change_mcp", {
+          expectedRevision: 0,
+          change: { op: "server", server: "settings", limits: { askedPerHour: 6 } },
+        }),
+      ),
+    ).toMatchObject({ status: "unchanged" });
+    expect(run.cards.length).toBe(3);
+    expect(run.store.load().revision).toBe(0);
+  });
+
+  it("SPI-1322: with the strike lock at 0, three declines in a row lock nothing; with strikes at 1, one does", async () => {
+    const limited = (limits: Record<string, number>, from: StoredHarness = EMPTY_HARNESS): StoredHarness => {
+      const applied = applyMcpChange(from, { op: "server", server: "settings", limits });
+      if (!applied.ok) throw new Error(applied.error);
+      return applied.harness;
+    };
+    const run = setup({ answer: { decision: "decline" }, harness: limited({ strikeLockMinutes: 0 }) });
+    const agent = durable("thread-unlocked");
+    recordModes(agent, "full-access");
+    const ask = (settings: Record<string, unknown>) =>
+      run.call(agent, "change_environment", { expectedRevision: 0, settings });
+    for (const budget of [4, 5, 6])
+      expect(structured(await ask({ containerBudget: budget }))).toMatchObject({ status: "declined" });
+    // A fourth asks the owner again, on a card.
+    expect(structured(await ask({ containerBudget: 7 }))).toMatchObject({ status: "declined" });
+    expect(run.cards).toHaveLength(4);
+    // The Owner sets one strike to lock, with the default hour: the run already recorded locks at the next ask.
+    run.store.save(limited({ strikes: 1, strikeLockMinutes: 60 }, run.store.load()));
+    expect(structured(await ask({ containerBudget: 8 }))).toMatchObject({ status: "refused", reason: "strikes" });
+    expect(run.cards).toHaveLength(4);
   });
 
   it(`at most ${APPLIED_CAP} applied changes per caller per hour`, async () => {

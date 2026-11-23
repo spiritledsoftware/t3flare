@@ -20,6 +20,7 @@ import {
   type HarnessChange,
   type McpChange,
   mcpServersOf,
+  movedLimits,
   resolveHarness,
   type StoredHarness,
 } from "./index.ts";
@@ -210,6 +211,19 @@ const mcpTier = (
           : { asked: false, reason: `${server}: write tools turned off` },
       ),
     );
+  }
+  // The Settings server's limits (SPI-1322): each that moves is a part, asked in either direction (`mark`); one that
+  // stays (a form posts every limit on each save) is none, so a save that moves nothing is `unchanged`.
+  if (change.limits !== undefined && !isSettingsServer) parts.push({ asked: true, reason: `${server}: has no limits` });
+  else if (change.limits !== undefined) {
+    for (const { key, before, after } of movedLimits(stored, change.limits)) {
+      const name = `${server}.limits.${key}`;
+      parts.push(
+        before === undefined
+          ? { asked: true, reason: `${name}: not a limit this registry knows` }
+          : mark(settingPart(name, undefined, before, after)),
+      );
+    }
   }
   const exposureAfter = change.exposure ?? current.exposure;
   if (change.exposure !== undefined && change.exposure !== current.exposure) {

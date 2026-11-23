@@ -23,6 +23,8 @@ export const McpChangeBody = Schema.Union([
     // `toolExposure: null` is refused on purpose: no client sends it (the panel sends an object), and it changes nothing.
     toolExposure: Schema.optionalKey(Schema.Record(Schema.String, Schema.NullOr(Exposure))),
     writes: Schema.optionalKey(Schema.Boolean),
+    // The Settings server's limits (SPI-1322): the registry checks each key and value against its schema.
+    limits: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
   }),
   Schema.Struct({
     op: Schema.Literal("class"),

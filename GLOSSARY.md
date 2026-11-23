@@ -342,7 +342,7 @@ client in the `model` Elicitation mode.
 **Settings server**:
 t3flare's own MCP server for the Harness settings, the Environment settings and the Environment skills, and for asking
 to purge a Workspace. t3flare's agents reach it as a member of the MCP server set; Owner clients reach it at its own
-endpoint.
+endpoint. Its limits on asking, changing and reading are its entry's settings.
 _Avoid_: admin MCP, builtin MCP, config server, Harness server
 
 **Door**:
