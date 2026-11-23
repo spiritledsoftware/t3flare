@@ -439,4 +439,6 @@ export interface ChangesApi {
   readonly get: (id: string) => ChangeRecord | undefined;
   /** The page's answer, by the identity the panel admitted. */
   readonly answer: (id: string, input: Omit<AnswerInput, "by">) => Promise<AnswerResult>;
+  /** How long a closed change is kept (`SettingsChanges.keptMs`, SPI-1316): the gone page names it. */
+  readonly keptMs: () => number;
 }

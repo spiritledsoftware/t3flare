@@ -1250,6 +1250,7 @@ export const changesApiOf = (deps: SettingsServerDeps): ChangesApi => ({
   list: () => deps.changes.open(),
   get: (id) => deps.changes.get(id),
   answer: (id, input) => answerOpenChange(answerDepsOf(deps), id, { ...input, by: "page" }),
+  keptMs: () => deps.changes.keptMs(),
 });
 
 /** Who asked, as an asked change's audit entry keeps it (plan D15). */

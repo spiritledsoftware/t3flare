@@ -271,7 +271,8 @@ export const settingsChanges = (
   const longestWait = (): number => {
     const row = sql
       .exec<{ longest: number | null }>(
-        `SELECT MAX(json_extract(record, '$.expiresAt') - created_at) AS longest FROM ${CHANGES_TABLE}`,
+        // A malformed row is skipped, as `parse` skips it: `json_extract` would throw on it and break every read.
+        `SELECT MAX(json_extract(record, '$.expiresAt') - created_at) AS longest FROM ${CHANGES_TABLE} WHERE json_valid(record)`,
       )
       .toArray()[0];
     return Math.max(answerMs(), Number(row?.longest ?? 0));

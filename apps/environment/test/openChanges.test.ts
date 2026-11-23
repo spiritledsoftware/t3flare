@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   APPLIED_CAP,
+  CHANGES_TABLE,
   type ChangeCaller,
   type ChangeRecord,
   closedKeptMs,
@@ -445,6 +446,15 @@ describe("D16's caps", () => {
       spread.advance(DEFAULT_OWNER_ANSWER_MS + 50 * 60_000);
     }
     expect(capRefusal(spread.deps().changes, OWN, "hash-9", spread.now())).toBeUndefined();
+  });
+
+  it("skips a malformed row when it works out the longest wait, as its reads skip it (SPI-1316)", () => {
+    const w = world();
+    const record = w.open(OWN);
+    w.sql.exec(`UPDATE ${CHANGES_TABLE} SET record = ? WHERE id = ?`, "{not json", record.id);
+    expect(w.deps().changes.keptMs()).toBe(closedKeptMs(DEFAULT_OWNER_ANSWER_MS));
+    expect(w.deps().changes.get(record.id)).toBeUndefined();
+    expect(w.deps().changes.open()).toEqual([]);
   });
 
   it("keeps closed rows for the window and lock of the longest wait still kept, the setting's or a change's (SPI-1316)", () => {

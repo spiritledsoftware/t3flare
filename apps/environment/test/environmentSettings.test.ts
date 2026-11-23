@@ -8,6 +8,7 @@ import type { AccessCaller } from "../src/access.ts";
 import { CSRF_HEADER, handleHarness } from "../src/harness/panel.ts";
 import { budgetNote, SCRIPT } from "../src/harness/pageScript.ts";
 import { AUDIT_KEY, harnessStore } from "../src/harness/store.ts";
+import { closedKeptMs } from "../src/settings/changes.ts";
 
 const HOST = "t3-admin.example.dev";
 const NOW = Date.UTC(2026, 10, 13, 10, 30);
@@ -211,11 +212,11 @@ describe("Environment settings in the panel", () => {
     expect((await post(deps, "environment", { settings: { ownerAnswerMinutes: 0 } }, headers)).status).toBe(400);
     expect((await post(deps, "environment", { settings: { ownerAnswerMinutes: 30 } }, headers)).status).toBe(200);
     expect(await getJson(deps, "environment")).toMatchObject({ resolved: { ownerAnswerMinutes: 30 } });
-    // The Change page of an unknown id says how long closed changes are kept: the strike window at a 30-minute wait
-    // (2 × 30 + 5 = 65 minutes) and the lock's hour.
+    // The Change page of an unknown id says how long the changes table keeps closed changes (`keptMs`): at a 30-minute
+    // wait, the strike window (2 × 30 + 5 = 65 minutes) and the lock's hour.
     const gone = await handleHarness(new Request(`https://${HOST}/_t3flare/settings/changes/chg_unknown`), {
       ...deps,
-      changes: { list: () => [], get: () => undefined } as never,
+      changes: { list: () => [], get: () => undefined, keptMs: () => closedKeptMs(30 * 60_000) } as never,
     });
     expect(await gone.text()).toContain("it closed over 125 minutes ago");
   });

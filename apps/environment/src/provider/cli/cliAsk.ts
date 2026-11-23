@@ -5,7 +5,7 @@
 // too (`cliQuestionAsker`): an `mcp-elicitation` approval card, or a `user_input` card for a form.
 import type { ApprovalDecision, McpAsker, McpCardQuestion } from "@t3flare/session-protocol";
 
-import { ownerAnswerMsNow } from "../../agents/bindings.ts";
+import { askerWaitMs, ownerAnswerMsNow } from "../../agents/bindings.ts";
 
 /** What the relay asks: the card's text, its buttons and title, and the ask's id. A tool card is t3's `permission` kind. */
 export interface CliAsk {
@@ -93,7 +93,7 @@ export const approveCliTool = async (input: {
   try {
     const answer = await asker.ask(
       { askId: input.askId, summary: input.summary, detail: input.detail, options, title: input.title },
-      AbortSignal.any([AbortSignal.timeout(input.waitMs ?? ownerAnswerMsNow()), withdrawn.signal]),
+      AbortSignal.any([AbortSignal.timeout(askerWaitMs(input)), withdrawn.signal]),
     );
     if (answer.reason === "withdrawn")
       return { approved: false, reason: withdrawn.signal.aborted ? "the agent went away" : "no answer in time" };

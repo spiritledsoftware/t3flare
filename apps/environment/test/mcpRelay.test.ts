@@ -2,7 +2,7 @@
 // judged by the calling thread's own mode, linked threads included; and t3's own entry as stock t3 hands it (SPI-1039).
 // Owner, 2026-11-12, back to stock: no per-call linked rule, no strictest-mode rule, no taint rule, no t3 relay.
 import { cliToolTimeoutSec, type McpRelayInput } from "@t3flare/harness-registry";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import type { McpView } from "../src/mcp/host.ts";
 import { relayMessage, type RelayDeps } from "../src/mcp/relay.ts";
@@ -110,6 +110,8 @@ const resultOf = (answer: Awaited<ReturnType<typeof relayMessage>>) => {
 };
 
 describe("the relay's MCP server", () => {
+  afterEach(() => bindEnvironmentServices(undefined as unknown as EnvironmentServices));
+
   it("tells a CLI the Settings server's asked changes wait its spawn-time Answer wait (SPI-1316)", async () => {
     const instructions = async (deps: RelayDeps) => {
       const answer = await relayMessage(
@@ -123,7 +125,6 @@ describe("the relay's MCP server", () => {
     // Without the dep, the wait now.
     bindEnvironmentServices({ ownerAnswerMs: () => 60_000 } as unknown as EnvironmentServices);
     expect(await instructions(harness().deps)).toContain("(at most a minute, one at a time per thread)");
-    bindEnvironmentServices(undefined as unknown as EnvironmentServices);
   });
 
   it("answers initialize with the client's protocol version and only tools", async () => {
