@@ -122,7 +122,7 @@ const grepTool = (files: FilesOf, max: number) =>
       const matches = await need(files).grep(args.pattern, directory, {
         ignoreCase: args.ignoreCase === true,
         regex: args.literal !== true,
-        context: Math.max(0, Math.min(args.context ?? 0, 10)),
+        context: Math.max(0, args.context ?? 0),
         limit: limit + 1,
         include: args.glob,
         exclude: EXCLUDE,

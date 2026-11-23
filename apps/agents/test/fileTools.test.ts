@@ -67,6 +67,19 @@ describe("file tools' limits (SPI-1321)", () => {
     expect((await run(tool("grep"), { pattern: "x", limit: 2 })).split("\n")).toHaveLength(3);
   });
 
+  it("grep asks for as many context lines as the call names (SPI-1361)", async () => {
+    const contexts: Array<number> = [];
+    const files = {
+      grep: async (_pattern: string, _path: string, options: { context: number }) => (
+        contexts.push(options.context), []
+      ),
+    } as unknown as ComputerFiles;
+    const grep = (fileTools(() => files, LIMITS).tools ?? []).find((tool) => tool.name === "grep")!;
+    await run(grep, { pattern: "x", context: 40 });
+    await run(grep, { pattern: "x", context: -3 });
+    expect(contexts).toEqual([40, 0]);
+  });
+
   it("find and ls take their own limits", async () => {
     const { tool, asked } = tools(50, LIMITS);
     expect(tool("find").description).toContain("Up to 4 results");

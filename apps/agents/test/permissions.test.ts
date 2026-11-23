@@ -15,6 +15,7 @@ import {
   interactionModeSection,
   permissions,
   PLAN_MODE_REFUSAL,
+  summaryOf,
   toToolPath,
 } from "../src/extensions/permissions.ts";
 
@@ -210,6 +211,11 @@ describe("permissions", () => {
     store.answer("2", "acceptForSession");
     expect(store.acceptedFor({ tool: "bash", kind: "command" })).toBe(true);
     expect(store.acceptedFor({ tool: "mcp__t3-code__t3_thread_send", kind: "mcp-tool" })).toBe(false);
+  });
+
+  it("shows a file's path on its card as the card shows any text, with no shorter cut of its own (SPI-1361)", () => {
+    const path = `/workspace/repo/${"d/".repeat(1_000)}file.ts`;
+    expect(summaryOf("write", { path, content: "x" }).summary).toContain(path);
   });
 
   it("the modes, acceptForSession, and the path translation", () => {

@@ -27,6 +27,14 @@ import { describe, expect, it } from "vitest";
 import { codingTools } from "../src/extensions/coding-tools.ts";
 import { ApprovalStore, permissions } from "../src/extensions/permissions.ts";
 import { backgroundJobs, EXIT_ENTRY, type TermctrlHost, termctrlExtension } from "../src/extensions/termctrl.ts";
+import {
+  POLL_WAIT_MS,
+  TERMINAL_WAIT_MS,
+  terminalSendTool,
+  terminalStartTool,
+  terminalWaitTool,
+  waitOf,
+} from "../src/extensions/termctrl/tools.ts";
 import { AgentTerminals } from "../src/workspace/agentTerminals.ts";
 import { context, memoryKv, until } from "./harness.fixture.ts";
 
@@ -139,6 +147,16 @@ const results = async (root: Awaited<ReturnType<typeof run>>["root"]) => {
 };
 
 describe("termctrl", () => {
+  it("waits as long as the agent asks: a wait runs in Workspace slices, so nothing bounds it (SPI-1361)", () => {
+    expect(waitOf(60 * 60_000, POLL_WAIT_MS)).toBe(60 * 60_000);
+    expect(waitOf(undefined, POLL_WAIT_MS)).toBe(POLL_WAIT_MS);
+    expect(waitOf(-1, POLL_WAIT_MS)).toBe(0);
+    expect(TERMINAL_WAIT_MS).toBe(5 * 60_000);
+    const host = {} as TermctrlHost;
+    for (const tool of [terminalStartTool(host), terminalSendTool(host), terminalWaitTool(host)])
+      expect(JSON.stringify(tool)).not.toMatch(/clamped|maximum 300000/);
+  });
+
   it("starts, drives, polls and stops a Terminal in a real turn", async () => {
     const ws = workspace();
     const { root } = await run(
