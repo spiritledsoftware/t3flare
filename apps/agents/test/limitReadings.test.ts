@@ -124,7 +124,6 @@ const sessionWith = (endpoint: ModelEndpoint, fetcher: typeof fetch) => {
     kv: { get: <T>(key: string) => map.get(key) as T | undefined, put: (key, value) => void map.set(key, value) },
     models,
     fetch: fetcher,
-    readMs: 50,
     source: () => ({
       modelEndpoints: async () => ({ revision: 1, endpoints: [endpoint] }),
       endpointCredential: async () => ({ apiKey: "sk-test-key" }),
@@ -145,7 +144,7 @@ describe("a Session's limit readings", () => {
     try {
       const { readings, models, endpoints } = sessionWith(anthropicEndpoint, (async () =>
         anthropicAnswer(CLAUDE_HEADERS)) as unknown as typeof fetch);
-      await endpoints.take();
+      await endpoints.take(50);
       await ask(models, "claude", "claude-haiku-5-5");
       expect(readings).toEqual([{ endpointId: "claude", at: NOW, windows: CLAUDE_WINDOWS }]);
       expect(JSON.stringify(readings)).not.toContain("org-not-kept");
@@ -167,7 +166,7 @@ describe("a Session's limit readings", () => {
       };
       const { readings, models, endpoints } = sessionWith(signIn, (async () =>
         anthropicAnswer(CLAUDE_HEADERS)) as unknown as typeof fetch);
-      await endpoints.take();
+      await endpoints.take(50);
       const message = await ask(models, "claude-plan", "claude-haiku-5-5");
       expect(message.stopReason).toBe("stop");
       expect(readings).toEqual([{ endpointId: "claude-plan", at: NOW, windows: CLAUDE_WINDOWS }]);
@@ -182,7 +181,7 @@ describe("a Session's limit readings", () => {
     try {
       const { readings, models, endpoints } = sessionWith(responsesEndpoint, (async () =>
         responsesAnswer(CODEX_HEADERS)) as unknown as typeof fetch);
-      await endpoints.take();
+      await endpoints.take(50);
       await ask(models, "chatgpt", "gpt-6.1-sol");
       expect(readings).toEqual([
         {
@@ -212,7 +211,7 @@ describe("a Session's limit readings", () => {
         onRequest: () => undefined,
       });
       const { readings, models, endpoints } = sessionWith(anthropicEndpoint, recording.fetch);
-      await endpoints.take();
+      await endpoints.take(50);
       await ask(models, "claude", "claude-haiku-5-5");
       faulted = false;
       await ask(models, "claude", "claude-haiku-5-5");
@@ -258,7 +257,6 @@ describe("a Session's limit readings", () => {
       kv: { get: () => undefined, put: () => undefined },
       models,
       fetch: (async () => anthropicAnswer(CLAUDE_HEADERS)) as unknown as typeof fetch,
-      readMs: 50,
       source: () => ({
         modelEndpoints: async () => ({ revision: 1, endpoints: [anthropicEndpoint] }),
         endpointCredential: async () => ({ apiKey: "sk-test-key" }),
@@ -268,7 +266,7 @@ describe("a Session's limit readings", () => {
         throw new Error("lost");
       },
     });
-    await throwing.take();
+    await throwing.take(50);
     const message = await ask(models, "claude", "claude-haiku-5-5");
     expect(message.stopReason).toBe("stop");
   });

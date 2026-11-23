@@ -1,7 +1,7 @@
 // The Workspace DO's read of the Environment settings before a Container start (SPI-1149, ADR-0032), and what the start
 // launches with: the Environment's answer within a bounded wait, else the copy it last kept, else the defaults; the size
 // name as an `instance` that is never omitted, the idle time, and the budget carried only when it was read fresh.
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   EMPTY_ENVIRONMENT,
@@ -14,6 +14,7 @@ import {
 
 import {
   launchOf,
+  readMsOf,
   SECRET_SHOWN,
   secretValuesOf,
   shownLaunch,
@@ -110,6 +111,43 @@ describe("takeEnvironment", () => {
     const taken = await takeEnvironment({ read: async () => odd, kept: store.kept, keep: store.keep, waitMs: 50 });
     expect(taken).toEqual({ settings: { ...DEFAULTS, revision: 9 }, source: "environment" });
     expect(store.now()).toEqual({ ...DEFAULTS, revision: 9 });
+  });
+});
+
+describe("a start's settings read wait (SPI-1314)", () => {
+  afterEach(() => vi.useRealTimers());
+
+  /** A start on a silent Environment, its wait read from what the Workspace kept, as the Workspace DO does. */
+  const silentStart = (kept: ResolvedEnvironment | undefined) => {
+    vi.useFakeTimers();
+    const store = keeper(kept);
+    let taken: unknown;
+    void takeEnvironment({
+      read: never,
+      kept: store.kept,
+      keep: store.keep,
+      waitMs: readMsOf(
+        resolveEnvironment(kept === undefined ? EMPTY_ENVIRONMENT : { revision: kept.revision, settings: kept }),
+      ),
+    }).then((answer) => (taken = answer));
+    return { taken: () => taken };
+  };
+
+  it("gives up on a silent Environment after the kept copy's wait", async () => {
+    const copy: ResolvedEnvironment = { ...DEFAULTS, revision: 3, settingsReadSeconds: 2 };
+    const start = silentStart(copy);
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(start.taken()).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(start.taken()).toEqual({ settings: copy, source: "kept" });
+  });
+
+  it("waits the default 5 s when nothing is kept", async () => {
+    const start = silentStart(undefined);
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(start.taken()).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(start.taken()).toEqual({ settings: DEFAULTS, source: "default" });
   });
 });
 

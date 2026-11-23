@@ -588,6 +588,17 @@ describe("the Environment section's dotfiles", () => {
     expect(group?.attrs["aria-describedby"]).toBe("environment-agents-desc");
   });
 
+  it("draws the settings read wait in the Containers row, which says what it bounds (SPI-1314)", () => {
+    const section = sectionOf(renderPage(fixturePage()));
+    const containers = section.slice(
+      section.indexOf("<h3>Containers</h3>"),
+      section.indexOf('<h3 id="environment-agents-title">Agents</h3>'),
+    );
+    expect(containers).toContain("how long a start or a turn waits for the newest settings");
+    const input = tagsOf(containers).find((tag) => tag.attrs["data-setting"] === "settingsReadSeconds");
+    expect(input?.attrs).toMatchObject({ type: "number", min: "1", value: "5" });
+  });
+
   it("draws a toggle the Owner turned off unchecked", () => {
     const section = sectionOf(
       renderPage({

@@ -22,6 +22,8 @@ import {
   type ResolvedEnvironment,
 } from "@t3flare/harness-registry";
 
+import { readWithin } from "../readWithin.ts";
+
 /** The settings a pick reads. */
 export type BaseSettings = Pick<
   ResolvedEnvironment,
@@ -129,23 +131,9 @@ export interface BaseBuilder {
   readonly missing: () => Promise<BaseBuildRecord>;
 }
 
-/** How long a start waits for one answer of the Builder. Fixed: a bound on one call to another object, as `ENVIRONMENT_READ_MS` is. */
-export const BUILDER_READ_MS = 5_000;
-
 /** `promise`'s value, or undefined when it fails or does not settle within `ms`. */
-const bounded = async <T>(promise: () => Promise<T>, ms: number): Promise<T | undefined> => {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise(),
-      new Promise<undefined>((resolve) => (timer = setTimeout(() => resolve(undefined), ms))),
-    ]);
-  } catch {
-    return undefined;
-  } finally {
-    clearTimeout(timer);
-  }
-};
+const bounded = <T>(promise: () => Promise<T>, ms: number): Promise<T | undefined> =>
+  readWithin(promise(), ms).catch(() => undefined);
 
 /**
  * A start's pick, the Builder asked to read the settings first when its record is older than them. Each call to the

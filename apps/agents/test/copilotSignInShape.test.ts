@@ -394,7 +394,6 @@ describe("a GitHub Copilot sign-in on pi-ai", () => {
       fetch: record(seen, () =>
         status === 200 ? responsesOk() : Response.json({ error: { message: "unauthorized" } }, { status }),
       ),
-      readMs: 50,
       now: () => clock,
       source: () => ({
         modelEndpoints: async () => ({ revision: 1, endpoints: [COPILOT] }),
@@ -411,7 +410,7 @@ describe("a GitHub Copilot sign-in on pi-ai", () => {
         },
       }),
     });
-    await endpoints.take();
+    await endpoints.take(50);
     const ask = () => models.completeSimple(models.getModel("copilot", MODEL_ID)!, FROM_OWNER, { maxTokens: 500 });
     await ask();
     await ask();

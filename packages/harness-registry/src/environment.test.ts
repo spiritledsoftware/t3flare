@@ -9,6 +9,7 @@ import {
   BASE_BUILD_SETTING_KEYS,
   builderInstance,
   containerInstance,
+  DEFAULT_SETTINGS_READ_MS,
   DOTFILES_SETTING_KEYS,
   EMPTY_ENVIRONMENT,
   ENVIRONMENT_SETTINGS,
@@ -34,6 +35,18 @@ const BASE_DEFAULTS = {
   whileBuildingNewImage: "wait",
 } as const;
 
+/**
+ * The tunables made settings (SPI-1312's tickets) at their defaults: each such ticket adds its key here, one line, not to
+ * every full object below.
+ */
+const TUNABLE_DEFAULTS = {
+  cliProcessesPerWorkspace: 4,
+  cliReclaimSeconds: 30,
+  turnLimitMinutes: 120,
+  globalMiseInstallMinutes: 10,
+  settingsReadSeconds: 5,
+} as const;
+
 describe("resolveEnvironment", () => {
   it("gives the defaults for empty settings: cpu-1 and a 2-minute idle time, at revision 0", () => {
     expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toEqual({
@@ -41,12 +54,8 @@ describe("resolveEnvironment", () => {
       containerSize: "cpu-1",
       containerIdleMinutes: 2,
       containerBudget: 3,
-      cliProcessesPerWorkspace: 4,
-      cliReclaimSeconds: 30,
-      turnLimitMinutes: 120,
       variables: [],
       globalMiseConfig: "",
-      globalMiseInstallMinutes: 10,
       containerSetup: "",
       containerSetupMinutes: 5,
       containerSetupFailure: "carryOn",
@@ -55,6 +64,7 @@ describe("resolveEnvironment", () => {
       agentsReadDotfiles: true,
       sweepPurges: true,
       graceDays: 7,
+      ...TUNABLE_DEFAULTS,
       ...BASE_DEFAULTS,
     });
   });
@@ -70,12 +80,8 @@ describe("resolveEnvironment", () => {
       containerSize: "cpu-1",
       containerIdleMinutes: 2,
       containerBudget: 3,
-      cliProcessesPerWorkspace: 4,
-      cliReclaimSeconds: 30,
-      turnLimitMinutes: 120,
       variables: [],
       globalMiseConfig: "",
-      globalMiseInstallMinutes: 10,
       containerSetup: "",
       containerSetupMinutes: 5,
       containerSetupFailure: "carryOn",
@@ -84,6 +90,7 @@ describe("resolveEnvironment", () => {
       agentsReadDotfiles: true,
       sweepPurges: true,
       graceDays: 7,
+      ...TUNABLE_DEFAULTS,
       ...BASE_DEFAULTS,
     });
     expect(
@@ -96,12 +103,8 @@ describe("resolveEnvironment", () => {
       containerSize: "standard-3",
       containerIdleMinutes: 15,
       containerBudget: 5,
-      cliProcessesPerWorkspace: 4,
-      cliReclaimSeconds: 30,
-      turnLimitMinutes: 120,
       variables: [],
       globalMiseConfig: "",
-      globalMiseInstallMinutes: 10,
       containerSetup: "",
       containerSetupMinutes: 5,
       containerSetupFailure: "carryOn",
@@ -110,6 +113,7 @@ describe("resolveEnvironment", () => {
       agentsReadDotfiles: true,
       sweepPurges: true,
       graceDays: 7,
+      ...TUNABLE_DEFAULTS,
       ...BASE_DEFAULTS,
     });
   });
@@ -127,12 +131,8 @@ describe("applyEnvironmentChange", () => {
       containerSize: "standard-4",
       containerIdleMinutes: 10,
       containerBudget: 3,
-      cliProcessesPerWorkspace: 4,
-      cliReclaimSeconds: 30,
-      turnLimitMinutes: 120,
       variables: [],
       globalMiseConfig: "",
-      globalMiseInstallMinutes: 10,
       containerSetup: "",
       containerSetupMinutes: 5,
       containerSetupFailure: "carryOn",
@@ -141,6 +141,7 @@ describe("applyEnvironmentChange", () => {
       agentsReadDotfiles: true,
       sweepPurges: true,
       graceDays: 7,
+      ...TUNABLE_DEFAULTS,
       ...BASE_DEFAULTS,
     });
     const again = applyEnvironmentChange(applied.environment, { settings: { containerIdleMinutes: 5 } });
@@ -150,12 +151,8 @@ describe("applyEnvironmentChange", () => {
       containerSize: "standard-4",
       containerIdleMinutes: 5,
       containerBudget: 3,
-      cliProcessesPerWorkspace: 4,
-      cliReclaimSeconds: 30,
-      turnLimitMinutes: 120,
       variables: [],
       globalMiseConfig: "",
-      globalMiseInstallMinutes: 10,
       containerSetup: "",
       containerSetupMinutes: 5,
       containerSetupFailure: "carryOn",
@@ -164,6 +161,7 @@ describe("applyEnvironmentChange", () => {
       agentsReadDotfiles: true,
       sweepPurges: true,
       graceDays: 7,
+      ...TUNABLE_DEFAULTS,
       ...BASE_DEFAULTS,
     });
   });
@@ -389,6 +387,29 @@ describe("the Turn limit (SPI-1315)", () => {
     );
     expect(ENVIRONMENT_SETTINGS.turnLimitMinutes.description).toContain(
       "a running turn keeps the limit it started with",
+    );
+  });
+});
+
+describe("the settings read wait (SPI-1314)", () => {
+  const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
+
+  it("is 5 seconds by default, 1 to MAX_TIMED_MINUTES * 60 whole seconds (ADR-0048 §2)", () => {
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT).settingsReadSeconds).toBe(5);
+    expect(DEFAULT_SETTINGS_READ_MS).toBe(5000);
+    for (const seconds of [1, 5, 60, MAX_TIMED_MINUTES * 60])
+      expect(set({ settingsReadSeconds: seconds })).toMatchObject({ ok: true });
+    for (const seconds of [0, MAX_TIMED_MINUTES * 60 + 1, 2.5, "5"])
+      expect(set({ settingsReadSeconds: seconds })).toMatchObject({ ok: false });
+    expect(resolveEnvironment({ revision: 1, settings: { settingsReadSeconds: 0 } }).settingsReadSeconds).toBe(5);
+  });
+
+  it("is free, in the Containers row, and says when it applies", () => {
+    expect(ENVIRONMENT_SETTINGS.settingsReadSeconds).toMatchObject({ tier: "free" });
+    expect("row" in ENVIRONMENT_SETTINGS.settingsReadSeconds).toBe(false);
+    expect(AGENT_SETTING_KEYS).not.toContain("settingsReadSeconds");
+    expect(ENVIRONMENT_SETTINGS.settingsReadSeconds.description).toContain(
+      "Applies at each thread's next turn. A Container start uses the wait it last kept, so a change can take one more start to apply fully.",
     );
   });
 });

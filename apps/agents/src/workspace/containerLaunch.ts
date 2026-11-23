@@ -1,4 +1,3 @@
-// @effect-diagnostics globalTimers:off
 // What a Workspace's Container starts with (SPI-1149, ADR-0032): the Environment settings, read from the Environment DO
 // before a start with a bounded wait, as a Session reads the Harness settings at a turn's start; on no answer the copy
 // the Workspace DO last kept, else the defaults. A start never waits on the Environment longer than the bound, and
@@ -15,18 +14,24 @@ import {
   variableEnv,
 } from "@t3flare/harness-registry";
 
+import { readWithin } from "../readWithin.ts";
 import type { LaunchFrom } from "./baseStart.ts";
 import type { ContainerSetupLaunch } from "./containerSetup.ts";
 import type { GlobalMiseLaunch } from "./globalMise.ts";
 
-/** How long a Container start waits for the Environment's settings before it starts with the ones it kept. */
-export const ENVIRONMENT_READ_MS = 5_000;
+/**
+ * How long a Container start waits for the Environment's settings (and for each answer of the Builder): the settings read
+ * wait (SPI-1314, `settingsReadSeconds`) of the copy the Workspace kept, read against this Worker's schema; the default
+ * before it kept one.
+ */
+export const readMsOf = (kept: ResolvedEnvironment): number => kept.settingsReadSeconds * 1000;
 
 export interface TakeEnvironmentDeps {
   /** The Environment DO's `environmentSettings()`. */
   readonly read: () => Promise<ResolvedEnvironment>;
   readonly kept: () => ResolvedEnvironment | undefined;
   readonly keep: (settings: ResolvedEnvironment) => void;
+  /** The kept copy's settings read wait (`readMsOf`). */
   readonly waitMs: number;
 }
 
@@ -42,14 +47,8 @@ export interface TakenEnvironment {
  * know, which reads as its default, or lack a setting, which gets its default); the answer is then kept.
  */
 export const takeEnvironment = async (deps: TakeEnvironmentDeps): Promise<TakenEnvironment> => {
-  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const answer = await Promise.race([
-      deps.read(),
-      new Promise<undefined>((resolve) => {
-        timer = setTimeout(() => resolve(undefined), deps.waitMs);
-      }),
-    ]);
+    const answer = await readWithin(deps.read(), deps.waitMs);
     if (answer !== undefined) {
       const settings = resolveEnvironment({ revision: answer.revision, settings: answer });
       deps.keep(settings);
@@ -57,8 +56,6 @@ export const takeEnvironment = async (deps: TakeEnvironmentDeps): Promise<TakenE
     }
   } catch {
     // The Environment DO failed: the kept copy below.
-  } finally {
-    clearTimeout(timer);
   }
   // The kept copy is read against this Worker's schema too: another version may have kept a size this one does not
   // offer, or lack a setting this one has.

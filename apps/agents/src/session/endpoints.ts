@@ -22,6 +22,7 @@ import { type UsageEntry, usageOfPiAnswer } from "@t3flare/models/usage";
 import type { EndpointCredentialFailure } from "@t3flare/session-protocol";
 
 import { endpointProviders } from "./models.ts";
+import { readWithin } from "../readWithin.ts";
 
 /** The Model endpoints the Session last took, secret-free. */
 export const ENDPOINTS_KEY = "t3flare:model-endpoints";
@@ -45,8 +46,6 @@ export interface SessionEndpointsOptions {
   /** A fresh stub per call. */
   readonly source: () => EndpointSource;
   readonly fetch?: FetchFunction;
-  /** How long a turn's start waits for the endpoints. */
-  readonly readMs: number;
   readonly now?: () => number;
   /**
    * A credential request failed (the typed failure), or one that had failed succeeded again (undefined): the Session
@@ -184,15 +183,12 @@ export class SessionEndpoints {
 
   /**
    * The Environment's endpoints at a turn's start: a new revision is kept (secret-free) and its providers installed, so
-   * a changed model list or a removed endpoint is in force from this turn. Bounded; on failure the Session keeps what it
-   * has. Never throws.
+   * a changed model list or a removed endpoint is in force from this turn. Waits at most `readMs`, the turn's settings
+   * read wait (SPI-1314); on failure the Session keeps what it has. Never throws.
    */
-  async take(): Promise<void> {
+  async take(readMs: number): Promise<void> {
     try {
-      const endpoints = await Promise.race([
-        this.#options.source().modelEndpoints(),
-        new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), this.#options.readMs)),
-      ]);
+      const endpoints = await readWithin(this.#options.source().modelEndpoints(), readMs);
       if (endpoints === undefined) return console.warn(JSON.stringify({ t3flare: "model-endpoints-timeout" }));
       if ((this.#options.kv.get<ModelEndpoints>(ENDPOINTS_KEY) ?? EMPTY_ENDPOINTS).revision === endpoints.revision)
         return;

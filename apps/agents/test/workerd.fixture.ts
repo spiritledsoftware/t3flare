@@ -264,9 +264,8 @@ export class EndpointsProbe extends DurableObject {
         }),
       }),
       fetch: fetcher,
-      readMs: 5_000,
     });
-    await endpoints.take();
+    await endpoints.take(5_000);
     const model = models.getModel("probe", "claude-haiku-5-5");
     if (model === undefined) throw new Error("no model");
     const message = await models.completeSimple(model, { messages: [{ role: "user", content: "hi", timestamp: 0 }] });

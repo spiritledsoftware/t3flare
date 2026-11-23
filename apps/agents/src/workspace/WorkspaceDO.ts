@@ -67,7 +67,6 @@ import {
   baseIdOf,
   type BaseSettings,
   BaseWaitBackend,
-  BUILDER_READ_MS,
   type LaunchFrom,
   launchFrom,
   planBase,
@@ -88,11 +87,12 @@ import {
 import { changedBetween, currentRevision, repoFileSizes } from "./changeLog.ts";
 import {
   type ContainerLaunch,
-  ENVIRONMENT_READ_MS,
   launchOf,
+  readMsOf,
   secretValuesOf,
   shownLaunch,
   takeEnvironment,
+  type TakenEnvironment,
   withContainerSteps,
 } from "./containerLaunch.ts";
 import { ContainerSetup, type ContainerSetupState } from "./containerSetup.ts";
@@ -1122,7 +1122,9 @@ export class WorkspaceDO extends ContainerHost {
           const fresh = !this.containerRunning();
           const launch = await this.#launch();
           await lease(fresh ? launch.budget : undefined);
-          const from = fresh ? launch.from : launchFrom(await this.#planBase(this.#keptSettings(), { mayAsk: false }));
+          // The wait is the kept copy's, as every start's is (`#takeSettings`): a start learns a new wait only by keeping it.
+          const kept = this.#keptSettings();
+          const from = fresh ? launch.from : launchFrom(await this.#planBase(kept, readMsOf(kept), { mayAsk: false }));
           const snapshotId = baseIdOf(from);
           // Test stages only: a bogus id in the real one's place (`faultBaseSnapshot`).
           const platformId = snapshotId === undefined ? undefined : (this.#takeBaseFault() ?? snapshotId);
@@ -1202,7 +1204,7 @@ export class WorkspaceDO extends ContainerHost {
   /**
    * What this start launches with (ADR-0032). A running Container keeps what it started with: computer's start adopts it
    * only with the same `instance`, and relaunches it otherwise, so a settings change never resizes or restarts it. A
-   * stopped one takes the Environment's settings now, waiting at most ENVIRONMENT_READ_MS, else the copy kept.
+   * stopped one takes the Environment's settings now, waiting at most the settings read wait, else the copy kept.
    */
   async #launch(): Promise<ContainerLaunch> {
     const kv = this.ctx.storage.kv;
@@ -1213,7 +1215,7 @@ export class WorkspaceDO extends ContainerHost {
     const taken = await this.#takeSettings();
     // What it starts from (SPI-1333): a wait was done before computer's connect (`#waitForBase`), so one left here starts
     // from the image; a key with no Base snapshot is reported to the Builder, which decides whether to build.
-    const pick = await this.#planBase(taken.settings);
+    const pick = await this.#planBase(taken.settings, taken.readMs);
     if (pick.kind === "image" && pick.missing === true) this.ctx.waitUntil(this.#reportToBuilder({ kind: "missing" }));
     const launch: ContainerLaunch = { ...(await withContainerSteps(launchOf(taken), taken)), from: launchFrom(pick) };
     kv.put(LAUNCH_KEY, launch);
@@ -1238,15 +1240,21 @@ export class WorkspaceDO extends ContainerHost {
     return launch;
   }
 
-  /** The Environment settings for a start: the Environment's, waited for at most ENVIRONMENT_READ_MS, else the copy kept. */
-  #takeSettings() {
+  /**
+   * The Environment settings for a start: the Environment's, waited for at most the settings read wait, else the copy
+   * kept; and that wait, which bounds the start's reads of the Builder too. The wait is the kept copy's (SPI-1314), so a
+   * change applies from the start after the one that took it.
+   */
+  async #takeSettings(): Promise<TakenEnvironment & { readonly readMs: number }> {
     const kv = this.ctx.storage.kv;
-    return takeEnvironment({
+    const readMs = readMsOf(this.#keptSettings());
+    const taken = await takeEnvironment({
       read: () => environmentStub(this.env.ENVIRONMENT).environmentSettings(),
       kept: () => kv.get<ResolvedEnvironment>(ENVIRONMENT_KEY),
       keep: (settings) => kv.put(ENVIRONMENT_KEY, settings),
-      waitMs: ENVIRONMENT_READ_MS,
+      waitMs: readMs,
     });
+    return { ...taken, readMs };
   }
 
   /** The settings the running Container took (kept by its start), read against this Worker's schema; else the defaults. */
@@ -1279,13 +1287,13 @@ export class WorkspaceDO extends ContainerHost {
   }
 
   /** What a fresh start with `settings` starts from (`planBase`): the Builder's record against this Workspace image. */
-  #planBase(settings: BaseSettings, options: { readonly mayAsk?: boolean } = {}) {
+  #planBase(settings: BaseSettings, boundMs: number, options: { readonly mayAsk?: boolean } = {}) {
     const stub = this.#builderStub();
     return planBase(
       {
         builder: { record: () => stub.builderRecord(), missing: () => stub.builderReport({ kind: "missing" }) },
         imageDigest: workspaceImage(this.ctx.container),
-        boundMs: BUILDER_READ_MS,
+        boundMs,
       },
       settings,
       options,
@@ -1304,7 +1312,7 @@ export class WorkspaceDO extends ContainerHost {
   #waitForBase(): Promise<void> {
     if (this.containerRunning() || this.#isBuilder()) return Promise.resolve();
     this.#baseWait ??= (async () => {
-      const { settings } = await this.#takeSettings();
+      const { settings, readMs } = await this.#takeSettings();
       const started = Date.now();
       let waited = false;
       // The Builder is asked (or told) once a wait; its later polls read the record only.
@@ -1312,7 +1320,7 @@ export class WorkspaceDO extends ContainerHost {
       try {
         const pick = await waitForBase({
           plan: async () => {
-            const next = await this.#planBase(settings, { mayAsk });
+            const next = await this.#planBase(settings, readMs, { mayAsk });
             mayAsk = false;
             this.#waitingForBase = next.kind === "wait";
             waited ||= this.#waitingForBase;

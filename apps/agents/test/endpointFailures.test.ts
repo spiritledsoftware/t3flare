@@ -134,7 +134,6 @@ const openSession = async (
     fetch: recorder.fetch,
     usage: { session: () => "s", record: () => undefined },
     limits: () => undefined,
-    readMs: 50,
     now: () => now,
     source: () => ({
       modelEndpoints: async () => ({ revision: 1, endpoints }),
