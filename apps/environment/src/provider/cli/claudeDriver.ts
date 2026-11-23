@@ -26,8 +26,8 @@ export const ClaudeCliDriver: ProviderDriver<ClaudeSettings, ClaudeCliDriverEnv>
   driverKind: CLAUDE_CLI_DRIVER,
   metadata: { displayName: "Claude", supportsMultipleInstances: false, hasDefaultInstance: true },
   configSchema: ClaudeSettings,
-  // Idle compaction is never this instance's: it would start a Container for a `/compact` turn (review F7).
-  defaultConfig: () => decodeSettings({ idleCompaction: "off" }),
+  // As stock t3's: idle compaction follows t3's default, which t3flare's managed policy starts off (SPI-1367).
+  defaultConfig: () => decodeSettings({}),
   create: (input) =>
     createAcpCliInstance(
       { cli: "claude", driver: CLAUDE_CLI_DRIVER, presentation: PRESENTATION, version: CLIS.claude.version },
