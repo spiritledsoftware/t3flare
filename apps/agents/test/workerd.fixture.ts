@@ -7,6 +7,7 @@ import { ContainerBudget } from "../src/budget.ts";
 import { SKILLS_MOUNT, type SkillSet } from "@t3flare/skills";
 
 import { repoFileSizes } from "../src/workspace/changeLog.ts";
+import { fileOps } from "../src/workspace/files.ts";
 import { mountWithFallback, skillSetMount, skillSetStore } from "../src/workspace/skillSet.ts";
 
 export { ContainerBudget };
@@ -27,6 +28,23 @@ export class SettingContainerBudget extends FakeClockContainerBudget {
 }
 
 export default { fetch: () => new Response("t3flare agents test worker") };
+
+type CopiedBack = { readonly equal: boolean; readonly size: number };
+
+/** Whether the file at `path` reads back as `source`, byte for byte, and its size; or the read's error. */
+const readBack = async (
+  ops: ReturnType<typeof fileOps>,
+  path: string,
+  source: Uint8Array,
+): Promise<CopiedBack | { error: string }> => {
+  const read = await ops.read(path);
+  if (!("ok" in read)) return { error: read.message };
+  const back = read.ok;
+  return {
+    equal: back.byteLength === source.byteLength && back.every((byte, i) => byte === source[i]),
+    size: back.byteLength,
+  };
+};
 
 /** A computer Workspace with no backends, over this object's SQLite: the VFS tables as the Workspace DO has them. */
 export class VfsProbe extends DurableObject {
@@ -52,6 +70,56 @@ export class VfsProbe extends DurableObject {
   async sizes(dir: string): Promise<{ largest: number; worktreeBytes: number }> {
     await this.#workspace.ready();
     return repoFileSizes(this.ctx.storage.sql, dir);
+  }
+
+  /**
+   * Writes `source` to `to` through `fileOps.write`'s append path in `chunkBytes` chunks: the first written, every later
+   * one appended. Whether the file read back equals `source` byte for byte, or the first error.
+   */
+  async copy(to: string, source: Uint8Array, chunkBytes: number): Promise<CopiedBack | { error: string }> {
+    await this.#workspace.ready();
+    const ops = fileOps(this.#workspace);
+    for (let offset = 0; offset < source.byteLength; offset += chunkBytes) {
+      const wrote = await ops.write(to, source.subarray(offset, offset + chunkBytes), { append: offset > 0 });
+      if (!("ok" in wrote)) return { error: wrote.message };
+    }
+    return readBack(ops, to, source);
+  }
+
+  /**
+   * Copies `source` to `to` through `fileOps.copyIn`, as the Workspace DO's `#copyFrom` does, its chunks read from
+   * `source`; a chunk read at offset `failAt` answers an error. The error, or whether the file read back equals `source`
+   * byte for byte.
+   */
+  async copyIn(
+    to: string,
+    source: Uint8Array,
+    chunkBytes: number,
+    failAt?: number,
+  ): Promise<CopiedBack | { error: string }> {
+    await this.#workspace.ready();
+    const ops = fileOps(this.#workspace);
+    const error = await ops.copyIn(to, chunkBytes, async (offset, length) => {
+      if (offset === failAt) return { error: `no chunk at ${offset}` };
+      const bytes = source.slice(offset, offset + length);
+      return { bytes, done: bytes.byteLength < length };
+    });
+    if (error !== undefined) return { error };
+    return readBack(ops, to, source);
+  }
+
+  async exists(path: string): Promise<boolean> {
+    await this.#workspace.ready();
+    return "ok" in (await fileOps(this.#workspace).stat(path));
+  }
+
+  async writeText(path: string, data: string, append: boolean): Promise<string> {
+    await this.#workspace.ready();
+    const ops = fileOps(this.#workspace);
+    const wrote = await ops.write(path, data, { append });
+    if (!("ok" in wrote)) return wrote.message;
+    const read = await ops.read(path);
+    return "ok" in read ? new TextDecoder().decode(read.ok) : read.message;
   }
 }
 
