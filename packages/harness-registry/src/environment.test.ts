@@ -56,6 +56,7 @@ const BASE_DEFAULTS = {
  * every full object below.
  */
 const TUNABLE_DEFAULTS = {
+  outsideRequestSeconds: 15,
   customVcpu: 1,
   customMemoryMib: 3072,
   customDiskMb: 12_000,

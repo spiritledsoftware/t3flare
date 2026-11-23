@@ -11,28 +11,23 @@ import {
   type RepoReader,
   type SkillRepo,
 } from "./fetch.ts";
-import { MAX_ENVIRONMENT_SKILLS, MAX_SET_BYTES } from "./checks.ts";
+import { MAX_SET_BYTES } from "./checks.ts";
 import { parseSkillSource } from "./source.ts";
 import type { ReadAccess } from "./contents.ts";
 import type { AuditActor } from "../harness/store.ts";
 import type { ChangeAnswer, EnvironmentSkillRow, SkillStore } from "./store.ts";
-
-/** How long one request may read GitHub for: the Environment DO also runs t3 (ADR-0004). */
-export const REQUEST_BUDGET_MS = 60_000;
-
-/** The most `(repo, ref)` groups one update check reads. */
-export const MAX_CHECK_GROUPS = 40;
 
 /** The preview's word on files other than `SKILL.md` (plan A8). */
 export const OTHER_FILES_NOTE = "Other files are checked when the skill is installed.";
 
 export interface SkillsApiDeps {
   readonly store: SkillStore;
-  /** A reader of `repo` with the Environment's credential (`readAccessFor`), ending at `deadline`. */
-  readonly reader: (
-    repo: SkillRepo,
-    deadline: number,
-  ) => Promise<{ readonly reader: RepoReader; readonly how: ReadAccess["how"] }>;
+  /**
+   * A reader of `repo` with the Environment's credential (`readAccessFor`). No budget for the whole request (SPI-1365):
+   * each read has its own bound (`outsideRequestSeconds`) and the reads are counted (`MAX_BLOB_READS`,
+   * `MAX_SKILL_CANDIDATES`), and an awaited read does not hold the Environment DO from t3's work.
+   */
+  readonly reader: (repo: SkillRepo) => Promise<{ readonly reader: RepoReader; readonly how: ReadAccess["how"] }>;
   /** No installed repo is known: reads would be unauthenticated (shown on the page without minting, plan A9). */
   readonly unauthenticated: () => boolean;
   /** Who asked, as the audit log keeps it: a caller name, or every actor field (plan D15). */
@@ -77,7 +72,6 @@ export const skillsOverview = (deps: Pick<SkillsApiDeps, "store" | "unauthentica
       bytes,
       disabledBytes,
       maxBytes: MAX_SET_BYTES,
-      maxSkills: MAX_ENVIRONMENT_SKILLS,
     },
     hash: deps.store.hash(),
     unauthenticated: deps.unauthenticated(),
@@ -104,7 +98,7 @@ const preview = async (deps: SkillsApiDeps, body: Record<string, unknown>): Prom
   const parsed = parseSkillSource(stringField(body, "source") ?? "");
   if (!parsed.ok) return refuse(400, parsed.message);
   const { source } = parsed;
-  const { reader, how } = await deps.reader({ owner: source.owner, name: source.name }, deps.now() + REQUEST_BUDGET_MS);
+  const { reader, how } = await deps.reader({ owner: source.owner, name: source.name });
   const found = await previewSkills(reader, source);
   if (found.status === "failed") return refuse(502, found.message);
   return ok({
@@ -162,7 +156,7 @@ export const previewAtCommit = async (
   if (!parsed.ok) return { ok: false, error: parsed.message };
   if (!/^[0-9a-f]{40}$/.test(input.commit)) return { ok: false, error: "commit is a 40-hex commit" };
   const source = { ...parsed.source, ref: input.commit };
-  const { reader } = await deps.reader({ owner: source.owner, name: source.name }, deps.now() + REQUEST_BUDGET_MS);
+  const { reader } = await deps.reader({ owner: source.owner, name: source.name });
   const found = await previewSkills(reader, source, { detail: true });
   if (found.status === "failed") return { ok: false, error: found.message };
   const skills =
@@ -181,7 +175,7 @@ const install = async (deps: SkillsApiDeps, body: Record<string, unknown>): Prom
     : [];
   if (folders.length === 0) return refuse(400, "folders names at least one skill's folder from the preview");
   const { source } = parsed;
-  const { reader } = await deps.reader({ owner: source.owner, name: source.name }, deps.now() + REQUEST_BUDGET_MS);
+  const { reader } = await deps.reader({ owner: source.owner, name: source.name });
   const fetched = await fetchSkills(reader, { repo: { owner: source.owner, name: source.name }, commit, folders });
   // Too many files is the request's own limit, not GitHub's failure.
   if (fetched.status === "failed") return refuse(fetched.kind === "too_many" ? 422 : 502, fetched.message);
@@ -237,14 +231,13 @@ const check = async (deps: SkillsApiDeps, body: Record<string, unknown>): Promis
     const key = JSON.stringify([row.repo, row.ref]);
     groups.set(key, [...(groups.get(key) ?? []), row]);
   }
-  const deadline = deps.now() + REQUEST_BUDGET_MS;
   const results: Array<Record<string, unknown>> = [];
   const hows = new Set<ReadAccess["how"]>();
   const keys = [...groups.keys()];
-  for (const key of keys.slice(0, MAX_CHECK_GROUPS)) {
+  for (const key of keys) {
     const group = groups.get(key)!;
     const [owner = "", name = ""] = group[0]!.repo.split("/");
-    const { reader, how } = await deps.reader({ owner, name }, deadline);
+    const { reader, how } = await deps.reader({ owner, name });
     hows.add(how);
     const checked = await checkSkills(reader, {
       repo: { owner, name },
@@ -264,7 +257,6 @@ const check = async (deps: SkillsApiDeps, body: Record<string, unknown>): Promis
       });
     }
   }
-  const skipped = keys.slice(MAX_CHECK_GROUPS).flatMap((key) => groups.get(key)!.map((row) => row.name));
   // Said as the preview says it (plan §3.2): reads from GitHub's shared unauthenticated limit, when any were.
   const how = hows.has("unauthenticated")
     ? "unauthenticated"
@@ -276,11 +268,6 @@ const check = async (deps: SkillsApiDeps, body: Record<string, unknown>): Promis
   return ok({
     results,
     ...(how === undefined ? {} : { how }),
-    ...(skipped.length === 0
-      ? {}
-      : {
-          note: `Checked the first ${MAX_CHECK_GROUPS} repositories and refs; check again for ${skipped.join(", ")}.`,
-        }),
   });
 };
 
@@ -292,7 +279,7 @@ const update = async (deps: SkillsApiDeps, body: Record<string, unknown>): Promi
   if (row === undefined) return refuse(404, `No Environment skill is named ${name}.`);
   if (!/^[0-9a-f]{40}$/.test(commit)) return refuse(400, "commit is the 40-hex commit the check answered");
   const [owner = "", repoName = ""] = row.repo.split("/");
-  const { reader } = await deps.reader({ owner, name: repoName }, deps.now() + REQUEST_BUDGET_MS);
+  const { reader } = await deps.reader({ owner, name: repoName });
   const fetched = await fetchSkills(reader, { repo: { owner, name: repoName }, commit, folders: [row.path] });
   if (fetched.status === "failed") return refuse(502, fetched.message);
   const [skill] = fetched.skills;

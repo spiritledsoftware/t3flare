@@ -30,7 +30,7 @@ import {
   strikeWindowMs,
   waitOf,
 } from "./changes.ts";
-import { REQUEST_BUDGET_MS } from "../skills/api.ts";
+import { MAX_BLOB_READS } from "../skills/checks.ts";
 
 /** A closed change's outcome, as a held call and an answerer read it. Never an authorization URL. */
 export interface ChangeOutcome {
@@ -375,12 +375,20 @@ export const closeOpenChange = (
  */
 export const APPLYING_WAIT_MS = 30_000;
 
+/** The most GitHub requests one skills install or update makes: its blobs, the commit, the tree and two limit checks. */
+const SKILLS_APPLY_READS = MAX_BLOB_READS + 4;
+
+/** The most a JS timer waits: past 2^31 - 1 ms one fires at once. */
+const TIMER_MAX_MS = 2_147_483_647;
+
 /**
  * The same wait for an own agent's call, which no client timeout cuts short: at least the longest apply, a skills
- * install or update within the skills API's request budget, and a margin (SPI-1201 review), so a Stop or a timeout
- * landing meanwhile reports what the apply did.
+ * install or update whose every read takes the whole Outside request time limit (`outsideRequestMs`, SPI-1365), and a
+ * margin (SPI-1201 review), so a Stop or a timeout landing meanwhile reports what the apply did. At most a JS timer's
+ * longest wait.
  */
-export const OWN_APPLYING_WAIT_MS = REQUEST_BUDGET_MS + 15_000;
+export const ownApplyingWaitMs = (outsideRequestMs: number): number =>
+  Math.min(TIMER_MAX_MS, SKILLS_APPLY_READS * outsideRequestMs + 15_000);
 
 /**
  * Closes Open change `id` as `closeOpenChange` does, but when an answer is applying it (state `applying`), waits for that

@@ -15,7 +15,7 @@
 // discovery, and the redirect port is 1455 from the first registration onward.
 //
 // Every failure is one of our fixed texts: never a token, a code, a verifier, or the vendor's body.
-import { isRecord, oauthErrorCode, oauthRequestOptions, pkceChallenge, random } from "./oauth.ts";
+import { isRecord, OAUTH_TIMEOUT_MS, oauthErrorCode, oauthRequestOptions, pkceChallenge, random } from "./oauth.ts";
 import type { SignInVendor } from "./signIn.ts";
 
 /** OpenAI's endpoints for this flow (the authorize and token URLs as the docs give them; the rest from discovery). */
@@ -56,6 +56,8 @@ const REFUSED_CODES: ReadonlySet<string> = new Set([
 export interface ChatGptVendor {
   readonly fetch: typeof fetch;
   readonly now: () => number;
+  /** Each request's bound (`outsideRequestSeconds`, read at each request; `OAUTH_TIMEOUT_MS` when absent). */
+  readonly timeoutMs?: number;
   readonly urls?: ChatGptUrls;
 }
 
@@ -185,7 +187,7 @@ const post = async (
     method: "POST",
     headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(form).toString(),
-    ...oauthRequestOptions({ deadline }),
+    ...oauthRequestOptions({ deadline, timeoutMs: vendor.timeoutMs }),
   });
 
 interface TokenAnswer {
@@ -228,7 +230,7 @@ const tokenAnswer = (body: unknown): TokenAnswer | undefined => {
 const getJson = async (vendor: ChatGptVendor, url: string, deadline?: AbortSignal): Promise<unknown> => {
   const response = await vendor.fetch(url, {
     headers: { accept: "application/json" },
-    ...oauthRequestOptions({ deadline }),
+    ...oauthRequestOptions({ deadline, timeoutMs: vendor.timeoutMs }),
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.json();
@@ -464,18 +466,22 @@ const sleep = (ms: number, deadline: AbortSignal) =>
     );
   });
 
-/** The whole of a revocation, its retries included. */
-export const REVOKE_DEADLINE_MS = 30_000;
+/**
+ * The whole of a revocation, its retries included: twice one request's bound (the vendor's `timeoutMs`), today's 30 s at
+ * the setting's default, room for a slow first try and the retries after it.
+ */
+export const revokeDeadlineMs = (vendor: Pick<ChatGptVendor, "timeoutMs">): number =>
+  2 * (vendor.timeoutMs ?? OAUTH_TIMEOUT_MS);
 
 /**
  * Ends the renewable session at OpenAI: the refresh token posted to discovery's revocation endpoint (an empty 200 is
- * success, also for a token already invalid). A network failure or 5xx is retried twice, all within 30 s; `confirmed`
- * false otherwise.
+ * success, also for a token already invalid). A network failure or 5xx is retried twice, all within `deadlineMs`;
+ * `confirmed` false otherwise.
  */
 export const revokeChatGpt = async (
   vendor: ChatGptVendor,
   credential: Pick<ChatGptCredential, "refresh" | "clientId">,
-  deadlineMs: number = REVOKE_DEADLINE_MS,
+  deadlineMs: number = revokeDeadlineMs(vendor),
 ): Promise<{ readonly confirmed: boolean }> => {
   const deadline = AbortSignal.timeout(deadlineMs);
   for (let attempt = 0; attempt < 3 && !deadline.aborted; attempt += 1) {

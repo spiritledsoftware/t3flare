@@ -50,6 +50,7 @@ import {
   type SettingsServerLimitKey,
   SETTINGS_SERVER_LIMITS_NOTE,
   MCP_CALL_SETTING_KEYS,
+  OUTSIDE_REQUEST_SETTING_KEYS,
   RETENTION_SETTING_KEYS,
   SWEEP_SETTING_KEYS,
   visible,
@@ -441,13 +442,15 @@ const environmentSection = (
     ([key]) => !(SWEEP_SETTING_KEYS as ReadonlyArray<string>).includes(key),
   );
   // The scalar settings share the Containers row. The agents' settings (SPI-1315: the Turn limit, the CLI agents'
-  // processes) share an Agents row, the MCP calls' time limit and result size (SPI-1359) an MCP calls row, how long
+  // processes) share an Agents row, the MCP calls' time limit and result size (SPI-1359) an MCP calls row, the outside
+  // requests' time limit (SPI-1365) an Outside requests row, how long
   // history is kept (SPI-1323) a History row, and the dotfiles toggles (ADR-0047 §9) a Dotfiles row, each a `keyedRow`. A list (the Variables) and a file (the Global mise config, the
   // Container setup) each get a row of their own, which the settings that name it as their `row` join. One form, one
   // Save.
   const keyed: ReadonlyArray<string> = [
     ...AGENT_SETTING_KEYS,
     ...MCP_CALL_SETTING_KEYS,
+    ...OUTSIDE_REQUEST_SETTING_KEYS,
     ...RETENTION_SETTING_KEYS,
     ...DOTFILES_SETTING_KEYS,
   ];
@@ -479,6 +482,12 @@ const environmentSection = (
     "How long one MCP tool call may run, and how large a result t3flare takes from it, for every agent and every server.",
     MCP_CALL_SETTING_KEYS,
   );
+  const outside = keyedRow(
+    "outside-requests",
+    "Outside requests",
+    "How long t3flare waits for GitHub and the sign-ins' vendors to answer one request.",
+    OUTSIDE_REQUEST_SETTING_KEYS,
+  );
   const history = keyedRow(
     "history",
     "History",
@@ -505,7 +514,7 @@ const environmentSection = (
 <div class="section-head"><h2 id="environment-title">${icon("container")}Environment</h2></div>
 <p class="section-desc">What every Workspace's Container gets, and how long t3flare keeps its history. A change applies at each Workspace's next Container start unless its setting says otherwise; a running Container keeps what it started with, and a lower budget stops none.</p>
 <form class="group" data-environment aria-labelledby="environment-title" novalidate><div class="row"><div><div class="row-title"><h3>Containers</h3><span class="ident">revision ${environment.revision}</span></div><p class="desc">Their size, how long one may sit idle, how long open Terminals keep it running, how many may run at once, how many Terminals a Workspace may have, yours and agents', how long a start or a turn waits for the newest settings, and how long a clone or a checkpoint may run.</p></div>
-<div class="row-extra"><div class="fields">${fields.join("")}</div></div></div>${agents}${mcpCalls}${history}${dotfiles}${lists.join("")}${save}</form>
+<div class="row-extra"><div class="fields">${fields.join("")}</div></div></div>${agents}${mcpCalls}${outside}${history}${dotfiles}${lists.join("")}${save}</form>
 <dl class="group kv"><div><dt>Running now</dt><dd>${
     running === null || running === undefined
       ? "unknown"
@@ -860,7 +869,6 @@ export interface SkillsView {
     readonly bytes: number;
     readonly disabledBytes: number;
     readonly maxBytes: number;
-    readonly maxSkills: number;
   };
   readonly unauthenticated: boolean;
 }
@@ -891,7 +899,7 @@ const skillsSection = (view: SkillsView | undefined): string => {
   return `<section id="skills" aria-labelledby="skills-title">
 <div class="section-head"><h2 id="skills-title">${icon("skills")}Skills</h2>${view.skills.length === 0 ? "" : '<div class="head-actions"><button type="button" class="btn btn-sm btn-primary" data-skill-update-all hidden>Update all</button><button type="button" class="btn btn-sm" data-skill-check="">Check all for updates</button></div>'}</div>
 <p class="section-desc">Environment skills, offered to Durable agents in every Project and served read-only in every Workspace at <code>/workspace/.agents/skills</code>. Each is pinned to the commit it was installed at, and beats a Repo skill of the same name. A change applies at each thread's next turn; the composer shows it at once. Repo skills load from each Workspace's own files, switched by the Skills extension above.</p>
-<p class="section-desc" data-skill-totals>${plural(totals.count, "skill", "skills")} (${totals.enabled} enabled, ${totals.disabled} disabled) of ${totals.maxSkills}; ${sizeText(totals.bytes)} of ${sizeText(totals.maxBytes)}${totals.disabled === 0 ? "" : `, ${sizeText(totals.disabledBytes)} of it disabled`}. Disabled skills count toward the limits.</p>
+<p class="section-desc" data-skill-totals>${plural(totals.count, "skill", "skills")} (${totals.enabled} enabled, ${totals.disabled} disabled); ${sizeText(totals.bytes)} of ${sizeText(totals.maxBytes)}${totals.disabled === 0 ? "" : `, ${sizeText(totals.disabledBytes)} of it disabled`}. Disabled skills count toward the limit.</p>
 ${view.unauthenticated ? `<div class="callout callout-warn" role="note">${icon("warn")}<div><strong>Reads from GitHub are unauthenticated</strong><p>No repository with the GitHub App is a Project here, so public repos are read from GitHub's shared limit of 60 an hour for this Worker's address. Install the GitHub App on a repository and add it as a Project to read with its own limit.</p></div></div>` : ""}
 <div class="group">${list}</div>
 <form class="group add" id="install-skill" data-skill-install autocomplete="off" aria-labelledby="install-title">

@@ -8,9 +8,11 @@
 // Each Update's workflow names its run `<kind> <update id>`; the run is the workflow's `workflow_dispatch` run created
 // since the dispatch whose title (`display_title`, the run's `run-name`) is that name.
 
+import { DEFAULT_OUTSIDE_REQUEST_SECONDS } from "@t3flare/harness-registry";
+
 const API = "https://api.github.com";
-/** How long one request to GitHub may take. */
-const REQUEST_TIMEOUT_MS = 15_000;
+/** How long one request to GitHub may take where no setting reaches: the Outside request time limit's default. */
+const REQUEST_TIMEOUT_MS = DEFAULT_OUTSIDE_REQUEST_SECONDS * 1000;
 
 export type ActionsFetch = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -73,6 +75,8 @@ export const actionsClient = (input: {
   readonly repo: UpdateRepo;
   readonly token: () => Promise<string>;
   readonly fetch: ActionsFetch;
+  /** Each request's bound (`outsideRequestSeconds`), read at each request. */
+  readonly timeoutMs?: () => number;
 }): ActionsClient => {
   const repoPath = `/repos/${encodeURIComponent(input.repo.owner)}/${encodeURIComponent(input.repo.name)}`;
 
@@ -88,7 +92,7 @@ export const actionsClient = (input: {
         ...(body === undefined ? {} : { "content-type": "application/json" }),
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(input.timeoutMs?.() ?? REQUEST_TIMEOUT_MS),
     });
     if (!response.ok) {
       const text = await response.text().catch(() => "");

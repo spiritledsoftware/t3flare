@@ -94,6 +94,7 @@ const ENVIRONMENT: Readonly<
   containerSize: { up: ["cpu-1", "standard-4", "asked"], down: ["standard-4", "standard-1", "asked"] },
   // SPI-1365: a custom size's resources are asked either way, as the size is (cost one way, a start refused the other).
   customVcpu: { up: [1, 2, "asked"], down: [2, 0.5, "asked"] },
+  outsideRequestSeconds: { up: [15, 60, "asked"], down: [60, 15, "free"] },
   customMemoryMib: { up: [3072, 8192, "asked"], down: [8192, 1024, "asked"] },
   customDiskMb: { up: [12_000, 16_000, "asked"], down: [16_000, 4000, "asked"] },
   containerIdleMinutes: { up: [2, 30, "asked"], down: [30, 2, "free"] },

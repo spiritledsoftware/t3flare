@@ -22,10 +22,10 @@ import {
   answerOpenChange,
   APPLYING_WAIT_MS,
   closeOrSettle,
-  OWN_APPLYING_WAIT_MS,
+  ownApplyingWaitMs,
   waitingOn,
 } from "../src/settings/openChanges.ts";
-import { REQUEST_BUDGET_MS } from "../src/skills/api.ts";
+import { MAX_BLOB_READS } from "../src/skills/checks.ts";
 import { answerDepsOf, ownerOutcome } from "../src/settings/server.ts";
 import { ASKED, bodyOf, endpointOf, modern, setAccess, structuredOf, SUB } from "./settingsEndpointFixture.ts";
 import { settingsFixture, type SettingsFixture, structured, textOf, until } from "./settingsFixture.ts";
@@ -99,8 +99,10 @@ describe("an answer applying meanwhile is waited for", () => {
     expect(answer.kind === "result" ? answer.text : "").not.toContain("failed");
   });
 
-  it("an own agent's close waits at least as long as the longest apply (a skills install within its request budget)", () => {
-    expect(OWN_APPLYING_WAIT_MS).toBeGreaterThan(REQUEST_BUDGET_MS);
+  it("an own agent's close waits at least as long as the longest apply (a skills install, every read at its time limit)", () => {
+    expect(ownApplyingWaitMs(15_000)).toBeGreaterThan(MAX_BLOB_READS * 15_000);
+    // Never past a JS timer's longest wait, at the setting's maximum.
+    expect(ownApplyingWaitMs(7 * 24 * 3_600_000)).toBe(2_147_483_647);
     expect(APPLYING_WAIT_MS).toBeLessThan(60_000);
   });
 

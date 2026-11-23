@@ -12,6 +12,8 @@ export const environmentUpdates = (input: {
   readonly target: string | undefined;
   readonly store: UpdateStore;
   readonly github: () => GitHubTokens;
+  /** Each GitHub request's bound (`outsideRequestSeconds`), read at each request. */
+  readonly timeoutMs?: () => number;
 }): Updates => {
   const repo = updateRepoOf(input.target);
   return updates({
@@ -30,6 +32,7 @@ export const environmentUpdates = (input: {
                 })
               ).token,
             fetch: (url, init) => fetch(url, init),
+            ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
           }),
     now: () => Date.now(),
     newId: () => crypto.randomUUID(),

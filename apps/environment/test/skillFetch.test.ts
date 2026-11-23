@@ -3,6 +3,7 @@
 // (plan §3.3), and the counts below say so.
 import { describe, expect, it } from "vitest";
 
+import { MAX_FILE_BYTES, MAX_SKILL_CANDIDATES } from "../src/skills/checks.ts";
 import { checkSkills, fetchSkills, GithubReadError, previewSkills, readSkillMd } from "../src/skills/fetch.ts";
 import { parseSkillSource } from "../src/skills/source.ts";
 import { fakeGithub, skillMd } from "./skillRepo.fixture.ts";
@@ -172,20 +173,21 @@ describe("previewSkills", () => {
     await expect(previewSkills(github.reader, source("o/r"))).rejects.toThrow("a bug");
   });
 
-  it("reads at most 200 SKILL.md files and counts the rest", async () => {
+  it("reads at most MAX_SKILL_CANDIDATES SKILL.md files, GitHub's minute less the commit and tree, and counts the rest", async () => {
+    expect(MAX_SKILL_CANDIDATES).toBe(898);
     const github = fakeGithub();
     github.push(
       "o/r",
       Object.fromEntries(
-        Array.from({ length: 205 }, (_, index) => [`skills/s${index}/SKILL.md`, skillMd(`s${index}`)]),
+        Array.from({ length: MAX_SKILL_CANDIDATES + 5 }, (_, index) => [`skills/s${index}/SKILL.md`, skillMd(`s${index}`)]),
       ),
     );
     const preview = await previewSkills(github.reader, source("o/r"));
     expect(preview.status === "listed" && { listed: preview.skills.length, omitted: preview.omitted }).toEqual({
-      listed: 200,
+      listed: MAX_SKILL_CANDIDATES,
       omitted: 5,
     });
-    expect(github.blobs()).toBe(200);
+    expect(github.blobs()).toBe(MAX_SKILL_CANDIDATES);
   });
 });
 
@@ -245,7 +247,7 @@ describe("fetchSkills", () => {
     ]);
   });
 
-  it("refuses a folder before reading its other files when the tree says it is too large (its SKILL.md is 53 bytes)", async () => {
+  it("takes a Skill past the old 4 MiB together, each file within its row (SPI-1365)", async () => {
     const github = fakeGithub();
     const commit = github.push("o/r", {
       "skills/big/SKILL.md": skillMd("big"),
@@ -253,19 +255,20 @@ describe("fetchSkills", () => {
       "skills/big/b.txt": "y".repeat(1_500_000),
       "skills/big/c.txt": "z".repeat(1_500_000),
     });
+    const fetched = await fetchSkills(github.reader, { repo: REPO, commit, folders: ["skills/big"] });
+    expect(fetched).toMatchObject({ status: "fetched", commit, refused: [] });
+    expect(fetched.status === "fetched" && fetched.skills.map((skill) => skill.name)).toEqual(["big"]);
+  });
+
+  it("refuses a folder before reading its other files when the tree says one file is past its row (its SKILL.md is 53 bytes)", async () => {
+    const github = fakeGithub();
+    const commit = github.push("o/r", {
+      "skills/big/SKILL.md": skillMd("big"),
+      "skills/big/a.txt": "x".repeat(MAX_FILE_BYTES + 1),
+    });
     github.reset();
     const fetched = await fetchSkills(github.reader, { repo: REPO, commit, folders: ["skills/big"] });
-    expect(fetched).toEqual({
-      status: "fetched",
-      commit,
-      skills: [],
-      refused: [
-        {
-          path: "skills/big",
-          message: "big: the files are 4500053 bytes together, more than the 4194304 a Skill may be",
-        },
-      ],
-    });
+    expect(fetched).toMatchObject({ status: "fetched", skills: [], refused: [{ path: "skills/big" }] });
     // Its SKILL.md alone.
     expect(github.blobs()).toBe(1);
   });

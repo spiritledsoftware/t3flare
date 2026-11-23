@@ -112,7 +112,7 @@ import {
   type ChangesApi,
   closeOrSettle,
   openChangeSummary,
-  OWN_APPLYING_WAIT_MS,
+  ownApplyingWaitMs,
   outcomeOf,
   waitForChange,
 } from "./openChanges.ts";
@@ -1319,8 +1319,10 @@ export const applyOpenChange = async (
 };
 
 /** A closed change's answer to the agent (plan D11's statuses). */
-/** An own agent's close waits this long for an applying answer (`closeOrSettle`). */
-const OWN_WAIT = { waitMs: OWN_APPLYING_WAIT_MS } as const;
+/** How long an own agent's close waits for an applying answer (`closeOrSettle`), at the Outside request time limit now. */
+const ownWait = (deps: SettingsServerDeps): { readonly waitMs: number } => ({
+  waitMs: ownApplyingWaitMs(resolveEnvironment(deps.ops.store.loadEnvironment()).outsideRequestSeconds * 1000),
+});
 
 const resultOf = (
   outcome: ChangeOutcome,
@@ -1710,7 +1712,7 @@ const ask = async (
         id,
         event.kind === "stop" ? "withdrawn" : "expired",
         event.kind === "stop" ? "stop" : undefined,
-        OWN_WAIT,
+        ownWait(deps),
       ),
     );
   };
@@ -1731,7 +1733,7 @@ const ask = async (
           id,
           event.kind === "stop" ? "withdrawn" : "expired",
           event.kind === "stop" ? "stop" : undefined,
-          OWN_WAIT,
+          ownWait(deps),
         );
         await withdrawCard();
         return resultOf(finalOf(outcome), record, planned);
@@ -1768,7 +1770,7 @@ const ask = async (
         id,
         reason === "no answer in time" ? "expired" : "withdrawn",
         closer,
-        OWN_WAIT,
+        ownWait(deps),
       );
       return resultOf(finalOf(withdrawn), record, planned);
     }

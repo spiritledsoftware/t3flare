@@ -208,7 +208,7 @@ export const fixturePage = (overrides: Partial<PageInput> = {}): PageInput => ({
         bytes: 9_840,
       },
     ],
-    totals: { count: 2, enabled: 1, disabled: 1, bytes: 12_150, disabledBytes: 9_840, maxBytes: 8_388_608, maxSkills: 100 },
+    totals: { count: 2, enabled: 1, disabled: 1, bytes: 12_150, disabledBytes: 9_840, maxBytes: 8_388_608 },
     unauthenticated: false,
   },
   workspaces: FIXTURE_WORKSPACES,

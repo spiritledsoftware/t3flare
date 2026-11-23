@@ -300,6 +300,12 @@ export const DEFAULT_MCP_CALL_SECONDS = 270;
 /** The MCP call time limit's default in ms: used where no setting reaches (a test's host, a call that carries none). */
 export const DEFAULT_MCP_CALL_MS = DEFAULT_MCP_CALL_SECONDS * 1000;
 
+/**
+ * How long t3flare waits for one answer from GitHub or a sign-in vendor by default (`outsideRequestSeconds`, SPI-1365):
+ * today's 15 seconds.
+ */
+export const DEFAULT_OUTSIDE_REQUEST_SECONDS = 15;
+
 /** The MCP result size's default, in KiB (`mcpResultKiB`, SPI-1359): today's 1 MiB. */
 export const DEFAULT_MCP_RESULT_KIB = 1024;
 
@@ -318,6 +324,12 @@ export const MAX_MCP_RESULT_KIB = 8 * 1024;
  * the Settings page shows them in an MCP calls row of their own, in this order.
  */
 export const MCP_CALL_SETTING_KEYS = ["mcpCallSeconds", "mcpResultKiB"] as const;
+
+/**
+ * The outside requests' setting (SPI-1365): how long one request to GitHub or a sign-in's vendor may wait. It bounds the
+ * Environment's own requests at the next one, never a Container start, so the Settings page shows it in a row of its own.
+ */
+export const OUTSIDE_REQUEST_SETTING_KEYS = ["outsideRequestSeconds"] as const;
 
 /** A Container's resources, as `ctx.container.start({ instance })` takes a custom size. */
 export interface ContainerResources {
@@ -758,6 +770,19 @@ export const ENVIRONMENT_SETTINGS = {
     // The MCP engine times the call with its own timer (packages/mcp/src/connection.ts), no platform limit: the shared
     // sanity maximum applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES * 60, default: DEFAULT_MCP_CALL_SECONDS },
+    tier: "down-free",
+  },
+  outsideRequestSeconds: {
+    title: "Outside request time limit (seconds)",
+    description: `How long t3flare waits for one answer from GitHub or a sign-in's vendor (OpenAI, Anthropic, GitHub Copilot): each GitHub read of a skills preview, install, update or check, each GitHub request of an Update, and each request of a sign-in, its renewal and its revocation (a ChatGPT revocation with its retries takes at most twice this). A request past it fails, and what waited on it with it; a longer limit holds a stalled one that long. At most ${MAX_TIMED_MINUTES * 60} (a week). Applies at the next request.`,
+    // Timed by t3flare's own AbortSignal.timeout, no platform limit (an outbound fetch has none): the shared sanity
+    // maximum applies (ADR-0048 §2).
+    schema: {
+      type: "integer",
+      minimum: 1,
+      maximum: MAX_TIMED_MINUTES * 60,
+      default: DEFAULT_OUTSIDE_REQUEST_SECONDS,
+    },
     tier: "down-free",
   },
   mcpResultKiB: {
