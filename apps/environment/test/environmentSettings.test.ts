@@ -181,7 +181,7 @@ describe("Environment settings in the panel", () => {
     ]);
     expect(answer.schema.containerBudget.schema).toMatchObject({ minimum: 1, maximum: 100, default: 3 });
     expect(answer.costs.budget).toBe(5);
-    expect(answer.costs.rows).toHaveLength(5);
+    expect(answer.costs.rows).toHaveLength(6);
     expect(answer.running).toEqual({ count: 2, holders: ["web-app", "b2"] });
   });
 
