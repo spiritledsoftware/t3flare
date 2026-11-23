@@ -610,7 +610,7 @@ export const ENVIRONMENT_SETTINGS = {
   },
   rebuildEveryDays: {
     title: "Rebuild every (days)",
-    description: `Builds the Base snapshot again this many days after the last good one, so the Image setup's downloads stay current. 0 is off. At most ${MAX_REBUILD_DAYS}: a Base snapshot expires 30 days after it was made or a Container last started from it, and this schedule counts from when it was made. The rebuild also comes early enough for one build and one retry before the snapshot expires, but never sooner than one build after the last; with time limits and a retry that long, a rebuild follows each build and a failed one can outlast the snapshot.`,
+    description: `Builds the Base snapshot again this many days after the last good one, so the Image setup's downloads stay current. 0 is off. At most ${MAX_REBUILD_DAYS}: a Base snapshot expires 30 days after it was made or a Container last started from it, and this schedule counts from when it was made. The rebuild also comes early enough to fit one build and one retry before the snapshot expires, but never sooner than one build after the last: with very long time limits and retry, rebuilds then follow one another, and a failed one can outlast the snapshot.`,
     schema: { type: "integer", minimum: 0, maximum: MAX_REBUILD_DAYS, default: 0 },
     row: "imageSetup",
   },
