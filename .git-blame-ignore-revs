@@ -1,0 +1,4 @@
+# Bulk reformat commits, which `git blame` skips: GitHub reads this file by itself; locally, run
+# `git config blame.ignoreRevsFile .git-blame-ignore-revs`. One full commit hash per line, each under a comment naming it.
+
+# SPI-1339: vp fmt at 120 columns over the whole repo (hash added once the squash merge exists)

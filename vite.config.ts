@@ -6,6 +6,7 @@
 //     with its reason (SPI-1301; `build.ts --check-fs`, a bundle kept in memory)
 //   - check:workspace: pnpm-workspace.yaml, package.json and mise.toml match the pinned t3code
 //   - check:lock: t3's importers install exactly what t3's lock installs, one `effect`, patches
+//   - check:fmt: every file the `fmt` block below doesn't ignore is as `vp fmt` writes it (SPI-1339)
 //   - test:scripts: the root scripts' own tests, on `node --test`
 //   - typecheck: `effect-tsgo tsrs` per package, and for the root `scripts/` (typecheck:scripts, its own tsconfig);
 //     lint: oxlint, type-aware through tsrs-lint, which oxlint finds by itself (ADR-0030), with `--deny-warnings` and
@@ -20,12 +21,14 @@ import { defineConfig } from "vite-plus";
 const each = (pkg: string, ...tasks: Array<string>) => tasks.map((task) => `${pkg}#${task}`);
 
 export default defineConfig({
-  // `vp fmt` (Oxfmt) at the repo's 120 columns; Oxfmt's other defaults (double quotes, semicolons, trailing commas)
-  // already match the code. Ignored: t3code (pinned, formatted by t3), tools/demo-video (its own workspace and
-  // .prettierrc), and what scripts/gen-workspace.ts and scripts/seed-lock.ts write byte for byte, which
-  // `check:workspace` compares exactly.
+  // `vp fmt` (Oxfmt) at 120 columns, which `check:fmt` enforces (ADR-0030). Oxfmt's other defaults (double quotes,
+  // semicolons, trailing commas) already match the code; package.json keys keep their written order. Ignored: t3code
+  // (pinned, formatted by t3), tools/demo-video (its own workspace and .prettierrc), what scripts/gen-workspace.ts and
+  // scripts/seed-lock.ts write, so a regeneration never fights the formatter, and tests' recorded fixtures and file
+  // snapshots, which hold bytes as they were captured or rendered.
   fmt: {
     printWidth: 120,
+    sortPackageJson: false,
     ignorePatterns: [
       "t3code/**",
       "tools/demo-video/**",
@@ -33,6 +36,8 @@ export default defineConfig({
       "pnpm-lock.yaml",
       "/package.json",
       "mise.toml",
+      "**/test/fixtures/**",
+      "**/__snapshots__/**",
     ],
   },
   run: {
@@ -42,6 +47,7 @@ export default defineConfig({
       "check:fs": { command: "node build.ts --check-fs", cwd: "apps/environment" },
       "check:workspace": "node scripts/gen-workspace.ts --check",
       "check:lock": "node scripts/verify-lock.ts",
+      "check:fmt": "vp fmt --check",
       "typecheck:scripts": { command: "effect-tsgo tsrs --noEmit", cwd: "scripts" },
       "lint:scripts": "oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error scripts",
       "test:scripts": "node --test 'scripts/**/*.test.ts'",
@@ -52,6 +58,7 @@ export default defineConfig({
           "check:fs",
           "check:workspace",
           "check:lock",
+          "check:fmt",
           "typecheck:scripts",
           "lint:scripts",
           "test:scripts",

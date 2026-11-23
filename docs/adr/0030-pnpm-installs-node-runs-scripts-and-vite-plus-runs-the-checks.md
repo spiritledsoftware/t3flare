@@ -118,3 +118,18 @@ it runs in. The other guards stay: `stage.ts`, `bump.ts`, `cli-bump.ts`, `relock
 checkout; and a nested install inside `t3code/` is caught by `check:workspace` and `stage.ts deploy`. Its fix: `rm -rf
 t3code/node_modules`, then `pnpm install --frozen-lockfile` at the root. Rejected: a pnpm and vp wrapper on `PATH` that
 derives the root from the git top-level, which would be a permanent shim and needed a spike.
+
+## Refinement (SPI-1339, 2026-11-23): `check` runs the formatter, at 120 columns
+
+The repo had no formatter configuration, so `vp fmt` ran at Oxfmt's default width, and agents reverted its output by
+hand. The code had no single style for it to keep: 14,478 lines were longer than 120 columns, while other files were
+wrapped near 80, so no width made `vp fmt` a no-op (from 868 changed files at 120 to 669 at 200). The `fmt` block in the
+root `vite.config.ts` now sets `printWidth: 120` and `sortPackageJson: false` (a reformat doesn't reorder
+manifests) and keeps Oxfmt's other defaults, and one commit reformatted every file
+to it. `check:fmt` (`vp fmt --check`) runs in `check:all`, so the style can't drift again; the fix for a red one is
+`vp fmt`. Ignored: `t3code/` (pinned), `tools/demo-video/` (its own workspace), and the files `gen-workspace.ts` and
+`seed-lock.ts` write, so a regeneration never fights the formatter (`check:workspace` compares its three byte for
+byte, and pnpm rewrites the lock), and tests' `test/fixtures/` and `__snapshots__/`, which hold recorded or rendered
+bytes (`harnessPage.test.ts` compares its snapshot file whole). The reformat commit is
+listed in `.git-blame-ignore-revs`, so `git blame` passes over it (`git config blame.ignoreRevsFile
+.git-blame-ignore-revs`; GitHub reads the file by itself).
