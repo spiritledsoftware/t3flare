@@ -52,7 +52,6 @@ import {
   type SubmitTurnInput,
   sessionNameOf,
   type ThinkingLevel,
-  type ProxyRecord,
   type TurnState,
 } from "@t3flare/session-protocol";
 import { conversationIdOf, entryIdOf, submissionIdOf } from "../durableIds.ts";
@@ -134,6 +133,7 @@ import type { WorkspaceDO } from "../workspace/WorkspaceDO.ts";
 import { liveOf, pushedEntry, turnDetail, turnOfEntry, usageOf } from "./state.ts";
 import { alarmWork, nextAlarm } from "./alarmPlan.ts";
 import { isLiveTurn, turnLimitAlarms, turnRecord, turnsPastLimit } from "./turnLimit.ts";
+import { TurnStore } from "./turnStore.ts";
 
 export interface SessionEnv {
   readonly ENVIRONMENT: DurableObjectNamespace<EnvironmentDO>;
@@ -152,14 +152,11 @@ export interface SessionEnv {
 const context = BACKGROUND_CONTEXT;
 const HEARTBEAT_MS = 60_000;
 const META_KEY = "t3flare:session";
-const TURNS_KEY = "t3flare:turns";
 const SEQ_KEY = "t3flare:seq";
 const PUSHED_KEY = "t3flare:pushed-entry";
 const RETRY_KEY = "t3flare:push-retry";
 const LAST_PUSH_KEY = "t3flare:last-push";
 const DIAG_KEY = "t3flare:diagnostics";
-/** Each turn's model record (requests, last failure), apart from the turns so no turn write can lose one. */
-const PROXY_KEY = "t3flare:proxy";
 /**
  * t3's MCP credential for this thread's provider session (step 3, ADR-0022): this object's storage only, never a push,
  * a snapshot, a Workspace or a Container (review C8).
@@ -197,9 +194,6 @@ interface Meta {
   readonly linked?: LinkedWork | null;
   readonly epoch: string;
 }
-
-type Turns = Record<string, TurnState>;
-const isLive = isLiveTurn;
 
 const userContent = (text: string, images: ReadonlyArray<ImageInput>) =>
   images.length === 0
@@ -246,9 +240,12 @@ export class SessionDO extends DurableObject<SessionEnv> {
   readonly #models: ReturnType<typeof sessionModels>;
   /** The Model endpoints' providers in `#models`, their keys in memory only (SPI-1162, `endpoints.ts`). */
   readonly #endpoints: SessionEndpoints;
+  /** The thread's turns and their model records, one key each (SPI-1373, `turnStore.ts`). */
+  readonly #turns: TurnStore;
 
   constructor(ctx: DurableObjectState, env: SessionEnv) {
     super(ctx, env);
+    this.#turns = new TurnStore(ctx.storage.kv);
     this.#approvals = new ApprovalStore(ctx.storage.kv, () => this.#schedulePush(0));
     this.#questions = new QuestionStore(ctx.storage.kv, () => this.#schedulePush(0));
     this.#mcpQuestions = new McpQuestions(() => this.#schedulePush(0));
@@ -257,7 +254,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
       fault: () => ctx.storage.kv.get<Fault>(FAULT_KEY),
       clearFault: () => void ctx.storage.kv.delete(FAULT_KEY),
       now: () => Date.now(),
-      onRequest: () => this.#noteProxy((record) => ({ ...record, requests: record.requests + 1 })),
+      onRequest: () => this.#turns.noteModel((record) => ({ ...record, requests: record.requests + 1 })),
     });
     this.#modelFetch = recorder.fetch;
     this.#execs = new RunningExecs(ctx.storage.kv, (ids) => this.#killExecs(ids));
@@ -265,7 +262,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
     // SPI-1172: each failed answer replaces the turn's record, classified by its Model endpoint's API and auth.
     this.#limits = sessionLimits({
       last: recorder.last,
-      note: (update) => this.#noteProxy(update),
+      note: (update) => this.#turns.noteModel(update),
       endpoints: { endpoint: (id) => this.#endpoints.endpoint(id), secrets: (id) => this.#endpoints.secrets(id) },
     });
     registry.install(modelLimits(this.#limits));
@@ -278,7 +275,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
         store: this.#approvals,
         mode: () => runtimeModeOf(this.#meta()?.runtimeMode),
         interaction: () => interactionModeOf(this.#meta()?.interactionMode),
-        turn: () => this.#liveTurn(),
+        turn: () => this.#turns.liveTurn(),
         workspaceId: () => this.#meta()?.workspaceId ?? null,
       }),
     );
@@ -312,7 +309,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
       fetch: this.#modelFetch,
       // SPI-1164: why the running turn's request got no credential, typed, for the differ.
       onCredential: (failure) =>
-        this.#noteProxy((record) => {
+        this.#turns.noteModel((record) => {
           if (failure !== undefined) return { ...record, credential: failure };
           const { credential: _cleared, ...rest } = record;
           return rest;
@@ -360,7 +357,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
             await this.#execs.killAll(KILL_BOUND_MS, orphans).catch(() => undefined);
             await this.#arm();
           }
-          if (Object.values(this.#turns()).some(isLive)) void this.#watch();
+          if (this.#turns.busy()) void this.#watch();
           resolve(harness);
         } catch (error) {
           reject(error as Error);
@@ -378,7 +375,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
       store: this.#approvals,
       mode: () => runtimeModeOf(this.#meta()?.runtimeMode),
       interaction: () => interactionModeOf(this.#meta()?.interactionMode),
-      turn: () => this.#liveTurn(),
+      turn: () => this.#turns.liveTurn(),
       credential: () => this.ctx.storage.kv.get<T3McpCredential>(T3_MCP_KEY)?.providerSessionId,
       instructions: () => this.ctx.storage.kv.get<T3McpCredential>(T3_MCP_KEY)?.instructions,
       call: (tool, args) => this.#t3.callTool(tool, args),
@@ -491,7 +488,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
     }
     // The owner's own question tools may come from an MCP server instead.
     if (extensionOf(harness, ASK_USER_EXTENSION).enabled)
-      registry.install(askUser({ store: this.#questions, turn: () => this.#liveTurn() }));
+      registry.install(askUser({ store: this.#questions, turn: () => this.#turns.liveTurn() }));
     else registry.uninstall({ name: ASK_USER_EXTENSION });
     if (extensionOf(harness, TODO_EXTENSION).enabled) registry.install(todoExtension(() => this.#opening));
     else registry.uninstall({ name: TODO_EXTENSION });
@@ -645,7 +642,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
       store: this.#approvals,
       mode: () => runtimeModeOf(this.#meta()?.runtimeMode),
       interaction: () => interactionModeOf(this.#meta()?.interactionMode),
-      turn: () => this.#liveTurn(),
+      turn: () => this.#turns.liveTurn(),
       // The thread it was opened with (plan D3): the Environment derives everything else about the caller itself.
       call: ({ callId, ...input }) =>
         environmentStub(this.env.ENVIRONMENT).mcpCall({
@@ -658,7 +655,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
         void environmentStub(this.env.ENVIRONMENT)
           .cancelAsk({ askId: this.#mcpStopId(callId) })
           .catch(() => undefined),
-      asker: (callId, signal) => this.#mcpQuestions.asker(this.#liveTurn(), callId, signal),
+      asker: (callId, signal) => this.#mcpQuestions.asker(this.#turns.liveTurn(), callId, signal),
     });
   }
 
@@ -734,39 +731,6 @@ export class SessionDO extends DurableObject<SessionEnv> {
 
   #meta(): Meta | undefined {
     return this.ctx.storage.kv.get<Meta>(META_KEY);
-  }
-
-  /** The turn the Session runs now (the asking turn of an approval or a question), or null. */
-  #liveTurn(): string | null {
-    return Object.entries(this.#turns()).find(([, turn]) => isLive(turn))?.[0] ?? null;
-  }
-
-  #turns(): Turns {
-    return this.ctx.storage.kv.get<Turns>(TURNS_KEY) ?? {};
-  }
-
-  #saveTurns(turns: Turns) {
-    this.ctx.storage.kv.put(TURNS_KEY, turns);
-  }
-
-  /** The turns with their model records (`ProxyRecord`, a kept wire name). */
-  #turnsWithProxy(): Turns {
-    const turns = this.#turns();
-    const proxy = this.ctx.storage.kv.get<Record<string, ProxyRecord>>(PROXY_KEY) ?? {};
-    return Object.fromEntries(
-      Object.entries(turns).map(([id, turn]) => [id, proxy[id] === undefined ? turn : { ...turn, proxy: proxy[id] }]),
-    );
-  }
-
-  /** Updates the model record of the turn running now: the live turn started first (a follow-up waits for it). */
-  #noteProxy(update: (record: ProxyRecord) => ProxyRecord): void {
-    const running = Object.entries(this.#turns())
-      .filter(([, turn]) => isLive(turn))
-      .sort(([, a], [, b]) => a.startedAt - b.startedAt)[0]?.[0];
-    if (running === undefined) return;
-    const proxy = this.ctx.storage.kv.get<Record<string, ProxyRecord>>(PROXY_KEY) ?? {};
-    proxy[running] = update(proxy[running] ?? { requests: 0 });
-    this.ctx.storage.kv.put(PROXY_KEY, proxy);
   }
 
   /** The Workspace DO of the thread's Workspace, also computer's `ComputerWorkspaceStub`; undefined without one. */
@@ -863,12 +827,12 @@ export class SessionDO extends DurableObject<SessionEnv> {
   async #arm(): Promise<void> {
     if (this.#destroyed) return;
     const now = Date.now();
-    const turns = Object.values(this.#turns()).filter(isLive);
+    const live = this.#turns.live();
     const candidates: Array<number> = [];
-    if (turns.length > 0) {
+    if (live.length > 0) {
       candidates.push(now + Math.min(HEARTBEAT_MS, LIVENESS_PUSH_MS));
       // Each turn by the Turn limit it started with (SPI-1315): a lowered setting reaches only the next turn.
-      candidates.push(...turnLimitAlarms(this.#turns(), this.env.T3FLARE_TURN_DEADLINE_MS));
+      candidates.push(...turnLimitAlarms(live, this.env.T3FLARE_TURN_DEADLINE_MS));
     }
     const retry = this.ctx.storage.kv.get<number>(RETRY_KEY);
     if (retry !== undefined) candidates.push(retry);
@@ -915,12 +879,12 @@ export class SessionDO extends DurableObject<SessionEnv> {
     this.#noteDiagnostic("alarms");
     harness.resume();
     // Each live turn past its own Turn limit ends (the reason keeps its wire name, `turn_deadline`).
-    for (const providerTurnId of turnsPastLimit(this.#turns(), now, this.env.T3FLARE_TURN_DEADLINE_MS)) {
+    for (const providerTurnId of turnsPastLimit(this.#turns.live(), now, this.env.T3FLARE_TURN_DEADLINE_MS)) {
       console.warn(JSON.stringify({ t3flare: "turn-limit", providerTurnId }));
       await this.#abortTurn(providerTurnId, "turn_deadline");
     }
     if (this.#execs.retryDue()) await this.#execs.retry(KILL_BOUND_MS);
-    const live = Object.values(this.#turns()).some(isLive);
+    const live = this.#turns.busy();
     if (live) void this.#watch();
     const lastPush = this.ctx.storage.kv.get<number>(LAST_PUSH_KEY) ?? 0;
     return (
@@ -951,12 +915,12 @@ export class SessionDO extends DurableObject<SessionEnv> {
         ? input.cwd
         : REPO_ROOT;
     if (input.workspaceId !== null) await conversation.configure({ cwd }, context);
-    const turns = this.#turnsWithProxy();
-    return { epoch, busy: Object.values(turns).some(isLive), turns };
+    const turns = this.#turns.allWithModel();
+    return { epoch, busy: this.#turns.busy(), turns };
   }
 
   async submitTurn(input: SubmitTurnInput): Promise<{ readonly submissionId: string }> {
-    const existing = this.#turns()[input.providerTurnId];
+    const existing = this.#turns.get(input.providerTurnId);
     if (existing !== undefined) return { submissionId: existing.submissionId };
     const meta = this.#meta();
     if (meta !== undefined) {
@@ -981,10 +945,8 @@ export class SessionDO extends DurableObject<SessionEnv> {
     noteTurnProvider(this.ctx.storage.kv, input.model.provider);
     const startedAt = Date.now();
     // Recorded with a placeholder before the submit, so the alarm armed below covers it if the process dies after it.
-    const turns = this.#turns();
     // SPI-1315: the Turn limit the start carried, kept with the turn, so a setting changed while it runs never moves it.
-    turns[input.providerTurnId] = turnRecord(input, startedAt, this.env.T3FLARE_TURN_DEADLINE_MS);
-    this.#saveTurns(turns);
+    this.#turns.put(input.providerTurnId, turnRecord(input, startedAt, this.env.T3FLARE_TURN_DEADLINE_MS));
     await this.#arm();
     const submission = await conversation.submit(
       {
@@ -995,17 +957,15 @@ export class SessionDO extends DurableObject<SessionEnv> {
       },
       context,
     );
-    const after = this.#turns();
-    after[input.providerTurnId] = { ...after[input.providerTurnId]!, submissionId: String(submission.id) };
-    this.#saveTurns(after);
+    this.#turns.update(input.providerTurnId, (turn) => ({ ...turn, submissionId: String(submission.id) }));
     void this.#watch();
     this.#schedulePush(0);
     return { submissionId: String(submission.id) };
   }
 
   async steer(input: SteerInput): Promise<{ readonly submissionId: string }> {
-    const turn = this.#turns()[input.providerTurnId];
-    if (turn === undefined || !isLive(turn)) throw new Error(`t3flare: turn ${input.providerTurnId} is not live`);
+    const turn = this.#turns.get(input.providerTurnId);
+    if (turn === undefined || !isLiveTurn(turn)) throw new Error(`t3flare: turn ${input.providerTurnId} is not live`);
     const conversation = await this.#conversation();
     const submission = await conversation.submit(
       // Only into a run in progress: a steer that finds the Session idle is refused, never a run t3 did not start.
@@ -1018,26 +978,20 @@ export class SessionDO extends DurableObject<SessionEnv> {
       },
       context,
     );
-    const turns = this.#turns();
-    const current = turns[input.providerTurnId];
-    if (current !== undefined) {
-      turns[input.providerTurnId] = { ...current, steers: [...(current.steers ?? []), String(submission.id)] };
-      this.#saveTurns(turns);
-    }
+    this.#turns.update(input.providerTurnId, (turn) => ({
+      ...turn,
+      steers: [...(turn.steers ?? []), String(submission.id)],
+    }));
     this.#schedulePush(0);
     return { submissionId: String(submission.id) };
   }
 
   async abort(input: AbortInput): Promise<{ readonly aborted: boolean }> {
-    const turns = this.#turns();
+    const named = input.providerTurnId === undefined ? undefined : this.#turns.get(input.providerTurnId);
     const targets =
       input.all === true
-        ? Object.entries(turns)
-            .filter(([, turn]) => isLive(turn))
-            .map(([id]) => id)
-        : input.providerTurnId !== undefined &&
-            turns[input.providerTurnId] !== undefined &&
-            isLive(turns[input.providerTurnId]!)
+        ? this.#turns.live().map(([id]) => id)
+        : input.providerTurnId !== undefined && named !== undefined && isLiveTurn(named)
           ? [input.providerTurnId]
           : [];
     for (const id of targets) await this.#abortTurn(id, input.reason);
@@ -1064,7 +1018,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
 
   async #abortTurn(providerTurnId: string, reason: string): Promise<void> {
     const harness = await this.#opening;
-    const turn = this.#turns()[providerTurnId];
+    const turn = this.#turns.get(providerTurnId);
     if (turn === undefined) return;
     const record =
       turn.submissionId === "" ? undefined : await harness.submission(submissionIdOf(turn.submissionId), context);
@@ -1076,11 +1030,9 @@ export class SessionDO extends DurableObject<SessionEnv> {
       await this.#execs.killAll(KILL_BOUND_MS);
       await this.#arm();
     }
-    const turns = this.#turns();
-    if (turns[providerTurnId] !== undefined && isLive(turns[providerTurnId]!)) {
-      turns[providerTurnId] = { ...turns[providerTurnId]!, status: "aborted", reason, settledAt: Date.now() };
-      this.#saveTurns(turns);
-    }
+    this.#turns.update(providerTurnId, (turn) =>
+      isLiveTurn(turn) ? { ...turn, status: "aborted", reason, settledAt: Date.now() } : undefined,
+    );
     this.#dropAbandonedApprovals();
   }
 
@@ -1132,9 +1084,9 @@ export class SessionDO extends DurableObject<SessionEnv> {
    * usage-limit records: its own models, its own fetch.
    */
   async suggestPrompt(input: { readonly providerTurnId: string }): Promise<{ readonly text: string }> {
-    const turn = this.#turns()[input.providerTurnId];
+    const turn = this.#turns.get(input.providerTurnId);
     if (turn?.status !== "answered" || turn.inputEntry === undefined) return { text: "" };
-    if (Object.values(this.#turns()).some(isLive)) return { text: "" };
+    if (this.#turns.busy()) return { text: "" };
     const conversation = await this.#conversation();
     const textOf = (entry: EntryRecord): { readonly role: string; readonly text: string } => {
       const pushed = pushedEntry(entry, null);
@@ -1168,9 +1120,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
 
   /** A test's fault (the inverse guard's check): forgets every turn, as a Session that lost its state would. */
   async dropTurns(): Promise<{ readonly dropped: number }> {
-    const dropped = Object.keys(this.#turns()).length;
-    this.#saveTurns({});
-    this.ctx.storage.kv.delete(PROXY_KEY);
+    const dropped = this.#turns.clear();
     await (await this.#conversation()).abort(context);
     await this.#arm();
     return { dropped };
@@ -1185,8 +1135,8 @@ export class SessionDO extends DurableObject<SessionEnv> {
    */
   async rollback(input: RollbackInput): Promise<RollbackAnswer> {
     await this.#refreshTurns();
-    const turns = this.#turns();
-    if (Object.values(turns).some(isLive)) throw new Error("t3flare: a turn is running; roll back after it ends");
+    if (this.#turns.busy()) throw new Error("t3flare: a turn is running; roll back after it ends");
+    const turns = this.#turns.all();
     const harness = await this.#opening;
     const { boundary, drop } = rollbackPlan(turns, input.dropTurns);
     let conversation = await this.#conversation();
@@ -1196,13 +1146,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
       await this.#moveTo(next);
       conversation = next;
     }
-    if (drop.size > 0) {
-      for (const id of drop) delete turns[id];
-      this.#saveTurns(turns);
-      const proxy = this.ctx.storage.kv.get<Record<string, ProxyRecord>>(PROXY_KEY);
-      if (proxy !== undefined)
-        this.ctx.storage.kv.put(PROXY_KEY, Object.fromEntries(Object.entries(proxy).filter(([id]) => !drop.has(id))));
-    }
+    if (drop.size > 0) this.#turns.drop(drop);
     this.#dropAbandonedApprovals();
     console.log(
       JSON.stringify({
@@ -1229,8 +1173,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
         return { conversation: done.conversation, messages: done.messages };
       throw new Error("t3flare: this Session was already forked from another conversation");
     }
-    if (Object.keys(this.#turns()).length > 0)
-      throw new Error("t3flare: this Session has turns of its own; only a new thread is forked");
+    if (this.#turns.any()) throw new Error("t3flare: this Session has turns of its own; only a new thread is forked");
     if (input.source === (this.ctx.id.name ?? "")) throw new Error("t3flare: a Session cannot fork itself");
     const sessions = this.env.SESSIONS;
     if (sessions === undefined) throw new Error("t3flare: this Worker has no SESSIONS binding");
@@ -1271,7 +1214,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
     const conversation = await this.#conversation();
     const at =
       input.at === undefined
-        ? await forkPoint(conversation, this.#turns(), input.providerTurnId, context)
+        ? await forkPoint(conversation, this.#turns.all(), input.providerTurnId, context)
         : entryIdOf(input.at);
     return forkPage(conversation, at, input.offset, FORK_PAGE_BYTES, context);
   }
@@ -1357,10 +1300,9 @@ export class SessionDO extends DurableObject<SessionEnv> {
   /** Reads each live turn's submissions (its own and its steers') and settles the turns whose submissions settled. */
   async #refreshTurns(): Promise<void> {
     const harness = await this.#opening;
-    const turns = this.#turns();
-    let changed = false;
-    for (const [id, turn] of Object.entries(turns)) {
-      if (!isLive(turn) || turn.submissionId === "") continue;
+    // Only live turns change here: O(live turns), however long the thread (SPI-1373).
+    for (const [id, turn] of this.#turns.live()) {
+      if (turn.submissionId === "") continue;
       const submission = await harness.submission(submissionIdOf(turn.submissionId), context);
       if (submission === undefined) continue;
       const status = await submission.status(context);
@@ -1389,22 +1331,14 @@ export class SessionDO extends DurableObject<SessionEnv> {
           settledAt: Date.now(),
         };
       }
-      if (JSON.stringify(next) !== JSON.stringify(turn)) {
-        turns[id] = next;
-        changed = true;
-      }
+      if (JSON.stringify(next) !== JSON.stringify(turn)) this.#turns.put(id, next);
     }
-    if (changed) this.#saveTurns(turns);
     this.#dropAbandonedApprovals();
   }
 
   /** Requests of turns no longer live are withdrawn (their calls were aborted or ended). */
   #dropAbandonedApprovals(): void {
-    const live = new Set(
-      Object.entries(this.#turns())
-        .filter(([, turn]) => isLive(turn))
-        .map(([id]) => id),
-    );
+    const live = new Set(this.#turns.live().map(([id]) => id));
     this.#approvals.dropAbandoned(live);
     this.#questions.dropAbandoned(live);
     this.#mcpQuestions.dropAbandoned(live);
@@ -1418,7 +1352,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
     bound: number,
   ): Promise<SessionState & { readonly lastEntry: number | undefined }> {
     const conversation = await this.#conversation();
-    const turns = this.#turnsWithProxy();
+    const turns = this.#turns.allWithModel();
     const entries: Array<PushedEntry> = [];
     let bytes = 0;
     let more = false;

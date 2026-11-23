@@ -33,10 +33,11 @@ const session = (override?: string) => {
       turns[id] = { ...turns[id]!, status: "running" };
     },
     /** `#arm` with no push due and no retry: when the alarm next does housekeeping, from the turns' limits alone. */
-    alarmAt: (now: number) => nextAlarm(now, { pushDue: false, candidates: turnLimitAlarms(turns, override) }).at,
+    alarmAt: (now: number) =>
+      nextAlarm(now, { pushDue: false, candidates: turnLimitAlarms(Object.entries(turns), override) }).at,
     /** The alarm's housekeeping at `now`: the turns it ends, each then aborted as `#abortTurn` settles it. */
     housekeep: (now: number) => {
-      const ended = turnsPastLimit(turns, now, override);
+      const ended = turnsPastLimit(Object.entries(turns), now, override);
       for (const id of ended) turns[id] = { ...turns[id]!, status: "aborted", reason: "turn_deadline", settledAt: now };
       return ended;
     },
