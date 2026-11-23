@@ -498,9 +498,8 @@ export const wrapCliAdapter = (
                 rootNodeId: turn.rootNodeId,
                 providerThreadId: turn.providerThread.id,
                 providerTurnId: undefined,
-                // Fixed by t3: the wrapped adapter numbers its own items from `providerTurnOrdinal * 100 + 1` (Codex, Claude,
-                // Pi), and `track` raises this to the highest it emits, so a card takes the next. t3's position store then
-                // places every item of a run in first-seen order, so a turn past 100 items still shows in order (SPI-1371).
+                // Wrapped adapters number their items from `providerTurnOrdinal * 100 + 1`; a card takes the highest emitted
+                // plus one, and t3's position store orders items by first-seen.
                 ordinal: turn.providerTurnOrdinal * 100,
               };
               session.process?.turn(true);

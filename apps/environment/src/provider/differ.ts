@@ -163,9 +163,10 @@ export const approvalIdOf = (sessionName: string, runtimeRequestId: string): str
 const ref = (nativeId: string): OrchestrationV2ProviderRef => ({ driver, nativeId, strength: "strong" });
 
 /**
- * How many ordinals each provider turn's items get (SPI-1371): turn N's items take N × span + 1 on, in first-seen order,
- * so a re-diff after a restart gives them the same ordinals and every turn's items sort before the next turn's. Fixed by
- * t3: its position store (`TurnItemPositionStore`) places a run's items in a range this wide, so a turn cannot show more.
+ * How many ordinals each provider turn has for its items (SPI-1371). Turn N's first item gets N × 1,000,000 + 1 and each
+ * later one the next number, in first-seen order. A sanity bound: wide enough that a turn's ordinals never reach the next
+ * turn's. It mirrors the width t3's position store gives a run, but t3 never reads this value: it renumbers every item
+ * of a run in first-seen order, so the raw ordinal has no visible effect.
  */
 const TURN_ITEM_ORDINALS = 1_000_000;
 

@@ -115,7 +115,8 @@ describe("differ", () => {
     const [first] = Object.keys(state.turns);
     const answer = state.entries.find((entry) => entry.turn === first && entry.role === "assistant")!;
     const others = state.entries.filter((entry) => entry.turn !== first);
-    // 250 responses in the first turn (more than the next two turns' 100 apart), then the recorded later turns.
+    // 250 responses in the first turn, enough to pass the third turn's first ordinal under the old spacing of 100 per
+    // turn (the second recorded turn has no items), then the recorded later turns.
     const many = Array.from({ length: 250 }, (_, index) => ({
       ...answer,
       id: `long-${index}`,
@@ -125,8 +126,8 @@ describe("differ", () => {
     const items = diff(withTurns(), long, now).flatMap((event) =>
       event.type === "turn_item.updated" ? [event.turnItem] : [],
     );
-    const ordinalOf = new Map(items.map((item) => [item.id, item.ordinal]));
-    const ordinals = [...ordinalOf.values()];
+    const ordinalById = new Map(items.map((item) => [item.id, item.ordinal]));
+    const ordinals = [...ordinalById.values()];
     expect(new Set(ordinals).size).toBe(ordinals.length);
     const firstOrdinals = items.filter((item) => item.providerTurnId === first).map((item) => item.ordinal);
     const laterOrdinals = items.filter((item) => item.providerTurnId !== first).map((item) => item.ordinal);
@@ -135,7 +136,7 @@ describe("differ", () => {
     expect(Math.max(...firstOrdinals)).toBeLessThan(Math.min(...laterOrdinals));
     // In first-seen order within the turn.
     const longIds = [...new Set(items.filter((item) => item.providerTurnId === first).map((item) => item.id))];
-    const longOrdinals = longIds.map((id) => ordinalOf.get(id)!);
+    const longOrdinals = longIds.map((id) => ordinalById.get(id)!);
     expect(longOrdinals).toEqual([...longOrdinals].sort((a, b) => a - b));
   });
 
