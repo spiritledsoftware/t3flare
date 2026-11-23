@@ -61,7 +61,7 @@ const fitResults = (results: ReadonlyArray<SearchResult>): ReadonlyArray<SearchR
 };
 
 /** A result as t3's web item shows it (`details`): its snippet cut to a line. */
-const detailOf = (page: SearchResult): SearchResult => ({
+const detailOf = (page: SearchResult) => ({
   ...page,
   ...(page.snippet === undefined ? {} : { snippet: page.snippet.slice(0, 300) }),
 });
