@@ -58,6 +58,8 @@ export interface TurnContext {
   readonly contextWindow: number | null;
   /** Whether the turn's model takes images (a steer's attachments follow it). Absent: it does. */
   readonly acceptsImages?: boolean;
+  /** The turn's model's own limit on one image's base64 (`perImageBase64Of`), which a steer's images keep. */
+  readonly perImageBase64?: number;
   /** The provider session the turn runs in (an approval's live response capability). */
   readonly providerSessionId: ProviderSessionId;
   /** Stop asked by t3 (`interruptTurn`): an abort settles as `interrupted`, else as `cancelled`. */

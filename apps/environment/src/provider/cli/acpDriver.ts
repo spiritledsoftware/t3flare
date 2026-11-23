@@ -48,7 +48,7 @@ import {
   isClaudeProvisionalSubagentTool,
 } from "../../../../../t3code/packages/provider-acp-registry/src/server/claudeAcp.ts";
 import { environmentServices } from "../../agents/bindings.ts";
-import { attachmentReader, turnPrompt } from "../attachments.ts";
+import { ACP_PROMPT_BYTES, attachmentReader, NO_BUDGET, turnPrompt } from "../attachments.ts";
 import { cliSnapshotForCwdOf, environmentSkillsAccess, messageSkillsFor, type SkillsAccess } from "../skills.ts";
 import { claudeMentionRewrite } from "./claudeSkills.ts";
 import { CLI_BUILT_IN_COMMANDS } from "./builtInCommands.ts";
@@ -70,6 +70,7 @@ import { claudeModelId, claudeModelsOf } from "./claudeEndpoints.ts";
 import { opencodeModelId, opencodeModelsOf } from "./opencodeEndpoints.ts";
 import { refreshOnEndpointsChanged } from "../../endpoints/changes.ts";
 import type { ModelEndpoints } from "@t3flare/models/endpoints";
+import { jsonTextBytes } from "@t3flare/session-protocol";
 import { CliSpawn, CliTurn, type CliSessions, wrapCliAdapter } from "./wrapper.ts";
 import { relayUrl } from "../../agents/cliProfiles.ts";
 import { workersLog } from "../../platform/workersLog.ts";
@@ -301,8 +302,13 @@ export const acpPromptBuilder = (
   const buildAttachmentPrompt: NonNullable<AcpAdapterV2Flavor["buildAttachmentPrompt"]> = (input) =>
     turnPrompt(
       { text: "", attachments: input.attachments as ReadonlyArray<ChatAttachment> },
-      // The message's text is t3's block, already in the prompt: a file's text gets what is left of the budget.
-      { acceptsImages: input.promptCapabilities?.image === true, reader, reservedChars: input.text.length },
+      // The message's text is t3's block, already in the prompt: the attachments get what is left of the budget.
+      {
+        acceptsImages: input.promptCapabilities?.image === true,
+        reader,
+        budgetBytes: ACP_PROMPT_BYTES,
+        reservedBytes: jsonTextBytes(input.text),
+      },
     ).pipe(
       Effect.map(({ text, images }): ReadonlyArray<EffectAcpSchema.ContentBlock> => [
         ...(text.length === 0 ? [] : [{ type: "text" as const, text }]),
@@ -314,9 +320,15 @@ export const acpPromptBuilder = (
     Effect.gen(function* () {
       const turn = yield* CliTurn;
       if (turn === undefined) return text;
+      // The expanded text goes to OpenCode's stdin, never to a row, and OpenCode's own skill tool embeds a whole file.
       const expanded = yield* turnPrompt(
         { text, attachments: [] },
-        { acceptsImages: false, reader, skills: messageSkillsFor(turn.cwd, opencodeSkills, true) },
+        {
+          acceptsImages: false,
+          reader,
+          budgetBytes: NO_BUDGET,
+          skills: messageSkillsFor(turn.cwd, opencodeSkills, true),
+        },
       );
       return expanded.text;
     });
