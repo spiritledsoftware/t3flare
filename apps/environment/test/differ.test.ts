@@ -111,6 +111,35 @@ describe("differ", () => {
     expect(streaming.every((item) => item.status === "running")).toBe(true);
   });
 
+  it("gives a turn of more than 100 items ordinals that stay below the next turn's, each once (SPI-1371)", () => {
+    const [first] = Object.keys(state.turns);
+    const answer = state.entries.find((entry) => entry.turn === first && entry.role === "assistant")!;
+    const others = state.entries.filter((entry) => entry.turn !== first);
+    // 250 responses in the first turn, enough to pass the third turn's first ordinal under the old spacing of 100 per
+    // turn (the second recorded turn has no items), then the recorded later turns.
+    const many = Array.from({ length: 250 }, (_, index) => ({
+      ...answer,
+      id: `long-${index}`,
+      byTaskId: `long-task-${index}`,
+    }));
+    const long: SessionState = { ...state, entries: [...many, ...others] };
+    const items = diff(withTurns(), long, now).flatMap((event) =>
+      event.type === "turn_item.updated" ? [event.turnItem] : [],
+    );
+    const ordinalById = new Map(items.map((item) => [item.id, item.ordinal]));
+    const ordinals = [...ordinalById.values()];
+    expect(new Set(ordinals).size).toBe(ordinals.length);
+    const firstOrdinals = items.filter((item) => item.providerTurnId === first).map((item) => item.ordinal);
+    const laterOrdinals = items.filter((item) => item.providerTurnId !== first).map((item) => item.ordinal);
+    expect(new Set(firstOrdinals).size).toBeGreaterThanOrEqual(250);
+    expect(laterOrdinals.length).toBeGreaterThan(0);
+    expect(Math.max(...firstOrdinals)).toBeLessThan(Math.min(...laterOrdinals));
+    // In first-seen order within the turn.
+    const longIds = [...new Set(items.filter((item) => item.providerTurnId === first).map((item) => item.id))];
+    const longOrdinals = longIds.map((id) => ordinalById.get(id)!);
+    expect(longOrdinals).toEqual([...longOrdinals].sort((a, b) => a - b));
+  });
+
   it("ignores entries of turns it did not start", () => {
     expect(diff(makeDifferState("thread:test"), state, now)).toEqual([]);
   });

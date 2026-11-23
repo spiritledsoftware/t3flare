@@ -498,6 +498,8 @@ export const wrapCliAdapter = (
                 rootNodeId: turn.rootNodeId,
                 providerThreadId: turn.providerThread.id,
                 providerTurnId: undefined,
+                // Wrapped adapters number their items from `providerTurnOrdinal * 100 + 1`; a card takes the highest emitted
+                // plus one, and t3's position store orders items by first-seen.
                 ordinal: turn.providerTurnOrdinal * 100,
               };
               session.process?.turn(true);
