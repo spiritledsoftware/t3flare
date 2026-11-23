@@ -385,7 +385,7 @@ export class WorkspaceDO extends ContainerHost {
   /** The token the credential helper is given, until shortly before it expires. */
   #token: { readonly token: string; readonly expiresAt: number } | undefined;
   /** Commands the Session stopped before they were sent (during a start's install): never sent (`stoppedExecs.ts`). */
-  readonly #stoppedExecs = new StoppedExecs(() => Date.now());
+  readonly #stoppedExecs = new StoppedExecs();
   /** The Global mise config's lay-down, once per Container (SPI-1150, ADR-0032's Global mise config refinement). */
   readonly #globalMise: GlobalMise;
   /** The dotfiles' mise file again after the Container setup (ADR-0047 §10). */
