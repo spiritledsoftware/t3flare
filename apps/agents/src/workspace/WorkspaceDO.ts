@@ -1044,7 +1044,8 @@ export class WorkspaceDO extends ContainerHost {
     await this.#ready();
     cliAgentArgument(agent);
     const environment = agent === undefined && options?.repoOnly !== true ? this.#skillSet.listing() : [];
-    return workspaceSkills(this.#host.readEnv(cwd), REPO_ROOT, environment, agent);
+    // How far it reads: the settings the last Container start kept (SPI-1365), the defaults before one.
+    return workspaceSkills(this.#host.readEnv(cwd), REPO_ROOT, environment, this.#keptSettings(), agent);
   }
 
   /**
@@ -1099,7 +1100,7 @@ export class WorkspaceDO extends ContainerHost {
     this.#alive();
     await this.#ready();
     cliAgentArgument(agent);
-    return workspacePrompts(this.#host.readEnv(cwd), agent);
+    return workspacePrompts(this.#host.readEnv(cwd), this.#keptSettings(), agent);
   }
 
   /** No nested instruction files (the Session reads AGENTS.md itself). */

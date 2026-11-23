@@ -398,11 +398,7 @@ export class ServerBrowserContexts {
   private keepProfile(context: BrowserContext, profileId: string, key: string, pending: Promise<BrowserContext>) {
     const { save, stop } = profileSaver(context, {
       saved: this.store.profile(profileId),
-      write: (state) => {
-        if (this.store.saveProfile(profileId, state) === "too-large") {
-          console.warn(JSON.stringify({ t3flare: "preview-profile-too-large", profile: profileId.slice(0, 64) }));
-        }
-      },
+      write: (state) => this.store.saveProfile(profileId, state),
     });
     let idle: ReturnType<typeof setTimeout> | undefined;
     const pageCount = () => context.pages().length;

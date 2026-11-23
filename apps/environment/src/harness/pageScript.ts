@@ -317,8 +317,10 @@ const variablesOf = (list) => {
 const settingsOf = (form) => {
   const settings = {};
   for (const input of form.querySelectorAll("[data-setting]")) {
+    // A disabled field is not in use (a custom size's resources while no size is custom): its stored value stays.
+    if (input.disabled) continue;
     const kind = input.dataset.kind;
-    settings[input.dataset.setting] = kind === "boolean" ? input.checked : kind === "integer" ? Number(input.value) : kind === "variables" ? variablesOf(input) : input.value;
+    settings[input.dataset.setting] = kind === "boolean" ? input.checked : kind === "integer" || kind === "number" ? Number(input.value) : kind === "variables" ? variablesOf(input) : input.value;
   }
   return settings;
 };
@@ -373,7 +375,32 @@ for (const form of document.querySelectorAll("form[data-environment]")) {
   // The cost table follows the size and budget inputs before a save: the budget column, the current row, the summary.
   const size = form.querySelector('[data-setting="containerSize"]');
   const budget = form.querySelector('[data-setting="containerBudget"]');
+  const builder = form.querySelector('[data-setting="builderSize"]');
+  // A custom size's resources show while the Container size or the Builder size is custom (SPI-1365).
+  const showCustom = () => {
+    const inUse = (size !== null && size.value === "custom") || (builder !== null && builder.value === "custom");
+    for (const wrap of form.querySelectorAll("[data-custom-resource]")) {
+      wrap.hidden = !inUse;
+      for (const input of wrap.querySelectorAll("[data-setting]")) input.disabled = !inUse;
+    }
+  };
+  for (const input of [size, builder]) if (input !== null) input.addEventListener("change", showCustom);
+  const resource = (key) => Number(form.querySelector('[data-setting="' + key + '"]')?.value);
+  // The custom row is priced from the resources as typed, before a save.
+  const priceCustom = () => {
+    const row = document.querySelector('tr[data-size="custom"]');
+    if (row === null) return;
+    const vcpu = resource("customVcpu"), mib = resource("customMemoryMib"), mb = resource("customDiskMb");
+    if (![vcpu, mib, mb].every((value) => Number.isFinite(value) && value > 0)) return;
+    const per = vcpu * Number(row.dataset.vcpuHour) + (mib / 1024) * Number(row.dataset.gibHour) + (mb / 1000) * Number(row.dataset.gbHour);
+    row.dataset.perHour = String(per);
+    row.querySelector("[data-resource=vcpu]").textContent = String(vcpu);
+    row.querySelector("[data-resource=memory]").textContent = Number((mib / 1024).toFixed(2)) + " GiB";
+    row.querySelector("[data-resource=disk]").textContent = mb / 1000 + " GB";
+    row.querySelector("[data-container-hour]").textContent = "$" + per.toFixed(3);
+  };
   const cost = () => {
+    priceCustom();
     const count = Number(budget === null ? NaN : budget.value);
     if (!Number.isInteger(count) || count < 1) return;
     const containers = count + (count === 1 ? " Container" : " Containers");
@@ -392,7 +419,7 @@ for (const form of document.querySelectorAll("form[data-environment]")) {
     const now = document.querySelector("[data-cost-now]");
     if (now !== null && current !== null) now.textContent = "With these settings, at most $" + (Number(current.dataset.perHour) * count).toFixed(2) + " an hour: " + containers + " of " + current.dataset.size + ", every vCPU busy.";
   };
-  for (const input of [size, budget]) if (input !== null) { input.addEventListener("input", cost); input.addEventListener("change", cost); }
+  for (const input of [size, budget, ...form.querySelectorAll("[data-custom-resource] [data-setting]")]) if (input !== null) { input.addEventListener("input", cost); input.addEventListener("change", cost); }
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!form.reportValidity()) return;

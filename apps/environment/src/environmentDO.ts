@@ -293,6 +293,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
         target: env.T3FLARE_UPDATE_REPO,
         store: ctx.storage.kv,
         github: () => this.github,
+        timeoutMs: () => this.#outsideRequestMs(),
       }),
     });
     // G11 (review M5): the browsers an earlier instance of this object acquired went with its sockets; Browser Run would
@@ -522,12 +523,29 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       kv: this.ctx.storage.kv,
       sealed: sealedStore(this.ctx.storage.kv, this.env.T3FLARE_CREDENTIALS_KEY),
       vendors: {
-        chatgpt: chatgptSignIn({ fetch: (input, init) => fetch(input, init), now: () => Date.now() }),
-        claude: claudeSignIn({ fetch: (input, init) => fetch(input, init), now: () => Date.now() }),
-        copilot: copilotSignIn({ fetch: (input, init) => fetch(input, init), now: () => Date.now() }),
+        chatgpt: chatgptSignIn(this.#vendorAccess()),
+        claude: claudeSignIn(this.#vendorAccess()),
+        copilot: copilotSignIn(this.#vendorAccess()),
       },
     });
     return this.#broker;
+  }
+
+  /** The Outside request time limit as stored now, in ms (SPI-1365): read at each request to GitHub or a vendor. */
+  #outsideRequestMs(): number {
+    return resolveEnvironment(harnessStore(this.ctx.storage.kv).loadEnvironment()).outsideRequestSeconds * 1000;
+  }
+
+  /** A sign-in vendor's fetch, clock and request bound; `timeoutMs` is read at each request, so a change applies at the next. */
+  #vendorAccess(): { readonly fetch: typeof fetch; readonly now: () => number; readonly timeoutMs: number } {
+    const outsideRequestMs = () => this.#outsideRequestMs();
+    return {
+      fetch: (input, init) => fetch(input, init),
+      now: () => Date.now(),
+      get timeoutMs() {
+        return outsideRequestMs();
+      },
+    };
   }
 
   /** A sign-in endpoint was signed out (SPI-1164): every open Session drops its token, and its turns on it stop. */
@@ -947,9 +965,10 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
         .flatMap((ws) => (ws.owner === null || ws.name === null ? [] : [{ owner: ws.owner, name: ws.name }]));
     return {
       store: this.skills,
-      reader: async (repo, deadline) => {
+      reader: async (repo) => {
         const access = await readAccessFor(this.github, installed(), repo);
-        return { reader: githubReader({ fetch: (url, init) => fetch(url, init), access, deadline }), how: access.how };
+        const timeoutMs = this.#outsideRequestMs();
+        return { reader: githubReader({ fetch: (url, init) => fetch(url, init), access, timeoutMs }), how: access.how };
       },
       unauthenticated: () => installed().length === 0 || !this.github.configured,
     };

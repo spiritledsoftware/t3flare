@@ -16,7 +16,8 @@ constraint set: 60, 120 and 15 minutes.
 
 1. **A maximum is a named constraint or a sanity bound.** A named constraint is a limit Cloudflare or t3flare's own
    correctness sets, and the code names it in a comment where the value is set: the setup output's 256 KiB (a Durable
-   Object value holds at most 8 MB) and the rebuild interval's 29 days (a snapshot expires after 30) stay. (SPI-1359,
+   Object value holds at most 8 MB; superseded as an example: 256 KiB is not derived from 8 MB, see the SPI-1365
+   refinement below) and the rebuild interval's 29 days (a snapshot expires after 30) stay. (SPI-1359,
    2026-11-23: a SQLite-backed DO row or value holds 8 MB; the earlier 2 MB was stale.) Anything else is a sanity bound:
    a number far beyond any real choice, kept because an integer setting's schema needs a maximum, with a comment saying
    nothing forces it.
@@ -71,3 +72,15 @@ constraint set: 60, 120 and 15 minutes.
 - Raising the idle time now goes through the Settings server's asking, as raising the budget already did.
 - A new tunable limit takes its maximum from this ADR: a named constraint with its comment, the shared timed maximum,
   or a stated sanity bound.
+
+## Refinement (SPI-1365, 2026-11-23): a value's size is bounded where it is stored, not field by field
+
+§1's first example does not hold as written: the setup output's 256 KiB is a number under the 8 MB a Durable Object
+value holds, not one derived from it, as the setups' own 256 KiB was. Where several things share one stored value, the
+named constraint is that value as a whole: the Environment settings, the Harness settings, the Model endpoints, the
+audit log and t3's tool listing are each checked once against `DO_VALUE_BYTES` (`storedValueProblem` in
+`packages/harness-registry/src/storedValue.ts`), and an Open change's record against its one SQLite row
+(`CHANGE_RECORD_BYTES`). A per-field size, where one is kept, is derived from that value (the file settings take a
+third of it) or from another named constraint (a Variable's 128 KiB is Linux's `MAX_ARG_STRLEN`). Counts that only
+stood in for a size (Variables, endpoints, models, headers, t3 tools, Environment skills) are removed. The setup
+output's 256 KiB itself is unchanged here; it is SPI-1360's.

@@ -7,11 +7,13 @@ import { describe, expect, it } from "vitest";
 
 import { containerCostTable } from "../src/harness/containerCost.ts";
 
+const CUSTOM = { customVcpu: 1, customMemoryMib: 3072, customDiskMb: 12_000 };
+
 describe("containerCostTable", () => {
-  const table = containerCostTable(3);
+  const table = containerCostTable({ containerBudget: 3, ...CUSTOM });
   const row = (size: string) => table.rows.find((entry) => entry.size === size)!;
 
-  it("lists the five offered sizes with their resources, the default first", () => {
+  it("lists the offered sizes with their resources, the default first and the custom size last", () => {
     expect(table.budget).toBe(3);
     expect(table.rows.map((entry) => [entry.size, entry.resources, entry.default])).toEqual([
       ["cpu-1", { vcpu: 1, memoryMib: 3072, diskMb: 12000 }, true],
@@ -19,6 +21,7 @@ describe("containerCostTable", () => {
       ["standard-2", { vcpu: 1, memoryMib: 6144, diskMb: 12000 }, false],
       ["standard-3", { vcpu: 2, memoryMib: 8192, diskMb: 16000 }, false],
       ["standard-4", { vcpu: 4, memoryMib: 12288, diskMb: 20000 }, false],
+      ["custom", { vcpu: 1, memoryMib: 3072, diskMb: 12000 }, false],
     ]);
   });
 
@@ -28,7 +31,7 @@ describe("containerCostTable", () => {
   });
 
   it("prices the budget the settings give: five standard-4s at five times one", () => {
-    const five = containerCostTable(5);
+    const five = containerCostTable({ containerBudget: 5, ...CUSTOM });
     expect(five.budget).toBe(5);
     expect(five.rows.find((entry) => entry.size === "standard-4")!.budgetHour).toBeCloseTo(2.0052, 6);
   });
@@ -40,5 +43,16 @@ describe("containerCostTable", () => {
 
   it("prices standard-1 at half a vCPU: $0.036 CPU, $0.036 memory and $0.002016 disk an hour", () => {
     expect(row("standard-1").perContainerHour).toBeCloseTo(0.074016, 6);
+  });
+
+  it("prices the custom size at the resources its settings give (SPI-1365): 2 vCPU, 4 GiB, 10 GB", () => {
+    const custom = containerCostTable({
+      containerBudget: 1,
+      customVcpu: 2,
+      customMemoryMib: 4096,
+      customDiskMb: 10_000,
+    });
+    // $0.144 CPU, $0.036 memory and $0.00252 disk an hour.
+    expect(custom.rows.find((entry) => entry.size === "custom")!.perContainerHour).toBeCloseTo(0.18252, 6);
   });
 });

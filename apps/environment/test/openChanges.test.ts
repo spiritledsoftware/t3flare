@@ -11,6 +11,8 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  CHANGE_ARGS_BYTES,
+  CHANGE_RECORD_BYTES,
   CHANGES_TABLE,
   type ChangeCaller,
   type ChangeRecord,
@@ -1042,5 +1044,58 @@ describe("the caps follow the Settings server's limits (SPI-1322)", () => {
     // Every limit at its least still keeps an hour: the hourly caps look back that far.
     const least = world(60_000, { strikes: 1, strikeWindowMinutes: 1, strikeLockMinutes: 0, declinedRepeatMinutes: 0 });
     expect(least.deps().changes.keptMs()).toBe(60 * 60_000);
+  });
+});
+
+describe("a change's record in its one row (SPI-1365)", () => {
+  const bytes = (w: ReturnType<typeof world>, id: string) =>
+    new TextEncoder().encode(
+      w.sql.exec<{ record: string }>(`SELECT record FROM ${CHANGES_TABLE} WHERE id = ?`, id).toArray()[0]!.record,
+    ).length;
+  // A near-maximum Image setup of three-byte characters, about 2.6 MB of UTF-8, shown before and after.
+  const text = "€".repeat(880_000);
+  const view = {
+    entity: "environment" as const,
+    subject: "the Environment settings",
+    revision: 4,
+    appliesAt: "",
+    reasons: [],
+    items: [{ kind: "text" as const, name: "imageSetup", before: text, after: `${text}x` }],
+    lines: [`imageSetup: ${text}`],
+  };
+
+  it("keeps an Open change whose view passes the row, its texts cut with a note and its arguments whole", () => {
+    const w = world();
+    const record = w.open(OWN, {
+      args: { expectedRevision: 4, settings: { imageSetup: `${text}x` } },
+      shown: view,
+    });
+    expect(bytes(w, record.id)).toBeLessThanOrEqual(CHANGE_RECORD_BYTES);
+    const kept = w.deps().changes.get(record.id)!;
+    expect(kept.args).toEqual(record.args);
+    const item = kept.shown!.items[0] as { readonly before: string };
+    expect(item.before).toMatch(/more characters not kept: a change's record is one SQLite row, at most 8 MB\]$/);
+  });
+
+  it("closes it with any error in the same row: the rewrite never outgrows what was kept", () => {
+    const w = world();
+    const record = w.open(OWN, { args: { expectedRevision: 4, settings: { imageSetup: text } }, shown: view });
+    const closed: ChangeRecord = {
+      ...record,
+      state: "failed",
+      closed: { at: NOW, error: "é".repeat(3_000_000) },
+    };
+    expect(w.deps().changes.replace(record.id, ["open"], closed)).toBe(true);
+    expect(w.deps().changes.get(record.id)).toMatchObject({ state: "failed" });
+    expect(bytes(w, record.id)).toBeLessThanOrEqual(CHANGE_RECORD_BYTES);
+    // The table still answers: every later call reads it.
+    expect(w.deps().changes.open()).toEqual([]);
+  });
+
+  it("refuses to keep a change whose arguments alone leave no room, rather than a row that cannot be written", () => {
+    const w = world();
+    const args = { expectedRevision: 4, settings: { imageSetup: "€".repeat(Math.ceil(CHANGE_ARGS_BYTES / 3) + 1) } };
+    expect(() => w.open(OWN, { args })).toThrow(/a change's record holds \(one 8 MB SQLite row\)/);
+    expect(w.deps().changes.open()).toEqual([]);
   });
 });

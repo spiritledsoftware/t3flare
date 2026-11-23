@@ -9,6 +9,9 @@ import { describe, expect, it } from "vitest";
 import { applyEnvironmentChange, EMPTY_ENVIRONMENT, readStoredEnvironment, resolveEnvironment } from "./environment.ts";
 import {
   fitVariableEnv,
+  MAX_ENV_STRING_BYTES,
+  MAX_VARIABLE_VALUE_BYTES,
+  MAX_VARIABLES_BYTES,
   RESERVED_PREFIXES,
   SET_BY_T3FLARE,
   setByT3flare,
@@ -71,16 +74,34 @@ describe("Variables", () => {
     expect(resolveEnvironment(removed.environment).variables).toEqual([plain("A", "1")]);
   });
 
-  it("keeps the limits: 50 Variables, names up to 128 characters, values up to 4,096", () => {
-    const fifty = Array.from({ length: 50 }, (_, at) => plain(`V${at}`, "x"));
-    expect(apply(fifty)).toMatchObject({ ok: true });
-    expect(refusal([...fifty, plain("V50", "x")])).toBe("variables: at most 50 Variables (51 given)");
-    expect(apply([plain(`N${"A".repeat(127)}`, "x")])).toMatchObject({ ok: true });
-    expect(refusal([plain(`N${"A".repeat(128)}`, "x")])).toBe(
-      `variables: "N${"A".repeat(128)}" is longer than 128 characters`,
+  it("bounds each NAME=value by Linux's MAX_ARG_STRLEN and all of them by their share of ARG_MAX, not by a count", () => {
+    // No count: past the old 50 Variables, and names past the old 128 characters, are taken.
+    const many = Array.from({ length: 500 }, (_, at) => plain(`V${at}`, "x"));
+    expect(apply(many)).toMatchObject({ ok: true });
+    expect(apply([plain(`N${"A".repeat(1000)}`, "x")])).toMatchObject({ ok: true });
+    // A value up to the per-string bound, counted in bytes of UTF-8 with its name, "=" and the NUL: a kubeconfig fits.
+    expect(MAX_ENV_STRING_BYTES).toBe(128 * 1024);
+    const fits = MAX_ENV_STRING_BYTES - "BIG=".length - 1;
+    expect(apply([plain("BIG", "y".repeat(fits))])).toMatchObject({ ok: true });
+    expect(refusal([plain("BIG", "y".repeat(fits + 1))])).toBe(
+      `variables: "BIG"=value is ${MAX_ENV_STRING_BYTES + 1} bytes, past the ${MAX_ENV_STRING_BYTES} Linux takes for one variable`,
     );
-    expect(apply([plain("BIG", "y".repeat(4096))])).toMatchObject({ ok: true });
-    expect(refusal([plain("BIG", "y".repeat(4097))])).toBe('variables: "BIG"\'s value is longer than 4096 characters');
+    expect(refusal([plain("BIG", "é".repeat(fits / 2 + 1))])).toMatch(/past the 131072 Linux takes for one variable/);
+    expect(MAX_VARIABLE_VALUE_BYTES).toBe(MAX_ENV_STRING_BYTES - "A=".length - 1);
+    // All of them together: their share of ARG_MAX, refused whole on a change.
+    expect(MAX_VARIABLES_BYTES).toBe(1024 * 1024);
+    const big = (at: number) => plain(`B${at}`, "z".repeat(100 * 1024));
+    const ten = Array.from({ length: 10 }, (_, at) => big(at));
+    expect(apply(ten)).toMatchObject({ ok: true });
+    expect(refusal([...ten, big(10)])).toMatch(
+      /^variables: the Variables take \d+ bytes of a command's environment, past the 1048576 they may$/,
+    );
+  });
+
+  it("reads a stored set past the total as the Variables that fit, in order, dropping only the rest", () => {
+    const stored = Array.from({ length: 11 }, (_, at) => plain(`B${at}`, "z".repeat(100 * 1024)));
+    const read = resolveEnvironment({ revision: 1, settings: { variables: stored } }).variables;
+    expect(read.map((variable) => variable.name)).toEqual(stored.slice(0, 10).map((variable) => variable.name));
   });
 
   it("takes only names a shell can export, each once, and text values without a NUL", () => {

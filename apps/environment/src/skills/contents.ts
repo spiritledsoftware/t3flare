@@ -11,6 +11,7 @@
 // The token is used for these requests and dropped; it reaches no Session, Container, page or log. Failures are told
 // plainly (`GithubReadError`), each whole.
 import { GitHubNotInstalled } from "@t3flare/github-app/app";
+import { DEFAULT_OUTSIDE_REQUEST_SECONDS } from "@t3flare/harness-registry";
 import { SKILL_FETCH_GITHUB_PERMISSIONS } from "@t3flare/github-app/permissions";
 
 import type { MintRequest } from "../agents/github.ts";
@@ -19,8 +20,8 @@ import type { TreeEntry } from "./paths.ts";
 
 const API = "https://api.github.com";
 
-/** How long one request to GitHub may take. */
-const REQUEST_TIMEOUT_MS = 15_000;
+/** How long one request to GitHub may take where no setting reaches: the Outside request time limit's default. */
+const REQUEST_TIMEOUT_MS = DEFAULT_OUTSIDE_REQUEST_SECONDS * 1000;
 
 /** How the fetch reads a repo: with which token, and whether the App is installed on the repo's owner. */
 export interface ReadAccess {
@@ -93,8 +94,8 @@ export interface GithubReaderOptions {
   readonly fetch: GithubFetch;
   readonly access: ReadAccess;
   readonly now?: () => number;
-  /** The whole request's end: a read after it is refused, so a request that runs out stores nothing. */
-  readonly deadline?: number;
+  /** Each request's bound (`outsideRequestSeconds`); `REQUEST_TIMEOUT_MS` when absent. */
+  readonly timeoutMs?: number;
 }
 
 /** A `RepoReader` over GitHub's REST API with `access`. */
@@ -110,19 +111,13 @@ export const githubReader = (options: GithubReaderOptions): RepoReader => {
   };
 
   const ask = async (path: string, accept: string): Promise<Response> => {
-    if (options.deadline !== undefined && now() > options.deadline) {
-      throw new GithubReadError(
-        "failed",
-        "GitHub took too long: the request stopped after 60 seconds and kept nothing. Try again, or install fewer skills at a time.",
-      );
-    }
     const headers = new Headers({ accept, "x-github-api-version": "2022-11-28", "user-agent": "t3flare" });
     if (access.token !== undefined) headers.set("authorization", `Bearer ${access.token}`);
     try {
       return await options.fetch(`${API}${path}`, {
         method: "GET",
         headers,
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        signal: AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS),
       });
     } catch (cause) {
       throw new GithubReadError("failed", `GitHub could not be reached: ${messageOf(cause)}`);

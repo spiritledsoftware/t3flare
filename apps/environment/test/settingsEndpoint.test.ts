@@ -4,7 +4,7 @@
 // `requestState`, session and elicitation id refused when tampered, expired, another identity's, another kind's, or for
 // another call, applying nothing. The audiences (the panel's at the endpoint and the endpoint's at the panel) are in
 // access.test.ts; `browser`'s delivery and holds are in settingsModes.test.ts.
-import { applyMcpChange } from "@t3flare/harness-registry";
+import { applyMcpChange, DO_VALUE_BYTES, MAX_SETUP_BYTES } from "@t3flare/harness-registry";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { BODY_MAX, LEGACY_VERSIONS, MODERN_VERSION, SUPPORTED_VERSIONS } from "../src/settings/endpoint.ts";
@@ -92,14 +92,30 @@ describe("T-guards: D11's guards, before the body is parsed", () => {
     expect(response.status).toBe(200);
   });
 
-  it("answers a body over 256 KiB with 413, by its length header and by what is read", async () => {
+  it("reads a body as large as a whole stored value's change, JSON-escaped, with its envelope", () => {
+    // A setup at its own maximum, as a client's JSON sends it: past the old 256 KiB, which was the setup's own size.
+    expect(BODY_MAX).toBe(DO_VALUE_BYTES + 64 * 1024);
+    const setup = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "change_environment",
+        arguments: { expectedRevision: 1, settings: { imageSetup: "€".repeat(MAX_SETUP_BYTES / 3) } },
+      },
+    });
+    expect(new TextEncoder().encode(setup).length).toBeLessThanOrEqual(BODY_MAX);
+  });
+
+  it("answers a body past BODY_MAX with 413, by its length header and by what is read", async () => {
     const endpoint = endpointOf(world());
     const big = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping", params: { pad: "x".repeat(BODY_MAX) } });
     expect((await endpoint(post(big))).status).toBe(413);
     // No length header: a stream of chunks.
+    const chunk = 1024 * 1024;
     const chunks = new ReadableStream<Uint8Array>({
       start: (controller) => {
-        for (let index = 0; index < 5; index++) controller.enqueue(new Uint8Array(64 * 1024).fill(32));
+        for (let index = 0; index <= BODY_MAX / chunk; index++) controller.enqueue(new Uint8Array(chunk).fill(32));
         controller.close();
       },
     });

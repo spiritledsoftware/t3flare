@@ -88,6 +88,7 @@ import {
   type AnsweredBy,
   APPLIED_WINDOW_MS,
   capKeyOf,
+  changeArgsProblem,
   type ChangeCaller,
   changeHash,
   type ChangeMode,
@@ -112,7 +113,7 @@ import {
   type ChangesApi,
   closeOrSettle,
   openChangeSummary,
-  OWN_APPLYING_WAIT_MS,
+  ownApplyingWaitMs,
   outcomeOf,
   waitForChange,
 } from "./openChanges.ts";
@@ -368,7 +369,7 @@ const getSettings = async (
         tier: (setting as { readonly tier?: string }).tier ?? "asked",
       })),
       running: (await deps.running?.()) ?? null,
-      costs: containerCostTable(resolveEnvironment(stored).containerBudget),
+      costs: containerCostTable(resolveEnvironment(stored)),
     });
   }
   return readError("entity is harness or environment");
@@ -1319,8 +1320,10 @@ export const applyOpenChange = async (
 };
 
 /** A closed change's answer to the agent (plan D11's statuses). */
-/** An own agent's close waits this long for an applying answer (`closeOrSettle`). */
-const OWN_WAIT = { waitMs: OWN_APPLYING_WAIT_MS } as const;
+/** How long an own agent's close waits for an applying answer (`closeOrSettle`), at the Outside request time limit now. */
+const ownWait = (deps: SettingsServerDeps): { readonly waitMs: number } => ({
+  waitMs: ownApplyingWaitMs(resolveEnvironment(deps.ops.store.loadEnvironment()).outsideRequestSeconds * 1000),
+});
 
 const resultOf = (
   outcome: ChangeOutcome,
@@ -1485,6 +1488,12 @@ const applyFree = async (
 ): Promise<McpCallAnswer> => {
   const { planned, log } = input;
   const now = deps.ops.now();
+  // Its record is one row (SPI-1365): a change too large to keep is refused before it applies, never after.
+  const tooLarge = changeArgsProblem(input.args);
+  if (tooLarge !== undefined) {
+    log("refused", { reason: "too-large" });
+    return written("refused", `Not changed: ${tooLarge}`);
+  }
   const ran = await planned.run({ actor: input.actor, expectedRevision: input.expected });
   const revision = revisionOf(deps, planned.entity);
   if (!ran.ok) {
@@ -1579,6 +1588,9 @@ const openAskedChange = async (deps: SettingsServerDeps, input: AskedInput): Pro
   const limits = deps.changes.limits();
   const capped = capRefusal(deps.changes, caller, hash, deps.ops.now(), openListOf(deps), limits);
   if (capped !== undefined) return capAnswer(capped);
+  // Its record is one row (SPI-1365): a change too large to keep is refused before it opens.
+  const tooLarge = changeArgsProblem(input.args);
+  if (tooLarge !== undefined) return refused("too-large", written("refused", `Not changed: ${tooLarge}`));
   const spent = planned.network === true ? networkSpent(deps, input.reader, limits) : undefined;
   if (spent !== undefined) return refused("network-read-cap", written("refused", spent));
   const described = await planned.describe();
@@ -1710,7 +1722,7 @@ const ask = async (
         id,
         event.kind === "stop" ? "withdrawn" : "expired",
         event.kind === "stop" ? "stop" : undefined,
-        OWN_WAIT,
+        ownWait(deps),
       ),
     );
   };
@@ -1731,7 +1743,7 @@ const ask = async (
           id,
           event.kind === "stop" ? "withdrawn" : "expired",
           event.kind === "stop" ? "stop" : undefined,
-          OWN_WAIT,
+          ownWait(deps),
         );
         await withdrawCard();
         return resultOf(finalOf(outcome), record, planned);
@@ -1768,7 +1780,7 @@ const ask = async (
         id,
         reason === "no answer in time" ? "expired" : "withdrawn",
         closer,
-        OWN_WAIT,
+        ownWait(deps),
       );
       return resultOf(finalOf(withdrawn), record, planned);
     }

@@ -6,12 +6,21 @@ import { normalizeVariables, type StoredVariable, variablesProblem } from "./var
 export type FieldSchema =
   | { readonly type: "boolean"; readonly default: boolean }
   | { readonly type: "integer"; readonly minimum: number; readonly maximum: number; readonly default: number }
-  /** `labels`: what the panel shows for a value, where its stored name is not words; the value itself otherwise. */
+  /**
+   * A number with no maximum of t3flare's (a custom Container size's resources, SPI-1365: Cloudflare's account limits
+   * bound them, and refuse a start past them); `whole`: an integer only.
+   */
+  | { readonly type: "number"; readonly minimum: number; readonly whole?: boolean; readonly default: number }
+  /**
+   * `labels`: what the panel shows for a value, where its stored name is not words; the value itself otherwise.
+   * `integers`: a whole number of at least `minimum`, written in digits, is a value too (the Advisor's cadence, SPI-1365).
+   */
   | {
       readonly type: "enum";
       readonly values: ReadonlyArray<string>;
       readonly default: string;
       readonly labels?: Readonly<Record<string, string>>;
+      readonly integers?: { readonly minimum: number };
     }
   /** Free text (SPI-1058: guardian's rules and policy, typed as pi-guardian's menu takes them); `multiline` is a text area. */
   | { readonly type: "text"; readonly maxLength: number; readonly default: string; readonly multiline?: boolean }
@@ -69,7 +78,7 @@ const fileProblem = (text: string, maxBytes: number): string | undefined => {
   if (text.includes("\u0000")) return "contains a NUL character";
   // A UTF-16 unit is at most 3 bytes of UTF-8 (a surrogate pair 4 for 2 units): only a long text needs encoding.
   if (text.length > maxBytes / 3 && utf8.encode(text).length > maxBytes)
-    return `is longer than ${maxBytes / 1024} KiB of UTF-8`;
+    return `is longer than ${maxBytes} bytes of UTF-8`;
   return undefined;
 };
 
@@ -82,6 +91,13 @@ export const normalizeField = (schema: EnvironmentFieldSchema, value: unknown): 
   return schema.type === "variables" ? normalizeVariables(value) : value;
 };
 
+/** Whether `value` is a whole number an enum with `integers` takes: digits, no leading zero, at least its minimum. */
+const enumInteger = (schema: { readonly integers?: { readonly minimum: number } }, value: string): boolean =>
+  schema.integers !== undefined &&
+  /^(0|[1-9][0-9]*)$/.test(value) &&
+  Number.isSafeInteger(Number(value)) &&
+  Number(value) >= schema.integers.minimum;
+
 /** Why `value` does not fit `schema`, or undefined. */
 export const fieldProblem = (schema: EnvironmentFieldSchema, value: unknown): string | undefined => {
   switch (schema.type) {
@@ -91,10 +107,15 @@ export const fieldProblem = (schema: EnvironmentFieldSchema, value: unknown): st
       if (typeof value !== "number" || !Number.isInteger(value)) return "an integer";
       if (value < schema.minimum) return `at least ${schema.minimum}`;
       return value > schema.maximum ? `at most ${schema.maximum}` : undefined;
+    case "number":
+      if (typeof value !== "number" || !Number.isFinite(value)) return "a number";
+      if (schema.whole === true && !Number.isSafeInteger(value)) return "a whole number";
+      return value < schema.minimum ? `at least ${schema.minimum}` : undefined;
     case "enum":
-      return typeof value === "string" && schema.values.includes(value)
-        ? undefined
-        : `one of ${schema.values.join(", ")}`;
+      if (typeof value === "string" && (schema.values.includes(value) || enumInteger(schema, value))) return undefined;
+      return schema.integers === undefined
+        ? `one of ${schema.values.join(", ")}`
+        : `one of ${schema.values.join(", ")}, or a whole number of at least ${schema.integers.minimum}`;
     case "text":
       return typeof value === "string" && value.length <= schema.maxLength
         ? undefined

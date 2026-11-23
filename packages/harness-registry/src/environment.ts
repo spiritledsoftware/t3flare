@@ -8,7 +8,8 @@
 // setting (the Global mise config, SPI-1150; Variables, SPI-1152) is one entry in `ENVIRONMENT_SETTINGS`. The resolved
 // type, the resolve, the validation and the panel's section all follow from it.
 import { type EnvironmentSettingEntry, type EnvironmentValue, fieldProblem, normalizeField } from "./fields.ts";
-import { fitVariables, MAX_VARIABLES, type Variable } from "./variables.ts";
+import { DO_VALUE_BYTES, storedValueProblem } from "./storedValue.ts";
+import { fitVariables, MAX_ENV_STRING_BYTES, MAX_VARIABLES_BYTES, type Variable } from "./variables.ts";
 
 export * from "./variables.ts";
 
@@ -172,21 +173,24 @@ export const MAX_AGENT_TERMINALS_PER_WORKSPACE = 32;
  */
 export const MAX_TERMINALS_PER_WORKSPACE = 1000;
 
-/** The largest Global mise config, in bytes of UTF-8. */
-export const MAX_GLOBAL_MISE_BYTES = 16 * 1024;
-
 /**
- * The largest Image setup and Container setup, each, in bytes of UTF-8 (ADR-0047 §9). Fixed by a constraint: every
- * Environment setting is one stored value of at most 8 MB, and the Environment settings are one value together.
+ * The largest file setting (the Global mise config, the Image setup, the Container setup), in bytes of UTF-8: a third
+ * of one stored value, since the Environment settings are one Durable Object value (`DO_VALUE_BYTES`) and a byte of
+ * UTF-8 is at most one character, which `storedBytes` counts as three. Derived from that constraint; what the settings
+ * take together is checked as a whole (`applyEnvironmentChange`), so one file this large leaves little room for others.
  */
-export const MAX_SETUP_BYTES = 256 * 1024;
+export const MAX_FILE_SETTING_BYTES = Math.floor(DO_VALUE_BYTES / 3);
+
+/** The largest Global mise config, in bytes of UTF-8 (`MAX_FILE_SETTING_BYTES`). */
+export const MAX_GLOBAL_MISE_BYTES = MAX_FILE_SETTING_BYTES;
+
+/** The largest Image setup and Container setup, each, in bytes of UTF-8 (ADR-0047 §9; `MAX_FILE_SETTING_BYTES`). */
+export const MAX_SETUP_BYTES = MAX_FILE_SETTING_BYTES;
 
 /** Why `text` cannot be an Image setup (a Test base build's proposal included): past `MAX_SETUP_BYTES`; undefined when it fits. */
 export const imageSetupTooLong = (text: string): string | undefined => {
   const bytes = new TextEncoder().encode(text).length;
-  return bytes > MAX_SETUP_BYTES
-    ? `the Image setup is at most ${MAX_SETUP_BYTES / 1024} KiB, not ${bytes} bytes`
-    : undefined;
+  return bytes > MAX_SETUP_BYTES ? `the Image setup is at most ${MAX_SETUP_BYTES} bytes, not ${bytes}` : undefined;
 };
 
 /**
@@ -294,6 +298,12 @@ export const DEFAULT_MCP_CALL_SECONDS = 270;
 /** The MCP call time limit's default in ms: used where no setting reaches (a test's host, a call that carries none). */
 export const DEFAULT_MCP_CALL_MS = DEFAULT_MCP_CALL_SECONDS * 1000;
 
+/**
+ * How long t3flare waits for one answer from GitHub or a sign-in vendor by default (`outsideRequestSeconds`, SPI-1365):
+ * today's 15 seconds.
+ */
+export const DEFAULT_OUTSIDE_REQUEST_SECONDS = 15;
+
 /** The MCP result size's default, in KiB (`mcpResultKiB`, SPI-1359): today's 1 MiB. */
 export const DEFAULT_MCP_RESULT_KIB = 1024;
 
@@ -312,6 +322,32 @@ export const MAX_MCP_RESULT_KIB = 8 * 1024;
  * the Settings page shows them in an MCP calls row of their own, in this order.
  */
 export const MCP_CALL_SETTING_KEYS = ["mcpCallSeconds", "mcpResultKiB"] as const;
+
+/**
+ * The outside requests' setting (SPI-1365): how long one request to GitHub or a sign-in's vendor may wait. It bounds the
+ * Environment's own requests at the next one, never a Container start, so the Settings page shows it in a row of its own.
+ */
+export const OUTSIDE_REQUEST_SETTING_KEYS = ["outsideRequestSeconds"] as const;
+
+/**
+ * How far a Workspace reads its Repo skills and Prompt templates (SPI-1365), in a Skills row of their own: discovery runs
+ * in the Workspace DO with no Container, at each request, with the settings the Workspace's last Container start kept.
+ */
+export const SKILLS_SETTING_KEYS = [
+  "repoSkillsListed",
+  "skillsDirectoryEntries",
+  "skillsLinkEntries",
+  "promptsDirectoryEntries",
+] as const;
+
+/** The most Repo skills listed may be set to: a sanity bound (ADR-0048 §1); the model's context bounds it in fact. */
+export const MAX_REPO_SKILLS_LISTED = 10_000;
+
+/**
+ * The most entries a skills or Prompt templates directory may be set to list: a sanity bound (ADR-0048 §1). Each
+ * listing is held whole in the Workspace DO's 128 MB isolate, which bounds it in fact.
+ */
+export const MAX_DIRECTORY_ENTRIES = 100_000;
 
 /** A Container's resources, as `ctx.container.start({ instance })` takes a custom size. */
 export interface ContainerResources {
@@ -332,9 +368,9 @@ export type ContainerInstance = NamedContainerType | ContainerResources;
  * The Container sizes, by the name kept in the settings, smallest memory first. `cpu-1` is t3flare's size before this
  * setting (1 vCPU, 3 GiB, 12 GB), a custom size started as its resources; the others are Cloudflare's
  * named types, started by name, with the resources its limits page gives
- * (docs-archive-1:docs/steps/spi-1001-research-container-sizes.md §2). Not offered: `lite` and `basic` (the runtime refuses `basic`),
- * and other custom sizes. A stored name never changes meaning: adding a size is free, removing one needs a
- * rename map.
+ * (docs-archive-1:docs/steps/spi-1001-research-container-sizes.md §2). Not offered: `lite` and `basic` (the runtime refuses `basic`).
+ * Any other size is `custom` (`CUSTOM_SIZE`, SPI-1365), its resources the Owner's settings. A stored name never changes
+ * meaning: adding a size is free, removing one needs a rename map.
  */
 export const CONTAINER_SIZES = {
   "cpu-1": { custom: true, resources: { vcpu: 1, memoryMib: 3072, diskMb: 12_000 } },
@@ -344,28 +380,62 @@ export const CONTAINER_SIZES = {
   "standard-4": { custom: false, resources: { vcpu: 4, memoryMib: 12_288, diskMb: 20_000 } },
 } as const satisfies Readonly<Record<string, { readonly custom: boolean; readonly resources: ContainerResources }>>;
 
-export type ContainerSize = keyof typeof CONTAINER_SIZES;
+/** The size whose resources are the settings `customVcpu`, `customMemoryMib` and `customDiskMb` (SPI-1365). */
+export const CUSTOM_SIZE = "custom";
 
-export const CONTAINER_SIZE_NAMES = Object.keys(CONTAINER_SIZES) as ReadonlyArray<ContainerSize>;
+export type ContainerSize = keyof typeof CONTAINER_SIZES | typeof CUSTOM_SIZE;
+
+export const CONTAINER_SIZE_NAMES = [...Object.keys(CONTAINER_SIZES), CUSTOM_SIZE] as ReadonlyArray<ContainerSize>;
+
+/**
+ * The least a custom size may have: Cloudflare's minimums for a custom instance under `schedulingPolicy:
+ * "durable_object"` (1/16 vCPU, 256 MiB, 2 GB; developers.cloudflare.com/containers/platform-details/limits, read
+ * 2026-11-23). A named constraint. Its maximums are the account's limits (4 vCPU, 12 GiB and 20 GB by default, raised on
+ * request), which t3flare cannot read: Cloudflare refuses a start past them.
+ */
+export const CUSTOM_SIZE_MINIMUMS: ContainerResources = { vcpu: 1 / 16, memoryMib: 256, diskMb: 2000 };
+
+/**
+ * An account's default limits per Container instance (the same page): what the custom size's description names, never
+ * checked, since an account can have them raised.
+ */
+export const ACCOUNT_DEFAULT_LIMITS: ContainerResources = { vcpu: 4, memoryMib: 12_288, diskMb: 20_000 };
+
+/** A custom size's resources as `settings` set them. */
+export const customResources = (
+  settings: Pick<ResolvedEnvironment, "customVcpu" | "customMemoryMib" | "customDiskMb">,
+): ContainerResources => ({
+  vcpu: settings.customVcpu,
+  memoryMib: settings.customMemoryMib,
+  diskMb: settings.customDiskMb,
+});
 
 export const DEFAULT_CONTAINER_SIZE: ContainerSize = "cpu-1";
 
 /**
- * What `ctx.container.start({ instance })` takes for `size`: a custom size's resources, a named type's name. Never
- * undefined (an omitted `instance` starts `lite`); a stored name t3flare does not offer resolves to the default first
- * (`resolveEnvironment`).
+ * What `ctx.container.start({ instance })` takes for `size`: a custom size's resources (`custom` for `CUSTOM_SIZE`), a
+ * named type's name. Never undefined (an omitted `instance` starts `lite`); a stored name t3flare does not offer resolves
+ * to the default first (`resolveEnvironment`).
  */
-export const containerInstance = (size: ContainerSize): ContainerInstance => {
+export const containerInstance = (
+  size: ContainerSize,
+  custom: ContainerResources = CONTAINER_SIZES["cpu-1"].resources,
+): ContainerInstance => {
+  if (size === CUSTOM_SIZE) return custom;
   const entry = CONTAINER_SIZES[size];
   return entry.custom ? entry.resources : (size as NamedContainerType);
 };
 
 /** What the Builder's Container starts with (ADR-0047 §9): its own size, or the Container size. */
 export const builderInstance = (
-  settings: Pick<ResolvedEnvironment, "containerSize" | "builderSize">,
+  settings: Pick<
+    ResolvedEnvironment,
+    "containerSize" | "builderSize" | "customVcpu" | "customMemoryMib" | "customDiskMb"
+  >,
 ): ContainerInstance =>
   containerInstance(
     settings.builderSize === BUILDER_SAME_SIZE ? settings.containerSize : (settings.builderSize as ContainerSize),
+    customResources(settings),
   );
 
 /** What the Environment DO stores (`t3flare:environment:settings`): the settings set explicitly. */
@@ -382,8 +452,38 @@ export const ENVIRONMENT_SETTINGS = {
   containerSize: {
     title: "Container size",
     description:
-      "The vCPU, memory and disk a Workspace's Container starts with. Applies at each Workspace's next Container start; a running Container keeps its size.",
-    schema: { type: "enum", values: CONTAINER_SIZE_NAMES, default: DEFAULT_CONTAINER_SIZE },
+      "The vCPU, memory and disk a Workspace's Container starts with; custom takes them from the three settings it shows. Applies at each Workspace's next Container start; a running Container keeps its size.",
+    schema: {
+      type: "enum",
+      values: CONTAINER_SIZE_NAMES,
+      default: DEFAULT_CONTAINER_SIZE,
+    },
+  },
+  customVcpu: {
+    title: "Custom size: vCPU",
+    description: `The custom size's vCPU, used when the Container size or the Builder size is custom: at least ${CUSTOM_SIZE_MINIMUMS.vcpu}, Cloudflare's least. Past your account's limits (${ACCOUNT_DEFAULT_LIMITS.vcpu} vCPU, ${ACCOUNT_DEFAULT_LIMITS.memoryMib / 1024} GiB and ${ACCOUNT_DEFAULT_LIMITS.diskMb / 1000} GB by default) Cloudflare refuses the start, and no Container starts until the size changes. Applies at each Workspace's next Container start.`,
+    // At least Cloudflare's minimum (`CUSTOM_SIZE_MINIMUMS`); no maximum of t3flare's: the account's limit is Cloudflare's.
+    schema: { type: "number", minimum: CUSTOM_SIZE_MINIMUMS.vcpu, default: CONTAINER_SIZES["cpu-1"].resources.vcpu },
+  },
+  customMemoryMib: {
+    title: "Custom size: memory (MiB)",
+    description: `The custom size's memory, at least ${CUSTOM_SIZE_MINIMUMS.memoryMib} MiB.`,
+    schema: {
+      type: "number",
+      minimum: CUSTOM_SIZE_MINIMUMS.memoryMib,
+      whole: true,
+      default: CONTAINER_SIZES["cpu-1"].resources.memoryMib,
+    },
+  },
+  customDiskMb: {
+    title: "Custom size: disk (MB)",
+    description: `The custom size's disk, at least ${CUSTOM_SIZE_MINIMUMS.diskMb} MB.`,
+    schema: {
+      type: "number",
+      minimum: CUSTOM_SIZE_MINIMUMS.diskMb,
+      whole: true,
+      default: CONTAINER_SIZES["cpu-1"].resources.diskMb,
+    },
   },
   containerIdleMinutes: {
     title: "Idle time (minutes)",
@@ -497,7 +597,7 @@ export const ENVIRONMENT_SETTINGS = {
   },
   variables: {
     title: "Variables",
-    description: `NAME=value pairs every command in a Workspace starts with: agents' commands, Terminals and CLI agents. A Secret one's value is stored sealed and never shown again, but every agent and command in a Workspace can read it, as on stock t3. Anything t3flare, t3, mise's [env] or the command itself sets wins over them. At most ${MAX_VARIABLES}. Applies at each Workspace's next Container start.`,
+    description: `NAME=value pairs every command in a Workspace starts with: agents' commands, Terminals and CLI agents. A Secret one's value is stored sealed and never shown again, but every agent and command in a Workspace can read it, as on stock t3. Anything t3flare, t3, mise's [env] or the command itself sets wins over them. Each NAME=value is at most ${MAX_ENV_STRING_BYTES / 1024} KiB and all of them together at most ${MAX_VARIABLES_BYTES / 1024 / 1024} MiB, Linux's limits on a command's environment with room left for the command itself. Applies at each Workspace's next Container start.`,
     schema: { type: "variables", default: [] },
   },
   globalMiseConfig: {
@@ -695,6 +795,43 @@ export const ENVIRONMENT_SETTINGS = {
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES * 60, default: DEFAULT_MCP_CALL_SECONDS },
     tier: "down-free",
   },
+  outsideRequestSeconds: {
+    title: "Outside request time limit (seconds)",
+    description: `How long t3flare waits for one answer from GitHub or a sign-in's vendor (OpenAI, Anthropic, GitHub Copilot): each GitHub read of a skills preview, install, update or check, each GitHub request of an Update, and each request of a sign-in, its renewal and its revocation (a ChatGPT revocation with its retries takes at most twice this). A request past it fails, and what waited on it with it; a longer limit holds a stalled one that long, and an agent's Stop during its skills install waits for the install, up to about 500 times this limit if every read stalls. At most ${MAX_TIMED_MINUTES * 60} (a week). Applies at the next request.`,
+    // Timed by t3flare's own AbortSignal.timeout, no platform limit (an outbound fetch has none): the shared sanity
+    // maximum applies (ADR-0048 §2).
+    schema: {
+      type: "integer",
+      minimum: 1,
+      maximum: MAX_TIMED_MINUTES * 60,
+      default: DEFAULT_OUTSIDE_REQUEST_SECONDS,
+    },
+    tier: "down-free",
+  },
+  repoSkillsListed: {
+    title: "Repo skills listed",
+    description: `How many of a repository's skills (.pi/skills, .agents/skills, .claude/skills) are listed in a Pi Durable agent's prompt and offered in t3's composer, nearest first; the rest are counted as not listed. Each listed skill's name and description is in front of the model on every turn. At most ${MAX_REPO_SKILLS_LISTED}. Applies at each Workspace's next Container start.`,
+    schema: { type: "integer", minimum: 0, maximum: MAX_REPO_SKILLS_LISTED, default: 100 },
+    tier: "down-free",
+  },
+  skillsDirectoryEntries: {
+    title: "Entries read per skills directory",
+    description: `How many files and folders t3flare lists in one skills directory looking for SKILL.md files; skills past them are not found. A larger listing takes more of the Workspace's memory. At most ${MAX_DIRECTORY_ENTRIES}.`,
+    schema: { type: "integer", minimum: 1, maximum: MAX_DIRECTORY_ENTRIES, default: 5000 },
+    tier: "down-free",
+  },
+  skillsLinkEntries: {
+    title: "Entries read through a skills link",
+    description: `The same for a link in a skills directory to a folder elsewhere, which may lead anywhere. At most ${MAX_DIRECTORY_ENTRIES}.`,
+    schema: { type: "integer", minimum: 1, maximum: MAX_DIRECTORY_ENTRIES, default: 200 },
+    tier: "down-free",
+  },
+  promptsDirectoryEntries: {
+    title: "Entries read per Prompt templates directory",
+    description: `How many files and folders t3flare lists in one Prompt templates directory (.pi/prompts, a CLI agent's commands); templates past them are not offered. At most ${MAX_DIRECTORY_ENTRIES}.`,
+    schema: { type: "integer", minimum: 1, maximum: MAX_DIRECTORY_ENTRIES, default: 1000 },
+    tier: "down-free",
+  },
   mcpResultKiB: {
     title: "MCP result size (KiB)",
     description: `The most of one MCP tool result t3flare takes, in KiB of UTF-8. A larger streamed result is refused whole, since it cannot be read in part; a larger inline one has its text cut to this, and its structured content dropped. The Environment holds a result whole while it reads it, beside t3, so a larger size uses more of its memory. At most ${MAX_MCP_RESULT_KIB} (${MAX_MCP_RESULT_KIB / 1024} MiB). Applies at the next call.`,
@@ -711,7 +848,7 @@ const ENVIRONMENT_KEYS = Object.keys(ENVIRONMENT_SETTINGS) as ReadonlyArray<Envi
 /** The value a field of `schema` holds: an enum's own names, a number, a boolean or text (a `file` field's too). */
 type ValueOf<Schema> = Schema extends { readonly type: "enum"; readonly values: ReadonlyArray<infer Name> }
   ? Name
-  : Schema extends { readonly type: "integer" }
+  : Schema extends { readonly type: "integer" | "number" }
     ? number
     : Schema extends { readonly type: "boolean" }
       ? boolean
@@ -807,12 +944,12 @@ export const applyEnvironmentChange = (
       ),
   );
   if (moved.length === 0) return { ok: true, environment: stored, changed: [] };
-  return {
-    ok: true,
-    environment: {
-      revision: stored.revision + 1,
-      settings: { ...stored.settings, ...(Object.fromEntries(moved) as Record<string, EnvironmentValue>) },
-    },
-    changed: moved.map(([key]) => key as EnvironmentKey),
+  const environment: StoredEnvironment = {
+    revision: stored.revision + 1,
+    settings: { ...stored.settings, ...(Object.fromEntries(moved) as Record<string, EnvironmentValue>) },
   };
+  // The one bound on their sizes together: the settings are one Durable Object value.
+  const tooLarge = storedValueProblem("the Environment settings", environment);
+  if (tooLarge !== undefined) return { ok: false, error: tooLarge };
+  return { ok: true, environment, changed: moved.map(([key]) => key as EnvironmentKey) };
 };

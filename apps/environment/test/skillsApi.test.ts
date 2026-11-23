@@ -87,7 +87,7 @@ describe("Environment skills API", () => {
     expect(list.skills).toMatchObject([
       { name: "a", repo: "o/r", path: "skills/a", ref: null, commit, enabled: true, files: 2 },
     ]);
-    expect(list.totals).toMatchObject({ count: 1, enabled: 1, disabled: 0, maxBytes: 8_388_608, maxSkills: 100 });
+    expect(list.totals).toMatchObject({ count: 1, enabled: 1, disabled: 0, maxBytes: 8_388_608 });
     expect(store.loadEnvironment().revision).toBe(1);
   });
 

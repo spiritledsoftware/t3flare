@@ -144,9 +144,9 @@ describe("the Owner's Test", () => {
     });
     expect((await ownerPost(deps, TEST_BASE_PATH, {})).status).toBe(400);
     expect((await ownerPost(deps, TEST_BASE_PATH, { imageSetup: 7 })).status).toBe(400);
-    const over = await ownerPost(deps, TEST_BASE_PATH, { imageSetup: "é".repeat(MAX_SETUP_BYTES / 2 + 1) });
+    const over = await ownerPost(deps, TEST_BASE_PATH, { imageSetup: "é".repeat(Math.floor(MAX_SETUP_BYTES / 2) + 1) });
     expect(over.status).toBe(413);
-    expect(await over.text()).toContain("at most 256 KiB");
+    expect(await over.text()).toContain(`at most ${MAX_SETUP_BYTES} bytes`);
     expect(asked).toBe(0);
   });
 

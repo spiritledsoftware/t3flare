@@ -159,7 +159,7 @@ describe("skillStore", () => {
     });
   });
 
-  it("refuses the 101st skill", async () => {
+  it("keeps any number of skills: past the old 100, only the set's bytes bound them (SPI-1365)", async () => {
     const { store } = setup();
     for (let index = 0; index < 100; index++)
       await store.apply(
@@ -173,11 +173,7 @@ describe("skillStore", () => {
         "owner:me",
         1,
       ),
-    ).toEqual({
-      ok: false,
-      error:
-        "one-more was not kept: the Environment would hold 101 skills, more than the 100 it may (disabled ones count)",
-    });
+    ).toMatchObject({ ok: true });
   });
 
   it("keeps the hash right when two installs are made at once", async () => {

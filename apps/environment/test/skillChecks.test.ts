@@ -65,13 +65,11 @@ describe("treeProblems", () => {
     ).toEqual([]);
   });
 
-  it("refuses more than 500 files and more than 4 MiB together, before any is read", () => {
+  it("refuses more than 500 files before any is read, and no size together (SPI-1365: no 4 MiB a Skill)", () => {
     const many = Array.from({ length: 501 }, (_, index) => ({ relative: `f${index}.md`, size: 1 }));
     expect(treeProblems("a", many, [])).toEqual(["the folder holds 501 files, more than 500"]);
     const heavy = Array.from({ length: 3 }, (_, index) => ({ relative: `f${index}.md`, size: 1_500_000 }));
-    expect(treeProblems("a", heavy, [])).toEqual([
-      "the files are 4500000 bytes together, more than the 4194304 a Skill may be",
-    ]);
+    expect(treeProblems("a", heavy, [])).toEqual([]);
   });
 
   it("names a link or a submodule, and a path a Workspace would refuse (added by SPI-1148)", () => {
@@ -88,12 +86,10 @@ describe("treeProblems", () => {
 describe("setProblem", () => {
   const kept = Array.from({ length: 99 }, (_, index) => ({ name: `s${index}`, bytes: 10 }));
 
-  it("counts the kept skills, a replaced one once", () => {
+  it("counts no skills (SPI-1365: no 100 a set), and a replaced one's bytes once", () => {
     expect(setProblem(kept, [{ name: "new", bytes: 10 }])).toBeUndefined();
     expect(setProblem([...kept, { name: "x", bytes: 1 }], [{ name: "x", bytes: 5 }])).toBeUndefined();
-    expect(setProblem([...kept, { name: "x", bytes: 1 }], [{ name: "y", bytes: 5 }])).toBe(
-      "the Environment would hold 101 skills, more than the 100 it may (disabled ones count)",
-    );
+    expect(setProblem([...kept, { name: "x", bytes: 1 }], [{ name: "y", bytes: 5 }])).toBeUndefined();
   });
 
   it("refuses more than 8 MiB together", () => {

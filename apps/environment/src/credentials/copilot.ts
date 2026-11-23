@@ -47,7 +47,7 @@ import type { DeviceCode, RefreshResult, SignInCredential, SignInResult, SignInV
 export interface CopilotVendor {
   readonly fetch: typeof fetch;
   readonly now: () => number;
-  /** Each request's bound (`OAUTH_TIMEOUT_MS`; shorter in tests). */
+  /** Each request's bound (`outsideRequestSeconds`, read at each request; `OAUTH_TIMEOUT_MS` when absent). */
   readonly timeoutMs?: number;
 }
 

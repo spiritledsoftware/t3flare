@@ -178,4 +178,16 @@ describe("Prompt templates' discovery", () => {
       ["a", `${ROOT}/.opencode/command/a.md`],
     ]);
   });
+
+  it("offers every template, of any size, from as many entries as it is given (SPI-1365: no count, no size)", async () => {
+    const files = memoryFiles({
+      ...Object.fromEntries(
+        Array.from({ length: 150 }, (_, at) => [`${ROOT}/.pi/prompts/t${String(at).padStart(3, "0")}.md`, "x"]),
+      ),
+      [`${ROOT}/.pi/prompts/zbig.md`]: "y".repeat(300 * 1024),
+    });
+    expect(await discoverPrompts(files, ROOT)).toHaveLength(151);
+    // The entries listed per directory (`promptsDirectoryEntries`) bound what is found.
+    expect(await discoverPrompts(files, ROOT, undefined, 10)).toHaveLength(10);
+  });
 });

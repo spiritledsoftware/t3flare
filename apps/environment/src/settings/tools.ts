@@ -14,7 +14,9 @@ import {
   type EnvironmentFieldSchema,
   EXPOSURES,
   EXTENSIONS,
-  MAX_VARIABLES,
+  MAX_ENV_STRING_BYTES,
+  MAX_SETUP_BYTES,
+  MAX_VARIABLES_BYTES,
   OFFERED_PRESETS,
   type ToolClass,
 } from "@t3flare/harness-registry";
@@ -82,8 +84,16 @@ const fieldJson = (schema: EnvironmentFieldSchema): Record<string, unknown> => {
       return { type: "boolean" };
     case "integer":
       return { type: "integer", minimum: schema.minimum, maximum: schema.maximum };
+    case "number":
+      return { type: schema.whole === true ? "integer" : "number", minimum: schema.minimum };
     case "enum":
-      return { type: "string", enum: [...schema.values] };
+      return schema.integers === undefined
+        ? { type: "string", enum: [...schema.values] }
+        : {
+            type: "string",
+            pattern: `^(${schema.values.map((value) => value.replace(/[^A-Za-z0-9]/g, "\\$&")).join("|")}|[1-9][0-9]*)$`,
+            description: `One of ${schema.values.join(", ")}, or a whole number of at least ${schema.integers.minimum}, in digits.`,
+          };
     case "text":
       return { type: "string", maxLength: schema.maxLength };
     case "file":
@@ -91,7 +101,6 @@ const fieldJson = (schema: EnvironmentFieldSchema): Record<string, unknown> => {
     case "variables":
       return {
         type: "array",
-        maxItems: MAX_VARIABLES,
         items: {
           type: "object",
           properties: {
@@ -105,8 +114,7 @@ const fieldJson = (schema: EnvironmentFieldSchema): Record<string, unknown> => {
           },
           required: ["name"],
         },
-        description:
-          "The whole set of Variables, each { name, value, secret }. A secret read back has valueRedacted: true; send it so to keep its value, or a new value to replace it. Turning Secret off needs the value given again. Anything run in a Workspace can read every Variable, a secret's value included.",
+        description: `The whole set of Variables, each { name, value, secret }. A secret read back has valueRedacted: true; send it so to keep its value, or a new value to replace it. Turning Secret off needs the value given again. Anything run in a Workspace can read every Variable, a secret's value included. Each NAME=value is at most ${MAX_ENV_STRING_BYTES} bytes of UTF-8, and all of them together at most ${MAX_VARIABLES_BYTES}.`,
       };
   }
 };
@@ -323,7 +331,7 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
   {
     name: "change_environment",
     class: "write",
-    description: `Changes some of the Environment settings. The Container settings apply when each Workspace's Container next starts, not in one running now (terminalsReadBashrc, the Terminals' holds and counts too; a lower count closes no open Terminal); agentsReadDotfiles and cliProcessesPerWorkspace apply at each CLI agent's next start (a lower count ends no running process), cliReclaimSeconds to CLI agents' processes started after the change; turnLimitMinutes at each thread's next turn (a running turn keeps the limit it started with); ownerAnswerMinutes to cards raised after the change (a card already waiting keeps its deadline; a running CLI agent's cards keep the wait it started with); settingsReadSeconds at each thread's next turn, and at a Container start once the Workspace has kept it (a start uses the wait it last kept, so a change can take one more start to apply fully); cloneMinutes at the next clone or worktree checkout and checkpointMinutes at the next checkpoint, worktree bundle or carry (one already running keeps its limit); usageRetentionDays at the next prune of the usage records (it runs as usage is recorded, at most once an hour) and to usage recorded from then on, piSessionRetentionDays at each Pi start; mcpCallSeconds and mcpResultKiB at the next MCP call (a CLI agent's own tool timeout, which grows with mcpCallSeconds, at its next start); the Grace (sweepPurges, graceDays) applies at the next Sweep. ${ASKED_NOTE}`,
+    description: `Changes some of the Environment settings. The Container settings apply when each Workspace's Container next starts, not in one running now (terminalsReadBashrc, the Terminals' holds and counts too; a lower count closes no open Terminal); agentsReadDotfiles and cliProcessesPerWorkspace apply at each CLI agent's next start (a lower count ends no running process), cliReclaimSeconds to CLI agents' processes started after the change; turnLimitMinutes at each thread's next turn (a running turn keeps the limit it started with); ownerAnswerMinutes to cards raised after the change (a card already waiting keeps its deadline; a running CLI agent's cards keep the wait it started with); settingsReadSeconds at each thread's next turn, and at a Container start once the Workspace has kept it (a start uses the wait it last kept, so a change can take one more start to apply fully); cloneMinutes at the next clone or worktree checkout and checkpointMinutes at the next checkpoint, worktree bundle or carry (one already running keeps its limit); usageRetentionDays at the next prune of the usage records (it runs as usage is recorded, at most once an hour) and to usage recorded from then on, piSessionRetentionDays at each Pi start; mcpCallSeconds and mcpResultKiB at the next MCP call (a CLI agent's own tool timeout, which grows with mcpCallSeconds, at its next start); outsideRequestSeconds at the next request to GitHub or a sign-in's vendor; repoSkillsListed, skillsDirectoryEntries, skillsLinkEntries and promptsDirectoryEntries at each Workspace's next Container start; the Grace (sweepPurges, graceDays) applies at the next Sweep. ${ASKED_NOTE}`,
     inputSchema: {
       type: "object",
       required: ["expectedRevision", "settings"],
@@ -379,7 +387,7 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
       properties: {
         imageSetup: {
           type: "string",
-          description: "The whole proposed Image setup: a bash script of at most 256 KiB.",
+          description: `The whole proposed Image setup: a bash script of at most ${MAX_SETUP_BYTES} bytes of UTF-8.`,
         },
       },
       additionalProperties: false,

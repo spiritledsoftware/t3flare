@@ -2,8 +2,8 @@
 // with, kept in the Environment settings. A Variable may be secret, as stock t3's provider environment variables are
 // (`t3code/packages/contracts/src/providerInstance.ts`): its value is then sealed with the Stage's credentials key before
 // it is stored (`apps/environment/src/harness/variableSeal.ts`), and no read returns it. Validation keeps t3flare
-// working and nothing more (ADR-0046 §3): a name a shell can export, a value without a NUL, and the limits below, since
-// every Environment setting is one stored value.
+// working and nothing more (ADR-0046 §3): a name a shell can export, a value without a NUL, and the limits below, which
+// are Linux's on a command's environment (SPI-1365).
 //
 // Three forms of one Variable:
 //   - as a change carries it in (the page, the Settings server, a script): `{ name, value, secret }`, where a secret
@@ -14,20 +14,51 @@
 //     HMAC of the value, never the value), so a change to it shows without it. Only the Environment DO's answer to a
 //     Workspace DO opens a secret, into `value` (`openVariables`).
 
-/** The most Variables the Environment may have. */
-export const MAX_VARIABLES = 50;
+/**
+ * The most bytes one `NAME=value` may take, its NUL included: Linux's MAX_ARG_STRLEN (32 pages of 4 KiB). A Variable
+ * reaches every command through execve's environment (`commandEnv`, apps/agents/src/workspace/variables.ts), and execve
+ * refuses a string past this with E2BIG, so every command would fail. A named constraint.
+ */
+export const MAX_ENV_STRING_BYTES = 128 * 1024;
 
-/** The longest name a Variable may have. */
-export const MAX_VARIABLE_NAME_LENGTH = 128;
-
-/** The longest value a Variable may have. */
-export const MAX_VARIABLE_VALUE_LENGTH = 4096;
+/** The longest value a Variable may have, in bytes of UTF-8: MAX_ENV_STRING_BYTES less the shortest name, `=` and NUL. */
+export const MAX_VARIABLE_VALUE_BYTES = MAX_ENV_STRING_BYTES - "A=".length - 1;
 
 /**
- * The longest sealed value's text kept: a value of MAX_VARIABLE_VALUE_LENGTH UTF-16 units is at most three times as
- * many bytes of UTF-8, plus GCM's tag, as base64. Only a malformed record is longer.
+ * The most bytes all the Variables together may take of a command's environment, each `NAME=value`, its NUL and its
+ * envp pointer counted (`variableBytes`). A named constraint, provisional: Linux's ARG_MAX, a quarter of the stack limit
+ * (2 MiB at the default 8 MiB), bounds argv and envp together, and execve refuses past it with E2BIG. Half of it is the
+ * Variables'; the other half is left to the command itself (an agent's `bash -c` script is its argv) and to
+ * t3flare's own environment. The Container's stack limit is not documented, so the 8 MiB default is assumed.
  */
-const MAX_SEALED_LENGTH = 4 * Math.ceil((MAX_VARIABLE_VALUE_LENGTH * 3 + 16) / 3);
+export const MAX_VARIABLES_BYTES = 1024 * 1024;
+
+/** An envp pointer's bytes, on the Container's 64-bit Linux. */
+const POINTER_BYTES = 8;
+
+const utf8 = new TextEncoder();
+
+/** The bytes `NAME=value` takes as one environment string, its NUL included. */
+const envStringBytes = (name: string, valueBytes: number): number => utf8.encode(name).length + 1 + valueBytes + 1;
+
+/**
+ * The longest sealed value's text kept: a value of MAX_VARIABLE_VALUE_BYTES, plus GCM's 16-byte tag, as base64. Only a
+ * malformed record is longer.
+ */
+const MAX_SEALED_LENGTH = 4 * Math.ceil((MAX_VARIABLE_VALUE_BYTES + 16) / 3);
+
+/** At most the bytes a sealed value opens to: its base64 less GCM's tag. */
+const sealedValueBytes = (sealed: SealedValue): number => Math.max(0, Math.floor((sealed.data.length * 3) / 4) - 16);
+
+/**
+ * The bytes a stored Variable takes of a command's environment: its `NAME=value`, NUL and envp pointer. A secret's
+ * counts the most its sealed value opens to.
+ */
+export const variableBytes = (variable: StoredVariable): number =>
+  envStringBytes(
+    variable.name,
+    variable.sealed === undefined ? utf8.encode(variable.value).length : sealedValueBytes(variable.sealed),
+  ) + POINTER_BYTES;
 
 /**
  * A secret's value as stored: AES-GCM under the Stage's credentials key, and an HMAC fingerprint of the value. Only the
@@ -213,7 +244,6 @@ export const isRecord = (value: unknown): value is Readonly<Record<string, unkno
 export const variableNameProblem = (name: string): string | undefined => {
   const quoted = JSON.stringify(name);
   if (name === "") return "a Variable's name may not be empty";
-  if (name.length > MAX_VARIABLE_NAME_LENGTH) return `${quoted} is longer than ${MAX_VARIABLE_NAME_LENGTH} characters`;
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
     return `${quoted} is not a name a shell can export: letters, digits and _, not starting with a digit`;
   return undefined;
@@ -222,10 +252,13 @@ export const variableNameProblem = (name: string): string | undefined => {
 /** Why `value` cannot be Variable `name`'s, or undefined when it can. */
 export const variableValueProblem = (name: string, value: string): string | undefined => {
   const quoted = JSON.stringify(name);
-  if (value.length > MAX_VARIABLE_VALUE_LENGTH)
-    return `${quoted}'s value is longer than ${MAX_VARIABLE_VALUE_LENGTH} characters`;
   if (value.includes("\u0000")) return `${quoted}'s value holds a NUL character, which no environment can`;
-  return undefined;
+  // A UTF-16 unit is at most 3 bytes of UTF-8: only a long name and value need encoding.
+  if (name.length + value.length * 3 + 2 <= MAX_ENV_STRING_BYTES) return undefined;
+  const bytes = envStringBytes(name, utf8.encode(value).length);
+  return bytes > MAX_ENV_STRING_BYTES
+    ? `${quoted}=value is ${bytes} bytes, past the ${MAX_ENV_STRING_BYTES} Linux takes for one variable`
+    : undefined;
 };
 
 /** AES-GCM's 12-byte IV as base64 (16 characters), with room: `valueSealer` (sealed.ts) makes it. */
@@ -289,29 +322,39 @@ const storedEntryProblem = (entry: unknown): string | undefined => {
 export const variablesProblem = (value: unknown): string | undefined => {
   const entries = variableEntries(value);
   if (entries === undefined) return 'a list of Variables, [{ "name": "NAME", "value": "value", "secret": false }]';
-  if (entries.length > MAX_VARIABLES) return `at most ${MAX_VARIABLES} Variables (${entries.length} given)`;
   const seen = new Set<string>();
+  let bytes = 0;
   const problems = entries.flatMap((entry) => {
     const why = storedEntryProblem(entry);
     if (why !== undefined) return [why];
     const { name } = entry as StoredVariable;
     if (seen.has(name)) return [`${JSON.stringify(name)} is listed twice`];
     seen.add(name);
+    bytes += variableBytes(entry as StoredVariable);
     return [];
   });
+  if (problems.length === 0 && bytes > MAX_VARIABLES_BYTES)
+    return `the Variables take ${bytes} bytes of a command's environment, past the ${MAX_VARIABLES_BYTES} they may`;
   return problems.length === 0 ? undefined : problems.join("; ");
 };
 
 /**
- * The Variables of a set that still fit, in order, at most MAX_VARIABLES, each name once (the first kept), in their
- * stored form: one that no longer fits is dropped alone, not the whole set. A secret fits with its sealed value, or, in
+ * The Variables of a set that still fit, in order, within MAX_VARIABLES_BYTES, each name once (the first kept), in
+ * their stored form: one that no longer fits is dropped alone, not the whole set. A secret fits with its sealed value, or, in
  * the Environment DO's answer to a Workspace DO, with its value opened. Anything that is not a set reads as none.
  */
 export const fitStoredVariables = (value: unknown): ReadonlyArray<StoredVariable> => {
   const kept: Array<StoredVariable> = [];
   const seen = new Set<string>();
+  let bytes = 0;
+  const keep = (variable: StoredVariable): boolean => {
+    const more = variableBytes(variable);
+    if (bytes + more > MAX_VARIABLES_BYTES) return false;
+    bytes += more;
+    kept.push(variable);
+    return true;
+  };
   for (const entry of variableEntries(value) ?? []) {
-    if (kept.length === MAX_VARIABLES) break;
     if (
       !isRecord(entry) ||
       typeof entry.name !== "string" ||
@@ -320,21 +363,20 @@ export const fitStoredVariables = (value: unknown): ReadonlyArray<StoredVariable
     )
       continue;
     const { name } = entry;
-    if (entry.secret === true && isSealedValue(entry.sealed)) {
-      kept.push({
-        name,
-        value: "",
-        secret: true,
-        sealed: { iv: entry.sealed.iv, data: entry.sealed.data, fingerprint: entry.sealed.fingerprint },
-      });
-    } else if (
-      entry.sealed === undefined &&
-      entry.valueRedacted !== true &&
-      typeof entry.value === "string" &&
-      variableValueProblem(name, entry.value) === undefined
-    ) {
-      kept.push({ name, value: entry.value, secret: entry.secret === true });
-    } else continue;
+    const fits =
+      entry.secret === true && isSealedValue(entry.sealed)
+        ? keep({
+            name,
+            value: "",
+            secret: true,
+            sealed: { iv: entry.sealed.iv, data: entry.sealed.data, fingerprint: entry.sealed.fingerprint },
+          })
+        : entry.sealed === undefined &&
+          entry.valueRedacted !== true &&
+          typeof entry.value === "string" &&
+          variableValueProblem(name, entry.value) === undefined &&
+          keep({ name, value: entry.value, secret: entry.secret === true });
+    if (!fits) continue;
     seen.add(name);
   }
   return kept;
@@ -363,20 +405,26 @@ export const variableEnv = (variables: ReadonlyArray<Variable>): Readonly<Record
 
 /**
  * A kept `{ NAME: "value" }` (a Container launch's Variables) that still fits: names a shell can export, text values
- * without a NUL, none withheld from commands (`withheldFromCommands`), at most MAX_VARIABLES. Anything else reads as
- * none.
+ * without a NUL, none withheld from commands (`withheldFromCommands`), within MAX_VARIABLES_BYTES. Anything else reads
+ * as none.
  */
 export const fitVariableEnv = (value: unknown): Readonly<Record<string, string>> => {
   if (!isRecord(value)) return {};
+  let bytes = 0;
   return Object.fromEntries(
-    Object.entries(value)
-      .filter(
-        (entry): entry is [string, string] =>
-          typeof entry[1] === "string" &&
-          variableNameProblem(entry[0]) === undefined &&
-          variableValueProblem(entry[0], entry[1]) === undefined &&
-          !withheldFromCommands(entry[0]),
+    Object.entries(value).filter((entry): entry is [string, string] => {
+      const [name, text] = entry;
+      if (
+        typeof text !== "string" ||
+        variableNameProblem(name) !== undefined ||
+        variableValueProblem(name, text) !== undefined ||
+        withheldFromCommands(name)
       )
-      .slice(0, MAX_VARIABLES),
+        return false;
+      const more = variableBytes({ name, value: text, secret: false });
+      if (bytes + more > MAX_VARIABLES_BYTES) return false;
+      bytes += more;
+      return true;
+    }),
   );
 };

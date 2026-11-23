@@ -2,7 +2,7 @@
 // `approval` card with no field (its shape and the owner-only refusal are in settingsHostile.test.ts); the prompt's
 // server-written parts and fixed lines; no Approve on a change that needs the page; the page answering first withdraws the card; a Stop
 // withdraws the Open change.
-import { applyChange, CARD_TEXT_MAX, EMPTY_HARNESS, MAX_GLOBAL_MISE_BYTES } from "@t3flare/harness-registry";
+import { applyChange, CARD_TEXT_MAX, EMPTY_HARNESS } from "@t3flare/harness-registry";
 import { type McpQuestionCard } from "@t3flare/session-protocol";
 import type { McpCallAnswer } from "../src/mcp/host.ts";
 import { afterEach, describe, expect, it } from "vitest";
@@ -152,7 +152,7 @@ describe("the asked change's card", () => {
           {
             expectedRevision: 0,
             settings: {
-              globalMiseConfig: `[tools]\n${"# a comment line of the config, long enough\n".repeat(Math.floor((MAX_GLOBAL_MISE_BYTES - 64) / 44))}`,
+              globalMiseConfig: `[tools]\n${"# a comment line of the config, long enough\n".repeat(Math.floor((2 * CARD_TEXT_MAX) / 44))}`,
             },
           },
         ] as const,

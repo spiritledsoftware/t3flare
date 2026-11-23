@@ -9,6 +9,7 @@ import {
   BASE_BUILD_SETTING_KEYS,
   builderInstance,
   containerInstance,
+  customResources,
   DEFAULT_CHECKPOINT_MINUTES,
   DEFAULT_CLONE_MINUTES,
   DEFAULT_OWNER_ANSWER_MS,
@@ -21,6 +22,8 @@ import {
   MAX_CONTAINER_BUDGET,
   MAX_RETENTION_DAYS,
   MAX_SETUP_BYTES,
+  MAX_FILE_SETTING_BYTES,
+  MAX_GLOBAL_MISE_BYTES,
   MAX_AGENT_TERMINALS_PER_WORKSPACE,
   MAX_TERMINALS_PER_WORKSPACE,
   MAX_TIMED_MINUTES,
@@ -32,6 +35,7 @@ import {
   SWEEP_SETTING_KEYS,
 } from "./environment.ts";
 import type { EnvironmentSettingEntry } from "./fields.ts";
+import { DO_VALUE_BYTES, storedBytes } from "./storedValue.ts";
 import { cliToolTimeoutSec } from "./mcp.ts";
 
 /** The Base build's settings at their defaults (SPI-1332, ADR-0047 §9). */
@@ -52,6 +56,14 @@ const BASE_DEFAULTS = {
  * every full object below.
  */
 const TUNABLE_DEFAULTS = {
+  repoSkillsListed: 100,
+  skillsDirectoryEntries: 5000,
+  skillsLinkEntries: 200,
+  promptsDirectoryEntries: 1000,
+  outsideRequestSeconds: 15,
+  customVcpu: 1,
+  customMemoryMib: 3072,
+  customDiskMb: 12_000,
   cliProcessesPerWorkspace: 4,
   cliReclaimSeconds: 30,
   turnLimitMinutes: 120,
@@ -263,7 +275,7 @@ describe("applyEnvironmentChange", () => {
   it("refuses a size it does not offer, an unknown setting and an empty change, with the setting named", () => {
     expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { containerSize: "lite" } })).toEqual({
       ok: false,
-      error: "containerSize: one of cpu-1, standard-1, standard-2, standard-3, standard-4",
+      error: "containerSize: one of cpu-1, standard-1, standard-2, standard-3, standard-4, custom",
     });
     expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { secrets: "x" } })).toEqual({
       ok: false,
@@ -304,6 +316,30 @@ describe("containerInstance", () => {
     expect(containerInstance("standard-4")).toBe("standard-4");
   });
 
+  it("starts the custom size as the Owner's resources, down to Cloudflare's minimums and with no maximum of its own", () => {
+    const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
+    const applied = set({ containerSize: "custom", customVcpu: 0.25, customMemoryMib: 1024, customDiskMb: 4000 });
+    if (!applied.ok) throw new Error(applied.error);
+    const resolved = resolveEnvironment(applied.environment);
+    expect(containerInstance(resolved.containerSize, customResources(resolved))).toEqual({
+      vcpu: 0.25,
+      memoryMib: 1024,
+      diskMb: 4000,
+    });
+    // The Builder takes the same custom resources.
+    expect(builderInstance({ ...resolved, builderSize: "custom" })).toEqual({
+      vcpu: 0.25,
+      memoryMib: 1024,
+      diskMb: 4000,
+    });
+    expect(set({ customVcpu: 1 / 16, customMemoryMib: 256, customDiskMb: 2000 })).toMatchObject({ ok: true });
+    expect(set({ customVcpu: 64, customMemoryMib: 262_144, customDiskMb: 400_000 })).toMatchObject({ ok: true });
+    expect(set({ customVcpu: 0.05 })).toEqual({ ok: false, error: "customVcpu: at least 0.0625" });
+    expect(set({ customMemoryMib: 255 })).toEqual({ ok: false, error: "customMemoryMib: at least 256" });
+    expect(set({ customMemoryMib: 1024.5 })).toEqual({ ok: false, error: "customMemoryMib: a whole number" });
+    expect(set({ customDiskMb: 1999 })).toEqual({ ok: false, error: "customDiskMb: at least 2000" });
+  });
+
   it("starts the default for a stored name it does not offer, never an omitted instance (which would start lite)", () => {
     for (const name of ["lite", "basic", "mem-8", "custom-1", "", null, 3, { vcpu: 4 }]) {
       expect(
@@ -322,15 +358,13 @@ describe("the Global mise config", () => {
     expect(resolveEnvironment({ revision: 2, settings: { globalMiseConfig: 42 } }).globalMiseConfig).toBe("");
   });
 
-  it("takes up to 16 KiB of UTF-8 and refuses one byte more, counting a character by its bytes", () => {
-    expect(set("x".repeat(16 * 1024))).toMatchObject({ ok: true });
-    expect(set("x".repeat(16 * 1024 + 1))).toEqual({
-      ok: false,
-      error: "globalMiseConfig: is longer than 16 KiB of UTF-8",
-    });
-    // 5462 three-byte characters are 16 386 bytes, though only 5462 UTF-16 units.
-    expect(set("€".repeat(5462))).toEqual({ ok: false, error: "globalMiseConfig: is longer than 16 KiB of UTF-8" });
-    expect(set("€".repeat(5461))).toMatchObject({ ok: true });
+  it("takes as much as one stored value holds, counting a character by its bytes", () => {
+    // Past the old 16 KiB.
+    expect(MAX_GLOBAL_MISE_BYTES).toBe(MAX_FILE_SETTING_BYTES);
+    expect(MAX_FILE_SETTING_BYTES).toBe(Math.floor(DO_VALUE_BYTES / 3));
+    expect(set(`[tools]\n${"# a line\n".repeat(20_000)}`)).toMatchObject({ ok: true });
+    const tooLong = `globalMiseConfig: is longer than ${MAX_FILE_SETTING_BYTES} bytes of UTF-8`;
+    expect(set("€".repeat(MAX_FILE_SETTING_BYTES / 3 + 1))).toEqual({ ok: false, error: tooLong });
   });
 
   it("refuses a NUL and anything not text", () => {
@@ -682,11 +716,11 @@ describe("the Container setup (ADR-0047 §7, §9)", () => {
     });
   });
 
-  it("takes a script of up to 256 KiB of UTF-8 and refuses one byte more", () => {
-    expect(set({ containerSetup: "x".repeat(256 * 1024) })).toMatchObject({ ok: true });
-    expect(set({ containerSetup: "x".repeat(256 * 1024 + 1) })).toEqual({
+  it("takes a script past the old 256 KiB, up to MAX_SETUP_BYTES of UTF-8", () => {
+    expect(set({ containerSetup: "x".repeat(1024 * 1024) })).toMatchObject({ ok: true });
+    expect(set({ containerSetup: "x".repeat(MAX_SETUP_BYTES + 1) })).toEqual({
       ok: false,
-      error: "containerSetup: is longer than 256 KiB of UTF-8",
+      error: `containerSetup: is longer than ${MAX_SETUP_BYTES} bytes of UTF-8`,
     });
   });
 
@@ -726,8 +760,8 @@ describe("the Settings page's rows", () => {
 });
 
 describe("the Base build's settings (SPI-1332, ADR-0047 §9)", () => {
-  it("keeps the Image setup a file of at most 256 KiB of UTF-8", () => {
-    expect(MAX_SETUP_BYTES).toBe(256 * 1024);
+  it("keeps the Image setup a file, bounded by the one stored value the Environment settings are", () => {
+    expect(MAX_SETUP_BYTES).toBe(MAX_FILE_SETTING_BYTES);
     expect(
       applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { imageSetup: "apt-get install -y jq\r\n" } }),
     ).toMatchObject({
@@ -735,12 +769,27 @@ describe("the Base build's settings (SPI-1332, ADR-0047 §9)", () => {
       changed: ["imageSetup"],
       environment: { settings: { imageSetup: "apt-get install -y jq\n" } },
     });
+    // Past the old 256 KiB.
     expect(
-      applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { imageSetup: "x".repeat(MAX_SETUP_BYTES) } }),
+      applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { imageSetup: "x".repeat(1024 * 1024) } }),
     ).toMatchObject({ ok: true });
     expect(
       applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { imageSetup: "x".repeat(MAX_SETUP_BYTES + 1) } }),
-    ).toEqual({ ok: false, error: "imageSetup: is longer than 256 KiB of UTF-8" });
+    ).toEqual({ ok: false, error: `imageSetup: is longer than ${MAX_SETUP_BYTES} bytes of UTF-8` });
+  });
+
+  it("refuses a change whose settings together would not fit one stored value, naming the bound", () => {
+    const big = "x".repeat(1_000_000);
+    const first = applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { imageSetup: big, containerSetup: big } });
+    if (!first.ok) throw new Error(first.error);
+    expect(storedBytes(first.environment)).toBeLessThanOrEqual(DO_VALUE_BYTES);
+    const over = applyEnvironmentChange(first.environment, { settings: { globalMiseConfig: big } });
+    expect(over).toMatchObject({ ok: false });
+    expect(over.ok ? "" : over.error).toMatch(
+      new RegExp(
+        `^the Environment settings would take \\d+ bytes stored, past the ${DO_VALUE_BYTES} one Durable Object value holds$`,
+      ),
+    );
   });
 
   it("bounds the time limits, the scheduled rebuild and the Builder's size", () => {

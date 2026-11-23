@@ -52,8 +52,6 @@ export interface UsageEntry extends UsageTokens {
 
 /** The most entries one `recordUsage` call carries. */
 export const MAX_USAGE_ENTRIES = 64;
-/** The longest model id or session id kept. */
-export const MAX_USAGE_NAME = 200;
 
 /** A token count: a positive finite number, whole; anything else counts 0. */
 export const tokenCount = (value: unknown): number =>
@@ -82,8 +80,8 @@ export const hasTokens = (tokens: UsageTokens): boolean =>
   tokens.input + tokens.cacheRead + tokens.cacheWrite + tokens.output > 0;
 
 /**
- * An entry as the Environment accepts it from the agents Worker, or undefined: a known agent, an endpoint id, a bounded
- * model id with no control character, a time, counts (anything else counts 0), a cost that is a positive finite number or
+ * An entry as the Environment accepts it from the agents Worker, or undefined: a known agent, an endpoint id, a model id
+ * with no control character, a time, counts (anything else counts 0), a cost that is a positive finite number or
  * null, and at least one token.
  */
 export const usageEntryOf = (value: unknown): UsageEntry | undefined => {
@@ -93,8 +91,7 @@ export const usageEntryOf = (value: unknown): UsageEntry | undefined => {
   if (!isUsageAgent(agent) || typeof endpointId !== "string" || !ENDPOINT_ID.test(endpointId)) return undefined;
   // oxlint-disable-next-line no-control-regex -- control characters are what this refuses
   const control = /[\u0000-\u001f\u007f]/;
-  const name = (text: unknown): text is string =>
-    typeof text === "string" && text.length <= MAX_USAGE_NAME && !control.test(text);
+  const name = (text: unknown): text is string => typeof text === "string" && !control.test(text);
   if (!name(modelId) || modelId.trim() === "" || !name(session)) return undefined;
   if (typeof at !== "number" || !Number.isFinite(at) || at <= 0) return undefined;
   const tokens = tokensOf(entry);

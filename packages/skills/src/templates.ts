@@ -26,11 +26,11 @@ export type ParsedTemplate = PromptTemplate & { readonly content: string };
 /** Where a directory's Prompt templates are. */
 export const PROMPTS_DIRECTORY = ".pi/prompts";
 
-/** The largest template file listed, in bytes. */
-export const MAX_TEMPLATE_BYTES = 256 * 1024;
-
-const MAX_TEMPLATES = 100;
-const MAX_ENTRIES = 1000;
+/**
+ * The most entries listed in one Prompt templates directory by default (the Environment setting
+ * `promptsDirectoryEntries`, SPI-1365): a nested source's listing is recursive, held whole in the Workspace DO.
+ */
+export const DEFAULT_PROMPT_ENTRIES = 1000;
 const DESCRIPTION_LINE = 60;
 
 /** `content` split as pi's `parseFrontmatter` splits it: its frontmatter's YAML, if any, and its body. */
@@ -200,19 +200,20 @@ const PI_PROMPTS: ReadonlyArray<CommandSource> = [{ directory: PROMPTS_DIRECTORY
 /**
  * The Prompt templates of a thread in `cwd`: the `.md` files directly in its `.pi/prompts`, in name order; or, with
  * `sources` (a CLI agent's commands, SPI-1151), in each of those directories, a nested file named `sub:name`, the first
- * name found winning. A file whose name holds whitespace is not one (its Slash command would end at the space), nor one
- * over `MAX_TEMPLATE_BYTES`.
+ * name found winning. A file whose name holds whitespace is not one (its Slash command would end at the space). At most
+ * `maxEntries` entries are listed in each directory; no count of templates and no size of one (SPI-1365).
  */
 export const discoverPrompts = async (
   files: SkillFiles,
   cwd: string,
   sources: ReadonlyArray<CommandSource> = PI_PROMPTS,
+  maxEntries: number = DEFAULT_PROMPT_ENTRIES,
 ): Promise<ReadonlyArray<PromptTemplate>> => {
   const base = withoutTrailingSlashes(cwd);
   const listed = await Promise.all(
     sources.map(async (source) => {
       const root = join(base, source.directory);
-      const entries = await files.list(root, MAX_ENTRIES);
+      const entries = await files.list(root, maxEntries);
       return (
         entries
           .filter(
@@ -239,14 +240,11 @@ export const discoverPrompts = async (
     }),
   );
   const seen = new Set<string>();
-  const chosen = listed
-    .flat()
-    .filter((entry) => (seen.has(entry.name) ? false : (seen.add(entry.name), true)))
-    .slice(0, MAX_TEMPLATES);
+  const chosen = listed.flat().filter((entry) => (seen.has(entry.name) ? false : (seen.add(entry.name), true)));
   const templates = await Promise.all(
     chosen.map(async (entry) => {
       const text = await files.read(entry.path);
-      if (text === undefined || new TextEncoder().encode(text).length > MAX_TEMPLATE_BYTES) return undefined;
+      if (text === undefined) return undefined;
       const parsed = parseTemplate(entry.path, text);
       if (parsed === undefined) return undefined;
       const { content: _content, ...template } = parsed;

@@ -1,9 +1,13 @@
 // What the sign-in vendors (chatgpt.ts, claude.ts) share of OAuth: PKCE's encoding and challenge, random values, each
 // request's bound, and reading an OAuth error's code from an answer without its body. Each vendor keeps its own URLs,
 // bodies and the codes that end its sign-in.
+import { DEFAULT_OUTSIDE_REQUEST_SECONDS } from "@t3flare/harness-registry";
 
-/** Each request to a vendor's OAuth endpoints is bounded by this. */
-export const OAUTH_TIMEOUT_MS = 15_000;
+/**
+ * Each request to a vendor's OAuth endpoints is bounded by this where no setting reaches: the Outside request time
+ * limit's default (`outsideRequestSeconds`, SPI-1365). The Environment DO's vendors read the setting at each request.
+ */
+export const OAUTH_TIMEOUT_MS = DEFAULT_OUTSIDE_REQUEST_SECONDS * 1000;
 
 export const base64url = (bytes: Uint8Array): string =>
   btoa(String.fromCharCode(...bytes))

@@ -12,8 +12,22 @@ import {
   type Skill,
   type SkillDiscovery,
   type SkillFiles,
+  type SkillLimits,
 } from "@t3flare/skills";
+import type { ResolvedEnvironment } from "@t3flare/harness-registry";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+
+/** How far discovery reads, as the Environment settings give it (SPI-1365). */
+export type DiscoveryLimits = Pick<
+  ResolvedEnvironment,
+  "repoSkillsListed" | "skillsDirectoryEntries" | "skillsLinkEntries" | "promptsDirectoryEntries"
+>;
+
+const skillLimitsOf = (limits: DiscoveryLimits): SkillLimits => ({
+  repoSkills: limits.repoSkillsListed,
+  rootEntries: limits.skillsDirectoryEntries,
+  linkedEntries: limits.skillsLinkEntries,
+});
 
 /** `env`'s file reads as discovery takes them: hidden names listed, git's ignore rules not applied, `node_modules` not walked. */
 export const skillFilesOf = (env: ReadEnv): SkillFiles => ({
@@ -42,6 +56,7 @@ export const workspaceSkills = async (
   env: ReadEnv,
   root: string,
   environment: ReadonlyArray<Skill>,
+  limits: DiscoveryLimits,
   agent?: CliAgent,
 ): Promise<SkillDiscovery> => {
   const found = await discoverSkills(skillFilesOf(env), {
@@ -49,6 +64,7 @@ export const workspaceSkills = async (
     root,
     environment,
     roots: agent === undefined ? undefined : CLI_ROOTS[agent].skills,
+    limits: skillLimitsOf(limits),
   });
   if (found.skipped.length > 0) {
     console.log(
@@ -66,5 +82,14 @@ export const workspaceSkills = async (
 };
 
 /** The Prompt templates of a thread in `env`'s cwd; with `agent`, that CLI's repo commands (SPI-1151). */
-export const workspacePrompts = (env: ReadEnv, agent?: CliAgent): Promise<ReadonlyArray<PromptTemplate>> =>
-  discoverPrompts(skillFilesOf(env), env.cwd, agent === undefined ? undefined : CLI_ROOTS[agent].commands);
+export const workspacePrompts = (
+  env: ReadEnv,
+  limits: DiscoveryLimits,
+  agent?: CliAgent,
+): Promise<ReadonlyArray<PromptTemplate>> =>
+  discoverPrompts(
+    skillFilesOf(env),
+    env.cwd,
+    agent === undefined ? undefined : CLI_ROOTS[agent].commands,
+    limits.promptsDirectoryEntries,
+  );

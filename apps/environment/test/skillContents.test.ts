@@ -210,14 +210,16 @@ describe("githubReader", () => {
     expect(github.seen.map((request) => request.path)).toEqual(["/repos/o/r/commits/HEAD"]);
   });
 
-  it("stops at the request's deadline, and refuses a `.` or `..` name before it reaches a URL", async () => {
-    let now = 0;
+  it("bounds each read by its own time limit, with no budget for the whole request (SPI-1365)", async () => {
+    // A read that never answers ends at the reader's time limit (`outsideRequestSeconds`), however late the clock says.
+    const hung: Parameters<typeof githubReader>[0]["fetch"] = (_url, init) =>
+      new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal!.reason)));
+    const slow = githubReader({ fetch: hung, access: installed, now: () => Number.MAX_SAFE_INTEGER, timeoutMs: 20 });
+    await expect(slow.commit(repo, null)).rejects.toThrow("GitHub could not be reached");
+  });
+
+  it("refuses a `.` or `..` name before it reaches a URL", async () => {
     const github = fakeFetch({ "/repos/o/r/commits/HEAD": () => new Response(SHA) });
-    const reader = githubReader({ fetch: github.fetch, access: installed, now: () => now, deadline: 60_000 });
-    now = 60_001;
-    await expect(reader.commit(repo, null)).rejects.toThrow(
-      "GitHub took too long: the request stopped after 60 seconds and kept nothing. Try again, or install fewer skills at a time.",
-    );
     await expect(
       githubReader({ fetch: github.fetch, access: installed }).commit({ owner: "o", name: ".." }, null),
     ).rejects.toThrow('".." is not a name GitHub has');

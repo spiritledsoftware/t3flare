@@ -22,6 +22,7 @@ import { escapeHtml } from "../src/harness/page.ts";
 import { CSRF_HEADER, handleHarness, type HarnessDeps } from "../src/harness/panel.ts";
 import { SCRIPT } from "../src/harness/pageScript.ts";
 import { harnessStore } from "../src/harness/store.ts";
+import { fillEndpoints } from "./endpointsFixture.ts";
 import { fakeAnthropic } from "./fixtures/fakeAnthropicAuth.ts";
 import { fakeGitHubCopilot } from "./fixtures/fakeGitHubCopilot.ts";
 import { fakeOpenAI } from "./fixtures/fakeOpenAIAuth.ts";
@@ -255,29 +256,15 @@ describe("ChatGPT plan usage on the Settings page", () => {
     expect(context.leaks()).toEqual([]);
   });
 
-  it("revokes a fresh grant whose endpoint cannot be saved (32 endpoints already), and says so", async () => {
+  it("revokes a fresh grant whose endpoint cannot be saved (the endpoints' stored value full), and says so", async () => {
     const context = await setup();
-    for (let index = 0; index < 32; index += 1) {
-      const saved = await context.post(
-        {
-          op: "save",
-          endpoint: {
-            id: `e${index}`,
-            label: `E${index}`,
-            api: "openai-completions",
-            baseUrl: "https://llm.example/v1",
-            auth: "none",
-            models: [],
-          },
-        },
-        "endpoints",
-      );
-      expect(saved.status).toBe(200);
-    }
+    fillEndpoints(context.kv, 100);
     const { done } = await signIn(context);
     expect(JSON.parse(done.text)).toMatchObject({
       ok: false,
-      error: expect.stringMatching(/could not be saved \(at most 32 endpoints\), so the sign-in was revoked/),
+      error: expect.stringMatching(
+        /could not be saved \(the endpoints would take \d+ bytes stored, past the \d+ one Durable Object value holds\), so the sign-in was revoked/,
+      ),
     });
     expect(context.vendor.counts.revocations).toBe(1);
     expect(context.vendor.revoked.has(context.vendor.currentRefresh()!)).toBe(true);
@@ -467,29 +454,14 @@ describe("Claude on the Settings page (SPI-1165)", () => {
     for (const token of context.anthropic.issued) expect(read.text).not.toContain(token);
   });
 
-  it("drops a fresh grant whose endpoint cannot be saved (32 endpoints already), and says where to remove it", async () => {
+  it("drops a fresh grant whose endpoint cannot be saved (the endpoints' stored value full), and says where to remove it", async () => {
     const context = await setup();
-    for (let index = 0; index < 32; index += 1) {
-      await context.post(
-        {
-          op: "save",
-          endpoint: {
-            id: `e${index}`,
-            label: `E${index}`,
-            api: "openai-completions",
-            baseUrl: "https://llm.example/v1",
-            auth: "none",
-            models: [],
-          },
-        },
-        "endpoints",
-      );
-    }
+    fillEndpoints(context.kv, 100);
     const { done } = await claudeSignInFlow(context);
     expect(JSON.parse(done.text)).toMatchObject({
       ok: false,
       error: expect.stringMatching(
-        /could not be saved \(at most 32 endpoints\), so the sign-in was dropped here\. Anthropic offers no revocation to apps: .*claude\.ai/,
+        /could not be saved \(the endpoints would take \d+ bytes stored, past the \d+ one Durable Object value holds\), so the sign-in was dropped here\. Anthropic offers no revocation to apps: .*claude\.ai/,
       ),
     });
     expect(await context.signIns.read("claude")).toBeUndefined();

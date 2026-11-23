@@ -5,7 +5,7 @@
 // the signed `requestState` and elicitation id refused when they are not this call's. M5b's part (SPI-1201): `native`
 // (the 2026 form round trip, the 2025 held stream and its cut, 2025-06-18's params) and `model` (the Pause as `pauseOf`
 // reads it, `resume` and its refusals), and every fallback of D12's table.
-import { CARD_TEXT_MAX, DEFAULT_OWNER_ANSWER_MS, MAX_GLOBAL_MISE_BYTES } from "@t3flare/harness-registry";
+import { CARD_TEXT_MAX, DEFAULT_OWNER_ANSWER_MS } from "@t3flare/harness-registry";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { addMcpServer } from "../src/harness/ops.ts";
@@ -1151,7 +1151,7 @@ describe("D12's fallbacks for native and model", () => {
           {
             expectedRevision: 0,
             settings: {
-              globalMiseConfig: `[tools]\n${"# a comment line of the config, long enough\n".repeat(Math.floor((MAX_GLOBAL_MISE_BYTES - 64) / 44))}`,
+              globalMiseConfig: `[tools]\n${"# a comment line of the config, long enough\n".repeat(Math.floor((2 * CARD_TEXT_MAX) / 44))}`,
             },
           },
         ] as const,
@@ -1263,7 +1263,7 @@ describe("D12's fallbacks for native and model", () => {
         }
       };
       let low = 0;
-      let high = MAX_GLOBAL_MISE_BYTES - 8;
+      let high = 2 * CARD_TEXT_MAX;
       expect((await ask(high)).record.needsPage).toBe("oversize");
       expect((await ask(low)).record.needsPage).toBeUndefined();
       while (high - low > 1) {

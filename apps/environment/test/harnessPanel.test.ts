@@ -169,7 +169,8 @@ describe("Settings page", () => {
       left: ["device_list"],
     };
     expect(store.noteT3Tools(listing)).toBe(true);
-    expect(store.lastT3Tools()?.tools[0]?.description).toHaveLength(400);
+    // Whole (SPI-1365): no cut of a first-party description.
+    expect(store.lastT3Tools()?.tools[0]?.description).toHaveLength(1_000);
     expect(store.noteT3Tools({ ...listing, tools: [{ name: "a b", readOnly: true, asksForDirect: false }] })).toBe(
       false,
     );

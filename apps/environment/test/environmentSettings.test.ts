@@ -8,6 +8,7 @@ import type { AccessCaller } from "../src/access.ts";
 import { CSRF_HEADER, handleHarness } from "../src/harness/panel.ts";
 import { budgetNote, SCRIPT } from "../src/harness/pageScript.ts";
 import { AUDIT_KEY, harnessStore } from "../src/harness/store.ts";
+import { DO_VALUE_BYTES, storedBytes } from "@t3flare/harness-registry";
 import { closedKeptMs } from "../src/settings/changes.ts";
 
 const HOST = "t3-admin.example.dev";
@@ -176,10 +177,11 @@ describe("Environment settings in the panel", () => {
       "standard-2",
       "standard-3",
       "standard-4",
+      "custom",
     ]);
     expect(answer.schema.containerBudget.schema).toMatchObject({ minimum: 1, maximum: 100, default: 3 });
     expect(answer.costs.budget).toBe(5);
-    expect(answer.costs.rows).toHaveLength(5);
+    expect(answer.costs.rows).toHaveLength(6);
     expect(answer.running).toEqual({ count: 2, holders: ["web-app", "b2"] });
   });
 
@@ -496,5 +498,50 @@ describe("Variables in the panel", () => {
     expect(html).toContain("&lt;b&gt;&quot;hi&quot;&lt;/b&gt;</textarea>");
     expect(html).not.toContain('<b>"hi"</b>');
     expect(html).toContain("data-variable-add");
+  });
+});
+
+describe("the audit log (SPI-1365)", () => {
+  const entry = (at: number, size: number) => ({
+    at,
+    entity: "environment",
+    caller: "owner:owner-sub",
+    action: "environment.change",
+    target: "variables",
+    after: { variables: [{ name: "BIG", value: "x".repeat(size), secret: false }] },
+  });
+
+  it("keeps the newest entries that fit one stored value, dropping the oldest, however large one change is", () => {
+    const kv = memory();
+    const store = harnessStore(kv);
+    for (let at = 1; at <= 6; at += 1) store.audit(entry(at, 1_000_000));
+    const kept = kv.get<ReadonlyArray<{ at: number }>>(AUDIT_KEY)!;
+    expect(storedBytes(kept)).toBeLessThanOrEqual(DO_VALUE_BYTES);
+    // Each entry counts about 3 MB: two fit, the oldest four are dropped.
+    expect(kept.map((entry) => entry.at)).toEqual([5, 6]);
+  });
+
+  it("shrinks one oversize entry before it drops any older one, so one large change never wipes the log", () => {
+    const kv = memory();
+    const store = harnessStore(kv);
+    for (let at = 1; at <= 10; at += 1) store.audit(entry(at, 10));
+    store.audit(entry(11, 5_000_000));
+    const kept = kv.get<ReadonlyArray<Record<string, unknown>>>(AUDIT_KEY)!;
+    expect(kept.map((each) => each.at)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(kept.at(-1)).toMatchObject({ after: { omitted: expect.stringMatching(/more than one audit entry keeps/) } });
+  });
+
+  it("keeps an entry too large for the value alone as its record without the values", () => {
+    const kv = memory();
+    const store = harnessStore(kv);
+    store.audit(entry(1, 10));
+    store.audit(entry(2, 5_000_000));
+    const kept = kv.get<ReadonlyArray<Record<string, unknown>>>(AUDIT_KEY)!;
+    expect(kept.at(-1)).toMatchObject({
+      at: 2,
+      target: "variables",
+      after: { omitted: expect.stringMatching(/bytes/) },
+    });
+    expect(storedBytes(kept)).toBeLessThanOrEqual(DO_VALUE_BYTES);
   });
 });

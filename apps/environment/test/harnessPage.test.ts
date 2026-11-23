@@ -21,7 +21,7 @@ import { SCRIPT } from "../src/harness/pageScript.ts";
 
 const NO_SKILLS: SkillsView = {
   skills: [],
-  totals: { count: 0, enabled: 0, disabled: 0, bytes: 0, disabledBytes: 0, maxBytes: 8_388_608, maxSkills: 100 },
+  totals: { count: 0, enabled: 0, disabled: 0, bytes: 0, disabledBytes: 0, maxBytes: 8_388_608 },
   unauthenticated: false,
 };
 const SKILL: SkillsView["skills"][number] = {
@@ -452,7 +452,7 @@ describe("harness page", () => {
       "From <code>mattpocock/skills/skills/grill-me</code> on the default branch, 2 files, 1.0 KiB",
     );
     expect(page).toContain(
-      "2 skills (1 enabled, 1 disabled) of 100; 2.0 KiB of 8.00 MiB, 1.0 KiB of it disabled. Disabled skills count toward the limits.",
+      "2 skills (1 enabled, 1 disabled); 2.0 KiB of 8.00 MiB, 1.0 KiB of it disabled. Disabled skills count toward the limit.",
     );
     expect(page).not.toContain("Reads from GitHub are unauthenticated");
     expect(renderPage(fixturePage({ skills: { ...NO_SKILLS, unauthenticated: true } }))).toContain(

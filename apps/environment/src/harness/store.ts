@@ -2,18 +2,21 @@
 // The Settings page's two entities and its audit log in the Environment DO's storage: the Harness settings (ADR-0026) and
 // the Environment settings (ADR-0032), each under its own key with its own revision, so a change to one never makes the
 // other's readers take it again. Sessions take a new Harness revision at a turn's start; Workspace DOs take a new
-// Environment revision before a Container start. One audit log for both, append-only, 1 000 entries kept, each with its
-// `entity`; it holds no secret value (parts 2-4's secrets are masked before an entry is written).
+// Environment revision before a Container start. One audit log for both, append-only, 1 000 entries kept, fewer when
+// they would not fit the one Durable Object value it is (SPI-1365), each with its `entity`; it holds no secret value (parts 2-4's secrets are masked before an entry is written).
 import {
   type BaseBuildRecord,
   baseBuildRecord,
   type ContainerSetupReport,
   containerSetupReport,
+  DO_VALUE_BYTES,
   EMPTY_ENVIRONMENT,
   EMPTY_HARNESS,
   type GlobalMiseReport,
   globalMiseReport,
   type StoredEnvironment,
+  STORED_CHARACTER_BYTES,
+  storedBytes,
   type StoredHarness,
   type T3ToolListing,
   t3ToolListing,
@@ -154,6 +157,39 @@ const noteBuild = (kv: KvStorage, key: string, record: unknown, test: boolean): 
   return true;
 };
 
+/**
+ * The most one audit entry may take of the log's one value: half of it, so a single change (Variables or endpoints near
+ * their own value's size, before and after) never pushes most of the log out. A larger entry keeps its record and says
+ * how large its values were in their place.
+ */
+const AUDIT_ENTRY_BYTES = DO_VALUE_BYTES / 2;
+
+/** `entry`, its values replaced by their size when it is past `AUDIT_ENTRY_BYTES`. */
+const fitAuditEntry = (entry: AuditEntry): AuditEntry => {
+  const bytes = storedBytes(entry);
+  if (bytes <= AUDIT_ENTRY_BYTES) return entry;
+  const omitted = { omitted: `${bytes} bytes stored, more than one audit entry keeps` };
+  return {
+    ...entry,
+    ...(entry.before === undefined ? {} : { before: omitted }),
+    ...(entry.after === undefined ? {} : { after: omitted }),
+  };
+};
+
+/**
+ * `log` with `entry` as one Durable Object value holds it (`DO_VALUE_BYTES`): the new entry fitted first
+ * (`fitAuditEntry`), then the oldest entries dropped until the rest fit.
+ */
+const fitAuditLog = (log: ReadonlyArray<AuditEntry>, entry: AuditEntry): ReadonlyArray<AuditEntry> => {
+  const all = [...log, fitAuditEntry(entry)].slice(-AUDIT_KEPT);
+  // Each entry with its comma, and the list's brackets, as `storedBytes` counts the whole list.
+  const sizes = all.map((each) => storedBytes(each) + STORED_CHARACTER_BYTES);
+  let total = sizes.reduce((sum, size) => sum + size, STORED_CHARACTER_BYTES);
+  let from = 0;
+  while (total > DO_VALUE_BYTES && from < all.length - 1) total -= sizes[from++]!;
+  return all.slice(from);
+};
+
 export const harnessStore = (kv: KvStorage): HarnessStore => ({
   load: () => kv.get<StoredHarness>(SETTINGS_KEY) ?? EMPTY_HARNESS,
   save: (harness) => kv.put(SETTINGS_KEY, harness),
@@ -161,7 +197,7 @@ export const harnessStore = (kv: KvStorage): HarnessStore => ({
   saveEnvironment: (environment) => kv.put(ENVIRONMENT_KEY, environment),
   audit: (entry) => {
     const log = kv.get<AuditEntry[]>(AUDIT_KEY) ?? [];
-    kv.put(AUDIT_KEY, [...log, entry].slice(-AUDIT_KEPT));
+    kv.put(AUDIT_KEY, fitAuditLog(log, entry));
     // One line per change for Workers Logs, never a value.
     console.log(
       JSON.stringify({

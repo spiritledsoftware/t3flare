@@ -29,6 +29,7 @@ import {
   t3Exposures,
   type T3ToolListing,
   CONTAINER_SETUP_OUTPUT_STATUS,
+  CUSTOM_SIZE,
   type BaseBuildRecord,
   describeBaseBuild,
   describeTestBaseBuild,
@@ -36,8 +37,6 @@ import {
   type EnvironmentSettingEntry,
   type ExtensionEntry,
   EXTENSIONS,
-  MAX_VARIABLE_NAME_LENGTH,
-  MAX_VARIABLE_VALUE_LENGTH,
   type ResolvedEnvironment,
   RESERVED_PREFIXES,
   SET_BY_T3FLARE,
@@ -52,12 +51,14 @@ import {
   type SettingsServerLimitKey,
   SETTINGS_SERVER_LIMITS_NOTE,
   MCP_CALL_SETTING_KEYS,
+  OUTSIDE_REQUEST_SETTING_KEYS,
+  SKILLS_SETTING_KEYS,
   RETENTION_SETTING_KEYS,
   SWEEP_SETTING_KEYS,
   visible,
 } from "@t3flare/harness-registry";
 
-import { type ContainerCostTable, containerCostTable } from "./containerCost.ts";
+import { CONTAINER_PRICES, type ContainerCostTable, containerCostTable } from "./containerCost.ts";
 import { durationText, OWNER_MODES, type OwnerMode } from "../settings/changes.ts";
 import type { OwnerClientEntry } from "../settings/clients.ts";
 import type { PageReason } from "../settings/types.ts";
@@ -148,7 +149,12 @@ const field = (
       return `<div class="field"><div class="inline-field"><input type="checkbox" ${attrs}${value === true ? " checked" : ""}><label for="${id}">${escapeHtml(setting.title)}</label></div>${hint}</div>`;
     case "integer":
       return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="number" inputmode="numeric" required ${attrs} min="${setting.schema.minimum}" max="${setting.schema.maximum}" step="1" value="${escapeHtml(String(value))}">${hint}</div>`;
+    case "number":
+      return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="number" inputmode="${setting.schema.whole === true ? "numeric" : "decimal"}" required ${attrs} min="${setting.schema.minimum}" step="${setting.schema.whole === true ? "1" : "any"}" value="${escapeHtml(String(value))}">${hint}</div>`;
     case "enum":
+      // An enum that takes whole numbers too (the Advisor's cadence): a text box offering the named values.
+      if (setting.schema.integers !== undefined)
+        return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="text" autocomplete="off" spellcheck="false" required list="${id}-values" pattern="${escapeHtml(`${setting.schema.values.join("|")}|[1-9][0-9]*`)}" title="${escapeHtml(`${setting.schema.values.join(", ")}, or a whole number of ${setting.schema.integers.minimum} or more`)}" ${attrs} value="${escapeHtml(typeof value === "string" ? value : setting.schema.default)}"><datalist id="${id}-values">${setting.schema.values.map((option) => `<option value="${escapeHtml(option)}"></option>`).join("")}</datalist>${hint}</div>`;
       return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><select ${attrs}>${setting.schema.values
         .map(
           (option) =>
@@ -191,7 +197,7 @@ const variableRow = (variable: Variable | undefined): string => {
   const unreadable = variable?.unreadable === true;
   const stored = variable?.valueRedacted === true && !unreadable;
   const placeholder = stored ? KEPT_PLACEHOLDER : unreadable ? UNREADABLE_PLACEHOLDER : "value";
-  return `<div class="variable${secret ? " is-secret" : ""}" data-variable${stored ? ` data-variable-stored="${escapeHtml(name)}"` : ""}${unreadable ? " data-variable-unreadable" : ""}><input type="text" data-variable-name aria-label="Name" value="${escapeHtml(name)}" maxlength="${MAX_VARIABLE_NAME_LENGTH}" placeholder="NAME" autocapitalize="none" spellcheck="false"><textarea rows="1" data-variable-value aria-label="Value" maxlength="${MAX_VARIABLE_VALUE_LENGTH}" placeholder="${placeholder}" spellcheck="false" autocomplete="off"${unreadable ? " required" : ""}>${secret ? "" : escapeHtml(variable?.value ?? "")}</textarea><label class="variable-secret"><input type="checkbox" data-variable-secret${secret ? " checked" : ""}>Secret</label><button type="button" class="btn btn-sm btn-danger" data-variable-remove aria-label="Remove this Variable">${icon("trash")}</button><p class="hint variable-note" data-variable-note${name !== "" && setByT3flare(name) ? "" : " hidden"}>t3flare sets or keeps this name itself: its own value wins over this one wherever it sets it, and a T3FLARE_ or T3CODE_ name reaches no command.</p>${
+  return `<div class="variable${secret ? " is-secret" : ""}" data-variable${stored ? ` data-variable-stored="${escapeHtml(name)}"` : ""}${unreadable ? " data-variable-unreadable" : ""}><input type="text" data-variable-name aria-label="Name" value="${escapeHtml(name)}" placeholder="NAME" autocapitalize="none" spellcheck="false"><textarea rows="1" data-variable-value aria-label="Value" placeholder="${placeholder}" spellcheck="false" autocomplete="off"${unreadable ? " required" : ""}>${secret ? "" : escapeHtml(variable?.value ?? "")}</textarea><label class="variable-secret"><input type="checkbox" data-variable-secret${secret ? " checked" : ""}>Secret</label><button type="button" class="btn btn-sm btn-danger" data-variable-remove aria-label="Remove this Variable">${icon("trash")}</button><p class="hint variable-note" data-variable-note${name !== "" && setByT3flare(name) ? "" : " hidden"}>t3flare sets or keeps this name itself: its own value wins over this one wherever it sets it, and a T3FLARE_ or T3CODE_ name reaches no command.</p>${
     unreadable
       ? '<p class="hint variable-note variable-unreadable" role="note">This secret cannot be opened (the credentials key changed or is missing), so no Container gets it: type its value again.</p>'
       : ""
@@ -396,7 +402,10 @@ ${table}</article>`;
 
 const dollars = (amount: number, digits: number) => `$${amount.toFixed(digits)}`;
 
-const gib = (mib: number) => `${mib / 1024} GiB`;
+const gib = (mib: number) => `${Number((mib / 1024).toFixed(2))} GiB`;
+
+/** The settings of a custom size's resources (SPI-1365), shown only while a size is custom. */
+const CUSTOM_RESOURCE_KEYS: ReadonlyArray<string> = ["customVcpu", "customMemoryMib", "customDiskMb"];
 
 const containers = (count: number) => `${count} ${count === 1 ? "Container" : "Containers"}`;
 
@@ -412,11 +421,14 @@ const costNow = (costs: ContainerCostTable, size: string): string => {
  * Each size's resources and worst-case hour, one Container and the budget's. Each row carries its one-Container hour, so
  * the page's script recomputes the budget column, the current row and the summary as the inputs change.
  */
+/** The custom row's unit prices an hour, so the script prices its unsaved vCPU, memory and disk as they are typed. */
+const CUSTOM_PRICES = ` data-vcpu-hour="${CONTAINER_PRICES.vcpuSecond * 3600}" data-gib-hour="${CONTAINER_PRICES.memoryGibSecond * 3600}" data-gb-hour="${CONTAINER_PRICES.diskGbSecond * 3600}"`;
+
 const costTable = (costs: ContainerCostTable, size: string): string => {
   const rows = costs.rows
     .map(
       (row) =>
-        `<tr data-size="${escapeHtml(row.size)}" data-per-hour="${Number(row.perContainerHour.toFixed(6))}"${row.size === size ? ' aria-current="true"' : ""}><td data-label="Size"><div><code>${escapeHtml(row.size)}</code>${row.default ? ' <span class="tag">default</span>' : ""}</div></td><td data-label="vCPU"><div>${row.resources.vcpu}</div></td><td data-label="Memory"><div>${gib(row.resources.memoryMib)}</div></td><td data-label="Disk"><div>${row.resources.diskMb / 1000} GB</div></td><td data-label="One Container, an hour"><div>${dollars(row.perContainerHour, 3)}</div></td><td data-label="${containers(costs.budget)}, an hour" data-budget-cell><div data-budget-hour>${dollars(row.budgetHour, 2)}</div></td></tr>`,
+        `<tr data-size="${escapeHtml(row.size)}" data-per-hour="${Number(row.perContainerHour.toFixed(6))}"${row.size === size ? ' aria-current="true"' : ""}${row.size === CUSTOM_SIZE ? CUSTOM_PRICES : ""}><td data-label="Size"><div><code>${escapeHtml(row.size)}</code>${row.default ? ' <span class="tag">default</span>' : ""}</div></td><td data-label="vCPU"><div data-resource="vcpu">${row.resources.vcpu}</div></td><td data-label="Memory"><div data-resource="memory">${gib(row.resources.memoryMib)}</div></td><td data-label="Disk"><div data-resource="disk">${row.resources.diskMb / 1000} GB</div></td><td data-label="One Container, an hour"><div data-container-hour>${dollars(row.perContainerHour, 3)}</div></td><td data-label="${containers(costs.budget)}, an hour" data-budget-cell><div data-budget-hour>${dollars(row.budgetHour, 2)}</div></td></tr>`,
     )
     .join("");
   return `<div class="table-wrap"><table class="stacked"><thead><tr><th scope="col">Size</th><th scope="col">vCPU</th><th scope="col">Memory</th><th scope="col">Disk</th><th scope="col">One Container, an hour</th><th scope="col" data-budget-head>${containers(costs.budget)}, an hour</th></tr></thead><tbody>${rows}</tbody></table></div>`;
@@ -438,13 +450,16 @@ const environmentSection = (
     ([key]) => !(SWEEP_SETTING_KEYS as ReadonlyArray<string>).includes(key),
   );
   // The scalar settings share the Containers row. The agents' settings (SPI-1315: the Turn limit, the CLI agents'
-  // processes) share an Agents row, the MCP calls' time limit and result size (SPI-1359) an MCP calls row, how long
+  // processes) share an Agents row, the MCP calls' time limit and result size (SPI-1359) an MCP calls row, the outside
+  // requests' time limit (SPI-1365) an Outside requests row, how long
   // history is kept (SPI-1323) a History row, and the dotfiles toggles (ADR-0047 §9) a Dotfiles row, each a `keyedRow`. A list (the Variables) and a file (the Global mise config, the
   // Container setup) each get a row of their own, which the settings that name it as their `row` join. One form, one
   // Save.
   const keyed: ReadonlyArray<string> = [
     ...AGENT_SETTING_KEYS,
     ...MCP_CALL_SETTING_KEYS,
+    ...OUTSIDE_REQUEST_SETTING_KEYS,
+    ...SKILLS_SETTING_KEYS,
     ...RETENTION_SETTING_KEYS,
     ...DOTFILES_SETTING_KEYS,
   ];
@@ -453,9 +468,19 @@ const environmentSection = (
   // The budget states its consequence once, under its own description, where the script rewrites it as the input changes.
   const noteFor = (key: string): FieldNote | undefined =>
     key === "containerBudget" ? { text: budgetNote(environment.containerBudget), data: "budget-note" } : undefined;
+  // A custom size's resources show, and are sent, only while the Container size or the Builder size is custom (the
+  // script follows the selects); otherwise they are hidden and disabled, so an unused one never blocks a save.
+  const customInUse = environment.containerSize === CUSTOM_SIZE || environment.builderSize === CUSTOM_SIZE;
   const fields = entries
     .filter(([key, setting]) => !ownRow(setting) && setting.row === undefined && !keyed.includes(key))
-    .map(([key, setting]) => field("environment", key, setting, values[key], false, noteFor(key)));
+    .map(([key, setting]) =>
+      CUSTOM_RESOURCE_KEYS.includes(key)
+        ? field("environment", key, setting, values[key], !customInUse).replace(
+            '<div class="field">',
+            `<div class="field" data-custom-resource${customInUse ? "" : " hidden"}>`,
+          )
+        : field("environment", key, setting, values[key], false, noteFor(key)),
+    );
   const joining = (row: string) =>
     entries
       .filter(([, setting]) => setting.row === row)
@@ -475,6 +500,18 @@ const environmentSection = (
     "MCP calls",
     "How long one MCP tool call may run, and how large a result t3flare takes from it, for every agent and every server.",
     MCP_CALL_SETTING_KEYS,
+  );
+  const outside = keyedRow(
+    "outside-requests",
+    "Outside requests",
+    "How long t3flare waits for GitHub and the sign-ins' vendors to answer one request.",
+    OUTSIDE_REQUEST_SETTING_KEYS,
+  );
+  const skills = keyedRow(
+    "skills",
+    "Repo skills and Prompt templates",
+    "How many of a repository's skills its agents are offered, and how far t3flare reads its skills and Prompt templates directories to find them.",
+    SKILLS_SETTING_KEYS,
   );
   const history = keyedRow(
     "history",
@@ -502,7 +539,7 @@ const environmentSection = (
 <div class="section-head"><h2 id="environment-title">${icon("container")}Environment</h2></div>
 <p class="section-desc">What every Workspace's Container gets, and how long t3flare keeps its history. A change applies at each Workspace's next Container start unless its setting says otherwise; a running Container keeps what it started with, and a lower budget stops none.</p>
 <form class="group" data-environment aria-labelledby="environment-title" novalidate><div class="row"><div><div class="row-title"><h3>Containers</h3><span class="ident">revision ${environment.revision}</span></div><p class="desc">Their size, how long one may sit idle, how long open Terminals keep it running, how many may run at once, how many Terminals a Workspace may have, yours and agents', how long a start or a turn waits for the newest settings, and how long a clone or a checkpoint may run.</p></div>
-<div class="row-extra"><div class="fields">${fields.join("")}</div></div></div>${agents}${mcpCalls}${history}${dotfiles}${lists.join("")}${save}</form>
+<div class="row-extra"><div class="fields">${fields.join("")}</div></div></div>${agents}${mcpCalls}${outside}${skills}${history}${dotfiles}${lists.join("")}${save}</form>
 <dl class="group kv"><div><dt>Running now</dt><dd>${
     running === null || running === undefined
       ? "unknown"
@@ -857,7 +894,6 @@ export interface SkillsView {
     readonly bytes: number;
     readonly disabledBytes: number;
     readonly maxBytes: number;
-    readonly maxSkills: number;
   };
   readonly unauthenticated: boolean;
 }
@@ -888,7 +924,7 @@ const skillsSection = (view: SkillsView | undefined): string => {
   return `<section id="skills" aria-labelledby="skills-title">
 <div class="section-head"><h2 id="skills-title">${icon("skills")}Skills</h2>${view.skills.length === 0 ? "" : '<div class="head-actions"><button type="button" class="btn btn-sm btn-primary" data-skill-update-all hidden>Update all</button><button type="button" class="btn btn-sm" data-skill-check="">Check all for updates</button></div>'}</div>
 <p class="section-desc">Environment skills, offered to Durable agents in every Project and served read-only in every Workspace at <code>/workspace/.agents/skills</code>. Each is pinned to the commit it was installed at, and beats a Repo skill of the same name. A change applies at each thread's next turn; the composer shows it at once. Repo skills load from each Workspace's own files, switched by the Skills extension above.</p>
-<p class="section-desc" data-skill-totals>${plural(totals.count, "skill", "skills")} (${totals.enabled} enabled, ${totals.disabled} disabled) of ${totals.maxSkills}; ${sizeText(totals.bytes)} of ${sizeText(totals.maxBytes)}${totals.disabled === 0 ? "" : `, ${sizeText(totals.disabledBytes)} of it disabled`}. Disabled skills count toward the limits.</p>
+<p class="section-desc" data-skill-totals>${plural(totals.count, "skill", "skills")} (${totals.enabled} enabled, ${totals.disabled} disabled); ${sizeText(totals.bytes)} of ${sizeText(totals.maxBytes)}${totals.disabled === 0 ? "" : `, ${sizeText(totals.disabledBytes)} of it disabled`}. Disabled skills count toward the limit.</p>
 ${view.unauthenticated ? `<div class="callout callout-warn" role="note">${icon("warn")}<div><strong>Reads from GitHub are unauthenticated</strong><p>No repository with the GitHub App is a Project here, so public repos are read from GitHub's shared limit of 60 an hour for this Worker's address. Install the GitHub App on a repository and add it as a Project to read with its own limit.</p></div></div>` : ""}
 <div class="group">${list}</div>
 <form class="group add" id="install-skill" data-skill-install autocomplete="off" aria-labelledby="install-title">
@@ -1174,7 +1210,7 @@ ${navItem("audit", "Audit log", "audit", `<span class="count">${input.audit.leng
 ${input.openChanges === undefined ? "" : `${openChangesSection(input.openChanges, ownerAnswerMsOf(environment))}\n`}${toolsSection(input.resolved)}
 ${extensionsSection(input.resolved)}
 ${mcpSection(rows, t3Card(input.resolved, input.t3Tools), input.ownerClients)}
-${endpointsSection(escapeHtml, input.endpoints)}${environmentSection(environment, input.costs ?? containerCostTable(environment.containerBudget), input.running, { ...(input.testBuild === undefined ? {} : { record: input.testBuild }), canTest: input.canTest === true })}
+${endpointsSection(escapeHtml, input.endpoints)}${environmentSection(environment, input.costs ?? containerCostTable(environment), input.running, { ...(input.testBuild === undefined ? {} : { record: input.testBuild }), canTest: input.canTest === true })}
 ${workspacesSection(escapeHtml, time, input.workspaces)}
 ${skillsSection(input.skills)}
 ${statusSection(input.status, input.baseBuild, input.canRebuild === true)}

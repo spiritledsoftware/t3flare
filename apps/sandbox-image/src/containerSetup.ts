@@ -20,10 +20,13 @@ import { CONTAINER_SETUP_DIR, OWNER_HOME } from "./env.ts";
 export const CONTAINER_SETUP_BOUNDS = { killAfter: 10, lockMargin: 30, answerMargin: 60 } as const;
 
 /**
- * How much more of the output than the report keeps the wrapper answers, in bytes: the most one Variable's value can
- * take in UTF-8 (4096 characters), so a secret value that crosses the report's cut is whole here and blanked before it.
+ * How much more of the output than the report keeps the wrapper answers, in bytes: at least the most one Variable's
+ * value can take in UTF-8, so a secret value that crosses the report's cut is whole here and blanked before it. Linux's
+ * MAX_ARG_STRLEN, 128 KiB, bounds a whole `NAME=value` and so its value (`MAX_VARIABLE_VALUE_BYTES` in
+ * packages/harness-registry/src/variables.ts, which this package does not import; apps/agents/test/containerSetup.test.ts
+ * holds the two in step).
  */
-export const SECRET_MARGIN_BYTES = 16 * 1024;
+export const SECRET_MARGIN_BYTES = 128 * 1024;
 
 /** How long the Workspace DO waits for the whole exec at a limit of `minutes`: the lock, the run, its KILL, a minute's margin. */
 export const containerSetupDeadlineMs = (minutes: number): number => {

@@ -10,7 +10,7 @@ Stock t3's previews stay stock above three seams: where Chrome comes from, where
 
 The owner watches through t3's own screencast route (`/api/preview-stream/*`, t3's auth), so no dev-server byte reaches the owner's browser except as frames, and no new hostname, certificate or DNS record exists. HTML renders and MCP apps keep stock's opaque-origin sandbox on the t3 host. The tool denylist shrinks to `t3_attachment_*`, `t3_thread_send_attachments`, `device_*` and `t3_worktree_*`; `serverBrowser` and `localServerStop` are advertised; agent browser access is the owner's setting with stock's default.
 
-Forced by the platform or by cost, and kept: the eight-port list; the `*.t3flare.internal` names; a preview never starts a Container; a preview's requests and carried sockets keep a running Container only within ADR-0021's 30 minutes from the Workspace's last input; profiles are `storageState` in the Environment DO's own table (8 MiB a profile); Browser Run sessions are recorded and closed when a new Environment instance starts; nothing records a session or mints a Live View link.
+Forced by the platform or by cost, and kept: the eight-port list; the `*.t3flare.internal` names; a preview never starts a Container; a preview's requests and carried sockets keep a running Container only within ADR-0021's 30 minutes from the Workspace's last input; profiles are `storageState` in the Environment DO's own table (8 MiB a profile; superseded by the SPI-1365 refinement below); Browser Run sessions are recorded and closed when a new Environment instance starts; nothing records a session or mints a Live View link.
 
 ## Considered options
 
@@ -28,3 +28,9 @@ Forced by the platform or by cost, and kept: the eight-port list; the `*.t3flare
 - **Claude's MCP apps are ordinary tool rows** (O5): our Claude runs over ACP, and stock's app support is in its native-SDK adapter.
 - **Cost.** Browser Run hours ($0.09/h after 10 a month) and concurrent browsers (10 included, shared across the Cloudflare account). A watched tab holds the Environment and its browser; nothing else does.
 - **Fragility:** U59–U63 in `docs/upstream-fragility.md`.
+
+## Refinement (SPI-1365, 2026-11-23): a profile of any size
+
+A profile's 8 MiB is removed: the state is already whole in memory when it is saved, and it is kept in rows of at most
+1.5 MB, under a DO SQLite row's 8 MB. A profile past 8 MiB was not saved, with only a log line, and its sign-ins were
+lost; now every profile is kept.

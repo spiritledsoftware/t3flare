@@ -6,23 +6,29 @@ import { pathAlsoDirectory, skillFilePathProblem } from "@t3flare/skills";
 
 /** The most one file may be: under the 8 MB a Durable Object SQLite row may hold. */
 export const MAX_FILE_BYTES = 1_536 * 1024;
-/** The most one Skill's files may be together. */
-export const MAX_SKILL_BYTES = 4 * 1024 * 1024;
 /** The most files one Skill's folder may hold, far above any real one. */
 export const MAX_SKILL_FILES = 500;
 /** The most the Environment's skills may be together, disabled ones counted: the set travels in one Durable Object call. */
 export const MAX_SET_BYTES = 8 * 1024 * 1024;
-/** The most Environment skills kept, disabled ones counted. */
-export const MAX_ENVIRONMENT_SKILLS = 100;
 /** The longest name a Skill may have (Agent Skills). */
 export const MAX_SKILL_NAME_LENGTH = 64;
 /** The longest description a Skill may have (Agent Skills). */
 export const MAX_SKILL_DESCRIPTION_LENGTH = 1024;
-/** The most `SKILL.md` files read to list a repo's Skills. */
-export const MAX_SKILL_CANDIDATES = 200;
 /**
- * The most blobs one request reads: the largest Skill. GitHub's secondary limit is 900 points a minute per REST
- * endpoint, a GET 1 point, so these and the commit and the tree stay under it in any minute.
+ * GitHub's secondary rate limit: 900 points a minute per REST endpoint, a GET one point
+ * (docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api). A named constraint.
+ */
+const GITHUB_POINTS_PER_MINUTE = 900;
+/** The reads a request makes besides blobs: the commit and the tree. */
+const COMMIT_AND_TREE_READS = 2;
+/**
+ * The most `SKILL.md` files read to list a repo's Skills: GitHub's secondary limit less the commit and the tree, so a
+ * preview's reads stay under it in any minute (SPI-1365: derived, as `MAX_BLOB_READS` is bounded by it).
+ */
+export const MAX_SKILL_CANDIDATES = GITHUB_POINTS_PER_MINUTE - COMMIT_AND_TREE_READS;
+/**
+ * The most blobs one request reads: the largest Skill. Under GitHub's secondary limit (`GITHUB_POINTS_PER_MINUTE`) with
+ * the commit and the tree, so an install stays under it in any minute.
  */
 export const MAX_BLOB_READS = MAX_SKILL_FILES;
 
@@ -97,9 +103,7 @@ export const treeProblems = (
   const problems: Array<string> = [];
   if (files.length > MAX_SKILL_FILES)
     problems.push(`the folder holds ${files.length} files, more than ${MAX_SKILL_FILES}`);
-  let total = 0;
   for (const file of files) {
-    total += file.size ?? 0;
     if (file.size !== undefined && file.size > MAX_FILE_BYTES)
       problems.push(`${file.relative}: ${file.size} bytes, more than the ${MAX_FILE_BYTES} a Skill's file may be`);
     const path = `${name}/${file.relative}`;
@@ -108,8 +112,6 @@ export const treeProblems = (
   }
   const both = pathAlsoDirectory(files.map((file) => file.relative));
   if (both !== undefined) problems.push(`${both}: the path is also a directory`);
-  if (total > MAX_SKILL_BYTES)
-    problems.push(`the files are ${total} bytes together, more than the ${MAX_SKILL_BYTES} a Skill may be`);
   for (const link of links) problems.push(`${link}: a link or a submodule; a Skill may hold neither`);
   return problems;
 };
@@ -127,8 +129,6 @@ export interface KeptSize {
 export const setProblem = (kept: ReadonlyArray<KeptSize>, incoming: ReadonlyArray<KeptSize>): string | undefined => {
   const names = new Set(incoming.map((skill) => skill.name));
   const after = [...kept.filter((skill) => !names.has(skill.name)), ...incoming];
-  if (after.length > MAX_ENVIRONMENT_SKILLS)
-    return `the Environment would hold ${after.length} skills, more than the ${MAX_ENVIRONMENT_SKILLS} it may (disabled ones count)`;
   const bytes = after.reduce((sum, skill) => sum + skill.bytes, 0);
   if (bytes > MAX_SET_BYTES)
     return `the Environment's skills would be ${bytes} bytes together, more than the ${MAX_SET_BYTES} they may be (disabled ones count)`;

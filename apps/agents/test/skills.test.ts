@@ -2,10 +2,15 @@
 // a failed discovery leaves the section out rather than failing the request.
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { WireSkillDiscovery } from "@t3flare/computer-env";
+import { EMPTY_ENVIRONMENT, resolveEnvironment } from "@t3flare/harness-registry";
+import { DEFAULT_PROMPT_ENTRIES, DEFAULT_SKILL_LIMITS } from "@t3flare/skills";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { skillsExtension, skillsSectionText } from "../src/extensions/skills.ts";
 import { workspaceSkills } from "../src/workspace/skills.ts";
+
+/** The Environment settings' defaults: how far discovery reads before any change. */
+const DEFAULTS = resolveEnvironment(EMPTY_ENVIRONMENT);
 
 const workspace = (answer: WireSkillDiscovery) =>
   ({ cwd: "/workspace/repo", discoverSkills: () => Promise.resolve(answer) }) as never;
@@ -94,6 +99,7 @@ describe("the Workspace DO's discovery log", () => {
       }),
       ROOT,
       [],
+      DEFAULTS,
     );
     expect(found.skipped).toHaveLength(2);
     expect(lines()).toHaveLength(1);
@@ -108,7 +114,24 @@ describe("the Workspace DO's discovery log", () => {
 
   it("writes none when nothing was skipped", async () => {
     vi.spyOn(console, "log").mockImplementation(() => undefined);
-    await workspaceSkills(readEnv({ [`${ROOT}/.agents/skills/a/SKILL.md`]: skill("a", "only") }), ROOT, []);
+    await workspaceSkills(readEnv({ [`${ROOT}/.agents/skills/a/SKILL.md`]: skill("a", "only") }), ROOT, [], DEFAULTS);
     expect(lines()).toEqual([]);
+  });
+
+  it("lists as many Repo skills as the Environment setting says (SPI-1365), and counts the rest", async () => {
+    const files = Object.fromEntries(
+      Array.from({ length: 5 }, (_, at) => [`${ROOT}/.agents/skills/s${at}/SKILL.md`, skill(`s${at}`, "one")]),
+    );
+    const found = await workspaceSkills(readEnv(files), ROOT, [], { ...DEFAULTS, repoSkillsListed: 3 });
+    expect({ listed: found.skills.length, omitted: found.omitted }).toEqual({ listed: 3, omitted: 2 });
+  });
+
+  it("keeps packages/skills' defaults in step with the settings' defaults", () => {
+    expect(DEFAULT_SKILL_LIMITS).toEqual({
+      repoSkills: DEFAULTS.repoSkillsListed,
+      rootEntries: DEFAULTS.skillsDirectoryEntries,
+      linkedEntries: DEFAULTS.skillsLinkEntries,
+    });
+    expect(DEFAULT_PROMPT_ENTRIES).toBe(DEFAULTS.promptsDirectoryEntries);
   });
 });

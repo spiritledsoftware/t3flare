@@ -5,6 +5,7 @@
 // asked change asks on the owner-only card in every mode but plan (settingsCard.test.ts covers the card itself).
 import {
   applyMcpChange,
+  applyEnvironmentChange,
   type BaseBuildRecord,
   EMPTY_HARNESS,
   MAX_SETUP_BYTES,
@@ -30,7 +31,13 @@ import { type McpCallAnswer, McpHost } from "../src/mcp/host.ts";
 import { registerCliAsker } from "../src/provider/cli/cliAsk.ts";
 import { cliThreadState } from "../src/provider/cli/cliAsk.ts";
 import { DURABLE_AGENT, durableModes, forgetDurableModes, noteDurableModes } from "../src/provider/threadCaller.ts";
-import { type ChangeRecord, settingsChanges } from "../src/settings/changes.ts";
+import {
+  CHANGE_ARGS_BYTES,
+  CHANGE_RECORD_BYTES,
+  capKeyOf,
+  type ChangeRecord,
+  settingsChanges,
+} from "../src/settings/changes.ts";
 import { OFF_MESSAGE, type OwnCaller } from "../src/settings/caller.ts";
 import { NO_MODES_REFUSAL, READ_ONLY_REFUSAL, settingsCall } from "../src/settings/server.ts";
 import { SETTINGS_TOOLS } from "../src/settings/tools.ts";
@@ -170,6 +177,7 @@ const setup = (
     withdrawn,
     logs,
     applied,
+    changes,
     advance: (ms: number) => (now += ms),
   };
 };
@@ -860,8 +868,8 @@ describe("the Settings server: the Test base build", () => {
     recordModes(caller, "full-access");
     expect(textOf(await call(caller, "test_base_build", {}))).toContain("imageSetup is the Image setup to test");
     expect(
-      textOf(await call(caller, "test_base_build", { imageSetup: "é".repeat(MAX_SETUP_BYTES / 2 + 1) })),
-    ).toContain("at most 256 KiB");
+      textOf(await call(caller, "test_base_build", { imageSetup: "é".repeat(Math.floor(MAX_SETUP_BYTES / 2) + 1) })),
+    ).toContain(`at most ${MAX_SETUP_BYTES} bytes`);
     const planned = durable("thread-tbp");
     recordModes(planned, "plan");
     expect(structured(await call(planned, "test_base_build", { imageSetup: "true\n" }))).toMatchObject({
@@ -895,5 +903,55 @@ describe("the Settings server: the Test base build", () => {
       class: "write",
       inputSchema: { required: ["imageSetup"] },
     });
+  });
+});
+
+describe("the Settings server: a change's record is one row (SPI-1365)", () => {
+  // Near the most one file setting may be, in three-byte characters: about 2.6 MB of UTF-8.
+  const text = "€".repeat(880_000);
+  const rowBytes = (record: ChangeRecord) => new TextEncoder().encode(JSON.stringify(record)).length;
+  const caller = durable();
+  const key = capKeyOf("own", caller.thread!);
+
+  it("asked: opens a near-maximum setup and closes it, its record within the row each time", async () => {
+    const run = setup({ answer: { decision: "decline" }, cardWaitMs: 50 });
+    recordModes(caller, "full-access");
+    const answer = await run.call(caller, "change_environment", {
+      expectedRevision: 0,
+      settings: { imageSetup: text },
+    });
+    expect(structured(answer)).toMatchObject({ status: expect.stringMatching(/^(declined|expired|waiting)$/) });
+    const [kept] = run.changes.closedBy(key, 0).length > 0 ? run.changes.closedBy(key, 0) : run.changes.openBy(key);
+    expect(kept).toBeDefined();
+    expect(rowBytes(kept!)).toBeLessThanOrEqual(CHANGE_RECORD_BYTES);
+    expect((kept!.args as { settings: { imageSetup: string } }).settings.imageSetup).toBe(text);
+  });
+
+  it("free: records a change carrying a near-maximum setup after applying it, within the row", async () => {
+    const run = setup();
+    recordModes(caller, "full-access");
+    const seeded = applyEnvironmentChange(run.store.loadEnvironment(), { settings: { imageSetup: text } });
+    if (!seeded.ok) throw new Error(seeded.error);
+    run.store.saveEnvironment(seeded.environment);
+    const answer = await run.call(caller, "change_environment", {
+      expectedRevision: seeded.environment.revision,
+      settings: { imageSetup: text, containerIdleMinutes: 1 },
+    });
+    expect(structured(answer)).toMatchObject({ status: "applied" });
+    expect(rowBytes(run.applied.at(-1)!)).toBeLessThanOrEqual(CHANGE_RECORD_BYTES);
+  });
+
+  it("refuses a change too large to record before it opens or applies, naming the row", async () => {
+    const run = setup();
+    recordModes(caller, "full-access");
+    const answer = await run.call(caller, "change_environment", {
+      expectedRevision: 0,
+      settings: { imageSetup: text, containerSetup: text, globalMiseConfig: text },
+    });
+    expect(structured(answer)).toMatchObject({ status: "refused" });
+    expect(textOf(answer)).toContain("one 8 MB SQLite row");
+    expect(run.store.loadEnvironment().revision).toBe(0);
+    expect(run.cards).toEqual([]);
+    expect(CHANGE_ARGS_BYTES).toBeLessThan(CHANGE_RECORD_BYTES);
   });
 });

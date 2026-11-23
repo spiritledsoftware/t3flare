@@ -8,11 +8,14 @@ import {
   CONTAINER_SIZES,
   type ContainerResources,
   type ContainerSize,
+  CUSTOM_SIZE,
+  customResources,
   DEFAULT_CONTAINER_SIZE,
+  type ResolvedEnvironment,
 } from "@t3flare/harness-registry";
 
 /** US dollars per unit-second. */
-const CONTAINER_PRICES = {
+export const CONTAINER_PRICES = {
   /** Per GiB of provisioned memory, per second the Container runs. */
   memoryGibSecond: 0.0000025,
   /** Per vCPU, per second of active use. */
@@ -42,11 +45,17 @@ const hourOf = ({ vcpu, memoryMib, diskMb }: ContainerResources): number =>
     (memoryMib / 1024) * CONTAINER_PRICES.memoryGibSecond +
     (diskMb / 1000) * CONTAINER_PRICES.diskGbSecond);
 
-/** Every offered size, in the settings' order, priced for `budget` Containers at once. */
-export const containerCostTable = (budget: number): ContainerCostTable => ({
-  budget,
+/**
+ * Every offered size, in the settings' order, priced for the Container budget's Containers at once; the custom size at
+ * the resources `settings` give it.
+ */
+export const containerCostTable = (
+  settings: Pick<ResolvedEnvironment, "containerBudget" | "customVcpu" | "customMemoryMib" | "customDiskMb">,
+): ContainerCostTable => ({
+  budget: settings.containerBudget,
   rows: CONTAINER_SIZE_NAMES.map((size) => {
-    const resources = CONTAINER_SIZES[size].resources;
+    const resources = size === CUSTOM_SIZE ? customResources(settings) : CONTAINER_SIZES[size].resources;
+    const budget = settings.containerBudget;
     const perContainerHour = hourOf(resources);
     return {
       size,

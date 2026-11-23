@@ -32,7 +32,8 @@ the Environment and fetched from GitHub: one Environment, the owner's changes on
    file (text, blob SHA, size, SHA-256), and the enabled set's hash, in its SQLite. They are part of the **Environment
    settings** entity (ADR-0032): every change bumps its revision, is audited with `entity: "environment"` and never with
    file content, and is one synchronous block (revision checked, limits, rows, hash, revision, audit). Limits, disabled
-   Skills counted so a switch never fails: a file 1,536 KiB, a Skill 500 files and 4 MiB, the set 8 MiB and 100 Skills,
+   Skills counted so a switch never fails: a file 1,536 KiB, a Skill 500 files and 4 MiB, the set 8 MiB and 100 Skills
+   (the 4 MiB and the 100 superseded by the SPI-1365 refinement below),
    a path under the mount 512 bytes with no part over 255. Text only; files that look like a credential or a local
    path, links and submodules are refused.
 5. **Served read-only in every Workspace, no Container needed.**
@@ -102,3 +103,11 @@ the Environment and fetched from GitHub: one Environment, the owner's changes on
 - §2 stands: the credential is the Environment DO's, and no agent, Session or Container sees it.
 - §3 stands: nothing updates on a schedule; an update happens only after an answer.
 - §4 stands: every change bumps the Environment settings' revision and is audited without file content.
+
+## Refinement (SPI-1365, 2026-11-23): the limits that hold
+
+A Skill's 4 MiB and the set's 100 Skills are removed: the file's 1,536 KiB (its row), the Skill's 500 files (its
+reads) and the set's 8 MiB (one Durable Object call) bound what is kept and what travels. An update check reads every
+repository and ref, not the first 40; a request has no 60 s budget, each GitHub read its own bound (the Environment
+setting `outsideRequestSeconds`). A preview reads at most `MAX_SKILL_CANDIDATES` `SKILL.md` files, derived from GitHub's
+secondary limit (900 points a minute per endpoint) less the commit and the tree: 898.

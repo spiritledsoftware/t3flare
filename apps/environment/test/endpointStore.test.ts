@@ -1,12 +1,14 @@
 // The Model endpoints' store (SPI-1162): its own entity and revision, the models' metadata from pi-ai's catalog where it
 // knows them (the owner's own fields win), and the API key sealed apart from the entity, write-only, refused when the
 // Environment has no credentials key.
+import { DO_VALUE_BYTES } from "@t3flare/harness-registry";
 import { copilotModelApi, knownModel } from "@t3flare/models/known";
 import { describe, expect, it } from "vitest";
 
 import { sealedStore } from "../src/credentials/sealed.ts";
 import { endpointStore } from "../src/endpoints/store.ts";
 import { harnessStore } from "../src/harness/store.ts";
+import { fillEndpoints } from "./endpointsFixture.ts";
 
 const KEY = "c".repeat(64);
 
@@ -182,15 +184,36 @@ describe("endpointStore", () => {
     expect(await store.save({ ...OPENAI, headers: { "x-org": "a" } }, {})).toMatchObject({ ok: true });
   });
 
+  it("takes endpoints and models past the old counts, long model ids and many long headers", async () => {
+    const { store } = setup();
+    for (let i = 0; i < 40; i++)
+      expect(await store.save({ ...OPENAI, id: `e${i}` }, { apiKey: `k${i}` })).toMatchObject({ ok: true });
+    const models = Array.from({ length: 1000 }, (_, at) => `vendor/model-${at}`);
+    const headers = Object.fromEntries(Array.from({ length: 40 }, (_, at) => [`X-Header-${at}`, "v".repeat(4096)]));
+    expect(
+      await store.save({ ...OPENAI, id: "router", models: [...models, "m".repeat(500)], headers }, { apiKey: "k" }),
+    ).toMatchObject({
+      ok: true,
+    });
+    expect(store.load().endpoints.find((endpoint) => endpoint.id === "router")!.models).toHaveLength(1001);
+  });
+
   it("seals no key for a refused save, and never pairs a stored key with a new endpoint", async () => {
     const { kv, store } = setup();
-    for (let i = 0; i < 32; i++) await store.save({ ...OPENAI, id: `e${i}` }, { apiKey: `k${i}` });
+    fillEndpoints(kv, 100);
     expect(
       await store.save({ ...OPENAI, id: "victim", baseUrl: "https://good.example/v1" }, { apiKey: "sk-owner" }),
-    ).toMatchObject({ ok: false, error: expect.stringMatching(/at most 32/) });
+    ).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(
+        new RegExp(
+          `^the endpoints would take \\d+ bytes stored, past the ${DO_VALUE_BYTES} one Durable Object value holds$`,
+        ),
+      ),
+    });
     expect((await store.keyStatus("victim")).set).toBe(false);
     expect(JSON.stringify([...kv.map.keys()])).not.toContain("endpoint/victim/");
-    store.remove("e0");
+    store.remove("full");
     // A key stored under an id with no endpoint (as an older build could leave) is never adopted by a keyless create.
     await sealedStore(kv, KEY).put("endpoint/victim/api-key", "sk-orphan");
     expect(await store.save({ ...OPENAI, id: "victim", baseUrl: "https://evil.example/v1" }, {})).toMatchObject({

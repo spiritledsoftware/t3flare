@@ -34,7 +34,7 @@ import type { RefreshResult, SignInCredential, SignInResult, SignInVendor } from
 export interface ClaudeVendor {
   readonly fetch: typeof fetch;
   readonly now: () => number;
-  /** Each request's bound (`OAUTH_TIMEOUT_MS`; shorter in tests). */
+  /** Each request's bound (`outsideRequestSeconds`, read at each request; `OAUTH_TIMEOUT_MS` when absent). */
   readonly timeoutMs?: number;
 }
 

@@ -1,7 +1,7 @@
 // The agent's `<available_skills>` listing (SPI-1147 §2): pi's `formatSkillsForPrompt` (pi's coding agent,
 // `core/skills.js`), with the skills the owner alone names (`disable-model-invocation`) left out, and one line for the
 // Repo skills past the cap. The agent reads a listed `SKILL.md` with `read`; there is no skill tool.
-import { MAX_REPO_SKILLS, type SkillDiscovery } from "./discovery.ts";
+import type { SkillDiscovery } from "./discovery.ts";
 
 const escapeXml = (text: string): string =>
   text
@@ -29,8 +29,6 @@ export const formatSkills = (discovery: Pick<SkillDiscovery, "skills" | "omitted
       "  </skill>",
     ]),
     "</available_skills>",
-    ...(discovery.omitted > 0
-      ? [`${discovery.omitted} more skills in this repository are not listed: at most ${MAX_REPO_SKILLS} are.`]
-      : []),
+    ...(discovery.omitted > 0 ? [`${discovery.omitted} more skills in this repository are not listed.`] : []),
   ].join("\n");
 };

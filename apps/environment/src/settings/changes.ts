@@ -222,6 +222,70 @@ export const newChangeId = (): string => {
 /** A well-formed change id, so a page path or a `resume` cannot name anything else. */
 export const isChangeId = (id: string): boolean => /^chg_[A-Za-z0-9_-]{43}$/.test(id);
 
+/**
+ * The most bytes of UTF-8 a change's record may take (SPI-1365): it is one SQLite row of the changes table, which holds at
+ * most 8 MB (read as 8,000,000 bytes), less room for the row's other columns (its id, caller key, hash and state).
+ * A named constraint.
+ */
+export const CHANGE_RECORD_BYTES = 8_000_000 - 4096;
+
+/** What a record's `args` may take at most: the row less room for the rest of the record once its long texts are cut. */
+export const CHANGE_ARGS_BYTES = CHANGE_RECORD_BYTES - 256 * 1024;
+
+const utf8 = new TextEncoder();
+const recordBytes = (record: ChangeRecord): number => utf8.encode(JSON.stringify(record)).length;
+
+/** `value` with every string longer than `keep` characters cut to `keep`, and a note of what was not kept. */
+const cutStrings = (value: unknown, keep: number): unknown => {
+  if (typeof value === "string")
+    return value.length <= keep
+      ? value
+      : `${value.slice(0, keep)}\n[${value.length - keep} more characters not kept: a change's record is one SQLite row, at most 8 MB]`;
+  if (Array.isArray(value)) return value.map((entry) => cutStrings(entry, keep));
+  if (value !== null && typeof value === "object")
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, cutStrings(entry, keep)]));
+  return value;
+};
+
+/**
+ * `record` as its row holds it (SPI-1365): whole when it fits `CHANGE_RECORD_BYTES`; else what it shows (`shown`, the
+ * card's and the Change page's text, which holds a file's text before and after) and a close's error, each long text cut
+ * with a note, shorter until it fits. `args`, what applies, is never cut; undefined when even then it does not fit (a
+ * change is refused before anything applies when its `args` pass `CHANGE_ARGS_BYTES`, so a record that was kept always
+ * fits again when it is closed).
+ */
+export const fitChangeRecord = (record: ChangeRecord): ChangeRecord | undefined => {
+  if (recordBytes(record) <= CHANGE_RECORD_BYTES) return record;
+  // Down to 64 characters: an id, a path or a digest (a skills change's, which its apply checks) stays whole.
+  for (let keep = 64 * 1024; keep >= 64; keep = Math.floor(keep / 4)) {
+    const cut: ChangeRecord = {
+      ...record,
+      ...(record.shown === undefined ? {} : { shown: cutStrings(record.shown, keep) as ChangeView }),
+      ...(record.closed?.error === undefined
+        ? {}
+        : { closed: { ...record.closed, error: cutStrings(record.closed.error, keep) as string } }),
+    };
+    if (recordBytes(cut) <= CHANGE_RECORD_BYTES) return cut;
+  }
+  // Still too long (a view of very many short texts): the record keeps no view, and the error its first characters.
+  const { shown: _shown, ...bare } = record;
+  const without: ChangeRecord = {
+    ...bare,
+    ...(record.closed?.error === undefined
+      ? {}
+      : { closed: { ...record.closed, error: cutStrings(record.closed.error, 64) as string } }),
+  };
+  return recordBytes(without) <= CHANGE_RECORD_BYTES ? without : undefined;
+};
+
+/** Why a change whose arguments are `args` cannot be recorded (one row), or undefined when it can. */
+export const changeArgsProblem = (args: unknown): string | undefined => {
+  const bytes = utf8.encode(JSON.stringify(args) ?? "").length;
+  return bytes > CHANGE_ARGS_BYTES
+    ? `the change is ${bytes} bytes, more than the ${CHANGE_ARGS_BYTES} a change's record holds (one 8 MB SQLite row): change fewer settings at once, or a shorter text`
+    : undefined;
+};
+
 const parse = (text: unknown): ChangeRecord | undefined => {
   try {
     return typeof text === "string" ? (JSON.parse(text) as ChangeRecord) : undefined;
@@ -262,7 +326,12 @@ export const settingsChanges = (
   limits: () => SettingsServerLimits = () => DEFAULT_SETTINGS_SERVER_LIMITS,
 ): SettingsChanges => {
   let ready = false;
-  const write = (record: ChangeRecord) =>
+  const write = (whole: ChangeRecord) => {
+    // The callers refuse such a change before it opens or applies; this keeps the table from holding one it cannot close.
+    const problem = changeArgsProblem(whole.args);
+    if (problem !== undefined) throw new Error(problem);
+    const record = fitChangeRecord(whole);
+    if (record === undefined) throw new Error("the change's record does not fit one row");
     sql.exec(
       `INSERT OR REPLACE INTO ${CHANGES_TABLE} (id, caller_key, hash, state, created_at, closed_at, record) VALUES (?, ?, ?, ?, ?, ?, ?)`,
       record.id,
@@ -273,6 +342,7 @@ export const settingsChanges = (
       record.closed?.at ?? null,
       JSON.stringify(record),
     );
+  };
   const rows = (where: string, ...params: Array<unknown>): Array<ChangeRecord> =>
     sql
       .exec<{ record: string }>(`SELECT record FROM ${CHANGES_TABLE} WHERE ${where}`, ...params)
