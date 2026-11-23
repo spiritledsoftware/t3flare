@@ -286,7 +286,7 @@ describe("the Settings server's card for a free change", () => {
       settings: { usageRetentionDays: 365, piSessionRetentionDays: 120 },
     });
     expect(structured(answer)).toMatchObject({ status: "applied", appliesAt: expect.stringContaining("next prune") });
-    expect(run.cards[0]!.prompt).toContain("at each pi start");
+    expect(run.cards[0]!.prompt).toContain("at each Pi start");
     expect(run.cards[0]!.prompt).not.toContain("Container next starts");
     // With a Container setting: both texts, each naming its keys.
     await run.call(durable(), "change_environment", {
@@ -297,7 +297,7 @@ describe("the Settings server's card for a free change", () => {
     expect(run.cards[1]!.prompt).toContain("usageRetentionDays: Usage records");
     const tool = SETTINGS_TOOLS.find((entry) => entry.name === "change_environment")!;
     expect(tool.description).toContain("usageRetentionDays at the next prune");
-    expect(tool.description).toContain("piSessionRetentionDays at each pi start");
+    expect(tool.description).toContain("piSessionRetentionDays at each Pi start");
   });
 
   it("a decline changes nothing; an unanswered card is withdrawn and changes nothing", async () => {

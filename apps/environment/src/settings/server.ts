@@ -208,7 +208,7 @@ export const APPLIES_AT = {
   sweep: "Applies at the next Sweep, within minutes: every purge date moves with it.",
   /** How long history is kept (SPI-1323): read by the usage records' prune and at each pi start, never by a Container. */
   history:
-    "Usage records: at the next prune, as usage is recorded, at most once an hour, and to usage recorded from then on. pi sessions: at each pi start.",
+    "Usage records: at the next prune, as usage is recorded, at most once an hour, and to usage recorded from then on. Pi sessions: at each Pi start.",
   skills: "Files at each thread's next turn; the listing at the next context window; the composer at once.",
   /** A Purge (ADR-0044 §5). */
   purge: "Applies at once; it cannot be undone.",

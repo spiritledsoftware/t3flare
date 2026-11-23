@@ -549,8 +549,10 @@ describe("how long history is kept (SPI-1323)", () => {
       "records older than that are kept but shown nowhere until t3 widens its window",
     );
     expect(ENVIRONMENT_SETTINGS.piSessionRetentionDays.description).toContain(
-      "pi sessions untouched this long are deleted at a pi start; t3 can no longer resume those threads' pi conversations. 3650 keeps them in effect for good.",
+      "An older one is deleted at the next Pi start; t3 can no longer resume that thread's Pi conversation.",
     );
+    for (const key of RETENTION_SETTING_KEYS)
+      expect(ENVIRONMENT_SETTINGS[key].description).toContain("At most 3650 (ten years), which keeps them for good.");
   });
 });
 

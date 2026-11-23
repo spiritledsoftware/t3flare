@@ -610,14 +610,14 @@ export const ENVIRONMENT_SETTINGS = {
   usageRetentionDays: {
     title: "Usage records kept (days)",
     description:
-      "How many days t3flare keeps its usage records: each model answer's tokens and cost, which t3's Usage page shows. Shortening this deletes the older records at the next prune; they cannot be restored. t3's Usage page shows at most 90 days, so records older than that are kept but shown nowhere until t3 widens its window. 3650 keeps them for good. Applies at the next prune, which runs as usage is recorded, at most once an hour, and to usage recorded from then on.",
+      "How many days t3flare keeps its usage records: each model answer's tokens and cost, which t3's Usage page shows. Shortening this deletes the older records at the next prune; they cannot be restored. t3's Usage page shows at most 90 days, so records older than that are kept but shown nowhere until t3 widens its window. At most 3650 (ten years), which keeps them for good. Applies at the next prune (at most once an hour, as usage is recorded) and to usage recorded from then on.",
     schema: { type: "integer", minimum: 1, maximum: MAX_RETENTION_DAYS, default: DEFAULT_USAGE_RETENTION_DAYS },
     tier: "up-free",
   },
   piSessionRetentionDays: {
-    title: "pi sessions kept (days)",
+    title: "Pi sessions kept (days)",
     description:
-      "pi sessions untouched this long are deleted at a pi start; t3 can no longer resume those threads' pi conversations. 3650 keeps them in effect for good. Applies at each pi start.",
+      "How many days t3flare keeps a Pi session no one has written to. An older one is deleted at the next Pi start; t3 can no longer resume that thread's Pi conversation. At most 3650 (ten years), which keeps them for good. Applies at each Pi start.",
     schema: { type: "integer", minimum: 1, maximum: MAX_RETENTION_DAYS, default: DEFAULT_PI_SESSION_RETENTION_DAYS },
     tier: "up-free",
   },
