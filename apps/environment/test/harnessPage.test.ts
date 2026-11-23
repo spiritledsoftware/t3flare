@@ -324,9 +324,8 @@ describe("harness page", () => {
     );
     expect(terminals(resolveHarness(EMPTY_HARNESS))).not.toContain("Every tool is hidden");
     // SPI-1317: the count is the Environment setting's, not a fixed 8.
-    expect(terminals(resolveHarness(EMPTY_HARNESS))).not.toContain("At most 8");
     expect(terminals(resolveHarness(EMPTY_HARNESS))).toContain(
-      "At most the Environment setting Agents&#39; Terminals per Workspace (8 by default) run at once",
+      "At most 8 run at once in a Workspace by default, as the Environment setting Agents&#39; Terminals per Workspace sets",
     );
   });
 

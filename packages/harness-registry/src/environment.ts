@@ -298,7 +298,7 @@ export const ENVIRONMENT_SETTINGS = {
   terminalBusyHoldMinutes: {
     title: "Terminal hold while a command runs (minutes)",
     description:
-      "While a Terminal runs a command, open Terminals keep the Container running, and billed, for this long after their last input; output does not count. A Container preview keeps it running only while a command runs or a CLI agent is in a turn, and for this long after the last command, CLI agent's turn, or input to a Terminal or CLI agent. Applies at each Workspace's next Container start.",
+      "While a Terminal runs a command, open Terminals keep the Container running, and billed, for this long after their last input, past the Idle time; output does not count. A Container preview keeps it running as long after the last command, CLI agent's turn, or input to a Terminal or CLI agent. Applies at each Workspace's next Container start.",
     // t3flare's own alarm releases the Container (WorkspaceDO `#scheduleAlarm`), so the shared sanity maximum applies
     // (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_TERMINAL_BUSY_HOLD_MINUTES },
@@ -307,7 +307,7 @@ export const ENVIRONMENT_SETTINGS = {
   terminalPromptHoldMinutes: {
     title: "Terminal hold at the prompt (minutes)",
     description:
-      "While every open Terminal sits at its prompt, they keep the Container running, and billed, for this long after their last input. Applies at each Workspace's next Container start.",
+      "While every open Terminal sits at its prompt, they keep the Container running, and billed, for this long after their last input, past the Idle time. Applies at each Workspace's next Container start.",
     // As the busy hold: t3flare's own alarm, the shared sanity maximum (ADR-0048 §2).
     schema: {
       type: "integer",
@@ -327,7 +327,7 @@ export const ENVIRONMENT_SETTINGS = {
   terminalsPerWorkspace: {
     title: "Terminals per Workspace",
     description:
-      "How many of your Terminals one Workspace may have open at once; one more is refused. Each Terminal and Background job uses memory in the Container. Applies at each Workspace's next Container start; lowering it closes no open Terminal.",
+      "How many of your Terminals one Workspace may have open at once; one more is refused. Each Terminal uses memory in the Container. Applies at each Workspace's next Container start; lowering it closes no open Terminal.",
     // A named constraint, provisional (`MAX_TERMINALS_PER_WORKSPACE`): the Workspace DO's memory.
     schema: {
       type: "integer",

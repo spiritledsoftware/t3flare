@@ -338,8 +338,9 @@ provisional figure: each Terminal's handle, and an agent's Terminal's headless x
 128 MB isolate, and SPI-978's measurement of that memory sets the figure. An agent's exited Terminals keep their xterm
 outside the live count, bounded by `MAX_KEPT` (32) per Session. All four are `down-free` and show in the Containers row,
 the holds after the idle time and the counts after the budget; each states its consequence once ("Open Terminals keep
-the Container running, and billed, for this long after their last input"; "Each Terminal and Background job uses memory
-in the Container").
+the Container running, and billed, for this long after their last input"; "Each Terminal uses memory in the
+Container", and for the agents' count "Each Terminal and Background job uses memory in the Container"). The holds say
+they run past the Idle time.
 
 All four ride the launch (`ContainerLaunch`, as `idleMs` and `terminalsReadBashrc` do), so they apply at each
 Workspace's next Container start and a running Container keeps what it started with; a launch recorded before them

@@ -429,10 +429,12 @@ describe("the Terminals' holds and counts (SPI-1317)", () => {
   it("state their consequence once in Owner words", () => {
     for (const key of holds)
       expect(ENVIRONMENT_SETTINGS[key].description).toContain("keep the Container running, and billed, for this long");
-    for (const key of counts)
-      expect(ENVIRONMENT_SETTINGS[key].description).toContain(
-        "Each Terminal and Background job uses memory in the Container.",
-      );
+    expect(ENVIRONMENT_SETTINGS.terminalsPerWorkspace.description).toContain(
+      "Each Terminal uses memory in the Container.",
+    );
+    expect(ENVIRONMENT_SETTINGS.agentTerminalsPerWorkspace.description).toContain(
+      "Each Terminal and Background job uses memory in the Container.",
+    );
   });
 });
 
