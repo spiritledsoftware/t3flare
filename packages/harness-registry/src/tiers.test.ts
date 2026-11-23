@@ -144,6 +144,8 @@ const ENVIRONMENT: Readonly<
   imageSetup: { up: ["", "apt-get install -y jq\n", "asked"], down: ["apt-get install -y jq\n", "", "asked"] },
   imageSetupMinutes: { up: [30, 60, "asked"], down: [30, 10, "free"] },
   snapshotMinutes: { up: [5, 10, "asked"], down: [5, 2, "free"] },
+  // SPI-1359: a shorter retry runs the Builder more often while a build fails, so it is asked; a longer one is free.
+  baseRetryMinutes: { up: [60, 120, "free"], down: [60, 10, "asked"] },
   builderSize: { up: ["sameAsContainer", "standard-4", "asked"], down: ["standard-4", "sameAsContainer", "asked"] },
   builderInBudget: { up: [false, true, "asked"], down: [true, false, "asked"] },
   rebuildEveryDays: { up: [0, 7, "asked"], down: [7, 0, "asked"] },

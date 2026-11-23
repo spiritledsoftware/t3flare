@@ -36,6 +36,7 @@ import {
   type BaseSnapshot,
   builderInstance,
   type ContainerInstance,
+  DEFAULT_BASE_RETRY_MINUTES,
   MAX_REBUILD_DAYS,
   type ResolvedEnvironment,
   variableEnv,
@@ -46,6 +47,7 @@ import { OWNER_HOME } from "@t3flare/sandbox-image/env";
 import { globalMiseArgs } from "@t3flare/sandbox-image/globalMise";
 
 import { baseKey, hex, sha256Hex, unhex } from "./baseKey.ts";
+import { waitLimitMs } from "./baseStart.ts";
 import { blankSecrets } from "./containerSetup.ts";
 import {
   BUILDER_FILES,
@@ -170,11 +172,18 @@ interface Current {
   readonly image?: string;
   readonly nothingToBuild: boolean;
   readonly rebuildEveryDays: number;
+  /** The scheduled rebuild's margin before expiry (`expiryMarginMs`). Absent in one kept before SPI-1359: a day. */
+  readonly expiryMarginMs?: number;
+  /** A failing key's first retry (`baseRetryMinutes`). Absent in one kept before SPI-1359: the default. */
+  readonly retryMs?: number;
   readonly at: number;
 }
 
-/** The last good Base snapshot as kept: `gone` once a Workspace's start found the platform refused it. */
-type KeptSnapshot = BaseSnapshot & { readonly gone?: true };
+/**
+ * The last good Base snapshot as kept: `gone` once a Workspace's start found the platform refused it; `restoredAt` when a
+ * Workspace's Container last started from it (SPI-1359), which restarts the platform's 30 days.
+ */
+type KeptSnapshot = BaseSnapshot & { readonly gone?: true; readonly restoredAt?: number };
 
 /** The image watch (SPI-1333): until when, and the image last read. */
 interface ImageWatch {
@@ -210,21 +219,28 @@ export const BUILDER_KEYS = {
 
 export const DAY_MS = 24 * 60 * 60_000;
 
-/** A Base snapshot older than this counts as gone (ADR-0047 §3): the platform's TTL is 30 days from creation or last restore. */
+/**
+ * A Base snapshot this long past its creation or its last restore, whichever is later, counts as gone (ADR-0047 §3,
+ * SPI-1359): the platform's TTL is 30 days from either, so a day short of it.
+ */
 export const GOOD_FOR_MS = MAX_REBUILD_DAYS * DAY_MS;
 
-/**
- * How long before the snapshot counts as gone the scheduled rebuild fires at the latest. Fixed: room for the longest
- * build the settings allow (120 minutes of Image setup and 15 of snapshot) and its retries, not a policy.
- */
-export const EXPIRY_MARGIN_MS = DAY_MS;
+/** The retries the scheduled rebuild's margin leaves room for after its first attempt (`expiryMarginMs`). */
+const MARGIN_RETRIES = 4;
 
 /**
- * A failing rebuild's first retry (of the same key, whatever the trigger but a change or a Rebuild); each one after waits
- * twice as long, at most a day. Fixed, by a constraint: a scheduled rebuild fires a day before the snapshot counts as
- * gone (`EXPIRY_MARGIN_MS`), and its first four retries (1 + 2 + 4 + 8 = 15 hours) must land inside that day.
+ * How long before the snapshot counts as gone the scheduled rebuild fires at the latest (SPI-1359): room for the build
+ * the settings allow (`waitLimitMs`: the Image setup's limit and twice the snapshot's) and its first four retries, each
+ * after its backoff (`retryDelay`). At the defaults, five builds of 40 minutes and 1 + 2 + 4 + 8 hours.
  */
-export const SCHEDULE_RETRY_MS = 60 * 60_000;
+export const expiryMarginMs = (
+  settings: Pick<ResolvedEnvironment, "imageSetupMinutes" | "snapshotMinutes" | "baseRetryMinutes">,
+): number => {
+  let margin = (1 + MARGIN_RETRIES) * waitLimitMs(settings);
+  for (let failures = 1; failures <= MARGIN_RETRIES; failures++)
+    margin += retryDelay(failures, settings.baseRetryMinutes * 60_000);
+  return margin;
+};
 
 /** How long the scheduled rebuild waits to read the settings again when the Environment did not answer. Fixed: a retry. */
 export const READ_RETRY_MS = 60_000;
@@ -257,9 +273,15 @@ const PROBE_MS = 30_000;
 /** How much of a failed build's output is kept: `setupOutputKiB`, shared with the Container setup (SPI-1330). */
 export const outputBytesOf = (settings: ResolvedEnvironment): number => settings.setupOutputKiB * 1024;
 
-/** The wait before the retry after `failures` failures in a row: `SCHEDULE_RETRY_MS`, doubling, at most a day. */
-export const retryDelay = (failures: number): number =>
-  Math.min(DAY_MS, SCHEDULE_RETRY_MS * 2 ** Math.min(Math.max(1, failures) - 1, 5));
+/**
+ * The wait before the retry after `failures` failures in a row: the first retry (`baseRetryMinutes`), doubling, at most a
+ * day, or the first retry itself when it is longer.
+ */
+export const retryDelay = (failures: number, firstMs: number): number =>
+  Math.min(Math.max(DAY_MS, firstMs), firstMs * 2 ** Math.min(Math.max(1, failures) - 1, 5));
+
+/** A kept record's first retry: its own, or the default for one kept before SPI-1359. */
+const retryMsOf = (current: Current | undefined): number => current?.retryMs ?? DEFAULT_BASE_RETRY_MINUTES * 60_000;
 
 /** A trigger's kind: a Rebuild (the Owner's or `rebuild_base`) runs at once; the rest wait out a failing key's backoff. */
 type Trigger = "rebuild" | "automatic" | "scheduled";
@@ -310,12 +332,22 @@ export class BaseBuild {
 
   // ── The record ────────────────────────────────────────────────────────────────────────────────────────────────
 
-  /** The last good Base snapshot, unless it is gone: refused by the platform, or older than 29 days. */
+  /**
+   * The last good Base snapshot, unless it is gone: refused by the platform, or 29 days past its creation or last
+   * restore (`#aliveSince`).
+   */
   #good(): BaseSnapshot | null {
     const good = this.#deps.storage.get<KeptSnapshot>(BUILDER_KEYS.good);
-    if (good === undefined || good.gone === true || this.#deps.now() - good.builtAt > GOOD_FOR_MS) return null;
-    const { gone: _gone, ...snapshot } = good;
+    if (good === undefined || good.gone === true || this.#deps.now() - this.#aliveSince(good) > GOOD_FOR_MS) return null;
+    const { gone: _gone, restoredAt: _restoredAt, ...snapshot } = good;
     return snapshot;
+  }
+
+  /** When the platform's 30 days for `good` last started: its creation, or its last restore when later (SPI-1359). */
+  #aliveSince(good: BaseSnapshot): number {
+    const kept = this.#deps.storage.get<KeptSnapshot>(BUILDER_KEYS.good);
+    const restoredAt = kept?.id === good.id ? kept.restoredAt : undefined;
+    return Math.max(good.builtAt, restoredAt ?? good.builtAt);
   }
 
   record(): BaseBuildRecord {
@@ -426,6 +458,20 @@ export class BaseBuild {
     });
   }
 
+  /**
+   * A Workspace's Container started from the Base snapshot `id` (SPI-1359): the platform's 30 days start again, so it
+   * stays good 29 days from now. One not the kept snapshot, or one gone, is ignored.
+   */
+  restored(id: string): Promise<BaseBuildRecord> {
+    if (this.#test) return Promise.reject(new Error(NOT_BASE));
+    return this.#serial(async () => {
+      const kept = this.#deps.storage.get<KeptSnapshot>(BUILDER_KEYS.good);
+      if (kept?.id === id && kept.gone !== true && this.#good() !== null)
+        this.#deps.storage.put<KeptSnapshot>(BUILDER_KEYS.good, { ...kept, restoredAt: this.#deps.now() });
+      return this.record();
+    });
+  }
+
   /** A Workspace's start found the Base snapshot `id` refused (missing or expired): it is gone, and built again. */
   refused(id: string, reason: string): Promise<BaseBuildRecord> {
     if (this.#test) return Promise.reject(new Error(NOT_BASE));
@@ -502,6 +548,8 @@ export class BaseBuild {
       image,
       nothingToBuild: settings.imageSetup === "" && settings.globalMiseConfig === "",
       rebuildEveryDays: this.#test ? 0 : settings.rebuildEveryDays,
+      expiryMarginMs: expiryMarginMs(settings),
+      retryMs: settings.baseRetryMinutes * 60_000,
       at: this.#deps.now(),
     };
   }
@@ -571,7 +619,7 @@ export class BaseBuild {
       trigger !== "rebuild" &&
       last?.phase === "failed" &&
       last.key === current.key &&
-      this.#deps.now() < (last.endedAt ?? last.startedAt) + retryDelay(this.#failures(current.key))
+      this.#deps.now() < (last.endedAt ?? last.startedAt) + retryDelay(this.#failures(current.key), retryMsOf(current))
     ) {
       return this.#report();
     }
@@ -684,7 +732,7 @@ export class BaseBuild {
     const last = storage.get<Build>(BUILDER_KEYS.build);
     const current = storage.get<Current>(BUILDER_KEYS.current);
     if (last?.phase !== "failed" || last.key !== current?.key) return undefined;
-    const at = (last.endedAt ?? last.startedAt) + retryDelay(this.#failures(last.key));
+    const at = (last.endedAt ?? last.startedAt) + retryDelay(this.#failures(last.key), retryMsOf(current));
     return at > now() ? at : undefined;
   }
 
@@ -727,12 +775,12 @@ export class BaseBuild {
       return false;
     const due = Math.min(
       good.builtAt + current.rebuildEveryDays * DAY_MS,
-      good.builtAt + GOOD_FOR_MS - EXPIRY_MARGIN_MS,
+      this.#aliveSince(good) + GOOD_FOR_MS - (current.expiryMarginMs ?? DAY_MS),
     );
     let at = due;
     // Tried since it fell due, and it did not end ready: again after a backoff.
     if (last !== undefined && last.startedAt >= due && last.phase !== "ready")
-      at = (last.endedAt ?? last.startedAt) + retryDelay(this.#failures(last.key));
+      at = (last.endedAt ?? last.startedAt) + retryDelay(this.#failures(last.key), retryMsOf(current));
     if (now() < at) {
       await setAlarm(at);
       return false;

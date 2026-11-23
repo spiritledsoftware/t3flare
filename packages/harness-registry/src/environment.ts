@@ -201,9 +201,15 @@ export type ContainerSetupFailure = (typeof CONTAINER_SETUP_FAILURES)[number];
 
 /**
  * The most days a scheduled rebuild may wait (ADR-0047 §3): the platform expires a snapshot 30 days after its creation
- * or last restore, and t3flare counts one older than 29 days as gone.
+ * or last restore, and t3flare counts one 29 days past its last restore as gone. The schedule counts from creation.
  */
 export const MAX_REBUILD_DAYS = 29;
+
+/**
+ * The Base build retry's default, in minutes (`baseRetryMinutes`, SPI-1359): how long a failing key's first retry
+ * waits; each one after waits twice as long.
+ */
+export const DEFAULT_BASE_RETRY_MINUTES = 60;
 
 /**
  * What a new Container starts from while a Base build runs (ADR-0047 §6): the last good Base snapshot when it was made on
@@ -227,6 +233,7 @@ export const BASE_BUILD_SETTING_KEYS = [
   "builderSize",
   "builderInBudget",
   "rebuildEveryDays",
+  "baseRetryMinutes",
 ] as const;
 
 /** The Grace's default and bounds, in days (ADR-0043 §1): no zero, since at once is the Owner's own Purge. */
@@ -603,8 +610,17 @@ export const ENVIRONMENT_SETTINGS = {
   },
   rebuildEveryDays: {
     title: "Rebuild every (days)",
-    description: `Builds the Base snapshot again this many days after the last good one, so the Image setup's downloads stay current. 0 is off. At most ${MAX_REBUILD_DAYS}: a Base snapshot expires 30 days after it was made.`,
+    description: `Builds the Base snapshot again this many days after the last good one, so the Image setup's downloads stay current. 0 is off. At most ${MAX_REBUILD_DAYS}: a Base snapshot expires 30 days after it was made, unless a Container started from it since.`,
     schema: { type: "integer", minimum: 0, maximum: MAX_REBUILD_DAYS, default: 0 },
+    row: "imageSetup",
+  },
+  baseRetryMinutes: {
+    title: "Base build retry (minutes)",
+    description:
+      "How long a failed Base build waits before it is built again on its own: when a Workspace starts and finds no Base snapshot, the Environment starts, a new Workspace image arrives, or the schedule fires. Each failure in a row doubles it, up to a day, or up to this when it is longer. A Rebuild runs at once. A shorter wait runs the Builder's Container, and bills it, more often while a build keeps failing.",
+    // t3flare's own alarm times it (the Builder's), no platform limit: the shared sanity maximum applies (ADR-0048 §2).
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_BASE_RETRY_MINUTES },
+    tier: "up-free",
     row: "imageSetup",
   },
   whileBuilding: {

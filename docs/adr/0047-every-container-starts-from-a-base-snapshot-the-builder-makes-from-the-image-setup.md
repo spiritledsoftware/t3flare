@@ -170,3 +170,19 @@ new Container's start. Both are Environment settings, bash scripts of up to 256 
 §9's Container setup, Image setup and snapshot time limits keep their defaults (5, 30 and 5 minutes) and take
 `MAX_TIMED_MINUTES`, 10,080 minutes, as their maximum. A week keeps a Workspace's longest wait for a Base build
 (`waitLimitMs`: the Image setup's limit plus twice the snapshot's) at three weeks, under a JS timer's 24.8-day overflow.
+
+## Refinement (SPI-1359, 2026-11-23): the restore, the margin and the retry
+
+- **The 29 days count from the last restore.** A Workspace DO whose fresh start from the Base snapshot was not refused
+  reports `restored` to the Builder, which keeps the time (`restoredAt`) beside the snapshot. It counts as gone 29 days
+  after the later of its creation and its last restore, as the platform's 30 days run (refinement SPI-1332 §6 no longer
+  holds). A refusal at a later start still marks it gone at once. The scheduled rebuild still counts its days from the
+  snapshot's creation.
+- **The scheduled rebuild's margin is derived, not a day.** It fires at the latest `expiryMarginMs` before the snapshot
+  counts as gone: five builds at the settings' time limits (`waitLimitMs`) and the first four retries' backoffs. At the
+  defaults that is 18 hours 20 minutes; with a week-long Image setup, over five weeks, so a schedule of 29 days then
+  fires at once after each build. ADR-0048's consequence of a slow build outlasting the last good Base snapshot holds
+  only past those limits.
+- **The retry is a setting**, `baseRetryMinutes` (60 by default, 1 to `MAX_TIMED_MINUTES`, tier `up-free`, in the
+  Image setup's row): a failing key's first retry, doubling, at most a day or the setting itself when that is longer.
+  Some backoff is needed: without it a failing key's next trigger would build at once, a loop of Builder Containers.

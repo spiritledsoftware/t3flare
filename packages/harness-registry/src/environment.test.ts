@@ -42,6 +42,7 @@ const BASE_DEFAULTS = {
   builderSize: "sameAsContainer",
   builderInBudget: false,
   rebuildEveryDays: 0,
+  baseRetryMinutes: 60,
   whileBuilding: "lastGood",
   whileBuildingNewImage: "wait",
 } as const;
@@ -796,6 +797,7 @@ describe("the Base build's settings (SPI-1332, ADR-0047 §9)", () => {
       "builderSize",
       "builderInBudget",
       "rebuildEveryDays",
+      "baseRetryMinutes",
     ]);
   });
 });
