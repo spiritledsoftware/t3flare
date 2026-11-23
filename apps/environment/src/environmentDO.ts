@@ -1482,9 +1482,12 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/_t3flare/")) {
-      // The Worker verified the caller (access.ts) before forwarding.
-      const { handleAdmin } = await import("./host/admin.ts");
-      return handleAdmin(request, this);
+      // The Worker verified the caller (access.ts) before forwarding. An admin call is a request in flight for the
+      // idle check (SPI-1145), except the idle check itself, which would otherwise never find the Environment idle.
+      return Idle.countedAdminRequest(request, async () => {
+        const { handleAdmin } = await import("./host/admin.ts");
+        return handleAdmin(request, this);
+      });
     }
     // Step 3+ (plan section 5, review finding 1): T3 Connect's relay-initiated routes are not served, for any method,
     // before t3 boots. t3's own app refuses them too (connect/service.ts).

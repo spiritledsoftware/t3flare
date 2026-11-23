@@ -78,6 +78,28 @@ export const requestEnded = () => {
 };
 
 /**
+ * The admin route that runs the idle check itself (`checkIdle`, `host/admin.ts`). It is the one admin call not
+ * counted as a request in flight: counted, a forced check would always see itself and never find the Environment idle.
+ */
+export const isIdleCheckRoute = (request: Request): boolean =>
+  request.method === "POST" && new URL(request.url).pathname === "/_t3flare/idle-check";
+
+/**
+ * An admin call (`/_t3flare/*`) counts as a request in flight, like every other entry point (SPI-1145), so the idle
+ * reset does not cut a long one short, such as a `workspace-call` running a command in the Container. The idle check
+ * itself is not counted (`isIdleCheckRoute`).
+ */
+export const countedAdminRequest = async <A>(request: Request, handle: () => Promise<A>): Promise<A> => {
+  if (isIdleCheckRoute(request)) return handle();
+  requestStarted();
+  try {
+    return await handle();
+  } finally {
+    requestEnded();
+  }
+};
+
+/**
  * The run and provider-session statuses that mean nothing is live (t3's `OrchestrationV2RunStatus` and
  * `OrchestrationV2ProviderSession.status`). Every other status counts as open, so a status a nightly adds keeps
  * the Environment up rather than read as idle.
