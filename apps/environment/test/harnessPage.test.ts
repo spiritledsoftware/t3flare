@@ -586,11 +586,57 @@ describe("the Settings server's row", () => {
     ]);
     // A Direct server has none.
     expect(markup(renderPage(fixturePage()))).not.toContain("data-mcp-limits");
-    // The script posts every limit as one server change to the form's server.
-    expect(SCRIPT).toContain('document.querySelectorAll("form[data-mcp-limits]")');
-    expect(SCRIPT).toContain(
-      'post("/_t3flare/settings/api/mcp", { op: "server", server: form.dataset.mcpLimits, limits: settingsOf(form) }, save)',
+  });
+
+  it("its script posts only the limits typed over, as one server change, and nothing when none moved (SPI-1322)", async () => {
+    const start = SCRIPT.indexOf('for (const form of document.querySelectorAll("form[data-mcp-limits]"))');
+    const handler = SCRIPT.slice(
+      start,
+      SCRIPT.indexOf('for (const form of document.querySelectorAll("form[data-extension]"))'),
     );
+    expect(start).toBeGreaterThan(-1);
+    /** The handler over a stub form of three limits; `typed` is what the Owner typed over the stored values. */
+    const run = async (typed: Record<string, string>) => {
+      const stored: Record<string, string> = { strikes: "3", askedPerHour: "6", strikeLockMinutes: "60" };
+      const inputs = Object.entries(stored).map(([setting, value]) => ({
+        dataset: { setting, kind: "integer" },
+        defaultValue: value,
+        value: typed[setting] ?? value,
+      }));
+      let submit: ((event: { preventDefault(): void }) => Promise<void>) | undefined;
+      const form = {
+        dataset: { mcpLimits: "settings" },
+        closest: () => null,
+        querySelector: () => ({}),
+        querySelectorAll: () => inputs,
+        reportValidity: () => true,
+        addEventListener: (_: string, listener: typeof submit) => (submit = listener),
+      };
+      const posts: Array<unknown> = [];
+      const notes: Array<string> = [];
+      const context = {
+        document: { querySelectorAll: () => [form] },
+        location: { hash: "" },
+        history: { replaceState: () => undefined },
+        watchUnsaved: () => undefined,
+        settingsOf: () => Object.fromEntries(inputs.map((input) => [input.dataset.setting, Number(input.value)])),
+        notify: (_: string, text: string) => void notes.push(text),
+        post: async (_: string, body: unknown) => (posts.push(body), false),
+        done: () => undefined,
+      };
+      new Script(handler).runInNewContext(context);
+      await submit!({ preventDefault: () => undefined });
+      return { posts, notes };
+    };
+    expect((await run({ askedPerHour: "12" })).posts).toEqual([
+      { op: "server", server: "settings", limits: { askedPerHour: 12 } },
+    ]);
+    expect((await run({ askedPerHour: "12", strikeLockMinutes: "0" })).posts).toEqual([
+      { op: "server", server: "settings", limits: { askedPerHour: 12, strikeLockMinutes: 0 } },
+    ]);
+    const none = await run({ askedPerHour: "6" });
+    expect(none.posts).toEqual([]);
+    expect(none.notes).toEqual(["Nothing to save: every limit is as it was."]);
   });
 });
 

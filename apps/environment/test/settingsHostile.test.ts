@@ -2,6 +2,7 @@
 // doors as the Environment wires them (the MCP host, the CLI relay, the Owner-client endpoint, the Settings page). Each
 // `describe` names its line of the list; `docs-archive-1:docs/steps/settings-mcp.md` maps every line to its tests here and elsewhere,
 // and `docs-archive-1:docs/steps/settings-mcp/m6-stage-run.md` to what the stage run records.
+import { DEFAULT_SETTINGS_SERVER_LIMITS, OPEN_ACROSS } from "@t3flare/harness-registry";
 import {
   MCP_QUESTION_MARKER,
   type McpAsker,
@@ -20,11 +21,14 @@ import { relayMessage, type RelayDeps } from "../src/mcp/relay.ts";
 import { registerCliAsker } from "../src/provider/cli/cliAsk.ts";
 import { DURABLE_AGENT, forgetDurableModes, noteDurableModes } from "../src/provider/threadCaller.ts";
 import { OFF_MESSAGE, type OwnCaller } from "../src/settings/caller.ts";
-import { OPENED_CAP, scrubUrls, STRIKES } from "../src/settings/changes.ts";
-import { OPEN_ACROSS } from "../src/settings/openChanges.ts";
+import { scrubUrls } from "../src/settings/changes.ts";
 import { READ_ONLY_REFUSAL } from "../src/settings/server.ts";
 import { bodyOf, endpointOf, modern } from "./settingsEndpointFixture.ts";
 import { HOST, settingsFixture, type SettingsFixture, structured, textOf, until } from "./settingsFixture.ts";
+
+// The Settings server's limits at their defaults (SPI-1322: they are its entry's settings).
+const OPENED_CAP = DEFAULT_SETTINGS_SERVER_LIMITS.askedPerHour;
+const STRIKES = DEFAULT_SETTINGS_SERVER_LIMITS.strikes;
 
 let fixture: SettingsFixture | undefined;
 const unregisters: Array<() => void> = [];

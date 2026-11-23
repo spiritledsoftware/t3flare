@@ -20,8 +20,8 @@ import {
   type HarnessChange,
   type McpChange,
   mcpServersOf,
+  movedLimits,
   resolveHarness,
-  settingsServerLimitsOf,
   type StoredHarness,
 } from "./index.ts";
 import { type Exposure, type McpServerSetting, ownEntry, SETTINGS_SERVER, type ToolClass } from "./mcp.ts";
@@ -216,12 +216,13 @@ const mcpTier = (
   // stays (a form posts every limit on each save) is none, so a save that moves nothing is `unchanged`.
   if (change.limits !== undefined && !isSettingsServer) parts.push({ asked: true, reason: `${server}: has no limits` });
   else if (change.limits !== undefined) {
-    const limits: Readonly<Record<string, unknown>> = settingsServerLimitsOf(stored);
-    for (const [key, value] of Object.entries(change.limits)) {
-      const before = ownEntry(limits, key);
-      if (before === undefined)
-        parts.push({ asked: true, reason: `${server}.limits.${key}: not a limit this registry knows` });
-      else if (value !== before) parts.push(mark(settingPart(`${server}.limits.${key}`, undefined, before, value)));
+    for (const { key, before, after } of movedLimits(stored, change.limits)) {
+      const name = `${server}.limits.${key}`;
+      parts.push(
+        before === undefined
+          ? { asked: true, reason: `${name}: not a limit this registry knows` }
+          : mark(settingPart(name, undefined, before, after)),
+      );
     }
   }
   const exposureAfter = change.exposure ?? current.exposure;

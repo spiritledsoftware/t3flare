@@ -783,7 +783,7 @@ describe("native on 2025: the form on the call's held stream", () => {
   });
 
   it(`at most ${HOLDS_PER_CALLER} streams per caller; past it, W saying why`, async () => {
-    // Two open changes of two streams each stay under it today (OPEN_PER_OWNER): it is the backstop, so the caller's
+    // Two open changes of two streams each stay under it at the default openPerOwner: it is the backstop, so the caller's
     // other streams are stood in for.
     const holds = streamHolds();
     holds.byCaller.set(SUB, HOLDS_PER_CALLER);

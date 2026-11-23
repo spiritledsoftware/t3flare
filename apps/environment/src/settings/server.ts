@@ -1107,10 +1107,6 @@ export const changeUrlOf = (deps: Pick<SettingsServerDeps, "origin">, id: string
 };
 
 /** The panel's Open changes list (plan D10, D16). */
-/** The Settings server's limits as stored now (SPI-1322): each check reads them at the caller's request. */
-const limitsOf = (deps: Pick<SettingsServerDeps, "ops">): SettingsServerLimits =>
-  settingsServerLimitsOf(deps.ops.store.load());
-
 const openListOf = (deps: Pick<SettingsServerDeps, "origin">): string | undefined => {
   const origin = deps.origin();
   return origin === undefined ? undefined : `${origin}${OPEN_CHANGES_PATH}`;
@@ -1567,8 +1563,9 @@ const openAskedChange = async (deps: SettingsServerDeps, input: AskedInput): Pro
   };
   const first = reused();
   if (first !== undefined) return first;
-  // The limits as stored now (SPI-1322), read once for this call: both checks below judge by the same.
-  const limits = limitsOf(deps);
+  // The Settings server's limits as stored now (SPI-1322, the changes table's `limits`), read once for this call: both
+  // checks below judge by the same.
+  const limits = deps.changes.limits();
   const capped = capRefusal(deps.changes, caller, hash, deps.ops.now(), openListOf(deps), limits);
   if (capped !== undefined) return capAnswer(capped);
   const spent = planned.network === true ? networkSpent(deps, input.reader, limits) : undefined;
@@ -1838,7 +1835,7 @@ const readLimit = (deps: SettingsServerDeps, reader: Reader, tool: string): McpC
   const key = reader.key;
   const now = deps.ops.now();
   const network = NETWORK_READS.has(tool);
-  const limits = limitsOf(deps);
+  const limits = deps.changes.limits();
   if (deps.changes.readsSince(key, "read", now - READ_WINDOW_MS) >= limits.readsPerHour)
     return refused(
       "read-cap",
@@ -1880,7 +1877,7 @@ const write = async (deps: SettingsServerDeps, input: SettingsCallInput): Promis
   const key = caller.thread!;
   // An asked change always asks, in every mode (plan D7): an Open change, answered on the card or the Change page.
   if (planned.verdict.tier !== "free") return ask(deps, input, planned, expected, key);
-  const applied = limitsOf(deps).appliedPerHour;
+  const applied = deps.changes.limits().appliedPerHour;
   if (deps.changes.appliedSince(capKeyOf("own", key), deps.ops.now() - APPLIED_WINDOW_MS) >= applied)
     return refuse(
       "applied-cap",
@@ -2307,7 +2304,7 @@ const ownerWrite = async (deps: SettingsServerDeps, input: OwnerCallInput): Prom
   if (prepared.kind === "result") return result(prepared.answer);
   const { planned, expected } = prepared;
   if (planned.verdict.tier !== "free") return ownerAsk(deps, input, planned, expected);
-  const applied = limitsOf(deps).appliedPerHour;
+  const applied = deps.changes.limits().appliedPerHour;
   if (deps.changes.appliedSince(capKeyOf("owner", caller.key), deps.ops.now() - APPLIED_WINDOW_MS) >= applied)
     return refuse(
       "applied-cap",

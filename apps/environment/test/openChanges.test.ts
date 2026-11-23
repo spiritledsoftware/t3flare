@@ -2,23 +2,22 @@
 // pruning two hours after closing (`closedKeptMs`); D8's answerer table, a wrong `sub`; a moved revision; two changes
 // against one revision; the record surviving an Environment reset; a skill whose digest changed at apply; every cap of
 // D16, and that a dropped stream or an expiry is not a strike for an Owner client.
-import { DEFAULT_OWNER_ANSWER_MS, type SettingsServerLimits } from "@t3flare/harness-registry";
+import {
+  DEFAULT_OWNER_ANSWER_MS,
+  type SettingsServerLimits,
+  DEFAULT_SETTINGS_SERVER_LIMITS,
+  OPEN_ACROSS,
+} from "@t3flare/harness-registry";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  APPLIED_CAP,
   CHANGES_TABLE,
   type ChangeCaller,
-  DEFAULT_LIMITS,
   type ChangeRecord,
   closedKeptMs,
-  NETWORK_READ_CAP,
   newChangeId,
-  OPENED_CAP,
   OPENED_WINDOW_MS,
   settingsChanges,
-  STRIKE_LOCK_MS,
-  STRIKE_WINDOW_MS,
   strikeWindowMs,
 } from "../src/settings/changes.ts";
 import {
@@ -26,9 +25,6 @@ import {
   answerOpenChange,
   capRefusal,
   closeOpenChange,
-  DECLINED_REPEAT_MS,
-  OPEN_ACROSS,
-  OPEN_PER_OWNER,
   waitForChange,
 } from "../src/settings/openChanges.ts";
 import { answerDepsOf, changesApiOf, settingsOwnerCall } from "../src/settings/server.ts";
@@ -37,6 +33,15 @@ import { nodeSqlStorage } from "./nodeSqlStorage.ts";
 import { bodyOf, endpointOf, modern, structuredOf, SUB } from "./settingsEndpointFixture.ts";
 import { flush, NOW, settingsFixture, type SettingsFixture, until } from "./settingsFixture.ts";
 import { skillMd } from "./skillRepo.fixture.ts";
+
+// The Settings server's limits at their defaults (SPI-1322: they are its entry's settings).
+const APPLIED_CAP = DEFAULT_SETTINGS_SERVER_LIMITS.appliedPerHour;
+const NETWORK_READ_CAP = DEFAULT_SETTINGS_SERVER_LIMITS.networkReadsPerHour;
+const OPENED_CAP = DEFAULT_SETTINGS_SERVER_LIMITS.askedPerHour;
+const STRIKE_LOCK_MS = DEFAULT_SETTINGS_SERVER_LIMITS.strikeLockMinutes * 60_000;
+const STRIKE_WINDOW_MS = DEFAULT_SETTINGS_SERVER_LIMITS.strikeWindowMinutes * 60_000;
+const DECLINED_REPEAT_MS = DEFAULT_SETTINGS_SERVER_LIMITS.declinedRepeatMinutes * 60_000;
+const OPEN_PER_OWNER = DEFAULT_SETTINGS_SERVER_LIMITS.openPerOwner;
 
 const OWN: ChangeCaller = { door: "own", key: "thread-1", principal: "agent", thread: "thread-1", agent: "piDurable" };
 const OWNER: ChangeCaller = {
@@ -54,7 +59,7 @@ const TOKEN: ChangeCaller = { door: "owner", key: "service-token", principal: "s
 const world = (answerMs = DEFAULT_OWNER_ANSWER_MS, set: Partial<SettingsServerLimits> = {}) => {
   let now = NOW;
   // The Settings server's limits as stored (SPI-1322): the table's keeping and `capRefusal`'s default read them.
-  let limits: SettingsServerLimits = { ...DEFAULT_LIMITS, ...set };
+  let limits: SettingsServerLimits = { ...DEFAULT_SETTINGS_SERVER_LIMITS, ...set };
   let revision = 4;
   const sql = nodeSqlStorage();
   const applied: Array<{ id: string; by: string; secret?: string }> = [];
@@ -105,7 +110,7 @@ const world = (answerMs = DEFAULT_OWNER_ANSWER_MS, set: Partial<SettingsServerLi
     logs,
     advance: (ms: number) => (now += ms),
     now: () => now,
-    setLimits: (next: Partial<SettingsServerLimits>) => (limits = { ...DEFAULT_LIMITS, ...next }),
+    setLimits: (next: Partial<SettingsServerLimits>) => (limits = { ...DEFAULT_SETTINGS_SERVER_LIMITS, ...next }),
     revision: () => revision,
     setRevision: (value: number) => (revision = value),
   };
@@ -984,7 +989,7 @@ describe("the caps follow the Settings server's limits (SPI-1322)", () => {
   });
 
   it("strikeWindowMinutes keeps SPI-1316's run-based window, with the strikes in place of three", () => {
-    const limits = { ...DEFAULT_LIMITS, strikes: 5, strikeWindowMinutes: 20 };
+    const limits = { ...DEFAULT_SETTINGS_SERVER_LIMITS, strikes: 5, strikeWindowMinutes: 20 };
     expect(strikeWindowMs(DEFAULT_OWNER_ANSWER_MS, limits)).toBe(4 * DEFAULT_OWNER_ANSWER_MS + 5 * 60_000);
     expect(strikeWindowMs(60_000, limits)).toBe(20 * 60_000);
   });

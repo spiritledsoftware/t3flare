@@ -550,6 +550,31 @@ export const resolveSettingsServerLimits = (set: Readonly<Record<string, unknown
 export const settingsServerLimitsOf = (stored: StoredHarness): SettingsServerLimits =>
   resolveSettingsServerLimits(settingsEntryOf(stored).limits);
 
+/** The Settings server's limits with none set: each its schema's default, today's values (SPI-1322). */
+export const DEFAULT_SETTINGS_SERVER_LIMITS: SettingsServerLimits = resolveSettingsServerLimits(undefined);
+
+/** One limit a change names (SPI-1322): its value now and the one asked for; `before` undefined: not a known limit. */
+export interface MovedLimit {
+  readonly key: string;
+  readonly before: number | undefined;
+  readonly after: unknown;
+}
+
+/**
+ * The limits `limits` moves against `stored`'s (SPI-1322): each named key that is not a limit, and each limit whose
+ * value differs from its value now. One set to its value now moves nothing. What `mcpTier` and the Change page judge.
+ */
+export const movedLimits = (
+  stored: StoredHarness,
+  limits: Readonly<Record<string, unknown>>,
+): ReadonlyArray<MovedLimit> => {
+  const now: Readonly<Record<string, number>> = settingsServerLimitsOf(stored);
+  return Object.entries(limits).flatMap(([key, after]) => {
+    const before = Object.hasOwn(now, key) ? now[key] : undefined;
+    return before === after ? [] : [{ key, before, after }];
+  });
+};
+
 /** The names of stored MCP entries the set ignores (`ignoredServer`), for the panel's Status. */
 export const ignoredServersOf = (stored: StoredHarness): ReadonlyArray<string> =>
   Object.entries(stored.mcp?.servers ?? {})

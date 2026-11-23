@@ -6,6 +6,7 @@
 // `resume` (plan D12) is not among them: it is `RESUME_TOOL`, the Owner-client endpoint's alone in `model` (M5b,
 // SPI-1201), never the in-process server's.
 import {
+  DEFAULT_SETTINGS_SERVER_LIMITS,
   SETTINGS_SERVER_LIMIT_KEYS,
   SETTINGS_SERVER_LIMITS,
   BUILTIN_TOOLS,
@@ -40,20 +41,11 @@ const PURGE_NOTE =
  * when served, with the Answer wait `answerMs` its asked changes wait (SPI-1316) and how many may wait at once per
  * thread, `openPerThread` (the Settings server's limit, SPI-1322).
  */
-export const settingsInstructions = (answerMs: number, openPerThread = 1): string =>
+export const settingsInstructions = (
+  answerMs: number,
+  openPerThread: number = DEFAULT_SETTINGS_SERVER_LIMITS.openPerThread,
+): string =>
   `${SETTINGS_SCOPE} Every settings write names the expectedRevision it read, and the thread's mode rules it: plan mode refuses writes; outside full access a write waits for the owner's card; a change that widens what agents have or can do always waits for the owner's answer on a card or its Change page (at most ${durationText(answerMs)}, ${openPerThread === 1 ? "one at a time" : `at most ${openPerThread} at a time`} per thread). ${PURGE_NOTE} Do not repeat a declined change.`;
-
-/** The Settings server's limits as `change_mcp` takes them (SPI-1322): each an integer in its schema's range. */
-const LIMITS_SCHEMA = {
-  type: "object",
-  properties: Object.fromEntries(
-    SETTINGS_SERVER_LIMIT_KEYS.map((key) => {
-      const schema = SETTINGS_SERVER_LIMITS[key].schema;
-      return [key, { type: "integer", minimum: schema.minimum, maximum: schema.maximum }];
-    }),
-  ),
-  additionalProperties: false,
-} as const;
 
 /**
  * The same for an Owner client (plan D11, D12): it has no thread mode, and its asked changes wait on the Change page in
@@ -117,6 +109,15 @@ const fieldJson = (schema: EnvironmentFieldSchema): Record<string, unknown> => {
           "The whole set of Variables, each { name, value, secret }. A secret read back has valueRedacted: true; send it so to keep its value, or a new value to replace it. Turning Secret off needs the value given again. Anything run in a Workspace can read every Variable, a secret's value included.",
       };
   }
+};
+
+/** The Settings server's limits as `change_mcp` takes them (SPI-1322), each from its schema. */
+const LIMITS_SCHEMA = {
+  type: "object",
+  properties: Object.fromEntries(
+    SETTINGS_SERVER_LIMIT_KEYS.map((key) => [key, fieldJson(SETTINGS_SERVER_LIMITS[key].schema)]),
+  ),
+  additionalProperties: false,
 };
 
 /** The changeable extensions (a locked one, or one with no switch and no settings, cannot be changed by anyone). */

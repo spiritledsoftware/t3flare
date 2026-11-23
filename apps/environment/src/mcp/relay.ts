@@ -76,7 +76,10 @@ export interface RelayDeps {
    * (`ownerAnswerMsNow`).
    */
   readonly answerMs?: () => number;
-  /** How many asked changes a thread may have open at once (SPI-1322, `openPerThread`), as stored now. Default: 1. */
+  /**
+   * How many asked changes a thread may have open at once (SPI-1322, `openPerThread`), as stored now. Default: the
+   * registry's default (`settingsInstructions`).
+   */
   readonly openPerThread?: () => number;
   readonly log: (event: Record<string, unknown>) => void;
 }

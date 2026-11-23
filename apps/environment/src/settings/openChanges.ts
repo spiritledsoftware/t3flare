@@ -23,7 +23,6 @@ import {
   type ClosedBy,
   closedLine,
   durationText,
-  DEFAULT_LIMITS,
   isOpen,
   OPENED_WINDOW_MS,
   scrubUrls,
@@ -32,20 +31,6 @@ import {
   waitOf,
 } from "./changes.ts";
 import { REQUEST_BUDGET_MS } from "../skills/api.ts";
-
-/**
- * Open changes per own-agent thread (plan D16): one past it is refused, not queued. The default of `openPerThread`
- * (SPI-1322).
- */
-export const OPEN_PER_THREAD = DEFAULT_LIMITS.openPerThread;
-/** Open changes per Owner `sub`: the default of `openPerOwner`. */
-export const OPEN_PER_OWNER = DEFAULT_LIMITS.openPerOwner;
-/** Open changes across the Environment: a storage bound, fixed (the registry's `OPEN_ACROSS`). */
-export { OPEN_ACROSS };
-/**
- * The same change (by hash) after a decline, per caller, is refused this long: the default of `declinedRepeatMinutes`.
- */
-export const DECLINED_REPEAT_MS = DEFAULT_LIMITS.declinedRepeatMinutes * 60_000;
 
 /** A closed change's outcome, as a held call and an answerer read it. Never an authorization URL. */
 export interface ChangeOutcome {

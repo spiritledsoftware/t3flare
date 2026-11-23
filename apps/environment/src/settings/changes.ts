@@ -5,14 +5,14 @@
 //
 // Kept in storage, not memory: the Environment resets after about 60 s idle (ADR-0003), which can fall between the ask
 // and the owner's click. Rows expire and are pruned lazily, on every read and write of the table: an open row past its
-// `expiresAt` closes as `expired`, and a closed row goes `keptMs` after it closed (the longest a cap looks back:
-// a run of strikes and the lock after its last, or the declined repeat, at the Settings server's limits now). No alarm is added (ADR-0003: one alarm).
+// `expiresAt` closes as `expired`, and a closed row goes `keptMs` after it closed: the longest a cap looks back, at the
+// Settings server's limits now (a run of strikes and the lock after its last, or the declined repeat), and an hour at
+// least, the hourly caps' window. No alarm is added (ADR-0003: one alarm).
 import type { SqlStorage } from "@cloudflare/workers-types/index.ts";
 import {
   DEFAULT_OWNER_ANSWER_MS,
-  EMPTY_HARNESS,
+  DEFAULT_SETTINGS_SERVER_LIMITS,
   type SettingsServerLimits,
-  settingsServerLimitsOf,
   withoutQuery,
 } from "@t3flare/harness-registry";
 import { sha256Hex } from "@t3flare/skills";
@@ -23,18 +23,6 @@ import type { ChangeEntity, ChangeView, PageReason } from "./types.ts";
 
 export const CHANGES_TABLE = "t3flare_settings_changes";
 
-/**
- * The Settings server's limits at their defaults (SPI-1322): what a table or a check without the stored ones judges by.
- * The limits themselves are its entry's settings (`SETTINGS_SERVER_LIMITS`), read at each request.
- */
-export const DEFAULT_LIMITS: SettingsServerLimits = settingsServerLimitsOf(EMPTY_HARNESS);
-
-/** The default run of strikes (`strikes`): this many in a row declined (or, for own agents, unanswered). */
-export const STRIKES = DEFAULT_LIMITS.strikes;
-/** The default strike window (`strikeWindowMinutes`): the least a run's strikes may span (plan D16). */
-export const STRIKE_WINDOW_MS = DEFAULT_LIMITS.strikeWindowMinutes * 60_000;
-/** The default strike lock (`strikeLockMinutes`): how long a run refuses asked changes after its last strike. */
-export const STRIKE_LOCK_MS = DEFAULT_LIMITS.strikeLockMinutes * 60_000;
 /** What a strike run's window has over its expiries' spacing: room for each next ask after an expiry. */
 const STRIKE_RUN_SLACK_MS = 5 * 60_000;
 /**
@@ -49,8 +37,10 @@ const KEPT_FLOOR_MS = 60 * 60_000;
  * least a wait apart, so a run of expiries spans `strikes - 1` waits; a fixed window would never see one past a
  * 30-minute wait.
  */
-export const strikeWindowMs = (answerMs: number, limits: SettingsServerLimits = DEFAULT_LIMITS): number =>
-  Math.max(limits.strikeWindowMinutes * 60_000, (limits.strikes - 1) * answerMs + STRIKE_RUN_SLACK_MS);
+export const strikeWindowMs = (
+  answerMs: number,
+  limits: SettingsServerLimits = DEFAULT_SETTINGS_SERVER_LIMITS,
+): number => Math.max(limits.strikeWindowMinutes * 60_000, (limits.strikes - 1) * answerMs + STRIKE_RUN_SLACK_MS);
 
 /**
  * How long a closed row is kept: the longest a check looks back (SPI-1322 review), for the longest Answer wait
@@ -58,7 +48,7 @@ export const strikeWindowMs = (answerMs: number, limits: SettingsServerLimits = 
  * hour, whichever is longest. Two hours at the defaults. A limit lowered prunes sooner, and what was pruned is not
  * recovered when it is raised again.
  */
-export const closedKeptMs = (answerMs: number, limits: SettingsServerLimits = DEFAULT_LIMITS): number =>
+export const closedKeptMs = (answerMs: number, limits: SettingsServerLimits = DEFAULT_SETTINGS_SERVER_LIMITS): number =>
   Math.max(
     KEPT_FLOOR_MS,
     strikeWindowMs(answerMs, limits) + limits.strikeLockMinutes * 60_000,
@@ -79,30 +69,21 @@ export const durationText = (ms: number): string => {
 /** An apply that never closed (the Environment reset while it ran) is closed as failed this long after its expiry. */
 export const APPLYING_GRACE_MS = 5 * 60_000;
 
-/** Applied changes of any tier, per caller, per hour (plan D16): the default of `appliedPerHour`. */
-export const APPLIED_CAP = DEFAULT_LIMITS.appliedPerHour;
-/** Fixed: the hour the per-hour limits name. */
+/** Fixed: the hour `appliedPerHour` names (applied changes of any tier, per caller, plan D16). */
 export const APPLIED_WINDOW_MS = 60 * 60_000;
 
 /**
- * Asked changes opened per caller per hour, whatever their outcome (SPI-1195 review): a withdrawn change (a Stop, a
- * cancelled card, a cut stream) neither strikes nor counts as applied, so without this an agent could ask without end.
+ * Fixed: the hour `askedPerHour` names. Asked changes opened count whatever their outcome (SPI-1195 review): a
+ * withdrawn change (a Stop, a cancelled card, a cut stream) neither strikes nor counts as applied, so without this an
+ * agent could ask without end.
  */
-export const OPENED_CAP = DEFAULT_LIMITS.askedPerHour;
-/** Fixed: the hour `askedPerHour` names. */
 export const OPENED_WINDOW_MS = 60 * 60_000;
 
 /**
- * Reads of any kind, per caller (`capKeyOf`), per hour (SPI-1198 review: reads are bounded as changes are, D16-style):
- * the default of `readsPerHour`.
+ * Fixed: the hour the read limits name (SPI-1198 review: reads are bounded as changes are, D16-style). `readsPerHour`
+ * counts reads of any kind per caller (`capKeyOf`); `networkReadsPerHour` those that reach GitHub or an MCP server,
+ * which spend a token's or a server's limits.
  */
-export const READ_CAP = DEFAULT_LIMITS.readsPerHour;
-/**
- * Reads that reach GitHub or an MCP server, per caller, per hour: they spend a token's or a server's limits. The default
- * of `networkReadsPerHour`.
- */
-export const NETWORK_READ_CAP = DEFAULT_LIMITS.networkReadsPerHour;
-/** Fixed: the hour the read limits name. */
 export const READ_WINDOW_MS = 60 * 60_000;
 /** The Settings server's reads that reach GitHub or an MCP server. */
 export const NETWORK_READS: ReadonlySet<string> = new Set(["test_mcp_server", "preview_skills", "check_skill_updates"]);
@@ -278,7 +259,7 @@ export const settingsChanges = (
   now: () => number = Date.now,
   log?: (event: Record<string, unknown>) => void,
   answerMs: () => number = () => DEFAULT_OWNER_ANSWER_MS,
-  limits: () => SettingsServerLimits = () => DEFAULT_LIMITS,
+  limits: () => SettingsServerLimits = () => DEFAULT_SETTINGS_SERVER_LIMITS,
 ): SettingsChanges => {
   let ready = false;
   const write = (record: ChangeRecord) =>

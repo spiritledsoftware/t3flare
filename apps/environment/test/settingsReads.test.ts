@@ -3,14 +3,22 @@
 // tightly; `preview_skills` (it mints a GitHub App token) is for a caller that may write; and only what describes the MCP
 // server set is scrubbed of URL queries, so Variables, the Global mise config and a SKILL.md read as they are and a
 // read-then-write round-trips unchanged.
-import { applyMcpChange, EMPTY_HARNESS, type StoredHarness } from "@t3flare/harness-registry";
+import {
+  applyMcpChange,
+  EMPTY_HARNESS,
+  type StoredHarness,
+  DEFAULT_SETTINGS_SERVER_LIMITS,
+} from "@t3flare/harness-registry";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { DURABLE_AGENT, forgetDurableModes, noteDurableModes } from "../src/provider/threadCaller.ts";
-import { NETWORK_READ_CAP, READ_CAP } from "../src/settings/changes.ts";
 import { LINKED_REFUSAL, NO_MODES_REFUSAL, UNKNOWN_REFUSAL } from "../src/settings/server.ts";
 import { settingsFixture, type SettingsFixture, structured, textOf } from "./settingsFixture.ts";
 import { skillMd } from "./skillRepo.fixture.ts";
+
+// The Settings server's limits at their defaults (SPI-1322: they are its entry's settings).
+const NETWORK_READ_CAP = DEFAULT_SETTINGS_SERVER_LIMITS.networkReadsPerHour;
+const READ_CAP = DEFAULT_SETTINGS_SERVER_LIMITS.readsPerHour;
 
 let fixture: SettingsFixture | undefined;
 afterEach(() => fixture?.dispose());

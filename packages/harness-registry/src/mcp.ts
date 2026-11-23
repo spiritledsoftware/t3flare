@@ -149,6 +149,14 @@ export const OPEN_ACROSS = 16;
 
 /** The most a per-hour cap may be set to: a sanity bound (ADR-0048 §1). */
 const MAX_PER_HOUR = 100_000;
+/** The most strikes a run may need: a sanity bound (ADR-0048 §1), far past any run an Owner would wait for. */
+const MAX_STRIKES = 1000;
+/**
+ * The most minutes a strike window, lock or declined repeat may span: a sanity bound (ADR-0048 §1). These are look-back
+ * windows over kept rows, not timers t3flare runs, so ADR-0048 §2's timer limit does not bind them; the shared week is
+ * borrowed only as a familiar bound.
+ */
+const MAX_LOOKBACK_MINUTES = MAX_TIMED_MINUTES;
 
 const perHour = (title: string, description: string, fallback: number) =>
   ({
@@ -168,25 +176,25 @@ export const SETTINGS_SERVER_LIMITS = {
     title: "Strikes",
     description:
       "This many asked changes in a row that you decline (or, from an agent's thread, leave unanswered) lock the caller out of asking for the Strike lock.",
-    schema: { type: "integer", minimum: 1, maximum: 1000, default: 3 },
+    schema: { type: "integer", minimum: 1, maximum: MAX_STRIKES, default: 3 },
   },
   strikeWindowMinutes: {
     title: "Strike window (minutes)",
     description:
       "The strikes count as a run when they fall within this long of each other, or within the Answer wait of each other's when that is longer.",
-    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: 60 },
+    schema: { type: "integer", minimum: 1, maximum: MAX_LOOKBACK_MINUTES, default: 60 },
   },
   strikeLockMinutes: {
     title: "Strike lock (minutes)",
     description:
       "How long a run of strikes refuses the caller's asked changes, from the last of them. 0 turns the lock off.",
-    schema: { type: "integer", minimum: 0, maximum: MAX_TIMED_MINUTES, default: 60 },
+    schema: { type: "integer", minimum: 0, maximum: MAX_LOOKBACK_MINUTES, default: 60 },
   },
   declinedRepeatMinutes: {
     title: "Declined repeat (minutes)",
     description:
       "How long the same change, once you decline it, is refused when the same caller asks it again. 0 allows it at once.",
-    schema: { type: "integer", minimum: 0, maximum: MAX_TIMED_MINUTES, default: 10 },
+    schema: { type: "integer", minimum: 0, maximum: MAX_LOOKBACK_MINUTES, default: 10 },
   },
   appliedPerHour: perHour(
     "Changes an hour",

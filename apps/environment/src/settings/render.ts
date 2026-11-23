@@ -19,11 +19,11 @@ import {
   isRecord,
   isSealedValue,
   mcpServersOf,
+  movedLimits,
   ownEntry,
   resolveEnvironment,
   resolveHarness,
   settingOf,
-  settingsServerLimitsOf,
   type StoredEnvironment,
   type StoredHarness,
   type Variable,
@@ -303,12 +303,9 @@ export const mcpItems = (
       }
       // The Settings server's limits (SPI-1322): one item per limit the change moves, against its value now.
       if (change.limits !== undefined && current.kind === "settings") {
-        const limits: Readonly<Record<string, unknown>> = settingsServerLimitsOf(stored);
-        for (const [key, after] of Object.entries(change.limits)) {
-          const before = ownEntry(limits, key);
-          if (before === after) continue;
-          items.push({ kind: "scalar", name: `${change.server}.limits.${key}`, before, after });
-        }
+        for (const { key, before, after } of movedLimits(stored, change.limits))
+          if (before !== undefined)
+            items.push({ kind: "scalar", name: `${change.server}.limits.${key}`, before, after });
       }
       if (change.exposure !== undefined && change.exposure !== current.exposure)
         items.push({
