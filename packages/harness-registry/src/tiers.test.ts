@@ -137,6 +137,9 @@ const ENVIRONMENT: Readonly<
   // SPI-1323: a shorter history deletes records and sessions, so it is asked; a longer one is free.
   usageRetentionDays: { up: [92, 365, "free"], down: [92, 30, "asked"] },
   piSessionRetentionDays: { up: [60, 365, "free"], down: [60, 30, "asked"] },
+  // SPI-1359: a longer MCP call or a larger result is asked; a shorter or smaller one is free.
+  mcpCallSeconds: { up: [270, 600, "asked"], down: [270, 60, "free"] },
+  mcpResultKiB: { up: [1024, 4096, "asked"], down: [1024, 256, "free"] },
   // ADR-0047 §9 (SPI-1332): a lowered time limit is free; the script, the Builder's size, its budget and the schedule asked.
   imageSetup: { up: ["", "apt-get install -y jq\n", "asked"], down: ["apt-get install -y jq\n", "", "asked"] },
   imageSetupMinutes: { up: [30, 60, "asked"], down: [30, 10, "free"] },

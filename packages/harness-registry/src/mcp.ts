@@ -239,12 +239,13 @@ export const MAX_SCHEMA_BYTES = 256 * 1024;
 export const MCP_RELAY_PREFIX = "/t3flare/mcp/";
 
 /**
- * A CLI process's MCP tool timeout in seconds (review M11, SPI-1316), from the Answer wait it is spawned with: a
- * relayed call can wait on an approval card and then on an in-call question, each up to the wait, while the call's own
- * clock is paused (`packages/mcp/src/connection.ts`), plus 270 s for the call itself (`CALL_TIMEOUT_MS`) and a 30 s
- * margin. At the default 10-minute wait this is 1,500 s.
+ * A CLI process's MCP tool timeout in seconds (review M11, SPI-1316), from the Answer wait and the MCP call time limit
+ * (`mcpCallSeconds`, SPI-1359) it is spawned with: a relayed call can wait on an approval card and then on an in-call
+ * question, each up to the wait, while the call's own clock is paused (`packages/mcp/src/connection.ts`), plus the call
+ * itself and a 30 s margin. At the default 10-minute wait and 270 s limit this is 1,500 s.
  */
-export const cliToolTimeoutSec = (answerMs: number): number => 2 * Math.ceil(answerMs / 1000) + 300;
+export const cliToolTimeoutSec = (answerMs: number, callMs: number): number =>
+  2 * Math.ceil(answerMs / 1000) + Math.ceil(callMs / 1000) + 30;
 
 /** The variable a CLI process reads its tool handle from (Codex's `bearer_token_env_var`). */
 export const TOOL_HANDLE_ENV = "T3FLARE_TOOL_HANDLE";

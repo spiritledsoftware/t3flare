@@ -277,6 +277,34 @@ export const MAX_RETENTION_DAYS = MAX_GRACE_DAYS;
  */
 export const RETENTION_SETTING_KEYS = ["usageRetentionDays", "piSessionRetentionDays"] as const;
 
+/**
+ * The MCP call time limit's default, in seconds (`mcpCallSeconds`, SPI-1359): how long the MCP host lets one tool call
+ * run. 270: a little past Commissary's own upstream timeout (240 s), so a call through Commissary is ended by
+ * Commissary, which says why, not by t3flare. Any other server's length is the Owner's taste.
+ */
+export const DEFAULT_MCP_CALL_SECONDS = 270;
+
+/** The MCP call time limit's default in ms: used where no setting reaches (a test's host, a call that carries none). */
+export const DEFAULT_MCP_CALL_MS = DEFAULT_MCP_CALL_SECONDS * 1000;
+
+/** The MCP result size's default, in KiB (`mcpResultKiB`, SPI-1359): today's 1 MiB. */
+export const DEFAULT_MCP_RESULT_KIB = 1024;
+
+/**
+ * The most KiB of one MCP tool result (`mcpResultKiB`). A named constraint: the Environment DO's 128 MB isolate, which
+ * also runs t3's server. The MCP host holds a result whole while it reads it, as bytes, as decoded text and as parsed
+ * JSON at once (`readStream`, apps/environment/src/mcp/host.ts), so a result takes about three times its size; 16 MiB
+ * of result is about 48 MB of it, leaving t3 the rest.
+ */
+export const MAX_MCP_RESULT_KIB = 16 * 1024;
+
+/**
+ * The MCP calls' settings (SPI-1359): how long one tool call may run and how large its result may be. They bound every
+ * agent's MCP calls through the MCP host, Pi Durable's and the CLI relay's, at the next call, never a Container start, so
+ * the Settings page shows them in an MCP calls row of their own, in this order.
+ */
+export const MCP_CALL_SETTING_KEYS = ["mcpCallSeconds", "mcpResultKiB"] as const;
+
 /** A Container's resources, as `ctx.container.start({ instance })` takes a custom size. */
 export interface ContainerResources {
   readonly vcpu: number;
@@ -644,6 +672,23 @@ export const ENVIRONMENT_SETTINGS = {
       "How many days t3flare keeps a Pi session no one has written to. An older one is deleted at the next Pi start; t3 can no longer resume that thread's Pi conversation. At most 3650 (ten years), which keeps them for good. Applies at each Pi start.",
     schema: { type: "integer", minimum: 1, maximum: MAX_RETENTION_DAYS, default: DEFAULT_PI_SESSION_RETENTION_DAYS },
     tier: "up-free",
+  },
+  mcpCallSeconds: {
+    title: "MCP call time limit (seconds)",
+    description:
+      "How long one MCP tool call may run before t3flare ends it and the agent is told it failed; it may have run on the server. Time spent waiting for your answer to the server's question does not count. A CLI agent's own tool timeout grows with it. Applies at the next call; a CLI agent's timeout at its next start.",
+    // The MCP engine times the call with its own timer (packages/mcp/src/connection.ts), no platform limit: the shared
+    // sanity maximum applies (ADR-0048 §2).
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES * 60, default: DEFAULT_MCP_CALL_SECONDS },
+    tier: "down-free",
+  },
+  mcpResultKiB: {
+    title: "MCP result size (KiB)",
+    description:
+      "The most of one MCP tool result t3flare takes, in KiB of UTF-8. A larger streamed result is refused whole, since it cannot be read in part; a larger inline one has its text cut to this, and its structured content dropped. The Environment holds a result whole while it reads it, beside t3, so a larger size uses more of its memory. At most 16384 (16 MiB). Applies at the next call.",
+    // A named constraint (`MAX_MCP_RESULT_KIB`): the Environment DO's isolate memory.
+    schema: { type: "integer", minimum: 1, maximum: MAX_MCP_RESULT_KIB, default: DEFAULT_MCP_RESULT_KIB },
+    tier: "down-free",
   },
 } as const satisfies Readonly<Record<string, EnvironmentSettingEntry>>;
 

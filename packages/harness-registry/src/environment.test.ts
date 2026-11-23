@@ -26,6 +26,9 @@ import {
   MAX_TIMED_MINUTES,
   resolveEnvironment,
   RETENTION_SETTING_KEYS,
+  MCP_CALL_SETTING_KEYS,
+  MAX_MCP_RESULT_KIB,
+  DEFAULT_MCP_CALL_MS,
   SWEEP_SETTING_KEYS,
 } from "./environment.ts";
 import type { EnvironmentSettingEntry } from "./fields.ts";
@@ -62,6 +65,8 @@ const TUNABLE_DEFAULTS = {
   checkpointMinutes: 10,
   usageRetentionDays: 92,
   piSessionRetentionDays: 60,
+  mcpCallSeconds: 270,
+  mcpResultKiB: 1024,
 } as const;
 
 describe("resolveEnvironment", () => {
@@ -591,11 +596,36 @@ describe("the Answer wait (SPI-1316)", () => {
     expect(ENVIRONMENT_SETTINGS.ownerAnswerMinutes.description).toContain("a card already waiting keeps its deadline");
   });
 
-  it("sets a CLI process's MCP tool timeout: two waits plus 300 s (cliToolTimeoutSec)", () => {
-    expect(cliToolTimeoutSec(DEFAULT_OWNER_ANSWER_MS)).toBe(1500);
-    expect(cliToolTimeoutSec(30 * 60_000)).toBe(3900);
-    expect(cliToolTimeoutSec(60_000)).toBe(420);
-    expect(cliToolTimeoutSec(1500)).toBe(304);
+  it("sets a CLI process's MCP tool timeout: two waits, the MCP call time limit and 30 s (cliToolTimeoutSec)", () => {
+    expect(cliToolTimeoutSec(DEFAULT_OWNER_ANSWER_MS, DEFAULT_MCP_CALL_MS)).toBe(1500);
+    expect(cliToolTimeoutSec(30 * 60_000, DEFAULT_MCP_CALL_MS)).toBe(3900);
+    expect(cliToolTimeoutSec(60_000, DEFAULT_MCP_CALL_MS)).toBe(420);
+    expect(cliToolTimeoutSec(1500, DEFAULT_MCP_CALL_MS)).toBe(304);
+    // A longer call time limit lengthens the CLI's own timeout with it (SPI-1359).
+    expect(cliToolTimeoutSec(DEFAULT_OWNER_ANSWER_MS, 3600_000)).toBe(1200 + 3600 + 30);
+  });
+});
+
+describe("the MCP calls' time limit and result size (SPI-1359)", () => {
+  const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
+
+  it("are 270 seconds and 1024 KiB by default: the time limit 1 s to a week (ADR-0048 §2), the size 1 to 16384 KiB", () => {
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({ mcpCallSeconds: 270, mcpResultKiB: 1024 });
+    expect(DEFAULT_MCP_CALL_MS).toBe(270_000);
+    for (const seconds of [1, 270, MAX_TIMED_MINUTES * 60])
+      expect(set({ mcpCallSeconds: seconds })).toMatchObject({ ok: true });
+    for (const seconds of [0, MAX_TIMED_MINUTES * 60 + 1, 2.5, "270"])
+      expect(set({ mcpCallSeconds: seconds })).toMatchObject({ ok: false });
+    for (const kib of [1, 1024, MAX_MCP_RESULT_KIB]) expect(set({ mcpResultKiB: kib })).toMatchObject({ ok: true });
+    for (const kib of [0, MAX_MCP_RESULT_KIB + 1, 1.5]) expect(set({ mcpResultKiB: kib })).toMatchObject({ ok: false });
+    expect(MAX_MCP_RESULT_KIB).toBe(16 * 1024);
+  });
+
+  it("are down-free, in an MCP calls row of their own, and each states its consequence", () => {
+    expect(MCP_CALL_SETTING_KEYS).toEqual(["mcpCallSeconds", "mcpResultKiB"]);
+    for (const key of MCP_CALL_SETTING_KEYS) expect(ENVIRONMENT_SETTINGS[key]).toMatchObject({ tier: "down-free" });
+    expect(ENVIRONMENT_SETTINGS.mcpCallSeconds.description).toContain("it may have run on the server");
+    expect(ENVIRONMENT_SETTINGS.mcpResultKiB.description).toContain("memory");
   });
 });
 

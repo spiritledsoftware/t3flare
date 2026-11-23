@@ -257,6 +257,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       checkpointMs: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).checkpointMinutes * 60_000,
       // Read when a card is raised and at each CLI spawn (SPI-1316): a card already waiting keeps its deadline.
       ownerAnswerMs: () => ownerAnswerMsOf(resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment())),
+      // Read at each CLI spawn (SPI-1359): the CLI's tool timeout covers the MCP call time limit as stored then.
+      mcpCallMs: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).mcpCallSeconds * 1000,
       // The deletion wake's Layer (`t3/deletionWake.ts`, ADR-0043 §5) asks for a Sweep here.
       wakeSweep: () => this.wakeSweep(),
       marks: { has: (key) => ctx.storage.kv.get(key) !== undefined, set: (key) => ctx.storage.kv.put(key, Date.now()) },
@@ -791,6 +793,9 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       background: (work) => this.ctx.waitUntil(work),
       ownHost: () => this.env.T3FLARE_HOST ?? this.#host,
       settingsServer: (input) => this.#settingsCall(input),
+      // Read at each call (SPI-1359): a change applies at the next call.
+      callTimeoutMs: () => resolveEnvironment(harnessStore(this.ctx.storage.kv).loadEnvironment()).mcpCallSeconds * 1000,
+      resultBytes: () => resolveEnvironment(harnessStore(this.ctx.storage.kv).loadEnvironment()).mcpResultKiB * 1024,
     });
     return this.#mcpHost;
   }
