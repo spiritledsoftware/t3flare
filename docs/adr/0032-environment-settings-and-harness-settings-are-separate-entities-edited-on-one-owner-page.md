@@ -326,3 +326,23 @@ hour would never see a run past a 30-minute wait. A run's window is `max(STRIKE_
 min)` (`strikeWindowMs`), the hour at the default, where the wait is the longest its own changes took (`expiresAt -
 createdAt`), not the setting's: a CLI agent's changes take its spawn-time wait. A closed row is kept that window plus
 the lock (`closedKeptMs`) for the longest wait still kept, the setting's or a kept change's, so a run's rows outlast it.
+
+## Refinement (SPI-1317, 2026-11-23): the Terminals' holds and counts
+
+ADR-0021's fixed Terminal holds and Terminal caps are the Owner's. `terminalBusyHoldMinutes` (30 by default) and
+`terminalPromptHoldMinutes` (10) take 1 to `MAX_TIMED_MINUTES`: t3flare's own alarm releases the Container, so ADR-0048
+§2's sanity maximum applies. `terminalsPerWorkspace` (t3's Terminals) and `agentTerminalsPerWorkspace` (Pi Durable
+agents' running Terminals and Background jobs) stay two caps, 8 each by default, as the two hosts had: one key would
+change the total and mix the Owner's panels with an agent's jobs. They take 1 to 32, a named constraint and a
+provisional figure: each Terminal's handle, and an agent's Terminal's headless xterm, lives in the Workspace DO's
+128 MB isolate, and SPI-978's measurement of that memory sets the figure. An agent's exited Terminals keep their xterm
+outside the live count, bounded by `MAX_KEPT` (32) per Session. All four are `down-free` and show in the Containers row,
+the holds after the idle time and the counts after the budget; each states its consequence once ("Open Terminals keep
+the Container running, and billed, for this long after their last input"; "Each Terminal and Background job uses memory
+in the Container").
+
+All four ride the launch (`ContainerLaunch`, as `idleMs` and `terminalsReadBashrc` do), so they apply at each
+Workspace's next Container start and a running Container keeps what it started with; a launch recorded before them
+reads as the defaults (`terminalLimitsOf`). Lowering a count closes no open Terminal; the next open or start is refused,
+naming the setting. The stage checks' `T3FLARE_TERMINAL_IDLE_MS` and `T3FLARE_TERMINAL_PROMPT_IDLE_MS` still win over
+the launch's holds (`terminalHoldOf`), and a Container preview's hold follows the busy hold.

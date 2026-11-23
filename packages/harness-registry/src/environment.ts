@@ -104,6 +104,30 @@ export const DEFAULT_OWNER_ANSWER_MS = DEFAULT_OWNER_ANSWER_MINUTES * 60_000;
 export const ownerAnswerMsOf = (environment: { readonly ownerAnswerMinutes: number }): number =>
   environment.ownerAnswerMinutes * 60_000;
 
+/**
+ * The Terminal holds' defaults, in minutes (`terminalBusyHoldMinutes`, `terminalPromptHoldMinutes`; SPI-1317): while a
+ * Terminal runs a foreground command, open Terminals hold the Container until their last input is the busy hold old
+ * (step 2b, ADR-0021; review F10: output does not count); while every one sits at its prompt, the prompt hold (cost
+ * audit F1). The busy hold also caps a Container preview's hold (the Workspace DO's `#someoneWorks`).
+ */
+export const DEFAULT_TERMINAL_BUSY_HOLD_MINUTES = 30;
+export const DEFAULT_TERMINAL_PROMPT_HOLD_MINUTES = 10;
+
+/**
+ * The Terminals per Workspace by default, t3's (`terminalsPerWorkspace`) and Durable agents' running Terminals and
+ * Background jobs (`agentTerminalsPerWorkspace`), each its own cap (ADR-0021's 8; SPI-1317).
+ */
+export const DEFAULT_TERMINALS_PER_WORKSPACE = 8;
+
+/**
+ * The most Terminals of either count per Workspace. A named constraint, provisional: the Workspace DO's memory. Each
+ * open Terminal's handle, and an agent's Terminal's headless xterm (1,000 lines of scrollback), lives in the Workspace
+ * DO's 128 MB isolate, which holds its files' sync too; 32 is a guess at what fits, and SPI-978's measurement of the
+ * DO's memory sets the figure. Exited agent Terminals keep their xterm outside the live count, bounded on their own by
+ * `MAX_KEPT` per Session (apps/agents/src/workspace/agentTerminals.ts).
+ */
+export const MAX_TERMINALS_PER_WORKSPACE = 32;
+
 /** The largest Global mise config, in bytes of UTF-8. */
 export const MAX_GLOBAL_MISE_BYTES = 16 * 1024;
 
@@ -271,11 +295,59 @@ export const ENVIRONMENT_SETTINGS = {
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: 2 },
     tier: "down-free",
   },
+  terminalBusyHoldMinutes: {
+    title: "Terminal hold while a command runs (minutes)",
+    description:
+      "While a Terminal runs a command, open Terminals keep the Container running, and billed, for this long after their last input; output does not count. A Container preview keeps it running only while a command runs or a CLI agent is in a turn, and for this long after the last command, CLI agent's turn, or input to a Terminal or CLI agent. Applies at each Workspace's next Container start.",
+    // t3flare's own alarm releases the Container (WorkspaceDO `#scheduleAlarm`), so the shared sanity maximum applies
+    // (ADR-0048 §2).
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_TERMINAL_BUSY_HOLD_MINUTES },
+    tier: "down-free",
+  },
+  terminalPromptHoldMinutes: {
+    title: "Terminal hold at the prompt (minutes)",
+    description:
+      "While every open Terminal sits at its prompt, they keep the Container running, and billed, for this long after their last input. Applies at each Workspace's next Container start.",
+    // As the busy hold: t3flare's own alarm, the shared sanity maximum (ADR-0048 §2).
+    schema: {
+      type: "integer",
+      minimum: 1,
+      maximum: MAX_TIMED_MINUTES,
+      default: DEFAULT_TERMINAL_PROMPT_HOLD_MINUTES,
+    },
+    tier: "down-free",
+  },
   containerBudget: {
     title: "Container budget",
     description:
       "How many Containers may run at once across the Environment. Applies at the next start; lowering it stops no running Container, and new starts wait until fewer run.",
     schema: { type: "integer", minimum: 1, maximum: MAX_CONTAINER_BUDGET, default: DEFAULT_CONTAINER_BUDGET },
+    tier: "down-free",
+  },
+  terminalsPerWorkspace: {
+    title: "Terminals per Workspace",
+    description:
+      "How many of your Terminals one Workspace may have open at once; one more is refused. Each Terminal and Background job uses memory in the Container. Applies at each Workspace's next Container start; lowering it closes no open Terminal.",
+    // A named constraint, provisional (`MAX_TERMINALS_PER_WORKSPACE`): the Workspace DO's memory.
+    schema: {
+      type: "integer",
+      minimum: 1,
+      maximum: MAX_TERMINALS_PER_WORKSPACE,
+      default: DEFAULT_TERMINALS_PER_WORKSPACE,
+    },
+    tier: "down-free",
+  },
+  agentTerminalsPerWorkspace: {
+    title: "Agents' Terminals per Workspace",
+    description:
+      "How many Terminals and Background jobs Pi Durable agents may run at once in one Workspace, across its threads; one more is refused. Each Terminal and Background job uses memory in the Container. Applies at each Workspace's next Container start; lowering it stops none that run.",
+    // A named constraint, provisional (`MAX_TERMINALS_PER_WORKSPACE`): the Workspace DO's memory.
+    schema: {
+      type: "integer",
+      minimum: 1,
+      maximum: MAX_TERMINALS_PER_WORKSPACE,
+      default: DEFAULT_TERMINALS_PER_WORKSPACE,
+    },
     tier: "down-free",
   },
   cliProcessesPerWorkspace: {

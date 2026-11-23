@@ -93,6 +93,9 @@ import {
   shownLaunch,
   takeEnvironment,
   type TakenEnvironment,
+  type TerminalLimits,
+  terminalHoldOf,
+  terminalLimitsOf,
   withContainerSteps,
 } from "./containerLaunch.ts";
 import { ContainerSetup, type ContainerSetupState } from "./containerSetup.ts";
@@ -165,8 +168,6 @@ import {
 import {
   CONTAINER_BACKEND,
   CONTAINER_IGNORE,
-  TERMINAL_IDLE_MS,
-  TERMINAL_PROMPT_IDLE_MS,
   WORKER_SHELL_BACKEND,
   WORKSPACE_BINDING,
   WORKSPACE_CONTAINER,
@@ -183,9 +184,9 @@ export interface WorkspaceEnv {
   readonly T3FLARE_GIT_NAME?: string;
   readonly T3FLARE_GIT_EMAIL?: string;
   readonly CONTAINER_BUDGET: DurableObjectNamespace<ContainerBudget>;
-  /** Overrides TERMINAL_PROMPT_IDLE_MS (the stage's idle-hold check). */
+  /** Overrides the launch's prompt hold, `terminalPromptHoldMinutes` (the stage's idle-hold check). */
   readonly T3FLARE_TERMINAL_PROMPT_IDLE_MS?: string;
-  /** Overrides TERMINAL_IDLE_MS (the stage's idle-hold check). */
+  /** Overrides the launch's busy hold, `terminalBusyHoldMinutes` (the stage's idle-hold check). */
   readonly T3FLARE_TERMINAL_IDLE_MS?: string;
   /** Test stages only: the stage-only probes and faults answer. */
   readonly T3FLARE_FAULTS?: string;
@@ -642,6 +643,8 @@ export class WorkspaceDO extends ContainerHost {
       baseEnv: terminalEnv,
       // ADR-0047 §9: as the running Container started (its launch), so a change applies at its next start.
       readBashrc: () => ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY)?.terminalsReadBashrc !== false,
+      // SPI-1317: as the running Container started (its launch), so a change applies at its next start.
+      maxTerminals: () => this.#terminalLimits().terminalsPerWorkspace,
       filesMayHaveChanged: (why) => this.#terminalSync.changed(why),
       remember: (markers) => ctx.storage.kv.put(TERMINAL_MARKERS_KEY, [...markers]),
       remembered: () => ctx.storage.kv.get<ReadonlyArray<string>>(TERMINAL_MARKERS_KEY) ?? [],
@@ -651,7 +654,7 @@ export class WorkspaceDO extends ContainerHost {
       },
       projectRootView: PROJECT_ROOT_VIEW,
     });
-    // The agent's Terminals (SPI-1057): the same host and limits, never heartbeaten (they end with the Container or a
+    // The agent's Terminals (SPI-1057): the same host, never heartbeaten; `AgentTerminals` counts them, not the host; (they end with the Container or a
     // stop), their output rendered by `AgentTerminals` instead of pushed to t3's terminal adapter.
     this.#agentHost = new TerminalHost({
       now: () => Date.now(),
@@ -693,6 +696,8 @@ export class WorkspaceDO extends ContainerHost {
       // A command, not an interactive shell: mise through `BASH_ENV`, as the agent's `bash` has it.
       env: COMMAND_ENV.BASH_ENV === undefined ? {} : { BASH_ENV: COMMAND_ENV.BASH_ENV },
       repo: REPO_ROOT,
+      // SPI-1317: as the running Container started (its launch), so a change applies at its next start.
+      maxLive: () => this.#terminalLimits().agentTerminalsPerWorkspace,
     });
     this.#boot = (ctx.storage.kv.get<number>(BOOT_COUNT_KEY) ?? 0) + 1;
     ctx.storage.kv.put(BOOT_COUNT_KEY, this.#boot);
@@ -2531,11 +2536,11 @@ export class WorkspaceDO extends ContainerHost {
   /** Whether t3's or the agent's terminals hold the Container: input within the hold (ADR-0021, review F10). */
   /**
    * G11 (review M5): whether someone works in the Workspace now: a command runs, or a terminal, an agent's Terminal or a
-   * CLI process had input (or a CLI is in a turn) within the cap of a foreground terminal (ADR-0021, 30 minutes). A
-   * Container preview's requests and carried sockets keep the Container only while this holds.
+   * CLI process had input (or a CLI is in a turn) within the cap of a foreground terminal (ADR-0021; the busy hold,
+   * `terminalBusyHoldMinutes`, SPI-1317). A Container preview's requests and carried sockets keep the Container only while this holds.
    */
   #someoneWorks(): boolean {
-    const cap = this.#terminalIdleMs();
+    const cap = this.#terminalHold().busyMs;
     const lastInput = Math.max(
       this.#terminals.lastInput,
       this.#agentHost.lastInput,
@@ -2602,18 +2607,23 @@ export class WorkspaceDO extends ContainerHost {
   }
 
   #terminalsHold(): boolean {
-    const hold = { promptMs: this.#terminalPromptIdleMs(), busyMs: this.#terminalIdleMs() };
+    const hold = this.#terminalHold();
     return this.#terminals.holdsContainer(hold) || this.#agentHost.holdsContainer(hold);
   }
 
-  #terminalIdleMs(): number {
-    const value = Number(this.env.T3FLARE_TERMINAL_IDLE_MS);
-    return Number.isFinite(value) && value > 0 ? value : TERMINAL_IDLE_MS;
+  /** The Terminals' holds and counts the running Container started with (SPI-1317); the defaults before one started. */
+  #terminalLimits(): TerminalLimits {
+    return terminalLimitsOf(this.ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY));
   }
 
-  #terminalPromptIdleMs(): number {
-    const value = Number(this.env.T3FLARE_TERMINAL_PROMPT_IDLE_MS);
-    return Number.isFinite(value) && value > 0 ? value : TERMINAL_PROMPT_IDLE_MS;
+  /** The busy and prompt holds (SPI-1317): the stage's overrides win, else the launch's. */
+  #terminalHold(): { readonly busyMs: number; readonly promptMs: number } {
+    return terminalHoldOf(this.#terminalLimits(), {
+      ...(this.env.T3FLARE_TERMINAL_IDLE_MS === undefined ? {} : { busyMs: this.env.T3FLARE_TERMINAL_IDLE_MS }),
+      ...(this.env.T3FLARE_TERMINAL_PROMPT_IDLE_MS === undefined
+        ? {}
+        : { promptMs: this.env.T3FLARE_TERMINAL_PROMPT_IDLE_MS }),
+    });
   }
 
   #shownLaunch(): ReturnType<typeof shownLaunch> | null {

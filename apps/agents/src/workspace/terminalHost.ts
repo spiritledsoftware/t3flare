@@ -12,6 +12,7 @@
 // - Only input is use (review F10): the Container's terminal hold is measured from the last input. Opening is not input
 //   (cost audit F1): t3 re-attaches every open panel after an Environment restart, so an open must not hold the
 //   Container. A shell at its prompt holds it for less than one running a foreground command.
+import { ENVIRONMENT_SETTINGS } from "@t3flare/harness-registry";
 import { scanMarkers, terminalCommand } from "@t3flare/sandbox-image/terminal";
 import type {
   TerminalAnswer,
@@ -35,8 +36,6 @@ export const ECHO_WINDOW_MS = 1_000;
 export const BACKPRESSURE_BYTES = 1024 * 1024;
 /** Input typed before the first prompt is held at most this long. */
 export const FIRST_PROMPT_WAIT_MS = 20_000;
-/** At most this many terminals per Workspace (the DO's in-memory handles). */
-export const MAX_TERMINALS = 8;
 
 /** The part of the platform's `ExecProcess` used here. */
 export interface ShellProcess {
@@ -83,6 +82,12 @@ export interface TerminalHostDeps {
    * each open. Absent: it does, the setting's default (an agent's Terminal runs a command, not the rc file, either way).
    */
   readonly readBashrc?: () => boolean;
+  /**
+   * The most terminals open at once (the DO's in-memory handles): the running Container's launch's
+   * `terminalsPerWorkspace` (SPI-1317), read at each open; one more is refused, naming that setting. Absent: no cap of
+   * this host's own (the agent's Terminals, which `AgentTerminals` counts against `agentTerminalsPerWorkspace`).
+   */
+  readonly maxTerminals?: () => number;
 }
 
 interface Terminal {
@@ -180,9 +185,14 @@ export class TerminalHost {
       exited: false,
       closing: false,
     };
-    if (this.#terminals.size >= MAX_TERMINALS) {
+    const max = this.#deps.maxTerminals?.();
+    const opened = this.#terminals.size;
+    if (max !== undefined && opened >= max) {
       this.#terminals.set(input.key, terminal);
-      this.#refuse(terminal, `this Workspace already has ${MAX_TERMINALS} open terminals; close one first`);
+      this.#refuse(
+        terminal,
+        `this Workspace already has ${opened} open terminals, and its Environment setting "${ENVIRONMENT_SETTINGS.terminalsPerWorkspace.title}" (terminalsPerWorkspace) allows ${max}; close one first, or raise the setting`,
+      );
       return this.#answer([]);
     }
     this.#terminals.set(input.key, terminal);

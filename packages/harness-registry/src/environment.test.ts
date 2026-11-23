@@ -18,6 +18,7 @@ import {
   MAX_CLI_RECLAIM_SECONDS,
   MAX_CONTAINER_BUDGET,
   MAX_SETUP_BYTES,
+  MAX_TERMINALS_PER_WORKSPACE,
   MAX_TIMED_MINUTES,
   resolveEnvironment,
   SWEEP_SETTING_KEYS,
@@ -48,6 +49,10 @@ const TUNABLE_DEFAULTS = {
   ownerAnswerMinutes: 10,
   globalMiseInstallMinutes: 10,
   settingsReadSeconds: 5,
+  terminalBusyHoldMinutes: 30,
+  terminalPromptHoldMinutes: 10,
+  terminalsPerWorkspace: 8,
+  agentTerminalsPerWorkspace: 8,
 } as const;
 
 describe("resolveEnvironment", () => {
@@ -366,6 +371,68 @@ describe("the CLI agents' processes per Workspace and the reclaim delay (SPI-131
       "ended to free the Container for another Workspace",
     );
     expect(ENVIRONMENT_SETTINGS.cliReclaimSeconds.description).not.toMatch(/reclaim/i);
+  });
+});
+
+describe("the Terminals' holds and counts (SPI-1317)", () => {
+  const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
+  const holds = ["terminalBusyHoldMinutes", "terminalPromptHoldMinutes"] as const;
+  const counts = ["terminalsPerWorkspace", "agentTerminalsPerWorkspace"] as const;
+
+  it("hold 30 and 10 minutes by default, 1 to MAX_TIMED_MINUTES whole minutes (ADR-0048 §2)", () => {
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({
+      terminalBusyHoldMinutes: 30,
+      terminalPromptHoldMinutes: 10,
+    });
+    for (const key of holds) {
+      for (const minutes of [1, 30, MAX_TIMED_MINUTES]) expect(set({ [key]: minutes })).toMatchObject({ ok: true });
+      for (const minutes of [0, MAX_TIMED_MINUTES + 1, 2.5, "30"])
+        expect(set({ [key]: minutes })).toMatchObject({ ok: false });
+    }
+    expect(
+      resolveEnvironment({ revision: 1, settings: { terminalBusyHoldMinutes: 0, terminalPromptHoldMinutes: -1 } }),
+    ).toMatchObject({ terminalBusyHoldMinutes: 30, terminalPromptHoldMinutes: 10 });
+  });
+
+  it("count 8 and 8 by default, 1 to MAX_TERMINALS_PER_WORKSPACE (32, the Workspace DO's memory) whole Terminals", () => {
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({
+      terminalsPerWorkspace: 8,
+      agentTerminalsPerWorkspace: 8,
+    });
+    expect(MAX_TERMINALS_PER_WORKSPACE).toBe(32);
+    for (const key of counts) {
+      for (const count of [1, 8, 32]) expect(set({ [key]: count })).toMatchObject({ ok: true });
+      for (const count of [0, 33, 2.5, "8"]) expect(set({ [key]: count })).toMatchObject({ ok: false });
+    }
+    expect(
+      resolveEnvironment({ revision: 1, settings: { terminalsPerWorkspace: 33, agentTerminalsPerWorkspace: 0 } }),
+    ).toMatchObject({ terminalsPerWorkspace: 8, agentTerminalsPerWorkspace: 8 });
+  });
+
+  it("are down-free, in the Containers row, holds after the idle time and counts after the budget", () => {
+    for (const key of [...holds, ...counts]) {
+      expect(ENVIRONMENT_SETTINGS[key]).toMatchObject({ tier: "down-free" });
+      expect("row" in ENVIRONMENT_SETTINGS[key]).toBe(false);
+      expect(AGENT_SETTING_KEYS as ReadonlyArray<string>).not.toContain(key);
+    }
+    const keys = Object.keys(ENVIRONMENT_SETTINGS);
+    expect(keys.slice(keys.indexOf("containerIdleMinutes"), keys.indexOf("containerIdleMinutes") + 3)).toEqual([
+      "containerIdleMinutes",
+      ...holds,
+    ]);
+    expect(keys.slice(keys.indexOf("containerBudget"), keys.indexOf("containerBudget") + 3)).toEqual([
+      "containerBudget",
+      ...counts,
+    ]);
+  });
+
+  it("state their consequence once in Owner words", () => {
+    for (const key of holds)
+      expect(ENVIRONMENT_SETTINGS[key].description).toContain("keep the Container running, and billed, for this long");
+    for (const key of counts)
+      expect(ENVIRONMENT_SETTINGS[key].description).toContain(
+        "Each Terminal and Background job uses memory in the Container.",
+      );
   });
 });
 

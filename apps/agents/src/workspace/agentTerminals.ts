@@ -10,9 +10,11 @@
 // - termctrl's driver process is the xterm here; its `status`/`screen.capture`/`logs` are `view()`;
 // - the settle wait (`terminal-tools.ts` `settleTerminal`) runs here, in slices, so a wait is a few RPCs, not one per poll;
 // - entries are kept per owner (the Session that started them); ids `t<n>`/`b<n>` count per owner and are never reused;
-// - at most `MAX_LIVE` run at once in a Workspace (ADR-0021's 8, not termctrl's 16); exited ones stay readable until
-//   stopped, as in termctrl, up to `MAX_KEPT` per owner;
+// - at most `maxLive` run at once in a Workspace (the Environment setting `agentTerminalsPerWorkspace`, SPI-1317:
+//   ADR-0021's 8 by default, not termctrl's 16); exited ones stay readable until stopped, as in termctrl, up to
+//   `MAX_KEPT` per owner: they keep their headless xterm outside the live count, bounded by `MAX_KEPT` alone;
 // - they end when the Container stops, as t3's terminals do, and when this object restarts (a deploy).
+import { ENVIRONMENT_SETTINGS } from "@t3flare/harness-registry";
 import { Terminal } from "@xterm/headless/lib-headless/xterm-headless.mjs";
 import type {
   AgentCursor,
@@ -27,9 +29,12 @@ import type {
   TerminalFrame,
 } from "@t3flare/workspace-client";
 
-/** Running Terminals and Background jobs in one Workspace, across its Sessions (ADR-0021's terminal cap). */
-export const MAX_LIVE = 8;
-/** Entries (running or exited) one owner keeps; the oldest exited one is forgotten past it. */
+/**
+ * Entries (running or exited) one owner keeps; the oldest exited one is forgotten past it. Exited entries' xterms are
+ * counted against no setting: this bounds them per owner (a Session), in the Workspace DO's memory, as
+ * `MAX_TERMINALS_PER_WORKSPACE` bounds the live ones. It is at least that maximum, so an owner running every live entry
+ * the setting allows still keeps them all.
+ */
 export const MAX_KEPT = 32;
 /** termctrl's settle constants (`terminal-tools.ts`). */
 export const QUIET_MS = 250;
@@ -92,6 +97,11 @@ export interface AgentTerminalsDeps {
   readonly env: Readonly<Record<string, string>>;
   /** The Workspace's repo in the Container. */
   readonly repo: string;
+  /**
+   * Running Terminals and Background jobs in one Workspace, across its Sessions: the running Container's launch's
+   * `agentTerminalsPerWorkspace` (SPI-1317, ADR-0021's terminal cap), read at each start.
+   */
+  readonly maxLive: () => number;
 }
 
 interface Entry {
@@ -264,10 +274,12 @@ export class AgentTerminals {
   }
 
   async #start(request: Extract<AgentTerminalRequest, { op: "start" }>): Promise<AgentTerminalAnswers["start"]> {
-    if (this.live >= MAX_LIVE) {
+    const live = this.live;
+    const max = this.#deps.maxLive();
+    if (live >= max) {
       const mine = this.#owned(request.owner).filter((entry) => entry.exit === null);
       throw new Error(
-        `This Workspace already runs ${MAX_LIVE} Terminals and Background jobs; stop one first.${mine.length === 0 ? "" : ` Yours: ${mine.map((entry) => `${entry.id} (${entry.command.slice(0, 60)})`).join(", ")}.`}`,
+        `This Workspace already runs ${live} Terminals and Background jobs, and its Environment setting "${ENVIRONMENT_SETTINGS.agentTerminalsPerWorkspace.title}" (agentTerminalsPerWorkspace) allows ${max}; stop one first, or ask the Owner to raise the setting.${mine.length === 0 ? "" : ` Yours: ${mine.map((entry) => `${entry.id} (${entry.command.slice(0, 60)})`).join(", ")}.`}`,
       );
     }
     const prefix = request.kind === "terminal" ? "t" : "b";

@@ -2,14 +2,15 @@
 // Environment's adapter sees pushed, and what reaches the shell and the kill script. Review F1 (markers), F2 (no
 // `ExecProcess.kill`), F10 (only input is use), F11 (the epoch) and D1 (a lapsed heartbeat kills).
 // @effect-diagnostics globalTimers:off
+import { EMPTY_ENVIRONMENT, resolveEnvironment } from "@t3flare/harness-registry";
 import { MARK_BUSY, MARK_PROMPT, scanMarkers } from "@t3flare/sandbox-image/terminal";
 import type { TerminalFrame, TerminalPushAnswer } from "@t3flare/workspace-client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { launchOf, terminalHoldOf, terminalLimitsOf } from "../src/workspace/containerLaunch.ts";
 import { ContainerRefused } from "../src/workspace/containerStep.ts";
 import {
   HEARTBEAT_LAPSE_MS,
-  MAX_TERMINALS,
   type ShellProcess,
   TerminalHost,
   type TerminalHostDeps,
@@ -51,6 +52,7 @@ const harness = (
     answer?: (frames: ReadonlyArray<TerminalFrame>) => TerminalPushAnswer;
     beforeSpawn?: () => Promise<void>;
     readBashrc?: () => boolean;
+    maxTerminals?: () => number;
   } = {},
 ) => {
   let now = 1_000_000;
@@ -88,6 +90,7 @@ const harness = (
     beforeSpawn: options.beforeSpawn ?? (async () => undefined),
     projectRootView: "/workspace/.t3flare/project-root",
     ...(options.readBashrc === undefined ? {} : { readBashrc: options.readBashrc }),
+    ...(options.maxTerminals === undefined ? {} : { maxTerminals: options.maxTerminals }),
   };
   const host = new TerminalHost(deps);
   return {
@@ -218,12 +221,29 @@ describe("TerminalHost", () => {
   });
 
   it("refuses a terminal over the limit and one whose Container cannot start, in the terminal", async () => {
-    const h = harness();
-    for (let i = 0; i < MAX_TERMINALS; i++) await h.host.open(open(`term-${i}`));
+    let max = 2;
+    const h = harness({ maxTerminals: () => max });
+    for (let i = 0; i < 2; i++) await h.host.open(open(`term-${i}`));
     await h.host.open(open("term-extra"));
     await h.host.settled();
-    expect(h.text("term-extra")).toContain(`already has ${MAX_TERMINALS} open terminals`);
+    expect(h.text("term-extra")).toContain(
+      'already has 2 open terminals, and its Environment setting "Terminals per Workspace" (terminalsPerWorkspace) allows 2',
+    );
     expect(h.frames.at(-1)).toMatchObject({ key: "term-extra", exit: { code: 1 } });
+    // SPI-1317: lowering the count closes none already open; the next open is refused against it.
+    max = 1;
+    await h.host.settled();
+    expect(h.host.keys()).toEqual(expect.arrayContaining(["term-0", "term-1"]));
+    expect(h.killed).toEqual([]);
+    await h.host.open(open("term-more"));
+    await h.host.settled();
+    expect(h.text("term-more")).toContain("allows 1");
+
+    // No cap of the host's own (the agent's host): past the default 8, every one opens.
+    const uncapped = harness();
+    for (let i = 0; i < 9; i++) await uncapped.host.open(open(`term-${i}`));
+    await uncapped.host.settled();
+    expect(uncapped.text("term-8")).not.toContain("already has");
 
     const refused = harness({ running: false, refuse: "the Container cannot start: 3 Containers are running" });
     await refused.host.open(open("term-a1"));
@@ -262,7 +282,8 @@ describe("TerminalHost", () => {
   });
 
   describe("the Container hold (cost audit F1): an idle prompt holds less than a running command", () => {
-    const hold = { promptMs: 10 * 60_000, busyMs: 30 * 60_000 };
+    // The defaults' holds, as a Container started before SPI-1317 (no launch values) keeps them: 10 and 30 minutes.
+    const hold = terminalHoldOf(terminalLimitsOf(undefined), {});
 
     it("does not hold for a terminal that was only opened", async () => {
       const h = harness({ running: false });
@@ -298,6 +319,40 @@ describe("TerminalHost", () => {
       expect(h.host.holdsContainer(hold)).toBe(true);
       h.advance(2 * 60_000);
       expect(h.host.holdsContainer(hold)).toBe(false);
+    });
+
+    it("holds for the busy hold the Container started with (SPI-1317); the stage's override still wins", async () => {
+      const launch = launchOf({
+        settings: { ...resolveEnvironment(EMPTY_ENVIRONMENT), terminalBusyHoldMinutes: 5 },
+        source: "environment",
+      });
+      const running = async () => {
+        const h = harness();
+        await h.host.open(open("term-a1"));
+        h.shells[0]!.print(`${MARK_PROMPT}$ `);
+        await tick();
+        await h.host.input("term-a1", "npm run dev\r");
+        h.shells[0]!.print(`${MARK_BUSY}listening\r\n`);
+        await tick();
+        return h;
+      };
+      const fiveMinutes = terminalHoldOf(terminalLimitsOf(launch), {});
+      const h = await running();
+      h.advance(5 * 60_000 - 1);
+      expect(h.host.holdsContainer(fiveMinutes)).toBe(true);
+      h.advance(1);
+      expect(h.host.holdsContainer(fiveMinutes)).toBe(false);
+
+      const overridden = terminalHoldOf(terminalLimitsOf(launch), { busyMs: "180000", promptMs: "60000" });
+      expect(overridden).toEqual({ busyMs: 180_000, promptMs: 60_000 });
+      const o = await running();
+      o.advance(3 * 60_000);
+      expect(o.host.holdsContainer(overridden)).toBe(false);
+      // An override that is not a positive number is none.
+      expect(terminalHoldOf(terminalLimitsOf(launch), { busyMs: "", promptMs: "0" })).toEqual({
+        busyMs: 300_000,
+        promptMs: 600_000,
+      });
     });
 
     it("holds nothing once every terminal is closed", async () => {

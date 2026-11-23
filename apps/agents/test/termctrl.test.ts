@@ -71,6 +71,7 @@ const workspace = () => {
     })(),
     env: {},
     repo: "/workspace/repo",
+    maxLive: () => 8,
   });
   let used = false;
   const host: TermctrlHost = {

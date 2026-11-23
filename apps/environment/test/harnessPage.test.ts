@@ -323,6 +323,11 @@ describe("harness page", () => {
       "Every tool is hidden, so the extension is not installed and these settings do nothing until a tool is offered.",
     );
     expect(terminals(resolveHarness(EMPTY_HARNESS))).not.toContain("Every tool is hidden");
+    // SPI-1317: the count is the Environment setting's, not a fixed 8.
+    expect(terminals(resolveHarness(EMPTY_HARNESS))).not.toContain("At most 8");
+    expect(terminals(resolveHarness(EMPTY_HARNESS))).toContain(
+      "At most the Environment setting Agents&#39; Terminals per Workspace (8 by default) run at once",
+    );
   });
 
   it("draws t3's tools on the always-on t3-code card: t3's hints as defaults, waits never codemode, denied tools named", () => {
@@ -625,6 +630,35 @@ describe("the Environment section's dotfiles", () => {
     expect(containers).toContain("how long a start or a turn waits for the newest settings");
     const input = tagsOf(containers).find((tag) => tag.attrs["data-setting"] === "settingsReadSeconds");
     expect(input?.attrs).toMatchObject({ type: "number", min: "1", value: "5" });
+  });
+
+  it("draws the Terminals' holds and counts in the Containers row, holds after the idle time, counts after the budget (SPI-1317)", () => {
+    const section = sectionOf(renderPage(fixturePage()));
+    const containers = section.slice(
+      section.indexOf("<h3>Containers</h3>"),
+      section.indexOf('<h3 id="environment-agents-title">Agents</h3>'),
+    );
+    expect(containers).toContain("how long open Terminals keep it running");
+    expect(containers).toContain("how many Terminals a Workspace may have");
+    const settings = tagsOf(containers)
+      .map((tag) => tag.attrs["data-setting"])
+      .filter((key) => key !== undefined);
+    const after = (key: string) => settings.slice(settings.indexOf(key), settings.indexOf(key) + 3);
+    expect(after("containerIdleMinutes")).toEqual([
+      "containerIdleMinutes",
+      "terminalBusyHoldMinutes",
+      "terminalPromptHoldMinutes",
+    ]);
+    expect(after("containerBudget")).toEqual([
+      "containerBudget",
+      "terminalsPerWorkspace",
+      "agentTerminalsPerWorkspace",
+    ]);
+    const input = (key: string) => tagsOf(containers).find((tag) => tag.attrs["data-setting"] === key)?.attrs;
+    expect(input("terminalBusyHoldMinutes")).toMatchObject({ type: "number", min: "1", value: "30" });
+    expect(input("terminalPromptHoldMinutes")).toMatchObject({ type: "number", min: "1", value: "10" });
+    expect(input("terminalsPerWorkspace")).toMatchObject({ type: "number", min: "1", max: "32", value: "8" });
+    expect(input("agentTerminalsPerWorkspace")).toMatchObject({ type: "number", min: "1", max: "32", value: "8" });
   });
 
   it("draws a toggle the Owner turned off unchecked", () => {

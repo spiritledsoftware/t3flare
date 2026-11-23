@@ -19,6 +19,7 @@ import {
   secretValuesOf,
   shownLaunch,
   takeEnvironment,
+  terminalLimitsOf,
   withContainerSteps,
 } from "../src/workspace/containerLaunch.ts";
 import { type GlobalMiseLaunch, installMinutesOf } from "../src/workspace/globalMise.ts";
@@ -194,6 +195,10 @@ describe("launchOf", () => {
       revision: 3,
       variables: {},
       terminalsReadBashrc: true,
+      terminalBusyHoldMs: 1_800_000,
+      terminalPromptHoldMs: 600_000,
+      terminalsPerWorkspace: 8,
+      agentTerminalsPerWorkspace: 8,
     });
     expect(launchOf({ settings: DEFAULTS, source: "environment" })).toEqual({
       size: "cpu-1",
@@ -203,6 +208,10 @@ describe("launchOf", () => {
       revision: 0,
       variables: {},
       terminalsReadBashrc: true,
+      terminalBusyHoldMs: 1_800_000,
+      terminalPromptHoldMs: 600_000,
+      terminalsPerWorkspace: 8,
+      agentTerminalsPerWorkspace: 8,
     });
   });
 
@@ -223,6 +232,51 @@ describe("launchOf", () => {
     expect(launchOf({ settings: copy, source: "kept" }).budget).toBeUndefined();
     expect(launchOf({ settings: DEFAULTS, source: "default" }).budget).toBeUndefined();
     expect(launchOf({ settings: copy, source: "kept" }).instance).toBe("standard-2");
+  });
+});
+
+describe("the launch's Terminal holds and counts (SPI-1317)", () => {
+  it("carries the four settings, the holds in milliseconds: a running Container keeps them", () => {
+    const launch = launchOf({
+      settings: {
+        ...DEFAULTS,
+        terminalBusyHoldMinutes: 5,
+        terminalPromptHoldMinutes: 2,
+        terminalsPerWorkspace: 2,
+        agentTerminalsPerWorkspace: 3,
+      },
+      source: "kept",
+    });
+    expect(launch).toMatchObject({
+      terminalBusyHoldMs: 300_000,
+      terminalPromptHoldMs: 120_000,
+      terminalsPerWorkspace: 2,
+      agentTerminalsPerWorkspace: 3,
+    });
+    expect(terminalLimitsOf(launch)).toEqual({
+      busyHoldMs: 300_000,
+      promptHoldMs: 120_000,
+      terminalsPerWorkspace: 2,
+      agentTerminalsPerWorkspace: 3,
+    });
+  });
+
+  it("reads a launch recorded before them, or none, as the defaults: 30 and 10 minutes, 8 and 8 Terminals", () => {
+    const defaults = {
+      busyHoldMs: 1_800_000,
+      promptHoldMs: 600_000,
+      terminalsPerWorkspace: 8,
+      agentTerminalsPerWorkspace: 8,
+    };
+    const {
+      terminalBusyHoldMs: _busy,
+      terminalPromptHoldMs: _prompt,
+      terminalsPerWorkspace: _terminals,
+      agentTerminalsPerWorkspace: _agents,
+      ...before
+    } = launchOf({ settings: DEFAULTS, source: "default" });
+    expect(terminalLimitsOf(before)).toEqual(defaults);
+    expect(terminalLimitsOf(undefined)).toEqual(defaults);
   });
 });
 
