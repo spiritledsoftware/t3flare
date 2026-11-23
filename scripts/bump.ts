@@ -54,6 +54,7 @@ import {
 import { T3_ERRORS_COUNT } from "../apps/environment/scripts/lib/typecheckFilter.ts";
 import { t3ServerVersion, t3TrackSetting } from "../apps/environment/serverVersion.ts";
 import { newestOnTrack, NPM_DIST_TAG, PINNED_FILES, type T3Track } from "../apps/environment/src/updates/pins.ts";
+import { checkDetail, LONG_DETAIL_CHARS } from "./lib/checkDetail.ts";
 
 const root = path.resolve(import.meta.dirname, "..");
 const t3 = path.join(root, "t3code");
@@ -108,8 +109,6 @@ interface Step {
 const steps: Array<Step> = [];
 /** The tail of a failed step's output the report keeps. */
 const DETAIL_CHARS = 4000;
-/** test:docker's and the acceptance test's failures each carry a long record; 4000 characters held barely one. */
-const LONG_DETAIL_CHARS = 24_000;
 
 const sh = (
   command: string,
@@ -269,12 +268,21 @@ const ok =
     return { ok: result.ok, detail: result.output };
   }) &&
   // The whole check, as prod's deploy runs it (D9; closes U27): the patches apply, typecheck, lint, tests.
-  step(DETERMINISTIC_STEPS.check, () => {
-    const result = sh("pnpm", ["run", "check"], root, { env: { [REPORT_ONLY_ENV]: REPORT_ONLY } });
-    const t3Errors = T3_ERRORS_COUNT.exec(result.output)?.[1];
-    if (t3Errors !== undefined) t3TypeErrors = Number(t3Errors);
-    return { ok: result.ok, detail: result.output };
-  }) &&
+  step(
+    DETERMINISTIC_STEPS.check,
+    () => {
+      const result = sh("pnpm", ["run", "check"], root, { env: { [REPORT_ONLY_ENV]: REPORT_ONLY } });
+      const t3Errors = T3_ERRORS_COUNT.exec(result.output)?.[1];
+      if (t3Errors !== undefined) t3TypeErrors = Number(t3Errors);
+      // A failure's tail is vp's per-task summary, so its detail leads with the first errors (SPI-1293); a pass keeps
+      // the short tail every step keeps.
+      return {
+        ok: result.ok,
+        detail: result.ok ? result.output.slice(-DETAIL_CHARS) : checkDetail(result.output, LONG_DETAIL_CHARS),
+      };
+    },
+    LONG_DETAIL_CHARS,
+  ) &&
   // Never fails the bump: a new flag is stripped until classified (U4). The report and the PR name each one.
   step("capability flags not yet classified (stripped until they are)", () => {
     const result = sh(process.execPath, ["scripts/capabilities-unclassified.ts"], environment, { quiet: true });
