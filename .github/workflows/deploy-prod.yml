@@ -65,6 +65,8 @@ permissions:
 concurrency:
   group: ${{ inputs.stage || 'prod' }}
   cancel-in-progress: false
+  # A newer push or dispatch waits its turn in order; none cancels a pending run that land.yml may be following.
+  queue: max
 
 jobs:
   deploy:
