@@ -1599,7 +1599,20 @@ export class WorkspaceDO extends ContainerHost {
       });
       const answer = { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr };
       // Kept at the revision from before it ran: a change while it ran makes the next read run again.
-      if (key !== null && result.status !== "timeout") this.#reads.put(key, rev, answer);
+      if (key !== null && result.status !== "timeout") {
+        // A cache write that fails never fails the read: the command ran, and its answer goes back uncached.
+        try {
+          this.#reads.put(key, rev, answer);
+        } catch (error) {
+          console.log(
+            JSON.stringify({
+              t3flare: "git-read-not-cached",
+              workspace: this.#workspaceId() ?? null,
+              detail: describeFailure(error).slice(0, 1000),
+            }),
+          );
+        }
+      }
       // The Container is up: answer the allow-listed reads now (after an action, or a start a read caused).
       if (!passive || startedBy !== undefined) this.ctx.waitUntil(this.#prime().catch(() => undefined));
       return {
