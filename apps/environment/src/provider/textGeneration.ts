@@ -27,9 +27,9 @@ import {
 } from "@t3flare/models/endpoints";
 import * as Effect from "effect/Effect";
 
-import { environmentServices } from "../agents/bindings.ts";
+import { TEXT_GENERATION_MARGIN_MS } from "@t3flare/harness-registry";
 
-const TIMEOUT_MS = 120_000;
+import { environmentNow, environmentServices } from "../agents/bindings.ts";
 
 const fail = (operation: TextGenerationOperations.Operation, detail: string, cause?: unknown) =>
   new TextGenerationError({ operation, detail, ...(cause === undefined ? {} : { cause }) });
@@ -68,15 +68,18 @@ const endpointText = (
   Effect.gen(function* () {
     const named = `${endpointLabel(endpoint.id)} could not be used for text generation`;
     const binding = environmentServices().agents.TEXT_GENERATION;
+    // The text generation time limit as stored now (SPI-1366): the agents Worker ends the request at it and says why;
+    // the Environment waits a margin longer, a backstop for a Worker that never answers.
+    const timeoutMs = environmentNow().textGenerationSeconds * 1000;
     if (binding === undefined)
       return yield* fail(operation, `${named}: this Environment has no binding to the agents Worker for it.`);
     const answer = yield* Effect.tryPromise({
-      try: () => binding.generate({ endpointId: endpoint.id, modelId, prompt }),
+      try: () => binding.generate({ endpointId: endpoint.id, modelId, prompt, timeoutMs }),
       // The binding's own error text is the platform's, not the endpoint's: kept as the cause only.
       catch: (cause) => fail(operation, `${named}: the agents Worker could not be reached.`, cause),
     }).pipe(
       Effect.timeoutOrElse({
-        duration: TIMEOUT_MS,
+        duration: timeoutMs + TEXT_GENERATION_MARGIN_MS,
         orElse: () => Effect.fail(fail(operation, `${endpointLabel(endpoint.id)} did not answer in time.`)),
       }),
     );

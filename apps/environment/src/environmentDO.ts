@@ -260,6 +260,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       ownerAnswerMs: () => ownerAnswerMsOf(resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment())),
       // Read at each CLI spawn (SPI-1359): the CLI's tool timeout covers the MCP call time limit as stored then.
       mcpCallMs: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).mcpCallSeconds * 1000,
+      // Read at each use (SPI-1366): the settings read at their own next use, not at a Container start.
+      environment: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()),
       // The deletion wake's Layer (`t3/deletionWake.ts`, ADR-0043 §5) asks for a Sweep here.
       wakeSweep: () => this.wakeSweep(),
       marks: { has: (key) => ctx.storage.kv.get(key) !== undefined, set: (key) => ctx.storage.kv.put(key, Date.now()) },

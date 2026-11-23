@@ -406,6 +406,8 @@ export interface EndpointTextRequest {
   readonly endpointId: string;
   readonly modelId: string;
   readonly prompt: string;
+  /** How long the request may take, in ms: the Environment's text generation time limit (SPI-1366). */
+  readonly timeoutMs?: number;
 }
 
 /** How a message names an endpoint: `The Model endpoint "<id>"`. */
