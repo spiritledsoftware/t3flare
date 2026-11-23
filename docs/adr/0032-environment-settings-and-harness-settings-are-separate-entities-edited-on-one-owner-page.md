@@ -574,13 +574,13 @@ Behaviour t3flare forced to one value becomes the Owner's, each new setting at t
 use (`NEXT_USE_SETTING_KEYS`). A tier follows ADR-0035 §3: what spends or keeps a Container awake is asked upward, what
 deletes is asked downward.
 
-| Setting          | Default | Tier                                                     | Row        | Applies at                  |
-| ---------------- | ------- | -------------------------------------------------------- | ---------- | --------------------------- |
-| `durableRetries` | 3       | `down-free` (each retry is a request the endpoint bills) | Retries    | each thread's next turn     |
-| `cliRetries`     | 1       | `down-free`                                              | Retries    | each CLI agent's next start |
-| `killAttempts`   | 12      | `down-free` (each kill keeps the Container awake)        | Retries    | each thread's next turn     |
-| `traceKiB`       | 1024    | `down-free` (each trace write rewrites the whole file)   | t3's trace | t3's next start             |
-| `traceFiles`     | 1       | `up-free` (fewer deletes the oldest files)               | t3's trace | t3's next start             |
+| Setting          | Default | Tier                                                     | Row               | Applies at                  |
+| ---------------- | ------- | -------------------------------------------------------- | ----------------- | --------------------------- |
+| `durableRetries` | 3       | `down-free` (each retry is a request the endpoint bills) | Retries and kills | each thread's next turn     |
+| `cliRetries`     | 1       | `down-free`                                              | Retries and kills | each CLI agent's next start |
+| `killAttempts`   | 12      | `down-free` (each kill keeps the Container awake)        | Retries and kills | each thread's next turn     |
+| `traceKiB`       | 1024    | `down-free` (each trace write rewrites the whole file)   | t3's trace        | t3's next start             |
+| `traceFiles`     | 1       | `up-free` (fewer deletes the oldest files)               | t3's trace        | t3's next start             |
 
 - `durableRetries` is pi-durable's `settings.retry.maxRetries`, which the Session reads at each use, as the latest
   turn's start carried it (`turnRetries.ts`). The reset a rate limit is waited through is the span of those retries
