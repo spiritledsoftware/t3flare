@@ -9,7 +9,7 @@ import { toWorkspace } from "@t3flare/workspace-client";
 import { checkpointMsNow, environmentServices } from "./bindings.ts";
 import { byName, type Namespace } from "./rpc.ts";
 import { workspaceRpc } from "./workspaceClient.ts";
-import { DAY_MS, SWEEP_EVERY_MS, type SweepSettings } from "./deletionSettings.ts";
+import { SWEEP_EVERY_MS, type SweepSettings } from "./deletionSettings.ts";
 import type { WorkspaceRecord } from "./workspaces.ts";
 
 export { SWEEP_EVERY_MS, type SweepSettings, sweepSettingsOf } from "./deletionSettings.ts";
