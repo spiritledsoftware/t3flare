@@ -65,7 +65,7 @@ export const DEFAULT_CLI_RECLAIM_SECONDS = 30;
 export const CLI_SESSION_RELEASE_MS = 10 * 60_000;
 
 /**
- * How long after its last turn a CLI agent's process holds the Container (review F7): t3's session release
+ * How long after its last turn a CLI agent's process holds the Container: t3's session release
  * (`CLI_SESSION_RELEASE_MS`) and a minute for the process to exit.
  */
 export const CLI_IDLE_HOLD_MS = CLI_SESSION_RELEASE_MS + 60_000;
@@ -298,12 +298,13 @@ export const DEFAULT_MCP_CALL_MS = DEFAULT_MCP_CALL_SECONDS * 1000;
 export const DEFAULT_MCP_RESULT_KIB = 1024;
 
 /**
- * The most KiB of one MCP tool result (`mcpResultKiB`). A named constraint: the Environment DO's 128 MB isolate, which
- * also runs t3's server. The MCP host holds a result whole while it reads it, as bytes, as decoded text and as parsed
- * JSON at once (`readStream`, apps/environment/src/mcp/host.ts), so a result takes about three times its size; 16 MiB
- * of result is about 48 MB of it, leaving t3 the rest.
+ * The most KiB of one MCP tool result (`mcpResultKiB`). A provisional bound, from an estimate, not a measurement: the
+ * Environment DO's 128 MB isolate also runs t3's server, and the MCP host holds a result several times over while it
+ * reads it (`readStream` and `resultText` in apps/environment/src/mcp/host.ts: the chunks, the joined bytes, the decoded
+ * text, the parsed JSON, then the text and structured content encoded again to be cut), about six times its size. 8 MiB
+ * of result is then about 48 MB, leaving t3 the rest. A measurement of the isolate's peak sets the figure.
  */
-export const MAX_MCP_RESULT_KIB = 16 * 1024;
+export const MAX_MCP_RESULT_KIB = 8 * 1024;
 
 /**
  * The MCP calls' settings (SPI-1359): how long one tool call may run and how large its result may be. They bound every
@@ -424,8 +425,7 @@ export const ENVIRONMENT_SETTINGS = {
   },
   terminalsPerWorkspace: {
     title: "Terminals per Workspace",
-    description:
-      "How many of your Terminals one Workspace may have open at once; one more is refused. Each Terminal uses memory in the Container. At most 1000; the Container's memory is the real limit. Applies at each Workspace's next Container start; lowering it closes no open Terminal.",
+    description: `How many of your Terminals one Workspace may have open at once; one more is refused. Each Terminal uses memory in the Container. At most ${MAX_TERMINALS_PER_WORKSPACE}. Applies at each Workspace's next Container start; lowering it closes no open Terminal.`,
     // A sanity bound (`MAX_TERMINALS_PER_WORKSPACE`, ADR-0048 §1): the Container's memory bounds it in fact.
     schema: {
       type: "integer",
@@ -610,14 +610,13 @@ export const ENVIRONMENT_SETTINGS = {
   },
   rebuildEveryDays: {
     title: "Rebuild every (days)",
-    description: `Builds the Base snapshot again this many days after the last good one, so the Image setup's downloads stay current. 0 is off. At most ${MAX_REBUILD_DAYS}: a Base snapshot expires 30 days after it was made or a Container last started from it, and this schedule counts from when it was made.`,
+    description: `Builds the Base snapshot again this many days after the last good one, so the Image setup's downloads stay current. 0 is off. At most ${MAX_REBUILD_DAYS}: a Base snapshot expires 30 days after it was made or a Container last started from it, and this schedule counts from when it was made. The rebuild also comes early enough for one build and one retry before the snapshot expires, but never sooner than one build after the last; with time limits and a retry that long, a rebuild follows each build and a failed one can outlast the snapshot.`,
     schema: { type: "integer", minimum: 0, maximum: MAX_REBUILD_DAYS, default: 0 },
     row: "imageSetup",
   },
   baseRetryMinutes: {
     title: "Base build retry (minutes)",
-    description:
-      "How long a failed Base build waits before it is built again on its own. Each further failure in a row doubles the wait, up to a day (or up to this setting, if it is longer than a day). The retry comes when a Workspace starts and finds no Base snapshot, the Environment starts, a new Workspace image arrives, or the schedule fires; a Rebuild runs at once. A shorter wait runs the Builder's Container, and bills it, more often while a build keeps failing. At most 10080 (a week). Applies at the next retry.",
+    description: `How long a failed Base build waits before it is built again on its own. Each further failure in a row doubles the wait, up to a day (or up to this setting, if it is longer than a day). The retry comes when a Workspace starts and finds no Base snapshot, the Environment starts, a new Workspace image arrives, or the schedule fires; a Rebuild runs at once. A shorter wait runs the Builder's Container, and bills it, more often while a build keeps failing. At most ${MAX_TIMED_MINUTES} (a week). Applies at the next retry.`,
     // t3flare's own alarm times it (the Builder's), no platform limit: the shared sanity maximum applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_BASE_RETRY_MINUTES },
     tier: "up-free",
@@ -691,8 +690,7 @@ export const ENVIRONMENT_SETTINGS = {
   },
   mcpCallSeconds: {
     title: "MCP call time limit (seconds)",
-    description:
-      "How long one MCP tool call may run before t3flare ends it and the agent is told it failed; it may have run on the server. Time spent waiting for your answer to the server's question does not count. A CLI agent's own tool timeout grows with it. At most 604800 (a week). Applies at the next call; a CLI agent's timeout at its next start.",
+    description: `How long one MCP tool call may run before t3flare ends it and the agent is told it failed; it may have run on the server. Time spent waiting for your answer to the server's question does not count. A CLI agent's own tool timeout grows with it. At most ${MAX_TIMED_MINUTES * 60} (a week). Applies at the next call; a CLI agent's timeout at its next start.`,
     // The MCP engine times the call with its own timer (packages/mcp/src/connection.ts), no platform limit: the shared
     // sanity maximum applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES * 60, default: DEFAULT_MCP_CALL_SECONDS },
@@ -700,9 +698,8 @@ export const ENVIRONMENT_SETTINGS = {
   },
   mcpResultKiB: {
     title: "MCP result size (KiB)",
-    description:
-      "The most of one MCP tool result t3flare takes, in KiB of UTF-8. A larger streamed result is refused whole, since it cannot be read in part; a larger inline one has its text cut to this, and its structured content dropped. The Environment holds a result whole while it reads it, beside t3, so a larger size uses more of its memory. At most 16384 (16 MiB). Applies at the next call.",
-    // A named constraint (`MAX_MCP_RESULT_KIB`): the Environment DO's isolate memory.
+    description: `The most of one MCP tool result t3flare takes, in KiB of UTF-8. A larger streamed result is refused whole, since it cannot be read in part; a larger inline one has its text cut to this, and its structured content dropped. The Environment holds a result whole while it reads it, beside t3, so a larger size uses more of its memory. At most ${MAX_MCP_RESULT_KIB} (${MAX_MCP_RESULT_KIB / 1024} MiB). Applies at the next call.`,
+    // A provisional bound (`MAX_MCP_RESULT_KIB`): the Environment DO's isolate memory, by an estimate.
     schema: { type: "integer", minimum: 1, maximum: MAX_MCP_RESULT_KIB, default: DEFAULT_MCP_RESULT_KIB },
     tier: "down-free",
   },

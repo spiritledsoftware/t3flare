@@ -14,6 +14,7 @@ import {
   classOf,
   DEFAULT_MCP_CALL_MS,
   DEFAULT_MCP_RESULT_KIB,
+  ENVIRONMENT_SETTINGS,
   type Exposure,
   MAX_SCHEMA_BYTES,
   MAX_TOOLS_PER_SERVER,
@@ -69,6 +70,9 @@ export interface McpEngineBinding {
 }
 
 export const INVENTORY_TTL_MS = 10 * 60_000;
+/** What a streamed result past the MCP result size answers: the setting the Owner can raise, by its title and key. */
+const RESULT_TOO_LARGE = `The tool's result was larger than the Environment setting "${ENVIRONMENT_SETTINGS.mcpResultKiB.title}" (mcpResultKiB) allows, so t3flare refused it whole; the Owner can raise it`;
+
 /** The MCP result size's default in bytes (`mcpResultKiB`): a host given no setting (a test's) takes it. */
 const DEFAULT_RESULT_BYTES = DEFAULT_MCP_RESULT_KIB * 1024;
 
@@ -664,7 +668,7 @@ export class McpHost {
     const value =
       result.result.kind === "inline"
         ? result.result.value
-        : await readStream(result.result.body as ReadableStream<Uint8Array>, this.#resultBytes());
+        : await readStream(result.result.body as ReadableStream<Uint8Array>, this.#resultBytes(), RESULT_TOO_LARGE);
     return { kind: "value", value };
   }
 
@@ -795,8 +799,12 @@ const redactedResult = (value: unknown, max: number): { readonly isError: boolea
   };
 };
 
-/** `body` read whole and parsed; a body past `max` bytes is refused, since JSON cannot be read in part. */
-const readStream = async (body: ReadableStream<Uint8Array>, max: number): Promise<unknown> => {
+/** `body` read whole and parsed; a body past `max` bytes is refused (`tooLarge`), since JSON cannot be read in part. */
+const readStream = async (
+  body: ReadableStream<Uint8Array>,
+  max: number,
+  tooLarge = "The tool's result was larger than t3flare takes",
+): Promise<unknown> => {
   const reader = body.getReader();
   const chunks: Array<Uint8Array> = [];
   let size = 0;
@@ -806,7 +814,7 @@ const readStream = async (body: ReadableStream<Uint8Array>, max: number): Promis
     size += value.byteLength;
     if (size > max) {
       await reader.cancel();
-      return { isError: true, content: [{ type: "text", text: `The tool's result was larger than ${max} bytes.` }] };
+      return { isError: true, content: [{ type: "text", text: `${tooLarge} (${max} bytes).` }] };
     }
     chunks.push(value);
   }

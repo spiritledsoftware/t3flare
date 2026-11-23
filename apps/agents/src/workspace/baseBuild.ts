@@ -174,6 +174,8 @@ interface Current {
   readonly rebuildEveryDays: number;
   /** The scheduled rebuild's margin before expiry (`expiryMarginMs`). Absent in one kept before SPI-1359: a day. */
   readonly expiryMarginMs?: number;
+  /** One build's time limits (`waitLimitMs`): no rebuild is due sooner after a build. Absent before SPI-1359: none. */
+  readonly buildMs?: number;
   /** A failing key's first retry (`baseRetryMinutes`). Absent in one kept before SPI-1359: the default. */
   readonly retryMs?: number;
   readonly at: number;
@@ -225,21 +227,21 @@ export const DAY_MS = 24 * 60 * 60_000;
  */
 export const GOOD_FOR_MS = MAX_REBUILD_DAYS * DAY_MS;
 
-/** The retries the scheduled rebuild's margin leaves room for after its first attempt (`expiryMarginMs`). */
-const MARGIN_RETRIES = 4;
-
 /**
- * How long before the snapshot counts as gone the scheduled rebuild fires at the latest (SPI-1359): room for the build
- * the settings allow (`waitLimitMs`: the Image setup's limit and twice the snapshot's) and its first four retries, each
- * after its backoff (`retryDelay`). At the defaults, five builds of 40 minutes and 1 + 2 + 4 + 8 hours.
+ * How long before the snapshot counts as gone the scheduled rebuild fires at the latest (SPI-1359): room for one build
+ * the settings allow (`waitLimitMs`: the Image setup's limit and twice the snapshot's) and, should it fail, the first
+ * retry's wait (`retryDelay`), so that retry starts before the snapshot counts as gone. At the defaults, 40 minutes and
+ * an hour.
+ *
+ * Clamped so the expiry never makes a rebuild due sooner than one build after the snapshot was made: past that, a
+ * build's own length would leave the next one due at once, back-to-back billed builds. Settings that long expire the
+ * snapshot before a failed rebuild's retry ends, which `rebuildEveryDays`' description states.
  */
 export const expiryMarginMs = (
   settings: Pick<ResolvedEnvironment, "imageSetupMinutes" | "snapshotMinutes" | "baseRetryMinutes">,
 ): number => {
-  let margin = (1 + MARGIN_RETRIES) * waitLimitMs(settings);
-  for (let failures = 1; failures <= MARGIN_RETRIES; failures++)
-    margin += retryDelay(failures, settings.baseRetryMinutes * 60_000);
-  return margin;
+  const build = waitLimitMs(settings);
+  return Math.min(build + retryDelay(1, settings.baseRetryMinutes * 60_000), GOOD_FOR_MS - build);
 };
 
 /** How long the scheduled rebuild waits to read the settings again when the Environment did not answer. Fixed: a retry. */
@@ -550,6 +552,7 @@ export class BaseBuild {
       nothingToBuild: settings.imageSetup === "" && settings.globalMiseConfig === "",
       rebuildEveryDays: this.#test ? 0 : settings.rebuildEveryDays,
       expiryMarginMs: expiryMarginMs(settings),
+      buildMs: waitLimitMs(settings),
       retryMs: settings.baseRetryMinutes * 60_000,
       at: this.#deps.now(),
     };
@@ -774,9 +777,14 @@ export class BaseBuild {
     const good = this.#good();
     if (current === undefined || current.rebuildEveryDays <= 0 || good === null || last?.awaitingSnapshot === true)
       return false;
-    const due = Math.min(
-      good.builtAt + current.rebuildEveryDays * DAY_MS,
-      this.#aliveSince(good) + GOOD_FOR_MS - (current.expiryMarginMs ?? DAY_MS),
+    // Never sooner than one build after the last good one (`expiryMarginMs`): a build's own length would otherwise leave
+    // the next due at once.
+    const due = Math.max(
+      good.builtAt + (current.buildMs ?? 0),
+      Math.min(
+        good.builtAt + current.rebuildEveryDays * DAY_MS,
+        this.#aliveSince(good) + GOOD_FOR_MS - (current.expiryMarginMs ?? DAY_MS),
+      ),
     );
     let at = due;
     // Tried since it fell due, and it did not end ready: again after a backoff.

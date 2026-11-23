@@ -610,7 +610,7 @@ describe("the Answer wait (SPI-1316)", () => {
 describe("the MCP calls' time limit and result size (SPI-1359)", () => {
   const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
 
-  it("are 270 seconds and 1024 KiB by default: the time limit 1 s to a week (ADR-0048 §2), the size 1 to 16384 KiB", () => {
+  it("are 270 seconds and 1024 KiB by default: the time limit 1 s to a week (ADR-0048 §2), the size 1 to 8192 KiB", () => {
     expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({ mcpCallSeconds: 270, mcpResultKiB: 1024 });
     expect(DEFAULT_MCP_CALL_MS).toBe(270_000);
     for (const seconds of [1, 270, MAX_TIMED_MINUTES * 60])
@@ -619,7 +619,7 @@ describe("the MCP calls' time limit and result size (SPI-1359)", () => {
       expect(set({ mcpCallSeconds: seconds })).toMatchObject({ ok: false });
     for (const kib of [1, 1024, MAX_MCP_RESULT_KIB]) expect(set({ mcpResultKiB: kib })).toMatchObject({ ok: true });
     for (const kib of [0, MAX_MCP_RESULT_KIB + 1, 1.5]) expect(set({ mcpResultKiB: kib })).toMatchObject({ ok: false });
-    expect(MAX_MCP_RESULT_KIB).toBe(16 * 1024);
+    expect(MAX_MCP_RESULT_KIB).toBe(8 * 1024);
   });
 
   it("are down-free, in an MCP calls row of their own, and each states its consequence", () => {

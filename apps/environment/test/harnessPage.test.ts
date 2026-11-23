@@ -711,7 +711,7 @@ describe("the Environment section's dotfiles", () => {
     expect(inputs.map((tag) => tag.attrs["data-setting"])).toEqual(["mcpCallSeconds", "mcpResultKiB"]);
     expect(inputs.map((tag) => tag.attrs)).toMatchObject([
       { type: "number", min: "1", max: "604800", value: "270" },
-      { type: "number", min: "1", max: "16384", value: "1024" },
+      { type: "number", min: "1", max: "8192", value: "1024" },
     ]);
     for (const key of ["mcpCallSeconds", "mcpResultKiB"]) expect(page.split(`data-setting="${key}"`)).toHaveLength(2);
     const group = tagsOf(section).find(

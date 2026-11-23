@@ -179,7 +179,8 @@ owner's `mise.toml` text, which every Container's commands get as mise's global 
    config reports too ("no Global mise config"), so a cleared config replaces an older "not laid down".
 7. **Audit.** A `file` setting is audited as its size and SHA-256, not its text, a departure from §3's "as resolved
    before and after": the audit log is one stored value of up to 1,000 entries, and a Durable Object value is at most
-   8 MB. The current text is on the panel.
+   8 MB. The current text is on the panel. (SPI-1359, 2026-11-23: a SQLite-backed DO row or value holds 8 MB; the
+   earlier 2 MB was stale.)
 8. **No install cache.** Every Container start installs the owner's tools again; mise's data stays in its default
    place on the Container's disk, never under the synced `/workspace/.t3flare/`. A cache is follow-up work.
 
@@ -243,9 +244,8 @@ the Container size is a setting, both are the Owner's. `cliProcessesPerWorkspace
 Container's memory bounds it in fact, and the description states that once ("Each CLI agent's process takes about 150
 to 200 MB of the Container's memory; past what the Container size has, commands fail for memory."). `cliReclaimSeconds`:
 30 by default, 0 to 660, tier `free`. 660 is a named constraint: a CLI process holds the Container for
-`CLI_IDLE_HOLD_MS` (11 minutes) after its last turn, so a longer delay changes nothing. The hold is derived (SPI-1359):
-t3's session release (`CLI_SESSION_RELEASE_MS`, harness-registry), which is t3flare's own Patch 0003's 10 minutes, a
-cost choice, plus a minute. Both show in the Containers row.
+`CLI_IDLE_HOLD_MS` (11 minutes) after its last turn, forced by t3's 10-minute session release, so a longer delay changes
+nothing. Both show in the Containers row.
 
 The Environment DO reads both at each CLI spawn and carries them with the start request (`ProcessStartInput`), as the
 budget rides the lease request (§7); a carried value that is absent or out of bounds reads as its default. The count
@@ -334,12 +334,9 @@ ADR-0021's fixed Terminal holds and Terminal caps are the Owner's. `terminalBusy
 `terminalPromptHoldMinutes` (10) take 1 to `MAX_TIMED_MINUTES`: t3flare's own alarm releases the Container, so ADR-0048
 §2's sanity maximum applies. `terminalsPerWorkspace` (t3's Terminals) and `agentTerminalsPerWorkspace` (Pi Durable
 agents' running Terminals and Background jobs) stay two caps, 8 each by default, as the two hosts had: one key would
-change the total and mix the Owner's panels with an agent's jobs. `agentTerminalsPerWorkspace` takes 1 to 32
-(`MAX_AGENT_TERMINALS_PER_WORKSPACE`), a named constraint and a provisional figure: an agent's Terminal's headless xterm
-lives in the Workspace DO's 128 MB isolate, and SPI-978's measurement of that memory sets the figure.
-`terminalsPerWorkspace` takes 1 to 1000 (`MAX_TERMINALS_PER_WORKSPACE`), a sanity bound since SPI-1359: an Owner's
-Terminal keeps no xterm in the DO, only its handle and a share of one 1 MiB pending-output buffer, and its shell's
-memory is the Container's. An agent's exited Terminals keep their xterm outside
+change the total and mix the Owner's panels with an agent's jobs. They take 1 to 32, a named constraint and a
+provisional figure: each Terminal's handle, and an agent's Terminal's headless xterm, lives in the Workspace DO's 128 MB
+isolate, and SPI-978's measurement of that memory sets the figure. An agent's exited Terminals keep their xterm outside
 the live count, bounded by `MAX_KEPT` (32) per Session only: their Workspace-wide total grows with the Sessions the
 Workspace serves until the DO restarts, pending SPI-978's measurement. All four are `down-free` and show in the
 Containers row, the holds after the idle time and the counts after the budget; each states its consequence once ("Open
@@ -412,3 +409,30 @@ answer and card say, per key, when each applies instead of the Container start.
 
 t3's own `usageHistoryRetentionDays` (default 92, or unlimited) is left alone: it governs t3's transcript cache, and our
 scan readers ignore its `retentionCutoffMs`, so the Owner controls t3flare's records with one setting.
+
+## Refinement (SPI-1359, 2026-11-23): the MCP calls, the Base build retry, the CLI hold and the Terminals' maximum
+
+- **The MCP calls' time limit and result size are settings.** The MCP host's fixed 270 s call time limit and 1 MiB
+  result bound become `mcpCallSeconds` (270 by default, 1 to `MAX_TIMED_MINUTES` × 60, tier `down-free`; t3flare's own
+  timer times it, so ADR-0048 §2's sanity maximum applies) and `mcpResultKiB` (1024 by default, 1 to 8192, tier
+  `down-free`; a provisional bound from an estimate of the Environment DO's isolate memory, about six times a result
+  while it is read). They show in an MCP calls row of their own between the Agents and History rows, and apply at the
+  next call. 270 is a little past Commissary's own 240 s, but it applies to every server, Environment-wide. A CLI
+  process's tool timeout (`cliToolTimeoutSec`) takes the call time limit at its spawn in place of the fixed 270 s. A
+  streamed result past the size is refused whole (JSON cannot be read in part), naming the setting; an inline one is cut
+  to it, in bytes of UTF-8 rather than characters, and its structured content dropped. Each states its consequence
+  once ("it may have run on the server"; "a larger size uses more of its memory").
+- **The Base build retry is a setting**, `baseRetryMinutes` (60 by default, 1 to `MAX_TIMED_MINUTES`, tier `up-free`, in
+  the Image setup's row): it replaces the fixed hour of ADR-0047's SPI-1332 refinement §4 (recorded in
+  ADR-0047's SPI-1359 refinement). Its consequence: "A shorter wait runs the Builder's Container, and bills it, more
+  often while a build keeps failing."
+- **The CLI hold is derived.** The SPI-1318 refinement's 660 is no longer "forced by t3's 10-minute session release":
+  that release is t3flare's own Patch 0003, a cost choice. `CLI_SESSION_RELEASE_MS` (10 minutes) in
+  `packages/harness-registry/src/environment.ts` names it, beside `CLI_IDLE_HOLD_MS` (the release plus a minute) and
+  `MAX_CLI_RECLAIM_SECONDS` (the hold), and a test holds the patch and the constant to the same minutes. The release
+  stays fixed, not a setting: making it one would need Patch 0003 to read a setting at t3's boot.
+- **The Terminals' maximum is split.** This supersedes the SPI-1317 refinement's "They take 1 to 32".
+  `agentTerminalsPerWorkspace` keeps 32 (`MAX_AGENT_TERMINALS_PER_WORKSPACE`), the named, provisional constraint: an
+  agent's Terminal keeps a headless xterm in the Workspace DO's 128 MB isolate. `terminalsPerWorkspace` takes 1 to 1000
+  (`MAX_TERMINALS_PER_WORKSPACE`), a sanity bound (ADR-0048 §1): an Owner's Terminal keeps no xterm in the DO, only its
+  handle and a share of one 1 MiB pending-output buffer, and its shell's memory is the Container's.

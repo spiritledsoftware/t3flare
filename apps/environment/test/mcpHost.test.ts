@@ -464,7 +464,7 @@ describe("McpHost and MCP apps (G11, review L10)", () => {
           controller.close();
         },
       });
-    const result = JSON.stringify({ content: [{ type: "text", text: "x".repeat(100) }] });
+    const result = JSON.stringify({ content: [{ type: "text", text: "x".repeat(2_000) }] });
     const { engine: lister } = fakeEngine(() => [tool("fixture_echo", true)]);
     const host = (max: number) =>
       new McpHost({
@@ -490,14 +490,14 @@ describe("McpHost and MCP apps (G11, review L10)", () => {
     expect(await small.call({ server: "commissary", tool: "fixture_echo", args: {}, judged: "read" })).toMatchObject({
       kind: "result",
       isError: true,
-      text: `The tool's result was larger than ${result.length - 1} bytes.`,
+      text: `The tool's result was larger than the Environment setting "MCP result size (KiB)" (mcpResultKiB) allows, so t3flare refused it whole; the Owner can raise it (${result.length - 1} bytes).`,
     });
     const fits = host(result.length);
     await fits.list("commissary");
     expect(await fits.call({ server: "commissary", tool: "fixture_echo", args: {}, judged: "read" })).toMatchObject({
       kind: "result",
       isError: false,
-      text: "x".repeat(100),
+      text: "x".repeat(2_000),
     });
   });
 });
