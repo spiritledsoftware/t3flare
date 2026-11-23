@@ -3,7 +3,7 @@
 The stock clients decide what to offer from two things the server sends: the descriptor's capability flags, and the settings, which a managed policy can lock. A laptop's t3 advertises what that laptop can do. Left as is, the Cloud Environment advertised the same, so clients offered features that fail in the cloud: scratch threads, an npm update, guest links whose link 404s, the device panel, cloud voice and custom text generators (the parity audit's G2). Two mechanisms now close this, both t3's own, so no Patch is needed (ADR-0001):
 
 - **Every capability flag is classified** in `apps/environment/src/t3/capabilities.ts`, as kept or stripped, with a one-line reason for each strip. `composition.ts` serves t3's descriptor through `cloudCapabilities`. Every key of t3's `ExecutionEnvironmentCapabilities` must be in the list, so a flag a nightly adds fails typecheck and `test/capabilities.test.ts` until someone classifies it (fragility U4).
-- **t3flare ships a managed policy.** This is t3's administrator policy (`ManagedPolicyDocument`), which is normally a machine-wide file. Here it is built in: `t3/managedPolicy.ts` provides t3's `ManagedPolicy` service from `fromDocument` instead of `ManagedPolicy.layer`, which reads the host. It locks the settings of features that have no capability flag, and clients show them as "Managed by t3flare". Writes to a locked setting are refused ("… is managed by t3flare and cannot be changed"). It locks `guestSharingEnabled`, the device settings (`enableDeviceSupport`, `enableAgentDeviceAccess`, `simlockDeviceHostsEnabled`) and `idleCompaction` (ADR-0015's step 4b refinement; superseded by the SPI-1367 refinement below: unlocked, off by default), and sets two limits: product analytics off (see Consequences) and the preview tunnel off (2026-11-20 refinement).
+- **t3flare ships a managed policy.** This is t3's administrator policy (`ManagedPolicyDocument`), which is normally a machine-wide file. Here it is built in: `t3/managedPolicy.ts` provides t3's `ManagedPolicy` service from `fromDocument` instead of `ManagedPolicy.layer`, which reads the host. It locks the settings of features that have no capability flag, and clients show them as "Managed by t3flare". Writes to a locked setting are refused ("… is managed by t3flare and cannot be changed"). It locks `guestSharingEnabled`, the device settings (`enableDeviceSupport`, `enableAgentDeviceAccess`, `simlockDeviceHostsEnabled`) and `idleCompaction` (ADR-0015's step 4b refinement; the SPI-1367 refinement below replaces its reason), and sets two limits: product analytics off (see Consequences) and the preview tunnel off (2026-11-20 refinement).
 
 Stripped today:
 
@@ -63,18 +63,20 @@ would dial the DO's loopback, where nothing listens. From `v0.1.11-nightly.20261
 only hides the switch, so the policy also locks the setting off and sets the limit `previewTunnel: false`: the policy's
 second limit.
 
-## Refinement (SPI-1367, 2026-11-23): two of t3's settings start off and stay the Owner's
+## Refinement (SPI-1367, 2026-11-23): git's automatic fetch is the Owner's; idle compaction stays locked, for a named reason
 
-Idle compaction and git's automatic fetch are no longer forced off. Each only starts a Workspace's Container the Owner
-may not want, which is a cost and the Owner's to choose (ADR-0048). The policy keeps today's behaviour as an unlocked
-default (`locked: false`: it replaces t3's built-in default, and the stock clients offer the switch):
+Git's automatic fetch is no longer forced off. It only starts a Workspace's Container the Owner may not want, which is
+a cost and the Owner's to choose (ADR-0048). The policy keeps today's behaviour as an unlocked default
+(`locked: false`: it replaces t3's built-in default, and the stock clients offer the switch):
+`automaticGitFetchInterval: 0`, t3's legacy interval, which t3 reads while its Background activity is untouched. t3
+refuses an unlocked default that adds keys to `backgroundActivity`, so the policy cannot default that one (fragility
+U104). ADR-0009's SPI-1367 refinement has the consequence.
 
-- `idleCompaction: "off"`. `composition.ts` starts t3's idle compaction worker, as t3's `server.ts` does. Turned on, a
-  Claude thread's `/compact` turn starts its Workspace's Container. Its timers live in memory, as in t3, so a compaction
-  still waiting when the Environment sleeps or resets is skipped.
-- `automaticGitFetchInterval: 0`, t3's legacy interval, which t3 reads while its Background activity is untouched. t3
-  refuses an unlocked default that adds keys to `backgroundActivity`, so the policy cannot default that one (fragility
-  U104). ADR-0009's SPI-1367 refinement has the consequence.
+`idleCompaction` stays locked off and its worker unstarted, but no longer as a cost guard (the step 4b reason this
+replaces). It is fixed by a constraint: t3 times a thread's `/compact` from the prompt cache's expiry the latest
+provider turn reports (`promptCacheExpiresAt`, `IdleCompaction.ts`), which only t3's native Claude adapter reports.
+t3flare runs Claude Code over ACP, which reports none, so an unlocked switch could never fire. Making compaction work
+over ACP is a follow-up.
 
 `limits.telemetry: false` stays. It is the Owner's standing decision D1 (SPI-995), a privacy switch rather than a cap,
 and the SPI-1367 review left it as is.

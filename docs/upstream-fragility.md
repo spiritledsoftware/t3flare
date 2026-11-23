@@ -1761,23 +1761,27 @@ Moved from U58 when its Commissary readers went (SPI-1176).
   than t3 could. The model's copy is never affected.
 - **Fix**: read the three constants at the new pin and set the mirrors in `session-protocol` to them.
 
-### U104. Git's automatic fetch and idle compaction start off through the managed policy's unlocked defaults (SPI-1367)
+### U104. Git's automatic fetch starts off through the managed policy's unlocked default (SPI-1367)
 
-- **Where**: `apps/environment/src/t3/managedPolicy.ts` gives two of t3's settings an unlocked default (`locked: false`,
-  which replaces t3's built-in default and leaves the setting the Owner's): `idleCompaction` `"off"`, and t3's legacy
-  top-level `automaticGitFetchInterval` `0`. The fetch default leans on t3's
+(U101–U103 are left to SPI-1364, whose entries were written first; the gap is on purpose.)
+
+- **Where**: `apps/environment/src/t3/managedPolicy.ts` gives t3's legacy top-level `automaticGitFetchInterval` an
+  unlocked default of `0` (`locked: false`, which replaces t3's built-in default and leaves the setting the Owner's).
+  The default leans on t3's
   `resolveServerBackgroundActivitySettings` (`t3code/packages/shared/src/backgroundActivitySettings.ts`): while
   `backgroundActivity` is untouched it resolves the interval from the legacy key, as a custom profile over "balanced".
   A default for `backgroundActivity` itself is refused: t3's `managedSettings.ts` rejects an unlocked default that adds
   keys t3's own default lacks ("adds entries users could not remove"). `composition.ts` provides t3's
-  `VcsAutomaticFetchInterval.layer` over its `layerServerSettings`, and starts t3's `IdleCompactionService` worker as
-  t3's `server.ts` does (`layerIdleCompactionWorker`).
+  `VcsAutomaticFetchInterval.layer` over its `layerServerSettings`. Idle compaction stays locked off and its worker
+  unstarted: t3 times it from a provider turn's `promptCacheExpiresAt` (`IdleCompaction.ts`), which only t3's native
+  `ClaudeAdapterV2` reports and Claude Code over ACP never does.
 - **Breaks when**: t3 drops the legacy `automaticGitFetchInterval` or stops reading it while `backgroundActivity` is
-  untouched; renames `idleCompaction` or its `"off"`; or changes how the worker starts.
-- **Detection**: `apps/environment/test/capabilities.test.ts` resolves the policy's defaults through t3's own
-  `resolveServerBackgroundActivitySettings` and `globalIdleCompaction`, and fails when either stops being off, or when
-  t3 refuses the policy (it then refuses to boot). The worker's start is in the `server.ts` layer graph the upstream
-  fingerprint covers ([T2](#gaps-in-detection), U1).
+  untouched. For idle compaction: t3's ACP adapter starts reporting `promptCacheExpiresAt` (the lock is then a cost
+  guard, and the switch can be unlocked), or t3 times it some other way.
+- **Detection**: `apps/environment/test/capabilities.test.ts` resolves the policy's default through t3's own
+  `resolveServerBackgroundActivitySettings`, and fails when it stops being off, or when t3 refuses the policy (it then
+  refuses to boot). **Silent** for idle compaction: nothing notices an ACP turn starting to carry a prompt cache
+  expiry.
 - **Blast radius**: medium. A dropped legacy key makes every Workspace fetch on t3's "balanced" 30 s by default, each
   fetch starting or keeping up its Container (billed); a refused policy stops t3 from booting.
 - **Fix**: default the new key t3 reads (a whole `backgroundActivity` once t3 accepts it unlocked), and keep the test

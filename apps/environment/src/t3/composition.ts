@@ -148,7 +148,6 @@ import * as ReplayMarkers from "t3/src/auth/replayMarkers.ts";
 import * as CodexManagedTokenBroker from "t3/src/provider/CodexManagedTokenBroker.ts";
 import * as WebhookRoute from "t3/src/scheduledTasks/webhookRoute.ts";
 import * as RelayDeliveryProof from "t3/src/scheduledTasks/RelayDeliveryProof.ts";
-import * as IdleCompactionService from "t3/src/orchestration-v2/IdleCompactionService.ts";
 import * as HeldHooksWaker from "t3/src/relay/HeldHooksWaker.ts";
 import * as McpOAuth from "t3/src/auth/McpOAuth.ts";
 import * as McpOAuthHttp from "t3/src/auth/mcpOAuthHttp.ts";
@@ -583,13 +582,9 @@ export const make = (options: CompositionOptions) => {
   const layerThreadSettlementWorker = Layer.effectDiscard(
     ThreadSettlementService.make.pipe(Effect.flatMap((service) => service.start())),
   ).pipe(Layer.provide(layerPullRequestService), Layer.provide(ProjectionStoreV2.layer));
-  // t3flare (SPI-1367): t3's idle compaction runs as stock t3's does. It sends `/compact` as a turn to `claudeAgent`
-  // instances only, which here are Claude Code in a Workspace's Container, so each starts that Container; its setting
-  // starts off, and is the Owner's (`managedPolicy.ts`). Its timers live in memory, as in t3: a compaction still waiting
-  // when the Environment sleeps or resets is skipped.
-  const layerIdleCompactionWorker = Layer.effectDiscard(
-    IdleCompactionService.make.pipe(Effect.flatMap((service) => service.start())),
-  ).pipe(Layer.provide(ProjectionStoreV2.layer));
+  // t3flare: t3's idle compaction worker is not started. It times a thread's `/compact` from the prompt cache's expiry a
+  // provider turn reports (`promptCacheExpiresAt`), which only t3's native Claude adapter reports; t3flare runs Claude
+  // Code over ACP, which reports none, so it could never fire. Its setting is locked off (`managedPolicy.ts`, SPI-1367).
   const layerThreadPullRequestWorker = Layer.effectDiscard(
     ThreadPullRequestService.make.pipe(Effect.flatMap((service) => service.start())),
   ).pipe(Layer.provide(layerPullRequestService));
@@ -633,7 +628,6 @@ export const make = (options: CompositionOptions) => {
     AgentAwarenessRelay.layer,
     HeldHooksWaker.layer,
     layerThreadSettlementWorker,
-    layerIdleCompactionWorker,
     StorageCleanup.layer.pipe(Layer.provide(ProjectionStoreV2.layer)),
     // t3flare: a project's or a thread's deletion wakes the Workspace Sweep (ADR-0043 §5).
     DeletionWake.layer,

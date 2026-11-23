@@ -9,8 +9,8 @@
 // - pi-durable's own compaction stays the mechanism: thresholds, the cut that never splits a call from its result, the
 //   overflow recovery. This hook only changes what fills the summary, and only where `context_rollover` is offered; with
 //   the context extension off, or its `rolloverOnCompaction` setting off, pi-durable summarizes as before.
-// - A manual compaction keeps pi-durable's summary. t3's idle compaction sends `/compact` to Claude Code threads only
-//   (K9; off by default, `managedPolicy.ts`) and never reaches a Durable agent.
+// - A manual compaction keeps pi-durable's summary. t3's idle compaction is locked off for every provider (K9,
+//   `managedPolicy.ts`) and never reaches a Durable agent.
 // - No owner `/rollover` (t3 has no surface for it), so a Rollover never ends its run; the requests the hook and the
 //   tool submit are steers that never start a run of their own (`whenIdle: "reject"`), so no work happens outside a
 //   turn t3 started.

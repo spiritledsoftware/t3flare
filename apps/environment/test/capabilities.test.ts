@@ -98,6 +98,7 @@ describe("t3flare's managed policy", () => {
         "enableDeviceSupport",
         "enablePreviewTunnel",
         "guestSharingEnabled",
+        "idleCompaction",
         "simlockDeviceHostsEnabled",
       ]),
     );
@@ -125,19 +126,20 @@ describe("t3flare's managed policy", () => {
     });
   });
 
-  // SPI-1367: git's automatic fetch and idle compaction are t3's own settings, the Owner's to change; the policy only
-  // starts them off, as t3flare always had them.
-  it("starts git's automatic fetch and idle compaction off, and leaves both to the Owner", async () => {
+  // SPI-1367: git's automatic fetch is t3's own setting, the Owner's to change; the policy only starts it off. Idle
+  // compaction stays locked off: it needs a turn's prompt cache expiry, which Claude Code over ACP never reports.
+  it("starts git's automatic fetch off and leaves it to the Owner; keeps idle compaction locked off", async () => {
     const { settings } = await policy;
     expect(
       Duration.toMillis(resolveServerBackgroundActivitySettings(settings.defaults).automaticGitFetchInterval),
     ).toBe(0);
-    expect(globalIdleCompaction(settings.defaults)).toBe("off");
+    expect(globalIdleCompaction(settings.applyLocks(settings.defaults))).toBe("off");
     const decoded = settings.defaults;
-    for (const patch of [
-      { idleCompaction: "beforeCacheExpires" },
-      { backgroundActivity: { schemaVersion: 1, profile: "balanced", overrides: {} } },
-    ])
-      expect(settings.vetWrite(decoded, decoded, patch)).not.toMatchObject({ _tag: "Locked" });
+    expect(
+      settings.vetWrite(decoded, decoded, { backgroundActivity: { schemaVersion: 1, profile: "balanced", overrides: {} } }),
+    ).not.toMatchObject({ _tag: "Locked" });
+    expect(settings.vetWrite(decoded, decoded, { idleCompaction: "beforeCacheExpires" })).toMatchObject({
+      _tag: "Locked",
+    });
   });
 });

@@ -600,5 +600,6 @@ deletes is asked downward.
   carry over; its title is "Pi and Claude Code sessions kept (days)".
 - **Fixed, named:** the HTTP router's `maxParamLength` is 16 KB, the Workers request URL ceiling, in place of an
   unexplained 512: no route parameter can be longer than the URL that carries it.
-- Git's automatic fetch and idle compaction are t3's own settings, off by default (ADR-0023's and ADR-0009's SPI-1367
-  refinements), so they have no row here. t3's product analytics stays off (Owner decision D1).
+- Git's automatic fetch is t3's own setting, off by default (ADR-0023's and ADR-0009's SPI-1367 refinements), so it
+  has no row here. Idle compaction stays locked off: it needs a provider turn's prompt cache expiry, which Claude Code
+  over ACP never reports (ADR-0023's SPI-1367 refinement). t3's product analytics stays off (Owner decision D1).
