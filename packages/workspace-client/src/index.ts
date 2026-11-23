@@ -384,10 +384,12 @@ export type ProcessInputAnswer = ProcessAnswer & {
 
 export type AgentEntryKind = "terminal" | "background_job";
 
-/** How an entry's process ended: an exit code, or the signal or reason that ended it. */
+/** How an entry's process ended: an exit code or a signal name (`SIGKILL`), and what else is known of its end. */
 export interface AgentExit {
   readonly code: number | null;
   readonly signal: string | null;
+  /** What else is known, in words: the Container stopped, the exit went unreported, processes survived the stop. */
+  readonly note?: string;
 }
 
 /** A zero-based screen position. */

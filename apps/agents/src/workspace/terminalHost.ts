@@ -13,6 +13,7 @@
 //   (cost audit F1): t3 re-attaches every open panel after an Environment restart, so an open must not hold the
 //   Container. A shell at its prompt holds it for less than one running a foreground command.
 import { ENVIRONMENT_SETTINGS } from "@t3flare/harness-registry";
+import type { KillAnswer } from "@t3flare/sandbox-image/kill";
 import { scanMarkers, terminalCommand } from "@t3flare/sandbox-image/terminal";
 import type {
   TerminalAnswer,
@@ -57,8 +58,8 @@ export interface TerminalHostDeps {
     argv: ReadonlyArray<string>,
     options: { readonly cols: number; readonly rows: number; readonly env: Record<string, string> },
   ) => Promise<ShellProcess>;
-  /** Part 2's kill script on markers, in the Container; nothing when it is not running. */
-  readonly kill: (markers: ReadonlyArray<string>) => Promise<void>;
+  /** Part 2's kill script on markers, in the Container, and its answer; undefined when it is not running or gave none. */
+  readonly kill: (markers: ReadonlyArray<string>) => Promise<KillAnswer | undefined>;
   /** Pushes a batch to the Environment DO. */
   readonly push: (push: Omit<TerminalPush, "workspace">) => Promise<TerminalPushAnswer>;
   /** The base env of a shell: the image's command env without `BASH_ENV`. */
@@ -441,16 +442,37 @@ export class TerminalHost {
 
   /** Kills the shell and what it started (part 2's kill script on its marker); its exit frame follows. */
   async close(key: string): Promise<TerminalAnswer> {
+    const known = this.#terminals.get(key)?.exited === false;
+    await this.closeAnswered(key);
+    return this.#answer(known ? [] : [key]);
+  }
+
+  /**
+   * `close`, and the kill script's answer (an agent's stop reports it, SPI-1372); undefined when no kill ran: the shell
+   * is unknown or gone, still opening (killed once it starts), or the Container is not running.
+   */
+  async closeAnswered(key: string): Promise<KillAnswer | undefined> {
     const terminal = this.#terminals.get(key);
-    if (terminal === undefined || terminal.exited) return this.#answer([key]);
+    if (terminal === undefined || terminal.exited) return undefined;
     terminal.closing = true;
-    if (terminal.process === undefined) return this.#answer([]); // still opening: killed once it starts
+    if (terminal.process === undefined) return undefined;
     if (!this.#deps.running()) {
       this.#exited(terminal, 129);
-      return this.#answer([]);
+      return undefined;
     }
-    await this.#deps.kill([key]);
-    return this.#answer([]);
+    return this.#deps.kill([key]);
+  }
+
+  /**
+   * Part 2's kill script on `key` again, whatever this object knows of it, and the script's answer: what it signalled,
+   * the last signal it sent, and what survived; undefined when the Container is not running (nothing is left to kill).
+   * Throws when the script gave no answer.
+   */
+  async kill(key: string): Promise<KillAnswer | undefined> {
+    if (!this.#deps.running()) return undefined;
+    const answer = await this.#deps.kill([key]);
+    if (answer !== undefined || !this.#deps.running()) return answer;
+    throw new Error("the kill script gave no answer, so whether its processes died is unknown");
   }
 
   /** The adapter's liveness for `keys`; answers the keys this object does not hold. */

@@ -3,6 +3,7 @@
 // `ExecProcess.kill`), F10 (only input is use), F11 (the epoch) and D1 (a lapsed heartbeat kills).
 // @effect-diagnostics globalTimers:off
 import { EMPTY_ENVIRONMENT, resolveEnvironment } from "@t3flare/harness-registry";
+import type { KillAnswer } from "@t3flare/sandbox-image/kill";
 import { MARK_BUSY, MARK_PROMPT, scanMarkers } from "@t3flare/sandbox-image/terminal";
 import type { TerminalFrame, TerminalPushAnswer } from "@t3flare/workspace-client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -56,6 +57,7 @@ const harness = (
     beforeSpawn?: () => Promise<void>;
     readBashrc?: () => boolean;
     maxTerminals?: () => number;
+    killAnswer?: KillAnswer;
   } = {},
 ) => {
   let now = 1_000_000;
@@ -80,7 +82,10 @@ const harness = (
       spawned.push({ argv, env: spawnOptions.env });
       return shell.process;
     },
-    kill: async (markers) => void killed.push(markers),
+    kill: async (markers) => {
+      killed.push(markers);
+      return options.killAnswer;
+    },
     push: async (push) => {
       if (options.pushMs !== undefined) await tick(options.pushMs);
       frames.push(...push.frames);
@@ -200,6 +205,26 @@ describe("TerminalHost", () => {
     // What the shell left in its session is killed after the exit too; a later close is answered as unknown.
     expect(h.killed).toEqual([["term-a1"], ["term-a1"]]);
     expect(await h.host.close("term-a1")).toEqual({ epoch: "epoch-1", unknown: ["term-a1"] });
+  });
+
+  // SPI-1372: an agent's stop kills again past its grace and reads the answer.
+  it("kills a key again with the script's answer: none when the Container is not running, an error when it gives none", async () => {
+    const answer = { signalled: 1, survivors: 0, signal: "KILL" } as const;
+    expect(await harness({ killAnswer: answer }).host.kill("term-a1")).toEqual(answer);
+    const stopped = harness({ running: false, killAnswer: answer });
+    expect(await stopped.host.kill("term-a1")).toBeUndefined();
+    expect(stopped.killed).toEqual([]);
+    await expect(harness().host.kill("term-a1")).rejects.toThrow("the kill script gave no answer");
+  });
+
+  it("closes with the kill script's answer, and none for a key it does not hold", async () => {
+    const answer = { signalled: 2, survivors: 1, signal: "KILL" } as const;
+    const h = harness({ killAnswer: answer });
+    await h.host.open(open("term-a1"));
+    expect(await h.host.closeAnswered("term-a1")).toEqual(answer);
+    expect(h.killed).toEqual([["term-a1"]]);
+    expect(await h.host.closeAnswered("term-zz")).toBeUndefined();
+    expect(h.killed).toEqual([["term-a1"]]);
   });
 
   it("kills a terminal whose Environment stopped heartbeating", async () => {

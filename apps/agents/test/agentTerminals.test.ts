@@ -3,6 +3,7 @@
 // @effect-diagnostics globalTimers:off globalDate:off nodeBuiltinImport:off
 import { spawnSync } from "node:child_process";
 
+import type { KillAnswer } from "@t3flare/sandbox-image/kill";
 import { terminalCommand } from "@t3flare/sandbox-image/terminal";
 import { describe, expect, it } from "vitest";
 
@@ -12,9 +13,15 @@ import { AgentTerminals } from "../src/workspace/agentTerminals.ts";
 const fakeHost = (
   program: (data: string, emit: (data: string) => void, exit: (code: number) => void) => void,
   maxLive: () => number = () => 8,
+  /** What a close and a kill do to a key's process, and their kills' answers; by default a close ends it with 130. */
+  stops: {
+    readonly close?: (key: string, exit: (code: number) => void) => KillAnswer | undefined;
+    readonly kill?: (key: string, exit: (code: number) => void) => KillAnswer | undefined;
+  } = {},
 ) => {
   const opened: Array<{ key: string; command: string; cwd: string }> = [];
   const closed: Array<string> = [];
+  const killed: Array<{ key: string; at: number }> = [];
   let terminals: AgentTerminals | undefined;
   const seq = new Map<string, number>();
   const emitTo = (key: string) => (data: string) => {
@@ -34,10 +41,15 @@ const fakeHost = (
       program(data, emitTo(key), exitTo(key));
       return Promise.resolve();
     },
-    close: (key: string) => {
+    closeAnswered: (key: string) => {
       closed.push(key);
+      if (stops.close !== undefined) return Promise.resolve(stops.close(key, exitTo(key)));
       setTimeout(() => exitTo(key)(130), 5);
-      return Promise.resolve();
+      return Promise.resolve<KillAnswer>({ signalled: 1, survivors: 0, signal: "TERM" });
+    },
+    kill: (key: string) => {
+      killed.push({ key, at: Date.now() });
+      return Promise.resolve(stops.kill?.(key, exitTo(key)));
     },
   };
   let n = 0;
@@ -49,7 +61,7 @@ const fakeHost = (
     repo: "/workspace/repo",
     maxLive,
   });
-  return { terminals, opened, closed };
+  return { terminals, opened, closed, killed };
 };
 
 const repl = (data: string, emit: (data: string) => void, exit: (code: number) => void) => {
@@ -188,6 +200,77 @@ describe("agent terminals", () => {
     expect(closed).toHaveLength(1);
     const lowered = await terminals.handle({ ...fourth, kind: "terminal" });
     expect(lowered.ok ? "" : lowered.error).toContain("allows 1");
+  });
+
+  // SPI-1372: what outlives the close's kill is killed again, and the stop says what happened.
+  it("kills what outlives a Terminal's close, and reports what the kills did", { timeout: 15_000 }, async () => {
+    const KILL = (survivors: number): KillAnswer => ({ signalled: 1, survivors, signal: "KILL" });
+    const which = (key: string) => key.slice(key.lastIndexOf("-") + 1);
+    const { terminals, opened, killed } = fakeHost(repl, () => 8, {
+      close: (key, exit) => {
+        // t4's shell exits at its close, but a marked child survives KILL.
+        if (which(key) === "t4") {
+          exit(130);
+          return KILL(1);
+        }
+        return KILL(1); // the rest trap the hangup, TERM and KILL alike
+      },
+      kill: (key, exit) => {
+        switch (which(key)) {
+          case "t1":
+            setTimeout(() => exit(137), 5); // its shell's exit follows the kill
+            return KILL(0);
+          case "t2":
+            return KILL(0); // dead, its exit frame lost
+          case "t3":
+          case "t4":
+            return KILL(1);
+          case "t5":
+            exit(137); // the shell's exit arrives during the kill, a child survives
+            return KILL(1);
+          case "t6":
+            return { signalled: 0, survivors: 0, signal: null };
+          default:
+            return undefined; // the Container stopped
+        }
+      },
+    });
+    const ids: Array<string> = [];
+    for (let index = 0; index < 7; index++) ids.push(await start(terminals));
+    const began = Date.now();
+    const results = await Promise.all(ids.map((id) => terminals.handle({ op: "stop", owner, id })));
+    const exitOf = (index: number) => {
+      const result = results[index]!;
+      return result.ok ? result.value.stopped.exit : result.error;
+    };
+
+    expect(killed.map((kill) => kill.key).toSorted()).toEqual(opened.map((open) => open.key).toSorted());
+    // Each is killed again after the grace, but t4 at once: its shell exited, so there is no exit to wait for.
+    for (const kill of killed)
+      if (which(kill.key) === "t4") expect(kill.at - began).toBeLessThan(1_000);
+      else expect(kill.at - began).toBeGreaterThanOrEqual(3_000);
+    const survived = "1 of its processes survived SIGKILL and still runs in the Workspace's Container";
+    // The shell's own exit, as the host reported it.
+    expect(exitOf(0)).toEqual({ code: 137, signal: null });
+    // No exit frame, but the kill saw its processes die: the signal it sent.
+    expect(exitOf(1)).toEqual({ code: null, signal: "SIGKILL" });
+    // Still running: not reported as killed, and still listed.
+    expect(exitOf(2)).toBe(
+      `t3: ${survived}. It stays listed as running; stop it again, or it ends when the Container stops.`,
+    );
+    // The shell exited, before the kill or during it, and a child outlived it: noted on the exit.
+    expect(exitOf(3)).toEqual({ code: 130, signal: null, note: `its shell ended, but ${survived}` });
+    expect(exitOf(4)).toEqual({ code: 137, signal: null, note: `its shell ended, but ${survived}` });
+    // Nothing marked was found: what is known, no signal.
+    expect(exitOf(5)).toEqual({
+      code: null,
+      signal: null,
+      note: "its stop found no marked process left to kill; its exit went unreported",
+    });
+    expect(exitOf(6)).toEqual({ code: null, signal: null, note: "the Workspace's Container stopped" });
+    const list = await terminals.handle({ op: "list", owner });
+    expect(list.ok && list.value.entries.map((entry) => [entry.id, entry.state])).toEqual([["t3", "running"]]);
+    expect(terminals.live).toBe(1);
   });
 
   it("runs a Background job with its output tee'd to a log, and reports an unseen exit once", async () => {

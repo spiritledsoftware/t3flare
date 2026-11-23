@@ -55,10 +55,11 @@ const workspace = () => {
         else emit(key, `${data.replace("\r", "")}\r\n= ${data.replace("\r", "").toUpperCase()}\r\n> `);
         return Promise.resolve();
       },
-      close: (key) => {
+      closeAnswered: (key) => {
         setTimeout(() => exit(key, 130), 5);
-        return Promise.resolve();
+        return Promise.resolve({ signalled: 1, survivors: 0, signal: "TERM" });
       },
+      kill: () => Promise.resolve({ signalled: 0, survivors: 0, signal: null }),
     },
     now: () => Date.now(),
     nextId: (() => {

@@ -15,6 +15,7 @@
 //   `MAX_KEPT` per owner: they keep their headless xterm outside the live count, bounded by `MAX_KEPT` alone;
 // - they end when the Container stops, as t3's terminals do, and when this object restarts (a deploy).
 import { ENVIRONMENT_SETTINGS, MAX_TERMINALS_PER_WORKSPACE } from "@t3flare/harness-registry";
+import type { KillAnswer } from "@t3flare/sandbox-image/kill";
 import { Terminal } from "@xterm/headless/lib-headless/xterm-headless.mjs";
 import type {
   AgentCursor,
@@ -40,8 +41,16 @@ export const MAX_KEPT = MAX_TERMINALS_PER_WORKSPACE;
 /** termctrl's settle constants (`terminal-tools.ts`). */
 export const QUIET_MS = 250;
 const POLL_MS = 50;
-/** termctrl escalates a stop to SIGKILL after this long (`termctrl-registry.ts` DEFAULT_STOP_GRACE_MS). */
+/**
+ * How long a stop waits for the entry's exit after its close (the host's kill script: TERM, then KILL from 2 s) before
+ * it kills the entry's processes again (termctrl's escalation to SIGKILL, `termctrl-registry.ts` DEFAULT_STOP_GRACE_MS).
+ */
 const STOP_GRACE_MS = 3_000;
+/**
+ * How long a stop waits for the exit frame once its kill saw every process die. Not a setting: the frame only has to
+ * cross the host's batch (`BULK_BATCH_MS`, 100 ms) and its push; past this the stop reports the kill's own answer.
+ */
+const EXIT_FRAME_MS = 1_000;
 /** Scrollback a Terminal keeps (termctrl's is several hundred lines). */
 const SCROLLBACK = 1_000;
 /** A Background job's output as a result shows it: pi-termctrl's `bashTail` (300 lines or 16 KB). */
@@ -86,7 +95,10 @@ export interface AgentTerminalHost {
     readonly command: string;
   }): Promise<unknown>;
   input(key: string, data: string): Promise<unknown>;
-  close(key: string): Promise<unknown>;
+  /** Closes `key` (the kill script on its marker), and gives the script's answer; undefined when no kill ran. */
+  closeAnswered(key: string): Promise<KillAnswer | undefined>;
+  /** The kill script on `key` again, and its answer; undefined when the Container is not running. */
+  kill(key: string): Promise<KillAnswer | undefined>;
 }
 
 export interface AgentTerminalsDeps {
@@ -192,10 +204,7 @@ export class AgentTerminals {
       }
       if (frame.exit !== undefined && entry.exit === null) {
         // 129 is the host's code for a shell the Container took with it (`containerStopped`, a kill before the start).
-        entry.exit =
-          frame.exit.code === 129
-            ? { code: null, signal: "the Workspace's Container stopped" }
-            : { code: frame.exit.code, signal: null };
+        entry.exit = frame.exit.code === 129 ? CONTAINER_STOPPED : { code: frame.exit.code, signal: null };
         entry.endedAt = this.#deps.now();
       }
     }
@@ -402,22 +411,45 @@ export class AgentTerminals {
     return { view: await this.#view(entry, request.view && reason !== "chunk"), reason, startScreen };
   }
 
+  /**
+   * Closes the entry (the host's kill script), and kills it again when it has not exited within the grace or the close's
+   * kill left survivors (SPI-1372). The exit is what happened: the host's exit frame; else the kill's own answer
+   * (`exitWithoutFrame`). Survivors of a running entry are no exit: the stop fails, and the entry stays running; survivors
+   * of an exited one are noted on its exit.
+   */
   async #stop(entry: Entry): Promise<AgentTerminalAnswers["stop"]> {
+    let closed: KillAnswer | undefined;
     if (entry.exit === null) {
-      await this.#deps.host.close(entry.marker);
-      const deadline = this.#deps.now() + STOP_GRACE_MS;
-      while (entry.exit === null && this.#deps.now() < deadline)
-        await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+      closed = await this.#deps.host.closeAnswered(entry.marker);
+      await this.#exitWithin(entry, STOP_GRACE_MS);
+    }
+    if (entry.exit === null || (closed?.survivors ?? 0) > 0) {
+      const answer = await this.#deps.host.kill(entry.marker);
+      const survivors = answer?.survivors ?? 0;
+      const survived = `${survivors} of its processes survived SIG${answer?.signal ?? "KILL"} and still ${survivors === 1 ? "runs" : "run"} in the Workspace's Container`;
+      if (survivors === 0) await this.#exitWithin(entry, EXIT_FRAME_MS);
+      // An exit frame can arrive during the kill: what the entry says by now decides.
+      if (entry.exit === null && survivors > 0)
+        throw new Error(
+          `${entry.id}: ${survived}. It stays listed as running; stop it again, or it ends when the Container stops.`,
+        );
       if (entry.exit === null) {
-        entry.exit = { code: null, signal: "SIGKILL" };
+        entry.exit = exitWithoutFrame(answer);
         entry.endedAt = this.#deps.now();
-      }
+      } else if (survivors > 0) entry.exit = { ...entry.exit, note: `its shell ended, but ${survived}` };
     }
     await entry.writing;
     const view = await this.#view(entry, true);
     const stopped = this.#info(entry);
     this.#forget(entry);
     return { stopped, view };
+  }
+
+  /** Waits up to `ms` for the entry's exit frame. */
+  async #exitWithin(entry: Entry, ms: number): Promise<void> {
+    const deadline = this.#deps.now() + ms;
+    while (entry.exit === null && this.#deps.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, POLL_MS));
   }
 
   async #wait(request: Extract<AgentTerminalRequest, { op: "wait" }>): Promise<AgentTerminalAnswers["wait"]> {
@@ -509,12 +541,25 @@ export class AgentTerminals {
   containerStopped(): void {
     for (const entry of this.#entries.values()) {
       if (entry.exit === null) {
-        entry.exit = { code: null, signal: "the Workspace's Container stopped" };
+        entry.exit = CONTAINER_STOPPED;
         entry.endedAt = this.#deps.now();
       }
     }
   }
 }
+
+const CONTAINER_STOPPED: AgentExit = { code: null, signal: null, note: "the Workspace's Container stopped" };
+
+/**
+ * A stopped entry's exit when no exit frame came, from the kill's answer: the signal it sent once every marked process
+ * died, or what is known when it found none (a process that dropped its marker, `exec env -i …`, may still run).
+ */
+export const exitWithoutFrame = (answer: KillAnswer | undefined): AgentExit =>
+  answer === undefined
+    ? CONTAINER_STOPPED
+    : answer.signal === null
+      ? { code: null, signal: null, note: "its stop found no marked process left to kill; its exit went unreported" }
+      : { code: null, signal: `SIG${answer.signal}` };
 
 /** termctrl's `wait_for_text`: a literal substring, or a regex written `/source/flags`. */
 export const patternOf = (pattern: string): ((screen: string) => boolean) => {
@@ -526,5 +571,8 @@ export const patternOf = (pattern: string): ((screen: string) => boolean) => {
   return (screen) => screen.includes(pattern);
 };
 
-export const describeExit = (exit: AgentExit): string =>
-  exit.code !== null ? `exit code ${exit.code}` : `ended by ${exit.signal ?? "a signal"}`;
+export const describeExit = (exit: AgentExit): string => {
+  const how =
+    exit.code !== null ? `exit code ${exit.code}` : exit.signal !== null ? `ended by ${exit.signal}` : "ended";
+  return exit.note === undefined ? how : `${how}: ${exit.note}`;
+};
