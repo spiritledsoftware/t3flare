@@ -36,6 +36,7 @@ import {
   readScopeOf,
   remoteRepoOf,
   subcommandOf,
+  T3FLARE_FATAL,
   type WorktreeCommand,
   worktreeCommandOf,
   worktreeDestinationOf,
@@ -118,6 +119,25 @@ const redactTokens = (text: string): string => {
   for (const token of environmentServices().github().live()) out = out.split(token).join("***");
   return out;
 };
+
+/**
+ * A line the router writes to stderr: one line, every live token taken out. t3 shows and persists the text of a
+ * `fatal: t3flare: ` line (Patch 0008, SPI-1182), so it must hold no secret and no line break.
+ */
+const routerLine = (text: string): string =>
+  `${redactTokens(text)
+    .replace(/\s*[\r\n]+\s*/g, " ")
+    .trim()}\n`;
+
+/**
+ * The Container's stderr as passed through: a line of it starting with the router's marker (a hook's output, or git's own
+ * words about a path named `t3flare`) is indented by one space, so only the router's own lines carry the marker t3 shows.
+ */
+const passedThrough = (stderr: string): string =>
+  stderr
+    .split("\n")
+    .map((line) => (line.startsWith(T3FLARE_FATAL) ? ` ${line}` : line))
+    .join("\n");
 
 /** An argv as the trace keeps it: credentials in URLs and anything token-like removed. */
 const traceArgv = (args: ReadonlyArray<string>) =>
@@ -302,7 +322,7 @@ const git = async (
     return {
       exitCode: 128,
       stdout: "",
-      stderr: `fatal: t3flare: ${stopped ? "the Workspace's Container is stopped" : answer.detail}\n`,
+      stderr: routerLine(`${T3FLARE_FATAL}${stopped ? "the Workspace's Container is stopped" : answer.detail}`),
       route: stopped ? "container-stopped" : "error",
       detail: answer.detail,
     };
@@ -310,7 +330,7 @@ const git = async (
   return {
     exitCode: answer.exitCode,
     stdout: redactTokens(fromWorkspaceText(at.id, answer.stdout)),
-    stderr: redactTokens(fromWorkspaceText(at.id, answer.stderr)),
+    stderr: passedThrough(redactTokens(fromWorkspaceText(at.id, answer.stderr))),
     route:
       options.route ??
       (answer.stale !== undefined ? `stale-${answer.stale}` : answer.cached === true ? "cache" : "container"),
@@ -324,14 +344,18 @@ const git = async (
 // ---------------------------------------------------------------------------------------------------------------------
 // Worktrees (step 2b, plan sections 3.2–3.5): a worktree is a Workspace of its own, a full clone.
 
-// t3 never shows git's stderr (it reports its own fixed text), so the trace keeps the reason too.
-const fail = (stderr: string, detail?: string): Answer => ({
-  exitCode: 128,
-  stdout: "",
-  stderr: stderr.endsWith("\n") ? stderr : `${stderr}\n`,
-  route: "worktree",
-  detail: `${detail === undefined ? "" : `${detail}: `}${stderr.trim()}`.slice(0, 1000),
-});
+// t3 shows a `fatal: t3flare: ` line's text in its git error (Patch 0008), never the rest of git's stderr; the trace keeps
+// the reason too.
+const fail = (text: string, detail?: string): Answer => {
+  const stderr = routerLine(text);
+  return {
+    exitCode: 128,
+    stdout: "",
+    stderr,
+    route: "worktree",
+    detail: `${detail === undefined ? "" : `${detail}: `}${stderr.trim()}`.slice(0, 1000),
+  };
+};
 
 /**
  * A detached scratch checkout (parity G7, `scratch.ts`): t3's own `git worktree add --detach <scratch dir>/<name> <commit>`
@@ -346,10 +370,10 @@ const scratchAdd = async (
   const project = toWorkspace(cwd);
   const record = project === null ? undefined : environmentServices().workspaces.resolve(project.id);
   if (project === null || record === undefined || record.kind !== "project" || project.inner !== REPO_ROOT) {
-    return fail("fatal: t3flare: a scratch checkout is made from a project's root in /w", "scratch refused");
+    return fail(`${T3FLARE_FATAL}a scratch checkout is made from a project's root in /w`, "scratch refused");
   }
   const bound = bindScratchCheckout(command.path, project.id);
-  if ("refused" in bound) return fail(`fatal: t3flare: '${command.path}': ${bound.refused}`, "scratch refused");
+  if ("refused" in bound) return fail(`${T3FLARE_FATAL}'${command.path}': ${bound.refused}`, "scratch refused");
   return git(args, cwd, env, undefined, { action: true, route: "scratch" });
 };
 
@@ -359,7 +383,7 @@ const worktreeAdd = async (cwd: string, command: Extract<WorktreeCommand, { verb
   if (command.detach) {
     // Review F6: only t3's scratch checkouts are detached (`scratchAdd`); a worktree Workspace is made on a branch.
     return fail(
-      `fatal: t3flare: a detached worktree is made only in a scratch directory t3 made in ${WORKTREES_ROOT} (asked for '${command.path}')`,
+      `${T3FLARE_FATAL}a detached worktree is made only in a scratch directory t3 made in ${WORKTREES_ROOT} (asked for '${command.path}')`,
       "detached refused",
     );
   }
@@ -368,9 +392,9 @@ const worktreeAdd = async (cwd: string, command: Extract<WorktreeCommand, { verb
   const project = toWorkspace(cwd);
   const parent = project === null ? undefined : services.workspaces.resolve(project.id);
   if (parent === undefined || parent.kind !== "project")
-    return fail(`fatal: t3flare: the project at ${cwd} is not a Workspace`);
+    return fail(`${T3FLARE_FATAL}the project at ${cwd} is not a Workspace`);
   const ref = command.newBranch ?? command.ref;
-  if (ref === null) return fail("fatal: t3flare: a worktree needs a branch");
+  if (ref === null) return fail(`${T3FLARE_FATAL}a worktree needs a branch`);
   const id = destination.id;
   const existing = services.workspaces.get(id);
   if (existing !== undefined) {
@@ -385,7 +409,7 @@ const worktreeAdd = async (cwd: string, command: Extract<WorktreeCommand, { verb
         (error: unknown) => String(error).slice(0, 300),
       );
       if (restoreError !== undefined)
-        return fail(`fatal: t3flare: '${command.path}' could not be restored: ${restoreError}`);
+        return fail(`${T3FLARE_FATAL}'${command.path}' could not be restored: ${restoreError}`);
       return {
         exitCode: 0,
         stdout: "",
@@ -398,7 +422,7 @@ const worktreeAdd = async (cwd: string, command: Extract<WorktreeCommand, { verb
       const { purgeWorkspace, referencesFrom } = await import("./deletion.ts");
       const purged = await purgeWorkspace(id, referencesFrom(services.sql).deletedThreads.get(id) ?? []);
       if (!purged.destroyed)
-        return fail(`fatal: t3flare: '${command.path}' is still being removed: ${purged.error ?? ""}`, "deleting");
+        return fail(`${T3FLARE_FATAL}'${command.path}' is still being removed: ${purged.error ?? ""}`, "deleting");
     } else services.workspaces.remove(id);
   }
   const started = Date.now();
@@ -422,7 +446,7 @@ const worktreeAdd = async (cwd: string, command: Extract<WorktreeCommand, { verb
       JSON.stringify({ t3flare: "worktree-failed", id, reason: redactTokens(reason).slice(0, 500), timings }),
     );
     return fail(
-      `fatal: t3flare: the worktree Workspace was not made: ${redactTokens(reason).slice(0, 800)}`,
+      `${T3FLARE_FATAL}the worktree Workspace was not made: ${redactTokens(reason).slice(0, 800)}`,
       JSON.stringify(timings),
     );
   };
@@ -546,7 +570,7 @@ const worktreeRouteOf = (
       };
     case "unsupported":
       return async () =>
-        fail(`fatal: t3flare: 'git worktree ${command.name}' is not supported in the Cloud Environment`);
+        fail(`${T3FLARE_FATAL}'git worktree ${command.name}' is not supported in the Cloud Environment`);
   }
 };
 

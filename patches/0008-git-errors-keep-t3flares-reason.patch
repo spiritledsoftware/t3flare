@@ -1,0 +1,40 @@
+diff --git a/apps/server/src/vcs/GitVcsDriverCore.ts b/apps/server/src/vcs/GitVcsDriverCore.ts
+index b88ade8..3b7bb9a 100644
+--- a/apps/server/src/vcs/GitVcsDriverCore.ts
++++ b/apps/server/src/vcs/GitVcsDriverCore.ts
+@@ -552,6 +552,17 @@ function gitFailureDetail(reason: GitCommandFailureReason | null): string {
+   );
+ }
+ 
++// t3flare: the Cloud Environment's own refusals (lines starting `fatal: t3flare: `) join the detail; git's stderr
++// stays hidden (SPI-1182).
++const T3FLARE_FATAL = "fatal: t3flare: ";
++function t3flareReason(stderr: string): string {
++  const lines = stderr
++    .split(/\r?\n/)
++    .filter((line) => line.startsWith(T3FLARE_FATAL))
++    .map((line) => line.slice(T3FLARE_FATAL.length).trim());
++  return lines.length === 0 ? "" : `: ${lines.join("; ")}`;
++}
++
+ // Existing non-commit objects share the missing-ref fatal diagnostic; Git
+ // distinguishes them with a separate error line.
+ const GIT_NOT_A_COMMIT_PATTERN = /^error: .+(?:, not a commit|expected commit type)/im;
+@@ -1152,7 +1163,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
+           return yield* new GitCommandError({
+             ...gitCommandContext(commandInput),
+             ...(reason === null ? {} : { reason }),
+-            detail: gitFailureDetail(reason),
++            detail: gitFailureDetail(reason) + t3flareReason(stderr.text),
+             exitCode,
+             stdoutLength: stdout.text.length,
+             stderrLength: stderr.text.length,
+@@ -1273,7 +1284,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
+           new GitCommandError({
+             ...gitCommandContext({ operation, cwd, args }),
+             ...(reason === null ? {} : { reason }),
+-            detail: options.fallbackErrorDetail ?? gitFailureDetail(reason),
++            detail: (options.fallbackErrorDetail ?? gitFailureDetail(reason)) + t3flareReason(result.stderr),
+             ...(result.exitCode === null ? {} : { exitCode: result.exitCode }),
+             stdoutLength: result.stdout.length,
+             stderrLength: result.stderr.length,

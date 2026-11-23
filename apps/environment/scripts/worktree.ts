@@ -206,7 +206,7 @@ if (scenario === "wrong-location") {
       detail?: string;
     }>;
     report.routerSaid = trace.filter((entry) => entry.argv.includes("add")).at(-1)?.detail ?? null;
-    // t3 never shows git's stderr (its error carries a fixed text); the router's answer is in the trace.
+    // t3 shows the router's `fatal: t3flare: ` line in its error (Patch 0008, SPI-1182); the trace keeps the answer too.
     check(
       "refused",
       created.path === null && /clear Settings → Worktrees → Location/.test(String(report.routerSaid)),
