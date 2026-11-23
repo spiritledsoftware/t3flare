@@ -333,7 +333,7 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
               const response = await fetch(`${url}${path}`, {
                 headers: { authorization: `Bearer ${token.value.accessToken}` },
                 // Never unbounded: a caller with no deadline of its own gets the Outside request time limit.
-              signal: signal ?? AbortSignal.timeout(requestMs()),
+                signal: signal ?? AbortSignal.timeout(requestMs()),
               });
               return {
                 status: response.status,

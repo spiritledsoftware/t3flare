@@ -239,8 +239,8 @@ describe("the Sweep's Purge of a deleted project with a worktree thread", () => 
     const map = new Map<string, unknown>([["t3flare:swept-sessions", ["t0", "t1"]]]);
     let listing = false;
     const kv = {
-      get: <T,>(key: string) => map.get(key) as T | undefined,
-      put: <T,>(key: string, value: T) => void map.set(key, value),
+      get: <T>(key: string) => map.get(key) as T | undefined,
+      put: <T>(key: string, value: T) => void map.set(key, value),
       delete: (key: string) => {
         // workerd's list is a live cursor over storage: a write inside it is what this guards against.
         if (listing) throw new Error("deleted inside the list's cursor");
@@ -249,7 +249,8 @@ describe("the Sweep's Purge of a deleted project with a worktree thread", () => 
       *list<T>(options: { readonly prefix: string }): Iterable<[string, T]> {
         listing = true;
         try {
-          for (const [key, value] of [...map].toSorted()) if (key.startsWith(options.prefix)) yield [key, value as T];
+          for (const [key, value] of [...map].toSorted(([a], [b]) => a.localeCompare(b)))
+            if (key.startsWith(options.prefix)) yield [key, value as T];
         } finally {
           listing = false;
         }

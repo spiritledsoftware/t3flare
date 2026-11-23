@@ -533,23 +533,22 @@ SPI-1323 refinement above, and widens SPI-1365's Outside request time limit.
 - **New settings**, each with today's value as default and read at its own next use (the Settings server says so). A
   tier follows ADR-0035 §3: what spends, holds, destroys or widens a window is asked in that direction.
 
-  | Setting | Default | Tier | Row |
-  | --- | --- | --- | --- |
-  | `githubRetrySeconds` | 60 | `up-free` (a shorter wait asks GitHub more often) | Outside requests |
-  | `textGenerationSeconds` | 110 | `down-free` | Outside requests |
-  | `mcpPausesPerCall` | 16 | `down-free` | MCP calls |
-  | `cliMcpStartSeconds` | 20 | `free` | MCP calls |
-  | `mcpSignInMinutes` | 10 | `down-free` (a longer window keeps a sign-in's state longer) | MCP calls |
-  | `idleAfterSeconds` | 60 | `down-free` (longer keeps t3 resident, and billed) | Sleep and wake |
-  | `prWatchWakeMinutes` | 10 | `up-free` (shorter boots t3 more often) | Sleep and wake |
-  | `remoteRetryMinutes` | 30 | `up-free` (shorter boots t3 more often) | Sleep and wake |
-  | `safeModeAfterFailures` | 3 | `down-free` (more lets a failing boot loop longer) | Sleep and wake |
-  | `browserProfileSaveSeconds` | 60 | `up-free` (shorter spends Browser Run time) | Previews |
-  | `htmlBrowserKeepAliveSeconds` | 120 | `down-free` (longer bills Browser Run time) | Previews |
-  | `pageTokenHours` | 1 | `down-free` (longer keeps a copied token valid longer) | access |
-  | `clientsPerKey` | 50 | `up-free` (fewer forgets modes the Owner set) | access |
-  | `connectPublishLogKept` | 100 | `up-free` (fewer deletes log entries) | access |
-
+  | Setting                       | Default | Tier                                                         | Row              |
+  | ----------------------------- | ------- | ------------------------------------------------------------ | ---------------- |
+  | `githubRetrySeconds`          | 60      | `up-free` (a shorter wait asks GitHub more often)            | Outside requests |
+  | `textGenerationSeconds`       | 110     | `down-free`                                                  | Outside requests |
+  | `mcpPausesPerCall`            | 16      | `down-free`                                                  | MCP calls        |
+  | `cliMcpStartSeconds`          | 20      | `free`                                                       | MCP calls        |
+  | `mcpSignInMinutes`            | 10      | `down-free` (a longer window keeps a sign-in's state longer) | MCP calls        |
+  | `idleAfterSeconds`            | 60      | `down-free` (longer keeps t3 resident, and billed)           | Sleep and wake   |
+  | `prWatchWakeMinutes`          | 10      | `up-free` (shorter boots t3 more often)                      | Sleep and wake   |
+  | `remoteRetryMinutes`          | 30      | `up-free` (shorter boots t3 more often)                      | Sleep and wake   |
+  | `safeModeAfterFailures`       | 3       | `down-free` (more lets a failing boot loop longer)           | Sleep and wake   |
+  | `browserProfileSaveSeconds`   | 60      | `up-free` (shorter spends Browser Run time)                  | Previews         |
+  | `htmlBrowserKeepAliveSeconds` | 120     | `down-free` (longer bills Browser Run time)                  | Previews         |
+  | `pageTokenHours`              | 1       | `down-free` (longer keeps a copied token valid longer)       | access           |
+  | `clientsPerKey`               | 50      | `up-free` (fewer forgets modes the Owner set)                | access           |
+  | `connectPublishLogKept`       | 100     | `up-free` (fewer deletes log entries)                        | access           |
   - The GitHub App's back-off doubles to 15 times `githubRetrySeconds`; GitHub's own named time is always kept; an
     account it is not installed on is listed again at most once a retry.
   - The agents Worker ends text generation at `textGenerationSeconds`, and the Environment waits
@@ -560,6 +559,7 @@ SPI-1323 refinement above, and widens SPI-1365's Outside request time limit.
     60 s close beside it is gone, and the default is the 120 s `keep_alive` it used.
   - T3 Connect's republish after a boot reads each live thread's last phase from a map of its own, never cut by the
     log's length.
+
 - **The Sweep at the platform's limit.** Each Session destroy is one RPC, and a Workers invocation makes at most 10,000
   subrequests. Past the limit the Session pass stops, records what it destroyed, skips the cost guard, and comes back
   a minute later, not a day.

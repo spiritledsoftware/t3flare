@@ -22,6 +22,9 @@ export * from "./variables.ts";
  */
 export const MAX_TIMED_MINUTES = 10_080;
 
+/** `MAX_TIMED_MINUTES` in seconds, for the limits set in seconds (SPI-1366). */
+export const MAX_TIMED_SECONDS = MAX_TIMED_MINUTES * 60;
+
 /**
  * The Container budget's default: at most this many Containers run at once across the deploy. The Owner changes it in
  * the Environment settings (`containerBudget`); each Workspace DO carries it with its lease request.
@@ -733,7 +736,7 @@ export const ENVIRONMENT_SETTINGS = {
       "How long a Container start or a turn waits for the newest settings before it goes ahead with the ones it last read; a start waits as long to learn which Base snapshot it starts from. A long wait holds a start or a turn that long whenever the settings are slow to answer. Applies at each thread's next turn. A Container start uses the wait it last kept, so a change can take one more start to apply fully.",
     // t3flare times it itself (the Session's and the Workspace DO's timers), so the shared sanity maximum applies
     // (ADR-0048 §2), in seconds.
-    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES * 60, default: DEFAULT_SETTINGS_READ_SECONDS },
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: DEFAULT_SETTINGS_READ_SECONDS },
     tier: "free",
   },
   variables: {
@@ -930,21 +933,21 @@ export const ENVIRONMENT_SETTINGS = {
   },
   mcpCallSeconds: {
     title: "MCP call time limit (seconds)",
-    description: `How long one MCP tool call may run before t3flare ends it and the agent is told it failed; it may have run on the server. Time spent waiting for your answer to the server's question does not count. A CLI agent's own tool timeout grows with it. At most ${MAX_TIMED_MINUTES * 60} (a week). Applies at the next call; a CLI agent's timeout at its next start.`,
+    description: `How long one MCP tool call may run before t3flare ends it and the agent is told it failed; it may have run on the server. Time spent waiting for your answer to the server's question does not count. A CLI agent's own tool timeout grows with it. At most ${MAX_TIMED_SECONDS} (a week). Applies at the next call; a CLI agent's timeout at its next start.`,
     // The MCP engine times the call with its own timer (packages/mcp/src/connection.ts), no platform limit: the shared
     // sanity maximum applies (ADR-0048 §2).
-    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES * 60, default: DEFAULT_MCP_CALL_SECONDS },
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: DEFAULT_MCP_CALL_SECONDS },
     tier: "down-free",
   },
   outsideRequestSeconds: {
     title: "Outside request time limit (seconds)",
-    description: `How long t3flare waits for one answer from GitHub, a sign-in's vendor (OpenAI, Anthropic, GitHub Copilot), T3 Connect or a Model endpoint: each GitHub read of a skills preview, install, update or check, each GitHub request of an Update and of the GitHub App's tokens, each request of a sign-in, its renewal and its revocation (a ChatGPT revocation with its retries takes at most twice this), T3 Connect's sign-in code and its unlink, and a Model endpoint's model list, all its pages together. A request past it fails, and what waited on it with it; a longer limit holds a stalled one that long, and an agent's Stop during its skills install waits for the install, up to about 500 times this limit if every read stalls. At most ${MAX_TIMED_MINUTES * 60} (a week). Applies at the next request.`,
+    description: `How long t3flare waits for one answer from GitHub, a sign-in's vendor (OpenAI, Anthropic, GitHub Copilot), T3 Connect or a Model endpoint: each GitHub read of a skills preview, install, update or check, each GitHub request of an Update and of the GitHub App's tokens, each request of a sign-in, its renewal and its revocation (a ChatGPT revocation with its retries takes at most twice this), T3 Connect's sign-in code and its unlink, and a Model endpoint's model list, all its pages together. A request past it fails, and what waited on it with it; a longer limit holds a stalled one that long, and an agent's Stop during its skills install waits for the install, up to about 500 times this limit if every read stalls. At most ${MAX_TIMED_SECONDS} (a week). Applies at the next request.`,
     // Timed by t3flare's own AbortSignal.timeout, no platform limit (an outbound fetch has none): the shared sanity
     // maximum applies (ADR-0048 §2).
     schema: {
       type: "integer",
       minimum: 1,
-      maximum: MAX_TIMED_MINUTES * 60,
+      maximum: MAX_TIMED_SECONDS,
       default: DEFAULT_OUTSIDE_REQUEST_SECONDS,
     },
     tier: "down-free",
@@ -989,9 +992,9 @@ export const ENVIRONMENT_SETTINGS = {
   },
   cliMcpStartSeconds: {
     title: "CLI agent's MCP start wait (seconds)",
-    description: `How long Codex waits for each of t3flare's MCP relay servers to start before it goes on without that server's tools for the session. A longer wait holds a Codex start that long when the relay is slow. At most ${MAX_TIMED_MINUTES * 60} (a week). Applies at each CLI agent's next start.`,
+    description: `How long Codex waits for each of t3flare's MCP relay servers to start before it goes on without that server's tools for the session. A longer wait holds a Codex start that long when the relay is slow. At most ${MAX_TIMED_SECONDS} (a week). Applies at each CLI agent's next start.`,
     // Codex times it itself (`startup_timeout_sec`), no platform limit: the shared sanity maximum applies (ADR-0048 §2).
-    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES * 60, default: DEFAULT_CLI_MCP_START_SECONDS },
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: DEFAULT_CLI_MCP_START_SECONDS },
     tier: "free",
   },
   mcpSignInMinutes: {
@@ -1003,24 +1006,25 @@ export const ENVIRONMENT_SETTINGS = {
   },
   githubRetrySeconds: {
     title: "Wait before asking GitHub again (seconds)",
-    description: `How long t3flare waits before asking GitHub again after it failed or was refused, unless GitHub named its own time, which is always kept. The GitHub App's token waits double with each failure in a row, up to ${GITHUB_RETRY_GROWTH} times this; a GitHub Copilot renewal waits this once; an account the App is not installed on is looked for again at most this often. Meanwhile every agent and git operation that needs a token gets the same failure. A shorter wait asks GitHub more often while it fails, which can bring on its rate limits. At most ${MAX_TIMED_MINUTES * 60} (a week). Applies at the next failure.`,
+    description: `How long t3flare waits before asking GitHub again after it failed or was refused, unless GitHub named its own time, which is always kept. The GitHub App's token waits double with each failure in a row, up to ${GITHUB_RETRY_GROWTH} times this; a GitHub Copilot renewal waits this once; an account the App is not installed on is looked for again at most this often. Meanwhile every agent and git operation that needs a token gets the same failure. A shorter wait asks GitHub more often while it fails, which can bring on its rate limits. At most ${MAX_TIMED_SECONDS} (a week). Applies at the next failure.`,
     // t3flare's own wait, no platform limit: the shared sanity maximum applies (ADR-0048 §2).
-    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES * 60, default: DEFAULT_GITHUB_RETRY_SECONDS },
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: DEFAULT_GITHUB_RETRY_SECONDS },
     tier: "up-free",
   },
   textGenerationSeconds: {
     title: "Text generation time limit (seconds)",
-    description: `How long a Model endpoint's model may take to write a thread's title, a commit message, a pull request's text or a branch name. Past it, that action fails and says the endpoint did not answer in time; a slow or reasoning model may need longer. At most ${MAX_TIMED_MINUTES * 60} (a week). Applies at the next text generation.`,
+    description: `How long a Model endpoint's model may take to write a thread's title, a commit message, a pull request's text or a branch name. Past it, that action fails and says the endpoint did not answer in time; a slow or reasoning model may need longer. At most ${MAX_TIMED_SECONDS} (a week). Applies at the next text generation.`,
     // The agents Worker's AbortSignal.timeout and the Environment's own wait (this plus `TEXT_GENERATION_MARGIN_MS`) time
     // it, no platform limit on a service binding's call: the shared sanity maximum applies (ADR-0048 §2).
-    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES * 60, default: DEFAULT_TEXT_GENERATION_SECONDS },
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: DEFAULT_TEXT_GENERATION_SECONDS },
     tier: "down-free",
   },
   idleAfterSeconds: {
     title: "Environment sleeps after (seconds)",
-    description: `How long the Environment waits with no open page, request or work before it sleeps; t3 starts again at the next request or wake, which takes a few seconds. While it waits it stays up, and Cloudflare bills its time. At most ${MAX_TIMED_MINUTES * 60} (a week). Applies at the next idle check.`,
-    // t3flare's own check (an interval in the Environment DO), no platform limit: the shared sanity maximum applies.
-    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES * 60, default: DEFAULT_IDLE_AFTER_SECONDS },
+    description: `How long the Environment waits with no open page, request or work before it sleeps; t3 starts again at the next request or wake, which takes a few seconds. While it waits it stays up, and Cloudflare bills its time. At most ${MAX_TIMED_SECONDS} (a week). Applies at the next idle check.`,
+    // t3flare's own check (an interval in the Environment DO), no platform limit: the shared sanity maximum applies
+    // (ADR-0048 §2).
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: DEFAULT_IDLE_AFTER_SECONDS },
     tier: "down-free",
   },
   prWatchWakeMinutes: {
@@ -1051,12 +1055,12 @@ export const ENVIRONMENT_SETTINGS = {
   },
   browserProfileSaveSeconds: {
     title: "Browser profile save (seconds)",
-    description: `How often an open preview browser's profile (its cookies and site storage) is saved while it changes. If the Environment restarts, up to this much of it is lost; each save is a browser command that keeps the browser, and its billing, alive. At most ${MAX_TIMED_MINUTES * 60} (a week). Applies to profiles opened after the change.`,
+    description: `How often an open preview browser's profile (its cookies and site storage) is saved while it changes. If the Environment restarts, up to this much of it is lost; each save is a browser command that keeps the browser, and its billing, alive. At most ${MAX_TIMED_SECONDS} (a week). Applies to profiles opened after the change.`,
     // t3flare's own timer, no platform limit: the shared sanity maximum applies (ADR-0048 §2).
     schema: {
       type: "integer",
       minimum: 1,
-      maximum: MAX_TIMED_MINUTES * 60,
+      maximum: MAX_TIMED_SECONDS,
       default: DEFAULT_BROWSER_PROFILE_SAVE_SECONDS,
     },
     tier: "up-free",

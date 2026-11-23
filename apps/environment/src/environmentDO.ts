@@ -225,9 +225,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       newKey: () => `proc-${crypto.randomUUID()}`,
       // Read at each CLI spawn (SPI-1318): the count applies at the next start, the reclaim delay to processes started after.
       cliLimits: () => {
-        const { cliProcessesPerWorkspace, cliReclaimSeconds } = resolveEnvironment(
-          harnessStore(ctx.storage.kv).loadEnvironment(),
-        );
+        const { cliProcessesPerWorkspace, cliReclaimSeconds } = this.#environmentNow();
         return { cliProcessesPerWorkspace, cliReclaimSeconds };
       },
     });
@@ -238,27 +236,24 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       workspaces: workspaceRegistry(ctx.storage.sql),
       sql: ctx.storage.sql,
       // Read at each use (ADR-0043 §2–3): a change to the Grace applies at the next Sweep, without a reset.
-      sweep: () =>
-        sweepSettingsOf(resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()), env.T3FLARE_SWEEP_GRACE_MS),
+      sweep: () => sweepSettingsOf(this.#environmentNow(), env.T3FLARE_SWEEP_GRACE_MS),
       // Read at each CLI spawn (ADR-0047 §9): a change applies at each CLI agent's next start.
-      agentsReadDotfiles: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).agentsReadDotfiles,
+      agentsReadDotfiles: () => this.#environmentNow().agentsReadDotfiles,
       // Read at each CLI spawn (SPI-1323): a change applies at each pi start.
-      piSessionRetentionDays: () =>
-        resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).piSessionRetentionDays,
+      piSessionRetentionDays: () => this.#environmentNow().piSessionRetentionDays,
       // Read at each turn's start (SPI-1315): a change applies at each thread's next turn; a running turn keeps its limit.
-      turnLimitMs: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).turnLimitMinutes * 60_000,
+      turnLimitMs: () => this.#environmentNow().turnLimitMinutes * 60_000,
       // Read at each turn's start (SPI-1314): how long the Session waits there for the newest settings.
-      settingsReadMs: () =>
-        resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).settingsReadSeconds * 1000,
+      settingsReadMs: () => this.#environmentNow().settingsReadSeconds * 1000,
       // Read at each clone and checkpoint operation (SPI-1324) and carried as its `timeoutMs`: one already running keeps it.
-      cloneMs: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).cloneMinutes * 60_000,
-      checkpointMs: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).checkpointMinutes * 60_000,
+      cloneMs: () => this.#environmentNow().cloneMinutes * 60_000,
+      checkpointMs: () => this.#environmentNow().checkpointMinutes * 60_000,
       // Read when a card is raised and at each CLI spawn (SPI-1316): a card already waiting keeps its deadline.
-      ownerAnswerMs: () => ownerAnswerMsOf(resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment())),
+      ownerAnswerMs: () => ownerAnswerMsOf(this.#environmentNow()),
       // Read at each CLI spawn (SPI-1359): the CLI's tool timeout covers the MCP call time limit as stored then.
-      mcpCallMs: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).mcpCallSeconds * 1000,
+      mcpCallMs: () => this.#environmentNow().mcpCallSeconds * 1000,
       // Read at each use (SPI-1366): the settings read at their own next use, not at a Container start.
-      environment: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()),
+      environment: () => this.#environmentNow(),
       // The deletion wake's Layer (`t3/deletionWake.ts`, ADR-0043 §5) asks for a Sweep here.
       wakeSweep: () => this.wakeSweep(),
       marks: { has: (key) => ctx.storage.kv.get(key) !== undefined, set: (key) => ctx.storage.kv.put(key, Date.now()) },
@@ -281,7 +276,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       publicOrigin: () => (this.env.T3FLARE_HOST === undefined ? null : `https://${this.env.T3FLARE_HOST}`),
       // Read at each record and prune (SPI-1323): a change applies at the next prune and to entries recorded from then on.
       usage: usageStore(ctx.storage.sql, {
-        retentionDays: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).usageRetentionDays,
+        retentionDays: () => this.#environmentNow().usageRetentionDays,
       }),
       limits: limitStore(ctx.storage.sql),
       browserRun: env.BROWSER,
@@ -317,8 +312,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       // Read at each request and each failure (SPI-1366).
       {
         requestTimeoutMs: () => this.#outsideRequestMs(),
-        retryMs: () =>
-          resolveEnvironment(harnessStore(this.ctx.storage.kv).loadEnvironment()).githubRetrySeconds * 1000,
+        retryMs: () => this.#environmentNow().githubRetrySeconds * 1000,
       },
     );
     return this.#github;
@@ -545,7 +539,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
 
   /** The Outside request time limit as stored now, in ms (SPI-1365): read at each request to GitHub or a vendor. */
   #outsideRequestMs(): number {
-    return resolveEnvironment(harnessStore(this.ctx.storage.kv).loadEnvironment()).outsideRequestSeconds * 1000;
+    return this.#environmentNow().outsideRequestSeconds * 1000;
   }
 
   /** A sign-in vendor's fetch, clock and request bound; `timeoutMs` is read at each request, so a change applies at the next. */
@@ -556,8 +550,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     readonly retryMs: number;
   } {
     const outsideRequestMs = () => this.#outsideRequestMs();
-    const retryMs = () =>
-      resolveEnvironment(harnessStore(this.ctx.storage.kv).loadEnvironment()).githubRetrySeconds * 1000;
+    const retryMs = () => this.#environmentNow().githubRetrySeconds * 1000;
     return {
       fetch: (input, init) => fetch(input, init),
       now: () => Date.now(),
@@ -824,7 +817,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       host: () => this.#configuredHost(),
       audit: (entry) => store.audit({ at: Date.now(), entity: "harness", caller: "oauth", ...entry }),
       // Read at each start (SPI-1366): a change applies to sign-ins started after it.
-      stateTtlMs: () => resolveEnvironment(store.loadEnvironment()).mcpSignInMinutes * 60_000,
+      stateTtlMs: () => this.#environmentNow().mcpSignInMinutes * 60_000,
     });
     return this.#harnessOAuth;
   }
@@ -842,11 +835,10 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       ownHost: () => this.env.T3FLARE_HOST ?? this.#host,
       settingsServer: (input) => this.#settingsCall(input),
       // Read at each call (SPI-1359): a change applies at the next call.
-      callTimeoutMs: () =>
-        resolveEnvironment(harnessStore(this.ctx.storage.kv).loadEnvironment()).mcpCallSeconds * 1000,
-      resultBytes: () => resolveEnvironment(harnessStore(this.ctx.storage.kv).loadEnvironment()).mcpResultKiB * 1024,
+      callTimeoutMs: () => this.#environmentNow().mcpCallSeconds * 1000,
+      resultBytes: () => this.#environmentNow().mcpResultKiB * 1024,
       // Read at each call (SPI-1366).
-      pausesPerCall: () => resolveEnvironment(harnessStore(this.ctx.storage.kv).loadEnvironment()).mcpPausesPerCall,
+      pausesPerCall: () => this.#environmentNow().mcpPausesPerCall,
     });
     return this.#mcpHost;
   }

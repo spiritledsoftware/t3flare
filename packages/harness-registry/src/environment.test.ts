@@ -27,6 +27,7 @@ import {
   MAX_AGENT_TERMINALS_PER_WORKSPACE,
   MAX_TERMINALS_PER_WORKSPACE,
   MAX_TIMED_MINUTES,
+  MAX_TIMED_SECONDS,
   resolveEnvironment,
   RETENTION_SETTING_KEYS,
   MCP_CALL_SETTING_KEYS,
@@ -671,9 +672,9 @@ describe("the MCP calls' time limit and result size (SPI-1359)", () => {
   it("are 270 seconds and 1024 KiB by default: the time limit 1 s to a week (ADR-0048 §2), the size 1 to 8192 KiB", () => {
     expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({ mcpCallSeconds: 270, mcpResultKiB: 1024 });
     expect(DEFAULT_MCP_CALL_MS).toBe(270_000);
-    for (const seconds of [1, 270, MAX_TIMED_MINUTES * 60])
+    for (const seconds of [1, 270, MAX_TIMED_SECONDS])
       expect(set({ mcpCallSeconds: seconds })).toMatchObject({ ok: true });
-    for (const seconds of [0, MAX_TIMED_MINUTES * 60 + 1, 2.5, "270"])
+    for (const seconds of [0, MAX_TIMED_SECONDS + 1, 2.5, "270"])
       expect(set({ mcpCallSeconds: seconds })).toMatchObject({ ok: false });
     for (const kib of [1, 1024, MAX_MCP_RESULT_KIB]) expect(set({ mcpResultKiB: kib })).toMatchObject({ ok: true });
     for (const kib of [0, MAX_MCP_RESULT_KIB + 1, 1.5]) expect(set({ mcpResultKiB: kib })).toMatchObject({ ok: false });
@@ -731,12 +732,12 @@ describe("the housekeeping waits and counts (SPI-1366)", () => {
   });
 
   it("time t3flare's own waits under the shared sanity maximum; Browser Run's keep-alive under its own", () => {
-    expect(ENVIRONMENT_SETTINGS.idleAfterSeconds.schema.maximum).toBe(MAX_TIMED_MINUTES * 60);
+    expect(ENVIRONMENT_SETTINGS.idleAfterSeconds.schema.maximum).toBe(MAX_TIMED_SECONDS);
     expect(ENVIRONMENT_SETTINGS.prWatchWakeMinutes.schema.maximum).toBe(MAX_TIMED_MINUTES);
     expect(ENVIRONMENT_SETTINGS.htmlBrowserKeepAliveSeconds.schema.maximum).toBe(MAX_BROWSER_KEEP_ALIVE_SECONDS);
     expect(MAX_BROWSER_KEEP_ALIVE_SECONDS).toBe(600);
     // The Environment's wait for text generation stays under a JS timer's 2^31 - 1 ms at the maximum.
-    expect(MAX_TIMED_MINUTES * 60 * 1000 + TEXT_GENERATION_MARGIN_MS).toBeLessThan(2 ** 31 - 1);
+    expect(MAX_TIMED_SECONDS * 1000 + TEXT_GENERATION_MARGIN_MS).toBeLessThan(2 ** 31 - 1);
     expect(DEFAULT_TEXT_GENERATION_SECONDS * 1000 + TEXT_GENERATION_MARGIN_MS).toBe(120_000);
   });
 
@@ -758,12 +759,12 @@ describe("the housekeeping waits and counts (SPI-1366)", () => {
 describe("the settings read wait (SPI-1314)", () => {
   const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
 
-  it("is 5 seconds by default, 1 to MAX_TIMED_MINUTES * 60 whole seconds (ADR-0048 §2)", () => {
+  it("is 5 seconds by default, 1 to MAX_TIMED_SECONDS whole seconds (ADR-0048 §2)", () => {
     expect(resolveEnvironment(EMPTY_ENVIRONMENT).settingsReadSeconds).toBe(5);
     expect(DEFAULT_SETTINGS_READ_MS).toBe(5000);
-    for (const seconds of [1, 5, 60, MAX_TIMED_MINUTES * 60])
+    for (const seconds of [1, 5, 60, MAX_TIMED_SECONDS])
       expect(set({ settingsReadSeconds: seconds })).toMatchObject({ ok: true });
-    for (const seconds of [0, MAX_TIMED_MINUTES * 60 + 1, 2.5, "5"])
+    for (const seconds of [0, MAX_TIMED_SECONDS + 1, 2.5, "5"])
       expect(set({ settingsReadSeconds: seconds })).toMatchObject({ ok: false });
     expect(resolveEnvironment({ revision: 1, settings: { settingsReadSeconds: 0 } }).settingsReadSeconds).toBe(5);
   });
