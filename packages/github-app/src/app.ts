@@ -176,8 +176,7 @@ export type GitHubAppOptions = {
    * After a failure GitHub named no time for, the first wait before it is asked again, in ms, read at each failure (the
    * Environment's `githubRetrySeconds`, SPI-1366). Absent: `RETRY_AFTER_MS`.
    */
-  readonly retryMs?: (() => number)
-    | undefined;
+  readonly retryMs?: (() => number) | undefined;
 };
 
 const encoder = new TextEncoder();
@@ -346,8 +345,7 @@ export class GitHubApp implements GitHubTokens {
 
     try {
       // Found before the mint's own wait, so a failure to list waits only on the list's.
-      const installation =
-        (await this.#installationIds()).get(name) ?? (await this.#installationIds(true)).get(name);
+      const installation = (await this.#installationIds()).get(name) ?? (await this.#installationIds(true)).get(name);
 
       if (installation === undefined) throw new GitHubNotInstalled(name);
 
@@ -527,7 +525,7 @@ export class GitHubApp implements GitHubTokens {
       return await this.#once("installations", async () => {
         const ids = new Map<string, number>();
 
-        for (let url: string | undefined = `${API}/app/installations?per_page=100`; url !== undefined; ) {
+        for (let url: string | undefined = `${API}/app/installations?per_page=100`; url !== undefined;) {
           const answer = await this.#ask(url, { method: "GET" });
 
           if (!answer.ok) throw refusal(answer.status, answer.message, answer.retryAt);

@@ -544,4 +544,3 @@ SPI-1323 refinement above, and widens SPI-1365's Outside request time limit.
 - **Derived.** A new Environment's first Sweep comes one Sweep cadence after its first look, not an hour.
 - **Kept.** The stage-only process check's parameters and the preview spike's CDP command wait are diagnostics' own,
   not the Owner's.
-

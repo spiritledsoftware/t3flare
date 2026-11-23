@@ -598,7 +598,9 @@ describe("GitHubApp", () => {
       privateKey: KEYS.privateKey,
       fetch: (url, init) =>
         url.endsWith("/app/installations?per_page=100")
-          ? Promise.resolve(Response.json(firstPage, { headers: { link: `<${next}>; rel="next", <${next}>; rel="last"` } }))
+          ? Promise.resolve(
+              Response.json(firstPage, { headers: { link: `<${next}>; rel="next", <${next}>; rel="last"` } }),
+            )
           : url === next
             ? Promise.resolve(Response.json([{ id: 500, account: { login: "late-org" } }]))
             : github.fetch(url, init),

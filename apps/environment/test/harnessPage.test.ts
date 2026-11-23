@@ -711,7 +711,11 @@ describe("the Environment section's dotfiles", () => {
         .filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined)
         .map((tag) => tag.attrs["data-setting"]);
     };
-    expect(settingsOf("outside-requests")).toEqual(["outsideRequestSeconds", "githubRetrySeconds", "textGenerationSeconds"]);
+    expect(settingsOf("outside-requests")).toEqual([
+      "outsideRequestSeconds",
+      "githubRetrySeconds",
+      "textGenerationSeconds",
+    ]);
     expect(settingsOf("lifecycle")).toEqual([
       "idleAfterSeconds",
       "prWatchWakeMinutes",

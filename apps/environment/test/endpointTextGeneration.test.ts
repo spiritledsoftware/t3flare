@@ -101,7 +101,10 @@ describe("runText on Model endpoints", () => {
       bindEnvironmentServices({
         agents: {
           TEXT_GENERATION: {
-            generate: (request: EndpointTextRequest) => (calls.push(request), new Promise<EndpointTextAnswer>(() => {})),
+            generate: (request: EndpointTextRequest) => (
+              calls.push(request),
+              new Promise<EndpointTextAnswer>(() => {})
+            ),
           },
         },
         modelEndpoints: () => ENDPOINTS,

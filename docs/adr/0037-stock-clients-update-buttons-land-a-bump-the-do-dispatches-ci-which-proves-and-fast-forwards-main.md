@@ -221,4 +221,3 @@ Supersedes the 3-hour ceiling on a run waiting its turn (step 10). A queued run 
 until GitHub's own queue limit or the Owner's cancel ends it, whose end is then the outcome: the queue's length is the
 Owner's own CI. Meanwhile the same target pressed again joins it, and another is refused, as before. A dispatch GitHub
 never lists still fails after 15 minutes, and `findRun` reads GitHub's largest page of runs (100).
-

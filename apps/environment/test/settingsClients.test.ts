@@ -276,12 +276,21 @@ describe("the table: keys isolated, capped per key, lastSeen throttled", () => {
   it("keeps as many clients per key as the setting says, read at each new client (SPI-1366)", () => {
     let now = 1_000;
     let perKey = 3;
-    const clients = ownerClients(nodeSqlStorage(), () => now, () => perKey);
+    const clients = ownerClients(
+      nodeSqlStorage(),
+      () => now,
+      () => perKey,
+    );
     for (let index = 0; index < 5; index++) {
       now += 1000;
       clients.seen(SUB, `client-${index}`);
     }
-    expect(clients.list().map((entry) => entry.clientName).toSorted()).toEqual(["client-2", "client-3", "client-4"]);
+    expect(
+      clients
+        .list()
+        .map((entry) => entry.clientName)
+        .toSorted(),
+    ).toEqual(["client-2", "client-3", "client-4"]);
     perKey = 100;
     for (let index = 5; index < 60; index++) {
       now += 1000;

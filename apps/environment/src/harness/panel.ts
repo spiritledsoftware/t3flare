@@ -434,12 +434,16 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
         return url.searchParams.has(name) && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
       };
       const before = number("before");
-      return json(auditPage(deps.store, { limit: number("limit") ?? AUDIT_PAGE, ...(before === undefined ? {} : { before }) }));
+      return json(
+        auditPage(deps.store, { limit: number("limit") ?? AUDIT_PAGE, ...(before === undefined ? {} : { before }) }),
+      );
     }
     // The page's token, new (SPI-1366): the page asks for it when a change is refused for a token that ran out.
     if (path === TOKEN_API_PATH) {
       const subject = deps.caller.kind === "owner" ? deps.caller.subject : "";
-      return json({ token: subject === "" ? "" : await csrfToken(deps.store.csrfKey(), subject, deps.now?.() ?? Date.now()) });
+      return json({
+        token: subject === "" ? "" : await csrfToken(deps.store.csrfKey(), subject, deps.now?.() ?? Date.now()),
+      });
     }
     if (path === CLIENTS_API_PATH && deps.clients !== undefined) return json({ clients: deps.clients.list() });
     if (path.startsWith(WORKSPACES_API_PATH) && deps.workspaces !== undefined) {

@@ -264,8 +264,7 @@ const completeSignIn = async (
   const device = started !== null && isDeviceSignIn(started);
   const pasted = device && body.pasted === undefined ? "" : body.pasted;
   // Any length (SPI-1366): the vendor's exchange judges it, and the request body's own bound holds it.
-  if (typeof pasted !== "string")
-    return { status: 400, text: "pasted is the address your browser landed on" };
+  if (typeof pasted !== "string") return { status: 400, text: "pasted is the address your browser landed on" };
   const result = await signIns.complete(id, pasted);
   const kind = signIns.status(id).kind;
   // Not approved yet: asked again after the vendor's interval; nothing to audit until it ends.

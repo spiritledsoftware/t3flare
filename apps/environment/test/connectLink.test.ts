@@ -274,7 +274,11 @@ describe("the publish-only link step against a fake relay", () => {
         new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason))),
     );
     const unlinked = await run(h, { ...STAGE, requestMs: () => 20 }, (connect) => connect.unlink);
-    expect(unlinked).toEqual({ relay: { skipped: "the relay did not answer" }, local: true, accountTokenCleared: false });
+    expect(unlinked).toEqual({
+      relay: { skipped: "the relay did not answer" },
+      local: true,
+      accountTokenCleared: false,
+    });
   });
 
   it("signs out: the relay's link, ours and the token go", async () => {

@@ -16,7 +16,6 @@ import { copilotModelApi } from "@t3flare/models/known";
 import { credentialHeaderOf } from "@t3flare/models/relay";
 import { DEFAULT_OUTSIDE_REQUEST_SECONDS } from "@t3flare/harness-registry";
 
-
 export type Discovery =
   | { readonly ok: true; readonly models: ReadonlyArray<EndpointModelInput> }
   | { readonly ok: false; readonly error: string };

@@ -533,7 +533,13 @@ describe("reads outside the panel", () => {
   it("reads as many audit entries a page as asked, past fifty, 20 by default (SPI-1366)", () => {
     const env = setup();
     for (let index = 0; index < 120; index++)
-      env.store.audit({ at: NOW + index, caller: "owner:owner-sub", entity: "harness", action: "x", target: `t${index}` });
+      env.store.audit({
+        at: NOW + index,
+        caller: "owner:owner-sub",
+        entity: "harness",
+        action: "x",
+        target: `t${index}`,
+      });
     expect(readAudit(env.ops, { limit: 100 }).entries).toHaveLength(100);
     expect(readAudit(env.ops).entries).toHaveLength(20);
     const first = readAudit(env.ops, { limit: 100 });

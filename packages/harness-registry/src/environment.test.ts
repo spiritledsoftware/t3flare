@@ -745,7 +745,12 @@ describe("the housekeeping waits and counts (SPI-1366)", () => {
       expect(ENVIRONMENT_SETTINGS[key].description).toMatch(/Applies (at|to) /);
       expect(ENVIRONMENT_SETTINGS[key]).not.toHaveProperty("row");
     }
-    for (const key of [...OUTSIDE_REQUEST_SETTING_KEYS, ...LIFECYCLE_SETTING_KEYS, ...PREVIEW_SETTING_KEYS, ...ACCESS_SETTING_KEYS])
+    for (const key of [
+      ...OUTSIDE_REQUEST_SETTING_KEYS,
+      ...LIFECYCLE_SETTING_KEYS,
+      ...PREVIEW_SETTING_KEYS,
+      ...ACCESS_SETTING_KEYS,
+    ])
       expect(NEXT_USE_SETTING_KEYS).toContain(key);
   });
 });

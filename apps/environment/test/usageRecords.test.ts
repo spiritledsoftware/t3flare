@@ -13,13 +13,7 @@ import { UsageAggregator } from "t3/src/usage/usageAggregation.ts";
 import { parseRateTable } from "t3/src/usage/usagePricing.ts";
 import { bindEnvironmentServices, type EnvironmentServices } from "../src/agents/bindings.ts";
 import { usageReader } from "../src/usage/readers.ts";
-import {
-  acceptUsage,
-  listedModelOf,
-  USAGE_SLOT_MS,
-  type UsageStore,
-  usageStore,
-} from "../src/usage/records.ts";
+import { acceptUsage, listedModelOf, USAGE_SLOT_MS, type UsageStore, usageStore } from "../src/usage/records.ts";
 import { nodeSqlStorage } from "./nodeSqlStorage.ts";
 
 const DAY = 24 * 60 * 60 * 1000;

@@ -1106,7 +1106,6 @@ ${baseBuildBlock(baseBuild, canRebuild)}
 </section>`;
 };
 
-
 /** One audit entry's row; the page script builds the same cells for an older page (`pageScript.ts`, Show older). */
 const auditRow = (entry: AuditEntry): string =>
   `<tr><td class="when" data-label="When"><div>${time(entry.at)}</div></td><td class="who" data-label="Who"><div>${escapeHtml(entry.caller)}</div></td><td data-label="Settings"><div>${escapeHtml(ENTITY_LABELS[entry.entity] ?? String(entry.entity))}</div></td><td data-label="Action"><div><code>${escapeHtml(entry.action)}</code></div></td><td data-label="Target"><div>${escapeHtml(entry.target)}</div></td><td data-label="Change"><div><code class="change">${escapeHtml(JSON.stringify(entry.after ?? null))}</code></div></td></tr>`;

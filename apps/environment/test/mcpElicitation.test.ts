@@ -428,7 +428,13 @@ describe("McpHost questions", () => {
         () => allowed,
       );
       const owner = askerAnswering(() => ({ decision: "accept" }));
-      const answer = await host.call({ server: "fixture", tool: "call", args: {}, judged: "write", asker: owner.asker });
+      const answer = await host.call({
+        server: "fixture",
+        tool: "call",
+        args: {},
+        judged: "write",
+        asker: owner.asker,
+      });
       expect(owner.cards).toHaveLength(expected);
       expect(requests.filter((request) => request.tool.name === "resume")).toHaveLength(expected);
       expect(answer).toMatchObject({

@@ -52,4 +52,3 @@ PR watch's and the Remote tasks' fixed wakes.
 - **Safe mode follows `safeModeAfterFailures`** failed boots in a row (3, `down-free`).
 
 All four are in the Settings page's Sleep and wake row, read at each use.
-

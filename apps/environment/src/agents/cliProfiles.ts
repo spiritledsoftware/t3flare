@@ -289,8 +289,7 @@ const codexExecLaunch = (input: LaunchInput, context: ProfileContext): LaunchAns
   if (input.args.length !== expected.length || input.args.some((arg, at) => arg !== expected[at]))
     return { refused: "Codex runs `codex exec` here only for t3's read-only investigations" };
   // The characters keep the one argv element plain (SPI-1366): no length bound, Linux takes 128 KiB a string.
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(model))
-    return { refused: `Codex's model ${model} is not a model name` };
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(model)) return { refused: `Codex's model ${model} is not a model name` };
   const schema = schemaPath.startsWith("/") ? context.readStateFile(schemaPath) : undefined;
   if (schema === undefined) return { refused: `Codex's output schema ${schemaPath} is not in the State directory` };
   const endpoints = context.endpoints ?? [];

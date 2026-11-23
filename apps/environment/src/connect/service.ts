@@ -320,50 +320,51 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
      * The relay's view, with the account token (stages): environments and devices, reduced to what proves the link. Bounded
      * by `signal`, the admin request's own (SPI-1366): outside the Connect lock, nothing else waits on it.
      */
-    const relayView = (signal: AbortSignal | undefined) => Effect.gen(function* () {
-      const token = yield* tokens.getExisting.pipe(Effect.option, Effect.map(Option.flatten));
-      const url = yield* relayUrl;
-      if (Option.isNone(token) || url === null) return { skipped: "no account token held" };
-      const get = (path: string) =>
-        Effect.tryPromise({
-          try: async () => {
-            // @effect-diagnostics-next-line globalFetchInEffect:off -- the Worker's global fetch, as before: connectLink.test.ts stubs it, and the HttpClient service in scope is t3's sign-in client
-            const response = await fetch(`${url}${path}`, {
-              headers: { authorization: `Bearer ${token.value.accessToken}` },
-              ...(signal === undefined ? {} : { signal }),
-            });
-            return {
-              status: response.status,
-              body: response.ok ? ((await response.json()) as Record<string, unknown>) : null,
-            };
+    const relayView = (signal: AbortSignal | undefined) =>
+      Effect.gen(function* () {
+        const token = yield* tokens.getExisting.pipe(Effect.option, Effect.map(Option.flatten));
+        const url = yield* relayUrl;
+        if (Option.isNone(token) || url === null) return { skipped: "no account token held" };
+        const get = (path: string) =>
+          Effect.tryPromise({
+            try: async () => {
+              // @effect-diagnostics-next-line globalFetchInEffect:off -- the Worker's global fetch, as before: connectLink.test.ts stubs it, and the HttpClient service in scope is t3's sign-in client
+              const response = await fetch(`${url}${path}`, {
+                headers: { authorization: `Bearer ${token.value.accessToken}` },
+                ...(signal === undefined ? {} : { signal }),
+              });
+              return {
+                status: response.status,
+                body: response.ok ? ((await response.json()) as Record<string, unknown>) : null,
+              };
+            },
+            catch: () => fail("relay-unreachable"),
+          }).pipe(Effect.orElseSucceed(() => ({ status: 0, body: null })));
+        const [environments, devices] = yield* Effect.all([get("/v1/environments"), get("/v2/client/devices")], {
+          concurrency: 2,
+        });
+        const list = (body: Record<string, unknown> | null, key: string) =>
+          Array.isArray(body?.[key]) ? (body[key] as Array<Record<string, any>>) : [];
+        return {
+          environments: {
+            status: environments.status,
+            items: list(environments.body, "environments").map((e) => ({
+              environmentId: e.environmentId,
+              label: e.label,
+              providerKind: e.endpoint?.providerKind ?? null,
+              linkedAt: e.linkedAt,
+            })),
           },
-          catch: () => fail("relay-unreachable"),
-        }).pipe(Effect.orElseSucceed(() => ({ status: 0, body: null })));
-      const [environments, devices] = yield* Effect.all([get("/v1/environments"), get("/v2/client/devices")], {
-        concurrency: 2,
+          devices: {
+            status: devices.status,
+            items: list(devices.body, "devices").map((d) => ({
+              platform: d.platform,
+              appVersion: d.appVersion,
+              notifications: d.notifications,
+            })),
+          },
+        };
       });
-      const list = (body: Record<string, unknown> | null, key: string) =>
-        Array.isArray(body?.[key]) ? (body[key] as Array<Record<string, any>>) : [];
-      return {
-        environments: {
-          status: environments.status,
-          items: list(environments.body, "environments").map((e) => ({
-            environmentId: e.environmentId,
-            label: e.label,
-            providerKind: e.endpoint?.providerKind ?? null,
-            linkedAt: e.linkedAt,
-          })),
-        },
-        devices: {
-          status: devices.status,
-          items: list(devices.body, "devices").map((d) => ({
-            platform: d.platform,
-            appVersion: d.appVersion,
-            notifications: d.notifications,
-          })),
-        },
-      };
-    });
 
     const status = ({ relay, signal }: { readonly relay: boolean; readonly signal?: AbortSignal }) =>
       Effect.gen(function* () {

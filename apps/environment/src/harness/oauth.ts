@@ -243,11 +243,13 @@ export class HarnessOAuth {
       expiresAt: this.#now() + (this.#deps.stateTtlMs?.() ?? STATE_TTL_MS),
     };
     // The abandoned states (no redirect came back) go once past their time; this one joins the index.
-    const started = Object.entries(this.#deps.kv.get<Record<string, number>>(STATES_KEY) ?? {}).filter(([old, expiresAt]) => {
-      if (expiresAt >= this.#now()) return true;
-      this.#deps.kv.delete(stateKey(old));
-      return false;
-    });
+    const started = Object.entries(this.#deps.kv.get<Record<string, number>>(STATES_KEY) ?? {}).filter(
+      ([old, expiresAt]) => {
+        if (expiresAt >= this.#now()) return true;
+        this.#deps.kv.delete(stateKey(old));
+        return false;
+      },
+    );
     this.#deps.kv.put(STATES_KEY, Object.fromEntries([...started, [state, pending.expiresAt]]));
     this.#deps.kv.put(stateKey(state), pending);
     this.#deps.audit?.({

@@ -158,15 +158,18 @@ export const profileSaver = (
     }
     savedChanges = Math.max(savedChanges, at);
   };
-  const timer = setInterval(() => {
-    if (saving || changes === savedChanges) return;
-    saving = true;
-    void save()
-      .catch(() => undefined)
-      .finally(() => {
-        saving = false;
-      });
-  }, options.intervalMs ?? environmentNow().browserProfileSaveSeconds * 1000);
+  const timer = setInterval(
+    () => {
+      if (saving || changes === savedChanges) return;
+      saving = true;
+      void save()
+        .catch(() => undefined)
+        .finally(() => {
+          saving = false;
+        });
+    },
+    options.intervalMs ?? environmentNow().browserProfileSaveSeconds * 1000,
+  );
   const watchPage = (page: Page) => {
     mark();
     page.on("framenavigated", mark);

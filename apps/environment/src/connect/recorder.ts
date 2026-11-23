@@ -162,7 +162,9 @@ export const makePublishRecorder = (
       ? Object.entries(storedPhases).filter((entry): entry is [string, string] => typeof entry[1] === "string")
       : // Kept before SPI-1366: the log's own `publishing` entries.
         entries.flatMap((entry) =>
-          entry.event === "publishing" && typeof entry.phase === "string" ? [[entry.threadId, entry.phase] as const] : [],
+          entry.event === "publishing" && typeof entry.phase === "string"
+            ? [[entry.threadId, entry.phase] as const]
+            : [],
         ),
   );
   for (const [threadId, phase] of phases) if (!LIVE_PHASES.has(phase)) phases.delete(threadId);
