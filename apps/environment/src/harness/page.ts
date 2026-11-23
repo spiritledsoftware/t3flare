@@ -29,6 +29,7 @@ import {
   t3Exposures,
   type T3ToolListing,
   CONTAINER_SETUP_OUTPUT_STATUS,
+  CUSTOM_SIZE,
   type BaseBuildRecord,
   describeBaseBuild,
   describeTestBaseBuild,
@@ -57,7 +58,7 @@ import {
   visible,
 } from "@t3flare/harness-registry";
 
-import { type ContainerCostTable, containerCostTable } from "./containerCost.ts";
+import { CONTAINER_PRICES, type ContainerCostTable, containerCostTable } from "./containerCost.ts";
 import { durationText, OWNER_MODES, type OwnerMode } from "../settings/changes.ts";
 import type { OwnerClientEntry } from "../settings/clients.ts";
 import type { PageReason } from "../settings/types.ts";
@@ -153,7 +154,7 @@ const field = (
     case "enum":
       // An enum that takes whole numbers too (the Advisor's cadence): a text box offering the named values.
       if (setting.schema.integers !== undefined)
-        return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="text" inputmode="text" autocomplete="off" spellcheck="false" required list="${id}-values" pattern="${escapeHtml(`${setting.schema.values.join("|")}|[1-9][0-9]*`)}" ${attrs} value="${escapeHtml(typeof value === "string" ? value : setting.schema.default)}"><datalist id="${id}-values">${setting.schema.values.map((option) => `<option value="${escapeHtml(option)}"></option>`).join("")}</datalist>${hint}</div>`;
+        return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="text" autocomplete="off" spellcheck="false" required list="${id}-values" pattern="${escapeHtml(`${setting.schema.values.join("|")}|[1-9][0-9]*`)}" title="${escapeHtml(`${setting.schema.values.join(", ")}, or a whole number of ${setting.schema.integers.minimum} or more`)}" ${attrs} value="${escapeHtml(typeof value === "string" ? value : setting.schema.default)}"><datalist id="${id}-values">${setting.schema.values.map((option) => `<option value="${escapeHtml(option)}"></option>`).join("")}</datalist>${hint}</div>`;
       return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><select ${attrs}>${setting.schema.values
         .map(
           (option) =>
@@ -361,7 +362,7 @@ const t3Card = (resolved: ResolvedHarness, listing: T3ToolListing | undefined): 
       ]
         .filter((text) => text !== "")
         .join(" ");
-      return `<tr><td class="tool" data-label="Tool"><code>${escapeHtml(tool.name)}</code>${tool.description === undefined ? "" : `<span class="src clamp" title="${escapeHtml(tool.description)}">${escapeHtml(tool.description)}</span>`}</td><td class="cls" data-label="Class"><div><span class="tag tag-${tool.readOnly ? "read" : "write"}">${tool.readOnly ? "read" : "write"}</span></div></td><td class="exp" data-label="Exposure"><div>${toolExposureSelect(
+      return `<tr><td class="tool" data-label="Tool"><code>${escapeHtml(tool.name)}</code>${tool.description === undefined ? "" : `<span class="src">${escapeHtml(tool.description)}</span>`}</td><td class="cls" data-label="Class"><div><span class="tag tag-${tool.readOnly ? "read" : "write"}">${tool.readOnly ? "read" : "write"}</span></div></td><td class="exp" data-label="Exposure"><div>${toolExposureSelect(
         {
           tool: tool.name,
           t3: true,
@@ -401,7 +402,10 @@ ${table}</article>`;
 
 const dollars = (amount: number, digits: number) => `$${amount.toFixed(digits)}`;
 
-const gib = (mib: number) => `${mib / 1024} GiB`;
+const gib = (mib: number) => `${Number((mib / 1024).toFixed(2))} GiB`;
+
+/** The settings of a custom size's resources (SPI-1365), shown only while a size is custom. */
+const CUSTOM_RESOURCE_KEYS: ReadonlyArray<string> = ["customVcpu", "customMemoryMib", "customDiskMb"];
 
 const containers = (count: number) => `${count} ${count === 1 ? "Container" : "Containers"}`;
 
@@ -417,11 +421,14 @@ const costNow = (costs: ContainerCostTable, size: string): string => {
  * Each size's resources and worst-case hour, one Container and the budget's. Each row carries its one-Container hour, so
  * the page's script recomputes the budget column, the current row and the summary as the inputs change.
  */
+/** The custom row's unit prices an hour, so the script prices its unsaved vCPU, memory and disk as they are typed. */
+const CUSTOM_PRICES = ` data-vcpu-hour="${CONTAINER_PRICES.vcpuSecond * 3600}" data-gib-hour="${CONTAINER_PRICES.memoryGibSecond * 3600}" data-gb-hour="${CONTAINER_PRICES.diskGbSecond * 3600}"`;
+
 const costTable = (costs: ContainerCostTable, size: string): string => {
   const rows = costs.rows
     .map(
       (row) =>
-        `<tr data-size="${escapeHtml(row.size)}" data-per-hour="${Number(row.perContainerHour.toFixed(6))}"${row.size === size ? ' aria-current="true"' : ""}><td data-label="Size"><div><code>${escapeHtml(row.size)}</code>${row.default ? ' <span class="tag">default</span>' : ""}</div></td><td data-label="vCPU"><div>${row.resources.vcpu}</div></td><td data-label="Memory"><div>${gib(row.resources.memoryMib)}</div></td><td data-label="Disk"><div>${row.resources.diskMb / 1000} GB</div></td><td data-label="One Container, an hour"><div>${dollars(row.perContainerHour, 3)}</div></td><td data-label="${containers(costs.budget)}, an hour" data-budget-cell><div data-budget-hour>${dollars(row.budgetHour, 2)}</div></td></tr>`,
+        `<tr data-size="${escapeHtml(row.size)}" data-per-hour="${Number(row.perContainerHour.toFixed(6))}"${row.size === size ? ' aria-current="true"' : ""}${row.size === CUSTOM_SIZE ? CUSTOM_PRICES : ""}><td data-label="Size"><div><code>${escapeHtml(row.size)}</code>${row.default ? ' <span class="tag">default</span>' : ""}</div></td><td data-label="vCPU"><div data-resource="vcpu">${row.resources.vcpu}</div></td><td data-label="Memory"><div data-resource="memory">${gib(row.resources.memoryMib)}</div></td><td data-label="Disk"><div data-resource="disk">${row.resources.diskMb / 1000} GB</div></td><td data-label="One Container, an hour"><div data-container-hour>${dollars(row.perContainerHour, 3)}</div></td><td data-label="${containers(costs.budget)}, an hour" data-budget-cell><div data-budget-hour>${dollars(row.budgetHour, 2)}</div></td></tr>`,
     )
     .join("");
   return `<div class="table-wrap"><table class="stacked"><thead><tr><th scope="col">Size</th><th scope="col">vCPU</th><th scope="col">Memory</th><th scope="col">Disk</th><th scope="col">One Container, an hour</th><th scope="col" data-budget-head>${containers(costs.budget)}, an hour</th></tr></thead><tbody>${rows}</tbody></table></div>`;
@@ -461,9 +468,19 @@ const environmentSection = (
   // The budget states its consequence once, under its own description, where the script rewrites it as the input changes.
   const noteFor = (key: string): FieldNote | undefined =>
     key === "containerBudget" ? { text: budgetNote(environment.containerBudget), data: "budget-note" } : undefined;
+  // A custom size's resources show, and are sent, only while the Container size or the Builder size is custom (the
+  // script follows the selects); otherwise they are hidden and disabled, so an unused one never blocks a save.
+  const customInUse = environment.containerSize === CUSTOM_SIZE || environment.builderSize === CUSTOM_SIZE;
   const fields = entries
     .filter(([key, setting]) => !ownRow(setting) && setting.row === undefined && !keyed.includes(key))
-    .map(([key, setting]) => field("environment", key, setting, values[key], false, noteFor(key)));
+    .map(([key, setting]) =>
+      CUSTOM_RESOURCE_KEYS.includes(key)
+        ? field("environment", key, setting, values[key], !customInUse).replace(
+            '<div class="field">',
+            `<div class="field" data-custom-resource${customInUse ? "" : " hidden"}>`,
+          )
+        : field("environment", key, setting, values[key], false, noteFor(key)),
+    );
   const joining = (row: string) =>
     entries
       .filter(([, setting]) => setting.row === row)

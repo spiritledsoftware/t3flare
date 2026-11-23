@@ -446,12 +446,11 @@ export const ENVIRONMENT_SETTINGS = {
   containerSize: {
     title: "Container size",
     description:
-      "The vCPU, memory and disk a Workspace's Container starts with. Applies at each Workspace's next Container start; a running Container keeps its size.",
+      "The vCPU, memory and disk a Workspace's Container starts with; custom takes them from the three settings it shows. Applies at each Workspace's next Container start; a running Container keeps its size.",
     schema: {
       type: "enum",
       values: CONTAINER_SIZE_NAMES,
       default: DEFAULT_CONTAINER_SIZE,
-      labels: { [CUSTOM_SIZE]: "custom (the vCPU, memory and disk below)" },
     },
   },
   customVcpu: {
@@ -691,10 +690,7 @@ export const ENVIRONMENT_SETTINGS = {
       type: "enum",
       values: [BUILDER_SAME_SIZE, ...CONTAINER_SIZE_NAMES],
       default: BUILDER_SAME_SIZE,
-      labels: {
-        [BUILDER_SAME_SIZE]: "Same as Container size",
-        [CUSTOM_SIZE]: "custom (the vCPU, memory and disk above)",
-      },
+      labels: { [BUILDER_SAME_SIZE]: "Same as Container size" },
     },
     row: "imageSetup",
   },

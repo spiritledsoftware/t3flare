@@ -15,7 +15,7 @@ import {
 } from "@t3flare/harness-registry";
 
 /** US dollars per unit-second. */
-const CONTAINER_PRICES = {
+export const CONTAINER_PRICES = {
   /** Per GiB of provisioned memory, per second the Container runs. */
   memoryGibSecond: 0.0000025,
   /** Per vCPU, per second of active use. */

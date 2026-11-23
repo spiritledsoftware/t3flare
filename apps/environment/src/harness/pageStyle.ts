@@ -207,8 +207,6 @@ tbody tr:hover>td{background:color-mix(in oklab,var(--hover) 60%,transparent)}
 td.num,.num{font-variant-numeric:tabular-nums}
 tr[aria-current]>td{background:color-mix(in oklab,var(--hover) 60%,transparent);font-weight:550}
 td .src{display:block;margin-top:.125rem;font-size:.6875rem;color:var(--muted-fg)}
-/* A t3 tool's description is whole (SPI-1365): three lines show, the rest on hover. */
-td .src.clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden}
 td.actions{text-align:right;white-space:nowrap}
 .change{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;font-size:.6875rem;color:var(--muted-fg);overflow-wrap:anywhere;max-width:22rem}
 .when{white-space:nowrap;color:var(--muted-fg);font-variant-numeric:tabular-nums}
