@@ -52,8 +52,19 @@ export const SKILL_ROOTS = [".pi/skills", ".agents/skills", ".claude/skills"] as
 /** The longest description kept, the Agent Skills limit: a repo's skills are not trusted to size the prompt. */
 export const MAX_DESCRIPTION_LENGTH = 1024;
 
-/** The most Repo skills kept, nearest first. */
-export const MAX_REPO_SKILLS = 100;
+/**
+ * How far discovery reads (SPI-1365: the Environment settings `repoSkillsListed`, `skillsDirectoryEntries` and
+ * `skillsLinkEntries`): the most Repo skills kept, nearest first, each listed in the agent's prompt; the most entries
+ * listed in one skills directory; and the most read from a directory a skills link points to, which may lead anywhere.
+ */
+export interface SkillLimits {
+  readonly repoSkills: number;
+  readonly rootEntries: number;
+  readonly linkedEntries: number;
+}
+
+/** The limits' defaults, today's: the settings' defaults in packages/harness-registry/src/environment.ts. */
+export const DEFAULT_SKILL_LIMITS: SkillLimits = { repoSkills: 100, rootEntries: 5000, linkedEntries: 200 };
 
 /**
  * t3's mention token, copied from `SKILL_TOKEN_REGEX` in `t3code/packages/shared/src/inlineSkills.ts` (its
@@ -68,10 +79,6 @@ export const SKILL_TOKEN_REGEX =
 export const isMentionable = (name: string): boolean =>
   name.length <= 64 && [...`$${name}`.matchAll(SKILL_TOKEN_REGEX)].some((match) => match[2] === name);
 
-/** The most entries listed in one skills directory: far above any real one, below a walk of a whole tree. */
-const MAX_ROOT_ENTRIES = 5000;
-/** The most entries read from a directory a skills link points to: a link may lead anywhere. */
-const MAX_LINKED_ENTRIES = 200;
 
 export const join = (directory: string, path: string): string =>
   directory === "/" ? `/${path}` : `${directory}/${path}`;
@@ -155,14 +162,14 @@ const skillFiles = (paths: ReadonlyArray<string>): ReadonlyArray<string> => {
 };
 
 /** The paths below a skills directory that may be a `SKILL.md`, following its links to directories one level, as pi does. */
-const candidatePaths = async (files: SkillFiles, root: string): Promise<ReadonlyArray<string>> => {
-  const entries = await files.list(root, MAX_ROOT_ENTRIES);
+const candidatePaths = async (files: SkillFiles, root: string, limits: SkillLimits): Promise<ReadonlyArray<string>> => {
+  const entries = await files.list(root, limits.rootEntries);
   const links = entries.filter(
     (entry) => entry.kind === "symlink" && !entry.path.split("/").some((part) => part.startsWith(".")),
   );
   const linked = await Promise.all(
     links.map(async (link) =>
-      (await files.list(join(root, link.path), MAX_LINKED_ENTRIES)).map((entry) => ({
+      (await files.list(join(root, link.path), limits.linkedEntries)).map((entry) => ({
         ...entry,
         path: `${link.path}/${entry.path}`,
       })),
@@ -174,8 +181,8 @@ const candidatePaths = async (files: SkillFiles, root: string): Promise<Readonly
 /**
  * The Skills a thread in `cwd` can use. `environment` (the Environment skill set; empty until SPI-1148) comes first and
  * beats a Repo skill of the same name. Repo skills follow, nearest directory first and, in each, `SKILL_ROOTS` in order;
- * the first name found wins. At most `MAX_REPO_SKILLS` Repo skills are read; `omitted` counts the `SKILL.md` files past
- * the cap, unread. `roots` replaces `SKILL_ROOTS` (a CLI agent's, SPI-1151), a root marked `cwdOnly` counting at the
+ * the first name found wins. At most `limits.repoSkills` Repo skills are read; `omitted` counts the `SKILL.md` files
+ * past it, unread. `roots` replaces `SKILL_ROOTS` (a CLI agent's, SPI-1151), a root marked `cwdOnly` counting at the
  * cwd alone.
  */
 export const discoverSkills = async (
@@ -185,8 +192,10 @@ export const discoverSkills = async (
     readonly root: string;
     readonly environment?: ReadonlyArray<Skill>;
     readonly roots?: ReadonlyArray<SkillRoot> | undefined;
+    readonly limits?: SkillLimits | undefined;
   },
 ): Promise<SkillDiscovery> => {
+  const limits = options.limits ?? DEFAULT_SKILL_LIMITS;
   const environment = options.environment ?? [];
   const taken = new Map<string, string>(environment.map((skill) => [skill.name, skill.filePath]));
   const skillRoots = options.roots ?? SKILL_ROOTS.map((directory) => ({ directory, cwdOnly: false }));
@@ -195,14 +204,14 @@ export const discoverSkills = async (
   );
   // Listed at once; read in order, since precedence decides which of two same-named skills is kept.
   const listed = await Promise.all(
-    roots.map(async (root) => skillFiles(await candidatePaths(files, root)).map((path) => join(root, path))),
+    roots.map(async (root) => skillFiles(await candidatePaths(files, root, limits)).map((path) => join(root, path))),
   );
   const skills: Array<Skill> = [...environment];
   const skipped: Array<SkippedSkill> = [];
   let repo = 0;
   let omitted = 0;
   for (const path of listed.flat()) {
-    if (repo >= MAX_REPO_SKILLS) {
+    if (repo >= limits.repoSkills) {
       omitted++;
       continue;
     }

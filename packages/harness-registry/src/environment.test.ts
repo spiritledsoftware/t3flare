@@ -56,6 +56,10 @@ const BASE_DEFAULTS = {
  * every full object below.
  */
 const TUNABLE_DEFAULTS = {
+  repoSkillsListed: 100,
+  skillsDirectoryEntries: 5000,
+  skillsLinkEntries: 200,
+  promptsDirectoryEntries: 1000,
   outsideRequestSeconds: 15,
   customVcpu: 1,
   customMemoryMib: 3072,

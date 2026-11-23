@@ -331,6 +331,26 @@ export const MCP_CALL_SETTING_KEYS = ["mcpCallSeconds", "mcpResultKiB"] as const
  */
 export const OUTSIDE_REQUEST_SETTING_KEYS = ["outsideRequestSeconds"] as const;
 
+/**
+ * How far a Workspace reads its Repo skills and Prompt templates (SPI-1365), in a Skills row of their own: discovery runs
+ * in the Workspace DO with no Container, at each request, with the settings the Workspace's last Container start kept.
+ */
+export const SKILLS_SETTING_KEYS = [
+  "repoSkillsListed",
+  "skillsDirectoryEntries",
+  "skillsLinkEntries",
+  "promptsDirectoryEntries",
+] as const;
+
+/** The most Repo skills listed may be set to: a sanity bound (ADR-0048 §1); the model's context bounds it in fact. */
+export const MAX_REPO_SKILLS_LISTED = 10_000;
+
+/**
+ * The most entries a skills or Prompt templates directory may be set to list: a sanity bound (ADR-0048 §1). Each
+ * listing is held whole in the Workspace DO's 128 MB isolate, which bounds it in fact.
+ */
+export const MAX_DIRECTORY_ENTRIES = 100_000;
+
 /** A Container's resources, as `ctx.container.start({ instance })` takes a custom size. */
 export interface ContainerResources {
   readonly vcpu: number;
@@ -783,6 +803,30 @@ export const ENVIRONMENT_SETTINGS = {
       maximum: MAX_TIMED_MINUTES * 60,
       default: DEFAULT_OUTSIDE_REQUEST_SECONDS,
     },
+    tier: "down-free",
+  },
+  repoSkillsListed: {
+    title: "Repo skills listed",
+    description: `How many of a repository's skills (.pi/skills, .agents/skills, .claude/skills) are listed in a Pi Durable agent's prompt and offered in t3's composer, nearest first; the rest are counted as not listed. Each listed skill's name and description is in front of the model on every turn. At most ${MAX_REPO_SKILLS_LISTED}. Applies at each Workspace's next Container start.`,
+    schema: { type: "integer", minimum: 0, maximum: MAX_REPO_SKILLS_LISTED, default: 100 },
+    tier: "down-free",
+  },
+  skillsDirectoryEntries: {
+    title: "Entries read per skills directory",
+    description: `How many files and folders t3flare lists in one skills directory looking for SKILL.md files; skills past them are not found. A larger listing takes more of the Workspace's memory. At most ${MAX_DIRECTORY_ENTRIES}.`,
+    schema: { type: "integer", minimum: 1, maximum: MAX_DIRECTORY_ENTRIES, default: 5000 },
+    tier: "down-free",
+  },
+  skillsLinkEntries: {
+    title: "Entries read through a skills link",
+    description: `The same for a link in a skills directory to a folder elsewhere, which may lead anywhere. At most ${MAX_DIRECTORY_ENTRIES}.`,
+    schema: { type: "integer", minimum: 1, maximum: MAX_DIRECTORY_ENTRIES, default: 200 },
+    tier: "down-free",
+  },
+  promptsDirectoryEntries: {
+    title: "Entries read per Prompt templates directory",
+    description: `How many files and folders t3flare lists in one Prompt templates directory (.pi/prompts, a CLI agent's commands); templates past them are not offered. At most ${MAX_DIRECTORY_ENTRIES}.`,
+    schema: { type: "integer", minimum: 1, maximum: MAX_DIRECTORY_ENTRIES, default: 1000 },
     tier: "down-free",
   },
   mcpResultKiB: {

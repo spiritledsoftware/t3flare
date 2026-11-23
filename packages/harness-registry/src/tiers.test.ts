@@ -95,6 +95,11 @@ const ENVIRONMENT: Readonly<
   // SPI-1365: a custom size's resources are asked either way, as the size is (cost one way, a start refused the other).
   customVcpu: { up: [1, 2, "asked"], down: [2, 0.5, "asked"] },
   outsideRequestSeconds: { up: [15, 60, "asked"], down: [60, 15, "free"] },
+  // SPI-1365: more listed or read puts more in front of the model or in the Workspace's memory, so it is asked.
+  repoSkillsListed: { up: [100, 200, "asked"], down: [200, 100, "free"] },
+  skillsDirectoryEntries: { up: [5000, 6000, "asked"], down: [6000, 5000, "free"] },
+  skillsLinkEntries: { up: [200, 400, "asked"], down: [400, 200, "free"] },
+  promptsDirectoryEntries: { up: [1000, 2000, "asked"], down: [2000, 1000, "free"] },
   customMemoryMib: { up: [3072, 8192, "asked"], down: [8192, 1024, "asked"] },
   customDiskMb: { up: [12_000, 16_000, "asked"], down: [16_000, 4000, "asked"] },
   containerIdleMinutes: { up: [2, 30, "asked"], down: [30, 2, "free"] },

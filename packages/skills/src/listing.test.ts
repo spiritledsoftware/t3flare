@@ -42,7 +42,7 @@ describe("the listing", () => {
 
   it("ends with one line saying how many skills the cap left out", () => {
     const text = formatSkills({ skills: [skill("a")], omitted: 7 });
-    expect(text.split("\n").at(-1)).toBe("7 more skills in this repository are not listed: at most 100 are.");
+    expect(text.split("\n").at(-1)).toBe("7 more skills in this repository are not listed.");
   });
 
   it("is empty when nothing is listed", () => {

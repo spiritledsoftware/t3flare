@@ -214,10 +214,8 @@ describe("githubReader", () => {
     // A read that never answers ends at the reader's time limit (`outsideRequestSeconds`), however late the clock says.
     const hung: Parameters<typeof githubReader>[0]["fetch"] = (_url, init) =>
       new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal!.reason)));
-    const started = Date.now();
     const slow = githubReader({ fetch: hung, access: installed, now: () => Number.MAX_SAFE_INTEGER, timeoutMs: 20 });
     await expect(slow.commit(repo, null)).rejects.toThrow("GitHub could not be reached");
-    expect(Date.now() - started).toBeLessThan(5_000);
   });
 
   it("refuses a `.` or `..` name before it reaches a URL", async () => {

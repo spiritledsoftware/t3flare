@@ -23,7 +23,7 @@ import {
 } from "../src/preview/htmlBrowser.ts";
 import { type Lookups, normalizeConfiguredUrls, serversOf, threadWorkspaceFrom } from "../src/preview/portDiscovery.ts";
 import { closeLeftoverSessions } from "../src/preview/sessions.ts";
-import { PROFILE_MAX_BYTES, previewStore, profileChunks } from "../src/preview/store.ts";
+import { previewStore, profileChunks } from "../src/preview/store.ts";
 import { nodeSocketShim } from "../src/platform/httpServer.ts";
 import * as Shadow from "../src/shadows/serverBrowserContexts.ts";
 import * as Stock from "t3/src/preview/ServerBrowserContexts.ts";
@@ -223,15 +223,16 @@ describe("the Environment's Browser Run records (reviews L4, M5)", () => {
     expect(store.sessions()).toEqual([]);
   });
 
-  it("keeps a profile's state across rows without splitting a character, and refuses one over 8 MiB", () => {
+  it("keeps a profile's state across rows without splitting a character, of any size (SPI-1365: no 8 MiB cap)", () => {
     const store = previewStore(nodeSqlStorage());
     const big = `${"a".repeat(512 * 1024 - 1)}😀${"b".repeat(600 * 1024)}`;
     expect(profileChunks(big).every((chunk) => chunk.length <= 512 * 1024)).toBe(true);
     expect(profileChunks(big).join("")).toBe(big);
-    expect(store.saveProfile("default", big)).toBe("saved");
+    store.saveProfile("default", big);
     expect(store.profile("default")).toBe(big);
-    expect(store.saveProfile("default", "x".repeat(PROFILE_MAX_BYTES + 1))).toBe("too-large");
-    expect(store.profile("default")).toBe(big);
+    const larger = "x".repeat(9 * 1024 * 1024);
+    store.saveProfile("default", larger);
+    expect(store.profile("default")).toBe(larger);
     store.clearProfile("default");
     expect(store.profile("default")).toBeUndefined();
   });

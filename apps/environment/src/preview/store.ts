@@ -3,10 +3,10 @@
 // - the Browser Run sessions this Environment acquired, so that a new instance closes the ones the last left behind
 //   (review M5: never `listSessions`, which is account-wide), and
 // - each server-browser profile's `storageState` (cookies, localStorage, IndexedDB): what stock keeps in its profile
-//   directory. A profile is kept in rows of at most 1.5 MB (a DO SQLite row holds at most 8 MB) and refused over 8 MiB.
+//   directory. A profile is kept in rows of at most 1.5 MB (a DO SQLite row holds at most 8 MB), of any size in all
+//   (SPI-1365): it is already whole in memory when it is saved, so a cap protected nothing and lost the login state.
 import type { SqlStorage } from "@cloudflare/workers-types/index.ts";
 
-export const PROFILE_MAX_BYTES = 8 * 1024 * 1024;
 /** At most 1.5 MB of UTF-8 a row (3 bytes a UTF-16 unit at most), under DO SQLite's 8 MB. */
 const PROFILE_CHUNK_CHARS = 512 * 1024;
 
@@ -39,8 +39,8 @@ export interface PreviewStore {
   sessions(): ReadonlyArray<PreviewSessionRecord>;
   /** A profile's saved `storageState` JSON, or undefined. */
   profile(profileId: string): string | undefined;
-  /** Saves `state` (JSON) for the profile; refused, keeping the last saved, when it is over PROFILE_MAX_BYTES. */
-  saveProfile(profileId: string, state: string): "saved" | "too-large";
+  /** Saves `state` (JSON) for the profile, in place of the last saved. */
+  saveProfile(profileId: string, state: string): void;
   clearProfile(profileId: string): void;
 }
 
@@ -95,12 +95,10 @@ export const previewStore = (sql: SqlStorage): PreviewStore => ({
   },
   saveProfile(profileId, state) {
     ensure(sql);
-    if (new TextEncoder().encode(state).byteLength > PROFILE_MAX_BYTES) return "too-large";
     sql.exec("DELETE FROM t3flare_preview_profiles WHERE profile_id = ?", profileId);
     profileChunks(state).forEach((data, seq) => {
       sql.exec("INSERT INTO t3flare_preview_profiles (profile_id, seq, data) VALUES (?, ?, ?)", profileId, seq, data);
     });
-    return "saved";
   },
   clearProfile(profileId) {
     ensure(sql);
