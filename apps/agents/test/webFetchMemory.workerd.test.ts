@@ -15,11 +15,24 @@ import type { WebTransport } from "../src/extensions/web/net.ts";
 
 const CHUNK = 64 * 1024;
 
-/** An HTML page of exactly `bytes` bytes, streamed in 64 KiB chunks of two-byte text. */
-const pageOf = (bytes: number): WebTransport => {
+/** One 64 KiB chunk of two-byte HTML, padded with spaces. */
+const chunkOf = (): Uint8Array => {
   const encoder = new TextEncoder();
-  const block = (at: number) =>
-    `<div class="c${at % 7}"><h2>Section ${at} — é ✓</h2><p>Some <b>bold</b> text, <a href="https://example.com/p/${at}">link ${at}</a>.</p></div>\n`;
+  const blocks: Array<string> = [];
+  let bytes = 0;
+  for (let at = 0; bytes < CHUNK - 400; at++) {
+    const block = `<div class="c${at % 7}"><h2>Section ${at} — é ✓</h2><p>Some <b>bold</b> text, <a href="https://example.com/p/${at}">link ${at}</a>.</p></div>\n`;
+    blocks.push(block);
+    bytes += encoder.encode(block).byteLength;
+  }
+  const chunk = new Uint8Array(CHUNK).fill(0x20);
+  chunk.set(encoder.encode(blocks.join("")));
+  return chunk;
+};
+
+/** An HTML page of exactly `bytes` bytes, streamed as fresh copies of one chunk (so each is held, as a real body's are). */
+const pageOf = (bytes: number): WebTransport => {
+  const chunk = chunkOf();
   return (request) => {
     const url = new URL(request.url);
     if (url.hostname === "cloudflare-dns.com")
@@ -30,19 +43,14 @@ const pageOf = (bytes: number): WebTransport => {
         }),
       );
     let sent = 0;
-    let at = 0;
     return Promise.resolve(
       new Response(
         new ReadableStream<Uint8Array>({
           pull(controller) {
             if (sent >= bytes) return controller.close();
             const size = Math.min(CHUNK, bytes - sent);
-            let text = "";
-            while (encoder.encode(text).byteLength < size - 400) text += block(at++);
-            const chunk = new Uint8Array(size).fill(0x20);
-            chunk.set(encoder.encode(text));
             sent += size;
-            controller.enqueue(chunk);
+            controller.enqueue(chunk.slice(0, size));
           },
         }),
         { headers: { "content-type": "text/html" } },

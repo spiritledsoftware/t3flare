@@ -101,6 +101,8 @@ section{display:flex;flex-direction:column;gap:.625rem;scroll-margin-top:1.5rem}
 .variable-unreadable{color:var(--err)}
 .row>.save{grid-column:1/-1;justify-content:flex-end;padding-top:0}
 .save{display:flex;align-items:center;gap:.75rem;padding-top:calc(1.21875rem + .375rem + 4px)}
+/* A row's Save follows its last field, so a long form's Save is where its editing ends (SPI-1321). */
+.row-extra>.save{align-self:end;padding-top:0}
 .state{display:inline-flex;align-items:center;gap:.375rem;font-size:.75rem;color:var(--muted-fg);white-space:nowrap}
 .state svg.i{width:.875rem;height:.875rem}
 .core .row{padding:.625rem 1rem}

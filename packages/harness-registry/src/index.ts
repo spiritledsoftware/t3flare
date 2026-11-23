@@ -75,7 +75,7 @@ export const FETCH_CONVERT_MAX_KIB = 5120;
  * The most `fetchMaxKiB` may be set to. A named constraint: a Worker isolate's 128 MB holds the body, its decoded text
  * and the lines web_fetch pages through, beside the Session itself, and an isolate out of memory resets the Session
  * mid-turn. Measured in workerd (apps/agents/test/webFetchMemory.workerd.test.ts): 16 MiB of two-byte HTML, returned
- * unconverted, takes 30 MB of heap plus 32 MB of body buffers outside it, about 62 MB, half the isolate. 32 MiB took
+ * unconverted, takes 32 MB of heap plus 32 MB of body buffers outside it, about 64 MB, half the isolate. 32 MiB took
  * 64 MB of heap, about 128 MB in all.
  */
 export const FETCH_MAX_KIB = 16_384;
@@ -123,22 +123,22 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
     tools: ["ls", "find", "grep"],
     settings: {
       lsLimit: {
-        title: "ls entries",
-        description: "The most entries one ls call lists, and its default.",
+        title: "Entries per ls call",
+        description: "The most entries one ls call lists; also what it lists when a call asks for no limit.",
         // 100,000: a sanity bound, nothing in t3flare forces it (ADR-0048).
         schema: { type: "integer", minimum: 1, maximum: 100_000, default: 500 },
         tier: "down-free",
       },
       findLimit: {
-        title: "find results",
-        description: "The most paths one find call returns, and its default.",
+        title: "Results per find call",
+        description: "The most paths one find call returns; also what it returns when a call asks for no limit.",
         // 100,000: a sanity bound, nothing in t3flare forces it (ADR-0048).
         schema: { type: "integer", minimum: 1, maximum: 100_000, default: 1000 },
         tier: "down-free",
       },
       grepLimit: {
-        title: "grep matches",
-        description: "The most matches one grep call returns, and its default.",
+        title: "Matches per grep call",
+        description: "The most matches one grep call returns; also what it returns when a call asks for no limit.",
         // 100,000: a sanity bound, nothing in t3flare forces it (ADR-0048).
         schema: { type: "integer", minimum: 1, maximum: 100_000, default: 100 },
         tier: "down-free",
@@ -162,11 +162,6 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
     default: "on",
     tools: ["web_fetch", "web_search"],
     settings: {
-      searchModel: modelSetting(
-        "Search model",
-        "The model that runs web_search's searches: an Anthropic Messages Model endpoint's model with an API key or no auth whose server takes Anthropic's web search tool, as <endpointId>/<modelId>, or default (the endpoints' small model).",
-        "default",
-      ),
       fetchTimeoutSeconds: {
         title: "Fetch time limit (seconds)",
         description: "How long a web_fetch call that names no timeout of its own may take in all.",
@@ -175,9 +170,9 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         tier: "down-free",
       },
       fetchMaxTimeoutSeconds: {
-        title: "Fetch time limit a call may ask for (seconds)",
+        title: "Longest fetch time limit a call may set (seconds)",
         description:
-          "The longest timeout a web_fetch call may name; the default time limit is always allowed, even above it.",
+          "The longest timeout a web_fetch call may set; the fetch time limit above is always allowed, even when longer.",
         // Timed by t3flare's own setTimeout (net.ts withDeadline): up to MAX_TIMED_SECONDS (ADR-0048 §2).
         schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: 120 },
         tier: "down-free",
@@ -189,9 +184,14 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         schema: { type: "integer", minimum: 64, maximum: FETCH_MAX_KIB, default: 5120 },
         tier: "down-free",
       },
+      searchModel: modelSetting(
+        "Search model",
+        "The model that runs web_search's searches: an Anthropic Messages Model endpoint's model with an API key or no auth whose server takes Anthropic's web search tool, as <endpointId>/<modelId>, or default (the endpoints' small model).",
+        "default",
+      ),
       searchResults: {
         title: "Search results",
-        description: "How many results web_search returns when a call names no numResults.",
+        description: "How many results web_search returns when a call doesn't ask for a number.",
         // 100: a sanity bound, nothing in t3flare forces it (ADR-0048).
         schema: { type: "integer", minimum: 1, maximum: 100, default: 8 },
         tier: "down-free",
