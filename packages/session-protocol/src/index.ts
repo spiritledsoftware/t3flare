@@ -203,6 +203,17 @@ export interface SubmitTurnInput {
    * before it): the default (`DEFAULT_SETTINGS_READ_MS`, @t3flare/harness-registry).
    */
   readonly settingsReadMs?: number;
+  /**
+   * SPI-1367: how many times the Durable agent tries a failed model request again (the Environment's `durableRetries`),
+   * as read at this turn's start; the Session keeps the latest. Absent (an Environment before it): what the Session kept,
+   * else the default (`DEFAULT_DURABLE_RETRIES`, @t3flare/harness-registry).
+   */
+  readonly durableRetries?: number;
+  /**
+   * SPI-1367: how many kills a stopped command's surviving processes get (the Environment's `killAttempts`), as read at
+   * this turn's start; the Session keeps the latest. Absent: as `durableRetries` (`DEFAULT_KILL_ATTEMPTS`).
+   */
+  readonly killAttempts?: number;
 }
 
 export interface SteerInput {

@@ -98,4 +98,18 @@ describe("RunningExecs", () => {
     for (let attempt = 0; attempt < 20; attempt++) await execs.retry(100);
     expect(execs.ids()).toEqual([]);
   });
+
+  it("gives an id up after the kills the Environment's killAttempts allows, read at each kill; 12 by default (SPI-1367)", async () => {
+    const triesBeforeGivingUp = async (attempts?: () => number) => {
+      const { kill, calls } = fakeKill({ survivors: 1 });
+      const execs = new RunningExecs(memoryKv(), kill, attempts);
+      execs.started("e1");
+      await execs.stopped("e1");
+      while (execs.ids().length > 0 && calls.length < 100) await execs.retry(100);
+      return calls.length;
+    };
+    expect(await triesBeforeGivingUp(() => 3)).toBe(3);
+    expect(await triesBeforeGivingUp(() => 1)).toBe(1);
+    expect(await triesBeforeGivingUp()).toBe(12);
+  });
 });
