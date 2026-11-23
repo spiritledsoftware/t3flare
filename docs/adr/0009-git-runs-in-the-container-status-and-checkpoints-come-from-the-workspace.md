@@ -100,6 +100,24 @@ Recomputed paths now pair exact renames as git does (the same blob, of the same 
 
 Evidence: `apps/environment/test/statusOverStale.test.ts` drives t3's real `getReviewDiffPreview`, `statusDetails` and `statusDetailsLocal` over a stopped Workspace through the process router (the whole diff of both sources, then one file at a time, including one opened while the Container ran, files changed before and after it stopped, a deleted file and an exact rename; and a repo that hides untracked files): every working-tree read is answered `stale-patched` and equals real git's, and none starts the Container. `apps/agents/test/staleReads.test.ts` compares each shape with real git, and holds the refusals: an inexact rename read with both paths, a directory, a read above the guard, a whole-diff read with no last answer.
 
+## Refinement (SPI-1307): a project's ref snapshot presents its worktrees' branches
+
+t3's branch selector pairs a project's refs with its worktree list by branch name. A worktree Workspace is a full
+clone, so t3's first-turn rename (`git branch -m` in the worktree) never reaches the project's refs, and the selector
+stopped listing the worktree. **The project's worktree list and its ref snapshot both present each ready worktree
+Workspace's current branch**, read from the Workspace's own files and never starting a Container: the snapshot is the
+project's own refs plus a line for each worktree branch the project lacks.
+
+**A worktree's own ref snapshot is a computed answer when it is not live.** The selector confirms a worktree it lists
+with that read in the worktree, and keeps it only when the branch is found checked out. Where the M3 refinement gives a
+stopped Workspace's `for-each-ref` the last real answer alone, a worktree's snapshot that is not live gets its current
+branch added when the last answer lacks it (one from before the rename), or that branch alone when there is no earlier
+answer. A live answer stays git's own. With no earlier answer, the worktree's own branch list therefore shows only its
+current branch until t3's next refresh after its Container runs.
+
+Evidence: `apps/environment/test/worktreeRefs.test.ts` (t3's real `listRefs` over the process router) and
+`scripts/delete.ts restore` on a Stage; the limits are in `docs/upstream-fragility.md` U18.
+
 ## Refinement (SPI-1004): automatic fetch is off, and why
 
 t3's background fetch (`VcsStatusBroadcaster`'s automatic fetch interval) is set to zero in `composition.ts`. It would run `git fetch` in every watched Workspace on a timer, and each fetch starts that Workspace's Container (ADR-0009: git runs in the Container), so idle projects would keep Containers running for nothing. Ahead and behind counts are therefore as of the last fetch, pull, push or user action. A fetch the owner asks for runs as usual. Off is a refusal by design (parity: "automatic fetch off"), not a gap.

@@ -410,3 +410,72 @@ export const parseWorktreeList = (text: string, z: boolean): ReadonlyArray<Workt
     return { path: value("worktree") ?? "", head: value("HEAD"), branch: value("branch") };
   });
 };
+
+/**
+ * t3's ref snapshot format (`readGitRefsSnapshot`, `GitVcsDriverCore.ts`), pinned by the upstream fingerprint: the router
+ * answers only this exact read with the worktree Workspaces' branches added (U18).
+ */
+export const REFS_SNAPSHOT_FORMAT = "--format=%(refname)%09%(committerdate:unix)%09%(symref)%09%(upstream)";
+
+/** Whether `args` is t3's ref snapshot read: `[--git-dir <dir>] for-each-ref <format> refs/heads refs/remotes`. */
+export const isRefsSnapshot = (args: ReadonlyArray<string>): boolean => {
+  const { name, rest } = subcommandOf(args);
+  return (
+    name === "for-each-ref" &&
+    rest.length === 3 &&
+    rest[0] === REFS_SNAPSHOT_FORMAT &&
+    rest[1] === "refs/heads" &&
+    rest[2] === "refs/remotes"
+  );
+};
+
+/** A worktree Workspace as a project presents it: its path, HEAD, current branch and creation time. */
+export interface WorktreeEntry extends WorktreeListEntry {
+  /** The Workspace's `createdAt`, in milliseconds. */
+  readonly createdAt: number;
+}
+
+/**
+ * The ref snapshot's stdout with each worktree Workspace's current branch added in t3's four-field form
+ * (`<ref>\t<committer seconds>\t\t`), unless a line already names it, and how many lines were added. Detached entries
+ * add nothing.
+ */
+export const withWorktreeBranches = (
+  stdout: string,
+  entries: ReadonlyArray<WorktreeEntry>,
+): { readonly stdout: string; readonly added: number } => {
+  const listed = new Set(stdout.split("\n").map((line) => line.split("\t")[0]));
+  const added: Array<string> = [];
+  for (const entry of entries) {
+    if (entry.branch === null || listed.has(entry.branch)) continue;
+    listed.add(entry.branch);
+    added.push(`${entry.branch}\t${Math.floor(entry.createdAt / 1000)}\t\t\n`);
+  }
+  if (added.length === 0) return { stdout, added: 0 };
+  const base = stdout === "" || stdout.endsWith("\n") ? stdout : `${stdout}\n`;
+  return { stdout: `${base}${added.join("")}`, added: added.length };
+};
+
+/**
+ * The start point a project command names that must exist in the project's own refs: `git branch [--no-track] [--]
+ * <new> <start>`'s start, or `git worktree add … <path> <ref>`'s ref. Null for any other command.
+ */
+export const startPointOf = (args: ReadonlyArray<string>): string | null => {
+  const worktree = worktreeCommandOf(args);
+  if (worktree !== null) return worktree.verb === "add" && !worktree.detach ? worktree.ref : null;
+  const { name, rest } = subcommandOf(args);
+  if (name !== "branch") return null;
+  const words: Array<string> = [];
+  for (let i = 0; i < rest.length; i++) {
+    const arg = rest[i]!;
+    if (arg === "--") {
+      words.push(...rest.slice(i + 1));
+      break;
+    }
+    // Only the creating form: no flag that renames, deletes, lists or sets an upstream.
+    if (arg.startsWith("-") && arg !== "--no-track" && arg !== "--track" && arg !== "-f" && arg !== "--force")
+      return null;
+    if (!arg.startsWith("-")) words.push(arg);
+  }
+  return words.length === 2 ? words[1]! : null;
+};

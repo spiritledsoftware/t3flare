@@ -13,11 +13,15 @@ import {
   cloneRequestOf,
   gitEnvOf,
   intoWorkspace,
+  isRefsSnapshot,
   mayStartContainer,
   parseWorktreeList,
   readScopeOf,
+  REFS_SNAPSHOT_FORMAT,
   remoteRepoOf,
+  startPointOf,
   subcommandOf,
+  withWorktreeBranches,
   worktreeCommandOf,
   worktreeDestinationOf,
   worktreeListPorcelain,
@@ -384,6 +388,65 @@ const git = (cwd: string, ...args: Array<string>) => {
   if (result.status !== 0) throw new Error(result.stderr);
   return result.stdout;
 };
+
+describe("t3's ref snapshot in a project (SPI-1307)", () => {
+  const snapshot = ["for-each-ref", REFS_SNAPSHOT_FORMAT, "refs/heads", "refs/remotes"];
+
+  it("isRefsSnapshot: t3's exact read, with or without --git-dir; any other format or pattern is not", () => {
+    expect(isRefsSnapshot(snapshot)).toBe(true);
+    expect(isRefsSnapshot(["--git-dir", "/w/t3flare/.git", ...snapshot])).toBe(true);
+    expect(isRefsSnapshot(["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"])).toBe(false);
+    expect(isRefsSnapshot(["for-each-ref", REFS_SNAPSHOT_FORMAT, "refs/heads"])).toBe(false);
+    expect(isRefsSnapshot(["for-each-ref", REFS_SNAPSHOT_FORMAT, "refs/heads", "refs/tags"])).toBe(false);
+    expect(isRefsSnapshot(["for-each-ref", REFS_SNAPSHOT_FORMAT, "refs/heads", "refs/remotes", "--count=1"])).toBe(
+      false,
+    );
+    expect(isRefsSnapshot(["branch", REFS_SNAPSHOT_FORMAT, "refs/heads", "refs/remotes"])).toBe(false);
+  });
+
+  const entry = (branch: string | null, createdAt = 1_763_700_000_123) => ({
+    path: "/w/.wt/t3flare/x",
+    head: "a".repeat(40),
+    branch,
+    createdAt,
+  });
+
+  it("withWorktreeBranches: adds a missing branch in t3's four-field form, ending in a newline", () => {
+    const own = "refs/heads/main\t1763600000\t\trefs/remotes/origin/main\nrefs/heads/t3/520ecfd8\t1763600001\t\t\n";
+    expect(withWorktreeBranches(own, [entry("refs/heads/t3/reply-done")])).toEqual({
+      stdout: `${own}refs/heads/t3/reply-done\t1763700000\t\t\n`,
+      added: 1,
+    });
+    // An answer missing its final newline still gets one line per ref.
+    expect(withWorktreeBranches("refs/heads/main\t1\t\t", [entry("refs/heads/b")]).stdout).toBe(
+      "refs/heads/main\t1\t\t\nrefs/heads/b\t1763700000\t\t\n",
+    );
+    expect(withWorktreeBranches("", [entry("refs/heads/b")]).stdout).toBe("refs/heads/b\t1763700000\t\t\n");
+  });
+
+  it("withWorktreeBranches: leaves a listed branch, a detached worktree and a duplicate alone", () => {
+    const own = "refs/heads/main\t1763600000\t\t\n";
+    expect(withWorktreeBranches(own, [entry("refs/heads/main"), entry(null)])).toEqual({ stdout: own, added: 0 });
+    expect(withWorktreeBranches(own, [entry("refs/heads/b"), entry("refs/heads/b", 5_000)])).toEqual({
+      stdout: `${own}refs/heads/b\t1763700000\t\t\n`,
+      added: 1,
+    });
+  });
+
+  it("startPointOf: t3's new branch's start and worktree add's ref; nothing for other forms", () => {
+    expect(startPointOf(["branch", "--no-track", "--", "t3/1234abcd", "feature"])).toBe("feature");
+    expect(startPointOf(["branch", "t3/1234abcd", "refs/heads/feature"])).toBe("refs/heads/feature");
+    expect(startPointOf(["-c", "checkout.workers=0", "worktree", "add", "--", "/w/.wt/t3flare/x", "feature"])).toBe(
+      "feature",
+    );
+    expect(startPointOf(["worktree", "add", "--detach", "/tmp/x", "abc"])).toBeNull();
+    expect(startPointOf(["branch", "-m", "--", "old", "new"])).toBeNull();
+    expect(startPointOf(["branch", "--set-upstream-to=origin/main", "--", "b"])).toBeNull();
+    expect(startPointOf(["branch", "--no-track", "--", "only-new"])).toBeNull();
+    expect(startPointOf(["branch", "-D", "x"])).toBeNull();
+    expect(startPointOf(["rev-parse", "HEAD"])).toBeNull();
+  });
+});
 
 describe("the worktree list emulation", () => {
   it("writes what real git writes for a main checkout and a worktree, with and without -z", () => {

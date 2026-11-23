@@ -312,6 +312,26 @@ const projectAt = async (cookie: string, tag: string) => {
   return { ws, projectId, title: ws };
 };
 
+/** A Workspace's row in the admin view, and whether its Container runs and holds a lease. */
+const workspaceRow = async (id: string) =>
+  (((await admin("GET", "/_t3flare/agents/workspaces")).json?.workspaces ?? []) as Array<any>).find(
+    (row) => row.id === id,
+  );
+const containerOf = async (id: string) => {
+  const row = await workspaceRow(id);
+  return { running: row?.container?.running ?? null, leased: row?.container?.leased ?? null };
+};
+/** Stops a Workspace's Container and waits until the Workspace reports it stopped. */
+const stopContainer = async (id: string) => {
+  await admin("POST", `/_t3flare/agents/workspace-stop?id=${encodeURIComponent(id)}`);
+  const started = Date.now();
+  while (Date.now() - started < 120_000) {
+    if ((await containerOf(id)).running === false) return;
+    await sleep(2000);
+  }
+  throw new Error(`the Container of ${id} did not stop`);
+};
+
 /**
  * A thread launched as the client's composer launches one (`orchestration.launchThread`), on a new worktree or on an
  * existing one; its worktree's path once t3 has prepared it, and its first turn settled (a removal or deletion that beats
@@ -602,17 +622,77 @@ if (["wake", "purge-now", "restore", "tool", "never"].includes(scenario)) {
         .filter((entry) => entry.cwd === `/w/${r.ws}` && JSON.stringify(entry.argv).includes('"list"'))
         .map((entry) => ({ argv: entry.argv, route: entry.route, detail: entry.detail }))
         .at(-1) ?? null;
-    const firstShell = (await wsFirst(cookie, "orchestration.subscribeShell", {})) as any;
-    const firstThread = ((firstShell?.snapshot ?? firstShell)?.threads ?? []).find(
-      (t: any) => (t.id ?? t.threadId) === first.threadId,
-    );
-    report.firstBranch = firstThread?.branch ?? null;
+    /** The process router's last ref snapshot (`for-each-ref … refs/heads refs/remotes`) in the project. */
+    const lastSnapshot = async () =>
+      (((await admin("GET", "/_t3flare/agents/router-trace")).json?.entries ?? []) as Array<any>)
+        .filter(
+          (entry) =>
+            entry.cwd === `/w/${r.ws}` && entry.argv.includes("for-each-ref") && entry.argv.includes("refs/remotes"),
+        )
+        .map((entry) => ({ route: entry.route, detail: entry.detail }))
+        .at(-1) ?? null;
+    // t3 renames the worktree's temporary branch (`t3/<8 hex>`) on the first turn, in the worktree's clone only.
+    const temporary = /^t3\/[0-9a-f]{8}$/;
+    const branchOf = async () => {
+      const shell = (await wsFirst(cookie, "orchestration.subscribeShell", {})) as any;
+      const t = ((shell?.snapshot ?? shell)?.threads ?? []).find((t: any) => (t.id ?? t.threadId) === first.threadId);
+      return (t?.branch ?? null) as string | null;
+    };
+    const renameStarted = Date.now();
+    let firstBranch = await branchOf();
+    while ((firstBranch === null || temporary.test(firstBranch)) && Date.now() - renameStarted < 90_000) {
+      await sleep(3000);
+      firstBranch = await branchOf();
+    }
+    report.firstBranch = firstBranch;
+    report.renamed = firstBranch !== null && !temporary.test(firstBranch);
     const liveRefs = await refsOf();
+    const liveListed = liveRefs.find((ref) => ref.worktreePath === path);
     report.listedLive = {
-      listed: liveRefs.some((ref) => ref.worktreePath === path),
+      listed: liveListed !== undefined,
+      name: liveListed?.name ?? null,
       refs: liveRefs.map((ref) => `${ref.name} ${ref.worktreePath}`),
       worktreeList: await lastList(),
+      snapshot: await lastSnapshot(),
     };
+    check(
+      `step 4: t3's refs list the live worktree under the thread's branch (${report.renamed ? "renamed" : "never renamed"})`,
+      liveListed !== undefined && liveListed.name === firstBranch,
+      report.listedLive,
+    );
+    // With both Containers stopped: the project's snapshot still pairs it, and the selector's confirming read in the
+    // worktree (`readSelectedRef`: its own local refs, the listed name) still finds the branch, served stale.
+    await stopContainer(wt);
+    await stopContainer(r.ws);
+    const stoppedRefs = await refsOf();
+    const stoppedListed = stoppedRefs.find((ref) => ref.worktreePath === path);
+    const confirmingReply = (await wsCall(cookie, "vcs.listRefs", {
+      cwd: path,
+      query: firstBranch ?? "",
+      refKind: "local",
+      limit: 1,
+    }).catch((error: unknown) => ({ error: String(error).slice(0, 600) }))) as any;
+    const confirming = (confirmingReply?.refs ?? []) as Array<any>;
+    report.listedStopped = {
+      listed: stoppedListed ?? null,
+      confirming: confirming.map((ref) => `${ref.name} current=${ref.current}`),
+      confirmingError: confirmingReply?.error ?? null,
+      worktreeReads: (((await admin("GET", "/_t3flare/agents/router-trace")).json?.entries ?? []) as Array<any>)
+        .filter((entry) => entry.cwd === path)
+        .slice(-8)
+        .map((entry) => ({ argv: entry.argv, route: entry.route, exitCode: entry.exitCode, detail: entry.detail })),
+      snapshot: await lastSnapshot(),
+      containers: { worktree: await containerOf(wt), project: await containerOf(r.ws) },
+    };
+    check(
+      "step 4: with both Containers stopped, the worktree is listed under its branch and the confirming read finds it",
+      stoppedListed?.name === firstBranch &&
+        // t3 keeps the worktree only when this read finds the branch checked out (`resolveConfirmedSelectedRef`).
+        confirming.some((ref) => ref.name === firstBranch && ref.current === true) &&
+        (report.listedStopped as any).snapshot?.route === "worktree" &&
+        !/started the Container/.test(String((report.listedStopped as any).snapshot?.detail)),
+      report.listedStopped,
+    );
     // setup.txt is untracked: the forced removal keeps it as a Tombstone.
     report.removed = await wsCall(cookie, "vcs.removeWorktree", { cwd: `/w/${r.ws}`, path, force: true }).then(
       () => "removed",
@@ -654,10 +734,9 @@ if (["wake", "purge-now", "restore", "tool", "never"].includes(scenario)) {
       refs: refs.map((ref) => `${ref.name} ${ref.worktreePath}`),
       worktreeList: await lastList(),
     };
-    // Restore must list it as the live worktree was listed (the control); a gap the live one shares is not restore's.
     check(
-      "step 4: t3's refs list the restored worktree as they listed it live",
-      (listed !== undefined) === (report.listedLive as any).listed,
+      "step 4: t3's refs list the restored worktree under the thread's branch",
+      listed !== undefined && listed.name === report.firstBranch,
       report.listed,
     );
     const second = await launch(cookie, r.projectId, `${r.ws} second`, {
