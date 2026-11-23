@@ -416,8 +416,11 @@ export const MAX_SAFE_MODE_AFTER_FAILURES = 1000;
 /** How often an open preview browser's profile is saved while it changed, by default (`browserProfileSaveSeconds`). */
 export const DEFAULT_BROWSER_PROFILE_SAVE_SECONDS = 60;
 
-/** How long the HTML renders' browser outlives its last render, by default (`htmlBrowserKeepAliveSeconds`). */
-export const DEFAULT_HTML_BROWSER_KEEP_ALIVE_SECONDS = 60;
+/**
+ * How long the HTML renders' browser outlives its last render, by default (`htmlBrowserKeepAliveSeconds`): today's
+ * Browser Run `keep_alive`, 120 s (the 60 s before SPI-1366 was a close of t3flare's own, now gone).
+ */
+export const DEFAULT_HTML_BROWSER_KEEP_ALIVE_SECONDS = 120;
 
 /**
  * The most a Browser Run session's `keep_alive` may be: Browser Run's own maximum, 10 minutes (a named constraint;
@@ -1000,7 +1003,7 @@ export const ENVIRONMENT_SETTINGS = {
   },
   githubRetrySeconds: {
     title: "Wait before asking GitHub again (seconds)",
-    description: `How long t3flare waits before asking GitHub again after it failed or was refused, unless GitHub named its own time, which is always kept. The GitHub App's token waits double with each failure in a row, up to ${GITHUB_RETRY_GROWTH} times this; a GitHub Copilot renewal waits this once. Meanwhile every agent and git operation that needs a token gets the same failure. A shorter wait asks GitHub more often while it fails, which can bring on its rate limits. At most ${MAX_TIMED_MINUTES * 60} (a week). Applies at the next failure.`,
+    description: `How long t3flare waits before asking GitHub again after it failed or was refused, unless GitHub named its own time, which is always kept. The GitHub App's token waits double with each failure in a row, up to ${GITHUB_RETRY_GROWTH} times this; a GitHub Copilot renewal waits this once; an account the App is not installed on is looked for again at most this often. Meanwhile every agent and git operation that needs a token gets the same failure. A shorter wait asks GitHub more often while it fails, which can bring on its rate limits. At most ${MAX_TIMED_MINUTES * 60} (a week). Applies at the next failure.`,
     // t3flare's own wait, no platform limit: the shared sanity maximum applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES * 60, default: DEFAULT_GITHUB_RETRY_SECONDS },
     tier: "up-free",
@@ -1056,7 +1059,7 @@ export const ENVIRONMENT_SETTINGS = {
       maximum: MAX_TIMED_MINUTES * 60,
       default: DEFAULT_BROWSER_PROFILE_SAVE_SECONDS,
     },
-    tier: "free",
+    tier: "up-free",
   },
   htmlBrowserKeepAliveSeconds: {
     title: "Keep the HTML render browser (seconds)",
@@ -1094,7 +1097,7 @@ export const ENVIRONMENT_SETTINGS = {
       maximum: MAX_CONNECT_PUBLISH_LOG_KEPT,
       default: DEFAULT_CONNECT_PUBLISH_LOG_KEPT,
     },
-    tier: "free",
+    tier: "up-free",
   },
 } as const satisfies Readonly<Record<string, EnvironmentSettingEntry>>;
 

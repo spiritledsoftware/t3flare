@@ -611,15 +611,30 @@ describe("GitHubApp", () => {
     expect(github.seen.at(-1)?.url).toBe("https://api.github.com/app/installations/500/access_tokens");
   });
 
-  it("lists the installations again at once for an account it does not know, with no wait (SPI-1366)", async () => {
-    const now = Date.UTC(2026, 0, 1, 12);
+  it("lists the installations again for an account it does not know, at most once a GitHub retry (SPI-1366)", async () => {
+    let now = Date.UTC(2026, 0, 1, 12);
     const installations = [{ id: 42, login: "ian-pascoe" }];
     const github = fakeGitHub({ now: () => now, installations });
-    const app = new GitHubApp({ appId: "1", privateKey: KEYS.privateKey, fetch: github.fetch, now: () => now });
+    const app = new GitHubApp({
+      appId: "1",
+      privateKey: KEYS.privateKey,
+      fetch: github.fetch,
+      now: () => now,
+      retryMs: () => 10_000,
+    });
+    const listed = () => github.seen.filter(({ url }) => url.includes("/app/installations?")).length;
 
     expect(await app.token()).toBe("ghs_token1");
-    // Installed a moment later on another account: found at its first ask, not minutes later.
+    expect(listed()).toBe(1);
+    // An account it is not installed on, asked for again and again: no list more than once a retry.
+    for (let ask = 0; ask < 5; ask++) await expect(app.token("someone-else")).rejects.toThrow(/not installed/);
+    expect(listed()).toBe(1);
+    now += 10_000;
+    await expect(app.token("someone-else")).rejects.toThrow(/not installed/);
+    expect(listed()).toBe(2);
+    // Installed since on another account: found once a retry has passed, not five minutes later.
     installations.push({ id: 43, login: "spiritledsoftware" });
+    now += 10_000;
     expect(await app.token("spiritledsoftware")).toBe("ghs_token2");
   });
 

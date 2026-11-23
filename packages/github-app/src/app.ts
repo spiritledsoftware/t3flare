@@ -345,7 +345,13 @@ export class GitHubApp implements GitHubTokens {
 
     try {
       // Found before the mint's own wait, so a failure to list waits only on the list's.
-      const installation = (await this.#installationIds()).get(name) ?? (await this.#installationIds(true)).get(name);
+      const listed = await this.#installationIds();
+      // An account not in the list: listed again, but at most once a GitHub retry (`retryMs`), so an account the App is
+      // not installed on cannot have every page of installations asked for at each call.
+      const stale =
+        this.#options.now() - (this.#installations?.at ?? Number.NEGATIVE_INFINITY) >=
+        (this.#options.retryMs?.() ?? RETRY_AFTER_MS);
+      const installation = listed.get(name) ?? (stale ? (await this.#installationIds(true)).get(name) : undefined);
 
       if (installation === undefined) throw new GitHubNotInstalled(name);
 
