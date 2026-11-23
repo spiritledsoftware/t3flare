@@ -14,7 +14,7 @@
 // - The hold (review F7): a process holds the Container while its thread is in a turn, and for `idleHoldMs` after the
 //   last turn ended (or the last input). Past that it no longer holds it, and t3's own idle release (Patch 0003, at the
 //   same 10 minutes) ends the session.
-import { ENVIRONMENT_SETTINGS, fitsEnvironmentSetting } from "@t3flare/harness-registry";
+import { CLI_IDLE_HOLD_MS, ENVIRONMENT_SETTINGS, fitsEnvironmentSetting } from "@t3flare/harness-registry";
 import { MODEL_HANDLE_ENV } from "@t3flare/models/relay";
 import { PROCESS_SHELL, processCommand, type ProcessFile } from "@t3flare/sandbox-image/process";
 import type {
@@ -38,8 +38,8 @@ export const READ_BYTES = 1024 * 1024;
 export const ECHO_WINDOW_MS = 1_000;
 /** Reading pauses while this much waits to be read. */
 export const BACKPRESSURE_BYTES = 1024 * 1024;
-/** How long after its last turn a CLI process holds the Container (review F7; t3 releases the session at 10 minutes). */
-export const CLI_IDLE_HOLD_MS = 11 * 60_000;
+/** How long after its last turn a CLI process holds the Container: t3's session release and a minute (harness-registry). */
+export { CLI_IDLE_HOLD_MS };
 /**
  * The least a CLI process no turn has ended yet waits from its start before a reclaim may end it, whatever the reclaim
  * delay. Fixed for t3flare's own correctness: it covers the spawn to the first turn's arrival, so a reclaim cannot end a
@@ -49,8 +49,9 @@ export const STARTUP_GRACE_MS = 30_000;
 /**
  * A process out of a turn with neither input nor output for this long is killed. Fixed, and not the Turn limit
  * (SPI-1315): it applies only out of a turn (`!inTurn`), where the Turn limit has nothing to bound (the Environment's
- * wrapper ends a turn at its limit), and it backs up t3flare's own cleanup: t3 releases an idle session at 10 minutes and
- * the heartbeat lapse (`HEARTBEAT_LAPSE_MS`) catches a lost Environment, so only a process both missed reaches it.
+ * wrapper ends a turn at its limit), and it backs up t3flare's own cleanup: t3 releases an idle session at
+ * `CLI_SESSION_RELEASE_MS` (harness-registry) and the heartbeat lapse (`HEARTBEAT_LAPSE_MS`) catches a lost
+ * Environment, so only a process both missed reaches it.
  */
 export const BACKSTOP_MS = 130 * 60_000;
 

@@ -4,6 +4,7 @@
 import {
   DEFAULT_CHECKPOINT_MS,
   DEFAULT_CLONE_MS,
+  DEFAULT_MCP_CALL_MS,
   DEFAULT_OWNER_ANSWER_MS,
   DEFAULT_SETTINGS_READ_MS,
   DEFAULT_TURN_LIMIT_MS,
@@ -72,6 +73,11 @@ export interface EnvironmentServices {
    * raised after it. Absent (a test's services): the default.
    */
   readonly ownerAnswerMs?: () => number;
+  /**
+   * The MCP call time limit (SPI-1359, `mcpCallSeconds`) in ms, as stored now: read at each CLI spawn for the CLI's own
+   * tool timeout (`cliToolTimeoutSec`). Absent (a test's services): the default.
+   */
+  readonly mcpCallMs?: () => number;
   /** Asks for a Sweep after 5 s of quiet (ADR-0043 §5): the deletion wake's Layer calls it. */
   readonly wakeSweep: () => void;
   /** One-time marks in the Environment DO's storage (step 3: a setting seeded once, L1). */
@@ -173,6 +179,18 @@ export const askerWaitMs = (
   asker: { readonly waitMs?: number } | undefined,
   now: () => number = ownerAnswerMsNow,
 ): number => asker?.waitMs ?? now();
+
+/**
+ * The MCP call time limit now, in ms (SPI-1359): the stored setting, or its default when the services or the store
+ * cannot be read, so a CLI's tool timeout always covers a call.
+ */
+export const mcpCallMsNow = (): number => {
+  try {
+    return current?.mcpCallMs?.() ?? DEFAULT_MCP_CALL_MS;
+  } catch {
+    return DEFAULT_MCP_CALL_MS;
+  }
+};
 
 /**
  * The Answer wait now, in ms (SPI-1316): the stored setting, or its default when the services or the store cannot be

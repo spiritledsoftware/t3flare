@@ -44,6 +44,7 @@ import {
   SETTINGS_SERVER,
   type SettingsServerLimits,
   settingsServerLimitsOf,
+  MCP_CALL_SETTING_KEYS,
   SWEEP_SETTING_KEYS,
   t3AsksForDirect,
   type TierVerdict,
@@ -203,6 +204,8 @@ export const APPLIES_AT = {
     "Applies at the next prune of the usage records (at most once an hour, as usage is recorded) and to usage recorded from then on.",
   /** How long pi sessions are kept (SPI-1323): read at each pi spawn, never by a Container. */
   piSessionRetention: "Applies at each Pi start.",
+  /** The MCP calls' time limit and result size (SPI-1359): read at each call, and the time limit at each CLI spawn. */
+  mcpCall: "Applies at the next MCP call; a CLI agent's own tool timeout at its next start.",
   skills: "Files at each thread's next turn; the listing at the next context window; the composer at once.",
   /** A Purge (ADR-0044 §5). */
   purge: "Applies at once; it cannot be undone.",
@@ -723,6 +726,7 @@ const environmentAppliesAt = (keys: ReadonlyArray<string>): string => {
     { keys: among(SWEEP_SETTING_KEYS), text: APPLIES_AT.sweep },
     { keys: among(["usageRetentionDays"]), text: APPLIES_AT.usageRetention },
     { keys: among(["piSessionRetentionDays"]), text: APPLIES_AT.piSessionRetention },
+    { keys: among(MCP_CALL_SETTING_KEYS), text: APPLIES_AT.mcpCall },
   ].filter((group) => group.keys.length > 0);
   const rest = keys.length - own.reduce((sum, group) => sum + group.keys.length, 0);
   if (own.length === 0) return APPLIES_AT.environment;

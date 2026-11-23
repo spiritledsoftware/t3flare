@@ -13,7 +13,7 @@ import * as Stream from "effect/Stream";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import type * as ChildProcess from "effect/process/ChildProcess";
 
-import { environmentServices, ownerAnswerMsNow } from "./bindings.ts";
+import { environmentServices, mcpCallMsNow, ownerAnswerMsNow } from "./bindings.ts";
 import { traceProtocol } from "./processRouter.ts";
 import { scratchProjectOf } from "./scratch.ts";
 import { type ChannelProcess, type ChannelStart, ProcessRefused } from "./processChannel.ts";
@@ -185,7 +185,11 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
             : undefined;
         },
         piExtensionSource: PI_T3_MCP_EXTENSION_SOURCE,
-        relay: { handle: toolHandle, servers: services.relayServers(), toolTimeoutSec: cliToolTimeoutSec(answerMs) },
+        relay: {
+          handle: toolHandle,
+          servers: services.relayServers(),
+          toolTimeoutSec: cliToolTimeoutSec(answerMs, mcpCallMsNow()),
+        },
         endpoints: responsesEndpoints,
         ...(session?.model === undefined ? {} : { model: session.model }),
         ...(claudeRelay === undefined ? {} : { claudeRelay }),

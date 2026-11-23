@@ -1,7 +1,7 @@
 // The CLI relay's MCP server (ADR-0028, plan §3.2–3.4; review M9, M10): what a CLI process sees and what a call does,
 // judged by the calling thread's own mode, linked threads included; and t3's own entry as stock t3 hands it (SPI-1039).
 // Owner, 2026-11-12, back to stock: no per-call linked rule, no strictest-mode rule, no taint rule, no t3 relay.
-import { cliToolTimeoutSec, type McpRelayInput } from "@t3flare/harness-registry";
+import { cliToolTimeoutSec, DEFAULT_MCP_CALL_MS, type McpRelayInput } from "@t3flare/harness-registry";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { McpView } from "../src/mcp/host.ts";
@@ -225,7 +225,7 @@ describe("the CLIs' relay entries (H2, M11)", () => {
       {
         readStateFile: () => undefined,
         piExtensionSource: "",
-        relay: { handle, servers: ["commissary"], toolTimeoutSec: cliToolTimeoutSec(30 * 60_000) },
+        relay: { handle, servers: ["commissary"], toolTimeoutSec: cliToolTimeoutSec(30 * 60_000, DEFAULT_MCP_CALL_MS) },
         endpoints: [{ id: "openai", label: "OpenAI", models: [{ id: "gpt-5-mini" }] }],
       },
     );

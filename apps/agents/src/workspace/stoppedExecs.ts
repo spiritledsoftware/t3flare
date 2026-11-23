@@ -4,29 +4,30 @@
 // stops it; the Workspace DO remembers the id here, and its backend refuses to send that command at all.
 import type { BackendHandle, WorkspaceBackend } from "@cloudflare/computer";
 
-/** How long a stopped id is remembered: longer than any connect (the lay-down's deadline is 13 minutes). */
-export const STOPPED_REMEMBERED_MS = 30 * 60_000;
-
 /** The variable a command's environment carries its exec id in (computer-env's `EXEC_MARKER`). */
 const EXEC_MARKER = "T3FLARE_EXEC";
 
+/**
+ * The ids the Session stopped. Each is kept until its command is refused, with no age limit (SPI-1359): a connect can
+ * take as long as the Base wait and the Container start's time limits allow (each an Owner setting), and an id forgotten
+ * early lets its command run. One stopped while it ran is never refused and stays: a few dozen bytes, lost with the
+ * isolate.
+ */
 export class StoppedExecs {
-  readonly #ids = new Map<string, number>();
-  readonly #now: () => number;
-
-  constructor(now: () => number) {
-    this.#now = now;
-  }
+  readonly #ids = new Set<string>();
 
   /** The Session stopped these commands. */
   stopped(ids: ReadonlyArray<string>): void {
-    const now = this.#now();
-    for (const [id, at] of this.#ids) if (now - at > STOPPED_REMEMBERED_MS) this.#ids.delete(id);
-    for (const id of ids) this.#ids.set(id, now);
+    for (const id of ids) this.#ids.add(id);
   }
 
   has(id: string | undefined): boolean {
     return id !== undefined && this.#ids.has(id);
+  }
+
+  /** Whether `id` was stopped, forgetting it: its command is refused now. */
+  take(id: string | undefined): boolean {
+    return id !== undefined && this.#ids.delete(id);
   }
 }
 
@@ -53,7 +54,7 @@ export class StoppedExecsBackend implements WorkspaceBackend {
     const stopped = this.#stopped;
     const shell: BackendHandle["rpc"]["shell"] = {
       exec: (input) => {
-        if (stopped.has(input.env?.[EXEC_MARKER]))
+        if (stopped.take(input.env?.[EXEC_MARKER]))
           return Promise.reject(new Error("t3flare: the command was stopped before it started; it was not run"));
         return handle.rpc.shell.exec(input);
       },

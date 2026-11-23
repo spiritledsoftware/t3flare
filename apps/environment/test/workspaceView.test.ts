@@ -165,7 +165,7 @@ describe("the Workspaces view (ADR-0044 §1)", () => {
     const view = await workspacesView(
       viewDeps(rows, {
         sql,
-        settings: { purging: false, graceMs: 180_000, graceDays: 9, overridden: true },
+        settings: { purging: false, graceMs: 180_000, graceDays: 9, overridden: true, provisioningMs: 80 * 60_000 },
         purgingSince: null,
       }),
       NOW,

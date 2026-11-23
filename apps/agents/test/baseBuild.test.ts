@@ -1,7 +1,12 @@
 // @effect-diagnostics globalTimers:off
 // The Base build's state machine (SPI-1332, ADR-0047 §1–§5) over a fake container: each phase, the triggers, a change
 // mid-build, the time limits (a late snapshot kept when its key still matches), the budget, and a reset of the object.
-import { type BaseBuildRecord, resolveEnvironment, type Variable } from "@t3flare/harness-registry";
+import {
+  type BaseBuildRecord,
+  DEFAULT_BASE_RETRY_MINUTES,
+  resolveEnvironment,
+  type Variable,
+} from "@t3flare/harness-registry";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -11,11 +16,11 @@ import {
   BUILDER_KEYS,
   type BuilderContainer,
   DAY_MS,
-  EXPIRY_MARGIN_MS,
+  expiryMarginMs,
   GOOD_FOR_MS,
   IMAGE_WATCH_MS,
   IMAGE_WATCH_POLL_MS,
-  SCHEDULE_RETRY_MS,
+  retryDelay,
 } from "../src/workspace/baseBuild.ts";
 import { SECRET_MARGIN_BYTES } from "@t3flare/sandbox-image/containerSetup";
 import { globalMiseLockSeconds, parseGlobalMiseArgs } from "@t3flare/sandbox-image/globalMise";
@@ -31,6 +36,8 @@ import {
 
 const IMAGE = "registry/workspace@sha256:1111";
 const DAY = DAY_MS;
+/** The Base build retry's default (`baseRetryMinutes`): a failing key's first wait. */
+const SCHEDULE_RETRY_MS = DEFAULT_BASE_RETRY_MINUTES * 60_000;
 
 interface Deferred<T> {
   readonly promise: Promise<T>;
@@ -663,10 +670,100 @@ describe("a Base build (review fixes)", () => {
     const build = builder();
     await toReady(build, "snap-1");
     const builtAt = build.record().good!.builtAt;
-    expect(await scheduled(build)).toBe(builtAt + GOOD_FOR_MS - EXPIRY_MARGIN_MS);
-    clock = builtAt + GOOD_FOR_MS - EXPIRY_MARGIN_MS;
+    const margin = expiryMarginMs(settingsNow());
+    expect(await scheduled(build)).toBe(builtAt + GOOD_FOR_MS - margin);
+    clock = builtAt + GOOD_FOR_MS - margin;
     await build.alarm();
     expect(build.record()).toMatchObject({ state: "building", reason: "the scheduled rebuild" });
+  });
+
+  it("counts the snapshot good for 29 days from its last restore, not its creation, as the platform does (SPI-1359)", async () => {
+    const build = builder();
+    await toReady(build, "snap-1");
+    const builtAt = build.record().good!.builtAt;
+    clock = builtAt + 20 * DAY;
+    // A Workspace started from it: the platform's 30 days start again.
+    await build.restored("snap-1");
+    clock = builtAt + 20 * DAY + GOOD_FOR_MS;
+    expect(build.record()).toMatchObject({ state: "ready", good: { id: "snap-1", builtAt } });
+    clock += 1;
+    expect(build.record()).toMatchObject({ state: "none", good: null });
+  });
+
+  it("takes no restore of another snapshot, nor of one gone (SPI-1359)", async () => {
+    const build = builder();
+    await toReady(build, "snap-1");
+    const builtAt = build.record().good!.builtAt;
+    clock = builtAt + 20 * DAY;
+    await build.restored("snap-other");
+    clock = builtAt + GOOD_FOR_MS + 1;
+    expect(build.record()).toMatchObject({ good: null });
+    await build.restored("snap-1");
+    expect(build.record()).toMatchObject({ good: null });
+  });
+
+  it("fires the schedule the expiry margin before the last restore's 29 days (SPI-1359)", async () => {
+    settings.rebuildEveryDays = 29;
+    const build = builder();
+    await toReady(build, "snap-1");
+    const builtAt = build.record().good!.builtAt;
+    clock = builtAt + 10 * DAY;
+    await build.restored("snap-1");
+    // Rebuild every 29 days from the build still holds; the expiry, now 10 days later, no longer comes first.
+    expect(await scheduled(build)).toBe(builtAt + 29 * DAY);
+  });
+
+  it("derives the expiry margin from two builds' time limits and the first retry's wait (SPI-1359)", () => {
+    const at = (imageSetupMinutes: number, snapshotMinutes: number, baseRetryMinutes: number) =>
+      expiryMarginMs(
+        resolveEnvironment({ revision: 1, settings: { imageSetupMinutes, snapshotMinutes, baseRetryMinutes } }),
+      );
+    // The defaults: a build of 40 minutes that fails at its limit, an hour's wait, and the retry's 40.
+    expect(at(30, 5, 60)).toBe(2 * 40 * 60_000 + 60 * 60_000);
+    // A shorter retry, a shorter margin.
+    expect(at(30, 5, 10)).toBe(90 * 60_000);
+    // Never so long that the snapshot's expiry falls within one build of its making.
+    const build = (10_080 + 2 * 10_080) * 60_000;
+    expect(at(10_080, 10_080, 10_080)).toBe(GOOD_FOR_MS - build);
+  });
+
+  it("never makes a rebuild due sooner than one build after the last good one, at the settings' extremes (SPI-1359)", async () => {
+    settings.rebuildEveryDays = 29;
+    settings.baseRetryMinutes = 10_080;
+    settings.imageSetupMinutes = 10_080;
+    settings.snapshotMinutes = 10_080;
+    const build = builder();
+    await toReady(build, "snap-1");
+    const builtAt = build.record().good!.builtAt;
+    // Three weeks of limits and a week's retry: unclamped, the expiry would make it due a day after the build.
+    const oneBuild = 3 * 10_080 * 60_000;
+    expect(await scheduled(build)).toBe(builtAt + oneBuild);
+    // The Owner's own interval is theirs: a day, however long the time limits.
+    settings.rebuildEveryDays = 1;
+    await build.poke("the Environment booted");
+    expect(await scheduled(build)).toBe(builtAt + DAY);
+  });
+
+  it("waits the Base build retry as set, doubling, at most a day or the retry itself when longer (SPI-1359)", () => {
+    expect([1, 2, 3, 4, 5, 6, 7].map((n) => retryDelay(n, 60 * 60_000) / 3_600_000)).toEqual([1, 2, 4, 8, 16, 24, 24]);
+    expect(retryDelay(1, 10 * 60_000)).toBe(10 * 60_000);
+    expect(retryDelay(3, 2 * DAY)).toBe(2 * DAY);
+  });
+
+  it("backs a failing key off by the Base build retry setting (SPI-1359)", async () => {
+    settings.baseRetryMinutes = 10;
+    const build = builder();
+    await toReady(build, "snap-1");
+    clock += GOOD_FOR_MS + 1;
+    container.exitCode = 4;
+    expect(await build.poke("the Environment booted")).toMatchObject({ state: "building" });
+    await ticks(build);
+    expect(build.record()).toMatchObject({ state: "failed" });
+    const failedAt = clock;
+    clock = failedAt + 10 * 60_000 - 1;
+    expect(await build.poke("the Environment booted")).toMatchObject({ state: "failed" });
+    clock = failedAt + 10 * 60_000;
+    expect(await build.poke("the Environment booted")).toMatchObject({ state: "building" });
   });
 
   it("retries a failed scheduled rebuild on a backoff, and re-arms the schedule after a failed Rebuild", async () => {

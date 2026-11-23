@@ -21,10 +21,14 @@ import {
   MAX_CONTAINER_BUDGET,
   MAX_RETENTION_DAYS,
   MAX_SETUP_BYTES,
+  MAX_AGENT_TERMINALS_PER_WORKSPACE,
   MAX_TERMINALS_PER_WORKSPACE,
   MAX_TIMED_MINUTES,
   resolveEnvironment,
   RETENTION_SETTING_KEYS,
+  MCP_CALL_SETTING_KEYS,
+  MAX_MCP_RESULT_KIB,
+  DEFAULT_MCP_CALL_MS,
   SWEEP_SETTING_KEYS,
 } from "./environment.ts";
 import type { EnvironmentSettingEntry } from "./fields.ts";
@@ -38,6 +42,7 @@ const BASE_DEFAULTS = {
   builderSize: "sameAsContainer",
   builderInBudget: false,
   rebuildEveryDays: 0,
+  baseRetryMinutes: 60,
   whileBuilding: "lastGood",
   whileBuildingNewImage: "wait",
 } as const;
@@ -61,6 +66,8 @@ const TUNABLE_DEFAULTS = {
   checkpointMinutes: 10,
   usageRetentionDays: 92,
   piSessionRetentionDays: 60,
+  mcpCallSeconds: 270,
+  mcpResultKiB: 1024,
 } as const;
 
 describe("resolveEnvironment", () => {
@@ -402,19 +409,28 @@ describe("the Terminals' holds and counts (SPI-1317)", () => {
     ).toMatchObject({ terminalBusyHoldMinutes: 30, terminalPromptHoldMinutes: 10 });
   });
 
-  it("count 8 and 8 by default, 1 to MAX_TERMINALS_PER_WORKSPACE (32, the Workspace DO's memory) whole Terminals", () => {
+  it("count 8 and 8 by default; agents' Terminals 1 to MAX_AGENT_TERMINALS_PER_WORKSPACE (32, their xterms in the Workspace DO's memory)", () => {
     expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({
       terminalsPerWorkspace: 8,
       agentTerminalsPerWorkspace: 8,
     });
-    expect(MAX_TERMINALS_PER_WORKSPACE).toBe(32);
-    for (const key of counts) {
-      for (const count of [1, 8, 32]) expect(set({ [key]: count })).toMatchObject({ ok: true });
-      for (const count of [0, 33, 2.5, "8"]) expect(set({ [key]: count })).toMatchObject({ ok: false });
-    }
+    expect(MAX_AGENT_TERMINALS_PER_WORKSPACE).toBe(32);
+    for (const count of [1, 8, 32]) expect(set({ agentTerminalsPerWorkspace: count })).toMatchObject({ ok: true });
+    for (const count of [0, 33, 2.5, "8"])
+      expect(set({ agentTerminalsPerWorkspace: count })).toMatchObject({ ok: false });
     expect(
-      resolveEnvironment({ revision: 1, settings: { terminalsPerWorkspace: 33, agentTerminalsPerWorkspace: 0 } }),
+      resolveEnvironment({ revision: 1, settings: { terminalsPerWorkspace: 0, agentTerminalsPerWorkspace: 33 } }),
     ).toMatchObject({ terminalsPerWorkspace: 8, agentTerminalsPerWorkspace: 8 });
+  });
+
+  it("the Owner's own Terminals are not held to the agents' xterm bound: only a sanity bound applies (SPI-1359)", () => {
+    // An Owner's Terminal holds no xterm in the Workspace DO, so the agents' 32 does not bind it.
+    expect(ENVIRONMENT_SETTINGS.terminalsPerWorkspace.schema.maximum).toBe(MAX_TERMINALS_PER_WORKSPACE);
+    expect(MAX_TERMINALS_PER_WORKSPACE).toBeGreaterThan(MAX_AGENT_TERMINALS_PER_WORKSPACE);
+    for (const count of [1, 33, MAX_TERMINALS_PER_WORKSPACE])
+      expect(set({ terminalsPerWorkspace: count })).toMatchObject({ ok: true });
+    for (const count of [0, MAX_TERMINALS_PER_WORKSPACE + 1, 2.5, "8"])
+      expect(set({ terminalsPerWorkspace: count })).toMatchObject({ ok: false });
   });
 
   it("are down-free, in the Containers row, holds after the idle time and counts after the budget", () => {
@@ -581,11 +597,36 @@ describe("the Answer wait (SPI-1316)", () => {
     expect(ENVIRONMENT_SETTINGS.ownerAnswerMinutes.description).toContain("a card already waiting keeps its deadline");
   });
 
-  it("sets a CLI process's MCP tool timeout: two waits plus 300 s (cliToolTimeoutSec)", () => {
-    expect(cliToolTimeoutSec(DEFAULT_OWNER_ANSWER_MS)).toBe(1500);
-    expect(cliToolTimeoutSec(30 * 60_000)).toBe(3900);
-    expect(cliToolTimeoutSec(60_000)).toBe(420);
-    expect(cliToolTimeoutSec(1500)).toBe(304);
+  it("sets a CLI process's MCP tool timeout: two waits, the MCP call time limit and 30 s (cliToolTimeoutSec)", () => {
+    expect(cliToolTimeoutSec(DEFAULT_OWNER_ANSWER_MS, DEFAULT_MCP_CALL_MS)).toBe(1500);
+    expect(cliToolTimeoutSec(30 * 60_000, DEFAULT_MCP_CALL_MS)).toBe(3900);
+    expect(cliToolTimeoutSec(60_000, DEFAULT_MCP_CALL_MS)).toBe(420);
+    expect(cliToolTimeoutSec(1500, DEFAULT_MCP_CALL_MS)).toBe(304);
+    // A longer call time limit lengthens the CLI's own timeout with it (SPI-1359).
+    expect(cliToolTimeoutSec(DEFAULT_OWNER_ANSWER_MS, 3600_000)).toBe(1200 + 3600 + 30);
+  });
+});
+
+describe("the MCP calls' time limit and result size (SPI-1359)", () => {
+  const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
+
+  it("are 270 seconds and 1024 KiB by default: the time limit 1 s to a week (ADR-0048 §2), the size 1 to 8192 KiB", () => {
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({ mcpCallSeconds: 270, mcpResultKiB: 1024 });
+    expect(DEFAULT_MCP_CALL_MS).toBe(270_000);
+    for (const seconds of [1, 270, MAX_TIMED_MINUTES * 60])
+      expect(set({ mcpCallSeconds: seconds })).toMatchObject({ ok: true });
+    for (const seconds of [0, MAX_TIMED_MINUTES * 60 + 1, 2.5, "270"])
+      expect(set({ mcpCallSeconds: seconds })).toMatchObject({ ok: false });
+    for (const kib of [1, 1024, MAX_MCP_RESULT_KIB]) expect(set({ mcpResultKiB: kib })).toMatchObject({ ok: true });
+    for (const kib of [0, MAX_MCP_RESULT_KIB + 1, 1.5]) expect(set({ mcpResultKiB: kib })).toMatchObject({ ok: false });
+    expect(MAX_MCP_RESULT_KIB).toBe(8 * 1024);
+  });
+
+  it("are down-free, in an MCP calls row of their own, and each states its consequence", () => {
+    expect(MCP_CALL_SETTING_KEYS).toEqual(["mcpCallSeconds", "mcpResultKiB"]);
+    for (const key of MCP_CALL_SETTING_KEYS) expect(ENVIRONMENT_SETTINGS[key]).toMatchObject({ tier: "down-free" });
+    expect(ENVIRONMENT_SETTINGS.mcpCallSeconds.description).toContain("it may have run on the server");
+    expect(ENVIRONMENT_SETTINGS.mcpResultKiB.description).toContain("memory");
   });
 });
 
@@ -756,6 +797,7 @@ describe("the Base build's settings (SPI-1332, ADR-0047 §9)", () => {
       "builderSize",
       "builderInBudget",
       "rebuildEveryDays",
+      "baseRetryMinutes",
     ]);
   });
 });

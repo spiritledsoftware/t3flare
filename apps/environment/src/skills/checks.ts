@@ -4,7 +4,7 @@
 // (`skillFilePathProblem`).
 import { pathAlsoDirectory, skillFilePathProblem } from "@t3flare/skills";
 
-/** The most one file may be: under the 2 MB a Durable Object SQLite row may hold. */
+/** The most one file may be: under the 8 MB a Durable Object SQLite row may hold. */
 export const MAX_FILE_BYTES = 1_536 * 1024;
 /** The most one Skill's files may be together. */
 export const MAX_SKILL_BYTES = 4 * 1024 * 1024;

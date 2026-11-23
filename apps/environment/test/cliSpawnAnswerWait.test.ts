@@ -38,9 +38,10 @@ const ENDPOINTS: ModelEndpoints = {
 } as unknown as ModelEndpoints;
 
 const started: Array<ChannelStart> = [];
-const bind = (ownerAnswerMs?: () => number) =>
+const bind = (ownerAnswerMs?: () => number, mcpCallMs?: () => number) =>
   bindEnvironmentServices({
     ...(ownerAnswerMs === undefined ? {} : { ownerAnswerMs }),
+    ...(mcpCallMs === undefined ? {} : { mcpCallMs }),
     workspaces: {
       list: () => [],
       resolve: (id: string) => (id === "demo" ? { id } : undefined),
@@ -115,5 +116,15 @@ describe("a CLI agent's spawn takes the Answer wait (SPI-1316)", () => {
       ["spawn-kept", 45 * 60_000, "5700"],
       ["spawn-kept", 10 * 60_000, "1500"],
     ]);
+  });
+});
+
+describe("a CLI agent's spawn takes the MCP call time limit (SPI-1359)", () => {
+  it("writes Codex's tool_timeout_sec with the call time limit at the spawn in it", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    bind(undefined, () => 3600_000);
+    expect((await spawnCodex("spawn-long-call"))._tag).toBe("Success");
+    // Two 10-minute waits, the hour's call, and 30 s.
+    expect(timeoutOf(started[0]!)).toBe(String(1200 + 3600 + 30));
   });
 });

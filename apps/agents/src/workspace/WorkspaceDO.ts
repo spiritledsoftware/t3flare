@@ -385,7 +385,7 @@ export class WorkspaceDO extends ContainerHost {
   /** The token the credential helper is given, until shortly before it expires. */
   #token: { readonly token: string; readonly expiresAt: number } | undefined;
   /** Commands the Session stopped before they were sent (during a start's install): never sent (`stoppedExecs.ts`). */
-  readonly #stoppedExecs = new StoppedExecs(() => Date.now());
+  readonly #stoppedExecs = new StoppedExecs();
   /** The Global mise config's lay-down, once per Container (SPI-1150, ADR-0032's Global mise config refinement). */
   readonly #globalMise: GlobalMise;
   /** The dotfiles' mise file again after the Container setup (ADR-0047 §10). */
@@ -1156,6 +1156,10 @@ export class WorkspaceDO extends ContainerHost {
             },
             snapshotId,
           );
+          // A Container started from the Base snapshot (SPI-1359): the platform's 30 days for it start again, so the
+          // Builder counts it good from now. A refusal past the watch still marks it gone.
+          if (snapshotId !== undefined && answer.outcome !== "adopted" && !refused)
+            this.ctx.waitUntil(this.#reportToBuilder({ kind: "restored", id: snapshotId }));
           if (!fresh && answer.outcome !== "adopted" && !refused && from !== undefined) {
             this.#recordFrom(from);
             console.log(
@@ -1284,7 +1288,10 @@ export class WorkspaceDO extends ContainerHost {
 
   /** A start's report to the Builder; a failure is logged (the next start reports again). */
   async #reportToBuilder(
-    input: { readonly kind: "missing" } | { readonly kind: "refused"; readonly id: string },
+    input:
+      | { readonly kind: "missing" }
+      | { readonly kind: "refused"; readonly id: string }
+      | { readonly kind: "restored"; readonly id: string },
   ): Promise<void> {
     try {
       await this.#builderStub().builderReport(input);
@@ -3057,13 +3064,18 @@ export class WorkspaceDO extends ContainerHost {
   }
 
   /**
-   * A Workspace's start (SPI-1333): it found no Base snapshot for its key (`missing`), or the platform refused the one
-   * it started from (`refused`, gone: built again).
+   * A Workspace's start (SPI-1333): it found no Base snapshot for its key (`missing`), the platform refused the one it
+   * started from (`refused`, gone: built again), or a Container started from it (`restored`, SPI-1359: good 29 days from
+   * now).
    */
   async builderReport(
-    input: { readonly kind: "missing" } | { readonly kind: "refused"; readonly id: string },
+    input:
+      | { readonly kind: "missing" }
+      | { readonly kind: "refused"; readonly id: string }
+      | { readonly kind: "restored"; readonly id: string },
   ): Promise<BaseBuildRecord> {
     const builder = this.#becomeBuilder();
+    if (input.kind === "restored") return builder.restored(String(input.id));
     return input.kind === "refused"
       ? builder.refused(String(input.id), "a start from the Base snapshot failed")
       : builder.missing("a start found no Base snapshot for its settings");

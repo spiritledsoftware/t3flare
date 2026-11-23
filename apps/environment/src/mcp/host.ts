@@ -12,6 +12,9 @@
 //   to the caller, finds the tool's definition, and calls. A failed or timed-out write is never retried.
 import {
   classOf,
+  DEFAULT_MCP_CALL_MS,
+  DEFAULT_MCP_RESULT_KIB,
+  ENVIRONMENT_SETTINGS,
   type Exposure,
   MAX_SCHEMA_BYTES,
   MAX_TOOLS_PER_SERVER,
@@ -67,9 +70,11 @@ export interface McpEngineBinding {
 }
 
 export const INVENTORY_TTL_MS = 10 * 60_000;
-/** A call's own bound: Commissary's upstream timeout is 240 s; ours is a little more. */
-export const CALL_TIMEOUT_MS = 270_000;
-const MAX_RESULT_BYTES = 1024 * 1024;
+/** What a streamed result past the MCP result size answers: the setting the Owner can raise, by its title and key. */
+const RESULT_TOO_LARGE = `The tool's result was larger than the Environment setting "${ENVIRONMENT_SETTINGS.mcpResultKiB.title}" (mcpResultKiB) allows, so t3flare refused it whole; the Owner can raise it`;
+
+/** The MCP result size's default in bytes (`mcpResultKiB`): a host given no setting (a test's) takes it. */
+const DEFAULT_RESULT_BYTES = DEFAULT_MCP_RESULT_KIB * 1024;
 
 /** One tool as the host lists it, with its class resolved. */
 export interface InventoryTool {
@@ -159,6 +164,16 @@ export interface McpHostDeps {
    */
   readonly questionWaitMs?: () => number;
   /**
+   * The MCP call time limit in ms (`mcpCallSeconds`, SPI-1359), read as each call's target is made. Default:
+   * `DEFAULT_MCP_CALL_MS`.
+   */
+  readonly callTimeoutMs?: () => number;
+  /**
+   * The MCP result size in bytes (`mcpResultKiB`, SPI-1359), read at each call: a larger streamed result is refused, a
+   * larger inline one cut. Default: `DEFAULT_MCP_RESULT_KIB`.
+   */
+  readonly resultBytes?: () => number;
+  /**
    * The Settings server (ADR-0035, plan D2): a call to the `settings` entry goes here, with the caller the Environment
    * derived and the call's asker, before any inventory or pausing logic. Absent, its calls are refused.
    */
@@ -185,6 +200,11 @@ export class McpHost {
     return this.#deps.now?.() ?? Date.now();
   }
 
+  /** The MCP result size now, in bytes (`mcpResultKiB`). */
+  #resultBytes(): number {
+    return this.#deps.resultBytes?.() ?? DEFAULT_RESULT_BYTES;
+  }
+
   /** How long `asker`'s cards wait (SPI-1316): its own wait, or the Answer wait now. */
   #waitOf(asker: McpAsker): number {
     return askerWaitMs(asker, this.#deps.questionWaitMs);
@@ -205,7 +225,8 @@ export class McpHost {
       headers[server.auth.header] = value;
       redact.push(value);
     }
-    return { kind: "http", conn: name, name, url: server.url, headers, redact, timeoutMs: CALL_TIMEOUT_MS };
+    const timeoutMs = this.#deps.callTimeoutMs?.() ?? DEFAULT_MCP_CALL_MS;
+    return { kind: "http", conn: name, name, url: server.url, headers, redact, timeoutMs };
   }
 
   /** The engine's `auth` hook for an OAuth server: asked for a token, and again with `stale` after a 401. */
@@ -510,7 +531,11 @@ export class McpHost {
     if (first.kind === "unavailable" || !pausing)
       return first.kind === "unavailable"
         ? first
-        : { kind: "result", ...resultText(first.value), ...structuredOf(first.value) };
+        : {
+            kind: "result",
+            ...resultText(first.value, this.#resultBytes()),
+            ...structuredOf(first.value, this.#resultBytes()),
+          };
     return this.#answerPauses(input.server, server, target, first.value, input.signal, input.asker, context);
   }
 
@@ -643,7 +668,7 @@ export class McpHost {
     const value =
       result.result.kind === "inline"
         ? result.result.value
-        : await readStream(result.result.body as ReadableStream<Uint8Array>);
+        : await readStream(result.result.body as ReadableStream<Uint8Array>, this.#resultBytes(), RESULT_TOO_LARGE);
     return { kind: "value", value };
   }
 
@@ -709,7 +734,7 @@ export class McpHost {
     let current = value;
     for (let round = 0; ; round++) {
       const pause = pauseOf(current);
-      if (pause === undefined) return { kind: "result", ...redactedResult(current) };
+      if (pause === undefined) return { kind: "result", ...redactedResult(current, this.#resultBytes()) };
       if (asker === undefined)
         return {
           kind: "result",
@@ -760,11 +785,11 @@ const RESUME_REFUSAL = (server: string) =>
 const MAX_PAUSES = 16;
 
 /** A result as text, without a pause's `requestId` (an expired or busy outcome still carries one). */
-const redactedResult = (value: unknown): { readonly isError: boolean; readonly text: string } => {
+const redactedResult = (value: unknown, max: number): { readonly isError: boolean; readonly text: string } => {
   const content = (value as { structuredContent?: unknown } | null)?.structuredContent as
     | { requestId?: unknown; message?: unknown }
     | undefined;
-  if (content === undefined || content === null || typeof content.requestId !== "string") return resultText(value);
+  if (content === undefined || content === null || typeof content.requestId !== "string") return resultText(value, max);
   return {
     isError: (value as { isError?: unknown }).isError === true,
     text:
@@ -774,7 +799,12 @@ const redactedResult = (value: unknown): { readonly isError: boolean; readonly t
   };
 };
 
-const readStream = async (body: ReadableStream<Uint8Array>, max = MAX_RESULT_BYTES): Promise<unknown> => {
+/** `body` read whole and parsed; a body past `max` bytes is refused (`tooLarge`), since JSON cannot be read in part. */
+const readStream = async (
+  body: ReadableStream<Uint8Array>,
+  max: number,
+  tooLarge = "The tool's result was larger than t3flare takes",
+): Promise<unknown> => {
   const reader = body.getReader();
   const chunks: Array<Uint8Array> = [];
   let size = 0;
@@ -784,7 +814,7 @@ const readStream = async (body: ReadableStream<Uint8Array>, max = MAX_RESULT_BYT
     size += value.byteLength;
     if (size > max) {
       await reader.cancel();
-      return { isError: true, content: [{ type: "text", text: `The tool's result was larger than ${max} bytes.` }] };
+      return { isError: true, content: [{ type: "text", text: `${tooLarge} (${max} bytes).` }] };
     }
     chunks.push(value);
   }
@@ -797,8 +827,25 @@ const readStream = async (body: ReadableStream<Uint8Array>, max = MAX_RESULT_BYT
   return JSON.parse(new TextDecoder().decode(all));
 };
 
-/** A `CallToolResult` as text for the model: its text blocks, else its structured content, else its JSON. */
-export const resultText = (value: unknown): { readonly isError: boolean; readonly text: string } => {
+/** `text` cut to at most `max` bytes of UTF-8, never inside a character. */
+const cutBytes = (text: string, max: number): string => {
+  const bytes = new TextEncoder().encode(text);
+  if (bytes.length <= max) return text;
+  // A character the cut splits decodes as U+FFFD at the end: dropped.
+  return new TextDecoder().decode(bytes.subarray(0, max)).replace(/\uFFFD+$/, "");
+};
+
+/** The byte length of `text` in UTF-8. */
+const utf8Bytes = (text: string): number => new TextEncoder().encode(text).length;
+
+/**
+ * A `CallToolResult` as text for the model: its text blocks, else its structured content, else its JSON; at most `max`
+ * bytes of UTF-8 (`mcpResultKiB`).
+ */
+export const resultText = (
+  value: unknown,
+  max = DEFAULT_RESULT_BYTES,
+): { readonly isError: boolean; readonly text: string } => {
   const result = (value ?? {}) as { isError?: unknown; content?: unknown; structuredContent?: unknown };
   const blocks = Array.isArray(result.content) ? (result.content as Array<{ type?: unknown; text?: unknown }>) : [];
   const texts = blocks.flatMap((block) =>
@@ -814,7 +861,7 @@ export const resultText = (value: unknown): { readonly isError: boolean; readonl
       : result.structuredContent !== undefined
         ? JSON.stringify(result.structuredContent)
         : JSON.stringify(value);
-  return { isError: result.isError === true, text: text.slice(0, MAX_RESULT_BYTES) };
+  return { isError: result.isError === true, text: cutBytes(text, max) };
 };
 
 /** G11 (review L10): a tool definition's `_meta.ui`, and nothing else of its `_meta`, when it declares one. */
@@ -832,8 +879,11 @@ const uiOf = (definition: Readonly<Record<string, unknown>>): { readonly ui?: Re
   };
 };
 
-/** G11: a result's `structuredContent`, which an App reads, passed on beside its text (bounded with the result). */
-const structuredOf = (value: unknown): { readonly structured?: unknown } => {
+/**
+ * G11: a result's `structuredContent`, which an App reads, passed on beside its text; dropped past `max` bytes of UTF-8
+ * (`mcpResultKiB`), since it cannot be cut.
+ */
+const structuredOf = (value: unknown, max: number): { readonly structured?: unknown } => {
   const structured = (value as { structuredContent?: unknown } | null)?.structuredContent;
-  return structured === undefined || JSON.stringify(structured).length > MAX_RESULT_BYTES ? {} : { structured };
+  return structured === undefined || utf8Bytes(JSON.stringify(structured)) > max ? {} : { structured };
 };

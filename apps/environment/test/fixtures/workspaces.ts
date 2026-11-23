@@ -36,7 +36,7 @@ export const record = (overrides: Partial<WorkspaceRecord> & Pick<WorkspaceRecor
   ...overrides,
 });
 
-export const ON: SweepSettings = { purging: true, graceMs: GRACE, graceDays: 7, overridden: false };
+export const ON: SweepSettings = { purging: true, graceMs: GRACE, graceDays: 7, overridden: false, provisioningMs: 80 * 60_000 };
 
 export const viewDeps = (rows: ReadonlyArray<WorkspaceRecord>, options: { readonly settings?: SweepSettings; readonly purgingSince?: number | null; readonly terminals?: Readonly<Record<string, number>>; readonly sql?: ReturnType<typeof t3Tables> } = {}): WorkspacesDeps => ({
   sql: options.sql ?? t3Tables(),

@@ -14,7 +14,7 @@
 //   ADR-0021's 8 by default, not termctrl's 16); exited ones stay readable until stopped, as in termctrl, up to
 //   `MAX_KEPT` per owner: they keep their headless xterm outside the live count, bounded by `MAX_KEPT` alone;
 // - they end when the Container stops, as t3's terminals do, and when this object restarts (a deploy).
-import { ENVIRONMENT_SETTINGS, MAX_TERMINALS_PER_WORKSPACE } from "@t3flare/harness-registry";
+import { ENVIRONMENT_SETTINGS, MAX_AGENT_TERMINALS_PER_WORKSPACE } from "@t3flare/harness-registry";
 import type { KillAnswer } from "@t3flare/sandbox-image/kill";
 import { Terminal } from "@xterm/headless/lib-headless/xterm-headless.mjs";
 import type {
@@ -33,11 +33,11 @@ import type {
 /**
  * Entries (running or exited) one owner keeps; the oldest exited one is forgotten past it. A named constraint (ADR-0048
  * §1): the Workspace DO's memory, each entry's headless xterm in its 128 MB isolate. It equals
- * `MAX_TERMINALS_PER_WORKSPACE`, so an owner running every live entry the setting allows still keeps them all. It
+ * `MAX_AGENT_TERMINALS_PER_WORKSPACE`, so an owner running every live entry the setting allows still keeps them all. It
  * bounds each Session's exited Terminals only, counted against no setting: the Workspace-wide total grows with the
  * Sessions the Workspace serves until this object restarts, pending SPI-978's measurement of the DO's memory.
  */
-export const MAX_KEPT = MAX_TERMINALS_PER_WORKSPACE;
+export const MAX_KEPT = MAX_AGENT_TERMINALS_PER_WORKSPACE;
 /** termctrl's settle constants (`terminal-tools.ts`). */
 export const QUIET_MS = 250;
 const POLL_MS = 50;

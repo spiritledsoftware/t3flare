@@ -58,12 +58,24 @@ export const MAX_CLI_PROCESSES_PER_WORKSPACE = 100;
 export const DEFAULT_CLI_RECLAIM_SECONDS = 30;
 
 /**
- * The most seconds a CLI agent's process out of a turn waits before it may be ended to free the Container for another
- * Workspace (`cliReclaimSeconds`). A named constraint: a CLI process holds the Container for `CLI_IDLE_HOLD_MS` (11
- * minutes, apps/agents/src/workspace/processHost.ts) after its last turn, forced by t3's 10-minute session release, so a
- * longer delay changes nothing.
+ * When t3 releases an idle provider session, ending a CLI agent's process: 10 minutes, set by t3flare's own Patch 0003
+ * (`patches/0003-provider-session-idle-10-minutes.patch`, stock t3's is 30) to bound what an idle CLI session costs
+ * (docs/cost.md). The patch and this constant must name the same minutes (apps/agents/test/processHost.test.ts).
  */
-export const MAX_CLI_RECLAIM_SECONDS = 660;
+export const CLI_SESSION_RELEASE_MS = 10 * 60_000;
+
+/**
+ * How long after its last turn a CLI agent's process holds the Container: t3's session release
+ * (`CLI_SESSION_RELEASE_MS`) and a minute for the process to exit.
+ */
+export const CLI_IDLE_HOLD_MS = CLI_SESSION_RELEASE_MS + 60_000;
+
+/**
+ * The most seconds a CLI agent's process out of a turn waits before it may be ended to free the Container for another
+ * Workspace (`cliReclaimSeconds`). A named constraint: a CLI process holds the Container for `CLI_IDLE_HOLD_MS` after
+ * its last turn, so a longer delay changes nothing.
+ */
+export const MAX_CLI_RECLAIM_SECONDS = CLI_IDLE_HOLD_MS / 1000;
 
 /**
  * The Turn limit's default, in minutes (`turnLimitMinutes`; step 2a's cost guardrail, ADR-0015's CLI cap): how long a
@@ -141,21 +153,31 @@ export const DEFAULT_TERMINAL_PROMPT_HOLD_MINUTES = 10;
 export const DEFAULT_TERMINALS_PER_WORKSPACE = 8;
 
 /**
- * The most Terminals of either count per Workspace. A named constraint, provisional: the Workspace DO's memory. Each
- * open Terminal's handle, and an agent's Terminal's headless xterm (1,000 lines of scrollback), lives in the Workspace
- * DO's 128 MB isolate, which holds its files' sync too; 32 is a guess at what fits, and SPI-978's measurement of the
- * DO's memory sets the figure. An agent's exited Terminals keep their xterm outside the live count: `MAX_KEPT`
- * (apps/agents/src/workspace/agentTerminals.ts) bounds them per Session only, so their Workspace-wide total grows with
- * the Sessions the Workspace serves until the DO restarts.
+ * The most Terminals and Background jobs Pi Durable agents may run at once per Workspace (`agentTerminalsPerWorkspace`).
+ * A named constraint, provisional: the Workspace DO's memory. Each of an agent's Terminals keeps a headless xterm (1,000
+ * lines of scrollback) in the Workspace DO's 128 MB isolate, which holds its files' sync too; 32 is a guess at what
+ * fits, and SPI-978's measurement of the DO's memory sets the figure. An agent's exited Terminals keep their xterm
+ * outside the live count: `MAX_KEPT` (apps/agents/src/workspace/agentTerminals.ts) bounds them per Session only, so their
+ * Workspace-wide total grows with the Sessions the Workspace serves until the DO restarts.
  */
-export const MAX_TERMINALS_PER_WORKSPACE = 32;
+export const MAX_AGENT_TERMINALS_PER_WORKSPACE = 32;
+
+/**
+ * The most of the Owner's own Terminals per Workspace (`terminalsPerWorkspace`): a sanity bound, not a constraint
+ * (ADR-0048 §1, SPI-1359). An Owner's Terminal keeps no xterm in the Workspace DO, only its exec handle, a carry string
+ * and held input, and all of them share one pending-output buffer (`BACKPRESSURE_BYTES`,
+ * apps/agents/src/workspace/terminalHost.ts); their output is pushed, not a returned stream, so the DO's outgoing
+ * connections do not bound them (ADR-0021). Each shell's memory is the Container's, which bounds them in fact, and the
+ * setting's description states that.
+ */
+export const MAX_TERMINALS_PER_WORKSPACE = 1000;
 
 /** The largest Global mise config, in bytes of UTF-8. */
 export const MAX_GLOBAL_MISE_BYTES = 16 * 1024;
 
 /**
  * The largest Image setup and Container setup, each, in bytes of UTF-8 (ADR-0047 §9). Fixed by a constraint: every
- * Environment setting is one stored value of at most 2 MB, and the Environment settings are one value together.
+ * Environment setting is one stored value of at most 8 MB, and the Environment settings are one value together.
  */
 export const MAX_SETUP_BYTES = 256 * 1024;
 
@@ -169,7 +191,7 @@ export const imageSetupTooLong = (text: string): string | undefined => {
 
 /**
  * The most of a setup's output a report may keep, in KiB (`setupOutputKiB`'s bound). Fixed by a constraint: the
- * Environment DO keeps the last report, output and all, as one Durable Object value, which holds at most 2 MB.
+ * Environment DO keeps the last report, output and all, as one Durable Object value, which holds at most 8 MB.
  */
 export const MAX_SETUP_OUTPUT_KIB = 256;
 
@@ -179,9 +201,15 @@ export type ContainerSetupFailure = (typeof CONTAINER_SETUP_FAILURES)[number];
 
 /**
  * The most days a scheduled rebuild may wait (ADR-0047 §3): the platform expires a snapshot 30 days after its creation
- * or last restore, and t3flare counts one older than 29 days as gone.
+ * or last restore, and t3flare counts one 29 days past its last restore as gone. The schedule counts from creation.
  */
 export const MAX_REBUILD_DAYS = 29;
+
+/**
+ * The Base build retry's default, in minutes (`baseRetryMinutes`, SPI-1359): how long a failing key's first retry
+ * waits; each one after waits twice as long.
+ */
+export const DEFAULT_BASE_RETRY_MINUTES = 60;
 
 /**
  * What a new Container starts from while a Base build runs (ADR-0047 §6): the last good Base snapshot when it was made on
@@ -205,6 +233,7 @@ export const BASE_BUILD_SETTING_KEYS = [
   "builderSize",
   "builderInBudget",
   "rebuildEveryDays",
+  "baseRetryMinutes",
 ] as const;
 
 /** The Grace's default and bounds, in days (ADR-0043 §1): no zero, since at once is the Owner's own Purge. */
@@ -254,6 +283,35 @@ export const MAX_RETENTION_DAYS = MAX_GRACE_DAYS;
  * the Environment DO's next prune and to entries recorded from then on; `piSessionRetentionDays` at each pi start.
  */
 export const RETENTION_SETTING_KEYS = ["usageRetentionDays", "piSessionRetentionDays"] as const;
+
+/**
+ * The MCP call time limit's default, in seconds (`mcpCallSeconds`, SPI-1359): how long the MCP host lets one tool call
+ * run. 270: a little past Commissary's own upstream timeout (240 s), so a call through Commissary is ended by
+ * Commissary, which says why, not by t3flare. Any other server's length is the Owner's taste.
+ */
+export const DEFAULT_MCP_CALL_SECONDS = 270;
+
+/** The MCP call time limit's default in ms: used where no setting reaches (a test's host, a call that carries none). */
+export const DEFAULT_MCP_CALL_MS = DEFAULT_MCP_CALL_SECONDS * 1000;
+
+/** The MCP result size's default, in KiB (`mcpResultKiB`, SPI-1359): today's 1 MiB. */
+export const DEFAULT_MCP_RESULT_KIB = 1024;
+
+/**
+ * The most KiB of one MCP tool result (`mcpResultKiB`). A provisional bound, from an estimate, not a measurement: the
+ * Environment DO's 128 MB isolate also runs t3's server, and the MCP host holds a result several times over while it
+ * reads it (`readStream` and `resultText` in apps/environment/src/mcp/host.ts: the chunks, the joined bytes, the decoded
+ * text, the parsed JSON, then the text and structured content encoded again to be cut), about six times its size. 8 MiB
+ * of result is then about 48 MB, leaving t3 the rest. A measurement of the isolate's peak sets the figure.
+ */
+export const MAX_MCP_RESULT_KIB = 8 * 1024;
+
+/**
+ * The MCP calls' settings (SPI-1359): how long one tool call may run and how large its result may be. They bound every
+ * agent's MCP calls through the MCP host, Pi Durable's and the CLI relay's, at the next call, never a Container start, so
+ * the Settings page shows them in an MCP calls row of their own, in this order.
+ */
+export const MCP_CALL_SETTING_KEYS = ["mcpCallSeconds", "mcpResultKiB"] as const;
 
 /** A Container's resources, as `ctx.container.start({ instance })` takes a custom size. */
 export interface ContainerResources {
@@ -367,9 +425,8 @@ export const ENVIRONMENT_SETTINGS = {
   },
   terminalsPerWorkspace: {
     title: "Terminals per Workspace",
-    description:
-      "How many of your Terminals one Workspace may have open at once; one more is refused. Each Terminal uses memory in the Container. Applies at each Workspace's next Container start; lowering it closes no open Terminal.",
-    // A named constraint, provisional (`MAX_TERMINALS_PER_WORKSPACE`): the Workspace DO's memory.
+    description: `How many of your Terminals one Workspace may have open at once; one more is refused. Each Terminal uses memory in the Container. At most ${MAX_TERMINALS_PER_WORKSPACE}. Applies at each Workspace's next Container start; lowering it closes no open Terminal.`,
+    // A sanity bound (`MAX_TERMINALS_PER_WORKSPACE`, ADR-0048 §1): the Container's memory bounds it in fact.
     schema: {
       type: "integer",
       minimum: 1,
@@ -380,13 +437,12 @@ export const ENVIRONMENT_SETTINGS = {
   },
   agentTerminalsPerWorkspace: {
     title: "Agents' Terminals per Workspace",
-    description:
-      "How many Terminals and Background jobs Pi Durable agents may run at once in one Workspace, across its threads; one more is refused. Each Terminal and Background job uses memory in the Container. Applies at each Workspace's next Container start; lowering it stops none that run.",
-    // A named constraint, provisional (`MAX_TERMINALS_PER_WORKSPACE`): the Workspace DO's memory.
+    description: `How many Terminals and Background jobs Pi Durable agents may run at once in one Workspace, across its threads; one more is refused. Each Terminal and Background job uses memory in the Container. At most ${MAX_AGENT_TERMINALS_PER_WORKSPACE}. Applies at each Workspace's next Container start; lowering it stops none that run.`,
+    // A named constraint, provisional (`MAX_AGENT_TERMINALS_PER_WORKSPACE`): their xterms in the Workspace DO's memory.
     schema: {
       type: "integer",
       minimum: 1,
-      maximum: MAX_TERMINALS_PER_WORKSPACE,
+      maximum: MAX_AGENT_TERMINALS_PER_WORKSPACE,
       default: DEFAULT_TERMINALS_PER_WORKSPACE,
     },
     tier: "down-free",
@@ -553,8 +609,16 @@ export const ENVIRONMENT_SETTINGS = {
   },
   rebuildEveryDays: {
     title: "Rebuild every (days)",
-    description: `Builds the Base snapshot again this many days after the last good one, so the Image setup's downloads stay current. 0 is off. At most ${MAX_REBUILD_DAYS}: a Base snapshot expires 30 days after it was made.`,
+    description: `Builds the Base snapshot again this many days after the last good one, so the Image setup's downloads stay current. 0 is off. At most ${MAX_REBUILD_DAYS}: a Base snapshot expires 30 days after it was made or a Container last started from it, and this schedule counts from when it was made. It also comes early enough for a failed rebuild and its retry to finish before the snapshot expires, though, for that reason, never sooner than one build after the last: with very long time limits and retry, rebuilds then follow one another, and a failed one can outlast the snapshot.`,
     schema: { type: "integer", minimum: 0, maximum: MAX_REBUILD_DAYS, default: 0 },
+    row: "imageSetup",
+  },
+  baseRetryMinutes: {
+    title: "Base build retry (minutes)",
+    description: `How long a failed Base build waits before it is built again on its own. Each further failure in a row doubles the wait, up to a day (or up to this setting, if it is longer than a day). The retry comes when a Workspace starts and finds no Base snapshot, the Environment starts, a new Workspace image arrives, or the schedule fires; a Rebuild runs at once. A shorter wait runs the Builder's Container, and bills it, more often while a build keeps failing. At most ${MAX_TIMED_MINUTES} (a week). Applies at the next retry.`,
+    // t3flare's own alarm times it (the Builder's), no platform limit: the shared sanity maximum applies (ADR-0048 §2).
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_BASE_RETRY_MINUTES },
+    tier: "up-free",
     row: "imageSetup",
   },
   whileBuilding: {
@@ -622,6 +686,21 @@ export const ENVIRONMENT_SETTINGS = {
       "How many days t3flare keeps a Pi session no one has written to. An older one is deleted at the next Pi start; t3 can no longer resume that thread's Pi conversation. At most 3650 (ten years), which keeps them for good. Applies at each Pi start.",
     schema: { type: "integer", minimum: 1, maximum: MAX_RETENTION_DAYS, default: DEFAULT_PI_SESSION_RETENTION_DAYS },
     tier: "up-free",
+  },
+  mcpCallSeconds: {
+    title: "MCP call time limit (seconds)",
+    description: `How long one MCP tool call may run before t3flare ends it and the agent is told it failed; it may have run on the server. Time spent waiting for your answer to the server's question does not count. A CLI agent's own tool timeout grows with it. At most ${MAX_TIMED_MINUTES * 60} (a week). Applies at the next call; a CLI agent's timeout at its next start.`,
+    // The MCP engine times the call with its own timer (packages/mcp/src/connection.ts), no platform limit: the shared
+    // sanity maximum applies (ADR-0048 §2).
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES * 60, default: DEFAULT_MCP_CALL_SECONDS },
+    tier: "down-free",
+  },
+  mcpResultKiB: {
+    title: "MCP result size (KiB)",
+    description: `The most of one MCP tool result t3flare takes, in KiB of UTF-8. A larger streamed result is refused whole, since it cannot be read in part; a larger inline one has its text cut to this, and its structured content dropped. The Environment holds a result whole while it reads it, beside t3, so a larger size uses more of its memory. At most ${MAX_MCP_RESULT_KIB} (${MAX_MCP_RESULT_KIB / 1024} MiB). Applies at the next call.`,
+    // A provisional bound (`MAX_MCP_RESULT_KIB`): the Environment DO's isolate memory, by an estimate.
+    schema: { type: "integer", minimum: 1, maximum: MAX_MCP_RESULT_KIB, default: DEFAULT_MCP_RESULT_KIB },
+    tier: "down-free",
   },
 } as const satisfies Readonly<Record<string, EnvironmentSettingEntry>>;
 

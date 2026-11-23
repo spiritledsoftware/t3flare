@@ -21,7 +21,14 @@ import { describe, expect, it } from "vitest";
 
 import { TodoDoc, todoExtension, type TodoState } from "../src/extensions/todo.ts";
 import { applyTodo, EMPTY_LIST, MAX_TASKS } from "../src/extensions/todo/list.ts";
-import { SNAPSHOT_HEADER, STALE_NOTE, snapshotText, todoWindow } from "../src/extensions/todo/projection.ts";
+import {
+  fitsResult,
+  SNAPSHOT_HEADER,
+  STALE_NOTE,
+  snapshotText,
+  todoWindow,
+} from "../src/extensions/todo/projection.ts";
+import { TODO_OUTPUT_LIMITS, todoTool } from "../src/extensions/todo/tool.ts";
 import { context } from "./harness.fixture.ts";
 
 const open = async (responses: ReadonlyArray<AssistantMessage>) => {
@@ -94,6 +101,36 @@ describe("todo (SPI-1055)", () => {
         { id: 2, status: "active", description: "plain tools" },
       ],
     });
+  });
+
+  it("bounds the list by the tool's own output limit in bytes, and by no count of lines (SPI-1359)", () => {
+    // The tool sets its limits itself: pi-durable's 50 KB, with lines never the bound (a line is a byte at least).
+    expect(todoTool().outputLimits).toEqual(TODO_OUTPUT_LIMITS);
+    expect(TODO_OUTPUT_LIMITS.maxBytes).toBe(50 * 1024);
+    expect(TODO_OUTPUT_LIMITS.maxLines).toBeGreaterThanOrEqual(TODO_OUTPUT_LIMITS.maxBytes);
+    // 200 Tasks of four lines each: 800 lines, past the old 500, in a few KB.
+    const tall = applyTodo(EMPTY_LIST, {
+      action: "add",
+      tasks: Array.from({ length: MAX_TASKS }, (_, index) => ({ title: `t${index}`, description: "a\nb\nc" })),
+    });
+    expect(tall).toMatchObject({ ok: true });
+    // 18,000 characters, under the old 20,000, but 54,000 bytes of UTF-8: past the tool's 50 KB, so it is refused.
+    const wide = applyTodo(EMPTY_LIST, {
+      action: "add",
+      tasks: Array.from({ length: 9 }, (_, index) => ({ title: `t${index}`, description: "€".repeat(2_000) })),
+    });
+    expect(wide).toMatchObject({ ok: false, message: expect.stringContaining(`${TODO_OUTPUT_LIMITS.maxBytes} bytes`) });
+  });
+
+  it("appends a changed list to a call's result as far as that call's own output limits allow (SPI-1359)", () => {
+    const output = [{ type: "text", text: "script ran" }];
+    const list = "x".repeat(45_000);
+    // Past pi-durable's defaults (50 KB, 2,000 lines), so a default tool's result would cut it: not appended.
+    expect(fitsResult(output, list, { maxBytes: 50 * 1024, maxLines: 2_000 })).toBe(true);
+    expect(fitsResult(output, "x".repeat(52_000), { maxBytes: 50 * 1024, maxLines: 2_000 })).toBe(false);
+    expect(fitsResult(output, "x\n".repeat(2_000), { maxBytes: 50 * 1024, maxLines: 2_000 })).toBe(false);
+    // Code mode's own limits (4 MiB, 100,000 lines) take a list the defaults would not.
+    expect(fitsResult(output, "x".repeat(52_000), { maxBytes: 4 * 1024 * 1024, maxLines: 100_000 })).toBe(true);
   });
 
   it("refuses past 200 Tasks and keeps the ids until a clear", () => {

@@ -697,6 +697,29 @@ describe("the Environment section's dotfiles", () => {
     expect(group?.attrs["aria-describedby"]).toBe("environment-agents-desc");
   });
 
+  it("draws the MCP calls' time limit and result size in an MCP calls row between the Agents and History rows (SPI-1359)", () => {
+    const page = renderPage(fixturePage());
+    const section = sectionOf(page);
+    const agents = section.indexOf('<h3 id="environment-agents-title">Agents</h3>');
+    const start = section.indexOf('<h3 id="environment-mcp-calls-title">MCP calls</h3>');
+    const history = section.indexOf('<h3 id="environment-history-title">History</h3>');
+    expect(agents).toBeGreaterThan(-1);
+    expect(start).toBeGreaterThan(agents);
+    expect(history).toBeGreaterThan(start);
+    const row = section.slice(start, section.indexOf('<div class="row">', start));
+    const inputs = tagsOf(row).filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined);
+    expect(inputs.map((tag) => tag.attrs["data-setting"])).toEqual(["mcpCallSeconds", "mcpResultKiB"]);
+    expect(inputs.map((tag) => tag.attrs)).toMatchObject([
+      { type: "number", min: "1", max: "604800", value: "270" },
+      { type: "number", min: "1", max: "8192", value: "1024" },
+    ]);
+    for (const key of ["mcpCallSeconds", "mcpResultKiB"]) expect(page.split(`data-setting="${key}"`)).toHaveLength(2);
+    const group = tagsOf(section).find(
+      (tag) => tag.attrs.role === "group" && tag.attrs["aria-labelledby"] === "environment-mcp-calls-title",
+    );
+    expect(group?.attrs["aria-describedby"]).toBe("environment-mcp-calls-desc");
+  });
+
   it("draws how long history is kept in a History row after the Agents row, outside the Containers row and the Workspaces section (SPI-1323)", () => {
     const page = renderPage(fixturePage());
     const section = sectionOf(page);
@@ -788,7 +811,7 @@ describe("the Environment section's dotfiles", () => {
     const input = (key: string) => tagsOf(containers).find((tag) => tag.attrs["data-setting"] === key)?.attrs;
     expect(input("terminalBusyHoldMinutes")).toMatchObject({ type: "number", min: "1", value: "30" });
     expect(input("terminalPromptHoldMinutes")).toMatchObject({ type: "number", min: "1", value: "10" });
-    expect(input("terminalsPerWorkspace")).toMatchObject({ type: "number", min: "1", max: "32", value: "8" });
+    expect(input("terminalsPerWorkspace")).toMatchObject({ type: "number", min: "1", max: "1000", value: "8" });
     expect(input("agentTerminalsPerWorkspace")).toMatchObject({ type: "number", min: "1", max: "32", value: "8" });
   });
 

@@ -228,7 +228,8 @@ time and budget, how long open Terminals hold the Container and how many may run
 Workspace may run and how long an idle one waits before it may be ended to free the Container for another Workspace, the
 Turn limit, the Answer wait, the settings read wait, how long a clone or a checkpoint may run, the Global mise config,
 the Image setup and the Container setup, the Environment skills, the Variables, whether Terminals and CLI agents read
-the Owner's dotfiles, how long usage records and pi sessions are kept, and the Grace.
+the Owner's dotfiles, how long usage records and pi sessions are kept, how long an MCP call may run and how large a
+result it takes, how long a failed Base build waits to retry, and the Grace.
 t3flare's own, not t3's server settings.
 _Avoid_: environment config, server settings, Container settings
 

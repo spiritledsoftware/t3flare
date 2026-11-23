@@ -124,15 +124,46 @@ export const todoWindow = (harness: () => Promise<Harness>): HookRegistration =>
     },
   });
 
-/** Whether a result of `output` and `added` text stays within pi-durable's default limits (50 KB, 2,000 lines), with room to spare. */
-const withinLimits = (output: ReadonlyArray<{ readonly type: string }>, added: string): boolean => {
+/** A tool's output limits, as pi-durable resolves them. */
+export interface OutputLimits {
+  readonly maxBytes: number;
+  readonly maxLines: number;
+}
+
+/** pi-durable's limits for a tool that sets none (`DEFAULT_MAX_BYTES`, `DEFAULT_MAX_LINES` in its truncate.js). */
+const DEFAULT_LIMITS: OutputLimits = { maxBytes: 50 * 1024, maxLines: 2_000 };
+
+/**
+ * Whether a result of `output` and `added` text stays within `limits`, measured as pi-durable bounds a result (its text
+ * blocks joined, in bytes of UTF-8 and in lines), so a list appended is never cut (SPI-1359).
+ */
+export const fitsResult = (
+  output: ReadonlyArray<{ readonly type: string }>,
+  added: string,
+  limits: OutputLimits,
+): boolean => {
   const text = output.flatMap((block) => ("text" in block && typeof block.text === "string" ? [block.text] : []));
-  const all = [...text, added].join("\n");
-  return new TextEncoder().encode(all).length <= 40_000 && all.split("\n").length <= 1_800;
+  const all = [...text, added].join("");
+  return new TextEncoder().encode(all).length <= limits.maxBytes && all.split("\n").length <= limits.maxLines;
 };
 
-/** Appends the list to the result of a call whose nested `todo` calls changed it. */
-export const todoResult = (): HookRegistration =>
+/** The output limits of the conversation's tool `name`, the defaults filled in, as pi-durable resolves them. */
+const limitsOf = async (
+  harness: () => Promise<Harness>,
+  conversationId: Parameters<Harness["conversation"]>[0],
+  name: string,
+  context: Parameters<Harness["conversation"]>[1],
+): Promise<OutputLimits> => {
+  const conversation = await (await harness()).conversation(conversationId, context);
+  const tool = (await conversation?.agent(context))?.tools.find((each) => each.name === name);
+  return {
+    maxBytes: tool?.outputLimits?.maxBytes ?? DEFAULT_LIMITS.maxBytes,
+    maxLines: tool?.outputLimits?.maxLines ?? DEFAULT_LIMITS.maxLines,
+  };
+};
+
+/** Appends the list to the result of a call whose nested `todo` calls changed it; `harness` resolves the call's tool. */
+export const todoResult = (harness: () => Promise<Harness>): HookRegistration =>
   hook(ToolTask, {
     afterTool: async (call, result, api, context) => {
       // A nested call's result goes to its caller, not to the context.
@@ -140,9 +171,11 @@ export const todoResult = (): HookRegistration =>
       const state = await api.snapshot(TodoDoc, api.conversationId, context);
       if (state === undefined || !state.changedBy.includes(call.id)) return undefined;
       const added = `\n\n${CHANGED_HEADER}\n${formatTasks(state.tasks)}`;
-      // pi-durable keeps the head of a result within its limits, after this hook: a list that would be cut is not shown,
-      // so the result does not claim it is, and the request says the list changed.
-      if (!withinLimits(result.output, added)) return undefined;
+      // pi-durable keeps the head of a result within the calling tool's own limits (code mode's are 4 MiB), after this
+      // hook: a list that would be cut is not shown, so the result does not claim it is, and the request says the list
+      // changed.
+      const limits = await limitsOf(harness, api.conversationId, call.name, context);
+      if (!fitsResult(result.output, added, limits)) return undefined;
       const kept =
         typeof result.details === "object" && result.details !== null && !Array.isArray(result.details)
           ? (result.details as JsonObject)

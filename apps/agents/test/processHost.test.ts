@@ -1,8 +1,10 @@
 // The Workspace DO's CLI processes (step 4a, the process channel) at their seam, `ProcessHost`, over a fake non-PTY
 // exec: what the Environment's spawner sees pushed, what reaches the process's stdin, and what the kill script gets.
 // Review F6 (ordered input that never skips, bytes, never-dropped output), F7 (the hold) and plan §2.6 (epochs).
-// @effect-diagnostics globalTimers:off
+// @effect-diagnostics globalTimers:off nodeBuiltinImport:off
 import type { ProcessFrame, ProcessStartInput } from "@t3flare/workspace-client";
+import { readFileSync } from "node:fs";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -16,7 +18,11 @@ import {
   STARTUP_GRACE_MS,
   textOf,
 } from "../src/workspace/processHost.ts";
-import { DEFAULT_CLI_RECLAIM_SECONDS, MAX_CLI_RECLAIM_SECONDS } from "@t3flare/harness-registry";
+import {
+  CLI_SESSION_RELEASE_MS,
+  DEFAULT_CLI_RECLAIM_SECONDS,
+  MAX_CLI_RECLAIM_SECONDS,
+} from "@t3flare/harness-registry";
 
 /** The reclaim delay's default (`cliReclaimSeconds`), as a start without one gets. */
 const RECLAIM_DEFAULT_MS = DEFAULT_CLI_RECLAIM_SECONDS * 1000;
@@ -413,6 +419,16 @@ describe("ProcessHost", () => {
 
   it("bounds the reclaim delay by the CLI idle hold (MAX_CLI_RECLAIM_SECONDS is CLI_IDLE_HOLD_MS)", () => {
     expect(MAX_CLI_RECLAIM_SECONDS * 1000).toBe(CLI_IDLE_HOLD_MS);
+  });
+
+  it("holds the Container a minute past t3's session release, which Patch 0003 sets (SPI-1359)", () => {
+    expect(CLI_IDLE_HOLD_MS).toBe(CLI_SESSION_RELEASE_MS + 60_000);
+    // The release is t3flare's own choice, made in Patch 0003: the patch and the constant name the same minutes.
+    const patch = readFileSync(
+      path.join(import.meta.dirname, "../../../patches/0003-provider-session-idle-10-minutes.patch"),
+      "utf8",
+    );
+    expect(patch).toContain(`+  idleTimeoutMs: ${CLI_SESSION_RELEASE_MS / 60_000} * 60_000,`);
   });
 
   it("ends every process by marker before a stop and waits for their exits", async () => {

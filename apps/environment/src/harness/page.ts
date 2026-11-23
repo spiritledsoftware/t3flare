@@ -51,6 +51,7 @@ import {
   SETTINGS_SERVER_LIMITS,
   type SettingsServerLimitKey,
   SETTINGS_SERVER_LIMITS_NOTE,
+  MCP_CALL_SETTING_KEYS,
   RETENTION_SETTING_KEYS,
   SWEEP_SETTING_KEYS,
   visible,
@@ -437,11 +438,16 @@ const environmentSection = (
     ([key]) => !(SWEEP_SETTING_KEYS as ReadonlyArray<string>).includes(key),
   );
   // The scalar settings share the Containers row. The agents' settings (SPI-1315: the Turn limit, the CLI agents'
-  // processes) share an Agents row, how long history is kept (SPI-1323) a History row, and the dotfiles toggles
-  // (ADR-0047 §9) a Dotfiles row, each a `keyedRow`. A list (the Variables) and a file (the Global mise config, the
+  // processes) share an Agents row, the MCP calls' time limit and result size (SPI-1359) an MCP calls row, how long
+  // history is kept (SPI-1323) a History row, and the dotfiles toggles (ADR-0047 §9) a Dotfiles row, each a `keyedRow`. A list (the Variables) and a file (the Global mise config, the
   // Container setup) each get a row of their own, which the settings that name it as their `row` join. One form, one
   // Save.
-  const keyed: ReadonlyArray<string> = [...AGENT_SETTING_KEYS, ...RETENTION_SETTING_KEYS, ...DOTFILES_SETTING_KEYS];
+  const keyed: ReadonlyArray<string> = [
+    ...AGENT_SETTING_KEYS,
+    ...MCP_CALL_SETTING_KEYS,
+    ...RETENTION_SETTING_KEYS,
+    ...DOTFILES_SETTING_KEYS,
+  ];
   const ownRow = (setting: EnvironmentSettingEntry) =>
     setting.schema.type === "variables" || setting.schema.type === "file";
   // The budget states its consequence once, under its own description, where the script rewrites it as the input changes.
@@ -463,6 +469,12 @@ const environmentSection = (
     "Agents",
     "How long an agent's turn may run, how long a card waits for your answer, how many CLI agents' processes a Workspace's Container may run, and how long an idle process waits before it may be ended for another Workspace.",
     AGENT_SETTING_KEYS,
+  );
+  const mcpCalls = keyedRow(
+    "mcp-calls",
+    "MCP calls",
+    "How long one MCP tool call may run, and how large a result t3flare takes from it, for every agent and every server.",
+    MCP_CALL_SETTING_KEYS,
   );
   const history = keyedRow(
     "history",
@@ -490,7 +502,7 @@ const environmentSection = (
 <div class="section-head"><h2 id="environment-title">${icon("container")}Environment</h2></div>
 <p class="section-desc">What every Workspace's Container gets, and how long t3flare keeps its history. A change applies at each Workspace's next Container start unless its setting says otherwise; a running Container keeps what it started with, and a lower budget stops none.</p>
 <form class="group" data-environment aria-labelledby="environment-title" novalidate><div class="row"><div><div class="row-title"><h3>Containers</h3><span class="ident">revision ${environment.revision}</span></div><p class="desc">Their size, how long one may sit idle, how long open Terminals keep it running, how many may run at once, how many Terminals a Workspace may have, yours and agents', how long a start or a turn waits for the newest settings, and how long a clone or a checkpoint may run.</p></div>
-<div class="row-extra"><div class="fields">${fields.join("")}</div></div></div>${agents}${history}${dotfiles}${lists.join("")}${save}</form>
+<div class="row-extra"><div class="fields">${fields.join("")}</div></div></div>${agents}${mcpCalls}${history}${dotfiles}${lists.join("")}${save}</form>
 <dl class="group kv"><div><dt>Running now</dt><dd>${
     running === null || running === undefined
       ? "unknown"

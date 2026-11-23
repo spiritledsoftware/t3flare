@@ -12,10 +12,13 @@ import {
   MAX_DESCRIPTION_CHARACTERS,
   MAX_TITLE_CHARACTERS,
   TODO_ACTIONS,
+  TODO_OUTPUT_LIMITS,
   type TodoInput,
   type TodoList,
   type TodoOutcome,
 } from "./list.ts";
+
+export { TODO_OUTPUT_LIMITS };
 
 /** The key of a result's `details` that names the revision of the list its text shows, for the projection. */
 export const SHOWN_REV = "todoRev";
@@ -157,6 +160,7 @@ export const todoTool = (): ToolRegistration =>
     structuredOutputSchema: OUTPUT_SCHEMA,
     executionMode: "sequential",
     replay: "safe",
+    outputLimits: TODO_OUTPUT_LIMITS,
     async execute(args, api, context) {
       const input = inputOf(args as Args);
       // Whether this is a nested call, and of which call.

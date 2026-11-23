@@ -3,7 +3,7 @@
 // hint or the owner's override; every enabled server for every thread: owner, 2026-11-12, back to stock), calls (disabled
 // servers, failures that may have run), and the target it hands the engine (the header value, and nothing else, to
 // redact). Commissary is an ordinary direct server the owner adds with its `x-api-key` header (SPI-1160).
-import { applyMcpChange, EMPTY_HARNESS, type StoredHarness } from "@t3flare/harness-registry";
+import { applyMcpChange, DEFAULT_MCP_CALL_MS, EMPTY_HARNESS, type StoredHarness } from "@t3flare/harness-registry";
 import { describe, expect, it } from "vitest";
 
 import { McpHost, type McpEngineBinding } from "../src/mcp/host.ts";
@@ -80,6 +80,7 @@ const setup = (
   tools: () => Array<Record<string, unknown>>,
   answer?: () => unknown,
   harness: StoredHarness = withCommissary(),
+  limits: { readonly callTimeoutMs?: () => number; readonly resultBytes?: () => number } = {},
 ) => {
   let settings = harness;
   const { engine, seen } = fakeEngine(tools, answer);
@@ -89,6 +90,7 @@ const setup = (
     settings: () => settings,
     secret: async (server, field) => (server === "commissary" && field === "header" ? COMMISSARY_KEY : undefined),
     now: () => 1_000_000,
+    ...limits,
   });
   return { host, seen, set: (next: StoredHarness) => (settings = next), settings: () => settings };
 };
@@ -423,6 +425,79 @@ describe("McpHost and MCP apps (G11, review L10)", () => {
       isError: false,
       text: "12:00",
       structured: { time: "12:00" },
+    });
+  });
+
+  it("times each call by the MCP call time limit as set, 270 s by default (SPI-1359)", async () => {
+    const run = setup(() => [tool("fixture_echo", true)], undefined, withCommissary(), {
+      callTimeoutMs: () => 3_600_000,
+    });
+    await run.host.list("commissary");
+    await run.host.call({ server: "commissary", tool: "fixture_echo", args: {}, judged: "read" });
+    expect(run.seen.at(-1).target.timeoutMs).toBe(3_600_000);
+    const plain = setup(() => [tool("fixture_echo", true)]);
+    await plain.host.list("commissary");
+    expect(plain.seen.at(-1).target.timeoutMs).toBe(DEFAULT_MCP_CALL_MS);
+  });
+
+  it("cuts an inline result's text to the MCP result size in bytes of UTF-8, and drops structured content past it (SPI-1359)", async () => {
+    const run = setup(
+      () => [tool("fixture_echo", true)],
+      // 9 characters, 18 bytes of UTF-8.
+      () => ({ content: [{ type: "text", text: "ééééééééé" }], structuredContent: { long: "ééééééééé" } }),
+      withCommissary(),
+      { resultBytes: () => 11 },
+    );
+    await run.host.list("commissary");
+    expect(await run.host.call({ server: "commissary", tool: "fixture_echo", args: {}, judged: "read" })).toEqual({
+      kind: "result",
+      isError: false,
+      text: "ééééé",
+    });
+  });
+
+  it("refuses a streamed result past the MCP result size, and reads one within it (SPI-1359)", async () => {
+    const body = (text: string) =>
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(text));
+          controller.close();
+        },
+      });
+    const result = JSON.stringify({ content: [{ type: "text", text: "x".repeat(2_000) }] });
+    const { engine: lister } = fakeEngine(() => [tool("fixture_echo", true)]);
+    const host = (max: number) =>
+      new McpHost({
+        kv: memory(),
+        engine: {
+          discover: (target, prior, hooks) => lister.discover(target, prior, hooks),
+          request: async () =>
+            ({
+              kind: "complete",
+              result: { kind: "stream", body: body(result) },
+              cacheable: false,
+              fetchedAt: 0,
+              state: {},
+            }) as never,
+        },
+        settings: withCommissary,
+        secret: async () => COMMISSARY_KEY,
+        now: () => 1_000_000,
+        resultBytes: () => max,
+      });
+    const small = host(result.length - 1);
+    await small.list("commissary");
+    expect(await small.call({ server: "commissary", tool: "fixture_echo", args: {}, judged: "read" })).toMatchObject({
+      kind: "result",
+      isError: true,
+      text: `The tool's result was larger than the Environment setting "MCP result size (KiB)" (mcpResultKiB) allows, so t3flare refused it whole; the Owner can raise it (${result.length - 1} bytes).`,
+    });
+    const fits = host(result.length);
+    await fits.list("commissary");
+    expect(await fits.call({ server: "commissary", tool: "fixture_echo", args: {}, judged: "read" })).toMatchObject({
+      kind: "result",
+      isError: false,
+      text: "x".repeat(2_000),
     });
   });
 });
