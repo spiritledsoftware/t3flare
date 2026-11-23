@@ -68,6 +68,7 @@ import {
   resolvedToolsOf,
   resolveHarness,
   type ResolvedHarness,
+  retriedSpanMs,
 } from "@t3flare/harness-registry";
 
 import { type EnvironmentDO, environmentStub, limitsSender, usageSender } from "../environment.ts";
@@ -116,7 +117,6 @@ import { T3McpClient } from "./t3McpClient.ts";
 import { NO_KEY, sessionModels } from "./models.ts";
 import { credentialFailure } from "./credentialFailure.ts";
 import { modelSettingSlug, perImageBase64Of } from "@t3flare/models/endpoints";
-import { retriedSpanMs } from "@t3flare/models/failures";
 import { SessionEndpoints } from "./endpoints.ts";
 import { readWithin } from "../readWithin.ts";
 import { turnReadMs } from "./turnReadMs.ts";

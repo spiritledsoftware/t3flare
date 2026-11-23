@@ -9,7 +9,8 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels, isRetryableAssistantError } from "@earendil-works/pi-ai";
 import { createRegistry, Harness, MemoryStorage } from "@earendil-works/pi-durable";
 import type { ModelEndpoint } from "@t3flare/models/endpoints";
-import { ERROR_BODY_BYTES, type ModelFailureCode, modelFailureDetail, retriedSpanMs } from "@t3flare/models/failures";
+import { retriedSpanMs } from "@t3flare/harness-registry";
+import { ERROR_BODY_BYTES, type ModelFailureCode, modelFailureDetail } from "@t3flare/models/failures";
 import type { EndpointFailureRecord, ProxyRecord } from "@t3flare/session-protocol";
 import { describe, expect, it } from "vitest";
 

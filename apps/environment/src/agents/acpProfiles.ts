@@ -20,7 +20,6 @@
 // plugin gives each the process's model handle as its key, from OpenCode's own start environment.
 //
 // SPI-1176: without such an endpoint, either is refused, saying so.
-import { DEFAULT_CLI_RETRIES, DEFAULT_PI_SESSION_RETENTION_DAYS } from "@t3flare/harness-registry";
 import { type EndpointApi, type ModelEndpoint, parseEndpointSlug } from "@t3flare/models/endpoints";
 import { endpointProviderId, modelRelayUrl, modelRoutedRelayUrl } from "@t3flare/models/relay";
 import { OWNER_HOME } from "@t3flare/sandbox-image/env";
@@ -28,7 +27,15 @@ import { CLI_HOMES } from "@t3flare/sandbox-image/process";
 import { SKILLS_MOUNT } from "@t3flare/skills";
 import { HARNESS_ROOT } from "@t3flare/workspace-client";
 
-import { type Launch, type LaunchAnswer, type LaunchInput, noEndpointFor, type ProfileContext } from "./cliProfiles.ts";
+import {
+  type Launch,
+  type LaunchAnswer,
+  type LaunchInput,
+  noEndpointFor,
+  type ProfileContext,
+  type SpawnSettings,
+  spawnSettingsOf,
+} from "./cliProfiles.ts";
 import { dotfilesLaunch, dotfilesOn } from "./dotfiles.ts";
 
 /** The image's CLI binaries (`cliProfiles.ts` `CLI_BIN`, restated: that module imports this one). */
@@ -228,26 +235,23 @@ const relayNames = (context: ProfileContext): ReadonlyArray<string> =>
  * asking mode the flavor pins (`acpFlavor.ts`). `relayServers`: the MCP relay's servers (ADR-0028; the entries
  * themselves, with the process's handle, come per session over ACP, review H2), allowed without Claude's own prompt
  * because the relay decides and asks. The repository's `.claude/` is honoured for everything else. `mode`: the model
- * relay's (SPI-1168, `claudeModeOf`). `kept`: the Environment's `cliRetries` and `piSessionRetentionDays` at the spawn
- * (SPI-1367), Claude Code's retries and how many days it keeps a session it no longer writes to.
+ * relay's (SPI-1168, `claudeModeOf`). `retries` and `sessionDays`: the spawn's settings (`spawnSettingsOf`, SPI-1367),
+ * Claude Code's retries and how many days it keeps a session it no longer writes to.
  */
 export const claudeManagedSettings = (
   mode: ClaudeMode,
-  relayServers: ReadonlyArray<string> = [],
-  kept: { readonly retries: number; readonly sessionDays: number } = {
-    retries: DEFAULT_CLI_RETRIES,
-    sessionDays: DEFAULT_PI_SESSION_RETENTION_DAYS,
-  },
+  relayServers: ReadonlyArray<string>,
+  { retries, sessionDays }: SpawnSettings,
 ) => ({
   apiKeyHelper: mode.keyHelper,
   // Review F3: only the endpoint the managed env pins is admitted.
   allowedProviders: ["customEndpoint"],
   availableModels: [...mode.availableModels],
-  env: { ...Object.fromEntries(CLAUDE_PINNED_EMPTY.map((name) => [name, ""])), ...claudeSwitches(mode, kept.retries) },
+  env: { ...Object.fromEntries(CLAUDE_PINNED_EMPTY.map((name) => [name, ""])), ...claudeSwitches(mode, retries) },
   skipWebFetchPreflight: true,
   disableClaudeAiConnectors: true,
   // Claude Code deletes, at its start, sessions not written to for this many days.
-  cleanupPeriodDays: kept.sessionDays,
+  cleanupPeriodDays: sessionDays,
   // The asking mode the flavor pins: t3 decides each request (acpFlavor.ts). Claude's `auto` mode is not disabled: t3's
   // `auto` selects it, as stock t3's Claude adapter does.
   permissions: {
@@ -268,8 +272,7 @@ const claudeLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer
   const home = homeOf(input.key);
   const thread = input.env.T3CODE_THREAD_ID;
   const mode = claudeModeOf(context.claudeRelay);
-  const retries = context.cliRetries ?? DEFAULT_CLI_RETRIES;
-  const sessionDays = context.piSessionRetentionDays ?? DEFAULT_PI_SESSION_RETENTION_DAYS;
+  const spawn = spawnSettingsOf(context);
   return {
     argv: [`${CLI_BIN}/claude-agent-acp`],
     env: {
@@ -280,14 +283,14 @@ const claudeLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer
       CLAUDE_CODE_EXECUTABLE: CLAUDE_EXECUTABLE,
       // Ask the helper at start and after a 401, not every 5 minutes (M0 P1; the handle lasts the process's life).
       CLAUDE_CODE_API_KEY_HELPER_TTL_MS: String(24 * 3_600_000),
-      ...claudeSwitches(mode, retries),
+      ...claudeSwitches(mode, spawn.retries),
     },
     // ADR-0047 §9: the Owner's ~/.claude and ~/.claude.json first. The managed settings stay outside it, on top.
     ...dotfilesLaunch("claude", home, context.dotfiles),
     files: [
       {
         path: `${home}/managed-settings.json`,
-        text: `${JSON.stringify(claudeManagedSettings(mode, relayNames(context), { retries, sessionDays }), null, 1)}\n`,
+        text: `${JSON.stringify(claudeManagedSettings(mode, relayNames(context), spawn), null, 1)}\n`,
       },
     ],
     // SPI-1153: the Environment skill set as Claude Code's user-level root (`$CLAUDE_CONFIG_DIR/skills`).

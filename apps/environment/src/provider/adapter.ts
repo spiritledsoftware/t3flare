@@ -56,7 +56,7 @@ import { withCause } from "@t3flare/models/failures";
 import { redactSecrets } from "@t3flare/models/redact";
 import { toWorkspace } from "@t3flare/workspace-client";
 
-import { environmentNow, environmentServices, settingsReadMsNow, turnLimitMsNow } from "../agents/bindings.ts";
+import { environmentServices, settingsReadMsNow, turnLimitMsNow, turnRetriesNow } from "../agents/bindings.ts";
 import { byName, type SessionRpc } from "../agents/rpc.ts";
 import { registerSession } from "../agents/sessionSink.ts";
 import { durableModeRecord } from "./threadCaller.ts";
@@ -576,8 +576,7 @@ export const makePiDurableAdapter = (
                 // SPI-1314: how long the Session waits at this turn's start for the newest settings.
                 settingsReadMs: settingsReadMsNow(),
                 // SPI-1367: the Durable agent's retries and a stopped command's kills, as they are at this turn's start.
-                durableRetries: environmentNow().durableRetries,
-                killAttempts: environmentNow().killAttempts,
+                ...turnRetriesNow(),
               }),
             ).pipe(
               Effect.tapError(() =>

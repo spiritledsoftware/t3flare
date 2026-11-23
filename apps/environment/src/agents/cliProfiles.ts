@@ -100,6 +100,22 @@ export interface ProfileContext {
 }
 
 /**
+ * The spawn's Environment settings a CLI's own config takes (SPI-1323, SPI-1367), each resolved once here: its retries of
+ * a failed model request, and how many days a session nobody wrote to is kept.
+ */
+export interface SpawnSettings {
+  readonly retries: number;
+  readonly sessionDays: number;
+}
+
+export const spawnSettingsOf = (
+  context: Pick<ProfileContext, "cliRetries" | "piSessionRetentionDays">,
+): SpawnSettings => ({
+  retries: context.cliRetries ?? DEFAULT_CLI_RETRIES,
+  sessionDays: context.piSessionRetentionDays ?? DEFAULT_PI_SESSION_RETENTION_DAYS,
+});
+
+/**
  * pi on the Model endpoints (SPI-1170, `provider/cli/piEndpoints.ts` `piRelayOf`): the endpoints pi serves, each of which
  * lists a model (`piServes`; pi speaks every endpoint API, through pi-ai; its handle is for exactly these), and the model
  * it starts on.
@@ -180,7 +196,7 @@ export const codexRelayOverrides = (
  */
 export const codexEndpointOverrides = (
   endpoints: ReadonlyArray<RelayedEndpoint>,
-  retries: number = DEFAULT_CLI_RETRIES,
+  retries: number,
 ): ReadonlyArray<string> =>
   endpoints.map((endpoint) => {
     const provider = [
@@ -216,8 +232,8 @@ export const codexProcessProvider = (
 export const codexOverrides = (
   key: string,
   endpoints: ReadonlyArray<RelayedEndpoint & CodexRouteEndpoint>,
-  model?: string,
-  retries?: number,
+  model: string | undefined,
+  retries: number,
 ): ReadonlyArray<string> => {
   return [
     `model_provider=${tomlString(codexProcessProvider(endpoints, model))}`,
@@ -307,7 +323,7 @@ const codexExecLaunch = (input: LaunchInput, context: ProfileContext): LaunchAns
   if (endpoints.length === 0) return { refused: NO_CODEX_ENDPOINT };
   const home = homeOf(input.key);
   const overrides = [
-    ...codexOverrides(input.key, endpoints, model, context.cliRetries).filter(
+    ...codexOverrides(input.key, endpoints, model, spawnSettingsOf(context).retries).filter(
       (value) => !value.startsWith("approval_policy=") && !value.startsWith("sandbox_mode="),
     ),
     // `codex exec` cannot ask anyone: a command the read-only sandbox refuses fails back to the model.
@@ -342,7 +358,7 @@ const codexLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer 
   const thread = input.env.T3CODE_THREAD_ID;
   const relay = context.relay;
   const overrides = [
-    ...codexOverrides(input.key, endpoints, context.model, context.cliRetries),
+    ...codexOverrides(input.key, endpoints, context.model, spawnSettingsOf(context).retries),
     ...(relay === undefined ? [] : codexRelayOverrides(relay.servers, relay.toolTimeoutSec, relay.startTimeoutSec)),
   ];
   return {
@@ -475,7 +491,7 @@ export const piMcpJson = (servers: ReadonlyArray<string>, toolTimeoutSec: number
  * (SPI-1367), and the model pi starts on (its default, which t3's `default` model keeps), as pi names it: its endpoint's
  * provider and the model's own id.
  */
-export const piRelaySettings = (relay: PiRelay, retries: number = DEFAULT_CLI_RETRIES): string => {
+export const piRelaySettings = (relay: PiRelay, retries: number): string => {
   const start = relay.model === undefined ? undefined : parseEndpointSlug(relay.model);
   const defaults =
     start === undefined ? {} : { defaultProvider: endpointProviderId(start.endpointId), defaultModel: start.modelId };
@@ -550,7 +566,7 @@ const piLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer => 
   if (piRelay === undefined) return { refused: noEndpointFor("Pi") };
   const files: Array<{ path: string; text: string; mode?: number }> = [
     { path: `${home}/agent/models.json`, text: piRelayModelsJson(piRelay) },
-    { path: `${home}/agent/settings.json`, text: piRelaySettings(piRelay, context.cliRetries) },
+    { path: `${home}/agent/settings.json`, text: piRelaySettings(piRelay, spawnSettingsOf(context).retries) },
   ];
   const env: Record<string, string> = {
     HOME: OWNER_HOME,
@@ -614,7 +630,7 @@ const piLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer => 
     // ADR-0047 §9: the Owner's user directory first; t3flare's models.json, settings.json and mcp.json over it.
     ...dotfilesLaunch("pi", home, context.dotfiles),
     files,
-    prune: [{ dir: PI_SESSIONS, days: context.piSessionRetentionDays ?? DEFAULT_PI_SESSION_RETENTION_DAYS }],
+    prune: [{ dir: PI_SESSIONS, days: spawnSettingsOf(context).sessionDays }],
     ...(thread === undefined ? {} : { thread }),
     // SPI-1170: the Workspace DO gives the process a model handle for these endpoints, in its environment only.
     modelRelay: piRelay.endpoints.map((endpoint) => endpoint.id),

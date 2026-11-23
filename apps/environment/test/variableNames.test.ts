@@ -17,6 +17,7 @@ import {
   type CliName,
   type LaunchInput,
   profileLaunch,
+  spawnSettingsOf,
   type ProfileContext,
 } from "../src/agents/cliProfiles.ts";
 import { TERMINAL_BASE_ENV } from "../src/terminal/layer.ts";
@@ -93,7 +94,7 @@ const launchNames = (): ReadonlyArray<string> =>
 
 /** The names Codex's shell policy sets in every command it runs (`shell_environment_policy.set.NAME=…`). */
 const codexShellNames = (): ReadonlyArray<string> =>
-  codexOverrides("k1", [ENDPOINT]).flatMap(
+  codexOverrides("k1", [ENDPOINT], undefined, spawnSettingsOf({}).retries).flatMap(
     (value) => /^shell_environment_policy\.set\.([A-Za-z_][A-Za-z0-9_]*)=/.exec(value)?.[1] ?? [],
   );
 
@@ -110,7 +111,7 @@ const derived = (): ReadonlyArray<string> => [
     ...launchNames(),
     ...codexShellNames(),
     // SPI-1168: on the model relay, every alias Claude Code resolves is pinned too.
-    ...Object.keys(claudeManagedSettings(claudeModeOf(CLAUDE_RELAY)).env),
+    ...Object.keys(claudeManagedSettings(claudeModeOf(CLAUDE_RELAY), [], spawnSettingsOf({})).env),
     ...Object.keys(TERMINAL_BASE_ENV),
     ...terminalRcNames(),
     // SPI-1167: the Workspace DO puts the model handle in a CLI process's environment.

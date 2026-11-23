@@ -136,7 +136,9 @@ describe("t3flare's managed policy", () => {
     expect(globalIdleCompaction(settings.applyLocks(settings.defaults))).toBe("off");
     const decoded = settings.defaults;
     expect(
-      settings.vetWrite(decoded, decoded, { backgroundActivity: { schemaVersion: 1, profile: "balanced", overrides: {} } }),
+      settings.vetWrite(decoded, decoded, {
+        backgroundActivity: { schemaVersion: 1, profile: "balanced", overrides: {} },
+      }),
     ).not.toMatchObject({ _tag: "Locked" });
     expect(settings.vetWrite(decoded, decoded, { idleCompaction: "beforeCacheExpires" })).toMatchObject({
       _tag: "Locked",

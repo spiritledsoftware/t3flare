@@ -223,3 +223,12 @@ export const environmentNow = (): ResolvedEnvironment => {
     return resolveEnvironment(EMPTY_ENVIRONMENT);
   }
 };
+
+/**
+ * The Durable agent's retries and a stopped command's kills now (SPI-1367, `durableRetries`, `killAttempts`): carried
+ * with each turn's start, which the Session keeps; the defaults when the store cannot be read.
+ */
+export const turnRetriesNow = (): { readonly durableRetries: number; readonly killAttempts: number } => {
+  const { durableRetries, killAttempts } = environmentNow();
+  return { durableRetries, killAttempts };
+};

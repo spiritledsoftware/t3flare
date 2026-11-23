@@ -8,11 +8,10 @@
 // alarm, and given up after the Environment's `killAttempts` (SPI-1367). A background process of a command that completed
 // is left alone.
 // @effect-diagnostics globalTimers:off globalConsole:off
-import { DEFAULT_KILL_ATTEMPTS } from "@t3flare/harness-registry";
+import { DEFAULT_KILL_ATTEMPTS, KILL_RETRY_MS } from "@t3flare/harness-registry";
 
 const KEY = "t3flare:running-execs";
-/** How long the Session waits after a stopped command before it tries a failed kill again. */
-export const KILL_RETRY_MS = 5_000;
+export { KILL_RETRY_MS };
 
 export interface RunningExecsStorage {
   get<T>(key: string): T | undefined;

@@ -8,10 +8,10 @@ import {
   classifyModelFailure,
   type FailedAnswer,
   modelFailureMessage,
-  retriedSpanMs,
   SHORT_RESET_MS,
   withCause,
 } from "@t3flare/models/failures";
+import { retriedSpanMs } from "@t3flare/harness-registry";
 import { describe, expect, it } from "vitest";
 
 import fixtures from "../../../packages/models/test/fixtures/vendors.json" with { type: "json" };

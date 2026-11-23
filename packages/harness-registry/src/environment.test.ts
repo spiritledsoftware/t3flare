@@ -789,7 +789,7 @@ describe("the retries and the trace (SPI-1367)", () => {
     for (const key of ["durableRetries", "cliRetries"] as const) expect(fitsEnvironmentSetting(key, 0)).toBe(true);
     for (const key of ["killAttempts", "traceKiB", "traceFiles"] as const)
       expect(fitsEnvironmentSetting(key, 0)).toBe(false);
-    expect(MAX_TRACE_KIB).toBe(16 * 1024);
+    expect(MAX_TRACE_KIB).toBe(4 * 1024);
   });
 
   it("ask before what spends or keeps more awake, and before deleting trace files", () => {

@@ -363,19 +363,11 @@ const ROWS: ReadonlyArray<Row> = [
 ];
 
 /**
- * How long `retries` of pi-durable's retries wait in all: its `DEFAULT_RETRY_POLICY` waits 2 s, doubling at each retry,
- * each at most a minute (pi-ai's `retryDelayMs`). A 429 that resets within this span is met by one of them; a later
- * reset is out of their reach and pauses the thread until it at once, with one request (SPI-1367: the retries are the
- * Environment's `durableRetries`).
+ * The longest reset a rate limit is retried through within the run, by default: pi-durable's default 3 retries span
+ * 2 + 4 + 8 = 14 s (`retriedSpanMs(3)`, @t3flare/harness-registry, which the Session passes for the Environment's
+ * `durableRetries`; a test pins the two together). A later reset pauses the thread until it at once, with one request.
  */
-export const retriedSpanMs = (retries: number): number => {
-  let span = 0;
-  for (let attempt = 1; attempt <= retries; attempt++) span += Math.min(2000 * 2 ** (attempt - 1), 60_000);
-  return span;
-};
-
-/** The longest reset a rate limit is retried through at pi-durable's default 3 retries: 2 + 4 + 8 = 14 s. */
-export const SHORT_RESET_MS = retriedSpanMs(3);
+export const SHORT_RESET_MS = 14_000;
 
 /** The least time after now a usage limit's reset is held to: t3 arms no resume for one not after the turn's end. */
 export const MIN_RESET_MS = 30_000;
