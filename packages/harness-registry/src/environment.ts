@@ -155,13 +155,24 @@ export const DEFAULT_TERMINALS_PER_WORKSPACE = 8;
 
 /**
  * The most Terminals and Background jobs Pi Durable agents may run at once per Workspace (`agentTerminalsPerWorkspace`).
- * A named constraint, provisional: the Workspace DO's memory. Each of an agent's Terminals keeps a headless xterm (1,000
- * lines of scrollback) in the Workspace DO's 128 MB isolate, which holds its files' sync too; 32 is a guess at what
+ * A named constraint, provisional: the Workspace DO's memory. Each of an agent's Terminals keeps a headless xterm (its
+ * scrollback, `agentTerminalScrollbackLines`, 1,000 lines by default) in the Workspace DO's 128 MB isolate, which holds its files' sync too; 32 is a guess at what
  * fits, and SPI-978's measurement of the DO's memory sets the figure. An agent's exited Terminals keep their xterm
  * outside the live count: `MAX_KEPT` (apps/agents/src/workspace/agentTerminals.ts) bounds them per Session only, so their
  * Workspace-wide total grows with the Sessions the Workspace serves until the DO restarts.
  */
 export const MAX_AGENT_TERMINALS_PER_WORKSPACE = 32;
+
+/** The lines of scrollback each of an agent's Terminals keeps by default (`agentTerminalScrollbackLines`). */
+export const DEFAULT_AGENT_TERMINAL_SCROLLBACK_LINES = 1000;
+
+/**
+ * The most lines of scrollback an agent's Terminal may keep (`agentTerminalScrollbackLines`). A named constraint,
+ * provisional, like `MAX_AGENT_TERMINALS_PER_WORKSPACE`: each Terminal's headless xterm keeps its scrollback in the
+ * Workspace DO's 128 MB isolate, about 12 bytes per cell (a 120-column line about 1.4 KB). 10,000 lines of one
+ * 120-column Terminal are about 14 MB, so only a few Terminals that size fit; SPI-978's measurement sets the figure.
+ */
+export const MAX_AGENT_TERMINAL_SCROLLBACK_LINES = 10_000;
 
 /**
  * The most of the Owner's own Terminals per Workspace (`terminalsPerWorkspace`): a sanity bound, not a constraint
@@ -544,6 +555,18 @@ export const ENVIRONMENT_SETTINGS = {
       minimum: 1,
       maximum: MAX_AGENT_TERMINALS_PER_WORKSPACE,
       default: DEFAULT_TERMINALS_PER_WORKSPACE,
+    },
+    tier: "down-free",
+  },
+  agentTerminalScrollbackLines: {
+    title: "Agents' Terminal scrollback (lines)",
+    description: `How many lines that scrolled off an agent's Terminal or Background job it keeps (0: only the screen); the agent cannot read past them, though a Background job's log keeps all of its output. Each line uses memory in the Workspace's own Durable Object, not the Container: about 1.4 KiB at 120 columns, for every Terminal it keeps; past that object's 128 MB it restarts, and every agent's Terminal and Background job ends. At most ${MAX_AGENT_TERMINAL_SCROLLBACK_LINES.toLocaleString("en-US")}. Applies at each Workspace's next Container start.`,
+    // A named constraint, provisional (`MAX_AGENT_TERMINAL_SCROLLBACK_LINES`): their xterms in the Workspace DO's memory.
+    schema: {
+      type: "integer",
+      minimum: 0,
+      maximum: MAX_AGENT_TERMINAL_SCROLLBACK_LINES,
+      default: DEFAULT_AGENT_TERMINAL_SCROLLBACK_LINES,
     },
     tier: "down-free",
   },

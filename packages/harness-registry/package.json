@@ -12,6 +12,9 @@
     "lint": "oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity error src",
     "test": "vitest run"
   },
+  "dependencies": {
+    "@t3flare/session-protocol": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "catalog:",
     "vitest": "5.0.5"

@@ -269,9 +269,11 @@ describe("harness page", () => {
       "todo",
       "context",
       "termctrl",
+      "tool-output",
       "guardian",
       "advisor",
       "skills",
+      "prompt-suggestions",
       // SPI-1321: no longer locked, "Always on" with its settings; permissions stays locked.
       "project-context",
     ]);
@@ -803,16 +805,24 @@ describe("the Environment section's dotfiles", () => {
       "terminalBusyHoldMinutes",
       "terminalPromptHoldMinutes",
     ]);
-    expect(after("containerBudget")).toEqual([
+    expect(settings.slice(settings.indexOf("containerBudget"), settings.indexOf("containerBudget") + 4)).toEqual([
       "containerBudget",
       "terminalsPerWorkspace",
       "agentTerminalsPerWorkspace",
+      // SPI-1362: beside the count it trades against in the Workspace's memory.
+      "agentTerminalScrollbackLines",
     ]);
     const input = (key: string) => tagsOf(containers).find((tag) => tag.attrs["data-setting"] === key)?.attrs;
     expect(input("terminalBusyHoldMinutes")).toMatchObject({ type: "number", min: "1", value: "30" });
     expect(input("terminalPromptHoldMinutes")).toMatchObject({ type: "number", min: "1", value: "10" });
     expect(input("terminalsPerWorkspace")).toMatchObject({ type: "number", min: "1", max: "1000", value: "8" });
     expect(input("agentTerminalsPerWorkspace")).toMatchObject({ type: "number", min: "1", max: "32", value: "8" });
+    expect(input("agentTerminalScrollbackLines")).toMatchObject({
+      type: "number",
+      min: "0",
+      max: "10000",
+      value: "1000",
+    });
   });
 
   it("draws a toggle the Owner turned off unchecked", () => {

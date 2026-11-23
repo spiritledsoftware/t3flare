@@ -74,6 +74,7 @@ const TUNABLE_DEFAULTS = {
   terminalPromptHoldMinutes: 10,
   terminalsPerWorkspace: 8,
   agentTerminalsPerWorkspace: 8,
+  agentTerminalScrollbackLines: 1000,
   cloneMinutes: 15,
   checkpointMinutes: 10,
   usageRetentionDays: 92,

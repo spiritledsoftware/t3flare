@@ -7,10 +7,7 @@ import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-
 import { bool, num, obj, opt, str } from "@earendil-works/pi-schema";
 import { defaultSettings, type SettingValue } from "@t3flare/harness-registry";
 
-import { OUTPUT_MAX_BYTES, OUTPUT_MAX_LINES } from "./web/output.ts";
-
-/** The file tools' output limits: pi-durable's defaults, which the web tools' results take too (`web/output.ts`). */
-export const FILE_TOOL_OUTPUT_LIMITS = { maxBytes: OUTPUT_MAX_BYTES, maxLines: OUTPUT_MAX_LINES } as const;
+import { DEFAULT_TOOL_OUTPUT_LIMITS, type ToolOutputLimits } from "./toolOutput.ts";
 
 /** The file search of the Session's Workspace, or undefined when the Session has none. */
 export type FilesOf = () => ComputerFiles | undefined;
@@ -57,7 +54,7 @@ const need = (files: FilesOf): ComputerFiles => {
   return found;
 };
 
-const lsTool = (files: FilesOf, max: number) =>
+const lsTool = (files: FilesOf, max: number, output: ToolOutputLimits) =>
   defineTool({
     name: "ls",
     description: `List a directory's entries, directories with a trailing "/". Up to ${max} entries.`,
@@ -65,7 +62,7 @@ const lsTool = (files: FilesOf, max: number) =>
       path: opt(str({ description: "Directory to list (default: the working directory)" })),
       limit: opt(num({ description: `Maximum number of entries (default ${max})` })),
     }),
-    outputLimits: FILE_TOOL_OUTPUT_LIMITS,
+    outputLimits: output,
     replay: "safe",
     async execute(args, api) {
       const directory = resolvePath(api.env?.cwd ?? "/workspace", args.path);
@@ -83,7 +80,7 @@ const lsTool = (files: FilesOf, max: number) =>
     },
   });
 
-const findTool = (files: FilesOf, max: number) =>
+const findTool = (files: FilesOf, max: number, output: ToolOutputLimits) =>
   defineTool({
     name: "find",
     description: `Find files by glob pattern, such as '*.ts' or 'src/**/*.test.ts'. Paths relative to the directory searched. Up to ${max} results; .git and node_modules are skipped.`,
@@ -92,7 +89,7 @@ const findTool = (files: FilesOf, max: number) =>
       path: opt(str({ description: "Directory to search in (default: the working directory)" })),
       limit: opt(num({ description: `Maximum number of results (default ${max})` })),
     }),
-    outputLimits: FILE_TOOL_OUTPUT_LIMITS,
+    outputLimits: output,
     replay: "safe",
     async execute(args, api) {
       const directory = resolvePath(api.env?.cwd ?? "/workspace", args.path);
@@ -114,17 +111,21 @@ export const GREP_CONTEXT_FLOOR = 10;
 
 /**
  * The context a grep asks for: what the call names, as far as `matches` matches each with 2 × context + 1 lines and a
- * `--` fit the result's lines, and never less than `GREP_CONTEXT_FLOOR`. More is never seen, and the Workspace copies
+ * `--` fit the result's `maxLines` (the Tool output limit), and never less than `GREP_CONTEXT_FLOOR`. More is never seen, and the Workspace copies
  * each match's context whole, so it would only cost memory and the answer's bytes. Past the share, the result is cut at
  * its lines as it is built, so fewer matches show.
  */
-export const grepContext = (requested: number, matches: number): number => {
+export const grepContext = (
+  requested: number,
+  matches: number,
+  maxLines: number = DEFAULT_TOOL_OUTPUT_LIMITS.maxLines,
+): number => {
   const asked = Math.max(0, Math.floor(requested));
-  const share = Math.floor((FILE_TOOL_OUTPUT_LIMITS.maxLines / Math.max(1, matches) - 2) / 2);
+  const share = Math.floor((maxLines / Math.max(1, matches) - 2) / 2);
   return Math.min(asked, Math.max(GREP_CONTEXT_FLOOR, share));
 };
 
-const grepTool = (files: FilesOf, max: number) =>
+const grepTool = (files: FilesOf, max: number, output: ToolOutputLimits) =>
   defineTool({
     name: "grep",
     description: `Search file contents for a pattern. Returns matching lines as path:line: text. Up to ${max} matches; .git and node_modules are skipped.`,
@@ -136,12 +137,12 @@ const grepTool = (files: FilesOf, max: number) =>
       literal: opt(bool({ description: "Treat the pattern as a literal string (default false)" })),
       context: opt(
         num({
-          description: `Lines of context before and after each match (default 0); lowered, to no less than ${GREP_CONTEXT_FLOOR}, so every match's context fits the result's ${FILE_TOOL_OUTPUT_LIMITS.maxLines} lines`,
+          description: `Lines of context before and after each match (default 0); lowered, to no less than ${GREP_CONTEXT_FLOOR}, so every match's context fits the result's ${output.maxLines} lines`,
         }),
       ),
       limit: opt(num({ description: `Maximum number of matches (default ${max})` })),
     }),
-    outputLimits: FILE_TOOL_OUTPUT_LIMITS,
+    outputLimits: output,
     replay: "safe",
     async execute(args, api) {
       const directory = resolvePath(api.env?.cwd ?? "/workspace", args.path);
@@ -149,14 +150,14 @@ const grepTool = (files: FilesOf, max: number) =>
       const matches = await need(files).grep(args.pattern, directory, {
         ignoreCase: args.ignoreCase === true,
         regex: args.literal !== true,
-        context: grepContext(args.context ?? 0, limit + 1),
+        context: grepContext(args.context ?? 0, limit + 1, output.maxLines),
         limit: limit + 1,
         include: args.glob,
         exclude: EXCLUDE,
       });
       const base = api.env?.cwd ?? directory;
       // Built only as far as the result's lines, less one for the note after them.
-      const room = FILE_TOOL_OUTPUT_LIMITS.maxLines - 1;
+      const room = output.maxLines - 1;
       const lines: string[] = [];
       let full = false;
       for (const match of matches.slice(0, limit)) {
@@ -182,9 +183,17 @@ const grepTool = (files: FilesOf, max: number) =>
     },
   });
 
-/** `ls`, `find` and `grep`, within `limits`. */
-export const fileTools = (files: FilesOf, limits: FileLimits = DEFAULT_FILE_LIMITS): Extension =>
+/** `ls`, `find` and `grep`, within `limits`, their results within `output` (the Tool output limit). */
+export const fileTools = (
+  files: FilesOf,
+  limits: FileLimits = DEFAULT_FILE_LIMITS,
+  output: ToolOutputLimits = DEFAULT_TOOL_OUTPUT_LIMITS,
+): Extension =>
   defineExtension({
     name: FILES_EXTENSION,
-    tools: [lsTool(files, limits.lsLimit), findTool(files, limits.findLimit), grepTool(files, limits.grepLimit)],
+    tools: [
+      lsTool(files, limits.lsLimit, output),
+      findTool(files, limits.findLimit, output),
+      grepTool(files, limits.grepLimit, output),
+    ],
   });

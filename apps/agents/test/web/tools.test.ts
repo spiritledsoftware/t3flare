@@ -10,11 +10,13 @@ import { UNCONVERTED_NOTE, webFetchTool } from "../../src/extensions/web/fetch.t
 import { DEFAULT_WEB_LIMITS, type WebLimits } from "../../src/extensions/web/limits.ts";
 import { STRUCTURED_MAX_BYTES } from "../../src/extensions/web/output.ts";
 import { SESSION_ROW_BYTES, SESSION_ROW_ENVELOPE_BYTES } from "@t3flare/session-protocol";
+import { MAX_TOOL_OUTPUT_KIB } from "@t3flare/harness-registry";
+import { DEFAULT_TOOL_OUTPUT_LIMITS } from "../../src/extensions/toolOutput.ts";
 import type { WebRequest, WebTransport } from "../../src/extensions/web/net.ts";
 import {
   ANSWER_MAX_BYTES,
   readAnswer,
-  RESULTS_BYTES,
+  resultsBytes,
   systemPrompt,
   webSearchTool,
 } from "../../src/extensions/web/search.ts";
@@ -407,58 +409,90 @@ describe("web_search", () => {
     expect(structured.results.length).toBeLessThan(2_000);
     expect(details.results).toHaveLength(structured.results.length);
     const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
-    expect(bytes(details.results) + bytes(structured.results)).toBeLessThanOrEqual(RESULTS_BYTES);
+    expect(bytes(details.results) + bytes(structured.results)).toBeLessThanOrEqual(
+      resultsBytes(DEFAULT_TOOL_OUTPUT_LIMITS.maxBytes),
+    );
     const few = await run(webSearchTool(network(() => Response.json(answer)).transport, endpoint), { query: "q" });
     expect((few.ok ? few.result.structuredOutput : undefined) as { truncated: boolean }).toMatchObject({
       truncated: false,
     });
   });
 
-  it("keeps a result that is all JSON escapes within one Session row, as a nested call stores it (SPI-1361)", async () => {
-    const quotes = (count: number) => '"'.repeat(count - 1) + "\u0001";
-    const pages = Array.from({ length: 1_500 }, (_, index) => ({
-      type: "web_search_result",
-      url: `https://a.example/${index}/${quotes(1_000)}`,
-    }));
-    const escapes = {
-      content: [
-        { type: "web_search_tool_result", tool_use_id: "s", content: pages },
-        { type: "text", text: quotes(900_000) },
-      ],
-      usage: { input_tokens: 1, output_tokens: 1 },
-    };
-    const { transport } = network(() => Response.json(escapes));
-    const outcome = await run(webSearchTool(transport, endpoint), {
-      query: quotes(10_000),
-      numResults: 10_000,
-      contextMaxCharacters: 100_000_000,
-    });
-    if (!outcome.ok) throw new Error(outcome.error);
-    const result = outcome.result;
-    expect((result.structuredOutput as { truncated: boolean }).truncated).toBe(true);
-    const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
-    // pi-durable's NestedCallDoc row for a code-mode call, and the result entry of a model's call.
-    const nested = {
-      taskId: "t",
-      result: {
+  it.each([
+    ["the default Tool output limit", DEFAULT_TOOL_OUTPUT_LIMITS],
+    ["the Tool output limit's maximum (SPI-1362)", { maxBytes: MAX_TOOL_OUTPUT_KIB * 1024, maxLines: 100_000 }],
+  ])(
+    "keeps a result that is all JSON escapes within one Session row, as a nested call stores it, at %s (SPI-1361)",
+    async (_, output) => {
+      const quotes = (count: number) => '"'.repeat(count - 1) + "\u0001";
+      const pages = Array.from({ length: 1_500 }, (_, index) => ({
+        type: "web_search_result",
+        url: `https://a.example/${index}/${quotes(1_000)}`,
+      }));
+      const escapes = {
+        content: [
+          { type: "web_search_tool_result", tool_use_id: "s", content: pages },
+          { type: "text", text: quotes(900_000) },
+        ],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      };
+      const { transport } = network(() => Response.json(escapes));
+      const outcome = await run(webSearchTool(transport, endpoint, DEFAULT_WEB_LIMITS, output), {
+        query: quotes(10_000),
+        numResults: 10_000,
+        contextMaxCharacters: 100_000_000,
+      });
+      if (!outcome.ok) throw new Error(outcome.error);
+      const result = outcome.result;
+      expect((result.structuredOutput as { truncated: boolean }).truncated).toBe(true);
+      const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
+      // pi-durable's NestedCallDoc row for a code-mode call, and the result entry of a model's call.
+      const nested = {
         taskId: "t",
-        structuredOutput: result.structuredOutput,
-        isError: false,
-        details: result.details,
-        diagnostics: [],
-        usage: result.usage,
-        durationMs: 1,
-      },
-    };
-    expect(bytes(nested)).toBeLessThan(SESSION_ROW_BYTES - SESSION_ROW_ENVELOPE_BYTES);
+        result: {
+          taskId: "t",
+          structuredOutput: result.structuredOutput,
+          isError: false,
+          details: result.details,
+          diagnostics: [],
+          usage: result.usage,
+          durationMs: 1,
+        },
+      };
+      expect(bytes(nested)).toBeLessThan(SESSION_ROW_BYTES - SESSION_ROW_ENVELOPE_BYTES);
+      expect(
+        bytes({ output: result.output, details: result.details, structuredOutput: result.structuredOutput }),
+      ).toBeLessThan(SESSION_ROW_BYTES - SESSION_ROW_ENVELOPE_BYTES);
+    },
+  );
+
+  it("times a search out at searchTimeoutSeconds (SPI-1321)", async () => {
+    const tool = webSearchTool(hanging(), endpoint, limits({ searchTimeoutSeconds: 1 }));
+    expect(textOf(await run(tool, { query: "q" }))).toBe("Unable to search the web for q: timed out after 1 second");
+  });
+
+  it("keeps a fetched page that is all JSON escapes within one Session row at the Tool output limit's maximum (SPI-1362)", async () => {
+    const output = { maxBytes: MAX_TOOL_OUTPUT_KIB * 1024, maxLines: 100_000 };
+    const page = "\u0001".repeat(4 * 1024 * 1024);
+    const { transport } = network(() => new Response(page, { headers: { "content-type": "text/plain" } }));
+    const outcome = await run(webFetchTool(transport, DEFAULT_WEB_LIMITS, output), { url: "https://example.com/" });
+    if (!outcome.ok) throw new Error(outcome.error);
+    const { result } = outcome;
+    const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
     expect(
       bytes({ output: result.output, details: result.details, structuredOutput: result.structuredOutput }),
     ).toBeLessThan(SESSION_ROW_BYTES - SESSION_ROW_ENVELOPE_BYTES);
   });
 
-  it("times a search out at searchTimeoutSeconds (SPI-1321)", async () => {
-    const tool = webSearchTool(hanging(), endpoint, limits({ searchTimeoutSeconds: 1 }));
-    expect(textOf(await run(tool, { query: "q" }))).toBe("Unable to search the web for q: timed out after 1 second");
+  it("shares the searchContextCharacters setting across results when a call names no budget (SPI-1362)", async () => {
+    const tool = webSearchTool(
+      network(() => Response.json(answer)).transport,
+      endpoint,
+      limits({ searchContextCharacters: 40 }),
+    );
+    expect(tool.description).toContain("cut at 40 characters by default");
+    expect(parameter(tool, "contextMaxCharacters")?.description).toContain("default: 40");
+    expect(textOf(await run(tool, { query: "q" }))).toContain("Search results cut at 40 characters");
   });
 
   it("passes the extension's limits to both tools (SPI-1321)", () => {
@@ -466,6 +500,15 @@ describe("web_search", () => {
       webExtension({ search: endpoint, limits: limits({ fetchTimeoutSeconds: 7, searchResults: 3 }) }).tools ?? [];
     expect(parameter(tools[0]!, "timeout")?.description).toContain("default: 7");
     expect(parameter(tools[1]!, "numResults")?.description).toContain("default: 3");
+  });
+
+  it("gives both tools the Tool output limit as their outputLimits and their descriptions (SPI-1362)", () => {
+    const output = { maxBytes: 100 * 1024, maxLines: 3_000 };
+    const tools = webExtension({ search: endpoint, output }).tools ?? [];
+    for (const tool of tools) {
+      expect(tool.outputLimits).toEqual(output);
+      expect(tool.description).toContain("truncated to 100 KiB or 3,000 lines");
+    }
   });
 
   it("is offered only when the setting turns it on", () => {

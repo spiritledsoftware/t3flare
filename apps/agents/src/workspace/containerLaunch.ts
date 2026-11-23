@@ -113,6 +113,8 @@ export interface ContainerLaunch {
   readonly terminalPromptHoldMs?: number;
   readonly terminalsPerWorkspace?: number;
   readonly agentTerminalsPerWorkspace?: number;
+  /** The agents' Terminals' scrollback (SPI-1362, `agentTerminalScrollbackLines`); absent before it: the default. */
+  readonly agentTerminalScrollbackLines?: number;
   /**
    * What this Container started from (SPI-1333, ADR-0047 §6): the Base snapshot (its id and key) or the Workspace image
    * (and why). A running Container keeps it (ADR-0032 §5). Absent in a launch recorded before it: the image.
@@ -195,6 +197,7 @@ export interface TerminalHold {
 export interface TerminalLimits extends TerminalHold {
   readonly terminalsPerWorkspace: number;
   readonly agentTerminalsPerWorkspace: number;
+  readonly agentTerminalScrollbackLines: number;
 }
 
 /** The Terminals' holds and counts of `settings`, the holds in ms: what `launchOf` keeps. */
@@ -203,6 +206,7 @@ const terminalLimitsFrom = (settings: ResolvedEnvironment): TerminalLimits => ({
   terminalPromptHoldMs: settings.terminalPromptHoldMinutes * 60_000,
   terminalsPerWorkspace: settings.terminalsPerWorkspace,
   agentTerminalsPerWorkspace: settings.agentTerminalsPerWorkspace,
+  agentTerminalScrollbackLines: settings.agentTerminalScrollbackLines,
 });
 
 /** The launch for the settings `taken` (`takeEnvironment`'s, already read against this Worker's schema). */
@@ -235,6 +239,7 @@ export const terminalLimitsOf = (launch: ContainerLaunch | undefined): TerminalL
   terminalPromptHoldMs: launch?.terminalPromptHoldMs ?? DEFAULT_LIMITS.terminalPromptHoldMs,
   terminalsPerWorkspace: launch?.terminalsPerWorkspace ?? DEFAULT_LIMITS.terminalsPerWorkspace,
   agentTerminalsPerWorkspace: launch?.agentTerminalsPerWorkspace ?? DEFAULT_LIMITS.agentTerminalsPerWorkspace,
+  agentTerminalScrollbackLines: launch?.agentTerminalScrollbackLines ?? DEFAULT_LIMITS.agentTerminalScrollbackLines,
 });
 
 /**

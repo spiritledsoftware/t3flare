@@ -3,10 +3,11 @@
 // with `CODEX_PROMPT_SUGGESTION_PROMPT` at low effort (t3code `CodexAdapterV2.ts`, `samplePromptSuggestion`); Claude
 // Code makes its own. A Durable agent has neither, so the Session asks a small model of its Model endpoints (the
 // endpoints' small model, text generation's default rule), with
-// the turn's request and answer only (bounded), never the whole thread: one cheap request per completed turn, only while
+// the turn's request and answer only (their last `excerptCharacters`, a setting), never the whole thread: one cheap request per completed turn, only while
 // the owner has the labs flag on.
 // @effect-diagnostics globalTimers:off
 import type { Api, Context, Model, Models } from "@earendil-works/pi-ai";
+import { defaultSettings, type SettingValue } from "@t3flare/harness-registry";
 import { defaultSmallModel, type ModelEndpoints, parseEndpointSlug } from "@t3flare/models/endpoints";
 
 /** t3's prompt (`CODEX_PROMPT_SUGGESTION_PROMPT`, t3code `apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts`). */
@@ -21,20 +22,39 @@ export const suggestionModelOf = (
   const parsed = slug === undefined ? undefined : parseEndpointSlug(slug);
   return parsed === undefined ? undefined : { provider: parsed.endpointId, modelId: parsed.modelId };
 };
-/** Most characters of the request and of the answer the model reads. */
-export const SUGGESTION_EXCERPT = 4_000;
-export const SUGGESTION_TIMEOUT_MS = 20_000;
+/** Prompt suggestions' settings (`prompt-suggestions`, SPI-1362): how much of the turn the model reads, how long it may take. */
+export interface SuggestionLimits {
+  /** Most characters of the request and of the answer the model reads, the last of each. */
+  readonly excerptCharacters: number;
+  readonly timeoutMs: number;
+}
 
-const excerpt = (text: string): string =>
-  text.length <= SUGGESTION_EXCERPT ? text : `…${text.slice(-SUGGESTION_EXCERPT)}`;
+export const PROMPT_SUGGESTIONS_EXTENSION = "prompt-suggestions";
+
+/** The Prompt suggestions entry's resolved settings as limits. */
+export const suggestionLimits = (values: Readonly<Record<string, SettingValue>>): SuggestionLimits => ({
+  excerptCharacters: Number(values.excerptCharacters),
+  timeoutMs: Number(values.timeoutSeconds) * 1000,
+});
+
+export const DEFAULT_SUGGESTION_LIMITS: SuggestionLimits = suggestionLimits(
+  defaultSettings(PROMPT_SUGGESTIONS_EXTENSION),
+);
+
+const excerpt = (text: string, characters: number): string =>
+  text.length <= characters ? text : `…${text.slice(-characters)}`;
 
 /** The request the model answers: the turn's user message and the agent's answer, then t3's prompt. */
-export const suggestionContext = (user: string, answer: string): Context => ({
+export const suggestionContext = (
+  user: string,
+  answer: string,
+  limits: SuggestionLimits = DEFAULT_SUGGESTION_LIMITS,
+): Context => ({
   systemPrompt: "You predict what a developer will type next to their coding agent.",
   messages: [
     {
       role: "user",
-      content: `The developer wrote:\n<message>\n${excerpt(user)}\n</message>\n\nThe agent answered:\n<answer>\n${excerpt(answer)}\n</answer>\n\n${PROMPT_SUGGESTION_PROMPT}`,
+      content: `The developer wrote:\n<message>\n${excerpt(user, limits.excerptCharacters)}\n</message>\n\nThe agent answered:\n<answer>\n${excerpt(answer, limits.excerptCharacters)}\n</answer>\n\n${PROMPT_SUGGESTION_PROMPT}`,
       timestamp: 0,
     },
   ],
@@ -46,12 +66,15 @@ export const suggestPrompt = async (
   model: Model<Api>,
   user: string,
   answer: string,
+  limits: SuggestionLimits = DEFAULT_SUGGESTION_LIMITS,
 ): Promise<string> => {
   if (user.trim() === "" || answer.trim() === "") return "";
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error("prompt suggestion timed out")), SUGGESTION_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(new Error("prompt suggestion timed out")), limits.timeoutMs);
   try {
-    const reply = await models.completeSimple(model, suggestionContext(user, answer), { signal: controller.signal });
+    const reply = await models.completeSimple(model, suggestionContext(user, answer, limits), {
+      signal: controller.signal,
+    });
     if (reply.stopReason === "error" || reply.stopReason === "aborted") return "";
     const text = reply.content
       .flatMap((block) => (block.type === "text" ? [block.text] : []))

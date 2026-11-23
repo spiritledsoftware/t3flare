@@ -16,6 +16,7 @@ import {
   withDeadline,
 } from "./net.ts";
 import { DEFAULT_WEB_LIMITS, type WebLimits } from "./limits.ts";
+import { DEFAULT_TOOL_OUTPUT_LIMITS, outputSize, type ToolOutputLimits } from "../toolOutput.ts";
 import { boundStructuredText, fitWindowedOutput, selectLines } from "./output.ts";
 
 /** The largest body converted from HTML or JSON (the registry's `FETCH_CONVERT_MAX_KIB` says why). */
@@ -29,10 +30,11 @@ const BROWSER_USER_AGENT =
 
 const HONEST_USER_AGENT = "t3flare-web-tools";
 
-const DESCRIPTION = `Fetch one HTTP or HTTPS URL as text, Markdown, or HTML. HTML pages are converted to their main content, with the page title, when text or Markdown is requested; HTML format returns the page unchanged. JSON responses are re-indented in text and Markdown formats so long documents can be paged. An HTML or JSON response over ${FETCH_CONVERT_MAX_KIB / 1024} MiB is returned as it came, unconverted. Model-visible output is truncated to 50 KiB or 2,000 lines, and the result then says which lines remain and the offset to continue from. Use offset and limit (lines, like the read tool) to page through a long result. Private, loopback, link-local, and cloud-metadata addresses are refused, also after redirects.`;
+const description = (output: ToolOutputLimits) =>
+  `Fetch one HTTP or HTTPS URL as text, Markdown, or HTML. HTML pages are converted to their main content, with the page title, when text or Markdown is requested; HTML format returns the page unchanged. JSON responses are re-indented in text and Markdown formats so long documents can be paged. An HTML or JSON response over ${FETCH_CONVERT_MAX_KIB / 1024} MiB is returned as it came, unconverted. Model-visible output is truncated to ${outputSize(output)}, and the result then says which lines remain and the offset to continue from. Use offset and limit (lines, like the read tool) to page through a long result. Private, loopback, link-local, and cloud-metadata addresses are refused, also after redirects.`;
 
 /** What programs (code mode) receive instead of the model-facing text. */
-const OUTPUT_SCHEMA = {
+const outputSchema = (output: ToolOutputLimits) => ({
   type: "object",
   properties: {
     url: { type: "string", description: "Final URL after redirects, without credentials" },
@@ -42,8 +44,8 @@ const OUTPUT_SCHEMA = {
       type: "string",
       description: "Fetched text in the requested format, limited to the offset/limit window",
     },
-    truncated: { type: "boolean", description: "The model-visible output was cut at 50 KiB or 2,000 lines" },
-    structured_truncated: { type: "boolean", description: "content itself was cut at 1 MiB" },
+    truncated: { type: "boolean", description: `The model-visible output was cut at ${outputSize(output)}` },
+    structured_truncated: { type: "boolean", description: "content itself was cut at 1 MiB of JSON" },
     total_lines: {
       type: "integer",
       description: "Lines in the whole converted text; present when offset or limit was passed",
@@ -54,7 +56,7 @@ const OUTPUT_SCHEMA = {
     },
   },
   required: ["url", "content_type", "format", "content", "truncated", "structured_truncated"],
-};
+});
 
 /** Remove URL user information before a value reaches an error or a result. */
 export const redactUserinfo = (input: string): string => {
@@ -154,16 +156,17 @@ const titleOf = (content: string): string | undefined => {
   return heading === undefined || heading === "" ? undefined : heading.slice(0, 200);
 };
 
-/** `web_fetch` over `transport`, within `limits`. */
+/** `web_fetch` over `transport`, within `limits`, its text within `output` (the Tool output limit). */
 export const webFetchTool = (
   transport: WebTransport,
   limits: Pick<WebLimits, "fetchTimeoutSeconds" | "fetchMaxTimeoutSeconds" | "fetchMaxKiB"> = DEFAULT_WEB_LIMITS,
+  output: ToolOutputLimits = DEFAULT_TOOL_OUTPUT_LIMITS,
 ): ToolRegistration => {
   // The default is always allowed, so an Owner's default above the per-call maximum is never clamped.
   const maxTimeout = Math.max(limits.fetchMaxTimeoutSeconds, limits.fetchTimeoutSeconds);
   return defineTool({
     name: "web_fetch",
-    description: DESCRIPTION,
+    description: description(output),
     parameters: obj({
       url: str({ description: "Absolute HTTP or HTTPS URL to fetch" }),
       format: opt(oneOf(["text", "markdown", "html"], { description: "Returned format (default: markdown)" })),
@@ -188,7 +191,8 @@ export const webFetchTool = (
         }),
       ),
     }),
-    structuredOutputSchema: OUTPUT_SCHEMA,
+    structuredOutputSchema: outputSchema(output),
+    outputLimits: output,
     replay: "safe",
     async execute(args, _api, context) {
       const safeUrl = redactUserinfo(args.url);
@@ -211,7 +215,7 @@ export const webFetchTool = (
           `Unable to fetch ${safeUrl}: Offset ${args.offset} is beyond end of content (${fetched.content.split("\n").length} lines total)`,
         );
       }
-      const fitted = fitWindowedOutput(selected.text, selected.window);
+      const fitted = fitWindowedOutput(selected.text, selected.window, output);
       const structured = boundStructuredText(selected.text);
       const requested = args.offset !== undefined || args.limit !== undefined;
       const { totalLines } = selected.window;

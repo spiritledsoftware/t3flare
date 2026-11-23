@@ -19,7 +19,9 @@ import {
   type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import { int, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
+import { defaultSettings } from "@t3flare/harness-registry";
 
+import { DEFAULT_TOOL_OUTPUT_LIMITS, type ToolOutputLimits } from "../toolOutput.ts";
 import {
   callRange,
   describeEntry,
@@ -27,7 +29,8 @@ import {
   matchesFilter,
   PAGE_SIZE,
   parseRef,
-  READ_CHARACTERS,
+  type PreviewLimits,
+  readCharacters,
   search,
   type SearchItem,
   type SearchMatch,
@@ -130,7 +133,7 @@ interface NotesArgs {
   readonly limit?: number;
 }
 
-const notesTool = async (args: NotesArgs, api: ToolExecutionApi, context: Context) => {
+const notesTool = async (args: NotesArgs, api: ToolExecutionApi, context: Context, limits: PreviewLimits) => {
   const self = api.conversationId;
   const offset = args.offset ?? 0;
   const pageSize = args.limit ?? PAGE_SIZE;
@@ -160,6 +163,7 @@ const notesTool = async (args: NotesArgs, api: ToolExecutionApi, context: Contex
           args.query,
           offset,
           pageSize,
+          limits,
         ),
       );
     }
@@ -257,7 +261,12 @@ interface EntryLine {
   readonly timestamp: string;
 }
 
-const historyTool = async (args: HistoryArgs, api: ToolExecutionApi, context: Context) => {
+const historyTool = async (
+  args: HistoryArgs,
+  api: ToolExecutionApi,
+  context: Context,
+  options: { readonly limits: PreviewLimits; readonly readPage: number },
+) => {
   const self = api.conversationId;
   const offset = args.offset ?? 0;
   const pageSize = args.limit ?? PAGE_SIZE;
@@ -270,8 +279,8 @@ const historyTool = async (args: HistoryArgs, api: ToolExecutionApi, context: Co
     const entry = await readEntry(api, self, parsed.entryId, context);
     if (entry === undefined) return fail("Entry not found in this conversation");
     const recorded = JSON.stringify(entry);
-    // `limit` is a page's size for list and search; a read returns at most READ_CHARACTERS of entry JSON per call.
-    const content = recorded.slice(offset, offset + Math.min(args.limit ?? READ_CHARACTERS, READ_CHARACTERS));
+    // `limit` is a page's size for list and search; a read returns at most a page of entry JSON per call.
+    const content = recorded.slice(offset, offset + Math.min(args.limit ?? options.readPage, options.readPage));
     return result({
       ref: args.ref,
       resolved_in_session: String(self),
@@ -301,7 +310,7 @@ const historyTool = async (args: HistoryArgs, api: ToolExecutionApi, context: Co
         head: lines.length === 0 || entry.head !== undefined,
         kind: entry.kind,
         role: entry.model?.[0]?.role,
-        preview: args.action === "list" ? describeEntry(entry) : "",
+        preview: args.action === "list" ? describeEntry(entry, options.limits) : "",
         timestamp: args.action === "list" ? timestampOf(entry) : "",
       });
     }
@@ -365,6 +374,7 @@ const historyTool = async (args: HistoryArgs, api: ToolExecutionApi, context: Co
       args.query,
       0,
       Number.MAX_SAFE_INTEGER,
+      options.limits,
     ).matches) {
       if (skipped < offset) skipped++;
       else if (matches.length < pageSize) matches.push(match);
@@ -379,7 +389,10 @@ const NAME = str({ minLength: 1, pattern: NOTE_NAME.source });
 const REF = str();
 const QUERY = str({ minLength: 1 });
 
-export const contextNotesTool = (): ToolRegistration =>
+/** The `context` extension's `previewCharacters` setting's default, for a tool built without settings (a test). */
+export const DEFAULT_PREVIEW_LIMITS: PreviewLimits = { preview: Number(defaultSettings("context").previewCharacters) };
+
+export const contextNotesTool = (limits: PreviewLimits = DEFAULT_PREVIEW_LIMITS): ToolRegistration =>
   defineTool({
     name: "context_notes",
     description: `Conversation Markdown Notes, kept across Handoffs and compactions in this thread's Session. Actions list/read/write/append/delete/search/copy. Names are labels, not paths. read takes a name or a ref from list/search; copy saves the Note a ref names under another name. read returns the whole Note unless offset/limit select a character range; list and search return 20 items unless limit says how many. Append starts the new text on a new line unless the Note is empty or already ends with one. Search is case-sensitive literal text. Notes hold at most ${MAX_TOTAL_NOTE_CHARACTERS} characters in all, names and contents together.`,
@@ -394,14 +407,18 @@ export const contextNotesTool = (): ToolRegistration =>
     }),
     executionMode: "sequential",
     replay: "safe",
-    execute: (args, api, context) => notesTool(args as NotesArgs, api, context),
+    execute: (args, api, context) => notesTool(args as NotesArgs, api, context, limits),
   });
 
-export const contextHistoryTool = (): ToolRegistration =>
-  defineTool({
+/** `context_history`, its list lines and search previews within `limits`, a read's page within `output`. */
+export const contextHistoryTool = (
+  limits: PreviewLimits = DEFAULT_PREVIEW_LIMITS,
+  output: ToolOutputLimits = DEFAULT_TOOL_OUTPUT_LIMITS,
+): ToolRegistration => {
+  const readPage = readCharacters(output.maxBytes);
+  return defineTool({
     name: "context_history",
-    description:
-      "Read-only stored History of this conversation, including entries from before a Handoff or compaction. windows/list/search are paginated (20 items unless limit says how many); read returns exact stored entry JSON, at most 2000 characters per call from a zero-based offset. Search is case-sensitive literal text, with JSON string escaping handled for you; returned offsets address the entry JSON. Optional window limits list/search to one Context Window. Optional type (entry kind, e.g. pi.user) and role (message role, e.g. user) filter list/search; by default every entry is included, and list previews describe each entry's text, tool call, or kind. Search previews are decoded readable text; a direct search call does not match its own tool-call block.",
+    description: `Read-only stored History of this conversation, including entries from before a Handoff or compaction. windows/list/search are paginated (20 items unless limit says how many); read returns exact stored entry JSON, at most ${readPage} characters per call from a zero-based offset. Search is case-sensitive literal text, with JSON string escaping handled for you; returned offsets address the entry JSON. Optional window limits list/search to one Context Window. Optional type (entry kind, e.g. pi.user) and role (message role, e.g. user) filter list/search; by default every entry is included, and list previews describe each entry's text, tool call, or kind. Search previews are decoded readable text; a direct search call does not match its own tool-call block.`,
     parameters: obj({
       action: oneOf(HISTORY_ACTIONS),
       ref: opt(REF),
@@ -422,11 +439,14 @@ export const contextHistoryTool = (): ToolRegistration =>
       limit: opt(
         int({
           minimum: 1,
-          description: `windows/list/search: items per page (default ${PAGE_SIZE}); read: characters, at most ${READ_CHARACTERS}`,
+          description: `windows/list/search: items per page (default ${PAGE_SIZE}); read: characters, at most ${readPage}`,
         }),
       ),
     }),
+    // The read page is sized to this limit, so the Harness never cuts a read's result.
+    outputLimits: output,
     executionMode: "sequential",
     replay: "safe",
-    execute: (args, api, context) => historyTool(args as HistoryArgs, api, context),
+    execute: (args, api, context) => historyTool(args as HistoryArgs, api, context, { limits, readPage }),
   });
+};

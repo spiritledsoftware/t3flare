@@ -20,6 +20,7 @@ import { Terminal } from "@xterm/headless/lib-headless/xterm-headless.mjs";
 import type {
   AgentCursor,
   AgentEntryInfo,
+  AgentTail,
   AgentEntryKind,
   AgentExit,
   AgentSettleReason,
@@ -29,6 +30,8 @@ import type {
   AgentView,
   TerminalFrame,
 } from "@t3flare/workspace-client";
+
+import { DEFAULT_TOOL_OUTPUT_LIMITS, jobTailOf } from "../extensions/toolOutput.ts";
 
 /**
  * Entries (running or exited) one owner keeps; the oldest exited one is forgotten past it. A named constraint (ADR-0048
@@ -51,10 +54,11 @@ const STOP_GRACE_MS = 3_000;
  * cross the host's batch (`BULK_BATCH_MS`, 100 ms) and its push; past this the stop reports the kill's own answer.
  */
 const EXIT_FRAME_MS = 1_000;
-/** Scrollback a Terminal keeps (termctrl's is several hundred lines). */
-const SCROLLBACK = 1_000;
-/** A Background job's output as a result shows it: pi-termctrl's `bashTail` (300 lines or 16 KB). */
-export const JOB_TAIL = { lines: 300, bytes: 16_384 };
+/**
+ * A Background job's output as a result shows it when a request names none (one from before SPI-1362): the default
+ * Tool output limit's job tail. A request carries its Session's (`AgentTail`).
+ */
+export const DEFAULT_JOB_TAIL: AgentTail = jobTailOf(DEFAULT_TOOL_OUTPUT_LIMITS);
 /** Where a Background job's whole output is kept, in the Container. */
 export const JOB_LOG_DIR = "/tmp/t3flare-jobs";
 
@@ -115,6 +119,11 @@ export interface AgentTerminalsDeps {
    * `agentTerminalsPerWorkspace` (SPI-1317, ADR-0021's terminal cap), read at each start.
    */
   readonly maxLive: () => number;
+  /**
+   * Lines of scrollback each new Terminal or Background job keeps: the running Container's launch's
+   * `agentTerminalScrollbackLines` (SPI-1362), read at each start. Lines past it are dropped, and the agent is told.
+   */
+  readonly scrollback: () => number;
 }
 
 interface Entry {
@@ -167,11 +176,20 @@ interface XtermCore {
   };
 }
 
-const lastLines = (text: string, limits: { readonly lines: number; readonly bytes: number }): string => {
-  const lines = text.split("\n");
-  let kept = lines.slice(-limits.lines);
-  while (kept.length > 1 && new TextEncoder().encode(kept.join("\n")).length > limits.bytes) kept = kept.slice(1);
-  return kept.join("\n");
+const encoder = new TextEncoder();
+
+/** The last `limits.lines` of `text`'s lines within `limits.bytes` (at least one line), each line measured once. */
+const lastLines = (text: string, limits: AgentTail): string => {
+  const kept = text.split("\n").slice(-limits.lines);
+  let bytes = -1;
+  let from = kept.length;
+  while (from > 0) {
+    const size = encoder.encode(kept[from - 1]!).length + 1;
+    if (from < kept.length && bytes + size > limits.bytes) break;
+    bytes += size;
+    from--;
+  }
+  return kept.slice(from).join("\n");
 };
 
 export class AgentTerminals {
@@ -230,7 +248,7 @@ export class AgentTerminals {
       }
       case "stop": {
         const entry = this.#entry(request.owner, request.id);
-        return this.#queued(entry, () => this.#stop(entry));
+        return this.#queued(entry, () => this.#stop(entry, request.tail ?? DEFAULT_JOB_TAIL));
       }
       case "list":
         return { entries: this.#owned(request.owner).map((entry) => this.#info(entry)) };
@@ -243,7 +261,10 @@ export class AgentTerminals {
         for (const entry of exits) entry.exitSeen = true;
         return {
           exits: await Promise.all(
-            exits.map(async (entry) => ({ ...this.#info(entry), tail: await this.#tail(entry, request.tailLines) })),
+            exits.map(async (entry) => ({
+              ...this.#info(entry),
+              tail: await this.#tail(entry, request.tail ?? DEFAULT_JOB_TAIL),
+            })),
           ),
         };
       }
@@ -299,7 +320,7 @@ export class AgentTerminals {
     const term = new Terminal({
       cols: request.cols,
       rows: request.rows,
-      scrollback: SCROLLBACK,
+      scrollback: this.#deps.scrollback(),
       allowProposedApi: true,
     });
     const now = this.#deps.now();
@@ -408,7 +429,11 @@ export class AgentTerminals {
       if (reason !== undefined) break;
       await new Promise((resolve) => setTimeout(resolve, POLL_MS));
     }
-    return { view: await this.#view(entry, request.view && reason !== "chunk"), reason, startScreen };
+    return {
+      view: await this.#view(entry, request.view && reason !== "chunk", request.tail ?? DEFAULT_JOB_TAIL),
+      reason,
+      startScreen,
+    };
   }
 
   /**
@@ -417,7 +442,7 @@ export class AgentTerminals {
    * (`exitWithoutFrame`). Survivors of a running entry are no exit: the stop fails, and the entry stays running; survivors
    * of an exited one are noted on its exit.
    */
-  async #stop(entry: Entry): Promise<AgentTerminalAnswers["stop"]> {
+  async #stop(entry: Entry, tail: AgentTail): Promise<AgentTerminalAnswers["stop"]> {
     let closed: KillAnswer | undefined;
     if (entry.exit === null) {
       closed = await this.#deps.host.closeAnswered(entry.marker);
@@ -439,7 +464,7 @@ export class AgentTerminals {
       } else if (survivors > 0) entry.exit = { ...entry.exit, note: `its shell ended, but ${survived}` };
     }
     await entry.writing;
-    const view = await this.#view(entry, true);
+    const view = await this.#view(entry, true, tail);
     const stopped = this.#info(entry);
     this.#forget(entry);
     return { stopped, view };
@@ -494,7 +519,7 @@ export class AgentTerminals {
   }
 
   /** The screen, what scrolled off since the owner's previous view, and that view; `record`: this is the owner's view now. */
-  async #view(entry: Entry, record: boolean): Promise<AgentView> {
+  async #view(entry: Entry, record: boolean, tail: AgentTail): Promise<AgentView> {
     await entry.writing;
     const { screen, cursor, top } = this.#screen(entry);
     const buffer = entry.term.buffer.active;
@@ -522,19 +547,19 @@ export class AgentTerminals {
       outputMissing,
       previous,
       shift,
-      ...(entry.kind === "background_job" ? { output: await this.#tail(entry, JOB_TAIL.lines) } : {}),
+      ...(entry.kind === "background_job" ? { output: await this.#tail(entry, tail) } : {}),
       ...(entry.logPath === undefined ? {} : { logPath: entry.logPath }),
     };
   }
 
-  /** The entry's last lines of output (scrollback and screen), within JOB_TAIL's bytes. */
-  async #tail(entry: Entry, lines: number): Promise<string> {
+  /** The entry's last lines of output (scrollback and screen), within `tail`. */
+  async #tail(entry: Entry, tail: AgentTail): Promise<string> {
     await entry.writing;
     const buffer = entry.term.buffer.active;
     const all: Array<string> = [];
     for (let line = 0; line < buffer.length; line++) all.push(buffer.getLine(line)?.translateToString(true) ?? "");
     while (all.length > 0 && all[all.length - 1] === "") all.pop();
-    return lastLines(all.join("\n"), { lines, bytes: JOB_TAIL.bytes });
+    return lastLines(all.join("\n"), tail);
   }
 
   /** The Container stopped or this object ends: every running entry ended with it (the host's exit frames say so too). */

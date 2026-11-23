@@ -15,8 +15,10 @@ import {
 } from "@earendil-works/pi-ai";
 import {
   createRegistry,
+  type Cursor,
   defineExtension,
   defineTool,
+  type EntryRecord,
   type Extension,
   Harness,
   MemoryStorage,
@@ -33,6 +35,7 @@ import {
   guardianSettings,
 } from "../src/extensions/guardian.ts";
 import { parseAssessment } from "../src/extensions/guardian/assessment.ts";
+import { EVIDENCE_CHARACTERS, renderReviewedCall, selectEvidence } from "../src/extensions/guardian/evidence.ts";
 import {
   judgeCommand,
   parseEntries,
@@ -360,5 +363,118 @@ describe("the Guardian's hook", () => {
     );
     expect(ran).toEqual([]);
     expect(seen).toEqual(["blocked"]);
+  });
+});
+
+describe("the Guardian's evidence (SPI-1362)", () => {
+  /** A History of `count` entries, oldest first, paged newest first as pi-durable's `entries` pages it. */
+  const history = (entries: ReadonlyArray<EntryRecord>) => {
+    let read = 0;
+    const api = {
+      entries: async (_query: unknown, limit: number, cursor: Cursor | undefined) => {
+        const from = cursor === undefined ? entries.length : Number(cursor);
+        const items = entries.slice(Math.max(0, from - limit), from).toReversed();
+        read += items.length;
+        const next = from - limit > 0 ? (String(from - limit) as unknown as Cursor) : undefined;
+        return { items, next };
+      },
+    };
+    return { api: api as never, read: () => read };
+  };
+  const user = (id: number, text: string) =>
+    ({ id, kind: "pi.user", model: [{ role: "user", content: text }] }) as unknown as EntryRecord;
+  const call = (id: number) =>
+    ({
+      id,
+      kind: "pi.assistant",
+      model: [
+        {
+          role: "assistant",
+          content: [{ type: "toolCall", id: `c${id}`, name: "bash", arguments: { command: "x".repeat(500) } }],
+        },
+      ],
+    }) as unknown as EntryRecord;
+
+  it("keeps a trusted message however far back it is, and holds only the untrusted entries the budget fits", async () => {
+    const entries = [user(1, "you may deploy to prod"), ...Array.from({ length: 5_000 }, (_, at) => call(at + 2))];
+    const { api, read } = history(entries);
+    const blocks = await selectEvidence(api, context, { trustUser: true, skipCalls: new Set(), budget: 10_000 });
+    expect(read()).toBe(entries.length);
+    expect(blocks.some((block) => block.includes("TRUSTED") && block.includes("you may deploy to prod"))).toBe(true);
+    const untrusted = blocks.filter((block) => block.startsWith("Evidence (UNTRUSTED"));
+    expect(untrusted.length).toBeGreaterThan(0);
+    expect(untrusted.reduce((sum, block) => sum + block.length, 0)).toBeLessThan(15_000);
+    expect(blocks[0]).toMatch(/^\[\d+ evidence entries omitted to fit the evidence budget; trusted ones kept first/);
+  });
+
+  it("bounds trusted evidence by the budget too, newest first, and stops reading once it is full", async () => {
+    // 300 pasted logs of 4,000 characters, the newest last: only the newest fit 10,000 characters.
+    const entries = Array.from({ length: 300 }, (_, at) => user(at + 1, `log ${at} ${"z".repeat(4_000)}`));
+    const { api, read } = history(entries);
+    const blocks = await selectEvidence(api, context, { trustUser: true, skipCalls: new Set(), budget: 10_000 });
+    const trusted = blocks.filter((block) => block.startsWith("Evidence (TRUSTED"));
+    // The newest two whole, and the third cut to the room they leave.
+    expect(trusted.map((block) => /log (\d+)/.exec(block)![1])).toEqual(["297", "298", "299"]);
+    expect(trusted[0]).toContain("characters omitted]");
+    expect(trusted.reduce((sum, block) => sum + block.length, 0)).toBeLessThan(10_500);
+    expect(blocks[0]).toContain("the older History not read");
+    expect(read()).toBeLessThan(entries.length);
+  });
+
+  it("keeps the newest trusted message shortened however long, and one that fills the budget exactly whole", async () => {
+    // t3 lets the Owner send 120,000 characters, past the 96,000 the evidence holds.
+    const pasted = user(3, `deploy it: ${"p".repeat(120_000)}`);
+    const long = await selectEvidence(history([user(1, "older"), call(2), pasted]).api, context, {
+      trustUser: true,
+      skipCalls: new Set(),
+    });
+    const kept = long.filter((block) => block.startsWith("Evidence (TRUSTED"));
+    expect(kept).toHaveLength(1);
+    expect(kept[0]).toContain("deploy it: ppp");
+    expect(kept[0]).toContain("characters omitted]");
+    expect(kept[0]!.length).toBeLessThan(EVIDENCE_CHARACTERS + 200);
+    // A message whose JSON is exactly the budget is kept whole, and leaves no room for an older one.
+    const exact = (budget: number) => {
+      const message = { role: "user", content: "" };
+      const text = "e".repeat(budget - JSON.stringify(message).length);
+      return user(5, text);
+    };
+    const filled = await selectEvidence(history([user(4, "older"), exact(2_000)]).api, context, {
+      trustUser: true,
+      skipCalls: new Set(),
+      budget: 2_000,
+    });
+    const whole = filled.filter((block) => block.startsWith("Evidence (TRUSTED"));
+    expect(whole).toHaveLength(1);
+    expect(whole[0]).not.toContain("shortenedJson");
+    expect(filled[0]).toMatch(/^\[1 evidence entries omitted/);
+  });
+
+  it("gives a trusted message the room of newer untrusted ones, and stops at a full budget with nothing trusted", async () => {
+    const entries = [user(1, "you may deploy to prod"), ...Array.from({ length: 50 }, (_, at) => call(at + 2))];
+    const trusting = await selectEvidence(history(entries).api, context, {
+      trustUser: true,
+      skipCalls: new Set(),
+      budget: 2_000,
+    });
+    expect(trusting.some((block) => block.includes("you may deploy to prod"))).toBe(true);
+    expect(trusting.join("").length).toBeLessThan(3_000);
+    const linked = history(Array.from({ length: 5_000 }, (_, at) => call(at + 2)));
+    await selectEvidence(linked.api, context, { trustUser: false, skipCalls: new Set(), budget: 2_000 });
+    expect(linked.read()).toBeLessThanOrEqual(400);
+  });
+
+  it("cuts the other calls of a batch to the batchArgumentCharacters setting", async () => {
+    expect(SETTINGS.batchArgumentCharacters).toBe(2_000);
+    const rendered = await renderReviewedCall({
+      toolName: "bash",
+      input: { command: "ls" },
+      cwd: "/workspace/repo",
+      batch: [{ name: "write", arguments: { path: "/a", content: "z".repeat(5_000) } }],
+      batchCharacters: 50,
+    });
+    expect(rendered).toContain('"write" with arguments {"path":"/a"} in full');
+    expect(rendered).not.toContain("z".repeat(51));
+    expect(rendered).toContain("characters omitted]");
   });
 });

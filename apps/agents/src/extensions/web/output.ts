@@ -3,17 +3,18 @@
 // Ported from pi-web-tools' `src/web-tool-output.ts` (see ./NOTICE.md). The original saved a truncated result in
 // full to a temporary file and named the path. A Worker has no file system the model can read, so nothing is spilled:
 // the continuation note names the `offset` that reads on (the page is fetched again for it), and a result that cannot be
-// paged says how to ask for less. The limits are the Harness's own (50 KiB, 2,000 lines), so it never cuts these again.
+// paged says how to ask for less. The limits are the tools' own output limits (the Tool output setting, SPI-1362), which
+// the tools also name as their `outputLimits`, so the Harness never cuts these again.
+import { jsonTextPrefix } from "@t3flare/session-protocol";
 import * as Arr from "effect/Array";
 
-export const OUTPUT_MAX_BYTES = 50 * 1024;
-export const OUTPUT_MAX_LINES = 2000;
+import { DEFAULT_TOOL_OUTPUT_LIMITS, type ToolOutputLimits } from "../toolOutput.ts";
 
 /**
- * Largest size of the text a program (code mode) receives as structured output: UTF-8 bytes for `web_fetch`, JSON bytes
- * (as the row holds it) for `web_search`. A sanity bound (ADR-0048): nothing forces 1 MiB, but the structured output is
- * kept in the result's one Session row (8 MB) beside the model's text and `details`, so it must stay well under the row;
- * `web_search` sizes its stored result lists from what it leaves.
+ * Largest size of the text a program (code mode) receives as structured output, in JSON bytes as the row holds it. A
+ * sanity bound (ADR-0048): nothing forces 1 MiB, but the structured output is kept in the result's one Session row
+ * (8 MB) beside the model's text (at most half the row, `MAX_TOOL_OUTPUT_KIB`) and `details`, so it must stay well
+ * under the rest; `web_search` sizes its stored result lists from what it leaves.
  */
 export const STRUCTURED_MAX_BYTES = 1024 * 1024;
 
@@ -39,9 +40,9 @@ const cutBytes = (text: string, maxBytes: number): string => {
   return decoder.decode(bytes.subarray(0, end));
 };
 
-/** Text for programs: the head of a result, cut on a character boundary at the structured limit. */
+/** Text for programs: the head of a result, cut on a character boundary at the structured limit in JSON bytes. */
 export const boundStructuredText = (text: string) => {
-  const content = cutBytes(text, STRUCTURED_MAX_BYTES);
+  const content = text.slice(0, jsonTextPrefix(text, STRUCTURED_MAX_BYTES));
 
   return { content, truncated: content.length < text.length };
 };
@@ -119,14 +120,14 @@ const continuationNote = (
 };
 
 /** The note for a first line too long to show whole: it is cut, and where to read on, if any line follows. */
-const cutLineNote = (window: LineWindow): string =>
+const cutLineNote = (window: LineWindow, maxBytes: number): string =>
   window.firstLine >= window.totalLines
-    ? `[Line ${window.firstLine} is longer than the ${OUTPUT_MAX_BYTES / 1024} KiB output limit and is cut here; the rest of it cannot be read.]`
-    : `[Line ${window.firstLine} is longer than the ${OUTPUT_MAX_BYTES / 1024} KiB output limit and is cut here; the rest of it cannot be read. Use offset=${window.firstLine + 1} to continue after it.]`;
+    ? `[Line ${window.firstLine} is longer than the ${maxBytes / 1024} KiB output limit and is cut here; the rest of it cannot be read.]`
+    : `[Line ${window.firstLine} is longer than the ${maxBytes / 1024} KiB output limit and is cut here; the rest of it cannot be read. Use offset=${window.firstLine + 1} to continue after it.]`;
 
 /** The note after `shown` lines of the text, or nothing when no source line remains. */
-const continuationSuffix = (window: LineWindow, shown: Head): string => {
-  if (shown.cutFirstLine) return `\n\n${cutLineNote(window)}`;
+const continuationSuffix = (window: LineWindow, shown: Head, maxBytes: number): string => {
+  if (shown.cutFirstLine) return `\n\n${cutLineNote(window, maxBytes)}`;
 
   if (window.firstLine + shown.lines - 1 >= window.totalLines) return "";
 
@@ -134,37 +135,46 @@ const continuationSuffix = (window: LineWindow, shown: Head): string => {
 };
 
 /** Bytes to reserve for the longest note any amount of shown text can need. */
-const largestSuffixBytes = (window: LineWindow, textLines: number): number =>
+const largestSuffixBytes = (window: LineWindow, textLines: number, maxBytes: number): number =>
   Math.max(
     byteLength(`\n\n${continuationNote(window, textLines, window.totalLines - window.firstLine)}`),
-    byteLength(`\n\n${cutLineNote(window)}`),
+    byteLength(`\n\n${cutLineNote(window, maxBytes)}`),
   );
 
 /** Model-visible text, and whether it is cut. */
 export type FittedOutput = { readonly content: string; readonly truncated: boolean };
 
 /**
- * `text` as the model sees it. A result within the limits is returned whole, with a note when the window it was
- * selected from has lines after it. A longer one is cut to whole lines, with the room for its note reserved inside the
- * limits, and the note names the `offset` that reads on from the last line shown.
+ * `text` as the model sees it, within `limits` (the tool's output limits). A result within them is returned whole, with
+ * a note when the window it was selected from has lines after it. A longer one is cut to whole lines, with the room for
+ * its note reserved inside the limits, and the note names the `offset` that reads on from the last line shown.
  */
-export const fitWindowedOutput = (text: string, window: LineWindow): FittedOutput => {
+export const fitWindowedOutput = (
+  text: string,
+  window: LineWindow,
+  limits: ToolOutputLimits = DEFAULT_TOOL_OUTPUT_LIMITS,
+): FittedOutput => {
+  const { maxBytes, maxLines } = limits;
   const textLines = countLines(text);
 
-  const suffix = continuationSuffix(window, {
-    content: text,
-    lines: textLines,
-    truncated: false,
-    cutFirstLine: false,
-  });
+  const suffix = continuationSuffix(
+    window,
+    {
+      content: text,
+      lines: textLines,
+      truncated: false,
+      cutFirstLine: false,
+    },
+    maxBytes,
+  );
 
-  const initial = head(`${text}${suffix}`, OUTPUT_MAX_BYTES, OUTPUT_MAX_LINES);
+  const initial = head(`${text}${suffix}`, maxBytes, maxLines);
 
   if (!initial.truncated) return { content: `${text}${suffix}`, truncated: false };
 
-  const visible = head(text, OUTPUT_MAX_BYTES - largestSuffixBytes(window, textLines), OUTPUT_MAX_LINES - NOTE_LINES);
+  const visible = head(text, maxBytes - largestSuffixBytes(window, textLines, maxBytes), maxLines - NOTE_LINES);
 
-  const note = continuationSuffix(window, visible);
+  const note = continuationSuffix(window, visible, maxBytes);
 
   return {
     content: visible.content === "" ? note.trimStart() : `${visible.content}${note}`,
@@ -173,11 +183,16 @@ export const fitWindowedOutput = (text: string, window: LineWindow): FittedOutpu
 };
 
 /**
- * Text with no window to page through (a search result): within the limits it is returned whole, otherwise cut to
- * whole lines with a note that says what to change to read less.
+ * Text with no window to page through (a search result): within `limits` it is returned whole, otherwise cut to whole
+ * lines with a note that says what to change to read less.
  */
-export const fitOutput = (text: string, advice: string): FittedOutput => {
-  const initial = head(text, OUTPUT_MAX_BYTES, OUTPUT_MAX_LINES);
+export const fitOutput = (
+  text: string,
+  advice: string,
+  limits: ToolOutputLimits = DEFAULT_TOOL_OUTPUT_LIMITS,
+): FittedOutput => {
+  const { maxBytes, maxLines } = limits;
+  const initial = head(text, maxBytes, maxLines);
 
   if (!initial.truncated) return { content: text, truncated: false };
 
@@ -185,7 +200,7 @@ export const fitOutput = (text: string, advice: string): FittedOutput => {
 
   const note = (shown: number): string => `\n\n[Output truncated to the first ${shown} of ${total} lines. ${advice}]`;
 
-  const visible = head(text, OUTPUT_MAX_BYTES - byteLength(note(OUTPUT_MAX_LINES)), OUTPUT_MAX_LINES - NOTE_LINES);
+  const visible = head(text, maxBytes - byteLength(note(maxLines)), maxLines - NOTE_LINES);
 
   return { content: `${visible.content}${note(visible.lines)}`, truncated: true };
 };

@@ -9,10 +9,10 @@ import {
   DEFAULT_FILE_LIMITS,
   type FileLimits,
   fileTools,
-  FILE_TOOL_OUTPUT_LIMITS,
   GREP_CONTEXT_FLOOR,
   grepContext,
 } from "../src/extensions/files.ts";
+import { DEFAULT_TOOL_OUTPUT_LIMITS } from "../src/extensions/toolOutput.ts";
 
 /** A Workspace with `count` of everything, recording the limit each search was asked for. */
 const workspace = (count: number) => {
@@ -88,9 +88,9 @@ describe("file tools' limits (SPI-1321)", () => {
     await run(grep, { pattern: "x", context: 1_000_000_000 });
     await run(grep, { pattern: "x", context: 2.5 });
     // grepLimit 5 asks for 6 matches; each takes 2 × context + 1 of the result's lines and a `--`.
-    const share = Math.floor((FILE_TOOL_OUTPUT_LIMITS.maxLines / 6 - 2) / 2);
+    const share = Math.floor((DEFAULT_TOOL_OUTPUT_LIMITS.maxLines / 6 - 2) / 2);
     expect(contexts).toEqual([40, 0, share, 2]);
-    expect(grepContext(1_000_000_000, 1)).toBe(Math.floor((FILE_TOOL_OUTPUT_LIMITS.maxLines - 2) / 2));
+    expect(grepContext(1_000_000_000, 1)).toBe(Math.floor((DEFAULT_TOOL_OUTPUT_LIMITS.maxLines - 2) / 2));
     // Never below what the former clamp allowed: 10 lines, whatever the limit.
     expect(grepContext(10, 101)).toBe(10);
     expect(grepContext(5, 100_001)).toBe(5);
@@ -128,9 +128,9 @@ describe("file tools' limits (SPI-1321)", () => {
     )!;
     const kept = await run(many, { pattern: "x", context: 5 });
     expect(kept).toContain("a.ts-1- "); // the first match keeps its context from line 1
-    expect(kept.split("\n").length).toBeLessThanOrEqual(FILE_TOOL_OUTPUT_LIMITS.maxLines + 1);
+    expect(kept.split("\n").length).toBeLessThanOrEqual(DEFAULT_TOOL_OUTPUT_LIMITS.maxLines + 1);
     const out = await run(grep, { pattern: "x", context: 1_000_000_000 });
-    expect(out.split("\n").length).toBeLessThanOrEqual(FILE_TOOL_OUTPUT_LIMITS.maxLines + 1);
+    expect(out.split("\n").length).toBeLessThanOrEqual(DEFAULT_TOOL_OUTPUT_LIMITS.maxLines + 1);
     expect(new TextEncoder().encode(out).length).toBeLessThan(1024 * 1024);
     // What the Workspace answers over RPC: every match's context, which the share keeps to the result's lines.
     expect(answered).toBeLessThan(1024 * 1024);
@@ -146,5 +146,19 @@ describe("file tools' limits (SPI-1321)", () => {
     expect(asked).toEqual([5]);
     const listed = await run(tool("ls"), { limit: 10 });
     expect(listed.split("\n")).toEqual(["f0", "f1", "f10", "… 47 more"]);
+  });
+});
+
+describe("file tools' output (SPI-1362)", () => {
+  it("take the Tool output limit as their outputLimits, and grep builds its result within its lines", async () => {
+    const output = { maxBytes: 8 * 1024, maxLines: 60 };
+    const { files } = workspace(1_000);
+    const built = fileTools(() => files, { ...DEFAULT_FILE_LIMITS, grepLimit: 1_000 }, output).tools ?? [];
+    expect(built.map((tool) => tool.outputLimits)).toEqual([output, output, output]);
+    const grep = built.find((tool) => tool.name === "grep")!;
+    const out = await run(grep, { pattern: "x" });
+    expect(out.split("\n").length).toBeLessThanOrEqual(output.maxLines);
+    expect(out.endsWith("… more matches; narrow the search")).toBe(true);
+    expect(grepContext(1_000, 1, output.maxLines)).toBe(Math.floor((output.maxLines - 2) / 2));
   });
 });

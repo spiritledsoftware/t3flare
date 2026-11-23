@@ -1745,6 +1745,22 @@ Moved from U58 when its Commissary readers went (SPI-1176).
 - **Blast radius**: t3's git errors drop the router's reason again ("git worktree add failed" alone); nothing breaks.
 - **Fix**: rebase the Patch on the new failure branches (`git -C t3code diff <old>..<new> -- apps/server/src/vcs`).
 
+### U100. What t3 shows of a Durable agent's tools: three of t3's display caps (SPI-1362)
+
+- **Where**: `packages/session-protocol/src/index.ts` mirrors three of t3's private constants, and the pushed cuts
+  derive from them (`apps/agents/src/session/state.ts`): `T3_ON_DEMAND_BYTES` is t3's `MAX_ON_DEMAND_BYTES` (256 KiB,
+  `t3code/apps/server/src/orchestration-v2/WireProjection.ts`), which a finished tool result's text is cut to
+  (`TOOL_OUTPUT_BYTES`); `T3_DETAIL_STRING_BYTES` is `MAX_DETAIL_STRING_BYTES` (32 KiB, the same file), which a code
+  mode script's nested call's arguments are cut to (`NESTED_ARGS_BYTES`); `T3_OUTPUT_TAIL_CHARS` is
+  `TERMINAL_OUTPUT_TAIL_CHARS` (64 Ki UTF-16 units, `t3code/packages/shared/src/terminalOutput.ts`), which a running
+  call's and a nested call's live output tails are cut to (`TOOL_LIVE_OUTPUT_BYTES`, `NESTED_OUTPUT_BYTES`).
+- **Breaks when**: t3 changes one of the three values, or stops cutting there.
+- **Detection**: **silent**. The values are module-private in t3, so nothing fails. Cheapest check: add the three
+  declarations to the upstream fingerprint ([T2](#gaps-in-detection)).
+- **Blast radius**: low. A smaller t3 cap leaves t3flare pushing bytes t3 drops; a larger one shows the Owner less
+  than t3 could. The model's copy is never affected.
+- **Fix**: read the three constants at the new pin and set the mirrors in `session-protocol` to them.
+
 ## Retired entries
 
 Entries whose dependency is gone. Their ids are not reused.

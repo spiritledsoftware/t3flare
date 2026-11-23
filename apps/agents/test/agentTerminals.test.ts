@@ -18,6 +18,7 @@ const fakeHost = (
     readonly close?: (key: string, exit: (code: number) => void) => KillAnswer | undefined;
     readonly kill?: (key: string, exit: (code: number) => void) => KillAnswer | undefined;
   } = {},
+  scrollback: () => number = () => 1000,
 ) => {
   const opened: Array<{ key: string; command: string; cwd: string }> = [];
   const closed: Array<string> = [];
@@ -60,6 +61,7 @@ const fakeHost = (
     env: {},
     repo: "/workspace/repo",
     maxLive,
+    scrollback,
   });
   return { terminals, opened, closed, killed };
 };
@@ -176,7 +178,7 @@ describe("agent terminals", () => {
     );
     const wait = await terminals.handle({ op: "wait", owner, ids: null, deadline: Date.now() + 2_000, chunkMs: 2_000 });
     expect(wait.ok && wait.value.exited.map((entry) => entry.id)).toEqual([waited]);
-    const exits = await terminals.handle({ op: "exits", owner, tailLines: 5 });
+    const exits = await terminals.handle({ op: "exits", owner, tail: { lines: 5, bytes: 16_384 } });
     expect(exits.ok && exits.value.exits).toEqual([]); // reported by the wait, so not notified again
 
     for (let index = 0; index < 3; index++) await start(terminals);
@@ -282,12 +284,56 @@ describe("agent terminals", () => {
     expect(view.view.output).toBe("job line 1\njob line 2");
     expect(view.view.logPath).toMatch(/^\/tmp\/t3flare-jobs\/term-agent-.+-b1\.log$/);
     terminals.frames([{ key: opened[0]!.key, seq: 9, exit: { code: 3 } }]);
-    const exits = await terminals.handle({ op: "exits", owner, tailLines: 1 });
+    const exits = await terminals.handle({ op: "exits", owner, tail: { lines: 1, bytes: 16_384 } });
     expect(exits.ok && exits.value.exits.map((exit) => [exit.id, exit.exit, exit.tail])).toEqual([
       ["b1", { code: 3, signal: null }, "job line 2"],
     ]);
-    const again = await terminals.handle({ op: "exits", owner, tailLines: 1 });
+    const again = await terminals.handle({ op: "exits", owner, tail: { lines: 1, bytes: 16_384 } });
     expect(again.ok && again.value.exits).toEqual([]);
+  });
+});
+
+describe("an agent Terminal's scrollback and tail (SPI-1362)", () => {
+  it("keeps the scrollback the Container's launch says", async () => {
+    const lines = async (scrollback: number) => {
+      const { terminals, opened } = fakeHost(
+        repl,
+        () => 8,
+        {},
+        () => scrollback,
+      );
+      const id = await start(terminals);
+      for (let index = 0; index < 10; index++) await settle(terminals, id, { text: `a${index}\r`, waitMs: 300 });
+      terminals.frames([{ key: opened[0]!.key, seq: 999, exit: { code: 0 } }]);
+      const exits = await terminals.handle({ op: "exits", owner, tail: { lines: 1_000, bytes: 1_000_000 } });
+      if (!exits.ok) throw new Error(exits.error);
+      return exits.value.exits[0]!.tail.split("\n").length;
+    };
+    // 10 inputs make 21 lines: a 6-row screen with no scrollback keeps 6 of them, 1,000 lines of scrollback all.
+    expect(await lines(0)).toBeLessThanOrEqual(6);
+    expect(await lines(1_000)).toBeGreaterThanOrEqual(20);
+  });
+
+  it("gives a Background job's output within the request's tail, in lines and in bytes", async () => {
+    const { terminals } = fakeHost(repl);
+    const id = await start(terminals, "background_job");
+    const view = async (tail: { lines: number; bytes: number }) => {
+      const answer = await terminals.handle({
+        op: "settle",
+        owner,
+        id,
+        mode: "poll",
+        deadline: Date.now() + 100,
+        chunkMs: 100,
+        view: false,
+        tail,
+      });
+      if (!answer.ok) throw new Error(answer.error);
+      return answer.value.view.output;
+    };
+    expect(await view({ lines: 100, bytes: 1_000 })).toBe("job line 1\njob line 2");
+    expect(await view({ lines: 1, bytes: 1_000 })).toBe("job line 2");
+    expect(await view({ lines: 100, bytes: 12 })).toBe("job line 2");
   });
 });
 

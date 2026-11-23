@@ -438,6 +438,16 @@ export interface AgentView {
   readonly logPath?: string;
 }
 
+/**
+ * The last lines of a Background job's output a request's answer carries (`AgentView.output`, an exit's `tail`): the
+ * Session's Tool output limit less the room around them (SPI-1362). Absent in a request from before it: the Workspace's
+ * own default.
+ */
+export interface AgentTail {
+  readonly lines: number;
+  readonly bytes: number;
+}
+
 export type AgentTerminalRequest =
   | {
       readonly op: "start";
@@ -465,8 +475,9 @@ export type AgentTerminalRequest =
       readonly since?: string;
       /** Record this answer as the owner's view (a final answer); a chunk is not. */
       readonly view: boolean;
+      readonly tail?: AgentTail;
     }
-  | { readonly op: "stop"; readonly owner: string; readonly id: string }
+  | { readonly op: "stop"; readonly owner: string; readonly id: string; readonly tail?: AgentTail }
   | { readonly op: "list"; readonly owner: string }
   | {
       readonly op: "wait";
@@ -476,7 +487,7 @@ export type AgentTerminalRequest =
       readonly chunkMs: number;
     }
   /** Exits the owner has not seen in a result, with their last lines; taken ones are not reported again. */
-  | { readonly op: "exits"; readonly owner: string; readonly tailLines: number };
+  | { readonly op: "exits"; readonly owner: string; readonly tail?: AgentTail };
 
 /** What each request answers. */
 export interface AgentTerminalAnswers {
