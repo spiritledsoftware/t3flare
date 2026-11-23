@@ -322,7 +322,7 @@ describe("claude on a Model endpoint whose key is refused at open (SPI-1223)", (
         return yield* Effect.flip(opened);
       }),
     );
-    expect(knownProviderFailureMessage({ cause: failed })).not.toBe(KEY_REFUSED.message);
+    expect(knownProviderFailureMessage({ cause: failed })).toMatch(/needs you to sign in/);
   });
 });
 

@@ -12,7 +12,8 @@ import * as Effect from "effect/Effect";
 import * as PlatformError from "effect/PlatformError";
 import { describe, expect, it } from "vitest";
 import { noEndpointFor } from "../src/agents/cliProfiles.ts";
-import { spawnRefusalOf, wrapCliAdapter } from "../src/provider/cli/wrapper.ts";
+import type { ChannelProcess } from "../src/agents/processChannel.ts";
+import { CliSpawn, type CliSessions, spawnRefusalOf, wrapCliAdapter } from "../src/provider/cli/wrapper.ts";
 
 const driver = ProviderDriverKind.make("codex");
 const providerSessionId = ProviderSessionId.make("session-1");
@@ -37,10 +38,13 @@ const refusing = (cause: unknown) =>
     openSession: () =>
       Effect.fail(new ProviderAdapter.ProviderAdapterOpenSessionError({ driver, providerSessionId, cause })),
   }) as unknown as ProviderAdapter.ProviderAdapterV2["Service"];
-const open = (adapter: ProviderAdapter.ProviderAdapterV2["Service"], relayed: EndpointFailureRecord | null = null) =>
+const openWith = (
+  adapter: ProviderAdapter.ProviderAdapterV2["Service"],
+  options: Parameters<typeof wrapCliAdapter>[1],
+) =>
   Effect.runPromise(
     Effect.scoped(
-      wrapCliAdapter(adapter, { sessions: new Map(), relayFailure: async () => relayed }).openSession({
+      wrapCliAdapter(adapter, options).openSession({
         threadId: ThreadId.make("thread-refused"),
         providerSessionId,
         modelSelection: { instanceId, model: "x" },
@@ -52,6 +56,8 @@ const open = (adapter: ProviderAdapter.ProviderAdapterV2["Service"], relayed: En
       } as never),
     ).pipe(Effect.flip),
   );
+const open = (adapter: ProviderAdapter.ProviderAdapterV2["Service"], relayed: EndpointFailureRecord | null = null) =>
+  openWith(adapter, { sessions: new Map(), relayFailure: async () => relayed });
 
 describe("the CLI wrapper's open (SPI-1176)", () => {
   it("fails a refused spawn's open with the refusal as t3's failure text", async () => {
@@ -119,5 +125,27 @@ describe("the CLI wrapper's open on a relay failure (SPI-1223)", () => {
   it("a refused spawn shows its refusal, even with a relay record", async () => {
     const failed = await open(refusing(spawnError("PermissionDenied", `t3flare: ${refusal}`)), record);
     expect(knownProviderFailureMessage({ cause: failed })).toBe(`${refusal}.`);
+  });
+
+  it("a later open of the session that fails before a new process shows no earlier process's record", async () => {
+    // The default `relayFailure`: the session's process's own record, as the Workspace DO keeps it.
+    const sessions: CliSessions = new Map();
+    const withProcess = {
+      ...refusing(acpAuthRequired),
+      openSession: Effect.fn("openSession")(function* () {
+        const session = yield* CliSpawn;
+        if (session !== undefined) session.process = { modelFailure: async () => record } as unknown as ChannelProcess;
+        return yield* new ProviderAdapter.ProviderAdapterOpenSessionError({
+          driver,
+          providerSessionId,
+          cause: acpAuthRequired,
+        });
+      }),
+    } as unknown as ProviderAdapter.ProviderAdapterV2["Service"];
+    const first = await openWith(withProcess, { sessions });
+    expect(knownProviderFailureMessage({ cause: first })).toBe(record.message);
+    // The second open fails before any process starts (as a failed Container start does).
+    const second = await openWith(refusing(acpAuthRequired), { sessions });
+    expect(knownProviderFailureMessage({ cause: second })).toMatch(/needs you to sign in/);
   });
 });

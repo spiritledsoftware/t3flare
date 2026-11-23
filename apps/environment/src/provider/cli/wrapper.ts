@@ -272,30 +272,29 @@ export const wrapCliAdapter = (
         session.runtimeMode = input.runtimePolicy.runtimeMode;
         session.interactionMode = input.runtimePolicy.interactionMode;
         session.model = input.modelSelection.model;
+        // SPI-1223: an earlier open of this session that failed left its process here (the session leaves the map only
+        // after a good open); this open's relay record is its own process's, so it starts with none.
+        session.process = undefined;
         const runtime = yield* adapter.openSession(input).pipe(
           Effect.provideService(CliSpawn, session),
           // SPI-1223: a refused spawn shows its refusal (it has no process, so no relay record); any other failed open
-          // shows its process's relay record, if any. The process is new, so its record is this open's. Only a failed
-          // open asks the Workspace, and `relayFailure` never rejects.
-          Effect.catch((error) => {
-            const refused = withSpawnRefusal(adapter.instanceId, adapter.driver, input.providerSessionId)(error);
-            if (refused !== error) return Effect.fail(refused);
-            return Effect.promise(() => relayFailure(session)).pipe(
-              Effect.flatMap((record) =>
-                Effect.fail(
-                  record === null
-                    ? error
-                    : underSetupError(
-                        adapter.instanceId,
-                        adapter.driver,
-                        input.providerSessionId,
-                        record.message,
-                        error,
-                      ),
-                ),
-              ),
-            );
-          }),
+          // shows its process's relay record, if any. Only a failed open asks the Workspace, and `relayFailure` never
+          // rejects.
+          Effect.catch((error) =>
+            Effect.gen(function* () {
+              if (spawnRefusalOf(error) !== undefined)
+                return yield* withSpawnRefusal(adapter.instanceId, adapter.driver, input.providerSessionId)(error);
+              const record = yield* Effect.promise(() => relayFailure(session));
+              if (record === null) return yield* error;
+              return yield* underSetupError(
+                adapter.instanceId,
+                adapter.driver,
+                input.providerSessionId,
+                record.message,
+                error,
+              );
+            }),
+          ),
         );
         yield* Effect.addFinalizer(() => Effect.sync(() => sessions.delete(input.providerSessionId)));
         // G11: `mcpApps` passes through (Codex's App rendering, MCP apps through the relay); upload feedback stays off.
