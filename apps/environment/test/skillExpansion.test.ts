@@ -33,7 +33,7 @@ import { bindEnvironmentServices, type EnvironmentServices } from "../src/agents
 import type { SessionRpc } from "../src/agents/rpc.ts";
 import { makePiDurableAdapter } from "../src/provider/adapter.ts";
 import { normalise } from "../scripts/lib/upstreamFingerprint.ts";
-import { type AttachmentReader, turnPrompt } from "../src/provider/attachments.ts";
+import { type AttachmentReader, PI_DURABLE_PROMPT_BYTES, turnPrompt } from "../src/provider/attachments.ts";
 import { acpInstanceFlavor } from "../src/provider/cli/acpDriver.ts";
 import { CliTurn } from "../src/provider/cli/wrapper.ts";
 import { messageSkillsFor, type MessageSkills, type SkillsAccess } from "../src/provider/skills.ts";
@@ -81,9 +81,13 @@ const expand = (
   text: string,
   skills: MessageSkills | null = thread(),
   attachments: ReadonlyArray<ChatAttachment> = [],
+  budgetBytes = PI_DURABLE_PROMPT_BYTES,
 ) =>
   Effect.runPromise(
-    turnPrompt({ text, attachments }, { acceptsImages: true, reader: noFiles, ...(skills === null ? {} : { skills }) }),
+    turnPrompt(
+      { text, attachments },
+      { acceptsImages: true, reader: noFiles, budgetBytes, ...(skills === null ? {} : { skills }) },
+    ),
   ).then((prompt) => prompt.text);
 
 describe("Skill mentions", () => {
@@ -108,9 +112,13 @@ describe("Skill mentions", () => {
     }
   });
 
-  it("names a skill whose body does not fit the 120,000-character budget, and does not embed it", async () => {
-    expect(await expand("$huge please")).toBe(
-      `$huge please\n\n[Skill "huge" is not embedded: it does not fit the message's 120,000-character budget. Its file is ${SKILLS}/huge/SKILL.md.]`,
+  it("embeds a skill past t3's 120,000-character input limit, which bounds only the typed message (SPI-1358)", async () => {
+    expect(await expand("$huge please")).toContain("h".repeat(130_000));
+  });
+
+  it("names a skill whose body does not fit the message's budget, and does not embed it", async () => {
+    expect(await expand("$huge please", thread(), [], 100 * 1024)).toBe(
+      `$huge please\n\n[Skill "huge" is not embedded: it does not fit the message's 0.1 MiB budget. Its file is ${SKILLS}/huge/SKILL.md.]`,
     );
   });
 

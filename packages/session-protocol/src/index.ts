@@ -81,6 +81,59 @@ export interface ImageInput {
   readonly mimeType: string;
 }
 
+/**
+ * The bytes one Session row holds (SPI-1358). pi-durable keeps each submission and each conversation entry (a user
+ * message, a tool result with its images) as one DO SQLite row of JSON, and Cloudflare refuses a row over 8 MB: read as
+ * 8,000,000 bytes, the lower of 8 MB and 8 MiB.
+ */
+export const SESSION_ROW_BYTES = 8_000_000;
+/** What a Session row keeps for the record around a message's content: its ids, status, times and JSON structure. */
+export const SESSION_ROW_ENVELOPE_BYTES = 64 * 1024;
+
+/** A size as t3's client shows it: binary megabytes, written MiB as t3's own limits are ("80 MiB"). */
+export const mebibytes = (bytes: number): string => `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+
+/**
+ * The bytes the character at `at` takes in a JSON string. Only a surrogate pair, two UTF-16 units, takes 4; a lone
+ * surrogate is escaped as `\udxxx`, as JSON.stringify writes it.
+ */
+const jsonCharBytes = (text: string, at: number): number => {
+  const code = text.charCodeAt(at);
+  if (code === 0x22 || code === 0x5c) return 2;
+  if (code < 0x20) return code === 0x08 || code === 0x09 || code === 0x0a || code === 0x0c || code === 0x0d ? 2 : 6;
+  if (code < 0x80) return 1;
+  if (code < 0x800) return 2;
+  if (code >= 0xd800 && code <= 0xdbff) {
+    const next = text.charCodeAt(at + 1);
+    return next >= 0xdc00 && next <= 0xdfff ? 4 : 6;
+  }
+  return code >= 0xdc00 && code <= 0xdfff ? 6 : 3;
+};
+
+/** The bytes `text` takes inside a JSON string (UTF-8, with JSON's escapes): how a Session row or a JSON-RPC line holds it. */
+export const jsonTextBytes = (text: string): number => {
+  let bytes = 0;
+  for (let at = 0; at < text.length;) {
+    const size = jsonCharBytes(text, at);
+    bytes += size;
+    at += size === 4 ? 2 : 1;
+  }
+  return bytes;
+};
+
+/** How many UTF-16 units of `text` fit in `room` JSON bytes (`jsonTextBytes`), never splitting a surrogate pair. */
+export const jsonTextPrefix = (text: string, room: number): number => {
+  let bytes = 0;
+  let at = 0;
+  while (at < text.length) {
+    const size = jsonCharBytes(text, at);
+    if (bytes + size > room) break;
+    bytes += size;
+    at += size === 4 ? 2 : 1;
+  }
+  return at;
+};
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Commands: Environment → Session (RPC methods on SessionDO)
 

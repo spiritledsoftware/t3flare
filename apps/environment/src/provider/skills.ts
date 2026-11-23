@@ -30,6 +30,7 @@ import {
   withEnvironmentSkills,
   withEnvironmentSkillsFor,
 } from "@t3flare/skills";
+import { jsonTextBytes, mebibytes } from "@t3flare/session-protocol";
 import { fromWorkspace, toWorkspace } from "@t3flare/workspace-client";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -348,7 +349,7 @@ export const opencodeSkillBlock = (skill: Pick<Skill, "name" | "filePath">, file
     "</skill_content>",
   ].join("\n");
 
-/** `text` when it fits in `room` characters; else the bracketed note naming what was not embedded and its file. */
+/** `text` when it fits in `room` bytes (`jsonTextBytes`); else the bracketed note naming what was not embedded and its file. */
 const fitOrNote = (
   text: string,
   room: number,
@@ -356,14 +357,14 @@ const fitOrNote = (
   what: string,
   path: string,
 ): { readonly fits: string } | { readonly note: string } =>
-  text.length <= room
+  jsonTextBytes(text) <= room
     ? { fits: text }
     : {
-        note: `[${what} is not embedded: it does not fit the message's ${budget.toLocaleString("en-US")}-character budget. Its file is ${path}.]`,
+        note: `[${what} is not embedded: it does not fit the message's ${mebibytes(budget)} budget. Its file is ${path}.]`,
       };
 
 /**
- * `text` as the model gets it, within `budget` characters: a leading `/skill:name args` becomes the Skill's block and
+ * `text` as the model gets it, within `budget` bytes (`jsonTextBytes`, as the Session's row holds it; SPI-1358): a leading `/skill:name args` becomes the Skill's block and
  * its arguments, a leading `/template args` the template with pi's substitution, and each `$name` naming a Skill (t3's
  * `matchInlineSkills`, outside code) adds its block once, after the message. A name nothing knows is left as typed; a
  * file that does not fit is named in a bracketed note instead.
@@ -377,7 +378,7 @@ export const expandMessage = Effect.fn("PiDurable.expandMessage")(function* (
   const blocks: Array<string> = [];
   const notes: Array<string> = [];
   const seen = new Set<string>();
-  const used = () => [base, ...blocks, ...notes].join("\n\n").length;
+  const used = () => jsonTextBytes([base, ...blocks, ...notes].join("\n\n"));
   /** The leading command's expansion as the message, or a note when it does not fit. */
   const lead = (expanded: string, what: string, path: string) => {
     const fit = fitOrNote(expanded, budget, budget, what, path);
@@ -414,7 +415,7 @@ export const expandMessage = Effect.fn("PiDurable.expandMessage")(function* (
     if (read === null) continue;
     const fit = fitOrNote(
       (catalog.block ?? skillBlock)(skill, read),
-      budget - used() - 2,
+      budget - used() - jsonTextBytes("\n\n"),
       budget,
       `Skill "${skill.name}"`,
       skill.filePath,

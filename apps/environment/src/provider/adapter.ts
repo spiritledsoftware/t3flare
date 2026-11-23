@@ -60,7 +60,7 @@ import { byName, type SessionRpc } from "../agents/rpc.ts";
 import { registerSession } from "../agents/sessionSink.ts";
 import { durableModeRecord } from "./threadCaller.ts";
 import { PI_DURABLE_DRIVER, PiDurableCapabilities } from "./capabilities.ts";
-import { type AttachmentReader, turnPrompt } from "./attachments.ts";
+import { type AttachmentReader, PI_DURABLE_PROMPT_BYTES, turnPrompt } from "./attachments.ts";
 import { messageSkillsFor, type SkillsAccess } from "./skills.ts";
 import {
   approvalIdOf,
@@ -514,6 +514,7 @@ export const makePiDurableAdapter = (
             const prompt = yield* turnPrompt(turnInput.message, {
               acceptsImages,
               reader: attachments,
+              budgetBytes: PI_DURABLE_PROMPT_BYTES,
               skills: threadSkills,
             });
             const context: TurnContext = {
@@ -598,6 +599,7 @@ export const makePiDurableAdapter = (
           const prompt = yield* turnPrompt(steerInput.message, {
             acceptsImages,
             reader: attachments,
+            budgetBytes: PI_DURABLE_PROMPT_BYTES,
             skills: threadSkills,
           });
           yield* call(instanceId, "steer", () =>
