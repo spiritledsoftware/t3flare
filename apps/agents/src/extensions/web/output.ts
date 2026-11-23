@@ -10,9 +10,10 @@ export const OUTPUT_MAX_BYTES = 50 * 1024;
 export const OUTPUT_MAX_LINES = 2000;
 
 /**
- * Largest UTF-8 size of the text a program (code mode) receives as structured output. A sanity bound (ADR-0048): nothing
- * forces 1 MiB, but the structured output is kept in the result's one Session row (8 MB) beside the model's text and
- * `details`, so it must stay well under the row; `web_search` sizes its stored result lists from what it leaves.
+ * Largest size of the text a program (code mode) receives as structured output: UTF-8 bytes for `web_fetch`, JSON bytes
+ * (as the row holds it) for `web_search`. A sanity bound (ADR-0048): nothing forces 1 MiB, but the structured output is
+ * kept in the result's one Session row (8 MB) beside the model's text and `details`, so it must stay well under the row;
+ * `web_search` sizes its stored result lists from what it leaves.
  */
 export const STRUCTURED_MAX_BYTES = 1024 * 1024;
 

@@ -9,6 +9,7 @@ import { webExtension } from "../../src/extensions/web.ts";
 import { UNCONVERTED_NOTE, webFetchTool } from "../../src/extensions/web/fetch.ts";
 import { DEFAULT_WEB_LIMITS, type WebLimits } from "../../src/extensions/web/limits.ts";
 import { STRUCTURED_MAX_BYTES } from "../../src/extensions/web/output.ts";
+import { SESSION_ROW_BYTES, SESSION_ROW_ENVELOPE_BYTES } from "@t3flare/session-protocol";
 import type { WebRequest, WebTransport } from "../../src/extensions/web/net.ts";
 import {
   ANSWER_MAX_BYTES,
@@ -405,11 +406,53 @@ describe("web_search", () => {
     expect(structured.truncated).toBe(true);
     expect(structured.results.length).toBeLessThan(2_000);
     expect(details.results).toHaveLength(structured.results.length);
-    expect(new TextEncoder().encode(JSON.stringify(details.results)).length).toBeLessThanOrEqual(RESULTS_BYTES);
+    const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
+    expect(bytes(details.results) + bytes(structured.results)).toBeLessThanOrEqual(RESULTS_BYTES);
     const few = await run(webSearchTool(network(() => Response.json(answer)).transport, endpoint), { query: "q" });
     expect((few.ok ? few.result.structuredOutput : undefined) as { truncated: boolean }).toMatchObject({
       truncated: false,
     });
+  });
+
+  it("keeps a result that is all JSON escapes within one Session row, as a nested call stores it (SPI-1361)", async () => {
+    const quotes = (count: number) => '"'.repeat(count - 1) + "\u0001";
+    const pages = Array.from({ length: 1_500 }, (_, index) => ({
+      type: "web_search_result",
+      url: `https://a.example/${index}/${quotes(1_000)}`,
+    }));
+    const escapes = {
+      content: [
+        { type: "web_search_tool_result", tool_use_id: "s", content: pages },
+        { type: "text", text: quotes(900_000) },
+      ],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    };
+    const { transport } = network(() => Response.json(escapes));
+    const outcome = await run(webSearchTool(transport, endpoint), {
+      query: quotes(10_000),
+      numResults: 10_000,
+      contextMaxCharacters: 100_000_000,
+    });
+    const result = outcome.ok ? outcome.result : undefined;
+    expect((result?.structuredOutput as { truncated: boolean }).truncated).toBe(true);
+    const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
+    // pi-durable's NestedCallDoc row for a code-mode call, and the result entry of a model's call.
+    const nested = {
+      taskId: "t",
+      result: {
+        taskId: "t",
+        structuredOutput: result?.structuredOutput,
+        isError: false,
+        details: result?.details,
+        diagnostics: [],
+        usage: result?.usage,
+        durationMs: 1,
+      },
+    };
+    expect(bytes(nested)).toBeLessThan(SESSION_ROW_BYTES - SESSION_ROW_ENVELOPE_BYTES);
+    expect(bytes({ output: result?.output, details: result?.details, structuredOutput: result?.structuredOutput })).toBeLessThan(
+      SESSION_ROW_BYTES - SESSION_ROW_ENVELOPE_BYTES,
+    );
   });
 
   it("times a search out at searchTimeoutSeconds (SPI-1321)", async () => {

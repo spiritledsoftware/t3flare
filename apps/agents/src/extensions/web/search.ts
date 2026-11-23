@@ -21,11 +21,16 @@ import {
 import { int, obj, opt, str } from "@earendil-works/pi-schema";
 
 import { FETCH_CONVERT_MAX_KIB } from "@t3flare/harness-registry";
-import { SESSION_ROW_BYTES, SESSION_ROW_ENVELOPE_BYTES } from "@t3flare/session-protocol";
+import {
+  jsonTextBytes,
+  jsonTextPrefix,
+  SESSION_ROW_BYTES,
+  SESSION_ROW_ENVELOPE_BYTES,
+} from "@t3flare/session-protocol";
 
 import { DEFAULT_WEB_LIMITS, type WebLimits } from "./limits.ts";
 import { readBoundedBody, statusCause, type WebTransport, WebToolError, withDeadline } from "./net.ts";
-import { boundStructuredText, fitOutput, OUTPUT_MAX_BYTES, STRUCTURED_MAX_BYTES } from "./output.ts";
+import { fitOutput, OUTPUT_MAX_BYTES, STRUCTURED_MAX_BYTES } from "./output.ts";
 import { limitSearchText, providerTextSanitizer, type Sanitize } from "./shaping.ts";
 
 /**
@@ -37,28 +42,38 @@ import { limitSearchText, providerTextSanitizer, type Sanitize } from "./shaping
  */
 export const ANSWER_MAX_BYTES = FETCH_CONVERT_MAX_KIB * 1024;
 
+/** The most bytes one byte of text takes in a JSON string: a control character, written `\u001f`. */
+const JSON_ESCAPE_MAX_BYTES = 6;
+
 /**
- * The most bytes of JSON one stored copy of a search's result list takes. A named constraint: a result is kept as one
- * Session row (`SESSION_ROW_BYTES` less its record), and the row also holds the model's text (`OUTPUT_MAX_BYTES`), a
- * program's copy of it (`STRUCTURED_MAX_BYTES`) and the list twice (the program's, and `details` for t3's web item).
+ * The most JSON bytes the two stored copies of a search's result list take together, before the query's. A named
+ * constraint: a result is kept as one Session row (`SESSION_ROW_BYTES` less its record), which also holds the model's
+ * text (`OUTPUT_MAX_BYTES` of UTF-8, at most six JSON bytes each), a program's copy of it (`STRUCTURED_MAX_BYTES` of
+ * JSON) and `details`' query; the lists are the program's and `details`' (for t3's web item).
  */
-export const RESULTS_BYTES = Math.floor(
-  (SESSION_ROW_BYTES - SESSION_ROW_ENVELOPE_BYTES - OUTPUT_MAX_BYTES - STRUCTURED_MAX_BYTES) / 2,
-);
+export const RESULTS_BYTES =
+  SESSION_ROW_BYTES - SESSION_ROW_ENVELOPE_BYTES - JSON_ESCAPE_MAX_BYTES * OUTPUT_MAX_BYTES - STRUCTURED_MAX_BYTES;
 
 const encoder = new TextEncoder();
+const jsonBytes = (value: unknown): number => encoder.encode(JSON.stringify(value)).length;
 
-/** The first of `results` whose JSON, as `details` stores it, fits `RESULTS_BYTES` (each result counted with its comma). */
-const fitResults = (results: ReadonlyArray<SearchResult>): ReadonlyArray<SearchResult> => {
-  let bytes = 2;
+/**
+ * The first of `results` whose two stored lists, each in JSON bytes as the row holds it (a comma between results),
+ * fit `room` together.
+ */
+const fitResults = (results: ReadonlyArray<SearchResult>, room: number): ReadonlyArray<SearchResult> => {
+  let bytes = 4;
   let kept = 0;
   for (const page of results) {
-    bytes += encoder.encode(JSON.stringify(detailOf(page))).length + 1;
-    if (bytes > RESULTS_BYTES) break;
+    bytes += jsonBytes(detailOf(page)) + jsonBytes(programOf(page)) + 2;
+    if (bytes > room) break;
     kept++;
   }
   return kept === results.length ? results : results.slice(0, kept);
 };
+
+/** A result as a program gets it: no snippet, which the content carries. */
+const programOf = ({ snippet: _snippet, ...page }: SearchResult) => page;
 
 /** A result as t3's web item shows it (`details`): its snippet cut to a line. */
 const detailOf = (page: SearchResult) => ({
@@ -128,11 +143,11 @@ const OUTPUT_SCHEMA = {
     content: {
       type: "string",
       description:
-        "The results and summary, trimmed to numResults and cut at contextMaxCharacters (default 6,000), then at 1 MiB",
+        "The results and summary, trimmed to numResults and cut at contextMaxCharacters (default 6,000), then at 1 MiB of JSON",
     },
     truncated: {
       type: "boolean",
-      description: "Whether content was cut at 1 MiB, or results cut short of numResults to fit the stored result",
+      description: "Whether content was cut at 1 MiB of JSON, or results cut short of numResults to fit the stored result",
     },
     results: {
       type: "array",
@@ -333,21 +348,22 @@ export const webSearchTool = (
       }
       if (read.failure !== undefined) throw new Error(`Unable to search the web for ${args.query}: ${read.failure}`);
       const asked = read.results.slice(0, args.numResults ?? limits.searchResults);
-      const results = fitResults(asked);
+      const results = fitResults(asked, RESULTS_BYTES - jsonTextBytes(args.query));
       const content =
         results.length === 0 && read.summary === ""
           ? NO_SEARCH_RESULTS
           : limitSearchText(resultText(results, read.summary), args.contextMaxCharacters);
       const fitted = fitOutput(content, "Lower contextMaxCharacters or narrow the query to read less per search.");
       const usage = usageOf(read.usage);
-      const structured = boundStructuredText(content);
+      // Cut in JSON bytes, as the row holds it: escapes can take six bytes for one of text.
+      const structured = content.slice(0, jsonTextPrefix(content, STRUCTURED_MAX_BYTES));
       return {
         output: [{ type: "text" as const, text: fitted.content }],
         structuredOutput: {
           provider: `model-endpoint:${target.slug}`,
-          content: structured.content,
-          truncated: structured.truncated || results.length < asked.length,
-          results: results.map(({ snippet: _snippet, ...page }) => page),
+          content: structured,
+          truncated: structured.length < content.length || results.length < asked.length,
+          results: results.map(programOf),
         },
         // What t3's web item shows (the differ): the query and each page found.
         details: {
