@@ -328,7 +328,7 @@ describe("the Global mise config", () => {
   it("takes as much as one stored value holds, counting a character by its bytes", () => {
     // Past the old 16 KiB.
     expect(MAX_GLOBAL_MISE_BYTES).toBe(MAX_FILE_SETTING_BYTES);
-    expect(MAX_FILE_SETTING_BYTES).toBe(DO_VALUE_BYTES / 2);
+    expect(MAX_FILE_SETTING_BYTES).toBe(Math.floor(DO_VALUE_BYTES / 3));
     expect(set(`[tools]\n${"# a line\n".repeat(20_000)}`)).toMatchObject({ ok: true });
     const tooLong = `globalMiseConfig: is longer than ${MAX_FILE_SETTING_BYTES} bytes of UTF-8`;
     expect(set("€".repeat(MAX_FILE_SETTING_BYTES / 3 + 1))).toEqual({ ok: false, error: tooLong });
@@ -746,7 +746,7 @@ describe("the Base build's settings (SPI-1332, ADR-0047 §9)", () => {
   });
 
   it("refuses a change whose settings together would not fit one stored value, naming the bound", () => {
-    const big = "x".repeat(1_500_000);
+    const big = "x".repeat(1_000_000);
     const first = applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { imageSetup: big, containerSetup: big } });
     if (!first.ok) throw new Error(first.error);
     expect(storedBytes(first.environment)).toBeLessThanOrEqual(DO_VALUE_BYTES);

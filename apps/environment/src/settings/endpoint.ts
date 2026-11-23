@@ -12,7 +12,7 @@
 //   `initialize`, carried in a signed `Mcp-Session-Id`), and 2025-03-26 and 2024-11-05 (tools, never a question). The
 //   version only decides how a question is delivered.
 // - Guards before the body is parsed (plan D11): POST only, JSON only, no `Origin` and no `Sec-Fetch-Site` (no client
-//   sends them, M0; a browser does), at most 256 KiB, and `elicitation_mode`, when given, one of three exact values. No
+//   sends them, M0; a browser does), at most `BODY_MAX`, and `elicitation_mode`, when given, one of three exact values. No
 //   CORS header is ever sent; every answer is `no-store`. Any other query parameter is ignored (OpenCode adds
 //   `codemode=false`).
 // - The request's Elicitation mode (plan D12; ADR-0035's 2026-11-15 refinement): an explicit `?elicitation_mode=`, else
@@ -30,7 +30,7 @@
 //     stream, held until the response POST, the stream's end (which withdraws the change) or the change's expiry.
 //   - `model` (M5b): the result is Executor's Pause at once (every version), and `resume`, listed in this mode alone,
 //     answers it. A change that needs the page gets the link, never a Pause.
-import { OPEN_ACROSS, withoutHidden } from "@t3flare/harness-registry";
+import { DO_VALUE_BYTES, OPEN_ACROSS, withoutHidden } from "@t3flare/harness-registry";
 import { sha256Hex } from "@t3flare/skills";
 
 import type { AccessCaller } from "../access.ts";
@@ -87,8 +87,14 @@ export const LEGACY_VERSIONS: ReadonlyArray<string> = [
   "2024-11-05",
 ];
 export const SUPPORTED_VERSIONS: ReadonlyArray<string> = [MODERN_VERSION, ...LEGACY_VERSIONS];
-/** The largest body read (plan D11). */
-export const BODY_MAX = 256 * 1024;
+/**
+ * The largest body read (plan D11), derived from what one change may carry: at most one Durable Object value's settings
+ * (`DO_VALUE_BYTES` as `storedBytes` counts them, three bytes a character of their JSON, the most UTF-8 takes), and the
+ * JSON-RPC envelope around them. A client that escapes every non-ASCII character (`\uXXXX`, six bytes) can pass it with
+ * a value near that size. The body is held whole while it is parsed, in the Environment DO's 128 MB isolate beside t3:
+ * about 8 MB read, and its text and parse a few times that.
+ */
+export const BODY_MAX = DO_VALUE_BYTES + 64 * 1024;
 /** How long a `browser` call holds for the page's answer (plan D12: client timeouts are 60 s or unknown). */
 export const HOLD_MS = 45_000;
 /** A held stream's heartbeat: a progress notification when the call carried a token, else an SSE comment. */

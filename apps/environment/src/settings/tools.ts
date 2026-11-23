@@ -15,6 +15,7 @@ import {
   EXPOSURES,
   EXTENSIONS,
   MAX_ENV_STRING_BYTES,
+  MAX_SETUP_BYTES,
   MAX_VARIABLES_BYTES,
   OFFERED_PRESETS,
   type ToolClass,
@@ -379,7 +380,7 @@ export const SETTINGS_TOOLS: ReadonlyArray<SettingsTool> = [
       properties: {
         imageSetup: {
           type: "string",
-          description: "The whole proposed Image setup: a bash script of at most 256 KiB.",
+          description: `The whole proposed Image setup: a bash script of at most ${MAX_SETUP_BYTES} bytes of UTF-8.`,
         },
       },
       additionalProperties: false,

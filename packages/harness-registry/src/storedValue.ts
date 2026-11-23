@@ -9,12 +9,13 @@
 export const DO_VALUE_BYTES = 8_000_000 - 1024;
 
 /**
- * At most the bytes `value` takes stored: two per character of its JSON. The KV API stores a value with V8's serializer,
- * which keeps a string as one or two bytes per UTF-16 unit, an object's key as a string with a short tag, and a number
- * in at most nine bytes. Twice the JSON is above that for the values measured here, where every number is under an
- * object key: the key's quotes and colon, doubled, outweigh the most a number takes beyond twice its own JSON.
+ * At most the bytes `value` takes stored, three per character of its JSON, whichever way it is stored:
+ *
+ * - as JSON text in a SQLite row (an Open change's record) or a request body: UTF-8 takes at most three bytes for a
+ *   UTF-16 unit;
+ * - as a KV value, which V8's serializer stores: a string as one or two bytes per UTF-16 unit, an object's key as a
+ *   string with a short tag, a number in at most nine bytes. Three times the JSON is above that for the values measured
+ *   here, where every number is under an object key: the key's quotes and colon outweigh what a number takes beyond its
+ *   own JSON.
  */
-export const storedBytes = (value: unknown): number => 2 * (JSON.stringify(value)?.length ?? 0);
-
-/** Whether `value` fits one Durable Object KV value (`storedBytes` at most `DO_VALUE_BYTES`). */
-export const fitsStoredValue = (value: unknown): boolean => storedBytes(value) <= DO_VALUE_BYTES;
+export const storedBytes = (value: unknown): number => 3 * (JSON.stringify(value)?.length ?? 0);

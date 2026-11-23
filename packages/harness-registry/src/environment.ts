@@ -174,12 +174,12 @@ export const MAX_AGENT_TERMINALS_PER_WORKSPACE = 32;
 export const MAX_TERMINALS_PER_WORKSPACE = 1000;
 
 /**
- * The largest file setting (the Global mise config, the Image setup, the Container setup), in bytes of UTF-8: half of
- * one stored value, since the Environment settings are one Durable Object value (`DO_VALUE_BYTES`) and a byte of UTF-8
- * is at most one character, which `storedBytes` counts as two. Derived from that constraint; what the settings take
- * together is checked as a whole (`applyEnvironmentChange`), so one file this large leaves little room for the others.
+ * The largest file setting (the Global mise config, the Image setup, the Container setup), in bytes of UTF-8: a third
+ * of one stored value, since the Environment settings are one Durable Object value (`DO_VALUE_BYTES`) and a byte of
+ * UTF-8 is at most one character, which `storedBytes` counts as three. Derived from that constraint; what the settings
+ * take together is checked as a whole (`applyEnvironmentChange`), so one file this large leaves little room for others.
  */
-export const MAX_FILE_SETTING_BYTES = DO_VALUE_BYTES / 2;
+export const MAX_FILE_SETTING_BYTES = Math.floor(DO_VALUE_BYTES / 3);
 
 /** The largest Global mise config, in bytes of UTF-8 (`MAX_FILE_SETTING_BYTES`). */
 export const MAX_GLOBAL_MISE_BYTES = MAX_FILE_SETTING_BYTES;

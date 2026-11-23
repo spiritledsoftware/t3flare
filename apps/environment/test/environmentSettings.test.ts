@@ -516,8 +516,8 @@ describe("the audit log (SPI-1365)", () => {
     for (let at = 1; at <= 6; at += 1) store.audit(entry(at, 1_000_000));
     const kept = kv.get<ReadonlyArray<{ at: number }>>(AUDIT_KEY)!;
     expect(storedBytes(kept)).toBeLessThanOrEqual(DO_VALUE_BYTES);
-    // Each entry stores about 2 MB: three fit, the oldest three are dropped.
-    expect(kept.map((entry) => entry.at)).toEqual([4, 5, 6]);
+    // Each entry counts about 3 MB: two fit, the oldest four are dropped.
+    expect(kept.map((entry) => entry.at)).toEqual([5, 6]);
   });
 
   it("keeps an entry too large for the value alone as its record without the values", () => {

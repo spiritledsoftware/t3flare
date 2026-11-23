@@ -24,7 +24,7 @@ describe("the Builders", () => {
   it("bounds a proposed Image setup as the setting is bounded, in bytes", () => {
     expect(proposedSetup("echo hi\n")).toBe("echo hi\n");
     expect(proposedSetup("x".repeat(MAX_SETUP_BYTES))).toHaveLength(MAX_SETUP_BYTES);
-    expect(() => proposedSetup("é".repeat(MAX_SETUP_BYTES / 2 + 1))).toThrow(/at most 256 KiB/);
+    expect(() => proposedSetup("é".repeat(Math.floor(MAX_SETUP_BYTES / 2) + 1))).toThrow(`at most ${MAX_SETUP_BYTES} bytes`);
     expect(() => proposedSetup(42)).toThrow(/text/);
   });
 });

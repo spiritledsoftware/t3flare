@@ -860,8 +860,8 @@ describe("the Settings server: the Test base build", () => {
     recordModes(caller, "full-access");
     expect(textOf(await call(caller, "test_base_build", {}))).toContain("imageSetup is the Image setup to test");
     expect(
-      textOf(await call(caller, "test_base_build", { imageSetup: "é".repeat(MAX_SETUP_BYTES / 2 + 1) })),
-    ).toContain("at most 256 KiB");
+      textOf(await call(caller, "test_base_build", { imageSetup: "é".repeat(Math.floor(MAX_SETUP_BYTES / 2) + 1) })),
+    ).toContain(`at most ${MAX_SETUP_BYTES} bytes`);
     const planned = durable("thread-tbp");
     recordModes(planned, "plan");
     expect(structured(await call(planned, "test_base_build", { imageSetup: "true\n" }))).toMatchObject({
