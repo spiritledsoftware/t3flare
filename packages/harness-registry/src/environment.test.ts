@@ -33,6 +33,15 @@ import {
   MAX_MCP_RESULT_KIB,
   DEFAULT_MCP_CALL_MS,
   SWEEP_SETTING_KEYS,
+  LIFECYCLE_SETTING_KEYS,
+  PREVIEW_SETTING_KEYS,
+  ACCESS_SETTING_KEYS,
+  NEXT_USE_SETTING_KEYS,
+  OUTSIDE_REQUEST_SETTING_KEYS,
+  MAX_BROWSER_KEEP_ALIVE_SECONDS,
+  TEXT_GENERATION_MARGIN_MS,
+  fitsEnvironmentSetting,
+  DEFAULT_TEXT_GENERATION_SECONDS,
 } from "./environment.ts";
 import type { EnvironmentSettingEntry } from "./fields.ts";
 import { DO_VALUE_BYTES, storedBytes } from "./storedValue.ts";
@@ -61,6 +70,20 @@ const TUNABLE_DEFAULTS = {
   skillsLinkEntries: 200,
   promptsDirectoryEntries: 1000,
   outsideRequestSeconds: 15,
+  githubRetrySeconds: 60,
+  textGenerationSeconds: 110,
+  idleAfterSeconds: 60,
+  prWatchWakeMinutes: 10,
+  remoteRetryMinutes: 30,
+  safeModeAfterFailures: 3,
+  browserProfileSaveSeconds: 60,
+  htmlBrowserKeepAliveSeconds: 60,
+  pageTokenHours: 1,
+  clientsPerKey: 50,
+  connectPublishLogKept: 100,
+  mcpPausesPerCall: 16,
+  cliMcpStartSeconds: 20,
+  mcpSignInMinutes: 10,
   customVcpu: 1,
   customMemoryMib: 3072,
   customDiskMb: 12_000,
@@ -658,10 +681,72 @@ describe("the MCP calls' time limit and result size (SPI-1359)", () => {
   });
 
   it("are down-free, in an MCP calls row of their own, and each states its consequence", () => {
-    expect(MCP_CALL_SETTING_KEYS).toEqual(["mcpCallSeconds", "mcpResultKiB"]);
-    for (const key of MCP_CALL_SETTING_KEYS) expect(ENVIRONMENT_SETTINGS[key]).toMatchObject({ tier: "down-free" });
+    expect(MCP_CALL_SETTING_KEYS.slice(0, 2)).toEqual(["mcpCallSeconds", "mcpResultKiB"]);
+    for (const key of ["mcpCallSeconds", "mcpResultKiB"] as const)
+      expect(ENVIRONMENT_SETTINGS[key]).toMatchObject({ tier: "down-free" });
     expect(ENVIRONMENT_SETTINGS.mcpCallSeconds.description).toContain("it may have run on the server");
     expect(ENVIRONMENT_SETTINGS.mcpResultKiB.description).toContain("memory");
+  });
+});
+
+describe("the housekeeping waits and counts (SPI-1366)", () => {
+  const KEYS = [
+    ...LIFECYCLE_SETTING_KEYS,
+    ...PREVIEW_SETTING_KEYS,
+    ...ACCESS_SETTING_KEYS,
+    "githubRetrySeconds",
+    "textGenerationSeconds",
+    "mcpPausesPerCall",
+    "cliMcpStartSeconds",
+    "mcpSignInMinutes",
+  ] as const;
+
+  it("keep today's values by default, whole numbers from 1 to their maximum", () => {
+    const resolved = resolveEnvironment(EMPTY_ENVIRONMENT);
+    expect(Object.fromEntries(KEYS.map((key) => [key, resolved[key]]))).toEqual({
+      idleAfterSeconds: 60,
+      prWatchWakeMinutes: 10,
+      remoteRetryMinutes: 30,
+      safeModeAfterFailures: 3,
+      browserProfileSaveSeconds: 60,
+      htmlBrowserKeepAliveSeconds: 60,
+      pageTokenHours: 1,
+      clientsPerKey: 50,
+      connectPublishLogKept: 100,
+      githubRetrySeconds: 60,
+      textGenerationSeconds: 110,
+      mcpPausesPerCall: 16,
+      cliMcpStartSeconds: 20,
+      mcpSignInMinutes: 10,
+    });
+    for (const key of KEYS) {
+      const schema = ENVIRONMENT_SETTINGS[key].schema;
+      expect(fitsEnvironmentSetting(key, 0)).toBe(false);
+      expect(fitsEnvironmentSetting(key, 1.5)).toBe(false);
+      expect(fitsEnvironmentSetting(key, schema.maximum)).toBe(true);
+      expect(fitsEnvironmentSetting(key, schema.maximum + 1)).toBe(false);
+      // Each description names its maximum, from the constant (ADR-0048).
+      expect(ENVIRONMENT_SETTINGS[key].description).toContain(`At most ${schema.maximum}`);
+    }
+  });
+
+  it("time t3flare's own waits under the shared sanity maximum; Browser Run's keep-alive under its own", () => {
+    expect(ENVIRONMENT_SETTINGS.idleAfterSeconds.schema.maximum).toBe(MAX_TIMED_MINUTES * 60);
+    expect(ENVIRONMENT_SETTINGS.prWatchWakeMinutes.schema.maximum).toBe(MAX_TIMED_MINUTES);
+    expect(ENVIRONMENT_SETTINGS.htmlBrowserKeepAliveSeconds.schema.maximum).toBe(MAX_BROWSER_KEEP_ALIVE_SECONDS);
+    expect(MAX_BROWSER_KEEP_ALIVE_SECONDS).toBe(600);
+    // The Environment's wait for text generation stays under a JS timer's 2^31 - 1 ms at the maximum.
+    expect(MAX_TIMED_MINUTES * 60 * 1000 + TEXT_GENERATION_MARGIN_MS).toBeLessThan(2 ** 31 - 1);
+    expect(DEFAULT_TEXT_GENERATION_SECONDS * 1000 + TEXT_GENERATION_MARGIN_MS).toBe(120_000);
+  });
+
+  it("each state a consequence, and each is read at its next use, never at a Container start", () => {
+    for (const key of KEYS) {
+      expect(ENVIRONMENT_SETTINGS[key].description).toMatch(/Applies (at|to) /);
+      expect(ENVIRONMENT_SETTINGS[key]).not.toHaveProperty("row");
+    }
+    for (const key of [...OUTSIDE_REQUEST_SETTING_KEYS, ...LIFECYCLE_SETTING_KEYS, ...PREVIEW_SETTING_KEYS, ...ACCESS_SETTING_KEYS])
+      expect(NEXT_USE_SETTING_KEYS).toContain(key);
   });
 });
 

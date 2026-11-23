@@ -110,6 +110,22 @@ const ENVIRONMENT: Readonly<
   // SPI-1365: a custom size's resources are asked either way, as the size is (cost one way, a start refused the other).
   customVcpu: { up: [1, 2, "asked"], down: [2, 0.5, "asked"] },
   outsideRequestSeconds: { up: [15, 60, "asked"], down: [60, 15, "free"] },
+  // SPI-1366: a longer wait or limit holds what waits, and spends; a shorter retry or wake asks or boots more often; a
+  // longer token or sign-in window keeps a leaked one valid longer; fewer clients forgets modes the Owner set.
+  githubRetrySeconds: { up: [60, 120, "free"], down: [60, 30, "asked"] },
+  textGenerationSeconds: { up: [110, 300, "asked"], down: [110, 60, "free"] },
+  idleAfterSeconds: { up: [60, 120, "asked"], down: [60, 30, "free"] },
+  prWatchWakeMinutes: { up: [10, 20, "free"], down: [10, 5, "asked"] },
+  remoteRetryMinutes: { up: [30, 60, "free"], down: [30, 10, "asked"] },
+  safeModeAfterFailures: { up: [3, 5, "asked"], down: [3, 1, "free"] },
+  browserProfileSaveSeconds: { up: [60, 120, "free"], down: [60, 30, "free"] },
+  htmlBrowserKeepAliveSeconds: { up: [60, 120, "asked"], down: [60, 30, "free"] },
+  pageTokenHours: { up: [1, 2, "asked"], down: [2, 1, "free"] },
+  clientsPerKey: { up: [50, 100, "free"], down: [50, 10, "asked"] },
+  connectPublishLogKept: { up: [100, 200, "free"], down: [100, 50, "free"] },
+  mcpPausesPerCall: { up: [16, 32, "asked"], down: [16, 8, "free"] },
+  cliMcpStartSeconds: { up: [20, 60, "free"], down: [20, 10, "free"] },
+  mcpSignInMinutes: { up: [10, 30, "asked"], down: [10, 5, "free"] },
   // SPI-1365: more listed or read puts more in front of the model or in the Workspace's memory, so it is asked.
   repoSkillsListed: { up: [100, 200, "asked"], down: [200, 100, "free"] },
   skillsDirectoryEntries: { up: [5000, 6000, "asked"], down: [6000, 5000, "free"] },
