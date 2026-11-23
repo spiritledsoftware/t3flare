@@ -46,14 +46,17 @@ new Container's start. Both are Environment settings, bash scripts of up to 256 
    The Worker Shell has no Container, so neither script reaches it.
 8. **A Test base build** runs a proposed Image setup in a second reserved Builder, so an agent or the Owner sees its
    result before saving; its snapshot is never used.
-9. **Everything tunable is a setting** (AGENTS.md), with these defaults: the Image setup's time limit (30 minutes),
-   the Container setup's (5 minutes) and the snapshot's (5 minutes); what a start does while building (§6); what the
-   Container setup's failure does (carry on); the Builder's size (the Container size) and whether it counts against
-   the Container budget (no); a scheduled rebuild (off); and whether Terminals read `~/.bashrc` and CLI agents read the
-   dotfiles' own agent config, `~/.claude.json` included (both on; t3flare's model routing and managed settings stay
-   on top). Fixed only by constraint: 256 KiB per script (every Environment setting is one stored value of at most
-   8 MB) and the rebuild after an image change. The three time limits' maximums (60, 120 and 15 minutes) were no constraint: since
-   [ADR-0048](0048-the-owner-is-trusted-with-their-own-settings-and-a-maximum-is-a-named-constraint-or-a-sanity-bound.md) each takes the shared 10,080-minute maximum for limits t3flare times itself. (SPI-1359, 2026-11-23: a SQLite-backed DO row or value holds 8 MB; the earlier 2 MB was stale.)
+9. **Everything tunable is a setting** (AGENTS.md), with these defaults: the Image setup's time limit (30 minutes), the
+   Container setup's (5 minutes) and the snapshot's (5 minutes); what a start does while building (§6); what the
+   Container setup's failure does (carry on); the Builder's size (the Container size) and whether it counts against the
+   Container budget (no); a scheduled rebuild (off); and whether Terminals read `~/.bashrc` and CLI agents read the
+   dotfiles' own agent config, `~/.claude.json` included (both on; t3flare's model routing and managed settings stay on
+   top). Fixed only by constraint: 256 KiB per script (every Environment setting is one stored value of at most 8 MB)
+   and the rebuild after an image change. The three time limits' maximums (60, 120 and 15 minutes) were no
+   constraint: since
+   [ADR-0048](0048-the-owner-is-trusted-with-their-own-settings-and-a-maximum-is-a-named-constraint-or-a-sanity-bound.md)
+   each takes the shared 10,080-minute maximum for limits t3flare times itself. (SPI-1359, 2026-11-23: a SQLite-backed
+   DO row or value holds 8 MB; the earlier 2 MB was stale.)
 10. **With no Global mise config, mise's global config is the dotfiles' own** (`~/.config/mise/config.toml`), not
     t3flare's empty file, so a dotfiles manager such as chezmoi declares the Owner's tools. The lay-down's check still
     runs on it: under a file that breaks git or gh, t3flare points mise back at its own file and the Settings page says
@@ -98,15 +101,15 @@ new Container's start. Both are Environment settings, bash scripts of up to 256 
    built again by a boot or a Workspace's report; a change of key, Rebuild, or `rebuild_base` builds it. A failure that
    was not the script's (a lost Container, a snapshot, a refused proof) is retried by any trigger, and so is a key whose
    Base snapshot once worked and is gone (expired, or refused at a start): its script ran before.
-4. **A Rebuild while a build of the same key runs** leaves that build going, and while a late snapshot of the current key
-   is still being taken, no trigger starts another build: the late result is proved. The scheduled rebuild fires this
-   many days after the last good Base snapshot, and at the latest a day before it counts as gone; every failing
+4. **A Rebuild while a build of the same key runs** leaves that build going, and while a late snapshot of the current
+   key is still being taken, no trigger starts another build: the late result is proved. The scheduled rebuild fires
+   this many days after the last good Base snapshot, and at the latest a day before it counts as gone; every failing
    rebuild of one key, whatever its trigger (the schedule included), waits an hour, then twice as long each time (at
    most a day), before the next; a change of key and a Rebuild run at once. (Superseded by the SPI-1359 refinement: the
-   margin before expiry is derived, not a day, and the first wait is the `baseRetryMinutes` setting.) The schedule is armed again from the last
-   good one after every build. A failed rebuild leaves the last good Base snapshot in use (still for the same
-   key), shown as ready with the failure beside it. Any Builder setting saved alone pokes the Builder, so it reads and
-   arms it again.
+   margin before expiry is derived, not a day, and the first wait is the `baseRetryMinutes` setting.) The schedule is
+   armed again from the last good one after every build. A failed rebuild leaves the last good Base snapshot in use
+   (still for the same key), shown as ready with the failure beside it. Any Builder setting saved alone pokes the
+   Builder, so it reads and arms it again.
 5. **The poke carries only its reason:** the Builder reads the Environment settings itself, through the read a Container
    start takes (secret Variables opened), which Status does not count as a Workspace's.
 6. **The key's Variables** are those that reach a command (`variableEnv`), in any order. The 29 days count from the
@@ -184,13 +187,13 @@ hour's retry) and §6 (the Builder does not see a restore).
   after the later of its creation and its last restore, as the platform's 30 days run. A refusal at a later start still
   marks it gone at once. The scheduled rebuild still counts its days from the snapshot's creation.
 - **The scheduled rebuild's margin is derived, not a day.** It fires at the latest `expiryMarginMs` before the snapshot
-  counts as gone: one build at the settings' time limits (`waitLimitMs`) and the first retry's wait, so that a failed
-  rebuild's retry starts before the snapshot counts as gone. At the defaults that is 1 hour 40 minutes. The margin is
-  clamped, and the schedule too, so no rebuild is due sooner than one build after the last good one: otherwise time
-  limits and a retry that long would leave the next build due as soon as one ends, back-to-back billed builds.
-  `rebuildEveryDays`' description states that consequence: with such settings a rebuild follows each build, and a
-  failed one can outlast the snapshot. ADR-0048's consequence of a slow build outlasting the last good Base snapshot
-  holds there.
+  counts as gone: two builds at the settings' time limits (`waitLimitMs`) and the first retry's wait, so a rebuild that
+  fails at its full limit and its retry both end before the snapshot counts as gone. At the defaults that is 2 hours 20
+  minutes. The margin is clamped so the expiry never makes a rebuild due sooner than one build after the last good one:
+  otherwise time limits and a retry that long would leave the next build due as soon as one ends, back-to-back billed
+  builds. The Owner's own "Rebuild every" interval is not clamped. `rebuildEveryDays`' description states the
+  consequence: with such settings rebuilds follow one another, and a failed one can outlast the snapshot. ADR-0048's
+  consequence of a slow build outlasting the last good Base snapshot holds there.
 - **The retry is a setting**, `baseRetryMinutes` (60 by default, 1 to `MAX_TIMED_MINUTES`, tier `up-free`, in the
   Image setup's row): a failing key's first retry, doubling, at most a day or the setting itself when that is longer.
   Some backoff is needed: without it a failing key's next trigger would build at once, a loop of Builder Containers.

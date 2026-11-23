@@ -713,15 +713,15 @@ describe("a Base build (review fixes)", () => {
     expect(await scheduled(build)).toBe(builtAt + 29 * DAY);
   });
 
-  it("derives the expiry margin from one build's time limits and the first retry's wait (SPI-1359)", () => {
+  it("derives the expiry margin from two builds' time limits and the first retry's wait (SPI-1359)", () => {
     const at = (imageSetupMinutes: number, snapshotMinutes: number, baseRetryMinutes: number) =>
       expiryMarginMs(
         resolveEnvironment({ revision: 1, settings: { imageSetupMinutes, snapshotMinutes, baseRetryMinutes } }),
       );
-    // The defaults: a build of 40 minutes and an hour's wait.
-    expect(at(30, 5, 60)).toBe(40 * 60_000 + 60 * 60_000);
+    // The defaults: a build of 40 minutes that fails at its limit, an hour's wait, and the retry's 40.
+    expect(at(30, 5, 60)).toBe(2 * 40 * 60_000 + 60 * 60_000);
     // A shorter retry, a shorter margin.
-    expect(at(30, 5, 10)).toBe(50 * 60_000);
+    expect(at(30, 5, 10)).toBe(90 * 60_000);
     // Never so long that the snapshot's expiry falls within one build of its making.
     const build = (10_080 + 2 * 10_080) * 60_000;
     expect(at(10_080, 10_080, 10_080)).toBe(GOOD_FOR_MS - build);
@@ -738,10 +738,10 @@ describe("a Base build (review fixes)", () => {
     // Three weeks of limits and a week's retry: unclamped, the expiry would make it due a day after the build.
     const oneBuild = 3 * 10_080 * 60_000;
     expect(await scheduled(build)).toBe(builtAt + oneBuild);
-    // A short schedule and a long build: the schedule waits one build too.
+    // The Owner's own interval is theirs: a day, however long the time limits.
     settings.rebuildEveryDays = 1;
     await build.poke("the Environment booted");
-    expect(await scheduled(build)).toBe(builtAt + oneBuild);
+    expect(await scheduled(build)).toBe(builtAt + DAY);
   });
 
   it("waits the Base build retry as set, doubling, at most a day or the retry itself when longer (SPI-1359)", () => {

@@ -174,8 +174,6 @@ interface Current {
   readonly rebuildEveryDays: number;
   /** The scheduled rebuild's margin before expiry (`expiryMarginMs`). Absent in one kept before SPI-1359: a day. */
   readonly expiryMarginMs?: number;
-  /** One build's time limits (`waitLimitMs`): no rebuild is due sooner after a build. Absent before SPI-1359: none. */
-  readonly buildMs?: number;
   /** A failing key's first retry (`baseRetryMinutes`). Absent in one kept before SPI-1359: the default. */
   readonly retryMs?: number;
   readonly at: number;
@@ -229,9 +227,9 @@ export const GOOD_FOR_MS = MAX_REBUILD_DAYS * DAY_MS;
 
 /**
  * How long before the snapshot counts as gone the scheduled rebuild fires at the latest (SPI-1359): room for one build
- * the settings allow (`waitLimitMs`: the Image setup's limit and twice the snapshot's) and, should it fail, the first
- * retry's wait (`retryDelay`), so that retry starts before the snapshot counts as gone. At the defaults, 40 minutes and
- * an hour.
+ * the settings allow (`waitLimitMs`: the Image setup's limit and twice the snapshot's) and, should it fail at its full
+ * limit, the first retry's wait (`retryDelay`) and the retry's own build, so both end before the snapshot counts as gone.
+ * At the defaults, 40 minutes, an hour and 40 minutes.
  *
  * Clamped so the expiry never makes a rebuild due sooner than one build after the snapshot was made: past that, a
  * build's own length would leave the next one due at once, back-to-back billed builds. Settings that long expire the
@@ -241,7 +239,7 @@ export const expiryMarginMs = (
   settings: Pick<ResolvedEnvironment, "imageSetupMinutes" | "snapshotMinutes" | "baseRetryMinutes">,
 ): number => {
   const build = waitLimitMs(settings);
-  return Math.min(build + retryDelay(1, settings.baseRetryMinutes * 60_000), GOOD_FOR_MS - build);
+  return Math.min(2 * build + retryDelay(1, settings.baseRetryMinutes * 60_000), GOOD_FOR_MS - build);
 };
 
 /** How long the scheduled rebuild waits to read the settings again when the Environment did not answer. Fixed: a retry. */
@@ -552,7 +550,6 @@ export class BaseBuild {
       nothingToBuild: settings.imageSetup === "" && settings.globalMiseConfig === "",
       rebuildEveryDays: this.#test ? 0 : settings.rebuildEveryDays,
       expiryMarginMs: expiryMarginMs(settings),
-      buildMs: waitLimitMs(settings),
       retryMs: settings.baseRetryMinutes * 60_000,
       at: this.#deps.now(),
     };
@@ -768,8 +765,8 @@ export class BaseBuild {
 
   /**
    * The scheduled rebuild (ADR-0047 §5): whether it is due now; when not, the alarm is set for when it is. It is due
-   * this many days after the last good one, and at the latest a day before that one expires; a failed attempt is retried
-   * on a backoff. The schedule is armed from the last good one after every build, failed ones included.
+   * this many days after the last good one, and at the latest `expiryMarginMs` before that one counts as gone; a failed
+   * attempt is retried on a backoff. The schedule is armed from the last good one after every build, failed ones included.
    */
   async #armSchedule(last: Build | undefined): Promise<boolean> {
     const { storage, now, setAlarm } = this.#deps;
@@ -777,14 +774,10 @@ export class BaseBuild {
     const good = this.#good();
     if (current === undefined || current.rebuildEveryDays <= 0 || good === null || last?.awaitingSnapshot === true)
       return false;
-    // Never sooner than one build after the last good one (`expiryMarginMs`): a build's own length would otherwise leave
-    // the next due at once.
-    const due = Math.max(
-      good.builtAt + (current.buildMs ?? 0),
-      Math.min(
-        good.builtAt + current.rebuildEveryDays * DAY_MS,
-        this.#aliveSince(good) + GOOD_FOR_MS - (current.expiryMarginMs ?? DAY_MS),
-      ),
+    // The expiry's term is never sooner than one build after the last good one: `expiryMarginMs` is clamped for it.
+    const due = Math.min(
+      good.builtAt + current.rebuildEveryDays * DAY_MS,
+      this.#aliveSince(good) + GOOD_FOR_MS - (current.expiryMarginMs ?? DAY_MS),
     );
     let at = due;
     // Tried since it fell due, and it did not end ready: again after a backoff.

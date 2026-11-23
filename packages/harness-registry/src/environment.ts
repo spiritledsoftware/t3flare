@@ -437,8 +437,7 @@ export const ENVIRONMENT_SETTINGS = {
   },
   agentTerminalsPerWorkspace: {
     title: "Agents' Terminals per Workspace",
-    description:
-      "How many Terminals and Background jobs Pi Durable agents may run at once in one Workspace, across its threads; one more is refused. Each Terminal and Background job uses memory in the Container. Applies at each Workspace's next Container start; lowering it stops none that run.",
+    description: `How many Terminals and Background jobs Pi Durable agents may run at once in one Workspace, across its threads; one more is refused. Each Terminal and Background job uses memory in the Container. At most ${MAX_AGENT_TERMINALS_PER_WORKSPACE}. Applies at each Workspace's next Container start; lowering it stops none that run.`,
     // A named constraint, provisional (`MAX_AGENT_TERMINALS_PER_WORKSPACE`): their xterms in the Workspace DO's memory.
     schema: {
       type: "integer",
@@ -610,7 +609,7 @@ export const ENVIRONMENT_SETTINGS = {
   },
   rebuildEveryDays: {
     title: "Rebuild every (days)",
-    description: `Builds the Base snapshot again this many days after the last good one, so the Image setup's downloads stay current. 0 is off. At most ${MAX_REBUILD_DAYS}: a Base snapshot expires 30 days after it was made or a Container last started from it, and this schedule counts from when it was made. The rebuild also comes early enough to fit one build and one retry before the snapshot expires, but never sooner than one build after the last: with very long time limits and retry, rebuilds then follow one another, and a failed one can outlast the snapshot.`,
+    description: `Builds the Base snapshot again this many days after the last good one, so the Image setup's downloads stay current. 0 is off. At most ${MAX_REBUILD_DAYS}: a Base snapshot expires 30 days after it was made or a Container last started from it, and this schedule counts from when it was made. It also comes early enough for a failed rebuild and its retry to finish before the snapshot expires, though, for that reason, never sooner than one build after the last: with very long time limits and retry, rebuilds then follow one another, and a failed one can outlast the snapshot.`,
     schema: { type: "integer", minimum: 0, maximum: MAX_REBUILD_DAYS, default: 0 },
     row: "imageSetup",
   },
