@@ -83,4 +83,4 @@ audit log and t3's tool listing are each checked once against `DO_VALUE_BYTES` (
 (`CHANGE_RECORD_BYTES`). A per-field size, where one is kept, is derived from that value (the file settings take a
 third of it) or from another named constraint (a Variable's 128 KiB is Linux's `MAX_ARG_STRLEN`). Counts that only
 stood in for a size (Variables, endpoints, models, headers, t3 tools, Environment skills) are removed. The setup
-output's 256 KiB itself is unchanged here; naming or deriving it is SPI-1368's.
+output's 256 KiB itself is unchanged here; it is SPI-1360's.
