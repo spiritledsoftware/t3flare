@@ -243,6 +243,11 @@ export interface ModelLimitsOptions {
   readonly recordCause: (cause: string | undefined) => void;
   /** The credentials the Session holds for a provider (its key or token), redacted from its error text whatever their shape. */
   readonly secrets: (provider: string) => ReadonlyArray<string>;
+  /**
+   * SPI-1367: the longest rate-limit reset the run's retries wait through (`retriedSpanMs` of the Environment's
+   * `durableRetries`); a longer one stops them. Absent: pi-durable's default 3 retries' (`SHORT_RESET_MS`).
+   */
+  readonly shortResetMs?: () => number;
 }
 
 /** What `sessionLimits` takes of the Session: the recording fetch, its record of the running turn, its endpoints. */
@@ -254,6 +259,8 @@ export interface SessionLimitsDeps {
     endpoint(id: string): ClassifiedEndpoint | undefined;
     secrets(id: string): ReadonlyArray<string>;
   };
+  /** The longest reset the Session's retries wait through (`ModelLimitsOptions.shortResetMs`). */
+  readonly shortResetMs: () => number;
 }
 
 /**
@@ -270,6 +277,7 @@ export const sessionLimits = (deps: SessionLimitsDeps): ModelLimitsOptions => ({
   recordCause: (cause) =>
     deps.note(({ cause: _before, ...record }) => (cause === undefined ? record : { ...record, cause })),
   secrets: (provider) => deps.endpoints.secrets(provider),
+  shortResetMs: deps.shortResetMs,
 });
 
 /**
@@ -290,7 +298,7 @@ const classifyEndpoint = (
     answer !== undefined && answer.status >= 400
       ? { status: answer.status, headers: answer.headers, body: answer.body ?? errorMessage, at: answer.at }
       : { status: 200, headers: answer?.headers ?? {}, body: errorMessage, at: answer?.at ?? Date.now() };
-  const failure = describeFailure(failed, endpoint);
+  const failure = describeFailure(failed, endpoint, options.shortResetMs?.());
   options.recordEndpoint(failure === undefined ? undefined : { ...failure, endpointId: endpoint.id, at: failed.at });
   // A status 0 is below 400: a thrown fetch is classified by its text, as before; its message is kept as the cause.
   options.recordCause(

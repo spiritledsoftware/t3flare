@@ -8,6 +8,7 @@ import {
   classifyModelFailure,
   type FailedAnswer,
   modelFailureMessage,
+  retriedSpanMs,
   SHORT_RESET_MS,
   withCause,
 } from "@t3flare/models/failures";
@@ -69,6 +70,22 @@ describe("classifyModelFailure: Anthropic Messages", () => {
     expect(SHORT_RESET_MS).toBe(14_000);
     expect(at(14)).toBe(false);
     expect(at(15)).toBe(true);
+  });
+
+  it("the boundary is the Durable agent's retries' span, as durableRetries sets them (SPI-1367)", () => {
+    // pi-durable's waits: 2 s doubling, each at most a minute.
+    expect([0, 1, 3, 5, 6, 7].map(retriedSpanMs)).toEqual([0, 2000, 14_000, 62_000, 122_000, 182_000]);
+    expect(SHORT_RESET_MS).toBe(retriedSpanMs(3));
+    const stopsAt = (seconds: number, retries: number) =>
+      classifyModelFailure(
+        { status: 429, headers: { "retry-after": String(seconds) }, body: "", at: AT },
+        { id: "x", api: "anthropic-messages", auth: "api-key" },
+        retriedSpanMs(retries),
+      )?.stop;
+    expect(stopsAt(60, 5)).toBe(false);
+    expect(stopsAt(63, 5)).toBe(true);
+    // No retries: any reset is out of reach, so the thread pauses at once.
+    expect(stopsAt(1, 0)).toBe(true);
   });
 
   it("retry-after-ms is read before retry-after", () => {

@@ -116,6 +116,7 @@ import { T3McpClient } from "./t3McpClient.ts";
 import { NO_KEY, sessionModels } from "./models.ts";
 import { credentialFailure } from "./credentialFailure.ts";
 import { modelSettingSlug, perImageBase64Of } from "@t3flare/models/endpoints";
+import { retriedSpanMs } from "@t3flare/models/failures";
 import { SessionEndpoints } from "./endpoints.ts";
 import { readWithin } from "../readWithin.ts";
 import { turnReadMs } from "./turnReadMs.ts";
@@ -279,6 +280,8 @@ export class SessionDO extends DurableObject<SessionEnv> {
       last: recorder.last,
       note: (update) => this.#turns.noteModel(update),
       endpoints: { endpoint: (id) => this.#endpoints.endpoint(id), secrets: (id) => this.#endpoints.secrets(id) },
+      // SPI-1367: the span of the retries pi-durable runs with, as the latest turn's start carried them.
+      shortResetMs: () => retriedSpanMs(keptTurnRetries(ctx.storage.kv).durableRetries),
     });
     registry.install(modelLimits(this.#limits));
     registry.install(codingTools());
