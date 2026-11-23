@@ -44,6 +44,18 @@ describe("ask_user", () => {
     expect(store.pending()).toEqual([]);
   }, 30_000);
 
+  it("asks the whole question with every choice, however long or many", async () => {
+    const store = new QuestionStore(instanceKv(memoryKv())(), () => {});
+    const question = "q".repeat(5_000);
+    const options = Array.from({ length: 15 }, (_, index) => `${index}${"o".repeat(300)}`);
+    await restartingHarness(
+      [askUser({ store, turn: () => "turn-1" })],
+      [ask({ question, options }), fauxAssistantMessage("ok")],
+    );
+    await until(() => store.pending().length === 1, "the question");
+    expect(store.pending()[0]).toMatchObject({ question, options });
+  });
+
   it("reads t3's answer shapes as text", () => {
     expect(answerText("blue")).toBe("blue");
     expect(answerText(["red", "blue"])).toBe("red, blue");
