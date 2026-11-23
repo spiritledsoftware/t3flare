@@ -1,11 +1,13 @@
 // G11 (R6): a t3 tool result's MCP `image` parts reach a Durable agent as pi image content (`html_preview`'s and
-// `preview_snapshot`'s screenshots), of the types a model reads. SPI-1358: bounded by what holds on their path, the
+// `preview_snapshot`'s screenshots), of the types a model reads, bounded by what holds on their path: the
 // Session row the result is stored in and the model's API's own per-image limit, not by a count; and the model is told
 // of an image it does not get.
 import { jsonTextBytes, SESSION_ROW_BYTES } from "@t3flare/session-protocol";
 import { describe, expect, it } from "vitest";
 
-import { imagesOf, perImageBase64Of, RESULT_BYTES } from "../src/session/t3McpClient.ts";
+import { perImageBase64Of } from "@t3flare/models/endpoints";
+
+import { imagesOf, RESULT_BYTES } from "../src/session/t3McpClient.ts";
 
 const MiB = 1024 * 1024;
 const png = (data: string) => ({ type: "image", data, mimeType: "image/png" });

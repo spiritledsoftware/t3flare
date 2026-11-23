@@ -18,6 +18,17 @@ export const ENDPOINT_APIS = [
 ] as const;
 export type EndpointApi = (typeof ENDPOINT_APIS)[number];
 
+/** Anthropic's Messages API refuses an image past 5 MiB of base64. */
+export const ANTHROPIC_IMAGE_BASE64_BYTES = 5 * 1024 * 1024;
+
+/**
+ * The base64 one image may take for a model on `api`, where that API is stricter than a Session row (8 MB) holds:
+ * only Anthropic's Messages API is. An image past it fails the request, and once stored in a conversation, every
+ * request after it.
+ */
+export const perImageBase64Of = (api: EndpointApi | undefined): number | undefined =>
+  api === "anthropic-messages" ? ANTHROPIC_IMAGE_BASE64_BYTES : undefined;
+
 /**
  * The OAuth sign-ins an endpoint may have instead of a key (SPI-1164): the Credential broker (the Environment DO) holds
  * the sign-in's tokens and is their only refresher; a Session asks it for an access token at use time.

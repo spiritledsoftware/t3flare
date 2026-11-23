@@ -82,7 +82,7 @@ export interface ImageInput {
 }
 
 /**
- * The bytes one Session row holds (SPI-1358). pi-durable keeps each submission and each conversation entry (a user
+ * The bytes one Session row holds. pi-durable keeps each submission and each conversation entry (a user
  * message, a tool result with its images) as one DO SQLite row of JSON, and Cloudflare refuses a row over 8 MB: read as
  * 8,000,000 bytes, the lower of 8 MB and 8 MiB.
  */
@@ -90,8 +90,11 @@ export const SESSION_ROW_BYTES = 8_000_000;
 /** What a Session row keeps for the record around a message's content: its ids, status, times and JSON structure. */
 export const SESSION_ROW_ENVELOPE_BYTES = 64 * 1024;
 
-/** A size as t3's client shows it: binary megabytes, written MiB as t3's own limits are ("80 MiB"). */
-export const mebibytes = (bytes: number): string => `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+/** One binary megabyte, the unit t3's client and t3's own limits ("80 MiB") write sizes in. */
+export const MIB = 1024 * 1024;
+
+/** A size as t3's client shows it. */
+export const mebibytes = (bytes: number): string => `${(bytes / MIB).toFixed(1)} MiB`;
 
 /**
  * The bytes the character at `at` takes in a JSON string. Only a surrogate pair, two UTF-16 units, takes 4; a lone
@@ -120,6 +123,10 @@ export const jsonTextBytes = (text: string): number => {
   }
   return bytes;
 };
+
+/** The bytes `part` adds to a JSON string when joined after what is before it with `separator`. */
+export const jsonPartBytes = (part: string, separator: string): number =>
+  jsonTextBytes(separator) + jsonTextBytes(part);
 
 /** How many UTF-16 units of `text` fit in `room` JSON bytes (`jsonTextBytes`), never splitting a surrogate pair. */
 export const jsonTextPrefix = (text: string, room: number): number => {

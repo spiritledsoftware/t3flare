@@ -4,17 +4,20 @@
 // path: images go inline, readable files go into the text, and every other attachment is named with the reason it is
 // not shown. The model always learns what was attached.
 //
-// SPI-1358: the bound is the one that holds on the agent's path, the caller's `budgetBytes`, counted as the prompt is
+// The bound is the one that holds on the agent's path (SPI-1358), the caller's `budgetBytes`, counted as the prompt is
 // carried: its text in a JSON string's UTF-8 bytes, its images as base64. Pi Durable's prompt is stored as one Session
 // row (PI_DURABLE_PROMPT_BYTES); an ACP agent's is held in the Environment isolate on its way to the CLI's stdin
-// (ACP_PROMPT_BYTES).
+// (ACP_PROMPT_BYTES). A Pi Durable model's own limit on one image (`perImageBase64Of`) holds too: an image past it
+// would fail every request of the conversation it is stored in.
 import { type ChatAttachment, isProviderSendTurnSupportedImageMimeType } from "@t3tools/contracts";
 import type * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import {
   type ImageInput,
+  jsonPartBytes,
   jsonTextBytes,
   jsonTextPrefix,
   mebibytes,
+  MIB,
   SESSION_ROW_BYTES,
   SESSION_ROW_ENVELOPE_BYTES,
 } from "@t3flare/session-protocol";
@@ -35,7 +38,10 @@ export const PI_DURABLE_PROMPT_BYTES = SESSION_ROW_BYTES - SESSION_ROW_ENVELOPE_
  * its way to the CLI's stdin (the content blocks, t3's JSON-RPC line, two bytes a character once it holds any non-Latin-1
  * text, and that line's UTF-8 bytes), beside the rest of the Environment: 16 MiB keeps those copies to half the isolate.
  */
-export const ACP_PROMPT_BYTES = 16 * 1024 * 1024;
+export const ACP_PROMPT_BYTES = 16 * MIB;
+
+/** No budget: OpenCode's expanded Skill mentions, which go to its stdin and are small beside the isolate. */
+export const NO_BUDGET = Number.POSITIVE_INFINITY;
 
 /** The largest file read to look for text (an attachment may be 50 MB; the Environment DO has 128 MB). */
 export const FILE_READ_CAP_BYTES = 2_000_000;
@@ -77,11 +83,20 @@ export interface TurnPrompt {
   readonly images: ReadonlyArray<ImageInput>;
 }
 
-/** The bytes a note takes in the prompt's text: its own, and the blank line that joins it to what is before it. */
-const noteBytes = (note: string) => jsonTextBytes(note) + jsonTextBytes("\n\n");
+/** The bytes a note takes in the prompt's text, with the blank line that joins it to what is before it. */
+const noteBytes = (note: string) => jsonPartBytes(note, "\n\n");
+
+/** The base64 an image of `bytes` takes. */
+const base64Length = (bytes: number) => Math.ceil(bytes / 3) * 4;
+
+/**
+ * A size wider in `mebibytes` than any attachment's (t3 takes none near 999 MiB): the size written in a note when the
+ * note's bound is reckoned, so the bound holds whatever size the note ends up naming.
+ */
+const WIDEST_SIZE_BYTES = 999 * MIB;
 
 /** An attachment's notes, each the text around it (a readable file's content goes between `open` and `close`). */
-const notesOf = (attachment: ChatAttachment, budgetBytes: number) => {
+const notesOf = (attachment: ChatAttachment, budgetBytes: number, perImageBase64: number | undefined) => {
   const label = `${attachment.type} "${attachment.name}"`;
   const file = (how: string) => ({
     open: `[Attached ${label} (${attachment.mimeType})${how}:]\n`,
@@ -92,6 +107,8 @@ const notesOf = (attachment: ChatAttachment, budgetBytes: number) => {
     unavailable: `[Attached ${label} is unavailable: t3 has no saved file for it.]`,
     imageTooLarge: (bytes: number) =>
       `[Attached ${label} (${mebibytes(bytes)}) is not shown: a message takes at most ${mebibytes(budgetBytes)} of text and images. Ask the user for a smaller image.]`,
+    imagePastModel: (bytes: number) =>
+      `[Attached ${label} (${mebibytes(bytes)}, ${mebibytes(base64Length(bytes))} as base64) is not shown: this model takes at most ${mebibytes(perImageBase64 ?? 0)} of base64 in one image. Ask the user for a smaller image.]`,
     shown: `[Attached ${label} is shown inline.]`,
     fileTooLarge: `[Attached ${label} (${attachment.mimeType}, ${mebibytes(attachment.sizeBytes)}) is too large for this agent to read.]`,
     unreadable: `[Attached ${label} (${attachment.mimeType}) is not readable as text by this agent.]`,
@@ -100,18 +117,19 @@ const notesOf = (attachment: ChatAttachment, budgetBytes: number) => {
     cut: file(", cut to fit the prompt"),
   };
 };
+type Notes = ReturnType<typeof notesOf>;
 
 /**
  * The most an attachment's note can take, its content aside: kept back for each attachment not yet placed, so what
- * comes before it never leaves it no room for its note. Sizes are written at their widest in `imageTooLarge`.
+ * comes before it never leaves it no room for its note.
  */
-const noteBound = (attachment: ChatAttachment, budgetBytes: number) => {
-  const notes = notesOf(attachment, budgetBytes);
-  return Math.max(
+const noteBound = (notes: Notes) =>
+  Math.max(
     ...[
       notes.noImages,
       notes.unavailable,
-      notes.imageTooLarge(Math.max(attachment.sizeBytes, 999 * 1024 * 1024)),
+      notes.imageTooLarge(WIDEST_SIZE_BYTES),
+      notes.imagePastModel(WIDEST_SIZE_BYTES),
       notes.shown,
       notes.fileTooLarge,
       notes.unreadable,
@@ -119,7 +137,6 @@ const noteBound = (attachment: ChatAttachment, budgetBytes: number) => {
       notes.extracted.open + notes.extracted.close(false),
     ].map(noteBytes),
   );
-};
 
 /** The file's text when it is UTF-8 without NUL bytes, else null. */
 const asText = (bytes: Uint8Array): string | null => {
@@ -133,11 +150,12 @@ const asText = (bytes: Uint8Array): string | null => {
 
 /**
  * The prompt text and inline images of one message (`startTurn`'s or `steerTurn`'s), within `budgetBytes`: the bound
- * on the caller's path (PI_DURABLE_PROMPT_BYTES, ACP_PROMPT_BYTES). With `skills` (the Pi Durable adapter's; SPI-1147),
- * its Skill mentions and a leading Slash command expand first, within the same budget; the ACP flavors pass none, so
- * their agents get the message as typed. `reservedBytes`: input text sent beside this one (t3's ACP adapter writes the
- * message's own block), taken from the budget. Attachments are placed in order, each image whole or not at all and each
- * file's text as much as is left; every note is counted, so the prompt never passes the budget.
+ * on the caller's path (PI_DURABLE_PROMPT_BYTES, ACP_PROMPT_BYTES, NO_BUDGET). `perImageBase64`: the model's own limit
+ * on one image, if it has one. With `skills` (the Pi Durable adapter's; SPI-1147), its Skill mentions and a leading
+ * Slash command expand first, within the same budget; the ACP flavors pass none, so their agents get the message as
+ * typed. `reservedBytes`: input text sent beside this one (t3's ACP adapter writes the message's own block), taken from
+ * the budget. Images are placed first, each whole or not at all, then each file's text, as much as is left; each kind in
+ * message order, and the notes in message order. Every note is counted, so the prompt never passes the budget.
  */
 export const turnPrompt = Effect.fn("PiDurable.turnPrompt")(function* (
   message: { readonly text: string; readonly attachments: ReadonlyArray<ChatAttachment> },
@@ -145,13 +163,15 @@ export const turnPrompt = Effect.fn("PiDurable.turnPrompt")(function* (
     readonly acceptsImages: boolean;
     readonly reader: AttachmentReader;
     readonly budgetBytes: number;
+    readonly perImageBase64?: number;
     readonly skills?: MessageSkills;
     readonly reservedBytes?: number;
   },
 ) {
-  const { budgetBytes } = options;
+  const { budgetBytes, perImageBase64 } = options;
+  const notesFor = message.attachments.map((attachment) => notesOf(attachment, budgetBytes, perImageBase64));
   // Kept back for the notes of the attachments not yet placed.
-  const bounds = message.attachments.map((attachment) => noteBound(attachment, budgetBytes));
+  const bounds = notesFor.map(noteBound);
   let heldForNotes = bounds.reduce((total, bound) => total + bound, 0);
   const catalog =
     options.skills !== undefined && hasCommandOrSigil(message.text) ? yield* options.skills.load() : undefined;
@@ -159,58 +179,82 @@ export const turnPrompt = Effect.fn("PiDurable.turnPrompt")(function* (
     catalog === undefined
       ? message.text
       : yield* expandMessage(message.text, catalog, budgetBytes - (options.reservedBytes ?? 0) - heldForNotes);
-  const notes: Array<string> = [];
+  const placed: Array<string | undefined> = message.attachments.map(() => undefined);
   const images: Array<ImageInput> = [];
   let used = (options.reservedBytes ?? 0) + jsonTextBytes(messageText);
-  const add = (note: string) => {
+  const isInlineImage = (attachment: ChatAttachment) =>
+    attachment.type === "image" && isProviderSendTurnSupportedImageMimeType(attachment.mimeType);
+  /** Takes attachment `index` off what is held back: the room it may use, its note's bound included. */
+  const roomFor = (index: number) => {
+    heldForNotes -= bounds[index]!;
+    return budgetBytes - used - heldForNotes;
+  };
+  const place = (index: number, note: string) => {
     used += noteBytes(note);
-    notes.push(note);
+    placed[index] = note;
   };
   for (const [index, attachment] of message.attachments.entries()) {
-    heldForNotes -= bounds[index]!;
-    const room = budgetBytes - used - heldForNotes;
-    const note = notesOf(attachment, budgetBytes);
-    const inlineImage = attachment.type === "image" && isProviderSendTurnSupportedImageMimeType(attachment.mimeType);
-    if (inlineImage && !options.acceptsImages) {
-      add(note.noImages);
+    if (!isInlineImage(attachment)) continue;
+    const note = notesFor[index]!;
+    const imageRoom = roomFor(index) - noteBytes(note.shown);
+    if (!options.acceptsImages) {
+      place(index, note.noImages);
       continue;
     }
-    // Too big to send or to scan for text: named without reading it (t3's extracted text, if any, still goes in).
-    const imageRoom = room - noteBytes(note.shown);
-    const overImageBudget = inlineImage && Math.ceil(attachment.sizeBytes / 3) * 4 > imageRoom;
-    const overFileCap = !inlineImage && attachment.sizeBytes > FILE_READ_CAP_BYTES;
-    const bytes = overImageBudget || overFileCap ? new Uint8Array(0) : yield* options.reader.bytes(attachment);
+    // Too big to send: named without reading it.
+    const pastModel = (base64: number) => perImageBase64 !== undefined && base64 > perImageBase64;
+    if (pastModel(base64Length(attachment.sizeBytes))) {
+      place(index, note.imagePastModel(attachment.sizeBytes));
+      continue;
+    }
+    const overBudget = base64Length(attachment.sizeBytes) > imageRoom;
+    const bytes = overBudget ? new Uint8Array(0) : yield* options.reader.bytes(attachment);
     if (bytes === null) {
-      add(note.unavailable);
+      place(index, note.unavailable);
       continue;
     }
-    if (inlineImage) {
-      const data = overImageBudget ? "" : Buffer.from(bytes).toString("base64");
-      if (overImageBudget || data.length > imageRoom) {
-        add(note.imageTooLarge(Math.max(bytes.length, attachment.sizeBytes)));
-        continue;
-      }
-      used += data.length;
-      images.push({ data, mimeType: attachment.mimeType });
-      add(note.shown);
+    const data = overBudget ? "" : Buffer.from(bytes).toString("base64");
+    if (pastModel(data.length)) {
+      place(index, note.imagePastModel(bytes.length));
+      continue;
+    }
+    if (overBudget || data.length > imageRoom) {
+      place(index, note.imageTooLarge(Math.max(bytes.length, attachment.sizeBytes)));
+      continue;
+    }
+    used += data.length;
+    images.push({ data, mimeType: attachment.mimeType });
+    place(index, note.shown);
+  }
+  for (const [index, attachment] of message.attachments.entries()) {
+    if (isInlineImage(attachment)) continue;
+    const note = notesFor[index]!;
+    const room = roomFor(index);
+    // Too big to scan for text: named without reading it (t3's extracted text, if any, still goes in).
+    const overFileCap = attachment.sizeBytes > FILE_READ_CAP_BYTES;
+    const bytes = overFileCap ? new Uint8Array(0) : yield* options.reader.bytes(attachment);
+    if (bytes === null) {
+      place(index, note.unavailable);
       continue;
     }
     const extracted = yield* options.reader.extractedText(attachment);
     const content = extracted ?? (overFileCap ? null : asText(bytes));
     if (content === null) {
-      add(overFileCap ? note.fileTooLarge : note.unreadable);
+      place(index, overFileCap ? note.fileTooLarge : note.unreadable);
       continue;
     }
     const whole = extracted === null ? note.whole : note.extracted;
     const wholeNote = whole.open + content + whole.close(false);
     if (noteBytes(wholeNote) <= room) {
-      add(wholeNote);
+      place(index, wholeNote);
       continue;
     }
     const frame = noteBytes(note.cut.open + note.cut.close(true));
     const kept = content.slice(0, jsonTextPrefix(content, Math.max(0, room - frame)));
-    add(note.cut.open + kept + note.cut.close(true));
+    place(index, note.cut.open + kept + note.cut.close(true));
   }
-  const text = [messageText, ...notes].filter((part) => part.length > 0).join("\n\n");
+  const text = [messageText, ...placed]
+    .filter((part): part is string => part !== undefined && part.length > 0)
+    .join("\n\n");
   return { text, images } satisfies TurnPrompt;
 });

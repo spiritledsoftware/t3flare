@@ -47,6 +47,7 @@ import {
   EMPTY_ENDPOINTS,
   endpointSlug,
   findEndpointModel,
+  perImageBase64Of,
   type ModelEndpoints,
   parseEndpointSlug,
   selectionSlug,
@@ -104,11 +105,11 @@ export const modelOf = (
 /** The Model endpoints as stored now (none before the Environment binds them). */
 const endpointsNow = (): ModelEndpoints => environmentServices().modelEndpoints?.() ?? EMPTY_ENDPOINTS;
 
-/** A selection's endpoint model (its limits and inputs), after the fallback; undefined for one no endpoint lists. */
+/** A selection's endpoint model (its limits and inputs) with its endpoint, after the fallback; undefined for one no endpoint lists. */
 const endpointModelOf = (selection: ModelSelection) => {
   const endpoints = endpointsNow();
   const { model } = modelOf(selection, endpoints);
-  return findEndpointModel(endpoints, endpointSlug(model.provider, model.modelId))?.model;
+  return findEndpointModel(endpoints, endpointSlug(model.provider, model.modelId));
 };
 
 /** The Workspace id of a cwd under `/w/<id>` (ADR-0008), or null. */
@@ -458,7 +459,7 @@ export const makePiDurableAdapter = (
         canResumeAfterRestart: true,
         events: Stream.fromQueue(events),
         getModelContextWindow: (selection) =>
-          selection.instanceId !== instanceId ? undefined : endpointModelOf(selection)?.contextWindow,
+          selection.instanceId !== instanceId ? undefined : endpointModelOf(selection)?.model.contextWindow,
         ensureThread: (threadInput) =>
           register({
             threadId: threadInput.threadId,
@@ -508,13 +509,16 @@ export const makePiDurableAdapter = (
               completedAt: null,
             };
             const { model, thinking } = modelOf(turnInput.modelSelection, endpointsNow());
-            const catalogModel = endpointModelOf(turnInput.modelSelection);
+            const catalogEntry = endpointModelOf(turnInput.modelSelection);
+            const catalogModel = catalogEntry?.model;
+            const perImageBase64 = perImageBase64Of(catalogEntry?.endpoint.api);
             // A model no endpoint lists gets the images (its turn fails anyway): pi-durable shows a text-only model a placeholder.
             const acceptsImages = catalogModel === undefined || catalogModel.input.includes("image");
             const prompt = yield* turnPrompt(turnInput.message, {
               acceptsImages,
               reader: attachments,
               budgetBytes: PI_DURABLE_PROMPT_BYTES,
+              ...(perImageBase64 === undefined ? {} : { perImageBase64 }),
               skills: threadSkills,
             });
             const context: TurnContext = {
@@ -529,6 +533,7 @@ export const makePiDurableAdapter = (
               providerTurn,
               contextWindow: catalogModel?.contextWindow ?? null,
               acceptsImages,
+              ...(perImageBase64 === undefined ? {} : { perImageBase64 }),
               providerSessionId: input.providerSessionId,
               suggests: !isDelegatedAppThread(turnInput.appThread),
             };
@@ -595,11 +600,14 @@ export const makePiDurableAdapter = (
             ),
         ),
         steerTurn: Effect.fn("PiDurableAdapter.steerTurn")(function* (steerInput) {
-          const acceptsImages = differ.turns.get(steerInput.providerTurnId)?.acceptsImages ?? true;
+          const turn = differ.turns.get(steerInput.providerTurnId);
+          const acceptsImages = turn?.acceptsImages ?? true;
+          const perImageBase64 = turn?.perImageBase64;
           const prompt = yield* turnPrompt(steerInput.message, {
             acceptsImages,
             reader: attachments,
             budgetBytes: PI_DURABLE_PROMPT_BYTES,
+            ...(perImageBase64 === undefined ? {} : { perImageBase64 }),
             skills: threadSkills,
           });
           yield* call(instanceId, "steer", () =>

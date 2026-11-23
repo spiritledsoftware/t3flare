@@ -364,7 +364,7 @@ const fitOrNote = (
       };
 
 /**
- * `text` as the model gets it, within `budget` bytes (`jsonTextBytes`, as the Session's row holds it; SPI-1358): a leading `/skill:name args` becomes the Skill's block and
+ * `text` as the model gets it, within `budget` bytes (`jsonTextBytes`, as the Session's row holds it): a leading `/skill:name args` becomes the Skill's block and
  * its arguments, a leading `/template args` the template with pi's substitution, and each `$name` naming a Skill (t3's
  * `matchInlineSkills`, outside code) adds its block once, after the message. A name nothing knows is left as typed; a
  * file that does not fit is named in a bracketed note instead.

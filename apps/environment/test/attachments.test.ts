@@ -1,6 +1,7 @@
 // What an agent receives of a message's attachments (SPI-993): images inline, readable files as text, and a note for
-// everything else, so the model always knows what was attached. SPI-1358: within the bound that holds on the agent's
-// path, the Session's row for Pi Durable, the Environment isolate for an ACP agent, counted in JSON's UTF-8 bytes.
+// everything else, so the model always knows what was attached. Within the bound that holds on the agent's path (the
+// Session's row for Pi Durable, the Environment isolate for an ACP agent), counted in JSON's UTF-8 bytes, and within
+// the model's own limit on one image.
 import { jsonTextBytes, jsonTextPrefix, SESSION_ROW_BYTES } from "@t3flare/session-protocol";
 import type { ChatAttachment } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -70,6 +71,43 @@ describe("a message's attachments, as a Durable agent receives them", () => {
       '[Attached image "big2.png" (5.0 MiB) is not shown: a message takes at most 7.6 MiB of text and images. Ask the user for a smaller image.]',
     );
     expect(promptBytes(result)).toBeLessThanOrEqual(PI_DURABLE_PROMPT_BYTES);
+  });
+
+  it("holds back an image past the model's own limit on one image, unread, and names that limit", async () => {
+    const read: Array<string> = [];
+    const tracking: AttachmentReader = {
+      bytes: (attachment) => Effect.sync(() => (read.push(attachment.id), new Uint8Array(attachment.sizeBytes))),
+      extractedText: () => Effect.succeed(null),
+    };
+    const photo = { ...image("photo"), sizeBytes: 4 * MiB } as ChatAttachment;
+    const capped = await Effect.runPromise(
+      turnPrompt(
+        { text: "", attachments: [photo, image("small")] },
+        { acceptsImages: true, reader: tracking, budgetBytes: PI_DURABLE_PROMPT_BYTES, perImageBase64: 5 * MiB },
+      ),
+    );
+    expect(read).toEqual(["small"]);
+    expect(capped.images).toHaveLength(1);
+    expect(capped.text).toContain(
+      '[Attached image "photo.png" (4.0 MiB, 5.3 MiB as base64) is not shown: this model takes at most 5.0 MiB of base64 in one image. Ask the user for a smaller image.]',
+    );
+    const uncapped = await prompt("", [photo], tracking);
+    expect(uncapped.images).toHaveLength(1);
+  });
+
+  it("places images before file text, so a file listed first never takes an image's room", async () => {
+    const shot = new Uint8Array(3_000); // 4,000 characters of base64
+    const result = await prompt(
+      "",
+      [file("notes", "notes.md", "text/markdown"), image("shot")],
+      reader({ notes: utf8("n".repeat(10_000)), shot }),
+      true,
+      6_000,
+    );
+    expect(result.images).toHaveLength(1);
+    expect(result.text.startsWith('[Attached file "notes.md" (text/markdown), cut to fit the prompt:]')).toBe(true);
+    expect(result.text.endsWith('[Attached image "shot.png" is shown inline.]')).toBe(true);
+    expect(promptBytes(result)).toBeLessThanOrEqual(6_000);
   });
 
   it("takes the message's text, counted in JSON's UTF-8 bytes, from the images' room", async () => {

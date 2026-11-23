@@ -110,10 +110,10 @@ import {
   t3RegisteredExposure,
   t3ToolName,
 } from "../extensions/t3-mcp.ts";
-import { perImageBase64Of, T3McpClient } from "./t3McpClient.ts";
+import { T3McpClient } from "./t3McpClient.ts";
 import { NO_KEY, sessionModels } from "./models.ts";
 import { credentialFailure } from "./credentialFailure.ts";
-import { modelSettingSlug } from "@t3flare/models/endpoints";
+import { modelSettingSlug, perImageBase64Of } from "@t3flare/models/endpoints";
 import { SessionEndpoints } from "./endpoints.ts";
 import { readWithin } from "../readWithin.ts";
 import { turnReadMs } from "./turnReadMs.ts";
@@ -288,7 +288,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
     this.#t3 = new T3McpClient(
       (request) => environmentStub(env.ENVIRONMENT).mcp(request),
       () => ctx.storage.kv.get<T3McpCredential>(T3_MCP_KEY),
-      // SPI-1358: the API of the model the turn runs on (its provider, kept at the turn's start).
+      // The API of the model the turn runs on (its provider, kept at the turn's start).
       () => {
         const provider = ctx.storage.kv.get<string>(TURN_PROVIDER_KEY);
         return perImageBase64Of(provider === undefined ? undefined : this.#endpoints.endpoint(provider)?.api);

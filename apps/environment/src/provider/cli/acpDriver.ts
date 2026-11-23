@@ -48,7 +48,7 @@ import {
   isClaudeProvisionalSubagentTool,
 } from "../../../../../t3code/packages/provider-acp-registry/src/server/claudeAcp.ts";
 import { environmentServices } from "../../agents/bindings.ts";
-import { ACP_PROMPT_BYTES, attachmentReader, turnPrompt } from "../attachments.ts";
+import { ACP_PROMPT_BYTES, attachmentReader, NO_BUDGET, turnPrompt } from "../attachments.ts";
 import { cliSnapshotForCwdOf, environmentSkillsAccess, messageSkillsFor, type SkillsAccess } from "../skills.ts";
 import { claudeMentionRewrite } from "./claudeSkills.ts";
 import { CLI_BUILT_IN_COMMANDS } from "./builtInCommands.ts";
@@ -320,14 +320,13 @@ export const acpPromptBuilder = (
     Effect.gen(function* () {
       const turn = yield* CliTurn;
       if (turn === undefined) return text;
-      // SPI-1358: no budget. The expanded text goes to OpenCode's stdin, never to a row, and OpenCode's own skill tool
-      // embeds a whole file; a Skill file is small beside the isolate.
+      // The expanded text goes to OpenCode's stdin, never to a row, and OpenCode's own skill tool embeds a whole file.
       const expanded = yield* turnPrompt(
         { text, attachments: [] },
         {
           acceptsImages: false,
           reader,
-          budgetBytes: Number.POSITIVE_INFINITY,
+          budgetBytes: NO_BUDGET,
           skills: messageSkillsFor(turn.cwd, opencodeSkills, true),
         },
       );
