@@ -257,7 +257,17 @@ describe("generateEndpointText", () => {
     }) as typeof globalThis.fetch;
     expect(await generate(endpoint("openai-responses"), { credential: keyFor().credential, fetch })).toEqual({
       ok: false,
-      error: 'The Model endpoint "gw" could not be reached.',
+      error: 'The Model endpoint "gw" could not be reached (cause: connect failed for [redacted]).',
+    });
+  });
+
+  it("names a thrown fetch's cause, the runtime's text, redacted (SPI-1305)", async () => {
+    const fetch = (async () => {
+      throw new Error("Subrequest depth limit exceeded.");
+    }) as typeof globalThis.fetch;
+    expect(await generate(endpoint("anthropic-messages"), { credential: keyFor().credential, fetch })).toEqual({
+      ok: false,
+      error: 'The Model endpoint "gw" could not be reached (cause: Subrequest depth limit exceeded.).',
     });
   });
 

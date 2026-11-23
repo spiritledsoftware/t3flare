@@ -356,6 +356,12 @@ export interface ProxyRecord {
    * Every failed answer replaces it: the last answer is the turn's. (An old record may also hold a `failure` nothing reads.)
    */
   readonly endpointFailure?: EndpointFailureRecord;
+  /**
+   * SPI-1305: the cause of the turn's last failed request where no answer came (a thrown fetch's message, redacted): the
+   * runtime's or the platform's text, never a vendor's body. The differ appends it to the failure's text. Every failed
+   * answer replaces it.
+   */
+  readonly cause?: string;
 }
 
 /**

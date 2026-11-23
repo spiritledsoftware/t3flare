@@ -8,7 +8,8 @@
 // (SPI-1172, `@t3flare/models/failures`), else by its status: a vendor's body (which can echo request details) and the
 // key never reach the message.
 import { createModels, type FetchFunction } from "@earendil-works/pi-ai";
-import { describeFailure, errorBodyOf, failureHeaders, resetSentence } from "@t3flare/models/failures";
+import { describeFailure, errorBodyOf, failureHeaders, resetSentence, withCause } from "@t3flare/models/failures";
+import { redactSecrets } from "@t3flare/models/redact";
 import {
   type EndpointCredential,
   type EndpointTarget,
@@ -69,6 +70,10 @@ interface Observed {
   body?: string;
   at?: number;
   unreachable: boolean;
+  /** SPI-1305: the message of the fetch that threw (no answer came), the runtime's text, never a vendor's. */
+  thrown?: string;
+  /** The keys the Environment gave for the request, redacted from `thrown` whatever their shape. */
+  keys: Array<string>;
 }
 
 /** The failure's text by the endpoint's answer status: never its body. */
@@ -120,7 +125,10 @@ const failureOf = (endpoint: ModelEndpoint, modelId: string, observed: Observed)
           : `${failure.message}${resetSentence(failure)}`,
     };
   }
-  if (observed.unreachable) return { ok: false, error: `${named} could not be reached.` };
+  if (observed.unreachable) {
+    const cause = observed.thrown === undefined ? undefined : redactSecrets(observed.thrown, observed.keys);
+    return { ok: false, error: withCause(`${named} could not be reached.`, cause) };
+  }
   // An error with no status this code can read (Google's adapter reports none): the endpoint failed, how is not known.
   return { ok: false, error: `${named} failed (its API reports no status here).` };
 };
@@ -143,7 +151,7 @@ export const generateEndpointText = async (input: unknown, access: EndpointTextA
   const endpoint = endpoints.endpoints.find((entry) => entry.id === endpointId);
   if (endpoint === undefined)
     return { ok: false, error: `${named} was removed: pick another model for text generation.` };
-  const observed: Observed = { unreachable: false };
+  const observed: Observed = { unreachable: false, keys: [] };
   const base = access.fetch ?? globalThis.fetch;
   const fetch: FetchFunction = async (url, init) => {
     let response: Response;
@@ -151,6 +159,7 @@ export const generateEndpointText = async (input: unknown, access: EndpointTextA
       response = await base(url, init);
     } catch (error) {
       observed.unreachable = true;
+      observed.thrown = error instanceof Error ? error.message : String(error);
       throw error;
     }
     observed.status = response.status;
@@ -162,6 +171,7 @@ export const generateEndpointText = async (input: unknown, access: EndpointTextA
   const credential = async (id: string, target: EndpointTarget): Promise<EndpointCredential> => {
     const answer = await access.credential(id, target);
     if (answer.apiKey === null) observed.refused = answer;
+    else observed.keys.push(answer.apiKey);
     return answer;
   };
   const models = createModels();

@@ -33,7 +33,7 @@ import {
   type SessionState,
   type TurnState,
 } from "@t3flare/session-protocol";
-import { heldReset } from "@t3flare/models/failures";
+import { heldReset, withCause } from "@t3flare/models/failures";
 import { defaultModelSlug, isRetiredSlug, NO_ENDPOINT_MESSAGE, parseEndpointSlug } from "@t3flare/models/endpoints";
 import { environmentServices } from "../agents/bindings.ts";
 import * as DateTime from "effect/DateTime";
@@ -1043,10 +1043,14 @@ const resetOf = (failure: { readonly class: string; readonly resetAt?: number },
  * naming the endpoint, its code and whether a retry helps, the reset held to at least 30 s after `now`. A usage limit pauses the
  * thread until it; nothing here (or in the Session) falls back to another endpoint.
  */
-const endpointFailureOf = (failure: EndpointFailureRecord, now: DateTime.Utc): OrchestrationV2ProviderFailure =>
+const endpointFailureOf = (
+  failure: EndpointFailureRecord,
+  now: DateTime.Utc,
+  cause: string | undefined,
+): OrchestrationV2ProviderFailure =>
   makeProviderFailure({
     class: failure.class,
-    message: failure.message,
+    message: withCause(failure.message, cause),
     code: failure.code,
     retryable: failure.retryable,
     resetAt: resetOf(failure, now),
@@ -1073,7 +1077,8 @@ const turnLimitMessage = (turnLimitMs: number | undefined): string => {
 
 /**
  * A model error, classified (step 2a part 2 plan, section 3): the Session's record of the endpoint's answer first (its
- * credential, then its classified failure), else the error's HTTP status.
+ * credential, then its classified failure), else the error's HTTP status. A cause the Session kept (a thrown fetch's
+ * message, SPI-1305) is appended to either.
  */
 export const failureOf = (
   turn: TurnState,
@@ -1093,13 +1098,16 @@ export const failureOf = (
         code: credential.kind,
         retryable: credential.retryable,
       });
+    const cause = turn.proxy?.cause;
     const endpointFailure = turn.proxy?.endpointFailure;
-    if (endpointFailure !== undefined) return endpointFailureOf(endpointFailure, now);
+    if (endpointFailure !== undefined) return endpointFailureOf(endpointFailure, now, cause);
     const status = /\b([45]\d\d)\b/.exec(detail)?.[1];
     return makeProviderFailure({
       class: "provider_error",
-      message:
+      message: withCause(
         status === undefined ? "The model provider reported an error." : `The model provider returned HTTP ${status}.`,
+        cause,
+      ),
       code: status ?? null,
       retryable: null,
     });

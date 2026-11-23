@@ -38,6 +38,8 @@ export interface RecordedAnswer {
   readonly headers: Readonly<Record<string, string>>;
   /** An error answer's body (status 400 and up), at most `ERROR_BODY_BYTES`. */
   readonly body?: string;
+  /** SPI-1305: the message of a fetch that threw (status 0: no answer came), the runtime's text, never a vendor's. */
+  readonly thrown?: string;
 }
 
 /** A test's fault: every model request is answered with `fixture` until `resetAt` (epoch ms). */
@@ -186,14 +188,21 @@ export const recordingFetch = (options: RecordingFetchOptions) => {
     last = undefined;
     options.onRequest();
     const fault = options.fault();
+    const url = input instanceof Request ? input.url : String(input);
     let response: Response;
     if (fault !== undefined && options.now() < fault.resetAt) response = faultAnswer(fault, options.now());
     else {
       if (fault !== undefined) options.clearFault();
-      response = await options.fetch(input, init);
+      try {
+        response = await options.fetch(input, init);
+      } catch (error) {
+        // No answer came: keep the runtime's text (a platform limit, a reset) for the turn's failure, and rethrow.
+        const thrown = error instanceof Error ? error.message : String(error);
+        last = { status: 0, retryAfter: null, at: options.now(), url, headers: {}, thrown };
+        throw error;
+      }
     }
     const at = options.now();
-    const url = input instanceof Request ? input.url : String(input);
     // An error answer's body, from a copy, so pi-ai still reads the answer whole.
     const body = response.status >= 400 ? await errorBodyOf(response) : undefined;
     last = {
@@ -227,6 +236,11 @@ export interface ModelLimitsOptions {
    * endpoint's): every failed answer replaces the record, so the last answer is always the turn's.
    */
   readonly recordEndpoint: (failure: EndpointFailureRecord | undefined) => void;
+  /**
+   * SPI-1305: the running turn's last failed request's cause, redacted (a thrown fetch's message), or undefined for an
+   * answer that came: it is replaced as `recordEndpoint`'s record is.
+   */
+  readonly recordCause: (cause: string | undefined) => void;
   /** The credentials the Session holds for a provider (its key or token), redacted from its error text whatever their shape. */
   readonly secrets: (provider: string) => ReadonlyArray<string>;
 }
@@ -253,6 +267,8 @@ export const sessionLimits = (deps: SessionLimitsDeps): ModelLimitsOptions => ({
     deps.note(({ endpointFailure: _before, ...record }) =>
       endpointFailure === undefined ? record : { ...record, endpointFailure },
     ),
+  recordCause: (cause) =>
+    deps.note(({ cause: _before, ...record }) => (cause === undefined ? record : { ...record, cause })),
   secrets: (provider) => deps.endpoints.secrets(provider),
 });
 
@@ -276,6 +292,10 @@ const classifyEndpoint = (
       : { status: 200, headers: answer?.headers ?? {}, body: errorMessage, at: answer?.at ?? Date.now() };
   const failure = describeFailure(failed, endpoint);
   options.recordEndpoint(failure === undefined ? undefined : { ...failure, endpointId: endpoint.id, at: failed.at });
+  // A status 0 is below 400: a thrown fetch is classified by its text, as before; its message is kept as the cause.
+  options.recordCause(
+    answer?.thrown === undefined ? undefined : redactSecrets(answer.thrown, options.secrets(message.provider)),
+  );
   if (failure !== undefined) message.errorMessage = modelFailureDetail(failure);
 };
 
@@ -286,7 +306,10 @@ const classifyOnce = (message: AssistantMessage, options: ModelLimitsOptions): v
   message.errorMessage = redactSecrets(message.errorMessage, options.secrets(message.provider));
   const endpoint = options.endpoint(message.provider);
   // A provider that is no installed endpoint's (one removed mid-turn) has nothing to classify by: the record clears.
-  if (endpoint === undefined) return options.recordEndpoint(undefined);
+  if (endpoint === undefined) {
+    options.recordCause(undefined);
+    return options.recordEndpoint(undefined);
+  }
   classifyEndpoint(message, message.errorMessage, endpoint, options);
 };
 
