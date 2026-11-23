@@ -76,7 +76,7 @@ describe("the Sweep's Purge of a deleted project with a worktree thread", () => 
     const entries: Array<PurgeReport> = [];
     const report = await sweep(
       sql,
-      { purging: true, graceMs: GRACE_MS, graceDays: 7, overridden: true, dry: false },
+      { purging: true, graceMs: GRACE_MS, graceDays: 7, overridden: true, provisioningMs: 80 * 60_000, dry: false },
       NOW,
       undefined,
       { get: () => NOW - DAY, set: () => undefined },
@@ -119,7 +119,7 @@ describe("the Sweep's Purge of a deleted project with a worktree thread", () => 
     const entries: Array<PurgeReport> = [];
     await sweep(
       sql,
-      { purging: true, graceMs: GRACE_MS, graceDays: 7, overridden: true, dry: false },
+      { purging: true, graceMs: GRACE_MS, graceDays: 7, overridden: true, provisioningMs: 80 * 60_000, dry: false },
       NOW,
       { has: (thread) => swept.has(thread), add: (thread) => void swept.add(thread) },
       { get: () => NOW - DAY, set: () => undefined },
@@ -149,7 +149,7 @@ describe("the Sweep's Purge of a deleted project with a worktree thread", () => 
     const swept = new Set<string>();
     const report = await sweep(
       sql,
-      { purging: true, graceMs: GRACE_MS, graceDays: 7, overridden: true, dry: false },
+      { purging: true, graceMs: GRACE_MS, graceDays: 7, overridden: true, provisioningMs: 80 * 60_000, dry: false },
       NOW,
       { has: (thread) => swept.has(thread), add: (thread) => void swept.add(thread) },
       { get: () => NOW - DAY, set: () => undefined },

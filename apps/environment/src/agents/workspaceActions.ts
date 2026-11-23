@@ -142,6 +142,7 @@ export const planPurge = async (
     purging: settings.purging,
     graceMs: settings.graceMs,
     purgingSince: settings.purging ? (deps.purgingSince() ?? now) : null,
+    provisioningMs: settings.provisioningMs,
   };
   return {
     ok: true,

@@ -16,8 +16,6 @@ export { type SweepSettings, sweepSettingsOf } from "./deletionSettings.ts";
 export const SWEEP_EVERY_MS = DAY_MS;
 /** A `deleting` row is driven again this soon (review F5: t3 may re-create the same worktree path). */
 export const DELETING_RETRY_MS = 5 * 60_000;
-/** A `provisioning` or `failed` row older than this is purged. */
-export const STALE_PROVISIONING_MS = 60 * 60_000;
 /** The Sweep never runs again sooner than this after a run (ADR-0043 §5). */
 export const SWEEP_MIN_GAP_MS = 60_000;
 
@@ -412,6 +410,8 @@ export interface SweepReport {
 /** The Grace as one Sweep plans with: purging on or off, its length, and when purging was turned on (null when off). */
 export interface SweepGrace extends GraceClock {
   readonly purging: boolean;
+  /** A `provisioning` or `failed` row older than this is purged (`provisioningLimitMs`). */
+  readonly provisioningMs: number;
 }
 
 const iso = (at: number) => new Date(at).toISOString();
@@ -449,11 +449,12 @@ export const planSweep = (
       return waiting(subject!, "tombstone past its Grace", "tombstone");
     }
     if (row.state === "provisioning" || row.state === "failed") {
-      if (now - row.createdAt < STALE_PROVISIONING_MS || why !== undefined)
+      if (now - row.createdAt < grace.provisioningMs || why !== undefined)
         return { id: row.id, action: "skip", why: row.state };
+      const stale = `${row.state} for over ${Math.round(grace.provisioningMs / 60_000)} minutes`;
       return grace.purging
-        ? { id: row.id, action: "purge", why: `${row.state} for over an hour` }
-        : { id: row.id, action: "skip", why: `${row.state} for over an hour; ${off}` };
+        ? { id: row.id, action: "purge", why: stale }
+        : { id: row.id, action: "skip", why: `${stale}; ${off}` };
     }
     if (why !== undefined)
       return row.unreferencedSince === null
@@ -520,7 +521,7 @@ export const sweep = async (
   const stored = purgingSinceStore?.get() ?? null;
   const purgingSince = purging ? (stored ?? now) : null;
   if (!dry && stored !== purgingSince) purgingSinceStore?.set(purgingSince);
-  const grace: SweepGrace = { purging, graceMs: settings.graceMs, purgingSince };
+  const grace: SweepGrace = { purging, graceMs: settings.graceMs, purgingSince, provisioningMs: settings.provisioningMs };
   const reported = {
     at: iso(now),
     dry,

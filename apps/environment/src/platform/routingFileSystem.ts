@@ -101,7 +101,7 @@ const createWorkspace = (path: string, id: string): Effect.Effect<void, Platform
       Effect.tapError(() => Effect.sync(() => environmentServices().workspaces.remove(id))),
     );
     // An empty project folder is a ready Workspace (a New project's `git init`, or a clone into it later): step 2b's
-    // sweep purges `provisioning` rows older than an hour.
+    // sweep purges `provisioning` rows older than the provisioning time limits (`provisioningLimitMs`).
     environmentServices().workspaces.setState(id, "ready");
   });
 

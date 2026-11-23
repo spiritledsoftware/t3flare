@@ -15,10 +15,10 @@ import {
   purgeSubjectOf,
   referencesFrom,
   removeWorktree,
-  STALE_PROVISIONING_MS,
   SWEEP_EVERY_MS,
   sweepSettingsOf,
 } from "../src/agents/deletion.ts";
+import { provisioningLimitMs } from "../src/agents/deletionSettings.ts";
 import type { WorkspaceRecord } from "../src/agents/workspaces.ts";
 import { nodeSqlStorage } from "./nodeSqlStorage.ts";
 
@@ -164,31 +164,46 @@ describe("the purge date (ADR-0043 §2)", () => {
 });
 
 describe("the Sweep's settings (ADR-0043 §2–3)", () => {
+  const TIMES = { cloneMinutes: 15, imageSetupMinutes: 30, snapshotMinutes: 5, globalMiseInstallMinutes: 10, containerSetupMinutes: 5 } as const;
+  /** 15 + (30 + 2 × 5) + 2 × 10 + 5 minutes. */
+  const PROVISIONING = 80 * 60_000;
+
+  it("wait for a provisioning row as long as its clone may take after the longest Container start the settings allow (SPI-1359)", () => {
+    expect(provisioningLimitMs(TIMES)).toBe(PROVISIONING);
+    // A clone the Owner allows a week is not cut short by a Sweep.
+    expect(provisioningLimitMs({ ...TIMES, cloneMinutes: 7 * 24 * 60 })).toBe((7 * 24 * 60 + 65) * 60_000);
+    expect(sweepSettingsOf(resolveEnvironment(EMPTY_ENVIRONMENT), undefined).provisioningMs).toBe(PROVISIONING);
+  });
+
   it("are the stored Grace in days and the purging switch; a Stage's T3FLARE_SWEEP_GRACE_MS overrides the days", () => {
-    expect(sweepSettingsOf({ sweepPurges: true, graceDays: 7 }, undefined)).toEqual({
+    expect(sweepSettingsOf({ sweepPurges: true, graceDays: 7, ...TIMES }, undefined)).toEqual({
       purging: true,
       graceMs: 7 * DAY,
       graceDays: 7,
       overridden: false,
+      provisioningMs: PROVISIONING,
     });
-    expect(sweepSettingsOf({ sweepPurges: false, graceDays: 2 }, "")).toEqual({
+    expect(sweepSettingsOf({ sweepPurges: false, graceDays: 2, ...TIMES }, "")).toEqual({
       purging: false,
       graceMs: 2 * DAY,
       graceDays: 2,
       overridden: false,
+      provisioningMs: PROVISIONING,
     });
-    expect(sweepSettingsOf({ sweepPurges: true, graceDays: 7 }, "180000")).toEqual({
+    expect(sweepSettingsOf({ sweepPurges: true, graceDays: 7, ...TIMES }, "180000")).toEqual({
       purging: true,
       graceMs: 180_000,
       graceDays: 7,
       overridden: true,
+      provisioningMs: PROVISIONING,
     });
     for (const junk of ["0", "-5", "soon"])
-      expect(sweepSettingsOf({ sweepPurges: true, graceDays: 3 }, junk)).toEqual({
+      expect(sweepSettingsOf({ sweepPurges: true, graceDays: 3, ...TIMES }, junk)).toEqual({
         purging: true,
         graceMs: 3 * DAY,
         graceDays: 3,
         overridden: false,
+        provisioningMs: PROVISIONING,
       });
   });
 });
@@ -196,7 +211,8 @@ describe("the Sweep's settings (ADR-0043 §2–3)", () => {
 describe("the sweep's plan", () => {
   const now = 100 * DAY;
   const grace = 7 * DAY;
-  const on = { purging: true, graceMs: grace, purgingSince: 0 };
+  const provisioningMs = 80 * 60_000;
+  const on = { purging: true, graceMs: grace, purgingSince: 0, provisioningMs };
   const plan = (record: WorkspaceRecord, referenced = false, sweep: Parameters<typeof planSweep>[3] = on) =>
     planSweep([record], referenced ? new Map([[record.id, ["thread t1"]]]) : new Map(), now, sweep, new Map())[0]!;
 
@@ -214,7 +230,7 @@ describe("the sweep's plan", () => {
   it("a row it marks is due a Grace from now, so a Sweep that only marks comes back on that date (ADR-0043 §5; found on the purge Stage)", () => {
     expect(plan(row({}))).toMatchObject({ action: "mark-unreferenced", due: now + grace });
     // Never before one Grace after purging was turned on (ADR-0043 §4), nor before a later release's Grace (ADR-0043 §2).
-    expect(plan(row({}), false, { purging: true, graceMs: grace, purgingSince: now + DAY })).toMatchObject({
+    expect(plan(row({}), false, { ...on, purgingSince: now + DAY })).toMatchObject({
       action: "mark-unreferenced",
       due: now + DAY + grace,
     });
@@ -222,7 +238,7 @@ describe("the sweep's plan", () => {
       action: "mark-unreferenced",
       due: now + 60_000 + grace,
     });
-    expect(plan(row({}), false, { purging: false, graceMs: grace, purgingSince: null })).not.toHaveProperty("due");
+    expect(plan(row({}), false, { ...on, purging: false, purgingSince: null })).not.toHaveProperty("due");
   });
 
   it("drives a deleting row again, purges a tombstone after its grace, and keeps one whose removal could not check", () => {
@@ -255,15 +271,23 @@ describe("the sweep's plan", () => {
     });
   });
 
-  it("purges provisioning and failed rows only after an hour", () => {
-    expect(plan(row({ state: "provisioning", createdAt: now - STALE_PROVISIONING_MS + 1 }))).toMatchObject({
+  it("purges provisioning and failed rows only once provisioning has outlasted its time limits (SPI-1359)", () => {
+    expect(plan(row({ state: "provisioning", createdAt: now - provisioningMs + 1 }))).toMatchObject({
       action: "skip",
     });
-    expect(plan(row({ state: "failed", createdAt: now - STALE_PROVISIONING_MS }))).toMatchObject({ action: "purge" });
+    expect(plan(row({ state: "failed", createdAt: now - provisioningMs }))).toMatchObject({
+      action: "purge",
+      why: "failed for over 80 minutes",
+    });
+    // A clone the Owner allowed 2 hours is not purged by a Sweep at 1 hour.
+    const long = { ...on, provisioningMs: 2 * 60 * 60_000 };
+    expect(plan(row({ state: "provisioning", createdAt: now - 60 * 60_000 }), false, long)).toMatchObject({
+      action: "skip",
+    });
   });
 
   it("with purging off still marks and clears, purges nothing new, and drives a deleting row on (ADR-0043 §4)", () => {
-    const off = { purging: false, graceMs: grace, purgingSince: null };
+    const off = { ...on, purging: false, purgingSince: null };
     expect(plan(row({}), false, off)).toMatchObject({ action: "mark-unreferenced" });
     expect(plan(row({ unreferencedSince: now - 30 * DAY }), true, off)).toMatchObject({ action: "clear-unreferenced" });
     expect(plan(row({ unreferencedSince: now - 30 * DAY }), false, off)).toMatchObject({
@@ -288,28 +312,28 @@ describe("the sweep's plan", () => {
 
   it("with a shortened Grace, an old mark is due at once, but not before one Grace after purging was turned on (ADR-0043 §4)", () => {
     const old = row({ unreferencedSince: now - 30 * DAY });
-    expect(plan(old, false, { purging: true, graceMs: DAY, purgingSince: now - DAY })).toMatchObject({
+    expect(plan(old, false, { ...on, graceMs: DAY, purgingSince: now - DAY })).toMatchObject({
       action: "purge",
     });
-    expect(plan(old, false, { purging: true, graceMs: DAY, purgingSince: now - DAY + 1 })).toMatchObject({
+    expect(plan(old, false, { ...on, graceMs: DAY, purgingSince: now - DAY + 1 })).toMatchObject({
       action: "skip",
       due: now + 1,
     });
     // Purging just turned on: a full Grace for everything, a Tombstone with a date included.
     expect(
       plan(row({ state: "tombstoned", deletedAt: now - 30 * DAY, purgeAfter: 1 }), false, {
-        purging: true,
+        ...on,
         graceMs: DAY,
         purgingSince: now,
       }),
     ).toMatchObject({ action: "skip", due: now + DAY });
     // A deleting row, and a stale provisioning one, are not held by it.
-    expect(plan(row({ state: "deleting" }), false, { purging: true, graceMs: DAY, purgingSince: now })).toMatchObject({
+    expect(plan(row({ state: "deleting" }), false, { ...on, graceMs: DAY, purgingSince: now })).toMatchObject({
       action: "purge",
     });
     expect(
-      plan(row({ state: "provisioning", createdAt: now - 2 * STALE_PROVISIONING_MS }), false, {
-        purging: true,
+      plan(row({ state: "provisioning", createdAt: now - 2 * provisioningMs }), false, {
+        ...on,
         graceMs: DAY,
         purgingSince: now,
       }),
@@ -319,10 +343,10 @@ describe("the sweep's plan", () => {
   it("never purges a ready Workspace younger than a day: its mark cannot precede its creation, and the Grace is a day at least (ADR-0043's Consequences)", () => {
     expect(ENVIRONMENT_SETTINGS.graceDays.schema.minimum).toBe(1);
     const shortest = sweepSettingsOf(
-      { sweepPurges: true, graceDays: ENVIRONMENT_SETTINGS.graceDays.schema.minimum },
+      { ...resolveEnvironment(EMPTY_ENVIRONMENT), sweepPurges: true, graceDays: ENVIRONMENT_SETTINGS.graceDays.schema.minimum },
       undefined,
     );
-    for (const age of [0, 60_000, STALE_PROVISIONING_MS, DAY / 2, DAY - 1]) {
+    for (const age of [0, 60_000, 60 * 60_000, DAY / 2, DAY - 1]) {
       const young = row({ createdAt: now - age, unreferencedSince: now - age });
       expect(plan(young, false, { ...shortest, purgingSince: 0 }), String(age)).toMatchObject({ action: "skip" });
     }

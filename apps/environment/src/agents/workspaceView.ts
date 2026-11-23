@@ -182,6 +182,7 @@ export const workspacesView = async (deps: WorkspacesDeps, now: number): Promise
     purging: settings.purging,
     graceMs: settings.graceMs,
     purgingSince: settings.purging ? (purgingSince ?? now) : null,
+    provisioningMs: settings.provisioningMs,
   };
   const plans = new Map(
     planSweep(all, references.byWorkspace, now, grace, references.released).map((action) => [action.id, action]),
