@@ -7,9 +7,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, it } from "node:test";
 
-import { checkDetail, FIRST_ERROR_LINES } from "./checkDetail.ts";
-
-const LONG_DETAIL_CHARS = 24_000;
+import { checkDetail, FIRST_ERROR_LINES, LONG_DETAIL_CHARS } from "./checkDetail.ts";
 const fixture = (name: string) => fs.readFileSync(path.join(import.meta.dirname, "fixtures", name), "utf8");
 /** More than LONG_DETAIL_CHARS of other output, as a long check's later task groups print it. */
 const filler = "[@t3flare/environment#test] ~/apps/environment$ vitest run ⊘ cache disabled\n".repeat(400);
@@ -45,6 +43,26 @@ void describe("checkDetail", () => {
   void it("does not take a tool's command line for an error", () => {
     const detail = checkDetail(fixture("check-lint-failure.txt") + filler, LONG_DETAIL_CHARS);
     assert.doesNotMatch(detail.split("── tail ──")[0]!, /oxlint --type-aware/);
+  });
+
+  void it("leaves out t3's errors the typecheck reports as not failing", () => {
+    const t3Errors = Array.from(
+      { length: 70 },
+      (_, i) =>
+        `../../t3code/apps/server/src/a.ts(${i},1): error TS2345: Argument of type 'X' is not assignable.\n  Type 'X' is not assignable to type 'Y'.`,
+    );
+    const output = [
+      "── [@t3flare/agents#typecheck] ──",
+      "70 error(s) in t3's own files, which only this program's configuration sees (fragility U10); not failing:",
+      ...t3Errors,
+      "",
+      "── [@t3flare/environment#typecheck] ──",
+      "src/runtime.ts(62,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+      filler,
+    ].join("\n");
+    const head = checkDetail(output, LONG_DETAIL_CHARS).split("\n\n── tail ──\n")[0]!;
+    assert.match(head, /── \[@t3flare\/environment#typecheck\] ──\nsrc\/runtime\.ts\(62,14\): error TS2322/);
+    assert.doesNotMatch(head, /t3code/);
   });
 
   void it("is the whole output when it fits", () => {

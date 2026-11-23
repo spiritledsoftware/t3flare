@@ -54,7 +54,7 @@ import {
 import { T3_ERRORS_COUNT } from "../apps/environment/scripts/lib/typecheckFilter.ts";
 import { t3ServerVersion, t3TrackSetting } from "../apps/environment/serverVersion.ts";
 import { newestOnTrack, NPM_DIST_TAG, PINNED_FILES, type T3Track } from "../apps/environment/src/updates/pins.ts";
-import { checkDetail } from "./lib/checkDetail.ts";
+import { checkDetail, LONG_DETAIL_CHARS } from "./lib/checkDetail.ts";
 
 const root = path.resolve(import.meta.dirname, "..");
 const t3 = path.join(root, "t3code");
@@ -109,8 +109,6 @@ interface Step {
 const steps: Array<Step> = [];
 /** The tail of a failed step's output the report keeps. */
 const DETAIL_CHARS = 4000;
-/** test:docker's, the acceptance test's and check's failures each carry a long record; 4000 characters held barely one. */
-const LONG_DETAIL_CHARS = 24_000;
 
 const sh = (
   command: string,
