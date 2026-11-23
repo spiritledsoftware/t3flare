@@ -5,7 +5,7 @@ import type { ToolRegistration } from "@earendil-works/pi-durable";
 import type { ComputerFiles } from "@t3flare/computer-env";
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_FILE_LIMITS, type FileLimits, fileTools } from "../src/extensions/files.ts";
+import { DEFAULT_FILE_LIMITS, type FileLimits, fileTools, GREP_CONTEXT_MAX_LINES } from "../src/extensions/files.ts";
 
 /** A Workspace with `count` of everything, recording the limit each search was asked for. */
 const workspace = (count: number) => {
@@ -78,7 +78,10 @@ describe("file tools' limits (SPI-1321)", () => {
     const grep = (fileTools(() => files, LIMITS).tools ?? []).find((tool) => tool.name === "grep")!;
     await run(grep, { pattern: "x", context: 40 });
     await run(grep, { pattern: "x", context: -3 });
-    expect(contexts).toEqual([40, 0]);
+    // Past the lines a result can show, more context is never seen; the Workspace's grep copies it per match.
+    await run(grep, { pattern: "x", context: 1_000_000_000 });
+    await run(grep, { pattern: "x", context: 2.5 });
+    expect(contexts).toEqual([40, 0, GREP_CONTEXT_MAX_LINES, 2]);
   });
 
   it("find and ls take their own limits", async () => {

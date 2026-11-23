@@ -102,6 +102,13 @@ const findTool = (files: FilesOf, max: number) =>
     },
   });
 
+/**
+ * The most context lines a grep asks for: the lines its result can show, pi-durable's default output limit
+ * (`DEFAULT_MAX_LINES`, 2,000, in its truncate.js). More is never seen, and the Workspace's grep copies each match's
+ * context whole, so it would only cost memory.
+ */
+export const GREP_CONTEXT_MAX_LINES = 2_000;
+
 const grepTool = (files: FilesOf, max: number) =>
   defineTool({
     name: "grep",
@@ -112,7 +119,11 @@ const grepTool = (files: FilesOf, max: number) =>
       glob: opt(str({ description: "Filter files by glob pattern, such as '*.ts'" })),
       ignoreCase: opt(bool({ description: "Case-insensitive search (default false)" })),
       literal: opt(bool({ description: "Treat the pattern as a literal string (default false)" })),
-      context: opt(num({ description: "Lines of context before and after each match (default 0)" })),
+      context: opt(
+        num({
+          description: `Lines of context before and after each match (default 0, at most ${GREP_CONTEXT_MAX_LINES})`,
+        }),
+      ),
       limit: opt(num({ description: `Maximum number of matches (default ${max})` })),
     }),
     replay: "safe",
@@ -122,7 +133,7 @@ const grepTool = (files: FilesOf, max: number) =>
       const matches = await need(files).grep(args.pattern, directory, {
         ignoreCase: args.ignoreCase === true,
         regex: args.literal !== true,
-        context: Math.max(0, args.context ?? 0),
+        context: Math.min(GREP_CONTEXT_MAX_LINES, Math.max(0, Math.floor(args.context ?? 0))),
         limit: limit + 1,
         include: args.glob,
         exclude: EXCLUDE,

@@ -57,6 +57,13 @@ export const MAX_CONTAINER_FILE_BYTES = 32 * 1024 * 1024;
 /** How many lines of a listing or a search a script prints at most, so a huge tree cannot flood the answer. */
 const MAX_LISTED = 20_000;
 
+/**
+ * The most bytes of ripgrep's JSON events a grep reads. A sanity bound (ADR-0048) under the isolate's 128 MB: the events
+ * are held as one string, split and parsed whole, which takes several times their size, and the matches' count times
+ * their context would otherwise set no limit. 4 MiB is about 80 times the 50 KB the grep tool can show.
+ */
+export const GREP_OUTPUT_BYTES = 4 * 1024 * 1024;
+
 /** How many reads' hashes a write is checked against, so a long-lived Workspace DO does not keep one per file read. */
 const MAX_HASHED = 256;
 
@@ -173,7 +180,7 @@ if [ -d "$P" ]; then root=$P; target=.; else root=$(dirname -- "$P"); target="./
 out=$(cd -- "$root" 2>&1) || failed "$out"
 cd -- "$root"
 printf '%s\n' "$root"
-out=$(rg --json --no-ignore --hidden --no-config "$@" -e "$PATTERN" -- "$target" | head -n "$LIMIT")
+out=$(rg --json --no-ignore --hidden --no-config "$@" -e "$PATTERN" -- "$target" | head -n "$LIMIT" | head -c "$BYTES")
 code=$?
 if [ "$code" = 2 ]; then
   case "$out" in *'"type":"match"'*) ;; *) exit 1 ;; esac
@@ -490,10 +497,11 @@ export class ContainerFiles {
       ...options.exclude.map((glob) => `-g!${glob}`),
     ];
 
-    // Each match brings at most its context on either side, and each file a begin and an end event.
+    // Each match brings at most its context on either side, and each file a begin and an end event; a cut last event
+    // does not parse and is skipped.
     const events = options.limit * (2 * options.context + 3) + 1000;
 
-    const out = await this.#run(path, GREP, { P: path, PATTERN: pattern, LIMIT: String(events) }, { args });
+    const out = await this.#run(path, GREP, { P: path, PATTERN: pattern, LIMIT: String(events), BYTES: String(GREP_OUTPUT_BYTES) }, { args });
 
     // Every line of each file in order, then each match with the lines around it.
     const files = new Map<string, Map<number, GrepLine>>();
@@ -533,14 +541,17 @@ export class ContainerFiles {
     return matches.map((match) => {
       if (options.context === 0) return match;
 
-      const lines = files.get(match.path);
-      const context: GrepLine[] = [];
+      const lines = files.get(match.path) ?? new Map<number, GrepLine>();
+      const from = match.line - options.context;
+      const to = match.line + options.context;
 
-      for (let line = match.line - options.context; line <= match.line + options.context; line++) {
-        const found = lines?.get(line);
-
-        if (found !== undefined) context.push(found);
-      }
+      // Only lines ripgrep printed can be context, in file order: a context wider than them walks them, not the range.
+      const context =
+        to - from < lines.size
+          ? Array.from({ length: to - from + 1 }, (_, at) => lines.get(from + at)).filter(
+              (line): line is GrepLine => line !== undefined,
+            )
+          : [...lines.values()].filter((line) => line.line >= from && line.line <= to);
 
       return { ...match, context };
     });
