@@ -1137,9 +1137,16 @@ const shellNeeds = (name: string, args: readonly Word[], context: Context): stri
   return `${name} reads its script from stdin`;
 };
 
+/**
+ * The deepest `bash -c` inside `bash -c` that is read. Fixed: each level is a recursive read on the JS call stack, which
+ * the command's length bounds only loosely, so a deeply nested command must stop somewhere; any small value works, as a
+ * deeper command routes to the Container (`scriptNeeds`) and its paths go uncollected (`collectPaths`).
+ */
+const MAX_SCRIPT_DEPTH = 8;
+
 /** The first command of `source` that the Worker Shell cannot run; undefined if none. */
 const scriptNeeds = (source: string, context: Context): string | undefined => {
-  if (context.depth > 8) return "commands nested too deep to read";
+  if (context.depth > MAX_SCRIPT_DEPTH) return "commands nested too deep to read";
 
   const parsed = new Reader(source).readAll();
 
@@ -1370,9 +1377,6 @@ export type CommandPaths = {
   /** The directories its commands run in, as far as its `cd`s tell: the one it starts in first. */
   readonly directories: readonly string[];
 };
-
-/** The deepest `bash -c` inside `bash -c` that is read. */
-const MAX_SCRIPT_DEPTH = 8;
 
 const collectPaths = (
   source: string,

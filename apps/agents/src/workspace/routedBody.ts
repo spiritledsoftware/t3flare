@@ -12,7 +12,11 @@ import { ENDPOINT_ID, parseEndpointSlug } from "@t3flare/models/endpoints";
  */
 export const MAX_ROUTED_BODY_BYTES = 16 * 1024 * 1024;
 
-/** The deepest nesting of arrays and objects the scan follows: deeper is refused (400). */
+/**
+ * The deepest nesting of arrays and objects the scan follows: deeper is refused (400). Fixed by the isolate's 128 MB:
+ * the scan keeps one stack slot per open bracket, and a body of `MAX_ROUTED_BODY_BYTES` that only opens brackets would
+ * need 16 Mi of them beside the body itself. Any bound far below that works; real requests nest a few dozen deep.
+ */
 export const MAX_NESTING = 512;
 
 const QUOTE = 0x22;

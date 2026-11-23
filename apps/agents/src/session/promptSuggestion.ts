@@ -24,8 +24,6 @@ export const suggestionModelOf = (
 /** Most characters of the request and of the answer the model reads. */
 export const SUGGESTION_EXCERPT = 4_000;
 export const SUGGESTION_TIMEOUT_MS = 20_000;
-/** Most characters of a suggestion t3 is given. */
-const MAX_SUGGESTION = 300;
 
 const excerpt = (text: string): string =>
   text.length <= SUGGESTION_EXCERPT ? text : `…${text.slice(-SUGGESTION_EXCERPT)}`;
@@ -59,7 +57,7 @@ export const suggestPrompt = async (
       .flatMap((block) => (block.type === "text" ? [block.text] : []))
       .join("")
       .trim();
-    return text.length > MAX_SUGGESTION ? "" : text.replace(/^["']|["']$/g, "").trim();
+    return text.replace(/^["']|["']$/g, "").trim();
   } catch {
     return "";
   } finally {

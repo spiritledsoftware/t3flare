@@ -55,14 +55,14 @@ describe("prompt suggestions", () => {
     expect(askedText(suggestionContext("u", "a".repeat(10_000))).length).toBeLessThan(5_000);
   });
 
-  it("is the model's text, unquoted; nothing on an error, a failure, an overlong reply or an empty turn", async () => {
+  it("is the model's text, unquoted, however long; nothing on an error, a failure or an empty turn", async () => {
     expect(await suggestPrompt(models(reply('"Now run the tests"')), model, "fix it", "fixed")).toBe(
       "Now run the tests",
     );
     expect(await suggestPrompt(models(reply("")), model, "fix it", "fixed")).toBe("");
     expect(await suggestPrompt(models(reply("x", "error")), model, "fix it", "fixed")).toBe("");
     expect(await suggestPrompt(models(new Error("down")), model, "fix it", "fixed")).toBe("");
-    expect(await suggestPrompt(models(reply("y".repeat(400))), model, "fix it", "fixed")).toBe("");
+    expect(await suggestPrompt(models(reply("y".repeat(400))), model, "fix it", "fixed")).toBe("y".repeat(400));
     expect(await suggestPrompt(models(reply("never asked")), model, "", "fixed")).toBe("");
   });
 });

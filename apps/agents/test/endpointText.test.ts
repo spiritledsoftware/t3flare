@@ -119,10 +119,10 @@ describe("generateEndpointText", () => {
     expect(wire.sent[0]!.body).toContain("Name this thread.\\n\\nAnswer with the JSON object only.");
   });
 
-  it("asks for at most 8192 tokens, and never more than the model's own limit", async () => {
+  it("asks for the model's own output limit, so a reasoning model has room to think (SPI-1361)", async () => {
     for (const [limit, sent] of [
       [4_000, 4_000],
-      [128_000, 8_192],
+      [50_000, 50_000],
     ] as const) {
       const wire = recorder(() => anthropicOk("ok"));
       await generate(endpoint("anthropic-messages", "api-key", limit), {
