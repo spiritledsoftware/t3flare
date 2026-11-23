@@ -46,7 +46,11 @@ export const openCdpSocket = async (
   }
 };
 
-/** A minimal CDP client over such a socket: commands by id, events by method (and flattened session). */
+/**
+ * A minimal CDP client over such a socket: commands by id, events by method (and flattened session). Used only by the
+ * stage's preview spike (`preview/spike.ts`, an admin route), never by an Owner's preview: its 30 s command wait is the
+ * spike's own test parameter, which a caller may pass (SPI-1366).
+ */
 export class CdpClient {
   readonly #socket: CdpWebSocket;
   readonly #pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();

@@ -27,7 +27,7 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import type * as ChildProcess from "effect/process/ChildProcess";
 
 import * as StateStore from "../platform/stateStore.ts";
-import { checkpointMsNow, cloneMsNow, environmentServices } from "./bindings.ts";
+import { checkpointMsNow, cloneMsNow, environmentNow, environmentServices } from "./bindings.ts";
 import {
   cloneRequestOf,
   gitEnvOf,
@@ -814,6 +814,8 @@ export const spawn = (command: ChildProcess.Command) =>
       return yield* spawnHtmlBrowser(command, {
         binding: () => environmentServices().browserRun,
         store: () => environmentServices().previewStore,
+        // Read as each browser opens (SPI-1366).
+        keepAliveMs: () => environmentNow().htmlBrowserKeepAliveSeconds * 1000,
       });
     }
     const name = command.command.replace(/^.*\//, "");

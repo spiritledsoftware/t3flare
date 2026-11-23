@@ -12,6 +12,9 @@ import * as ChildProcess from "effect/process/ChildProcess";
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { resolveEnvironment } from "@t3flare/harness-registry";
+
+import { bindEnvironmentServices, type EnvironmentServices } from "../src/agents/bindings.ts";
 import { acquireOptions } from "../src/preview/cdpSocket.ts";
 import {
   BRIDGED_PAGE_ORIGIN,
@@ -290,8 +293,12 @@ describe("t3's HTML-render Chrome, bridged to Browser Run (review M3)", () => {
     const fake = fakeSocket();
     const store = previewStore(nodeSqlStorage());
     const closedSessions: Array<string> = [];
+    const launched: Array<unknown> = [];
     const binding = {
-      launch: async () => ({ sessionId: "shared-1", webSocket: { fetch: async () => ({ webSocket: fake.socket }) } }),
+      launch: async (options: unknown) => (
+        launched.push(options),
+        { sessionId: "shared-1", webSocket: { fetch: async () => ({ webSocket: fake.socket }) } }
+      ),
       connectSession: async () => {
         throw new Error("not expected");
       },
@@ -329,7 +336,7 @@ describe("t3's HTML-render Chrome, bridged to Browser Run (review M3)", () => {
                 fd4: { type: "output" },
               },
             }) as ChildProcess.StandardCommand,
-            { binding: () => binding as never, store: () => store },
+            { binding: () => binding as never, store: () => store, keepAliveMs: () => 90_000 },
           );
           yield* Effect.sleep(10);
           fake.emit(yield* encodeJson({ id: 1, result: { browserContextId: "ctx-1" } }));
@@ -365,6 +372,8 @@ describe("t3's HTML-render Chrome, bridged to Browser Run (review M3)", () => {
     expect(output.code).toBe(0);
     expect(closedSessions).toEqual([]);
     expect(store.sessions().map((session) => session.kind)).toEqual(["html"]);
+    // Browser Run's keep-alive is the one knob (SPI-1366): the setting as the browser opened, and no close of our own.
+    expect(launched).toEqual([{ keepAlive: 90_000 }]);
   });
 });
 
@@ -483,6 +492,26 @@ describe("a profile context's saves (SPI-1123)", () => {
     expect(fake.storageState).toHaveBeenCalledTimes(4);
     expect(fake.sent).toEqual(["Page.startScreencast", "Input.dispatchMouseEvent"]);
     saver.stop();
+  });
+
+  it("saves at the browser profile save setting as stored when the profile opened (SPI-1366)", async () => {
+    vi.useFakeTimers();
+    bindEnvironmentServices({
+      environment: () => resolveEnvironment({ revision: 1, settings: { browserProfileSaveSeconds: 5 } }),
+    } as unknown as EnvironmentServices);
+    try {
+      const fake = fakeProfileContext({ cookies: [] });
+      const saver = Shadow.profileSaver(fake.context, { saved: undefined, write: () => undefined });
+      fake.response();
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(fake.storageState).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(fake.storageState).toHaveBeenCalledTimes(1);
+      saver.stop();
+    } finally {
+      // SAFETY: `undefined` is the binding's unset state, which its type does not name.
+      bindEnvironmentServices(undefined as unknown as EnvironmentServices);
+    }
   });
 
   it("does not write a state equal to the last one saved, and keeps the change after a failed read", async () => {
