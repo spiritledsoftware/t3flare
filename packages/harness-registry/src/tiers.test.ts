@@ -44,6 +44,18 @@ const SWITCHES: Readonly<Record<string, "switch" | "guard" | "unchangeable" | "t
 const SETTINGS: Readonly<Record<string, "free" | "down-free" | "up-free" | "asked">> = {
   "codemode.inlineBudget": "free",
   "web.searchModel": "asked",
+  // SPI-1321: more output puts more text in front of agents, and web_search spends model requests.
+  "web.fetchTimeoutSeconds": "down-free",
+  "web.fetchMaxTimeoutSeconds": "down-free",
+  "web.fetchMaxKiB": "down-free",
+  "web.searchResults": "down-free",
+  "web.searchesPerCall": "down-free",
+  "web.searchSummaryTokens": "down-free",
+  "web.searchTimeoutSeconds": "down-free",
+  "files.lsLimit": "down-free",
+  "files.findLimit": "down-free",
+  "files.grepLimit": "down-free",
+  "project-context.maxFileCharacters": "down-free",
   "context.rolloverOnCompaction": "free",
   "termctrl.backgroundBash": "down-free",
   "termctrl.cols": "free",

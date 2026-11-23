@@ -61,6 +61,10 @@ export const convertHtmlPage = (html: string, format: "markdown" | "text"): stri
 const isJsonMime = (mime: string): boolean =>
   mime === "application/json" || mime === "text/json" || mime.endsWith("+json");
 
+/** Whether `convertContent` changes a body of media type `mime` for `format` (HTML and JSON only). */
+export const convertsContent = (mime: string, format: WebFetchFormat): boolean =>
+  format !== "html" && (isJsonMime(mime) || mime === "text/html");
+
 /** `content` of media type `mime` as `format`. */
 export const convertContent = (content: string, mime: string, format: WebFetchFormat): string => {
   if (format === "html") return content;

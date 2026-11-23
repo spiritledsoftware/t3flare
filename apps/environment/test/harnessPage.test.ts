@@ -252,7 +252,7 @@ describe("harness page", () => {
     expect(tags.find((tag) => tag.attrs.name === "value")?.attrs.type).toBe("password");
   });
 
-  it("draws the extension forms from the registry's schemas: tools first, then switches, settings, locked core extensions", () => {
+  it("draws the extension forms from the registry's schemas: tools first, then switches and settings; only permissions is locked", () => {
     expect(
       tags
         .filter((tag) => tag.name === "form" && tag.attrs["data-extension"] !== undefined)
@@ -270,12 +270,19 @@ describe("harness page", () => {
       "guardian",
       "advisor",
       "skills",
+      // SPI-1321: no longer locked, "Always on" with its settings; permissions stays locked.
+      "project-context",
     ]);
     expect(tags.find((tag) => tag.attrs["data-setting"] === "inlineBudget")).toMatchObject({
       attrs: { type: "number", min: "500", max: "20000", value: "3000" },
     });
     expect(tags.filter((tag) => tag.attrs["data-enabled"] !== undefined)).toHaveLength(3);
     expect(html).toContain("locked: the thread&#39;s modes and the link fence depend on it");
+    expect(html).not.toContain("a core extension: always on");
+    expect(tags.find((tag) => tag.attrs.id === "project-context-maxFileCharacters")).toMatchObject({
+      attrs: { type: "number", min: "1", max: "1000000", value: "16000" },
+    });
+    expect(tags.find((tag) => tag.attrs.id === "project-context-maxFileCharacters")?.attrs.disabled).toBeUndefined();
   });
 
   it("draws one Exposure select per built-in tool, codemode and tool_search with only direct or hidden, and the three presets", () => {

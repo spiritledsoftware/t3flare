@@ -99,8 +99,9 @@ section{display:flex;flex-direction:column;gap:.625rem;scroll-margin-top:1.5rem}
 .variable-note{grid-area:note;font-size:.75rem;color:var(--muted-fg);margin-top:-.25rem}
 .variable-note[hidden]{display:none}
 .variable-unreadable{color:var(--err)}
-.row>.save{grid-column:1/-1;justify-content:flex-end;padding-top:0}
-.save{display:flex;align-items:center;gap:.75rem;padding-top:calc(1.21875rem + .375rem + 4px)}
+.row>.save{grid-column:1/-1;justify-content:flex-end}
+/* A row's Save follows its last field, so a long form's Save is where its editing ends (SPI-1321). */
+.save{display:flex;align-items:center;gap:.75rem;align-self:end}
 .state{display:inline-flex;align-items:center;gap:.375rem;font-size:.75rem;color:var(--muted-fg);white-space:nowrap}
 .state svg.i{width:.875rem;height:.875rem}
 .core .row{padding:.625rem 1rem}
@@ -270,7 +271,6 @@ select.sel-sm{height:2.25rem;font-size:16px}
 .row-extra:has(>.test-build)>.fields:not(.list){order:2}
 .test-build-head{grid-template-columns:minmax(0,1fr)}
 .test-build-head>.btn{justify-self:start}
-.save{padding-top:0}
 .fields{max-width:none}
 .fields.list{max-width:none}
 .variable{grid-template-columns:minmax(0,1fr) auto auto;grid-template-areas:"name secret remove" "value value value" "note note note"}

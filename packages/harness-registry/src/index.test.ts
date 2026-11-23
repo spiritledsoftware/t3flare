@@ -10,6 +10,7 @@ import {
   mcpServersOf,
   EMPTY_HARNESS,
   extensionOf,
+  FETCH_MAX_KIB,
   MAX_TIMED_MINUTES,
   EXTENSIONS,
   resolvedToolsOf,
@@ -34,13 +35,13 @@ describe("resolveHarness", () => {
   });
 
   it("has the web tools on with web_search hidden (a search costs a model request), and the search model switchable (SPI-1054)", () => {
-    expect(resolveHarness(EMPTY_HARNESS).extensions.web).toEqual({
+    expect(resolveHarness(EMPTY_HARNESS).extensions.web).toMatchObject({
       enabled: true,
       settings: { searchModel: "default" },
     });
     const on = applyChange(EMPTY_HARNESS, { extension: "web", settings: { searchModel: "claude-sonnet-5-5" } });
     if (!on.ok) throw new Error(on.error);
-    expect(resolveHarness(on.harness).extensions.web).toEqual({
+    expect(resolveHarness(on.harness).extensions.web).toMatchObject({
       enabled: true,
       settings: { searchModel: "claude-sonnet-5-5" },
     });
@@ -158,7 +159,7 @@ describe("resolveHarness", () => {
   it("gives an extension's defaults to a Session whose resolved view predates the entry", () => {
     const { web: _web, ...older } = resolveHarness(EMPTY_HARNESS).extensions;
     const taken = { ...resolveHarness(EMPTY_HARNESS), extensions: older };
-    expect(extensionOf(taken, "web")).toEqual({ enabled: true, settings: { searchModel: "default" } });
+    expect(extensionOf(taken, "web")).toEqual(resolveHarness(EMPTY_HARNESS).extensions.web);
     expect(extensionOf(taken, "nope")).toEqual({ enabled: false, settings: {} });
   });
 
@@ -283,6 +284,75 @@ describe("applyChange", () => {
     expect(applyChange(EMPTY_HARNESS, { extension: "permissions", enabled: false })).toEqual({
       ok: false,
       error: `permissions: locked (${permissions?.locked})`,
+    });
+  });
+
+  it("lets the Project context's settings change but never its switch (SPI-1321)", () => {
+    expect(EXTENSIONS.find((entry) => entry.id === "project-context")?.locked).toBeUndefined();
+    expect(resolveHarness(EMPTY_HARNESS).extensions["project-context"]).toEqual({
+      enabled: true,
+      settings: { maxFileCharacters: 16_000 },
+    });
+    const changed = applyChange(EMPTY_HARNESS, {
+      extension: "project-context",
+      settings: { maxFileCharacters: 50_000 },
+    });
+    if (!changed.ok) throw new Error(changed.error);
+    expect(resolveHarness(changed.harness).extensions["project-context"]).toEqual({
+      enabled: true,
+      settings: { maxFileCharacters: 50_000 },
+    });
+    expect(applyChange(EMPTY_HARNESS, { extension: "project-context", enabled: false })).toEqual({
+      ok: false,
+      error: "project-context: cannot be turned off",
+    });
+  });
+
+  it("bounds the web, file and Project context limits (SPI-1321, ADR-0048)", () => {
+    const bounds: Record<string, Record<string, readonly [number, number]>> = {
+      web: {
+        fetchTimeoutSeconds: [1, MAX_TIMED_MINUTES * 60],
+        fetchMaxTimeoutSeconds: [1, MAX_TIMED_MINUTES * 60],
+        fetchMaxKiB: [64, FETCH_MAX_KIB],
+        searchResults: [1, 100],
+        searchesPerCall: [1, 50],
+        searchSummaryTokens: [100, 64_000],
+        searchTimeoutSeconds: [1, MAX_TIMED_MINUTES * 60],
+      },
+      files: { lsLimit: [1, 100_000], findLimit: [1, 100_000], grepLimit: [1, 100_000] },
+      "project-context": { maxFileCharacters: [1, 1_000_000] },
+    };
+    for (const [extension, keys] of Object.entries(bounds))
+      for (const [key, [low, high]] of Object.entries(keys)) {
+        for (const value of [low, high])
+          expect(
+            applyChange(EMPTY_HARNESS, { extension, settings: { [key]: value } }),
+            `${key}=${value}`,
+          ).toMatchObject({
+            ok: true,
+          });
+        for (const value of [low - 1, high + 1])
+          expect(
+            applyChange(EMPTY_HARNESS, { extension, settings: { [key]: value } }),
+            `${key}=${value}`,
+          ).toMatchObject({
+            ok: false,
+          });
+      }
+    expect(resolveHarness(EMPTY_HARNESS).extensions.web?.settings).toEqual({
+      searchModel: "default",
+      fetchTimeoutSeconds: 30,
+      fetchMaxTimeoutSeconds: 120,
+      fetchMaxKiB: 5120,
+      searchResults: 8,
+      searchesPerCall: 2,
+      searchSummaryTokens: 1500,
+      searchTimeoutSeconds: 90,
+    });
+    expect(resolveHarness(EMPTY_HARNESS).extensions.files?.settings).toEqual({
+      lsLimit: 500,
+      findLimit: 1000,
+      grepLimit: 100,
     });
   });
 

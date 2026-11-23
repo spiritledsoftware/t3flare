@@ -5,13 +5,29 @@
 import type { ComputerFiles } from "@t3flare/computer-env";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
 import { bool, num, obj, opt, str } from "@earendil-works/pi-schema";
+import { defaultSettings, type SettingValue } from "@t3flare/harness-registry";
 
 /** The file search of the Session's Workspace, or undefined when the Session has none. */
 export type FilesOf = () => ComputerFiles | undefined;
 
-const MAX_LS = 500;
-const MAX_FIND = 1000;
-const MAX_GREP = 100;
+/** The `files` extension's settings (SPI-1321): each tool's most results, and its default. */
+export interface FileLimits {
+  readonly lsLimit: number;
+  readonly findLimit: number;
+  readonly grepLimit: number;
+}
+
+/** The `files` extension's resolved settings as limits. */
+export const fileLimits = (values: Readonly<Record<string, SettingValue>>): FileLimits => ({
+  lsLimit: Number(values.lsLimit),
+  findLimit: Number(values.findLimit),
+  grepLimit: Number(values.grepLimit),
+});
+
+export const FILES_EXTENSION = "files";
+
+export const DEFAULT_FILE_LIMITS: FileLimits = fileLimits(defaultSettings(FILES_EXTENSION));
+
 const EXCLUDE = ["**/.git", "**/node_modules"];
 
 const resolvePath = (cwd: string, path: string | undefined): string => {
@@ -36,19 +52,19 @@ const need = (files: FilesOf): ComputerFiles => {
   return found;
 };
 
-const lsTool = (files: FilesOf) =>
+const lsTool = (files: FilesOf, max: number) =>
   defineTool({
     name: "ls",
-    description: `List a directory's entries, directories with a trailing "/". Up to ${MAX_LS} entries.`,
+    description: `List a directory's entries, directories with a trailing "/". Up to ${max} entries.`,
     parameters: obj({
       path: opt(str({ description: "Directory to list (default: the working directory)" })),
-      limit: opt(num({ description: `Maximum number of entries (default ${MAX_LS})` })),
+      limit: opt(num({ description: `Maximum number of entries (default ${max})` })),
     }),
     replay: "safe",
     async execute(args, api) {
       const directory = resolvePath(api.env?.cwd ?? "/workspace", args.path);
       const entries = await need(files).readdir(directory);
-      const limit = Math.min(args.limit ?? MAX_LS, MAX_LS);
+      const limit = Math.min(args.limit ?? max, max);
       const names = entries
         .map((entry) => `${entry.name}${entry.isDirectory ? "/" : ""}`)
         .toSorted((left, right) => left.localeCompare(right));
@@ -61,19 +77,19 @@ const lsTool = (files: FilesOf) =>
     },
   });
 
-const findTool = (files: FilesOf) =>
+const findTool = (files: FilesOf, max: number) =>
   defineTool({
     name: "find",
-    description: `Find files by glob pattern, such as '*.ts' or 'src/**/*.test.ts'. Paths relative to the directory searched. Up to ${MAX_FIND} results; .git and node_modules are skipped.`,
+    description: `Find files by glob pattern, such as '*.ts' or 'src/**/*.test.ts'. Paths relative to the directory searched. Up to ${max} results; .git and node_modules are skipped.`,
     parameters: obj({
       pattern: str({ description: "Glob pattern to match files" }),
       path: opt(str({ description: "Directory to search in (default: the working directory)" })),
-      limit: opt(num({ description: `Maximum number of results (default ${MAX_FIND})` })),
+      limit: opt(num({ description: `Maximum number of results (default ${max})` })),
     }),
     replay: "safe",
     async execute(args, api) {
       const directory = resolvePath(api.env?.cwd ?? "/workspace", args.path);
-      const limit = Math.min(args.limit ?? MAX_FIND, MAX_FIND);
+      const limit = Math.min(args.limit ?? max, max);
       const found = await need(files).find(directory, args.pattern, { limit: limit + 1, exclude: EXCLUDE });
       const paths = found
         .slice(0, limit)
@@ -86,10 +102,10 @@ const findTool = (files: FilesOf) =>
     },
   });
 
-const grepTool = (files: FilesOf) =>
+const grepTool = (files: FilesOf, max: number) =>
   defineTool({
     name: "grep",
-    description: `Search file contents for a pattern. Returns matching lines as path:line: text. Up to ${MAX_GREP} matches; .git and node_modules are skipped.`,
+    description: `Search file contents for a pattern. Returns matching lines as path:line: text. Up to ${max} matches; .git and node_modules are skipped.`,
     parameters: obj({
       pattern: str({ description: "Search pattern (a regular expression unless literal is true)" }),
       path: opt(str({ description: "Directory or file to search (default: the working directory)" })),
@@ -97,12 +113,12 @@ const grepTool = (files: FilesOf) =>
       ignoreCase: opt(bool({ description: "Case-insensitive search (default false)" })),
       literal: opt(bool({ description: "Treat the pattern as a literal string (default false)" })),
       context: opt(num({ description: "Lines of context before and after each match (default 0)" })),
-      limit: opt(num({ description: `Maximum number of matches (default ${MAX_GREP})` })),
+      limit: opt(num({ description: `Maximum number of matches (default ${max})` })),
     }),
     replay: "safe",
     async execute(args, api) {
       const directory = resolvePath(api.env?.cwd ?? "/workspace", args.path);
-      const limit = Math.min(args.limit ?? MAX_GREP, MAX_GREP);
+      const limit = Math.min(args.limit ?? max, max);
       const matches = await need(files).grep(args.pattern, directory, {
         ignoreCase: args.ignoreCase === true,
         regex: args.literal !== true,
@@ -130,6 +146,9 @@ const grepTool = (files: FilesOf) =>
     },
   });
 
-/** `ls`, `find` and `grep`. */
-export const fileTools = (files: FilesOf): Extension =>
-  defineExtension({ name: "files", tools: [lsTool(files), findTool(files), grepTool(files)] });
+/** `ls`, `find` and `grep`, within `limits`. */
+export const fileTools = (files: FilesOf, limits: FileLimits = DEFAULT_FILE_LIMITS): Extension =>
+  defineExtension({
+    name: FILES_EXTENSION,
+    tools: [lsTool(files, limits.lsLimit), findTool(files, limits.findLimit), grepTool(files, limits.grepLimit)],
+  });

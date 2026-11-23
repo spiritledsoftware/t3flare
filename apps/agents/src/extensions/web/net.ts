@@ -71,7 +71,11 @@ export const discardBody = async (response: Response): Promise<void> => {
 };
 
 const formatByteLimit = (bytes: number): string =>
-  bytes % (1024 * 1024) === 0 ? `${bytes / (1024 * 1024)} MiB` : `${bytes}-byte`;
+  bytes % (1024 * 1024) === 0
+    ? `${bytes / (1024 * 1024)} MiB`
+    : bytes % 1024 === 0
+      ? `${bytes / 1024} KiB`
+      : `${bytes}-byte`;
 
 /**
  * Read a response's body incrementally, never holding more than `maximumBytes`: a larger declared or streamed body
@@ -233,23 +237,26 @@ export const guardedFetch = async (
   }
 };
 
-/** `run` with a deadline of `ms`: aborts `signal`'s child and fails with `timed out after …`. */
+/** `run` with a deadline of `seconds`: aborts `signal`'s child and fails with `timed out after N seconds`. */
 export const withDeadline = async <T>(
-  ms: number,
-  label: string,
+  seconds: number,
   outer: AbortSignal | undefined,
   run: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> => {
+  const label = `${seconds} ${seconds === 1 ? "second" : "seconds"}`;
   const controller = new AbortController();
   const onAbort = () => controller.abort(outer?.reason);
   outer?.addEventListener("abort", onAbort, { once: true });
   if (outer?.aborted === true) controller.abort(outer.reason);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      controller.abort(new WebToolError(`timed out after ${label}`));
-      reject(new WebToolError(`timed out after ${label}`));
-    }, ms);
+    timer = setTimeout(
+      () => {
+        controller.abort(new WebToolError(`timed out after ${label}`));
+        reject(new WebToolError(`timed out after ${label}`));
+      },
+      Math.ceil(seconds * 1000),
+    );
   });
   try {
     return await Promise.race([run(controller.signal), deadline]);

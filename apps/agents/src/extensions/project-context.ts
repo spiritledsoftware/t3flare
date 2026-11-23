@@ -3,10 +3,26 @@
 // Part 1 keeps only the section: `read`/`edit`/`write` do not show nested files' instructions as the agent reaches
 // them.
 import { defineExtension, type Extension, section } from "@earendil-works/pi-durable";
+import { defaultSettings, type SettingValue } from "@t3flare/harness-registry";
+
+export const PROJECT_CONTEXT_EXTENSION = "project-context";
+
+/** The `project-context` extension's settings (SPI-1321). */
+export interface ProjectContextLimits {
+  /** The most of one AGENTS.md or CLAUDE.md the section shows. */
+  readonly maxFileCharacters: number;
+}
+
+/** The `project-context` extension's resolved settings as limits. */
+export const projectContextLimits = (values: Readonly<Record<string, SettingValue>>): ProjectContextLimits => ({
+  maxFileCharacters: Number(values.maxFileCharacters),
+});
+
+export const DEFAULT_PROJECT_CONTEXT_LIMITS: ProjectContextLimits = projectContextLimits(
+  defaultSettings(PROJECT_CONTEXT_EXTENSION),
+);
 
 const NAMES = ["AGENTS.md", "CLAUDE.md"] as const;
-/** The most of one file the section shows. */
-const MAX_FILE_CHARS = 16_000;
 
 /** The directories from `root` down to `cwd` (just `root` when `cwd` is outside it). */
 const chain = (root: string, cwd: string): ReadonlyArray<string> => {
@@ -15,10 +31,14 @@ const chain = (root: string, cwd: string): ReadonlyArray<string> => {
   return [root, ...below.map((_, at) => `${root}/${below.slice(0, at + 1).join("/")}`)];
 };
 
-/** The section, for a repo at `root`. */
-export const projectContext = (root: string): Extension =>
-  defineExtension({
-    name: "project-context",
+/** The section, for a repo at `root`, within `limits`. */
+export const projectContext = (
+  root: string,
+  limits: ProjectContextLimits = DEFAULT_PROJECT_CONTEXT_LIMITS,
+): Extension => {
+  const maxChars = limits.maxFileCharacters;
+  return defineExtension({
+    name: PROJECT_CONTEXT_EXTENSION,
     sections: [
       section("project_context", async (input, context) => {
         const env = input.env;
@@ -30,8 +50,7 @@ export const projectContext = (root: string): Extension =>
           for (const name of NAMES) {
             const read = await env.readTextFile(`${directory}/${name}`, context).catch(() => undefined);
             if (read === undefined || !read.ok) continue;
-            const body =
-              read.value.length > MAX_FILE_CHARS ? `${read.value.slice(0, MAX_FILE_CHARS)}\n… [cut]` : read.value;
+            const body = read.value.length > maxChars ? `${read.value.slice(0, maxChars)}\n… [cut]` : read.value;
             parts.push(`## ${directory}/${name}\n\n${body.trim()}`);
             break;
           }
@@ -40,3 +59,4 @@ export const projectContext = (root: string): Extension =>
       }),
     ],
   });
+};

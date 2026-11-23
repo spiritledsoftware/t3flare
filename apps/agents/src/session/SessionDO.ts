@@ -81,11 +81,11 @@ import {
 } from "../extensions/codemode.ts";
 import { mcpExtension, mcpNamespaces, type McpView } from "../extensions/mcp.ts";
 import { codingTools } from "../extensions/coding-tools.ts";
-import { fileTools } from "../extensions/files.ts";
+import { FILES_EXTENSION, fileLimits, fileTools } from "../extensions/files.ts";
 import { answerText, ASK_USER_EXTENSION, askUser, QuestionStore } from "../extensions/ask-user.ts";
 import { McpQuestions } from "../extensions/mcpQuestions.ts";
 import { ApprovalStore, interactionModeSection, permissions, toToolPath } from "../extensions/permissions.ts";
-import { projectContext } from "../extensions/project-context.ts";
+import { PROJECT_CONTEXT_EXTENSION, projectContext, projectContextLimits } from "../extensions/project-context.ts";
 import { proposePlan } from "../extensions/plan.ts";
 import { CONTEXT_EXTENSION, CONTEXT_NAMESPACE, contextExtension } from "../extensions/context.ts";
 import { ADVISOR_EXTENSION, AdvisorObserver, advisorExtension, advisorSettings } from "../extensions/advisor.ts";
@@ -99,7 +99,7 @@ import {
 } from "../extensions/termctrl.ts";
 import { SKILLS_EXTENSION, skillsExtension } from "../extensions/skills.ts";
 import { TODO_EXTENSION, TodoDoc, todoExtension } from "../extensions/todo.ts";
-import { WEB_EXTENSION, WEB_NAMESPACE, webExtension } from "../extensions/web.ts";
+import { WEB_EXTENSION, WEB_NAMESPACE, webExtension, webLimits } from "../extensions/web.ts";
 import { type SearchTarget, searchChoice } from "../extensions/web/search.ts";
 import {
   catalogOf,
@@ -270,6 +270,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
     });
     registry.install(modelLimits(this.#limits));
     registry.install(codingTools());
+    // Installed here for their place in the registry, then again in place with the harness's settings at each turn.
     registry.install(fileTools(() => this.#files()));
     registry.install(projectContext(REPO_ROOT));
     registry.install(
@@ -472,9 +473,12 @@ export class SessionDO extends DurableObject<SessionEnv> {
     if (web.enabled) {
       const searchModel = String(web.settings.searchModel);
       registry.install(
-        webExtension(
-          tools.tools.web_search !== "hidden" ? { search: { resolve: () => this.#searchTarget(searchModel) } } : {},
-        ),
+        webExtension({
+          limits: webLimits(web.settings),
+          ...(tools.tools.web_search !== "hidden"
+            ? { search: { resolve: () => this.#searchTarget(searchModel) } }
+            : {}),
+        }),
       );
       namespaces.push(WEB_NAMESPACE);
     } else {
@@ -502,6 +506,11 @@ export class SessionDO extends DurableObject<SessionEnv> {
     } else {
       registry.uninstall({ name: TERMCTRL_EXTENSION });
     }
+    // SPI-1321: the file tools' and the Project context's limits; installed again in place, as codingTools is below.
+    registry.install(fileTools(() => this.#files(), fileLimits(extensionOf(harness, FILES_EXTENSION).settings)));
+    registry.install(
+      projectContext(REPO_ROOT, projectContextLimits(extensionOf(harness, PROJECT_CONTEXT_EXTENSION).settings)),
+    );
     // `bash`'s `background` with Background jobs on; installed again in place, so the permissions' wraps stay outside it.
     registry.install(
       codingTools(
