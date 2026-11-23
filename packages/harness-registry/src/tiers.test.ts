@@ -37,8 +37,11 @@ const SWITCHES: Readonly<Record<string, "switch" | "guard" | "unchangeable" | "t
   "project-context": "unchangeable",
 };
 
-/** Each extension setting's rule: `free`, `down-free`, or `asked` (a Guard's settings and any without a declared tier). */
-const SETTINGS: Readonly<Record<string, "free" | "down-free" | "asked">> = {
+/**
+ * Each extension setting's rule: `free`, `down-free`, `up-free`, or `asked` (a Guard's settings and any without a
+ * declared tier).
+ */
+const SETTINGS: Readonly<Record<string, "free" | "down-free" | "up-free" | "asked">> = {
   "codemode.inlineBudget": "free",
   "web.searchModel": "asked",
   "context.rolloverOnCompaction": "free",
@@ -50,10 +53,20 @@ const SETTINGS: Readonly<Record<string, "free" | "down-free" | "asked">> = {
   "guardian.tools": "asked",
   "guardian.commands": "asked",
   "guardian.policy": "asked",
+  "guardian.reviewTimeoutSeconds": "asked",
   "advisor.model": "asked",
   "advisor.reviewEvery": "asked",
   "advisor.thinkingLevel": "asked",
   "advisor.correctiveTurns": "down-free",
+  // SPI-1320: more spends model requests and puts more text in front of the agent; a longer cooldown only narrows; the
+  // catch-up changes neither spend nor what the agent sees.
+  "advisor.reviewTimeoutSeconds": "down-free",
+  "advisor.maxFindings": "down-free",
+  "advisor.maxNits": "down-free",
+  "advisor.maxToolRounds": "down-free",
+  "advisor.concernCooldownTurns": "up-free",
+  "advisor.catchUpBacklog": "free",
+  "advisor.catchUpWaitSeconds": "free",
 };
 
 /** Each Environment key: from, to, and the expected tier; `down` is the same key moved the other way. */
@@ -197,8 +210,8 @@ describe("tierOf: extensions", () => {
         const rule = SETTINGS[name];
         expect([name, up, down]).toEqual([
           name,
-          rule === "free" ? "free" : "asked",
-          rule === "asked" ? "asked" : "free",
+          rule === "free" || rule === "up-free" ? "free" : "asked",
+          rule === "free" || rule === "down-free" ? "free" : "asked",
         ]);
       }
     }
@@ -215,6 +228,24 @@ describe("tierOf: extensions", () => {
       "guardian",
       "permissions",
     ]);
+  });
+
+  it("the Guardian's and the Advisor's review bounds from their defaults (SPI-1320)", () => {
+    const from = (extension: string, settings: Record<string, unknown>) =>
+      tier({ entity: "extension", stored: EMPTY_HARNESS, change: { extension, settings } });
+    expect(from("guardian", { reviewTimeoutSeconds: 30 })).toBe("asked");
+    expect(from("guardian", { reviewTimeoutSeconds: 300 })).toBe("asked");
+    expect(from("advisor", { maxToolRounds: 4 })).toBe("free");
+    expect(from("advisor", { maxToolRounds: 12 })).toBe("asked");
+    expect(from("advisor", { concernCooldownTurns: 5 })).toBe("free");
+    expect(from("advisor", { concernCooldownTurns: 1 })).toBe("asked");
+    for (const settings of [
+      { catchUpBacklog: 1 },
+      { catchUpBacklog: 9 },
+      { catchUpWaitSeconds: 0 },
+      { catchUpWaitSeconds: 600 },
+    ])
+      expect(from("advisor", settings)).toBe("free");
   });
 
   it("a change that moves nothing is unchanged; several parts are asked when any is", () => {

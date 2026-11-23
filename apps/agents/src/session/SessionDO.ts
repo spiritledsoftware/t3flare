@@ -534,6 +534,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
             tools: String(guardian.settings.tools ?? ""),
             commands: String(guardian.settings.commands ?? ""),
             policy: String(guardian.settings.policy ?? ""),
+            reviewTimeoutMs: Number(guardian.settings.reviewTimeoutSeconds) * 1_000,
           },
         ),
       );
@@ -548,6 +549,13 @@ export class SessionDO extends DurableObject<SessionEnv> {
         reviewEvery: every === "turn" || every === "request" ? every : Math.max(1, Number(every) || 1),
         thinkingLevel: String(advisor.settings.thinkingLevel) as AdvisorSettings["thinkingLevel"],
         correctiveTurns: Number(advisor.settings.correctiveTurns),
+        reviewTimeoutMs: Number(advisor.settings.reviewTimeoutSeconds) * 1_000,
+        maxFindings: Number(advisor.settings.maxFindings),
+        maxNits: Number(advisor.settings.maxNits),
+        maxToolRounds: Number(advisor.settings.maxToolRounds),
+        concernCooldownTurns: Number(advisor.settings.concernCooldownTurns),
+        catchUpBacklog: Number(advisor.settings.catchUpBacklog),
+        catchUpWaitMs: Number(advisor.settings.catchUpWaitSeconds) * 1_000,
       };
       if (this.#advisor === undefined)
         this.#advisor = new AdvisorObserver(() => this.#opening, this.ctx.storage.kv, settings);
