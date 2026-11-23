@@ -6,7 +6,7 @@ import type { SqlStorage } from "@cloudflare/workers-types/index.ts";
 import { BUILDERS } from "@t3flare/harness-registry";
 import { toWorkspace } from "@t3flare/workspace-client";
 
-import { environmentServices } from "./bindings.ts";
+import { checkpointMsNow, environmentServices } from "./bindings.ts";
 import { byName, type Namespace } from "./rpc.ts";
 import { workspaceRpc } from "./workspaceClient.ts";
 import { DAY_MS, type SweepSettings } from "./deletionSettings.ts";
@@ -333,7 +333,7 @@ export const removeWorktree = async (
   let out: Awaited<ReturnType<ReturnType<typeof workspaceRpc>["carryOut"]>>;
   try {
     tips = await workspaceRpc(project.id).refTips();
-    out = await workspaceRpc(id).carryOut({ projectTips: tips.ok ? tips.tips : [] });
+    out = await workspaceRpc(id).carryOut({ projectTips: tips.ok ? tips.tips : [], timeoutMs: checkpointMsNow() });
   } catch (error) {
     // The check needs both Containers (a budget of 3): without it nothing is known, so nothing is purged.
     return await tombstone(`the removal could not check the worktree: ${String(error).slice(0, 300)}`, null);
@@ -354,7 +354,7 @@ export const removeWorktree = async (
   let carried: ReadonlyArray<string> = [];
   if (out.bundle !== null && out.carried.length > 0) {
     const home = await workspaceRpc(project.id)
-      .carryIn({ worktree: id, bundle: out.bundle, dir, carried: out.carried })
+      .carryIn({ worktree: id, bundle: out.bundle, dir, carried: out.carried, timeoutMs: checkpointMsNow() })
       .catch((error: unknown) => ({ ok: false, lines: [] as ReadonlyArray<string>, error: String(error) }));
     if (!home.ok)
       return await tombstone(

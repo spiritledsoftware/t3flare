@@ -78,6 +78,19 @@ export const DEFAULT_TURN_LIMIT_MINUTES = 120;
 export const DEFAULT_TURN_LIMIT_MS = DEFAULT_TURN_LIMIT_MINUTES * 60_000;
 
 /**
+ * The clone time limit's default, in minutes (`cloneMinutes`, SPI-1324): how long a Workspace's clone, and a worktree
+ * Workspace's clone and checkout, may run in its Container. The Workspace DO uses it for a call that carries no limit.
+ */
+export const DEFAULT_CLONE_MINUTES = 15;
+
+/**
+ * The checkpoint time limit's default, in minutes (`checkpointMinutes`, SPI-1324): how long a turn's checkpoint and its
+ * restore, a worktree's seed bundle, and carrying a removed worktree's commits home may run in the Container. The
+ * Workspace DO uses it for a call that carries no limit.
+ */
+export const DEFAULT_CHECKPOINT_MINUTES = 10;
+
+/**
  * The settings read wait's default, in seconds (`settingsReadSeconds`, SPI-1314): how long a Container start or a turn
  * waits for the newest settings before it runs with the ones it last took.
  */
@@ -452,6 +465,23 @@ export const ENVIRONMENT_SETTINGS = {
     schema: { type: "integer", minimum: 4, maximum: MAX_SETUP_OUTPUT_KIB, default: 32 },
     tier: "down-free",
     row: "containerSetup",
+  },
+  cloneMinutes: {
+    title: "Clone time limit (minutes)",
+    description:
+      "How long cloning a project's repository may run in its Container, and a new worktree's clone and its checkout each. A clone, checkout or checkpoint that runs longer than this fails; while it runs it holds the Container. Applies at the next clone or checkout; one already running keeps its limit.",
+    // computerd times each exec with its own timer and no maximum (computer 0.11.2), so the shared sanity maximum
+    // applies (ADR-0048 §2).
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_CLONE_MINUTES },
+    tier: "down-free",
+  },
+  checkpointMinutes: {
+    title: "Checkpoint time limit (minutes)",
+    description:
+      "How long the Container's git may take for a turn's checkpoint and its restore, for bundling a project's commits into a new worktree, and for carrying a removed worktree's commits home. Applies at the next one; one already running keeps its limit.",
+    // As the clone time limit: computerd's own timer, no maximum, the shared sanity maximum (ADR-0048 §2).
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_CHECKPOINT_MINUTES },
+    tier: "down-free",
   },
   imageSetup: {
     title: "Image setup",

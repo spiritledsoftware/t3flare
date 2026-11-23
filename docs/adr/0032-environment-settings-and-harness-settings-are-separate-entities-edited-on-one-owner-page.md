@@ -348,3 +348,26 @@ Workspace's next Container start and a running Container keeps what it started w
 reads as the defaults (`terminalLimitsOf`). Lowering a count closes no open Terminal; the next open or start is refused,
 naming the setting. The stage checks' `T3FLARE_TERMINAL_IDLE_MS` and `T3FLARE_TERMINAL_PROMPT_IDLE_MS` still win over
 the launch's holds (`terminalHoldOf`), and a Container preview's hold follows the busy hold.
+
+## Refinement (SPI-1324, 2026-11-23): the clone and checkpoint time limits
+
+The Workspace DO's fixed time limits on its git in the Container are the Owner's. `cloneMinutes` (15 by default) bounds
+a project's clone and a worktree Workspace's clone and checkout; `checkpointMinutes` (10) bounds a turn's checkpoint
+(the capture, and the diff and authored-paths reads above the isomorphic-git guard, which may wait for a cold start as
+long as a capture) and its restore, a worktree's seed bundle in its project, and carrying a removed worktree's commits
+home (its carry out and carry in). Two keys, not one with a ratio, as every other time limit: a big history and a big
+working tree are different costs. Both take 1 to `MAX_TIMED_MINUTES`: computerd times each exec with its own timer and
+no maximum (computer 0.11.2), so ADR-0048 §2's sanity maximum applies. Both are `down-free` (a longer limit holds the
+Container longer) and show last in the Containers row; the clone limit states the consequence once ("A clone, checkout
+or checkpoint that runs longer than this fails; while it runs it holds the Container").
+
+The Environment DO reads each at every call and carries it to the Workspace DO as `timeoutMs` (`cloneMsNow`,
+`checkpointMsNow`), as the CLI agents' processes per Workspace ride their start: a copy kept in the Workspace DO would
+not exist yet for a new Workspace's first clone, the case that most needs a longer limit. So a change applies at the
+next clone, checkout or checkpoint, and one already running keeps its limit. A call that carries none (an older
+Environment, the admin route's `checkpoint`) gets `DEFAULT_CLONE_MINUTES` or `DEFAULT_CHECKPOINT_MINUTES`
+(`gitLimits.ts`).
+
+Two Container git reads stay a fixed 120 s: the authored paths of a range where HEAD moved, and a project's ref tips
+before a worktree's removal (`refTips`). They are listings, quick on any repo, not the Owner's clone or checkpoint; the
+work they precede has its own limit.

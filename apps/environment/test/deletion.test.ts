@@ -3,7 +3,9 @@
 // @effect-diagnostics globalDate:off
 import { describe, expect, it } from "vitest";
 
-import { ENVIRONMENT_SETTINGS } from "@t3flare/harness-registry";
+import { EMPTY_ENVIRONMENT, ENVIRONMENT_SETTINGS, resolveEnvironment } from "@t3flare/harness-registry";
+
+import { bindEnvironmentServices, type EnvironmentServices } from "../src/agents/bindings.ts";
 
 import {
   DELETING_RETRY_MS,
@@ -12,6 +14,7 @@ import {
   purgeDue,
   purgeSubjectOf,
   referencesFrom,
+  removeWorktree,
   STALE_PROVISIONING_MS,
   SWEEP_EVERY_MS,
   sweepSettingsOf,
@@ -344,5 +347,67 @@ describe("the Sweep's next run (ADR-0043 §5)", () => {
   it("is five minutes ahead when a deleting row is left", () => {
     expect(nextSweepAt({ now, dues: [], deletingLeft: true })).toBe(now + DELETING_RETRY_MS);
     expect(nextSweepAt({ now, dues: [now + 2 * 60_000], deletingLeft: true })).toBe(now + 2 * 60_000);
+  });
+});
+
+describe("a removed worktree's carry (SPI-1324)", () => {
+  /** A project `p` and its worktree at `/w/.wt/p/x`, whose Workspace DOs record each call and answer as succeeding. */
+  const bindCarry = (calls: Array<{ id: string; method: string; input: unknown }>, checkpointMinutes?: number) => {
+    const worktree = { id: ".wt/p/x", kind: "worktree", parent: "p" };
+    const answers: Record<string, unknown> = {
+      refTips: { ok: true, tips: [] },
+      carryOut: { ok: true, dirty: false, carried: [{ ref: "refs/heads/feature", sha: "c".repeat(40) }], bundle: "b" },
+      carryIn: { ok: true, lines: ["CREATED refs/heads/feature"] },
+      destroy: { destroyed: true },
+    };
+    bindEnvironmentServices({
+      workspaces: {
+        resolve: (id: string) => (id === worktree.id ? worktree : undefined),
+        setState: () => undefined,
+        setLastError: () => undefined,
+        remove: () => undefined,
+      },
+      ...(checkpointMinutes === undefined
+        ? {}
+        : {
+            checkpointMs: () =>
+              resolveEnvironment({ revision: 1, settings: { checkpointMinutes } }).checkpointMinutes * 60_000,
+          }),
+      agents: {
+        WORKSPACES: {
+          idFromName: (name: string) => name,
+          get: (id: string) =>
+            new Proxy(
+              {},
+              {
+                get: (_, method: string) => async (input: unknown) => {
+                  calls.push({ id, method, input });
+                  return answers[method];
+                },
+              },
+            ),
+        },
+      },
+    } as unknown as EnvironmentServices);
+  };
+  const settings = sweepSettingsOf(resolveEnvironment(EMPTY_ENVIRONMENT), undefined);
+  const limitOf = (calls: ReadonlyArray<{ method: string; input: unknown }>, method: string) =>
+    (calls.find((call) => call.method === method)?.input as { timeoutMs?: number } | undefined)?.timeoutMs;
+
+  it("carryOut and carryIn carry the stored checkpointMinutes as timeoutMs", async () => {
+    const calls: Array<{ id: string; method: string; input: unknown }> = [];
+    bindCarry(calls, 3);
+    const answer = await removeWorktree("/w/p", "/w/.wt/p/x", false, t3Tables(), settings);
+    expect(answer.exitCode).toBe(0);
+    expect(limitOf(calls, "carryOut")).toBe(180_000);
+    expect(limitOf(calls, "carryIn")).toBe(180_000);
+  });
+
+  it("carry the default, 10 minutes, when the services hold no setting", async () => {
+    const calls: Array<{ id: string; method: string; input: unknown }> = [];
+    bindCarry(calls);
+    await removeWorktree("/w/p", "/w/.wt/p/x", false, t3Tables(), settings);
+    expect(limitOf(calls, "carryOut")).toBe(600_000);
+    expect(limitOf(calls, "carryIn")).toBe(600_000);
   });
 });

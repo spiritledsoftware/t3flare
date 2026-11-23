@@ -27,7 +27,7 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import type * as ChildProcess from "effect/process/ChildProcess";
 
 import * as StateStore from "../platform/stateStore.ts";
-import { environmentServices } from "./bindings.ts";
+import { checkpointMsNow, cloneMsNow, environmentServices } from "./bindings.ts";
 import {
   cloneRequestOf,
   gitEnvOf,
@@ -208,7 +208,8 @@ const clone = async (request: { readonly id: string; readonly url: string }): Pr
   // The clone's credential helper asks the Workspace DO, which asks this object for the repo's token (ADR-0013). Not in
   // the App's installation: a public repo still clones, a private one fails with git's own message.
   const detail = remote?.host === "github.com" ? "github-app" : "public";
-  const answer = await workspaceRpc(request.id).clone({ id: request.id, url });
+  // The clone time limit as stored now (SPI-1324): a new Workspace's first clone has no Workspace DO copy of it.
+  const answer = await workspaceRpc(request.id).clone({ id: request.id, url, timeoutMs: cloneMsNow() });
   if (!answer.ran || answer.exitCode !== 0) {
     if (existing === undefined) services.workspaces.remove(request.id);
     else services.workspaces.setRemote(request.id, { host: null, owner: null, name: null, cloneUrl: null });
@@ -462,14 +463,19 @@ const worktreeAdd = async (cwd: string, command: Extract<WorktreeCommand, { verb
   };
   try {
     const worktree = workspaceRpc(id);
-    const cloned = await step("clone", () => worktree.worktreeClone({ id, url: parent.cloneUrl, parent: parent.id }));
+    // Each step carries the clone or checkpoint time limit as stored now (SPI-1324).
+    const cloned = await step("clone", () =>
+      worktree.worktreeClone({ id, url: parent.cloneUrl, parent: parent.id, timeoutMs: cloneMsNow() }),
+    );
     if (!cloned.ok) return failed(`clone: ${cloned.error ?? "failed"}`);
     const name = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(id)))]
       .slice(0, 8)
       .map((byte) => byte.toString(16).padStart(2, "0"))
       .join("");
     const projectRpc = workspaceRpc(parent.id);
-    const bundled = await step("bundle", () => projectRpc.worktreeBundle({ ref, tips: cloned.tips, name }));
+    const bundled = await step("bundle", () =>
+      projectRpc.worktreeBundle({ ref, tips: cloned.tips, name, timeoutMs: checkpointMsNow() }),
+    );
     if (!bundled.ok || bundled.commit === undefined) {
       const raw = `bundle: ${bundled.error ?? "failed"}`;
       return explainHeldBase(parent.id, ref, failed(raw), raw);
@@ -481,6 +487,7 @@ const worktreeAdd = async (cwd: string, command: Extract<WorktreeCommand, { verb
         ref,
         commit: bundled.commit!,
         config: bundled.config ?? [],
+        timeoutMs: cloneMsNow(),
       }),
     );
     if (bundled.bundle)

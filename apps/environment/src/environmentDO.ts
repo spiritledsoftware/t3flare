@@ -249,6 +249,9 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       // Read at each turn's start (SPI-1314): how long the Session waits there for the newest settings.
       settingsReadMs: () =>
         resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).settingsReadSeconds * 1000,
+      // Read at each clone and checkpoint operation (SPI-1324) and carried as its `timeoutMs`: one already running keeps it.
+      cloneMs: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).cloneMinutes * 60_000,
+      checkpointMs: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).checkpointMinutes * 60_000,
       // Read when a card is raised and at each CLI spawn (SPI-1316): a card already waiting keeps its deadline.
       ownerAnswerMs: () => ownerAnswerMsOf(resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment())),
       // The deletion wake's Layer (`t3/deletionWake.ts`, ADR-0043 §5) asks for a Sweep here.

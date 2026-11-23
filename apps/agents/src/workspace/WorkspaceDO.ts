@@ -62,6 +62,7 @@ import {
   resolveEnvironment,
 } from "@t3flare/harness-registry";
 import { BaseBuild } from "./baseBuild.ts";
+import { checkpointLimitMs, cloneLimitMs } from "./gitLimits.ts";
 import {
   BASE_WAIT_POLL_MS,
   baseIdOf,
@@ -1770,8 +1771,10 @@ export class WorkspaceDO extends ContainerHost {
    * makes the new ref an alias of the previous capture when nothing was written since, and runs the Container's git
    * otherwise. A restore, and the authored paths of a range where HEAD moved, run the Container's git.
    */
-  async checkpoint(op: CheckpointOp): Promise<CheckpointAnswer> {
+  async checkpoint(op: CheckpointOp, options?: { readonly timeoutMs?: number }): Promise<CheckpointAnswer> {
     this.#alive();
+    // The Container's git for this op may run this long (`checkpointMinutes`, carried by the Environment DO).
+    const timeoutMs = checkpointLimitMs(options?.timeoutMs);
     try {
       const repo = await this.#repo();
       switch (op.op) {
@@ -1781,13 +1784,13 @@ export class WorkspaceDO extends ContainerHost {
           for (const ref of op.refs) await deleteRef(repo, ref);
           return { ok: true, value: null, by: "do" };
         case "capture":
-          return await this.#capture(repo, op.ref);
+          return await this.#capture(repo, op.ref, timeoutMs);
         case "diff":
-          return await this.#diff(repo, op);
+          return await this.#diff(repo, op, timeoutMs);
         case "authored":
-          return await this.#authored(repo, op.from, op.to);
+          return await this.#authored(repo, op.from, op.to, timeoutMs);
         case "restore":
-          return await this.#restore(repo, op.ref, op.fallbackToHead);
+          return await this.#restore(repo, op.ref, op.fallbackToHead, timeoutMs);
       }
     } catch (error) {
       console.warn(JSON.stringify({ t3flare: "checkpoint-failed", op: op.op, error: String(error).slice(0, 500) }));
@@ -1796,7 +1799,7 @@ export class WorkspaceDO extends ContainerHost {
   }
 
   /** SPI-1100: the Container's writes (a CLI agent's, a terminal's) are pulled first (`checkpointCapture.ts`). */
-  #capture(repo: Repo, ref: string): Promise<CheckpointAnswer> {
+  #capture(repo: Repo, ref: string, timeoutMs: number): Promise<CheckpointAnswer> {
     return captureTurn(
       {
         // Never starts the Container (`pullNow` skips a stopped one); serialised with the terminals' pulls.
@@ -1811,7 +1814,7 @@ export class WorkspaceDO extends ContainerHost {
             script: captureScript(at),
             cwd: REPO_ROOT,
             env: this.#identityEnv(),
-            timeoutMs: 10 * 60_000,
+            timeoutMs,
           });
           return result.exitCode === 0
             ? { ok: true }
@@ -1823,7 +1826,7 @@ export class WorkspaceDO extends ContainerHost {
     );
   }
 
-  async #diff(repo: Repo, op: Extract<CheckpointOp, { op: "diff" }>): Promise<CheckpointAnswer> {
+  async #diff(repo: Repo, op: Extract<CheckpointOp, { op: "diff" }>, timeoutMs: number): Promise<CheckpointAnswer> {
     if (op.filePaths?.length === 0) return { ok: true, value: "", by: "do" };
     // Above the guard the DO reads no object (SPI-1050 review): the Container's git answers, started if need be.
     const within = await withinGuard(repo);
@@ -1856,7 +1859,7 @@ export class WorkspaceDO extends ContainerHost {
         script: `exec git ${argv.map(shellWord).join(" ")}`,
         cwd: REPO_ROOT,
         passive: true,
-        ...(within ? {} : { timeoutMs: 10 * 60_000 }),
+        ...(within ? {} : { timeoutMs }),
       });
       if (result.exitCode === 0) return { ok: true, value: result.stdout, by: "container" };
       if (!within) return { ok: false, error: `git diff failed: ${result.stderr.slice(0, 1000)}` };
@@ -1869,7 +1872,7 @@ export class WorkspaceDO extends ContainerHost {
     return { ok: true, value, by: "do" };
   }
 
-  async #authored(repo: Repo, fromRef: string, toRef: string): Promise<CheckpointAnswer> {
+  async #authored(repo: Repo, fromRef: string, toRef: string, timeoutMs: number): Promise<CheckpointAnswer> {
     const within = await withinGuard(repo);
     const resolve = resolverFor(repo, within);
     const from = await resolve(fromRef);
@@ -1886,7 +1889,7 @@ export class WorkspaceDO extends ContainerHost {
         script: `exec git log --no-walk=unsorted --format=%P ${shellWord(from)} ${shellWord(to)}`,
         cwd: REPO_ROOT,
         passive: true,
-        timeoutMs: 10 * 60_000,
+        timeoutMs,
       });
       if (parents.exitCode !== 0) return { ok: false, error: parents.stderr.slice(0, 1000) };
       const lines = parents.stdout.split("\n");
@@ -1895,7 +1898,8 @@ export class WorkspaceDO extends ContainerHost {
     }
     if (startHead === undefined || endHead === undefined || startHead === endHead)
       return { ok: true, value: null, by: within ? "do" : "container" };
-    // HEAD moved between the checkpoints (a commit, in the Container): its git lists the paths, as t3's driver does.
+    // HEAD moved between the checkpoints (a commit, in the Container): its git lists the paths, as t3's driver does. A
+    // listing read, not the Owner's checkpoint: a fixed 120 s (ADR-0032's SPI-1324 refinement).
     const result = await this.exec({
       script: authoredScript(from, to, startHead, endHead),
       cwd: REPO_ROOT,
@@ -1909,12 +1913,12 @@ export class WorkspaceDO extends ContainerHost {
     };
   }
 
-  async #restore(repo: Repo, ref: string, fallbackToHead: boolean): Promise<CheckpointAnswer> {
+  async #restore(repo: Repo, ref: string, fallbackToHead: boolean, timeoutMs: number): Promise<CheckpointAnswer> {
     const resolve = resolverFor(repo, await withinGuard(repo));
     let commit = await resolve(ref);
     if (commit === null && fallbackToHead) commit = await resolve("HEAD");
     if (commit === null) return { ok: true, value: false, by: "do" };
-    const result = await this.exec({ script: restoreScript(commit), cwd: REPO_ROOT, timeoutMs: 10 * 60_000 });
+    const result = await this.exec({ script: restoreScript(commit), cwd: REPO_ROOT, timeoutMs });
     if (result.exitCode !== 0) return { ok: false, error: result.stderr.slice(0, 1000) };
     return { ok: true, value: true, by: "container" };
   }
@@ -1949,7 +1953,7 @@ export class WorkspaceDO extends ContainerHost {
       const result = await this.exec({
         script,
         cwd: "/workspace",
-        timeoutMs: input.timeoutMs ?? 15 * 60_000,
+        timeoutMs: cloneLimitMs(input.timeoutMs),
       });
       if (result.exitCode === 0) await this.#prime().catch(() => undefined);
       return { ran: true, exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr, ms: result.ms };
@@ -1967,6 +1971,8 @@ export class WorkspaceDO extends ContainerHost {
     readonly id: string;
     readonly url: string | null;
     readonly parent?: string;
+    /** The clone time limit (`cloneMinutes`), carried by the Environment DO. */
+    readonly timeoutMs?: number;
   }): Promise<{ readonly ok: boolean; readonly tips: ReadonlyArray<string>; readonly error?: string }> {
     this.#revive();
     this.#rememberId(input.id);
@@ -1990,7 +1996,7 @@ export class WorkspaceDO extends ContainerHost {
       email: this.env.T3FLARE_GIT_EMAIL ?? "t3flare@users.noreply.github.com",
     });
     try {
-      const result = await this.exec({ script, cwd: "/workspace", timeoutMs: 15 * 60_000 });
+      const result = await this.exec({ script, cwd: "/workspace", timeoutMs: cloneLimitMs(input.timeoutMs) });
       if (result.exitCode !== 0) return { ok: false, tips: [], error: result.stderr.slice(-1000) };
       return { ok: true, tips: parseTips(result.stdout) };
     } catch (error) {
@@ -2007,6 +2013,8 @@ export class WorkspaceDO extends ContainerHost {
     readonly ref: string;
     readonly tips: ReadonlyArray<string>;
     readonly name: string;
+    /** The checkpoint time limit (`checkpointMinutes`), carried by the Environment DO. */
+    readonly timeoutMs?: number;
   }): Promise<{
     readonly ok: boolean;
     readonly commit?: string;
@@ -2018,7 +2026,7 @@ export class WorkspaceDO extends ContainerHost {
     const bundle = `${HARNESS_ROOT}/tmp/wt-${input.name.replace(/[^A-Za-z0-9-]/g, "")}.bundle`;
     const script = worktreeBundleScript({ ref: input.ref, tips: input.tips, bundle });
     try {
-      const result = await this.exec({ script, cwd: REPO_ROOT, timeoutMs: 10 * 60_000 });
+      const result = await this.exec({ script, cwd: REPO_ROOT, timeoutMs: checkpointLimitMs(input.timeoutMs) });
       if (result.exitCode !== 0) return { ok: false, error: result.stderr.slice(-1000) };
       const answer = parseBundleAnswer(result.stdout);
       if (answer.commit === null) return { ok: false, error: `no commit for ${input.ref}` };
@@ -2071,6 +2079,8 @@ export class WorkspaceDO extends ContainerHost {
     readonly ref: string;
     readonly commit: string;
     readonly config: ReadonlyArray<string>;
+    /** The clone time limit (`cloneMinutes`), carried by the Environment DO. */
+    readonly timeoutMs?: number;
   }): Promise<{ readonly ok: boolean; readonly head?: string; readonly error?: string }> {
     await this.#ready();
     let local: string | null = null;
@@ -2081,7 +2091,7 @@ export class WorkspaceDO extends ContainerHost {
     }
     const script = worktreeFinishScript({ bundle: local, ref: input.ref, commit: input.commit, config: input.config });
     try {
-      const result = await this.exec({ script, cwd: REPO_ROOT, timeoutMs: 15 * 60_000 });
+      const result = await this.exec({ script, cwd: REPO_ROOT, timeoutMs: cloneLimitMs(input.timeoutMs) });
       const head = result.stdout.trim().split("\n").at(-1) ?? "";
       if (result.exitCode !== 0) return { ok: false, error: result.stderr.slice(-1000) };
       if (head !== input.commit) return { ok: false, error: `HEAD is ${head}, not ${input.commit}` };
@@ -2261,6 +2271,7 @@ export class WorkspaceDO extends ContainerHost {
   /** The project's ref tips (its Container), for what a removed worktree must carry home. */
   async refTips(): Promise<{ readonly ok: boolean; readonly tips: ReadonlyArray<string>; readonly error?: string }> {
     this.#alive();
+    // A listing read, not the Owner's clone or checkpoint: a fixed 120 s (ADR-0032's SPI-1324 refinement).
     const result = await this.exec({
       script: "git for-each-ref --format='%(objectname)' | sort -u",
       cwd: REPO_ROOT,
@@ -2271,7 +2282,11 @@ export class WorkspaceDO extends ContainerHost {
   }
 
   /** In a worktree being removed: whether it is dirty, and a bundle of the refs its project cannot reach (F8). */
-  async carryOut(input: { readonly projectTips: ReadonlyArray<string> }): Promise<{
+  async carryOut(input: {
+    readonly projectTips: ReadonlyArray<string>;
+    /** The checkpoint time limit (`checkpointMinutes`), carried by the Environment DO. */
+    readonly timeoutMs?: number;
+  }): Promise<{
     readonly ok: boolean;
     readonly dirty: boolean;
     readonly carried: ReadonlyArray<{ readonly ref: string; readonly sha: string }>;
@@ -2283,7 +2298,7 @@ export class WorkspaceDO extends ContainerHost {
     const result = await this.exec({
       script: carryOutScript({ projectTips: input.projectTips, bundle }),
       cwd: REPO_ROOT,
-      timeoutMs: 10 * 60_000,
+      timeoutMs: checkpointLimitMs(input.timeoutMs),
     });
     if (result.exitCode !== 0)
       return { ok: false, dirty: true, carried: [], bundle: null, error: result.stderr.slice(-500) };
@@ -2297,6 +2312,8 @@ export class WorkspaceDO extends ContainerHost {
     readonly bundle: string;
     readonly dir: string;
     readonly carried: ReadonlyArray<{ readonly ref: string; readonly sha: string }>;
+    /** The checkpoint time limit (`checkpointMinutes`), carried by the Environment DO. */
+    readonly timeoutMs?: number;
   }): Promise<{ readonly ok: boolean; readonly lines: ReadonlyArray<string>; readonly error?: string }> {
     this.#alive();
     await this.#ready();
@@ -2307,7 +2324,7 @@ export class WorkspaceDO extends ContainerHost {
     const result = await this.exec({
       script: carryInScript({ bundle: local, dir: input.dir, carried: input.carried }),
       cwd: REPO_ROOT,
-      timeoutMs: 10 * 60_000,
+      timeoutMs: checkpointLimitMs(input.timeoutMs),
     });
     const lines = result.stdout.split("\n").filter((line) => /^(CREATED|FASTFORWARD|KEPT) /.test(line));
     if (result.exitCode !== 0) return { ok: false, lines, error: result.stderr.slice(-500) };

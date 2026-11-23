@@ -125,6 +125,9 @@ const ENVIRONMENT: Readonly<
   containerSetupFailure: { up: ["carryOn", "refuse", "asked"], down: ["refuse", "carryOn", "asked"] },
   // Keeping less of a setup's output is free; keeping more is asked (it is a larger stored value and a longer read).
   setupOutputKiB: { up: [32, 64, "asked"], down: [32, 16, "free"] },
+  // SPI-1324: a shorter clone or checkpoint limit only narrows; a longer one holds the Container longer, so it is asked.
+  cloneMinutes: { up: [15, 60, "asked"], down: [15, 5, "free"] },
+  checkpointMinutes: { up: [10, 30, "asked"], down: [10, 3, "free"] },
   // ADR-0047 §9: turning one on puts the Owner's dotfiles (text, hooks) in front of agents, so it is asked.
   terminalsReadBashrc: { up: [false, true, "asked"], down: [true, false, "free"] },
   agentsReadDotfiles: { up: [false, true, "asked"], down: [true, false, "free"] },
