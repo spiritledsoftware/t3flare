@@ -4,6 +4,7 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
+import { MAX_ANSWER_BYTES } from "../src/workspace/readCache.ts";
 import type { VfsProbe } from "./workerd.fixture.ts";
 
 const bindings = env as unknown as { VFS_PROBE: DurableObjectNamespace<VfsProbe> };
@@ -17,6 +18,13 @@ describe("readCache.put", () => {
 
   it("skips an answer over the 8 MiB row, without throwing", async () => {
     expect(await probe().cacheRead(9 * 1024 * 1024)).toEqual({ threw: null, cached: false });
+  });
+
+  it("keeps an answer of exactly MAX_ANSWER_BYTES, and skips one a byte over", async () => {
+    // The answer's JSON around an empty stdout, as the probe makes it.
+    const wrapper = JSON.stringify({ exitCode: 0, stdout: "", stderr: "" }).length;
+    expect(await probe().cacheRead(MAX_ANSWER_BYTES - wrapper)).toEqual({ threw: null, cached: true });
+    expect(await probe().cacheRead(MAX_ANSWER_BYTES - wrapper + 1)).toEqual({ threw: null, cached: false });
   });
 
   it("measures the row in UTF-8 bytes, not characters", async () => {

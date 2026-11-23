@@ -1605,7 +1605,11 @@ export class WorkspaceDO extends ContainerHost {
           this.#reads.put(key, rev, answer);
         } catch (error) {
           console.log(
-            JSON.stringify({ t3flare: "git-read-not-cached", detail: describeFailure(error).slice(0, 1000) }),
+            JSON.stringify({
+              t3flare: "git-read-not-cached",
+              workspace: this.#workspaceId() ?? null,
+              detail: describeFailure(error).slice(0, 1000),
+            }),
           );
         }
       }
