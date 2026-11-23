@@ -5,7 +5,14 @@
 // or reorder what the owner reads (SPI-992 review M6's rule for refs, kept to what is not printable).
 import { createHash } from "node:crypto";
 
-/** Most characters of a card's text shown. */
+/**
+ * Most characters of a card's text shown. A named constraint, provisional (SPI-1365): a Session's pending approval
+ * requests, each with its card's text, are one Durable Object KV value (`REQUESTS_KEY`,
+ * apps/agents/src/extensions/permissions.ts), which holds 8 MB, and a call's arguments may be any size (a file write's
+ * whole text). Bounding each card keeps that value under 8 MB however large the arguments; 16 KiB is not derived from
+ * it (8 MB holds about 160 cards of 16 KiB stored at three bytes a character), and a bound on the requests together
+ * would replace it.
+ */
 export const CARD_TEXT_MAX = 16 * 1024;
 
 // Every character that hides or reorders text: controls, format characters (bidi overrides and isolates, zero-width

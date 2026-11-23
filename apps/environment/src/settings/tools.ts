@@ -85,7 +85,13 @@ const fieldJson = (schema: EnvironmentFieldSchema): Record<string, unknown> => {
     case "integer":
       return { type: "integer", minimum: schema.minimum, maximum: schema.maximum };
     case "enum":
-      return { type: "string", enum: [...schema.values] };
+      return schema.integers === undefined
+        ? { type: "string", enum: [...schema.values] }
+        : {
+            type: "string",
+            pattern: `^(${schema.values.map((value) => value.replace(/[^A-Za-z0-9]/g, "\\$&")).join("|")}|[1-9][0-9]*)$`,
+            description: `One of ${schema.values.join(", ")}, or a whole number of at least ${schema.integers.minimum}, in digits.`,
+          };
     case "text":
       return { type: "string", maxLength: schema.maxLength };
     case "file":

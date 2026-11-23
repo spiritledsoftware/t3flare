@@ -20,6 +20,7 @@ import {
   SETTINGS_SERVER_LIMITS,
   settingsServerLimitsOf,
   type StoredHarness,
+  t3ToolListing,
   type ToolsChange,
   withoutQuery,
 } from "./index.ts";
@@ -133,9 +134,15 @@ describe("resolveHarness", () => {
         settings: { reviewEvery: "3", model: "claude-sonnet-5-5" },
       }),
     ).toMatchObject({ ok: true });
-    expect(applyChange(EMPTY_HARNESS, { extension: "advisor", settings: { reviewEvery: "7" } })).toMatchObject({
-      ok: false,
-    });
+    // SPI-1365: any whole number of rounds, not only 2, 3 or 5.
+    for (const every of ["1", "4", "7", "10", "250"])
+      expect(applyChange(EMPTY_HARNESS, { extension: "advisor", settings: { reviewEvery: every } })).toMatchObject({
+        ok: true,
+      });
+    for (const every of ["0", "-2", "2.5", "07", "x", "", 3])
+      expect(applyChange(EMPTY_HARNESS, { extension: "advisor", settings: { reviewEvery: every } })).toMatchObject({
+        ok: false,
+      });
     // SPI-1320: each review bound at its ends is kept, one past them refused.
     const bounds: Record<string, readonly [number, number]> = {
       reviewTimeoutSeconds: [1, MAX_TIMED_MINUTES * 60],
@@ -255,9 +262,9 @@ describe("applyChange", () => {
       ok: false,
       error: "codemode.other: no such setting",
     });
-    expect(applyChange(EMPTY_HARNESS, { extension: "advisor", settings: { reviewEvery: "7" } })).toEqual({
+    expect(applyChange(EMPTY_HARNESS, { extension: "advisor", settings: { reviewEvery: "0" } })).toEqual({
       ok: false,
-      error: "advisor.reviewEvery: one of turn, 2, 3, 5, request",
+      error: "advisor.reviewEvery: one of turn, request, or a whole number of at least 1",
     });
     expect(applyChange(EMPTY_HARNESS, { extension: "nope", enabled: true })).toEqual({
       ok: false,
@@ -481,12 +488,18 @@ describe("applyToolsChange", () => {
     expect(apply({ preset: "core" }, stale).mcp).toEqual({ servers: {} });
   });
 
-  it("refuses more t3 tools set one by one than t3 lists", () => {
-    const many = Object.fromEntries(Array.from({ length: 201 }, (_, index) => [`t3_${index}`, "hidden" as const]));
-    expect(applyToolsChange(EMPTY_HARNESS, { t3: { tools: many } })).toEqual({
-      ok: false,
-      error: "t3 tools: at most 200 set one by one",
-    });
+  it("takes any number of t3 tools set one by one, bounded only by the stored value (SPI-1365)", () => {
+    const many = Object.fromEntries(Array.from({ length: 500 }, (_, index) => [`t3_${index}`, "hidden" as const]));
+    expect(applyToolsChange(EMPTY_HARNESS, { t3: { tools: many } })).toMatchObject({ ok: true });
+  });
+
+  it("keeps a t3 listing of any number of tools with whole descriptions, but not one past its stored value", () => {
+    const tool = (at: number, description: string) => ({ name: `t3_${at}`, description, readOnly: true, asksForDirect: false });
+    const long = "d".repeat(2_000);
+    const listing = { listedAt: 1, tools: Array.from({ length: 300 }, (_, at) => tool(at, long)), left: [] };
+    expect(t3ToolListing(listing)?.tools).toHaveLength(300);
+    expect(t3ToolListing(listing)?.tools[0]!.description).toBe(long);
+    expect(t3ToolListing({ ...listing, tools: [tool(0, "d".repeat(3_000_000))] })).toBeUndefined();
   });
 
   it("refuses an unknown tool or preset, an Exposure a tool cannot have, and a malformed t3 tool name", () => {

@@ -7,6 +7,7 @@
 // a tool with no Exposure of its own takes the one they gave it (`legacyOf`).
 import type { HarnessLayer, StoredHarness } from "./index.ts";
 import { defaultSettingsServer, type Exposure, type McpServerSetting, ownEntry, SETTINGS_SERVER } from "./mcp.ts";
+import { DO_VALUE_BYTES, storedBytes } from "./storedValue.ts";
 
 /** The offered-tools presets (plan §2.2, OD-T4): the tools a preset offers direct; the others it defers. */
 export const OFFERED_PRESETS = {
@@ -102,9 +103,6 @@ export const t3Exposures = (tool: string): ReadonlyArray<Exposure> =>
 
 /** A t3 tool name as t3 lists it. */
 const T3_TOOL_NAME = /^[A-Za-z0-9_.-]{1,64}$/;
-
-/** The most tools t3 lists, and the most of its tools the owner may set one by one. */
-const MAX_T3_TOOLS = 200;
 
 /** The tools' part of a settings layer. */
 export interface ToolsLayer {
@@ -343,12 +341,20 @@ export const applyToolsChange = (
     tools: withEntries(base.tools, named),
     t3: { ...(t3Exposure === undefined ? {} : { exposure: t3Exposure }), tools: withEntries(base.t3?.tools, t3Named) },
   };
-  if (Object.keys(global.t3?.tools ?? {}).length > MAX_T3_TOOLS)
-    return { ok: false, error: `t3 tools: at most ${MAX_T3_TOOLS} set one by one` };
-  return {
-    ok: true,
-    harness: { ...stored, revision: stored.revision + 1, global, ...(mcp === undefined ? {} : { mcp }) },
+  const harness: StoredHarness = {
+    ...stored,
+    revision: stored.revision + 1,
+    global,
+    ...(mcp === undefined ? {} : { mcp }),
   };
+  // No count of tools set one by one: the Harness settings are one Durable Object value, which bounds them.
+  const bytes = storedBytes(harness);
+  if (bytes > DO_VALUE_BYTES)
+    return {
+      ok: false,
+      error: `the Harness settings would take ${bytes} bytes stored, past the ${DO_VALUE_BYTES} one Durable Object value holds`,
+    };
+  return { ok: true, harness };
 };
 
 /**
@@ -428,10 +434,10 @@ export interface T3ToolListing {
   readonly left: ReadonlyArray<string>;
 }
 
-/** The longest t3 tool description the panel keeps. */
-export const MAX_T3_DESCRIPTION = 400;
-
-/** `value` as a listing when it is a well-formed one (another Worker's report), its descriptions cut; else undefined. */
+/**
+ * `value` as a listing when it is a well-formed one (another Worker's report) that fits the one Durable Object value it
+ * is kept in; else undefined. No count of tools and no cut of their descriptions: they are pinned t3's own (SPI-1365).
+ */
 export const t3ToolListing = (value: unknown): T3ToolListing | undefined => {
   if (value === null || typeof value !== "object") return undefined;
   const { listedAt, tools, left } = value as Record<string, unknown>;
@@ -439,8 +445,7 @@ export const t3ToolListing = (value: unknown): T3ToolListing | undefined => {
     typeof listedAt !== "number" ||
     !Array.isArray(tools) ||
     !Array.isArray(left) ||
-    tools.length > MAX_T3_TOOLS ||
-    left.length > MAX_T3_TOOLS
+    storedBytes(value) > DO_VALUE_BYTES
   )
     return undefined;
   const listed: Array<T3ListedTool> = [];
@@ -458,7 +463,7 @@ export const t3ToolListing = (value: unknown): T3ToolListing | undefined => {
       name,
       readOnly,
       asksForDirect,
-      ...(typeof description === "string" ? { description: description.slice(0, MAX_T3_DESCRIPTION) } : {}),
+      ...(typeof description === "string" ? { description } : {}),
     });
   }
   if (!left.every((name) => typeof name === "string" && T3_TOOL_NAME.test(name))) return undefined;

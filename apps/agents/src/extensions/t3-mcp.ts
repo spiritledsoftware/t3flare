@@ -39,7 +39,6 @@ export { T3_TOOL_DENYLIST } from "@t3flare/harness-registry";
 import {
   type Exposure,
   isDeniedT3Tool,
-  MAX_T3_DESCRIPTION,
   ownEntry,
   type ResolvedTools,
   T3_DIRECT_ONLY,
@@ -98,7 +97,7 @@ export const t3ListingOf = (catalog: T3Catalog, listedAt: number): T3ToolListing
     name: tool.name,
     ...(tool.description === undefined && tool.title === undefined
       ? {}
-      : { description: (tool.title ?? tool.description ?? "").slice(0, MAX_T3_DESCRIPTION) }),
+      : { description: tool.title ?? tool.description ?? "" }),
     readOnly: tool.annotations?.readOnlyHint === true,
     asksForDirect: asksForDirect(tool),
   })),

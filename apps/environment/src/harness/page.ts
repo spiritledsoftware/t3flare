@@ -147,6 +147,9 @@ const field = (
     case "integer":
       return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="number" inputmode="numeric" required ${attrs} min="${setting.schema.minimum}" max="${setting.schema.maximum}" step="1" value="${escapeHtml(String(value))}">${hint}</div>`;
     case "enum":
+      // An enum that takes whole numbers too (the Advisor's cadence): a text box offering the named values.
+      if (setting.schema.integers !== undefined)
+        return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="text" inputmode="text" autocomplete="off" spellcheck="false" required list="${id}-values" pattern="${escapeHtml(`${setting.schema.values.join("|")}|[1-9][0-9]*`)}" ${attrs} value="${escapeHtml(String(value ?? setting.schema.default))}"><datalist id="${id}-values">${setting.schema.values.map((option) => `<option value="${escapeHtml(option)}"></option>`).join("")}</datalist>${hint}</div>`;
       return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><select ${attrs}>${setting.schema.values
         .map(
           (option) =>
@@ -354,7 +357,7 @@ const t3Card = (resolved: ResolvedHarness, listing: T3ToolListing | undefined): 
       ]
         .filter((text) => text !== "")
         .join(" ");
-      return `<tr><td class="tool" data-label="Tool"><code>${escapeHtml(tool.name)}</code>${tool.description === undefined ? "" : `<span class="src">${escapeHtml(tool.description)}</span>`}</td><td class="cls" data-label="Class"><div><span class="tag tag-${tool.readOnly ? "read" : "write"}">${tool.readOnly ? "read" : "write"}</span></div></td><td class="exp" data-label="Exposure"><div>${toolExposureSelect(
+      return `<tr><td class="tool" data-label="Tool"><code>${escapeHtml(tool.name)}</code>${tool.description === undefined ? "" : `<span class="src clamp" title="${escapeHtml(tool.description)}">${escapeHtml(tool.description)}</span>`}</td><td class="cls" data-label="Class"><div><span class="tag tag-${tool.readOnly ? "read" : "write"}">${tool.readOnly ? "read" : "write"}</span></div></td><td class="exp" data-label="Exposure"><div>${toolExposureSelect(
         {
           tool: tool.name,
           t3: true,

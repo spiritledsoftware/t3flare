@@ -336,8 +336,9 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
       reviewEvery: {
         title: "Review cadence",
         description:
-          "turn: after every tool round that is not read-only; a number: every that many rounds and at the end; request: once, when the agent answers.",
-        schema: { type: "enum", values: ["turn", "2", "3", "5", "request"], default: "turn" },
+          "turn: after every tool round that is not read-only; a whole number: every that many rounds and at the end; request: once, when the agent answers. A shorter cadence reviews more often, and each Review is a model request.",
+        // Any whole number of rounds (SPI-1365): advisor.ts takes any positive one.
+        schema: { type: "enum", values: ["turn", "request"], default: "turn", integers: { minimum: 1 } },
       },
       thinkingLevel: {
         title: "Thinking",
