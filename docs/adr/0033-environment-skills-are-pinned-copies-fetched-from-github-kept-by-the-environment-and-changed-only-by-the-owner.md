@@ -111,4 +111,3 @@ reads) and the set's 8 MiB (one Durable Object call) bound what is kept and what
 repository and ref, not the first 40; a request has no 60 s budget, each GitHub read its own bound (the Environment
 setting `outsideRequestSeconds`). A preview reads at most `MAX_SKILL_CANDIDATES` `SKILL.md` files, derived from GitHub's
 secondary limit (900 points a minute per endpoint) less the commit and the tree: 898.
-

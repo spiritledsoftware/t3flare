@@ -240,9 +240,7 @@ export const discoverPrompts = async (
     }),
   );
   const seen = new Set<string>();
-  const chosen = listed
-    .flat()
-    .filter((entry) => (seen.has(entry.name) ? false : (seen.add(entry.name), true)));
+  const chosen = listed.flat().filter((entry) => (seen.has(entry.name) ? false : (seen.add(entry.name), true)));
   const templates = await Promise.all(
     chosen.map(async (entry) => {
       const text = await files.read(entry.path);

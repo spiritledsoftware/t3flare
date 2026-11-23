@@ -494,7 +494,12 @@ describe("applyToolsChange", () => {
   });
 
   it("keeps a t3 listing of any number of tools with whole descriptions, but not one past its stored value", () => {
-    const tool = (at: number, description: string) => ({ name: `t3_${at}`, description, readOnly: true, asksForDirect: false });
+    const tool = (at: number, description: string) => ({
+      name: `t3_${at}`,
+      description,
+      readOnly: true,
+      asksForDirect: false,
+    });
     const long = "d".repeat(2_000);
     const listing = { listedAt: 1, tools: Array.from({ length: 300 }, (_, at) => tool(at, long)), left: [] };
     expect(t3ToolListing(listing)?.tools).toHaveLength(300);

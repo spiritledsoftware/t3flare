@@ -327,7 +327,11 @@ describe("containerInstance", () => {
       diskMb: 4000,
     });
     // The Builder takes the same custom resources.
-    expect(builderInstance({ ...resolved, builderSize: "custom" })).toEqual({ vcpu: 0.25, memoryMib: 1024, diskMb: 4000 });
+    expect(builderInstance({ ...resolved, builderSize: "custom" })).toEqual({
+      vcpu: 0.25,
+      memoryMib: 1024,
+      diskMb: 4000,
+    });
     expect(set({ customVcpu: 1 / 16, customMemoryMib: 256, customDiskMb: 2000 })).toMatchObject({ ok: true });
     expect(set({ customVcpu: 64, customMemoryMib: 262_144, customDiskMb: 400_000 })).toMatchObject({ ok: true });
     expect(set({ customVcpu: 0.05 })).toEqual({ ok: false, error: "customVcpu: at least 0.0625" });
@@ -782,7 +786,9 @@ describe("the Base build's settings (SPI-1332, ADR-0047 §9)", () => {
     const over = applyEnvironmentChange(first.environment, { settings: { globalMiseConfig: big } });
     expect(over).toMatchObject({ ok: false });
     expect(over.ok ? "" : over.error).toMatch(
-      new RegExp(`^the Environment settings would take \\d+ bytes stored, past the ${DO_VALUE_BYTES} one Durable Object value holds$`),
+      new RegExp(
+        `^the Environment settings would take \\d+ bytes stored, past the ${DO_VALUE_BYTES} one Durable Object value holds$`,
+      ),
     );
   });
 

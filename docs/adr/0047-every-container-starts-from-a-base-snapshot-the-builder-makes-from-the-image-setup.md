@@ -207,4 +207,3 @@ The 256 KiB per script is superseded: it was not derived from the 8 MB value it 
 against the value whole ([ADR-0032](0032-environment-settings-and-harness-settings-are-separate-entities-edited-on-one-owner-page.md)'s
 SPI-1365 refinement). The Settings server's body limit follows, so a setup at its maximum can be sent, and a Test base
 build's proposal takes the same bound.
-

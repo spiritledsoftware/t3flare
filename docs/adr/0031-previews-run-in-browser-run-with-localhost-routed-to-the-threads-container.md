@@ -34,4 +34,3 @@ Forced by the platform or by cost, and kept: the eight-port list; the `*.t3flare
 A profile's 8 MiB is removed: the state is already whole in memory when it is saved, and it is kept in rows of at most
 1.5 MB, under a DO SQLite row's 8 MB. A profile past 8 MiB was not saved, with only a log line, and its sign-ins were
 lost; now every profile is kept.
-

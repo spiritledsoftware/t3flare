@@ -46,7 +46,12 @@ describe("containerCostTable", () => {
   });
 
   it("prices the custom size at the resources its settings give (SPI-1365): 2 vCPU, 4 GiB, 10 GB", () => {
-    const custom = containerCostTable({ containerBudget: 1, customVcpu: 2, customMemoryMib: 4096, customDiskMb: 10_000 });
+    const custom = containerCostTable({
+      containerBudget: 1,
+      customVcpu: 2,
+      customMemoryMib: 4096,
+      customDiskMb: 10_000,
+    });
     // $0.144 CPU, $0.036 memory and $0.00252 disk an hour.
     expect(custom.rows.find((entry) => entry.size === "custom")!.perContainerHour).toBeCloseTo(0.18252, 6);
   });

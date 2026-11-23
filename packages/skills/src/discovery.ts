@@ -79,7 +79,6 @@ export const SKILL_TOKEN_REGEX =
 export const isMentionable = (name: string): boolean =>
   name.length <= 64 && [...`$${name}`.matchAll(SKILL_TOKEN_REGEX)].some((match) => match[2] === name);
 
-
 export const join = (directory: string, path: string): string =>
   directory === "/" ? `/${path}` : `${directory}/${path}`;
 

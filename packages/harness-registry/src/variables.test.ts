@@ -93,7 +93,9 @@ describe("Variables", () => {
     const big = (at: number) => plain(`B${at}`, "z".repeat(100 * 1024));
     const ten = Array.from({ length: 10 }, (_, at) => big(at));
     expect(apply(ten)).toMatchObject({ ok: true });
-    expect(refusal([...ten, big(10)])).toMatch(/^variables: the Variables take \d+ bytes of a command's environment, past the 1048576 they may$/);
+    expect(refusal([...ten, big(10)])).toMatch(
+      /^variables: the Variables take \d+ bytes of a command's environment, past the 1048576 they may$/,
+    );
   });
 
   it("reads a stored set past the total as the Variables that fit, in order, dropping only the rest", () => {

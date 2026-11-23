@@ -190,9 +190,7 @@ export const MAX_SETUP_BYTES = MAX_FILE_SETTING_BYTES;
 /** Why `text` cannot be an Image setup (a Test base build's proposal included): past `MAX_SETUP_BYTES`; undefined when it fits. */
 export const imageSetupTooLong = (text: string): string | undefined => {
   const bytes = new TextEncoder().encode(text).length;
-  return bytes > MAX_SETUP_BYTES
-    ? `the Image setup is at most ${MAX_SETUP_BYTES} bytes, not ${bytes}`
-    : undefined;
+  return bytes > MAX_SETUP_BYTES ? `the Image setup is at most ${MAX_SETUP_BYTES} bytes, not ${bytes}` : undefined;
 };
 
 /**
@@ -693,7 +691,10 @@ export const ENVIRONMENT_SETTINGS = {
       type: "enum",
       values: [BUILDER_SAME_SIZE, ...CONTAINER_SIZE_NAMES],
       default: BUILDER_SAME_SIZE,
-      labels: { [BUILDER_SAME_SIZE]: "Same as Container size", [CUSTOM_SIZE]: "custom (the vCPU, memory and disk above)" },
+      labels: {
+        [BUILDER_SAME_SIZE]: "Same as Container size",
+        [CUSTOM_SIZE]: "custom (the vCPU, memory and disk above)",
+      },
     },
     row: "imageSetup",
   },

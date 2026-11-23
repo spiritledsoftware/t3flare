@@ -179,7 +179,10 @@ describe("previewSkills", () => {
     github.push(
       "o/r",
       Object.fromEntries(
-        Array.from({ length: MAX_SKILL_CANDIDATES + 5 }, (_, index) => [`skills/s${index}/SKILL.md`, skillMd(`s${index}`)]),
+        Array.from({ length: MAX_SKILL_CANDIDATES + 5 }, (_, index) => [
+          `skills/s${index}/SKILL.md`,
+          skillMd(`s${index}`),
+        ]),
       ),
     );
     const preview = await previewSkills(github.reader, source("o/r"));

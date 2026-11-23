@@ -478,4 +478,3 @@ Global mise config refinement's 16 KiB, §4's "nor other custom sizes", and the 
   `skillsLinkEntries` (200) and `promptsDirectoryEntries` (1000), in a Repo skills and Prompt templates row, each
   `down-free`, read by the Workspace DO from the settings its last Container start kept. Prompt templates have no
   count and no size.
-

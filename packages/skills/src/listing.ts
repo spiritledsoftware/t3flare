@@ -29,8 +29,6 @@ export const formatSkills = (discovery: Pick<SkillDiscovery, "skills" | "omitted
       "  </skill>",
     ]),
     "</available_skills>",
-    ...(discovery.omitted > 0
-      ? [`${discovery.omitted} more skills in this repository are not listed.`]
-      : []),
+    ...(discovery.omitted > 0 ? [`${discovery.omitted} more skills in this repository are not listed.`] : []),
   ].join("\n");
 };

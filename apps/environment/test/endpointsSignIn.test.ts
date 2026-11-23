@@ -262,7 +262,9 @@ describe("ChatGPT plan usage on the Settings page", () => {
     const { done } = await signIn(context);
     expect(JSON.parse(done.text)).toMatchObject({
       ok: false,
-      error: expect.stringMatching(/could not be saved \(the endpoints would take \d+ bytes stored, past the \d+ one Durable Object value holds\), so the sign-in was revoked/),
+      error: expect.stringMatching(
+        /could not be saved \(the endpoints would take \d+ bytes stored, past the \d+ one Durable Object value holds\), so the sign-in was revoked/,
+      ),
     });
     expect(context.vendor.counts.revocations).toBe(1);
     expect(context.vendor.revoked.has(context.vendor.currentRefresh()!)).toBe(true);

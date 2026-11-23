@@ -114,8 +114,7 @@ const fieldJson = (schema: EnvironmentFieldSchema): Record<string, unknown> => {
           },
           required: ["name"],
         },
-        description:
-          `The whole set of Variables, each { name, value, secret }. A secret read back has valueRedacted: true; send it so to keep its value, or a new value to replace it. Turning Secret off needs the value given again. Anything run in a Workspace can read every Variable, a secret's value included. Each NAME=value is at most ${MAX_ENV_STRING_BYTES} bytes of UTF-8, and all of them together at most ${MAX_VARIABLES_BYTES}.`,
+        description: `The whole set of Variables, each { name, value, secret }. A secret read back has valueRedacted: true; send it so to keep its value, or a new value to replace it. Turning Secret off needs the value given again. Anything run in a Workspace can read every Variable, a secret's value included. Each NAME=value is at most ${MAX_ENV_STRING_BYTES} bytes of UTF-8, and all of them together at most ${MAX_VARIABLES_BYTES}.`,
       };
   }
 };

@@ -186,10 +186,13 @@ describe("endpointStore", () => {
 
   it("takes endpoints and models past the old counts, long model ids and many long headers", async () => {
     const { store } = setup();
-    for (let i = 0; i < 40; i++) expect(await store.save({ ...OPENAI, id: `e${i}` }, { apiKey: `k${i}` })).toMatchObject({ ok: true });
+    for (let i = 0; i < 40; i++)
+      expect(await store.save({ ...OPENAI, id: `e${i}` }, { apiKey: `k${i}` })).toMatchObject({ ok: true });
     const models = Array.from({ length: 1000 }, (_, at) => `vendor/model-${at}`);
     const headers = Object.fromEntries(Array.from({ length: 40 }, (_, at) => [`X-Header-${at}`, "v".repeat(4096)]));
-    expect(await store.save({ ...OPENAI, id: "router", models: [...models, "m".repeat(500)], headers }, { apiKey: "k" })).toMatchObject({
+    expect(
+      await store.save({ ...OPENAI, id: "router", models: [...models, "m".repeat(500)], headers }, { apiKey: "k" }),
+    ).toMatchObject({
       ok: true,
     });
     expect(store.load().endpoints.find((endpoint) => endpoint.id === "router")!.models).toHaveLength(1001);
@@ -203,7 +206,9 @@ describe("endpointStore", () => {
     ).toMatchObject({
       ok: false,
       error: expect.stringMatching(
-        new RegExp(`^the endpoints would take \\d+ bytes stored, past the ${DO_VALUE_BYTES} one Durable Object value holds$`),
+        new RegExp(
+          `^the endpoints would take \\d+ bytes stored, past the ${DO_VALUE_BYTES} one Durable Object value holds$`,
+        ),
       ),
     });
     expect((await store.keyStatus("victim")).set).toBe(false);

@@ -526,7 +526,11 @@ describe("the audit log (SPI-1365)", () => {
     store.audit(entry(1, 10));
     store.audit(entry(2, 5_000_000));
     const kept = kv.get<ReadonlyArray<Record<string, unknown>>>(AUDIT_KEY)!;
-    expect(kept.at(-1)).toMatchObject({ at: 2, target: "variables", after: { omitted: expect.stringMatching(/bytes/) } });
+    expect(kept.at(-1)).toMatchObject({
+      at: 2,
+      target: "variables",
+      after: { omitted: expect.stringMatching(/bytes/) },
+    });
     expect(storedBytes(kept)).toBeLessThanOrEqual(DO_VALUE_BYTES);
   });
 });
