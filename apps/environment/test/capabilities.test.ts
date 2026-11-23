@@ -1,6 +1,8 @@
 // Truthful capabilities (SPI-994, SPI-1012): every capability t3's descriptor can carry is classified, the stripped ones
 // never reach a client, and t3flare's managed policy locks the settings of features the Cloud Environment does not do.
-import { DEFAULT_SERVER_SETTINGS, ExecutionEnvironmentCapabilities } from "@t3tools/contracts";
+import { DEFAULT_SERVER_SETTINGS, ExecutionEnvironmentCapabilities, globalIdleCompaction } from "@t3tools/contracts";
+import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as ManagedPolicy from "t3/src/policy/ManagedPolicy.ts";
 import { describe, expect, it } from "vitest";
@@ -96,7 +98,6 @@ describe("t3flare's managed policy", () => {
         "enableDeviceSupport",
         "enablePreviewTunnel",
         "guestSharingEnabled",
-        "idleCompaction",
         "simlockDeviceHostsEnabled",
       ]),
     );
@@ -122,5 +123,21 @@ describe("t3flare's managed policy", () => {
     expect(settings.vetWrite(DEFAULT_SERVER_SETTINGS, stored, { guestSharingEnabled: true })).toMatchObject({
       _tag: "Locked",
     });
+  });
+
+  // SPI-1367: git's automatic fetch and idle compaction are t3's own settings, the Owner's to change; the policy only
+  // starts them off, as t3flare always had them.
+  it("starts git's automatic fetch and idle compaction off, and leaves both to the Owner", async () => {
+    const { settings } = await policy;
+    expect(Duration.toMillis(resolveServerBackgroundActivitySettings(settings.defaults).automaticGitFetchInterval)).toBe(
+      0,
+    );
+    expect(globalIdleCompaction(settings.defaults)).toBe("off");
+    const decoded = settings.defaults;
+    for (const patch of [
+      { idleCompaction: "beforeCacheExpires" },
+      { backgroundActivity: { schemaVersion: 1, profile: "balanced", overrides: {} } },
+    ])
+      expect(settings.vetWrite(decoded, decoded, patch)).not.toMatchObject({ _tag: "Locked" });
   });
 });

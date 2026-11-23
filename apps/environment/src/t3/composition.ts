@@ -20,7 +20,6 @@ import { MuseUsageHome } from "@t3tools/provider-muse/server";
 import * as CursorAccountReader from "@t3tools/provider-cursor/server/CursorAccountReader";
 import * as CursorUsageAccounts from "@t3tools/provider-cursor/server/CursorUsageAccounts";
 import * as Deferred from "effect/Deferred";
-import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -149,6 +148,7 @@ import * as ReplayMarkers from "t3/src/auth/replayMarkers.ts";
 import * as CodexManagedTokenBroker from "t3/src/provider/CodexManagedTokenBroker.ts";
 import * as WebhookRoute from "t3/src/scheduledTasks/webhookRoute.ts";
 import * as RelayDeliveryProof from "t3/src/scheduledTasks/RelayDeliveryProof.ts";
+import * as IdleCompactionService from "t3/src/orchestration-v2/IdleCompactionService.ts";
 import * as HeldHooksWaker from "t3/src/relay/HeldHooksWaker.ts";
 import * as McpOAuth from "t3/src/auth/McpOAuth.ts";
 import * as McpOAuthHttp from "t3/src/auth/mcpOAuthHttp.ts";
@@ -240,8 +240,10 @@ const PUBLISHED_PHASES_KEY = "t3flare:connect-published-phases";
 /** The State directory's root in DO SQLite (ADR-0007). */
 export const BASE_DIR = "/t3";
 
-// Escaped MCP handoff provenance can exceed find-my-way's 100-character segment default.
-const HTTP_ROUTER_CONFIG = { maxParamLength: 512 } as const;
+// find-my-way refuses (404) a route parameter longer than `maxParamLength` (its default 100; escaped MCP handoff
+// provenance is longer). A fixed value (SPI-1367): Cloudflare Workers refuse a request URL over 16 KB before it reaches
+// the router, so no parameter can be longer and the router's own cap never binds first.
+const HTTP_ROUTER_CONFIG = { maxParamLength: 16 * 1024 } as const;
 
 export const make = (options: CompositionOptions) => {
   const httpServer = DoHttpServer.make();
@@ -272,6 +274,8 @@ export const make = (options: CompositionOptions) => {
       yield* (yield* FileSystem.FileSystem).makeDirectory(derived.secretsDir, { recursive: true });
       // The home directory t3 offers when browsing for a project folder (HostProcess.HomeDirectory).
       yield* (yield* FileSystem.FileSystem).makeDirectory(`${BASE_DIR}/home`, { recursive: true });
+      // t3flare: the trace file's size and older files kept, as the Environment settings say at this start (SPI-1367).
+      const { traceKiB, traceFiles } = resolveEnvironment(harnessStore(options.storage.kv).loadEnvironment());
       const savedSettings = yield* (yield* FileSystem.FileSystem)
         .readFileString(derived.settingsPath)
         .pipe(Effect.option, Effect.map(Option.getOrUndefined));
@@ -280,8 +284,8 @@ export const make = (options: CompositionOptions) => {
         traceMinLevel: "Info",
         traceTimingEnabled: false,
         traceBatchWindowMs: 200,
-        traceMaxBytes: 1024 * 1024,
-        traceMaxFiles: 1,
+        traceMaxBytes: traceKiB * 1024,
+        traceMaxFiles: traceFiles,
         // t3flare: the OTLP endpoints the owner saved in t3's settings, read at boot as t3 reads them (`otlp.ts`).
         ...otlpConfigFromSettings(savedSettings),
         otelEnvironment: OtelEnvironment.none,
@@ -579,9 +583,13 @@ export const make = (options: CompositionOptions) => {
   const layerThreadSettlementWorker = Layer.effectDiscard(
     ThreadSettlementService.make.pipe(Effect.flatMap((service) => service.start())),
   ).pipe(Layer.provide(layerPullRequestService), Layer.provide(ProjectionStoreV2.layer));
-  // t3flare (step 4b, review F7): t3's idle compaction is not started. It sends `/compact` as a turn to `claudeAgent`
-  // instances only, which here are Claude Code in a Workspace's Container: it would start a Container for a
-  // compaction nobody asked for. Its setting is locked off by the managed policy (`managedPolicy.ts`).
+  // t3flare (SPI-1367): t3's idle compaction runs as stock t3's does. It sends `/compact` as a turn to `claudeAgent`
+  // instances only, which here are Claude Code in a Workspace's Container, so each starts that Container; its setting
+  // starts off, and is the Owner's (`managedPolicy.ts`). Its timers live in memory, as in t3: a compaction still waiting
+  // when the Environment sleeps or resets is skipped.
+  const layerIdleCompactionWorker = Layer.effectDiscard(
+    IdleCompactionService.make.pipe(Effect.flatMap((service) => service.start())),
+  ).pipe(Layer.provide(ProjectionStoreV2.layer));
   const layerThreadPullRequestWorker = Layer.effectDiscard(
     ThreadPullRequestService.make.pipe(Effect.flatMap((service) => service.start())),
   ).pipe(Layer.provide(layerPullRequestService));
@@ -625,6 +633,7 @@ export const make = (options: CompositionOptions) => {
     AgentAwarenessRelay.layer,
     HeldHooksWaker.layer,
     layerThreadSettlementWorker,
+    layerIdleCompactionWorker,
     StorageCleanup.layer.pipe(Layer.provide(ProjectionStoreV2.layer)),
     // t3flare: a project's or a thread's deletion wakes the Workspace Sweep (ADR-0043 §5).
     DeletionWake.layer,
@@ -916,10 +925,11 @@ export const make = (options: CompositionOptions) => {
   // t3flare: t3's Console (and the loggers writing through it) drops the boot pairing URL and redacts
   // credentials, so no token reaches Workers Logs (ADR-0010).
   const layer = layerMakeServer.pipe(
-    // t3flare: no automatic fetches: each would start the Workspace's Container (step 2a plan, section 2). Both the
-    // status broadcaster and GitVcsDriver's status reads take the interval, and GitVcsDriver is built in several places,
-    // so it goes in context here, above every build (a Context.Reference: a missing one is t3's non-zero default).
-    Layer.provide(Layer.succeed(VcsAutomaticFetchInterval.VcsAutomaticFetchInterval, Effect.succeed(Duration.zero))),
+    // t3flare: the automatic fetch interval from t3's settings, as stock t3 reads it; each fetch starts the Workspace's
+    // Container, so the managed policy starts it off (SPI-1367, `managedPolicy.ts`). Both the status broadcaster and
+    // GitVcsDriver's status reads take the interval, and GitVcsDriver is built in several places, so it goes in context
+    // here, above every build (a Context.Reference: a missing one is t3's non-zero default, not the setting).
+    Layer.provide(VcsAutomaticFetchInterval.layer.pipe(Layer.provide(layerServerSettings))),
     Layer.provide(layerConfig),
     Layer.provide(layerPlatformServices),
     Layer.provide(RedactingConsole.layer),
