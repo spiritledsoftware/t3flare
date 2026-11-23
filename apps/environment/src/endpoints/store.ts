@@ -150,7 +150,8 @@ export const endpointStore = (
       if (valid.endpoint.auth === "none")
         return given === undefined ? undefined : "an endpoint with no auth takes no API key";
       if (given !== undefined) {
-        if (given.length > 4096 || /\s/.test(given)) return "the API key is one word of up to 4096 characters";
+        // One word, as a header value takes it; its length is bounded by the sealed value that holds it (SPI-1366).
+        if (/\s/.test(given)) return "the API key is one word";
         // pi-ai sends such a token with Claude Code's request shape (SPI-1165), which only a Claude sign-in's requests take;
         // and a subscription's token renews only through its sign-in here (ADR-0018: never copied in from elsewhere).
         return given.includes(CLAUDE_OAUTH_TOKEN_MARK)

@@ -376,18 +376,16 @@ describe("the Credential broker", () => {
     scan(kv, vendor);
   });
 
-  it("keeps a sign-in waiting through a mistaken paste, and lets a stale one lapse", async () => {
+  it("keeps a sign-in waiting through a mistaken paste, and for as long as its vendor takes the code (SPI-1366)", async () => {
     const { kv, vendor, broker, advance } = await setup();
     const { authorizeUrl } = await broker.start("chatgpt", "chatgpt");
     const callback = vendor.approve(authorizeUrl);
     expect(await broker.complete("chatgpt", "not a url")).toMatchObject({ ok: false });
     expect(await broker.complete("chatgpt", callback)).toMatchObject({ ok: true });
+    // An hour on: t3flare refuses nothing; the vendor's exchange judges its own code's life.
     const again = await broker.start("chatgpt", "chatgpt");
-    advance(31 * 60_000);
-    expect(await broker.complete("chatgpt", vendor.approve(again.authorizeUrl))).toMatchObject({
-      ok: false,
-      problem: expect.stringMatching(/lapsed/),
-    });
+    advance(60 * 60_000);
+    expect(await broker.complete("chatgpt", vendor.approve(again.authorizeUrl))).toMatchObject({ ok: true });
     scan(kv, vendor);
   });
 

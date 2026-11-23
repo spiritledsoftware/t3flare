@@ -14,9 +14,8 @@ import {
 } from "@t3flare/models/endpoints";
 import { copilotModelApi } from "@t3flare/models/known";
 import { credentialHeaderOf } from "@t3flare/models/relay";
+import { DEFAULT_OUTSIDE_REQUEST_SECONDS } from "@t3flare/harness-registry";
 
-const TIMEOUT_MS = 10_000;
-const MAX_PAGES = 10;
 
 export type Discovery =
   | { readonly ok: true; readonly models: ReadonlyArray<EndpointModelInput> }
@@ -67,7 +66,8 @@ const anthropic = async (
   const headers = { ...keyedHeaders(target, apiKey), "anthropic-version": "2023-06-01" };
   const models: Array<EndpointModelInput> = [];
   let after: string | undefined;
-  for (let page = 0; page < MAX_PAGES; page += 1) {
+  // Every page (SPI-1366): a listing that pages forever is ended by the discovery's time limit, all pages together.
+  for (;;) {
     const url = new URL(`${target.baseUrl}/v1/models`);
     url.searchParams.set("limit", "1000");
     if (after !== undefined) url.searchParams.set("after_id", after);
@@ -197,15 +197,17 @@ const google = async (
 
 /**
  * The models `target` lists, sorted by id, read with `apiKey` (none for an endpoint without auth). `signIn`: the sign-in
- * whose list it is, when its vendor's list has its own shape (Copilot's).
+ * whose list it is, when its vendor's list has its own shape (Copilot's). `timeoutMs` bounds the whole listing, every
+ * page together: the Outside request time limit (`outsideRequestSeconds`, SPI-1366).
  */
 export const discoverModels = async (
   target: EndpointTarget,
   apiKey: string | undefined,
   fetcher: typeof fetch = fetch,
   signIn?: SignIn,
+  timeoutMs: number = DEFAULT_OUTSIDE_REQUEST_SECONDS * 1000,
 ): Promise<Discovery> => {
-  const signal = AbortSignal.timeout(TIMEOUT_MS);
+  const signal = AbortSignal.timeout(timeoutMs);
   try {
     const models =
       target.api === "anthropic-messages"
@@ -224,7 +226,7 @@ export const discoverModels = async (
       ok: false,
       error:
         name === "TimeoutError"
-          ? "the endpoint's model list did not answer in 10 s"
+          ? `the endpoint's model list did not answer in ${timeoutMs / 1000} s`
           : "the endpoint's model list could not be reached",
     };
   }

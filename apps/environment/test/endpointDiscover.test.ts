@@ -125,6 +125,35 @@ describe("discoverModels", () => {
     expect(seen[0]?.redirect).toBe("manual");
   });
 
+  it("reads every page of a paged list, however many (SPI-1366: no ten-page cut)", async () => {
+    const { seen, fetcher } = fake((url) => {
+      const page = Number(url.searchParams.get("after_id")?.slice(1) ?? -1) + 1;
+      return { data: [{ id: `m${page}` }], has_more: page < 11, last_id: `m${page}` };
+    });
+    const found = await discoverModels(
+      { api: "anthropic-messages", baseUrl: "https://api.anthropic.com", headers: {} },
+      "sk-ant",
+      fetcher,
+    );
+    expect(found.ok && found.models.length).toBe(12);
+    expect(seen).toHaveLength(12);
+  });
+
+  it("ends a list that does not answer at its time limit, all pages together, and says it", async () => {
+    const hanging = ((_input: URL, init?: RequestInit) =>
+      new Promise((_resolve, reject) =>
+        init?.signal?.addEventListener("abort", () => reject(init.signal!.reason)),
+      )) as typeof fetch;
+    const found = await discoverModels(
+      { api: "openai-completions", baseUrl: "https://example.test/v1", headers: {} },
+      undefined,
+      hanging,
+      undefined,
+      20,
+    );
+    expect(found).toEqual({ ok: false, error: "the endpoint's model list did not answer in 0.02 s" });
+  });
+
   it("says why a list could not be read, without the key", async () => {
     const { fetcher } = fake(() => ({ error: { message: "Incorrect API key provided: sk-secret" } }), 401);
     const found = await discoverModels(

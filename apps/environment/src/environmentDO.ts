@@ -487,6 +487,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
             apiKey,
             (input, init) => fetch(input, init),
             signIn,
+            // The whole listing, every page, at the Outside request time limit (SPI-1366), read at each discovery.
+            this.#outsideRequestMs(),
           ),
         changed: () => void import("./endpoints/changes.ts").then(({ endpointsChanged }) => endpointsChanged()),
         signIns: this.#credentialBroker(),

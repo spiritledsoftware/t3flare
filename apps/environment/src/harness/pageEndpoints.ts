@@ -169,7 +169,7 @@ const signInForm = (escape: Escape, view: EndpointsView, kind: SignIn): string =
 <div class="callout callout-warn" role="note">${icon("warn")}<div><strong>${escape(signIn.noteTitle)}</strong><p>${escape(signIn.note)}</p></div></div></div></div>
 <div class="form-body">${notes}
 <div class="field"><label for="${at("id")}">Id</label><input id="${at("id")}" name="id" type="text" required pattern="[a-z0-9](?:[a-z0-9\\-]{0,30}[a-z0-9])?" value="${escape(waiting[0]?.[0] ?? kind)}" autocapitalize="none" spellcheck="false"></div>
-<div class="field"><label for="${at("label")}">Label</label><input id="${at("label")}" name="label" type="text" maxlength="60" value="${escape(signIn.title)}"></div>
+<div class="field"><label for="${at("label")}">Label</label><input id="${at("label")}" name="label" type="text" value="${escape(signIn.title)}"></div>
 ${step}
 <div class="field wide"><div class="inline-field sign-in-terms"><input id="${at("terms")}" name="acknowledgedTerms" type="checkbox" data-sign-in-terms><label for="${at("terms")}">${escape(signIn.terms.acknowledgement)} <a href="${escape(signIn.terms.docs)}" target="_blank" rel="noopener noreferrer">What ${escape(signIn.terms.vendor)}'s terms say</a></label></div></div>
 </div>
@@ -190,7 +190,7 @@ const form = (
   .join(" ")}</p></div></div>
 <div class="form-body">
 <div class="field"><label for="endpoint-id">Id</label><input id="endpoint-id" name="id" type="text" required pattern="[a-z0-9](?:[a-z0-9\\-]{0,30}[a-z0-9])?" placeholder="openai" autocapitalize="none" spellcheck="false" aria-describedby="endpoint-id-hint"><p class="hint" id="endpoint-id-hint">Fixed once saved: models are named id/model.</p></div>
-<div class="field"><label for="endpoint-label">Label</label><input id="endpoint-label" name="label" type="text" required maxlength="60" placeholder="OpenAI"></div>
+<div class="field"><label for="endpoint-label">Label</label><input id="endpoint-label" name="label" type="text" required placeholder="OpenAI"></div>
 <div class="field"><label for="endpoint-api">API</label><select id="endpoint-api" name="api">${view.apis.map((api) => `<option value="${escape(api)}">${escape(api)}</option>`).join("")}</select></div>
 <div class="field"><label for="endpoint-base">Base URL</label><input id="endpoint-base" name="baseUrl" type="url" required placeholder="https://api.openai.com/v1" autocapitalize="none" spellcheck="false"></div>
 <fieldset class="wide"><legend>Auth</legend><div class="choices">

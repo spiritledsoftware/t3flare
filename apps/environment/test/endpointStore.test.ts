@@ -77,6 +77,16 @@ describe("endpointStore", () => {
     expect(harnessStore(kv).loadEnvironment().revision).toBe(0);
   });
 
+  it("takes a label and an API key of any length, a key still one word (SPI-1366: no 60 or 4096 characters)", async () => {
+    const { store } = setup();
+    const label = "L".repeat(200);
+    const key = `sk-${"k".repeat(10_000)}`;
+    expect(await store.save({ ...OPENAI, label }, { apiKey: key })).toMatchObject({ ok: true });
+    expect(store.load().endpoints[0]?.label).toBe(label);
+    expect((await store.resolve("openai"))?.apiKey).toBe(key);
+    expect(await store.save(OPENAI, { apiKey: "sk two words" })).toMatchObject({ ok: false });
+  });
+
   it("keeps the key through an edit that does not give one, and replaces it when one is given", async () => {
     const { store } = setup();
     await store.save(OPENAI, { apiKey: "sk-first" });
