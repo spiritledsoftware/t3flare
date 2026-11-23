@@ -1,6 +1,6 @@
 # The Environment resets itself when idle and is woken by one alarm
 
-t3 runs many in-process timers (a 5 s Scheduler tick, `Schedule.spaced` reactors). Any pending `setTimeout` keeps a Durable Object from being evicted, so left alone the Environment DO would stay resident forever. Instead, when there is no client socket, no in-flight request, no open run or provider session and no claimable outbox effect for about 60 s, the DO host reads the next due time (outbox, scheduled tasks, usage-limit resets), sets one alarm for it, and calls `ctx.abort()`. That is the same reset an eviction or a deploy performs, so idling exercises exactly the restart path t3 must survive anyway (ADR-0004). The next request or alarm boots t3 again.
+t3 runs many in-process timers (a 5 s Scheduler tick, `Schedule.spaced` reactors). Any pending `setTimeout` keeps a Durable Object from being evicted, so left alone the Environment DO would stay resident forever. Instead, when there is no client socket, no in-flight request, no open run or provider session and no claimable outbox effect for about 60 s (superseded by SPI-1366's refinement below: now the default of `idleAfterSeconds`), the DO host reads the next due time (outbox, scheduled tasks, usage-limit resets), sets one alarm for it, and calls `ctx.abort()`. That is the same reset an eviction or a deploy performs, so idling exercises exactly the restart path t3 must survive anyway (ADR-0004). The next request or alarm boots t3 again.
 
 ## Consequences
 
