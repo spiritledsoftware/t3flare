@@ -7,7 +7,7 @@ t3 runs many in-process timers (a 5 s Scheduler tick, `Schedule.spaced` reactors
 - **Module state can outlive a reset.** The step 0 spike found that a warm isolate keeps module-level state across `ctx.abort()`: boot then skips module evaluation (0.2–0.5 s, against 2.5 s cold). Node never shows t3 this, because a restarted process starts empty. Any t3 module-level mutable singleton therefore persists across an Environment restart, whether from idling, eviction or deploy. Each nightly bump runs a check that boots t3 twice in one isolate and reports the module-level state that survived, and module-level state that matters is a Patch candidate.
 - PR watch and sync polling do not run while idle; GitHub webhooks are the later answer.
 - **The alarm must be durable before the reset.** On production, an alarm set just before `ctx.abort()` was lost: the reset discarded the not-yet-durable write (local workerd kept it). The host awaits `ctx.storage.sync()` between `setAlarm` and `abort()`, and reads the alarm back for its log (step 1, `docs-archive-1:docs/steps/step-1.md`).
-- **What counts as due** is read from t3's own tables: the earliest pending outbox effect, the earliest enabled scheduled task, and the earliest usage-limit recovery (the query of t3's `ProjectionStoreV2.getLimitRecoveryWakeAt`). What keeps it awake: a client socket, a request in flight (admin routes included, except the idle check itself: SPI-1145), a run or provider session in a live status, or an outbox effect claimable now. The host checks every 10 s.
+- **What counts as due** is read from t3's own tables: the earliest pending outbox effect, the earliest enabled scheduled task, and the earliest usage-limit recovery (the query of t3's `ProjectionStoreV2.getLimitRecoveryWakeAt`). What keeps it awake: a client socket, a request in flight (admin routes excepted), a run or provider session in a live status, or an outbox effect claimable now. The host checks every 10 s.
 - **What survives in practice.** Step 1's check (`/_t3flare/check/reboot`, run by the acceptance test on every bump) boots t3, disposes it and boots it again in the same isolate, and lists the module bindings that differ from their state at module evaluation. At `v0.1.9-nightly.20261110.4478` there are two, both harmless: `generatedServiceInstanceId` (`packages/shared/src/observability.ts`), and `activeMcpSessionRegistry` (`apps/server/src/mcp/McpSessionRegistry.ts`), which the next boot replaces.
 
 ## Considered Options
@@ -29,3 +29,11 @@ The idle check reads t3's private tables, which a nightly can rename or reshape 
 - **An unknown status is open.** A run or provider session counts as open unless its status is a settled one (runs: `completed`, `interrupted`, `failed`, `cancelled`, `rolled_back`; sessions: `ready`, `stopped`, `error`), so a status a nightly adds keeps the Environment up.
 - **An alarm that cannot read its due work boots t3** rather than arming for a time it cannot know (`alarm-due-unreadable`).
 - The health route shows a failed read as `{ unreadable }` under `openWork` or `nextDue`.
+
+## Refinement (SPI-1145): admin calls hold the Environment while in flight
+
+An admin call (`/_t3flare/*`) used to be left out of the requests in flight, so a long one, such as a `workspace-call` running a command in the Container, could be cut short by the idle reset with a 500, and its command with it.
+
+- **An admin call in flight holds the Environment up**, as a hold does: the idle check does not reset it, forced or not.
+- **It is not activity.** Ending one does not restart the idle delay, so an admin poll (the health route every few seconds) cannot keep the Environment awake for good. The health route shows the count as `adminInFlight`, apart from `inFlight`.
+- **The idle check itself is not counted** (`POST /_t3flare/idle-check`): it runs the check, and counted, it would always find itself in flight.

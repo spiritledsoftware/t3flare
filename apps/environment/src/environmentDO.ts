@@ -189,6 +189,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     // Sockets and requests of a reset object are gone even if the isolate is not.
     Idle.activity.sockets = 0;
     Idle.activity.inFlight = 0;
+    Idle.activity.adminInFlight = 0;
     Idle.activity.idleSince = Date.now();
     Idle.activity.unreadableUntil = 0;
     // The sign-in's poll and the publishes the holds stood for went with the reset (step 3+).
@@ -1482,8 +1483,9 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/_t3flare/")) {
-      // The Worker verified the caller (access.ts) before forwarding. An admin call is a request in flight for the
-      // idle check (SPI-1145), except the idle check itself, which would otherwise never find the Environment idle.
+      // The Worker verified the caller (access.ts) before forwarding. An admin call holds the Environment up while in
+      // flight, without counting as activity (SPI-1145); the idle check itself is not counted, or it could never find the
+      // Environment idle.
       return Idle.countedAdminRequest(request, async () => {
         const { handleAdmin } = await import("./host/admin.ts");
         return handleAdmin(request, this);

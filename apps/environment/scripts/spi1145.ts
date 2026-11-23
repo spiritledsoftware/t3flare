@@ -1,11 +1,15 @@
 // @effect-diagnostics globalDate:off globalConsole:off nodeBuiltinImport:off
-// SPI-1145: an admin call in flight keeps the Environment DO up; the forced idle check alone still resets it.
+// SPI-1145: an admin call in flight keeps the Environment DO up, without counting as activity; the forced idle check
+// alone still resets it.
 //
 //   node scripts/stage.ts run <stage> spi1145 [--repo octocat/Hello-World] [--seconds 45] [--out <file>]
 //
-// Clones a small repo as a Workspace, then runs a `workspace-call` exec that sleeps `--seconds` and commits. While it
-// runs, forces the idle check every 5 s: none may reset the DO, and the exec must answer 200 with its commit made.
-// After it, a forced idle check with nothing in flight must reset the DO.
+// 1. Clones a small repo as a Workspace, then runs a `workspace-call` exec that sleeps `--seconds` (at least 30, for
+//    at least 3 forced checks) and commits. While it runs, forces the idle check every 5 s: none may reset the DO, and
+//    the exec must answer 200 with its commit made.
+// 2. Polls the health route every 5 s (an admin call) and waits for the natural, unforced idle reset: the polls must
+//    not postpone it.
+// 3. Boots t3 again by pairing, then a forced idle check with nothing in flight must reset the DO.
 import * as fs from "node:fs";
 
 import { admin, pair, sleep, wsCall } from "./lib/client.ts";
@@ -17,6 +21,10 @@ const arg = (name: string) => {
 };
 const repo = arg("repo") ?? "octocat/Hello-World";
 const seconds = Number(arg("seconds") ?? 45);
+if (!(seconds >= 30)) {
+  console.error("--seconds must be at least 30: the exec must outlast 3 forced idle checks, 5 s apart");
+  process.exit(2);
+}
 const report: Record<string, unknown> = { repo, seconds, at: new Date().toISOString() };
 const failures: Array<string> = [];
 const check = (name: string, ok: boolean, detail?: unknown) => {
@@ -63,11 +71,13 @@ while (!settled && Date.now() - started < (seconds - 5) * 1000) {
   await sleep(5000);
 }
 const answer = await exec;
+const stdout: string | null =
+  typeof answer.json?.result?.stdout === "string" ? answer.json.result.stdout.slice(0, 300) : null;
 report.exec = {
   ms: Date.now() - started,
   http: answer.status,
   exitCode: answer.json?.result?.exitCode,
-  stdout: typeof answer.json?.result?.stdout === "string" ? answer.json.result.stdout.slice(0, 300) : null,
+  stdout,
   error: answer.status === 200 ? null : JSON.stringify(answer.json ?? null).slice(0, 400),
 };
 report.idleChecksDuring = during;
@@ -79,30 +89,76 @@ check(
 );
 check(
   "each forced idle check during the call saw it in flight",
-  during.every((d) => /requests in flight/.test(String(d.why))),
+  during.every((d) => /admin calls in flight/.test(String(d.why))),
   during,
 );
-check(
-  "the exec answered 200 and finished",
-  answer.status === 200 && String((report.exec as any).stdout ?? "").includes("done"),
-  report.exec,
-);
+check("the exec answered 200 and finished", answer.status === 200 && (stdout ?? "").includes("done"), report.exec);
 const log = await admin("POST", `/_t3flare/agents/workspace-call?id=${encodeURIComponent(id)}`, {
   git: { argv: ["log", "-1", "--format=%s"], cwd: "/workspace/repo" },
 });
 report.commitCheck = { http: log.status, stdout: log.json?.result?.stdout ?? null };
 check("the commit was made", String(log.json?.result?.stdout ?? "").trim() === "spi1145", report.commitCheck);
 
-// 2. Nothing in flight: the forced idle check alone resets the DO (retried while something else still holds it).
-const after: Array<Awaited<ReturnType<typeof idleCheck>>> = [];
+// 2. The natural reset, while the health route is polled every 5 s: an admin poll is not activity.
+const health = async () => {
+  const answer = await admin("GET", "/_t3flare/health");
+  return {
+    at: new Date().toISOString(),
+    http: answer.status,
+    runtime: answer.json?.runtime,
+    constructedAt: answer.json?.object?.constructedAt,
+    adminInFlight: answer.json?.activity?.adminInFlight,
+    inFlight: answer.json?.activity?.inFlight,
+    sockets: answer.json?.activity?.sockets,
+  };
+};
+const polls: Array<Awaited<ReturnType<typeof health>>> = [await health()];
+const constructedAt = polls[0]!.constructedAt;
+const naturalStarted = Date.now();
+while (Date.now() - naturalStarted < 5 * 60_000) {
+  await sleep(5000);
+  const poll = await health();
+  polls.push(poll);
+  if (poll.constructedAt !== constructedAt) break;
+}
+const reset = polls.at(-1)!;
+report.naturalReset = {
+  afterMs: Date.now() - naturalStarted,
+  polls: polls.length,
+  first: polls[0],
+  last: reset,
+};
+check(
+  "the natural idle reset came while health was polled every 5 s",
+  reset.constructedAt !== constructedAt && reset.runtime === "stopped",
+  report.naturalReset,
+);
+
+// 3. t3 booted again, nothing in flight: the forced idle check alone resets the DO (retried while something else
+// still holds it).
+await pair();
+const after: Array<Awaited<ReturnType<typeof idleCheck>> & { confirmedBy?: unknown }> = [];
 for (let attempt = 0; attempt < 12; attempt++) {
+  const before = await health();
   const verdict = await idleCheck();
-  after.push(verdict);
-  if (verdict.reset === true) break;
+  // `checkIdle` aborts the object on a `setTimeout(0)` after answering, which can race the answer out: a 500 is a
+  // reset if the object was constructed again with t3 stopped.
+  if (verdict.http === 500) {
+    const next = await health();
+    after.push({ ...verdict, confirmedBy: next });
+    if (next.constructedAt !== before.constructedAt && next.runtime === "stopped") break;
+  } else {
+    after.push(verdict);
+    if (verdict.reset === true) break;
+  }
   await sleep(5000);
 }
 report.idleChecksAfter = after;
-check("a forced idle check alone resets the idle DO", after.at(-1)?.reset === true, after);
-const health = await admin("GET", "/_t3flare/health");
-report.healthAfter = { runtime: health.json?.runtime, constructions: health.json?.isolate?.constructions };
+const last = after.at(-1);
+check(
+  "a forced idle check alone resets the idle DO",
+  last?.reset === true || (last?.http === 500 && (last.confirmedBy as any)?.runtime === "stopped"),
+  after,
+);
+report.healthAfter = await health();
 finish();

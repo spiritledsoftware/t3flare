@@ -1,7 +1,7 @@
 // @effect-diagnostics globalDate:off
-// SPI-1145: an admin call (`/_t3flare/*`) is a request in flight for the idle check, like every other entry point, so a
-// long `workspace-call` is not cut short by the idle reset. The forced idle check is the one admin route that is not
-// counted: it runs the check itself, and counting it would keep it from ever finding the Environment idle.
+// SPI-1145: an admin call (`/_t3flare/*`) in flight holds the Environment up, so a long `workspace-call` is not cut short
+// by the idle reset; it is not activity, so an admin poll does not postpone the reset. The forced idle check is the one
+// admin route that is not counted: it runs the check itself, and counting it would keep it from ever finding it idle.
 import { describe, expect, it } from "vitest";
 
 import * as Idle from "../src/host/idle.ts";
@@ -27,7 +27,13 @@ const t3Tables = () => {
 };
 
 const idle = () =>
-  Object.assign(Idle.activity, { sockets: 0, inFlight: 0, idleSince: now.getTime() - 120_000, unreadableUntil: 0 });
+  Object.assign(Idle.activity, {
+    sockets: 0,
+    inFlight: 0,
+    adminInFlight: 0,
+    idleSince: now.getTime() - 120_000,
+    unreadableUntil: 0,
+  });
 
 const admin = (method: string, path: string) => new Request(`https://env.example${path}`, { method });
 
@@ -47,20 +53,43 @@ describe("admin calls and the idle check", () => {
     expect(Idle.isIdleCheckRoute(admin("POST", "/_t3flare/restart?mode=abort"))).toBe(false);
   });
 
-  it("keeps the Environment up while an admin call is in flight, and lets it reset once the call ends", async () => {
+  it("keeps the Environment up while an admin call is in flight, forced or not, and lets it reset once it ends", async () => {
     const sql = t3Tables();
     idle();
     expect(Idle.idleVerdict(sql, now).reset).toBe(true);
 
     const call = heldOpen();
     const answered = Idle.countedAdminRequest(admin("POST", "/_t3flare/agents/workspace-call"), call.handle);
-    expect(Idle.activity.inFlight).toBe(1);
-    expect(Idle.idleVerdict(sql, now, 0)).toEqual({ reset: false, why: "1 requests in flight" });
+    expect(Idle.activity.adminInFlight).toBe(1);
+    expect(Idle.activity.inFlight).toBe(0);
+    expect(Idle.idleVerdict(sql, now)).toEqual({ reset: false, why: "1 admin calls in flight" });
+    expect(Idle.idleVerdict(sql, now, 0)).toEqual({ reset: false, why: "1 admin calls in flight" });
 
     call.finish(new Response("ok"));
     expect(await (await answered).text()).toBe("ok");
-    expect(Idle.activity.inFlight).toBe(0);
-    expect(Idle.idleVerdict(sql, new Date(Date.now()), 0).reset).toBe(true);
+    expect(Idle.activity.adminInFlight).toBe(0);
+    expect(Idle.idleVerdict(sql, now).reset).toBe(true);
+  });
+
+  it("does not postpone the unforced reset when an admin call (a health poll) ends", async () => {
+    const sql = t3Tables();
+    idle();
+    const idleSince = Idle.activity.idleSince;
+    await Idle.countedAdminRequest(admin("GET", "/_t3flare/health"), async () => Response.json({}));
+    expect(Idle.activity.idleSince).toBe(idleSince);
+    expect(Idle.idleVerdict(sql, new Date(idleSince + Idle.IDLE_AFTER_MS)).reset).toBe(true);
+  });
+
+  it("still restarts the idle delay when an ordinary request ends while an admin call is open", async () => {
+    idle();
+    const call = heldOpen();
+    const answered = Idle.countedAdminRequest(admin("POST", "/_t3flare/agents/workspace-call"), call.handle);
+    Idle.requestStarted();
+    const before = Date.now();
+    Idle.requestEnded();
+    expect(Idle.activity.idleSince).toBeGreaterThanOrEqual(before);
+    call.finish(new Response("ok"));
+    await answered;
   });
 
   it("ends the count when the admin call throws", async () => {
@@ -70,7 +99,7 @@ describe("admin calls and the idle check", () => {
         Promise.reject(new Error("boom")),
       ),
     ).rejects.toThrow("boom");
-    expect(Idle.activity.inFlight).toBe(0);
+    expect(Idle.activity.adminInFlight).toBe(0);
   });
 
   it("does not count the forced idle check, so it still resets an otherwise idle Environment", async () => {
