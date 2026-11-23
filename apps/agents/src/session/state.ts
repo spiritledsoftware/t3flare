@@ -85,6 +85,24 @@ export const usageOf = (value: Json): UsageSlim | undefined => {
   };
 };
 
+/**
+ * A push's page of entries: `take` says whether one more entry goes in, counting each one's JSON characters against
+ * `bound`; the first always goes, however large (one Session row at most), so a push always makes progress.
+ */
+export const pushPage = (bound: number) => {
+  let characters = 0;
+  let count = 0;
+  return {
+    take(entry: PushedEntry): boolean {
+      const size = JSON.stringify(entry).length;
+      if (count > 0 && characters + size > bound) return false;
+      characters += size;
+      count++;
+      return true;
+    },
+  };
+};
+
 /** One committed entry as pushed. `turn` is the turn the Session attributes it to. */
 export const pushedEntry = (
   entry: {

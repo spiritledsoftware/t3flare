@@ -394,8 +394,7 @@ const waitMs = (description: string) => opt(int({ minimum: 0, description }));
 export const terminalStartTool = (host: TermctrlHost): ToolRegistration =>
   defineTool({
     name: "terminal_start",
-    description:
-      "Start a program in a new interactive Terminal (a PTY in the Workspace's container) and return its screen once it settles: 250 ms of quiet, exit, wait_ms (default 2000), or a message queued for you (settle_reason steered; the Terminal keeps running). Use it for REPLs, TUIs, prompts and other programs that need input or a screen. Drive it with terminal_send and end it with terminal_stop.",
+    description: `Start a program in a new interactive Terminal (a PTY in the Workspace's container) and return its screen once it settles: 250 ms of quiet, exit, wait_ms (default ${host.limits().startWaitMs}), or a message queued for you (settle_reason steered; the Terminal keeps running). Use it for REPLs, TUIs, prompts and other programs that need input or a screen. Drive it with terminal_send and end it with terminal_stop.`,
     parameters: obj({
       command: str({ description: "Shell command that starts the program" }),
       cwd: opt(str({ description: "Working directory (default: the repo)" })),
@@ -437,8 +436,7 @@ export const terminalStartTool = (host: TermctrlHost): ToolRegistration =>
 export const terminalSendTool = (host: TermctrlHost): ToolRegistration =>
   defineTool({
     name: "terminal_send",
-    description:
-      "Type text and press keys in a Terminal, then return its screen once it settles: 250 ms of quiet, a wait_for_text match, exit, wait_ms (default 500), or a message queued for you (settle_reason steered; the Terminal keeps running). With neither text nor keys it polls: it waits up to wait_ms (default 30000) for new output. Results include the lines that scrolled off since your previous result. When the rows above the previous result's cursor row are unchanged, the screen shows only the rows from there down; an unchanged screen shows no rows; full_screen: true shows the whole screen.",
+    description: `Type text and press keys in a Terminal, then return its screen once it settles: 250 ms of quiet, a wait_for_text match, exit, wait_ms (default ${host.limits().inputWaitMs}), or a message queued for you (settle_reason steered; the Terminal keeps running). With neither text nor keys it polls: it waits up to wait_ms (default ${host.limits().pollWaitMs}) for new output. Results include the lines that scrolled off since your previous result. When the rows above the previous result's cursor row are unchanged, the screen shows only the rows from there down; an unchanged screen shows no rows; full_screen: true shows the whole screen.`,
     parameters: obj({
       id: str({ description: "Terminal id, such as t1" }),
       text: opt(str({ description: "Text to type; \\n presses Enter" })),

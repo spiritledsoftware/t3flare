@@ -244,6 +244,10 @@ describe("termctrl's settings and the Tool output limit (SPI-1362)", () => {
       ),
     ).toBe(true);
     expect(backgroundJobs(host).waitMs).toBe(1_234);
+    // The model is told the configured defaults, not termctrl's.
+    expect(terminalStartTool(host).description).toContain("wait_ms (default 1234)");
+    expect(terminalSendTool(host).description).toContain("wait_ms (default 4321)");
+    expect(terminalSendTool(host).description).toContain(`wait_ms (default ${limits.pollWaitMs}) for new output`);
   });
 });
 
@@ -254,7 +258,7 @@ describe("termctrl", () => {
     expect(waitOf(undefined, poll)).toBe(poll);
     expect(waitOf(-1, poll)).toBe(0);
     expect(TERMINAL_WAIT_MS).toBe(5 * 60_000);
-    const host = {} as TermctrlHost;
+    const host = { limits: () => DEFAULT_TERMCTRL_LIMITS } as TermctrlHost;
     for (const tool of [terminalStartTool(host), terminalSendTool(host), terminalWaitTool(host)])
       expect(JSON.stringify(tool)).not.toMatch(/clamped|maximum 300000/);
   });

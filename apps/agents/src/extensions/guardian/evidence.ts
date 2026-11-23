@@ -95,12 +95,14 @@ const shorten = (entry: EvidenceEntry, limit: number): EvidenceEntry => {
 };
 
 /**
- * The evidence blocks of a review, in conversation order: every trusted entry, and the newest untrusted ones within
- * `budget` characters, each shortened only when it alone exceeds a quarter of it, with an omission note for what was
- * left out. `skipCalls`: the Reviewed Call's own response, which the Reviewed Call shows.
+ * The evidence blocks of a review, in conversation order, within `budget` characters: trusted entries first, newest
+ * first, each shortened to the budget; then the newest untrusted ones in what is left, each shortened only when it alone
+ * exceeds a quarter of the budget. An omission note says what was left out. `skipCalls`: the Reviewed Call's own
+ * response, which the Reviewed Call shows.
  *
- * The whole History is read, newest first, so no trusted message is lost however long the thread (it is the owner's
- * authorization); once the untrusted budget is full, an older untrusted entry is counted, never held.
+ * The History is read newest first, a page at a time: an older trusted message (the owner's authorization) still takes
+ * the place of newer untrusted ones, so the read goes on until trusted evidence fills the budget, or, with no trusted
+ * evidence (`trustUser` off), until untrusted evidence does. An untrusted entry past the budget is counted, never held.
  */
 export const selectEvidence = async (
   api: Pick<HookApi, "entries">,
@@ -108,34 +110,63 @@ export const selectEvidence = async (
   options: { readonly trustUser: boolean; readonly skipCalls: ReadonlySet<string>; readonly budget?: number },
 ): Promise<ReadonlyArray<string>> => {
   const budget = options.budget ?? EVIDENCE_CHARACTERS;
-  let used = 0;
+  let trustedUsed = 0;
+  let untrustedUsed = 0;
   let omitted = 0;
-  const kept: Array<EvidenceEntry> = [];
+  /** Newest first; untrusted ones are dropped from the end (the oldest kept) when a trusted one needs their room. */
+  const kept: Array<{ readonly evidence: EvidenceEntry; readonly size: number }> = [];
+  const dropOldestUntrusted = () => {
+    for (let index = kept.length - 1; index >= 0; index--) {
+      if (kept[index]!.evidence.trusted) continue;
+      untrustedUsed -= kept[index]!.size;
+      kept.splice(index, 1);
+      omitted++;
+      return true;
+    }
+    return false;
+  };
+  let full = false;
   let cursor: Cursor | undefined;
   do {
     const page = await api.entries({ order: "descending" }, PAGE, cursor, context);
     for (const entry of page.items) {
       const evidence = entryEvidence(entry, options.trustUser, options.skipCalls);
       if (evidence === undefined) continue;
-      if (evidence.trusted) {
-        kept.push(shorten(evidence, budget));
-        continue;
-      }
-      const shown = shorten(evidence, Math.floor(budget / 4));
+      const shown = shorten(evidence, evidence.trusted ? budget : Math.floor(budget / 4));
       const size = JSON.stringify(shown.message).length;
-      if (used + size > budget) {
-        omitted++;
+      if (evidence.trusted) {
+        if (trustedUsed + size > budget) {
+          // Trusted evidence fills the budget: nothing older can take a place in it.
+          full = true;
+          omitted++;
+          break;
+        }
+        trustedUsed += size;
+        kept.push({ evidence: shown, size });
+        while (trustedUsed + untrustedUsed > budget && dropOldestUntrusted());
         continue;
       }
-      used += size;
-      kept.push(shown);
+      if (trustedUsed + untrustedUsed + size > budget) {
+        omitted++;
+        // With no trusted evidence to come, a full budget is final.
+        if (!options.trustUser) {
+          full = true;
+          break;
+        }
+        continue;
+      }
+      untrustedUsed += size;
+      kept.push({ evidence: shown, size });
     }
     cursor = page.next;
-  } while (cursor !== undefined);
-  const blocks = kept.toReversed().map(render);
-  return omitted === 0
+  } while (cursor !== undefined && !full);
+  const blocks = kept.toReversed().map((each) => render(each.evidence));
+  return omitted === 0 && !full
     ? blocks
-    : [`[${omitted} older untrusted evidence entries omitted to fit the evidence budget]`, ...blocks];
+    : [
+        `[${omitted} evidence entries omitted to fit the evidence budget${full && cursor !== undefined ? ", and the older History not read" : ""}; trusted ones kept first, newest first]`,
+        ...blocks,
+      ];
 };
 
 const sha256 = async (text: string): Promise<string> => {

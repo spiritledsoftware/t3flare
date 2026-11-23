@@ -138,7 +138,7 @@ import {
 import { KILL_RETRY_MS, RunningExecs } from "./runningExecs.ts";
 import { FORK_PAGE_BYTES, forkPage, forkPoint, freshConversation, rewind, rollbackPlan, seed } from "./branches.ts";
 import type { WorkspaceDO } from "../workspace/WorkspaceDO.ts";
-import { liveOf, pushedEntry, turnDetail, turnOfEntry, usageOf } from "./state.ts";
+import { liveOf, pushedEntry, pushPage, turnDetail, turnOfEntry, usageOf } from "./state.ts";
 import { alarmWork, nextAlarm } from "./alarmPlan.ts";
 import { isLiveTurn, turnLimitAlarms, turnRecord, turnsPastLimit } from "./turnLimit.ts";
 import { TurnStore } from "./turnStore.ts";
@@ -1096,6 +1096,12 @@ export class SessionDO extends DurableObject<SessionEnv> {
     return Promise.resolve({ applied });
   }
 
+  /**
+   * Every entry from `fromEntry` (all of them for `{}`, as the adapter asks on a gap), unpaged. Its size grows with the
+   * thread, each tool result up to `TOOL_OUTPUT_BYTES`: past the 32 MiB an RPC carries (`RPC_MESSAGE_BYTES`) it fails, and
+   * the adapter applies the push it had instead. A gap is rare: a first push, a new epoch, a lost push, or a burst past
+   * `PUSH_ENTRIES_BYTES`.
+   */
   async snapshot(input: SnapshotInput = {}): Promise<SessionState> {
     await this.#refreshTurns();
     const fromEntry = input.fromEntry === undefined ? undefined : Number(input.fromEntry) + 1;
@@ -1381,7 +1387,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
     const conversation = await this.#conversation();
     const turns = this.#turns.allWithModel();
     const entries: Array<PushedEntry> = [];
-    let bytes = 0;
+    const room = pushPage(bound);
     let more = false;
     let lastEntry: number | undefined;
     let cursor: Cursor | undefined;
@@ -1394,12 +1400,10 @@ export class SessionDO extends DurableObject<SessionEnv> {
       );
       for (const entry of page.items) {
         const pushed = pushedEntry(entry, turnOfEntry(Number(entry.id), turns));
-        const size = JSON.stringify(pushed).length;
-        if (bytes + size > bound && entries.length > 0) {
+        if (!room.take(pushed)) {
           more = true;
           break;
         }
-        bytes += size;
         entries.push(pushed);
         lastEntry = Number(entry.id);
       }

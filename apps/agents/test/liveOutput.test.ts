@@ -3,6 +3,10 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import {
   NESTED_ARGS_BYTES,
   NESTED_OUTPUT_BYTES,
+  PUSH_BURST_RESULTS,
+  PUSH_ENTRIES_BYTES,
+  RPC_MESSAGE_BYTES,
+  SESSION_ROW_BYTES,
   T3_DETAIL_STRING_BYTES,
   T3_ON_DEMAND_BYTES,
   T3_OUTPUT_TAIL_CHARS,
@@ -17,7 +21,7 @@ import {
   suggestionContext,
   suggestPrompt,
 } from "../src/session/promptSuggestion.ts";
-import { liveOf, pushedEntry } from "../src/session/state.ts";
+import { liveOf, pushedEntry, pushPage } from "../src/session/state.ts";
 
 describe("what t3 is shown of a tool (SPI-1362)", () => {
   const toolResult = (text: string, details?: unknown) => ({
@@ -41,6 +45,22 @@ describe("what t3 is shown of a tool (SPI-1362)", () => {
     const over = textOf(pushedEntry(toolResult(`${fits}y`), "turn-1"));
     expect(new TextEncoder().encode(over).length).toBeLessThanOrEqual(TOOL_OUTPUT_BYTES);
     expect(over).toContain("[cut: ");
+  });
+
+  it("pushes a burst of full-size results in one push, a page the RPC carries (SPI-1362)", () => {
+    // Each result's text past t3's cut, in one-byte characters: the most characters a pushed result takes.
+    const burst = Array.from({ length: 3 * PUSH_BURST_RESULTS }, (_, index) =>
+      pushedEntry({ ...toolResult("x".repeat(2 * TOOL_OUTPUT_BYTES)), id: index + 1 }, "turn-1"),
+    );
+    const page = pushPage(PUSH_ENTRIES_BYTES);
+    const taken = burst.findIndex((entry) => !page.take(entry));
+    // A round of PUSH_BURST_RESULTS settles in one push; a longer burst goes on in the next page.
+    expect(taken).toBeGreaterThanOrEqual(PUSH_BURST_RESULTS);
+    expect(taken).toBeLessThan(burst.length);
+    // The first of a page always goes, however large.
+    expect(pushPage(1).take(burst[0]!)).toBe(true);
+    // The page and one whole Session row past it, at two bytes a character, leave the RPC room for the live state.
+    expect(2 * (PUSH_ENTRIES_BYTES + SESSION_ROW_BYTES)).toBeLessThan(RPC_MESSAGE_BYTES * 0.75);
   });
 
   it("pushes a tool's details and an owner's message whole, however large", () => {

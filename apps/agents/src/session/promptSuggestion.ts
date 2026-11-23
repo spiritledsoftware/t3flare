@@ -22,7 +22,7 @@ export const suggestionModelOf = (
   const parsed = slug === undefined ? undefined : parseEndpointSlug(slug);
   return parsed === undefined ? undefined : { provider: parsed.endpointId, modelId: parsed.modelId };
 };
-/** The `prompt-suggestions` settings (SPI-1362): how much of the turn the model reads, and how long it may take. */
+/** Prompt suggestions' settings (`prompt-suggestions`, SPI-1362): how much of the turn the model reads, how long it may take. */
 export interface SuggestionLimits {
   /** Most characters of the request and of the answer the model reads, the last of each. */
   readonly excerptCharacters: number;
@@ -31,7 +31,7 @@ export interface SuggestionLimits {
 
 export const PROMPT_SUGGESTIONS_EXTENSION = "prompt-suggestions";
 
-/** The `prompt-suggestions` entry's resolved settings as limits. */
+/** The Prompt suggestions entry's resolved settings as limits. */
 export const suggestionLimits = (values: Readonly<Record<string, SettingValue>>): SuggestionLimits => ({
   excerptCharacters: Number(values.excerptCharacters),
   timeoutMs: Number(values.timeoutSeconds) * 1000,

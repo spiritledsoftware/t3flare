@@ -584,7 +584,10 @@ export interface SessionState {
   readonly sessionId: string;
   readonly epoch: string;
   readonly entries: ReadonlyArray<PushedEntry>;
-  /** Entries were cut at the bound: pull a snapshot from the last one pushed. */
+  /**
+   * Entries were cut at the bound (`PUSH_ENTRIES_BYTES`): pull a snapshot. The Session pushes the rest next too, but
+   * this push's turns are already the newest.
+   */
   readonly more: boolean;
   readonly live: LiveSlim;
   readonly agent: { readonly model: ModelRef | null; readonly thinking: string | null };
@@ -627,10 +630,25 @@ export interface SessionPushAnswer {
 
 /** How long the Session coalesces commits before a push while streaming. */
 export const PUSH_COALESCE_MS = 300;
-/** The most a push's entries may hold (JSON); past it, `more` and the adapter pulls a snapshot. */
-export const PUSH_ENTRIES_BYTES = 256 * 1024;
 /** A tool result's text, as pushed: as much as t3 serves its client (SPI-1362); the model's copy is the Session's. */
 export const TOOL_OUTPUT_BYTES = T3_ON_DEMAND_BYTES;
+/** The largest message one Durable Object RPC carries: Cloudflare's 32 MiB. A push is one. */
+export const RPC_MESSAGE_BYTES = 32 * MIB;
+/**
+ * Full-size tool results (`TOOL_OUTPUT_BYTES`) one push carries: a round of parallel calls, so a burst of results
+ * settles in one push, not a page and a snapshot. A taste choice, bounded by `PUSH_ENTRIES_BYTES`'s constraint.
+ */
+export const PUSH_BURST_RESULTS = 16;
+/** What a pushed entry holds beside its text: its ids, turn, tool name and JSON structure. */
+const PUSHED_ENTRY_ROOM = 4 * 1024;
+/**
+ * The most JSON characters a push's entries may hold; past it, `more`, and the adapter pulls a snapshot (the push carries
+ * every turn's newest status, which the differ must not apply before the turn's last entries). A burst of
+ * `PUSH_BURST_RESULTS` full-size results fits. A named constraint: the page, the one entry that may pass it (a whole
+ * Session row, `SESSION_ROW_BYTES`), and the push's live state go in one RPC (`RPC_MESSAGE_BYTES`), at most 2 bytes per
+ * character as structured clone writes a string: about 24.5 MB of the 32 MiB, the rest for the live state.
+ */
+export const PUSH_ENTRIES_BYTES = PUSH_BURST_RESULTS * (TOOL_OUTPUT_BYTES + PUSHED_ENTRY_ROOM);
 /** While a turn is live the Session pushes at least this often. */
 export const LIVENESS_PUSH_MS = 60_000;
 /** An open turn with no push for this long makes the adapter pull a snapshot (the inverse guard). */

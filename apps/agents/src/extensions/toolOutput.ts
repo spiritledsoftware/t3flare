@@ -1,5 +1,5 @@
-// What the model is shown of a tool's result (SPI-1362): the harness registry's `tool-output` settings, one output limit
-// for every tool. pi-durable cuts a result to its tool's `outputLimits`, and falls back to its own defaults (50 KiB,
+// Tool output (SPI-1362): the Harness settings' always-on entry (`tool-output`) whose two settings are the Tool output
+// limit, what the model is shown of every tool's result. pi-durable cuts a result to its tool's `outputLimits`, and falls back to its own defaults (50 KiB,
 // 2,000 lines) for a tool that names none; this extension gives every tool the setting instead. A tool that names its
 // own `maxBytes` or `maxLines` keeps them (pi-durable's code mode, `todo`); the tools that size their own text to the
 // limit (`ls`, `find`, `grep`, the web tools, the Terminals, `context_history`) are built with the same limits.

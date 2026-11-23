@@ -504,8 +504,11 @@ Global mise config refinement's 16 KiB, §4's "nor other custom sizes", and the 
 - **Derived, not set:** what t3 is shown follows t3's own display caps (docs/upstream-fragility.md U100): a finished
   tool result's text at t3's 256 KiB on-demand size, a nested call's arguments at its 32 KiB wire detail size, and
   running output tails at its 64 Ki live tail. The approval card's script is shown by the card's own rule
-  (`cardText`) and kept once per code mode call. The Guardian reads the whole History for evidence, keeping every
-  trusted message and holding only the untrusted entries its budget fits.
+  (`cardText`) and kept once per code mode call. The Guardian's evidence budget takes trusted messages first, newest
+  first, then the newest untrusted ones; its History read stops once trusted evidence fills the budget (or, on a linked
+  thread, any evidence does). A push's page (`PUSH_ENTRIES_BYTES`) holds a burst of 16 full-size tool results, so a
+  round of parallel calls settles without a snapshot; with one whole Session row past it, it stays well inside the
+  32 MiB a Durable Object RPC carries.
 - **Removed:** the 10-minute default of a t3 wait with no `timeoutMs` (it waits until what it waits on happens, or the
   turn is interrupted), termctrl's 20-line exit tail (a job's tail bounds it), and the 64 KiB cuts of an owner's message
   and a tool's `details` in a push (both fit the Session row they come from).

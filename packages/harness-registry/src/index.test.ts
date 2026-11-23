@@ -407,6 +407,23 @@ describe("applyChange", () => {
     });
   });
 
+  it("states each SPI-1362 setting's maximum in its description", () => {
+    const keys: Record<string, ReadonlyArray<string>> = {
+      "tool-output": ["outputKiB", "outputLines"],
+      web: ["searchContextCharacters"],
+      context: ["previewCharacters"],
+      termctrl: ["startWaitMs", "inputWaitMs", "pollWaitMs", "scrollbackLines", "scrollbackKiB"],
+      guardian: ["batchArgumentCharacters"],
+      "prompt-suggestions": ["excerptCharacters", "timeoutSeconds"],
+    };
+    for (const [id, names] of Object.entries(keys))
+      for (const name of names) {
+        const setting = EXTENSIONS.find((entry) => entry.id === id)!.settings[name]!;
+        const maximum = setting.schema.type === "integer" ? setting.schema.maximum : Number.NaN;
+        expect(setting.description, `${id}.${name}`).toContain(`At most ${maximum.toLocaleString("en-US")}`);
+      }
+  });
+
   it("keeps the model's text of a result within half a Session row at the Tool output limit's maximum (SPI-1362)", () => {
     // Every byte of the text at its worst JSON escape, beside the rest of the result in the other half.
     expect(MAX_TOOL_OUTPUT_KIB * 1024 * JSON_ESCAPE_MAX_BYTES).toBeLessThanOrEqual(

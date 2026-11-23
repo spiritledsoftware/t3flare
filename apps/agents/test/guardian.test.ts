@@ -404,7 +404,33 @@ describe("the Guardian's evidence (SPI-1362)", () => {
     const untrusted = blocks.filter((block) => block.startsWith("Evidence (UNTRUSTED"));
     expect(untrusted.length).toBeGreaterThan(0);
     expect(untrusted.reduce((sum, block) => sum + block.length, 0)).toBeLessThan(15_000);
-    expect(blocks[0]).toMatch(/^\[\d+ older untrusted evidence entries omitted/);
+    expect(blocks[0]).toMatch(/^\[\d+ evidence entries omitted to fit the evidence budget; trusted ones kept first/);
+  });
+
+  it("bounds trusted evidence by the budget too, newest first, and stops reading once it is full", async () => {
+    // 300 pasted logs of 4,000 characters, the newest last: only the newest two fit 10,000 characters.
+    const entries = Array.from({ length: 300 }, (_, at) => user(at + 1, `log ${at} ${"z".repeat(4_000)}`));
+    const { api, read } = history(entries);
+    const blocks = await selectEvidence(api, context, { trustUser: true, skipCalls: new Set(), budget: 10_000 });
+    const trusted = blocks.filter((block) => block.startsWith("Evidence (TRUSTED"));
+    expect(trusted.map((block) => /log (\d+)/.exec(block)![1])).toEqual(["298", "299"]);
+    expect(trusted.reduce((sum, block) => sum + block.length, 0)).toBeLessThan(10_500);
+    expect(blocks[0]).toContain("the older History not read");
+    expect(read()).toBeLessThan(entries.length);
+  });
+
+  it("gives a trusted message the room of newer untrusted ones, and stops at a full budget with nothing trusted", async () => {
+    const entries = [user(1, "you may deploy to prod"), ...Array.from({ length: 50 }, (_, at) => call(at + 2))];
+    const trusting = await selectEvidence(history(entries).api, context, {
+      trustUser: true,
+      skipCalls: new Set(),
+      budget: 2_000,
+    });
+    expect(trusting.some((block) => block.includes("you may deploy to prod"))).toBe(true);
+    expect(trusting.join("").length).toBeLessThan(3_000);
+    const linked = history(Array.from({ length: 5_000 }, (_, at) => call(at + 2)));
+    await selectEvidence(linked.api, context, { trustUser: false, skipCalls: new Set(), budget: 2_000 });
+    expect(linked.read()).toBeLessThanOrEqual(400);
   });
 
   it("cuts the other calls of a batch to the batchArgumentCharacters setting", async () => {

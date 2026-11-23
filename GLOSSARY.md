@@ -222,6 +222,18 @@ What agents are offered and how Pi Durable's loop runs: each tool's Exposure, it
 much of a tool's result the model is shown (the Tool output limit), and the MCP server set.
 _Avoid_: harness config, settings (alone)
 
+**Tool output**:
+The Harness settings' always-on entry that sets how much of each tool's result the model is shown, in KiB and lines
+(the Tool output limit): every tool but code mode and `todo`, which keep their own. The tools that size their own text
+(the file and web tools, a Terminal's screen, a Background job's tail, a History read) take it too.
+_Avoid_: output cap, truncation limit
+
+**Prompt suggestions**:
+The Harness settings' always-on entry for the next message a Durable agent's Session suggests after a turn, from the
+turn's request and answer, while t3's own prompt suggestions (its Labs setting) are on: how much of each the small model
+reads, and how long it may take.
+_Avoid_: next-message prediction
+
 **Environment settings**:
 What the Cloud Environment gives every Workspace and its Container, and how long it keeps one: the Container size (a
 named one, or a custom size's vCPU, memory and disk: `customVcpu`, `customMemoryMib`, `customDiskMb`), idle time and
