@@ -10,6 +10,7 @@ import {
   mcpServersOf,
   EMPTY_HARNESS,
   extensionOf,
+  MAX_TIMED_MINUTES,
   EXTENSIONS,
   resolvedToolsOf,
   resolveHarness,
@@ -67,7 +68,14 @@ describe("resolveHarness", () => {
   it("has the Guardian off (each review is a model request), with the endpoints' small model (default), no thinking, and text rules (SPI-1058)", () => {
     expect(resolveHarness(EMPTY_HARNESS).extensions.guardian).toEqual({
       enabled: false,
-      settings: { model: "default", thinkingLevel: "off", tools: "", commands: "", policy: "" },
+      settings: {
+        model: "default",
+        thinkingLevel: "off",
+        tools: "",
+        commands: "",
+        policy: "",
+        reviewTimeoutSeconds: 60,
+      },
     });
     const on = applyChange(EMPTY_HARNESS, {
       extension: "guardian",
@@ -85,12 +93,33 @@ describe("resolveHarness", () => {
     expect(applyChange(EMPTY_HARNESS, { extension: "guardian", settings: { commands: 3 } })).toMatchObject({
       ok: false,
     });
+    // SPI-1320: a Review's time limit, up to what t3flare times itself (ADR-0048).
+    for (const reviewTimeoutSeconds of [1, MAX_TIMED_MINUTES * 60])
+      expect(applyChange(EMPTY_HARNESS, { extension: "guardian", settings: { reviewTimeoutSeconds } })).toMatchObject({
+        ok: true,
+      });
+    for (const reviewTimeoutSeconds of [0, MAX_TIMED_MINUTES * 60 + 1, 1.5])
+      expect(applyChange(EMPTY_HARNESS, { extension: "guardian", settings: { reviewTimeoutSeconds } })).toMatchObject({
+        ok: false,
+      });
   });
 
   it("has the Advisor off (each review is a model request), inheriting the model, reviewing every turn (SPI-1059)", () => {
     expect(resolveHarness(EMPTY_HARNESS).extensions.advisor).toEqual({
       enabled: false,
-      settings: { model: "inherit", reviewEvery: "turn", thinkingLevel: "high", correctiveTurns: 1 },
+      settings: {
+        model: "inherit",
+        reviewEvery: "turn",
+        thinkingLevel: "high",
+        correctiveTurns: 1,
+        reviewTimeoutSeconds: 120,
+        maxFindings: 4,
+        maxNits: 3,
+        maxToolRounds: 8,
+        concernCooldownTurns: 3,
+        catchUpBacklog: 3,
+        catchUpWaitSeconds: 30,
+      },
     });
     expect(
       applyChange(EMPTY_HARNESS, {
@@ -102,6 +131,28 @@ describe("resolveHarness", () => {
     expect(applyChange(EMPTY_HARNESS, { extension: "advisor", settings: { reviewEvery: "7" } })).toMatchObject({
       ok: false,
     });
+    // SPI-1320: each review bound at its ends is kept, one past them refused.
+    const bounds: Record<string, readonly [number, number]> = {
+      reviewTimeoutSeconds: [1, MAX_TIMED_MINUTES * 60],
+      maxFindings: [1, 100],
+      maxNits: [0, 100],
+      maxToolRounds: [0, 100],
+      concernCooldownTurns: [0, 1_000],
+      catchUpBacklog: [1, 1_000],
+      catchUpWaitSeconds: [0, MAX_TIMED_MINUTES * 60],
+    };
+    for (const [key, [low, high]] of Object.entries(bounds)) {
+      for (const value of [low, high])
+        expect(
+          applyChange(EMPTY_HARNESS, { extension: "advisor", settings: { [key]: value } }),
+          `${key}=${value}`,
+        ).toMatchObject({ ok: true });
+      for (const value of [low - 1, high + 1])
+        expect(
+          applyChange(EMPTY_HARNESS, { extension: "advisor", settings: { [key]: value } }),
+          `${key}=${value}`,
+        ).toMatchObject({ ok: false });
+    }
   });
 
   it("gives an extension's defaults to a Session whose resolved view predates the entry", () => {

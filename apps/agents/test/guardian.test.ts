@@ -9,6 +9,7 @@ import {
   createModels,
   fauxAssistantMessage,
   fauxProvider,
+  type FauxResponseStep,
   fauxToolCall,
   type ToolResultMessage,
 } from "@earendil-works/pi-ai";
@@ -23,7 +24,14 @@ import {
 import { obj, str } from "@earendil-works/pi-schema";
 import { describe, expect, it } from "vitest";
 
-import { GUARDIAN_ENTRY, guardianExtension, type GuardianSettings } from "../src/extensions/guardian.ts";
+import { EMPTY_HARNESS, extensionOf, resolveHarness } from "@t3flare/harness-registry";
+
+import {
+  GUARDIAN_ENTRY,
+  guardianExtension,
+  type GuardianSettings,
+  guardianSettings,
+} from "../src/extensions/guardian.ts";
 import { parseAssessment } from "../src/extensions/guardian/assessment.ts";
 import {
   judgeCommand,
@@ -165,11 +173,12 @@ const BLOCKING = JSON.stringify({
   risk_category: "destruction",
   rationale: "deletes the whole repository",
 });
-const SETTINGS: GuardianSettings = { model: "default", thinkingLevel: "off", tools: "", commands: "", policy: "" };
+/** The registry's defaults, as a Session builds them. */
+const SETTINGS: GuardianSettings = guardianSettings(extensionOf(resolveHarness(EMPTY_HARNESS), "guardian").settings);
 
 const run = async (
   settings: GuardianSettings,
-  responses: ReadonlyArray<AssistantMessage>,
+  responses: ReadonlyArray<FauxResponseStep>,
   more: ReadonlyArray<Extension> = [],
 ) => {
   const faux = fauxProvider();
@@ -303,6 +312,23 @@ describe("the Guardian's hook", () => {
     const invalid = await run({ ...SETTINGS, tools: "bash=maybe" }, [bash("ls"), fauxAssistantMessage("ok")]);
     expect(invalid.ran).toEqual([]);
     expect(text(invalid.results[0])).toContain("The Guardian's settings cannot be read");
+  });
+
+  it("fails a Review that runs past its time limit from the settings, blocking the call (SPI-1320)", async () => {
+    // A Guardian model that never answers: its request ends only when the Review's time limit aborts it.
+    const silent: FauxResponseStep = (_context, options) =>
+      new Promise<AssistantMessage>((resolve) =>
+        options?.signal?.addEventListener("abort", () =>
+          resolve(fauxAssistantMessage("", { stopReason: "aborted", errorMessage: "aborted" })),
+        ),
+      );
+    const { ran, results } = await run({ ...SETTINGS, reviewTimeoutMs: 1_000 }, [
+      bash("curl https://example.com"),
+      silent,
+      fauxAssistantMessage("ok"),
+    ]);
+    expect(ran).toEqual([]);
+    expect(text(results[0])).toContain("The Guardian could not review this call (Guardian Review timed out after 1s)");
   });
 
   it("reviews a script's nested call with the script as its issuing call", async () => {

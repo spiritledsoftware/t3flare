@@ -29,6 +29,7 @@ import {
   type ToolHookCall,
   ToolTask,
 } from "@earendil-works/pi-durable";
+import type { SettingValue } from "@t3flare/harness-registry";
 import { parseEndpointSlug } from "@t3flare/models/endpoints";
 
 import {
@@ -46,8 +47,6 @@ import { type GuardianThinkingLevel, type ReviewResult, runGuardianReview, withE
 export const GUARDIAN_EXTENSION = "guardian";
 /** A Guardian's audit entry: data only, so the model never sees it; t3 shows a rejection or failure as a notice. */
 export const GUARDIAN_ENTRY = "t3flare.guardian";
-/** pi-guardian's `reviewTimeoutMs` default. */
-export const REVIEW_TIMEOUT_MS = 60_000;
 
 export interface GuardianSettings {
   /** The Guardian model's setting: a Model endpoint's slug, or `default` (`GuardianHost.model` resolves it). */
@@ -57,7 +56,19 @@ export interface GuardianSettings {
   readonly tools: string;
   readonly commands: string;
   readonly policy: string;
+  /** How long a Guardian Review may run before it fails and blocks the call (the `reviewTimeoutSeconds` setting). */
+  readonly reviewTimeoutMs: number;
 }
+
+/** The Guardian's settings from its resolved registry values (`extensionOf(…, "guardian").settings`). */
+export const guardianSettings = (values: Readonly<Record<string, SettingValue>>): GuardianSettings => ({
+  model: String(values.model),
+  thinkingLevel: String(values.thinkingLevel) as GuardianThinkingLevel,
+  tools: String(values.tools ?? ""),
+  commands: String(values.commands ?? ""),
+  policy: String(values.policy ?? ""),
+  reviewTimeoutMs: Number(values.reviewTimeoutSeconds) * 1_000,
+});
 
 export interface GuardianHost {
   readonly harness: () => Promise<Harness>;
@@ -182,7 +193,7 @@ const review = async (
   const base = {
     models: api.models,
     model,
-    timeoutMs: REVIEW_TIMEOUT_MS,
+    timeoutMs: settings.reviewTimeoutMs,
     signal: context.abortSignal,
     sessionId: host.sessionId(),
     categories,
