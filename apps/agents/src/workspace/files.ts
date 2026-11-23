@@ -28,6 +28,9 @@ const kindOf = (entry: { readonly isDirectory: boolean; readonly isSymbolicLink:
 
 const parentOf = (path: string) => path.slice(0, path.lastIndexOf("/")) || "/";
 
+/** A slice of a file one Workspace DO reads for another's copy: its bytes, and whether it is the last; or the error. */
+export type FileChunk = { readonly bytes: Uint8Array; readonly done: boolean } | { readonly error: string };
+
 export const fileOps = (workspace: ComputerWorkspace) => {
   const fs = () => workspace.fs;
   return {
@@ -64,16 +67,60 @@ export const fileOps = (workspace: ComputerWorkspace) => {
       run(async () => {
         await fs().mkdir(parentOf(path), { recursive: true });
         if (options.append === true) {
+          // computer's file system has no append. Stream the file's bytes, then the new ones, back into it: computer
+          // stages a streamed write's chunks and links them only once the stream ends, so the read finishes first, and
+          // the file is never held whole in the isolate's memory. Bytes stay bytes, never decoded as text.
+          const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
           const before = await fs()
-            .readFile(path, "utf8")
-            .catch(() => "");
-          const text = typeof data === "string" ? data : new TextDecoder().decode(data);
-          await fs().writeFile(path, before + text);
+            .readFile(path)
+            .catch((cause: unknown) => {
+              if (errorOf(cause).error === "ENOENT") return undefined;
+              throw cause;
+            });
+          if (before === undefined) await fs().writeFile(path, bytes);
+          else
+            await fs().writeFile(
+              path,
+              before.pipeThrough(
+                new TransformStream<Uint8Array, Uint8Array>({ flush: (controller) => controller.enqueue(bytes) }),
+              ),
+            );
         } else {
           await fs().writeFile(path, data, options.exclusive === true ? { exclusive: true } : {});
         }
         return null;
       }),
+    /**
+     * Writes `to` from `readChunk`'s chunks, read in order and streamed into one write: the file is never held whole in
+     * memory, and `to` is linked only once every chunk has arrived. The first error, if any.
+     */
+    copyIn: async (
+      to: string,
+      chunkBytes: number,
+      readChunk: (offset: number, length: number) => Promise<FileChunk>,
+    ): Promise<string | undefined> => {
+      let offset = 0;
+      let failed: string | undefined;
+      const chunks = new ReadableStream<Uint8Array>({
+        pull: async (controller) => {
+          const chunk = await readChunk(offset, chunkBytes);
+          if ("error" in chunk) {
+            failed = chunk.error;
+            controller.error(new Error(chunk.error));
+            return;
+          }
+          offset += chunk.bytes.byteLength;
+          if (chunk.bytes.byteLength > 0) controller.enqueue(chunk.bytes);
+          if (chunk.done) controller.close();
+        },
+      });
+      const wrote = await run(async () => {
+        await fs().mkdir(parentOf(to), { recursive: true });
+        await fs().writeFile(to, chunks);
+        return null;
+      });
+      return failed ?? ("ok" in wrote ? undefined : wrote.message);
+    },
     readdir: (path: string): Promise<FsAnswer<ReadonlyArray<DirEntry>>> =>
       run(async () => (await fs().readdir(path)).map((entry) => ({ name: entry.name, kind: kindOf(entry) }))),
     mkdir: (path: string, recursive: boolean): Promise<FsAnswer<null>> =>

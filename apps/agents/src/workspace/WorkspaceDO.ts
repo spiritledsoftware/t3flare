@@ -119,7 +119,7 @@ import { type PortProbe, probeRunningPort, scanRunningContainer, stopGroupInRunn
 import type { PortScan } from "@t3flare/sandbox-image/ports";
 import { authoredScript, captureScript, restoreScript, shellWord } from "./checkpointScripts.ts";
 import { captureTurn, type LastCapture } from "./checkpointCapture.ts";
-import { fileOps } from "./files.ts";
+import { type FileChunk, fileOps } from "./files.ts";
 import {
   deleteRef,
   diffCommits,
@@ -2036,11 +2036,7 @@ export class WorkspaceDO extends ContainerHost {
   }
 
   /** A slice of one of this object's own files (another Workspace DO copies a bundle with it). */
-  async readChunk(
-    path: string,
-    offset: number,
-    length: number,
-  ): Promise<{ readonly bytes: Uint8Array; readonly done: boolean } | { readonly error: string }> {
+  async readChunk(path: string, offset: number, length: number): Promise<FileChunk> {
     this.#alive();
     await this.#ready();
     const answer = await fileOps(this.#workspace).read(path, { offset, length });
@@ -2053,19 +2049,17 @@ export class WorkspaceDO extends ContainerHost {
     return this.env.WORKSPACES.get(this.env.WORKSPACES.idFromName(id));
   }
 
-  /** Copies a file of Workspace `from`'s own files into this one's, object to object in 4 MiB chunks; the error, if any. */
+  /**
+   * Copies a file of Workspace `from`'s own files into this one's, object to object in 4 MiB chunks streamed into one
+   * write, so the file is never held whole in memory nor re-read per chunk; the error, if any.
+   */
   async #copyFrom(from: string, path: string, to: string): Promise<string | undefined> {
     const ops = fileOps(this.#workspace);
-    await ops.mkdir(to.slice(0, to.lastIndexOf("/")), true);
     await ops.remove(to, { force: true });
+    // A sanity bound (ADR-0048), not the constraint: each chunk is one DO RPC answer, which holds at most 32 MiB, and
+    // 4 MiB stays well under it while keeping a copy to a few round trips.
     const CHUNK = 4 * 1024 * 1024;
-    for (let offset = 0; ; offset += CHUNK) {
-      const chunk = await this.#peer(from).readChunk(path, offset, CHUNK);
-      if ("error" in chunk) return chunk.error;
-      const wrote = await ops.write(to, chunk.bytes, { append: offset > 0 });
-      if (!("ok" in wrote)) return wrote.message;
-      if (chunk.done) return undefined;
-    }
+    return ops.copyIn(to, CHUNK, (offset, length) => this.#peer(from).readChunk(path, offset, length));
   }
 
   /**
