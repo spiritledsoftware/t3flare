@@ -120,4 +120,16 @@ Evidence: `apps/environment/test/worktreeRefs.test.ts` (t3's real `listRefs` ove
 
 ## Refinement (SPI-1004): automatic fetch is off, and why
 
+> Superseded by the SPI-1367 refinement below: automatic fetch is t3's own setting, off by default.
+
 t3's background fetch (`VcsStatusBroadcaster`'s automatic fetch interval) is set to zero in `composition.ts`. It would run `git fetch` in every watched Workspace on a timer, and each fetch starts that Workspace's Container (ADR-0009: git runs in the Container), so idle projects would keep Containers running for nothing. Ahead and behind counts are therefore as of the last fetch, pull, push or user action. A fetch the owner asks for runs as usual. Off is a refusal by design (parity: "automatic fetch off"), not a gap.
+
+## Refinement (SPI-1367, 2026-11-23): automatic fetch is the Owner's, off by default
+
+Supersedes the SPI-1004 refinement's "off is a refusal by design". Nothing in Cloudflare or in t3flare's correctness
+forces fetch off; it only saves Container time, which is the Owner's to spend (ADR-0048). `composition.ts` now reads the
+interval from t3's own settings through t3's `VcsAutomaticFetchInterval.layer`, as stock t3 does, and the managed
+policy gives that setting an unlocked default of 0 (ADR-0023's SPI-1367 refinement; fragility U104). With the default,
+nothing changes: ahead and behind counts are as of the last fetch, pull, push or user action. An Owner who picks a
+Background activity profile or interval in t3's settings gets fetches on that timer, and each fetch starts, or keeps
+running, that Workspace's Container (billed), as the SPI-1004 refinement says.
