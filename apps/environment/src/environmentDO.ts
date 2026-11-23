@@ -541,6 +541,11 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     return this.#broker;
   }
 
+  /** The Outside request time limit as stored now, in ms: the Connect admin calls' deadline (SPI-1366). */
+  outsideRequestMs(): number {
+    return this.#outsideRequestMs();
+  }
+
   /** The Outside request time limit as stored now, in ms (SPI-1365): read at each request to GitHub or a vendor. */
   #outsideRequestMs(): number {
     return resolveEnvironment(harnessStore(this.ctx.storage.kv).loadEnvironment()).outsideRequestSeconds * 1000;

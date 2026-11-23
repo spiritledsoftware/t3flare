@@ -61,8 +61,16 @@ const parseToken = (body: unknown): CliTokenManager.PersistedToken | undefined =
   return { accessToken, refreshToken, expiresAtEpochMs };
 };
 
-/** The probe, bounded by `signal`, the admin request's own (SPI-1366): it ends when the caller stops waiting. */
-const probe = Effect.fn("probe")(function* (signal: AbortSignal) {
+/**
+ * An admin call's deadline (SPI-1366): the Outside request time limit, or the caller giving up, whichever comes first.
+ * `request.signal` alone fires only under the `enable_request_signal` compatibility flag, which this Worker does not set,
+ * so the time limit is what holds; without one, a relay that never answers holds `adminInFlight` and the Environment up.
+ */
+export const adminDeadline = (request: Request, timeoutMs: number): AbortSignal =>
+  AbortSignal.any([request.signal, AbortSignal.timeout(timeoutMs)]);
+
+/** The probe, bounded by `signal` (`adminDeadline`). */
+export const probe = Effect.fn("probe")(function* (signal: AbortSignal) {
   const relayUrl = yield* relayUrlConfig;
   const oauth = yield* cloudCliOAuthConfig;
   return yield* Effect.promise(async () => {
@@ -145,13 +153,16 @@ export const handleConnectAdmin = async (request: Request, environment: Environm
     }
     case "GET /_t3flare/connect/status":
       return answer((service) =>
-        service.status({ relay: url.searchParams.get("relay") === "1", signal: request.signal }),
+        service.status({
+          relay: url.searchParams.get("relay") === "1",
+          signal: adminDeadline(request, environment.outsideRequestMs()),
+        }),
       );
     case "POST /_t3flare/connect/fault/relay-unlink":
       if (!environment.connectServiceTokenAllowed) return json({ error: "stages only" }, 404);
       return answer((service) => Effect.map(service.relayUnlinkOnly, (relay) => ({ relay })));
     case "POST /_t3flare/connect/probe":
-      return json(await runtime.run(probe(request.signal)));
+      return json(await runtime.run(probe(adminDeadline(request, environment.outsideRequestMs()))));
     case "POST /_t3flare/check/connect-refusals": {
       // Past the DO's own 404 (environmentDO.ts): what t3's app answers, which must be a refusal, not a credential.
       const results: Record<string, { status: number; body: string }> = {};

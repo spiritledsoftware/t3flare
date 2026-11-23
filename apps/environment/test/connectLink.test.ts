@@ -30,6 +30,7 @@ import * as ManagedPolicy from "t3/src/policy/ManagedPolicy.ts";
 import * as AgentAwarenessRelay from "t3/src/relay/AgentAwarenessRelay.ts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { adminDeadline, probe } from "../src/connect/admin.ts";
 import { makePublishRecorder } from "../src/connect/recorder.ts";
 import * as ConnectService from "../src/connect/service.ts";
 
@@ -279,6 +280,20 @@ describe("the publish-only link step against a fake relay", () => {
       local: true,
       accountTokenCleared: false,
     });
+  });
+
+  it("ends a probe the relay never answers at the admin call's deadline, though the request's own signal never fires (SPI-1366)", async () => {
+    // As fetch does: an aborted signal refuses at once, a live one when it aborts.
+    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) =>
+      init?.signal?.aborted === true
+        ? Promise.reject(init.signal.reason)
+        : new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason))),
+    );
+    // A Request whose signal never aborts: as workerd hands one without `enable_request_signal`.
+    const request = new Request("https://env.example/_t3flare/connect/probe", { method: "POST" });
+    const answer = await Effect.runPromise(probe(adminDeadline(request, 20)));
+    expect(answer.relay.status).toBe(0);
+    expect(answer.deviceAuthorization.status).toBe(0);
   });
 
   it("signs out: the relay's link, ours and the token go", async () => {

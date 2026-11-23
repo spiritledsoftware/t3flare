@@ -318,7 +318,8 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
 
     /**
      * The relay's view, with the account token (stages): environments and devices, reduced to what proves the link. Bounded
-     * by `signal`, the admin request's own (SPI-1366): outside the Connect lock, nothing else waits on it.
+     * by `signal`, the admin call's deadline (`adminDeadline`, SPI-1366): the Outside request time limit, or the caller
+     * giving up.
      */
     const relayView = (signal: AbortSignal | undefined) =>
       Effect.gen(function* () {
@@ -331,7 +332,8 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
               // @effect-diagnostics-next-line globalFetchInEffect:off -- the Worker's global fetch, as before: connectLink.test.ts stubs it, and the HttpClient service in scope is t3's sign-in client
               const response = await fetch(`${url}${path}`, {
                 headers: { authorization: `Bearer ${token.value.accessToken}` },
-                ...(signal === undefined ? {} : { signal }),
+                // Never unbounded: a caller with no deadline of its own gets the Outside request time limit.
+              signal: signal ?? AbortSignal.timeout(requestMs()),
               });
               return {
                 status: response.status,
