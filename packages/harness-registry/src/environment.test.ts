@@ -19,10 +19,12 @@ import {
   MAX_CLI_PROCESSES_PER_WORKSPACE,
   MAX_CLI_RECLAIM_SECONDS,
   MAX_CONTAINER_BUDGET,
+  MAX_RETENTION_DAYS,
   MAX_SETUP_BYTES,
   MAX_TERMINALS_PER_WORKSPACE,
   MAX_TIMED_MINUTES,
   resolveEnvironment,
+  RETENTION_SETTING_KEYS,
   SWEEP_SETTING_KEYS,
 } from "./environment.ts";
 import type { EnvironmentSettingEntry } from "./fields.ts";
@@ -57,6 +59,8 @@ const TUNABLE_DEFAULTS = {
   agentTerminalsPerWorkspace: 8,
   cloneMinutes: 15,
   checkpointMinutes: 10,
+  usageRetentionDays: 92,
+  piSessionRetentionDays: 60,
 } as const;
 
 describe("resolveEnvironment", () => {
@@ -509,6 +513,43 @@ describe("the Turn limit (SPI-1315)", () => {
     );
     expect(ENVIRONMENT_SETTINGS.turnLimitMinutes.description).toContain(
       "a running turn keeps the limit it started with",
+    );
+  });
+});
+
+describe("how long history is kept (SPI-1323)", () => {
+  const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
+
+  it("keeps usage records 92 days and pi sessions 60 by default, 1 to MAX_RETENTION_DAYS (3650) whole days", () => {
+    expect(MAX_RETENTION_DAYS).toBe(3650);
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({ usageRetentionDays: 92, piSessionRetentionDays: 60 });
+    for (const key of RETENTION_SETTING_KEYS) {
+      for (const days of [1, 30, 365, 3650]) expect(set({ [key]: days })).toMatchObject({ ok: true });
+      expect(set({ [key]: 0 })).toEqual({ ok: false, error: `${key}: at least 1` });
+      expect(set({ [key]: 1.5 })).toEqual({ ok: false, error: `${key}: an integer` });
+      for (const days of [-1, 3651, "92", null]) expect(set({ [key]: days })).toMatchObject({ ok: false });
+    }
+    expect(
+      resolveEnvironment({ revision: 1, settings: { usageRetentionDays: 0, piSessionRetentionDays: 3651 } }),
+    ).toMatchObject({ usageRetentionDays: 92, piSessionRetentionDays: 60 });
+  });
+
+  it("is up-free, in a History row of its own (RETENTION_SETTING_KEYS), and says what a change keeps and loses", () => {
+    expect(RETENTION_SETTING_KEYS).toEqual(["usageRetentionDays", "piSessionRetentionDays"]);
+    for (const key of RETENTION_SETTING_KEYS) {
+      expect(ENVIRONMENT_SETTINGS[key]).toMatchObject({ tier: "up-free" });
+      expect("row" in ENVIRONMENT_SETTINGS[key]).toBe(false);
+      expect(SWEEP_SETTING_KEYS).not.toContain(key);
+      expect(AGENT_SETTING_KEYS).not.toContain(key);
+    }
+    expect(ENVIRONMENT_SETTINGS.usageRetentionDays.description).toContain(
+      "Shortening this deletes the older records at the next prune; they cannot be restored.",
+    );
+    expect(ENVIRONMENT_SETTINGS.usageRetentionDays.description).toContain(
+      "records older than that are kept but shown nowhere until t3 widens its window",
+    );
+    expect(ENVIRONMENT_SETTINGS.piSessionRetentionDays.description).toContain(
+      "pi sessions untouched this long are deleted at a pi start; t3 can no longer resume those threads' pi conversations. 3650 keeps them in effect for good.",
     );
   });
 });

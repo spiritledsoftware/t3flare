@@ -50,6 +50,7 @@ import {
   SETTINGS_SERVER_LIMITS,
   type SettingsServerLimitKey,
   SETTINGS_SERVER_LIMITS_NOTE,
+  RETENTION_SETTING_KEYS,
   SWEEP_SETTING_KEYS,
   visible,
 } from "@t3flare/harness-registry";
@@ -435,25 +436,31 @@ const environmentSection = (
     ([key]) => !(SWEEP_SETTING_KEYS as ReadonlyArray<string>).includes(key),
   );
   // The scalar settings share the Containers row. The agents' settings (SPI-1315: the Turn limit, the CLI agents'
-  // processes) share an Agents row, and the dotfiles toggles (ADR-0047 §9) a Dotfiles row; a list (the
+  // processes) share an Agents row, how long history is kept (SPI-1323) a History row, and the dotfiles toggles
+  // (ADR-0047 §9) a Dotfiles row; a list (the
   // Variables) and a file (the Global mise config, the Container setup) each get a row of their own, which the settings
   // that name it as their `row` join. One form, one Save.
   const dotfilesKey = (key: string) => (DOTFILES_SETTING_KEYS as ReadonlyArray<string>).includes(key);
   const agentKey = (key: string) => (AGENT_SETTING_KEYS as ReadonlyArray<string>).includes(key);
+  const historyKey = (key: string) => (RETENTION_SETTING_KEYS as ReadonlyArray<string>).includes(key);
   const ownRow = (setting: EnvironmentSettingEntry) =>
     setting.schema.type === "variables" || setting.schema.type === "file";
   // The budget states its consequence once, under its own description, where the script rewrites it as the input changes.
   const noteFor = (key: string): FieldNote | undefined =>
     key === "containerBudget" ? { text: budgetNote(environment.containerBudget), data: "budget-note" } : undefined;
   const fields = entries
-    .filter(([key, setting]) => !ownRow(setting) && setting.row === undefined && !dotfilesKey(key) && !agentKey(key))
+    .filter(
+      ([key, setting]) =>
+        !ownRow(setting) && setting.row === undefined && !dotfilesKey(key) && !agentKey(key) && !historyKey(key),
+    )
     .map(([key, setting]) => field("environment", key, setting, values[key], false, noteFor(key)));
   const joining = (row: string) =>
     entries
       .filter(([, setting]) => setting.row === row)
       .map(([key, setting]) => field("environment", key, setting, values[key]));
-  const agentEntries = Object.fromEntries(entries);
-  const agents = `<div class="row"><div><div class="row-title"><h3 id="environment-agents-title">Agents</h3></div><p class="desc" id="environment-agents-desc">How long an agent's turn may run, how long a card waits for your answer, how many CLI agents' processes a Workspace's Container may run, and how long an idle process waits before it may be ended for another Workspace.</p></div><div class="row-extra"><div class="fields" role="group" aria-labelledby="environment-agents-title" aria-describedby="environment-agents-desc">${AGENT_SETTING_KEYS.map((key) => field("environment", key, agentEntries[key]!, values[key])).join("")}</div></div></div>`;
+  const entryOf = Object.fromEntries(entries);
+  const agents = `<div class="row"><div><div class="row-title"><h3 id="environment-agents-title">Agents</h3></div><p class="desc" id="environment-agents-desc">How long an agent's turn may run, how long a card waits for your answer, how many CLI agents' processes a Workspace's Container may run, and how long an idle process waits before it may be ended for another Workspace.</p></div><div class="row-extra"><div class="fields" role="group" aria-labelledby="environment-agents-title" aria-describedby="environment-agents-desc">${AGENT_SETTING_KEYS.map((key) => field("environment", key, entryOf[key]!, values[key])).join("")}</div></div></div>`;
+  const history = `<div class="row"><div><div class="row-title"><h3 id="environment-history-title">History</h3></div><p class="desc" id="environment-history-desc">How long t3flare keeps its usage records, which t3's Usage page shows, and pi's sessions, which let t3 resume a thread's pi conversation.</p></div><div class="row-extra"><div class="fields" role="group" aria-labelledby="environment-history-title" aria-describedby="environment-history-desc">${RETENTION_SETTING_KEYS.map((key) => field("environment", key, entryOf[key]!, values[key])).join("")}</div></div></div>`;
   const dotfiles = `<div class="row"><div><div class="row-title"><h3 id="environment-dotfiles-title">Dotfiles</h3></div><p class="desc" id="environment-dotfiles-desc">Whether your own config in ~ (/root), from your Image setup or Container setup, reaches Terminals and CLI agents.</p></div><div class="row-extra"><div class="fields" role="group" aria-labelledby="environment-dotfiles-title" aria-describedby="environment-dotfiles-desc">${entries
     .filter(([key]) => dotfilesKey(key))
     .map(([key, setting]) => field("environment", key, setting, values[key]))
@@ -472,7 +479,7 @@ const environmentSection = (
 <div class="section-head"><h2 id="environment-title">${icon("container")}Environment</h2></div>
 <p class="section-desc">What every Workspace's Container gets. A change applies at each Workspace's next Container start unless its setting says otherwise; a running Container keeps what it started with, and a lower budget stops none.</p>
 <form class="group" data-environment aria-labelledby="environment-title" novalidate><div class="row"><div><div class="row-title"><h3>Containers</h3><span class="ident">revision ${environment.revision}</span></div><p class="desc">Their size, how long one may sit idle, how long open Terminals keep it running, how many may run at once, how many Terminals a Workspace may have, yours and agents', how long a start or a turn waits for the newest settings, and how long a clone or a checkpoint may run.</p></div>
-<div class="row-extra"><div class="fields">${fields.join("")}</div></div></div>${agents}${dotfiles}${lists.join("")}${save}</form>
+<div class="row-extra"><div class="fields">${fields.join("")}</div></div></div>${agents}${history}${dotfiles}${lists.join("")}${save}</form>
 <dl class="group kv"><div><dt>Running now</dt><dd>${
     running === null || running === undefined
       ? "unknown"

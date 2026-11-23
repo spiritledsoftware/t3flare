@@ -278,6 +278,28 @@ describe("the Settings server's card for a free change", () => {
     expect(SETTINGS_TOOLS.find((tool) => tool.name === "change_environment")!.description).toContain("next Sweep");
   });
 
+  it("a change to how long history is kept applies at the next prune or pi start, not at a Container start (SPI-1323)", async () => {
+    const run = setup();
+    recordModes(durable(), "approval-required");
+    const answer = await run.call(durable(), "change_environment", {
+      expectedRevision: 0,
+      settings: { usageRetentionDays: 365, piSessionRetentionDays: 120 },
+    });
+    expect(structured(answer)).toMatchObject({ status: "applied", appliesAt: expect.stringContaining("next prune") });
+    expect(run.cards[0]!.prompt).toContain("at each pi start");
+    expect(run.cards[0]!.prompt).not.toContain("Container next starts");
+    // With a Container setting: both texts, each naming its keys.
+    await run.call(durable(), "change_environment", {
+      expectedRevision: 1,
+      settings: { usageRetentionDays: 400, containerIdleMinutes: 1 },
+    });
+    expect(run.cards[1]!.prompt).toContain("Container next starts");
+    expect(run.cards[1]!.prompt).toContain("usageRetentionDays: Usage records");
+    const tool = SETTINGS_TOOLS.find((entry) => entry.name === "change_environment")!;
+    expect(tool.description).toContain("usageRetentionDays at the next prune");
+    expect(tool.description).toContain("piSessionRetentionDays at each pi start");
+  });
+
   it("a decline changes nothing; an unanswered card is withdrawn and changes nothing", async () => {
     const declined = setup({ answer: { decision: "decline" } });
     recordModes(durable(), "approval-required");

@@ -697,6 +697,29 @@ describe("the Environment section's dotfiles", () => {
     expect(group?.attrs["aria-describedby"]).toBe("environment-agents-desc");
   });
 
+  it("draws how long history is kept in a History row after the Agents row, outside the Containers row and the Workspaces section (SPI-1323)", () => {
+    const page = renderPage(fixturePage());
+    const section = sectionOf(page);
+    const agents = section.indexOf('<h3 id="environment-agents-title">Agents</h3>');
+    const start = section.indexOf('<h3 id="environment-history-title">History</h3>');
+    expect(start).toBeGreaterThan(agents);
+    expect(agents).toBeGreaterThan(-1);
+    const row = section.slice(start, section.indexOf('<div class="row">', start));
+    const inputs = tagsOf(row).filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined);
+    expect(inputs.map((tag) => tag.attrs["data-setting"])).toEqual(["usageRetentionDays", "piSessionRetentionDays"]);
+    expect(inputs.map((tag) => tag.attrs)).toMatchObject([
+      { type: "number", min: "1", max: "3650", value: "92" },
+      { type: "number", min: "1", max: "3650", value: "60" },
+    ]);
+    // Once on the page: never in the Containers row, nor in the Workspaces section beside the Grace.
+    for (const key of ["usageRetentionDays", "piSessionRetentionDays"])
+      expect(page.split(`data-setting="${key}"`)).toHaveLength(2);
+    const group = tagsOf(section).find(
+      (tag) => tag.attrs.role === "group" && tag.attrs["aria-labelledby"] === "environment-history-title",
+    );
+    expect(group?.attrs["aria-describedby"]).toBe("environment-history-desc");
+  });
+
   it("draws the Answer wait after the Turn limit in the Agents row, default 10, and the Open changes text names it (SPI-1316)", () => {
     const section = sectionOf(renderPage(fixturePage()));
     const agents = section.slice(section.indexOf('<h3 id="environment-agents-title">Agents</h3>'));

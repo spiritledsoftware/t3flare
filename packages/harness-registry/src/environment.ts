@@ -236,6 +236,23 @@ export const AGENT_SETTING_KEYS = [
  */
 export const DOTFILES_SETTING_KEYS = ["terminalsReadBashrc", "agentsReadDotfiles"] as const;
 
+/**
+ * How long t3flare keeps its own usage records and pi's sessions (SPI-1323), in days. 92 matches t3's own usage cache
+ * (`CACHE_RETENTION_DAYS`), past its Usage page's widest range (90 days); 60 is review F2's. The maximum, ten years, is
+ * "keep for good": a sanity bound as `MAX_GRACE_DAYS` is, not a 0 sentinel, so turning the value up is always the
+ * free direction.
+ */
+export const DEFAULT_USAGE_RETENTION_DAYS = 92;
+export const DEFAULT_PI_SESSION_RETENTION_DAYS = 60;
+export const MAX_RETENTION_DAYS = 3650;
+
+/**
+ * How long history is kept (SPI-1323): t3flare's usage records and pi's sessions. Neither bounds a Container start nor
+ * waits for the Sweep, so the Settings page shows them in a History row of their own. `usageRetentionDays` applies at
+ * the Environment DO's next prune and to entries recorded from then on; `piSessionRetentionDays` at each pi start.
+ */
+export const RETENTION_SETTING_KEYS = ["usageRetentionDays", "piSessionRetentionDays"] as const;
+
 /** A Container's resources, as `ctx.container.start({ instance })` takes a custom size. */
 export interface ContainerResources {
   readonly vcpu: number;
@@ -588,6 +605,20 @@ export const ENVIRONMENT_SETTINGS = {
     description:
       "How many days the Sweep keeps a Workspace nothing references, a Tombstone with a date, and a deleted thread's Session before it purges them. A change moves the date of everything already waiting. Applies at the next Sweep.",
     schema: { type: "integer", minimum: 1, maximum: MAX_GRACE_DAYS, default: DEFAULT_GRACE_DAYS },
+    tier: "up-free",
+  },
+  usageRetentionDays: {
+    title: "Usage records kept (days)",
+    description:
+      "How many days t3flare keeps its usage records: each model answer's tokens and cost, which t3's Usage page shows. Shortening this deletes the older records at the next prune; they cannot be restored. t3's Usage page shows at most 90 days, so records older than that are kept but shown nowhere until t3 widens its window. 3650 keeps them for good. Applies at the next prune, which runs as usage is recorded, at most once an hour, and to usage recorded from then on.",
+    schema: { type: "integer", minimum: 1, maximum: MAX_RETENTION_DAYS, default: DEFAULT_USAGE_RETENTION_DAYS },
+    tier: "up-free",
+  },
+  piSessionRetentionDays: {
+    title: "pi sessions kept (days)",
+    description:
+      "pi sessions untouched this long are deleted at a pi start; t3 can no longer resume those threads' pi conversations. 3650 keeps them in effect for good. Applies at each pi start.",
+    schema: { type: "integer", minimum: 1, maximum: MAX_RETENTION_DAYS, default: DEFAULT_PI_SESSION_RETENTION_DAYS },
     tier: "up-free",
   },
 } as const satisfies Readonly<Record<string, EnvironmentSettingEntry>>;

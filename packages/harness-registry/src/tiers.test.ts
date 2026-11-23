@@ -134,6 +134,9 @@ const ENVIRONMENT: Readonly<
   // ADR-0043 §6: turning purging on and shortening the Grace destroy sooner, so they are asked.
   sweepPurges: { up: [false, true, "asked"], down: [true, false, "free"] },
   graceDays: { up: [7, 30, "free"], down: [7, 1, "asked"] },
+  // SPI-1323: a shorter history deletes records and sessions, so it is asked; a longer one is free.
+  usageRetentionDays: { up: [92, 365, "free"], down: [92, 30, "asked"] },
+  piSessionRetentionDays: { up: [60, 365, "free"], down: [60, 30, "asked"] },
   // ADR-0047 §9 (SPI-1332): a lowered time limit is free; the script, the Builder's size, its budget and the schedule asked.
   imageSetup: { up: ["", "apt-get install -y jq\n", "asked"], down: ["apt-get install -y jq\n", "", "asked"] },
   imageSetupMinutes: { up: [30, 60, "asked"], down: [30, 10, "free"] },

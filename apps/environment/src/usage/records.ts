@@ -8,10 +8,12 @@
 // nothing it shows, and it keeps the time zones whose offset is not whole hours (India's, Nepal's) on the right day. A
 // busy session makes one row a quarter hour, not one a request, so a read of the whole window stays small.
 //
-// Bounded twice: rows older than the retention window (92 days, t3's own: `CACHE_RETENTION_DAYS` in `UsageService.ts`,
-// the longest the page keeps a transcript's usage, and more than its widest range) are deleted, and at most
-// `MAX_USAGE_ROWS` rows are kept, the oldest dropped first (a guard against a runaway writer: a heavy owner makes a few
-// hundred rows a day). Both are pruned on a write, at most once an hour.
+// Bounded twice: rows older than the Owner's `usageRetentionDays` (SPI-1323; its default, 92 days, matches t3's own
+// `CACHE_RETENTION_DAYS` in `UsageService.ts`, more than the page's widest range, 90 days) are deleted, and at most
+// `usageMaxRows` of that retention are kept, the oldest dropped first (a guard against a runaway writer: a heavy owner
+// makes a few hundred rows a day, so the guard grows with the days kept). Both are pruned on a write, at most once an
+// hour. A retention past 90 days keeps rows the page does not show until t3 widens its window; t3's own
+// `usageHistoryRetentionDays` governs only its transcript cache, never these rows.
 //
 // A row's `requests` is the answers it adds up; t3's page counts records, so its record counts are rows (a quarter hour
 // of one session on one model), not requests. Tokens, costs and sessions (distinct session ids) are exact.
@@ -19,12 +21,19 @@ import type { SqlStorage } from "@cloudflare/workers-types/index.ts";
 import type { UsageProviderKind } from "@t3tools/contracts";
 import type { UsageRecord } from "@t3tools/provider-core/server/usage";
 import type { EndpointModel, EndpointModelCost, ModelEndpoints } from "@t3flare/models/endpoints";
+import { DEFAULT_USAGE_RETENTION_DAYS } from "@t3flare/harness-registry";
 import { MAX_USAGE_ENTRIES, type UsageAgent, usageEntryOf, type UsageTokens } from "@t3flare/models/usage";
 
 export const USAGE_SLOT_MS = 15 * 60 * 1000;
-export const USAGE_RETENTION_DAYS = 92;
-export const USAGE_RETENTION_MS = USAGE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** The runaway-writer guard at the default retention (`DEFAULT_USAGE_RETENTION_DAYS`); `usageMaxRows` scales it. */
 export const MAX_USAGE_ROWS = 50_000;
+/**
+ * The rows kept at a retention of `days`: `MAX_USAGE_ROWS` scaled to the days kept, never below it, so a long retention
+ * is not cut by a guard sized for 92 days (about 2M small rows at 3650 days, well within a DO's SQLite).
+ */
+export const usageMaxRows = (days: number): number =>
+  Math.max(MAX_USAGE_ROWS, Math.ceil((days * MAX_USAGE_ROWS) / DEFAULT_USAGE_RETENTION_DAYS));
 const PRUNE_EVERY_MS = 60 * 60 * 1000;
 /** An entry's time may be this far ahead of the Environment's clock (another isolate's); later ones are dropped. */
 const FUTURE_SLACK_MS = 60 * 60 * 1000;
@@ -126,13 +135,24 @@ export const resetUsageStoreForTests = (): void => {
   ready = new WeakSet();
 };
 
-export const usageStore = (sql: SqlStorage, options: { readonly maxRows?: number } = {}): UsageStore => {
-  const maxRows = options.maxRows ?? MAX_USAGE_ROWS;
+export interface UsageStoreOptions {
+  /**
+   * The days kept (`usageRetentionDays`, SPI-1323), read at each prune and each record, so a change applies at the next
+   * prune and to entries recorded from then on. Absent: `DEFAULT_USAGE_RETENTION_DAYS`.
+   */
+  readonly retentionDays?: () => number;
+  /** A fixed row cap in place of `usageMaxRows` of the retention (tests). */
+  readonly maxRows?: number;
+}
+
+export const usageStore = (sql: SqlStorage, options: UsageStoreOptions = {}): UsageStore => {
+  const retentionDays = options.retentionDays ?? (() => DEFAULT_USAGE_RETENTION_DAYS);
   let prunedAt = Number.NEGATIVE_INFINITY;
-  const prune = (now: number) => {
+  const prune = (now: number, days: number) => {
     if (now - prunedAt < PRUNE_EVERY_MS) return;
     prunedAt = now;
-    sql.exec("DELETE FROM t3flare_usage WHERE slot < ?", now - USAGE_RETENTION_MS);
+    const maxRows = options.maxRows ?? usageMaxRows(days);
+    sql.exec("DELETE FROM t3flare_usage WHERE slot < ?", now - days * DAY_MS);
     const rows = Number(sql.exec("SELECT COUNT(*) AS n FROM t3flare_usage").toArray()[0]?.n ?? 0);
     if (rows > maxRows)
       sql.exec(
@@ -143,10 +163,12 @@ export const usageStore = (sql: SqlStorage, options: { readonly maxRows?: number
   return {
     record(entries, endpoints, now) {
       ensure(sql);
+      const days = retentionDays();
+      const oldest = now - days * DAY_MS;
       let kept = 0;
       for (const raw of entries) {
         const entry = usageEntryOf(raw);
-        if (entry === undefined || entry.at < now - USAGE_RETENTION_MS || entry.at > now + FUTURE_SLACK_MS) continue;
+        if (entry === undefined || entry.at < oldest || entry.at > now + FUTURE_SLACK_MS) continue;
         const listed = listedModelOf(
           endpoints.endpoints.find((endpoint) => endpoint.id === entry.endpointId)?.models ?? [],
           entry.modelId,
@@ -169,7 +191,7 @@ export const usageStore = (sql: SqlStorage, options: { readonly maxRows?: number
         );
         kept += 1;
       }
-      prune(now);
+      prune(now, days);
       return kept;
     },
     read(sinceMs) {

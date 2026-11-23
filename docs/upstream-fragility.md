@@ -1334,14 +1334,16 @@ is a pass-through observer: a vendor change that it cannot read loses records, a
     (`provider-core/src/server/usage.ts`), `rateModel` priced by the rate table when `reportedCostUsd` is null
     (`usagePricing.ts` `recordRate`, `priceUsage`), and a bucket per source path (`usageAggregation.ts`
     `#placeInWindow`, `UsageService.ts` `aggregator.add(record, dir)`); `UsageProviderKind`'s `pi`, `codex`, `claude`,
-    `opencode`. The retention (92 days) is t3's `CACHE_RETENTION_DAYS`, restated. t3's record counts are our rows (a
+    `opencode`. Our rows are kept for the Environment setting `usageRetentionDays` (SPI-1323), whose default (92 days)
+    only matches t3's `CACHE_RETENTION_DAYS`; t3's `usageHistoryRetentionDays` governs its transcript cache, never our
+    rows, whose scan readers ignore its `retentionCutoffMs`. t3's record counts are our rows (a
     quarter hour of one session on one model), not requests; showing requests would need a Patch, so it is left.
 - **Breaks when**: pi-ai renames a usage field or stops resolving `result()` for a failed answer (no records from
   Sessions or text generation, or from failed answers only); a vendor moves its usage (a CLI's records stop, or count
   0: the reader keeps the last value it saw, so a moved cache count shows as uncached input); a CLI stops asking for
   Chat Completions' usage (above); t3 renames `UsageRecord` fields, drops `rateModel`, or changes how the scan kind's
-  sources are bucketed (typecheck, or the page loses the split by source); t3 changes its retention (ours stays 92
-  days).
+  sources are bucketed (typecheck, or the page loses the split by source); t3 changes its retention (ours stays the
+  Owner's `usageRetentionDays`), or widens its Usage page past 90 days (rows the setting kept past 90 days show then).
 - **Detection**: typecheck (`UsageRecord`, `ProviderUsageScan`, pi-ai's `AssistantMessage`; and the `usage` options of
   `SessionEndpoints`, `generateEndpointText` and `handleModelRelay` are required, so a recorder left unwired does not
   build); `relayUsage.test.ts` (each API's shapes, a broken stream, a failed answer holding usage, the 4 MiB cap, a

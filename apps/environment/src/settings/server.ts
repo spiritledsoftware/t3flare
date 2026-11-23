@@ -45,6 +45,7 @@ import {
   SETTINGS_SERVER,
   type SettingsServerLimits,
   settingsServerLimitsOf,
+  RETENTION_SETTING_KEYS,
   SWEEP_SETTING_KEYS,
   t3AsksForDirect,
   type TierVerdict,
@@ -205,6 +206,9 @@ export const APPLIES_AT = {
     "Applies when each Workspace's Container next starts. Not in a Container that is running now, this one included; do not retry to see it.",
   /** The Grace (ADR-0043): read by the Sweep, which a change to it brings forward, never by a Container. */
   sweep: "Applies at the next Sweep, within minutes: every purge date moves with it.",
+  /** How long history is kept (SPI-1323): read by the usage records' prune and at each pi start, never by a Container. */
+  history:
+    "Usage records: at the next prune, as usage is recorded, at most once an hour, and to usage recorded from then on. pi sessions: at each pi start.",
   skills: "Files at each thread's next turn; the listing at the next context window; the composer at once.",
   /** A Purge (ADR-0044 §5). */
   purge: "Applies at once; it cannot be undone.",
@@ -720,10 +724,18 @@ const planSignIn = (deps: SettingsServerDeps, args: Readonly<Record<string, unkn
 
 /** When an Environment change applies (ADR-0043 §2): the Grace at the next Sweep, the rest at a Container start; both when it moves both. */
 const environmentAppliesAt = (keys: ReadonlyArray<string>): string => {
-  const sweep = keys.filter((key) => (SWEEP_SETTING_KEYS as ReadonlyArray<string>).includes(key));
-  if (sweep.length === 0) return APPLIES_AT.environment;
-  if (sweep.length === keys.length) return APPLIES_AT.sweep;
-  return `${APPLIES_AT.environment} ${sweep.join(" and ")}: ${APPLIES_AT.sweep}`;
+  const among = (group: ReadonlyArray<string>) => keys.filter((key) => group.includes(key));
+  const own = [
+    { keys: among(SWEEP_SETTING_KEYS), text: APPLIES_AT.sweep },
+    { keys: among(RETENTION_SETTING_KEYS), text: APPLIES_AT.history },
+  ].filter((group) => group.keys.length > 0);
+  const rest = keys.length - own.reduce((sum, group) => sum + group.keys.length, 0);
+  if (own.length === 0) return APPLIES_AT.environment;
+  if (own.length === 1 && rest === 0) return own[0]!.text;
+  return [
+    ...(rest > 0 ? [APPLIES_AT.environment] : []),
+    ...own.map((group) => `${group.keys.join(" and ")}: ${group.text}`),
+  ].join(" ");
 };
 
 /**

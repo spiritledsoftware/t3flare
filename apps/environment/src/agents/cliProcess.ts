@@ -2,7 +2,7 @@
 // t3's spawns of a CLI agent (step 4a): `codex app-server` and `pi --mode rpc …` in a Workspace run there, through the
 // process channel, as a streaming `ChildProcessHandle`. Fail closed: only the argv our drivers send, only in a
 // Workspace, only through a CLI profile (cliProfiles.ts) that fixes the binary, the environment and the home.
-import { cliToolTimeoutSec } from "@t3flare/harness-registry";
+import { cliToolTimeoutSec, DEFAULT_PI_SESSION_RETENTION_DAYS } from "@t3flare/harness-registry";
 import { endpointsOfApi } from "@t3flare/models/relay";
 import { newHandle, toWorkspace } from "@t3flare/workspace-client";
 import * as Effect from "effect/Effect";
@@ -193,6 +193,8 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
         ...(piRelay === undefined ? {} : { piRelay }),
         // SPI-1331 (ADR-0047 §9): the Owner's own config for the CLI first, as the Environment says now.
         dotfiles: services.agentsReadDotfiles?.() ?? true,
+        // SPI-1323: how long pi's sessions are kept, as the Environment says now.
+        piSessionRetentionDays: services.piSessionRetentionDays?.() ?? DEFAULT_PI_SESSION_RETENTION_DAYS,
       },
     );
     if ("refused" in launch) {
