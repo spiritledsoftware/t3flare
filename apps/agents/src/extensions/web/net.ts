@@ -71,7 +71,11 @@ export const discardBody = async (response: Response): Promise<void> => {
 };
 
 const formatByteLimit = (bytes: number): string =>
-  bytes % (1024 * 1024) === 0 ? `${bytes / (1024 * 1024)} MiB` : `${bytes}-byte`;
+  bytes % (1024 * 1024) === 0
+    ? `${bytes / (1024 * 1024)} MiB`
+    : bytes % 1024 === 0
+      ? `${bytes / 1024} KiB`
+      : `${bytes}-byte`;
 
 /**
  * Read a response's body incrementally, never holding more than `maximumBytes`: a larger declared or streamed body

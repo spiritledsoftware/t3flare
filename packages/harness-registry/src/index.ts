@@ -48,8 +48,6 @@ export interface ExtensionEntry {
   readonly guard?: true;
 }
 
-const CORE_LOCK = "a core extension: always on";
-
 /**
  * A model setting (the Guardian's, the Advisor's, `web_search`'s): a Model endpoint's slug, `<endpointId>/<modelId>`, or
  * `default` (the endpoints' small model, text generation's default rule). Free text, since the endpoints are the owner's. A
@@ -62,10 +60,25 @@ const modelSetting = (title: string, description: string, fallback: string): Set
 });
 const THINKING_LEVELS = ["off", "low", "medium", "high"] as const;
 /**
- * The longest a Guardian or Advisor Review, or the Advisor's Catch-up Wait, may be set to: what t3flare times itself
- * with its own `setTimeout` (ADR-0048 §2).
+ * The longest a Guardian or Advisor Review, the Advisor's Catch-up Wait, or a web_fetch or web_search call may be set
+ * to: what t3flare times itself with its own `setTimeout` (ADR-0048 §2).
  */
 const MAX_TIMED_SECONDS = MAX_TIMED_MINUTES * 60;
+/**
+ * The largest body web_fetch converts from HTML or JSON; a larger one is returned as it came. A named constraint: a
+ * Worker isolate's 128 MB, which also holds the Session. Conversion costs about 7 times the body: measured in workerd
+ * (apps/agents/test/webFetchMemory.workerd.test.ts), 5 MiB of two-byte HTML takes 24 MB of heap to convert, plus
+ * 10 MB of body buffers outside it, about 34 MB. 16 MiB of HTML did not convert within a 128 MB V8 heap (Node).
+ */
+export const FETCH_CONVERT_MAX_KIB = 5120;
+/**
+ * The most `fetchMaxKiB` may be set to. A named constraint: a Worker isolate's 128 MB holds the body, its decoded text
+ * and the lines web_fetch pages through, beside the Session itself, and an isolate out of memory resets the Session
+ * mid-turn. Measured in workerd (apps/agents/test/webFetchMemory.workerd.test.ts): 16 MiB of two-byte HTML, returned
+ * unconverted, takes 30 MB of heap plus 32 MB of body buffers outside it, about 62 MB, half the isolate. 32 MiB took
+ * 64 MB of heap, about 128 MB in all.
+ */
+export const FETCH_MAX_KIB = 16_384;
 
 export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
   {
@@ -105,10 +118,32 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
   {
     id: "files",
     title: "File tools",
-    description: "ls, find and grep.",
+    description: "ls, find and grep. Larger results use more of the model's context on every call.",
     default: "on",
     tools: ["ls", "find", "grep"],
-    settings: {},
+    settings: {
+      lsLimit: {
+        title: "ls entries",
+        description: "The most entries one ls call lists, and its default.",
+        // 100,000: a sanity bound, nothing in t3flare forces it (ADR-0048).
+        schema: { type: "integer", minimum: 1, maximum: 100_000, default: 500 },
+        tier: "down-free",
+      },
+      findLimit: {
+        title: "find results",
+        description: "The most paths one find call returns, and its default.",
+        // 100,000: a sanity bound, nothing in t3flare forces it (ADR-0048).
+        schema: { type: "integer", minimum: 1, maximum: 100_000, default: 1000 },
+        tier: "down-free",
+      },
+      grepLimit: {
+        title: "grep matches",
+        description: "The most matches one grep call returns, and its default.",
+        // 100,000: a sanity bound, nothing in t3flare forces it (ADR-0048).
+        schema: { type: "integer", minimum: 1, maximum: 100_000, default: 100 },
+        tier: "down-free",
+      },
+    },
   },
   {
     id: "ask-user",
@@ -132,6 +167,57 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         "The model that runs web_search's searches: an Anthropic Messages Model endpoint's model with an API key or no auth whose server takes Anthropic's web search tool, as <endpointId>/<modelId>, or default (the endpoints' small model).",
         "default",
       ),
+      fetchTimeoutSeconds: {
+        title: "Fetch time limit (seconds)",
+        description: "How long a web_fetch call that names no timeout of its own may take in all.",
+        // Timed by t3flare's own setTimeout (net.ts withDeadline): up to MAX_TIMED_SECONDS (ADR-0048 §2).
+        schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: 30 },
+        tier: "down-free",
+      },
+      fetchMaxTimeoutSeconds: {
+        title: "Fetch time limit a call may ask for (seconds)",
+        description:
+          "The longest timeout a web_fetch call may name; the default time limit is always allowed, even above it.",
+        // Timed by t3flare's own setTimeout (net.ts withDeadline): up to MAX_TIMED_SECONDS (ADR-0048 §2).
+        schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: 120 },
+        tier: "down-free",
+      },
+      fetchMaxKiB: {
+        title: "Fetch size limit (KiB)",
+        description: `The largest response body web_fetch reads; a larger one is refused. An HTML or JSON body over ${FETCH_CONVERT_MAX_KIB / 1024} MiB is returned as it came, without conversion to Markdown or text.`,
+        // A named constraint: FETCH_MAX_KIB.
+        schema: { type: "integer", minimum: 64, maximum: FETCH_MAX_KIB, default: 5120 },
+        tier: "down-free",
+      },
+      searchResults: {
+        title: "Search results",
+        description: "How many results web_search returns when a call names no numResults.",
+        // 100: a sanity bound, nothing in t3flare forces it (ADR-0048).
+        schema: { type: "integer", minimum: 1, maximum: 100, default: 8 },
+        tier: "down-free",
+      },
+      searchesPerCall: {
+        title: "Searches per call",
+        description:
+          "The most searches the search model may run for one web_search call. Each web_search query is a model request on the search model's endpoint.",
+        // 50: a sanity bound, nothing in t3flare forces it (ADR-0048).
+        schema: { type: "integer", minimum: 1, maximum: 50, default: 2 },
+        tier: "down-free",
+      },
+      searchSummaryTokens: {
+        title: "Search summary tokens",
+        description: "The most tokens the search model may write for one web_search call's summary.",
+        // 64,000: a sanity bound; the endpoint itself refuses a value past its model's own output limit (ADR-0048).
+        schema: { type: "integer", minimum: 100, maximum: 64_000, default: 1500 },
+        tier: "down-free",
+      },
+      searchTimeoutSeconds: {
+        title: "Search time limit (seconds)",
+        description: "How long one web_search call may take in all, reading the search model's answer included.",
+        // Timed by t3flare's own setTimeout (net.ts withDeadline): up to MAX_TIMED_SECONDS (ADR-0048 §2).
+        schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: 90 },
+        tier: "down-free",
+      },
     },
   },
   {
@@ -343,8 +429,16 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
     title: "Project context",
     description: "The repo's AGENTS.md and CLAUDE.md in the prompt.",
     default: "always",
-    settings: {},
-    locked: CORE_LOCK,
+    settings: {
+      maxFileCharacters: {
+        title: "Characters per file",
+        description:
+          "The most of one AGENTS.md or CLAUDE.md the prompt shows; a longer file is cut. Larger results use more of the model's context on every call.",
+        // 1,000,000: a sanity bound, nothing in t3flare forces it (ADR-0048).
+        schema: { type: "integer", minimum: 1, maximum: 1_000_000, default: 16_000 },
+        tier: "down-free",
+      },
+    },
   },
 ];
 

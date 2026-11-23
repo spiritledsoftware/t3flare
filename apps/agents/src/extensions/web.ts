@@ -6,8 +6,11 @@ import { defineExtension, type Extension } from "@earendil-works/pi-durable";
 import type { CodemodeNamespace } from "@earendil-works/pi-durable/codemode";
 
 import { webFetchTool } from "./web/fetch.ts";
+import { DEFAULT_WEB_LIMITS, type WebLimits } from "./web/limits.ts";
 import { type WebTransport, workerTransport } from "./web/net.ts";
 import { type SearchEndpoint, webSearchTool } from "./web/search.ts";
+
+export { DEFAULT_WEB_LIMITS, type WebLimits, webLimits } from "./web/limits.ts";
 
 export const WEB_EXTENSION = "web";
 
@@ -22,15 +25,18 @@ export interface WebOptions {
   /** Where `web_search` searches; absent: `web_search` is not offered. */
   readonly search?: SearchEndpoint;
   readonly transport?: WebTransport;
+  /** The `web` extension's settings; absent: the registry's defaults. */
+  readonly limits?: WebLimits;
 }
 
 export const webExtension = (options: WebOptions = {}): Extension => {
   const transport = options.transport ?? workerTransport;
+  const limits = options.limits ?? DEFAULT_WEB_LIMITS;
   return defineExtension({
     name: WEB_EXTENSION,
     tools: [
-      webFetchTool(transport),
-      ...(options.search === undefined ? [] : [webSearchTool(transport, options.search)]),
+      webFetchTool(transport, limits),
+      ...(options.search === undefined ? [] : [webSearchTool(transport, options.search, limits)]),
     ],
   });
 };

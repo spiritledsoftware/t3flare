@@ -3,8 +3,9 @@
 // what t3's web item shows. A fetch is a read: no mode asks for it, plan mode included, and linked threads may use it.
 import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
 import { int, num, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
+import { FETCH_CONVERT_MAX_KIB } from "@t3flare/harness-registry";
 
-import { convertContent, type WebFetchFormat } from "./content.ts";
+import { convertContent, convertsContent, type WebFetchFormat } from "./content.ts";
 import {
   discardBody,
   guardedFetch,
@@ -14,22 +15,21 @@ import {
   WebToolError,
   withDeadline,
 } from "./net.ts";
+import { DEFAULT_WEB_LIMITS, type WebLimits } from "./limits.ts";
 import { boundStructuredText, fitWindowedOutput, selectLines } from "./output.ts";
 
-/** Largest response body accepted. */
-export const WEB_FETCH_MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
+/** The largest body converted from HTML or JSON (the registry's `FETCH_CONVERT_MAX_KIB` says why). */
+const CONVERT_MAX_BYTES = FETCH_CONVERT_MAX_KIB * 1024;
 
-/** Default total request budget, in seconds, and the most a call may ask for. */
-export const WEB_FETCH_DEFAULT_TIMEOUT_SECONDS = 30;
-export const WEB_FETCH_MAX_TIMEOUT_SECONDS = 120;
+/** The first line of an HTML or JSON body too large to convert, returned as it came. */
+export const UNCONVERTED_NOTE = `[The response is over ${FETCH_CONVERT_MAX_KIB / 1024} MiB, so it is returned as it came, without conversion.]`;
 
 const BROWSER_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36";
 
 const HONEST_USER_AGENT = "t3flare-web-tools";
 
-const DESCRIPTION =
-  "Fetch one HTTP or HTTPS URL as text, Markdown, or HTML. HTML pages are converted to their main content, with the page title, when text or Markdown is requested; HTML format returns the page unchanged. JSON responses are re-indented in text and Markdown formats so long documents can be paged. Model-visible output is truncated to 50 KiB or 2,000 lines, and the result then says which lines remain and the offset to continue from. Use offset and limit (lines, like the read tool) to page through a long result. Private, loopback, link-local, and cloud-metadata addresses are refused, also after redirects.";
+const DESCRIPTION = `Fetch one HTTP or HTTPS URL as text, Markdown, or HTML. HTML pages are converted to their main content, with the page title, when text or Markdown is requested; HTML format returns the page unchanged. JSON responses are re-indented in text and Markdown formats so long documents can be paged. An HTML or JSON response over ${FETCH_CONVERT_MAX_KIB / 1024} MiB is returned as it came, unconverted. Model-visible output is truncated to 50 KiB or 2,000 lines, and the result then says which lines remain and the offset to continue from. Use offset and limit (lines, like the read tool) to page through a long result. Private, loopback, link-local, and cloud-metadata addresses are refused, also after redirects.`;
 
 /** What programs (code mode) receive instead of the model-facing text. */
 const OUTPUT_SCHEMA = {
@@ -104,6 +104,7 @@ const fetchText = async (
   transport: WebTransport,
   url: string,
   format: WebFetchFormat,
+  maxBytes: number,
   signal: AbortSignal,
 ): Promise<Fetched> => {
   const send = (userAgent: string) =>
@@ -131,7 +132,11 @@ const fetchText = async (
       `unsupported content type ${truncatedMime(mime)} (Web Fetch returns text only; for a document such as a PDF, download it and convert it to text locally)`,
     );
   }
-  const body = await readBoundedBody(response, WEB_FETCH_MAX_RESPONSE_BYTES, signal);
+  const body = await readBoundedBody(response, maxBytes, signal);
+  const finalUrl = redactUserinfo(reply.url.toString());
+  // Conversion takes several times the body's size in memory, which the isolate cannot hold for a large body.
+  if (body.byteLength > CONVERT_MAX_BYTES && convertsContent(mime, format))
+    return { content: `${UNCONVERTED_NOTE}\n${new TextDecoder().decode(body)}`, contentType, finalUrl };
   let content: string;
   try {
     content = convertContent(new TextDecoder().decode(body), mime, format);
@@ -140,7 +145,7 @@ const fetchText = async (
       "the page could not be converted (it is nested too deeply or is too large to convert); use format: html to read it as it came",
     );
   }
-  return { content, contentType, finalUrl: redactUserinfo(reply.url.toString()) };
+  return { content, contentType, finalUrl };
 };
 
 /** The page's first Markdown heading, for t3's item (never the model's text). */
@@ -149,9 +154,14 @@ const titleOf = (content: string): string | undefined => {
   return heading === undefined || heading === "" ? undefined : heading.slice(0, 200);
 };
 
-/** `web_fetch` over `transport`. */
-export const webFetchTool = (transport: WebTransport): ToolRegistration =>
-  defineTool({
+/** `web_fetch` over `transport`, within `limits`. */
+export const webFetchTool = (
+  transport: WebTransport,
+  limits: Pick<WebLimits, "fetchTimeoutSeconds" | "fetchMaxTimeoutSeconds" | "fetchMaxKiB"> = DEFAULT_WEB_LIMITS,
+): ToolRegistration => {
+  // The default is always allowed, so an Owner's default above the per-call maximum is never clamped.
+  const maxTimeout = Math.max(limits.fetchMaxTimeoutSeconds, limits.fetchTimeoutSeconds);
+  return defineTool({
     name: "web_fetch",
     description: DESCRIPTION,
     parameters: obj({
@@ -160,8 +170,8 @@ export const webFetchTool = (transport: WebTransport): ToolRegistration =>
       timeout: opt(
         num({
           minimum: 0.001,
-          maximum: WEB_FETCH_MAX_TIMEOUT_SECONDS,
-          description: `Total timeout in seconds (default: ${WEB_FETCH_DEFAULT_TIMEOUT_SECONDS}, maximum: ${WEB_FETCH_MAX_TIMEOUT_SECONDS})`,
+          maximum: maxTimeout,
+          description: `Total timeout in seconds (default: ${limits.fetchTimeoutSeconds}, maximum: ${maxTimeout})`,
         }),
       ),
       offset: opt(
@@ -183,14 +193,14 @@ export const webFetchTool = (transport: WebTransport): ToolRegistration =>
     async execute(args, _api, context) {
       const safeUrl = redactUserinfo(args.url);
       const format: WebFetchFormat = args.format ?? "markdown";
-      const seconds = args.timeout ?? WEB_FETCH_DEFAULT_TIMEOUT_SECONDS;
+      const seconds = args.timeout ?? limits.fetchTimeoutSeconds;
       let fetched: Fetched;
       try {
         fetched = await withDeadline(
           Math.ceil(seconds * 1000),
           `${seconds} ${seconds === 1 ? "second" : "seconds"}`,
           context.abortSignal,
-          (signal) => fetchText(transport, args.url, format, signal),
+          (signal) => fetchText(transport, args.url, format, limits.fetchMaxKiB * 1024, signal),
         );
       } catch (error) {
         throw new Error(
@@ -237,3 +247,4 @@ export const webFetchTool = (transport: WebTransport): ToolRegistration =>
       };
     },
   });
+};

@@ -20,6 +20,7 @@ import {
 } from "@t3flare/models/endpoints";
 import { int, obj, opt, str } from "@earendil-works/pi-schema";
 
+import { DEFAULT_WEB_LIMITS, type WebLimits } from "./limits.ts";
 import { readBoundedBody, statusCause, type WebTransport, WebToolError, withDeadline } from "./net.ts";
 import { fitOutput } from "./output.ts";
 import {
@@ -30,16 +31,14 @@ import {
   truncateCodePoints,
 } from "./shaping.ts";
 
-const DEFAULT_NUM_RESULTS = 8;
+/**
+ * The most of the search model's answer read. Fixed: the answer holds at most `searchesPerCall` searches' results,
+ * each a page list with encrypted content, and its summary is bounded by `searchSummaryTokens`.
+ */
 const MAX_SEARCH_RESPONSE_BYTES = 512 * 1024;
 const NO_SEARCH_RESULTS = "No search results found. Please try a different query.";
-/** The most searches the model may run for one call. */
-const MAX_USES = 2;
-/** The longest summary the search model may write. */
-const MAX_SUMMARY_TOKENS = 1_500;
-
-/** Total request budget, including reading the response: a model that searches takes longer than a search API. */
-export const WEB_SEARCH_TIMEOUT_MS = 90_000;
+/** The per-call `numResults` maximum when the Owner's default is lower. */
+const NUM_RESULTS_MAXIMUM = 20;
 
 /**
  * The endpoint and model a search runs on: the search model setting's slug (`modelSettingSlug`: `default`, or a value
@@ -220,9 +219,19 @@ const usageOf = (usage: Json | undefined) => {
   };
 };
 
-/** `web_search` through a Model endpoint's search-capable model (`search`), over `transport`. */
-export const webSearchTool = (transport: WebTransport, search: SearchEndpoint): ToolRegistration =>
-  defineTool({
+/** `web_search` through a Model endpoint's search-capable model (`search`), over `transport`, within `limits`. */
+export const webSearchTool = (
+  transport: WebTransport,
+  search: SearchEndpoint,
+  limits: Pick<
+    WebLimits,
+    "searchResults" | "searchesPerCall" | "searchSummaryTokens" | "searchTimeoutSeconds"
+  > = DEFAULT_WEB_LIMITS,
+): ToolRegistration => {
+  // The default is always allowed, so an Owner's default above 20 is never clamped.
+  const maxResults = Math.max(NUM_RESULTS_MAXIMUM, limits.searchResults);
+  const seconds = limits.searchTimeoutSeconds;
+  return defineTool({
     name: "web_search",
     description: DESCRIPTION,
     parameters: obj({
@@ -230,8 +239,8 @@ export const webSearchTool = (transport: WebTransport, search: SearchEndpoint): 
       numResults: opt(
         int({
           minimum: 1,
-          maximum: 20,
-          description: `Maximum number of results (default: ${DEFAULT_NUM_RESULTS}, maximum: 20)`,
+          maximum: maxResults,
+          description: `Maximum number of results (default: ${limits.searchResults}, maximum: ${maxResults})`,
         }),
       ),
       contextMaxCharacters: opt(
@@ -253,44 +262,49 @@ export const webSearchTool = (transport: WebTransport, search: SearchEndpoint): 
       const sanitize = providerTextSanitizer([target.apiKey]);
       let read: ReturnType<typeof readAnswer>;
       try {
-        read = await withDeadline(WEB_SEARCH_TIMEOUT_MS, "90 seconds", context.abortSignal, async (signal) => {
-          const response = await transport(
-            {
-              url: `${target.baseUrl.replace(/\/+$/, "")}/v1/messages`,
-              method: "POST",
-              headers: {
-                ...target.headers,
-                "content-type": "application/json",
-                "x-api-key": target.apiKey,
-                "anthropic-version": "2023-06-01",
+        read = await withDeadline(
+          seconds * 1000,
+          `${seconds} ${seconds === 1 ? "second" : "seconds"}`,
+          context.abortSignal,
+          async (signal) => {
+            const response = await transport(
+              {
+                url: `${target.baseUrl.replace(/\/+$/, "")}/v1/messages`,
+                method: "POST",
+                headers: {
+                  ...target.headers,
+                  "content-type": "application/json",
+                  "x-api-key": target.apiKey,
+                  "anthropic-version": "2023-06-01",
+                },
+                body: JSON.stringify({
+                  model: target.modelId,
+                  max_tokens: limits.searchSummaryTokens,
+                  system: SYSTEM,
+                  messages: [{ role: "user", content: truncateCodePoints(args.query, 4_096) }],
+                  tools: [{ type: "web_search_20250305", name: "web_search", max_uses: limits.searchesPerCall }],
+                }),
               },
-              body: JSON.stringify({
-                model: target.modelId,
-                max_tokens: MAX_SUMMARY_TOKENS,
-                system: SYSTEM,
-                messages: [{ role: "user", content: truncateCodePoints(args.query, 4_096) }],
-                tools: [{ type: "web_search_20250305", name: "web_search", max_uses: MAX_USES }],
-              }),
-            },
-            signal,
-          );
-          const body = new TextDecoder().decode(await readBoundedBody(response, MAX_SEARCH_RESPONSE_BYTES, signal));
-          let parsed: unknown;
-          try {
-            parsed = JSON.parse(body);
-          } catch {
-            throw new WebToolError(
-              response.ok ? "the Model endpoint returned an unrecognized response" : statusCause(response.status),
+              signal,
             );
-          }
-          if (!response.ok) {
-            const message = text(record(record(parsed).error).message);
-            throw new WebToolError(
-              `${statusCause(response.status)}${message === undefined ? "" : `: ${sanitize(message)}`}`,
-            );
-          }
-          return readAnswer(parsed, sanitize);
-        });
+            const body = new TextDecoder().decode(await readBoundedBody(response, MAX_SEARCH_RESPONSE_BYTES, signal));
+            let parsed: unknown;
+            try {
+              parsed = JSON.parse(body);
+            } catch {
+              throw new WebToolError(
+                response.ok ? "the Model endpoint returned an unrecognized response" : statusCause(response.status),
+              );
+            }
+            if (!response.ok) {
+              const message = text(record(record(parsed).error).message);
+              throw new WebToolError(
+                `${statusCause(response.status)}${message === undefined ? "" : `: ${sanitize(message)}`}`,
+              );
+            }
+            return readAnswer(parsed, sanitize);
+          },
+        );
       } catch (error) {
         throw new Error(
           `Unable to search the web for ${args.query}: ${error instanceof WebToolError ? error.message : "network error"}`,
@@ -298,7 +312,7 @@ export const webSearchTool = (transport: WebTransport, search: SearchEndpoint): 
         );
       }
       if (read.failure !== undefined) throw new Error(`Unable to search the web for ${args.query}: ${read.failure}`);
-      const results = read.results.slice(0, args.numResults ?? DEFAULT_NUM_RESULTS);
+      const results = read.results.slice(0, args.numResults ?? limits.searchResults);
       const content =
         results.length === 0 && read.summary === ""
           ? NO_SEARCH_RESULTS
@@ -325,3 +339,4 @@ export const webSearchTool = (transport: WebTransport, search: SearchEndpoint): 
       };
     },
   });
+};
