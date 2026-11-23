@@ -425,7 +425,7 @@ export const ENVIRONMENT_SETTINGS = {
   terminalsPerWorkspace: {
     title: "Terminals per Workspace",
     description:
-      "How many of your Terminals one Workspace may have open at once; one more is refused. Each Terminal uses memory in the Container. Applies at each Workspace's next Container start; lowering it closes no open Terminal.",
+      "How many of your Terminals one Workspace may have open at once; one more is refused. Each Terminal uses memory in the Container. At most 1000; the Container's memory is the real limit. Applies at each Workspace's next Container start; lowering it closes no open Terminal.",
     // A sanity bound (`MAX_TERMINALS_PER_WORKSPACE`, ADR-0048 §1): the Container's memory bounds it in fact.
     schema: {
       type: "integer",
@@ -610,14 +610,14 @@ export const ENVIRONMENT_SETTINGS = {
   },
   rebuildEveryDays: {
     title: "Rebuild every (days)",
-    description: `Builds the Base snapshot again this many days after the last good one, so the Image setup's downloads stay current. 0 is off. At most ${MAX_REBUILD_DAYS}: a Base snapshot expires 30 days after it was made, unless a Container started from it since.`,
+    description: `Builds the Base snapshot again this many days after the last good one, so the Image setup's downloads stay current. 0 is off. At most ${MAX_REBUILD_DAYS}: a Base snapshot expires 30 days after it was made or a Container last started from it, and this schedule counts from when it was made.`,
     schema: { type: "integer", minimum: 0, maximum: MAX_REBUILD_DAYS, default: 0 },
     row: "imageSetup",
   },
   baseRetryMinutes: {
     title: "Base build retry (minutes)",
     description:
-      "How long a failed Base build waits before it is built again on its own: when a Workspace starts and finds no Base snapshot, the Environment starts, a new Workspace image arrives, or the schedule fires. Each failure in a row doubles it, up to a day, or up to this when it is longer. A Rebuild runs at once. A shorter wait runs the Builder's Container, and bills it, more often while a build keeps failing.",
+      "How long a failed Base build waits before it is built again on its own. Each further failure in a row doubles the wait, up to a day (or up to this setting, if it is longer than a day). The retry comes when a Workspace starts and finds no Base snapshot, the Environment starts, a new Workspace image arrives, or the schedule fires; a Rebuild runs at once. A shorter wait runs the Builder's Container, and bills it, more often while a build keeps failing. At most 10080 (a week). Applies at the next retry.",
     // t3flare's own alarm times it (the Builder's), no platform limit: the shared sanity maximum applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_BASE_RETRY_MINUTES },
     tier: "up-free",
@@ -692,7 +692,7 @@ export const ENVIRONMENT_SETTINGS = {
   mcpCallSeconds: {
     title: "MCP call time limit (seconds)",
     description:
-      "How long one MCP tool call may run before t3flare ends it and the agent is told it failed; it may have run on the server. Time spent waiting for your answer to the server's question does not count. A CLI agent's own tool timeout grows with it. Applies at the next call; a CLI agent's timeout at its next start.",
+      "How long one MCP tool call may run before t3flare ends it and the agent is told it failed; it may have run on the server. Time spent waiting for your answer to the server's question does not count. A CLI agent's own tool timeout grows with it. At most 604800 (a week). Applies at the next call; a CLI agent's timeout at its next start.",
     // The MCP engine times the call with its own timer (packages/mcp/src/connection.ts), no platform limit: the shared
     // sanity maximum applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES * 60, default: DEFAULT_MCP_CALL_SECONDS },
