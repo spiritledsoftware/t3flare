@@ -726,6 +726,22 @@ describe("the Environment section's dotfiles", () => {
     expect(settingsOf("access")).toEqual(["pageTokenHours", "clientsPerKey", "connectPublishLogKept"]);
   });
 
+  it("draws the retries in a Retries row after Agents, and t3's trace in a row of its own after access (SPI-1367)", () => {
+    const section = sectionOf(renderPage(fixturePage()));
+    const titled = (id: string) => section.indexOf(`<h3 id="environment-${id}-title">`);
+    const order = ["agents", "retries", "mcp-calls", "access", "trace", "history"].map(titled);
+    expect(order.every((at) => at > -1)).toBe(true);
+    expect(order).toEqual(order.toSorted((a, b) => a - b));
+    const settingsOf = (id: string) => {
+      const start = titled(id);
+      return tagsOf(section.slice(start, section.indexOf('<div class="row">', start)))
+        .filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined)
+        .map((tag) => tag.attrs["data-setting"]);
+    };
+    expect(settingsOf("retries")).toEqual(["durableRetries", "cliRetries", "killAttempts"]);
+    expect(settingsOf("trace")).toEqual(["traceKiB", "traceFiles"]);
+  });
+
   it("draws the MCP calls' time limit and result size in an MCP calls row between the Agents and History rows (SPI-1359)", () => {
     const page = renderPage(fixturePage());
     const section = sectionOf(page);

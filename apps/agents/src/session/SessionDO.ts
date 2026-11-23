@@ -68,6 +68,7 @@ import {
   resolvedToolsOf,
   resolveHarness,
   type ResolvedHarness,
+  retriedSpanMs,
 } from "@t3flare/harness-registry";
 
 import { type EnvironmentDO, environmentStub, limitsSender, usageSender } from "../environment.ts";
@@ -142,6 +143,7 @@ import type { WorkspaceDO } from "../workspace/WorkspaceDO.ts";
 import { liveOf, pushedEntry, pushPage, turnDetail, turnOfEntry, usageOf } from "./state.ts";
 import { alarmWork, nextAlarm } from "./alarmPlan.ts";
 import { isLiveTurn, turnLimitAlarms, turnRecord, turnsPastLimit } from "./turnLimit.ts";
+import { keepTurnRetries, keptTurnRetries } from "./turnRetries.ts";
 import { TurnStore } from "./turnStore.ts";
 
 export interface SessionEnv {
@@ -266,13 +268,20 @@ export class SessionDO extends DurableObject<SessionEnv> {
       onRequest: () => this.#turns.noteModel((record) => ({ ...record, requests: record.requests + 1 })),
     });
     this.#modelFetch = recorder.fetch;
-    this.#execs = new RunningExecs(ctx.storage.kv, (ids) => this.#killExecs(ids));
+    // SPI-1367: the kills a stopped command gets, as the latest turn's start carried them (`turnRetries.ts`).
+    this.#execs = new RunningExecs(
+      ctx.storage.kv,
+      (ids) => this.#killExecs(ids),
+      () => keptTurnRetries(ctx.storage.kv).killAttempts,
+    );
     const registry = createRegistry();
     // SPI-1172: each failed answer replaces the turn's record, classified by its Model endpoint's API and auth.
     this.#limits = sessionLimits({
       last: recorder.last,
       note: (update) => this.#turns.noteModel(update),
       endpoints: { endpoint: (id) => this.#endpoints.endpoint(id), secrets: (id) => this.#endpoints.secrets(id) },
+      // SPI-1367: the span of the retries pi-durable runs with, as the latest turn's start carried them.
+      shortResetMs: () => retriedSpanMs(keptTurnRetries(ctx.storage.kv).durableRetries),
     });
     registry.install(modelLimits(this.#limits));
     registry.install(codingTools());
@@ -345,7 +354,10 @@ export class SessionDO extends DurableObject<SessionEnv> {
             {
               models: this.#models,
               registry: this.#registry,
-              settings: { retry: { enabled: true, maxRetries: 3 } },
+              // SPI-1367: read at each use, as the latest turn's start carried it (`turnRetries.ts`).
+              settings: () => ({
+                retry: { enabled: true, maxRetries: keptTurnRetries(ctx.storage.kv).durableRetries },
+              }),
               env: (target) => this.#envAt(target.cwd),
               onReport: (report) => console.warn(JSON.stringify({ t3flare: "pi-durable-report", kind: report.kind })),
             },
@@ -956,6 +968,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
         linked: input.linked ?? meta.linked ?? null,
       } satisfies Meta);
     }
+    keepTurnRetries(this.ctx.storage.kv, input);
     await this.#takeT3Mcp(input.t3Mcp);
     // SPI-1314: the settings read wait the start carried bounds each read of the newest settings below.
     const readMs = turnReadMs(input);

@@ -1,6 +1,8 @@
 // t3flare's managed policy (ADR-0023): t3's own administrator policy, built in rather than read from a machine-wide file.
 // It locks the settings for features the Cloud Environment does not do, so the stock clients show them as "Managed by
-// t3flare" instead of offering a switch that fails, and sets two limits: t3's product analytics off, and the preview tunnel off. The capability flags are the other half (`./capabilities.ts`).
+// t3flare" instead of offering a switch that fails, starts git's automatic fetch off as a default the Owner may change
+// (each fetch starts a Workspace's Container), and sets two limits: t3's product analytics off, and the preview tunnel off. The
+// capability flags are the other half (`./capabilities.ts`).
 import type { ManagedPolicyDocument } from "@t3tools/contracts";
 import * as Layer from "effect/Layer";
 import * as ManagedPolicy from "t3/src/policy/ManagedPolicy.ts";
@@ -18,9 +20,17 @@ export const T3FLARE_POLICY = {
     enableDeviceSupport: off,
     enableAgentDeviceAccess: off,
     simlockDeviceHostsEnabled: off,
-    // Step 4b (review F7): t3 compacts idle Claude threads with a `/compact` turn, which would start a Container;
-    // the worker is not started (composition.ts), and the setting shows as managed.
+    // A fixed value (SPI-1367): t3's idle compaction can never fire here. It times a thread's `/compact` from the prompt
+    // cache's expiry a provider turn reports (`promptCacheExpiresAt`, IdleCompaction.ts), which only t3's native Claude
+    // adapter reports; t3flare runs Claude Code over ACP, which reports none. Locked off so no switch offers it, and its
+    // worker is not started (composition.ts).
     idleCompaction: { value: "off", locked: true },
+    // SPI-1367: no automatic git fetch by default, unlocked: each fetch starts, or keeps running, the Workspace's
+    // Container (billed). t3's own default is its "balanced" profile's 30 s. This is t3's legacy interval, which t3 reads
+    // while its Background activity is untouched (`resolveServerBackgroundActivitySettings`); once the Owner picks a
+    // profile or an interval there, theirs wins. A default for `backgroundActivity` itself would add keys t3's own default
+    // lacks, which t3 refuses in an unlocked default (fragility U104).
+    automaticGitFetchInterval: { value: 0, locked: false },
     // The preview tunnel is not mounted (fragility U4, `previewTunnelSetting`).
     enablePreviewTunnel: off,
   },

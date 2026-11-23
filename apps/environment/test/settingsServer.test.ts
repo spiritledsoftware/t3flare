@@ -309,7 +309,7 @@ describe("the Settings server's card for a free change", () => {
     });
   });
 
-  it("a change to how long history is kept applies per key: at the next prune or at each Pi start, never a Container start (SPI-1323)", async () => {
+  it("a change to how long history is kept applies per key: at the next prune or at each Pi or Claude Code start, never a Container start (SPI-1323)", async () => {
     const run = setup();
     recordModes(durable(), "approval-required");
     const usage = await run.call(durable(), "change_environment", {
@@ -325,7 +325,7 @@ describe("the Settings server's card for a free change", () => {
       expectedRevision: 1,
       settings: { piSessionRetentionDays: 120 },
     });
-    expect(structured(pi)).toMatchObject({ status: "applied", appliesAt: "Applies at each Pi start." });
+    expect(structured(pi)).toMatchObject({ status: "applied", appliesAt: "Applies at each Pi or Claude Code start." });
     for (const card of run.cards) expect(card.prompt).not.toContain("Container next starts");
     // Both, with a Container setting: each text names its keys.
     await run.call(durable(), "change_environment", {
@@ -335,10 +335,10 @@ describe("the Settings server's card for a free change", () => {
     const both = run.cards[2]!.prompt;
     expect(both).toContain("Container next starts");
     expect(both).toContain("usageRetentionDays: Applies at the next prune");
-    expect(both).toContain("piSessionRetentionDays: Applies at each Pi start.");
+    expect(both).toContain("piSessionRetentionDays: Applies at each Pi or Claude Code start.");
     const tool = SETTINGS_TOOLS.find((entry) => entry.name === "change_environment")!;
     expect(tool.description).toContain("usageRetentionDays at the next prune");
-    expect(tool.description).toContain("piSessionRetentionDays at each Pi start");
+    expect(tool.description).toContain("piSessionRetentionDays at each Pi or Claude Code start");
   });
 
   it("a decline changes nothing; an unanswered card is withdrawn and changes nothing", async () => {

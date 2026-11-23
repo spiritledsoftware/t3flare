@@ -57,6 +57,8 @@ import {
   PREVIEW_SETTING_KEYS,
   SKILLS_SETTING_KEYS,
   RETENTION_SETTING_KEYS,
+  RETRY_SETTING_KEYS,
+  TRACE_SETTING_KEYS,
   SWEEP_SETTING_KEYS,
   visible,
 } from "@t3flare/harness-registry";
@@ -455,7 +457,7 @@ const environmentSection = (
   // The scalar settings share the Containers row. The agents' settings (SPI-1315: the Turn limit, the CLI agents'
   // processes) share an Agents row, the MCP calls' time limit and result size (SPI-1359) an MCP calls row, the outside
   // requests' time limit (SPI-1365) an Outside requests row, the Sleep and wake, Previews and access settings (SPI-1366)
-  // rows of their own, how long
+  // rows of their own, the retries and t3's trace (SPI-1367) rows of their own, how long
   // history is kept (SPI-1323) a History row, and the dotfiles toggles (ADR-0047 §9) a Dotfiles row, each a `keyedRow`. A list (the Variables) and a file (the Global mise config, the
   // Container setup) each get a row of their own, which the settings that name it as their `row` join. One form, one
   // Save.
@@ -469,6 +471,8 @@ const environmentSection = (
     ...LIFECYCLE_SETTING_KEYS,
     ...PREVIEW_SETTING_KEYS,
     ...ACCESS_SETTING_KEYS,
+    ...RETRY_SETTING_KEYS,
+    ...TRACE_SETTING_KEYS,
   ];
   const ownRow = (setting: EnvironmentSettingEntry) =>
     setting.schema.type === "variables" || setting.schema.type === "file";
@@ -523,7 +527,7 @@ const environmentSection = (
   const history = keyedRow(
     "history",
     "History",
-    "How long t3flare keeps its usage records and Pi's sessions.",
+    "How long t3flare keeps its usage records, and Pi's and Claude Code's sessions.",
     RETENTION_SETTING_KEYS,
   );
   const dotfiles = keyedRow(
@@ -550,6 +554,18 @@ const environmentSection = (
     "How long this page's token for changes lasts, how many clients of one Owner key the Settings server remembers, and how many of T3 Connect's publishes the Environment keeps for its status.",
     ACCESS_SETTING_KEYS,
   );
+  const retries = keyedRow(
+    "retries",
+    "Retries and kills",
+    "How many times an agent tries a failed model request again, and how many times t3flare tries to end a stopped command's surviving processes.",
+    RETRY_SETTING_KEYS,
+  );
+  const trace = keyedRow(
+    "trace",
+    "t3's trace",
+    "How large t3's trace file grows before t3 starts a new one, and how many older ones it keeps for its diagnostics.",
+    TRACE_SETTING_KEYS,
+  );
   const lists = entries
     .filter(([, setting]) => ownRow(setting))
     .map(([key, setting]) => {
@@ -564,7 +580,7 @@ const environmentSection = (
 <div class="section-head"><h2 id="environment-title">${icon("container")}Environment</h2></div>
 <p class="section-desc">What every Workspace's Container gets, and how long t3flare keeps its history. A change applies at each Workspace's next Container start unless its setting says otherwise; a running Container keeps what it started with, and a lower budget stops none.</p>
 <form class="group" data-environment aria-labelledby="environment-title" novalidate><div class="row"><div><div class="row-title"><h3>Containers</h3><span class="ident">revision ${environment.revision}</span></div><p class="desc">Their size, how long one may sit idle, how long open Terminals keep it running, how many may run at once, how many Terminals a Workspace may have, yours and agents', how much an agent's Terminal keeps of its scrollback, how long a start or a turn waits for the newest settings, and how long a clone or a checkpoint may run.</p></div>
-<div class="row-extra"><div class="fields">${fields.join("")}</div></div></div>${agents}${mcpCalls}${outside}${lifecycle}${previews}${access}${skills}${history}${dotfiles}${lists.join("")}${save}</form>
+<div class="row-extra"><div class="fields">${fields.join("")}</div></div></div>${agents}${retries}${mcpCalls}${outside}${lifecycle}${previews}${access}${skills}${trace}${history}${dotfiles}${lists.join("")}${save}</form>
 <dl class="group kv"><div><dt>Running now</dt><dd>${
     running === null || running === undefined
       ? "unknown"

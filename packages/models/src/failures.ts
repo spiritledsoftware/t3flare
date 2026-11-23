@@ -363,9 +363,9 @@ const ROWS: ReadonlyArray<Row> = [
 ];
 
 /**
- * The longest reset a rate limit is retried through within the run: pi-durable's default retries (3, 2 s doubling:
- * `DEFAULT_RETRY_POLICY` and pi-ai's `retryDelayMs`) span 2 + 4 + 8 = 14 s, so a 429 that resets within that is met by
- * one of them; a later reset is out of their reach and pauses the thread until it at once, with one request.
+ * The longest reset a rate limit is retried through within the run, by default: pi-durable's default 3 retries span
+ * 2 + 4 + 8 = 14 s (`retriedSpanMs(3)`, @t3flare/harness-registry, which the Session passes for the Environment's
+ * `durableRetries`; a test pins the two together). A later reset pauses the thread until it at once, with one request.
  */
 export const SHORT_RESET_MS = 14_000;
 
@@ -416,7 +416,12 @@ export const modelFailureOf = (code: ModelFailureCode): ModelFailure => {
 };
 
 /** The endpoint's failure, or undefined for an answer that is none of the known ones (a 400 the request caused, a 404). */
-export const classifyModelFailure = (answer: FailedAnswer, endpoint: FailedEndpoint): ModelFailure | undefined => {
+export const classifyModelFailure = (
+  answer: FailedAnswer,
+  endpoint: FailedEndpoint,
+  /** The longest reset retried through in the run (`retriedSpanMs` of the retries the run has). */
+  shortResetMs: number = SHORT_RESET_MS,
+): ModelFailure | undefined => {
   const r = read(answer);
   const family = FAMILY[endpoint.api];
   const row = ROWS.find(
@@ -430,7 +435,7 @@ export const classifyModelFailure = (answer: FailedAnswer, endpoint: FailedEndpo
   const resetAt = row.reset?.(r);
   const stop =
     kind.stop === "always" ||
-    (kind.stop === "long-reset" && resetAt !== undefined && resetAt - answer.at > SHORT_RESET_MS);
+    (kind.stop === "long-reset" && resetAt !== undefined && resetAt - answer.at > shortResetMs);
   return {
     class: kind.class,
     code: row.code,
@@ -500,8 +505,12 @@ export interface DescribedFailure extends ModelFailure {
 }
 
 /** The answer classified by the endpoint's API and auth, with its text (`modelFailureMessage`); undefined when unknown. */
-export const describeFailure = (answer: FailedAnswer, endpoint: FailedEndpoint): DescribedFailure | undefined => {
-  const failure = classifyModelFailure(answer, endpoint);
+export const describeFailure = (
+  answer: FailedAnswer,
+  endpoint: FailedEndpoint,
+  shortResetMs: number = SHORT_RESET_MS,
+): DescribedFailure | undefined => {
+  const failure = classifyModelFailure(answer, endpoint, shortResetMs);
   return failure === undefined
     ? undefined
     : { ...failure, message: modelFailureMessage(failure, endpoint, answer.status) };

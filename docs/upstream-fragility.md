@@ -42,11 +42,11 @@ The bump runs: the whole `pnpm run check` (`git apply --check` of the Patches, t
 
 ### U1. The composition root restates t3's `server.ts`
 
-- **Where**: `apps/environment/src/t3/composition.ts` (790 lines) restates the module-private layer graph of `t3code/apps/server/src/server.ts` (1230 lines), with departures marked `t3flare:`. Notable ones: `layerConfig` builds `ServerConfig.of({…})` field by field (`:217-267`); `layerPersistence` runs only `runMigrations()`, skipping t3's `Sqlite.layerSetup` (`:271-273`; `t3code/apps/server/src/persistence/Sqlite.ts:14`); `VcsAutomaticFetchInterval` is zero, provided above the whole server layer (`layer`), since t3 reads it in `GitVcsDriverCore`'s status reads as well as in `VcsStatusBroadcaster` and builds `GitVcsDriver` in several places (a `Context.Reference`: a missing override is t3's non-zero default, and typecheck says nothing); `RelayClientLedger` is a no-op (no relay client process, G12) and `KeepAwake` is not started (no host); `AgentScope` is t3's `make` without its `ProviderProcesses` layer (on Linux it reads `/proc/sys/kernel/random/boot_id`, which workerd lacks, so t3 failed to boot; its record and kill of a crashed server's CLI processes have nothing to act on here), the reference keeping its default; `ServerRestart` is `null` (`:556`); the routes are `HttpApiBuilder.layer(EnvironmentHttpApi)` with every group, `layerAssetRoute`, `layerAttachmentUploadRoute`, `Ws.layer`, `McpHttpServer.layer` and `RemoteDelegation` (`:688-730`; t3's at `server.ts:783`, served at `server.ts:1192`); `ServerRuntimeStartup.layerWithOptions` (`:749`; t3 `serverRuntimeStartup.ts:719`). It also calls constructors t3 exports but never documents: `ServerEnvironment.make` (`environment/ServerEnvironment.ts:186`), `RepositoryIdentityResolver.make` (`project/RepositoryIdentityResolver.ts:253`), `ServerConfig.deriveServerPaths`/`ensureServerDirectories` (`config.ts:139`, `:177`). Step 3 adds two seeds to `layerRuntimeCoreDependenciesBase` (`:608-609` on `step-3`).
+- **Where**: `apps/environment/src/t3/composition.ts` (790 lines) restates the module-private layer graph of `t3code/apps/server/src/server.ts` (1230 lines), with departures marked `t3flare:`. Notable ones: `layerConfig` builds `ServerConfig.of({…})` field by field (`:217-267`); `layerPersistence` runs only `runMigrations()`, skipping t3's `Sqlite.layerSetup` (`:271-273`; `t3code/apps/server/src/persistence/Sqlite.ts:14`); `VcsAutomaticFetchInterval` is t3's own `layer` over t3's settings (SPI-1367; zero before it), provided above the whole server layer (`layer`), since t3 reads it in `GitVcsDriverCore`'s status reads as well as in `VcsStatusBroadcaster` and builds `GitVcsDriver` in several places (a `Context.Reference`: a missing one is t3's non-zero default, not the setting, and typecheck says nothing; the managed policy starts the setting at zero, U104); `RelayClientLedger` is a no-op (no relay client process, G12) and `KeepAwake` is not started (no host); `AgentScope` is t3's `make` without its `ProviderProcesses` layer (on Linux it reads `/proc/sys/kernel/random/boot_id`, which workerd lacks, so t3 failed to boot; its record and kill of a crashed server's CLI processes have nothing to act on here), the reference keeping its default; `ServerRestart` is `null` (`:556`); the routes are `HttpApiBuilder.layer(EnvironmentHttpApi)` with every group, `layerAssetRoute`, `layerAttachmentUploadRoute`, `Ws.layer`, `McpHttpServer.layer` and `RemoteDelegation` (`:688-730`; t3's at `server.ts:783`, served at `server.ts:1192`); `ServerRuntimeStartup.layerWithOptions` (`:749`; t3 `serverRuntimeStartup.ts:719`). It also calls constructors t3 exports but never documents: `ServerEnvironment.make` (`environment/ServerEnvironment.ts:186`), `RepositoryIdentityResolver.make` (`project/RepositoryIdentityResolver.ts:253`), `ServerConfig.deriveServerPaths`/`ensureServerDirectories` (`config.ts:139`, `:177`). Step 3 adds two seeds to `layerRuntimeCoreDependenciesBase` (`:608-609` on `step-3`).
 - **Breaks when**: almost every nightly touches `server.ts`. A new service a kept layer needs; a new field on `ServerConfig`; a new route, reactor, worker or startup hook added beside the ones we restate; a renamed export.
 - **Detection**: typecheck catches a missing requirement (the final layer must need nothing) and a new required `ServerConfig` field. **Silent**: a new route outside the HttpApi groups (404, or the web client's HTML through the assets), a new reactor or background worker started in `server.ts` but not here (the feature just never runs), a changed default that our hand-built config pins. The upstream fingerprint ([T2](#gaps-in-detection), `test/upstreamFingerprint.test.ts`) hashes every top-level statement of `server.ts` but its imports. Any change there fails `pnpm run check` with "review `apps/environment/src/t3/composition.ts` (U1)", and holds a bump for a person instead of landing by itself, until the fixture is updated after that review. What the review misses stays silent.
 - **Blast radius**: from a feature that silently never runs (PR watching, settlement, scheduled tasks) to an Environment that fails to boot (every client sees "the Environment failed to start").
-- **Since `v0.1.11-nightly.20261117.4825`**: ported t3's issues (`layerIssueService`, `ThreadIssueService` on the routes), `SecretCheck`, `UsageLimitResetFallback`, `EnvironmentTheme` above the settings, and the fetch interval's move to `vcs/VcsAutomaticFetchInterval.ts`. Stock t3 now reads that interval from a user setting; ours stays zero, so the setting does nothing here (a Workspace's git runs in its Container, not on a timer in this process). `AgentScope.make` still looks for `systemd-run`/`systemctl` to stop leftovers; workerd has neither, so it does nothing.
+- **Since `v0.1.11-nightly.20261117.4825`**: ported t3's issues (`layerIssueService`, `ThreadIssueService` on the routes), `SecretCheck`, `UsageLimitResetFallback`, `EnvironmentTheme` above the settings, and the fetch interval's move to `vcs/VcsAutomaticFetchInterval.ts`. Stock t3 now reads that interval from a user setting; ours stayed zero, so the setting did nothing here, until SPI-1367 read it as t3 does (U104). `AgentScope.make` still looks for `systemd-run`/`systemctl` to stop leftovers; workerd has neither, so it does nothing.
 - **Since `v0.1.11-nightly.20261119.4928`**: `GitManager` needs `PullRequestService` (agents land a GitHub stack through it), provided as `server.ts` does; `McpHttpServer` gets its own `ProjectionStoreV2.layer`. t3's new `PreviewTunnel` (`layerPreview` and its `/api/preview/tunnel` route, a remote desktop's or phone's webview into the server's loopback ports) is not mounted: it dials this process's `127.0.0.1`, where nothing listens, so the route answers 404 as from an older server. A tunnel into a Workspace's Container would be new t3flare work beside G11's port discovery. Of the two new flags, `issueLinkedThreads` is kept and `accessTokenRenewal` stripped ([U4](#u4-the-descriptors-capability-flags)).
 - **Since `v0.1.11-nightly.20261120.4979`**: `ws.ts`'s thread subscriptions need `ThreadViewers`, provided in `layerRuntimeDependencies` as `server.ts` does; it is the same memoized layer `RuntimeLayer.layerEventSink` uses, so both share one registry (a second instance would leave the sink ranking every thread unviewed, and typecheck would not say so). The routes get `ServerHttp.layerUnloggedSignedRequests`. The preview tunnel's new `enablePreviewTunnel` setting is locked off and its `previewTunnel` limit set to `false` in the managed policy ([U4](#u4-the-descriptors-capability-flags)).
 - **Fix**: `git -C t3code diff <old>..<new> -- apps/server/src/server.ts` and port each change to the matching block of `composition.ts`, keeping or marking each departure `t3flare:`.
@@ -1760,6 +1760,50 @@ Moved from U58 when its Commissary readers went (SPI-1176).
 - **Blast radius**: low. A smaller t3 cap leaves t3flare pushing bytes t3 drops; a larger one shows the Owner less
   than t3 could. The model's copy is never affected.
 - **Fix**: read the three constants at the new pin and set the mirrors in `session-protocol` to them.
+
+### U104. Git's automatic fetch starts off through the managed policy's unlocked default (SPI-1367)
+
+(U101–U103 are left to SPI-1364, whose entries were written first; the gap is on purpose.)
+
+- **Where**: `apps/environment/src/t3/managedPolicy.ts` gives t3's legacy top-level `automaticGitFetchInterval` an
+  unlocked default of `0` (`locked: false`, which replaces t3's built-in default and leaves the setting the Owner's).
+  The default leans on t3's
+  `resolveServerBackgroundActivitySettings` (`t3code/packages/shared/src/backgroundActivitySettings.ts`): while
+  `backgroundActivity` is untouched it resolves the interval from the legacy key, as a custom profile over "balanced".
+  A default for `backgroundActivity` itself is refused: t3's `managedSettings.ts` rejects an unlocked default that adds
+  keys t3's own default lacks ("adds entries users could not remove"). `composition.ts` provides t3's
+  `VcsAutomaticFetchInterval.layer` over its `layerServerSettings`. Idle compaction stays locked off and its worker
+  unstarted: t3 times it from a provider turn's `promptCacheExpiresAt` (`IdleCompaction.ts`), which only t3's native
+  `ClaudeAdapterV2` reports and Claude Code over ACP never does.
+- **Breaks when**: t3 drops the legacy `automaticGitFetchInterval` or stops reading it while `backgroundActivity` is
+  untouched. For idle compaction: t3's ACP adapter starts reporting `promptCacheExpiresAt` (the lock is then a cost
+  guard, and the switch can be unlocked), or t3 times it some other way.
+- **Detection**: `apps/environment/test/capabilities.test.ts` resolves the policy's default through t3's own
+  `resolveServerBackgroundActivitySettings`, and fails when it stops being off, or when t3 refuses the policy (it then
+  refuses to boot). **Silent** for idle compaction: nothing notices an ACP turn starting to carry a prompt cache
+  expiry.
+- **Blast radius**: medium. A dropped legacy key makes every Workspace fetch on t3's "balanced" 30 s by default, each
+  fetch starting or keeping up its Container (billed); a refused policy stops t3 from booting.
+- **Fix**: default the new key t3 reads (a whole `backgroundActivity` once t3 accepts it unlocked), and keep the test
+  resolving through t3's own functions.
+
+### U105. The span of pi-durable's retries, mirrored for the rate-limit pause (SPI-1367)
+
+- **Where**: `retriedSpanMs` in `packages/harness-registry/src/environment.ts` sums pi-durable's waits for a given
+  number of retries: `DURABLE_RETRY_FIRST_WAIT_MS` (2 s) doubling, each at most `DURABLE_RETRY_LONGEST_WAIT_MS` (60 s).
+  These mirror pi-durable's `DEFAULT_RETRY_POLICY` (`baseDelayMs`, `maxAgentDelayMs`, `dist/harness/agent.js`) under
+  pi-ai's `retryDelayMs` (`dist/utils/retry.js`). The Session passes `retriedSpanMs(durableRetries)` to the failure
+  classifier (`modelLimits.ts`), which stops the retries for a 429 that resets past it; `SHORT_RESET_MS` in
+  `packages/models/src/failures.ts` is the default 3's span. The `durableRetries` description interpolates the same
+  figures.
+- **Breaks when**: pi-durable changes its default wait or cap, pi-ai changes how a wait grows, or t3flare starts passing
+  its own `baseDelayMs` or `maxAgentDelayMs` in the Session's `settings.retry`.
+- **Detection**: `apps/agents/test/turnRetries.test.ts` sums pi-ai's own `retryDelayMs` over pi-durable's own
+  `DEFAULT_RETRY_POLICY` for 0 to 100 retries and fails when `retriedSpanMs` differs, and when `SHORT_RESET_MS` stops
+  being the default's span. **Silent**: a Session `settings.retry` with its own waits.
+- **Blast radius**: low. A wrong span pauses a thread for a reset the retries would have met, or retries a 429 into a
+  reset they cannot reach (one wasted request each).
+- **Fix**: set the two mirrors to pi-durable's new values, or read them from its `DEFAULT_RETRY_POLICY`.
 
 ## Retired entries
 

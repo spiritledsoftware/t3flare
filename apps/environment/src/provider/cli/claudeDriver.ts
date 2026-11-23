@@ -26,7 +26,8 @@ export const ClaudeCliDriver: ProviderDriver<ClaudeSettings, ClaudeCliDriverEnv>
   driverKind: CLAUDE_CLI_DRIVER,
   metadata: { displayName: "Claude", supportsMultipleInstances: false, hasDefaultInstance: true },
   configSchema: ClaudeSettings,
-  // Idle compaction is never this instance's: it would start a Container for a `/compact` turn (review F7).
+  // Idle compaction is never this instance's: t3's needs a turn's `promptCacheExpiresAt`, which Claude Code over ACP
+  // never reports (SPI-1367; `managedPolicy.ts`).
   defaultConfig: () => decodeSettings({ idleCompaction: "off" }),
   create: (input) =>
     createAcpCliInstance(

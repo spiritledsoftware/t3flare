@@ -44,8 +44,8 @@ export interface EnvironmentServices {
    */
   readonly agentsReadDotfiles?: () => boolean;
   /**
-   * How many days pi's sessions are kept (SPI-1323, `piSessionRetentionDays`), as stored now: read at each spawn, so a
-   * change applies at each pi start. Absent (a test's services): the setting's default.
+   * How many days pi's and Claude Code's sessions are kept (SPI-1323, SPI-1367, `piSessionRetentionDays`), as stored now:
+   * read at each spawn, so a change applies at each pi or Claude Code start. Absent (a test's services): the default.
    */
   readonly piSessionRetentionDays?: () => number;
   /**
@@ -222,4 +222,13 @@ export const environmentNow = (): ResolvedEnvironment => {
   } catch {
     return resolveEnvironment(EMPTY_ENVIRONMENT);
   }
+};
+
+/**
+ * The Durable agent's retries and a stopped command's kills now (SPI-1367, `durableRetries`, `killAttempts`): carried
+ * with each turn's start, which the Session keeps; the defaults when the store cannot be read.
+ */
+export const turnRetriesNow = (): { readonly durableRetries: number; readonly killAttempts: number } => {
+  const { durableRetries, killAttempts } = environmentNow();
+  return { durableRetries, killAttempts };
 };

@@ -1,6 +1,8 @@
 // Truthful capabilities (SPI-994, SPI-1012): every capability t3's descriptor can carry is classified, the stripped ones
 // never reach a client, and t3flare's managed policy locks the settings of features the Cloud Environment does not do.
-import { DEFAULT_SERVER_SETTINGS, ExecutionEnvironmentCapabilities } from "@t3tools/contracts";
+import { DEFAULT_SERVER_SETTINGS, ExecutionEnvironmentCapabilities, globalIdleCompaction } from "@t3tools/contracts";
+import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as ManagedPolicy from "t3/src/policy/ManagedPolicy.ts";
 import { describe, expect, it } from "vitest";
@@ -120,6 +122,25 @@ describe("t3flare's managed policy", () => {
     expect(applied.guestSharingEnabled).toBe(false);
     expect(applied.enableDeviceSupport).toBe(false);
     expect(settings.vetWrite(DEFAULT_SERVER_SETTINGS, stored, { guestSharingEnabled: true })).toMatchObject({
+      _tag: "Locked",
+    });
+  });
+
+  // SPI-1367: git's automatic fetch is t3's own setting, the Owner's to change; the policy only starts it off. Idle
+  // compaction stays locked off: it needs a turn's prompt cache expiry, which Claude Code over ACP never reports.
+  it("starts git's automatic fetch off and leaves it to the Owner; keeps idle compaction locked off", async () => {
+    const { settings } = await policy;
+    expect(
+      Duration.toMillis(resolveServerBackgroundActivitySettings(settings.defaults).automaticGitFetchInterval),
+    ).toBe(0);
+    expect(globalIdleCompaction(settings.applyLocks(settings.defaults))).toBe("off");
+    const decoded = settings.defaults;
+    expect(
+      settings.vetWrite(decoded, decoded, {
+        backgroundActivity: { schemaVersion: 1, profile: "balanced", overrides: {} },
+      }),
+    ).not.toMatchObject({ _tag: "Locked" });
+    expect(settings.vetWrite(decoded, decoded, { idleCompaction: "beforeCacheExpires" })).toMatchObject({
       _tag: "Locked",
     });
   });

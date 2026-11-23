@@ -97,6 +97,20 @@ describe("Codex's profile", () => {
     expect(answer.droppedEnv.toSorted()).toEqual(["CODEX_HOME", "OPENAI_API_KEY"]);
   });
 
+  it("retries a failed request or stream the Environment's cliRetries times at the spawn, once when absent (SPI-1367)", () => {
+    const providerAt = (cliRetries?: number) => {
+      const answer = profileLaunch(
+        { cli: "codex", args: ["app-server"], key: "proc-1", cwd: "/w/demo", env: {}, allowProbe: false },
+        cliRetries === undefined ? context : { ...context, cliRetries },
+      );
+      if ("refused" in answer) throw new Error(answer.refused);
+      return answer.argv.find((arg) => arg.startsWith("model_providers."))!;
+    };
+    expect(providerAt(5)).toContain("request_max_retries=5,stream_max_retries=5");
+    expect(providerAt(0)).toContain("request_max_retries=0,stream_max_retries=0");
+    expect(providerAt()).toContain("request_max_retries=1,stream_max_retries=1");
+  });
+
   it("gets one provider per OpenAI Responses endpoint through the model relay, its id from the endpoint's (SPI-1167)", () => {
     const endpoints = [
       { id: "openai", label: "OpenAI", models: [] },
@@ -468,6 +482,19 @@ describe("pi's profile", () => {
         defaultProvider: "t3flare-endpoint-oai",
         defaultModel: "gpt-x",
       });
+    });
+
+    it("retries a failed model request the Environment's cliRetries times at the spawn, once when absent (SPI-1367)", () => {
+      const retriesAt = (cliRetries?: number) => {
+        const answer = profileLaunch(
+          { cli: "pi", args: rpc, key: "proc-1", cwd: "/w/demo", env: {}, allowProbe: false },
+          { ...context, piRelay, ...(cliRetries === undefined ? {} : { cliRetries }) },
+        );
+        return fileOf(answer, "settings.json").retry;
+      };
+      expect(retriesAt(4)).toEqual({ maxRetries: 4 });
+      expect(retriesAt(0)).toEqual({ maxRetries: 0 });
+      expect(retriesAt()).toEqual({ maxRetries: 1 });
     });
 
     it("asks a model handle for exactly those endpoints, and never puts a handle in pi's environment or files", () => {

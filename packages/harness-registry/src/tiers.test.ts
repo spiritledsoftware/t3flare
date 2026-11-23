@@ -124,6 +124,12 @@ const ENVIRONMENT: Readonly<
   pageTokenHours: { up: [1, 2, "asked"], down: [2, 1, "free"] },
   clientsPerKey: { up: [50, 100, "free"], down: [50, 10, "asked"] },
   connectPublishLogKept: { up: [100, 200, "free"], down: [100, 50, "asked"] },
+  // SPI-1367: more retries or kills spend, or keep a Container awake; fewer trace files deletes the oldest.
+  durableRetries: { up: [3, 5, "asked"], down: [3, 0, "free"] },
+  cliRetries: { up: [1, 3, "asked"], down: [1, 0, "free"] },
+  killAttempts: { up: [12, 24, "asked"], down: [12, 6, "free"] },
+  traceKiB: { up: [1024, 4096, "asked"], down: [1024, 512, "free"] },
+  traceFiles: { up: [1, 3, "free"], down: [3, 1, "asked"] },
   mcpPausesPerCall: { up: [16, 32, "asked"], down: [16, 8, "free"] },
   cliMcpStartSeconds: { up: [20, 60, "free"], down: [20, 10, "free"] },
   mcpSignInMinutes: { up: [10, 30, "asked"], down: [10, 5, "free"] },

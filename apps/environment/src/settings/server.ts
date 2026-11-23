@@ -204,8 +204,8 @@ export const APPLIES_AT = {
   /** How long usage records are kept (SPI-1323): read at each record and its prune, never by a Container. */
   usageRetention:
     "Applies at the next prune of the usage records (at most once an hour, as usage is recorded) and to usage recorded from then on.",
-  /** How long pi sessions are kept (SPI-1323): read at each pi spawn, never by a Container. */
-  piSessionRetention: "Applies at each Pi start.",
+  /** How long pi's and Claude Code's sessions are kept (SPI-1323, SPI-1367): read at each spawn, never by a Container. */
+  piSessionRetention: "Applies at each Pi or Claude Code start.",
   /** The MCP calls' time limit and result size (SPI-1359): read at each call, and the time limit at each CLI spawn. */
   mcpCall:
     "Applies at the next MCP call; a CLI agent's own tool timeout and MCP start wait at its next start; the sign-in time to sign-ins started after it.",

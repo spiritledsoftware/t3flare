@@ -9,6 +9,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels, isRetryableAssistantError } from "@earendil-works/pi-ai";
 import { createRegistry, Harness, MemoryStorage } from "@earendil-works/pi-durable";
 import type { ModelEndpoint } from "@t3flare/models/endpoints";
+import { retriedSpanMs } from "@t3flare/harness-registry";
 import { ERROR_BODY_BYTES, type ModelFailureCode, modelFailureDetail } from "@t3flare/models/failures";
 import type { EndpointFailureRecord, ProxyRecord } from "@t3flare/session-protocol";
 import { describe, expect, it } from "vitest";
@@ -98,8 +99,11 @@ const openSession = async (
     readonly fault?: Fault;
     readonly endpoints?: ReadonlyArray<ModelEndpoint>;
     readonly baseUrl?: string;
+    /** pi-durable's retries, as the Environment's `durableRetries` sets them (SPI-1367): 3 by default. */
+    readonly retries?: number;
   } = {},
 ) => {
+  const retries = options.retries ?? 3;
   const on = options.on ?? CLAUDE;
   const endpoints = options.endpoints ?? [on];
   let now = T0;
@@ -152,6 +156,8 @@ const openSession = async (
     recordEndpoint: (failure: EndpointFailureRecord | undefined) => void records.push(failure),
     recordCause: (cause: string | undefined) => void causes.push(cause),
     secrets: (id: string) => session.secrets(id),
+    // The Session's: the span of the retries it runs with.
+    shortResetMs: () => retriedSpanMs(retries),
   };
   compactionLimits(models, limits);
   const registry = createRegistry();
@@ -161,7 +167,7 @@ const openSession = async (
     {
       models,
       registry,
-      settings: { retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 }, compaction: { keepRecentTokens: 1 } },
+      settings: { retry: { enabled: true, maxRetries: retries, baseDelayMs: 1 }, compaction: { keepRecentTokens: 1 } },
     },
     context,
   );
@@ -316,6 +322,26 @@ describe("a Session's Model endpoint failures (SPI-1172)", () => {
     expect(beyond.records.at(-1)).toMatchObject({ code: "rate_limited", stop: true, class: "usage_limit" });
     const long = await submit(() => answerOf("anthropicRateLimitLong"));
     expect(long.requests).toBe(1);
+  });
+
+  it("a 429 is retried through as long a reset as durableRetries' retries span, and stops past it (SPI-1367)", async () => {
+    const at = (retryAfter: string, retries: number) =>
+      submit(
+        () =>
+          new Response(answerOf("anthropicRateLimitBare").body, {
+            status: 429,
+            headers: { "retry-after": retryAfter },
+          }),
+        { retries },
+      );
+    // Five retries span 62 s: a 60 s reset is waited through, every retry tried.
+    const five = await at("60", 5);
+    expect(five.requests).toBe(6);
+    expect(five.records.at(-1)).toMatchObject({ code: "rate_limited", stop: false });
+    // No retries: any reset is out of reach, one request.
+    const none = await at("1", 0);
+    expect(none.requests).toBe(1);
+    expect(none.records.at(-1)).toMatchObject({ code: "rate_limited", stop: true });
   });
 
   it("the endpoint's own key is redacted from its error text whatever its shape", async () => {
@@ -548,6 +574,7 @@ describe("the Session's record of a turn's failures (sessionLimits, SPI-1172 rev
         endpoint: (id) => (id === "claude" ? CLAUDE : undefined),
         secrets: (id) => (id === "claude" ? ["claude-key-held-now"] : []),
       },
+      shortResetMs: () => retriedSpanMs(3),
     });
     return { options, record: () => record };
   };

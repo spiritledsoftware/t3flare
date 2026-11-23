@@ -38,6 +38,9 @@ import {
   PREVIEW_SETTING_KEYS,
   ACCESS_SETTING_KEYS,
   NEXT_USE_SETTING_KEYS,
+  RETRY_SETTING_KEYS,
+  TRACE_SETTING_KEYS,
+  MAX_TRACE_KIB,
   OUTSIDE_REQUEST_SETTING_KEYS,
   MAX_BROWSER_KEEP_ALIVE_SECONDS,
   TEXT_GENERATION_MARGIN_MS,
@@ -82,6 +85,11 @@ const TUNABLE_DEFAULTS = {
   pageTokenHours: 1,
   clientsPerKey: 50,
   connectPublishLogKept: 100,
+  durableRetries: 3,
+  cliRetries: 1,
+  killAttempts: 12,
+  traceKiB: 1024,
+  traceFiles: 1,
   mcpPausesPerCall: 16,
   cliMcpStartSeconds: 20,
   mcpSignInMinutes: 10,
@@ -624,7 +632,7 @@ describe("how long history is kept (SPI-1323)", () => {
       "records older than that are kept but shown nowhere until t3 widens its window",
     );
     expect(ENVIRONMENT_SETTINGS.piSessionRetentionDays.description).toContain(
-      "An older one is deleted at the next Pi start; t3 can no longer resume that thread's Pi conversation.",
+      "An older one is deleted at the next Pi start, or by Claude Code at its next start; t3 can no longer resume that thread's conversation.",
     );
     for (const key of RETENTION_SETTING_KEYS)
       expect(ENVIRONMENT_SETTINGS[key].description).toContain("At most 3650 (ten years), which keeps them for good.");
@@ -753,6 +761,41 @@ describe("the housekeeping waits and counts (SPI-1366)", () => {
       ...ACCESS_SETTING_KEYS,
     ])
       expect(NEXT_USE_SETTING_KEYS).toContain(key);
+  });
+});
+
+describe("the retries and the trace (SPI-1367)", () => {
+  const KEYS = [...RETRY_SETTING_KEYS, ...TRACE_SETTING_KEYS] as const;
+
+  it("keep today's values by default, whole numbers up to their maximum", () => {
+    const resolved = resolveEnvironment(EMPTY_ENVIRONMENT);
+    expect(Object.fromEntries(KEYS.map((key) => [key, resolved[key]]))).toEqual({
+      durableRetries: 3,
+      cliRetries: 1,
+      killAttempts: 12,
+      traceKiB: 1024,
+      traceFiles: 1,
+    });
+    for (const key of KEYS) {
+      const schema = ENVIRONMENT_SETTINGS[key].schema;
+      expect(fitsEnvironmentSetting(key, 1.5)).toBe(false);
+      expect(fitsEnvironmentSetting(key, schema.maximum)).toBe(true);
+      expect(fitsEnvironmentSetting(key, schema.maximum + 1)).toBe(false);
+      expect(ENVIRONMENT_SETTINGS[key].description).toContain(`At most ${schema.maximum}`);
+      expect(ENVIRONMENT_SETTINGS[key].description).toContain("Applies at ");
+      expect(NEXT_USE_SETTING_KEYS).toContain(key);
+    }
+    // A retry count of 0 never tries again; a kill and a trace file need at least one.
+    for (const key of ["durableRetries", "cliRetries"] as const) expect(fitsEnvironmentSetting(key, 0)).toBe(true);
+    for (const key of ["killAttempts", "traceKiB", "traceFiles"] as const)
+      expect(fitsEnvironmentSetting(key, 0)).toBe(false);
+    expect(MAX_TRACE_KIB).toBe(4 * 1024);
+  });
+
+  it("ask before what spends or keeps more awake, and before deleting trace files", () => {
+    for (const key of ["durableRetries", "cliRetries", "killAttempts", "traceKiB"] as const)
+      expect(ENVIRONMENT_SETTINGS[key]).toMatchObject({ tier: "down-free" });
+    expect(ENVIRONMENT_SETTINGS.traceFiles).toMatchObject({ tier: "up-free" });
   });
 });
 

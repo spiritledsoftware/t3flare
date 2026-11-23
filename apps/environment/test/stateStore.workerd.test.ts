@@ -2,6 +2,7 @@
 // operation keeps the chunks consistent.
 import { env } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
+import { MAX_TRACE_KIB } from "@t3flare/harness-registry";
 import { describe, expect, it } from "vitest";
 
 import * as store from "../src/platform/stateStore.ts";
@@ -33,6 +34,11 @@ const rowCount = (state: DurableObjectState, table: string) =>
   (state.storage.sql.exec(`SELECT COUNT(*) AS n FROM ${table}`).one() as { n: number }).n;
 
 describe("State directory", () => {
+  // SPI-1367: t3's trace file, rewritten whole at each flush, is held to one inline row (`traceKiB`'s maximum).
+  it("holds the largest trace file the settings allow in one inline row", () => {
+    expect(MAX_TRACE_KIB * 1024).toBe(store.CHUNK_BYTES);
+  });
+
   it("keeps small files inline and large ones in 4 MiB chunks", async () => {
     await inObject("chunks", (state) => {
       store.mkdir("/t3/attachments", { recursive: true });

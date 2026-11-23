@@ -374,12 +374,23 @@ export const PREVIEW_SETTING_KEYS = ["browserProfileSaveSeconds", "htmlBrowserKe
  */
 export const ACCESS_SETTING_KEYS = ["pageTokenHours", "clientsPerKey", "connectPublishLogKept"] as const;
 
+/**
+ * How often a failed model request is tried again, and a stopped command's survivors killed again (SPI-1367), in a
+ * Retries row of their own: read at each thread's next turn or each CLI agent's next start, never at a Container start.
+ */
+export const RETRY_SETTING_KEYS = ["durableRetries", "cliRetries", "killAttempts"] as const;
+
+/** t3's own trace file (SPI-1367), in a row of its own: read at t3's next start, never at a Container start. */
+export const TRACE_SETTING_KEYS = ["traceKiB", "traceFiles"] as const;
+
 /** Every Environment setting read at its own next use, not at a Container start (SPI-1366): the Settings server says so. */
 export const NEXT_USE_SETTING_KEYS = [
   ...OUTSIDE_REQUEST_SETTING_KEYS,
   ...LIFECYCLE_SETTING_KEYS,
   ...PREVIEW_SETTING_KEYS,
   ...ACCESS_SETTING_KEYS,
+  ...RETRY_SETTING_KEYS,
+  ...TRACE_SETTING_KEYS,
 ] as const;
 
 /** The text generation time limit's default, in seconds (`textGenerationSeconds`, SPI-1366): today's 110 s. */
@@ -460,6 +471,69 @@ export const DEFAULT_CLI_MCP_START_SECONDS = 20;
 
 /** How long an MCP server's sign-in may take, by default (`mcpSignInMinutes`, SPI-1366). */
 export const DEFAULT_MCP_SIGN_IN_MINUTES = 10;
+
+/** A Durable agent's retries of a failed model request, by default (`durableRetries`, SPI-1367): pi-durable's own 3. */
+export const DEFAULT_DURABLE_RETRIES = 3;
+
+/**
+ * pi-durable's wait before its first retry, doubling at each next one, and the longest one wait may be: mirrors of its
+ * `DEFAULT_RETRY_POLICY` (`baseDelayMs`, `maxAgentDelayMs`) under pi-ai's `retryDelayMs` (fragility U105).
+ */
+export const DURABLE_RETRY_FIRST_WAIT_MS = 2000;
+export const DURABLE_RETRY_LONGEST_WAIT_MS = 60_000;
+
+/**
+ * How long `retries` of pi-durable's retries wait in all (SPI-1367). A 429 that resets within this span is met by one of
+ * them; a later reset is out of their reach, so the Session pauses the thread until it at once, with one request.
+ */
+export const retriedSpanMs = (retries: number): number => {
+  let span = 0;
+  for (let attempt = 1; attempt <= retries; attempt++)
+    span += Math.min(DURABLE_RETRY_FIRST_WAIT_MS * 2 ** (attempt - 1), DURABLE_RETRY_LONGEST_WAIT_MS);
+  return span;
+};
+
+/** A CLI agent's retries of a failed model request, by default (`cliRetries`, SPI-1367): today's 1. */
+export const DEFAULT_CLI_RETRIES = 1;
+
+/**
+ * The most retries of one failed model request may be set to: a sanity bound (ADR-0048 §1), nothing forces it. Each is
+ * a request the endpoint may bill, and the Turn limit still ends the turn.
+ */
+export const MAX_MODEL_RETRIES = 100;
+
+/** Kills of a stopped command's surviving processes, by default (`killAttempts`, SPI-1367): today's 12. */
+export const DEFAULT_KILL_ATTEMPTS = 12;
+
+/** How long the Session waits after a stopped command before it tries a failed kill again (its alarm). */
+export const KILL_RETRY_MS = 5_000;
+
+/**
+ * The most kills of one stopped command may be set to: a sanity bound (ADR-0048 §1), nothing forces it. Each is
+ * `KILL_RETRY_MS` after the last and keeps the Container awake.
+ */
+export const MAX_KILL_ATTEMPTS = 1000;
+
+/** t3's trace file's size before it rotates, in KiB, by default (`traceKiB`, SPI-1367): today's 1 MiB. */
+export const DEFAULT_TRACE_KIB = 1024;
+
+/**
+ * The most KiB t3's trace file may be set to: one inline row of the State directory (`CHUNK_BYTES`,
+ * apps/environment/src/platform/stateStore.ts). A named constraint, the Environment DO's 128 MB isolate, which also runs
+ * t3's server: the State directory appends by reading the whole file and writing it back joined (`writeFile`), and t3
+ * flushes the trace about five times a second (its 200 ms batch window), so each flush holds about three times the file
+ * at once. Past one row, a flush also reads and rewrites every chunk row.
+ */
+export const MAX_TRACE_KIB = 4 * 1024;
+
+/** t3's older trace files kept after a rotation, by default (`traceFiles`, SPI-1367): today's 1. */
+export const DEFAULT_TRACE_FILES = 1;
+
+/**
+ * The most older trace files kept may be set to: a sanity bound (ADR-0048 §1), nothing forces it. Each is up to
+ * `traceKiB` of the Environment DO's storage, and t3's trace diagnostics read every one.
+ */
+export const MAX_TRACE_FILES = 100;
 
 /**
  * How far a Workspace reads its Repo skills and Prompt templates (SPI-1365), in a Skills row of their own: discovery runs
@@ -925,9 +999,9 @@ export const ENVIRONMENT_SETTINGS = {
     tier: "up-free",
   },
   piSessionRetentionDays: {
-    title: "Pi sessions kept (days)",
+    title: "Pi and Claude Code sessions kept (days)",
     description:
-      "How many days t3flare keeps a Pi session no one has written to. An older one is deleted at the next Pi start; t3 can no longer resume that thread's Pi conversation. At most 3650 (ten years), which keeps them for good. Applies at each Pi start.",
+      "How many days a Pi or Claude Code session no one has written to is kept. An older one is deleted at the next Pi start, or by Claude Code at its next start; t3 can no longer resume that thread's conversation. At most 3650 (ten years), which keeps them for good. Applies at each Pi or Claude Code start.",
     schema: { type: "integer", minimum: 1, maximum: MAX_RETENTION_DAYS, default: DEFAULT_PI_SESSION_RETENTION_DAYS },
     tier: "up-free",
   },
@@ -1101,6 +1175,42 @@ export const ENVIRONMENT_SETTINGS = {
       maximum: MAX_CONNECT_PUBLISH_LOG_KEPT,
       default: DEFAULT_CONNECT_PUBLISH_LOG_KEPT,
     },
+    tier: "up-free",
+  },
+  durableRetries: {
+    title: "Durable agent retries",
+    description: `How many times a Durable agent tries a failed model request again before its turn fails. The tries wait ${DURABLE_RETRY_FIRST_WAIT_MS / 1000} seconds, doubling, each at most ${DURABLE_RETRY_LONGEST_WAIT_MS / 1000} seconds (${DEFAULT_DURABLE_RETRIES} span ${retriedSpanMs(DEFAULT_DURABLE_RETRIES) / 1000} seconds), so a rate limit that resets within that span is waited through and a later one pauses the thread. Each try is a request the endpoint may bill. 0 never tries again. At most ${MAX_MODEL_RETRIES}. Applies at each thread's next turn.`,
+    // Counted by pi-durable's generation retry (its `settings.retry`), no platform limit: a sanity maximum.
+    schema: { type: "integer", minimum: 0, maximum: MAX_MODEL_RETRIES, default: DEFAULT_DURABLE_RETRIES },
+    tier: "down-free",
+  },
+  cliRetries: {
+    title: "CLI agent retries",
+    description: `How many times Codex, Claude Code and the pi CLI try a failed model request again before the turn fails (OpenCode keeps its own). Each try is a request the endpoint may bill. 0 never tries again. At most ${MAX_MODEL_RETRIES}. Applies at each CLI agent's next start.`,
+    // Each CLI's own retry count (Codex's request and stream retries, Claude Code's CLAUDE_CODE_MAX_RETRIES, pi's
+    // retry.maxRetries), no platform limit: a sanity maximum.
+    schema: { type: "integer", minimum: 0, maximum: MAX_MODEL_RETRIES, default: DEFAULT_CLI_RETRIES },
+    tier: "down-free",
+  },
+  killAttempts: {
+    title: "Kill tries after a stop (Durable agents)",
+    description: `After a Durable agent's command is stopped, how many times t3flare tries to end its processes that survive, about ${KILL_RETRY_MS / 1000} seconds apart (${DEFAULT_KILL_ATTEMPTS} is about ${(DEFAULT_KILL_ATTEMPTS * KILL_RETRY_MS) / 1000} seconds), before it leaves them running. Each try keeps the Workspace's Container awake. At most ${MAX_KILL_ATTEMPTS}. Applies at each thread's next turn.`,
+    // At least 1: a stopped command's first kill always runs (RunningExecs.stopped), so 0 would act as 1.
+    schema: { type: "integer", minimum: 1, maximum: MAX_KILL_ATTEMPTS, default: DEFAULT_KILL_ATTEMPTS },
+    tier: "down-free",
+  },
+  traceKiB: {
+    title: "t3's trace file size (KiB)",
+    description: `How large t3's trace file, which t3's diagnostics read, grows before t3 starts a new one. Each trace write reads the whole file and writes it back, so a larger file costs more Durable Object storage writes and memory at every write. At most ${MAX_TRACE_KIB} (${MAX_TRACE_KIB / 1024} MiB). Applies at t3's next start.`,
+    // A named constraint (MAX_TRACE_KIB): one State directory row, for the isolate's memory at each flush.
+    schema: { type: "integer", minimum: 1, maximum: MAX_TRACE_KIB, default: DEFAULT_TRACE_KIB },
+    tier: "down-free",
+  },
+  traceFiles: {
+    title: "t3's older trace files kept",
+    description: `How many full trace files t3 keeps besides the one it writes. Lowering it deletes the oldest at t3's next start. At most ${MAX_TRACE_FILES}. Applies at t3's next start.`,
+    // t3 refuses fewer than 1 (makeAsyncRotatingFileSink); the maximum is a sanity bound (MAX_TRACE_FILES).
+    schema: { type: "integer", minimum: 1, maximum: MAX_TRACE_FILES, default: DEFAULT_TRACE_FILES },
     tier: "up-free",
   },
 } as const satisfies Readonly<Record<string, EnvironmentSettingEntry>>;

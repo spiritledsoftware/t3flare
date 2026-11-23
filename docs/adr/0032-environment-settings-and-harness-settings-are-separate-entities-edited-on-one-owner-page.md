@@ -394,7 +394,8 @@ the Grace is: a shorter value destroys history, so it is asked.
 Each states its consequence once, in its description (ADR-0048 §6). `usageRetentionDays`: "Shortening this deletes the
 older records at the next prune; they cannot be restored. t3's Usage page shows at most 90 days, so records older than
 that are kept but shown nowhere until t3 widens its window." `piSessionRetentionDays`: "An older one is deleted at the
-next Pi start; t3 can no longer resume that thread's Pi conversation."
+next Pi start; t3 can no longer resume that thread's Pi conversation." (Superseded by the SPI-1367 refinement below:
+it also sets Claude Code's `cleanupPeriodDays`.)
 
 The usage store reads `usageRetentionDays` at each record and passes it to that record's prune (`usageStore`'s
 `retentionDays`), so a change applies at the next prune, at most once an hour as usage is recorded, and to entries
@@ -566,3 +567,41 @@ SPI-1323 refinement above, and widens SPI-1365's Outside request time limit.
 - **Derived.** A new Environment's first Sweep comes one Sweep cadence after its first look, not an hour.
 - **Kept.** The stage-only process check's parameters and the preview spike's CDP command wait are diagnostics' own,
   not the Owner's.
+
+## Refinement (SPI-1367, 2026-11-23): retries, a stopped command's kills, t3's trace, and Claude Code's sessions
+
+Behaviour t3flare forced to one value becomes the Owner's, each new setting at today's value and read at its own next
+use (`NEXT_USE_SETTING_KEYS`). A tier follows ADR-0035 §3: what spends or keeps a Container awake is asked upward, what
+deletes is asked downward.
+
+| Setting          | Default | Tier                                                     | Row               | Applies at                  |
+| ---------------- | ------- | -------------------------------------------------------- | ----------------- | --------------------------- |
+| `durableRetries` | 3       | `down-free` (each retry is a request the endpoint bills) | Retries and kills | each thread's next turn     |
+| `cliRetries`     | 1       | `down-free`                                              | Retries and kills | each CLI agent's next start |
+| `killAttempts`   | 12      | `down-free` (each kill keeps the Container awake)        | Retries and kills | each thread's next turn     |
+| `traceKiB`       | 1024    | `down-free` (each trace write rewrites the whole file)   | t3's trace        | t3's next start             |
+| `traceFiles`     | 1       | `up-free` (fewer deletes the oldest files)               | t3's trace        | t3's next start             |
+
+- `durableRetries` is pi-durable's `settings.retry.maxRetries`, which the Session reads at each use, as the latest
+  turn's start carried it (`turnRetries.ts`). The reset a rate limit is waited through is the span of those retries
+  (`retriedSpanMs` in `@t3flare/harness-registry`, a mirror of pi-durable's backoff, fragility U105; 14 s at 3), so 0
+  pauses at any reset. 0 to `MAX_MODEL_RETRIES` (100), a sanity bound.
+- `cliRetries` is Codex's `request_max_retries` and `stream_max_retries`, Claude Code's `CLAUDE_CODE_MAX_RETRIES` and
+  pi's `retry.maxRetries`, written at each spawn. OpenCode keeps its own. Replaces "nothing retries into spend" as a
+  fixed rule: the Owner sets how much a retry may spend.
+- `killAttempts` was `MAX_ATTEMPTS`; the Session reads it at each kill. Some count is needed: a kill that keeps finding
+  survivors keeps the Container awake, so "Container not running" never ends it. 1 to `MAX_KILL_ATTEMPTS` (1000, about
+  tries `KILL_RETRY_MS` apart), a sanity bound.
+- `traceKiB` and `traceFiles` are t3's `traceMaxBytes` and `traceMaxFiles`, read when t3 boots. `MAX_TRACE_KIB` is a
+  named constraint, one inline State directory row (4 MiB, `CHUNK_BYTES`): the State directory appends by reading and
+  rewriting the whole file, and t3 flushes its trace about five times a second, so each flush holds about three times
+  the file in the Environment DO's 128 MB isolate, which also runs t3. `traceFiles` takes 1 to 100: t3 refuses fewer than 1, and deletes files
+  past the count when it starts.
+- **Reused: `piSessionRetentionDays`** now also sets Claude Code's `cleanupPeriodDays`, which was fixed at 60. Both
+  delete a session nobody wrote to for that many days at the CLI's start. The key keeps its name, so stored values
+  carry over; its title is "Pi and Claude Code sessions kept (days)".
+- **Fixed, named:** the HTTP router's `maxParamLength` is 16 KB, the Workers request URL ceiling, in place of an
+  unexplained 512: no route parameter can be longer than the URL that carries it.
+- Git's automatic fetch is t3's own setting, off by default (ADR-0023's and ADR-0009's SPI-1367 refinements), so it
+  has no row here. Idle compaction stays locked off: it needs a provider turn's prompt cache expiry, which Claude Code
+  over ACP never reports (ADR-0023's SPI-1367 refinement). t3's product analytics stays off (Owner decision D1).
