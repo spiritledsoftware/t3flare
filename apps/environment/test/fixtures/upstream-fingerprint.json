@@ -194,6 +194,24 @@
       "literal": "firstNonEmptyLine(result.stdout)",
       "ourFile": "apps/environment/src/agents/processRouter.ts",
       "entry": "U15"
+    },
+    {
+      "file": "apps/server/src/sourceControl/SourceControlRepositoryService.ts",
+      "literal": "detail: \"Destination path already exists and is not empty.\"",
+      "ourFile": "apps/environment/scripts/lib/socketRetry.ts",
+      "entry": "U98"
+    },
+    {
+      "file": "apps/server/src/sourceControl/SourceControlRepositoryService.ts",
+      "literal": "cwd: prepared.destinationPath,",
+      "ourFile": "apps/environment/scripts/lib/socketRetry.ts",
+      "entry": "U98"
+    },
+    {
+      "file": "apps/server/src/sourceControl/SourceControlRepositoryService.ts",
+      "literal": "? stderrTail.join(\" \")",
+      "ourFile": "apps/environment/scripts/lib/socketRetry.ts",
+      "entry": "U98"
     }
   ],
   "files": {
@@ -202,6 +220,7 @@
     "apps/server/src/peer/PeerLinks.ts": "4fa159dd7033785744568a5c413b019f08e837bb",
     "apps/server/src/server.ts": "35f63e9c44a60c70d8dc68ce087e92ebdc4df6ae",
     "apps/server/src/sourceControl/SourceControlDiscovery.ts": "e69f0d3761e68b291b6e58b0710a09fcba9f9079",
+    "apps/server/src/sourceControl/SourceControlRepositoryService.ts": "b4b2dc0e92fe5a46bcbaa153e8efadd707b0c223",
     "apps/server/src/terminal/Manager.ts": "a294ba7f1afe28eb83e0281e63221c9118589f20",
     "apps/server/src/vcs/GitVcsDriverCore.ts": "b88ade886325903c12cf4666316092ca5ad659bd",
     "packages/contracts/src/peerLink.ts": "0d72b978e26090bf4aad445c8eddf7f51fcf7b64",
