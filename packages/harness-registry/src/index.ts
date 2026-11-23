@@ -856,4 +856,5 @@ export { descriptionFor, guidanceFor, toolLikeNamesIn } from "./t3Guidance.ts";
 export * from "./globalMise.ts";
 export * from "./containerSetup.ts";
 export * from "./baseBuild.ts";
+export * from "./storedValue.ts";
 export * from "./tiers.ts";

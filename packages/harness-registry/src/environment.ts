@@ -8,7 +8,8 @@
 // setting (the Global mise config, SPI-1150; Variables, SPI-1152) is one entry in `ENVIRONMENT_SETTINGS`. The resolved
 // type, the resolve, the validation and the panel's section all follow from it.
 import { type EnvironmentSettingEntry, type EnvironmentValue, fieldProblem, normalizeField } from "./fields.ts";
-import { fitVariables, MAX_VARIABLES, type Variable } from "./variables.ts";
+import { DO_VALUE_BYTES, storedBytes } from "./storedValue.ts";
+import { fitVariables, MAX_ENV_STRING_BYTES, MAX_VARIABLES_BYTES, type Variable } from "./variables.ts";
 
 export * from "./variables.ts";
 
@@ -172,20 +173,25 @@ export const MAX_AGENT_TERMINALS_PER_WORKSPACE = 32;
  */
 export const MAX_TERMINALS_PER_WORKSPACE = 1000;
 
-/** The largest Global mise config, in bytes of UTF-8. */
-export const MAX_GLOBAL_MISE_BYTES = 16 * 1024;
-
 /**
- * The largest Image setup and Container setup, each, in bytes of UTF-8 (ADR-0047 §9). Fixed by a constraint: every
- * Environment setting is one stored value of at most 8 MB, and the Environment settings are one value together.
+ * The largest file setting (the Global mise config, the Image setup, the Container setup), in bytes of UTF-8: half of
+ * one stored value, since the Environment settings are one Durable Object value (`DO_VALUE_BYTES`) and a byte of UTF-8
+ * is at most one character, which `storedBytes` counts as two. Derived from that constraint; what the settings take
+ * together is checked as a whole (`applyEnvironmentChange`), so one file this large leaves little room for the others.
  */
-export const MAX_SETUP_BYTES = 256 * 1024;
+export const MAX_FILE_SETTING_BYTES = DO_VALUE_BYTES / 2;
+
+/** The largest Global mise config, in bytes of UTF-8 (`MAX_FILE_SETTING_BYTES`). */
+export const MAX_GLOBAL_MISE_BYTES = MAX_FILE_SETTING_BYTES;
+
+/** The largest Image setup and Container setup, each, in bytes of UTF-8 (ADR-0047 §9; `MAX_FILE_SETTING_BYTES`). */
+export const MAX_SETUP_BYTES = MAX_FILE_SETTING_BYTES;
 
 /** Why `text` cannot be an Image setup (a Test base build's proposal included): past `MAX_SETUP_BYTES`; undefined when it fits. */
 export const imageSetupTooLong = (text: string): string | undefined => {
   const bytes = new TextEncoder().encode(text).length;
   return bytes > MAX_SETUP_BYTES
-    ? `the Image setup is at most ${MAX_SETUP_BYTES / 1024} KiB, not ${bytes} bytes`
+    ? `the Image setup is at most ${MAX_SETUP_BYTES} bytes, not ${bytes}`
     : undefined;
 };
 
@@ -497,7 +503,7 @@ export const ENVIRONMENT_SETTINGS = {
   },
   variables: {
     title: "Variables",
-    description: `NAME=value pairs every command in a Workspace starts with: agents' commands, Terminals and CLI agents. A Secret one's value is stored sealed and never shown again, but every agent and command in a Workspace can read it, as on stock t3. Anything t3flare, t3, mise's [env] or the command itself sets wins over them. At most ${MAX_VARIABLES}. Applies at each Workspace's next Container start.`,
+    description: `NAME=value pairs every command in a Workspace starts with: agents' commands, Terminals and CLI agents. A Secret one's value is stored sealed and never shown again, but every agent and command in a Workspace can read it, as on stock t3. Anything t3flare, t3, mise's [env] or the command itself sets wins over them. Each NAME=value is at most ${MAX_ENV_STRING_BYTES / 1024} KiB and all of them together at most ${MAX_VARIABLES_BYTES / 1024 / 1024} MiB, Linux's limits on a command's environment with room left for the command itself. Applies at each Workspace's next Container start.`,
     schema: { type: "variables", default: [] },
   },
   globalMiseConfig: {
@@ -807,12 +813,16 @@ export const applyEnvironmentChange = (
       ),
   );
   if (moved.length === 0) return { ok: true, environment: stored, changed: [] };
-  return {
-    ok: true,
-    environment: {
-      revision: stored.revision + 1,
-      settings: { ...stored.settings, ...(Object.fromEntries(moved) as Record<string, EnvironmentValue>) },
-    },
-    changed: moved.map(([key]) => key as EnvironmentKey),
+  const environment: StoredEnvironment = {
+    revision: stored.revision + 1,
+    settings: { ...stored.settings, ...(Object.fromEntries(moved) as Record<string, EnvironmentValue>) },
   };
+  // The one bound on their sizes together: the settings are one Durable Object value.
+  const bytes = storedBytes(environment);
+  if (bytes > DO_VALUE_BYTES)
+    return {
+      ok: false,
+      error: `the Environment settings would take ${bytes} bytes stored, past the ${DO_VALUE_BYTES} one Durable Object value holds`,
+    };
+  return { ok: true, environment, changed: moved.map(([key]) => key as EnvironmentKey) };
 };

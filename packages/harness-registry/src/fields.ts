@@ -69,7 +69,7 @@ const fileProblem = (text: string, maxBytes: number): string | undefined => {
   if (text.includes("\u0000")) return "contains a NUL character";
   // A UTF-16 unit is at most 3 bytes of UTF-8 (a surrogate pair 4 for 2 units): only a long text needs encoding.
   if (text.length > maxBytes / 3 && utf8.encode(text).length > maxBytes)
-    return `is longer than ${maxBytes / 1024} KiB of UTF-8`;
+    return `is longer than ${maxBytes} bytes of UTF-8`;
   return undefined;
 };
 

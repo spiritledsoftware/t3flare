@@ -14,7 +14,8 @@ import {
   type EnvironmentFieldSchema,
   EXPOSURES,
   EXTENSIONS,
-  MAX_VARIABLES,
+  MAX_ENV_STRING_BYTES,
+  MAX_VARIABLES_BYTES,
   OFFERED_PRESETS,
   type ToolClass,
 } from "@t3flare/harness-registry";
@@ -91,7 +92,6 @@ const fieldJson = (schema: EnvironmentFieldSchema): Record<string, unknown> => {
     case "variables":
       return {
         type: "array",
-        maxItems: MAX_VARIABLES,
         items: {
           type: "object",
           properties: {
@@ -106,7 +106,7 @@ const fieldJson = (schema: EnvironmentFieldSchema): Record<string, unknown> => {
           required: ["name"],
         },
         description:
-          "The whole set of Variables, each { name, value, secret }. A secret read back has valueRedacted: true; send it so to keep its value, or a new value to replace it. Turning Secret off needs the value given again. Anything run in a Workspace can read every Variable, a secret's value included.",
+          `The whole set of Variables, each { name, value, secret }. A secret read back has valueRedacted: true; send it so to keep its value, or a new value to replace it. Turning Secret off needs the value given again. Anything run in a Workspace can read every Variable, a secret's value included. Each NAME=value is at most ${MAX_ENV_STRING_BYTES} bytes of UTF-8, and all of them together at most ${MAX_VARIABLES_BYTES}.`,
       };
   }
 };

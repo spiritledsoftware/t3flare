@@ -36,8 +36,6 @@ import {
   type EnvironmentSettingEntry,
   type ExtensionEntry,
   EXTENSIONS,
-  MAX_VARIABLE_NAME_LENGTH,
-  MAX_VARIABLE_VALUE_LENGTH,
   type ResolvedEnvironment,
   RESERVED_PREFIXES,
   SET_BY_T3FLARE,
@@ -191,7 +189,7 @@ const variableRow = (variable: Variable | undefined): string => {
   const unreadable = variable?.unreadable === true;
   const stored = variable?.valueRedacted === true && !unreadable;
   const placeholder = stored ? KEPT_PLACEHOLDER : unreadable ? UNREADABLE_PLACEHOLDER : "value";
-  return `<div class="variable${secret ? " is-secret" : ""}" data-variable${stored ? ` data-variable-stored="${escapeHtml(name)}"` : ""}${unreadable ? " data-variable-unreadable" : ""}><input type="text" data-variable-name aria-label="Name" value="${escapeHtml(name)}" maxlength="${MAX_VARIABLE_NAME_LENGTH}" placeholder="NAME" autocapitalize="none" spellcheck="false"><textarea rows="1" data-variable-value aria-label="Value" maxlength="${MAX_VARIABLE_VALUE_LENGTH}" placeholder="${placeholder}" spellcheck="false" autocomplete="off"${unreadable ? " required" : ""}>${secret ? "" : escapeHtml(variable?.value ?? "")}</textarea><label class="variable-secret"><input type="checkbox" data-variable-secret${secret ? " checked" : ""}>Secret</label><button type="button" class="btn btn-sm btn-danger" data-variable-remove aria-label="Remove this Variable">${icon("trash")}</button><p class="hint variable-note" data-variable-note${name !== "" && setByT3flare(name) ? "" : " hidden"}>t3flare sets or keeps this name itself: its own value wins over this one wherever it sets it, and a T3FLARE_ or T3CODE_ name reaches no command.</p>${
+  return `<div class="variable${secret ? " is-secret" : ""}" data-variable${stored ? ` data-variable-stored="${escapeHtml(name)}"` : ""}${unreadable ? " data-variable-unreadable" : ""}><input type="text" data-variable-name aria-label="Name" value="${escapeHtml(name)}" placeholder="NAME" autocapitalize="none" spellcheck="false"><textarea rows="1" data-variable-value aria-label="Value" placeholder="${placeholder}" spellcheck="false" autocomplete="off"${unreadable ? " required" : ""}>${secret ? "" : escapeHtml(variable?.value ?? "")}</textarea><label class="variable-secret"><input type="checkbox" data-variable-secret${secret ? " checked" : ""}>Secret</label><button type="button" class="btn btn-sm btn-danger" data-variable-remove aria-label="Remove this Variable">${icon("trash")}</button><p class="hint variable-note" data-variable-note${name !== "" && setByT3flare(name) ? "" : " hidden"}>t3flare sets or keeps this name itself: its own value wins over this one wherever it sets it, and a T3FLARE_ or T3CODE_ name reaches no command.</p>${
     unreadable
       ? '<p class="hint variable-note variable-unreadable" role="note">This secret cannot be opened (the credentials key changed or is missing), so no Container gets it: type its value again.</p>'
       : ""
