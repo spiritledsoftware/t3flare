@@ -445,31 +445,20 @@ export const handleAdmin = async (request: Request, environment: EnvironmentDO):
         const { environmentServices } = await import("../agents/bindings.ts");
         if (!environmentServices().faults) return json({ error: "stages only" }, 403);
         const { acpCheck } = await import("./acpCheck.ts");
-        const idle = await import("./idle.ts");
-        // A check outlasts the idle window; it is work in flight (the admin routes are not counted otherwise).
-        idle.requestStarted();
-        try {
-          return json(await acpCheck((await request.json()) as never));
-        } finally {
-          idle.requestEnded();
-        }
+        // A check outlasts the idle window: like every admin call, it holds the Environment while in flight (SPI-1145).
+        return json(await acpCheck((await request.json()) as never));
       }
       case "POST /_t3flare/previews/spike": {
         // G11 (stages only): Browser Run under t3's Playwright calls, the Container preview routes, and what a page reaches.
         const { environmentServices } = await import("../agents/bindings.ts");
         if (!environmentServices().faults) return json({ error: "stages only" }, 403);
         const { runSpike } = await import("../preview/spike.ts");
-        const idle = await import("./idle.ts");
-        idle.requestStarted();
-        try {
-          const body =
-            request.method === "POST"
-              ? ((await request.json().catch(() => ({}))) as { match?: string; expression?: string })
-              : {};
-          return json(await runSpike(url.searchParams.get("op") ?? "", storage, environment, body));
-        } finally {
-          idle.requestEnded();
-        }
+        // Like every admin call, it holds the Environment while in flight (SPI-1145).
+        const body =
+          request.method === "POST"
+            ? ((await request.json().catch(() => ({}))) as { match?: string; expression?: string })
+            : {};
+        return json(await runSpike(url.searchParams.get("op") ?? "", storage, environment, body));
       }
       case "POST /_t3flare/check/leak": {
         const { workspaceRpc } = await import("../agents/workspaceClient.ts");

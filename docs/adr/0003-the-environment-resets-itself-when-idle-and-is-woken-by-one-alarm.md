@@ -29,3 +29,11 @@ The idle check reads t3's private tables, which a nightly can rename or reshape 
 - **An unknown status is open.** A run or provider session counts as open unless its status is a settled one (runs: `completed`, `interrupted`, `failed`, `cancelled`, `rolled_back`; sessions: `ready`, `stopped`, `error`), so a status a nightly adds keeps the Environment up.
 - **An alarm that cannot read its due work boots t3** rather than arming for a time it cannot know (`alarm-due-unreadable`).
 - The health route shows a failed read as `{ unreadable }` under `openWork` or `nextDue`.
+
+## Refinement (SPI-1145): admin calls hold the Environment while in flight
+
+An admin call (`/_t3flare/*`) used to be left out of the requests in flight, so a long one, such as a `workspace-call` running a command in the Container, could be cut short by the idle reset with a 500, and its command with it.
+
+- **An admin call in flight holds the Environment up**, as a hold does: the idle check does not reset it, forced or not.
+- **It is not activity.** Ending one does not restart the idle delay, so an admin poll (the health route every few seconds) cannot keep the Environment awake for good. The health route shows the count as `adminInFlight`, apart from `inFlight`.
+- **The idle check itself is not counted** (`POST /_t3flare/idle-check`): it runs the check, and counted, it would always find itself in flight.

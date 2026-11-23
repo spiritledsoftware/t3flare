@@ -19,6 +19,11 @@ export const UNREADABLE_BACKOFF_MS = 10 * 60_000;
 export const activity = {
   sockets: 0,
   inFlight: 0,
+  /**
+   * Admin calls (`/_t3flare/*`) in flight (SPI-1145): they hold the Environment up, but are not activity, so ending
+   * one does not restart the idle delay (an admin poll, such as the health route, must not keep it awake for good).
+   */
+  adminInFlight: 0,
   /** When the last socket closed or the last request ended (ms since epoch). */
   idleSince: Date.now(),
   /** Until when the idle check backs off after t3's tables could not be read (ms since epoch; 0 for none). */
@@ -75,6 +80,29 @@ export const requestStarted = () => {
 export const requestEnded = () => {
   activity.inFlight = Math.max(0, activity.inFlight - 1);
   if (activity.sockets === 0 && activity.inFlight === 0) activity.idleSince = Date.now();
+};
+
+/**
+ * The admin route that runs the idle check itself (`checkIdle`, `host/admin.ts`). It is the one admin call not
+ * counted as a request in flight: counted, a forced check would always see itself and never find the Environment idle.
+ */
+export const isIdleCheckRoute = (request: Request): boolean =>
+  request.method === "POST" && new URL(request.url).pathname === "/_t3flare/idle-check";
+
+/**
+ * An admin call (`/_t3flare/*`) holds the Environment up while in flight (SPI-1145), so the idle reset does not cut a
+ * long one short, such as a `workspace-call` running a command in the Container. It is not activity: it never moves
+ * `idleSince`, so polling an admin route does not postpone the reset. The idle check itself is not counted
+ * (`isIdleCheckRoute`).
+ */
+export const countedAdminRequest = async <A>(request: Request, handle: () => Promise<A>): Promise<A> => {
+  if (isIdleCheckRoute(request)) return handle();
+  activity.adminInFlight++;
+  try {
+    return await handle();
+  } finally {
+    activity.adminInFlight = Math.max(0, activity.adminInFlight - 1);
+  }
 };
 
 /**
@@ -332,6 +360,7 @@ export type IdleVerdict =
 export const idleVerdict = (sql: SqlStorage, now: Date, idleAfterMs = IDLE_AFTER_MS): IdleVerdict => {
   if (activity.sockets > 0) return { reset: false, why: `${activity.sockets} client sockets` };
   if (activity.inFlight > 0) return { reset: false, why: `${activity.inFlight} requests in flight` };
+  if (activity.adminInFlight > 0) return { reset: false, why: `${activity.adminInFlight} admin calls in flight` };
   if (now.getTime() - activity.idleSince < idleAfterMs) return { reset: false, why: "not idle long enough" };
   const held = activeHolds(now.getTime());
   if (held.length > 0) return { reset: false, why: `held: ${held.join(", ")}` };
