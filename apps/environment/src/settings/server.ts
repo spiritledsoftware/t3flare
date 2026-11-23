@@ -87,7 +87,6 @@ import {
   APPLIED_CAP,
   APPLIED_WINDOW_MS,
   capKeyOf,
-  CHANGE_TTL_MS,
   type ChangeCaller,
   changeHash,
   type ChangeMode,
@@ -1214,7 +1213,7 @@ const askOnCard = async (
   const closed = new Promise<McpQuestionAnswer>((resolve) => {
     timer = setTimeout(
       () => resolve({ decision: "cancel", reason: "no answer in time" }),
-      deps.cardWaitMs ?? CHANGE_TTL_MS,
+      deps.cardWaitMs ?? asker.waitMs ?? deps.changes.answerMs(),
     );
     if (signal !== undefined) {
       onAbort = () => resolve({ decision: "cancel", reason: "the call was stopped" });
@@ -1311,7 +1310,7 @@ const OWN_WAIT = { waitMs: OWN_APPLYING_WAIT_MS } as const;
 
 const resultOf = (
   outcome: ChangeOutcome,
-  record: Pick<ChangeRecord, "id" | "entity" | "shown">,
+  record: Pick<ChangeRecord, "id" | "entity" | "shown" | "createdAt" | "expiresAt">,
   planned: Pick<Planned, "appliesAt">,
 ): McpCallAnswer => {
   const where =
@@ -1353,9 +1352,13 @@ const resultOf = (
         changeId: record.id,
       });
     case "expired":
-      return written("expired", `Not changed: the owner did not answer within ${durationText(CHANGE_TTL_MS)}.`, {
-        changeId: record.id,
-      });
+      return written(
+        "expired",
+        `Not changed: the owner did not answer within ${durationText((record.expiresAt ?? record.createdAt) - record.createdAt)}.`,
+        {
+          changeId: record.id,
+        },
+      );
     case "moved":
       return written(
         "moved",
@@ -1521,6 +1524,8 @@ interface AskedInput {
   readonly planned: Planned;
   readonly expected: number;
   readonly reader: Reader;
+  /** How long it waits, when the asker says (a CLI process's spawn-time Answer wait, SPI-1316); else the wait now. */
+  readonly waitMs?: number;
   /** The change's mode, given what it needs (a change that needs the page is an Owner client's `browser`). */
   readonly modeOf: (needsPage: PageReason | undefined) => ChangeMode;
   /** The text a question would show whole, whose length decides `oversize` (plan D6). */
@@ -1590,7 +1595,9 @@ const openAskedChange = async (deps: SettingsServerDeps, input: AskedInput): Pro
     mode,
     caller,
     createdAt: now,
-    expiresAt: now + CHANGE_TTL_MS,
+    // SPI-1316: the Answer wait now, or the one a CLI process was spawned with (its relay's asker), which its MCP tool
+    // timeout was made from.
+    expiresAt: now + (input.waitMs ?? deps.changes.answerMs()),
     state: "open",
   };
   const again = reused();
@@ -1604,8 +1611,8 @@ const openAskedChange = async (deps: SettingsServerDeps, input: AskedInput): Pro
 
 /**
  * An own agent's asked change (plan D8, D9): opened as an Open change, shown on one owner-only approval card on the
- * calling thread, and answered by the card or the Change page, whichever comes first. It waits at most the change's 10
- * minutes; a Stop withdraws it.
+ * calling thread, and answered by the card or the Change page, whichever comes first. It waits at most the Answer wait
+ * (SPI-1316); a Stop withdraws it.
  */
 const ask = async (
   deps: SettingsServerDeps,
@@ -1622,6 +1629,7 @@ const ask = async (
     planned,
     expected,
     reader: ownReader(deps, caller),
+    ...(input.asker?.waitMs === undefined ? {} : { waitMs: input.asker.waitMs }),
     modeOf: () => "card",
     fullText: (view, url) => askedText(view, input, url),
     log: { door: "own", agent: caller.agent, thread: key },

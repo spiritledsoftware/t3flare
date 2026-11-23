@@ -26,7 +26,8 @@ import {
 import type { McpAsker } from "@t3flare/session-protocol";
 
 import type { OwnCaller } from "../settings/caller.ts";
-import { SETTINGS_INSTRUCTIONS } from "../settings/tools.ts";
+import { cliAnswerMs } from "../provider/cli/cliAsk.ts";
+import { settingsInstructions } from "../settings/tools.ts";
 import type { McpCallAnswer, McpView } from "./host.ts";
 
 /** Protocol versions the relay speaks; it answers with the client's when it knows it. */
@@ -70,6 +71,11 @@ export interface RelayDeps {
   }) => Promise<{ readonly approved: boolean; readonly forSession?: boolean; readonly reason?: string }>;
   /** "Accept for the session" by thread, keyed by server, upstream name and definition hash. */
   readonly accepted: { has(thread: string, key: string): boolean; add(thread: string, key: string): void };
+  /**
+   * How long a card on the calling thread waits (SPI-1316): its CLI process's spawn-time Answer wait. Default:
+   * `cliAnswerMs`.
+   */
+  readonly answerMs?: (thread: string) => number;
   readonly log: (event: Record<string, unknown>) => void;
 }
 
@@ -113,7 +119,7 @@ export const relayMessage = async (input: McpRelayInput, deps: RelayDeps): Promi
         serverInfo: { name: `t3flare-${input.server}`, version: "1" },
         instructions:
           input.server === SETTINGS_SERVER
-            ? SETTINGS_INSTRUCTIONS
+            ? settingsInstructions((deps.answerMs ?? cliAnswerMs)(input.thread))
             : `Tools of the MCP server "${input.server}" through t3flare. Write tools may wait for the owner's approval on this thread.`,
       });
     }

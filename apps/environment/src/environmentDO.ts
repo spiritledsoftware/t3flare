@@ -23,7 +23,7 @@ import {
   type ResolvedHarness,
 } from "@t3flare/harness-registry";
 
-import { bindEnvironmentServices, environmentServices } from "./agents/bindings.ts";
+import { bindEnvironmentServices, environmentServices, ownerAnswerMsNow } from "./agents/bindings.ts";
 import { graceMoved, ownerSweep, SweepWake } from "./agents/sweepWake.ts";
 import { GitHubTokens } from "./agents/github.ts";
 import { deliverPush } from "./agents/sessionSink.ts";
@@ -247,6 +247,9 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       // Read at each turn's start (SPI-1314): how long the Session waits there for the newest settings.
       settingsReadMs: () =>
         resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).settingsReadSeconds * 1000,
+      // Read when a card is raised and at each CLI spawn (SPI-1316): a card already waiting keeps its deadline.
+      ownerAnswerMs: () =>
+        resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).ownerAnswerMinutes * 60_000,
       // The deletion wake's Layer (`t3/deletionWake.ts`, ADR-0043 §5) asks for a Sweep here.
       wakeSweep: () => this.wakeSweep(),
       marks: { has: (key) => ctx.storage.kv.get(key) !== undefined, set: (key) => ctx.storage.kv.put(key, Date.now()) },
@@ -701,7 +704,12 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
           : caller.agent === DURABLE_AGENT
             ? durableModes(caller.thread)
             : cliThreadState(caller.thread),
-      changes: settingsChanges(this.ctx.storage.sql, Date.now, (event) => console.log(JSON.stringify(event))),
+      changes: settingsChanges(
+        this.ctx.storage.sql,
+        Date.now,
+        (event) => console.log(JSON.stringify(event)),
+        ownerAnswerMsNow,
+      ),
       origin: () =>
         this.env.T3FLARE_HOST === undefined && this.#host === undefined
           ? undefined

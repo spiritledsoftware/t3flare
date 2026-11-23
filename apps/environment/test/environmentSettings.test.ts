@@ -205,6 +205,21 @@ describe("Environment settings in the panel", () => {
     expect(html).not.toContain('data-setting="sweepPurges"');
   });
 
+  it("stores the Answer wait through the panel, 1 to 10,080 minutes, and the Open changes text and gone page name it (SPI-1316)", async () => {
+    const { store, deps } = setup();
+    const headers = await ownerHeaders(store);
+    expect((await post(deps, "environment", { settings: { ownerAnswerMinutes: 0 } }, headers)).status).toBe(400);
+    expect((await post(deps, "environment", { settings: { ownerAnswerMinutes: 30 } }, headers)).status).toBe(200);
+    expect(await getJson(deps, "environment")).toMatchObject({ resolved: { ownerAnswerMinutes: 30 } });
+    // The Change page of an unknown id says how long closed changes are kept: the strike window at a 30-minute wait
+    // (2 × 30 + 5 = 65 minutes) and the lock's hour.
+    const gone = await handleHarness(new Request(`https://${HOST}/_t3flare/settings/changes/chg_unknown`), {
+      ...deps,
+      changes: { list: () => [], get: () => undefined } as never,
+    });
+    expect(await gone.text()).toContain("it closed over 125 minutes ago");
+  });
+
   it("refuses a budget out of 1 to 100", async () => {
     const { deps } = setup({ kind: "service-token" });
     for (const budget of [11, 100])

@@ -7,7 +7,7 @@
 // goes (in the POST's own answer, to this page's script): ADR-0035, O8.
 import type { StoredEnvironment } from "@t3flare/harness-registry";
 
-import { type ChangeRecord, CLOSED_KEPT_MS, type ClosedBy, durationText } from "../settings/changes.ts";
+import { type ChangeRecord, closedKeptMs, type ClosedBy, durationText } from "../settings/changes.ts";
 import {
   askedByText,
   changeHead,
@@ -173,9 +173,9 @@ const foot = `<div id="result" class="notice" role="status" aria-live="polite" h
 <script>${CHANGE_SCRIPT}</script>
 </body></html>`;
 
-/** The page for an unknown id, or one pruned `CLOSED_KEPT_MS` after it closed. */
-export const renderGonePage = (csrf: string): string =>
-  `${head("Change", csrf)}<body><main class="change-main" id="main">${brandLink}<header class="page-head"><div><h1>This change is gone</h1><p>No change has this id: it closed over ${durationText(CLOSED_KEPT_MS)} ago, or never was. Nothing waits here.</p></div></header><p><a href="${OPEN_CHANGES_PATH}">The Settings page's Open changes</a></p>${foot}`;
+/** The page for an unknown id, or one pruned `closedKeptMs` of the Answer wait `answerMs` after it closed. */
+export const renderGonePage = (csrf: string, answerMs: number): string =>
+  `${head("Change", csrf)}<body><main class="change-main" id="main">${brandLink}<header class="page-head"><div><h1>This change is gone</h1><p>No change has this id: it closed over ${durationText(closedKeptMs(answerMs))} ago, or never was. Nothing waits here.</p></div></header><p><a href="${OPEN_CHANGES_PATH}">The Settings page's Open changes</a></p>${foot}`;
 
 /**
  * The Change page for `record` (plan D10). `now` decides the time left. `environment` is the Environment settings as

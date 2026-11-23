@@ -2,6 +2,7 @@
 // t3's spawns of a CLI agent (step 4a): `codex app-server` and `pi --mode rpc …` in a Workspace run there, through the
 // process channel, as a streaming `ChildProcessHandle`. Fail closed: only the argv our drivers send, only in a
 // Workspace, only through a CLI profile (cliProfiles.ts) that fixes the binary, the environment and the home.
+import { cliToolTimeoutSec } from "@t3flare/harness-registry";
 import { endpointsOfApi } from "@t3flare/models/relay";
 import { newHandle, toWorkspace } from "@t3flare/workspace-client";
 import * as Effect from "effect/Effect";
@@ -12,12 +13,13 @@ import * as Stream from "effect/Stream";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import type * as ChildProcess from "effect/process/ChildProcess";
 
-import { environmentServices } from "./bindings.ts";
+import { environmentServices, ownerAnswerMsNow } from "./bindings.ts";
 import { traceProtocol } from "./processRouter.ts";
 import { scratchProjectOf } from "./scratch.ts";
 import { type ChannelProcess, type ChannelStart, ProcessRefused } from "./processChannel.ts";
 import { type CliName, profileLaunch } from "./cliProfiles.ts";
 import { CliSpawn } from "../provider/cli/wrapper.ts";
+import { noteCliSpawnWait } from "../provider/cli/cliAsk.ts";
 import { takeEnvironmentSkillsAt } from "../provider/cli/environmentSkillsTake.ts";
 import { claudeRelayOf } from "../provider/cli/claudeEndpoints.ts";
 import { opencodeRelayOf } from "../provider/cli/opencodeEndpoints.ts";
@@ -164,6 +166,8 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
     // ADR-0028: the process's tool handle for the relay's third-party servers (the session's; pi spawns outside the
     // session's fiber and gets one of its own).
     const toolHandle = session?.toolHandle ?? newHandle();
+    // SPI-1316: the Answer wait at the spawn sets the process's MCP tool timeout, and bounds its relay cards for its life.
+    const answerMs = ownerAnswerMsNow();
     const launch = profileLaunch(
       {
         cli: cliOf(name),
@@ -181,7 +185,7 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
             : undefined;
         },
         piExtensionSource: PI_T3_MCP_EXTENSION_SOURCE,
-        relay: { handle: toolHandle, servers: services.relayServers() },
+        relay: { handle: toolHandle, servers: services.relayServers(), toolTimeoutSec: cliToolTimeoutSec(answerMs) },
         endpoints: responsesEndpoints,
         ...(session?.model === undefined ? {} : { model: session.model }),
         ...(claudeRelay === undefined ? {} : { claudeRelay }),
@@ -241,6 +245,8 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
       (running: ChannelProcess) => Effect.sync(() => running.kill()),
     );
     if (session !== undefined) session.process = process;
+    // SPI-1316: the thread's relay cards wait as long as this process's MCP tool timeout allows, for its life.
+    if (start.thread !== undefined) noteCliSpawnWait(start.thread, answerMs);
     const stdin = command.options.stdin;
     const endOnDone =
       typeof stdin === "object" && stdin !== null && "endOnDone" in stdin ? stdin.endOnDone !== false : true;

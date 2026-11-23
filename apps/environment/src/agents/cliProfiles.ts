@@ -5,7 +5,7 @@
 // its API is refused, saying so (SPI-1176). The pure part: no I/O beyond reading the State directory for pi's extension.
 import { isSignIn, type ModelEndpoint, parseEndpointSlug, SETUP_HINT, SIGN_IN_COMPAT } from "@t3flare/models/endpoints";
 import { endpointProviderId, MODEL_HANDLE_ENV, modelRelayUrl, type RelayedEndpoint } from "@t3flare/models/relay";
-import { CLI_TOOL_TIMEOUT_SEC, MCP_RELAY_PREFIX, RELAY_SERVERS_ENV, TOOL_HANDLE_ENV } from "@t3flare/harness-registry";
+import { MCP_RELAY_PREFIX, RELAY_SERVERS_ENV, TOOL_HANDLE_ENV } from "@t3flare/harness-registry";
 import { CLI_ROOTS, directoriesUp, SKILLS_MOUNT } from "@t3flare/skills";
 import { HARNESS_ROOT, normalize, REPO_ROOT, toWorkspace } from "@t3flare/workspace-client";
 
@@ -54,10 +54,15 @@ export interface ProfileContext {
   /** t3's own extension source: a copy is accepted only when it is exactly this (plan §5.2). */
   readonly piExtensionSource: string;
   /**
-   * The MCP relay's entries for this process (ADR-0028): its tool handle and the servers it gets. The handle goes only
-   * into this process's environment (review H2: never a Container-wide file).
+   * The MCP relay's entries for this process (ADR-0028): its tool handle, the servers it gets, and their MCP tool timeout
+   * in seconds (`cliToolTimeoutSec` of the Answer wait at the spawn, SPI-1316). The handle goes only into this process's
+   * environment (review H2: never a Container-wide file).
    */
-  readonly relay?: { readonly handle: string; readonly servers: ReadonlyArray<string> };
+  readonly relay?: {
+    readonly handle: string;
+    readonly servers: ReadonlyArray<string>;
+    readonly toolTimeoutSec: number;
+  };
   /**
    * The Model endpoints that speak OpenAI Responses (SPI-1167), as stored at the spawn: Codex gets one provider each,
    * through the model relay. Absent or empty: none, and Codex is refused.
@@ -138,13 +143,13 @@ const tomlString = (value: string) => JSON.stringify(value);
 
 /**
  * Codex's MCP relay entries (ADR-0028, plan §3.2): one server per relayed source, the handle from the process's
- * environment, Codex's own approval off for them (the relay decides and asks on the thread), timeouts above the
- * relay's 10-minute hold (review M11).
+ * environment, Codex's own approval off for them (the relay decides and asks on the thread), the tool timeout
+ * `toolTimeoutSec` above the relay's cards and a call (review M11, `cliToolTimeoutSec`).
  */
-export const codexRelayOverrides = (servers: ReadonlyArray<string>): ReadonlyArray<string> =>
+export const codexRelayOverrides = (servers: ReadonlyArray<string>, toolTimeoutSec: number): ReadonlyArray<string> =>
   servers.map(
     (server) =>
-      `mcp_servers.${server}={url=${tomlString(relayUrl(server))},bearer_token_env_var=${tomlString(TOOL_HANDLE_ENV)},default_tools_approval_mode="approve",tool_timeout_sec=${CLI_TOOL_TIMEOUT_SEC},startup_timeout_sec=20}`,
+      `mcp_servers.${server}={url=${tomlString(relayUrl(server))},bearer_token_env_var=${tomlString(TOOL_HANDLE_ENV)},default_tools_approval_mode="approve",tool_timeout_sec=${toolTimeoutSec},startup_timeout_sec=20}`,
   );
 
 /**
@@ -312,7 +317,7 @@ const codexLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer 
   const relay = context.relay;
   const overrides = [
     ...codexOverrides(input.key, endpoints, context.model),
-    ...codexRelayOverrides(relay?.servers ?? []),
+    ...(relay === undefined ? [] : codexRelayOverrides(relay.servers, relay.toolTimeoutSec)),
   ];
   return {
     argv: [`${CLI_BIN}/codex`, "app-server", ...overrides.flatMap((value) => ["-c", value])],
@@ -415,11 +420,11 @@ export const piRelayModelsJson = (relay: PiRelay): string =>
 /**
  * pi's MCP relay entries (ADR-0028, SPI-1076, settings-mcp plan D4): its user-level `mcp.json` in the agent directory
  * (`PI_CODING_AGENT_DIR`), one streamable-HTTP server per relayed source. The handle is named, never written: pi expands
- * `${T3FLARE_TOOL_HANDLE}` in a header from the process's environment (M0 P16). The timeout is above the relay's
- * 10-minute hold plus a call (review M11); the tools are deferred, found through pi's `tool_search`. A repository's
+ * `${T3FLARE_TOOL_HANDLE}` in a header from the process's environment (M0 P16). The timeout `toolTimeoutSec` is above
+ * the relay's cards plus a call (review M11, `cliToolTimeoutSec`); the tools are deferred, found through pi's `tool_search`. A repository's
  * `.pi/mcp.json` cannot replace an entry: it is read only under project trust, which the profile never grants.
  */
-export const piMcpJson = (servers: ReadonlyArray<string>): string =>
+export const piMcpJson = (servers: ReadonlyArray<string>, toolTimeoutSec: number): string =>
   `${JSON.stringify(
     {
       mcpServers: Object.fromEntries(
@@ -428,7 +433,7 @@ export const piMcpJson = (servers: ReadonlyArray<string>): string =>
           {
             url: relayUrl(server),
             headers: { Authorization: `Bearer \${${TOOL_HANDLE_ENV}}` },
-            timeout: CLI_TOOL_TIMEOUT_SEC,
+            timeout: toolTimeoutSec,
             exposure: "deferred",
           },
         ]),
@@ -549,7 +554,7 @@ const piLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer => 
     // commands can read it there, the residual ADR-0028 accepts (it is judged as this thread).
     const relay = context.relay;
     if (relay !== undefined && relay.servers.length > 0) {
-      files.push({ path: `${home}/agent/mcp.json`, text: piMcpJson(relay.servers) });
+      files.push({ path: `${home}/agent/mcp.json`, text: piMcpJson(relay.servers, relay.toolTimeoutSec) });
       env[TOOL_HANDLE_ENV] = relay.handle;
       // Patch 0007: t3's extension lets a built-in MCP tool through unasked only when its server is one of these.
       env[RELAY_SERVERS_ENV] = relay.servers.join(",");

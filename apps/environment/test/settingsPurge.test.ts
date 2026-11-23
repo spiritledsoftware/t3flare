@@ -19,7 +19,7 @@ import { noteDurableModes } from "../src/provider/threadCaller.ts";
 import { DECLINED_REPEAT_MS } from "../src/settings/openChanges.ts";
 import { changeText } from "../src/settings/render.ts";
 import { APPLIES_AT, LINKED_REFUSAL, READ_ONLY_REFUSAL, settingsOwnerCall } from "../src/settings/server.ts";
-import { SETTINGS_INSTRUCTIONS, SETTINGS_OWNER_INSTRUCTIONS, SETTINGS_TOOLS } from "../src/settings/tools.ts";
+import { settingsInstructions, settingsOwnerInstructions, SETTINGS_TOOLS } from "../src/settings/tools.ts";
 import { GRACE, record, t3Tables, viewDeps } from "./fixtures/workspaces.ts";
 import { HOST, NOW, settingsFixture, type SettingsFixture, structured, textOf, until } from "./settingsFixture.ts";
 
@@ -377,7 +377,7 @@ describe("list_workspaces and the texts (ADR-0044 §5)", () => {
     expect(JSON.stringify(purge.inputSchema)).not.toContain("force");
     // GLOSSARY: the owner answers an Open change; a Purge is never "deleted" or "removed" (t3's words).
     expect(purge.description).toContain("read again when the owner answers");
-    for (const text of [SETTINGS_INSTRUCTIONS, SETTINGS_OWNER_INSTRUCTIONS]) {
+    for (const text of [settingsInstructions(600_000), settingsOwnerInstructions(600_000)]) {
       expect(text).toContain("purge_workspace");
       expect(text).toContain("names no revision and always waits for the owner's answer");
     }

@@ -65,7 +65,7 @@ import { signToken, type TokenRefusal, verifyToken } from "./tokens.ts";
 import {
   OWNER_MODE_INSTRUCTIONS,
   RESUME_TOOL,
-  SETTINGS_OWNER_INSTRUCTIONS,
+  settingsOwnerInstructions,
   SETTINGS_TOOLS,
   settingsToolOf,
   toolDefinition,
@@ -563,7 +563,7 @@ export const handleSettingsMcp = async (
 
   // `initialize` carries the client's name in its body; every other request in `_meta` (2026) or its session (2025).
   const requested = modeOf(method === "initialize" ? objectOf(params.clientInfo)?.name : context.clientName);
-  const instructions = `${SETTINGS_OWNER_INSTRUCTIONS}${OWNER_MODE_INSTRUCTIONS[requested]}`;
+  const instructions = `${settingsOwnerInstructions(server.changes.answerMs())}${OWNER_MODE_INSTRUCTIONS[requested]}`;
   const reply = (result: Json, headers: Readonly<Record<string, string>> = {}) =>
     json(
       {

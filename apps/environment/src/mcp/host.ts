@@ -25,7 +25,6 @@ import {
 import {
   appUriOfMeta,
   MCP_APP_HTML_MAX_BYTES,
-  MCP_ELICITATION_WAIT_MS,
   type McpEngineDiscoverResult,
   type McpEngineHooks,
   type McpEnginePriorEncoded,
@@ -36,6 +35,7 @@ import {
 import type { McpAsker, McpQuestionAnswer } from "@t3flare/session-protocol";
 import { sha256Hex } from "@t3flare/skills";
 
+import { ownerAnswerMsNow } from "../agents/bindings.ts";
 import type { KvStorage } from "../harness/keys.ts";
 import { OFF_MESSAGE, type OwnCaller } from "../settings/caller.ts";
 import { settingsDefinitions } from "../settings/tools.ts";
@@ -50,9 +50,6 @@ import {
   type QuestionContext,
   type QuestionPlan,
 } from "./elicitation.ts";
-
-/** How long a server's question waits for the owner: the Legacy wait, and the CLI card's (`CLI_ASK_MS`). */
-export const QUESTION_WAIT_MS = MCP_ELICITATION_WAIT_MS;
 
 /** The MCP Worker's `McpEngine`, as the Environment binds it. */
 export interface McpEngineBinding {
@@ -156,6 +153,11 @@ export interface McpHostDeps {
   /** The t3 host as deployed: a page question that sends the owner there is declined (SPI-1079). */
   readonly ownHost?: () => string | undefined;
   /**
+   * How long a server's question waits for the owner, in ms, read when a call starts or a pause is raised: the Answer
+   * wait (SPI-1316). An asker that names its own wait (a CLI process's spawn-time one) wins. Default: `ownerAnswerMsNow`.
+   */
+  readonly questionWaitMs?: () => number;
+  /**
    * The Settings server (ADR-0035, plan D2): a call to the `settings` entry goes here, with the caller the Environment
    * derived and the call's asker, before any inventory or pausing logic. Absent, its calls are refused.
    */
@@ -180,6 +182,11 @@ export class McpHost {
 
   #now() {
     return this.#deps.now?.() ?? Date.now();
+  }
+
+  /** How long `asker`'s cards wait (SPI-1316): its own wait, or the Answer wait now. */
+  #waitOf(asker: McpAsker): number {
+    return asker.waitMs ?? (this.#deps.questionWaitMs ?? ownerAnswerMsNow)();
   }
 
   servers(): Readonly<Record<string, McpServerSetting>> {
@@ -574,6 +581,8 @@ export class McpHost {
     });
     const generation = this.#generation(name);
     const cards = new Map<string, string>();
+    // One wait for the whole call: the engine's input bound and each card's timer agree.
+    const waitMs = asker === undefined ? undefined : this.#waitOf(asker);
     const questionHooks: McpEngineHooks =
       asker === undefined
         ? {}
@@ -582,7 +591,7 @@ export class McpHost {
               const plan = planQuestion(request, context);
               // Kept before the wait, so the server's own withdrawal (`onInputEnded`) can close the card meanwhile.
               if (plan.kind === "card") cards.set(request.key, plan.card.id);
-              const answer = await this.#answer(plan, asker, context, "question");
+              const answer = await this.#answer(plan, asker, context, "question", waitMs);
               return answer.kind === "now" ? answer.answer : { kind: "answered", result: answer.result };
             },
             onInputEnded: async (key) => {
@@ -601,7 +610,7 @@ export class McpHost {
           arguments: args as never,
           ctx: {
             origin: "agent",
-            ...(asker === undefined ? {} : { answers: { elicitation: true, inputWaitMs: QUESTION_WAIT_MS } }),
+            ...(waitMs === undefined ? {} : { answers: { elicitation: true, inputWaitMs: waitMs } }),
           },
         },
         {
@@ -639,13 +648,14 @@ export class McpHost {
 
   /**
    * A plan's answer: at once (declined unseen, or refused), or the owner's on the caller's card, which closes after
-   * QUESTION_WAIT_MS unanswered. Logged with the fields answered, never a value.
+   * `waitMs` unanswered (the asker's wait now when not given). Logged with the fields answered, never a value.
    */
   async #answer(
     plan: QuestionPlan,
     asker: McpAsker,
     context: QuestionContext,
     what: "question" | "pause",
+    waitMs: number = this.#waitOf(asker),
   ): Promise<Answered> {
     const log = (event: Record<string, unknown>) =>
       console.log(
@@ -657,7 +667,7 @@ export class McpHost {
     }
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timedOut = new Promise<McpQuestionAnswer>((resolve) => {
-      timer = setTimeout(() => resolve({ decision: "cancel", reason: "no answer in time" }), QUESTION_WAIT_MS);
+      timer = setTimeout(() => resolve({ decision: "cancel", reason: "no answer in time" }), waitMs);
     });
     let answer: McpQuestionAnswer;
     try {

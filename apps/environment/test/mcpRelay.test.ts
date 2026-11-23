@@ -1,12 +1,13 @@
 // The CLI relay's MCP server (ADR-0028, plan §3.2–3.4; review M9, M10): what a CLI process sees and what a call does,
 // judged by the calling thread's own mode, linked threads included; and t3's own entry as stock t3 hands it (SPI-1039).
 // Owner, 2026-11-12, back to stock: no per-call linked rule, no strictest-mode rule, no taint rule, no t3 relay.
-import type { McpRelayInput } from "@t3flare/harness-registry";
+import { cliToolTimeoutSec, type McpRelayInput } from "@t3flare/harness-registry";
 import { describe, expect, it } from "vitest";
 
 import type { McpView } from "../src/mcp/host.ts";
 import { relayMessage, type RelayDeps } from "../src/mcp/relay.ts";
 import { codexRelayOverrides, profileLaunch } from "../src/agents/cliProfiles.ts";
+import { noteCliSpawnWait } from "../src/provider/cli/cliAsk.ts";
 
 const tool = (
   upstream: string,
@@ -109,6 +110,29 @@ const resultOf = (answer: Awaited<ReturnType<typeof relayMessage>>) => {
 };
 
 describe("the relay's MCP server", () => {
+  it("tells a CLI the Settings server's asked changes wait its spawn-time Answer wait (SPI-1316)", async () => {
+    const instructions = async (deps: RelayDeps) => {
+      const answer = await relayMessage(
+        input({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }, { server: "settings" }),
+        deps,
+      );
+      return (answer as { body: { result: { instructions: string } } }).body.result.instructions;
+    };
+    const waits: Array<string> = [];
+    const at30 = await instructions({
+      ...harness().deps,
+      answerMs: (thread) => {
+        waits.push(thread);
+        return 30 * 60_000;
+      },
+    });
+    expect(waits).toEqual(["thread-1"]);
+    expect(at30).toContain("(at most 30 minutes, one at a time per thread)");
+    // Without the dep, the thread's CLI process's spawn-time wait (`cliAnswerMs`).
+    noteCliSpawnWait("thread-1", 60_000);
+    expect(await instructions(harness().deps)).toContain("(at most a minute, one at a time per thread)");
+  });
+
   it("answers initialize with the client's protocol version and only tools", async () => {
     const answer = await relayMessage(
       input({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26" } }),
@@ -197,9 +221,9 @@ describe("the relay's MCP server", () => {
 });
 
 describe("the CLIs' relay entries (H2, M11)", () => {
-  it("gives Codex one entry per server with the handle from its environment, Codex's prompt off, 900 s timeouts", () => {
-    expect(codexRelayOverrides(["commissary"])).toEqual([
-      'mcp_servers.commissary={url="http://computer.internal/t3flare/mcp/commissary",bearer_token_env_var="T3FLARE_TOOL_HANDLE",default_tools_approval_mode="approve",tool_timeout_sec=900,startup_timeout_sec=20}',
+  it("gives Codex one entry per server with the handle from its environment, Codex's prompt off, the relay's timeout", () => {
+    expect(codexRelayOverrides(["commissary"], 1500)).toEqual([
+      'mcp_servers.commissary={url="http://computer.internal/t3flare/mcp/commissary",bearer_token_env_var="T3FLARE_TOOL_HANDLE",default_tools_approval_mode="approve",tool_timeout_sec=1500,startup_timeout_sec=20}',
     ]);
     const handle = "a".repeat(64);
     const launch = profileLaunch(
@@ -207,11 +231,13 @@ describe("the CLIs' relay entries (H2, M11)", () => {
       {
         readStateFile: () => undefined,
         piExtensionSource: "",
-        relay: { handle, servers: ["commissary"] },
+        relay: { handle, servers: ["commissary"], toolTimeoutSec: cliToolTimeoutSec(30 * 60_000) },
         endpoints: [{ id: "openai", label: "OpenAI", models: [{ id: "gpt-5-mini" }] }],
       },
     );
     if ("refused" in launch) throw new Error(launch.refused);
+    // SPI-1316: a process spawned at a 30-minute Answer wait gets 3,900 s.
+    expect(launch.argv.join(" ")).toContain("tool_timeout_sec=3900,");
     expect(launch.env.T3FLARE_TOOL_HANDLE).toBe(handle);
     expect(launch.argv.join(" ")).not.toContain(handle);
     expect(JSON.stringify(launch.files)).not.toContain(handle);
@@ -233,7 +259,7 @@ describe("pi's t3 entry (SPI-1039, as stock t3 hands it)", () => {
       {
         readStateFile: () => "SRC",
         piExtensionSource: "SRC",
-        relay: { handle, servers: [] },
+        relay: { handle, servers: [], toolTimeoutSec: 1500 },
         piRelay: {
           endpoints: [
             {

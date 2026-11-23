@@ -1,7 +1,7 @@
 // What the Environment DO hands t3's code that is not a t3 service (step 1's note: expose what 2a needs deliberately):
 // the agents Worker's Durable Object bindings, the Model endpoints, and the GitHub minter. Set by the DO's constructor, before
 // t3 boots; module state, as the DO is the only one in its isolate.
-import { DEFAULT_SETTINGS_READ_MS, DEFAULT_TURN_LIMIT_MS } from "@t3flare/harness-registry";
+import { DEFAULT_OWNER_ANSWER_MS, DEFAULT_SETTINGS_READ_MS, DEFAULT_TURN_LIMIT_MS } from "@t3flare/harness-registry";
 import type { ModelEndpoints } from "@t3flare/models/endpoints";
 import type { GitHubTokens } from "./github.ts";
 import type { AgentsBindings } from "./rpc.ts";
@@ -43,6 +43,12 @@ export interface EnvironmentServices {
    * Durable agent's adapter, so a change applies at each thread's next turn. Absent (a test's services): the default.
    */
   readonly settingsReadMs?: () => number;
+  /**
+   * The Answer wait (SPI-1316, `ownerAnswerMinutes`) in ms, as stored now: read when a card is raised (an MCP server's
+   * question, a CLI agent's tool approval, an Open change) and at each CLI spawn, so a change applies to the cards raised
+   * after it. Absent (a test's services): the default.
+   */
+  readonly ownerAnswerMs?: () => number;
   /** Asks for a Sweep after 5 s of quiet (ADR-0043 §5): the deletion wake's Layer calls it. */
   readonly wakeSweep: () => void;
   /** One-time marks in the Environment DO's storage (step 3: a setting seeded once, L1). */
@@ -109,5 +115,17 @@ export const settingsReadMsNow = (): number => {
     return current?.settingsReadMs?.() ?? DEFAULT_SETTINGS_READ_MS;
   } catch {
     return DEFAULT_SETTINGS_READ_MS;
+  }
+};
+
+/**
+ * The Answer wait now, in ms (SPI-1316): the stored setting, or its default when the services or the store cannot be
+ * read, so a card always closes.
+ */
+export const ownerAnswerMsNow = (): number => {
+  try {
+    return current?.ownerAnswerMs?.() ?? DEFAULT_OWNER_ANSWER_MS;
+  } catch {
+    return DEFAULT_OWNER_ANSWER_MS;
   }
 };

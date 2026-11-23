@@ -5,13 +5,12 @@
 // the signed `requestState` and elicitation id refused when they are not this call's. M5b's part (SPI-1201): `native`
 // (the 2026 form round trip, the 2025 held stream and its cut, 2025-06-18's params) and `model` (the Pause as `pauseOf`
 // reads it, `resume` and its refusals), and every fallback of D12's table.
-import { CARD_TEXT_MAX, MAX_GLOBAL_MISE_BYTES } from "@t3flare/harness-registry";
+import { CARD_TEXT_MAX, DEFAULT_OWNER_ANSWER_MS, MAX_GLOBAL_MISE_BYTES } from "@t3flare/harness-registry";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { addMcpServer } from "../src/harness/ops.ts";
 import { isPausingServer, pauseOf } from "../src/mcp/elicitation.ts";
 import { changePagePath } from "../src/harness/paths.ts";
-import { CHANGE_TTL_MS } from "../src/settings/changes.ts";
 import { waitingOn } from "../src/settings/openChanges.ts";
 import { changesApiOf, PAUSE_LINE } from "../src/settings/server.ts";
 import { signToken } from "../src/settings/tokens.ts";
@@ -871,7 +870,7 @@ describe("model: Executor's Pause, and resume", () => {
         status: "approval-required",
         requestId: record.id,
         elicitation: { mode: "form", message, requestedSchema: EMPTY },
-        expiresAt: new Date(NOW + CHANGE_TTL_MS).toISOString(),
+        expiresAt: new Date(NOW + DEFAULT_OWNER_ANSWER_MS).toISOString(),
       },
       isError: false,
       _meta: expect.any(Object),
@@ -981,7 +980,7 @@ describe("model: Executor's Pause, and resume", () => {
       });
     }
     // Expired.
-    f.advance(CHANGE_TTL_MS + 1);
+    f.advance(DEFAULT_OWNER_ANSWER_MS + 1);
     const expired = await bodyOf(await endpoint(resume(model.id, "accept")));
     expect(expired.result).toMatchObject({ isError: true, structuredContent: { status: "expired" } });
     expect(JSON.stringify(expired.result?.content)).toContain("call change_environment again");

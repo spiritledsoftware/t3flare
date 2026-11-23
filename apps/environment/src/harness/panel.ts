@@ -34,6 +34,7 @@ import {
   EXTENSIONS,
   ignoredServersOf,
   readStoredEnvironment,
+  resolveEnvironment,
   resolveHarness,
   type ToolsChange,
 } from "@t3flare/harness-registry";
@@ -359,7 +360,7 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
       const record = isChangeId(id) ? deps.changes.get(id) : undefined;
       const html =
         record === undefined || record.tier !== "asked"
-          ? renderGonePage(csrf)
+          ? renderGonePage(csrf, resolveEnvironment(deps.store.loadEnvironment()).ownerAnswerMinutes * 60_000)
           : renderChangePage(record, {
               csrf,
               now: deps.now?.() ?? Date.now(),

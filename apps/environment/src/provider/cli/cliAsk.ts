@@ -5,6 +5,8 @@
 // too (`cliQuestionAsker`): an `mcp-elicitation` approval card, or a `user_input` card for a form.
 import type { ApprovalDecision, McpAsker, McpCardQuestion } from "@t3flare/session-protocol";
 
+import { ownerAnswerMsNow } from "../../agents/bindings.ts";
+
 /** What the relay asks: the card's text, its buttons and title, and the ask's id. A tool card is t3's `permission` kind. */
 export interface CliAsk {
   readonly askId: string;
@@ -43,10 +45,21 @@ export interface CliAsker {
   readonly ask: (ask: CliAsk, signal: AbortSignal) => Promise<CliAnswer>;
 }
 
-/** How long a card waits for the owner. */
-export const CLI_ASK_MS = 10 * 60_000;
-
 const askers = new Map<string, CliAsker>();
+/** The Answer wait each thread's CLI process was spawned with (SPI-1316), by thread: its relay cards' bound. */
+const spawnWaits = new Map<string, number>();
+
+/**
+ * Keeps the Answer wait `thread`'s CLI process is spawned with (SPI-1316): its MCP tool timeout was made from it
+ * (`cliToolTimeoutSec`), so its relay cards wait that long, not the wait as stored now, or a raised wait would outlast
+ * the CLI's own timeout. The thread's next spawn replaces it.
+ */
+export const noteCliSpawnWait = (thread: string, answerMs: number): void => {
+  spawnWaits.set(thread, answerMs);
+};
+
+/** How long a card on `thread` waits for the owner: its CLI process's spawn-time Answer wait, or the wait now. */
+export const cliAnswerMs = (thread: string): number => spawnWaits.get(thread) ?? ownerAnswerMsNow();
 const withdrawals = new Map<string, AbortController>();
 
 /** Registers the live session of `thread`; the returned function unregisters it (only if still the registered one). */
@@ -89,7 +102,7 @@ export const approveCliTool = async (input: {
   try {
     const answer = await asker.ask(
       { askId: input.askId, summary: input.summary, detail: input.detail, options, title: input.title },
-      AbortSignal.any([AbortSignal.timeout(CLI_ASK_MS), withdrawn.signal]),
+      AbortSignal.any([AbortSignal.timeout(cliAnswerMs(input.thread)), withdrawn.signal]),
     );
     if (answer.reason === "withdrawn")
       return { approved: false, reason: withdrawn.signal.aborted ? "the agent went away" : "no answer in time" };
@@ -104,37 +117,42 @@ export const approveCliTool = async (input: {
  * The cards of an MCP server's questions on `thread`'s live turn (SPI-1079): the MCP host makes each card, this raises it
  * as the relay's tool cards are raised, and hands back the owner's answer. No live turn: cancelled, nothing shown.
  */
-export const cliQuestionAsker = (thread: string): McpAsker => ({
-  ask: async (card) => {
-    const asker = askers.get(thread);
-    if (asker === undefined) return { decision: "cancel", reason: `no live turn to ask on (thread ${thread})` };
-    const withdrawn = new AbortController();
-    withdrawals.set(card.id, withdrawn);
-    try {
-      const answer = await asker.ask(
-        {
-          askId: card.id,
-          title: card.title,
-          summary: card.prompt,
-          detail: "",
-          options: card.options ?? [],
-          requestKind: "mcp-elicitation",
-          ...(card.kind === "form" && card.questions !== undefined ? { questions: card.questions } : {}),
-        },
-        AbortSignal.any([AbortSignal.timeout(CLI_ASK_MS), withdrawn.signal]),
-      );
-      if (answer.reason === "withdrawn")
-        return { decision: "cancel", reason: withdrawn.signal.aborted ? "withdrawn" : "no answer in time" };
-      // No decision from t3 means no owner answered (no live turn, the session ended): a cancel, never a decline.
-      const decision = answer.decision ?? (answer.approved ? "accept" : "cancel");
-      return {
-        decision,
-        ...(answer.answers === undefined ? {} : { answers: answer.answers }),
-        ...(answer.approved || answer.reason === undefined ? {} : { reason: answer.reason }),
-      };
-    } finally {
-      withdrawals.delete(card.id);
-    }
-  },
-  withdraw: (cardId) => cancelCliAsk(cardId),
-});
+export const cliQuestionAsker = (thread: string): McpAsker => {
+  // One wait for the asker's life (SPI-1316): the MCP host's and the Settings server's card timers take it too.
+  const waitMs = cliAnswerMs(thread);
+  return {
+    waitMs,
+    ask: async (card) => {
+      const asker = askers.get(thread);
+      if (asker === undefined) return { decision: "cancel", reason: `no live turn to ask on (thread ${thread})` };
+      const withdrawn = new AbortController();
+      withdrawals.set(card.id, withdrawn);
+      try {
+        const answer = await asker.ask(
+          {
+            askId: card.id,
+            title: card.title,
+            summary: card.prompt,
+            detail: "",
+            options: card.options ?? [],
+            requestKind: "mcp-elicitation",
+            ...(card.kind === "form" && card.questions !== undefined ? { questions: card.questions } : {}),
+          },
+          AbortSignal.any([AbortSignal.timeout(waitMs), withdrawn.signal]),
+        );
+        if (answer.reason === "withdrawn")
+          return { decision: "cancel", reason: withdrawn.signal.aborted ? "withdrawn" : "no answer in time" };
+        // No decision from t3 means no owner answered (no live turn, the session ended): a cancel, never a decline.
+        const decision = answer.decision ?? (answer.approved ? "accept" : "cancel");
+        return {
+          decision,
+          ...(answer.answers === undefined ? {} : { answers: answer.answers }),
+          ...(answer.approved || answer.reason === undefined ? {} : { reason: answer.reason }),
+        };
+      } finally {
+        withdrawals.delete(card.id);
+      }
+    },
+    withdraw: (cardId) => cancelCliAsk(cardId),
+  };
+};

@@ -152,3 +152,11 @@ as an Open change, and names no revision (§10 does not apply to it).
 The Settings server gains a Rebuild of the Base snapshot and a Test base build, both free, and reads of the Base
 snapshot's state and the last Container setup's report, output included. The new settings' tiers follow §3: a
 lowered time limit is free, every other change asked.
+
+## Refinement (SPI-1316, 2026-11-23): an Open change waits the Answer wait
+
+§6's "at most 10 minutes" is now the Answer wait, an Environment setting (`ownerAnswerMinutes`, 10 by default;
+[ADR-0032](0032-environment-settings-and-harness-settings-are-separate-entities-edited-on-one-owner-page.md)'s SPI-1316
+refinement). An Open change takes the wait when it opens, as its `expiresAt`, and keeps it; one asked from a CLI agent
+takes the wait that agent's process was spawned with. The strike window widens with a long wait, so unanswered strikes
+still form a run.

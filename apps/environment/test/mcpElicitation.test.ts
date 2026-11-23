@@ -175,6 +175,7 @@ const tool = (name: string, properties: Record<string, unknown> = {}, readOnlyHi
 const hostOver = async (
   tools: Array<Record<string, unknown>>,
   respond: (request: any, hooks: any) => Promise<unknown>,
+  questionWaitMs?: () => number,
 ) => {
   const added = applyMcpChange(EMPTY_HARNESS, {
     op: "add",
@@ -214,6 +215,7 @@ const hostOver = async (
     settings: () => added.harness,
     now: () => 1,
     ownHost: () => "t3.example.com",
+    ...(questionWaitMs === undefined ? {} : { questionWaitMs }),
   });
   await host.list("fixture");
   return { host, requests };
@@ -290,6 +292,62 @@ describe("McpHost questions", () => {
     expect(withdrawn).toHaveLength(1);
     expect(withdrawn[0]).toMatch(/^t3flare-elicit-/);
     expect(JSON.parse((answer as { text: string }).text)).toEqual({ kind: "answered", result: { action: "cancel" } });
+  });
+
+  it("a question waits the Answer wait from the host's dep, read at the call, and closes unanswered after it (SPI-1316)", async () => {
+    let waitMs = 30;
+    const confirm = async (_request: unknown, hooks: any) =>
+      text(
+        JSON.stringify(
+          await hooks.onInput({
+            key: "k",
+            kind: "elicitation",
+            params: { message: "Sure?", requestedSchema: { type: "object", properties: {} } },
+            mode: "live",
+            era: "legacy",
+          }),
+        ),
+      );
+    const { host, requests } = await hostOver([tool("fixture_confirm")], confirm, () => waitMs);
+    const withdrawn: Array<string> = [];
+    // An owner who never answers; the card is raised, then the setting moves to an hour: this card keeps its deadline.
+    const asker: McpAsker = {
+      ask: () => {
+        waitMs = 60 * 60_000;
+        return new Promise(() => undefined);
+      },
+      withdraw: (id) => void withdrawn.push(id),
+    };
+    const answer = await host.call({ server: "fixture", tool: "fixture_confirm", args: {}, judged: "write", asker });
+    expect(requests[0].ctx).toMatchObject({ answers: { elicitation: true, inputWaitMs: 30 } });
+    expect(withdrawn).toHaveLength(1);
+    expect(JSON.parse((answer as { text: string }).text)).toEqual({ kind: "answered", result: { action: "cancel" } });
+    // The next call takes the wait now.
+    await host.call({
+      server: "fixture",
+      tool: "fixture_confirm",
+      args: {},
+      judged: "write",
+      asker: { ...askerAnswering(() => ({ decision: "cancel" })).asker },
+    });
+    expect(requests[1].ctx).toMatchObject({ answers: { inputWaitMs: 60 * 60_000 } });
+  });
+
+  it("an asker that names its own wait (a CLI process's spawn-time one) wins over the dep (SPI-1316)", async () => {
+    const { host, requests } = await hostOver(
+      [tool("fixture_echo", {}, true)],
+      async () => text("ok"),
+      () => 60 * 60_000,
+    );
+    const owner = askerAnswering(() => ({ decision: "cancel" }));
+    await host.call({
+      server: "fixture",
+      tool: "fixture_echo",
+      args: {},
+      judged: "read",
+      asker: { ...owner.asker, waitMs: 120_000 },
+    });
+    expect(requests[0].ctx).toMatchObject({ answers: { inputWaitMs: 120_000 } });
   });
 
   it("without an asker nothing is declared", async () => {

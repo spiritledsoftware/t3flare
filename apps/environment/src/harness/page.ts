@@ -50,7 +50,7 @@ import {
 } from "@t3flare/harness-registry";
 
 import { type ContainerCostTable, containerCostTable } from "./containerCost.ts";
-import { CHANGE_TTL_MS, durationText, OWNER_MODES, type OwnerMode } from "../settings/changes.ts";
+import { durationText, OWNER_MODES, type OwnerMode } from "../settings/changes.ts";
 import type { OwnerClientEntry } from "../settings/clients.ts";
 import type { PageReason } from "../settings/types.ts";
 import { type AskedBy, askedByText, sizeText } from "../settings/render.ts";
@@ -448,7 +448,7 @@ const environmentSection = (
       .filter(([, setting]) => setting.row === row)
       .map(([key, setting]) => field("environment", key, setting, values[key]));
   const agentEntries = Object.fromEntries(entries);
-  const agents = `<div class="row"><div><div class="row-title"><h3 id="environment-agents-title">Agents</h3></div><p class="desc" id="environment-agents-desc">How long an agent's turn may run, how many CLI agents' processes a Workspace's Container may run, and how long an idle one waits before it may be ended for another Workspace.</p></div><div class="row-extra"><div class="fields" role="group" aria-labelledby="environment-agents-title" aria-describedby="environment-agents-desc">${AGENT_SETTING_KEYS.map((key) => field("environment", key, agentEntries[key]!, values[key])).join("")}</div></div></div>`;
+  const agents = `<div class="row"><div><div class="row-title"><h3 id="environment-agents-title">Agents</h3></div><p class="desc" id="environment-agents-desc">How long an agent's turn may run, how long a card waits for your answer, how many CLI agents' processes a Workspace's Container may run, and how long an idle process waits before it may be ended for another Workspace.</p></div><div class="row-extra"><div class="fields" role="group" aria-labelledby="environment-agents-title" aria-describedby="environment-agents-desc">${AGENT_SETTING_KEYS.map((key) => field("environment", key, agentEntries[key]!, values[key])).join("")}</div></div></div>`;
   const dotfiles = `<div class="row"><div><div class="row-title"><h3 id="environment-dotfiles-title">Dotfiles</h3></div><p class="desc" id="environment-dotfiles-desc">Whether your own config in ~ (/root), from your Image setup or Container setup, reaches Terminals and CLI agents.</p></div><div class="row-extra"><div class="fields" role="group" aria-labelledby="environment-dotfiles-title" aria-describedby="environment-dotfiles-desc">${entries
     .filter(([key]) => dotfilesKey(key))
     .map(([key, setting]) => field("environment", key, setting, values[key]))
@@ -1018,10 +1018,11 @@ export interface OpenChangeRow {
   readonly expiresAt: string;
 }
 
-const openChangesSection = (rows: ReadonlyArray<OpenChangeRow>): string => {
+/** The Open changes, and how long a new one waits: the Answer wait (SPI-1316) in ms. */
+const openChangesSection = (rows: ReadonlyArray<OpenChangeRow>, answerMs: number): string => {
   const body =
     rows.length === 0
-      ? `<div class="empty"><h3>No open changes</h3><p>A change an agent asks for that widens what agents have waits here, and on its card, for ${durationText(CHANGE_TTL_MS)}.</p></div>`
+      ? `<div class="empty"><h3>No open changes</h3><p>A change an agent asks for that widens what agents have waits here, and on its card, for ${durationText(answerMs)}.</p></div>`
       : `<div class="table-wrap"><table class="stacked"><thead><tr><th scope="col">Asked</th><th scope="col">Change</th><th scope="col">By</th><th scope="col">Expires</th><th scope="col"><span class="sr">Open</span></th></tr></thead><tbody>${rows
           .map(
             (row) =>
@@ -1101,7 +1102,7 @@ ${navItem("audit", "Audit log", "audit", `<span class="count">${input.audit.leng
 <main id="main" tabindex="-1"><div class="content">
 <header class="page-head"><div><h1>Settings</h1><p>t3flare's own settings for this Cloud Environment: the Harness settings (the tools Pi Durable's agents are offered, its extensions and MCP servers, applied at each thread's next turn) and the Environment settings (what every Container and agent gets, most applied at each Container's next start).</p></div><span class="chip">Revision <strong>${revision}</strong></span></header>
 <div id="result" class="notice" role="status" aria-live="polite" hidden><span class="notice-ico-ok">${icon("check")}</span><span class="notice-ico-err">${icon("alert")}</span><p class="msg"></p><button type="button" class="btn btn-ghost btn-sm" data-dismiss aria-label="Dismiss">${icon("x")}</button></div>
-${input.openChanges === undefined ? "" : `${openChangesSection(input.openChanges)}\n`}${toolsSection(input.resolved)}
+${input.openChanges === undefined ? "" : `${openChangesSection(input.openChanges, environment.ownerAnswerMinutes * 60_000)}\n`}${toolsSection(input.resolved)}
 ${extensionsSection(input.resolved)}
 ${mcpSection(rows, t3Card(input.resolved, input.t3Tools), input.ownerClients)}
 ${endpointsSection(escapeHtml, input.endpoints)}${environmentSection(environment, input.costs ?? containerCostTable(environment.containerBudget), input.running, { ...(input.testBuild === undefined ? {} : { record: input.testBuild }), canTest: input.canTest === true })}

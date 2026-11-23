@@ -89,6 +89,17 @@ export const DEFAULT_SETTINGS_READ_SECONDS = 5;
  */
 export const DEFAULT_SETTINGS_READ_MS = DEFAULT_SETTINGS_READ_SECONDS * 1000;
 
+/**
+ * The Answer wait's default, in minutes (`ownerAnswerMinutes`, SPI-1316): how long a card waits for the Owner's answer,
+ * be it an MCP server's question, a CLI agent's tool approval, or an Open change.
+ */
+export const DEFAULT_OWNER_ANSWER_MINUTES = 10;
+
+/**
+ * The Answer wait's default in ms: used where no setting reaches (a test's services, or a store that cannot be read).
+ */
+export const DEFAULT_OWNER_ANSWER_MS = DEFAULT_OWNER_ANSWER_MINUTES * 60_000;
+
 /** The largest Global mise config, in bytes of UTF-8. */
 export const MAX_GLOBAL_MISE_BYTES = 16 * 1024;
 
@@ -157,11 +168,16 @@ export const MAX_GRACE_DAYS = 3650;
 export const SWEEP_SETTING_KEYS = ["sweepPurges", "graceDays"] as const;
 
 /**
- * The agents' settings (SPI-1315): how long a turn may run, and the CLI agents' processes per Workspace and their
- * reclaim delay. They bound agents, not a Container start, so the Settings page shows them in an Agents row of their
+ * The agents' settings (SPI-1315): how long a turn may run, how long a card waits for the Owner's answer (SPI-1316),
+ * and the CLI agents' processes per Workspace and their reclaim delay. They bound agents, not a Container start, so the Settings page shows them in an Agents row of their
  * own, in this order.
  */
-export const AGENT_SETTING_KEYS = ["turnLimitMinutes", "cliProcessesPerWorkspace", "cliReclaimSeconds"] as const;
+export const AGENT_SETTING_KEYS = [
+  "turnLimitMinutes",
+  "ownerAnswerMinutes",
+  "cliProcessesPerWorkspace",
+  "cliReclaimSeconds",
+] as const;
 
 /**
  * The dotfiles toggles (ADR-0047 §9): whether the Owner's own config in their home reaches Terminals and CLI agents. The
@@ -286,6 +302,15 @@ export const ENVIRONMENT_SETTINGS = {
     // t3flare times it itself (the Session's alarm, the CLI wrapper's timer), so the shared sanity maximum applies: a
     // week is under the 24.8 days past which a JS timer overflows.
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_TURN_LIMIT_MINUTES },
+    tier: "down-free",
+  },
+  ownerAnswerMinutes: {
+    title: "Answer wait (minutes)",
+    description:
+      "How long a card waits for your answer: an MCP server's question, a CLI agent's tool approval, and an Open change. An unanswered card is refused after this long. While it waits, the turn stays open and may hold its Container. Applies to cards raised after the change; a card already waiting keeps its deadline, and a running CLI agent keeps the wait it started with.",
+    // t3flare times it itself (the MCP host's and the CLI card's timers, an Open change's expiry), so the shared sanity
+    // maximum applies (ADR-0048 §2).
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_OWNER_ANSWER_MINUTES },
     tier: "down-free",
   },
   settingsReadSeconds: {

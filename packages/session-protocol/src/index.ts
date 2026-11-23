@@ -488,6 +488,11 @@ export interface McpQuestionAnswer {
 /** The caller's side of an MCP call's questions, passed with the call (Workers RPC carries the functions). */
 export interface McpAsker {
   readonly ask: (card: McpQuestionCard) => Promise<McpQuestionAnswer>;
+  /**
+   * How long this asker's cards wait for the owner, in ms (SPI-1316): a CLI process's relay sets the Answer wait it was
+   * spawned with, which its MCP tool timeout was made from. Absent: the Answer wait as stored now.
+   */
+  readonly waitMs?: number;
   /** The server stopped waiting, or the wait timed out: the card closes. */
   readonly withdraw: (cardId: string) => void | Promise<void>;
 }
