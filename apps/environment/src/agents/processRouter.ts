@@ -31,16 +31,20 @@ import {
   cloneRequestOf,
   gitEnvOf,
   intoWorkspace,
+  isRefsSnapshot,
   mayStartContainer,
   parseWorktreeList,
   readScopeOf,
   remoteRepoOf,
+  startPointOf,
   subcommandOf,
   T3FLARE_FATAL,
   type WorktreeCommand,
   worktreeCommandOf,
+  type WorktreeEntry,
   worktreeDestinationOf,
   worktreeListPorcelain,
+  withWorktreeBranches,
 } from "./gitRoutes.ts";
 import { makeGitBridge } from "./gitBridge.ts";
 import { bindScratchCheckout, isScratchDir, scratchProjectOf } from "./scratch.ts";
@@ -464,7 +468,10 @@ const worktreeAdd = async (cwd: string, command: Extract<WorktreeCommand, { verb
       .join("");
     const projectRpc = workspaceRpc(parent.id);
     const bundled = await step("bundle", () => projectRpc.worktreeBundle({ ref, tips: cloned.tips, name }));
-    if (!bundled.ok || bundled.commit === undefined) return failed(`bundle: ${bundled.error ?? "failed"}`);
+    if (!bundled.ok || bundled.commit === undefined) {
+      const raw = `bundle: ${bundled.error ?? "failed"}`;
+      return explainHeldBase(parent.id, ref, failed(raw), raw);
+    }
     const finished = await step("checkout", () =>
       worktree.worktreeFinish({
         parent: parent.id,
@@ -502,8 +509,46 @@ const worktreeAdd = async (cwd: string, command: Extract<WorktreeCommand, { verb
 };
 
 /**
+ * Each ready worktree Workspace of project `projectId`: its path, and HEAD and current branch read from its own files
+ * (never starting a Container), falling back to the registry's branch. t3 reads the worktree list and the ref snapshot
+ * together, so one read feeds both answers for about a second: a rename landing between them cannot split the pair.
+ */
+const WORKTREE_ENTRIES_MS = 1_000;
+const worktreeEntriesMemo = new Map<
+  string,
+  { readonly at: number; readonly entries: Promise<ReadonlyArray<WorktreeEntry>> }
+>();
+const worktreeEntriesOf = (projectId: string): Promise<ReadonlyArray<WorktreeEntry>> => {
+  const now = Date.now();
+  const memo = worktreeEntriesMemo.get(projectId);
+  if (memo !== undefined && now - memo.at < WORKTREE_ENTRIES_MS) return memo.entries;
+  for (const [id, old] of worktreeEntriesMemo) if (now - old.at >= WORKTREE_ENTRIES_MS) worktreeEntriesMemo.delete(id);
+  const worktrees = environmentServices()
+    .workspaces.worktreesOf(projectId)
+    .filter((ws) => ws.state === "ready");
+  const entries = Promise.all(
+    worktrees.map(async (ws) => {
+      const head = await workspaceRpc(ws.id)
+        .worktreeHead()
+        .catch(() => ({ head: null, branch: null }));
+      return {
+        path: `/w/${ws.id}`,
+        head: head.head,
+        branch: head.branch ?? (ws.branch === null ? null : `refs/heads/${ws.branch}`),
+        createdAt: ws.createdAt,
+      };
+    }),
+  );
+  worktreeEntriesMemo.set(projectId, { at: now, entries });
+  return entries;
+};
+
+/** Forgets the memoised worktree entries (tests). */
+export const clearWorktreeEntries = (): void => worktreeEntriesMemo.clear();
+
+/**
  * `git worktree list --porcelain [-z]` in a project: the project's own entry (its real answer, passive), then one per
- * worktree Workspace of it, with HEAD and branch read from that Workspace's own files (never starting a Container).
+ * worktree Workspace of it (`worktreeEntriesOf`).
  */
 const worktreeList = async (
   args: ReadonlyArray<string>,
@@ -513,22 +558,7 @@ const worktreeList = async (
 ): Promise<Answer> => {
   const own = await git(args, cwd, env, undefined);
   if (own.exitCode !== 0 || !command.porcelain) return own;
-  const project = toWorkspace(cwd)!;
-  const worktrees = environmentServices()
-    .workspaces.worktreesOf(project.id)
-    .filter((ws) => ws.state === "ready");
-  const entries = await Promise.all(
-    worktrees.map(async (ws) => {
-      const head = await workspaceRpc(ws.id)
-        .worktreeHead()
-        .catch(() => ({ head: null, branch: null }));
-      return {
-        path: `/w/${ws.id}`,
-        head: head.head,
-        branch: head.branch ?? (ws.branch === null ? null : `refs/heads/${ws.branch}`),
-      };
-    }),
-  );
+  const entries = await worktreeEntriesOf(toWorkspace(cwd)!.id);
   const main = parseWorktreeList(own.stdout, command.z).slice(0, 1);
   return {
     ...own,
@@ -536,6 +566,53 @@ const worktreeList = async (
     route: "worktree",
     detail: `${entries.length} worktree Workspaces`,
   };
+};
+
+/**
+ * t3's ref snapshot in a project (`isRefsSnapshot`): the project's own refs (passive), plus each ready worktree
+ * Workspace's current branch, which lives only in its clone. t3 pairs refs with the worktree list by name, so a branch
+ * renamed in a clone (t3's first-turn rename) stays offered with its worktree (SPI-1307, U18).
+ */
+const refsSnapshot = async (
+  args: ReadonlyArray<string>,
+  cwd: string,
+  env: Readonly<Record<string, unknown>> | undefined,
+): Promise<Answer> => {
+  const own = await git(args, cwd, env, undefined);
+  if (own.exitCode !== 0) return own;
+  const entries = await worktreeEntriesOf(toWorkspace(cwd)!.id);
+  const stdout = withWorktreeBranches(own.stdout, entries);
+  const added = stdout
+    .slice(own.stdout.length)
+    .split("\n")
+    .filter((line) => line !== "").length;
+  return {
+    ...own,
+    stdout,
+    route: "worktree",
+    detail: `${added} worktree branches added (${own.route}${own.detail === undefined ? "" : ` ${own.detail}`})`,
+  };
+};
+
+/**
+ * A failed project command whose start point is a branch only a worktree Workspace's clone holds (the ref snapshot
+ * offers it, the project's refs lack it): the reason names that worktree, which t3 shows (Patch 0008). Anything else
+ * is returned as it is.
+ */
+const explainHeldBase = async (
+  projectId: string,
+  start: string,
+  answer: Answer,
+  gitStderr: string = answer.stderr,
+): Promise<Answer> => {
+  if (answer.exitCode === 0 || !/not a valid object name|invalid reference/.test(gitStderr)) return answer;
+  const branch = start.startsWith("refs/heads/") ? start : `refs/heads/${start}`;
+  const holder = (await worktreeEntriesOf(projectId)).find((entry) => entry.branch === branch);
+  if (holder === undefined) return answer;
+  return fail(
+    `${T3FLARE_FATAL}'${start}' is a branch of the worktree Workspace at ${holder.path}, not of the project; its commits reach the project once it is pushed and fetched`,
+    `held base (${answer.route})`,
+  );
 };
 
 /** The worktree verbs in a project; null for a worktree command that its own Workspace's git answers. */
@@ -657,6 +734,13 @@ const routeOf = (
   }
   const worktree = worktreeRouteOf(args, normal);
   if (worktree !== null) return worktree;
+  const project = toWorkspace(normal);
+  if (project !== null && !project.id.startsWith(".wt/")) {
+    if (isRefsSnapshot(args)) return (env) => refsSnapshot(args, normal, env);
+    const start = startPointOf(args);
+    if (start !== null)
+      return async (env, stdin) => explainHeldBase(project.id, start, await git(args, normal, env, stdin));
+  }
   // Outside the Workspaces there is no repository: git says so, as it would on a laptop.
   if (!normal.startsWith("/w/")) {
     return async () => ({

@@ -125,6 +125,12 @@
   "literals": [
     {
       "file": "apps/server/src/vcs/GitVcsDriverCore.ts",
+      "literal": "\"--format=%(refname)%09%(committerdate:unix)%09%(symref)%09%(upstream)\",",
+      "ourFile": "apps/environment/src/agents/gitRoutes.ts",
+      "entry": "U18"
+    },
+    {
+      "file": "apps/server/src/vcs/GitVcsDriverCore.ts",
       "literal": "\"status\", \"--porcelain=2\", \"--branch\", \"-z\",",
       "ourFile": "apps/agents/src/workspace/staleReads.ts",
       "entry": "U13"

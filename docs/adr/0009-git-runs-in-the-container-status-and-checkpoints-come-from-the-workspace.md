@@ -39,7 +39,9 @@ Evidence: `steps-evidence-1:docs/steps/step-2b/m2-watch.json` (a primed worktree
 **A worktree Workspace has its own `.git`** (a full clone, not `gitdir:`/`commondir`), so checkpoints, stale reads, the
 read cache and the 2,000-file guard work per Workspace unchanged. `rev-parse --git-common-dir` in a worktree answers its
 own `.git`; t3 uses it only for its config lock and the worktree directory's hash (the router trace audit in
-`steps-evidence-1:docs/steps/step-2b/m2-trace.json`).
+`steps-evidence-1:docs/steps/step-2b/m2-trace.json`). The project's worktree list and its ref snapshot both present each worktree Workspace's
+current branch, read from the Workspace's own files and never starting a Container, so t3's branch selector pairs a
+worktree whose branch was renamed in its clone (SPI-1307).
 
 ## Refinement (large repos and submodules, the prod bug of 2026-11-11)
 
