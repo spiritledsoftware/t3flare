@@ -8,10 +8,10 @@ import { describe, expect, it } from "vitest";
 import { webExtension } from "../../src/extensions/web.ts";
 import { UNCONVERTED_NOTE, webFetchTool } from "../../src/extensions/web/fetch.ts";
 import { DEFAULT_WEB_LIMITS, type WebLimits } from "../../src/extensions/web/limits.ts";
+import { STRUCTURED_MAX_BYTES } from "../../src/extensions/web/output.ts";
 import type { WebRequest, WebTransport } from "../../src/extensions/web/net.ts";
 import {
   ANSWER_MAX_BYTES,
-  answerBytes,
   readAnswer,
   systemPrompt,
   webSearchTool,
@@ -319,22 +319,38 @@ describe("web_search", () => {
     expect(outcome.ok && (outcome.result.details as { results: Array<unknown> }).results).toHaveLength(1);
   });
 
-  it("reads an answer sized for searchesPerCall and searchSummaryTokens, never under 512 KiB nor over the isolate's bound (SPI-1321)", async () => {
-    expect(answerBytes(DEFAULT_WEB_LIMITS)).toBe(536 * 1024);
-    expect(answerBytes(limits({ searchesPerCall: 1, searchSummaryTokens: 100 }))).toBe(512 * 1024);
-    expect(answerBytes(limits({ searchesPerCall: 10, searchSummaryTokens: 4_000 }))).toBe(2_623 * 1024);
-    expect(answerBytes(limits({ searchesPerCall: 50, searchSummaryTokens: 64_000 }))).toBe(ANSWER_MAX_BYTES);
-    // An answer of 1 MiB: refused at the defaults, read at ten searches per call.
+  it("reads any answer within the isolate's bound, whatever the settings (SPI-1361)", async () => {
+    // An answer of 1 MiB, refused at the defaults before SPI-1361, is read.
     const big = {
       ...answer,
       content: [...answer.content, { type: "text", text: " ".repeat(1024 * 1024) }],
     };
     const { transport } = network(() => Response.json(big));
-    expect(textOf(await run(webSearchTool(transport, endpoint), { query: "q" }))).toBe(
-      "Unable to search the web for q: response body exceeds the 536 KiB limit",
+    expect(textOf(await run(webSearchTool(transport, endpoint), { query: "q" }))).toContain("Title: One");
+    // Past the isolate's bound it is refused.
+    const huge = {
+      ...answer,
+      content: [...answer.content, { type: "text", text: " ".repeat(ANSWER_MAX_BYTES) }],
+    };
+    const refused = network(() => Response.json(huge));
+    expect(textOf(await run(webSearchTool(refused.transport, endpoint), { query: "q" }))).toBe(
+      `Unable to search the web for q: response body exceeds the ${ANSWER_MAX_BYTES / 1024 / 1024} MiB limit`,
     );
-    const raised = await run(webSearchTool(transport, endpoint, limits({ searchesPerCall: 10 })), { query: "q" });
-    expect(textOf(raised)).toContain("Title: One");
+  });
+
+  it("sends the whole query and keeps every cited snippet (SPI-1361)", async () => {
+    const cited = Array.from({ length: 5 }, (_, index) => ({
+      type: "web_search_result_location",
+      url: "https://a.example/one",
+      cited_text: `snippet ${index}`,
+    }));
+    const { transport, sent } = network(() =>
+      Response.json({ ...answer, content: [...answer.content, { type: "text", text: "more", citations: cited }] }),
+    );
+    const query = "q".repeat(10_000);
+    const outcome = await run(webSearchTool(transport, endpoint), { query });
+    expect(JSON.parse(sent[0]?.body ?? "{}").messages[0].content).toBe(query);
+    expect(textOf(outcome)).toContain("snippet 4");
   });
 
   it("tells the search model how many searches it may run (SPI-1321)", async () => {
@@ -345,15 +361,24 @@ describe("web_search", () => {
     expect(JSON.parse(sent[0]?.body ?? "{}").system).toBe(systemPrompt(5));
   });
 
-  it("allows numResults up to the larger of 20 and searchResults (SPI-1321)", () => {
-    expect(parameter(webSearchTool(hanging(), endpoint), "numResults")).toMatchObject({
-      maximum: 20,
-      description: "Maximum number of results (default: 8, maximum: 20)",
+  it("puts no maximum on numResults or contextMaxCharacters (SPI-1361)", () => {
+    const tool = webSearchTool(hanging(), endpoint);
+    expect(parameter(tool, "numResults")).toMatchObject({ description: "Maximum number of results (default: 8)" });
+    expect(parameter(tool, "numResults")?.maximum).toBeUndefined();
+    expect(parameter(tool, "contextMaxCharacters")?.maximum).toBeUndefined();
+    expect(parameter(tool, "contextMaxCharacters")?.description).not.toContain("50,000");
+  });
+
+  it("bounds a program's copy of the results text at the structured limit (SPI-1361)", async () => {
+    const long = { ...answer, content: [...answer.content, { type: "text", text: "z".repeat(2 * STRUCTURED_MAX_BYTES) }] };
+    const { transport } = network(() => Response.json(long));
+    const outcome = await run(webSearchTool(transport, endpoint), {
+      query: "q",
+      contextMaxCharacters: 4 * STRUCTURED_MAX_BYTES,
     });
-    expect(parameter(webSearchTool(hanging(), endpoint, limits({ searchResults: 50 })), "numResults")).toMatchObject({
-      maximum: 50,
-      description: "Maximum number of results (default: 50, maximum: 50)",
-    });
+    const structured = outcome.ok ? (outcome.result.structuredOutput as { content: string; truncated?: boolean }) : undefined;
+    expect(new TextEncoder().encode(structured?.content).length).toBeLessThanOrEqual(STRUCTURED_MAX_BYTES);
+    expect(structured?.truncated).toBe(true);
   });
 
   it("times a search out at searchTimeoutSeconds (SPI-1321)", async () => {

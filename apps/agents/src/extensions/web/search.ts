@@ -24,46 +24,19 @@ import { FETCH_CONVERT_MAX_KIB } from "@t3flare/harness-registry";
 
 import { DEFAULT_WEB_LIMITS, type WebLimits } from "./limits.ts";
 import { readBoundedBody, statusCause, type WebTransport, WebToolError, withDeadline } from "./net.ts";
-import { fitOutput } from "./output.ts";
-import {
-  limitSearchText,
-  MAX_CONTEXT_MAX_CHARACTERS,
-  providerTextSanitizer,
-  type Sanitize,
-  truncateCodePoints,
-} from "./shaping.ts";
+import { boundStructuredText, fitOutput } from "./output.ts";
+import { limitSearchText, providerTextSanitizer, type Sanitize } from "./shaping.ts";
 
-/** The answer read for each search it may hold: 512 KiB held the two searches web_search ran before they were a setting. */
-const ANSWER_BYTES_PER_SEARCH = 256 * 1024;
-/** The answer read for each summary token: the text and the citations that repeat cited text and URLs around it. */
-const ANSWER_BYTES_PER_SUMMARY_TOKEN = 16;
-/** The least of the search model's answer read: what was read before the limits were settings. */
-const ANSWER_MIN_BYTES = 512 * 1024;
 /**
  * The most of the search model's answer read, whatever the settings. A named constraint: a Worker isolate's 128 MB,
  * which also holds the Session; the answer is decoded and parsed whole. It takes web_fetch's conversion bound
  * (`FETCH_CONVERT_MAX_KIB`). Measured in workerd (apps/agents/test/webFetchMemory.workerd.test.ts), an answer of 5 MiB
  * (2,476 results with two-byte titles) needs 2 MB more heap than an empty run, plus about 10 MB of body buffers outside
- * it. `answerBytes` reaches it at 20 searches per call; an answer past it is refused, as one past any bound is.
+ * it. Every answer is read up to it; one past it is refused.
  */
 export const ANSWER_MAX_BYTES = FETCH_CONVERT_MAX_KIB * 1024;
 
-/**
- * The most of the search model's answer read: room for `searchesPerCall` searches' results (each a page list with
- * encrypted content) and a summary of `searchSummaryTokens`, never less than 512 KiB nor more than `ANSWER_MAX_BYTES`.
- */
-export const answerBytes = (limits: Pick<WebLimits, "searchesPerCall" | "searchSummaryTokens">): number => {
-  const wanted =
-    limits.searchesPerCall * ANSWER_BYTES_PER_SEARCH + limits.searchSummaryTokens * ANSWER_BYTES_PER_SUMMARY_TOKEN;
-  // Whole KiB, so a refusal names its limit in KiB.
-  return Math.min(ANSWER_MAX_BYTES, Math.max(ANSWER_MIN_BYTES, Math.ceil(wanted / 1024) * 1024));
-};
 const NO_SEARCH_RESULTS = "No search results found. Please try a different query.";
-/**
- * The per-call `numResults` maximum when the Owner's `searchResults` is lower. A sanity bound (ADR-0048 §1): nothing
- * forces it, and a higher `searchResults` raises it.
- */
-const NUM_RESULTS_MAXIMUM = 20;
 
 /**
  * The endpoint and model a search runs on: the search model setting's slug (`modelSettingSlug`: `default`, or a value
@@ -124,8 +97,10 @@ const OUTPUT_SCHEMA = {
     provider: { type: "string", description: "Who searched: the Model endpoint's search-capable model" },
     content: {
       type: "string",
-      description: "The results and summary, trimmed to numResults and cut at contextMaxCharacters (default 6,000)",
+      description:
+        "The results and summary, trimmed to numResults and cut at contextMaxCharacters (default 6,000), then at 1 MiB",
     },
+    truncated: { type: "boolean", description: "Whether content was cut at 1 MiB" },
     results: {
       type: "array",
       items: {
@@ -196,7 +171,7 @@ export const readAnswer = (
         if (url === undefined || cited === undefined) continue;
         const page = byUrl.get(url) ?? { url, snippets: [] };
         if (!byUrl.has(url)) byUrl.set(url, page);
-        if (page.snippets.length < 3) page.snippets.push(cited);
+        page.snippets.push(cited);
       }
     }
   }
@@ -254,9 +229,6 @@ export const webSearchTool = (
     "searchResults" | "searchesPerCall" | "searchSummaryTokens" | "searchTimeoutSeconds"
   > = DEFAULT_WEB_LIMITS,
 ): ToolRegistration => {
-  // The default is always allowed, so an Owner's default above 20 is never clamped.
-  const maxResults = Math.max(NUM_RESULTS_MAXIMUM, limits.searchResults);
-  const maxAnswer = answerBytes(limits);
   const system = systemPrompt(limits.searchesPerCall);
   return defineTool({
     name: "web_search",
@@ -264,18 +236,13 @@ export const webSearchTool = (
     parameters: obj({
       query: str({ description: "Web Search query" }),
       numResults: opt(
-        int({
-          minimum: 1,
-          maximum: maxResults,
-          description: `Maximum number of results (default: ${limits.searchResults}, maximum: ${maxResults})`,
-        }),
+        int({ minimum: 1, description: `Maximum number of results (default: ${limits.searchResults})` }),
       ),
       contextMaxCharacters: opt(
         int({
           minimum: 1,
-          maximum: MAX_CONTEXT_MAX_CHARACTERS,
           description:
-            "Maximum characters of search text returned (1–50,000, default: 6,000). Results share it so each keeps its Title and URL; other text is cut at that many code points. Cuts are marked; raise it to read more.",
+            "Maximum characters of search text returned (default: 6,000). Results share it so each keeps its Title and URL; other text is cut at that many code points. Cuts are marked; raise it to read more.",
         }),
       ),
     }),
@@ -304,13 +271,13 @@ export const webSearchTool = (
                 model: target.modelId,
                 max_tokens: limits.searchSummaryTokens,
                 system,
-                messages: [{ role: "user", content: truncateCodePoints(args.query, 4_096) }],
+                messages: [{ role: "user", content: args.query }],
                 tools: [{ type: "web_search_20250305", name: "web_search", max_uses: limits.searchesPerCall }],
               }),
             },
             signal,
           );
-          const body = new TextDecoder().decode(await readBoundedBody(response, maxAnswer, signal));
+          const body = new TextDecoder().decode(await readBoundedBody(response, ANSWER_MAX_BYTES, signal));
           let parsed: unknown;
           try {
             parsed = JSON.parse(body);
@@ -345,7 +312,7 @@ export const webSearchTool = (
         output: [{ type: "text" as const, text: fitted.content }],
         structuredOutput: {
           provider: `model-endpoint:${target.slug}`,
-          content,
+          ...boundStructuredText(content),
           results: results.map(({ snippet: _snippet, ...page }) => page),
         },
         // What t3's web item shows (the differ): the query and each page found.

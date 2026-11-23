@@ -6,7 +6,6 @@ import * as Order from "effect/Order";
 
 /** Default total budget for Search Provider text, in Unicode code points. */
 export const DEFAULT_CONTEXT_MAX_CHARACTERS = 6000;
-export const MAX_CONTEXT_MAX_CHARACTERS = 50_000;
 const MAX_PROVIDER_MESSAGE_CHARACTERS = 500;
 
 /** The first `limit` Unicode code points of `text`. */
@@ -72,9 +71,6 @@ const EXA_ESSENTIAL_LINE = /^(?:Title|URL): /;
 /** A metadata line Exa fills with `N/A`; it tells the model nothing and only spends budget. */
 const EXA_EMPTY_HEADER_LINE = /^[^:]+: N\/A$/;
 
-/** Below this many code points a body share shows only a stub such as `Hi` (from `Highlights:`), so the body is dropped. */
-const MIN_USEFUL_BODY_CHARACTERS = 80;
-
 /** One Exa result: all metadata lines, just Title and URL, and the body that follows the metadata. */
 type ExaResult = {
   readonly header: string;
@@ -122,7 +118,7 @@ const joinExaResults = (results: readonly ExaResult[]): string =>
  * an explicit budget is already the model's own choice.
  */
 const moreHint = (explicit: number | undefined): string =>
-  explicit === undefined ? `; pass contextMaxCharacters (up to ${MAX_CONTEXT_MAX_CHARACTERS}) for more` : "";
+  explicit === undefined ? "; pass a larger contextMaxCharacters for more" : "";
 
 type Body = { readonly length: number; readonly index: number };
 
@@ -167,8 +163,7 @@ const shareBodyBudget = (lengths: readonly number[], budget: number): number[] =
 
 /**
  * Split `limit` code points across an Exa result list so every result keeps its header lines and a fair share of its
- * body. When the full headers do not fit, only each Title and URL line is kept. A body whose share is too small to
- * read is dropped. Undefined when even the Title and URL lines do not fit, so the caller falls back to one plain cut.
+ * body. When the full headers do not fit, only each Title and URL line is kept. Undefined when even the Title and URL lines do not fit, so the caller falls back to one plain cut.
  */
 const shareSearchBudget = (
   results: readonly ExaResult[],
@@ -207,9 +202,7 @@ const shareSearchBudget = (
 
     cut.push(index + 1);
 
-    const share = fullShare < MIN_USEFUL_BODY_CHARACTERS ? 0 : fullShare;
-
-    return header + Arr.join(Arr.take(body, share), "");
+    return header + Arr.join(Arr.take(body, fullShare), "");
   });
 
   const label = cut.length === 1 ? "result" : "results";
