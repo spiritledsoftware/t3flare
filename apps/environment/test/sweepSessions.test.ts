@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { bindEnvironmentServices, type EnvironmentServices } from "../src/agents/bindings.ts";
 import { sweep, type PurgeReport } from "../src/agents/deletion.ts";
+import { sweptSessionsIn } from "../src/agents/sweptSessions.ts";
 import type { WorkspaceRecord } from "../src/agents/workspaces.ts";
 import { DAY, record, t3Tables } from "./fixtures/workspaces.ts";
 
@@ -46,6 +47,34 @@ const servicesWith = (
       WORKSPACES: namespace(() => ({ terminalState: async () => ({ keys: [] }), destroy: workspaceDestroy })),
     },
   } as unknown as EnvironmentServices);
+};
+
+/** The swept Sessions kept in `swept`, as the Environment DO keeps them in its storage. */
+const sweptIn = (swept: Set<string>) => ({
+  has: (thread: string) => swept.has(thread),
+  add: (thread: string) => void swept.add(thread),
+  keepOnly: (threads: ReadonlySet<string>) => {
+    for (const thread of swept) if (!threads.has(thread)) swept.delete(thread);
+  },
+});
+
+/** A deleted project `p1` at `/w/app` with `threads` deleted under it, and its Workspace marked unreferenced. */
+const deletedProject = (threads: ReadonlyArray<string>) => {
+  const sql = t3Tables();
+  const deletedAt = new Date(NOW - 10 * 60_000).toISOString();
+  sql.exec(
+    "INSERT INTO projection_projects (project_id, title, workspace_root, created_at, deleted_at) VALUES ('p1', 'app', '/w/app', ?, ?)",
+    deletedAt,
+    deletedAt,
+  );
+  for (const thread of threads)
+    sql.exec(
+      "INSERT INTO orchestration_v2_projection_threads (thread_id, project_id, title, deleted_at, payload_json) VALUES (?, 'p1', 'a thread', ?, ?)",
+      thread,
+      deletedAt,
+      JSON.stringify({ worktreePath: null }),
+    );
+  return sql;
 };
 
 // The binding outlives each test: unbind it, so the default access finds no services.
@@ -121,7 +150,7 @@ describe("the Sweep's Purge of a deleted project with a worktree thread", () => 
       sql,
       { purging: true, graceMs: GRACE_MS, graceDays: 7, overridden: true, provisioningMs: 80 * 60_000, dry: false },
       NOW,
-      { has: (thread) => swept.has(thread), add: (thread) => void swept.add(thread) },
+      sweptIn(swept),
       { get: () => NOW - DAY, set: () => undefined },
       (purged) => void entries.push(purged),
     );
@@ -151,10 +180,127 @@ describe("the Sweep's Purge of a deleted project with a worktree thread", () => 
       sql,
       { purging: true, graceMs: GRACE_MS, graceDays: 7, overridden: true, provisioningMs: 80 * 60_000, dry: false },
       NOW,
-      { has: (thread) => swept.has(thread), add: (thread) => void swept.add(thread) },
+      sweptIn(swept),
       { get: () => NOW - DAY, set: () => undefined },
     );
     expect(rows[0]?.state).toBe("deleting");
     expect(report.sessions).toEqual(["t2"]);
+  });
+
+  it("destroys every deleted thread's Session that is due in one run, past fifty (SPI-1366: no count per run)", async () => {
+    const threads = Array.from({ length: 60 }, (_, n) => `t${n}`);
+    const sql = deletedProject(threads);
+    // The Workspace is kept (purging off for it is not this test's): its Sessions go by the Session pass.
+    const rows = [record({ id: "app" })];
+    const destroyedSessions: Array<string> = [];
+    servicesWith(rows, destroyedSessions);
+    const swept = new Set<string>();
+    const report = await sweep(
+      sql,
+      { purging: true, graceMs: GRACE_MS, graceDays: 7, overridden: true, provisioningMs: 80 * 60_000, dry: false },
+      NOW,
+      sweptIn(swept),
+      { get: () => NOW - DAY, set: () => undefined },
+    );
+    expect(new Set(report.sessions)).toEqual(new Set(threads));
+    expect(swept.size).toBe(60);
+  });
+
+  it("forgets a swept thread t3 no longer holds, and keeps the rest (SPI-1366: no count of swept threads)", async () => {
+    const sql = deletedProject(["t1"]);
+    servicesWith([record({ id: "app" })], []);
+    // t1's Session went in an earlier run; t0's thread is gone from t3's projection, so nothing can ask for it again.
+    const swept = new Set(["t0", "t1"]);
+    await sweep(
+      sql,
+      { purging: true, graceMs: GRACE_MS, graceDays: 7, overridden: true, provisioningMs: 80 * 60_000, dry: false },
+      NOW,
+      sweptIn(swept),
+      { get: () => NOW - DAY, set: () => undefined },
+    );
+    expect([...swept]).toEqual(["t1"]);
+  });
+
+  it("forgets nothing on a dry run", async () => {
+    const sql = deletedProject([]);
+    servicesWith([record({ id: "app" })], []);
+    const swept = new Set(["t0"]);
+    await sweep(
+      sql,
+      { purging: true, graceMs: GRACE_MS, graceDays: 7, overridden: true, provisioningMs: 80 * 60_000, dry: true },
+      NOW,
+      sweptIn(swept),
+      { get: () => NOW - DAY, set: () => undefined },
+    );
+    expect([...swept]).toEqual(["t0"]);
+  });
+
+  it("keeps one key a swept thread, moves an old list into them, and forgets with no delete inside the list's cursor", () => {
+    const map = new Map<string, unknown>([["t3flare:swept-sessions", ["t0", "t1"]]]);
+    let listing = false;
+    const kv = {
+      get: <T>(key: string) => map.get(key) as T | undefined,
+      put: <T>(key: string, value: T) => void map.set(key, value),
+      delete: (key: string) => {
+        // workerd's list is a live cursor over storage: a write inside it is what this guards against.
+        if (listing) throw new Error("deleted inside the list's cursor");
+        return map.delete(key);
+      },
+      *list<T>(options: { readonly prefix: string }): Iterable<[string, T]> {
+        listing = true;
+        try {
+          for (const [key, value] of [...map].toSorted(([a], [b]) => a.localeCompare(b)))
+            if (key.startsWith(options.prefix)) yield [key, value as T];
+        } finally {
+          listing = false;
+        }
+      },
+    };
+    const swept = sweptSessionsIn(kv);
+    expect(swept.has("t0")).toBe(true);
+    expect(map.has("t3flare:swept-sessions")).toBe(false);
+    swept.add("t2");
+    swept.keepOnly(new Set(["t1"]));
+    expect([...map.keys()]).toEqual(["t3flare:swept-session:t1"]);
+  });
+
+  it("stops its Session pass at Workers' subrequest limit and comes back a minute later, not a day (SPI-1366)", async () => {
+    const threads = Array.from({ length: 10 }, (_, n) => `t${n}`);
+    const sql = deletedProject(threads);
+    const destroyedSessions: Array<string> = [];
+    let budgetRead = false;
+    bindEnvironmentServices({
+      workspaces: {
+        list: () => [record({ id: "app" })],
+        get: () => undefined,
+        setUnreferencedSince: () => undefined,
+        setState: () => undefined,
+        setLastError: () => undefined,
+      },
+      agents: {
+        SESSIONS: namespace((name) => ({
+          destroy: async () => {
+            if (destroyedSessions.length >= 3) throw new Error("Too many subrequests.");
+            destroyedSessions.push(name);
+          },
+        })),
+        WORKSPACES: namespace(() => ({ terminalState: async () => ({ keys: [] }) })),
+        CONTAINER_BUDGET: namespace(() => ({ state: async () => ((budgetRead = true), { leases: [] }) })),
+      },
+    } as unknown as EnvironmentServices);
+    const swept = new Set<string>();
+    const report = await sweep(
+      sql,
+      { purging: true, graceMs: GRACE_MS, graceDays: 7, overridden: true, provisioningMs: 80 * 60_000, dry: false },
+      NOW,
+      sweptIn(swept),
+      { get: () => NOW - DAY, set: () => undefined },
+    );
+    expect(report.ok).toBe(true);
+    expect(report.sessions).toHaveLength(3);
+    expect(swept.size).toBe(3);
+    // The rest wait for the next pass, a minute out; the cost guard, another subrequest, waits for it too.
+    expect(Date.parse(report.nextDue)).toBe(NOW + 60_000);
+    expect(budgetRead).toBe(false);
   });
 });

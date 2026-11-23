@@ -5,6 +5,9 @@ import type { ResolvedEnvironment } from "@t3flare/harness-registry";
 
 export const DAY_MS = 24 * 60 * 60_000;
 
+/** How often the Sweep runs (ADR-0043 §5); a new Environment's first Sweep is one of these after its first look. */
+export const SWEEP_EVERY_MS = DAY_MS;
+
 /** The Grace as the Sweep reads it at each use, from the Environment settings as stored now. */
 export interface SweepSettings {
   /** The Environment setting `sweepPurges`: off, the Sweep still marks, and purges nothing (ADR-0043 §4). */

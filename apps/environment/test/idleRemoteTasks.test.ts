@@ -50,8 +50,7 @@ const remote = (environmentId: string, more: Record<string, unknown> = {}) => ({
 });
 const link = (sql: Sql, environmentId: string, lastError: string | null) =>
   sql.exec("INSERT INTO peer_environment_links VALUES (?, '2026-11-13T11:00:00.000Z', ?)", environmentId, lastError);
-const idle = () =>
-  Object.assign(Idle.activity, { sockets: 0, inFlight: 0, idleSince: now.getTime() - 120_000, unreadableUntil: 0 });
+const idle = () => Object.assign(Idle.activity, { sockets: 0, inFlight: 0, idleSince: now.getTime() - 120_000 });
 
 describe("open Remote tasks", () => {
   it("counts open tasks as t3's getOpenRemoteDelegatedTasks reads them, split by whether their machine answers", () => {
@@ -130,6 +129,33 @@ describe("the retry alarm", () => {
     expect(third).toEqual({ attempt: 2, at: at + minutes(30) });
     expect(Idle.nextRemoteRetry(third, at)).toEqual({ attempt: 3, at: at + minutes(30) });
     expect(Idle.nextRemoteRetry({ attempt: 40, at: 0 }, at)).toEqual({ attempt: 41, at: at + minutes(30) });
+  });
+
+  it("waits at most the Remote task retry setting: 5, 15, then it, each capped at it (SPI-1366)", () => {
+    const at = now.getTime();
+    const delays = (maxMs: number) => {
+      let retry: Idle.RemoteRetry | undefined;
+      return Array.from({ length: 4 }, () => {
+        retry = Idle.nextRemoteRetry(retry, at, maxMs);
+        return (retry.at - at) / 60_000;
+      });
+    };
+    expect(delays(minutes(60))).toEqual([5, 15, 60, 60]);
+    expect(delays(minutes(10))).toEqual([5, 10, 10, 10]);
+    expect(delays(minutes(1))).toEqual([1, 1, 1, 1]);
+    const work: Idle.OpenWork = {
+      openRuns: 0,
+      openProviderSessions: 0,
+      claimableEffects: 0,
+      remoteTasksAnswering: 0,
+      remoteTasksUnanswered: 1,
+    };
+    expect(
+      Idle.planReset(work, { t3Due: null, sweep: at + minutes(90), retry: undefined }, at, minutes(2)).retry,
+    ).toEqual({
+      attempt: 0,
+      at: at + minutes(2),
+    });
   });
 
   it("plans the reset: a retry only while a task waits on a machine that does not answer, merged into one alarm", () => {

@@ -21,16 +21,14 @@ const JWT_LIFETIME_SECONDS = 9 * 60 + JWT_BACKDATE_SECONDS;
  */
 export const TOKEN_MIN_LIFETIME_MS = 45 * 60_000;
 
-/** After a failed mint, how long before GitHub is asked again; each further failure doubles it. */
+/**
+ * After a failure GitHub named no time for, how long before it is asked again, when no setting is given (`retryMs`; the
+ * Environment's `githubRetrySeconds`, SPI-1366): each further failure in a row doubles it.
+ */
 const RETRY_AFTER_MS = 60_000;
 
-/** The longest wait between attempts. */
-const MAX_RETRY_AFTER_MS = 15 * 60_000;
-
-/**
- * How long the list of the app's installations is kept: an account the app is installed on later is found after it.
- */
-const INSTALLATIONS_TTL_MS = 5 * 60_000;
+/** How many times the first wait the doubling may reach: 15, today's 1 to 15 minutes (`GITHUB_RETRY_GROWTH`). */
+const RETRY_GROWTH = 15;
 
 /**
  * A minted token, the account (lower case) of the installation it is for (absent on one kept before tokens named
@@ -84,12 +82,33 @@ export class GitHubNotInstalled extends Error {
  */
 export class GitHubRefused extends Error {
   readonly status: number;
+  /** When GitHub said to ask again (`retry-after`, or an exhausted limit's reset), in ms; absent when it named none. */
+  readonly retryAt: number | undefined;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, retryAt?: number) {
     super(message);
     this.status = status;
+    this.retryAt = retryAt;
   }
 }
+
+/** The next page's URL from GitHub's `link` header (`rel="next"`), if there is one. */
+const nextPage = (response: Response): string | undefined =>
+  /<([^>]+)>;\s*rel="next"/.exec(response.headers.get("link") ?? "")?.[1];
+
+/**
+ * When GitHub said to ask again: `retry-after` (seconds, or a date), else an exhausted limit's reset
+ * (`x-ratelimit-reset`, epoch seconds); undefined when it named neither.
+ */
+const retryAtOf = (response: Response, now: number): number | undefined => {
+  const after = response.headers.get("retry-after")?.trim();
+  if (after !== undefined && /^\d+$/.test(after)) return now + Number(after) * 1000;
+  if (after !== undefined && !Number.isNaN(Date.parse(after))) return Date.parse(after);
+  const reset = Number(response.headers.get("x-ratelimit-reset"));
+  return response.headers.get("x-ratelimit-remaining") === "0" && Number.isFinite(reset) && reset > 0
+    ? reset * 1000
+    : undefined;
+};
 
 /** `cause` as a sentence. */
 const messageOf = (cause: unknown): string => (cause instanceof Error ? cause.message : String(cause));
@@ -148,6 +167,16 @@ export type GitHubAppOptions = {
         readonly save: (minted: ReadonlyArray<MintedToken>) => void;
       }
     | undefined;
+  /**
+   * How long one request to GitHub may wait, in ms, read at each request (the Environment's `outsideRequestSeconds`,
+   * SPI-1366). Absent: `REQUEST_TIMEOUT_MS`.
+   */
+  readonly requestTimeoutMs?: (() => number) | undefined;
+  /**
+   * After a failure GitHub named no time for, the first wait before it is asked again, in ms, read at each failure (the
+   * Environment's `githubRetrySeconds`, SPI-1366). Absent: `RETRY_AFTER_MS`.
+   */
+  readonly retryMs?: (() => number) | undefined;
 };
 
 const encoder = new TextEncoder();
@@ -234,7 +263,7 @@ export const githubAppKeyForms = (pem: string): ReadonlyArray<string> => {
   return body === "" ? [text] : [text, body];
 };
 
-/** How long one request to GitHub may take. */
+/** How long one request to GitHub may take when no setting is given: the Outside request time limit's default. */
 const REQUEST_TIMEOUT_MS = 15_000;
 
 const Account = Schema.NullOr(Schema.Struct({ login: Schema.String }));
@@ -254,11 +283,11 @@ const decodeErrorAnswer = Schema.decodeUnknownOption(ErrorAnswer);
 
 /** GitHub's answer to the app: its JSON, or the status it refused with and why. */
 type Answer =
-  | { readonly ok: true; readonly value: unknown }
-  | { readonly ok: false; readonly status: number; readonly message: string };
+  | { readonly ok: true; readonly value: unknown; readonly next?: string | undefined }
+  | { readonly ok: false; readonly status: number; readonly message: string; readonly retryAt?: number | undefined };
 
-/** What a refusal is told as. */
-const refusal = (status: number, said: string): GitHubRefused => {
+/** What a refusal is told as, with when GitHub said to ask again. */
+const refusal = (status: number, said: string, retryAt?: number): GitHubRefused => {
   const why = said === "" ? `${status}` : `${status}: ${said}`;
 
   return new GitHubRefused(
@@ -266,6 +295,7 @@ const refusal = (status: number, said: string): GitHubRefused => {
     status === 401
       ? `GitHub refused the GitHub App (${why}): check T3FLARE_GITHUB_APP_ID and T3FLARE_GITHUB_APP_PRIVATE_KEY`
       : `GitHub refused the GitHub App's request (${why})`,
+    retryAt,
   );
 };
 
@@ -315,7 +345,13 @@ export class GitHubApp implements GitHubTokens {
 
     try {
       // Found before the mint's own wait, so a failure to list waits only on the list's.
-      const installation = (await this.#installationIds()).get(name);
+      const listed = await this.#installationIds();
+      // An account not in the list: listed again, but at most once a GitHub retry (`retryMs`), so an account the App is
+      // not installed on cannot have every page of installations asked for at each call.
+      const stale =
+        this.#options.now() - (this.#installations?.at ?? Number.NEGATIVE_INFINITY) >=
+        (this.#options.retryMs?.() ?? RETRY_AFTER_MS);
+      const installation = listed.get(name) ?? (stale ? (await this.#installationIds(true)).get(name) : undefined);
 
       if (installation === undefined) throw new GitHubNotInstalled(name);
 
@@ -338,7 +374,8 @@ export class GitHubApp implements GitHubTokens {
     };
 
     const appAccount = await this.#ownAccount().catch(told);
-    const listed = await this.#installationIds().catch(told);
+    // Every installation: listed again, so one installed since is found (SPI-1366).
+    const listed = await this.#installationIds(true).catch(told);
 
     // Without the list, the accounts it had tokens for still get theirs.
     const accounts =
@@ -422,9 +459,12 @@ export class GitHubApp implements GitHubTokens {
           (cause: unknown) => {
             const error = cause instanceof Error ? cause : new Error(String(cause));
             const count = (this.#failed.get(key)?.count ?? 0) + 1;
-            const wait = Math.min(RETRY_AFTER_MS * 2 ** (count - 1), MAX_RETRY_AFTER_MS);
+            const first = this.#options.retryMs?.() ?? RETRY_AFTER_MS;
+            const wait = Math.min(first * 2 ** (count - 1), first * RETRY_GROWTH);
+            // GitHub's own time, when it named one, is kept whatever it is (SPI-1366): asking sooner meets the limit again.
+            const named = error instanceof GitHubRefused ? error.retryAt : undefined;
 
-            this.#failed.set(key, { error, until: this.#options.now() + wait, count });
+            this.#failed.set(key, { error, until: named ?? this.#options.now() + wait, count });
 
             throw error;
           },
@@ -458,7 +498,7 @@ export class GitHubApp implements GitHubTokens {
       // Uninstalled, or installed again under another id: the list is asked for again at the next attempt.
       if (answer.status === 404) this.#installations = undefined;
 
-      throw refusal(answer.status, answer.message);
+      throw refusal(answer.status, answer.message, answer.retryAt);
     }
 
     const decoded = decodeMintAnswer(answer.value);
@@ -478,30 +518,35 @@ export class GitHubApp implements GitHubTokens {
   }
 
   /**
-   * The app's installations by account, listed again once `INSTALLATIONS_TTL_MS` old; the last list while a new one
-   * cannot be had. Its first page only: a hundred accounts.
+   * The app's installations by account, every page of them (SPI-1366: GitHub's `next` link past each hundred). The list
+   * is kept until an account is not in it (`fresh`), or a mint finds an installation gone; then it is listed again, at
+   * once. The last list while a new one cannot be had.
    */
-  async #installationIds(): Promise<ReadonlyMap<string, number>> {
+  async #installationIds(fresh = false): Promise<ReadonlyMap<string, number>> {
     const held = this.#installations;
 
-    if (held !== undefined && this.#options.now() - held.at < INSTALLATIONS_TTL_MS) return held.ids;
+    if (held !== undefined && !fresh) return held.ids;
 
     try {
       return await this.#once("installations", async () => {
-        const answer = await this.#ask(`${API}/app/installations?per_page=100`, { method: "GET" });
-
-        if (!answer.ok) throw refusal(answer.status, answer.message);
-
-        const decoded = decodeInstallations(answer.value);
-
-        if (Option.isNone(decoded)) {
-          throw new Error("GitHub's answer to the GitHub App was not a list of installations");
-        }
-
         const ids = new Map<string, number>();
 
-        for (const { id, account } of decoded.value) {
-          if (account !== null) ids.set(account.login.toLowerCase(), id);
+        for (let url: string | undefined = `${API}/app/installations?per_page=100`; url !== undefined;) {
+          const answer = await this.#ask(url, { method: "GET" });
+
+          if (!answer.ok) throw refusal(answer.status, answer.message, answer.retryAt);
+
+          const decoded = decodeInstallations(answer.value);
+
+          if (Option.isNone(decoded)) {
+            throw new Error("GitHub's answer to the GitHub App was not a list of installations");
+          }
+
+          for (const { id, account } of decoded.value) {
+            if (account !== null) ids.set(account.login.toLowerCase(), id);
+          }
+
+          url = answer.next;
         }
 
         this.#installations = { at: this.#options.now(), ids };
@@ -525,7 +570,7 @@ export class GitHubApp implements GitHubTokens {
     return this.#once("bot", async () => {
       const answer = await this.#ask(`${API}/app`, { method: "GET" });
 
-      if (!answer.ok) throw refusal(answer.status, answer.message);
+      if (!answer.ok) throw refusal(answer.status, answer.message, answer.retryAt);
 
       const slug = Option.getOrUndefined(decodeAppAnswer(answer.value))?.slug;
 
@@ -544,7 +589,7 @@ export class GitHubApp implements GitHubTokens {
     return this.#once("app", async () => {
       const answer = await this.#ask(`${API}/app`, { method: "GET" });
 
-      if (!answer.ok) throw refusal(answer.status, answer.message);
+      if (!answer.ok) throw refusal(answer.status, answer.message, answer.retryAt);
 
       const login = Option.getOrUndefined(decodeAppAnswer(answer.value))?.owner?.login;
 
@@ -571,7 +616,7 @@ export class GitHubApp implements GitHubTokens {
     const request: RequestInit = {
       method: init.method,
       headers,
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(this.#options.requestTimeoutMs?.() ?? REQUEST_TIMEOUT_MS),
     };
 
     if (init.body !== undefined) {
@@ -589,7 +634,7 @@ export class GitHubApp implements GitHubTokens {
 
     if (response.ok) {
       try {
-        return { ok: true, value: await response.json() };
+        return { ok: true, value: await response.json(), next: nextPage(response) };
       } catch {
         throw new Error("GitHub's answer to the GitHub App was not JSON");
       }
@@ -601,6 +646,7 @@ export class GitHubApp implements GitHubTokens {
       ok: false,
       status: response.status,
       message: Option.isSome(said) ? said.value.message : "",
+      retryAt: retryAtOf(response, this.#options.now()),
     };
   }
 

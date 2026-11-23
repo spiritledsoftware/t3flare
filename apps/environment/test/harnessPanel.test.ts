@@ -85,6 +85,40 @@ describe("Settings page", () => {
     ).toBe(403);
   });
 
+  it("accepts a token as many hours old as the Settings page token setting, and hands the page a new one (SPI-1366)", async () => {
+    const { store, deps } = setup();
+    store.saveEnvironment({ revision: 1, settings: { pageTokenHours: 3 } });
+    const body = { extension: "advisor", enabled: false };
+    expect((await change(deps, body, await ownerHeaders(store, NOW - 3 * 60 * 60 * 1000))).status).toBe(200);
+    expect(
+      (await change(deps, { ...body, enabled: true }, await ownerHeaders(store, NOW - 4 * 60 * 60 * 1000))).status,
+    ).toBe(403);
+    // The page's refresh: a GET answers this hour's token, which a change then carries.
+    const fresh = (await (
+      await handleHarness(new Request(`https://${HOST}/_t3flare/settings/api/token`), deps)
+    ).json()) as { token: string };
+    expect(
+      (await change(deps, { ...body, enabled: true }, { ...(await ownerHeaders(store)), [CSRF_HEADER]: fresh.token }))
+        .status,
+    ).toBe(200);
+  });
+
+  it("pages the audit log: the newest fifty on the page, older ones from /api/audit on demand (SPI-1366)", async () => {
+    const { store, deps } = setup();
+    for (let index = 0; index < 120; index++)
+      store.audit({ at: NOW + index, caller: "owner:owner-sub", entity: "harness", action: "x", target: `t${index}` });
+    const html = await (
+      await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), { ...deps, caller: owner })
+    ).text();
+    expect(html).toContain('data-audit-older data-before="70"');
+    const page = (await (
+      await handleHarness(new Request(`https://${HOST}/_t3flare/settings/api/audit?before=70`), deps)
+    ).json()) as { entries: Array<{ target: string }>; before?: number };
+    expect(page.entries.map((entry) => entry.target).slice(0, 2)).toEqual(["t69", "t68"]);
+    expect(page.entries).toHaveLength(50);
+    expect(page.before).toBe(20);
+  });
+
   it("refuses the owner's change without a token, with another subject's token, without Origin, or from another origin", async () => {
     const { store, deps } = setup();
     const good = await ownerHeaders(store);

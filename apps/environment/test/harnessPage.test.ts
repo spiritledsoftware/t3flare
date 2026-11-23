@@ -699,6 +699,33 @@ describe("the Environment section's dotfiles", () => {
     expect(group?.attrs["aria-describedby"]).toBe("environment-agents-desc");
   });
 
+  it("draws the housekeeping settings in Sleep and wake, Previews and access rows of their own, after Outside requests (SPI-1366)", () => {
+    const section = sectionOf(renderPage(fixturePage()));
+    const titled = (id: string) => section.indexOf(`<h3 id="environment-${id}-title">`);
+    const order = ["outside-requests", "lifecycle", "previews", "access", "history"].map(titled);
+    expect(order.every((at) => at > -1)).toBe(true);
+    expect(order).toEqual(order.toSorted((a, b) => a - b));
+    const settingsOf = (id: string) => {
+      const start = titled(id);
+      return tagsOf(section.slice(start, section.indexOf('<div class="row">', start)))
+        .filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined)
+        .map((tag) => tag.attrs["data-setting"]);
+    };
+    expect(settingsOf("outside-requests")).toEqual([
+      "outsideRequestSeconds",
+      "githubRetrySeconds",
+      "textGenerationSeconds",
+    ]);
+    expect(settingsOf("lifecycle")).toEqual([
+      "idleAfterSeconds",
+      "prWatchWakeMinutes",
+      "remoteRetryMinutes",
+      "safeModeAfterFailures",
+    ]);
+    expect(settingsOf("previews")).toEqual(["browserProfileSaveSeconds", "htmlBrowserKeepAliveSeconds"]);
+    expect(settingsOf("access")).toEqual(["pageTokenHours", "clientsPerKey", "connectPublishLogKept"]);
+  });
+
   it("draws the MCP calls' time limit and result size in an MCP calls row between the Agents and History rows (SPI-1359)", () => {
     const page = renderPage(fixturePage());
     const section = sectionOf(page);
@@ -710,10 +737,20 @@ describe("the Environment section's dotfiles", () => {
     expect(history).toBeGreaterThan(start);
     const row = section.slice(start, section.indexOf('<div class="row">', start));
     const inputs = tagsOf(row).filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined);
-    expect(inputs.map((tag) => tag.attrs["data-setting"])).toEqual(["mcpCallSeconds", "mcpResultKiB"]);
+    // SPI-1366: the pauses answered, the CLI's MCP start wait and the sign-in time join them.
+    expect(inputs.map((tag) => tag.attrs["data-setting"])).toEqual([
+      "mcpCallSeconds",
+      "mcpResultKiB",
+      "mcpPausesPerCall",
+      "cliMcpStartSeconds",
+      "mcpSignInMinutes",
+    ]);
     expect(inputs.map((tag) => tag.attrs)).toMatchObject([
       { type: "number", min: "1", max: "604800", value: "270" },
       { type: "number", min: "1", max: "8192", value: "1024" },
+      { type: "number", min: "1", max: "10000", value: "16" },
+      { type: "number", min: "1", max: "604800", value: "20" },
+      { type: "number", min: "1", max: "10080", value: "10" },
     ]);
     for (const key of ["mcpCallSeconds", "mcpResultKiB"]) expect(page.split(`data-setting="${key}"`)).toHaveLength(2);
     const group = tagsOf(section).find(

@@ -537,7 +537,7 @@ describe("pi's profile", () => {
           env: { T3_PI_RUNTIME_MODE: "approval-required" },
           allowProbe: false,
         },
-        { ...context, relay: { handle: HANDLE, servers, toolTimeoutSec } },
+        { ...context, relay: { handle: HANDLE, servers, toolTimeoutSec, startTimeoutSec: 20 } },
       );
 
     it("writes the relay's tool timeout as each entry's timeout (SPI-1316: cliToolTimeoutSec of a 30-minute wait)", () => {

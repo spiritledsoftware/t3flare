@@ -65,6 +65,8 @@ export interface ProfileContext {
     readonly handle: string;
     readonly servers: ReadonlyArray<string>;
     readonly toolTimeoutSec: number;
+    /** How long Codex waits for each relay server to start, in seconds (`cliMcpStartSeconds` at the spawn, SPI-1366). */
+    readonly startTimeoutSec: number;
   };
   /**
    * The Model endpoints that speak OpenAI Responses (SPI-1167), as stored at the spawn: Codex gets one provider each,
@@ -152,12 +154,17 @@ const tomlString = (value: string) => JSON.stringify(value);
 /**
  * Codex's MCP relay entries (ADR-0028, plan §3.2): one server per relayed source, the handle from the process's
  * environment, Codex's own approval off for them (the relay decides and asks on the thread), the tool timeout
- * `toolTimeoutSec` above the relay's cards and a call (review M11, `cliToolTimeoutSec`).
+ * `toolTimeoutSec` above the relay's cards and a call (review M11, `cliToolTimeoutSec`), the start wait `startTimeoutSec`
+ * (`cliMcpStartSeconds`, SPI-1366: left out, Codex would use its own default).
  */
-export const codexRelayOverrides = (servers: ReadonlyArray<string>, toolTimeoutSec: number): ReadonlyArray<string> =>
+export const codexRelayOverrides = (
+  servers: ReadonlyArray<string>,
+  toolTimeoutSec: number,
+  startTimeoutSec: number,
+): ReadonlyArray<string> =>
   servers.map(
     (server) =>
-      `mcp_servers.${server}={url=${tomlString(relayUrl(server))},bearer_token_env_var=${tomlString(TOOL_HANDLE_ENV)},default_tools_approval_mode="approve",tool_timeout_sec=${toolTimeoutSec},startup_timeout_sec=20}`,
+      `mcp_servers.${server}={url=${tomlString(relayUrl(server))},bearer_token_env_var=${tomlString(TOOL_HANDLE_ENV)},default_tools_approval_mode="approve",tool_timeout_sec=${toolTimeoutSec},startup_timeout_sec=${startTimeoutSec}}`,
   );
 
 /**
@@ -281,8 +288,8 @@ const codexExecLaunch = (input: LaunchInput, context: ProfileContext): LaunchAns
   const expected = codexExecArgs(model, schemaPath);
   if (input.args.length !== expected.length || input.args.some((arg, at) => arg !== expected[at]))
     return { refused: "Codex runs `codex exec` here only for t3's read-only investigations" };
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,100}$/.test(model))
-    return { refused: `Codex's model ${model} is not a model name` };
+  // The characters keep the one argv element plain (SPI-1366): no length bound, Linux takes 128 KiB a string.
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(model)) return { refused: `Codex's model ${model} is not a model name` };
   const schema = schemaPath.startsWith("/") ? context.readStateFile(schemaPath) : undefined;
   if (schema === undefined) return { refused: `Codex's output schema ${schemaPath} is not in the State directory` };
   const endpoints = context.endpoints ?? [];
@@ -325,7 +332,7 @@ const codexLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer 
   const relay = context.relay;
   const overrides = [
     ...codexOverrides(input.key, endpoints, context.model),
-    ...(relay === undefined ? [] : codexRelayOverrides(relay.servers, relay.toolTimeoutSec)),
+    ...(relay === undefined ? [] : codexRelayOverrides(relay.servers, relay.toolTimeoutSec, relay.startTimeoutSec)),
   ];
   return {
     argv: [`${CLI_BIN}/codex`, "app-server", ...overrides.flatMap((value) => ["-c", value])],

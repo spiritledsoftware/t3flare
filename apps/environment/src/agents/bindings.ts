@@ -8,6 +8,9 @@ import {
   DEFAULT_OWNER_ANSWER_MS,
   DEFAULT_SETTINGS_READ_MS,
   DEFAULT_TURN_LIMIT_MS,
+  EMPTY_ENVIRONMENT,
+  resolveEnvironment,
+  type ResolvedEnvironment,
 } from "@t3flare/harness-registry";
 import type { ModelEndpoints } from "@t3flare/models/endpoints";
 import type { GitHubTokens } from "./github.ts";
@@ -78,6 +81,11 @@ export interface EnvironmentServices {
    * tool timeout (`cliToolTimeoutSec`). Absent (a test's services): the default.
    */
   readonly mcpCallMs?: () => number;
+  /**
+   * The Environment settings as stored now (SPI-1366), resolved: for a setting read at its own next use (`environmentNow`).
+   * Absent (a test's services): the defaults.
+   */
+  readonly environment?: () => ResolvedEnvironment;
   /** Asks for a Sweep after 5 s of quiet (ADR-0043 §5): the deletion wake's Layer calls it. */
   readonly wakeSweep: () => void;
   /** One-time marks in the Environment DO's storage (step 3: a setting seeded once, L1). */
@@ -201,5 +209,17 @@ export const ownerAnswerMsNow = (): number => {
     return current?.ownerAnswerMs?.() ?? DEFAULT_OWNER_ANSWER_MS;
   } catch {
     return DEFAULT_OWNER_ANSWER_MS;
+  }
+};
+
+/**
+ * The Environment settings now (SPI-1366): as stored, or their defaults when the services or the store cannot be read, so
+ * whatever reads one always has a value.
+ */
+export const environmentNow = (): ResolvedEnvironment => {
+  try {
+    return current?.environment?.() ?? resolveEnvironment(EMPTY_ENVIRONMENT);
+  } catch {
+    return resolveEnvironment(EMPTY_ENVIRONMENT);
   }
 };

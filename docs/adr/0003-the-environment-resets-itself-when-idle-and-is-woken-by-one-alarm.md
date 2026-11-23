@@ -1,6 +1,6 @@
 # The Environment resets itself when idle and is woken by one alarm
 
-t3 runs many in-process timers (a 5 s Scheduler tick, `Schedule.spaced` reactors). Any pending `setTimeout` keeps a Durable Object from being evicted, so left alone the Environment DO would stay resident forever. Instead, when there is no client socket, no in-flight request, no open run or provider session and no claimable outbox effect for about 60 s, the DO host reads the next due time (outbox, scheduled tasks, usage-limit resets), sets one alarm for it, and calls `ctx.abort()`. That is the same reset an eviction or a deploy performs, so idling exercises exactly the restart path t3 must survive anyway (ADR-0004). The next request or alarm boots t3 again.
+t3 runs many in-process timers (a 5 s Scheduler tick, `Schedule.spaced` reactors). Any pending `setTimeout` keeps a Durable Object from being evicted, so left alone the Environment DO would stay resident forever. Instead, when there is no client socket, no in-flight request, no open run or provider session and no claimable outbox effect for about 60 s (superseded by SPI-1366's refinement below: now the default of `idleAfterSeconds`), the DO host reads the next due time (outbox, scheduled tasks, usage-limit resets), sets one alarm for it, and calls `ctx.abort()`. That is the same reset an eviction or a deploy performs, so idling exercises exactly the restart path t3 must survive anyway (ADR-0004). The next request or alarm boots t3 again.
 
 ## Consequences
 
@@ -25,7 +25,7 @@ t3 runs many in-process timers (a 5 s Scheduler tick, `Schedule.spaced` reactors
 
 The idle check reads t3's private tables, which a nightly can rename or reshape ([fragility U2](../upstream-fragility.md#u2-the-idle-reset-reads-t3s-private-tables)). A read that fails now means "don't know", never "no work":
 
-- **No reset on a failed read.** If any idle query errors (a table or column gone), the Environment does not reset; it logs `idle-check-unreadable` as an error and reads again only after 10 minutes. Staying up costs money; resetting under a turn ends the turn (ADR-0004), and a wrong alarm loses a wake.
+- **No reset on a failed read.** If any idle query errors (a table or column gone), the Environment does not reset; it logs `idle-check-unreadable` as an error and reads again only after 10 minutes (superseded by SPI-1366's refinement below: it reads again at the next check). Staying up costs money; resetting under a turn ends the turn (ADR-0004), and a wrong alarm loses a wake.
 - **An unknown status is open.** A run or provider session counts as open unless its status is a settled one (runs: `completed`, `interrupted`, `failed`, `cancelled`, `rolled_back`; sessions: `ready`, `stopped`, `error`), so a status a nightly adds keeps the Environment up.
 - **An alarm that cannot read its due work boots t3** rather than arming for a time it cannot know (`alarm-due-unreadable`).
 - The health route shows a failed read as `{ unreadable }` under `openWork` or `nextDue`.
@@ -37,3 +37,18 @@ An admin call (`/_t3flare/*`) used to be left out of the requests in flight, so 
 - **An admin call in flight holds the Environment up**, as a hold does: the idle check does not reset it, forced or not.
 - **It is not activity.** Ending one does not restart the idle delay, so an admin poll (the health route every few seconds) cannot keep the Environment awake for good. The health route shows the count as `adminInFlight`, apart from `inFlight`.
 - **The idle check itself is not counted** (`POST /_t3flare/idle-check`): it runs the check, and counted, it would always find itself in flight.
+
+## Refinement (SPI-1366, 2026-11-23): the idle delay and the wakes are Environment settings
+
+Supersedes the fixed values above: the idle delay of about 60 s, the 10-minute back-off after a failed read, and the
+PR watch's and the Remote tasks' fixed wakes.
+
+- **The idle delay is `idleAfterSeconds`** (60 by default, `down-free`): a longer one keeps t3 resident, and billed. A
+  test's or the acceptance stage's `T3FLARE_IDLE_AFTER_MS` still wins over it.
+- **A failed read is read again at the next idle check**, not 10 minutes later: the read is one cheap query, and the
+  back-off only delayed noticing a fix. The error is logged when what failed changes, not at every check.
+- **The PR watch's wake is `prWatchWakeMinutes`** (10, `up-free`: a shorter one boots t3 more often), and **the Remote
+  tasks' retry waits 5, 15, then `remoteRetryMinutes`** (30, `up-free`), each capped at it.
+- **Safe mode follows `safeModeAfterFailures`** failed boots in a row (3, `down-free`).
+
+All four are in the Settings page's Sleep and wake row, read at each use.

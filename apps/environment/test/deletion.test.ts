@@ -59,6 +59,21 @@ describe("references", () => {
     expect(references.byWorkspace.get("gone")).toEqual(["thread t3", "open run in thread t3"]);
   });
 
+  it("name every holder of a Workspace, however many (SPI-1366: no cut at five), and every thread t3 holds", () => {
+    const sql = t3Tables();
+    sql.exec("INSERT INTO projection_projects VALUES ('p1', '/w/app', NULL, NULL)");
+    for (let n = 0; n < 7; n++)
+      sql.exec(
+        `INSERT INTO orchestration_v2_projection_threads VALUES ('t${n}', 'p1', NULL, NULL, '{"worktreePath":null}')`,
+      );
+    sql.exec(
+      `INSERT INTO orchestration_v2_projection_threads VALUES ('gone', 'p1', '2026-01-02', NULL, '{"worktreePath":null}')`,
+    );
+    const references = referencesFrom(sql);
+    expect(references.byWorkspace.get("app")).toHaveLength(8);
+    expect(references.threadIds).toEqual(new Set(["t0", "t1", "t2", "t3", "t4", "t5", "t6", "gone"]));
+  });
+
   it("date each Workspace's release: the latest deleted_at of a deleted project or thread that referenced it", () => {
     const sql = t3Tables();
     sql.exec("INSERT INTO projection_projects VALUES ('p1', '/w/acme', '2026-01-05T00:00:00Z', NULL)");

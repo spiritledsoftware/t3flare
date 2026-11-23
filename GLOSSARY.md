@@ -243,10 +243,16 @@ Workspace may run and how long an idle one waits before it may be ended to free 
 Turn limit, the Answer wait, the settings read wait, how long a clone or a checkpoint may run, the Global mise config,
 the Image setup and the Container setup, the Environment skills, the Variables, whether Terminals and CLI agents read
 the Owner's dotfiles, how long usage records and pi sessions are kept, how long an MCP call may run and how large a
-result it takes, how long a request to GitHub or a sign-in's vendor may wait (`outsideRequestSeconds`), how many of a
+result it takes, how long a request to GitHub, a sign-in's vendor, T3 Connect or a Model endpoint's model list may wait
+(`outsideRequestSeconds`), how many of a
 repository's skills are listed and how far its skills and Prompt templates directories are read (`repoSkillsListed`,
 `skillsDirectoryEntries`, `skillsLinkEntries`, `promptsDirectoryEntries`), how long a failed Base build waits to retry,
-and the Grace.
+how long the Environment waits idle and what wakes it (`idleAfterSeconds`, `prWatchWakeMinutes`, `remoteRetryMinutes`,
+`safeModeAfterFailures`), how long text generation may take and how long GitHub is left before it is asked again
+(`textGenerationSeconds`, `githubRetrySeconds`), the MCP calls' pauses, start wait and sign-in time
+(`mcpPausesPerCall`, `cliMcpStartSeconds`, `mcpSignInMinutes`), the preview browsers' cadences
+(`browserProfileSaveSeconds`, `htmlBrowserKeepAliveSeconds`), the Settings page's token, the Owner clients kept and T3
+Connect's publish log (`pageTokenHours`, `clientsPerKey`, `connectPublishLogKept`), and the Grace.
 t3flare's own, not t3's server settings.
 _Avoid_: environment config, server settings, Container settings
 
@@ -495,7 +501,7 @@ An opaque stand-in for a Model endpoint's credential (the model handle), given t
 _Avoid_: placeholder, fake token, Tool handle (that one is for the MCP relay)
 
 **Safe mode**:
-The Environment DO's state where it does not start t3, and only the admin routes answer; entered by hand or after three boots in a row fail.
+The Environment DO's state where it does not start t3, and only the admin routes answer; entered by hand or after `safeModeAfterFailures` boots in a row fail (three by default).
 _Avoid_: maintenance mode, recovery mode
 
 **Pairing window**:

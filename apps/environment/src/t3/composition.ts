@@ -205,7 +205,9 @@ import * as CloudSelfUpdate from "../updates/selfUpdate.ts";
 import { layerManagedPolicy } from "./managedPolicy.ts";
 import { layerPeerLinksWithoutCause } from "./peerLinks.ts";
 import * as ConnectService from "../connect/service.ts";
+import { resolveEnvironment } from "@t3flare/harness-registry";
 import { makePublishRecorder } from "../connect/recorder.ts";
+import { harnessStore } from "../harness/store.ts";
 import {
   layerFollowTextGenerationModel,
   layerPinFastWorktreeCheckoutOff,
@@ -232,6 +234,8 @@ export interface CompositionOptions {
 
 /** Where the publish recorder keeps its last events (step 3+). */
 const PUBLISHES_KEY = "t3flare:connect-publishes";
+/** Each live thread's last published phase, apart from the log (SPI-1366): the republish after a boot reads it. */
+const PUBLISHED_PHASES_KEY = "t3flare:connect-published-phases";
 
 /** The State directory's root in DO SQLite (ADR-0007). */
 export const BASE_DIR = "/t3";
@@ -242,10 +246,16 @@ const HTTP_ROUTER_CONFIG = { maxParamLength: 512 } as const;
 export const make = (options: CompositionOptions) => {
   const httpServer = DoHttpServer.make();
   // t3flare: the outcome of each T3 Connect publish, read from t3's own log events (step 3+, plan section 4.4).
-  const publishRecorder = makePublishRecorder({
-    read: () => options.storage.kv.get(PUBLISHES_KEY),
-    write: (entries) => options.storage.kv.put(PUBLISHES_KEY, entries),
-  });
+  const publishRecorder = makePublishRecorder(
+    {
+      read: () => options.storage.kv.get(PUBLISHES_KEY),
+      write: (entries) => options.storage.kv.put(PUBLISHES_KEY, entries),
+      readPhases: () => options.storage.kv.get(PUBLISHED_PHASES_KEY),
+      writePhases: (phases) => options.storage.kv.put(PUBLISHED_PHASES_KEY, phases),
+    },
+    // Read at each publish (SPI-1366).
+    () => resolveEnvironment(harnessStore(options.storage.kv).loadEnvironment()).connectPublishLogKept,
+  );
 
   // t3flare: the Node platform (NodeServices, NodeCrypto) becomes the DO's.
   const layerPlatformServices = DocumentText.layer.pipe(Layer.provideMerge(DoServices.layer));

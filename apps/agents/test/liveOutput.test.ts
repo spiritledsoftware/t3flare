@@ -17,6 +17,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_SUGGESTION_LIMITS,
+  newestMatch,
   PROMPT_SUGGESTION_PROMPT,
   suggestionContext,
   suggestPrompt,
@@ -167,5 +168,31 @@ describe("prompt suggestions", () => {
         ),
     };
     expect(await suggestPrompt(hung as never, model, "fix it", "fixed", limits)).toBe("");
+  });
+});
+
+describe("a turn's final answer (SPI-1366: found in any turn, not only among its newest 20 entries)", () => {
+  /** `items` newest first, read in pages of `size`, counting the pages read. */
+  const pagesOf = <A>(items: ReadonlyArray<A>, size: number) => {
+    const read = { pages: 0 };
+    const page = async (cursor: number | undefined) => {
+      read.pages++;
+      const at = cursor ?? 0;
+      const next = at + size < items.length ? at + size : undefined;
+      return { items: items.slice(at, at + size), ...(next === undefined ? {} : { next }) };
+    };
+    return { page, read };
+  };
+
+  it("pages back past any number of tool entries to the newest that matches, and reads no further", async () => {
+    const entries = [...Array.from({ length: 45 }, () => "tool"), "answer", "older answer"];
+    const { page, read } = pagesOf(entries, 20);
+    expect(await newestMatch(page, (entry) => entry.includes("answer"))).toBe("answer");
+    expect(read.pages).toBe(3);
+  });
+
+  it("is undefined when no entry matches", async () => {
+    const { page } = pagesOf(["tool", "tool"], 1);
+    expect(await newestMatch(page, (entry) => entry === "answer")).toBeUndefined();
   });
 });

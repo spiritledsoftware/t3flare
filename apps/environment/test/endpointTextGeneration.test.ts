@@ -17,6 +17,8 @@ import * as Exit from "effect/Exit";
 import * as Schema from "effect/Schema";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { resolveEnvironment, TEXT_GENERATION_MARGIN_MS } from "@t3flare/harness-registry";
+
 import { bindEnvironmentServices, type EnvironmentServices } from "../src/agents/bindings.ts";
 import { makePiDurableTextGeneration, runText } from "../src/provider/textGeneration.ts";
 
@@ -86,7 +88,36 @@ describe("runText on Model endpoints", () => {
     const calls = bind(() => ({ ok: true, text: '{"title":"Fix the build"}' }));
     const exit = await run("openai/gpt-5-mini");
     expect(exit).toEqual(Exit.succeed({ title: "Fix the build" }));
-    expect(calls).toEqual([{ endpointId: "openai", modelId: "gpt-5-mini", prompt: "Name this thread." }]);
+    // The text generation time limit's default, 110 s, rides with the request (SPI-1366): the agents Worker ends it there.
+    expect(calls).toEqual([
+      { endpointId: "openai", modelId: "gpt-5-mini", prompt: "Name this thread.", timeoutMs: 110_000 },
+    ]);
+  });
+
+  it("carries the text generation time limit as stored, and waits that and a margin for the answer (SPI-1366)", async () => {
+    vi.useFakeTimers();
+    try {
+      const calls: Array<EndpointTextRequest> = [];
+      bindEnvironmentServices({
+        agents: {
+          TEXT_GENERATION: {
+            generate: (request: EndpointTextRequest) => (
+              calls.push(request),
+              new Promise<EndpointTextAnswer>(() => {})
+            ),
+          },
+        },
+        modelEndpoints: () => ENDPOINTS,
+        environment: () => resolveEnvironment({ revision: 1, settings: { textGenerationSeconds: 300 } }),
+      } as unknown as EnvironmentServices);
+      const exit = run("openai/gpt-5-mini");
+      await vi.advanceTimersByTimeAsync(300_000 + TEXT_GENERATION_MARGIN_MS - 1);
+      expect(calls.map((call) => call.timeoutMs)).toEqual([300_000]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(detailOf(await exit)).toMatch(/did not answer in time/);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("runs `default` on a small model of the first endpoint that has one", async () => {

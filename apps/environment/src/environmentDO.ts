@@ -29,13 +29,14 @@ import { bindEnvironmentServices, environmentServices, ownerAnswerMsNow } from "
 import { graceMoved, ownerSweep, SweepWake } from "./agents/sweepWake.ts";
 import { GitHubTokens } from "./agents/github.ts";
 import { deliverPush } from "./agents/sessionSink.ts";
-import { sweepSettingsOf } from "./agents/deletionSettings.ts";
+import { SWEEP_EVERY_MS, sweepSettingsOf } from "./agents/deletionSettings.ts";
+import { sweptSessionsIn } from "./agents/sweptSessions.ts";
 import { ProcessChannel } from "./agents/processChannel.ts";
 import { scratchProjectOf } from "./agents/scratch.ts";
 import { locate, workspaceRpc } from "./agents/workspaceClient.ts";
 import { workspaceRegistry } from "./agents/workspaces.ts";
 import type { AgentsBindings } from "./agents/rpc.ts";
-import type { PurgingSince, SweepReport } from "./agents/deletion.ts";
+import type { PurgingSince, SweepReport, SweptSessions } from "./agents/deletion.ts";
 import type { WorkspacesApi } from "./agents/workspaceActions.ts";
 import * as BootState from "./host/bootState.ts";
 import * as Idle from "./host/idle.ts";
@@ -159,8 +160,6 @@ export interface BootReport {
 /** When the Workspace sweep is next due, and its last report (step 2b, plan section 5.5). */
 const NEXT_SWEEP_KEY = "t3flare:next-sweep";
 const LAST_SWEEP_KEY = "t3flare:last-sweep";
-/** The deleted threads whose Sessions the sweep destroyed. */
-const SWEPT_SESSIONS_KEY = "t3flare:swept-sessions";
 /** When purging was last turned on (ADR-0043 §4): nothing is purged before one Grace after it. */
 const PURGING_SINCE_KEY = "t3flare:purging-since";
 
@@ -193,7 +192,6 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     Idle.activity.inFlight = 0;
     Idle.activity.adminInFlight = 0;
     Idle.activity.idleSince = Date.now();
-    Idle.activity.unreadableUntil = 0;
     // The sign-in's poll and the publishes the holds stood for went with the reset (step 3+).
     Idle.holds.clear();
     resetTerminals();
@@ -227,9 +225,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       newKey: () => `proc-${crypto.randomUUID()}`,
       // Read at each CLI spawn (SPI-1318): the count applies at the next start, the reclaim delay to processes started after.
       cliLimits: () => {
-        const { cliProcessesPerWorkspace, cliReclaimSeconds } = resolveEnvironment(
-          harnessStore(ctx.storage.kv).loadEnvironment(),
-        );
+        const { cliProcessesPerWorkspace, cliReclaimSeconds } = this.#environmentNow();
         return { cliProcessesPerWorkspace, cliReclaimSeconds };
       },
     });
@@ -240,25 +236,24 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       workspaces: workspaceRegistry(ctx.storage.sql),
       sql: ctx.storage.sql,
       // Read at each use (ADR-0043 §2–3): a change to the Grace applies at the next Sweep, without a reset.
-      sweep: () =>
-        sweepSettingsOf(resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()), env.T3FLARE_SWEEP_GRACE_MS),
+      sweep: () => sweepSettingsOf(this.#environmentNow(), env.T3FLARE_SWEEP_GRACE_MS),
       // Read at each CLI spawn (ADR-0047 §9): a change applies at each CLI agent's next start.
-      agentsReadDotfiles: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).agentsReadDotfiles,
+      agentsReadDotfiles: () => this.#environmentNow().agentsReadDotfiles,
       // Read at each CLI spawn (SPI-1323): a change applies at each pi start.
-      piSessionRetentionDays: () =>
-        resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).piSessionRetentionDays,
+      piSessionRetentionDays: () => this.#environmentNow().piSessionRetentionDays,
       // Read at each turn's start (SPI-1315): a change applies at each thread's next turn; a running turn keeps its limit.
-      turnLimitMs: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).turnLimitMinutes * 60_000,
+      turnLimitMs: () => this.#environmentNow().turnLimitMinutes * 60_000,
       // Read at each turn's start (SPI-1314): how long the Session waits there for the newest settings.
-      settingsReadMs: () =>
-        resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).settingsReadSeconds * 1000,
+      settingsReadMs: () => this.#environmentNow().settingsReadSeconds * 1000,
       // Read at each clone and checkpoint operation (SPI-1324) and carried as its `timeoutMs`: one already running keeps it.
-      cloneMs: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).cloneMinutes * 60_000,
-      checkpointMs: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).checkpointMinutes * 60_000,
+      cloneMs: () => this.#environmentNow().cloneMinutes * 60_000,
+      checkpointMs: () => this.#environmentNow().checkpointMinutes * 60_000,
       // Read when a card is raised and at each CLI spawn (SPI-1316): a card already waiting keeps its deadline.
-      ownerAnswerMs: () => ownerAnswerMsOf(resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment())),
+      ownerAnswerMs: () => ownerAnswerMsOf(this.#environmentNow()),
       // Read at each CLI spawn (SPI-1359): the CLI's tool timeout covers the MCP call time limit as stored then.
-      mcpCallMs: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).mcpCallSeconds * 1000,
+      mcpCallMs: () => this.#environmentNow().mcpCallSeconds * 1000,
+      // Read at each use (SPI-1366): the settings read at their own next use, not at a Container start.
+      environment: () => this.#environmentNow(),
       // The deletion wake's Layer (`t3/deletionWake.ts`, ADR-0043 §5) asks for a Sweep here.
       wakeSweep: () => this.wakeSweep(),
       marks: { has: (key) => ctx.storage.kv.get(key) !== undefined, set: (key) => ctx.storage.kv.put(key, Date.now()) },
@@ -281,7 +276,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       publicOrigin: () => (this.env.T3FLARE_HOST === undefined ? null : `https://${this.env.T3FLARE_HOST}`),
       // Read at each record and prune (SPI-1323): a change applies at the next prune and to entries recorded from then on.
       usage: usageStore(ctx.storage.sql, {
-        retentionDays: () => resolveEnvironment(harnessStore(ctx.storage.kv).loadEnvironment()).usageRetentionDays,
+        retentionDays: () => this.#environmentNow().usageRetentionDays,
       }),
       limits: limitStore(ctx.storage.sql),
       browserRun: env.BROWSER,
@@ -312,10 +307,14 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
 
   /** The GitHub App's minter (ADR-0013, ADR-0018). */
   get github(): GitHubTokens {
-    this.#github ??= new GitHubTokens({
-      appId: this.env.T3FLARE_GITHUB_APP_ID,
-      privateKey: this.env.T3FLARE_GITHUB_APP_PRIVATE_KEY,
-    });
+    this.#github ??= new GitHubTokens(
+      { appId: this.env.T3FLARE_GITHUB_APP_ID, privateKey: this.env.T3FLARE_GITHUB_APP_PRIVATE_KEY },
+      // Read at each request and each failure (SPI-1366).
+      {
+        requestTimeoutMs: () => this.#outsideRequestMs(),
+        retryMs: () => this.#environmentNow().githubRetrySeconds * 1000,
+      },
+    );
     return this.#github;
   }
 
@@ -486,6 +485,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
             apiKey,
             (input, init) => fetch(input, init),
             signIn,
+            // The whole listing, every page, at the Outside request time limit (SPI-1366), read at each discovery.
+            this.#outsideRequestMs(),
           ),
         changed: () => void import("./endpoints/changes.ts").then(({ endpointsChanged }) => endpointsChanged()),
         signIns: this.#credentialBroker(),
@@ -531,19 +532,34 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     return this.#broker;
   }
 
+  /** The Outside request time limit as stored now, in ms: the Connect admin calls' deadline (SPI-1366). */
+  outsideRequestMs(): number {
+    return this.#outsideRequestMs();
+  }
+
   /** The Outside request time limit as stored now, in ms (SPI-1365): read at each request to GitHub or a vendor. */
   #outsideRequestMs(): number {
-    return resolveEnvironment(harnessStore(this.ctx.storage.kv).loadEnvironment()).outsideRequestSeconds * 1000;
+    return this.#environmentNow().outsideRequestSeconds * 1000;
   }
 
   /** A sign-in vendor's fetch, clock and request bound; `timeoutMs` is read at each request, so a change applies at the next. */
-  #vendorAccess(): { readonly fetch: typeof fetch; readonly now: () => number; readonly timeoutMs: number } {
+  #vendorAccess(): {
+    readonly fetch: typeof fetch;
+    readonly now: () => number;
+    readonly timeoutMs: number;
+    readonly retryMs: number;
+  } {
     const outsideRequestMs = () => this.#outsideRequestMs();
+    const retryMs = () => this.#environmentNow().githubRetrySeconds * 1000;
     return {
       fetch: (input, init) => fetch(input, init),
       now: () => Date.now(),
       get timeoutMs() {
         return outsideRequestMs();
+      },
+      // Read at each rate-limited renewal (SPI-1366): the GitHub retry when GitHub names no time.
+      get retryMs() {
+        return retryMs();
       },
     };
   }
@@ -689,7 +705,12 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
   async #clientsTable(): Promise<OwnerClients> {
     if (this.#ownerClients === undefined) {
       const { ownerClients } = await import("./settings/clients.ts");
-      this.#ownerClients ??= ownerClients(this.ctx.storage.sql);
+      this.#ownerClients ??= ownerClients(
+        this.ctx.storage.sql,
+        Date.now,
+        // Read at each new client (SPI-1366).
+        () => this.#environmentNow().clientsPerKey,
+      );
     }
     return this.#ownerClients;
   }
@@ -795,6 +816,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       engine: this.env.MCP_OAUTH,
       host: () => this.#configuredHost(),
       audit: (entry) => store.audit({ at: Date.now(), entity: "harness", caller: "oauth", ...entry }),
+      // Read at each start (SPI-1366): a change applies to sign-ins started after it.
+      stateTtlMs: () => this.#environmentNow().mcpSignInMinutes * 60_000,
     });
     return this.#harnessOAuth;
   }
@@ -812,9 +835,10 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       ownHost: () => this.env.T3FLARE_HOST ?? this.#host,
       settingsServer: (input) => this.#settingsCall(input),
       // Read at each call (SPI-1359): a change applies at the next call.
-      callTimeoutMs: () =>
-        resolveEnvironment(harnessStore(this.ctx.storage.kv).loadEnvironment()).mcpCallSeconds * 1000,
-      resultBytes: () => resolveEnvironment(harnessStore(this.ctx.storage.kv).loadEnvironment()).mcpResultKiB * 1024,
+      callTimeoutMs: () => this.#environmentNow().mcpCallSeconds * 1000,
+      resultBytes: () => this.#environmentNow().mcpResultKiB * 1024,
+      // Read at each call (SPI-1366).
+      pausesPerCall: () => this.#environmentNow().mcpPausesPerCall,
     });
     return this.#mcpHost;
   }
@@ -1140,7 +1164,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
 
   async #startRuntime(trigger: string, request?: Request): Promise<Runtime> {
     const kv = this.ctx.storage;
-    const decision = await BootState.beginBoot(kv, new Date());
+    const decision = await BootState.beginBoot(kv, new Date(), this.#environmentNow().safeModeAfterFailures);
     if (!decision.start) {
       console.log(JSON.stringify({ t3flare: "safe-mode", ...decision.safeMode }));
       throw new SafeModeError(decision.safeMode);
@@ -1156,7 +1180,11 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
         storage: this.ctx.storage,
         bootstrapToken: armed ? this.env.T3_BOOTSTRAP_TOKEN : undefined,
         host,
-        connect: { keepAccountToken: this.env.T3FLARE_CONNECT_KEEP_ACCOUNT_TOKEN === "1" },
+        connect: {
+          keepAccountToken: this.env.T3FLARE_CONNECT_KEEP_ACCOUNT_TOKEN === "1",
+          // Read at each request to T3 Connect (SPI-1366).
+          requestMs: () => this.#outsideRequestMs(),
+        },
       });
       await BootState.bootSucceeded(kv, new Date());
       isolate.boots++;
@@ -1239,9 +1267,15 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     if (runtime?.bootstrapSeeded) await this.restartRuntime("disarm-bootstrap");
   }
 
+  /** The Environment settings as stored now (SPI-1366): the Sleep and wake settings read at each use. */
+  #environmentNow(): ResolvedEnvironment {
+    return resolveEnvironment(harnessStore(this.ctx.storage.kv).loadEnvironment());
+  }
+
+  /** The idle delay: a test's or the acceptance stage's `T3FLARE_IDLE_AFTER_MS`, else the setting (SPI-1366). */
   #idleAfterMs(): number {
     const value = Number(this.env.T3FLARE_IDLE_AFTER_MS);
-    return Number.isFinite(value) && value > 0 ? value : Idle.IDLE_AFTER_MS;
+    return Number.isFinite(value) && value > 0 ? value : this.#environmentNow().idleAfterSeconds * 1000;
   }
 
   #startIdleChecks() {
@@ -1272,26 +1306,24 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
         : console.warn(JSON.stringify({ t3flare: "sweep-arm-failed", error: String(error).slice(0, 300) })),
   });
 
-  /** When the sweep is next due (the first is an hour after the first look). */
+  /**
+   * When the sweep is next due: the first one Sweep cadence after the first look (SPI-1366), as every later one is. A
+   * deletion in t3 brings it forward (the deletion wake, ADR-0043 §5).
+   */
   #nextSweep(now = Date.now()): number {
     const stored = this.ctx.storage.kv.get<number>(NEXT_SWEEP_KEY);
     if (stored !== undefined) return stored;
-    this.ctx.storage.kv.put(NEXT_SWEEP_KEY, now + 60 * 60_000);
-    return now + 60 * 60_000;
+    this.ctx.storage.kv.put(NEXT_SWEEP_KEY, now + SWEEP_EVERY_MS);
+    return now + SWEEP_EVERY_MS;
   }
 
   /**
    * The deleted threads' Sessions already destroyed, kept here so neither the Sweep nor a Purge now destroys or counts one
-   * twice across runs; written at each destroy, so a Purge now during a Sweep loses nothing.
+   * twice across runs; written at each destroy, so a Purge now during a Sweep loses nothing. One key a thread (SPI-1366),
+   * forgotten once t3 no longer holds the thread, so no count bounds it. A list kept under the old single key (at most
+   * 5,000 threads) moves into them at first use.
    */
-  readonly #sweptSessions = {
-    has: (threadId: string): boolean =>
-      (this.ctx.storage.kv.get<ReadonlyArray<string>>(SWEPT_SESSIONS_KEY) ?? []).includes(threadId),
-    add: (threadId: string): void => {
-      const swept = this.ctx.storage.kv.get<ReadonlyArray<string>>(SWEPT_SESSIONS_KEY) ?? [];
-      if (!swept.includes(threadId)) this.ctx.storage.kv.put(SWEPT_SESSIONS_KEY, [...swept, threadId].slice(-5000));
-    },
-  };
+  readonly #sweptSessions: SweptSessions = sweptSessionsIn(this.ctx.storage.kv);
 
   /** When purging was last turned on (ADR-0043 §4), for the Sweep, the Workspaces section and a change to the Grace. */
   readonly #purgingSince: PurgingSince = {
@@ -1395,6 +1427,9 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     if (current === null || current > at) await this.ctx.storage.setAlarm(Math.max(at, Date.now() + 1000));
   }
 
+  /** The last unreadable-tables failure logged, so a failure that stays is logged once. */
+  #unreadableLogged: string | undefined;
+
   /**
    * ADR-0003: when idle, set one alarm for t3's next due work and reset the object. Returns what it found
    * (for the admin route) and resets only when `reset` is true.
@@ -1403,21 +1438,20 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     if (this.#runtime === undefined) return { reset: false, why: "t3 is not running" };
     void this.#sweepIfDue().catch(() => undefined);
     const now = new Date();
-    // A forced check (the admin route) reads t3's tables again even while backing off.
-    if (options.force) Idle.activity.unreadableUntil = 0;
-    const verdict = Idle.idleVerdict(this.ctx.storage.sql, now, options.force ? 0 : this.#idleAfterMs());
+    const settings = this.#environmentNow();
+    const verdict = Idle.idleVerdict(
+      this.ctx.storage.sql,
+      now,
+      options.force ? 0 : this.#idleAfterMs(),
+      settings.prWatchWakeMinutes * 60_000,
+    );
     if (!verdict.reset) {
       if (verdict.work !== undefined) await this.#keepRemoteTasksAlarm(verdict.work, now.getTime());
-      // Fail safe (fragility U2): the Environment stays up. Logged once per back-off, as an error.
-      if (verdict.unreadable !== undefined) {
-        console.error(
-          JSON.stringify({
-            t3flare: "idle-check-unreadable",
-            error: verdict.unreadable,
-            retryAfter: new Date(Idle.activity.unreadableUntil).toISOString(),
-          }),
-        );
-      }
+      // Fail safe (fragility U2): the Environment stays up. Read again at each check; logged, as an error, when what
+      // failed changes, not at every check.
+      if (verdict.unreadable !== undefined && verdict.unreadable !== this.#unreadableLogged)
+        console.error(JSON.stringify({ t3flare: "idle-check-unreadable", error: verdict.unreadable }));
+      this.#unreadableLogged = verdict.unreadable;
       return verdict;
     }
     // A pending arm window needs no alarm: the next boot reads it, and seeds the grant only if still armed.
@@ -1431,6 +1465,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
         retry: this.ctx.storage.kv.get<Idle.RemoteRetry>(Idle.REMOTE_RETRY_KEY),
       },
       now.getTime(),
+      settings.remoteRetryMinutes * 60_000,
     );
     if (planned.retry === undefined) this.ctx.storage.kv.delete(Idle.REMOTE_RETRY_KEY);
     else this.ctx.storage.kv.put(Idle.REMOTE_RETRY_KEY, planned.retry);

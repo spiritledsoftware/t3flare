@@ -5,7 +5,7 @@ import type { EndpointCredential, EndpointTarget, ModelEndpoint } from "@t3flare
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import fixtures from "../../../packages/models/test/fixtures/vendors.json" with { type: "json" };
-import { type EndpointTextAccess, generateEndpointText } from "../src/endpointText.ts";
+import { type EndpointTextAccess, endpointTextRequestOf, generateEndpointText } from "../src/endpointText.ts";
 
 const COST = { input: 1, output: 5, cacheRead: 0, cacheWrite: 0 };
 const KEY = "sk-secret-123";
@@ -402,5 +402,16 @@ describe("generateEndpointText", () => {
       ),
     ).toBe('The Model endpoint "gw" is not signed in to ChatGPT: sign in with ChatGPT again on the Settings page.');
     expect(signedOut.sent).toEqual([]);
+  });
+});
+
+describe("the request's time limit (SPI-1366)", () => {
+  it("is the Environment's text generation time limit when it sends one, a whole positive count of ms", () => {
+    const base = { endpointId: "gw", modelId: "m", prompt: "p" };
+    expect(endpointTextRequestOf({ ...base, timeoutMs: 300_000 })).toEqual({ ...base, timeoutMs: 300_000 });
+    // An older Environment sends none; a malformed one is dropped, and the default applies.
+    expect(endpointTextRequestOf(base)).toEqual(base);
+    expect(endpointTextRequestOf({ ...base, timeoutMs: -1 })).toEqual(base);
+    expect(endpointTextRequestOf({ ...base, timeoutMs: "1" })).toEqual(base);
   });
 });

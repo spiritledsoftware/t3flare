@@ -22,6 +22,25 @@ export const suggestionModelOf = (
   const parsed = slug === undefined ? undefined : parseEndpointSlug(slug);
   return parsed === undefined ? undefined : { provider: parsed.endpointId, modelId: parsed.modelId };
 };
+/**
+ * The newest item that `matches`, paging back with `page` (newest first; `next` names the following page) until one does
+ * or none are left (SPI-1366): a turn's final answer is found after any number of tool entries, reading only the pages
+ * before it.
+ */
+export const newestMatch = async <A, C>(
+  page: (cursor: C | undefined) => Promise<{ readonly items: ReadonlyArray<A>; readonly next?: C | undefined }>,
+  matches: (item: A) => boolean,
+): Promise<A | undefined> => {
+  let cursor: C | undefined;
+  do {
+    const read = await page(cursor);
+    const found = read.items.find(matches);
+    if (found !== undefined) return found;
+    cursor = read.next;
+  } while (cursor !== undefined);
+  return undefined;
+};
+
 /** Prompt suggestions' settings (`prompt-suggestions`, SPI-1362): how much of the turn the model reads, how long it may take. */
 export interface SuggestionLimits {
   /** Most characters of the request and of the answer the model reads, the last of each. */

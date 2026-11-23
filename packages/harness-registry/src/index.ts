@@ -18,7 +18,12 @@ import {
   type SettingsServerLimits,
   type ToolClass,
 } from "./mcp.ts";
-import { DEFAULT_TERMINALS_PER_WORKSPACE, ENVIRONMENT_SETTINGS, MAX_TIMED_MINUTES } from "./environment.ts";
+import {
+  DEFAULT_TERMINALS_PER_WORKSPACE,
+  ENVIRONMENT_SETTINGS,
+  MAX_TIMED_MINUTES,
+  MAX_TIMED_SECONDS,
+} from "./environment.ts";
 import { fieldProblem, type SettingEntry, type SettingValue } from "./fields.ts";
 import { EXPOSURES, legacyResolvedTools, type ResolvedTools, resolveTools, type ToolsLayer } from "./tools.ts";
 
@@ -63,11 +68,6 @@ const modelSetting = (title: string, description: string, fallback: string): Set
   schema: { type: "text", maxLength: 300, default: fallback },
 });
 const THINKING_LEVELS = ["off", "low", "medium", "high"] as const;
-/**
- * The longest a Guardian or Advisor Review, the Advisor's Catch-up Wait, or a web_fetch or web_search call may be set
- * to: what t3flare times itself with its own `setTimeout` (ADR-0048 §2).
- */
-const MAX_TIMED_SECONDS = MAX_TIMED_MINUTES * 60;
 /**
  * The largest body web_fetch converts from HTML or JSON; a larger one is returned as it came. A named constraint: a
  * Worker isolate's 128 MB, which also holds the Session's own state. Conversion costs about 7 times the body: measured

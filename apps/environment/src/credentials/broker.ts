@@ -45,8 +45,6 @@ const pendingName = (endpointId: string): string => `endpoint/${endpointId}/sign
 
 /** An access token is renewed when less than this is left (pi-ai's own margin); ChatGPT's last an hour. */
 export const REFRESH_MARGIN_MS = 5 * 60_000;
-/** How long a started sign-in waits for its paste. */
-export const PENDING_TTL_MS = 30 * 60_000;
 
 /** An endpoint's sign-in as the panel shows it: never a token. */
 export interface SignInStatus {
@@ -383,14 +381,8 @@ export const credentialBroker = (deps: BrokerDeps): CredentialBroker => {
     const vendor = vendors[pending.signIn];
     if (vendor === undefined)
       return { ok: false, problem: "No sign-in is waiting for a pasted address: start the sign-in again." };
-    if (now() - pending.startedAt > PENDING_TTL_MS) {
-      await serial(endpointId, async () => {
-        if ((await sealed.open(pendingName(endpointId))) !== text) return;
-        sealed.remove(pendingName(endpointId));
-        setStatus(endpointId, { pendingSince: null });
-      });
-      return { ok: false, problem: "That sign-in lapsed (30 minutes): start it again." };
-    }
+    // No lapse of t3flare's own (SPI-1366): the vendor's exchange refuses a code past its life, and a new start or a
+    // sign-out replaces this one.
     const result = await vendor.complete(pending, pasted);
     const settled = await serial(endpointId, async (): Promise<Settled> => {
       // Still the attempt waiting? A sign-out (or a new start) during the exchange took it away.

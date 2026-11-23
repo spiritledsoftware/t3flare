@@ -237,7 +237,7 @@ const revocationNote = (kind: SignIn | null | undefined): { readonly revocation?
 
 /** A label for a sign-in's endpoint: the given one, else the sign-in's title. */
 const signInLabel = (value: unknown, kind: SignIn): string =>
-  typeof value === "string" && value.trim() !== "" ? value.trim().slice(0, 60) : SIGN_IN_KINDS[kind].title;
+  typeof value === "string" && value.trim() !== "" ? value.trim() : SIGN_IN_KINDS[kind].title;
 
 const isSignInKind = (value: unknown): value is SignIn =>
   typeof value === "string" && (SIGN_INS as ReadonlyArray<string>).includes(value);
@@ -263,8 +263,8 @@ const completeSignIn = async (
   const started = signIns.status(id).kind;
   const device = started !== null && isDeviceSignIn(started);
   const pasted = device && body.pasted === undefined ? "" : body.pasted;
-  if (typeof pasted !== "string" || pasted.length > 8192)
-    return { status: 400, text: "pasted is the address your browser landed on" };
+  // Any length (SPI-1366): the vendor's exchange judges it, and the request body's own bound holds it.
+  if (typeof pasted !== "string") return { status: 400, text: "pasted is the address your browser landed on" };
   const result = await signIns.complete(id, pasted);
   const kind = signIns.status(id).kind;
   // Not approved yet: asked again after the vendor's interval; nothing to audit until it ends.

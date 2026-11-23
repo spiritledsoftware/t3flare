@@ -50,8 +50,11 @@ import {
   SETTINGS_SERVER_LIMITS,
   type SettingsServerLimitKey,
   SETTINGS_SERVER_LIMITS_NOTE,
+  ACCESS_SETTING_KEYS,
+  LIFECYCLE_SETTING_KEYS,
   MCP_CALL_SETTING_KEYS,
   OUTSIDE_REQUEST_SETTING_KEYS,
+  PREVIEW_SETTING_KEYS,
   SKILLS_SETTING_KEYS,
   RETENTION_SETTING_KEYS,
   SWEEP_SETTING_KEYS,
@@ -68,7 +71,7 @@ import type { AuditEntry } from "./store.ts";
 import { brand, FAVICON } from "./pageBrand.ts";
 import { ICON_SPRITE, icon, type IconName } from "./pageIcons.ts";
 import { changePagePath } from "./paths.ts";
-import { budgetNote, ISO_TIME_SOURCE, KEPT_PLACEHOLDER, SCRIPT } from "./pageScript.ts";
+import { budgetNote, ENTITY_LABELS, ISO_TIME_SOURCE, KEPT_PLACEHOLDER, SCRIPT } from "./pageScript.ts";
 import { endpointsSection, type EndpointsView } from "./pageEndpoints.ts";
 import { workspacesSection, type WorkspacesSectionInput } from "./pageWorkspaces.ts";
 import { STYLE } from "./pageStyle.ts";
@@ -451,7 +454,8 @@ const environmentSection = (
   );
   // The scalar settings share the Containers row. The agents' settings (SPI-1315: the Turn limit, the CLI agents'
   // processes) share an Agents row, the MCP calls' time limit and result size (SPI-1359) an MCP calls row, the outside
-  // requests' time limit (SPI-1365) an Outside requests row, how long
+  // requests' time limit (SPI-1365) an Outside requests row, the Sleep and wake, Previews and access settings (SPI-1366)
+  // rows of their own, how long
   // history is kept (SPI-1323) a History row, and the dotfiles toggles (ADR-0047 §9) a Dotfiles row, each a `keyedRow`. A list (the Variables) and a file (the Global mise config, the
   // Container setup) each get a row of their own, which the settings that name it as their `row` join. One form, one
   // Save.
@@ -462,6 +466,9 @@ const environmentSection = (
     ...SKILLS_SETTING_KEYS,
     ...RETENTION_SETTING_KEYS,
     ...DOTFILES_SETTING_KEYS,
+    ...LIFECYCLE_SETTING_KEYS,
+    ...PREVIEW_SETTING_KEYS,
+    ...ACCESS_SETTING_KEYS,
   ];
   const ownRow = (setting: EnvironmentSettingEntry) =>
     setting.schema.type === "variables" || setting.schema.type === "file";
@@ -498,13 +505,13 @@ const environmentSection = (
   const mcpCalls = keyedRow(
     "mcp-calls",
     "MCP calls",
-    "How long one MCP tool call may run, and how large a result t3flare takes from it, for every agent and every server.",
+    "How long one MCP tool call may run, how large a result t3flare takes from it, and how many of its pauses for your answer it answers, for every agent and every server; how long Codex waits for t3flare's MCP relay to start; and how long a server's sign-in may take.",
     MCP_CALL_SETTING_KEYS,
   );
   const outside = keyedRow(
     "outside-requests",
     "Outside requests",
-    "How long t3flare waits for GitHub and the sign-ins' vendors to answer one request.",
+    "How long t3flare waits for GitHub, the sign-ins' vendors, T3 Connect and a Model endpoint to answer one request, how long it waits before asking GitHub again after a failure, and how long a model may take to write a title, a commit message or a pull request.",
     OUTSIDE_REQUEST_SETTING_KEYS,
   );
   const skills = keyedRow(
@@ -525,6 +532,24 @@ const environmentSection = (
     "Whether your own config in ~ (/root), from your Image setup or Container setup, reaches Terminals and CLI agents.",
     DOTFILES_SETTING_KEYS,
   );
+  const lifecycle = keyedRow(
+    "lifecycle",
+    "Sleep and wake",
+    "How long the Environment waits idle before it sleeps, what wakes it while it sleeps, and how many failed starts put it in safe mode.",
+    LIFECYCLE_SETTING_KEYS,
+  );
+  const previews = keyedRow(
+    "previews",
+    "Previews",
+    "How often an open preview browser's profile is saved, and how long the browser that renders t3's HTML stays open after its last render.",
+    PREVIEW_SETTING_KEYS,
+  );
+  const access = keyedRow(
+    "access",
+    "Settings page, clients and T3 Connect",
+    "How long this page's token for changes lasts, how many clients of one Owner key the Settings server remembers, and how many of T3 Connect's publishes the Environment keeps for its status.",
+    ACCESS_SETTING_KEYS,
+  );
   const lists = entries
     .filter(([, setting]) => ownRow(setting))
     .map(([key, setting]) => {
@@ -539,7 +564,7 @@ const environmentSection = (
 <div class="section-head"><h2 id="environment-title">${icon("container")}Environment</h2></div>
 <p class="section-desc">What every Workspace's Container gets, and how long t3flare keeps its history. A change applies at each Workspace's next Container start unless its setting says otherwise; a running Container keeps what it started with, and a lower budget stops none.</p>
 <form class="group" data-environment aria-labelledby="environment-title" novalidate><div class="row"><div><div class="row-title"><h3>Containers</h3><span class="ident">revision ${environment.revision}</span></div><p class="desc">Their size, how long one may sit idle, how long open Terminals keep it running, how many may run at once, how many Terminals a Workspace may have, yours and agents', how much an agent's Terminal keeps of its scrollback, how long a start or a turn waits for the newest settings, and how long a clone or a checkpoint may run.</p></div>
-<div class="row-extra"><div class="fields">${fields.join("")}</div></div></div>${agents}${mcpCalls}${outside}${skills}${history}${dotfiles}${lists.join("")}${save}</form>
+<div class="row-extra"><div class="fields">${fields.join("")}</div></div></div>${agents}${mcpCalls}${outside}${lifecycle}${previews}${access}${skills}${history}${dotfiles}${lists.join("")}${save}</form>
 <dl class="group kv"><div><dt>Running now</dt><dd>${
     running === null || running === undefined
       ? "unknown"
@@ -1081,28 +1106,24 @@ ${baseBuildBlock(baseBuild, canRebuild)}
 </section>`;
 };
 
-/** Each entity's name in the audit log; one this page does not know shows as stored. */
-const ENTITY_LABELS: Readonly<Record<string, string>> = {
-  harness: "Harness",
-  environment: "Environment",
-  endpoints: "Model endpoints",
-  "owner-clients": "Owner clients",
-  workspaces: "Workspaces",
-};
+/** One audit entry's row; the page script builds the same cells for an older page (`pageScript.ts`, Show older). */
+const auditRow = (entry: AuditEntry): string =>
+  `<tr><td class="when" data-label="When"><div>${time(entry.at)}</div></td><td class="who" data-label="Who"><div>${escapeHtml(entry.caller)}</div></td><td data-label="Settings"><div>${escapeHtml(ENTITY_LABELS[entry.entity] ?? String(entry.entity))}</div></td><td data-label="Action"><div><code>${escapeHtml(entry.action)}</code></div></td><td data-label="Target"><div>${escapeHtml(entry.target)}</div></td><td data-label="Change"><div><code class="change">${escapeHtml(JSON.stringify(entry.after ?? null))}</code></div></td></tr>`;
 
-const auditSection = (audit: ReadonlyArray<AuditEntry>): string => {
+const auditSection = (audit: ReadonlyArray<AuditEntry>, before?: number): string => {
   const body =
     audit.length === 0
       ? `<div class="empty"><span class="empty-icon">${icon("audit")}</span><h3>No changes yet</h3><p>Every change, here or from a script, is logged with who made it. Secrets are never logged.</p></div>`
-      : `<div class="table-wrap"><table class="stacked"><thead><tr><th scope="col">When</th><th scope="col">Who</th><th scope="col">Settings</th><th scope="col">Action</th><th scope="col">Target</th><th scope="col">Change</th></tr></thead><tbody>${audit
-          .map(
-            (entry) =>
-              `<tr><td class="when" data-label="When"><div>${time(entry.at)}</div></td><td class="who" data-label="Who"><div>${escapeHtml(entry.caller)}</div></td><td data-label="Settings"><div>${escapeHtml(ENTITY_LABELS[entry.entity] ?? String(entry.entity))}</div></td><td data-label="Action"><div><code>${escapeHtml(entry.action)}</code></div></td><td data-label="Target"><div>${escapeHtml(entry.target)}</div></td><td data-label="Change"><div><code class="change">${escapeHtml(JSON.stringify(entry.after ?? null))}</code></div></td></tr>`,
-          )
-          .join("")}</tbody></table></div>`;
+      : `<div class="table-wrap"><table class="stacked"><thead><tr><th scope="col">When</th><th scope="col">Who</th><th scope="col">Settings</th><th scope="col">Action</th><th scope="col">Target</th><th scope="col">Change</th></tr></thead><tbody data-audit-rows>${audit
+          .map(auditRow)
+          .join("")}</tbody></table></div>${
+          before === undefined
+            ? ""
+            : `<div class="audit-more"><button type="button" class="btn btn-sm" data-audit-older data-before="${before}">Show older changes</button><span class="save-note" data-audit-note tabindex="-1" aria-live="polite"></span></div>`
+        }`;
   return `<section id="audit" aria-labelledby="audit-title">
 <div class="section-head"><h2 id="audit-title">${icon("audit")}Audit log</h2></div>
-<p class="section-desc">The latest ${audit.length === 0 ? "" : `${audit.length} `}changes, newest first.</p>
+<p class="section-desc" data-audit-desc>${before === undefined ? "Every change kept" : `The latest ${audit.length} changes`}, newest first${before === undefined ? "." : "; older ones load below."}</p>
 <div class="group">${body}</div>
 </section>`;
 };
@@ -1151,6 +1172,8 @@ export interface PageInput {
   readonly running?: { readonly count: number; readonly holders: ReadonlyArray<string> } | null;
   readonly csrf: string;
   readonly audit: ReadonlyArray<AuditEntry>;
+  /** Where the next page of the audit log starts, when more entries are kept than `audit` holds (SPI-1366). */
+  readonly auditBefore?: number;
   readonly status: Readonly<Record<string, string | number | null>>;
   /** The Builder's last record of the Base build (SPI-1332); "none reported yet" without it. */
   readonly baseBuild?: BaseBuildRecord;
@@ -1200,7 +1223,7 @@ ${navItem("mcp", "MCP servers", "server", failing > 0 ? `<span class="flag" role
 ${input.endpoints === undefined ? "" : `${navItem("endpoints", "Model endpoints", "key", `<span class="count">${input.endpoints.endpoints.length}</span>`)}\n`}${navItem("environment", "Environment", "container")}
 ${input.workspaces === undefined ? "" : `${navItem("workspaces", "Workspaces", "folder", "error" in input.workspaces ? "" : `<span class="count">${input.workspaces.rows.reduce((sum, row) => sum + 1 + row.worktrees.length, 0)}</span>`)}\n`}${navItem("skills", "Skills", "skills")}
 ${navItem("status", "Status", "status")}
-${navItem("audit", "Audit log", "audit", `<span class="count">${input.audit.length}</span>`)}
+${navItem("audit", "Audit log", "audit", `<span class="count" data-audit-count>${input.audit.length}${input.auditBefore === undefined ? "" : "+"}</span>`)}
 </nav>
 <p class="side-foot">Harness revision <strong>${revision}</strong>, applied at each thread's next turn. Environment revision <strong>${environment.revision}</strong>: each setting applies when it says, most at each Container's next start; Environment skills at each thread's next turn.</p>
 </aside>
@@ -1214,7 +1237,7 @@ ${endpointsSection(escapeHtml, input.endpoints)}${environmentSection(environment
 ${workspacesSection(escapeHtml, time, input.workspaces)}
 ${skillsSection(input.skills)}
 ${statusSection(input.status, input.baseBuild, input.canRebuild === true)}
-${auditSection(input.audit)}
+${auditSection(input.audit, input.auditBefore)}
 </div></main>
 </div>
 <script>${SCRIPT}</script>

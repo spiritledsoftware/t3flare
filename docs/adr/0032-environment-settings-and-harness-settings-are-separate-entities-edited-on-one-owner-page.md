@@ -398,7 +398,8 @@ next Pi start; t3 can no longer resume that thread's Pi conversation."
 
 The usage store reads `usageRetentionDays` at each record and passes it to that record's prune (`usageStore`'s
 `retentionDays`), so a change applies at the next prune, at most once an hour as usage is recorded, and to entries
-recorded from then on. Its runaway-writer guard scales with it: `usageMaxRows(days)` is `MAX_USAGE_ROWS` (50,000, sized
+recorded from then on. Its runaway-writer guard scales with it (superseded by SPI-1366's refinement below: the guard is
+removed, and the retention alone bounds the rows): `usageMaxRows(days)` is `MAX_USAGE_ROWS` (50,000, sized
 for 92 days) times `days / 92`, never below 50,000, so a long retention is not cut by a guard sized for a short one; at
 3650 days that is about 2M small rows, well within a DO's SQLite, and a read stays bounded by the page's window. Its
 consequence, stated once, here: at 92 days or more, a writer averaging above about 543 rows a day (50,000 / 92) has its
@@ -512,3 +513,56 @@ Global mise config refinement's 16 KiB, §4's "nor other custom sizes", and the 
 - **Removed:** the 10-minute default of a t3 wait with no `timeoutMs` (it waits until what it waits on happens, or the
   turn is interrupted), termctrl's 20-line exit tail (a job's tail bounds it), and the 64 KiB cuts of an owner's message
   and a tool's `details` in a push (both fit the Session row they come from).
+
+## Refinement (SPI-1366, 2026-11-23): the Environment's housekeeping caps and fixed waits
+
+The Environment's housekeeping kept counts and waits nothing forced. Supersedes the usage records' row cap of the
+SPI-1323 refinement above, and widens SPI-1365's Outside request time limit.
+
+- **Removed: what dropped data or work.** The usage records keep every row inside the retention (no `MAX_USAGE_ROWS`).
+  The Sweep destroys every deleted thread's Session that is due in one run (no 50), lists every holder of a Workspace
+  (no 5), and remembers the Sessions it destroyed one key a thread, forgetting a thread once t3's projection no longer
+  holds it (no 5,000). The GitHub App lists every page of its installations and lists them again at once for an
+  account it does not know (no single page, no 5-minute cache). The audit log reads any page size and the Settings
+  page pages it (no 50). An Update waits as long as GitHub queues it (ADR-0037's refinement). A model sign-in waits as
+  long as its vendor takes the code (no 30 minutes). Endpoint labels, API keys and pasted redirects, model names in
+  `codex exec`, a model's listing's pages, a cause chain's depth and the fixtures route's runs lose their counts.
+- **Reused: the Outside request time limit.** `outsideRequestSeconds` now also bounds a Model endpoint's model listing
+  (all its pages together), T3 Connect's sign-in code and its relay unlink, and each GitHub App request. The Connect
+  probe and the relay status view end with the admin request that asked for them.
+- **New settings**, each with today's value as default and read at its own next use (the Settings server says so). A
+  tier follows ADR-0035 §3: what spends, holds, destroys or widens a window is asked in that direction.
+
+  | Setting                       | Default | Tier                                                         | Row              |
+  | ----------------------------- | ------- | ------------------------------------------------------------ | ---------------- |
+  | `githubRetrySeconds`          | 60      | `up-free` (a shorter wait asks GitHub more often)            | Outside requests |
+  | `textGenerationSeconds`       | 110     | `down-free`                                                  | Outside requests |
+  | `mcpPausesPerCall`            | 16      | `down-free`                                                  | MCP calls        |
+  | `cliMcpStartSeconds`          | 20      | `free`                                                       | MCP calls        |
+  | `mcpSignInMinutes`            | 10      | `down-free` (a longer window keeps a sign-in's state longer) | MCP calls        |
+  | `idleAfterSeconds`            | 60      | `down-free` (longer keeps t3 resident, and billed)           | Sleep and wake   |
+  | `prWatchWakeMinutes`          | 10      | `up-free` (shorter boots t3 more often)                      | Sleep and wake   |
+  | `remoteRetryMinutes`          | 30      | `up-free` (shorter boots t3 more often)                      | Sleep and wake   |
+  | `safeModeAfterFailures`       | 3       | `down-free` (more lets a failing boot loop longer)           | Sleep and wake   |
+  | `browserProfileSaveSeconds`   | 60      | `up-free` (shorter spends Browser Run time)                  | Previews         |
+  | `htmlBrowserKeepAliveSeconds` | 120     | `down-free` (longer bills Browser Run time)                  | Previews         |
+  | `pageTokenHours`              | 1       | `down-free` (longer keeps a copied token valid longer)       | access           |
+  | `clientsPerKey`               | 50      | `up-free` (fewer forgets modes the Owner set)                | access           |
+  | `connectPublishLogKept`       | 100     | `up-free` (fewer deletes log entries)                        | access           |
+  - The GitHub App's back-off doubles to 15 times `githubRetrySeconds`; GitHub's own named time is always kept; an
+    account it is not installed on is listed again at most once a retry.
+  - The agents Worker ends text generation at `textGenerationSeconds`, and the Environment waits
+    `TEXT_GENERATION_MARGIN_MS` more, today's 120 s.
+  - `mcpSignInMinutes` also deletes abandoned sign-in states. `pageTokenHours`: the page asks for a new token when its
+    own runs out.
+  - `htmlBrowserKeepAliveSeconds` is Browser Run's `keep_alive` (at most its 10 minutes), the one knob: t3flare's own
+    60 s close beside it is gone, and the default is the 120 s `keep_alive` it used.
+  - T3 Connect's republish after a boot reads each live thread's last phase from a map of its own, never cut by the
+    log's length.
+
+- **The Sweep at the platform's limit.** Each Session destroy is one RPC, and a Workers invocation makes at most 10,000
+  subrequests. Past the limit the Session pass stops, records what it destroyed, skips the cost guard, and comes back
+  a minute later, not a day.
+- **Derived.** A new Environment's first Sweep comes one Sweep cadence after its first look, not an hour.
+- **Kept.** The stage-only process check's parameters and the preview spike's CDP command wait are diagnostics' own,
+  not the Owner's.

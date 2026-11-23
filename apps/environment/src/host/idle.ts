@@ -4,16 +4,20 @@
 // outbox effect for IDLE_AFTER_MS, the host reads the next due time from t3's tables, sets one alarm for
 // it and calls `ctx.abort()`. The alarm (or the next request) boots t3 again.
 // An open Remote task (SPI-1061 D7) is work while its machine answers; while it does not, the Environment may reset,
-// and the one alarm also carries the task's retry (5, 15, then every 30 minutes; its state in DO storage).
+// and the one alarm also carries the task's retry (5, 15, then every `remoteRetryMinutes`; its state in DO storage).
 // The reads of t3's private tables fail safe (fragility U2): a read that fails means "don't know", never
 // "no work", so the Environment stays up rather than reset under a turn or skip a wake.
 import type { SqlStorage } from "@cloudflare/workers-types/index.ts";
+import {
+  DEFAULT_IDLE_AFTER_SECONDS,
+  DEFAULT_PR_WATCH_WAKE_MINUTES,
+  DEFAULT_REMOTE_RETRY_MINUTES,
+} from "@t3flare/harness-registry";
 
-export const IDLE_AFTER_MS = 60_000;
+/** The idle delay when no setting reaches (`idleAfterSeconds`' default, SPI-1366). */
+export const IDLE_AFTER_MS = DEFAULT_IDLE_AFTER_SECONDS * 1000;
 /** How often the host checks whether it has gone idle. */
 export const IDLE_CHECK_EVERY_MS = 10_000;
-/** After a failed read of t3's tables, how long the idle check waits before reading them again. */
-export const UNREADABLE_BACKOFF_MS = 10 * 60_000;
 
 /** What keeps the Environment awake, counted by the host. Module state: the DO is the only one in its isolate. */
 export const activity = {
@@ -26,8 +30,6 @@ export const activity = {
   adminInFlight: 0,
   /** When the last socket closed or the last request ended (ms since epoch). */
   idleSince: Date.now(),
-  /** Until when the idle check backs off after t3's tables could not be read (ms since epoch; 0 for none). */
-  unreadableUntil: 0,
 };
 
 /**
@@ -221,15 +223,24 @@ export interface RemoteRetry {
 }
 
 export const REMOTE_RETRY_KEY = "t3flare:remote-task-retry";
-/** The retry's back-off: 5, 15, then every 30 minutes. No give-up: the task ends as t3 ends it. */
-export const REMOTE_RETRY_DELAYS_MS = [5 * 60_000, 15 * 60_000, 30 * 60_000] as const;
+/**
+ * The retry's back-off: 5, 15, then every `remoteRetryMinutes` (30 by default; SPI-1366), each at most that. No give-up:
+ * the task ends as t3 ends it.
+ */
+export const REMOTE_RETRY_DELAYS_MS = [5 * 60_000, 15 * 60_000] as const;
+/** The longest retry wait when no setting reaches (`remoteRetryMinutes`' default). */
+export const REMOTE_RETRY_MAX_MS = DEFAULT_REMOTE_RETRY_MINUTES * 60_000;
 /** While a Remote task is open and the Environment is up, an alarm stands at most this far ahead (a deploy, an eviction). */
 export const REMOTE_STANDING_ALARM_MS = 5 * 60_000;
 
-/** The retry after `previous` (none: the first), from `now`. */
-export const nextRemoteRetry = (previous: RemoteRetry | undefined, now: number): RemoteRetry => {
+/** The retry after `previous` (none: the first), from `now`, waiting at most `maxMs`. */
+export const nextRemoteRetry = (
+  previous: RemoteRetry | undefined,
+  now: number,
+  maxMs: number = REMOTE_RETRY_MAX_MS,
+): RemoteRetry => {
   const attempt = previous === undefined ? 0 : previous.attempt + 1;
-  return { attempt, at: now + REMOTE_RETRY_DELAYS_MS[Math.min(attempt, REMOTE_RETRY_DELAYS_MS.length - 1)]! };
+  return { attempt, at: now + Math.min(REMOTE_RETRY_DELAYS_MS[attempt] ?? maxMs, maxMs) };
 };
 
 /**
@@ -240,8 +251,9 @@ export const planReset = (
   work: OpenWork,
   due: { readonly t3Due: number | null; readonly sweep: number; readonly retry: RemoteRetry | undefined },
   now: number,
+  remoteRetryMaxMs: number = REMOTE_RETRY_MAX_MS,
 ): { readonly retry: RemoteRetry | undefined; readonly alarm: number } => {
-  const retry = work.remoteTasksUnanswered > 0 ? nextRemoteRetry(due.retry, now) : undefined;
+  const retry = work.remoteTasksUnanswered > 0 ? nextRemoteRetry(due.retry, now, remoteRetryMaxMs) : undefined;
   const at = Math.min(due.t3Due ?? Number.POSITIVE_INFINITY, due.sweep, retry?.at ?? Number.POSITIVE_INFINITY);
   return { retry, alarm: Math.max(at, now + 1000) };
 };
@@ -262,11 +274,12 @@ export const standingAlarm = (current: number | null, openRemote: number, now: n
 
 /**
  * Parity G12: t3's PR watch (`PullRequestWatchReactor`) reads its watched pull requests every 2 minutes, but only while
- * t3 runs. While any watch is on, a reset wakes t3 this long after it went down, for one sweep; it goes down again a
- * minute later unless the sweep woke an agent. Cost (C): one boot and one host read per watched pull request every 10
- * minutes, while a watch lasts (t3 ends it when the pull request closes or merges).
+ * t3 runs. While any watch is on, a reset wakes t3 `prWatchWakeMinutes` after it went down (an Environment setting,
+ * SPI-1366; this when none reaches), for one sweep; it goes down again a minute later unless the sweep woke an agent.
+ * Cost (C): one boot and one host read per watched pull request per wake, while a watch lasts (t3 ends it when the pull
+ * request closes or merges).
  */
-export const PR_WATCH_WAKE_MS = 10 * 60_000;
+export const PR_WATCH_WAKE_MS = DEFAULT_PR_WATCH_WAKE_MINUTES * 60_000;
 /** The PR watch's wake set at the last reset (ms since epoch), in DO storage: the alarm reads it with t3 down. */
 export const PR_WATCH_WAKE_KEY = "t3flare:pr-watch-wake";
 
@@ -354,29 +367,28 @@ export type IdleVerdict =
   | { readonly reset: true; readonly work: OpenWork; readonly due: NextDue };
 
 /**
- * Whether the Environment should reset now. When t3's tables cannot be read it does not reset, and reads them
- * again only after `UNREADABLE_BACKOFF_MS` (the verdict's `unreadable` says what failed; the caller logs it).
+ * Whether the Environment should reset now. When t3's tables cannot be read it does not reset, and reads them again at
+ * the next check (SPI-1366), so a fix or a restart is noticed at once (the verdict's `unreadable` says what failed; the
+ * caller logs it).
  */
-export const idleVerdict = (sql: SqlStorage, now: Date, idleAfterMs = IDLE_AFTER_MS): IdleVerdict => {
+export const idleVerdict = (
+  sql: SqlStorage,
+  now: Date,
+  idleAfterMs = IDLE_AFTER_MS,
+  prWatchWakeMs = PR_WATCH_WAKE_MS,
+): IdleVerdict => {
   if (activity.sockets > 0) return { reset: false, why: `${activity.sockets} client sockets` };
   if (activity.inFlight > 0) return { reset: false, why: `${activity.inFlight} requests in flight` };
   if (activity.adminInFlight > 0) return { reset: false, why: `${activity.adminInFlight} admin calls in flight` };
   if (now.getTime() - activity.idleSince < idleAfterMs) return { reset: false, why: "not idle long enough" };
   const held = activeHolds(now.getTime());
   if (held.length > 0) return { reset: false, why: `held: ${held.join(", ")}` };
-  if (now.getTime() < activity.unreadableUntil) {
-    return {
-      reset: false,
-      why: `t3's tables were unreadable; next read after ${new Date(activity.unreadableUntil).toISOString()}`,
-    };
-  }
   try {
     const work = openWork(sql, now);
     if (hasOpenWork(work)) return { reset: false, why: `open work ${JSON.stringify(work)}`, work };
-    return { reset: true, work, due: nextDue(sql, now, now.getTime() + PR_WATCH_WAKE_MS) };
+    return { reset: true, work, due: nextDue(sql, now, now.getTime() + prWatchWakeMs) };
   } catch (error) {
     if (!(error instanceof UnreadableTables)) throw error;
-    activity.unreadableUntil = now.getTime() + UNREADABLE_BACKOFF_MS;
     return { reset: false, why: "t3's tables are unreadable", unreadable: error.message };
   }
 };

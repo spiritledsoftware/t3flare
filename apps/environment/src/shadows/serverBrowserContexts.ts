@@ -14,8 +14,9 @@
 //   eight gets a page that names them.
 // - **Profiles** have no user-data directory: each is `storageState({ indexedDB: true })`, kept in the Environment DO's
 //   own table (`preview/store.ts`, review L4), loaded into `newContext`, saved before a close and, while open, at most
-//   every 60 s and only after a change (`profileSaver`, SPI-1123). A profile context with no page for `idleBrowserMs` is
-//   saved and closed, and an idle browser retires, so an open Environment holds no browser nobody uses.
+//   every `browserProfileSaveSeconds` (60 by default, SPI-1366) and only after a change (`profileSaver`, SPI-1123). A
+//   profile context with no page for `idleBrowserMs` is saved and closed, and an idle browser retires, so an open
+//   Environment holds no browser nobody uses.
 // - **Lifetime and cost** (review M5): each session id is recorded and closed when the browser closes; a new Environment
 //   instance closes the ones the last left (`preview/sessions.ts`). Browser Run closes a session after `keepAlive` with no
 //   command sent to it (its events do not count): `disconnected` drops that browser's contexts and fires
@@ -27,11 +28,12 @@
 //   it as a buffer; a path in another Workspace is refused.
 // - Never `recording`, never a Live View URL, and no URL or cookie is logged (review L5).
 import { INCOGNITO_BROWSER_PROFILE_ID } from "@t3tools/contracts";
+import { DEFAULT_BROWSER_PROFILE_SAVE_SECONDS } from "@t3flare/harness-registry";
 import { CONTAINER_PREVIEW_PORTS, containerPreviewHost, toWorkspace } from "@t3flare/workspace-client";
 import * as NodeOS from "node:os";
 import type { Browser, BrowserContext, CDPSession, Download, Page } from "playwright-core";
 
-import { environmentServices } from "../agents/bindings.ts";
+import { environmentNow, environmentServices } from "../agents/bindings.ts";
 import { workspaceRpc } from "../agents/workspaceClient.ts";
 import { BROWSER_KEEP_ALIVE_MS } from "../preview/browserRun.ts";
 import { threadWorkspaceFrom } from "../preview/portDiscovery.ts";
@@ -91,8 +93,11 @@ export const presentAsChrome = async (
   if (identity) await cdp.send("Emulation.setUserAgentOverride", identity);
 };
 
-/** The most often an open profile context's state is saved, while it has changed. */
-export const PROFILE_SAVE_MS = 60_000;
+/**
+ * The most often an open profile context's state is saved, while it has changed, when no setting reaches: the browser
+ * profile save's default (`browserProfileSaveSeconds`, SPI-1366, read as each profile opens).
+ */
+export const PROFILE_SAVE_MS = DEFAULT_BROWSER_PROFILE_SAVE_SECONDS * 1000;
 /** The most a download or an uploaded file may be here: the isolate has 128 MB. */
 export const TRANSFER_MAX_BYTES = 16 * 1024 * 1024;
 
@@ -153,15 +158,18 @@ export const profileSaver = (
     }
     savedChanges = Math.max(savedChanges, at);
   };
-  const timer = setInterval(() => {
-    if (saving || changes === savedChanges) return;
-    saving = true;
-    void save()
-      .catch(() => undefined)
-      .finally(() => {
-        saving = false;
-      });
-  }, options.intervalMs ?? PROFILE_SAVE_MS);
+  const timer = setInterval(
+    () => {
+      if (saving || changes === savedChanges) return;
+      saving = true;
+      void save()
+        .catch(() => undefined)
+        .finally(() => {
+          saving = false;
+        });
+    },
+    options.intervalMs ?? environmentNow().browserProfileSaveSeconds * 1000,
+  );
   const watchPage = (page: Page) => {
     mark();
     page.on("framenavigated", mark);

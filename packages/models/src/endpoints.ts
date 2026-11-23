@@ -406,6 +406,8 @@ export interface EndpointTextRequest {
   readonly endpointId: string;
   readonly modelId: string;
   readonly prompt: string;
+  /** How long the request may take, in ms: the Environment's text generation time limit (SPI-1366). */
+  readonly timeoutMs?: number;
 }
 
 /** How a message names an endpoint: `The Model endpoint "<id>"`. */
@@ -648,7 +650,8 @@ export const validateEndpoint = (
     return { ok: false, error: "id is 1–32 of a–z, 0–9 and -, starting and ending with a letter or digit" };
   if (RESERVED_ENDPOINT_IDS.includes(id)) return { ok: false, error: `the id ${id} is reserved` };
   const label = typeof value.label === "string" ? value.label.trim() : "";
-  if (label === "" || label.length > 60) return { ok: false, error: "label is 1–60 characters" };
+  // Shown only, and bounded with the endpoints by their one stored value (SPI-1366: no 60 characters).
+  if (label === "") return { ok: false, error: "label is not empty" };
   if (typeof value.api !== "string" || !(ENDPOINT_APIS as ReadonlyArray<string>).includes(value.api))
     return { ok: false, error: `api is one of ${ENDPOINT_APIS.join(", ")}` };
   const base = baseUrlOf(value.baseUrl);

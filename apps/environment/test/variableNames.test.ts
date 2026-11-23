@@ -49,7 +49,7 @@ const context: ProfileContext = {
   opencodeRelay: { endpoints: [ENDPOINT], model: "e/m", smallModel: "e/m" },
   readStateFile: (path) => (path === PI_EXTENSION ? "// t3's extension" : path === SCHEMA ? "{}" : undefined),
   piExtensionSource: "// t3's extension",
-  relay: { handle: "handle", servers: ["executor"], toolTimeoutSec: 1500 },
+  relay: { handle: "handle", servers: ["executor"], toolTimeoutSec: 1500, startTimeoutSec: 20 },
 };
 
 /**

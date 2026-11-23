@@ -22,8 +22,6 @@ export const UPDATE_EXPIRY_MS = 110 * 60_000;
  */
 export const NO_UPDATE_TARGET =
   "This Environment has no update target. Update it by deploying: pull the Canonical repository's main and deploy this Stage again (docs/deploy.md, Updating).";
-/** A run still waiting its turn this long after the dispatch has failed. */
-export const QUEUED_CEILING_MS = 3 * 60 * 60_000;
 /** A dispatch whose run GitHub never lists within this has failed. */
 export const UNLISTED_MS = 15 * 60_000;
 
@@ -145,13 +143,8 @@ export const updates = (deps: {
         `The update to ${current.label} did not finish within ${UPDATE_EXPIRY_MS / 60_000} minutes of its start: ${current.run?.url ?? ""}`,
       );
     }
-    if (startedAt === null && now - current.dispatchedAt > QUEUED_CEILING_MS) {
-      return settleWith(
-        current,
-        "failed",
-        `The update to ${current.label} waited its turn for ${QUEUED_CEILING_MS / 3_600_000} hours without starting: ${current.run?.url ?? ""}`,
-      );
-    }
+    // A run waiting its turn stays in flight however long (SPI-1366): GitHub's own queue limit or the Owner's cancel ends
+    // it, and its end is the outcome.
     return current;
   };
 

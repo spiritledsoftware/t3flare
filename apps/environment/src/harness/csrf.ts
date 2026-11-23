@@ -1,8 +1,8 @@
 // @effect-diagnostics globalDate:off
 // The Settings page's CSRF token (ADR-0026, plan §6.4 with the review's LOW item): an HMAC, under a key only the
 // Environment DO holds, of the owner's Access subject and the hour. Bound to the owner's Access session, useless to
-// another origin (which cannot read the page to learn it), and accepted for the current and the previous hour so a page
-// left open across the hour still works.
+// another origin (which cannot read the page to learn it), and accepted for the current hour and the `pageTokenHours`
+// before it (an Environment setting, SPI-1366; one by default). The page asks for a new token when its own runs out.
 import { timingSafeEqual } from "../access.ts";
 import { base64Url } from "./keys.ts";
 
@@ -19,16 +19,17 @@ const hourOf = (nowMs: number) => Math.floor(nowMs / HOUR_MS);
 export const csrfToken = (key: Uint8Array<ArrayBuffer>, subject: string, nowMs: number = Date.now()): Promise<string> =>
   hmac(key, `harness:${subject}:${hourOf(nowMs)}`);
 
-/** Whether `token` is `subject`'s for this hour or the previous one. */
+/** Whether `token` is `subject`'s for this hour or one of the `hours` before it. */
 export const csrfValid = async (
   key: Uint8Array<ArrayBuffer>,
   subject: string,
   token: string | null,
   nowMs: number = Date.now(),
+  hours = 1,
 ): Promise<boolean> => {
   if (token === null || token === "" || subject === "") return false;
   const hour = hourOf(nowMs);
-  for (const at of [hour, hour - 1]) {
+  for (let at = hour; at >= hour - hours; at--) {
     if (timingSafeEqual(token, await hmac(key, `harness:${subject}:${at}`))) return true;
   }
   return false;

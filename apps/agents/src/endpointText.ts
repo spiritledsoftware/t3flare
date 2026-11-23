@@ -9,6 +9,7 @@
 // key never reach the message.
 import { createModels, type FetchFunction } from "@earendil-works/pi-ai";
 import { describeFailure, errorBodyOf, failureHeaders, resetSentence, withCause } from "@t3flare/models/failures";
+import { DEFAULT_TEXT_GENERATION_SECONDS } from "@t3flare/harness-registry";
 import { redactSecrets } from "@t3flare/models/redact";
 import {
   type EndpointCredential,
@@ -29,8 +30,11 @@ import { type UsageEntry, usageOfPiAnswer } from "@t3flare/models/usage";
 import { credentialProblem } from "./session/credentialFailure.ts";
 import { endpointProviders } from "./session/models.ts";
 
-/** How long the one request may take, inside the Environment's own bound (120 s). */
-const TIMEOUT_MS = 110_000;
+/**
+ * How long the one request may take when the Environment names no time (one older than SPI-1366): the text generation
+ * time limit's default. The Environment sends its setting (`timeoutMs`) and waits a margin longer itself.
+ */
+const TIMEOUT_MS = DEFAULT_TEXT_GENERATION_SECONDS * 1000;
 
 export interface EndpointTextAccess {
   /** The Environment's endpoints now (`modelEndpoints`), secret-free. */
@@ -43,7 +47,7 @@ export interface EndpointTextAccess {
    * through `onResponse`; Google's reports none, so its failures say only that the endpoint failed.
    */
   readonly fetch?: FetchFunction;
-  /** The request's bound, shorter in tests. */
+  /** The request's bound: the request's own `timeoutMs` (the Environment's setting), else `TIMEOUT_MS`; shorter in tests. */
   readonly timeoutMs?: number;
   /** The answer's usage, as a record of text generation (a failed answer's too, when it counted tokens) (SPI-1173). */
   readonly usage: (entry: UsageEntry) => void;
@@ -51,13 +55,20 @@ export interface EndpointTextAccess {
   readonly limits?: (reading: LimitReading) => void;
 }
 
-/** The request as the binding hands it: three strings, else undefined. */
+/** The request as the binding hands it: three strings and, when it is a whole positive count, its time limit; else undefined. */
 export const endpointTextRequestOf = (value: unknown): EndpointTextRequest | undefined =>
   isRecord(value) &&
   typeof value.endpointId === "string" &&
   typeof value.modelId === "string" &&
   typeof value.prompt === "string"
-    ? { endpointId: value.endpointId, modelId: value.modelId, prompt: value.prompt }
+    ? {
+        endpointId: value.endpointId,
+        modelId: value.modelId,
+        prompt: value.prompt,
+        ...(Number.isSafeInteger(value.timeoutMs) && (value.timeoutMs as number) > 0
+          ? { timeoutMs: value.timeoutMs as number }
+          : {}),
+      }
     : undefined;
 
 /** What the request saw: a refused key, the answer's status (with its headers and error body), or no answer at all. */
@@ -184,7 +195,7 @@ export const generateEndpointText = async (input: unknown, access: EndpointTextA
     models.setProvider(provider);
   const model = models.getModel(endpoint.id, modelId);
   if (model === undefined) return { ok: false, error: `${named} does not list the model ${modelId}.` };
-  const signal = AbortSignal.timeout(access.timeoutMs ?? TIMEOUT_MS);
+  const signal = AbortSignal.timeout(access.timeoutMs ?? request.timeoutMs ?? TIMEOUT_MS);
   const timedOut = { ok: false, error: `${named} did not answer in time.` } as const;
   let message;
   try {

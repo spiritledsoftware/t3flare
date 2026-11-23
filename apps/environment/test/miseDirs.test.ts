@@ -28,7 +28,7 @@ const ENDPOINT = { id: "e", label: "E", api: "anthropic-messages" as const, mode
 const context: ProfileContext = {
   readStateFile: () => undefined,
   piExtensionSource: "// t3's extension",
-  relay: { handle: "handle", servers: [], toolTimeoutSec: 1500 },
+  relay: { handle: "handle", servers: [], toolTimeoutSec: 1500, startTimeoutSec: 20 },
   endpoints: [ENDPOINT],
   piRelay: { endpoints: [ENDPOINT], model: "e/m" },
   claudeRelay: { endpoints: ["e"], models: ["e/m"], backgroundModel: "e/m", opusModel: "e/m", sonnetModel: "e/m" },

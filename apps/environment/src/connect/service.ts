@@ -10,6 +10,7 @@
 //   t3's mint and health answers and its relay delivery proofs verify nothing;
 // - on prod the account token is discarded after the link (owner decision D2; review finding 5): the relay accepts it
 //   for the whole client group, so only the publish credential stays.
+import { DEFAULT_OUTSIDE_REQUEST_SECONDS } from "@t3flare/harness-registry";
 import * as ServerSecretStore from "t3/src/auth/ServerSecretStore.ts";
 import { readCliDesiredCloudLink, readCliDesiredLinkMode, setCliDesiredCloudLink } from "t3/src/cloud/CliState.ts";
 import * as CliTokenManager from "t3/src/cloud/CliTokenManager.ts";
@@ -57,12 +58,19 @@ export const SIGN_IN_HOLD = Idle.CONNECT_SIGN_IN_HOLD;
 const isoAt = (ms: number): string => DateTime.formatIso(DateTime.makeUnsafe(ms));
 
 /** The phases that leave a card or an alert standing on the phone until something replaces them. */
-const LIVE_PHASES = new Set(["starting", "running", "waiting_for_approval", "waiting_for_input"]);
 
 export interface ConnectPolicy {
   /** Keep the T3 Connect account token after the link (stages); prod discards it (D2). */
   readonly keepAccountToken: boolean;
+  /**
+   * How long one request to T3 Connect may wait, in ms, read at each (the Outside request time limit,
+   * `outsideRequestSeconds`, SPI-1366): the sign-in's device code and the relay's unlink. Absent: its default.
+   */
+  readonly requestMs?: () => number;
 }
+
+/** How long past the sign-in's wait a second sign-in joins the first rather than start another (today's 30 s at 20). */
+const SIGN_IN_PENDING_EXTRA_MS = 10_000;
 
 export class ConnectError extends Schema.TaggedError<ConnectError>()("ConnectError", {
   reason: Schema.String,
@@ -137,12 +145,16 @@ export class Connect extends Context.Service<
     readonly republishLastLive: Effect.Effect<ReadonlyArray<string>>;
     /** t3's own publish switch. */
     readonly setPublishing: (on: boolean) => Effect.Effect<void, ConnectError>;
-    readonly status: (options: { readonly relay: boolean }) => Effect.Effect<Record<string, unknown>>;
+    readonly status: (options: {
+      readonly relay: boolean;
+      readonly signal?: AbortSignal;
+    }) => Effect.Effect<Record<string, unknown>>;
   }
 >()("@t3flare/environment/connect/service/Connect") {}
 
 export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
   Effect.gen(function* () {
+    const requestMs = policy.requestMs ?? (() => DEFAULT_OUTSIDE_REQUEST_SECONDS * 1000);
     const cloudLink = yield* CloudLink.CloudLink;
     const tokens = yield* CliTokenManager.CloudCliTokenManager;
     const secrets = yield* ServerSecretStore.ServerSecretStore;
@@ -221,9 +233,11 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
         return yield* Deferred.await(pending.prompt);
       const prompt = yield* Deferred.make<SignInPrompt, ConnectError>();
       const startedAt = yield* Clock.currentTimeMillis;
+      // The wait for the device code: the Outside request time limit, read at each sign-in (SPI-1366).
+      const waitMs = requestMs();
       // Until the code arrives, a short hold; then until it expires (plan section 2.1).
-      pending = { prompt, until: startedAt + 30_000 };
-      Idle.hold(SIGN_IN_HOLD, startedAt + 30_000);
+      pending = { prompt, until: startedAt + waitMs + SIGN_IN_PENDING_EXTRA_MS };
+      Idle.hold(SIGN_IN_HOLD, startedAt + waitMs + SIGN_IN_PENDING_EXTRA_MS);
       flow = { state: "pending", startedAt: isoAt(startedAt), expiresAt: null };
       const run = CliTokenManager.deviceAuthorizationLogin((shown) =>
         Effect.map(Clock.currentTimeMillis, (now) => {
@@ -260,8 +274,9 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
       yield* Effect.forkIn(Effect.ignore(run), scope);
       return yield* Deferred.await(prompt).pipe(
         Effect.timeoutOrElse({
-          duration: "20 seconds",
-          orElse: () => Effect.fail(fail("no-device-code", "T3 Connect's sign-in did not answer in 20 s")),
+          duration: waitMs,
+          orElse: () =>
+            Effect.fail(fail("no-device-code", `T3 Connect's sign-in did not answer in ${waitMs / 1000} s`)),
         }),
       );
     });
@@ -279,7 +294,9 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
           fetch(`${url}/v1/client/environment-links/${encodeURIComponent(environmentId)}`, {
             method: "DELETE",
             headers: { authorization: `Bearer ${token.value.accessToken}` },
-            signal: AbortSignal.timeout(10_000),
+            // Bounded (it runs under the Connect lock, which relink, unlink and sign-in wait on): the Outside request
+            // time limit (SPI-1366).
+            signal: AbortSignal.timeout(requestMs()),
           }),
         catch: () => fail("relay-unreachable"),
       }).pipe(Effect.option);
@@ -299,53 +316,59 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
         }),
       );
 
-    /** The relay's view, with the account token (stages): environments and devices, reduced to what proves the link. */
-    const relayView = Effect.gen(function* () {
-      const token = yield* tokens.getExisting.pipe(Effect.option, Effect.map(Option.flatten));
-      const url = yield* relayUrl;
-      if (Option.isNone(token) || url === null) return { skipped: "no account token held" };
-      const get = (path: string) =>
-        Effect.tryPromise({
-          try: async () => {
-            // @effect-diagnostics-next-line globalFetchInEffect:off -- the Worker's global fetch, as before: connectLink.test.ts stubs it, and the HttpClient service in scope is t3's sign-in client
-            const response = await fetch(`${url}${path}`, {
-              headers: { authorization: `Bearer ${token.value.accessToken}` },
-              signal: AbortSignal.timeout(10_000),
-            });
-            return {
-              status: response.status,
-              body: response.ok ? ((await response.json()) as Record<string, unknown>) : null,
-            };
+    /**
+     * The relay's view, with the account token (stages): environments and devices, reduced to what proves the link. Bounded
+     * by `signal`, the admin call's deadline (`adminDeadline`, SPI-1366): the Outside request time limit, or the caller
+     * giving up.
+     */
+    const relayView = (signal: AbortSignal | undefined) =>
+      Effect.gen(function* () {
+        const token = yield* tokens.getExisting.pipe(Effect.option, Effect.map(Option.flatten));
+        const url = yield* relayUrl;
+        if (Option.isNone(token) || url === null) return { skipped: "no account token held" };
+        const get = (path: string) =>
+          Effect.tryPromise({
+            try: async () => {
+              // @effect-diagnostics-next-line globalFetchInEffect:off -- the Worker's global fetch, as before: connectLink.test.ts stubs it, and the HttpClient service in scope is t3's sign-in client
+              const response = await fetch(`${url}${path}`, {
+                headers: { authorization: `Bearer ${token.value.accessToken}` },
+                // Never unbounded: a caller with no deadline of its own gets the Outside request time limit.
+                signal: signal ?? AbortSignal.timeout(requestMs()),
+              });
+              return {
+                status: response.status,
+                body: response.ok ? ((await response.json()) as Record<string, unknown>) : null,
+              };
+            },
+            catch: () => fail("relay-unreachable"),
+          }).pipe(Effect.orElseSucceed(() => ({ status: 0, body: null })));
+        const [environments, devices] = yield* Effect.all([get("/v1/environments"), get("/v2/client/devices")], {
+          concurrency: 2,
+        });
+        const list = (body: Record<string, unknown> | null, key: string) =>
+          Array.isArray(body?.[key]) ? (body[key] as Array<Record<string, any>>) : [];
+        return {
+          environments: {
+            status: environments.status,
+            items: list(environments.body, "environments").map((e) => ({
+              environmentId: e.environmentId,
+              label: e.label,
+              providerKind: e.endpoint?.providerKind ?? null,
+              linkedAt: e.linkedAt,
+            })),
           },
-          catch: () => fail("relay-unreachable"),
-        }).pipe(Effect.orElseSucceed(() => ({ status: 0, body: null })));
-      const [environments, devices] = yield* Effect.all([get("/v1/environments"), get("/v2/client/devices")], {
-        concurrency: 2,
+          devices: {
+            status: devices.status,
+            items: list(devices.body, "devices").map((d) => ({
+              platform: d.platform,
+              appVersion: d.appVersion,
+              notifications: d.notifications,
+            })),
+          },
+        };
       });
-      const list = (body: Record<string, unknown> | null, key: string) =>
-        Array.isArray(body?.[key]) ? (body[key] as Array<Record<string, any>>) : [];
-      return {
-        environments: {
-          status: environments.status,
-          items: list(environments.body, "environments").map((e) => ({
-            environmentId: e.environmentId,
-            label: e.label,
-            providerKind: e.endpoint?.providerKind ?? null,
-            linkedAt: e.linkedAt,
-          })),
-        },
-        devices: {
-          status: devices.status,
-          items: list(devices.body, "devices").map((d) => ({
-            platform: d.platform,
-            appVersion: d.appVersion,
-            notifications: d.notifications,
-          })),
-        },
-      };
-    });
 
-    const status = ({ relay }: { readonly relay: boolean }) =>
+    const status = ({ relay, signal }: { readonly relay: boolean; readonly signal?: AbortSignal }) =>
       Effect.gen(function* () {
         const token = yield* tokens.getExisting.pipe(Effect.exit);
         return {
@@ -378,7 +401,7 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
             : { held: true, error: describeFailure(token.cause) },
           policy,
           publishes: { ...recorder.summary(), recent: recorder.entries().slice(-30) },
-          ...(relay ? { relay: yield* relayView } : {}),
+          ...(relay ? { relay: yield* relayView(signal) } : {}),
         };
       });
 
@@ -390,9 +413,8 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
       signOut: unlinkNow(true),
       relayUnlinkOnly: lock.withPermits(1)(deleteRelayLink),
       republishLastLive: Effect.gen(function* () {
-        const live = [...recorder.lastPublishedPhases()]
-          .filter(([, phase]) => phase !== null && LIVE_PHASES.has(phase))
-          .map(([threadId]) => threadId);
+        // Every thread last published live (SPI-1366: kept apart from the publish log, so none is lost to its length).
+        const live = [...recorder.lastPublishedPhases().keys()];
         yield* Effect.forEach(live, (threadId) => awareness.publishThread(threadId as ThreadId).pipe(Effect.ignore), {
           discard: true,
         });

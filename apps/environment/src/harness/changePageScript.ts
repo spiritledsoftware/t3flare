@@ -4,9 +4,22 @@
 // answers its authorization URL, and the script sends the browser there (https only), as the panel's own sign-in does.
 // No script computes a diff: the page is rendered by the server.
 import { CHANGES_API_PATH } from "./paths.ts";
+import { TOKEN_PATH } from "./pageScript.ts";
 
 export const CHANGE_SCRIPT = `"use strict";
-const csrf = document.querySelector('meta[name="t3flare-csrf"]').getAttribute("content");
+let csrf = document.querySelector('meta[name="t3flare-csrf"]').getAttribute("content");
+// A token that ran out (the Settings page token setting, SPI-1366) is replaced once, and the answer sent again.
+const freshToken = async () => {
+  try {
+    const response = await fetch(${JSON.stringify(TOKEN_PATH)}, { credentials: "same-origin" });
+    const token = response.ok ? (await response.json()).token : "";
+    if (typeof token !== "string" || token === "") return false;
+    csrf = token;
+    return true;
+  } catch {
+    return false;
+  }
+};
 const form = document.querySelector("form[data-change]");
 const out = document.getElementById("result");
 const say = (tone, text) => { out.dataset.tone = tone; out.textContent = text; out.hidden = false; };
@@ -33,12 +46,16 @@ if (form !== null) {
       for (const each of buttons) each.disabled = true;
       let response;
       try {
-        response = await fetch(${JSON.stringify(`${CHANGES_API_PATH}/`)} + encodeURIComponent(form.dataset.change), {
-          method: "POST",
-          headers: { "content-type": "application/json", "x-t3flare-csrf": csrf },
-          body: JSON.stringify(body),
-          credentials: "same-origin",
-        });
+        const send = () =>
+          fetch(${JSON.stringify(`${CHANGES_API_PATH}/`)} + encodeURIComponent(form.dataset.change), {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-t3flare-csrf": csrf },
+            body: JSON.stringify(body),
+            credentials: "same-origin",
+          });
+        response = await send();
+        if (response.status === 403 && (await response.clone().text()).includes("bad CSRF token") && (await freshToken()))
+          response = await send();
       } catch (error) {
         say("err", "Could not reach the panel: " + (error && error.message ? error.message : String(error)));
         for (const each of buttons) each.disabled = false;
