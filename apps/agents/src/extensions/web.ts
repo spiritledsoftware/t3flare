@@ -6,13 +6,11 @@ import { defineExtension, type Extension } from "@earendil-works/pi-durable";
 import type { CodemodeNamespace } from "@earendil-works/pi-durable/codemode";
 
 import { webFetchTool } from "./web/fetch.ts";
-import { DEFAULT_WEB_LIMITS, type WebLimits } from "./web/limits.ts";
+import { DEFAULT_WEB_LIMITS, WEB_EXTENSION, type WebLimits } from "./web/limits.ts";
 import { type WebTransport, workerTransport } from "./web/net.ts";
 import { type SearchEndpoint, webSearchTool } from "./web/search.ts";
 
-export { DEFAULT_WEB_LIMITS, type WebLimits, webLimits } from "./web/limits.ts";
-
-export const WEB_EXTENSION = "web";
+export { DEFAULT_WEB_LIMITS, WEB_EXTENSION, type WebLimits, webLimits } from "./web/limits.ts";
 
 /** The web tools in a code mode script (`tools.web_fetch`, `tools.web_search`). */
 export const WEB_NAMESPACE: CodemodeNamespace = {

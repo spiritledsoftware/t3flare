@@ -3,13 +3,14 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_MAX_FILE_CHARACTERS, projectContext } from "../src/extensions/project-context.ts";
+import { DEFAULT_PROJECT_CONTEXT_LIMITS, projectContext } from "../src/extensions/project-context.ts";
 
 const ROOT = "/workspace/repo";
 
 /** The section as `projectContext(ROOT, maxChars)` renders it for an environment holding `files`. */
 const render = async (files: Readonly<Record<string, string>>, cwd: string, maxChars?: number) => {
-  const section = projectContext(ROOT, maxChars).sections?.[0];
+  const section = projectContext(ROOT, maxChars === undefined ? undefined : { maxFileCharacters: maxChars })
+    .sections?.[0];
   if (section === undefined) throw new Error("no section");
   const env = {
     cwd,
@@ -39,7 +40,7 @@ describe("project_context (SPI-1321)", () => {
   });
 
   it("defaults to the registry's 16,000 characters", async () => {
-    expect(DEFAULT_MAX_FILE_CHARACTERS).toBe(16_000);
+    expect(DEFAULT_PROJECT_CONTEXT_LIMITS).toEqual({ maxFileCharacters: 16_000 });
     const out = await render({ [`${ROOT}/AGENTS.md`]: "c".repeat(16_001) }, ROOT);
     expect(out).toContain(`${"c".repeat(16_000)}\n… [cut]`);
   });

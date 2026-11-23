@@ -196,11 +196,8 @@ export const webFetchTool = (
       const seconds = args.timeout ?? limits.fetchTimeoutSeconds;
       let fetched: Fetched;
       try {
-        fetched = await withDeadline(
-          Math.ceil(seconds * 1000),
-          `${seconds} ${seconds === 1 ? "second" : "seconds"}`,
-          context.abortSignal,
-          (signal) => fetchText(transport, args.url, format, limits.fetchMaxKiB * 1024, signal),
+        fetched = await withDeadline(seconds, context.abortSignal, (signal) =>
+          fetchText(transport, args.url, format, limits.fetchMaxKiB * 1024, signal),
         );
       } catch (error) {
         throw new Error(

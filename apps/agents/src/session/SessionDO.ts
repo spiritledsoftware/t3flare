@@ -85,7 +85,7 @@ import { FILES_EXTENSION, fileLimits, fileTools } from "../extensions/files.ts";
 import { answerText, ASK_USER_EXTENSION, askUser, QuestionStore } from "../extensions/ask-user.ts";
 import { McpQuestions } from "../extensions/mcpQuestions.ts";
 import { ApprovalStore, interactionModeSection, permissions, toToolPath } from "../extensions/permissions.ts";
-import { PROJECT_CONTEXT_EXTENSION, projectContext } from "../extensions/project-context.ts";
+import { PROJECT_CONTEXT_EXTENSION, projectContext, projectContextLimits } from "../extensions/project-context.ts";
 import { proposePlan } from "../extensions/plan.ts";
 import { CONTEXT_EXTENSION, CONTEXT_NAMESPACE, contextExtension } from "../extensions/context.ts";
 import { ADVISOR_EXTENSION, AdvisorObserver, advisorExtension, advisorSettings } from "../extensions/advisor.ts";
@@ -509,7 +509,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
     // SPI-1321: the file tools' and the Project context's limits; installed again in place, as codingTools is below.
     registry.install(fileTools(() => this.#files(), fileLimits(extensionOf(harness, FILES_EXTENSION).settings)));
     registry.install(
-      projectContext(REPO_ROOT, Number(extensionOf(harness, PROJECT_CONTEXT_EXTENSION).settings.maxFileCharacters)),
+      projectContext(REPO_ROOT, projectContextLimits(extensionOf(harness, PROJECT_CONTEXT_EXTENSION).settings)),
     );
     // `bash`'s `background` with Background jobs on; installed again in place, so the permissions' wraps stay outside it.
     registry.install(

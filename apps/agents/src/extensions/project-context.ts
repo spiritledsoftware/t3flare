@@ -3,13 +3,23 @@
 // Part 1 keeps only the section: `read`/`edit`/`write` do not show nested files' instructions as the agent reaches
 // them.
 import { defineExtension, type Extension, section } from "@earendil-works/pi-durable";
-import { EMPTY_HARNESS, extensionOf, resolveHarness } from "@t3flare/harness-registry";
+import { defaultSettings, type SettingValue } from "@t3flare/harness-registry";
 
 export const PROJECT_CONTEXT_EXTENSION = "project-context";
 
-/** The registry's default `maxFileCharacters`. */
-export const DEFAULT_MAX_FILE_CHARACTERS = Number(
-  extensionOf(resolveHarness(EMPTY_HARNESS), PROJECT_CONTEXT_EXTENSION).settings.maxFileCharacters,
+/** The `project-context` extension's settings (SPI-1321). */
+export interface ProjectContextLimits {
+  /** The most of one AGENTS.md or CLAUDE.md the section shows. */
+  readonly maxFileCharacters: number;
+}
+
+/** The `project-context` extension's resolved settings as limits. */
+export const projectContextLimits = (values: Readonly<Record<string, SettingValue>>): ProjectContextLimits => ({
+  maxFileCharacters: Number(values.maxFileCharacters),
+});
+
+export const DEFAULT_PROJECT_CONTEXT_LIMITS: ProjectContextLimits = projectContextLimits(
+  defaultSettings(PROJECT_CONTEXT_EXTENSION),
 );
 
 const NAMES = ["AGENTS.md", "CLAUDE.md"] as const;
@@ -21,9 +31,13 @@ const chain = (root: string, cwd: string): ReadonlyArray<string> => {
   return [root, ...below.map((_, at) => `${root}/${below.slice(0, at + 1).join("/")}`)];
 };
 
-/** The section, for a repo at `root`, showing at most `maxChars` of one file (the `maxFileCharacters` setting). */
-export const projectContext = (root: string, maxChars: number = DEFAULT_MAX_FILE_CHARACTERS): Extension =>
-  defineExtension({
+/** The section, for a repo at `root`, within `limits`. */
+export const projectContext = (
+  root: string,
+  limits: ProjectContextLimits = DEFAULT_PROJECT_CONTEXT_LIMITS,
+): Extension => {
+  const maxChars = limits.maxFileCharacters;
+  return defineExtension({
     name: PROJECT_CONTEXT_EXTENSION,
     sections: [
       section("project_context", async (input, context) => {
@@ -45,3 +59,4 @@ export const projectContext = (root: string, maxChars: number = DEFAULT_MAX_FILE
       }),
     ],
   });
+};

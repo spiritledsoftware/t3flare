@@ -1,6 +1,8 @@
 // The web tools' limits (SPI-1321): the `web` extension's settings in the harness registry, read at each turn's
 // install. The defaults are the registry's, so a tool built without settings (a test) behaves as an untouched harness.
-import { EMPTY_HARNESS, extensionOf, resolveHarness, type SettingValue } from "@t3flare/harness-registry";
+import { defaultSettings, type SettingValue } from "@t3flare/harness-registry";
+
+export const WEB_EXTENSION = "web";
 
 export interface WebLimits {
   /** A `web_fetch` call's time limit when it names none. */
@@ -30,4 +32,4 @@ export const webLimits = (values: Readonly<Record<string, SettingValue>>): WebLi
   searchTimeoutSeconds: Number(values.searchTimeoutSeconds),
 });
 
-export const DEFAULT_WEB_LIMITS: WebLimits = webLimits(extensionOf(resolveHarness(EMPTY_HARNESS), "web").settings);
+export const DEFAULT_WEB_LIMITS: WebLimits = webLimits(defaultSettings(WEB_EXTENSION));

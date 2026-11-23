@@ -9,7 +9,13 @@ import { webExtension } from "../../src/extensions/web.ts";
 import { UNCONVERTED_NOTE, webFetchTool } from "../../src/extensions/web/fetch.ts";
 import { DEFAULT_WEB_LIMITS, type WebLimits } from "../../src/extensions/web/limits.ts";
 import type { WebRequest, WebTransport } from "../../src/extensions/web/net.ts";
-import { readAnswer, webSearchTool } from "../../src/extensions/web/search.ts";
+import {
+  ANSWER_MAX_BYTES,
+  answerBytes,
+  readAnswer,
+  systemPrompt,
+  webSearchTool,
+} from "../../src/extensions/web/search.ts";
 
 const PUBLIC = "93.184.215.14";
 
@@ -311,6 +317,32 @@ describe("web_search", () => {
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 1 }],
     });
     expect(outcome.ok && (outcome.result.details as { results: Array<unknown> }).results).toHaveLength(1);
+  });
+
+  it("reads an answer sized for searchesPerCall and searchSummaryTokens, never under 512 KiB nor over the isolate's bound (SPI-1321)", async () => {
+    expect(answerBytes(DEFAULT_WEB_LIMITS)).toBe(536 * 1024);
+    expect(answerBytes(limits({ searchesPerCall: 1, searchSummaryTokens: 100 }))).toBe(512 * 1024);
+    expect(answerBytes(limits({ searchesPerCall: 10, searchSummaryTokens: 4_000 }))).toBe(2_623 * 1024);
+    expect(answerBytes(limits({ searchesPerCall: 50, searchSummaryTokens: 64_000 }))).toBe(ANSWER_MAX_BYTES);
+    // An answer of 1 MiB: refused at the defaults, read at ten searches per call.
+    const big = {
+      ...answer,
+      content: [...answer.content, { type: "text", text: " ".repeat(1024 * 1024) }],
+    };
+    const { transport } = network(() => Response.json(big));
+    expect(textOf(await run(webSearchTool(transport, endpoint), { query: "q" }))).toBe(
+      "Unable to search the web for q: response body exceeds the 536 KiB limit",
+    );
+    const raised = await run(webSearchTool(transport, endpoint, limits({ searchesPerCall: 10 })), { query: "q" });
+    expect(textOf(raised)).toContain("Title: One");
+  });
+
+  it("tells the search model how many searches it may run (SPI-1321)", async () => {
+    expect(systemPrompt(1)).toContain("(one search)");
+    expect(systemPrompt(5)).toContain("(up to 5 searches; stop once the results answer the query)");
+    const { transport, sent } = network(() => Response.json(answer));
+    await run(webSearchTool(transport, endpoint, limits({ searchesPerCall: 5 })), { query: "q" });
+    expect(JSON.parse(sent[0]?.body ?? "{}").system).toBe(systemPrompt(5));
   });
 
   it("allows numResults up to the larger of 20 and searchResults (SPI-1321)", () => {

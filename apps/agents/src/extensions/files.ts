@@ -5,7 +5,7 @@
 import type { ComputerFiles } from "@t3flare/computer-env";
 import { defineExtension, defineTool, type Extension } from "@earendil-works/pi-durable";
 import { bool, num, obj, opt, str } from "@earendil-works/pi-schema";
-import { EMPTY_HARNESS, extensionOf, resolveHarness, type SettingValue } from "@t3flare/harness-registry";
+import { defaultSettings, type SettingValue } from "@t3flare/harness-registry";
 
 /** The file search of the Session's Workspace, or undefined when the Session has none. */
 export type FilesOf = () => ComputerFiles | undefined;
@@ -26,9 +26,7 @@ export const fileLimits = (values: Readonly<Record<string, SettingValue>>): File
 
 export const FILES_EXTENSION = "files";
 
-export const DEFAULT_FILE_LIMITS: FileLimits = fileLimits(
-  extensionOf(resolveHarness(EMPTY_HARNESS), FILES_EXTENSION).settings,
-);
+export const DEFAULT_FILE_LIMITS: FileLimits = fileLimits(defaultSettings(FILES_EXTENSION));
 
 const EXCLUDE = ["**/.git", "**/node_modules"];
 

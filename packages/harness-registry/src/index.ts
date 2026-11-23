@@ -66,9 +66,10 @@ const THINKING_LEVELS = ["off", "low", "medium", "high"] as const;
 const MAX_TIMED_SECONDS = MAX_TIMED_MINUTES * 60;
 /**
  * The largest body web_fetch converts from HTML or JSON; a larger one is returned as it came. A named constraint: a
- * Worker isolate's 128 MB, which also holds the Session. Conversion costs about 7 times the body: measured in workerd
- * (apps/agents/test/webFetchMemory.workerd.test.ts), 5 MiB of two-byte HTML takes 24 MB of heap to convert, plus
- * 10 MB of body buffers outside it, about 34 MB. 16 MiB of HTML did not convert within a 128 MB V8 heap (Node).
+ * Worker isolate's 128 MB, which also holds the Session's own state. Conversion costs about 7 times the body: measured
+ * in workerd (apps/agents/test/webFetchMemory.workerd.test.ts), 5 MiB of two-byte HTML takes 24 MB of heap to convert,
+ * plus 10 MB of body buffers outside it, about 34 MB of the 128, which leaves the Session most of the isolate. 5 MiB was
+ * also the size limit before it was a setting, so every page that converted then still does.
  */
 export const FETCH_CONVERT_MAX_KIB = 5120;
 /**
@@ -433,7 +434,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
       maxFileCharacters: {
         title: "Characters per file",
         description:
-          "The most of one AGENTS.md or CLAUDE.md the prompt shows; a longer file is cut. Larger results use more of the model's context on every call.",
+          "The most of one AGENTS.md or CLAUDE.md the prompt shows; a longer file is cut. A longer limit puts more of each AGENTS.md or CLAUDE.md in front of the model on every turn.",
         // 1,000,000: a sanity bound, nothing in t3flare forces it (ADR-0048).
         schema: { type: "integer", minimum: 1, maximum: 1_000_000, default: 16_000 },
         tier: "down-free",
@@ -465,6 +466,10 @@ export const extensionOf = (
       : entry.tools.some((tool) => tools[tool] !== "hidden");
   return { enabled, settings: { ...defaults, ...taken?.settings } };
 };
+
+/** Extension `id`'s settings with nothing stored: each its schema's default. */
+export const defaultSettings = (id: string): Readonly<Record<string, SettingValue>> =>
+  extensionOf(resolveHarness(EMPTY_HARNESS), id).settings;
 
 /** The tools' Exposures of a resolved view, a view kept from before Exposures existed included. */
 export const resolvedToolsOf = (resolved: ResolvedHarness): ResolvedTools =>

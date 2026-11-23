@@ -252,7 +252,7 @@ describe("harness page", () => {
     expect(tags.find((tag) => tag.attrs.name === "value")?.attrs.type).toBe("password");
   });
 
-  it("draws the extension forms from the registry's schemas: tools first, then switches, settings, locked core extensions", () => {
+  it("draws the extension forms from the registry's schemas: tools first, then switches and settings; only permissions is locked", () => {
     expect(
       tags
         .filter((tag) => tag.name === "form" && tag.attrs["data-extension"] !== undefined)
