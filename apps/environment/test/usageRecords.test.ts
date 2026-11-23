@@ -3,7 +3,7 @@
 // record, rolled up by quarter hour, agent, endpoint, model and session, for at most the retention window; t3's Usage page
 // reads them through our scan readers, split by agent (t3's usage provider) and model (`<endpointId>/<modelId>`). A model
 // with no price of its own is priced by t3's rate table.
-import { DEFAULT_USAGE_RETENTION_DAYS, MAX_RETENTION_DAYS } from "@t3flare/harness-registry";
+import { DEFAULT_USAGE_RETENTION_DAYS } from "@t3flare/harness-registry";
 import type { ModelEndpoints } from "@t3flare/models/endpoints";
 import type { UsageEntry } from "@t3flare/models/usage";
 import * as Effect from "effect/Effect";
@@ -16,9 +16,7 @@ import { usageReader } from "../src/usage/readers.ts";
 import {
   acceptUsage,
   listedModelOf,
-  MAX_USAGE_ROWS,
   USAGE_SLOT_MS,
-  usageMaxRows,
   type UsageStore,
   usageStore,
 } from "../src/usage/records.ts";
@@ -263,40 +261,14 @@ describe("the Environment's usage records", () => {
     ).toEqual([expect.closeTo(29, 0)]);
   });
 
-  it("scales MAX_USAGE_ROWS with the retention, never below it", () => {
-    expect(usageMaxRows(DEFAULT_USAGE_RETENTION_DAYS)).toBe(MAX_USAGE_ROWS);
-    expect(usageMaxRows(1)).toBe(MAX_USAGE_ROWS);
-    expect(usageMaxRows(365)).toBeGreaterThanOrEqual(Math.ceil((365 * MAX_USAGE_ROWS) / 92));
-    expect(usageMaxRows(MAX_RETENTION_DAYS)).toBe(Math.ceil((3650 * MAX_USAGE_ROWS) / 92));
-  });
-
-  it("keeps at most MAX_USAGE_ROWS rows, the oldest dropped first", async () => {
-    const store = usageStore(nodeSqlStorage(), { maxRows: 3 });
-    expect(MAX_USAGE_ROWS).toBeGreaterThan(10_000);
-    store.record(
-      [1, 2, 3, 4, 5].map((n) => entry({ at: NOW - n * USAGE_SLOT_MS })),
-      endpoints,
-      NOW,
-    );
-    const records = (await scanOf(store, "pi"))[0]!.files![0]!.records;
-    expect(records.map((record) => (NOW - record.timestampMs) / USAGE_SLOT_MS).sort((a, b) => a - b)).toEqual([
-      1, 2, 3,
-    ]);
-  });
-
-  it("caps rows at usageMaxRows of the retention when no maxRows is given (SPI-1323)", () => {
-    // MAX_USAGE_ROWS + 10 rows, one quarter hour each of their own session: 92 days keeps 50,000, 365 days keeps all.
-    const many = Array.from({ length: MAX_USAGE_ROWS + 10 }, (_, n) =>
+  it("keeps every row inside the retention, however many: the retention alone bounds the table (SPI-1366)", () => {
+    // 2,000 rows, each its own session, all inside the retention; one row past it. Only that one goes at the prune.
+    const many = Array.from({ length: 2000 }, (_, n) =>
       entry({ at: NOW - DAY - (n % 96) * USAGE_SLOT_MS, session: `s${n}` }),
     );
-    const at = (days: number) => {
-      const store = usageStore(nodeSqlStorage(), { retentionDays: () => days });
-      store.record(many, endpoints, NOW);
-      return store.read(0).length;
-    };
-    expect(at(DEFAULT_USAGE_RETENTION_DAYS)).toBe(MAX_USAGE_ROWS);
-    expect(usageMaxRows(365)).toBeGreaterThan(MAX_USAGE_ROWS + 10);
-    expect(at(365)).toBe(MAX_USAGE_ROWS + 10);
+    const store = usageStore(nodeSqlStorage(), { retentionDays: () => 30 });
+    store.record(many, endpoints, NOW);
+    expect(store.read(0)).toHaveLength(2000);
   });
 
   it("drops an entry the agents Worker should never send: unknown agent, no tokens, a control character", () => {
@@ -384,15 +356,18 @@ describe("the records' times and bounds", () => {
   });
 
   it("prunes at most once an hour", async () => {
-    const store = usageStore(nodeSqlStorage(), { maxRows: 1 });
-    store.record([entry({ at: NOW - 3 * USAGE_SLOT_MS }), entry({ at: NOW - 2 * USAGE_SLOT_MS })], endpoints, NOW);
-    expect(await rows(store)).toHaveLength(1);
-    // Within the hour: kept past the cap.
-    store.record([entry({ at: NOW })], endpoints, NOW + 30 * 60_000);
+    // A day kept: a row 23.5 hours old is kept, and it passes the day 59 minutes later, before the next prune.
+    const store = usageStore(nodeSqlStorage(), { retentionDays: () => 1 });
+    store.record([entry({ at: NOW - 23.5 * 60 * 60_000 })], endpoints, NOW);
+    store.record([entry({ at: NOW + 59 * 60_000 })], endpoints, NOW + 59 * 60_000);
+    // Within the hour: kept past the retention.
     expect(await rows(store)).toHaveLength(2);
     // An hour after the last prune: pruned again.
     store.record([entry({ at: NOW + 60 * 60_000 })], endpoints, NOW + 60 * 60_000);
-    expect((await rows(store)).map((record) => record.timestampMs)).toEqual([slotOf(NOW + 60 * 60_000)]);
+    expect((await rows(store)).map((record) => record.timestampMs).sort((a, b) => a - b)).toEqual([
+      slotOf(NOW + 59 * 60_000),
+      slotOf(NOW + 60 * 60_000),
+    ]);
   });
 
   it("reports a table it cannot read as a failed source, never a failed page", async () => {

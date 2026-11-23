@@ -398,7 +398,8 @@ next Pi start; t3 can no longer resume that thread's Pi conversation."
 
 The usage store reads `usageRetentionDays` at each record and passes it to that record's prune (`usageStore`'s
 `retentionDays`), so a change applies at the next prune, at most once an hour as usage is recorded, and to entries
-recorded from then on. Its runaway-writer guard scales with it: `usageMaxRows(days)` is `MAX_USAGE_ROWS` (50,000, sized
+recorded from then on. Its runaway-writer guard scales with it (superseded by SPI-1366's refinement below: the guard is
+removed, and the retention alone bounds the rows): `usageMaxRows(days)` is `MAX_USAGE_ROWS` (50,000, sized
 for 92 days) times `days / 92`, never below 50,000, so a long retention is not cut by a guard sized for a short one; at
 3650 days that is about 2M small rows, well within a DO's SQLite, and a read stays bounded by the page's window. Its
 consequence, stated once, here: at 92 days or more, a writer averaging above about 543 rows a day (50,000 / 92) has its

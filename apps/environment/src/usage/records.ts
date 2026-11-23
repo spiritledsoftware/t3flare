@@ -8,12 +8,11 @@
 // nothing it shows, and it keeps the time zones whose offset is not whole hours (India's, Nepal's) on the right day. A
 // busy session makes one row a quarter hour, not one a request, so a read of the whole window stays small.
 //
-// Bounded twice: rows older than the Owner's `usageRetentionDays` (SPI-1323; its default, 92 days, matches t3's own
-// `CACHE_RETENTION_DAYS` in `UsageService.ts`, more than the page's widest range, 90 days) are deleted, and at most
-// `usageMaxRows` of that retention are kept, the oldest dropped first (a guard against a runaway writer: a heavy owner
-// makes a few hundred rows a day, so the guard grows with the days kept). Both are pruned on a write, at most once an
-// hour. A retention past 90 days keeps rows the page does not show until t3 widens its window; t3's own
-// `usageHistoryRetentionDays` governs only its transcript cache, never these rows.
+// Bounded by the retention alone (SPI-1366): rows older than the Owner's `usageRetentionDays` (SPI-1323; its default,
+// 92 days, matches t3's own `CACHE_RETENTION_DAYS` in `UsageService.ts`, more than the page's widest range, 90 days) are
+// deleted on a write, at most once an hour. No count of rows is cut inside it: the DO's SQLite holds 10 GB. A retention
+// past 90 days keeps rows the page does not show until t3 widens its window; t3's own `usageHistoryRetentionDays`
+// governs only its transcript cache, never these rows.
 //
 // A row's `requests` is the answers it adds up; t3's page counts records, so its record counts are rows (a quarter hour
 // of one session on one model), not requests. Tokens, costs and sessions (distinct session ids) are exact.
@@ -26,14 +25,6 @@ import { MAX_USAGE_ENTRIES, type UsageAgent, usageEntryOf, type UsageTokens } fr
 
 export const USAGE_SLOT_MS = 15 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
-/** The runaway-writer guard at the default retention (`DEFAULT_USAGE_RETENTION_DAYS`); `usageMaxRows` scales it. */
-export const MAX_USAGE_ROWS = 50_000;
-/**
- * The rows kept at a retention of `days`: `MAX_USAGE_ROWS` scaled to the days kept, never below it, so a long retention
- * is not cut by a guard sized for 92 days (about 2M small rows at 3650 days, well within a DO's SQLite).
- */
-export const usageMaxRows = (days: number): number =>
-  Math.max(MAX_USAGE_ROWS, Math.ceil((days * MAX_USAGE_ROWS) / DEFAULT_USAGE_RETENTION_DAYS));
 const PRUNE_EVERY_MS = 60 * 60 * 1000;
 /** An entry's time may be this far ahead of the Environment's clock (another isolate's); later ones are dropped. */
 const FUTURE_SLACK_MS = 60 * 60 * 1000;
@@ -141,8 +132,6 @@ export interface UsageStoreOptions {
    * prune and to entries recorded from then on. Absent: `DEFAULT_USAGE_RETENTION_DAYS`.
    */
   readonly retentionDays?: () => number;
-  /** A fixed row cap in place of `usageMaxRows` of the retention (tests). */
-  readonly maxRows?: number;
 }
 
 export const usageStore = (sql: SqlStorage, options: UsageStoreOptions = {}): UsageStore => {
@@ -151,14 +140,8 @@ export const usageStore = (sql: SqlStorage, options: UsageStoreOptions = {}): Us
   const prune = (now: number, days: number) => {
     if (now - prunedAt < PRUNE_EVERY_MS) return;
     prunedAt = now;
-    const maxRows = options.maxRows ?? usageMaxRows(days);
+    // The retention alone bounds the table (SPI-1366): no row count is cut inside it.
     sql.exec("DELETE FROM t3flare_usage WHERE slot < ?", now - days * DAY_MS);
-    const rows = Number(sql.exec("SELECT COUNT(*) AS n FROM t3flare_usage").toArray()[0]?.n ?? 0);
-    if (rows > maxRows)
-      sql.exec(
-        "DELETE FROM t3flare_usage WHERE rowid IN (SELECT rowid FROM t3flare_usage ORDER BY slot LIMIT ?)",
-        rows - maxRows,
-      );
   };
   return {
     record(entries, endpoints, now) {
