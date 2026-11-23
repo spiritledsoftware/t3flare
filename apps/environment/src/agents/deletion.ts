@@ -521,7 +521,12 @@ export const sweep = async (
   const stored = purgingSinceStore?.get() ?? null;
   const purgingSince = purging ? (stored ?? now) : null;
   if (!dry && stored !== purgingSince) purgingSinceStore?.set(purgingSince);
-  const grace: SweepGrace = { purging, graceMs: settings.graceMs, purgingSince, provisioningMs: settings.provisioningMs };
+  const grace: SweepGrace = {
+    purging,
+    graceMs: settings.graceMs,
+    purgingSince,
+    provisioningMs: settings.provisioningMs,
+  };
   const reported = {
     at: iso(now),
     dry,

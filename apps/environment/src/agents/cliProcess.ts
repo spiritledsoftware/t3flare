@@ -185,7 +185,11 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
             : undefined;
         },
         piExtensionSource: PI_T3_MCP_EXTENSION_SOURCE,
-        relay: { handle: toolHandle, servers: services.relayServers(), toolTimeoutSec: cliToolTimeoutSec(answerMs, mcpCallMsNow()) },
+        relay: {
+          handle: toolHandle,
+          servers: services.relayServers(),
+          toolTimeoutSec: cliToolTimeoutSec(answerMs, mcpCallMsNow()),
+        },
         endpoints: responsesEndpoints,
         ...(session?.model === undefined ? {} : { model: session.model }),
         ...(claudeRelay === undefined ? {} : { claudeRelay }),

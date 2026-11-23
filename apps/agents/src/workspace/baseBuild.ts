@@ -338,7 +338,8 @@ export class BaseBuild {
    */
   #good(): BaseSnapshot | null {
     const good = this.#deps.storage.get<KeptSnapshot>(BUILDER_KEYS.good);
-    if (good === undefined || good.gone === true || this.#deps.now() - this.#aliveSince(good) > GOOD_FOR_MS) return null;
+    if (good === undefined || good.gone === true || this.#deps.now() - this.#aliveSince(good) > GOOD_FOR_MS)
+      return null;
     const { gone: _gone, restoredAt: _restoredAt, ...snapshot } = good;
     return snapshot;
   }

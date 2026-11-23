@@ -164,7 +164,13 @@ describe("the purge date (ADR-0043 §2)", () => {
 });
 
 describe("the Sweep's settings (ADR-0043 §2–3)", () => {
-  const TIMES = { cloneMinutes: 15, imageSetupMinutes: 30, snapshotMinutes: 5, globalMiseInstallMinutes: 10, containerSetupMinutes: 5 } as const;
+  const TIMES = {
+    cloneMinutes: 15,
+    imageSetupMinutes: 30,
+    snapshotMinutes: 5,
+    globalMiseInstallMinutes: 10,
+    containerSetupMinutes: 5,
+  } as const;
   /** 15 + (30 + 2 × 5) + 2 × 10 + 5 minutes. */
   const PROVISIONING = 80 * 60_000;
 
@@ -343,7 +349,11 @@ describe("the sweep's plan", () => {
   it("never purges a ready Workspace younger than a day: its mark cannot precede its creation, and the Grace is a day at least (ADR-0043's Consequences)", () => {
     expect(ENVIRONMENT_SETTINGS.graceDays.schema.minimum).toBe(1);
     const shortest = sweepSettingsOf(
-      { ...resolveEnvironment(EMPTY_ENVIRONMENT), sweepPurges: true, graceDays: ENVIRONMENT_SETTINGS.graceDays.schema.minimum },
+      {
+        ...resolveEnvironment(EMPTY_ENVIRONMENT),
+        sweepPurges: true,
+        graceDays: ENVIRONMENT_SETTINGS.graceDays.schema.minimum,
+      },
       undefined,
     );
     for (const age of [0, 60_000, 60 * 60_000, DAY / 2, DAY - 1]) {

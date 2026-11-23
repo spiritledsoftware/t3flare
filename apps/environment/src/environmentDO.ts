@@ -794,7 +794,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       ownHost: () => this.env.T3FLARE_HOST ?? this.#host,
       settingsServer: (input) => this.#settingsCall(input),
       // Read at each call (SPI-1359): a change applies at the next call.
-      callTimeoutMs: () => resolveEnvironment(harnessStore(this.ctx.storage.kv).loadEnvironment()).mcpCallSeconds * 1000,
+      callTimeoutMs: () =>
+        resolveEnvironment(harnessStore(this.ctx.storage.kv).loadEnvironment()).mcpCallSeconds * 1000,
       resultBytes: () => resolveEnvironment(harnessStore(this.ctx.storage.kv).loadEnvironment()).mcpResultKiB * 1024,
     });
     return this.#mcpHost;
