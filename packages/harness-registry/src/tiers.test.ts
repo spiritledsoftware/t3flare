@@ -703,6 +703,33 @@ describe("tierOf: the MCP server set", () => {
     });
   });
 
+  it("every move of a Settings server limit is asked, in either direction (SPI-1322)", () => {
+    const tier = (stored: StoredHarness, limits: Record<string, unknown>) =>
+      tierOf({ entity: "mcp", stored, change: covered({ op: "server", server: SETTINGS_SERVER, limits }) });
+    expect(tier(withSettings, { askedPerHour: 12 })).toMatchObject({
+      tier: "asked",
+      reasons: [
+        "settings.limits.askedPerHour: 6 to 12 (every change to it is asked) (the Settings server's own entry)",
+      ],
+    });
+    expect(tier(withSettings, { askedPerHour: 1 }).tier).toBe("asked");
+    expect(tier(withSettings, { strikeLockMinutes: 0 }).tier).toBe("asked");
+    expect(tier(withSettings, { strikeLockMinutes: 600 }).tier).toBe("asked");
+    // At its value, a limit moves nothing: a form's save of every limit as it stands is unchanged.
+    expect(tier(withSettings, { askedPerHour: 6 }).tier).toBe("unchanged");
+    const raised = applyMcpChange(withSettings, {
+      op: "server",
+      server: SETTINGS_SERVER,
+      limits: { askedPerHour: 12 },
+    });
+    if (!raised.ok) throw new Error(raised.error);
+    expect(tier(raised.harness, { askedPerHour: 12, strikes: 3 }).tier).toBe("unchanged");
+    expect(tier(raised.harness, { askedPerHour: 6 }).tier).toBe("asked");
+    // A key this registry does not know is asked (fails closed); a Direct server has no limits.
+    expect(tier(withSettings, { nope: 1 }).tier).toBe("asked");
+    expect(mcp(withDirect(), { op: "server", server: "fixture", limits: { strikes: 1 } })).toBe("asked");
+  });
+
   it("an unknown server is asked; every MCP change shape is covered", () => {
     expect(mcp(EMPTY_HARNESS, { op: "server", server: "nope", enabled: false })).toBe("asked");
     expect([...ops].sort()).toEqual(["add", "class", "header-value", "remove", "server", "sign-in"]);

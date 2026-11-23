@@ -21,6 +21,7 @@ import {
   type McpChange,
   mcpServersOf,
   resolveHarness,
+  settingsServerLimitsOf,
   type StoredHarness,
 } from "./index.ts";
 import { type Exposure, type McpServerSetting, ownEntry, SETTINGS_SERVER, type ToolClass } from "./mcp.ts";
@@ -210,6 +211,18 @@ const mcpTier = (
           : { asked: false, reason: `${server}: write tools turned off` },
       ),
     );
+  }
+  // The Settings server's limits (SPI-1322): each that moves is a part, asked in either direction (`mark`); one that
+  // stays (a form posts every limit on each save) is none, so a save that moves nothing is `unchanged`.
+  if (change.limits !== undefined && !isSettingsServer) parts.push({ asked: true, reason: `${server}: has no limits` });
+  else if (change.limits !== undefined) {
+    const limits: Readonly<Record<string, unknown>> = settingsServerLimitsOf(stored);
+    for (const [key, value] of Object.entries(change.limits)) {
+      const before = ownEntry(limits, key);
+      if (before === undefined)
+        parts.push({ asked: true, reason: `${server}.limits.${key}: not a limit this registry knows` });
+      else if (value !== before) parts.push(mark(settingPart(`${server}.limits.${key}`, undefined, before, value)));
+    }
   }
   const exposureAfter = change.exposure ?? current.exposure;
   if (change.exposure !== undefined && change.exposure !== current.exposure) {

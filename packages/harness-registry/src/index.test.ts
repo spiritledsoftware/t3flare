@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyChange,
+  applyMcpChange,
   applyToolsChange,
   BUILTIN_TOOLS,
   mcpServersOf,
@@ -15,6 +16,9 @@ import {
   EXTENSIONS,
   resolvedToolsOf,
   resolveHarness,
+  SETTINGS_SERVER,
+  SETTINGS_SERVER_LIMITS,
+  settingsServerLimitsOf,
   type StoredHarness,
   type ToolsChange,
   withoutQuery,
@@ -535,5 +539,99 @@ describe("withoutQuery", () => {
     expect(withoutQuery("https://?key=s3cr3t")).toBe("https://");
     expect(withoutQuery("https://h:99999/p#key=x?y")).toBe("https://h:99999/p");
     expect(withoutQuery("not a url ?key=x")).toBe("not a url ");
+  });
+});
+
+describe("the Settings server's limits (SPI-1322)", () => {
+  const DEFAULTS = {
+    strikes: 3,
+    strikeWindowMinutes: 60,
+    strikeLockMinutes: 60,
+    declinedRepeatMinutes: 10,
+    appliedPerHour: 30,
+    askedPerHour: 6,
+    readsPerHour: 240,
+    networkReadsPerHour: 20,
+    openPerThread: 1,
+    openPerOwner: 2,
+  };
+  const withDirect: StoredHarness = {
+    ...EMPTY_HARNESS,
+    mcp: {
+      servers: { fixture: { kind: "direct", url: "https://x.example/mcp", enabled: true, exposure: "deferred" } },
+    },
+  };
+  const applied = (stored: StoredHarness, limits: Record<string, unknown>) => {
+    const result = applyMcpChange(stored, { op: "server", server: SETTINGS_SERVER, limits });
+    if (!result.ok) throw new Error(result.error);
+    return result.harness;
+  };
+
+  it("resolve to today's values with nothing stored", () => {
+    expect(settingsServerLimitsOf(EMPTY_HARNESS)).toEqual(DEFAULTS);
+    expect(Object.keys(SETTINGS_SERVER_LIMITS).sort()).toEqual(Object.keys(DEFAULTS).sort());
+  });
+
+  it("are stored on the settings entry, merged over those set, and resolved over the defaults", () => {
+    const once = applied(EMPTY_HARNESS, { askedPerHour: 12, strikeLockMinutes: 0 });
+    expect(mcpServersOf(once)[SETTINGS_SERVER]?.limits).toEqual({ askedPerHour: 12, strikeLockMinutes: 0 });
+    const twice = applied(once, { strikes: 1 });
+    expect(settingsServerLimitsOf(twice)).toEqual({ ...DEFAULTS, askedPerHour: 12, strikeLockMinutes: 0, strikes: 1 });
+    expect(twice.revision).toBe(2);
+  });
+
+  it("a stored value that no longer fits reads as its default", () => {
+    const stored: StoredHarness = {
+      ...EMPTY_HARNESS,
+      mcp: {
+        servers: {
+          settings: {
+            kind: "settings",
+            enabled: true,
+            exposure: "deferred",
+            limits: { askedPerHour: 0, readsPerHour: 1.5, openPerThread: 17, strikes: 4 },
+          },
+        },
+      },
+    };
+    expect(settingsServerLimitsOf(stored)).toEqual({ ...DEFAULTS, strikes: 4 });
+  });
+
+  it("are refused on a Direct server, out of range, or unknown", () => {
+    expect(applyMcpChange(withDirect, { op: "server", server: "fixture", limits: { strikes: 2 } })).toEqual({
+      ok: false,
+      error: "fixture: only the Settings server has limits",
+    });
+    for (const [limits, error] of [
+      [{ strikes: 0 }, "limits.strikes: at least 1"],
+      [{ strikes: 1001 }, "limits.strikes: at most 1000"],
+      [{ strikeLockMinutes: -1 }, "limits.strikeLockMinutes: at least 0"],
+      [{ strikeWindowMinutes: 0 }, "limits.strikeWindowMinutes: at least 1"],
+      [{ strikeWindowMinutes: MAX_TIMED_MINUTES + 1 }, `limits.strikeWindowMinutes: at most ${MAX_TIMED_MINUTES}`],
+      [{ askedPerHour: 100_001 }, "limits.askedPerHour: at most 100000"],
+      [{ openPerOwner: 17 }, "limits.openPerOwner: at most 16"],
+      [{ readsPerHour: "240" }, "limits.readsPerHour: an integer"],
+      [{ nope: 1 }, "limits.nope: not a limit of the Settings server"],
+    ] as const) {
+      expect(
+        applyMcpChange(EMPTY_HARNESS, {
+          op: "server",
+          server: SETTINGS_SERVER,
+          limits: JSON.parse(JSON.stringify(limits)),
+        }),
+        JSON.stringify(limits),
+      ).toEqual({ ok: false, error });
+    }
+    // A key named `__proto__` is a key like any other, and not a limit.
+    expect(
+      applyMcpChange(EMPTY_HARNESS, { op: "server", server: SETTINGS_SERVER, limits: JSON.parse('{"__proto__":1}') }),
+    ).toEqual({ ok: false, error: "limits.__proto__: not a limit of the Settings server" });
+    // The lock and the repeat take 0, which turns them off.
+    expect(
+      settingsServerLimitsOf(applied(EMPTY_HARNESS, { strikeLockMinutes: 0, declinedRepeatMinutes: 0 })),
+    ).toMatchObject({
+      strikeLockMinutes: 0,
+      declinedRepeatMinutes: 0,
+    });
   });
 });
