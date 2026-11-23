@@ -88,6 +88,7 @@ import {
   type AnsweredBy,
   APPLIED_WINDOW_MS,
   capKeyOf,
+  changeArgsProblem,
   type ChangeCaller,
   changeHash,
   type ChangeMode,
@@ -1487,6 +1488,12 @@ const applyFree = async (
 ): Promise<McpCallAnswer> => {
   const { planned, log } = input;
   const now = deps.ops.now();
+  // Its record is one row (SPI-1365): a change too large to keep is refused before it applies, never after.
+  const tooLarge = changeArgsProblem(input.args);
+  if (tooLarge !== undefined) {
+    log("refused", { reason: "too-large" });
+    return written("refused", `Not changed: ${tooLarge}`);
+  }
   const ran = await planned.run({ actor: input.actor, expectedRevision: input.expected });
   const revision = revisionOf(deps, planned.entity);
   if (!ran.ok) {
@@ -1581,6 +1588,9 @@ const openAskedChange = async (deps: SettingsServerDeps, input: AskedInput): Pro
   const limits = deps.changes.limits();
   const capped = capRefusal(deps.changes, caller, hash, deps.ops.now(), openListOf(deps), limits);
   if (capped !== undefined) return capAnswer(capped);
+  // Its record is one row (SPI-1365): a change too large to keep is refused before it opens.
+  const tooLarge = changeArgsProblem(input.args);
+  if (tooLarge !== undefined) return refused("too-large", written("refused", `Not changed: ${tooLarge}`));
   const spent = planned.network === true ? networkSpent(deps, input.reader, limits) : undefined;
   if (spent !== undefined) return refused("network-read-cap", written("refused", spent));
   const described = await planned.describe();
