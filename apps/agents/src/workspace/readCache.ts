@@ -28,8 +28,8 @@ const MAX_ROWS = 500;
 
 /**
  * The largest answer kept, in UTF-8 bytes of its JSON. A named constraint: a Durable Object SQLite row holds 8 MiB
- * (8,388,608 bytes: Cloudflare's "Maximum string, BLOB or table row size", past which an insert throws `SQLITE_TOOBIG`),
- * a SQLite row's limit and not the 2 MB of a KV value; 1 KiB is left for the row's key, revision and time.
+ * (8,388,608 bytes: Cloudflare's "Maximum string, BLOB or table row size", past which an insert throws `SQLITE_TOOBIG`);
+ * 1 KiB is left for the row's key, revision and time.
  * A larger answer (a big `git log` or `git status`) is answered, just not cached.
  */
 export const MAX_ANSWER_BYTES = 8 * 1024 * 1024 - 1024;
