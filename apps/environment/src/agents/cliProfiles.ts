@@ -6,6 +6,7 @@
 import { isSignIn, type ModelEndpoint, parseEndpointSlug, SETUP_HINT, SIGN_IN_COMPAT } from "@t3flare/models/endpoints";
 import { endpointProviderId, MODEL_HANDLE_ENV, modelRelayUrl, type RelayedEndpoint } from "@t3flare/models/relay";
 import {
+  DEFAULT_CLI_RETRIES,
   DEFAULT_PI_SESSION_RETENTION_DAYS,
   MCP_RELAY_PREFIX,
   RELAY_SERVERS_ENV,
@@ -91,6 +92,11 @@ export interface ProfileContext {
    * this pi start (review F2). Absent: `DEFAULT_PI_SESSION_RETENTION_DAYS`, the setting's default.
    */
   readonly piSessionRetentionDays?: number;
+  /**
+   * SPI-1367: the Environment's `cliRetries` at the spawn: how many times Codex, Claude Code and pi try a failed model
+   * request again. Absent: `DEFAULT_CLI_RETRIES`, the setting's default.
+   */
+  readonly cliRetries?: number;
 }
 
 /**
@@ -172,7 +178,10 @@ export const codexRelayOverrides = (
  * process's model handle as its key (`env_key`), named by its id; the Workers swap it for the endpoint's credential. Codex's shells never
  * see the handle (`shell_environment_policy.exclude`).
  */
-export const codexEndpointOverrides = (endpoints: ReadonlyArray<RelayedEndpoint>): ReadonlyArray<string> =>
+export const codexEndpointOverrides = (
+  endpoints: ReadonlyArray<RelayedEndpoint>,
+  retries: number = DEFAULT_CLI_RETRIES,
+): ReadonlyArray<string> =>
   endpoints.map((endpoint) => {
     const provider = [
       // A fixed name, never the owner's label: Codex reads some names as a vendor's ("OpenAI" turns on its remote
@@ -183,8 +192,9 @@ export const codexEndpointOverrides = (endpoints: ReadonlyArray<RelayedEndpoint>
       `env_key=${tomlString(MODEL_HANDLE_ENV)}`,
       "requires_openai_auth=false",
       "supports_websockets=false",
-      "request_max_retries=1",
-      "stream_max_retries=1",
+      // The Environment's `cliRetries` (SPI-1367).
+      `request_max_retries=${retries}`,
+      `stream_max_retries=${retries}`,
     ].join(",");
     return `model_providers.${endpointProviderId(endpoint.id)}={${provider}}`;
   });
@@ -207,10 +217,11 @@ export const codexOverrides = (
   key: string,
   endpoints: ReadonlyArray<RelayedEndpoint & CodexRouteEndpoint>,
   model?: string,
+  retries?: number,
 ): ReadonlyArray<string> => {
   return [
     `model_provider=${tomlString(codexProcessProvider(endpoints, model))}`,
-    ...codexEndpointOverrides(endpoints),
+    ...codexEndpointOverrides(endpoints, retries),
     // The process's own defaults (review F5; 0.167.2 refuses "untrusted" here, so every turn/start carries the guard's).
     `approval_policy="on-request"`,
     `sandbox_mode="read-only"`,
@@ -296,7 +307,7 @@ const codexExecLaunch = (input: LaunchInput, context: ProfileContext): LaunchAns
   if (endpoints.length === 0) return { refused: NO_CODEX_ENDPOINT };
   const home = homeOf(input.key);
   const overrides = [
-    ...codexOverrides(input.key, endpoints, model).filter(
+    ...codexOverrides(input.key, endpoints, model, context.cliRetries).filter(
       (value) => !value.startsWith("approval_policy=") && !value.startsWith("sandbox_mode="),
     ),
     // `codex exec` cannot ask anyone: a command the read-only sandbox refuses fails back to the model.
@@ -331,7 +342,7 @@ const codexLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer 
   const thread = input.env.T3CODE_THREAD_ID;
   const relay = context.relay;
   const overrides = [
-    ...codexOverrides(input.key, endpoints, context.model),
+    ...codexOverrides(input.key, endpoints, context.model, context.cliRetries),
     ...(relay === undefined ? [] : codexRelayOverrides(relay.servers, relay.toolTimeoutSec, relay.startTimeoutSec)),
   ];
   return {
@@ -460,15 +471,15 @@ export const piMcpJson = (servers: ReadonlyArray<string>, toolTimeoutSec: number
   )}\n`;
 
 /**
- * pi's agent settings on the model relay (SPI-1170): no project is trusted (review F2), few retries (nothing retries into
- * spend, ADR-0034 §8), and the model pi starts on (its default, which t3's `default` model keeps), as pi names it: its
- * endpoint's provider and the model's own id.
+ * pi's agent settings on the model relay (SPI-1170): no project is trusted (review F2), the Environment's `cliRetries`
+ * (SPI-1367), and the model pi starts on (its default, which t3's `default` model keeps), as pi names it: its endpoint's
+ * provider and the model's own id.
  */
-export const piRelaySettings = (relay: PiRelay): string => {
+export const piRelaySettings = (relay: PiRelay, retries: number = DEFAULT_CLI_RETRIES): string => {
   const start = relay.model === undefined ? undefined : parseEndpointSlug(relay.model);
   const defaults =
     start === undefined ? {} : { defaultProvider: endpointProviderId(start.endpointId), defaultModel: start.modelId };
-  return `${JSON.stringify({ defaultProjectTrust: "never", retry: { maxRetries: 1 }, ...defaults }, null, 1)}\n`;
+  return `${JSON.stringify({ defaultProjectTrust: "never", retry: { maxRetries: retries }, ...defaults }, null, 1)}\n`;
 };
 
 /**
@@ -539,7 +550,7 @@ const piLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer => 
   if (piRelay === undefined) return { refused: noEndpointFor("Pi") };
   const files: Array<{ path: string; text: string; mode?: number }> = [
     { path: `${home}/agent/models.json`, text: piRelayModelsJson(piRelay) },
-    { path: `${home}/agent/settings.json`, text: piRelaySettings(piRelay) },
+    { path: `${home}/agent/settings.json`, text: piRelaySettings(piRelay, context.cliRetries) },
   ];
   const env: Record<string, string> = {
     HOME: OWNER_HOME,

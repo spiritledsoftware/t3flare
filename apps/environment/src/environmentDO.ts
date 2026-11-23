@@ -239,7 +239,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       sweep: () => sweepSettingsOf(this.#environmentNow(), env.T3FLARE_SWEEP_GRACE_MS),
       // Read at each CLI spawn (ADR-0047 §9): a change applies at each CLI agent's next start.
       agentsReadDotfiles: () => this.#environmentNow().agentsReadDotfiles,
-      // Read at each CLI spawn (SPI-1323): a change applies at each pi start.
+      // Read at each CLI spawn (SPI-1323): a change applies at each pi or Claude Code start.
       piSessionRetentionDays: () => this.#environmentNow().piSessionRetentionDays,
       // Read at each turn's start (SPI-1315): a change applies at each thread's next turn; a running turn keeps its limit.
       turnLimitMs: () => this.#environmentNow().turnLimitMinutes * 60_000,

@@ -198,8 +198,10 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
         ...(piRelay === undefined ? {} : { piRelay }),
         // SPI-1331 (ADR-0047 §9): the Owner's own config for the CLI first, as the Environment says now.
         dotfiles: services.agentsReadDotfiles?.() ?? true,
-        // SPI-1323: how long pi's sessions are kept, as the Environment says now.
+        // SPI-1323: how long pi's and Claude Code's sessions are kept, as the Environment says now.
         piSessionRetentionDays: services.piSessionRetentionDays?.() ?? DEFAULT_PI_SESSION_RETENTION_DAYS,
+        // SPI-1367: how often the CLI tries a failed model request again, as the Environment says now.
+        cliRetries: environmentNow().cliRetries,
       },
     );
     if ("refused" in launch) {

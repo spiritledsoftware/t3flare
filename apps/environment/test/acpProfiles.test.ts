@@ -90,6 +90,27 @@ describe("Claude Code's profile", () => {
     expect(CLAUDE_PROJECTS).toBe("/workspace/.t3flare/claude/projects");
   });
 
+  it("retries cliRetries times and keeps sessions piSessionRetentionDays days, as the Environment says at the spawn (SPI-1367)", () => {
+    const at = (settings: Partial<ProfileContext>) => {
+      const answer = profileLaunch(
+        { cli: "claude", args: [], key: "proc-7", cwd: "/w/demo", env: {}, allowProbe: false },
+        { ...context, ...settings },
+      );
+      if ("refused" in answer) throw new Error(answer.refused);
+      const managed = fileOf(answer, "/managed-settings.json").json as {
+        cleanupPeriodDays: number;
+        env: Record<string, string>;
+      };
+      return {
+        days: managed.cleanupPeriodDays,
+        managed: managed.env.CLAUDE_CODE_MAX_RETRIES,
+        launch: answer.env.CLAUDE_CODE_MAX_RETRIES,
+      };
+    };
+    expect(at({ cliRetries: 3, piSessionRetentionDays: 14 })).toEqual({ days: 14, managed: "3", launch: "3" });
+    expect(at({})).toEqual({ days: 60, managed: "1", launch: "1" });
+  });
+
   it("pins the endpoint and the key in managed settings a repository cannot override (review F3; K5; M0 P1, P3)", () => {
     const { json, mode } = fileOf(launch("claude", []), "/managed-settings.json");
     expect(mode ?? 0o600).toBe(0o600);

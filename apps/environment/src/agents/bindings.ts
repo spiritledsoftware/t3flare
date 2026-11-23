@@ -44,8 +44,8 @@ export interface EnvironmentServices {
    */
   readonly agentsReadDotfiles?: () => boolean;
   /**
-   * How many days pi's sessions are kept (SPI-1323, `piSessionRetentionDays`), as stored now: read at each spawn, so a
-   * change applies at each pi start. Absent (a test's services): the setting's default.
+   * How many days pi's and Claude Code's sessions are kept (SPI-1323, SPI-1367, `piSessionRetentionDays`), as stored now:
+   * read at each spawn, so a change applies at each pi or Claude Code start. Absent (a test's services): the default.
    */
   readonly piSessionRetentionDays?: () => number;
   /**
