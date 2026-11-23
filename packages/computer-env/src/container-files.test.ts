@@ -292,7 +292,6 @@ describe("the Container's file operations", () => {
 describe("grep's bounds (SPI-1361)", () => {
   it.skipIf(!hasRg)("takes any context, showing the lines the file has", async () => {
     const path = join(root, "pkg/index.ts");
-    const started = Date.now();
     const found = await files().grep("const b", path, {
       ignoreCase: false,
       regex: false,
@@ -301,9 +300,9 @@ describe("grep's bounds (SPI-1361)", () => {
       include: undefined,
       exclude: [],
     });
-    expect(Date.now() - started).toBeLessThan(5_000);
     expect(found[0]?.context?.map((line) => line.line)).toEqual([1, 2]);
-  });
+    // A walk over the whole range would take far longer than this.
+  }, 5_000);
 
   it.skipIf(!hasRg)("reads at most GREP_OUTPUT_BYTES of ripgrep's events, whatever the limit and context", async () => {
     const path = join(root, "big.txt");
