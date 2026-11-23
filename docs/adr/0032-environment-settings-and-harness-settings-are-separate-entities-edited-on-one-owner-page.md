@@ -584,16 +584,18 @@ deletes is asked downward.
 
 - `durableRetries` is pi-durable's `settings.retry.maxRetries`, which the Session reads at each use, as the latest
   turn's start carried it (`turnRetries.ts`). The reset a rate limit is waited through is the span of those retries
-  (`retriedSpanMs`; 14 s at 3), so 0 pauses at any reset. 0 to `MAX_MODEL_RETRIES` (100), a sanity bound.
+  (`retriedSpanMs` in `@t3flare/harness-registry`, a mirror of pi-durable's backoff, fragility U105; 14 s at 3), so 0
+  pauses at any reset. 0 to `MAX_MODEL_RETRIES` (100), a sanity bound.
 - `cliRetries` is Codex's `request_max_retries` and `stream_max_retries`, Claude Code's `CLAUDE_CODE_MAX_RETRIES` and
   pi's `retry.maxRetries`, written at each spawn. OpenCode keeps its own. Replaces "nothing retries into spend" as a
   fixed rule: the Owner sets how much a retry may spend.
 - `killAttempts` was `MAX_ATTEMPTS`; the Session reads it at each kill. Some count is needed: a kill that keeps finding
   survivors keeps the Container awake, so "Container not running" never ends it. 1 to `MAX_KILL_ATTEMPTS` (1000, about
-  83 minutes of tries 5 s apart), a sanity bound.
-- `traceKiB` and `traceFiles` are t3's `traceMaxBytes` and `traceMaxFiles`, read when t3 boots. The State directory
-  appends by reading and rewriting the whole file, so `MAX_TRACE_KIB` (16 MiB) is a provisional bound from an estimate
-  of the isolate's memory, not a measurement. `traceFiles` takes 1 to 100: t3 refuses fewer than 1, and deletes files
+  tries `KILL_RETRY_MS` apart), a sanity bound.
+- `traceKiB` and `traceFiles` are t3's `traceMaxBytes` and `traceMaxFiles`, read when t3 boots. `MAX_TRACE_KIB` is a
+  named constraint, one inline State directory row (4 MiB, `CHUNK_BYTES`): the State directory appends by reading and
+  rewriting the whole file, and t3 flushes its trace about five times a second, so each flush holds about three times
+  the file in the Environment DO's 128 MB isolate, which also runs t3. `traceFiles` takes 1 to 100: t3 refuses fewer than 1, and deletes files
   past the count when it starts.
 - **Reused: `piSessionRetentionDays`** now also sets Claude Code's `cleanupPeriodDays`, which was fixed at 60. Both
   delete a session nobody wrote to for that many days at the CLI's start. The key keeps its name, so stored values

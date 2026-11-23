@@ -1787,6 +1787,24 @@ Moved from U58 when its Commissary readers went (SPI-1176).
 - **Fix**: default the new key t3 reads (a whole `backgroundActivity` once t3 accepts it unlocked), and keep the test
   resolving through t3's own functions.
 
+### U105. The span of pi-durable's retries, mirrored for the rate-limit pause (SPI-1367)
+
+- **Where**: `retriedSpanMs` in `packages/harness-registry/src/environment.ts` sums pi-durable's waits for a given
+  number of retries: `DURABLE_RETRY_FIRST_WAIT_MS` (2 s) doubling, each at most `DURABLE_RETRY_LONGEST_WAIT_MS` (60 s).
+  These mirror pi-durable's `DEFAULT_RETRY_POLICY` (`baseDelayMs`, `maxAgentDelayMs`, `dist/harness/agent.js`) under
+  pi-ai's `retryDelayMs` (`dist/utils/retry.js`). The Session passes `retriedSpanMs(durableRetries)` to the failure
+  classifier (`modelLimits.ts`), which stops the retries for a 429 that resets past it; `SHORT_RESET_MS` in
+  `packages/models/src/failures.ts` is the default 3's span. The `durableRetries` description interpolates the same
+  figures.
+- **Breaks when**: pi-durable changes its default wait or cap, pi-ai changes how a wait grows, or t3flare starts passing
+  its own `baseDelayMs` or `maxAgentDelayMs` in the Session's `settings.retry`.
+- **Detection**: `apps/agents/test/turnRetries.test.ts` sums pi-ai's own `retryDelayMs` over pi-durable's own
+  `DEFAULT_RETRY_POLICY` for 0 to 100 retries and fails when `retriedSpanMs` differs, and when `SHORT_RESET_MS` stops
+  being the default's span. **Silent**: a Session `settings.retry` with its own waits.
+- **Blast radius**: low. A wrong span pauses a thread for a reset the retries would have met, or retries a 429 into a
+  reset they cannot reach (one wasted request each).
+- **Fix**: set the two mirrors to pi-durable's new values, or read them from its `DEFAULT_RETRY_POLICY`.
+
 ## Retired entries
 
 Entries whose dependency is gone. Their ids are not reused.
