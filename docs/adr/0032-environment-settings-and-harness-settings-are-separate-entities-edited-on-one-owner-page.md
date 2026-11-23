@@ -243,8 +243,9 @@ the Container size is a setting, both are the Owner's. `cliProcessesPerWorkspace
 Container's memory bounds it in fact, and the description states that once ("Each CLI agent's process takes about 150
 to 200 MB of the Container's memory; past what the Container size has, commands fail for memory."). `cliReclaimSeconds`:
 30 by default, 0 to 660, tier `free`. 660 is a named constraint: a CLI process holds the Container for
-`CLI_IDLE_HOLD_MS` (11 minutes) after its last turn, forced by t3's 10-minute session release, so a longer delay changes
-nothing. Both show in the Containers row.
+`CLI_IDLE_HOLD_MS` (11 minutes) after its last turn, so a longer delay changes nothing. The hold is derived (SPI-1359):
+t3's session release (`CLI_SESSION_RELEASE_MS`, harness-registry), which is t3flare's own Patch 0003's 10 minutes, a
+cost choice, plus a minute. Both show in the Containers row.
 
 The Environment DO reads both at each CLI spawn and carries them with the start request (`ProcessStartInput`), as the
 budget rides the lease request (§7); a carried value that is absent or out of bounds reads as its default. The count

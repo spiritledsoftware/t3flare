@@ -58,12 +58,24 @@ export const MAX_CLI_PROCESSES_PER_WORKSPACE = 100;
 export const DEFAULT_CLI_RECLAIM_SECONDS = 30;
 
 /**
- * The most seconds a CLI agent's process out of a turn waits before it may be ended to free the Container for another
- * Workspace (`cliReclaimSeconds`). A named constraint: a CLI process holds the Container for `CLI_IDLE_HOLD_MS` (11
- * minutes, apps/agents/src/workspace/processHost.ts) after its last turn, forced by t3's 10-minute session release, so a
- * longer delay changes nothing.
+ * When t3 releases an idle provider session, ending a CLI agent's process: 10 minutes, set by t3flare's own Patch 0003
+ * (`patches/0003-provider-session-idle-10-minutes.patch`, stock t3's is 30) to bound what an idle CLI session costs
+ * (docs/cost.md). The patch and this constant must name the same minutes (apps/agents/test/processHost.test.ts).
  */
-export const MAX_CLI_RECLAIM_SECONDS = 660;
+export const CLI_SESSION_RELEASE_MS = 10 * 60_000;
+
+/**
+ * How long after its last turn a CLI agent's process holds the Container (review F7): t3's session release
+ * (`CLI_SESSION_RELEASE_MS`) and a minute for the process to exit.
+ */
+export const CLI_IDLE_HOLD_MS = CLI_SESSION_RELEASE_MS + 60_000;
+
+/**
+ * The most seconds a CLI agent's process out of a turn waits before it may be ended to free the Container for another
+ * Workspace (`cliReclaimSeconds`). A named constraint: a CLI process holds the Container for `CLI_IDLE_HOLD_MS` after
+ * its last turn, so a longer delay changes nothing.
+ */
+export const MAX_CLI_RECLAIM_SECONDS = CLI_IDLE_HOLD_MS / 1000;
 
 /**
  * The Turn limit's default, in minutes (`turnLimitMinutes`; step 2a's cost guardrail, ADR-0015's CLI cap): how long a
