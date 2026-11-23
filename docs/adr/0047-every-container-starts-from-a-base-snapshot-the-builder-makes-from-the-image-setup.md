@@ -9,7 +9,8 @@ findings are the facts cited below.
 
 The Owner wants their Workspaces' Containers to carry what their agents need, such as their dotfiles, without a
 redeploy: an **Image setup** run once to make what every Container starts from, and a **Container setup** run at every
-new Container's start. Both are Environment settings, bash scripts of up to 256 KiB each, run as root with
+new Container's start. Both are Environment settings, bash scripts of up to 256 KiB each (superseded: see the SPI-1365
+refinement below), run as root with
 `HOME=/root`, `COMMAND_ENV` and every Variable, secret ones included
 ([ADR-0046](0046-a-variable-may-be-secret-as-stock-t3s-environment-variables-are.md)).
 
@@ -51,7 +52,8 @@ new Container's start. Both are Environment settings, bash scripts of up to 256 
    Container setup's failure does (carry on); the Builder's size (the Container size) and whether it counts against the
    Container budget (no); a scheduled rebuild (off); and whether Terminals read `~/.bashrc` and CLI agents read the
    dotfiles' own agent config, `~/.claude.json` included (both on; t3flare's model routing and managed settings stay on
-   top). Fixed only by constraint: 256 KiB per script (every Environment setting is one stored value of at most 8 MB)
+   top). Fixed only by constraint: 256 KiB per script (every Environment setting is one stored value of at most 8 MB;
+   superseded by the SPI-1365 refinement below)
    and the rebuild after an image change. The three time limits' maximums (60, 120 and 15 minutes) were no
    constraint: since
    [ADR-0048](0048-the-owner-is-trusted-with-their-own-settings-and-a-maximum-is-a-named-constraint-or-a-sanity-bound.md)
@@ -197,3 +199,12 @@ hour's retry) and §6 (the Builder does not see a restore).
 - **The retry is a setting**, `baseRetryMinutes` (60 by default, 1 to `MAX_TIMED_MINUTES`, tier `up-free`, in the
   Image setup's row): a failing key's first retry, doubling, at most a day or the setting itself when that is longer.
   Some backoff is needed: without it a failing key's next trigger would build at once, a loop of Builder Containers.
+
+## Refinement (SPI-1365, 2026-11-23): the setups' size
+
+The 256 KiB per script is superseded: it was not derived from the 8 MB value it cited. Each setup is at most
+`MAX_FILE_SETTING_BYTES` (a third of one Durable Object value), and the Environment settings together are checked
+against the value whole ([ADR-0032](0032-environment-settings-and-harness-settings-are-separate-entities-edited-on-one-owner-page.md)'s
+SPI-1365 refinement). The Settings server's body limit follows, so a setup at its maximum can be sent, and a Test base
+build's proposal takes the same bound.
+

@@ -37,8 +37,8 @@ settings. Both are edited on the one page at `/_t3flare/harness`, the Environmen
    before: 1 vCPU, 3 GiB, 12 GB) and Cloudflare's `standard-1` to `standard-4`. The class runs under
    `schedulingPolicy: "durable_object"`, which takes an `instance` per `start()`. Every start passes one: an omitted
    `instance` starts `lite`, and a stored name t3flare does not offer starts the default. `lite` and `basic` (which the
-   runtime refuses) are not offered, nor other custom sizes. A stored name never changes meaning: adding a
-   size is free, removing one needs a rename map.
+   runtime refuses) are not offered, nor other custom sizes (superseded: the SPI-1365 refinement below offers any
+   custom size). A stored name never changes meaning: adding a size is free, removing one needs a rename map.
 5. **A running Container keeps what it started with.** The Workspace DO records each start's size, idle time and
    budget, and adopts a running Container with the `instance` it started with (computer relaunches one whose launch
    differs). A change never resizes or restarts it; its idle stop follows the idle time it started with.
@@ -88,7 +88,8 @@ do this: it reaches a tool run through a shim or `mise exec`, not a plain shell 
 agent's own process, which are fixed-path binaries outside mise.
 
 1. **Shape.** One setting, `variables`, of the schema's own `variables` type: at most 50, each name one a shell can
-   export (up to 128 characters), each value up to 4,096 characters without a NUL. The panel shows
+   export (up to 128 characters), each value up to 4,096 characters without a NUL (the limits superseded by the
+   SPI-1365 refinement below). The panel shows
    them as a list in the Environment section, behind the same guards.
 2. **Refused names**, checked by the API and again when read:
    - the names t3flare already sets or pins: every name `COMMAND_ENV`, a CLI profile's environment, Codex's shell
@@ -136,7 +137,8 @@ Report: [`docs-archive-1:docs/steps/global-mise.md`](https://github.com/spiritle
 [`global-mise-plan.md`](https://github.com/spiritledsoftware/t3flare/blob/docs-archive-1/docs/steps/global-mise-plan.md). The Environment settings gain the **Global mise config**: the
 owner's `mise.toml` text, which every Container's commands get as mise's global config.
 
-1. **Shape.** One setting, `globalMiseConfig`, of the schema's `file` type: at most 16 KiB of UTF-8, no NUL, line ends stored as LF so a browser's round trip is not a change. The panel shows it as a text
+1. **Shape.** One setting, `globalMiseConfig`, of the schema's `file` type: at most 16 KiB of UTF-8 (superseded by the
+   SPI-1365 refinement below), no NUL, line ends stored as LF so a browser's round trip is not a change. The panel shows it as a text
    area of its own, without `maxlength` (which counts UTF-16 units; the API's refusal is the limit).
 2. **Layers.** Every command's environment (`COMMAND_ENV`) makes the image's base file mise's _system_ config and the
    Container-local `/var/lib/t3flare/mise/config.toml` its _global_ config. mise layers system < global < project and
@@ -436,3 +438,44 @@ scan readers ignore its `retentionCutoffMs`, so the Owner controls t3flare's rec
   agent's Terminal keeps a headless xterm in the Workspace DO's 128 MB isolate. `terminalsPerWorkspace` takes 1 to 1000
   (`MAX_TERMINALS_PER_WORKSPACE`), a sanity bound (ADR-0048 §1): an Owner's Terminal keeps no xterm in the DO, only its
   handle and a share of one 1 MiB pending-output buffer, and its shell's memory is the Container's.
+
+## Refinement (SPI-1365, 2026-11-23): what the Owner enters is bounded by what holds it
+
+This supersedes the Variables refinement's §1 limits (50 Variables, 128-character names, 4,096-character values), the
+Global mise config refinement's 16 KiB, §4's "nor other custom sizes", and the ADR-0047 refinement's 256 KiB setups.
+
+- **One stored value bounds the settings together.** The Environment settings are one Durable Object KV value, which
+  holds 8 MB (`DO_VALUE_BYTES` in `packages/harness-registry/src/storedValue.ts`, read as 8,000,000 bytes less a margin
+  for the key). A change whose settings together would pass it is refused, naming the bound; `storedBytes` counts
+  three bytes a character of their JSON, the most UTF-8 takes, which is above what V8's serializer stores. The Model
+  endpoints, the Harness settings and the audit log are each one value too, bounded the same way: no count of
+  endpoints, models, headers or t3 tools set one by one, and the audit log keeps its newest entries that fit.
+- **Variables are bounded by Linux, not by a count.** A Variable reaches every command through execve's environment,
+  so each `NAME=value` with its NUL is at most `MAX_ENV_STRING_BYTES`, 128 KiB (Linux's `MAX_ARG_STRLEN`, past which
+  execve refuses with E2BIG), in bytes of UTF-8; a name has no length of its own. All of them together, each with its
+  envp pointer, take at most `MAX_VARIABLES_BYTES`, 1 MiB: half of `ARG_MAX` at the default 8 MiB stack, the other
+  half left to the command's own argv (an agent's `bash -c` script) and t3flare's environment. Provisional: the
+  Container's stack limit is not documented. A stored set past the total reads as the Variables that fit, in order.
+  The Container setup's secret margin (`SECRET_MARGIN_BYTES`) follows: 128 KiB, at least any one value.
+- **The file settings are derived from the value.** The Global mise config, the Image setup and the Container setup
+  are each at most `MAX_FILE_SETTING_BYTES`, a third of the value (a byte of UTF-8 is at most one character, counted as
+  three); with escaping and the other settings, the whole-value check is what binds.
+- **The Settings server reads one value's change.** Its body limit is `BODY_MAX` = `DO_VALUE_BYTES` + 64 KiB: a whole
+  value's settings as a client's JSON sends them, and the JSON-RPC envelope. The old 256 KiB was exactly the setups'
+  size, so a setup at its maximum could not be sent.
+- **A custom Container size.** `containerSize` and `builderSize` offer `custom`, whose vCPU, memory and disk are the
+  settings `customVcpu`, `customMemoryMib` and `customDiskMb` (default `cpu-1`'s 1, 3072 and 12,000; asked either
+  way). Each is at least Cloudflare's minimum for a custom instance (1/16 vCPU, 256 MiB, 2 GB); there is no maximum
+  of t3flare's, since the account's limits (4 vCPU, 12 GiB, 20 GB by default, raised on request) are Cloudflare's to
+  check, and a start past them is refused. The cost table prices the custom size at its settings.
+- **One Outside request time limit.** `outsideRequestSeconds` (15 by default, tier `down-free`, a row of its own)
+  bounds each request to GitHub (Environment skills' reads, an Update's requests) and to a sign-in's vendor (each
+  request, a renewal; a ChatGPT revocation with its retries takes twice it). The skills API's 60 s budget for a whole
+  request goes: each read has its own bound and the reads are counted, and an awaited read does not hold the
+  Environment DO. An own agent's wait for its applying change is derived from it (every read of the largest install at
+  the limit, at most a JS timer's longest wait).
+- **How far skills are read is a setting.** `repoSkillsListed` (100), `skillsDirectoryEntries` (5000),
+  `skillsLinkEntries` (200) and `promptsDirectoryEntries` (1000), in a Repo skills and Prompt templates row, each
+  `down-free`, read by the Workspace DO from the settings its last Container start kept. Prompt templates have no
+  count and no size.
+
