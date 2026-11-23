@@ -781,8 +781,8 @@ describe("the retries and the trace (SPI-1367)", () => {
       expect(fitsEnvironmentSetting(key, 1.5)).toBe(false);
       expect(fitsEnvironmentSetting(key, schema.maximum)).toBe(true);
       expect(fitsEnvironmentSetting(key, schema.maximum + 1)).toBe(false);
-      expect(ENVIRONMENT_SETTINGS[key].description).toContain(`At most ${schema.maximum}.`);
-      expect(ENVIRONMENT_SETTINGS[key].description).toMatch(/Applies (at|from) /);
+      expect(ENVIRONMENT_SETTINGS[key].description).toContain(`At most ${schema.maximum}`);
+      expect(ENVIRONMENT_SETTINGS[key].description).toContain("Applies at ");
       expect(NEXT_USE_SETTING_KEYS).toContain(key);
     }
     // A retry count of 0 never tries again; a kill and a trace file need at least one.

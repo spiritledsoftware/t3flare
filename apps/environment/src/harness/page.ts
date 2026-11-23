@@ -556,14 +556,14 @@ const environmentSection = (
   );
   const retries = keyedRow(
     "retries",
-    "Retries",
-    "How many times an agent tries a failed model request again, and how many times a Durable agent's Session tries to kill a stopped command's processes.",
+    "Retries and kills",
+    "How many times an agent tries a failed model request again, and how many times t3flare tries to end a stopped command's surviving processes.",
     RETRY_SETTING_KEYS,
   );
   const trace = keyedRow(
     "trace",
     "t3's trace",
-    "How large t3's trace file grows before it rotates, and how many older ones it keeps, for its diagnostics.",
+    "How large t3's trace file grows before t3 starts a new one, and how many older ones it keeps for its diagnostics.",
     TRACE_SETTING_KEYS,
   );
   const lists = entries
@@ -580,7 +580,7 @@ const environmentSection = (
 <div class="section-head"><h2 id="environment-title">${icon("container")}Environment</h2></div>
 <p class="section-desc">What every Workspace's Container gets, and how long t3flare keeps its history. A change applies at each Workspace's next Container start unless its setting says otherwise; a running Container keeps what it started with, and a lower budget stops none.</p>
 <form class="group" data-environment aria-labelledby="environment-title" novalidate><div class="row"><div><div class="row-title"><h3>Containers</h3><span class="ident">revision ${environment.revision}</span></div><p class="desc">Their size, how long one may sit idle, how long open Terminals keep it running, how many may run at once, how many Terminals a Workspace may have, yours and agents', how much an agent's Terminal keeps of its scrollback, how long a start or a turn waits for the newest settings, and how long a clone or a checkpoint may run.</p></div>
-<div class="row-extra"><div class="fields">${fields.join("")}</div></div></div>${agents}${retries}${mcpCalls}${outside}${lifecycle}${previews}${access}${trace}${skills}${history}${dotfiles}${lists.join("")}${save}</form>
+<div class="row-extra"><div class="fields">${fields.join("")}</div></div></div>${agents}${retries}${mcpCalls}${outside}${lifecycle}${previews}${access}${skills}${trace}${history}${dotfiles}${lists.join("")}${save}</form>
 <dl class="group kv"><div><dt>Running now</dt><dd>${
     running === null || running === undefined
       ? "unknown"

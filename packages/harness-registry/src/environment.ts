@@ -1157,28 +1157,29 @@ export const ENVIRONMENT_SETTINGS = {
   },
   durableRetries: {
     title: "Durable agent retries",
-    description: `How many times a Durable agent tries a failed model request again, waiting longer between tries, before its turn fails. Each try is a request the endpoint may bill, and one that can never succeed (a request too large for the model) is tried this many times too. 0 never tries again. At most ${MAX_MODEL_RETRIES}. Applies at each thread's next turn.`,
+    description: `How many times a Durable agent tries a failed model request again before its turn fails. The tries wait 2 seconds, doubling, each at most a minute (3 span about 14 seconds), so a rate limit that resets within that span is waited through and a later one pauses the thread. Each try is a request the endpoint may bill. 0 never tries again. At most ${MAX_MODEL_RETRIES}. Applies at each thread's next turn.`,
     // Counted by pi-durable's generation retry (its `settings.retry`), no platform limit: a sanity maximum.
     schema: { type: "integer", minimum: 0, maximum: MAX_MODEL_RETRIES, default: DEFAULT_DURABLE_RETRIES },
     tier: "down-free",
   },
   cliRetries: {
     title: "CLI agent retries",
-    description: `How many times Codex, Claude Code and Pi try a failed model request again before the turn fails (OpenCode keeps its own). Each try is a request the endpoint may bill. 0 never tries again. At most ${MAX_MODEL_RETRIES}. Applies at each CLI agent's next start.`,
+    description: `How many times Codex, Claude Code and the pi CLI try a failed model request again before the turn fails (OpenCode keeps its own). Each try is a request the endpoint may bill. 0 never tries again. At most ${MAX_MODEL_RETRIES}. Applies at each CLI agent's next start.`,
     // Each CLI's own retry count (Codex's request and stream retries, Claude Code's CLAUDE_CODE_MAX_RETRIES, pi's
     // retry.maxRetries), no platform limit: a sanity maximum.
     schema: { type: "integer", minimum: 0, maximum: MAX_MODEL_RETRIES, default: DEFAULT_CLI_RETRIES },
     tier: "down-free",
   },
   killAttempts: {
-    title: "Kills of a stopped command",
-    description: `How many times a Durable agent's Session tries to kill a stopped command's processes that survive, about 5 seconds apart, before it leaves them running. Each try keeps the Workspace's Container awake. At most ${MAX_KILL_ATTEMPTS}. Applies from each thread's next turn.`,
+    title: "Kill tries after a stop (Durable agents)",
+    description: `After a Durable agent's command is stopped, how many times t3flare tries to end its processes that survive, about 5 seconds apart (12 is about a minute), before it leaves them running. Each try keeps the Workspace's Container awake. At most ${MAX_KILL_ATTEMPTS}. Applies at each thread's next turn.`,
+    // At least 1: a stopped command's first kill always runs (RunningExecs.stopped), so 0 would act as 1.
     schema: { type: "integer", minimum: 1, maximum: MAX_KILL_ATTEMPTS, default: DEFAULT_KILL_ATTEMPTS },
     tier: "down-free",
   },
   traceKiB: {
     title: "t3's trace file size (KiB)",
-    description: `How large t3's trace file, which its diagnostics read, grows before it rotates. Each trace write reads the whole file and writes it back, so a larger file costs more Durable Object storage writes and memory at every write. At most ${MAX_TRACE_KIB}. Applies at t3's next start.`,
+    description: `How large t3's trace file, which t3's diagnostics read, grows before t3 starts a new one. Each trace write reads the whole file and writes it back, so a larger file costs more Durable Object storage writes and memory at every write. At most ${MAX_TRACE_KIB} (${MAX_TRACE_KIB / 1024} MiB). Applies at t3's next start.`,
     // A provisional bound (MAX_TRACE_KIB): the Environment DO's isolate memory, estimated.
     schema: { type: "integer", minimum: 1, maximum: MAX_TRACE_KIB, default: DEFAULT_TRACE_KIB },
     tier: "down-free",
