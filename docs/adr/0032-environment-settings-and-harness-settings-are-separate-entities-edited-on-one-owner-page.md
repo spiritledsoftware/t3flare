@@ -334,9 +334,12 @@ ADR-0021's fixed Terminal holds and Terminal caps are the Owner's. `terminalBusy
 `terminalPromptHoldMinutes` (10) take 1 to `MAX_TIMED_MINUTES`: t3flare's own alarm releases the Container, so ADR-0048
 §2's sanity maximum applies. `terminalsPerWorkspace` (t3's Terminals) and `agentTerminalsPerWorkspace` (Pi Durable
 agents' running Terminals and Background jobs) stay two caps, 8 each by default, as the two hosts had: one key would
-change the total and mix the Owner's panels with an agent's jobs. They take 1 to 32, a named constraint and a
-provisional figure: each Terminal's handle, and an agent's Terminal's headless xterm, lives in the Workspace DO's 128 MB
-isolate, and SPI-978's measurement of that memory sets the figure. An agent's exited Terminals keep their xterm outside
+change the total and mix the Owner's panels with an agent's jobs. `agentTerminalsPerWorkspace` takes 1 to 32
+(`MAX_AGENT_TERMINALS_PER_WORKSPACE`), a named constraint and a provisional figure: an agent's Terminal's headless xterm
+lives in the Workspace DO's 128 MB isolate, and SPI-978's measurement of that memory sets the figure.
+`terminalsPerWorkspace` takes 1 to 1000 (`MAX_TERMINALS_PER_WORKSPACE`), a sanity bound since SPI-1359: an Owner's
+Terminal keeps no xterm in the DO, only its handle and a share of one 1 MiB pending-output buffer, and its shell's
+memory is the Container's. An agent's exited Terminals keep their xterm outside
 the live count, bounded by `MAX_KEPT` (32) per Session only: their Workspace-wide total grows with the Sessions the
 Workspace serves until the DO restarts, pending SPI-978's measurement. All four are `down-free` and show in the
 Containers row, the holds after the idle time and the counts after the budget; each states its consequence once ("Open

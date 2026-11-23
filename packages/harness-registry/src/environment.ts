@@ -153,14 +153,24 @@ export const DEFAULT_TERMINAL_PROMPT_HOLD_MINUTES = 10;
 export const DEFAULT_TERMINALS_PER_WORKSPACE = 8;
 
 /**
- * The most Terminals of either count per Workspace. A named constraint, provisional: the Workspace DO's memory. Each
- * open Terminal's handle, and an agent's Terminal's headless xterm (1,000 lines of scrollback), lives in the Workspace
- * DO's 128 MB isolate, which holds its files' sync too; 32 is a guess at what fits, and SPI-978's measurement of the
- * DO's memory sets the figure. An agent's exited Terminals keep their xterm outside the live count: `MAX_KEPT`
- * (apps/agents/src/workspace/agentTerminals.ts) bounds them per Session only, so their Workspace-wide total grows with
- * the Sessions the Workspace serves until the DO restarts.
+ * The most Terminals and Background jobs Pi Durable agents may run at once per Workspace (`agentTerminalsPerWorkspace`).
+ * A named constraint, provisional: the Workspace DO's memory. Each of an agent's Terminals keeps a headless xterm (1,000
+ * lines of scrollback) in the Workspace DO's 128 MB isolate, which holds its files' sync too; 32 is a guess at what
+ * fits, and SPI-978's measurement of the DO's memory sets the figure. An agent's exited Terminals keep their xterm
+ * outside the live count: `MAX_KEPT` (apps/agents/src/workspace/agentTerminals.ts) bounds them per Session only, so their
+ * Workspace-wide total grows with the Sessions the Workspace serves until the DO restarts.
  */
-export const MAX_TERMINALS_PER_WORKSPACE = 32;
+export const MAX_AGENT_TERMINALS_PER_WORKSPACE = 32;
+
+/**
+ * The most of the Owner's own Terminals per Workspace (`terminalsPerWorkspace`): a sanity bound, not a constraint
+ * (ADR-0048 §1, SPI-1359). An Owner's Terminal keeps no xterm in the Workspace DO, only its exec handle, a carry string
+ * and held input, and all of them share one pending-output buffer (`BACKPRESSURE_BYTES`,
+ * apps/agents/src/workspace/terminalHost.ts); their output is pushed, not a returned stream, so the DO's outgoing
+ * connections do not bound them (ADR-0021). Each shell's memory is the Container's, which bounds them in fact, and the
+ * setting's description states that.
+ */
+export const MAX_TERMINALS_PER_WORKSPACE = 1000;
 
 /** The largest Global mise config, in bytes of UTF-8. */
 export const MAX_GLOBAL_MISE_BYTES = 16 * 1024;
@@ -381,7 +391,7 @@ export const ENVIRONMENT_SETTINGS = {
     title: "Terminals per Workspace",
     description:
       "How many of your Terminals one Workspace may have open at once; one more is refused. Each Terminal uses memory in the Container. Applies at each Workspace's next Container start; lowering it closes no open Terminal.",
-    // A named constraint, provisional (`MAX_TERMINALS_PER_WORKSPACE`): the Workspace DO's memory.
+    // A sanity bound (`MAX_TERMINALS_PER_WORKSPACE`, ADR-0048 §1): the Container's memory bounds it in fact.
     schema: {
       type: "integer",
       minimum: 1,
@@ -394,11 +404,11 @@ export const ENVIRONMENT_SETTINGS = {
     title: "Agents' Terminals per Workspace",
     description:
       "How many Terminals and Background jobs Pi Durable agents may run at once in one Workspace, across its threads; one more is refused. Each Terminal and Background job uses memory in the Container. Applies at each Workspace's next Container start; lowering it stops none that run.",
-    // A named constraint, provisional (`MAX_TERMINALS_PER_WORKSPACE`): the Workspace DO's memory.
+    // A named constraint, provisional (`MAX_AGENT_TERMINALS_PER_WORKSPACE`): their xterms in the Workspace DO's memory.
     schema: {
       type: "integer",
       minimum: 1,
-      maximum: MAX_TERMINALS_PER_WORKSPACE,
+      maximum: MAX_AGENT_TERMINALS_PER_WORKSPACE,
       default: DEFAULT_TERMINALS_PER_WORKSPACE,
     },
     tier: "down-free",

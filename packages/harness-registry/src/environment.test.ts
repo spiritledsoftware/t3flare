@@ -21,6 +21,7 @@ import {
   MAX_CONTAINER_BUDGET,
   MAX_RETENTION_DAYS,
   MAX_SETUP_BYTES,
+  MAX_AGENT_TERMINALS_PER_WORKSPACE,
   MAX_TERMINALS_PER_WORKSPACE,
   MAX_TIMED_MINUTES,
   resolveEnvironment,
@@ -402,19 +403,28 @@ describe("the Terminals' holds and counts (SPI-1317)", () => {
     ).toMatchObject({ terminalBusyHoldMinutes: 30, terminalPromptHoldMinutes: 10 });
   });
 
-  it("count 8 and 8 by default, 1 to MAX_TERMINALS_PER_WORKSPACE (32, the Workspace DO's memory) whole Terminals", () => {
+  it("count 8 and 8 by default; agents' Terminals 1 to MAX_AGENT_TERMINALS_PER_WORKSPACE (32, their xterms in the Workspace DO's memory)", () => {
     expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({
       terminalsPerWorkspace: 8,
       agentTerminalsPerWorkspace: 8,
     });
-    expect(MAX_TERMINALS_PER_WORKSPACE).toBe(32);
-    for (const key of counts) {
-      for (const count of [1, 8, 32]) expect(set({ [key]: count })).toMatchObject({ ok: true });
-      for (const count of [0, 33, 2.5, "8"]) expect(set({ [key]: count })).toMatchObject({ ok: false });
-    }
+    expect(MAX_AGENT_TERMINALS_PER_WORKSPACE).toBe(32);
+    for (const count of [1, 8, 32]) expect(set({ agentTerminalsPerWorkspace: count })).toMatchObject({ ok: true });
+    for (const count of [0, 33, 2.5, "8"])
+      expect(set({ agentTerminalsPerWorkspace: count })).toMatchObject({ ok: false });
     expect(
-      resolveEnvironment({ revision: 1, settings: { terminalsPerWorkspace: 33, agentTerminalsPerWorkspace: 0 } }),
+      resolveEnvironment({ revision: 1, settings: { terminalsPerWorkspace: 0, agentTerminalsPerWorkspace: 33 } }),
     ).toMatchObject({ terminalsPerWorkspace: 8, agentTerminalsPerWorkspace: 8 });
+  });
+
+  it("the Owner's own Terminals are not held to the agents' xterm bound: only a sanity bound applies (SPI-1359)", () => {
+    // An Owner's Terminal holds no xterm in the Workspace DO, so the agents' 32 does not bind it.
+    expect(ENVIRONMENT_SETTINGS.terminalsPerWorkspace.schema.maximum).toBe(MAX_TERMINALS_PER_WORKSPACE);
+    expect(MAX_TERMINALS_PER_WORKSPACE).toBeGreaterThan(MAX_AGENT_TERMINALS_PER_WORKSPACE);
+    for (const count of [1, 33, MAX_TERMINALS_PER_WORKSPACE])
+      expect(set({ terminalsPerWorkspace: count })).toMatchObject({ ok: true });
+    for (const count of [0, MAX_TERMINALS_PER_WORKSPACE + 1, 2.5, "8"])
+      expect(set({ terminalsPerWorkspace: count })).toMatchObject({ ok: false });
   });
 
   it("are down-free, in the Containers row, holds after the idle time and counts after the budget", () => {
