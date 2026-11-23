@@ -8,7 +8,7 @@
 // setting (the Global mise config, SPI-1150; Variables, SPI-1152) is one entry in `ENVIRONMENT_SETTINGS`. The resolved
 // type, the resolve, the validation and the panel's section all follow from it.
 import { type EnvironmentSettingEntry, type EnvironmentValue, fieldProblem, normalizeField } from "./fields.ts";
-import { DO_VALUE_BYTES, storedBytes } from "./storedValue.ts";
+import { DO_VALUE_BYTES, storedValueProblem } from "./storedValue.ts";
 import { fitVariables, MAX_ENV_STRING_BYTES, MAX_VARIABLES_BYTES, type Variable } from "./variables.ts";
 
 export * from "./variables.ts";
@@ -395,6 +395,12 @@ export const CONTAINER_SIZE_NAMES = [...Object.keys(CONTAINER_SIZES), CUSTOM_SIZ
  */
 export const CUSTOM_SIZE_MINIMUMS: ContainerResources = { vcpu: 1 / 16, memoryMib: 256, diskMb: 2000 };
 
+/**
+ * An account's default limits per Container instance (the same page): what the custom size's description names, never
+ * checked, since an account can have them raised.
+ */
+export const ACCOUNT_DEFAULT_LIMITS: ContainerResources = { vcpu: 4, memoryMib: 12_288, diskMb: 20_000 };
+
 /** A custom size's resources as `settings` set them. */
 export const customResources = (
   settings: Pick<ResolvedEnvironment, "customVcpu" | "customMemoryMib" | "customDiskMb">,
@@ -455,7 +461,7 @@ export const ENVIRONMENT_SETTINGS = {
   },
   customVcpu: {
     title: "Custom size: vCPU",
-    description: `The custom size's vCPU, used when the Container size or the Builder size is custom: at least ${CUSTOM_SIZE_MINIMUMS.vcpu}, Cloudflare's least. Past your account's limits (4 vCPU, 12 GiB and 20 GB by default) Cloudflare refuses the start, and no Container starts until the size changes. Applies at each Workspace's next Container start.`,
+    description: `The custom size's vCPU, used when the Container size or the Builder size is custom: at least ${CUSTOM_SIZE_MINIMUMS.vcpu}, Cloudflare's least. Past your account's limits (${ACCOUNT_DEFAULT_LIMITS.vcpu} vCPU, ${ACCOUNT_DEFAULT_LIMITS.memoryMib / 1024} GiB and ${ACCOUNT_DEFAULT_LIMITS.diskMb / 1000} GB by default) Cloudflare refuses the start, and no Container starts until the size changes. Applies at each Workspace's next Container start.`,
     // At least Cloudflare's minimum (`CUSTOM_SIZE_MINIMUMS`); no maximum of t3flare's: the account's limit is Cloudflare's.
     schema: { type: "number", minimum: CUSTOM_SIZE_MINIMUMS.vcpu, default: CONTAINER_SIZES["cpu-1"].resources.vcpu },
   },
@@ -791,7 +797,7 @@ export const ENVIRONMENT_SETTINGS = {
   },
   outsideRequestSeconds: {
     title: "Outside request time limit (seconds)",
-    description: `How long t3flare waits for one answer from GitHub or a sign-in's vendor (OpenAI, Anthropic, GitHub Copilot): each GitHub read of a skills preview, install, update or check, each GitHub request of an Update, and each request of a sign-in, its renewal and its revocation (a ChatGPT revocation with its retries takes at most twice this). A request past it fails, and what waited on it with it; a longer limit holds a stalled one that long. At most ${MAX_TIMED_MINUTES * 60} (a week). Applies at the next request.`,
+    description: `How long t3flare waits for one answer from GitHub or a sign-in's vendor (OpenAI, Anthropic, GitHub Copilot): each GitHub read of a skills preview, install, update or check, each GitHub request of an Update, and each request of a sign-in, its renewal and its revocation (a ChatGPT revocation with its retries takes at most twice this). A request past it fails, and what waited on it with it; a longer limit holds a stalled one that long, and an agent's Stop during its skills install waits for the install, up to about 500 times this limit if every read stalls. At most ${MAX_TIMED_MINUTES * 60} (a week). Applies at the next request.`,
     // Timed by t3flare's own AbortSignal.timeout, no platform limit (an outbound fetch has none): the shared sanity
     // maximum applies (ADR-0048 §2).
     schema: {
@@ -943,11 +949,7 @@ export const applyEnvironmentChange = (
     settings: { ...stored.settings, ...(Object.fromEntries(moved) as Record<string, EnvironmentValue>) },
   };
   // The one bound on their sizes together: the settings are one Durable Object value.
-  const bytes = storedBytes(environment);
-  if (bytes > DO_VALUE_BYTES)
-    return {
-      ok: false,
-      error: `the Environment settings would take ${bytes} bytes stored, past the ${DO_VALUE_BYTES} one Durable Object value holds`,
-    };
+  const tooLarge = storedValueProblem("the Environment settings", environment);
+  if (tooLarge !== undefined) return { ok: false, error: tooLarge };
   return { ok: true, environment, changed: moved.map(([key]) => key as EnvironmentKey) };
 };

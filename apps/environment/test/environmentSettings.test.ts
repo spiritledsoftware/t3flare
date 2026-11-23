@@ -521,6 +521,16 @@ describe("the audit log (SPI-1365)", () => {
     expect(kept.map((entry) => entry.at)).toEqual([5, 6]);
   });
 
+  it("shrinks one oversize entry before it drops any older one, so one large change never wipes the log", () => {
+    const kv = memory();
+    const store = harnessStore(kv);
+    for (let at = 1; at <= 10; at += 1) store.audit(entry(at, 10));
+    store.audit(entry(11, 5_000_000));
+    const kept = kv.get<ReadonlyArray<Record<string, unknown>>>(AUDIT_KEY)!;
+    expect(kept.map((each) => each.at)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(kept.at(-1)).toMatchObject({ after: { omitted: expect.stringMatching(/more than one audit entry keeps/) } });
+  });
+
   it("keeps an entry too large for the value alone as its record without the values", () => {
     const kv = memory();
     const store = harnessStore(kv);

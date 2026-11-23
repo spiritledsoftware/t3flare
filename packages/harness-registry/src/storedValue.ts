@@ -19,3 +19,17 @@ export const DO_VALUE_BYTES = 8_000_000 - 1024;
  *   own JSON.
  */
 export const storedBytes = (value: unknown): number => 3 * (JSON.stringify(value)?.length ?? 0);
+
+/** What one character of a list's JSON (a bracket, a separating comma) adds to its `storedBytes`. */
+export const STORED_CHARACTER_BYTES = 3;
+
+/**
+ * Why `value` cannot be stored as one Durable Object value (`what` names it: "the Environment settings"), or undefined
+ * when it fits `DO_VALUE_BYTES`.
+ */
+export const storedValueProblem = (what: string, value: unknown): string | undefined => {
+  const bytes = storedBytes(value);
+  return bytes > DO_VALUE_BYTES
+    ? `${what} would take ${bytes} bytes stored, past the ${DO_VALUE_BYTES} one Durable Object value holds`
+    : undefined;
+};

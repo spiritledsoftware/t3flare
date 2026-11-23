@@ -15,7 +15,7 @@
 // and base URL are the sign-in's own, it has no headers, and its auth never changes (remove it to change it). A Copilot
 // sign-in's (SPI-1166) stored base URL is a stand-in: the broker gives the one its token names, with the editor headers,
 // beside each token.
-import { DO_VALUE_BYTES, storedBytes } from "@t3flare/harness-registry";
+import { storedValueProblem } from "@t3flare/harness-registry";
 import { CLAUDE_OAUTH_TOKEN_MARK } from "@t3flare/models/claudeOAuth";
 import {
   EMPTY_ENDPOINTS,
@@ -136,9 +136,8 @@ export const endpointStore = (
       const current = load();
       const seen = current.endpoints.find((entry) => entry.id === id);
       // The one bound on how many endpoints and models: they are one Durable Object value together.
-      const bytes = storedBytes(withEndpoint(current, withMetadata(valid.endpoint)));
-      if (bytes > DO_VALUE_BYTES)
-        return `the endpoints would take ${bytes} bytes stored, past the ${DO_VALUE_BYTES} one Durable Object value holds`;
+      const tooLarge = storedValueProblem("the endpoints", withEndpoint(current, withMetadata(valid.endpoint)));
+      if (tooLarge !== undefined) return tooLarge;
       if (
         seen !== undefined &&
         seen.auth !== valid.endpoint.auth &&

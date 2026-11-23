@@ -7,7 +7,7 @@
 // a tool with no Exposure of its own takes the one they gave it (`legacyOf`).
 import type { HarnessLayer, StoredHarness } from "./index.ts";
 import { defaultSettingsServer, type Exposure, type McpServerSetting, ownEntry, SETTINGS_SERVER } from "./mcp.ts";
-import { DO_VALUE_BYTES, storedBytes } from "./storedValue.ts";
+import { storedValueProblem } from "./storedValue.ts";
 
 /** The offered-tools presets (plan §2.2, OD-T4): the tools a preset offers direct; the others it defers. */
 export const OFFERED_PRESETS = {
@@ -348,13 +348,8 @@ export const applyToolsChange = (
     ...(mcp === undefined ? {} : { mcp }),
   };
   // No count of tools set one by one: the Harness settings are one Durable Object value, which bounds them.
-  const bytes = storedBytes(harness);
-  if (bytes > DO_VALUE_BYTES)
-    return {
-      ok: false,
-      error: `the Harness settings would take ${bytes} bytes stored, past the ${DO_VALUE_BYTES} one Durable Object value holds`,
-    };
-  return { ok: true, harness };
+  const tooLarge = storedValueProblem("the Harness settings", harness);
+  return tooLarge === undefined ? { ok: true, harness } : { ok: false, error: tooLarge };
 };
 
 /**
@@ -445,7 +440,7 @@ export const t3ToolListing = (value: unknown): T3ToolListing | undefined => {
     typeof listedAt !== "number" ||
     !Array.isArray(tools) ||
     !Array.isArray(left) ||
-    storedBytes(value) > DO_VALUE_BYTES
+    storedValueProblem("t3's tools", value) !== undefined
   )
     return undefined;
   const listed: Array<T3ListedTool> = [];
