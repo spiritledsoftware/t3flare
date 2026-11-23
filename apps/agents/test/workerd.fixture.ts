@@ -8,6 +8,7 @@ import { SKILLS_MOUNT, type SkillSet } from "@t3flare/skills";
 
 import { repoFileSizes } from "../src/workspace/changeLog.ts";
 import { fileOps } from "../src/workspace/files.ts";
+import { readCache } from "../src/workspace/readCache.ts";
 import { mountWithFallback, skillSetMount, skillSetStore } from "../src/workspace/skillSet.ts";
 
 export { ContainerBudget };
@@ -111,6 +112,22 @@ export class VfsProbe extends DurableObject {
   async exists(path: string): Promise<boolean> {
     await this.#workspace.ready();
     return "ok" in (await fileOps(this.#workspace).stat(path));
+  }
+
+  /**
+   * Keeps a git read whose stdout is `char` repeated `count` times in the read cache over this object's SQLite, as the
+   * Workspace DO's `git()` does after a passive read: whether the put threw, and whether the same read then hits.
+   */
+  async cacheRead(count: number, char = "x"): Promise<{ readonly threw: string | null; readonly cached: boolean }> {
+    const cache = readCache(this.ctx.storage.sql);
+    const answer = { exitCode: 0, stdout: char.repeat(count), stderr: "" };
+    let threw: string | null = null;
+    try {
+      cache.put("k", 1, answer);
+    } catch (error) {
+      threw = String(error);
+    }
+    return { threw, cached: cache.get("k", 1)?.stdout === answer.stdout };
   }
 
   async writeText(path: string, data: string, append: boolean): Promise<string> {

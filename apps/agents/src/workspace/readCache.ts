@@ -26,6 +26,18 @@ const SCHEMA = `CREATE TABLE IF NOT EXISTS t3flare_git_reads (
 /** Most reads kept; t3's status poll uses about 30 shapes per branch. */
 const MAX_ROWS = 500;
 
+/**
+ * The largest answer kept, in UTF-8 bytes of its JSON. A named constraint: a Durable Object's SQLite row holds 8 MiB
+ * (8,388,608 bytes, past which an insert throws `SQLITE_TOOBIG`); 1 KiB is left for the row's key, revision and time.
+ * A larger answer (a big `git log` or `git status`) is answered, just not cached.
+ */
+const MAX_ANSWER_BYTES = 8 * 1024 * 1024 - 1024;
+
+/** Whether `text` fits MAX_ANSWER_BYTES; encoded only when its length leaves it in doubt (a UTF-16 unit is at most 3 UTF-8 bytes). */
+const fitsRow = (text: string): boolean =>
+  text.length <= MAX_ANSWER_BYTES &&
+  (text.length * 3 <= MAX_ANSWER_BYTES || new TextEncoder().encode(text).byteLength <= MAX_ANSWER_BYTES);
+
 export const readKey = async (input: {
   readonly argv: ReadonlyArray<string>;
   readonly cwd: string;
@@ -117,14 +129,17 @@ export const readCache = (sql: SqlStorage) => {
         .toArray()[0];
       return row === undefined ? undefined : { rev: row.rev, answer: JSON.parse(row.answer) as CachedAnswer };
     },
+    /** Keeps `answer` for `key` at `rev`; an answer too large for a row (MAX_ANSWER_BYTES) is not kept. */
     put(key: string, rev: number, answer: CachedAnswer): void {
       ensure();
       if (rev < 0) return;
+      const json = JSON.stringify(answer);
+      if (!fitsRow(json)) return;
       sql.exec(
         "INSERT INTO t3flare_git_reads (key, rev, answer, used_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET rev = excluded.rev, answer = excluded.answer, used_at = excluded.used_at",
         key,
         rev,
-        JSON.stringify(answer),
+        json,
         Date.now(),
       );
       sql.exec(
