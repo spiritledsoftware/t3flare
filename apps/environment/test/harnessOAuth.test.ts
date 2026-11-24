@@ -17,14 +17,18 @@ const memory = () => {
   };
 };
 
-const setup = (options: { issSupported?: boolean; expiresIn?: number; stateTtlMs?: () => number } = {}) => {
+const setup = (
+  options: { issSupported?: boolean; expiresIn?: number; stateTtlMs?: () => number; requestMs?: () => number } = {},
+) => {
   const kv = memory();
   let now = 1_000_000;
   const calls: Array<string> = [];
+  const timeouts: Array<number | undefined> = [];
   let refreshes = 0;
   const engine: McpOAuthBinding = {
     begin: async (input) => {
       calls.push("begin");
+      timeouts.push(input.timeoutMs);
       return {
         ok: true,
         value: {
@@ -42,6 +46,7 @@ const setup = (options: { issSupported?: boolean; expiresIn?: number; stateTtlMs
     },
     exchange: async (input) => {
       calls.push(`exchange:${input.code}:${input.codeVerifier}`);
+      timeouts.push(input.timeoutMs);
       return {
         ok: true,
         value: {
@@ -55,6 +60,7 @@ const setup = (options: { issSupported?: boolean; expiresIn?: number; stateTtlMs
     refresh: async (input) => {
       refreshes++;
       calls.push(`refresh:${input.refreshToken}`);
+      timeouts.push(input.timeoutMs);
       await new Promise((resolve) => setTimeout(resolve, 10));
       return { ok: true, value: { access_token: `access-${refreshes + 1}`, token_type: "Bearer", expires_in: 3600 } };
     },
@@ -67,9 +73,10 @@ const setup = (options: { issSupported?: boolean; expiresIn?: number; stateTtlMs
     host: () => "t3.example",
     now: () => now,
     ...(options.stateTtlMs === undefined ? {} : { stateTtlMs: options.stateTtlMs }),
+    ...(options.requestMs === undefined ? {} : { requestMs: options.requestMs }),
   });
   const stateOf = (url: string) => new URL(url).searchParams.get("state")!;
-  return { oauth, kv, calls, secrets, advance: (ms: number) => void (now += ms), stateOf, refreshes: () => refreshes };
+  return { oauth, kv, calls, timeouts, secrets, advance: (ms: number) => void (now += ms), stateOf, refreshes: () => refreshes };
 };
 
 const callback = (state: string, extra: Record<string, string> = {}) =>
@@ -153,6 +160,19 @@ describe("OAuth sign-ins (review M4)", () => {
     // The refresh token is kept when the server sends no new one.
     expect(await h.oauth.accessToken("srv", true)).toBe("access-3");
     expect(h.calls.filter((call) => call.startsWith("refresh"))).toEqual(["refresh:refresh-1", "refresh:refresh-1"]);
+  });
+
+  it("gives each MCP Worker request the Outside request time limit as read at that call (SPI-1363)", async () => {
+    let limit = 15_000;
+    const h = setup({ expiresIn: 120, requestMs: () => limit });
+    const begun = await h.oauth.begin("srv", "https://srv.example/mcp");
+    if (!begun.ok) throw new Error(begun.error);
+    limit = 40_000;
+    await h.oauth.callback(callback(h.stateOf(begun.value.authorizationUrl), { iss: "https://as.example" }));
+    limit = 90_000;
+    await h.oauth.accessToken("srv", true);
+    expect(h.timeouts).toEqual([15_000, 40_000, 90_000]);
+    expect(setup().timeouts).toEqual([]);
   });
 
   it("forgets a removed server's client and tokens", async () => {

@@ -23,10 +23,17 @@ import {
   randomJti,
   signClientAssertion,
 } from "./client-assertion.ts";
-import { basicAuthorization, boundedText, MAX_SIGN_IN_ERROR_LENGTH, type OAuthFetch, scrubbed } from "./oauth-http.ts";
+import {
+  basicAuthorization,
+  boundedText,
+  MAX_METADATA_BYTES,
+  MAX_SIGN_IN_ERROR_LENGTH,
+  type OAuthFetch,
+  scrubbed,
+} from "./oauth-http.ts";
 
-/** What a token response is held to. */
-const MAX_TOKEN_RESPONSE_BYTES = 64 * 1024;
+/** What a token response is held to: a remote-controlled body, as the metadata is (`MAX_METADATA_BYTES`). */
+const MAX_TOKEN_RESPONSE_BYTES = MAX_METADATA_BYTES;
 
 /** How the client proves itself at the token endpoint. */
 export type ClientCredentialsAuth =
@@ -104,11 +111,11 @@ const decodeToken = Schema.decodeUnknownOption(Schema.fromJsonString(TokenRespon
 
 const decodeError = Schema.decodeUnknownOption(Schema.fromJsonString(ErrorResponse));
 
-/** A code as a page or span may show it: a plain token of at most 64 characters. */
-const plainCode = (text: string): string => (/^[\w.:-]{1,64}$/.test(text) ? text : "error");
+/** A code as a page or span may show it: a plain token. Its length is the server's; the body is already bounded. */
+const plainCode = (text: string): string => (/^[\w.:-]+$/.test(text) ? text : "error");
 
 /**
- * One `client_credentials` request to `metadata`'s token endpoint through `fetch` (the guarded one: 15 s, bounded). Never
+ * One `client_credentials` request to `metadata`'s token endpoint through `fetch` (the guarded one, timed). Never
  * rejects: the outcome says what happened. `scope` and `resource` are sent when given; `now` is the epoch milliseconds
  * the assertion's `iat` is made from.
  */
@@ -210,7 +217,7 @@ export const requestClientCredentials = async (input: {
     if (text === undefined) {
       return {
         kind: "failed",
-        message: "The token response is longer than 64 KiB",
+        message: `The token response is longer than ${MAX_TOKEN_RESPONSE_BYTES / 1024} KiB`,
         status: response.status,
       };
     }
@@ -229,7 +236,7 @@ export const requestClientCredentials = async (input: {
       if (issued.value.token_type.toLowerCase() !== "bearer") {
         return {
           kind: "failed",
-          message: `The server issued a ${scrubbed(issued.value.token_type, sent, 32)} token, not a Bearer one`,
+          message: `The server issued a ${scrubbed(issued.value.token_type, sent)} token, not a Bearer one`,
           status: response.status,
         };
       }

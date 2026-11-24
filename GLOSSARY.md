@@ -253,7 +253,7 @@ repository's skills are listed and how far its skills and Prompt templates direc
 how long the Environment waits idle and what wakes it (`idleAfterSeconds`, `prWatchWakeMinutes`, `remoteRetryMinutes`,
 `safeModeAfterFailures`), how long text generation may take and how long GitHub is left before it is asked again
 (`textGenerationSeconds`, `githubRetrySeconds`), the MCP calls' pauses, start wait and sign-in time (`mcpPausesPerCall`,
-`cliMcpStartSeconds`, `mcpSignInMinutes`), the preview browsers' cadences (`browserProfileSaveSeconds`,
+`cliMcpStartSeconds`, `mcpSignInMinutes`), an MCP server's connect and listing time limits and the logs a call keeps (`mcpConnectSeconds`, `mcpListSeconds`, `mcpLogEntries`), the preview browsers' cadences (`browserProfileSaveSeconds`,
 `htmlBrowserKeepAliveSeconds`), the Settings page's token, the Owner clients kept and T3 Connect's publish log
 (`pageTokenHours`, `clientsPerKey`, `connectPublishLogKept`), how often a failed model request is tried again and a
 stopped command's processes killed (`durableRetries`, `cliRetries`, `killAttempts`), t3's trace file (`traceKiB`,

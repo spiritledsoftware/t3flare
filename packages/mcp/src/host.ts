@@ -335,40 +335,6 @@ export const MCP_HOST_FEATURES: ReadonlyArray<string> = [
   "completions",
 ];
 
-/** The Session that asks, as `requestStart` marks its conversation active. */
-export const McpCaller = Schema.Struct({
-  session: Schema.String,
-  conversation: Schema.String,
-  workspace: Schema.String,
-});
-
-export type McpCaller = typeof McpCaller.Type;
-
-/** The longest `requestStart` and `servers` wait for a discovery: 10 s. */
-export const MCP_MAX_WAIT_MS = 10_000;
-
-/** `requestStart`'s arguments. */
-export const McpRequestStart = Schema.Struct({
-  caller: McpCaller,
-  /** Set on a Context Window's first request: the host asks the Registry for the set, so a lost push heals. */
-  windowOpened: Schema.optionalKey(Schema.Boolean),
-  /**
-   * The inventory's `version` the caller built its tools from; absent before its first build. Only a caller with none
-   * waits (`waitFor`): a Session's first request.
-   */
-  known: Schema.optionalKey(Schema.String),
-  /**
-   * The servers, by name, worth waiting for: the caller's own pick, those whose Exposure can yield `direct` tools. The
-   * host waits only for those with no inventory yet, and stops waiting for one once it settles (any state but
-   * `connecting`).
-   */
-  waitFor: Schema.String.pipe(Schema.Array, Schema.optionalKey),
-  /** How long to wait for them, at most `MCP_MAX_WAIT_MS` (10 s, also the default). */
-  waitMs: Schema.optionalKey(Schema.Finite),
-});
-
-export type McpRequestStart = typeof McpRequestStart.Type;
-
 /**
  * A server's state in the MCP inventory:
  *
@@ -574,7 +540,7 @@ export const McpServerLogRequest = Schema.Struct({
 export type McpServerLogRequest = typeof McpServerLogRequest.Type;
 
 /**
- * A server's log ring: the last `MCP_LOG_RING` entries the host kept, oldest first. `stderr` is a stdio server's
+ * A server's log ring: the last entries the host kept, oldest first. `stderr` is a stdio server's
  * stderr tail from the bridge's status (`start: false`), which comes with the bridge's first user; absent until then.
  */
 export const McpServerLog = Schema.TaggedStruct("ServerLog", {

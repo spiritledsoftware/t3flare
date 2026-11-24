@@ -102,12 +102,12 @@ describe("fetchPublic", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("refuses a body over 64 KiB", async () => {
+  it("refuses a body over 1 MiB", async () => {
     const { fetch } = answering(() => new Response("x".repeat(MAX_METADATA_BYTES + 1)));
 
     expect(await fetchPublic({ url: URL_OF }, fetch)).toEqual({
       status: "refused",
-      message: "The response is longer than 64 KiB",
+      message: "The response is longer than 1024 KiB",
     });
   });
 

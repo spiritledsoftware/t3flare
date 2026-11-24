@@ -71,7 +71,7 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 import type { Mutable } from "effect/Types";
-import { stdioBridge, type StdioBridge, STDIO_CONNECT_TIMEOUT_MS, STDIO_URL } from "./bridge.ts";
+import { stdioBridge, type StdioBridge, STDIO_URL } from "./bridge.ts";
 import { type ByteBudget } from "./budget.ts";
 import { type CallContext, type CallEnvironment, withCall } from "./call-context.ts";
 import { secretsOf } from "./logs.ts";
@@ -208,16 +208,21 @@ const reachBridge = Effect.fnUntraced(function* (
   return through;
 });
 
-/** What the core connects to: an HTTP server's URL and headers, or the bridge's, whose connects may start a Container. */
+/**
+ * What the core connects to: an HTTP server's URL and headers, or the bridge's, and the server's time limits. A stdio
+ * server is refused today; when it returns, its connect limit follows the Container's start limits.
+ */
 const connectTarget = (server: McpEngineTarget): McpTarget => {
   const target: Mutable<McpTarget> =
-    server.kind === "http"
-      ? { url: server.url, name: server.name }
-      : { url: STDIO_URL, name: server.name, connectTimeoutMs: STDIO_CONNECT_TIMEOUT_MS };
+    server.kind === "http" ? { url: server.url, name: server.name } : { url: STDIO_URL, name: server.name };
 
   if (server.kind === "http" && server.headers !== undefined) target.headers = server.headers;
 
   if (server.timeoutMs !== undefined) target.timeoutMs = server.timeoutMs;
+
+  if (server.connectTimeoutMs !== undefined) target.connectTimeoutMs = server.connectTimeoutMs;
+
+  if (server.listTimeoutMs !== undefined) target.listTimeoutMs = server.listTimeoutMs;
 
   return target;
 };
@@ -308,6 +313,7 @@ const runCall = Effect.fnUntraced(function* <A, R>(
       }),
     // A server may echo a header it was sent (a Secret's value) into a log, an error or a result; all are scrubbed of them.
     secretsOf(input.target),
+    input.target.logEntries,
   );
 });
 
@@ -771,7 +777,7 @@ const runRead = Effect.fnUntraced(function* (
   req: ResourceRead,
   env: CallEnvironment,
 ) {
-  const read = yield* connection.readResource(req.uri, req.ctx, { app: req.app === true });
+  const read = yield* connection.readResource(req.uri, req.ctx);
 
   // A Legacy server's `-32042`: the pages, scrubbed of the call's tokens; the caller sends the read again.
   if (read.kind === "pages_required") {

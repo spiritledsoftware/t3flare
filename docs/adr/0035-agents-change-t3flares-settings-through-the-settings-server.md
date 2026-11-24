@@ -175,6 +175,7 @@ place of the constants.
 
 Fixed: the Environment-wide bound on open changes (16, a storage bound: every access to the changes table reads every
 open row, and it is the most either open count may be), and the hour each per-hour cap counts over.
+(Superseded for the Environment-wide bound: see the SPI-1363 refinement below.)
 
 A closed change is kept the longest any check looks back: the strike window plus the lock, the declined repeat, or an
 hour, whichever is longest. Lowering a limit prunes sooner; rows pruned under a shorter earlier limit are not recovered
@@ -218,3 +219,12 @@ to the Cloud Environment's `/mcp`, where `refuseOwnerOnly` (`mcp/ownerOnly.ts`, 
 Settings change there, as an agent in the owner's own cloud thread can. Each one it asks for still needs the owner's
 answer on a card or the Change page unless it is a free change in a full-access thread, the same as for the owner's own
 thread.
+
+## Refinement (SPI-1363, 2026-11-23): no bound on open changes across the Environment
+
+Supersedes the SPI-1322 refinement's Environment-wide bound on open changes (16) and its role as the open counts'
+maximum. It was a cost choice, not a constraint: an open row is small and expires, and how many can open is already
+bounded by each caller's own limits (open changes per thread and per Owner client, asked changes an hour). So no caller
+is refused for the others' open changes (the `open-across` refusal is gone). The two per-caller open counts have a
+sanity maximum of their own (`MAX_OPEN_PER_CALLER`, 1,000; ADR-0048 §1), and the live held streams one Owner client may
+have open derive from its limit: `openPerOwner` changes of `HOLDS_PER_CHANGE` streams each.

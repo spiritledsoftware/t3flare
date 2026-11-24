@@ -80,7 +80,13 @@ const setup = (
   tools: () => Array<Record<string, unknown>>,
   answer?: () => unknown,
   harness: StoredHarness = withCommissary(),
-  limits: { readonly callTimeoutMs?: () => number; readonly resultBytes?: () => number } = {},
+  limits: {
+    readonly callTimeoutMs?: () => number;
+    readonly resultBytes?: () => number;
+    readonly connectTimeoutMs?: () => number;
+    readonly listTimeoutMs?: () => number;
+    readonly logEntries?: () => number;
+  } = {},
 ) => {
   let settings = harness;
   const { engine, seen } = fakeEngine(tools, answer);
@@ -396,7 +402,7 @@ describe("McpHost and MCP apps (G11, review L10)", () => {
     expect(tools.find((t) => t.upstream === "plain")?.ui).toBeUndefined();
   });
 
-  it("reads only a ui:// resource one of the server's own tools declares, as an App read", async () => {
+  it("reads only a ui:// resource one of the server's own tools declares, as any read is made", async () => {
     const run = setup(
       () => [appTool],
       () => ({ contents: [{ uri: "ui://time/app.html", mimeType: "text/html;profile=mcp-app", text: "<p>t</p>" }] }),
@@ -406,7 +412,8 @@ describe("McpHost and MCP apps (G11, review L10)", () => {
       kind: "result",
       value: { contents: [{ text: "<p>t</p>" }] },
     });
-    expect(run.seen.at(-1).request).toMatchObject({ op: "resources/read", uri: "ui://time/app.html", app: true });
+    expect(run.seen.at(-1).request).toMatchObject({ op: "resources/read", uri: "ui://time/app.html" });
+    expect(run.seen.at(-1).request).not.toHaveProperty("app");
     const before = run.seen.length;
     expect((await run.host.readAppResource({ server: "commissary", uri: "ui://other/app.html" })).kind).toBe("refused");
     expect((await run.host.readAppResource({ server: "commissary", uri: "file:///etc/passwd" })).kind).toBe("refused");
@@ -438,6 +445,30 @@ describe("McpHost and MCP apps (G11, review L10)", () => {
     const plain = setup(() => [tool("fixture_echo", true)]);
     await plain.host.list("commissary");
     expect(plain.seen.at(-1).target.timeoutMs).toBe(DEFAULT_MCP_CALL_MS);
+  });
+
+  it("gives each target the connect and listing time limits and the logs kept, as set (SPI-1363)", async () => {
+    const run = setup(() => [tool("fixture_echo", true)], undefined, withCommissary(), {
+      connectTimeoutMs: () => 45_000,
+      listTimeoutMs: () => 600_000,
+      logEntries: () => 200,
+    });
+    await run.host.list("commissary");
+    expect(run.seen.at(-1).target).toMatchObject({ connectTimeoutMs: 45_000, listTimeoutMs: 600_000, logEntries: 200 });
+    const plain = setup(() => [tool("fixture_echo", true)]);
+    await plain.host.list("commissary");
+    expect(plain.seen.at(-1).target).not.toHaveProperty("connectTimeoutMs");
+  });
+
+  it("takes any number of a server's tools, and refuses by name those past the bytes its inventory holds", async () => {
+    const many = setup(() => Array.from({ length: 500 }, (_, index) => tool(`t${index}`, true)));
+    expect(Object.keys((await many.host.list("commissary")).definitions)).toHaveLength(500);
+    // Each definition here is about 1.3 MB stored (three bytes per character of its JSON): three fit in the 4 MB.
+    const big = (name: string) => ({ ...tool(name, true), description: "d".repeat(440_000) });
+    const huge = setup(() => [big("a"), big("b"), big("c"), big("d")]);
+    const listed = await huge.host.list("commissary");
+    expect(Object.keys(listed.definitions)).toEqual(["a", "b", "c"]);
+    expect(listed.refused).toEqual([expect.objectContaining({ tool: "d", reason: expect.stringContaining("bytes") })]);
   });
 
   it("cuts an inline result's text to the MCP result size in bytes of UTF-8, and drops structured content past it (SPI-1359)", async () => {

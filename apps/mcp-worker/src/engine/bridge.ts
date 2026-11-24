@@ -60,9 +60,6 @@ const BRIDGE_ORIGIN = "https://container.bridge.invalid";
 
 export const STDIO_URL = `${BRIDGE_ORIGIN}${MCP_BRIDGE_MCP_PATH}`;
 
-/** How long a probe or an `initialize` may take through the bridge: the Container may start and the server spawn (60 s). */
-export const STDIO_CONNECT_TIMEOUT_MS = 60_000;
-
 /** How long the status read that names a cut may take. */
 const STATUS_TIMEOUT_MS = 5_000;
 

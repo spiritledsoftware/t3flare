@@ -568,8 +568,8 @@ describe("the Settings server's row", () => {
       ["askedPerHour", "6", "1", "100000"],
       ["readsPerHour", "240", "1", "100000"],
       ["networkReadsPerHour", "20", "1", "100000"],
-      ["openPerThread", "1", "1", "16"],
-      ["openPerOwner", "2", "1", "16"],
+      ["openPerThread", "1", "1", "1000"],
+      ["openPerOwner", "2", "1", "1000"],
     ]);
     // The consequence, once; each limit's range and default in its hint.
     expect(html.split(escapeHtml(SETTINGS_SERVER_LIMITS_NOTE)).length).toBe(2);
@@ -759,11 +759,15 @@ describe("the Environment section's dotfiles", () => {
     expect(history).toBeGreaterThan(start);
     const row = section.slice(start, section.indexOf('<div class="row">', start));
     const inputs = tagsOf(row).filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined);
-    // SPI-1366: the pauses answered, the CLI's MCP start wait and the sign-in time join them.
+    // SPI-1366: the pauses answered, the CLI's MCP start wait and the sign-in time join them; SPI-1363: the connect and
+    // listing time limits and the logs kept per call.
     expect(inputs.map((tag) => tag.attrs["data-setting"])).toEqual([
       "mcpCallSeconds",
       "mcpResultKiB",
       "mcpPausesPerCall",
+      "mcpConnectSeconds",
+      "mcpListSeconds",
+      "mcpLogEntries",
       "cliMcpStartSeconds",
       "mcpSignInMinutes",
     ]);
@@ -771,6 +775,9 @@ describe("the Environment section's dotfiles", () => {
       { type: "number", min: "1", max: "604800", value: "270" },
       { type: "number", min: "1", max: "8192", value: "1024" },
       { type: "number", min: "1", max: "10000", value: "16" },
+      { type: "number", min: "1", max: "604800", value: "15" },
+      { type: "number", min: "1", max: "604800", value: "120" },
+      { type: "number", min: "1", max: "500", value: "50" },
       { type: "number", min: "1", max: "604800", value: "20" },
       { type: "number", min: "1", max: "10080", value: "10" },
     ]);

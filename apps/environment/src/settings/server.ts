@@ -209,7 +209,7 @@ export const APPLIES_AT = {
   piSessionRetention: "Applies at each Pi or Claude Code start.",
   /** The MCP calls' time limit and result size (SPI-1359): read at each call, and the time limit at each CLI spawn. */
   mcpCall:
-    "Applies at the next MCP call; a CLI agent's own tool timeout and MCP start wait at its next start; the sign-in time to sign-ins started after it.",
+    "Applies at the next MCP call; the connect and listing time limits at the next connection and discovery; a CLI agent's own tool timeout and MCP start wait at its next start; the sign-in time to sign-ins started after it.",
   /**
    * The settings read at their own next use (SPI-1366, and SPI-1365's outside requests): never a Container start. Each
    * setting's description says which use.

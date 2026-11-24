@@ -163,8 +163,8 @@ describe.each(bases)("a hostile %s server", (_name, base) => {
     expect(called).toEqual(failedWith(TooLarge, { limit: 16 * MiB }));
   });
 
-  it("limits an App's read of its ui:// resource to 12 MiB, and every other read, an agent's of a ui:// one too, to 16", async () => {
-    const readOf = (uri: string, bytes: number, app = false) =>
+  it("limits every read to 16 MiB, an App's read of its ui:// resource too", async () => {
+    const readOf = (uri: string, bytes: number) =>
       run(
         Effect.gen(function* () {
           const server = answering(base(), "resources/read", (rpc) =>
@@ -182,16 +182,13 @@ describe.each(bases)("a hostile %s server", (_name, base) => {
 
           const connection = yield* connect(TARGET, testDeps(fetchTo(server)));
 
-          return yield* connection.readResource(uri, AGENT, { app }).pipe(
+          return yield* connection.readResource(uri, AGENT).pipe(
             Effect.map(() => ({ read: true })),
             Effect.catch((error) => Effect.succeed({ failed: error })),
           );
         }),
       );
 
-    expect(await readOf("ui://docs/app", 11 * MiB, true)).toEqual({ read: true });
-    expect(await readOf("ui://docs/app", 13 * MiB, true)).toEqual(failedWith(TooLarge, { limit: 12 * MiB }));
-    // Who reads decides, not the URI: the agent's read of a ui:// resource has the 16 MiB every read has.
     expect(await readOf("ui://docs/app", 13 * MiB)).toEqual({ read: true });
     expect(await readOf("ui://docs/app", 17 * MiB)).toEqual(failedWith(TooLarge, { limit: 16 * MiB }));
     expect(await readOf("file:///big.txt", 13 * MiB)).toEqual({ read: true });
@@ -280,6 +277,19 @@ describe.each(bases)("a hostile %s server", (_name, base) => {
     expect(slept).toEqual([1000]);
     expect(called).toEqual(failedWith(Unreachable, { status: 503 }));
     expect(rpcMethods(server).filter((method) => method === "tools/call")).toHaveLength(1);
+  });
+
+  it("waits a list page's Retry-After past the old 10 s; one past the listing's time limit is not waited, and fails", async () => {
+    const after = (seconds: string) =>
+      answering(base(), "tools/list", () => new Response(null, { status: 503, headers: { "retry-after": seconds } }), 1);
+
+    const within = recordingClock(45_000);
+    expect((await attempt(after("30"), within.clock)).listed).toEqual({ tools: ["echo", "shout"] });
+    expect(within.slept).toEqual([30_000]);
+
+    const past = recordingClock(45_000);
+    expect((await attempt(after("300"), past.clock)).listed).toEqual(failedWith(Unreachable, { status: 503 }));
+    expect(past.slept).toEqual([]);
   });
 });
 
@@ -486,8 +496,8 @@ describe.each(legacyBases)("a %s server that ends a call's stream early", (_name
 
   it.each([
     ["no retry", undefined, 1000],
-    ["a retry under 0.5 s", 100, 500],
-    ["a retry over 10 s", 60_000, 10_000],
+    ["a retry under 0.5 s", 100, 100],
+    ["a retry of 30 s", 30_000, 30_000],
     ["a retry of 3 s", 3000, 3000],
   ])("waits %s out: %s ms is %s ms", async (_what, retry, waited) => {
     const server = resumable(
@@ -496,11 +506,27 @@ describe.each(legacyBases)("a %s server that ends a call's stream early", (_name
       (rpc) => stream(event(answerOf(rpc, "done"))),
     );
 
-    const { clock, slept } = recordingClock();
+    // Past the old 10 s cap, within the call's 60 s.
+    const { clock, slept } = recordingClock(45_000);
 
     await attempt(server, clock);
 
     expect(slept).toEqual([waited]);
+  });
+
+  it("does not wait a retry as long as the call may take: the call is cut, unresumed", async () => {
+    const server = resumable(
+      base(),
+      () => stream(priming("a-1", 60_000)),
+      (rpc) => stream(event(answerOf(rpc, "done"))),
+    );
+
+    const { clock, slept } = recordingClock();
+    const { called } = await attempt(server, clock);
+
+    expect(slept).toEqual([]);
+    expect(resumedAfter(server)).toEqual([]);
+    expect(called).toMatchObject({ failed: { _tag: "Cut" } });
   });
 
   it("keeps the event an early end left unfinished from the first resumed one", async () => {

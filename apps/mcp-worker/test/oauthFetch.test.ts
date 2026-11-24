@@ -1,5 +1,5 @@
 // The OAuth fetch (review M5): what a sign-in may reach from the MCP Worker.
-// @effect-diagnostics asyncFunction:off
+// @effect-diagnostics asyncFunction:off newPromise:off
 import { describe, expect, it } from "vitest";
 
 import { guardedFetch } from "../src/oauthFetch.ts";
@@ -15,5 +15,13 @@ describe("guardedFetch", () => {
     await expect(fetcher("http://as.example/token")).rejects.toThrow(/https/);
     await expect(fetcher("https://user:pw@as.example/token")).rejects.toThrow(/credentials/);
     expect(seen).toEqual([{ url: "https://as.example/.well-known/oauth-authorization-server", redirect: "manual" }]);
+  });
+
+  it("ends a request that hangs past the time limit it is given (the Outside request time limit)", async () => {
+    const hung = guardedFetch(((_url: URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) =>
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
+      )) as unknown as typeof fetch, 20);
+    await expect(hung("https://as.example/token")).rejects.toMatchObject({ name: "TimeoutError" });
   });
 });

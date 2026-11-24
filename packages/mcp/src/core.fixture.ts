@@ -72,10 +72,11 @@ export const testDeps = (fetch: typeof globalThis.fetch, overrides?: Partial<Mcp
 });
 
 /**
- * The real clock, except that a sleep of up to 10 s (the core's retry delays) passes at once and is recorded, in
- * milliseconds. Longer sleeps (timeouts) run on the real clock.
+ * The real clock, except that a sleep of up to `recordUpTo` ms (10 s; the core's retry delays) passes at once and is
+ * recorded, in milliseconds. Longer sleeps (timeouts) run on the real clock: `recordUpTo` stays under every timeout the
+ * test relies on (a call's is 60 s by default).
  */
-export const recordingClock = () => {
+export const recordingClock = (recordUpTo = 10_000) => {
   const real = Effect.runSync(Clock.clockWith(Effect.succeed));
   const slept: Array<number> = [];
 
@@ -87,7 +88,7 @@ export const recordingClock = () => {
     monotonicTimeNanosUnsafe: () => real.monotonicTimeNanosUnsafe(),
     monotonicTimeNanos: real.monotonicTimeNanos,
     sleep: (duration) =>
-      Duration.toMillis(duration) > 10_000
+      Duration.toMillis(duration) > recordUpTo
         ? real.sleep(duration)
         : Effect.sync(() => {
             slept.push(Duration.toMillis(duration));

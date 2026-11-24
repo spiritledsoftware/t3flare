@@ -829,6 +829,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       audit: (entry) => store.audit({ at: Date.now(), entity: "harness", caller: "oauth", ...entry }),
       // Read at each start (SPI-1366): a change applies to sign-ins started after it.
       stateTtlMs: () => this.#environmentNow().mcpSignInMinutes * 60_000,
+      // Read at each call (SPI-1363): each request of a sign-in or refresh, in the MCP Worker.
+      requestMs: () => this.#outsideRequestMs(),
     });
     return this.#harnessOAuth;
   }
@@ -848,6 +850,10 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       // Read at each call (SPI-1359): a change applies at the next call.
       callTimeoutMs: () => this.#environmentNow().mcpCallSeconds * 1000,
       resultBytes: () => this.#environmentNow().mcpResultKiB * 1024,
+      // Read as each call's target is made (SPI-1363).
+      connectTimeoutMs: () => this.#environmentNow().mcpConnectSeconds * 1000,
+      listTimeoutMs: () => this.#environmentNow().mcpListSeconds * 1000,
+      logEntries: () => this.#environmentNow().mcpLogEntries,
       // Read at each call (SPI-1366).
       pausesPerCall: () => this.#environmentNow().mcpPausesPerCall,
     });

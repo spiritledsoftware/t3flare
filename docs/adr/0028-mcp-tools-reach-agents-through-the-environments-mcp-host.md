@@ -6,7 +6,7 @@ Agents in t3flare had t3's own tools and nothing else. The owner wants Commissar
 
 1. **One MCP host, in the Environment DO.** It holds:
    - the **MCP server set**: Commissary's endpoint, plus **direct servers** added in the harness panel (ADR-0026);
-   - their inventory, each server's tools listed and cached for 10 minutes, capped at 200 tools and 256 KiB of schemas per server;
+   - their inventory, each server's tools listed and cached for 10 minutes, capped at 200 tools and 256 KiB of schemas per server (superseded: see the SPI-1363 refinement);
    - their credentials.
 
    Every MCP request goes through it.
@@ -183,3 +183,11 @@ refinement). A CLI process's MCP tool timeout is made from the wait at its spawn
 300 s` (1,500 s at the default), so an approval card and an in-call question, each up to the wait, fit with a call. The
 process keeps that wait for its relay cards for its life: the Workspace DO passes the calling process's key with each
 relay message, and the Environment DO reads the wait the process was started with.
+
+## Refinement (SPI-1363, 2026-11-23): a server's inventory is bounded by the value that holds it
+
+Supersedes the 200 tools and 256 KiB of schemas per server. A server's inventory is one Durable Object value (8 MB):
+the tool definitions it keeps are at most half of it in stored bytes (`MAX_SCHEMA_BYTES`), the rest left for the tools
+it refuses, its instructions and its other fields. The tools past it are refused by name; their count is the
+server's.
+

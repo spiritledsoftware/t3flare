@@ -21,9 +21,6 @@ import { Settings } from "typebox/system";
 /** How many compiled schemas an isolate keeps. */
 export const VALIDATOR_CACHE_SIZE = 2000;
 
-/** How many of a result's validation errors are reported. */
-const MAX_ERRORS = 5;
-
 type JsonObject = { readonly [key: string]: Schema.Json };
 
 /** A `tools/call` result's `structuredContent`, as the SDK decoded it. */
@@ -154,7 +151,7 @@ const makeValidators = (): ValidatorsApi => {
         return {
           valid: false,
           errors: Arr.map(
-            Arr.take(errors, MAX_ERRORS),
+            errors,
             (error) => `${error.instancePath === "" ? "/" : error.instancePath}: ${error.message}`,
           ),
         } as const;

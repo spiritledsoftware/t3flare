@@ -69,7 +69,7 @@ import { isJsonObject, JsonObject } from "./json.ts";
 import { declaredCapabilities, SUPPORTED_PROTOCOL_VERSIONS } from "./protocol.ts";
 import { contentsSha256 } from "./read-hash.ts";
 import { MCP_LOG_LEVEL } from "./log.ts";
-import { APP_READ_HEADER, CALL_HEADER, type TapObserver, tapFetch, Ties, Verdicts } from "./tap.ts";
+import { CALL_HEADER, type TapObserver, tapFetch, Ties, Verdicts } from "./tap.ts";
 import { openTaskWire, type TaskParams, type TaskRequestOptions, type TaskWire } from "./task-wire.ts";
 import { xMcpHeaders } from "./tool-headers.ts";
 import {
@@ -80,14 +80,11 @@ import {
   MCP_ELICITATION_WAIT_MS,
   MCP_INPUT_ROUNDS,
   MCP_INTERNAL_ERROR,
-  MCP_LISTEN_ACK_MS,
   MCP_RESUME_STATE_EXPIRED,
   MCP_RESUME_STATE_MAX_BYTES,
-  MCP_COMPLETION_TIMEOUT_MS,
   MCP_LIST_WALK_TIMEOUT_MS,
   MCP_SAMPLING_REFUSED,
   MCP_SAMPLING_WAIT_MS,
-  MCP_TASK_TIMEOUT_MS,
   MCP_TASKS_EXTENSION,
   type McpCallContext,
   type McpAuthChallenge,
@@ -126,13 +123,15 @@ export interface McpTarget {
   readonly name?: string;
   /** The entry's headers, `${NAME}` values resolved. */
   readonly headers?: Readonly<Record<string, string>>;
-  /** The entry's `timeout` for a `tools/call` (default 60 s). */
-  readonly timeoutMs?: number;
   /**
-   * How long a probe or an `initialize` may take (default `MCP_CONNECT_TIMEOUT_MS`, 15 s). Through the Container bridge
-   * it is 60 s, since the first request may start the Container and spawn the server.
+   * The server's call timeout (default 60 s): a `tools/call`'s, and each other request's after the connect, a read,
+   * `prompts/get`, a task request, a completion and a listen's acknowledgement, with no lower bound under it.
    */
+  readonly timeoutMs?: number;
+  /** How long a probe or an `initialize` may take (default `MCP_CONNECT_TIMEOUT_MS`, 15 s). */
   readonly connectTimeoutMs?: number;
+  /** How long walking every page of one list may take (default `MCP_LIST_WALK_TIMEOUT_MS`, 120 s). */
+  readonly listTimeoutMs?: number;
 }
 
 /** Where one `prior` row (era or Legacy session) is kept. A row may be of any format, so it is read as JSON. */
@@ -433,11 +432,7 @@ export interface McpConnection {
    * One `resources/read` of `uri`: a read, so it is sent once more after a cut, and the SHA-256 of its contents. A
    * Legacy server's question during it is the caller's (`ctx.answers`, `deps.onInput`), as a `tools/call`'s is.
    */
-  readonly readResource: (
-    uri: string,
-    ctx: McpCallContext,
-    options?: ReadOptions,
-  ) => Effect.Effect<ReadComplete | PagesRequired, McpError>;
+  readonly readResource: (uri: string, ctx: McpCallContext) => Effect.Effect<ReadComplete | PagesRequired, McpError>;
   /**
    * One `prompts/get` of prompt `name` with `args`: a read of a server's own template, so it is sent once more after a
    * cut. The owner's request, never the agent's.
@@ -451,7 +446,7 @@ export interface McpConnection {
    * One `completion/complete`: suggestions for `argument` of the prompt or resource template `ref` names, given the other
    * arguments in `context`. A server that does not
    * declare `completions` is not asked: it fails `Unsupported`. Never sent again after a cut ("Completions are never
-   * retried"), and bounded at `MCP_COMPLETION_TIMEOUT_MS` or the entry's lower `timeout`; a caller that interrupts it has
+   * retried"), and bounded at the server's call timeout; a caller that interrupts it has
    * the SDK send `notifications/cancelled`. It declares nothing the server could ask a question with.
    */
   readonly complete: (
@@ -463,7 +458,7 @@ export interface McpConnection {
   /**
    * Opens a listen for `filter`, telling `onEvent` of each resource update and list change, until `closed`.
    * A Modern server is sent `subscriptions/listen`, and
-   * acknowledges within 10 s or the listen fails `TimedOut`. A Legacy server is sent `resources/subscribe` for each URI
+   * acknowledges within the server's call timeout or the listen fails `TimedOut`. A Legacy server is sent `resources/subscribe` for each URI
    * (one it refuses is left out of `honored`) with its GET stream open, which carries the list changes; a Legacy server
    * with no session, or that answers the GET stream 405, cannot send updates and fails `Unsupported`. A listen holds
    * no request slot of its own beyond its opening: it lives until it is closed or the connection's scope ends.
@@ -474,19 +469,7 @@ export interface McpConnection {
   ) => Effect.Effect<Listening, McpError>;
 }
 
-/**
- * What a read depends on besides its URI: `app` says it is an App's read of its HTML, which `MCP_APP_READ_BYTES` bounds;
- * any other read, a `ui://` one the agent makes included, has the 16 MiB every read has.
- */
-export interface ReadOptions {
-  readonly app?: boolean;
-}
-
 const CONNECT_TIMEOUT_MS = MCP_CONNECT_TIMEOUT_MS;
-
-const PAGE_TIMEOUT_MS = 30_000;
-
-const WALK_TIMEOUT = Duration.millis(MCP_LIST_WALK_TIMEOUT_MS);
 
 const CALL_TIMEOUT_MS = 60_000;
 
@@ -495,9 +478,6 @@ const NOTIFY_GRACE = Duration.seconds(2);
 
 /** A Legacy era row older than this is probed again at the next `initialize`. */
 const LEGACY_ERA_TTL_MS = 24 * 60 * 60 * 1000;
-
-/** `discover_json` is kept up to 64 KiB. */
-const MAX_DISCOVER_BYTES = 64 * 1024;
 
 /** What a request's recovery needs to know beyond whether it may have run. */
 interface RequestPolicy {
@@ -733,6 +713,9 @@ type Plan =
 export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, deps: McpDeps) {
   const context = yield* Effect.context<never>();
   const connectMs = target.connectTimeoutMs ?? CONNECT_TIMEOUT_MS;
+  /** The server's call timeout, which every request after the connect takes. */
+  const callMs = target.timeoutMs ?? CALL_TIMEOUT_MS;
+  const walkMs = target.listTimeoutMs ?? MCP_LIST_WALK_TIMEOUT_MS;
   const verdicts = new Verdicts();
   const ties = new Ties();
   /** The calls that may be asked questions, by the token their request carries. */
@@ -799,6 +782,12 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
     {
       now: () => Effect.runSyncWith(context)(Clock.currentTimeMillis),
       sleep: (ms) => Effect.sleep(Duration.millis(ms)).pipe(Effect.runPromiseWith(context)),
+      requestMs: (method) =>
+        method === "server/discover" || method === "initialize"
+          ? connectMs
+          : method.endsWith("/list")
+            ? walkMs
+            : callMs,
     },
     verdicts,
     observer,
@@ -1392,7 +1381,8 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
         }
 
         const page = yield* request(
-          (client, signal) => listPage(client, params, { signal, timeout: PAGE_TIMEOUT_MS }),
+          // A page has no deadline of its own: the walk's, below, ends a hung one.
+          (client, signal) => listPage(client, params, { signal, timeout: walkMs }),
           false,
         );
 
@@ -1420,8 +1410,8 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
       } satisfies Complete<ReadonlyArray<ListItems[K]>>;
     }).pipe(
       Effect.timeoutOrElse({
-        duration: WALK_TIMEOUT,
-        orElse: () => Effect.fail(TimedOut.make({ message: `Listing ${kind} took over 120 s` })),
+        duration: Duration.millis(walkMs),
+        orElse: () => Effect.fail(TimedOut.make({ message: `Listing ${kind} took over ${walkMs / 1000} s` })),
       }),
     );
 
@@ -1511,7 +1501,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
    */
   const sendCall = (params: CallToolParams, ctx: McpCallContext, retry?: Retry): Effect.Effect<CallAnswer, McpError> =>
     Effect.gen(function* () {
-      const timeoutMs = target.timeoutMs ?? CALL_TIMEOUT_MS;
+      const timeoutMs = callMs;
 
       const sent = yield* withAsking(ctx, timeoutMs, (own) =>
         request<CallSent>(
@@ -1914,17 +1904,15 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
 
   /**
    * Sends with the headers a request has: the call header when it has a clock of its own (each attempt, a request sent
-   * again after the server dropped its session or the era, then has the whole timeout), and `more`. `send` gets none
-   * when there are none.
+   * again after the server dropped its session or the era, then has the whole timeout). `send` gets none without it.
    */
   const sendWith = <A>(
     own: Own | undefined,
-    more: Readonly<Record<string, string>> | undefined,
     send: (headers: Record<string, string> | undefined) => Promise<A>,
   ): Promise<A> => {
-    if (own === undefined) return send(more === undefined ? undefined : { ...more });
+    if (own === undefined) return send(undefined);
 
-    return Effect.runPromiseWith(context)(own.deadline.reset).then(() => send({ ...more, [CALL_HEADER]: own.token }));
+    return Effect.runPromiseWith(context)(own.deadline.reset).then(() => send({ [CALL_HEADER]: own.token }));
   };
 
   const callOnClient = (
@@ -1948,7 +1936,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
       call._meta = meta;
     }
 
-    const timeoutMs = target.timeoutMs ?? CALL_TIMEOUT_MS;
+    const timeoutMs = callMs;
 
     const options: CallToolRequestOptions = {
       ...timingOf(own, signal, timeoutMs),
@@ -1976,7 +1964,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
             };
     }
 
-    return sendWith(own, undefined, (headers) =>
+    return sendWith(own, (headers) =>
       client.callTool(call, headers === undefined ? options : { ...options, headers }),
     );
   };
@@ -2055,7 +2043,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
         const refused = tasksUnavailable();
 
         return refused === undefined
-          ? sendOnTaskWire(method, params, ctx, { timeoutMs: MCP_TASK_TIMEOUT_MS }, signal)
+          ? sendOnTaskWire(method, params, ctx, { timeoutMs: callMs }, signal)
           : Promise.reject(refused);
       },
       policy.mayHaveRun,
@@ -2069,7 +2057,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
     const args = { ...params.arguments };
 
     const options: Mutable<WireOptions> = {
-      timeoutMs: target.timeoutMs ?? CALL_TIMEOUT_MS,
+      timeoutMs: callMs,
       headers: xMcpHeaders(
         Option.getOrElse(decodeJson(params.tool.inputSchema), () => ({})),
         args,
@@ -2162,9 +2150,6 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
     cancel: (taskId, ctx) => taskCommand("tasks/cancel", { taskId }, ctx),
   };
 
-  /** A read's own bound: the page timeout, or the entry's `timeout` when that is lower. */
-  const readTimeoutMs = () => Math.min(target.timeoutMs ?? PAGE_TIMEOUT_MS, PAGE_TIMEOUT_MS);
-
   /**
    * Reads `uri` once, or with `options.retry` the answers to a round of questions: its result, or (Modern) a round of
    * questions, which the read's own rounds answer (`readResource`). `options.recover` reads a failure as a value
@@ -2173,7 +2158,6 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
   const readOnce = <Recovered = never>(
     params: ReadParams,
     ctx: McpCallContext,
-    more: Readonly<Record<string, string>> | undefined,
     options: {
       readonly retry?: Retry | undefined;
       readonly recover?: ((error: Error) => Recovered | undefined) | undefined;
@@ -2181,7 +2165,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
   ) => {
     const { retry, recover } = options;
 
-    const timeoutMs = readTimeoutMs();
+    const timeoutMs = callMs;
 
     return withAsking(ctx, timeoutMs, (own) =>
       request((client, signal) => {
@@ -2190,7 +2174,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
         // A Modern server's questions come back to the core, which answers them itself: never the SDK's own loop.
         if (live.era === "modern") timing.allowInputRequired = true;
 
-        return sendWith(own, more, (headers) =>
+        return sendWith(own, (headers) =>
           client.request(
             { method: "resources/read", params: { ...params, ...retry } },
             headers === undefined ? timing : { ...timing, headers },
@@ -2213,16 +2197,14 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
    * with every answer and the server's `requestState`, at most `MCP_INPUT_ROUNDS` rounds. A read is never kept for
    * later: a question the caller would defer is a `cancel`. A read after questions is not cacheable.
    */
-  const readResource = (uri: string, ctx: McpCallContext, options: ReadOptions = {}) =>
+  const readResource = (uri: string, ctx: McpCallContext) =>
     Effect.gen(function* () {
       // A read has no resume: its caller's deferrals are cancels, so it declares no page either (a Modern server's page
       // waits for a resume).
       const asking = noDeferral(ctx);
       const meta = metaFor(asking);
       const params: ReadParams = meta === undefined ? { uri } : { uri, _meta: meta };
-      const more = options.app === true ? { [APP_READ_HEADER]: "1" } : undefined;
-
-      const first = yield* readOnce(params, asking, more, {
+      const first = yield* readOnce(params, asking, {
         // A `-32042` is a question for a read that keeps pages; to any other it is the server's error.
         recover: mayKeepPages(ctx) ? urlRequiredOf : undefined,
       });
@@ -2258,7 +2240,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
         if (asked.requestState !== undefined) retry.requestState = asked.requestState;
 
         // A round's retry is sent without `keepsPages`, so it is never answered as a `-32042`.
-        value = yield* readOnce(params, asking, more, { retry });
+        value = yield* readOnce(params, asking, { retry });
         round += 1;
       }
 
@@ -2298,7 +2280,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
 
       if (meta !== undefined) params._meta = meta;
 
-      const timeoutMs = readTimeoutMs();
+      const timeoutMs = callMs;
 
       const page = yield* request(
         (client, signal) => listOnePage(client, params, { signal, timeout: timeoutMs }),
@@ -2328,7 +2310,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
     retry?: Retry,
     atPages?: (error: Error) => Recovered | undefined,
   ) => {
-    const timeoutMs = readTimeoutMs();
+    const timeoutMs = callMs;
 
     return withAsking(ctx, timeoutMs, (own) =>
       request((client, signal) => {
@@ -2337,7 +2319,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
         // A Modern server's questions come back to the core, which answers them itself: never the SDK's own loop.
         if (live.era === "modern") timing.allowInputRequired = true;
 
-        return sendWith(own, undefined, (headers) =>
+        return sendWith(own, (headers) =>
           client.request(
             { method: "prompts/get", params: { ...params, ...retry } },
             headers === undefined ? timing : { ...timing, headers },
@@ -2493,10 +2475,8 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
 
       if (meta !== undefined) sent._meta = meta;
 
-      const timeoutMs = Math.min(target.timeoutMs ?? MCP_COMPLETION_TIMEOUT_MS, MCP_COMPLETION_TIMEOUT_MS);
-
       // `mayHaveRun: true` is not a claim about the server: it is what stops the request being sent once more after a cut.
-      const result = yield* request((client, signal) => client.complete(sent, { signal, timeout: timeoutMs }), true);
+      const result = yield* request((client, signal) => client.complete(sent, { signal, timeout: callMs }), true);
 
       const fetchedAt = yield* Clock.currentTimeMillis;
 
@@ -2509,7 +2489,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
     });
 
   /**
-   * The Modern listen: `subscriptions/listen`, acknowledged within `MCP_LISTEN_ACK_MS`. An era drop or a lost session
+   * The Modern listen: `subscriptions/listen`, acknowledged within the server's call timeout. An era drop or a lost session
    * recovers as any request's does.
    */
   const listenModern = (filter: McpListenFilter, onEvent: (event: McpListenEvent) => void) =>
@@ -2517,7 +2497,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
       sinks.add(onEvent);
 
       const subscription = yield* request(
-        (client) => client.listen(filterOf(filter), { timeout: MCP_LISTEN_ACK_MS }),
+        (client) => client.listen(filterOf(filter), { timeout: callMs }),
         false,
       ).pipe(Effect.tapError(() => Effect.sync(() => sinks.delete(onEvent))));
 
@@ -2549,8 +2529,8 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
       if (live.autoGet) {
         yield* Deferred.await(getStream.settled).pipe(
           Effect.timeoutOrElse({
-            duration: Duration.millis(MCP_LISTEN_ACK_MS),
-            orElse: () => Effect.fail(TimedOut.make({ message: "The GET stream did not open in 10 s" })),
+            duration: Duration.millis(callMs),
+            orElse: () => Effect.fail(TimedOut.make({ message: `The GET stream did not open in ${callMs / 1000} s` })),
           }),
         );
       } else if (!getStream.open) {
@@ -2574,7 +2554,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
         yield* Effect.forEach(
           wanted,
           (uri) =>
-            Effect.tryPromise(() => live.client.subscribeResource({ uri }, { timeout: MCP_LISTEN_ACK_MS })).pipe(
+            Effect.tryPromise(() => live.client.subscribeResource({ uri }, { timeout: callMs })).pipe(
               Effect.tap(() => Effect.sync(() => subscribed.push(uri))),
               Effect.ignore,
             ),
@@ -2793,14 +2773,12 @@ const urlRequiredOf = (error: Error): UrlRequired | undefined => {
 /** How many bytes `value` weighs as JSON. */
 const jsonBytes = (value: Schema.Json) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
 
-/** Keeps a Modern server's era row, unless its `server/discover` result is over 64 KiB. */
-const keepModernEra = (eras: RowStore, version: string, discover: DiscoverResult, now: number) => {
-  const json = jsonObjectOf(discover);
-
-  return new TextEncoder().encode(JSON.stringify(json)).byteLength > MAX_DISCOVER_BYTES
-    ? eras.drop
-    : eras.set({ v: 1, era: "modern", version, discover: json, probedAt: now });
-};
+/**
+ * Keeps a Modern server's era row. Its `server/discover` result is at most the tap's 1 MiB (`OTHER`), which fits the 8 MB
+ * value the host keeps it in.
+ */
+const keepModernEra = (eras: RowStore, version: string, discover: DiscoverResult, now: number) =>
+  eras.set({ v: 1, era: "modern", version, discover: jsonObjectOf(discover), probedAt: now });
 
 const sessionRowOf = (
   client: Client,

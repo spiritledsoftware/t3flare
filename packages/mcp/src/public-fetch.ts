@@ -4,7 +4,8 @@
  * it, 1042, or sends it to the origin past Access); `McpWorker` has `global_fetch_strictly_public`, so its `fetch` goes
  * through the front door as a client's would. `McpEngine.fetchPublic` makes the read, guarded here: an `https` GET with
  * no credential (no userinfo, no header but content negotiation), no redirect followed (the caller sees the 3xx and
- * decides, as `guardedFetch` does), the OAuth fetch's 15 s timeout and a body of at most 64 KiB. No SDK import:
+ * decides, as `guardedFetch` does), the OAuth fetch's timeout (`timeoutMs`; `OAUTH_FETCH_TIMEOUT_MS` when none) and a
+ * body of at most `MAX_METADATA_BYTES`. No SDK import:
  * `./types` re-exports the Schemas, and the root entry the function.
  */
 // @effect-diagnostics asyncFunction:off globalFetch:off missingPipeableSignature:off preferEffectArray:off -- the read is a Promise over `fetch`, its Schemas plain values.
@@ -87,7 +88,7 @@ export const BODYLESS_STATUSES: ReadonlyArray<number> = [101, 204, 205, 304];
 
 /**
  * Reads `input` with `fetch`, under the guards above. It came over RPC, so its shape is checked again. Never throws: a
- * malformed request, a refused URL, a failure, a timeout and a body over 64 KiB are each a `refused` answer.
+ * malformed request, a refused URL, a failure, a timeout and a body over `MAX_METADATA_BYTES` are each a `refused` answer.
  */
 export const fetchPublic = async (
   input: McpPublicFetchRequest,

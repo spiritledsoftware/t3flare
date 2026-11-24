@@ -522,13 +522,13 @@ const environmentSection = (
   const mcpCalls = keyedRow(
     "mcp-calls",
     "MCP calls",
-    "How long one MCP tool call may run, how large a result t3flare takes from it, and how many of its pauses for your answer it answers, for every agent and every server; how long Codex waits for t3flare's MCP relay to start; and how long a server's sign-in may take.",
+    "How long one MCP tool call may run, how large a result t3flare takes from it, and how many of its pauses for your answer it answers, for every agent and every server; how long a server may take to connect and to list its tools, and how many of its logs a call keeps; how long Codex waits for t3flare's MCP relay to start; and how long a server's sign-in may take.",
     MCP_CALL_SETTING_KEYS,
   );
   const outside = keyedRow(
     "outside-requests",
     "Outside requests",
-    "How long t3flare waits for GitHub, the sign-ins' vendors, T3 Connect and a Model endpoint to answer one request, how long it waits before asking GitHub again after a failure, and how long a model may take to write a title, a commit message or a pull request.",
+    "How long t3flare waits for GitHub, the sign-ins' vendors, an MCP server's sign-in, T3 Connect and a Model endpoint to answer one request, how long it waits before asking GitHub again after a failure, and how long a model may take to write a title, a commit message or a pull request.",
     OUTSIDE_REQUEST_SETTING_KEYS,
   );
   const skills = keyedRow(
@@ -907,7 +907,7 @@ ${toolsTable(row)}${row.setting.kind === "settings" ? settingsLimits(row) : ""}$
 const ADD_SERVER = `<form class="group add" id="add-server" data-mcp-add autocomplete="off" aria-labelledby="add-title">
 <div class="row"><div><div class="row-title"><h3 id="add-title">Add a server</h3></div><p class="desc">A remote MCP server over streamable HTTP. Each tool's class is its own read-only hint until you change it; write tools follow the thread's mode.</p></div></div>
 <div class="form-body">
-<div class="field"><label for="add-server-name">Name</label><input id="add-server-name" name="server" type="text" required pattern="[a-z0-9\\-]{1,20}" placeholder="executor" autocapitalize="none" spellcheck="false" aria-describedby="add-server-name-hint"><p class="hint" id="add-server-name-hint">1–20 of a–z, 0–9 and -. Tools are named mcp__name__tool.</p></div>
+<div class="field"><label for="add-server-name">Name</label><input id="add-server-name" name="server" type="text" required pattern="[a-z0-9\\-]+" placeholder="executor" autocapitalize="none" spellcheck="false" aria-describedby="add-server-name-hint"><p class="hint" id="add-server-name-hint">a–z, 0–9 and -. Tools are named mcp__name__tool; a tool whose whole name passes 64 characters is refused.</p></div>
 <div class="field"><label for="add-server-url">URL</label><input id="add-server-url" name="url" type="url" required placeholder="https://mcp.example.com/mcp" autocapitalize="none" spellcheck="false" aria-describedby="add-server-url-hint"><p class="hint" id="add-server-url-hint">https only, on a public host name.</p></div>
 <fieldset class="wide"><legend>Sign-in</legend><div class="choices">
 <label class="choice"><input type="radio" name="auth" value="oauth" checked><div><strong>OAuth</strong><span>Sign in after adding</span></div></label>

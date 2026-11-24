@@ -5,7 +5,7 @@
 // the signed `requestState` and elicitation id refused when they are not this call's. M5b's part (SPI-1201): `native`
 // (the 2026 form round trip, the 2025 held stream and its cut, 2025-06-18's params) and `model` (the Pause as `pauseOf`
 // reads it, `resume` and its refusals), and every fallback of D12's table.
-import { CARD_TEXT_MAX, DEFAULT_OWNER_ANSWER_MS } from "@t3flare/harness-registry";
+import { CARD_TEXT_MAX, DEFAULT_OWNER_ANSWER_MS, DEFAULT_SETTINGS_SERVER_LIMITS } from "@t3flare/harness-registry";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { addMcpServer } from "../src/harness/ops.ts";
@@ -14,7 +14,7 @@ import { changePagePath } from "../src/harness/paths.ts";
 import { waitingOn } from "../src/settings/openChanges.ts";
 import { changesApiOf, PAUSE_LINE } from "../src/settings/server.ts";
 import { signToken } from "../src/settings/tokens.ts";
-import { HOLDS_PER_CALLER, HOLDS_PER_CHANGE, streamHolds } from "../src/settings/endpoint.ts";
+import { HOLDS_PER_CHANGE, holdsPerCaller, streamHolds } from "../src/settings/endpoint.ts";
 import {
   ASKED,
   BOTH,
@@ -782,8 +782,10 @@ describe("native on 2025: the form on the call's held stream", () => {
     await until(() => open === 0);
   });
 
-  it(`at most ${HOLDS_PER_CALLER} streams per caller; past it, W saying why`, async () => {
-    // Two open changes of two streams each stay under it at the default openPerOwner: it is the backstop, so the caller's
+  const HOLDS_PER_CALLER = holdsPerCaller(DEFAULT_SETTINGS_SERVER_LIMITS.openPerOwner);
+
+  it(`at most openPerOwner × ${HOLDS_PER_CHANGE} streams per caller (${HOLDS_PER_CALLER} by default); past it, W saying why`, async () => {
+    // The default openPerOwner's open changes of two streams each stay within it: it is the backstop, so the caller's
     // other streams are stood in for.
     const holds = streamHolds();
     holds.byCaller.set(SUB, HOLDS_PER_CALLER);

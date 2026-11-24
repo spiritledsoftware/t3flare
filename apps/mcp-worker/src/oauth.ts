@@ -19,7 +19,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 
 import { guardedFetch } from "./oauthFetch.ts";
 
-export { guardedFetch, OAUTH_REQUEST_TIMEOUT_MS } from "./oauthFetch.ts";
+export { guardedFetch } from "./oauthFetch.ts";
 
 export interface BeginInput {
   readonly serverUrl: string;
@@ -30,6 +30,8 @@ export interface BeginInput {
   readonly state: string;
   /** A client kept from an earlier sign-in to this server, reused. */
   readonly client?: OAuthClientInformationMixed;
+  /** Each request's bound (`outsideRequestSeconds`); absent from an older Environment: its default. */
+  readonly timeoutMs?: number;
 }
 
 export interface BeginAnswer {
@@ -47,6 +49,8 @@ export interface TokenInput {
   readonly metadata?: AuthorizationServerMetadata;
   readonly client: OAuthClientInformationMixed;
   readonly resource?: string;
+  /** Each request's bound (`outsideRequestSeconds`); absent from an older Environment: its default. */
+  readonly timeoutMs?: number;
 }
 
 export type OAuthAnswer<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: string };
@@ -56,9 +60,15 @@ const failed = (error: unknown): { readonly ok: false; readonly error: string } 
   error: (error instanceof Error ? `${error.name}: ${error.message}` : String(error)).slice(0, 500),
 });
 
-/** The methods, apart from the entrypoint, so tests run them on a stubbed fetch. */
-export const oauthMethods = (fetcher: (input: string | URL, init?: RequestInit) => Promise<Response>) => ({
+type Fetcher = (input: string | URL, init?: RequestInit) => Promise<Response>;
+
+/**
+ * The methods, apart from the entrypoint, so tests run them on a stubbed fetch: `fetcherFor` gives the fetch for one
+ * call, bounded by the call's `timeoutMs`.
+ */
+export const oauthMethods = (fetcherFor: (timeoutMs: number | undefined) => Fetcher) => ({
   async begin(input: BeginInput): Promise<OAuthAnswer<BeginAnswer>> {
+    const fetcher = fetcherFor(input.timeoutMs);
     try {
       const info = await discoverOAuthServerInfo(input.serverUrl, { fetch: fetcher });
       const metadata = info.authorizationServerMetadata;
@@ -118,6 +128,7 @@ export const oauthMethods = (fetcher: (input: string | URL, init?: RequestInit) 
   async exchange(
     input: TokenInput & { readonly code: string; readonly codeVerifier: string; readonly redirectUrl: string },
   ): Promise<OAuthAnswer<OAuthTokens>> {
+    const fetcher = fetcherFor(input.timeoutMs);
     try {
       return {
         ok: true,
@@ -137,6 +148,7 @@ export const oauthMethods = (fetcher: (input: string | URL, init?: RequestInit) 
   },
 
   async refresh(input: TokenInput & { readonly refreshToken: string }): Promise<OAuthAnswer<OAuthTokens>> {
+    const fetcher = fetcherFor(input.timeoutMs);
     try {
       return {
         ok: true,
@@ -156,7 +168,7 @@ export const oauthMethods = (fetcher: (input: string | URL, init?: RequestInit) 
 
 /** The OAuth entrypoint the Environment binds as `MCP_OAUTH`. */
 export class McpOAuth extends WorkerEntrypoint {
-  readonly #methods = oauthMethods(guardedFetch());
+  readonly #methods = oauthMethods((timeoutMs) => guardedFetch(undefined, timeoutMs));
 
   begin(input: BeginInput): Promise<OAuthAnswer<BeginAnswer>> {
     return this.#methods.begin(input);

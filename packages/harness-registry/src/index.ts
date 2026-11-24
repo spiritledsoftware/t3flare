@@ -872,7 +872,7 @@ export const applyMcpChange = (
   });
   if (change.op === "add") {
     if (!SERVER_NAME.test(change.server))
-      return { ok: false, error: `${change.server}: a name of 1-20 of a-z, 0-9 and -` };
+      return { ok: false, error: `${change.server}: a name of a-z, 0-9 and -` };
     if (RESERVED_SERVER_NAMES.has(change.server)) return { ok: false, error: `${change.server}: reserved` };
     if (current !== undefined) return { ok: false, error: `${change.server}: exists` };
     const problem = directUrlProblem(change.url);

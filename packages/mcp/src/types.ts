@@ -479,8 +479,26 @@ const TargetFields = {
    * a host older than this field.
    */
   redact: Schema.Array(Schema.String).pipe(Schema.optionalKey),
-  /** The entry's `timeout` for a `tools/call` (default 60 s). */
+  /**
+   * The server's call timeout (the host's `mcpCallSeconds`; 60 s when absent): a `tools/call`'s, and every other
+   * request's after the connect.
+   */
   timeoutMs: Schema.optionalKey(Schema.Int),
+  /**
+   * How long a probe or an `initialize` may take (`mcpConnectSeconds`). Absent from a host older than this field:
+   * `MCP_CONNECT_TIMEOUT_MS`.
+   */
+  connectTimeoutMs: Schema.optionalKey(Schema.Int),
+  /**
+   * How long walking every page of one list may take (`mcpListSeconds`). Absent from a host older than this field:
+   * `MCP_LIST_WALK_TIMEOUT_MS`.
+   */
+  listTimeoutMs: Schema.optionalKey(Schema.Int),
+  /**
+   * How many of a call's last server logs the engine keeps and hands back (`mcpLogEntries`). Absent from a host older
+   * than this field: `MCP_LOG_RING`.
+   */
+  logEntries: Schema.optionalKey(Schema.Int),
   /**
    * Whether a Legacy connection to this server declares `sampling` at `initialize` (the definition's `sampling` key lets
    * it). Absent from a host older than this field, and
@@ -566,7 +584,7 @@ export const McpEngineState = Schema.Struct({
 
 export type McpEngineState = typeof McpEngineState.Type;
 
-/** The logs a call received, oldest first, at most `MCP_LOG_RING`. Gain-only on every result: absent when none came. */
+/** The logs a call received, oldest first, at most the target's `logEntries`. Gain-only on every result: absent when none came. */
 const EngineLogs = { logs: McpLogEntry.pipe(Schema.Array, Schema.optionalKey) };
 
 /**
@@ -656,20 +674,11 @@ export const MCP_LARGE_RESULT_BYTES = 16 * MiB;
  */
 export const MCP_STREAM_HOLD_MS = 60_000;
 
-/** The core's bound on a probe or an `initialize`. */
+/** The core's bound on a probe or an `initialize` when the target names none (the host's `mcpConnectSeconds`). */
 export const MCP_CONNECT_TIMEOUT_MS = 15_000;
 
-/** The core's bound on walking every page of a list. */
+/** The core's bound on walking every page of a list when the target names none (the host's `mcpListSeconds`). */
 export const MCP_LIST_WALK_TIMEOUT_MS = 120_000;
-
-/** What a `tasks/*` request may take, in the core and at the host: 30 s each. */
-export const MCP_TASK_TIMEOUT_MS = 30_000;
-
-/** What a `completion/complete` waits at most (or the entry's lower `timeout`): 5 s, as the form shows it ("Suggestions unavailable" after). */
-export const MCP_COMPLETION_TIMEOUT_MS = 5_000;
-
-/** What a `prompts/get` waits at most (or the entry's lower `timeout`). */
-export const MCP_PROMPT_GET_TIMEOUT_MS = 30_000;
 
 /**
  * A discovery: what the server is, every
@@ -770,11 +779,6 @@ export const McpEngineRequest = Schema.Union([
   Schema.Struct({
     op: Schema.Literal("resources/read"),
     uri: Schema.String,
-    /**
-     * An App's read of its `ui://` resource, which `MCP_APP_READ_BYTES` bounds; every other read has the 16 MiB every read
-     * has, a `ui://` one the agent makes included. An engine from before the key bounds a `ui://` read by its URI.
-     */
-    app: Schema.optionalKey(Schema.Boolean),
     ctx: McpCallContext,
   }),
   /**
@@ -989,9 +993,6 @@ export const McpEngineRequestResult = Schema.Union([
 
 export type McpEngineRequestResult = typeof McpEngineRequestResult.Type;
 
-/** How long a listen waits for the server's acknowledgement. */
-export const MCP_LISTEN_ACK_MS = 10_000;
-
 /**
  * What a listen carries: the resource
  * URIs to be told of (`resourceSubscriptions`, the wire's own name) and the list changes. A `2026-07-28` server
@@ -1127,7 +1128,7 @@ export interface McpEngineMethods {
   /**
    * Opens a listen on the server: a
    * `subscriptions/listen` on a Modern server, `resources/subscribe` for each URI and the GET stream on a Legacy one. It
-   * answers once the server acknowledged, or fails in 10 s. The connection lives as long as the event stream does, and
+   * answers once the server acknowledged, or fails after the server's call timeout. The connection lives as long as the event stream does, and
    * ends when `stop`, a stream the caller keeps, ends or breaks: closing it is how the caller ends the listen at once
    * (cancelling the events is seen by the engine only at its next write, so a `ping` line comes every 30 s). An engine from
    * before `stop` ignores it, and ends the listen at that next write.
@@ -1297,18 +1298,15 @@ export const MCP_APP_MIME_TYPE = "text/html;profile=mcp-app";
 /** What marks a resource's MIME type as an MCP App's: the lists leave such a resource out. */
 export const MCP_APP_PROFILE = "profile=mcp-app";
 
-/** A `ui://` URI is at most this long; longer is a server's mistake, not a page. */
-const MCP_APP_URI_MAX_LENGTH = 2048;
-
 /**
- * The `ui://` resource a tool declares as its App in its `_meta.ui.resourceUri`; undefined for any other tool, or a URI
- * over 2048 characters. `meta` is the tool's whole `_meta`, as the inventory keeps it.
+ * The `ui://` resource a tool declares as its App in its `_meta.ui.resourceUri`; undefined for any other tool. `meta`
+ * is the tool's whole `_meta`, as the inventory keeps it.
  */
 export const appUriOfMeta = (meta: Schema.Json | undefined): string | undefined => {
   const ui = isJsonObject(meta) ? meta["ui"] : undefined;
   const uri = isJsonObject(ui) ? ui["resourceUri"] : undefined;
 
-  return Predicate.isString(uri) && uri.startsWith("ui://") && uri.length <= MCP_APP_URI_MAX_LENGTH ? uri : undefined;
+  return Predicate.isString(uri) && uri.startsWith("ui://") ? uri : undefined;
 };
 
 /**
@@ -1321,15 +1319,6 @@ export const visibilityOfMeta = (meta: Schema.Json | undefined): ReadonlyArray<s
 
   return Arr.isArray(visibility) && Arr.every(visibility, Predicate.isString) ? visibility : ["model", "app"];
 };
-
-/** The most an App's HTML may weigh, as text. */
-export const MCP_APP_HTML_MAX_BYTES = 4 * MiB;
-
-/**
- * The most a `resources/read` of a `ui://` resource may answer, JSON as sent (the core's read limit for `ui://`, in
- * `tap.ts`): 4 MiB of HTML as base64, or escaped, with room.
- */
-export const MCP_APP_READ_BYTES = 12 * MiB;
 
 /**
  * What the View is mounted with besides its HTML: the `_meta.ui` of the content item, or of the resource's listing
@@ -1379,7 +1368,7 @@ export type McpHostPromptGet = typeof McpHostPromptGet.Type;
  * `request({ op: "completion/complete" })`: suggestions for `params.argument` of the prompt or resource template
  * `params.ref` of server `server`, the owner's.
  * Answered `Completed` with the server's `CompleteResult` as its result. It never starts a Container, whatever `ctx.start`
- * says, and is bounded at `MCP_COMPLETION_TIMEOUT_MS`; a server that does not declare `completions` is not asked
+ * says, and is bounded at the server's call timeout; a server that does not declare `completions` is not asked
  * (`CallFailed` with `Unsupported`).
  */
 export const McpHostCompletion = Schema.Struct({

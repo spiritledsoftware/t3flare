@@ -18,17 +18,17 @@ import {
   ENVIRONMENT_SETTINGS,
   type Exposure,
   MAX_SCHEMA_BYTES,
-  MAX_TOOLS_PER_SERVER,
   type McpServerSetting,
   mcpServersOf,
   ownEntry,
+  storedBytes,
   type StoredHarness,
   type ToolClass,
   toolNamesOf,
 } from "@t3flare/harness-registry";
 import {
   appUriOfMeta,
-  MCP_APP_HTML_MAX_BYTES,
+  MCP_LARGE_RESULT_BYTES,
   type McpEngineDiscoverResult,
   type McpEngineHooks,
   type McpEnginePriorEncoded,
@@ -170,6 +170,14 @@ export interface McpHostDeps {
    */
   readonly callTimeoutMs?: () => number;
   /**
+   * The MCP layer's other limits (SPI-1363), read as each call's target is made: how long a connection may take to start
+   * (`mcpConnectSeconds`) and one listing (`mcpListSeconds`), in ms, and how many server logs a call keeps
+   * (`mcpLogEntries`). Absent, each is the engine's default, which is the setting's.
+   */
+  readonly connectTimeoutMs?: () => number;
+  readonly listTimeoutMs?: () => number;
+  readonly logEntries?: () => number;
+  /**
    * The MCP result size in bytes (`mcpResultKiB`, SPI-1359), read at each call: a larger streamed result is refused, a
    * larger inline one cut. Default: `DEFAULT_MCP_RESULT_KIB`.
    */
@@ -232,7 +240,21 @@ export class McpHost {
       redact.push(value);
     }
     const timeoutMs = this.#deps.callTimeoutMs?.() ?? DEFAULT_MCP_CALL_MS;
-    return { kind: "http", conn: name, name, url: server.url, headers, redact, timeoutMs };
+    const connectTimeoutMs = this.#deps.connectTimeoutMs?.();
+    const listTimeoutMs = this.#deps.listTimeoutMs?.();
+    const logEntries = this.#deps.logEntries?.();
+    return {
+      kind: "http",
+      conn: name,
+      name,
+      url: server.url,
+      headers,
+      redact,
+      timeoutMs,
+      ...(connectTimeoutMs === undefined ? {} : { connectTimeoutMs }),
+      ...(listTimeoutMs === undefined ? {} : { listTimeoutMs }),
+      ...(logEntries === undefined ? {} : { logEntries }),
+    };
   }
 
   /** The engine's `auth` hook for an OAuth server: asked for a token, and again with `stale` after a 401. */
@@ -336,9 +358,12 @@ export class McpHost {
     }));
     let bytes = 0;
     for (const tool of result.tools) {
-      const size = JSON.stringify(tool).length;
-      if (Object.keys(definitions).length >= MAX_TOOLS_PER_SERVER || bytes + size > MAX_SCHEMA_BYTES) {
-        refused.push({ tool: tool.name, reason: "past the server's cap (200 tools, 256 KiB of schemas)" });
+      const size = storedBytes(tool);
+      if (bytes + size > MAX_SCHEMA_BYTES) {
+        refused.push({
+          tool: tool.name,
+          reason: `past the ${MAX_SCHEMA_BYTES} bytes of tool definitions one server's inventory holds`,
+        });
         continue;
       }
       bytes += size;
@@ -547,8 +572,9 @@ export class McpHost {
 
   /**
    * G11 (MCP apps, review L10): an App's `ui://` resource, read for a CLI through the relay: only a URI one of `server`'s
-   * own offered tools declares (`_meta.ui.resourceUri`), at most MCP_APP_HTML_MAX_BYTES of contents, the server's
-   * `ReadResourceResult` as it is otherwise.
+   * own offered tools declares (`_meta.ui.resourceUri`), the server's `ReadResourceResult` as it is. The engine's read
+   * of it is at most `MCP_LARGE_RESULT_BYTES` (16 MiB), as every read is, which is what this isolate holds of it and
+   * what crosses the relay's RPC (32 MiB).
    */
   async readAppResource(input: {
     readonly server: string;
@@ -573,7 +599,7 @@ export class McpHost {
       result = await this.#deps.engine.request(
         target,
         this.#prior(input.server),
-        { op: "resources/read", uri: input.uri, app: true, ctx: { origin: "agent" } } as never,
+        { op: "resources/read", uri: input.uri, ctx: { origin: "agent" } } as never,
         this.#authHooks(input.server, server),
       );
     } catch (error) {
@@ -588,9 +614,7 @@ export class McpHost {
     const value =
       result.result.kind === "inline"
         ? result.result.value
-        : await readStream(result.result.body as ReadableStream<Uint8Array>, MCP_APP_HTML_MAX_BYTES * 2);
-    if (JSON.stringify(value).length > MCP_APP_HTML_MAX_BYTES * 2)
-      return { kind: "refused", message: "The App is larger than t3flare passes on." };
+        : await readStream(result.result.body as ReadableStream<Uint8Array>, MCP_LARGE_RESULT_BYTES);
     return { kind: "result", value };
   }
 

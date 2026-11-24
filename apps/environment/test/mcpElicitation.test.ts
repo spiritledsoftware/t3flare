@@ -112,6 +112,24 @@ describe("planQuestion", () => {
       });
     }
   });
+
+  it("a page's address is shown whole, however long it and the server's message are; labels are not cut", () => {
+    const url = `https://auth.example.org/connect?state=${"s".repeat(20_000)}`;
+    const plan = ask({ mode: "url", message: "m".repeat(40_000), url, elicitationId: "e1" });
+    if (plan.kind !== "card") throw new Error("expected a card");
+    expect(plan.card.prompt).toContain(`Page: ${url}\n`);
+    expect(plan.card.prompt).toContain("TRUNCATED");
+    const title = `T${"t".repeat(300)}`;
+    const labelled = ask({
+      message: "?",
+      requestedSchema: { type: "object", properties: { a: { type: "string", title, description: "d".repeat(900) } } },
+    });
+    if (labelled.kind !== "card") throw new Error("expected a card");
+    expect(labelled.card.questions?.[0]).toMatchObject({
+      header: title,
+      question: expect.stringContaining(`${"d".repeat(900)} (optional)`),
+    });
+  });
 });
 
 const pause = (

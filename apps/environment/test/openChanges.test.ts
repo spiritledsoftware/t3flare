@@ -6,7 +6,6 @@ import {
   DEFAULT_OWNER_ANSWER_MS,
   type SettingsServerLimits,
   DEFAULT_SETTINGS_SERVER_LIMITS,
-  OPEN_ACROSS,
 } from "@t3flare/harness-registry";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -368,19 +367,12 @@ describe("D16's caps", () => {
     expect(capRefusal(w.deps().changes, OWNER, "hash-z", w.now())).toMatchObject({ reason: "open-owner" });
   });
 
-  it(`at most ${OPEN_ACROSS} across the Environment, naming the panel's list; the 17th child is refused`, () => {
+  it("has no cap across the Environment: each caller's own limits bound it", () => {
     const w = world();
-    for (let index = 0; index < OPEN_ACROSS; index++)
-      w.open({ ...OWN, key: `child-${index}`, thread: `child-${index}` });
-    const refusal = capRefusal(
-      w.deps().changes,
-      { ...OWN, key: "child-16", thread: "child-16" },
-      "hash-a",
-      w.now(),
-      "https://h/_t3flare/settings#changes",
-    );
-    expect(refusal).toMatchObject({ reason: "open-across" });
-    expect(refusal!.text).toContain("https://h/_t3flare/settings#changes");
+    for (let index = 0; index < 40; index++) w.open({ ...OWN, key: `child-${index}`, thread: `child-${index}` });
+    expect(
+      capRefusal(w.deps().changes, { ...OWN, key: "child-40", thread: "child-40" }, "hash-a", w.now()),
+    ).toBeUndefined();
   });
 
   it("the same change after a decline is refused for 10 minutes", async () => {

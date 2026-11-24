@@ -6,7 +6,7 @@
 // - **Declined unseen:** a scheme other than `https:`, userinfo, `localhost`, `*.localhost`, `*.local`, `*.internal`, a
 //   loopback, private, link-local, CGNAT or ULA IP literal, and t3flare's own hosts (given as a predicate, since they
 //   are a deployment's). The server is told `decline`, and the owner and the agent are told why.
-// - **Malformed:** an address that is not one, or over `ELICITATION_URL_MAX` characters.
+// - **Malformed:** an address that is not one. Its length is the server's: the tap bounds the message at 1 MiB.
 // - **What the card shows:** the address as the browser opens it, its host in ASCII (punycode), the registrable domain to
 //   emphasize and a warning for an internationalized host or one that mixes scripts.
 import * as Arr from "effect/Array";
@@ -14,9 +14,6 @@ import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import { getDomain } from "tldts";
 import { decodePunycode } from "./punycode.ts";
-
-/** The longest address a URL-mode question may carry: past it the question is malformed. */
-export const ELICITATION_URL_MAX = 8192;
 
 /** A page the owner may be shown: the address, its host and the part of it to emphasize. */
 export type ElicitationPage = {
@@ -154,10 +151,6 @@ export const checkElicitationUrl = (
   text: string,
   isOwnHost: (host: string) => boolean,
 ): Result.Result<ElicitationPage, ElicitationPageProblem> => {
-  if (text.length > ELICITATION_URL_MAX) {
-    return malformed(`the address is over ${ELICITATION_URL_MAX} characters`);
-  }
-
   const parsed = Option.liftThrowable(() => new URL(text))();
 
   if (Option.isNone(parsed)) return malformed("the address is not a valid URL");

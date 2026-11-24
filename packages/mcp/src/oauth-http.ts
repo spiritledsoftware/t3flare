@@ -5,17 +5,28 @@
 // @effect-diagnostics missingPipeableSignature:off asyncFunction:off preferEffectArray:off
 const encoder = new TextEncoder();
 
-/** Each OAuth fetch gets this long. */
+/**
+ * Each OAuth fetch's bound when its caller names none: the default of the Environment's Outside request time limit
+ * (`outsideRequestSeconds`), which the Environment passes as each request's own.
+ */
 export const OAUTH_FETCH_TIMEOUT_MS = 15_000;
 
-/** The authorization server metadata and discovery a sign-in records, each at most this many bytes. */
-export const MAX_METADATA_BYTES = 64 * 1024;
+/**
+ * The most bytes of a remote-controlled body read whole for a sign-in: authorization server metadata, discovery and a
+ * token response. It is read into the Worker's 128 MB isolate and may be kept on a row, an 8 MB Durable Object value;
+ * 1 MiB, the tap's bound on any other MCP answer, keeps it far under both.
+ */
+export const MAX_METADATA_BYTES = 1024 * 1024;
 
 /** An error kept on a row, or an owner-facing reason, is cut to this many characters. */
 export const MAX_SIGN_IN_ERROR_LENGTH = 300;
 
-/** `text` with each of `secrets` (four characters or more) replaced, then cut to `limit` characters. */
-export const scrubbed = (text: string, secrets: ReadonlyArray<string>, limit: number): string => {
+/** `text` with each of `secrets` (four characters or more) replaced, then cut to `limit` characters (none: not cut). */
+export const scrubbed = (
+  text: string,
+  secrets: ReadonlyArray<string>,
+  limit: number = Number.POSITIVE_INFINITY,
+): string => {
   let result = text;
 
   for (const secret of secrets) {
@@ -32,8 +43,8 @@ export type OAuthFetch = (input: string | URL, init?: RequestInit) => Promise<Re
 
 /**
  * `response`'s body as text, read until `limit` bytes and no further; undefined when it is longer (the rest is not
- * read). The 64 KiB bound on a token response is the limit its reader passes (the Client Credentials grant's token
- * request, `./oauth-client-credentials.ts`).
+ * read). A token response's bound is the limit its reader passes (the Client Credentials grant's token request,
+ * `./oauth-client-credentials.ts`).
  */
 export const boundedText = async (response: Response, limit: number): Promise<string | undefined> => {
   const declared = Number(response.headers.get("content-length"));

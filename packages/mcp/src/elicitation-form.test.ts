@@ -9,9 +9,7 @@ import type * as Schema from "effect/Schema";
 import { describe, expect, it } from "vitest";
 import {
   answeredFields,
-  ELICITATION_BOUNDS,
   endsInCredential,
-  messageIsCut,
   normalizeElicitationForm,
   plainLine,
   plainMessage,
@@ -150,17 +148,16 @@ describe("the form normalizer", () => {
     expect(reasonOf(schema)).toContain(reason);
   });
 
-  it("holds the form to its bounds", () => {
-    const many = Object.fromEntries(
-      Array.from({ length: ELICITATION_BOUNDS.fields + 1 }, (_, index) => [`f${index}`, { type: "boolean" }]),
-    );
+  it("takes a form of any size: its bytes are the tap's to bound", () => {
+    const many = Object.fromEntries(Array.from({ length: 200 }, (_, index) => [`f${index}`, { type: "boolean" }]));
 
-    expect(reasonOf(objectOf(many))).toContain("more than 32 fields");
+    expect(formOf(objectOf(many)).form.fields).toHaveLength(200);
 
-    const options = Array.from({ length: ELICITATION_BOUNDS.options + 1 }, (_, index) => `o${index}`);
+    const options = Array.from({ length: 1000 }, (_, index) => `o${index}`);
+    const [field] = formOf(objectOf({ a: { type: "string", enum: options } })).form.fields;
 
-    expect(reasonOf(objectOf({ a: { type: "string", enum: options } }))).toContain("more than 100 options");
-    expect(reasonOf(objectOf({ a: { type: "string", description: "x".repeat(70_000) } }))).toContain("over 64 KiB");
+    expect(field?.kind === "choice" && field.options).toHaveLength(1000);
+    expect(formOf(objectOf({ a: { type: "string", description: "x".repeat(70_000) } })).form.fields).toHaveLength(1);
   });
 
   it("ignores what it does not read, with notes, and drops an invalid default", () => {
@@ -185,7 +182,7 @@ describe("the form normalizer", () => {
     expect(notes.filter((note) => note.includes("default"))).toHaveLength(4);
   });
 
-  it("strips control and bidi-override characters from server text, and cuts it", () => {
+  it("strips control and bidi-override characters from server text, and keeps all of it", () => {
     const { form } = formOf(
       objectOf({
         a: {
@@ -198,12 +195,11 @@ describe("the form normalizer", () => {
 
     const [field] = form.fields;
 
-    expect(field?.title).toHaveLength(ELICITATION_BOUNDS.title);
-    expect(field?.title?.startsWith("Name")).toBe(true);
+    expect(field?.title).toBe(`Name${"x".repeat(200)}`);
     expect(field?.description).toBe("line one");
-    expect(plainLine("a\u0000b\n c", 10)).toBe("ab c");
+    expect(plainLine("a\u0000b\n c")).toBe("ab c");
     expect(plainMessage("one\r\ntwo\u202D")).toBe("one\ntwo");
-    expect(plainMessage("m".repeat(5000))).toHaveLength(ELICITATION_BOUNDS.message);
+    expect(plainMessage("m".repeat(5000))).toHaveLength(5000);
   });
 });
 
@@ -296,18 +292,12 @@ describe("the credential rule", () => {
 });
 
 describe("names the server chooses", () => {
-  it("refuses a field name that is empty, has control characters, is long or has extra spaces", () => {
-    for (const name of ["", "a\u0007b", "a\u202Eb", "pass\u200Bword", "a\uFEFFb", "a  b", " a", "x".repeat(121)]) {
+  it("refuses a field name that is empty, has control characters or has extra spaces, whatever its length", () => {
+    for (const name of ["", "a\u0007b", "a\u202Eb", "pass\u200Bword", "a\uFEFFb", "a  b", " a"]) {
       expect(reasonOf(objectOf({ [name]: { type: "string" } }))).toContain("a field has a name");
     }
-  });
 
-  it("says when a message is cut", () => {
-    expect(messageIsCut("x".repeat(ELICITATION_BOUNDS.message))).toBe(false);
-    expect(messageIsCut("x".repeat(ELICITATION_BOUNDS.message + 1))).toBe(true);
-    expect(plainMessage("x".repeat(5000))).toHaveLength(ELICITATION_BOUNDS.message);
-    // The note and the cut agree: what plain text drops is not counted.
-    expect(messageIsCut(`${"x".repeat(ELICITATION_BOUNDS.message)}\u200B\u202E `)).toBe(false);
+    expect(formOf(objectOf({ ["x".repeat(500)]: { type: "string" } })).form.fields).toHaveLength(1);
   });
 
   it("quotes a name it names in a reason without a quote, a tag or a backslash in it", () => {
@@ -475,7 +465,7 @@ describe("the validator", () => {
     expect(Result.isFailure(check({ name: "Ada", tags: [] }))).toBe(false);
   });
 
-  it("bounds a value and the whole answer", () => {
+  it("takes the owner's value and answer at any size", () => {
     const long = formOf(
       objectOf({
         a: { type: "string" },
@@ -486,13 +476,9 @@ describe("the validator", () => {
       }),
     ).form;
 
-    const value = "v".repeat(ELICITATION_BOUNDS.valueBytes);
+    const value = "v".repeat(100 * 1024);
 
-    expect(Result.isSuccess(validateElicitation(long, { a: value }))).toBe(true);
-    expect(Result.isFailure(validateElicitation(long, { a: `${value}v` }))).toBe(true);
-    expect(Result.isFailure(validateElicitation(long, { a: value, b: value, c: value, d: value, e: value }))).toBe(
-      true,
-    );
+    expect(Result.isSuccess(validateElicitation(long, { a: value, b: value, c: value, d: value, e: value }))).toBe(true);
   });
 
   it("says only the names of the fields answered, never a value", () => {

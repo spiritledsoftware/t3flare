@@ -60,6 +60,7 @@ export interface McpOAuthBinding {
     clientName: string;
     state: string;
     client?: ClientInformation;
+    timeoutMs?: number;
   }): Promise<
     Answer<{
       authorizationUrl: string;
@@ -79,6 +80,7 @@ export interface McpOAuthBinding {
     code: string;
     codeVerifier: string;
     redirectUrl: string;
+    timeoutMs?: number;
   }): Promise<Answer<Tokens>>;
   refresh(input: {
     authorizationServerUrl: string;
@@ -86,6 +88,7 @@ export interface McpOAuthBinding {
     client: ClientInformation;
     resource?: string;
     refreshToken: string;
+    timeoutMs?: number;
   }): Promise<Answer<Tokens>>;
 }
 
@@ -123,6 +126,12 @@ export interface OAuthDeps {
   readonly now?: () => number;
   /** How long a started sign-in's state lasts, read at each start (`mcpSignInMinutes`, SPI-1366); `STATE_TTL_MS` absent. */
   readonly stateTtlMs?: () => number;
+  /**
+   * Each request of a sign-in or a refresh, in the MCP Worker (`outsideRequestSeconds`, SPI-1363), read at each call: a
+   * hung authorization server fails it, and every call waiting on that refresh, after this long. Absent: the Worker's
+   * default, that setting's.
+   */
+  readonly requestMs?: () => number;
   readonly audit?: (entry: { readonly action: string; readonly target: string; readonly after?: unknown }) => void;
 }
 
@@ -178,6 +187,12 @@ export class HarnessOAuth {
     );
   }
 
+  /** Each MCP Worker request's bound now (`outsideRequestSeconds`), as the call's `timeoutMs`; none when not given. */
+  #timeout(): { readonly timeoutMs?: number } {
+    const ms = this.#deps.requestMs?.();
+    return ms === undefined ? {} : { timeoutMs: ms };
+  }
+
   #client(server: string): ClientInformation | undefined {
     const kept = this.#deps.secrets.read(server, "oauth-client");
     return kept === undefined ? undefined : (JSON.parse(kept) as ClientInformation);
@@ -229,6 +244,7 @@ export class HarnessOAuth {
       clientName: `t3flare (${this.#deps.host()})`,
       state,
       ...(kept === undefined ? {} : { client: kept }),
+      ...this.#timeout(),
     });
     if (!answer.ok) return answer;
     const { codeVerifier, client, authorizationServerUrl, metadata, resource } = answer.value;
@@ -311,6 +327,7 @@ export class HarnessOAuth {
       code,
       codeVerifier: pending.codeVerifier,
       redirectUrl: this.redirectUrl,
+      ...this.#timeout(),
     });
     if (!exchanged.ok) {
       this.#deps.audit?.({
@@ -356,7 +373,7 @@ export class HarnessOAuth {
     const client = this.#client(server);
     if (tokens.refresh === undefined || as === undefined || client === undefined || this.#deps.engine === undefined)
       return undefined;
-    const answer = await this.#deps.engine.refresh({ ...as, client, refreshToken: tokens.refresh });
+    const answer = await this.#deps.engine.refresh({ ...as, client, refreshToken: tokens.refresh, ...this.#timeout() });
     if (!answer.ok) {
       console.warn(JSON.stringify({ t3flare: "mcp-oauth-refresh-failed", server, error: answer.error.slice(0, 200) }));
       return undefined;

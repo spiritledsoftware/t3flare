@@ -176,15 +176,27 @@ describe("the probe's outcome table", () => {
     expect(slept).toEqual([3000]);
   });
 
-  it.each([408, 429])("%i twice: unavailable, never Legacy, after at most 10 s", async (status) => {
+  it.each([408, 429])("%i twice: unavailable, never Legacy, after the wait it asked", async (status) => {
+    const server = probeAnswered(() => new Response(null, { status, headers: { "retry-after": "12" } }));
+
+    // Past the old 10 s cap, within the connect's 15 s.
+    const { clock, slept } = recordingClock(14_000);
+
+    expect(await outcome(testDeps(fetchTo(server)), clock)).toEqual(failedWith(Unreachable, { status }));
+    expect(probes(server)).toBe(2);
+    expect(rpcMethods(server)).not.toContain("initialize");
+    expect(slept).toEqual([12_000]);
+  });
+
+  it.each([408, 429])("%i asking a wait past the connect's time limit: unavailable at once, unretried", async (status) => {
     const server = probeAnswered(() => new Response(null, { status, headers: { "retry-after": "120" } }));
 
     const { clock, slept } = recordingClock();
 
     expect(await outcome(testDeps(fetchTo(server)), clock)).toEqual(failedWith(Unreachable, { status }));
-    expect(probes(server)).toBe(2);
+    expect(probes(server)).toBe(1);
     expect(rpcMethods(server)).not.toContain("initialize");
-    expect(slept).toEqual([10_000]);
+    expect(slept).toEqual([]);
   });
 
   it("429 with an HTTP-date Retry-After: retried when it names", async () => {

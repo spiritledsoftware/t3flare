@@ -25,7 +25,7 @@ export interface RelayDeps {
   readonly newId: () => string;
 }
 
-const PATH = /^\/t3flare\/mcp\/([a-z0-9-]{1,20})$/;
+const PATH = /^\/t3flare\/mcp\/([a-z0-9-]+)$/;
 
 const plain = (status: number, message: string, extra: Record<string, string> = {}): Response =>
   new Response(`t3flare: ${message}\n`, {

@@ -12,7 +12,7 @@
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import type { AuthorizationServerMetadata } from "@earendil-works/pi-mcp/oauth";
-import { basicAuthorization, boundedText, type OAuthFetch } from "./oauth-http.ts";
+import { basicAuthorization, boundedText, OAUTH_FETCH_TIMEOUT_MS, type OAuthFetch } from "./oauth-http.ts";
 
 export {
   boundedText,
@@ -65,9 +65,6 @@ export type {
   OAuthTokens,
   TokenRequestOptions,
 } from "@earendil-works/pi-mcp/oauth";
-
-/** An access or refresh token is held to this many bytes. */
-export const MAX_TOKEN_BYTES = 16 * 1024;
 
 const encoder = new TextEncoder();
 
@@ -135,9 +132,6 @@ export const expiresWithin = (
 ): boolean => expiresAt !== undefined && expiresAt - margin <= now;
 
 // RFC 7009 revocation -------------------------------------------------------------------------------------------------
-
-/** Each revocation request gets this long. */
-export const REVOCATION_TIMEOUT_MS = 5_000;
 
 /** The client that revokes: a public one (`client_id` only) or one with a secret. */
 export type RevocationClient = {
@@ -210,7 +204,7 @@ const refusalReason = async (response: Response): Promise<string> => {
 
   return Option.match(error, {
     onNone: () => `HTTP ${response.status}`,
-    onSome: (found) => (/^[\w.-]{1,64}$/.test(found) ? found : `HTTP ${response.status}`),
+    onSome: (found) => (/^[\w.-]+$/.test(found) ? found : `HTTP ${response.status}`),
   });
 };
 
@@ -221,6 +215,7 @@ const revoke = async (
   kind: RevocableToken,
   token: string,
   fetch: OAuthFetch,
+  timeoutMs: number,
 ): Promise<Revocation> => {
   const auth = revocationAuth(metadata, client);
 
@@ -245,7 +240,7 @@ const revoke = async (
       method: "POST",
       headers,
       body,
-      signal: AbortSignal.timeout(REVOCATION_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
 
     if (response.ok) {
@@ -263,7 +258,8 @@ const revoke = async (
 };
 
 /**
- * Sign-out's RFC 7009 revocation: the refresh token, then the access token, `REVOCATION_TIMEOUT_MS` each,
+ * Sign-out's RFC 7009 revocation: the refresh token, then the access token, `timeoutMs` each (the Outside request time
+ * limit the caller passes; `OAUTH_FETCH_TIMEOUT_MS`, its default, when none),
  * through `fetch`. Best effort: each result says whether it went through, and none is thrown. `undefined` when the
  * server advertises no revocation endpoint. No token reaches a result or an error.
  */
@@ -273,7 +269,9 @@ export const revokeTokens = async (input: {
   readonly refreshToken?: string | undefined;
   readonly accessToken?: string | undefined;
   readonly fetch: OAuthFetch;
+  readonly timeoutMs?: number | undefined;
 }): Promise<ReadonlyArray<Revocation> | undefined> => {
+  const timeoutMs = input.timeoutMs ?? OAUTH_FETCH_TIMEOUT_MS;
   const endpoint = revocationEndpoint(input.metadata);
 
   if (endpoint === undefined || input.metadata === undefined) return undefined;
@@ -282,12 +280,12 @@ export const revokeTokens = async (input: {
 
   if (input.refreshToken !== undefined) {
     results.push(
-      await revoke(endpoint, input.metadata, input.client, "refresh_token", input.refreshToken, input.fetch),
+      await revoke(endpoint, input.metadata, input.client, "refresh_token", input.refreshToken, input.fetch, timeoutMs),
     );
   }
 
   if (input.accessToken !== undefined) {
-    results.push(await revoke(endpoint, input.metadata, input.client, "access_token", input.accessToken, input.fetch));
+    results.push(await revoke(endpoint, input.metadata, input.client, "access_token", input.accessToken, input.fetch, timeoutMs));
   }
 
   return results;
