@@ -314,7 +314,7 @@ describe("waitForBase", () => {
     expect(clock).toBe(35 * 60_000);
     // ADR-0049 §4: it names its value and the two settings it is made of, where each is changed.
     expect(JSON.stringify(pick)).toContain(
-      "(35 min: the Image setup time limit, under Environment › Image setup › Image setup time limit (minutes), and twice the Snapshot time limit, under Environment › Advanced › Snapshot time limit (minutes))",
+      "the Base build did not end within its 35-minute wait: the Image setup time limit, under Environment › Image setup › Image setup time limit (minutes), and 2 × the Snapshot time limit; change it under Environment › Advanced › Snapshot time limit (minutes).",
     );
   });
 

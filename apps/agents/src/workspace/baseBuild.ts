@@ -35,12 +35,11 @@ import {
   type BaseBuildRecord,
   type BaseSnapshot,
   builderInstance,
-  changeItUnder,
   type ContainerInstance,
   DEFAULT_BASE_RETRY_MINUTES,
-  limitValue,
   MAX_REBUILD_DAYS,
   type ResolvedEnvironment,
+  timeLimitHit,
   variableEnv,
 } from "@t3flare/harness-registry";
 
@@ -724,11 +723,7 @@ export class BaseBuild {
       // A step that keeps throwing ends at its time limit, never building forever.
       const deadline = this.#deadlineOf(kept);
       if (deadline !== undefined && now() > deadline)
-        return this.#fail(
-          kept,
-          null,
-          `the ${kept.phase} step kept failing until its ${this.#limitText(kept)}: ${message}`,
-        );
+        return this.#fail(kept, null, `the ${kept.phase} step kept failing until ${this.#limitText(kept)}: ${message}`);
       await setAlarm(now() + POLL_MS.starting);
     }
   }
@@ -762,13 +757,16 @@ export class BaseBuild {
     return true;
   }
 
-  /** When the step under way must have ended: the Image setup's limit, or the snapshot's (and the proof's). */
   /** The time limit `#deadlineOf` holds `build`'s phase to, named with its value and where to change it (ADR-0049 §4). */
   #limitText(build: Build): string {
     const setup = build.phase === "starting" || build.phase === "running";
     const ms = setup ? build.setupMs : build.snapshotMs;
-    return `${limitValue(Math.round(ms / 60_000), "minute")} time limit${changeItUnder({ environment: setup ? "imageSetupMinutes" : "snapshotMinutes" })}`;
+    return timeLimitHit(Math.round(ms / 60_000), "minute", {
+      environment: setup ? "imageSetupMinutes" : "snapshotMinutes",
+    });
   }
+
+  /** When the step under way must have ended: the Image setup's limit, or the snapshot's (and the proof's). */
 
   #deadlineOf(build: Build): number | undefined {
     return build.phase === "starting" || build.phase === "running"
@@ -909,7 +907,7 @@ export class BaseBuild {
   }
 
   #startLimit(build: Build): string {
-    return `the Builder's Container did not start within the Image setup's ${limitValue(Math.round(build.setupMs / 60_000), "minute")} time limit${changeItUnder({ environment: "imageSetupMinutes" })}${build.lastError === undefined ? "" : `: ${build.lastError}`}`;
+    return `the Builder's Container did not start within ${timeLimitHit(Math.round(build.setupMs / 60_000), "minute", { environment: "imageSetupMinutes" })}${build.lastError === undefined ? "" : `: ${build.lastError}`}`;
   }
 
   async #running(build: Build): Promise<void> {
@@ -928,7 +926,7 @@ export class BaseBuild {
       return this.#fail(
         build,
         null,
-        `the Image setup ran past its ${limitValue(Math.round(build.setupMs / 60_000), "minute")} time limit${changeItUnder({ environment: "imageSetupMinutes" })}`,
+        `the Image setup ran past ${timeLimitHit(Math.round(build.setupMs / 60_000), "minute", { environment: "imageSetupMinutes" })}`,
       );
     await setAlarm(now() + POLL_MS.running);
   }
@@ -977,7 +975,7 @@ export class BaseBuild {
       return this.#fail(
         build,
         null,
-        `the snapshot took longer than its ${limitValue(Math.round(build.snapshotMs / 60_000), "minute")} time limit${changeItUnder({ environment: "snapshotMinutes" })}`,
+        `the snapshot took longer than ${timeLimitHit(Math.round(build.snapshotMs / 60_000), "minute", { environment: "snapshotMinutes" })}`,
         {
           awaitingSnapshot: true,
         },
@@ -1062,7 +1060,7 @@ export class BaseBuild {
       return this.#fail(
         build,
         null,
-        `a start from the snapshot did not run computerd within its ${limitValue(Math.round(build.snapshotMs / 60_000), "minute")} time limit${changeItUnder({ environment: "snapshotMinutes" })}`,
+        `a start from the snapshot did not run computerd within ${timeLimitHit(Math.round(build.snapshotMs / 60_000), "minute", { environment: "snapshotMinutes" })}`,
       );
     await setAlarm(now() + POLL_MS.proving);
   }

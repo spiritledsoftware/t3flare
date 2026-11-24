@@ -369,14 +369,19 @@ const toolsRow = (resolved: ResolvedHarness, tools: ResolvedTools, entry: Extens
   const rows = (entry.tools ?? [])
     .map((name) => toolRow(name, tools.tools[name] ?? "hidden", builtinTool(name)?.exposures ?? [], tools))
     .join("");
-  const { shown, advanced } = extensionFields(entry, current, {
+  const fields = extensionFields(entry, current, {
     enabled: on,
     toolOn: (tool) => (tools.tools[tool] ?? "hidden") !== "hidden",
   });
-  const save =
-    shown.length + advanced.length === 0
+  // With every tool hidden the extension is off, as a switched-off one is: its Advanced settings follow it.
+  const shown = fields.shown;
+  const advanced = on ? fields.advanced : [];
+  // Off, the row says why its Advanced settings are gone, and that its shown ones (if any) do nothing meanwhile.
+  const offNote =
+    on || shown.length + fields.advanced.length === 0
       ? ""
-      : `${on ? "" : `<p class="desc">Every tool is hidden, so the extension is not installed and these settings do nothing until a tool is offered.</p>`}${extensionSettings(entry, shown, advanced)}`;
+      : `<p class="desc">Every tool is hidden, so the extension is not installed${shown.length === 0 ? "" : " and these settings do nothing until a tool is offered"}${fields.advanced.length === 0 ? "" : "; its Advanced settings show once a tool is offered"}.</p>`;
+  const save = `${offNote}${shown.length + advanced.length === 0 ? "" : extensionSettings(entry, shown, advanced)}`;
   return `<form class="row" data-extension="${escapeHtml(entry.id)}" aria-labelledby="${titleId}" novalidate><div><div class="row-title"><h3 id="${titleId}">${escapeHtml(entry.title)}</h3><span class="ident">${escapeHtml(entry.id)}</span></div>
 <p class="desc">${escapeHtml(entry.description)}</p></div><div class="row-control">${on ? `<span class="pill pill-ok">On</span>` : `<span class="pill" title="Every tool hidden">Off</span>`}</div>
 <div class="row-extra"><div class="table-wrap tools-wide"><table class="stacked tools-table"><thead><tr><th scope="col">Tool</th><th scope="col">Exposure</th></tr></thead><tbody>${rows}</tbody></table></div>${save}</div></form>`;

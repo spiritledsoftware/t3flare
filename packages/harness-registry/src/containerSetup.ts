@@ -4,7 +4,7 @@
 // reads the same. Imported by both Workers.
 import { CONTAINER_SETUP_FAILURES, type ContainerSetupFailure, MAX_SETUP_OUTPUT_KIB } from "./environment.ts";
 import { SETTINGS_SOURCES, type SettingsSource } from "./globalMise.ts";
-import { limitValue, whereToChange } from "./index.ts";
+import { timeLimitHit } from "./index.ts";
 
 /** The most output a report may carry, in bytes of UTF-8: `setupOutputKiB`'s bound. A report keeps its launch's setting. */
 export const MAX_SETUP_OUTPUT_BYTES = MAX_SETUP_OUTPUT_KIB * 1024;
@@ -100,7 +100,7 @@ export const describeContainerSetup = (report: ContainerSetupReport): string => 
   else if (report.outcome === "deadline") what = "failed, no answer within the deadline";
   else if (report.timedOut)
     // ADR-0049 §4: the limit names its value and, a contextual setting, where to change it.
-    what = `failed, stopped at its ${report.limitMinutes === undefined ? "" : `${limitValue(report.limitMinutes, "minute")} `}time limit after ${seconds(report.ms)} s${whereToChange({ environment: "containerSetupMinutes" })}`;
+    what = `failed after ${seconds(report.ms)} s, stopped at ${timeLimitHit(report.limitMinutes, "minute", { environment: "containerSetupMinutes" })}`;
   else
     what = `${report.outcome === "ok" ? "ran" : "failed"}, exit ${String(report.exitCode)} after ${seconds(report.ms)} s`;
   const refused = report.failure === "refuse" && report.outcome !== "ok" && report.outcome !== "none";

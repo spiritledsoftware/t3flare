@@ -10,10 +10,12 @@ import {
   ENVIRONMENT_SETTINGS,
   type EnvironmentSettingEntry,
   EXTENSIONS,
+  changeThemUnder,
   limitHit,
   limitValue,
   SETTINGS_SERVER_LIMITS,
   settingPlace,
+  timeLimitHit,
 } from "./index.ts";
 
 const environment = ENVIRONMENT_SETTINGS as Readonly<Record<string, EnvironmentSettingEntry>>;
@@ -71,7 +73,7 @@ describe("every setting's disclosure", () => {
   });
 
   // The ticket's table (SPI-1385). Settings outside it are Advanced until SPI-1387 and SPI-1388 make them constants, and
-  // `sweepPurges` stays beside the Grace until SPI-1386 folds it in.
+  // `sweepPurges` stays beside the Grace until SPI-1387 folds it in.
   it("puts each setting where SPI-1385's table does", () => {
     const by = (level: string) =>
       everySetting()
@@ -205,11 +207,54 @@ describe("disclosureReport", () => {
     expect(disclosureReport({ extension: "guardian", key: "model" })).toEqual({
       disclosure: "contextual",
       shownWhen: "shown while Guardian is on",
-      where: "Extensions › Guardian › Model",
+      where: "turn Guardian on, then Extensions › Guardian › Model",
+    });
+    // An extension's Advanced settings follow it: shown while it is on, or while one of its tools is offered.
+    expect(disclosureReport({ extension: "guardian", key: "reviewTimeoutSeconds" })).toEqual({
+      disclosure: "advanced",
+      shownWhen: "shown while Guardian is on",
+      where: "turn Guardian on, then Extensions › Guardian › Advanced › Review time limit (seconds)",
+    });
+    expect(disclosureReport({ extension: "web", key: "searchResults" })).toEqual({
+      disclosure: "advanced",
+      shownWhen: "shown while one of web_fetch or web_search is offered",
+      where: "offer one of web_fetch or web_search, then Tools › Web tools › Advanced › Search results",
+    });
+    // An always-on extension's are shown whenever Advanced is opened.
+    expect(disclosureReport({ extension: "tool-output", key: "outputLines" })).toEqual({
+      disclosure: "advanced",
+      where: "Extensions › Tool output › Advanced › Output lines shown to the model",
     });
     expect(disclosureReport({ extension: "tool-output", key: "outputKiB" })).toEqual({
       disclosure: "visible",
       where: "Extensions › Tool output › Output shown to the model (KiB)",
     });
+  });
+});
+
+describe("timeLimitHit and changeThemUnder", () => {
+  it("names a time limit with its value, or without one a report did not carry, and where to change it", () => {
+    expect(timeLimitHit(15, "minute", { environment: "cloneMinutes" })).toBe(
+      "its 15-minute time limit; change it under Environment › Advanced › Clone time limit (minutes)",
+    );
+    expect(timeLimitHit(undefined, "minute", { environment: "containerSetupMinutes" })).toBe(
+      "its time limit; change it under Environment › Container setup › Container setup time limit (minutes)",
+    );
+    // A limit is hit while its feature is in use, so the hit says nothing of turning it on.
+    expect(timeLimitHit(30, "second", { extension: "guardian", key: "reviewTimeoutSeconds" })).toBe(
+      "its 30-second time limit; change it under Extensions › Guardian › Advanced › Review time limit (seconds)",
+    );
+  });
+
+  it("lists several settings of one place once", () => {
+    expect(
+      changeThemUnder([
+        { settingsServer: "strikes" },
+        { settingsServer: "strikeWindowMinutes" },
+        { settingsServer: "strikeLockMinutes" },
+      ]),
+    ).toBe(
+      "; change them under MCP servers › Settings server › Advanced › Strikes, Strike window (minutes) and Strike lock (minutes)",
+    );
   });
 });

@@ -797,35 +797,80 @@ export type SettingRef =
   | { readonly extension: string; readonly key: string }
   | { readonly settingsServer: SettingsServerLimitKey };
 
-/** The Settings page's section of the Settings server's limits, and the card that holds them. */
-const SETTINGS_SERVER_PLACE = ["MCP servers", "Settings server"] as const;
+/**
+ * The Settings page's headings `settingPlace` names: its sections, and the Settings server's card in the MCP servers
+ * section. The page renders these (apps/environment/test/harnessPage.test.ts holds the two to each other).
+ */
+export const SETTINGS_PAGE_PLACES = {
+  environment: "Environment",
+  workspaces: "Workspaces",
+  extensions: "Extensions",
+  tools: "Tools",
+  mcp: "MCP servers",
+  settingsServer: "Settings server",
+} as const;
 
 /** The setting `ref` names, with the place on the Settings page that holds it before its own title. */
 const placed = (
   ref: SettingRef,
-): { readonly entry: SettingEntry | EnvironmentSettingEntry; readonly at: ReadonlyArray<string> } => {
+): {
+  readonly entry: SettingEntry | EnvironmentSettingEntry;
+  readonly at: ReadonlyArray<string>;
+  readonly extension?: ExtensionEntry;
+} => {
+  const places = SETTINGS_PAGE_PLACES;
   if ("environment" in ref) {
     const entry: EnvironmentSettingEntry = ENVIRONMENT_SETTINGS[ref.environment];
     // The Grace and its purge are in the Workspaces section (ADR-0044 §1); a setting that joins a file's row is under it.
-    if ((SWEEP_SETTING_KEYS as ReadonlyArray<string>).includes(ref.environment)) return { entry, at: ["Workspaces"] };
+    if ((SWEEP_SETTING_KEYS as ReadonlyArray<string>).includes(ref.environment))
+      return { entry, at: [places.workspaces] };
     const row =
       entry.row === undefined
         ? undefined
         : (ENVIRONMENT_SETTINGS as Readonly<Record<string, EnvironmentSettingEntry>>)[entry.row];
     return {
       entry,
-      at: row === undefined || entry.disclosure === "advanced" ? ["Environment"] : ["Environment", row.title],
+      at: row === undefined || entry.disclosure === "advanced" ? [places.environment] : [places.environment, row.title],
     };
   }
-  if ("settingsServer" in ref) return { entry: SETTINGS_SERVER_LIMITS[ref.settingsServer], at: SETTINGS_SERVER_PLACE };
+  if ("settingsServer" in ref)
+    return { entry: SETTINGS_SERVER_LIMITS[ref.settingsServer], at: [places.mcp, places.settingsServer] };
   const extension = entryOf(ref.extension);
   const entry = extension?.settings[ref.key];
   if (extension === undefined || entry === undefined) throw new Error(`No setting ${ref.extension}.${ref.key}`);
-  return { entry, at: [extension.tools === undefined ? "Extensions" : "Tools", extension.title] };
+  return { entry, at: [extension.tools === undefined ? places.extensions : places.tools, extension.title], extension };
 };
 
 /** `ref`'s disclosure: where the Settings page shows it. */
 export const disclosureOf = (ref: SettingRef): Disclosure => placed(ref).entry.disclosure;
+
+/** `words` as a list read with "or": "web_fetch or web_search". */
+const orList = (words: ReadonlyArray<string>): string =>
+  words.length === 1 ? words[0]! : `${words.slice(0, -1).join(", ")} or ${words.at(-1)}`;
+
+/**
+ * What the page needs before it shows `ref`, beyond its disclosure's own condition, if anything: an extension's
+ * Advanced settings follow the extension (ADR-0049 §6), shown while it is on, or for one with tools while one of them is
+ * offered, as its contextual ones are.
+ */
+const requirement = (ref: SettingRef): { readonly shownWhen: string; readonly first?: string } | undefined => {
+  const { entry, extension } = placed(ref);
+  const disclosure = entry.disclosure;
+  if (typeof disclosure !== "string") {
+    const condition = disclosure.contextual;
+    if ("extensionOn" in condition)
+      return { shownWhen: shownWhen(condition, extension), first: `turn ${extension?.title ?? "its extension"} on` };
+    if ("toolOn" in condition) return { shownWhen: shownWhen(condition), first: `offer ${condition.toolOn}` };
+    return { shownWhen: shownWhen(condition) };
+  }
+  if (disclosure !== "advanced" || extension === undefined || extension.default === "always") return undefined;
+  return extension.tools === undefined
+    ? { shownWhen: `shown while ${extension.title} is on`, first: `turn ${extension.title} on` }
+    : {
+        shownWhen: `shown while one of ${orList(extension.tools)} is offered`,
+        first: `offer one of ${orList(extension.tools)}`,
+      };
+};
 
 /**
  * Where the Settings page holds `ref`, as the Owner finds it: Section › Advanced › Title for an Advanced setting (with
@@ -845,19 +890,35 @@ export const settingPlace = (ref: SettingRef): string => {
  */
 export const limitHit = (message: string, ref: SettingRef): string => `${message}${changeItUnder(ref)}.`;
 
-/** Where to change `ref` as a clause, "; change it under …", for a contextual or Advanced setting; else nothing. */
+/**
+ * Where to change `ref` as a clause, "; change it under …", for a contextual or Advanced setting; nothing for a visible
+ * one. What the page needs first to show it is left out: a limit is hit only while its feature is in use, which is when
+ * the page shows it (`disclosureReport` says it for a read).
+ */
 export const changeItUnder = (ref: SettingRef): string =>
   disclosureOf(ref) === "visible" ? "" : `; change it under ${settingPlace(ref)}`;
 
 /**
- * Inside a longer line (a Status line goes on after it): where to change `ref`, as " (change it under …)", for a
- * contextual or Advanced setting; nothing for a visible one. `limitHit` is the same for a message that ends there.
+ * Where to change several settings of one place as a clause: "; change them under MCP servers › Settings server ›
+ * Advanced › Strikes, Strike window (minutes) and Strike lock (minutes)". Each is a contextual or Advanced setting.
  */
-export const whereToChange = (ref: SettingRef): string =>
-  disclosureOf(ref) === "visible" ? "" : ` (change it under ${settingPlace(ref)})`;
+export const changeThemUnder = (refs: ReadonlyArray<SettingRef>): string => {
+  const paths = refs.map((ref) => settingPlace(ref).split(" › "));
+  const shared = paths[0]!.slice(0, -1);
+  const titles = paths.map((path) => path.at(-1)!);
+  const listed = titles.length === 1 ? titles[0] : `${titles.slice(0, -1).join(", ")} and ${titles.at(-1)}`;
+  return `; change them under ${[...shared, listed].join(" › ")}`;
+};
 
 /** `count` of a unit as a limit's value reads before a noun: "15-minute", "1-second". */
 export const limitValue = (count: number, unit: string): string => `${count.toLocaleString("en-US")}-${unit}`;
+
+/**
+ * A time limit, hit, as a clause: "its 15-minute time limit", and where to change it (`changeItUnder`). `value` absent:
+ * a report from before the limit was carried, "its time limit".
+ */
+export const timeLimitHit = (value: number | undefined, unit: "minute" | "second", ref: SettingRef): string =>
+  `its ${value === undefined ? "" : `${limitValue(value, unit)} `}time limit${changeItUnder(ref)}`;
 
 /** What shows a contextual setting, in words: "shown while Container size or Builder size is custom". */
 export const shownWhen = (condition: DisclosureCondition, extension?: ExtensionEntry): string => {
@@ -888,7 +949,8 @@ export const conditionHolds = (
 
 /**
  * A setting's disclosure as the Settings server's read reports it (ADR-0035's ADR-0049 refinement): its level, what
- * shows a contextual one, and where on the page it is, so an agent can point the Owner to it.
+ * shows it where something must hold first (a contextual setting's condition; an extension's Advanced setting's
+ * extension being on), and where on the page it is, after what to turn on first, so an agent can point the Owner to it.
  */
 export const disclosureReport = (
   ref: SettingRef,
@@ -898,10 +960,15 @@ export const disclosureReport = (
   readonly where: string;
 } => {
   const disclosure = disclosureOf(ref);
-  const where = settingPlace(ref);
-  if (typeof disclosure === "string") return { disclosure, where };
-  const extension = "extension" in ref ? entryOf(ref.extension) : undefined;
-  return { disclosure: "contextual", shownWhen: shownWhen(disclosure.contextual, extension), where };
+  const level = typeof disclosure === "string" ? disclosure : "contextual";
+  const required = requirement(ref);
+  // A read may come while the feature is off, so the place says what to do first: "turn Guardian on, then …".
+  const place = settingPlace(ref);
+  return {
+    disclosure: level,
+    ...(required === undefined ? {} : { shownWhen: required.shownWhen }),
+    where: required?.first === undefined ? place : `${required.first}, then ${place}`,
+  };
 };
 
 /**

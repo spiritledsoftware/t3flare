@@ -8,6 +8,7 @@ import {
   EMPTY_HARNESS,
   type StoredHarness,
   DEFAULT_SETTINGS_SERVER_LIMITS,
+  SETTINGS_SERVER_LIMIT_KEYS,
 } from "@t3flare/harness-registry";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -147,7 +148,23 @@ describe("the reads report where the Settings page shows each setting", () => {
     });
     expect(byKey(guardian, "reviewTimeoutSeconds")).toMatchObject({
       disclosure: "advanced",
-      where: "Extensions › Guardian › Advanced › Review time limit (seconds)",
+      shownWhen: "shown while Guardian is on",
+      where: "turn Guardian on, then Extensions › Guardian › Advanced › Review time limit (seconds)",
+    });
+  });
+
+  it("get_settings reports the Settings server's own limits, each under its card's Advanced", async () => {
+    fixture = settingsFixture();
+    const run = fixture;
+    const harness = structured(await run.call(run.durable(), "get_settings", { entity: "harness" })) as {
+      settingsServerLimits: Array<{ key: string; value: number; disclosure: string; where: string; tier: string }>;
+    };
+    expect(harness.settingsServerLimits.map((limit) => limit.key)).toEqual([...SETTINGS_SERVER_LIMIT_KEYS]);
+    expect(harness.settingsServerLimits.find((limit) => limit.key === "strikes")).toMatchObject({
+      value: DEFAULT_SETTINGS_SERVER_LIMITS.strikes,
+      tier: "asked",
+      disclosure: "advanced",
+      where: "MCP servers › Settings server › Advanced › Strikes",
     });
   });
 

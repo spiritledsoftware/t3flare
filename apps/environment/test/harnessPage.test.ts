@@ -12,8 +12,10 @@ import {
   EMPTY_HARNESS,
   resolveEnvironment,
   resolveHarness,
+  SETTINGS_PAGE_PLACES,
   SETTINGS_SERVER_LIMIT_KEYS,
   SETTINGS_SERVER_LIMITS_NOTE,
+  settingPlace,
 } from "@t3flare/harness-registry";
 import { describe, expect, it } from "vitest";
 
@@ -327,7 +329,8 @@ describe("harness page", () => {
       );
     };
     expect(terminals(resolveHarness(hidden.harness))).toContain(
-      "Every tool is hidden, so the extension is not installed and these settings do nothing until a tool is offered.",
+      // Its settings are all Advanced (ADR-0049 §6), which follow its tools: the row says where they went.
+      "Every tool is hidden, so the extension is not installed; its Advanced settings show once a tool is offered.",
     );
     expect(terminals(resolveHarness(EMPTY_HARNESS))).not.toContain("Every tool is hidden");
     // SPI-1317: the count is the Environment setting's, not a fixed 8.
@@ -1407,6 +1410,58 @@ describe("the page's disclosure", () => {
       false,
       false,
     ]);
+  });
+
+  // ADR-0049 §4: a limit's message names its place by these headings, so a renamed heading must fail here.
+  it("names each place a limit points to by a heading the page renders", () => {
+    const settingsCard = {
+      ...FIXTURE_MCP[0]!,
+      name: "settings",
+      setting: { kind: "settings", enabled: true, exposure: "deferred" },
+    };
+    const on = applyChange(EMPTY_HARNESS, { extension: "guardian", enabled: true });
+    if (!on.ok) throw new Error(on.error);
+    const html = renderPage(fixturePage({ resolved: resolveHarness(on.harness), mcp: [settingsCard] }));
+    const headingOf = (id: string) =>
+      /<h2 id="[^"]+-title">(?:<svg[\s\S]*?<\/svg>)?([^<]+)<\/h2>/.exec(section(html, id))?.[1];
+    const ids: Record<string, string> = {
+      environment: "environment",
+      workspaces: "workspaces",
+      extensions: "extensions",
+      tools: "tools",
+      mcp: "mcp",
+    };
+    for (const [key, id] of Object.entries(ids))
+      expect(headingOf(id), key).toBe(SETTINGS_PAGE_PLACES[key as keyof typeof SETTINGS_PAGE_PLACES]);
+    expect(section(html, "mcp")).toContain(`<span class="tag">${SETTINGS_PAGE_PLACES.settingsServer}</span>`);
+    // Each kind of place, from the setting it names: its section, then its row, card or extension, as rendered.
+    const parts = (ref: Parameters<typeof settingPlace>[0]) => settingPlace(ref).split(" › ");
+    const [environment, , cloneTitle] = parts({ environment: "cloneMinutes" });
+    expect(section(html, "environment")).toContain(`<h2 id="environment-title">`);
+    expect(environment).toBe(SETTINGS_PAGE_PLACES.environment);
+    expect(section(html, "environment")).toContain(`>${escapeHtml(cloneTitle!)}</label>`);
+    const [, row] = parts({ environment: "containerSetupMinutes" });
+    expect(section(html, "environment")).toContain(`<h3>${row}</h3>`);
+    const [extensions, guardian, advanced] = parts({ extension: "guardian", key: "reviewTimeoutSeconds" });
+    expect(extensions).toBe(SETTINGS_PAGE_PLACES.extensions);
+    expect(section(html, "extensions")).toContain(`>${guardian}</h3>`);
+    expect(section(html, "extensions")).toContain(`${advanced} <span>·`);
+    const [tools, web] = parts({ extension: "web", key: "searchResults" });
+    expect(tools).toBe(SETTINGS_PAGE_PLACES.tools);
+    expect(section(html, "tools")).toContain(`>${web}</h3>`);
+  });
+
+  it("hides a tools extension's Advanced settings while every one of its tools is hidden", () => {
+    const rowOf = (html: string) => {
+      const start = html.indexOf('data-extension="web"');
+      return html.slice(start, html.indexOf("</form>", start));
+    };
+    expect(rowOf(fresh())).toContain('data-setting="searchResults"');
+    const hidden = applyToolsChange(EMPTY_HARNESS, { tools: { web_fetch: "hidden", web_search: "hidden" } });
+    if (!hidden.ok) throw new Error(hidden.error);
+    const row = rowOf(renderPage(fixturePage({ resolved: resolveHarness(hidden.harness) })));
+    expect(row).not.toContain("data-setting=");
+    expect(row).not.toContain("data-advanced");
   });
 
   it("labels the Settings server's limits as its Advanced", () => {

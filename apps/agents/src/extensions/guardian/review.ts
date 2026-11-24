@@ -12,7 +12,7 @@ import {
   type Model,
   type Models,
 } from "@earendil-works/pi-ai";
-import { changeItUnder, limitValue } from "@t3flare/harness-registry";
+import { timeLimitHit } from "@t3flare/harness-registry";
 
 import {
   type Assessment,
@@ -118,7 +118,7 @@ export const runGuardianReview = async (input: GuardianReviewInput): Promise<Rev
         return {
           kind: "failed",
           // ADR-0049 §4: the limit names its value and where to change it.
-          failure: `Guardian Review stopped at its ${limitValue(input.timeoutMs / 1_000, "second")} time limit${changeItUnder({ extension: "guardian", key: "reviewTimeoutSeconds" })}`,
+          failure: `Guardian Review stopped at ${timeLimitHit(input.timeoutMs / 1_000, "second", { extension: "guardian", key: "reviewTimeoutSeconds" })}`,
           ...measured(),
         };
       if (failure !== undefined || reply === undefined)

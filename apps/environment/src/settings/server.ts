@@ -60,6 +60,7 @@ import {
   type EnvironmentKey,
   limitHit,
   SETTINGS_SERVER_LIMIT_KEYS,
+  SETTINGS_SERVER_LIMITS,
 } from "@t3flare/harness-registry";
 import type { McpAsker, McpQuestionAnswer, McpQuestionCard } from "@t3flare/session-protocol";
 
@@ -370,6 +371,17 @@ const getSettings = async (
           // Where the Settings page shows it (ADR-0049 §6), so an agent can point the Owner to it.
           ...disclosureReport({ extension: entry.id, key }),
         })),
+      })),
+      // The Settings server's own limits (SPI-1322): its entry's settings, every change to them asked, each with where the
+      // page shows it (list_mcp_servers lists them with the server too).
+      settingsServerLimits: SETTINGS_SERVER_LIMIT_KEYS.map((key) => ({
+        key,
+        title: SETTINGS_SERVER_LIMITS[key].title,
+        description: SETTINGS_SERVER_LIMITS[key].description,
+        value: settingsServerLimitsOf(stored)[key],
+        schema: SETTINGS_SERVER_LIMITS[key].schema,
+        tier: "asked",
+        ...disclosureReport({ settingsServer: key }),
       })),
     });
   }

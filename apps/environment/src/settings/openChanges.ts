@@ -11,7 +11,7 @@
 //   outcome (`closeOrSettle`);
 // - the in-memory waiters a held call waits on. With no waiter (after an Environment restart the call is gone), the
 //   record still stands until it expires, and the Change page can still apply it.
-import { limitHit, type SettingsServerLimits } from "@t3flare/harness-registry";
+import { changeThemUnder, limitHit, type SettingsServerLimits } from "@t3flare/harness-registry";
 
 import {
   type AnsweredBy,
@@ -102,7 +102,7 @@ export const capRefusal = (
   ) {
     return {
       reason: "declined-repeat",
-      text: `${limitHit(`Not changed: the owner declined this same change less than ${durationText(repeatMs)} ago, its Declined repeat`, { settingsServer: "declinedRepeatMinutes" })} Do not ask again; ask him in the thread what he wants instead.`,
+      text: `${limitHit(`Not changed: the owner declined this same change less than ${durationText(repeatMs)} ago, and the Declined repeat refuses it again for ${durationText(repeatMs)} after a decline`, { settingsServer: "declinedRepeatMinutes" })} Do not ask again; ask him in the thread what he wants instead.`,
     };
   }
   // A strike is a decline; for own agents an expiry too (unanswered), never for an Owner client (a dropped stream or an
@@ -120,7 +120,8 @@ export const capRefusal = (
   if (run.length === strikes && run.every(strike) && last - first <= window && now < last + lockMs) {
     return {
       reason: "strikes",
-      text: `${limitHit(`Not changed: your last ${strikes === 1 ? "asked change was" : `${strikes} asked changes were`} ${caller.door === "own" ? "declined or unanswered" : "declined"}, so t3flare refuses your asked changes until ${new Date(last + lockMs).toISOString()} (${durationText(lockMs)} after the last), its Strike lock`, { settingsServer: "strikeLockMinutes" })} Ask the owner in the thread what he wants.`,
+      // ADR-0049 §4: the three limits that made the lock, each with its value, and where to change them.
+      text: `Not changed: your last ${strikes === 1 ? "asked change was" : `${strikes} asked changes were`} ${caller.door === "own" ? "declined or unanswered" : "declined"}, so t3flare refuses your asked changes until ${new Date(last + lockMs).toISOString()} (${durationText(lockMs)} after the last): ${strikes === 1 ? "1 strike" : `${strikes} strikes`} within the Strike window of ${durationText(limits.strikeWindowMinutes * 60_000)} lock a caller out for the Strike lock of ${durationText(lockMs)}${changeThemUnder([{ settingsServer: "strikes" }, { settingsServer: "strikeWindowMinutes" }, { settingsServer: "strikeLockMinutes" }])}. Ask the owner in the thread what he wants.`,
     };
   }
   if (changes.appliedSince(capKey, now - APPLIED_WINDOW_MS) >= limits.appliedPerHour) {

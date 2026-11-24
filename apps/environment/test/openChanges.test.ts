@@ -391,7 +391,7 @@ describe("D16's caps", () => {
     const repeat = capRefusal(w.deps().changes, OWN, "hash-a", w.now());
     expect(repeat).toMatchObject({ reason: "declined-repeat" });
     expect(repeat!.text).toContain(
-      "less than 10 minutes ago, its Declined repeat; change it under MCP servers › Settings server › Advanced › Declined repeat (minutes).",
+      "less than 10 minutes ago, and the Declined repeat refuses it again for 10 minutes after a decline; change it under MCP servers › Settings server › Advanced › Declined repeat (minutes).",
     );
     expect(capRefusal(w.deps().changes, OWN, "hash-other", w.now())).toBeUndefined();
     w.advance(DECLINED_REPEAT_MS + 1);
@@ -414,7 +414,7 @@ describe("D16's caps", () => {
     const locked = capRefusal(w.deps().changes, OWN, "hash-9", w.now());
     expect(locked).toMatchObject({ reason: "strikes" });
     expect(locked!.text).toContain(
-      "(an hour after the last), its Strike lock; change it under MCP servers › Settings server › Advanced › Strike lock (minutes).",
+      "(an hour after the last): 3 strikes within the Strike window of an hour lock a caller out for the Strike lock of an hour; change them under MCP servers › Settings server › Advanced › Strikes, Strike window (minutes) and Strike lock (minutes).",
     );
     // Another caller is not locked.
     expect(

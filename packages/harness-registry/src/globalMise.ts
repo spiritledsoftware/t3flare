@@ -2,7 +2,7 @@
 // The Global mise config's lay-down as the Workspace DO reports it and the panel's Status shows it (SPI-1150,
 // ADR-0032's Global mise config refinement): one answer per Container start, sent to the Environment DO, which keeps the last across all Workspaces.
 // Imported by both Workers.
-import { changeItUnder, limitValue } from "./index.ts";
+import { timeLimitHit } from "./index.ts";
 
 /** A text's size and SHA-256: what the audit, the logs and `containerState()` show of a `file` setting, never the text. */
 export interface TextDigest {
@@ -102,7 +102,7 @@ export const describeGlobalMise = (report: GlobalMiseReport): string => {
   let what: string;
   // ADR-0049 §4: a timed-out install names its limit and, a contextual setting, where to change it.
   const why = report.timedOut
-    ? `stopped at its ${report.limitMinutes === undefined ? "" : `${limitValue(report.limitMinutes, "minute")} `}time limit${changeItUnder({ environment: "globalMiseInstallMinutes" })}`
+    ? `stopped at ${timeLimitHit(report.limitMinutes, "minute", { environment: "globalMiseInstallMinutes" })}`
     : report.install === 0
       ? "git or gh did not run under it"
       : `mise install exit ${report.install}`;

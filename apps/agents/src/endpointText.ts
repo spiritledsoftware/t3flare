@@ -9,7 +9,7 @@
 // key never reach the message.
 import { createModels, type FetchFunction } from "@earendil-works/pi-ai";
 import { describeFailure, errorBodyOf, failureHeaders, resetSentence, withCause } from "@t3flare/models/failures";
-import { changeItUnder, DEFAULT_TEXT_GENERATION_SECONDS, limitValue } from "@t3flare/harness-registry";
+import { DEFAULT_TEXT_GENERATION_SECONDS, timeLimitHit } from "@t3flare/harness-registry";
 import { redactSecrets } from "@t3flare/models/redact";
 import {
   type EndpointCredential,
@@ -200,7 +200,7 @@ export const generateEndpointText = async (input: unknown, access: EndpointTextA
   // ADR-0049 §4: the text generation time limit names its value and where to change it.
   const timedOut = {
     ok: false,
-    error: `${named} did not answer within its ${limitValue(limitMs / 1000, "second")} time limit${changeItUnder({ environment: "textGenerationSeconds" })}.`,
+    error: `${named} did not answer within ${timeLimitHit(limitMs / 1000, "second", { environment: "textGenerationSeconds" })}.`,
   } as const;
   let message;
   try {
