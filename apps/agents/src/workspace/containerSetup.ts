@@ -4,9 +4,11 @@
 // held, bounded, retried). It is reported to the Environment DO with the end of its output, every secret Variable's
 // value blanked; on a failure the Container carries on, or refuses its commands, as the Owner set.
 import {
+  changeItUnder,
   type ContainerSetupFailure,
   type ContainerSetupOutcome,
   type ContainerSetupReport,
+  limitValue,
   MAX_SETUP_OUTPUT_BYTES,
   type SettingsSource,
 } from "@t3flare/harness-registry";
@@ -180,8 +182,10 @@ export class ContainerSetup {
     if (state === undefined)
       return `Refused: this Container's Container setup has not run (the Container's steps before it did not finish), ${tail}`;
     if (state.outcome === "ok" || state.outcome === "none") return undefined;
+    // ADR-0049 §4: the time limit names its value and where to change it (a contextual setting).
+    const minutes = this.#deps.launch()?.minutes;
     const how = state.timedOut
-      ? "stopped at its time limit"
+      ? `stopped at its ${minutes === undefined ? "" : `${limitValue(minutes, "minute")} `}time limit${changeItUnder({ environment: "containerSetupMinutes" })}`
       : state.exitCode !== null
         ? `exit ${state.exitCode}`
         : state.outcome === "deadline"
@@ -208,6 +212,7 @@ export class ContainerSetup {
       outcome: state.outcome,
       exitCode: state.exitCode,
       timedOut: state.timedOut,
+      ...(known === undefined ? {} : { limitMinutes: known.minutes }),
       output,
       failure: known?.failure ?? "carryOn",
       ms: Math.max(0, state.at - started),

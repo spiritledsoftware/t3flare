@@ -180,15 +180,20 @@ describe("a save pokes the Builder", () => {
 });
 
 describe("the Base snapshot's settings on the page", () => {
-  it("joins the Image setup's own row: the script as a file, the limits, the Builder's size by its label", async () => {
+  it("joins the Image setup's own row: the script as a file, its time limit; the rest under Advanced, the Builder's size by its label", async () => {
     const html = await page(setup().deps);
     const start = html.indexOf("<h3>Image setup</h3>");
     expect(start).toBeGreaterThan(-1);
     const row = html.slice(start, html.indexOf('<div class="row">', start));
     expect(row).toMatch(/<textarea class="file"[^>]*data-setting="imageSetup"/);
-    for (const key of ["imageSetupMinutes", "snapshotMinutes", "builderSize", "builderInBudget", "rebuildEveryDays"])
-      expect(row).toContain(`data-setting="${key}"`);
-    expect(row).toContain('<option value="sameAsContainer" selected>Same as Container size</option>');
+    // Shown while the Image setup has a script (ADR-0049 §6).
+    expect(row).toContain('data-setting="imageSetupMinutes"');
+    const advancedStart = html.indexOf('<h3 id="environment-advanced-imageSetup-title">Image setup</h3>');
+    expect(advancedStart).toBeGreaterThan(start);
+    const advanced = html.slice(advancedStart, html.indexOf('<div class="row">', advancedStart));
+    for (const key of ["snapshotMinutes", "builderSize", "builderInBudget", "rebuildEveryDays"])
+      expect(advanced).toContain(`data-setting="${key}"`);
+    expect(advanced).toContain('<option value="sameAsContainer" selected>Same as Container size</option>');
   });
 });
 

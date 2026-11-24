@@ -76,11 +76,30 @@ export type EnvironmentValue =
  */
 export type SettingTier = "free" | "down-free" | "up-free";
 
+/**
+ * What shows a contextual setting (ADR-0049 §6): `equals`, one of `settings` (its group's own) holding that value (a
+ * size being custom); `filled`, its group's setting `filled` holding text (a setup having a script); `extensionOn`, its
+ * extension switched on (the Guardian); `toolOn`, its extension's tool offered, not hidden (web_search).
+ */
+export type DisclosureCondition =
+  | { readonly settings: ReadonlyArray<string>; readonly equals: string }
+  | { readonly filled: string }
+  | { readonly extensionOn: true }
+  | { readonly toolOn: string };
+
+/**
+ * Where the Settings page shows a setting (ADR-0049 §6): `visible` always, `contextual` only while its condition holds,
+ * `advanced` collapsed under its section's Advanced. Only where it shows: the Settings server reads and changes every
+ * setting, and a stored value applies whether or not the page shows it.
+ */
+export type Disclosure = "visible" | "advanced" | { readonly contextual: DisclosureCondition };
+
 export interface SettingEntry {
   readonly title: string;
   readonly description: string;
   readonly schema: FieldSchema;
   readonly tier?: SettingTier;
+  readonly disclosure: Disclosure;
 }
 
 /** An Environment setting: a `SettingEntry` whose schema may also be Variables. */
@@ -89,6 +108,7 @@ export interface EnvironmentSettingEntry {
   readonly description: string;
   readonly schema: EnvironmentFieldSchema;
   readonly tier?: SettingTier;
+  readonly disclosure: Disclosure;
   /** The setting whose row on the Settings page this one joins (a file's own row), rather than the Containers row. */
   readonly row?: string;
 }

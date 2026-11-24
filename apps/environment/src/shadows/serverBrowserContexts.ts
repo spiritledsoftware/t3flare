@@ -28,7 +28,7 @@
 //   it as a buffer; a path in another Workspace is refused.
 // - Never `recording`, never a Live View URL, and no URL or cookie is logged (review L5).
 import { INCOGNITO_BROWSER_PROFILE_ID } from "@t3tools/contracts";
-import { DEFAULT_BROWSER_PROFILE_SAVE_SECONDS } from "@t3flare/harness-registry";
+import { DEFAULT_BROWSER_PROFILE_SAVE_SECONDS, settingPlace } from "@t3flare/harness-registry";
 import { containerPreviewHost, toWorkspace } from "@t3flare/workspace-client";
 import * as NodeOS from "node:os";
 import type { Browser, BrowserContext, CDPSession, Download, Page } from "playwright-core";
@@ -121,7 +121,7 @@ export const translatePreviewUrl = (url: string): string => {
   if (previewPorts.includes(port))
     return `http://${containerPreviewHost(port)}${parsed.pathname}${parsed.search}${parsed.hash}`;
   const ports = previewPorts.join(", ");
-  const page = `<!doctype html><meta charset="utf-8"><title>Port ${port} has no preview</title><body style="font-family:system-ui,sans-serif;max-width:40rem;margin:4rem auto;line-height:1.5"><h1 style="font-size:1.25rem">Port ${port} has no preview</h1><p>The Cloud Environment previews a Workspace's dev server on ports ${ports} (the Environment setting Container preview ports). Start it on one of them, listening on 0.0.0.0, or add its port to the setting, then open it again.</p></body>`;
+  const page = `<!doctype html><meta charset="utf-8"><title>Port ${port} has no preview</title><body style="font-family:system-ui,sans-serif;max-width:40rem;margin:4rem auto;line-height:1.5"><h1 style="font-size:1.25rem">Port ${port} has no preview</h1><p>The Cloud Environment previews a Workspace's dev server on ports ${ports} (the Environment setting Container preview ports, under ${settingPlace({ environment: "previewPorts" })}). Start it on one of them, listening on 0.0.0.0, or add its port to the setting, then open it again.</p></body>`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(page)}`;
 };
 

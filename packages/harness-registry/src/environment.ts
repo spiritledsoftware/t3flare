@@ -872,12 +872,14 @@ export const ENVIRONMENT_SETTINGS = {
       values: CONTAINER_SIZE_NAMES,
       default: DEFAULT_CONTAINER_SIZE,
     },
+    disclosure: "visible",
   },
   customVcpu: {
     title: "Custom size: vCPU",
     description: `The custom size's vCPU, used when the Container size or the Builder size is custom: at least ${CUSTOM_SIZE_MINIMUMS.vcpu}, Cloudflare's least. Past your account's limits (${ACCOUNT_DEFAULT_LIMITS.vcpu} vCPU, ${ACCOUNT_DEFAULT_LIMITS.memoryMib / 1024} GiB and ${ACCOUNT_DEFAULT_LIMITS.diskMb / 1000} GB by default) Cloudflare refuses the start, and no Container starts until the size changes. Applies at each Workspace's next Container start.`,
     // At least Cloudflare's minimum (`CUSTOM_SIZE_MINIMUMS`); no maximum of t3flare's: the account's limit is Cloudflare's.
     schema: { type: "number", minimum: CUSTOM_SIZE_MINIMUMS.vcpu, default: CONTAINER_SIZES["cpu-1"].resources.vcpu },
+    disclosure: { contextual: { settings: ["containerSize", "builderSize"], equals: CUSTOM_SIZE } },
   },
   customMemoryMib: {
     title: "Custom size: memory (MiB)",
@@ -888,6 +890,7 @@ export const ENVIRONMENT_SETTINGS = {
       whole: true,
       default: CONTAINER_SIZES["cpu-1"].resources.memoryMib,
     },
+    disclosure: { contextual: { settings: ["containerSize", "builderSize"], equals: CUSTOM_SIZE } },
   },
   customDiskMb: {
     title: "Custom size: disk (MB)",
@@ -898,6 +901,7 @@ export const ENVIRONMENT_SETTINGS = {
       whole: true,
       default: CONTAINER_SIZES["cpu-1"].resources.diskMb,
     },
+    disclosure: { contextual: { settings: ["containerSize", "builderSize"], equals: CUSTOM_SIZE } },
   },
   containerIdleMinutes: {
     title: "Idle time (minutes)",
@@ -907,6 +911,7 @@ export const ENVIRONMENT_SETTINGS = {
     // (at most 6 hours) is never set, so the shared sanity maximum applies.
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: 2 },
     tier: "down-free",
+    disclosure: "visible",
   },
   terminalBusyHoldMinutes: {
     title: "Terminal hold while a command runs (minutes)",
@@ -916,6 +921,7 @@ export const ENVIRONMENT_SETTINGS = {
     // (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_TERMINAL_BUSY_HOLD_MINUTES },
     tier: "down-free",
+    disclosure: "advanced",
   },
   terminalPromptHoldMinutes: {
     title: "Terminal hold at the prompt (minutes)",
@@ -929,6 +935,7 @@ export const ENVIRONMENT_SETTINGS = {
       default: DEFAULT_TERMINAL_PROMPT_HOLD_MINUTES,
     },
     tier: "down-free",
+    disclosure: "advanced",
   },
   containerBudget: {
     title: "Container budget",
@@ -936,6 +943,7 @@ export const ENVIRONMENT_SETTINGS = {
       "How many Containers may run at once across the Environment. Applies at the next start; lowering it stops no running Container, and new starts wait until fewer run.",
     schema: { type: "integer", minimum: 1, maximum: MAX_CONTAINER_BUDGET, default: DEFAULT_CONTAINER_BUDGET },
     tier: "down-free",
+    disclosure: "visible",
   },
   terminalsPerWorkspace: {
     title: "Terminals per Workspace",
@@ -948,6 +956,7 @@ export const ENVIRONMENT_SETTINGS = {
       default: DEFAULT_TERMINALS_PER_WORKSPACE,
     },
     tier: "down-free",
+    disclosure: "advanced",
   },
   agentTerminalsPerWorkspace: {
     title: "Agents' Terminals per Workspace",
@@ -960,6 +969,7 @@ export const ENVIRONMENT_SETTINGS = {
       default: DEFAULT_TERMINALS_PER_WORKSPACE,
     },
     tier: "down-free",
+    disclosure: "advanced",
   },
   agentTerminalScrollbackLines: {
     title: "Agents' Terminal scrollback (lines)",
@@ -972,6 +982,7 @@ export const ENVIRONMENT_SETTINGS = {
       default: DEFAULT_AGENT_TERMINAL_SCROLLBACK_LINES,
     },
     tier: "down-free",
+    disclosure: "advanced",
   },
   cliProcessesPerWorkspace: {
     title: "CLI agents' processes per Workspace",
@@ -985,6 +996,7 @@ export const ENVIRONMENT_SETTINGS = {
       default: DEFAULT_CLI_PROCESSES_PER_WORKSPACE,
     },
     tier: "down-free",
+    disclosure: "advanced",
   },
   cliReclaimSeconds: {
     title: "CLI agent's idle time before it may end (seconds)",
@@ -993,6 +1005,7 @@ export const ENVIRONMENT_SETTINGS = {
     // A named constraint (`MAX_CLI_RECLAIM_SECONDS`): past the CLI idle hold, a longer delay changes nothing.
     schema: { type: "integer", minimum: 0, maximum: MAX_CLI_RECLAIM_SECONDS, default: DEFAULT_CLI_RECLAIM_SECONDS },
     tier: "free",
+    disclosure: "advanced",
   },
   turnLimitMinutes: {
     title: "Turn limit (minutes)",
@@ -1002,6 +1015,7 @@ export const ENVIRONMENT_SETTINGS = {
     // week is under the 24.8 days past which a JS timer overflows.
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_TURN_LIMIT_MINUTES },
     tier: "down-free",
+    disclosure: "visible",
   },
   ownerAnswerMinutes: {
     title: "Answer wait (minutes)",
@@ -1011,6 +1025,7 @@ export const ENVIRONMENT_SETTINGS = {
     // maximum applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_OWNER_ANSWER_MINUTES },
     tier: "down-free",
+    disclosure: "advanced",
   },
   settingsReadSeconds: {
     title: "Settings read wait (seconds)",
@@ -1020,17 +1035,20 @@ export const ENVIRONMENT_SETTINGS = {
     // (ADR-0048 §2), in seconds.
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: DEFAULT_SETTINGS_READ_SECONDS },
     tier: "free",
+    disclosure: "advanced",
   },
   variables: {
     title: "Variables",
     description: `NAME=value pairs every command in a Workspace starts with: agents' commands, Terminals and CLI agents. A Secret one's value is stored sealed and never shown again, but every agent and command in a Workspace can read it, as on stock t3. Anything t3flare, t3, mise's [env] or the command itself sets wins over them. Each NAME=value is at most ${MAX_ENV_STRING_BYTES / 1024} KiB and all of them together at most ${MAX_VARIABLES_BYTES / 1024 / 1024} MiB, Linux's limits on a command's environment with room left for the command itself. Applies at each Workspace's next Container start.`,
     schema: { type: "variables", default: [] },
+    disclosure: "visible",
   },
   globalMiseConfig: {
     title: "Global mise config",
     description:
       "A mise.toml every Container's commands get, under a repository's own and over the image's base tools. Laid down and installed at each Workspace's next Container start; a running Container keeps what it started with. Kept only if git and gh still run under it. Left empty, mise uses your dotfiles' ~/.config/mise/config.toml instead, if git and gh still run under that; the Dotfiles toggles don't change this. disable_tools and disable_backends are ignored. Agents can read this file: put no secret in it, [env] included.",
     schema: { type: "file", maxBytes: MAX_GLOBAL_MISE_BYTES, default: "" },
+    disclosure: "visible",
   },
   globalMiseInstallMinutes: {
     title: "Global mise install time limit (minutes)",
@@ -1041,12 +1059,14 @@ export const ENVIRONMENT_SETTINGS = {
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: 10 },
     tier: "down-free",
     row: "globalMiseConfig",
+    disclosure: { contextual: { filled: "globalMiseConfig" } },
   },
   containerSetup: {
     title: "Container setup",
     description:
       "A bash script run once in every new Container before its first command, after the Global mise config: as root in / with HOME=/root and the Variables. Commands, Terminals and CLI agents wait for it. Status shows its exit and the end of its output, secret Variables blanked. Applies at each Workspace's next Container start.",
     schema: { type: "file", maxBytes: MAX_SETUP_BYTES, default: "" },
+    disclosure: "visible",
   },
   containerSetupMinutes: {
     title: "Container setup time limit (minutes)",
@@ -1054,6 +1074,7 @@ export const ENVIRONMENT_SETTINGS = {
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: 5 },
     tier: "down-free",
     row: "containerSetup",
+    disclosure: { contextual: { filled: "containerSetup" } },
   },
   containerSetupFailure: {
     title: "When the Container setup fails",
@@ -1066,6 +1087,7 @@ export const ENVIRONMENT_SETTINGS = {
       labels: { carryOn: "Carry on", refuse: "Refuse commands" },
     },
     row: "containerSetup",
+    disclosure: { contextual: { filled: "containerSetup" } },
   },
   setupOutputKiB: {
     title: "Setup output kept (KiB)",
@@ -1073,6 +1095,7 @@ export const ENVIRONMENT_SETTINGS = {
     schema: { type: "integer", minimum: 4, maximum: MAX_SETUP_OUTPUT_KIB, default: 32 },
     tier: "down-free",
     row: "containerSetup",
+    disclosure: "advanced",
   },
   cloneMinutes: {
     title: "Clone time limit (minutes)",
@@ -1082,6 +1105,7 @@ export const ENVIRONMENT_SETTINGS = {
     // applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_CLONE_MINUTES },
     tier: "down-free",
+    disclosure: "advanced",
   },
   checkpointMinutes: {
     title: "Checkpoint time limit (minutes)",
@@ -1090,12 +1114,14 @@ export const ENVIRONMENT_SETTINGS = {
     // As the clone time limit: computerd's own timer, no maximum, the shared sanity maximum (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_CHECKPOINT_MINUTES },
     tier: "down-free",
+    disclosure: "advanced",
   },
   imageSetup: {
     title: "Image setup",
     description:
       "A bash script run once, as root with HOME=/root and every Variable (secret ones included), on the Workspace image after the Global mise config is laid down; its result is the Base snapshot. Once saved, a change builds a new one in the Builder, as a deploy and Rebuild do. Whatever it writes, a secret included, is in every Workspace's Container until the next Base build. Empty with no Global mise config, there is nothing to build.",
     schema: { type: "file", maxBytes: MAX_SETUP_BYTES, default: "" },
+    disclosure: "visible",
   },
   imageSetupMinutes: {
     title: "Image setup time limit (minutes)",
@@ -1104,6 +1130,7 @@ export const ENVIRONMENT_SETTINGS = {
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: 30 },
     tier: "down-free",
     row: "imageSetup",
+    disclosure: { contextual: { filled: "imageSetup" } },
   },
   snapshotMinutes: {
     title: "Snapshot time limit (minutes)",
@@ -1112,6 +1139,7 @@ export const ENVIRONMENT_SETTINGS = {
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: 5 },
     tier: "down-free",
     row: "imageSetup",
+    disclosure: "advanced",
   },
   builderSize: {
     title: "Builder size",
@@ -1124,6 +1152,7 @@ export const ENVIRONMENT_SETTINGS = {
       labels: { [BUILDER_SAME_SIZE]: "Same as Container size" },
     },
     row: "imageSetup",
+    disclosure: "advanced",
   },
   builderInBudget: {
     title: "Builder counts against the Container budget",
@@ -1131,12 +1160,14 @@ export const ENVIRONMENT_SETTINGS = {
       "On, the Builder waits for room under the Container budget before it starts, and holds one place while it runs. Off, it runs beside the budget's Containers.",
     schema: { type: "boolean", default: false },
     row: "imageSetup",
+    disclosure: "advanced",
   },
   rebuildEveryDays: {
     title: "Rebuild every (days)",
     description: `Builds the Base snapshot again this many days after the last good one, so the Image setup's downloads stay current. 0 is off. At most ${MAX_REBUILD_DAYS}: a Base snapshot expires 30 days after it was made or a Container last started from it, and this schedule counts from when it was made. It also comes early enough for a failed rebuild and its retry to finish before the snapshot expires, though, for that reason, never sooner than one build after the last: with very long time limits and retry, rebuilds then follow one another, and a failed one can outlast the snapshot.`,
     schema: { type: "integer", minimum: 0, maximum: MAX_REBUILD_DAYS, default: 0 },
     row: "imageSetup",
+    disclosure: "advanced",
   },
   baseRetryMinutes: {
     title: "Base build retry (minutes)",
@@ -1145,6 +1176,7 @@ export const ENVIRONMENT_SETTINGS = {
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_BASE_RETRY_MINUTES },
     tier: "up-free",
     row: "imageSetup",
+    disclosure: "advanced",
   },
   whileBuilding: {
     title: "While a Base build runs",
@@ -1157,6 +1189,7 @@ export const ENVIRONMENT_SETTINGS = {
       labels: { lastGood: "Last good Base snapshot", wait: "Wait for the build", image: "Workspace image" },
     },
     row: "imageSetup",
+    disclosure: { contextual: { filled: "imageSetup" } },
   },
   whileBuildingNewImage: {
     title: "With no last good Base snapshot on this Workspace image",
@@ -1169,6 +1202,7 @@ export const ENVIRONMENT_SETTINGS = {
       labels: { wait: "Wait for the build", image: "Workspace image" },
     },
     row: "imageSetup",
+    disclosure: "advanced",
   },
   terminalsReadBashrc: {
     title: "Terminals read ~/.bashrc",
@@ -1176,6 +1210,7 @@ export const ENVIRONMENT_SETTINGS = {
       "A Terminal's shell runs your ~/.bashrc, so your aliases, functions and prompt are there. Off, it starts with t3flare's shell setup alone. Applies at each Workspace's next Container start.",
     schema: { type: "boolean", default: true },
     tier: "down-free",
+    disclosure: "advanced",
   },
   agentsReadDotfiles: {
     title: "CLI agents read your dotfiles",
@@ -1183,6 +1218,7 @@ export const ENVIRONMENT_SETTINGS = {
       "Each CLI agent starts with a copy of your config for it (~/.claude and ~/.claude.json, ~/.codex, ~/.config/opencode, ~/.pi/agent, except its auth.json): your instructions, settings, hooks, skills and plugins. t3flare's model routing and managed settings still win, and Codex's shells get t3flare's environment (its inherit, exclude and include_only). An Environment skill wins over one of yours of the same name in Claude Code, OpenCode and pi; Codex shows both skills. Off, an agent starts with t3flare's config alone. Applies at each CLI agent's next start.",
     schema: { type: "boolean", default: true },
     tier: "down-free",
+    disclosure: "visible",
   },
   sweepPurges: {
     title: "Purge after the Grace",
@@ -1190,6 +1226,7 @@ export const ENVIRONMENT_SETTINGS = {
       "Whether the Sweep purges a Workspace nothing references, a Tombstone with a date, and a deleted thread's Session once the Grace has passed. Off, the Sweep still marks what is unreferenced and purges nothing. Turned on, nothing is purged until one Grace after. Applies at the next Sweep.",
     schema: { type: "boolean", default: true },
     tier: "down-free",
+    disclosure: "visible",
   },
   graceDays: {
     title: "Grace (days)",
@@ -1197,6 +1234,7 @@ export const ENVIRONMENT_SETTINGS = {
       "How many days the Sweep keeps a Workspace nothing references, a Tombstone with a date, and a deleted thread's Session before it purges them. A change moves the date of everything already waiting. Applies at the next Sweep.",
     schema: { type: "integer", minimum: 1, maximum: MAX_GRACE_DAYS, default: DEFAULT_GRACE_DAYS },
     tier: "up-free",
+    disclosure: "visible",
   },
   usageRetentionDays: {
     title: "Usage records kept (days)",
@@ -1204,6 +1242,7 @@ export const ENVIRONMENT_SETTINGS = {
       "How many days t3flare keeps its usage records: each model answer's tokens and cost, which t3's Usage page shows. Shortening this deletes the older records at the next prune; they cannot be restored. t3's Usage page shows at most 90 days, so records older than that are kept but shown nowhere until t3 widens its window. At most 3650 (ten years), which keeps them for good. Applies at the next prune (at most once an hour, as usage is recorded) and to usage recorded from then on.",
     schema: { type: "integer", minimum: 1, maximum: MAX_RETENTION_DAYS, default: DEFAULT_USAGE_RETENTION_DAYS },
     tier: "up-free",
+    disclosure: "advanced",
   },
   piSessionRetentionDays: {
     title: "Pi and Claude Code sessions kept (days)",
@@ -1211,6 +1250,7 @@ export const ENVIRONMENT_SETTINGS = {
       "How many days a Pi or Claude Code session no one has written to is kept. An older one is deleted at the next Pi start, or by Claude Code at its next start; t3 can no longer resume that thread's conversation. At most 3650 (ten years), which keeps them for good. Applies at each Pi or Claude Code start.",
     schema: { type: "integer", minimum: 1, maximum: MAX_RETENTION_DAYS, default: DEFAULT_PI_SESSION_RETENTION_DAYS },
     tier: "up-free",
+    disclosure: "advanced",
   },
   mcpCallSeconds: {
     title: "MCP call time limit (seconds)",
@@ -1219,6 +1259,7 @@ export const ENVIRONMENT_SETTINGS = {
     // sanity maximum applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: DEFAULT_MCP_CALL_SECONDS },
     tier: "down-free",
+    disclosure: "advanced",
   },
   outsideRequestSeconds: {
     title: "Outside request time limit (seconds)",
@@ -1232,30 +1273,35 @@ export const ENVIRONMENT_SETTINGS = {
       default: DEFAULT_OUTSIDE_REQUEST_SECONDS,
     },
     tier: "down-free",
+    disclosure: "advanced",
   },
   repoSkillsListed: {
     title: "Repo skills listed",
     description: `How many of a repository's skills (.pi/skills, .agents/skills, .claude/skills) are listed in a Pi Durable agent's prompt and offered in t3's composer, nearest first; the rest are counted as not listed. Each listed skill's name and description is in front of the model on every turn. At most ${MAX_REPO_SKILLS_LISTED}. Applies at each Workspace's next Container start.`,
     schema: { type: "integer", minimum: 0, maximum: MAX_REPO_SKILLS_LISTED, default: 100 },
     tier: "down-free",
+    disclosure: "advanced",
   },
   skillsDirectoryEntries: {
     title: "Entries read per skills directory",
     description: `How many files and folders t3flare lists in one skills directory looking for SKILL.md files; skills past them are not found. A larger listing takes more of the Workspace's memory. At most ${MAX_DIRECTORY_ENTRIES}.`,
     schema: { type: "integer", minimum: 1, maximum: MAX_DIRECTORY_ENTRIES, default: 5000 },
     tier: "down-free",
+    disclosure: "advanced",
   },
   skillsLinkEntries: {
     title: "Entries read through a skills link",
     description: `The same for a link in a skills directory to a folder elsewhere, which may lead anywhere. At most ${MAX_DIRECTORY_ENTRIES}.`,
     schema: { type: "integer", minimum: 1, maximum: MAX_DIRECTORY_ENTRIES, default: 200 },
     tier: "down-free",
+    disclosure: "advanced",
   },
   promptsDirectoryEntries: {
     title: "Entries read per Prompt templates directory",
     description: `How many files and folders t3flare lists in one Prompt templates directory (.pi/prompts, a CLI agent's commands); templates past them are not offered. At most ${MAX_DIRECTORY_ENTRIES}.`,
     schema: { type: "integer", minimum: 1, maximum: MAX_DIRECTORY_ENTRIES, default: 1000 },
     tier: "down-free",
+    disclosure: "advanced",
   },
   mcpResultKiB: {
     title: "MCP result size (KiB)",
@@ -1263,6 +1309,7 @@ export const ENVIRONMENT_SETTINGS = {
     // A provisional bound (`MAX_MCP_RESULT_KIB`): the Environment DO's isolate memory, by an estimate.
     schema: { type: "integer", minimum: 1, maximum: MAX_MCP_RESULT_KIB, default: DEFAULT_MCP_RESULT_KIB },
     tier: "down-free",
+    disclosure: "advanced",
   },
   mcpPausesPerCall: {
     title: "Answers to one call's pauses",
@@ -1270,6 +1317,7 @@ export const ENVIRONMENT_SETTINGS = {
     // A sanity bound (`MAX_MCP_PAUSES_PER_CALL`): nothing forces a count, but some count ends a server that pauses forever.
     schema: { type: "integer", minimum: 1, maximum: MAX_MCP_PAUSES_PER_CALL, default: DEFAULT_MCP_PAUSES_PER_CALL },
     tier: "down-free",
+    disclosure: "advanced",
   },
   mcpConnectSeconds: {
     title: "MCP server connect time limit (seconds)",
@@ -1277,6 +1325,7 @@ export const ENVIRONMENT_SETTINGS = {
     // The MCP engine times it with the SDK's own timer, no platform limit: the shared sanity maximum applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: DEFAULT_MCP_CONNECT_SECONDS },
     tier: "down-free",
+    disclosure: "advanced",
   },
   mcpListSeconds: {
     title: "MCP server listing time limit (seconds)",
@@ -1284,6 +1333,7 @@ export const ENVIRONMENT_SETTINGS = {
     // The MCP engine times it with its own timer, no platform limit: the shared sanity maximum applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: DEFAULT_MCP_LIST_SECONDS },
     tier: "down-free",
+    disclosure: "advanced",
   },
   mcpLogEntries: {
     title: "MCP server logs kept per call",
@@ -1291,6 +1341,7 @@ export const ENVIRONMENT_SETTINGS = {
     // A sanity bound (`MAX_MCP_LOG_ENTRIES`), sized against the MCP Worker's isolate memory.
     schema: { type: "integer", minimum: 1, maximum: MAX_MCP_LOG_ENTRIES, default: DEFAULT_MCP_LOG_ENTRIES },
     tier: "down-free",
+    disclosure: "advanced",
   },
   mcpProgressPerSecond: {
     title: "MCP progress notices per second",
@@ -1303,6 +1354,7 @@ export const ENVIRONMENT_SETTINGS = {
       default: DEFAULT_MCP_PROGRESS_PER_SECOND,
     },
     tier: "down-free",
+    disclosure: "advanced",
   },
   mcpLegacyRecheckHours: {
     title: "MCP Legacy server recheck (hours)",
@@ -1315,6 +1367,7 @@ export const ENVIRONMENT_SETTINGS = {
       default: DEFAULT_MCP_LEGACY_RECHECK_HOURS,
     },
     tier: "free",
+    disclosure: "advanced",
   },
   cliMcpStartSeconds: {
     title: "CLI agent's MCP start wait (seconds)",
@@ -1322,6 +1375,7 @@ export const ENVIRONMENT_SETTINGS = {
     // Codex times it itself (`startup_timeout_sec`), no platform limit: the shared sanity maximum applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: DEFAULT_CLI_MCP_START_SECONDS },
     tier: "free",
+    disclosure: "advanced",
   },
   mcpSignInMinutes: {
     title: "MCP server sign-in time (minutes)",
@@ -1329,6 +1383,7 @@ export const ENVIRONMENT_SETTINGS = {
     // t3flare's own expiry, no platform limit: the shared sanity maximum applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_MCP_SIGN_IN_MINUTES },
     tier: "down-free",
+    disclosure: "advanced",
   },
   githubRetrySeconds: {
     title: "Wait before asking GitHub again (seconds)",
@@ -1336,6 +1391,7 @@ export const ENVIRONMENT_SETTINGS = {
     // t3flare's own wait, no platform limit: the shared sanity maximum applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: DEFAULT_GITHUB_RETRY_SECONDS },
     tier: "up-free",
+    disclosure: "advanced",
   },
   textGenerationSeconds: {
     title: "Text generation time limit (seconds)",
@@ -1344,6 +1400,7 @@ export const ENVIRONMENT_SETTINGS = {
     // it, no platform limit on a service binding's call: the shared sanity maximum applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: DEFAULT_TEXT_GENERATION_SECONDS },
     tier: "down-free",
+    disclosure: "advanced",
   },
   idleAfterSeconds: {
     title: "Environment sleeps after (seconds)",
@@ -1352,6 +1409,7 @@ export const ENVIRONMENT_SETTINGS = {
     // (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: DEFAULT_IDLE_AFTER_SECONDS },
     tier: "down-free",
+    disclosure: "visible",
   },
   prWatchWakeMinutes: {
     title: "Pull request check while asleep (minutes)",
@@ -1359,6 +1417,7 @@ export const ENVIRONMENT_SETTINGS = {
     // t3flare's own alarm, no platform limit: the shared sanity maximum applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_PR_WATCH_WAKE_MINUTES },
     tier: "up-free",
+    disclosure: "advanced",
   },
   remoteRetryMinutes: {
     title: "Longest Remote task retry (minutes)",
@@ -1366,6 +1425,7 @@ export const ENVIRONMENT_SETTINGS = {
     // t3flare's own alarm, no platform limit: the shared sanity maximum applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_REMOTE_RETRY_MINUTES },
     tier: "up-free",
+    disclosure: "advanced",
   },
   safeModeAfterFailures: {
     title: "Failed starts before safe mode",
@@ -1378,6 +1438,7 @@ export const ENVIRONMENT_SETTINGS = {
       default: DEFAULT_SAFE_MODE_AFTER_FAILURES,
     },
     tier: "down-free",
+    disclosure: "advanced",
   },
   browserProfileSaveSeconds: {
     title: "Browser profile save (seconds)",
@@ -1390,6 +1451,7 @@ export const ENVIRONMENT_SETTINGS = {
       default: DEFAULT_BROWSER_PROFILE_SAVE_SECONDS,
     },
     tier: "up-free",
+    disclosure: "advanced",
   },
   htmlBrowserKeepAliveSeconds: {
     title: "Keep the HTML render browser (seconds)",
@@ -1402,6 +1464,7 @@ export const ENVIRONMENT_SETTINGS = {
       default: DEFAULT_HTML_BROWSER_KEEP_ALIVE_SECONDS,
     },
     tier: "down-free",
+    disclosure: "advanced",
   },
   pageTokenHours: {
     title: "Settings page token lifetime (hours)",
@@ -1409,6 +1472,7 @@ export const ENVIRONMENT_SETTINGS = {
     // Not timed by a timer (an HMAC of the hour), but a security window: the shared sanity maximum applies (ADR-0048).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES / 60, default: DEFAULT_PAGE_TOKEN_HOURS },
     tier: "down-free",
+    disclosure: "advanced",
   },
   clientsPerKey: {
     title: "Owner clients kept per key",
@@ -1416,6 +1480,7 @@ export const ENVIRONMENT_SETTINGS = {
     // A sanity bound (`MAX_CLIENTS_PER_KEY`): each is a small SQLite row; some count bounds a client that invents names.
     schema: { type: "integer", minimum: 1, maximum: MAX_CLIENTS_PER_KEY, default: DEFAULT_CLIENTS_PER_KEY },
     tier: "up-free",
+    disclosure: "advanced",
   },
   connectPublishLogKept: {
     title: "T3 Connect publishes kept",
@@ -1428,6 +1493,7 @@ export const ENVIRONMENT_SETTINGS = {
       default: DEFAULT_CONNECT_PUBLISH_LOG_KEPT,
     },
     tier: "up-free",
+    disclosure: "advanced",
   },
   durableRetries: {
     title: "Durable agent retries",
@@ -1435,6 +1501,7 @@ export const ENVIRONMENT_SETTINGS = {
     // Counted by pi-durable's generation retry (its `settings.retry`), no platform limit: a sanity maximum.
     schema: { type: "integer", minimum: 0, maximum: MAX_MODEL_RETRIES, default: DEFAULT_DURABLE_RETRIES },
     tier: "down-free",
+    disclosure: "advanced",
   },
   cliRetries: {
     title: "CLI agent retries",
@@ -1443,6 +1510,7 @@ export const ENVIRONMENT_SETTINGS = {
     // retry.maxRetries), no platform limit: a sanity maximum.
     schema: { type: "integer", minimum: 0, maximum: MAX_MODEL_RETRIES, default: DEFAULT_CLI_RETRIES },
     tier: "down-free",
+    disclosure: "advanced",
   },
   killAttempts: {
     title: "Kill tries after a stop (Durable agents)",
@@ -1450,6 +1518,7 @@ export const ENVIRONMENT_SETTINGS = {
     // At least 1: a stopped command's first kill always runs (RunningExecs.stopped), so 0 would act as 1.
     schema: { type: "integer", minimum: 1, maximum: MAX_KILL_ATTEMPTS, default: DEFAULT_KILL_ATTEMPTS },
     tier: "down-free",
+    disclosure: "advanced",
   },
   traceKiB: {
     title: "t3's trace file size (KiB)",
@@ -1457,6 +1526,7 @@ export const ENVIRONMENT_SETTINGS = {
     // A named constraint (MAX_TRACE_KIB): one State directory row, for the isolate's memory at each flush.
     schema: { type: "integer", minimum: 1, maximum: MAX_TRACE_KIB, default: DEFAULT_TRACE_KIB },
     tier: "down-free",
+    disclosure: "advanced",
   },
   traceFiles: {
     title: "t3's older trace files kept",
@@ -1464,6 +1534,7 @@ export const ENVIRONMENT_SETTINGS = {
     // t3 refuses fewer than 1 (makeAsyncRotatingFileSink); the maximum is a sanity bound (MAX_TRACE_FILES).
     schema: { type: "integer", minimum: 1, maximum: MAX_TRACE_FILES, default: DEFAULT_TRACE_FILES },
     tier: "up-free",
+    disclosure: "advanced",
   },
   tempFilesHours: {
     title: "Temp files kept (hours)",
@@ -1475,6 +1546,7 @@ export const ENVIRONMENT_SETTINGS = {
       default: DEFAULT_TEMP_FILES_HOURS,
     },
     tier: "up-free",
+    disclosure: "advanced",
   },
   gitReadsKept: {
     title: "Git answers kept per Workspace",
@@ -1482,6 +1554,7 @@ export const ENVIRONMENT_SETTINGS = {
     // A sanity bound (`MAX_GIT_READS_KEPT`): the Workspace DO's storage is the real one.
     schema: { type: "integer", minimum: 1, maximum: MAX_GIT_READS_KEPT, default: DEFAULT_GIT_READS_KEPT },
     tier: "down-free",
+    disclosure: "advanced",
   },
   routerTraceEntries: {
     title: "Command trace entries",
@@ -1489,6 +1562,7 @@ export const ENVIRONMENT_SETTINGS = {
     // A sanity bound (`MAX_ROUTER_TRACE_ENTRIES`): the Environment DO's memory.
     schema: { type: "integer", minimum: 1, maximum: MAX_ROUTER_TRACE_ENTRIES, default: DEFAULT_ROUTER_TRACE_ENTRIES },
     tier: "down-free",
+    disclosure: "advanced",
   },
   commandMinutes: {
     title: "Command time limit (minutes)",
@@ -1497,6 +1571,7 @@ export const ENVIRONMENT_SETTINGS = {
     // (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_COMMAND_MINUTES },
     tier: "down-free",
+    disclosure: "advanced",
   },
   containerConnectSeconds: {
     title: "Container start wait (seconds)",
@@ -1510,6 +1585,7 @@ export const ENVIRONMENT_SETTINGS = {
       default: DEFAULT_CONTAINER_CONNECT_SECONDS,
     },
     tier: "down-free",
+    disclosure: "advanced",
   },
   reclaimProtectionSeconds: {
     title: "Reclaim protection after a command (seconds)",
@@ -1522,6 +1598,7 @@ export const ENVIRONMENT_SETTINGS = {
       default: DEFAULT_RECLAIM_PROTECTION_SECONDS,
     },
     tier: "free",
+    disclosure: "advanced",
   },
   skillsWaitSeconds: {
     title: "Environment skills wait (seconds)",
@@ -1530,6 +1607,7 @@ export const ENVIRONMENT_SETTINGS = {
     // (apps/agents/src/workspace/skillSetTake.ts). The shared sanity maximum applies (ADR-0048 §2), in seconds.
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: DEFAULT_SKILLS_WAIT_SECONDS },
     tier: "free",
+    disclosure: "advanced",
   },
   abortGraceSeconds: {
     title: "Stopped command's grace (seconds)",
@@ -1537,6 +1615,7 @@ export const ENVIRONMENT_SETTINGS = {
     // A sanity bound (`MAX_STOP_GRACE_SECONDS`).
     schema: { type: "integer", minimum: 0, maximum: MAX_STOP_GRACE_SECONDS, default: DEFAULT_ABORT_GRACE_SECONDS },
     tier: "free",
+    disclosure: "advanced",
   },
   portStopGraceSeconds: {
     title: "Stopped port's grace (seconds)",
@@ -1544,6 +1623,7 @@ export const ENVIRONMENT_SETTINGS = {
     // A sanity bound (`MAX_STOP_GRACE_SECONDS`).
     schema: { type: "integer", minimum: 0, maximum: MAX_STOP_GRACE_SECONDS, default: DEFAULT_PORT_STOP_GRACE_SECONDS },
     tier: "free",
+    disclosure: "advanced",
   },
   firstPromptSeconds: {
     title: "Wait for a new Terminal's prompt (seconds)",
@@ -1551,6 +1631,7 @@ export const ENVIRONMENT_SETTINGS = {
     // t3flare's own check against the clock (terminalHost.ts), so the shared sanity maximum applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: DEFAULT_FIRST_PROMPT_SECONDS },
     tier: "free",
+    disclosure: "advanced",
   },
   terminalHistoryKiB: {
     title: "Terminal history (KiB)",
@@ -1563,6 +1644,7 @@ export const ENVIRONMENT_SETTINGS = {
       default: DEFAULT_TERMINAL_HISTORY_KIB,
     },
     tier: "down-free",
+    disclosure: "advanced",
   },
   exitedTerminalsKept: {
     title: "Exited Terminals kept",
@@ -1575,6 +1657,7 @@ export const ENVIRONMENT_SETTINGS = {
       default: DEFAULT_EXITED_TERMINALS_KEPT,
     },
     tier: "down-free",
+    disclosure: "advanced",
   },
   previewPorts: {
     title: "Container preview ports",
@@ -1587,6 +1670,7 @@ export const ENVIRONMENT_SETTINGS = {
       reserved: RESERVED_CONTAINER_PORTS,
       default: DEFAULT_PREVIEW_PORTS,
     },
+    disclosure: "advanced",
   },
   portProbeMs: {
     title: "Port check wait (ms)",
@@ -1594,6 +1678,7 @@ export const ENVIRONMENT_SETTINGS = {
     // AbortSignal.timeout, a JS timer: the shared sanity maximum applies (ADR-0048 §2), in ms.
     schema: { type: "integer", minimum: 100, maximum: MAX_TIMED_MINUTES * 60_000, default: DEFAULT_PORT_PROBE_MS },
     tier: "free",
+    disclosure: "advanced",
   },
 } as const satisfies Readonly<Record<string, EnvironmentSettingEntry>>;
 

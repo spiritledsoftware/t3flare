@@ -331,7 +331,9 @@ describe("the Guardian's hook", () => {
       fauxAssistantMessage("ok"),
     ]);
     expect(ran).toEqual([]);
-    expect(text(results[0])).toContain("The Guardian could not review this call (Guardian Review timed out after 1s)");
+    expect(text(results[0])).toContain(
+      "The Guardian could not review this call (Guardian Review stopped at its 1-second time limit; change it under Extensions › Guardian › Advanced › Review time limit (seconds))",
+    );
   });
 
   it("reviews a script's nested call with the script as its issuing call", async () => {

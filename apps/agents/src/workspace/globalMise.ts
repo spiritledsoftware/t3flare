@@ -203,6 +203,7 @@ const layDown = async (
     outcome,
     install: answer?.install ?? null,
     timedOut: answer?.timedOut ?? outcome === "deadline",
+    limitMinutes: minutes,
     ...(answer?.dotfiles === true ? { dotfiles: true } : {}),
     ms: Math.max(0, at - started),
     at,

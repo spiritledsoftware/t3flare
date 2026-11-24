@@ -15,7 +15,12 @@
 //   snapshot (missing or expired) is seen within a second, not at the end of computer's 60 s connect deadline (one budget its attempts share), and the start goes again
 //   from the Workspace image, once.
 import type { BackendHandle, WorkspaceBackend } from "@cloudflare/computer";
-import { type BaseBuildRecord, type BaseSnapshot, type ResolvedEnvironment } from "@t3flare/harness-registry";
+import {
+  type BaseBuildRecord,
+  type BaseSnapshot,
+  type ResolvedEnvironment,
+  settingPlace,
+} from "@t3flare/harness-registry";
 
 import { readWithin } from "../readWithin.ts";
 
@@ -175,7 +180,10 @@ export const waitForBase = async (deps: {
     if (pick.kind !== "wait") return pick;
     const left = until - deps.now();
     if (left <= 0)
-      return image(`the Base build did not end within its time limits (${Math.round(deps.limitMs / 60_000)} min)`);
+      return image(
+        // ADR-0049 §4: the wait is the Image setup's and twice the Snapshot's time limits; it names both settings.
+        `the Base build did not end within its time limits (${Math.round(deps.limitMs / 60_000)} min: the Image setup time limit, under ${settingPlace({ environment: "imageSetupMinutes" })}, and twice the Snapshot time limit, under ${settingPlace({ environment: "snapshotMinutes" })})`,
+      );
     await deps.sleep(Math.min(deps.pollMs, left));
   }
 };

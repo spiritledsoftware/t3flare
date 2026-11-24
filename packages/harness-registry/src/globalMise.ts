@@ -2,6 +2,7 @@
 // The Global mise config's lay-down as the Workspace DO reports it and the panel's Status shows it (SPI-1150,
 // ADR-0032's Global mise config refinement): one answer per Container start, sent to the Environment DO, which keeps the last across all Workspaces.
 // Imported by both Workers.
+import { changeItUnder, limitValue } from "./index.ts";
 
 /** A text's size and SHA-256: what the audit, the logs and `containerState()` show of a `file` setting, never the text. */
 export interface TextDigest {
@@ -46,6 +47,8 @@ export interface GlobalMiseReport {
   readonly install: number | null;
   /** The install or a check was cut off by its timeout (exit 124, or 137 after the KILL). */
   readonly timedOut: boolean;
+  /** The install's time limit (`globalMiseInstallMinutes`), so Status names it. Absent: a report from before SPI-1385. */
+  readonly limitMinutes?: number;
   /** With no text, the file was the dotfiles' own mise config (ADR-0047 §10). Absent: the text's, or none. */
   readonly dotfiles?: boolean;
   readonly ms: number;
@@ -69,6 +72,7 @@ export const globalMiseReport = (value: unknown): GlobalMiseReport | undefined =
     (GLOBAL_MISE_OUTCOMES as ReadonlyArray<unknown>).includes(report.outcome) &&
     (report.install === null || (typeof report.install === "number" && Number.isInteger(report.install))) &&
     typeof report.timedOut === "boolean" &&
+    (report.limitMinutes === undefined || count(report.limitMinutes)) &&
     (report.dotfiles === undefined || typeof report.dotfiles === "boolean") &&
     count(report.ms) &&
     count(report.at);
@@ -83,6 +87,7 @@ export const globalMiseReport = (value: unknown): GlobalMiseReport | undefined =
     outcome: report.outcome as GlobalMiseOutcome,
     install: report.install as number | null,
     timedOut: report.timedOut as boolean,
+    ...(report.limitMinutes === undefined ? {} : { limitMinutes: report.limitMinutes as number }),
     ...(report.dotfiles === undefined ? {} : { dotfiles: report.dotfiles as boolean }),
     ms: report.ms as number,
     at: report.at as number,
@@ -95,8 +100,9 @@ export const describeGlobalMise = (report: GlobalMiseReport): string => {
   const noText =
     report.outcome === "none" || (report.outcome === "not-laid" && report.install === null && !report.timedOut);
   let what: string;
+  // ADR-0049 §4: a timed-out install names its limit and, a contextual setting, where to change it.
   const why = report.timedOut
-    ? "timed out"
+    ? `stopped at its ${report.limitMinutes === undefined ? "" : `${limitValue(report.limitMinutes, "minute")} `}time limit${changeItUnder({ environment: "globalMiseInstallMinutes" })}`
     : report.install === 0
       ? "git or gh did not run under it"
       : `mise install exit ${report.install}`;

@@ -30,6 +30,7 @@ import {
   advisorPrompt,
   advisorSettings,
   parseFindings,
+  reviewTimeoutText,
   validFinding,
 } from "../src/extensions/advisor.ts";
 import { capText, toolCallRef } from "../src/extensions/advisor/evidence.ts";
@@ -228,6 +229,12 @@ describe("the Advisor", () => {
     expect(paused.map((entry) => (entry.data as { severity: string }).severity)).toEqual(["paused"]);
     expect(paused[0]?.model).toBeUndefined();
     expect(model(entries.at(-1)!)).toContain("Listed.");
+  });
+
+  it("names its Review time limit, and where to change it, when a Review runs past it (SPI-1385)", () => {
+    expect(reviewTimeoutText(120_000)).toBe(
+      "the Review did not finish within its 120-second time limit; change it under Extensions › Advisor › Advanced › Review time limit (seconds)",
+    );
   });
 
   it("delivers at most maxFindings per Review, and its prompts ask for at most that many (SPI-1320)", async () => {

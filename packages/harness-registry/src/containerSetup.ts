@@ -4,6 +4,7 @@
 // reads the same. Imported by both Workers.
 import { CONTAINER_SETUP_FAILURES, type ContainerSetupFailure, MAX_SETUP_OUTPUT_KIB } from "./environment.ts";
 import { SETTINGS_SOURCES, type SettingsSource } from "./globalMise.ts";
+import { limitValue, whereToChange } from "./index.ts";
 
 /** The most output a report may carry, in bytes of UTF-8: `setupOutputKiB`'s bound. A report keeps its launch's setting. */
 export const MAX_SETUP_OUTPUT_BYTES = MAX_SETUP_OUTPUT_KIB * 1024;
@@ -34,6 +35,8 @@ export interface ContainerSetupReport {
   readonly exitCode: number | null;
   /** Its time limit stopped it (exit 124, or 137 after the KILL). */
   readonly timedOut: boolean;
+  /** The time limit it ran under (`containerSetupMinutes`), so Status names it. Absent: a report from before SPI-1385. */
+  readonly limitMinutes?: number;
   /** The last `setupOutputKiB` of its stdout and stderr, every secret Variable's value blanked. */
   readonly output: string;
   /** What a failure did to that Container: the policy its launch carried. */
@@ -61,6 +64,7 @@ export const containerSetupReport = (value: unknown): ContainerSetupReport | und
     (CONTAINER_SETUP_OUTCOMES as ReadonlyArray<unknown>).includes(report.outcome) &&
     (report.exitCode === null || (typeof report.exitCode === "number" && Number.isInteger(report.exitCode))) &&
     typeof report.timedOut === "boolean" &&
+    (report.limitMinutes === undefined || count(report.limitMinutes)) &&
     typeof report.output === "string" &&
     utf8.encode(report.output).length <= MAX_SETUP_OUTPUT_BYTES &&
     (CONTAINER_SETUP_FAILURES as ReadonlyArray<unknown>).includes(report.failure) &&
@@ -77,6 +81,7 @@ export const containerSetupReport = (value: unknown): ContainerSetupReport | und
     outcome: report.outcome as ContainerSetupOutcome,
     exitCode: report.exitCode as number | null,
     timedOut: report.timedOut as boolean,
+    ...(report.limitMinutes === undefined ? {} : { limitMinutes: report.limitMinutes as number }),
     output: report.output as string,
     failure: report.failure as ContainerSetupFailure,
     ms: report.ms as number,
@@ -93,7 +98,9 @@ export const describeContainerSetup = (report: ContainerSetupReport): string => 
   if (report.outcome === "none") what = "no Container setup";
   else if (report.outcome === "exec-failed") what = "not run (the Container's exec failed; tried again)";
   else if (report.outcome === "deadline") what = "failed, no answer within the deadline";
-  else if (report.timedOut) what = `failed, stopped at its time limit after ${seconds(report.ms)} s`;
+  else if (report.timedOut)
+    // ADR-0049 §4: the limit names its value and, a contextual setting, where to change it.
+    what = `failed, stopped at its ${report.limitMinutes === undefined ? "" : `${limitValue(report.limitMinutes, "minute")} `}time limit after ${seconds(report.ms)} s${whereToChange({ environment: "containerSetupMinutes" })}`;
   else
     what = `${report.outcome === "ok" ? "ran" : "failed"}, exit ${String(report.exitCode)} after ${seconds(report.ms)} s`;
   const refused = report.failure === "refuse" && report.outcome !== "ok" && report.outcome !== "none";

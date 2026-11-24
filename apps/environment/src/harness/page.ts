@@ -37,7 +37,6 @@ import {
   type BaseBuildRecord,
   describeBaseBuild,
   describeTestBaseBuild,
-  type EnvironmentKey,
   type EnvironmentSettingEntry,
   type ExtensionEntry,
   EXTENSIONS,
@@ -65,6 +64,7 @@ import {
   RETRY_SETTING_KEYS,
   TRACE_SETTING_KEYS,
   SWEEP_SETTING_KEYS,
+  conditionHolds,
   visible,
 } from "@t3flare/harness-registry";
 
@@ -228,6 +228,31 @@ const lockedSettings = (entry: ExtensionEntry, current: ResolvedHarness["extensi
   return fields.length === 0 ? "" : `<div class="row-extra"><div class="fields">${fields.join("")}</div></div>`;
 };
 
+/**
+ * An extension's settings by disclosure (ADR-0049 §6): those the row shows (visible ones, and contextual ones while
+ * their condition holds: a switch or an Exposure saves at once and the page reloads, so the server draws them), and its
+ * Advanced ones. A contextual one not shown is not in the form, so a save leaves its stored value as it is.
+ */
+const extensionFields = (
+  entry: ExtensionEntry,
+  current: ResolvedHarness["extensions"][string] | undefined,
+  state: { readonly enabled: boolean; readonly toolOn: (tool: string) => boolean },
+): { readonly shown: ReadonlyArray<string>; readonly advanced: ReadonlyArray<string> } => {
+  const shown: Array<string> = [];
+  const advanced: Array<string> = [];
+  for (const [key, setting] of Object.entries(entry.settings)) {
+    const drawn = () => field(entry.id, key, setting, current?.settings[key]);
+    if (setting.disclosure === "advanced") advanced.push(drawn());
+    else if (setting.disclosure === "visible" || conditionHolds(setting.disclosure.contextual, {}, state))
+      shown.push(drawn());
+  }
+  return { shown, advanced };
+};
+
+/** An extension row's Advanced settings, collapsed. */
+const advancedFields = (entry: ExtensionEntry, fields: ReadonlyArray<string>): string =>
+  advancedSettings(`ext-${entry.id}`, fields.length, `<div class="fields">${fields.join("")}</div>`);
+
 const extensionRow = (resolved: ResolvedHarness, entry: ExtensionEntry): string => {
   const current = resolved.extensions[entry.id];
   const titleId = escapeHtml(`ext-${entry.id}-title`);
@@ -241,13 +266,14 @@ const extensionRow = (resolved: ResolvedHarness, entry: ExtensionEntry): string 
     entry.default === "always"
       ? `<span class="state">${icon("check")}Always on</span>`
       : `<input type="checkbox" class="switch" role="switch" data-enabled aria-labelledby="${titleId}"${current?.enabled === true ? " checked" : ""}>`;
-  const settings = Object.entries(entry.settings).map(([key, setting]) =>
-    field(entry.id, key, setting, current?.settings[key]),
-  );
+  const { shown, advanced } = extensionFields(entry, current, {
+    enabled: current?.enabled === true,
+    toolOn: () => false,
+  });
   const extra =
-    settings.length === 0
+    shown.length + advanced.length === 0
       ? ""
-      : `<div class="row-extra"><div class="fields">${settings.join("")}</div><div class="save"><span class="save-note" data-save-note aria-live="polite"></span><button type="submit" class="btn btn-sm" data-save disabled>Save</button></div></div>`;
+      : `<div class="row-extra">${shown.length === 0 ? "" : `<div class="fields">${shown.join("")}</div>`}${advancedFields(entry, advanced)}<div class="save"><span class="save-note" data-save-note aria-live="polite"></span><button type="submit" class="btn btn-sm" data-save disabled>Save</button></div></div>`;
   return `<form class="row" data-extension="${escapeHtml(entry.id)}" aria-labelledby="${titleId}" novalidate>${head}<div class="row-control">${control}</div>${extra}</form>`;
 };
 
@@ -325,13 +351,14 @@ const toolsRow = (resolved: ResolvedHarness, tools: ResolvedTools, entry: Extens
   const rows = (entry.tools ?? [])
     .map((name) => toolRow(name, tools.tools[name] ?? "hidden", builtinTool(name)?.exposures ?? [], tools))
     .join("");
-  const settings = Object.entries(entry.settings).map(([key, setting]) =>
-    field(entry.id, key, setting, current?.settings[key]),
-  );
+  const { shown, advanced } = extensionFields(entry, current, {
+    enabled: on,
+    toolOn: (tool) => (tools.tools[tool] ?? "hidden") !== "hidden",
+  });
   const save =
-    settings.length === 0
+    shown.length + advanced.length === 0
       ? ""
-      : `${on ? "" : `<p class="desc">Every tool is hidden, so the extension is not installed and these settings do nothing until a tool is offered.</p>`}<div class="fields">${settings.join("")}</div><div class="save"><span class="save-note" data-save-note aria-live="polite"></span><button type="submit" class="btn btn-sm" data-save disabled>Save</button></div>`;
+      : `${on ? "" : `<p class="desc">Every tool is hidden, so the extension is not installed and these settings do nothing until a tool is offered.</p>`}${shown.length === 0 ? "" : `<div class="fields">${shown.join("")}</div>`}${advancedFields(entry, advanced)}<div class="save"><span class="save-note" data-save-note aria-live="polite"></span><button type="submit" class="btn btn-sm" data-save disabled>Save</button></div>`;
   return `<form class="row" data-extension="${escapeHtml(entry.id)}" aria-labelledby="${titleId}" novalidate><div><div class="row-title"><h3 id="${titleId}">${escapeHtml(entry.title)}</h3><span class="ident">${escapeHtml(entry.id)}</span></div>
 <p class="desc">${escapeHtml(entry.description)}</p></div><div class="row-control">${on ? `<span class="pill pill-ok">On</span>` : `<span class="pill" title="Every tool hidden">Off</span>`}</div>
 <div class="row-extra"><div class="table-wrap tools-wide"><table class="stacked tools-table"><thead><tr><th scope="col">Tool</th><th scope="col">Exposure</th></tr></thead><tbody>${rows}</tbody></table></div>${save}</div></form>`;
@@ -420,8 +447,57 @@ const dollars = (amount: number, digits: number) => `$${amount.toFixed(digits)}`
 
 const gib = (mib: number) => `${Number((mib / 1024).toFixed(2))} GiB`;
 
-/** The settings of a custom size's resources (SPI-1365), shown only while a size is custom. */
+/** The settings of a custom size's resources (SPI-1365): the script prices the custom row from them as they are typed. */
 const CUSTOM_RESOURCE_KEYS: ReadonlyArray<string> = ["customVcpu", "customMemoryMib", "customDiskMb"];
+
+/** A row of the Environment form: its settings in order, under its title and description (trusted HTML). */
+interface EnvironmentRow {
+  readonly id: string;
+  readonly title: string;
+  readonly ident?: string;
+  readonly desc: string;
+  readonly keys: ReadonlyArray<string>;
+}
+
+/**
+ * An Environment setting's field. A contextual one (ADR-0049 §6) carries its condition for the script, which shows it
+ * while the condition holds as the inputs change; while it does not, the field is hidden and disabled, so a save never
+ * sends it and its stored value stays.
+ */
+const contextualField = (
+  key: string,
+  setting: EnvironmentSettingEntry,
+  values: Readonly<Record<string, unknown>>,
+  note?: FieldNote,
+): string => {
+  const disclosure = setting.disclosure;
+  const resource = CUSTOM_RESOURCE_KEYS.includes(key) ? " data-custom-resource" : "";
+  if (typeof disclosure === "string") {
+    const drawn = field("environment", key, setting, values[key], false, note);
+    return resource === "" ? drawn : drawn.replace('<div class="field">', `<div class="field"${resource}>`);
+  }
+  const condition = disclosure.contextual;
+  const holds = conditionHolds(condition, values);
+  const when =
+    "equals" in condition
+      ? ` data-shown-when="${escapeHtml(condition.settings.join(" "))}" data-shown-equals="${escapeHtml(condition.equals)}"`
+      : "filled" in condition
+        ? ` data-shown-when="${escapeHtml(condition.filled)}" data-shown-filled`
+        : "";
+  return field("environment", key, setting, values[key], !holds, note).replace(
+    /^<(div|fieldset) class="field"/,
+    (_, tag: string) => `<${tag} class="field"${resource}${when}${holds ? "" : " hidden"}`,
+  );
+};
+
+/**
+ * A section's Advanced settings (ADR-0049 §6), collapsed: `count` settings in `body`. The script opens it when a field
+ * inside it is invalid at a save, so the browser can show where.
+ */
+const advancedSettings = (id: string, count: number, body: string): string =>
+  count === 0
+    ? ""
+    : `<details class="advanced" data-advanced id="${escapeHtml(id)}-advanced"><summary>${icon("chevron")}Advanced <span>· ${plural(count, "setting", "settings")}</span></summary><div class="advanced-body">${body}</div></details>`;
 
 const containers = (count: number) => `${count} ${count === 1 ? "Container" : "Containers"}`;
 
@@ -496,126 +572,154 @@ const environmentSection = (
   // The budget states its consequence once, under its own description, where the script rewrites it as the input changes.
   const noteFor = (key: string): FieldNote | undefined =>
     key === "containerBudget" ? { text: budgetNote(environment.containerBudget), data: "budget-note" } : undefined;
-  // A custom size's resources show, and are sent, only while the Container size or the Builder size is custom (the
-  // script follows the selects); otherwise they are hidden and disabled, so an unused one never blocks a save.
-  const customInUse = environment.containerSize === CUSTOM_SIZE || environment.builderSize === CUSTOM_SIZE;
-  const fields = entries
+  // Disclosure (ADR-0049 §6): a visible setting in its row, a contextual one in its row while its condition holds (the
+  // script follows the inputs it names; while it does not hold, the field is hidden and disabled, so it is never sent and
+  // its stored value stays), an Advanced one in the same row under the section's Advanced.
+  const entryOf: Readonly<Record<string, EnvironmentSettingEntry>> = Object.fromEntries(entries);
+  const advanced = (key: string) => entryOf[key]!.disclosure === "advanced";
+  const draw = (key: string) => contextualField(key, entryOf[key]!, values, noteFor(key));
+  const containers = entries
     .filter(([key, setting]) => !ownRow(setting) && setting.row === undefined && !keyed.includes(key))
-    .map(([key, setting]) =>
-      CUSTOM_RESOURCE_KEYS.includes(key)
-        ? field("environment", key, setting, values[key], !customInUse).replace(
-            '<div class="field">',
-            `<div class="field" data-custom-resource${customInUse ? "" : " hidden"}>`,
-          )
-        : field("environment", key, setting, values[key], false, noteFor(key)),
-    );
-  const joining = (row: string) =>
-    entries
-      .filter(([, setting]) => setting.row === row)
-      .map(([key, setting]) => field("environment", key, setting, values[key]));
-  const entryOf = Object.fromEntries(entries);
-  // A row of the named settings, in this order, as one group named by its title and described by `desc` (trusted HTML).
-  const keyedRow = (id: string, title: string, desc: string, keys: ReadonlyArray<EnvironmentKey>) =>
-    `<div class="row"><div><div class="row-title"><h3 id="environment-${id}-title">${title}</h3></div><p class="desc" id="environment-${id}-desc">${desc}</p></div><div class="row-extra"><div class="fields" role="group" aria-labelledby="environment-${id}-title" aria-describedby="environment-${id}-desc">${keys.map((key) => field("environment", key, entryOf[key]!, values[key])).join("")}</div></div></div>`;
-  const agents = keyedRow(
-    "agents",
-    "Agents",
-    "How long an agent's turn may run, how long a card waits for your answer, how many CLI agents' processes a Workspace's Container may run, and how long an idle process waits before it may be ended for another Workspace.",
-    AGENT_SETTING_KEYS,
+    .map(([key]) => key);
+  // Each row of the form: its title, its description (trusted HTML), and its settings in order. The keyed rows are one
+  // group named by their title and described by `desc`.
+  const rows: ReadonlyArray<EnvironmentRow> = [
+    {
+      id: "containers",
+      title: "Containers",
+      ident: `revision ${environment.revision}`,
+      desc: "Their size, how long one may sit idle, how long open Terminals keep it running, how many may run at once, how many Terminals a Workspace may have, yours and agents', how much an agent's Terminal keeps of its scrollback, how long a start or a turn waits for the newest settings, and how long a clone or a checkpoint may run.",
+      keys: containers,
+    },
+    {
+      id: "agents",
+      title: "Agents",
+      desc: "How long an agent's turn may run, how long a card waits for your answer, how many CLI agents' processes a Workspace's Container may run, and how long an idle process waits before it may be ended for another Workspace.",
+      keys: AGENT_SETTING_KEYS,
+    },
+    {
+      id: "retries",
+      title: "Retries and kills",
+      desc: "How many times an agent tries a failed model request again, and how many times t3flare tries to end a stopped command's surviving processes.",
+      keys: RETRY_SETTING_KEYS,
+    },
+    {
+      id: "mcp-calls",
+      title: "MCP calls",
+      desc: "How long one MCP tool call may run, how large a result t3flare takes from it, and how many of its pauses for your answer it answers, for every agent and every server; how long Codex waits for t3flare's MCP relay to start; and how long a server's sign-in may take.",
+      keys: MCP_CALL_SETTING_KEYS,
+    },
+    {
+      id: "mcp-servers",
+      title: "MCP servers",
+      desc: "How long t3flare waits for each MCP server to connect and to list what it offers, how many of its logs one call keeps, how many of its progress notices reach the thread each second, and how long a server found speaking the Legacy protocol is taken as Legacy.",
+      keys: MCP_SERVER_SETTING_KEYS,
+    },
+    {
+      id: "outside-requests",
+      title: "Outside requests",
+      desc: "How long t3flare waits for GitHub, the sign-ins' vendors, an MCP server's authorization server, T3 Connect and a Model endpoint to answer one request, how long it waits before asking GitHub again after a failure, and how long a model may take to write a title, a commit message or a pull request.",
+      keys: OUTSIDE_REQUEST_SETTING_KEYS,
+    },
+    {
+      id: "lifecycle",
+      title: "Sleep and wake",
+      desc: "How long the Environment waits idle before it sleeps, what wakes it while it sleeps, and how many failed starts put it in safe mode.",
+      keys: LIFECYCLE_SETTING_KEYS,
+    },
+    {
+      id: "commands",
+      title: "Commands",
+      desc: "How long a command in a Workspace's Container may run, how long a start waits for the Container, how recent use keeps a Container from being reclaimed, how long a turn waits for new Environment skills, and how long a stopped command or port gets to end before it is killed.",
+      keys: COMMAND_SETTING_KEYS,
+    },
+    {
+      id: "terminals",
+      title: "Terminals",
+      desc: "How long a new Terminal waits for its first prompt, and how much of your Terminals' output t3 keeps.",
+      keys: TERMINAL_SETTING_KEYS,
+    },
+    {
+      id: "previews",
+      title: "Previews",
+      desc: "Which Container ports a preview browser can open, how long a port check waits for an answer, how often an open preview browser's profile is saved, and how long the browser that renders t3's HTML stays open after its last render.",
+      keys: [...CONTAINER_PREVIEW_SETTING_KEYS, ...PREVIEW_SETTING_KEYS],
+    },
+    {
+      id: "access",
+      title: "Settings page, clients and T3 Connect",
+      desc: "How long this page's token for changes lasts, how many clients of one Owner key the Settings server remembers, and how many of T3 Connect's publishes the Environment keeps for its status.",
+      keys: ACCESS_SETTING_KEYS,
+    },
+    {
+      id: "skills",
+      title: "Repo skills and Prompt templates",
+      desc: "How many of a repository's skills its agents are offered, and how far t3flare reads its skills and Prompt templates directories to find them.",
+      keys: SKILLS_SETTING_KEYS,
+    },
+    {
+      id: "trace",
+      title: "t3's trace",
+      desc: "How large t3's trace file grows before t3 starts a new one, and how many older ones it keeps for its diagnostics.",
+      keys: TRACE_SETTING_KEYS,
+    },
+    {
+      id: "history",
+      title: "History",
+      desc: "How long t3flare keeps its usage records, Pi's and Claude Code's sessions and its temp files, and how many git answers and traced commands it keeps.",
+      keys: [...RETENTION_SETTING_KEYS, ...KEPT_SETTING_KEYS],
+    },
+    {
+      id: "dotfiles",
+      title: "Dotfiles",
+      desc: "Whether your own config in ~ (/root), from your Image setup or Container setup, reaches Terminals and CLI agents.",
+      keys: DOTFILES_SETTING_KEYS,
+    },
+  ];
+  // A row's settings in one area, the page's or Advanced's. The description, which names every setting of the row, is
+  // drawn where the Owner looks for what the row bounds: under Advanced, and on the page only where the row is whole
+  // there (each setting's own hint says what it does).
+  const rowIn = (row: EnvironmentRow, inAdvanced: boolean): string => {
+    const keys = row.keys.filter((key) => advanced(key) === inAdvanced);
+    if (keys.length === 0) return "";
+    const described = inAdvanced || keys.length === row.keys.length;
+    const id = `environment-${inAdvanced ? "advanced-" : ""}${row.id}`;
+    const ident = row.ident === undefined || inAdvanced ? "" : `<span class="ident">${row.ident}</span>`;
+    const desc = described ? `<p class="desc" id="${id}-desc">${row.desc}</p>` : "";
+    return `<div class="row"><div><div class="row-title"><h3 id="${id}-title">${row.title}</h3>${ident}</div>${desc}</div><div class="row-extra"><div class="fields" role="group" aria-labelledby="${id}-title"${described ? ` aria-describedby="${id}-desc"` : ""}>${keys.map(draw).join("")}</div></div></div>`;
+  };
+  // A list (the Variables) and a file (the Global mise config, the Container setup, the Image setup) each get a row of
+  // their own, which the settings that name it as their `row` join; Advanced holds the joining ones that are Advanced,
+  // under the file's title.
+  const lists = entries.filter(([, setting]) => ownRow(setting));
+  const joining = (row: string, inAdvanced: boolean) =>
+    entries.filter(([key, setting]) => setting.row === row && advanced(key) === inAdvanced).map(([key]) => draw(key));
+  const listRows = lists.map(([key, setting]) => {
+    const joined = joining(key, false);
+    // The Image setup's Test (SPI-1334) spans its row, under its text area: it tests the text in the box, unsaved. Stacked
+    // on a phone, it comes right after the text area, before the settings that join the row.
+    const beside = key === "imageSetup" ? testBuildBlock(test) : "";
+    return `<div class="row"><div class="row-title"><h3>${escapeHtml(setting.title)}</h3></div><div class="row-extra"><div class="fields list">${field("environment", key, setting, values[key])}</div>${joined.length === 0 ? "" : `<div class="fields">${joined.join("")}</div>`}${beside}</div></div>`;
+  });
+  const advancedLists = lists.flatMap(([key, setting]) => {
+    const joined = joining(key, true);
+    return joined.length === 0
+      ? []
+      : [
+          `<div class="row"><div><div class="row-title"><h3 id="environment-advanced-${key}-title">${escapeHtml(setting.title)}</h3></div></div><div class="row-extra"><div class="fields" role="group" aria-labelledby="environment-advanced-${key}-title">${joined.join("")}</div></div></div>`,
+        ];
+  });
+  const advancedCount = entries.filter(([key]) => advanced(key)).length;
+  const advancedBlock = advancedSettings(
+    "environment",
+    advancedCount,
+    `${rows.map((row) => rowIn(row, true)).join("")}${advancedLists.join("")}`,
   );
-  const mcpCalls = keyedRow(
-    "mcp-calls",
-    "MCP calls",
-    "How long one MCP tool call may run, how large a result t3flare takes from it, and how many of its pauses for your answer it answers, for every agent and every server; how long Codex waits for t3flare's MCP relay to start; and how long a server's sign-in may take.",
-    MCP_CALL_SETTING_KEYS,
-  );
-  const mcpServers = keyedRow(
-    "mcp-servers",
-    "MCP servers",
-    "How long t3flare waits for each MCP server to connect and to list what it offers, how many of its logs one call keeps, how many of its progress notices reach the thread each second, and how long a server found speaking the Legacy protocol is taken as Legacy.",
-    MCP_SERVER_SETTING_KEYS,
-  );
-  const outside = keyedRow(
-    "outside-requests",
-    "Outside requests",
-    "How long t3flare waits for GitHub, the sign-ins' vendors, an MCP server's authorization server, T3 Connect and a Model endpoint to answer one request, how long it waits before asking GitHub again after a failure, and how long a model may take to write a title, a commit message or a pull request.",
-    OUTSIDE_REQUEST_SETTING_KEYS,
-  );
-  const skills = keyedRow(
-    "skills",
-    "Repo skills and Prompt templates",
-    "How many of a repository's skills its agents are offered, and how far t3flare reads its skills and Prompt templates directories to find them.",
-    SKILLS_SETTING_KEYS,
-  );
-  const commands = keyedRow(
-    "commands",
-    "Commands",
-    "How long a command in a Workspace's Container may run, how long a start waits for the Container, how recent use keeps a Container from being reclaimed, how long a turn waits for new Environment skills, and how long a stopped command or port gets to end before it is killed.",
-    COMMAND_SETTING_KEYS,
-  );
-  const terminals = keyedRow(
-    "terminals",
-    "Terminals",
-    "How long a new Terminal waits for its first prompt, and how much of your Terminals' output t3 keeps.",
-    TERMINAL_SETTING_KEYS,
-  );
-  const history = keyedRow(
-    "history",
-    "History",
-    "How long t3flare keeps its usage records, Pi's and Claude Code's sessions and its temp files, and how many git answers and traced commands it keeps.",
-    [...RETENTION_SETTING_KEYS, ...KEPT_SETTING_KEYS],
-  );
-  const dotfiles = keyedRow(
-    "dotfiles",
-    "Dotfiles",
-    "Whether your own config in ~ (/root), from your Image setup or Container setup, reaches Terminals and CLI agents.",
-    DOTFILES_SETTING_KEYS,
-  );
-  const lifecycle = keyedRow(
-    "lifecycle",
-    "Sleep and wake",
-    "How long the Environment waits idle before it sleeps, what wakes it while it sleeps, and how many failed starts put it in safe mode.",
-    LIFECYCLE_SETTING_KEYS,
-  );
-  const previews = keyedRow(
-    "previews",
-    "Previews",
-    "Which Container ports a preview browser can open, how long a port check waits for an answer, how often an open preview browser's profile is saved, and how long the browser that renders t3's HTML stays open after its last render.",
-    [...CONTAINER_PREVIEW_SETTING_KEYS, ...PREVIEW_SETTING_KEYS],
-  );
-  const access = keyedRow(
-    "access",
-    "Settings page, clients and T3 Connect",
-    "How long this page's token for changes lasts, how many clients of one Owner key the Settings server remembers, and how many of T3 Connect's publishes the Environment keeps for its status.",
-    ACCESS_SETTING_KEYS,
-  );
-  const retries = keyedRow(
-    "retries",
-    "Retries and kills",
-    "How many times an agent tries a failed model request again, and how many times t3flare tries to end a stopped command's surviving processes.",
-    RETRY_SETTING_KEYS,
-  );
-  const trace = keyedRow(
-    "trace",
-    "t3's trace",
-    "How large t3's trace file grows before t3 starts a new one, and how many older ones it keeps for its diagnostics.",
-    TRACE_SETTING_KEYS,
-  );
-  const lists = entries
-    .filter(([, setting]) => ownRow(setting))
-    .map(([key, setting]) => {
-      const joined = joining(key);
-      // The Image setup's Test (SPI-1334) spans its row, under its text area: it tests the text in the box, unsaved. Stacked
-      // on a phone, it comes right after the text area, before the settings that join the row.
-      const beside = key === "imageSetup" ? testBuildBlock(test) : "";
-      return `<div class="row"><div class="row-title"><h3>${escapeHtml(setting.title)}</h3></div><div class="row-extra"><div class="fields list">${field("environment", key, setting, values[key])}</div>${joined.length === 0 ? "" : `<div class="fields">${joined.join("")}</div>`}${beside}</div></div>`;
-    });
   const save = `<div class="row"><div class="save"><span class="save-note" data-save-note aria-live="polite"></span><button type="submit" class="btn btn-sm" data-save disabled>Save</button></div></div>`;
   return `<section id="environment" aria-labelledby="environment-title">
 <div class="section-head"><h2 id="environment-title">${icon("container")}Environment</h2></div>
 <p class="section-desc">What every Workspace's Container gets, how long its commands may run, its Terminals and previews, and what t3flare keeps and for how long. A change applies at each Workspace's next Container start unless its setting says otherwise; a running Container keeps what it started with, and a lower budget stops none.</p>
-<form class="group" data-environment aria-labelledby="environment-title" novalidate><div class="row"><div><div class="row-title"><h3>Containers</h3><span class="ident">revision ${environment.revision}</span></div><p class="desc">Their size, how long one may sit idle, how long open Terminals keep it running, how many may run at once, how many Terminals a Workspace may have, yours and agents', how much an agent's Terminal keeps of its scrollback, how long a start or a turn waits for the newest settings, and how long a clone or a checkpoint may run.</p></div>
-<div class="row-extra"><div class="fields">${fields.join("")}</div></div></div>${agents}${retries}${mcpCalls}${mcpServers}${outside}${lifecycle}${commands}${terminals}${previews}${access}${skills}${trace}${history}${dotfiles}${lists.join("")}${save}</form>
+<form class="group" data-environment aria-labelledby="environment-title" novalidate>${rows.map((row) => rowIn(row, false)).join("")}${listRows.join("")}${advancedBlock}${save}</form>
 <dl class="group kv"><div><dt>Running now</dt><dd>${
     running === null || running === undefined
       ? "unknown"
@@ -786,6 +890,9 @@ export const LIMIT_GROUPS: ReadonlyArray<readonly [string, ReadonlyArray<Setting
   ["Waiting at once", ["openPerThread", "openPerOwner"]],
 ];
 
+/** The Settings server's limits, every one Advanced (ADR-0049 §6): its card's Advanced holds them. */
+const SETTINGS_SERVER_LIMIT_COUNT = LIMIT_GROUPS.reduce((count, [, keys]) => count + keys.length, 0);
+
 /**
  * The Settings server's limits (SPI-1322): a form of its ten limits, each at its value now, saved as one change to its
  * entry through the panel's JSON API (pageScript.ts `form[data-mcp-limits]`). The consequence of raising them is said
@@ -807,7 +914,7 @@ const settingsLimits = (row: McpRow): string => {
     });
     return `<fieldset class="limit-group"><legend>${escapeHtml(legend)}</legend><div class="fields">${fields.join("")}</div></fieldset>`;
   }).join("");
-  return `<details class="tools" data-server-limits id="${id}"><summary>${icon("chevron")}Limits <span>how often a caller may ask, change and read</span></summary>
+  return `<details class="tools" data-server-limits id="${id}"><summary>${icon("chevron")}Advanced <span>· ${plural(SETTINGS_SERVER_LIMIT_COUNT, "setting", "settings")}: how often a caller may ask, change and read</span></summary>
 <form class="server-limits" data-mcp-limits="${escapeHtml(row.name)}" aria-label="Settings server limits" novalidate><p class="desc">Each caller, an agent's thread or an Owner client's identity, is held to these from its next request. An agent's change to them is asked, in either direction.</p><p class="desc limits-note">${escapeHtml(SETTINGS_SERVER_LIMITS_NOTE)}</p>${groups}<div class="save"><span class="save-note" data-save-note aria-live="polite"></span><button type="submit" class="btn btn-sm" data-save disabled>Save</button></div></form></details>`;
 };
 
