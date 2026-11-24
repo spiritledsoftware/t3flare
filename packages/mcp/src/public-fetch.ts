@@ -16,10 +16,15 @@ import { boundedText, MAX_METADATA_BYTES, OAUTH_FETCH_TIMEOUT_MS } from "./oauth
 /** The request headers a public read passes on: content negotiation alone, never a credential or a cookie. */
 export const PUBLIC_FETCH_HEADERS: ReadonlyArray<string> = ["accept", "mcp-protocol-version"];
 
-/** What the Registry asks `McpEngine.fetchPublic` for: a URL, and the headers to pass on (others are dropped). */
+/**
+ * What the Registry asks `McpEngine.fetchPublic` for: a URL, the headers to pass on (others are dropped), and how long
+ * the read may take (the caller's Outside request time limit, `outsideRequestSeconds`; `OAUTH_FETCH_TIMEOUT_MS`, its
+ * default, when absent, as from a caller older than the field).
+ */
 export const McpPublicFetchRequest = Schema.Struct({
   url: Schema.String,
   headers: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
+  timeoutMs: Schema.optionalKey(Schema.Int),
 });
 
 export type McpPublicFetchRequest = typeof McpPublicFetchRequest.Type;
@@ -93,9 +98,10 @@ export const BODYLESS_STATUSES: ReadonlyArray<number> = [101, 204, 205, 304];
 export const fetchPublic = async (
   input: McpPublicFetchRequest,
   fetch: typeof globalThis.fetch,
-  timeoutMs: number = OAUTH_FETCH_TIMEOUT_MS,
 ): Promise<typeof McpPublicFetched.Type | typeof McpPublicRefused.Type> => {
   if (!isRequest(input)) return refused("The request is malformed");
+
+  const timeoutMs = input.timeoutMs ?? OAUTH_FETCH_TIMEOUT_MS;
 
   const refusal = publicFetchRefusal(input.url);
 

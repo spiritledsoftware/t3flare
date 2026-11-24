@@ -606,10 +606,11 @@ export const DEFAULT_MCP_LIST_SECONDS = 120;
 export const DEFAULT_MCP_LOG_ENTRIES = 50;
 
 /**
- * The most server logs one MCP call may keep: a sanity bound (ADR-0048 §1). The MCP Worker holds up to 64 KiB of each
- * log's text until the call ends, so 500 are at most 32 MiB of its 128 MB isolate.
+ * The most server logs one MCP call may keep: a sanity bound (ADR-0048 §1). The MCP Worker holds up to 65,536
+ * characters of each log's text until the call ends (its `RAW_LIMIT`), two bytes each at worst, so 128 KiB a log: 200
+ * are at most 25 MiB of its 128 MB isolate, which also holds the call itself.
  */
-export const MAX_MCP_LOG_ENTRIES = 500;
+export const MAX_MCP_LOG_ENTRIES = 200;
 
 /** How long an MCP server's sign-in may take, by default (`mcpSignInMinutes`, SPI-1366). */
 export const DEFAULT_MCP_SIGN_IN_MINUTES = 10;
@@ -1242,21 +1243,21 @@ export const ENVIRONMENT_SETTINGS = {
   },
   mcpConnectSeconds: {
     title: "MCP server connect time limit (seconds)",
-    description: `How long t3flare waits for an MCP server to answer the first requests of each connection (its probe and its initialize), for a call, a discovery or a test. Past it the server is reported unreachable; a longer limit holds a dead server's calls and discovery that long. At most ${MAX_TIMED_SECONDS} (a week). Applies at the next connection.`,
+    description: `How long t3flare waits for an MCP server to answer the first requests of each connection (its probe and its initialize), for a call, a discovery or a test. Past it the server is reported unreachable; a longer limit holds a dead server's calls and discovery that long. At most ${MAX_TIMED_SECONDS} (a week). Applies at the next connection to an MCP server.`,
     // The MCP engine times it with the SDK's own timer, no platform limit: the shared sanity maximum applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: DEFAULT_MCP_CONNECT_SECONDS },
     tier: "down-free",
   },
   mcpListSeconds: {
     title: "MCP server listing time limit (seconds)",
-    description: `How long t3flare lets one listing of an MCP server's tools, prompts or resources take, all its pages together. Past it that discovery fails and the server's agents get none of what it lists; a longer limit holds a slow or endless listing that long, its pages in memory. At most ${MAX_TIMED_SECONDS} (a week). Applies at the next discovery.`,
+    description: `How long t3flare lets one listing of an MCP server's tools, prompts or resources take, all its pages together. Past it that discovery fails and the server's agents get none of what it lists; a longer limit holds a slow or endless listing that long, its pages in memory. At most ${MAX_TIMED_SECONDS} (a week). Applies at the next discovery of an MCP server.`,
     // The MCP engine times it with its own timer, no platform limit: the shared sanity maximum applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: DEFAULT_MCP_LIST_SECONDS },
     tier: "down-free",
   },
   mcpLogEntries: {
     title: "MCP server logs kept per call",
-    description: `How many of an MCP server's last log messages (warning and above) t3flare keeps during one call; older ones are dropped. Each is held, up to 64 KiB of text, in the MCP Worker's memory until the call ends. At most ${MAX_MCP_LOG_ENTRIES}. Applies at the next call.`,
+    description: `How many of an MCP server's last log messages (warning and above) t3flare keeps during one call; older ones are dropped. Each is held, up to 128 KiB, in the MCP Worker's memory until the call ends. At most ${MAX_MCP_LOG_ENTRIES}. Applies at the next MCP call.`,
     // A sanity bound (`MAX_MCP_LOG_ENTRIES`), sized against the MCP Worker's isolate memory.
     schema: { type: "integer", minimum: 1, maximum: MAX_MCP_LOG_ENTRIES, default: DEFAULT_MCP_LOG_ENTRIES },
     tier: "down-free",
@@ -1270,7 +1271,7 @@ export const ENVIRONMENT_SETTINGS = {
   },
   mcpSignInMinutes: {
     title: "MCP server sign-in time (minutes)",
-    description: `How long an MCP server's OAuth sign-in may take, from its start on this page to the server's redirect back; a later redirect is refused and the sign-in must start again. Each request within it is held to the Outside request time limit. Each started sign-in is kept, sealed, this long, then deleted. At most ${MAX_TIMED_MINUTES} (a week). Applies to sign-ins started after the change.`,
+    description: `How long an MCP server's OAuth sign-in may take, from its start on this page to the server's redirect back; a later redirect is refused and the sign-in must start again. Each started sign-in is kept, sealed, this long, then deleted. At most ${MAX_TIMED_MINUTES} (a week). Applies to sign-ins started after the change.`,
     // t3flare's own expiry, no platform limit: the shared sanity maximum applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_MCP_SIGN_IN_MINUTES },
     tier: "down-free",

@@ -122,7 +122,7 @@ describe("fetchPublic", () => {
     });
   });
 
-  it("gives up at the timeout", async () => {
+  it("gives up at the time limit its caller names (the Outside request time limit)", async () => {
     const fetch = vi.fn(
       (_: string | URL | Request, init?: RequestInit) =>
         new Promise<Response>((_resolve, reject) => {
@@ -130,7 +130,7 @@ describe("fetchPublic", () => {
         }),
     );
 
-    expect(await fetchPublic({ url: URL_OF }, fetch, 10)).toEqual({
+    expect(await fetchPublic({ url: URL_OF, timeoutMs: 10 }, fetch)).toEqual({
       status: "refused",
       message: "The request timed out",
     });

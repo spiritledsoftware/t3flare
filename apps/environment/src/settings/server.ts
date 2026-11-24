@@ -212,7 +212,8 @@ export const APPLIES_AT = {
   mcpCall:
     "Applies at the next MCP call; a CLI agent's own tool timeout and MCP start wait at its next start; the sign-in time to sign-ins started after it.",
   /** The MCP servers' connect and listing time limits and logs kept (SPI-1363): read as each call's target is made. */
-  mcpServer: "Applies at the next connection to an MCP server, its next discovery and its next call.",
+  mcpServer:
+    "The connect time limit applies at the next connection to an MCP server, the listing time limit at the next discovery of an MCP server, the logs kept at the next MCP call.",
   /**
    * The settings read at their own next use (SPI-1366, and SPI-1365's outside requests): never a Container start. Each
    * setting's description says which use.

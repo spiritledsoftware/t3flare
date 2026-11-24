@@ -697,11 +697,11 @@ New Environment settings in an MCP servers row of their own, after the MCP calls
 with today's value as its default, read as each call's target is
 made, and `down-free` (longer holds a dead or slow server longer; more logs take more of the MCP Worker's memory):
 
-| Setting             | Default | Maximum                                     | What it bounds                                             |
-| ------------------- | ------- | ------------------------------------------- | ---------------------------------------------------------- |
-| `mcpConnectSeconds` | 15      | `MAX_TIMED_SECONDS` (a week)                | a connection's probe and `initialize`                      |
-| `mcpListSeconds`    | 120     | `MAX_TIMED_SECONDS` (a week)                | one listing of a server, all its pages together            |
-| `mcpLogEntries`     | 50      | `MAX_MCP_LOG_ENTRIES` (500, a sanity bound) | a call's last server logs, up to 64 KiB each in the Worker |
+| Setting             | Default | Maximum                                     | What it bounds                                              |
+| ------------------- | ------- | ------------------------------------------- | ----------------------------------------------------------- |
+| `mcpConnectSeconds` | 15      | `MAX_TIMED_SECONDS` (a week)                | a connection's probe and `initialize`                       |
+| `mcpListSeconds`    | 120     | `MAX_TIMED_SECONDS` (a week)                | one listing of a server, all its pages together             |
+| `mcpLogEntries`     | 50      | `MAX_MCP_LOG_ENTRIES` (200, a sanity bound) | a call's last server logs, up to 128 KiB each in the Worker |
 
 Reused: the Outside request time limit (`outsideRequestSeconds`) now bounds each request of an MCP server's OAuth
 sign-in and token refresh in the MCP Worker, and its revocation and Client Credentials grant where they are called; its

@@ -851,9 +851,14 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       callTimeoutMs: () => this.#environmentNow().mcpCallSeconds * 1000,
       resultBytes: () => this.#environmentNow().mcpResultKiB * 1024,
       // Read as each call's target is made (SPI-1363).
-      connectTimeoutMs: () => this.#environmentNow().mcpConnectSeconds * 1000,
-      listTimeoutMs: () => this.#environmentNow().mcpListSeconds * 1000,
-      logEntries: () => this.#environmentNow().mcpLogEntries,
+      limits: () => {
+        const now = this.#environmentNow();
+        return {
+          connectTimeoutMs: now.mcpConnectSeconds * 1000,
+          listTimeoutMs: now.mcpListSeconds * 1000,
+          logEntries: now.mcpLogEntries,
+        };
+      },
       // Read at each call (SPI-1366).
       pausesPerCall: () => this.#environmentNow().mcpPausesPerCall,
     });

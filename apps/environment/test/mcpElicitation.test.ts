@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   isPausingServer,
+  MCP_CARD_BYTES,
   pauseOf,
   planPause,
   planQuestion,
@@ -111,6 +112,35 @@ describe("planQuestion", () => {
         answer: { kind: "answered", result: { action: "decline" } },
       });
     }
+  });
+
+  it("a question too large for a card is declined unseen, saying why; one under the bound is a card (SPI-1363)", () => {
+    // Each option's label is kept twice, so 4,000 options of 100 characters pass 1 MiB stored.
+    const options = Array.from({ length: 4000 }, (_, index) => `${index}`.padEnd(100, "o"));
+    const huge = ask({
+      message: "Pick one",
+      requestedSchema: { type: "object", properties: { pick: { type: "string", enum: options } } },
+    });
+    expect(huge).toMatchObject({ kind: "now", answer: { kind: "answered", result: { action: "decline" } } });
+    if (huge.kind !== "now") throw new Error("expected a decline");
+    expect(huge.why).toContain(`${MCP_CARD_BYTES / 1024 / 1024} MiB a card holds`);
+    const page = ask({
+      mode: "url",
+      message: "x",
+      url: `https://auth.example.org/?q=${"q".repeat(400_000)}`,
+      elicitationId: "e",
+    });
+    expect(page).toMatchObject({ kind: "now", answer: { result: { action: "decline" } } });
+    const fine = ask({
+      message: "Pick one",
+      requestedSchema: { type: "object", properties: { pick: { type: "string", enum: options.slice(0, 200) } } },
+    });
+    expect(fine.kind).toBe("card");
+    const paused = planPause(
+      pauseOf(pause("input-required", { type: "object", properties: { pick: { type: "string", enum: options } } }))!,
+      { ...context, tool: "call" },
+    );
+    expect(paused).toMatchObject({ kind: "now", answer: { result: { action: "decline" } } });
   });
 
   it("a page's address is shown whole, however long it and the server's message are; labels are not cut", () => {

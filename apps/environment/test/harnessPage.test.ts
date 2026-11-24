@@ -798,7 +798,7 @@ describe("the Environment section's dotfiles", () => {
     expect(inputs.map((tag) => tag.attrs)).toMatchObject([
       { type: "number", min: "1", max: "604800", value: "15" },
       { type: "number", min: "1", max: "604800", value: "120" },
-      { type: "number", min: "1", max: "500", value: "50" },
+      { type: "number", min: "1", max: "200", value: "50" },
     ]);
     for (const key of ["mcpConnectSeconds", "mcpListSeconds", "mcpLogEntries"])
       expect(page.split(`data-setting="${key}"`)).toHaveLength(2);

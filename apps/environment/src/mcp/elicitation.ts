@@ -25,7 +25,7 @@ import {
   plainMessage,
   validateElicitation,
 } from "@t3flare/mcp/types";
-import { cardText } from "@t3flare/harness-registry";
+import { cardText, storedBytes } from "@t3flare/harness-registry";
 import {
   MCP_QUESTION_MARKER,
   type McpCardQuestion,
@@ -70,6 +70,15 @@ export type QuestionPlan =
   | { readonly kind: "now"; readonly answer: ElicitAnswer; readonly why: string };
 
 export const newCardId = (): string => `${MCP_QUESTION_MARKER}-${crypto.randomUUID()}`;
+
+/**
+ * The most stored bytes (`storedBytes`) of one card. A card is pushed to t3 as one `user_input` or approval request and
+ * kept in t3's event row, one 8 MB Durable Object row that also holds the request's other fields and t3's own envelope,
+ * and a push past it fails unseen while the thread waits out the Answer wait. 1 MiB keeps a card far under that row. A
+ * server's question comes in a `tools/call` body (16 MiB) or a pause's structured content (`mcpResultKiB`), neither of
+ * which bounds it this low.
+ */
+export const MCP_CARD_BYTES = 1024 * 1024;
 
 const decline = (why: string): QuestionPlan => ({
   kind: "now",
@@ -250,8 +259,22 @@ const formOrApproval = (
   return formPlan(form, title, noted, server);
 };
 
+/** `plan`, unless its card is past `MCP_CARD_BYTES` stored: then declined unseen, saying so. */
+const withinCard = (plan: QuestionPlan): QuestionPlan => {
+  if (plan.kind !== "card") return plan;
+  const bytes = storedBytes(plan.card);
+  return bytes > MCP_CARD_BYTES
+    ? decline(
+        `the question would take ${bytes} bytes as a card, past the ${MCP_CARD_BYTES / 1024 / 1024} MiB a card holds, so t3flare declined it unseen`,
+      )
+    : plan;
+};
+
 /** The plan for a question a server asked during an agent's call (the engine's `onInput`). */
-export const planQuestion = (request: typeof McpInputRequest.Encoded, context: QuestionContext): QuestionPlan => {
+export const planQuestion = (request: typeof McpInputRequest.Encoded, context: QuestionContext): QuestionPlan =>
+  withinCard(planQuestionWhole(request, context));
+
+const planQuestionWhole = (request: typeof McpInputRequest.Encoded, context: QuestionContext): QuestionPlan => {
   if (request.kind !== "elicitation") return refuse("t3flare answers no Sampling request");
   const params = request.params as { message?: unknown; mode?: unknown; requestedSchema?: unknown; url?: unknown };
   const message = typeof params.message === "string" ? plainMessage(params.message) : "";
@@ -340,7 +363,10 @@ export const pauseOf = (result: unknown): Pause | undefined => {
 };
 
 /** The card for a pause: Executor's own text of what waits (its message and `_meta`), and the agent's call. */
-export const planPause = (pause: Pause, context: QuestionContext): QuestionPlan => {
+export const planPause = (pause: Pause, context: QuestionContext): QuestionPlan =>
+  withinCard(planPauseWhole(pause, context));
+
+const planPauseWhole = (pause: Pause, context: QuestionContext): QuestionPlan => {
   const server = plainLine(context.server);
   const meta =
     pause.meta === undefined
