@@ -694,7 +694,7 @@ describe("the Settings server's limits (SPI-1322)", () => {
             kind: "settings",
             enabled: true,
             exposure: "deferred",
-            limits: { askedPerHour: 0, readsPerHour: 1.5, openPerThread: 17, strikes: 4 },
+            limits: { askedPerHour: 0, readsPerHour: 1.5, openPerThread: 1001, strikes: 4 },
           },
         },
       },
@@ -714,7 +714,7 @@ describe("the Settings server's limits (SPI-1322)", () => {
       [{ strikeWindowMinutes: 0 }, "limits.strikeWindowMinutes: at least 1"],
       [{ strikeWindowMinutes: MAX_TIMED_MINUTES + 1 }, `limits.strikeWindowMinutes: at most ${MAX_TIMED_MINUTES}`],
       [{ askedPerHour: 100_001 }, "limits.askedPerHour: at most 100000"],
-      [{ openPerOwner: 17 }, "limits.openPerOwner: at most 16"],
+      [{ openPerOwner: 1001 }, "limits.openPerOwner: at most 1000"],
       [{ readsPerHour: "240" }, "limits.readsPerHour: an integer"],
       [{ nope: 1 }, "limits.nope: not a limit of the Settings server"],
     ] as const) {

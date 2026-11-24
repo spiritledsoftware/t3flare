@@ -45,6 +45,7 @@ import {
   type SettingsServerLimits,
   settingsServerLimitsOf,
   MCP_CALL_SETTING_KEYS,
+  MCP_SERVER_SETTING_KEYS,
   ENVIRONMENT_RESTART_SETTING_KEYS,
   NEXT_USE_SETTING_KEYS,
   SWEEP_SETTING_KEYS,
@@ -210,6 +211,9 @@ export const APPLIES_AT = {
   /** The MCP calls' time limit and result size (SPI-1359): read at each call, and the time limit at each CLI spawn. */
   mcpCall:
     "Applies at the next MCP call; a CLI agent's own tool timeout and MCP start wait at its next start; the sign-in time to sign-ins started after it.",
+  /** The MCP servers' connect and listing time limits and logs kept (SPI-1363): read as each call's target is made. */
+  mcpServer:
+    "The connect time limit applies at the next connection to an MCP server, the listing time limit at the next discovery of an MCP server, the logs kept at the next MCP call.",
   /**
    * The settings read at their own next use (SPI-1366, and SPI-1365's outside requests): never a Container start. Each
    * setting's description says which use.
@@ -738,6 +742,7 @@ const environmentAppliesAt = (keys: ReadonlyArray<string>): string => {
     { keys: among(["usageRetentionDays"]), text: APPLIES_AT.usageRetention },
     { keys: among(["piSessionRetentionDays"]), text: APPLIES_AT.piSessionRetention },
     { keys: among(MCP_CALL_SETTING_KEYS), text: APPLIES_AT.mcpCall },
+    { keys: among(MCP_SERVER_SETTING_KEYS), text: APPLIES_AT.mcpServer },
     { keys: among(NEXT_USE_SETTING_KEYS), text: APPLIES_AT.nextUse },
     { keys: among(ENVIRONMENT_RESTART_SETTING_KEYS), text: APPLIES_AT.environmentRestart },
   ].filter((group) => group.keys.length > 0);

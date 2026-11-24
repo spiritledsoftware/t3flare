@@ -135,6 +135,10 @@ const ENVIRONMENT: Readonly<
   traceKiB: { up: [1024, 4096, "asked"], down: [1024, 512, "free"] },
   traceFiles: { up: [1, 3, "free"], down: [3, 1, "asked"] },
   mcpPausesPerCall: { up: [16, 32, "asked"], down: [16, 8, "free"] },
+  // SPI-1363: a longer wait holds a dead or slow server longer, and more logs take more of the MCP Worker's memory.
+  mcpConnectSeconds: { up: [15, 30, "asked"], down: [15, 5, "free"] },
+  mcpListSeconds: { up: [120, 300, "asked"], down: [120, 60, "free"] },
+  mcpLogEntries: { up: [50, 100, "asked"], down: [50, 20, "free"] },
   cliMcpStartSeconds: { up: [20, 60, "free"], down: [20, 10, "free"] },
   mcpSignInMinutes: { up: [10, 30, "asked"], down: [10, 5, "free"] },
   // SPI-1365: more listed or read puts more in front of the model or in the Workspace's memory, so it is asked.

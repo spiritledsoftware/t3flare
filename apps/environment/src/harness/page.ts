@@ -57,6 +57,7 @@ import {
   ACCESS_SETTING_KEYS,
   LIFECYCLE_SETTING_KEYS,
   MCP_CALL_SETTING_KEYS,
+  MCP_SERVER_SETTING_KEYS,
   OUTSIDE_REQUEST_SETTING_KEYS,
   PREVIEW_SETTING_KEYS,
   SKILLS_SETTING_KEYS,
@@ -463,7 +464,7 @@ const environmentSection = (
     ([key]) => !(SWEEP_SETTING_KEYS as ReadonlyArray<string>).includes(key),
   );
   // The scalar settings share the Containers row. The agents' settings (SPI-1315: the Turn limit, the CLI agents'
-  // processes) share an Agents row, the MCP calls' time limit and result size (SPI-1359) an MCP calls row, the outside
+  // processes) share an Agents row, the MCP calls' time limit and result size (SPI-1359) an MCP calls row, the MCP servers' connect, listing and logs (SPI-1363) an MCP servers row, the outside
   // requests' time limit (SPI-1365) an Outside requests row, the Sleep and wake, Previews and access settings (SPI-1366)
   // rows of their own, the retries and t3's trace (SPI-1367) rows of their own, the commands' limits and the Terminals'
   // (SPI-1364) a Commands and a Terminals row, the Container previews' (SPI-1364) the Previews row with SPI-1366's, how
@@ -473,6 +474,7 @@ const environmentSection = (
   const keyed: ReadonlyArray<string> = [
     ...AGENT_SETTING_KEYS,
     ...MCP_CALL_SETTING_KEYS,
+    ...MCP_SERVER_SETTING_KEYS,
     ...OUTSIDE_REQUEST_SETTING_KEYS,
     ...SKILLS_SETTING_KEYS,
     ...COMMAND_SETTING_KEYS,
@@ -525,10 +527,16 @@ const environmentSection = (
     "How long one MCP tool call may run, how large a result t3flare takes from it, and how many of its pauses for your answer it answers, for every agent and every server; how long Codex waits for t3flare's MCP relay to start; and how long a server's sign-in may take.",
     MCP_CALL_SETTING_KEYS,
   );
+  const mcpServers = keyedRow(
+    "mcp-servers",
+    "MCP servers",
+    "How long t3flare waits for each MCP server to connect and to list what it offers, and how many of its logs one call keeps.",
+    MCP_SERVER_SETTING_KEYS,
+  );
   const outside = keyedRow(
     "outside-requests",
     "Outside requests",
-    "How long t3flare waits for GitHub, the sign-ins' vendors, T3 Connect and a Model endpoint to answer one request, how long it waits before asking GitHub again after a failure, and how long a model may take to write a title, a commit message or a pull request.",
+    "How long t3flare waits for GitHub, the sign-ins' vendors, an MCP server's authorization server, T3 Connect and a Model endpoint to answer one request, how long it waits before asking GitHub again after a failure, and how long a model may take to write a title, a commit message or a pull request.",
     OUTSIDE_REQUEST_SETTING_KEYS,
   );
   const skills = keyedRow(
@@ -605,7 +613,7 @@ const environmentSection = (
 <div class="section-head"><h2 id="environment-title">${icon("container")}Environment</h2></div>
 <p class="section-desc">What every Workspace's Container gets, how long its commands may run, its Terminals and previews, and what t3flare keeps and for how long. A change applies at each Workspace's next Container start unless its setting says otherwise; a running Container keeps what it started with, and a lower budget stops none.</p>
 <form class="group" data-environment aria-labelledby="environment-title" novalidate><div class="row"><div><div class="row-title"><h3>Containers</h3><span class="ident">revision ${environment.revision}</span></div><p class="desc">Their size, how long one may sit idle, how long open Terminals keep it running, how many may run at once, how many Terminals a Workspace may have, yours and agents', how much an agent's Terminal keeps of its scrollback, how long a start or a turn waits for the newest settings, and how long a clone or a checkpoint may run.</p></div>
-<div class="row-extra"><div class="fields">${fields.join("")}</div></div></div>${agents}${retries}${mcpCalls}${outside}${lifecycle}${commands}${terminals}${previews}${access}${skills}${trace}${history}${dotfiles}${lists.join("")}${save}</form>
+<div class="row-extra"><div class="fields">${fields.join("")}</div></div></div>${agents}${retries}${mcpCalls}${mcpServers}${outside}${lifecycle}${commands}${terminals}${previews}${access}${skills}${trace}${history}${dotfiles}${lists.join("")}${save}</form>
 <dl class="group kv"><div><dt>Running now</dt><dd>${
     running === null || running === undefined
       ? "unknown"
@@ -651,7 +659,8 @@ export interface McpRow {
   readonly overrides?: Readonly<Record<string, string>>;
   /** The owner's per-tool Exposure, by upstream name; a tool without one follows its server's. */
   readonly toolExposure?: Readonly<Record<string, string>>;
-  readonly refused: ReadonlyArray<{ readonly tool: string; readonly reason: string }>;
+  /** A cut list ends with an entry whose `more` counts the tools past it. */
+  readonly refused: ReadonlyArray<{ readonly tool: string; readonly reason: string; readonly more?: number }>;
 }
 
 const action = (
@@ -870,7 +879,11 @@ const serverCard = (row: McpRow, owner?: OwnerClientsView): string => {
   const refused =
     row.refused.length === 0
       ? ""
-      : `<div class="callout callout-warn" role="note">${icon("warn")}<div><strong>${plural(row.refused.length, "tool", "tools")} refused</strong><ul>${row.refused
+      : `<div class="callout callout-warn" role="note">${icon("warn")}<div><strong>${plural(
+          row.refused.reduce((count, entry) => count + (entry.more ?? 1), 0),
+          "tool",
+          "tools",
+        )} refused</strong><ul>${row.refused
           .map((r) => `<li><code>${escapeHtml(r.tool)}</code>: ${escapeHtml(r.reason)}</li>`)
           .join("")}</ul></div></div>`;
   const oauth =
@@ -907,7 +920,7 @@ ${toolsTable(row)}${row.setting.kind === "settings" ? settingsLimits(row) : ""}$
 const ADD_SERVER = `<form class="group add" id="add-server" data-mcp-add autocomplete="off" aria-labelledby="add-title">
 <div class="row"><div><div class="row-title"><h3 id="add-title">Add a server</h3></div><p class="desc">A remote MCP server over streamable HTTP. Each tool's class is its own read-only hint until you change it; write tools follow the thread's mode.</p></div></div>
 <div class="form-body">
-<div class="field"><label for="add-server-name">Name</label><input id="add-server-name" name="server" type="text" required pattern="[a-z0-9\\-]{1,20}" placeholder="executor" autocapitalize="none" spellcheck="false" aria-describedby="add-server-name-hint"><p class="hint" id="add-server-name-hint">1–20 of a–z, 0–9 and -. Tools are named mcp__name__tool.</p></div>
+<div class="field"><label for="add-server-name">Name</label><input id="add-server-name" name="server" type="text" required pattern="[a-z0-9\\-]+" placeholder="executor" autocapitalize="none" spellcheck="false" aria-describedby="add-server-name-hint"><p class="hint" id="add-server-name-hint">a–z, 0–9 and -. Tools are named mcp__name__tool, and one longer than 64 characters is refused, so a longer name leaves less room for its tools' names.</p></div>
 <div class="field"><label for="add-server-url">URL</label><input id="add-server-url" name="url" type="url" required placeholder="https://mcp.example.com/mcp" autocapitalize="none" spellcheck="false" aria-describedby="add-server-url-hint"><p class="hint" id="add-server-url-hint">https only, on a public host name.</p></div>
 <fieldset class="wide"><legend>Sign-in</legend><div class="choices">
 <label class="choice"><input type="radio" name="auth" value="oauth" checked><div><strong>OAuth</strong><span>Sign in after adding</span></div></label>

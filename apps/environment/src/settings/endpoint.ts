@@ -30,7 +30,7 @@
 //     stream, held until the response POST, the stream's end (which withdraws the change) or the change's expiry.
 //   - `model` (M5b): the result is Executor's Pause at once (every version), and `resume`, listed in this mode alone,
 //     answers it. A change that needs the page gets the link, never a Pause.
-import { DO_VALUE_BYTES, OPEN_ACROSS, withoutHidden } from "@t3flare/harness-registry";
+import { DO_VALUE_BYTES, withoutHidden } from "@t3flare/harness-registry";
 import { sha256Hex } from "@t3flare/skills";
 
 import type { AccessCaller } from "../access.ts";
@@ -152,10 +152,10 @@ const ISOLATE_HOLDS = streamHolds();
 export const HOLDS_PER_CHANGE = 2;
 /**
  * At most this many live held streams per caller (an Access `sub`, or the service token), across its changes: a
- * backstop. `openPerOwner` changes of `HOLDS_PER_CHANGE` streams stay under it at any value of that limit (SPI-1322),
- * since `OPEN_ACROSS` bounds it.
+ * backstop, derived from the caller's own limit, so its `openPerOwner` changes of `HOLDS_PER_CHANGE` streams each stay
+ * within it at any value of that limit (SPI-1363).
  */
-export const HOLDS_PER_CALLER = OPEN_ACROSS * HOLDS_PER_CHANGE;
+export const holdsPerCaller = (openPerOwner: number): number => openPerOwner * HOLDS_PER_CHANGE;
 
 const countUp = (counts: Map<string, number>, key: string): void => void counts.set(key, (counts.get(key) ?? 0) + 1);
 /** Counts one holder of `key` down; answers how many remain. */
@@ -809,12 +809,14 @@ export const handleSettingsMcp = async (
   };
 
   /** Why a new held stream on `record` would pass a cap (C3), said in the `W` it gets instead; undefined when it may hold. */
-  const holdsFull = (record: ChangeRecord): string | undefined =>
-    (holds.byChange.get(record.id) ?? 0) >= HOLDS_PER_CHANGE
+  const holdsFull = (record: ChangeRecord): string | undefined => {
+    const perCaller = holdsPerCaller(server.changes.limits().openPerOwner);
+    return (holds.byChange.get(record.id) ?? 0) >= HOLDS_PER_CHANGE
       ? `${HOLDS_PER_CHANGE} calls already wait on this change's question; answer it there or on its Change page.`
-      : (holds.byCaller.get(key) ?? 0) >= HOLDS_PER_CALLER
-        ? `${HOLDS_PER_CALLER} of your calls already wait on a question; answer them, or this change on its Change page.`
+      : (holds.byCaller.get(key) ?? 0) >= perCaller
+        ? `${perCaller} of your calls already wait on a question; answer them, or this change on its Change page.`
         : undefined;
+  };
 
   const stateOf = async (record: ChangeRecord) =>
     signToken(tokenKey, {

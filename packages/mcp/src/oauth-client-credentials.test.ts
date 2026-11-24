@@ -570,8 +570,8 @@ describe("what a request comes to", () => {
       message: expect.stringContaining("not a Bearer one"),
     });
     expect(
-      await send(recording(() => new Response("x".repeat(70_000), { status: 200 })).fetch, SECRET_AUTH),
-    ).toMatchObject({ kind: "failed", message: "The token response is longer than 64 KiB" });
+      await send(recording(() => new Response("x".repeat(1024 * 1024 + 1), { status: 200 })).fetch, SECRET_AUTH),
+    ).toMatchObject({ kind: "failed", message: "The token response is longer than 1024 KiB" });
   });
 
   it("takes a token with no lifetime as one with none", async () => {

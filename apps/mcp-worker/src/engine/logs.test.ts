@@ -23,6 +23,17 @@ describe("callLogs", () => {
     expect(entries.at(-1)?.data).toBe(`message ${MCP_LOG_RING + 4}`);
   });
 
+  it("keeps the last `keep` the host names (mcpLogEntries), oldest first", () => {
+    const logs = callLogs({ now: () => 0, tokens: () => new Set(), keep: 200 });
+
+    for (let n = 0; n < 205; n++) logs.hear({ level: "warning", data: `message ${n}` });
+
+    const entries = logs.entries();
+
+    expect(entries).toHaveLength(200);
+    expect(entries[0]?.data).toBe("message 5");
+  });
+
   it("cuts data to 2 KiB, and keeps JSON data as JSON text", () => {
     const logs = collector();
 

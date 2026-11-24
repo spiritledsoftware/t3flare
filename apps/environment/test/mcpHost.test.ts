@@ -3,10 +3,17 @@
 // hint or the owner's override; every enabled server for every thread: owner, 2026-11-12, back to stock), calls (disabled
 // servers, failures that may have run), and the target it hands the engine (the header value, and nothing else, to
 // redact). Commissary is an ordinary direct server the owner adds with its `x-api-key` header (SPI-1160).
-import { applyMcpChange, DEFAULT_MCP_CALL_MS, EMPTY_HARNESS, type StoredHarness } from "@t3flare/harness-registry";
+import {
+  applyMcpChange,
+  DEFAULT_MCP_CALL_MS,
+  DO_VALUE_BYTES,
+  EMPTY_HARNESS,
+  storedBytes,
+  type StoredHarness,
+} from "@t3flare/harness-registry";
 import { describe, expect, it } from "vitest";
 
-import { McpHost, type McpEngineBinding } from "../src/mcp/host.ts";
+import { McpHost, refusedCount, type McpServerLimits, type McpEngineBinding } from "../src/mcp/host.ts";
 
 const memory = () => {
   const map = new Map<string, unknown>();
@@ -80,7 +87,11 @@ const setup = (
   tools: () => Array<Record<string, unknown>>,
   answer?: () => unknown,
   harness: StoredHarness = withCommissary(),
-  limits: { readonly callTimeoutMs?: () => number; readonly resultBytes?: () => number } = {},
+  limits: {
+    readonly callTimeoutMs?: () => number;
+    readonly resultBytes?: () => number;
+    readonly limits?: () => McpServerLimits;
+  } = {},
 ) => {
   let settings = harness;
   const { engine, seen } = fakeEngine(tools, answer);
@@ -396,7 +407,7 @@ describe("McpHost and MCP apps (G11, review L10)", () => {
     expect(tools.find((t) => t.upstream === "plain")?.ui).toBeUndefined();
   });
 
-  it("reads only a ui:// resource one of the server's own tools declares, as an App read", async () => {
+  it("reads only a ui:// resource one of the server's own tools declares, as any read is made", async () => {
     const run = setup(
       () => [appTool],
       () => ({ contents: [{ uri: "ui://time/app.html", mimeType: "text/html;profile=mcp-app", text: "<p>t</p>" }] }),
@@ -406,12 +417,36 @@ describe("McpHost and MCP apps (G11, review L10)", () => {
       kind: "result",
       value: { contents: [{ text: "<p>t</p>" }] },
     });
-    expect(run.seen.at(-1).request).toMatchObject({ op: "resources/read", uri: "ui://time/app.html", app: true });
+    expect(run.seen.at(-1).request).toMatchObject({ op: "resources/read", uri: "ui://time/app.html" });
+    expect(run.seen.at(-1).request).not.toHaveProperty("app");
     const before = run.seen.length;
     expect((await run.host.readAppResource({ server: "commissary", uri: "ui://other/app.html" })).kind).toBe("refused");
     expect((await run.host.readAppResource({ server: "commissary", uri: "file:///etc/passwd" })).kind).toBe("refused");
     expect((await run.host.readAppResource({ server: "nope", uri: "ui://time/app.html" })).kind).toBe("refused");
     expect(run.seen.length).toBe(before);
+  });
+
+  it("refuses an App resource past the MCP result size in characters, whatever its bytes (SPI-1363)", async () => {
+    // Mostly ASCII with one character past Latin-1: it crosses the relay's RPC as UTF-16, two bytes each.
+    const html = `${"<p>x</p>".repeat(150)}\u4e2d`;
+    const run = setup(
+      () => [appTool],
+      () => ({ contents: [{ uri: "ui://time/app.html", mimeType: "text/html;profile=mcp-app", text: html }] }),
+      withCommissary(),
+      { resultBytes: () => 1000 },
+    );
+    await run.host.list("commissary");
+    const refused = await run.host.readAppResource({ server: "commissary", uri: "ui://time/app.html" });
+    expect(refused).toMatchObject({ kind: "refused", message: expect.stringContaining("mcpResultKiB") });
+    expect(refused.kind === "refused" && refused.message).toMatch(/\(\d+ characters\)/);
+    const roomy = setup(
+      () => [appTool],
+      () => ({ contents: [{ uri: "ui://time/app.html", mimeType: "text/html;profile=mcp-app", text: html }] }),
+      withCommissary(),
+      { resultBytes: () => 4000 },
+    );
+    await roomy.host.list("commissary");
+    expect((await roomy.host.readAppResource({ server: "commissary", uri: "ui://time/app.html" })).kind).toBe("result");
   });
 
   it("passes a result's structuredContent beside its text", async () => {
@@ -438,6 +473,46 @@ describe("McpHost and MCP apps (G11, review L10)", () => {
     const plain = setup(() => [tool("fixture_echo", true)]);
     await plain.host.list("commissary");
     expect(plain.seen.at(-1).target.timeoutMs).toBe(DEFAULT_MCP_CALL_MS);
+  });
+
+  it("gives each target the connect and listing time limits and the logs kept, as set (SPI-1363)", async () => {
+    const run = setup(() => [tool("fixture_echo", true)], undefined, withCommissary(), {
+      limits: () => ({ connectTimeoutMs: 45_000, listTimeoutMs: 600_000, logEntries: 200 }),
+    });
+    await run.host.list("commissary");
+    expect(run.seen.at(-1).target).toMatchObject({ connectTimeoutMs: 45_000, listTimeoutMs: 600_000, logEntries: 200 });
+    const plain = setup(() => [tool("fixture_echo", true)]);
+    await plain.host.list("commissary");
+    expect(plain.seen.at(-1).target).not.toHaveProperty("connectTimeoutMs");
+  });
+
+  it("takes any number of a server's tools, and refuses by name those past the bytes its inventory holds", async () => {
+    const many = setup(() => Array.from({ length: 500 }, (_, index) => tool(`t${index}`, true)));
+    expect(Object.keys((await many.host.list("commissary")).definitions)).toHaveLength(500);
+    // Each definition here is about 1.3 MB stored (three bytes per character of its JSON): three fit in the 4 MB.
+    const big = (name: string) => ({ ...tool(name, true), description: "d".repeat(440_000) });
+    const huge = setup(() => [big("a"), big("b"), big("c"), big("d")]);
+    const listed = await huge.host.list("commissary");
+    expect(Object.keys(listed.definitions)).toEqual(["a", "b", "c"]);
+    expect(listed.refused).toEqual([expect.objectContaining({ tool: "d", reason: expect.stringContaining("MiB") })]);
+  });
+
+  it("keeps a server's inventory within its one value: refused names cut, the list cut with how many more (SPI-1363)", async () => {
+    const big = (name: string) => ({ ...tool(name, true), description: "d".repeat(440_000) });
+    const many = Array.from({ length: 6000 }, (_, index) => tool(`${index}`.padEnd(1000, "n"), true));
+    const run = setup(() => [big("a"), big("b"), big("c"), ...many]);
+    const listed = await run.host.list("commissary");
+    expect(storedBytes(listed)).toBeLessThanOrEqual(DO_VALUE_BYTES);
+    expect(listed.refused.length).toBeLessThan(6000);
+    expect(listed.refused.at(-1)).toEqual({
+      tool: "…",
+      reason: expect.stringMatching(/^and \d+ more tools refused/),
+      more: expect.any(Number),
+    });
+    for (const entry of listed.refused) expect(entry.tool.length).toBeLessThanOrEqual(301);
+    expect(listed.refused[0]?.reason).toContain("MiB of tool definitions");
+    // The count says every tool refused, the ones past the cut included, not the entries.
+    expect(refusedCount(listed.refused)).toBe(6003 - Object.keys(listed.definitions).length);
   });
 
   it("cuts an inline result's text to the MCP result size in bytes of UTF-8, and drops structured content past it (SPI-1359)", async () => {

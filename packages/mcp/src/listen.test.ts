@@ -163,7 +163,8 @@ describe("a Modern server's listen", () => {
 
     const outcome = await run(
       Effect.gen(function* () {
-        const connection = yield* connect(TARGET, testDeps(fetchTo(silent)));
+        // The acknowledgement is awaited as long as the server's call timeout.
+        const connection = yield* connect({ ...TARGET, timeoutMs: 1000 }, testDeps(fetchTo(silent)));
 
         return yield* settled(connection.listen({ resourceSubscriptions: [URI] }, () => undefined));
       }),

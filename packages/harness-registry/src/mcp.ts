@@ -2,6 +2,7 @@
 // judge a call with the same function, and a tool's class is resolved the same way everywhere.
 import { MAX_TIMED_MINUTES } from "./environment.ts";
 import type { SettingEntry } from "./fields.ts";
+import { DO_VALUE_BYTES } from "./storedValue.ts";
 
 export type ToolClass = "read" | "write";
 export type RuntimeModeName = "approval-required" | "auto-accept-edits" | "full-access" | (string & {});
@@ -131,7 +132,11 @@ export const SETTINGS_SERVER = "settings";
 /** Names a direct server may not take: they are the relay's, t3's or the Settings server's. */
 export const RESERVED_SERVER_NAMES: ReadonlySet<string> = new Set(["t3", "t3-code", SETTINGS_SERVER]);
 
-export const SERVER_NAME = /^[a-z0-9-]{1,20}$/;
+/**
+ * A direct server's name: a path segment of the relay's (`MCP_RELAY_PREFIX`), so its characters are fixed. Its length is
+ * not: each tool's name, `mcp__<server>__<tool>`, is held to t3's 64 characters on its own (`toolNamesOf`).
+ */
+export const SERVER_NAME = /^[a-z0-9-]+$/;
 
 /** The Settings server's implied entry (plan D2): on, deferred and read-write until a change stores one. */
 export const defaultSettingsServer = (): McpServerSetting => ({
@@ -142,10 +147,10 @@ export const defaultSettingsServer = (): McpServerSetting => ({
 });
 
 /**
- * Open changes across the Environment (plan D16): a storage bound, fixed. Every access to the changes table reads every
- * open row (`settingsChanges`' prepare), so the per-caller open counts are bounded by it.
+ * The most Open changes per caller may be set to: a sanity bound (ADR-0048 §1). Every access to the changes table reads
+ * every open row, and each is small and expires, so nothing near it costs anything that matters.
  */
-export const OPEN_ACROSS = 16;
+export const MAX_OPEN_PER_CALLER = 1000;
 
 /** The most a per-hour cap may be set to: a sanity bound (ADR-0048 §1). */
 const MAX_PER_HOUR = 100_000;
@@ -211,12 +216,12 @@ export const SETTINGS_SERVER_LIMITS = {
   openPerThread: {
     title: "Open changes per thread",
     description: "Asked changes one agent thread may have waiting for you at once.",
-    schema: { type: "integer", minimum: 1, maximum: OPEN_ACROSS, default: 1 },
+    schema: { type: "integer", minimum: 1, maximum: MAX_OPEN_PER_CALLER, default: 1 },
   },
   openPerOwner: {
     title: "Open changes per Owner client",
     description: "Asked changes one Owner client's identity may have waiting for an answer at once.",
-    schema: { type: "integer", minimum: 1, maximum: OPEN_ACROSS, default: 2 },
+    schema: { type: "integer", minimum: 1, maximum: MAX_OPEN_PER_CALLER, default: 2 },
   },
 } as const satisfies Readonly<Record<string, SettingEntry>>;
 
@@ -231,9 +236,12 @@ export const SETTINGS_SERVER_LIMIT_KEYS = Object.keys(SETTINGS_SERVER_LIMITS) as
 export const SETTINGS_SERVER_LIMITS_NOTE =
   "Looser limits (higher counts, or a shorter strike window, lock or repeat) let an agent ask you, and change your settings, more often.";
 
-/** Most tools taken from one server, and most bytes of their schemas (review M12). */
-export const MAX_TOOLS_PER_SERVER = 200;
-export const MAX_SCHEMA_BYTES = 256 * 1024;
+/**
+ * The most stored bytes (`storedBytes`) of the tool definitions one server's inventory keeps: a server's inventory is
+ * one Durable Object value (`DO_VALUE_BYTES`, 8 MB), and half of it is left for the tools it refuses, its instructions
+ * and its other fields. A named constraint; the tools past it are refused by name. Their count is the server's.
+ */
+export const MAX_SCHEMA_BYTES = Math.floor(DO_VALUE_BYTES / 2);
 
 /** The CLI relay's path prefix in the Container (`computer.internal/t3flare/mcp/<server>`, ADR-0028). */
 export const MCP_RELAY_PREFIX = "/t3flare/mcp/";

@@ -31,9 +31,6 @@ import { isJsonObject, JsonObject } from "./json.ts";
  */
 export const MCP_ELICITATION_WAIT_MS = 10 * 60 * 1000;
 
-/** The most requests of this kind one call may make (the Session cancels the rest). */
-export const MCP_ELICITATIONS_PER_CALL = 10;
-
 /**
  * How long a Legacy Sampling request may wait, from the ask, when the caller passes no `ctx.answers.inputWaitMs`: this
  * library's default, the owner's 10 minutes and the 2 minutes a sample may take. t3flare never offers sampling, and its
@@ -140,19 +137,6 @@ export type McpElicitParams = typeof McpElicitParams.Type;
 
 export const decodeElicitParams = Schema.decodeUnknownOption(McpElicitParams);
 
-/** The form's bounds. */
-export const ELICITATION_BOUNDS = {
-  fields: 32,
-  options: 100,
-  schemaBytes: 64 * 1024,
-  message: 4000,
-  title: 120,
-  description: 500,
-  optionTitle: 200,
-  valueBytes: 16 * 1024,
-  answerBytes: 64 * 1024,
-} as const;
-
 // ---------------------------------------------------------------------------------------------------------------------
 // Plain text
 // ---------------------------------------------------------------------------------------------------------------------
@@ -163,32 +147,24 @@ const UNSAFE_CHARS =
   /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069\u200B-\u200D\u2060\uFEFF]/g;
 /* oxlint-enable no-control-regex */
 
-/** `text` cut to `max` characters, with an ellipsis. */
-const cut = (text: string, max: number) =>
-  text.length <= max ? text : `${text.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
-
-/** One line of server text: no control or bidi-override characters, whitespace collapsed, cut to `max`. */
-export const plainLine = (text: string, max: number): string =>
-  cut(text.replace(UNSAFE_CHARS, "").replace(/\s+/g, " ").trim(), max);
+/**
+ * One line of server text: no control or bidi-override characters, whitespace collapsed. Its length is the server's: the
+ * whole message is already bounded by the tap's 1 MiB per event, and a card by `cardText`.
+ */
+export const plainLine = (text: string): string => text.replace(UNSAFE_CHARS, "").replace(/\s+/g, " ").trim();
 
 /**
- * `text`, a server's name for a field or the like, as one short line that is safe to put between quotes in words the
- * model reads: plain text, cut to `max`, with the quote marks, angle brackets and backslashes it could close a quote or
- * open a tag with dropped.
+ * `text`, a server's name for a field or the like, as one line that is safe to put between quotes in words the model
+ * reads: plain text, with the quote marks, angle brackets and backslashes it could close a quote or open a tag with
+ * dropped.
  */
-export const safeName = (text: string, max = 60): string => plainLine(text, max).replace(/[<>'`\\]/g, "");
+export const safeName = (text: string): string => plainLine(text).replace(/[<>'`\\]/g, "");
 
 /** `text` as a field's name between quotes, in words the model or the owner reads. */
 export const quote = (text: string): string => `'${safeName(text)}'`;
 
-/** Whether a server's message is longer than the owner is shown (`plainMessage` cuts it, and a note says so). */
-export const messageIsCut = (text: string): boolean => plainMessage(text) !== plainWhole(text);
-
-/** A server's message whole: no control, bidi-override or zero-width characters (newlines kept). */
-const plainWhole = (text: string): string => text.replace(UNSAFE_CHARS, "").replace(/\r\n?/g, "\n").trim();
-
-/** A server's message, which may span lines: no control or bidi-override characters (newlines kept), cut to 4,000. */
-export const plainMessage = (text: string): string => cut(plainWhole(text), ELICITATION_BOUNDS.message);
+/** A server's message, which may span lines: no control, bidi-override or zero-width characters (newlines kept). */
+export const plainMessage = (text: string): string => text.replace(UNSAFE_CHARS, "").replace(/\r\n?/g, "\n").trim();
 
 // ---------------------------------------------------------------------------------------------------------------------
 // The credential rule
@@ -366,16 +342,12 @@ const optionsOf = (name: string, raw: ReadonlyArray<Schema.Json>, notes: Notes) 
       seen.add(choice.value);
       options.push({
         value: choice.value,
-        title: plainLine(choice.title, ELICITATION_BOUNDS.optionTitle),
+        title: plainLine(choice.title),
       });
     }
   }
 
   if (raw.length === 0) refuse(`${quote(name)} has no options`);
-
-  if (options.length > ELICITATION_BOUNDS.options) {
-    refuse(`${quote(name)} has more than ${ELICITATION_BOUNDS.options} options`);
-  }
 
   if (options.length < raw.length) {
     notes.lines.push(`${quote(name)} listed an option twice; the repeats were dropped`);
@@ -403,7 +375,7 @@ const titled = (
 
   return Arr.map(options, (option, index) => ({
     value: option.value,
-    title: plainLine(names[index] ?? option.title, ELICITATION_BOUNDS.optionTitle),
+    title: plainLine(names[index] ?? option.title),
   }));
 };
 
@@ -557,11 +529,9 @@ const readField = (name: string, property: Schema.Json | undefined, required: bo
   const title = textOf(property, "title");
   const description = textOf(property, "description");
 
-  if (title !== undefined) common.title = plainLine(title, ELICITATION_BOUNDS.title);
+  if (title !== undefined) common.title = plainLine(title);
 
-  if (description !== undefined) {
-    common.description = plainLine(description, ELICITATION_BOUNDS.description);
-  }
+  if (description !== undefined) common.description = plainLine(description);
 
   const type = property["type"];
 
@@ -613,15 +583,11 @@ export type NormalizedForm = {
 
 /**
  * The server's `requestedSchema` as t3flare's `ElicitationForm`, or why it is malformed: a root that is not an
- * `object`, a property outside the spec's subset, a `required` naming no property, or a form over the bounds. What is
+ * `object`, a property outside the spec's subset, or a `required` naming no property. What is
  * ignored (unknown keywords, an unknown `format`, an invalid default) goes in `notes`. A form asking for a credential
  * is returned with `credential` set, and is to be declined unseen.
  */
 export const normalizeElicitationForm = (requested: Schema.Json | undefined): Result.Result<NormalizedForm, string> => {
-  const bytes = new TextEncoder().encode(JSON.stringify(requested ?? null)).byteLength;
-
-  if (bytes > ELICITATION_BOUNDS.schemaBytes) return Result.fail("the schema is over 64 KiB");
-
   if (!isJsonObject(requested) || requested["type"] !== "object") {
     return Result.fail("the schema is not an object");
   }
@@ -632,15 +598,9 @@ export const normalizeElicitationForm = (requested: Schema.Json | undefined): Re
 
   const names = Object.keys(properties);
 
-  if (names.length > ELICITATION_BOUNDS.fields) {
-    return Result.fail(`it has more than ${ELICITATION_BOUNDS.fields} fields`);
-  }
-
   // A name is the key the server reads the answer by, so it is never cleaned: one that is not plain is malformed.
-  if (Arr.some(names, (name) => name === "" || plainLine(name, ELICITATION_BOUNDS.title) !== name)) {
-    return Result.fail(
-      `a field has a name that is empty, over ${ELICITATION_BOUNDS.title} characters, or has control characters or extra spaces`,
-    );
+  if (Arr.some(names, (name) => name === "" || plainLine(name) !== name)) {
+    return Result.fail("a field has a name that is empty, or has control characters or extra spaces");
   }
 
   const required = requested["required"] ?? [];
@@ -684,12 +644,7 @@ export const normalizeElicitationForm = (requested: Schema.Json | undefined): Re
   }
 
   if (notes.ignored.size > 0) {
-    notes.lines.push(
-      `ignored keywords: ${Arr.join(
-        Arr.map(Arr.take([...notes.ignored], 10), (key) => safeName(key, 30)),
-        ", ",
-      )}`,
-    );
+    notes.lines.push(`ignored keywords: ${Arr.join(Arr.map([...notes.ignored], safeName), ", ")}`);
   }
 
   return Result.succeed({ form: { fields }, notes: notes.lines, credential });
@@ -701,10 +656,6 @@ export const normalizeElicitationForm = (requested: Schema.Json | undefined): Re
 
 /** What is wrong with each field the owner filled in, by field name; `""` is the answer as a whole. */
 export type ElicitationErrors = Readonly<Record<string, string>>;
-
-const encoder = new TextEncoder();
-
-const byteLength = (text: string) => encoder.encode(text).byteLength;
 
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
@@ -761,8 +712,6 @@ const textProblem = (field: TextField, value: string): string | undefined => {
   if (field.maxLength !== undefined && value.length > field.maxLength) {
     return `must be at most ${field.maxLength} characters`;
   }
-
-  if (byteLength(value) > ELICITATION_BOUNDS.valueBytes) return "must be at most 16 KiB";
 
   switch (field.kind) {
     case "email":
@@ -890,10 +839,6 @@ export const validateElicitation = (
   }
 
   const answered: ElicitationContent = Object.fromEntries(content);
-
-  if (errors.length === 0 && byteLength(JSON.stringify(answered)) > ELICITATION_BOUNDS.answerBytes) {
-    errors.push(["", "the answer is over 64 KiB"]);
-  }
 
   return errors.length === 0 ? Result.succeed(answered) : Result.fail(Object.fromEntries(errors));
 };

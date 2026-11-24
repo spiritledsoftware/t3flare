@@ -377,7 +377,8 @@ export const settingsChanges = (
       ready = true;
     }
     const at = now();
-    // At most the Environment-wide cap of open rows (plan D16), so reading them all is cheap.
+    // Few: each caller's open changes are bounded by its own limits (open per thread and per Owner client, asked per
+    // hour), and an open row lasts until it expires, so reading them all is cheap.
     for (const record of rows(`state IN ('open', 'applying')`)) {
       const expiresAt = record.expiresAt ?? record.createdAt;
       const closed: ChangeRecord | undefined =

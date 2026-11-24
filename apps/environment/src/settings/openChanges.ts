@@ -11,7 +11,7 @@
 //   outcome (`closeOrSettle`);
 // - the in-memory waiters a held call waits on. With no waiter (after an Environment restart the call is gone), the
 //   record still stands until it expires, and the Change page can still apply it.
-import { OPEN_ACROSS, type SettingsServerLimits } from "@t3flare/harness-registry";
+import type { SettingsServerLimits } from "@t3flare/harness-registry";
 
 import {
   type AnsweredBy,
@@ -42,21 +42,14 @@ export interface ChangeOutcome {
 
 /** A cap's refusal: why, in words for the agent, and the open change it names when one is open. */
 export interface CapRefusal {
-  readonly reason:
-    | "open-thread"
-    | "open-owner"
-    | "open-across"
-    | "declined-repeat"
-    | "strikes"
-    | "applied-cap"
-    | "opened-cap";
+  readonly reason: "open-thread" | "open-owner" | "declined-repeat" | "strikes" | "applied-cap" | "opened-cap";
   readonly text: string;
   readonly changeId?: string;
 }
 
 /**
  * Why `caller` may not open an asked change of `hash` now (plan D16), or undefined. `openList` is the panel's Open
- * changes list, named by the Environment-wide cap's refusal. `limits` are the Settings server's (SPI-1322), as stored
+ * changes list, named by the per-hour cap's refusal. `limits` are the Settings server's (SPI-1322), as stored
  * now: the counts already recorded are judged by them.
  */
 export const capRefusal = (
@@ -81,12 +74,6 @@ export const capRefusal = (
             : `Not changed: ${perCaller} changes of this thread already wait for the owner (${mine.map((record) => record.id).join(", ")}); ask for at most ${perCaller} at a time. Wait for an answer, or read get_status.`
           : `Not changed: ${perCaller} changes of yours already wait for an answer (${mine.map((record) => record.id).join(", ")}); answer or cancel one first.`,
       changeId: first!.id,
-    };
-  }
-  if (changes.open().length >= OPEN_ACROSS) {
-    return {
-      reason: "open-across",
-      text: `Not changed: ${OPEN_ACROSS} changes already wait for the owner across this Environment, the most t3flare keeps. He sees them on the Settings page's Open changes list${openList === undefined ? "" : `: ${openList}`}.`,
     };
   }
   const opened = limits.askedPerHour;

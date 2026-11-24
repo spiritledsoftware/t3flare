@@ -2,7 +2,7 @@
 // doors as the Environment wires them (the MCP host, the CLI relay, the Owner-client endpoint, the Settings page). Each
 // `describe` names its line of the list; `docs-archive-1:docs/steps/settings-mcp.md` maps every line to its tests here and elsewhere,
 // and `docs-archive-1:docs/steps/settings-mcp/m6-stage-run.md` to what the stage run records.
-import { DEFAULT_SETTINGS_SERVER_LIMITS, OPEN_ACROSS } from "@t3flare/harness-registry";
+import { DEFAULT_SETTINGS_SERVER_LIMITS } from "@t3flare/harness-registry";
 import {
   MCP_QUESTION_MARKER,
   type McpAsker,
@@ -179,24 +179,17 @@ describe("hostile: an injected agent asking repeatedly is stopped by the caps; 1
     f.dispose();
   });
 
-  it(`${OPEN_ACROSS + 1} children asking at once: ${OPEN_ACROSS} wait for the owner, the next is refused naming the panel's list, with no card`, async () => {
+  it("24 children asking at once: every one waits for the owner, with its own card; none is refused for the others", async () => {
     const f = world({ answer: never });
-    for (let index = 0; index < OPEN_ACROSS; index++) {
+    const children = 24;
+    for (let index = 0; index < children; index++) {
       void f.call(f.durable(`child-${index}`), "change_environment", {
         expectedRevision: 0,
         settings: { variables: { [`CHILD_${index}`]: "1" } },
       });
     }
-    await until(() => f.cards.length === OPEN_ACROSS);
-    const last = await f.call(f.durable(`child-${OPEN_ACROSS}`), "change_environment", {
-      expectedRevision: 0,
-      settings: { variables: { LAST_CHILD: "1" } },
-    });
-    expect(structured(last)).toMatchObject({ status: "refused", reason: "open-across" });
-    expect(textOf(last)).toContain("Open changes list");
-    expect(textOf(last)).toContain(`https://${HOST}/_t3flare/settings`);
-    expect(f.cards).toHaveLength(OPEN_ACROSS);
-    expect(f.deps.changes.open()).toHaveLength(OPEN_ACROSS);
+    await until(() => f.cards.length === children);
+    expect(f.deps.changes.open()).toHaveLength(children);
     expect(f.store.loadEnvironment().revision).toBe(0);
   });
 });

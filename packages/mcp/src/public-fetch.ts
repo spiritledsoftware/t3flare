@@ -4,7 +4,8 @@
  * it, 1042, or sends it to the origin past Access); `McpWorker` has `global_fetch_strictly_public`, so its `fetch` goes
  * through the front door as a client's would. `McpEngine.fetchPublic` makes the read, guarded here: an `https` GET with
  * no credential (no userinfo, no header but content negotiation), no redirect followed (the caller sees the 3xx and
- * decides, as `guardedFetch` does), the OAuth fetch's 15 s timeout and a body of at most 64 KiB. No SDK import:
+ * decides, as `guardedFetch` does), the OAuth fetch's timeout (`timeoutMs`; `OAUTH_FETCH_TIMEOUT_MS` when none) and a
+ * body of at most `MAX_METADATA_BYTES`. No SDK import:
  * `./types` re-exports the Schemas, and the root entry the function.
  */
 // @effect-diagnostics asyncFunction:off globalFetch:off missingPipeableSignature:off preferEffectArray:off -- the read is a Promise over `fetch`, its Schemas plain values.
@@ -15,10 +16,15 @@ import { boundedText, MAX_METADATA_BYTES, OAUTH_FETCH_TIMEOUT_MS } from "./oauth
 /** The request headers a public read passes on: content negotiation alone, never a credential or a cookie. */
 export const PUBLIC_FETCH_HEADERS: ReadonlyArray<string> = ["accept", "mcp-protocol-version"];
 
-/** What the Registry asks `McpEngine.fetchPublic` for: a URL, and the headers to pass on (others are dropped). */
+/**
+ * What the Registry asks `McpEngine.fetchPublic` for: a URL, the headers to pass on (others are dropped), and how long
+ * the read may take (the caller's Outside request time limit, `outsideRequestSeconds`; `OAUTH_FETCH_TIMEOUT_MS`, its
+ * default, when absent, as from a caller older than the field).
+ */
 export const McpPublicFetchRequest = Schema.Struct({
   url: Schema.String,
   headers: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
+  timeoutMs: Schema.optionalKey(Schema.Int),
 });
 
 export type McpPublicFetchRequest = typeof McpPublicFetchRequest.Type;
@@ -87,14 +93,15 @@ export const BODYLESS_STATUSES: ReadonlyArray<number> = [101, 204, 205, 304];
 
 /**
  * Reads `input` with `fetch`, under the guards above. It came over RPC, so its shape is checked again. Never throws: a
- * malformed request, a refused URL, a failure, a timeout and a body over 64 KiB are each a `refused` answer.
+ * malformed request, a refused URL, a failure, a timeout and a body over `MAX_METADATA_BYTES` are each a `refused` answer.
  */
 export const fetchPublic = async (
   input: McpPublicFetchRequest,
   fetch: typeof globalThis.fetch,
-  timeoutMs: number = OAUTH_FETCH_TIMEOUT_MS,
 ): Promise<typeof McpPublicFetched.Type | typeof McpPublicRefused.Type> => {
   if (!isRequest(input)) return refused("The request is malformed");
+
+  const timeoutMs = input.timeoutMs ?? OAUTH_FETCH_TIMEOUT_MS;
 
   const refusal = publicFetchRefusal(input.url);
 

@@ -8,8 +8,10 @@
 // - Declined unseen (the server is told `decline`, the card never raised): a form whose field asks for a credential (the
 //   spec forbids it, and t3 keeps a `user_input` answer in its event log), and a page that is not on HTTPS, is on a local
 //   or private host, or is on t3flare's own host.
-// - Refused (Legacy: a JSON-RPC error; Modern: the call ends): a malformed or over-bound form, a malformed page, a
-//   Sampling request (not offered).
+// - Refused (Legacy: a JSON-RPC error; Modern: the call ends): a malformed form, a malformed page, a Sampling request
+//   (not offered).
+// - Server text is scrubbed of control characters, never cut on its own: each card's prompt is cut whole by `cardText`,
+//   and a page's address stays outside that cut, so the owner never opens a cut one.
 // - Nothing here keeps an answer; logs name fields, never values.
 // @effect-diagnostics cryptoRandomUUID:off
 import { checkElicitationUrl } from "@t3flare/mcp/elicitation-url";
@@ -23,7 +25,7 @@ import {
   plainMessage,
   validateElicitation,
 } from "@t3flare/mcp/types";
-import { cardText } from "@t3flare/harness-registry";
+import { cardText, storedBytes } from "@t3flare/harness-registry";
 import {
   MCP_QUESTION_MARKER,
   type McpCardQuestion,
@@ -69,6 +71,15 @@ export type QuestionPlan =
 
 export const newCardId = (): string => `${MCP_QUESTION_MARKER}-${crypto.randomUUID()}`;
 
+/**
+ * The most stored bytes (`storedBytes`) of one card. A card is pushed to t3 as one `user_input` or approval request and
+ * kept in t3's event row, one 8 MB Durable Object row that also holds the request's other fields and t3's own envelope,
+ * and a push past it fails unseen while the thread waits out the Answer wait. 1 MiB keeps a card far under that row. A
+ * server's question comes in a `tools/call` body (16 MiB) or a pause's structured content (`mcpResultKiB`), neither of
+ * which bounds it this low.
+ */
+export const MCP_CARD_BYTES = 1024 * 1024;
+
 const decline = (why: string): QuestionPlan => ({
   kind: "now",
   answer: { kind: "answered", result: { action: "decline" } },
@@ -81,7 +92,7 @@ const refuse = (why: string): QuestionPlan => ({
 });
 
 const callLine = (context: QuestionContext): string =>
-  cardText(`The agent's call: ${context.server}: ${context.tool}\n${JSON.stringify(context.args, null, 2)}`, 8 * 1024);
+  `The agent's call: ${context.server}: ${context.tool}\n${JSON.stringify(context.args, null, 2)}`;
 
 const approvalOptions = (accept: string): NonNullable<McpQuestionCard["options"]> => [
   { decision: "accept", label: accept },
@@ -109,18 +120,14 @@ type Field = ElicitationForm["fields"][number];
 
 const optionsOf = (options: ReadonlyArray<{ readonly value: string; readonly title: string }>) =>
   options.map((option) => {
-    const label = plainLine(option.title, 200) || option.value;
+    const label = plainLine(option.title) || option.value;
     return { label, description: label, value: option.value };
   });
 
 /** One field as t3's `user_input` question (`parseElicitationForm`'s shapes). */
 const questionOf = (field: Field, index: number, message: string): McpCardQuestion => {
-  const header = plainLine(field.title ?? field.name, 60) || `Question ${index + 1}`;
-  const text =
-    plainLine(field.description ?? "", 500) ||
-    plainLine(field.title ?? "", 500) ||
-    plainLine(message, 500) ||
-    field.name;
+  const header = plainLine(field.title ?? field.name) || `Question ${index + 1}`;
+  const text = plainLine(field.description ?? "") || plainLine(field.title ?? "") || plainLine(message) || field.name;
   const base = {
     id: field.name,
     header,
@@ -175,7 +182,7 @@ const formPlan = (form: ElicitationForm, title: string, prompt: string, server: 
   const send: McpCardQuestion = {
     id: SEND_QUESTION,
     header: "Send",
-    question: `Send these answers to ${plainLine(server, 60)}?`,
+    question: `Send these answers to ${plainLine(server)}?`,
     options: [
       { label: "Send", description: "Send the answers above", value: SEND },
       { label: "Decline", description: "Send nothing; the server is told you declined", value: DECLINE },
@@ -236,7 +243,7 @@ const formOrApproval = (
   if (Result.isFailure(normalized)) return refuse(`the form is malformed: ${normalized.failure}`);
   const { form, notes, credential } = normalized.success;
   if (credential !== undefined)
-    return decline(`the form asks for a credential ('${plainLine(credential, 60)}'), so t3flare declined it unseen`);
+    return decline(`the form asks for a credential ('${plainLine(credential)}'), so t3flare declined it unseen`);
   const noted = notes.length === 0 ? prompt : `${prompt}\n\n(t3flare: ${notes.join("; ")})`;
   if (form.fields.length === 0) {
     const card: McpQuestionCard = {
@@ -252,12 +259,26 @@ const formOrApproval = (
   return formPlan(form, title, noted, server);
 };
 
+/** `plan`, unless its card is past `MCP_CARD_BYTES` stored: then declined unseen, saying so. */
+const withinCard = (plan: QuestionPlan): QuestionPlan => {
+  if (plan.kind !== "card") return plan;
+  const bytes = storedBytes(plan.card);
+  return bytes > MCP_CARD_BYTES
+    ? decline(
+        `the question would take ${bytes} bytes as a card, past the ${MCP_CARD_BYTES / 1024 / 1024} MiB a card holds, so t3flare declined it unseen`,
+      )
+    : plan;
+};
+
 /** The plan for a question a server asked during an agent's call (the engine's `onInput`). */
-export const planQuestion = (request: typeof McpInputRequest.Encoded, context: QuestionContext): QuestionPlan => {
+export const planQuestion = (request: typeof McpInputRequest.Encoded, context: QuestionContext): QuestionPlan =>
+  withinCard(planQuestionWhole(request, context));
+
+const planQuestionWhole = (request: typeof McpInputRequest.Encoded, context: QuestionContext): QuestionPlan => {
   if (request.kind !== "elicitation") return refuse("t3flare answers no Sampling request");
   const params = request.params as { message?: unknown; mode?: unknown; requestedSchema?: unknown; url?: unknown };
   const message = typeof params.message === "string" ? plainMessage(params.message) : "";
-  const server = plainLine(context.server, 60);
+  const server = plainLine(context.server);
   if (params.mode === "url") {
     if (typeof params.url !== "string") return refuse("a page question without a URL");
     const page = checkElicitationUrl(params.url, context.isOwnHost);
@@ -270,25 +291,24 @@ export const planQuestion = (request: typeof McpInputRequest.Encoded, context: Q
       warning === undefined
         ? ""
         : `\nWarning: the host is ${warning === "idn" ? "internationalized" : "a mix of scripts"}; check it is the one you expect.`;
-    const prompt = cardText(
-      `${server} asks you to open a page.\n\n${message}\n\nPage: ${url}\nSite: ${domain} (host ${host})${warn}\n\nOpen it in your browser and finish there, then choose "Opened it". Decline sends nothing.\n\n${callLine(context)}`,
-    );
+    // The address is outside the cut, whole: only the server's message and the agent's call are cut to fit.
+    const prompt = `${server} asks you to open a page.\n\nPage: ${url}\nSite: ${domain} (host ${host})${warn}\n\nOpen it in your browser and finish there, then choose "Opened it". Decline sends nothing.\n\n${cardText(`${message}\n\n${callLine(context)}`)}`;
     const card: McpQuestionCard = {
       id: newCardId(),
       kind: "approval",
       server: context.server,
-      title: cardText(`${server}: open ${domain}?`, 200),
+      title: cardText(`${server}: open ${domain}?`),
       prompt,
       options: approvalOptions("Opened it"),
     };
     return { kind: "card", card, answerOf: (answer) => ({ result: { action: actionOf(answer.decision) } }) };
   }
   if (params.mode !== undefined && params.mode !== "form")
-    return refuse(`an elicitation of mode ${plainLine(JSON.stringify(params.mode), 30)}`);
+    return refuse(`an elicitation of mode ${plainLine(JSON.stringify(params.mode))}`);
   const prompt = cardText(`${server} asks:\n\n${message}\n\n${callLine(context)}`);
   return formOrApproval(
     params.requestedSchema ?? { type: "object", properties: {} },
-    cardText(`${server} asks`, 200),
+    cardText(`${server} asks`),
     prompt,
     context.server,
     "Approve",
@@ -343,8 +363,11 @@ export const pauseOf = (result: unknown): Pause | undefined => {
 };
 
 /** The card for a pause: Executor's own text of what waits (its message and `_meta`), and the agent's call. */
-export const planPause = (pause: Pause, context: QuestionContext): QuestionPlan => {
-  const server = plainLine(context.server, 60);
+export const planPause = (pause: Pause, context: QuestionContext): QuestionPlan =>
+  withinCard(planPauseWhole(pause, context));
+
+const planPauseWhole = (pause: Pause, context: QuestionContext): QuestionPlan => {
+  const server = plainLine(context.server);
   const meta =
     pause.meta === undefined
       ? ""
@@ -354,7 +377,7 @@ export const planPause = (pause: Pause, context: QuestionContext): QuestionPlan 
   const prompt = cardText(
     `${server} asks for your ${what}:\n\n${plainMessage(pause.message)}${meta}${expires}\n\n${callLine(context)}`,
   );
-  const title = cardText(pause.status === "approval-required" ? `${server}: approve?` : `${server} asks`, 200);
+  const title = cardText(pause.status === "approval-required" ? `${server}: approve?` : `${server} asks`);
   if (pause.status === "approval-required") {
     // Executor refuses an approval that carries field values: an approval is a bare accept, whatever its schema says.
     const card: McpQuestionCard = {

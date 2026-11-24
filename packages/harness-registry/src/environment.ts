@@ -461,6 +461,13 @@ export const MCP_CALL_SETTING_KEYS = [
 ] as const;
 
 /**
+ * The MCP servers' settings (SPI-1363): how long a connection may take to start and one listing, and how many of a
+ * server's logs a call keeps. Read as each call's target is made, never at a Container start, so the Settings page shows
+ * them in an MCP servers row of their own, after the MCP calls row.
+ */
+export const MCP_SERVER_SETTING_KEYS = ["mcpConnectSeconds", "mcpListSeconds", "mcpLogEntries"] as const;
+
+/**
  * The outside requests' setting (SPI-1365): how long one request to GitHub or a sign-in's vendor may wait. It bounds the
  * Environment's own requests at the next one, never a Container start, so the Settings page shows it in a row of its own.
  */
@@ -588,6 +595,22 @@ export const MAX_MCP_PAUSES_PER_CALL = 10_000;
 
 /** How long a CLI agent waits for an MCP relay server to start, by default (`cliMcpStartSeconds`, SPI-1366). */
 export const DEFAULT_CLI_MCP_START_SECONDS = 20;
+
+/** How long a connection to an MCP server may take to start, by default (`mcpConnectSeconds`, SPI-1363): today's 15 s. */
+export const DEFAULT_MCP_CONNECT_SECONDS = 15;
+
+/** How long one listing of an MCP server may take, every page, by default (`mcpListSeconds`, SPI-1363): today's 120 s. */
+export const DEFAULT_MCP_LIST_SECONDS = 120;
+
+/** How many of a call's last server logs are kept, by default (`mcpLogEntries`, SPI-1363): today's 50. */
+export const DEFAULT_MCP_LOG_ENTRIES = 50;
+
+/**
+ * The most server logs one MCP call may keep: a sanity bound (ADR-0048 §1). The MCP Worker holds up to 65,536
+ * characters of each log's text until the call ends (its `RAW_LIMIT`), two bytes each at worst, so 128 KiB a log: 200
+ * are at most 25 MiB of its 128 MB isolate, which also holds the call itself.
+ */
+export const MAX_MCP_LOG_ENTRIES = 200;
 
 /** How long an MCP server's sign-in may take, by default (`mcpSignInMinutes`, SPI-1366). */
 export const DEFAULT_MCP_SIGN_IN_MINUTES = 10;
@@ -1169,7 +1192,7 @@ export const ENVIRONMENT_SETTINGS = {
   },
   outsideRequestSeconds: {
     title: "Outside request time limit (seconds)",
-    description: `How long t3flare waits for one answer from GitHub, a sign-in's vendor (OpenAI, Anthropic, GitHub Copilot), T3 Connect or a Model endpoint: each GitHub read of a skills preview, install, update or check, each GitHub request of an Update and of the GitHub App's tokens, each request of a sign-in, its renewal and its revocation (a ChatGPT revocation with its retries takes at most twice this), T3 Connect's sign-in code and its unlink, and a Model endpoint's model list, all its pages together. A request past it fails, and what waited on it with it; a longer limit holds a stalled one that long, and an agent's Stop during its skills install waits for the install, up to about 500 times this limit if every read stalls. At most ${MAX_TIMED_SECONDS} (a week). Applies at the next request.`,
+    description: `How long t3flare waits for one answer from GitHub, a sign-in's vendor (OpenAI, Anthropic, GitHub Copilot), T3 Connect or a Model endpoint: each GitHub read of a skills preview, install, update or check, each GitHub request of an Update and of the GitHub App's tokens, each request of a sign-in, its renewal and its revocation (a ChatGPT revocation with its retries takes at most twice this), each request of an MCP server's sign-in and of its token's refresh (every call to that server waits on a refresh), T3 Connect's sign-in code and its unlink, and a Model endpoint's model list, all its pages together. A request past it fails, and what waited on it with it; a longer limit holds a stalled one that long, and an agent's Stop during its skills install waits for the install, up to about 500 times this limit if every read stalls. At most ${MAX_TIMED_SECONDS} (a week). Applies at the next request.`,
     // Timed by t3flare's own AbortSignal.timeout, no platform limit (an outbound fetch has none): the shared sanity
     // maximum applies (ADR-0048 §2).
     schema: {
@@ -1206,7 +1229,7 @@ export const ENVIRONMENT_SETTINGS = {
   },
   mcpResultKiB: {
     title: "MCP result size (KiB)",
-    description: `The most of one MCP tool result t3flare takes, in KiB of UTF-8. A larger streamed result is refused whole, since it cannot be read in part; a larger inline one has its text cut to this, and its structured content dropped. The Environment holds a result whole while it reads it, beside t3, so a larger size uses more of its memory. At most ${MAX_MCP_RESULT_KIB} (${MAX_MCP_RESULT_KIB / 1024} MiB). Applies at the next call.`,
+    description: `The most of one MCP tool result t3flare takes, in KiB of UTF-8. A larger streamed result is refused whole, since it cannot be read in part; a larger inline one has its text cut to this, and its structured content dropped. It bounds an MCP App's page too, in bytes read and in characters: a larger App is refused and not shown. The Environment holds a result whole while it reads it, beside t3, so a larger size uses more of its memory. At most ${MAX_MCP_RESULT_KIB} (${MAX_MCP_RESULT_KIB / 1024} MiB). Applies at the next call and App read.`,
     // A provisional bound (`MAX_MCP_RESULT_KIB`): the Environment DO's isolate memory, by an estimate.
     schema: { type: "integer", minimum: 1, maximum: MAX_MCP_RESULT_KIB, default: DEFAULT_MCP_RESULT_KIB },
     tier: "down-free",
@@ -1216,6 +1239,27 @@ export const ENVIRONMENT_SETTINGS = {
     description: `How many times t3flare answers an MCP server that pauses one call for your approval or input (Executor's model mode): each pause is a card, or a decline when the card cannot be asked or goes unanswered. Past it, the call ends and the agent is told some of its steps may have run. At most ${MAX_MCP_PAUSES_PER_CALL}. Applies at the next call.`,
     // A sanity bound (`MAX_MCP_PAUSES_PER_CALL`): nothing forces a count, but some count ends a server that pauses forever.
     schema: { type: "integer", minimum: 1, maximum: MAX_MCP_PAUSES_PER_CALL, default: DEFAULT_MCP_PAUSES_PER_CALL },
+    tier: "down-free",
+  },
+  mcpConnectSeconds: {
+    title: "MCP server connect time limit (seconds)",
+    description: `How long t3flare waits for an MCP server to answer the first requests of each connection (its probe and its initialize), for a call, a discovery or a test. Past it the server is reported unreachable; a longer limit holds a dead server's calls and discovery that long. At most ${MAX_TIMED_SECONDS} (a week). Applies at the next connection to an MCP server.`,
+    // The MCP engine times it with the SDK's own timer, no platform limit: the shared sanity maximum applies (ADR-0048 §2).
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: DEFAULT_MCP_CONNECT_SECONDS },
+    tier: "down-free",
+  },
+  mcpListSeconds: {
+    title: "MCP server listing time limit (seconds)",
+    description: `How long t3flare lets one listing of an MCP server's tools, prompts or resources take, all its pages together. Past it that discovery fails and the server's agents get none of what it lists; a longer limit holds a slow or endless listing that long, its pages in memory. At most ${MAX_TIMED_SECONDS} (a week). Applies at the next discovery of an MCP server.`,
+    // The MCP engine times it with its own timer, no platform limit: the shared sanity maximum applies (ADR-0048 §2).
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: DEFAULT_MCP_LIST_SECONDS },
+    tier: "down-free",
+  },
+  mcpLogEntries: {
+    title: "MCP server logs kept per call",
+    description: `How many of an MCP server's last log messages (warning and above) t3flare keeps during one call; older ones are dropped. Each is held, up to 128 KiB, in the MCP Worker's memory until the call ends. At most ${MAX_MCP_LOG_ENTRIES}. Applies at the next MCP call.`,
+    // A sanity bound (`MAX_MCP_LOG_ENTRIES`), sized against the MCP Worker's isolate memory.
+    schema: { type: "integer", minimum: 1, maximum: MAX_MCP_LOG_ENTRIES, default: DEFAULT_MCP_LOG_ENTRIES },
     tier: "down-free",
   },
   cliMcpStartSeconds: {

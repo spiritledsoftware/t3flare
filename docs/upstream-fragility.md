@@ -883,7 +883,7 @@ Linked work writes as the Owner's own thread does, so the server reads nothing o
   not serve this process. A relayed server matches as pi names its tools: `mcp__<server>__` with every character but
   letters, digits and `_` replaced by `_` (pi 1.5.2 `docs/mcp.md`; the code is `createMcpToolName` in
   `@earendil-works/pi-mcp`'s `src/naming.ts`, bundled into pi, `.replace(/[^A-Za-z0-9_]/g, "_")`), so `my-docs` is
-  `mcp__my_docs__…` (SPI-1200 review; server names are `[a-z0-9-]{1,20}`, `SERVER_NAME`). After the prefix, a name whose
+  `mcp__my_docs__…` (SPI-1200 review; server names are `[a-z0-9-]+`, `SERVER_NAME`). After the prefix, a name whose
   rest starts with `_` or holds `__` is asked: it may be the tool of a server whose name only starts like a relayed one
   (`settings--x` and `settings__x` give `mcp__settings__x__…`, `settings-` gives `mcp__settings___…`; SPI-1201 review).
 - **Breaks when**: pi renames `mcp.json` or its keys, drops `${VAR}` expansion in headers, changes the `builtin:mcp`

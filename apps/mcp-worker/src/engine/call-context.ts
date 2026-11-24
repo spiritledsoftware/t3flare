@@ -178,6 +178,7 @@ export const openCall = Effect.fn("mcp.engine.openCall")(function* (
   hooks: McpEngineHooks,
   env: CallEnvironment,
   secrets: ReadonlyArray<string>,
+  logEntries?: number,
 ) {
   const budget = yield* ByteBudget;
   const context = yield* Effect.context<never>();
@@ -197,6 +198,7 @@ export const openCall = Effect.fn("mcp.engine.openCall")(function* (
   const logs = callLogs({
     now: () => Effect.runSyncWith(context)(Clock.currentTimeMillis),
     tokens: () => tokens,
+    ...(logEntries === undefined ? {} : { keep: logEntries }),
   });
 
   const base = {
@@ -288,9 +290,10 @@ export const withCall = Effect.fnUntraced(function* <A, E, R>(
   env: CallEnvironment,
   use: (call: CallContext) => Effect.Effect<A, E, R>,
   secrets: ReadonlyArray<string>,
+  logEntries?: number,
 ) {
   // Opened uninterruptibly with its release attached, so no interruption can leave the lease held.
-  return yield* Effect.acquireUseRelease(openCall(prior, hooks, env, secrets), use, (call, exit) =>
+  return yield* Effect.acquireUseRelease(openCall(prior, hooks, env, secrets, logEntries), use, (call, exit) =>
     Effect.sync(() => {
       if (Exit.isFailure(exit) || !call.handedOff()) {
         call.lease.release();

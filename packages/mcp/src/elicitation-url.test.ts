@@ -4,7 +4,7 @@
  */
 import * as Result from "effect/Result";
 import { describe, expect, it } from "vitest";
-import { checkElicitationUrl, ELICITATION_URL_MAX, registrableDomain } from "./elicitation-url.ts";
+import { checkElicitationUrl, registrableDomain } from "./elicitation-url.ts";
 
 const OWN = new Set(["t3flare.example.com", "t3flare-dev.example.workers.dev"]);
 
@@ -59,14 +59,8 @@ describe("the pages declined unseen", () => {
     expect(problemOf(url)).toMatchObject({ kind: "malformed" });
   });
 
-  it("is malformed over 8,192 characters, and fine at the limit", () => {
-    const base = "https://example.com/?q=";
-
-    expect(problemOf(`${base}${"a".repeat(ELICITATION_URL_MAX - base.length + 1)}`)).toEqual({
-      kind: "malformed",
-      reason: "the address is over 8192 characters",
-    });
-    expect(problemOf(`${base}${"a".repeat(ELICITATION_URL_MAX - base.length)}`)).toBeUndefined();
+  it("takes an address of any length", () => {
+    expect(problemOf(`https://example.com/?q=${"a".repeat(100_000)}`)).toBeUndefined();
   });
 });
 

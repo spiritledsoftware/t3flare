@@ -38,7 +38,9 @@ import {
   resolveEnvironment,
   RETENTION_SETTING_KEYS,
   MCP_CALL_SETTING_KEYS,
+  MCP_SERVER_SETTING_KEYS,
   MAX_MCP_RESULT_KIB,
+  MAX_MCP_LOG_ENTRIES,
   DEFAULT_MCP_CALL_MS,
   SWEEP_SETTING_KEYS,
   LIFECYCLE_SETTING_KEYS,
@@ -120,6 +122,9 @@ const TUNABLE_DEFAULTS = {
   piSessionRetentionDays: 60,
   mcpCallSeconds: 270,
   mcpResultKiB: 1024,
+  mcpConnectSeconds: 15,
+  mcpListSeconds: 120,
+  mcpLogEntries: 50,
   tempFilesHours: 24,
   gitReadsKept: 500,
   routerTraceEntries: 300,
@@ -716,6 +721,36 @@ describe("the MCP calls' time limit and result size (SPI-1359)", () => {
       expect(ENVIRONMENT_SETTINGS[key]).toMatchObject({ tier: "down-free" });
     expect(ENVIRONMENT_SETTINGS.mcpCallSeconds.description).toContain("it may have run on the server");
     expect(ENVIRONMENT_SETTINGS.mcpResultKiB.description).toContain("memory");
+  });
+});
+
+describe("the MCP layer's connect and listing time limits and its logs per call (SPI-1363)", () => {
+  const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
+  const KEYS = ["mcpConnectSeconds", "mcpListSeconds", "mcpLogEntries"] as const;
+
+  it("keep today's values by default, whole numbers from 1 to their maximum, named in the description", () => {
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({
+      mcpConnectSeconds: 15,
+      mcpListSeconds: 120,
+      mcpLogEntries: 50,
+    });
+    expect(ENVIRONMENT_SETTINGS.mcpConnectSeconds.schema.maximum).toBe(MAX_TIMED_SECONDS);
+    expect(ENVIRONMENT_SETTINGS.mcpListSeconds.schema.maximum).toBe(MAX_TIMED_SECONDS);
+    expect(ENVIRONMENT_SETTINGS.mcpLogEntries.schema.maximum).toBe(MAX_MCP_LOG_ENTRIES);
+    for (const key of KEYS) {
+      const { maximum } = ENVIRONMENT_SETTINGS[key].schema;
+      expect(set({ [key]: maximum })).toMatchObject({ ok: true });
+      for (const bad of [0, maximum + 1, 1.5]) expect(set({ [key]: bad })).toMatchObject({ ok: false });
+      expect(ENVIRONMENT_SETTINGS[key].description).toContain(`At most ${maximum}`);
+      expect(ENVIRONMENT_SETTINGS[key]).toMatchObject({ tier: "down-free" });
+    }
+    // The longest time limit stays under a JS timer's 2^31 - 1 ms.
+    expect(MAX_TIMED_SECONDS * 1000).toBeLessThan(2 ** 31 - 1);
+  });
+
+  it("are in an MCP servers row of their own, apart from the MCP calls row", () => {
+    expect(MCP_SERVER_SETTING_KEYS).toEqual(KEYS);
+    for (const key of KEYS) expect(MCP_CALL_SETTING_KEYS).not.toContain(key);
   });
 });
 

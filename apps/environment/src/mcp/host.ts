@@ -18,17 +18,18 @@ import {
   ENVIRONMENT_SETTINGS,
   type Exposure,
   MAX_SCHEMA_BYTES,
-  MAX_TOOLS_PER_SERVER,
   type McpServerSetting,
   mcpServersOf,
   ownEntry,
+  DO_VALUE_BYTES,
+  STORED_CHARACTER_BYTES,
+  storedBytes,
   type StoredHarness,
   type ToolClass,
   toolNamesOf,
 } from "@t3flare/harness-registry";
 import {
   appUriOfMeta,
-  MCP_APP_HTML_MAX_BYTES,
   type McpEngineDiscoverResult,
   type McpEngineHooks,
   type McpEnginePriorEncoded,
@@ -72,6 +73,7 @@ export interface McpEngineBinding {
 
 export const INVENTORY_TTL_MS = 10 * 60_000;
 /** What a streamed result past the MCP result size answers: the setting the Owner can raise, by its title and key. */
+const APP_TOO_LARGE = `The App's resource was larger than the Environment setting "${ENVIRONMENT_SETTINGS.mcpResultKiB.title}" (mcpResultKiB) allows, so t3flare refused it; the Owner can raise it`;
 const RESULT_TOO_LARGE = `The tool's result was larger than the Environment setting "${ENVIRONMENT_SETTINGS.mcpResultKiB.title}" (mcpResultKiB) allows, so t3flare refused it whole; the Owner can raise it`;
 
 /** The MCP result size's default in bytes (`mcpResultKiB`): a host given no setting (a test's) takes it. */
@@ -102,7 +104,8 @@ export interface Inventory {
   readonly error?: string;
   /** The definitions as the server gave them, by upstream name (what a call sends back as `tool`). */
   readonly definitions: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
-  readonly refused: ReadonlyArray<{ readonly tool: string; readonly reason: string }>;
+  /** The tools refused, by name; a cut list ends with an entry whose `more` counts the rest (`fitRefused`). */
+  readonly refused: ReadonlyArray<RefusedTool>;
   readonly instructions?: string;
 }
 
@@ -170,6 +173,12 @@ export interface McpHostDeps {
    */
   readonly callTimeoutMs?: () => number;
   /**
+   * The MCP servers' limits (SPI-1363), read as each call's target is made: how long a connection may take to start
+   * (`mcpConnectSeconds`) and one listing (`mcpListSeconds`), in ms, and how many server logs a call keeps
+   * (`mcpLogEntries`). Absent, the engine's defaults, which are the settings'.
+   */
+  readonly limits?: () => McpServerLimits;
+  /**
    * The MCP result size in bytes (`mcpResultKiB`, SPI-1359), read at each call: a larger streamed result is refused, a
    * larger inline one cut. Default: `DEFAULT_MCP_RESULT_KIB`.
    */
@@ -190,6 +199,24 @@ export interface McpHostDeps {
     readonly asker?: McpAsker;
     readonly signal?: AbortSignal;
   }) => Promise<McpCallAnswer>;
+}
+
+/** A tool the inventory refused, or (`more`) the closing entry of a cut list, counting the tools past it. */
+export interface RefusedTool {
+  readonly tool: string;
+  readonly reason: string;
+  readonly more?: number;
+}
+
+/** How many tools `refused` names, the ones past a cut included. */
+export const refusedCount = (refused: ReadonlyArray<RefusedTool>): number =>
+  refused.reduce((count, entry) => count + (entry.more ?? 1), 0);
+
+/** The MCP servers' limits a target carries (SPI-1363). */
+export interface McpServerLimits {
+  readonly connectTimeoutMs: number;
+  readonly listTimeoutMs: number;
+  readonly logEntries: number;
 }
 
 export class McpHost {
@@ -232,7 +259,16 @@ export class McpHost {
       redact.push(value);
     }
     const timeoutMs = this.#deps.callTimeoutMs?.() ?? DEFAULT_MCP_CALL_MS;
-    return { kind: "http", conn: name, name, url: server.url, headers, redact, timeoutMs };
+    return {
+      kind: "http",
+      conn: name,
+      name,
+      url: server.url,
+      headers,
+      redact,
+      timeoutMs,
+      ...this.#deps.limits?.(),
+    };
   }
 
   /** The engine's `auth` hook for an OAuth server: asked for a token, and again with `stale` after a 401. */
@@ -336,22 +372,25 @@ export class McpHost {
     }));
     let bytes = 0;
     for (const tool of result.tools) {
-      const size = JSON.stringify(tool).length;
-      if (Object.keys(definitions).length >= MAX_TOOLS_PER_SERVER || bytes + size > MAX_SCHEMA_BYTES) {
-        refused.push({ tool: tool.name, reason: "past the server's cap (200 tools, 256 KiB of schemas)" });
+      const size = storedBytes(tool);
+      if (bytes + size > MAX_SCHEMA_BYTES) {
+        refused.push({
+          tool: tool.name,
+          reason: `past the ${(MAX_SCHEMA_BYTES / 1024 / 1024).toFixed(1)} MiB of tool definitions one server's inventory holds`,
+        });
         continue;
       }
       bytes += size;
       definitions[tool.name] = tool as Readonly<Record<string, unknown>>;
     }
-    const next: Inventory = {
+    const rest = {
       server: name,
       listedAt: this.#now(),
-      status: "ok",
+      status: "ok" as const,
       definitions,
-      refused,
       ...(typeof result.instructions === "string" ? { instructions: result.instructions.slice(0, 4000) } : {}),
     };
+    const next: Inventory = { ...rest, refused: fitRefused(rest, refused) };
     // Forgotten meanwhile (removed, or added again): the old server's tools are not kept under the new one's name.
     if (generation !== this.#generation(name)) return this.inventory(name);
     this.#deps.kv.put(inventoryKey(name), next);
@@ -360,7 +399,7 @@ export class McpHost {
         t3flare: "mcp-listed",
         server: name,
         tools: Object.keys(definitions).length,
-        refused: refused.length,
+        refused: refusedCount(next.refused),
       }),
     );
     return next;
@@ -547,8 +586,10 @@ export class McpHost {
 
   /**
    * G11 (MCP apps, review L10): an App's `ui://` resource, read for a CLI through the relay: only a URI one of `server`'s
-   * own offered tools declares (`_meta.ui.resourceUri`), at most MCP_APP_HTML_MAX_BYTES of contents, the server's
-   * `ReadResourceResult` as it is otherwise.
+   * own offered tools declares (`_meta.ui.resourceUri`), the server's `ReadResourceResult` as it is, at most the MCP
+   * result size (`mcpResultKiB`, at most 8 MiB) in bytes read and in characters of its JSON passed on. The value crosses
+   * the relay's RPC (32 MiB) as UTF-16, two bytes a character once any character is past Latin-1, so characters, not
+   * bytes, are what must stay under half of it; the isolate holds a few copies of it while it reads (`MAX_MCP_RESULT_KIB`).
    */
   async readAppResource(input: {
     readonly server: string;
@@ -573,7 +614,7 @@ export class McpHost {
       result = await this.#deps.engine.request(
         target,
         this.#prior(input.server),
-        { op: "resources/read", uri: input.uri, app: true, ctx: { origin: "agent" } } as never,
+        { op: "resources/read", uri: input.uri, ctx: { origin: "agent" } } as never,
         this.#authHooks(input.server, server),
       );
     } catch (error) {
@@ -585,13 +626,15 @@ export class McpHost {
         kind: "refused",
         message: `The read failed (${result.kind === "failed" ? errorText(result.error) : result.kind}).`,
       };
-    const value =
+    const max = this.#resultBytes();
+    const read =
       result.result.kind === "inline"
-        ? result.result.value
-        : await readStream(result.result.body as ReadableStream<Uint8Array>, MCP_APP_HTML_MAX_BYTES * 2);
-    if (JSON.stringify(value).length > MCP_APP_HTML_MAX_BYTES * 2)
-      return { kind: "refused", message: "The App is larger than t3flare passes on." };
-    return { kind: "result", value };
+        ? { kind: "read" as const, value: result.result.value as unknown }
+        : await readBounded(result.result.body as ReadableStream<Uint8Array>, max);
+    if (read.kind === "tooLarge") return { kind: "refused", message: `${APP_TOO_LARGE} (over ${max} bytes).` };
+    const characters = JSON.stringify(read.value)?.length ?? 0;
+    if (characters > max) return { kind: "refused", message: `${APP_TOO_LARGE} (${characters} characters).` };
+    return { kind: "result", value: read.value };
   }
 
   /** One `tools/call` through the engine, its questions answered from the caller's cards: the result's value, or why not. */
@@ -805,12 +848,62 @@ const redactedResult = (value: unknown, max: number): { readonly isError: boolea
   };
 };
 
+/** The most characters of a refused tool's name and reason kept: both are the server's, and the list shares a value. */
+const REFUSED_TEXT_MAX = 300;
+
+/** What the closing "and N more" entry of a cut refused list may take stored. */
+const MORE_ENTRY_BYTES = 1024;
+
+/**
+ * `refused` as an inventory (`rest`, its other fields) can keep it in its one Durable Object value (`DO_VALUE_BYTES`):
+ * each name and reason cut to `REFUSED_TEXT_MAX`, and the list cut where it would pass the value, ending with how many
+ * more were refused. Without the cut a huge server's refusals would fail the write, and discovery would run again at
+ * every view.
+ */
+const fitRefused = (
+  rest: Omit<Inventory, "refused">,
+  refused: ReadonlyArray<{ readonly tool: string; readonly reason: string }>,
+): Inventory["refused"] => {
+  const cut = (text: string) => (text.length > REFUSED_TEXT_MAX ? `${text.slice(0, REFUSED_TEXT_MAX)}…` : text);
+  const room = DO_VALUE_BYTES - storedBytes({ ...rest, refused: [] }) - MORE_ENTRY_BYTES;
+  const kept: Array<{ readonly tool: string; readonly reason: string }> = [];
+  let used = 0;
+  for (const entry of refused) {
+    const shown = { tool: cut(entry.tool), reason: cut(entry.reason) };
+    const bytes = storedBytes(shown) + STORED_CHARACTER_BYTES;
+    if (used + bytes > room) break;
+    kept.push(shown);
+    used += bytes;
+  }
+  return kept.length === refused.length
+    ? kept
+    : [
+        ...kept,
+        {
+          tool: "…",
+          reason: `and ${refused.length - kept.length} more tools refused, past what one server's inventory holds`,
+          more: refused.length - kept.length,
+        },
+      ];
+};
+
 /** `body` read whole and parsed; a body past `max` bytes is refused (`tooLarge`), since JSON cannot be read in part. */
 const readStream = async (
   body: ReadableStream<Uint8Array>,
   max: number,
   tooLarge = "The tool's result was larger than t3flare takes",
 ): Promise<unknown> => {
+  const read = await readBounded(body, max);
+  return read.kind === "read"
+    ? read.value
+    : { isError: true, content: [{ type: "text", text: `${tooLarge} (${max} bytes).` }] };
+};
+
+/** `body` read whole and parsed, or `tooLarge` once it passes `max` bytes (the rest is not read). */
+const readBounded = async (
+  body: ReadableStream<Uint8Array>,
+  max: number,
+): Promise<{ readonly kind: "read"; readonly value: unknown } | { readonly kind: "tooLarge" }> => {
   const reader = body.getReader();
   const chunks: Array<Uint8Array> = [];
   let size = 0;
@@ -820,7 +913,7 @@ const readStream = async (
     size += value.byteLength;
     if (size > max) {
       await reader.cancel();
-      return { isError: true, content: [{ type: "text", text: `${tooLarge} (${max} bytes).` }] };
+      return { kind: "tooLarge" };
     }
     chunks.push(value);
   }
@@ -830,7 +923,7 @@ const readStream = async (
     all.set(chunk, at);
     at += chunk.byteLength;
   }
-  return JSON.parse(new TextDecoder().decode(all));
+  return { kind: "read", value: JSON.parse(new TextDecoder().decode(all)) };
 };
 
 /** `text` cut to at most `max` bytes of UTF-8, never inside a character. */

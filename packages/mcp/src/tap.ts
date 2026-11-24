@@ -2,13 +2,15 @@
  * The core's `fetch` tap: what the core does at the `fetch` seam, around the injected `fetch`, before the SDK sees a
  * response.
  *
- * - **Retries:** a 408 or 429 on the `server/discover` probe is retried once after `Retry-After` (at most 10 s, else
- *   1 s), then reads as unavailable, never as Legacy; read-only requests retry once on a 408, 429 or 5xx.
+ * - **Retries:** a 408 or 429 on the `server/discover` probe is retried once after `Retry-After` (1 s when absent),
+ *   then reads as unavailable, never as Legacy; read-only requests retry once on a 408, 429 or 5xx. A `Retry-After` the
+ *   request has no time left for (`TapClock.requestMs`) is not waited, and the answer stands.
  * - **Redirects:** a redirect to another origin fails the request, with no further request.
  * - **Byte limits:** counted over the raw body or the whole SSE stream; a `Content-Length` over the limit is refused
  *   before reading.
  * - **Resumes:** a Legacy request stream that ends without its answer, having carried an event id, is resumed by the
- *   tap itself with `GET` and `Last-Event-ID`, after the server's `retry` (0.5–10 s); the SDK is handed one stream, and
+ *   tap itself with `GET` and `Last-Event-ID`, after the server's `retry` (1 s when absent; one as long as the request's
+ *   time limit cuts it instead); the SDK is handed one stream, and
  *   only the request's own events from the resumed one. Two resumes failing in a row is a cut.
  * - **Cuts:** an SSE stream that ends without its answer, and cannot be resumed, fails its request at once, since the
  *   SDK neither reconnects nor fails it (it drops `onRequestStreamEnd` for requests).
@@ -31,7 +33,6 @@ import * as Schema from "effect/Schema";
 import { MODERN_PROTOCOL_VERSION } from "./protocol.ts";
 import {
   Cut,
-  MCP_APP_READ_BYTES,
   MCP_LARGE_RESULT_BYTES,
   McpError,
   MiB,
@@ -82,17 +83,8 @@ const POLICIES = new Map<string, Policy>([
   ["tasks/cancel", { ...OTHER, mayHaveRun: true }],
 ]);
 
-/** An App's read of its `ui://` resource: its HTML, which `MCP_APP_READ_BYTES` bounds, and not a large read. */
-const APP_READ: Policy = { ...LARGE_READ, limit: MCP_APP_READ_BYTES };
-
-/**
- * `method`'s policy; `app` says the request is an App's read of its HTML (`APP_READ_HEADER`). Who reads decides, not the
- * URI: an agent's read of a `ui://` resource has the 16 MiB every read has.
- */
-const policyOf = (method: string, app: boolean) =>
-  method === "resources/read" && app ? APP_READ : (POLICIES.get(method) ?? OTHER);
-
-const MAX_RETRY_AFTER_MS = 10_000;
+/** `method`'s policy. An App's read of its `ui://` HTML is a read like any other, with its 16 MiB. */
+const policyOf = (method: string) => POLICIES.get(method) ?? OTHER;
 
 const DEFAULT_RETRY_AFTER_MS = 1000;
 
@@ -129,12 +121,6 @@ export class Verdicts {
  * token (`Ties`).
  */
 export const CALL_HEADER = "x-t3flare-call";
-
-/**
- * The header the core puts on an App's read of its `ui://` resource (`readResource`'s `app`), which `MCP_APP_READ_BYTES`
- * bounds. Removed by the tap like `CALL_HEADER`.
- */
-export const APP_READ_HEADER = "x-t3flare-app-read";
 
 /**
  * Which call each server request on a POST response stream belongs to. A question on any other stream,
@@ -200,6 +186,11 @@ const completionKey = (token: string, elicitationId: string) => `${token}\u0000$
 export interface TapClock {
   readonly now: () => number;
   readonly sleep: (ms: number) => Promise<void>;
+  /**
+   * How long a request of `method` may take in all (the connection's timeout for it): no wait the tap makes for it, a
+   * `Retry-After` or a resume's `retry`, outlasts it. Absent, the waits are as the server asks.
+   */
+  readonly requestMs?: (method: string) => number;
 }
 
 /** A JSON-RPC id: a request's is a string or a number; an answer's may be null. */
@@ -243,13 +234,11 @@ interface Outgoing {
   readonly policy: Policy;
 }
 
-const outgoing = (init: RequestInit | undefined, app: boolean): Outgoing | undefined =>
+const outgoing = (init: RequestInit | undefined): Outgoing | undefined =>
   Option.match(decodeMessage(init?.body), {
     onNone: () => undefined,
     onSome: ({ id, method }) =>
-      id === undefined || id === null || method === undefined
-        ? undefined
-        : { id, method, policy: policyOf(method, app) },
+      id === undefined || id === null || method === undefined ? undefined : { id, method, policy: policyOf(method) },
   });
 
 const JsonRpcAnswer = Schema.Struct({
@@ -263,7 +252,7 @@ const decodeJsonRpcBody = Schema.decodeUnknownOption(
 
 const mediaType = (response: Response) => response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
 
-/** `Retry-After` as a delay: seconds or an HTTP date, at most 10 s; 1 s when absent or unreadable. */
+/** `Retry-After` as a delay: seconds or an HTTP date; 1 s when absent or unreadable. */
 const retryAfter = (response: Response, now: number) => {
   const header = response.headers.get("retry-after");
 
@@ -274,7 +263,7 @@ const retryAfter = (response: Response, now: number) => {
   const seconds = Number(header);
   const delay = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header) - now;
 
-  return Number.isFinite(delay) ? Math.min(Math.max(delay, 0), MAX_RETRY_AFTER_MS) : DEFAULT_RETRY_AFTER_MS;
+  return Number.isFinite(delay) ? Math.max(delay, 0) : DEFAULT_RETRY_AFTER_MS;
 };
 
 /** A status that may pass if tried again. */
@@ -331,9 +320,7 @@ const EVENT_LIMIT = MiB;
 /** How many resumes in a row may fail before the request is cut: the SDK's own `maxRetries`. */
 const MAX_RESUME_FAILURES = 2;
 
-/** The server's `retry` is waited out within these bounds; with none, the SDK's own first delay. */
-const MIN_RESUME_MS = 500;
-const MAX_RESUME_MS = 10_000;
+/** With no `retry` from the server, a resume waits the SDK's own first delay. */
 const DEFAULT_RESUME_MS = 1000;
 
 /**
@@ -438,6 +425,11 @@ const Reopened = Data.taggedEnum<Reopened>();
 interface Resume {
   readonly open: (lastEventId: string) => Promise<Reopened>;
   readonly sleep: (ms: number) => Promise<void>;
+  /**
+   * The most a resume waits: the request's whole time limit, not what it has left, since a call's clock stands still
+   * while a question waits and the tap cannot see it. A server's longer `retry` cuts the request instead.
+   */
+  readonly maxWaitMs: number;
   /** The request was aborted, so nothing more is wanted of it. */
   readonly aborted: () => boolean;
 }
@@ -550,7 +542,11 @@ class Resumer {
     for (;;) {
       if (this.failures >= MAX_RESUME_FAILURES) return failed();
 
-      await resume.sleep(Math.min(Math.max(this.retryMs ?? DEFAULT_RESUME_MS, MIN_RESUME_MS), MAX_RESUME_MS));
+      const wait = Math.max(this.retryMs ?? DEFAULT_RESUME_MS, 0);
+
+      if (wait >= resume.maxWaitMs) return failed();
+
+      await resume.sleep(wait);
 
       if (this.stopped() || resume.aborted()) return Resumption.Stopped();
 
@@ -864,20 +860,18 @@ export interface TapObserver {
   readonly get?: (event: { readonly status: number } | { readonly ended: true }) => void;
 }
 
-/** `init` without the core's own headers, the token the call header carried, and whether the request is an App's read. */
+/** `init` without the core's own header, and the token the call header carried. */
 const withoutCoreHeaders = (init: RequestInit | undefined) => {
-  if (init?.headers === undefined) return { init, token: undefined, app: false };
+  if (init?.headers === undefined) return { init, token: undefined };
 
   const headers = new Headers(init.headers);
   const token = headers.get(CALL_HEADER) ?? undefined;
-  const app = headers.has(APP_READ_HEADER);
 
-  if (token === undefined && !app) return { init, token, app };
+  if (token === undefined) return { init, token };
 
   headers.delete(CALL_HEADER);
-  headers.delete(APP_READ_HEADER);
 
-  return { init: { ...init, headers }, token, app };
+  return { init: { ...init, headers }, token };
 };
 
 /** The tap over `fetch` for one connection. */
@@ -935,6 +929,7 @@ export const tapFetch = (
 
     return {
       sleep: clock.sleep,
+      maxWaitMs: clock.requestMs?.(request.method) ?? Number.POSITIVE_INFINITY,
       aborted: () => init.signal?.aborted === true,
       open: async (lastEventId) => {
         const headers = new Headers(post);
@@ -969,24 +964,35 @@ export const tapFetch = (
   };
 
   return async (input, given) => {
-    const { init, token, app } = withoutCoreHeaders(given);
-    const request = outgoing(init, app);
+    const { init, token } = withoutCoreHeaders(given);
+    const request = outgoing(init);
+    const started = clock.now();
     let response = await send(input, init, request);
 
     observer?.response(response.status);
 
-    if (shouldRetry(request, response.status)) {
-      observer?.retried();
-      await drain(response.body);
-      await clock.sleep(retryAfter(response, clock.now()));
-      response = await send(input, init, request);
-      observer?.response(response.status);
+    if (request !== undefined && shouldRetry(request, response.status)) {
+      const now = clock.now();
+      const wait = retryAfter(response, now);
+      const left = (clock.requestMs?.(request.method) ?? Number.POSITIVE_INFINITY) - (now - started);
 
-      if (request?.policy.probe === true && (response.status === 408 || response.status === 429)) {
+      // A wait the request has no time left for is not waited: the answer stands, as a second one would.
+      if (wait < left) {
+        observer?.retried();
+        await drain(response.body);
+        await clock.sleep(wait);
+        response = await send(input, init, request);
+        observer?.response(response.status);
+      }
+
+      if (request.policy.probe && (response.status === 408 || response.status === 429)) {
         await drain(response.body);
 
         throw Unreachable.make({
-          message: `The server answered HTTP ${response.status} twice; try again later`,
+          message:
+            wait < left
+              ? `The server answered HTTP ${response.status} twice; try again later`
+              : `The server answered HTTP ${response.status} and asked to wait longer than the connect may take; try again later`,
           status: response.status,
         });
       }

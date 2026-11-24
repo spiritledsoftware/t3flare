@@ -2249,7 +2249,8 @@ const m6 = async (item: string) => {
     return;
   }
   if (item === "1.3") {
-    // 17 threads started from the harness, each asking one distinct Variable change, every card left open.
+    // 17 threads started from the harness, each asking one distinct Variable change, every card left open. No cap spans
+    // the Environment (SPI-1363): each caller's own limits bound its open changes, so all 17 wait.
     const env = await environment();
     const threads: Array<{ n: number; threadId: string; run?: Promise<any> }> = [];
     let release = false;
@@ -2266,37 +2267,23 @@ const m6 = async (item: string) => {
           { timeoutMs: 15 * 60_000 },
         ),
       });
-      // The 17th waits for the other 16 to be open.
-      if (n === 16) {
-        const started = Date.now();
-        while (Date.now() - started < 8 * 60_000 && (await openChanges()).length < 16) await sleep(3000);
-      }
     }
-    const seventeenth = await threads[16]!.run!;
+    const started = Date.now();
+    while (Date.now() - started < 8 * 60_000 && (await openChanges()).length < 17) await sleep(3000);
     const listed = await openChanges();
     const pendingCards: Array<string> = [];
-    for (const t of threads.slice(0, 16)) {
+    for (const t of threads) {
       const projection = projectionOf(await threadWindow(cookie, t.threadId));
       if ((projection?.runtimeRequests ?? []).some((r: any) => r.status === "pending")) pendingCards.push(t.threadId);
     }
     release = true;
-    const closed = await Promise.all(threads.slice(0, 16).map((t) => t.run!));
-    const ok =
-      listed.length === 16 &&
-      pendingCards.length === 16 &&
-      reasonIn(seventeenth.output) === "open-across" &&
-      /Open changes/.test(seventeenth.output) &&
-      seventeenth.cards.length === 0;
+    const closed = await Promise.all(threads.map((t) => t.run!));
+    const ok = listed.length === 17 && pendingCards.length === 17;
     await record(FILE, "1.3", {
-      name: "17 asking at once: 16 cards open and 16 Open changes listed; the 17th is refused open-across naming the panel's Open changes list, with no card",
+      name: "17 asking at once: 17 cards open and 17 Open changes listed; none is refused for the others",
       how: "17 Durable threads started from the harness (not t3 delegation): a parent delegating 17 children would spend 17 model turns to make the same 17 calls; each thread is a caller of its own as a child's is",
       openChanges: listed.map((c) => ({ id: c.id, thread: c.thread ?? null, state: c.state ?? null })),
       pendingCardThreads: pendingCards.length,
-      seventeenth: {
-        threadId: threads[16]!.threadId,
-        cards: seventeenth.cards,
-        output: seventeenth.output.slice(0, 1500),
-      },
       cleanup: closed.map((c) => statusIn(c.output)),
       verdict: ok ? "pass" : "fail",
     });

@@ -69,6 +69,25 @@ describe("the Settings server's entry", () => {
     expect(mcpServersOf(off.harness).settings).toMatchObject({ kind: "settings", enabled: true, writes: false });
   });
 
+  it("a Direct server's name keeps its characters at any length; its tools' names are held to 64 on their own", () => {
+    const long = "a-very-long-server-name-past-twenty";
+    const added = applyMcpChange(EMPTY_HARNESS, {
+      op: "add",
+      server: long,
+      url: "https://x.example/mcp",
+      auth: { kind: "none" },
+    });
+    expect(added.ok).toBe(true);
+    expect(
+      applyMcpChange(EMPTY_HARNESS, {
+        op: "add",
+        server: "Bad_Name",
+        url: "https://x.example/mcp",
+        auth: { kind: "none" },
+      }),
+    ).toEqual({ ok: false, error: "Bad_Name: a name of a-z, 0-9 and -" });
+  });
+
   it("its name is reserved: no Direct server may be added as settings", () => {
     expect(
       applyMcpChange(EMPTY_HARNESS, {

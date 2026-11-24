@@ -688,3 +688,49 @@ and a parsed listing about 20 times. Every other command, t3's git reads and act
 default as before: its answer is still tailed to 64 KiB without a word, which a follow-up ticket owns; failing those
 past a size broke t3 features that read a long answer's head (a generated commit message's staged patch, a PR's range,
 the review panel's diff).
+
+## Refinement (SPI-1363, 2026-11-23): the MCP layer's time limits, sizes and logs
+
+The MCP engine's, the MCP Worker's and the MCP host's fixed values were each removed, derived, or made a setting.
+
+New Environment settings in an MCP servers row of their own, after the MCP calls row (`MCP_SERVER_SETTING_KEYS`), each
+with today's value as its default, read as each call's target is
+made, and `down-free` (longer holds a dead or slow server longer; more logs take more of the MCP Worker's memory):
+
+| Setting             | Default | Maximum                                     | What it bounds                                              |
+| ------------------- | ------- | ------------------------------------------- | ----------------------------------------------------------- |
+| `mcpConnectSeconds` | 15      | `MAX_TIMED_SECONDS` (a week)                | a connection's probe and `initialize`                       |
+| `mcpListSeconds`    | 120     | `MAX_TIMED_SECONDS` (a week)                | one listing of a server, all its pages together             |
+| `mcpLogEntries`     | 50      | `MAX_MCP_LOG_ENTRIES` (200, a sanity bound) | a call's last server logs, up to 128 KiB each in the Worker |
+
+Reused: the Outside request time limit (`outsideRequestSeconds`) now bounds each request of an MCP server's OAuth
+sign-in and token refresh in the MCP Worker, and its revocation and Client Credentials grant where they are called; its
+default is the 15 s each had (revocation's 5 s is gone).
+
+Derived from the server's call timeout (`mcpCallSeconds`), with no lower bound under it: a `resources/read`, a
+`prompts/get` and a one-page list (no 30 s clamp), each `tasks/*` request (not 30 s), a completion (not 5 s) and a
+listen's acknowledgement (not 10 s). A list page has no deadline of its own: the listing's does it. The tap waits a
+`Retry-After` as long as the server asks, unless the request has no time left for it, and then does not retry; it waits
+a resume's `retry` as asked, unless that reaches the request's whole time limit, and then cuts the request.
+
+Removed: the elicitation form's bounds (32 fields, 100 options, 64 KiB of schema, 16 KiB a value, 64 KiB an answer) and
+its labels' cuts (the message's 4,000, titles' 120, descriptions' 500, options' 200, quoted names' 60); the card's own
+cuts of the agent's call (8 KiB) and its titles (200); a page question's 8,192-character address, which now stays outside
+the card's cut, whole; a `ui://` URI's 2,048; an App's 4 MiB of HTML and its 12 MiB read (the App's read is now held to the MCP result
+size, below); the 64 KiB a Modern server's `server/discover` was kept to; the 20 characters of a direct server's name
+(its tools' names stay held to 64); a structured result's 5 validation errors; the 32 and 64 characters a token type and
+an OAuth error code were cut to; and the dead `MCP_ELICITATIONS_PER_CALL`, `MCP_PROMPT_GET_TIMEOUT_MS`,
+`MAX_TOKEN_BYTES`, `MCP_MAX_WAIT_MS` with the request-start schema that named it, and the stdio bridge's connect
+timeout (stdio is refused; when it returns, its connect limit follows the Container's start limits).
+
+Kept, with their constraints named where they are set: the tool definitions one server's inventory keeps, now half of
+its one 8 MB Durable Object value in stored bytes (`MAX_SCHEMA_BYTES`), with no count of tools (was 200 tools and 256
+KiB); and the remote-controlled bodies of a sign-in (metadata, discovery, a token response), raised to 1 MiB, the tap's
+bound on any other MCP answer, under the 128 MB isolate they are read into and the 8 MB value they may be kept in.
+
+Bounded by what carries them: a server's question is declined unseen, saying why, when its card would pass 1 MiB stored
+(`MCP_CARD_BYTES`), since a card is pushed to t3 as one request and kept in its 8 MB event row, and a question arrives in
+a `tools/call` body or a pause's result, which hold far more; an App's resource is read at the MCP result size
+(`mcpResultKiB`, at most 8 MiB) and refused past it in characters, since it crosses the relay's 32 MiB RPC as UTF-16; and
+a server's refused tools are cut, names and reasons to 300 characters and the list to what the inventory's value has
+left, ending with how many more were refused.

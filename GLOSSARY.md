@@ -247,17 +247,18 @@ the Variables, whether Terminals and CLI agents read the Owner's dotfiles, how l
 prompt and how much Terminal history t3 keeps, which Container ports a preview reaches and how long a port check waits,
 how long usage records, Pi's and Claude Code's sessions and temp files are kept, how many git answers and traced
 commands are kept, how long an MCP call may run and how large a result it takes, how long a request to GitHub, a
-sign-in's vendor, T3 Connect or a Model endpoint's model list may wait (`outsideRequestSeconds`), how many of a
-repository's skills are listed and how far its skills and Prompt templates directories are read (`repoSkillsListed`,
-`skillsDirectoryEntries`, `skillsLinkEntries`, `promptsDirectoryEntries`), how long a failed Base build waits to retry,
-how long the Environment waits idle and what wakes it (`idleAfterSeconds`, `prWatchWakeMinutes`, `remoteRetryMinutes`,
-`safeModeAfterFailures`), how long text generation may take and how long GitHub is left before it is asked again
-(`textGenerationSeconds`, `githubRetrySeconds`), the MCP calls' pauses, start wait and sign-in time (`mcpPausesPerCall`,
-`cliMcpStartSeconds`, `mcpSignInMinutes`), the preview browsers' cadences (`browserProfileSaveSeconds`,
-`htmlBrowserKeepAliveSeconds`), the Settings page's token, the Owner clients kept and T3 Connect's publish log
-(`pageTokenHours`, `clientsPerKey`, `connectPublishLogKept`), how often a failed model request is tried again and a
-stopped command's processes killed (`durableRetries`, `cliRetries`, `killAttempts`), t3's trace file (`traceKiB`,
-`traceFiles`), and the Grace.
+sign-in's vendor, an MCP server's OAuth sign-in or token refresh, T3 Connect or a Model endpoint's model list may wait
+(`outsideRequestSeconds`), how many of a repository's skills are listed and how far its skills and Prompt templates
+directories are read (`repoSkillsListed`, `skillsDirectoryEntries`, `skillsLinkEntries`, `promptsDirectoryEntries`), how
+long a failed Base build waits to retry, how long the Environment waits idle and what wakes it (`idleAfterSeconds`,
+`prWatchWakeMinutes`, `remoteRetryMinutes`, `safeModeAfterFailures`), how long text generation may take and how long
+GitHub is left before it is asked again (`textGenerationSeconds`, `githubRetrySeconds`), the MCP calls' pauses, start
+wait and sign-in time (`mcpPausesPerCall`, `cliMcpStartSeconds`, `mcpSignInMinutes`), the MCP servers row's connect and
+listing time limits and the logs a call keeps (`mcpConnectSeconds`, `mcpListSeconds`, `mcpLogEntries`), the preview
+browsers' cadences (`browserProfileSaveSeconds`, `htmlBrowserKeepAliveSeconds`), the Settings page's token, the Owner
+clients kept and T3 Connect's publish log (`pageTokenHours`, `clientsPerKey`, `connectPublishLogKept`), how often a
+failed model request is tried again and a stopped command's processes killed (`durableRetries`, `cliRetries`,
+`killAttempts`), t3's trace file (`traceKiB`, `traceFiles`), and the Grace.
 t3flare's own, not t3's server settings.
 _Avoid_: environment config, server settings, Container settings
 

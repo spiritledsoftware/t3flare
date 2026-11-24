@@ -452,9 +452,9 @@ describe("Settings page", () => {
     expect(shown).toMatch(/data-setting="askedPerHour"[^>]*value="12"/);
     // Out of range, or on a Direct server: refused, and nothing stored.
     const revision = store.load().revision;
-    const refused = await post({ op: "server", server: "settings", limits: { ...limits, openPerOwner: 17 } });
+    const refused = await post({ op: "server", server: "settings", limits: { ...limits, openPerOwner: 1001 } });
     expect(refused.status).toBe(400);
-    expect(await refused.text()).toContain("limits.openPerOwner: at most 16");
+    expect(await refused.text()).toContain("limits.openPerOwner: at most 1000");
     expect(store.load().revision).toBe(revision);
   });
 

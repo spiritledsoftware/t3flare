@@ -1,6 +1,6 @@
 /**
  * The server logs of one engine call: each
- * `notifications/message` the core hears is kept as an entry, the last 50, and goes back to the host in the call's
+ * `notifications/message` the core hears is kept as an entry, the last `keep` (the host's `mcpLogEntries`), and goes back to the host in the call's
  * result, since a discovery passes no hooks and a function stub would not outlive its invocation anyway. Entries are
  * scrubbed of the call's access tokens and of the secrets of its target (`secretsOf`; a server may echo what it
  * was sent, and all are in the call's `tokens`), and their data is cut to 2 KiB, after the scrub so no token is left cut in half. Nothing here reaches a model.
@@ -121,7 +121,10 @@ export const callLogs = (input: {
   readonly now: () => number;
   /** What to scrub: the tokens the call has sent so far and the Secrets it was given, asked when the entries are made. */
   readonly tokens: () => ReadonlySet<string>;
+  /** How many of the last entries are kept (the host's `mcpLogEntries`); `MCP_LOG_RING` when the target names none. */
+  readonly keep?: number;
 }) => {
+  const keep = input.keep ?? MCP_LOG_RING;
   const raw: Array<Raw> = [];
 
   return {
@@ -133,7 +136,7 @@ export const callLogs = (input: {
         text: textOf(log).slice(0, RAW_LIMIT),
       });
 
-      if (raw.length > MCP_LOG_RING) raw.shift();
+      if (raw.length > keep) raw.shift();
     },
     entries: (): ReadonlyArray<McpLogEntry> => {
       const hidden = input.tokens();
