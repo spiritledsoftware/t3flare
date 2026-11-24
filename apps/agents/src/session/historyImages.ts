@@ -8,14 +8,7 @@
 // (1.5.0 `harness/compaction.js`, `serializeConversation`).
 import type { ImageContent, Message, TextContent } from "@earendil-works/pi-ai";
 import { defineExtension, type Extension, GenerationTask, hook } from "@earendil-works/pi-durable";
-import { mebibytes } from "@t3flare/session-protocol";
-
-/**
- * The note for an image left out because the model's API takes at most `perImageBase64` of base64 in one image; shared
- * by the tool-result intake (`imagesOf`) and the history hook. `subject` names the image, with a capital.
- */
-export const imageTooLargeNote = (subject: string, base64Length: number, perImageBase64: number): string =>
-  `[${subject} (${mebibytes(base64Length)} of base64) is not shown: this model's API takes at most ${mebibytes(perImageBase64)} in one image.]`;
+import { imageTooLargeNote } from "@t3flare/session-protocol";
 
 type Block = TextContent | ImageContent | { readonly type: string };
 

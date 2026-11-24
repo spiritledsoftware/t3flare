@@ -99,6 +99,14 @@ export const MIB = 1024 * 1024;
 export const mebibytes = (bytes: number): string => `${(bytes / MIB).toFixed(1)} MiB`;
 
 /**
+ * The note for an image left out because the model's API takes at most `perImageBase64` of base64 in one image
+ * (`perImageBase64Of`): the Session's tool-result intake and its history hook (SPI-1376) both say it. `subject` names
+ * the image, with a capital.
+ */
+export const imageTooLargeNote = (subject: string, base64Length: number, perImageBase64: number): string =>
+  `[${subject} (${mebibytes(base64Length)} of base64) is not shown: this model's API takes at most ${mebibytes(perImageBase64)} in one image.]`;
+
+/**
  * The bytes the character at `at` takes in a JSON string. Only a surrogate pair, two UTF-16 units, takes 4; a lone
  * surrogate is escaped as `\udxxx`, as JSON.stringify writes it.
  */

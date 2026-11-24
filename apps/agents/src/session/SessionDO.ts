@@ -494,17 +494,17 @@ export class SessionDO extends DurableObject<SessionEnv> {
     return { baseUrl: endpoint.baseUrl, headers: endpoint.headers, apiKey: credential.apiKey, slug, modelId: model.id };
   }
 
-  /**
-   * Installs (or removes) the switchable extensions (web, SPI-1054; todo, SPI-1055; context, SPI-1056), then code mode and tool search, as `harness` says:
-   * code mode's namespaces and tool search's deferral cover the tools installed before them. pi-durable applies it from
-   * the next phase.
-   */
   /** The limit on one image of the API the turn runs on (its provider, kept at the turn's start; `perImageBase64Of`). */
   #turnPerImageBase64(): number | undefined {
     const provider = this.ctx.storage.kv.get<string>(TURN_PROVIDER_KEY);
     return perImageBase64Of(provider === undefined ? undefined : this.#endpoints.endpoint(provider)?.api);
   }
 
+  /**
+   * Installs (or removes) the switchable extensions (web, SPI-1054; todo, SPI-1055; context, SPI-1056), then code mode and tool search, as `harness` says:
+   * code mode's namespaces and tool search's deferral cover the tools installed before them. pi-durable applies it from
+   * the next phase.
+   */
   #installHarness(harness: ResolvedHarness): void {
     const registry = this.#registryWriter;
     const tools = resolvedToolsOf(harness);

@@ -4,6 +4,7 @@
 // provider session released): t3's tools are unavailable until the next turn brings a fresh one.
 // @effect-diagnostics globalConsole:off
 import {
+  imageTooLargeNote,
   jsonPartBytes,
   jsonTextBytes,
   type McpRpcAnswer,
@@ -15,7 +16,6 @@ import {
 } from "@t3flare/session-protocol";
 
 import type { CatalogTool, McpCallAnswer } from "../extensions/t3-mcp.ts";
-import { imageTooLargeNote } from "./historyImages.ts";
 
 export const MCP_PROTOCOL_VERSION = "2025-06-18";
 
