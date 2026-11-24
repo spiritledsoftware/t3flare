@@ -154,6 +154,11 @@ export interface GitRun {
   readonly readScope?: "git-dir" | "repo";
   /** The caller's id for this run, by which `cancelRun` ends it when t3 gives up on it (SPI-1364). */
   readonly runId?: string;
+  /**
+   * The Environment's epoch (its boot count) when a run with a `runId` was sent: once the Environment is at a newer one,
+   * the t3 that could cancel the run is gone, and the Workspace ends it (SPI-1382).
+   */
+  readonly environmentEpoch?: number;
 }
 
 export type GitAnswer =

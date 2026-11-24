@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   CANCEL_KILL_AFTER_MS,
   CANCELLABLE_RUN_MS,
+  dropOrphanedRuns,
   EARLY_CANCEL_MS,
   gitDeadlineMs,
   RunCancels,
@@ -73,6 +74,98 @@ describe("RunCancels and a run id no RPC opened", () => {
     h.cancels.started("stray", stray);
     expect(h.cancels.cancel("stray")).toBe(false);
     expect(stray.signals).toEqual([]);
+  });
+});
+
+describe("RunCancels and the Environment's epoch (SPI-1382)", () => {
+  it("a newer epoch ends the runs begun under an older one, TERM then KILL; runs of the same epoch survive", () => {
+    const h = harness();
+    const old = h.run();
+    const current = h.run();
+    h.cancels.begin("old", 3);
+    h.cancels.started("old", old);
+    h.cancels.begin("current", 4);
+    h.cancels.started("current", current);
+    expect(h.cancels.dropBefore(4)).toEqual([{ id: "old", epoch: 3, environmentEpoch: 4 }]);
+    expect(old.signals).toEqual(["SIGTERM"]);
+    h.later[0]!.run();
+    expect(old.signals).toEqual(["SIGTERM", "SIGKILL"]);
+    expect(current.signals).toEqual([]);
+    expect(h.cancels.oldestEpoch()).toBe(4);
+  });
+
+  it("ends a dropped run that had not started yet as it starts, and drops it once", () => {
+    const h = harness();
+    h.cancels.begin("old", 3);
+    expect(h.cancels.dropBefore(4)).toEqual([{ id: "old", epoch: 3, environmentEpoch: 4 }]);
+    expect(h.cancels.dropBefore(5)).toEqual([]);
+    const run = h.run();
+    h.cancels.started("old", run);
+    expect(run.signals).toEqual(["SIGTERM"]);
+  });
+
+  it("never drops a run that carries no epoch, nor one that answered", () => {
+    const h = harness();
+    const bare = h.run();
+    h.cancels.begin("bare");
+    h.cancels.started("bare", bare);
+    h.cancels.begin("done", 1);
+    h.cancels.end("done");
+    expect(h.cancels.oldestEpoch()).toBeUndefined();
+    expect(h.cancels.dropBefore(9)).toEqual([]);
+    expect(bare.signals).toEqual([]);
+  });
+});
+
+describe("dropOrphanedRuns, the Workspace's alarm (SPI-1382)", () => {
+  /** A Workspace's running count, as `exec` keeps it: a run counts until its exec ends, which a kill makes it do. */
+  const workspace = () => {
+    const h = harness();
+    let running = 0;
+    const exec = (id: string, epoch: number) => {
+      running++;
+      h.cancels.begin(id, epoch);
+      h.cancels.started(id, {
+        kill: async () => {
+          if (running > 0) running--;
+          h.cancels.end(id);
+        },
+      });
+    };
+    return { h, exec, running: () => running };
+  };
+
+  it("drops an open run from an older epoch, and the idle stop then proceeds", async () => {
+    const w = workspace();
+    w.exec("orphan", 3);
+    expect(w.running()).toBe(1);
+    const asked: Array<number> = [];
+    const dropped = await dropOrphanedRuns(w.h.cancels, async () => {
+      asked.push(4);
+      return 4;
+    });
+    expect(dropped).toEqual([{ id: "orphan", epoch: 3, environmentEpoch: 4 }]);
+    await Promise.resolve();
+    expect(asked).toEqual([4]);
+    expect(w.running()).toBe(0);
+    expect(w.h.cancels.oldestEpoch()).toBeUndefined();
+  });
+
+  it("keeps a run of the Environment's current epoch", async () => {
+    const w = workspace();
+    w.exec("live", 4);
+    expect(await dropOrphanedRuns(w.h.cancels, async () => 4)).toEqual([]);
+    expect(w.running()).toBe(1);
+  });
+
+  it("asks the Environment nothing while no cancellable run is open, and drops nothing when it cannot answer", async () => {
+    const w = workspace();
+    let asks = 0;
+    expect(await dropOrphanedRuns(w.h.cancels, async () => ++asks)).toEqual([]);
+    expect(asks).toBe(0);
+    w.exec("r", 3);
+    expect(await dropOrphanedRuns(w.h.cancels, () => Promise.reject(new Error("unreachable")))).toEqual([]);
+    expect(w.running()).toBe(1);
   });
 });
 

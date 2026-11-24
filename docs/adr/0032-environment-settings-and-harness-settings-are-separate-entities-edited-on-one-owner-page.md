@@ -657,6 +657,7 @@ Derived, not set: t3's git commands end when t3 gives up on them. t3 times each 
 then asks the Workspace to end that run (`cancelRun`, TERM then KILL after t3's own 1 s), however long the run's
 Container took to start. A run t3 can cancel takes no `commandMinutes` cut: its deadline is `CANCELLABLE_RUN_MS`, the
 shared sanity maximum (`MAX_TIMED_MINUTES`), a backstop for a run whose cancel cannot come (the Environment restarted).
+(Superseded in part by the SPI-1382 refinement below: such a run is ended once the Workspace learns of the restart.)
 A killed read's answer is never cached (computer's `cancelled` status; a timeout's kill was cached before, since
 computer never reports `timeout`). The process backstop is later than both cleanups it backs up, so only a process both
 missed reaches it: t3 releases a silent session `CLI_SESSION_RELEASE_MS` after it goes idle, but pins it instead while
@@ -799,3 +800,20 @@ shows it) or Advanced, and the page is to render each section from it: visible s
 their condition holds, and the Advanced ones collapsed. A limit that is a contextual or Advanced setting is to name,
 when hit, the setting and where it lives on the page. SPI-1385 implements the disclosure; the settings this changes, and
 their values, are the other tickets of SPI-1357's prune, each with its own refinement here.
+
+## Refinement (SPI-1382, 2026-11-24): a git run whose Environment restarted is ended
+
+Supersedes, in the SPI-1364 refinement, `CANCELLABLE_RUN_MS` as the end of a run whose cancel cannot come because the
+Environment restarted. Such a run kept the Workspace's running count above zero, which blocked its idle stop and a
+reclaim, so a billed Container could stay up for the week.
+
+- **A git run t3 can cancel carries the Environment's epoch** (`GitRun.environmentEpoch`), the Environment DO's boot
+  count, which the process channel already gives its CLI processes. The t3 that awaits a run lives in one boot of the
+  Environment DO: an idle reset (ADR-0003), an eviction and a deploy each end it with that boot, and every new boot
+  counts one more. So a run sent under an older epoch has nothing left to cancel it or read its answer.
+- **The Workspace ends the runs of an older epoch** as a cancel ends them (TERM, then KILL after t3's 1 s), and logs
+  each as `git-run-dropped` with both epochs and why. It learns of a newer epoch from any call that carries one (a git
+  run, a CLI process start) and, while a run that carries an epoch is open, from its alarm, which asks the Environment
+  (`environmentEpoch`, which never boots t3). With no such run open, the alarm asks nothing.
+- No time limit or setting is added (the Owner, 2026-11-24). `CANCELLABLE_RUN_MS` stays, as the backstop for a run
+  neither a cancel nor the epoch ends.

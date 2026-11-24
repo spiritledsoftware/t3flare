@@ -42,6 +42,8 @@ const calls: Array<GitCall> = [];
 const bind = () => {
   const records = new Map([["demo", record("demo")]]);
   bindEnvironmentServices({
+    // The process channel's epoch, which a git run t3 can cancel carries (SPI-1382).
+    processes: { environmentEpoch: 1 },
     workspaces: {
       list: () => [...records.values()],
       resolve: (id: string) => records.get(id),

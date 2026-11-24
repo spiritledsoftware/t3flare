@@ -42,6 +42,11 @@ export interface EnvironmentRpc {
   cancelAsk(input: { readonly askId: string }): Promise<void>;
   /** A Session's call of t3's `/mcp` (step 3, ADR-0022): t3's HTTP app answers it, never over the public host. */
   mcp(input: McpRpcRequest): Promise<McpRpcAnswer>;
+  /**
+   * This boot's epoch (the process channel's): a Workspace's alarm asks it while a git run t3 can cancel is open, and
+   * ends the runs of an older one (SPI-1382). Never boots t3, and is not activity (ADR-0003).
+   */
+  environmentEpoch(): Promise<number>;
   /** A Workspace's terminal output (step 2b): never boots t3, and is not activity (ADR-0003). */
   terminalOutput(push: TerminalPush): Promise<TerminalPushAnswer>;
   /** The harness settings, resolved and secret-free (ADR-0026): read at a turn's start. Never boots t3. */

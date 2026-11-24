@@ -445,6 +445,14 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
    * terminals this instance does not know (t3 not running, restarted, or the terminal closed): the Workspace DO kills
    * them.
    */
+  /**
+   * This boot's epoch, the process channel's (SPI-1382): a Workspace's alarm asks it while a git run t3 can cancel is
+   * open, and ends the runs sent under an older one. Never boots t3, and is not activity (ADR-0003).
+   */
+  async environmentEpoch(): Promise<number> {
+    return this.#processes.environmentEpoch;
+  }
+
   async terminalOutput(push: TerminalPush): Promise<TerminalPushAnswer> {
     const terminals = currentTerminals();
     if (terminals === undefined)
