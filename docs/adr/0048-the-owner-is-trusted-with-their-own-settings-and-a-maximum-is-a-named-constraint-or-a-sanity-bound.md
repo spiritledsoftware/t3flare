@@ -1,13 +1,15 @@
 # The Owner is trusted with their own settings, and a maximum is a named constraint or a sanity bound
 
-Status: accepted (SPI-1319, Owner decisions, 2026-11-22). Refines
+Status: accepted (SPI-1319, Owner decisions, 2026-11-22); superseded where they differ by
+[ADR-0049](0049-settings-follow-local-parity-and-guardrails-are-opt-in.md). Refines
 [ADR-0032](0032-environment-settings-and-harness-settings-are-separate-entities-edited-on-one-owner-page.md) §6 and §7,
 [ADR-0047](0047-every-container-starts-from-a-base-snapshot-the-builder-makes-from-the-image-setup.md) §9 (the three
 setup time limits' maximums) and
 [ADR-0010](0010-the-endpoint-is-public-behind-t3s-own-auth.md) (the Pairing window's "60 at most").
 
 AGENTS.md has two rules about settings. Whatever an Owner could tune is a setting with a sensible default, fixed only
-where Cloudflare or t3flare's own correctness forces it. And the Owner is trusted with their own settings: validation
+where Cloudflare or t3flare's own correctness forces it. (Superseded by [ADR-0049](0049-settings-follow-local-parity-and-guardrails-are-opt-in.md): a setting only where the Owner would
+choose its value, local behaviour by default, and a named constant for a value that only guards t3flare's machinery.) And the Owner is trusted with their own settings: validation
 keeps t3flare working and never protects the Owner from a choice they made. Three limits broke the second rule. The
 Container budget stopped at 10, which its own comment called "a cost guard, far under the account's concurrent limits".
 The idle time stopped at 60 minutes, so an Owner could not keep a Container warm overnight. The Pairing window was
@@ -153,3 +155,17 @@ made settings; ADR-0032's SPI-1368 refinement lists the settings. Two points of 
 A fixed value that stays names its constraint where it is set: Cloudflare's (a Durable Object's 30 seconds in
 `blockConcurrencyWhile`, its 10 GB of storage, an RPC's 32 MiB, an isolate's 128 MB), an external one (t3's contract's
 1,024 characters of an ACP agent's description, a PTY's 16-bit size), or a sanity bound, said to be one.
+
+## Refinement (SPI-1384, 2026-11-24): settings follow local parity
+
+[ADR-0049](0049-settings-follow-local-parity-and-guardrails-are-opt-in.md) supersedes this ADR's premise, AGENTS.md's "whatever an Owner could tune is a setting with a sensible
+default". A value is a setting only where the Owner would choose it: cost, size, what agents may do, setup, retention.
+A value that only guards t3flare's own machinery is a named, generous constant, not a setting. A limit with a local
+equivalent defaults to the local behaviour, usually no limit, and a cloud-only guardrail is off by default, the Terminal
+holds and the setup time limits excepted. Every limit names itself and its value when hit.
+
+The rest stands: the Owner is trusted with their own settings (the considered option "keeping the cost guards" stays
+rejected; an opt-in guardrail is the Owner's own choice, not a guard against it), a consequence is stated once (§6), and
+a setting's maximum is a named constraint, the shared timed maximum (§2) or a sanity bound, or none where no value breaks
+anything (the SPI-1368 refinement). §4's and §5's defaults are changed, where they change, by the tickets of SPI-1357's
+prune, each with its own refinement.

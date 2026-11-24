@@ -4,7 +4,8 @@ Status: accepted (SPI-1149, 2026-11-13; decided in SPI-1001's triage, the budget
 day). Report: [`docs-archive-1:docs/steps/environment-settings.md`](https://github.com/spiritledsoftware/t3flare/blob/docs-archive-1/docs/steps/environment-settings.md). Refines
 [ADR-0026](0026-pi-durable-harness-settings-live-in-the-environment-and-an-owner-only-panel-edits-them.md). Refined by
 [ADR-0033](0033-environment-skills-are-pinned-copies-fetched-from-github-kept-by-the-environment-and-changed-only-by-the-owner.md)
-(Environment skills: the same entity, revision and audit `entity`, applied at a turn, not a Container start).
+(Environment skills: the same entity, revision and audit `entity`, applied at a turn, not a Container start), and by
+[ADR-0049](0049-settings-follow-local-parity-and-guardrails-are-opt-in.md) (which settings exist, and where the page shows them).
 
 ADR-0026 gave t3flare one owner page and one settings entity, the **Harness settings**: Pi Durable's extensions and the
 MCP server set, read by a Session at a turn's start. What every Workspace's Container gets (its size, how long it may
@@ -782,3 +783,18 @@ overlapping 8 MiB chunks. The skills change's 32 KiB of SKILL.md and 200 paths p
 shown share half the change record's one SQLite row evenly (`SHOWN_SKILLS_BYTES`), each its paths first, then its
 SKILL.md. The State directory's `statfs` reports the Durable Object's 10 GB less its database's size, not a fixed 10 GiB
 free.
+
+## Refinement ([ADR-0049](0049-settings-follow-local-parity-and-guardrails-are-opt-in.md), 2026-11-24): which settings exist, and where the page shows them
+
+§2's one schema keeps a setting only where the Owner would choose its value: cost, size, what agents may do, setup,
+retention. A value that only guards t3flare's own machinery leaves the schema for a named, generous constant, and with
+it leaves the Settings page, the Settings server and the Change tiers; a stored value for it is dropped when the
+settings are resolved, never refused, and earlier audit entries that name it stay as written. A limit with a local
+equivalent defaults to the local behaviour, usually no limit, and a cloud-only guardrail is off by default, the Terminal
+holds and the setup time limits excepted.
+
+Each setting that stays declares its disclosure in the one schema: visible, contextual (with the condition that shows
+it) or advanced. The page renders each section from it: visible settings always, contextual ones while their condition
+holds, and the Advanced ones collapsed. A limit that is a hidden setting names, when hit, the setting and where it lives
+on the page. The settings this changes, and their values, are the tickets of SPI-1357's prune, each with its own
+refinement here.
