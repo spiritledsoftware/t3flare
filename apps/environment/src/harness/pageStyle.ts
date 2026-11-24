@@ -213,7 +213,7 @@ td.actions{text-align:right;white-space:nowrap}
 .change{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;font-size:.6875rem;color:var(--muted-fg);overflow-wrap:anywhere;max-width:22rem}
 .when{white-space:nowrap;color:var(--muted-fg);font-variant-numeric:tabular-nums}
 .who{white-space:nowrap}
-table.audit td.target>div{overflow-wrap:anywhere}
+table.audit td.target>div,table.audit .who{white-space:normal;overflow-wrap:anywhere}
 .table-wrap:has(>table.audit){container-type:inline-size}
 /* The audit table (SPI-1380) follows its card's width, not the viewport's. From 48rem its rows share five columns, with
 Change on a line of its own: the five need about 46.6rem, measured in Chrome at 1440px (When 142.8px, Who 163.1px,
@@ -225,7 +225,6 @@ grid labels are silent, as the hidden header names the column; its stacked ones 
 table.audit{position:relative;display:grid;grid-template-columns:max-content fit-content(12rem) max-content max-content minmax(8rem,1fr)}
 table.audit :is(thead,tbody,tr){display:contents}
 table.audit td{border-bottom:0;padding-bottom:.25rem}
-table.audit .who{white-space:normal;overflow-wrap:anywhere}
 table.audit td.change-cell{grid-column:1/-1;display:grid;grid-template-columns:subgrid;padding:0 0 .625rem;border-bottom:1px solid var(--row-border)}
 table.audit tr:last-child>td.change-cell{border-bottom:0}
 table.audit td.change-cell::before{content:attr(data-label);content:attr(data-label) / "";padding:.0625rem 1rem 0;font-size:.6875rem;color:var(--muted-fg)}
