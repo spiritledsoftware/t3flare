@@ -127,6 +127,8 @@ const workspaces = (containerStderr?: string) => {
   } as unknown as WorkspaceRecord;
   const states = new Map<string, string>();
   bindEnvironmentServices({
+    // The process channel's epoch, which a git run t3 can cancel carries (SPI-1382).
+    processes: { environmentEpoch: 1 },
     workspaces: {
       resolve: (id: string) => (id === "t3flare" ? record : undefined),
       get: (id: string) => (id === "t3flare" ? record : undefined),

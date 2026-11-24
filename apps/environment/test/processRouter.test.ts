@@ -178,6 +178,7 @@ const bindGitLimits = (calls: Calls, settings: Record<string, unknown>) => {
       setRemote: () => undefined,
     },
     github: () => ({ live: () => [] }),
+    processes: { environmentEpoch: 7 },
     cloneMs: () => stored.cloneMinutes * 60_000,
     checkpointMs: () => stored.checkpointMinutes * 60_000,
     agents: {
@@ -282,8 +283,12 @@ describe("a git command t3 gives up on (SPI-1364)", () => {
     );
     expect(timedOut._tag).toBe("None");
     await new Promise((resolve) => setTimeout(resolve, 20));
-    const git = calls.find((call) => call.method === "git")?.input as { runId?: string } | undefined;
+    const git = calls.find((call) => call.method === "git")?.input as
+      | { runId?: string; environmentEpoch?: number }
+      | undefined;
     expect(git?.runId).toMatch(/^[0-9a-f-]{36}$/);
+    // SPI-1382: with the Environment's epoch, so a Workspace ends it once a restart left nothing to cancel it.
+    expect(git?.environmentEpoch).toBe(7);
     expect(calls.filter((call) => call.method === "cancelRun").map((call) => call.input)).toEqual([git?.runId]);
   });
 

@@ -379,7 +379,8 @@ const git = async (
       ...(stdin === undefined ? {} : { stdin }),
       startContainer,
       readScope: readScopeOf(args),
-      ...(runId === undefined ? {} : { runId }),
+      // SPI-1382: with this boot's epoch, by which the Workspace ends the run once a restart leaves nothing to cancel it.
+      ...(runId === undefined ? {} : { runId, environmentEpoch: environmentServices().processes.environmentEpoch }),
     })
     .finally(() => {
       answered = true;

@@ -164,6 +164,8 @@ const environmentOver = (
     ...worktree,
   } as unknown as WorkspaceRecord;
   bindEnvironmentServices({
+    // The process channel's epoch, which a git run t3 can cancel carries (SPI-1382).
+    processes: { environmentEpoch: 1 },
     workspaces: {
       resolve: (id: string) =>
         id === "t3flare" ? projectRecord : id === WORKTREE_ID && worktreeDir !== undefined ? worktreeRecord : undefined,

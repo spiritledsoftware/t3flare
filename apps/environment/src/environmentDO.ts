@@ -440,6 +440,14 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
   }
 
   /**
+   * This boot's epoch, the process channel's (SPI-1382): a Workspace's alarm asks it while a git run t3 can cancel is
+   * open, and ends the runs sent under an older one. Never boots t3, and is not activity (ADR-0003).
+   */
+  async environmentEpoch(): Promise<number> {
+    return this.#processes.environmentEpoch;
+  }
+
+  /**
    * A Workspace DO's terminal output (step 2b, ADR-0021), RPC from the agents Worker. Never boots t3 and is not counted
    * as activity (ADR-0003's refinement): a chatty shell with no client cannot keep the Environment awake. Answers the
    * terminals this instance does not know (t3 not running, restarted, or the terminal closed): the Workspace DO kills
