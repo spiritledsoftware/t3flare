@@ -1,6 +1,6 @@
-// SPI-1397: an agent Terminal's scrollback rows stay within a Durable Object SQLite row (8 MiB: a larger value throws
-// SQLITE_TOOBIG there), a batch of lines beside the longest line kept included. Run against a real Durable Object's
-// SQLite, so the row limit is the platform's.
+// SPI-1397: an agent Terminal's scrollback rows stay within a Durable Object SQLite row (8 MB, 8,000,000 bytes: a larger
+// value throws SQLITE_TOOBIG there): the longest line kept, after a batch of short lines, goes to a row of its own. Run
+// against a real Durable Object's SQLite, so the row limit is the platform's.
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
@@ -11,7 +11,7 @@ const bindings = env as unknown as { VFS_PROBE: DurableObjectNamespace<VfsProbe>
 const probe = () => bindings.VFS_PROBE.get(bindings.VFS_PROBE.newUniqueId());
 
 describe("an agent Terminal's scrollback rows", () => {
-  it("store a line of the longest kept beside a full batch, in one row", async () => {
+  it("store a line of the longest kept, after a batch of short lines, in a row of its own", async () => {
     expect(await probe().scrollbackRow(MAX_LINE_BYTES)).toEqual({ threw: null, length: MAX_LINE_BYTES });
   });
 

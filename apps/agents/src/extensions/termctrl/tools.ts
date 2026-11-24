@@ -281,8 +281,9 @@ export const terminalResult = (
   limits: TermctrlLimits = DEFAULT_TERMCTRL_LIMITS,
 ) => {
   const rows = splitRows(view.screen);
-  // A line the agent saw on its previous screen is not repeated when it scrolls off unchanged. Lines the Workspace
-  // left out sit after the first ends it sent, which take more than the previous screen's rows.
+  // A line the agent saw on its previous screen is not repeated when it scrolls off unchanged. When the Workspace left
+  // lines out, it sent the first lines (at least the Terminal's rows of them, so every line that may repeat the previous
+  // screen) and the last; only the first are compared.
   const seen = view.shift === null ? [] : splitRows(view.previous?.screen ?? "");
   const headEnd = view.scrolledOffOmitted?.beforeIndex ?? view.scrolledOff.length;
   const scrolled = [
@@ -615,7 +616,8 @@ export const terminalWaitTool = (host: TermctrlHost): ToolRegistration =>
             chunkMs: 0,
             view: false,
             tail: jobTailOf(host.limits().output),
-            // Only its screen or output shows: no scrolled-off lines are read.
+            // Only its screen or output shows: no scrolled-off lines from the end, only the Terminal's rows' worth from
+            // the start.
             scrolledLines: 0,
           });
           // An exit the Workspace's bound forgot answers why (`agentTerminalDropped`, SPI-1397).

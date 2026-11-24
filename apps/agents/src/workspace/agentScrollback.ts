@@ -10,7 +10,7 @@
 //   with the object.
 // - The entries the Workspace's exited bound forgot are kept here too, by key, so an agent naming one is told why: the
 //   newest `AGENT_EXITED_TERMINALS_KEPT` of them. One whose exit its owner had not seen is kept until its owner's next
-//   exit notice or wait reports it once, then deleted.
+//   exit notice reports it once (then deleted), or its next wait (then kept as a key, for the read that follows).
 import { AGENT_EXITED_TERMINALS_KEPT, AGENT_TERMINAL_HISTORY_BYTES } from "@t3flare/harness-registry";
 
 /** The part of `SqlStorage` this uses. */
@@ -44,15 +44,16 @@ const SCHEMAS = [
 
 /**
  * How many bytes of lines wait in memory before they go to a row: fewer, larger rows than one a line. Provisional, not
- * a limit on what is kept; well within a Durable Object SQLite row's 8 MB (Cloudflare's "Maximum string, BLOB or table
- * row size"), with the one line that crosses it.
+ * a limit on what is kept. A line that would take a batch past it goes to the next row, so a row holds at most this, or
+ * one longer line alone: well within a Durable Object SQLite row's 8 MB (Cloudflare's "Maximum string, BLOB or table row
+ * size").
  */
 export const FLUSH_BYTES = 64 * 1024;
 /**
- * The longest line kept, in UTF-8 bytes. A named constraint: one line beside a full batch must still fit an 8 MB
- * (8,000,000-byte) SQLite row; about 660 KB is left for the batch and the row's other columns. A terminal row is its
- * columns' cells, so only a cell carrying thousands of combining marks comes near; such a line is cut to a third of
- * this in UTF-16 units, which is within it.
+ * The longest line kept, in UTF-8 bytes. A named constraint: a line longer than `FLUSH_BYTES` sits alone in its row,
+ * which must fit an 8 MB (8,000,000-byte) SQLite row; this leaves about 660 KB for the row's other columns. A terminal
+ * row is its columns' cells, so only a cell carrying thousands of combining marks comes near; such a line is cut to a
+ * third of this in UTF-16 units, which is within it.
  */
 export const MAX_LINE_BYTES = 7 * 1024 * 1024;
 
@@ -107,8 +108,12 @@ export interface ScrollbackStore<U> {
   readonly forgotten: {
     add(key: string, owner: string, unseen: U | null): void;
     has(key: string): boolean;
-    /** `owner`'s forgotten unseen exits that `take` accepts, oldest first, each answered once and then deleted. */
-    takeUnseen(owner: string, take: (unseen: U) => boolean): Array<U>;
+    /**
+     * `owner`'s forgotten unseen exits that `take` accepts, oldest first, each answered once. `keepKey`: its key stays,
+     * so a read of it that follows (a wait's) is answered with the bound; else it is deleted (an exit notice names the
+     * bound itself).
+     */
+    takeUnseen(owner: string, take: (unseen: U) => boolean, keepKey: boolean): Array<U>;
   };
   /** Deletes every Terminal's rows and the forgotten keys (the object started: its Terminals ended with the last one). */
   clear(): void;
@@ -140,7 +145,7 @@ export const scrollbackStore = <U>(
         );
       },
       has: (key) => sql.exec(`SELECT 1 AS one FROM ${FORGOTTEN} WHERE entry = ?`, key).toArray().length > 0,
-      takeUnseen: (owner, take) => {
+      takeUnseen: (owner, take, keepKey) => {
         const taken = sql
           .exec<{ entry: string; unseen: string }>(
             `SELECT entry, unseen FROM ${FORGOTTEN} WHERE owner = ? AND unseen IS NOT NULL ORDER BY rowid`,
@@ -149,8 +154,13 @@ export const scrollbackStore = <U>(
           .toArray()
           .map((row) => ({ entry: row.entry, unseen: JSON.parse(row.unseen) as U }))
           .filter((row) => take(row.unseen));
-        // Reported: the report named the bound, so the key goes too.
-        for (const row of taken) sql.exec(`DELETE FROM ${FORGOTTEN} WHERE entry = ?`, row.entry);
+        for (const row of taken)
+          sql.exec(
+            keepKey
+              ? `UPDATE ${FORGOTTEN} SET unseen = NULL WHERE entry = ?`
+              : `DELETE FROM ${FORGOTTEN} WHERE entry = ?`,
+            row.entry,
+          );
         return taken.map((row) => row.unseen);
       },
     },

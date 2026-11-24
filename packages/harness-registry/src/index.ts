@@ -179,9 +179,9 @@ const waitMsSetting = (title: string, description: string, fallback: number): Se
 export const DEFAULT_TERMINAL_COLS = 120;
 export const DEFAULT_TERMINAL_ROWS = 40;
 /**
- * The widest and tallest an agent Terminal may be set (`termctrl.cols`, `termctrl.rows`): a sanity bound for a live
- * Terminal's headless xterm in the Workspace DO's 128 MB isolate, provisional, kept at the values the Owner has
- * (SPI-1397). They were derived while an agent Terminal's 1,000 lines of scrollback lived in that xterm, one of 32
+ * The widest and tallest an agent Terminal may be set (`termctrl.cols`, `termctrl.rows`): a sanity bound (ADR-0048 §1),
+ * provisional, for a live Terminal's headless xterm in the Workspace DO's 128 MB isolate. Nothing forces 320 or 1,777:
+ * they are kept at the values the Owner has (SPI-1397). They were derived while an agent Terminal's 1,000 lines of scrollback lived in that xterm, one of 32
  * shares of the isolate at about 12 bytes a cell: 128,000,000 / 32 / 12 = 333,333 cells, so 320 columns beside the
  * default 40 rows and the 1,000 lines (320 × 1,040), and 1,777 rows beside them at the default 120 columns
  * (120 × 2,777). Since SPI-1397 the xterm keeps only its screen and `AGENT_TERMINAL_SPILL_LINES` above it, and an

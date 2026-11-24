@@ -15,6 +15,7 @@ import { Terminal } from "@xterm/headless/lib-headless/xterm-headless.mjs";
 
 import { DEFAULT_TERMCTRL_LIMITS, terminalResult } from "../src/extensions/termctrl/tools.ts";
 import type { ScrollbackStore } from "../src/workspace/agentScrollback.ts";
+import { isAgentTerminalDropped } from "../src/workspace/agentTerminalDropped.ts";
 import { AgentTerminals, agentTerminalDropped, type ForgottenExit, piecesOf } from "../src/workspace/agentTerminals.ts";
 import { nodeScrollbackStore } from "./nodeSql.ts";
 
@@ -570,6 +571,39 @@ describe("an agent Terminal's scrollback in storage, and the Workspace's exited 
     const waited = await terminals.handle({ op: "wait", owner, ids: null, deadline: Date.now(), chunkMs: 0 });
     if (!waited.ok) throw new Error(waited.error);
     expect(waited.value.exited.map((entry) => entry.id).toSorted()).toEqual(ids.toSorted());
+    // The tool then reads each exit's last lines (termctrl/tools.ts): the forgotten one answers with the bound, which
+    // becomes its tail.
+    const read = await terminals.handle({
+      op: "settle",
+      owner,
+      id: ids[0]!,
+      mode: "poll",
+      deadline: Date.now(),
+      chunkMs: 0,
+      view: false,
+      scrolledLines: 0,
+    });
+    const tail = read.ok ? "" : isAgentTerminalDropped(read.error, ids[0]!) ? read.error : "";
+    expect(tail).toBe(agentTerminalDropped(ids[0]!, undefined));
+    expect(tail).toContain("keeps its last 128 exited Terminals");
+  });
+
+  it("answers a call on an entry the bound forgot after its final screen was kept, and a stopped one, as such", async () => {
+    const { terminals, opened } = fakeHost(repl);
+    const ids: Array<string> = [];
+    for (let index = 0; index <= AGENT_EXITED_TERMINALS_KEPT; index++)
+      ids.push(await startFor(terminals, owner, "terminal"));
+    terminals.frames([{ key: opened[0]!.key, seq: 0, exit: { code: 0 } }]);
+    // Seen, so its final screen is in storage and it goes first.
+    expect((await look(terminals, ids[0]!)).state).toBe("exited");
+    const waiting = look(terminals, ids[0]!);
+    terminals.frames(opened.slice(1).map((open) => ({ key: open.key, seq: 0, exit: { code: 0 } })));
+    await expect(waiting).rejects.toThrow(agentTerminalDropped(ids[0]!, undefined));
+    // A call queued behind a stop is told the stop, not the bound.
+    const stopping = terminals.handle({ op: "stop", owner, id: ids[1]! });
+    const behind = look(terminals, ids[1]!);
+    expect((await stopping).ok).toBe(true);
+    await expect(behind).rejects.toThrow(`${ids[1]} was stopped and is no longer kept.`);
   });
 
   it("keeps an exited Terminal's final screen in storage, and its xterm goes", async () => {
@@ -667,19 +701,23 @@ describe("an agent Terminal's scrollback in storage, and the Workspace's exited 
     await expect(waiting).rejects.toThrow(agentTerminalDropped(ids[0]!, undefined));
   });
 
-  it("keeps the newest 128 forgotten keys, and deletes an unseen exit's row once it is reported", () => {
+  it("keeps the newest 128 forgotten keys, and an unseen exit's row until reported: as a key after a wait", () => {
     const store = nodeScrollbackStore<{ readonly id: string }>();
     for (let index = 0; index < 300; index++) store.forgotten.add(`a\u0000t${index}`, "a", null);
     store.forgotten.add("a\u0000b1", "a", { id: "b1" });
     expect(store.forgotten.has("a\u0000t171")).toBe(false);
     expect(store.forgotten.has("a\u0000t172")).toBe(true);
     expect(store.forgotten.has("a\u0000t299")).toBe(true);
-    expect(store.forgotten.takeUnseen("b", () => true)).toEqual([]);
-    expect(store.forgotten.takeUnseen("a", () => false)).toEqual([]);
-    expect(store.forgotten.takeUnseen("a", () => true)).toEqual([{ id: "b1" }]);
+    store.forgotten.add("a\u0000b2", "a", { id: "b2" });
+    expect(store.forgotten.takeUnseen("b", () => true, false)).toEqual([]);
+    expect(store.forgotten.takeUnseen("a", () => false, false)).toEqual([]);
+    // A wait's keeps the key, for its read; an exit notice's deletes it.
+    expect(store.forgotten.takeUnseen("a", (unseen) => unseen.id === "b2", true)).toEqual([{ id: "b2" }]);
+    expect(store.forgotten.has("a\u0000b2")).toBe(true);
+    expect(store.forgotten.takeUnseen("a", () => true, false)).toEqual([{ id: "b1" }]);
     expect(store.forgotten.has("a\u0000b1")).toBe(false);
     const count = store.db.prepare("SELECT count(*) AS n FROM t3flare_agent_forgotten").get() as { n: number };
-    expect(count.n).toBe(128);
+    expect(count.n).toBe(129);
   });
 
   it("keeps the Workspace DO's memory flat as a Terminal's scrollback grows", { timeout: 120_000 }, async () => {

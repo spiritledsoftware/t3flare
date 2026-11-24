@@ -193,7 +193,7 @@ export const backgroundJobs = (host: TermctrlHost): BackgroundJobs => ({
       pattern: "\u0000never",
       view: true,
       tail: jobTailOf(host.limits().output),
-      // Only its output shows: no scrolled-off lines are read.
+      // Only its output shows: no scrolled-off lines from the end, only the Terminal's rows' worth from the start.
       scrolledLines: 0,
     });
     if (!settled.ok) throw new Error(settled.error);

@@ -162,8 +162,9 @@ export class VfsProbe extends DurableObject {
   }
 
   /**
-   * An agent Terminal's scrollback (SPI-1397): a full batch of short lines, then one line of `lineChars` of `char`, read
-   * back from this object's SQLite; what threw, and whether the long line came back as stored.
+   * An agent Terminal's scrollback (SPI-1397): a batch of short lines just under `FLUSH_BYTES`, then one line of
+   * `lineChars` of `char` (a row of its own), read back from this object's SQLite; what threw, and whether the long line
+   * came back as stored.
    */
   async scrollbackRow(
     lineChars: number,

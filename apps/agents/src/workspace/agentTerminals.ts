@@ -134,6 +134,8 @@ interface Entry {
   readonly startedAt: number;
   /** Its screen's rows. */
   readonly rows: number;
+  /** Why it was forgotten, stopped or the bound; its rows are gone, and a call that waited on it is answered so. */
+  forgotten: "stopped" | "bound" | null;
   /** Its xterm while it runs; null once it exited and its final screen is in storage (`final`). */
   term: Terminal | null;
   /** The exited entry's final screen's place and cursor; its rows are in storage (`Scrollback.screen`). */
@@ -370,14 +372,17 @@ export class AgentTerminals {
     );
     for (const entry of exited.slice(0, over)) {
       const unseen: ForgottenExit | null = entry.exitSeen ? null : { info: this.#info(entry), notify: entry.notify };
-      this.#forget(entry);
+      this.#forget(entry, "bound");
       this.#deps.store.forgotten.add(keyOf(entry.owner, entry.id), entry.owner, unseen);
     }
   }
 
-  /** `owner`'s exits the bound forgot unseen, each taken once; with `notifyOnly`, only those that notify (`exits`). */
-  #forgottenExits(owner: string, notifyOnly: boolean): Array<ForgottenExit> {
-    return this.#deps.store.forgotten.takeUnseen(owner, (unseen) => !notifyOnly || unseen.notify);
+  /**
+   * `owner`'s exits the bound forgot unseen, each taken once: for `exits`, only those that notify, whose notice names
+   * the bound; for a wait, all, keeping their keys so the tool's read of each is answered with the bound.
+   */
+  #forgottenExits(owner: string, op: "exits" | "wait"): Array<ForgottenExit> {
+    return this.#deps.store.forgotten.takeUnseen(owner, (unseen) => op === "wait" || unseen.notify, op === "wait");
   }
 
   async handle<R extends AgentTerminalRequest>(request: R): Promise<AgentTerminalResult<R["op"]>> {
@@ -410,7 +415,7 @@ export class AgentTerminals {
           (entry) => entry.exit !== null && !entry.exitSeen && entry.notify,
         );
         for (const entry of exits) entry.exitSeen = true;
-        const forgotten = this.#forgottenExits(request.owner, true).map((exit) => ({
+        const forgotten = this.#forgottenExits(request.owner, "exits").map((exit) => ({
           ...exit.info,
           tail: agentTerminalDropped(exit.info.id, exit.info.logPath),
         }));
@@ -488,6 +493,7 @@ export class AgentTerminals {
       notify: request.notify,
       startedAt: now,
       rows: request.rows,
+      forgotten: null,
       term,
       final: null,
       ...(logPath === undefined ? {} : { logPath }),
@@ -522,7 +528,8 @@ export class AgentTerminals {
     return { entry: this.#info(entry) };
   }
 
-  #forget(entry: Entry): void {
+  #forget(entry: Entry, why: "stopped" | "bound"): void {
+    entry.forgotten = why;
     this.#entries.delete(keyOf(entry.owner, entry.id));
     this.#byMarker.delete(entry.marker);
     entry.term?.dispose();
@@ -617,7 +624,7 @@ export class AgentTerminals {
     await entry.writing;
     const view = await this.#view(entry, true, options);
     const stopped = this.#info(entry);
-    this.#forget(entry);
+    this.#forget(entry, "stopped");
     return { stopped, view };
   }
 
@@ -646,7 +653,7 @@ export class AgentTerminals {
         return {
           // Exits the bound forgot unseen too: the tool's read of each answers the bound.
           exited: [
-            ...this.#forgottenExits(request.owner, false).map((exit) => exit.info),
+            ...this.#forgottenExits(request.owner, "wait").map((exit) => exit.info),
             ...reported.map((entry) => this.#info(entry)),
           ],
           running: owned.filter((entry) => entry.exit === null).map((entry) => this.#info(entry)),
@@ -659,10 +666,11 @@ export class AgentTerminals {
 
   /** The entry's screen: its xterm's, or once it exited, its final one from storage. */
   #screen(entry: Entry): Screen {
+    // Forgotten while a call on it waited (a stop's own view comes before it forgets).
+    if (entry.forgotten === "bound") throw new Error(agentTerminalDropped(entry.id, entry.logPath));
+    if (entry.forgotten === "stopped") throw new Error(`${entry.id} was stopped and is no longer kept.`);
     if (entry.term !== null) return this.#screenOf(entry, entry.term);
-    // Neither: the bound forgot it while a call on it waited.
-    if (entry.final === null) throw new Error(agentTerminalDropped(entry.id, entry.logPath));
-    return { screen: entry.scrollback.screen(), ...entry.final };
+    return { screen: entry.scrollback.screen(), ...entry.final! };
   }
 
   #screenOf(entry: Entry, term: Terminal): Screen {

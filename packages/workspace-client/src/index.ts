@@ -476,8 +476,8 @@ export interface AgentViewOptions {
   readonly tail?: AgentTail;
   /**
    * The most scrolled-off lines the Session's result shows, its first and last (SPI-1397). The Workspace reads from
-   * storage only the lines that can show: that many from each end, and the owner's previous screen's rows more at the
-   * start, where the result drops lines the agent already saw. Absent (a request from before it): termctrl's default
+   * storage only the lines that can show: that many from each end, and the Terminal's rows more at the start, where the
+   * result drops lines the agent saw on its previous screen. 0 reads only those rows' worth. Absent (a request from before it): termctrl's default
    * `scrollbackLines`.
    */
   readonly scrolledLines?: number;
