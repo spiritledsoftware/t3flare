@@ -210,15 +210,19 @@ const reachBridge = Effect.fnUntraced(function* (
 
 /**
  * What the core connects to: an HTTP server's URL and headers, or the bridge's, and the server's time limits. A stdio
- * server is refused today; when it returns, its connect limit follows the Container's start limits.
+ * server is refused today; when it returns, its connect limit follows the Container's start limits. Exported for its
+ * test: a time limit it does not copy is dropped in production, whatever the host sent.
  */
-const connectTarget = (server: McpEngineTarget): McpTarget => {
+export const connectTarget = (server: McpEngineTarget): McpTarget => {
   const target: Mutable<McpTarget> =
     server.kind === "http" ? { url: server.url, name: server.name } : { url: STDIO_URL, name: server.name };
 
   if (server.kind === "http" && server.headers !== undefined) target.headers = server.headers;
 
   if (server.timeoutMs !== undefined) target.timeoutMs = server.timeoutMs;
+
+  // SPI-1386: every request but a tool call's; without it they take `timeoutMs`, a week while the call limit is off.
+  if (server.requestTimeoutMs !== undefined) target.requestTimeoutMs = server.requestTimeoutMs;
 
   if (server.connectTimeoutMs !== undefined) target.connectTimeoutMs = server.connectTimeoutMs;
 

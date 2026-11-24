@@ -7,7 +7,8 @@ against Cloudflare's pricing pages that day.
 
 At light use the bill is mostly the **$5 Workers Paid minimum**; past it, Container memory leads. The Containers row is
 priced at the default size, `standard-3` (2 vCPU, 8 GiB, 16 GB; SPI-1386), with the audit's CPU share kept; at the
-audit's `cpu-1` (3 GiB, 12 GB) it was ≈ $0.20, $1.95 and $16.60, and the totals ≈ $5.20, $7.10 and $35.
+audit's `cpu-1` (3 GiB, 12 GB) it was ≈ $0.20, $1.95 and $16.60, and the totals ≈ $5.20, $7.10 and $35. Each total is
+the $5 minimum plus the rows below it.
 
 |                                | Light        | Moderate      | Heavy                 |
 | ------------------------------ | ------------ | ------------- | --------------------- |
@@ -17,7 +18,7 @@ audit's `cpu-1` (3 GiB, 12 GB) it was ≈ $0.20, $1.95 and $16.60, and the total
 | Containers (memory, disk, CPU) | ≈ $0.87      | ≈ $4.70       | ≈ $33.15              |
 | DO duration                    | 65k GB-s, $0 | 207k GB-s, $0 | 617k GB-s, **$12.50** |
 | DO requests                    | $0           | ≈ $0.15       | ≈ $1.05               |
-| **Total a month**              | **≈ $5.90**  | **≈ $9.85**   | **≈ $51.50**          |
+| **Total a month**              | **≈ $5.87**  | **≈ $9.85**   | **≈ $51.70**          |
 
 What moves the total:
 

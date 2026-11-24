@@ -345,25 +345,29 @@ if (scenario === "budget") {
     (await admin("GET", "/_t3flare/settings/api/environment")).json?.resolved?.containerBudget,
   );
   await setBudget(3);
-  await admin("POST", `/_t3flare/agents/workspace-stop?id=${id}`);
   const holders = ["budget-a", "budget-b", "budget-c"];
-  for (const holder of holders)
-    report[holder] = (await workspaceCall(holder, { exec: { script: "echo started" } })).json?.container ?? null;
-  const terminal = await attachTerminal(cookie, { threadId, terminalId: "default", cwd: `/w/${id}` });
-  const refused = await terminal
-    .until(/cannot start|budget|Containers/i, 60_000)
-    .catch((error: unknown) => ({ ms: -1, text: String(error) }));
-  report.refusal = refused.text
-    .split("\n")
-    .filter((line) => /t3flare/.test(line))
-    .slice(-2);
-  await sleep(1000);
-  report.exitedShown = terminal.events.some((e) => e.event.type === "exited");
-  check("refusal shown", refused.ms >= 0, refused.text.slice(-300));
-  check("terminal exited", report.exitedShown === true);
-  await terminal.detach();
-  for (const holder of holders) await admin("POST", `/_t3flare/agents/workspace-stop?id=${holder}`);
-  await setBudget(Number.isInteger(ownersBudget) ? ownersBudget : 0);
+  try {
+    await admin("POST", `/_t3flare/agents/workspace-stop?id=${id}`);
+    for (const holder of holders)
+      report[holder] = (await workspaceCall(holder, { exec: { script: "echo started" } })).json?.container ?? null;
+    const terminal = await attachTerminal(cookie, { threadId, terminalId: "default", cwd: `/w/${id}` });
+    const refused = await terminal
+      .until(/cannot start|budget|Containers/i, 60_000)
+      .catch((error: unknown) => ({ ms: -1, text: String(error) }));
+    report.refusal = refused.text
+      .split("\n")
+      .filter((line) => /t3flare/.test(line))
+      .slice(-2);
+    await sleep(1000);
+    report.exitedShown = terminal.events.some((e) => e.event.type === "exited");
+    check("refusal shown", refused.ms >= 0, refused.text.slice(-300));
+    check("terminal exited", report.exitedShown === true);
+    await terminal.detach();
+  } finally {
+    // The holders stopped and the Owner's budget set back, whatever the scenario found or threw.
+    for (const holder of holders) await admin("POST", `/_t3flare/agents/workspace-stop?id=${holder}`);
+    await setBudget(Number.isInteger(ownersBudget) ? ownersBudget : 0);
+  }
 }
 
 if (scenario === "push") {

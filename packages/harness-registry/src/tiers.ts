@@ -120,7 +120,10 @@ const offRank = (schema: EnvironmentFieldSchema | undefined, value: unknown): un
 const shownValue = (schema: EnvironmentFieldSchema | undefined, value: unknown): string =>
   schema !== undefined && isOff(schema, value) ? "off" : JSON.stringify(value);
 
-/** One setting's move from `before` to `after` under its tier rule; `schema`, its own, ranks an `off` setting's 0. */
+/**
+ * One setting's move from `rawBefore` to `rawAfter` under its tier rule; `schema`, its own, ranks an `off` setting's 0
+ * (the reason shows the raw values, the rule compares the ranked ones).
+ */
 const settingPart = (
   name: string,
   tier: SettingTier | undefined,

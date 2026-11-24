@@ -344,8 +344,8 @@ export const removeWorktree = async (
     tips = await workspaceRpc(project.id).refTips({ timeoutMs: checkpointMsNow() });
     out = await workspaceRpc(id).carryOut({ projectTips: tips.ok ? tips.tips : [], timeoutMs: checkpointMsNow() });
   } catch (error) {
-    // The check needs both Containers running at once (a Container budget of 1 refuses the second): without them nothing is
-    // known, so nothing is purged.
+    // The check needs both Containers running at once (a Container budget of 1 can refuse the second while the first holds
+    // its lease): without them nothing is known, so nothing is purged.
     return await tombstone(`the removal could not check the worktree: ${String(error)}`, null);
   }
   if (!out.ok || !tips.ok)

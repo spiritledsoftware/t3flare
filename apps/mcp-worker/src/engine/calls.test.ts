@@ -12,7 +12,7 @@ import * as Schema from "effect/Schema";
 import * as Tracer from "effect/Tracer";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ByteBudget } from "./budget.ts";
-import { discover } from "./calls.ts";
+import { connectTarget, discover } from "./calls.ts";
 import { Validators } from "./validators.ts";
 
 const SECRET = "sk-echoed-secret-0123456789";
@@ -194,5 +194,32 @@ describe("an engine call's span", () => {
 
     expect(described("acme_search")).toBe("Searches acme as application/json.");
     expect(described("echo_key")).toBe("Takes [REDACTED].");
+  });
+});
+
+describe("the target an engine call connects to", () => {
+  it("carries every time limit the host sent, the request timeout beside the call's (SPI-1386)", () => {
+    const limits = {
+      timeoutMs: 7 * 24 * 60 * 60_000,
+      requestTimeoutMs: 270_000,
+      connectTimeoutMs: 30_000,
+      listTimeoutMs: 120_000,
+      legacyEraTtlMs: 86_400_000,
+    };
+    const target = connectTarget({
+      kind: "http",
+      conn: "conn-1",
+      name: "docs",
+      url: "https://mcp.example.test/mcp",
+      headers: {},
+      redact: [],
+      ...limits,
+    } as never);
+    expect(target).toMatchObject(limits);
+    // Absent, it stays absent: the core then times those requests by `timeoutMs`, as a host older than the field asks.
+    const { requestTimeoutMs: _, ...older } = limits;
+    expect(
+      connectTarget({ kind: "http", conn: "c", name: "d", url: "https://x.test/mcp", ...older } as never),
+    ).not.toHaveProperty("requestTimeoutMs");
   });
 });

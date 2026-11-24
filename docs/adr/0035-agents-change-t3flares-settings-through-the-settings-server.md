@@ -247,8 +247,9 @@ guardrails: each is its entry's setting, under Advanced, off by default where th
 The Settings server's ten limits are opt-in guardrails
 ([ADR-0049](0049-settings-follow-local-parity-and-guardrails-are-opt-in.md)): each is off, 0, by default, and an agent
 asks and changes as often as the Owner allows by answering. Each takes 0 as off (`off: true`); the Limits form shows it
-empty, "off" its placeholder, and its hint ends "Empty or 0 is off" (with what off does, where that needs saying) and
-"1 to" its maximum. A stored value is kept.
+empty, "off" its placeholder, and its hint reads "<description> Empty or 0 is off[: <what off does>]. 1 to <maximum>."
+(the Strike lock's: "How long a run of strikes refuses the caller's asked changes, from the last of them. Empty or 0 is
+off. 1 to 10,080."). A stored value is kept.
 
 An off limit is never hit, and its count is not read: the open changes per thread and per Owner client (`openBy`), the
 asked and applied changes an hour (`openedSince`, `appliedSince`, the free change's applied cap included), the reads and

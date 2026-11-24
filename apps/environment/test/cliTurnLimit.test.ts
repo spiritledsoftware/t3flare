@@ -80,7 +80,7 @@ afterEach(() => {
 describe("a CLI agent's Turn limit", () => {
   it("off (0, the default since SPI-1386), starts no timer: a 0 ms sleep would end the process at once, and none does", async () => {
     expect(await turnUnder({ at: 0 }, 0, 150)).toBe(0);
-    // Set again, the thread's next turn takes it: the off turn left no timer behind to fire.
+    // Raised to 30 ms while the turn runs: the turn keeps the off it started with, so no timer fires for it.
     expect(await turnUnder({ at: 0 }, 30, 150)).toBe(0);
   });
 
