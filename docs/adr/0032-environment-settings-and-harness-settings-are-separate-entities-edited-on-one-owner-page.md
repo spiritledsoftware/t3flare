@@ -395,7 +395,8 @@ How long t3flare keeps its own history is the Owner's. `usageRetentionDays` (92 
 cache) bounds t3flare's usage records in the Environment DO; `piSessionRetentionDays` (60, review F2's) bounds the pi
 sessions synced beside the repo (superseded: both off, kept as locally, by default since the SPI-1386 refinement below,
 whose off ranks above every limit in a tier). Both take 1 to `MAX_RETENTION_DAYS`, the Grace's 3650 days: a sanity bound
-that nothing forces (ADR-0048 §1). "Keep for good" is that maximum, ten years, not a 0 sentinel: under `up-free` a 0 would
+that nothing forces (ADR-0048 §1). "Keep for good" is that maximum, ten years, not a 0 sentinel (superseded: the SPI-1386
+refinement below makes 0 off, kept for good, and ranks it above every limit in a tier): under `up-free` a 0 would
 make 0 → 60 read as turned up, and so free, while it deletes every session older than 60 days. Both are `up-free`, as
 the Grace is: a shorter value destroys history, so it is asked.
 
@@ -858,15 +859,20 @@ review selects does not change.
 is kept: only the defaults move. Each value is the Owner's (SPI-1386).
 
 - **Off.** A guardrail with no local equivalent takes 0 as off, no limit: its schema says so (`off: true`, its minimum
-  0), the Settings page shows 0 as an empty field with "off" its placeholder and takes one empty, the Settings server
+  0), the Settings page shows 0 as an empty field and takes one empty, its placeholder the setting's off word
+  (`offLabel`: "no budget" for the Container budget, "for good" for the usage records, "each agent's own" for the
+  sessions, where "off" would read wrong; "off" for the rest), the Settings server
   takes 0, and its description says "Empty or 0 is off" with what that means. In a Change tier off ranks above every
   limit (`offRank`), so turning a guardrail off is the widening direction and setting one from off the narrowing one:
   this supersedes, in the SPI-1323 refinement, "keep for good" as the maximum in place of a 0 sentinel.
 - **What off does.** A timer t3flare can leave unarmed arms nothing: the Turn limit's Session alarm and the CLI
   wrapper's timer. A deadline that cannot be left out takes `OFF_DEADLINE_MS`, the shared sanity maximum, a week:
   computerd's exec (its handling of an absent `timeoutMs` is unverified) for the clone, checkpoint and command limits,
-  and the MCP engine's requests for the call limit (its SDK times a request it gives none at 60 s). A CLI's tool timeout
-  counts an off call limit as that deadline. The Sweep counts an off clone limit as it too, so it never purges a
+  and the MCP engine's tool calls for the call limit (its SDK times a request it gives none at 60 s), one helper
+  (`offDeadlineMs`) making each. Only a tool call gets the week: a server's other requests (a resource read, a prompt, a
+  listing page, a completion, a subscription, a task's poll) keep 270 s (`MCP_REQUEST_OFF_MS`, the engine target's
+  `requestTimeoutMs`), the bound they had at the call limit's old default; a call limit set bounds both, as before. A
+  CLI's tool timeout counts an off call limit as that deadline. The Sweep counts an off clone limit as it too, so it never purges a
   Workspace whose clone may still run. The budget DO refuses no start with no budget, and still keeps the leases. The
   usage records prune nothing with no retention; pi gets no prune, and Claude Code's managed settings leave
   `cleanupPeriodDays` unset, so its own 30 days apply (`cleanupPeriodDays` takes no 0: at least 1).

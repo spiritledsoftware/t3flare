@@ -172,6 +172,30 @@ describe("a Modern server's listen", () => {
 
     expect(outcome).toEqual(failedWith(TimedOut));
   }, 20_000);
+
+  it("times a listen by the request timeout, not the tool call's: a call limit that is off leaves it bounded (SPI-1386)", async () => {
+    const silent = hostileServer(modernServer(), (request, rpc) =>
+      rpc?.method === "subscriptions/listen"
+        ? new Response(new ReadableStream<Uint8Array>({ start: () => undefined }), {
+            headers: { "content-type": "text/event-stream" },
+          })
+        : undefined,
+    );
+
+    const outcome = await run(
+      Effect.gen(function* () {
+        // The tool call's timeout is a week (an off call limit); every other request keeps its own second.
+        const connection = yield* connect(
+          { ...TARGET, timeoutMs: 7 * 24 * 60 * 60_000, requestTimeoutMs: 1000 },
+          testDeps(fetchTo(silent)),
+        );
+
+        return yield* settled(connection.listen({ resourceSubscriptions: [URI] }, () => undefined));
+      }),
+    );
+
+    expect(outcome).toEqual(failedWith(TimedOut));
+  }, 20_000);
 });
 
 describe("a Legacy server's listen", () => {

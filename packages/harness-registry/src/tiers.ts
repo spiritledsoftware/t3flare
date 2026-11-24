@@ -124,13 +124,14 @@ const shownValue = (schema: EnvironmentFieldSchema | undefined, value: unknown):
 const settingPart = (
   name: string,
   tier: SettingTier | undefined,
-  shownBefore: unknown,
-  shownAfter: unknown,
+  rawBefore: unknown,
+  rawAfter: unknown,
   schema?: EnvironmentFieldSchema,
 ): Part => {
-  const shown = `${name}: ${shownValue(schema, shownBefore)} to ${shownValue(schema, shownAfter)}`;
-  const before = offRank(schema, shownBefore);
-  const after = offRank(schema, shownAfter);
+  const shown = `${name}: ${shownValue(schema, rawBefore)} to ${shownValue(schema, rawAfter)}`;
+  // Compared as ranked: an `off` setting's 0 above every limit.
+  const before = offRank(schema, rawBefore);
+  const after = offRank(schema, rawAfter);
   if (tier === "free") return { asked: false, reason: `${shown} (free in either direction)` };
   if (tier === "down-free") {
     const down =

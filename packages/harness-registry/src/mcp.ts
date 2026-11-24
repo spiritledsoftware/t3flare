@@ -1,6 +1,6 @@
 // The MCP rules every caller shares (ADR-0028): the Durable agent's `mcp` extension, the MCP host, and the CLI relay
 // judge a call with the same function, and a tool's class is resolved the same way everywhere.
-import { MAX_TIMED_MINUTES, OFF_DEADLINE_MS } from "./environment.ts";
+import { MAX_TIMED_MINUTES, offDeadlineMs } from "./environment.ts";
 import type { SettingEntry } from "./fields.ts";
 import { DO_VALUE_BYTES } from "./storedValue.ts";
 
@@ -266,7 +266,7 @@ export const MCP_RELAY_PREFIX = "/t3flare/mcp/";
  * 10-minute wait and a 270 s limit this is 1,500 s.
  */
 export const cliToolTimeoutSec = (answerMs: number, callMs: number): number =>
-  2 * Math.ceil(answerMs / 1000) + Math.ceil((callMs === 0 ? OFF_DEADLINE_MS : callMs) / 1000) + 30;
+  2 * Math.ceil(answerMs / 1000) + Math.ceil(offDeadlineMs(callMs) / 1000) + 30;
 
 /** The variable a CLI process reads its tool handle from (Codex's `bearer_token_env_var`). */
 export const TOOL_HANDLE_ENV = "T3FLARE_TOOL_HANDLE";

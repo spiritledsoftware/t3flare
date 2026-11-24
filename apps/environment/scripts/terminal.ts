@@ -333,7 +333,18 @@ if (scenario === "idle-hold") {
 }
 
 if (scenario === "budget") {
-  // With 3 Containers held (scratch Workspace DOs outside the registry), a terminal shows the budget's refusal.
+  // With 3 Containers held (scratch Workspace DOs outside the registry), a terminal shows the budget's refusal. The
+  // Environment has no Container budget by default (SPI-1386), so this sets one of 3 for the scenario and sets the
+  // Owner's back after it.
+  const setBudget = async (containerBudget: number) => {
+    const answer = await admin("POST", "/_t3flare/settings/api/environment", { settings: { containerBudget } });
+    if (answer.status !== 200)
+      throw new Error(`the Container budget was not set to ${containerBudget}: ${JSON.stringify(answer)}`);
+  };
+  const ownersBudget = Number(
+    (await admin("GET", "/_t3flare/settings/api/environment")).json?.resolved?.containerBudget,
+  );
+  await setBudget(3);
   await admin("POST", `/_t3flare/agents/workspace-stop?id=${id}`);
   const holders = ["budget-a", "budget-b", "budget-c"];
   for (const holder of holders)
@@ -352,6 +363,7 @@ if (scenario === "budget") {
   check("terminal exited", report.exitedShown === true);
   await terminal.detach();
   for (const holder of holders) await admin("POST", `/_t3flare/agents/workspace-stop?id=${holder}`);
+  await setBudget(Number.isInteger(ownersBudget) ? ownersBudget : 0);
 }
 
 if (scenario === "push") {

@@ -33,8 +33,11 @@ export const MAX_TIMED_SECONDS = MAX_TIMED_MINUTES * 60;
  */
 export const OFF_DEADLINE_MS = MAX_TIMED_MINUTES * 60_000;
 
+/** A time limit in ms as a deadline: `OFF_DEADLINE_MS` when it is off (0). The one place an off limit becomes the week. */
+export const offDeadlineMs = (ms: number): number => (ms === 0 ? OFF_DEADLINE_MS : ms);
+
 /** A time limit of `value` units of `unitMs` as a deadline in ms: `OFF_DEADLINE_MS` when it is off (0). */
-export const deadlineMs = (value: number, unitMs: number): number => (value === 0 ? OFF_DEADLINE_MS : value * unitMs);
+export const deadlineMs = (value: number, unitMs: number): number => offDeadlineMs(value * unitMs);
 
 /**
  * The Container budget's default (SPI-1386: local parity): 0, no budget, so as many Containers run at once as the
@@ -54,7 +57,8 @@ export const MAX_CONTAINER_BUDGET = 100;
 /**
  * The CLI agents' processes per Workspace by default (`cliProcessesPerWorkspace`; plan §2.1, review F7), each process
  * counted once (SPI-1364). An idle Codex app-server measured 157–160 MB RSS on step4a
- * (steps-evidence-1:docs/steps/step-4a/m3-memory.json), so four take about 0.65 GB of `cpu-1`'s 3 GiB, beside computerd
+ * (steps-evidence-1:docs/steps/step-4a/m3-memory.json), so four take about 0.65 GB of `cpu-1`'s 3 GiB (the default size then;
+ * `standard-3`'s 8 GiB since SPI-1386), beside computerd
  * (~100 MB) and the agents' own commands (an `npm ci` and its tests peak at 1–1.5 GB). Claude Code peaked at 344 MiB and
  * OpenCode at 439 MiB in a turn running `npm ci && npm test` (steps-evidence-1:docs/steps/step-4b/m0-local.json P7), which
  * the setting's description states.
@@ -452,6 +456,14 @@ export const RETENTION_SETTING_KEYS = ["usageRetentionDays", "piSessionRetention
  * still needs a deadline, so an off limit gives it `OFF_DEADLINE_MS`.
  */
 export const DEFAULT_MCP_CALL_SECONDS = 0;
+
+/**
+ * How long an MCP server's requests other than a tool call (a resource read, a prompt, a listing page, a completion, a
+ * subscription, a task's poll) may take while the call time limit is off: 270 s, the call time limit's default before
+ * SPI-1386, which bounded them with it. Only a tool call is the Owner's to leave unbounded; these guard t3flare's own
+ * reads of a server. With the call time limit set, they take it, as before.
+ */
+export const MCP_REQUEST_OFF_MS = 270_000;
 
 /** The MCP call time limit's default in ms (0, off): used where no setting reaches (a test's host, a call with none). */
 export const DEFAULT_MCP_CALL_MS = DEFAULT_MCP_CALL_SECONDS * 1000;

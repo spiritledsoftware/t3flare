@@ -3550,10 +3550,11 @@ if (!["m5a-prod", "changes", "owner-oauth", "snap"].includes(command ?? "")) {
   // owner's page items) outlive it: keep the window open for the longest arm (an hour), renewed by each run of this script.
   await admin("POST", "/_t3flare/arm-bootstrap?minutes=60");
 }
-// SPI-1386 turned the Settings server's limits and the Container budget off by default; the M4 to M6 items are written
-// against them set: the limits at their values before, and a budget, so a raise of it is an asked change.
-if (["m4", "m4-page", "m5a", "m5b", "m6"].includes(command ?? "")) {
-  await harness("POST", "/_t3flare/settings/api/mcp", {
+// SPI-1386 turned the Settings server's limits and the Container budget off by default; the M4 to M6 items and the
+// owner's items are written against them set: the limits at their values before, and a budget, so a raise of it is an
+// asked change. Each write is checked: an item run against limits that did not take would prove nothing.
+if (["m4", "m4-page", "m5a", "m5b", "m6", "owner"].includes(command ?? "")) {
+  const limits = await harness("POST", "/_t3flare/settings/api/mcp", {
     op: "server",
     server: "settings",
     limits: {
@@ -3569,7 +3570,11 @@ if (["m4", "m4-page", "m5a", "m5b", "m6"].includes(command ?? "")) {
       openPerOwner: 2,
     },
   });
-  if (Number((await environment()).resolved.containerBudget) === 0) await resetBudget(3);
+  if (limits.status !== 200) throw new Error(`the Settings server's limits were not set: ${JSON.stringify(limits)}`);
+  if (Number((await environment()).resolved.containerBudget) === 0) {
+    const budget = await resetBudget(3);
+    if (budget.status !== 200) throw new Error(`the Container budget was not set: ${JSON.stringify(budget)}`);
+  }
 }
 switch (command) {
   case "setup":

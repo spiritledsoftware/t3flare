@@ -1,5 +1,6 @@
 // SPI-1364: a git command t3 gave up on is ended in the Container, TERM then KILL after t3's own 1 s; one t3 can cancel
 // takes no `commandMinutes` cut.
+import { DEFAULT_COMMAND_MINUTES, deadlineMs, OFF_DEADLINE_MS } from "@t3flare/harness-registry";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -181,10 +182,19 @@ describe("dropOrphanedRuns, the Workspace's alarm (SPI-1382)", () => {
 describe("gitDeadlineMs", () => {
   it("is the run's own limit; for a run t3 can cancel, a backstop far past the command limit; else the command limit", () => {
     expect(gitDeadlineMs({ timeoutMs: 5_000, runId: "r" }, 120_000)).toBe(5_000);
-    // t3's 5-minute fetch and its pushes (no timeout) are never cut at the 2-minute default.
+    // t3's 5-minute fetch and its pushes (no timeout) are never cut at a 2-minute command limit.
     expect(gitDeadlineMs({ runId: "r" }, 120_000)).toBe(CANCELLABLE_RUN_MS);
     expect(CANCELLABLE_RUN_MS).toBeGreaterThan(5 * 60_000);
     expect(CANCELLABLE_RUN_MS).toBeLessThan(2 ** 31 - 1);
     expect(gitDeadlineMs({}, 120_000)).toBe(120_000);
+  });
+
+  it("gives a command with no limit of its own the off deadline while commandMinutes is off (the default, SPI-1386)", () => {
+    // The Workspace DO's command limit is `deadlineMs(commandMinutes, 60_000)`.
+    expect(DEFAULT_COMMAND_MINUTES).toBe(0);
+    const commandMs = deadlineMs(DEFAULT_COMMAND_MINUTES, 60_000);
+    expect(commandMs).toBe(OFF_DEADLINE_MS);
+    expect(gitDeadlineMs({}, commandMs)).toBe(OFF_DEADLINE_MS);
+    expect(gitDeadlineMs({}, deadlineMs(2, 60_000))).toBe(120_000);
   });
 });

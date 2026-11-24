@@ -18,7 +18,8 @@ import {
   ENVIRONMENT_SETTINGS,
   type Exposure,
   MAX_SCHEMA_BYTES,
-  OFF_DEADLINE_MS,
+  MCP_REQUEST_OFF_MS,
+  offDeadlineMs,
   type McpServerSetting,
   mcpServersOf,
   ownEntry,
@@ -261,9 +262,12 @@ export class McpHost {
       headers[server.auth.header] = value;
       redact.push(value);
     }
-    // An off limit gives the engine the off deadline: its SDK times a request it gives no timeout at 60 s.
+    // An off limit (SPI-1386) gives a tool call the off deadline, not none: the engine's SDK times a request it gives no
+    // timeout at 60 s. Only the call is the Owner's to leave unbounded: the server's other requests keep 270 s
+    // (`MCP_REQUEST_OFF_MS`), the bound they had with the call limit's old default; a limit set bounds both, as before.
     const callMs = this.#deps.callTimeoutMs?.() ?? DEFAULT_MCP_CALL_MS;
-    const timeoutMs = callMs === 0 ? OFF_DEADLINE_MS : callMs;
+    const timeoutMs = offDeadlineMs(callMs);
+    const requestTimeoutMs = callMs === 0 ? MCP_REQUEST_OFF_MS : callMs;
     return {
       kind: "http",
       conn: name,
@@ -272,6 +276,7 @@ export class McpHost {
       headers,
       redact,
       timeoutMs,
+      requestTimeoutMs,
       ...this.#deps.limits?.(),
     };
   }

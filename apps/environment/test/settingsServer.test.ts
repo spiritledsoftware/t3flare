@@ -537,7 +537,8 @@ describe("the Settings server's write checks", () => {
   });
 
   it("SPI-1322: with the strike lock at 0, three declines in a row lock nothing; with strikes at 1, one does", async () => {
-    const limited = (limits: Record<string, number>, from: StoredHarness = EMPTY_HARNESS): StoredHarness => {
+    // From the caps an Owner set (`CAPPED_HARNESS`): three strikes that would lock, so a lock of 0 is what unlocks them.
+    const limited = (limits: Record<string, number>, from: StoredHarness = CAPPED_HARNESS): StoredHarness => {
       const applied = applyMcpChange(from, { op: "server", server: "settings", limits });
       if (!applied.ok) throw new Error(applied.error);
       return applied.harness;

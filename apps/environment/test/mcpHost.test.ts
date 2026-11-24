@@ -6,6 +6,7 @@
 import {
   applyMcpChange,
   DEFAULT_MCP_CALL_MS,
+  MCP_REQUEST_OFF_MS,
   OFF_DEADLINE_MS,
   DO_VALUE_BYTES,
   EMPTY_HARNESS,
@@ -473,8 +474,12 @@ describe("McpHost and MCP apps (G11, review L10)", () => {
     expect(run.seen.at(-1).target.timeoutMs).toBe(3_600_000);
     const plain = setup(() => [tool("fixture_echo", true)]);
     await plain.host.list("commissary");
+    expect(run.seen.at(-1).target.requestTimeoutMs).toBe(3_600_000);
     expect(DEFAULT_MCP_CALL_MS).toBe(0);
     expect(plain.seen.at(-1).target.timeoutMs).toBe(OFF_DEADLINE_MS);
+    // Off, only the tool call gets the week: the server's other requests keep 270 s (`MCP_REQUEST_OFF_MS`).
+    expect(MCP_REQUEST_OFF_MS).toBe(270_000);
+    expect(plain.seen.at(-1).target.requestTimeoutMs).toBe(MCP_REQUEST_OFF_MS);
     const off = setup(() => [tool("fixture_echo", true)], undefined, withCommissary(), { callTimeoutMs: () => 0 });
     await off.host.list("commissary");
     await off.host.call({ server: "commissary", tool: "fixture_echo", args: {}, judged: "read" });

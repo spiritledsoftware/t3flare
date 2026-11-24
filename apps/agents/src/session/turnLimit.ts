@@ -19,13 +19,20 @@ export const isLiveTurn = (turn: TurnState): boolean => turn.status === "queued"
 const positive = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 
+/** A turn's limit that is off (SPI-1386, the setting's 0): the turn arms no alarm and is never ended for its length. */
+export const TURN_LIMIT_OFF = 0;
+
+/** A carried limit as the turn keeps it: off when it says off, its value when positive, else the default (itself off). */
+const carriedLimit = (carried: unknown): number =>
+  carried === TURN_LIMIT_OFF ? TURN_LIMIT_OFF : (positive(carried) ?? DEFAULT_TURN_LIMIT_MS);
+
 /**
- * A turn's limit in ms, 0 when off: the deploy's override when set, else what the turn's start carried, else the default
- * (off; a start from an Environment before the setting, or a turn recorded before it). Validation keeps the alarm
- * working only: the Owner's bounds were checked when the setting was saved.
+ * A turn's limit in ms, `TURN_LIMIT_OFF` when off: the deploy's override when set, else what the turn's start carried,
+ * else the default (off; a start from an Environment before the setting, or a turn recorded before it). Validation keeps
+ * the alarm working only: the Owner's bounds were checked when the setting was saved.
  */
 export const turnLimitAt = (carried: unknown, override: string | undefined): number =>
-  positiveOverride(override) ?? positive(carried) ?? DEFAULT_TURN_LIMIT_MS;
+  positiveOverride(override) ?? carriedLimit(carried);
 
 /** When the turn's limit ends it: its start plus the limit it started with; undefined when its limit is off. */
 export const turnLimitEndsAt = (
@@ -33,8 +40,12 @@ export const turnLimitEndsAt = (
   override: string | undefined,
 ): number | undefined => {
   const limit = turnLimitAt(turn.turnLimitMs, override);
-  return limit === 0 ? undefined : turn.startedAt + limit;
+  return limit === TURN_LIMIT_OFF ? undefined : turn.startedAt + limit;
 };
+
+/** When a live turn's limit ends it; undefined for a turn not live or whose limit is off. */
+const liveTurnEndsAt = (turn: TurnState, override: string | undefined): number | undefined =>
+  isLiveTurn(turn) ? turnLimitEndsAt(turn, override) : undefined;
 
 /** The record `submitTurn` keeps for a new turn, before its submission: queued, with the limit its start carried. */
 export const turnRecord = (
@@ -56,7 +67,7 @@ export type TurnEntries = ReadonlyArray<readonly [string, TurnState]>;
 /** When each live turn's own limit ends it, for those whose limit is on: what `#arm` adds to the alarm's candidates. */
 export const turnLimitAlarms = (turns: TurnEntries, override: string | undefined): Array<number> =>
   turns.flatMap(([, turn]) => {
-    const endsAt = isLiveTurn(turn) ? turnLimitEndsAt(turn, override) : undefined;
+    const endsAt = liveTurnEndsAt(turn, override);
     return endsAt === undefined ? [] : [endsAt];
   });
 
@@ -64,7 +75,7 @@ export const turnLimitAlarms = (turns: TurnEntries, override: string | undefined
 export const turnsPastLimit = (turns: TurnEntries, now: number, override: string | undefined): Array<string> =>
   turns
     .filter(([, turn]) => {
-      const endsAt = isLiveTurn(turn) ? turnLimitEndsAt(turn, override) : undefined;
+      const endsAt = liveTurnEndsAt(turn, override);
       return endsAt !== undefined && now >= endsAt;
     })
     .map(([id]) => id);

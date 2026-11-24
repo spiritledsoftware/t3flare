@@ -57,6 +57,9 @@ import {
   TEXT_GENERATION_MARGIN_MS,
   fitsEnvironmentSetting,
   DEFAULT_TEXT_GENERATION_SECONDS,
+  deadlineMs,
+  OFF_DEADLINE_MS,
+  offDeadlineMs,
 } from "./environment.ts";
 import type { EnvironmentSettingEntry } from "./fields.ts";
 import { DO_VALUE_BYTES, storedBytes } from "./storedValue.ts";
@@ -1230,6 +1233,16 @@ describe("local parity by default (SPI-1386)", () => {
       expect(fitsEnvironmentSetting(key, 0), key).toBe(true);
       expect(ENVIRONMENT_SETTINGS[key].description, key).toContain("Empty or 0 is off");
     }
+  });
+
+  it("makes an off time limit the off deadline in one place, a set one its value in ms", () => {
+    expect(OFF_DEADLINE_MS).toBe(MAX_TIMED_MINUTES * 60_000);
+    expect(OFF_DEADLINE_MS).toBeLessThan(2 ** 31 - 1);
+    expect(offDeadlineMs(0)).toBe(OFF_DEADLINE_MS);
+    expect(offDeadlineMs(5_000)).toBe(5_000);
+    expect(deadlineMs(0, 60_000)).toBe(OFF_DEADLINE_MS);
+    expect(deadlineMs(2, 60_000)).toBe(120_000);
+    expect(deadlineMs(270, 1000)).toBe(270_000);
   });
 
   it("keeps a value an Environment stored: only the defaults move", () => {
