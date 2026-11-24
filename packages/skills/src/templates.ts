@@ -6,7 +6,13 @@
 import { parse } from "yaml";
 
 import type { CommandSource } from "./cliRoots.ts";
-import { join, type SkillFiles, withoutTrailingSlashes } from "./discovery.ts";
+import {
+  DIRECTORY_LISTING_ENTRIES,
+  join,
+  listingStopped,
+  type SkillFiles,
+  withoutTrailingSlashes,
+} from "./discovery.ts";
 
 /** A Prompt template as discovery lists it; its body is read when a message uses it. */
 export interface PromptTemplate {
@@ -26,11 +32,6 @@ export type ParsedTemplate = PromptTemplate & { readonly content: string };
 /** Where a directory's Prompt templates are. */
 export const PROMPTS_DIRECTORY = ".pi/prompts";
 
-/**
- * The most entries listed in one Prompt templates directory by default (the Environment setting
- * `promptsDirectoryEntries`, SPI-1365): a nested source's listing is recursive, held whole in the Workspace DO.
- */
-export const DEFAULT_PROMPT_ENTRIES = 1000;
 const DESCRIPTION_LINE = 60;
 
 /** `content` split as pi's `parseFrontmatter` splits it: its frontmatter's YAML, if any, and its body. */
@@ -201,19 +202,25 @@ const PI_PROMPTS: ReadonlyArray<CommandSource> = [{ directory: PROMPTS_DIRECTORY
  * The Prompt templates of a thread in `cwd`: the `.md` files directly in its `.pi/prompts`, in name order; or, with
  * `sources` (a CLI agent's commands, SPI-1151), in each of those directories, a nested file named `sub:name`, the first
  * name found winning. A file whose name holds whitespace is not one (its Slash command would end at the space). At most
- * `maxEntries` entries are listed in each directory; no count of templates and no size of one (SPI-1365).
+ * `maxEntries` entries are listed in each directory, and `onStopped` hears of each listing that stopped before its end; no count
+ * of templates and no size of one (SPI-1365).
  */
 export const discoverPrompts = async (
   files: SkillFiles,
   cwd: string,
   sources: ReadonlyArray<CommandSource> = PI_PROMPTS,
-  maxEntries: number = DEFAULT_PROMPT_ENTRIES,
+  maxEntries: number = DIRECTORY_LISTING_ENTRIES,
+  onStopped: (directory: string, reason: string) => void = () => {},
 ): Promise<ReadonlyArray<PromptTemplate>> => {
   const base = withoutTrailingSlashes(cwd);
   const listed = await Promise.all(
     sources.map(async (source) => {
       const root = join(base, source.directory);
-      const entries = await files.list(root, maxEntries);
+      const listing = await files.list(root, maxEntries);
+      const { entries } = listing;
+      // The listing names its limit when it stops before its end (SPI-1387, ADR-0049 §4).
+      const stopped = listingStopped(listing, maxEntries);
+      if (stopped !== undefined) onStopped(root, stopped);
       return (
         entries
           .filter(

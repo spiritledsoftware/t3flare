@@ -122,8 +122,8 @@ echo '{"signalled":true}'
 `.replaceAll("\\${", "${");
 
 /**
- * The argv that stops process group `pgid`: TERM, then KILL after `graceMs` (looked at every 100 ms; the Owner's
- * `portStopGraceSeconds`, SPI-1364, stock's `signalUntilStopped` by default) if any of its members is still in it.
+ * The argv that stops process group `pgid`: TERM, then KILL after `graceMs` (looked at every 100 ms;
+ * `STOP_GRACE_SECONDS`, SPI-1387, stock's `signalUntilStopped` by default) if any of its members is still in it.
  * Prints `{"signalled":true|false}`; false when the group was already gone.
  */
 export const stopGroupArgv = (pgid: number, members: ReadonlyArray<number>, graceMs: number): ReadonlyArray<string> => {

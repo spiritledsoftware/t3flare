@@ -15,7 +15,7 @@ import { CSRF_HEADER, handleHarness } from "../src/harness/panel.ts";
 import { harnessSecrets } from "../src/harness/secrets.ts";
 import { harnessStore } from "../src/harness/store.ts";
 import { McpHost } from "../src/mcp/host.ts";
-import { defaultSettingsServer, resolveHarness } from "@t3flare/harness-registry";
+import { defaultSettingsServer, PAGE_TOKEN_HOURS, resolveHarness } from "@t3flare/harness-registry";
 
 const HOST = "t3-admin.example.dev";
 const NOW = Date.UTC(2026, 10, 12, 10, 30);
@@ -85,13 +85,15 @@ describe("Settings page", () => {
     ).toBe(403);
   });
 
-  it("accepts a token as many hours old as the Settings page token setting, and hands the page a new one (SPI-1366)", async () => {
+  it("accepts a token PAGE_TOKEN_HOURS old, a stored setting from before SPI-1387 ignored, and hands the page a new one (SPI-1366)", async () => {
     const { store, deps } = setup();
     store.saveEnvironment({ revision: 1, settings: { pageTokenHours: 3 } });
     const body = { extension: "advisor", enabled: false };
-    expect((await change(deps, body, await ownerHeaders(store, NOW - 3 * 60 * 60 * 1000))).status).toBe(200);
+    expect((await change(deps, body, await ownerHeaders(store, NOW - PAGE_TOKEN_HOURS * 60 * 60 * 1000))).status).toBe(
+      200,
+    );
     expect(
-      (await change(deps, { ...body, enabled: true }, await ownerHeaders(store, NOW - 4 * 60 * 60 * 1000))).status,
+      (await change(deps, { ...body, enabled: true }, await ownerHeaders(store, NOW - 3 * 60 * 60 * 1000))).status,
     ).toBe(403);
     // The page's refresh: a GET answers this hour's token, which a change then carries.
     const fresh = (await (

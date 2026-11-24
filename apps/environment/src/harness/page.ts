@@ -19,8 +19,6 @@ import {
   COMMAND_SETTING_KEYS,
   DOTFILES_SETTING_KEYS,
   CONTAINER_PREVIEW_SETTING_KEYS,
-  KEPT_SETTING_KEYS,
-  TERMINAL_SETTING_KEYS,
   ENVIRONMENT_SETTINGS,
   type Exposure,
   EXPOSURES,
@@ -53,16 +51,12 @@ import {
   SETTINGS_SERVER_LIMITS,
   type SettingsServerLimitKey,
   SETTINGS_SERVER_LIMITS_NOTE,
-  ACCESS_SETTING_KEYS,
   LIFECYCLE_SETTING_KEYS,
   MCP_CALL_SETTING_KEYS,
   MCP_SERVER_SETTING_KEYS,
   OUTSIDE_REQUEST_SETTING_KEYS,
-  PREVIEW_SETTING_KEYS,
   SKILLS_SETTING_KEYS,
   RETENTION_SETTING_KEYS,
-  RETRY_SETTING_KEYS,
-  TRACE_SETTING_KEYS,
   SWEEP_SETTING_KEYS,
   conditionHolds,
   visible,
@@ -587,14 +581,14 @@ const environmentSection = (
   const entries = Object.entries(ENVIRONMENT_SETTINGS as Readonly<Record<string, EnvironmentSettingEntry>>).filter(
     ([key]) => !(SWEEP_SETTING_KEYS as ReadonlyArray<string>).includes(key),
   );
-  // The scalar settings share the Containers row. The agents' settings (SPI-1315: the Turn limit, the CLI agents'
-  // processes) share an Agents row, the MCP calls' time limit and result size (SPI-1359) an MCP calls row, the MCP servers' connect, listing and logs (SPI-1363) an MCP servers row, the outside
-  // requests' time limit (SPI-1365) an Outside requests row, the Sleep and wake, Previews and access settings (SPI-1366)
-  // rows of their own, the retries and t3's trace (SPI-1367) rows of their own, the commands' limits and the Terminals'
-  // (SPI-1364) a Commands and a Terminals row, the Container previews' (SPI-1364) the Previews row with SPI-1366's, how
-  // long history is kept (SPI-1323) a History row, and the dotfiles toggles (ADR-0047 §9) a Dotfiles row, each a `keyedRow`. A list (the Variables) and a file (the Global mise config, the
-  // Container setup) each get a row of their own, which the settings that name it as their `row` join. One form, one
-  // Save.
+  // The scalar settings share the Containers row. The agents' settings (SPI-1315: the Turn limit, the Answer wait) share
+  // an Agents row, the MCP calls' time limit (SPI-1359) an MCP calls row, the MCP servers' connect and listing time limits
+  // (SPI-1363) an MCP servers row, the text generation time limit (SPI-1366) a Text generation row, the Sleep and wake
+  // settings (SPI-1366) a row of their own, the commands' limits (SPI-1364) a Commands row, the Container previews' ports
+  // (SPI-1364) a Previews row, the Repo skills listed (SPI-1365) a Skills row, how long history is kept (SPI-1323) a
+  // History row, and the dotfiles toggles (ADR-0047 §9) a Dotfiles row, each a `keyedRow`. A list (the Variables) and a
+  // file (the Global mise config, the Container setup) each get a row of their own, which the settings that name it as
+  // their `row` join. One form, one Save.
   const keyed: ReadonlyArray<string> = [
     ...AGENT_SETTING_KEYS,
     ...MCP_CALL_SETTING_KEYS,
@@ -602,16 +596,10 @@ const environmentSection = (
     ...OUTSIDE_REQUEST_SETTING_KEYS,
     ...SKILLS_SETTING_KEYS,
     ...COMMAND_SETTING_KEYS,
-    ...TERMINAL_SETTING_KEYS,
     ...CONTAINER_PREVIEW_SETTING_KEYS,
     ...RETENTION_SETTING_KEYS,
-    ...KEPT_SETTING_KEYS,
     ...DOTFILES_SETTING_KEYS,
     ...LIFECYCLE_SETTING_KEYS,
-    ...PREVIEW_SETTING_KEYS,
-    ...ACCESS_SETTING_KEYS,
-    ...RETRY_SETTING_KEYS,
-    ...TRACE_SETTING_KEYS,
   ];
   const ownRow = (setting: EnvironmentSettingEntry) =>
     setting.schema.type === "variables" || setting.schema.type === "file";
@@ -634,86 +622,62 @@ const environmentSection = (
       id: "containers",
       title: "Containers",
       ident: `revision ${environment.revision}`,
-      desc: "Their size, how long one may sit idle, how long open Terminals keep it running, how many may run at once, how many Terminals a Workspace may have, yours and agents', how much an agent's Terminal keeps of its scrollback, how long a start or a turn waits for the newest settings, and how long a clone or a checkpoint may run.",
+      desc: "Their size, how long one may sit idle, how long open Terminals keep it running, how many may run at once, and how long a clone or a checkpoint may run.",
       keys: containers,
     },
     {
       id: "agents",
       title: "Agents",
-      desc: "How long an agent's turn may run, how long a card waits for your answer, how many CLI agents' processes a Workspace's Container may run, and how long an idle process waits before it may be ended for another Workspace.",
+      desc: "How long an agent's turn may run, and how long a card waits for your answer.",
       keys: AGENT_SETTING_KEYS,
-    },
-    {
-      id: "retries",
-      title: "Retries and kills",
-      desc: "How many times an agent tries a failed model request again, and how many times t3flare tries to end a stopped command's surviving processes.",
-      keys: RETRY_SETTING_KEYS,
     },
     {
       id: "mcp-calls",
       title: "MCP calls",
-      desc: "How long one MCP tool call may run, how large a result t3flare takes from it, and how many of its pauses for your answer it answers, for every agent and every server; how long Codex waits for t3flare's MCP relay to start; and how long a server's sign-in may take.",
+      desc: "How long one MCP tool call may run, for every agent and every server.",
       keys: MCP_CALL_SETTING_KEYS,
     },
     {
       id: "mcp-servers",
       title: "MCP servers",
-      desc: "How long t3flare waits for each MCP server to connect and to list what it offers, how many of its logs one call keeps, how many of its progress notices reach the thread each second, and how long a server found speaking the Legacy protocol is taken as Legacy.",
+      desc: "How long t3flare waits for each MCP server to connect and to list what it offers.",
       keys: MCP_SERVER_SETTING_KEYS,
     },
     {
-      id: "outside-requests",
-      title: "Outside requests",
-      desc: "How long t3flare waits for GitHub, the sign-ins' vendors, an MCP server's authorization server, T3 Connect and a Model endpoint to answer one request, how long it waits before asking GitHub again after a failure, and how long a model may take to write a title, a commit message or a pull request.",
+      id: "text-generation",
+      title: "Text generation",
+      desc: "How long a model may take to write a title, a commit message, a pull request or a branch name.",
       keys: OUTSIDE_REQUEST_SETTING_KEYS,
     },
     {
       id: "lifecycle",
       title: "Sleep and wake",
-      desc: "How long the Environment waits idle before it sleeps, what wakes it while it sleeps, and how many failed starts put it in safe mode.",
+      desc: "How long the Environment waits idle before it sleeps, and what wakes it while it sleeps.",
       keys: LIFECYCLE_SETTING_KEYS,
     },
     {
       id: "commands",
       title: "Commands",
-      desc: "How long a command in a Workspace's Container may run, how long a start waits for the Container, how recent use keeps a Container from being reclaimed, how long a turn waits for new Environment skills, and how long a stopped command or port gets to end before it is killed.",
+      desc: "How long a command in a Workspace's Container may run, and how long a start waits for the Container.",
       keys: COMMAND_SETTING_KEYS,
-    },
-    {
-      id: "terminals",
-      title: "Terminals",
-      desc: "How long a new Terminal waits for its first prompt, and how much of your Terminals' output t3 keeps.",
-      keys: TERMINAL_SETTING_KEYS,
     },
     {
       id: "previews",
       title: "Previews",
-      desc: "Which Container ports a preview browser can open, how long a port check waits for an answer, how often an open preview browser's profile is saved, and how long the browser that renders t3's HTML stays open after its last render.",
-      keys: [...CONTAINER_PREVIEW_SETTING_KEYS, ...PREVIEW_SETTING_KEYS],
-    },
-    {
-      id: "access",
-      title: "Settings page, clients and T3 Connect",
-      desc: "How long this page's token for changes lasts, how many clients of one Owner key the Settings server remembers, and how many of T3 Connect's publishes the Environment keeps for its status.",
-      keys: ACCESS_SETTING_KEYS,
+      desc: "Which Container ports a preview browser can open.",
+      keys: CONTAINER_PREVIEW_SETTING_KEYS,
     },
     {
       id: "skills",
-      title: "Repo skills and Prompt templates",
-      desc: "How many of a repository's skills its agents are offered, and how far t3flare reads its skills and Prompt templates directories to find them.",
+      title: "Repo skills",
+      desc: "How many of a repository's skills its agents are offered.",
       keys: SKILLS_SETTING_KEYS,
-    },
-    {
-      id: "trace",
-      title: "t3's trace",
-      desc: "How large t3's trace file grows before t3 starts a new one, and how many older ones it keeps for its diagnostics.",
-      keys: TRACE_SETTING_KEYS,
     },
     {
       id: "history",
       title: "History",
-      desc: "How long t3flare keeps its usage records, Pi's and Claude Code's sessions and its temp files, and how many git answers and traced commands it keeps.",
-      keys: [...RETENTION_SETTING_KEYS, ...KEPT_SETTING_KEYS],
+      desc: "How long t3flare keeps its usage records and Pi's and Claude Code's sessions.",
+      keys: RETENTION_SETTING_KEYS,
     },
     {
       id: "dotfiles",

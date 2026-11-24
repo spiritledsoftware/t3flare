@@ -23,7 +23,7 @@ describe("callLogs", () => {
     expect(entries.at(-1)?.data).toBe(`message ${MCP_LOG_RING + 4}`);
   });
 
-  it("keeps the last `keep` the host names (mcpLogEntries), oldest first", () => {
+  it("keeps the last `keep` the host names (`MCP_LOG_ENTRIES`), oldest first", () => {
     const logs = callLogs({ now: () => 0, tokens: () => new Set(), keep: 200 });
 
     for (let n = 0; n < 205; n++) logs.hear({ level: "warning", data: `message ${n}` });

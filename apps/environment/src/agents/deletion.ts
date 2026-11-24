@@ -397,7 +397,7 @@ export interface SweepReport {
   readonly at: string;
   /** Nothing was written (a preview). */
   readonly dry: boolean;
-  /** The Environment setting `sweepPurges`: off, the Sweep marked and purged nothing. */
+  /** Whether the Sweep purges: off at a Grace of 0, never, where it marked and purged nothing. */
   readonly purging: boolean;
   readonly graceMs: number;
   /** When purging was last turned on (ADR-0043 §4): nothing is purged before one Grace after it. */

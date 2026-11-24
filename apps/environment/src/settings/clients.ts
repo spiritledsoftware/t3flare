@@ -13,16 +13,11 @@
 // - Only the Settings page's CSRF-guarded POST (harness/panel.ts) changes a mode or removes a row (`setMode`, `remove`).
 //   No MCP door, and no Settings server tool, reaches them: the endpoint holds this behind `seen` alone.
 import type { SqlStorage } from "@cloudflare/workers-types/index.ts";
-import { DEFAULT_CLIENTS_PER_KEY, withoutHidden } from "@t3flare/harness-registry";
+import { CLIENTS_PER_KEY, withoutHidden } from "@t3flare/harness-registry";
 
 import { OWNER_MODES, type OwnerMode } from "./changes.ts";
 
 export const CLIENTS_TABLE = "t3flare_settings_clients";
-/**
- * Clients per Owner caller's key when no setting reaches (`clientsPerKey`' default, SPI-1366); a new one past the setting
- * evicts the least recently seen `browser` one first.
- */
-export const CLIENTS_PER_KEY = DEFAULT_CLIENTS_PER_KEY;
 /** A client's name as kept: at most this many characters (an Owner client's label, plan D11). */
 export const CLIENT_NAME_MAX = 60;
 /** `lastSeen` is written at most this often per client. */
@@ -78,7 +73,7 @@ const entryOf = (row: Row): OwnerClientEntry => ({
 export const ownerClients = (
   sql: Pick<SqlStorage, "exec">,
   now: () => number = Date.now,
-  /** How many clients a key keeps, read at each new client (`clientsPerKey`, SPI-1366). */
+  /** How many clients a key keeps: `CLIENTS_PER_KEY` (SPI-1366, SPI-1387; a test passes its own). */
   perKey: () => number = () => CLIENTS_PER_KEY,
 ): OwnerClients => {
   let ready = false;

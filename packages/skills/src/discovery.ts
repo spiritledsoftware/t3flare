@@ -38,10 +38,19 @@ export interface ListedEntry {
   readonly kind: "file" | "directory" | "symlink";
 }
 
+/**
+ * One directory's listing: its entries, and whether the listing stopped before the end (`truncated`), at `maxEntries`
+ * or at the listing's own size or time bound.
+ */
+export interface DirectoryListing {
+  readonly entries: ReadonlyArray<ListedEntry>;
+  readonly truncated: boolean;
+}
+
 /** What discovery reads: the Workspace's own files. */
 export interface SkillFiles {
   /** The files, directories and links below `directory` (recursive, links not followed), at most `maxEntries`; none when absent. */
-  readonly list: (directory: string, maxEntries: number) => Promise<ReadonlyArray<ListedEntry>>;
+  readonly list: (directory: string, maxEntries: number) => Promise<DirectoryListing>;
   /** A file's text, or undefined when it cannot be read. */
   readonly read: (path: string) => Promise<string | undefined>;
 }
@@ -53,9 +62,17 @@ export const SKILL_ROOTS = [".pi/skills", ".agents/skills", ".claude/skills"] as
 export const MAX_DESCRIPTION_LENGTH = 1024;
 
 /**
- * How far discovery reads (SPI-1365: the Environment settings `repoSkillsListed`, `skillsDirectoryEntries` and
- * `skillsLinkEntries`): the most Repo skills kept, nearest first, each listed in the agent's prompt; the most entries
- * listed in one skills directory; and the most read from a directory a skills link points to, which may lead anywhere.
+ * The most entries t3flare lists in one skills directory, a link in it to a folder elsewhere, or a Prompt templates
+ * directory (SPI-1365, SPI-1387): each listing is held whole in the Workspace DO's isolate, a few hundred KB at this
+ * count. A value only t3flare's machinery uses.
+ */
+export const DIRECTORY_LISTING_ENTRIES = 5000;
+
+/**
+ * How far discovery reads (SPI-1365: the Environment setting `repoSkillsListed`; SPI-1387: the listing constant
+ * `DIRECTORY_LISTING_ENTRIES`): the most Repo skills kept, nearest first, each listed in the
+ * agent's prompt; the most entries listed in one skills directory; and the most read from a directory a skills link
+ * points to, which may lead anywhere.
  */
 export interface SkillLimits {
   readonly repoSkills: number;
@@ -63,8 +80,30 @@ export interface SkillLimits {
   readonly linkedEntries: number;
 }
 
-/** The limits' defaults, today's: the settings' defaults in packages/harness-registry/src/environment.ts. */
-export const DEFAULT_SKILL_LIMITS: SkillLimits = { repoSkills: 100, rootEntries: 5000, linkedEntries: 200 };
+/** The limits where none are given: `repoSkillsListed`'s default and `DIRECTORY_LISTING_ENTRIES`. */
+export const DEFAULT_SKILL_LIMITS: SkillLimits = {
+  repoSkills: 100,
+  rootEntries: DIRECTORY_LISTING_ENTRIES,
+  linkedEntries: DIRECTORY_LISTING_ENTRIES,
+};
+
+/**
+ * The size and time a directory's listing may take (pi-durable's `listFiles` defaults, which computer-env keeps and
+ * t3flare passes no other): a listing stops at the first of them or `maxEntries`.
+ */
+export const LISTING_BOUNDS = "4 MiB of names or 10 s";
+
+/**
+ * Why a directory's listing left skills or templates out (SPI-1387, ADR-0049 §4), when it stopped before the end:
+ * `listed` of its entries, `maxEntries` being t3flare's fixed limit, else its size or time bound. Undefined for a
+ * listing that ran to its end, however many entries it had.
+ */
+export const listingStopped = (listing: DirectoryListing, maxEntries: number): string | undefined =>
+  !listing.truncated
+    ? undefined
+    : listing.entries.length >= maxEntries
+      ? `its listing stopped at ${maxEntries.toLocaleString("en-US")} entries, t3flare's fixed limit; any past them are not found`
+      : `its listing stopped at ${listing.entries.length.toLocaleString("en-US")} entries, at its bound of ${LISTING_BOUNDS}; any past them are not found`;
 
 /**
  * t3's mention token, copied from `SKILL_TOKEN_REGEX` in `t3code/packages/shared/src/inlineSkills.ts` (its
@@ -160,21 +199,35 @@ const skillFiles = (paths: ReadonlyArray<string>): ReadonlyArray<string> => {
     .sort();
 };
 
-/** The paths below a skills directory that may be a `SKILL.md`, following its links to directories one level, as pi does. */
-const candidatePaths = async (files: SkillFiles, root: string, limits: SkillLimits): Promise<ReadonlyArray<string>> => {
-  const entries = await files.list(root, limits.rootEntries);
+/**
+ * The paths below a skills directory that may be a `SKILL.md`, following its links to directories one level, as pi does;
+ * and each directory whose listing stopped before its end (`listingStopped`).
+ */
+const candidatePaths = async (
+  files: SkillFiles,
+  root: string,
+  limits: SkillLimits,
+): Promise<{ readonly paths: ReadonlyArray<string>; readonly stopped: ReadonlyArray<SkippedSkill> }> => {
+  const listing = await files.list(root, limits.rootEntries);
+  const { entries } = listing;
+  const stopped: Array<SkippedSkill> = [];
+  const noteStopped = (path: string, listed: DirectoryListing, maxEntries: number) => {
+    const reason = listingStopped(listed, maxEntries);
+    if (reason !== undefined) stopped.push({ path, reason });
+  };
+  noteStopped(root, listing, limits.rootEntries);
   const links = entries.filter(
     (entry) => entry.kind === "symlink" && !entry.path.split("/").some((part) => part.startsWith(".")),
   );
   const linked = await Promise.all(
-    links.map(async (link) =>
-      (await files.list(join(root, link.path), limits.linkedEntries)).map((entry) => ({
-        ...entry,
-        path: `${link.path}/${entry.path}`,
-      })),
-    ),
+    links.map(async (link) => {
+      const listed = await files.list(join(root, link.path), limits.linkedEntries);
+      noteStopped(join(root, link.path), listed, limits.linkedEntries);
+      return listed.entries.map((entry) => ({ ...entry, path: `${link.path}/${entry.path}` }));
+    }),
   );
-  return [...entries, ...linked.flat()].filter((entry) => entry.kind !== "directory").map((entry) => entry.path);
+  const paths = [...entries, ...linked.flat()].filter((entry) => entry.kind !== "directory").map((entry) => entry.path);
+  return { paths, stopped };
 };
 
 /**
@@ -202,11 +255,13 @@ export const discoverSkills = async (
     skillRoots.filter((root) => depth === 0 || !root.cwdOnly).map((root) => join(directory, root.directory)),
   );
   // Listed at once; read in order, since precedence decides which of two same-named skills is kept.
-  const listed = await Promise.all(
-    roots.map(async (root) => skillFiles(await candidatePaths(files, root, limits)).map((path) => join(root, path))),
+  const candidates = await Promise.all(
+    roots.map(async (root) => ({ root, ...(await candidatePaths(files, root, limits)) })),
   );
+  const listed = candidates.map(({ root, paths }) => skillFiles(paths).map((path) => join(root, path)));
   const skills: Array<Skill> = [...environment];
-  const skipped: Array<SkippedSkill> = [];
+  // A listing that reached its entries is reported first, so a skill past it can be explained (SPI-1387).
+  const skipped: Array<SkippedSkill> = candidates.flatMap(({ stopped }) => stopped);
   let repo = 0;
   let omitted = 0;
   for (const path of listed.flat()) {

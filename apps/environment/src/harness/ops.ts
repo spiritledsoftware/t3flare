@@ -58,7 +58,7 @@ export interface OpsDeps {
   /** The Environment skills (SPI-1148): their store and GitHub reads. */
   readonly skills?: Omit<SkillsApiDeps, "caller" | "now" | "expectedRevision">;
   /**
-   * Called after a change that moved the Grace (`sweepPurges` or `graceDays`, ADR-0043): every purge date moved, so the
+   * Called after a change that moved the Grace (`graceDays`, ADR-0043): every purge date moved, so the
    * Environment DO runs the Sweep again soon (ADR-0043 §5).
    */
   readonly sweepSettingsChanged?: () => void;

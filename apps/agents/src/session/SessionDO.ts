@@ -61,6 +61,7 @@ import { type AgentTerminalRequest, type AgentTerminalResult, REPO_ROOT } from "
 import { DurableObject } from "cloudflare:workers";
 
 import {
+  DURABLE_RETRIES,
   EMPTY_HARNESS,
   extensionOf,
   ownEntry,
@@ -68,6 +69,7 @@ import {
   resolveHarness,
   type ResolvedHarness,
   retriedSpanMs,
+  SETTINGS_READ_MS,
 } from "@t3flare/harness-registry";
 
 import { type EnvironmentDO, environmentStub, limitsSender, usageSender } from "../environment.ts";
@@ -122,7 +124,6 @@ import { credentialFailure } from "./credentialFailure.ts";
 import { modelSettingSlug, perImageBase64Of } from "@t3flare/models/endpoints";
 import { SessionEndpoints } from "./endpoints.ts";
 import { readWithin } from "../readWithin.ts";
-import { turnReadMs } from "./turnReadMs.ts";
 import { noteTurnProvider, runsOn, TURN_PROVIDER_KEY } from "./signOut.ts";
 import {
   newestMatch,
@@ -146,7 +147,6 @@ import type { WorkspaceDO } from "../workspace/WorkspaceDO.ts";
 import { liveOf, pushedEntry, turnDetail, usageOf } from "./state.ts";
 import { alarmWork, nextAlarm } from "./alarmPlan.ts";
 import { isLiveTurn, turnLimitAlarms, turnRecord, turnsPastLimit } from "./turnLimit.ts";
-import { keepTurnRetries, keptTurnRetries } from "./turnRetries.ts";
 import { collectEntries, entriesStart, pushedTurns, snapshotTurns } from "./pushTurns.ts";
 import { TurnStore } from "./turnStore.ts";
 
@@ -286,20 +286,16 @@ export class SessionDO extends DurableObject<SessionEnv> {
       onRequest: () => this.#turns.noteModel((record) => ({ ...record, requests: record.requests + 1 })),
     });
     this.#modelFetch = recorder.fetch;
-    // SPI-1367: the kills a stopped command gets, as the latest turn's start carried them (`turnRetries.ts`).
-    this.#execs = new RunningExecs(
-      ctx.storage.kv,
-      (ids) => this.#killExecs(ids),
-      () => keptTurnRetries(ctx.storage.kv).killAttempts,
-    );
+    // SPI-1367: a stopped command's kills, `KILL_ATTEMPTS` of them (SPI-1387).
+    this.#execs = new RunningExecs(ctx.storage.kv, (ids) => this.#killExecs(ids));
     const registry = createRegistry();
     // SPI-1172: each failed answer replaces the turn's record, classified by its Model endpoint's API and auth.
     this.#limits = sessionLimits({
       last: recorder.last,
       note: (update) => this.#turns.noteModel(update),
       endpoints: { endpoint: (id) => this.#endpoints.endpoint(id), secrets: (id) => this.#endpoints.secrets(id) },
-      // SPI-1367: the span of the retries pi-durable runs with, as the latest turn's start carried them.
-      shortResetMs: () => retriedSpanMs(keptTurnRetries(ctx.storage.kv).durableRetries),
+      // SPI-1367: the span of the retries pi-durable runs with (`DURABLE_RETRIES`, SPI-1387).
+      shortResetMs: () => retriedSpanMs(DURABLE_RETRIES),
     });
     registry.install(modelLimits(this.#limits));
     registry.install(codingTools());
@@ -370,10 +366,8 @@ export class SessionDO extends DurableObject<SessionEnv> {
             {
               models: this.#models,
               registry: this.#registry,
-              // SPI-1367: read at each use, as the latest turn's start carried it (`turnRetries.ts`).
-              settings: () => ({
-                retry: { enabled: true, maxRetries: keptTurnRetries(ctx.storage.kv).durableRetries },
-              }),
+              // SPI-1367: pi-durable's own retries (`DURABLE_RETRIES`, SPI-1387).
+              settings: () => ({ retry: { enabled: true, maxRetries: DURABLE_RETRIES } }),
               env: (target) => this.#envAt(target.cwd),
               onReport: (report) => console.warn(JSON.stringify({ t3flare: "pi-durable-report", kind: report.kind })),
             },
@@ -993,10 +987,9 @@ export class SessionDO extends DurableObject<SessionEnv> {
         linked: input.linked ?? meta.linked ?? null,
       } satisfies Meta);
     }
-    keepTurnRetries(this.ctx.storage.kv, input);
     await this.#takeT3Mcp(input.t3Mcp);
-    // SPI-1314: the settings read wait the start carried bounds each read of the newest settings below.
-    const readMs = turnReadMs(input);
+    // SPI-1314: the settings read wait (`SETTINGS_READ_MS`, SPI-1387) bounds each read of the newest settings below.
+    const readMs = SETTINGS_READ_MS;
     await this.#takeHarness(readMs);
     await this.#endpoints.take(readMs);
     // SPI-1148: the turn's Environment skill set, in the Workspace before the agent runs (bounded; never fails the turn).

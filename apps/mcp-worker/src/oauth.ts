@@ -30,7 +30,7 @@ export interface BeginInput {
   readonly state: string;
   /** A client kept from an earlier sign-in to this server, reused. */
   readonly client?: OAuthClientInformationMixed;
-  /** Each request's bound (`outsideRequestSeconds`); absent from an older Environment: its default. */
+  /** Each request's bound (`OUTSIDE_REQUEST_SECONDS`); absent from an older Environment: its default. */
   readonly timeoutMs?: number;
 }
 
@@ -49,7 +49,7 @@ export interface TokenInput {
   readonly metadata?: AuthorizationServerMetadata;
   readonly client: OAuthClientInformationMixed;
   readonly resource?: string;
-  /** Each request's bound (`outsideRequestSeconds`); absent from an older Environment: its default. */
+  /** Each request's bound (`OUTSIDE_REQUEST_SECONDS`); absent from an older Environment: its default. */
   readonly timeoutMs?: number;
 }
 

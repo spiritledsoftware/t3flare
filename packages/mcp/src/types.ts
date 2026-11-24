@@ -494,18 +494,18 @@ const TargetFields = {
    */
   listTimeoutMs: Schema.optionalKey(Schema.Int),
   /**
-   * How many of a call's last server logs the engine keeps and hands back (`mcpLogEntries`). Absent from a host older
+   * How many of a call's last server logs the engine keeps and hands back (`MCP_LOG_ENTRIES`). Absent from a host older
    * than this field: `MCP_LOG_RING`.
    */
   logEntries: Schema.optionalKey(Schema.Int),
   /**
-   * How many progress notices a call passes on a second (`mcpProgressPerSecond`). Absent from a host older than this
+   * How many progress notices a call passes on a second (`MCP_PROGRESS_PER_SECOND`). Absent from a host older than this
    * field: `MCP_PROGRESS_PER_SECOND`.
    */
   progressPerSecond: Schema.optionalKey(Schema.Int),
   /**
    * How long a server found to speak Legacy is taken as Legacy before it is probed again, in ms
-   * (`mcpLegacyRecheckHours`). Absent from a host older than this field: `MCP_LEGACY_ERA_TTL_MS`.
+   * (`MCP_LEGACY_RECHECK_HOURS`). Absent from a host older than this field: `MCP_LEGACY_ERA_TTL_MS`.
    */
   legacyEraTtlMs: Schema.optionalKey(Schema.Int),
   /**
@@ -1073,10 +1073,10 @@ export const McpProgress = Schema.Struct({
 
 export type McpProgress = typeof McpProgress.Type;
 
-/** The most progress notices a call passes on in a second when its target names none (the host's `mcpProgressPerSecond`). */
+/** The most progress notices a call passes on in a second when its target names none (the host's `MCP_PROGRESS_PER_SECOND`). */
 export const MCP_PROGRESS_PER_SECOND = 10;
 
-/** How long a Legacy era row holds when the target names none (the host's `mcpLegacyRecheckHours`): 24 hours. */
+/** How long a Legacy era row holds when the target names none (the host's `MCP_LEGACY_RECHECK_HOURS`): 24 hours. */
 export const MCP_LEGACY_ERA_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**

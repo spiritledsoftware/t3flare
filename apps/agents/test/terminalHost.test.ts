@@ -8,7 +8,7 @@ import { MARK_BUSY, MARK_PROMPT, scanMarkers } from "@t3flare/sandbox-image/term
 import type { TerminalFrame, TerminalPushAnswer } from "@t3flare/workspace-client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { launchOf, terminalHoldOf, terminalLimitsOf } from "../src/workspace/containerLaunch.ts";
+import { launchOf, terminalHoldOf, terminalHoldsOf } from "../src/workspace/containerLaunch.ts";
 import { ContainerRefused } from "../src/workspace/containerStep.ts";
 import {
   HEARTBEAT_LAPSE_MS,
@@ -194,7 +194,7 @@ describe("TerminalHost", () => {
     expect(h.changes).toContain("prompt");
   });
 
-  it("holds input before the first prompt for the Owner's wait (SPI-1364: firstPromptSeconds), 20 s by default", async () => {
+  it("holds input before the first prompt for FIRST_PROMPT_SECONDS (SPI-1364, SPI-1387), 20 s where none is given", async () => {
     const h = harness({ firstPromptMs: () => 5_000 });
     await h.host.open(open("term-a1"));
     await h.host.input("term-a1", "a");
@@ -275,18 +275,19 @@ describe("TerminalHost", () => {
     for (let i = 0; i < 2; i++) await h.host.open(open(`term-${i}`));
     await h.host.open(open("term-extra"));
     await h.host.settled();
+    // SPI-1387: the limit names itself and its value.
     expect(h.text("term-extra")).toContain(
-      'already has 2 open terminals, and its Environment setting "Terminals per Workspace" (terminalsPerWorkspace) allows 2',
+      "already has 2 open terminals, and a Workspace may have at most 2 (a fixed limit: each keeps its history in the Environment's memory); close one first",
     );
     expect(h.frames.at(-1)).toMatchObject({ key: "term-extra", exit: { code: 1 } });
-    // SPI-1317: lowering the count closes none already open; the next open is refused against it.
+    // A lower count closes none already open; the next open is refused against it.
     max = 1;
     await h.host.settled();
     expect(h.host.keys()).toEqual(expect.arrayContaining(["term-0", "term-1"]));
     expect(h.killed).toEqual([]);
     await h.host.open(open("term-more"));
     await h.host.settled();
-    expect(h.text("term-more")).toContain("allows 1");
+    expect(h.text("term-more")).toContain("may have at most 1");
 
     // No cap of the host's own (the agent's host): past the default 8, every one opens.
     const uncapped = harness();
@@ -332,7 +333,7 @@ describe("TerminalHost", () => {
 
   describe("the Container hold (cost audit F1): an idle prompt holds less than a running command", () => {
     // The defaults' holds, as a Container started before SPI-1317 (no launch values) keeps them: 10 and 30 minutes.
-    const hold = terminalHoldOf(terminalLimitsOf(undefined), NO_OVERRIDES);
+    const hold = terminalHoldOf(terminalHoldsOf(undefined), NO_OVERRIDES);
 
     it("does not hold for a terminal that was only opened", async () => {
       const h = harness({ running: false });
@@ -385,14 +386,14 @@ describe("TerminalHost", () => {
         await tick();
         return h;
       };
-      const fiveMinutes = terminalHoldOf(terminalLimitsOf(launch), NO_OVERRIDES);
+      const fiveMinutes = terminalHoldOf(terminalHoldsOf(launch), NO_OVERRIDES);
       const h = await running();
       h.advance(5 * 60_000 - 1);
       expect(h.host.holdsContainer(fiveMinutes)).toBe(true);
       h.advance(1);
       expect(h.host.holdsContainer(fiveMinutes)).toBe(false);
 
-      const overridden = terminalHoldOf(terminalLimitsOf(launch), {
+      const overridden = terminalHoldOf(terminalHoldsOf(launch), {
         busyHoldMs: "180000",
         promptHoldMs: "60000",
       });
@@ -401,7 +402,7 @@ describe("TerminalHost", () => {
       o.advance(3 * 60_000);
       expect(o.host.holdsContainer(overridden)).toBe(false);
       // An override that is not a positive number is none.
-      expect(terminalHoldOf(terminalLimitsOf(launch), { busyHoldMs: "", promptHoldMs: "0" })).toEqual({
+      expect(terminalHoldOf(terminalHoldsOf(launch), { busyHoldMs: "", promptHoldMs: "0" })).toEqual({
         terminalBusyHoldMs: 300_000,
         terminalPromptHoldMs: 600_000,
       });

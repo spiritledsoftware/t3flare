@@ -41,7 +41,7 @@ import {
   GITHUB_DEVICE_CODE_URL,
 } from "@t3flare/models/copilotOAuth";
 
-import { DEFAULT_GITHUB_RETRY_SECONDS } from "@t3flare/harness-registry";
+import { GITHUB_RETRY_SECONDS, outsideTimeoutClause } from "@t3flare/harness-registry";
 
 import { isRecord, oauthRequestOptions } from "./oauth.ts";
 import type { DeviceCode, RefreshResult, SignInCredential, SignInResult, SignInVendor } from "./signIn.ts";
@@ -49,11 +49,11 @@ import type { DeviceCode, RefreshResult, SignInCredential, SignInResult, SignInV
 export interface CopilotVendor {
   readonly fetch: typeof fetch;
   readonly now: () => number;
-  /** Each request's bound (`outsideRequestSeconds`, read at each request; `OAUTH_TIMEOUT_MS` when absent). */
+  /** Each request's bound (`OUTSIDE_REQUEST_MS`; `OAUTH_TIMEOUT_MS`, the same, when absent). */
   readonly timeoutMs?: number;
   /**
-   * How long a rate-limited renewal waits when GitHub names no time (`githubRetrySeconds`, read at each request,
-   * SPI-1366); `DEFAULT_RETRY_MS` when absent.
+   * How long a rate-limited renewal waits when GitHub names no time (`GITHUB_RETRY_SECONDS`, SPI-1366, SPI-1387);
+   * `GITHUB_RETRY_MS` when absent.
    */
   readonly retryMs?: number;
 }
@@ -111,8 +111,10 @@ export const startCopilotSignIn = async (
       body: new URLSearchParams({ client_id: COPILOT_CLIENT_ID, scope: COPILOT_SCOPE }).toString(),
       ...oauthRequestOptions({ timeoutMs: vendor.timeoutMs }),
     });
-  } catch {
-    throw new Error("GitHub's device sign-in could not be reached: start it again.");
+  } catch (error) {
+    throw new Error(
+      `GitHub's device sign-in could not be reached${outsideTimeoutClause(error, vendor.timeoutMs)}: start it again.`,
+    );
   }
   if (!response.ok)
     throw new Error(`GitHub did not start the device sign-in (HTTP ${response.status}): start it again.`);
@@ -163,8 +165,8 @@ export const startCopilotSignIn = async (
  * exceeded").
  */
 const RATE_LIMIT_MESSAGE = /rate limit|too many requests|login attempts/i;
-/** A rate-limited renewal's wait when GitHub names no time and no setting reaches: the GitHub retry's default. */
-const DEFAULT_RETRY_MS = DEFAULT_GITHUB_RETRY_SECONDS * 1000;
+/** A rate-limited renewal's wait when GitHub names no time: the GitHub retry (`GITHUB_RETRY_SECONDS`). */
+const GITHUB_RETRY_MS = GITHUB_RETRY_SECONDS * 1000;
 
 /**
  * GitHub's error object (its API's `{ message }`, or an OAuth error), a code from it, and whether its message names a
@@ -234,8 +236,12 @@ const copilotToken = async (vendor: CopilotVendor, githubToken: string): Promise
       headers: { accept: "application/json", authorization: `Bearer ${githubToken}`, ...COPILOT_HEADERS },
       ...oauthRequestOptions({ timeoutMs: vendor.timeoutMs }),
     });
-  } catch {
-    return { ok: false, refused: false, problem: "GitHub's Copilot token endpoint could not be reached" };
+  } catch (error) {
+    return {
+      ok: false,
+      refused: false,
+      problem: `GitHub's Copilot token endpoint could not be reached${outsideTimeoutClause(error, vendor.timeoutMs)}`,
+    };
   }
   if (!response.ok) {
     const { errorObject, code, rateLimit } = await githubErrorOf(response);
@@ -246,7 +252,7 @@ const copilotToken = async (vendor: CopilotVendor, githubToken: string): Promise
       refused,
       status: response.status,
       ...(code === undefined ? {} : { code }),
-      ...(limited ? { retryAt: retryAtOf(response, vendor.now(), vendor.retryMs ?? DEFAULT_RETRY_MS) } : {}),
+      ...(limited ? { retryAt: retryAtOf(response, vendor.now(), vendor.retryMs ?? GITHUB_RETRY_MS) } : {}),
       problem: refused
         ? `GitHub refused a Copilot token (${code ?? `HTTP ${response.status}`})`
         : `GitHub gave no Copilot token (HTTP ${response.status})`,
@@ -302,8 +308,8 @@ export const pollCopilotSignIn = async (
       }).toString(),
       ...oauthRequestOptions({ timeoutMs: vendor.timeoutMs }),
     });
-  } catch {
-    return wait("GitHub could not be reached: still waiting.");
+  } catch (error) {
+    return wait(`GitHub could not be reached${outsideTimeoutClause(error, vendor.timeoutMs)}: still waiting.`);
   }
   const body: unknown = await response.json().catch(() => undefined);
   if (!response.ok || !isRecord(body))

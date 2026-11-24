@@ -12,6 +12,7 @@ import {
   type ResolvedEnvironment,
   resolveEnvironment,
   type SettingsSource,
+  SETUP_OUTPUT_KIB,
   variableEnv,
 } from "@t3flare/harness-registry";
 
@@ -21,19 +22,12 @@ import type { LaunchFrom } from "./baseStart.ts";
 import type { ContainerSetupLaunch } from "./containerSetup.ts";
 import type { GlobalMiseLaunch } from "./globalMise.ts";
 
-/**
- * How long a Container start waits for the Environment's settings (and for each answer of the Builder): the settings read
- * wait (SPI-1314, `settingsReadSeconds`) of the copy the Workspace kept, read against this Worker's schema; the default
- * before it kept one.
- */
-export const readMsOf = (kept: ResolvedEnvironment): number => kept.settingsReadSeconds * 1000;
-
 export interface TakeEnvironmentDeps {
   /** The Environment DO's `environmentSettings()`. */
   readonly read: () => Promise<ResolvedEnvironment>;
   readonly kept: () => ResolvedEnvironment | undefined;
   readonly keep: (settings: ResolvedEnvironment) => void;
-  /** The kept copy's settings read wait (`readMsOf`). */
+  /** The settings read wait (`SETTINGS_READ_MS`). */
   readonly waitMs: number;
 }
 
@@ -105,16 +99,12 @@ export interface ContainerLaunch {
    */
   readonly terminalsReadBashrc?: boolean;
   /**
-   * The Terminals' holds (SPI-1317, `terminalBusyHoldMinutes` and `terminalPromptHoldMinutes`) in ms and their counts
-   * (`terminalsPerWorkspace`, `agentTerminalsPerWorkspace`): a running Container keeps them. Absent in a launch
-   * recorded before them: read as the defaults (`terminalLimitsOf`).
+   * The Terminals' holds (SPI-1317, `terminalBusyHoldMinutes` and `terminalPromptHoldMinutes`) in ms: a running
+   * Container keeps them. Absent in a launch recorded before them: read as the defaults (`terminalHoldsOf`). A launch
+   * recorded before SPI-1387 may also carry the Terminals' counts and scrollback, now constants, which nothing reads.
    */
   readonly terminalBusyHoldMs?: number;
   readonly terminalPromptHoldMs?: number;
-  readonly terminalsPerWorkspace?: number;
-  readonly agentTerminalsPerWorkspace?: number;
-  /** The agents' Terminals' scrollback (SPI-1362, `agentTerminalScrollbackLines`); absent before it: the default. */
-  readonly agentTerminalScrollbackLines?: number;
   /**
    * What this Container started from (SPI-1333, ADR-0047 §6): the Base snapshot (its id and key) or the Workspace image
    * (and why). A running Container keeps it (ADR-0032 §5). Absent in a launch recorded before it: the image.
@@ -142,7 +132,7 @@ export const withContainerSteps = async (
     source,
     minutes: settings.containerSetupMinutes,
     failure: settings.containerSetupFailure,
-    outputBytes: settings.setupOutputKiB * 1024,
+    outputBytes: SETUP_OUTPUT_KIB * 1024,
   },
 });
 
@@ -193,20 +183,10 @@ export interface TerminalHold {
   readonly terminalPromptHoldMs: number;
 }
 
-/** The Terminals' holds and counts a Container started with (SPI-1317), spelled as its launch keeps them. */
-export interface TerminalLimits extends TerminalHold {
-  readonly terminalsPerWorkspace: number;
-  readonly agentTerminalsPerWorkspace: number;
-  readonly agentTerminalScrollbackLines: number;
-}
-
-/** The Terminals' holds and counts of `settings`, the holds in ms: what `launchOf` keeps. */
-const terminalLimitsFrom = (settings: ResolvedEnvironment): TerminalLimits => ({
+/** The Terminals' holds of `settings` in ms (SPI-1317): what `launchOf` keeps. */
+const terminalHoldsFrom = (settings: ResolvedEnvironment): TerminalHold => ({
   terminalBusyHoldMs: settings.terminalBusyHoldMinutes * 60_000,
   terminalPromptHoldMs: settings.terminalPromptHoldMinutes * 60_000,
-  terminalsPerWorkspace: settings.terminalsPerWorkspace,
-  agentTerminalsPerWorkspace: settings.agentTerminalsPerWorkspace,
-  agentTerminalScrollbackLines: settings.agentTerminalScrollbackLines,
 });
 
 /** The launch for the settings `taken` (`takeEnvironment`'s, already read against this Worker's schema). */
@@ -221,31 +201,25 @@ export const launchOf = ({ settings, source }: TakenEnvironment): ContainerLaunc
     ? { secretVariables: settings.variables.filter((variable) => variable.secret).map((variable) => variable.name) }
     : {}),
   terminalsReadBashrc: settings.terminalsReadBashrc,
-  ...terminalLimitsFrom(settings),
+  ...terminalHoldsFrom(settings),
 });
 
-/**
- * The defaults' limits: what a launch recorded before SPI-1317, or no launch, reads as, as `launchOf` gives them for
- * the defaults.
- */
-const DEFAULT_LIMITS = terminalLimitsFrom(resolveEnvironment(EMPTY_ENVIRONMENT));
+/** The defaults' holds: what a launch recorded before SPI-1317, or no launch, reads as. */
+const DEFAULT_HOLDS = terminalHoldsFrom(resolveEnvironment(EMPTY_ENVIRONMENT));
 
 /**
- * The Terminals' holds and counts of `launch`: the settings' defaults for a launch recorded before them, or for none
- * (no Container started yet).
+ * The Terminals' holds of `launch`: the settings' defaults for a launch recorded before them, or for none (no Container
+ * started yet).
  */
-export const terminalLimitsOf = (launch: ContainerLaunch | undefined): TerminalLimits => ({
-  terminalBusyHoldMs: launch?.terminalBusyHoldMs ?? DEFAULT_LIMITS.terminalBusyHoldMs,
-  terminalPromptHoldMs: launch?.terminalPromptHoldMs ?? DEFAULT_LIMITS.terminalPromptHoldMs,
-  terminalsPerWorkspace: launch?.terminalsPerWorkspace ?? DEFAULT_LIMITS.terminalsPerWorkspace,
-  agentTerminalsPerWorkspace: launch?.agentTerminalsPerWorkspace ?? DEFAULT_LIMITS.agentTerminalsPerWorkspace,
-  agentTerminalScrollbackLines: launch?.agentTerminalScrollbackLines ?? DEFAULT_LIMITS.agentTerminalScrollbackLines,
+export const terminalHoldsOf = (launch: ContainerLaunch | undefined): TerminalHold => ({
+  terminalBusyHoldMs: launch?.terminalBusyHoldMs ?? DEFAULT_HOLDS.terminalBusyHoldMs,
+  terminalPromptHoldMs: launch?.terminalPromptHoldMs ?? DEFAULT_HOLDS.terminalPromptHoldMs,
 });
 
 /**
  * The Terminals' holds the Container is kept for (`TerminalHost.holdsContainer`): the stage checks' overrides
  * (`T3FLARE_TERMINAL_IDLE_MS`, `T3FLARE_TERMINAL_PROMPT_IDLE_MS`) win, as `T3FLARE_TURN_DEADLINE_MS` does; else what
- * the running Container started with (`terminalLimitsOf`).
+ * the running Container started with (`terminalHoldsOf`).
  */
 export const terminalHoldOf = (
   limits: TerminalHold,

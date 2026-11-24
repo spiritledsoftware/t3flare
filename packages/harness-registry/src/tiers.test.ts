@@ -117,41 +117,15 @@ const ENVIRONMENT: Readonly<
   containerSize: { up: ["cpu-1", "standard-4", "asked"], down: ["standard-4", "standard-1", "asked"] },
   // SPI-1365: a custom size's resources are asked either way, as the size is (cost one way, a start refused the other).
   customVcpu: { up: [1, 2, "asked"], down: [2, 0.5, "asked"] },
-  outsideRequestSeconds: { up: [15, 60, "asked"], down: [60, 15, "free"] },
-  // SPI-1366: a longer wait or limit holds what waits, and spends; a shorter retry or wake asks or boots more often; a
-  // longer token or sign-in window keeps a leaked one valid longer; fewer clients forgets modes the Owner set.
-  githubRetrySeconds: { up: [60, 120, "free"], down: [60, 30, "asked"] },
+  // SPI-1366: a longer wait or limit holds what waits, and spends; a shorter wake boots more often.
   textGenerationSeconds: { up: [110, 300, "asked"], down: [110, 60, "free"] },
   idleAfterSeconds: { up: [60, 120, "asked"], down: [60, 30, "free"] },
   prWatchWakeMinutes: { up: [10, 20, "free"], down: [10, 5, "asked"] },
-  remoteRetryMinutes: { up: [30, 60, "free"], down: [30, 10, "asked"] },
-  safeModeAfterFailures: { up: [3, 5, "asked"], down: [3, 1, "free"] },
-  // A shorter save spends Browser Run time; fewer publishes kept deletes log entries: both asked (ADR-0035 §3).
-  browserProfileSaveSeconds: { up: [60, 120, "free"], down: [60, 30, "asked"] },
-  htmlBrowserKeepAliveSeconds: { up: [120, 300, "asked"], down: [120, 60, "free"] },
-  pageTokenHours: { up: [1, 2, "asked"], down: [2, 1, "free"] },
-  clientsPerKey: { up: [50, 100, "free"], down: [50, 10, "asked"] },
-  connectPublishLogKept: { up: [100, 200, "free"], down: [100, 50, "asked"] },
-  // SPI-1367: more retries or kills spend, or keep a Container awake; fewer trace files deletes the oldest.
-  durableRetries: { up: [3, 5, "asked"], down: [3, 0, "free"] },
-  cliRetries: { up: [1, 3, "asked"], down: [1, 0, "free"] },
-  killAttempts: { up: [12, 24, "asked"], down: [12, 6, "free"] },
-  traceKiB: { up: [1024, 4096, "asked"], down: [1024, 512, "free"] },
-  traceFiles: { up: [1, 3, "free"], down: [3, 1, "asked"] },
-  mcpPausesPerCall: { up: [16, 32, "asked"], down: [16, 8, "free"] },
-  // SPI-1363: a longer wait holds a dead or slow server longer, and more logs take more of the MCP Worker's memory.
+  // SPI-1363: a longer wait holds a dead or slow server longer.
   mcpConnectSeconds: { up: [15, 30, "asked"], down: [15, 5, "free"] },
   mcpListSeconds: { up: [120, 300, "asked"], down: [120, 60, "free"] },
-  mcpLogEntries: { up: [50, 100, "asked"], down: [50, 20, "free"] },
-  mcpProgressPerSecond: { up: [10, 20, "asked"], down: [10, 5, "free"] },
-  mcpLegacyRecheckHours: { up: [24, 48, "free"], down: [24, 1, "free"] },
-  cliMcpStartSeconds: { up: [20, 60, "free"], down: [20, 10, "free"] },
-  mcpSignInMinutes: { up: [10, 30, "asked"], down: [10, 5, "free"] },
-  // SPI-1365: more listed or read puts more in front of the model or in the Workspace's memory, so it is asked.
+  // SPI-1365: more listed puts more in front of the model, so it is asked.
   repoSkillsListed: { up: [100, 200, "asked"], down: [200, 100, "free"] },
-  skillsDirectoryEntries: { up: [5000, 6000, "asked"], down: [6000, 5000, "free"] },
-  skillsLinkEntries: { up: [200, 400, "asked"], down: [400, 200, "free"] },
-  promptsDirectoryEntries: { up: [1000, 2000, "asked"], down: [2000, 1000, "free"] },
   customMemoryMib: { up: [3072, 8192, "asked"], down: [8192, 1024, "asked"] },
   customDiskMb: { up: [12_000, 16_000, "asked"], down: [16_000, 4000, "asked"] },
   containerIdleMinutes: { up: [2, 30, "asked"], down: [30, 2, "free"] },
@@ -159,19 +133,10 @@ const ENVIRONMENT: Readonly<
   terminalBusyHoldMinutes: { up: [30, 60, "asked"], down: [30, 5, "free"] },
   terminalPromptHoldMinutes: { up: [10, 30, "asked"], down: [10, 5, "free"] },
   containerBudget: { up: [3, 0, "asked"], down: [0, 2, "free"] },
-  // SPI-1317: more Terminals use more of the Container's and the Workspace DO's memory, so a raise is asked.
-  terminalsPerWorkspace: { up: [8, 16, "asked"], down: [8, 2, "free"] },
-  agentTerminalsPerWorkspace: { up: [8, 16, "asked"], down: [8, 3, "free"] },
-  agentTerminalScrollbackLines: { up: [1000, 5000, "asked"], down: [1000, 100, "free"] },
-  // SPI-1318: more processes spend memory and model tokens, so a raise is asked; the reclaim delay is free either way.
-  cliProcessesPerWorkspace: { up: [4, 8, "asked"], down: [4, 2, "free"] },
-  cliReclaimSeconds: { up: [30, 600, "free"], down: [30, 0, "free"] },
   // SPI-1315: a shorter Turn limit only narrows; a longer one spends model tokens and Container time, so it is asked.
   turnLimitMinutes: { up: [120, 0, "asked"], down: [0, 60, "free"] },
   // SPI-1316: a shorter Answer wait only narrows; a longer one holds a turn, and its Container, longer, so it is asked.
   ownerAnswerMinutes: { up: [10, 30, "asked"], down: [10, 5, "free"] },
-  // SPI-1314: the settings read wait neither widens reach nor spends, so it is free either way.
-  settingsReadSeconds: { up: [5, 30, "free"], down: [5, 1, "free"] },
   variables: {
     up: [[], [{ name: "A", value: "1", secret: false }], "asked"],
     down: [[{ name: "A", value: "1", secret: false }], [], "asked"],
@@ -186,50 +151,28 @@ const ENVIRONMENT: Readonly<
   },
   containerSetupMinutes: { up: [5, 10, "asked"], down: [10, 5, "free"] },
   containerSetupFailure: { up: ["carryOn", "refuse", "asked"], down: ["refuse", "carryOn", "asked"] },
-  // Keeping less of a setup's output is free; keeping more is asked (it is a larger stored value and a longer read).
-  setupOutputKiB: { up: [32, 64, "asked"], down: [32, 16, "free"] },
   // SPI-1324: a shorter clone or checkpoint limit only narrows; a longer one holds the Container longer, so it is asked.
   cloneMinutes: { up: [15, 0, "asked"], down: [0, 5, "free"] },
   checkpointMinutes: { up: [10, 30, "asked"], down: [10, 3, "free"] },
   // ADR-0047 §9: turning one on puts the Owner's dotfiles (text, hooks) in front of agents, so it is asked.
   terminalsReadBashrc: { up: [false, true, "asked"], down: [true, false, "free"] },
   agentsReadDotfiles: { up: [false, true, "asked"], down: [true, false, "free"] },
-  // ADR-0043 §6: turning purging on and shortening the Grace destroy sooner, so they are asked.
-  sweepPurges: { up: [false, true, "asked"], down: [true, false, "free"] },
+  // ADR-0043 §6: shortening the Grace destroys sooner, so it is asked; 0 is never, the longest (SPI-1387).
   graceDays: { up: [7, 30, "free"], down: [7, 1, "asked"] },
   // SPI-1323: a shorter history deletes records and sessions, so it is asked; a longer one is free.
   usageRetentionDays: { up: [92, 0, "free"], down: [0, 30, "asked"] },
   piSessionRetentionDays: { up: [60, 365, "free"], down: [60, 30, "asked"] },
-  // SPI-1359: a longer MCP call or a larger result is asked; a shorter or smaller one is free.
+  // SPI-1359: a longer MCP call is asked; a shorter one is free.
   mcpCallSeconds: { up: [270, 0, "asked"], down: [0, 60, "free"] },
-  mcpResultKiB: { up: [1024, 4096, "asked"], down: [1024, 256, "free"] },
-  // SPI-1364: fewer temp hours delete files an agent was pointed at, so it is asked; keeping more git answers or trace
-  // entries costs storage or memory, so it is asked; keeping fewer is free.
-  tempFilesHours: { up: [24, 48, "free"], down: [24, 1, "asked"] },
-  gitReadsKept: { up: [500, 1000, "asked"], down: [500, 100, "free"] },
-  routerTraceEntries: { up: [300, 1000, "asked"], down: [300, 100, "free"] },
-  // SPI-1364: a longer command limit or start wait holds the Container longer, so it is asked; the waits and graces that
-  // spend nothing are free either way.
+  // SPI-1364: a longer command limit or start wait holds the Container longer, so it is asked.
   commandMinutes: { up: [2, 0, "asked"], down: [0, 1, "free"] },
   containerConnectSeconds: { up: [60, 120, "asked"], down: [60, 30, "free"] },
-  reclaimProtectionSeconds: { up: [30, 60, "free"], down: [30, 0, "free"] },
-  skillsWaitSeconds: { up: [5, 10, "free"], down: [5, 1, "free"] },
-  abortGraceSeconds: { up: [2, 10, "free"], down: [2, 0, "free"] },
-  portStopGraceSeconds: { up: [3, 10, "free"], down: [3, 0, "free"] },
-  firstPromptSeconds: { up: [20, 60, "free"], down: [20, 5, "free"] },
-  // SPI-1364: more Terminal history takes more of the Environment's memory, so it is asked.
-  terminalHistoryKiB: { up: [1024, 2048, "asked"], down: [1024, 512, "free"] },
-  exitedTerminalsKept: { up: [16, 32, "asked"], down: [16, 8, "free"] },
   // SPI-1364: which Container ports a preview browser reaches, asked either way.
   previewPorts: { up: [[3000], [3000, 3002], "asked"], down: [[3000, 3002], [3000], "asked"] },
-  portProbeMs: { up: [1000, 2000, "free"], down: [1000, 500, "free"] },
-  // ADR-0047 §9 (SPI-1332): a lowered time limit is free; the script, the Builder's size, its budget and the schedule asked.
+  // ADR-0047 §9 (SPI-1332): a lowered time limit is free; the script, the Builder's budget and the schedule asked.
   imageSetup: { up: ["", "apt-get install -y jq\n", "asked"], down: ["apt-get install -y jq\n", "", "asked"] },
   imageSetupMinutes: { up: [30, 60, "asked"], down: [30, 10, "free"] },
   snapshotMinutes: { up: [5, 10, "asked"], down: [5, 2, "free"] },
-  // SPI-1359: a shorter retry runs the Builder more often while a build fails, so it is asked; a longer one is free.
-  baseRetryMinutes: { up: [60, 120, "free"], down: [60, 10, "asked"] },
-  builderSize: { up: ["sameAsContainer", "standard-4", "asked"], down: ["standard-4", "sameAsContainer", "asked"] },
   builderInBudget: { up: [false, true, "asked"], down: [true, false, "asked"] },
   rebuildEveryDays: { up: [0, 7, "asked"], down: [7, 0, "asked"] },
   // ADR-0047 §6 (SPI-1333): what a start does while a Base build runs is the Owner's policy, asked either way.
@@ -864,7 +807,7 @@ describe("tierOf: the Environment settings", () => {
         stored: stored("containerBudget", 3),
         change: { settings: { containerBudget: 0 } },
       }),
-    ).toEqual({ tier: "asked", reasons: ["containerBudget: 3 to off (turned up)"] });
+    ).toEqual({ tier: "asked", reasons: ["containerBudget: 3 to no budget (turned up)"] });
     // up-free: keeping history for good is free; setting a retention from off deletes, so it is asked.
     expect(
       tier({
@@ -889,6 +832,17 @@ describe("tierOf: the Environment settings", () => {
     expect(
       tierOf({ entity: "environment", stored: EMPTY_ENVIRONMENT, change: { settings: { graceDays: 6 } } }),
     ).toEqual({ tier: "asked", reasons: ["graceDays: 7 to 6 (turned down)"] });
+    // 0 is never (SPI-1386's off, SPI-1387): keeping everything is free, and purging again from never is asked.
+    expect(
+      tierOf({ entity: "environment", stored: EMPTY_ENVIRONMENT, change: { settings: { graceDays: 0 } } }),
+    ).toEqual({ tier: "free", reasons: ["graceDays: 7 to never (turned up)"] });
+    expect(
+      tierOf({
+        entity: "environment",
+        stored: { revision: 1, settings: { graceDays: 0 } },
+        change: { settings: { graceDays: 30 } },
+      }),
+    ).toEqual({ tier: "asked", reasons: ["graceDays: never to 30 (turned down)"] });
   });
 
   it("a multi-key change is asked when any key is; nothing moved is unchanged", () => {

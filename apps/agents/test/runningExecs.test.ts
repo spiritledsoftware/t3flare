@@ -2,9 +2,11 @@
 // Session's storage while they run, so an aborted call's processes are killed, and a Session that died mid-call kills
 // them when it opens again. An id is forgotten only when its command ended by itself or a kill found none of its
 // processes left; otherwise the kill is tried again (the Session's alarm).
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { type KillAnswer, RunningExecs, type RunningExecsStorage } from "../src/session/runningExecs.ts";
+import { KILL_ATTEMPTS } from "@t3flare/harness-registry";
+
+import { type KillAnswer, killsGaveUp, RunningExecs, type RunningExecsStorage } from "../src/session/runningExecs.ts";
 
 const memoryKv = (): RunningExecsStorage => {
   const map = new Map<string, unknown>();
@@ -99,7 +101,7 @@ describe("RunningExecs", () => {
     expect(execs.ids()).toEqual([]);
   });
 
-  it("gives an id up after the kills the Environment's killAttempts allows, read at each kill; 12 by default (SPI-1367)", async () => {
+  it("gives an id up after its kill tries, read at each kill; KILL_ATTEMPTS (12) by default (SPI-1367, SPI-1387)", async () => {
     const triesBeforeGivingUp = async (attempts?: () => number) => {
       const { kill, calls } = fakeKill({ survivors: 1 });
       const execs = new RunningExecs(memoryKv(), kill, attempts);
@@ -110,6 +112,26 @@ describe("RunningExecs", () => {
     };
     expect(await triesBeforeGivingUp(() => 3)).toBe(3);
     expect(await triesBeforeGivingUp(() => 1)).toBe(1);
-    expect(await triesBeforeGivingUp()).toBe(12);
+    expect(KILL_ATTEMPTS).toBe(12);
+    expect(await triesBeforeGivingUp()).toBe(KILL_ATTEMPTS);
+  });
+
+  it("names its limit and value when it gives up (SPI-1387)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { kill } = fakeKill({ survivors: 2 });
+      const execs = new RunningExecs(memoryKv(), kill, () => 1);
+      execs.started("e1");
+      await execs.stopped("e1");
+      const logged = warn.mock.calls.map(([line]) => JSON.parse(String(line)) as Record<string, unknown>);
+      expect(logged).toContainEqual(
+        expect.objectContaining({ t3flare: "kill-execs-gave-up", message: killsGaveUp(1), survivors: 2 }),
+      );
+      expect(killsGaveUp(KILL_ATTEMPTS)).toBe(
+        "A stopped command's processes were still running after its 12 kill tries (t3flare's fixed limit), and are left running.",
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

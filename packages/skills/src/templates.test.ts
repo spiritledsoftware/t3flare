@@ -187,7 +187,13 @@ describe("Prompt templates' discovery", () => {
       [`${ROOT}/.pi/prompts/zbig.md`]: "y".repeat(300 * 1024),
     });
     expect(await discoverPrompts(files, ROOT)).toHaveLength(151);
-    // The entries listed per directory (`promptsDirectoryEntries`) bound what is found.
-    expect(await discoverPrompts(files, ROOT, undefined, 10)).toHaveLength(10);
+    // The entries listed per directory (`DIRECTORY_LISTING_ENTRIES`) bound what is found, and say so (SPI-1387).
+    const stopped: Array<[string, string]> = [];
+    expect(
+      await discoverPrompts(files, ROOT, undefined, 10, (directory, reason) => stopped.push([directory, reason])),
+    ).toHaveLength(10);
+    expect(stopped).toEqual([
+      [`${ROOT}/.pi/prompts`, "its listing stopped at 10 entries, t3flare's fixed limit; any past them are not found"],
+    ]);
   });
 });

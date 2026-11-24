@@ -62,7 +62,7 @@ describe("Codex's profile", () => {
     expect(overrides).toContain('model_provider="t3flare-endpoint-openai"');
     // No MODEL_PROXY_* setting, no `anthropic` provider, no key helper.
     expect(overrides.filter((value) => value.startsWith("model_providers."))).toEqual([
-      'model_providers.t3flare-endpoint-openai={name="t3flare-endpoint-openai",base_url="http://computer.internal/t3flare/model/openai",wire_api="responses",env_key="T3FLARE_MODEL_HANDLE",requires_openai_auth=false,supports_websockets=false,request_max_retries=1,stream_max_retries=1}',
+      'model_providers.t3flare-endpoint-openai={name="t3flare-endpoint-openai",base_url="http://computer.internal/t3flare/model/openai",wire_api="responses",env_key="T3FLARE_MODEL_HANDLE",requires_openai_auth=false,supports_websockets=false}',
     ]);
     expect(answer.modelRelay).toEqual(["openai"]);
     expect(overrides).toEqual(
@@ -97,18 +97,13 @@ describe("Codex's profile", () => {
     expect(answer.droppedEnv.toSorted()).toEqual(["CODEX_HOME", "OPENAI_API_KEY"]);
   });
 
-  it("retries a failed request or stream the Environment's cliRetries times at the spawn, once when absent (SPI-1367)", () => {
-    const providerAt = (cliRetries?: number) => {
-      const answer = profileLaunch(
-        { cli: "codex", args: ["app-server"], key: "proc-1", cwd: "/w/demo", env: {}, allowProbe: false },
-        cliRetries === undefined ? context : { ...context, cliRetries },
-      );
-      if ("refused" in answer) throw new Error(answer.refused);
-      return answer.argv.find((arg) => arg.startsWith("model_providers."))!;
-    };
-    expect(providerAt(5)).toContain("request_max_retries=5,stream_max_retries=5");
-    expect(providerAt(0)).toContain("request_max_retries=0,stream_max_retries=0");
-    expect(providerAt()).toContain("request_max_retries=1,stream_max_retries=1");
+  it("leaves a failed request's or stream's retries to Codex's own defaults (SPI-1387)", () => {
+    const answer = profileLaunch(
+      { cli: "codex", args: ["app-server"], key: "proc-1", cwd: "/w/demo", env: {}, allowProbe: false },
+      context,
+    );
+    if ("refused" in answer) throw new Error(answer.refused);
+    expect(answer.argv.find((arg) => arg.startsWith("model_providers."))).not.toMatch(/max_retries/);
   });
 
   it("gets one provider per OpenAI Responses endpoint through the model relay, its id from the endpoint's (SPI-1167)", () => {
@@ -128,10 +123,10 @@ describe("Codex's profile", () => {
     // No session model: the default model's provider, the first endpoint that lists a model.
     expect(overrides).toContain('model_provider="t3flare-endpoint-work-gw"');
     expect(overrides).toContain(
-      'model_providers.t3flare-endpoint-openai={name="t3flare-endpoint-openai",base_url="http://computer.internal/t3flare/model/openai",wire_api="responses",env_key="T3FLARE_MODEL_HANDLE",requires_openai_auth=false,supports_websockets=false,request_max_retries=1,stream_max_retries=1}',
+      'model_providers.t3flare-endpoint-openai={name="t3flare-endpoint-openai",base_url="http://computer.internal/t3flare/model/openai",wire_api="responses",env_key="T3FLARE_MODEL_HANDLE",requires_openai_auth=false,supports_websockets=false}',
     );
     expect(overrides).toContain(
-      'model_providers.t3flare-endpoint-work-gw={name="t3flare-endpoint-work-gw",base_url="http://computer.internal/t3flare/model/work-gw",wire_api="responses",env_key="T3FLARE_MODEL_HANDLE",requires_openai_auth=false,supports_websockets=false,request_max_retries=1,stream_max_retries=1}',
+      'model_providers.t3flare-endpoint-work-gw={name="t3flare-endpoint-work-gw",base_url="http://computer.internal/t3flare/model/work-gw",wire_api="responses",env_key="T3FLARE_MODEL_HANDLE",requires_openai_auth=false,supports_websockets=false}',
     );
     // The Workspace DO makes the handle and puts it in the process's environment; the profile only asks for one.
     expect(overrides.find((entry) => entry.startsWith("model_providers.t3flare-endpoint-az="))).toContain(
@@ -479,23 +474,17 @@ describe("pi's profile", () => {
     it("starts pi on the relay's model, as pi names it, with no project trust", () => {
       expect(fileOf(onRelay(rpc), "settings.json")).toEqual({
         defaultProjectTrust: "never",
-        retry: { maxRetries: 1 },
         defaultProvider: "t3flare-endpoint-oai",
         defaultModel: "gpt-x",
       });
     });
 
-    it("retries a failed model request the Environment's cliRetries times at the spawn, once when absent (SPI-1367)", () => {
-      const retriesAt = (cliRetries?: number) => {
-        const answer = profileLaunch(
-          { cli: "pi", args: rpc, key: "proc-1", cwd: "/w/demo", env: {}, allowProbe: false },
-          { ...context, piRelay, ...(cliRetries === undefined ? {} : { cliRetries }) },
-        );
-        return fileOf(answer, "settings.json").retry;
-      };
-      expect(retriesAt(4)).toEqual({ maxRetries: 4 });
-      expect(retriesAt(0)).toEqual({ maxRetries: 0 });
-      expect(retriesAt()).toEqual({ maxRetries: 1 });
+    it("leaves a failed model request's retries to pi's own default (SPI-1387)", () => {
+      const answer = profileLaunch(
+        { cli: "pi", args: rpc, key: "proc-1", cwd: "/w/demo", env: {}, allowProbe: false },
+        { ...context, piRelay },
+      );
+      expect(fileOf(answer, "settings.json")).not.toHaveProperty("retry");
     });
 
     it("asks a model handle for exactly those endpoints, and never puts a handle in pi's environment or files", () => {

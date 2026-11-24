@@ -24,7 +24,7 @@ export interface SkillsApiDeps {
   readonly store: SkillStore;
   /**
    * A reader of `repo` with the Environment's credential (`readAccessFor`). No budget for the whole request (SPI-1365):
-   * each read has its own bound (`outsideRequestSeconds`) and the reads are counted (`MAX_BLOB_READS`,
+   * each read has its own bound (`OUTSIDE_REQUEST_SECONDS`) and the reads are counted (`MAX_BLOB_READS`,
    * `MAX_SKILL_CANDIDATES`), and an awaited read does not hold the Environment DO from t3's work.
    */
   readonly reader: (repo: SkillRepo) => Promise<{ readonly reader: RepoReader; readonly how: ReadAccess["how"] }>;

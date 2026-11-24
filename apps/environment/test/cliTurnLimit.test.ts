@@ -10,7 +10,6 @@ import {
   bindEnvironmentServices,
   type EnvironmentServices,
   ownerAnswerMsNow,
-  settingsReadMsNow,
   turnLimitMsNow,
 } from "../src/agents/bindings.ts";
 import type { ChannelProcess } from "../src/agents/processChannel.ts";
@@ -103,25 +102,6 @@ describe("turnLimitMsNow", () => {
     expect(turnLimitMsNow()).toBe(0);
     bindEnvironmentServices(undefined as unknown as EnvironmentServices);
     expect(turnLimitMsNow()).toBe(0);
-  });
-});
-
-describe("settingsReadMsNow (SPI-1314)", () => {
-  afterEach(() => bindEnvironmentServices(undefined as unknown as EnvironmentServices));
-
-  it("reads the Environment's settings read wait, and the default (5 s) without services, a reader, or a readable store", () => {
-    bindEnvironmentServices({ settingsReadMs: () => 2000 } as unknown as EnvironmentServices);
-    expect(settingsReadMsNow()).toBe(2000);
-    bindEnvironmentServices({
-      settingsReadMs: () => {
-        throw new Error("storage reset");
-      },
-    } as unknown as EnvironmentServices);
-    expect(settingsReadMsNow()).toBe(5000);
-    bindEnvironmentServices({} as unknown as EnvironmentServices);
-    expect(settingsReadMsNow()).toBe(5000);
-    bindEnvironmentServices(undefined as unknown as EnvironmentServices);
-    expect(settingsReadMsNow()).toBe(5000);
   });
 });
 

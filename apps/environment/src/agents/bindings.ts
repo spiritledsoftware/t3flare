@@ -5,12 +5,8 @@ import {
   DEFAULT_CHECKPOINT_MS,
   DEFAULT_CLONE_MS,
   DEFAULT_MCP_CALL_MS,
-  DEFAULT_EXITED_TERMINALS_KEPT,
   DEFAULT_PREVIEW_PORTS,
-  DEFAULT_ROUTER_TRACE_ENTRIES,
-  DEFAULT_TERMINAL_HISTORY_KIB,
   DEFAULT_OWNER_ANSWER_MS,
-  DEFAULT_SETTINGS_READ_MS,
   DEFAULT_TURN_LIMIT_MS,
   EMPTY_ENVIRONMENT,
   resolveEnvironment,
@@ -58,11 +54,6 @@ export interface EnvironmentServices {
    */
   readonly turnLimitMs?: () => number;
   /**
-   * The settings read wait (SPI-1314, `settingsReadSeconds`) in ms, as stored now: read at each turn's start by the
-   * Durable agent's adapter, so a change applies at each thread's next turn. Absent (a test's services): the default.
-   */
-  readonly settingsReadMs?: () => number;
-  /**
    * The clone time limit (SPI-1324, `cloneMinutes`) in ms, as stored now: read at each clone and at a worktree's clone
    * and checkout, and carried to the Workspace DO as `timeoutMs`, so a change applies at the next one. Absent (a test's
    * services): the default.
@@ -76,10 +67,6 @@ export interface EnvironmentServices {
   readonly checkpointMs?: () => number;
   /** SPI-1364: the Container preview ports (`previewPorts`) now. Absent (tests): the default. */
   readonly previewPorts?: () => ReadonlyArray<number>;
-  /** SPI-1364: how many router trace entries are kept (`routerTraceEntries`) now. Absent (tests): the default. */
-  readonly routerTraceEntries?: () => number;
-  /** SPI-1364: t3's Terminals' history (`terminalHistoryKiB`, `exitedTerminalsKept`) when the layer is built. */
-  readonly terminalHistory?: () => TerminalHistoryLimits;
   /**
    * The Answer wait (SPI-1316, `ownerAnswerMinutes`) in ms, as stored now: read when a card is raised (an MCP server's
    * question, a CLI agent's tool approval, an Open change) and at each CLI spawn, so a change applies to the cards
@@ -189,46 +176,6 @@ export const previewPortsNow = (): ReadonlyArray<number> => {
   }
 };
 
-/** How many router trace entries are kept now (SPI-1364): the stored setting, else its default. */
-export const routerTraceEntriesNow = (): number => {
-  try {
-    return current?.routerTraceEntries?.() ?? DEFAULT_ROUTER_TRACE_ENTRIES;
-  } catch {
-    return DEFAULT_ROUTER_TRACE_ENTRIES;
-  }
-};
-
-/** t3's Terminals' history limits as t3's TerminalManager takes them (SPI-1364). */
-export interface TerminalHistoryLimits {
-  readonly historyByteLimit: number;
-  readonly maxRetainedInactiveSessions: number;
-}
-
-/** t3's Terminals' history limits now (SPI-1364): the stored settings, else their defaults. */
-export const terminalHistoryNow = (): TerminalHistoryLimits => {
-  const defaults = {
-    historyByteLimit: DEFAULT_TERMINAL_HISTORY_KIB * 1024,
-    maxRetainedInactiveSessions: DEFAULT_EXITED_TERMINALS_KEPT,
-  };
-  try {
-    return current?.terminalHistory?.() ?? defaults;
-  } catch {
-    return defaults;
-  }
-};
-
-/**
- * The settings read wait now, in ms (SPI-1314): the stored setting, or its default when the services or the store cannot
- * be read, so a turn's reads are always bounded.
- */
-export const settingsReadMsNow = (): number => {
-  try {
-    return current?.settingsReadMs?.() ?? DEFAULT_SETTINGS_READ_MS;
-  } catch {
-    return DEFAULT_SETTINGS_READ_MS;
-  }
-};
-
 /**
  * How long `asker`'s cards wait (SPI-1316): the wait it names (a CLI process's relay names the Answer wait the process
  * was spawned with), else `now()`, the Answer wait now.
@@ -273,13 +220,4 @@ export const environmentNow = (): ResolvedEnvironment => {
   } catch {
     return resolveEnvironment(EMPTY_ENVIRONMENT);
   }
-};
-
-/**
- * The Durable agent's retries and a stopped command's kills now (SPI-1367, `durableRetries`, `killAttempts`): carried
- * with each turn's start, which the Session keeps; the defaults when the store cannot be read.
- */
-export const turnRetriesNow = (): { readonly durableRetries: number; readonly killAttempts: number } => {
-  const { durableRetries, killAttempts } = environmentNow();
-  return { durableRetries, killAttempts };
 };

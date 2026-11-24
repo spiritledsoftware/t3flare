@@ -115,12 +115,12 @@ describe("the Claude subscription sign-in", () => {
     expect(fake.counts.exchanges).toBe(0);
   });
 
-  it("bounds each request at 15 s by default", async () => {
+  it("bounds each request at OUTSIDE_REQUEST_SECONDS, 30 s, by default (SPI-1387)", async () => {
     const timeouts = vi.spyOn(AbortSignal, "timeout");
     const fake = fakeAnthropic();
     const { authorizeUrl, pending } = await startClaudeSignIn({ now: () => NOW });
     await completeClaudeSignIn(vendorOf(fake), pending, fake.approve(authorizeUrl));
-    expect(timeouts).toHaveBeenCalledWith(15_000);
+    expect(timeouts).toHaveBeenCalledWith(30_000);
     timeouts.mockRestore();
   });
 

@@ -67,8 +67,8 @@ What moves the total:
   cost. A cold Claude Code session answered its first prompt 18 s after its Container was stopped. Claude Code (its
   Node adapter and `claude`) peaked at 344 MiB and OpenCode (`opencode acp` and its `serve` child) at 439 MiB in a turn
   running `npm ci && npm test`, about twice an idle Codex app-server. Each process counts once against a Workspace's
-  CLI agents' processes (the setting `cliProcessesPerWorkspace`, default 4, whose description states each CLI's memory;
-  SPI-1364). An
+  CLI agents' processes, derived from the Container size's memory: one per 440 MiB past 1 GiB, 4 on `cpu-1` and 16 on
+  `standard-3` (`cliProcessesPerWorkspace`; SPI-1364, SPI-1387). An
   `acp-request` log line (Environment Worker) records each session's `initialize`, `session/new` and `session/load`.
 
 ## Base snapshots (SPI-1332, ADR-0047)
@@ -103,7 +103,7 @@ What moves the total:
 - **Right-size the Container below the default `standard-3`'s 8 GiB (audit F3, which proposed 3 GiB to 2 GiB)**: to a
   2 GiB custom size once at least ~20 idle stops are logged and the p95 of
   `memoryPeakBytes` is under 1.4 GiB, counting CLI-agent turns (an idle Codex app-server is about 160 MB; up to
-  `cliProcessesPerWorkspace`, default 4, CLI processes per Workspace). From `standard-3`, that saves about $3.24 a month at
+  `cliProcessesPerWorkspace`, derived from the size: 16 on `standard-3`, CLI processes per Workspace). From `standard-3`, that saves about $3.24 a month at
   moderate use and $19.44 at heavy (6 GiB less, $0.009 a GiB-hour). The `durable_object`
   scheduling policy allows any size above 1/16 vCPU, 256 MiB and 2 GB.
 - **Hibernatable client sockets for the Environment DO (audit F5, ADR-0002)** when a month's DO duration goes over

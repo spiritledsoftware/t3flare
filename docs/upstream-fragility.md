@@ -423,7 +423,7 @@ to its real id when an endpoint is at Commissary): `apps/environment/test/modelL
 
 ### U43. The CLIs' MCP configuration surfaces (tools step; extends U32, U35)
 
-- **Where**: `apps/environment/src/agents/cliProfiles.ts` (Codex `mcp_servers.<name>` with `bearer_token_env_var`, `default_tools_approval_mode="approve"`, `tool_timeout_sec` 900, `startup_timeout_sec` the `cliMcpStartSeconds` setting: left out, Codex uses its own default), `acpProfiles.ts` (Claude Code's managed `permissions.allow` for the relay's servers; OpenCode's tool permissions for the relay's tools and `t3-code`; the admission locks were removed, owner 2026-11-12, back to stock), pi's `mcp.json` ([U71](#u71-pis-built-in-mcp-for-the-relay-and-patch-0007-spi-1076)), the handles per process (review H2: never a Container-wide file).
+- **Where**: `apps/environment/src/agents/cliProfiles.ts` (Codex `mcp_servers.<name>` with `bearer_token_env_var`, `default_tools_approval_mode="approve"`, `tool_timeout_sec` 900, `startup_timeout_sec` `CLI_MCP_START_SECONDS`, 20 s), `acpProfiles.ts` (Claude Code's managed `permissions.allow` for the relay's servers; OpenCode's tool permissions for the relay's tools and `t3-code`; the admission locks were removed, owner 2026-11-12, back to stock), pi's `mcp.json` ([U71](#u71-pis-built-in-mcp-for-the-relay-and-patch-0007-spi-1076)), the handles per process (review H2: never a Container-wide file).
 - **Breaks when**: an image bump renames a key, changes a precedence (a repo's `opencode.json` or `.mcp.json` winning over ours) or a default timeout, or adds a CLI-side approval that answers before ours.
 - **Detection**: `test/cliProfiles.test.ts` (snapshot of the managed files and argv); the stage's `cli-mcp <cli>` per CLI (read without a card, write asks, decline, full access, plan); `relay-hostile`.
 - **Fix**: re-read the CLI's config reference at the new version; adjust the profile and its snapshot.
@@ -1782,33 +1782,33 @@ Moved from U58 when its Commissary readers went (SPI-1176).
   (`MAX_TIMED_MINUTES`), holding it and its lock files; a later git command in that repo may fail on `index.lock`.
 - **Fix**: `executeRaw`'s timeout and scope in `GitVcsDriverCore.ts`, then the router's `spawn`.
 
-### U102. t3's TerminalManager defaults are the Terminal history settings' maxima (SPI-1364)
+### U102. t3's TerminalManager options carry t3flare's Terminal history (SPI-1364, SPI-1387)
 
-- **Where**: `packages/harness-registry/src/environment.ts`'s `MAX_TERMINAL_HISTORY_KIB` (8192) and
-  `MAX_EXITED_TERMINALS_KEPT` (128) are `t3code/apps/server/src/terminal/Manager.ts`'s `DEFAULT_HISTORY_BYTE_LIMIT` (8
-  MiB) and `DEFAULT_MAX_RETAINED_INACTIVE_SESSIONS` (128), not exported; `apps/environment/src/terminal/layer.ts` passes
-  the Owner's values as `makeWithOptions`' `historyByteLimit` and `maxRetainedInactiveSessions`.
-- **Breaks when**: t3 renames or drops either option (the Owner's settings then do nothing and t3's defaults apply), or
-  changes its defaults (the maxima then no longer say "stock t3's").
+- **Where**: `apps/environment/src/terminal/layer.ts` passes `TERMINAL_HISTORY_KIB` (1 MiB) and `EXITED_TERMINALS_KEPT`
+  (16) (`packages/harness-registry/src/environment.ts`) as `makeWithOptions`' `historyByteLimit` and
+  `maxRetainedInactiveSessions`, under `t3code/apps/server/src/terminal/Manager.ts`'s own `DEFAULT_HISTORY_BYTE_LIMIT`
+  (8 MiB) and `DEFAULT_MAX_RETAINED_INACTIVE_SESSIONS` (128), not exported, which the constants' comment names.
+- **Breaks when**: t3 renames or drops either option (t3's defaults then apply), or changes its defaults (the constants'
+  comment then no longer says "stock t3's").
 - **Detection**: `apps/environment/test/environmentLimits.test.ts` reads `Manager.ts` and fails when either option or
   default changes. The options object is built apart from the call, so the typecheck alone would not catch a dropped
   one.
 - **Blast radius**: none for changed defaults (a sanity bound reads differently from stock); a dropped option leaves
   every Terminal at t3's 8 MiB, which may run the Environment out of its 128 MB.
-- **Fix**: `Manager.ts`'s options and defaults; the two maxima in `environment.ts`.
+- **Fix**: `Manager.ts`'s options and defaults; the constants' comment in `environment.ts`.
 
-### U103. Stock's port stop grace and web probe wait as the Owner's defaults (SPI-1364)
+### U103. Stock's port stop grace and web probe wait as t3flare's constants (SPI-1364, SPI-1387)
 
-- **Where**: `portStopGraceSeconds` (3) and `portProbeMs` (1000) in `packages/harness-registry/src/environment.ts`
-  default to `t3code/apps/server/src/preview/PortScanner.ts`'s `STOP_GRACE_MS` (3 s, `signalUntilStopped`: TERM, then
+- **Where**: `STOP_GRACE_SECONDS` (3) and `PORT_PROBE_MS` (1000) in `packages/harness-registry/src/environment.ts`
+  copy `t3code/apps/server/src/preview/PortScanner.ts`'s `STOP_GRACE_MS` (3 s, `signalUntilStopped`: TERM, then
   KILL) and `WEB_PROBE_TIMEOUT` (1 s), both module-private; ours run in `apps/sandbox-image/src/ports.ts`'s port stop
-  and `apps/agents/src/workspace/ports.ts`'s `probeRunningPort`. (`abortGraceSeconds`' 2 s is t3flare's own kill
-  script's, not stock's.)
+  and `apps/agents/src/workspace/ports.ts`'s `probeRunningPort`. The one stop grace also times t3flare's own kill
+  script and an agent's Terminal stop (SPI-1387).
 - **Breaks when**: t3 changes either; ours stay at the copy.
 - **Detection**: `apps/environment/test/environmentLimits.test.ts` reads `PortScanner.ts` and fails when either value
   changes.
-- **Blast radius**: none: the defaults differ from stock's, and the Owner sets either.
-- **Fix**: the two defaults in `environment.ts`, if parity is wanted.
+- **Blast radius**: none: the constants differ from stock's.
+- **Fix**: the two constants in `environment.ts`, if parity is wanted.
 
 ### U104. Git's automatic fetch starts off through the managed policy's unlocked default (SPI-1367)
 
@@ -1841,13 +1841,12 @@ Moved from U58 when its Commissary readers went (SPI-1176).
 - **Where**: `retriedSpanMs` in `packages/harness-registry/src/environment.ts` sums pi-durable's waits for a given
   number of retries: `DURABLE_RETRY_FIRST_WAIT_MS` (2 s) doubling, each at most `DURABLE_RETRY_LONGEST_WAIT_MS` (60 s).
   These mirror pi-durable's `DEFAULT_RETRY_POLICY` (`baseDelayMs`, `maxAgentDelayMs`, `dist/harness/agent.js`) under
-  pi-ai's `retryDelayMs` (`dist/utils/retry.js`). The Session passes `retriedSpanMs(durableRetries)` to the failure
+  pi-ai's `retryDelayMs` (`dist/utils/retry.js`). The Session passes `retriedSpanMs(DURABLE_RETRIES)` to the failure
   classifier (`modelLimits.ts`), which stops the retries for a 429 that resets past it; `SHORT_RESET_MS` in
-  `packages/models/src/failures.ts` is the default 3's span. The `durableRetries` description interpolates the same
-  figures.
+  `packages/models/src/failures.ts` is the default 3's span.
 - **Breaks when**: pi-durable changes its default wait or cap, pi-ai changes how a wait grows, or t3flare starts passing
   its own `baseDelayMs` or `maxAgentDelayMs` in the Session's `settings.retry`.
-- **Detection**: `apps/agents/test/turnRetries.test.ts` sums pi-ai's own `retryDelayMs` over pi-durable's own
+- **Detection**: `apps/agents/test/durableRetries.test.ts` sums pi-ai's own `retryDelayMs` over pi-durable's own
   `DEFAULT_RETRY_POLICY` for 0 to 100 retries and fails when `retriedSpanMs` differs, and when `SHORT_RESET_MS` stops
   being the default's span. **Silent**: a Session `settings.retry` with its own waits.
 - **Blast radius**: low. A wrong span pauses a thread for a reset the retries would have met, or retries a 429 into a

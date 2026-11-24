@@ -3,7 +3,7 @@
 // column the script fills per row, and the Owner's acts: Purge now (behind the Workspace's own name typed), Restore,
 // Stop Container, and the Sweep with its dry preview. Every string is escaped (page.ts's rule). Its behaviour is
 // WORKSPACES_SCRIPT, part of the page's one script.
-import { MAX_GRACE_DAYS } from "@t3flare/harness-registry";
+import { DEFAULT_GRACE_DAYS, MAX_GRACE_DAYS } from "@t3flare/harness-registry";
 
 import type { WorkspaceRow, WorkspacesView, WorkspaceStatus } from "../agents/workspaceView.ts";
 import { icon } from "./pageIcons.ts";
@@ -33,10 +33,13 @@ const graceText = (ms: number): string => {
   return minutes === 1 ? "a minute" : `${minutes} minutes`;
 };
 
-/** The Grace control (ADR-0044 §1): "Purge after [n] days" or "Never purge", saved through the Environment settings. */
+/**
+ * The Grace control (ADR-0044 §1): "Purge after [n] days" or "Never purge", saved through the Environment settings as
+ * the one setting `graceDays`, 0 for never (SPI-1387). Never shows the default days to purge after, should it be chosen.
+ */
 const graceForm = (escape: Escape, time: Time, view: WorkspacesView): string => {
   const state = !view.purging
-    ? "Never purge: the Sweep marks what nothing references and purges nothing."
+    ? `Never purge: the Sweep marks what nothing references and purges nothing. Purge after offers ${DEFAULT_GRACE_DAYS} days, the default.`
     : view.purgingSince === null
       ? "Purging starts its Grace at the next Sweep: nothing is purged before one Grace after it."
       : `Purging since ${time(view.purgingSince)}: nothing is purged before ${time(view.purgingSince + view.graceMs)}.`;
@@ -46,7 +49,7 @@ const graceForm = (escape: Escape, time: Time, view: WorkspacesView): string => 
   return `<form class="group" data-grace aria-labelledby="grace-title" novalidate>
 <div class="row"><div><div class="row-title"><h3 id="grace-title">Grace</h3></div><p class="desc">How long the Sweep keeps a Workspace nothing references, a Tombstone, and a deleted thread's Session before it purges them. A change applies to what already waits, at the next Sweep, which it brings forward.</p></div>
 <div class="row-extra"><fieldset class="grace-choices"><legend class="sr">When the Sweep purges</legend>
-<div class="inline-field"><input type="radio" id="grace-days" name="grace" value="days"${view.purging ? " checked" : ""}><label for="grace-days">Purge after</label><input type="number" inputmode="numeric" id="grace-days-n" data-grace-days aria-label="Grace in days" required min="1" max="${MAX_GRACE_DAYS}" step="1" value="${escape(String(view.graceDays))}"><span class="hint">days</span></div>
+<div class="inline-field"><input type="radio" id="grace-days" name="grace" value="days"${view.purging ? " checked" : ""}><label for="grace-days">Purge after</label><input type="number" inputmode="numeric" id="grace-days-n" data-grace-days aria-label="Grace in days" required min="1" max="${MAX_GRACE_DAYS}" step="1" value="${escape(String(view.graceDays === 0 ? DEFAULT_GRACE_DAYS : view.graceDays))}"><span class="hint">days</span></div>
 <div class="inline-field"><input type="radio" id="grace-never" name="grace" value="never"${view.purging ? "" : " checked"}><label for="grace-never">Never purge</label></div>
 <p class="hint">${state}</p></fieldset>
 <div class="save"><span class="save-note" data-save-note aria-live="polite"></span><button type="submit" class="btn btn-sm" data-save disabled>Save</button></div></div></div>
@@ -178,7 +181,7 @@ if (graceForm !== null) {
   graceForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!never() && !days.reportValidity()) return;
-    const settings = never() ? { sweepPurges: false } : { sweepPurges: true, graceDays: Number(days.value) };
+    const settings = { graceDays: never() ? 0 : Number(days.value) };
     if (await post("/_t3flare/settings/api/environment", { settings }, save)) done();
   });
 }

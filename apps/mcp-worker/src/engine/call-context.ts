@@ -177,7 +177,7 @@ const deprecatedFrom = (noted: NonNullable<McpEngineHooks["onDeprecated"]>) => (
 };
 
 /**
- * The host's limits a call's context takes from its target (`mcpLogEntries`, `mcpProgressPerSecond`); absent ones are
+ * The host's limits a call's context takes from its target (`MCP_LOG_ENTRIES`, `MCP_PROGRESS_PER_SECOND`); absent ones are
  * the engine's defaults.
  */
 export interface CallLimits {

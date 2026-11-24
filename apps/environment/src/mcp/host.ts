@@ -13,9 +13,8 @@
 import {
   classOf,
   DEFAULT_MCP_CALL_MS,
-  DEFAULT_MCP_PAUSES_PER_CALL,
-  DEFAULT_MCP_RESULT_KIB,
-  ENVIRONMENT_SETTINGS,
+  MCP_PAUSES_PER_CALL,
+  MCP_RESULT_KIB,
   type Exposure,
   MAX_SCHEMA_BYTES,
   MCP_REQUEST_OFF_MS,
@@ -74,12 +73,27 @@ export interface McpEngineBinding {
 }
 
 export const INVENTORY_TTL_MS = 10 * 60_000;
-/** What a streamed result past the MCP result size answers: the setting the Owner can raise, by its title and key. */
-const APP_TOO_LARGE = `The App's resource was larger than the Environment setting "${ENVIRONMENT_SETTINGS.mcpResultKiB.title}" (mcpResultKiB) allows, so t3flare refused it; the Owner can raise it`;
-const RESULT_TOO_LARGE = `The tool's result was larger than the Environment setting "${ENVIRONMENT_SETTINGS.mcpResultKiB.title}" (mcpResultKiB) allows, so t3flare refused it whole; the Owner can raise it`;
+/** The MCP result size in bytes (`MCP_RESULT_KIB`, SPI-1387): a host given none of its own (a test's) takes it. */
+const DEFAULT_RESULT_BYTES = MCP_RESULT_KIB * 1024;
 
-/** The MCP result size's default in bytes (`mcpResultKiB`): a host given no setting (a test's) takes it. */
-const DEFAULT_RESULT_BYTES = DEFAULT_MCP_RESULT_KIB * 1024;
+/** The MCP result size as its limit reads: "1,024 KiB", or bytes when it is not whole KiB (a test's). */
+const resultLimitText = (max: number): string =>
+  max % 1024 === 0 ? `${(max / 1024).toLocaleString("en-US")} KiB` : `${max.toLocaleString("en-US")} bytes`;
+
+/**
+ * What a result or an App past the MCP result size answers (SPI-1387, ADR-0049 §4): the limit and its value, a fixed one
+ * Cloudflare's 128 MB isolate forces, as the Environment holds a result several times over while it reads it.
+ */
+export const resultTooLarge = (max: number): string =>
+  `The tool's result was larger than t3flare's fixed ${resultLimitText(max)} limit on one MCP result (the Environment's memory bounds it), so t3flare refused it whole`;
+export const appTooLarge = (max: number): string =>
+  `The App's resource was larger than t3flare's fixed ${resultLimitText(max)} limit on one MCP result (the Environment's memory bounds it), so t3flare refused it`;
+/** What follows a result's text when its structured content was past the MCP result size and dropped (SPI-1387). */
+export const structuredDropped = (max: number): string =>
+  `\n[t3flare dropped this result's structured content, past its fixed ${resultLimitText(max)} limit on one MCP result]`;
+/** What follows an inline result's text that the MCP result size cut (SPI-1387). */
+export const resultCut = (max: number): string =>
+  `\n[t3flare cut this result at its fixed ${resultLimitText(max)} limit on one MCP result]`;
 
 /** One tool as the host lists it, with its class resolved. */
 export interface InventoryTool {
@@ -176,18 +190,18 @@ export interface McpHostDeps {
   /**
    * The MCP servers' limits (SPI-1363), read as each call's target is made: how long a connection may take to start
    * (`mcpConnectSeconds`) and one listing (`mcpListSeconds`), in ms, how many server logs a call keeps
-   * (`mcpLogEntries`), how many progress notices it passes on a second (`mcpProgressPerSecond`) and how long a Legacy
-   * server is taken as Legacy, in ms (`mcpLegacyRecheckHours`). Absent, the engine's defaults, which are the settings'.
+   * (`MCP_LOG_ENTRIES`), how many progress notices it passes on a second (`MCP_PROGRESS_PER_SECOND`) and how long a Legacy
+   * server is taken as Legacy, in ms (`MCP_LEGACY_RECHECK_HOURS`). Absent, the engine's defaults, the same values.
    */
   readonly limits?: () => McpServerLimits;
   /**
-   * The MCP result size in bytes (`mcpResultKiB`, SPI-1359), read at each call: a larger streamed result is refused, a
-   * larger inline one cut. Default: `DEFAULT_MCP_RESULT_KIB`.
+   * The MCP result size in bytes, read at each call: a larger streamed result is refused, a larger inline one cut, each
+   * saying so. Default: `MCP_RESULT_KIB` (SPI-1359, SPI-1387); a test passes its own.
    */
   readonly resultBytes?: () => number;
   /**
-   * How many of one call's pauses t3flare answers (`mcpPausesPerCall`, SPI-1366), read as each call starts. Default:
-   * `DEFAULT_MCP_PAUSES_PER_CALL`.
+   * How many of one call's pauses t3flare answers (SPI-1366), read as each call starts. Default: `MCP_PAUSES_PER_CALL`
+   * (SPI-1387); a test passes its own.
    */
   readonly pausesPerCall?: () => number;
   /**
@@ -237,7 +251,7 @@ export class McpHost {
     return this.#deps.now?.() ?? Date.now();
   }
 
-  /** The MCP result size now, in bytes (`mcpResultKiB`). */
+  /** The MCP result size now, in bytes (`MCP_RESULT_KIB`). */
   #resultBytes(): number {
     return this.#deps.resultBytes?.() ?? DEFAULT_RESULT_BYTES;
   }
@@ -587,8 +601,7 @@ export class McpHost {
         ? first
         : {
             kind: "result",
-            ...resultText(first.value, this.#resultBytes()),
-            ...structuredOf(first.value, this.#resultBytes()),
+            ...resultWithStructured(first.value, this.#resultBytes()),
           };
     return this.#answerPauses(input.server, server, target, first.value, input.signal, input.asker, context);
   }
@@ -596,9 +609,9 @@ export class McpHost {
   /**
    * G11 (MCP apps, review L10): an App's `ui://` resource, read for a CLI through the relay: only a URI one of `server`'s
    * own offered tools declares (`_meta.ui.resourceUri`), the server's `ReadResourceResult` as it is, at most the MCP
-   * result size (`mcpResultKiB`, at most 8 MiB) in bytes read and in characters of its JSON passed on. The value crosses
+   * result size (`MCP_RESULT_KIB`) in bytes read and in characters of its JSON passed on. The value crosses
    * the relay's RPC (32 MiB) as UTF-16, two bytes a character once any character is past Latin-1, so characters, not
-   * bytes, are what must stay under half of it; the isolate holds a few copies of it while it reads (`MAX_MCP_RESULT_KIB`).
+   * bytes, are what must stay under half of it; the isolate holds a few copies of it while it reads (`MCP_RESULT_KIB`).
    */
   async readAppResource(input: {
     readonly server: string;
@@ -640,9 +653,9 @@ export class McpHost {
       result.result.kind === "inline"
         ? { kind: "read" as const, value: result.result.value as unknown }
         : await readBounded(result.result.body as ReadableStream<Uint8Array>, max);
-    if (read.kind === "tooLarge") return { kind: "refused", message: `${APP_TOO_LARGE} (over ${max} bytes).` };
+    if (read.kind === "tooLarge") return { kind: "refused", message: `${appTooLarge(max)} (over ${max} bytes).` };
     const characters = JSON.stringify(read.value)?.length ?? 0;
-    if (characters > max) return { kind: "refused", message: `${APP_TOO_LARGE} (${characters} characters).` };
+    if (characters > max) return { kind: "refused", message: `${appTooLarge(max)} (${characters} characters).` };
     return { kind: "result", value: read.value };
   }
 
@@ -726,7 +739,11 @@ export class McpHost {
     const value =
       result.result.kind === "inline"
         ? result.result.value
-        : await readStream(result.result.body as ReadableStream<Uint8Array>, this.#resultBytes(), RESULT_TOO_LARGE);
+        : await readStream(
+            result.result.body as ReadableStream<Uint8Array>,
+            this.#resultBytes(),
+            resultTooLarge(this.#resultBytes()),
+          );
     return { kind: "value", value };
   }
 
@@ -776,7 +793,7 @@ export class McpHost {
 
   /**
    * A pausing server's result (Executor's model mode, SPI-1079): each pause becomes a card and t3flare calls `resume`
-   * with the owner's answer, at most `mcpPausesPerCall` times; the agent gets the last result, never a `requestId`. An approval
+   * with the owner's answer, at most `MCP_PAUSES_PER_CALL` times; the agent gets the last result, never a `requestId`. An approval
    * is resumed with `accept` only when the owner accepted; a decline is sent as `decline`, an unanswered card as `cancel`.
    */
   async #answerPauses(
@@ -790,7 +807,7 @@ export class McpHost {
   ): Promise<McpCallAnswer> {
     const resume = this.inventory(name).definitions[RESUME_TOOL]!;
     // Read as the call starts (SPI-1366): a change applies at the next call.
-    const pauses = this.#deps.pausesPerCall?.() ?? DEFAULT_MCP_PAUSES_PER_CALL;
+    const pauses = this.#deps.pausesPerCall?.() ?? MCP_PAUSES_PER_CALL;
     let current = value;
     for (let round = 0; ; round++) {
       const pause = pauseOf(current);
@@ -804,7 +821,7 @@ export class McpHost {
       if (round === pauses)
         return {
           kind: "unavailable",
-          message: `${name} paused this call more than ${pauses} times; t3flare stopped answering. Some of its steps may have run.`,
+          message: `${name} paused this call more than ${pauses} times, t3flare's fixed limit; t3flare stopped answering. Some of its steps may have run.`,
           mayHaveRun: true,
         };
       const answer = await this.#answer(planPause(pause, context), asker, context, "pause");
@@ -956,7 +973,7 @@ const utf8Bytes = (text: string): number => new TextEncoder().encode(text).lengt
 
 /**
  * A `CallToolResult` as text for the model: its text blocks, else its structured content, else its JSON; at most `max`
- * bytes of UTF-8 (`mcpResultKiB`).
+ * bytes of UTF-8 (`MCP_RESULT_KIB`), and a cut one says so (`resultCut`).
  */
 export const resultText = (
   value: unknown,
@@ -977,7 +994,8 @@ export const resultText = (
       : result.structuredContent !== undefined
         ? JSON.stringify(result.structuredContent)
         : JSON.stringify(value);
-  return { isError: result.isError === true, text: cutBytes(text, max) };
+  const cut = cutBytes(text, max);
+  return { isError: result.isError === true, text: cut === text ? text : `${cut}${resultCut(max)}` };
 };
 
 /** G11 (review L10): a tool definition's `_meta.ui`, and nothing else of its `_meta`, when it declares one. */
@@ -996,10 +1014,17 @@ const uiOf = (definition: Readonly<Record<string, unknown>>): { readonly ui?: Re
 };
 
 /**
- * G11: a result's `structuredContent`, which an App reads, passed on beside its text; dropped past `max` bytes of UTF-8
- * (`mcpResultKiB`), since it cannot be cut.
+ * G11: a result as text (`resultText`) with its `structuredContent`, which an App reads, passed on beside it; dropped
+ * past `max` bytes of UTF-8 (`MCP_RESULT_KIB`), since it cannot be cut, and then the text says so (`structuredDropped`),
+ * whether or not the text itself was cut.
  */
-const structuredOf = (value: unknown, max: number): { readonly structured?: unknown } => {
+export const resultWithStructured = (
+  value: unknown,
+  max: number,
+): { readonly isError: boolean; readonly text: string; readonly structured?: unknown } => {
+  const shown = resultText(value, max);
   const structured = (value as { structuredContent?: unknown } | null)?.structuredContent;
-  return structured === undefined || utf8Bytes(JSON.stringify(structured)) > max ? {} : { structured };
+  if (structured === undefined) return shown;
+  if (utf8Bytes(JSON.stringify(structured)) <= max) return { ...shown, structured };
+  return { ...shown, text: `${shown.text}${structuredDropped(max)}` };
 };

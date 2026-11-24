@@ -266,7 +266,7 @@ const probeCli = async (cli: Cli, projectId: string, root: string, id: string) =
   if (cli === "claude") {
     // R6: the leading mention became Claude's native `/fruit-code`, its body in the prompt: SKILL.md is not read.
     checks.r6NativeExpansion = checks.mentionAnswers! && !readsSkillMd(steps.mention);
-    // A Workspace runs at most two Claude Code processes (cliProcessesPerWorkspace at its default 4, Claude counting twice): the two threads'
+    // A Workspace runs at most two Claude Code processes (cpu-1's derived 4 CLI processes, Claude counting twice): the two threads'
     // end with the Container; the mention thread resumes for its later turns.
     await stopContainer(id);
     const inline = await newThread(cli, projectId, `spi-1151 ${cli}: inline mention`);

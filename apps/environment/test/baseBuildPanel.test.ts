@@ -180,7 +180,7 @@ describe("a save pokes the Builder", () => {
 });
 
 describe("the Base snapshot's settings on the page", () => {
-  it("joins the Image setup's own row: the script as a file, its time limit; the rest under Advanced, the Builder's size by its label", async () => {
+  it("joins the Image setup's own row: the script as a file, its time limit; the rest under Advanced, no Builder size (SPI-1387)", async () => {
     const html = await page(setup().deps);
     const start = html.indexOf("<h3>Image setup</h3>");
     expect(start).toBeGreaterThan(-1);
@@ -191,9 +191,10 @@ describe("the Base snapshot's settings on the page", () => {
     const advancedStart = html.indexOf('<h3 id="environment-advanced-imageSetup-title">Image setup</h3>');
     expect(advancedStart).toBeGreaterThan(start);
     const advanced = html.slice(advancedStart, html.indexOf('<div class="row">', advancedStart));
-    for (const key of ["snapshotMinutes", "builderSize", "builderInBudget", "rebuildEveryDays"])
+    for (const key of ["snapshotMinutes", "builderInBudget", "rebuildEveryDays"])
       expect(advanced).toContain(`data-setting="${key}"`);
-    expect(advanced).toContain('<option value="sameAsContainer" selected>Same as Container size</option>');
+    // The Builder runs at the Container size.
+    expect(html).not.toContain('data-setting="builderSize"');
   });
 });
 

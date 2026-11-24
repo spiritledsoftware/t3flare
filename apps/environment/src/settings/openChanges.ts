@@ -380,10 +380,10 @@ const TIMER_MAX_MS = 2_147_483_647;
 
 /**
  * The same wait for an own agent's call, which no client timeout cuts short: at least the longest apply, a skills
- * install or update whose every read takes the whole Outside request time limit (`outsideRequestMs`, SPI-1365), and a
- * margin (SPI-1201 review), so a Stop or a timeout landing meanwhile reports what the apply did. At most a JS timer's
- * longest wait. That is about 2 hours at the setting's default when every read stalls, never in practice; the setting's
- * description states it (SPI-1365 review): a shorter wait would report an apply that later succeeded as failed.
+ * install or update whose every read takes the whole outside request time limit (`OUTSIDE_REQUEST_MS`, SPI-1365,
+ * SPI-1387), and a margin (SPI-1201 review), so a Stop or a timeout landing meanwhile reports what the apply did. At most
+ * a JS timer's longest wait. That is about 4 hours at its 30 s when every read stalls, never in practice: a shorter wait
+ * would report an apply that later succeeded as failed.
  */
 export const ownApplyingWaitMs = (outsideRequestMs: number): number =>
   Math.min(TIMER_MAX_MS, SKILLS_APPLY_READS * outsideRequestMs + 15_000);

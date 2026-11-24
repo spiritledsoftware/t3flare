@@ -49,6 +49,6 @@ PR watch's and the Remote tasks' fixed wakes.
   back-off only delayed noticing a fix. The error is logged when what failed changes, not at every check.
 - **The PR watch's wake is `prWatchWakeMinutes`** (10, `up-free`: a shorter one boots t3 more often), and **the Remote
   tasks' retry waits 5, 15, then `remoteRetryMinutes`** (30, `up-free`), each capped at it.
-- **Safe mode follows `safeModeAfterFailures`** failed boots in a row (3, `down-free`).
+- **Safe mode follows `safeModeAfterFailures`** failed boots in a row (3, `down-free`). (Superseded by ADR-0032's SPI-1387 refinement: the Remote retry and safe mode's count are fixed constants, 30 minutes and 3.)
 
 All four are in the Settings page's Sleep and wake row, read at each use.

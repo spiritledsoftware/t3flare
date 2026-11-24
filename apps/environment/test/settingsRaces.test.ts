@@ -6,7 +6,7 @@
 // - an Open change whose tool the owner hid since it opened applies nothing, on either door, naming the panel;
 // - the call-stop registry: reads never register, a second registration under a running id shares it and never aborts
 //   the first, and a stop that arrives before its call registers is remembered briefly and boundedly.
-import { applyMcpChange, ENVIRONMENT_SETTINGS } from "@t3flare/harness-registry";
+import { applyMcpChange, OUTSIDE_REQUEST_MS } from "@t3flare/harness-registry";
 import type { McpAsker } from "@t3flare/session-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -100,12 +100,8 @@ describe("an answer applying meanwhile is waited for", () => {
   });
 
   it("an own agent's close waits at least as long as the longest apply (a skills install, every read at its time limit)", () => {
-    expect(ownApplyingWaitMs(15_000)).toBeGreaterThan(MAX_BLOB_READS * 15_000);
-    // The Outside request time limit's description states that wait once.
-    expect(ENVIRONMENT_SETTINGS.outsideRequestSeconds.description).toContain(
-      `about ${MAX_BLOB_READS} times this limit`,
-    );
-    // Never past a JS timer's longest wait, at the setting's maximum.
+    expect(ownApplyingWaitMs(OUTSIDE_REQUEST_MS)).toBeGreaterThan(MAX_BLOB_READS * OUTSIDE_REQUEST_MS);
+    // Never past a JS timer's longest wait.
     expect(ownApplyingWaitMs(7 * 24 * 3_600_000)).toBe(2_147_483_647);
     expect(APPLYING_WAIT_MS).toBeLessThan(60_000);
   });

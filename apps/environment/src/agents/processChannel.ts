@@ -313,11 +313,6 @@ export interface ProcessChannelDeps {
   /** The Workspace of a t3 path, when listed and ready. */
   readonly place: (cwd: string) => ProcessPlace | undefined;
   readonly newKey: () => string;
-  /**
-   * The Environment settings' CLI agents' processes per Workspace and reclaim delay (SPI-1318), read at each start and
-   * carried with it. Absent: the Workspace takes the settings' defaults.
-   */
-  readonly cliLimits?: () => { readonly cliProcessesPerWorkspace: number; readonly cliReclaimSeconds: number };
 }
 
 export interface ChannelStart {
@@ -418,7 +413,6 @@ export class ProcessChannel {
         ...(input.thread === undefined ? {} : { thread: input.thread }),
         ...(input.toolHandle === undefined ? {} : { toolHandle: input.toolHandle }),
         ...(input.modelRelay === undefined ? {} : { modelRelay: input.modelRelay }),
-        ...this.#deps.cliLimits?.(),
       });
     } catch (error) {
       process.finish(129);

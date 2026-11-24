@@ -20,7 +20,7 @@ export interface KillOutput {
 export const killInRunningContainer = async (
   container: RunningContainer | undefined,
   markers: ReadonlyArray<string>,
-  /** TERM, then KILL after this (`abortGraceSeconds`). */
+  /** TERM, then KILL after this (`STOP_GRACE_SECONDS`). */
   graceMs: number,
 ): Promise<KillOutput | undefined> => {
   const argv = killArgv(markers, graceMs);

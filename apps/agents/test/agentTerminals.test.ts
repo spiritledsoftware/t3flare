@@ -193,15 +193,16 @@ describe("agent terminals", () => {
       notify: true,
     } as const;
     const refused = await terminals.handle(fourth);
+    // SPI-1387: the limit names itself and its value.
     expect(refused.ok ? "" : refused.error).toContain(
-      'already runs 3 Terminals and Background jobs, and its Environment setting "Agents\' Terminals per Workspace" (agentTerminalsPerWorkspace) allows 3',
+      "already runs 3 Terminals and Background jobs, and agents may run at most 3 at once (a fixed limit: each keeps its screen in the Workspace's memory); stop one first.",
     );
-    // SPI-1317: lowering the count stops none that run; the next start is refused against it.
+    // A lower count stops none that run; the next start is refused against it.
     maxLive = 1;
     expect(terminals.live).toBe(3);
     expect(closed).toHaveLength(1);
     const lowered = await terminals.handle({ ...fourth, kind: "terminal" });
-    expect(lowered.ok ? "" : lowered.error).toContain("allows 1");
+    expect(lowered.ok ? "" : lowered.error).toContain("may run at most 1 at once");
   });
 
   // SPI-1372: what outlives the close's kill is killed again, and the stop says what happened.

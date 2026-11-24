@@ -8,8 +8,8 @@
 // - `shellResolver`: bash;
 // - `subprocessInspector`: the rc file's markers (review F1), so t3 never spawns `ps` and `closeIdle` keeps a terminal
 //   that runs `npm run dev`;
-// - `historyByteLimit` and `maxRetainedInactiveSessions` from the Owner's `terminalHistoryKiB` and `exitedTerminalsKept`
-//   (SPI-1364; 1 MiB and 16 by default, for the 128 MB isolate), read when this layer is built;
+// - `historyByteLimit` and `maxRetainedInactiveSessions` from t3flare's `TERMINAL_HISTORY_KIB` and `EXITED_TERMINALS_KEPT`
+//   (SPI-1364, SPI-1387; 1 MiB and 16, for the 128 MB isolate);
 // - `registerTerminalProcesses` and `unregisterTerminal` name each shell's thread and terminal for our port discovery
 //   (G11, `preview/portDiscovery.ts`), which attributes a listener by its shell's key: the inspector reports the shell's
 //   own (synthetic) pid for that, and nothing else reads it;
@@ -17,6 +17,7 @@
 //   no shell exists: a shell the Container has (`SHELLS`) resolves to itself, any other to none, so t3 tries its next;
 // - no `resolveProviderInstanceEnvironment` (a provider instance's env can carry credentials, ADR-0016; review F10).
 import * as PtyAdapter from "@t3tools/shared/PtyAdapter";
+import { EXITED_TERMINALS_KEPT, TERMINAL_HISTORY_KIB } from "@t3flare/harness-registry";
 import { SpawnExecutableResolution } from "@t3tools/shared/shell";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -24,7 +25,6 @@ import * as ServerConfig from "t3/src/config.ts";
 import * as ProcessRunner from "t3/src/processRunner.ts";
 import * as TerminalManager from "t3/src/terminal/Manager.ts";
 
-import { type TerminalHistoryLimits, terminalHistoryNow } from "../agents/bindings.ts";
 import { locate } from "../agents/workspaceClient.ts";
 import { setCurrentTerminals } from "./current.ts";
 import { SHELLS, TerminalProcesses } from "./ptyAdapter.ts";
@@ -59,16 +59,13 @@ export const makeTerminalProcesses = (): TerminalProcesses =>
   });
 
 /** `makeWithOptions`' options for this Environment's terminals (shared with the Node test of the real stack). */
-export const terminalManagerOptions = (
-  processes: TerminalProcesses,
-  logsDir: string,
-  history: TerminalHistoryLimits = terminalHistoryNow(),
-) => ({
+export const terminalManagerOptions = (processes: TerminalProcesses, logsDir: string) => ({
   logsDir,
   env: { ...TERMINAL_BASE_ENV },
   shellResolver: () => "/bin/bash",
-  historyByteLimit: history.historyByteLimit,
-  maxRetainedInactiveSessions: history.maxRetainedInactiveSessions,
+  // SPI-1364, SPI-1387: fixed for the Environment DO's 128 MB isolate (stock t3: 8 MiB and 128).
+  historyByteLimit: TERMINAL_HISTORY_KIB * 1024,
+  maxRetainedInactiveSessions: EXITED_TERMINALS_KEPT,
   ptyAdapter: {
     spawn: (input: PtyAdapter.PtySpawnInput) =>
       Effect.try({

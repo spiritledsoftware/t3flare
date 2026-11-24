@@ -72,7 +72,7 @@ describe("the kill script on the Container", () => {
     await expect(killInRunningContainer(container, ["exec-1"], 2000)).rejects.toThrow("internal error");
   });
 
-  it("passes the grace before KILL first, in whole ms (SPI-1364: abortGraceSeconds)", async () => {
+  it("passes the grace before KILL first, in whole ms (SPI-1364; STOP_GRACE_SECONDS, SPI-1387)", async () => {
     const { container, calls } = fakeContainer({ running: true });
     await killInRunningContainer(container, ["exec-1"], 10_000);
     expect(calls[0]?.slice(3)).toEqual(["t3flare-kill", "10000", "exec-1"]);

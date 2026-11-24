@@ -15,7 +15,18 @@ import {
 } from "@t3flare/harness-registry";
 import { describe, expect, it } from "vitest";
 
-import { fitError, McpHost, refusedCount, type McpServerLimits, type McpEngineBinding } from "../src/mcp/host.ts";
+import {
+  fitError,
+  McpHost,
+  refusedCount,
+  appTooLarge,
+  resultCut,
+  resultTooLarge,
+  resultWithStructured,
+  structuredDropped,
+  type McpServerLimits,
+  type McpEngineBinding,
+} from "../src/mcp/host.ts";
 
 const memory = () => {
   const map = new Map<string, unknown>();
@@ -439,7 +450,11 @@ describe("McpHost and MCP apps (G11, review L10)", () => {
     );
     await run.host.list("commissary");
     const refused = await run.host.readAppResource({ server: "commissary", uri: "ui://time/app.html" });
-    expect(refused).toMatchObject({ kind: "refused", message: expect.stringContaining("mcpResultKiB") });
+    // SPI-1387: the limit names itself and its value.
+    expect(refused).toMatchObject({
+      kind: "refused",
+      message: expect.stringContaining("larger than t3flare's fixed 1,000 bytes limit on one MCP result"),
+    });
     expect(refused.kind === "refused" && refused.message).toMatch(/\(\d+ characters\)/);
     const roomy = setup(
       () => [appTool],
@@ -531,7 +546,7 @@ describe("McpHost and MCP apps (G11, review L10)", () => {
     expect(refusedCount(listed.refused)).toBe(6003 - Object.keys(listed.definitions).length);
   });
 
-  it("cuts an inline result's text to the MCP result size in bytes of UTF-8, and drops structured content past it (SPI-1359)", async () => {
+  it("cuts an inline result's text to the MCP result size in bytes of UTF-8, says so, and drops structured content past it (SPI-1359, SPI-1387)", async () => {
     const run = setup(
       () => [tool("fixture_echo", true)],
       // 9 characters, 18 bytes of UTF-8.
@@ -543,7 +558,28 @@ describe("McpHost and MCP apps (G11, review L10)", () => {
     expect(await run.host.call({ server: "commissary", tool: "fixture_echo", args: {}, judged: "read" })).toEqual({
       kind: "result",
       isError: false,
-      text: "ééééé",
+      text: `ééééé${resultCut(11)}${structuredDropped(11)}`,
+    });
+    expect(resultCut(1024 * 1024)).toBe("\n[t3flare cut this result at its fixed 1,024 KiB limit on one MCP result]");
+    expect(appTooLarge(1024 * 1024)).toBe(
+      "The App's resource was larger than t3flare's fixed 1,024 KiB limit on one MCP result (the Environment's memory bounds it), so t3flare refused it",
+    );
+    expect(resultTooLarge(1024 * 1024)).toBe(
+      "The tool's result was larger than t3flare's fixed 1,024 KiB limit on one MCP result (the Environment's memory bounds it), so t3flare refused it whole",
+    );
+  });
+
+  it("names the dropped structured content when the text fits (SPI-1387)", async () => {
+    const short = { content: [{ type: "text", text: "ok" }], structuredContent: { long: "x".repeat(40) } };
+    expect(resultWithStructured(short, 20)).toEqual({ isError: false, text: `ok${structuredDropped(20)}` });
+    expect(structuredDropped(1024 * 1024)).toBe(
+      "\n[t3flare dropped this result's structured content, past its fixed 1,024 KiB limit on one MCP result]",
+    );
+    // Within the size, it is passed on and nothing is said.
+    expect(resultWithStructured(short, 1000)).toEqual({
+      isError: false,
+      text: "ok",
+      structured: short.structuredContent,
     });
   });
 
@@ -581,7 +617,7 @@ describe("McpHost and MCP apps (G11, review L10)", () => {
     expect(await small.call({ server: "commissary", tool: "fixture_echo", args: {}, judged: "read" })).toMatchObject({
       kind: "result",
       isError: true,
-      text: `The tool's result was larger than the Environment setting "MCP result size (KiB)" (mcpResultKiB) allows, so t3flare refused it whole; the Owner can raise it (${result.length - 1} bytes).`,
+      text: `${resultTooLarge(result.length - 1)} (${result.length - 1} bytes).`,
     });
     const fits = host(result.length);
     await fits.list("commissary");

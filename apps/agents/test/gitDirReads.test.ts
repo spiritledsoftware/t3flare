@@ -181,7 +181,7 @@ describe("priming", () => {
     expect(primeScript(argvs).length).toBeGreaterThan(128 * 1024);
   });
 
-  it("primes at most half of gitReadsKept, the most needed first", () => {
+  it("primes at most half of the git answers kept, the most needed first", () => {
     expect(primeReadsFor(500)).toBe(250);
     const refs = ["refs/heads/main", ...Array.from({ length: 50 }, (_, at) => `refs/remotes/origin/r${at}`)];
     const argvs = primeArgvs(refs, primeReadsFor(20));

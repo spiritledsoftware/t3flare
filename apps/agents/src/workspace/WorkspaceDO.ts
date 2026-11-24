@@ -52,15 +52,27 @@ import { CREDENTIAL_HELPER, CREDENTIAL_PATH } from "./credentialHelper.ts";
 import { BUDGET_NAME, type ContainerBudget, RENEW_EVERY_MS } from "../budget.ts";
 import { type EnvironmentDO, environmentStub } from "../environment.ts";
 import {
+  AGENT_TERMINAL_SCROLLBACK_LINES,
+  AGENT_TERMINALS_PER_WORKSPACE,
   BASE_BUILD_TEXT_CHARACTERS,
   type BaseBuildRecord,
   BUILDERS,
   deadlineMs,
+  cliProcessesPerWorkspace,
   EMPTY_ENVIRONMENT,
+  FIRST_PROMPT_SECONDS,
   fitVariableEnv,
+  GIT_READS_KEPT,
   type McpRelayAnswer,
+  PORT_PROBE_MS,
+  RECLAIM_PROTECTION_SECONDS,
   type ResolvedEnvironment,
   resolveEnvironment,
+  SETTINGS_READ_MS,
+  SKILLS_WAIT_SECONDS,
+  STOP_GRACE_SECONDS,
+  TEMP_FILES_HOURS,
+  TERMINALS_PER_WORKSPACE,
 } from "@t3flare/harness-registry";
 import { BaseBuild } from "./baseBuild.ts";
 import { checkpointLimitMs, cloneLimitMs } from "./gitLimits.ts";
@@ -90,15 +102,13 @@ import { changedBetween, currentRevision, repoFileSizes } from "./changeLog.ts";
 import {
   type ContainerLaunch,
   launchOf,
-  readMsOf,
   secretValuesOf,
   shownLaunch,
   takeEnvironment,
   type TakenEnvironment,
   type TerminalHold,
-  type TerminalLimits,
   terminalHoldOf,
-  terminalLimitsOf,
+  terminalHoldsOf,
   withContainerSteps,
 } from "./containerLaunch.ts";
 import { ContainerSetup, type ContainerSetupState } from "./containerSetup.ts";
@@ -608,8 +618,8 @@ export class WorkspaceDO extends ContainerHost {
         doing: "checking the dotfiles' mise config the Container setup wrote",
       }),
     ]);
-    // SPI-1364: as the last Container start took it (`gitReadsKept`).
-    this.#reads = readCache(ctx.storage.sql, () => this.#keptSettings().gitReadsKept);
+    // SPI-1364: `GIT_READS_KEPT` (SPI-1387).
+    this.#reads = readCache(ctx.storage.sql, () => GIT_READS_KEPT);
     this.#skillSet = skillSetStore({
       kv: ctx.storage.kv,
       transactionSync: <T>(closure: () => T): T => ctx.storage.transactionSync(closure),
@@ -647,8 +657,8 @@ export class WorkspaceDO extends ContainerHost {
         },
       },
       {
-        // SPI-1364: read when `prepare` runs (the first file operation after a wake), as the last Container start took it.
-        staleTempMs: () => this.#keptSettings().tempFilesHours * 3_600_000,
+        // SPI-1364: read when `prepare` runs (the first file operation after a wake); `TEMP_FILES_HOURS` (SPI-1387).
+        staleTempMs: () => TEMP_FILES_HOURS * 3_600_000,
       },
     );
     const { BASH_ENV: _bashEnv, ...terminalEnv } = COMMAND_ENV;
@@ -694,8 +704,8 @@ export class WorkspaceDO extends ContainerHost {
       baseEnv: terminalEnv,
       // ADR-0047 §9: as the running Container started (its launch), so a change applies at its next start.
       readBashrc: () => ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY)?.terminalsReadBashrc !== false,
-      // SPI-1317: as the running Container started (its launch), so a change applies at its next start.
-      maxTerminals: () => this.#terminalLimits().terminalsPerWorkspace,
+      // SPI-1317, SPI-1387: a fixed count, `TERMINALS_PER_WORKSPACE`, a memory-safety bound.
+      maxTerminals: () => TERMINALS_PER_WORKSPACE,
       filesMayHaveChanged: (why) => this.#terminalSync.changed(why),
       remember: (markers) => ctx.storage.kv.put(TERMINAL_MARKERS_KEY, [...markers]),
       remembered: () => ctx.storage.kv.get<ReadonlyArray<string>>(TERMINAL_MARKERS_KEY) ?? [],
@@ -704,8 +714,8 @@ export class WorkspaceDO extends ContainerHost {
         if (this.containerRunning()) await this.#syncEntries("push");
       },
       projectRootView: PROJECT_ROOT_VIEW,
-      // SPI-1364: as the last Container start took it.
-      firstPromptMs: () => this.#keptSettings().firstPromptSeconds * 1000,
+      // SPI-1364: `FIRST_PROMPT_SECONDS` (SPI-1387).
+      firstPromptMs: () => FIRST_PROMPT_SECONDS * 1000,
     });
     // The agent's Terminals (SPI-1057): the same host, never heartbeaten (they end with the Container or a stop), their
     // output rendered by `AgentTerminals` instead of pushed to t3's terminal adapter. `AgentTerminals` counts them, not
@@ -750,9 +760,9 @@ export class WorkspaceDO extends ContainerHost {
       // A command, not an interactive shell: mise through `BASH_ENV`, as the agent's `bash` has it.
       env: COMMAND_ENV.BASH_ENV === undefined ? {} : { BASH_ENV: COMMAND_ENV.BASH_ENV },
       repo: REPO_ROOT,
-      // SPI-1317: as the running Container started (its launch), so a change applies at its next start.
-      maxLive: () => this.#terminalLimits().agentTerminalsPerWorkspace,
-      scrollback: () => this.#terminalLimits().agentTerminalScrollbackLines,
+      // SPI-1317, SPI-1387: a fixed count, `AGENT_TERMINALS_PER_WORKSPACE`, a memory-safety bound.
+      maxLive: () => AGENT_TERMINALS_PER_WORKSPACE,
+      scrollback: () => AGENT_TERMINAL_SCROLLBACK_LINES,
     });
     this.#boot = (ctx.storage.kv.get<number>(BOOT_COUNT_KEY) ?? 0) + 1;
     ctx.storage.kv.put(BOOT_COUNT_KEY, this.#boot);
@@ -777,6 +787,8 @@ export class WorkspaceDO extends ContainerHost {
       remembered: () => ctx.storage.kv.get<ReadonlyArray<ProcessMarker>>(PROCESS_MARKERS_KEY) ?? [],
       filesMayHaveChanged: (why) => this.#terminalSync.changed(why),
       allowProbe: env.T3FLARE_FAULTS === "1",
+      // SPI-1387: derived from the Container size the last start kept.
+      maxProcesses: () => cliProcessesPerWorkspace(this.#keptSettings()),
       beforeStart: async () => {
         await this.#ensureSteps();
         return { sandbox: await this.#sandboxWorks() };
@@ -1135,7 +1147,7 @@ export class WorkspaceDO extends ContainerHost {
               running: () => this.containerRunning(),
               exec: (command) => this.exec(command),
               warn,
-              waitMs: this.#keptSettings().skillsWaitSeconds * 1000,
+              waitMs: SKILLS_WAIT_SECONDS * 1000,
             },
             expectation,
           );
@@ -1162,7 +1174,7 @@ export class WorkspaceDO extends ContainerHost {
     this.#alive();
     await this.#ready();
     cliAgentArgument(agent);
-    return workspacePrompts(this.#host.readEnv(cwd), this.#keptSettings(), agent);
+    return workspacePrompts(this.#host.readEnv(cwd), agent);
   }
 
   /** No nested instruction files (the Session reads AGENTS.md itself). */
@@ -1201,7 +1213,9 @@ export class WorkspaceDO extends ContainerHost {
           await lease(fresh ? launch.budget : undefined);
           // The wait is the kept copy's, as every start's is (`#takeSettings`): a start learns a new wait only by keeping it.
           const kept = this.#keptSettings();
-          const from = fresh ? launch.from : launchFrom(await this.#planBase(kept, readMsOf(kept), { mayAsk: false }));
+          const from = fresh
+            ? launch.from
+            : launchFrom(await this.#planBase(kept, SETTINGS_READ_MS, { mayAsk: false }));
           const snapshotId = baseIdOf(from);
           // Test stages only: a bogus id in the real one's place (`faultBaseSnapshot`).
           const platformId = snapshotId === undefined ? undefined : (this.#takeBaseFault() ?? snapshotId);
@@ -1326,7 +1340,7 @@ export class WorkspaceDO extends ContainerHost {
    */
   async #takeSettings(): Promise<TakenEnvironment & { readonly readMs: number }> {
     const kv = this.ctx.storage.kv;
-    const readMs = readMsOf(this.#keptSettings());
+    const readMs = SETTINGS_READ_MS;
     const taken = await takeEnvironment({
       read: () => environmentStub(this.env.ENVIRONMENT).environmentSettings(),
       kept: () => kv.get<ResolvedEnvironment>(ENVIRONMENT_KEY),
@@ -1336,9 +1350,9 @@ export class WorkspaceDO extends ContainerHost {
     return { ...taken, readMs };
   }
 
-  /** How long a kill's TERM is given before KILL (`abortGraceSeconds`, SPI-1364), in ms, as the last start took it. */
+  /** How long a kill's TERM is given before KILL (SPI-1364), in ms: the one stop grace (`STOP_GRACE_SECONDS`, SPI-1387). */
   #abortGraceMs(): number {
-    return this.#keptSettings().abortGraceSeconds * 1000;
+    return STOP_GRACE_SECONDS * 1000;
   }
 
   /**
@@ -1774,7 +1788,7 @@ export class WorkspaceDO extends ContainerHost {
     const answers = await primeReads(
       (input) => this.exec({ ...input, cwd: REPO_ROOT, passive: true, wholeOutput: true }),
       () => this.containerRunning(),
-      primeReadsFor(this.#keptSettings().gitReadsKept),
+      primeReadsFor(GIT_READS_KEPT),
     );
     await keepPrimed((key, at, answer) => this.#reads.put(key, at, answer), answers, rev);
     console.log(JSON.stringify({ t3flare: "git-reads-primed", reads: answers.length }));
@@ -2629,7 +2643,7 @@ export class WorkspaceDO extends ContainerHost {
     if (busy) return "in use";
     const lastUse = (await this.ctx.storage.get<number>(LAST_USE_KEY)) ?? 0;
     // SPI-1364: some protection is needed, else two Workspaces under a full budget stop each other between commands.
-    const protectionSeconds = this.#keptSettings().reclaimProtectionSeconds;
+    const protectionSeconds = RECLAIM_PROTECTION_SECONDS;
     if (this.#processes.size === 0 && Date.now() - lastUse < protectionSeconds * 1000)
       return `used in the last ${protectionSeconds} s`;
     return undefined;
@@ -2728,17 +2742,17 @@ export class WorkspaceDO extends ContainerHost {
     };
   }
 
-  /** G11: stops process group `pgid` (TERM, then KILL after `portStopGraceSeconds`); false when it was gone or nothing runs. */
+  /** G11: stops process group `pgid` (TERM, then KILL after `STOP_GRACE_SECONDS`); false when it was gone or nothing runs. */
   async stopProcessGroup(pgid: number, members: ReadonlyArray<number>): Promise<boolean> {
     if (this.#isDestroyed()) return false;
-    const graceMs = this.#keptSettings().portStopGraceSeconds * 1000;
+    const graceMs = STOP_GRACE_SECONDS * 1000;
     return stopGroupInRunningContainer(this.ctx.container, pgid, members, graceMs);
   }
 
   /** G11 (review M4): a configured `localhost` preview URL's web probe, on this Container only while it runs; not use. */
   async probePort(port: number, path: string): Promise<PortProbe | null> {
     if (this.#isDestroyed()) return null;
-    return (await probeRunningPort(this.ctx.container, port, path, this.#keptSettings().portProbeMs)) ?? null;
+    return (await probeRunningPort(this.ctx.container, port, path, PORT_PROBE_MS)) ?? null;
   }
 
   #terminalsHold(): boolean {
@@ -2746,14 +2760,14 @@ export class WorkspaceDO extends ContainerHost {
     return this.#terminals.holdsContainer(hold) || this.#agentHost.holdsContainer(hold);
   }
 
-  /** The Terminals' holds and counts the running Container started with (SPI-1317); the defaults before one started. */
-  #terminalLimits(): TerminalLimits {
-    return terminalLimitsOf(this.ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY));
+  /** The Terminals' holds the running Container started with (SPI-1317); the defaults before one started. */
+  #terminalHolds(): TerminalHold {
+    return terminalHoldsOf(this.ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY));
   }
 
   /** The busy and prompt holds (SPI-1317): the stage's overrides win, else the launch's. */
   #terminalHold(): TerminalHold {
-    return terminalHoldOf(this.#terminalLimits(), {
+    return terminalHoldOf(this.#terminalHolds(), {
       busyHoldMs: this.env.T3FLARE_TERMINAL_IDLE_MS,
       promptHoldMs: this.env.T3FLARE_TERMINAL_PROMPT_IDLE_MS,
     });

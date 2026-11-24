@@ -14,7 +14,7 @@ import {
 } from "@t3flare/models/endpoints";
 import { copilotModelApi } from "@t3flare/models/known";
 import { credentialHeaderOf } from "@t3flare/models/relay";
-import { DEFAULT_OUTSIDE_REQUEST_SECONDS } from "@t3flare/harness-registry";
+import { OUTSIDE_REQUEST_SECONDS, outsideRequestTimedOut } from "@t3flare/harness-registry";
 
 export type Discovery =
   | { readonly ok: true; readonly models: ReadonlyArray<EndpointModelInput> }
@@ -197,14 +197,14 @@ const google = async (
 /**
  * The models `target` lists, sorted by id, read with `apiKey` (none for an endpoint without auth). `signIn`: the sign-in
  * whose list it is, when its vendor's list has its own shape (Copilot's). `timeoutMs` bounds the whole listing, every
- * page together: the Outside request time limit (`outsideRequestSeconds`, SPI-1366).
+ * page together: the Outside request time limit (`OUTSIDE_REQUEST_SECONDS`, SPI-1366, SPI-1387).
  */
 export const discoverModels = async (
   target: EndpointTarget,
   apiKey: string | undefined,
   fetcher: typeof fetch = fetch,
   signIn?: SignIn,
-  timeoutMs: number = DEFAULT_OUTSIDE_REQUEST_SECONDS * 1000,
+  timeoutMs: number = OUTSIDE_REQUEST_SECONDS * 1000,
 ): Promise<Discovery> => {
   const signal = AbortSignal.timeout(timeoutMs);
   try {
@@ -225,7 +225,7 @@ export const discoverModels = async (
       ok: false,
       error:
         name === "TimeoutError"
-          ? `the endpoint's model list did not answer in ${timeoutMs / 1000} s`
+          ? `the endpoint's model list ${outsideRequestTimedOut(timeoutMs)}`
           : "the endpoint's model list could not be reached",
     };
   }

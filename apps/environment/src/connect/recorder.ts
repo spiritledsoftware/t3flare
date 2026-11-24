@@ -1,11 +1,11 @@
 // The publish recorder (step 3+, plan section 4.4): t3's AgentAwarenessRelay calls T3 Connect through its own HTTP
 // client, so nothing of ours sees the relay's answer, but it logs each outcome. A Logger of ours keeps the latest of
-// those events (thread, phase, the relay's delivery counts, a failure's status; as many as `connectPublishLogKept`,
-// SPI-1366), mirrored to DO storage so they survive a reset, and each live thread's last published phase apart from them
+// those events (thread, phase, the relay's delivery counts, a failure's status; as many as `CONNECT_PUBLISH_LOG_KEPT`,
+// SPI-1366, SPI-1387), mirrored to DO storage so they survive a reset, and each live thread's last published phase apart from them
 // (for the republish after a boot, never cut by the log's length), and holds the idle reset while a publish is still pending (review finding 3): a publish in flight, a
 // completion inside t3's 5 s confirmation, or a failure t3 will retry. A refusal (401/403) is classified from the
 // failure's text, which is never kept (review finding 8). The messages it matches are t3's (fragility U28).
-import { DEFAULT_CONNECT_PUBLISH_LOG_KEPT } from "@t3flare/harness-registry";
+import { CONNECT_PUBLISH_LOG_KEPT } from "@t3flare/harness-registry";
 import * as Logger from "effect/Logger";
 
 import * as Idle from "../host/idle.ts";
@@ -62,8 +62,8 @@ const HOLD_MS: Partial<Record<PublishEvent, number>> = {
   failed: 30_000,
 };
 
-/** The log's length when no setting reaches (`connectPublishLogKept`' default, SPI-1366). */
-const KEEP = DEFAULT_CONNECT_PUBLISH_LOG_KEPT;
+/** The log's length where none is given (`CONNECT_PUBLISH_LOG_KEPT`, SPI-1366, SPI-1387). */
+const KEEP = CONNECT_PUBLISH_LOG_KEPT;
 const HOLD_PREFIX = "publish:";
 
 /** The phases of a thread that is live: one republished after a boot (`republishLastLive`). */
@@ -151,7 +151,7 @@ export interface PublishRecorder {
 
 export const makePublishRecorder = (
   store: PublishStore,
-  /** The log's length, read at each publish (`connectPublishLogKept`, SPI-1366). */
+  /** The log's length, read at each publish: `CONNECT_PUBLISH_LOG_KEPT` (a test passes its own). */
   keep: () => number = () => KEEP,
 ): PublishRecorder => {
   const stored = store.read();

@@ -195,11 +195,12 @@ describe("Environment settings in the panel", () => {
     expect(moved).toBe(0);
     await post(told, "environment", { settings: { graceDays: 3 } }, {});
     expect(moved).toBe(1);
-    await post(told, "environment", { settings: { graceDays: 3, sweepPurges: true } }, {});
+    await post(told, "environment", { settings: { graceDays: 3 } }, {});
     expect(moved).toBe(1);
-    await post(told, "environment", { settings: { sweepPurges: false } }, {});
+    // 0 is never (SPI-1387): purging off is a move of the Grace too.
+    await post(told, "environment", { settings: { graceDays: 0 } }, {});
     expect(moved).toBe(2);
-    expect((await post(told, "environment", { settings: { graceDays: 0 } }, {})).status).toBe(400);
+    expect((await post(told, "environment", { settings: { graceDays: -1 } }, {})).status).toBe(400);
     expect(moved).toBe(2);
   });
 

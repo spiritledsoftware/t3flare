@@ -11,7 +11,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { csrfToken } from "../src/harness/csrf.ts";
 import { SETTINGS_PAGE_PATH } from "../src/harness/paths.ts";
 import { CLIENTS_API_PATH, handleHarness } from "../src/harness/panel.ts";
-import { CLIENT_NAME_MAX, CLIENTS_PER_KEY, ownerClients, SEEN_EVERY_MS } from "../src/settings/clients.ts";
+import { CLIENTS_PER_KEY } from "@t3flare/harness-registry";
+
+import { CLIENT_NAME_MAX, ownerClients, SEEN_EVERY_MS } from "../src/settings/clients.ts";
 import { nodeSqlStorage } from "./nodeSqlStorage.ts";
 import { readAudit } from "../src/harness/ops.ts";
 import { MODERN_VERSION } from "../src/settings/endpoint.ts";

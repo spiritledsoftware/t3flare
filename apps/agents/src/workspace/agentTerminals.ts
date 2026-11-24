@@ -10,16 +10,11 @@
 // - termctrl's driver process is the xterm here; its `status`/`screen.capture`/`logs` are `view()`;
 // - the settle wait (`terminal-tools.ts` `settleTerminal`) runs here, in slices, so a wait is a few RPCs, not one per poll;
 // - entries are kept per owner (the Session that started them); ids `t<n>`/`b<n>` count per owner and are never reused;
-// - at most `maxLive` run at once in a Workspace (the Environment setting `agentTerminalsPerWorkspace`, SPI-1317:
-//   ADR-0021's 8 by default, not termctrl's 16); exited ones stay readable until stopped, as in termctrl, up to
+// - at most `maxLive` run at once in a Workspace (`AGENT_TERMINALS_PER_WORKSPACE`, SPI-1317, SPI-1387: ADR-0021's 8, not
+//   termctrl's 16); exited ones stay readable until stopped, as in termctrl, up to
 //   `MAX_KEPT` per owner: they keep their headless xterm outside the live count, bounded by `MAX_KEPT` alone;
 // - they end when the Container stops, as t3's terminals do, and when this object restarts (a deploy).
-import {
-  DEFAULT_TERMINAL_QUIET_MS,
-  DEFAULT_TERMINAL_STOP_GRACE_SECONDS,
-  ENVIRONMENT_SETTINGS,
-  MAX_AGENT_TERMINALS_PER_WORKSPACE,
-} from "@t3flare/harness-registry";
+import { DEFAULT_TERMINAL_QUIET_MS, STOP_GRACE_SECONDS } from "@t3flare/harness-registry";
 import type { KillAnswer } from "@t3flare/sandbox-image/kill";
 import { Terminal } from "@xterm/headless/lib-headless/xterm-headless.mjs";
 import type {
@@ -40,12 +35,19 @@ import { DEFAULT_TOOL_OUTPUT_LIMITS, jobTailOf } from "../extensions/toolOutput.
 
 /**
  * Entries (running or exited) one owner keeps; the oldest exited one is forgotten past it. A named constraint (ADR-0048
- * §1): the Workspace DO's memory, each entry's headless xterm in its 128 MB isolate. It equals
- * `MAX_AGENT_TERMINALS_PER_WORKSPACE`, so an owner running every live entry the setting allows still keeps them all. It
- * bounds each Session's exited Terminals only, counted against no setting: the Workspace-wide total grows with the
- * Sessions the Workspace serves until this object restarts, pending SPI-978's measurement of the DO's memory.
+ * §1): the Workspace DO's memory, each entry's headless xterm in its 128 MB isolate. 32, the most the agents' Terminals
+ * per Workspace could be set to before SPI-1387, and at least `AGENT_TERMINALS_PER_WORKSPACE`, so an owner running every
+ * live entry still keeps them all. It bounds each Session's exited Terminals only: the Workspace-wide total grows with
+ * the Sessions the Workspace serves until this object restarts, pending SPI-978's measurement of the DO's memory.
  */
-export const MAX_KEPT = MAX_AGENT_TERMINALS_PER_WORKSPACE;
+export const MAX_KEPT = 32;
+
+/**
+ * Why an agent's Terminal or Background job is refused at the Workspace's cap (SPI-1387, ADR-0049 §4): the limit and its
+ * value, a memory-safety bound for the Workspace DO's 128 MB isolate (`AGENT_TERMINALS_PER_WORKSPACE`).
+ */
+export const agentTerminalsFull = (live: number, max: number): string =>
+  `This Workspace already runs ${live} Terminals and Background jobs, and agents may run at most ${max} at once (a fixed limit: each keeps its screen in the Workspace's memory); stop one first.`;
 /** termctrl's settle poll (`terminal-tools.ts`). The quiet that settles a wait is the request's (`termctrl.quietMs`). */
 const POLL_MS = 50;
 /**
@@ -114,13 +116,13 @@ export interface AgentTerminalsDeps {
   /** The Workspace's repo in the Container. */
   readonly repo: string;
   /**
-   * Running Terminals and Background jobs in one Workspace, across its Sessions: the running Container's launch's
-   * `agentTerminalsPerWorkspace` (SPI-1317, ADR-0021's terminal cap), read at each start.
+   * Running Terminals and Background jobs in one Workspace, across its Sessions: `AGENT_TERMINALS_PER_WORKSPACE`
+   * (SPI-1317, ADR-0021's terminal cap; SPI-1387), read at each start.
    */
   readonly maxLive: () => number;
   /**
-   * Lines of scrollback each new Terminal or Background job keeps: the running Container's launch's
-   * `agentTerminalScrollbackLines` (SPI-1362), read at each start. Lines past it are dropped, and the agent is told.
+   * Lines of scrollback each new Terminal or Background job keeps: `AGENT_TERMINAL_SCROLLBACK_LINES` (SPI-1362,
+   * SPI-1387), read at each start. Lines past it are dropped, and the agent is told.
    */
   readonly scrollback: () => number;
 }
@@ -248,11 +250,7 @@ export class AgentTerminals {
       case "stop": {
         const entry = this.#entry(request.owner, request.id);
         return this.#queued(entry, () =>
-          this.#stop(
-            entry,
-            request.tail ?? DEFAULT_JOB_TAIL,
-            request.graceMs ?? DEFAULT_TERMINAL_STOP_GRACE_SECONDS * 1000,
-          ),
+          this.#stop(entry, request.tail ?? DEFAULT_JOB_TAIL, request.graceMs ?? STOP_GRACE_SECONDS * 1000),
         );
       }
       case "list":
@@ -315,7 +313,7 @@ export class AgentTerminals {
     if (live >= max) {
       const mine = this.#owned(request.owner).filter((entry) => entry.exit === null);
       throw new Error(
-        `This Workspace already runs ${live} Terminals and Background jobs, and its Environment setting "${ENVIRONMENT_SETTINGS.agentTerminalsPerWorkspace.title}" (agentTerminalsPerWorkspace) allows ${max}; stop one first, or ask the Owner to raise the setting.${mine.length === 0 ? "" : ` Yours: ${mine.map((entry) => `${entry.id} (${entry.command})`).join(", ")}.`}`,
+        `${agentTerminalsFull(live, max)}${mine.length === 0 ? "" : ` Yours: ${mine.map((entry) => `${entry.id} (${entry.command})`).join(", ")}.`}`,
       );
     }
     const prefix = request.kind === "terminal" ? "t" : "b";

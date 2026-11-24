@@ -8,11 +8,11 @@
 // Each Update's workflow names its run `<kind> <update id>`; the run is the workflow's `workflow_dispatch` run created
 // since the dispatch whose title (`display_title`, the run's `run-name`) is that name.
 
-import { DEFAULT_OUTSIDE_REQUEST_SECONDS } from "@t3flare/harness-registry";
+import { isTimeout, OUTSIDE_REQUEST_SECONDS, outsideRequestTimedOut } from "@t3flare/harness-registry";
 
 const API = "https://api.github.com";
-/** How long one request to GitHub may take where no setting reaches: the Outside request time limit's default. */
-const REQUEST_TIMEOUT_MS = DEFAULT_OUTSIDE_REQUEST_SECONDS * 1000;
+/** How long one request to GitHub may take where the caller gives no bound: `OUTSIDE_REQUEST_SECONDS`. */
+const REQUEST_TIMEOUT_MS = OUTSIDE_REQUEST_SECONDS * 1000;
 
 export type ActionsFetch = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -75,25 +75,33 @@ export const actionsClient = (input: {
   readonly repo: UpdateRepo;
   readonly token: () => Promise<string>;
   readonly fetch: ActionsFetch;
-  /** Each request's bound (`outsideRequestSeconds`), read at each request. */
+  /** Each request's bound (`OUTSIDE_REQUEST_MS`); `REQUEST_TIMEOUT_MS`, the same, when absent. */
   readonly timeoutMs?: () => number;
 }): ActionsClient => {
   const repoPath = `/repos/${encodeURIComponent(input.repo.owner)}/${encodeURIComponent(input.repo.name)}`;
 
   const request = async (method: string, pathname: string, body?: unknown): Promise<Response> => {
     const token = await input.token();
-    const response = await input.fetch(`${API}${repoPath}${pathname}`, {
-      method,
-      headers: {
-        authorization: `Bearer ${token}`,
-        accept: "application/vnd.github+json",
-        "x-github-api-version": "2022-11-28",
-        "user-agent": "t3flare",
-        ...(body === undefined ? {} : { "content-type": "application/json" }),
-      },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      signal: AbortSignal.timeout(input.timeoutMs?.() ?? REQUEST_TIMEOUT_MS),
-    });
+    const limitMs = input.timeoutMs?.() ?? REQUEST_TIMEOUT_MS;
+    const response = await input
+      .fetch(`${API}${repoPath}${pathname}`, {
+        method,
+        headers: {
+          authorization: `Bearer ${token}`,
+          accept: "application/vnd.github+json",
+          "x-github-api-version": "2022-11-28",
+          "user-agent": "t3flare",
+          ...(body === undefined ? {} : { "content-type": "application/json" }),
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        signal: AbortSignal.timeout(limitMs),
+      })
+      .catch((error: unknown) => {
+        // The request's own time limit names itself and its value (SPI-1387, ADR-0049 §4).
+        if (isTimeout(error))
+          throw new ActionsError(`GitHub ${outsideRequestTimedOut(limitMs)} (${method} ${pathname.split("?")[0]})`);
+        throw error;
+      });
     if (!response.ok) {
       const text = await response.text().catch(() => "");
       const message = (() => {

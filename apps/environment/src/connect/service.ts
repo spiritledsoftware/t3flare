@@ -10,7 +10,7 @@
 //   t3's mint and health answers and its relay delivery proofs verify nothing;
 // - on prod the account token is discarded after the link (owner decision D2; review finding 5): the relay accepts it
 //   for the whole client group, so only the publish credential stays.
-import { DEFAULT_OUTSIDE_REQUEST_SECONDS } from "@t3flare/harness-registry";
+import { OUTSIDE_REQUEST_SECONDS } from "@t3flare/harness-registry";
 import * as ServerSecretStore from "t3/src/auth/ServerSecretStore.ts";
 import { readCliDesiredCloudLink, readCliDesiredLinkMode, setCliDesiredCloudLink } from "t3/src/cloud/CliState.ts";
 import * as CliTokenManager from "t3/src/cloud/CliTokenManager.ts";
@@ -63,8 +63,8 @@ export interface ConnectPolicy {
   /** Keep the T3 Connect account token after the link (stages); prod discards it (D2). */
   readonly keepAccountToken: boolean;
   /**
-   * How long one request to T3 Connect may wait, in ms, read at each (the Outside request time limit,
-   * `outsideRequestSeconds`, SPI-1366): the sign-in's device code and the relay's unlink. Absent: its default.
+   * How long one request to T3 Connect may wait, in ms, read at each (the outside request time limit,
+   * `OUTSIDE_REQUEST_MS`, SPI-1366, SPI-1387): the sign-in's device code and the relay's unlink. Absent: the same.
    */
   readonly requestMs?: () => number;
 }
@@ -154,7 +154,7 @@ export class Connect extends Context.Service<
 
 export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
   Effect.gen(function* () {
-    const requestMs = policy.requestMs ?? (() => DEFAULT_OUTSIDE_REQUEST_SECONDS * 1000);
+    const requestMs = policy.requestMs ?? (() => OUTSIDE_REQUEST_SECONDS * 1000);
     const cloudLink = yield* CloudLink.CloudLink;
     const tokens = yield* CliTokenManager.CloudCliTokenManager;
     const secrets = yield* ServerSecretStore.ServerSecretStore;

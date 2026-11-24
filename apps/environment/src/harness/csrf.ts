@@ -1,8 +1,8 @@
 // @effect-diagnostics globalDate:off
 // The Settings page's CSRF token (ADR-0026, plan §6.4 with the review's LOW item): an HMAC, under a key only the
 // Environment DO holds, of the owner's Access subject and the hour. Bound to the owner's Access session, useless to
-// another origin (which cannot read the page to learn it), and accepted for the current hour and the `pageTokenHours`
-// before it (an Environment setting, SPI-1366; one by default). The page asks for a new token when its own runs out.
+// another origin (which cannot read the page to learn it), and accepted for the current hour and the `PAGE_TOKEN_HOURS`
+// before it (one, SPI-1366, SPI-1387). The page asks for a new token when its own runs out.
 import { timingSafeEqual } from "../access.ts";
 import { base64Url } from "./keys.ts";
 

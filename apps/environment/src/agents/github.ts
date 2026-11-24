@@ -12,8 +12,8 @@ export interface GitHubAppSecrets {
 }
 
 /**
- * The Environment settings the minters read at each use (SPI-1366): one request's time limit (`outsideRequestSeconds`)
- * and the first wait after a failure GitHub named no time for (`githubRetrySeconds`). Absent: the App's own defaults.
+ * The waits the minters use (SPI-1366, SPI-1387): one request's time limit (`OUTSIDE_REQUEST_SECONDS`) and the first
+ * wait after a failure GitHub named no time for (`GITHUB_RETRY_SECONDS`). Absent: the App's own, the same values.
  */
 export interface GitHubWaits {
   readonly requestTimeoutMs?: (() => number) | undefined;

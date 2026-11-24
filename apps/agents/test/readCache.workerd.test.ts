@@ -36,7 +36,7 @@ describe("readCache.put", () => {
 });
 
 describe("a prime into the read cache (SPI-1360)", () => {
-  it("keeps its fixed reads and local branches, and leaves t3's own reads half the cache, past gitReadsKept refs", async () => {
+  it("keeps its fixed reads and local branches, and leaves t3's own reads half the cache, past GIT_READS_KEPT refs", async () => {
     const kept = 20;
     const refs = [
       "refs/heads/main",

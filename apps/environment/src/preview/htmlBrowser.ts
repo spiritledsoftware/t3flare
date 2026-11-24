@@ -11,7 +11,7 @@
 //   rewrites `http://t3-page.localhost` to `https://t3-page.t3flare.internal` in what t3 sends and back in what it reads.
 //   The page is still fulfilled by t3 through `Fetch.fulfillRequest`, never fetched; https keeps it a secure context.
 // - **One shared browser**: renders connect to one Browser Run session, which Browser Run closes itself once no render
-//   has been connected for its `keep_alive`, the `htmlBrowserKeepAliveSeconds` setting (SPI-1366: no close of our own
+//   has been connected for its `keep_alive`, `HTML_BROWSER_KEEP_ALIVE_SECONDS` (SPI-1366, SPI-1387: no close of our own
 //   timed beside it). A render's `Browser.close` is answered here and closes only the contexts that render made.
 // - `--version` (stock's missing-library check) is answered without a browser.
 import type * as Cause from "effect/Cause";
@@ -24,7 +24,7 @@ import * as Stream from "effect/Stream";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import type * as ChildProcess from "effect/process/ChildProcess";
 
-import { DEFAULT_HTML_BROWSER_KEEP_ALIVE_SECONDS } from "@t3flare/harness-registry";
+import { HTML_BROWSER_KEEP_ALIVE_SECONDS } from "@t3flare/harness-registry";
 
 import type { BrowserRunBinding } from "./browserRun.ts";
 import type { CdpWebSocket } from "./cdpSocket.ts";
@@ -38,8 +38,8 @@ export const HTML_BROWSER_EXECUTABLE = "/opt/t3flare/browser-run/chrome-headless
 export const STOCK_PAGE_ORIGIN = "http://t3-page.localhost";
 export const BRIDGED_PAGE_ORIGIN = "https://t3-page.t3flare.internal";
 
-/** How long the shared browser stays after its last render when no setting reaches: the setting's default. */
-export const HTML_BROWSER_IDLE_MS = DEFAULT_HTML_BROWSER_KEEP_ALIVE_SECONDS * 1000;
+/** How long the shared browser stays after its last render: its Browser Run `keep_alive`, `HTML_BROWSER_KEEP_ALIVE_SECONDS`. */
+export const HTML_BROWSER_KEEP_ALIVE_MS = HTML_BROWSER_KEEP_ALIVE_SECONDS * 1000;
 
 export const toBrowser = (message: string): string => message.replaceAll(STOCK_PAGE_ORIGIN, BRIDGED_PAGE_ORIGIN);
 export const fromBrowser = (message: string): string => message.replaceAll(BRIDGED_PAGE_ORIGIN, STOCK_PAGE_ORIGIN);
@@ -48,8 +48,8 @@ export interface HtmlBrowserDeps {
   readonly binding: () => BrowserRunBinding | undefined;
   readonly store: () => PreviewStore;
   /**
-   * The shared browser's Browser Run `keep_alive`, in ms, read as each browser is opened (`htmlBrowserKeepAliveSeconds`,
-   * SPI-1366). Absent: `HTML_BROWSER_IDLE_MS`.
+   * The shared browser's Browser Run `keep_alive`, in ms, read as each browser is opened. Absent:
+   * `HTML_BROWSER_KEEP_ALIVE_MS` (a test passes its own).
    */
   readonly keepAliveMs?: () => number;
 }
@@ -107,7 +107,7 @@ class SharedHtmlBrowser {
     try {
       // Browser Run ends the session once no render has been connected for this long (its `keep_alive`).
       const { sessionId, socket } = await openCdpSocket(binding, {
-        keepAliveMs: deps.keepAliveMs?.() ?? HTML_BROWSER_IDLE_MS,
+        keepAliveMs: deps.keepAliveMs?.() ?? HTML_BROWSER_KEEP_ALIVE_MS,
       });
       deps.store().sessionOpened({ id: sessionId, kind: "html", workspace: null, openedAt: Date.now() });
       this.#firstSocket = socket;

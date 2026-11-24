@@ -333,11 +333,8 @@ describe("harness page", () => {
       "Every tool is hidden, so the extension is off: its Advanced settings show once a tool is offered.",
     );
     expect(terminals(resolveHarness(EMPTY_HARNESS))).not.toContain("Every tool is hidden");
-    // SPI-1317: the count is the Environment setting's, not a fixed 8.
-    expect(terminals(resolveHarness(EMPTY_HARNESS))).not.toContain("At most 8");
-    expect(terminals(resolveHarness(EMPTY_HARNESS))).toContain(
-      "At most the Environment setting Agents&#39; Terminals per Workspace (8 by default) run at once in a Workspace",
-    );
+    // SPI-1387: the count is a fixed one, named with its value.
+    expect(terminals(resolveHarness(EMPTY_HARNESS))).toContain("At most 8 run at once in a Workspace");
   });
 
   it("draws t3's tools on the always-on t3-code card: t3's hints as defaults, waits never codemode, denied tools named", () => {
@@ -735,12 +732,7 @@ describe("the Environment section's dotfiles", () => {
     const start = section.indexOf('<h3 id="environment-agents-title">Agents</h3>');
     expect(start).toBeGreaterThan(-1);
     const settings = inputsOf(rowOf(section, "agents"));
-    expect(settings).toEqual([
-      "turnLimitMinutes",
-      "ownerAnswerMinutes",
-      "cliProcessesPerWorkspace",
-      "cliReclaimSeconds",
-    ]);
+    expect(settings).toEqual(["turnLimitMinutes", "ownerAnswerMinutes"]);
     const containers = rowOf(section, "containers");
     for (const key of settings) expect(containers).not.toContain(`data-setting="${key}"`);
     const group = tagsOf(section).find(
@@ -749,109 +741,60 @@ describe("the Environment section's dotfiles", () => {
     expect(group?.attrs["aria-describedby"]).toBe("environment-advanced-agents-desc");
   });
 
-  it("draws the housekeeping settings in Sleep and wake, Previews and access rows of their own, after Outside requests (SPI-1366)", () => {
+  it("draws the remaining rows in order, each with only its settings, and no row for what became a constant (SPI-1387)", () => {
     const section = sectionOf(renderPage(fixturePage()));
-    const titled = (id: string) => rowAt(section, id);
-    const order = ["outside-requests", "lifecycle", "previews", "access", "history"].map(titled);
+    const order = [
+      "agents",
+      "mcp-calls",
+      "mcp-servers",
+      "text-generation",
+      "lifecycle",
+      "commands",
+      "previews",
+      "skills",
+      "history",
+      "dotfiles",
+    ].map((id) => rowAt(section, id));
     expect(order.every((at) => at > -1)).toBe(true);
     expect(order).toEqual(order.toSorted((a, b) => a - b));
     const settingsOf = (id: string) => inputsOf(rowOf(section, id));
-    expect(settingsOf("outside-requests")).toEqual([
-      "outsideRequestSeconds",
-      "githubRetrySeconds",
-      "textGenerationSeconds",
-    ]);
-    expect(settingsOf("lifecycle")).toEqual([
-      "idleAfterSeconds",
-      "prWatchWakeMinutes",
-      "remoteRetryMinutes",
-      "safeModeAfterFailures",
-    ]);
-    // SPI-1364's Container preview ports and port check come first in the same row.
-    expect(settingsOf("previews")).toEqual([
-      "previewPorts",
-      "portProbeMs",
-      "browserProfileSaveSeconds",
-      "htmlBrowserKeepAliveSeconds",
-    ]);
-    expect(settingsOf("access")).toEqual(["pageTokenHours", "clientsPerKey", "connectPublishLogKept"]);
+    expect(settingsOf("mcp-calls")).toEqual(["mcpCallSeconds"]);
+    expect(settingsOf("mcp-servers")).toEqual(["mcpConnectSeconds", "mcpListSeconds"]);
+    expect(settingsOf("text-generation")).toEqual(["textGenerationSeconds"]);
+    expect(settingsOf("lifecycle")).toEqual(["idleAfterSeconds", "prWatchWakeMinutes"]);
+    expect(settingsOf("commands")).toEqual(["commandMinutes", "containerConnectSeconds"]);
+    expect(settingsOf("previews")).toEqual(["previewPorts"]);
+    expect(settingsOf("skills")).toEqual(["repoSkillsListed"]);
+    expect(settingsOf("history")).toEqual(["usageRetentionDays", "piSessionRetentionDays"]);
+    for (const gone of ["retries", "terminals", "access", "trace", "outside-requests"])
+      expect(rowAt(section, gone)).toBe(-1);
+    // No field of a setting that became a constant, anywhere on the page.
+    const page = renderPage(fixturePage());
+    for (const key of ["terminalsPerWorkspace", "cliRetries", "mcpResultKiB", "sweepPurges", "builderSize", "traceKiB"])
+      expect(page).not.toContain(`data-setting="${key}"`);
   });
 
-  it("draws the retries in a Retries row after Agents, and t3's trace in a row of its own after access (SPI-1367)", () => {
-    const section = sectionOf(renderPage(fixturePage()));
-    const titled = (id: string) => rowAt(section, id);
-    const order = ["agents", "retries", "mcp-calls", "access", "trace", "history"].map(titled);
-    expect(order.every((at) => at > -1)).toBe(true);
-    expect(order).toEqual(order.toSorted((a, b) => a - b));
-    const settingsOf = (id: string) => inputsOf(rowOf(section, id));
-    expect(settingsOf("retries")).toEqual(["durableRetries", "cliRetries", "killAttempts"]);
-    expect(settingsOf("trace")).toEqual(["traceKiB", "traceFiles"]);
-  });
-
-  it("draws the MCP calls' time limit and result size in an MCP calls row between the Agents and History rows (SPI-1359)", () => {
+  it("draws the MCP calls' and servers' time limits once each, with their bounds (SPI-1359, SPI-1363)", () => {
     const page = renderPage(fixturePage());
     const section = sectionOf(page);
-    const agents = rowAt(section, "agents");
-    const start = rowAt(section, "mcp-calls");
-    const history = rowAt(section, "history");
-    expect(agents).toBeGreaterThan(-1);
-    expect(start).toBeGreaterThan(agents);
-    expect(history).toBeGreaterThan(start);
-    const row = rowOf(section, "mcp-calls");
-    const inputs = tagsOf(row).filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined);
-    // SPI-1366: the pauses answered, the CLI's MCP start wait and the sign-in time join them.
-    expect(inputs.map((tag) => tag.attrs["data-setting"])).toEqual([
-      "mcpCallSeconds",
-      "mcpResultKiB",
-      "mcpPausesPerCall",
-      "cliMcpStartSeconds",
-      "mcpSignInMinutes",
-    ]);
-    expect(inputs.map((tag) => tag.attrs)).toMatchObject([
+    const inputs = (id: string) =>
+      tagsOf(rowOf(section, id))
+        .filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined)
+        .map((tag) => tag.attrs);
+    // SPI-1386: the call time limit is off by default, an empty field.
+    expect(inputs("mcp-calls")).toMatchObject([
       { type: "number", min: "0", max: "604800", value: "", placeholder: "off" },
-      { type: "number", min: "1", max: "8192", value: "1024" },
-      { type: "number", min: "1", max: "10000", value: "16" },
-      { type: "number", min: "1", max: "604800", value: "20" },
-      { type: "number", min: "1", max: "10080", value: "10" },
     ]);
-    for (const key of ["mcpCallSeconds", "mcpResultKiB"]) expect(page.split(`data-setting="${key}"`)).toHaveLength(2);
+    expect(inputs("mcp-servers")).toMatchObject([
+      { type: "number", min: "1", max: "604800", value: "30" },
+      { type: "number", min: "1", max: "604800", value: "120" },
+    ]);
+    for (const key of ["mcpCallSeconds", "mcpConnectSeconds", "mcpListSeconds"])
+      expect(page.split(`data-setting="${key}"`)).toHaveLength(2);
     const group = tagsOf(section).find(
       (tag) => tag.attrs.role === "group" && tag.attrs["aria-labelledby"] === "environment-advanced-mcp-calls-title",
     );
     expect(group?.attrs["aria-describedby"]).toBe("environment-advanced-mcp-calls-desc");
-  });
-
-  it("draws the MCP servers' connect and listing time limits and logs kept in an MCP servers row after the MCP calls row (SPI-1363)", () => {
-    const page = renderPage(fixturePage());
-    const section = sectionOf(page);
-    const calls = rowAt(section, "mcp-calls");
-    const start = rowAt(section, "mcp-servers");
-    expect(calls).toBeGreaterThan(-1);
-    expect(start).toBeGreaterThan(calls);
-    const row = rowOf(section, "mcp-servers");
-    const inputs = tagsOf(row).filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined);
-    expect(inputs.map((tag) => tag.attrs["data-setting"])).toEqual([
-      "mcpConnectSeconds",
-      "mcpListSeconds",
-      "mcpLogEntries",
-      "mcpProgressPerSecond",
-      "mcpLegacyRecheckHours",
-    ]);
-    expect(inputs.map((tag) => tag.attrs)).toMatchObject([
-      { type: "number", min: "1", max: "604800", value: "30" },
-      { type: "number", min: "1", max: "604800", value: "120" },
-      { type: "number", min: "1", max: "200", value: "50" },
-      { type: "number", min: "1", max: "1000", value: "10" },
-      { type: "number", min: "0", max: "168", value: "24" },
-    ]);
-    for (const key of [
-      "mcpConnectSeconds",
-      "mcpListSeconds",
-      "mcpLogEntries",
-      "mcpProgressPerSecond",
-      "mcpLegacyRecheckHours",
-    ])
-      expect(page.split(`data-setting="${key}"`)).toHaveLength(2);
   });
 
   it("draws how long history is kept in a History row after the Agents row, outside the Containers row and the Workspaces section (SPI-1323)", () => {
@@ -863,20 +806,10 @@ describe("the Environment section's dotfiles", () => {
     expect(agents).toBeGreaterThan(-1);
     const row = rowOf(section, "history");
     const inputs = tagsOf(row).filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined);
-    expect(inputs.map((tag) => tag.attrs["data-setting"])).toEqual([
-      "usageRetentionDays",
-      "piSessionRetentionDays",
-      "tempFilesHours",
-      "gitReadsKept",
-      "routerTraceEntries",
-    ]);
     expect(inputs.map((tag) => tag.attrs)).toMatchObject([
       // Each its own off word (SPI-1386): "off" would read as not kept.
       { type: "number", min: "0", max: "3650", value: "", placeholder: "for good" },
       { type: "number", min: "0", max: "3650", value: "", placeholder: "each agent&#39;s own" },
-      { type: "number", min: "1", max: "87600", value: "24" },
-      { type: "number", min: "1", max: "100000", value: "500" },
-      { type: "number", min: "1", max: "10000", value: "300" },
     ]);
     // Once on the page: never in the Containers row, nor in the Workspaces section beside the Grace.
     for (const key of ["usageRetentionDays", "piSessionRetentionDays"])
@@ -887,32 +820,8 @@ describe("the Environment section's dotfiles", () => {
     expect(group?.attrs["aria-describedby"]).toBe("environment-advanced-history-desc");
   });
 
-  it("draws the commands', Terminals' and previews' limits in rows of their own after the Agents row, each once (SPI-1364)", () => {
-    const page = renderPage(fixturePage());
-    const section = sectionOf(page);
-    const rowKeys = (id: string) => {
-      expect(rowAt(section, id), id).toBeGreaterThan(rowAt(section, "agents"));
-      return inputsOf(rowOf(section, id));
-    };
-    expect(rowKeys("commands")).toEqual([
-      "commandMinutes",
-      "containerConnectSeconds",
-      "reclaimProtectionSeconds",
-      "skillsWaitSeconds",
-      "abortGraceSeconds",
-      "portStopGraceSeconds",
-    ]);
-    expect(rowKeys("terminals")).toEqual(["firstPromptSeconds", "terminalHistoryKiB", "exitedTerminalsKept"]);
-    // One Previews row with SPI-1366's preview browser cadences, after these.
-    expect(rowKeys("previews")).toEqual([
-      "previewPorts",
-      "portProbeMs",
-      "browserProfileSaveSeconds",
-      "htmlBrowserKeepAliveSeconds",
-    ]);
-    for (const key of ["commandMinutes", "previewPorts", "terminalHistoryKiB"])
-      expect(page.split(`data-setting="${key}"`)).toHaveLength(2);
-    // The ports are typed as text, the stored list shown comma-separated; the API reads them.
+  it("draws the preview ports as text, the stored list comma-separated (SPI-1364)", () => {
+    const section = sectionOf(renderPage(fixturePage()));
     const ports = tagsOf(section).find((tag) => tag.attrs["data-setting"] === "previewPorts");
     expect(ports?.attrs).toMatchObject({
       type: "text",
@@ -937,14 +846,6 @@ describe("the Environment section's dotfiles", () => {
     expect(empty(30)).toContain("waits here, and on its card, for 30 minutes.");
   });
 
-  it("draws the settings read wait in the Containers row, which says what it bounds (SPI-1314)", () => {
-    const section = sectionOf(renderPage(fixturePage()));
-    const containers = rowOf(section, "containers");
-    expect(containers).toContain("how long a start or a turn waits for the newest settings");
-    const input = tagsOf(containers).find((tag) => tag.attrs["data-setting"] === "settingsReadSeconds");
-    expect(input?.attrs).toMatchObject({ type: "number", min: "1", value: "5" });
-  });
-
   it("draws the clone and checkpoint time limits last in the Containers row, which says what they bound (SPI-1324)", () => {
     const section = sectionOf(renderPage(fixturePage()));
     const containers = rowOf(section, "containers");
@@ -952,7 +853,7 @@ describe("the Environment section's dotfiles", () => {
     const settings = tagsOf(containers)
       .map((tag) => tag.attrs["data-setting"])
       .filter((key) => key !== undefined);
-    expect(settings.slice(-3)).toEqual(["settingsReadSeconds", "cloneMinutes", "checkpointMinutes"]);
+    expect(settings.slice(-2)).toEqual(["cloneMinutes", "checkpointMinutes"]);
     const input = (key: string) => tagsOf(containers).find((tag) => tag.attrs["data-setting"] === key)?.attrs;
     // Off by default (SPI-1386): empty, "off" its placeholder, and not required.
     expect(input("cloneMinutes")).toMatchObject({
@@ -972,37 +873,22 @@ describe("the Environment section's dotfiles", () => {
     expect(input("cloneMinutes")?.required).toBeUndefined();
   });
 
-  it("draws the Terminals' holds and counts in the Containers row under Advanced, holds first, counts after them (SPI-1317)", () => {
+  it("draws the Terminals' holds in the Containers row under Advanced, after the idle time and the budget (SPI-1317)", () => {
     const section = sectionOf(renderPage(fixturePage()));
     const containers = rowOf(section, "containers");
     expect(containers).toContain("how long open Terminals keep it running");
-    expect(containers).toContain("how many Terminals a Workspace may have");
     const settings = tagsOf(containers)
       .map((tag) => tag.attrs["data-setting"])
       .filter((key) => key !== undefined);
-    // The idle time and the budget on the page; under Advanced the holds first, then the counts (ADR-0049 §6).
+    // The idle time and the budget on the page; under Advanced the holds first (ADR-0049 §6).
     const advanced = settings.slice(settings.indexOf("containerBudget") + 1);
     expect(
       settings.slice(settings.indexOf("containerIdleMinutes"), settings.indexOf("containerIdleMinutes") + 2),
     ).toEqual(["containerIdleMinutes", "containerBudget"]);
     expect(advanced.slice(0, 2)).toEqual(["terminalBusyHoldMinutes", "terminalPromptHoldMinutes"]);
-    expect(advanced.slice(2, 5)).toEqual([
-      "terminalsPerWorkspace",
-      "agentTerminalsPerWorkspace",
-      // SPI-1362: beside the count it trades against in the Workspace's memory.
-      "agentTerminalScrollbackLines",
-    ]);
     const input = (key: string) => tagsOf(containers).find((tag) => tag.attrs["data-setting"] === key)?.attrs;
     expect(input("terminalBusyHoldMinutes")).toMatchObject({ type: "number", min: "1", value: "30" });
     expect(input("terminalPromptHoldMinutes")).toMatchObject({ type: "number", min: "1", value: "10" });
-    expect(input("terminalsPerWorkspace")).toMatchObject({ type: "number", min: "1", max: "1000", value: "8" });
-    expect(input("agentTerminalsPerWorkspace")).toMatchObject({ type: "number", min: "1", max: "32", value: "8" });
-    expect(input("agentTerminalScrollbackLines")).toMatchObject({
-      type: "number",
-      min: "0",
-      max: "10000",
-      value: "1000",
-    });
   });
 
   it("draws a toggle the Owner turned off unchecked", () => {
@@ -1065,15 +951,20 @@ describe("the Workspaces section", () => {
     expect(environment).not.toContain('data-setting="graceDays"');
     expect(section).not.toContain("T3FLARE_SWEEP_GRACE_MS");
     const never = sectionOf(
-      renderPage(fixturePage({ workspaces: { ...FIXTURE_WORKSPACES, purging: false, graceDays: 30 } })),
+      renderPage(fixturePage({ workspaces: { ...FIXTURE_WORKSPACES, purging: false, graceDays: 0 } })),
     );
     expect(
       tagsOf(never)
         .filter((tag) => tag.attrs.type === "radio")
         .map((tag) => tag.attrs.checked !== undefined),
     ).toEqual([false, true]);
-    expect(never).toContain('value="30"');
-    expect(never).toContain("Never purge: the Sweep marks what nothing references and purges nothing.");
+    // A Grace of 0 is never (SPI-1387): the days offer the default should the Owner choose to purge again.
+    expect(never).toContain(
+      'id="grace-days-n" data-grace-days aria-label="Grace in days" required min="1" max="3650" step="1" value="7"',
+    );
+    expect(never).toContain(
+      "Never purge: the Sweep marks what nothing references and purges nothing. Purge after offers 7 days, the default.",
+    );
   });
 
   it("says when a Stage's T3FLARE_SWEEP_GRACE_MS overrides the days (ADR-0043 §3)", () => {
@@ -1374,7 +1265,7 @@ describe("the page's disclosure", () => {
     expect(wrap?.attrs.hidden).toBeDefined();
     const [custom] = fieldOf(empty, "customVcpu");
     expect(custom?.attrs).toMatchObject({
-      "data-shown-when": "containerSize builderSize",
+      "data-shown-when": "containerSize",
       "data-shown-equals": "custom",
     });
     const set = section(
@@ -1407,13 +1298,13 @@ describe("the page's disclosure", () => {
       start,
       SCRIPT.indexOf('for (const form of document.querySelectorAll("form[data-environment]"))'),
     );
-    const values: Record<string, string> = { containerSetup: "", containerSize: "cpu-1", builderSize: "cpu-1" };
+    const values: Record<string, string> = { containerSetup: "", containerSize: "cpu-1" };
     const field = (dataset: Record<string, string>, filled: boolean) => {
       const input = { disabled: true };
       return { input, wrap: { dataset, hidden: true, hasAttribute: () => filled, querySelectorAll: () => [input] } };
     };
     const setup = field({ shownWhen: "containerSetup" }, true);
-    const custom = field({ shownWhen: "containerSize builderSize", shownEquals: "custom" }, false);
+    const custom = field({ shownWhen: "containerSize", shownEquals: "custom" }, false);
     const form = {
       querySelector: (selector: string) => ({ value: values[/data-setting="(\w+)"/.exec(selector)![1]!] }),
       querySelectorAll: () => [setup.wrap, custom.wrap],
@@ -1423,7 +1314,7 @@ describe("the page's disclosure", () => {
     context.showContextual!(form);
     expect([setup.wrap.hidden, setup.input.disabled, custom.wrap.hidden]).toEqual([true, true, true]);
     values.containerSetup = "apt-get install -y jq";
-    values.builderSize = "custom";
+    values.containerSize = "custom";
     context.showContextual!(form);
     expect([setup.wrap.hidden, setup.input.disabled, custom.wrap.hidden, custom.input.disabled]).toEqual([
       false,

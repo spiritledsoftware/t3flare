@@ -10,16 +10,17 @@ import {
   MAX_TIMED_MINUTES,
   type ResolvedEnvironment,
   resolveEnvironment,
+  SETTINGS_READ_MS,
+  SETUP_OUTPUT_KIB,
 } from "@t3flare/harness-registry";
 
 import {
   launchOf,
-  readMsOf,
   SECRET_SHOWN,
   secretValuesOf,
   shownLaunch,
   takeEnvironment,
-  terminalLimitsOf,
+  terminalHoldsOf,
   withContainerSteps,
 } from "../src/workspace/containerLaunch.ts";
 import { type GlobalMiseLaunch, installMinutesOf } from "../src/workspace/globalMise.ts";
@@ -127,17 +128,15 @@ describe("a start's settings read wait (SPI-1314)", () => {
       read: never,
       kept: store.kept,
       keep: store.keep,
-      waitMs: readMsOf(
-        resolveEnvironment(kept === undefined ? EMPTY_ENVIRONMENT : { revision: kept.revision, settings: kept }),
-      ),
+      waitMs: SETTINGS_READ_MS,
     }).then((answer) => (taken = answer));
     return { taken: () => taken };
   };
 
-  it("gives up on a silent Environment after the kept copy's wait", async () => {
-    const copy: ResolvedEnvironment = { ...DEFAULTS, revision: 3, settingsReadSeconds: 2 };
+  it("gives up on a silent Environment after SETTINGS_READ_MS, with the kept copy", async () => {
+    const copy: ResolvedEnvironment = { ...DEFAULTS, revision: 3 };
     const start = silentStart(copy);
-    await vi.advanceTimersByTimeAsync(1999);
+    await vi.advanceTimersByTimeAsync(SETTINGS_READ_MS - 1);
     expect(start.taken()).toBeUndefined();
     await vi.advanceTimersByTimeAsync(1);
     expect(start.taken()).toEqual({ settings: copy, source: "kept" });
@@ -197,9 +196,6 @@ describe("launchOf", () => {
       terminalsReadBashrc: true,
       terminalBusyHoldMs: 1_800_000,
       terminalPromptHoldMs: 600_000,
-      terminalsPerWorkspace: 8,
-      agentTerminalsPerWorkspace: 8,
-      agentTerminalScrollbackLines: 1000,
     });
     expect(launchOf({ settings: { ...DEFAULTS, containerSize: "cpu-1" }, source: "environment" })).toMatchObject({
       size: "cpu-1",
@@ -215,9 +211,6 @@ describe("launchOf", () => {
       terminalsReadBashrc: true,
       terminalBusyHoldMs: 1_800_000,
       terminalPromptHoldMs: 600_000,
-      terminalsPerWorkspace: 8,
-      agentTerminalsPerWorkspace: 8,
-      agentTerminalScrollbackLines: 1000,
     });
   });
 
@@ -241,53 +234,25 @@ describe("launchOf", () => {
   });
 });
 
-describe("the launch's Terminal holds and counts (SPI-1317)", () => {
-  it("carries the four settings, the holds in milliseconds: a running Container keeps them", () => {
+describe("the launch's Terminal holds (SPI-1317)", () => {
+  it("carries the two holds in milliseconds: a running Container keeps them", () => {
     const launch = launchOf({
-      settings: {
-        ...DEFAULTS,
-        terminalBusyHoldMinutes: 5,
-        terminalPromptHoldMinutes: 2,
-        terminalsPerWorkspace: 2,
-        agentTerminalsPerWorkspace: 3,
-        agentTerminalScrollbackLines: 250,
-      },
+      settings: { ...DEFAULTS, terminalBusyHoldMinutes: 5, terminalPromptHoldMinutes: 2 },
       source: "kept",
     });
-    expect(launch).toMatchObject({
-      terminalBusyHoldMs: 300_000,
-      terminalPromptHoldMs: 120_000,
-      terminalsPerWorkspace: 2,
-      agentTerminalsPerWorkspace: 3,
-      agentTerminalScrollbackLines: 250,
-    });
-    expect(terminalLimitsOf(launch)).toEqual({
-      terminalBusyHoldMs: 300_000,
-      terminalPromptHoldMs: 120_000,
-      terminalsPerWorkspace: 2,
-      agentTerminalsPerWorkspace: 3,
-      agentTerminalScrollbackLines: 250,
-    });
+    expect(launch).toMatchObject({ terminalBusyHoldMs: 300_000, terminalPromptHoldMs: 120_000 });
+    expect(terminalHoldsOf(launch)).toEqual({ terminalBusyHoldMs: 300_000, terminalPromptHoldMs: 120_000 });
   });
 
-  it("reads a launch recorded before them, or none, as the defaults: 30 and 10 minutes, 8 and 8 Terminals", () => {
-    const defaults = {
-      terminalBusyHoldMs: 1_800_000,
-      terminalPromptHoldMs: 600_000,
-      terminalsPerWorkspace: 8,
-      agentTerminalsPerWorkspace: 8,
-      agentTerminalScrollbackLines: 1000,
-    };
+  it("reads a launch recorded before them, or none, as the defaults: 30 and 10 minutes", () => {
+    const defaults = { terminalBusyHoldMs: 1_800_000, terminalPromptHoldMs: 600_000 };
     const {
       terminalBusyHoldMs: _busy,
       terminalPromptHoldMs: _prompt,
-      terminalsPerWorkspace: _terminals,
-      agentTerminalsPerWorkspace: _agents,
-      agentTerminalScrollbackLines: _scrollback,
       ...before
     } = launchOf({ settings: DEFAULTS, source: "default" });
-    expect(terminalLimitsOf(before)).toEqual(defaults);
-    expect(terminalLimitsOf(undefined)).toEqual(defaults);
+    expect(terminalHoldsOf(before)).toEqual(defaults);
+    expect(terminalHoldsOf(undefined)).toEqual(defaults);
   });
 });
 
@@ -354,7 +319,6 @@ describe("the launch's Container setup (ADR-0047 §7)", () => {
       containerSetup: "apt-get install -y ripgrep\n",
       containerSetupMinutes: 12,
       containerSetupFailure: "refuse" as const,
-      setupOutputKiB: 64,
     },
     source: "environment" as const,
   };
@@ -370,7 +334,7 @@ describe("the launch's Container setup (ADR-0047 §7)", () => {
       source: "environment",
       minutes: 12,
       failure: "refuse",
-      outputBytes: 64 * 1024,
+      outputBytes: SETUP_OUTPUT_KIB * 1024,
     });
   });
 
@@ -383,7 +347,7 @@ describe("the launch's Container setup (ADR-0047 §7)", () => {
       source: "environment",
       minutes: 12,
       failure: "refuse",
-      outputBytes: 64 * 1024,
+      outputBytes: SETUP_OUTPUT_KIB * 1024,
     });
     expect(JSON.stringify(shown)).not.toContain("ripgrep");
   });

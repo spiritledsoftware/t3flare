@@ -34,7 +34,7 @@ describe("containerSetupReport", () => {
     });
   });
 
-  it("refuses one with a field out of shape, or an output over the most setupOutputKiB keeps", () => {
+  it("refuses one with a field out of shape, or an output over the most a report may carry", () => {
     expect(containerSetupReport({ ...REPORT, outcome: "maybe" })).toBeUndefined();
     expect(containerSetupReport({ ...REPORT, sha256: "x" })).toBeUndefined();
     expect(containerSetupReport({ ...REPORT, exitCode: 1.5 })).toBeUndefined();

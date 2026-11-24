@@ -244,8 +244,8 @@ export interface ModelLimitsOptions {
   /** The credentials the Session holds for a provider (its key or token), redacted from its error text whatever their shape. */
   readonly secrets: (provider: string) => ReadonlyArray<string>;
   /**
-   * SPI-1367: the longest rate-limit reset the run's retries wait through (`retriedSpanMs` of the Environment's
-   * `durableRetries`); a longer one stops them. Absent: pi-durable's default 3 retries' (`SHORT_RESET_MS`).
+   * SPI-1367: the longest rate-limit reset the run's retries wait through (`retriedSpanMs` of
+   * `DURABLE_RETRIES`); a longer one stops them. Absent: pi-durable's default 3 retries' (`SHORT_RESET_MS`).
    */
   readonly shortResetMs?: () => number;
 }

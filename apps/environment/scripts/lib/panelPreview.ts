@@ -27,10 +27,12 @@ import {
   type BaseBuildRecord,
   type Exposure,
   EXPOSURES,
+  resolveEnvironment,
   type StoredHarness,
 } from "@t3flare/harness-registry";
 
 import type { WorkspacesApi } from "../../src/agents/workspaceActions.ts";
+import { type SweepSettings, sweepSettingsOf } from "../../src/agents/deletionSettings.ts";
 import type { WorkspaceRecord } from "../../src/agents/workspaces.ts";
 import { sealedStore } from "../../src/credentials/sealed.ts";
 import { endpointStore } from "../../src/endpoints/store.ts";
@@ -154,7 +156,7 @@ const fixtureEngine = (): McpEngineBinding => {
  * The Workspaces section's rows, after the page fixture's: a deleted project and its worktrees, and one in use. What a
  * stage asks the agents Worker for (usage, the Sweep, the acts) throws `NOT_IN_PREVIEW`, which the route answers.
  */
-const seededWorkspaces = (now: number): WorkspacesApi => {
+const seededWorkspaces = (now: number, sweep: () => SweepSettings): WorkspacesApi => {
   const sql = t3Tables();
   sql.exec(
     "INSERT INTO projection_projects VALUES ('p-live', 'Live app', '/w/live', ?, NULL, NULL)",
@@ -189,6 +191,8 @@ const seededWorkspaces = (now: number): WorkspacesApi => {
   return {
     deps: {
       ...viewDeps(rows, { sql, purgingSince: now - 20 * DAY }),
+      // The Grace as stored now, as the Environment DO reads it (0 is never, SPI-1387).
+      settings: sweep,
       purge: refuse,
       restore: refuse,
       stop: refuse,
@@ -305,7 +309,9 @@ export const panelPreview = async (options: PreviewOptions) => {
       store: endpoints,
       discover: async () => ({ ok: false, error: `${NOT_IN_PREVIEW}no model list is read; type the model's id` }),
     },
-    workspaces: seededWorkspaces(now()),
+    workspaces: seededWorkspaces(now(), () =>
+      sweepSettingsOf(resolveEnvironment(fixture.store.loadEnvironment()), undefined),
+    ),
     sweepSettingsChanged: () =>
       log("preview: the Sweep settings changed (the Environment would bring the Sweep forward)"),
     baseInputsChanged: (reason) =>

@@ -112,15 +112,15 @@ describe.skipIf(!docker)("the kill script", { timeout: 60_000 }, () => {
     expect(sleeps(result.left)).toEqual(["sleep 601", "sleep 602"]);
   });
 
-  it("kills a group that ignores TERM with KILL, within 3 s", () => {
+  it("kills a group that ignores TERM with KILL after the 3 s stop grace (STOP_GRACE_SECONDS, SPI-1387)", () => {
     const result = run(`T3FLARE_EXEC=a setsid bash -c 'trap "" TERM; sleep 600 & wait' &`, ["a"]);
     expect(result.answer).toMatchObject({ survivors: 0, signal: "KILL" });
     expect(sleeps(result.left)).toEqual([]);
-    expect(result.ms).toBeGreaterThanOrEqual(2000);
-    expect(result.ms).toBeLessThan(3500);
+    expect(result.ms).toBeGreaterThanOrEqual(3000);
+    expect(result.ms).toBeLessThan(4500);
   });
 
-  it("takes its grace before KILL from its first argument (SPI-1364: abortGraceSeconds)", () => {
+  it("takes its grace before KILL from its first argument (SPI-1364; STOP_GRACE_SECONDS, SPI-1387)", () => {
     const result = run(`T3FLARE_EXEC=a setsid bash -c 'trap "" TERM; sleep 600 & wait' &`, ["a"], 500);
     expect(result.answer).toMatchObject({ survivors: 0, signal: "KILL" });
     expect(result.ms).toBeGreaterThanOrEqual(500);

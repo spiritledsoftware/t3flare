@@ -12,7 +12,7 @@ export const environmentUpdates = (input: {
   readonly target: string | undefined;
   readonly store: UpdateStore;
   readonly github: () => GitHubTokens;
-  /** Each GitHub request's bound (`outsideRequestSeconds`), read at each request. */
+  /** Each GitHub request's bound (`OUTSIDE_REQUEST_MS`). */
   readonly timeoutMs?: () => number;
 }): Updates => {
   const repo = updateRepoOf(input.target);

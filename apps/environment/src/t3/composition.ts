@@ -204,9 +204,8 @@ import * as CloudSelfUpdate from "../updates/selfUpdate.ts";
 import { layerManagedPolicy } from "./managedPolicy.ts";
 import { layerPeerLinksWithoutCause } from "./peerLinks.ts";
 import * as ConnectService from "../connect/service.ts";
-import { resolveEnvironment } from "@t3flare/harness-registry";
+import { CONNECT_PUBLISH_LOG_KEPT, TRACE_FILES, TRACE_KIB } from "@t3flare/harness-registry";
 import { makePublishRecorder } from "../connect/recorder.ts";
-import { harnessStore } from "../harness/store.ts";
 import {
   layerFollowTextGenerationModel,
   layerPinFastWorktreeCheckoutOff,
@@ -254,8 +253,8 @@ export const make = (options: CompositionOptions) => {
       readPhases: () => options.storage.kv.get(PUBLISHED_PHASES_KEY),
       writePhases: (phases) => options.storage.kv.put(PUBLISHED_PHASES_KEY, phases),
     },
-    // Read at each publish (SPI-1366).
-    () => resolveEnvironment(harnessStore(options.storage.kv).loadEnvironment()).connectPublishLogKept,
+    // SPI-1366, SPI-1387: a fixed count.
+    () => CONNECT_PUBLISH_LOG_KEPT,
   );
 
   // t3flare: the Node platform (NodeServices, NodeCrypto) becomes the DO's.
@@ -273,8 +272,7 @@ export const make = (options: CompositionOptions) => {
       yield* (yield* FileSystem.FileSystem).makeDirectory(derived.secretsDir, { recursive: true });
       // The home directory t3 offers when browsing for a project folder (HostProcess.HomeDirectory).
       yield* (yield* FileSystem.FileSystem).makeDirectory(`${BASE_DIR}/home`, { recursive: true });
-      // t3flare: the trace file's size and older files kept, as the Environment settings say at this start (SPI-1367).
-      const { traceKiB, traceFiles } = resolveEnvironment(harnessStore(options.storage.kv).loadEnvironment());
+      // t3flare: the trace file's size and older files kept (SPI-1367, SPI-1387: fixed for the isolate's memory).
       const savedSettings = yield* (yield* FileSystem.FileSystem)
         .readFileString(derived.settingsPath)
         .pipe(Effect.option, Effect.map(Option.getOrUndefined));
@@ -283,8 +281,8 @@ export const make = (options: CompositionOptions) => {
         traceMinLevel: "Info",
         traceTimingEnabled: false,
         traceBatchWindowMs: 200,
-        traceMaxBytes: traceKiB * 1024,
-        traceMaxFiles: traceFiles,
+        traceMaxBytes: TRACE_KIB * 1024,
+        traceMaxFiles: TRACE_FILES,
         // t3flare: the OTLP endpoints the owner saved in t3's settings, read at boot as t3 reads them (`otlp.ts`).
         ...otlpConfigFromSettings(savedSettings),
         otelEnvironment: OtelEnvironment.none,

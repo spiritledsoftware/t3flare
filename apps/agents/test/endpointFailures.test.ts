@@ -99,7 +99,7 @@ const openSession = async (
     readonly fault?: Fault;
     readonly endpoints?: ReadonlyArray<ModelEndpoint>;
     readonly baseUrl?: string;
-    /** pi-durable's retries, as the Environment's `durableRetries` sets them (SPI-1367): 3 by default. */
+    /** pi-durable's retries (SPI-1367): `DURABLE_RETRIES`, 3, by default. */
     readonly retries?: number;
   } = {},
 ) => {
@@ -324,7 +324,7 @@ describe("a Session's Model endpoint failures (SPI-1172)", () => {
     expect(long.requests).toBe(1);
   });
 
-  it("a 429 is retried through as long a reset as durableRetries' retries span, and stops past it (SPI-1367)", async () => {
+  it("a 429 is retried through as long a reset as DURABLE_RETRIES' retries span, and stops past it (SPI-1367)", async () => {
     const at = (retryAfter: string, retries: number) =>
       submit(
         () =>

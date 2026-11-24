@@ -11,7 +11,7 @@
 // The token is used for these requests and dropped; it reaches no Session, Container, page or log. Failures are told
 // plainly (`GithubReadError`), each whole.
 import { GitHubNotInstalled } from "@t3flare/github-app/app";
-import { DEFAULT_OUTSIDE_REQUEST_SECONDS } from "@t3flare/harness-registry";
+import { isTimeout, OUTSIDE_REQUEST_SECONDS, outsideRequestTimedOut } from "@t3flare/harness-registry";
 import { SKILL_FETCH_GITHUB_PERMISSIONS } from "@t3flare/github-app/permissions";
 
 import type { MintRequest } from "../agents/github.ts";
@@ -20,8 +20,8 @@ import type { TreeEntry } from "./paths.ts";
 
 const API = "https://api.github.com";
 
-/** How long one request to GitHub may take where no setting reaches: the Outside request time limit's default. */
-const REQUEST_TIMEOUT_MS = DEFAULT_OUTSIDE_REQUEST_SECONDS * 1000;
+/** How long one request to GitHub may take where the caller gives no bound: `OUTSIDE_REQUEST_SECONDS`. */
+const REQUEST_TIMEOUT_MS = OUTSIDE_REQUEST_SECONDS * 1000;
 
 /** How the fetch reads a repo: with which token, and whether the App is installed on the repo's owner. */
 export interface ReadAccess {
@@ -94,7 +94,7 @@ export interface GithubReaderOptions {
   readonly fetch: GithubFetch;
   readonly access: ReadAccess;
   readonly now?: () => number;
-  /** Each request's bound (`outsideRequestSeconds`); `REQUEST_TIMEOUT_MS` when absent. */
+  /** Each request's bound (`OUTSIDE_REQUEST_MS`); `REQUEST_TIMEOUT_MS` when absent. */
   readonly timeoutMs?: number;
 }
 
@@ -120,7 +120,12 @@ export const githubReader = (options: GithubReaderOptions): RepoReader => {
         signal: AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS),
       });
     } catch (cause) {
-      throw new GithubReadError("failed", `GitHub could not be reached: ${messageOf(cause)}`);
+      throw new GithubReadError(
+        "failed",
+        isTimeout(cause)
+          ? `GitHub ${outsideRequestTimedOut(options.timeoutMs ?? REQUEST_TIMEOUT_MS)}`
+          : `GitHub could not be reached: ${messageOf(cause)}`,
+      );
     }
   };
 

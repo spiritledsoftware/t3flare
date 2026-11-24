@@ -455,7 +455,7 @@ const watchUnsaved = (form) => {
   }
 };
 // A contextual setting (ADR-0049 §6) shows while its condition holds, as the inputs it names change: one of them
-// holding a value (a custom size's resources while the Container size or the Builder size is custom), or one having
+// holding a value (a custom size's resources while the Container size is custom), or one having
 // text (a setup's time limit while it has a script). Hidden, it is disabled, so a save never sends it.
 const showContextual = (form) => {
   const valueOf = (key) => form.querySelector('[data-setting="' + key + '"]')?.value ?? "";

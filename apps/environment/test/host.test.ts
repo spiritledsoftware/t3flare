@@ -3,6 +3,8 @@
 // tables (on Node's SQLite), and the Pairing window's alarm and bootstrap refusal.
 import { describe, expect, it, vi } from "vitest";
 
+import { SAFE_MODE_AFTER_FAILURES } from "@t3flare/harness-registry";
+
 import * as BootState from "../src/host/bootState.ts";
 import * as Idle from "../src/host/idle.ts";
 import * as Pairing from "../src/host/pairing.ts";
@@ -25,7 +27,7 @@ describe("boot record and safe mode", () => {
 
   it("enters safe mode after three boots in a row fail, and leaves it by hand", async () => {
     const kv = memoryKv();
-    for (let i = 0; i < BootState.SAFE_MODE_AFTER_FAILURES; i++) {
+    for (let i = 0; i < SAFE_MODE_AFTER_FAILURES; i++) {
       const decision = await BootState.beginBoot(kv, now);
       expect(decision.start).toBe(true);
       await BootState.bootFailed(kv, new Error(`boom ${i}`));
@@ -42,7 +44,7 @@ describe("boot record and safe mode", () => {
     expect((await BootState.beginBoot(kv, now)).start).toBe(true);
   });
 
-  it("enters safe mode after the setting's count of failed boots, one or many (SPI-1366)", async () => {
+  it("enters safe mode after the count of failed boots it is given, one or many (SPI-1366)", async () => {
     for (const count of [1, 5]) {
       const kv = memoryKv();
       for (let i = 0; i < count; i++) {

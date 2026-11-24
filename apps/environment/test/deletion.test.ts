@@ -199,22 +199,24 @@ describe("the Sweep's settings (ADR-0043 §2–3)", () => {
     );
   });
 
-  it("are the stored Grace in days and the purging switch; a Stage's T3FLARE_SWEEP_GRACE_MS overrides the days", () => {
-    expect(sweepSettingsOf({ sweepPurges: true, graceDays: 7, ...TIMES }, undefined)).toEqual({
+  it("are the stored Grace in days, 0 never purging; a Stage's T3FLARE_SWEEP_GRACE_MS overrides the days", () => {
+    expect(sweepSettingsOf({ graceDays: 7, ...TIMES }, undefined)).toEqual({
       purging: true,
       graceMs: 7 * DAY,
       graceDays: 7,
       overridden: false,
       provisioningMs: PROVISIONING,
     });
-    expect(sweepSettingsOf({ sweepPurges: false, graceDays: 2, ...TIMES }, "")).toEqual({
+    expect(sweepSettingsOf({ graceDays: 0, ...TIMES }, "")).toEqual({
       purging: false,
-      graceMs: 2 * DAY,
-      graceDays: 2,
+      graceMs: 0,
+      graceDays: 0,
       overridden: false,
       provisioningMs: PROVISIONING,
     });
-    expect(sweepSettingsOf({ sweepPurges: true, graceDays: 7, ...TIMES }, "180000")).toEqual({
+    // The Owner's never wins over a Stage's override.
+    expect(sweepSettingsOf({ graceDays: 0, ...TIMES }, "180000")).toMatchObject({ purging: false, overridden: true });
+    expect(sweepSettingsOf({ graceDays: 7, ...TIMES }, "180000")).toEqual({
       purging: true,
       graceMs: 180_000,
       graceDays: 7,
@@ -222,7 +224,7 @@ describe("the Sweep's settings (ADR-0043 §2–3)", () => {
       provisioningMs: PROVISIONING,
     });
     for (const junk of ["0", "-5", "soon"])
-      expect(sweepSettingsOf({ sweepPurges: true, graceDays: 3, ...TIMES }, junk)).toEqual({
+      expect(sweepSettingsOf({ graceDays: 3, ...TIMES }, junk)).toEqual({
         purging: true,
         graceMs: 3 * DAY,
         graceDays: 3,
@@ -364,16 +366,11 @@ describe("the sweep's plan", () => {
     ).toMatchObject({ action: "purge" });
   });
 
-  it("never purges a ready Workspace younger than a day: its mark cannot precede its creation, and the Grace is a day at least (ADR-0043's Consequences)", () => {
-    expect(ENVIRONMENT_SETTINGS.graceDays.schema.minimum).toBe(1);
-    const shortest = sweepSettingsOf(
-      {
-        ...resolveEnvironment(EMPTY_ENVIRONMENT),
-        sweepPurges: true,
-        graceDays: ENVIRONMENT_SETTINGS.graceDays.schema.minimum,
-      },
-      undefined,
-    );
+  it("never purges a ready Workspace younger than a day: its mark cannot precede its creation, and a purging Grace is a day at least (ADR-0043's Consequences)", () => {
+    // 0 is never (SPI-1387); the shortest Grace that purges is a day.
+    expect(ENVIRONMENT_SETTINGS.graceDays.schema.minimum).toBe(0);
+    expect(sweepSettingsOf({ ...resolveEnvironment(EMPTY_ENVIRONMENT), graceDays: 0 }, undefined).purging).toBe(false);
+    const shortest = sweepSettingsOf({ ...resolveEnvironment(EMPTY_ENVIRONMENT), graceDays: 1 }, undefined);
     for (const age of [0, 60_000, 60 * 60_000, DAY / 2, DAY - 1]) {
       const young = row({ createdAt: now - age, unreferencedSince: now - age });
       expect(plan(young, false, { ...shortest, purgingSince: 0 }), String(age)).toMatchObject({ action: "skip" });

@@ -24,7 +24,7 @@ import {
   type ToolExecutionApi,
 } from "@earendil-works/pi-durable";
 import type { CodemodeNamespace } from "@earendil-works/pi-durable/codemode";
-import { DEFAULT_TERMINAL_QUIET_MS, DEFAULT_TERMINAL_STOP_GRACE_SECONDS } from "@t3flare/harness-registry";
+import { DEFAULT_TERMINAL_QUIET_MS, STOP_GRACE_SECONDS } from "@t3flare/harness-registry";
 import type { AgentTerminalRequest } from "@t3flare/workspace-client";
 
 import type { BackgroundJobs } from "./coding-tools.ts";
@@ -68,7 +68,7 @@ export const termctrlViewOf = (settings: Readonly<Record<string, unknown>>): Ter
   cols: Number(settings.cols),
   rows: Number(settings.rows),
   quietMs: Number(settings.quietMs ?? DEFAULT_TERMINAL_QUIET_MS),
-  stopGraceSeconds: Number(settings.stopGraceSeconds ?? DEFAULT_TERMINAL_STOP_GRACE_SECONDS),
+  stopGraceSeconds: Number(settings.stopGraceSeconds ?? STOP_GRACE_SECONDS),
 });
 
 /** `request` with the Owner's waits a Workspace applies: a settle's quiet, a stop's grace. */

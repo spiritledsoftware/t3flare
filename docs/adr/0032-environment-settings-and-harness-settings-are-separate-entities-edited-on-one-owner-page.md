@@ -243,6 +243,8 @@ key, so changing it alone leaves a Base snapshot current.
 
 ## Refinement (SPI-1318, 2026-11-22): the CLI agents' processes per Workspace and the reclaim delay
 
+_Superseded in part by the SPI-1387 refinement: both settings became named constants._
+
 The Workspace DO's fixed cap of 4 CLI processes and its fixed 30 s reclaim delay were measured against `cpu-1`; since
 the Container size is a setting, both are the Owner's. `cliProcessesPerWorkspace`: 4 by default, 1 to 100, tier
 `down-free`, counted as before (Claude Code and OpenCode count two each; superseded by the SPI-1364 refinement: each
@@ -284,6 +286,8 @@ only to a process out of a turn, where the Turn limit bounds nothing. (Its 130 m
 refinement: it is derived from the cleanups it backs up; it still does not follow the Turn limit.)
 
 ## Refinement (SPI-1314, 2026-11-23): the settings read wait
+
+_Superseded in part by the SPI-1387 refinement: the setting became named constants._
 
 §1's "5 s bound" was a trade of start latency against freshness, not a platform limit, and two constants made it: the
 Workspace DO's `ENVIRONMENT_READ_MS` and the Session's `HARNESS_READ_MS`. Both are now one Environment setting,
@@ -337,6 +341,8 @@ createdAt`), not the setting's: a CLI agent's changes take its spawn-time wait. 
 the lock (`closedKeptMs`) for the longest wait still kept, the setting's or a kept change's, so a run's rows outlast it.
 
 ## Refinement (SPI-1317, 2026-11-23): the Terminals' holds and counts
+
+_Superseded in part by the SPI-1387 refinement: the counts became named constants._
 
 ADR-0021's fixed Terminal holds and Terminal caps are the Owner's. `terminalBusyHoldMinutes` (30 by default) and
 `terminalPromptHoldMinutes` (10) take 1 to `MAX_TIMED_MINUTES`: t3flare's own alarm releases the Container, so ADR-0048
@@ -425,6 +431,8 @@ scan readers ignore its `retentionCutoffMs`, so the Owner controls t3flare's rec
 
 ## Refinement (SPI-1359, 2026-11-23): the MCP calls, the Base build retry, the CLI hold and the Terminals' maximum
 
+_Superseded in part by the SPI-1387 refinement: the MCP result size, the Base build retry and the Terminals' counts became named constants._
+
 - **The MCP calls' time limit and result size are settings.** The MCP host's fixed 270 s call time limit and 1 MiB
   result bound become `mcpCallSeconds` (270 by default; superseded: off by default since the SPI-1386 refinement below; 1 to `MAX_TIMED_MINUTES` × 60, tier `down-free`; t3flare's own
   timer times it, so ADR-0048 §2's sanity maximum applies) and `mcpResultKiB` (1024 by default, 1 to 8192, tier
@@ -451,6 +459,8 @@ scan readers ignore its `retentionCutoffMs`, so the Owner controls t3flare's rec
   handle and a share of one 1 MiB pending-output buffer, and its shell's memory is the Container's.
 
 ## Refinement (SPI-1365, 2026-11-23): what the Owner enters is bounded by what holds it
+
+_Superseded in part by the SPI-1387 refinement: the outside request time limit and the directory listings became named constants._
 
 This supersedes the Variables refinement's §1 limits (50 Variables, 128-character names, 4,096-character values), the
 Global mise config refinement's 16 KiB, §4's "nor other custom sizes", and the ADR-0047 refinement's 256 KiB setups.
@@ -526,6 +536,8 @@ Global mise config refinement's 16 KiB, §4's "nor other custom sizes", and the 
 
 ## Refinement (SPI-1366, 2026-11-23): the Environment's housekeeping caps and fixed waits
 
+_Superseded in part by the SPI-1387 refinement: every setting but the idle delay, the PR watch's wake and text generation became named constants._
+
 The Environment's housekeeping kept counts and waits nothing forced. Supersedes the usage records' row cap of the
 SPI-1323 refinement above, and widens SPI-1365's Outside request time limit.
 
@@ -581,6 +593,8 @@ SPI-1323 refinement above, and widens SPI-1365's Outside request time limit.
 
 ## Refinement (SPI-1367, 2026-11-23): retries, a stopped command's kills, t3's trace, and Claude Code's sessions
 
+_Superseded in part by the SPI-1387 refinement: the retries, the kills and t3's trace became named constants._
+
 Behaviour t3flare forced to one value becomes the Owner's, each new setting at today's value and read at its own next
 use (`NEXT_USE_SETTING_KEYS`). A tier follows ADR-0035 §3: what spends or keeps a Container awake is asked upward, what
 deletes is asked downward.
@@ -618,6 +632,8 @@ deletes is asked downward.
   over ACP never reports (ADR-0023's SPI-1367 refinement). t3's product analytics stays off (Owner decision D1).
 
 ## Refinement (SPI-1364, 2026-11-23): the Workspace's commands, Terminals, previews and what it keeps
+
+_Superseded in part by the SPI-1387 refinement: every setting but the command time limit, the start wait and the preview ports became named constants._
 
 The Workspace DO's and the Container operations' fixed values were each removed, derived, or made a setting; this
 supersedes the SPI-1318 refinement's "Claude Code and OpenCode count two each" and the SPI-1315 refinement's fixed
@@ -702,6 +718,8 @@ the review panel's diff).
 
 ## Refinement (SPI-1363, 2026-11-23): the MCP layer's time limits, sizes and logs
 
+_Superseded in part by the SPI-1387 refinement: the logs kept per call became named constants._
+
 The MCP engine's, the MCP Worker's and the MCP host's fixed values were each removed, derived, or made a setting.
 
 New Environment settings in an MCP servers row of their own, after the MCP calls row (`MCP_SERVER_SETTING_KEYS`), each
@@ -757,6 +775,8 @@ error, log line, reason and list t3flare shows the Owner or an agent, is in
 SPI-1360 refinement.
 
 ## Refinement (SPI-1368, 2026-11-23): the last fixed values, named, removed, derived or settings
+
+_Superseded in part by the SPI-1387 refinement: the MCP progress rate and the Legacy recheck became named constants._
 
 New Environment settings, in the MCP servers row (`MCP_SERVER_SETTING_KEYS`), each with today's value as its default and
 read as each call's target is made:
@@ -901,3 +921,40 @@ is kept: only the defaults move. Each value is the Owner's (SPI-1386).
   Container of the size, and the budget's note says that as many run as the account's own Container limits allow.
   Running now shows the count with "no budget".
 - **The Turn limit's cards.** With the Turn limit off, nothing in a turn has it as its cap; no card did in code.
+
+## Refinement (SPI-1387, 2026-11-24): the Environment's internal values become named constants
+
+Supersedes, for the settings below, the refinements that made them settings (SPI-1314, SPI-1317, SPI-1318, SPI-1359,
+SPI-1362, SPI-1363, SPI-1364, SPI-1365, SPI-1366, SPI-1367, SPI-1368) and ADR-0047's Builder size, under ADR-0049 §3:
+each guards only t3flare's own machinery, or bounds memory in a 128 MB isolate, so it is a named constant in
+`packages/harness-registry/src/environment.ts`, with a comment naming why. Each value is the Owner's (2026-11-24).
+
+- **Fixed in code**, the setting's old default unless named: the Terminals per Workspace (8), the agents' Terminals per
+  Workspace (8) and their scrollback (1,000 lines), the Terminal history (1 MiB) and exited Terminals kept (16), each a
+  memory-safety bound for the 128 MB Environment or Workspace DO isolate that every Workspace's Terminals share, not a
+  measured force (SPI-1391 / SPI-1397 measure and lift them); the CLI reclaim delay
+  (30 s), the settings read wait (5 s), the setup output kept (32 KiB), the Base build retry (60 min), the outside
+  request time limit (30 s, up from 15), one directory listing for skills, skill links and Prompt templates (5,000,
+  `DIRECTORY_LISTING_ENTRIES` in `packages/skills`; the link's was 200 and the templates' 1,000), the MCP result size (1,024 KiB), pauses per call (16), logs per call (50),
+  progress notices a second (10), the Legacy recheck (24 h), Codex's MCP start wait (20 s), the MCP sign-in time
+  (10 min), the GitHub retry (60 s), the Remote task retry (30 min), failed starts before safe mode (3), the browser
+  profile save (60 s), the HTML browser's keep-alive (120 s), the page token (1 h), clients per key (50), Connect
+  publishes kept (100), the Durable agent's retries (3), kills after a stop (12), t3's trace (1,024 KiB, one older file),
+  temp files kept (24 h), git answers kept (500), router trace entries (300), reclaim protection (30 s), the skills wait
+  (5 s), the first-prompt wait (20 s) and the port check (1,000 ms). The stopped command's grace (2 s) and the stopped
+  port's (3 s) are one stop grace, `STOP_GRACE_SECONDS` (3 s), which also defaults the Harness's
+  `termctrl.stopGraceSeconds`.
+- **Derived:** the CLI agents' processes per Workspace are the Container size's memory past 1 GiB over the largest
+  measured CLI turn, rounded up to 440 MiB (about 461 MB): 4 on `cpu-1`, 16 on `standard-3`. The Workspace computes it from the size its last start
+  kept; the Environment carries no count.
+- **Removed:** `cliRetries` (Codex, Claude Code and pi retry as their own defaults do: more retries, each a request the
+  endpoint may bill); the Builder's size (the Builder runs at the Container size, so the custom size's fields follow the
+  Container size alone); and the Sweep's switch, folded into the Grace (ADR-0043's SPI-1387 refinement).
+- **A stored value** for any of these keys is ignored on resolve, never refused, and a change beside it is taken; a
+  change that sets one is refused as an unknown setting. Purging turned off (`sweepPurges: false`) reads as a Grace of 0
+  until the Grace is next set, so the fold purges nothing the Owner had kept.
+- **Every limit names itself when hit**, with its value: the Terminal and agent Terminal caps, the CLI process count
+  (with where to change the Container size), the MCP result size (a refused result, an App, and a cut result's note),
+  the MCP pauses, a skills or Prompt templates listing that reached its entries, and the kill tries given up (logged).
+- The Settings page loses those rows: Retries and kills, Terminals, the Settings page and clients row, and t3's trace;
+  Outside requests becomes Text generation. The Settings server's tool descriptions and its "applies at" texts follow.
