@@ -89,7 +89,8 @@ export interface ProfileContext {
   readonly dotfiles?: boolean;
   /**
    * SPI-1323: the Environment's `piSessionRetentionDays` at the spawn: pi sessions untouched this long are removed at
-   * this pi start (review F2). Absent: `DEFAULT_PI_SESSION_RETENTION_DAYS`, the setting's default.
+   * this pi start (review F2); 0 is off, and none are (SPI-1386). Absent: `DEFAULT_PI_SESSION_RETENTION_DAYS`, the
+   * setting's default.
    */
   readonly piSessionRetentionDays?: number;
   /**
@@ -630,7 +631,10 @@ const piLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer => 
     // ADR-0047 §9: the Owner's user directory first; t3flare's models.json, settings.json and mcp.json over it.
     ...dotfilesLaunch("pi", home, context.dotfiles),
     files,
-    prune: [{ dir: PI_SESSIONS, days: spawnSettingsOf(context).sessionDays }],
+    // SPI-1386: off (0), pi keeps its sessions for good, as it does locally.
+    ...(spawnSettingsOf(context).sessionDays === 0
+      ? {}
+      : { prune: [{ dir: PI_SESSIONS, days: spawnSettingsOf(context).sessionDays }] }),
     ...(thread === undefined ? {} : { thread }),
     // SPI-1170: the Workspace DO gives the process a model handle for these endpoints, in its environment only.
     modelRelay: piRelay.endpoints.map((endpoint) => endpoint.id),

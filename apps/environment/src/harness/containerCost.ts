@@ -46,8 +46,8 @@ const hourOf = ({ vcpu, memoryMib, diskMb }: ContainerResources): number =>
     (diskMb / 1000) * CONTAINER_PRICES.diskGbSecond);
 
 /**
- * Every offered size, in the settings' order, priced for the Container budget's Containers at once; the custom size at
- * the resources `settings` give it.
+ * Every offered size, in the settings' order, priced for the Container budget's Containers at once (0 while the budget
+ * is off, SPI-1386: nothing caps them); the custom size at the resources `settings` give it.
  */
 export const containerCostTable = (
   settings: Pick<ResolvedEnvironment, "containerBudget" | "customVcpu" | "customMemoryMib" | "customDiskMb">,

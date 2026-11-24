@@ -236,7 +236,8 @@ const relayNames = (context: ProfileContext): ReadonlyArray<string> =>
  * themselves, with the process's handle, come per session over ACP, review H2), allowed without Claude's own prompt
  * because the relay decides and asks. The repository's `.claude/` is honoured for everything else. `mode`: the model
  * relay's (SPI-1168, `claudeModeOf`). `retries` and `sessionDays`: the spawn's settings (`spawnSettingsOf`, SPI-1367),
- * Claude Code's retries and how many days it keeps a session it no longer writes to.
+ * Claude Code's retries and how many days it keeps a session it no longer writes to; with `sessionDays` off (0,
+ * SPI-1386), Claude Code's own cleanup (`cleanupPeriodDays` unset: 30 days, its least 1).
  */
 export const claudeManagedSettings = (
   mode: ClaudeMode,
@@ -250,8 +251,8 @@ export const claudeManagedSettings = (
   env: { ...Object.fromEntries(CLAUDE_PINNED_EMPTY.map((name) => [name, ""])), ...claudeSwitches(mode, retries) },
   skipWebFetchPreflight: true,
   disableClaudeAiConnectors: true,
-  // Claude Code deletes, at its start, sessions not written to for this many days.
-  cleanupPeriodDays: sessionDays,
+  // Claude Code deletes, at its start, sessions not written to for this many days; unset, its own default.
+  ...(sessionDays === 0 ? {} : { cleanupPeriodDays: sessionDays }),
   // The asking mode the flavor pins: t3 decides each request (acpFlavor.ts). Claude's `auto` mode is not disabled: t3's
   // `auto` selects it, as stock t3's Claude adapter does.
   permissions: {

@@ -2,7 +2,14 @@
 // One Environment's Settings server for M4's tests (SPI-1199): the stores in memory and Node's SQLite, the MCP host with
 // its settings branch, a fake GitHub for skills, a fake OAuth, an asker that records cards, and the Settings page's deps
 // with the Change page's API, all over the same storage as the Environment DO wires them.
-import { DEFAULT_OWNER_ANSWER_MS, settingsServerLimitsOf, type StoredHarness } from "@t3flare/harness-registry";
+import {
+  DEFAULT_OWNER_ANSWER_MS,
+  EMPTY_HARNESS,
+  type SettingsServerLimits,
+  settingsServerLimitsOf,
+  type StoredEnvironment,
+  type StoredHarness,
+} from "@t3flare/harness-registry";
 import type { McpAsker, McpQuestionAnswer, McpQuestionCard } from "@t3flare/session-protocol";
 
 import type { AccessCaller } from "../src/access.ts";
@@ -50,10 +57,44 @@ export const structured = (answer: McpCallAnswer): Record<string, any> =>
 /** A Settings call's text: its result's, or the host's message. */
 export const textOf = (answer: McpCallAnswer): string => (answer.kind === "result" ? answer.text : answer.message);
 
+/**
+ * The Settings server's limits an Owner set (SPI-1386 turned each off by default): the values they had before, which
+ * the caps' tests are written against.
+ */
+export const CAPPED_LIMITS: SettingsServerLimits = {
+  strikes: 3,
+  strikeWindowMinutes: 60,
+  strikeLockMinutes: 60,
+  declinedRepeatMinutes: 10,
+  appliedPerHour: 30,
+  askedPerHour: 6,
+  readsPerHour: 240,
+  networkReadsPerHour: 20,
+  openPerThread: 1,
+  openPerOwner: 2,
+};
+
+/** The Harness settings with the Settings server's limits at `CAPPED_LIMITS`, still at revision 0. */
+export const CAPPED_HARNESS: StoredHarness = {
+  ...EMPTY_HARNESS,
+  mcp: {
+    servers: { settings: { kind: "settings", enabled: true, exposure: "deferred", limits: { ...CAPPED_LIMITS } } },
+  },
+};
+
+/**
+ * The Environment settings with a Container budget of 3, its default before SPI-1386, still at revision 0: an asked
+ * change raises it (`ASKED`'s 4), and a free one lowers it.
+ */
+export const BUDGETED_ENVIRONMENT: StoredEnvironment = { revision: 0, settings: { containerBudget: 3 } };
+
 export interface FixtureOptions {
   /** The owner's answer on each card: a value, or a function of the card (a never-settling promise leaves it open). */
   readonly answer?: McpQuestionAnswer | ((card: McpQuestionCard) => Promise<McpQuestionAnswer>);
+  /** The Harness settings stored; `CAPPED_HARNESS` by default. */
   readonly harness?: StoredHarness;
+  /** The Environment settings stored; `BUDGETED_ENVIRONMENT` by default. */
+  readonly environment?: StoredEnvironment;
   readonly cardWaitMs?: number;
   /** The Answer wait the changes table reads (SPI-1316); its default without it. */
   readonly answerMs?: () => number;
@@ -72,7 +113,8 @@ export const settingsFixture = (options: FixtureOptions = {}) => {
   const kv = memory();
   const sql = nodeSqlStorage();
   const store = harnessStore(kv);
-  if (options.harness !== undefined) store.save(options.harness);
+  store.save(options.harness ?? CAPPED_HARNESS);
+  store.saveEnvironment(options.environment ?? BUDGETED_ENVIRONMENT);
   const secrets = harnessSecrets(kv, () => now);
   const variableSealer = valueSealer(CREDENTIALS_KEY);
   const cards: Array<McpQuestionCard> = [];

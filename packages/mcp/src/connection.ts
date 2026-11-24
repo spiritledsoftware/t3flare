@@ -123,9 +123,15 @@ export interface McpTarget {
   readonly headers?: Readonly<Record<string, string>>;
   /**
    * The server's call timeout (default 60 s): a `tools/call`'s, and each other request's after the connect, a read,
-   * `prompts/get`, a task request, a completion and a listen's acknowledgement, with no lower bound under it.
+   * `prompts/get`, a listing page, a task request, a completion and a listen's acknowledgement, unless
+   * `requestTimeoutMs` is given; with no lower bound under it.
    */
   readonly timeoutMs?: number;
+  /**
+   * Each request's timeout after the connect but a `tools/call`'s (SPI-1386: the host leaves a tool call unbounded while
+   * its call time limit is off, and these keep a bound). Absent: `timeoutMs`.
+   */
+  readonly requestTimeoutMs?: number;
   /** How long a probe or an `initialize` may take (default `MCP_CONNECT_TIMEOUT_MS`, 15 s). */
   readonly connectTimeoutMs?: number;
   /** How long walking every page of one list may take (default `MCP_LIST_WALK_TIMEOUT_MS`, 120 s). */
@@ -710,8 +716,10 @@ type Plan =
 export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, deps: McpDeps) {
   const context = yield* Effect.context<never>();
   const connectMs = target.connectTimeoutMs ?? CONNECT_TIMEOUT_MS;
-  /** The server's call timeout, which every request after the connect takes. */
+  /** The server's call timeout: a `tools/call`'s. */
   const callMs = target.timeoutMs ?? CALL_TIMEOUT_MS;
+  /** Every other request's after the connect (SPI-1386): the call timeout unless the host gives one of its own. */
+  const requestMs = target.requestTimeoutMs ?? callMs;
   const walkMs = target.listTimeoutMs ?? MCP_LIST_WALK_TIMEOUT_MS;
   const verdicts = new Verdicts();
   const ties = new Ties();
@@ -784,7 +792,9 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
           ? connectMs
           : method.endsWith("/list")
             ? walkMs
-            : callMs,
+            : method === "tools/call"
+              ? callMs
+              : requestMs,
     },
     verdicts,
     observer,
@@ -2013,7 +2023,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
         const refused = tasksUnavailable();
 
         return refused === undefined
-          ? sendOnTaskWire(method, params, ctx, { timeoutMs: callMs }, signal)
+          ? sendOnTaskWire(method, params, ctx, { timeoutMs: requestMs }, signal)
           : Promise.reject(refused);
       },
       policy.mayHaveRun,
@@ -2135,7 +2145,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
   ) => {
     const { retry, recover } = options;
 
-    const timeoutMs = callMs;
+    const timeoutMs = requestMs;
 
     return withAsking(ctx, timeoutMs, (own) =>
       request((client, signal) => {
@@ -2244,7 +2254,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
 
       if (meta !== undefined) params._meta = meta;
 
-      const timeoutMs = callMs;
+      const timeoutMs = requestMs;
 
       const page = yield* request(
         (client, signal) => listOnePage(client, params, { signal, timeout: timeoutMs }),
@@ -2274,7 +2284,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
     retry?: Retry,
     atPages?: (error: Error) => Recovered | undefined,
   ) => {
-    const timeoutMs = callMs;
+    const timeoutMs = requestMs;
 
     return withAsking(ctx, timeoutMs, (own) =>
       request((client, signal) => {
@@ -2424,7 +2434,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
       if (meta !== undefined) sent._meta = meta;
 
       // `mayHaveRun: true` is not a claim about the server: it is what stops the request being sent once more after a cut.
-      const result = yield* request((client, signal) => client.complete(sent, { signal, timeout: callMs }), true);
+      const result = yield* request((client, signal) => client.complete(sent, { signal, timeout: requestMs }), true);
 
       const fetchedAt = yield* Clock.currentTimeMillis;
 
@@ -2444,9 +2454,10 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
     Effect.gen(function* () {
       sinks.add(onEvent);
 
-      const subscription = yield* request((client) => client.listen(filterOf(filter), { timeout: callMs }), false).pipe(
-        Effect.tapError(() => Effect.sync(() => sinks.delete(onEvent))),
-      );
+      const subscription = yield* request(
+        (client) => client.listen(filterOf(filter), { timeout: requestMs }),
+        false,
+      ).pipe(Effect.tapError(() => Effect.sync(() => sinks.delete(onEvent))));
 
       const closed = Effect.promise(() => subscription.closed).pipe(
         Effect.tap(() => Effect.sync(() => sinks.delete(onEvent))),
@@ -2476,8 +2487,9 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
       if (live.autoGet) {
         yield* Deferred.await(getStream.settled).pipe(
           Effect.timeoutOrElse({
-            duration: Duration.millis(callMs),
-            orElse: () => Effect.fail(TimedOut.make({ message: `The GET stream did not open in ${callMs / 1000} s` })),
+            duration: Duration.millis(requestMs),
+            orElse: () =>
+              Effect.fail(TimedOut.make({ message: `The GET stream did not open in ${requestMs / 1000} s` })),
           }),
         );
       } else if (!getStream.open) {
@@ -2501,7 +2513,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
         yield* Effect.forEach(
           wanted,
           (uri) =>
-            Effect.tryPromise(() => live.client.subscribeResource({ uri }, { timeout: callMs })).pipe(
+            Effect.tryPromise(() => live.client.subscribeResource({ uri }, { timeout: requestMs })).pipe(
               Effect.tap(() => Effect.sync(() => subscribed.push(uri))),
               Effect.ignore,
             ),

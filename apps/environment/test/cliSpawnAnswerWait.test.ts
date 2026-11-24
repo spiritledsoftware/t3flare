@@ -95,12 +95,14 @@ afterEach(() => {
 });
 
 describe("a CLI agent's spawn takes the Answer wait (SPI-1316)", () => {
-  it("writes Codex's tool_timeout_sec from the wait at the spawn: 1,500 at the default, 3,900 at 30 minutes", async () => {
+  it("writes Codex's tool_timeout_sec from the wait at the spawn: 1,500 at the default wait, 3,900 at 30 minutes", async () => {
     vi.spyOn(console, "log").mockImplementation(() => undefined);
-    bind();
+    // A 270-second MCP call time limit; off (the default since SPI-1386) adds the off deadline, a week, instead.
+    const callMs = () => 270_000;
+    bind(undefined, callMs);
     expect((await spawnCodex("spawn-default"))._tag).toBe("Success");
     expect(timeoutOf(started[0]!)).toBe("1500");
-    bind(() => 30 * 60_000);
+    bind(() => 30 * 60_000, callMs);
     expect((await spawnCodex("spawn-30"))._tag).toBe("Success");
     expect(timeoutOf(started[1]!)).toBe("3900");
   });
@@ -108,7 +110,10 @@ describe("a CLI agent's spawn takes the Answer wait (SPI-1316)", () => {
   it("gives each process of one thread the wait at its own spawn, so an older one keeps its own", async () => {
     vi.spyOn(console, "log").mockImplementation(() => undefined);
     let wait = 45 * 60_000;
-    bind(() => wait);
+    bind(
+      () => wait,
+      () => 270_000,
+    );
     expect((await spawnCodex("spawn-kept"))._tag).toBe("Success");
     wait = 10 * 60_000;
     expect((await spawnCodex("spawn-kept"))._tag).toBe("Success");

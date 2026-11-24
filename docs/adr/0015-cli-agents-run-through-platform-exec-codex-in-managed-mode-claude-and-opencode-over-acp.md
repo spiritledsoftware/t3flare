@@ -123,6 +123,14 @@ take the image at start.
 
 ## Refinement (SPI-1315, 2026-11-22): the Turn limit is a setting
 
-The 2-hour turn above is now the Turn limit, an Environment setting (`turnLimitMinutes`, 120 minutes by default) shared
+The 2-hour turn above is now the Turn limit, an Environment setting (`turnLimitMinutes`, 120 minutes by default;
+superseded: off by default since the SPI-1386 refinement below) shared
 with the Durable agent and read at each turn's start: [ADR-0032](0032-environment-settings-and-harness-settings-are-separate-entities-edited-on-one-owner-page.md)'s
 SPI-1315 refinement.
+
+## Refinement (SPI-1386, 2026-11-24): the Turn limit is off by default
+
+Stock t3 has no turn limit, so the Turn limit is off, 0, by default
+([ADR-0049](0049-settings-follow-local-parity-and-guardrails-are-opt-in.md)): the CLI wrapper starts no timer for a
+turn, and the Session arms no alarm for one. An Owner who sets minutes opts in to it as a cost guard. [ADR-0032](0032-environment-settings-and-harness-settings-are-separate-entities-edited-on-one-owner-page.md)'s SPI-1386
+refinement says what off does elsewhere.

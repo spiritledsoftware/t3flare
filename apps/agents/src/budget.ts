@@ -3,7 +3,8 @@
 // `max_instances` does not apply under `schedulingPolicy: "durable_object"`, so a singleton DO holds the leases. The
 // budget is an Environment setting (ADR-0032): a Workspace DO carries it with a fresh start's lease request, and this
 // object judges the request by it and keeps the last one for renewals and status reads (MAX_CONTAINERS before any).
-// Lowering it stops nothing: a holder's own lease is always renewed, and only new starts wait until fewer run. A
+// Lowering it stops nothing: a holder's own lease is always renewed, and only new starts wait until fewer run. A budget
+// of 0 is off (the default, SPI-1386): no start waits, and the leases are still kept, for status and a budget set again. A
 // Workspace DO takes a lease before it starts its Container, renews it from its alarm while the Container runs, and
 // releases it when the Container stops. A lease expires LEASE_MS after its last renewal, so a lost release frees its
 // room under the Container budget within that time, and a running Container never loses its lease while it is renewed.
@@ -12,7 +13,7 @@ import { DurableObject } from "cloudflare:workers";
 
 import { positiveOverride } from "./envOverride.ts";
 
-/** The budget before any request carried one (the Environment settings' default). */
+/** The budget before any request carried one (the Environment settings' default: 0, off). */
 export const MAX_CONTAINERS = DEFAULT_CONTAINER_BUDGET;
 /** The last budget a request carried. */
 const BUDGET_KEY = "budget";
@@ -76,7 +77,7 @@ export class ContainerBudget extends DurableObject<BudgetEnv> {
     const live = this.#live(now);
     const others = live.filter((lease) => lease.holder !== holder);
     const max = this.#max(budget);
-    if (others.length >= max && others.length === live.length) {
+    if (max !== 0 && others.length >= max && others.length === live.length) {
       return {
         ok: false,
         // Short: computer keeps only the first 240 characters of a failed start's message, its own prefix included, and

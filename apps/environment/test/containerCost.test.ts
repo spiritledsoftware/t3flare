@@ -13,13 +13,13 @@ describe("containerCostTable", () => {
   const table = containerCostTable({ containerBudget: 3, ...CUSTOM });
   const row = (size: string) => table.rows.find((entry) => entry.size === size)!;
 
-  it("lists the offered sizes with their resources, the default first and the custom size last", () => {
+  it("lists the offered sizes with their resources, standard-3 the default (SPI-1386), and the custom size last", () => {
     expect(table.budget).toBe(3);
     expect(table.rows.map((entry) => [entry.size, entry.resources, entry.default])).toEqual([
-      ["cpu-1", { vcpu: 1, memoryMib: 3072, diskMb: 12000 }, true],
+      ["cpu-1", { vcpu: 1, memoryMib: 3072, diskMb: 12000 }, false],
       ["standard-1", { vcpu: 0.5, memoryMib: 4096, diskMb: 8000 }, false],
       ["standard-2", { vcpu: 1, memoryMib: 6144, diskMb: 12000 }, false],
-      ["standard-3", { vcpu: 2, memoryMib: 8192, diskMb: 16000 }, false],
+      ["standard-3", { vcpu: 2, memoryMib: 8192, diskMb: 16000 }, true],
       ["standard-4", { vcpu: 4, memoryMib: 12288, diskMb: 20000 }, false],
       ["custom", { vcpu: 1, memoryMib: 3072, diskMb: 12000 }, false],
     ]);

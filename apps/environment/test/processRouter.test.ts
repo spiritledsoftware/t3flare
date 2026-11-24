@@ -231,15 +231,15 @@ describe("the clone and checkpoint time limits (SPI-1324)", () => {
     expect(limitOf(calls, "worktreeBundle")).toBe(180_000);
   });
 
-  it("carry the defaults, 15 and 10 minutes, when nothing is stored", async () => {
+  it("carry the defaults, off (0: the Workspace DO's off deadline, SPI-1386), when nothing is stored", async () => {
     const calls: Calls = [];
     bindGitLimits(calls, {});
     await run("git", cloneArgs, "/w");
     await run("git", ["worktree", "add", "-b", "feature", "--", "/w/.wt/t3flare/x", "main"], "/w/t3flare");
-    expect(limitOf(calls, "clone")).toBe(900_000);
-    expect(limitOf(calls, "worktreeClone")).toBe(900_000);
-    expect(limitOf(calls, "worktreeFinish")).toBe(900_000);
-    expect(limitOf(calls, "worktreeBundle")).toBe(600_000);
+    expect(limitOf(calls, "clone")).toBe(0);
+    expect(limitOf(calls, "worktreeClone")).toBe(0);
+    expect(limitOf(calls, "worktreeFinish")).toBe(0);
+    expect(limitOf(calls, "worktreeBundle")).toBe(0);
   });
 });
 

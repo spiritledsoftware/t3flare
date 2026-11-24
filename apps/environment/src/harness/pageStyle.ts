@@ -123,7 +123,7 @@ textarea{min-height:5rem;width:100%;padding:.5rem .625rem;border:1px solid var(-
 textarea.file{font-family:var(--mono);font-size:.8125rem;line-height:1.5;white-space:pre;overflow-wrap:normal;overflow-x:auto;tab-size:2}
 .field input[type=text]{width:100%}
 select{padding-right:2rem;appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--muted-fg) 50%),linear-gradient(135deg,var(--muted-fg) 50%,transparent 50%);background-position:calc(100% - 15px) 52%,calc(100% - 10px) 52%;background-size:5px 5px;background-repeat:no-repeat;min-width:10rem}
-input::placeholder{color:color-mix(in oklab,var(--muted-fg) 80%,transparent)}
+input::placeholder{color:var(--muted-fg)}
 input:hover,select:hover,textarea:hover{border-color:color-mix(in oklab,var(--input) 60%,var(--muted-fg))}
 input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none;border-color:var(--ring);box-shadow:0 0 0 3px color-mix(in oklab,var(--ring) 28%,transparent)}
 input:user-invalid{border-color:var(--err)}

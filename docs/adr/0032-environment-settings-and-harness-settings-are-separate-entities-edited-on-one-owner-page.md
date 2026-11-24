@@ -36,7 +36,7 @@ settings. Both are edited on the one page at `/_t3flare/harness`, the Environmen
    reads as harness. An Environment change records only the settings it moved, as resolved before and after; a save
    that moves none is not stored, bumped or logged.
 4. **The Container size is chosen per start**, from five names: `cpu-1` (the default, the custom size t3flare ran
-   before: 1 vCPU, 3 GiB, 12 GB) and Cloudflare's `standard-1` to `standard-4`. The class runs under
+   before: 1 vCPU, 3 GiB, 12 GB; superseded: the SPI-1386 refinement below makes `standard-3` the default) and Cloudflare's `standard-1` to `standard-4`. The class runs under
    `schedulingPolicy: "durable_object"`, which takes an `instance` per `start()`. Every start passes one: an omitted
    `instance` starts `lite`, and a stored name t3flare does not offer starts the default. `lite` and `basic` (which the
    runtime refuses) are not offered, nor other custom sizes (superseded: the SPI-1365 refinement below offers any
@@ -45,7 +45,8 @@ settings. Both are edited on the one page at `/_t3flare/harness`, the Environmen
    budget, and adopts a running Container with the `instance` it started with (computer relaunches one whose launch
    differs). A change never resizes or restarts it; its idle stop follows the idle time it started with.
 6. **The idle time** (1 to 60 minutes, default 2; 1 to 10,080 since [ADR-0048](0048-the-owner-is-trusted-with-their-own-settings-and-a-maximum-is-a-named-constraint-or-a-sanity-bound.md)) replaces the `CONTAINER_IDLE_MS` constant.
-7. **The Container budget is a setting** (1 to 10, default 3, today's value; a cost guard, far below the account's
+7. **The Container budget is a setting** (1 to 10, default 3, today's value; superseded: off, no budget, by default
+   since the SPI-1386 refinement below; a cost guard, far below the account's
    concurrent limits; 1 to 100, a sanity bound and no cost guard, since [ADR-0048](0048-the-owner-is-trusted-with-their-own-settings-and-a-maximum-is-a-named-constraint-or-a-sanity-bound.md)). It replaces `MAX_CONTAINERS` as a constant. The budget DO is a singleton in the agents Worker,
    so a Workspace DO carries the budget with a fresh start's lease request, and only when it read it from the
    Environment then: a kept copy or the defaults carry none, so they never overwrite the owner's newer budget. The
@@ -261,7 +262,8 @@ fewer run. The reclaim delay is kept with each process, so a change applies to p
 
 The fixed 2 h limit on a turn was a cost policy, not a platform limit, and the Durable agent's (`TURN_DEADLINE_MS`) and the CLI
 agents' (`TURN_CAP_MS`, ADR-0015) were two constants that had to agree. Both are now one Environment setting, not a
-Harness setting (it bounds the CLI agents too): `turnLimitMinutes`, 120 by default, 1 to `MAX_TIMED_MINUTES` (ADR-0048
+Harness setting (it bounds the CLI agents too): `turnLimitMinutes`, 120 by default (superseded: off by default, the
+SPI-1386 refinement below), 1 to `MAX_TIMED_MINUTES` (ADR-0048
 §2: t3flare times it with its own alarm and timer), tier `down-free`. It opens a new Agents row on the Settings page
 (`AGENT_SETTING_KEYS`), which the CLI agents' processes per Workspace and the reclaim delay (SPI-1318) move into from
 the Containers row: they bound agents, not a Container start. The page's header and sidebar no longer say every
@@ -358,7 +360,8 @@ the launch's holds (`terminalHoldOf`), and a Container preview's hold follows th
 
 ## Refinement (SPI-1324, 2026-11-23): the clone and checkpoint time limits
 
-The Workspace DO's fixed time limits on its git in the Container are the Owner's. `cloneMinutes` (15 by default) bounds
+The Workspace DO's fixed time limits on its git in the Container are the Owner's (both off by default since the SPI-1386
+refinement below). `cloneMinutes` (15 by default) bounds
 a project's clone and a worktree Workspace's clone and checkout; `checkpointMinutes` (10) bounds a turn's checkpoint
 (the capture, and the diff and authored-paths reads above the isomorphic-git guard, which may wait for a cold start as
 long as a capture) and its restore, a worktree's seed bundle in its project, and carrying a removed worktree's commits
@@ -390,8 +393,10 @@ there.
 
 How long t3flare keeps its own history is the Owner's. `usageRetentionDays` (92 by default, matching t3's own usage
 cache) bounds t3flare's usage records in the Environment DO; `piSessionRetentionDays` (60, review F2's) bounds the pi
-sessions synced beside the repo. Both take 1 to `MAX_RETENTION_DAYS`, the Grace's 3650 days: a sanity bound that
-nothing forces (ADR-0048 §1). "Keep for good" is that maximum, ten years, not a 0 sentinel: under `up-free` a 0 would
+sessions synced beside the repo (superseded: both off, kept as locally, by default since the SPI-1386 refinement below,
+whose off ranks above every limit in a tier). Both take 1 to `MAX_RETENTION_DAYS`, the Grace's 3650 days: a sanity bound
+that nothing forces (ADR-0048 §1). "Keep for good" is that maximum, ten years, not a 0 sentinel (superseded: the SPI-1386
+refinement below makes 0 off, kept for good, and ranks it above every limit in a tier): under `up-free` a 0 would
 make 0 → 60 read as turned up, and so free, while it deletes every session older than 60 days. Both are `up-free`, as
 the Grace is: a shorter value destroys history, so it is asked.
 
@@ -421,7 +426,7 @@ scan readers ignore its `retentionCutoffMs`, so the Owner controls t3flare's rec
 ## Refinement (SPI-1359, 2026-11-23): the MCP calls, the Base build retry, the CLI hold and the Terminals' maximum
 
 - **The MCP calls' time limit and result size are settings.** The MCP host's fixed 270 s call time limit and 1 MiB
-  result bound become `mcpCallSeconds` (270 by default, 1 to `MAX_TIMED_MINUTES` × 60, tier `down-free`; t3flare's own
+  result bound become `mcpCallSeconds` (270 by default; superseded: off by default since the SPI-1386 refinement below; 1 to `MAX_TIMED_MINUTES` × 60, tier `down-free`; t3flare's own
   timer times it, so ADR-0048 §2's sanity maximum applies) and `mcpResultKiB` (1024 by default, 1 to 8192, tier
   `down-free`; a provisional bound from an estimate of the Environment DO's isolate memory, about six times a result
   while it is read). They show in an MCP calls row of their own between the Agents and History rows, and apply at the
@@ -471,7 +476,7 @@ Global mise config refinement's 16 KiB, §4's "nor other custom sizes", and the 
   size, so a setup at its maximum could not be sent.
 - **A custom Container size.** `containerSize` and `builderSize` offer `custom`, whose vCPU, memory and disk are the
   settings `customVcpu`, `customMemoryMib` and `customDiskMb` (default `cpu-1`'s 1, 3072 and 12,000; asked either
-  way). Each is at least Cloudflare's minimum for a custom instance (1/16 vCPU, 256 MiB, 2 GB); there is no maximum
+  way; superseded: the default size's, `standard-3`'s, since the SPI-1386 refinement below). Each is at least Cloudflare's minimum for a custom instance (1/16 vCPU, 256 MiB, 2 GB); there is no maximum
   of t3flare's, since the account's limits (4 vCPU, 12 GiB, 20 GB by default, raised on request) are Cloudflare's to
   check, and a start past them is refused. The cost table prices the custom size at its settings.
 - **One Outside request time limit.** `outsideRequestSeconds` (15 by default, tier `down-free`, a row of its own)
@@ -554,6 +559,8 @@ SPI-1323 refinement above, and widens SPI-1365's Outside request time limit.
   | `pageTokenHours`              | 1       | `down-free` (longer keeps a copied token valid longer)       | access           |
   | `clientsPerKey`               | 50      | `up-free` (fewer forgets modes the Owner set)                | access           |
   | `connectPublishLogKept`       | 100     | `up-free` (fewer deletes log entries)                        | access           |
+
+  (Superseded for `textGenerationSeconds`: 180 by default since the SPI-1386 refinement below.)
   - The GitHub App's back-off doubles to 15 times `githubRetrySeconds`; GitHub's own named time is always kept; an
     account it is not installed on is listed again at most once a retry.
   - The agents Worker ends text generation at `textGenerationSeconds`, and the Environment waits
@@ -618,7 +625,8 @@ supersedes the SPI-1318 refinement's "Claude Code and OpenCode count two each" a
 
 New Environment settings, each with today's value as its default and its consequence stated once in its description:
 
-- A Commands row: `commandMinutes` (2), the deadline of a Container command that carries none of its own (an agent's
+- A Commands row (superseded: `commandMinutes` off and `containerConnectSeconds` 120 by default since the SPI-1386
+  refinement below): `commandMinutes` (2), the deadline of a Container command that carries none of its own (an agent's
   search of a Container-only path, the credential helper's install; not t3's git, below), `down-free`.
   - `containerConnectSeconds` (60), computer's connect deadline, `down-free`.
   - `reclaimProtectionSeconds` (30), the reclaim protection: how recent use keeps a Container from a reclaim, which some
@@ -705,6 +713,8 @@ made, and `down-free` (longer holds a dead or slow server longer; more logs take
 | `mcpConnectSeconds` | 15      | `MAX_TIMED_SECONDS` (a week)                | a connection's probe and `initialize`                       |
 | `mcpListSeconds`    | 120     | `MAX_TIMED_SECONDS` (a week)                | one listing of a server, all its pages together             |
 | `mcpLogEntries`     | 50      | `MAX_MCP_LOG_ENTRIES` (200, a sanity bound) | a call's last server logs, up to 128 KiB each in the Worker |
+
+(Superseded for `mcpConnectSeconds`: 30 by default since the SPI-1386 refinement below.)
 
 Reused: the Outside request time limit (`outsideRequestSeconds`) now bounds each request of an MCP server's OAuth
 sign-in and token refresh in the MCP Worker, and its revocation and Client Credentials grant where they are called; its
@@ -842,3 +852,52 @@ review selects does not change.
   History no longer holds the newest entry read. No limit or setting is added.
 - **The omission note's "older History not read"** names a full budget with any entry older than where the read
   stopped, not only a next page, so it reads the same on both paths.
+
+## Refinement (SPI-1386, 2026-11-24): local-parity defaults, and off
+
+[ADR-0049](0049-settings-follow-local-parity-and-guardrails-are-opt-in.md)'s rule applied to the defaults. A stored value
+is kept: only the defaults move. Each value is the Owner's (SPI-1386).
+
+- **Off.** A guardrail with no local equivalent takes 0 as off, no limit: its schema says so (`off: true`, its minimum
+  0), the Settings page shows 0 as an empty field and takes one empty, its placeholder the setting's off word
+  (`offLabel`: "no budget" for the Container budget, "for good" for the usage records, "each agent's own" for the
+  sessions, where "off" would read wrong; "off" for the rest), the Settings server
+  takes 0, and its description says "Empty or 0 is off" with what that means. In a Change tier off ranks above every
+  limit (`offRank`), so turning a guardrail off is the widening direction and setting one from off the narrowing one:
+  this supersedes, in the SPI-1323 refinement, "keep for good" as the maximum in place of a 0 sentinel.
+- **What off does.** A timer t3flare can leave unarmed arms nothing: the Turn limit's Session alarm and the CLI
+  wrapper's timer. A deadline that cannot be left out takes `OFF_DEADLINE_MS`, the shared sanity maximum, a week:
+  computerd's exec (its handling of an absent `timeoutMs` is unverified) for the clone, checkpoint and command limits,
+  and the MCP engine's tool calls for the call limit (its SDK times a request it gives none at 60 s), one helper
+  (`offDeadlineMs`) making each. Only a tool call gets the week: a server's other requests (a resource read, a prompt, a
+  listing page, a completion, a subscription, a task's poll) keep 270 s (`MCP_REQUEST_OFF_MS`, the engine target's
+  `requestTimeoutMs`), the bound they had at the call limit's old default; a call limit set bounds both, as before. A
+  CLI's tool timeout counts an off call limit as that deadline. The Sweep counts an off clone limit as it too, so it never purges a
+  Workspace whose clone may still run. The budget DO refuses no start with no budget, and still keeps the leases. The
+  usage records prune nothing with no retention; pi gets no prune, and Claude Code's managed settings leave
+  `cleanupPeriodDays` unset, so its own 30 days apply (`cleanupPeriodDays` takes no 0: at least 1).
+- **The defaults:**
+
+  | Setting                   | Before  | Now                                               |
+  | ------------------------- | ------- | ------------------------------------------------- |
+  | `containerSize`           | `cpu-1` | `standard-3` (the custom size's fields follow it) |
+  | `containerBudget`         | 3       | off: the account's own limits                     |
+  | `turnLimitMinutes`        | 120     | off: stock t3 has none                            |
+  | `cloneMinutes`            | 15      | off                                               |
+  | `checkpointMinutes`       | 10      | off                                               |
+  | `commandMinutes`          | 2       | off                                               |
+  | `usageRetentionDays`      | 92      | off: kept for good, as local t3 keeps them        |
+  | `piSessionRetentionDays`  | 60      | off: each agent's own (pi for good, Claude 30)    |
+  | `mcpCallSeconds`          | 270     | off: the server's own timeout applies             |
+  | `mcpConnectSeconds`       | 15      | 30: a cold-starting server can take longer        |
+  | `textGenerationSeconds`   | 110     | 180: stock t3's own for Claude and Codex          |
+  | `containerConnectSeconds` | 60      | 120: a large image or a slow cold start           |
+
+  The Terminal holds (30 and 10 minutes) and the setup scripts' time limits (the Global mise install's 10, the
+  Container setup's 5 and the Image setup's 30 minutes) stay on, the Owner's exceptions. The text generation margin
+  (`TEXT_GENERATION_MARGIN_MS`, 10 s) is unchanged: nothing of t3's times a Model endpoint's text generation around it.
+
+- **The budget off on the page.** The cost table's budget column reads "No budget" and "no cap", its summary prices one
+  Container of the size, and the budget's note says that as many run as the account's own Container limits allow.
+  Running now shows the count with "no budget".
+- **The Turn limit's cards.** With the Turn limit off, nothing in a turn has it as its cap; no card did in code.

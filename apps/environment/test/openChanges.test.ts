@@ -35,17 +35,18 @@ import { answerDepsOf, changesApiOf, settingsOwnerCall } from "../src/settings/s
 import { changePagePath } from "../src/harness/paths.ts";
 import { nodeSqlStorage } from "./nodeSqlStorage.ts";
 import { bodyOf, endpointOf, modern, structuredOf, SUB } from "./settingsEndpointFixture.ts";
-import { flush, NOW, settingsFixture, type SettingsFixture, until } from "./settingsFixture.ts";
+import { CAPPED_LIMITS, flush, NOW, settingsFixture, type SettingsFixture, until } from "./settingsFixture.ts";
 import { skillMd } from "./skillRepo.fixture.ts";
 
-// The Settings server's limits at their defaults (SPI-1322: they are its entry's settings).
-const APPLIED_CAP = DEFAULT_SETTINGS_SERVER_LIMITS.appliedPerHour;
-const NETWORK_READ_CAP = DEFAULT_SETTINGS_SERVER_LIMITS.networkReadsPerHour;
-const OPENED_CAP = DEFAULT_SETTINGS_SERVER_LIMITS.askedPerHour;
-const STRIKE_LOCK_MS = DEFAULT_SETTINGS_SERVER_LIMITS.strikeLockMinutes * 60_000;
-const STRIKE_WINDOW_MS = DEFAULT_SETTINGS_SERVER_LIMITS.strikeWindowMinutes * 60_000;
-const DECLINED_REPEAT_MS = DEFAULT_SETTINGS_SERVER_LIMITS.declinedRepeatMinutes * 60_000;
-const OPEN_PER_OWNER = DEFAULT_SETTINGS_SERVER_LIMITS.openPerOwner;
+// The Settings server's limits as an Owner set them (SPI-1322: they are its entry's settings; off by default since
+// SPI-1386): the values they had before, `CAPPED_LIMITS`.
+const APPLIED_CAP = CAPPED_LIMITS.appliedPerHour;
+const NETWORK_READ_CAP = CAPPED_LIMITS.networkReadsPerHour;
+const OPENED_CAP = CAPPED_LIMITS.askedPerHour;
+const STRIKE_LOCK_MS = CAPPED_LIMITS.strikeLockMinutes * 60_000;
+const STRIKE_WINDOW_MS = CAPPED_LIMITS.strikeWindowMinutes * 60_000;
+const DECLINED_REPEAT_MS = CAPPED_LIMITS.declinedRepeatMinutes * 60_000;
+const OPEN_PER_OWNER = CAPPED_LIMITS.openPerOwner;
 
 const OWN: ChangeCaller = { door: "own", key: "thread-1", principal: "agent", thread: "thread-1", agent: "piDurable" };
 const OWNER: ChangeCaller = {
@@ -63,7 +64,7 @@ const TOKEN: ChangeCaller = { door: "owner", key: "service-token", principal: "s
 const world = (answerMs = DEFAULT_OWNER_ANSWER_MS, set: Partial<SettingsServerLimits> = {}) => {
   let now = NOW;
   // The Settings server's limits as stored (SPI-1322): the table's keeping and `capRefusal`'s default read them.
-  let limits: SettingsServerLimits = { ...DEFAULT_SETTINGS_SERVER_LIMITS, ...set };
+  let limits: SettingsServerLimits = { ...CAPPED_LIMITS, ...set };
   let revision = 4;
   const sql = nodeSqlStorage();
   const applied: Array<{ id: string; by: string; secret?: string }> = [];
@@ -114,7 +115,7 @@ const world = (answerMs = DEFAULT_OWNER_ANSWER_MS, set: Partial<SettingsServerLi
     logs,
     advance: (ms: number) => (now += ms),
     now: () => now,
-    setLimits: (next: Partial<SettingsServerLimits>) => (limits = { ...DEFAULT_SETTINGS_SERVER_LIMITS, ...next }),
+    setLimits: (next: Partial<SettingsServerLimits>) => (limits = { ...CAPPED_LIMITS, ...next }),
     revision: () => revision,
     setRevision: (value: number) => (revision = value),
   };
@@ -199,7 +200,7 @@ describe("expiry and pruning", () => {
     const w = world();
     const record = w.open(OWN);
     closeOpenChange(w.deps(), record.id, "withdrawn", "stop");
-    w.advance(closedKeptMs(DEFAULT_OWNER_ANSWER_MS));
+    w.advance(closedKeptMs(DEFAULT_OWNER_ANSWER_MS, CAPPED_LIMITS));
     expect(w.deps().changes.get(record.id)?.state).toBe("withdrawn");
     w.advance(1);
     expect(w.deps().changes.get(record.id)).toBeUndefined();
@@ -450,8 +451,8 @@ describe("D16's caps", () => {
       }
     };
     const long = 45 * 60_000;
-    expect(strikeWindowMs(DEFAULT_OWNER_ANSWER_MS)).toBe(STRIKE_WINDOW_MS);
-    expect(strikeWindowMs(long)).toBe(2 * long + 5 * 60_000);
+    expect(strikeWindowMs(DEFAULT_OWNER_ANSWER_MS, CAPPED_LIMITS)).toBe(STRIKE_WINDOW_MS);
+    expect(strikeWindowMs(long, CAPPED_LIMITS)).toBe(2 * long + 5 * 60_000);
     // At a 45-minute wait the run spans 90 minutes, past the hour.
     const w = world(long);
     run(w, long);
@@ -479,25 +480,25 @@ describe("D16's caps", () => {
     const w = world();
     const record = w.open(OWN);
     w.sql.exec(`UPDATE ${CHANGES_TABLE} SET record = ? WHERE id = ?`, "{not json", record.id);
-    expect(w.deps().changes.keptMs()).toBe(closedKeptMs(DEFAULT_OWNER_ANSWER_MS));
+    expect(w.deps().changes.keptMs()).toBe(closedKeptMs(DEFAULT_OWNER_ANSWER_MS, CAPPED_LIMITS));
     expect(w.deps().changes.get(record.id)).toBeUndefined();
     expect(w.deps().changes.open()).toEqual([]);
   });
 
   it("keeps closed rows for the window and lock of the longest wait still kept, the setting's or a change's (SPI-1316)", () => {
     const long = 45 * 60_000;
-    expect(closedKeptMs(long)).toBe(strikeWindowMs(long) + STRIKE_LOCK_MS);
+    expect(closedKeptMs(long, CAPPED_LIMITS)).toBe(strikeWindowMs(long, CAPPED_LIMITS) + STRIKE_LOCK_MS);
     // The setting is 10 minutes, but a change took 45 (a CLI agent's spawn-time wait): rows stay for 45's keeping.
     const w = world();
-    expect(w.deps().changes.keptMs()).toBe(closedKeptMs(DEFAULT_OWNER_ANSWER_MS));
+    expect(w.deps().changes.keptMs()).toBe(closedKeptMs(DEFAULT_OWNER_ANSWER_MS, CAPPED_LIMITS));
     const record = w.open(OWN, { expiresAt: w.now() + long });
     closeOpenChange(w.deps(), record.id, "withdrawn", "stop");
-    expect(w.deps().changes.keptMs()).toBe(closedKeptMs(long));
-    w.advance(closedKeptMs(long));
+    expect(w.deps().changes.keptMs()).toBe(closedKeptMs(long, CAPPED_LIMITS));
+    w.advance(closedKeptMs(long, CAPPED_LIMITS));
     expect(w.deps().changes.get(record.id)?.state).toBe("withdrawn");
     w.advance(1);
     expect(w.deps().changes.get(record.id)).toBeUndefined();
-    expect(w.deps().changes.keptMs()).toBe(closedKeptMs(DEFAULT_OWNER_ANSWER_MS));
+    expect(w.deps().changes.keptMs()).toBe(closedKeptMs(DEFAULT_OWNER_ANSWER_MS, CAPPED_LIMITS));
   });
 
   it("for an Owner client, only declines strike: a dropped stream (withdrawn) or an expiry is not a strike", async () => {
@@ -668,7 +669,7 @@ describe("through the Settings server", () => {
     const [record] = run.deps.changes.open();
     const second = await run.call(run.durable(), "change_environment", {
       expectedRevision: 0,
-      settings: { containerSize: "standard-3" },
+      settings: { containerSize: "standard-4" },
     });
     expect(second).toMatchObject({
       kind: "result",
@@ -993,7 +994,7 @@ describe("the caps follow the Settings server's limits (SPI-1322)", () => {
     const w = world(DEFAULT_OWNER_ANSWER_MS, { strikeLockMinutes: 0 });
     for (const index of [1, 2, 3]) await decline(w, OWN, `hash-${index}`);
     expect(capRefusal(w.deps().changes, OWN, "hash-9", w.now())).toBeUndefined();
-    // At the default the same three lock.
+    // At the limits set before, the same three lock.
     w.setLimits({});
     expect(capRefusal(w.deps().changes, OWN, "hash-9", w.now())).toMatchObject({ reason: "strikes" });
   });
@@ -1011,7 +1012,7 @@ describe("the caps follow the Settings server's limits (SPI-1322)", () => {
   });
 
   it("strikeWindowMinutes keeps SPI-1316's run-based window, with the strikes in place of three", () => {
-    const limits = { ...DEFAULT_SETTINGS_SERVER_LIMITS, strikes: 5, strikeWindowMinutes: 20 };
+    const limits = { ...CAPPED_LIMITS, strikes: 5, strikeWindowMinutes: 20 };
     expect(strikeWindowMs(DEFAULT_OWNER_ANSWER_MS, limits)).toBe(4 * DEFAULT_OWNER_ANSWER_MS + 5 * 60_000);
     expect(strikeWindowMs(60_000, limits)).toBe(20 * 60_000);
   });
@@ -1132,7 +1133,7 @@ describe("the table filters and counts in SQL (SPI-1393)", () => {
         return { columnNames: result.columnNames, toArray: () => rows };
       },
     } as unknown as Parameters<typeof settingsChanges>[0];
-    const changes = settingsChanges(sql, w.now, undefined, undefined, () => DEFAULT_SETTINGS_SERVER_LIMITS);
+    const changes = settingsChanges(sql, w.now, undefined, undefined, () => CAPPED_LIMITS);
     const records = () => returned.filter(({ row }) => "record" in row);
     return { changes, records, reset: () => (returned.length = 0) };
   };
@@ -1207,5 +1208,86 @@ describe("the table filters and counts in SQL (SPI-1393)", () => {
     w.setLimits({ declinedRepeatMinutes: 0 });
     capRefusal(counted, OWN, "hash-1", w.now());
     expect(reads).toBe(2);
+  });
+});
+
+describe("every cap off, the defaults (SPI-1386)", () => {
+  /** The table with every read counted, for `capRefusal` to run over. */
+  const counting = (w: ReturnType<typeof world>) => {
+    const changes = w.deps().changes;
+    const reads: Array<string> = [];
+    const count =
+      <A extends Array<unknown>, R>(name: string, read: (...args: A) => R) =>
+      (...args: A): R => (reads.push(name), read(...args));
+    return {
+      reads,
+      changes: {
+        ...changes,
+        openBy: count("openBy", (key: string) => changes.openBy(key)),
+        openedSince: count("openedSince", (key: string, since: number) => changes.openedSince(key, since)),
+        closedBy: count("closedBy", (key: string, since: number) => changes.closedBy(key, since)),
+        keptMs: count("keptMs", () => changes.keptMs()),
+        appliedSince: count("appliedSince", (key: string, since: number) => changes.appliedSince(key, since)),
+      },
+    };
+  };
+
+  it("are each 0, and closed rows are kept the floor hour", () => {
+    expect(DEFAULT_SETTINGS_SERVER_LIMITS).toEqual(
+      Object.fromEntries(Object.keys(CAPPED_LIMITS).map((key) => [key, 0])),
+    );
+    expect(closedKeptMs(DEFAULT_OWNER_ANSWER_MS, DEFAULT_SETTINGS_SERVER_LIMITS)).toBe(60 * 60_000);
+  });
+
+  it("are never hit, and the table is not read for any of them", async () => {
+    const w = world(DEFAULT_OWNER_ANSWER_MS, DEFAULT_SETTINGS_SERVER_LIMITS);
+    // Many open at once, many asked in the hour, a declined change asked again, and a run of declines.
+    for (const index of [1, 2, 3, 4, 5, 6, 7, 8]) w.open(OWN, { hash: `open-${index}` });
+    for (let declined = 0; declined < 5; declined++) {
+      const record = w.open(OWN, { hash: "same" });
+      await answerOpenChange(w.deps(), record.id, { by: "card", answerer: { kind: "card" }, action: "decline" });
+      w.advance(1_000);
+    }
+    for (const index of [1, 2, 3, 4, 5, 6, 7, 8]) w.open(OWNER, { hash: `owner-${index}` });
+    const counted = counting(w);
+    for (const caller of [OWN, OWNER]) expect(capRefusal(counted.changes, caller, "same", w.now())).toBeUndefined();
+    expect(counted.reads).toEqual([]);
+  });
+
+  it("each, set again, is hit by what was recorded while it was off", async () => {
+    const w = world(DEFAULT_OWNER_ANSWER_MS, DEFAULT_SETTINGS_SERVER_LIMITS);
+    for (const index of [1, 2]) w.open(OWN, { hash: `open-${index}` });
+    w.setLimits({ ...DEFAULT_SETTINGS_SERVER_LIMITS, openPerThread: 2 });
+    expect(capRefusal(w.deps().changes, OWN, "hash-9", w.now())).toMatchObject({ reason: "open-thread" });
+    w.setLimits({ ...DEFAULT_SETTINGS_SERVER_LIMITS, askedPerHour: 2 });
+    expect(capRefusal(w.deps().changes, OWN, "hash-9", w.now())).toMatchObject({ reason: "opened-cap" });
+  });
+
+  it("a lock needs both its strikes and its length: either off, a run of declines locks nothing", async () => {
+    for (const set of [
+      { strikes: 3, strikeLockMinutes: 0 },
+      { strikes: 0, strikeLockMinutes: 60 },
+    ]) {
+      const w = world(DEFAULT_OWNER_ANSWER_MS, { ...DEFAULT_SETTINGS_SERVER_LIMITS, ...set });
+      for (const index of [1, 2, 3]) {
+        const record = w.open(OWN, { hash: `hash-${index}` });
+        await answerOpenChange(w.deps(), record.id, { by: "card", answerer: { kind: "card" }, action: "decline" });
+        w.advance(1_000);
+      }
+      expect(capRefusal(w.deps().changes, OWN, "hash-9", w.now()), JSON.stringify(set)).toBeUndefined();
+    }
+  });
+
+  it("with the strike window off, the run's own spacing makes it, the Answer wait's stretch", async () => {
+    const w = world(DEFAULT_OWNER_ANSWER_MS, { ...DEFAULT_SETTINGS_SERVER_LIMITS, strikes: 3, strikeLockMinutes: 60 });
+    expect(strikeWindowMs(DEFAULT_OWNER_ANSWER_MS, { ...DEFAULT_SETTINGS_SERVER_LIMITS, strikes: 3 })).toBe(
+      2 * DEFAULT_OWNER_ANSWER_MS + 5 * 60_000,
+    );
+    for (const index of [1, 2, 3]) {
+      const record = w.open(OWN, { hash: `hash-${index}` });
+      await answerOpenChange(w.deps(), record.id, { by: "card", answerer: { kind: "card" }, action: "decline" });
+      w.advance(1_000);
+    }
+    expect(capRefusal(w.deps().changes, OWN, "hash-9", w.now())).toMatchObject({ reason: "strikes" });
   });
 });

@@ -4,7 +4,7 @@
 // mode, as an Open change with no revision, answered on the owner-only card or the Change page; plan mode refuses it
 // (Linked work asks as the owner's own thread does, SPI-1356); a reference appearing between the ask and the answer fails it, naming the reference; a declined Purge is
 // not asked again for a while. It purges through `workspaceActions.ts` with the asker as the audit's actor.
-import { applyMcpChange, EMPTY_HARNESS, PLAN_REFUSAL, DEFAULT_SETTINGS_SERVER_LIMITS } from "@t3flare/harness-registry";
+import { applyMcpChange, EMPTY_HARNESS, PLAN_REFUSAL } from "@t3flare/harness-registry";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { PurgeReport } from "../src/agents/deletion.ts";
@@ -20,10 +20,19 @@ import { changeText } from "../src/settings/render.ts";
 import { APPLIES_AT, READ_ONLY_REFUSAL, settingsOwnerCall } from "../src/settings/server.ts";
 import { settingsInstructions, settingsOwnerInstructions, SETTINGS_TOOLS } from "../src/settings/tools.ts";
 import { GRACE, record, t3Tables, viewDeps } from "./fixtures/workspaces.ts";
-import { HOST, NOW, settingsFixture, type SettingsFixture, structured, textOf, until } from "./settingsFixture.ts";
+import {
+  CAPPED_LIMITS,
+  HOST,
+  NOW,
+  settingsFixture,
+  type SettingsFixture,
+  structured,
+  textOf,
+  until,
+} from "./settingsFixture.ts";
 
 // The Settings server's limits at their defaults (SPI-1322: they are its entry's settings).
-const DECLINED_REPEAT_MS = DEFAULT_SETTINGS_SERVER_LIMITS.declinedRepeatMinutes * 60_000;
+const DECLINED_REPEAT_MS = CAPPED_LIMITS.declinedRepeatMinutes * 60_000;
 
 let fixture: SettingsFixture | undefined;
 afterEach(() => fixture?.dispose());

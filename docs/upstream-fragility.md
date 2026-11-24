@@ -1317,8 +1317,8 @@ is a pass-through observer: a vendor change that it cannot read loses records, a
     (`provider-core/src/server/usage.ts`), `rateModel` priced by the rate table when `reportedCostUsd` is null
     (`usagePricing.ts` `recordRate`, `priceUsage`), and a bucket per source path (`usageAggregation.ts`
     `#placeInWindow`, `UsageService.ts` `aggregator.add(record, dir)`); `UsageProviderKind`'s `pi`, `codex`, `claude`,
-    `opencode`. Our rows are kept for the Environment setting `usageRetentionDays` (SPI-1323), whose default (92 days)
-    only matches t3's `CACHE_RETENTION_DAYS`; t3's `usageHistoryRetentionDays` governs its transcript cache, never our
+    `opencode`. Our rows are kept for the Environment setting `usageRetentionDays` (SPI-1323), off by default (SPI-1386:
+    kept for good, as local t3 keeps them); t3's `usageHistoryRetentionDays` governs its transcript cache, never our
     rows, whose scan readers ignore its `retentionCutoffMs`. t3's record counts are our rows (a
     quarter hour of one session on one model), not requests; showing requests would need a Patch, so it is left.
 - **Breaks when**: pi-ai renames a usage field or stops resolving `result()` for a failed answer (no records from

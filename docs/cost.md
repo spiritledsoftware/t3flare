@@ -5,21 +5,25 @@ against Cloudflare's pricing pages that day.
 
 ## Cost model
 
-At light and moderate use the bill is almost all the **$5 Workers Paid minimum**.
+At light use the bill is mostly the **$5 Workers Paid minimum**; past it, Container memory leads. The Containers row is
+priced at the default size, `standard-3` (2 vCPU, 8 GiB, 16 GB; SPI-1386), with the audit's CPU share kept; at the
+audit's `cpu-1` (3 GiB, 12 GB) it was ≈ $0.20, $1.95 and $16.60, and the totals ≈ $5.20, $7.10 and $35. Each total is
+the $5 minimum plus the rows below it.
 
 |                                | Light        | Moderate      | Heavy                 |
 | ------------------------------ | ------------ | ------------- | --------------------- |
 | Client connected               | 3 h/day      | 10 h/day      | 24/7                  |
 | Turns                          | 5/day        | 30/day        | 100/day               |
 | Container-hours a month        | 15           | 60            | 360                   |
-| Containers (memory, disk, CPU) | ≈ $0.20      | ≈ $1.95       | ≈ $16.60              |
+| Containers (memory, disk, CPU) | ≈ $0.87      | ≈ $4.70       | ≈ $33.15              |
 | DO duration                    | 65k GB-s, $0 | 207k GB-s, $0 | 617k GB-s, **$12.50** |
 | DO requests                    | $0           | ≈ $0.15       | ≈ $1.05               |
-| **Total a month**              | **≈ $5.20**  | **≈ $7.10**   | **≈ $35**             |
+| **Total a month**              | **≈ $5.87**  | **≈ $9.85**   | **≈ $51.70**          |
 
 What moves the total:
 
-- **Container-hours.** About $0.030 each in memory and disk at the 3 GiB size, plus active CPU, past the free ~8 h.
+- **Container-hours.** About $0.076 each in memory and disk at the default `standard-3` (8 GiB, 16 GB), plus active
+  CPU, past the plan's included 25 GiB-hours of memory (about 3 h at this size); `cpu-1` (3 GiB) is about $0.030.
   Every running Container also keeps its Workspace DO resident: 450 GB-s of DO duration per Container-hour.
 - **The DO duration cliff.** 400k GB-s a month are included; anything over rounds up to the next 1M GB-s, $12.50. An
   Environment connected 24/7 is 324k GB-s on its own, and Workspace DOs (Container-hours) and Session DOs (turns) share
@@ -96,9 +100,11 @@ What moves the total:
 
 ## When to act
 
-- **Right-size the Container from 3 GiB to 2 GiB (audit F3)** once at least ~20 idle stops are logged and the p95 of
+- **Right-size the Container below the default `standard-3`'s 8 GiB (audit F3, which proposed 3 GiB to 2 GiB)**: to a
+  2 GiB custom size once at least ~20 idle stops are logged and the p95 of
   `memoryPeakBytes` is under 1.4 GiB, counting CLI-agent turns (an idle Codex app-server is about 160 MB; up to
-  `cliProcessesPerWorkspace`, default 4, CLI processes per Workspace). Saves $0.54 a month at moderate use, $3.24 at heavy. The `durable_object`
+  `cliProcessesPerWorkspace`, default 4, CLI processes per Workspace). From `standard-3`, that saves about $3.24 a month at
+  moderate use and $19.44 at heavy (6 GiB less, $0.009 a GiB-hour). The `durable_object`
   scheduling policy allows any size above 1/16 vCPU, 256 MiB and 2 GB.
 - **Hibernatable client sockets for the Environment DO (audit F5, ADR-0002)** when a month's DO duration goes over
   400k GB-s (start the plan at about 350k). Saves $12.50 a month, at heavy use only; effort L.

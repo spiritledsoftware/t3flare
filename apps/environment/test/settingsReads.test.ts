@@ -13,20 +13,29 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 
 import { DURABLE_AGENT, forgetDurableModes, noteDurableModes } from "../src/provider/threadCaller.ts";
+import { READS_TABLE } from "../src/settings/changes.ts";
 import { NO_MODES_REFUSAL } from "../src/settings/server.ts";
-import { settingsFixture, type SettingsFixture, structured, textOf } from "./settingsFixture.ts";
+import {
+  CAPPED_HARNESS,
+  CAPPED_LIMITS,
+  settingsFixture,
+  type SettingsFixture,
+  structured,
+  textOf,
+} from "./settingsFixture.ts";
 import { skillMd } from "./skillRepo.fixture.ts";
 
-// The Settings server's limits at their defaults (SPI-1322: they are its entry's settings).
-const NETWORK_READ_CAP = DEFAULT_SETTINGS_SERVER_LIMITS.networkReadsPerHour;
-const READ_CAP = DEFAULT_SETTINGS_SERVER_LIMITS.readsPerHour;
+// The Settings server's limits as the fixture's Owner set them (SPI-1322: they are its entry's settings; off by default
+// since SPI-1386).
+const NETWORK_READ_CAP = CAPPED_LIMITS.networkReadsPerHour;
+const READ_CAP = CAPPED_LIMITS.readsPerHour;
 
 let fixture: SettingsFixture | undefined;
 afterEach(() => fixture?.dispose());
 
-/** A Direct server the owner added: the server `test_mcp_server` reaches. */
-const withDocs = (): StoredHarness => {
-  const added = applyMcpChange(EMPTY_HARNESS, {
+/** A Direct server the owner added, over the caps an Owner set unless `base` says otherwise: what `test_mcp_server` reaches. */
+const withDocs = (base: StoredHarness = CAPPED_HARNESS): StoredHarness => {
+  const added = applyMcpChange(base, {
     op: "add",
     server: "docs",
     url: "https://docs.example/mcp",
@@ -88,6 +97,22 @@ describe("the read caps are the Settings server's limits (SPI-1322)", () => {
     );
   });
 
+  it("off (the defaults, SPI-1386), no read is refused, and none is counted", async () => {
+    fixture = settingsFixture({ harness: withDocs(EMPTY_HARNESS) });
+    const run = fixture;
+    expect(DEFAULT_SETTINGS_SERVER_LIMITS).toMatchObject({ readsPerHour: 0, networkReadsPerHour: 0 });
+    for (let at = 0; at < 300; at++)
+      expect(await run.call(run.durable(), "get_status")).toMatchObject({ isError: false });
+    for (let at = 0; at < 30; at++)
+      expect(
+        structured(await run.call(run.durable("thread-net"), "test_mcp_server", { server: "docs" })),
+      ).toBeDefined();
+    const kept = run.sql.exec("SELECT name FROM sqlite_master WHERE name = ?", READS_TABLE).toArray();
+    const counted =
+      kept.length === 0 ? 0 : run.sql.exec(`SELECT COUNT(*) AS count FROM ${READS_TABLE}`).toArray()[0]!.count;
+    expect(counted).toBe(0);
+  });
+
   it("a raised cap applies at the caller's next read, to the reads already counted", async () => {
     fixture = settingsFixture({ harness: withLimits(EMPTY_HARNESS, { readsPerHour: 1 }) });
     const run = fixture;
@@ -98,7 +123,7 @@ describe("the read caps are the Settings server's limits (SPI-1322)", () => {
   });
 
   it("list_mcp_servers shows the Settings server's limits, resolved", async () => {
-    fixture = settingsFixture({ harness: withLimits(EMPTY_HARNESS, { askedPerHour: 12 }) });
+    fixture = settingsFixture({ harness: withLimits(CAPPED_HARNESS, { askedPerHour: 12 }) });
     const run = fixture;
     const listed = structured(await run.call(run.durable(), "list_mcp_servers", { server: "settings" })) as {
       servers: Array<{ name: string; limits?: Record<string, number> }>;
@@ -161,7 +186,7 @@ describe("the reads report where the Settings page shows each setting", () => {
     };
     expect(harness.settingsServerLimits.map((limit) => limit.key)).toEqual([...SETTINGS_SERVER_LIMIT_KEYS]);
     expect(harness.settingsServerLimits.find((limit) => limit.key === "strikes")).toMatchObject({
-      value: DEFAULT_SETTINGS_SERVER_LIMITS.strikes,
+      value: CAPPED_LIMITS.strikes,
       tier: "asked",
       disclosure: "advanced",
       where: "MCP servers › Settings server › Advanced › Strikes",

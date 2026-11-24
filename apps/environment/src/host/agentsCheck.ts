@@ -3,9 +3,25 @@
 // starts Containers in two Workspaces, checks the paths, the Container budget, and a GitHub token's scope. Never boots t3.
 // `?repo=<owner/name>&other=<owner/name>`, both required: the repo a Container token is minted for, and one outside it.
 import { CONTAINER_GITHUB_PERMISSIONS } from "@t3flare/github-app/permissions";
+import { applyEnvironmentChange, resolveEnvironment } from "@t3flare/harness-registry";
 
 import { byName } from "../agents/rpc.ts";
 import type { EnvironmentDO } from "../environmentDO.ts";
+import { harnessStore } from "../harness/store.ts";
+
+/**
+ * The Container budget the check tests: three slots held by others, so a fourth start is refused. The Environment has no
+ * budget by default (SPI-1386), so the check sets this one for its run and then sets back the Owner's.
+ */
+const CHECK_BUDGET = 3;
+
+/** Sets the Environment's Container budget to `budget` as a change of its own (the revision moves forward), or throws. */
+const setBudget = (environment: EnvironmentDO, budget: number): void => {
+  const store = harnessStore(environment.ctxStorage.kv);
+  const applied = applyEnvironmentChange(store.loadEnvironment(), { settings: { containerBudget: budget } });
+  if (!applied.ok) throw new Error(`the check could not set the Container budget: ${applied.error}`);
+  store.saveEnvironment(applied.environment);
+};
 
 const pathsScript = (workspaceId: string) => `
 set -u
@@ -72,22 +88,32 @@ export const agentsCheck = async (
   }
   report.containers = containers;
 
-  // 3. The budget: with three slots held by others, a fourth start is refused.
+  // 3. The budget: at a budget of three (`CHECK_BUDGET`, set for the check), with three slots held by others, a fourth
+  // start is refused. The Owner's budget is set back afterwards, whatever the check found.
   if (url.searchParams.get("budget") !== "0") {
     const budget = byName(agents.CONTAINER_BUDGET, "budget", "CONTAINER_BUDGET");
     const held = ["m0-fake-1", "m0-fake-2", "m0-fake-3"];
     for (const id of workspaces) await byName(agents.WORKSPACES, id, "WORKSPACES").stopContainer();
+    const owners = resolveEnvironment(harnessStore(environment.ctxStorage.kv).loadEnvironment()).containerBudget;
+    setBudget(environment, CHECK_BUDGET);
     const acquired = [];
-    for (const holder of held) acquired.push(await budget.acquire(holder));
-    const refused = await byName(agents.WORKSPACES, "m0-c", "WORKSPACES")
-      .exec({ script: "echo should-not-run", timeoutMs: 60_000 })
-      .then(
-        (ran) => ({ refused: false, ran }),
-        (error: unknown) => ({ refused: true, error: String(error).slice(0, 500) }),
-      );
-    const stateWhileFull = await budget.state();
-    for (const holder of held) await budget.release(holder);
+    let refused: { readonly refused: boolean; readonly ran?: unknown; readonly error?: string };
+    let stateWhileFull: unknown;
+    try {
+      for (const holder of held) acquired.push(await budget.acquire(holder, CHECK_BUDGET));
+      refused = await byName(agents.WORKSPACES, "m0-c", "WORKSPACES")
+        .exec({ script: "echo should-not-run", timeoutMs: 60_000 })
+        .then(
+          (ran) => ({ refused: false, ran }),
+          (error: unknown) => ({ refused: true, error: String(error).slice(0, 500) }),
+        );
+      stateWhileFull = await budget.state();
+    } finally {
+      for (const holder of held) await budget.release(holder);
+      setBudget(environment, owners);
+    }
     report.budget = {
+      budget: CHECK_BUDGET,
       acquired: acquired.map((a) => a.ok),
       fourthStart: refused,
       stateWhileFull,

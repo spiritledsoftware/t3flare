@@ -142,8 +142,8 @@ export const environmentServices = (): EnvironmentServices => {
 };
 
 /**
- * The Turn limit now, in ms (SPI-1315): the stored setting, or its default when the services or the store cannot be read,
- * so a turn always starts with a limit.
+ * The Turn limit now, in ms (SPI-1315): the stored setting, or its default when the services or the store cannot be read;
+ * 0 when it is off (the default, SPI-1386), and the turn then arms no limit.
  */
 export const turnLimitMsNow = (): number => {
   try {
@@ -155,7 +155,7 @@ export const turnLimitMsNow = (): number => {
 
 /**
  * The clone time limit now, in ms (SPI-1324): the stored setting, or its default when the services or the store cannot
- * be read, so a clone always carries a limit.
+ * be read, so a clone always carries one; 0 when it is off (the default, SPI-1386).
  */
 export const cloneMsNow = (): number => {
   try {
@@ -167,7 +167,7 @@ export const cloneMsNow = (): number => {
 
 /**
  * The checkpoint time limit now, in ms (SPI-1324): the stored setting, or its default when the services or the store
- * cannot be read, so a checkpoint always carries a limit.
+ * cannot be read, so a checkpoint always carries one; 0 when it is off (the default, SPI-1386).
  */
 export const checkpointMsNow = (): number => {
   try {
@@ -240,7 +240,8 @@ export const askerWaitMs = (
 
 /**
  * The MCP call time limit now, in ms (SPI-1359): the stored setting, or its default when the services or the store
- * cannot be read, so a CLI's tool timeout always covers a call.
+ * cannot be read, so a CLI's tool timeout always covers a call; 0 when it is off (the default, SPI-1386), which
+ * `cliToolTimeoutSec` counts as the off deadline.
  */
 export const mcpCallMsNow = (): number => {
   try {

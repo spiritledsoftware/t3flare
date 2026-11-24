@@ -11,7 +11,6 @@ import {
   MAX_SETUP_BYTES,
   PLAN_REFUSAL,
   DEFAULT_OWNER_ANSWER_MS,
-  DEFAULT_SETTINGS_SERVER_LIMITS,
   settingsServerLimitsOf,
   type StoredHarness,
 } from "@t3flare/harness-registry";
@@ -42,10 +41,11 @@ import { OFF_MESSAGE, type OwnCaller } from "../src/settings/caller.ts";
 import { NO_MODES_REFUSAL, READ_ONLY_REFUSAL, settingsCall } from "../src/settings/server.ts";
 import { SETTINGS_TOOLS } from "../src/settings/tools.ts";
 import { nodeSqlStorage } from "./nodeSqlStorage.ts";
-import { memory, structured, textOf } from "./settingsFixture.ts";
+import { BUDGETED_ENVIRONMENT, CAPPED_HARNESS, CAPPED_LIMITS, memory, structured, textOf } from "./settingsFixture.ts";
 
-// The Settings server's limits at their defaults (SPI-1322: they are its entry's settings).
-const APPLIED_CAP = DEFAULT_SETTINGS_SERVER_LIMITS.appliedPerHour;
+// The Settings server's limits as this world's Owner set them (SPI-1322: they are its entry's settings; off by default
+// since SPI-1386).
+const APPLIED_CAP = CAPPED_LIMITS.appliedPerHour;
 
 const NOW = Date.UTC(2026, 10, 14, 12, 0);
 const ORIGIN = "https://t3.example.dev";
@@ -98,7 +98,9 @@ const setup = (
   let now = NOW;
   const kv = memory();
   const store = harnessStore(kv);
-  if (options.harness !== undefined) store.save(options.harness);
+  // An Owner who set the Settings server's limits and a Container budget of 3 (their values before SPI-1386).
+  store.save(options.harness ?? CAPPED_HARNESS);
+  store.saveEnvironment(BUDGETED_ENVIRONMENT);
   const secrets = harnessSecrets(kv, () => now);
   const cards: Array<McpQuestionCard> = [];
   const withdrawn: Array<string> = [];
@@ -535,7 +537,8 @@ describe("the Settings server's write checks", () => {
   });
 
   it("SPI-1322: with the strike lock at 0, three declines in a row lock nothing; with strikes at 1, one does", async () => {
-    const limited = (limits: Record<string, number>, from: StoredHarness = EMPTY_HARNESS): StoredHarness => {
+    // From the caps an Owner set (`CAPPED_HARNESS`): three strikes that would lock, so a lock of 0 is what unlocks them.
+    const limited = (limits: Record<string, number>, from: StoredHarness = CAPPED_HARNESS): StoredHarness => {
       const applied = applyMcpChange(from, { op: "server", server: "settings", limits });
       if (!applied.ok) throw new Error(applied.error);
       return applied.harness;

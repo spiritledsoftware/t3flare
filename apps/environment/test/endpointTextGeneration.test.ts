@@ -88,9 +88,10 @@ describe("runText on Model endpoints", () => {
     const calls = bind(() => ({ ok: true, text: '{"title":"Fix the build"}' }));
     const exit = await run("openai/gpt-5-mini");
     expect(exit).toEqual(Exit.succeed({ title: "Fix the build" }));
-    // The text generation time limit's default, 110 s, rides with the request (SPI-1366): the agents Worker ends it there.
+    // The text generation time limit's default, 180 s (SPI-1386), rides with the request (SPI-1366): the agents Worker ends
+    // it there.
     expect(calls).toEqual([
-      { endpointId: "openai", modelId: "gpt-5-mini", prompt: "Name this thread.", timeoutMs: 110_000 },
+      { endpointId: "openai", modelId: "gpt-5-mini", prompt: "Name this thread.", timeoutMs: 180_000 },
     ]);
   });
 

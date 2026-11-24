@@ -78,6 +78,12 @@ afterEach(() => {
 });
 
 describe("a CLI agent's Turn limit", () => {
+  it("off (0, the default since SPI-1386), starts no timer: a 0 ms sleep would end the process at once, and none does", async () => {
+    expect(await turnUnder({ at: 0 }, 0, 150)).toBe(0);
+    // Raised to 30 ms while the turn runs: the turn keeps the off it started with, so no timer fires for it.
+    expect(await turnUnder({ at: 0 }, 30, 150)).toBe(0);
+  });
+
   it("ends the turn's process at the limit read at the turn's start, though the setting is raised mid-turn", async () => {
     expect(await turnUnder({ at: 30 }, 60 * 60_000, 150)).toBe(1);
   });
@@ -90,13 +96,13 @@ describe("a CLI agent's Turn limit", () => {
 describe("turnLimitMsNow", () => {
   afterEach(() => bindEnvironmentServices(undefined as unknown as EnvironmentServices));
 
-  it("reads the Environment's Turn limit, and the default (120 minutes) without services or a reader", () => {
+  it("reads the Environment's Turn limit, and the default (off, 0: SPI-1386) without services or a reader", () => {
     bindEnvironmentServices({ turnLimitMs: () => 5 * 60_000 } as unknown as EnvironmentServices);
     expect(turnLimitMsNow()).toBe(5 * 60_000);
     bindEnvironmentServices({} as unknown as EnvironmentServices);
-    expect(turnLimitMsNow()).toBe(120 * 60_000);
+    expect(turnLimitMsNow()).toBe(0);
     bindEnvironmentServices(undefined as unknown as EnvironmentServices);
-    expect(turnLimitMsNow()).toBe(120 * 60_000);
+    expect(turnLimitMsNow()).toBe(0);
   });
 });
 

@@ -41,13 +41,13 @@ const PURGE_NOTE =
 /**
  * What agents are told about the server (plan D17): its instructions and its tools' descriptions, nothing else. Built
  * when served, with the Answer wait `answerMs` its asked changes wait (SPI-1316) and how many may wait at once per
- * thread, `openPerThread` (the Settings server's limit, SPI-1322).
+ * thread, `openPerThread` (the Settings server's limit, SPI-1322; off, 0, says no count, SPI-1386).
  */
 export const settingsInstructions = (
   answerMs: number,
   openPerThread: number = DEFAULT_SETTINGS_SERVER_LIMITS.openPerThread,
 ): string =>
-  `${SETTINGS_SCOPE} Every settings write names the expectedRevision it read, and the thread's mode rules it: plan mode refuses writes; outside full access a write waits for the owner's card; a change that widens what agents have or can do always waits for the owner's answer on a card or its Change page (at most ${durationText(answerMs)}, ${openPerThread === 1 ? "one at a time" : `at most ${openPerThread} at a time`} per thread). ${PURGE_NOTE} Do not repeat a declined change.`;
+  `${SETTINGS_SCOPE} Every settings write names the expectedRevision it read, and the thread's mode rules it: plan mode refuses writes; outside full access a write waits for the owner's card; a change that widens what agents have or can do always waits for the owner's answer on a card or its Change page (at most ${durationText(answerMs)}${openPerThread === 0 ? "" : `, ${openPerThread === 1 ? "one at a time" : `at most ${openPerThread} at a time`} per thread`}). ${PURGE_NOTE} Do not repeat a declined change.`;
 
 /**
  * The same for an Owner client (plan D11, D12): it has no thread mode, and its asked changes wait on the Change page in

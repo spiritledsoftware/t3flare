@@ -1,7 +1,7 @@
 // The CLI relay's MCP server (ADR-0028, plan §3.2–3.4; review M9, M10): what a CLI process sees and what a call does,
 // judged by the calling thread's own mode, linked threads included; and t3's own entry as stock t3 hands it (SPI-1039).
 // Owner, 2026-11-12, back to stock: no per-call linked rule, no strictest-mode rule, no taint rule, no t3 relay.
-import { cliToolTimeoutSec, DEFAULT_MCP_CALL_MS, type McpRelayInput } from "@t3flare/harness-registry";
+import { cliToolTimeoutSec, type McpRelayInput } from "@t3flare/harness-registry";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { McpView } from "../src/mcp/host.ts";
@@ -120,11 +120,11 @@ describe("the relay's MCP server", () => {
       );
       return (answer as { body: { result: { instructions: string } } }).body.result.instructions;
     };
-    const at30 = await instructions({ ...harness().deps, answerMs: () => 30 * 60_000 });
+    const at30 = await instructions({ ...harness().deps, answerMs: () => 30 * 60_000, openPerThread: () => 1 });
     expect(at30).toContain("(at most 30 minutes, one at a time per thread)");
-    // Without the dep, the wait now.
+    // Without the dep, the wait now; openPerThread off (the default, SPI-1386) names no count.
     bindEnvironmentServices({ ownerAnswerMs: () => 60_000 } as unknown as EnvironmentServices);
-    expect(await instructions(harness().deps)).toContain("(at most a minute, one at a time per thread)");
+    expect(await instructions(harness().deps)).toContain("on a card or its Change page (at most a minute).");
   });
 
   it("answers initialize with the client's protocol version and only tools", async () => {
@@ -228,7 +228,8 @@ describe("the CLIs' relay entries (H2, M11)", () => {
         relay: {
           handle,
           servers: ["commissary"],
-          toolTimeoutSec: cliToolTimeoutSec(30 * 60_000, DEFAULT_MCP_CALL_MS),
+          // A 270-second MCP call time limit, the setting's default before SPI-1386.
+          toolTimeoutSec: cliToolTimeoutSec(30 * 60_000, 270_000),
           startTimeoutSec: 90,
         },
         endpoints: [{ id: "openai", label: "OpenAI", models: [{ id: "gpt-5-mini" }] }],

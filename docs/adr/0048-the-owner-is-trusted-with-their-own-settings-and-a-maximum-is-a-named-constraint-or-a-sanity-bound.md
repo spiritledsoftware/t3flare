@@ -34,7 +34,8 @@ maximums that no constraint set: 60, 120 and 15 minutes.
    `#scheduleAlarm`); the platform's `setInactivityTimeout`, which takes at most 6 hours, is never set. Its tier
    becomes `down-free`: lowering it is free, raising it spends and is asked. Its description says a Container's memory and
    disk are billed while it waits idle.
-4. **The Container budget** is 1 to 100, default 3, tier `down-free`. Nothing in t3flare forces 100: `max_instances`
+4. **The Container budget** is 1 to 100, default 3 (superseded: off, no budget, by default since the SPI-1386
+   refinement below), tier `down-free`. Nothing in t3flare forces 100: `max_instances`
    does not apply under `schedulingPolicy: "durable_object"`, and 100 of the largest size (standard-4: 4 vCPU, 12 GiB,
    20 GB) is 400 vCPU, 1.2 TiB and 2 TB, under the account's default concurrent limits (60 TiB of memory, 15,000 vCPU
    and 300 TB of disk when this was written). Those limits bound it in practice; t3flare does not read or check them.
@@ -170,3 +171,10 @@ rejected; an opt-in guardrail is the Owner's own choice, not a guard against it)
 a setting's maximum is a named constraint, the shared timed maximum (§2) or a sanity bound, or none where no value
 breaks anything (the SPI-1368 refinement). §4's and §5's defaults are changed, where they change, by the tickets of
 SPI-1357's prune, each with its own refinement.
+
+## Refinement (SPI-1386, 2026-11-24): the Container budget is off by default
+
+The Container budget is an opt-in cost guard ([ADR-0049](0049-settings-follow-local-parity-and-guardrails-are-opt-in.md)):
+0, no budget, by default, so as many Containers run as the account's own limits allow. It takes 0 or 1 to 100; off ranks
+above every number in its `down-free` tier, so setting a budget from off is free and turning it off is asked.
+[ADR-0032](0032-environment-settings-and-harness-settings-are-separate-entities-edited-on-one-owner-page.md)'s SPI-1386 refinement lists the other defaults that moved.

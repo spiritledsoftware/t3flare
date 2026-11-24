@@ -1,7 +1,7 @@
 // CLI profiles (step 4a, plan §4 with the review's F2, F4, F5 and M0's findings): what a Codex or pi process gets,
 // whatever t3 asked. Expected values are the M0 probes' (steps-evidence-1:docs/steps/step-4a/m0-local.json), not recomputed here. Every
 // CLI runs on its Model endpoints through the model relay, and is refused without one (SPI-1176).
-import { cliToolTimeoutSec, DEFAULT_MCP_CALL_MS, DEFAULT_PI_SESSION_RETENTION_DAYS } from "@t3flare/harness-registry";
+import { cliToolTimeoutSec, DEFAULT_PI_SESSION_RETENTION_DAYS } from "@t3flare/harness-registry";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -236,7 +236,7 @@ describe("pi's profile", () => {
     });
   });
 
-  it("prunes pi's sessions by the Environment's piSessionRetentionDays at the spawn, 60 days when absent (SPI-1323)", () => {
+  it("prunes pi's sessions by the Environment's piSessionRetentionDays at the spawn, none when off or absent (SPI-1386)", () => {
     const at = (days?: number) => {
       const answer = profileLaunch(
         { cli: "pi", args: rpc, key: "proc-1", cwd: "/w/demo", env: {}, allowProbe: false },
@@ -246,8 +246,9 @@ describe("pi's profile", () => {
       return answer.prune;
     };
     expect(at(10)).toEqual([{ dir: PI_SESSIONS, days: 10 }]);
-    expect(at()).toEqual([{ dir: PI_SESSIONS, days: 60 }]);
-    expect(DEFAULT_PI_SESSION_RETENTION_DAYS).toBe(60);
+    expect(at(0)).toBeUndefined();
+    expect(at()).toBeUndefined();
+    expect(DEFAULT_PI_SESSION_RETENTION_DAYS).toBe(0);
   });
 
   it("never lets pi's extension fail open: a missing or unknown mode is approval-required", () => {
@@ -568,7 +569,8 @@ describe("pi's profile", () => {
       );
 
     it("writes the relay's tool timeout as each entry's timeout (SPI-1316: cliToolTimeoutSec of a 30-minute wait)", () => {
-      const answer = relayed(rpc, ["commissary"], cliToolTimeoutSec(30 * 60_000, DEFAULT_MCP_CALL_MS));
+      // A 270-second call time limit, the setting's default before SPI-1386.
+      const answer = relayed(rpc, ["commissary"], cliToolTimeoutSec(30 * 60_000, 270_000));
       if ("refused" in answer) throw new Error(answer.refused);
       const file = answer.files!.find((entry) => entry.path === "/var/lib/t3flare/cli/proc-1/agent/mcp.json");
       expect(JSON.parse(file!.text).mcpServers.commissary.timeout).toBe(3900);

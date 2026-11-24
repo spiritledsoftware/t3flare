@@ -6,10 +6,12 @@ import { describe, expect, it } from "vitest";
 import { csrfToken } from "../src/harness/csrf.ts";
 import type { AccessCaller } from "../src/access.ts";
 import { CSRF_HEADER, handleHarness } from "../src/harness/panel.ts";
-import { budgetNote, SCRIPT } from "../src/harness/pageScript.ts";
+import { escapeHtml } from "../src/harness/page.ts";
+import { budgetNote, NO_BUDGET_CELL, NO_BUDGET_HEAD, SCRIPT } from "../src/harness/pageScript.ts";
 import { AUDIT_KEY, harnessStore } from "../src/harness/store.ts";
 import { DO_VALUE_BYTES, storedBytes } from "@t3flare/harness-registry";
 import { closedKeptMs } from "../src/settings/changes.ts";
+import { CAPPED_LIMITS } from "./settingsFixture.ts";
 
 const HOST = "t3-admin.example.dev";
 const NOW = Date.UTC(2026, 10, 13, 10, 30);
@@ -71,7 +73,7 @@ describe("Environment settings in the panel", () => {
     expect(store.loadEnvironment().revision).toBe(1);
     expect(await getJson(deps, "environment")).toMatchObject({
       revision: 1,
-      resolved: { containerSize: "standard-2", containerIdleMinutes: 2, containerBudget: 3 },
+      resolved: { containerSize: "standard-2", containerIdleMinutes: 2, containerBudget: 0 },
     });
   });
 
@@ -86,7 +88,7 @@ describe("Environment settings in the panel", () => {
         after: { enabled: false },
       },
     ]);
-    await post(deps, "environment", { settings: { containerSize: "standard-3", containerIdleMinutes: 10 } }, {});
+    await post(deps, "environment", { settings: { containerSize: "standard-4", containerIdleMinutes: 10 } }, {});
     await post(deps, "environment", { settings: { containerIdleMinutes: 5 } }, {});
     await post(deps, "extensions", { extension: "advisor", enabled: true }, {});
     expect(store.auditLog(10)).toMatchObject([
@@ -102,8 +104,8 @@ describe("Environment settings in the panel", () => {
         entity: "environment",
         action: "environment.change",
         target: "containerSize, containerIdleMinutes",
-        before: { containerSize: "cpu-1", containerIdleMinutes: 2 },
-        after: { containerSize: "standard-3", containerIdleMinutes: 10 },
+        before: { containerSize: "standard-3", containerIdleMinutes: 2 },
+        after: { containerSize: "standard-4", containerIdleMinutes: 10 },
       },
       { entity: "harness", action: "extension.change", target: "codemode", after: { enabled: false } },
     ]);
@@ -112,10 +114,10 @@ describe("Environment settings in the panel", () => {
 
   it("audits only the settings a save moved; a save that moves none stores, bumps and audits nothing", async () => {
     const { store, deps } = setup({ kind: "service-token" });
-    const all = { containerSize: "standard-2", containerIdleMinutes: 2, containerBudget: 3 };
+    const all = { containerSize: "standard-2", containerIdleMinutes: 2, containerBudget: 0 };
     await post(deps, "environment", { settings: all }, {});
     expect(store.auditLog(5)).toMatchObject([
-      { target: "containerSize", before: { containerSize: "cpu-1" }, after: { containerSize: "standard-2" } },
+      { target: "containerSize", before: { containerSize: "standard-3" }, after: { containerSize: "standard-2" } },
     ]);
     expect(store.auditLog(5)[0]?.after).toEqual({ containerSize: "standard-2" });
     const same = await post(deps, "environment", { settings: all }, {});
@@ -179,7 +181,7 @@ describe("Environment settings in the panel", () => {
       "standard-4",
       "custom",
     ]);
-    expect(answer.schema.containerBudget.schema).toMatchObject({ minimum: 1, maximum: 100, default: 3 });
+    expect(answer.schema.containerBudget.schema).toMatchObject({ minimum: 0, maximum: 100, default: 0, off: true });
     expect(answer.costs.budget).toBe(5);
     expect(answer.costs.rows).toHaveLength(6);
     expect(answer.running).toEqual({ count: 2, holders: ["web-app", "b2"] });
@@ -215,25 +217,34 @@ describe("Environment settings in the panel", () => {
     expect((await post(deps, "environment", { settings: { ownerAnswerMinutes: 30 } }, headers)).status).toBe(200);
     expect(await getJson(deps, "environment")).toMatchObject({ resolved: { ownerAnswerMinutes: 30 } });
     // The Change page of an unknown id says how long the changes table keeps closed changes (`keptMs`): at a 30-minute
-    // wait, the strike window (2 × 30 + 5 = 65 minutes) and the lock's hour.
+    // wait and the strike limits an Owner set, the strike window (2 × 30 + 5 = 65 minutes) and the lock's hour.
     const gone = await handleHarness(new Request(`https://${HOST}/_t3flare/settings/changes/chg_unknown`), {
       ...deps,
-      changes: { list: () => [], get: () => undefined, keptMs: () => closedKeptMs(30 * 60_000) } as never,
+      changes: {
+        list: () => [],
+        get: () => undefined,
+        keptMs: () => closedKeptMs(30 * 60_000, CAPPED_LIMITS),
+      } as never,
     });
     expect(await gone.text()).toContain("it closed over 125 minutes ago");
   });
 
-  it("refuses a budget out of 1 to 100", async () => {
+  it("takes a budget of 1 to 100, or 0 (off, SPI-1386), and refuses the rest", async () => {
     const { deps } = setup({ kind: "service-token" });
-    for (const budget of [11, 100])
+    for (const budget of [11, 100, 0])
       expect((await post(deps, "environment", { settings: { containerBudget: budget } }, {})).status).toBe(200);
-    for (const budget of [0, 101])
+    for (const budget of [-1, 101])
       expect((await post(deps, "environment", { settings: { containerBudget: budget } }, {})).status).toBe(400);
   });
 
   it("shows an Environment section with the size, the idle time, the budget beside the running Containers, and the cost table", async () => {
     const { store, deps } = setup();
-    await post(deps, "environment", { settings: { containerSize: "standard-1" } }, await ownerHeaders(store));
+    await post(
+      deps,
+      "environment",
+      { settings: { containerSize: "standard-1", containerBudget: 3 } },
+      await ownerHeaders(store),
+    );
     const html = await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), deps)).text();
     expect(html).toContain('id="environment"');
     expect(html).toMatch(/<option value="standard-1" selected>/);
@@ -255,8 +266,31 @@ describe("Environment settings in the panel", () => {
     // The script's rewrite is the note's text around the input's count, as page.ts renders it (no code is built here).
     const [before, after, ...rest] = budgetNote(40).split("40");
     expect(rest).toEqual([]);
-    expect(SCRIPT).toContain(`budgetLine.textContent = ${JSON.stringify(before)} + count + ${JSON.stringify(after)};`);
+    expect(SCRIPT).toContain(
+      `budgetLine.textContent = off ? ${JSON.stringify(budgetNote(0))} : ${JSON.stringify(before)} + count + ${JSON.stringify(after)};`,
+    );
     expect(budgetNote(40)).toContain("up to 40 can run at once.");
+  });
+
+  it("with no budget (0, the default since SPI-1386), shows the field empty and prices one Container, no cap", async () => {
+    const { deps } = setup();
+    const html = await (await handleHarness(new Request(`https://${HOST}/_t3flare/settings`), deps)).text();
+    expect(html).toMatch(
+      /<input type="number" inputmode="numeric" placeholder="no budget" [^>]*data-setting="containerBudget"[^>]* value="">/,
+    );
+    expect(html).toMatch(/Running now<\/dt><dd>2 running, no budget/);
+    expect(html).toContain(`data-budget-head>${NO_BUDGET_HEAD}<`);
+    expect(html).toContain(`<div data-budget-hour>${NO_BUDGET_CELL}</div>`);
+    expect(html).toContain(
+      "With these settings, $0.220 an hour for each Container of standard-3, every vCPU busy; no budget caps how many run at once.",
+    );
+    expect(budgetNote(0)).toContain("with no budget, as many can run at once as your Cloudflare account");
+    expect(html.split(escapeHtml(budgetNote(0)))).toHaveLength(2);
+    // The script says the same as the budget input is emptied.
+    expect(SCRIPT).toContain(JSON.stringify(NO_BUDGET_HEAD));
+    expect(SCRIPT).toContain(JSON.stringify(budgetNote(0)));
+    // Input the browser refuses (a letter empties the value, as off does) never previews as no budget.
+    expect(SCRIPT).toContain("if (budget === null || !budget.validity.valid) return;");
   });
 
   it("audits the Global mise config as its size and SHA-256, never its text", async () => {

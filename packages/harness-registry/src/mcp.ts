@@ -1,6 +1,6 @@
 // The MCP rules every caller shares (ADR-0028): the Durable agent's `mcp` extension, the MCP host, and the CLI relay
 // judge a call with the same function, and a tool's class is resolved the same way everywhere.
-import { MAX_TIMED_MINUTES } from "./environment.ts";
+import { MAX_TIMED_MINUTES, offDeadlineMs } from "./environment.ts";
 import type { SettingEntry } from "./fields.ts";
 import { DO_VALUE_BYTES } from "./storedValue.ts";
 
@@ -165,11 +165,15 @@ const MAX_STRIKES = 1000;
  */
 const MAX_LOOKBACK_MINUTES = MAX_TIMED_MINUTES;
 
-const perHour = (title: string, description: string, fallback: number) =>
+/**
+ * A limit of the Settings server that is off (0, no limit) by default (SPI-1386), at most `maximum` when set; `off` says
+ * what off does where "no limit" does not say it all.
+ */
+const offLimit = (title: string, description: string, maximum: number, off?: string) =>
   ({
     title,
-    description,
-    schema: { type: "integer", minimum: 1, maximum: MAX_PER_HOUR, default: fallback },
+    description: `${description} Empty or 0 is off${off === undefined ? "" : `: ${off}`}.`,
+    schema: { type: "integer", minimum: 0, maximum, default: 0, off: true },
     disclosure: "advanced",
   }) as const;
 
@@ -177,61 +181,60 @@ const perHour = (title: string, description: string, fallback: number) =>
  * The Settings server's limits (SPI-1322, plan D16): how often a caller (an own agent's thread, or an Owner client's
  * Access identity) may ask, change and read through it. Options on its own entry, so every change to them is asked,
  * in either direction (plan D5). Each applies at the caller's next request; what is already recorded is judged by the
- * new values. The per-hour windows themselves are fixed: they are the unit the keys name.
+ * new values. The per-hour windows themselves are fixed: they are the unit the keys name. Each is off by default
+ * (SPI-1386: a cloud-only guardrail is opt-in), so an agent asks and changes as often as the Owner allows by answering;
+ * an off limit's count is never read.
  */
 export const SETTINGS_SERVER_LIMITS = {
-  strikes: {
-    title: "Strikes",
-    description:
-      "This many asked changes in a row that you decline (or, from an agent's thread, leave unanswered) lock the caller out of asking for the Strike lock.",
-    schema: { type: "integer", minimum: 1, maximum: MAX_STRIKES, default: 3 },
-    disclosure: "advanced",
-  },
-  strikeWindowMinutes: {
-    title: "Strike window (minutes)",
-    description:
-      "The strikes count as a run when they fall within this long of each other, or within the Answer wait of each other's when that is longer.",
-    schema: { type: "integer", minimum: 1, maximum: MAX_LOOKBACK_MINUTES, default: 60 },
-    disclosure: "advanced",
-  },
-  strikeLockMinutes: {
-    title: "Strike lock (minutes)",
-    description:
-      "How long a run of strikes refuses the caller's asked changes, from the last of them. 0 turns the lock off.",
-    schema: { type: "integer", minimum: 0, maximum: MAX_LOOKBACK_MINUTES, default: 60 },
-    disclosure: "advanced",
-  },
-  declinedRepeatMinutes: {
-    title: "Declined repeat (minutes)",
-    description:
-      "How long the same change, once you decline it, is refused when the same caller asks it again. 0 allows it at once.",
-    schema: { type: "integer", minimum: 0, maximum: MAX_LOOKBACK_MINUTES, default: 10 },
-    disclosure: "advanced",
-  },
-  appliedPerHour: perHour(
+  strikes: offLimit(
+    "Strikes",
+    "This many asked changes in a row that you decline (or, from an agent's thread, leave unanswered) lock the caller out of asking for the Strike lock.",
+    MAX_STRIKES,
+    "nothing locks a caller out, as with the Strike lock off",
+  ),
+  strikeWindowMinutes: offLimit(
+    "Strike window (minutes)",
+    "The strikes count as a run when they fall within this long of each other, or within the Answer wait of each other's when that is longer.",
+    MAX_LOOKBACK_MINUTES,
+    "only the Answer wait's spacing makes a run",
+  ),
+  strikeLockMinutes: offLimit(
+    "Strike lock (minutes)",
+    "How long a run of strikes refuses the caller's asked changes, from the last of them.",
+    MAX_LOOKBACK_MINUTES,
+  ),
+  declinedRepeatMinutes: offLimit(
+    "Declined repeat (minutes)",
+    "How long the same change, once you decline it, is refused when the same caller asks it again.",
+    MAX_LOOKBACK_MINUTES,
+    "it may be asked again at once",
+  ),
+  appliedPerHour: offLimit(
     "Changes an hour",
     "Settings changes applied per caller per hour, whether they ran on their own or you approved them.",
-    30,
+    MAX_PER_HOUR,
   ),
-  askedPerHour: perHour("Asked changes an hour", "Changes a caller may ask you for per hour, answered or not.", 6),
-  readsPerHour: perHour("Reads an hour", "Settings reads per caller per hour.", 240),
-  networkReadsPerHour: perHour(
+  askedPerHour: offLimit(
+    "Asked changes an hour",
+    "Changes a caller may ask you for per hour, answered or not.",
+    MAX_PER_HOUR,
+  ),
+  readsPerHour: offLimit("Reads an hour", "Settings reads per caller per hour.", MAX_PER_HOUR),
+  networkReadsPerHour: offLimit(
     "Network reads an hour",
     "Reads per caller per hour that reach GitHub or an MCP server (testing a server, previewing or checking skills): they use up GitHub's or that server's own rate limits.",
-    20,
+    MAX_PER_HOUR,
   ),
-  openPerThread: {
-    title: "Open changes per thread",
-    description: "Asked changes one agent thread may have waiting for you at once.",
-    schema: { type: "integer", minimum: 1, maximum: MAX_OPEN_PER_CALLER, default: 1 },
-    disclosure: "advanced",
-  },
-  openPerOwner: {
-    title: "Open changes per Owner client",
-    description: "Asked changes one Owner client's identity may have waiting for an answer at once.",
-    schema: { type: "integer", minimum: 1, maximum: MAX_OPEN_PER_CALLER, default: 2 },
-    disclosure: "advanced",
-  },
+  openPerThread: offLimit(
+    "Open changes per thread",
+    "Asked changes one agent thread may have waiting for you at once.",
+    MAX_OPEN_PER_CALLER,
+  ),
+  openPerOwner: offLimit(
+    "Open changes per Owner client",
+    "Asked changes one Owner client's identity may have waiting for an answer at once.",
+    MAX_OPEN_PER_CALLER,
+  ),
 } as const satisfies Readonly<Record<string, SettingEntry>>;
 
 export type SettingsServerLimitKey = keyof typeof SETTINGS_SERVER_LIMITS;
@@ -259,10 +262,11 @@ export const MCP_RELAY_PREFIX = "/t3flare/mcp/";
  * A CLI process's MCP tool timeout in seconds (review M11, SPI-1316), from the Answer wait and the MCP call time limit
  * (`mcpCallSeconds`, SPI-1359) it is spawned with: a relayed call can wait on an approval card and then on an in-call
  * question, each up to the wait, while the call's own clock is paused (`packages/mcp/src/connection.ts`), plus the call
- * itself and a 30 s margin. At the default 10-minute wait and 270 s limit this is 1,500 s.
+ * itself and a 30 s margin. An off call limit (0, SPI-1386) counts as the call's off deadline (`OFF_DEADLINE_MS`). At a
+ * 10-minute wait and a 270 s limit this is 1,500 s.
  */
 export const cliToolTimeoutSec = (answerMs: number, callMs: number): number =>
-  2 * Math.ceil(answerMs / 1000) + Math.ceil(callMs / 1000) + 30;
+  2 * Math.ceil(answerMs / 1000) + Math.ceil(offDeadlineMs(callMs) / 1000) + 30;
 
 /** The variable a CLI process reads its tool handle from (Codex's `bearer_token_env_var`). */
 export const TOOL_HANDLE_ENV = "T3FLARE_TOOL_HANDLE";

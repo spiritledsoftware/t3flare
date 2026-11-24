@@ -26,10 +26,25 @@ export const MAX_TIMED_MINUTES = 10_080;
 export const MAX_TIMED_SECONDS = MAX_TIMED_MINUTES * 60;
 
 /**
- * The Container budget's default: at most this many Containers run at once across the deploy. The Owner changes it in
- * the Environment settings (`containerBudget`); each Workspace DO carries it with its lease request.
+ * What an off time limit (SPI-1386: 0, no limit) gives a deadline that cannot be left out, in ms: computerd's exec, whose
+ * absent `timeoutMs` is unverified, and the MCP engine's requests, whose SDK times a request it gives no timeout at 60 s.
+ * `MAX_TIMED_MINUTES`, the shared sanity maximum (ADR-0048 §2): a week, under the 24.8 days past which a JS timer
+ * overflows. A limit t3flare times itself and can leave unarmed (the Turn limit) arms nothing instead.
  */
-export const DEFAULT_CONTAINER_BUDGET = 3;
+export const OFF_DEADLINE_MS = MAX_TIMED_MINUTES * 60_000;
+
+/** A time limit in ms as a deadline: `OFF_DEADLINE_MS` when it is off (0). The one place an off limit becomes the week. */
+export const offDeadlineMs = (ms: number): number => (ms === 0 ? OFF_DEADLINE_MS : ms);
+
+/** A time limit of `value` units of `unitMs` as a deadline in ms: `OFF_DEADLINE_MS` when it is off (0). */
+export const deadlineMs = (value: number, unitMs: number): number => offDeadlineMs(value * unitMs);
+
+/**
+ * The Container budget's default (SPI-1386: local parity): 0, no budget, so as many Containers run at once as the
+ * account's own limits allow. The Owner sets a number in the Environment settings (`containerBudget`) to cap cost; each
+ * Workspace DO carries it with its lease request.
+ */
+export const DEFAULT_CONTAINER_BUDGET = 0;
 
 /**
  * The most the Container budget may be set to: a sanity bound, not a constraint (ADR-0048). Nothing in t3flare forces
@@ -42,7 +57,8 @@ export const MAX_CONTAINER_BUDGET = 100;
 /**
  * The CLI agents' processes per Workspace by default (`cliProcessesPerWorkspace`; plan §2.1, review F7), each process
  * counted once (SPI-1364). An idle Codex app-server measured 157–160 MB RSS on step4a
- * (steps-evidence-1:docs/steps/step-4a/m3-memory.json), so four take about 0.65 GB of `cpu-1`'s 3 GiB, beside computerd
+ * (steps-evidence-1:docs/steps/step-4a/m3-memory.json), so four take about 0.65 GB of `cpu-1`'s 3 GiB (the default size then;
+ * `standard-3`'s 8 GiB since SPI-1386), beside computerd
  * (~100 MB) and the agents' own commands (an `npm ci` and its tests peak at 1–1.5 GB). Claude Code peaked at 344 MiB and
  * OpenCode at 439 MiB in a turn running `npm ci && npm test` (steps-evidence-1:docs/steps/step-4b/m0-local.json P7), which
  * the setting's description states.
@@ -93,49 +109,55 @@ export const MAX_CLI_RECLAIM_SECONDS = CLI_IDLE_HOLD_MS / 1000;
 
 /**
  * The Turn limit's default, in minutes (`turnLimitMinutes`; step 2a's cost guardrail, ADR-0015's CLI cap): how long a
- * turn of the Durable agent or of a CLI agent may run before it is ended.
+ * turn of the Durable agent or of a CLI agent may run before it is ended. 0, off (SPI-1386: stock t3 has no turn limit);
+ * the Owner opts in with minutes.
  */
-export const DEFAULT_TURN_LIMIT_MINUTES = 120;
+export const DEFAULT_TURN_LIMIT_MINUTES = 0;
 
 /**
- * The Turn limit's default in ms: the one source for it, used where no setting reaches (a test's services, a Session's
- * turn whose start carried no limit, or one recorded before the setting).
+ * The Turn limit's default in ms, 0 (off): the one source for it, used where no setting reaches (a test's services, a
+ * Session's turn whose start carried no limit, or one recorded before the setting).
  */
 export const DEFAULT_TURN_LIMIT_MS = DEFAULT_TURN_LIMIT_MINUTES * 60_000;
 
 /**
  * The clone time limit's default, in minutes (`cloneMinutes`, SPI-1324): how long a Workspace's clone, and a worktree
- * Workspace's clone and checkout, may run in its Container. The Workspace DO uses it for a call that carries no limit.
+ * Workspace's clone and checkout, may run in its Container. 0, off (SPI-1386: a local git clone has no time limit). The
+ * Workspace DO uses it for a call that carries no limit.
  */
-export const DEFAULT_CLONE_MINUTES = 15;
+export const DEFAULT_CLONE_MINUTES = 0;
 
-/** The clone time limit's default in ms: used where no setting reaches (a call that carries none, a test's services). */
+/** The clone time limit's default in ms (0, off): used where no setting reaches (a call that carries none, a test's). */
 export const DEFAULT_CLONE_MS = DEFAULT_CLONE_MINUTES * 60_000;
 
 /**
  * The checkpoint time limit's default, in minutes (`checkpointMinutes`, SPI-1324): how long a turn's checkpoint and its
- * restore, a worktree's seed bundle, and carrying a removed worktree's commits home may run in the Container. The
- * Workspace DO uses it for a call that carries no limit.
+ * restore, a worktree's seed bundle, and carrying a removed worktree's commits home may run in the Container. 0, off
+ * (SPI-1386: local t3 checkpoints with no time limit). The Workspace DO uses it for a call that carries no limit.
  */
-export const DEFAULT_CHECKPOINT_MINUTES = 10;
+export const DEFAULT_CHECKPOINT_MINUTES = 0;
 
 /**
- * The checkpoint time limit's default in ms: used where no setting reaches (a call that carries none, a test's services).
+ * The checkpoint time limit's default in ms (0, off): used where no setting reaches (a call that carries none, a test's).
  */
 export const DEFAULT_CHECKPOINT_MS = DEFAULT_CHECKPOINT_MINUTES * 60_000;
 
 /**
  * The command time limit's default, in minutes (`commandMinutes`, SPI-1364): how long a Container command that carries no
  * limit of its own may run (an agent's file search on a Container-only path, git's reads and actions for t3, the
- * credential helper's install). The Workspace DO uses it for a call that carries none.
+ * credential helper's install). 0, off (SPI-1386: an agent's search or read has no time limit locally). The Workspace DO
+ * uses it for a call that carries none.
  */
-export const DEFAULT_COMMAND_MINUTES = 2;
+export const DEFAULT_COMMAND_MINUTES = 0;
 
-/** The command time limit's default in ms: used where no setting reaches (a call that carries none, a test's services). */
+/** The command time limit's default in ms (0, off): used where no setting reaches (a call that carries none, a test's). */
 export const DEFAULT_COMMAND_MS = DEFAULT_COMMAND_MINUTES * 60_000;
 
-/** The Container connect wait's default, in seconds (`containerConnectSeconds`, SPI-1364): computer's connect deadline. */
-export const DEFAULT_CONTAINER_CONNECT_SECONDS = 60;
+/**
+ * The Container connect wait's default, in seconds (`containerConnectSeconds`, SPI-1364): computer's connect deadline.
+ * 120 (SPI-1386): a large image or a slow cold start needs longer than the 60 before it.
+ */
+export const DEFAULT_CONTAINER_CONNECT_SECONDS = 120;
 
 /**
  * The reclaim protection's default, in seconds (`reclaimProtectionSeconds`, SPI-1364): a Workspace that ran a command this
@@ -409,14 +431,15 @@ export const AGENT_SETTING_KEYS = [
 export const DOTFILES_SETTING_KEYS = ["terminalsReadBashrc", "agentsReadDotfiles"] as const;
 
 /**
- * How long t3flare keeps its own usage records and pi's sessions (SPI-1323), in days. 92 matches t3's own usage cache
- * (`CACHE_RETENTION_DAYS`), past its Usage page's widest range (90 days); 60 is review F2's.
+ * How long t3flare keeps its own usage records and pi's and Claude Code's sessions (SPI-1323), in days. 0, off, by
+ * default (SPI-1386: local parity): usage records are kept for good, as local t3 keeps them; pi keeps its sessions for
+ * good, and Claude Code applies its own cleanup (`cleanupPeriodDays`, 30 days when unset).
  */
-export const DEFAULT_USAGE_RETENTION_DAYS = 92;
-export const DEFAULT_PI_SESSION_RETENTION_DAYS = 60;
+export const DEFAULT_USAGE_RETENTION_DAYS = 0;
+export const DEFAULT_PI_SESSION_RETENTION_DAYS = 0;
 /**
- * A sanity bound (ADR-0048 §1), the Grace's ten years: nothing forces it. It is also "keep for good", in place of a 0
- * sentinel, so turning the value up is always the free direction.
+ * A sanity bound (ADR-0048 §1), the Grace's ten years: nothing forces it. Off (0) keeps for good, and ranks above it in
+ * a Change tier (`offRank`), so keeping longer is always the free direction.
  */
 export const MAX_RETENTION_DAYS = MAX_GRACE_DAYS;
 
@@ -429,12 +452,20 @@ export const RETENTION_SETTING_KEYS = ["usageRetentionDays", "piSessionRetention
 
 /**
  * The MCP call time limit's default, in seconds (`mcpCallSeconds`, SPI-1359): how long the MCP host lets one tool call
- * run. 270: a little past Commissary's own upstream timeout (240 s), so a call through Commissary is ended by
- * Commissary, which says why, not by t3flare. Any other server's length is the Owner's taste.
+ * run. 0, off (SPI-1386: local parity): t3flare ends no call, and the server's own timeout still applies. The engine
+ * still needs a deadline, so an off limit gives it `OFF_DEADLINE_MS`.
  */
-export const DEFAULT_MCP_CALL_SECONDS = 270;
+export const DEFAULT_MCP_CALL_SECONDS = 0;
 
-/** The MCP call time limit's default in ms: used where no setting reaches (a test's host, a call that carries none). */
+/**
+ * How long an MCP server's requests other than a tool call (a resource read, a prompt, a listing page, a completion, a
+ * subscription, a task's poll) may take while the call time limit is off: 270 s, the call time limit's default before
+ * SPI-1386, which bounded them with it. Only a tool call is the Owner's to leave unbounded; these guard t3flare's own
+ * reads of a server. With the call time limit set, they take it, as before.
+ */
+export const MCP_REQUEST_OFF_MS = 270_000;
+
+/** The MCP call time limit's default in ms (0, off): used where no setting reaches (a test's host, a call with none). */
 export const DEFAULT_MCP_CALL_MS = DEFAULT_MCP_CALL_SECONDS * 1000;
 
 /**
@@ -535,13 +566,17 @@ export const NEXT_USE_SETTING_KEYS = [
   "routerTraceEntries",
 ] as const;
 
-/** The text generation time limit's default, in seconds (`textGenerationSeconds`, SPI-1366): today's 110 s. */
-export const DEFAULT_TEXT_GENERATION_SECONDS = 110;
+/**
+ * The text generation time limit's default, in seconds (`textGenerationSeconds`, SPI-1366): 180, stock t3's own for
+ * Claude's and Codex's text generation (`CLAUDE_TIMEOUT_MS`, `CODEX_TIMEOUT_MS`; SPI-1386). Nothing of t3's times a
+ * Model endpoint's text generation around it.
+ */
+export const DEFAULT_TEXT_GENERATION_SECONDS = 180;
 
 /**
  * How much longer than the text generation time limit the Environment waits for the agents Worker's answer: the agents
  * Worker ends the request at the limit itself and says why, so its answer, not the Environment's own deadline, reaches
- * t3 (SPI-1366; 10 s, today's 120 s less 110 s).
+ * t3 (SPI-1366; 10 s, the Environment's old 120 s less the old 110 s limit).
  */
 export const TEXT_GENERATION_MARGIN_MS = 10_000;
 
@@ -611,8 +646,11 @@ export const MAX_MCP_PAUSES_PER_CALL = 10_000;
 /** How long a CLI agent waits for an MCP relay server to start, by default (`cliMcpStartSeconds`, SPI-1366). */
 export const DEFAULT_CLI_MCP_START_SECONDS = 20;
 
-/** How long a connection to an MCP server may take to start, by default (`mcpConnectSeconds`, SPI-1363): today's 15 s. */
-export const DEFAULT_MCP_CONNECT_SECONDS = 15;
+/**
+ * How long a connection to an MCP server may take to start, by default (`mcpConnectSeconds`, SPI-1363): 30 s (SPI-1386),
+ * since a cold-starting server can take longer than the 15 s before it to initialize.
+ */
+export const DEFAULT_MCP_CONNECT_SECONDS = 30;
 
 /** How long one listing of an MCP server may take, every page, by default (`mcpListSeconds`, SPI-1363): today's 120 s. */
 export const DEFAULT_MCP_LIST_SECONDS = 120;
@@ -824,7 +862,11 @@ export const customResources = (
   diskMb: settings.customDiskMb,
 });
 
-export const DEFAULT_CONTAINER_SIZE: ContainerSize = "cpu-1";
+/**
+ * The Container size's default (SPI-1386): standard-3, 2 vCPU, 8 GiB and 16 GB, closer to a laptop than cpu-1, so a big
+ * build does not run out of memory; it costs more per Container hour. The custom size's fields default to its resources.
+ */
+export const DEFAULT_CONTAINER_SIZE = "standard-3" satisfies ContainerSize;
 
 /**
  * What `ctx.container.start({ instance })` takes for `size`: a custom size's resources (`custom` for `CUSTOM_SIZE`), a
@@ -833,7 +875,7 @@ export const DEFAULT_CONTAINER_SIZE: ContainerSize = "cpu-1";
  */
 export const containerInstance = (
   size: ContainerSize,
-  custom: ContainerResources = CONTAINER_SIZES["cpu-1"].resources,
+  custom: ContainerResources = CONTAINER_SIZES[DEFAULT_CONTAINER_SIZE].resources,
 ): ContainerInstance => {
   if (size === CUSTOM_SIZE) return custom;
   const entry = CONTAINER_SIZES[size];
@@ -878,7 +920,11 @@ export const ENVIRONMENT_SETTINGS = {
     title: "Custom size: vCPU",
     description: `The custom size's vCPU, used when the Container size or the Builder size is custom: at least ${CUSTOM_SIZE_MINIMUMS.vcpu}, Cloudflare's least. Past your account's limits (${ACCOUNT_DEFAULT_LIMITS.vcpu} vCPU, ${ACCOUNT_DEFAULT_LIMITS.memoryMib / 1024} GiB and ${ACCOUNT_DEFAULT_LIMITS.diskMb / 1000} GB by default) Cloudflare refuses the start, and no Container starts until the size changes. Applies at each Workspace's next Container start.`,
     // At least Cloudflare's minimum (`CUSTOM_SIZE_MINIMUMS`); no maximum of t3flare's: the account's limit is Cloudflare's.
-    schema: { type: "number", minimum: CUSTOM_SIZE_MINIMUMS.vcpu, default: CONTAINER_SIZES["cpu-1"].resources.vcpu },
+    schema: {
+      type: "number",
+      minimum: CUSTOM_SIZE_MINIMUMS.vcpu,
+      default: CONTAINER_SIZES[DEFAULT_CONTAINER_SIZE].resources.vcpu,
+    },
     disclosure: { contextual: { settings: ["containerSize", "builderSize"], equals: CUSTOM_SIZE } },
   },
   customMemoryMib: {
@@ -888,7 +934,7 @@ export const ENVIRONMENT_SETTINGS = {
       type: "number",
       minimum: CUSTOM_SIZE_MINIMUMS.memoryMib,
       whole: true,
-      default: CONTAINER_SIZES["cpu-1"].resources.memoryMib,
+      default: CONTAINER_SIZES[DEFAULT_CONTAINER_SIZE].resources.memoryMib,
     },
     disclosure: { contextual: { settings: ["containerSize", "builderSize"], equals: CUSTOM_SIZE } },
   },
@@ -899,7 +945,7 @@ export const ENVIRONMENT_SETTINGS = {
       type: "number",
       minimum: CUSTOM_SIZE_MINIMUMS.diskMb,
       whole: true,
-      default: CONTAINER_SIZES["cpu-1"].resources.diskMb,
+      default: CONTAINER_SIZES[DEFAULT_CONTAINER_SIZE].resources.diskMb,
     },
     disclosure: { contextual: { settings: ["containerSize", "builderSize"], equals: CUSTOM_SIZE } },
   },
@@ -940,8 +986,15 @@ export const ENVIRONMENT_SETTINGS = {
   containerBudget: {
     title: "Container budget",
     description:
-      "How many Containers may run at once across the Environment. Applies at the next start; lowering it stops no running Container, and new starts wait until fewer run.",
-    schema: { type: "integer", minimum: 1, maximum: MAX_CONTAINER_BUDGET, default: DEFAULT_CONTAINER_BUDGET },
+      "How many Containers may run at once across the Environment. Empty or 0 is off: no budget. Applies at the next start; lowering it stops no running Container, and new starts wait until fewer run.",
+    schema: {
+      type: "integer",
+      minimum: 0,
+      maximum: MAX_CONTAINER_BUDGET,
+      default: DEFAULT_CONTAINER_BUDGET,
+      off: true,
+      offLabel: "no budget",
+    },
     tier: "down-free",
     disclosure: "visible",
   },
@@ -1010,10 +1063,10 @@ export const ENVIRONMENT_SETTINGS = {
   turnLimitMinutes: {
     title: "Turn limit (minutes)",
     description:
-      "How long one agent turn may run, for Pi Durable and CLI agents alike. A turn longer than this is ended (a CLI agent's process with it), and the thread shows it failed. Each minute of a turn can spend model tokens and hold a Container. Applies at each thread's next turn; a running turn keeps the limit it started with.",
+      "How long one agent turn may run, for Pi Durable and CLI agents alike. Empty or 0 is off: a turn runs until it ends, as in stock t3. A turn longer than this is ended (a CLI agent's process with it), and the thread shows it failed. Each minute of a turn can spend model tokens and hold a Container. Applies at each thread's next turn; a running turn keeps the limit it started with.",
     // t3flare times it itself (the Session's alarm, the CLI wrapper's timer), so the shared sanity maximum applies: a
-    // week is under the 24.8 days past which a JS timer overflows.
-    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_TURN_LIMIT_MINUTES },
+    // week is under the 24.8 days past which a JS timer overflows. Off arms neither.
+    schema: { type: "integer", minimum: 0, maximum: MAX_TIMED_MINUTES, default: DEFAULT_TURN_LIMIT_MINUTES, off: true },
     tier: "down-free",
     disclosure: "visible",
   },
@@ -1100,19 +1153,19 @@ export const ENVIRONMENT_SETTINGS = {
   cloneMinutes: {
     title: "Clone time limit (minutes)",
     description:
-      "How long each clone may run in the Workspace's Container: a project's clone, and a new worktree's clone and its checkout. A clone or checkout that runs longer than this fails; while it runs it holds the Container. A new worktree's bundle counts against the Checkpoint time limit instead. Applies at the next clone or checkout; one already running keeps its limit.",
+      "How long each clone may run in the Workspace's Container: a project's clone, and a new worktree's clone and its checkout. Empty or 0 is off: it runs as long as it takes, up to a week. A clone or checkout that runs longer than this fails; while it runs it holds the Container. A new worktree's bundle counts against the Checkpoint time limit instead. Applies at the next clone or checkout; one already running keeps its limit.",
     // computerd times each exec with its own timer and no maximum (computer 0.11.2), so the shared sanity maximum
-    // applies (ADR-0048 §2).
-    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_CLONE_MINUTES },
+    // applies (ADR-0048 §2); off gives it `OFF_DEADLINE_MS`.
+    schema: { type: "integer", minimum: 0, maximum: MAX_TIMED_MINUTES, default: DEFAULT_CLONE_MINUTES, off: true },
     tier: "down-free",
     disclosure: "advanced",
   },
   checkpointMinutes: {
     title: "Checkpoint time limit (minutes)",
     description:
-      "How long each checkpoint may run in the Workspace's Container: a turn's checkpoint and its restore, bundling a project's commits into a new worktree, and carrying a removed worktree's commits home. A checkpoint, bundle or carry that runs longer than this fails; while it runs it holds the Container. A removed worktree whose commits could not be carried home is kept, not purged. Applies at the next checkpoint, bundle or carry; one already running keeps its limit.",
-    // As the clone time limit: computerd's own timer, no maximum, the shared sanity maximum (ADR-0048 §2).
-    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_CHECKPOINT_MINUTES },
+      "How long each checkpoint may run in the Workspace's Container: a turn's checkpoint and its restore, bundling a project's commits into a new worktree, and carrying a removed worktree's commits home. Empty or 0 is off: each runs as long as it takes, up to a week. A checkpoint, bundle or carry that runs longer than this fails; while it runs it holds the Container. A removed worktree whose commits could not be carried home is kept, not purged. Applies at the next checkpoint, bundle or carry; one already running keeps its limit.",
+    // As the clone time limit: computerd's own timer, no maximum, the shared sanity maximum (ADR-0048 §2), off a week.
+    schema: { type: "integer", minimum: 0, maximum: MAX_TIMED_MINUTES, default: DEFAULT_CHECKPOINT_MINUTES, off: true },
     tier: "down-free",
     disclosure: "advanced",
   },
@@ -1239,25 +1292,39 @@ export const ENVIRONMENT_SETTINGS = {
   usageRetentionDays: {
     title: "Usage records kept (days)",
     description:
-      "How many days t3flare keeps its usage records: each model answer's tokens and cost, which t3's Usage page shows. Shortening this deletes the older records at the next prune; they cannot be restored. t3's Usage page shows at most 90 days, so records older than that are kept but shown nowhere until t3 widens its window. At most 3650 (ten years), which keeps them for good. Applies at the next prune (at most once an hour, as usage is recorded) and to usage recorded from then on.",
-    schema: { type: "integer", minimum: 1, maximum: MAX_RETENTION_DAYS, default: DEFAULT_USAGE_RETENTION_DAYS },
+      "How many days t3flare keeps its usage records: each model answer's tokens and cost, which t3's Usage page shows. Empty or 0 is off: they are kept for good, as local t3 keeps them. Shortening this deletes the older records at the next prune; they cannot be restored. t3's Usage page shows at most 90 days, so records older than that are kept but shown nowhere until t3 widens its window. At most 3650 (ten years). Applies at the next prune (at most once an hour, as usage is recorded) and to usage recorded from then on.",
+    schema: {
+      type: "integer",
+      minimum: 0,
+      maximum: MAX_RETENTION_DAYS,
+      default: DEFAULT_USAGE_RETENTION_DAYS,
+      off: true,
+      offLabel: "for good",
+    },
     tier: "up-free",
     disclosure: "advanced",
   },
   piSessionRetentionDays: {
     title: "Pi and Claude Code sessions kept (days)",
     description:
-      "How many days a Pi or Claude Code session no one has written to is kept. An older one is deleted at the next Pi start, or by Claude Code at its next start; t3 can no longer resume that thread's conversation. At most 3650 (ten years), which keeps them for good. Applies at each Pi or Claude Code start.",
-    schema: { type: "integer", minimum: 1, maximum: MAX_RETENTION_DAYS, default: DEFAULT_PI_SESSION_RETENTION_DAYS },
+      "How many days a Pi or Claude Code session no one has written to is kept. Empty or 0 is off: each agent keeps its own way, Pi for good and Claude Code for its own 30 days. An older one is deleted at the next Pi start, or by Claude Code at its next start; t3 can no longer resume that thread's conversation. At most 3650 (ten years). Applies at each Pi or Claude Code start.",
+    schema: {
+      type: "integer",
+      minimum: 0,
+      maximum: MAX_RETENTION_DAYS,
+      default: DEFAULT_PI_SESSION_RETENTION_DAYS,
+      off: true,
+      offLabel: "each agent's own",
+    },
     tier: "up-free",
     disclosure: "advanced",
   },
   mcpCallSeconds: {
     title: "MCP call time limit (seconds)",
-    description: `How long one MCP tool call may run before t3flare ends it and the agent is told it failed; it may have run on the server. Time spent waiting for your answer to the server's question does not count. A CLI agent's own tool timeout grows with it. At most ${MAX_TIMED_SECONDS} (a week). Applies at the next call; a CLI agent's timeout at its next start.`,
+    description: `How long one MCP tool call may run before t3flare ends it and the agent is told it failed; it may have run on the server. Empty or 0 is off: t3flare ends a call only after a week, and the server's own timeout still applies. Time spent waiting for your answer to the server's question does not count. A CLI agent's own tool timeout grows with it. At most ${MAX_TIMED_SECONDS} (a week). Applies at the next call; a CLI agent's timeout at its next start.`,
     // The MCP engine times the call with its own timer (packages/mcp/src/connection.ts), no platform limit: the shared
-    // sanity maximum applies (ADR-0048 §2).
-    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: DEFAULT_MCP_CALL_SECONDS },
+    // sanity maximum applies (ADR-0048 §2); off gives it `OFF_DEADLINE_MS`.
+    schema: { type: "integer", minimum: 0, maximum: MAX_TIMED_SECONDS, default: DEFAULT_MCP_CALL_SECONDS, off: true },
     tier: "down-free",
     disclosure: "advanced",
   },
@@ -1566,10 +1633,10 @@ export const ENVIRONMENT_SETTINGS = {
   },
   commandMinutes: {
     title: "Command time limit (minutes)",
-    description: `How long a command in the Workspace's Container may run when nothing else sets its limit: an agent's search or read of a path only the Container has, and the credential helper's install. A command that runs longer than this is ended and fails; while it runs it holds the Container. t3's own git commands are not cut by it: each ends when t3 gives up on it. At most ${MAX_TIMED_MINUTES} (a week). Applies at each Workspace's next Container start.`,
+    description: `How long a command in the Workspace's Container may run when nothing else sets its limit: an agent's search or read of a path only the Container has, and the credential helper's install. Empty or 0 is off: it runs as long as it takes, up to a week. A command that runs longer than this is ended and fails; while it runs it holds the Container. t3's own git commands are not cut by it: each ends when t3 gives up on it. At most ${MAX_TIMED_MINUTES} (a week). Applies at each Workspace's next Container start.`,
     // computerd times each exec with its own timer and no maximum (computer 0.11.2), so the shared sanity maximum applies
-    // (ADR-0048 §2).
-    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_COMMAND_MINUTES },
+    // (ADR-0048 §2); off gives it `OFF_DEADLINE_MS`.
+    schema: { type: "integer", minimum: 0, maximum: MAX_TIMED_MINUTES, default: DEFAULT_COMMAND_MINUTES, off: true },
     tier: "down-free",
     disclosure: "advanced",
   },

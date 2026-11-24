@@ -505,21 +505,25 @@ export const wrapCliAdapter = (
               };
               session.process?.turn(true);
               if (session.limitFiber !== undefined) yield* Fiber.interrupt(session.limitFiber);
+              session.limitFiber = undefined;
               // The Turn limit as it is now, kept by this turn's timer: a change reaches only the thread's next turn. At
-              // most MAX_TIMED_MINUTES (7 days), under the 24.8 days past which a JS timer overflows.
-              session.limitFiber = yield* Effect.sleep(turnLimitMs()).pipe(
-                Effect.andThen(
-                  Effect.sync(() => {
-                    workersLog("warn", {
-                      t3flare: "cli-turn-limit",
-                      providerSessionId: input.providerSessionId,
-                      key: session.process?.key ?? null,
-                    });
-                    session.process?.kill();
-                  }),
-                ),
-                Effect.forkDetach,
-              );
+              // most MAX_TIMED_MINUTES (7 days), under the 24.8 days past which a JS timer overflows. Off (0, the
+              // default, SPI-1386): no timer is started.
+              const limitMs = turnLimitMs();
+              if (limitMs > 0)
+                session.limitFiber = yield* Effect.sleep(limitMs).pipe(
+                  Effect.andThen(
+                    Effect.sync(() => {
+                      workersLog("warn", {
+                        t3flare: "cli-turn-limit",
+                        providerSessionId: input.providerSessionId,
+                        key: session.process?.key ?? null,
+                      });
+                      session.process?.kill();
+                    }),
+                  ),
+                  Effect.forkDetach,
+                );
               const text =
                 options.rewriteTurnText === undefined
                   ? turn.message.text

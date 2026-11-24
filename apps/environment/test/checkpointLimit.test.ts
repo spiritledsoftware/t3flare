@@ -66,11 +66,11 @@ describe("the checkpoint time limit (SPI-1324)", () => {
     ]);
   });
 
-  it("carries the default, 10 minutes, when the services hold no setting", async () => {
+  it("carries the default, off (0: the Workspace DO's off deadline, SPI-1386), when the services hold no setting", async () => {
     const calls: Array<{ op: string; options: unknown }> = [];
     bind(calls);
     const ops = await checkpoints();
     await Effect.runPromise(ops.captureCheckpoint({ cwd: "/w/repo", checkpointRef: "refs/t3/a" } as never));
-    expect(calls).toEqual([{ op: "capture", options: { timeoutMs: 600_000 } }]);
+    expect(calls).toEqual([{ op: "capture", options: { timeoutMs: 0 } }]);
   });
 });

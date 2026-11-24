@@ -8,11 +8,11 @@
 // nothing it shows, and it keeps the time zones whose offset is not whole hours (India's, Nepal's) on the right day. A
 // busy session makes one row a quarter hour, not one a request, so a read of the whole window stays small.
 //
-// Bounded by the retention alone (SPI-1366): rows older than the Owner's `usageRetentionDays` (SPI-1323; its default,
-// 92 days, matches t3's own `CACHE_RETENTION_DAYS` in `UsageService.ts`, more than the page's widest range, 90 days) are
-// deleted on a write, at most once an hour. No count of rows is cut inside it: the DO's SQLite holds 10 GB. A retention
-// past 90 days keeps rows the page does not show until t3 widens its window; t3's own `usageHistoryRetentionDays`
-// governs only its transcript cache, never these rows.
+// Bounded by the retention alone (SPI-1366): rows older than the Owner's `usageRetentionDays` (SPI-1323) are deleted on
+// a write, at most once an hour. Its default is off (0, SPI-1386: local t3 keeps its usage records): then every row is
+// kept and none is deleted. No count of rows is cut inside it: the DO's SQLite holds 10 GB. A retention past 90 days
+// keeps rows the page does not show until t3 widens its window; t3's own `usageHistoryRetentionDays` governs only its
+// transcript cache, never these rows.
 //
 // A row's `requests` is the answers it adds up; t3's page counts records, so its record counts are rows (a quarter hour
 // of one session on one model), not requests. Tokens, costs and sessions (distinct session ids) are exact.
@@ -129,7 +129,7 @@ export const resetUsageStoreForTests = (): void => {
 export interface UsageStoreOptions {
   /**
    * The days kept (`usageRetentionDays`, SPI-1323), read at each prune and each record, so a change applies at the next
-   * prune and to entries recorded from then on. Absent: `DEFAULT_USAGE_RETENTION_DAYS`.
+   * prune and to entries recorded from then on; 0 is off, kept for good. Absent: `DEFAULT_USAGE_RETENTION_DAYS`.
    */
   readonly retentionDays?: () => number;
 }
@@ -138,7 +138,7 @@ export const usageStore = (sql: SqlStorage, options: UsageStoreOptions = {}): Us
   const retentionDays = options.retentionDays ?? (() => DEFAULT_USAGE_RETENTION_DAYS);
   let prunedAt = Number.NEGATIVE_INFINITY;
   const prune = (now: number, days: number) => {
-    if (now - prunedAt < PRUNE_EVERY_MS) return;
+    if (days === 0 || now - prunedAt < PRUNE_EVERY_MS) return;
     prunedAt = now;
     // The retention alone bounds the table (SPI-1366): no row count is cut inside it.
     sql.exec("DELETE FROM t3flare_usage WHERE slot < ?", now - days * DAY_MS);
@@ -147,7 +147,7 @@ export const usageStore = (sql: SqlStorage, options: UsageStoreOptions = {}): Us
     record(entries, endpoints, now) {
       ensure(sql);
       const days = retentionDays();
-      const oldest = now - days * DAY_MS;
+      const oldest = days === 0 ? Number.NEGATIVE_INFINITY : now - days * DAY_MS;
       let kept = 0;
       for (const raw of entries) {
         const entry = usageEntryOf(raw);

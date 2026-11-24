@@ -277,7 +277,9 @@ describe("the asked change's wait is the Answer wait (SPI-1316)", () => {
   });
 
   it("the Settings server's instructions name the wait they are built with", () => {
-    expect(settingsInstructions(30 * 60_000)).toContain("(at most 30 minutes, one at a time per thread)");
+    expect(settingsInstructions(30 * 60_000, 1)).toContain("(at most 30 minutes, one at a time per thread)");
+    // Off (0, the default since SPI-1386), no count.
+    expect(settingsInstructions(30 * 60_000)).toContain("on a card or its Change page (at most 30 minutes).");
     // SPI-1322: the Settings server's openPerThread.
     expect(settingsInstructions(30 * 60_000, 3)).toContain("(at most 30 minutes, at most 3 at a time per thread)");
     expect(settingsOwnerInstructions(60_000)).toContain("on its Change page (at most a minute)");

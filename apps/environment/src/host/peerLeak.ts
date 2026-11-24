@@ -23,9 +23,12 @@ export const DUMP_SLICE_BYTES = 4 * 1024 * 1024;
 export const DUMP_END = "== t3flare: end of dump";
 
 /**
- * How long the dump may run. Not the Owner's command time limit (`commandMinutes`, 2 minutes by default): the dump copies
- * every file a command could read, `node_modules` included, and this is an admin check that must not pass by scanning
- * nothing. The shared sanity maximum (ADR-0048 §2): computerd times the exec with its own timer and no maximum.
+ * How long the dump may run: its own deadline, never the Owner's command time limit (`commandMinutes`), which a set value
+ * would make too short for a dump that copies every file a command could read, `node_modules` included, and this is an
+ * admin check that must not pass by scanning nothing. The shared sanity maximum (ADR-0048 §2): computerd times the exec
+ * with its own timer and no maximum. It is the week an off command limit (the default, SPI-1386) gives a Workspace's
+ * commands (`OFF_DEADLINE_MS`): with that limit off, the dump this check searches for leaked secrets may run as long as
+ * an agent's command may.
  */
 export const DUMP_TIMEOUT_MS = MAX_TIMED_MINUTES * 60_000;
 

@@ -14,7 +14,7 @@ import {
   settingOf,
   type StoredEnvironment,
 } from "./environment.ts";
-import type { SettingTier } from "./fields.ts";
+import { type EnvironmentFieldSchema, isOff, type SettingTier } from "./fields.ts";
 import {
   EXTENSIONS,
   type HarnessChange,
@@ -24,7 +24,14 @@ import {
   resolveHarness,
   type StoredHarness,
 } from "./index.ts";
-import { type Exposure, type McpServerSetting, ownEntry, SETTINGS_SERVER, type ToolClass } from "./mcp.ts";
+import {
+  type Exposure,
+  type McpServerSetting,
+  ownEntry,
+  SETTINGS_SERVER,
+  SETTINGS_SERVER_LIMITS,
+  type ToolClass,
+} from "./mcp.ts";
 import {
   applyToolsChange,
   builtinTool,
@@ -102,9 +109,32 @@ const verdictOf = (parts: ReadonlyArray<Part>, needsPage?: NeedsPage): TierVerdi
   };
 };
 
-/** One setting's move from `before` to `after` under its tier rule. */
-const settingPart = (name: string, tier: SettingTier | undefined, before: unknown, after: unknown): Part => {
-  const shown = `${name}: ${JSON.stringify(before)} to ${JSON.stringify(after)}`;
+/**
+ * Where a value ranks for its tier rule: an `off` setting's 0 (no limit, SPI-1386) above every limit, so turning a
+ * guardrail off is the widening direction and setting one from off the narrowing one; any other value as it is.
+ */
+const offRank = (schema: EnvironmentFieldSchema | undefined, value: unknown): unknown =>
+  schema !== undefined && isOff(schema, value) ? Number.POSITIVE_INFINITY : value;
+
+/** A value as a reason shows it: an `off` setting's 0 as "off". */
+const shownValue = (schema: EnvironmentFieldSchema | undefined, value: unknown): string =>
+  schema !== undefined && isOff(schema, value) ? "off" : JSON.stringify(value);
+
+/**
+ * One setting's move from `rawBefore` to `rawAfter` under its tier rule; `schema`, its own, ranks an `off` setting's 0
+ * (the reason shows the raw values, the rule compares the ranked ones).
+ */
+const settingPart = (
+  name: string,
+  tier: SettingTier | undefined,
+  rawBefore: unknown,
+  rawAfter: unknown,
+  schema?: EnvironmentFieldSchema,
+): Part => {
+  const shown = `${name}: ${shownValue(schema, rawBefore)} to ${shownValue(schema, rawAfter)}`;
+  // Compared as ranked: an `off` setting's 0 above every limit.
+  const before = offRank(schema, rawBefore);
+  const after = offRank(schema, rawAfter);
   if (tier === "free") return { asked: false, reason: `${shown} (free in either direction)` };
   if (tier === "down-free") {
     const down =
@@ -143,7 +173,9 @@ const extensionTier = (stored: StoredHarness, change: HarnessChange): TierVerdic
     const before = current.settings[key];
     if (before === value) continue;
     // A Guard's settings are asked whatever their own rule (plan D5).
-    parts.push(settingPart(`${entry.id}.${key}`, entry.guard === true ? undefined : setting.tier, before, value));
+    parts.push(
+      settingPart(`${entry.id}.${key}`, entry.guard === true ? undefined : setting.tier, before, value, setting.schema),
+    );
   }
   return verdictOf(parts);
 };
@@ -221,7 +253,7 @@ const mcpTier = (
       parts.push(
         before === undefined
           ? { asked: true, reason: `${name}: not a limit this registry knows` }
-          : mark(settingPart(name, undefined, before, after)),
+          : mark(settingPart(name, undefined, before, after, ownEntry(SETTINGS_SERVER_LIMITS, key)?.schema)),
       );
     }
   }
@@ -306,7 +338,9 @@ const environmentTier = (stored: StoredEnvironment, change: EnvironmentChange): 
   if (!applied.ok) return { tier: "asked", reasons: [applied.error] };
   const before: Readonly<Record<string, unknown>> = resolveEnvironment(stored);
   const after: Readonly<Record<string, unknown>> = resolveEnvironment(applied.environment);
-  return verdictOf(applied.changed.map((key) => settingPart(key, settingOf(key).tier, before[key], after[key])));
+  return verdictOf(
+    applied.changed.map((key) => settingPart(key, settingOf(key).tier, before[key], after[key], settingOf(key).schema)),
+  );
 };
 
 const skillsTier = (change: SkillsTierChange): TierVerdict => {

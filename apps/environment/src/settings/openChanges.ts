@@ -50,7 +50,8 @@ export interface CapRefusal {
 /**
  * Why `caller` may not open an asked change of `hash` now (plan D16), or undefined. `openList` is the panel's Open
  * changes list, named by the per-hour cap's refusal. `limits` are the Settings server's (SPI-1322), as stored
- * now: the counts already recorded are judged by them.
+ * now: the counts already recorded are judged by them. A limit that is off (0, SPI-1386) is never hit, and the table is
+ * not read for it.
  */
 export const capRefusal = (
   changes: SettingsChanges,
@@ -61,9 +62,9 @@ export const capRefusal = (
   limits: SettingsServerLimits = changes.limits(),
 ): CapRefusal | undefined => {
   const capKey = capKeyOf(caller.door, caller.key);
-  const mine = changes.openBy(capKey);
   const perCaller = caller.door === "own" ? limits.openPerThread : limits.openPerOwner;
-  if (mine.length >= perCaller) {
+  const mine = perCaller === 0 ? [] : changes.openBy(capKey);
+  if (perCaller !== 0 && mine.length >= perCaller) {
     const [first] = mine;
     return {
       reason: caller.door === "own" ? "open-thread" : "open-owner",
@@ -83,7 +84,7 @@ export const capRefusal = (
     };
   }
   const opened = limits.askedPerHour;
-  if (changes.openedSince(capKey, now - OPENED_WINDOW_MS) >= opened) {
+  if (opened !== 0 && changes.openedSince(capKey, now - OPENED_WINDOW_MS) >= opened) {
     return {
       reason: "opened-cap",
       text:
@@ -93,7 +94,9 @@ export const capRefusal = (
     };
   }
   const repeatMs = limits.declinedRepeatMinutes * 60_000;
-  const lockMs = limits.strikeLockMinutes * 60_000;
+  // The lock is off when either its strikes or its length is (SPI-1386): no run of strikes locks a caller out.
+  const strikes = limits.strikes;
+  const lockMs = strikes === 0 ? 0 : limits.strikeLockMinutes * 60_000;
   // Everything the table keeps: a run's window is known only once its changes are (SPI-1316), and the kept time covers
   // the declined repeat too (SPI-1322 review). Not read at all when the repeat and the lock are both off (SPI-1393).
   const recent = repeatMs === 0 && lockMs === 0 ? [] : changes.closedBy(capKey, now - changes.keptMs());
@@ -110,14 +113,13 @@ export const capRefusal = (
   const strike = (record: ChangeRecord) =>
     record.state === "declined" || (caller.door === "own" && record.state === "expired");
   // The lock runs from the last strike of the run (plan D16: refused for an hour after the third).
-  const strikes = limits.strikes;
   const run = recent.filter((record) => record.state === "applied" || strike(record)).slice(0, strikes);
   const last = run[0]?.closed?.at ?? 0;
   const first = run.at(-1)?.closed?.at ?? 0;
   // SPI-1316: the run's window follows the longest wait its changes took, so a long wait's spaced-out expiries still
   // make a run, whatever the wait is now.
   const window = strikeWindowMs(Math.max(0, ...run.map(waitOf)), limits);
-  if (run.length === strikes && run.every(strike) && last - first <= window && now < last + lockMs) {
+  if (lockMs !== 0 && run.length === strikes && run.every(strike) && last - first <= window && now < last + lockMs) {
     return {
       reason: "strikes",
       // ADR-0049 §4: the three limits that made the lock, each with the value it applied (the window as `strikeWindowMs`
@@ -125,7 +127,7 @@ export const capRefusal = (
       text: `Not changed: your last ${strikes === 1 ? "asked change was" : `${strikes} asked changes were`} ${caller.door === "own" ? "declined or unanswered" : "declined"}, so t3flare refuses your asked changes until ${new Date(last + lockMs).toISOString()} (${durationText(lockMs)} after the last): ${strikes === 1 ? "1 strike" : `${strikes} strikes`} within ${durationText(window)} (${window > limits.strikeWindowMinutes * 60_000 ? "the Strike window, stretched to the run's longest wait for an answer" : "the Strike window"}) ${strikes === 1 ? "locks" : "lock"} a caller out for the Strike lock of ${durationText(lockMs)}${changeThemUnder([{ settingsServer: "strikes" }, { settingsServer: "strikeWindowMinutes" }, { settingsServer: "strikeLockMinutes" }])}. Ask the owner in the thread what he wants.`,
     };
   }
-  if (changes.appliedSince(capKey, now - APPLIED_WINDOW_MS) >= limits.appliedPerHour) {
+  if (limits.appliedPerHour !== 0 && changes.appliedSince(capKey, now - APPLIED_WINDOW_MS) >= limits.appliedPerHour) {
     return {
       reason: "applied-cap",
       text: `${limitHit(`Not changed: ${caller.door === "own" ? "this thread" : "you"} made ${limits.appliedPerHour} settings changes in the last hour, ${caller.door === "own" ? "its" : "your"} limit of ${limits.appliedPerHour} an hour`, { settingsServer: "appliedPerHour" })} Try again later, or ask the owner.`,

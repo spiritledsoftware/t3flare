@@ -77,9 +77,9 @@ See also [§6](#6-pi-harness-parity-the-owners-pi-setup-vs-the-durable-agent) fo
 
 ### Terminals, setup scripts, worktrees
 
-| Feature                                             | Stock                      | t3flare                                                                                                     | Evidence                    | Step |
-| --------------------------------------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------- | --------------------------- | ---- |
-| Terminal, setup scripts, worktree threads, deletion | `ws.ts:3224-3239`, `:3211` | W; documented differences: ends with the Environment, 8 shells, 3 Containers, full clones, no fast checkout | step-2b; ADR-0021, ADR-0008 | done |
+| Feature                                             | Stock                      | t3flare                                                                                                                                                                      | Evidence                    | Step |
+| --------------------------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | ---- |
+| Terminal, setup scripts, worktree threads, deletion | `ws.ts:3224-3239`, `:3211` | W; documented differences: ends with the Environment, 8 shells, full clones, no fast checkout (no Container budget by default since SPI-1386; an Owner's budget is one more) | step-2b; ADR-0021, ADR-0008 | done |
 
 ### Previews
 

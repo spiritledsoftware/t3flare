@@ -475,9 +475,14 @@ const TargetFields = {
   redact: Schema.Array(Schema.String).pipe(Schema.optionalKey),
   /**
    * The server's call timeout (the host's `mcpCallSeconds`; 60 s when absent): a `tools/call`'s, and every other
-   * request's after the connect.
+   * request's after the connect unless `requestTimeoutMs` says otherwise.
    */
   timeoutMs: Schema.optionalKey(Schema.Int),
+  /**
+   * Every request's timeout after the connect but a `tools/call`'s (SPI-1386): a resource read, a prompt, a listing page,
+   * a completion, a subscription, a task's poll. Absent (a host older than this field): `timeoutMs`.
+   */
+  requestTimeoutMs: Schema.optionalKey(Schema.Int),
   /**
    * How long a probe or an `initialize` may take (`mcpConnectSeconds`). Absent from a host older than this field:
    * `MCP_CONNECT_TIMEOUT_MS`.
