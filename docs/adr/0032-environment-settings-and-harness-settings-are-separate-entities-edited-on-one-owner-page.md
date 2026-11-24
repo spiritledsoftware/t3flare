@@ -716,8 +716,8 @@ a resume's `retry` as asked, unless that reaches the request's whole time limit,
 Removed: the elicitation form's bounds (32 fields, 100 options, 64 KiB of schema, 16 KiB a value, 64 KiB an answer) and
 its labels' cuts (the message's 4,000, titles' 120, descriptions' 500, options' 200, quoted names' 60); the card's own
 cuts of the agent's call (8 KiB) and its titles (200); a page question's 8,192-character address, which now stays outside
-the card's cut, whole; a `ui://` URI's 2,048; an App's 4 MiB of HTML and its 12 MiB read, which is now a read like any
-other (16 MiB); the 64 KiB a Modern server's `server/discover` was kept to; the 20 characters of a direct server's name
+the card's cut, whole; a `ui://` URI's 2,048; an App's 4 MiB of HTML and its 12 MiB read (the App's read is now held to the MCP result
+size, below); the 64 KiB a Modern server's `server/discover` was kept to; the 20 characters of a direct server's name
 (its tools' names stay held to 64); a structured result's 5 validation errors; the 32 and 64 characters a token type and
 an OAuth error code were cut to; and the dead `MCP_ELICITATIONS_PER_CALL`, `MCP_PROMPT_GET_TIMEOUT_MS`,
 `MAX_TOKEN_BYTES`, `MCP_MAX_WAIT_MS` with the request-start schema that named it, and the stdio bridge's connect
@@ -727,3 +727,10 @@ Kept, with their constraints named where they are set: the tool definitions one 
 its one 8 MB Durable Object value in stored bytes (`MAX_SCHEMA_BYTES`), with no count of tools (was 200 tools and 256
 KiB); and the remote-controlled bodies of a sign-in (metadata, discovery, a token response), raised to 1 MiB, the tap's
 bound on any other MCP answer, under the 128 MB isolate they are read into and the 8 MB value they may be kept in.
+
+Bounded by what carries them: a server's question is declined unseen, saying why, when its card would pass 1 MiB stored
+(`MCP_CARD_BYTES`), since a card is pushed to t3 as one request and kept in its 8 MB event row, and a question arrives in
+a `tools/call` body or a pause's result, which hold far more; an App's resource is read at the MCP result size
+(`mcpResultKiB`, at most 8 MiB) and refused past it in characters, since it crosses the relay's 32 MiB RPC as UTF-16; and
+a server's refused tools are cut, names and reasons to 300 characters and the list to what the inventory's value has
+left, ending with how many more were refused.
