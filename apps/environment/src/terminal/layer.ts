@@ -9,7 +9,8 @@
 // - `subprocessInspector`: the rc file's markers (review F1), so t3 never spawns `ps` and `closeIdle` keeps a terminal
 //   that runs `npm run dev`;
 // - `historyByteLimit` and `maxRetainedInactiveSessions` from t3flare's `TERMINAL_HISTORY_KIB` and `EXITED_TERMINALS_KEPT`
-//   (SPI-1364, SPI-1387; 1 MiB and 16, for the 128 MB isolate);
+//   (SPI-1364, SPI-1387, SPI-1391): stock t3's 8 MiB and 128, which fit because Patch 0009 keeps each Terminal's
+//   history in its log file, in the DO's storage, rather than in the isolate's memory;
 // - `registerTerminalProcesses` and `unregisterTerminal` name each shell's thread and terminal for our port discovery
 //   (G11, `preview/portDiscovery.ts`), which attributes a listener by its shell's key: the inspector reports the shell's
 //   own (synthetic) pid for that, and nothing else reads it;
@@ -63,7 +64,7 @@ export const terminalManagerOptions = (processes: TerminalProcesses, logsDir: st
   logsDir,
   env: { ...TERMINAL_BASE_ENV },
   shellResolver: () => "/bin/bash",
-  // SPI-1364, SPI-1387: fixed for the Environment DO's 128 MB isolate (stock t3: 8 MiB and 128).
+  // SPI-1364, SPI-1387, SPI-1391: stock t3's values, as named constants.
   historyByteLimit: TERMINAL_HISTORY_KIB * 1024,
   maxRetainedInactiveSessions: EXITED_TERMINALS_KEPT,
   ptyAdapter: {

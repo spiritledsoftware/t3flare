@@ -225,14 +225,13 @@ export const ISOLATE_MEMORY_MB = 128;
 export const FIRST_PROMPT_SECONDS = 20;
 
 /**
- * t3's Terminals' history in the Environment DO (SPI-1364, SPI-1387): each Terminal's history in KiB, and how many exited
- * Terminals keep theirs for a reattach. A memory-safety bound, not a measured force: every Workspace's open and exited
- * Terminals keep their history in the one Environment DO isolate (`ISOLATE_MEMORY_MB`, 128 MB) beside t3's server, a
- * total no single count bounds (the Workspaces' open Terminals plus 16 exited ones, 1 MiB each), so they stay at 1 MiB and
- * 16 where stock t3 keeps 8 MiB and 128. SPI-1391 / SPI-1397 measure and lift this.
+ * t3's Terminals' history in the Environment DO (SPI-1364, SPI-1387, SPI-1391): each Terminal's history in KiB, and how
+ * many exited Terminals keep theirs for a reattach. Stock t3's values (8 MiB and 128): the history lives in each
+ * Terminal's log file in the DO's storage, and memory holds only output not yet written there (Patch 0009,
+ * docs/upstream-fragility.md U107).
  */
-export const TERMINAL_HISTORY_KIB = 1024;
-export const EXITED_TERMINALS_KEPT = 16;
+export const TERMINAL_HISTORY_KIB = 8 * 1024;
+export const EXITED_TERMINALS_KEPT = 128;
 
 /** The Container preview ports by default (G11, ADR-0031): the dev servers' usual ports. */
 export const DEFAULT_PREVIEW_PORTS: ReadonlyArray<number> = [3000, 3001, 4173, 4321, 5173, 5174, 8000, 8787];
@@ -288,14 +287,6 @@ export const ownerAnswerMsOf = (environment: { readonly ownerAnswerMinutes: numb
  */
 export const DEFAULT_TERMINAL_BUSY_HOLD_MINUTES = 30;
 export const DEFAULT_TERMINAL_PROMPT_HOLD_MINUTES = 10;
-
-/**
- * How many of the Owner's own t3 Terminals one Workspace may have open at once (ADR-0021's 8; SPI-1317, SPI-1387). A
- * memory-safety bound, not a measured force: each holds up to `TERMINAL_HISTORY_KIB` of history in the one Environment DO
- * isolate that every Workspace's Terminals share (8 × 1 MiB a Workspace, times the Workspaces in use, beside t3's
- * server). SPI-1391 / SPI-1397 measure and lift this.
- */
-export const TERMINALS_PER_WORKSPACE = 8;
 
 /**
  * How many Terminals and Background jobs Pi Durable agents may run at once per Workspace, across its threads (SPI-1317,

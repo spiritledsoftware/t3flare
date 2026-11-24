@@ -51,11 +51,11 @@ describe("the router trace", () => {
 });
 
 describe("t3's Terminals' history", () => {
-  it("takes the fixed history size and kept exited Terminals, 1 MiB and 16", () => {
-    expect([TERMINAL_HISTORY_KIB, EXITED_TERMINALS_KEPT]).toEqual([1024, 16]);
+  it("takes stock t3's history size and kept exited Terminals, 8 MiB and 128 (SPI-1391)", () => {
+    expect([TERMINAL_HISTORY_KIB, EXITED_TERMINALS_KEPT]).toEqual([8 * 1024, 128]);
     expect(terminalManagerOptions(makeTerminalProcesses(), "/logs")).toMatchObject({
-      historyByteLimit: 1024 * 1024,
-      maxRetainedInactiveSessions: 16,
+      historyByteLimit: 8 * 1024 * 1024,
+      maxRetainedInactiveSessions: 128,
     });
   });
 });

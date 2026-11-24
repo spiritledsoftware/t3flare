@@ -56,7 +56,6 @@ const harness = (
     answer?: (frames: ReadonlyArray<TerminalFrame>) => TerminalPushAnswer;
     beforeSpawn?: () => Promise<void>;
     readBashrc?: () => boolean;
-    maxTerminals?: () => number;
     killAnswer?: KillAnswer;
     firstPromptMs?: () => number;
   } = {},
@@ -99,7 +98,6 @@ const harness = (
     beforeSpawn: options.beforeSpawn ?? (async () => undefined),
     projectRootView: "/workspace/.t3flare/project-root",
     ...(options.readBashrc === undefined ? {} : { readBashrc: options.readBashrc }),
-    ...(options.maxTerminals === undefined ? {} : { maxTerminals: options.maxTerminals }),
     ...(options.firstPromptMs === undefined ? {} : { firstPromptMs: options.firstPromptMs }),
   };
   const host = new TerminalHost(deps);
@@ -269,31 +267,13 @@ describe("TerminalHost", () => {
     expect(h.killed).toEqual([["term-a1"]]);
   });
 
-  it("refuses a terminal over the limit and one whose Container cannot start, in the terminal", async () => {
-    let max = 2;
-    const h = harness({ maxTerminals: () => max });
-    for (let i = 0; i < 2; i++) await h.host.open(open(`term-${i}`));
-    await h.host.open(open("term-extra"));
-    await h.host.settled();
-    // SPI-1387: the limit names itself and its value.
-    expect(h.text("term-extra")).toContain(
-      "already has 2 open terminals, and a Workspace may have at most 2 (a fixed limit: each keeps its history in the Environment's memory); close one first",
-    );
-    expect(h.frames.at(-1)).toMatchObject({ key: "term-extra", exit: { code: 1 } });
-    // A lower count closes none already open; the next open is refused against it.
-    max = 1;
-    await h.host.settled();
-    expect(h.host.keys()).toEqual(expect.arrayContaining(["term-0", "term-1"]));
-    expect(h.killed).toEqual([]);
-    await h.host.open(open("term-more"));
-    await h.host.settled();
-    expect(h.text("term-more")).toContain("may have at most 1");
-
-    // No cap of the host's own (the agent's host): past the default 8, every one opens.
-    const uncapped = harness();
-    for (let i = 0; i < 9; i++) await uncapped.host.open(open(`term-${i}`));
-    await uncapped.host.settled();
-    expect(uncapped.text("term-8")).not.toContain("already has");
+  it("opens any number of terminals, and refuses one whose Container cannot start, in the terminal", async () => {
+    // SPI-1391: the Owner's Terminals per Workspace have no limit, as locally.
+    const many = harness();
+    for (let i = 0; i < 20; i++) await many.host.open(open(`term-${i}`));
+    await many.host.settled();
+    expect(many.spawned).toHaveLength(20);
+    expect(many.frames.some((frame) => frame.exit !== undefined)).toBe(false);
 
     const refused = harness({ running: false, refuse: "the Container cannot start: 3 Containers are running" });
     await refused.host.open(open("term-a1"));

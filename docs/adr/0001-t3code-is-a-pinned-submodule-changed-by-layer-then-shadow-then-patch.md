@@ -73,3 +73,9 @@ maintenance capabilities.
 Shadows 4 (unchanged), Patches 8.
 
 - Patch `0008-git-errors-keep-t3flares-reason.patch`: one helper beside `gitFailureDetail` and two call sites in `GitVcsDriverCore.ts`, so the `GitCommandError` that `executeGit` and `executeRaw` build carries the text of the router's `fatal: t3flare: ` stderr lines, and nothing else of stderr; see U99 in `docs/upstream-fragility.md`. A Layer cannot reach it: the text is dropped inside `executeGit`, before any service boundary, and `GitVcsDriver` is also built inside t3's private runtime graph. A Shadow would copy the 6,000-line file.
+
+## Counts after SPI-1391
+
+Shadows 4 (unchanged), Patches 9.
+
+- Patch `0009-terminal-history-lives-in-its-log.patch`: t3's terminal `Manager.ts` keeps each Terminal's history in its log file, not in memory. Memory holds only output not yet written; a snapshot reads the log's tail (`readHistoryTail`) and that output. The client protocol is unchanged. See U107 in `docs/upstream-fragility.md`. A Layer cannot reach it: `makeWithOptions` takes no history store, and the history lives in the session state its closure owns. A Shadow would copy the 3,960-line file.
