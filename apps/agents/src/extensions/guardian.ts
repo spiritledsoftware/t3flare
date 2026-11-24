@@ -148,7 +148,7 @@ const callContext = async (api: Pick<HookApi, "entries">, call: ToolHookCall, co
       const found = calls.find((candidate) => candidate.id === own);
       if (found !== undefined) {
         return {
-          skip: new Set(calls.map((candidate) => candidate.id)),
+          skip: entry.id,
           batch: calls.filter((candidate) => candidate.id !== own),
           parent: call.parent === undefined ? undefined : { toolName: found.name, input: found.arguments },
         };
@@ -158,7 +158,7 @@ const callContext = async (api: Pick<HookApi, "entries">, call: ToolHookCall, co
     cursor = page.next;
     if (cursor === undefined) break;
   }
-  return { skip: new Set<string>(), batch: [], parent: undefined };
+  return { skip: undefined, batch: [], parent: undefined };
 };
 
 /** The Guardian model among the Session's models, by its slug: its Model endpoint's provider and its own id. */
@@ -191,7 +191,7 @@ const review = async (
   const where = await callContext(api, call, context);
   const evidence = await selectEvidence(api, context, {
     trustUser: host.trustUser(),
-    skipCalls: where.skip,
+    skipEntry: where.skip,
     cache,
   });
   const reviewed = await renderReviewedCall({
@@ -268,7 +268,7 @@ export const guardianExtension = (host: GuardianHost, settings: GuardianSettings
   const commands = parseEntries(settings.commands);
   const invalid = [...tools.errors, ...commands.errors];
   const securityPolicy = settings.policy.trim() !== "" || Object.values(commands.entries).includes("deny");
-  // Per conversation, so a review reads only the History since the last one (SPI-1378).
+  // The reviewed conversation's evidence index, so a review reads only the History since the last one (SPI-1378).
   const cache = evidenceCache();
   return defineExtension({
     name: GUARDIAN_EXTENSION,

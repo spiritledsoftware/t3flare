@@ -512,7 +512,7 @@ Global mise config refinement's 16 KiB, §4's "nor other custom sizes", and the 
   running output tails at its 64 Ki live tail. The approval card's script is shown by the card's own rule
   (`cardText`) and kept once per code mode call. The Guardian's evidence budget takes trusted messages first, newest
   first, then the newest untrusted ones; its History read stops once trusted evidence fills the budget (or, on a linked
-  thread, any evidence does). A push's page (`PUSH_ENTRIES_BYTES`) holds a burst of 16 full-size tool results, so a
+  thread, any evidence does) (read pattern superseded by the SPI-1378 refinement below). A push's page (`PUSH_ENTRIES_BYTES`) holds a burst of 16 full-size tool results, so a
   round of parallel calls settles without a snapshot; with one whole Session row past it, it stays well inside the
   32 MiB a Durable Object RPC carries.
 - **Removed:** the 10-minute default of a t3 wait with no `timeoutMs` (it waits until what it waits on happens, or the
@@ -820,15 +820,19 @@ reclaim, so a billed Container could stay up for the week.
 
 ## Refinement (SPI-1378, 2026-11-24): the Guardian reads the History since its last review
 
-Refines, in the SPI-1362 refinement, how the Guardian's evidence is read. With `trustUser` on, trusted evidence rarely
-fills the budget, so every reviewed call read the whole History.
+Supersedes, in the SPI-1362 refinement, the Guardian reading its History from the newest entry on every review. With
+`trustUser` on, trusted evidence rarely fills the budget, so each reviewed call read the whole History. Which evidence a
+review selects does not change.
 
-- **The untrusted window is contiguous:** the newest untrusted messages, up to the first that does not fit beside all the
-  trusted ones. An older, smaller one no longer fills the room left past it. Without this, a review's selection could
-  bring back a message an earlier one left out, so no selection kept within the budget could stand in for the History.
-- **Each conversation keeps its last selection in memory:** the messages it showed or could still show (within the
-  budget, plus the first untrusted message past the window and the Reviewed Call's response), counts for the rest, and
-  the newest entry id read. The next review reads only the entries since that id and selects what a whole read would.
+- **An evidence index per conversation, in memory:** each entry's id and the size its evidence takes (a trusted
+  message's JSON length, an untrusted one's shown form), the newest and oldest entry read, and the texts of the last
+  selection. Entries never change and ids are never reused, so the index stands for the History it read.
+- **The next review reads only the entries newer than the newest it read**, then selects over them and the index by the
+  same rule a whole read uses, back-fill included. It reads by id the text of an older entry it newly selects, and reads
+  on past the oldest entry read only when the selection reaches past it. A review reads the new entries plus the
+  entries it newly selects.
 - **It reads the whole History again** on a new isolate, a Guardian installed again (a settings change), another
-  `trustUser` or budget, a rollback (that entry is gone, or the head moved behind it), and when the kept messages do not
-  hold what the selection needs. A fork is another conversation id. No limit or setting is added.
+  `trustUser` or budget, a review of another conversation (a fork is one; the index holds one conversation), and when the
+  History no longer holds the newest entry read. No limit or setting is added.
+- **The omission note's "older History not read"** names a full budget with any entry older than where the read
+  stopped, not only a next page, so it reads the same on both paths.

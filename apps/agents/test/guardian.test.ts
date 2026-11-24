@@ -41,6 +41,7 @@ import {
   renderReviewedCall,
   selectEvidence,
 } from "../src/extensions/guardian/evidence.ts";
+import { selectEvidenceBefore } from "./guardianEvidence.oracle.ts";
 import {
   judgeCommand,
   parseEntries,
@@ -374,15 +375,22 @@ describe("the Guardian's hook", () => {
 });
 
 describe("the Guardian's evidence (SPI-1362)", () => {
-  /** A History, oldest first, paged newest first as pi-durable's `entries` pages it (`minEntryId` too). */
-  const history = (initial: ReadonlyArray<EntryRecord>) => {
+  /** A History, oldest first, paged newest first as pi-durable's `entries` pages it (`minEntryId`, `maxEntryId` too). */
+  const history = (initial: ReadonlyArray<EntryRecord>, conversationId = "c1") => {
     let entries = [...initial];
     let read = 0;
     let pages = 0;
+    let byId = 0;
     const api = {
-      conversationId: "c1",
-      entries: async (query: { readonly minEntryId?: number }, limit: number, cursor: Cursor | undefined) => {
-        const visible = entries.filter((entry) => Number(entry.id) >= (query.minEntryId ?? 0));
+      conversationId,
+      entries: async (
+        query: { readonly minEntryId?: number; readonly maxEntryId?: number },
+        limit: number,
+        cursor: Cursor | undefined,
+      ) => {
+        const visible = entries.filter(
+          (entry) => Number(entry.id) >= (query.minEntryId ?? 0) && Number(entry.id) <= (query.maxEntryId ?? Infinity),
+        );
         const from = cursor === undefined ? visible.length : Number(cursor);
         const items = visible.slice(Math.max(0, from - limit), from).toReversed();
         read += items.length;
@@ -390,16 +398,18 @@ describe("the Guardian's evidence (SPI-1362)", () => {
         const next = from - limit > 0 ? (String(from - limit) as unknown as Cursor) : undefined;
         return { items, next };
       },
+      entry: async (id: number) => {
+        byId++;
+        return entries.find((entry) => entry.id === id);
+      },
     };
     return {
       api: api as never,
       read: () => read,
       pages: () => pages,
+      byId: () => byId,
       set: (next: ReadonlyArray<EntryRecord>) => {
         entries = [...next];
-      },
-      append: (...more: ReadonlyArray<EntryRecord>) => {
-        entries.push(...more);
       },
     };
   };
@@ -420,7 +430,7 @@ describe("the Guardian's evidence (SPI-1362)", () => {
   it("keeps a trusted message however far back it is, and holds only the untrusted entries the budget fits", async () => {
     const entries = [user(1, "you may deploy to prod"), ...Array.from({ length: 5_000 }, (_, at) => call(at + 2))];
     const { api, read } = history(entries);
-    const blocks = await selectEvidence(api, context, { trustUser: true, skipCalls: new Set(), budget: 10_000 });
+    const blocks = await selectEvidence(api, context, { trustUser: true, budget: 10_000 });
     expect(read()).toBe(entries.length);
     expect(blocks.some((block) => block.includes("TRUSTED") && block.includes("you may deploy to prod"))).toBe(true);
     const untrusted = blocks.filter((block) => block.startsWith("Evidence (UNTRUSTED"));
@@ -433,7 +443,7 @@ describe("the Guardian's evidence (SPI-1362)", () => {
     // 300 pasted logs of 4,000 characters, the newest last: only the newest fit 10,000 characters.
     const entries = Array.from({ length: 300 }, (_, at) => user(at + 1, `log ${at} ${"z".repeat(4_000)}`));
     const { api, read } = history(entries);
-    const blocks = await selectEvidence(api, context, { trustUser: true, skipCalls: new Set(), budget: 10_000 });
+    const blocks = await selectEvidence(api, context, { trustUser: true, budget: 10_000 });
     const trusted = blocks.filter((block) => block.startsWith("Evidence (TRUSTED"));
     // The newest two whole, and the third cut to the room they leave.
     expect(trusted.map((block) => /log (\d+)/.exec(block)![1])).toEqual(["297", "298", "299"]);
@@ -448,7 +458,6 @@ describe("the Guardian's evidence (SPI-1362)", () => {
     const pasted = user(3, `deploy it: ${"p".repeat(120_000)}`);
     const long = await selectEvidence(history([user(1, "older"), call(2), pasted]).api, context, {
       trustUser: true,
-      skipCalls: new Set(),
     });
     const kept = long.filter((block) => block.startsWith("Evidence (TRUSTED"));
     expect(kept).toHaveLength(1);
@@ -463,7 +472,6 @@ describe("the Guardian's evidence (SPI-1362)", () => {
     };
     const filled = await selectEvidence(history([user(4, "older"), exact(2_000)]).api, context, {
       trustUser: true,
-      skipCalls: new Set(),
       budget: 2_000,
     });
     const whole = filled.filter((block) => block.startsWith("Evidence (TRUSTED"));
@@ -476,31 +484,13 @@ describe("the Guardian's evidence (SPI-1362)", () => {
     const entries = [user(1, "you may deploy to prod"), ...Array.from({ length: 50 }, (_, at) => call(at + 2))];
     const trusting = await selectEvidence(history(entries).api, context, {
       trustUser: true,
-      skipCalls: new Set(),
       budget: 2_000,
     });
     expect(trusting.some((block) => block.includes("you may deploy to prod"))).toBe(true);
     expect(trusting.join("").length).toBeLessThan(3_000);
     const linked = history(Array.from({ length: 5_000 }, (_, at) => call(at + 2)));
-    await selectEvidence(linked.api, context, { trustUser: false, skipCalls: new Set(), budget: 2_000 });
+    await selectEvidence(linked.api, context, { trustUser: false, budget: 2_000 });
     expect(linked.read()).toBeLessThanOrEqual(400);
-  });
-
-  it("ends the untrusted window at the first message that does not fit, newest first", async () => {
-    // 2,000 characters: the newest three calls of about 530 fit, the fourth does not, and the small one past it stays out.
-    const small = {
-      id: 1,
-      kind: "pi.assistant",
-      model: [{ role: "assistant", content: [{ type: "toolCall", id: "small", name: "bash", arguments: {} }] }],
-    } as unknown as EntryRecord;
-    const blocks = await selectEvidence(history([small, call(2), call(3), call(4), call(5)]).api, context, {
-      trustUser: true,
-      skipCalls: new Set(),
-      budget: 2_000,
-    });
-    expect(blocks.filter((block) => block.startsWith("Evidence (UNTRUSTED"))).toHaveLength(3);
-    expect(blocks.join("")).not.toContain('"arguments":{}');
-    expect(blocks[0]).toMatch(/^\[2 evidence entries omitted/);
   });
 
   describe("the evidence cache (SPI-1378)", () => {
@@ -523,15 +513,33 @@ describe("the Guardian's evidence (SPI-1362)", () => {
         kind: "pi.toolResult",
         model: [{ role: "toolResult", content: [{ type: "text", text: "ok" }] }],
       }) as unknown as EntryRecord;
-    /** The newest response's calls, as the Guardian's `callContext` finds them for a call of its batch. */
-    const newestCalls = (entries: ReadonlyArray<EntryRecord>) => {
-      const newest = entries.findLast((entry) => entry.kind === "pi.assistant");
-      return new Set(
-        newest === undefined
+    /** The newest response, as the Guardian's `callContext` finds it for a call of its batch. */
+    const newestResponse = (entries: ReadonlyArray<EntryRecord>) =>
+      entries.findLast((entry) => entry.kind === "pi.assistant");
+    const callsOf = (entry: EntryRecord | undefined) =>
+      new Set(
+        entry === undefined
           ? []
-          : (newest.model![0] as { content: Array<{ id: string }> }).content.map((block) => block.id),
+          : (entry.model![0] as { content: Array<{ id: string }> }).content.map((block) => block.id),
       );
-    };
+    /** This change's selection, cached or not, and the one before it (the oracle), for the same review. */
+    const review = async (
+      api: never,
+      options: { trustUser: boolean; budget: number; skip?: EntryRecord | undefined },
+      cache?: ReturnType<typeof evidenceCache>,
+    ) => ({
+      now: await selectEvidence(api, context, {
+        trustUser: options.trustUser,
+        budget: options.budget,
+        skipEntry: options.skip?.id,
+        cache,
+      }),
+      before: await selectEvidenceBefore(api, context, {
+        trustUser: options.trustUser,
+        budget: options.budget,
+        skipCalls: callsOf(options.skip),
+      }),
+    });
     /** A seeded generator (mulberry32), so a failing sequence replays. */
     const random = (seed: number) => () => {
       seed = (seed + 0x6d2b79f5) | 0;
@@ -544,26 +552,27 @@ describe("the Guardian's evidence (SPI-1362)", () => {
       const entries = [user(1, "you may deploy to prod"), ...Array.from({ length: 5_000 }, (_, at) => call(at + 2))];
       const fake = history(entries);
       const cache = evidenceCache();
-      const options = { trustUser: true, skipCalls: newestCalls(entries), budget: 10_000, cache };
-      const first = await selectEvidence(fake.api, context, options);
+      const options = { trustUser: true, budget: 10_000, skipEntry: entries.at(-1)!.id };
+      const first = await selectEvidence(fake.api, context, { ...options, cache });
       expect(fake.pages()).toBeGreaterThan(20);
       const before = fake.pages();
-      const second = await selectEvidence(fake.api, context, { ...options, skipCalls: new Set(["c5001"]) });
+      const second = await selectEvidence(fake.api, context, { ...options, cache });
       expect(fake.pages() - before).toBeLessThanOrEqual(1);
+      expect(fake.byId()).toBe(0);
       expect(second).toEqual(first);
-      // A few entries later, still one page.
-      fake.append(result(5_002), call(5_003), user(5_004, "and then tag it"));
-      const third = await selectEvidence(fake.api, context, { ...options, skipCalls: new Set() });
+      // A few entries later, one page more.
+      fake.set([...entries, result(5_002), call(5_003), user(5_004, "and then tag it")]);
+      const third = await selectEvidence(fake.api, context, { trustUser: true, budget: 10_000, cache });
       expect(fake.pages() - before).toBeLessThanOrEqual(2);
       expect(third).toEqual(
-        await selectEvidence(fake.api, context, { trustUser: true, skipCalls: new Set(), budget: 10_000 }),
+        await selectEvidenceBefore(fake.api, context, { trustUser: true, skipCalls: new Set(), budget: 10_000 }),
       );
     });
 
-    it("selects what an uncached review would, across appended entries", async () => {
-      for (const seed of [1, 2, 3, 4, 5, 6]) {
+    it("selects what the uncached selection before it did, across appended entries", async () => {
+      for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
         const next = random(seed);
-        const trustUser = seed % 3 !== 0;
+        const trustUser = seed % 4 !== 0;
         const budget = seed % 2 === 0 ? 2_000 : 6_000;
         const entries: Array<EntryRecord> = [];
         const fake = history(entries);
@@ -584,58 +593,105 @@ describe("the Guardian's evidence (SPI-1362)", () => {
             );
           }
           fake.set(entries);
-          // Every few steps, a second call of the same batch, or one whose response is not found.
-          const reviews = next() < 0.3 ? [newestCalls(entries), new Set<string>()] : [newestCalls(entries)];
-          for (const skipCalls of reviews) {
-            const uncached = await selectEvidence(fake.api, context, { trustUser, skipCalls, budget });
-            const cached = await selectEvidence(fake.api, context, { trustUser, skipCalls, budget, cache });
-            expect(cached, `seed ${seed}, step ${step}`).toEqual(uncached);
+          // Now and then a second call of the same batch, or one whose response is not found.
+          const skips = next() < 0.3 ? [newestResponse(entries), undefined] : [newestResponse(entries)];
+          for (const skip of skips) {
+            const cached = await review(fake.api, { trustUser, budget, skip }, cache);
+            expect(cached.now, `seed ${seed}, step ${step}`).toEqual(cached.before);
+            // It holds the texts of what it shows, and of the trusted message that filled the budget.
+            expect(cache.current!.texts.size).toBeLessThanOrEqual(
+              cached.now.filter((block) => block.startsWith("Evidence")).length + 1,
+            );
+            const uncached = await review(fake.api, { trustUser, budget, skip });
+            expect(uncached.now, `seed ${seed}, step ${step}, uncached`).toEqual(uncached.before);
           }
         }
       }
     });
 
-    it("reads again when a skipped response opens the window past what the cache kept", async () => {
-      // Small old calls behind four large new ones: a review that shows the newest call leaves the small ones out, and
-      // one that skips it (a call of its batch) has room for them.
-      const entries = [
-        user(1, "ok"),
-        ...Array.from({ length: 10 }, (_, at) => sized(at + 2, 10)),
-        ...Array.from({ length: 4 }, (_, at) => sized(at + 12, 500)),
-      ];
+    it("brings back an older entry the budget now has room for, read by its id", async () => {
+      // About 480 characters each: the newest four calls fill 2,000 characters past the small oldest one.
+      const entries = [sized(1, 0), ...Array.from({ length: 4 }, (_, at) => sized(at + 2, 395))];
       const fake = history(entries);
       const cache = evidenceCache();
       const options = { trustUser: true, budget: 2_000 };
-      await selectEvidence(fake.api, context, { ...options, skipCalls: new Set(), cache });
-      const skipping = { ...options, skipCalls: new Set(["c15"]) };
-      const cached = await selectEvidence(fake.api, context, { ...skipping, cache });
-      expect(cached).toEqual(await selectEvidence(fake.api, context, skipping));
-      expect(cached.filter((block) => block.includes('"command":"xxxxxxxxxx"')).length).toBeGreaterThan(0);
+      const first = await review(fake.api, options, cache);
+      expect(first.now).toEqual(first.before);
+      expect(first.now.join("")).not.toContain('"arguments":{"command":""}');
+      // A trusted message of 100 characters leaves no room for the oldest large call, but room for the small one.
+      fake.set([...entries, user(6, "t".repeat(74))]);
+      const second = await review(fake.api, options, cache);
+      expect(second.now).toEqual(second.before);
+      expect(second.now.join("")).toContain('"arguments":{"command":""}');
+      expect(fake.byId()).toBe(1);
     });
 
-    it("drops the cache when the History is rolled back", async () => {
+    it("reads on past the oldest entry it read when the selection reaches past it", async () => {
+      // With trustUser off, the first review's read ends with its first page: the 200th call overflows the budget.
+      const each = JSON.stringify({
+        role: "assistant",
+        content: [{ type: "toolCall", name: "bash", arguments: { command: "" } }],
+      }).length;
+      const entries = Array.from({ length: 400 }, (_, at) => sized(at + 1, 0));
+      const fake = history(entries);
+      const cache = evidenceCache();
+      const options = { trustUser: false, budget: each * 200 - 1 };
+      const first = await review(fake.api, options, cache);
+      expect(first.now).toEqual(first.before);
+      // A call of the newest response's batch skips it, so the 200th fits and the 201st, on the next page, ends it.
+      const before = fake.pages();
+      const second = await review(fake.api, { ...options, skip: entries.at(-1) }, cache);
+      expect(second.now).toEqual(second.before);
+      expect(second.now[0]).toContain("the older History not read");
+      // This review reads the entries since its watermark and the page past it; the uncached one before it, two pages.
+      expect(fake.pages() - before).toBe(2 + 2);
+    });
+
+    it("reads the History again after a rollback", async () => {
       const entries = [
         user(1, "you may deploy to prod"),
         ...Array.from({ length: 600 }, (_, at) => (at % 50 === 0 ? user(at + 2, `step ${at}`) : call(at + 2))),
       ];
       const fake = history(entries);
       const cache = evidenceCache();
-      const options = { trustUser: true, skipCalls: new Set<string>(), budget: 4_000 };
-      await selectEvidence(fake.api, context, { ...options, cache });
+      const options = { trustUser: true, budget: 4_000 };
+      await review(fake.api, options, cache);
       // The head moved backward: the watermark entry and the newest 100 are gone.
       fake.set(entries.slice(0, 500));
       let before = fake.pages();
-      const behind = await selectEvidence(fake.api, context, { ...options, cache });
-      expect(fake.pages() - before).toBeGreaterThan(2);
-      expect(behind).toEqual(await selectEvidence(fake.api, context, options));
-      expect(behind.join("")).not.toContain("step 500");
+      const behind = await review(fake.api, options, cache);
+      expect(fake.pages() - before).toBeGreaterThan(4);
+      expect(behind.now).toEqual(behind.before);
+      expect(behind.now.join("")).not.toContain("step 500");
       // The watermark entry is gone, and newer entries took the place of what followed it.
       fake.set([...entries.slice(0, 450), user(700, "a new turn"), call(701)]);
       before = fake.pages();
-      const replaced = await selectEvidence(fake.api, context, { ...options, cache });
-      expect(fake.pages() - before).toBeGreaterThan(2);
-      expect(replaced).toEqual(await selectEvidence(fake.api, context, options));
-      expect(replaced.join("")).toContain("a new turn");
+      const replaced = await review(fake.api, options, cache);
+      expect(fake.pages() - before).toBeGreaterThan(4);
+      expect(replaced.now).toEqual(replaced.before);
+      expect(replaced.now.join("")).toContain("a new turn");
+    });
+
+    it("reads the History again for another trustUser, budget or conversation, and keeps one conversation", async () => {
+      const entries = [user(1, "you may deploy"), ...Array.from({ length: 1_000 }, (_, at) => call(at + 2))];
+      const fake = history(entries);
+      const other = history(entries.slice(0, 900), "c2");
+      const cache = evidenceCache();
+      const reads = async (on: typeof fake, options: { trustUser: boolean; budget: number }) => {
+        const before = on.pages();
+        const now = await selectEvidence(on.api, context, { ...options, cache });
+        const pages = on.pages() - before;
+        expect(now).toEqual(await selectEvidenceBefore(on.api, context, { ...options, skipCalls: new Set() }));
+        return pages;
+      };
+      expect(await reads(fake, { trustUser: true, budget: 4_000 })).toBe(6);
+      expect(await reads(fake, { trustUser: true, budget: 4_000 })).toBe(1);
+      expect(await reads(fake, { trustUser: true, budget: 3_000 })).toBe(6);
+      await reads(fake, { trustUser: false, budget: 3_000 });
+      expect(cache.current?.trustUser).toBe(false);
+      await reads(other, { trustUser: true, budget: 3_000 });
+      expect(cache.current?.conversationId).toBe("c2");
+      expect(await reads(fake, { trustUser: true, budget: 3_000 })).toBe(6);
     });
   });
 

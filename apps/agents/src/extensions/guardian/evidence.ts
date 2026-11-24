@@ -22,14 +22,9 @@ interface EvidenceEntry {
   readonly trusted: boolean;
   readonly origin: string;
   readonly message: unknown;
-  /** The ids of an agent's tool calls: a review leaves out the response holding the Reviewed Call. */
-  readonly callIds: ReadonlyArray<string>;
 }
 
 const omissionMarker = (omitted: number) => `[… ${omitted} characters omitted]`;
-
-const render = (trusted: boolean, origin: string, json: string): string =>
-  `Evidence (${trusted ? "TRUSTED" : "UNTRUSTED"}, origin: ${origin}):\n${json}`;
 
 type ModelMessage = { readonly role?: string; readonly content?: unknown };
 
@@ -71,23 +66,18 @@ const entryEvidence = (entry: EntryRecord, trustUser: boolean): EvidenceEntry | 
         role: "assistant",
         content: calls.map((call) => ({ type: "toolCall", name: call.name, arguments: call.arguments })),
       },
-      callIds: calls.map((call) => call.id),
     };
   }
   if (message?.role !== "user") return undefined;
   const text = userText(message.content);
   if (text === "") return undefined;
-  const user = (trusted: boolean, origin: string): EvidenceEntry => ({
-    trusted,
-    origin,
-    message: { role: "user", content: text },
-    callIds: [],
-  });
   // The Advisor's corrective continuation is placed as a user message, but the Advisor wrote it (pi-guardian: Advisor messages are never trusted).
-  if (entry.kind === "pi.user" && text === ADVISOR_CONTINUATION) return user(false, "advisor");
-  if (entry.kind === "pi.user") return user(trustUser, trustUser ? "user" : "linkedWork");
+  if (entry.kind === "pi.user" && text === ADVISOR_CONTINUATION)
+    return { trusted: false, origin: "advisor", message: { role: "user", content: text } };
+  if (entry.kind === "pi.user")
+    return { trusted: trustUser, origin: trustUser ? "user" : "linkedWork", message: { role: "user", content: text } };
   // Writes and steers of extensions (an Advisor's finding, a Terminal's exit, a context continuation): never the user's.
-  return user(false, "extension");
+  return { trusted: false, origin: "extension", message: { role: "user", content: text } };
 };
 
 /**
@@ -114,285 +104,378 @@ const fitTo = (json: string, length: number, room: number): string | undefined =
   }
 };
 
-/**
- * One piece of a review's History, newest first. A trusted message is held as its JSON, or as the first characters of
- * it a review with newer entries can show; an untrusted one as shown, already cut to a quarter of the budget; `omitted`
- * counts untrusted messages past the window, which a later selection needs only if its window reaches them.
- */
-type Item =
-  | { readonly kind: "trusted"; readonly origin: string; readonly json: string; readonly length: number }
-  | {
-      readonly kind: "untrusted";
-      readonly origin: string;
-      readonly shown: string;
-      readonly callIds: ReadonlyArray<string>;
-    }
-  | { readonly kind: "omitted"; readonly count: number };
-
-/** A run of History, newest first; `older`: History older than the items exists and is not in them. */
-interface Scan {
-  readonly items: ReadonlyArray<Item>;
-  readonly older: boolean;
+/** An entry's evidence as the index holds it: its id, and the size it takes. */
+interface Indexed {
+  readonly id: EntryId;
+  readonly trusted: boolean;
+  /** Trusted: its JSON's length, which it is fitted from; untrusted: its shown form's, cut to a quarter of the budget. */
+  readonly size: number;
 }
 
-const itemOf = (entry: EntryRecord, trustUser: boolean, budget: number): Item | undefined => {
+/** An entry's evidence text: a trusted message's JSON (its first `budget` characters, all a review can show), or an untrusted one's shown form. */
+interface Text {
+  readonly origin: string;
+  readonly text: string;
+}
+
+const evidenceOf = (
+  entry: EntryRecord,
+  trustUser: boolean,
+  budget: number,
+): { readonly indexed: Indexed; readonly text: Text } | undefined => {
   const evidence = entryEvidence(entry, trustUser);
   if (evidence === undefined) return undefined;
   const json = JSON.stringify(evidence.message);
-  return evidence.trusted
-    ? { kind: "trusted", origin: evidence.origin, json, length: json.length }
-    : {
-        kind: "untrusted",
-        origin: evidence.origin,
-        shown: shorten(json, json.length, Math.floor(budget / 4)),
-        callIds: evidence.callIds,
-      };
+  const text = evidence.trusted ? json.slice(0, budget) : shorten(json, json.length, Math.floor(budget / 4));
+  return {
+    indexed: { id: entry.id, trusted: evidence.trusted, size: evidence.trusted ? json.length : text.length },
+    text: { origin: evidence.origin, text },
+  };
 };
 
 interface Options {
   readonly trustUser: boolean;
-  readonly skipCalls: ReadonlySet<string>;
+  /** The Reviewed Call's own response, which the Reviewed Call shows. */
+  readonly skipEntry: EntryId | undefined;
   readonly budget: number;
 }
 
-const skipped = (item: Item, skipCalls: ReadonlySet<string>): boolean =>
-  item.kind === "untrusted" && item.callIds.some((id) => skipCalls.has(id));
-
-type Choice =
-  /** The selection: its blocks, and the items any later review of this History (with newer entries) can need. */
-  | { readonly needs: "nothing"; readonly blocks: ReadonlyArray<string>; readonly kept: Scan }
-  /** The selection reaches past the items into the older History; `kept` holds what it needs of these. */
-  | { readonly needs: "older"; readonly kept: Scan }
-  /** The items no longer hold what the selection needs: read the History again. */
-  | { readonly needs: "rescan" };
-
 /**
- * The evidence of `scan`: trusted messages newest first, each fitted to the room the newer ones leave, until one does
- * not fit (the budget is full: nothing older is read); then the untrusted ones, newest first, until the first that does
- * not fit beside all the trusted ones. With `trustUser` off there are none trusted, and that first one ends the read.
+ * One review's selection, fed the History's evidence newest first: trusted entries first, newest first, each shortened
+ * to the room left (so the newest always goes in); then the newest untrusted ones in what is left, each shortened only
+ * when it alone exceeds a quarter of the budget. An older trusted message (the owner's authorization) still takes the
+ * place of newer untrusted ones. An untrusted entry past the budget is counted, never held.
+ *
+ * It holds the texts of what it keeps: those it is fed, and the rest from `load` once it is decided.
  */
-const choose = (scan: Scan, options: Options): Choice => {
-  const { budget, skipCalls } = options;
-  const { items } = scan;
-  const fitted = new Map<number, { readonly shown: string; readonly room: number }>();
-  let trustedUsed = 0;
-  let stop = -1;
-  for (let index = 0; index < items.length; index++) {
-    const item = items[index]!;
-    if (item.kind !== "trusted") continue;
-    const room = budget - trustedUsed;
-    // Held cut to the room it had: a later review's room is no larger, but for the few characters `fitTo` may leave unused.
-    if (item.json.length < Math.min(room, item.length)) return { needs: "rescan" };
-    const shown = fitTo(item.json, item.length, room);
-    if (shown === undefined) {
-      stop = index;
-      break;
-    }
-    fitted.set(index, { shown, room });
-    trustedUsed += shown.length;
-  }
-  const window = new Set<number>();
-  let untrustedUsed = 0;
-  let sentinel = -1;
-  for (let index = 0; index < (stop === -1 ? items.length : stop); index++) {
-    const item = items[index]!;
-    if (item.kind === "trusted" || skipped(item, skipCalls) || sentinel !== -1) continue;
-    // Untrusted messages no review showed, while the window is still open: the items cannot say whether they fit.
-    if (item.kind === "omitted") return { needs: "rescan" };
-    if (trustedUsed + untrustedUsed + item.shown.length <= budget) {
-      window.add(index);
-      untrustedUsed += item.shown.length;
-      continue;
-    }
-    sentinel = index;
-    // With no trusted evidence to come, a full budget is final.
-    if (!options.trustUser) stop = index;
-  }
-  const end = stop === -1 ? items.length : stop + 1;
-  const kept: Array<Item> = [];
-  let omitted = 0;
-  const omit = (count: number) => {
-    omitted += count;
-    const last = kept.at(-1);
-    if (last?.kind === "omitted") kept[kept.length - 1] = { kind: "omitted", count: last.count + count };
-    else kept.push({ kind: "omitted", count });
-  };
-  for (let index = 0; index < end; index++) {
-    const item = items[index]!;
-    if (item.kind === "trusted") {
-      const room = fitted.get(index)?.room ?? budget - trustedUsed;
-      kept.push({ ...item, json: item.json.slice(0, Math.min(room, item.length)) });
-      if (index === stop) omitted++;
-    } else if (item.kind === "omitted") omit(item.count);
-    else if (skipped(item, skipCalls)) kept.push(item);
-    else if (window.has(index) || index === sentinel) {
-      kept.push(item);
-      if (index === sentinel) omitted++;
-    } else omit(1);
-  }
-  const older = scan.older || end < items.length;
-  if (stop === -1 && scan.older) return { needs: "older", kept: { items: kept, older } };
-  const blocks: Array<string> = [];
-  for (let index = end - 1; index >= 0; index--) {
-    const item = items[index]!;
-    const shown =
-      item.kind === "trusted"
-        ? fitted.get(index)?.shown
-        : item.kind === "untrusted" && window.has(index)
-          ? item.shown
-          : undefined;
-    if (shown !== undefined && item.kind !== "omitted")
-      blocks.push(render(item.kind === "trusted", item.origin, shown));
-  }
-  return {
-    needs: "nothing",
-    kept: { items: kept, older },
-    blocks:
-      omitted === 0 && stop === -1
-        ? blocks
-        : [
-            `[${omitted} evidence entries omitted to fit the evidence budget${stop !== -1 && older ? ", and the older History not read" : ""}; trusted ones kept first, newest first]`,
-            ...blocks,
-          ],
-  };
-};
+class Selection {
+  readonly #options: Options;
+  readonly #load: (id: EntryId) => Promise<Text>;
+  #trustedUsed = 0;
+  #untrustedUsed = 0;
+  #omitted = 0;
+  /** Newest first; untrusted ones are dropped from the end (the oldest kept) when a trusted one needs their room. */
+  readonly #kept: Array<{ readonly entry: Indexed; readonly size: number; readonly shown?: string }> = [];
+  /** The texts the selection needs: of what it keeps, and of the trusted message that filled the budget. */
+  readonly texts = new Map<EntryId, Text>();
+  /** The entry that filled the budget: nothing older can take a place in it. */
+  stop: EntryId | undefined;
 
-/** What a conversation's last review read: the newest entry it saw, and the History's items a later review needs. */
-interface Cached {
-  readonly watermark: EntryId;
-  readonly trustUser: boolean;
-  readonly budget: number;
-  readonly scan: Scan;
+  constructor(options: Options, load: (id: EntryId) => Promise<Text>) {
+    this.#options = options;
+    this.#load = load;
+  }
+
+  /** Takes the next older entry's evidence; false once the budget is full. */
+  async add(entry: Indexed, text?: Text): Promise<boolean> {
+    if (this.stop !== undefined) return false;
+    if (entry.id === this.#options.skipEntry) return true;
+    return entry.trusted ? this.#addTrusted(entry, text) : this.#addUntrusted(entry, text);
+  }
+
+  async #addTrusted(entry: Indexed, given: Text | undefined): Promise<boolean> {
+    const room = this.#options.budget - this.#trustedUsed;
+    if (entry.size <= room) {
+      this.#keep(entry, entry.size, given);
+    } else {
+      // Shortened to the room trusted evidence has left, so the newest trusted message always goes in.
+      const text = given ?? (await this.#text(entry.id));
+      this.texts.set(entry.id, text);
+      const shown = fitTo(text.text, entry.size, room);
+      if (shown === undefined) {
+        this.stop = entry.id;
+        this.#omitted++;
+        return false;
+      }
+      this.#kept.push({ entry, size: shown.length, shown });
+    }
+    this.#trustedUsed += this.#kept.at(-1)!.size;
+    while (this.#trustedUsed + this.#untrustedUsed > this.#options.budget && this.#dropOldestUntrusted());
+    return true;
+  }
+
+  #addUntrusted(entry: Indexed, given: Text | undefined): boolean {
+    if (this.#trustedUsed + this.#untrustedUsed + entry.size > this.#options.budget) {
+      this.#omitted++;
+      // With no trusted evidence to come, a full budget is final.
+      if (!this.#options.trustUser) this.stop = entry.id;
+      return this.#options.trustUser;
+    }
+    this.#keep(entry, entry.size, given);
+    this.#untrustedUsed += entry.size;
+    return true;
+  }
+
+  #keep(entry: Indexed, size: number, given: Text | undefined) {
+    this.#kept.push({ entry, size });
+    if (given !== undefined) this.texts.set(entry.id, given);
+  }
+
+  #dropOldestUntrusted(): boolean {
+    for (let index = this.#kept.length - 1; index >= 0; index--) {
+      const { entry, size } = this.#kept[index]!;
+      if (entry.trusted) continue;
+      this.#untrustedUsed -= size;
+      this.#kept.splice(index, 1);
+      this.texts.delete(entry.id);
+      this.#omitted++;
+      return true;
+    }
+    return false;
+  }
+
+  async #text(id: EntryId): Promise<Text> {
+    return this.texts.get(id) ?? (await this.#load(id));
+  }
+
+  /** The evidence blocks, in conversation order; `older`: whether History older than the stop exists. */
+  async blocks(older: () => Promise<boolean>): Promise<ReadonlyArray<string>> {
+    const blocks: Array<string> = [];
+    for (const { entry, shown } of this.#kept.toReversed()) {
+      const text = await this.#text(entry.id);
+      this.texts.set(entry.id, text);
+      blocks.push(
+        `Evidence (${entry.trusted ? "TRUSTED" : "UNTRUSTED"}, origin: ${text.origin}):\n${shown ?? text.text}`,
+      );
+    }
+    if (this.#omitted === 0 && this.stop === undefined) return blocks;
+    const unread = this.stop !== undefined && (await older());
+    return [
+      `[${this.#omitted} evidence entries omitted to fit the evidence budget${unread ? ", and the older History not read" : ""}; trusted ones kept first, newest first]`,
+      ...blocks,
+    ];
+  }
 }
 
 /**
- * The Guardian's evidence of its last review, per conversation id, so the next reads only the entries newer than it.
- * In memory: a new isolate, or the Guardian installed again, starts empty, and its first review reads as an uncached one.
+ * The evidence index of a run of History: every entry's id and size, newest first, and what the run covers. Entries
+ * never change and ids are never reused, so an index read once stands for its run in every later review.
  */
-export type EvidenceCache = Map<ConversationId, Cached>;
+class Run {
+  readonly entries: Array<Indexed> = [];
+  /** The newest and the oldest entry read, of any kind. */
+  newest: EntryId | undefined;
+  oldest: EntryId | undefined;
+  /** Whether the run reached the History's first entry. */
+  first = false;
+}
 
-export const evidenceCache = (): EvidenceCache => new Map();
-
-type Api = Pick<HookApi, "entries" | "conversationId">;
-
-/** The selection over the whole History, newest first, read until it is decided. */
-const scanHistory = async (
+/**
+ * Reads History newest first, a page at a time, into `run`, and feeds `selection` its evidence until it is full: the
+ * one page loop of every read. `until`: the entry where the read ends, not read again (a cached watermark); `after`:
+ * an entry the query returns first that was already read.
+ */
+const read = async (
   api: Api,
   context: ChordContext,
   options: Options,
-): Promise<{ readonly choice: Extract<Choice, { needs: "nothing" }>; readonly head: EntryId | undefined }> => {
-  let items: Array<Item> = [];
-  let head: EntryId | undefined;
+  selection: Selection,
+  run: Run,
+  query: { readonly minEntryId?: EntryId; readonly maxEntryId?: EntryId },
+  bounds: { readonly until?: EntryId; readonly after?: EntryId } = {},
+): Promise<"reached" | "full" | "end"> => {
+  let open = true;
   let cursor: Cursor | undefined;
-  for (;;) {
-    const page = await api.entries({ order: "descending" }, PAGE, cursor, context);
-    if (cursor === undefined) head = page.items[0]?.id;
-    items.push(...page.items.flatMap((entry) => itemOf(entry, options.trustUser, options.budget) ?? []));
-    const choice = choose({ items, older: page.next !== undefined }, options);
-    // The items kept between pages hold every message this read can still show, so a rescan cannot be needed.
-    if (choice.needs === "rescan") throw new Error("The Guardian's evidence lost a message it needs while reading.");
-    if (choice.needs === "nothing") return { choice, head };
-    items = [...choice.kept.items];
+  do {
+    const page = await api.entries({ ...query, order: "descending" }, PAGE, cursor, context);
+    for (const entry of page.items) {
+      if (entry.id === bounds.until) return "reached";
+      if (entry.id === bounds.after) continue;
+      run.newest ??= entry.id;
+      run.oldest = entry.id;
+      const evidence = evidenceOf(entry, options.trustUser, options.budget);
+      if (evidence === undefined) continue;
+      run.entries.push(evidence.indexed);
+      if (open) open = await selection.add(evidence.indexed, evidence.text);
+    }
     cursor = page.next;
-  }
+    if (cursor === undefined && query.minEntryId === undefined) run.first = true;
+  } while (cursor !== undefined && open);
+  return open ? "end" : "full";
 };
 
+/** What a conversation's reviews have read: its evidence index, oldest first, and the texts of its last selection. */
+interface Cached {
+  readonly conversationId: ConversationId;
+  readonly trustUser: boolean;
+  readonly budget: number;
+  /** Oldest first, so newer entries append. */
+  readonly ids: ReadonlyArray<EntryId>;
+  readonly sizes: ReadonlyArray<number>;
+  readonly trusted: ReadonlySet<EntryId>;
+  /** The newest entry read: the next review reads only the History newer than it. */
+  readonly watermark: EntryId;
+  /** The oldest entry read; `first`: it is the History's first entry. */
+  readonly oldest: EntryId;
+  readonly first: boolean;
+  readonly texts: ReadonlyMap<EntryId, Text>;
+}
+
 /**
- * The selection from `cached` and the entries newer than its watermark; undefined when the History was rolled back
- * (the watermark entry is gone, or the head moved behind it) or the cached items no longer hold what it needs.
+ * The Guardian's evidence index of the conversation it last reviewed, so its next review reads only the entries since.
+ * In memory and for one conversation, the current one: a new isolate, the Guardian installed again (its settings
+ * changed), or a review of another conversation starts it over, and that review reads the History as an uncached one.
  */
-const scanSince = async (
+export interface EvidenceCache {
+  current: Cached | undefined;
+}
+
+export const evidenceCache = (): EvidenceCache => ({ current: undefined });
+
+type Api = Pick<HookApi, "entries" | "entry" | "conversationId">;
+
+/** The text of an indexed entry the selection keeps but this review did not read: from the last review, or the store. */
+const loader =
+  (api: Api, context: ChordContext, options: Options, cached: Cached | undefined) =>
+  async (id: EntryId): Promise<Text> => {
+    const known = cached?.texts.get(id);
+    if (known !== undefined) return known;
+    const entry = await api.entry(id, context);
+    const evidence = entry === undefined ? undefined : evidenceOf(entry, options.trustUser, options.budget);
+    if (evidence === undefined)
+      throw new Error(`The Guardian's evidence index names entry ${id}, which has no evidence.`);
+    return evidence.text;
+  };
+
+/**
+ * The selection from `cached`: the entries newer than its watermark, then its index, then, when the selection reaches
+ * past what was read, the older History. Undefined when the History no longer holds the watermark entry (the head
+ * moved behind it, or it is gone): the caller reads it all again.
+ */
+const selectSince = async (
   api: Api,
   context: ChordContext,
   options: Options,
   cached: Cached,
-): Promise<{ readonly choice: Extract<Choice, { needs: "nothing" }>; readonly head: EntryId } | undefined> => {
-  let items: Array<Item> = [];
-  let head: EntryId | undefined;
-  let cursor: Cursor | undefined;
-  let skipSeen = false;
-  for (;;) {
-    const page = await api.entries({ order: "descending", minEntryId: cached.watermark }, PAGE, cursor, context);
-    if (cursor === undefined) head = page.items[0]?.id;
-    const at = page.items.findIndex((entry) => entry.id === cached.watermark);
-    const fresh = (at === -1 ? page.items : page.items.slice(0, at)).flatMap(
-      (entry) => itemOf(entry, options.trustUser, options.budget) ?? [],
-    );
-    skipSeen ||= fresh.some((item) => skipped(item, options.skipCalls));
-    items.push(...fresh);
-    if (at === -1) {
-      // The watermark entry is gone.
-      if (page.next === undefined || head === undefined) return undefined;
-      const choice = choose({ items, older: true }, options);
-      if (choice.needs === "nothing") return { choice, head };
-      if (choice.needs === "rescan") return undefined;
-      items = [...choice.kept.items];
-      cursor = page.next;
-      continue;
-    }
-    // The Reviewed Call's response is in an `omitted` count the cached review made under another Reviewed Call.
-    if (
-      options.skipCalls.size > 0 &&
-      !skipSeen &&
-      !cached.scan.items.some((item) => skipped(item, options.skipCalls)) &&
-      cached.scan.items.some((item) => item.kind === "omitted")
-    )
-      return undefined;
-    const choice = choose({ items: [...items, ...cached.scan.items], older: cached.scan.older }, options);
-    return choice.needs === "nothing" ? { choice, head: head! } : undefined;
-  }
+): Promise<{ readonly selection: Selection; readonly cache: Cached } | undefined> => {
+  const selection = new Selection(options, loader(api, context, options, cached));
+  const fresh = new Run();
+  const ended = await read(
+    api,
+    context,
+    options,
+    selection,
+    fresh,
+    { minEntryId: cached.watermark },
+    {
+      until: cached.watermark,
+    },
+  );
+  if (ended === "end") return undefined;
+  const indexed = (index: number): Indexed => ({
+    id: cached.ids[index]!,
+    trusted: cached.trusted.has(cached.ids[index]!),
+    size: cached.sizes[index]!,
+  });
+  if (ended === "full") return { selection, cache: cacheOf(options, api.conversationId, fresh, undefined, selection) };
+  for (let index = cached.ids.length - 1; index >= 0; index--) if (!(await selection.add(indexed(index)))) break;
+  const older = new Run();
+  // The selection reaches past the oldest entry read.
+  if (selection.stop === undefined && !cached.first)
+    await read(api, context, options, selection, older, { maxEntryId: cached.oldest }, { after: cached.oldest });
+  const ids = [...older.entries.map((entry) => entry.id).toReversed(), ...cached.ids];
+  const sizes = [...older.entries.map((entry) => entry.size).toReversed(), ...cached.sizes];
+  const trusted = new Set([...cached.trusted, ...older.entries.flatMap((entry) => (entry.trusted ? [entry.id] : []))]);
+  return {
+    selection,
+    cache: cacheOf(
+      options,
+      api.conversationId,
+      fresh,
+      {
+        ids,
+        sizes,
+        trusted,
+        watermark: cached.watermark,
+        oldest: older.oldest ?? cached.oldest,
+        first: older.oldest === undefined ? cached.first : older.first,
+      },
+      selection,
+    ),
+  };
+};
+
+/** The cache after a review: the entries it read newest, on top of the older index it read through (if any). */
+const cacheOf = (
+  options: Options,
+  conversationId: ConversationId,
+  fresh: Run,
+  below: Omit<Cached, "conversationId" | "trustUser" | "budget" | "texts"> | undefined,
+  selection: Selection,
+): Cached => ({
+  conversationId,
+  trustUser: options.trustUser,
+  budget: options.budget,
+  ids: [...(below?.ids ?? []), ...fresh.entries.map((entry) => entry.id).toReversed()],
+  sizes: [...(below?.sizes ?? []), ...fresh.entries.map((entry) => entry.size).toReversed()],
+  trusted: new Set([...(below?.trusted ?? []), ...fresh.entries.flatMap((entry) => (entry.trusted ? [entry.id] : []))]),
+  watermark: fresh.newest ?? below!.watermark,
+  oldest: below?.oldest ?? fresh.oldest!,
+  first: below?.first ?? fresh.first,
+  texts: selection.texts,
+});
+
+/** Whether the History holds an entry older than `stop`, from what was read, or else from the store. */
+const olderThan = async (api: Api, context: ChordContext, cache: Cached | undefined, stop: EntryId) => {
+  if (cache !== undefined && Number(cache.oldest) < Number(stop)) return true;
+  if (cache?.first === true) return false;
+  const page = await api.entries({ maxEntryId: stop, order: "descending" }, 2, undefined, context);
+  return page.items.some((entry) => Number(entry.id) < Number(stop));
 };
 
 /**
- * The evidence blocks of a review, in conversation order, within `budget` characters: trusted entries first, newest
- * first, each shortened to the room left (so the newest always goes in); then the newest untrusted ones in what is left,
- * each shortened only when it alone exceeds a quarter of the budget, up to the first that does not fit. An omission note
- * says what was left out. `skipCalls`: the Reviewed Call's own response, which the Reviewed Call shows.
+ * The evidence blocks of a review, in conversation order, within `budget` characters (`Selection` says which). An
+ * omission note says what was left out, and when a full budget left older History unread. `skipEntry`: the Reviewed
+ * Call's own response, which the Reviewed Call shows.
  *
- * The History is read newest first, a page at a time: an older trusted message (the owner's authorization) still takes
- * the place of newer untrusted ones, so the read goes on until trusted evidence fills the budget, or, with no trusted
- * evidence (`trustUser` off), until untrusted evidence does.
+ * The History is read newest first, a page at a time: an older trusted message still takes the place of newer untrusted
+ * ones, so the read goes on until trusted evidence fills the budget, or, with no trusted evidence (`trustUser` off),
+ * until untrusted evidence does.
  *
- * With `cache`, a review keeps per conversation the items its selection showed or could still show (within the budget,
- * plus the first untrusted message past the window and the Reviewed Call's response) and the newest entry id it read;
- * the next review reads only the entries since that id and selects over them and the kept items, which picks what a
- * whole read would. It reads the whole History again when the cache has none for the conversation (or another
- * `trustUser` or budget), when the History was rolled back (the watermark entry is gone, or the head moved behind it),
- * and when the kept items do not hold what the selection needs.
+ * With `cache`, a review keeps its conversation's evidence index, each entry's id and size, and the texts of what it
+ * selected. The next review reads only the entries newer than the newest it read, selects over them and the index as a
+ * whole read would, and reads by id the text of an older entry it newly selects. It reads the whole History again with
+ * no index for the conversation (or one for another `trustUser` or budget) and when the History no longer holds the
+ * newest entry read.
  */
 export const selectEvidence = async (
   api: Api,
   context: ChordContext,
   selection: {
     readonly trustUser: boolean;
-    readonly skipCalls: ReadonlySet<string>;
+    readonly skipEntry?: EntryId | undefined;
     readonly budget?: number;
-    readonly cache?: EvidenceCache;
+    readonly cache?: EvidenceCache | undefined;
   },
 ): Promise<ReadonlyArray<string>> => {
   const options: Options = {
     trustUser: selection.trustUser,
-    skipCalls: selection.skipCalls,
+    skipEntry: selection.skipEntry,
     budget: selection.budget ?? EVIDENCE_CHARACTERS,
   };
   const { cache } = selection;
-  const cached = cache?.get(api.conversationId);
-  const usable =
-    cached !== undefined && cached.trustUser === options.trustUser && cached.budget === options.budget
-      ? await scanSince(api, context, options, cached)
+  const cached = cache?.current;
+  const since =
+    cached !== undefined &&
+    cached.conversationId === api.conversationId &&
+    cached.trustUser === options.trustUser &&
+    cached.budget === options.budget
+      ? await selectSince(api, context, options, cached)
       : undefined;
-  const { choice, head } = usable ?? (await scanHistory(api, context, options));
-  if (cache !== undefined) {
-    if (head === undefined) cache.delete(api.conversationId);
-    else
-      cache.set(api.conversationId, {
-        watermark: head,
-        trustUser: options.trustUser,
-        budget: options.budget,
-        scan: choice.kept,
-      });
+  let chosen: Selection;
+  let next: Cached | undefined;
+  if (since !== undefined) {
+    chosen = since.selection;
+    next = since.cache;
+  } else {
+    chosen = new Selection(options, loader(api, context, options, undefined));
+    const run = new Run();
+    await read(api, context, options, chosen, run, {});
+    next = run.newest === undefined ? undefined : cacheOf(options, api.conversationId, run, undefined, chosen);
   }
-  return choice.blocks;
+  const blocks = await chosen.blocks(() => olderThan(api, context, next, chosen.stop!));
+  if (cache !== undefined) cache.current = next;
+  return blocks;
 };
 
 const sha256 = async (text: string): Promise<string> => {
