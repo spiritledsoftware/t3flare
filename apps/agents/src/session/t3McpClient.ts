@@ -15,6 +15,7 @@ import {
 } from "@t3flare/session-protocol";
 
 import type { CatalogTool, McpCallAnswer } from "../extensions/t3-mcp.ts";
+import { imageTooLargeNote } from "./historyImages.ts";
 
 export const MCP_PROTOCOL_VERSION = "2025-06-18";
 
@@ -87,7 +88,7 @@ export const imagesOf = (
       part.type === "image" && typeof part.data === "string" && IMAGE_TYPES.has(part.mimeType ?? ""),
   );
   const tooLarge = (index: number, part: { readonly data: string }) =>
-    `[Image ${index + 1} of this result (${mebibytes(part.data.length)} of base64) is not shown: this model's API takes at most ${mebibytes(perImageBase64 ?? 0)} in one image.]`;
+    imageTooLargeNote(`Image ${index + 1} of this result`, part.data.length, perImageBase64 ?? 0);
   const noRoom = (index: number, part: { readonly data: string }) =>
     `[Image ${index + 1} of this result (${mebibytes(part.data.length)} of base64) is not shown: a tool result holds at most ${mebibytes(RESULT_BYTES)} of text and images.]`;
   // A note goes on its own line after the result's text.
