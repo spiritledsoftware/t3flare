@@ -512,7 +512,7 @@ Global mise config refinement's 16 KiB, §4's "nor other custom sizes", and the 
   running output tails at its 64 Ki live tail. The approval card's script is shown by the card's own rule
   (`cardText`) and kept once per code mode call. The Guardian's evidence budget takes trusted messages first, newest
   first, then the newest untrusted ones; its History read stops once trusted evidence fills the budget (or, on a linked
-  thread, any evidence does). A push's page (`PUSH_ENTRIES_BYTES`) holds a burst of 16 full-size tool results, so a
+  thread, any evidence does) (read pattern superseded by the SPI-1378 refinement below). A push's page (`PUSH_ENTRIES_BYTES`) holds a burst of 16 full-size tool results, so a
   round of parallel calls settles without a snapshot; with one whole Session row past it, it stays well inside the
   32 MiB a Durable Object RPC carries.
 - **Removed:** the 10-minute default of a t3 wait with no `timeoutMs` (it waits until what it waits on happens, or the
@@ -817,3 +817,28 @@ reclaim, so a billed Container could stay up for the week.
   (`environmentEpoch`, which never boots t3). With no such run open, the alarm asks nothing.
 - No time limit or setting is added (the Owner, 2026-11-24). `CANCELLABLE_RUN_MS` stays, as the backstop for a run
   neither a cancel nor the epoch ends.
+
+## Refinement (SPI-1378, 2026-11-24): the Guardian reads the History since its last review
+
+Supersedes, in the SPI-1362 refinement, the Guardian reading its History from the newest entry on every review. With
+`trustUser` on, trusted evidence rarely fills the budget, so each reviewed call read the whole History. Which evidence a
+review selects does not change.
+
+- **An evidence index per conversation, in memory:** each entry's id and the size its evidence takes (a trusted
+  message's JSON length, an untrusted one's shown form), the newest and oldest entry read, and the texts of the last
+  selection. Entries never change and ids are never reused, so the index stands for the History it read.
+- **The next review reads only the entries newer than the newest it read**, then selects over them and the index by the
+  same rule a whole read uses, back-fill included. A review reads, newest first, a page at a time: the entries newer
+  than the newest it read; the History past the oldest entry read, only when the selection reaches past it; the texts of
+  older entries it newly selects, as one id range spanning them; and, when a full budget stopped the selection where
+  nothing read shows an older entry, one read of up to two entries to learn whether older History exists. That is at
+  most one read call more than an uncached review's: the read since the newest entry comes before the selection knows
+  which older texts it needs.
+- **The Reviewed Call's own response is skipped by its entry id.** Before, every response holding one of its call ids
+  was left out; where a provider leaves call ids empty or reuses them (pi-ai's openai-completions adapter writes
+  `toolCall.id || ""`), older responses sharing the id are now evidence too.
+- **It reads the whole History again** on a new isolate, a Guardian installed again (a settings change), another
+  `trustUser` or budget, a review of another conversation (a fork is one; the index holds one conversation), and when the
+  History no longer holds the newest entry read. No limit or setting is added.
+- **The omission note's "older History not read"** names a full budget with any entry older than where the read
+  stopped, not only a next page, so it reads the same on both paths.

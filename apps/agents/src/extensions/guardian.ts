@@ -39,7 +39,13 @@ import {
   statedRationale,
   validRiskCategories,
 } from "./guardian/assessment.ts";
-import { renderReviewedCall, selectEvidence, toolCallsOf } from "./guardian/evidence.ts";
+import {
+  type EvidenceCache,
+  evidenceCache,
+  renderReviewedCall,
+  selectEvidence,
+  toolCallsOf,
+} from "./guardian/evidence.ts";
 import { parseEntries, type PolicyEntries, readOnlyBuiltIns, resolveToolPolicy, REPO } from "./guardian/policy.ts";
 import { escalationInstruction, guardianSystemPrompt } from "./guardian/prompt.ts";
 import { type GuardianThinkingLevel, type ReviewResult, runGuardianReview, withEscalation } from "./guardian/review.ts";
@@ -142,7 +148,7 @@ const callContext = async (api: Pick<HookApi, "entries">, call: ToolHookCall, co
       const found = calls.find((candidate) => candidate.id === own);
       if (found !== undefined) {
         return {
-          skip: new Set(calls.map((candidate) => candidate.id)),
+          skip: entry.id,
           batch: calls.filter((candidate) => candidate.id !== own),
           parent: call.parent === undefined ? undefined : { toolName: found.name, input: found.arguments },
         };
@@ -152,7 +158,7 @@ const callContext = async (api: Pick<HookApi, "entries">, call: ToolHookCall, co
     cursor = page.next;
     if (cursor === undefined) break;
   }
-  return { skip: new Set<string>(), batch: [], parent: undefined };
+  return { skip: undefined, batch: [], parent: undefined };
 };
 
 /** The Guardian model among the Session's models, by its slug: its Model endpoint's provider and its own id. */
@@ -169,6 +175,7 @@ const review = async (
   host: GuardianHost,
   reason: string | undefined,
   securityPolicy: boolean,
+  cache: EvidenceCache,
   context: ChordContext,
 ): Promise<Decision> => {
   const slug = host.model(settings.model);
@@ -182,7 +189,11 @@ const review = async (
     return decisionOf({ kind: "failed", failure, model: slug ?? settings.model, durationMs: 0, tokens: 0, cost: null });
   }
   const where = await callContext(api, call, context);
-  const evidence = await selectEvidence(api, context, { trustUser: host.trustUser(), skipCalls: where.skip });
+  const evidence = await selectEvidence(api, context, {
+    trustUser: host.trustUser(),
+    skipEntry: where.skip,
+    cache,
+  });
   const reviewed = await renderReviewedCall({
     toolName: call.name,
     input: call.arguments,
@@ -257,6 +268,8 @@ export const guardianExtension = (host: GuardianHost, settings: GuardianSettings
   const commands = parseEntries(settings.commands);
   const invalid = [...tools.errors, ...commands.errors];
   const securityPolicy = settings.policy.trim() !== "" || Object.values(commands.entries).includes("deny");
+  // The reviewed conversation's evidence index, so a review reads only the History since the last one (SPI-1378).
+  const cache = evidenceCache();
   return defineExtension({
     name: GUARDIAN_EXTENSION,
     hooks: [
@@ -295,7 +308,7 @@ export const guardianExtension = (host: GuardianHost, settings: GuardianSettings
               known ??
               (await api.memo<Decision>(
                 memo,
-                await review(api, call, settings, host, policy.detail, securityPolicy, context),
+                await review(api, call, settings, host, policy.detail, securityPolicy, cache, context),
                 context,
               ));
           }
