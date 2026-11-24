@@ -10,11 +10,18 @@
 // - termctrl's driver process is the xterm here; its `status`/`screen.capture`/`logs` are `view()`;
 // - the settle wait (`terminal-tools.ts` `settleTerminal`) runs here, in slices, so a wait is a few RPCs, not one per poll;
 // - entries are kept per owner (the Session that started them); ids `t<n>`/`b<n>` count per owner and are never reused;
-// - at most `maxLive` run at once in a Workspace (`AGENT_TERMINALS_PER_WORKSPACE`, SPI-1317, SPI-1387: ADR-0021's 8, not
-//   termctrl's 16); exited ones stay readable until stopped, as in termctrl, up to
-//   `MAX_KEPT` per owner: they keep their headless xterm outside the live count, bounded by `MAX_KEPT` alone;
+// - any number run at once (SPI-1397: no count, as termctrl's 16 and ADR-0021's 8 were memory's); exited ones stay
+//   readable until stopped, as in termctrl, up to `AGENT_EXITED_TERMINALS_KEPT` across the Workspace's Sessions, the
+//   oldest exited forgotten first;
+// - each xterm keeps its screen and `AGENT_TERMINAL_SPILL_LINES` above it: what scrolls off goes to the Workspace DO's
+//   SQLite (`./agentScrollback.ts`, up to `AGENT_TERMINAL_HISTORY_BYTES` a Terminal), and reads of it come from there;
 // - they end when the Container stops, as t3's terminals do, and when this object restarts (a deploy).
-import { DEFAULT_TERMINAL_QUIET_MS, STOP_GRACE_SECONDS } from "@t3flare/harness-registry";
+import {
+  AGENT_EXITED_TERMINALS_KEPT,
+  AGENT_TERMINAL_SPILL_LINES,
+  DEFAULT_TERMINAL_QUIET_MS,
+  STOP_GRACE_SECONDS,
+} from "@t3flare/harness-registry";
 import type { KillAnswer } from "@t3flare/sandbox-image/kill";
 import { Terminal } from "@xterm/headless/lib-headless/xterm-headless.mjs";
 import type {
@@ -32,22 +39,14 @@ import type {
 } from "@t3flare/workspace-client";
 
 import { DEFAULT_TOOL_OUTPUT_LIMITS, jobTailOf } from "../extensions/toolOutput.ts";
+import type { Scrollback, ScrollbackStore } from "./agentScrollback.ts";
 
 /**
- * Entries (running or exited) one owner keeps; the oldest exited one is forgotten past it. A named constraint (ADR-0048
- * §1): the Workspace DO's memory, each entry's headless xterm in its 128 MB isolate. 32, the most the agents' Terminals
- * per Workspace could be set to before SPI-1387, and at least `AGENT_TERMINALS_PER_WORKSPACE`, so an owner running every
- * live entry still keeps them all. It bounds each Session's exited Terminals only: the Workspace-wide total grows with
- * the Sessions the Workspace serves until this object restarts, pending SPI-978's measurement of the DO's memory.
+ * What an agent is told when it names an entry the Workspace's exited bound forgot (SPI-1397, ADR-0049 §4): the bound
+ * and its value, `AGENT_EXITED_TERMINALS_KEPT`.
  */
-export const MAX_KEPT = 32;
-
-/**
- * Why an agent's Terminal or Background job is refused at the Workspace's cap (SPI-1387, ADR-0049 §4): the limit and its
- * value, a memory-safety bound for the Workspace DO's 128 MB isolate (`AGENT_TERMINALS_PER_WORKSPACE`).
- */
-export const agentTerminalsFull = (live: number, max: number): string =>
-  `This Workspace already runs ${live} Terminals and Background jobs, and agents may run at most ${max} at once (a fixed limit: each keeps its screen in the Workspace's memory); stop one first.`;
+export const agentTerminalDropped = (id: string, logPath: string | undefined): string =>
+  `${id} is no longer kept: a Workspace keeps its last ${AGENT_EXITED_TERMINALS_KEPT} exited Terminals and Background jobs, across its threads, and forgets the oldest past that.${logPath === undefined ? "" : ` Its whole output is still in ${logPath}.`}`;
 /** termctrl's settle poll (`terminal-tools.ts`). The quiet that settles a wait is the request's (`termctrl.quietMs`). */
 const POLL_MS = 50;
 /**
@@ -115,16 +114,8 @@ export interface AgentTerminalsDeps {
   readonly env: Readonly<Record<string, string>>;
   /** The Workspace's repo in the Container. */
   readonly repo: string;
-  /**
-   * Running Terminals and Background jobs in one Workspace, across its Sessions: `AGENT_TERMINALS_PER_WORKSPACE`
-   * (SPI-1317, ADR-0021's terminal cap; SPI-1387), read at each start.
-   */
-  readonly maxLive: () => number;
-  /**
-   * Lines of scrollback each new Terminal or Background job keeps: `AGENT_TERMINAL_SCROLLBACK_LINES` (SPI-1362,
-   * SPI-1387), read at each start. Lines past it are dropped, and the agent is told.
-   */
-  readonly scrollback: () => number;
+  /** Where each entry's scrollback is kept, and which entries the exited bound forgot (SPI-1397): the DO's SQLite. */
+  readonly store: ScrollbackStore;
 }
 
 interface Entry {
@@ -142,8 +133,12 @@ interface Entry {
   exit: AgentExit | null;
   /** The owner saw the exit in a result, or was told of it. */
   exitSeen: boolean;
-  /** Lines dropped from the scrollback so far. */
+  /** Lines the xterm dropped from above its screen so far: a line's absolute index is this plus its buffer index. */
   trimmed: number;
+  /** The normal buffer's line list `trimmed` counts; a reset (RIS) gives the xterm a new one. */
+  lines: object | undefined;
+  /** What scrolled off, in storage. */
+  readonly scrollback: Scrollback;
   lastOutputAt: number;
   /** Writes into the xterm still being parsed. */
   writing: Promise<void>;
@@ -152,6 +147,9 @@ interface Entry {
   /** Calls to this entry, one at a time in arrival order (termctrl's Call queue). */
   queue: Promise<unknown>;
 }
+
+/** An entry's marker: its PTY's key in the host, and its Background job log's name. */
+const markerOf = (owner: string, id: string): string => `term-agent-${shortHash(owner)}-${id}`;
 
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 
@@ -176,6 +174,45 @@ interface XtermCore {
     readonly coreService?: { readonly isCursorHidden?: boolean };
   };
 }
+
+/**
+ * `data` in pieces that each scroll the screen less than `margin` lines, so the lines one piece pushes above the screen
+ * still fit the xterm's `AGENT_TERMINAL_SPILL_LINES` when it has been parsed and they are stored. Counted from above:
+ * each line feed (LF, VT, FF) a row, and each character two cells (a wide one's), every `cols` cells a wrapped row, one
+ * row spare for where the cursor starts. Escape sequences that scroll by themselves (`CSI S`, `ESC D`) are not counted:
+ * the lines they push past the margin are found missing, never misnumbered.
+ */
+export const piecesOf = (data: string, cols: number, margin: number): Array<string> => {
+  const budget = Math.max(1, margin - 1);
+  const pieces: Array<string> = [];
+  let from = 0;
+  let scrolled = 0;
+  let cells = 0;
+  for (let index = 0; index < data.length; index++) {
+    const unit = data.charCodeAt(index);
+    if (unit === 10 || unit === 11 || unit === 12) {
+      scrolled++;
+      cells = 0;
+    } else if (unit === 13) cells = 0;
+    else {
+      cells += 2;
+      if (cells >= cols) {
+        scrolled++;
+        cells -= cols;
+      }
+    }
+    if (scrolled >= budget) {
+      // Never between a surrogate pair's halves.
+      const end = unit >= 0xd800 && unit <= 0xdbff ? index + 2 : index + 1;
+      pieces.push(data.slice(from, end));
+      from = end;
+      index = end - 1;
+      scrolled = 0;
+    }
+  }
+  if (from < data.length) pieces.push(data.slice(from));
+  return pieces;
+};
 
 const encoder = new TextEncoder();
 
@@ -217,17 +254,62 @@ export class AgentTerminals {
         continue;
       }
       if (frame.data !== undefined && frame.data !== "") {
-        const data = frame.data;
         entry.lastOutputAt = this.#deps.now();
-        entry.writing = entry.writing.then(() => new Promise<void>((resolve) => entry.term.write(data, resolve)));
+        this.#feed(entry, frame.data);
       }
       if (frame.exit !== undefined && entry.exit === null) {
         // 129 is the host's code for a shell the Container took with it (`containerStopped`, a kill before the start).
         entry.exit = frame.exit.code === 129 ? CONTAINER_STOPPED : { code: frame.exit.code, signal: null };
         entry.endedAt = this.#deps.now();
+        this.#bound();
       }
     }
     return [...unknown];
+  }
+
+  /** Output into the entry's xterm in pieces, storing what each piece scrolled off before the next is parsed. */
+  #feed(entry: Entry, data: string): void {
+    for (const piece of piecesOf(data, entry.term.cols, AGENT_TERMINAL_SPILL_LINES))
+      entry.writing = entry.writing
+        .then(() => new Promise<void>((resolve) => entry.term.write(piece, resolve)))
+        .then(() => this.#spill(entry));
+  }
+
+  /** The normal buffer's lines above its screen not yet stored go to storage. */
+  #spill(entry: Entry): void {
+    this.#watchTrims(entry);
+    const normal = entry.term.buffer.normal;
+    const top = entry.trimmed + normal.baseY;
+    for (let line = Math.max(entry.scrollback.end, entry.trimmed); line < top; line++)
+      entry.scrollback.append(line, normal.getLine(line - entry.trimmed)?.translateToString(true) ?? "");
+  }
+
+  /**
+   * Counts the normal buffer's trims, through the xterm's internals. A reset (RIS) replaces the buffer: its lines are
+   * numbered on from the last one stored or seen, never again from 0.
+   */
+  #watchTrims(entry: Entry): void {
+    const lines = (entry.term as unknown as XtermCore)._core?._bufferService?.buffers?.normal?.lines;
+    if (lines === undefined || lines === entry.lines) return;
+    if (entry.lines !== undefined) entry.trimmed = Math.max(entry.scrollback.end, entry.seen?.top ?? 0, entry.trimmed);
+    entry.lines = lines;
+    lines.onTrim?.((amount) => {
+      if (entry.lines === lines) entry.trimmed += amount;
+    });
+  }
+
+  /**
+   * Past `AGENT_EXITED_TERMINALS_KEPT` exited entries in the Workspace, across its Sessions, the oldest exited (by when
+   * it exited, then when it started) is forgotten (never a running one), and naming it later says why.
+   */
+  #bound(): void {
+    const exited = [...this.#entries.values()].filter((entry) => entry.exit !== null);
+    if (exited.length <= AGENT_EXITED_TERMINALS_KEPT) return;
+    exited.sort((a, b) => (a.endedAt ?? 0) - (b.endedAt ?? 0) || a.startedAt - b.startedAt);
+    for (const entry of exited.slice(0, exited.length - AGENT_EXITED_TERMINALS_KEPT)) {
+      this.#forget(entry);
+      this.#deps.store.forgotten.add(`${entry.owner}\u0000${entry.id}`);
+    }
   }
 
   async handle<R extends AgentTerminalRequest>(request: R): Promise<AgentTerminalResult<R["op"]>> {
@@ -250,7 +332,12 @@ export class AgentTerminals {
       case "stop": {
         const entry = this.#entry(request.owner, request.id);
         return this.#queued(entry, () =>
-          this.#stop(entry, request.tail ?? DEFAULT_JOB_TAIL, request.graceMs ?? STOP_GRACE_SECONDS * 1000),
+          this.#stop(
+            entry,
+            request.tail ?? DEFAULT_JOB_TAIL,
+            request.graceMs ?? STOP_GRACE_SECONDS * 1000,
+            request.scrolledLines,
+          ),
         );
       }
       case "list":
@@ -281,6 +368,10 @@ export class AgentTerminals {
   #entry(owner: string, id: string): Entry {
     const entry = this.#entries.get(`${owner}\u0000${id}`);
     if (entry !== undefined) return entry;
+    if (this.#deps.store.forgotten.has(`${owner}\u0000${id}`))
+      throw new Error(
+        agentTerminalDropped(id, id.startsWith("b") ? `${JOB_LOG_DIR}/${markerOf(owner, id)}.log` : undefined),
+      );
     const ids = this.#owned(owner).map((known) => known.id);
     throw new Error(
       `Unknown terminal or Background job ${id}.${ids.length === 0 ? " There are none." : ` Known: ${ids.join(", ")}.`}`,
@@ -308,22 +399,14 @@ export class AgentTerminals {
   }
 
   async #start(request: Extract<AgentTerminalRequest, { op: "start" }>): Promise<AgentTerminalAnswers["start"]> {
-    const live = this.live;
-    const max = this.#deps.maxLive();
-    if (live >= max) {
-      const mine = this.#owned(request.owner).filter((entry) => entry.exit === null);
-      throw new Error(
-        `${agentTerminalsFull(live, max)}${mine.length === 0 ? "" : ` Yours: ${mine.map((entry) => `${entry.id} (${entry.command})`).join(", ")}.`}`,
-      );
-    }
     const prefix = request.kind === "terminal" ? "t" : "b";
     const id = `${prefix}${this.#deps.nextId(request.owner, request.kind)}`;
-    const marker = `term-agent-${shortHash(request.owner)}-${id}`;
+    const marker = markerOf(request.owner, id);
     const logPath = request.kind === "background_job" ? `${JOB_LOG_DIR}/${marker}.log` : undefined;
     const term = new Terminal({
       cols: request.cols,
       rows: request.rows,
-      scrollback: this.#deps.scrollback(),
+      scrollback: AGENT_TERMINAL_SPILL_LINES,
       allowProposedApi: true,
     });
     const now = this.#deps.now();
@@ -342,15 +425,14 @@ export class AgentTerminals {
       exit: null,
       exitSeen: false,
       trimmed: 0,
+      lines: undefined,
+      scrollback: this.#deps.store.open(`${request.owner}\u0000${id}`),
       lastOutputAt: now,
       writing: Promise.resolve(),
       seen: null,
       queue: Promise.resolve(),
     };
-    (term as unknown as XtermCore)._core?._bufferService?.buffers?.normal?.lines?.onTrim?.((amount) => {
-      entry.trimmed += amount;
-    });
-    this.#forgetOldest(request.owner);
+    this.#watchTrims(entry);
     this.#entries.set(`${request.owner}\u0000${id}`, entry);
     this.#byMarker.set(marker, entry);
     // A Background job's whole output also goes to its log, which the agent can `read` (pi-termctrl's job log).
@@ -370,18 +452,11 @@ export class AgentTerminals {
     return { entry: this.#info(entry) };
   }
 
-  /** Past MAX_KEPT, the owner's oldest exited entry is forgotten (never a running one). */
-  #forgetOldest(owner: string): void {
-    const owned = this.#owned(owner);
-    if (owned.length < MAX_KEPT) return;
-    const oldest = owned.filter((entry) => entry.exit !== null).sort((a, b) => a.startedAt - b.startedAt)[0];
-    if (oldest !== undefined) this.#forget(oldest);
-  }
-
   #forget(entry: Entry): void {
     this.#entries.delete(`${entry.owner}\u0000${entry.id}`);
     this.#byMarker.delete(entry.marker);
     entry.term.dispose();
+    entry.scrollback.drop();
   }
 
   async #type(entry: Entry, text: string | undefined, keys: ReadonlyArray<string> | undefined): Promise<void> {
@@ -434,7 +509,12 @@ export class AgentTerminals {
       await new Promise((resolve) => setTimeout(resolve, POLL_MS));
     }
     return {
-      view: await this.#view(entry, request.view && reason !== "chunk", request.tail ?? DEFAULT_JOB_TAIL),
+      view: await this.#view(
+        entry,
+        request.view && reason !== "chunk",
+        request.tail ?? DEFAULT_JOB_TAIL,
+        request.scrolledLines,
+      ),
       reason,
       startScreen,
     };
@@ -447,7 +527,12 @@ export class AgentTerminals {
    * (`exitWithoutFrame`). Survivors of a running entry are no exit: the stop fails, and the entry stays running; survivors
    * of an exited one are noted on its exit.
    */
-  async #stop(entry: Entry, tail: AgentTail, graceMs: number): Promise<AgentTerminalAnswers["stop"]> {
+  async #stop(
+    entry: Entry,
+    tail: AgentTail,
+    graceMs: number,
+    scrolledLines: number | undefined,
+  ): Promise<AgentTerminalAnswers["stop"]> {
     let closed: KillAnswer | undefined;
     if (entry.exit === null) {
       closed = await this.#deps.host.closeAnswered(entry.marker);
@@ -466,10 +551,11 @@ export class AgentTerminals {
       if (entry.exit === null) {
         entry.exit = exitWithoutFrame(answer);
         entry.endedAt = this.#deps.now();
+        this.#bound();
       } else if (survivors > 0) entry.exit = { ...entry.exit, note: `its shell ended, but ${survived}` };
     }
     await entry.writing;
-    const view = await this.#view(entry, true, tail);
+    const view = await this.#view(entry, true, tail, scrolledLines);
     const stopped = this.#info(entry);
     this.#forget(entry);
     return { stopped, view };
@@ -523,18 +609,36 @@ export class AgentTerminals {
     };
   }
 
-  /** The screen, what scrolled off since the owner's previous view, and that view; `record`: this is the owner's view now. */
-  async #view(entry: Entry, record: boolean, tail: AgentTail): Promise<AgentView> {
+  /**
+   * The screen, what scrolled off since the owner's previous view (from storage), and that view; `record`: this is the
+   * owner's view now. With `scrolledLines`, only the lines a result can show are read: its first that many, beside the
+   * screen's rows the result may drop as already seen, and its last that many.
+   */
+  async #view(entry: Entry, record: boolean, tail: AgentTail, scrolledLines?: number): Promise<AgentView> {
     await entry.writing;
     const { screen, cursor, top } = this.#screen(entry);
     const buffer = entry.term.buffer.active;
-    const scrolledOff: Array<string> = [];
+    let scrolledOff: Array<string> = [];
+    let omitted: AgentView["scrolledOffOmitted"];
     let outputMissing = false;
     if (buffer.type === "normal") {
-      const from = entry.seen?.top ?? entry.trimmed;
-      if (from < entry.trimmed) outputMissing = true;
-      for (let line = Math.max(from, entry.trimmed); line < top; line++)
-        scrolledOff.push(buffer.getLine(line - entry.trimmed)?.translateToString(true) ?? "");
+      const kept = entry.scrollback.first;
+      const from = entry.seen?.top ?? kept;
+      if (from < kept) outputMissing = true;
+      const start = Math.max(from, kept);
+      const read = (a: number, b: number): Array<string> => {
+        const lines = entry.scrollback.read(a, b);
+        if (lines.includes(null)) outputMissing = true;
+        return lines.filter((line): line is string => line !== null);
+      };
+      const head = scrolledLines === undefined ? Infinity : scrolledLines + entry.term.rows;
+      const last = scrolledLines ?? Infinity;
+      if (top - start <= head + last) scrolledOff = read(start, top);
+      else {
+        const first = read(start, start + head);
+        scrolledOff = [...first, ...read(top - last, top)];
+        omitted = { at: first.length, count: top - start - head - last };
+      }
     }
     const previous = entry.seen === null ? null : { screen: entry.seen.screen, cursorRow: entry.seen.cursorRow };
     const shift = entry.seen === null || outputMissing || top < entry.seen.top ? null : top - entry.seen.top;
@@ -549,6 +653,7 @@ export class AgentTerminals {
       screen,
       cursor,
       scrolledOff,
+      ...(omitted === undefined ? {} : { scrolledOffOmitted: omitted }),
       outputMissing,
       previous,
       shift,
@@ -557,14 +662,30 @@ export class AgentTerminals {
     };
   }
 
-  /** The entry's last lines of output (scrollback and screen), within `tail`. */
+  /**
+   * The entry's last lines of output (scrollback and screen), within `tail`: the xterm's lines not yet stored, and before
+   * them only as many stored lines as `tail.lines` can take, read back in widening windows past trailing blank lines.
+   */
   async #tail(entry: Entry, tail: AgentTail): Promise<string> {
     await entry.writing;
     const buffer = entry.term.buffer.active;
-    const all: Array<string> = [];
-    for (let line = 0; line < buffer.length; line++) all.push(buffer.getLine(line)?.translateToString(true) ?? "");
-    while (all.length > 0 && all[all.length - 1] === "") all.pop();
-    return lastLines(all.join("\n"), tail);
+    const normal = buffer.type === "normal";
+    const live: Array<string> = [];
+    for (let line = normal ? Math.max(0, entry.scrollback.end - entry.trimmed) : 0; line < buffer.length; line++)
+      live.push(buffer.getLine(line)?.translateToString(true) ?? "");
+    while (live.length > 0 && live[live.length - 1] === "") live.pop();
+    let lines = live;
+    if (normal && live.length < tail.lines) {
+      const { first, end } = entry.scrollback;
+      for (let window = tail.lines - live.length; ; window *= 2) {
+        const from = Math.max(first, end - window);
+        const stored = entry.scrollback.read(from, end).filter((line): line is string => line !== null);
+        if (live.length === 0) while (stored.length > 0 && stored[stored.length - 1] === "") stored.pop();
+        lines = [...stored, ...live];
+        if (lines.length >= tail.lines || from <= first) break;
+      }
+    }
+    return lastLines(lines.join("\n"), tail);
   }
 
   /** The Container stopped or this object ends: every running entry ended with it (the host's exit frames say so too). */
@@ -575,6 +696,7 @@ export class AgentTerminals {
         entry.endedAt = this.#deps.now();
       }
     }
+    this.#bound();
   }
 }
 

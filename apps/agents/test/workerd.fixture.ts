@@ -7,6 +7,7 @@ import { ContainerBudget } from "../src/budget.ts";
 import { SKILLS_MOUNT, type SkillSet } from "@t3flare/skills";
 import { REPO_ROOT } from "@t3flare/workspace-client";
 
+import { scrollbackStore } from "../src/workspace/agentScrollback.ts";
 import { repoFileSizes } from "../src/workspace/changeLog.ts";
 import { fileOps } from "../src/workspace/files.ts";
 import { keepPrimed, primeArgvs, primeReadsFor } from "../src/workspace/gitDirReads.ts";
@@ -158,6 +159,27 @@ export class VfsProbe extends DurableObject {
       threw = String(error);
     }
     return { threw, cached: cache.get("k", 1)?.stdout === answer.stdout };
+  }
+
+  /**
+   * An agent Terminal's scrollback (SPI-1397): a full batch of short lines, then one line of `lineChars` of `char`, read
+   * back from this object's SQLite; what threw, and whether the long line came back as stored.
+   */
+  async scrollbackRow(
+    lineChars: number,
+    char = "x",
+  ): Promise<{ readonly threw: string | null; readonly length: number | null }> {
+    const scrollback = scrollbackStore(this.ctx.storage.sql).open("probe");
+    let threw: string | null = null;
+    try {
+      for (let line = 0; line < 799; line++) scrollback.append(line, "y".repeat(80));
+      scrollback.append(799, char.repeat(lineChars));
+      scrollback.append(800, "after");
+    } catch (error) {
+      threw = String(error);
+    }
+    const read = threw === null ? scrollback.read(799, 801) : [];
+    return { threw, length: read[1] === "after" ? (read[0]?.length ?? null) : null };
   }
 
   async writeText(path: string, data: string, append: boolean): Promise<string> {

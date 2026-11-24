@@ -43,8 +43,8 @@ import {
   deadlineMs,
   OFF_DEADLINE_MS,
   offDeadlineMs,
-  AGENT_TERMINAL_SCROLLBACK_LINES,
-  AGENT_TERMINALS_PER_WORKSPACE,
+  AGENT_EXITED_TERMINALS_KEPT,
+  AGENT_TERMINAL_HISTORY_BYTES,
   cliProcessesPerWorkspace,
   cliProcessesPerWorkspaceOf,
   CLI_RECLAIM_SECONDS,
@@ -437,11 +437,13 @@ describe("the Terminals' holds and counts (SPI-1317, SPI-1387)", () => {
   });
 
   it("count and keep fixed values", () => {
-    expect(AGENT_TERMINALS_PER_WORKSPACE).toBe(8);
-    expect(AGENT_TERMINAL_SCROLLBACK_LINES).toBe(1000);
     // SPI-1391: stock t3's, with the history in storage.
     expect(TERMINAL_HISTORY_KIB).toBe(8 * 1024);
     expect(EXITED_TERMINALS_KEPT).toBe(128);
+  });
+
+  it("keep an agent's Terminal's scrollback at stock t3's 8 MiB, and 128 exited agent Terminals a Workspace (SPI-1397)", () => {
+    expect([AGENT_TERMINAL_HISTORY_BYTES, AGENT_EXITED_TERMINALS_KEPT]).toEqual([8 * 1024 * 1024, 128]);
   });
 
   it("are down-free, in the Containers row, after the idle time, and state their consequence in Owner words", () => {

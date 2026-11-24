@@ -52,8 +52,6 @@ import { CREDENTIAL_HELPER, CREDENTIAL_PATH } from "./credentialHelper.ts";
 import { BUDGET_NAME, type ContainerBudget, RENEW_EVERY_MS } from "../budget.ts";
 import { type EnvironmentDO, environmentStub } from "../environment.ts";
 import {
-  AGENT_TERMINAL_SCROLLBACK_LINES,
-  AGENT_TERMINALS_PER_WORKSPACE,
   BASE_BUILD_TEXT_CHARACTERS,
   type BaseBuildRecord,
   BUILDERS,
@@ -170,6 +168,7 @@ import {
 } from "@t3flare/sandbox-image/leakscan";
 import type { EndpointFailureRecord } from "@t3flare/session-protocol";
 import { ProcessHost, type ProcessMarker } from "./processHost.ts";
+import { scrollbackStore } from "./agentScrollback.ts";
 import { AgentTerminals } from "./agentTerminals.ts";
 import { workspacePrompts, workspaceSkills } from "./skills.ts";
 import { mountWithFallback, skillSetMount, skillSetStore } from "./skillSet.ts";
@@ -715,8 +714,7 @@ export class WorkspaceDO extends ContainerHost {
       firstPromptMs: () => FIRST_PROMPT_SECONDS * 1000,
     });
     // The agent's Terminals (SPI-1057): the same host, never heartbeaten (they end with the Container or a stop), their
-    // output rendered by `AgentTerminals` instead of pushed to t3's terminal adapter. `AgentTerminals` counts them, not
-    // the host.
+    // output rendered by `AgentTerminals` instead of pushed to t3's terminal adapter. Neither counts them (SPI-1397).
     this.#agentHost = new TerminalHost({
       now: () => Date.now(),
       epoch: this.#epoch,
@@ -744,6 +742,9 @@ export class WorkspaceDO extends ContainerHost {
       projectRootView: PROJECT_ROOT_VIEW,
       holdFirstInput: false,
     });
+    // SPI-1397: their scrollback in this object's SQLite. They ended with the last instance, so their rows go.
+    const agentScrollback = scrollbackStore(ctx.storage.sql);
+    agentScrollback.clear();
     this.#agentTerminals = new AgentTerminals({
       host: this.#agentHost,
       now: () => Date.now(),
@@ -757,9 +758,7 @@ export class WorkspaceDO extends ContainerHost {
       // A command, not an interactive shell: mise through `BASH_ENV`, as the agent's `bash` has it.
       env: COMMAND_ENV.BASH_ENV === undefined ? {} : { BASH_ENV: COMMAND_ENV.BASH_ENV },
       repo: REPO_ROOT,
-      // SPI-1317, SPI-1387: a fixed count, `AGENT_TERMINALS_PER_WORKSPACE`, a memory-safety bound.
-      maxLive: () => AGENT_TERMINALS_PER_WORKSPACE,
-      scrollback: () => AGENT_TERMINAL_SCROLLBACK_LINES,
+      store: agentScrollback,
     });
     this.#boot = (ctx.storage.kv.get<number>(BOOT_COUNT_KEY) ?? 0) + 1;
     ctx.storage.kv.put(BOOT_COUNT_KEY, this.#boot);

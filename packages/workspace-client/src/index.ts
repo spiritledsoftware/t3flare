@@ -443,8 +443,13 @@ export interface AgentView {
   /** The visible rows, trailing blank rows trimmed. */
   readonly screen: string;
   readonly cursor: AgentCursor | null;
-  /** Lines that scrolled off the screen since the previous view, oldest first. */
+  /** Lines that scrolled off the screen since the previous view, oldest first; with `scrolledOffOmitted`, their ends. */
   readonly scrolledOff: ReadonlyArray<string>;
+  /**
+   * Lines of `scrolledOff` left out of the answer (SPI-1397): `count` lines before its index `at`. Only when the
+   * request named `scrolledLines` and more scrolled off than a result can show.
+   */
+  readonly scrolledOffOmitted?: { readonly at: number; readonly count: number };
   /** Lines the owner never saw were dropped from the scrollback, or the screen was cleared. */
   readonly outputMissing: boolean;
   readonly previous: { readonly screen: string; readonly cursorRow: number | null } | null;
@@ -493,6 +498,12 @@ export type AgentTerminalRequest =
       /** Record this answer as the owner's view (a final answer); a chunk is not. */
       readonly view: boolean;
       readonly tail?: AgentTail;
+      /**
+       * The most scrolled-off lines the Session's result shows, its first and last (SPI-1397). The Workspace reads from
+       * storage only the lines that can show: that many from each end, and the owner's previous screen's rows more at
+       * the start, where the result drops lines the agent already saw. Absent (a request from before it): every line.
+       */
+      readonly scrolledLines?: number;
       /** How long the screen must be quiet to settle (`termctrl.quietMs`, SPI-1364); absent, termctrl's 250 ms. */
       readonly quietMs?: number;
     }
@@ -501,6 +512,12 @@ export type AgentTerminalRequest =
       readonly owner: string;
       readonly id: string;
       readonly tail?: AgentTail;
+      /**
+       * The most scrolled-off lines the Session's result shows, its first and last (SPI-1397). The Workspace reads from
+       * storage only the lines that can show: that many from each end, and the owner's previous screen's rows more at
+       * the start, where the result drops lines the agent already saw. Absent (a request from before it): every line.
+       */
+      readonly scrolledLines?: number;
       /** How long the stop waits for the exit after the close (`termctrl.stopGraceSeconds`, SPI-1364); absent, 3 s. */
       readonly graceMs?: number;
     }

@@ -193,13 +193,15 @@ export const backgroundJobs = (host: TermctrlHost): BackgroundJobs => ({
       pattern: "\u0000never",
       view: true,
       tail: jobTailOf(host.limits().output),
+      // Only its output shows: no scrolled-off lines are read.
+      scrolledLines: 0,
     });
     if (!settled.ok) throw new Error(settled.error);
     const view = settled.value.view;
     const output = view.output ?? "";
     if (view.state === "exited") {
       // Finished in the foreground: an ordinary `bash` result, and no job is left behind.
-      await host.call({ op: "stop", owner, id });
+      await host.call({ op: "stop", owner, id, scrolledLines: 0 });
       const exitCode = view.exit?.code ?? null;
       const text = `${output === "" ? "(no output)" : output}${exitCode === 0 ? "" : `\n\nCommand ${describeExitStatus(view.exit ?? { code: null, signal: null })}`}`;
       return {
