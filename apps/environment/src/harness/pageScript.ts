@@ -105,7 +105,21 @@ const post = async (path, body, control) => {
   busy(control, false);
   return undefined;
 };
-const done = () => location.reload();
+// A reload keeps each Advanced (ADR-0049 §6) open that was open, so a value saved there shows where it was typed.
+const OPEN_ADVANCED = "t3flare-open-advanced";
+const done = () => {
+  try {
+    sessionStorage.setItem(OPEN_ADVANCED, JSON.stringify([...document.querySelectorAll("details[data-advanced][open]")].map((details) => details.id)));
+  } catch {}
+  location.reload();
+};
+try {
+  for (const id of JSON.parse(sessionStorage.getItem(OPEN_ADVANCED) ?? "[]")) {
+    const details = document.getElementById(id);
+    if (details instanceof HTMLDetailsElement) details.open = true;
+  }
+  sessionStorage.removeItem(OPEN_ADVANCED);
+} catch {}
 // A field under a collapsed Advanced (ADR-0049 §6) that a save finds invalid opens it, so the browser can show where.
 document.addEventListener("invalid", (event) => {
   const advanced = event.target instanceof Element ? event.target.closest("details[data-advanced]") : null;

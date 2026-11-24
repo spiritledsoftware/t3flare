@@ -79,6 +79,10 @@ section{display:flex;flex-direction:column;gap:.625rem;scroll-margin-top:1.5rem}
 .row-extra{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.75rem 2rem;align-items:start;padding-top:.25rem}
 .fields{display:flex;flex-direction:column;gap:.875rem;max-width:30rem}
 .fields.list{max-width:44rem}
+/* A file's own row: the settings that join it sit under its text area, so a contextual one appearing as it is typed in
+   never narrows it; its hint keeps a readable measure. */
+.row-extra>.fields.joined{grid-column:1/-1}
+.fields.list .hint{max-width:75ch}
 .test-build{grid-column:1/-1;border:1px solid var(--border);border-radius:var(--radius);background:var(--card)}
 .test-build .test-build-hint{margin-top:.375rem}
 .test-build .test-build-stale{margin-top:.375rem;color:var(--warn)}
@@ -199,6 +203,7 @@ details.advanced[open]>summary{border-bottom:1px solid var(--row-border)}
 .row-extra details.advanced[open]>summary{border-bottom:0}
 .row-extra .advanced-body{padding:.25rem 0 .5rem}
 .row-extra>details.advanced~.save{grid-column:1/-1;justify-content:flex-end}
+.advanced-body>.save{justify-content:flex-end}
 .empty-tools{padding:.75rem 1rem;font-size:.75rem;color:var(--muted-fg)}
 .server-limits{display:grid;gap:1rem;padding:.25rem 1rem 1rem}
 .server-limits>.desc{margin:0}

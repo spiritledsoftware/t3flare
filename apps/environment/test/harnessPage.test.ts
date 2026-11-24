@@ -1282,8 +1282,7 @@ describe("the page's disclosure", () => {
   it("collapses each section's Advanced settings under one Advanced that counts them", () => {
     const html = fresh();
     const environment = section(html, "environment");
-    const summary = (scope: string) =>
-      /<summary>[\s\S]*?Advanced <span>· (\d+) settings?<\/span><\/summary>/.exec(scope)?.[1];
+    const summary = (scope: string) => /<summary>[\s\S]*?Advanced <span>· (\d+) settings?<\/span>/.exec(scope)?.[1];
     const advancedIn = (scope: string) =>
       tagsOf(/<details class="advanced"[\s\S]*?<\/details>/.exec(scope)?.[0] ?? "").filter(
         (tag) => tag.attrs["data-setting"] !== undefined,
@@ -1292,13 +1291,26 @@ describe("the page's disclosure", () => {
     expect(advancedIn(environment)).toBeGreaterThan(0);
     expect(environment).toContain('data-setting="cloneMinutes"');
     expect(outsideAdvanced(environment)).not.toContain('data-setting="cloneMinutes"');
-    // An extension's row: its own Advanced (the Guardian's review time limit), beside its switch.
-    const guardian = html.slice(
-      html.indexOf('data-extension="guardian"'),
-      html.indexOf("</form>", html.indexOf('data-extension="guardian"')),
-    );
+    // An extension's row: its own Advanced (the Guardian's review time limit) while it is on, named for it; off, its
+    // settings follow its switch, Advanced ones too.
+    const guardianOf = (page: string) =>
+      page.slice(
+        page.indexOf('data-extension="guardian"'),
+        page.indexOf("</form>", page.indexOf('data-extension="guardian"')),
+      );
+    expect(guardianOf(html)).not.toContain("data-setting=");
+    const on = applyChange(EMPTY_HARNESS, { extension: "guardian", enabled: true });
+    if (!on.ok) throw new Error(on.error);
+    const guardian = guardianOf(renderPage(fixturePage({ resolved: resolveHarness(on.harness) })));
     expect(summary(guardian)).toBe(String(advancedIn(guardian)));
     expect(guardian).toContain('data-setting="reviewTimeoutSeconds"');
+    expect(guardian).toContain('<span class="sr"> of Guardian</span>');
+    // A row whose settings are all Advanced keeps its Save under Advanced: nothing to save while it is collapsed.
+    const codemode = html.slice(
+      html.indexOf('data-extension="codemode"'),
+      html.indexOf("</form>", html.indexOf('data-extension="codemode"')),
+    );
+    expect(codemode.indexOf("data-save")).toBeGreaterThan(codemode.indexOf('<div class="advanced-body">'));
   });
 
   it("shows the Guardian's model and policy only while the Guardian is on", () => {

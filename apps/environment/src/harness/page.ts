@@ -249,9 +249,26 @@ const extensionFields = (
   return { shown, advanced };
 };
 
-/** An extension row's Advanced settings, collapsed. */
-const advancedFields = (entry: ExtensionEntry, fields: ReadonlyArray<string>): string =>
-  advancedSettings(`ext-${entry.id}`, fields.length, `<div class="fields">${fields.join("")}</div>`);
+const SAVE = `<div class="save"><span class="save-note" data-save-note aria-live="polite"></span><button type="submit" class="btn btn-sm" data-save disabled>Save</button></div>`;
+
+/**
+ * An extension row's settings: those shown, its Advanced ones collapsed, and Save. With none shown, Save is under
+ * Advanced, so a collapsed row offers no Save with nothing to save.
+ */
+const extensionSettings = (
+  entry: ExtensionEntry,
+  shown: ReadonlyArray<string>,
+  advanced: ReadonlyArray<string>,
+): string => {
+  const inside = shown.length === 0;
+  const collapsed = advancedSettings(
+    `ext-${entry.id}`,
+    advanced.length,
+    `<div class="fields">${advanced.join("")}</div>${inside ? SAVE : ""}`,
+    entry.title,
+  );
+  return `${shown.length === 0 ? "" : `<div class="fields">${shown.join("")}</div>`}${collapsed}${inside ? "" : SAVE}`;
+};
 
 const extensionRow = (resolved: ResolvedHarness, entry: ExtensionEntry): string => {
   const current = resolved.extensions[entry.id];
@@ -266,14 +283,15 @@ const extensionRow = (resolved: ResolvedHarness, entry: ExtensionEntry): string 
     entry.default === "always"
       ? `<span class="state">${icon("check")}Always on</span>`
       : `<input type="checkbox" class="switch" role="switch" data-enabled aria-labelledby="${titleId}"${current?.enabled === true ? " checked" : ""}>`;
-  const { shown, advanced } = extensionFields(entry, current, {
-    enabled: current?.enabled === true,
-    toolOn: () => false,
-  });
+  const enabled = current?.enabled === true;
+  const fields = extensionFields(entry, current, { enabled, toolOn: () => false });
+  // A switched-off extension's settings follow its switch: its Advanced ones too, which tune a feature not in use.
+  const shown = fields.shown;
+  const advanced = entry.default === "always" || enabled ? fields.advanced : [];
   const extra =
     shown.length + advanced.length === 0
       ? ""
-      : `<div class="row-extra">${shown.length === 0 ? "" : `<div class="fields">${shown.join("")}</div>`}${advancedFields(entry, advanced)}<div class="save"><span class="save-note" data-save-note aria-live="polite"></span><button type="submit" class="btn btn-sm" data-save disabled>Save</button></div></div>`;
+      : `<div class="row-extra">${extensionSettings(entry, shown, advanced)}</div>`;
   return `<form class="row" data-extension="${escapeHtml(entry.id)}" aria-labelledby="${titleId}" novalidate>${head}<div class="row-control">${control}</div>${extra}</form>`;
 };
 
@@ -358,7 +376,7 @@ const toolsRow = (resolved: ResolvedHarness, tools: ResolvedTools, entry: Extens
   const save =
     shown.length + advanced.length === 0
       ? ""
-      : `${on ? "" : `<p class="desc">Every tool is hidden, so the extension is not installed and these settings do nothing until a tool is offered.</p>`}${shown.length === 0 ? "" : `<div class="fields">${shown.join("")}</div>`}${advancedFields(entry, advanced)}<div class="save"><span class="save-note" data-save-note aria-live="polite"></span><button type="submit" class="btn btn-sm" data-save disabled>Save</button></div>`;
+      : `${on ? "" : `<p class="desc">Every tool is hidden, so the extension is not installed and these settings do nothing until a tool is offered.</p>`}${extensionSettings(entry, shown, advanced)}`;
   return `<form class="row" data-extension="${escapeHtml(entry.id)}" aria-labelledby="${titleId}" novalidate><div><div class="row-title"><h3 id="${titleId}">${escapeHtml(entry.title)}</h3><span class="ident">${escapeHtml(entry.id)}</span></div>
 <p class="desc">${escapeHtml(entry.description)}</p></div><div class="row-control">${on ? `<span class="pill pill-ok">On</span>` : `<span class="pill" title="Every tool hidden">Off</span>`}</div>
 <div class="row-extra"><div class="table-wrap tools-wide"><table class="stacked tools-table"><thead><tr><th scope="col">Tool</th><th scope="col">Exposure</th></tr></thead><tbody>${rows}</tbody></table></div>${save}</div></form>`;
@@ -494,10 +512,10 @@ const contextualField = (
  * A section's Advanced settings (ADR-0049 §6), collapsed: `count` settings in `body`. The script opens it when a field
  * inside it is invalid at a save, so the browser can show where.
  */
-const advancedSettings = (id: string, count: number, body: string): string =>
+const advancedSettings = (id: string, count: number, body: string, of: string): string =>
   count === 0
     ? ""
-    : `<details class="advanced" data-advanced id="${escapeHtml(id)}-advanced"><summary>${icon("chevron")}Advanced <span>· ${plural(count, "setting", "settings")}</span></summary><div class="advanced-body">${body}</div></details>`;
+    : `<details class="advanced" data-advanced id="${escapeHtml(id)}-advanced"><summary>${icon("chevron")}Advanced <span>· ${plural(count, "setting", "settings")}</span><span class="sr"> of ${escapeHtml(of)}</span></summary><div class="advanced-body">${body}</div></details>`;
 
 const containers = (count: number) => `${count} ${count === 1 ? "Container" : "Containers"}`;
 
@@ -699,7 +717,7 @@ const environmentSection = (
     // The Image setup's Test (SPI-1334) spans its row, under its text area: it tests the text in the box, unsaved. Stacked
     // on a phone, it comes right after the text area, before the settings that join the row.
     const beside = key === "imageSetup" ? testBuildBlock(test) : "";
-    return `<div class="row"><div class="row-title"><h3>${escapeHtml(setting.title)}</h3></div><div class="row-extra"><div class="fields list">${field("environment", key, setting, values[key])}</div>${joined.length === 0 ? "" : `<div class="fields">${joined.join("")}</div>`}${beside}</div></div>`;
+    return `<div class="row"><div class="row-title"><h3>${escapeHtml(setting.title)}</h3></div><div class="row-extra"><div class="fields list">${field("environment", key, setting, values[key])}</div>${joined.length === 0 ? "" : `<div class="fields joined">${joined.join("")}</div>`}${beside}</div></div>`;
   });
   const advancedLists = lists.flatMap(([key, setting]) => {
     const joined = joining(key, true);
@@ -714,6 +732,7 @@ const environmentSection = (
     "environment",
     advancedCount,
     `${rows.map((row) => rowIn(row, true)).join("")}${advancedLists.join("")}`,
+    "the Environment",
   );
   const save = `<div class="row"><div class="save"><span class="save-note" data-save-note aria-live="polite"></span><button type="submit" class="btn btn-sm" data-save disabled>Save</button></div></div>`;
   return `<section id="environment" aria-labelledby="environment-title">
