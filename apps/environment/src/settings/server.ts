@@ -62,7 +62,7 @@ import {
   SETTINGS_SERVER_LIMIT_KEYS,
   SETTINGS_SERVER_LIMITS,
 } from "@t3flare/harness-registry";
-import type { McpAsker, McpQuestionAnswer, McpQuestionCard } from "@t3flare/session-protocol";
+import { type McpAsker, type McpQuestionAnswer, type McpQuestionCard, PARKED_REASON } from "@t3flare/session-protocol";
 
 import { planPurge, purgeNow, type WorkspaceActionsDeps } from "../agents/workspaceActions.ts";
 import { workspacesView } from "../agents/workspaceView.ts";
@@ -137,7 +137,6 @@ import {
   toolsItems,
 } from "./render.ts";
 import { settingsToolOf } from "./tools.ts";
-import { askerWaitMs } from "../agents/bindings.ts";
 import type { ChangeEntity, ChangeItem, ChangeView, PageReason } from "./types.ts";
 
 export interface SettingsServerDeps {
@@ -1266,7 +1265,7 @@ const askOnCard = async (
   const closed = new Promise<McpQuestionAnswer>((resolve) => {
     timer = setTimeout(
       () => resolve({ decision: "cancel", reason: "no answer in time" }),
-      deps.cardWaitMs ?? askerWaitMs(asker, () => deps.changes.answerMs()),
+      deps.cardWaitMs ?? deps.changes.answerMs(),
     );
     if (signal !== undefined) {
       onAbort = () => resolve({ decision: "cancel", reason: "the call was stopped" });
@@ -1356,6 +1355,35 @@ export const applyOpenChange = async (
     revision: revisionOf(deps, planned.entity),
     ...(ran.authorizationUrl === undefined ? {} : { authorizationUrl: ran.authorizationUrl }),
   };
+};
+
+/**
+ * What a CLI agent's held call is told when its turn parks on an Open change's card (SPI-1389): the change stays open,
+ * and the Owner's answer comes to the thread as a message.
+ */
+export const parkedChangeText = (url: string | undefined): string =>
+  `Parked: the owner has not answered yet, so this turn ends here. The change stays open${url === undefined ? "" : ` at ${url}`}, and its outcome comes to this thread as a message when the owner answers. Do not repeat the call.`;
+
+/**
+ * Answers a parked Open change (SPI-1389) as the Owner did on its parked question, as the card would: approve or decline.
+ * The outcome as the agent is told it; a change already closed (answered on its Change page first) tells that outcome.
+ */
+export const answerParkedChange = async (
+  deps: SettingsServerDeps,
+  changeId: string,
+  approve: boolean,
+): Promise<string> => {
+  const answered = await answerOpenChange(answerDepsOf(deps), changeId, {
+    by: "card",
+    answerer: { kind: "card" },
+    action: approve ? "approve" : "decline",
+  });
+  const record = deps.changes.get(changeId);
+  const outcome = answered.ok ? answered.outcome : answered.closed;
+  if (record === undefined || outcome === undefined)
+    return `it is no longer open (${answered.ok ? "" : answered.error})`;
+  const result = resultOf(outcome, record, { appliesAt: "" });
+  return (result.kind === "result" ? result.text : result.message).trim();
 };
 
 /** How long an own agent's close waits for an applying answer (`closeOrSettle`), at the Outside request time limit. */
@@ -1584,8 +1612,6 @@ interface AskedInput {
   readonly planned: Planned;
   readonly expected: number;
   readonly reader: Reader;
-  /** The asker, when one asks: a CLI process's names the Answer wait it was spawned with (SPI-1316). */
-  readonly asker?: Pick<McpAsker, "waitMs">;
   /** The change's mode, given what it needs (a change that needs the page is an Owner client's `browser`). */
   readonly modeOf: (needsPage: PageReason | undefined) => ChangeMode;
   /** The text a question would show whole, whose length decides `oversize` (plan D6). */
@@ -1661,9 +1687,8 @@ const openAskedChange = async (deps: SettingsServerDeps, input: AskedInput): Pro
     mode,
     caller,
     createdAt: now,
-    // SPI-1316: the Answer wait now, or the one a CLI process was spawned with (its relay's asker), which its MCP tool
-    // timeout was made from.
-    expiresAt: now + askerWaitMs(input.asker, () => deps.changes.answerMs()),
+    // SPI-1389: an asked change waits until it is answered; its page token and its row take the off deadline.
+    expiresAt: now + deps.changes.answerMs(),
     state: "open",
   };
   const again = reused();
@@ -1677,8 +1702,8 @@ const openAskedChange = async (deps: SettingsServerDeps, input: AskedInput): Pro
 
 /**
  * An own agent's asked change (plan D8, D9): opened as an Open change, shown on one owner-only approval card on the
- * calling thread, and answered by the card or the Change page, whichever comes first. It waits at most the Answer wait
- * (SPI-1316); a Stop withdraws it.
+ * calling thread, and answered by the card or the Change page, whichever comes first. It waits until it is answered
+ * (SPI-1389); a Stop withdraws it, and a parked CLI agent's turn leaves it open.
  */
 const ask = async (
   deps: SettingsServerDeps,
@@ -1695,7 +1720,6 @@ const ask = async (
     planned,
     expected,
     reader: ownReader(deps, caller),
-    ...(input.asker === undefined ? {} : { asker: input.asker }),
     modeOf: () => "card",
     fullText: (view, url) => askedText(view, input, url),
     log: { door: "own", agent: caller.agent, thread: key },
@@ -1705,7 +1729,8 @@ const ask = async (
   const { id, needsPage, createdAt } = record;
   const url = changeUrlOf(deps, id);
   const answers = answerDepsOf(deps);
-  const card = askedCard(record.shown!, input, url, needsPage);
+  // SPI-1389: the change's id goes with its card, so a parked card's record names the change it stands for.
+  const card = { ...askedCard(record.shown!, input, url, needsPage), changeId: id };
   const waiter = waitForChange(id);
   let timer: ReturnType<typeof setTimeout> | undefined;
   let onAbort: (() => void) | undefined;
@@ -1808,8 +1833,14 @@ const ask = async (
         });
         return resultOf(answered.ok ? answered.outcome : await settled(), record, planned);
       }
+      // SPI-1389: the CLI agent's turn parked. The change stays open, on its Change page and as the parked question; the
+      // agent is told its outcome when the Owner answers.
+      if (reason === PARKED_REASON) {
+        deps.log?.({ t3flare: "settings-change", via: "mcp", door: "own", tool, outcome: "parked", change: id });
+        return written("waiting", parkedChangeText(url), { changeId: id });
+      }
       // A cancel: the owner's on the card; the card withdrawn by the caller's Stop, turn end or going away (`stop`); or the
-      // card closing otherwise (no live turn, the CLI's own wait).
+      // card closing otherwise (no live turn).
       const closer =
         reason === undefined ? "card" : reason === "withdrawn" || reason === "the turn ended" ? "stop" : undefined;
       const withdrawn = await closeOrSettle(

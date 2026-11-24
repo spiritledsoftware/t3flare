@@ -5,7 +5,7 @@
 // hash-only and its script hash matches; the panel lists the Open changes.
 import { createHash } from "node:crypto";
 
-import { applyMcpChange, DEFAULT_OWNER_ANSWER_MS, EMPTY_HARNESS } from "@t3flare/harness-registry";
+import { applyMcpChange, CARD_WAIT_MS, EMPTY_HARNESS } from "@t3flare/harness-registry";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { csrfToken } from "../src/harness/csrf.ts";
@@ -49,7 +49,7 @@ const record = (items: ReadonlyArray<ChangeItem>, extra: Partial<ChangeRecord> =
   mode: "card",
   caller: { door: "own", key: "thread-1", principal: "agent", thread: HOSTILE, agent: HOSTILE },
   createdAt: NOW,
-  expiresAt: NOW + DEFAULT_OWNER_ANSWER_MS,
+  expiresAt: NOW + CARD_WAIT_MS,
   state: "open",
   ...extra,
 });

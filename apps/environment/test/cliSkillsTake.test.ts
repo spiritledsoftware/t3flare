@@ -180,7 +180,7 @@ const turnInput = {
   providerThread: { id: "pt1" },
   providerTurnOrdinal: 1,
   runtimePolicy: policy,
-  message: { text: "hello" },
+  message: { messageId: "message-1", text: "hello" },
 } as never;
 
 const openWrapped = (driver: string, sessions: CliSessions, take?: (cwd: string | null) => Effect.Effect<void>) =>

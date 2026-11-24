@@ -572,7 +572,7 @@ export const handleSettingsMcp = async (
 
   // `initialize` carries the client's name in its body; every other request in `_meta` (2026) or its session (2025).
   const requested = modeOf(method === "initialize" ? objectOf(params.clientInfo)?.name : context.clientName);
-  const instructions = `${settingsOwnerInstructions(server.changes.answerMs())}${OWNER_MODE_INSTRUCTIONS[requested]}`;
+  const instructions = `${settingsOwnerInstructions()}${OWNER_MODE_INSTRUCTIONS[requested]}`;
   const reply = (result: Json, headers: Readonly<Record<string, string>> = {}) =>
     json(
       {

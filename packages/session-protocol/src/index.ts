@@ -572,25 +572,28 @@ export interface McpQuestionCard {
   readonly prompt: string;
   readonly options?: ReadonlyArray<{ readonly decision: ApprovalDecision; readonly label: string }>;
   readonly questions?: ReadonlyArray<McpCardQuestion>;
+  /** The Settings server's card for an Open change (SPI-1389): the change's id, which a parked card's record keeps. */
+  readonly changeId?: string;
 }
+
+/**
+ * The reason of a card's cancel when its CLI agent's turn parked (SPI-1389): the card stays up as a question, and the
+ * Owner's answer comes to the thread as a message. An Open change stays open on its Change page.
+ */
+export const PARKED_REASON = "parked";
 
 /** The owner's answer to a card: a decision, and a form's answers by question id. */
 export interface McpQuestionAnswer {
   readonly decision: ApprovalDecision;
   readonly answers?: Readonly<Record<string, unknown>>;
-  /** Why no owner answered (no live turn, withdrawn, timed out). */
+  /** Why no owner answered (no live turn, withdrawn, parked: `PARKED_REASON`). */
   readonly reason?: string;
 }
 
 /** The caller's side of an MCP call's questions, passed with the call (Workers RPC carries the functions). */
 export interface McpAsker {
   readonly ask: (card: McpQuestionCard) => Promise<McpQuestionAnswer>;
-  /**
-   * How long this asker's cards wait for the owner, in ms (SPI-1316): a CLI process's relay sets the Answer wait it was
-   * spawned with, which its MCP tool timeout was made from. Absent: the Answer wait as stored now.
-   */
-  readonly waitMs?: number;
-  /** The server stopped waiting, or the wait timed out: the card closes. */
+  /** The server stopped waiting: the card closes. */
   readonly withdraw: (cardId: string) => void | Promise<void>;
 }
 

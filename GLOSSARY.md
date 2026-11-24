@@ -263,8 +263,8 @@ _Avoid_: next-message prediction
 **Environment settings**:
 What the Cloud Environment gives every Workspace and its Container, and how long it keeps one: the Container size (a
 named one, or a custom size's vCPU, memory and disk: `customVcpu`, `customMemoryMib`, `customDiskMb`), idle time and
-budget, how long a Container start waits for it, how long open Terminals hold the Container, the Turn limit, the Answer
-wait, how long a clone, a checkpoint or any other Container command may run, the Global mise config, the Image setup
+budget, how long a Container start waits for it, how long open Terminals hold the Container, the Turn limit, Park after,
+how long a clone, a checkpoint or any other Container command may run, the Global mise config, the Image setup
 and the Container setup, the Environment skills, the Variables, whether Terminals and CLI agents read the Owner's
 dotfiles, which Container ports a preview reaches, how long usage records and Pi's and Claude Code's sessions are kept,
 how long an MCP call may run, how many of a repository's skills are listed (`repoSkillsListed`), how long the
@@ -297,10 +297,16 @@ _Avoid_: max instances, slots
 How long a turn may run before it is ended, for a Durable agent and a CLI agent alike; an Environment setting.
 _Avoid_: turn cap, turn deadline, timeout
 
-**Answer wait**:
-How long a card waits for the Owner's answer (an MCP server's question, a CLI agent's tool approval, an Open change)
-before it is refused as unanswered; an Environment setting.
-_Avoid_: question timeout, card TTL, approval timeout
+**Park after**:
+How long a CLI agent's card waits on its live turn before the turn parks; an Environment setting (`parkAfterMinutes`).
+A card itself waits until the Owner answers it.
+_Avoid_: Answer wait (the setting it replaced), question timeout, card TTL, approval timeout
+
+**Parked card**:
+A CLI agent's card whose turn parked: raised again as a non-blocking question, kept in the Environment DO, its call
+answered "parked" and its process ended so the Container can stop. The Owner's answer starts a new turn, and an allow
+lets the repeated call (the same tool and arguments) run once.
+_Avoid_: suspended turn, paused process
 
 **Image setup**:
 The Owner's script, kept in the Environment settings, whose result on the Workspace image is the Base snapshot.
@@ -414,8 +420,8 @@ server's own entry). In full access a free change runs unasked; an asked change 
 _Avoid_: risk level, permission level, direct (that is an Exposure), confirmation tier
 
 **Open change**:
-An asked Settings change, or a Purge asked through the Settings server, waiting for its answer, kept for at most the
-Answer wait and answered once.
+An asked Settings change, or a Purge asked through the Settings server, waiting for its answer until the Owner gives it
+(a parked CLI agent's turn leaves it open), and answered once.
 _Avoid_: Proposal (a queue), pending request (t3's), draft
 
 **Change page**:

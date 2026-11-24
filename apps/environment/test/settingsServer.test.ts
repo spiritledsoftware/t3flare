@@ -10,7 +10,7 @@ import {
   EMPTY_HARNESS,
   MAX_SETUP_BYTES,
   PLAN_REFUSAL,
-  DEFAULT_OWNER_ANSWER_MS,
+  CARD_WAIT_MS,
   settingsServerLimitsOf,
   type StoredHarness,
 } from "@t3flare/harness-registry";
@@ -125,7 +125,7 @@ const setup = (
     nodeSqlStorage(),
     () => now,
     undefined,
-    () => DEFAULT_OWNER_ANSWER_MS,
+    () => CARD_WAIT_MS,
     () => settingsServerLimitsOf(store.load()),
   );
   // Every applied change's row, as the changes table keeps it.

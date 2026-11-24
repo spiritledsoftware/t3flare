@@ -211,23 +211,24 @@ describe("Environment settings in the panel", () => {
     expect(html).not.toContain('data-setting="sweepPurges"');
   });
 
-  it("stores the Answer wait through the panel, 1 to 10,080 minutes, and the Open changes text and gone page name it (SPI-1316)", async () => {
+  it("stores Park after through the panel, 0 (never park) to 10,080 minutes; the gone page names the kept time (SPI-1389)", async () => {
     const { store, deps } = setup();
     const headers = await ownerHeaders(store);
-    expect((await post(deps, "environment", { settings: { ownerAnswerMinutes: 0 } }, headers)).status).toBe(400);
-    expect((await post(deps, "environment", { settings: { ownerAnswerMinutes: 30 } }, headers)).status).toBe(200);
-    expect(await getJson(deps, "environment")).toMatchObject({ resolved: { ownerAnswerMinutes: 30 } });
-    // The Change page of an unknown id says how long the changes table keeps closed changes (`keptMs`): at a 30-minute
-    // wait and the strike limits an Owner set, the strike window (2 × 30 + 5 = 65 minutes) and the lock's hour.
+    expect((await post(deps, "environment", { settings: { parkAfterMinutes: -1 } }, headers)).status).toBe(400);
+    expect((await post(deps, "environment", { settings: { parkAfterMinutes: 0 } }, headers)).status).toBe(200);
+    expect((await post(deps, "environment", { settings: { parkAfterMinutes: 30 } }, headers)).status).toBe(200);
+    expect(await getJson(deps, "environment")).toMatchObject({ resolved: { parkAfterMinutes: 30 } });
+    // The Change page of an unknown id says how long the changes table keeps closed changes (`keptMs`): at the strike
+    // limits an Owner set, the strike window's hour and the lock's hour.
     const gone = await handleHarness(new Request(`https://${HOST}/_t3flare/settings/changes/chg_unknown`), {
       ...deps,
       changes: {
         list: () => [],
         get: () => undefined,
-        keptMs: () => closedKeptMs(30 * 60_000, CAPPED_LIMITS),
+        keptMs: () => closedKeptMs(CAPPED_LIMITS),
       } as never,
     });
-    expect(await gone.text()).toContain("it closed over 125 minutes ago");
+    expect(await gone.text()).toContain("it closed over 2 hours ago");
   });
 
   it("takes a budget of 1 to 100, or 0 (off, SPI-1386), and refuses the rest", async () => {

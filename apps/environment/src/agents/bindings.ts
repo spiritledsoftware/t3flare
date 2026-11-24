@@ -6,7 +6,7 @@ import {
   DEFAULT_CLONE_MS,
   DEFAULT_MCP_CALL_MS,
   DEFAULT_PREVIEW_PORTS,
-  DEFAULT_OWNER_ANSWER_MS,
+  DEFAULT_PARK_AFTER_MS,
   DEFAULT_TURN_LIMIT_MS,
   EMPTY_ENVIRONMENT,
   resolveEnvironment,
@@ -26,6 +26,7 @@ import type { UsageStore } from "../usage/records.ts";
 import type { BrowserRunBinding, BrowserRunFetcher } from "../preview/browserRun.ts";
 import type { PreviewStore } from "../preview/store.ts";
 import type { Updates } from "../updates/records.ts";
+import type { ParkedCards } from "../provider/cli/parked.ts";
 
 export interface EnvironmentServices {
   readonly agents: AgentsBindings;
@@ -68,11 +69,17 @@ export interface EnvironmentServices {
   /** SPI-1364: the Container preview ports (`previewPorts`) now. Absent (tests): the default. */
   readonly previewPorts?: () => ReadonlyArray<number>;
   /**
-   * The Answer wait (SPI-1316, `ownerAnswerMinutes`) in ms, as stored now: read when a card is raised (an MCP server's
-   * question, a CLI agent's tool approval, an Open change) and at each CLI spawn, so a change applies to the cards
-   * raised after it. Absent (a test's services): the default.
+   * Park after (SPI-1389, `parkAfterMinutes`) in ms, as stored now (0: never park): read at each CLI spawn, which keeps it
+   * for the process's life. Absent (a test's services): the default.
    */
-  readonly ownerAnswerMs?: () => number;
+  readonly parkAfterMs?: () => number;
+  /** A CLI agent's parked cards (SPI-1389), in the Environment DO's SQLite. Absent (a test's services): none are kept. */
+  readonly parked?: ParkedCards;
+  /**
+   * Answers a parked Open change (SPI-1389) as the Owner did on its parked question: approve or decline. Resolves with
+   * the change's outcome as the agent is told it. Absent (a test's services): the outcome is not known.
+   */
+  readonly answerParkedChange?: (changeId: string, approve: boolean) => Promise<string>;
   /**
    * The MCP call time limit (SPI-1359, `mcpCallSeconds`) in ms, as stored now: read at each CLI spawn for the CLI's own
    * tool timeout (`cliToolTimeoutSec`). Absent (a test's services): the default.
@@ -177,15 +184,6 @@ export const previewPortsNow = (): ReadonlyArray<number> => {
 };
 
 /**
- * How long `asker`'s cards wait (SPI-1316): the wait it names (a CLI process's relay names the Answer wait the process
- * was spawned with), else `now()`, the Answer wait now.
- */
-export const askerWaitMs = (
-  asker: { readonly waitMs?: number } | undefined,
-  now: () => number = ownerAnswerMsNow,
-): number => asker?.waitMs ?? now();
-
-/**
  * The MCP call time limit now, in ms (SPI-1359): the stored setting, or its default when the services or the store
  * cannot be read, so a CLI's tool timeout always covers a call; 0 when it is off (the default, SPI-1386), which
  * `cliToolTimeoutSec` counts as the off deadline.
@@ -199,16 +197,19 @@ export const mcpCallMsNow = (): number => {
 };
 
 /**
- * The Answer wait now, in ms (SPI-1316): the stored setting, or its default when the services or the store cannot be
- * read, so a card always closes.
+ * Park after now, in ms (SPI-1389): the stored setting, or its default when the services or the store cannot be read; 0
+ * when it is off (never park).
  */
-export const ownerAnswerMsNow = (): number => {
+export const parkAfterMsNow = (): number => {
   try {
-    return current?.ownerAnswerMs?.() ?? DEFAULT_OWNER_ANSWER_MS;
+    return current?.parkAfterMs?.() ?? DEFAULT_PARK_AFTER_MS;
   } catch {
-    return DEFAULT_OWNER_ANSWER_MS;
+    return DEFAULT_PARK_AFTER_MS;
   }
 };
+
+/** The parked cards (SPI-1389), or undefined when the services hold none (a test's). */
+export const parkedCardsNow = (): ParkedCards | undefined => current?.parked;
 
 /**
  * The Environment settings now (SPI-1366): as stored, or their defaults when the services or the store cannot be read, so

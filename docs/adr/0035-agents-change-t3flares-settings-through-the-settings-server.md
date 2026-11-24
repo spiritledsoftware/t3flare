@@ -156,6 +156,8 @@ lowered time limit is free, every other change asked.
 
 ## Refinement (SPI-1316, 2026-11-23): an Open change waits the Answer wait
 
+_Superseded by the SPI-1389 refinement below: the Answer wait is gone; a card waits until it is answered._
+
 §6's "at most 10 minutes" is now the Answer wait, an Environment setting (`ownerAnswerMinutes`, 10 by default;
 [ADR-0032](0032-environment-settings-and-harness-settings-are-separate-entities-edited-on-one-owner-page.md)'s SPI-1316
 refinement). An Open change takes the wait when it opens, as its `expiresAt`, and keeps it; one asked from a CLI agent
@@ -259,3 +261,17 @@ length: either off, a run of strikes locks nothing, and closed rows are kept the
 no window of its own: the run's spacing is the Answer wait's stretch alone (`strikeWindowMs`). The agents' instructions
 name no per-thread count while it is off. The held streams per Owner client (`holdsPerCaller`, the SPI-1363 backstop)
 take the most `openPerOwner` may be set to, `MAX_OPEN_PER_CALLER`, while it is off.
+
+## Refinement (SPI-1389, 2026-11-24): an Open change waits until it is answered
+
+Supersedes the SPI-1316 refinement. An Open change waits until the Owner answers it, on its card or its Change page; its
+`expiresAt` is `CARD_WAIT_MS` (a week, the off deadline its page token needs). When a CLI agent's turn parks on the
+change's card (ADR-0015's SPI-1389 refinement), the card's ask ends with `PARKED_REASON`: the change stays open, and the
+held call is answered "waiting", saying the outcome comes as a message. The card carries the change's id
+(`McpQuestionCard.changeId`), so the parked question names it; the Owner's answer there applies or declines it as the
+card would (`answerParkedChange`), and the agent is told the outcome. A change answered on its page first stays as it
+closed, and the parked question's answer only reports that.
+
+With no Answer wait, the strike window no longer widens with a run's waits: it is the Strike window, or the off deadline
+(a week) when the window is off, and a closed row is kept for that window and the lock. An apply the Environment's reset
+cut off is closed as failed `APPLYING_GRACE_MS` after it started (`applyingAt`), not after its expiry.

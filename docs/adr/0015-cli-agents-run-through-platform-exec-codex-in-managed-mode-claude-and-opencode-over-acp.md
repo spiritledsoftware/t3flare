@@ -134,3 +134,29 @@ Stock t3 has no turn limit, so the Turn limit is off, 0, by default
 ([ADR-0049](0049-settings-follow-local-parity-and-guardrails-are-opt-in.md)): the CLI wrapper starts no timer for a
 turn, and the Session arms no alarm for one. An Owner who sets minutes opts in to it as a cost guard. [ADR-0032](0032-environment-settings-and-harness-settings-are-separate-entities-edited-on-one-owner-page.md)'s SPI-1386
 refinement says what off does elsewhere.
+
+## Refinement (SPI-1389, 2026-11-24): a CLI agent's turn parks, and its answer resumes it
+
+A CLI agent's process holds its Container while it is in a turn, so a card left waiting kept the Container running.
+Cloudflare cannot pause a Container with its memory (`snapshotContainer` keeps files only), so the turn parks instead.
+When a card has waited Park after (`parkAfterMinutes`, ADR-0032's SPI-1389 refinement) on a live turn, the CLI wrapper:
+
+- raises each open card again as t3's non-blocking `user_input` question (`responseCapability: message`), with Allow,
+  Allow for this session and Decline for an approval, Approve and Decline for an Open change, and an MCP server's own
+  options or form; the text says the turn parked at Park after and where to change it;
+- keeps a parked record in the Environment DO's SQLite (`provider/cli/parked.ts`): thread, kind (`tool`, `native`,
+  `question`, `change`), tool, the arguments' hash, title, and an Open change's id;
+- answers held relay calls with a complete "parked" tool result, and the CLI's own pending requests with a cancel;
+- interrupts the turn and ends the process at once, so nothing holds the Container (`processHost.holdsContainer`).
+
+Stock t3 sends a non-blocking question's answer as the message `async-answer:<request id>`, which starts a new turn; t3
+needs no Patch. The wrapper recognises the parked id in `startTurn` (and `steerTurn`), turns the answer into what the
+agent should repeat, and records a one-time allowance: a relay call with the same tool and arguments' hash runs once
+without a card; a CLI request with the same kind and text is allowed once. An allowance the answer turn did not use goes
+with that turn. A repeat with other arguments asks again. A Turn limit hit while a card is open parks the turn rather
+than only ending it.
+
+Not done here: Docker tests per CLI on a stage, and exempting parked threads from session pruning. With
+`piSessionRetentionDays` off (the default since SPI-1386) pi keeps its sessions for good, but Claude Code prunes its own
+after 30 days: a card parked longer than that, or than a retention the Owner sets, resumes in a session without its
+history. The answer turn's text still names the call to repeat.

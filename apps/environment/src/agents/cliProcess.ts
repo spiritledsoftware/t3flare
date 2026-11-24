@@ -13,7 +13,7 @@ import * as Stream from "effect/Stream";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import type * as ChildProcess from "effect/process/ChildProcess";
 
-import { environmentServices, mcpCallMsNow, ownerAnswerMsNow } from "./bindings.ts";
+import { environmentServices, mcpCallMsNow, parkAfterMsNow } from "./bindings.ts";
 import { traceProtocol } from "./processRouter.ts";
 import { scratchProjectOf } from "./scratch.ts";
 import { type ChannelProcess, type ChannelStart, ProcessRefused } from "./processChannel.ts";
@@ -163,9 +163,8 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
     // ADR-0028: the process's tool handle for the relay's third-party servers (the session's; pi spawns outside the
     // session's fiber and gets one of its own).
     const toolHandle = session?.toolHandle ?? newHandle();
-    // SPI-1316: the Answer wait at the spawn sets the process's MCP tool timeout, and bounds its relay cards for its
-    // life.
-    const answerMs = ownerAnswerMsNow();
+    // SPI-1389: Park after at the spawn sets the process's MCP tool timeout, and parks its turns for its life.
+    const parkAfterMs = parkAfterMsNow();
     const launch = profileLaunch(
       {
         cli: cliOf(name),
@@ -186,7 +185,7 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
         relay: {
           handle: toolHandle,
           servers: services.relayServers(),
-          toolTimeoutSec: cliToolTimeoutSec(answerMs, mcpCallMsNow()),
+          toolTimeoutSec: cliToolTimeoutSec(parkAfterMs, mcpCallMsNow()),
           startTimeoutSec: CLI_MCP_START_SECONDS,
         },
         endpoints: responsesEndpoints,
@@ -235,8 +234,8 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
           : {}),
       toolHandle,
       ...(launch.modelRelay === undefined ? {} : { modelRelay: launch.modelRelay }),
-      // SPI-1316: its relay cards wait as long as its MCP tool timeout allows, for its life.
-      answerMs,
+      // SPI-1389: its turns park as soon as its MCP tool timeout allows, for its life.
+      parkAfterMs,
     };
     // SPI-1153: the Workspace takes the Environment skill set first, so a CLI that reads its Skills at start (through
     // its link, or pi's flag) reads the current set. Bounded, and never the spawn's failure.

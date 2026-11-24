@@ -265,19 +265,25 @@ export const SETTINGS_READ_SECONDS = 5;
 export const SETTINGS_READ_MS = SETTINGS_READ_SECONDS * 1000;
 
 /**
- * The Answer wait's default, in minutes (`ownerAnswerMinutes`, SPI-1316): how long a card waits for the Owner's answer,
- * be it an MCP server's question, a CLI agent's tool approval, or an Open change.
+ * Park after's default, in minutes (`parkAfterMinutes`, SPI-1389): how long a CLI agent's card waits on its live turn
+ * before the turn parks and its process ends, so its Container can stop. Owner-approved, matching t3's own release of an
+ * idle session (Patch 0003, `CLI_SESSION_RELEASE_MS`).
  */
-export const DEFAULT_OWNER_ANSWER_MINUTES = 10;
+export const DEFAULT_PARK_AFTER_MINUTES = 10;
+
+/** Park after's default in ms: used where no setting reaches (a test's services, or a store that cannot be read). */
+export const DEFAULT_PARK_AFTER_MS = DEFAULT_PARK_AFTER_MINUTES * 60_000;
+
+/** Park after of resolved Environment settings, in ms (SPI-1389); 0 when it is off (never park). */
+export const parkAfterMsOf = (environment: { readonly parkAfterMinutes: number }): number =>
+  environment.parkAfterMinutes * 60_000;
 
 /**
- * The Answer wait's default in ms: used where no setting reaches (a test's services, or a store that cannot be read).
+ * How long a card waits for the Owner's answer (SPI-1389): until it is answered, as on stock t3. Where the machinery needs
+ * a deadline (an Open change's page token and its row, the MCP library's wait for an elicitation's answer) it takes the
+ * off deadline, a week (`OFF_DEADLINE_MS`).
  */
-export const DEFAULT_OWNER_ANSWER_MS = DEFAULT_OWNER_ANSWER_MINUTES * 60_000;
-
-/** The Answer wait of resolved Environment settings, in ms (SPI-1316). */
-export const ownerAnswerMsOf = (environment: { readonly ownerAnswerMinutes: number }): number =>
-  environment.ownerAnswerMinutes * 60_000;
+export const CARD_WAIT_MS = OFF_DEADLINE_MS;
 
 /**
  * The Terminal holds' defaults, in minutes (`terminalBusyHoldMinutes`, `terminalPromptHoldMinutes`; SPI-1317): while a
@@ -404,10 +410,11 @@ export const MAX_GRACE_DAYS = 3650;
 export const SWEEP_SETTING_KEYS = ["graceDays"] as const;
 
 /**
- * The agents' settings (SPI-1315): how long a turn may run and how long a card waits for the Owner's answer (SPI-1316).
- * They bound agents, not a Container start, so the Settings page shows them in an Agents row of their own, in this order.
+ * The agents' settings (SPI-1315): how long a turn may run, and how long a CLI agent's card waits before its turn parks
+ * (SPI-1389). They bound agents, not a Container start, so the Settings page shows them in an Agents row of their own, in
+ * this order.
  */
-export const AGENT_SETTING_KEYS = ["turnLimitMinutes", "ownerAnswerMinutes"] as const;
+export const AGENT_SETTING_KEYS = ["turnLimitMinutes", "parkAfterMinutes"] as const;
 
 /**
  * The dotfiles toggles (ADR-0047 §9): whether the Owner's own config in their home reaches Terminals and CLI agents. The
@@ -917,13 +924,20 @@ export const ENVIRONMENT_SETTINGS = {
     tier: "down-free",
     disclosure: "visible",
   },
-  ownerAnswerMinutes: {
-    title: "Answer wait (minutes)",
+  parkAfterMinutes: {
+    title: "Park after (minutes)",
     description:
-      "How long a card waits for your answer: an MCP server's question, a CLI agent's tool approval, and an Open change. An unanswered card is refused after this long. While it waits, the turn stays open and may hold its Container. Applies to cards raised after the change; a card already waiting keeps its deadline, and a running CLI agent keeps the wait it started with.",
-    // t3flare times it itself (the MCP host's and the CLI card's timers, an Open change's expiry), so the shared sanity
-    // maximum applies (ADR-0048 §2).
-    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_OWNER_ANSWER_MINUTES },
+      "A card waits until you answer it. A CLI agent's process holds its Container while its card waits, so after this long the turn parks: the card stays up as a question, the process ends, and the Container can stop. Your answer starts a new turn, which repeats the call it allowed once. Empty or 0 is off: a CLI agent is never parked, and holds its Container while its card waits. Pi Durable agents never hold one while a card waits. Applies at each CLI agent's next start; a running one keeps the value it started with.",
+    // t3flare times it itself (the CLI wrapper's timer), so the shared sanity maximum applies (ADR-0048 §2). Off arms
+    // nothing.
+    schema: {
+      type: "integer",
+      minimum: 0,
+      maximum: MAX_TIMED_MINUTES,
+      default: DEFAULT_PARK_AFTER_MINUTES,
+      off: true,
+      offLabel: "never",
+    },
     tier: "down-free",
     disclosure: "advanced",
   },

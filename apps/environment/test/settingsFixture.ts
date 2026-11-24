@@ -3,7 +3,7 @@
 // its settings branch, a fake GitHub for skills, a fake OAuth, an asker that records cards, and the Settings page's deps
 // with the Change page's API, all over the same storage as the Environment DO wires them.
 import {
-  DEFAULT_OWNER_ANSWER_MS,
+  CARD_WAIT_MS,
   EMPTY_HARNESS,
   type SettingsServerLimits,
   settingsServerLimitsOf,
@@ -96,10 +96,8 @@ export interface FixtureOptions {
   /** The Environment settings stored; `BUDGETED_ENVIRONMENT` by default. */
   readonly environment?: StoredEnvironment;
   readonly cardWaitMs?: number;
-  /** The Answer wait the changes table reads (SPI-1316); its default without it. */
+  /** How long an asked change waits, as the changes table reads it; `CARD_WAIT_MS` (SPI-1389) without it. */
   readonly answerMs?: () => number;
-  /** The wait the asker names, as a CLI process's relay asker does (its spawn-time Answer wait, SPI-1316). */
-  readonly askerWaitMs?: number;
   /** The Workspaces `list_workspaces` and `purge_workspace` act on (ADR-0044 §5). */
   readonly workspaces?: SettingsServerDeps["workspaces"];
   /** `get_status` reads the panel's Status, as the Environment DO wires it, rather than the revision alone. */
@@ -120,7 +118,6 @@ export const settingsFixture = (options: FixtureOptions = {}) => {
   const cards: Array<McpQuestionCard> = [];
   const withdrawn: Array<string> = [];
   const asker: McpAsker = {
-    ...(options.askerWaitMs === undefined ? {} : { waitMs: options.askerWaitMs }),
     ask: async (card) => {
       cards.push(card);
       const answer = options.answer ?? { decision: "accept" };
@@ -162,7 +159,7 @@ export const settingsFixture = (options: FixtureOptions = {}) => {
       sql,
       () => now,
       (event) => void logs.push(event),
-      options.answerMs ?? (() => DEFAULT_OWNER_ANSWER_MS),
+      options.answerMs ?? (() => CARD_WAIT_MS),
       // As the Environment DO wires it (SPI-1322): the Settings server's limits as stored now.
       () => settingsServerLimitsOf(store.load()),
     );

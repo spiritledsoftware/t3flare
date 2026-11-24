@@ -175,6 +175,8 @@ was a built-in kind; this refinement follows the SPI-1160 refinement above).
 
 ## Refinement (SPI-1316, 2026-11-23): the Answer wait sets the question wait and the CLI tool timeout
 
+_Superseded by the SPI-1389 refinement below: the Answer wait is gone; a card waits until it is answered._
+
 The "up to 10 minutes" a question waits (the CLI card's `CLI_ASK_MS`) and the "900 s" CLI tool timeout above are no
 longer fixed. A question, and a CLI agent's tool approval, waits the Answer wait, an Environment setting
 (`ownerAnswerMinutes`, 10 by default;
@@ -190,3 +192,13 @@ Supersedes the 200 tools and 256 KiB of schemas per server. A server's inventory
 the tool definitions it keeps are at most half of it in stored bytes (`MAX_SCHEMA_BYTES`), the rest left for the tools
 it refuses, its instructions and its other fields. The tools past it are refused by name; their count is the
 server's.
+
+## Refinement (SPI-1389, 2026-11-24): a question waits until it is answered
+
+Supersedes the SPI-1316 refinement's wait. An MCP server's question, and a CLI agent's tool approval, wait until the Owner
+answers them: the MCP host's question wait is `CARD_WAIT_MS` (the off deadline, a week, which the library's input bound
+needs), and the CLI cards arm no timer. A CLI agent's turn parks after Park after (ADR-0015's SPI-1389 refinement): the
+relay answers its held call with a complete tool result saying it parked, and an MCP server's question is cancelled with
+`PARKED_REASON`. The CLI tool timeout is made from Park after at the spawn (ADR-0032's SPI-1389 refinement). A call the
+Owner allowed on its parked question runs once without a card when it is repeated with the same arguments (the relay's
+`allowance`, by tool and the SHA-256 of the arguments' canonical JSON).

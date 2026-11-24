@@ -6,7 +6,7 @@
 // cards came this way until the back-to-stock cut, owner 2026-11-12.)
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ProviderDriverKind, ProviderInstanceId, ProviderSessionId, ThreadId } from "@t3tools/contracts";
+import { MessageId, ProviderDriverKind, ProviderInstanceId, ProviderSessionId, ThreadId } from "@t3tools/contracts";
 import * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
 import { makeAcpAdapterV2, type AcpAdapterV2RuntimeInput } from "@t3tools/provider-acp/server/adapter";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
@@ -23,14 +23,24 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import * as TestProviderHost from "../../../t3code/packages/provider-testing/src/TestProviderHost.ts";
 import { makeTurnInput } from "t3/src/orchestration-v2/Adapters/AcpAdapterV2.testkit.ts";
 import { acpAdapterOptions, acpFlavor } from "../src/provider/cli/acpDriver.ts";
-import { bindEnvironmentServices, type EnvironmentServices } from "../src/agents/bindings.ts";
-import { approveCliTool, cancelCliAsk, cliQuestionAsker, registerCliAsker } from "../src/provider/cli/cliAsk.ts";
-import { wrapCliAdapter } from "../src/provider/cli/wrapper.ts";
+import {
+  approveCliTool,
+  cancelCliAsk,
+  type CliAnswer,
+  type CliAsk,
+  cliQuestionAsker,
+  registerCliAsker,
+} from "../src/provider/cli/cliAsk.ts";
+import { type CliSessions, PARKED_CALL_TEXT, wrapCliAdapter, type WrapOptions } from "../src/provider/cli/wrapper.ts";
+import type { ChannelProcess } from "../src/agents/processChannel.ts";
+import { parkedCards } from "../src/provider/cli/parked.ts";
+import { nodeSqlStorage } from "./nodeSqlStorage.ts";
+import { PARKED_REASON } from "@t3flare/session-protocol";
 
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 const AGENT = path.join(import.meta.dirname, "fixtures/fake-acp-agent.mjs");
@@ -90,14 +100,17 @@ type Event = ProviderAdapter.ProviderAdapterV2Event;
 let threads = 0;
 
 /** A wrapped Claude session over the scripted agent, its turn started and waiting on the agent's own request. */
-const session = Effect.fn("session")(function* () {
+const session = Effect.fn("session")(function* (
+  wrap: Omit<WrapOptions, "sessions"> = {},
+  prompts: ReadonlyArray<ReadonlyArray<unknown>> = [[HOLD]],
+) {
   const fileSystem = yield* FileSystem.FileSystem;
   const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3flare-cli-card-" });
   const scriptPath = path.join(cwd, "..", `${path.basename(cwd)}.script.json`);
   const logPath = path.join(cwd, "..", `${path.basename(cwd)}.log`);
   yield* fileSystem.writeFileString(
     scriptPath,
-    yield* encodeJson({ initialize: INITIALIZE, sessionNew: SESSION_NEW, prompts: [[HOLD]] }),
+    yield* encodeJson({ initialize: INITIALIZE, sessionNew: SESSION_NEW, prompts }),
   );
   yield* fileSystem.writeFileString(logPath, "");
   const PATH = yield* Config.String("PATH").pipe(Config.withDefault(""));
@@ -129,11 +142,10 @@ const session = Effect.fn("session")(function* () {
   });
   const driver = ProviderDriverKind.make("claudeAgent");
   const instanceId = ProviderInstanceId.make("claudeAgent");
+  const sessions: CliSessions = new Map();
   const adapter = wrapCliAdapter(
     yield* makeAcpAdapterV2(acpAdapterOptions(instanceId, acpFlavor("claude", driver, { spawn }), undefined)),
-    {
-      sessions: new Map(),
-    },
+    { parkAfterMs: () => 0, ...wrap, sessions },
   );
   const threadId = ThreadId.make(`thread-card-${++threads}`);
   const modelSelection = { instanceId, model: "comm/claude-sonnet-5-5" } as const;
@@ -167,15 +179,40 @@ const session = Effect.fn("session")(function* () {
       .split("\n")
       .filter((line) => line.length > 0)
       .map((line) => JSON.parse(line) as { received?: string; params?: Record<string, unknown> });
-  return { runtime, threadId, providerThread, instanceId, runtimePolicy, modelSelection, until, seen, agentLog };
+  return {
+    runtime,
+    threadId,
+    providerThread,
+    instanceId,
+    runtimePolicy,
+    modelSelection,
+    until,
+    seen,
+    agentLog,
+    session: [...sessions.values()][0]!,
+  };
 });
 
 type Harness = Effect.Success<ReturnType<typeof session>>;
 
-const startTurn = Effect.fn("startTurn")(function* (harness: Harness) {
+const startTurn = Effect.fn("startTurn")(function* (
+  harness: Harness,
+  answer?: { readonly messageId: string; readonly text: string; readonly ordinal: number },
+) {
   const { runtime, threadId, providerThread, instanceId, runtimePolicy, modelSelection } = harness;
+  const input = makeTurnInput({
+    threadId,
+    providerThread,
+    instanceId,
+    runtimePolicy,
+    now: yield* DateTime.now,
+    modelSelection,
+    ...(answer === undefined ? {} : { ordinal: answer.ordinal, messageText: answer.text }),
+  });
   yield* runtime.startTurn(
-    makeTurnInput({ threadId, providerThread, instanceId, runtimePolicy, now: yield* DateTime.now, modelSelection }),
+    answer === undefined
+      ? input
+      : { ...input, message: { ...input.message, messageId: MessageId.make(answer.messageId) } },
   );
   // The agent's own request: the turn is live, and its provider turn known.
   const hold = yield* harness.until(
@@ -198,6 +235,8 @@ const ask = (harness: Harness, askId: string) =>
       title: "Allow fixture: fixture_note?",
       summary: 'fixture_note {"line":"x"}',
       detail: "fixture: fixture_note",
+      tool: "fixture/fixture_note",
+      argsHash: "h1",
     }),
   );
 
@@ -421,69 +460,214 @@ describe("an MCP server's question asked on a CLI thread (SPI-1079)", () => {
     ));
 });
 
-describe("the CLI cards' wait (SPI-1316)", () => {
-  afterEach(() => bindEnvironmentServices(undefined as unknown as EnvironmentServices));
-
-  /** A live turn whose owner never answers: a card ends only when its signal does. */
-  const silentOwner = (thread: string) => {
-    const signals: Array<AbortSignal> = [];
+describe("a CLI card waits until it is answered (SPI-1389)", () => {
+  /** A live turn whose owner never answers, or whose turn parks: what each card was asked with, and its signal. */
+  const owner = (thread: string, answer?: CliAnswer) => {
+    const asked: Array<{ readonly ask: CliAsk; readonly signal: AbortSignal }> = [];
     const unregister = registerCliAsker(thread, {
-      ask: (_ask, signal) =>
+      ask: (card, signal) =>
         new Promise((resolve) => {
-          signals.push(signal);
+          asked.push({ ask: card, signal });
+          if (answer !== undefined) resolve(answer);
           signal.addEventListener("abort", () => resolve({ approved: false, reason: "withdrawn" }), { once: true });
         }),
     });
-    return { signals, unregister };
+    return { asked, unregister };
   };
-  const approve = (thread: string, waitMs?: number) =>
+  const approve = (thread: string) =>
     approveCliTool({
       thread,
       askId: `ask-${thread}`,
       title: "t",
       summary: "s",
       detail: "",
-      ...(waitMs === undefined ? {} : { waitMs }),
+      tool: "srv/t",
+      argsHash: "h",
     });
-  const services = (ms: () => number) =>
-    bindEnvironmentServices({ ownerAnswerMs: ms } as unknown as EnvironmentServices);
 
-  // Each wait here is tens of ms against an hour's alternative: the test's own 5 s timeout is the bound.
-  it("closes an unanswered tool card after the Answer wait from the services, as no answer in time", async () => {
-    services(() => 40);
-    const owner = silentOwner("wait-thread-1");
-    expect(await approve("wait-thread-1")).toEqual({ approved: false, reason: "no answer in time" });
-    owner.unregister();
+  it("arms no timer: a tool card's signal is only the agent's going away", async () => {
+    const silent = owner("wait-thread-1");
+    const pending = approve("wait-thread-1");
+    await Promise.resolve();
+    expect(silent.asked[0]!.signal.aborted).toBe(false);
+    expect(silent.asked[0]!.ask.park).toEqual({ kind: "tool", tool: "srv/t", argsHash: "h" });
+    cancelCliAsk("ask-wait-thread-1");
+    expect(await pending).toEqual({ approved: false, reason: "the agent went away" });
+    silent.unregister();
   });
 
-  it("a card raised before the wait changes keeps its deadline", async () => {
-    let wait = 40;
-    services(() => wait);
-    const owner = silentOwner("wait-thread-2");
-    const pending = approve("wait-thread-2");
-    wait = 60 * 60_000;
-    expect(await pending).toEqual({ approved: false, reason: "no answer in time" });
-    expect(cliQuestionAsker("wait-thread-2").waitMs).toBe(60 * 60_000);
-    owner.unregister();
+  it("hands a parked card's text back to the relay, and an MCP question's park as a cancel for PARKED_REASON", async () => {
+    const parked = owner("wait-thread-2", { approved: false, parked: "Parked." });
+    expect(await approve("wait-thread-2")).toEqual({ approved: false, parked: "Parked." });
+    const question = { id: "card-2", kind: "approval", server: "fixture", title: "Sure?", prompt: "Sure?" } as const;
+    expect(await cliQuestionAsker("wait-thread-2").ask(question)).toEqual({
+      decision: "cancel",
+      reason: PARKED_REASON,
+    });
+    expect(parked.asked[1]!.ask.park).toEqual({ kind: "question", tool: "fixture", argsHash: "" });
+    // The Settings server's card names its Open change: its park keeps the change.
+    await cliQuestionAsker("wait-thread-2").ask({ ...question, server: "settings", changeId: "chg_1" });
+    expect(parked.asked[2]!.ask.park).toEqual({ kind: "change", tool: "settings", argsHash: "", changeId: "chg_1" });
+    parked.unregister();
   });
+});
 
-  it("a card waits the wait its calling process was spawned with, over the wait now", async () => {
-    services(() => 60 * 60_000);
-    expect(cliQuestionAsker("wait-thread-3", 40).waitMs).toBe(40);
-    const owner = silentOwner("wait-thread-3");
-    expect(await approve("wait-thread-3", 40)).toEqual({ approved: false, reason: "no answer in time" });
-    const asked = await cliQuestionAsker("wait-thread-3", 40).ask({
-      id: "card-3",
-      kind: "approval",
-      server: "fixture",
-      title: "Sure?",
-      prompt: "Sure?",
-    } as never);
-    expect(asked).toEqual({ decision: "cancel", reason: "no answer in time" });
-    owner.unregister();
-    // Without one, the wait now.
-    expect(cliQuestionAsker("wait-thread-unspawned").waitMs).toBe(60 * 60_000);
-  });
+describe("a CLI agent's turn parks after Park after, and its answer resumes it (SPI-1389)", () => {
+  /** A fake process on the session: what the park does to it. */
+  const fakeProcess = (harness: Harness) => {
+    const calls = { kill: 0, turns: [] as Array<boolean> };
+    harness.session.process = {
+      key: "proc-park",
+      parkAfterMs: undefined,
+      kill: () => void calls.kill++,
+      turn: (active: boolean) => void calls.turns.push(active),
+      modelFailure: async () => null,
+    } as unknown as ChannelProcess;
+    return calls;
+  };
+  const isPark = (event: Event) =>
+    event.type === "runtime_request.updated" &&
+    event.runtimeRequest.id.includes(":t3flare-park:") &&
+    event.runtimeRequest.status === "pending";
+
+  it("raises each open card again as a question, answers the held call parked, cancels the CLI's own request, keeps both, and ends the turn and the process; each answer allows its call once", () =>
+    test(
+      Effect.gen(function* () {
+        const store = parkedCards(nodeSqlStorage());
+        let parkMs = 150;
+        const harness = yield* session({ parkAfterMs: () => parkMs, parked: () => store }, [[HOLD], [HOLD], [HOLD]]);
+        const process = fakeProcess(harness);
+        yield* startTurn(harness);
+        const held = yield* ask(harness, "ask-park").pipe(Effect.forkScoped);
+        const first = yield* harness.until(isPark);
+        const second = yield* harness.until(isPark);
+        const parks = [first, second].flatMap((event) =>
+          event.type === "runtime_request.updated" ? [event.runtimeRequest] : [],
+        );
+        // Non-blocking questions: t3 sends their answers as messages, and they outlive the turn.
+        for (const request of parks) {
+          expect(request.kind).toBe("user_input");
+          expect(request.responseCapability).toEqual({ type: "message" });
+        }
+        expect(yield* Fiber.join(held)).toEqual({ approved: false, parked: PARKED_CALL_TEXT });
+        yield* harness.until((event) => event.type === "turn.terminal");
+        expect(process.kill).toBe(1);
+        // The CLI's own request was cancelled, never allowed.
+        expect(
+          harness
+            .agentLog()
+            .filter((entry) => (entry as { answered?: string }).answered === "session/request_permission"),
+        ).toEqual([{ answered: "session/request_permission", result: { outcome: { outcome: "cancelled" } } }]);
+        const records = parks.map((request) => store.get(request.id)!);
+        expect(
+          records.map((record) => [record.kind, record.thread]).toSorted(([a], [b]) => a!.localeCompare(b!)),
+        ).toEqual([
+          ["native", harness.threadId],
+          ["tool", harness.threadId],
+        ]);
+        const tool = records.find((record) => record.kind === "tool")!;
+        const native = records.find((record) => record.kind === "native")!;
+        expect([tool.tool, tool.argsHash, tool.title]).toEqual([
+          "fixture/fixture_note",
+          "h1",
+          "Allow fixture: fixture_note?",
+        ]);
+        // The question says it parked and where Park after is changed.
+        const item = harness.seen.find(
+          (event) =>
+            event.type === "turn_item.updated" &&
+            event.turnItem.type === "user_input_request" &&
+            event.turnItem.requestId === tool.id,
+        );
+        if (item?.type !== "turn_item.updated" || item.turnItem.type !== "user_input_request")
+          throw new Error("expected the park question's item");
+        expect(item.turnItem.questions[0]!.question).toContain(
+          "The turn parked: this card reached its 1-minute time limit; change it under",
+        );
+        expect(item.turnItem.questions[0]!.question).toContain("Park after (minutes)");
+        expect(item.turnItem.questions[0]!.options.map((option) => option.label)).toEqual([
+          "Allow",
+          "Allow for this session",
+          "Decline",
+        ]);
+
+        // The tool's answer: a new turn that tells the agent what to repeat, with a one-time allowance for that call.
+        parkMs = 0;
+        // Its prompt asks the same request again, which still waits (its own answer is not in yet).
+        const again = yield* startTurn(harness, {
+          messageId: `async-answer:${tool.id}`,
+          text: `${item.turnItem.questions[0]!.question}\nAllow`,
+          ordinal: 2,
+        });
+        const prompts = harness.agentLog().filter((entry) => entry.received === "session/prompt");
+        expect(yield* encodeJson(prompts.at(-1)!.params)).toContain(
+          "Repeat that call now with exactly the same arguments",
+        );
+        expect(store.get(tool.id)).toBeUndefined();
+        expect(store.take(harness.threadId, "tool", "fixture/fixture_note", "h2")).toBeUndefined();
+        expect(store.take(harness.threadId, "tool", "fixture/fixture_note", "h1")).toEqual({ forSession: false });
+        expect(store.take(harness.threadId, "tool", "fixture/fixture_note", "h1")).toBeUndefined();
+        yield* harness.runtime.respondToRuntimeRequest({ requestId: again.id, decision: "decline" });
+        yield* harness.until((event) => event.type === "turn.terminal");
+
+        // The native request's answer: its repeat is allowed once, by the wrapper, without the Owner.
+        yield* harness.runtime.startTurn({
+          ...makeTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            instanceId: harness.instanceId,
+            runtimePolicy: harness.runtimePolicy,
+            now: yield* DateTime.now,
+            modelSelection: harness.modelSelection,
+            ordinal: 3,
+            messageText: "Parked\nAllow",
+          }),
+          message: {
+            messageId: MessageId.make(`async-answer:${native.id}`),
+            text: "Parked\nAllow",
+            attachments: [],
+            createdBy: "user",
+            creationSource: "server",
+          },
+        });
+        const done = yield* harness.until((event) => event.type === "turn.terminal");
+        expect(done.type === "turn.terminal" && done.status).toBe("completed");
+        expect(
+          harness
+            .agentLog()
+            .filter((entry) => (entry as { answered?: string }).answered === "session/request_permission")
+            .map((entry) => (entry as { result?: { outcome?: unknown } }).result?.outcome),
+        ).toEqual([
+          { outcome: "cancelled" },
+          { outcome: "selected", optionId: "reject" },
+          { outcome: "selected", optionId: "allow-once" },
+        ]);
+        expect(store.threads()).toEqual([]);
+      }),
+    ));
+
+  it("never parks with Park after off; a Turn limit hit while a card is open parks instead of only killing", () =>
+    test(
+      Effect.gen(function* () {
+        const store = parkedCards(nodeSqlStorage());
+        const harness = yield* session({ parkAfterMs: () => 0, turnLimitMs: () => 150, parked: () => store });
+        const process = fakeProcess(harness);
+        yield* startTurn(harness);
+        const parkedEvent = yield* harness.until(isPark);
+        if (parkedEvent.type !== "runtime_request.updated") throw new Error("expected a park question");
+        expect(store.get(parkedEvent.runtimeRequest.id)).toMatchObject({ kind: "native" });
+        const item = harness.seen.find(
+          (event) => event.type === "turn_item.updated" && event.turnItem.type === "user_input_request",
+        );
+        expect(
+          item?.type === "turn_item.updated" &&
+            item.turnItem.type === "user_input_request" &&
+            item.turnItem.questions[0]!.question,
+        ).toContain("The turn parked: it reached the Turn limit, its 1-minute time limit");
+        yield* harness.until((event) => event.type === "turn.terminal");
+        expect(process.kill).toBe(1);
+      }),
+    ));
 });
 
 describe("the ACP driver's adapter options", () => {

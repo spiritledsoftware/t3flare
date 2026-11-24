@@ -1,7 +1,7 @@
 // @effect-diagnostics globalTimers:off
 // SPI-1079: an MCP server's questions as t3 cards. The pure plans (`mcp/elicitation.ts`: card kinds, answers back, the
 // rules), the MCP host's live questions and Executor-style pauses over a fake engine, and the Environment's fence on `t3_pending_request`.
-import { applyMcpChange, EMPTY_HARNESS } from "@t3flare/harness-registry";
+import { applyMcpChange, CARD_WAIT_MS, EMPTY_HARNESS } from "@t3flare/harness-registry";
 import type { McpAsker, McpQuestionAnswer, McpQuestionCard } from "@t3flare/session-protocol";
 import { describe, expect, it } from "vitest";
 
@@ -344,7 +344,7 @@ describe("McpHost questions", () => {
     expect(JSON.parse((answer as { text: string }).text)).toEqual({ kind: "answered", result: { action: "cancel" } });
   });
 
-  it("a question waits the Answer wait from the host's dep, read at the call, and closes unanswered after it (SPI-1316)", async () => {
+  it("a question waits the host's card wait, read at the call, and closes unanswered after it (a test's short wait)", async () => {
     let waitMs = 30;
     const confirm = async (_request: unknown, hooks: any) =>
       text(
@@ -383,21 +383,11 @@ describe("McpHost questions", () => {
     expect(requests[1].ctx).toMatchObject({ answers: { inputWaitMs: 60 * 60_000 } });
   });
 
-  it("an asker that names its own wait (a CLI process's spawn-time one) wins over the dep (SPI-1316)", async () => {
-    const { host, requests } = await hostOver(
-      [tool("fixture_echo", {}, true)],
-      async () => text("ok"),
-      () => 60 * 60_000,
-    );
+  it("a question waits until it is answered by default: the engine's input bound is the off deadline (SPI-1389)", async () => {
+    const { host, requests } = await hostOver([tool("fixture_echo", {}, true)], async () => text("ok"));
     const owner = askerAnswering(() => ({ decision: "cancel" }));
-    await host.call({
-      server: "fixture",
-      tool: "fixture_echo",
-      args: {},
-      judged: "read",
-      asker: { ...owner.asker, waitMs: 120_000 },
-    });
-    expect(requests[0].ctx).toMatchObject({ answers: { inputWaitMs: 120_000 } });
+    await host.call({ server: "fixture", tool: "fixture_echo", args: {}, judged: "read", asker: owner.asker });
+    expect(requests[0].ctx).toMatchObject({ answers: { inputWaitMs: CARD_WAIT_MS } });
   });
 
   it("without an asker nothing is declared", async () => {

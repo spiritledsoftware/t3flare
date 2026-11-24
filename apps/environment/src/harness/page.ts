@@ -45,7 +45,6 @@ import {
   type Variable,
   type ResolvedHarness,
   ownEntry,
-  ownerAnswerMsOf,
   resolveEnvironment,
   resolveSettingsServerLimits,
   SETTINGS_SERVER_LIMITS,
@@ -63,7 +62,7 @@ import {
 } from "@t3flare/harness-registry";
 
 import { CONTAINER_PRICES, type ContainerCostTable, containerCostTable } from "./containerCost.ts";
-import { durationText, OWNER_MODES, type OwnerMode } from "../settings/changes.ts";
+import { OWNER_MODES, type OwnerMode } from "../settings/changes.ts";
 import type { OwnerClientEntry } from "../settings/clients.ts";
 import type { PageReason } from "../settings/types.ts";
 import { type AskedBy, askedByText, sizeText } from "../settings/render.ts";
@@ -1319,11 +1318,11 @@ export interface OpenChangeRow {
   readonly expiresAt: string;
 }
 
-/** The Open changes, and how long a new one waits: the Answer wait (SPI-1316) in ms. */
-const openChangesSection = (rows: ReadonlyArray<OpenChangeRow>, answerMs: number): string => {
+/** The Open changes: each waits until the Owner answers it (SPI-1389). */
+const openChangesSection = (rows: ReadonlyArray<OpenChangeRow>): string => {
   const body =
     rows.length === 0
-      ? `<div class="empty"><h3>No open changes</h3><p>A change an agent asks for that widens what agents have waits here, and on its card, for ${durationText(answerMs)}.</p></div>`
+      ? `<div class="empty"><h3>No open changes</h3><p>A change an agent asks for that widens what agents have waits here, and on its card, until you answer it.</p></div>`
       : `<div class="table-wrap"><table class="stacked"><thead><tr><th scope="col">Asked</th><th scope="col">Change</th><th scope="col">By</th><th scope="col">Expires</th><th scope="col"><span class="sr">Open</span></th></tr></thead><tbody>${rows
           .map(
             (row) =>
@@ -1405,7 +1404,7 @@ ${navItem("audit", "Audit log", "audit", `<span class="count" data-audit-count>$
 <main id="main" tabindex="-1"><div class="content">
 <header class="page-head"><div><h1>Settings</h1><p>t3flare's own settings for this Cloud Environment: the Harness settings (the tools Pi Durable's agents are offered, its extensions and MCP servers, applied at each thread's next turn) and the Environment settings (what every Container and agent gets, most applied at each Container's next start).</p></div><span class="chip">Revision <strong>${revision}</strong></span></header>
 <div id="result" class="notice" role="status" aria-live="polite" hidden><span class="notice-ico-ok">${icon("check")}</span><span class="notice-ico-err">${icon("alert")}</span><p class="msg"></p><button type="button" class="btn btn-ghost btn-sm" data-dismiss aria-label="Dismiss">${icon("x")}</button></div>
-${input.openChanges === undefined ? "" : `${openChangesSection(input.openChanges, ownerAnswerMsOf(environment))}\n`}${toolsSection(input.resolved)}
+${input.openChanges === undefined ? "" : `${openChangesSection(input.openChanges)}\n`}${toolsSection(input.resolved)}
 ${extensionsSection(input.resolved)}
 ${mcpSection(rows, t3Card(input.resolved, input.t3Tools), input.ownerClients)}
 ${endpointsSection(escapeHtml, input.endpoints)}${environmentSection(environment, input.costs ?? containerCostTable(environment), input.running, { ...(input.testBuild === undefined ? {} : { record: input.testBuild }), canTest: input.canTest === true })}

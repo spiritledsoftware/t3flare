@@ -126,17 +126,12 @@ describe("ProcessChannel", () => {
     expect(ws.starts).toHaveLength(1);
   });
 
-  it("keeps each process's spawn-time Answer wait by its key, two of one thread apart, until it is gone (SPI-1316)", async () => {
+  it("keeps each process's spawn-time Park after on it, two of one thread apart (SPI-1389)", async () => {
     const ch = channel(fakeWorkspace());
-    const older = await ch.start({ ...start, answerMs: 45 * 60_000 });
-    const newer = await ch.start({ ...start, answerMs: 10 * 60_000 });
+    const older = await ch.start({ ...start, parkAfterMs: 45 * 60_000 });
+    const newer = await ch.start({ ...start, parkAfterMs: 0 });
     const none = await ch.start(start);
-    expect(ch.answerMsOf(older.key)).toBe(45 * 60_000);
-    expect(ch.answerMsOf(newer.key)).toBe(10 * 60_000);
-    expect(ch.answerMsOf(none.key)).toBeUndefined();
-    older.finish(0);
-    expect(ch.answerMsOf(older.key)).toBeUndefined();
-    expect(ch.answerMsOf(newer.key)).toBe(10 * 60_000);
+    expect([older.parkAfterMs, newer.parkAfterMs, none.parkAfterMs]).toEqual([45 * 60_000, 0, undefined]);
   });
 
   it("asks its Workspace for its last model relay failure by its key; none on an error or an older Workspace (SPI-1172)", async () => {

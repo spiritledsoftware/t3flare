@@ -58,7 +58,7 @@ export interface ProfileContext {
   readonly piExtensionSource: string;
   /**
    * The MCP relay's entries for this process (ADR-0028): its tool handle, the servers it gets, and their MCP tool
-   * timeout in seconds (`cliToolTimeoutSec` of the Answer wait at the spawn, SPI-1316). The handle goes only into this
+   * timeout in seconds (`cliToolTimeoutSec` of Park after at the spawn, SPI-1389). The handle goes only into this
    * process's environment (review H2: never a Container-wide file).
    */
   readonly relay?: {

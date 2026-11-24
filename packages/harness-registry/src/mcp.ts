@@ -194,9 +194,9 @@ export const SETTINGS_SERVER_LIMITS = {
   ),
   strikeWindowMinutes: offLimit(
     "Strike window (minutes)",
-    "The strikes count as a run when they fall within this long of each other, or within the Answer wait of each other's when that is longer.",
+    "The strikes count as a run when they fall within this long of each other.",
     MAX_LOOKBACK_MINUTES,
-    "only the Answer wait's spacing makes a run",
+    "strikes within a week of each other make a run",
   ),
   strikeLockMinutes: offLimit(
     "Strike lock (minutes)",
@@ -259,14 +259,15 @@ export const MAX_SCHEMA_BYTES = Math.floor(DO_VALUE_BYTES / 2);
 export const MCP_RELAY_PREFIX = "/t3flare/mcp/";
 
 /**
- * A CLI process's MCP tool timeout in seconds (review M11, SPI-1316), from the Answer wait and the MCP call time limit
- * (`mcpCallSeconds`, SPI-1359) it is spawned with: a relayed call can wait on an approval card and then on an in-call
- * question, each up to the wait, while the call's own clock is paused (`packages/mcp/src/connection.ts`), plus the call
- * itself and a 30 s margin. An off call limit (0, SPI-1386) counts as the call's off deadline (`OFF_DEADLINE_MS`). At a
- * 10-minute wait and a 270 s limit this is 1,500 s.
+ * A CLI process's MCP tool timeout in seconds (review M11, SPI-1389), from Park after (`parkAfterMinutes`) and the MCP
+ * call time limit (`mcpCallSeconds`, SPI-1359) it is spawned with: a relayed call can wait on an approval card and then
+ * on an in-call question, each until its turn parks, while the call's own clock is paused
+ * (`packages/mcp/src/connection.ts`), plus the call itself and a 30 s margin. Either off (0) counts as the off deadline
+ * (`OFF_DEADLINE_MS`): a card that never parks waits until it is answered. At a 10-minute Park after and a 270 s limit
+ * this is 1,500 s.
  */
-export const cliToolTimeoutSec = (answerMs: number, callMs: number): number =>
-  2 * Math.ceil(answerMs / 1000) + Math.ceil(offDeadlineMs(callMs) / 1000) + 30;
+export const cliToolTimeoutSec = (parkAfterMs: number, callMs: number): number =>
+  2 * Math.ceil(offDeadlineMs(parkAfterMs) / 1000) + Math.ceil(offDeadlineMs(callMs) / 1000) + 30;
 
 /** The variable a CLI process reads its tool handle from (Codex's `bearer_token_env_var`). */
 export const TOOL_HANDLE_ENV = "T3FLARE_TOOL_HANDLE";
@@ -283,8 +284,7 @@ export interface McpRelayInput {
   readonly thread: string;
   readonly cli: string;
   /**
-   * The calling process's key (SPI-1316), from the handle: its relay cards wait the Answer wait it was spawned with.
-   * Absent (a Workspace DO before it): the wait now.
+   * The calling process's key (SPI-1316), from the handle. Absent: a Workspace DO before it.
    */
   readonly process?: string;
   readonly server: string;
