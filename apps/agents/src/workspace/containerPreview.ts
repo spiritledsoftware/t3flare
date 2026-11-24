@@ -119,6 +119,22 @@ const sendableCode = (code: number) => {
   return code === 1000 || (code >= 3000 && code <= 4999) ? code : 1000;
 };
 
+/**
+ * The most bytes of UTF-8 a WebSocket close frame's reason takes: the frame's payload holds 125, two of them the code
+ * (RFC 6455 §5.5); `close()` throws past it. A named constraint.
+ */
+const CLOSE_REASON_BYTES = 123;
+
+/** `reason` as a close frame carries it: its first `CLOSE_REASON_BYTES` of UTF-8, never a character cut in two. */
+export const closeReason = (reason: string): string => {
+  const bytes = new TextEncoder().encode(reason);
+  if (bytes.length <= CLOSE_REASON_BYTES) return reason;
+  let end = CLOSE_REASON_BYTES;
+  // A continuation byte (10xxxxxx) starts no character: back up to the one that does.
+  while (end > 0 && (bytes[end]! & 0xc0) === 0x80) end--;
+  return new TextDecoder().decode(bytes.subarray(0, end));
+};
+
 const toBase64 = (bytes: Uint8Array) => {
   let binary = "";
 
@@ -293,7 +309,7 @@ export class ContainerPreview {
     if (op === "close") {
       const asked = (await request.json().catch(() => ({}))) as { code?: unknown; reason?: unknown };
 
-      carried.end(isNumber(asked.code) ? asked.code : 1000, isString(asked.reason) ? asked.reason.slice(0, 123) : "");
+      carried.end(isNumber(asked.code) ? asked.code : 1000, isString(asked.reason) ? asked.reason : "");
 
       return new Response(null, { status: 204 });
     }
@@ -358,7 +374,7 @@ export class ContainerPreview {
       release();
 
       try {
-        socket.close(sendableCode(code), reason);
+        socket.close(sendableCode(code), closeReason(reason));
       } catch {
         // Closed already.
       }

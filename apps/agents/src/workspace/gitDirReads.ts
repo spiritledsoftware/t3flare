@@ -114,19 +114,21 @@ export const primeArgvs = (refs: ReadonlyArray<string>): ReadonlyArray<ReadonlyA
   ["config", "--get", "checkout.workers"],
   COMMIT_GIT_PATHS,
   COUNT_OBJECTS_ARGV,
-  ...refs
-    .filter((ref) => ref.startsWith("refs/heads/"))
-    .slice(0, 100)
-    .map((ref) => ["for-each-ref", UPSTREAM_FORMAT, ref]),
+  ...refs.filter((ref) => ref.startsWith("refs/heads/")).map((ref) => ["for-each-ref", UPSTREAM_FORMAT, ref]),
   ...refs
     .filter((ref) => ref.startsWith("refs/remotes/") && !ref.endsWith("/HEAD"))
-    .slice(0, 100)
     .map((ref) => ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]),
 ];
 
 const word = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
 
-/** One script answering every argv: `T3P <index> <exit> <stdout base64>` per read. */
+/**
+ * The command that runs a prime script given on its stdin (`primeScript`), never as the script itself: Linux caps one
+ * argument at 128 KiB (MAX_ARG_STRLEN), and the script grows with the repo's refs, every one of which it primes.
+ */
+export const PRIME_RUNNER = 'p=$(mktemp); cat > "$p"; bash "$p"; rc=$?; rm -f "$p"; exit $rc';
+
+/** One script answering every argv: `T3P <index> <exit> <stdout base64>` per read. Run by `PRIME_RUNNER`. */
 export const primeScript = (argvs: ReadonlyArray<ReadonlyArray<string>>): string =>
   [
     "t=$(mktemp)",

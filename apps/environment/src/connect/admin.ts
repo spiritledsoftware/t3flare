@@ -81,7 +81,7 @@ export const probe = Effect.fn("probe")(function* (signal: AbortSignal) {
         const body = await response.text();
         return { status: response.status, ms: Date.now() - started, body };
       } catch (error) {
-        return { status: 0, ms: Date.now() - started, body: String(error).slice(0, 200) };
+        return { status: 0, ms: Date.now() - started, body: String(error) };
       }
     };
     const health = await timed(() => fetch(`${relayUrl}/health`, { signal }));
@@ -98,14 +98,14 @@ export const probe = Effect.fn("probe")(function* (signal: AbortSignal) {
     const parsed = decodeJsonObject(device.body);
     const deviceFields = Option.isSome(parsed) ? Object.keys(parsed.value).toSorted() : [];
     return {
-      relay: { url: `${relayUrl}/health`, status: health.status, ms: health.ms, body: health.body.slice(0, 200) },
+      relay: { url: `${relayUrl}/health`, status: health.status, ms: health.ms, body: health.body },
       // Field names only: the device and user codes are dropped here.
       deviceAuthorization: {
         endpoint: oauth.deviceAuthorizationEndpoint,
         status: device.status,
         ms: device.ms,
         fields: deviceFields,
-        error: device.status >= 400 ? device.body.slice(0, 300) : null,
+        error: device.status >= 400 ? device.body : null,
       },
     };
   });
@@ -194,7 +194,7 @@ export const handleConnectAdmin = async (request: Request, environment: Environm
             body: JSON.stringify(body),
           }),
         );
-        results[path] = { status: response.status, body: (await response.text()).slice(0, 300) };
+        results[path] = { status: response.status, body: await response.text() };
       }
       return json(results);
     }

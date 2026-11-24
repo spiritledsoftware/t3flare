@@ -707,7 +707,7 @@ const NOTICES: Readonly<
   },
   "t3flare.terminal-exit": (details) => {
     const text = str(details.text);
-    return text === undefined ? undefined : { title: text.split("\n", 1)[0]!.slice(0, 200), message: text };
+    return text === undefined ? undefined : { title: text.split("\n", 1)[0]!, message: text };
   },
 };
 
@@ -741,7 +741,7 @@ const toolTitle = (call: ToolCallInfo): string => {
     case "codemode":
       return "Code mode";
     case "context_notes":
-      return `Notes: ${action ?? "?"}${name === undefined ? "" : ` ${JSON.stringify(name.slice(0, 64))}`}`;
+      return `Notes: ${action ?? "?"}${name === undefined ? "" : ` ${JSON.stringify(name)}`}`;
     case "context_history":
       return `History: ${action ?? "?"}`;
     case "context_rollover":
@@ -764,7 +764,7 @@ const webResults = (
   raw: unknown,
   textOut: (text: string) => string,
 ): Array<{ readonly url: string; readonly title?: string; readonly snippet?: string }> =>
-  (Array.isArray(raw) ? raw : []).slice(0, 20).flatMap((page: unknown) => {
+  (Array.isArray(raw) ? raw : []).flatMap((page: unknown) => {
     const fields = (typeof page === "object" && page !== null ? page : {}) as Record<string, unknown>;
     const url = str(fields.url)?.trim();
     if (url === undefined || url === "") return [];

@@ -73,7 +73,7 @@ export const workspaceSkills = async (
         cwd: env.cwd,
         skills: found.skills.length,
         omitted: found.omitted,
-        skipped: found.skipped.slice(0, 20),
+        skipped: found.skipped,
         skippedCount: found.skipped.length,
       }),
     );

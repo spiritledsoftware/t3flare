@@ -145,7 +145,7 @@ const checkLines = (check: ProcessCheck): ReadonlyArray<string> => [
   "  case $t3flare_rc in",
   "    0) ;;",
   `    124|137) printf 't3flare: the check of %s did not finish in ${CHECK_TIMEOUT_SEC} s; starting anyway\\n' ${quote(check.when)} ;;`,
-  `    *) printf 't3flare: %s\\n' ${quote(check.failure)}; printf '%s\\n' "$t3flare_check" | /usr/bin/head -n 8; exit ${CHECK_FAILED_EXIT} ;;`,
+  `    *) printf 't3flare: %s\\n' ${quote(check.failure)}; printf '%s\\n' "$t3flare_check"; exit ${CHECK_FAILED_EXIT} ;;`,
   "  esac",
   "fi",
 ];

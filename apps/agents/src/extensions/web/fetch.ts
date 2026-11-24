@@ -83,8 +83,6 @@ const acceptHeader = (format: WebFetchFormat): string => {
 
 const normalizedMime = (contentType: string): string => contentType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
 
-const truncatedMime = (mime: string): string => (mime.length > 100 ? `${mime.slice(0, 100)}…` : mime);
-
 const isTextualMime = (mime: string): boolean =>
   mime.length === 0 ||
   mime.startsWith("text/") ||
@@ -131,7 +129,7 @@ const fetchText = async (
   if (!isTextualMime(mime)) {
     await discardBody(response);
     throw new WebToolError(
-      `unsupported content type ${truncatedMime(mime)} (Web Fetch returns text only; for a document such as a PDF, download it and convert it to text locally)`,
+      `unsupported content type ${mime} (Web Fetch returns text only; for a document such as a PDF, download it and convert it to text locally)`,
     );
   }
   const body = await readBoundedBody(response, maxBytes, signal);

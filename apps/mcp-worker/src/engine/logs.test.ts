@@ -1,6 +1,6 @@
-import { MCP_LOG_DATA_MAX, MCP_LOG_RING } from "@t3flare/mcp/types";
+import { MCP_LOG_RING } from "@t3flare/mcp/types";
 import { describe, expect, it } from "vitest";
-import { callLogs, secretsOf } from "./logs.ts";
+import { callLogs, RAW_LOG_CHARACTERS, secretsOf } from "./logs.ts";
 
 const collector = (tokens: ReadonlySet<string> = new Set()) => {
   let now = 0;
@@ -34,7 +34,7 @@ describe("callLogs", () => {
     expect(entries[0]?.data).toBe("message 5");
   });
 
-  it("cuts data to 2 KiB, and keeps JSON data as JSON text", () => {
+  it("keeps data whole up to what it holds of a log, and keeps JSON data as JSON text", () => {
     const logs = collector();
 
     logs.hear({ level: "error", data: { big: "x".repeat(5000) } });
@@ -42,7 +42,7 @@ describe("callLogs", () => {
 
     const [big, small] = logs.entries();
 
-    expect(big?.data).toHaveLength(MCP_LOG_DATA_MAX);
+    expect(big?.data).toBe(JSON.stringify({ big: "x".repeat(5000) }));
     expect(small).toMatchObject({ level: "info", logger: "db", data: '{"n":1}' });
   });
 
@@ -66,16 +66,16 @@ describe("callLogs", () => {
     expect(entry?.data).toBe("bad token [REDACTED] or [REDACTED]");
   });
 
-  it("scrubs before it cuts, so no token is left cut in half", () => {
+  it("leaves no part of a token the cut at RAW_LOG_CHARACTERS fell inside", () => {
     const token = "t".repeat(40);
     const logs = collector(new Set([token]));
 
-    logs.hear({ level: "warning", data: `${"a".repeat(MCP_LOG_DATA_MAX - 20)}${token}` });
+    logs.hear({ level: "warning", data: `${"a".repeat(RAW_LOG_CHARACTERS - 20)}${token}` });
 
     const [entry] = logs.entries();
 
-    expect(entry?.data).not.toContain("tttt");
-    expect(entry?.data).toHaveLength(MCP_LOG_DATA_MAX - 20 + "[REDACTED]".length);
+    expect(entry?.data).not.toContain("t");
+    expect(entry?.data.length).toBeGreaterThan(RAW_LOG_CHARACTERS - 20 - 9 * token.length - 1);
   });
 });
 

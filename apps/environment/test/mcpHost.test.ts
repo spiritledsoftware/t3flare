@@ -497,7 +497,7 @@ describe("McpHost and MCP apps (G11, review L10)", () => {
     expect(listed.refused).toEqual([expect.objectContaining({ tool: "d", reason: expect.stringContaining("MiB") })]);
   });
 
-  it("keeps a server's inventory within its one value: refused names cut, the list cut with how many more (SPI-1363)", async () => {
+  it("keeps a server's inventory within its one value: refused names whole (SPI-1360), the list cut with how many more (SPI-1363)", async () => {
     const big = (name: string) => ({ ...tool(name, true), description: "d".repeat(440_000) });
     const many = Array.from({ length: 6000 }, (_, index) => tool(`${index}`.padEnd(1000, "n"), true));
     const run = setup(() => [big("a"), big("b"), big("c"), ...many]);
@@ -509,7 +509,7 @@ describe("McpHost and MCP apps (G11, review L10)", () => {
       reason: expect.stringMatching(/^and \d+ more tools refused/),
       more: expect.any(Number),
     });
-    for (const entry of listed.refused) expect(entry.tool.length).toBeLessThanOrEqual(301);
+    for (const entry of listed.refused.slice(0, -1)) expect(entry.tool.length).toBeGreaterThanOrEqual(1000);
     expect(listed.refused[0]?.reason).toContain("MiB of tool definitions");
     // The count says every tool refused, the ones past the cut included, not the entries.
     expect(refusedCount(listed.refused)).toBe(6003 - Object.keys(listed.definitions).length);

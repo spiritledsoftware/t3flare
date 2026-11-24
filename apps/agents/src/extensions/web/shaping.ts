@@ -6,14 +6,12 @@ import * as Order from "effect/Order";
 
 import { DEFAULT_WEB_LIMITS } from "./limits.ts";
 
-const MAX_PROVIDER_MESSAGE_CHARACTERS = 500;
-
 /** The first `limit` Unicode code points of `text`. */
 export const truncateCodePoints = (text: string, limit: number): string =>
   // UTF-16 length never undercounts code points, so shorter text is certainly within the limit.
   text.length <= limit ? text : Arr.join(Arr.take(Array.from(text), limit), "");
 
-/** Turns provider-controlled text into one short, key-free, control-free line. */
+/** Turns provider-controlled text into one key-free, control-free line. */
 export type Sanitize = (text: string) => string;
 
 // --- Keys never reach the model --------------------------------------------------------------------------------
@@ -41,8 +39,9 @@ const TERMINAL_SEQUENCE =
 const CONTROL_CHARACTERS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g;
 
 /**
- * The sanitizer for text a Search Provider controls. Keys are redacted before anything is cut and again after control
- * characters are removed, so no key fragment survives truncation.
+ * The sanitizer for text a Search Provider controls. Keys are redacted before control characters are removed and again
+ * after, so no key split by one survives. The line is not cut: the answer's own budget (`contextMaxCharacters`) and the
+ * tool's output limit bound it.
  */
 export const providerTextSanitizer =
   (keys: readonly string[]): Sanitize =>
@@ -52,11 +51,7 @@ export const providerTextSanitizer =
       .replace(CONTROL_CHARACTERS, "")
       .replace(/\p{Cf}/gu, "");
 
-    const collapsed = redactKeys(stripped, keys).replace(/\s+/g, " ").trim();
-
-    return truncateCodePoints(collapsed, MAX_PROVIDER_MESSAGE_CHARACTERS) === collapsed
-      ? collapsed
-      : `${truncateCodePoints(collapsed, MAX_PROVIDER_MESSAGE_CHARACTERS)}…`;
+    return redactKeys(stripped, keys).replace(/\s+/g, " ").trim();
   };
 
 const EXA_RESULT_START = /(?:^|\n\n)(?=Title: [^\n]*\nURL: )/;

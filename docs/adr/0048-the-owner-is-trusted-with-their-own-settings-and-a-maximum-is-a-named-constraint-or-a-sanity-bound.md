@@ -83,4 +83,38 @@ audit log and t3's tool listing are each checked once against `DO_VALUE_BYTES` (
 (`CHANGE_RECORD_BYTES`). A per-field size, where one is kept, is derived from that value (the file settings take a
 third of it) or from another named constraint (a Variable's 128 KiB is Linux's `MAX_ARG_STRLEN`). Counts that only
 stood in for a size (Variables, endpoints, models, headers, t3 tools, Environment skills) are removed. The setup
-output's 256 KiB itself is unchanged here; it is SPI-1360's.
+output's 256 KiB itself is unchanged here; it is SPI-1360's (superseded by the SPI-1360 refinement below: derived from
+the value).
+
+## Refinement (SPI-1360, 2026-11-23): error, log and reason text is not cut
+
+About sixty places cut an error, a log line, a refusal's reason or a list shown to the Owner or an agent, to between 20
+and 4,000 characters (`String(error).slice(0, 300)`, `BASE_BUILD_CAPS`, `MAX_SIGN_IN_ERROR_LENGTH`, the MCP log data's
+2 KiB, a Codex failure's last 1,500 characters of stderr). None was forced. They are removed: such text is kept whole.
+
+Where the text goes into something whose size is really bounded, it is cut at that bound, named where the cut is:
+
+- **A stored value:** a Base build record is one Durable Object value (`DO_VALUE_BYTES`), so its reason and its
+  failure's message are each cut at `BASE_BUILD_TEXT_CHARACTERS`, what the most output leaves of the value, split
+  between them (`packages/harness-registry/src/baseBuild.ts`).
+- **A protocol frame:** a carried WebSocket's close reason is cut at the 123 bytes of UTF-8 a close frame holds (RFC 6455
+  §5.5), on a character.
+- **A Workers Logs line:** Cloudflare cuts a log past 256 KB itself, so a log line's text is not cut first. The one
+  buffer kept for a log line, a CLI process's rolling stderr (`STDERR_TAIL`), is bounded at that 256 KB.
+- **An isolate's memory:** the router trace, which keeps its entries' texts whole, is bounded once by bytes
+  (`ROUTER_TRACE_BYTES`, a sanity bound under the 128 MB isolate) as well as by `routerTraceEntries`, not by a cut per
+  entry. An MCP call's log entries keep 64 Ki characters each (`RAW_LOG_CHARACTERS`), as before; past that cut, no part
+  of a token is left.
+- **An argument:** the prime of a worktree launch's `.git` reads covered the first 100 branches and 100 remote refs,
+  which kept its script under the 128 KiB Linux allows one argument. The script now goes on stdin, and every ref is
+  primed.
+
+§1's example, the setup output's 256 KiB, becomes a derived maximum: `MAX_SETUP_OUTPUT_KIB` is a third of
+`DO_VALUE_BYTES` in KiB. A report keeps its output as UTF-8 decoded to a string, which a Durable Object value stores in
+at most two bytes a UTF-16 unit, so the output takes at most two thirds of the value; the rest is the record's other
+fields.
+
+Left as they are: the stage-only check harnesses (`acpCheck.ts`, `agentsCheck.ts`), whose cuts end a Maintainer's check;
+the reboot check's module-state fingerprint (`moduleState.ts`), which no one reads as text; and the dead stdio path's
+`STDERR_QUOTE_BYTES`, which goes when that path returns or is deleted. An MCP server's `instructions` are no longer
+stored: nothing read them.

@@ -326,7 +326,7 @@ export const skillStore = (options: SkillStoreOptions) => {
           t3flare: "skill-set-refused",
           workspace: refusal.workspace,
           hash: refusal.hash.slice(0, 12),
-          message: refusal.message.slice(0, 300),
+          message: refusal.message,
         }),
       );
     },

@@ -24,13 +24,10 @@ export const MCP_LOG_LEVEL = "warning";
 /** How many of a call's last log entries the engine keeps and hands back when the target names none (`mcpLogEntries`). */
 export const MCP_LOG_RING = 50;
 
-/** The most characters of a log entry's `data`: 2 KiB. */
-export const MCP_LOG_DATA_MAX = 2048;
-
 /**
  * One `notifications/message` a server sent during a call: when the engine received it, its `level` (a string, so a
- * level this build does not know is kept), the server's `logger` name, and its `data` as JSON text, cut to
- * `MCP_LOG_DATA_MAX` characters and scrubbed of the call's tokens and header values. Never shown to the model.
+ * level this build does not know is kept), the server's `logger` name, and its `data` as JSON text, scrubbed of the
+ * call's tokens and header values (the engine keeps at most 64 Ki characters of it). Never shown to the model.
  */
 export const McpLogEntry = Schema.Struct({
   at: Schema.Finite,

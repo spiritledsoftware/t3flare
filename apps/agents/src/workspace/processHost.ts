@@ -317,7 +317,7 @@ export class ProcessHost {
       extraEnv = prepared?.env ?? {};
       sandbox = prepared?.sandbox;
     } catch (error) {
-      return refuse(String(error instanceof Error ? error.message : error).slice(0, 500));
+      return refuse(String(error instanceof Error ? error.message : error));
     }
     let command: string;
     try {
@@ -389,9 +389,7 @@ export class ProcessHost {
     } catch (error) {
       this.#procs.delete(input.key);
       this.#save();
-      return refuse(
-        `the process did not start: ${String(error instanceof Error ? error.message : error).slice(0, 300)}`,
-      );
+      return refuse(`the process did not start: ${String(error instanceof Error ? error.message : error)}`);
     }
     if (proc.killing) await this.#deps.kill([proc.key]);
     console.log(
@@ -515,7 +513,7 @@ export class ProcessHost {
       else await proc.writer?.write(data);
       return { ...this.#answer([]), accepted: "written" };
     } catch (error) {
-      console.warn(JSON.stringify({ t3flare: "process-input-failed", key, error: String(error).slice(0, 200) }));
+      console.warn(JSON.stringify({ t3flare: "process-input-failed", key, error: String(error) }));
       await this.signal(key);
       return { ...this.#answer([]), accepted: "failed" };
     }

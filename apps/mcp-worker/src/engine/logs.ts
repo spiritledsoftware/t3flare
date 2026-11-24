@@ -3,18 +3,28 @@
  * `notifications/message` the core hears is kept as an entry, the last `keep` (the host's `mcpLogEntries`), and goes back to the host in the call's
  * result, since a discovery passes no hooks and a function stub would not outlive its invocation anyway. Entries are
  * scrubbed of the call's access tokens and of the secrets of its target (`secretsOf`; a server may echo what it
- * was sent, and all are in the call's `tokens`), and their data is cut to 2 KiB, after the scrub so no token is left cut in half. Nothing here reaches a model.
+ * was sent, and all are in the call's `tokens`), and their data is kept whole up to `RAW_LOG_CHARACTERS`; where that cut falls, no part of a token is left. Nothing
+ * here reaches a model.
  */
 import { type McpLog } from "@t3flare/mcp";
-import { MCP_LOG_DATA_MAX, MCP_LOG_RING, type McpEngineTargetEncoded, type McpLogEntry } from "@t3flare/mcp/types";
+import { MCP_LOG_RING, type McpEngineTargetEncoded, type McpLogEntry } from "@t3flare/mcp/types";
 import * as Arr from "effect/Array";
 import * as Predicate from "effect/Predicate";
 import * as Record from "effect/Record";
 import * as Result from "effect/Result";
 import { scrubRaw } from "./scrub.ts";
 
-/** What is kept of a log's text before the scrub: far past what survives it, and bounding what a server can make us hold. */
-const RAW_LIMIT = 64 * 1024;
+/**
+ * What is kept of a log's text, in characters: it bounds what a server can make a call hold (`keep` entries of it). A
+ * sanity bound (ADR-0048): nothing forces 64 Ki. The entry carries what is kept, scrubbed, whole.
+ */
+export const RAW_LOG_CHARACTERS = 64 * 1024;
+
+/**
+ * The most characters a form of a token of `length` characters takes (`scrubRaw`'s forms): encoded for a URL, a UTF-16
+ * unit is at most nine (`%XX%XX%XX`); JSON-escaped, at most six.
+ */
+const FORM_CHARACTERS_PER_UNIT = 9;
 
 /** The shortest value scrubbed: a shorter one would redact ordinary words. */
 const MIN_SECRET_LENGTH = 4;
@@ -114,6 +124,8 @@ type Raw = {
   readonly level: string;
   readonly logger: string | undefined;
   readonly text: string;
+  /** `text` was cut at `RAW_LOG_CHARACTERS`, so its end may hold part of a token. */
+  readonly cut: boolean;
 };
 
 /** A call's log collector: `hear` each log as it arrives, `entries` what the call gives back. */
@@ -129,20 +141,26 @@ export const callLogs = (input: {
 
   return {
     hear: (log: McpLog) => {
+      const text = textOf(log);
       raw.push({
         at: input.now(),
         level: log.level,
         logger: log.logger,
-        text: textOf(log).slice(0, RAW_LIMIT),
+        text: text.slice(0, RAW_LOG_CHARACTERS),
+        cut: text.length > RAW_LOG_CHARACTERS,
       });
 
       if (raw.length > keep) raw.shift();
     },
     entries: (): ReadonlyArray<McpLogEntry> => {
       const hidden = input.tokens();
+      const margin = FORM_CHARACTERS_PER_UNIT * Math.max(0, ...Arr.map([...hidden], (token) => token.length));
 
       return Arr.map(raw, (entry): McpLogEntry => {
-        const data = scrubRaw(entry.text, hidden).slice(0, MCP_LOG_DATA_MAX);
+        const scrubbed = scrubRaw(entry.text, hidden);
+        // A token the cut fell inside is not found whole, so its part is left at the end: drop as much as any form of the
+        // longest token takes.
+        const data = entry.cut ? scrubbed.slice(0, Math.max(0, scrubbed.length - margin)) : scrubbed;
         const logger = entry.logger === undefined ? undefined : scrubRaw(entry.logger, hidden);
 
         return logger === undefined

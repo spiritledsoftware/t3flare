@@ -92,16 +92,14 @@ export const withCodexInvestigation =
             }),
           )
           .pipe(
-            Effect.mapError((cause) =>
-              fail(operation, `Failed to spawn Codex CLI process: ${String(cause).slice(0, 300)}`, cause),
-            ),
+            Effect.mapError((cause) => fail(operation, `Failed to spawn Codex CLI process: ${String(cause)}`, cause)),
           );
         const [stdout, stderr, exitCode] = yield* Effect.all([text(child.stdout), text(child.stderr), child.exitCode], {
           concurrency: "unbounded",
         }).pipe(Effect.mapError((cause) => fail(operation, "Failed to collect process output", cause)));
         const outcome = execOutcome(stdout);
         if ("error" in outcome) {
-          const detail = `${outcome.error}; exit ${exitCode}${stderr.trim() === "" ? "" : `; stderr: ${stderr.trim().slice(-1500)}`}`;
+          const detail = `${outcome.error}; exit ${exitCode}${stderr.trim() === "" ? "" : `; stderr: ${stderr.trim()}`}`;
           return yield* fail(operation, `Codex CLI command failed: ${detail}`);
         }
         return outcome.message;

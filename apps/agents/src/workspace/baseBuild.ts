@@ -29,7 +29,7 @@
 // in its storage, with the saved rest of the settings. Its proved snapshot is its result alone, never the Base snapshot;
 // it has no schedule, no backoff and no pokes, and a new test cancels one under way.
 import {
-  BASE_BUILD_CAPS,
+  BASE_BUILD_TEXT_CHARACTERS,
   type BaseBuildFailure,
   type BaseBuildPhase,
   type BaseBuildRecord,
@@ -303,7 +303,7 @@ const goodOf = (build: Build, snapshot: NonNullable<Build["snapshot"]>, builtAt:
 const NOT_BASE = "t3flare: the test Builder runs only a Test base build";
 
 const errorText = (error: unknown): string =>
-  String(error instanceof Error ? error.message : error).slice(0, BASE_BUILD_CAPS.message);
+  String(error instanceof Error ? error.message : error).slice(0, BASE_BUILD_TEXT_CHARACTERS);
 
 export class BaseBuild {
   readonly #deps: BaseBuildDeps;
@@ -577,7 +577,7 @@ export class BaseBuild {
         t3flare: "base-build-tick-failed",
         build: build.id,
         phase: "proving",
-        error: errorText(error).slice(0, BASE_BUILD_CAPS.log),
+        error: errorText(error),
       });
       await this.#deps.setAlarm(this.#deps.now() + POLL_MS.proving);
     }
@@ -666,7 +666,7 @@ export class BaseBuild {
         } catch (error) {
           this.#deps.log?.({
             t3flare: "base-build-watch-failed",
-            error: errorText(error).slice(0, BASE_BUILD_CAPS.log),
+            error: errorText(error),
           });
           return setAlarm(now() + READ_RETRY_MS);
         }
@@ -678,7 +678,7 @@ export class BaseBuild {
         } catch (error) {
           this.#deps.log?.({
             t3flare: "base-build-schedule-failed",
-            error: errorText(error).slice(0, BASE_BUILD_CAPS.log),
+            error: errorText(error),
           });
           return setAlarm(now() + READ_RETRY_MS);
         }
@@ -714,7 +714,7 @@ export class BaseBuild {
         t3flare: "base-build-tick-failed",
         build: live.id,
         phase: live.phase,
-        error: message.slice(0, BASE_BUILD_CAPS.log),
+        error: message,
       });
       const now_ = storage.get<Build>(BUILDER_KEYS.build);
       if (!isRunning(now_) || now_.id !== live.id) return setAlarm(now() + POLL_MS.starting);
@@ -1067,7 +1067,7 @@ export class BaseBuild {
       at: now(),
       phase: build.phase as BaseBuildPhase,
       exitCode,
-      message: message.slice(0, BASE_BUILD_CAPS.message),
+      message: message.slice(0, BASE_BUILD_TEXT_CHARACTERS),
       output,
     };
     this.#deps.log?.({
@@ -1075,7 +1075,7 @@ export class BaseBuild {
       build: build.id,
       phase: build.phase,
       exitCode,
-      message: message.slice(0, BASE_BUILD_CAPS.log),
+      message,
     });
     await this.#end(this.#save(build, { ...change, failure }), "failed");
   }

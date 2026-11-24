@@ -34,7 +34,7 @@ const call = (operation: string, cwd: string, op: CheckpointOp): Effect.Effect<u
   return Effect.tryPromise({
     // The checkpoint time limit as stored now (SPI-1324), carried to the Workspace DO.
     try: (): Promise<CheckpointAnswer> => at.rpc.checkpoint(op, { timeoutMs: checkpointMsNow() }),
-    catch: (cause) => failure(operation, cwd, `The Workspace did not answer: ${String(cause).slice(0, 300)}`),
+    catch: (cause) => failure(operation, cwd, `The Workspace did not answer: ${String(cause)}`),
   }).pipe(
     Effect.flatMap((answer) => {
       checkpointTrace.push({

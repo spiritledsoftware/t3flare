@@ -51,8 +51,8 @@ export const skillsWaitScript = (dir: string, tries: number, lockFailed: string)
     `  while IFS= read -r p; do [ -n "$p" ] && [ -e "$p" ] && ok=0; done < "$t.gone"`,
     `  if [ $ok = 1 ] || [ $n -ge ${tries} ]; then break; fi; sleep 0.2`,
     `done`,
-    `if [ $ok = 1 ]; then echo "caught-up $n"; else echo "stale $n"; sha256sum -c "$t.sum" 2>/dev/null | grep -v ': OK$' | head -20; while IFS= read -r p; do [ -n "$p" ] && [ -e "$p" ] && echo "present: $p"; done < "$t.gone"; fi`,
-    `[ -f ${lockFailed} ] && echo "lock-failed: $(head -c 300 ${lockFailed} | tr '\\n' ' ')"`,
+    `if [ $ok = 1 ]; then echo "caught-up $n"; else echo "stale $n"; sha256sum -c "$t.sum" 2>/dev/null | grep -v ': OK$'; while IFS= read -r p; do [ -n "$p" ] && [ -e "$p" ] && echo "present: $p"; done < "$t.gone"; fi`,
+    `[ -f ${lockFailed} ] && echo "lock-failed: $(tr '\\n' ' ' < ${lockFailed})"`,
     `rm -f "$t" "$t.sum" "$t.gone"; exit 0`,
   ].join("\n");
 

@@ -14,14 +14,7 @@ import * as Schema from "effect/Schema";
 import type { AuthorizationServerMetadata } from "@earendil-works/pi-mcp/oauth";
 import { basicAuthorization, boundedText, OAUTH_FETCH_TIMEOUT_MS, type OAuthFetch } from "./oauth-http.ts";
 
-export {
-  boundedText,
-  MAX_METADATA_BYTES,
-  MAX_SIGN_IN_ERROR_LENGTH,
-  OAUTH_FETCH_TIMEOUT_MS,
-  type OAuthFetch,
-  scrubbed,
-} from "./oauth-http.ts";
+export { boundedText, MAX_METADATA_BYTES, OAUTH_FETCH_TIMEOUT_MS, type OAuthFetch, scrubbed } from "./oauth-http.ts";
 
 export * from "./client-assertion.ts";
 

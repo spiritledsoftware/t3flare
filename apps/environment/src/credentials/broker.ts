@@ -481,7 +481,7 @@ export const credentialBroker = (deps: BrokerDeps): CredentialBroker => {
     try {
       await options.beforeRevoke?.();
     } catch (error) {
-      log({ endpoint: endpointId, event: "sign-out-sessions-failed", error: String(error).slice(0, 200) });
+      log({ endpoint: endpointId, event: "sign-out-sessions-failed", error: String(error) });
     }
     const vendor = isSignedIn(taken) ? vendors[taken.signIn] : undefined;
     const revoked = isSignedIn(taken) && vendor !== undefined ? (await vendor.revoke(taken)).confirmed : false;

@@ -464,7 +464,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
         }),
       );
     } catch (error) {
-      console.warn(JSON.stringify({ t3flare: "t3-mcp-catalog-failed", error: String(error).slice(0, 300) }));
+      console.warn(JSON.stringify({ t3flare: "t3-mcp-catalog-failed", error: String(error) }));
     }
   }
 
@@ -746,7 +746,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
         }),
       );
     } catch (error) {
-      console.warn(JSON.stringify({ t3flare: "mcp-view-failed", error: String(error).slice(0, 300) }));
+      console.warn(JSON.stringify({ t3flare: "mcp-view-failed", error: String(error) }));
     }
   }
 
@@ -764,7 +764,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
       this.#installHarness(resolved);
       console.log(JSON.stringify({ t3flare: "harness-settings", revision: resolved.revision }));
     } catch (error) {
-      console.warn(JSON.stringify({ t3flare: "harness-settings-failed", error: String(error).slice(0, 300) }));
+      console.warn(JSON.stringify({ t3flare: "harness-settings-failed", error: String(error) }));
     }
   }
 
@@ -1322,7 +1322,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
     try {
       await this.abort({ all: true, reason: "workspace_deleted" } as AbortInput);
     } catch (error) {
-      console.warn(JSON.stringify({ t3flare: "session-destroy-abort-failed", error: String(error).slice(0, 300) }));
+      console.warn(JSON.stringify({ t3flare: "session-destroy-abort-failed", error: String(error) }));
     }
     // The abort's push is not sent (the thread is going): no alarm is armed again for it after the delete.
     if (this.#pushTimer !== undefined) clearTimeout(this.#pushTimer);
@@ -1513,7 +1513,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
       this.#pushTimer = undefined;
       this.#pushDue = true;
       void this.#arm().catch((error: unknown) =>
-        console.warn(JSON.stringify({ t3flare: "session-push-arm-failed", error: String(error).slice(0, 300) })),
+        console.warn(JSON.stringify({ t3flare: "session-push-arm-failed", error: String(error) })),
       );
     }, delayMs);
   }
@@ -1536,7 +1536,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
       const retries = (this.ctx.storage.kv.get<number>("t3flare:push-retries") ?? 0) + 1;
       this.ctx.storage.kv.put("t3flare:push-retries", retries);
       this.ctx.storage.kv.put(RETRY_KEY, Date.now() + Math.min(30_000, 1000 * 2 ** Math.min(retries, 5)));
-      console.warn(JSON.stringify({ t3flare: "session-push-failed", retries, error: String(error).slice(0, 500) }));
+      console.warn(JSON.stringify({ t3flare: "session-push-failed", retries, error: String(error) }));
       this.#dirty = true;
       await this.#arm();
       return;

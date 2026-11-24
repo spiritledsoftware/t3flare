@@ -57,7 +57,7 @@ export type OAuthAnswer<T> = { readonly ok: true; readonly value: T } | { readon
 
 const failed = (error: unknown): { readonly ok: false; readonly error: string } => ({
   ok: false,
-  error: (error instanceof Error ? `${error.name}: ${error.message}` : String(error)).slice(0, 500),
+  error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
 });
 
 type Fetcher = (input: string | URL, init?: RequestInit) => Promise<Response>;

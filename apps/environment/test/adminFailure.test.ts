@@ -21,10 +21,13 @@ describe("a failed admin route", () => {
     expect(adminFailureBody(undefined)).toEqual({ error: "undefined", causes: [] });
   });
 
-  it("follows at most six causes, and names one it cannot print", () => {
+  it("follows every cause once, so a cycle ends, and names one it cannot print", () => {
     const cyclic: { cause?: unknown } = {};
     cyclic.cause = cyclic;
-    expect(causesOf({ cause: cyclic })).toEqual(Array.from({ length: 6 }, () => "unprintable cause"));
+    expect(causesOf({ cause: cyclic })).toEqual(["unprintable cause"]);
+    let deep: unknown = { message: "root" };
+    for (let at = 9; at >= 0; at--) deep = { message: `cause ${at}`, cause: deep };
+    expect(causesOf({ cause: deep })).toEqual([...Array.from({ length: 10 }, (_, at) => `cause ${at}`), "root"]);
   });
 
   it("logs the stack, redacted, for Workers Logs", () => {

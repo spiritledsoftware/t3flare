@@ -59,7 +59,7 @@ export const stopSessionsOn = async (
           t3flare: "sign-out-session-failed",
           endpoint: endpointId,
           session: names[index],
-          error: String(answer.reason).slice(0, 200),
+          error: String(answer.reason),
         }),
       );
     }

@@ -184,8 +184,9 @@ export const DEFAULT_TEMP_FILES_HOURS = 24;
 export const DEFAULT_ROUTER_TRACE_ENTRIES = 300;
 
 /**
- * The most router trace entries: a sanity bound (ADR-0048 §1). The trace lives in the Environment DO's 128 MB isolate; an
- * entry is its command's first words and a detail cut at 400 characters, so 10,000 take at most a few MB.
+ * The most router trace entries: a sanity bound (ADR-0048 §1). The trace lives in the Environment DO's 128 MB isolate;
+ * its entries keep their texts whole, so their memory is bounded by bytes where they are kept (`ROUTER_TRACE_BYTES`,
+ * `apps/environment/src/agents/processRouter.ts`), not by this count.
  */
 export const MAX_ROUTER_TRACE_ENTRIES = 10_000;
 
@@ -325,10 +326,13 @@ export const imageSetupTooLong = (text: string): string | undefined => {
 };
 
 /**
- * The most of a setup's output a report may keep, in KiB (`setupOutputKiB`'s bound). Fixed by a constraint: the
- * Environment DO keeps the last report, output and all, as one Durable Object value, which holds at most 8 MB.
+ * The most of a setup's output a report may keep, in KiB of UTF-8 (`setupOutputKiB`'s bound). A named constraint
+ * (SPI-1360): the Environment DO keeps the last report, output and all, as one Durable Object value (`DO_VALUE_BYTES`),
+ * which stores a string in at most two bytes a UTF-16 unit, and a byte of UTF-8 is at least one unit. A third of the value
+ * in KiB, so the output takes at most two thirds of it and the rest is the report's other fields (a Base build record's
+ * reason and message, `BASE_BUILD_TEXT_CHARACTERS`).
  */
-export const MAX_SETUP_OUTPUT_KIB = 256;
+export const MAX_SETUP_OUTPUT_KIB = Math.floor(DO_VALUE_BYTES / 3 / 1024);
 
 /** What a Container whose setup failed does (ADR-0047 §7): carries on, or refuses every command but a passive read. */
 export const CONTAINER_SETUP_FAILURES = ["carryOn", "refuse"] as const;
@@ -1038,8 +1042,7 @@ export const ENVIRONMENT_SETTINGS = {
   },
   setupOutputKiB: {
     title: "Setup output kept (KiB)",
-    description:
-      "The last part of a setup's output that the Status section keeps and shows, secret Variables blanked: the Container setup's and the Base build's Image setup's. 4 to 256 KiB, 32 by default. Applies at each Workspace's next Container start and the next Base build; a report already kept stays as it is.",
+    description: `The last part of a setup's output that the Status section keeps and shows, secret Variables blanked: the Container setup's and the Base build's Image setup's. 4 to ${MAX_SETUP_OUTPUT_KIB} KiB, 32 by default. Applies at each Workspace's next Container start and the next Base build; a report already kept stays as it is.`,
     schema: { type: "integer", minimum: 4, maximum: MAX_SETUP_OUTPUT_KIB, default: 32 },
     tier: "down-free",
     row: "containerSetup",

@@ -129,7 +129,7 @@ export const parseSkill = (filePath: string, text: string): Skill | { readonly r
   if (typeof description !== "string" || description.trim() === "") return { reason: "no description" };
   const declared = fields.name;
   const name = typeof declared === "string" && declared !== "" ? declared : (filePath.split("/").at(-2) ?? "");
-  if (!isMentionable(name)) return { reason: `"${name.slice(0, 80)}" is not a name t3 can mention` };
+  if (!isMentionable(name)) return { reason: `"${name}" is not a name t3 can mention` };
   return {
     name,
     description: description.slice(0, MAX_DESCRIPTION_LENGTH),

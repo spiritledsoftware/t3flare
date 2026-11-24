@@ -303,9 +303,9 @@ export class HarnessOAuth {
       this.#deps.audit?.({
         action: "mcp.oauth.refused",
         target: pending.server,
-        after: { error: error.slice(0, 100) },
+        after: { error },
       });
-      return page(400, "Sign-in refused", `The server refused the sign-in: ${error.slice(0, 100)}`);
+      return page(400, "Sign-in refused", `The server refused the sign-in: ${error}`);
     }
     const issuer = pending.metadata?.issuer;
     const iss = url.searchParams.get("iss");
@@ -333,9 +333,9 @@ export class HarnessOAuth {
       this.#deps.audit?.({
         action: "mcp.oauth.failed",
         target: pending.server,
-        after: { error: exchanged.error.slice(0, 200) },
+        after: { error: exchanged.error },
       });
-      return page(502, "Sign-in failed", `The token exchange failed: ${exchanged.error.slice(0, 200)}`);
+      return page(502, "Sign-in failed", `The token exchange failed: ${exchanged.error}`);
     }
     const kept = await this.#keepTokens(pending.server, exchanged.value);
     const server: AuthServer = {
@@ -375,7 +375,7 @@ export class HarnessOAuth {
       return undefined;
     const answer = await this.#deps.engine.refresh({ ...as, client, refreshToken: tokens.refresh, ...this.#timeout() });
     if (!answer.ok) {
-      console.warn(JSON.stringify({ t3flare: "mcp-oauth-refresh-failed", server, error: answer.error.slice(0, 200) }));
+      console.warn(JSON.stringify({ t3flare: "mcp-oauth-refresh-failed", server, error: answer.error }));
       return undefined;
     }
     return (await this.#keepTokens(server, answer.value, tokens)).access;

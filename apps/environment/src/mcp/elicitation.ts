@@ -223,7 +223,7 @@ const formPlan = (form: ElicitationForm, title: string, prompt: string, server: 
         );
         return {
           result: { action: "cancel" },
-          note: `the answer did not fit the form (${problems.join("; ").slice(0, 300)})`,
+          note: `the answer did not fit the form (${problems.join("; ")})`,
         };
       }
       return { result: { action: "accept", content: checked.success as never } };

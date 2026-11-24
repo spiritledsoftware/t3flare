@@ -74,7 +74,7 @@ export class WorkspaceProxy extends ComputerWorkspaceProxy {
         cancel: (askId) => void workspace.cancelMcpAsk({ askId }).catch(() => undefined),
         newId: () => crypto.randomUUID(),
       }).catch((error: unknown) => {
-        console.warn(JSON.stringify({ t3flare: "mcp-relay-failed", error: String(error).slice(0, 300) }));
+        console.warn(JSON.stringify({ t3flare: "mcp-relay-failed", error: String(error) }));
         return new Response("t3flare: the MCP relay failed\n", { status: 502 });
       });
     }

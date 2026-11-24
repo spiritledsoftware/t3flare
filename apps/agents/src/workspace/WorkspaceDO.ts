@@ -52,7 +52,7 @@ import { CREDENTIAL_HELPER, CREDENTIAL_PATH } from "./credentialHelper.ts";
 import { BUDGET_NAME, type ContainerBudget, RENEW_EVERY_MS } from "../budget.ts";
 import { type EnvironmentDO, environmentStub } from "../environment.ts";
 import {
-  BASE_BUILD_CAPS,
+  BASE_BUILD_TEXT_CHARACTERS,
   type BaseBuildRecord,
   BUILDERS,
   EMPTY_ENVIRONMENT,
@@ -137,7 +137,15 @@ import {
 import { containerPatterns, ContainerOnlyBackend, containerScript, submodulePaths } from "./containerOnly.ts";
 import { isomorphicFs } from "./isoFs.ts";
 import { CREDENTIAL_HELPER_VERSION } from "./credentialHelper.ts";
-import { allowedRead, parsePrimed, passiveDecision, primeArgvs, primeScript, withoutOwnGitDir } from "./gitDirReads.ts";
+import {
+  allowedRead,
+  parsePrimed,
+  passiveDecision,
+  PRIME_RUNNER,
+  primeArgvs,
+  primeScript,
+  withoutOwnGitDir,
+} from "./gitDirReads.ts";
 import { type StaleOutcome, staleRead } from "./staleReads.ts";
 import { keepsAnswer, readCache, readKey } from "./readCache.ts";
 import { authorizeModelRelay, type ModelRelayAsk, type ModelRelayGrant } from "./modelRelay.ts";
@@ -295,8 +303,9 @@ const LEASED_KEY = "t3flare:container-leased";
 const CONTAINER_CLOSED_KEY = "t3flare:container-closed";
 export { CREDENTIAL_HELPER, CREDENTIAL_PATH };
 const WORKSPACE_ID_KEY = "t3flare:workspace-id";
-/** A trigger's reason as the Builder keeps it (`BASE_BUILD_CAPS.reason`). */
-const reasonOf = (input: { readonly reason: unknown }): string => String(input.reason).slice(0, BASE_BUILD_CAPS.reason);
+/** A trigger's reason as the Builder keeps it (`BASE_BUILD_TEXT_CHARACTERS`). */
+const reasonOf = (input: { readonly reason: unknown }): string =>
+  String(input.reason).slice(0, BASE_BUILD_TEXT_CHARACTERS);
 /** Set on a Builder's object (SPI-1332; `builderMark`): its alarm drives the build, never a Workspace's idle stop. */
 const BUILDER_MARK_KEY = "t3flare:builder";
 /** Test stages only (SPI-1333): the snapshot id the next start from a Base snapshot, fresh or not, hands the platform (`faultBaseSnapshot`). */
@@ -438,7 +447,7 @@ export class WorkspaceDO extends ContainerHost {
       return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
     },
     keepAliveMs: () => 15_000,
-    warn: (message) => console.warn(JSON.stringify({ t3flare: "container-preview", message: message.slice(0, 300) })),
+    warn: (message) => console.warn(JSON.stringify({ t3flare: "container-preview", message })),
   });
 
   constructor(ctx: DurableObjectState, env: WorkspaceEnv) {
@@ -648,7 +657,7 @@ export class WorkspaceDO extends ContainerHost {
         } catch (error) {
           // The budget's own reason, whole, out of computer's connect-retry wrapping (`startRefusal`).
           const reason = startRefusal(error);
-          throw new Error(reason === undefined ? String(error).slice(0, 300) : `the Container cannot start: ${reason}`);
+          throw new Error(reason === undefined ? String(error) : `the Container cannot start: ${reason}`);
         }
       },
       spawn: async (argv, options) => {
@@ -792,7 +801,7 @@ export class WorkspaceDO extends ContainerHost {
         JSON.stringify({
           t3flare: "leakscan-failed",
           workspace: this.#workspaceId() ?? null,
-          stderr: new TextDecoder().decode(output.stderr).slice(0, 300),
+          stderr: new TextDecoder().decode(output.stderr),
         }),
       );
       return undefined;
@@ -866,7 +875,7 @@ export class WorkspaceDO extends ContainerHost {
     this.ctx.storage.kv.put(LEAK_FLAG_KEY, {
       at: Date.now(),
       names: [...new Set(hits.map((hit) => hit.name))],
-      paths: hits.map((hit) => hit.path).slice(0, 20),
+      paths: hits.map((hit) => hit.path),
     });
     for (const key of this.#processes.keys()) await this.#processes.signal(key).catch(() => undefined);
   }
@@ -955,7 +964,7 @@ export class WorkspaceDO extends ContainerHost {
     } catch (error) {
       // The budget's own reason, whole, out of computer's connect-retry wrapping (`startRefusal`).
       const reason = startRefusal(error);
-      throw new Error(reason === undefined ? String(error).slice(0, 300) : `the Container cannot start: ${reason}`);
+      throw new Error(reason === undefined ? String(error) : `the Container cannot start: ${reason}`);
     }
   }
 
@@ -1227,9 +1236,7 @@ export class WorkspaceDO extends ContainerHost {
     // A holder is a Workspace DO's id (`#budgeted`).
     const stub = (holder: string) => this.env.WORKSPACES.get(this.env.WORKSPACES.idFromString(holder));
     const failed = (holder: string) => (error: unknown) => {
-      console.warn(
-        JSON.stringify({ t3flare: "container-reclaim-failed", from: holder, error: String(error).slice(0, 200) }),
-      );
+      console.warn(JSON.stringify({ t3flare: "container-reclaim-failed", from: holder, error: String(error) }));
       return false;
     };
     const { released, enough } = await reclaimFor({
@@ -1347,7 +1354,7 @@ export class WorkspaceDO extends ContainerHost {
           t3flare: "builder-report-failed",
           workspace: this.#workspaceId() ?? null,
           kind: input.kind,
-          error: String(error).slice(0, BASE_BUILD_CAPS.log),
+          error: String(error),
         }),
       );
     }
@@ -1436,7 +1443,7 @@ export class WorkspaceDO extends ContainerHost {
         workspace: this.#workspaceId() ?? null,
         snapshot: id,
         late,
-        message: message.slice(0, BASE_BUILD_CAPS.log),
+        message,
       }),
     );
     this.ctx.waitUntil(this.#reportToBuilder({ kind: "refused", id }));
@@ -1559,7 +1566,7 @@ export class WorkspaceDO extends ContainerHost {
     if (result === undefined) return { running: false, signalled: 0, survivors: 0 };
     const answer = killAnswer(result.stdout);
     if (answer === undefined)
-      throw new Error(`t3flare: the kill script failed (exit ${result.exitCode}): ${result.stderr.slice(0, 300)}`);
+      throw new Error(`t3flare: the kill script failed (exit ${result.exitCode}): ${result.stderr}`);
     return { running: true, signalled: answer.signalled, survivors: answer.survivors };
   }
 
@@ -1689,7 +1696,7 @@ export class WorkspaceDO extends ContainerHost {
             JSON.stringify({
               t3flare: "git-read-not-cached",
               workspace: this.#workspaceId() ?? null,
-              detail: describeFailure(error).slice(0, 1000),
+              detail: describeFailure(error),
             }),
           );
         }
@@ -1703,7 +1710,7 @@ export class WorkspaceDO extends ContainerHost {
         ...(startedBy === undefined ? {} : { startedContainer: startedBy }),
       };
     } catch (error) {
-      return { ran: false, reason: "container_refused", detail: describeFailure(error).slice(0, 1000) };
+      return { ran: false, reason: "container_refused", detail: describeFailure(error) };
     }
   }
 
@@ -1746,7 +1753,7 @@ export class WorkspaceDO extends ContainerHost {
     });
     if (listed.exitCode !== 0 || !this.containerRunning()) throw new Error("the refs could not be listed");
     const argvs = primeArgvs(listed.stdout.split("\n").filter((line) => line !== ""));
-    const primed = await this.exec({ script: primeScript(argvs), cwd: REPO_ROOT, passive: true });
+    const primed = await this.exec({ script: PRIME_RUNNER, stdin: primeScript(argvs), cwd: REPO_ROOT, passive: true });
     const rev = this.#reads.revision("git-dir");
     for (const answer of parsePrimed(primed.stdout)) {
       const argv = argvs[answer.index];
@@ -1821,8 +1828,8 @@ export class WorkspaceDO extends ContainerHost {
       console.warn(
         JSON.stringify({
           t3flare: "stale-read-patch-failed",
-          argv: run.argv.slice(0, 3),
-          error: String(error).slice(0, 500),
+          argv: run.argv,
+          error: String(error),
         }),
       );
       const last = this.#reads.last(key);
@@ -1838,7 +1845,7 @@ export class WorkspaceDO extends ContainerHost {
       };
     }
     if (outcome.why !== undefined)
-      console.log(JSON.stringify({ t3flare: "stale-read-last-answer", argv: run.argv.slice(0, 3), why: outcome.why }));
+      console.log(JSON.stringify({ t3flare: "stale-read-last-answer", argv: run.argv, why: outcome.why }));
     const answer: GitAnswer = {
       ran: true,
       ...outcome.answer,
@@ -1908,8 +1915,8 @@ export class WorkspaceDO extends ContainerHost {
           return await this.#restore(repo, op.ref, op.fallbackToHead, timeoutMs);
       }
     } catch (error) {
-      console.warn(JSON.stringify({ t3flare: "checkpoint-failed", op: op.op, error: String(error).slice(0, 500) }));
-      return { ok: false, error: describeFailure(error).slice(0, 1000) };
+      console.warn(JSON.stringify({ t3flare: "checkpoint-failed", op: op.op, error: String(error) }));
+      return { ok: false, error: describeFailure(error) };
     }
   }
 
@@ -1931,9 +1938,7 @@ export class WorkspaceDO extends ContainerHost {
             env: this.#identityEnv(),
             timeoutMs,
           });
-          return result.exitCode === 0
-            ? { ok: true }
-            : { ok: false, error: `git capture failed: ${result.stderr.slice(0, 1000)}` };
+          return result.exitCode === 0 ? { ok: true } : { ok: false, error: `git capture failed: ${result.stderr}` };
         },
         nowSeconds: () => Math.floor(Date.now() / 1000),
       },
@@ -1980,7 +1985,7 @@ export class WorkspaceDO extends ContainerHost {
         wholeOutput: op.maxOutputBytes !== undefined,
       });
       if (result.exitCode === 0) return { ok: true, value: result.stdout, by: "container" };
-      if (!within) return { ok: false, error: `git diff failed: ${result.stderr.slice(0, 1000)}` };
+      if (!within) return { ok: false, error: `git diff failed: ${result.stderr}` };
     }
     const value = await diffCommits(repo, from, to, {
       format: op.format,
@@ -2009,7 +2014,7 @@ export class WorkspaceDO extends ContainerHost {
         passive: true,
         timeoutMs,
       });
-      if (parents.exitCode !== 0) return { ok: false, error: parents.stderr.slice(0, 1000) };
+      if (parents.exitCode !== 0) return { ok: false, error: parents.stderr };
       const lines = parents.stdout.split("\n");
       startHead = lines[0]?.split(" ")[0] || undefined;
       endHead = lines[1]?.split(" ")[0] || undefined;
@@ -2022,7 +2027,7 @@ export class WorkspaceDO extends ContainerHost {
       cwd: REPO_ROOT,
       timeoutMs,
     });
-    if (result.exitCode !== 0) return { ok: false, error: result.stderr.slice(0, 1000) };
+    if (result.exitCode !== 0) return { ok: false, error: result.stderr };
     return {
       ok: true,
       value: [...new Set(result.stdout.split("\0").filter((path) => path.length > 0))],
@@ -2036,7 +2041,7 @@ export class WorkspaceDO extends ContainerHost {
     if (commit === null && fallbackToHead) commit = await resolve("HEAD");
     if (commit === null) return { ok: true, value: false, by: "do" };
     const result = await this.exec({ script: restoreScript(commit), cwd: REPO_ROOT, timeoutMs });
-    if (result.exitCode !== 0) return { ok: false, error: result.stderr.slice(0, 1000) };
+    if (result.exitCode !== 0) return { ok: false, error: result.stderr };
     return { ok: true, value: true, by: "container" };
   }
 
@@ -2075,7 +2080,7 @@ export class WorkspaceDO extends ContainerHost {
       if (result.exitCode === 0) await this.#prime().catch(() => undefined);
       return { ran: true, exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr, ms: result.ms };
     } catch (error) {
-      return { ran: false, reason: "container_refused", detail: describeFailure(error).slice(0, 1000) };
+      return { ran: false, reason: "container_refused", detail: describeFailure(error) };
     }
   }
 
@@ -2114,10 +2119,10 @@ export class WorkspaceDO extends ContainerHost {
     });
     try {
       const result = await this.exec({ script, cwd: "/workspace", timeoutMs: cloneLimitMs(input.timeoutMs) });
-      if (result.exitCode !== 0) return { ok: false, tips: [], error: result.stderr.slice(-1000) };
+      if (result.exitCode !== 0) return { ok: false, tips: [], error: result.stderr };
       return { ok: true, tips: parseTips(result.stdout) };
     } catch (error) {
-      return { ok: false, tips: [], error: describeFailure(error).slice(0, 1000) };
+      return { ok: false, tips: [], error: describeFailure(error) };
     }
   }
 
@@ -2144,12 +2149,12 @@ export class WorkspaceDO extends ContainerHost {
     const script = worktreeBundleScript({ ref: input.ref, tips: input.tips, bundle });
     try {
       const result = await this.exec({ script, cwd: REPO_ROOT, timeoutMs: checkpointLimitMs(input.timeoutMs) });
-      if (result.exitCode !== 0) return { ok: false, error: result.stderr.slice(-1000) };
+      if (result.exitCode !== 0) return { ok: false, error: result.stderr };
       const answer = parseBundleAnswer(result.stdout);
       if (answer.commit === null) return { ok: false, error: `no commit for ${input.ref}` };
       return { ok: true, commit: answer.commit, bundle: answer.bundled ? bundle : null, config: answer.config };
     } catch (error) {
-      return { ok: false, error: describeFailure(error).slice(0, 1000) };
+      return { ok: false, error: describeFailure(error) };
     }
   }
 
@@ -2204,14 +2209,14 @@ export class WorkspaceDO extends ContainerHost {
     try {
       const result = await this.exec({ script, cwd: REPO_ROOT, timeoutMs: cloneLimitMs(input.timeoutMs) });
       const head = result.stdout.trim().split("\n").at(-1) ?? "";
-      if (result.exitCode !== 0) return { ok: false, error: result.stderr.slice(-1000) };
+      if (result.exitCode !== 0) return { ok: false, error: result.stderr };
       if (head !== input.commit) return { ok: false, error: `HEAD is ${head}, not ${input.commit}` };
       await this.#prime().catch(() => undefined);
       // The checkout's own `.gitmodules` now says which paths are submodules.
       this.ctx.storage.kv.delete(SUBMODULE_HINT_KEY);
       return { ok: true, head };
     } catch (error) {
-      return { ok: false, error: describeFailure(error).slice(0, 1000) };
+      return { ok: false, error: describeFailure(error) };
     }
   }
 
@@ -2265,7 +2270,7 @@ export class WorkspaceDO extends ContainerHost {
     return {
       files: listed.files.length,
       bytes,
-      names: listed.files.slice(0, 20).map((file) => file.path),
+      names: listed.files.map((file) => file.path),
     };
   }
 
@@ -2368,7 +2373,7 @@ export class WorkspaceDO extends ContainerHost {
       cwd: REPO_ROOT,
       timeoutMs: checkpointLimitMs(input?.timeoutMs),
     });
-    if (result.exitCode !== 0) return { ok: false, tips: [], error: result.stderr.slice(-500) };
+    if (result.exitCode !== 0) return { ok: false, tips: [], error: result.stderr };
     return { ok: true, tips: parseTips(`TIPS\n${result.stdout}`) };
   }
 
@@ -2391,8 +2396,7 @@ export class WorkspaceDO extends ContainerHost {
       cwd: REPO_ROOT,
       timeoutMs: checkpointLimitMs(input.timeoutMs),
     });
-    if (result.exitCode !== 0)
-      return { ok: false, dirty: true, carried: [], bundle: null, error: result.stderr.slice(-500) };
+    if (result.exitCode !== 0) return { ok: false, dirty: true, carried: [], bundle: null, error: result.stderr };
     const answer = parseCarryOut(result.stdout);
     return { ok: true, dirty: answer.dirty, carried: answer.carried, bundle: answer.bundled ? bundle : null };
   }
@@ -2418,7 +2422,7 @@ export class WorkspaceDO extends ContainerHost {
       timeoutMs: checkpointLimitMs(input.timeoutMs),
     });
     const lines = result.stdout.split("\n").filter((line) => /^(CREATED|FASTFORWARD|KEPT) /.test(line));
-    if (result.exitCode !== 0) return { ok: false, lines, error: result.stderr.slice(-500) };
+    if (result.exitCode !== 0) return { ok: false, lines, error: result.stderr };
     return { ok: true, lines };
   }
 
@@ -2999,9 +3003,7 @@ export class WorkspaceDO extends ContainerHost {
         headers: { "cache-control": "no-store" },
       });
     } catch (error) {
-      console.warn(
-        JSON.stringify({ t3flare: "git-credential-failed", workspace: id, error: String(error).slice(0, 300) }),
-      );
+      console.warn(JSON.stringify({ t3flare: "git-credential-failed", workspace: id, error: String(error) }));
       return new Response("", { status: 503 });
     }
   }

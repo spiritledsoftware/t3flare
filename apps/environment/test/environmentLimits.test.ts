@@ -13,7 +13,13 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 
 import { bindEnvironmentServices, type EnvironmentServices } from "../src/agents/bindings.ts";
-import { clearRouterTrace, routerTrace, traceProtocol } from "../src/agents/processRouter.ts";
+import {
+  clearRouterTrace,
+  ROUTER_TRACE_BYTES,
+  routerTrace,
+  traceEntryBytes,
+  traceProtocol,
+} from "../src/agents/processRouter.ts";
 import { makeTerminalProcesses, terminalManagerOptions } from "../src/terminal/layer.ts";
 
 afterEach(() => {
@@ -30,6 +36,19 @@ describe("the router trace", () => {
     clearRouterTrace();
     for (let at = 0; at < 310; at++) traceProtocol("codex", `step-${at}`, "");
     expect(routerTrace()).toHaveLength(300);
+  });
+
+  it("keeps an entry's detail whole, and drops the oldest past ROUTER_TRACE_BYTES", () => {
+    const long = "e".repeat(100_000);
+    traceProtocol("codex", "whole", long);
+    expect(routerTrace()[0]?.detail).toBe(long);
+    clearRouterTrace();
+    const big = "x".repeat(ROUTER_TRACE_BYTES / 2 / 4);
+    for (let at = 0; at < 10; at++) traceProtocol("codex", `big-${at}`, big);
+    const kept = routerTrace();
+    expect(kept.length).toBeLessThan(10);
+    expect(kept.at(-1)?.argv[0]).toBe("big-9");
+    expect(kept.reduce((total, entry) => total + traceEntryBytes(entry), 0)).toBeLessThanOrEqual(ROUTER_TRACE_BYTES);
   });
 });
 

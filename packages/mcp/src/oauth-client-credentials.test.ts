@@ -465,7 +465,7 @@ describe("what a request comes to", () => {
     });
   });
 
-  it("scrubs the Basic credentials and the assertion the server echoes, and cuts the description at 300", async () => {
+  it("scrubs the Basic credentials and the assertion the server echoes, and keeps the description whole", async () => {
     const { pem } = await ecKey();
     let echoed = "";
 
@@ -485,7 +485,7 @@ describe("what a request comes to", () => {
 
     expect(outcome.kind).toBe("refused");
     expect(JSON.stringify(outcome)).not.toContain(echoed);
-    expect(outcome.kind === "refused" && Array.from(outcome.message).length).toBe(300);
+    expect(outcome.kind === "refused" && outcome.message).toBe(`got [REDACTED] ${"x".repeat(400)}`);
 
     const basic = recording(
       (seen) =>

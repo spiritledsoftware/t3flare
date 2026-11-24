@@ -11,7 +11,7 @@ const errorOf = (cause: unknown): FsError => {
   const fromMessage = known.find((candidate) => message.includes(candidate));
   return {
     error: fromCode ?? fromMessage ?? (/not found|no such/i.test(message) ? "ENOENT" : "EIO"),
-    message: message.slice(0, 500),
+    message,
   };
 };
 

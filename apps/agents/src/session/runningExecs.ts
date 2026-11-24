@@ -109,7 +109,7 @@ export class RunningExecs {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const answer = await Promise.race([
       this.#kill(targets).catch((error: unknown) => {
-        console.warn(JSON.stringify({ t3flare: "kill-execs-failed", error: String(error).slice(0, 300) }));
+        console.warn(JSON.stringify({ t3flare: "kill-execs-failed", error: String(error) }));
         return undefined;
       }),
       new Promise<undefined>((resolve) => {

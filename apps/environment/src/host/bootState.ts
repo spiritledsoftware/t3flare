@@ -107,7 +107,7 @@ export const bootSucceeded = async (kv: KeyValue, now: Date): Promise<BootRecord
 
 export const bootFailed = async (kv: KeyValue, error: unknown): Promise<BootRecord> => {
   const record = await readBootRecord(kv);
-  const next: BootRecord = { ...record, lastError: String(error).slice(0, 2000) };
+  const next: BootRecord = { ...record, lastError: String(error) };
   await kv.put(BOOT_KEY, next);
   return next;
 };

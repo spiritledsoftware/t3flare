@@ -12,6 +12,7 @@ import {
   allowedRead,
   parsePrimed,
   passiveDecision,
+  PRIME_RUNNER,
   primeArgvs,
   primeScript,
   UPSTREAM_FORMAT,
@@ -103,7 +104,12 @@ describe("priming", () => {
           ["count-objects", "-v"],
         ]),
       );
-      const primed = spawnSync("bash", ["-c", primeScript(argvs)], { cwd: repo, encoding: "utf8", env });
+      const primed = spawnSync("bash", ["-c", PRIME_RUNNER], {
+        cwd: repo,
+        encoding: "utf8",
+        env,
+        input: primeScript(argvs),
+      });
       const answers = parsePrimed(primed.stdout);
       expect(answers).toHaveLength(argvs.length);
       for (const answer of answers) {
@@ -116,5 +122,17 @@ describe("priming", () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("primes every branch and remote ref, its script past the 128 KiB one argument holds, so it goes on stdin", () => {
+    const refs = Array.from({ length: 2000 }, (_, index) => [
+      `refs/heads/b${index}`,
+      `refs/remotes/origin/b${index}`,
+    ]).flat();
+    const argvs = primeArgvs(refs);
+    expect(argvs.filter((argv) => argv[0] === "for-each-ref")).toHaveLength(2000);
+    expect(argvs.filter((argv) => argv[1] === "--verify")).toHaveLength(2000);
+    const script = primeScript(argvs);
+    expect(script.length).toBeGreaterThan(128 * 1024);
   });
 });

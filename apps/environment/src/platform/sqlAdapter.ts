@@ -26,12 +26,12 @@ export const sqlStats = {
   /** Rows DO SQLite reports t3's statements wrote and read (cost audit F2); writes are what DO SQLite bills most. */
   rowsWritten: 0,
   rowsRead: 0,
-  /** The last statements DO SQLite refused (at most 20), truncated. */
+  /** The last statements DO SQLite refused (at most 20), each whole. */
   errors: [] as Array<{ readonly at: string; readonly message: string; readonly sql: string }>,
 };
 
 const recordError = (message: string, sql: string) => {
-  sqlStats.errors.push({ at: new Date().toISOString(), message, sql: sql.slice(0, 4000) });
+  sqlStats.errors.push({ at: new Date().toISOString(), message, sql });
   if (sqlStats.errors.length > 20) sqlStats.errors.shift();
 };
 

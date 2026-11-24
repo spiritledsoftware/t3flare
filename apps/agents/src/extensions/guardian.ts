@@ -248,7 +248,7 @@ const audit = async (
     };
     await conversation?.submit({ type: "write", entry: { kind: GUARDIAN_ENTRY, data } }, context);
   } catch (error) {
-    console.warn(JSON.stringify({ t3flare: "guardian-audit-failed", error: String(error).slice(0, 200) }));
+    console.warn(JSON.stringify({ t3flare: "guardian-audit-failed", error: String(error) }));
   }
 };
 

@@ -229,9 +229,7 @@ export class TerminalHost {
         this.#refuse(terminal, error.message);
         return this.#answer([]);
       }
-      console.warn(
-        JSON.stringify({ t3flare: "terminal-push-before-spawn-failed", error: String(error).slice(0, 300) }),
-      );
+      console.warn(JSON.stringify({ t3flare: "terminal-push-before-spawn-failed", error: String(error) }));
     }
     try {
       const command = terminalCommand({
@@ -260,10 +258,7 @@ export class TerminalHost {
       );
       if (terminal.closing) await this.#deps.kill([terminal.key]);
     } catch (error) {
-      this.#refuse(
-        terminal,
-        `the shell did not start: ${String(error instanceof Error ? error.message : error).slice(0, 300)}`,
-      );
+      this.#refuse(terminal, `the shell did not start: ${String(error instanceof Error ? error.message : error)}`);
     }
     return this.#answer([]);
   }
@@ -358,7 +353,7 @@ export class TerminalHost {
             t3flare: "terminal-push-failed",
             attempt: this.#pushFailures,
             frames: frames.length,
-            error: String(error).slice(0, 300),
+            error: String(error),
           }),
         );
         this.#pending = [...frames, ...this.#pending];
@@ -438,7 +433,7 @@ export class TerminalHost {
     try {
       terminal.process?.resize(cols, rows);
     } catch (error) {
-      console.warn(JSON.stringify({ t3flare: "terminal-resize-failed", error: String(error).slice(0, 200) }));
+      console.warn(JSON.stringify({ t3flare: "terminal-resize-failed", error: String(error) }));
     }
     return this.#answer([]);
   }

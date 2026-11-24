@@ -108,13 +108,13 @@ export const mountWithFallback = async (
           JSON.stringify({
             t3flare: "skills-remount-failed",
             fallback: fallback.hash.slice(0, 12),
-            error: String(again).slice(0, 300),
+            error: String(again),
           }),
         );
       }
     }
     return {
-      error: `The Environment skill set could not be mounted, and the Workspace keeps the one it held: ${String(cause).slice(0, 300)}`,
+      error: `The Environment skill set could not be mounted, and the Workspace keeps the one it held: ${String(cause)}`,
     };
   }
 };

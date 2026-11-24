@@ -170,7 +170,7 @@ export class ContainerOnlyBackend implements WorkspaceBackend {
       handle = await backend.connect(host);
     } catch (error) {
       if (!(error instanceof Error && error.name === "ContainerIgnoreMismatchError")) throw error;
-      this.#options.log?.({ t3flare: "container-patterns-restart", error: String(error).slice(0, 300) });
+      this.#options.log?.({ t3flare: "container-patterns-restart", error: String(error) });
       await this.#options.stop();
       handle = await backend.connect(host);
     }

@@ -77,7 +77,7 @@ export const problemsIn = (path: string, bytes: Uint8Array): Array<string> => {
 export const skillNameProblem = (name: string): string | undefined => {
   if (name.length === 0) return "a Skill's name may not be empty";
   if (name.length > MAX_SKILL_NAME_LENGTH)
-    return `${JSON.stringify(name.slice(0, 80))} is ${name.length} characters, more than the ${MAX_SKILL_NAME_LENGTH} a Skill's name may be`;
+    return `${JSON.stringify(name)} is ${name.length} characters, more than the ${MAX_SKILL_NAME_LENGTH} a Skill's name may be`;
   if (!/^[a-z0-9-]+$/.test(name)) return `${JSON.stringify(name)} may hold only lowercase letters, digits and hyphens`;
   if (name.startsWith("-") || name.endsWith("-") || name.includes("--"))
     return `${JSON.stringify(name)} may not start or end with a hyphen, or hold two in a row`;

@@ -197,7 +197,7 @@ export class TerminalProcess {
       .terminalInput(this.key, data)
       .then((answer) => this.checkAnswer(answer))
       .catch((error: unknown) =>
-        console.warn(JSON.stringify({ t3flare: "terminal-input-failed", error: String(error).slice(0, 200) })),
+        console.warn(JSON.stringify({ t3flare: "terminal-input-failed", error: String(error) })),
       )
       .finally(() => {
         this.#writing = false;
@@ -226,7 +226,7 @@ export class TerminalProcess {
       .terminalClose(this.key)
       .then((answer) => this.checkAnswer(answer))
       .catch((error: unknown) => {
-        console.warn(JSON.stringify({ t3flare: "terminal-close-failed", error: String(error).slice(0, 200) }));
+        console.warn(JSON.stringify({ t3flare: "terminal-close-failed", error: String(error) }));
         this.finish({ exitCode: 129, signal: null });
       });
   }
@@ -251,7 +251,7 @@ export class TerminalProcess {
       try {
         listener(data);
       } catch (error) {
-        console.warn(JSON.stringify({ t3flare: "terminal-listener-failed", error: String(error).slice(0, 300) }));
+        console.warn(JSON.stringify({ t3flare: "terminal-listener-failed", error: String(error) }));
       }
     }
   }
@@ -273,7 +273,7 @@ export class TerminalProcess {
       try {
         listener(exit);
       } catch (error) {
-        console.warn(JSON.stringify({ t3flare: "terminal-listener-failed", error: String(error).slice(0, 300) }));
+        console.warn(JSON.stringify({ t3flare: "terminal-listener-failed", error: String(error) }));
       }
     }
   }
@@ -352,7 +352,7 @@ export class TerminalProcesses {
       })
       .then((answer) => process.opened(answer))
       .catch((error: unknown) => {
-        process.emitData(`\x1b[31mt3flare: the terminal did not open: ${String(error).slice(0, 300)}\x1b[0m\r\n`);
+        process.emitData(`\x1b[31mt3flare: the terminal did not open: ${String(error)}\x1b[0m\r\n`);
         process.finish({ exitCode: 1, signal: null });
       });
     return process;
@@ -406,7 +406,7 @@ export class TerminalProcesses {
           const answer = await processes[0]!.place.remote.terminalHeartbeat(processes.map((process) => process.key));
           for (const process of processes) process.checkAnswer(answer);
         } catch (error) {
-          console.warn(JSON.stringify({ t3flare: "terminal-heartbeat-failed", error: String(error).slice(0, 200) }));
+          console.warn(JSON.stringify({ t3flare: "terminal-heartbeat-failed", error: String(error) }));
         }
       }),
     );
