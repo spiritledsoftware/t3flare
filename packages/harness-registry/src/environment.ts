@@ -974,7 +974,7 @@ export const ENVIRONMENT_SETTINGS = {
   containerBudget: {
     title: "Container budget",
     description:
-      "How many Containers may run at once across the Environment. Empty or 0 is off: no budget, so as many run as your Cloudflare account's own Container limits allow, each billed for its size. Applies at the next start; lowering it stops no running Container, and new starts wait until fewer run.",
+      "How many Containers may run at once across the Environment. Empty or 0 is off: no budget. Applies at the next start; lowering it stops no running Container, and new starts wait until fewer run.",
     schema: {
       type: "integer",
       minimum: 0,

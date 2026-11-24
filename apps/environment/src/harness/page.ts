@@ -769,7 +769,7 @@ const environmentSection = (
 <dl class="group kv"><div><dt>Running now</dt><dd>${
     running === null || running === undefined
       ? "unknown"
-      : `${running.count}${environment.containerBudget === 0 ? ", no budget" : ` of ${environment.containerBudget}`}${running.holders.length === 0 ? "" : `: ${running.holders.map((holder) => `<code>${escapeHtml(holder)}</code>`).join(", ")}`}`
+      : `${running.count}${environment.containerBudget === 0 ? " running, no budget" : ` of ${environment.containerBudget}`}${running.holders.length === 0 ? "" : `: ${running.holders.map((holder) => `<code>${escapeHtml(holder)}</code>`).join(", ")}`}`
   }</dd></div></dl>
 <h3 class="sub-head">Cost at worst</h3>
 <p class="section-desc">Cloudflare's Workers Paid list prices, every vCPU busy the whole hour. Memory and disk are billed while a Container runs, CPU only while it works, so a real hour costs less.</p>
@@ -951,11 +951,11 @@ const settingsLimits = (row: McpRow): string => {
     const fields = keys.map((key) => {
       const setting = SETTINGS_SERVER_LIMITS[key];
       const { maximum } = setting.schema;
-      // The range and default beside each description, from the schema the API checks against: each is off (empty or
-      // 0) by default (SPI-1386), else 1 to its maximum.
+      // The range beside each description, from the schema the API checks against: 1 to its maximum, or off, which its
+      // description says and its empty field shows (SPI-1386).
       const ranged = {
         ...setting,
-        description: `${setting.description} 1 to ${maximum.toLocaleString("en-US")}; off by default.`,
+        description: `${setting.description} 1 to ${maximum.toLocaleString("en-US")}.`,
       };
       return field(`${row.name}-limits`, key, ranged, limits[key]);
     });

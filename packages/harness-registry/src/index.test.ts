@@ -733,7 +733,7 @@ describe("the Settings server's limits (SPI-1322)", () => {
     expect(Object.keys(SETTINGS_SERVER_LIMITS).sort()).toEqual(Object.keys(DEFAULTS).sort());
     for (const entry of Object.values(SETTINGS_SERVER_LIMITS)) {
       expect(entry.schema).toMatchObject({ minimum: 0, default: 0, off: true });
-      expect(entry.description).toContain("Empty or 0 is off.");
+      expect(entry.description).toMatch(/ Empty or 0 is off(: [^.]+)?\.$/);
     }
   });
 

@@ -278,7 +278,7 @@ describe("Environment settings in the panel", () => {
     expect(html).toMatch(
       /<input type="number" inputmode="numeric" placeholder="off" [^>]*data-setting="containerBudget"[^>]* value="">/,
     );
-    expect(html).toMatch(/Running now<\/dt><dd>2, no budget/);
+    expect(html).toMatch(/Running now<\/dt><dd>2 running, no budget/);
     expect(html).toContain(`data-budget-head>${NO_BUDGET_HEAD}<`);
     expect(html).toContain(`<div data-budget-hour>${NO_BUDGET_CELL}</div>`);
     expect(html).toContain(

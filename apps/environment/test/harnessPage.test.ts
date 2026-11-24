@@ -612,7 +612,7 @@ describe("the Settings server's row", () => {
     ).toEqual(Array(10).fill("off"));
     // The consequence, once; each limit's range and default in its hint.
     expect(html.split(escapeHtml(SETTINGS_SERVER_LIMITS_NOTE)).length).toBe(2);
-    expect(html).toContain("Empty or 0 is off. 1 to 100,000; off by default.");
+    expect(html).toContain("Empty or 0 is off. 1 to 100,000.");
     // Three groups, under legends, covering every limit once.
     expect(tagsOf(html).filter((tag) => tag.name === "legend" && !tag.closing).length).toBe(3);
     expect(LIMIT_GROUPS.flatMap(([, keys]) => keys).sort()).toEqual([...SETTINGS_SERVER_LIMIT_KEYS].sort());

@@ -165,11 +165,14 @@ const MAX_STRIKES = 1000;
  */
 const MAX_LOOKBACK_MINUTES = MAX_TIMED_MINUTES;
 
-/** A limit of the Settings server that is off (0, no limit) by default (SPI-1386), at most `maximum` when set. */
-const offLimit = (title: string, description: string, maximum: number) =>
+/**
+ * A limit of the Settings server that is off (0, no limit) by default (SPI-1386), at most `maximum` when set; `off` says
+ * what off does where "no limit" does not say it all.
+ */
+const offLimit = (title: string, description: string, maximum: number, off?: string) =>
   ({
     title,
-    description: `${description} Empty or 0 is off.`,
+    description: `${description} Empty or 0 is off${off === undefined ? "" : `: ${off}`}.`,
     schema: { type: "integer", minimum: 0, maximum, default: 0, off: true },
     disclosure: "advanced",
   }) as const;
@@ -185,13 +188,15 @@ const offLimit = (title: string, description: string, maximum: number) =>
 export const SETTINGS_SERVER_LIMITS = {
   strikes: offLimit(
     "Strikes",
-    "This many asked changes in a row that you decline (or, from an agent's thread, leave unanswered) lock the caller out of asking for the Strike lock. Off, or with the Strike lock off, nothing locks a caller out.",
+    "This many asked changes in a row that you decline (or, from an agent's thread, leave unanswered) lock the caller out of asking for the Strike lock.",
     MAX_STRIKES,
+    "nothing locks a caller out, as with the Strike lock off",
   ),
   strikeWindowMinutes: offLimit(
     "Strike window (minutes)",
-    "The strikes count as a run when they fall within this long of each other, or within the Answer wait of each other's when that is longer. Off, only the Answer wait's spacing makes a run.",
+    "The strikes count as a run when they fall within this long of each other, or within the Answer wait of each other's when that is longer.",
     MAX_LOOKBACK_MINUTES,
+    "only the Answer wait's spacing makes a run",
   ),
   strikeLockMinutes: offLimit(
     "Strike lock (minutes)",
@@ -200,8 +205,9 @@ export const SETTINGS_SERVER_LIMITS = {
   ),
   declinedRepeatMinutes: offLimit(
     "Declined repeat (minutes)",
-    "How long the same change, once you decline it, is refused when the same caller asks it again. Off, it may be asked again at once.",
+    "How long the same change, once you decline it, is refused when the same caller asks it again.",
     MAX_LOOKBACK_MINUTES,
+    "it may be asked again at once",
   ),
   appliedPerHour: offLimit(
     "Changes an hour",
