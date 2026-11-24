@@ -8,7 +8,11 @@ import { pathAlsoDirectory, skillFilePathProblem } from "@t3flare/skills";
 export const MAX_FILE_BYTES = 1_536 * 1024;
 /** The most files one Skill's folder may hold, far above any real one. */
 export const MAX_SKILL_FILES = 500;
-/** The most the Environment's skills may be together, disabled ones counted: the set travels in one Durable Object call. */
+/**
+ * The most the Environment's skills may be together, disabled ones counted. A sanity bound (ADR-0048 §1) under the
+ * 32 MiB of the one Durable Object RPC the set travels in, held whole in the 128 MB isolates at both ends: nothing
+ * forces 8 MiB, which leaves room for the call's envelope and the encoding of the files' bytes.
+ */
 export const MAX_SET_BYTES = 8 * 1024 * 1024;
 /** The longest name a Skill may have (Agent Skills). */
 export const MAX_SKILL_NAME_LENGTH = 64;

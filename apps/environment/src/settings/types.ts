@@ -21,10 +21,10 @@ export interface ShownSkill {
   readonly bytes: number;
   /** Its folder hash at the commit: the apply refuses another. */
   readonly digest: string;
-  /** Its `SKILL.md` text, cut at `SKILL_MD_SHOWN` characters. */
+  /** Its `SKILL.md` text, cut where its share of `SHOWN_SKILLS_BYTES` ends. */
   readonly skillMd: string;
   readonly skillMdCut?: true;
-  /** Its files' paths in its folder, at most `PATHS_SHOWN`. */
+  /** Its files' paths in its folder, as many as half its share of `SHOWN_SKILLS_BYTES` holds. */
   readonly paths: ReadonlyArray<string>;
   readonly morePaths?: number;
   /** Why it cannot be installed, as the preview tells: the apply refuses it. */

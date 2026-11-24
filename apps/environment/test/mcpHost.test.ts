@@ -475,12 +475,17 @@ describe("McpHost and MCP apps (G11, review L10)", () => {
     expect(plain.seen.at(-1).target.timeoutMs).toBe(DEFAULT_MCP_CALL_MS);
   });
 
-  it("gives each target the connect and listing time limits and the logs kept, as set (SPI-1363)", async () => {
-    const run = setup(() => [tool("fixture_echo", true)], undefined, withCommissary(), {
-      limits: () => ({ connectTimeoutMs: 45_000, listTimeoutMs: 600_000, logEntries: 200 }),
-    });
+  it("gives each target the servers' limits as set: connect, listing, logs (SPI-1363), progress and Legacy recheck (SPI-1368)", async () => {
+    const limits = {
+      connectTimeoutMs: 45_000,
+      listTimeoutMs: 600_000,
+      logEntries: 200,
+      progressPerSecond: 3,
+      legacyEraTtlMs: 7_200_000,
+    };
+    const run = setup(() => [tool("fixture_echo", true)], undefined, withCommissary(), { limits: () => limits });
     await run.host.list("commissary");
-    expect(run.seen.at(-1).target).toMatchObject({ connectTimeoutMs: 45_000, listTimeoutMs: 600_000, logEntries: 200 });
+    expect(run.seen.at(-1).target).toMatchObject(limits);
     const plain = setup(() => [tool("fixture_echo", true)]);
     await plain.host.list("commissary");
     expect(plain.seen.at(-1).target).not.toHaveProperty("connectTimeoutMs");

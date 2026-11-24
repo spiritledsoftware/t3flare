@@ -30,15 +30,26 @@ export const truncate = lift(fs.truncateSync);
 export const access = lift(fs.accessSync);
 export const stat = lift((path: unknown) => fs.statSync(path));
 export const lstat = lift((path: unknown) => fs.lstatSync(path));
-export const statfs = async () => ({
-  type: 0,
-  bsize: 4096,
-  blocks: 2_621_440,
-  bfree: 2_621_440,
-  bavail: 2_621_440,
-  files: 0,
-  ffree: 0,
-});
+/**
+ * What one Durable Object may store: Cloudflare's 10 GB per SQLite-backed object
+ * (developers.cloudflare.com/durable-objects/platform/limits). A named constraint.
+ */
+const DO_STORAGE_BYTES = 10_000_000_000;
+const BLOCK_BYTES = 4096;
+
+/** The State directory's file system as t3 sees it: the object's storage, less what its database already takes. */
+export const statfs = async () => {
+  const free = Math.floor(Math.max(0, DO_STORAGE_BYTES - store.databaseSize()) / BLOCK_BYTES);
+  return {
+    type: 0,
+    bsize: BLOCK_BYTES,
+    blocks: Math.floor(DO_STORAGE_BYTES / BLOCK_BYTES),
+    bfree: free,
+    bavail: free,
+    files: 0,
+    ffree: 0,
+  };
+};
 
 class FileHandle {
   readonly fd: number;

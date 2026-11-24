@@ -278,8 +278,10 @@ describe("harness page", () => {
       "project-context",
     ]);
     expect(tags.find((tag) => tag.attrs["data-setting"] === "inlineBudget")).toMatchObject({
-      attrs: { type: "number", min: "500", max: "20000", value: "3000" },
+      attrs: { type: "number", min: "0", value: "3000" },
     });
+    // No maximum (SPI-1368): the browser is given none to name.
+    expect(tags.find((tag) => tag.attrs["data-setting"] === "inlineBudget")?.attrs.max).toBeUndefined();
     expect(tags.filter((tag) => tag.attrs["data-enabled"] !== undefined)).toHaveLength(3);
     expect(html).toContain("locked: the thread&#39;s modes and the link fence depend on it");
     expect(html).not.toContain("a core extension: always on");
@@ -794,13 +796,23 @@ describe("the Environment section's dotfiles", () => {
       "mcpConnectSeconds",
       "mcpListSeconds",
       "mcpLogEntries",
+      "mcpProgressPerSecond",
+      "mcpLegacyRecheckHours",
     ]);
     expect(inputs.map((tag) => tag.attrs)).toMatchObject([
       { type: "number", min: "1", max: "604800", value: "15" },
       { type: "number", min: "1", max: "604800", value: "120" },
       { type: "number", min: "1", max: "200", value: "50" },
+      { type: "number", min: "1", max: "1000", value: "10" },
+      { type: "number", min: "0", max: "168", value: "24" },
     ]);
-    for (const key of ["mcpConnectSeconds", "mcpListSeconds", "mcpLogEntries"])
+    for (const key of [
+      "mcpConnectSeconds",
+      "mcpListSeconds",
+      "mcpLogEntries",
+      "mcpProgressPerSecond",
+      "mcpLegacyRecheckHours",
+    ])
       expect(page.split(`data-setting="${key}"`)).toHaveLength(2);
   });
 

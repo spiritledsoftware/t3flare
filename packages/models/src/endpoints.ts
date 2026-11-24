@@ -577,8 +577,9 @@ export const endpointModelOf = (input: EndpointModelInput, known: KnownModel | u
 /** A JSON object (not an array, not null). */
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+/** A model's context window or output limit: a positive whole number, with no ceiling of t3flare's (SPI-1368). */
 const positive = (value: unknown): value is number =>
-  typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 100_000_000;
+  typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 
 const modelInputOf = (value: unknown): EndpointModelInput | string => {
   if (typeof value === "string") value = { id: value };

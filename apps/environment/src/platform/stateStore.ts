@@ -106,6 +106,9 @@ const db = () => {
   return sql;
 };
 
+/** The bytes the Environment DO's SQLite database takes now (`SqlStorage.databaseSize`), the State directory's included. */
+export const databaseSize = (): number => db().databaseSize;
+
 export const normalize = (input: string | URL): string => {
   const raw = typeof input === "string" ? input : input.pathname;
   const parts: Array<string> = [];

@@ -176,6 +176,31 @@ describe("web_fetch", () => {
     expect(sent).toHaveLength(2);
   });
 
+  it("follows fetchRedirects redirects and fails on one more (SPI-1368)", async () => {
+    const hops = (count: number) =>
+      network((request) => {
+        const at = Number(new URL(request.url).pathname.slice(1));
+        return at < count
+          ? new Response(null, { status: 302, headers: { location: `/${at + 1}` } })
+          : new Response("arrived", { headers: { "content-type": "text/plain" } });
+      });
+    const tool = (redirects: number) => webFetchTool(hops(3).transport, limits({ fetchRedirects: redirects }));
+    expect(textOf(await run(tool(3), { url: "https://example.com/0" }))).toContain("arrived");
+    expect(textOf(await run(tool(2), { url: "https://example.com/0" }))).toMatch(/too many redirects \(more than 2\)/);
+  });
+
+  it("cuts the title at fetchTitleCharacters however far down the heading is, and shows the whole text (SPI-1368)", async () => {
+    const body = `${"intro line\n".repeat(1000)}# ${"T".repeat(500)}\n\n${"word ".repeat(200)}`;
+    const { transport } = network(() => new Response(body, { headers: { "content-type": "text/markdown" } }));
+    const outcome = await run(webFetchTool(transport, limits({ fetchTitleCharacters: 50 })), {
+      url: "https://example.com/",
+    });
+    if (!outcome.ok) throw new Error(outcome.error);
+    const details = outcome.result.details as { title?: string; snippet: string };
+    expect(details.title).toBe("T".repeat(50));
+    expect(details.snippet).toBe(textOf(outcome));
+  });
+
   it("pages by lines and tells programs where to continue", async () => {
     const lines = Array.from({ length: 10 }, (_, index) => `line ${index + 1}`).join("\n");
     const { transport } = network(() => new Response(lines, { headers: { "content-type": "text/plain" } }));

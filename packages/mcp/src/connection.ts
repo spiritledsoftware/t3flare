@@ -78,10 +78,9 @@ import {
   EraRowV1,
   MCP_CONNECT_TIMEOUT_MS,
   MCP_ELICITATION_WAIT_MS,
-  MCP_INPUT_ROUNDS,
   MCP_INTERNAL_ERROR,
+  MCP_LEGACY_ERA_TTL_MS,
   MCP_RESUME_STATE_EXPIRED,
-  MCP_RESUME_STATE_MAX_BYTES,
   MCP_LIST_WALK_TIMEOUT_MS,
   MCP_SAMPLING_REFUSED,
   MCP_SAMPLING_WAIT_MS,
@@ -111,7 +110,6 @@ import {
   SignInRequired,
   StepUpRequired,
   TimedOut,
-  TooLarge,
   Unreachable,
   Unsupported,
 } from "./types.ts";
@@ -132,6 +130,8 @@ export interface McpTarget {
   readonly connectTimeoutMs?: number;
   /** How long walking every page of one list may take (default `MCP_LIST_WALK_TIMEOUT_MS`, 120 s). */
   readonly listTimeoutMs?: number;
+  /** How long a Legacy era row holds before the server is probed again (default `MCP_LEGACY_ERA_TTL_MS`, 24 h). */
+  readonly legacyEraTtlMs?: number;
 }
 
 /** Where one `prior` row (era or Legacy session) is kept. A row may be of any format, so it is read as JSON. */
@@ -475,9 +475,6 @@ const CALL_TIMEOUT_MS = 60_000;
 
 /** How long a close waits for the notifications in flight. */
 const NOTIFY_GRACE = Duration.seconds(2);
-
-/** A Legacy era row older than this is probed again at the next `initialize`. */
-const LEGACY_ERA_TTL_MS = 24 * 60 * 60 * 1000;
 
 /** What a request's recovery needs to know beyond whether it may have run. */
 interface RequestPolicy {
@@ -1251,7 +1248,8 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
       return yield* open({ kind: "session", row: sessionRow });
     }
 
-    if (eraRow?.era === "legacy" && now - eraRow.probedAt < LEGACY_ERA_TTL_MS) {
+    // A Legacy era row older than the target's `legacyEraTtlMs` is probed again.
+    if (eraRow?.era === "legacy" && now - eraRow.probedAt < (target.legacyEraTtlMs ?? MCP_LEGACY_ERA_TTL_MS)) {
       // A failed Legacy `initialize` drops the row; when the server answered, it may speak Modern now.
       return yield* open({ kind: "legacy" }).pipe(
         Effect.catchIf(eraInDoubt, () => Effect.andThen(deps.eras.drop, open({ kind: "probe" }))),
@@ -1644,22 +1642,15 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
     });
 
   /**
-   * A Legacy server's `-32042`, round `round` of its request: it ran nothing, so it waits for the owner and is sent
+   * A Legacy server's `-32042`: it ran nothing, so it waits for the owner and is sent
    * again. Each page it lists goes to `onInput` as a question to keep (`defer`). A page the caller does not keep (it
-   * declined it unseen), and the eleventh `-32042`, end the request with the server's own error: the latter says the
-   * server kept asking, and the request is never sent again.
+   * declined it unseen) ends the request with the server's own error. No count of rounds: each waits for the owner, and
+   * the turn's time limit and Stop end a server that keeps asking (SPI-1368).
    */
-  const deferPages = (answer: UrlRequired, round: number): Effect.Effect<ReadonlyArray<McpInputRequest>, McpError> =>
+  const deferPages = (answer: UrlRequired): Effect.Effect<ReadonlyArray<McpInputRequest>, McpError> =>
     Effect.gen(function* () {
       const { onInput } = deps;
       const error = ServerError.make({ message: answer.message, code: URL_REQUIRED_CODE });
-
-      if (round > MCP_INPUT_ROUNDS) {
-        return yield* ServerError.make({
-          message: `${answer.message}. ${target.name ?? "The server"} kept asking for the same page; stopped after ${MCP_INPUT_ROUNDS} tries`,
-          code: URL_REQUIRED_CODE,
-        });
-      }
 
       const deferred: Array<McpInputRequest> = [];
 
@@ -1693,7 +1684,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
     round: number,
   ): Effect.Effect<Outcome<CallToolResult>, McpError> =>
     Effect.gen(function* () {
-      const deferred = yield* deferPages(answer, round);
+      const deferred = yield* deferPages(answer);
 
       const state: ResendStateV1 = {
         v: 1,
@@ -1704,13 +1695,6 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
         round,
         message: answer.message,
       };
-
-      if (jsonBytes(state) > MCP_RESUME_STATE_MAX_BYTES) {
-        return yield* TooLarge.make({
-          message: "The server's questions are too large to keep for later",
-          limit: MCP_RESUME_STATE_MAX_BYTES,
-        });
-      }
 
       return {
         kind: "pages_required",
@@ -1723,8 +1707,9 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
 
   /**
    * Runs a call's rounds from `answer`. A Modern round of questions: each is answered (Roots by the core, the rest
-   * through `onInput`), then the call is sent again with every answer and the server's `requestState`, on a new id, at
-   * most `MCP_INPUT_ROUNDS` rounds; a round with a question the caller deferred ends here, as `input_required` with the
+   * through `onInput`), then the call is sent again with every answer and the server's `requestState`, on a new id, with
+   * no count of rounds (the turn's time limit, Stop and the call's own limits end a server that keeps asking,
+   * SPI-1368); a round with a question the caller deferred ends here, as `input_required` with the
    * `ResumeState` `resume` goes on from, and a partial round is never sent. A Legacy `-32042` ends here too, as
    * `pages_required` with the `ResendState` `resend` goes on from, or as the server's error (`keepPages`). A result after
    * questions is never cacheable.
@@ -1742,12 +1727,6 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
       while (answer.kind === "asked" || answer.kind === "url_required") {
         if (answer.kind === "url_required") return yield* keepPages(params, answer, round);
 
-        if (round > MCP_INPUT_ROUNDS) {
-          return yield* ProtocolViolation.make({
-            message: `The server asked questions for more than ${MCP_INPUT_ROUNDS} rounds`,
-          });
-        }
-
         const { requestState } = answer;
         const { answered, deferred } = yield* answerRound(answer, ctx);
 
@@ -1763,13 +1742,6 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
           };
 
           if (requestState !== undefined) state.requestState = requestState;
-
-          if (jsonBytes(state) > MCP_RESUME_STATE_MAX_BYTES) {
-            return yield* TooLarge.make({
-              message: "The server's questions are too large to keep for later",
-              limit: MCP_RESUME_STATE_MAX_BYTES,
-            });
-          }
 
           return {
             kind: "input_required",
@@ -2192,7 +2164,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
   /**
    * Reads a resource. A Modern server may answer with a round of questions (`input_required`), which the read answers
    * at once, as a call's rounds are answered (Roots by the core, an elicitation through `onInput`), and sends again
-   * with every answer and the server's `requestState`, at most `MCP_INPUT_ROUNDS` rounds. A read is never kept for
+   * with every answer and the server's `requestState`, with no count of rounds. A read is never kept for
    * later: a question the caller would defer is a `cancel`. A read after questions is not cacheable.
    */
   const readResource = (uri: string, ctx: McpCallContext) =>
@@ -2208,11 +2180,11 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
       });
 
       // A Legacy server's `-32042` on a read: its pages are kept for the owner, and the caller sends the read again as it
-      // was once they are done (a read has no state; the caller counts the rounds and ends the eleventh).
+      // was once they are done (a read has no state).
       if (isUrlRequired(first)) {
         return {
           kind: "pages_required",
-          requests: yield* deferPages(first, 1),
+          requests: yield* deferPages(first),
           message: first.message,
           fetchedAt: yield* Clock.currentTimeMillis,
         } satisfies PagesRequired;
@@ -2222,12 +2194,6 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
       let round = 1;
 
       while (value["resultType"] === "input_required") {
-        if (round > MCP_INPUT_ROUNDS) {
-          return yield* ProtocolViolation.make({
-            message: `The server asked questions for more than ${MCP_INPUT_ROUNDS} rounds`,
-          });
-        }
-
         const asked = yield* askedOf(value);
 
         if (asked.kind !== "asked") return yield* notMcp("its questions are malformed");
@@ -2345,22 +2311,14 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
     ctx.answers.livePages === true;
 
   /**
-   * A Legacy server's `-32042`, number `resends` of a get: it ran nothing, so the get waits for the owner at each page it
+   * A Legacy server's `-32042` on a get: it ran nothing, so the get waits for the owner at each page it
    * lists (shown together, each answered by its own `onInput`) and is sent again once every one is `accept`, which says the
-   * owner is done there. A page that is declined, cancelled or refused, and the eleventh `-32042`, end the get with the
-   * server's own error, the latter saying the server kept asking (`deferPages`' words); the first answer of the other kind
-   * settles the round at once, and the cards of the pages still waiting are withdrawn (`onInputEnded`).
+   * owner is done there. A page that is declined, cancelled or refused ends the get with the server's own error; the first
+   * answer of the other kind settles the round at once, and the cards of the pages still waiting are withdrawn (`onInputEnded`).
    */
-  const waitAtPages = (answer: UrlRequired, resends: number): Effect.Effect<void, McpError> =>
+  const waitAtPages = (answer: UrlRequired): Effect.Effect<void, McpError> =>
     Effect.gen(function* () {
       const { onInput } = deps;
-
-      if (resends > MCP_INPUT_ROUNDS) {
-        return yield* ServerError.make({
-          message: `${answer.message}. ${target.name ?? "The server"} kept asking for the same page; stopped after ${MCP_INPUT_ROUNDS} tries`,
-          code: URL_REQUIRED_CODE,
-        });
-      }
 
       const error = ServerError.make({ message: answer.message, code: URL_REQUIRED_CODE });
 
@@ -2393,8 +2351,8 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
   /**
    * Gets a prompt. A Modern server may answer with a round of questions (`input_required`), which the get answers at once,
    * as a read's rounds are answered (`readResource`): Roots by the core, an elicitation or a Sampling request through
-   * `onInput`, then the get is sent again with every answer and the server's `requestState`, at most `MCP_INPUT_ROUNDS`
-   * rounds. A get is never kept for later: a question the caller would defer is a `cancel`. A get after questions is not
+   * `onInput`, then the get is sent again with every answer and the server's `requestState`, with no count of rounds. A
+   * get is never kept for later: a question the caller would defer is a `cancel`. A get after questions is not
    * cacheable.
    */
   const getPrompt = (name: string, args: Readonly<Record<string, string>>, ctx: McpCallContext) =>
@@ -2410,24 +2368,16 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
       const atPages = mayWaitAtPages(asking) ? urlRequiredOf : undefined;
 
       let first = yield* promptOnce(params, asking, undefined, atPages);
-      let resends = 1;
 
       while (isUrlRequired(first)) {
-        yield* waitAtPages(first, resends);
+        yield* waitAtPages(first);
         first = yield* promptOnce(params, asking, undefined, atPages);
-        resends += 1;
       }
 
       let value: GetPromptResult | Result = first;
       let round = 1;
 
       while (value["resultType"] === "input_required") {
-        if (round > MCP_INPUT_ROUNDS) {
-          return yield* ProtocolViolation.make({
-            message: `The server asked questions for more than ${MCP_INPUT_ROUNDS} rounds`,
-          });
-        }
-
         const asked = yield* askedOf(value);
 
         if (asked.kind !== "asked") return yield* notMcp("its questions are malformed");
@@ -2766,9 +2716,6 @@ const urlRequiredOf = (error: Error): UrlRequired | undefined => {
     }),
   });
 };
-
-/** How many bytes `value` weighs as JSON. */
-const jsonBytes = (value: Schema.Json) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
 
 /**
  * Keeps a Modern server's era row. Its `server/discover` result is at most the tap's 1 MiB (`OTHER`), which fits the 8 MB

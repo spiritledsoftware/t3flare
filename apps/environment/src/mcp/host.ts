@@ -173,8 +173,9 @@ export interface McpHostDeps {
   readonly callTimeoutMs?: () => number;
   /**
    * The MCP servers' limits (SPI-1363), read as each call's target is made: how long a connection may take to start
-   * (`mcpConnectSeconds`) and one listing (`mcpListSeconds`), in ms, and how many server logs a call keeps
-   * (`mcpLogEntries`). Absent, the engine's defaults, which are the settings'.
+   * (`mcpConnectSeconds`) and one listing (`mcpListSeconds`), in ms, how many server logs a call keeps
+   * (`mcpLogEntries`), how many progress notices it passes on a second (`mcpProgressPerSecond`) and how long a Legacy
+   * server is taken as Legacy, in ms (`mcpLegacyRecheckHours`). Absent, the engine's defaults, which are the settings'.
    */
   readonly limits?: () => McpServerLimits;
   /**
@@ -211,11 +212,13 @@ export interface RefusedTool {
 export const refusedCount = (refused: ReadonlyArray<RefusedTool>): number =>
   refused.reduce((count, entry) => count + (entry.more ?? 1), 0);
 
-/** The MCP servers' limits a target carries (SPI-1363). */
+/** The MCP servers' limits a target carries (SPI-1363, SPI-1368). */
 export interface McpServerLimits {
   readonly connectTimeoutMs: number;
   readonly listTimeoutMs: number;
   readonly logEntries: number;
+  readonly progressPerSecond: number;
+  readonly legacyEraTtlMs: number;
 }
 
 export class McpHost {

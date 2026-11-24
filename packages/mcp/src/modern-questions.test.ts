@@ -1,7 +1,7 @@
 /**
  * A Modern server's questions: a `tools/call` the
  * server answers `input_required` is answered by the core's own rounds. When `onInput` answers everything at once, the
- * core sends the call again itself (a new id, `requestState` byte for byte, at most 10 rounds, the result not
+ * core sends the call again itself (a new id, `requestState` byte for byte, with no count of rounds, the result not
  * cacheable); when the caller defers a question, the call ends as `input_required` with a `ResumeState`, and `resume`
  * sends it again with the answers, never a partial round.
  */
@@ -409,18 +409,18 @@ describe("A Modern server's questions", () => {
     expect(options.asked).toEqual([expect.objectContaining({ round: 1 }), expect.objectContaining({ round: 2 })]);
   });
 
-  it("fails a call whose server asks for more than 10 rounds", async () => {
+  it("answers as many rounds as the server asks, with no count of rounds (SPI-1368)", async () => {
     const server = modernServer({ moreTools: [ASK_TOOL] });
 
     const outcome = await ask(
       server,
       deps(server, () => ACCEPTED),
       ANSWERING,
-      { rounds: 11 },
+      { rounds: 15 },
     );
 
-    expect(outcome).toEqual(failedWith(ProtocolViolation));
-    expect(calls(server)).toHaveLength(11);
+    expect(valueOf(outcome)).toBeDefined();
+    expect(calls(server)).toHaveLength(16);
   });
 
   it.each([

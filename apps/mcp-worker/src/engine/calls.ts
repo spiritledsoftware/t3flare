@@ -224,6 +224,8 @@ const connectTarget = (server: McpEngineTarget): McpTarget => {
 
   if (server.listTimeoutMs !== undefined) target.listTimeoutMs = server.listTimeoutMs;
 
+  if (server.legacyEraTtlMs !== undefined) target.legacyEraTtlMs = server.legacyEraTtlMs;
+
   return target;
 };
 
@@ -313,7 +315,7 @@ const runCall = Effect.fnUntraced(function* <A, R>(
       }),
     // A server may echo a header it was sent (a Secret's value) into a log, an error or a result; all are scrubbed of them.
     secretsOf(input.target),
-    input.target.logEntries,
+    input.target,
   );
 });
 

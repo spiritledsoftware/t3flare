@@ -1,7 +1,9 @@
 /**
  * The engine's byte budget, one per isolate:
- * an 8 MiB pool shared by calls of up to 4 MiB and one large slot for a call whose bytes pass 4 MiB (up to 16 MiB,
- * past which the core's byte limits fail the request).
+ * an 8 MiB pool shared by calls of up to 4 MiB and one large slot for a call whose bytes pass 4 MiB (up to the core's
+ * `MCP_LARGE_RESULT_BYTES`, 16 MiB, past which its byte limits fail the request). A named constraint: the MCP Worker's
+ * 128 MB isolate. The pool and the large slot hold 24 MiB of answers at most, and a call's bytes live on parsed and
+ * serialized, a few times over, which fits beside the Worker itself.
  *
  * Each call takes a `Lease`, and its `fetch` is metered against it: every chunk of a response to a POST is charged
  * before the core reads it, so a call that must wait stops reading, which is backpressure on the server. A call
@@ -30,10 +32,10 @@ import * as Layer from "effect/Layer";
 import { MCP_STREAM_HOLD_MS } from "@t3flare/mcp/types";
 import { MiB } from "./units.ts";
 
-/** A call's charges in the pool stop at this; past it the call takes the large slot. */
+/** A call's charges in the pool stop at this; past it the call takes the large slot. Half the pool, so two fit. */
 export const POOL_CALL_LIMIT = 4 * MiB;
 
-/** The pool shared by calls of up to 4 MiB. */
+/** The pool shared by calls of up to 4 MiB: with the large slot, within the isolate's memory (see above). */
 export const POOL_BYTES = 8 * MiB;
 
 /** How long a returned stream may go unread and still hold its call's lease. */

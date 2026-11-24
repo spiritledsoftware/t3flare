@@ -20,7 +20,7 @@ constraint set: 60, 120 and 15 minutes.
    refinement below) and the rebuild interval's 29 days (a snapshot expires after 30) stay. (SPI-1359,
    2026-11-23: a SQLite-backed DO row or value holds 8 MB; the earlier 2 MB was stale.) Anything else is a sanity bound:
    a number far beyond any real choice, kept because an integer setting's schema needs a maximum, with a comment saying
-   nothing forces it.
+   nothing forces it. (SPI-1368: the schema's maximum is optional, for a setting no value breaks; see its refinement.)
 2. **One sanity maximum for timed limits: 10,080 minutes (a week).** `MAX_TIMED_MINUTES` in
    `@t3flare/harness-registry` is the maximum of every limit t3flare times itself with its own alarm or timer. A week,
    because the longest single wait t3flare times, a Workspace's wait for a Base build (`waitLimitMs` =
@@ -56,7 +56,8 @@ constraint set: 60, 120 and 15 minutes.
 - **Keeping the cost guards** with a page note explaining them. Rejected: a guard against the Owner's own spending is
   the protection AGENTS.md rules out; the page states the cost instead.
 - **No maximum at all.** Rejected: the settings' integer schema needs a maximum, and an unbounded timed limit could
-  overflow a JS timer and fire at once, which breaks t3flare rather than protecting the Owner.
+  overflow a JS timer and fire at once, which breaks t3flare rather than protecting the Owner. (Superseded for a setting
+  nothing breaks past at any value by the SPI-1368 refinement below: it has no maximum.)
 - **The Pairing window as an Environment setting** (`pairingWindowMinutes`). Rejected for now: it is opened per call
   by an admin, so the length belongs with the call.
 
@@ -128,3 +129,27 @@ and the stage-only Browser Run spike (`preview/spike.ts`), whose error cuts only
 the reboot check's module-state fingerprint (`moduleState.ts`), which no one reads as text; and the dead stdio path's
 `STDERR_QUOTE_BYTES`, which goes when that path returns or is deleted. An MCP server's `instructions` are no longer
 stored: nothing read them.
+
+## Refinement (SPI-1368, 2026-11-23): the last fixed values
+
+The rest of the audit's fixed values (SPI-1357) were each confirmed against the code and named, removed, derived or
+made settings; ADR-0032's SPI-1368 refinement lists the settings. Two points of rule:
+
+- **A setting with no failure past any value has no maximum.** `codemode.inlineBudget` decides only how many tool
+  declarations go inline: a budget past every declaration inlines them all, 0 defers them all, and neither breaks
+  anything. The integer schema's `maximum` becomes optional, and this setting has none: it takes any safe integer from
+  its minimum, the Settings page gives its field no `max`, and its description says "No maximum". This supersedes, for
+  such a setting only, §1's "kept because an integer setting's schema needs a maximum" and the considered option "No
+  maximum at all"; a timed limit keeps the shared timed maximum (§2), and every other limit a named constraint or a
+  sanity bound.
+- **The shared week bounds a clock comparison too.** `mcpLegacyRecheckHours` is compared with the clock at each
+  connection, and no timer is set from it, so no JS timer overflow applies; it takes §2's week as a sanity bound, as
+  `termctrl.quietMs` does.
+- **A text setting needs no length of its own.** The text schema's `maxLength` is optional, kept only where a constraint
+  sets one. The Guardian's rules and policy and the model settings had 4,000, 8,000 and 300 characters; they are bounded,
+  as the SPI-1365 refinement does for the other entities, by the one Durable Object value that stores the Harness
+  settings.
+
+A fixed value that stays names its constraint where it is set: Cloudflare's (a Durable Object's 30 seconds in
+`blockConcurrencyWhile`, its 10 GB of storage, an RPC's 32 MiB, an isolate's 128 MB), an external one (t3's contract's
+1,024 characters of an ACP agent's description, a PTY's 16-bit size), or a sanity bound, said to be one.

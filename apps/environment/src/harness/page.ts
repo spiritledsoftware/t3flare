@@ -158,7 +158,9 @@ const field = (
     case "boolean":
       return `<div class="field"><div class="inline-field"><input type="checkbox" ${attrs}${value === true ? " checked" : ""}><label for="${id}">${escapeHtml(setting.title)}</label></div>${hint}</div>`;
     case "integer":
-      return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="number" inputmode="numeric" required ${attrs} min="${setting.schema.minimum}" max="${setting.schema.maximum}" step="1" value="${escapeHtml(String(value))}">${hint}</div>`;
+      return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="number" inputmode="numeric" required ${attrs} min="${setting.schema.minimum}"${
+        setting.schema.maximum === undefined ? "" : ` max="${setting.schema.maximum}"`
+      } step="1" value="${escapeHtml(String(value))}">${hint}</div>`;
     case "number":
       return `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="number" inputmode="${setting.schema.whole === true ? "numeric" : "decimal"}" required ${attrs} min="${setting.schema.minimum}" step="${setting.schema.whole === true ? "1" : "any"}" value="${escapeHtml(String(value))}">${hint}</div>`;
     case "enum":
@@ -173,8 +175,8 @@ const field = (
         .join("")}</select>${hint}</div>`;
     case "text":
       return setting.schema.multiline === true
-        ? `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><textarea rows="4" maxlength="${setting.schema.maxLength}" ${attrs}>${escapeHtml(typeof value === "string" ? value : "")}</textarea>${hint}</div>`
-        : `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="text" maxlength="${setting.schema.maxLength}" ${attrs} value="${escapeHtml(typeof value === "string" ? value : "")}">${hint}</div>`;
+        ? `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><textarea rows="4" ${setting.schema.maxLength === undefined ? "" : `maxlength="${setting.schema.maxLength}" `}${attrs}>${escapeHtml(typeof value === "string" ? value : "")}</textarea>${hint}</div>`
+        : `<div class="field"><label for="${id}">${escapeHtml(setting.title)}</label><input type="text" ${setting.schema.maxLength === undefined ? "" : `maxlength="${setting.schema.maxLength}" `}${attrs} value="${escapeHtml(typeof value === "string" ? value : "")}">${hint}</div>`;
     case "variables": {
       // One row per Variable; the script adds rows from the template, removes them, and posts `[{ name, value, secret }]`
       // (a secret left as it was posts `valueRedacted`, which keeps its stored value). The names t3flare sets itself are
@@ -530,7 +532,7 @@ const environmentSection = (
   const mcpServers = keyedRow(
     "mcp-servers",
     "MCP servers",
-    "How long t3flare waits for each MCP server to connect and to list what it offers, and how many of its logs one call keeps.",
+    "How long t3flare waits for each MCP server to connect and to list what it offers, how many of its logs one call keeps, how many of its progress notices reach the thread each second, and how long a server found speaking the Legacy protocol is taken as Legacy.",
     MCP_SERVER_SETTING_KEYS,
   );
   const outside = keyedRow(

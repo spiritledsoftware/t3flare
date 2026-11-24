@@ -377,6 +377,10 @@ export const BASE_BUILD_SETTING_KEYS = [
 
 /** The Grace's default and bounds, in days (ADR-0043 §1): no zero, since at once is the Owner's own Purge. */
 export const DEFAULT_GRACE_DAYS = 7;
+/**
+ * The longest Grace: a sanity bound (ADR-0048 §1), ten years. Nothing forces it; the bound that holds is a JS Date's
+ * range (about 100 million days), which the Sweep's dates live in, far past it.
+ */
 export const MAX_GRACE_DAYS = 3650;
 
 /**
@@ -466,10 +470,17 @@ export const MCP_CALL_SETTING_KEYS = [
 
 /**
  * The MCP servers' settings (SPI-1363): how long a connection may take to start and one listing, and how many of a
- * server's logs a call keeps. Read as each call's target is made, never at a Container start, so the Settings page shows
- * them in an MCP servers row of their own, after the MCP calls row.
+ * server's logs a call keeps; and (SPI-1368) how many progress notices a call passes on a second and how long a server
+ * found to speak Legacy is taken as Legacy. Read as each call's target is made, never at a Container start, so the
+ * Settings page shows them in an MCP servers row of their own, after the MCP calls row.
  */
-export const MCP_SERVER_SETTING_KEYS = ["mcpConnectSeconds", "mcpListSeconds", "mcpLogEntries"] as const;
+export const MCP_SERVER_SETTING_KEYS = [
+  "mcpConnectSeconds",
+  "mcpListSeconds",
+  "mcpLogEntries",
+  "mcpProgressPerSecond",
+  "mcpLegacyRecheckHours",
+] as const;
 
 /**
  * The outside requests' setting (SPI-1365): how long one request to GitHub or a sign-in's vendor may wait. It bounds the
@@ -615,6 +626,22 @@ export const DEFAULT_MCP_LOG_ENTRIES = 50;
  * are at most 25 MiB of its 128 MB isolate, which also holds the call itself.
  */
 export const MAX_MCP_LOG_ENTRIES = 200;
+
+/** How many progress notices an MCP call passes on a second, by default (`mcpProgressPerSecond`, SPI-1368): today's 10. */
+export const DEFAULT_MCP_PROGRESS_PER_SECOND = 10;
+
+/**
+ * The most progress notices an MCP call may pass on a second: a sanity bound (ADR-0048 §1). Each notice is a request
+ * to the thread's Session, and Cloudflare documents a Durable Object's soft limit as about 1,000 requests a second; a
+ * Session flooded past it answers other requests, a Stop among them, with overloaded errors.
+ */
+export const MAX_MCP_PROGRESS_PER_SECOND = 1000;
+
+/**
+ * How long a server found to speak Legacy MCP is taken as Legacy before it is probed again, by default
+ * (`mcpLegacyRecheckHours`, SPI-1368): today's 24 hours.
+ */
+export const DEFAULT_MCP_LEGACY_RECHECK_HOURS = 24;
 
 /** How long an MCP server's sign-in may take, by default (`mcpSignInMinutes`, SPI-1366). */
 export const DEFAULT_MCP_SIGN_IN_MINUTES = 10;
@@ -1264,6 +1291,30 @@ export const ENVIRONMENT_SETTINGS = {
     // A sanity bound (`MAX_MCP_LOG_ENTRIES`), sized against the MCP Worker's isolate memory.
     schema: { type: "integer", minimum: 1, maximum: MAX_MCP_LOG_ENTRIES, default: DEFAULT_MCP_LOG_ENTRIES },
     tier: "down-free",
+  },
+  mcpProgressPerSecond: {
+    title: "MCP progress notices per second",
+    description: `How many of an MCP server's progress notices for one call t3flare passes on to the thread each second; the rest are dropped, and the next one passed says where the call is. Each notice is a request to the thread's Session, so a higher rate lets a chatty server keep it busier and slow its other requests, a Stop among them. At most ${MAX_MCP_PROGRESS_PER_SECOND.toLocaleString("en-US")}. Applies at the next MCP call.`,
+    // A sanity bound (`MAX_MCP_PROGRESS_PER_SECOND`): a Durable Object's documented soft request rate.
+    schema: {
+      type: "integer",
+      minimum: 1,
+      maximum: MAX_MCP_PROGRESS_PER_SECOND,
+      default: DEFAULT_MCP_PROGRESS_PER_SECOND,
+    },
+    tier: "down-free",
+  },
+  mcpLegacyRecheckHours: {
+    title: "MCP Legacy server recheck (hours)",
+    description: `How long t3flare takes an MCP server it found speaking the Legacy protocol as Legacy before it checks again whether the server speaks the Modern one (0: check at every connection). A longer time keeps a server that has since moved to Modern on Legacy that long; a shorter one adds a probe to more connections. At most ${MAX_TIMED_MINUTES / 60} (a week). Applies at the next connection to an MCP server.`,
+    // Compared with the clock at each connection, no timer: the shared sanity maximum applies (ADR-0048 §2), in hours.
+    schema: {
+      type: "integer",
+      minimum: 0,
+      maximum: MAX_TIMED_MINUTES / 60,
+      default: DEFAULT_MCP_LEGACY_RECHECK_HOURS,
+    },
+    tier: "free",
   },
   cliMcpStartSeconds: {
     title: "CLI agent's MCP start wait (seconds)",

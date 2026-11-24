@@ -1,9 +1,10 @@
 // Ported from @ian-pascoe/pi-web-tools (`src/json-reindent.ts`, MIT, © 2026 Ian Pascoe; see ./NOTICE.md), unchanged but for
 // formatting. The native array methods of the original's hot parse loops stay as they are.
 /**
- * Largest UTF-8 size of re-indented JSON: four times the largest Web Fetch body. Indentation grows
- * with nesting depth, so pathologically deep JSON would otherwise grow quadratically; a document
- * that would exceed this is returned unchanged instead.
+ * Largest UTF-8 size of re-indented JSON. Indentation grows with nesting depth, so pathologically deep JSON would
+ * otherwise grow quadratically; a document that would exceed this is returned unchanged instead. A named constraint:
+ * the Session's 128 MB isolate. Only a body of at most `FETCH_CONVERT_MAX_KIB` (5 MiB) is re-indented, so this is four
+ * times the largest input, about 40 MB as a UTF-16 string, beside the input and the Session.
  */
 export const JSON_REINDENT_MAX_BYTES = 20 * 1024 * 1024;
 

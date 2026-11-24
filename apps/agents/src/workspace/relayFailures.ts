@@ -9,7 +9,11 @@
 import type { EndpointApi } from "@t3flare/models/endpoints";
 import type { EndpointFailureRecord } from "@t3flare/session-protocol";
 
-/** The largest error body the relay redacts and passes back; past it, `oversizedError`. */
+/**
+ * The largest error body the relay redacts and passes back; past it, `oversizedError`. A sanity bound (ADR-0048 §1)
+ * under the Workspace DO's 128 MB isolate, where the body is read whole and redacted: nothing forces 1 MiB, and an error
+ * body is rarely past a few KiB.
+ */
 export const RELAY_ERROR_BODY_BYTES = 1024 * 1024;
 
 /** A short error in the API's own shape, in place of an error body over `RELAY_ERROR_BODY_BYTES`. */

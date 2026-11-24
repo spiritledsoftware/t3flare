@@ -5,7 +5,11 @@ import { normalizeVariables, type StoredVariable, variablesProblem } from "./var
 /** A setting's schema: the JSON Schema subset the panel renders as a form and the API validates against. */
 export type FieldSchema =
   | { readonly type: "boolean"; readonly default: boolean }
-  | { readonly type: "integer"; readonly minimum: number; readonly maximum: number; readonly default: number }
+  /**
+   * `maximum`: a named constraint or a sanity bound (ADR-0048 §1); absent only where no value breaks anything (the
+   * SPI-1368 refinement), and then any safe integer from `minimum` is taken.
+   */
+  | { readonly type: "integer"; readonly minimum: number; readonly maximum?: number; readonly default: number }
   /**
    * A number with no maximum of t3flare's (a custom Container size's resources, SPI-1365: Cloudflare's account limits
    * bound them, and refuse a start past them); `whole`: an integer only.
@@ -22,8 +26,12 @@ export type FieldSchema =
       readonly labels?: Readonly<Record<string, string>>;
       readonly integers?: { readonly minimum: number };
     }
-  /** Free text (SPI-1058: guardian's rules and policy, typed as pi-guardian's menu takes them); `multiline` is a text area. */
-  | { readonly type: "text"; readonly maxLength: number; readonly default: string; readonly multiline?: boolean }
+  /**
+   * Free text (SPI-1058: guardian's rules and policy, typed as pi-guardian's menu takes them); `multiline` is a text area.
+   * `maxLength`, in characters, only where a constraint sets one; without it the value that stores the setting bounds it
+   * (SPI-1368).
+   */
+  | { readonly type: "text"; readonly maxLength?: number; readonly default: string; readonly multiline?: boolean }
   /**
    * The text of a file a Container gets (SPI-1150: the Global mise config): at most `maxBytes` of UTF-8, no NUL, line
    * ends stored as LF (`normalizeField`). The panel renders it as a monospace text area without `maxlength`, which would
@@ -119,9 +127,9 @@ export const fieldProblem = (schema: EnvironmentFieldSchema, value: unknown): st
     case "boolean":
       return typeof value === "boolean" ? undefined : "true or false";
     case "integer":
-      if (typeof value !== "number" || !Number.isInteger(value)) return "an integer";
+      if (typeof value !== "number" || !Number.isSafeInteger(value)) return "an integer";
       if (value < schema.minimum) return `at least ${schema.minimum}`;
-      return value > schema.maximum ? `at most ${schema.maximum}` : undefined;
+      return schema.maximum !== undefined && value > schema.maximum ? `at most ${schema.maximum}` : undefined;
     case "number":
       if (typeof value !== "number" || !Number.isFinite(value)) return "a number";
       if (schema.whole === true && !Number.isSafeInteger(value)) return "a whole number";
@@ -132,7 +140,8 @@ export const fieldProblem = (schema: EnvironmentFieldSchema, value: unknown): st
         ? `one of ${schema.values.join(", ")}`
         : `one of ${schema.values.join(", ")}, or a whole number of at least ${schema.integers.minimum}`;
     case "text":
-      return typeof value === "string" && value.length <= schema.maxLength
+      if (typeof value !== "string") return "text";
+      return schema.maxLength === undefined || value.length <= schema.maxLength
         ? undefined
         : `text of at most ${schema.maxLength} characters`;
     case "variables":

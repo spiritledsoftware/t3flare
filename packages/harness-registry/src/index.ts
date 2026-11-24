@@ -19,13 +19,17 @@ import {
   type ToolClass,
 } from "./mcp.ts";
 import {
+  DEFAULT_AGENT_TERMINAL_SCROLLBACK_LINES,
   DEFAULT_TERMINALS_PER_WORKSPACE,
   ENVIRONMENT_SETTINGS,
+  ISOLATE_MEMORY_MB,
+  MAX_AGENT_TERMINALS_PER_WORKSPACE,
   MAX_STOP_GRACE_SECONDS,
   MAX_TIMED_MINUTES,
   MAX_TIMED_SECONDS,
 } from "./environment.ts";
 import { fieldProblem, type SettingEntry, type SettingValue } from "./fields.ts";
+import { storedValueProblem } from "./storedValue.ts";
 import { EXPOSURES, legacyResolvedTools, type ResolvedTools, resolveTools, type ToolsLayer } from "./tools.ts";
 
 export * from "./mcp.ts";
@@ -66,7 +70,9 @@ export interface ExtensionEntry {
 const modelSetting = (title: string, description: string, fallback: string): SettingEntry => ({
   title,
   description,
-  schema: { type: "text", maxLength: 300, default: fallback },
+  // No length of t3flare's: a value that names no endpoint is read as `default`, and the Harness settings' one stored
+  // value bounds it (SPI-1368).
+  schema: { type: "text", default: fallback },
 });
 const THINKING_LEVELS = ["off", "low", "medium", "high"] as const;
 /**
@@ -141,6 +147,13 @@ const MAX_COUNT = 100_000;
 const MAX_CHARACTERS = 1_000_000;
 /** A sanity bound (ADR-0048) for one line's preview: nothing in t3flare forces it. */
 const MAX_PREVIEW_CHARACTERS = 10_000;
+/** How many redirects web_fetch follows by default (`fetchRedirects`): today's 10, half the Fetch standard's 20. */
+export const DEFAULT_REDIRECTS = 10;
+/**
+ * The most redirects web_fetch may follow (`fetchRedirects`): a sanity bound (ADR-0048 §1), past any real chain of
+ * redirects. Each hop takes up to three of the turn invocation's subrequests, whose Workers limit bounds it in fact.
+ */
+export const MAX_REDIRECTS = 100;
 /** The longest wait a Terminal's wait settings take, in ms (ADR-0048 §2): the wait runs in Workspace slices toward one deadline. */
 const MAX_WAIT_MS = MAX_TIMED_MINUTES * 60_000;
 /** A Terminal wait setting: `default` ms when a call names no wait, `description` its own, its maximum stated. */
@@ -151,6 +164,31 @@ const waitMsSetting = (title: string, description: string, fallback: number): Se
   schema: { type: "integer", minimum: 0, maximum: MAX_WAIT_MS, default: fallback },
   tier: "free",
 });
+/** An agent Terminal's size by default (`termctrl.cols`, `termctrl.rows`). */
+export const DEFAULT_TERMINAL_COLS = 120;
+export const DEFAULT_TERMINAL_ROWS = 40;
+/**
+ * The cells one agent Terminal's headless xterm may keep, its screen and scrollback: the Workspace DO's isolate
+ * (`ISOLATE_MEMORY_MB`) shared among the most Terminals it may run (`MAX_AGENT_TERMINALS_PER_WORKSPACE`), at about 12
+ * bytes a cell. A named constraint, provisional like `MAX_AGENT_TERMINALS_PER_WORKSPACE`, whose estimate it shares:
+ * SPI-978's measurement of the DO's memory sets the figure.
+ */
+const TERMINAL_CELLS = Math.floor((ISOLATE_MEMORY_MB * 1_000_000) / MAX_AGENT_TERMINALS_PER_WORKSPACE / 12);
+/** A PTY's size fields are unsigned 16-bit (Linux's `struct winsize`, set through TIOCSWINSZ). A named constraint. */
+const WINSIZE_MAX = 65_535;
+/**
+ * The widest and tallest an agent Terminal may be set (`termctrl.cols`, `termctrl.rows`), derived from `TERMINAL_CELLS`:
+ * the width with the default rows and scrollback, the height (screen rows, beside the default scrollback) with the
+ * default width, each within `WINSIZE_MAX`. Setting both, or the scrollback, past their defaults can still take more.
+ */
+export const MAX_TERMINAL_COLS = Math.min(
+  WINSIZE_MAX,
+  Math.floor(TERMINAL_CELLS / (DEFAULT_TERMINAL_ROWS + DEFAULT_AGENT_TERMINAL_SCROLLBACK_LINES)),
+);
+export const MAX_TERMINAL_ROWS = Math.min(
+  WINSIZE_MAX,
+  Math.floor(TERMINAL_CELLS / DEFAULT_TERMINAL_COLS) - DEFAULT_AGENT_TERMINAL_SCROLLBACK_LINES,
+);
 /** The Guardian's evidence budget, in characters of untrusted evidence a Review carries (about pi-guardian's 32,000-token ceiling). */
 export const GUARDIAN_EVIDENCE_CHARACTERS = 96_000;
 
@@ -166,9 +204,11 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
       inlineBudget: {
         title: "Inline budget",
         description:
-          "Estimated tokens the tool declarations in the code mode section may use; past it, scripts find tools with searchTools().",
-        schema: { type: "integer", minimum: 500, maximum: 20_000, default: 2_000 },
-        tier: "free",
+          "Estimated tokens the tool declarations in the code mode section may use; past it, scripts find tools with searchTools(). A larger budget puts more declarations in every request's prompt; 0 leaves them all to searchTools(). No maximum.",
+        // No maximum (ADR-0048's SPI-1368 refinement): a budget past every declaration inlines them all, and nothing
+        // breaks at any value.
+        schema: { type: "integer", minimum: 0, default: 2_000 },
+        tier: "down-free",
       },
       interruptBudget: {
         title: "Script compute budget (polls)",
@@ -304,6 +344,20 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         schema: { type: "integer", minimum: 64, maximum: FETCH_MAX_KIB, default: 5120 },
         tier: "down-free",
       },
+      fetchRedirects: {
+        title: "Redirects per fetch",
+        description: `How many redirects one web_fetch call follows; one more fails the call. Each redirect takes up to three of the turn's Workers subrequests (two address lookups and the request), so a redirect loop spends that many before it fails. At most ${MAX_REDIRECTS}.`,
+        // MAX_REDIRECTS: a sanity bound (ADR-0048); the invocation's subrequest limit bounds it in fact.
+        schema: { type: "integer", minimum: 0, maximum: MAX_REDIRECTS, default: DEFAULT_REDIRECTS },
+        tier: "down-free",
+      },
+      fetchTitleCharacters: {
+        title: "Fetched page title (characters)",
+        description: `How many characters of a fetched page's first heading t3's web item shows as its title. The title is kept with the tool result, so a longer one takes more of the thread's stored history; the model never reads it. At most ${MAX_PREVIEW_CHARACTERS.toLocaleString("en-US")}.`,
+        // MAX_PREVIEW_CHARACTERS: a sanity bound (ADR-0048); the title rides in the result's `details`, within its row.
+        schema: { type: "integer", minimum: 1, maximum: MAX_PREVIEW_CHARACTERS, default: 200 },
+        tier: "down-free",
+      },
       searchModel: modelSetting(
         "Search model",
         "The model that runs web_search's searches: an Anthropic Messages Model endpoint's model with an API key or no auth whose server takes Anthropic's web search tool, as <endpointId>/<modelId>, or default (the endpoints' small model).",
@@ -396,14 +450,16 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
       },
       cols: {
         title: "Columns",
-        description: "A Terminal's width.",
-        schema: { type: "integer", minimum: 40, maximum: 400, default: 120 },
+        description: `A Terminal's width in characters. A wider Terminal keeps more of its screen and scrollback in the Workspace's memory, ${ISOLATE_MEMORY_MB} MB shared with its other Terminals and its files. At most ${MAX_TERMINAL_COLS}, sized for the default rows.`,
+        // A named constraint, provisional (`MAX_TERMINAL_COLS`): the Workspace DO's memory per Terminal.
+        schema: { type: "integer", minimum: 1, maximum: MAX_TERMINAL_COLS, default: DEFAULT_TERMINAL_COLS },
         tier: "free",
       },
       rows: {
         title: "Rows",
-        description: "A Terminal's height.",
-        schema: { type: "integer", minimum: 10, maximum: 200, default: 40 },
+        description: `A Terminal's height in lines. A taller Terminal keeps more of its screen in the Workspace's memory, ${ISOLATE_MEMORY_MB} MB shared with its other Terminals and its files. At most ${MAX_TERMINAL_ROWS.toLocaleString("en-US")}, sized for the default columns.`,
+        // A named constraint, provisional (`MAX_TERMINAL_ROWS`): the Workspace DO's memory per Terminal.
+        schema: { type: "integer", minimum: 1, maximum: MAX_TERMINAL_ROWS, default: DEFAULT_TERMINAL_ROWS },
         tier: "free",
       },
       startWaitMs: waitMsSetting(
@@ -481,22 +537,24 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         description: "The first pass's thinking; a would-be rejection is checked again at low or above.",
         schema: { type: "enum", values: THINKING_LEVELS, default: "off" },
       },
+      // The Guardian's three texts have no length of their own: the Harness settings are one stored value, which bounds
+      // them together (`applyChange`, SPI-1368).
       tools: {
         title: "Tool Policies",
         description:
           "Which tools are reviewed, as name=allow|review|deny pairs separated by commas (bash=review, mcp__github__create_issue=allow). Unlisted tools keep the built-in default: bash reviewed unless a Safe Command, edits to Sensitive Paths and terminals reviewed, read-only tools allowed.",
-        schema: { type: "text", maxLength: 4_000, default: "" },
+        schema: { type: "text", default: "" },
       },
       commands: {
         title: "Command Rules",
         description:
           "Literal command prefixes as prefix=allow|review|deny pairs separated by commas (git push=deny, npm test=allow). deny blocks without a review.",
-        schema: { type: "text", maxLength: 4_000, default: "" },
+        schema: { type: "text", default: "" },
       },
       policy: {
         title: "Security Policy",
         description: "Trusted destinations and forbidden actions, added to the built-in policy the Guardian judges by.",
-        schema: { type: "text", maxLength: 8_000, default: "", multiline: true },
+        schema: { type: "text", default: "", multiline: true },
       },
       // No `tier`: a Guard's settings are always asked (tiers.ts `extensionTier`).
       reviewTimeoutSeconds: {
@@ -1057,14 +1115,15 @@ export const applyChange = (
     ...(change.enabled === undefined ? {} : { enabled: change.enabled }),
     settings: { ...before?.settings, ...(change.settings as Record<string, SettingValue> | undefined) },
   };
-  return {
-    ok: true,
-    harness: {
-      ...stored,
-      revision: stored.revision + 1,
-      global: { extensions: { ...stored.global.extensions, [entry.id]: next } },
-    },
+  const harness: StoredHarness = {
+    ...stored,
+    revision: stored.revision + 1,
+    // The rest of Global (the tools' Exposures, t3's tools) stays as it was.
+    global: { ...stored.global, extensions: { ...stored.global.extensions, [entry.id]: next } },
   };
+  // No length per text setting: the Harness settings are one Durable Object value, which bounds them together.
+  const tooLarge = storedValueProblem("the Harness settings", harness);
+  return tooLarge === undefined ? { ok: true, harness } : { ok: false, error: tooLarge };
 };
 export { CARD_TEXT_MAX, cardText, visible, withoutHidden } from "./cardText.ts";
 export { isDeniedT3Tool, T3_TOOL_DENYLIST } from "./t3Tools.ts";

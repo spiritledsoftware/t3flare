@@ -742,3 +742,43 @@ refused list alone is cut, where it would pass the inventory's one Durable Objec
 error, log line, reason and list t3flare shows the Owner or an agent, is in
 [ADR-0048](0048-the-owner-is-trusted-with-their-own-settings-and-a-maximum-is-a-named-constraint-or-a-sanity-bound.md)'s
 SPI-1360 refinement.
+
+## Refinement (SPI-1368, 2026-11-23): the last fixed values, named, removed, derived or settings
+
+New Environment settings, in the MCP servers row (`MCP_SERVER_SETTING_KEYS`), each with today's value as its default and
+read as each call's target is made:
+
+| Setting                 | Default | Maximum                                               | Tier        | What it bounds                                              |
+| ----------------------- | ------- | ----------------------------------------------------- | ----------- | ----------------------------------------------------------- |
+| `mcpProgressPerSecond`  | 10      | `MAX_MCP_PROGRESS_PER_SECOND` (1,000, a sanity bound) | `down-free` | progress notices one call passes on to its Session a second |
+| `mcpLegacyRecheckHours` | 24      | `MAX_TIMED_MINUTES` / 60 (a week)                     | `free`      | how long a server found speaking Legacy is taken as Legacy  |
+
+`mcpLegacyRecheckHours` takes 0, which probes at every connection.
+
+New Harness settings of the `web` extension: `fetchRedirects` (default 10, at most `MAX_REDIRECTS`, 100, a sanity
+bound; `down-free`, since each hop spends up to three of the turn invocation's subrequests) and `fetchTitleCharacters`
+(default 200, at most 10,000; `down-free`, since a longer title takes more of the thread's stored history). The 4,000-character window the title was
+searched in is gone, as are the 300-character cuts of `web_fetch`'s and `web_search`'s snippets: `web_fetch`'s snippet
+is the model's text, cut only where the result's Session row has no more room, and `web_search`'s are whole, within the
+result lists' share of the row.
+
+Changed Harness settings: `codemode.inlineBudget` takes any whole number from 0, with no maximum (was 500 to 20,000),
+and becomes `down-free` (was `free`), since a larger budget puts more in every request's prompt; the Guardian's
+`tools`, `commands` and `policy` and the model settings (`guardian.model`, `advisor.model`, `web.searchModel`) have no
+length of their own (were 4,000, 4,000, 8,000 and 300 characters): an extension change is checked against the Harness
+settings' one Durable Object value instead, as a tools change already was. `termctrl.cols` and `termctrl.rows` take
+1 up to `MAX_TERMINAL_COLS` and `MAX_TERMINAL_ROWS` (were 40 to 400 and 10 to 200), derived from the Workspace DO's
+128 MB shared among `MAX_AGENT_TERMINALS_PER_WORKSPACE` Terminals at about 12 bytes a cell, each with the other's
+default and the default scrollback, and within a PTY's 16-bit size: 320 and 1,777 today, provisional with the
+estimate they share.
+
+An extension change keeps the rest of Global: before, it stored Global as only its `extensions`, which dropped the
+tools' Exposures and t3's tools set before it.
+
+Removed: the MCP core's 10 rounds of questions (`MCP_INPUT_ROUNDS`) and the 1 MiB of a resume or resend state
+(`MCP_RESUME_STATE_MAX_BYTES`, which no caller stored); a Model endpoint model's 100,000,000 ceiling on its context
+window and output limit; the leak scan's 64 MiB per file, which left a larger file unscanned: it now reads every file in
+overlapping 8 MiB chunks. The skills change's 32 KiB of SKILL.md and 200 paths per skill are derived instead: the skills
+shown share half the change record's one SQLite row evenly (`SHOWN_SKILLS_BYTES`), each its paths first, then its
+SKILL.md. The State directory's `statfs` reports the Durable Object's 10 GB less its database's size, not a fixed 10 GiB
+free.

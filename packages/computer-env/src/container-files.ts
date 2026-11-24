@@ -51,7 +51,9 @@ export const STAGE_DIR = `${HARNESS_ROOT}/tmp`;
 /**
  * The largest file `read`, `edit` and a reader copy over: the whole file crosses through the Workspace's files, since
  * pi-durable's line scan needs every byte (a ranged read on the Container could not count decoded UTF-8 as it does).
- * Larger ones are left to `bash` (`head`, `sed -n`).
+ * Larger ones are left to `bash` (`head`, `sed -n`). A named constraint: the Workspace DO's 128 MB isolate, shared with
+ * its files' sync and its Terminals. The bytes and their UTF-16 decoding come to about 96 MB at 32 MiB, so this cannot
+ * be raised much.
  */
 export const MAX_CONTAINER_FILE_BYTES = 32 * 1024 * 1024;
 

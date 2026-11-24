@@ -62,4 +62,20 @@ describe("the leak scanner", () => {
       "old.txt",
     ]);
   });
+
+  it("scans a file of any size, finding a credential across two chunks and one past 64 MiB (SPI-1368)", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leakscan-big-"));
+    const file = path.join(root, "big.bin");
+    const size = 72 * 1024 * 1024;
+    const content = Buffer.alloc(size, 0x2e);
+    // Straddles the scanner's first 8 MiB chunk boundary; the other sits past 64 MiB.
+    content.write(KEY, 8 * 1024 * 1024 - 10, "latin1");
+    content.write(GH, size - GH.length - 1, "latin1");
+    fs.writeFileSync(file, content);
+    const patterns = [await patternOf("model-key", KEY), await patternOf("github-token", GH)];
+    const answer = scan({ patterns, roots: [root], since: 0 });
+    expect(answer.hits.map((hit) => hit.name).toSorted()).toEqual(["github-token", "model-key"]);
+    expect(answer.bytes).toBe(size);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
 });

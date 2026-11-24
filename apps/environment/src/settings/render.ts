@@ -30,11 +30,21 @@ import {
   withoutQuery,
 } from "@t3flare/harness-registry";
 import type { McpTierChange } from "@t3flare/harness-registry";
+import { jsonTextBytes, jsonTextPrefix } from "@t3flare/session-protocol";
+
+import { CHANGE_RECORD_BYTES } from "./changes.ts";
 
 import type { ChangeItem, ChangeView, PageReason, ShownSkill, ShownVariableValue } from "./types.ts";
 
-export const SKILL_MD_SHOWN = 32 * 1024;
-export const PATHS_SHOWN = 200;
+/**
+ * The JSON bytes a skills change's view may take of its record, shared evenly by the skills it shows: half the record's
+ * one SQLite row (`CHANGE_RECORD_BYTES`, a named constraint), the other half for the change's arguments and the rest of
+ * the record. Derived from that row, so one skill shows as much of itself as the row holds (SPI-1368).
+ */
+export const SHOWN_SKILLS_BYTES = Math.floor(CHANGE_RECORD_BYTES / 2);
+/** What a shown skill's other keys take beside its fields' values (`skillMd`, `paths` and their flags). */
+const SHOWN_SKILL_KEYS_BYTES = 128;
+const utf8 = new TextEncoder();
 
 /** The fixed line for a Guard turned off (plan D9), by extension; another Guard gets the generic line. */
 const GUARD_OFF: Readonly<Record<string, string>> = {
@@ -333,8 +343,8 @@ export const mcpItems = (
   }
 };
 
-/** A skill's SKILL.md and paths as kept in `shown`: bounded so a record stays small. */
-export const shownSkill = (skill: {
+/** A skill as a preview finds it, before it is shown. */
+export interface FoundSkill {
   readonly name: string;
   readonly description: string;
   readonly path: string;
@@ -344,22 +354,50 @@ export const shownSkill = (skill: {
   readonly problems: ReadonlyArray<string>;
   readonly skillMd?: string;
   readonly paths?: ReadonlyArray<string>;
-}): ShownSkill => {
+}
+
+/**
+ * A skill as kept in `shown`, within `room` JSON bytes: its paths first, in at most half of what its other fields leave,
+ * then as much of its SKILL.md as the rest holds.
+ */
+export const shownSkill = (skill: FoundSkill, room: number): ShownSkill => {
   const text = skill.skillMd ?? "";
   const paths = skill.paths ?? [];
-  return {
+  const fields = {
     name: skill.name,
     description: skill.description,
     path: skill.path,
     files: skill.files,
     bytes: skill.bytes,
     digest: skill.digest,
-    skillMd: text.slice(0, SKILL_MD_SHOWN),
-    ...(text.length > SKILL_MD_SHOWN ? { skillMdCut: true as const } : {}),
-    paths: paths.slice(0, PATHS_SHOWN),
-    ...(paths.length > PATHS_SHOWN ? { morePaths: paths.length - PATHS_SHOWN } : {}),
+  };
+  let left =
+    room - utf8.encode(JSON.stringify({ ...fields, problems: skill.problems })).length - SHOWN_SKILL_KEYS_BYTES;
+  let kept = 0;
+  let pathsBytes = 0;
+  for (const path of paths) {
+    // The path's text, its quotes and the comma after it.
+    const bytes = jsonTextBytes(path) + 3;
+    if (pathsBytes + bytes > left / 2) break;
+    pathsBytes += bytes;
+    kept++;
+  }
+  left -= pathsBytes;
+  const shown = jsonTextPrefix(text, Math.max(0, left));
+  return {
+    ...fields,
+    skillMd: text.slice(0, shown),
+    ...(shown < text.length ? { skillMdCut: true as const } : {}),
+    paths: paths.slice(0, kept),
+    ...(kept < paths.length ? { morePaths: paths.length - kept } : {}),
     problems: skill.problems,
   };
+};
+
+/** `skills` as a skills change shows them, sharing `SHOWN_SKILLS_BYTES` evenly. */
+export const shownSkills = (skills: ReadonlyArray<FoundSkill>): Array<ShownSkill> => {
+  const room = Math.floor(SHOWN_SKILLS_BYTES / Math.max(1, skills.length));
+  return skills.map((skill) => shownSkill(skill, room));
 };
 
 /** One line of a line diff: kept (` `), removed (`-`) or added (`+`). */

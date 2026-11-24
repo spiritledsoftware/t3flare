@@ -1,7 +1,7 @@
 /**
  * A Legacy server's URL-mode elicitation: a page the server asks the owner to open during a call, whose clock stays
  * stopped until the owner has finished there; and `-32042` (URL elicitation required), which refuses the call before it
- * runs, so it is kept for the owner and sent again, at most ten times.
+ * runs, so it is kept for the owner and sent again, as often as the server asks.
  */
 // @effect-diagnostics asyncFunction:off preferEffectArray:off
 import * as Effect from "effect/Effect";
@@ -11,14 +11,7 @@ import { AGENT, completed, run, TARGET, testDeps } from "./core.fixture.ts";
 import { type FakeServer, fetchTo, GATED_TOOL, legacyStatefulServer, VISIT_TOOL } from "./fakes.fixture.ts";
 import type { CallToolResult } from "@modelcontextprotocol/client";
 import { connect, type McpConnection, type McpDeps } from "./index.ts";
-import {
-  MCP_INPUT_ROUNDS,
-  type McpCallContext,
-  type McpError,
-  type McpInputAnswer,
-  type McpInputRequest,
-  ServerError,
-} from "./types.ts";
+import { type McpCallContext, type McpError, type McpInputAnswer, type McpInputRequest, ServerError } from "./types.ts";
 
 const ASKING: McpCallContext = {
   ...AGENT,
@@ -332,8 +325,8 @@ describe("a Legacy server's -32042", () => {
     expect(failureOf(declined)).toEqual(ServerError.make({ message: "Authorization needed", code: -32042 }));
   });
 
-  it("stops at the eleventh -32042 with the server's error and says it kept asking", async () => {
-    const gate = { times: 1000, calls: 0 };
+  it("sends the call again as often as the server asks, with no count of rounds (SPI-1368)", async () => {
+    const gate = { times: 15, calls: 0 };
     const server = legacyStatefulServer({ moreTools: [GATED_TOOL], gate });
 
     const outcome = await gated(
@@ -343,16 +336,13 @@ describe("a Legacy server's -32042", () => {
         Effect.gen(function* () {
           let step = yield* connection.callTool({ tool: GATED_TOOL }, KEEPING);
 
-          // Each resend is answered `-32042` again, until the eleventh attempt.
-          for (let resends = 1; step.kind === "pages_required"; resends += 1) {
-            expect(resends).toBeLessThanOrEqual(MCP_INPUT_ROUNDS);
+          while (step.kind === "pages_required")
             step = yield* connection.resend(
               step.resend ?? null,
               { "page-1": { action: "accept" } },
               GATED_TOOL,
               KEEPING,
             );
-          }
 
           return step;
         }),
@@ -360,14 +350,9 @@ describe("a Legacy server's -32042", () => {
       "docs",
     );
 
-    expect(failureOf(outcome)).toEqual(
-      ServerError.make({
-        message: "Authorization needed. docs kept asking for the same page; stopped after 10 tries",
-        code: -32042,
-      }),
-    );
-    // The call was sent once, and again after each of the ten Dones: eleven sends, never a twelfth.
-    expect(gate.calls).toBe(11);
+    expect(failureOf(outcome)).toBeUndefined();
+    // The call was sent once, and again after each of the fifteen Dones, past the ten that once ended it.
+    expect(gate.calls).toBe(16);
   });
 });
 

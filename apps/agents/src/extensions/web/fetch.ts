@@ -4,6 +4,7 @@
 import { defineTool, type ToolRegistration } from "@earendil-works/pi-durable";
 import { int, num, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
 import { FETCH_CONVERT_MAX_KIB } from "@t3flare/harness-registry";
+import { jsonTextBytes, jsonTextPrefix } from "@t3flare/session-protocol";
 
 import { convertContent, convertsContent, type WebFetchFormat } from "./content.ts";
 import {
@@ -17,10 +18,13 @@ import {
 } from "./net.ts";
 import { DEFAULT_WEB_LIMITS, type WebLimits } from "./limits.ts";
 import { DEFAULT_TOOL_OUTPUT_LIMITS, outputSize, type ToolOutputLimits } from "../toolOutput.ts";
-import { boundStructuredText, fitWindowedOutput, selectLines } from "./output.ts";
+import { boundStructuredText, detailsRoomBytes, fitWindowedOutput, selectLines } from "./output.ts";
 
 /** The largest body converted from HTML or JSON (the registry's `FETCH_CONVERT_MAX_KIB` says why). */
 const CONVERT_MAX_BYTES = FETCH_CONVERT_MAX_KIB * 1024;
+
+/** What `details`' `snippet` adds beside its text: its key, quotes, colon and comma. */
+const SNIPPET_KEY_BYTES = 16;
 
 /** The first line of an HTML or JSON body too large to convert, returned as it came. */
 export const UNCONVERTED_NOTE = `[The response is over ${FETCH_CONVERT_MAX_KIB / 1024} MiB, so it is returned as it came, without conversion.]`;
@@ -105,12 +109,14 @@ const fetchText = async (
   url: string,
   format: WebFetchFormat,
   maxBytes: number,
+  maxRedirects: number,
   signal: AbortSignal,
 ): Promise<Fetched> => {
   const send = (userAgent: string) =>
     guardedFetch(
       transport,
       { url, headers: { accept: acceptHeader(format), "accept-language": "en-US,en;q=0.9", "user-agent": userAgent } },
+      maxRedirects,
       signal,
     );
   let reply = await send(BROWSER_USER_AGENT);
@@ -148,16 +154,22 @@ const fetchText = async (
   return { content, contentType, finalUrl };
 };
 
-/** The page's first Markdown heading, for t3's item (never the model's text). */
-const titleOf = (content: string): string | undefined => {
-  const heading = /^#{1,2} (.+)$/m.exec(content.slice(0, 4_000))?.[1]?.trim();
-  return heading === undefined || heading === "" ? undefined : heading.slice(0, 200);
+/**
+ * The page's first Markdown heading, for t3's item (never the model's text), cut at `characters` (the
+ * `fetchTitleCharacters` setting): it is kept in the tool result's `details`, so a heading line of megabytes stays out.
+ */
+const titleOf = (content: string, characters: number): string | undefined => {
+  const heading = /^#{1,2} (.+)$/m.exec(content)?.[1]?.trim();
+  return heading === undefined || heading === "" ? undefined : heading.slice(0, characters);
 };
 
 /** `web_fetch` over `transport`, within `limits`, its text within `output` (the Tool output limit). */
 export const webFetchTool = (
   transport: WebTransport,
-  limits: Pick<WebLimits, "fetchTimeoutSeconds" | "fetchMaxTimeoutSeconds" | "fetchMaxKiB"> = DEFAULT_WEB_LIMITS,
+  limits: Pick<
+    WebLimits,
+    "fetchTimeoutSeconds" | "fetchMaxTimeoutSeconds" | "fetchMaxKiB" | "fetchRedirects" | "fetchTitleCharacters"
+  > = DEFAULT_WEB_LIMITS,
   output: ToolOutputLimits = DEFAULT_TOOL_OUTPUT_LIMITS,
 ): ToolRegistration => {
   // The default is always allowed, so an Owner's default above the per-call maximum is never clamped.
@@ -199,7 +211,7 @@ export const webFetchTool = (
       let fetched: Fetched;
       try {
         fetched = await withDeadline(seconds, context.abortSignal, (signal) =>
-          fetchText(transport, args.url, format, limits.fetchMaxKiB * 1024, signal),
+          fetchText(transport, args.url, format, limits.fetchMaxKiB * 1024, limits.fetchRedirects, signal),
         );
       } catch (error) {
         throw new Error(
@@ -223,7 +235,16 @@ export const webFetchTool = (
         : structured.truncated || selected.lastLine >= totalLines
           ? { total_lines: totalLines }
           : { total_lines: totalLines, next_offset: selected.lastLine + 1 };
-      const title = titleOf(fetched.content);
+      const title = titleOf(fetched.content, limits.fetchTitleCharacters);
+      const shown = {
+        url: fetched.finalUrl,
+        contentType: fetched.contentType,
+        format,
+        ...(title === undefined ? {} : { title }),
+      };
+      // The snippet is the model's text, cut only where the result's row has no more room (`detailsRoomBytes`).
+      const snippetRoom = detailsRoomBytes(output.maxBytes) - jsonTextBytes(JSON.stringify(shown)) - SNIPPET_KEY_BYTES;
+      const snippet = fitted.content.slice(0, jsonTextPrefix(fitted.content, Math.max(0, snippetRoom)));
       return {
         output: [{ type: "text" as const, text: fitted.content }],
         structuredOutput: {
@@ -235,14 +256,8 @@ export const webFetchTool = (
           structured_truncated: structured.truncated,
           ...paging,
         },
-        // What t3's web item shows (the differ): the final URL, its title and the start of the page.
-        details: {
-          url: fetched.finalUrl,
-          contentType: fetched.contentType,
-          format,
-          ...(title === undefined ? {} : { title }),
-          snippet: selected.text.slice(0, 300),
-        },
+        // What t3's web item shows (the differ): the final URL, its title and the page as the model reads it.
+        details: { ...shown, snippet },
       };
     },
   });

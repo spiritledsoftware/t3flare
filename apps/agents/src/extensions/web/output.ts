@@ -5,7 +5,12 @@
 // the continuation note names the `offset` that reads on (the page is fetched again for it), and a result that cannot be
 // paged says how to ask for less. The limits are the tools' own output limits (the Tool output setting, SPI-1362), which
 // the tools also name as their `outputLimits`, so the Harness never cuts these again.
-import { jsonTextPrefix } from "@t3flare/session-protocol";
+import {
+  JSON_ESCAPE_MAX_BYTES,
+  jsonTextPrefix,
+  SESSION_ROW_BYTES,
+  SESSION_ROW_ENVELOPE_BYTES,
+} from "@t3flare/session-protocol";
 import * as Arr from "effect/Array";
 
 import { DEFAULT_TOOL_OUTPUT_LIMITS, type ToolOutputLimits } from "../toolOutput.ts";
@@ -17,6 +22,16 @@ import { DEFAULT_TOOL_OUTPUT_LIMITS, type ToolOutputLimits } from "../toolOutput
  * under the rest; `web_search` sizes its stored result lists from what it leaves.
  */
 export const STRUCTURED_MAX_BYTES = 1024 * 1024;
+
+/**
+ * The JSON bytes a web tool's result row leaves for its `details` (and `web_search`'s program copy of its results), for
+ * a model shown `maxBytes` of it. A named constraint: a result is kept as one Session row (`SESSION_ROW_BYTES` less its
+ * record), which also holds the model's text (`maxBytes` of UTF-8, the Tool output limit, at most six JSON bytes each)
+ * and a program's copy of it (`STRUCTURED_MAX_BYTES` of JSON). The Tool output limit's maximum (`MAX_TOOL_OUTPUT_KIB`)
+ * leaves half the row for them.
+ */
+export const detailsRoomBytes = (maxBytes: number): number =>
+  SESSION_ROW_BYTES - SESSION_ROW_ENVELOPE_BYTES - JSON_ESCAPE_MAX_BYTES * maxBytes - STRUCTURED_MAX_BYTES;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();

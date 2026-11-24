@@ -21,18 +21,12 @@ import {
 import { int, obj, opt, str } from "@earendil-works/pi-schema";
 
 import { FETCH_CONVERT_MAX_KIB } from "@t3flare/harness-registry";
-import {
-  JSON_ESCAPE_MAX_BYTES,
-  jsonTextBytes,
-  jsonTextPrefix,
-  SESSION_ROW_BYTES,
-  SESSION_ROW_ENVELOPE_BYTES,
-} from "@t3flare/session-protocol";
+import { jsonTextBytes, jsonTextPrefix } from "@t3flare/session-protocol";
 
 import { DEFAULT_TOOL_OUTPUT_LIMITS, outputSize, type ToolOutputLimits } from "../toolOutput.ts";
 import { DEFAULT_WEB_LIMITS, type WebLimits } from "./limits.ts";
 import { readBoundedBody, statusCause, type WebTransport, WebToolError, withDeadline } from "./net.ts";
-import { fitOutput, STRUCTURED_MAX_BYTES } from "./output.ts";
+import { detailsRoomBytes, fitOutput, STRUCTURED_MAX_BYTES } from "./output.ts";
 import { limitSearchText, providerTextSanitizer, type Sanitize } from "./shaping.ts";
 
 /**
@@ -46,13 +40,10 @@ export const ANSWER_MAX_BYTES = FETCH_CONVERT_MAX_KIB * 1024;
 
 /**
  * The most JSON bytes the two stored copies of a search's result list take together, before the query's, for a model
- * shown `maxBytes` of a result. A named constraint: a result is kept as one Session row (`SESSION_ROW_BYTES` less its
- * record), which also holds the model's text (`maxBytes` of UTF-8, the Tool output limit, at most six JSON bytes each),
- * a program's copy of it (`STRUCTURED_MAX_BYTES` of JSON) and `details`' query; the lists are the program's and
- * `details`' (for t3's web item). The Tool output limit's maximum (`MAX_TOOL_OUTPUT_KIB`) leaves half the row for them.
+ * shown `maxBytes` of a result: what the result's row leaves (`detailsRoomBytes`, a named constraint). The lists are the
+ * program's and `details`' (for t3's web item).
  */
-export const resultsBytes = (maxBytes: number): number =>
-  SESSION_ROW_BYTES - SESSION_ROW_ENVELOPE_BYTES - JSON_ESCAPE_MAX_BYTES * maxBytes - STRUCTURED_MAX_BYTES;
+export const resultsBytes = (maxBytes: number): number => detailsRoomBytes(maxBytes);
 
 const encoder = new TextEncoder();
 const jsonBytes = (value: unknown): number => encoder.encode(JSON.stringify(value)).length;
@@ -65,7 +56,7 @@ const fitResults = (results: ReadonlyArray<SearchResult>, room: number): Readonl
   let bytes = 4;
   let kept = 0;
   for (const page of results) {
-    bytes += jsonBytes(detailOf(page)) + jsonBytes(programOf(page)) + 2;
+    bytes += jsonBytes(page) + jsonBytes(programOf(page)) + 2;
     if (bytes > room) break;
     kept++;
   }
@@ -74,12 +65,6 @@ const fitResults = (results: ReadonlyArray<SearchResult>, room: number): Readonl
 
 /** A result as a program gets it: no snippet, which the content carries. */
 const programOf = ({ snippet: _snippet, ...page }: SearchResult) => page;
-
-/** A result as t3's web item shows it (`details`): its snippet cut to a line. */
-const detailOf = (page: SearchResult) => ({
-  ...page,
-  ...(page.snippet === undefined ? {} : { snippet: page.snippet.slice(0, 300) }),
-});
 
 const NO_SEARCH_RESULTS = "No search results found. Please try a different query.";
 
@@ -374,11 +359,11 @@ export const webSearchTool = (
           truncated: structured.length < content.length || results.length < asked.length,
           results: results.map(programOf),
         },
-        // What t3's web item shows (the differ): the query and each page found.
+        // What t3's web item shows (the differ): the query and each page found, its snippet whole.
         details: {
           provider: `model-endpoint:${target.slug}`,
           query: args.query,
-          results: results.map(detailOf),
+          results: results.map((page) => ({ ...page })),
         },
         ...(usage === undefined ? {} : { usage }),
       };

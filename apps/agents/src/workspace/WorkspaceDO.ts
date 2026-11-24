@@ -826,6 +826,9 @@ export class WorkspaceDO extends ContainerHost {
     }).catch(() => undefined);
     if (answer === undefined) return;
     this.#lastScan = started;
+    // A file whose read failed part way: its hits so far are in `hits`; the rest of it went unscanned.
+    if (answer.errors !== undefined)
+      console.warn(JSON.stringify({ t3flare: "leakscan-read-errors", errors: answer.errors }));
     if (answer.hits.length > 0) await this.#onLeak(answer.hits);
   }
 
