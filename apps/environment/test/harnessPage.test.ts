@@ -330,7 +330,7 @@ describe("harness page", () => {
     };
     expect(terminals(resolveHarness(hidden.harness))).toContain(
       // Its settings are all Advanced (ADR-0049 §6), which follow its tools: the row says where they went.
-      "Every tool is hidden, so the extension is not installed; its Advanced settings show once a tool is offered.",
+      "Every tool is hidden, so the extension is off: its Advanced settings show once a tool is offered.",
     );
     expect(terminals(resolveHarness(EMPTY_HARNESS))).not.toContain("Every tool is hidden");
     // SPI-1317: the count is the Environment setting's, not a fixed 8.
@@ -1462,6 +1462,20 @@ describe("the page's disclosure", () => {
     const row = rowOf(renderPage(fixturePage({ resolved: resolveHarness(hidden.harness) })));
     expect(row).not.toContain("data-setting=");
     expect(row).not.toContain("data-advanced");
+    // A row that still shows a setting says both, once, in a note across the row.
+    const off = applyToolsChange(EMPTY_HARNESS, {
+      tools: { context_notes: "hidden", context_history: "hidden", context_rollover: "hidden" },
+    });
+    if (!off.ok) throw new Error(off.error);
+    const page = renderPage(fixturePage({ resolved: resolveHarness(off.harness) }));
+    const context = page.slice(
+      page.indexOf('data-extension="context"'),
+      page.indexOf("</form>", page.indexOf('data-extension="context"')),
+    );
+    expect(context).toContain(
+      '<p class="desc off-note">Every tool is hidden, so the extension is off: these settings do nothing, and its Advanced settings stay hidden, until a tool is offered.</p>',
+    );
+    expect(context).toContain('data-setting="rolloverOnCompaction"');
   });
 
   it("labels the Settings server's limits as its Advanced", () => {

@@ -204,6 +204,8 @@ details.advanced[open]>summary{border-bottom:1px solid var(--row-border)}
 .row-extra .advanced-body{padding:.25rem 0 .5rem}
 .row-extra>details.advanced~.save{grid-column:1/-1;justify-content:flex-end}
 .advanced-body>.save{justify-content:flex-end}
+/* An off tools row's note spans the row, so the settings after it keep their places. */
+.row-extra>.off-note{grid-column:1/-1}
 .empty-tools{padding:.75rem 1rem;font-size:.75rem;color:var(--muted-fg)}
 .server-limits{display:grid;gap:1rem;padding:.25rem 1rem 1rem}
 .server-limits>.desc{margin:0}

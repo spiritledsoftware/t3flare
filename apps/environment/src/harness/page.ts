@@ -380,7 +380,13 @@ const toolsRow = (resolved: ResolvedHarness, tools: ResolvedTools, entry: Extens
   const offNote =
     on || shown.length + fields.advanced.length === 0
       ? ""
-      : `<p class="desc">Every tool is hidden, so the extension is not installed${shown.length === 0 ? "" : " and these settings do nothing until a tool is offered"}${fields.advanced.length === 0 ? "" : "; its Advanced settings show once a tool is offered"}.</p>`;
+      : `<p class="desc off-note">Every tool is hidden, so the extension is off: ${
+          shown.length === 0
+            ? "its Advanced settings show once a tool is offered."
+            : fields.advanced.length === 0
+              ? "these settings do nothing until a tool is offered."
+              : "these settings do nothing, and its Advanced settings stay hidden, until a tool is offered."
+        }</p>`;
   const save = `${offNote}${shown.length + advanced.length === 0 ? "" : extensionSettings(entry, shown, advanced)}`;
   return `<form class="row" data-extension="${escapeHtml(entry.id)}" aria-labelledby="${titleId}" novalidate><div><div class="row-title"><h3 id="${titleId}">${escapeHtml(entry.title)}</h3><span class="ident">${escapeHtml(entry.id)}</span></div>
 <p class="desc">${escapeHtml(entry.description)}</p></div><div class="row-control">${on ? `<span class="pill pill-ok">On</span>` : `<span class="pill" title="Every tool hidden">Off</span>`}</div>
