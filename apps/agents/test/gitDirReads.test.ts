@@ -14,6 +14,7 @@ import {
   type PrimeExec,
   primeArgvs,
   primeReads,
+  primeReadsFor,
   primeScript,
   UPSTREAM_FORMAT,
 } from "../src/workspace/gitDirReads.ts";
@@ -129,7 +130,7 @@ describe("priming", () => {
   it("answers each allow-listed read as git does", async () => {
     const repo = primedRepo(1, 0);
     try {
-      const answers = await primeReads(repo.exec, () => true);
+      const answers = await primeReads(repo.exec, () => true, Number.POSITIVE_INFINITY);
       expect(answers.length).toBeGreaterThanOrEqual(8);
       expect(answers.map((answer) => answer.argv)).toEqual(expect.arrayContaining(FIXED_READS));
       for (const answer of answers) {
@@ -147,7 +148,7 @@ describe("priming", () => {
   it("with more refs than its output holds, still primes the fixed reads and every local branch, first", async () => {
     const repo = primedRepo(3, 1500);
     try {
-      const answers = await primeReads(repo.exec, () => true, 8 * 1024);
+      const answers = await primeReads(repo.exec, () => true, Number.POSITIVE_INFINITY, 8 * 1024);
       const argvs = answers.map((answer) => answer.argv);
       expect(argvs.slice(0, FIXED_READS.length)).toEqual(FIXED_READS);
       for (const branch of ["main", "feature-0", "feature-1", "feature-2"])
@@ -178,5 +179,13 @@ describe("priming", () => {
     expect(argvs.filter((argv) => argv[1] === "--verify")).toHaveLength(2000);
     // Past the 128 KiB one argument holds: the script goes on stdin.
     expect(primeScript(argvs).length).toBeGreaterThan(128 * 1024);
+  });
+
+  it("primes at most half of gitReadsKept, the most needed first", () => {
+    expect(primeReadsFor(500)).toBe(250);
+    const refs = ["refs/heads/main", ...Array.from({ length: 50 }, (_, at) => `refs/remotes/origin/r${at}`)];
+    const argvs = primeArgvs(refs, primeReadsFor(20));
+    expect(argvs).toHaveLength(10);
+    expect(argvs[5]).toEqual(["for-each-ref", UPSTREAM_FORMAT, "refs/heads/main"]);
   });
 });

@@ -137,7 +137,14 @@ import {
 import { containerPatterns, ContainerOnlyBackend, containerScript, submodulePaths } from "./containerOnly.ts";
 import { isomorphicFs } from "./isoFs.ts";
 import { CREDENTIAL_HELPER_VERSION } from "./credentialHelper.ts";
-import { allowedRead, passiveDecision, primeReads, withoutOwnGitDir } from "./gitDirReads.ts";
+import {
+  allowedRead,
+  keepPrimed,
+  passiveDecision,
+  primeReads,
+  primeReadsFor,
+  withoutOwnGitDir,
+} from "./gitDirReads.ts";
 import { leakFlag } from "./leakFlag.ts";
 import { type StaleOutcome, staleRead } from "./staleReads.ts";
 import { keepsAnswer, readCache, readKey } from "./readCache.ts";
@@ -865,9 +872,14 @@ export class WorkspaceDO extends ContainerHost {
         hits: hits.map((hit) => ({ name: hit.name, path: hit.path, quarantined: hit.quarantined ?? null })),
       }),
     );
-    // The processes are signalled first: a flag that failed its write must not leave them running.
-    for (const key of this.#processes.keys()) await this.#processes.signal(key).catch(() => undefined);
-    this.ctx.storage.kv.put(LEAK_FLAG_KEY, leakFlag(hits, Date.now()));
+    // Every process is signalled at once, before the flag is written, and the flag does not wait for them: a kill that
+    // hangs neither holds back the others nor the flag, and a flag that failed its write leaves none running.
+    const signalled = Promise.allSettled([...this.#processes.keys()].map((key) => this.#processes.signal(key)));
+    try {
+      this.ctx.storage.kv.put(LEAK_FLAG_KEY, leakFlag(hits, Date.now()));
+    } finally {
+      await signalled;
+    }
   }
 
   /**
@@ -1725,7 +1737,7 @@ export class WorkspaceDO extends ContainerHost {
     // Marked primed only once it was (SPI-1364): a prime that failed (an answer too long to give, say) runs again.
     this.#primingRev = before;
     try {
-      await this.#primeAt();
+      await this.#primeAt(before);
       this.#primedRev = before;
     } finally {
       this.#primingRev = undefined;
@@ -1735,19 +1747,14 @@ export class WorkspaceDO extends ContainerHost {
   /** The revision a prime is running for, so a second waits for the next change instead of running beside it. */
   #primingRev: number | undefined;
 
-  async #primeAt(): Promise<void> {
+  /** Primes at `rev`, the `.git` revision read before the prime's commands ran, as `#git` keeps a read's answer. */
+  async #primeAt(rev: number): Promise<void> {
     const answers = await primeReads(
       (input) => this.exec({ ...input, cwd: REPO_ROOT, passive: true, wholeOutput: true }),
       () => this.containerRunning(),
+      primeReadsFor(this.#keptSettings().gitReadsKept),
     );
-    const rev = this.#reads.revision("git-dir");
-    for (const answer of answers) {
-      this.#reads.put(await readKey({ argv: answer.argv, cwd: REPO_ROOT }), rev, {
-        exitCode: answer.exitCode,
-        stdout: answer.stdout,
-        stderr: "",
-      });
-    }
+    await keepPrimed((key, at, answer) => this.#reads.put(key, at, answer), answers, rev);
     console.log(JSON.stringify({ t3flare: "git-reads-primed", reads: answers.length }));
   }
 

@@ -34,3 +34,27 @@ describe("readCache.put", () => {
     expect(await probe().cacheRead(3_000_000, "€")).toEqual({ threw: null, cached: false });
   });
 });
+
+describe("a prime into the read cache (SPI-1360)", () => {
+  it("keeps its fixed reads and local branches, and leaves t3's own reads half the cache, past gitReadsKept refs", async () => {
+    const kept = 20;
+    const refs = [
+      "refs/heads/main",
+      "refs/heads/feature",
+      ...Array.from({ length: 1500 }, (_, at) => `refs/remotes/origin/r${at}`),
+    ];
+    const { primed, othersLeft } = await probe().primeKeeps(kept, kept, refs);
+    expect(primed).toHaveLength(kept / 2);
+    expect(primed.every(([, left]) => left)).toBe(true);
+    expect(primed.map(([read]) => read).slice(0, 7)).toEqual([
+      "rev-parse --git-common-dir",
+      "remote",
+      "config --get checkout.workers",
+      "rev-parse --git-path index --git-path objects",
+      "count-objects -v",
+      expect.stringContaining("refs/heads/main"),
+      expect.stringContaining("refs/heads/feature"),
+    ]);
+    expect(othersLeft).toBe(kept / 2);
+  });
+});

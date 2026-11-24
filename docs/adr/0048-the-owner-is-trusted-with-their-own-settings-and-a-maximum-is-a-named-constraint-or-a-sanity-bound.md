@@ -112,8 +112,11 @@ Where the text goes into something whose size is really bounded, it is cut at th
   remote refs, which kept its script under the 128 KiB Linux allows one argument. The script now goes on stdin, with no
   count. Its ref listing and its answers run whole (computer otherwise keeps their last 64 KiB, dropping the head), each
   cut at `PRIME_OUTPUT_BYTES`, a sanity bound under the Workspace DO's 128 MB isolate, with the fixed reads first, then
-  the local branches, then the remote refs: a repo with more refs than that holds leaves only its last remote refs
-  unprimed. A clone or a worktree's checkout no longer waits for the prime.
+  the local branches, then the remote refs, so a cut leaves the last refs unprimed. The count is bounded too, by
+  where the answers are kept: the read cache keeps `gitReadsKept` answers and deletes the least recently used past it,
+  so a prime keeps at most half of that (`primeReadsFor`), leaving the rest to t3's own reads, and puts its most needed
+  answers last. Its answers are kept at the `.git` revision read before it ran. A clone or a worktree's checkout no
+  longer waits for the prime.
 
 §1's example, the setup output's 256 KiB, becomes a derived maximum: `MAX_SETUP_OUTPUT_KIB` is a third of
 `DO_VALUE_BYTES` in KiB. A report keeps its output as UTF-8 decoded to a string, which a Durable Object value stores in

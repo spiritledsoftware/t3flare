@@ -5,10 +5,12 @@ import { DurableObject } from "cloudflare:workers";
 
 import { ContainerBudget } from "../src/budget.ts";
 import { SKILLS_MOUNT, type SkillSet } from "@t3flare/skills";
+import { REPO_ROOT } from "@t3flare/workspace-client";
 
 import { repoFileSizes } from "../src/workspace/changeLog.ts";
 import { fileOps } from "../src/workspace/files.ts";
-import { readCache } from "../src/workspace/readCache.ts";
+import { keepPrimed, primeArgvs, primeReadsFor } from "../src/workspace/gitDirReads.ts";
+import { readCache, readKey } from "../src/workspace/readCache.ts";
 import { mountWithFallback, skillSetMount, skillSetStore } from "../src/workspace/skillSet.ts";
 
 export { ContainerBudget };
@@ -118,6 +120,34 @@ export class VfsProbe extends DurableObject {
    * Keeps a git read whose stdout is `char` repeated `count` times in the read cache over this object's SQLite, as the
    * Workspace DO's `git()` does after a passive read: whether the put threw, and whether the same read then hits.
    */
+  /**
+   * SPI-1360: `others` of t3's own reads kept, then a prime of `refs` into a read cache that keeps `kept` answers. Which
+   * primed reads and how many of t3's survive.
+   */
+  async primeKeeps(
+    kept: number,
+    others: number,
+    refs: ReadonlyArray<string>,
+  ): Promise<{ readonly primed: ReadonlyArray<readonly [string, boolean]>; readonly othersLeft: number }> {
+    const cache = readCache(this.ctx.storage.sql, () => kept);
+    const answer = { exitCode: 0, stdout: "", stderr: "" };
+    for (let at = 0; at < others; at++) cache.put(`t3-read-${at}`, 1, answer);
+    // t3's reads were made before the prime: an older `used_at`.
+    await scheduler.wait(5);
+    const argvs = primeArgvs(refs, primeReadsFor(kept));
+    await keepPrimed(
+      (key, rev, value) => cache.put(key, rev, value),
+      argvs.map((argv) => ({ argv, exitCode: 0, stdout: argv.join(" ") })),
+      1,
+    );
+    const primed: Array<readonly [string, boolean]> = [];
+    for (const argv of argvs)
+      primed.push([argv.join(" "), cache.last(await readKey({ argv, cwd: REPO_ROOT })) !== undefined]);
+    let othersLeft = 0;
+    for (let at = 0; at < others; at++) if (cache.last(`t3-read-${at}`) !== undefined) othersLeft++;
+    return { primed, othersLeft };
+  }
+
   async cacheRead(count: number, char = "x"): Promise<{ readonly threw: string | null; readonly cached: boolean }> {
     const cache = readCache(this.ctx.storage.sql, () => 500);
     const answer = { exitCode: 0, stdout: char.repeat(count), stderr: "" };
