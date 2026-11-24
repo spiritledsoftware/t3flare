@@ -1229,7 +1229,7 @@ export const ENVIRONMENT_SETTINGS = {
   },
   mcpResultKiB: {
     title: "MCP result size (KiB)",
-    description: `The most of one MCP tool result t3flare takes, in KiB of UTF-8. A larger streamed result is refused whole, since it cannot be read in part; a larger inline one has its text cut to this, and its structured content dropped. The Environment holds a result whole while it reads it, beside t3, so a larger size uses more of its memory. At most ${MAX_MCP_RESULT_KIB} (${MAX_MCP_RESULT_KIB / 1024} MiB). Applies at the next call.`,
+    description: `The most of one MCP tool result t3flare takes, in KiB of UTF-8. A larger streamed result is refused whole, since it cannot be read in part; a larger inline one has its text cut to this, and its structured content dropped. It bounds an MCP App's page too, in bytes read and in characters: a larger App is refused and not shown. The Environment holds a result whole while it reads it, beside t3, so a larger size uses more of its memory. At most ${MAX_MCP_RESULT_KIB} (${MAX_MCP_RESULT_KIB / 1024} MiB). Applies at the next call and App read.`,
     // A provisional bound (`MAX_MCP_RESULT_KIB`): the Environment DO's isolate memory, by an estimate.
     schema: { type: "integer", minimum: 1, maximum: MAX_MCP_RESULT_KIB, default: DEFAULT_MCP_RESULT_KIB },
     tier: "down-free",

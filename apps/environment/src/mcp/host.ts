@@ -104,7 +104,8 @@ export interface Inventory {
   readonly error?: string;
   /** The definitions as the server gave them, by upstream name (what a call sends back as `tool`). */
   readonly definitions: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
-  readonly refused: ReadonlyArray<{ readonly tool: string; readonly reason: string }>;
+  /** The tools refused, by name; a cut list ends with an entry whose `more` counts the rest (`fitRefused`). */
+  readonly refused: ReadonlyArray<RefusedTool>;
   readonly instructions?: string;
 }
 
@@ -199,6 +200,17 @@ export interface McpHostDeps {
     readonly signal?: AbortSignal;
   }) => Promise<McpCallAnswer>;
 }
+
+/** A tool the inventory refused, or (`more`) the closing entry of a cut list, counting the tools past it. */
+export interface RefusedTool {
+  readonly tool: string;
+  readonly reason: string;
+  readonly more?: number;
+}
+
+/** How many tools `refused` names, the ones past a cut included. */
+export const refusedCount = (refused: ReadonlyArray<RefusedTool>): number =>
+  refused.reduce((count, entry) => count + (entry.more ?? 1), 0);
 
 /** The MCP servers' limits a target carries (SPI-1363). */
 export interface McpServerLimits {
@@ -387,7 +399,7 @@ export class McpHost {
         t3flare: "mcp-listed",
         server: name,
         tools: Object.keys(definitions).length,
-        refused: refused.length,
+        refused: refusedCount(next.refused),
       }),
     );
     return next;
@@ -870,6 +882,7 @@ const fitRefused = (
         {
           tool: "…",
           reason: `and ${refused.length - kept.length} more tools refused, past what one server's inventory holds`,
+          more: refused.length - kept.length,
         },
       ];
 };

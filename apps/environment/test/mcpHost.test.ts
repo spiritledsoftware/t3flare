@@ -13,7 +13,7 @@ import {
 } from "@t3flare/harness-registry";
 import { describe, expect, it } from "vitest";
 
-import { McpHost, type McpServerLimits, type McpEngineBinding } from "../src/mcp/host.ts";
+import { McpHost, refusedCount, type McpServerLimits, type McpEngineBinding } from "../src/mcp/host.ts";
 
 const memory = () => {
   const map = new Map<string, unknown>();
@@ -504,9 +504,15 @@ describe("McpHost and MCP apps (G11, review L10)", () => {
     const listed = await run.host.list("commissary");
     expect(storedBytes(listed)).toBeLessThanOrEqual(DO_VALUE_BYTES);
     expect(listed.refused.length).toBeLessThan(6000);
-    expect(listed.refused.at(-1)).toEqual({ tool: "…", reason: expect.stringMatching(/^and \d+ more tools refused/) });
+    expect(listed.refused.at(-1)).toEqual({
+      tool: "…",
+      reason: expect.stringMatching(/^and \d+ more tools refused/),
+      more: expect.any(Number),
+    });
     for (const entry of listed.refused) expect(entry.tool.length).toBeLessThanOrEqual(301);
     expect(listed.refused[0]?.reason).toContain("MiB of tool definitions");
+    // The count says every tool refused, the ones past the cut included, not the entries.
+    expect(refusedCount(listed.refused)).toBe(6003 - Object.keys(listed.definitions).length);
   });
 
   it("cuts an inline result's text to the MCP result size in bytes of UTF-8, and drops structured content past it (SPI-1359)", async () => {

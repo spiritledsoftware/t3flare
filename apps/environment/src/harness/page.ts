@@ -659,7 +659,8 @@ export interface McpRow {
   readonly overrides?: Readonly<Record<string, string>>;
   /** The owner's per-tool Exposure, by upstream name; a tool without one follows its server's. */
   readonly toolExposure?: Readonly<Record<string, string>>;
-  readonly refused: ReadonlyArray<{ readonly tool: string; readonly reason: string }>;
+  /** A cut list ends with an entry whose `more` counts the tools past it. */
+  readonly refused: ReadonlyArray<{ readonly tool: string; readonly reason: string; readonly more?: number }>;
 }
 
 const action = (
@@ -878,7 +879,11 @@ const serverCard = (row: McpRow, owner?: OwnerClientsView): string => {
   const refused =
     row.refused.length === 0
       ? ""
-      : `<div class="callout callout-warn" role="note">${icon("warn")}<div><strong>${plural(row.refused.length, "tool", "tools")} refused</strong><ul>${row.refused
+      : `<div class="callout callout-warn" role="note">${icon("warn")}<div><strong>${plural(
+          row.refused.reduce((count, entry) => count + (entry.more ?? 1), 0),
+          "tool",
+          "tools",
+        )} refused</strong><ul>${row.refused
           .map((r) => `<li><code>${escapeHtml(r.tool)}</code>: ${escapeHtml(r.reason)}</li>`)
           .join("")}</ul></div></div>`;
   const oauth =

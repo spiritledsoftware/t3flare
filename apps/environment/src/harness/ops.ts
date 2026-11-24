@@ -34,7 +34,7 @@ import {
 } from "@t3flare/harness-registry";
 
 import type { ValueSealer } from "../credentials/sealed.ts";
-import type { McpHost } from "../mcp/host.ts";
+import { type McpHost, refusedCount } from "../mcp/host.ts";
 import { SKILLS_WRITE_ROUTES, skillsChange, type SkillsAnswer, type SkillsApiDeps } from "../skills/api.ts";
 import type { HarnessOAuth } from "./oauth.ts";
 import type { HarnessSecrets, SecretMark } from "./secrets.ts";
@@ -274,7 +274,7 @@ export const testMcpServer = async (
     status: inventory.status,
     error: inventory.error ?? null,
     tools: Object.keys(inventory.definitions).length,
-    refused: inventory.refused.length,
+    refused: refusedCount(inventory.refused),
     ms: deps.now() - started,
   };
 };
