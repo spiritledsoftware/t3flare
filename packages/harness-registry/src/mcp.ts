@@ -147,8 +147,9 @@ export const defaultSettingsServer = (): McpServerSetting => ({
 });
 
 /**
- * The most Open changes per caller may be set to: a sanity bound (ADR-0048 §1). Every access to the changes table reads
- * every open row, and each is small and expires, so nothing near it costs anything that matters.
+ * The most Open changes per caller may be set to: a sanity bound (ADR-0048 §1). A caller's cap reads its own open rows,
+ * the changes table's other reads filter in SQL (SPI-1393), and each open row expires, so nothing near it costs
+ * anything that matters.
  */
 export const MAX_OPEN_PER_CALLER = 1000;
 

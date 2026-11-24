@@ -362,6 +362,10 @@ export const settingsChanges = (
     return Math.max(answerMs(), Number(row?.longest ?? 0));
   };
   const keptMs = (): number => closedKeptMs(longestWait(), limits());
+  // A record's own fields, filtered in SQL so a read takes whole records (each up to `CHANGE_RECORD_BYTES`) only where it
+  // needs them (SPI-1393). `json_valid` first: `json_extract` throws on a malformed row, which `parse` skips.
+  const asked = `json_valid(record) AND json_extract(record, '$.tier') = 'asked'`;
+  const deadline = `COALESCE(json_extract(record, '$.expiresAt'), created_at)`;
   /** Creates the table once, closes what has expired, and prunes what closed over `keptMs` ago. */
   const prepare = () => {
     if (!ready) {
@@ -377,9 +381,13 @@ export const settingsChanges = (
       ready = true;
     }
     const at = now();
-    // Few: each caller's open changes are bounded by its own limits (open per thread and per Owner client, asked per
-    // hour), and an open row lasts until it expires, so reading them all is cheap.
-    for (const record of rows(`state IN ('open', 'applying')`)) {
+    // Only the rows due to close are read whole: an open one past its expiry, an applying one past its grace too.
+    for (const record of rows(
+      `json_valid(record) AND ((state = 'open' AND ${deadline} <= ?) OR (state = 'applying' AND ${deadline} + ? <= ?))`,
+      at,
+      APPLYING_GRACE_MS,
+      at,
+    )) {
       const expiresAt = record.expiresAt ?? record.createdAt;
       const closed: ChangeRecord | undefined =
         record.state === "open" && expiresAt <= at
@@ -416,7 +424,14 @@ export const settingsChanges = (
     openedSince: (key, since) => {
       prepare();
       // Closed rows are kept an hour at least (`closedKeptMs`), as long as any window this is asked about.
-      return rows(`caller_key = ? AND created_at >= ?`, key, since).filter((record) => record.tier === "asked").length;
+      const row = sql
+        .exec<{ count: number }>(
+          `SELECT COUNT(*) AS count FROM ${CHANGES_TABLE} WHERE caller_key = ? AND created_at >= ? AND ${asked}`,
+          key,
+          since,
+        )
+        .toArray()[0];
+      return Number(row?.count ?? 0);
     },
     recordApplied: (record) => {
       prepare();
@@ -441,10 +456,10 @@ export const settingsChanges = (
     closedBy: (key, since) => {
       prepare();
       return rows(
-        `caller_key = ? AND closed_at IS NOT NULL AND closed_at >= ? ORDER BY closed_at DESC, created_at DESC`,
+        `caller_key = ? AND closed_at IS NOT NULL AND closed_at >= ? AND ${asked} ORDER BY closed_at DESC, created_at DESC`,
         key,
         since,
-      ).filter((record) => record.tier === "asked");
+      );
     },
     noteRead: (key, kind, at) => {
       prepare();
