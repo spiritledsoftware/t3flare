@@ -35,10 +35,19 @@ const STALE_READER_MS = 60 * 60 * 1000;
 export const TEMP_DIR = `${HARNESS_ROOT}/tmp`;
 
 /**
- * A temp entry not modified for this long is removed when the Workspace DO starts: nothing else cleans the harness's temp
- * directory, and its files would otherwise stay in the Workspace's storage, listings and the Container's synced tree.
+ * By default, a temp entry not modified for this long is removed when the Workspace DO starts: nothing else cleans the
+ * harness's temp directory, and its files would otherwise stay in the Workspace's storage, listings and the Container's
+ * synced tree.
  */
-const STALE_TEMP_MS = 24 * 60 * 60 * 1000;
+export const DEFAULT_STALE_TEMP_MS = 24 * 60 * 60 * 1000;
+
+/** How a `WorkspaceEnvHost` keeps its Workspace. */
+export type WorkspaceEnvHostOptions = {
+  /**
+   * How long `prepare` keeps a temp entry not modified since, read when `prepare` runs; default `DEFAULT_STALE_TEMP_MS`.
+   */
+  readonly staleTempMs?: () => number;
+};
 
 /** The Workspace's metadata for one path, as `fs.stat` and `fs.lstat` return it. */
 type Stat = {
@@ -132,13 +141,15 @@ export class WorkspaceEnvHost {
   readonly #workspace: Workspace;
   readonly #operations: HostOperations;
   readonly #container: ContainerFiles | undefined;
+  readonly #staleTempMs: () => number;
 
   /**
    * @param container How the Container's file operations reach it; without it, a request that asks to reach the
    *   Container sees the Workspace's files only.
    */
-  constructor(workspace: Workspace, container?: ContainerAccess) {
+  constructor(workspace: Workspace, container?: ContainerAccess, options: WorkspaceEnvHostOptions = {}) {
     this.#workspace = workspace;
+    this.#staleTempMs = options.staleTempMs ?? (() => DEFAULT_STALE_TEMP_MS);
     this.#operations = this.#makeOperations();
 
     const fs = workspace.fs;
@@ -283,6 +294,7 @@ export class WorkspaceEnvHost {
 
   /** Create the Workspace root, and remove reader links that no client will close and stale temp files. */
   async prepare(root: string, now: number): Promise<void> {
+    const staleTempMs = this.#staleTempMs();
     const fs = this.#workspace.fs;
 
     await ensureDirectory(fs, root);
@@ -301,7 +313,7 @@ export class WorkspaceEnvHost {
     for (const entry of await fs.readdir(TEMP_DIR)) {
       const path = `${TEMP_DIR}/${entry.name}`;
 
-      if (now - (await fs.lstat(path)).mtime > STALE_TEMP_MS) {
+      if (now - (await fs.lstat(path)).mtime > staleTempMs) {
         await fs.rm(path, { recursive: true, force: true });
       }
     }

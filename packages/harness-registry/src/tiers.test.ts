@@ -45,6 +45,8 @@ const SWITCHES: Readonly<Record<string, "switch" | "guard" | "unchangeable" | "t
  */
 const SETTINGS: Readonly<Record<string, "free" | "down-free" | "up-free" | "asked">> = {
   "codemode.inlineBudget": "free",
+  // SPI-1364: a larger budget lets a script spend more of the sandbox's CPU, near the most resetting it.
+  "codemode.interruptBudget": "down-free",
   "web.searchModel": "asked",
   // SPI-1321: more output puts more text in front of agents, and web_search spends model requests.
   "web.fetchTimeoutSeconds": "down-free",
@@ -75,6 +77,8 @@ const SETTINGS: Readonly<Record<string, "free" | "down-free" | "up-free" | "aske
   "termctrl.backgroundBash": "down-free",
   "termctrl.cols": "free",
   "termctrl.rows": "free",
+  "termctrl.quietMs": "free",
+  "termctrl.stopGraceSeconds": "free",
   "guardian.model": "asked",
   "guardian.thinkingLevel": "asked",
   "guardian.tools": "asked",
@@ -189,6 +193,26 @@ const ENVIRONMENT: Readonly<
   // SPI-1359: a longer MCP call or a larger result is asked; a shorter or smaller one is free.
   mcpCallSeconds: { up: [270, 600, "asked"], down: [270, 60, "free"] },
   mcpResultKiB: { up: [1024, 4096, "asked"], down: [1024, 256, "free"] },
+  // SPI-1364: fewer temp hours delete files an agent was pointed at, so it is asked; keeping more git answers or trace
+  // entries costs storage or memory, so it is asked; keeping fewer is free.
+  tempFilesHours: { up: [24, 48, "free"], down: [24, 1, "asked"] },
+  gitReadsKept: { up: [500, 1000, "asked"], down: [500, 100, "free"] },
+  routerTraceEntries: { up: [300, 1000, "asked"], down: [300, 100, "free"] },
+  // SPI-1364: a longer command limit or start wait holds the Container longer, so it is asked; the waits and graces that
+  // spend nothing are free either way.
+  commandMinutes: { up: [2, 10, "asked"], down: [2, 1, "free"] },
+  containerConnectSeconds: { up: [60, 120, "asked"], down: [60, 30, "free"] },
+  reclaimProtectionSeconds: { up: [30, 60, "free"], down: [30, 0, "free"] },
+  skillsWaitSeconds: { up: [5, 10, "free"], down: [5, 1, "free"] },
+  abortGraceSeconds: { up: [2, 10, "free"], down: [2, 0, "free"] },
+  portStopGraceSeconds: { up: [3, 10, "free"], down: [3, 0, "free"] },
+  firstPromptSeconds: { up: [20, 60, "free"], down: [20, 5, "free"] },
+  // SPI-1364: more Terminal history takes more of the Environment's memory, so it is asked.
+  terminalHistoryKiB: { up: [1024, 2048, "asked"], down: [1024, 512, "free"] },
+  exitedTerminalsKept: { up: [16, 32, "asked"], down: [16, 8, "free"] },
+  // SPI-1364: which Container ports a preview browser reaches, asked either way.
+  previewPorts: { up: [[3000], [3000, 3002], "asked"], down: [[3000, 3002], [3000], "asked"] },
+  portProbeMs: { up: [1000, 2000, "free"], down: [1000, 500, "free"] },
   // ADR-0047 §9 (SPI-1332): a lowered time limit is free; the script, the Builder's size, its budget and the schedule asked.
   imageSetup: { up: ["", "apt-get install -y jq\n", "asked"], down: ["apt-get install -y jq\n", "", "asked"] },
   imageSetupMinutes: { up: [30, 60, "asked"], down: [30, 10, "free"] },

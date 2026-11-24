@@ -19,7 +19,6 @@ import {
   type FsAnswer,
 } from "@t3flare/workspace-client";
 import * as ByteSize from "effect/ByteSize";
-import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -135,8 +134,8 @@ const randomName = () =>
  * Container (parity G7, `agents/scratch.ts`; t3's PR review guide). Any other temporary directory in `/w` is refused.
  */
 const scratchDir = (method: string, directory: string, prefix: string | undefined) =>
-  Effect.flatMap(Clock.currentTimeMillis, (now) => {
-    const made = makeScratchDir(directory, prefix, now, randomName);
+  Effect.suspend(() => {
+    const made = makeScratchDir(directory, prefix, randomName);
     return made === undefined
       ? Effect.fail(
           failure(

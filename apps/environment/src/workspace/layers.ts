@@ -9,7 +9,7 @@ import {
   normalize,
   type DirEntry,
   type FileStat,
-  type FoundEntry,
+  type FoundIndex,
   type FsAnswer,
   type GrepMatch,
 } from "@t3flare/workspace-client";
@@ -26,8 +26,18 @@ import type { FsOp } from "../agents/rpc.ts";
 import { environmentServices } from "../agents/bindings.ts";
 import { locate, type Located } from "../agents/workspaceClient.ts";
 
-const READ_MAX_BYTES = 1024 * 1024;
-const LIST_LIMIT = 5000;
+/**
+ * The most of a file a read shows: stock t3's `PROJECT_READ_FILE_MAX_BYTES` (`apps/server/src/workspace/WorkspaceFileSystem.ts`,
+ * not exported), its `readFile` contract: past it the contents are cut and `truncated` is set. Only this much crosses
+ * the RPC.
+ */
+export const READ_MAX_BYTES = 1024 * 1024;
+/**
+ * The most the file index's answer may take, in bytes. A named constraint: the Workspace DO answers it over DO RPC, whose
+ * message holds 32 MiB; 64 KiB is left for the answer's envelope. The Workspace DO cuts the entries to fit
+ * (`fitFoundEntries`), and the cut is stated: `truncated` in t3's list and search answers.
+ */
+export const INDEX_MAX_BYTES = 32 * 1024 * 1024 - 64 * 1024;
 const IMAGE = /\.(?:png|jpe?g|gif|webp|svg|ico|bmp|avif)$/i;
 
 class WorkspaceRpcError extends Schema.TaggedError<WorkspaceRpcError>()("WorkspaceRpcError", {
@@ -82,20 +92,19 @@ const rangesOf = (line: string, pattern: RegExp) => {
   for (const match of line.matchAll(pattern)) {
     if (match[0].length === 0) break;
     ranges.push({ start: match.index, end: match.index + match[0].length });
-    if (ranges.length >= 50) break;
   }
   return ranges;
 };
 
 const findAll = (at: Located) =>
-  call<ReadonlyArray<FoundEntry>>(at, { op: "find", path: at.inner, limit: LIST_LIMIT }).pipe(
+  call<FoundIndex>(at, { op: "index", path: at.inner, maxBytes: INDEX_MAX_BYTES }).pipe(
     Effect.map((found) => ({
-      entries: found.flatMap((entry): Array<ProjectEntry> => {
+      entries: found.entries.flatMap((entry): Array<ProjectEntry> => {
         const path = relativeTo(at.inner, entry.path);
         const kind = kindOf(entry.kind);
         return path === "" || kind === undefined || path.split("/").includes(".git") ? [] : [{ path, kind }];
       }),
-      truncated: found.length >= LIST_LIMIT,
+      truncated: found.truncated,
     })),
   );
 
@@ -187,7 +196,7 @@ export const layerWorkspaceEntries = <E, R>(stock: Layer.Layer<WorkspaceEntries.
           .replace(/^[@./]+/, "")
           .toLowerCase();
         return findAll(at).pipe(
-          Effect.map(({ entries }) => {
+          Effect.map(({ entries, truncated }) => {
             const ranked = entries
               .filter(
                 (entry) =>
@@ -201,7 +210,7 @@ export const layerWorkspaceEntries = <E, R>(stock: Layer.Layer<WorkspaceEntries.
               .toSorted((left, right) => left.score - right.score || left.entry.path.length - right.entry.path.length);
             return {
               entries: ranked.slice(0, input.limit).map((item) => item.entry),
-              truncated: ranked.length > input.limit,
+              truncated: truncated || ranked.length > input.limit,
             };
           }),
           Effect.mapError(readError(input.cwd, input.query, input.cwd)),
@@ -294,12 +303,13 @@ export const layerWorkspaceFileSystem = <E, R>(stock: Layer.Layer<WorkspaceFileS
           );
           const stockAnswer = theirs.length === 0 ? [] : (yield* base.getMetadata({ paths: theirs })).entries;
           let next = 0;
+          // Every path at once: each is its own RPC, and t3's contract bounds a batch (`FILESYSTEM_METADATA_BATCH_LIMIT`).
           return {
             entries: yield* Effect.forEach(
               expanded,
               (path): Effect.Effect<FilesystemEntryMetadata | null> =>
                 path.startsWith("/") && isUnderW(path) ? metadataOf(path) : Effect.succeed(stockAnswer[next++] ?? null),
-              { concurrency: 8 },
+              { concurrency: "unbounded" },
             ),
           };
         });
@@ -329,14 +339,25 @@ export const layerWorkspaceFileSystem = <E, R>(stock: Layer.Layer<WorkspaceFileS
         const target = targetOf(input.cwd, input.relativePath);
         if (target === null) return base.readFile(input);
         const { at, absolute } = target;
-        return call<Uint8Array>(at, { op: "read", path: at.inner }).pipe(
-          Effect.map((bytes) => ({ exists: true as const, bytes })),
+        // The file's size, and only as much of it as t3 shows.
+        return Effect.all(
+          [
+            call<FileStat>(at, { op: "stat", path: at.inner }),
+            call<Uint8Array>(at, { op: "read", path: at.inner, range: { offset: 0, length: READ_MAX_BYTES } }),
+          ],
+          { concurrency: 2 },
+        ).pipe(
+          Effect.map(([stat, bytes]) => ({
+            exists: true as const,
+            bytes,
+            size: Math.max(stat.size, bytes.byteLength),
+          })),
           Effect.catchIf(
             (error) => error.code === "ENOENT" && input.allowMissing === true,
-            () => Effect.succeed({ exists: false as const, bytes: new Uint8Array(0) }),
+            () => Effect.succeed({ exists: false as const, bytes: new Uint8Array(0), size: 0 }),
           ),
           Effect.mapError(operationError(input.cwd, input.relativePath, absolute, "read")),
-          Effect.flatMap(({ exists, bytes }) => {
+          Effect.flatMap(({ exists, bytes, size }) => {
             if (bytes.subarray(0, 8000).includes(0)) {
               return Effect.fail(
                 new WorkspaceFileSystem.WorkspaceBinaryFileError({
@@ -346,11 +367,12 @@ export const layerWorkspaceFileSystem = <E, R>(stock: Layer.Layer<WorkspaceFileS
                 }),
               );
             }
-            const truncated = bytes.byteLength > READ_MAX_BYTES;
+            const truncated = size > READ_MAX_BYTES;
             return Effect.succeed({
               relativePath: input.relativePath,
-              contents: new TextDecoder().decode(truncated ? bytes.subarray(0, READ_MAX_BYTES) : bytes),
-              byteLength: bytes.byteLength,
+              // As t3's: a character the cut split is dropped, not shown as U+FFFD.
+              contents: new TextDecoder().decode(bytes, { stream: truncated }),
+              byteLength: size,
               truncated,
               exists,
             });

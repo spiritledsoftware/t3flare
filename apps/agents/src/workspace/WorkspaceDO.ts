@@ -44,7 +44,7 @@ import type {
   TerminalOpenInput,
 } from "@t3flare/workspace-client";
 import { type CliAgent, isCliAgent, type PromptTemplate, type SkillDiscovery, SKILLS_MOUNT } from "@t3flare/skills";
-import { describeFailure, HARNESS_ROOT, REPO_ROOT, startRefusal } from "@t3flare/workspace-client";
+import { describeFailure, fitFoundEntries, HARNESS_ROOT, REPO_ROOT, startRefusal } from "@t3flare/workspace-client";
 
 import * as git from "isomorphic-git";
 
@@ -120,7 +120,9 @@ import { type KillAnswer, killAnswer } from "@t3flare/sandbox-image/kill";
 import type { PortScan } from "@t3flare/sandbox-image/ports";
 import { authoredScript, captureScript, restoreScript, shellWord } from "./checkpointScripts.ts";
 import { captureTurn, type LastCapture } from "./checkpointCapture.ts";
-import { type FileChunk, fileOps } from "./files.ts";
+import { type FileChunk, fileOps, grepPaths } from "./files.ts";
+import { diffScript, execOutput } from "./execOutput.ts";
+import { gitDeadlineMs, RunCancels } from "./runCancels.ts";
 import {
   deleteRef,
   diffCommits,
@@ -137,7 +139,7 @@ import { isomorphicFs } from "./isoFs.ts";
 import { CREDENTIAL_HELPER_VERSION } from "./credentialHelper.ts";
 import { allowedRead, parsePrimed, passiveDecision, primeArgvs, primeScript, withoutOwnGitDir } from "./gitDirReads.ts";
 import { type StaleOutcome, staleRead } from "./staleReads.ts";
-import { readCache, readKey } from "./readCache.ts";
+import { keepsAnswer, readCache, readKey } from "./readCache.ts";
 import { authorizeModelRelay, type ModelRelayAsk, type ModelRelayGrant } from "./modelRelay.ts";
 import { RelayFailures } from "./relayFailures.ts";
 import { EndpointKeyPatterns, leakTargets } from "./endpointKeys.ts";
@@ -208,6 +210,13 @@ export interface ExecInput {
   readonly passive?: boolean;
   /** Never start a stopped Container: answer status `not-running` instead (SPI-1148's wait for a running Container's copy). */
   readonly onlyIfRunning?: boolean;
+  /** The caller's id, by which `cancelRun` ends this command (SPI-1364: a git command t3 gave up on). */
+  readonly runId?: string;
+  /**
+   * Answer the output whole, and save none of it in the Workspace's files: only for a script that bounds its own output
+   * (SPI-1364, `execOutput.ts`). Else computer's default applies: its last 2,000 lines or 64 KiB, silently.
+   */
+  readonly wholeOutput?: boolean;
 }
 
 export interface ExecResult {
@@ -241,7 +250,10 @@ export type FsOp =
     }
   | { readonly op: "rename"; readonly path: string; readonly to: string }
   | { readonly op: "realPath"; readonly path: string }
+  /** `limit` absent: every match (SPI-1364; each caller passes its own). */
   | { readonly op: "find"; readonly path: string; readonly pattern?: string; readonly limit?: number }
+  /** SPI-1364: every entry under `path`, cut to fit `maxBytes` of a DO RPC answer (`fitFoundEntries`), the cut stated. */
+  | { readonly op: "index"; readonly path: string; readonly maxBytes: number }
   | {
       readonly op: "grep";
       readonly path: string;
@@ -278,8 +290,6 @@ const USAGE_SCRIPT = [
 const DESTROYED_KEY = "t3flare:destroyed";
 /** A worktree's copy of its project's untracked files (step 2b, plan section 4.2), linked at the project's t3 path in its Container. */
 export const PROJECT_ROOT_VIEW = `${HARNESS_ROOT}/project-root`;
-const PROJECT_ROOT_MAX_FILES = 1000;
-const PROJECT_ROOT_MAX_BYTES = 20 * 1024 * 1024;
 const LEASED_KEY = "t3flare:container-leased";
 /** Set by `closeContainer()` (a tombstoned worktree): no Container start until provisioning or `reopenContainer()`. */
 const CONTAINER_CLOSED_KEY = "t3flare:container-closed";
@@ -384,6 +394,8 @@ export class WorkspaceDO extends ContainerHost {
   readonly #endpointKeys = new EndpointKeyPatterns();
   /** The token the credential helper is given, until shortly before it expires. */
   #token: { readonly token: string; readonly expiresAt: number } | undefined;
+  /** t3's git commands by run id, to end one t3 gave up on (SPI-1364, `runCancels.ts`). */
+  readonly #runCancels = new RunCancels({ now: () => Date.now(), later: (run, ms) => void setTimeout(run, ms) });
   /** Commands the Session stopped before they were sent (during a start's install): never sent (`stoppedExecs.ts`). */
   readonly #stoppedExecs = new StoppedExecs();
   /** The Global mise config's lay-down, once per Container (SPI-1150, ADR-0032's Global mise config refinement). */
@@ -434,7 +446,7 @@ export class WorkspaceDO extends ContainerHost {
     const ref = { binding: WORKSPACE_BINDING, id: ctx.id.toString() };
     // Made again for each Container start whose ignore patterns differ: submodules stay on the Container's disk.
     this.#container = new ContainerOnlyBackend({
-      make: (patterns) =>
+      make: (patterns, connectTimeoutMs) =>
         new ContainerBackend({
           container: () => ({ getWorkspaceContainer: () => this.#budgeted(this.getWorkspaceContainer()) }),
           workspace: ref,
@@ -444,8 +456,10 @@ export class WorkspaceDO extends ContainerHost {
           // Unrestricted direct egress in part 1 (an allowlist is deferred, docs/history.md).
           egress: { mode: "direct" },
           ignore: [...patterns],
-          connectTimeoutMs: 60_000,
+          connectTimeoutMs,
         }),
+      // SPI-1364: the start wait the last start took (`containerConnectSeconds`); computer reads it before this start's.
+      connectTimeoutMs: () => this.#keptSettings().containerConnectSeconds * 1000,
       initial: containerPatterns(CONTAINER_IGNORE, []),
       patterns: () => this.#containerPatterns(),
       stop: async () => {
@@ -569,7 +583,8 @@ export class WorkspaceDO extends ContainerHost {
         doing: "checking the dotfiles' mise config the Container setup wrote",
       }),
     ]);
-    this.#reads = readCache(ctx.storage.sql);
+    // SPI-1364: as the last Container start took it (`gitReadsKept`).
+    this.#reads = readCache(ctx.storage.sql, () => this.#keptSettings().gitReadsKept);
     this.#skillSet = skillSetStore({
       kv: ctx.storage.kv,
       transactionSync: <T>(closure: () => T): T => ctx.storage.transactionSync(closure),
@@ -595,14 +610,22 @@ export class WorkspaceDO extends ContainerHost {
       ],
     });
     // The model's file tools reach Container-only paths through the Container, as a script.
-    this.#host = new WorkspaceEnvHost(this.#workspace, {
-      patterns: async () => withHarnessKept(await this.#containerPatterns()),
-      running: () => this.containerRunning(),
-      run: async (script, scriptEnv) => {
-        const result = await this.exec({ script, env: { ...scriptEnv }, cwd: WORKSPACE_ROOT });
-        return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr };
+    this.#host = new WorkspaceEnvHost(
+      this.#workspace,
+      {
+        patterns: async () => withHarnessKept(await this.#containerPatterns()),
+        running: () => this.containerRunning(),
+        run: async (script, scriptEnv) => {
+          // Each Container file tools' script bounds its own output (`ContainerAccess.run`).
+          const result = await this.exec({ script, env: { ...scriptEnv }, cwd: WORKSPACE_ROOT, wholeOutput: true });
+          return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr };
+        },
       },
-    });
+      {
+        // SPI-1364: read when `prepare` runs (the first file operation after a wake), as the last Container start took it.
+        staleTempMs: () => this.#keptSettings().tempFilesHours * 3_600_000,
+      },
+    );
     const { BASH_ENV: _bashEnv, ...terminalEnv } = COMMAND_ENV;
     this.#terminalSync = new TerminalSync({
       now: () => Date.now(),
@@ -621,7 +644,7 @@ export class WorkspaceDO extends ContainerHost {
       running: () => this.containerRunning(),
       startContainer: async () => {
         try {
-          await this.exec({ script: "true", timeoutMs: 180_000 });
+          await this.exec({ script: "true" });
         } catch (error) {
           // The budget's own reason, whole, out of computer's connect-retry wrapping (`startRefusal`).
           const reason = startRefusal(error);
@@ -656,6 +679,8 @@ export class WorkspaceDO extends ContainerHost {
         if (this.containerRunning()) await this.#syncEntries("push");
       },
       projectRootView: PROJECT_ROOT_VIEW,
+      // SPI-1364: as the last Container start took it.
+      firstPromptMs: () => this.#keptSettings().firstPromptSeconds * 1000,
     });
     // The agent's Terminals (SPI-1057): the same host, never heartbeaten (they end with the Container or a stop), their
     // output rendered by `AgentTerminals` instead of pushed to t3's terminal adapter. `AgentTerminals` counts them, not
@@ -879,9 +904,10 @@ export class WorkspaceDO extends ContainerHost {
     values.push(...endpointValues);
     const found: Array<{ name: string; path: string }> = [];
     for (const [credential, value] of values) {
-      // computer's own grep over the DO's files; only the paths are kept (the matched text would hold the value).
-      const matches = await this.#workspace.fs.grep(value, WORKSPACE_ROOT, { regex: false, limit: 200 });
-      for (const path of new Set(matches.map((match) => match.path))) found.push({ name: credential, path });
+      // computer's own grep over the DO's files, every match a page at a time: only the paths are kept (the matched text
+      // would hold the value).
+      for (const path of await grepPaths(this.#workspace.fs, value, WORKSPACE_ROOT))
+        found.push({ name: credential, path });
     }
     const container =
       (await this.#scan(
@@ -925,7 +951,7 @@ export class WorkspaceDO extends ContainerHost {
   /** Starts the Container for a terminal or a CLI process; the budget's own reason when refused. */
   async #startContainerFor(_what: "terminal" | "process"): Promise<void> {
     try {
-      await this.exec({ script: "true", timeoutMs: 180_000 });
+      await this.exec({ script: "true" });
     } catch (error) {
       // The budget's own reason, whole, out of computer's connect-retry wrapping (`startRefusal`).
       const reason = startRefusal(error);
@@ -986,7 +1012,7 @@ export class WorkspaceDO extends ContainerHost {
    * undefined when the Container is not running or the script gave none.
    */
   async #killMarkers(markers: ReadonlyArray<string>): Promise<KillAnswer | undefined> {
-    const output = await killInRunningContainer(this.ctx.container, markers);
+    const output = await killInRunningContainer(this.ctx.container, markers, this.#abortGraceMs());
     if (output === undefined) return undefined;
     console.log(JSON.stringify({ t3flare: "terminal-kill", markers: markers.length, answer: output.stdout.trim() }));
     // No answer: the script failed. Only an agent's stop (`TerminalHost.kill`) reads the answer; it reports that.
@@ -1075,7 +1101,12 @@ export class WorkspaceDO extends ContainerHost {
         report: (refused, message) => environment.skillSetRefused({ workspace, hash: refused, message }),
         awaitContainer: async (expectation) => {
           const answer = await awaitContainerCopy(
-            { running: () => this.containerRunning(), exec: (command) => this.exec(command), warn },
+            {
+              running: () => this.containerRunning(),
+              exec: (command) => this.exec(command),
+              warn,
+              waitMs: this.#keptSettings().skillsWaitSeconds * 1000,
+            },
             expectation,
           );
           if (typeof answer === "object" && answer.lockFailed !== undefined)
@@ -1277,6 +1308,19 @@ export class WorkspaceDO extends ContainerHost {
     return { ...taken, readMs };
   }
 
+  /** How long a kill's TERM is given before KILL (`abortGraceSeconds`, SPI-1364), in ms, as the last start took it. */
+  #abortGraceMs(): number {
+    return this.#keptSettings().abortGraceSeconds * 1000;
+  }
+
+  /**
+   * The command time limit (`commandMinutes`, SPI-1364) in ms: the deadline of a Container command that carries none of
+   * its own, as the running Container's start took it.
+   */
+  #commandMs(): number {
+    return this.#keptSettings().commandMinutes * 60_000;
+  }
+
   /** The settings the running Container took (kept by its start), read against this Worker's schema; else the defaults. */
   #keptSettings(): ResolvedEnvironment {
     const kept = this.ctx.storage.kv.get<ResolvedEnvironment>(ENVIRONMENT_KEY);
@@ -1475,9 +1519,13 @@ export class WorkspaceDO extends ContainerHost {
             ? commandEnvOf(COMMAND_ENV, input.env, input.passive === true)
             : { ...input.env },
         ...(input.stdin === undefined ? {} : { stdin: input.stdin }),
-        timeoutMs: input.timeoutMs ?? 120_000,
+        timeoutMs: input.timeoutMs ?? this.#commandMs(),
+        ...(execOutput(input.wholeOutput === true) === false ? { output: false } : {}),
       });
+      if (input.runId !== undefined) this.#runCancels.started(input.runId, handle);
       const result = await handle.result();
+      // The sync guard's scan ran after the command whatever its answer: its result is read first, so a leak it found is
+      // flagged whatever the answer does next.
       if (guard !== undefined) await this.#readScanResult();
       return {
         exitCode: result.exitCode,
@@ -1507,7 +1555,7 @@ export class WorkspaceDO extends ContainerHost {
   ): Promise<{ readonly running: boolean; readonly signalled: number; readonly survivors: number }> {
     // A command not sent yet (its Container still starting) is never sent now.
     this.#stoppedExecs.stopped(execIds);
-    const result = await killInRunningContainer(this.ctx.container, execIds);
+    const result = await killInRunningContainer(this.ctx.container, execIds, this.#abortGraceMs());
     if (result === undefined) return { running: false, signalled: 0, survivors: 0 };
     const answer = killAnswer(result.stdout);
     if (answer === undefined)
@@ -1559,7 +1607,11 @@ export class WorkspaceDO extends ContainerHost {
       case "realPath":
         return ops.realPath(op.path);
       case "find":
-        return ops.find(op.path, op.pattern, op.limit ?? 5000);
+        return ops.find(op.path, op.pattern, op.limit);
+      case "index": {
+        const found = await ops.find(op.path, undefined);
+        return "ok" in found ? { ok: fitFoundEntries(found.ok, op.maxBytes) } : found;
+      }
       case "grep":
         return ops.grep(op.pattern, op.path, op.options ?? {});
     }
@@ -1575,6 +1627,18 @@ export class WorkspaceDO extends ContainerHost {
   async git(run: GitRun): Promise<GitAnswer> {
     if (this.#isDestroyed())
       return { ran: false, reason: "container_refused", detail: "t3flare: this Workspace was deleted" };
+    if (run.runId === undefined) return this.#git(run);
+    // SPI-1364: t3 can end this run (`cancelRun`), from now until it answers.
+    if (this.#runCancels.begin(run.runId))
+      return { ran: false, reason: "container_refused", detail: "t3flare: t3 gave up on this command before it ran" };
+    try {
+      return await this.#git(run);
+    } finally {
+      this.#runCancels.end(run.runId);
+    }
+  }
+
+  async #git(run: GitRun): Promise<GitAnswer> {
     const passive = !run.startContainer;
     // Step 2b (root's ruling, ADR-0009 refinement): the allow-listed `.git` reads are keyed without env and own
     // `--git-dir`, so the answers primed while the Container was up match t3's later reads.
@@ -1609,12 +1673,14 @@ export class WorkspaceDO extends ContainerHost {
         cwd: run.cwd,
         env: { ...this.#identityEnv(), ...run.env },
         ...(run.stdin === undefined ? {} : { stdin: run.stdin }),
-        timeoutMs: run.timeoutMs ?? 120_000,
+        // SPI-1364: a run t3 can cancel takes no `commandMinutes` cut (`gitDeadlineMs`).
+        timeoutMs: gitDeadlineMs(run, this.#commandMs()),
         passive,
+        ...(run.runId === undefined ? {} : { runId: run.runId }),
       });
       const answer = { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr };
       // Kept at the revision from before it ran: a change while it ran makes the next read run again.
-      if (key !== null && result.status !== "timeout") {
+      if (key !== null && keepsAnswer(result.status)) {
         // A cache write that fails never fails the read: the command ran, and its answer goes back uncached.
         try {
           this.#reads.put(key, rev, answer);
@@ -1641,6 +1707,14 @@ export class WorkspaceDO extends ContainerHost {
     }
   }
 
+  /**
+   * Ends run `runId` (`git`'s `runId`), TERM then KILL after 1 s, when t3 gave up on it (SPI-1364); whether it was
+   * running. One whose cancel comes first is ended as it starts.
+   */
+  async cancelRun(runId: string): Promise<boolean> {
+    return this.#runCancels.cancel(runId);
+  }
+
   #primedRev = -2;
 
   /**
@@ -1650,16 +1724,29 @@ export class WorkspaceDO extends ContainerHost {
   async #prime(): Promise<void> {
     if (!this.containerRunning()) return;
     const before = this.#reads.revision("git-dir");
-    if (before === this.#primedRev) return;
-    this.#primedRev = before;
+    if (before === this.#primedRev || before === this.#primingRev) return;
+    // Marked primed only once it was (SPI-1364): a prime that failed (an answer too long to give, say) runs again.
+    this.#primingRev = before;
+    try {
+      await this.#primeAt();
+      this.#primedRev = before;
+    } finally {
+      this.#primingRev = undefined;
+    }
+  }
+
+  /** The revision a prime is running for, so a second waits for the next change instead of running beside it. */
+  #primingRev: number | undefined;
+
+  async #primeAt(): Promise<void> {
     const listed = await this.exec({
       script: "git for-each-ref --format='%(refname)' refs/heads refs/remotes",
       cwd: REPO_ROOT,
       passive: true,
     });
-    if (listed.exitCode !== 0 || !this.containerRunning()) return;
+    if (listed.exitCode !== 0 || !this.containerRunning()) throw new Error("the refs could not be listed");
     const argvs = primeArgvs(listed.stdout.split("\n").filter((line) => line !== ""));
-    const primed = await this.exec({ script: primeScript(argvs), cwd: REPO_ROOT, passive: true, timeoutMs: 60_000 });
+    const primed = await this.exec({ script: primeScript(argvs), cwd: REPO_ROOT, passive: true });
     const rev = this.#reads.revision("git-dir");
     for (const answer of parsePrimed(primed.stdout)) {
       const argv = argvs[answer.index];
@@ -1883,11 +1970,14 @@ export class WorkspaceDO extends ContainerHost {
         ...(op.filePaths === undefined ? [] : ["--", ...op.filePaths.map((path) => `:(top,literal)${path}`)]),
       ];
       // Above the guard the Container may be starting cold, its files pushed first: as long as a capture may take.
+      // SPI-1364: t3 asks for at most `maxOutputBytes` (one more than it shows, to see a cut): the Container cuts it so,
+      // and the answer comes back whole. With no size asked, it runs as before: computer's default tail of 64 KiB.
       const result = await this.exec({
-        script: `exec git ${argv.map(shellWord).join(" ")}`,
+        script: diffScript(argv, op.maxOutputBytes),
         cwd: REPO_ROOT,
         passive: true,
         ...(within ? {} : { timeoutMs }),
+        wholeOutput: op.maxOutputBytes !== undefined,
       });
       if (result.exitCode === 0) return { ok: true, value: result.stdout, by: "container" };
       if (!within) return { ok: false, error: `git diff failed: ${result.stderr.slice(0, 1000)}` };
@@ -2127,53 +2217,41 @@ export class WorkspaceDO extends ContainerHost {
 
   /**
    * The project-root view's files (step 2b, plan section 4.2): this project's untracked files, gitignored ones included,
-   * from its own files (never the Container; the Container-only paths are not here at all), up to `maxFiles` and
-   * `maxBytes`. Tracked files are not in it: a worktree has them at its own commit.
+   * from its own files (never the Container; the Container-only paths are not here at all), every one (SPI-1364: no count
+   * or size cap; they are files this object already holds). Tracked files are not in it: a worktree has them at its own
+   * commit.
    */
-  async projectRootFiles(input: { readonly maxFiles: number; readonly maxBytes: number }): Promise<{
+  async projectRootFiles(): Promise<{
     readonly files: ReadonlyArray<{ readonly path: string; readonly size: number }>;
-    readonly capped: boolean;
   }> {
     this.#alive();
     const repo = await this.#repo();
     const tracked = new Set(
       await git.listFiles({ fs: repo.fs, dir: repo.dir, cache: repo.cache }).catch(() => [] as Array<string>),
     );
-    const found = await fileOps(this.#workspace).find(REPO_ROOT, undefined, 50_000);
-    if (!("ok" in found)) return { files: [], capped: false };
+    const found = await fileOps(this.#workspace).find(REPO_ROOT, undefined);
+    if (!("ok" in found)) return { files: [] };
     const files: Array<{ path: string; size: number }> = [];
-    let bytes = 0;
-    let capped = false;
     for (const entry of found.ok) {
       if (entry.kind !== "file") continue;
       const path = entry.path.startsWith(`${REPO_ROOT}/`) ? entry.path.slice(REPO_ROOT.length + 1) : entry.path;
       if (path === ".git" || path.startsWith(".git/") || tracked.has(path)) continue;
       const stat = await fileOps(this.#workspace).stat(`${REPO_ROOT}/${path}`, false);
-      const size = "ok" in stat ? stat.ok.size : 0;
-      if (files.length >= input.maxFiles || bytes + size > input.maxBytes) {
-        capped = true;
-        continue;
-      }
-      files.push({ path, size });
-      bytes += size;
+      files.push({ path, size: "ok" in stat ? stat.ok.size : 0 });
     }
-    return { files, capped };
+    return { files };
   }
 
   /** Copies the project's untracked files into this worktree's project-root view (step 2b), object to object. */
   async seedProjectRoot(input: { readonly parent: string }): Promise<{
     readonly files: number;
     readonly bytes: number;
-    readonly capped: boolean;
     readonly names: ReadonlyArray<string>;
   }> {
     this.#alive();
     await this.#ready();
     const ops = fileOps(this.#workspace);
-    const listed = await this.#peer(input.parent).projectRootFiles({
-      maxFiles: PROJECT_ROOT_MAX_FILES,
-      maxBytes: PROJECT_ROOT_MAX_BYTES,
-    });
+    const listed = await this.#peer(input.parent).projectRootFiles();
     await ops.remove(PROJECT_ROOT_VIEW, { recursive: true, force: true });
     await ops.mkdir(PROJECT_ROOT_VIEW, true);
     let bytes = 0;
@@ -2184,19 +2262,9 @@ export class WorkspaceDO extends ContainerHost {
       )
         bytes += file.size;
     }
-    if (listed.capped)
-      console.warn(
-        JSON.stringify({
-          t3flare: "project-root-view-capped",
-          files: listed.files.length,
-          maxFiles: PROJECT_ROOT_MAX_FILES,
-          maxBytes: PROJECT_ROOT_MAX_BYTES,
-        }),
-      );
     return {
       files: listed.files.length,
       bytes,
-      capped: listed.capped,
       names: listed.files.slice(0, 20).map((file) => file.path),
     };
   }
@@ -2540,7 +2608,10 @@ export class WorkspaceDO extends ContainerHost {
       this.#running > 0 || this.#terminalsHold() || this.#processes.reclaimable().length < this.#processes.size;
     if (busy) return "in use";
     const lastUse = (await this.ctx.storage.get<number>(LAST_USE_KEY)) ?? 0;
-    if (this.#processes.size === 0 && Date.now() - lastUse < 30_000) return "used in the last 30 s";
+    // SPI-1364: some protection is needed, else two Workspaces under a full budget stop each other between commands.
+    const protectionSeconds = this.#keptSettings().reclaimProtectionSeconds;
+    if (this.#processes.size === 0 && Date.now() - lastUse < protectionSeconds * 1000)
+      return `used in the last ${protectionSeconds} s`;
     return undefined;
   }
 
@@ -2637,16 +2708,17 @@ export class WorkspaceDO extends ContainerHost {
     };
   }
 
-  /** G11: stops process group `pgid` (stock's TERM, then KILL after 3 s); false when it was gone or nothing runs. */
+  /** G11: stops process group `pgid` (TERM, then KILL after `portStopGraceSeconds`); false when it was gone or nothing runs. */
   async stopProcessGroup(pgid: number, members: ReadonlyArray<number>): Promise<boolean> {
     if (this.#isDestroyed()) return false;
-    return stopGroupInRunningContainer(this.ctx.container, pgid, members);
+    const graceMs = this.#keptSettings().portStopGraceSeconds * 1000;
+    return stopGroupInRunningContainer(this.ctx.container, pgid, members, graceMs);
   }
 
   /** G11 (review M4): a configured `localhost` preview URL's web probe, on this Container only while it runs; not use. */
   async probePort(port: number, path: string): Promise<PortProbe | null> {
     if (this.#isDestroyed()) return null;
-    return (await probeRunningPort(this.ctx.container, port, path)) ?? null;
+    return (await probeRunningPort(this.ctx.container, port, path, this.#keptSettings().portProbeMs)) ?? null;
   }
 
   #terminalsHold(): boolean {

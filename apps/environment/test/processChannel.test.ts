@@ -11,14 +11,25 @@ import type {
 } from "@t3flare/workspace-client";
 import { describe, expect, it, vi } from "vitest";
 
-import { ByteQueue, ProcessChannel, ProcessRefused, type ProcessRemote } from "../src/agents/processChannel.ts";
+import {
+  ByteQueue,
+  ProcessChannel,
+  ProcessRefused,
+  type ProcessRemote,
+  READ_WAIT_MS,
+  WORKSPACE_HEARTBEAT_LAPSE_MS,
+} from "../src/agents/processChannel.ts";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const tick = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const fakeWorkspace = (
-  options: { start?: ProcessStartAnswer; loseAnswers?: number; inputAnswer?: ProcessInputAnswer["accepted"] } = {},
+  options: {
+    start?: ProcessStartAnswer;
+    loseAnswers?: number;
+    inputAnswer?: ProcessInputAnswer["accepted"];
+  } = {},
 ) => {
   const starts: Array<ProcessStartInput> = [];
   const inputs: Array<{ key: string; seq: number; data: string | null }> = [];
@@ -57,7 +68,9 @@ const fakeWorkspace = (
       const next = scripted.shift();
       if (next instanceof Error) throw next;
       if (next !== undefined) return { ...answer(), ...next };
-      await tick(5);
+      // On fake timers a quiet read holds as the real long poll does: an earlier test's read loop still running would
+      // otherwise spin thousands of times while a test advances the clock past the heartbeat lapse.
+      await tick(vi.isFakeTimers() ? READ_WAIT_MS : 5);
       return { ...answer(), batch: 0, frames: [] };
     },
   };
@@ -257,19 +270,72 @@ describe("ProcessChannel", () => {
     expect(ch.size).toBe(0);
   });
 
-  it("ends a Workspace's processes after its reads fail four times in a row", async () => {
+  it("keeps a Workspace's processes through failed reads until they have failed for the Workspace's heartbeat lapse", async () => {
     const ws = fakeWorkspace();
-    ws.script(new Error("stub broken"), new Error("stub broken"), new Error("stub broken"), new Error("stub broken"));
+    ws.script(...Array.from({ length: 60 }, () => new Error("stub broken")));
     vi.useFakeTimers();
     try {
       const process = await channel(ws).start(start);
       let ended = false;
       void process.exit.then(() => (ended = true));
-      // The three waits before the fourth failure are 0.5 s, 1 s and 2 s.
-      await vi.advanceTimersByTimeAsync(3_499);
+      // Four failures in a row (about 3.5 s) once ended every process; a blip no longer does.
+      await vi.advanceTimersByTimeAsync(WORKSPACE_HEARTBEAT_LAPSE_MS - 1);
       expect(ended).toBe(false);
-      await vi.advanceTimersByTimeAsync(1);
+      // The waits between reads are capped (5 s), so the give-up follows the lapse within one wait.
+      await vi.advanceTimersByTimeAsync(5_000);
       expect(await process.exit).toBe(129);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("starts the lapse again after a read succeeds", async () => {
+    const ws = fakeWorkspace();
+    const errors = (n: number) => Array.from({ length: n }, () => new Error("stub broken"));
+    // About 62 s of failures, a quiet answer, then about 62 s more: never the lapse in a row.
+    ws.script(...errors(16), { batch: 0, frames: [] }, ...errors(16));
+    vi.useFakeTimers();
+    try {
+      const process = await channel(ws).start(start);
+      let ended = false;
+      void process.exit.then(() => (ended = true));
+      await vi.advanceTimersByTimeAsync(130_000);
+      expect(ended).toBe(false);
+      process.kill();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries a lost stdin answer past the old three retries, with the same seq", async () => {
+    const ws = fakeWorkspace({ loseAnswers: 10 });
+    vi.useFakeTimers();
+    try {
+      const process = await channel(ws).start(start);
+      const written = process.write(encoder.encode("one\n"));
+      await vi.advanceTimersByTimeAsync(60_000);
+      await written;
+      expect(process.running).toBe(true);
+      expect(ws.inputs.map((input) => input.seq)).toEqual(Array.from({ length: 11 }, () => 0));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ends the process once its stdin has failed for the Workspace's heartbeat lapse", async () => {
+    const ws = fakeWorkspace({ loseAnswers: Number.POSITIVE_INFINITY });
+    vi.useFakeTimers();
+    try {
+      const process = await channel(ws).start(start);
+      let ended = false;
+      void process.exit.then(() => (ended = true));
+      void process.write(encoder.encode("one\n"));
+      await vi.advanceTimersByTimeAsync(WORKSPACE_HEARTBEAT_LAPSE_MS - 1);
+      expect(ended).toBe(false);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(await process.exit).toBe(129);
+      expect(ws.signals).toEqual(["proc-1"]);
+      expect(new Set(ws.inputs.map((input) => input.seq))).toEqual(new Set([0]));
     } finally {
       vi.useRealTimers();
     }

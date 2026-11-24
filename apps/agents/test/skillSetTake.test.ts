@@ -6,7 +6,13 @@
 import { EMPTY_SKILL_SET_HASH, sha256Hex, skillSetOf, type SkillSet } from "@t3flare/skills";
 import { describe, expect, it } from "vitest";
 
-import { awaitContainerCopy, takeSkillSet, type TakeDeps, type WaitCommand } from "../src/workspace/skillSetTake.ts";
+import {
+  awaitContainerCopy,
+  skillsWaitLooks,
+  takeSkillSet,
+  type TakeDeps,
+  type WaitCommand,
+} from "../src/workspace/skillSetTake.ts";
 
 const memoryStore = (held: SkillSet = { hash: EMPTY_SKILL_SET_HASH, files: {} }) => {
   let current = held;
@@ -141,6 +147,7 @@ describe("awaitContainerCopy", () => {
           running: () => false,
           exec: async (command) => (sent.push(command), { status: "completed", stdout: "" }),
           warn: () => undefined,
+          waitMs: 5_000,
         },
         expectation,
       ),
@@ -155,6 +162,7 @@ describe("awaitContainerCopy", () => {
         running: () => true,
         exec: async (command) => (sent.push(command), { status: "completed", stdout: "caught-up 3\n" }),
         warn: () => undefined,
+        waitMs: 5_000,
       },
       expectation,
     );
@@ -163,16 +171,38 @@ describe("awaitContainerCopy", () => {
     expect(sent[0]!.script).not.toContain("a/SKILL.md");
   });
 
+  it("looks for the Owner's wait 200 ms apart, and its exec's deadline is the looks plus a margin (SPI-1364)", async () => {
+    const sent: Array<WaitCommand> = [];
+    const exec = async (command: WaitCommand) => (sent.push(command), { status: "completed", stdout: "caught-up 1\n" });
+    for (const waitMs of [5_000, 30_000, 100])
+      await awaitContainerCopy({ running: () => true, exec, warn: () => undefined, waitMs }, expectation);
+    // 5 s is the plan's 25 looks and the old 15 s deadline.
+    expect(skillsWaitLooks(5_000)).toBe(25);
+    expect(sent.map((command) => command.timeoutMs)).toEqual([15_000, 40_000, 10_200]);
+    expect(sent[1]!.script).toContain(String(skillsWaitLooks(30_000)));
+    expect(skillsWaitLooks(0)).toBe(1);
+  });
+
   it("answers stopped when the Container stopped before the command reached it, and nothing when nothing moved", async () => {
     expect(
       await awaitContainerCopy(
-        { running: () => true, exec: async () => ({ status: "not-running", stdout: "" }), warn: () => undefined },
+        {
+          running: () => true,
+          exec: async () => ({ status: "not-running", stdout: "" }),
+          warn: () => undefined,
+          waitMs: 5_000,
+        },
         expectation,
       ),
     ).toBe("stopped");
     expect(
       await awaitContainerCopy(
-        { running: () => true, exec: async () => ({ status: "completed", stdout: "" }), warn: () => undefined },
+        {
+          running: () => true,
+          exec: async () => ({ status: "completed", stdout: "" }),
+          warn: () => undefined,
+          waitMs: 5_000,
+        },
         { present: [], removed: [] },
       ),
     ).toBeUndefined();

@@ -104,9 +104,9 @@ export const portsArgv = (): ReadonlyArray<string> => [
 export const PORTS_NODE_SCRIPT = NODE_SCRIPT;
 
 const STOP_SCRIPT = String.raw`
-g=$1; shift; members="$*"
+g=$1; tries=$2; shift 2; members="$*"
 kill -s TERM -- "-$g" 2>/dev/null || { echo '{"signalled":false}'; exit 0; }
-for _ in $(seq 1 30); do
+for _ in $(seq 1 "$tries"); do
   alive=0
   for p in $members; do
     read -r stat < "/proc/$p/stat" 2>/dev/null || continue
@@ -122,11 +122,13 @@ echo '{"signalled":true}'
 `.replaceAll("\\${", "${");
 
 /**
- * The argv that stops process group `pgid`: TERM, then KILL after 3 s if any of its members is still in it (stock's
- * `signalUntilStopped`). Prints `{"signalled":true|false}`; false when the group was already gone.
+ * The argv that stops process group `pgid`: TERM, then KILL after `graceMs` (looked at every 100 ms; the Owner's
+ * `portStopGraceSeconds`, SPI-1364, stock's `signalUntilStopped` by default) if any of its members is still in it.
+ * Prints `{"signalled":true|false}`; false when the group was already gone.
  */
-export const stopGroupArgv = (pgid: number, members: ReadonlyArray<number>): ReadonlyArray<string> => {
+export const stopGroupArgv = (pgid: number, members: ReadonlyArray<number>, graceMs: number): ReadonlyArray<string> => {
   if (!Number.isInteger(pgid) || pgid <= 1) return [];
   const pids = members.filter((pid) => Number.isInteger(pid) && pid > 1).map(String);
-  return ["bash", "-c", STOP_SCRIPT, "t3flare-stop", String(pgid), ...pids];
+  const tries = String(Math.max(0, Math.ceil(graceMs / 100)));
+  return ["bash", "-c", STOP_SCRIPT, "t3flare-stop", String(pgid), tries, ...pids];
 };

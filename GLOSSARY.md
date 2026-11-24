@@ -237,24 +237,27 @@ _Avoid_: next-message prediction
 **Environment settings**:
 What the Cloud Environment gives every Workspace and its Container, and how long it keeps one: the Container size (a
 named one, or a custom size's vCPU, memory and disk: `customVcpu`, `customMemoryMib`, `customDiskMb`), idle time and
-budget, how long open Terminals hold the Container, how many may run and how much an agent's Terminal keeps of its
-scrollback, how many CLI agents' processes a
-Workspace may run and how long an idle one waits before it may be ended to free the Container for another Workspace, the
-Turn limit, the Answer wait, the settings read wait, how long a clone or a checkpoint may run, the Global mise config,
-the Image setup and the Container setup, the Environment skills, the Variables, whether Terminals and CLI agents read
-the Owner's dotfiles, how long usage records and Pi's and Claude Code's sessions are kept, how long an MCP call may run and how large a
-result it takes, how long a request to GitHub, a sign-in's vendor, T3 Connect or a Model endpoint's model list may wait
-(`outsideRequestSeconds`), how many of a
+budget, how long a Container start waits for it and how long a Workspace's recent command protects it from a reclaim,
+how long open Terminals hold the Container, how many may run and how much an agent's Terminal keeps of its scrollback,
+how many CLI agents' processes a Workspace may run and how long an idle one waits before it may be ended to free the
+Container for another Workspace, the Turn limit, the Answer wait, the settings read wait, how long a clone, a checkpoint
+or any other Container command may run, how long a turn waits for new Environment skills, how long a stopped command or
+port gets before it is killed, the Global mise config, the Image setup and the Container setup, the Environment skills,
+the Variables, whether Terminals and CLI agents read the Owner's dotfiles, how long a new Terminal waits for its first
+prompt and how much Terminal history t3 keeps, which Container ports a preview reaches and how long a port check waits,
+how long usage records, Pi's and Claude Code's sessions and temp files are kept, how many git answers and traced
+commands are kept, how long an MCP call may run and how large a result it takes, how long a request to GitHub, a
+sign-in's vendor, T3 Connect or a Model endpoint's model list may wait (`outsideRequestSeconds`), how many of a
 repository's skills are listed and how far its skills and Prompt templates directories are read (`repoSkillsListed`,
 `skillsDirectoryEntries`, `skillsLinkEntries`, `promptsDirectoryEntries`), how long a failed Base build waits to retry,
 how long the Environment waits idle and what wakes it (`idleAfterSeconds`, `prWatchWakeMinutes`, `remoteRetryMinutes`,
 `safeModeAfterFailures`), how long text generation may take and how long GitHub is left before it is asked again
-(`textGenerationSeconds`, `githubRetrySeconds`), the MCP calls' pauses, start wait and sign-in time
-(`mcpPausesPerCall`, `cliMcpStartSeconds`, `mcpSignInMinutes`), the preview browsers' cadences
-(`browserProfileSaveSeconds`, `htmlBrowserKeepAliveSeconds`), the Settings page's token, the Owner clients kept and T3
-Connect's publish log (`pageTokenHours`, `clientsPerKey`, `connectPublishLogKept`), how often a failed model request is
-tried again and a stopped command's processes killed (`durableRetries`, `cliRetries`, `killAttempts`), t3's trace file
-(`traceKiB`, `traceFiles`), and the Grace.
+(`textGenerationSeconds`, `githubRetrySeconds`), the MCP calls' pauses, start wait and sign-in time (`mcpPausesPerCall`,
+`cliMcpStartSeconds`, `mcpSignInMinutes`), the preview browsers' cadences (`browserProfileSaveSeconds`,
+`htmlBrowserKeepAliveSeconds`), the Settings page's token, the Owner clients kept and T3 Connect's publish log
+(`pageTokenHours`, `clientsPerKey`, `connectPublishLogKept`), how often a failed model request is tried again and a
+stopped command's processes killed (`durableRetries`, `cliRetries`, `killAttempts`), t3's trace file (`traceKiB`,
+`traceFiles`), and the Grace.
 t3flare's own, not t3's server settings.
 _Avoid_: environment config, server settings, Container settings
 

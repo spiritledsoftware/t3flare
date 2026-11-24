@@ -9,7 +9,8 @@ import type { DurableObjectStorage } from "@cloudflare/workers-types/index.ts";
 import type { Browser, BrowserContext, CDPSession, Page } from "playwright-core";
 
 import { environmentServices } from "../agents/bindings.ts";
-import { BROWSER_KEEP_ALIVE_MS, CONTAINER_PREVIEW_PORTS, containerPreviewHost } from "./browserRun.ts";
+import { previewPortsNow } from "../agents/bindings.ts";
+import { BROWSER_KEEP_ALIVE_MS, containerPreviewHost } from "./browserRun.ts";
 import { CdpClient, openCdpSocket } from "./cdpSocket.ts";
 
 /** The fork's entry points, typed with t3's own `playwright-core` types (the fork's resolve to `any` here). */
@@ -49,7 +50,7 @@ const step = async (lines: Array<Line>, name: string, run: () => Promise<unknown
 
 const routes = (workspace: string) => {
   const entry = environmentServices().containerPreviews(workspace);
-  return Object.fromEntries(CONTAINER_PREVIEW_PORTS.map((port) => [containerPreviewHost(port), entry]));
+  return Object.fromEntries(previewPortsNow().map((port) => [containerPreviewHost(port), entry]));
 };
 
 const binding = () => {

@@ -17,6 +17,8 @@ export type PollingOptions = {
   readonly maxDirectories?: number;
 };
 
+// pi-durable's `NodeFileWatcher` defaults (`dist/env/node-watch.js`), kept alike. `ExecutionEnv.watch` is required by
+// pi-durable's `FileSystem`, but nothing in production calls it: only pi-durable's `testing/env-conformance`.
 const DEFAULT_POLL_MS = 2000;
 const DEFAULT_MAX_DIRECTORIES = 10_000;
 

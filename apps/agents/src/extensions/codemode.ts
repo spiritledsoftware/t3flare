@@ -25,9 +25,15 @@ export interface CodemodeSandboxNamespace {
   getByName(name: string): CodemodeRemote;
 }
 
-/** A sandbox that runs each of a Session's scripts on the Session's own object (`name`), never another Session's. */
-export const remoteSandbox = (namespace: CodemodeSandboxNamespace, name: string): CodemodeSandboxBase =>
-  new RemoteCodemodeSandbox({ remote: () => namespace.getByName(name) });
+/**
+ * A sandbox that runs each of a Session's scripts on the Session's own object (`name`), never another Session's, with the
+ * Owner's compute budget (`codemode.interruptBudget`, SPI-1364).
+ */
+export const remoteSandbox = (
+  namespace: CodemodeSandboxNamespace,
+  name: string,
+  interruptBudget: number,
+): CodemodeSandboxBase => new RemoteCodemodeSandbox({ remote: () => namespace.getByName(name), interruptBudget });
 
 /** t3's own tools as a code mode namespace (`tools.mcp__t3_code__…` in a script). */
 export const T3_NAMESPACE: CodemodeNamespace = {

@@ -217,8 +217,8 @@ if (wants("fence")) {
     ).json;
     out.leak = leak;
     check(
-      "leak: no secret in the Container or the Sessions' state",
-      leak?.leaked === 0 && leak?.credentialsFound > 0,
+      "leak: no secret in the Container or the Sessions' state, the Container's dump scanned to its end",
+      leak?.complete === true && leak?.leaked === 0 && leak?.credentialsFound > 0,
       leak,
     );
   }

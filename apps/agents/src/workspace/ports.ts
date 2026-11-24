@@ -28,13 +28,14 @@ export const scanRunningContainer = async (container: RunningContainer | undefin
   return JSON.parse(out.trim()) as PortScan;
 };
 
-/** Stops process group `pgid` (TERM, KILL after 3 s); false when it was gone or the Container is not running. */
+/** Stops process group `pgid` (TERM, KILL after `graceMs`); false when it was gone or the Container is not running. */
 export const stopGroupInRunningContainer = async (
   container: RunningContainer | undefined,
   pgid: number,
   members: ReadonlyArray<number>,
+  graceMs: number,
 ): Promise<boolean> => {
-  const argv = stopGroupArgv(pgid, members);
+  const argv = stopGroupArgv(pgid, members, graceMs);
   if (container === undefined || !container.running || argv.length === 0) return false;
   const out = await run(container, argv);
   return out?.includes('"signalled":true') === true;
@@ -46,15 +47,19 @@ export interface PortProbe {
   readonly location: string | null;
 }
 
-/** One GET of `path` on the Container's `port`, as stock's web probe does (1 s, no redirect followed, body unread). */
+/**
+ * One GET of `path` on the Container's `port`, as stock's web probe does (no redirect followed, body unread), waiting at
+ * most `waitMs` (`portProbeMs`, SPI-1364; stock's 1 s by default): the Container's TCP fetch has no deadline of its own.
+ */
 export const probeRunningPort = async (
   container: RunningContainer | undefined,
   port: number,
   path: string,
+  waitMs: number,
 ): Promise<PortProbe | undefined> => {
   if (container === undefined || !container.running) return undefined;
   if (!Number.isInteger(port) || port < 1 || port > 65_535 || !path.startsWith("/")) return undefined;
-  const signal = AbortSignal.timeout(1_000);
+  const signal = AbortSignal.timeout(waitMs);
   try {
     const response = await container
       .getTcpPort(port)

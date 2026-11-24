@@ -14,7 +14,13 @@
 // - The hold (review F7): a process holds the Container while its thread is in a turn, and for `idleHoldMs` after the
 //   last turn ended (or the last input). Past that it no longer holds it, and t3's own idle release (Patch 0003, at the
 //   same 10 minutes) ends the session.
-import { CLI_IDLE_HOLD_MS, ENVIRONMENT_SETTINGS, fitsEnvironmentSetting } from "@t3flare/harness-registry";
+import {
+  CLI_IDLE_HOLD_MS,
+  CLI_SESSION_RELEASE_MS,
+  ENVIRONMENT_SETTINGS,
+  fitsEnvironmentSetting,
+  T3_MAX_IDLE_PIN_MS,
+} from "@t3flare/harness-registry";
 import { MODEL_HANDLE_ENV } from "@t3flare/models/relay";
 import { PROCESS_SHELL, processCommand, type ProcessFile } from "@t3flare/sandbox-image/process";
 import type {
@@ -47,13 +53,18 @@ export { CLI_IDLE_HOLD_MS };
  */
 export const STARTUP_GRACE_MS = 30_000;
 /**
- * A process out of a turn with neither input nor output for this long is killed. Fixed, and not the Turn limit
- * (SPI-1315): it applies only out of a turn (`!inTurn`), where the Turn limit has nothing to bound (the Environment's
- * wrapper ends a turn at its limit), and it backs up t3flare's own cleanup: t3 releases an idle session at
- * `CLI_SESSION_RELEASE_MS` (harness-registry) and the heartbeat lapse (`HEARTBEAT_LAPSE_MS`) catches a lost
- * Environment, so only a process both missed reaches it.
+ * A process out of a turn with neither input nor output for this long is killed. Not the Turn limit (SPI-1315): it
+ * applies only out of a turn (`!inTurn`), where the Turn limit has nothing to bound (the Environment's wrapper ends a turn
+ * at its limit). It backs up two cleanups, so it is derived to come after both (SPI-1364), and only a process both missed
+ * reaches it:
+ * - t3's release of an idle session. A silent session is released `CLI_SESSION_RELEASE_MS` (Patch 0003) after it went
+ *   idle; while its runtime reports background work (Claude's scheduled wakeups, background tasks and subagents, silent
+ *   on stdio) t3 pins it instead, rechecking once per release, for at most `T3_MAX_IDLE_PIN_MS`: at most release + pin +
+ *   release in all. Output resets both t3's pin and this process's I/O clock.
+ * - the heartbeat lapse (`HEARTBEAT_LAPSE_MS`), a lost Environment.
+ * Not covered: t3 restarting its idle clock with no I/O to the process (a session `get`), which keeps it past this.
  */
-export const BACKSTOP_MS = 130 * 60_000;
+export const BACKSTOP_MS = CLI_SESSION_RELEASE_MS + T3_MAX_IDLE_PIN_MS + CLI_SESSION_RELEASE_MS + HEARTBEAT_LAPSE_MS;
 
 /** The part of the platform's `ExecProcess` used here (no PTY). */
 export interface CliProcess {
@@ -94,14 +105,6 @@ export interface ProcessHostDeps {
     input: ProcessStartInput,
   ) => Promise<{ readonly env?: Readonly<Record<string, string>>; readonly sandbox?: boolean } | void>;
 }
-
-/**
- * Step 4b: what a CLI process counts against the Workspace's cap, in Codex processes. Claude Code (its Node adapter and
- * `claude`) peaked at 344 MiB and OpenCode (`opencode acp` and its `serve` child) at 439 MiB in a turn running
- * `npm ci && npm test` (steps-evidence-1:docs/steps/step-4b/m0-local.json P7), about twice an idle Codex app-server.
- */
-export const CLI_WEIGHT: Readonly<Record<string, number>> = { claude: 2, opencode: 2 };
-const weightOf = (cli: string) => CLI_WEIGHT[cli] ?? 1;
 
 /**
  * A start's carried Environment settings (SPI-1318): the CLI agents' processes per Workspace and the reclaim delay, each
@@ -167,7 +170,7 @@ export class ProcessHost {
   #drained: Array<() => void> = [];
   #reads = 0;
   #lastInput = 0;
-  /** The weight of starts between the cap's check and their registration (`start`). */
+  /** Starts between the cap's check and their registration (`start`). */
   #reserved = 0;
 
   constructor(deps: ProcessHostDeps) {
@@ -177,11 +180,6 @@ export class ProcessHost {
   /** When any process here last had input (G11: a Container preview's hold is capped from the Workspace's last input). */
   get lastInput(): number {
     return this.#lastInput;
-  }
-
-  /** The live processes' weight against the cap (`CLI_WEIGHT`). */
-  get weight(): number {
-    return [...this.#procs.values()].filter((proc) => !proc.exited).reduce((sum, proc) => sum + weightOf(proc.cli), 0);
   }
 
   /** Live processes (not exited). */
@@ -278,13 +276,14 @@ export class ProcessHost {
     const limits = cliLimitsOf(input);
     // Lowering the setting ends no running process: a start is refused until fewer run (as the Container budget does).
     // Starts in flight count too: the check and the registration are apart by awaits.
-    const counted = this.weight + this.#reserved;
-    if (counted + weightOf(input.cli) > limits.maxProcesses)
+    // SPI-1364: each process counts once, whatever its CLI; the setting's description states each one's memory.
+    const counted = this.size + this.#reserved;
+    if (counted + 1 > limits.maxProcesses)
       return refuse(
-        `this Workspace's CLI agents' processes already count ${counted} of the ${limits.maxProcesses} its Environment setting "${ENVIRONMENT_SETTINGS.cliProcessesPerWorkspace.title}" (cliProcessesPerWorkspace) allows, and Claude Code's and OpenCode's count two each; let one finish first, or raise the setting`,
+        `this Workspace already runs ${counted} of the ${limits.maxProcesses} CLI agents' processes its Environment setting "${ENVIRONMENT_SETTINGS.cliProcessesPerWorkspace.title}" (cliProcessesPerWorkspace) allows; let one finish first, or raise the setting`,
       );
-    // The slot is held from the check until the process is registered (it then counts in `weight`) or the start fails.
-    let held = weightOf(input.cli);
+    // The slot is held from the check until the process is registered (it then counts in `size`) or the start fails.
+    let held = 1;
     this.#reserved += held;
     const release = () => {
       this.#reserved -= held;

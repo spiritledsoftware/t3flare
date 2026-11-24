@@ -113,6 +113,28 @@ export interface FoundEntry {
   readonly kind: FileKind;
 }
 
+/** A Workspace's file index (FsOp `index`, SPI-1364): its entries, and whether they were cut to fit `maxBytes`. */
+export interface FoundIndex {
+  readonly entries: ReadonlyArray<FoundEntry>;
+  readonly truncated: boolean;
+}
+
+/**
+ * What an entry of `FoundIndex` may take crossing DO RPC, in bytes, to count against `maxBytes`: its path at 2 bytes a
+ * character (a string with any character past Latin-1 crosses as UTF-16) and 64 for its keys and kind.
+ */
+export const foundEntryBytes = (entry: FoundEntry): number => entry.path.length * 2 + 64;
+
+/** The first of `entries` whose `foundEntryBytes` fit in `maxBytes`, and whether any were left out. */
+export const fitFoundEntries = (entries: ReadonlyArray<FoundEntry>, maxBytes: number): FoundIndex => {
+  let bytes = 0;
+  for (let at = 0; at < entries.length; at++) {
+    bytes += foundEntryBytes(entries[at]!);
+    if (bytes > maxBytes) return { entries: entries.slice(0, at), truncated: true };
+  }
+  return { entries, truncated: false };
+};
+
 export interface GrepMatch {
   readonly path: string;
   readonly line: number;
@@ -130,6 +152,8 @@ export interface GitRun {
   readonly startContainer: boolean;
   /** What a passive read's answer depends on: `.git` alone, or the whole repo (working tree included). */
   readonly readScope?: "git-dir" | "repo";
+  /** The caller's id for this run, by which `cancelRun` ends it when t3 gives up on it (SPI-1364). */
+  readonly runId?: string;
 }
 
 export type GitAnswer =
@@ -476,8 +500,17 @@ export type AgentTerminalRequest =
       /** Record this answer as the owner's view (a final answer); a chunk is not. */
       readonly view: boolean;
       readonly tail?: AgentTail;
+      /** How long the screen must be quiet to settle (`termctrl.quietMs`, SPI-1364); absent, termctrl's 250 ms. */
+      readonly quietMs?: number;
     }
-  | { readonly op: "stop"; readonly owner: string; readonly id: string; readonly tail?: AgentTail }
+  | {
+      readonly op: "stop";
+      readonly owner: string;
+      readonly id: string;
+      readonly tail?: AgentTail;
+      /** How long the stop waits for the exit after the close (`termctrl.stopGraceSeconds`, SPI-1364); absent, 3 s. */
+      readonly graceMs?: number;
+    }
   | { readonly op: "list"; readonly owner: string }
   | {
       readonly op: "wait";
@@ -510,10 +543,8 @@ export type AgentTerminalResult<Op extends AgentTerminalRequest["op"]> =
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Container previews (G11, ADR-0031): Browser Run routes at most eight hosts, HTTP on port 80, each to the Workspace the
-// browser was acquired for. computerd's port (8080) is never one of them.
-
-/** The Container ports a preview browser reaches, as `http://<port>.t3flare.internal/`. */
-export const CONTAINER_PREVIEW_PORTS: ReadonlyArray<number> = [3000, 3001, 4173, 4321, 5173, 5174, 8000, 8787];
+// browser was acquired for. Which ports is the Owner's Environment setting `previewPorts` (SPI-1364); t3flare's own
+// (`RESERVED_CONTAINER_PORTS`, @t3flare/harness-registry) are never one of them.
 export const CONTAINER_PREVIEW_DOMAIN = "t3flare.internal";
 export const containerPreviewHost = (port: number): string => `${port}.${CONTAINER_PREVIEW_DOMAIN}`;
 /** Where the carried sockets' endpoints are on every Container preview host, and the header their requests carry. */

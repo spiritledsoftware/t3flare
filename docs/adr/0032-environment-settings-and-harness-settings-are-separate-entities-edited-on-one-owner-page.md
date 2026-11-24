@@ -242,7 +242,8 @@ key, so changing it alone leaves a Base snapshot current.
 
 The Workspace DO's fixed cap of 4 CLI processes and its fixed 30 s reclaim delay were measured against `cpu-1`; since
 the Container size is a setting, both are the Owner's. `cliProcessesPerWorkspace`: 4 by default, 1 to 100, tier
-`down-free`, counted as before (Claude Code and OpenCode count two each). 100 is a sanity bound (ADR-0048): the
+`down-free`, counted as before (Claude Code and OpenCode count two each; superseded by the SPI-1364 refinement: each
+process counts once). 100 is a sanity bound (ADR-0048): the
 Container's memory bounds it in fact, and the description states that once ("Each CLI agent's process takes about 150
 to 200 MB of the Container's memory; past what the Container size has, commands fail for memory."). `cliReclaimSeconds`:
 30 by default, 0 to 660, tier `free`. 660 is a named constraint: a CLI process holds the Container for
@@ -275,7 +276,8 @@ the default, `DEFAULT_TURN_LIMIT_MS` (harness-registry, its one source). The dep
 and the stage's Turn limit check) still wins over both.
 
 The Workspace DO's process backstop (`BACKSTOP_MS`, 130 minutes) stays fixed and does not follow the limit: it applies
-only to a process out of a turn, where the Turn limit bounds nothing.
+only to a process out of a turn, where the Turn limit bounds nothing. (Its 130 minutes are superseded by the SPI-1364
+refinement: it is derived from the cleanups it backs up; it still does not follow the Turn limit.)
 
 ## Refinement (SPI-1314, 2026-11-23): the settings read wait
 
@@ -605,3 +607,84 @@ deletes is asked downward.
 - Git's automatic fetch is t3's own setting, off by default (ADR-0023's and ADR-0009's SPI-1367 refinements), so it
   has no row here. Idle compaction stays locked off: it needs a provider turn's prompt cache expiry, which Claude Code
   over ACP never reports (ADR-0023's SPI-1367 refinement). t3's product analytics stays off (Owner decision D1).
+
+## Refinement (SPI-1364, 2026-11-23): the Workspace's commands, Terminals, previews and what it keeps
+
+The Workspace DO's and the Container operations' fixed values were each removed, derived, or made a setting; this
+supersedes the SPI-1318 refinement's "Claude Code and OpenCode count two each" and the SPI-1315 refinement's fixed
+130-minute backstop.
+
+New Environment settings, each with today's value as its default and its consequence stated once in its description:
+
+- A Commands row: `commandMinutes` (2), the deadline of a Container command that carries none of its own (an agent's
+  search of a Container-only path, the credential helper's install; not t3's git, below), `down-free`.
+  - `containerConnectSeconds` (60), computer's connect deadline, `down-free`.
+  - `reclaimProtectionSeconds` (30), the reclaim protection: how recent use keeps a Container from a reclaim, which some
+    value must keep or two Workspaces under a full budget stop each other between commands, `free`.
+  - `skillsWaitSeconds` (5), the wait for a running Container's copy of new Environment skills, whose exec deadline is
+    derived from it (its looks plus a 10 s margin), `free`.
+  - `abortGraceSeconds` (2) and `portStopGraceSeconds` (3), TERM before KILL for a stopped command's processes
+    (t3flare's kill script's 2 s) and a stopped port's group (stock t3's `STOP_GRACE_MS`), `free`, with a sanity maximum
+    of 600 (`MAX_STOP_GRACE_SECONDS`). The kill script gives up `KILL_GIVE_UP_MS` (1 s) after its KILL.
+- A Terminals row: `firstPromptSeconds` (20), how long input to a new t3 Terminal waits for its first prompt, `free`;
+  `terminalHistoryKiB` (1024) and `exitedTerminalsKept` (16), t3's TerminalManager history in the Environment DO,
+  `down-free`, with stock t3's 8 MiB and 128 as sanity maxima; the 128 MB isolate bounds their product, which their
+  descriptions state. They apply when the Environment next restarts: t3 takes them when its layer is built.
+- In the Previews row, first, before SPI-1366's preview browser cadences: `previewPorts`, the Container ports a preview
+  browser routes (default the eight of ADR-0031), a new `ports` field type, at most `MAX_PREVIEW_PORTS` (8, Browser
+  Run's hosts) and never `RESERVED_CONTAINER_PORTS` (computerd's 8080, the MCP bridge's 17781), asked either way;
+  `portProbeMs` (1000), a port check's wait, `free`. `previewPorts` and `routerTraceEntries` apply at their next use
+  (`NEXT_USE_SETTING_KEYS`), and `terminalHistoryKiB` and `exitedTerminalsKept` at the Environment's next restart
+  (`ENVIRONMENT_RESTART_SETTING_KEYS`); the Settings server says so.
+- The History row gains `tempFilesHours` (24), harness temp files' retention, read at an agent's first file operation
+  after the Workspace wakes, `up-free` as the other retentions;
+  `gitReadsKept` (500), the passive git answers a Workspace keeps (their only deletion), `down-free`; and
+  `routerTraceEntries` (300), the Environment's in-memory command trace, `down-free`.
+
+The Workspace DO's settings are read from the copy its last Container start took, so they apply at a Workspace's next
+Container start. `containerConnectSeconds` is read when computer's backend is made, before that start takes the
+settings, so a change can take one more start to apply, as the settings read wait's does.
+
+Two Harness settings: termctrl's `quietMs` (250) and `stopGraceSeconds` (3), carried on each agent Terminal settle and
+stop; and code mode's `interruptBudget` (100,000 polls, pi-codemode's default), at most `MAX_CODEMODE_INTERRUPT_BUDGET`,
+derived from the sandbox Worker's CPU limit (a Durable Object's default 30 s, which apps/environment/alchemy.run.ts
+leaves unset) at pi-codemode's measured 10,000 polls a CPU second.
+
+Derived, not set: t3's git commands end when t3 gives up on them. t3 times each git command by interrupting its own wait
+(30 s by default, 5 minutes for a fetch, none for a push), which the spawner sees only as its scope closing; the router
+then asks the Workspace to end that run (`cancelRun`, TERM then KILL after t3's own 1 s), however long the run's
+Container took to start. A run t3 can cancel takes no `commandMinutes` cut: its deadline is `CANCELLABLE_RUN_MS`, the
+shared sanity maximum (`MAX_TIMED_MINUTES`), a backstop for a run whose cancel cannot come (the Environment restarted).
+A killed read's answer is never cached (computer's `cancelled` status; a timeout's kill was cached before, since
+computer never reports `timeout`). The process backstop is later than both cleanups it backs up, so only a process both
+missed reaches it: t3 releases a silent session `CLI_SESSION_RELEASE_MS` after it goes idle, but pins it instead while
+its runtime reports background work (Claude's scheduled wakeups, background tasks, subagents), for at most t3's
+`DEFAULT_MAX_IDLE_PIN_MS` (4 hours, `T3_MAX_IDLE_PIN_MS`), rechecking once per release; so the backstop is two releases
+plus that pin plus `HEARTBEAT_LAPSE_MS` (about 4 h 21 min). A session `get` that restarts t3's idle clock with no I/O is
+not covered (docs/upstream-fragility.md U106). The process channel gives up on a Workspace once its reads or a stdin
+write have failed for the heartbeat lapse, not after a count of tries.
+
+Removed: the count weight of Claude Code and OpenCode (each process counts once; `cliProcessesPerWorkspace`'s
+description states each CLI's memory instead), the project-root view's 1,000 files and 20 MiB, its find's 50,000, the
+leak check's 200 matches (it pages), the leak dump's 1 MB file size, 5,000 files and 32 MiB (it is written to a file in
+the Container and read back in `DUMP_SLICE_BYTES` slices, scanned in the Environment, so no secret enters the
+Container), the scratch checkouts' 2-hour
+TTL, the relay keys' 32 endpoints, the credential helper's 60 s, the separate deadlines of the ref priming (60 s) and
+of starting the Container (180 s), content search's 50 highlights a line, and the metadata batch's concurrency of 8.
+
+Kept, with their constraints named where they are set: the MCP relay's body, raised to 16 MiB less 64 KiB (half the 32
+MiB DO RPC message, since a string may cross as UTF-16); the file index, bounded by the bytes of its DO RPC answer, not
+5,000 entries, its cut stated; a file read, stock t3's 1 MiB, now read as a range; the terminal shells, bash and sh
+only, which the Container's terminal host runs; pi-durable's `listFiles` defaults, its interface's.
+
+A script that bounds its own output is answered whole. computer keeps, by default, only the last 2,000 lines or 64 KiB
+of each stream of an exec, and the Workspace DO's `exec` does not pass on the flag that says so, so a Container listing
+or a leak dump's slice came back silently cut to its end. Those run whole now, with nothing saved in the Workspace's
+files (`wholeOutput`): the Container file tools' scripts, the listings (`readdir`, `find`) bounded at `LISTING_BYTES` (1
+MiB) and failing past it, saying so, grep at `GREP_OUTPUT_BYTES`, the leak dump's slices at `DUMP_SLICE_BYTES` (4 MiB),
+and a checkpoint diff, which the Container cuts to the size t3 asks for (`head -c`). Each bound is named by the
+Workspace DO's isolate memory, not the DO RPC message: whole, an output is held about 3 to 4 times its size at its peak,
+and a parsed listing about 20 times. Every other command, t3's git reads and actions among them, keeps computer's
+default as before: its answer is still tailed to 64 KiB without a word, which a follow-up ticket owns; failing those
+past a size broke t3 features that read a long answer's head (a generated commit message's staged patch, a PR's range,
+the review panel's diff).

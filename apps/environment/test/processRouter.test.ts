@@ -1,3 +1,4 @@
+// @effect-diagnostics globalTimers:off
 // The process router's gh answers, as t3's GitHub provider reads them: `gh auth status --json hosts` through the
 // router's spawner, parsed by t3's own `parseGitHubAuth` (its Settings → Source Control discovery). And its refusals,
 // which t3 shows and persists through Patch 0008 (SPI-1182): one line each, live tokens taken out.
@@ -10,7 +11,7 @@ import * as ChildProcess from "effect/process/ChildProcess";
 import { parseGitHubAuth } from "../../../t3code/packages/source-control-github/src/server/GitHubSourceControlProvider.ts";
 import { resolveEnvironment } from "@t3flare/harness-registry";
 
-import { bindEnvironmentServices, type EnvironmentServices } from "../src/agents/bindings.ts";
+import { bindEnvironmentServices, environmentServices, type EnvironmentServices } from "../src/agents/bindings.ts";
 import { T3FLARE_FATAL } from "../src/agents/gitRoutes.ts";
 import { spawn } from "../src/agents/processRouter.ts";
 import type { WorkspaceRecord } from "../src/agents/workspaces.ts";
@@ -197,6 +198,12 @@ const bindGitLimits = (calls: Calls, settings: Record<string, unknown>) => {
   } as unknown as EnvironmentServices);
 };
 
+/** The bound services, as the tests' stubs (`bindGitLimits`) made them. */
+const bindingsOf = () =>
+  environmentServices() as unknown as {
+    agents: { WORKSPACES: { get: (id: string) => unknown } };
+  };
+
 const limitOf = (calls: Calls, method: string) =>
   (calls.find((call) => call.method === method)?.input as { timeoutMs?: number } | undefined)?.timeoutMs;
 
@@ -232,5 +239,61 @@ describe("the clone and checkpoint time limits (SPI-1324)", () => {
     expect(limitOf(calls, "worktreeClone")).toBe(900_000);
     expect(limitOf(calls, "worktreeFinish")).toBe(900_000);
     expect(limitOf(calls, "worktreeBundle")).toBe(600_000);
+  });
+});
+
+describe("a git command t3 gives up on (SPI-1364)", () => {
+  /** The project's Workspace DO, whose `git` answers only when `answerGit` is called, or when its run is cancelled. */
+  const bindSlowGit = (calls: Calls) => {
+    let answerGit: (answer: unknown) => void = () => undefined;
+    bindGitLimits(calls, {});
+    const services = bindingsOf();
+    const workspaces = services.agents.WORKSPACES;
+    const get = workspaces.get;
+    workspaces.get = (id: string) => {
+      const inner = get(id) as Record<string, (input: unknown) => Promise<unknown>>;
+      return new Proxy(inner, {
+        get: (target, method: string) =>
+          method === "git"
+            ? (input: unknown) => {
+                calls.push({ id, method, input });
+                return new Promise((resolve) => (answerGit = resolve));
+              }
+            : method === "cancelRun"
+              ? async (input: unknown) => {
+                  calls.push({ id, method, input });
+                  answerGit({ ran: true, exitCode: 143, stdout: "", stderr: "", ms: 0 });
+                  return true;
+                }
+              : target[method],
+      });
+    };
+    return { answer: (answer: unknown) => answerGit(answer) };
+  };
+
+  it("ends the Container's command by the run id its git carried, when t3's own timeout interrupts the spawn", async () => {
+    const calls: Calls = [];
+    bindSlowGit(calls);
+    const timedOut = await Effect.runPromise(
+      Effect.gen(function* () {
+        const handle = yield* spawn(ChildProcess.make("git", ["push"], { cwd: "/w/t3flare" }) as ChildProcess.Command);
+        return yield* handle.exitCode;
+      }).pipe(Effect.scoped, Effect.timeoutOption("50 millis")),
+    );
+    expect(timedOut._tag).toBe("None");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const git = calls.find((call) => call.method === "git")?.input as { runId?: string } | undefined;
+    expect(git?.runId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(calls.filter((call) => call.method === "cancelRun").map((call) => call.input)).toEqual([git?.runId]);
+  });
+
+  it("cancels nothing once the command answered", async () => {
+    const calls: Calls = [];
+    const slow = bindSlowGit(calls);
+    const done = run("git", ["push"], "/w/t3flare");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    slow.answer({ ran: true, exitCode: 0, stdout: "", stderr: "", ms: 0 });
+    expect((await done).exitCode).toBe(0);
+    expect(calls.some((call) => call.method === "cancelRun")).toBe(false);
   });
 });

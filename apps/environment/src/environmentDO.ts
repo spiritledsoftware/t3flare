@@ -248,6 +248,17 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       // Read at each clone and checkpoint operation (SPI-1324) and carried as its `timeoutMs`: one already running keeps it.
       cloneMs: () => this.#environmentNow().cloneMinutes * 60_000,
       checkpointMs: () => this.#environmentNow().checkpointMinutes * 60_000,
+      // SPI-1364: read at each preview browser's acquisition and URL translation, and at each routed command.
+      previewPorts: () => this.#environmentNow().previewPorts,
+      routerTraceEntries: () => this.#environmentNow().routerTraceEntries,
+      // SPI-1364: read once, when t3's TerminalManager is built at this object's start.
+      terminalHistory: () => {
+        const settings = this.#environmentNow();
+        return {
+          historyByteLimit: settings.terminalHistoryKiB * 1024,
+          maxRetainedInactiveSessions: settings.exitedTerminalsKept,
+        };
+      },
       // Read when a card is raised and at each CLI spawn (SPI-1316): a card already waiting keeps its deadline.
       ownerAnswerMs: () => ownerAnswerMsOf(this.#environmentNow()),
       // Read at each CLI spawn (SPI-1359): the CLI's tool timeout covers the MCP call time limit as stored then.

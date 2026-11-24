@@ -1,4 +1,4 @@
-// @effect-diagnostics globalTimers:off globalConsole:off extendsNativeError:off
+// @effect-diagnostics globalTimers:off globalDate:off globalConsole:off extendsNativeError:off
 // The Environment's half of the process channel (step 4a, ADR-0015's refinement): a CLI process t3 spawns runs in a
 // Workspace's Container (the Workspace DO's `ProcessHost`); here it is a handle t3's code reads and writes.
 //
@@ -25,16 +25,20 @@ import type {
   ProcessStartInput,
 } from "@t3flare/workspace-client";
 
-/** A read waits this long for output; it is also the processes' heartbeat (the Workspace kills them after 90 s without). */
+/**
+ * The Workspace kills a process it has not been heartbeaten for in this long: `HEARTBEAT_LAPSE_MS` in apps/agents'
+ * `workspace/processHost.ts`, mirrored here because this app does not depend on apps/agents. Past it, a process whose
+ * reads (its heartbeats) or stdin have failed all along is gone there, so the channel gives up on it here.
+ */
+export const WORKSPACE_HEARTBEAT_LAPSE_MS = 90_000;
+/** A read waits this long for output; it is also the processes' heartbeat (see `WORKSPACE_HEARTBEAT_LAPSE_MS`). */
 export const READ_WAIT_MS = 20_000;
-/** Reads that fail in a row before a Workspace's processes end here (the Workspace's lapse kills them there). */
-export const READ_FAILURES = 4;
+/** The longest wait between retries of a failed read or `processInput`, so a recovered Workspace is reached soon. */
+export const RETRY_WAIT_MAX_MS = 5_000;
 /** stdin is sent in pieces of at most this many bytes (a `data:` image can be several MB). */
 export const INPUT_PIECE_BYTES = 1024 * 1024;
 /** A queue's bound: stdout waits past it; stderr drops its oldest past it. */
 export const QUEUE_BYTES = 4 * 1024 * 1024;
-/** A lost `processInput` answer is retried this many times with the same seq before the process is ended. */
-const INPUT_RETRIES = 3;
 
 /** The Workspace DO's process RPCs, as much as the channel uses. */
 export interface ProcessRemote {
@@ -205,6 +209,7 @@ export class ChannelProcess {
   async #send(data: Uint8Array | null): Promise<void> {
     if (this.exitCode !== undefined) return;
     const seq = this.#nextInput++;
+    let failingSince: number | undefined;
     for (let attempt = 0; ; attempt++) {
       try {
         const answer = await this.place.remote.processInput(this.key, seq, data);
@@ -215,7 +220,11 @@ export class ChannelProcess {
         this.finish(129);
         return;
       } catch (error) {
-        if (attempt >= INPUT_RETRIES) {
+        // A retry is idempotent (same seq; the host answers a repeat `duplicate`): it goes on until the process has
+        // ended (the read loop gave up, or an exit frame came) or the Workspace's heartbeat lapse has passed.
+        if (this.exitCode !== undefined) return;
+        failingSince ??= Date.now();
+        if (Date.now() - failingSince >= WORKSPACE_HEARTBEAT_LAPSE_MS) {
           console.warn(
             JSON.stringify({ t3flare: "process-input-failed", key: this.key, error: String(error).slice(0, 200) }),
           );
@@ -223,7 +232,8 @@ export class ChannelProcess {
           this.finish(129);
           return;
         }
-        await new Promise((resolve) => setTimeout(resolve, 200 * 2 ** attempt));
+        await new Promise((resolve) => setTimeout(resolve, Math.min(RETRY_WAIT_MAX_MS, 200 * 2 ** attempt)));
+        if (this.exitCode !== undefined) return;
       }
     }
   }
@@ -457,6 +467,7 @@ export class ProcessChannel {
   async #readLoop(place: ProcessPlace): Promise<void> {
     let ack = 0;
     let failures = 0;
+    let failingSince: number | undefined;
     for (;;) {
       const processes = this.#inWorkspace(place.workspace);
       if (processes.length === 0) {
@@ -472,8 +483,10 @@ export class ProcessChannel {
           waitMs: READ_WAIT_MS,
         });
         failures = 0;
+        failingSince = undefined;
       } catch (error) {
         failures++;
+        failingSince ??= Date.now();
         console.warn(
           JSON.stringify({
             t3flare: "process-read-failed",
@@ -482,11 +495,12 @@ export class ProcessChannel {
             error: String(error).slice(0, 200),
           }),
         );
-        if (failures >= READ_FAILURES) {
+        // A blip is retried; reads failing for the Workspace's whole heartbeat lapse mean it has killed them there.
+        if (Date.now() - failingSince >= WORKSPACE_HEARTBEAT_LAPSE_MS) {
           for (const process of this.#inWorkspace(place.workspace)) process.finish(129);
           continue;
         }
-        await new Promise((resolve) => setTimeout(resolve, Math.min(5000, 250 * 2 ** failures)));
+        await new Promise((resolve) => setTimeout(resolve, Math.min(RETRY_WAIT_MAX_MS, 250 * 2 ** failures)));
         continue;
       }
       if (answer.batch !== 0) ack = answer.batch;

@@ -40,11 +40,12 @@ export const DEFAULT_CONTAINER_BUDGET = 3;
 export const MAX_CONTAINER_BUDGET = 100;
 
 /**
- * The CLI agents' processes per Workspace by default (`cliProcessesPerWorkspace`; plan §2.1, review F7), counted in
- * Codex processes (Claude Code and OpenCode count twice, `CLI_WEIGHT` in apps/agents/src/workspace/processHost.ts). An
- * idle Codex app-server measured 157–160 MB RSS on step4a (steps-evidence-1:docs/steps/step-4a/m3-memory.json), so four
- * take about 0.65 GB of `cpu-1`'s 3 GiB, beside computerd (~100 MB) and the agents' own commands (an `npm ci` and its
- * tests peak at 1–1.5 GB).
+ * The CLI agents' processes per Workspace by default (`cliProcessesPerWorkspace`; plan §2.1, review F7), each process
+ * counted once (SPI-1364). An idle Codex app-server measured 157–160 MB RSS on step4a
+ * (steps-evidence-1:docs/steps/step-4a/m3-memory.json), so four take about 0.65 GB of `cpu-1`'s 3 GiB, beside computerd
+ * (~100 MB) and the agents' own commands (an `npm ci` and its tests peak at 1–1.5 GB). Claude Code peaked at 344 MiB and
+ * OpenCode at 439 MiB in a turn running `npm ci && npm test` (steps-evidence-1:docs/steps/step-4b/m0-local.json P7), which
+ * the setting's description states.
  */
 export const DEFAULT_CLI_PROCESSES_PER_WORKSPACE = 4;
 
@@ -67,6 +68,15 @@ export const DEFAULT_CLI_RECLAIM_SECONDS = 30;
  * (docs/cost.md). The patch and this constant must name the same minutes (apps/agents/test/processHost.test.ts).
  */
 export const CLI_SESSION_RELEASE_MS = 10 * 60_000;
+
+/**
+ * The longest t3 keeps an idle provider session pinned while its runtime reports background work (a Claude scheduled
+ * wakeup, background task or running subagent, all silent on stdio): t3's `DEFAULT_MAX_IDLE_PIN_MS`, 4 hours
+ * (`apps/server/src/orchestration-v2/ProviderSessionManager.ts`, not exported; no patch changes it). t3 checks the pin
+ * once per `CLI_SESSION_RELEASE_MS`, so a pinned session is released at most a release past it. Registered in
+ * docs/upstream-fragility.md; apps/agents/test/processHost.test.ts holds this constant to t3's source.
+ */
+export const T3_MAX_IDLE_PIN_MS = 4 * 60 * 60 * 1000;
 
 /**
  * How long after its last turn a CLI agent's process holds the Container: t3's session release
@@ -113,6 +123,113 @@ export const DEFAULT_CHECKPOINT_MINUTES = 10;
  * The checkpoint time limit's default in ms: used where no setting reaches (a call that carries none, a test's services).
  */
 export const DEFAULT_CHECKPOINT_MS = DEFAULT_CHECKPOINT_MINUTES * 60_000;
+
+/**
+ * The command time limit's default, in minutes (`commandMinutes`, SPI-1364): how long a Container command that carries no
+ * limit of its own may run (an agent's file search on a Container-only path, git's reads and actions for t3, the
+ * credential helper's install). The Workspace DO uses it for a call that carries none.
+ */
+export const DEFAULT_COMMAND_MINUTES = 2;
+
+/** The command time limit's default in ms: used where no setting reaches (a call that carries none, a test's services). */
+export const DEFAULT_COMMAND_MS = DEFAULT_COMMAND_MINUTES * 60_000;
+
+/** The Container connect wait's default, in seconds (`containerConnectSeconds`, SPI-1364): computer's connect deadline. */
+export const DEFAULT_CONTAINER_CONNECT_SECONDS = 60;
+
+/**
+ * The reclaim protection's default, in seconds (`reclaimProtectionSeconds`, SPI-1364): a Workspace that ran a command this
+ * recently is never stopped to free the Container budget for another, so two Workspaces under a full budget do not stop
+ * each other between commands.
+ */
+export const DEFAULT_RECLAIM_PROTECTION_SECONDS = 30;
+
+/** The Environment skills wait's default, in seconds (`skillsWaitSeconds`, SPI-1364; plan §4.2's "up to 5 s"). */
+export const DEFAULT_SKILLS_WAIT_SECONDS = 5;
+
+/**
+ * The stop graces' defaults, in seconds (SPI-1364): a stopped command's processes get TERM, then KILL after
+ * `abortGraceSeconds` (t3flare's own kill script's 2 s); a stopped port's group after `portStopGraceSeconds`, stock t3's
+ * `STOP_GRACE_MS` (3 s, `apps/server/src/preview/PortScanner.ts`; docs/upstream-fragility.md U103).
+ */
+export const DEFAULT_ABORT_GRACE_SECONDS = 2;
+export const DEFAULT_PORT_STOP_GRACE_SECONDS = 3;
+
+/**
+ * The most seconds a stop grace may be set to: a sanity bound (ADR-0048 §1). The Container's script times it with bash's
+ * clock, no timer, so nothing forces it; the Workspace DO waits on the script's exec meanwhile.
+ */
+export const MAX_STOP_GRACE_SECONDS = 600;
+
+/**
+ * How long the kill script keeps signalling after its KILL before it gives up: a process KILL cannot end (one in
+ * uninterruptible sleep) would otherwise keep it looping. apps/sandbox-image/src/kill.ts names the same second.
+ */
+export const KILL_GIVE_UP_MS = 1000;
+
+/** The git reads kept's default (`gitReadsKept`, SPI-1364): sized to t3's ~30 read shapes per branch. */
+export const DEFAULT_GIT_READS_KEPT = 500;
+
+/**
+ * The most git read answers a Workspace keeps: a sanity bound (ADR-0048 §1). What forces a bound is the Workspace DO's
+ * storage (10 GB), which a row of at most 8 MB per answer reaches only past 1,250 answers of the largest size; typical
+ * answers are a few KB, and the description states the cost.
+ */
+export const MAX_GIT_READS_KEPT = 100_000;
+
+/** The harness temp files' retention default, in hours (`tempFilesHours`, SPI-1364). */
+export const DEFAULT_TEMP_FILES_HOURS = 24;
+
+/** The router trace's default length (`routerTraceEntries`, SPI-1364). */
+export const DEFAULT_ROUTER_TRACE_ENTRIES = 300;
+
+/**
+ * The most router trace entries: a sanity bound (ADR-0048 §1). The trace lives in the Environment DO's 128 MB isolate; an
+ * entry is its command's first words and a detail cut at 400 characters, so 10,000 take at most a few MB.
+ */
+export const MAX_ROUTER_TRACE_ENTRIES = 10_000;
+
+/** A Durable Object isolate's memory, in MB: Cloudflare's documented Workers limit, which descriptions state. */
+export const ISOLATE_MEMORY_MB = 128;
+
+/** How long input to a new t3 Terminal waits for its shell's first prompt, by default, in seconds (SPI-1364). */
+export const DEFAULT_FIRST_PROMPT_SECONDS = 20;
+
+/**
+ * t3's Terminals' history in the Environment DO (SPI-1364): each Terminal's history in KiB, and how many exited Terminals
+ * keep theirs for a reattach. Each was set for the 128 MB isolate: 1 MiB and 16, where stock t3 keeps 8 MiB and 128.
+ */
+export const DEFAULT_TERMINAL_HISTORY_KIB = 1024;
+export const DEFAULT_EXITED_TERMINALS_KEPT = 16;
+
+/**
+ * The most of each: a sanity bound (ADR-0048 §1), stock t3's own values (`Manager.ts`'s DEFAULT_HISTORY_BYTE_LIMIT and
+ * DEFAULT_MAX_RETAINED_INACTIVE_SESSIONS). What bounds them in fact is their product with the open Terminals in the
+ * Environment DO's 128 MB isolate, which the descriptions state.
+ */
+export const MAX_TERMINAL_HISTORY_KIB = 8192;
+export const MAX_EXITED_TERMINALS_KEPT = 128;
+
+/** The Container preview ports by default (G11, ADR-0031): the dev servers' usual ports. */
+export const DEFAULT_PREVIEW_PORTS: ReadonlyArray<number> = [3000, 3001, 4173, 4321, 5173, 5174, 8000, 8787];
+
+/**
+ * The most Container preview ports. A named constraint: Browser Run routes at most eight hosts (`outboundByHost`) per
+ * browser, and each port is one host.
+ */
+export const MAX_PREVIEW_PORTS = 8;
+
+/**
+ * The ports no Container preview may reach. A named constraint: computerd's (8080) and the MCP bridge's (17781,
+ * apps/sandbox-image/src/mcp-bridge.ts) are t3flare's own servers in the Container.
+ */
+export const RESERVED_CONTAINER_PORTS: ReadonlyArray<number> = [8080, 17_781];
+
+/**
+ * How long a port's probe waits for an answer by default, in ms (SPI-1364): stock t3's `WEB_PROBE_TIMEOUT`
+ * (`apps/server/src/preview/PortScanner.ts`; docs/upstream-fragility.md U103).
+ */
+export const DEFAULT_PORT_PROBE_MS = 1000;
 
 /**
  * The settings read wait's default, in seconds (`settingsReadSeconds`, SPI-1314): how long a Container start or a turn
@@ -391,6 +508,9 @@ export const NEXT_USE_SETTING_KEYS = [
   ...ACCESS_SETTING_KEYS,
   ...RETRY_SETTING_KEYS,
   ...TRACE_SETTING_KEYS,
+  // SPI-1364: the Container preview ports at each preview browser's acquisition, the command trace at each command.
+  "previewPorts",
+  "routerTraceEntries",
 ] as const;
 
 /** The text generation time limit's default, in seconds (`textGenerationSeconds`, SPI-1366): today's 110 s. */
@@ -554,6 +674,40 @@ export const MAX_REPO_SKILLS_LISTED = 10_000;
  * listing is held whole in the Workspace DO's 128 MB isolate, which bounds it in fact.
  */
 export const MAX_DIRECTORY_ENTRIES = 100_000;
+
+/**
+ * What else t3flare keeps, and for how long (SPI-1364): its temp files in a Workspace, the git answers a Workspace keeps,
+ * and the command trace. The Settings page shows them in the History row, after `RETENTION_SETTING_KEYS`.
+ */
+export const KEPT_SETTING_KEYS = ["tempFilesHours", "gitReadsKept", "routerTraceEntries"] as const;
+
+/**
+ * How long a Workspace's Container commands and starts may take and wait (SPI-1364). The Settings page shows them in a
+ * Commands row of their own, in this order.
+ */
+export const COMMAND_SETTING_KEYS = [
+  "commandMinutes",
+  "containerConnectSeconds",
+  "reclaimProtectionSeconds",
+  "skillsWaitSeconds",
+  "abortGraceSeconds",
+  "portStopGraceSeconds",
+] as const;
+
+/** t3's Terminals: the first prompt's wait and their history (SPI-1364). The Settings page shows them in a Terminals row. */
+export const TERMINAL_SETTING_KEYS = ["firstPromptSeconds", "terminalHistoryKiB", "exitedTerminalsKept"] as const;
+
+/**
+ * The Container previews (SPI-1364): their ports and the port check's wait. The Settings page shows them first in the
+ * Previews row, before the preview browsers' cadences (`PREVIEW_SETTING_KEYS`).
+ */
+export const CONTAINER_PREVIEW_SETTING_KEYS = ["previewPorts", "portProbeMs"] as const;
+
+/**
+ * The Environment settings t3 reads when the Environment starts (SPI-1364): its Terminals' history, which t3's
+ * TerminalManager takes when it is built. A change applies at the Environment's next restart, as every deploy makes.
+ */
+export const ENVIRONMENT_RESTART_SETTING_KEYS = ["terminalHistoryKiB", "exitedTerminalsKept"] as const;
 
 /** A Container's resources, as `ctx.container.start({ instance })` takes a custom size. */
 export interface ContainerResources {
@@ -768,7 +922,7 @@ export const ENVIRONMENT_SETTINGS = {
   cliProcessesPerWorkspace: {
     title: "CLI agents' processes per Workspace",
     description:
-      "How many CLI agents' processes one Workspace's Container may run at once; Claude Code's and OpenCode's each count as two. Each CLI agent's process takes about 150 to 200 MB of the Container's memory; past what the Container size has, commands fail for memory. Applies at each CLI agent's next start; lowering it ends no running process, and new starts are refused until fewer run.",
+      "How many CLI agents' processes one Workspace's Container may run at once. Each takes the Container's memory: an idle Codex about 160 MB, Claude Code and OpenCode up to about 350 and 450 MB in a turn; past what the Container size has, commands fail for memory. Applies at each CLI agent's next start; lowering it ends no running process, and new starts are refused until fewer run.",
     // A sanity bound (ADR-0048): the Container's memory is the real one, which the description states.
     schema: {
       type: "integer",
@@ -1213,6 +1367,136 @@ export const ENVIRONMENT_SETTINGS = {
     schema: { type: "integer", minimum: 1, maximum: MAX_TRACE_FILES, default: DEFAULT_TRACE_FILES },
     tier: "up-free",
   },
+  tempFilesHours: {
+    title: "Temp files kept (hours)",
+    description: `How long t3flare keeps its temp files in a Workspace: a long command's output saved for the agent to read, and scratch folders. Older ones are deleted at an agent's first file operation after the Workspace wakes; an agent given such a file's path can no longer read it. At most ${MAX_RETENTION_DAYS * 24} (ten years), which keeps them for good. Applies from each Workspace's next Container start.`,
+    schema: {
+      type: "integer",
+      minimum: 1,
+      maximum: MAX_RETENTION_DAYS * 24,
+      default: DEFAULT_TEMP_FILES_HOURS,
+    },
+    tier: "up-free",
+  },
+  gitReadsKept: {
+    title: "Git answers kept per Workspace",
+    description: `How many answers to t3's git reads (a branch list, a status) each Workspace keeps, to answer them while its Container is stopped. Past this the least recently used is deleted, and that read fails while the Container is stopped until it runs again. Each answer is stored in the Workspace and is usually a few KB. At most ${MAX_GIT_READS_KEPT}. Applies at each Workspace's next Container start.`,
+    // A sanity bound (`MAX_GIT_READS_KEPT`): the Workspace DO's storage is the real one.
+    schema: { type: "integer", minimum: 1, maximum: MAX_GIT_READS_KEPT, default: DEFAULT_GIT_READS_KEPT },
+    tier: "down-free",
+  },
+  routerTraceEntries: {
+    title: "Command trace entries",
+    description: `How many of the latest commands t3 ran through t3flare (git, gh, CLI agents) the diagnostic trace keeps. Each entry takes memory in the Environment until it restarts. At most ${MAX_ROUTER_TRACE_ENTRIES}. Applies at the next command.`,
+    // A sanity bound (`MAX_ROUTER_TRACE_ENTRIES`): the Environment DO's memory.
+    schema: { type: "integer", minimum: 1, maximum: MAX_ROUTER_TRACE_ENTRIES, default: DEFAULT_ROUTER_TRACE_ENTRIES },
+    tier: "down-free",
+  },
+  commandMinutes: {
+    title: "Command time limit (minutes)",
+    description: `How long a command in the Workspace's Container may run when nothing else sets its limit: an agent's search or read of a path only the Container has, and the credential helper's install. A command that runs longer than this is ended and fails; while it runs it holds the Container. t3's own git commands are not cut by it: each ends when t3 gives up on it. At most ${MAX_TIMED_MINUTES} (a week). Applies at each Workspace's next Container start.`,
+    // computerd times each exec with its own timer and no maximum (computer 0.11.2), so the shared sanity maximum applies
+    // (ADR-0048 §2).
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_COMMAND_MINUTES },
+    tier: "down-free",
+  },
+  containerConnectSeconds: {
+    title: "Container start wait (seconds)",
+    description: `How long a Container start waits for the Container to answer before it fails, every command waiting on it with it. A large image or a slow cold start may need longer; while it waits it holds a place in the Container budget. At most ${MAX_TIMED_SECONDS} (a week). Applies from each Workspace's next Container start; one start may still use the wait before.`,
+    // computer's connect deadline, one timer shared by its retries (baseStart.ts); the shared sanity maximum applies
+    // (ADR-0048 §2), in seconds.
+    schema: {
+      type: "integer",
+      minimum: 1,
+      maximum: MAX_TIMED_SECONDS,
+      default: DEFAULT_CONTAINER_CONNECT_SECONDS,
+    },
+    tier: "down-free",
+  },
+  reclaimProtectionSeconds: {
+    title: "Reclaim protection after a command (seconds)",
+    description: `Only while the Container budget is full and another Workspace asks for a Container: a Workspace that ran a command this recently keeps its Container, and the other waits. Shorter lets a waiting start go sooner, but two busy Workspaces may stop each other's Container between commands and cold-start each time. At most ${MAX_TIMED_SECONDS} (a week). Applies at each Workspace's next Container start.`,
+    // Compared with the last command's time, no timer: the shared sanity maximum applies (ADR-0048 §2), in seconds.
+    schema: {
+      type: "integer",
+      minimum: 0,
+      maximum: MAX_TIMED_SECONDS,
+      default: DEFAULT_RECLAIM_PROTECTION_SECONDS,
+    },
+    tier: "free",
+  },
+  skillsWaitSeconds: {
+    title: "Environment skills wait (seconds)",
+    description: `How long a turn waits for a running Container to get a newly changed set of Environment skills before it goes on with the set the Container has. A long wait delays the turn's start that long whenever the copy is slow. At most ${MAX_TIMED_SECONDS} (a week). Applies at each Workspace's next Container start.`,
+    // The Container's script counts its looks with sleep, no timer; the exec's deadline derives from it
+    // (apps/agents/src/workspace/skillSetTake.ts). The shared sanity maximum applies (ADR-0048 §2), in seconds.
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: DEFAULT_SKILLS_WAIT_SECONDS },
+    tier: "free",
+  },
+  abortGraceSeconds: {
+    title: "Stopped command's grace (seconds)",
+    description: `When an agent's command is stopped: how long its processes get after TERM to end on their own before KILL. A process that needs longer to flush (a database) loses what it had not written; the stop waits up to this long, and ${KILL_GIVE_UP_MS / 1000} s more for KILL. At most ${MAX_STOP_GRACE_SECONDS}. Applies at each Workspace's next Container start.`,
+    // A sanity bound (`MAX_STOP_GRACE_SECONDS`).
+    schema: { type: "integer", minimum: 0, maximum: MAX_STOP_GRACE_SECONDS, default: DEFAULT_ABORT_GRACE_SECONDS },
+    tier: "free",
+  },
+  portStopGraceSeconds: {
+    title: "Stopped port's grace (seconds)",
+    description: `When a listening port is stopped from t3: how long its processes get after TERM to end on their own before KILL. A dev server that needs longer to flush loses what it had not written; the stop waits up to this long. At most ${MAX_STOP_GRACE_SECONDS}. Applies at each Workspace's next Container start.`,
+    // A sanity bound (`MAX_STOP_GRACE_SECONDS`).
+    schema: { type: "integer", minimum: 0, maximum: MAX_STOP_GRACE_SECONDS, default: DEFAULT_PORT_STOP_GRACE_SECONDS },
+    tier: "free",
+  },
+  firstPromptSeconds: {
+    title: "Wait for a new Terminal's prompt (seconds)",
+    description: `What you type into a new Terminal before its shell first shows its prompt is held until the prompt shows. For a shell that never shows t3flare's prompt (a custom rc file that replaces it), the Terminal looks unresponsive for this long; the next thing you type after it sends what was held. At most ${MAX_TIMED_SECONDS} (a week). Applies at each Workspace's next Container start.`,
+    // t3flare's own check against the clock (terminalHost.ts), so the shared sanity maximum applies (ADR-0048 §2).
+    schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: DEFAULT_FIRST_PROMPT_SECONDS },
+    tier: "free",
+  },
+  terminalHistoryKiB: {
+    title: "Terminal history (KiB)",
+    description: `How much of each Terminal's output t3 keeps to show again on a reattach; older output is dropped. Every open Terminal's history, and each kept exited one's, is held in the Environment's memory, ${ISOLATE_MEMORY_MB} MB beside everything else it runs: too much can fail the Environment and every thread with it. At most ${MAX_TERMINAL_HISTORY_KIB} (stock t3's). Applies when the Environment next restarts, as every deploy does.`,
+    // A sanity bound (`MAX_TERMINAL_HISTORY_KIB`): the isolate's memory is the real one, which the description states.
+    schema: {
+      type: "integer",
+      minimum: 64,
+      maximum: MAX_TERMINAL_HISTORY_KIB,
+      default: DEFAULT_TERMINAL_HISTORY_KIB,
+    },
+    tier: "down-free",
+  },
+  exitedTerminalsKept: {
+    title: "Exited Terminals kept",
+    description: `How many exited Terminals keep their history for a reattach; past this the oldest is forgotten. Each kept one holds up to the Terminal history in the same memory. At most ${MAX_EXITED_TERMINALS_KEPT} (stock t3's). Applies when the Environment next restarts, as every deploy does.`,
+    // A sanity bound (`MAX_EXITED_TERMINALS_KEPT`), as the Terminal history's.
+    schema: {
+      type: "integer",
+      minimum: 0,
+      maximum: MAX_EXITED_TERMINALS_KEPT,
+      default: DEFAULT_EXITED_TERMINALS_KEPT,
+    },
+    tier: "down-free",
+  },
+  previewPorts: {
+    title: "Container preview ports",
+    description: `The Container ports a preview browser can open, comma-separated, each as http://<port>.t3flare.internal/: a dev server on any other port cannot be previewed. At most ${MAX_PREVIEW_PORTS}, and never ${RESERVED_CONTAINER_PORTS.join(" or ")}, t3flare's own; by default ${DEFAULT_PREVIEW_PORTS.join(", ")}. Applies to preview browsers opened after the change.`,
+    // Named constraints: Browser Run's eight hosts (`MAX_PREVIEW_PORTS`), t3flare's own ports (`RESERVED_CONTAINER_PORTS`).
+    // No tier, deliberately: which Container ports a browser may reach is asked either way (ADR-0035 §3).
+    schema: {
+      type: "ports",
+      maxCount: MAX_PREVIEW_PORTS,
+      reserved: RESERVED_CONTAINER_PORTS,
+      default: DEFAULT_PREVIEW_PORTS,
+    },
+  },
+  portProbeMs: {
+    title: "Port check wait (ms)",
+    description: `How long a check of a Container port waits for its server to answer; a dev server slower than this to answer shows as down. At most ${MAX_TIMED_MINUTES * 60_000} (a week). Applies at each Workspace's next Container start.`,
+    // AbortSignal.timeout, a JS timer: the shared sanity maximum applies (ADR-0048 §2), in ms.
+    schema: { type: "integer", minimum: 100, maximum: MAX_TIMED_MINUTES * 60_000, default: DEFAULT_PORT_PROBE_MS },
+    tier: "free",
+  },
 } as const satisfies Readonly<Record<string, EnvironmentSettingEntry>>;
 
 export type EnvironmentKey = keyof typeof ENVIRONMENT_SETTINGS;
@@ -1228,7 +1512,9 @@ type ValueOf<Schema> = Schema extends { readonly type: "enum"; readonly values: 
       ? boolean
       : Schema extends { readonly type: "variables" }
         ? ReadonlyArray<Variable>
-        : string;
+        : Schema extends { readonly type: "ports" }
+          ? ReadonlyArray<number>
+          : string;
 
 /** What a Workspace DO reads: every setting resolved, a stored value that no longer fits read as its default. */
 export type ResolvedEnvironment = { readonly revision: number } & {

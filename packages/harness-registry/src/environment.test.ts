@@ -6,6 +6,13 @@ import { describe, expect, it } from "vitest";
 import {
   AGENT_SETTING_KEYS,
   applyEnvironmentChange,
+  COMMAND_SETTING_KEYS,
+  KEPT_SETTING_KEYS,
+  CONTAINER_PREVIEW_SETTING_KEYS,
+  ENVIRONMENT_RESTART_SETTING_KEYS,
+  MAX_PREVIEW_PORTS,
+  RESERVED_CONTAINER_PORTS,
+  TERMINAL_SETTING_KEYS,
   BASE_BUILD_SETTING_KEYS,
   builderInstance,
   containerInstance,
@@ -113,6 +120,20 @@ const TUNABLE_DEFAULTS = {
   piSessionRetentionDays: 60,
   mcpCallSeconds: 270,
   mcpResultKiB: 1024,
+  tempFilesHours: 24,
+  gitReadsKept: 500,
+  routerTraceEntries: 300,
+  commandMinutes: 2,
+  containerConnectSeconds: 60,
+  reclaimProtectionSeconds: 30,
+  skillsWaitSeconds: 5,
+  abortGraceSeconds: 2,
+  portStopGraceSeconds: 3,
+  firstPromptSeconds: 20,
+  terminalHistoryKiB: 1024,
+  exitedTerminalsKept: 16,
+  previewPorts: [3000, 3001, 4173, 4321, 5173, 5174, 8000, 8787],
+  portProbeMs: 1000,
 } as const;
 
 describe("resolveEnvironment", () => {
@@ -447,7 +468,7 @@ describe("the CLI agents' processes per Workspace and the reclaim delay (SPI-131
       "row" in ENVIRONMENT_SETTINGS.cliProcessesPerWorkspace || "row" in ENVIRONMENT_SETTINGS.cliReclaimSeconds,
     ).toBe(false);
     expect(ENVIRONMENT_SETTINGS.cliProcessesPerWorkspace.description).toContain(
-      "Each CLI agent's process takes about 150 to 200 MB of the Container's memory; past what the Container size has, commands fail for memory.",
+      "Each takes the Container's memory: an idle Codex about 160 MB, Claude Code and OpenCode up to about 350 and 450 MB in a turn; past what the Container size has, commands fail for memory.",
     );
     expect(ENVIRONMENT_SETTINGS.cliReclaimSeconds.description).toContain(
       "ended to free the Container for another Workspace",
@@ -983,5 +1004,96 @@ describe("the Base build's settings (SPI-1332, ADR-0047 §9)", () => {
       "rebuildEveryDays",
       "baseRetryMinutes",
     ]);
+  });
+});
+
+describe("the Workspace's command limits, Terminals, previews and what it keeps (SPI-1364)", () => {
+  const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
+  const grouped = [
+    ...COMMAND_SETTING_KEYS,
+    ...TERMINAL_SETTING_KEYS,
+    ...CONTAINER_PREVIEW_SETTING_KEYS,
+    ...KEPT_SETTING_KEYS,
+  ];
+
+  it("each new setting is in exactly one row group, none joins another row, and none is an agent or Sweep setting", () => {
+    expect(new Set(grouped).size).toBe(grouped.length);
+    for (const key of grouped) {
+      expect("row" in ENVIRONMENT_SETTINGS[key], key).toBe(false);
+      expect(AGENT_SETTING_KEYS as ReadonlyArray<string>).not.toContain(key);
+      expect(SWEEP_SETTING_KEYS as ReadonlyArray<string>).not.toContain(key);
+      expect(RETENTION_SETTING_KEYS as ReadonlyArray<string>).not.toContain(key);
+    }
+  });
+
+  it("names the ones that apply at their next use or at the Environment's restart, not at a Container start", () => {
+    for (const key of ["previewPorts", "routerTraceEntries"])
+      expect(NEXT_USE_SETTING_KEYS as ReadonlyArray<string>).toContain(key);
+    expect(ENVIRONMENT_RESTART_SETTING_KEYS).toEqual(["terminalHistoryKiB", "exitedTerminalsKept"]);
+  });
+
+  it("the integers take their bounds and refuse a value past them, and a stored one out of bounds reads as the default", () => {
+    for (const key of grouped) {
+      const schema = ENVIRONMENT_SETTINGS[key].schema;
+      if (schema.type !== "integer") continue;
+      for (const value of [schema.minimum, schema.default, schema.maximum])
+        expect(set({ [key]: value }), key).toMatchObject({ ok: true });
+      for (const value of [schema.minimum - 1, schema.maximum + 1, 1.5, String(schema.default)])
+        expect(set({ [key]: value }), key).toMatchObject({ ok: false });
+      expect(resolveEnvironment({ revision: 1, settings: { [key]: schema.maximum + 1 } })[key], key).toBe(
+        schema.default,
+      );
+    }
+  });
+
+  it("every time limit's maximum fits a JS timer (2^31 - 1 ms)", () => {
+    const ms: Readonly<Record<string, number>> = {
+      commandMinutes: 60_000,
+      containerConnectSeconds: 1000,
+      reclaimProtectionSeconds: 1000,
+      skillsWaitSeconds: 1000,
+      abortGraceSeconds: 1000,
+      portStopGraceSeconds: 1000,
+      firstPromptSeconds: 1000,
+      portProbeMs: 1,
+    };
+    for (const [key, unit] of Object.entries(ms)) {
+      const schema = ENVIRONMENT_SETTINGS[key as keyof typeof ENVIRONMENT_SETTINGS].schema;
+      if (schema.type !== "integer") throw new Error(key);
+      // The skills wait's exec deadline adds a margin (skillSetTake.ts); it stays under too.
+      expect(schema.maximum * unit + 60_000, key).toBeLessThan(2 ** 31 - 1);
+    }
+  });
+
+  it("the preview ports are a list of at most MAX_PREVIEW_PORTS (Browser Run's eight hosts), never t3flare's own", () => {
+    expect(MAX_PREVIEW_PORTS).toBe(8);
+    expect(RESERVED_CONTAINER_PORTS).toEqual([8080, 17_781]);
+    const stored = (value: unknown) => {
+      const answer = set({ previewPorts: value });
+      return answer.ok ? answer.environment.settings.previewPorts : answer.error;
+    };
+    // Typed as text on the page: read as numbers, sorted, each once.
+    expect(stored("5173, 3000 3002,3000")).toEqual([3000, 3002, 5173]);
+    expect(stored([4200])).toEqual([4200]);
+    expect(stored("3000, 8080")).toBe("previewPorts: not 8080, which t3flare uses itself");
+    expect(stored("17781")).toBe("previewPorts: not 17781, which t3flare uses itself");
+    expect(stored("1 2 3 4 5 6 7 8 9")).toBe("previewPorts: at most 8 ports");
+    expect(stored("")).toBe("previewPorts: a list of at least one port");
+    expect(stored("3000, http")).toBe("previewPorts: ports from 1 to 65535, not http");
+    expect(stored("70000")).toBe("previewPorts: ports from 1 to 65535, not 70000");
+    expect(resolveEnvironment({ revision: 1, settings: { previewPorts: [8080] } }).previewPorts).toEqual([
+      3000, 3001, 4173, 4321, 5173, 5174, 8000, 8787,
+    ]);
+  });
+
+  it("each states its consequence and when it applies", () => {
+    for (const key of grouped) {
+      const description = ENVIRONMENT_SETTINGS[key].description;
+      expect(description, key).toMatch(/Applies (at|to|when|from)/);
+    }
+    expect(ENVIRONMENT_SETTINGS.commandMinutes.description).toContain(
+      "A command that runs longer than this is ended and fails; while it runs it holds the Container.",
+    );
+    expect(ENVIRONMENT_SETTINGS.previewPorts.description).toContain("At most 8, and never 8080 or 17781");
   });
 });

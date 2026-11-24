@@ -11,6 +11,9 @@ import ignore, { type Ignore } from "ignore";
 import { HostFailure, posixCode } from "./failure.ts";
 import { ancestors, isWithin } from "./paths.ts";
 
+// pi-durable's `ExecutionEnv.listFiles` contract fixes these: its `ListFilesOptions` (`@earendil-works/pi-durable/env`,
+// `dist/env/index.d.ts`) documents `maxEntries` default 50 000, `maxBytes` default 4 MiB and at most 15.9 MiB, and
+// `timeoutMs` default 10 000 ms. A caller that wants other bounds passes them.
 const DEFAULT_MAX_ENTRIES = 50_000;
 const DEFAULT_MAX_BYTES = 4 * 1024 * 1024;
 const LIMIT_MAX_BYTES = Math.floor(15.9 * 1024 * 1024);

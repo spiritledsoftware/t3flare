@@ -6,6 +6,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyChange,
+  CODEMODE_CPU_LIMIT_MS,
+  CODEMODE_POLLS_PER_SECOND,
+  MAX_CODEMODE_INTERRUPT_BUDGET,
   applyMcpChange,
   applyToolsChange,
   BUILTIN_TOOLS,
@@ -34,7 +37,7 @@ describe("resolveHarness", () => {
   it("gives the defaults for empty settings: every tool direct (the core preset), web_search hidden, t3's tools direct", () => {
     const resolved = resolveHarness(EMPTY_HARNESS);
     expect(resolved.revision).toBe(0);
-    expect(resolved.codemode).toEqual({ enabled: true, inlineBudget: 2000 });
+    expect(resolved.codemode).toEqual({ enabled: true, inlineBudget: 2000, interruptBudget: 100_000 });
     expect(resolved.toolSearch).toEqual({ enabled: true });
     expect(resolved.tools).toEqual({
       ...Object.fromEntries(BUILTIN_TOOLS.map((tool) => [tool.name, "direct"])),
@@ -80,6 +83,8 @@ describe("resolveHarness", () => {
         pollWaitMs: 30_000,
         scrollbackLines: 100,
         scrollbackKiB: 16,
+        quietMs: 250,
+        stopGraceSeconds: 3,
       },
     });
     expect(applyChange(EMPTY_HARNESS, { extension: "termctrl", settings: { cols: 10 } })).toMatchObject({ ok: false });
@@ -251,8 +256,16 @@ describe("resolveHarness", () => {
     const global = applyChange(EMPTY_HARNESS, { extension: "codemode", settings: { inlineBudget: 4000 } });
     if (!global.ok) throw new Error(global.error);
     const harness = { ...global.harness, overrides: { p1: { extensions: { codemode: { enabled: false } } } } };
-    expect(resolveHarness(harness, { projectId: "p1" }).codemode).toEqual({ enabled: false, inlineBudget: 4000 });
-    expect(resolveHarness(harness, { projectId: "p2" }).codemode).toEqual({ enabled: true, inlineBudget: 4000 });
+    expect(resolveHarness(harness, { projectId: "p1" }).codemode).toEqual({
+      enabled: false,
+      inlineBudget: 4000,
+      interruptBudget: 100_000,
+    });
+    expect(resolveHarness(harness, { projectId: "p2" }).codemode).toEqual({
+      enabled: true,
+      inlineBudget: 4000,
+      interruptBudget: 100_000,
+    });
   });
 });
 
@@ -261,7 +274,11 @@ describe("applyChange", () => {
     const changed = applyChange(EMPTY_HARNESS, { extension: "codemode", settings: { inlineBudget: 4000 } });
     if (!changed.ok) throw new Error(changed.error);
     expect(changed.harness.revision).toBe(1);
-    expect(resolveHarness(changed.harness).codemode).toEqual({ enabled: true, inlineBudget: 4000 });
+    expect(resolveHarness(changed.harness).codemode).toEqual({
+      enabled: true,
+      inlineBudget: 4000,
+      interruptBudget: 100_000,
+    });
   });
 
   it("refuses a value outside the schema, an unknown setting, and an unknown extension", () => {
@@ -721,5 +738,22 @@ describe("the Settings server's limits (SPI-1322)", () => {
       strikeLockMinutes: 0,
       declinedRepeatMinutes: 0,
     });
+  });
+});
+
+describe("code mode's compute budget and the Terminals' settle and stop waits (SPI-1364)", () => {
+  it("the compute budget defaults to pi-codemode's 100,000 polls and stops at the sandbox's CPU limit", () => {
+    expect(MAX_CODEMODE_INTERRUPT_BUDGET).toBe((CODEMODE_CPU_LIMIT_MS / 1000) * CODEMODE_POLLS_PER_SECOND);
+    expect(MAX_CODEMODE_INTERRUPT_BUDGET).toBe(300_000);
+    expect(resolveHarness(EMPTY_HARNESS).codemode.interruptBudget).toBe(100_000);
+    const change = (interruptBudget: number) =>
+      applyChange(EMPTY_HARNESS, { extension: "codemode", settings: { interruptBudget } });
+    expect(change(MAX_CODEMODE_INTERRUPT_BUDGET)).toMatchObject({ ok: true });
+    expect(change(MAX_CODEMODE_INTERRUPT_BUDGET + 1)).toMatchObject({ ok: false });
+  });
+
+  it("termctrl's quiet and stop wait default to termctrl's 250 ms and 3 s", () => {
+    const termctrl = resolveHarness(EMPTY_HARNESS).extensions.termctrl!;
+    expect(termctrl.settings).toMatchObject({ quietMs: 250, stopGraceSeconds: 3 });
   });
 });

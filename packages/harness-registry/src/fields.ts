@@ -37,7 +37,17 @@ export type FieldSchema =
  */
 export type EnvironmentFieldSchema =
   | FieldSchema
-  | { readonly type: "variables"; readonly default: ReadonlyArray<StoredVariable> };
+  | { readonly type: "variables"; readonly default: ReadonlyArray<StoredVariable> }
+  /**
+   * A list of TCP ports (SPI-1364: the Container preview ports): 1 to `maxCount` distinct ports from 1 to 65535, none of
+   * `reserved`. Stored ascending; the panel edits it as text ("3000, 5173"), which `normalizeField` reads.
+   */
+  | {
+      readonly type: "ports";
+      readonly maxCount: number;
+      readonly reserved: ReadonlyArray<number>;
+      readonly default: ReadonlyArray<number>;
+    };
 
 export type SettingValue = boolean | number | string;
 
@@ -45,7 +55,11 @@ export type SettingValue = boolean | number | string;
  * A value an Environment setting may hold: a Harness setting's, or a set of Variables (SPI-1152; ADR-0046's list, or the
  * old `{ NAME: "value" }` set a store may still hold).
  */
-export type EnvironmentValue = SettingValue | ReadonlyArray<StoredVariable> | Readonly<Record<string, string>>;
+export type EnvironmentValue =
+  | SettingValue
+  | ReadonlyArray<StoredVariable>
+  | Readonly<Record<string, string>>
+  | ReadonlyArray<number>;
 
 /**
  * A setting's Change tier rule (ADR-0035 §3, plan D5): `free` in either direction; `down-free` free when a boolean is
@@ -88,6 +102,7 @@ const fileProblem = (text: string, maxBytes: number): string | undefined => {
  */
 export const normalizeField = (schema: EnvironmentFieldSchema, value: unknown): unknown => {
   if (schema.type === "file" && typeof value === "string") return value.replaceAll("\r\n", "\n");
+  if (schema.type === "ports") return normalizePorts(value);
   return schema.type === "variables" ? normalizeVariables(value) : value;
 };
 
@@ -124,5 +139,36 @@ export const fieldProblem = (schema: EnvironmentFieldSchema, value: unknown): st
       return variablesProblem(value);
     case "file":
       return typeof value === "string" ? fileProblem(value, schema.maxBytes) : "text";
+    case "ports":
+      return portsProblem(value, schema.maxCount, schema.reserved);
   }
+};
+
+/**
+ * A ports value as stored: text ("3000, 5173" or "3000 5173") read as its numbers, a list sorted ascending without
+ * repeats. A word that is not a whole number stays as it is, for `portsProblem` to refuse.
+ */
+const normalizePorts = (value: unknown): unknown => {
+  const words =
+    typeof value === "string"
+      ? value.split(/[\s,]+/).filter((word) => word !== "")
+      : Array.isArray(value)
+        ? (value as ReadonlyArray<unknown>)
+        : undefined;
+  if (words === undefined) return value;
+  const read = words.map((word) => (typeof word === "string" && /^\d+$/.test(word) ? Number(word) : word));
+  if (!read.every((port) => typeof port === "number")) return read;
+  return [...new Set(read as ReadonlyArray<number>)].sort((a, b) => a - b);
+};
+
+/** Why `value` is not a list of 1 to `maxCount` ports, none of `reserved`, or undefined. */
+const portsProblem = (value: unknown, maxCount: number, reserved: ReadonlyArray<number>): string | undefined => {
+  if (!Array.isArray(value) || value.length === 0) return "a list of at least one port";
+  for (const port of value as ReadonlyArray<unknown>) {
+    if (typeof port !== "number" || !Number.isInteger(port) || port < 1 || port > 65_535)
+      return `ports from 1 to 65535, not ${String(port)}`;
+    if (reserved.includes(port)) return `not ${port}, which t3flare uses itself`;
+  }
+  if (new Set(value).size !== value.length) return "each port once";
+  return value.length > maxCount ? `at most ${maxCount} ports` : undefined;
 };

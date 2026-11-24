@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveEnvironment } from "@t3flare/harness-registry";
 
 import { bindEnvironmentServices, type EnvironmentServices } from "../src/agents/bindings.ts";
+import { containerPreviewPortOf } from "../src/preview/browserRun.ts";
 import { acquireOptions } from "../src/preview/cdpSocket.ts";
 import {
   BRIDGED_PAGE_ORIGIN,
@@ -32,6 +33,25 @@ import * as Shadow from "../src/shadows/serverBrowserContexts.ts";
 import * as Stock from "t3/src/preview/ServerBrowserContexts.ts";
 import { nodeSqlStorage } from "./nodeSqlStorage.ts";
 
+describe("the Container preview ports are the Owner's (SPI-1364)", () => {
+  afterEach(() => bindEnvironmentServices(undefined as unknown as EnvironmentServices));
+
+  it("routes the ports the setting names now, and names them for any other", () => {
+    bindEnvironmentServices({ previewPorts: () => [4200, 8081] } as unknown as EnvironmentServices);
+    expect(Shadow.translatePreviewUrl("http://localhost:4200/x")).toBe("http://4200.t3flare.internal/x");
+    const page = decodeURIComponent(Shadow.translatePreviewUrl("http://localhost:5173/"));
+    expect(page).toContain("on ports 4200, 8081 (the Environment setting Container preview ports)");
+  });
+
+  it("the preview entrypoint takes any port but t3flare's own: the browser's routes decide which it reaches", () => {
+    expect(containerPreviewPortOf(new URL("http://4200.t3flare.internal/"))).toBe(4200);
+    expect(containerPreviewPortOf(new URL("http://8080.t3flare.internal/"))).toBeUndefined();
+    expect(containerPreviewPortOf(new URL("http://17781.t3flare.internal/"))).toBeUndefined();
+    expect(containerPreviewPortOf(new URL("http://99999.t3flare.internal/"))).toBeUndefined();
+    expect(containerPreviewPortOf(new URL("https://4200.t3flare.internal/"))).toBeUndefined();
+  });
+});
+
 describe("a navigation to localhost in Browser Run (R1, review L6)", () => {
   it("goes to the port's Container preview host, path and query kept, for each loopback name", () => {
     expect(Shadow.translatePreviewUrl("http://localhost:5173/app?x=1#h")).toBe(
@@ -42,7 +62,7 @@ describe("a navigation to localhost in Browser Run (R1, review L6)", () => {
     expect(Shadow.translatePreviewUrl("http://0.0.0.0:4173")).toBe("http://4173.t3flare.internal/");
   });
 
-  it("names the eight ports for any other port, computerd's included, and leaves other URLs alone", () => {
+  it("names the default eight ports for any other port, computerd's included, and leaves other URLs alone", () => {
     for (const url of ["http://localhost:8080/", "http://localhost:9999/", "http://localhost/"]) {
       const page = decodeURIComponent(Shadow.translatePreviewUrl(url));
       expect(page.startsWith("data:text/html")).toBe(true);
@@ -166,10 +186,13 @@ describe("port discovery from a Container's scan (C1, review M7)", () => {
   });
 
   it("refuses to signal group 1 or a malformed group", () => {
-    expect(stopGroupArgv(1, [1])).toEqual([]);
-    expect(stopGroupArgv(0, [])).toEqual([]);
-    expect(stopGroupArgv(1.5, [])).toEqual([]);
-    expect(stopGroupArgv(42, [42, -1, 43]).slice(3)).toEqual(["t3flare-stop", "42", "42", "43"]);
+    expect(stopGroupArgv(1, [1], 3000)).toEqual([]);
+    expect(stopGroupArgv(0, [], 3000)).toEqual([]);
+    expect(stopGroupArgv(1.5, [], 3000)).toEqual([]);
+    expect(stopGroupArgv(42, [42, -1, 43], 3000).slice(3)).toEqual(["t3flare-stop", "42", "30", "42", "43"]);
+    // SPI-1364: the grace is the Owner's, looked at every 100 ms; 0 kills at once.
+    expect(stopGroupArgv(42, [42], 10_000)[5]).toBe("100");
+    expect(stopGroupArgv(42, [42], 0)[5]).toBe("0");
   });
 });
 

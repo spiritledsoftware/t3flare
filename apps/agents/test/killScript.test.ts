@@ -19,10 +19,10 @@ interface Proc {
 }
 
 /** Runs `setup` (bash, starting processes), then the kill for `ids`: its answer, the time it took, what is left. */
-const run = (setup: string, ids: ReadonlyArray<string>) => {
+const run = (setup: string, ids: ReadonlyArray<string>, graceMs?: number) => {
   // The case goes in on stdin (a bind mount of a host directory is not there on every Docker host).
   const script = `mkdir -p /t && cat > /t/kill.sh <<'T3FLARE_KILL_EOF'
-${killCommand(ids)}
+${killCommand(ids, graceMs)}
 T3FLARE_KILL_EOF
 ${setup}
 sleep 0.5
@@ -118,6 +118,13 @@ describe.skipIf(!docker)("the kill script", { timeout: 60_000 }, () => {
     expect(sleeps(result.left)).toEqual([]);
     expect(result.ms).toBeGreaterThanOrEqual(2000);
     expect(result.ms).toBeLessThan(3500);
+  });
+
+  it("takes its grace before KILL from its first argument (SPI-1364: abortGraceSeconds)", () => {
+    const result = run(`T3FLARE_EXEC=a setsid bash -c 'trap "" TERM; sleep 600 & wait' &`, ["a"], 500);
+    expect(result.answer).toMatchObject({ survivors: 0, signal: "KILL" });
+    expect(result.ms).toBeGreaterThanOrEqual(500);
+    expect(result.ms).toBeLessThan(2000);
   });
 
   it("a Container command (computer-env's wrapper under /bin/sh -c) leads its own group, and keeps its exit status", () => {

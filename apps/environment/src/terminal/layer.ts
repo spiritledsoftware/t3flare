@@ -8,7 +8,8 @@
 // - `shellResolver`: bash;
 // - `subprocessInspector`: the rc file's markers (review F1), so t3 never spawns `ps` and `closeIdle` keeps a terminal
 //   that runs `npm run dev`;
-// - `historyByteLimit` 1 MiB and `maxRetainedInactiveSessions` 16, for the 128 MB isolate;
+// - `historyByteLimit` and `maxRetainedInactiveSessions` from the Owner's `terminalHistoryKiB` and `exitedTerminalsKept`
+//   (SPI-1364; 1 MiB and 16 by default, for the 128 MB isolate), read when this layer is built;
 // - `registerTerminalProcesses` and `unregisterTerminal` name each shell's thread and terminal for our port discovery
 //   (G11, `preview/portDiscovery.ts`), which attributes a listener by its shell's key: the inspector reports the shell's
 //   own (synthetic) pid for that, and nothing else reads it;
@@ -23,6 +24,7 @@ import * as ServerConfig from "t3/src/config.ts";
 import * as ProcessRunner from "t3/src/processRunner.ts";
 import * as TerminalManager from "t3/src/terminal/Manager.ts";
 
+import { type TerminalHistoryLimits, terminalHistoryNow } from "../agents/bindings.ts";
 import { locate } from "../agents/workspaceClient.ts";
 import { setCurrentTerminals } from "./current.ts";
 import { SHELLS, TerminalProcesses } from "./ptyAdapter.ts";
@@ -33,9 +35,6 @@ export const TERMINAL_BASE_ENV: Readonly<Record<string, string>> = {
   LANG: "C.UTF-8",
   SHELL: "/bin/bash",
 };
-
-export const HISTORY_BYTE_LIMIT = 1024 * 1024;
-export const MAX_RETAINED_INACTIVE_SESSIONS = 16;
 
 const newKey = (): string => {
   const bytes = new Uint8Array(12);
@@ -60,12 +59,16 @@ export const makeTerminalProcesses = (): TerminalProcesses =>
   });
 
 /** `makeWithOptions`' options for this Environment's terminals (shared with the Node test of the real stack). */
-export const terminalManagerOptions = (processes: TerminalProcesses, logsDir: string) => ({
+export const terminalManagerOptions = (
+  processes: TerminalProcesses,
+  logsDir: string,
+  history: TerminalHistoryLimits = terminalHistoryNow(),
+) => ({
   logsDir,
   env: { ...TERMINAL_BASE_ENV },
   shellResolver: () => "/bin/bash",
-  historyByteLimit: HISTORY_BYTE_LIMIT,
-  maxRetainedInactiveSessions: MAX_RETAINED_INACTIVE_SESSIONS,
+  historyByteLimit: history.historyByteLimit,
+  maxRetainedInactiveSessions: history.maxRetainedInactiveSessions,
   ptyAdapter: {
     spawn: (input: PtyAdapter.PtySpawnInput) =>
       Effect.try({

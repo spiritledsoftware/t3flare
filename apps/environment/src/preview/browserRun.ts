@@ -5,16 +5,27 @@ import type { BrowserRun, Fetcher } from "@cloudflare/workers-types/index.ts";
 export type BrowserRunBinding = BrowserRun;
 export type BrowserRunFetcher = Fetcher;
 
-import { CONTAINER_PREVIEW_PORTS } from "@t3flare/workspace-client";
+import { RESERVED_CONTAINER_PORTS } from "@t3flare/harness-registry";
 
-export { CONTAINER_PREVIEW_DOMAIN, CONTAINER_PREVIEW_PORTS, containerPreviewHost } from "@t3flare/workspace-client";
+export { CONTAINER_PREVIEW_DOMAIN, containerPreviewHost } from "@t3flare/workspace-client";
 
 const CONTAINER_PREVIEW_HOST = /^(\d{1,5})\.t3flare\.internal$/;
 
-/** The Container port a Container preview's URL is for; undefined for any other host or an explicit port. */
+/**
+ * The Container port a Container preview's URL is for; undefined for any other host, an explicit port, or one of
+ * t3flare's own. Which ports a browser reaches is its `outboundByHost`, made from `previewPorts` when it was acquired
+ * (SPI-1364), so a port the Owner removed since still serves that browser.
+ */
 export const containerPreviewPortOf = (url: URL): number | undefined => {
   const port = Number(CONTAINER_PREVIEW_HOST.exec(url.hostname)?.[1]);
-  return CONTAINER_PREVIEW_PORTS.includes(port) && url.port === "" && url.protocol === "http:" ? port : undefined;
+  return Number.isInteger(port) &&
+    port >= 1 &&
+    port <= 65_535 &&
+    !RESERVED_CONTAINER_PORTS.includes(port) &&
+    url.port === "" &&
+    url.protocol === "http:"
+    ? port
+    : undefined;
 };
 
 /** Browser Run's keep-alive for every browser t3flare acquires: the most the binding allows (10 minutes). */

@@ -126,7 +126,7 @@ describe.skipIf(!docker)("the terminal wrapper", () => {
     const result = run("sleep 600 & exit 0", {
       privileged: false,
       after: `echo "BEFORE $(grep -l -a T3FLARE_EXEC=term-test1 /proc/[0-9]*/environ 2>/dev/null | wc -l)"
-echo "KILL $(bash /tmp/case/kill.sh term-test1)"
+echo "KILL $(bash /tmp/case/kill.sh 2000 term-test1)"
 sleep 0.3
 echo "AFTER $(grep -l -a T3FLARE_EXEC=term-test1 /proc/[0-9]*/environ 2>/dev/null | wc -l)"`,
     });
