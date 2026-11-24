@@ -7,10 +7,6 @@
 // follow `prefers-color-scheme`. The primary is t3flare's flare orange (pageBrand.ts's FLARE_FROM) on dark, and a deeper
 // orange on light, where the flare's is under 3:1 on white; dark ink on either (white on them is too faint). The brand's
 // colours repeat pageBrand.ts's FLARE_FROM and FLARE_TO, since this constant cannot import them.
-//
-// The audit table (SPI-1380) follows its own width, not the viewport's: from 48rem, the width its five columns need with
-// the longest action, a grid whose rows share When, Who, Settings, Action and Target, with Change on a line of its own;
-// below it, the stacked layout, as table.stacked draws it at 640px.
 export const STYLE = `:root{color-scheme:light dark;
 --bg:#fcfcfc;--fg:#18181b;--card:#fff;--sidebar:#fafafa;--muted:#f4f4f5;--muted-fg:#71717a;--border:#e4e4e7;--row-border:#ececee;--input:#d4d4d8;
 --hover:#f4f4f5;--selected:#fff;--primary:#EA580C;--primary-fg:#18181b;--primary-soft:color-mix(in oklab,var(--primary) 10%,transparent);--ring:var(--primary);
@@ -219,10 +215,15 @@ td.actions{text-align:right;white-space:nowrap}
 .who{white-space:nowrap}
 table.audit td.target>div{overflow-wrap:anywhere}
 .table-wrap:has(>table.audit){container-type:inline-size}
+/* The audit table (SPI-1380) follows its card's width, not the viewport's. From 48rem its rows share five columns, with
+Change on a line of its own: the five need about 46.6rem, measured in Chrome at 1440px (When 142.8px, Who 163.1px,
+Settings 107.6px, Action 157.2px for extension.change, Target's 128px floor) with Action widened to the longest action,
+endpoint.sign-in.start, at extension.change's 7.8px a character. Narrower, it is stacked: the rules below repeat
+table.stacked's at 640px, which CSS cannot share, since those sit in a media query and these in a container query. Its
+grid labels are silent, as the hidden header names the column; its stacked ones are read, as there the header is gone. */
 @container (width>48rem){
 table.audit{position:relative;display:grid;grid-template-columns:max-content fit-content(12rem) max-content max-content minmax(8rem,1fr)}
 table.audit :is(thead,tbody,tr){display:contents}
-table.audit th:last-child{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
 table.audit td{border-bottom:0;padding-bottom:.25rem}
 table.audit .who{white-space:normal;overflow-wrap:anywhere}
 table.audit td.change-cell{grid-column:1/-1;display:grid;grid-template-columns:subgrid;padding:0 0 .625rem;border-bottom:1px solid var(--row-border)}

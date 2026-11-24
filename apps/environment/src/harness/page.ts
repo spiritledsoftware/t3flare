@@ -1170,7 +1170,7 @@ const auditSection = (audit: ReadonlyArray<AuditEntry>, before?: number): string
   const body =
     audit.length === 0
       ? `<div class="empty"><span class="empty-icon">${icon("audit")}</span><h3>No changes yet</h3><p>Every change, here or from a script, is logged with who made it. Secrets are never logged.</p></div>`
-      : `<div class="table-wrap"><table class="stacked audit"><thead><tr><th scope="col">When</th><th scope="col">Who</th><th scope="col">Settings</th><th scope="col">Action</th><th scope="col">Target</th><th scope="col">Change</th></tr></thead><tbody data-audit-rows>${audit
+      : `<div class="table-wrap"><table class="stacked audit"><thead><tr><th scope="col">When</th><th scope="col">Who</th><th scope="col">Settings</th><th scope="col">Action</th><th scope="col">Target</th><th scope="col" class="sr">Change</th></tr></thead><tbody data-audit-rows>${audit
           .map(auditRow)
           .join("")}</tbody></table></div>${
           before === undefined
