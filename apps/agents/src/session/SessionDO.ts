@@ -116,6 +116,7 @@ import {
   t3RegisteredExposure,
   t3ToolName,
 } from "../extensions/t3-mcp.ts";
+import { historyImages } from "./historyImages.ts";
 import { T3McpClient } from "./t3McpClient.ts";
 import { NO_KEY, sessionModels } from "./models.ts";
 import { credentialFailure } from "./credentialFailure.ts";
@@ -315,12 +316,10 @@ export class SessionDO extends DurableObject<SessionEnv> {
     this.#t3 = new T3McpClient(
       (request) => environmentStub(env.ENVIRONMENT).mcp(request),
       () => ctx.storage.kv.get<T3McpCredential>(T3_MCP_KEY),
-      // The API of the model the turn runs on (its provider, kept at the turn's start).
-      () => {
-        const provider = ctx.storage.kv.get<string>(TURN_PROVIDER_KEY);
-        return perImageBase64Of(provider === undefined ? undefined : this.#endpoints.endpoint(provider)?.api);
-      },
+      () => this.#turnPerImageBase64(),
     );
+    // SPI-1376: a history image past the turn's model's limit on one image, left out of that request with a note.
+    registry.install(historyImages(() => this.#turnPerImageBase64()));
     this.#registryWriter = registry;
     // The tools the last turn had, before work that may call them resumes.
     const catalog = ctx.storage.kv.get<T3Catalog>(T3_CATALOG_KEY);
@@ -493,6 +492,12 @@ export class SessionDO extends DurableObject<SessionEnv> {
     const credential = await this.#endpoints.credential(endpoint);
     if (credential.apiKey === null) return { error: credentialFailure(endpoint, credential).message };
     return { baseUrl: endpoint.baseUrl, headers: endpoint.headers, apiKey: credential.apiKey, slug, modelId: model.id };
+  }
+
+  /** The limit on one image of the API the turn runs on (its provider, kept at the turn's start; `perImageBase64Of`). */
+  #turnPerImageBase64(): number | undefined {
+    const provider = this.ctx.storage.kv.get<string>(TURN_PROVIDER_KEY);
+    return perImageBase64Of(provider === undefined ? undefined : this.#endpoints.endpoint(provider)?.api);
   }
 
   /**
