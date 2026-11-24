@@ -147,9 +147,10 @@ export const defaultSettingsServer = (): McpServerSetting => ({
 });
 
 /**
- * The most Open changes per caller may be set to: a sanity bound (ADR-0048 §1). A caller's cap reads its own open rows,
- * the changes table's other reads filter in SQL (SPI-1393), and each open row expires, so nothing near it costs
- * anything that matters.
+ * The most Open changes per caller may be set to: a sanity bound (ADR-0048 §1). Two of the changes table's reads still
+ * take open rows whole: `openBy`, a caller's own (its open-change cap, `get_status`, a repeated call's reuse), and
+ * `open`, every one (the Change page's and the panel's Open changes list). Each open row expires, so nothing near this
+ * bound costs anything that matters.
  */
 export const MAX_OPEN_PER_CALLER = 1000;
 
