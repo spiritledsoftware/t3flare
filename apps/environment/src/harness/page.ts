@@ -1164,13 +1164,13 @@ ${baseBuildBlock(baseBuild, canRebuild)}
 
 /** One audit entry's row; the page script builds the same cells for an older page (`pageScript.ts`, Show older). */
 const auditRow = (entry: AuditEntry): string =>
-  `<tr><td class="when" data-label="When"><div>${time(entry.at)}</div></td><td class="who" data-label="Who"><div>${escapeHtml(entry.caller)}</div></td><td data-label="Settings"><div>${escapeHtml(ENTITY_LABELS[entry.entity] ?? String(entry.entity))}</div></td><td data-label="Action"><div><code>${escapeHtml(entry.action)}</code></div></td><td data-label="Target"><div>${escapeHtml(entry.target)}</div></td><td data-label="Change"><div><code class="change">${escapeHtml(JSON.stringify(entry.after ?? null))}</code></div></td></tr>`;
+  `<tr><td class="when" data-label="When"><div>${time(entry.at)}</div></td><td class="who" data-label="Who"><div>${escapeHtml(entry.caller)}</div></td><td data-label="Settings"><div>${escapeHtml(ENTITY_LABELS[entry.entity] ?? String(entry.entity))}</div></td><td data-label="Action"><div><code>${escapeHtml(entry.action)}</code></div></td><td class="target" data-label="Target"><div>${escapeHtml(entry.target)}</div></td><td class="change-cell" data-label="Change"><div><code class="change">${escapeHtml(JSON.stringify(entry.after ?? null))}</code></div></td></tr>`;
 
 const auditSection = (audit: ReadonlyArray<AuditEntry>, before?: number): string => {
   const body =
     audit.length === 0
       ? `<div class="empty"><span class="empty-icon">${icon("audit")}</span><h3>No changes yet</h3><p>Every change, here or from a script, is logged with who made it. Secrets are never logged.</p></div>`
-      : `<div class="table-wrap"><table class="stacked"><thead><tr><th scope="col">When</th><th scope="col">Who</th><th scope="col">Settings</th><th scope="col">Action</th><th scope="col">Target</th><th scope="col">Change</th></tr></thead><tbody data-audit-rows>${audit
+      : `<div class="table-wrap"><table class="stacked audit"><thead><tr><th scope="col">When</th><th scope="col">Who</th><th scope="col">Settings</th><th scope="col">Action</th><th scope="col">Target</th><th scope="col">Change</th></tr></thead><tbody data-audit-rows>${audit
           .map(auditRow)
           .join("")}</tbody></table></div>${
           before === undefined

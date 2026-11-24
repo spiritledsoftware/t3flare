@@ -350,6 +350,33 @@ describe("harness page", () => {
     expect(section(empty, "mcp")).toContain("Not listed yet: t3 lists its tools for each thread");
   });
 
+  it("draws the audit log as its own table, each row's cells as Show older builds them (SPI-1380)", () => {
+    const table = tags.find((tag) => tag.name === "table" && tag.attrs.class?.split(" ").includes("audit"));
+    expect(table?.attrs.class).toBe("stacked audit");
+    // The first body row's cells.
+    const rows = tags.slice(tags.indexOf(table!));
+    const body = rows.findIndex((tag) => tag.name === "tbody");
+    const end = rows.findIndex((tag, index) => index > body && tag.name === "tr" && tag.closing);
+    const served = rows
+      .slice(body, end)
+      .filter((tag) => tag.name === "td" && !tag.closing)
+      .map((tag) => [tag.attrs["data-label"], tag.attrs.class ?? null]);
+    // The page script's cell(label, className, …) calls for an older page, in order.
+    const scripted = [...SCRIPT.matchAll(/cell\("([^"]+)", (?:"([^"]+)"|undefined)/g)].map((match) => [
+      match[1],
+      match[2] ?? null,
+    ]);
+    expect(served).toEqual([
+      ["When", "when"],
+      ["Who", "who"],
+      ["Settings", null],
+      ["Action", null],
+      ["Target", "target"],
+      ["Change", "change-cell"],
+    ]);
+    expect(scripted).toEqual(served);
+  });
+
   it("draws the empty states: no server, no audit entry, no Environment skill (the placeholder gone, SPI-1148)", () => {
     const empty = renderPage(fixturePage({ mcp: [], audit: [], skills: NO_SKILLS }));
     expect(empty).toContain("No MCP servers");

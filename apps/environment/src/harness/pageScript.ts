@@ -784,8 +784,8 @@ if (older !== null && auditRows !== null) {
           cell("Who", "who", document.createTextNode(entry.caller)),
           cell("Settings", undefined, document.createTextNode(auditLabels[entry.entity] ?? String(entry.entity))),
           cell("Action", undefined, el("code", entry.action)),
-          cell("Target", undefined, document.createTextNode(entry.target)),
-          cell("Change", undefined, el("code", JSON.stringify(entry.after ?? null), "change")),
+          cell("Target", "target", document.createTextNode(entry.target)),
+          cell("Change", "change-cell", el("code", JSON.stringify(entry.after ?? null), "change")),
         );
         auditRows.append(row);
       }
