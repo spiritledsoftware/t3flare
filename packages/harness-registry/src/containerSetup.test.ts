@@ -54,7 +54,20 @@ describe("describeContainerSetup", () => {
       "/w/app at revision 7: ran, exit 0 after 1.5 s, 2026-11-22T12:00:00.000Z",
     );
     expect(describeContainerSetup({ ...REPORT, outcome: "failed", exitCode: 124, timedOut: true, ms: 300_000 })).toBe(
-      "/w/app at revision 7: failed, stopped at its time limit after 300 s, 2026-11-22T12:00:00.000Z",
+      "/w/app at revision 7: failed after 300 s, stopped at its time limit, 2026-11-22T12:00:00.000Z; change it under Environment › Container setup › Container setup time limit (minutes)",
+    );
+    // ADR-0049 §4: a report that carries its limit names its value.
+    expect(
+      describeContainerSetup({
+        ...REPORT,
+        outcome: "failed",
+        exitCode: 124,
+        timedOut: true,
+        ms: 300_000,
+        limitMinutes: 5,
+      }),
+    ).toBe(
+      "/w/app at revision 7: failed after 300 s, stopped at its 5-minute time limit, 2026-11-22T12:00:00.000Z; change it under Environment › Container setup › Container setup time limit (minutes)",
     );
     expect(describeContainerSetup({ ...REPORT, outcome: "none", exitCode: null, ms: 0, bytes: 0 })).toBe(
       "/w/app at revision 7: no Container setup, 2026-11-22T12:00:00.000Z",

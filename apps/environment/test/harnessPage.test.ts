@@ -5,14 +5,17 @@
 import { Script } from "node:vm";
 
 import {
+  applyChange,
   applyToolsChange,
   BUILTIN_TOOLS,
   EMPTY_ENVIRONMENT,
   EMPTY_HARNESS,
   resolveEnvironment,
   resolveHarness,
+  SETTINGS_PAGE_PLACES,
   SETTINGS_SERVER_LIMIT_KEYS,
   SETTINGS_SERVER_LIMITS_NOTE,
+  settingPlace,
 } from "@t3flare/harness-registry";
 import { describe, expect, it } from "vitest";
 
@@ -326,7 +329,8 @@ describe("harness page", () => {
       );
     };
     expect(terminals(resolveHarness(hidden.harness))).toContain(
-      "Every tool is hidden, so the extension is not installed and these settings do nothing until a tool is offered.",
+      // Its settings are all Advanced (ADR-0049 §6), which follow its tools: the row says where they went.
+      "Every tool is hidden, so the extension is off: its Advanced settings show once a tool is offered.",
     );
     expect(terminals(resolveHarness(EMPTY_HARNESS))).not.toContain("Every tool is hidden");
     // SPI-1317: the count is the Environment setting's, not a fixed 8.
@@ -678,31 +682,45 @@ describe("the Environment section's dotfiles", () => {
       html.indexOf('<section id="environment"'),
       html.indexOf("</section>", html.indexOf('<section id="environment"')),
     );
+  // A row of the Environment form (ADR-0049 §6): its part on the page, then its part under the section's Advanced, which
+  // carries the row's description. `rowAt` is where the row starts: under Advanced when it has a part there.
+  const rowPart = (section: string, titleId: string) => {
+    const start = section.indexOf(`<h3 id="${titleId}">`);
+    return start === -1 ? "" : section.slice(start, section.indexOf('<div class="row">', start));
+  };
+  const rowOf = (section: string, id: string) =>
+    rowPart(section, `environment-${id}-title`) + rowPart(section, `environment-advanced-${id}-title`);
+  const rowAt = (section: string, id: string) => {
+    const advanced = section.indexOf(`<h3 id="environment-advanced-${id}-title">`);
+    return advanced > -1 ? advanced : section.indexOf(`<h3 id="environment-${id}-title">`);
+  };
+  const inputsOf = (html: string) =>
+    tagsOf(html)
+      .filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined)
+      .map((tag) => tag.attrs["data-setting"]);
 
   it("draws both toggles in a row of their own, checked by default, outside the Containers row, each saying when it applies", () => {
     const section = sectionOf(renderPage(fixturePage()));
     const tags = tagsOf(section);
     // The Dotfiles row: from its heading to the next row (other rows hold checkboxes of their own, the Builder's).
-    const start = section.indexOf('<h3 id="environment-dotfiles-title">');
-    const row = section.slice(start, section.indexOf('<div class="row">', start));
+    const row = rowOf(section, "dotfiles");
     const boxes = tagsOf(row).filter(
       (tag) => tag.name === "input" && tag.attrs.type === "checkbox" && tag.attrs["data-setting"] !== undefined,
     );
+    // The agents' dotfiles on the page, the bashrc escape hatch under Advanced.
     expect(boxes.map((tag) => [tag.attrs["data-setting"], tag.attrs.checked !== undefined])).toEqual([
-      ["terminalsReadBashrc", true],
       ["agentsReadDotfiles", true],
+      ["terminalsReadBashrc", true],
     ]);
-    const containers = section.slice(0, section.indexOf('<h3 id="environment-dotfiles-title">Dotfiles</h3>'));
-    expect(section).toContain('<h3 id="environment-dotfiles-title">Dotfiles</h3>');
-    expect(containers).not.toContain('data-setting="terminalsReadBashrc"');
+    expect(rowOf(section, "containers")).not.toContain('data-setting="terminalsReadBashrc"');
     expect(section).toContain("Applies at each Workspace&#39;s next Container start");
     expect(section).toContain("Applies at each CLI agent&#39;s next start");
     const group = tags.find(
-      (tag) => tag.attrs.role === "group" && tag.attrs["aria-labelledby"] === "environment-dotfiles-title",
+      (tag) => tag.attrs.role === "group" && tag.attrs["aria-labelledby"] === "environment-advanced-dotfiles-title",
     );
     expect(group?.attrs).toMatchObject({
-      "aria-labelledby": "environment-dotfiles-title",
-      "aria-describedby": "environment-dotfiles-desc",
+      "aria-labelledby": "environment-advanced-dotfiles-title",
+      "aria-describedby": "environment-advanced-dotfiles-desc",
     });
   });
 
@@ -710,36 +728,28 @@ describe("the Environment section's dotfiles", () => {
     const section = sectionOf(renderPage(fixturePage()));
     const start = section.indexOf('<h3 id="environment-agents-title">Agents</h3>');
     expect(start).toBeGreaterThan(-1);
-    const row = section.slice(start, section.indexOf('<div class="row">', start));
-    const settings = tagsOf(row)
-      .filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined)
-      .map((tag) => tag.attrs["data-setting"]);
+    const settings = inputsOf(rowOf(section, "agents"));
     expect(settings).toEqual([
       "turnLimitMinutes",
       "ownerAnswerMinutes",
       "cliProcessesPerWorkspace",
       "cliReclaimSeconds",
     ]);
-    const containers = section.slice(0, start);
+    const containers = rowOf(section, "containers");
     for (const key of settings) expect(containers).not.toContain(`data-setting="${key}"`);
     const group = tagsOf(section).find(
-      (tag) => tag.attrs.role === "group" && tag.attrs["aria-labelledby"] === "environment-agents-title",
+      (tag) => tag.attrs.role === "group" && tag.attrs["aria-labelledby"] === "environment-advanced-agents-title",
     );
-    expect(group?.attrs["aria-describedby"]).toBe("environment-agents-desc");
+    expect(group?.attrs["aria-describedby"]).toBe("environment-advanced-agents-desc");
   });
 
   it("draws the housekeeping settings in Sleep and wake, Previews and access rows of their own, after Outside requests (SPI-1366)", () => {
     const section = sectionOf(renderPage(fixturePage()));
-    const titled = (id: string) => section.indexOf(`<h3 id="environment-${id}-title">`);
+    const titled = (id: string) => rowAt(section, id);
     const order = ["outside-requests", "lifecycle", "previews", "access", "history"].map(titled);
     expect(order.every((at) => at > -1)).toBe(true);
     expect(order).toEqual(order.toSorted((a, b) => a - b));
-    const settingsOf = (id: string) => {
-      const start = titled(id);
-      return tagsOf(section.slice(start, section.indexOf('<div class="row">', start)))
-        .filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined)
-        .map((tag) => tag.attrs["data-setting"]);
-    };
+    const settingsOf = (id: string) => inputsOf(rowOf(section, id));
     expect(settingsOf("outside-requests")).toEqual([
       "outsideRequestSeconds",
       "githubRetrySeconds",
@@ -763,16 +773,11 @@ describe("the Environment section's dotfiles", () => {
 
   it("draws the retries in a Retries row after Agents, and t3's trace in a row of its own after access (SPI-1367)", () => {
     const section = sectionOf(renderPage(fixturePage()));
-    const titled = (id: string) => section.indexOf(`<h3 id="environment-${id}-title">`);
+    const titled = (id: string) => rowAt(section, id);
     const order = ["agents", "retries", "mcp-calls", "access", "trace", "history"].map(titled);
     expect(order.every((at) => at > -1)).toBe(true);
     expect(order).toEqual(order.toSorted((a, b) => a - b));
-    const settingsOf = (id: string) => {
-      const start = titled(id);
-      return tagsOf(section.slice(start, section.indexOf('<div class="row">', start)))
-        .filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined)
-        .map((tag) => tag.attrs["data-setting"]);
-    };
+    const settingsOf = (id: string) => inputsOf(rowOf(section, id));
     expect(settingsOf("retries")).toEqual(["durableRetries", "cliRetries", "killAttempts"]);
     expect(settingsOf("trace")).toEqual(["traceKiB", "traceFiles"]);
   });
@@ -780,13 +785,13 @@ describe("the Environment section's dotfiles", () => {
   it("draws the MCP calls' time limit and result size in an MCP calls row between the Agents and History rows (SPI-1359)", () => {
     const page = renderPage(fixturePage());
     const section = sectionOf(page);
-    const agents = section.indexOf('<h3 id="environment-agents-title">Agents</h3>');
-    const start = section.indexOf('<h3 id="environment-mcp-calls-title">MCP calls</h3>');
-    const history = section.indexOf('<h3 id="environment-history-title">History</h3>');
+    const agents = rowAt(section, "agents");
+    const start = rowAt(section, "mcp-calls");
+    const history = rowAt(section, "history");
     expect(agents).toBeGreaterThan(-1);
     expect(start).toBeGreaterThan(agents);
     expect(history).toBeGreaterThan(start);
-    const row = section.slice(start, section.indexOf('<div class="row">', start));
+    const row = rowOf(section, "mcp-calls");
     const inputs = tagsOf(row).filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined);
     // SPI-1366: the pauses answered, the CLI's MCP start wait and the sign-in time join them.
     expect(inputs.map((tag) => tag.attrs["data-setting"])).toEqual([
@@ -805,19 +810,19 @@ describe("the Environment section's dotfiles", () => {
     ]);
     for (const key of ["mcpCallSeconds", "mcpResultKiB"]) expect(page.split(`data-setting="${key}"`)).toHaveLength(2);
     const group = tagsOf(section).find(
-      (tag) => tag.attrs.role === "group" && tag.attrs["aria-labelledby"] === "environment-mcp-calls-title",
+      (tag) => tag.attrs.role === "group" && tag.attrs["aria-labelledby"] === "environment-advanced-mcp-calls-title",
     );
-    expect(group?.attrs["aria-describedby"]).toBe("environment-mcp-calls-desc");
+    expect(group?.attrs["aria-describedby"]).toBe("environment-advanced-mcp-calls-desc");
   });
 
   it("draws the MCP servers' connect and listing time limits and logs kept in an MCP servers row after the MCP calls row (SPI-1363)", () => {
     const page = renderPage(fixturePage());
     const section = sectionOf(page);
-    const calls = section.indexOf('<h3 id="environment-mcp-calls-title">MCP calls</h3>');
-    const start = section.indexOf('<h3 id="environment-mcp-servers-title">MCP servers</h3>');
+    const calls = rowAt(section, "mcp-calls");
+    const start = rowAt(section, "mcp-servers");
     expect(calls).toBeGreaterThan(-1);
     expect(start).toBeGreaterThan(calls);
-    const row = section.slice(start, section.indexOf('<div class="row">', start));
+    const row = rowOf(section, "mcp-servers");
     const inputs = tagsOf(row).filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined);
     expect(inputs.map((tag) => tag.attrs["data-setting"])).toEqual([
       "mcpConnectSeconds",
@@ -846,11 +851,11 @@ describe("the Environment section's dotfiles", () => {
   it("draws how long history is kept in a History row after the Agents row, outside the Containers row and the Workspaces section (SPI-1323)", () => {
     const page = renderPage(fixturePage());
     const section = sectionOf(page);
-    const agents = section.indexOf('<h3 id="environment-agents-title">Agents</h3>');
-    const start = section.indexOf('<h3 id="environment-history-title">History</h3>');
+    const agents = rowAt(section, "agents");
+    const start = rowAt(section, "history");
     expect(start).toBeGreaterThan(agents);
     expect(agents).toBeGreaterThan(-1);
-    const row = section.slice(start, section.indexOf('<div class="row">', start));
+    const row = rowOf(section, "history");
     const inputs = tagsOf(row).filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined);
     expect(inputs.map((tag) => tag.attrs["data-setting"])).toEqual([
       "usageRetentionDays",
@@ -870,21 +875,17 @@ describe("the Environment section's dotfiles", () => {
     for (const key of ["usageRetentionDays", "piSessionRetentionDays"])
       expect(page.split(`data-setting="${key}"`)).toHaveLength(2);
     const group = tagsOf(section).find(
-      (tag) => tag.attrs.role === "group" && tag.attrs["aria-labelledby"] === "environment-history-title",
+      (tag) => tag.attrs.role === "group" && tag.attrs["aria-labelledby"] === "environment-advanced-history-title",
     );
-    expect(group?.attrs["aria-describedby"]).toBe("environment-history-desc");
+    expect(group?.attrs["aria-describedby"]).toBe("environment-advanced-history-desc");
   });
 
   it("draws the commands', Terminals' and previews' limits in rows of their own after the Agents row, each once (SPI-1364)", () => {
     const page = renderPage(fixturePage());
     const section = sectionOf(page);
     const rowKeys = (id: string) => {
-      const start = section.indexOf(`<h3 id="environment-${id}-title">`);
-      expect(start, id).toBeGreaterThan(section.indexOf('<h3 id="environment-agents-title">Agents</h3>'));
-      const row = section.slice(start, section.indexOf('<div class="row">', start));
-      return tagsOf(row)
-        .filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined)
-        .map((tag) => tag.attrs["data-setting"]);
+      expect(rowAt(section, id), id).toBeGreaterThan(rowAt(section, "agents"));
+      return inputsOf(rowOf(section, id));
     };
     expect(rowKeys("commands")).toEqual([
       "commandMinutes",
@@ -931,10 +932,7 @@ describe("the Environment section's dotfiles", () => {
 
   it("draws the settings read wait in the Containers row, which says what it bounds (SPI-1314)", () => {
     const section = sectionOf(renderPage(fixturePage()));
-    const containers = section.slice(
-      section.indexOf("<h3>Containers</h3>"),
-      section.indexOf('<h3 id="environment-agents-title">Agents</h3>'),
-    );
+    const containers = rowOf(section, "containers");
     expect(containers).toContain("how long a start or a turn waits for the newest settings");
     const input = tagsOf(containers).find((tag) => tag.attrs["data-setting"] === "settingsReadSeconds");
     expect(input?.attrs).toMatchObject({ type: "number", min: "1", value: "5" });
@@ -942,10 +940,7 @@ describe("the Environment section's dotfiles", () => {
 
   it("draws the clone and checkpoint time limits last in the Containers row, which says what they bound (SPI-1324)", () => {
     const section = sectionOf(renderPage(fixturePage()));
-    const containers = section.slice(
-      section.indexOf("<h3>Containers</h3>"),
-      section.indexOf('<h3 id="environment-agents-title">Agents</h3>'),
-    );
+    const containers = rowOf(section, "containers");
     expect(containers).toContain("and how long a clone or a checkpoint may run.");
     const settings = tagsOf(containers)
       .map((tag) => tag.attrs["data-setting"])
@@ -956,25 +951,21 @@ describe("the Environment section's dotfiles", () => {
     expect(input("checkpointMinutes")).toMatchObject({ type: "number", min: "1", max: "10080", value: "10" });
   });
 
-  it("draws the Terminals' holds and counts in the Containers row, holds after the idle time, counts after the budget (SPI-1317)", () => {
+  it("draws the Terminals' holds and counts in the Containers row under Advanced, holds first, counts after them (SPI-1317)", () => {
     const section = sectionOf(renderPage(fixturePage()));
-    const containers = section.slice(
-      section.indexOf("<h3>Containers</h3>"),
-      section.indexOf('<h3 id="environment-agents-title">Agents</h3>'),
-    );
+    const containers = rowOf(section, "containers");
     expect(containers).toContain("how long open Terminals keep it running");
     expect(containers).toContain("how many Terminals a Workspace may have");
     const settings = tagsOf(containers)
       .map((tag) => tag.attrs["data-setting"])
       .filter((key) => key !== undefined);
-    const after = (key: string) => settings.slice(settings.indexOf(key), settings.indexOf(key) + 3);
-    expect(after("containerIdleMinutes")).toEqual([
-      "containerIdleMinutes",
-      "terminalBusyHoldMinutes",
-      "terminalPromptHoldMinutes",
-    ]);
-    expect(settings.slice(settings.indexOf("containerBudget"), settings.indexOf("containerBudget") + 4)).toEqual([
-      "containerBudget",
+    // The idle time and the budget on the page; under Advanced the holds first, then the counts (ADR-0049 §6).
+    const advanced = settings.slice(settings.indexOf("containerBudget") + 1);
+    expect(
+      settings.slice(settings.indexOf("containerIdleMinutes"), settings.indexOf("containerIdleMinutes") + 2),
+    ).toEqual(["containerIdleMinutes", "containerBudget"]);
+    expect(advanced.slice(0, 2)).toEqual(["terminalBusyHoldMinutes", "terminalPromptHoldMinutes"]);
+    expect(advanced.slice(2, 5)).toEqual([
       "terminalsPerWorkspace",
       "agentTerminalsPerWorkspace",
       // SPI-1362: beside the count it trades against in the Workspace's memory.
@@ -1252,3 +1243,249 @@ const markupAfter = (html: string, tag: Tag): string => {
   const rest = markup(html).slice(tag.index);
   return rest.slice(rest.indexOf("</button>"));
 };
+
+// Progressive disclosure (ADR-0049 §6, SPI-1385): each section shows its visible settings, its contextual ones while their
+// condition holds, and its Advanced ones collapsed under "Advanced · n settings".
+describe("the page's disclosure", () => {
+  /** `html` without its collapsed Advanced blocks: what the Owner sees before opening one. */
+  const outsideAdvanced = (html: string) =>
+    html
+      .replaceAll(/<details class="advanced"[\s\S]*?<\/details>/g, "")
+      .replaceAll(/<details class="tools" data-server-limits[\s\S]*?<\/details>/g, "");
+  /** The settings a page shows at once: fields outside Advanced, not disabled (a contextual one not in use is). */
+  const shownSettings = (html: string) =>
+    tagsOf(outsideAdvanced(html))
+      .filter((tag) => tag.attrs["data-setting"] !== undefined && tag.attrs.disabled === undefined)
+      .map((tag) => tag.attrs["data-setting"]);
+  const fresh = (overrides: Partial<Parameters<typeof fixturePage>[0]> = {}) =>
+    renderPage(fixturePage({ resolved: resolveHarness(EMPTY_HARNESS), ...overrides }));
+
+  // The Workspaces section draws the Grace and its purge as one control of its own (ADR-0044 §1), not a field.
+  it("shows a fresh Environment's 13 visible settings until a feature is turned on or Advanced is opened", () => {
+    const html = fresh();
+    const sections = ["environment", "workspaces", "extensions", "tools"].map((id) => section(html, id)).join("");
+    expect(shownSettings(sections).toSorted((x, y) => x!.localeCompare(y!))).toEqual(
+      [
+        "containerSize",
+        "containerIdleMinutes",
+        "containerBudget",
+        "turnLimitMinutes",
+        "idleAfterSeconds",
+        "agentsReadDotfiles",
+        "variables",
+        "globalMiseConfig",
+        "containerSetup",
+        "imageSetup",
+        "outputKiB",
+        "rolloverOnCompaction",
+      ].toSorted((x, y) => x.localeCompare(y)),
+    );
+  });
+
+  it("collapses each section's Advanced settings under one Advanced that counts them", () => {
+    const html = fresh();
+    const environment = section(html, "environment");
+    const summary = (scope: string) => /<summary>[\s\S]*?Advanced <span>· (\d+) settings?<\/span>/.exec(scope)?.[1];
+    const advancedIn = (scope: string) =>
+      tagsOf(/<details class="advanced"[\s\S]*?<\/details>/.exec(scope)?.[0] ?? "").filter(
+        (tag) => tag.attrs["data-setting"] !== undefined,
+      ).length;
+    expect(Number(summary(environment))).toBe(advancedIn(environment));
+    expect(advancedIn(environment)).toBeGreaterThan(0);
+    expect(environment).toContain('data-setting="cloneMinutes"');
+    expect(outsideAdvanced(environment)).not.toContain('data-setting="cloneMinutes"');
+    // An extension's row: its own Advanced (the Guardian's review time limit) while it is on, named for it; off, its
+    // settings follow its switch, Advanced ones too.
+    const guardianOf = (page: string) =>
+      page.slice(
+        page.indexOf('data-extension="guardian"'),
+        page.indexOf("</form>", page.indexOf('data-extension="guardian"')),
+      );
+    expect(guardianOf(html)).not.toContain("data-setting=");
+    const on = applyChange(EMPTY_HARNESS, { extension: "guardian", enabled: true });
+    if (!on.ok) throw new Error(on.error);
+    const guardian = guardianOf(renderPage(fixturePage({ resolved: resolveHarness(on.harness) })));
+    expect(summary(guardian)).toBe(String(advancedIn(guardian)));
+    expect(guardian).toContain('data-setting="reviewTimeoutSeconds"');
+    expect(guardian).toContain('<span class="sr"> of Guardian</span>');
+    // A row whose settings are all Advanced keeps its Save under Advanced: nothing to save while it is collapsed.
+    const codemode = html.slice(
+      html.indexOf('data-extension="codemode"'),
+      html.indexOf("</form>", html.indexOf('data-extension="codemode"')),
+    );
+    expect(codemode.indexOf("data-save")).toBeGreaterThan(codemode.indexOf('<div class="advanced-body">'));
+  });
+
+  it("shows the Guardian's model and policy only while the Guardian is on", () => {
+    const guardianOf = (html: string) => {
+      const start = html.indexOf('data-extension="guardian"');
+      return outsideAdvanced(html.slice(start, html.indexOf("</form>", start)));
+    };
+    expect(shownSettings(guardianOf(fresh()))).toEqual([]);
+    const on = applyChange(EMPTY_HARNESS, { extension: "guardian", enabled: true });
+    if (!on.ok) throw new Error(on.error);
+    expect(shownSettings(guardianOf(renderPage(fixturePage({ resolved: resolveHarness(on.harness) }))))).toEqual([
+      "model",
+      "thinkingLevel",
+      "tools",
+      "commands",
+      "policy",
+    ]);
+  });
+
+  it("shows web_search's model only while web_search is offered", () => {
+    expect(shownSettings(section(fresh(), "tools"))).not.toContain("searchModel");
+    const offered = applyToolsChange(EMPTY_HARNESS, { tools: { web_search: "deferred" } });
+    if (!offered.ok) throw new Error(offered.error);
+    const html = renderPage(fixturePage({ resolved: resolveHarness(offered.harness) }));
+    expect(shownSettings(section(html, "tools"))).toContain("searchModel");
+  });
+
+  it("draws a contextual Environment setting with its condition, hidden and disabled while it does not hold", () => {
+    const fieldOf = (html: string, key: string) => {
+      const input = html.indexOf(`data-setting="${key}"`);
+      const start = html.lastIndexOf('class="field"', input);
+      return tagsOf(html.slice(html.lastIndexOf("<", start), input + 1));
+    };
+    const empty = section(fresh(), "environment");
+    const [wrap] = fieldOf(empty, "containerSetupMinutes");
+    expect(wrap?.attrs).toMatchObject({ "data-shown-when": "containerSetup", "data-shown-filled": "" });
+    expect(wrap?.attrs.hidden).toBeDefined();
+    const [custom] = fieldOf(empty, "customVcpu");
+    expect(custom?.attrs).toMatchObject({
+      "data-shown-when": "containerSize builderSize",
+      "data-shown-equals": "custom",
+    });
+    const set = section(
+      fresh({
+        environment: {
+          ...resolveEnvironment(EMPTY_ENVIRONMENT),
+          containerSetup: "apt-get install -y jq\n",
+          containerSize: "custom",
+        },
+      }),
+      "environment",
+    );
+    expect(fieldOf(set, "containerSetupMinutes")[0]?.attrs.hidden).toBeUndefined();
+    expect(fieldOf(set, "customVcpu")[0]?.attrs.hidden).toBeUndefined();
+    expect(shownSettings(set)).toEqual(
+      expect.arrayContaining([
+        "containerSetupMinutes",
+        "containerSetupFailure",
+        "customVcpu",
+        "customMemoryMib",
+        "customDiskMb",
+      ]),
+    );
+  });
+
+  it("its script shows a contextual setting as the input it follows changes, and disables it while hidden", () => {
+    const start = SCRIPT.indexOf("const showContextual = (form) => {");
+    expect(start).toBeGreaterThan(-1);
+    const source = SCRIPT.slice(
+      start,
+      SCRIPT.indexOf('for (const form of document.querySelectorAll("form[data-environment]"))'),
+    );
+    const values: Record<string, string> = { containerSetup: "", containerSize: "cpu-1", builderSize: "cpu-1" };
+    const field = (dataset: Record<string, string>, filled: boolean) => {
+      const input = { disabled: true };
+      return { input, wrap: { dataset, hidden: true, hasAttribute: () => filled, querySelectorAll: () => [input] } };
+    };
+    const setup = field({ shownWhen: "containerSetup" }, true);
+    const custom = field({ shownWhen: "containerSize builderSize", shownEquals: "custom" }, false);
+    const form = {
+      querySelector: (selector: string) => ({ value: values[/data-setting="(\w+)"/.exec(selector)![1]!] }),
+      querySelectorAll: () => [setup.wrap, custom.wrap],
+    };
+    const context: { form: typeof form; showContextual?: (form: unknown) => void } = { form };
+    new Script(`${source}; this.showContextual = showContextual;`).runInNewContext(context);
+    context.showContextual!(form);
+    expect([setup.wrap.hidden, setup.input.disabled, custom.wrap.hidden]).toEqual([true, true, true]);
+    values.containerSetup = "apt-get install -y jq";
+    values.builderSize = "custom";
+    context.showContextual!(form);
+    expect([setup.wrap.hidden, setup.input.disabled, custom.wrap.hidden, custom.input.disabled]).toEqual([
+      false,
+      false,
+      false,
+      false,
+    ]);
+  });
+
+  // ADR-0049 §4: a limit's message names its place by these headings, so a renamed heading must fail here.
+  it("names each place a limit points to by a heading the page renders", () => {
+    const settingsCard = {
+      ...FIXTURE_MCP[0]!,
+      name: "settings",
+      setting: { kind: "settings", enabled: true, exposure: "deferred" },
+    };
+    const on = applyChange(EMPTY_HARNESS, { extension: "guardian", enabled: true });
+    if (!on.ok) throw new Error(on.error);
+    const html = renderPage(fixturePage({ resolved: resolveHarness(on.harness), mcp: [settingsCard] }));
+    const headingOf = (id: string) =>
+      /<h2 id="[^"]+-title">(?:<svg[\s\S]*?<\/svg>)?([^<]+)<\/h2>/.exec(section(html, id))?.[1];
+    const ids: Record<string, string> = {
+      environment: "environment",
+      workspaces: "workspaces",
+      extensions: "extensions",
+      tools: "tools",
+      mcp: "mcp",
+    };
+    for (const [key, id] of Object.entries(ids))
+      expect(headingOf(id), key).toBe(SETTINGS_PAGE_PLACES[key as keyof typeof SETTINGS_PAGE_PLACES]);
+    expect(section(html, "mcp")).toContain(`<span class="tag">${SETTINGS_PAGE_PLACES.settingsServer}</span>`);
+    // Each kind of place, from the setting it names: its section, then its row, card or extension, as rendered.
+    const parts = (ref: Parameters<typeof settingPlace>[0]) => settingPlace(ref).split(" › ");
+    const [environment, , cloneTitle] = parts({ environment: "cloneMinutes" });
+    expect(section(html, "environment")).toContain(`<h2 id="environment-title">`);
+    expect(environment).toBe(SETTINGS_PAGE_PLACES.environment);
+    expect(section(html, "environment")).toContain(`>${escapeHtml(cloneTitle!)}</label>`);
+    const [, row] = parts({ environment: "containerSetupMinutes" });
+    expect(section(html, "environment")).toContain(`<h3>${row}</h3>`);
+    const [extensions, guardian, advanced] = parts({ extension: "guardian", key: "reviewTimeoutSeconds" });
+    expect(extensions).toBe(SETTINGS_PAGE_PLACES.extensions);
+    expect(section(html, "extensions")).toContain(`>${guardian}</h3>`);
+    expect(section(html, "extensions")).toContain(`${advanced} <span>·`);
+    const [tools, web] = parts({ extension: "web", key: "searchResults" });
+    expect(tools).toBe(SETTINGS_PAGE_PLACES.tools);
+    expect(section(html, "tools")).toContain(`>${web}</h3>`);
+  });
+
+  it("hides a tools extension's Advanced settings while every one of its tools is hidden", () => {
+    const rowOf = (html: string) => {
+      const start = html.indexOf('data-extension="web"');
+      return html.slice(start, html.indexOf("</form>", start));
+    };
+    expect(rowOf(fresh())).toContain('data-setting="searchResults"');
+    const hidden = applyToolsChange(EMPTY_HARNESS, { tools: { web_fetch: "hidden", web_search: "hidden" } });
+    if (!hidden.ok) throw new Error(hidden.error);
+    const row = rowOf(renderPage(fixturePage({ resolved: resolveHarness(hidden.harness) })));
+    expect(row).not.toContain("data-setting=");
+    expect(row).not.toContain("data-advanced");
+    // A row that still shows a setting says both, once, in a note across the row.
+    const off = applyToolsChange(EMPTY_HARNESS, {
+      tools: { context_notes: "hidden", context_history: "hidden", context_rollover: "hidden" },
+    });
+    if (!off.ok) throw new Error(off.error);
+    const page = renderPage(fixturePage({ resolved: resolveHarness(off.harness) }));
+    const context = page.slice(
+      page.indexOf('data-extension="context"'),
+      page.indexOf("</form>", page.indexOf('data-extension="context"')),
+    );
+    expect(context).toContain(
+      '<p class="desc off-note">Every tool is hidden, so the extension is off: these settings do nothing, and its Advanced settings stay hidden, until a tool is offered.</p>',
+    );
+    expect(context).toContain('data-setting="rolloverOnCompaction"');
+  });
+
+  it("labels the Settings server's limits as its Advanced", () => {
+    const html = renderPage(
+      fixturePage({
+        mcp: [
+          { ...FIXTURE_MCP[0]!, name: "settings", setting: { kind: "settings", enabled: true, exposure: "deferred" } },
+        ],
+      }),
+    );
+    expect(html).toContain("Advanced <span>· 10 settings: how often a caller may ask, change and read</span>");
+  });
+});

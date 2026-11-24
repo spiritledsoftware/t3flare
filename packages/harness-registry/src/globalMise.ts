@@ -2,6 +2,7 @@
 // The Global mise config's lay-down as the Workspace DO reports it and the panel's Status shows it (SPI-1150,
 // ADR-0032's Global mise config refinement): one answer per Container start, sent to the Environment DO, which keeps the last across all Workspaces.
 // Imported by both Workers.
+import { timeLimitHit } from "./index.ts";
 
 /** A text's size and SHA-256: what the audit, the logs and `containerState()` show of a `file` setting, never the text. */
 export interface TextDigest {
@@ -46,6 +47,8 @@ export interface GlobalMiseReport {
   readonly install: number | null;
   /** The install or a check was cut off by its timeout (exit 124, or 137 after the KILL). */
   readonly timedOut: boolean;
+  /** The install's time limit (`globalMiseInstallMinutes`), so Status names it. Absent: a report from before SPI-1385. */
+  readonly limitMinutes?: number;
   /** With no text, the file was the dotfiles' own mise config (ADR-0047 §10). Absent: the text's, or none. */
   readonly dotfiles?: boolean;
   readonly ms: number;
@@ -69,6 +72,7 @@ export const globalMiseReport = (value: unknown): GlobalMiseReport | undefined =
     (GLOBAL_MISE_OUTCOMES as ReadonlyArray<unknown>).includes(report.outcome) &&
     (report.install === null || (typeof report.install === "number" && Number.isInteger(report.install))) &&
     typeof report.timedOut === "boolean" &&
+    (report.limitMinutes === undefined || count(report.limitMinutes)) &&
     (report.dotfiles === undefined || typeof report.dotfiles === "boolean") &&
     count(report.ms) &&
     count(report.at);
@@ -83,6 +87,7 @@ export const globalMiseReport = (value: unknown): GlobalMiseReport | undefined =
     outcome: report.outcome as GlobalMiseOutcome,
     install: report.install as number | null,
     timedOut: report.timedOut as boolean,
+    ...(report.limitMinutes === undefined ? {} : { limitMinutes: report.limitMinutes as number }),
     ...(report.dotfiles === undefined ? {} : { dotfiles: report.dotfiles as boolean }),
     ms: report.ms as number,
     at: report.at as number,
@@ -91,18 +96,24 @@ export const globalMiseReport = (value: unknown): GlobalMiseReport | undefined =
 
 /** One line for the panel's Status. */
 export const describeGlobalMise = (report: GlobalMiseReport): string => {
+  const head = `${report.workspace ?? "a Workspace"} at revision ${report.revision}: `;
+  const at = `, ${new Date(report.at).toISOString()}`;
   // A run with no text installs nothing (`install` null): no Global mise config, whatever outcome it was given.
   const noText =
     report.outcome === "none" || (report.outcome === "not-laid" && report.install === null && !report.timedOut);
+  // ADR-0047 §10: with no text, the dotfiles' own file, kept under the same check as a text.
+  const dotfiles = "no Global mise config; the dotfiles' ~/.config/mise/config.toml";
+  const dotfilesNotUsed = report.dotfiles === true && report.outcome === "not-laid";
+  // ADR-0049 §4: a timed-out install names its limit and, a contextual setting, where to change it, at the line's end.
+  if (report.timedOut && (report.outcome === "not-laid" || dotfilesNotUsed)) {
+    const [before, after] = dotfilesNotUsed
+      ? [`${dotfiles} is not used (stopped at `, `), so mise uses t3flare's own${at}`]
+      : ["not laid down (stopped at ", `)${at}`];
+    return `${head}${before}${timeLimitHit(report.limitMinutes, "minute", { environment: "globalMiseInstallMinutes" }, after)}`;
+  }
+  const why = report.install === 0 ? "git or gh did not run under it" : `mise install exit ${report.install}`;
   let what: string;
-  const why = report.timedOut
-    ? "timed out"
-    : report.install === 0
-      ? "git or gh did not run under it"
-      : `mise install exit ${report.install}`;
   if (report.dotfiles === true && (report.outcome === "laid" || report.outcome === "not-laid")) {
-    // ADR-0047 §10: with no text, the dotfiles' own file, kept under the same check as a text.
-    const dotfiles = "no Global mise config; the dotfiles' ~/.config/mise/config.toml";
     what =
       report.outcome === "laid"
         ? `${dotfiles} is mise's global config${report.install === 0 || report.install === null ? "" : ` (mise install exit ${report.install})`}`
@@ -113,5 +124,5 @@ export const describeGlobalMise = (report: GlobalMiseReport): string => {
   else if (report.outcome === "not-laid") what = `not laid down (${why})`;
   else if (report.outcome === "exec-failed") what = "not laid down (the Container's exec failed; tried again)";
   else what = "not laid down (no answer within the deadline)";
-  return `${report.workspace ?? "a Workspace"} at revision ${report.revision}: ${what}, ${new Date(report.at).toISOString()}`;
+  return `${head}${what}${at}`;
 };

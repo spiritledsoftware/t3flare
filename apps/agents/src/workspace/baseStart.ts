@@ -15,7 +15,14 @@
 //   snapshot (missing or expired) is seen within a second, not at the end of computer's 60 s connect deadline (one budget its attempts share), and the start goes again
 //   from the Workspace image, once.
 import type { BackendHandle, WorkspaceBackend } from "@cloudflare/computer";
-import { type BaseBuildRecord, type BaseSnapshot, type ResolvedEnvironment } from "@t3flare/harness-registry";
+import {
+  type BaseBuildRecord,
+  type BaseSnapshot,
+  type ResolvedEnvironment,
+  limitHit,
+  limitValue,
+  settingPlace,
+} from "@t3flare/harness-registry";
 
 import { readWithin } from "../readWithin.ts";
 
@@ -151,12 +158,15 @@ export const planBase = async (
   return pickBase(answered, settings, deps.imageDigest, { asked: true });
 };
 
+/** The Base build's phases after the Image setup that each run up to `snapshotMinutes`: the snapshot and its proof. */
+const SNAPSHOT_PHASES = 2;
+
 /**
  * How long a start waits for a Base build at most: the build's own limits, the Image setup's (from its Container's start)
- * then the snapshot's and the proof's, each `snapshotMinutes`. The Builder ends a build at them itself.
+ * then the snapshot's and the proof's (`SNAPSHOT_PHASES`), each `snapshotMinutes`. The Builder ends a build at them itself.
  */
 export const waitLimitMs = (settings: Pick<ResolvedEnvironment, "imageSetupMinutes" | "snapshotMinutes">): number =>
-  (settings.imageSetupMinutes + 2 * settings.snapshotMinutes) * 60_000;
+  (settings.imageSetupMinutes + SNAPSHOT_PHASES * settings.snapshotMinutes) * 60_000;
 
 /** How often a waiting start reads the Builder's record. Fixed: a poll of another object, not a policy (the limit is the settings'). */
 export const BASE_WAIT_POLL_MS = 5_000;
@@ -175,7 +185,13 @@ export const waitForBase = async (deps: {
     if (pick.kind !== "wait") return pick;
     const left = until - deps.now();
     if (left <= 0)
-      return image(`the Base build did not end within its time limits (${Math.round(deps.limitMs / 60_000)} min)`);
+      return image(
+        // ADR-0049 §4: the wait is `waitLimitMs`'s sum of two settings; it names both, and where each is changed.
+        limitHit(
+          `the Base build did not end within its ${limitValue(Math.round(deps.limitMs / 60_000), "minute")} wait: the Image setup time limit, under ${settingPlace({ environment: "imageSetupMinutes" })}, and ${SNAPSHOT_PHASES} × the Snapshot time limit`,
+          { environment: "snapshotMinutes" },
+        ),
+      );
     await deps.sleep(Math.min(deps.pollMs, left));
   }
 };

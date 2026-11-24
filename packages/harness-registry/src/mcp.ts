@@ -170,6 +170,7 @@ const perHour = (title: string, description: string, fallback: number) =>
     title,
     description,
     schema: { type: "integer", minimum: 1, maximum: MAX_PER_HOUR, default: fallback },
+    disclosure: "advanced",
   }) as const;
 
 /**
@@ -184,24 +185,28 @@ export const SETTINGS_SERVER_LIMITS = {
     description:
       "This many asked changes in a row that you decline (or, from an agent's thread, leave unanswered) lock the caller out of asking for the Strike lock.",
     schema: { type: "integer", minimum: 1, maximum: MAX_STRIKES, default: 3 },
+    disclosure: "advanced",
   },
   strikeWindowMinutes: {
     title: "Strike window (minutes)",
     description:
       "The strikes count as a run when they fall within this long of each other, or within the Answer wait of each other's when that is longer.",
     schema: { type: "integer", minimum: 1, maximum: MAX_LOOKBACK_MINUTES, default: 60 },
+    disclosure: "advanced",
   },
   strikeLockMinutes: {
     title: "Strike lock (minutes)",
     description:
       "How long a run of strikes refuses the caller's asked changes, from the last of them. 0 turns the lock off.",
     schema: { type: "integer", minimum: 0, maximum: MAX_LOOKBACK_MINUTES, default: 60 },
+    disclosure: "advanced",
   },
   declinedRepeatMinutes: {
     title: "Declined repeat (minutes)",
     description:
       "How long the same change, once you decline it, is refused when the same caller asks it again. 0 allows it at once.",
     schema: { type: "integer", minimum: 0, maximum: MAX_LOOKBACK_MINUTES, default: 10 },
+    disclosure: "advanced",
   },
   appliedPerHour: perHour(
     "Changes an hour",
@@ -219,11 +224,13 @@ export const SETTINGS_SERVER_LIMITS = {
     title: "Open changes per thread",
     description: "Asked changes one agent thread may have waiting for you at once.",
     schema: { type: "integer", minimum: 1, maximum: MAX_OPEN_PER_CALLER, default: 1 },
+    disclosure: "advanced",
   },
   openPerOwner: {
     title: "Open changes per Owner client",
     description: "Asked changes one Owner client's identity may have waiting for an answer at once.",
     schema: { type: "integer", minimum: 1, maximum: MAX_OPEN_PER_CALLER, default: 2 },
+    disclosure: "advanced",
   },
 } as const satisfies Readonly<Record<string, SettingEntry>>;
 

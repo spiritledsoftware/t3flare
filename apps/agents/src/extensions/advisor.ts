@@ -40,7 +40,7 @@ import {
   type HookApi,
   type JsonObject,
 } from "@earendil-works/pi-durable";
-import type { SettingValue } from "@t3flare/harness-registry";
+import { type SettingValue, timeLimitHit } from "@t3flare/harness-registry";
 import { isRetiredSlug, parseEndpointSlug } from "@t3flare/models/endpoints";
 
 import { conversationIdOf, entryIdOf } from "../durableIds.ts";
@@ -225,6 +225,13 @@ const findingData = ({ severity, message, evidence }: AdvisorFinding): JsonObjec
 });
 
 const adviceText = (finding: AdvisorFinding) => `Advisor ${finding.severity}: ${finding.message}`;
+
+/**
+ * Why a Review that ran past its time limit (`reviewTimeoutSeconds`) paused the Advisor: the limit with its value and,
+ * an Advanced setting, where to change it (ADR-0049 §4).
+ */
+export const reviewTimeoutText = (reviewTimeoutMs: number): string =>
+  `the Review did not finish within ${timeLimitHit(reviewTimeoutMs / 1_000, "second", { extension: "advisor", key: "reviewTimeoutSeconds" })}`;
 
 /**
  * The Advisor of one Session (pi-advisor's observer): turns observed through the agent's generation hooks, Reviews in
@@ -454,7 +461,7 @@ export class AdvisorObserver {
     ]);
     if (settled === "timeout") {
       await conversation.abort(context).catch(() => undefined);
-      throw new Error(`the Review did not finish within ${reviewTimeoutMs / 1_000}s`);
+      throw new Error(reviewTimeoutText(reviewTimeoutMs));
     }
     if (settled.status !== "done")
       throw new Error(

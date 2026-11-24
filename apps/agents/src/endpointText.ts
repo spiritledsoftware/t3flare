@@ -9,7 +9,7 @@
 // key never reach the message.
 import { createModels, type FetchFunction } from "@earendil-works/pi-ai";
 import { describeFailure, errorBodyOf, failureHeaders, resetSentence, withCause } from "@t3flare/models/failures";
-import { DEFAULT_TEXT_GENERATION_SECONDS } from "@t3flare/harness-registry";
+import { DEFAULT_TEXT_GENERATION_SECONDS, timeLimitHit } from "@t3flare/harness-registry";
 import { redactSecrets } from "@t3flare/models/redact";
 import {
   type EndpointCredential,
@@ -195,8 +195,13 @@ export const generateEndpointText = async (input: unknown, access: EndpointTextA
     models.setProvider(provider);
   const model = models.getModel(endpoint.id, modelId);
   if (model === undefined) return { ok: false, error: `${named} does not list the model ${modelId}.` };
-  const signal = AbortSignal.timeout(access.timeoutMs ?? request.timeoutMs ?? TIMEOUT_MS);
-  const timedOut = { ok: false, error: `${named} did not answer in time.` } as const;
+  const limitMs = access.timeoutMs ?? request.timeoutMs ?? TIMEOUT_MS;
+  const signal = AbortSignal.timeout(limitMs);
+  // ADR-0049 §4: the text generation time limit names its value and where to change it.
+  const timedOut = {
+    ok: false,
+    error: `${named} did not answer within ${timeLimitHit(limitMs / 1000, "second", { environment: "textGenerationSeconds" })}.`,
+  } as const;
   let message;
   try {
     message = await models.completeSimple(

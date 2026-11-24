@@ -159,7 +159,10 @@ describe("GlobalMise", () => {
     expect(await t.mise.ensure("r1")).toMatchObject({ outcome: "deadline", attempts: 1 });
     expect(t.killed()).toBe(1);
     expect(t.holds()).toBe(0);
-    expect(t.reports).toMatchObject([{ outcome: "deadline", timedOut: true, runtime: "r1", workspace: "/w/app" }]);
+    // With the install's time limit, so Status names it (SPI-1385).
+    expect(t.reports).toMatchObject([
+      { outcome: "deadline", timedOut: true, runtime: "r1", workspace: "/w/app", limitMinutes: DEFAULT_MINUTES },
+    ]);
     expect(t.mise.catchUp("r1")).toBe(false);
   });
 

@@ -56,6 +56,11 @@ import {
   visible,
   withheldFromCommands,
   withoutQuery,
+  disclosureReport,
+  type EnvironmentKey,
+  limitHit,
+  SETTINGS_SERVER_LIMIT_KEYS,
+  SETTINGS_SERVER_LIMITS,
 } from "@t3flare/harness-registry";
 import type { McpAsker, McpQuestionAnswer, McpQuestionCard } from "@t3flare/session-protocol";
 
@@ -363,7 +368,20 @@ const getSettings = async (
           value: resolved.extensions[entry.id]?.settings[key],
           schema: setting.schema,
           tier: entry.guard === true ? "asked" : (setting.tier ?? "asked"),
+          // Where the Settings page shows it (ADR-0049 §6), so an agent can point the Owner to it.
+          ...disclosureReport({ extension: entry.id, key }),
         })),
+      })),
+      // The Settings server's own limits (SPI-1322): its entry's settings, every change to them asked, each with where the
+      // page shows it (list_mcp_servers lists them with the server too).
+      settingsServerLimits: SETTINGS_SERVER_LIMIT_KEYS.map((key) => ({
+        key,
+        title: SETTINGS_SERVER_LIMITS[key].title,
+        description: SETTINGS_SERVER_LIMITS[key].description,
+        value: settingsServerLimitsOf(stored)[key],
+        schema: SETTINGS_SERVER_LIMITS[key].schema,
+        tier: "asked",
+        ...disclosureReport({ settingsServer: key }),
       })),
     });
   }
@@ -381,6 +399,7 @@ const getSettings = async (
         value: resolved[key],
         schema: setting.schema,
         tier: (setting as { readonly tier?: string }).tier ?? "asked",
+        ...disclosureReport({ environment: key as EnvironmentKey }),
       })),
       running: (await deps.running?.()) ?? null,
       costs: containerCostTable(resolveEnvironment(stored)),
@@ -409,7 +428,14 @@ const listMcpServers = async (
       enabled: server.enabled,
       exposure: server.exposure,
       ...(server.kind === SETTINGS_SERVER
-        ? { writes: server.writes ?? true, limits: settingsServerLimitsOf(stored) }
+        ? {
+            writes: server.writes ?? true,
+            limits: settingsServerLimitsOf(stored),
+            // Each limit's place on the Settings page (ADR-0049 §6): every one is under its card's Advanced.
+            limitsDisclosure: Object.fromEntries(
+              SETTINGS_SERVER_LIMIT_KEYS.map((key) => [key, disclosureReport({ settingsServer: key })]),
+            ),
+          }
         : {}),
       ...(server.url === undefined ? {} : { url: withoutQuery(server.url) }),
       ...(server.auth === undefined ? {} : { auth: server.auth }),
@@ -1845,7 +1871,7 @@ const networkSpent = (deps: SettingsServerDeps, reader: Reader, limits: Settings
   const now = deps.ops.now();
   const cap = limits.networkReadsPerHour;
   if (deps.changes.readsSince(reader.key, "network", now - READ_WINDOW_MS) >= cap) {
-    return `Not changed: ${reader.who} made ${cap} reads that reach GitHub or an MCP server in the last hour, the most t3flare allows, and this change must preview its skills on GitHub. Try again later.`;
+    return `${limitHit(`Not changed: ${reader.who} made ${cap} reads that reach GitHub or an MCP server in the last hour, the limit of ${cap} an hour, and this change must preview its skills on GitHub`, { settingsServer: "networkReadsPerHour" })} Try again later.`;
   }
   deps.changes.noteRead(reader.key, "network", now);
   return undefined;
@@ -1875,12 +1901,12 @@ const readLimit = (deps: SettingsServerDeps, reader: Reader, tool: string): McpC
   if (deps.changes.readsSince(key, "read", now - READ_WINDOW_MS) >= limits.readsPerHour)
     return refused(
       "read-cap",
-      `Not read: ${reader.who} made ${limits.readsPerHour} settings reads in the last hour, the most t3flare allows. Try again later.`,
+      `${limitHit(`Not read: ${reader.who} made ${limits.readsPerHour} settings reads in the last hour, the limit of ${limits.readsPerHour} an hour`, { settingsServer: "readsPerHour" })} Try again later.`,
     );
   if (network && deps.changes.readsSince(key, "network", now - READ_WINDOW_MS) >= limits.networkReadsPerHour) {
     return refused(
       "network-read-cap",
-      `Not read: ${reader.who} made ${limits.networkReadsPerHour} reads that reach GitHub or an MCP server in the last hour, the most t3flare allows. Try again later.`,
+      `${limitHit(`Not read: ${reader.who} made ${limits.networkReadsPerHour} reads that reach GitHub or an MCP server in the last hour, the limit of ${limits.networkReadsPerHour} an hour`, { settingsServer: "networkReadsPerHour" })} Try again later.`,
     );
   }
   deps.changes.noteRead(key, network ? "network" : "read", now);

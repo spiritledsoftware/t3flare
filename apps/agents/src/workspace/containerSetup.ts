@@ -9,6 +9,7 @@ import {
   type ContainerSetupReport,
   MAX_SETUP_OUTPUT_BYTES,
   type SettingsSource,
+  timeLimitHit,
 } from "@t3flare/harness-registry";
 import {
   containerSetupArgv,
@@ -180,9 +181,11 @@ export class ContainerSetup {
     if (state === undefined)
       return `Refused: this Container's Container setup has not run (the Container's steps before it did not finish), ${tail}`;
     if (state.outcome === "ok" || state.outcome === "none") return undefined;
-    const how = state.timedOut
-      ? "stopped at its time limit"
-      : state.exitCode !== null
+    // ADR-0049 §4: the time limit names its value and, at its sentence's end, where to change it (a contextual setting).
+    if (state.timedOut)
+      return `Refused: this Container's Container setup failed, stopped at ${timeLimitHit(this.#deps.launch()?.minutes, "minute", { environment: "containerSetupMinutes" })}. The Environment settings refuse commands in a Container whose setup failed. ${next}; Status on the Settings page shows its output.`;
+    const how =
+      state.exitCode !== null
         ? `exit ${state.exitCode}`
         : state.outcome === "deadline"
           ? "no answer within the deadline"
@@ -208,6 +211,7 @@ export class ContainerSetup {
       outcome: state.outcome,
       exitCode: state.exitCode,
       timedOut: state.timedOut,
+      ...(known === undefined ? {} : { limitMinutes: known.minutes }),
       output,
       failure: known?.failure ?? "carryOn",
       ms: Math.max(0, state.at - started),

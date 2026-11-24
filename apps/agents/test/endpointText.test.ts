@@ -278,7 +278,12 @@ describe("generateEndpointText", () => {
       )) as typeof globalThis.fetch;
     expect(
       await generate(endpoint("anthropic-messages"), { credential: keyFor().credential, fetch, timeoutMs: 50 }),
-    ).toEqual({ ok: false, error: 'The Model endpoint "gw" did not answer in time.' });
+    ).toEqual({
+      ok: false,
+      // ADR-0049 §4: named with its value and where to change it.
+      error:
+        'The Model endpoint "gw" did not answer within its 0.05-second time limit; change it under Environment › Advanced › Text generation time limit (seconds).',
+    });
   });
 
   it("says why there is no key, as a Session's turn does, and sends nothing", async () => {

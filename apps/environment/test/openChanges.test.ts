@@ -18,6 +18,7 @@ import {
   type ChangeCaller,
   type ChangeRecord,
   closedKeptMs,
+  durationText,
   newChangeId,
   OPENED_WINDOW_MS,
   settingsChanges,
@@ -358,15 +359,22 @@ describe("D16's caps", () => {
   it("one open per own-agent thread, naming it; two per Owner sub", () => {
     const w = world();
     const record = w.open(OWN);
-    expect(capRefusal(w.deps().changes, OWN, "hash-b", w.now())).toMatchObject({
-      reason: "open-thread",
-      changeId: record.id,
-    });
+    const thread = capRefusal(w.deps().changes, OWN, "hash-b", w.now());
+    expect(thread).toMatchObject({ reason: "open-thread", changeId: record.id });
+    // Each cap names its value and, Advanced, where the Owner changes it (ADR-0049 §4).
+    expect(thread!.text).toContain(
+      "ask for one at a time; change it under MCP servers › Settings server › Advanced › Open changes per thread.",
+    );
     for (let index = 0; index < OPEN_PER_OWNER; index++) {
       expect(capRefusal(w.deps().changes, OWNER, `hash-${index}`, w.now())).toBeUndefined();
       w.open(OWNER, { hash: `hash-${index}` });
     }
-    expect(capRefusal(w.deps().changes, OWNER, "hash-z", w.now())).toMatchObject({ reason: "open-owner" });
+    const owner = capRefusal(w.deps().changes, OWNER, "hash-z", w.now());
+    expect(owner).toMatchObject({ reason: "open-owner" });
+    expect(owner!.text).toContain(`${OPEN_PER_OWNER} changes of yours already wait for an answer`);
+    expect(owner!.text).toContain(
+      "the most you may have at once; change it under MCP servers › Settings server › Advanced › Open changes per Owner client.",
+    );
   });
 
   it("has no cap across the Environment: each caller's own limits bound it", () => {
@@ -381,7 +389,11 @@ describe("D16's caps", () => {
     const w = world();
     const record = w.open(OWN);
     await answerOpenChange(w.deps(), record.id, { by: "card", answerer: { kind: "card" }, action: "decline" });
-    expect(capRefusal(w.deps().changes, OWN, "hash-a", w.now())).toMatchObject({ reason: "declined-repeat" });
+    const repeat = capRefusal(w.deps().changes, OWN, "hash-a", w.now());
+    expect(repeat).toMatchObject({ reason: "declined-repeat" });
+    expect(repeat!.text).toContain(
+      "less than 10 minutes ago, and the Declined repeat refuses it again for 10 minutes after a decline; change it under MCP servers › Settings server › Advanced › Declined repeat (minutes).",
+    );
     expect(capRefusal(w.deps().changes, OWN, "hash-other", w.now())).toBeUndefined();
     w.advance(DECLINED_REPEAT_MS + 1);
     expect(capRefusal(w.deps().changes, OWN, "hash-a", w.now())).toBeUndefined();
@@ -400,7 +412,11 @@ describe("D16's caps", () => {
     await strike(2, "expire");
     expect(capRefusal(w.deps().changes, OWN, "hash-9", w.now())).toBeUndefined();
     await strike(3, "decline");
-    expect(capRefusal(w.deps().changes, OWN, "hash-9", w.now())).toMatchObject({ reason: "strikes" });
+    const locked = capRefusal(w.deps().changes, OWN, "hash-9", w.now());
+    expect(locked).toMatchObject({ reason: "strikes" });
+    expect(locked!.text).toContain(
+      "(an hour after the last): 3 strikes within an hour (the Strike window) lock a caller out for the Strike lock of an hour; change them under MCP servers › Settings server › Advanced › Strikes, Strike window (minutes) and Strike lock (minutes).",
+    );
     // Another caller is not locked.
     expect(
       capRefusal(w.deps().changes, { ...OWN, key: "thread-9", thread: "thread-9" }, "hash-9", w.now()),
@@ -439,7 +455,12 @@ describe("D16's caps", () => {
     // At a 45-minute wait the run spans 90 minutes, past the hour.
     const w = world(long);
     run(w, long);
-    expect(capRefusal(w.deps().changes, OWN, "hash-9", w.now())).toMatchObject({ reason: "strikes" });
+    const widened = capRefusal(w.deps().changes, OWN, "hash-9", w.now());
+    expect(widened).toMatchObject({ reason: "strikes" });
+    // The refusal states the window it applied, stretched past the setting's hour (ADR-0049 §4).
+    expect(widened!.text).toContain(
+      `3 strikes within ${durationText(2 * long + 5 * 60_000)} (the Strike window, stretched to the run's longest wait for an answer) lock a caller out`,
+    );
     // A CLI agent spawned at 45 minutes keeps that wait for its changes after the setting is lowered to 10: the window
     // follows the changes' own waits, not the setting's.
     const lowered = world(10 * 60_000);
@@ -517,7 +538,7 @@ describe("D16's caps", () => {
     expect(refusal).toMatchObject({ reason: "opened-cap" });
     expect(refusal!.changeId).toBeUndefined();
     expect(refusal!.text).toBe(
-      `Not changed: you asked for ${OPENED_CAP} changes in the last hour, answered or not, the most t3flare allows. Make the change on the Settings page (https://h/_t3flare/settings#changes), or try again later.`,
+      `Not changed: you asked for ${OPENED_CAP} changes in the last hour, answered or not, your limit of ${OPENED_CAP} an hour; change it under MCP servers › Settings server › Advanced › Asked changes an hour. Make the change on the Settings page (https://h/_t3flare/settings#changes), or try again later.`,
     );
     // Per caller and per door: another sub, and an own thread whose key is this sub, are not capped.
     expect(capRefusal(w.deps().changes, { ...OWNER, key: "sub-2" }, "hash-new", w.now())).toBeUndefined();
@@ -548,7 +569,11 @@ describe("D16's caps", () => {
         closed: { at: w.now() },
       });
     }
-    expect(capRefusal(changes, OWN, "hash-a", w.now())).toMatchObject({ reason: "applied-cap" });
+    const applied = capRefusal(changes, OWN, "hash-a", w.now());
+    expect(applied).toMatchObject({ reason: "applied-cap" });
+    expect(applied!.text).toContain(
+      `its limit of ${APPLIED_CAP} an hour; change it under MCP servers › Settings server › Advanced › Changes an hour.`,
+    );
     w.advance(60 * 60_000 + 1);
     expect(capRefusal(changes, OWN, "hash-a", w.now())).toBeUndefined();
   });
@@ -980,6 +1005,7 @@ describe("the caps follow the Settings server's limits (SPI-1322)", () => {
     expect(refusal).toMatchObject({ reason: "strikes" });
     expect(refusal!.text).toContain("your last asked change was declined or unanswered");
     expect(refusal!.text).toContain("(30 minutes after the last)");
+    expect(refusal!.text).toContain("1 strike within an hour (the Strike window) locks a caller out");
     w.advance(30 * 60_000);
     expect(capRefusal(w.deps().changes, OWN, "hash-9", w.now())).toBeUndefined();
   });

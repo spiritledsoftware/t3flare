@@ -105,7 +105,26 @@ const post = async (path, body, control) => {
   busy(control, false);
   return undefined;
 };
-const done = () => location.reload();
+// A reload keeps each Advanced (ADR-0049 §6) open that was open, so a value saved there shows where it was typed.
+const OPEN_ADVANCED = "t3flare-open-advanced";
+const done = () => {
+  try {
+    sessionStorage.setItem(OPEN_ADVANCED, JSON.stringify([...document.querySelectorAll("details[data-advanced][open]")].map((details) => details.id)));
+  } catch {}
+  location.reload();
+};
+try {
+  for (const id of JSON.parse(sessionStorage.getItem(OPEN_ADVANCED) ?? "[]")) {
+    const details = document.getElementById(id);
+    if (details instanceof HTMLDetailsElement) details.open = true;
+  }
+  sessionStorage.removeItem(OPEN_ADVANCED);
+} catch {}
+// A field under a collapsed Advanced (ADR-0049 §6) that a save finds invalid opens it, so the browser can show where.
+document.addEventListener("invalid", (event) => {
+  const advanced = event.target instanceof Element ? event.target.closest("details[data-advanced]") : null;
+  if (advanced !== null) advanced.open = true;
+}, true);
 // The Base snapshot's Rebuild (SPI-1332): a reload shows the build it started; a refusal is said beside the button,
 // which keeps the focus.
 for (const button of document.querySelectorAll("button[data-base-rebuild]")) {
@@ -418,22 +437,28 @@ const watchUnsaved = (form) => {
     });
   }
 };
+// A contextual setting (ADR-0049 §6) shows while its condition holds, as the inputs it names change: one of them
+// holding a value (a custom size's resources while the Container size or the Builder size is custom), or one having
+// text (a setup's time limit while it has a script). Hidden, it is disabled, so a save never sends it.
+const showContextual = (form) => {
+  const valueOf = (key) => form.querySelector('[data-setting="' + key + '"]')?.value ?? "";
+  for (const wrap of form.querySelectorAll("[data-shown-when]")) {
+    const keys = wrap.dataset.shownWhen.split(" ");
+    const holds = wrap.hasAttribute("data-shown-filled")
+      ? keys.some((key) => valueOf(key).trim() !== "")
+      : keys.some((key) => valueOf(key) === wrap.dataset.shownEquals);
+    wrap.hidden = !holds;
+    for (const input of wrap.querySelectorAll("[data-setting]")) input.disabled = !holds;
+  }
+};
 for (const form of document.querySelectorAll("form[data-environment]")) {
   const save = form.querySelector("[data-save]");
   watchUnsaved(form);
   // The cost table follows the size and budget inputs before a save: the budget column, the current row, the summary.
   const size = form.querySelector('[data-setting="containerSize"]');
   const budget = form.querySelector('[data-setting="containerBudget"]');
-  const builder = form.querySelector('[data-setting="builderSize"]');
-  // A custom size's resources show while the Container size or the Builder size is custom (SPI-1365).
-  const showCustom = () => {
-    const inUse = (size !== null && size.value === "custom") || (builder !== null && builder.value === "custom");
-    for (const wrap of form.querySelectorAll("[data-custom-resource]")) {
-      wrap.hidden = !inUse;
-      for (const input of wrap.querySelectorAll("[data-setting]")) input.disabled = !inUse;
-    }
-  };
-  for (const input of [size, builder]) if (input !== null) input.addEventListener("change", showCustom);
+  form.addEventListener("input", () => showContextual(form));
+  form.addEventListener("change", () => showContextual(form));
   const resource = (key) => Number(form.querySelector('[data-setting="' + key + '"]')?.value);
   // The custom row is priced from the resources as typed, before a save.
   const priceCustom = () => {

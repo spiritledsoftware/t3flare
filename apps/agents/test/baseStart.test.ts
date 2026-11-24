@@ -307,11 +307,15 @@ describe("waitForBase", () => {
       plan: async () => ({ kind: "wait", why: "w" }),
       now: () => clock,
       sleep: async (ms) => void (clock += ms),
-      limitMs: 12_000,
-      pollMs: 5_000,
+      limitMs: 35 * 60_000,
+      pollMs: 5 * 60_000,
     });
     expect(pick).toMatchObject({ kind: "image" });
-    expect(clock).toBe(12_000);
+    expect(clock).toBe(35 * 60_000);
+    // ADR-0049 §4: it names its value and the two settings it is made of, where each is changed.
+    expect(JSON.stringify(pick)).toContain(
+      "the Base build did not end within its 35-minute wait: the Image setup time limit, under Environment › Image setup › Image setup time limit (minutes), and 2 × the Snapshot time limit; change it under Environment › Advanced › Snapshot time limit (minutes).",
+    );
   });
 
   it("is bounded by the build's own limits: the Image setup's, then the snapshot's and its proof's", () => {

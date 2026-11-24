@@ -11,7 +11,7 @@
 //   outcome (`closeOrSettle`);
 // - the in-memory waiters a held call waits on. With no waiter (after an Environment restart the call is gone), the
 //   record still stands until it expires, and the Change page can still apply it.
-import type { SettingsServerLimits } from "@t3flare/harness-registry";
+import { changeThemUnder, limitHit, type SettingsServerLimits } from "@t3flare/harness-registry";
 
 import {
   type AnsweredBy,
@@ -69,10 +69,16 @@ export const capRefusal = (
       reason: caller.door === "own" ? "open-thread" : "open-owner",
       text:
         caller.door === "own"
-          ? perCaller === 1
-            ? `Not changed: this thread already has a change waiting for the owner (${first!.id}); ask for one at a time. Wait for its answer, or read get_status.`
-            : `Not changed: ${perCaller} changes of this thread already wait for the owner (${mine.map((record) => record.id).join(", ")}); ask for at most ${perCaller} at a time. Wait for an answer, or read get_status.`
-          : `Not changed: ${perCaller} changes of yours already wait for an answer (${mine.map((record) => record.id).join(", ")}); answer or cancel one first.`,
+          ? `${limitHit(
+              perCaller === 1
+                ? `Not changed: this thread already has a change waiting for the owner (${first!.id}); ask for one at a time`
+                : `Not changed: ${perCaller} changes of this thread already wait for the owner (${mine.map((record) => record.id).join(", ")}); ask for at most ${perCaller} at a time`,
+              { settingsServer: "openPerThread" },
+            )} Wait for an answer, or read get_status.`
+          : `${limitHit(
+              `Not changed: ${perCaller} changes of yours already wait for an answer (${mine.map((record) => record.id).join(", ")}), the most you may have at once`,
+              { settingsServer: "openPerOwner" },
+            )} Answer or cancel one first.`,
       changeId: first!.id,
     };
   }
@@ -82,8 +88,8 @@ export const capRefusal = (
       reason: "opened-cap",
       text:
         caller.door === "own"
-          ? `Not changed: this thread asked for ${opened} changes in the last hour, answered or not, the most t3flare allows. Ask the owner in the thread; he changes settings on the Settings page${openList === undefined ? "" : ` (${openList})`}.`
-          : `Not changed: you asked for ${opened} changes in the last hour, answered or not, the most t3flare allows. Make the change on the Settings page${openList === undefined ? "" : ` (${openList})`}, or try again later.`,
+          ? `${limitHit(`Not changed: this thread asked for ${opened} changes in the last hour, answered or not, its limit of ${opened} an hour`, { settingsServer: "askedPerHour" })} Ask the owner in the thread; he changes settings on the Settings page${openList === undefined ? "" : ` (${openList})`}.`
+          : `${limitHit(`Not changed: you asked for ${opened} changes in the last hour, answered or not, your limit of ${opened} an hour`, { settingsServer: "askedPerHour" })} Make the change on the Settings page${openList === undefined ? "" : ` (${openList})`}, or try again later.`,
     };
   }
   const repeatMs = limits.declinedRepeatMinutes * 60_000;
@@ -96,7 +102,7 @@ export const capRefusal = (
   ) {
     return {
       reason: "declined-repeat",
-      text: `Not changed: the owner declined this same change less than ${durationText(repeatMs)} ago. Do not ask again; ask him in the thread what he wants instead.`,
+      text: `${limitHit(`Not changed: the owner declined this same change less than ${durationText(repeatMs)} ago, and the Declined repeat refuses it again for ${durationText(repeatMs)} after a decline`, { settingsServer: "declinedRepeatMinutes" })} Do not ask again; ask him in the thread what he wants instead.`,
     };
   }
   // A strike is a decline; for own agents an expiry too (unanswered), never for an Owner client (a dropped stream or an
@@ -114,13 +120,15 @@ export const capRefusal = (
   if (run.length === strikes && run.every(strike) && last - first <= window && now < last + lockMs) {
     return {
       reason: "strikes",
-      text: `Not changed: your last ${strikes === 1 ? "asked change was" : `${strikes} asked changes were`} ${caller.door === "own" ? "declined or unanswered" : "declined"}, so t3flare refuses your asked changes until ${new Date(last + lockMs).toISOString()} (${durationText(lockMs)} after the last). Ask the owner in the thread what he wants.`,
+      // ADR-0049 §4: the three limits that made the lock, each with the value it applied (the window as `strikeWindowMs`
+      // stretched it, SPI-1316), and where to change them.
+      text: `Not changed: your last ${strikes === 1 ? "asked change was" : `${strikes} asked changes were`} ${caller.door === "own" ? "declined or unanswered" : "declined"}, so t3flare refuses your asked changes until ${new Date(last + lockMs).toISOString()} (${durationText(lockMs)} after the last): ${strikes === 1 ? "1 strike" : `${strikes} strikes`} within ${durationText(window)} (${window > limits.strikeWindowMinutes * 60_000 ? "the Strike window, stretched to the run's longest wait for an answer" : "the Strike window"}) ${strikes === 1 ? "locks" : "lock"} a caller out for the Strike lock of ${durationText(lockMs)}${changeThemUnder([{ settingsServer: "strikes" }, { settingsServer: "strikeWindowMinutes" }, { settingsServer: "strikeLockMinutes" }])}. Ask the owner in the thread what he wants.`,
     };
   }
   if (changes.appliedSince(capKey, now - APPLIED_WINDOW_MS) >= limits.appliedPerHour) {
     return {
       reason: "applied-cap",
-      text: `Not changed: ${caller.door === "own" ? "this thread" : "you"} made ${limits.appliedPerHour} settings changes in the last hour, the most t3flare allows. Try again later, or ask the owner.`,
+      text: `${limitHit(`Not changed: ${caller.door === "own" ? "this thread" : "you"} made ${limits.appliedPerHour} settings changes in the last hour, ${caller.door === "own" ? "its" : "your"} limit of ${limits.appliedPerHour} an hour`, { settingsServer: "appliedPerHour" })} Try again later, or ask the owner.`,
     };
   }
   return undefined;

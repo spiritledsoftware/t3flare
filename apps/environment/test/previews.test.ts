@@ -40,7 +40,10 @@ describe("the Container preview ports are the Owner's (SPI-1364)", () => {
     bindEnvironmentServices({ previewPorts: () => [4200, 8081] } as unknown as EnvironmentServices);
     expect(Shadow.translatePreviewUrl("http://localhost:4200/x")).toBe("http://4200.t3flare.internal/x");
     const page = decodeURIComponent(Shadow.translatePreviewUrl("http://localhost:5173/"));
-    expect(page).toContain("on ports 4200, 8081 (the Environment setting Container preview ports)");
+    // ADR-0049 §4: and where on the Settings page the setting is.
+    expect(page).toContain(
+      "on ports 4200, 8081 (the Environment setting Container preview ports, under Environment › Advanced › Container preview ports)",
+    );
   });
 
   it("the preview entrypoint takes any port but t3flare's own: the browser's routes decide which it reaches", () => {

@@ -79,6 +79,10 @@ section{display:flex;flex-direction:column;gap:.625rem;scroll-margin-top:1.5rem}
 .row-extra{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.75rem 2rem;align-items:start;padding-top:.25rem}
 .fields{display:flex;flex-direction:column;gap:.875rem;max-width:30rem}
 .fields.list{max-width:44rem}
+/* A file's own row: the settings that join it sit under its text area, so a contextual one appearing as it is typed in
+   never narrows it; its hint keeps a readable measure. */
+.row-extra>.fields.joined{grid-column:1/-1}
+.fields.list .hint{max-width:75ch}
 .test-build{grid-column:1/-1;border:1px solid var(--border);border-radius:var(--radius);background:var(--card)}
 .test-build .test-build-hint{margin-top:.375rem}
 .test-build .test-build-stale{margin-top:.375rem;color:var(--warn)}
@@ -186,12 +190,22 @@ input.switch{appearance:none;margin:0}
 .test-result:empty{display:none}
 .test-result[data-tone=ok]{color:var(--ok)}
 .test-result[data-tone=err]{color:var(--err)}
-details.tools>summary{display:flex;align-items:center;gap:.5rem;padding:.625rem 1rem;cursor:pointer;list-style:none;font-size:.8125rem;font-weight:550}
-details.tools>summary::-webkit-details-marker{display:none}
-details.tools>summary svg.i{color:var(--muted-fg);transition:transform .15s}
-details.tools[open]>summary svg.i{transform:rotate(90deg)}
-details.tools>summary span{font-weight:400;color:var(--muted-fg)}
-details.tools>summary:hover{background:var(--hover)}
+:is(details.tools,details.advanced)>summary{display:flex;align-items:center;gap:.5rem;padding:.625rem 1rem;cursor:pointer;list-style:none;font-size:.8125rem;font-weight:550}
+:is(details.tools,details.advanced)>summary::-webkit-details-marker{display:none}
+:is(details.tools,details.advanced)>summary svg.i{color:var(--muted-fg);transition:transform .15s}
+:is(details.tools,details.advanced)[open]>summary svg.i{transform:rotate(90deg)}
+:is(details.tools,details.advanced)>summary span{font-weight:400;color:var(--muted-fg)}
+:is(details.tools,details.advanced)>summary:hover{background:var(--hover)}
+details.advanced[open]>summary{border-bottom:1px solid var(--row-border)}
+.advanced-body>.row+.row{border-top:1px solid var(--row-border)}
+.row-extra>details.advanced{grid-column:1/-1;border-top:1px solid var(--row-border)}
+.row-extra details.advanced>summary{padding:.5rem 0}
+.row-extra details.advanced[open]>summary{border-bottom:0}
+.row-extra .advanced-body{padding:.25rem 0 .5rem}
+.row-extra>details.advanced~.save{grid-column:1/-1;justify-content:flex-end}
+.advanced-body>.save{justify-content:flex-end}
+/* An off tools row's note spans the row, so the settings after it keep their places. */
+.row-extra>.off-note{grid-column:1/-1}
 .empty-tools{padding:.75rem 1rem;font-size:.75rem;color:var(--muted-fg)}
 .server-limits{display:grid;gap:1rem;padding:.25rem 1rem 1rem}
 .server-limits>.desc{margin:0}

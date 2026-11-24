@@ -14,6 +14,7 @@ import {
   SETTINGS_SERVER,
   SETTINGS_SERVER_LIMIT_KEYS,
   SETTINGS_SERVER_LIMITS,
+  type SettingsServerLimitKey,
   type ServerAuth,
   type SettingsServerLimits,
   type ToolClass,
@@ -22,13 +23,22 @@ import {
   DEFAULT_AGENT_TERMINAL_SCROLLBACK_LINES,
   DEFAULT_TERMINALS_PER_WORKSPACE,
   ENVIRONMENT_SETTINGS,
+  type EnvironmentKey,
   ISOLATE_MEMORY_MB,
   MAX_AGENT_TERMINALS_PER_WORKSPACE,
   MAX_STOP_GRACE_SECONDS,
   MAX_TIMED_MINUTES,
   MAX_TIMED_SECONDS,
+  SWEEP_SETTING_KEYS,
 } from "./environment.ts";
-import { fieldProblem, type SettingEntry, type SettingValue } from "./fields.ts";
+import {
+  type Disclosure,
+  type DisclosureCondition,
+  type EnvironmentSettingEntry,
+  fieldProblem,
+  type SettingEntry,
+  type SettingValue,
+} from "./fields.ts";
 import { storedValueProblem } from "./storedValue.ts";
 import { EXPOSURES, legacyResolvedTools, type ResolvedTools, resolveTools, type ToolsLayer } from "./tools.ts";
 
@@ -67,9 +77,15 @@ export interface ExtensionEntry {
  * `default` (the endpoints' small model, text generation's default rule). Free text, since the endpoints are the owner's. A
  * value that names no endpoint (`isRetiredSlug`: an old value) is read as `default`.
  */
-const modelSetting = (title: string, description: string, fallback: string): SettingEntry => ({
+const modelSetting = (
+  title: string,
+  description: string,
+  fallback: string,
+  disclosure: SettingEntry["disclosure"],
+): SettingEntry => ({
   title,
   description,
+  disclosure,
   // No length of t3flare's: a value that names no endpoint is read as `default`, and the Harness settings' one stored
   // value bounds it (SPI-1368).
   schema: { type: "text", default: fallback },
@@ -163,6 +179,7 @@ const waitMsSetting = (title: string, description: string, fallback: number): Se
   // MAX_WAIT_MS: t3flare times the wait itself (ADR-0048 §2).
   schema: { type: "integer", minimum: 0, maximum: MAX_WAIT_MS, default: fallback },
   tier: "free",
+  disclosure: "advanced",
 });
 /** An agent Terminal's size by default (`termctrl.cols`, `termctrl.rows`). */
 export const DEFAULT_TERMINAL_COLS = 120;
@@ -209,6 +226,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // breaks at any value.
         schema: { type: "integer", minimum: 0, default: 2_000 },
         tier: "down-free",
+        disclosure: "advanced",
       },
       interruptBudget: {
         title: "Script compute budget (polls)",
@@ -221,6 +239,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
           default: DEFAULT_CODEMODE_INTERRUPT_BUDGET,
         },
         tier: "down-free",
+        disclosure: "advanced",
       },
     },
   },
@@ -259,6 +278,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
           default: DEFAULT_TOOL_OUTPUT_KIB,
         },
         tier: "down-free",
+        disclosure: "visible",
       },
       outputLines: {
         title: "Output lines shown to the model",
@@ -272,6 +292,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
           default: DEFAULT_TOOL_OUTPUT_LINES,
         },
         tier: "down-free",
+        disclosure: "advanced",
       },
     },
   },
@@ -288,6 +309,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // MAX_COUNT: a sanity bound, nothing in t3flare forces it (ADR-0048).
         schema: { type: "integer", minimum: 1, maximum: MAX_COUNT, default: 500 },
         tier: "down-free",
+        disclosure: "advanced",
       },
       findLimit: {
         title: "Results per find call",
@@ -295,6 +317,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // MAX_COUNT: a sanity bound, nothing in t3flare forces it (ADR-0048).
         schema: { type: "integer", minimum: 1, maximum: MAX_COUNT, default: 1000 },
         tier: "down-free",
+        disclosure: "advanced",
       },
       grepLimit: {
         title: "Matches per grep call",
@@ -302,6 +325,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // MAX_COUNT: a sanity bound, nothing in t3flare forces it (ADR-0048).
         schema: { type: "integer", minimum: 1, maximum: MAX_COUNT, default: 100 },
         tier: "down-free",
+        disclosure: "advanced",
       },
     },
   },
@@ -328,6 +352,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // Timed by t3flare's own setTimeout (net.ts withDeadline): up to MAX_TIMED_SECONDS (ADR-0048 §2).
         schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: 30 },
         tier: "down-free",
+        disclosure: "advanced",
       },
       fetchMaxTimeoutSeconds: {
         title: "Longest fetch time limit a call may set (seconds)",
@@ -336,6 +361,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // Timed by t3flare's own setTimeout (net.ts withDeadline): up to MAX_TIMED_SECONDS (ADR-0048 §2).
         schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: 120 },
         tier: "down-free",
+        disclosure: "advanced",
       },
       fetchMaxKiB: {
         title: "Fetch size limit (KiB)",
@@ -343,6 +369,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // A named constraint: FETCH_MAX_KIB.
         schema: { type: "integer", minimum: 64, maximum: FETCH_MAX_KIB, default: 5120 },
         tier: "down-free",
+        disclosure: "advanced",
       },
       fetchRedirects: {
         title: "Redirects per fetch",
@@ -350,6 +377,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // MAX_REDIRECTS: a sanity bound (ADR-0048); the invocation's subrequest limit bounds it in fact.
         schema: { type: "integer", minimum: 0, maximum: MAX_REDIRECTS, default: DEFAULT_REDIRECTS },
         tier: "down-free",
+        disclosure: "advanced",
       },
       fetchTitleCharacters: {
         title: "Fetched page title (characters)",
@@ -357,11 +385,13 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // MAX_PREVIEW_CHARACTERS: a sanity bound (ADR-0048); the title rides in the result's `details`, within its row.
         schema: { type: "integer", minimum: 1, maximum: MAX_PREVIEW_CHARACTERS, default: 200 },
         tier: "down-free",
+        disclosure: "advanced",
       },
       searchModel: modelSetting(
         "Search model",
         "The model that runs web_search's searches: an Anthropic Messages Model endpoint's model with an API key or no auth whose server takes Anthropic's web search tool, as <endpointId>/<modelId>, or default (the endpoints' small model).",
         "default",
+        { contextual: { toolOn: "web_search" } },
       ),
       searchResults: {
         title: "Search results",
@@ -369,6 +399,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // 100: a sanity bound, nothing in t3flare forces it (ADR-0048).
         schema: { type: "integer", minimum: 1, maximum: 100, default: 8 },
         tier: "down-free",
+        disclosure: "advanced",
       },
       searchesPerCall: {
         title: "Searches per call",
@@ -377,6 +408,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // 50: a sanity bound, nothing in t3flare forces it (ADR-0048).
         schema: { type: "integer", minimum: 1, maximum: 50, default: 2 },
         tier: "down-free",
+        disclosure: "advanced",
       },
       searchSummaryTokens: {
         title: "Search summary tokens",
@@ -384,6 +416,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // 64,000: a sanity bound; the endpoint itself refuses a value past its model's own output limit (ADR-0048).
         schema: { type: "integer", minimum: 100, maximum: 64_000, default: 1500 },
         tier: "down-free",
+        disclosure: "advanced",
       },
       searchTimeoutSeconds: {
         title: "Search time limit (seconds)",
@@ -391,6 +424,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // Timed by t3flare's own setTimeout (net.ts withDeadline): up to MAX_TIMED_SECONDS (ADR-0048 §2).
         schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: 90 },
         tier: "down-free",
+        disclosure: "advanced",
       },
       searchContextCharacters: {
         title: "Search result characters",
@@ -398,6 +432,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // MAX_CHARACTERS: a sanity bound (ADR-0048); the Tool output limit cuts what the model reads in any case.
         schema: { type: "integer", minimum: 100, maximum: MAX_CHARACTERS, default: 6000 },
         tier: "down-free",
+        disclosure: "advanced",
       },
     },
   },
@@ -424,6 +459,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
           "When the context nears full, ask the agent to roll over with its own Handoff instead of a generated summary; a compaction that cannot wait uses the last saved Handoff. Off: pi-durable's own summary.",
         schema: { type: "boolean", default: true },
         tier: "free",
+        disclosure: "visible",
       },
       previewCharacters: {
         title: "History preview (characters)",
@@ -431,6 +467,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // MAX_PREVIEW_CHARACTERS: a sanity bound (ADR-0048); the Tool output limit cuts a page in any case.
         schema: { type: "integer", minimum: 12, maximum: MAX_PREVIEW_CHARACTERS, default: 120 },
         tier: "down-free",
+        disclosure: "advanced",
       },
     },
   },
@@ -447,6 +484,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
           "Offer bash's background parameter: a command still running after the Start wait becomes a Background job.",
         schema: { type: "boolean", default: true },
         tier: "down-free",
+        disclosure: "advanced",
       },
       cols: {
         title: "Columns",
@@ -454,6 +492,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // A named constraint, provisional (`MAX_TERMINAL_COLS`): the Workspace DO's memory per Terminal.
         schema: { type: "integer", minimum: 1, maximum: MAX_TERMINAL_COLS, default: DEFAULT_TERMINAL_COLS },
         tier: "free",
+        disclosure: "advanced",
       },
       rows: {
         title: "Rows",
@@ -461,6 +500,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // A named constraint, provisional (`MAX_TERMINAL_ROWS`): the Workspace DO's memory per Terminal.
         schema: { type: "integer", minimum: 1, maximum: MAX_TERMINAL_ROWS, default: DEFAULT_TERMINAL_ROWS },
         tier: "free",
+        disclosure: "advanced",
       },
       startWaitMs: waitMsSetting(
         "Start wait (ms)",
@@ -483,6 +523,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // MAX_COUNT: a sanity bound (ADR-0048); the lines shown take at most half the Tool output limit in any case.
         schema: { type: "integer", minimum: 2, maximum: MAX_COUNT, default: 100 },
         tier: "down-free",
+        disclosure: "advanced",
       },
       scrollbackKiB: {
         title: "Scrollback KiB shown",
@@ -491,6 +532,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // instead, so no value past the Tool output limit's own maximum can matter.
         schema: { type: "integer", minimum: 1, maximum: MAX_TOOL_OUTPUT_KIB, default: 16 },
         tier: "down-free",
+        disclosure: "advanced",
       },
       quietMs: {
         title: "Quiet before a Terminal settles (ms)",
@@ -504,6 +546,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
           default: DEFAULT_TERMINAL_QUIET_MS,
         },
         tier: "free",
+        disclosure: "advanced",
       },
       stopGraceSeconds: {
         title: "Stopped Terminal's wait (seconds)",
@@ -516,6 +559,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
           default: DEFAULT_TERMINAL_STOP_GRACE_SECONDS,
         },
         tier: "free",
+        disclosure: "advanced",
       },
     },
   },
@@ -531,11 +575,13 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         "Model",
         "The Guardian model, as <endpointId>/<modelId>, or default (the endpoints' small model). A small, fast one: every reviewed call waits for it.",
         "default",
+        { contextual: { extensionOn: true } },
       ),
       thinkingLevel: {
         title: "Thinking",
         description: "The first pass's thinking; a would-be rejection is checked again at low or above.",
         schema: { type: "enum", values: THINKING_LEVELS, default: "off" },
+        disclosure: { contextual: { extensionOn: true } },
       },
       // The Guardian's three texts have no length of their own: the Harness settings are one stored value, which bounds
       // them together (`applyChange`, SPI-1368).
@@ -544,17 +590,20 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         description:
           "Which tools are reviewed, as name=allow|review|deny pairs separated by commas (bash=review, mcp__github__create_issue=allow). Unlisted tools keep the built-in default: bash reviewed unless a Safe Command, edits to Sensitive Paths and terminals reviewed, read-only tools allowed.",
         schema: { type: "text", default: "" },
+        disclosure: { contextual: { extensionOn: true } },
       },
       commands: {
         title: "Command Rules",
         description:
           "Literal command prefixes as prefix=allow|review|deny pairs separated by commas (git push=deny, npm test=allow). deny blocks without a review.",
         schema: { type: "text", default: "" },
+        disclosure: { contextual: { extensionOn: true } },
       },
       policy: {
         title: "Security Policy",
         description: "Trusted destinations and forbidden actions, added to the built-in policy the Guardian judges by.",
         schema: { type: "text", default: "", multiline: true },
+        disclosure: { contextual: { extensionOn: true } },
       },
       // No `tier`: a Guard's settings are always asked (tiers.ts `extensionTier`).
       reviewTimeoutSeconds: {
@@ -562,12 +611,14 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         description: "Every reviewed call waits up to this long; a Review that runs out fails and blocks the call.",
         // Timed by t3flare's own setTimeout (guardian/review.ts): up to MAX_TIMED_SECONDS (ADR-0048 §2).
         schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: 60 },
+        disclosure: "advanced",
       },
       batchArgumentCharacters: {
         title: "Other calls in the batch (characters)",
         description: `When the model makes several calls at once, how much of each other call the Guardian reads beside the one it reviews: its path and command whole, the rest of its arguments cut to this many characters (0: path and command only). More lets the Guardian judge the calls together, and each Review reads more tokens. At most ${GUARDIAN_EVIDENCE_CHARACTERS.toLocaleString("en-US")}, all the evidence a Review reads.`,
         // GUARDIAN_EVIDENCE_CHARACTERS: a sanity bound (ADR-0048); past it, one batch call outweighs the evidence.
         schema: { type: "integer", minimum: 0, maximum: GUARDIAN_EVIDENCE_CHARACTERS, default: 2000 },
+        disclosure: "advanced",
       },
     },
   },
@@ -582,6 +633,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         "Model",
         "The Advisor model, as <endpointId>/<modelId>; inherit follows the thread's model.",
         "inherit",
+        { contextual: { extensionOn: true } },
       ),
       reviewEvery: {
         title: "Review cadence",
@@ -589,11 +641,13 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
           "turn: after every tool round that is not read-only; a whole number: every that many rounds and at the end; request: once, when the agent answers. A shorter cadence reviews more often, and each Review is a model request.",
         // Any whole number of rounds (SPI-1365): advisor.ts takes any positive one.
         schema: { type: "enum", values: ["turn", "request"], default: "turn", integers: { minimum: 1 } },
+        disclosure: { contextual: { extensionOn: true } },
       },
       thinkingLevel: {
         title: "Thinking",
         description: "The Advisor's thinking level.",
         schema: { type: "enum", values: THINKING_LEVELS, default: "high" },
+        disclosure: { contextual: { extensionOn: true } },
       },
       correctiveTurns: {
         title: "Corrective continuations",
@@ -601,6 +655,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
           "How often a blocker found as the agent answers continues the same turn to address it (0: never); later blockers wait for the next turn.",
         schema: { type: "integer", minimum: 0, maximum: 3, default: 1 },
         tier: "down-free",
+        disclosure: { contextual: { extensionOn: true } },
       },
       reviewTimeoutSeconds: {
         title: "Review time limit (seconds)",
@@ -609,6 +664,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // Timed by t3flare's own setTimeout (advisor.ts): up to MAX_TIMED_SECONDS (ADR-0048 §2).
         schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: 120 },
         tier: "down-free",
+        disclosure: "advanced",
       },
       maxFindings: {
         title: "Findings per Review",
@@ -616,6 +672,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // 100: a sanity bound, nothing in t3flare forces it (ADR-0048).
         schema: { type: "integer", minimum: 1, maximum: 100, default: 4 },
         tier: "down-free",
+        disclosure: "advanced",
       },
       maxNits: {
         title: "Nits per request",
@@ -623,6 +680,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // 100: a sanity bound, nothing in t3flare forces it (ADR-0048).
         schema: { type: "integer", minimum: 0, maximum: 100, default: 3 },
         tier: "down-free",
+        disclosure: "advanced",
       },
       maxToolRounds: {
         title: "Tool rounds per Review",
@@ -631,6 +689,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // 100: a sanity bound, nothing in t3flare forces it (ADR-0048).
         schema: { type: "integer", minimum: 0, maximum: 100, default: 8 },
         tier: "down-free",
+        disclosure: "advanced",
       },
       concernCooldownTurns: {
         title: "Concern cooldown (turns)",
@@ -639,6 +698,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // 1000: a sanity bound, nothing in t3flare forces it (ADR-0048).
         schema: { type: "integer", minimum: 0, maximum: 1_000, default: 3 },
         tier: "up-free",
+        disclosure: "advanced",
       },
       catchUpBacklog: {
         title: "Catch-up backlog (turns)",
@@ -649,6 +709,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // Free either way: neither key changes spend or what the agent sees. A lower backlog or a longer wait can hold
         // the agent's turn, but never past the Review's own time limit.
         tier: "free",
+        disclosure: "advanced",
       },
       catchUpWaitSeconds: {
         title: "Catch-up wait (seconds)",
@@ -657,6 +718,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         schema: { type: "integer", minimum: 0, maximum: MAX_TIMED_SECONDS, default: 30 },
         // Free either way: see catchUpBacklog.
         tier: "free",
+        disclosure: "advanced",
       },
     },
   },
@@ -681,6 +743,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // MAX_CHARACTERS: a sanity bound (ADR-0048); the small model's own context refuses more in any case.
         schema: { type: "integer", minimum: 100, maximum: MAX_CHARACTERS, default: 4000 },
         tier: "down-free",
+        disclosure: "advanced",
       },
       timeoutSeconds: {
         title: "Suggestion time limit (seconds)",
@@ -688,6 +751,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // Timed by t3flare's own setTimeout (promptSuggestion.ts): up to MAX_TIMED_SECONDS (ADR-0048 §2).
         schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: 20 },
         tier: "free",
+        disclosure: "advanced",
       },
     },
   },
@@ -714,12 +778,203 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
         // 1,000,000: a sanity bound, nothing in t3flare forces it (ADR-0048).
         schema: { type: "integer", minimum: 1, maximum: 1_000_000, default: 16_000 },
         tier: "down-free",
+        disclosure: "advanced",
       },
     },
   },
 ];
 
 const entryOf = (id: string) => EXTENSIONS.find((entry) => entry.id === id);
+
+// ── Disclosure (ADR-0049 §4, §6) ─────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A setting of the one schema: an Environment setting, an extension's (the Harness settings), or one of the Settings
+ * server's limits (its entry's settings, SPI-1322).
+ */
+export type SettingRef =
+  | { readonly environment: EnvironmentKey }
+  | { readonly extension: string; readonly key: string }
+  | { readonly settingsServer: SettingsServerLimitKey };
+
+/**
+ * The Settings page's headings `settingPlace` names: its sections, and the Settings server's card in the MCP servers
+ * section. The page renders these (apps/environment/test/harnessPage.test.ts holds the two to each other).
+ */
+export const SETTINGS_PAGE_PLACES = {
+  environment: "Environment",
+  workspaces: "Workspaces",
+  extensions: "Extensions",
+  tools: "Tools",
+  mcp: "MCP servers",
+  settingsServer: "Settings server",
+} as const;
+
+/** The setting `ref` names, with the place on the Settings page that holds it before its own title. */
+const placed = (
+  ref: SettingRef,
+): {
+  readonly entry: SettingEntry | EnvironmentSettingEntry;
+  readonly at: ReadonlyArray<string>;
+  readonly extension?: ExtensionEntry;
+} => {
+  const places = SETTINGS_PAGE_PLACES;
+  if ("environment" in ref) {
+    const entry: EnvironmentSettingEntry = ENVIRONMENT_SETTINGS[ref.environment];
+    // The Grace and its purge are in the Workspaces section (ADR-0044 §1); a setting that joins a file's row is under it.
+    if ((SWEEP_SETTING_KEYS as ReadonlyArray<string>).includes(ref.environment))
+      return { entry, at: [places.workspaces] };
+    const row =
+      entry.row === undefined
+        ? undefined
+        : (ENVIRONMENT_SETTINGS as Readonly<Record<string, EnvironmentSettingEntry>>)[entry.row];
+    return {
+      entry,
+      at: row === undefined || entry.disclosure === "advanced" ? [places.environment] : [places.environment, row.title],
+    };
+  }
+  if ("settingsServer" in ref)
+    return { entry: SETTINGS_SERVER_LIMITS[ref.settingsServer], at: [places.mcp, places.settingsServer] };
+  const extension = entryOf(ref.extension);
+  const entry = extension?.settings[ref.key];
+  if (extension === undefined || entry === undefined) throw new Error(`No setting ${ref.extension}.${ref.key}`);
+  return { entry, at: [extension.tools === undefined ? places.extensions : places.tools, extension.title], extension };
+};
+
+/** `ref`'s disclosure: where the Settings page shows it. */
+export const disclosureOf = (ref: SettingRef): Disclosure => placed(ref).entry.disclosure;
+
+/** `words` as a list read with "or": "web_fetch or web_search". */
+const orList = (words: ReadonlyArray<string>): string =>
+  words.length === 1 ? words[0]! : `${words.slice(0, -1).join(", ")} or ${words.at(-1)}`;
+
+/**
+ * What the page needs before it shows `ref`, beyond its disclosure's own condition, if anything: an extension's
+ * Advanced settings follow the extension (ADR-0049 §6), shown while it is on, or for one with tools while one of them is
+ * offered, as its contextual ones are.
+ */
+const requirement = (ref: SettingRef): { readonly shownWhen: string; readonly first?: string } | undefined => {
+  const { entry, extension } = placed(ref);
+  const disclosure = entry.disclosure;
+  if (typeof disclosure !== "string") {
+    const condition = disclosure.contextual;
+    if ("extensionOn" in condition)
+      return { shownWhen: shownWhen(condition, extension), first: `turn ${extension?.title ?? "its extension"} on` };
+    if ("toolOn" in condition) return { shownWhen: shownWhen(condition), first: `offer ${condition.toolOn}` };
+    return { shownWhen: shownWhen(condition) };
+  }
+  if (disclosure !== "advanced" || extension === undefined || extension.default === "always") return undefined;
+  return extension.tools === undefined
+    ? { shownWhen: `shown while ${extension.title} is on`, first: `turn ${extension.title} on` }
+    : {
+        shownWhen: `shown while one of ${orList(extension.tools)} is offered`,
+        first: `offer one of ${orList(extension.tools)}`,
+      };
+};
+
+/**
+ * Where the Settings page holds `ref`, as the Owner finds it: Section › Advanced › Title for an Advanced setting (with
+ * the extension or card between for one of a Harness extension's or the Settings server's), Section › Title, or the row
+ * it joins, otherwise.
+ */
+export const settingPlace = (ref: SettingRef): string => {
+  const { entry, at } = placed(ref);
+  return [...at, ...(entry.disclosure === "advanced" ? ["Advanced"] : []), entry.title].join(" › ");
+};
+
+/**
+ * A limit's message when it is hit (ADR-0049 §4): `message`, which names the limit and its value, as a sentence; for a
+ * contextual or Advanced setting, followed by where on the Settings page to change it. Every place that says a limit
+ * was hit (a refusal, an agent's tool result, the Status section) builds its message here, so the place follows the
+ * setting when it moves.
+ */
+export const limitHit = (message: string, ref: SettingRef): string => `${message}${changeItUnder(ref)}.`;
+
+/**
+ * Where to change `ref` as a clause, "; change it under …", for a contextual or Advanced setting; nothing for a visible
+ * one. What the page needs first to show it is left out: a limit is hit only while its feature is in use, which is when
+ * the page shows it (`disclosureReport` says it for a read).
+ */
+export const changeItUnder = (ref: SettingRef): string =>
+  disclosureOf(ref) === "visible" ? "" : `; change it under ${settingPlace(ref)}`;
+
+/**
+ * Where to change several settings of one place as a clause: "; change them under MCP servers › Settings server ›
+ * Advanced › Strikes, Strike window (minutes) and Strike lock (minutes)". Each is a contextual or Advanced setting.
+ */
+export const changeThemUnder = (refs: ReadonlyArray<SettingRef>): string => {
+  const paths = refs.map((ref) => settingPlace(ref).split(" › "));
+  const shared = paths[0]!.slice(0, -1);
+  const titles = paths.map((path) => path.at(-1)!);
+  const listed = titles.length === 1 ? titles[0] : `${titles.slice(0, -1).join(", ")} and ${titles.at(-1)}`;
+  return `; change them under ${[...shared, listed].join(" › ")}`;
+};
+
+/** `count` of a unit as a limit's value reads before a noun: "15-minute", "1-second". */
+export const limitValue = (count: number, unit: string): string => `${count.toLocaleString("en-US")}-${unit}`;
+
+/**
+ * A time limit, hit, to the end of its sentence: "its 15-minute time limit", then `rest` (what the sentence goes on to
+ * say: an error, a date), then where to change it (`changeItUnder`), last. `value` absent: a report from before the
+ * limit was carried, "its time limit".
+ */
+export const timeLimitHit = (
+  value: number | undefined,
+  unit: "minute" | "second",
+  ref: SettingRef,
+  rest = "",
+): string => `its ${value === undefined ? "" : `${limitValue(value, unit)} `}time limit${rest}${changeItUnder(ref)}`;
+
+/** What shows a contextual setting, in words: "shown while Container size or Builder size is custom". */
+export const shownWhen = (condition: DisclosureCondition, extension?: ExtensionEntry): string => {
+  const titleOf = (key: string) =>
+    (ENVIRONMENT_SETTINGS as Readonly<Record<string, EnvironmentSettingEntry>>)[key]?.title ?? key;
+  if ("equals" in condition)
+    return `shown while ${condition.settings.map(titleOf).join(" or ")} is ${condition.equals}`;
+  if ("filled" in condition) return `shown while ${titleOf(condition.filled)} is not empty`;
+  if ("toolOn" in condition) return `shown while ${condition.toolOn} is offered`;
+  return `shown while ${extension?.title ?? "its extension"} is on`;
+};
+
+/**
+ * Whether a contextual setting's condition holds: `values` the group's settings as they stand (an Environment
+ * setting's), `extension` its extension's state (a Harness setting's).
+ */
+export const conditionHolds = (
+  condition: DisclosureCondition,
+  values: Readonly<Record<string, unknown>>,
+  extension?: { readonly enabled: boolean; readonly toolOn: (tool: string) => boolean },
+): boolean => {
+  if ("equals" in condition) return condition.settings.some((key) => values[key] === condition.equals);
+  if ("filled" in condition)
+    return typeof values[condition.filled] === "string" && (values[condition.filled] as string).trim() !== "";
+  if ("toolOn" in condition) return extension?.toolOn(condition.toolOn) === true;
+  return extension?.enabled === true;
+};
+
+/**
+ * A setting's disclosure as the Settings server's read reports it (ADR-0035's ADR-0049 refinement): its level, what
+ * shows it where something must hold first (a contextual setting's condition; an extension's Advanced setting's
+ * extension being on), and where on the page it is, after what to turn on first, so an agent can point the Owner to it.
+ */
+export const disclosureReport = (
+  ref: SettingRef,
+): {
+  readonly disclosure: "visible" | "contextual" | "advanced";
+  readonly shownWhen?: string;
+  readonly where: string;
+} => {
+  const disclosure = disclosureOf(ref);
+  const level = typeof disclosure === "string" ? disclosure : "contextual";
+  const required = requirement(ref);
+  // A read may come while the feature is off, so the place says what to do first: "turn Guardian on, then …".
+  const place = settingPlace(ref);
+  return {
+    disclosure: level,
+    ...(required === undefined ? {} : { shownWhen: required.shownWhen }),
+    where: required?.first === undefined ? place : `${required.first}, then ${place}`,
+  };
+};
 
 /**
  * Extension `id` as `resolved` has it, or its defaults when `resolved` predates the entry (a Session keeps the view it

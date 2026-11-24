@@ -104,6 +104,8 @@ describe("ContainerSetup", () => {
     expect(await t.container.ensure("r1")).toMatchObject({ outcome: "failed", exitCode: 100 });
     const timed = setup([{ stdout: answered("", { exitCode: 124, timedOut: true }) }]);
     expect(await timed.container.ensure("r1")).toMatchObject({ outcome: "failed", timedOut: true });
+    // The report carries the limit it ran under, so Status names it (SPI-1385).
+    expect(timed.reports).toEqual([expect.objectContaining({ timedOut: true, limitMinutes: 5 })]);
   });
 
   it("kills the exec at its deadline: final for that Container", async () => {
@@ -197,6 +199,10 @@ describe("ContainerSetup", () => {
     );
     expect(refuse.container.refusal({ outcome: "failed", exitCode: 1, timedOut: false, attempts: 1 })).toMatch(
       /exit 1.*A new Container runs it again/,
+    );
+    // ADR-0049 §4: its time limit names its value and where to change it.
+    expect(refuse.container.refusal({ outcome: "failed", exitCode: 124, timedOut: true, attempts: 1 })).toContain(
+      "Container setup failed, stopped at its 5-minute time limit; change it under Environment › Container setup › Container setup time limit (minutes). The Environment settings refuse commands",
     );
     expect(carry.container.refusal(undefined)).toBeUndefined();
     expect(

@@ -8,6 +8,7 @@ import {
   EMPTY_HARNESS,
   type StoredHarness,
   DEFAULT_SETTINGS_SERVER_LIMITS,
+  SETTINGS_SERVER_LIMIT_KEYS,
 } from "@t3flare/harness-registry";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -51,11 +52,14 @@ describe("reads leave the audit log alone and are capped", () => {
     const capped = await run.call(run.durable(), "test_mcp_server", { server: "docs" });
     expect(capped).toMatchObject({ kind: "result", isError: true });
     expect(textOf(capped)).toContain(`${NETWORK_READ_CAP} reads that reach GitHub or an MCP server`);
+    expect(textOf(capped)).toContain(
+      `the limit of ${NETWORK_READ_CAP} an hour; change it under MCP servers › Settings server › Advanced › Network reads an hour.`,
+    );
     // Other reads still run, until the overall cap.
     for (let index = NETWORK_READ_CAP; index < READ_CAP; index++)
       expect(await run.call(run.durable(), "get_status")).toMatchObject({ isError: false });
     expect(textOf(await run.call(run.durable(), "get_status"))).toContain(
-      `${READ_CAP} settings reads in the last hour`,
+      `${READ_CAP} settings reads in the last hour, the limit of ${READ_CAP} an hour; change it under MCP servers › Settings server › Advanced › Reads an hour.`,
     );
     // Another thread has its own count; an hour later the first reads again.
     expect(await run.call(run.durable("thread-other"), "get_status")).toMatchObject({ isError: false });
@@ -103,6 +107,76 @@ describe("the read caps are the Settings server's limits (SPI-1322)", () => {
       askedPerHour: 12,
       strikes: 3,
       readsPerHour: 240,
+    });
+  });
+});
+
+// ADR-0035's ADR-0049 refinement (SPI-1385): the reads report each setting's disclosure and its place on the page, so an
+// agent can point the Owner to a setting the page does not show at once.
+describe("the reads report where the Settings page shows each setting", () => {
+  it("get_settings reports each Environment and Harness setting's disclosure and place", async () => {
+    fixture = settingsFixture();
+    const run = fixture;
+    type Row = { key: string; disclosure: string; shownWhen?: string; where: string };
+    const environment = structured(await run.call(run.durable(), "get_settings", { entity: "environment" })) as {
+      settings: Array<Row>;
+    };
+    const byKey = (rows: Array<Row>, key: string) => rows.find((row) => row.key === key);
+    expect(environment.settings.every((row) => ["visible", "contextual", "advanced"].includes(row.disclosure))).toBe(
+      true,
+    );
+    expect(byKey(environment.settings, "containerSize")).toMatchObject({
+      disclosure: "visible",
+      where: "Environment › Container size",
+    });
+    expect(byKey(environment.settings, "cloneMinutes")).toMatchObject({
+      disclosure: "advanced",
+      where: "Environment › Advanced › Clone time limit (minutes)",
+    });
+    expect(byKey(environment.settings, "containerSetupMinutes")).toMatchObject({
+      disclosure: "contextual",
+      shownWhen: "shown while Container setup is not empty",
+      where: "Environment › Container setup › Container setup time limit (minutes)",
+    });
+    const harness = structured(await run.call(run.durable(), "get_settings", { entity: "harness" })) as {
+      extensions: Array<{ id: string; settings: Array<Row> }>;
+    };
+    const guardian = harness.extensions.find((entry) => entry.id === "guardian")!.settings;
+    expect(byKey(guardian, "model")).toMatchObject({
+      disclosure: "contextual",
+      shownWhen: "shown while Guardian is on",
+    });
+    expect(byKey(guardian, "reviewTimeoutSeconds")).toMatchObject({
+      disclosure: "advanced",
+      shownWhen: "shown while Guardian is on",
+      where: "turn Guardian on, then Extensions › Guardian › Advanced › Review time limit (seconds)",
+    });
+  });
+
+  it("get_settings reports the Settings server's own limits, each under its card's Advanced", async () => {
+    fixture = settingsFixture();
+    const run = fixture;
+    const harness = structured(await run.call(run.durable(), "get_settings", { entity: "harness" })) as {
+      settingsServerLimits: Array<{ key: string; value: number; disclosure: string; where: string; tier: string }>;
+    };
+    expect(harness.settingsServerLimits.map((limit) => limit.key)).toEqual([...SETTINGS_SERVER_LIMIT_KEYS]);
+    expect(harness.settingsServerLimits.find((limit) => limit.key === "strikes")).toMatchObject({
+      value: DEFAULT_SETTINGS_SERVER_LIMITS.strikes,
+      tier: "asked",
+      disclosure: "advanced",
+      where: "MCP servers › Settings server › Advanced › Strikes",
+    });
+  });
+
+  it("list_mcp_servers reports the Settings server's limits under its Advanced", async () => {
+    fixture = settingsFixture();
+    const run = fixture;
+    const listed = structured(await run.call(run.durable(), "list_mcp_servers", { server: "settings" })) as {
+      servers: Array<{ name: string; limitsDisclosure?: Record<string, { disclosure: string; where: string }> }>;
+    };
+    expect(listed.servers.find((server) => server.name === "settings")?.limitsDisclosure?.strikes).toEqual({
+      disclosure: "advanced",
+      where: "MCP servers › Settings server › Advanced › Strikes",
     });
   });
 });

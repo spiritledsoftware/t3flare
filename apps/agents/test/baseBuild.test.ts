@@ -354,7 +354,12 @@ describe("a Base build", () => {
     await ticks(build, 1, 61_000);
     expect(build.record()).toMatchObject({
       state: "failed",
-      failure: { exitCode: null, message: "the Image setup ran past its time limit (1 min)" },
+      failure: {
+        exitCode: null,
+        // ADR-0049 §4: named with its value and where to change it.
+        message:
+          "the Image setup ran past its 1-minute time limit; change it under Environment › Image setup › Image setup time limit (minutes)",
+      },
     });
     expect(container.isRunning).toBe(false);
   });
@@ -368,7 +373,11 @@ describe("a Base build", () => {
     await ticks(build, 1, 61_000);
     expect(build.record()).toMatchObject({
       state: "failed",
-      failure: { phase: "snapshotting", message: "the snapshot took longer than 1 min" },
+      failure: {
+        phase: "snapshotting",
+        message:
+          "the snapshot took longer than its 1-minute time limit; change it under Environment › Advanced › Snapshot time limit (minutes)",
+      },
     });
     expect(container.isRunning).toBe(true);
     expect(container.destroys).toBe(0);
