@@ -817,3 +817,18 @@ reclaim, so a billed Container could stay up for the week.
   (`environmentEpoch`, which never boots t3). With no such run open, the alarm asks nothing.
 - No time limit or setting is added (the Owner, 2026-11-24). `CANCELLABLE_RUN_MS` stays, as the backstop for a run
   neither a cancel nor the epoch ends.
+
+## Refinement (SPI-1378, 2026-11-24): the Guardian reads the History since its last review
+
+Refines, in the SPI-1362 refinement, how the Guardian's evidence is read. With `trustUser` on, trusted evidence rarely
+fills the budget, so every reviewed call read the whole History.
+
+- **The untrusted window is contiguous:** the newest untrusted messages, up to the first that does not fit beside all the
+  trusted ones. An older, smaller one no longer fills the room left past it. Without this, a review's selection could
+  bring back a message an earlier one left out, so no selection kept within the budget could stand in for the History.
+- **Each conversation keeps its last selection in memory:** the messages it showed or could still show (within the
+  budget, plus the first untrusted message past the window and the Reviewed Call's response), counts for the rest, and
+  the newest entry id read. The next review reads only the entries since that id and selects what a whole read would.
+- **It reads the whole History again** on a new isolate, a Guardian installed again (a settings change), another
+  `trustUser` or budget, a rollback (that entry is gone, or the head moved behind it), and when the kept messages do not
+  hold what the selection needs. A fork is another conversation id. No limit or setting is added.
