@@ -248,8 +248,15 @@ export interface AnswerInput {
 }
 
 export interface SnapshotInput {
-  /** Entries after this one; all of the Session's conversation's when absent. */
+  /** Entries after this one; all of the Session's conversation's when absent (and `turns` is too). */
   readonly fromEntry?: string;
+  /**
+   * SPI-1377: the provider turns the adapter has open. The snapshot then reports the Session's live turns and those of
+   * these it still has (one it lacks is gone), and its entries start at the oldest such turn's input entry, or at the
+   * Session's last entry when none has one: its size follows the open turns, never the thread's length. Absent: every
+   * turn, and the entries `fromEntry` names (the whole thread for `{}`, a diagnostic's read).
+   */
+  readonly turns?: ReadonlyArray<string>;
 }
 
 /**
@@ -440,6 +447,11 @@ export interface TurnState {
   readonly turnLimitMs?: number;
   readonly settledAt?: number;
   /**
+   * SPI-1377: the turn's place in the Session's order of settles, one more than the turn settled before it. A push names
+   * the turns settled since the last one the Environment took by it, not by `settledAt`: a clock can go back.
+   */
+  readonly settledSeq?: number;
+  /**
    * Steers sent into the turn (their submissions). A steer that reaches the run as it gives its final answer starts the
    * next pi-durable run; it is still this turn's work, so the turn settles only when they have.
    */
@@ -615,6 +627,10 @@ export interface SessionState {
   readonly approvals: ReadonlyArray<PendingApproval>;
   /** Step 3: absent in a push from a Session before it. */
   readonly questions?: ReadonlyArray<PendingQuestion>;
+  /**
+   * SPI-1377: a push's are the live turns and those settled since the last push the Environment took; a snapshot's are
+   * as its `SnapshotInput` asks. Never every turn of a long thread.
+   */
   readonly turns: Readonly<Record<string, TurnState>>;
   /** SPI-1055: the root conversation's Todo List (its revision and Tasks); absent from a Session before it, or without one. */
   readonly todo?: TodoSlim | null;
@@ -662,7 +678,7 @@ export const PUSH_BURST_RESULTS = 16;
 const PUSHED_ENTRY_ROOM = 4 * 1024;
 /**
  * The most JSON characters a push's entries may hold; past it, `more`, and the adapter pulls a snapshot (the push carries
- * every turn's newest status, which the differ must not apply before the turn's last entries). A burst of
+ * its turns' newest status, which the differ must not apply before the turn's last entries). A burst of
  * `PUSH_BURST_RESULTS` full-size results fits when their text has no JSON escapes; an escape takes more characters in
  * the page's count (two for a newline or a quote, six for a control character), so fewer fit: about 15 of ordinary
  * output, as few as 2 of text that is all control characters. A named constraint: the page, the one entry that may pass it (a whole

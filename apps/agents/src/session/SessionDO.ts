@@ -40,7 +40,6 @@ import {
   type OpenInput,
   PUSH_COALESCE_MS,
   PUSH_ENTRIES_BYTES,
-  type PushedEntry,
   type RuntimeMode,
   runtimeModeOf,
   type SessionPush,
@@ -144,10 +143,11 @@ import {
 import { KILL_RETRY_MS, RunningExecs } from "./runningExecs.ts";
 import { FORK_PAGE_BYTES, forkPage, forkPoint, freshConversation, rewind, rollbackPlan, seed } from "./branches.ts";
 import type { WorkspaceDO } from "../workspace/WorkspaceDO.ts";
-import { liveOf, pushedEntry, pushPage, turnDetail, turnOfEntry, usageOf } from "./state.ts";
+import { liveOf, pushedEntry, turnDetail, usageOf } from "./state.ts";
 import { alarmWork, nextAlarm } from "./alarmPlan.ts";
 import { isLiveTurn, turnLimitAlarms, turnRecord, turnsPastLimit } from "./turnLimit.ts";
 import { keepTurnRetries, keptTurnRetries } from "./turnRetries.ts";
+import { collectEntries, entriesStart, pushedTurns, snapshotTurns } from "./pushTurns.ts";
 import { TurnStore } from "./turnStore.ts";
 
 export interface SessionEnv {
@@ -169,6 +169,11 @@ const HEARTBEAT_MS = 60_000;
 const META_KEY = "t3flare:session";
 const SEQ_KEY = "t3flare:seq";
 const PUSHED_KEY = "t3flare:pushed-entry";
+/**
+ * SPI-1377: the settle sequence (`TurnStore.lastSettleSeq`) as the last push the Environment took read it, kept beside
+ * `PUSHED_KEY`: the next push names the turns settled after it, with the live ones.
+ */
+const PUSHED_SETTLE_SEQ_KEY = "t3flare:pushed-settle-seq";
 const RETRY_KEY = "t3flare:push-retry";
 const LAST_PUSH_KEY = "t3flare:last-push";
 const DIAG_KEY = "t3flare:diagnostics";
@@ -971,7 +976,8 @@ export class SessionDO extends DurableObject<SessionEnv> {
         ? input.cwd
         : REPO_ROOT;
     if (input.workspaceId !== null) await conversation.configure({ cwd }, context);
-    const turns = this.#turns.allWithModel();
+    // SPI-1377: the live turns only; the adapter reads `busy`, and a snapshot or a push names what else it needs.
+    const turns = this.#turns.withModels(Object.fromEntries(this.#turns.live()));
     return { epoch, busy: this.#turns.busy(), turns };
   }
 
@@ -1130,15 +1136,22 @@ export class SessionDO extends DurableObject<SessionEnv> {
   }
 
   /**
-   * Every entry from `fromEntry` (all of them for `{}`, as the adapter asks on a gap), unpaged. Its size grows with the
-   * thread, each tool result up to `TOOL_OUTPUT_BYTES`: past the 32 MiB an RPC carries (`RPC_MESSAGE_BYTES`) it fails, and
-   * the adapter applies the push it had instead. A gap is rare: a first push, a new epoch, a lost push, or a burst past
-   * `PUSH_ENTRIES_BYTES`.
+   * With `turns` (the adapter's open turns, on a gap or a silent turn; SPI-1377): the live turns and those of `turns` the
+   * Session still has, and every entry from the oldest one's input entry, or the last entry when none was placed. Its
+   * size follows the turns the adapter has open, never the thread's length.
+   *
+   * Without (a diagnostic's read): every turn, and every entry after `fromEntry` (all of them for `{}`), unpaged. Its
+   * size grows with the thread, each tool result up to `TOOL_OUTPUT_BYTES`: past the 32 MiB an RPC carries
+   * (`RPC_MESSAGE_BYTES`) it fails.
    */
   async snapshot(input: SnapshotInput = {}): Promise<SessionState> {
     await this.#refreshTurns();
-    const fromEntry = input.fromEntry === undefined ? undefined : Number(input.fromEntry) + 1;
-    return this.#state(fromEntry, Number.POSITIVE_INFINITY);
+    const asked = input.turns;
+    if (asked === undefined) {
+      const fromEntry = input.fromEntry === undefined ? undefined : Number(input.fromEntry) + 1;
+      return this.#state(fromEntry, Number.POSITIVE_INFINITY, (turns) => turns);
+    }
+    return this.#state("open", Number.POSITIVE_INFINITY, (turns) => snapshotTurns(turns, asked));
   }
 
   /**
@@ -1419,35 +1432,33 @@ export class SessionDO extends DurableObject<SessionEnv> {
   // -------------------------------------------------------------------------------------------------------------------
   // State and pushes
 
+  /**
+   * The Session's state: the turns `report` picks of every turn, and the entries from `from` (every entry when
+   * undefined; for `"open"`, from the oldest reported turn's input entry, else the last entry), up to `bound`.
+   */
   async #state(
-    fromEntry: number | undefined,
+    from: number | "open" | undefined,
     bound: number,
+    report: (turns: Readonly<Record<string, TurnState>>) => Record<string, TurnState>,
   ): Promise<SessionState & { readonly lastEntry: number | undefined }> {
     const conversation = await this.#conversation();
-    const turns = this.#turns.allWithModel();
-    const entries: Array<PushedEntry> = [];
-    const room = pushPage(bound);
-    let more = false;
-    let lastEntry: number | undefined;
-    let cursor: Cursor | undefined;
-    do {
-      const page = await conversation.entries(
-        { ...(fromEntry === undefined ? {} : { minEntryId: entryIdOf(fromEntry) }), order: "ascending" },
-        100,
-        cursor,
-        context,
-      );
-      for (const entry of page.items) {
-        const pushed = pushedEntry(entry, turnOfEntry(Number(entry.id), turns));
-        if (!room.take(pushed)) {
-          more = true;
-          break;
-        }
-        entries.push(pushed);
-        lastEntry = Number(entry.id);
-      }
-      cursor = more ? undefined : page.next;
-    } while (cursor !== undefined);
+    // Every turn, to name the turn of each entry; only the reported ones go on the wire (SPI-1377).
+    const all = this.#turns.all();
+    const turns = this.#turns.withModels(report(all));
+    const start = entriesStart(from, turns);
+    const fromEntry = start === "last" ? await this.#lastEntry(conversation) : start;
+    const { entries, more, lastEntry } = await collectEntries(
+      (minEntry, cursor: Cursor | undefined) =>
+        conversation.entries(
+          { ...(minEntry === undefined ? {} : { minEntryId: entryIdOf(minEntry) }), order: "ascending" },
+          100,
+          cursor,
+          context,
+        ),
+      fromEntry,
+      all,
+      bound,
+    );
     const view = await this.#view();
     const liveTurn = Object.entries(turns).find(([, turn]) => turn.status === "running")?.[0] ?? null;
     const meta = this.#meta();
@@ -1469,6 +1480,13 @@ export class SessionDO extends DurableObject<SessionEnv> {
       turns,
       lastEntry,
     };
+  }
+
+  /** The conversation's last entry's id, or undefined when it has none. */
+  async #lastEntry(conversation: Conversation): Promise<number | undefined> {
+    const page = await conversation.entries({ order: "descending" }, 1, undefined, context);
+    const last = page.items[0];
+    return last === undefined ? undefined : Number(last.id);
   }
 
   /** The conversation's Todo List (SPI-1055), as t3's todo list shows it; null when it never had one. */
@@ -1538,7 +1556,14 @@ export class SessionDO extends DurableObject<SessionEnv> {
     if (this.#meta() === undefined) return;
     await this.#refreshTurns();
     const pushed = this.ctx.storage.kv.get<number>(PUSHED_KEY);
-    const state = await this.#state(pushed === undefined ? undefined : pushed + 1, PUSH_ENTRIES_BYTES);
+    const settledThrough = this.ctx.storage.kv.get<number>(PUSHED_SETTLE_SEQ_KEY);
+    // SPI-1377: the settle sequence as this push's turns were read, in the same synchronous step as `all()` (no await
+    // between): every turn settled after it has a higher `settledSeq` and goes in the next push.
+    let readSeq = 0;
+    const state = await this.#state(pushed === undefined ? undefined : pushed + 1, PUSH_ENTRIES_BYTES, (turns) => {
+      readSeq = this.#turns.lastSettleSeq();
+      return pushedTurns(turns, settledThrough);
+    });
     const prevSeq = this.ctx.storage.kv.get<number>(SEQ_KEY) ?? 0;
     const { lastEntry, ...rest } = state;
     const push: SessionPush = { ...rest, seq: prevSeq + 1, prevSeq, liveness: state.entries.length === 0 };
@@ -1560,6 +1585,8 @@ export class SessionDO extends DurableObject<SessionEnv> {
     this.ctx.storage.kv.delete(RETRY_KEY);
     this.ctx.storage.kv.delete("t3flare:push-retries");
     if (lastEntry !== undefined) this.ctx.storage.kv.put(PUSHED_KEY, lastEntry);
+    // Only once the Environment took the push: a failed one names the same settled turns again.
+    this.ctx.storage.kv.put(PUSHED_SETTLE_SEQ_KEY, readSeq);
     if (state.more) this.#dirty = true;
     for (const orphan of answer.orphans ?? []) {
       console.warn(JSON.stringify({ t3flare: "session-orphan-abort", providerTurnId: orphan }));
