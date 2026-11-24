@@ -122,7 +122,7 @@ import { authoredScript, captureScript, restoreScript, shellWord } from "./check
 import { captureTurn, type LastCapture } from "./checkpointCapture.ts";
 import { type FileChunk, fileOps, grepPaths } from "./files.ts";
 import { diffScript, execOutput } from "./execOutput.ts";
-import { type DroppedRun, dropOrphanedRuns, gitDeadlineMs, RunCancels } from "./runCancels.ts";
+import { dropOrphanedRuns, gitDeadlineMs, RunCancels } from "./runCancels.ts";
 import {
   deleteRef,
   diffCommits,
@@ -404,7 +404,22 @@ export class WorkspaceDO extends ContainerHost {
   /** The token the credential helper is given, until shortly before it expires. */
   #token: { readonly token: string; readonly expiresAt: number } | undefined;
   /** t3's git commands by run id, to end one t3 gave up on (SPI-1364, `runCancels.ts`). */
-  readonly #runCancels = new RunCancels({ now: () => Date.now(), later: (run, ms) => void setTimeout(run, ms) });
+  readonly #runCancels = new RunCancels({
+    now: () => Date.now(),
+    later: (run, ms) => void setTimeout(run, ms),
+    // SPI-1382: the one log of a git run ended because the Environment restarted, whichever call taught the newer epoch.
+    dropped: (run) =>
+      console.warn(
+        JSON.stringify({
+          t3flare: "git-run-dropped",
+          workspace: this.#workspaceId() ?? null,
+          runId: run.id,
+          runEpoch: run.runEpoch,
+          environmentEpoch: run.environmentEpoch,
+          why: "the Environment restarted after this git command began, so nothing is left to cancel it or read its answer",
+        }),
+      ),
+  });
   /** Commands the Session stopped before they were sent (during a start's install): never sent (`stoppedExecs.ts`). */
   readonly #stoppedExecs = new StoppedExecs();
   /** The Global mise config's lay-down, once per Container (SPI-1150, ADR-0032's Global mise config refinement). */
@@ -1640,8 +1655,9 @@ export class WorkspaceDO extends ContainerHost {
     if (this.#isDestroyed())
       return { ran: false, reason: "container_refused", detail: "t3flare: this Workspace was deleted" };
     if (run.runId === undefined) return this.#git(run);
-    // SPI-1382: a run's epoch also tells of a restart, which leaves the runs sent before it with nothing to cancel them.
-    if (run.environmentEpoch !== undefined) this.#dropRunsBefore(run.environmentEpoch);
+    // SPI-1382: the Workspace learns of an Environment restart from the newer epoch a later call carries, and ends the
+    // runs sent before it.
+    if (run.environmentEpoch !== undefined) this.#runCancels.dropBefore(run.environmentEpoch);
     // SPI-1364: t3 can end this run (`cancelRun`), from now until it answers.
     if (this.#runCancels.begin(run.runId, run.environmentEpoch))
       return { ran: false, reason: "container_refused", detail: "t3flare: t3 gave up on this command before it ran" };
@@ -1727,25 +1743,6 @@ export class WorkspaceDO extends ContainerHost {
    */
   async cancelRun(runId: string): Promise<boolean> {
     return this.#runCancels.cancel(runId);
-  }
-
-  /** The Environment is at epoch `epoch` (SPI-1382): the git runs sent under an older one are ended, and logged. */
-  #dropRunsBefore(epoch: number): void {
-    this.#logDropped(this.#runCancels.dropBefore(epoch));
-  }
-
-  #logDropped(dropped: ReadonlyArray<DroppedRun>): void {
-    for (const run of dropped)
-      console.warn(
-        JSON.stringify({
-          t3flare: "git-run-dropped",
-          workspace: this.#workspaceId() ?? null,
-          runId: run.id,
-          runEpoch: run.epoch,
-          environmentEpoch: run.environmentEpoch,
-          why: "the Environment restarted after this git command began, so nothing is left to cancel it or read its answer",
-        }),
-      );
   }
 
   #primedRev = -2;
@@ -2566,7 +2563,7 @@ export class WorkspaceDO extends ContainerHost {
     this.#alive();
     this.#cliSinceScan = true;
     this.#rememberId(input.t3Path.startsWith("/w/") ? input.t3Path.slice(3) : undefined);
-    this.#dropRunsBefore(input.environmentEpoch);
+    this.#runCancels.dropBefore(input.environmentEpoch);
     if (this.containerRunning()) await this.#syncEntries("push").catch(() => undefined);
     const answer = await this.#processes.start(input);
     await this.#noteUse();
@@ -2881,7 +2878,7 @@ export class WorkspaceDO extends ContainerHost {
     await this.#processes.killOrphans().catch(() => undefined);
     // SPI-1382: a git run whose Environment restarted is ended, else it holds the Container until its week's backstop.
     const environment = environmentStub(this.env.ENVIRONMENT);
-    this.#logDropped(await dropOrphanedRuns(this.#runCancels, () => environment.environmentEpoch()));
+    await dropOrphanedRuns(this.#runCancels, () => environment.environmentEpoch());
     const lastUse = (await this.ctx.storage.get<number>(LAST_USE_KEY)) ?? 0;
     // Terminals hold the Container until their last input is older than the hold (review F10: output is not use).
     const held = this.#terminalsHold() || this.#processes.holdsContainer() || this.#previewHold();

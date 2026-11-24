@@ -37,13 +37,13 @@ export const gitDeadlineMs = (
  */
 export const EARLY_CANCEL_MS = 60_000;
 
-type Entry = { readonly cancelled: boolean; readonly run?: KillableRun; readonly epoch?: number };
+type Entry = { readonly cancelled: boolean; readonly run?: KillableRun; readonly runEpoch?: number };
 
 /** A run ended because the Environment restarted after it began (SPI-1382). */
 export interface DroppedRun {
   readonly id: string;
   /** The Environment epoch the run began under. */
-  readonly epoch: number;
+  readonly runEpoch: number;
   /** The newer epoch that ended it. */
   readonly environmentEpoch: number;
 }
@@ -53,10 +53,17 @@ export class RunCancels {
   readonly #early = new Map<string, number>();
   readonly #now: () => number;
   readonly #later: (run: () => void, ms: number) => void;
+  readonly #dropped: (run: DroppedRun) => void;
 
-  constructor(deps: { readonly now: () => number; readonly later: (run: () => void, ms: number) => void }) {
+  /** `dropped` hears of each run `dropBefore` ends, whichever call taught the newer epoch (the Workspace logs it). */
+  constructor(deps: {
+    readonly now: () => number;
+    readonly later: (run: () => void, ms: number) => void;
+    readonly dropped?: (run: DroppedRun) => void;
+  }) {
     this.#now = deps.now;
     this.#later = deps.later;
+    this.#dropped = deps.dropped ?? (() => undefined);
   }
 
   /**
@@ -65,7 +72,7 @@ export class RunCancels {
    */
   begin(id: string, epoch?: number): boolean {
     const cancelled = this.#early.delete(id);
-    this.#runs.set(id, { cancelled, ...(epoch === undefined ? {} : { epoch }) });
+    this.#runs.set(id, { cancelled, ...(epoch === undefined ? {} : { runEpoch: epoch }) });
     return cancelled;
   }
 
@@ -102,13 +109,10 @@ export class RunCancels {
     return true;
   }
 
-  /** The oldest Environment epoch among the runs open and not yet ended, if any carries one. */
-  oldestEpoch(): number | undefined {
-    let oldest: number | undefined;
-    for (const entry of this.#runs.values())
-      if (!entry.cancelled && entry.epoch !== undefined && (oldest === undefined || entry.epoch < oldest))
-        oldest = entry.epoch;
-    return oldest;
+  /** Whether a run that carries an Environment epoch is open and not yet ended. */
+  hasEpochRun(): boolean {
+    for (const entry of this.#runs.values()) if (!entry.cancelled && entry.runEpoch !== undefined) return true;
+    return false;
   }
 
   /**
@@ -118,9 +122,11 @@ export class RunCancels {
   dropBefore(epoch: number): ReadonlyArray<DroppedRun> {
     const dropped: Array<DroppedRun> = [];
     for (const [id, entry] of this.#runs) {
-      if (entry.cancelled || entry.epoch === undefined || entry.epoch >= epoch) continue;
+      if (entry.cancelled || entry.runEpoch === undefined || entry.runEpoch >= epoch) continue;
       this.cancel(id);
-      dropped.push({ id, epoch: entry.epoch, environmentEpoch: epoch });
+      const run = { id, runEpoch: entry.runEpoch, environmentEpoch: epoch };
+      this.#dropped(run);
+      dropped.push(run);
     }
     return dropped;
   }
@@ -140,7 +146,7 @@ export const dropOrphanedRuns = async (
   cancels: RunCancels,
   environmentEpoch: () => Promise<number>,
 ): Promise<ReadonlyArray<DroppedRun>> => {
-  if (cancels.oldestEpoch() === undefined) return [];
+  if (!cancels.hasEpochRun()) return [];
   const epoch = await environmentEpoch().catch(() => undefined);
   return epoch === undefined ? [] : cancels.dropBefore(epoch);
 };

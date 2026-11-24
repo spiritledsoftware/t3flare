@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   CANCEL_KILL_AFTER_MS,
   CANCELLABLE_RUN_MS,
+  type DroppedRun,
   dropOrphanedRuns,
   EARLY_CANCEL_MS,
   gitDeadlineMs,
@@ -14,12 +15,17 @@ import {
 const harness = () => {
   let now = 0;
   const later: Array<{ run: () => void; ms: number }> = [];
-  const cancels = new RunCancels({ now: () => now, later: (run, ms) => void later.push({ run, ms }) });
+  const dropped: Array<DroppedRun> = [];
+  const cancels = new RunCancels({
+    now: () => now,
+    later: (run, ms) => void later.push({ run, ms }),
+    dropped: (run) => void dropped.push(run),
+  });
   const run = () => {
     const signals: Array<string> = [];
     return { signals, kill: async (signal?: string) => void signals.push(signal ?? "SIGTERM") };
   };
-  return { cancels, later, run, advance: (ms: number) => void (now += ms) };
+  return { cancels, later, dropped, run, advance: (ms: number) => void (now += ms) };
 };
 
 describe("RunCancels", () => {
@@ -86,19 +92,21 @@ describe("RunCancels and the Environment's epoch (SPI-1382)", () => {
     h.cancels.started("old", old);
     h.cancels.begin("current", 4);
     h.cancels.started("current", current);
-    expect(h.cancels.dropBefore(4)).toEqual([{ id: "old", epoch: 3, environmentEpoch: 4 }]);
+    expect(h.cancels.dropBefore(4)).toEqual([{ id: "old", runEpoch: 3, environmentEpoch: 4 }]);
     expect(old.signals).toEqual(["SIGTERM"]);
     h.later[0]!.run();
     expect(old.signals).toEqual(["SIGTERM", "SIGKILL"]);
     expect(current.signals).toEqual([]);
-    expect(h.cancels.oldestEpoch()).toBe(4);
+    expect(h.cancels.hasEpochRun()).toBe(true);
   });
 
   it("ends a dropped run that had not started yet as it starts, and drops it once", () => {
     const h = harness();
     h.cancels.begin("old", 3);
-    expect(h.cancels.dropBefore(4)).toEqual([{ id: "old", epoch: 3, environmentEpoch: 4 }]);
+    expect(h.cancels.dropBefore(4)).toEqual([{ id: "old", runEpoch: 3, environmentEpoch: 4 }]);
     expect(h.cancels.dropBefore(5)).toEqual([]);
+    // Told once, for the one log line the Workspace writes.
+    expect(h.dropped).toEqual([{ id: "old", runEpoch: 3, environmentEpoch: 4 }]);
     const run = h.run();
     h.cancels.started("old", run);
     expect(run.signals).toEqual(["SIGTERM"]);
@@ -111,7 +119,7 @@ describe("RunCancels and the Environment's epoch (SPI-1382)", () => {
     h.cancels.started("bare", bare);
     h.cancels.begin("done", 1);
     h.cancels.end("done");
-    expect(h.cancels.oldestEpoch()).toBeUndefined();
+    expect(h.cancels.hasEpochRun()).toBe(false);
     expect(h.cancels.dropBefore(9)).toEqual([]);
     expect(bare.signals).toEqual([]);
   });
@@ -144,11 +152,12 @@ describe("dropOrphanedRuns, the Workspace's alarm (SPI-1382)", () => {
       asked.push(4);
       return 4;
     });
-    expect(dropped).toEqual([{ id: "orphan", epoch: 3, environmentEpoch: 4 }]);
+    expect(dropped).toEqual([{ id: "orphan", runEpoch: 3, environmentEpoch: 4 }]);
+    expect(w.h.dropped).toEqual(dropped);
     await Promise.resolve();
     expect(asked).toEqual([4]);
     expect(w.running()).toBe(0);
-    expect(w.h.cancels.oldestEpoch()).toBeUndefined();
+    expect(w.h.cancels.hasEpochRun()).toBe(false);
   });
 
   it("keeps a run of the Environment's current epoch", async () => {
