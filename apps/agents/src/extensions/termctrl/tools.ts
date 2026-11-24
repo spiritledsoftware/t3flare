@@ -194,17 +194,17 @@ export const keepTail = (
 };
 
 /**
- * Scrolled-off lines within `limits` (`scrolledLimits`): the first and last kept around a marker. `omitted`: the
- * Workspace left `omitted` lines out between the ends it sent (`AgentView.scrolledOffOmitted`); they count as lines.
+ * Scrolled-off lines within `limits` (`scrolledLimits`): the first and last kept around a marker. `omittedBetween`:
+ * lines the Workspace left out between the ends it sent (`AgentView.scrolledOffOmitted`), counted as lines.
  */
 export const fitScrolled = (
   lines: ReadonlyArray<string>,
   limits: { readonly lines: number; readonly bytes: number },
-  omitted = 0,
+  omittedBetween = 0,
 ): { readonly text: string; readonly summary?: string } => {
-  const total = lines.length + omitted;
+  const total = lines.length + omittedBetween;
   const text = lines.join("\n");
-  if (omitted === 0 && lines.length <= limits.lines && bytes(text) <= limits.bytes) return { text };
+  if (omittedBetween === 0 && lines.length <= limits.lines && bytes(text) <= limits.bytes) return { text };
   const marker = (count: number) => `[… ${count} lines omitted …]`;
   const bodyLines = limits.lines - 1;
   const bodyBytes = limits.bytes - bytes(marker(total));
@@ -283,10 +283,10 @@ export const terminalResult = (
   // A line the agent saw on its previous screen is not repeated when it scrolls off unchanged. Lines the Workspace
   // left out sit after the first ends it sent, which take more than the previous screen's rows.
   const seen = view.shift === null ? [] : splitRows(view.previous?.screen ?? "");
-  const at = view.scrolledOffOmitted?.at ?? view.scrolledOff.length;
+  const headEnd = view.scrolledOffOmitted?.beforeIndex ?? view.scrolledOff.length;
   const scrolled = [
-    ...view.scrolledOff.slice(0, at).filter((line, index) => line !== seen[index]),
-    ...view.scrolledOff.slice(at),
+    ...view.scrolledOff.slice(0, headEnd).filter((line, index) => line !== seen[index]),
+    ...view.scrolledOff.slice(headEnd),
   ];
   const fitted = fitScrolled(scrolled, scrolledLimits(limits), view.scrolledOffOmitted?.count ?? 0);
   const unchanged = view.previous !== null && view.previous.screen === view.screen;
@@ -617,11 +617,12 @@ export const terminalWaitTool = (host: TermctrlHost): ToolRegistration =>
             // Only its screen or output shows: no scrolled-off lines are read.
             scrolledLines: 0,
           });
+          // An exit the Workspace no longer keeps answers why (`agentTerminalDropped`, SPI-1397).
           return settled.ok
             ? entry.kind === "terminal"
               ? settled.value.view.screen
               : (settled.value.view.output ?? "")
-            : "";
+            : settled.error;
         }),
       ).then((all) => exitTails(all, host.limits().output));
       const now = Date.now();

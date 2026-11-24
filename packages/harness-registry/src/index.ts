@@ -22,7 +22,6 @@ import {
 import {
   AGENT_EXITED_TERMINALS_KEPT,
   AGENT_TERMINAL_HISTORY_BYTES,
-  AGENT_TERMINAL_SPILL_LINES,
   ENVIRONMENT_SETTINGS,
   type EnvironmentKey,
   ISOLATE_MEMORY_MB,
@@ -180,33 +179,17 @@ const waitMsSetting = (title: string, description: string, fallback: number): Se
 export const DEFAULT_TERMINAL_COLS = 120;
 export const DEFAULT_TERMINAL_ROWS = 40;
 /**
- * How many shares of the Workspace DO's isolate `TERMINAL_CELLS` is one of: 32, the agents' Terminals per Workspace's
- * most while it was a setting (SPI-1317 to SPI-1387). Agents' Terminals have no count since SPI-1397; the share stays,
- * a guess, provisional: SPI-978's measurement of the DO's memory sets the figure.
+ * The widest and tallest an agent Terminal may be set (`termctrl.cols`, `termctrl.rows`): a sanity bound for a live
+ * Terminal's headless xterm in the Workspace DO's 128 MB isolate, provisional, kept at the values the Owner has
+ * (SPI-1397). They were derived while an agent Terminal's 1,000 lines of scrollback lived in that xterm, one of 32
+ * shares of the isolate at about 12 bytes a cell: 128,000,000 / 32 / 12 = 333,333 cells, so 320 columns beside the
+ * default 40 rows and the 1,000 lines (320 × 1,040), and 1,777 rows beside them at the default 120 columns
+ * (120 × 2,777). Since SPI-1397 the xterm keeps only its screen and `AGENT_TERMINAL_SPILL_LINES` above it, and an
+ * exited Terminal none, so at both maxima a live one holds 320 × 1,841 cells, about 7 MB. Both within a PTY's 16-bit
+ * size (Linux's `struct winsize`). SPI-1388 makes them fixed constants.
  */
-const TERMINAL_CELL_SHARES = 32;
-/**
- * The cells one agent Terminal's headless xterm may keep, its screen and the lines above it not yet stored
- * (`AGENT_TERMINAL_SPILL_LINES`): the Workspace DO's isolate (`ISOLATE_MEMORY_MB`) in `TERMINAL_CELL_SHARES`, at about
- * 12 bytes a cell. A named constraint, forced by Cloudflare's 128 MB isolate.
- */
-const TERMINAL_CELLS = Math.floor((ISOLATE_MEMORY_MB * 1_000_000) / TERMINAL_CELL_SHARES / 12);
-/** A PTY's size fields are unsigned 16-bit (Linux's `struct winsize`, set through TIOCSWINSZ). A named constraint. */
-const WINSIZE_MAX = 65_535;
-/**
- * The widest and tallest an agent Terminal may be set (`termctrl.cols`, `termctrl.rows`), derived from `TERMINAL_CELLS`:
- * the width with the default rows and the lines above them (`AGENT_TERMINAL_SPILL_LINES`), the height (screen rows,
- * beside those lines) with the default width, each within `WINSIZE_MAX`. Setting both past their defaults can still
- * take more. Provisional since SPI-1397, which moved the scrollback to storage: 3,205 and 2,713, up from 320 and 1,777.
- */
-export const MAX_TERMINAL_COLS = Math.min(
-  WINSIZE_MAX,
-  Math.floor(TERMINAL_CELLS / (DEFAULT_TERMINAL_ROWS + AGENT_TERMINAL_SPILL_LINES)),
-);
-export const MAX_TERMINAL_ROWS = Math.min(
-  WINSIZE_MAX,
-  Math.floor(TERMINAL_CELLS / DEFAULT_TERMINAL_COLS) - AGENT_TERMINAL_SPILL_LINES,
-);
+export const MAX_TERMINAL_COLS = 320;
+export const MAX_TERMINAL_ROWS = 1_777;
 /** The Guardian's evidence budget, in characters of untrusted evidence a Review carries (about pi-guardian's 32,000-token ceiling). */
 export const GUARDIAN_EVIDENCE_CHARACTERS = 96_000;
 
@@ -489,7 +472,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
       },
       cols: {
         title: "Columns",
-        description: `A Terminal's width in characters. A wider Terminal keeps more of its screen in the Workspace's memory, ${ISOLATE_MEMORY_MB} MB shared with its other Terminals and its files. At most ${MAX_TERMINAL_COLS.toLocaleString("en-US")}, sized for the default rows.`,
+        description: `A Terminal's width in characters. A wider Terminal keeps more of its screen in the Workspace's memory, ${ISOLATE_MEMORY_MB} MB shared with its other Terminals and its files. At most ${MAX_TERMINAL_COLS}, sized for the default rows.`,
         // A named constraint, provisional (`MAX_TERMINAL_COLS`): the Workspace DO's memory per Terminal.
         schema: { type: "integer", minimum: 1, maximum: MAX_TERMINAL_COLS, default: DEFAULT_TERMINAL_COLS },
         tier: "free",

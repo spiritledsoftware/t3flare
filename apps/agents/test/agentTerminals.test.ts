@@ -15,7 +15,7 @@ import { Terminal } from "@xterm/headless/lib-headless/xterm-headless.mjs";
 
 import { DEFAULT_TERMCTRL_LIMITS, terminalResult } from "../src/extensions/termctrl/tools.ts";
 import type { ScrollbackStore } from "../src/workspace/agentScrollback.ts";
-import { AgentTerminals, agentTerminalDropped } from "../src/workspace/agentTerminals.ts";
+import { AgentTerminals, agentTerminalDropped, piecesOf } from "../src/workspace/agentTerminals.ts";
 import { nodeScrollbackStore } from "./nodeSql.ts";
 
 /** A host whose "programs" answer input as `program` says, pushing frames back as the real host does. */
@@ -267,7 +267,6 @@ describe("agent terminals", () => {
     expect(exitOf(6)).toEqual({ code: null, signal: null, note: "the Workspace's Container stopped" });
     const list = await terminals.handle({ op: "list", owner });
     expect(list.ok && list.value.entries.map((entry) => [entry.id, entry.state])).toEqual([["t3", "running"]]);
-    expect(terminals.live).toBe(1);
   });
 
   // SPI-1364: the stop's grace and the settle's quiet are the Owner's termctrl settings, carried on each request.
@@ -361,8 +360,13 @@ describe("an agent Terminal's scrollback in storage, and the Workspace's exited 
     if (!started.ok) throw new Error(started.error);
     return started.value.entry.id;
   };
-  /** A final view of `id`, as the tool asks for it. */
-  const look = async (terminals: AgentTerminals, id: string, scrolledLines?: number) => {
+  /** A final view of `id`, as the tool asks for it; with no `scrolledLines`, every line (a test's whole answer). */
+  const look = async (
+    terminals: AgentTerminals,
+    id: string,
+    scrolledLines: number | null = 1_000_000_000,
+    tail?: { lines: number; bytes: number },
+  ) => {
     const answer = await terminals.handle({
       op: "settle",
       owner,
@@ -371,7 +375,8 @@ describe("an agent Terminal's scrollback in storage, and the Workspace's exited 
       deadline: Date.now(),
       chunkMs: 0,
       view: true,
-      ...(scrolledLines === undefined ? {} : { scrolledLines }),
+      ...(scrolledLines === null ? {} : { scrolledLines }),
+      ...(tail === undefined ? {} : { tail }),
     });
     if (!answer.ok) throw new Error(answer.error);
     return answer.value.view;
@@ -484,11 +489,11 @@ describe("an agent Terminal's scrollback in storage, and the Workspace's exited 
       const third = await look(terminals, id, scrolledLines);
       return [first, second, third];
     };
-    const whole = await run(undefined);
+    const whole = await run(1_000_000_000);
     const ends = await run(10);
     expect(whole.every((view) => view.scrolledOffOmitted === undefined)).toBe(true);
     expect(ends[0]!.scrolledOff).toHaveLength(10 + 6 + 10);
-    expect(ends[0]!.scrolledOffOmitted).toEqual({ at: 16, count: whole[0]!.scrolledOff.length - 26 });
+    expect(ends[0]!.scrolledOffOmitted).toEqual({ beforeIndex: 16, count: whole[0]!.scrolledOff.length - 26 });
     expect(ends[1]!.scrolledOffOmitted).toBeUndefined();
     for (const [index, view] of whole.entries())
       expect(terminalResult(ends[index]!, "quiet", {}, limits)).toEqual(terminalResult(view, "quiet", {}, limits));
@@ -523,6 +528,126 @@ describe("an agent Terminal's scrollback in storage, and the Workspace's exited 
     expect(rows()).toBeGreaterThan(0);
     store.clear();
     expect(rows()).toBe(0);
+  });
+
+  it("forgets seen exits first, and reports each unseen one it forgot once, naming the bound", async () => {
+    const { terminals, opened } = fakeHost(repl);
+    // Two exits the owner saw, then more than the bound running, ended at once by a Container stop.
+    const seen = [await startFor(terminals, owner, "terminal"), await startFor(terminals, owner, "terminal")];
+    for (const index of [0, 1]) terminals.frames([{ key: opened[index]!.key, seq: 0, exit: { code: 0 } }]);
+    for (const id of seen) await look(terminals, id);
+    const running: Array<string> = [];
+    for (let index = 0; index < AGENT_EXITED_TERMINALS_KEPT + 10; index++)
+      running.push(await startFor(terminals, owner, index === 0 ? "background_job" : "terminal"));
+    terminals.containerStopped();
+    const listed = await terminals.handle({ op: "list", owner });
+    expect(listed.ok && listed.value.entries).toHaveLength(AGENT_EXITED_TERMINALS_KEPT);
+    // 140 exited past 128: the two seen went first, then the 10 earliest unseen; every unseen exit is still told, once.
+    const exits = await terminals.handle({ op: "exits", owner });
+    if (!exits.ok) throw new Error(exits.error);
+    expect(exits.value.exits.map((exit) => exit.id).toSorted()).toEqual(running.toSorted());
+    const forgotten = exits.value.exits.filter((exit) => exit.tail.includes("is no longer kept"));
+    expect(forgotten.map((exit) => exit.id)).toEqual(running.slice(0, 10));
+    expect(forgotten[0]!.tail).toBe(agentTerminalDropped(running[0]!, forgotten[0]!.logPath));
+    expect(forgotten[0]!.tail).toContain("keeps its last 128 exited Terminals");
+    const again = await terminals.handle({ op: "exits", owner });
+    expect(again.ok && again.value.exits).toEqual([]);
+    for (const id of seen) {
+      const gone = await terminals.handle({ op: "list", owner });
+      expect(gone.ok && gone.value.entries.some((entry) => entry.id === id)).toBe(false);
+    }
+  });
+
+  it("reports an unseen exit the bound forgot in the owner's next wait", async () => {
+    const { terminals } = fakeHost(repl);
+    const ids: Array<string> = [];
+    for (let index = 0; index < AGENT_EXITED_TERMINALS_KEPT + 1; index++)
+      ids.push(await startFor(terminals, owner, "terminal"));
+    terminals.containerStopped();
+    const waited = await terminals.handle({ op: "wait", owner, ids: null, deadline: Date.now(), chunkMs: 0 });
+    if (!waited.ok) throw new Error(waited.error);
+    expect(waited.value.exited.map((entry) => entry.id).toSorted()).toEqual(ids.toSorted());
+  });
+
+  it("keeps an exited Terminal's final screen in storage, and its xterm goes", async () => {
+    const store = nodeScrollbackStore();
+    const { terminals, id, opened } = await filled([output(0, 300)], store);
+    const before = await look(terminals, id, 10);
+    terminals.frames([{ key: opened[0]!.key, seq: 0, exit: { code: 3 } }]);
+    const after = await look(terminals, id, 10);
+    expect(after.state).toBe("exited");
+    expect(after.screen).toBe(before.screen);
+    expect(after.cursor).toEqual(before.cursor);
+    expect(after.scrolledOff).toEqual([]);
+    const screens = store.db.prepare("SELECT screen FROM t3flare_agent_screens").all() as Array<{ screen: string }>;
+    expect(screens.map((row) => row.screen)).toEqual([before.screen]);
+    // Output after the exit is not taken, and the stop reads the same screen back.
+    fakeEmit(terminals, opened[0]!.key, "late\r\n");
+    const stopped = await terminals.handle({ op: "stop", owner, id });
+    expect(stopped.ok && stopped.value.view.screen).toBe(before.screen);
+    expect(store.db.prepare("SELECT count(*) AS n FROM t3flare_agent_screens").get()).toEqual({ n: 0 });
+  });
+
+  it("tells what scrolled off after an alternate-screen view from the normal screen's last view", async () => {
+    const { terminals, id, opened } = await filled([output(0, 100)]);
+    await look(terminals, id);
+    fakeEmit(terminals, opened[0]!.key, "\x1b[?1049h\x1b[Hfull-screen app");
+    const alt = await look(terminals, id);
+    expect(alt.screen).toBe("full-screen app");
+    expect(alt.scrolledOff).toEqual([]);
+    fakeEmit(terminals, opened[0]!.key, "\x1b[?1049l" + output(100, 20));
+    const back = await look(terminals, id);
+    expect(back.outputMissing).toBe(false);
+    // Only what scrolled off the normal screen since its last view, not its whole history again.
+    const seenBefore = await reference(["> ", output(0, 100)]);
+    const all = await reference(["> ", output(0, 100), output(100, 20)]);
+    expect(back.scrolledOff).toEqual(all.slice(seenBefore.length));
+  });
+
+  it("reads a request's view without scrolledLines (from before SPI-1397) at termctrl's default from each end", async () => {
+    const { terminals, id } = await filled([output(0, 2_000)]);
+    const view = await look(terminals, id, null);
+    expect(view.scrolledOff).toHaveLength(100 + 6 + 100);
+    expect(view.scrolledOffOmitted?.beforeIndex).toBe(106);
+  });
+
+  it("counts ESC D and ESC E as line feeds when it cuts output into pieces", () => {
+    const pieces = piecesOf("\x1bD".repeat(200) + "\x1bE".repeat(200), 40, AGENT_TERMINAL_SPILL_LINES);
+    expect(pieces.length).toBeGreaterThanOrEqual(Math.ceil(400 / (AGENT_TERMINAL_SPILL_LINES - 1)));
+    expect(pieces.join("")).toBe("\x1bD".repeat(200) + "\x1bE".repeat(200));
+    expect(pieces.every((piece) => !piece.endsWith("\x1b"))).toBe(true);
+  });
+
+  it("reads a Background job's tail within its budget past millions of blank lines", { timeout: 240_000 }, async () => {
+    v8.setFlagsFromString("--expose-gc");
+    const gc = vm.runInNewContext("gc") as () => void;
+    const MiB = 1024 * 1024;
+    const host = fakeHost(repl);
+    const id = await startFor(host.terminals, owner, "background_job");
+    const key = host.opened[0]!.key;
+    // `yes ''`: two million empty lines, 2 MB of stored rows of them.
+    const frame = "\r\n".repeat(16_384);
+    for (let sent = 0; sent < 2_000_000; sent += 16_384) {
+      fakeEmit(host.terminals, key, frame);
+      if (sent % 500_000 < 16_384) await look(host.terminals, id, 0, { lines: 10, bytes: 1024 });
+    }
+    // Parsed and stored before the measure.
+    await look(host.terminals, id, 0, { lines: 10, bytes: 1024 });
+    gc();
+    const before = process.memoryUsage().heapUsed;
+    let peak = before;
+    const sampler = setInterval(() => (peak = Math.max(peak, process.memoryUsage().heapUsed)), 1);
+    const view = await look(host.terminals, id, 0, { lines: 2_000, bytes: 64 * 1024 });
+    clearInterval(sampler);
+    peak = Math.max(peak, process.memoryUsage().heapUsed);
+    expect(view.output).toBe("[The last 2,000 lines of output are blank; earlier output was not read.]");
+    expect(peak - before, `heap grown by one tail: ${((peak - before) / MiB).toFixed(1)} MiB`).toBeLessThan(16 * MiB);
+    // Output among them shows once it is within the budget: the lines before it as they were, the blank ones after left out.
+    fakeEmit(host.terminals, key, "done\r\n" + "\r\n".repeat(10));
+    const done = await look(host.terminals, id, 0, { lines: 2_000, bytes: 64 * 1024 });
+    // The trailing blank lines passed over count against the same 2,000 read.
+    expect(done.output?.endsWith("\n\ndone")).toBe(true);
+    expect(done.output!.split("\n").length).toBeLessThanOrEqual(2_000);
   });
 
   it("keeps the Workspace DO's memory flat as a Terminal's scrollback grows", { timeout: 120_000 }, async () => {

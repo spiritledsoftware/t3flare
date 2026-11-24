@@ -781,7 +781,7 @@ SPI-1360 refinement.
 ## Refinement (SPI-1368, 2026-11-23): the last fixed values, named, removed, derived or settings
 
 _Superseded in part by the SPI-1387 refinement: the MCP progress rate and the Legacy recheck became named constants._
-_Superseded in part by the SPI-1397 refinement: `termctrl.cols` and `termctrl.rows`' maxima are derived from the xterm's spill margin, not the scrollback._
+_Superseded in part by the SPI-1397 refinement: `termctrl.cols` and `termctrl.rows`' maxima are kept as fixed values, a sanity bound, no longer derived._
 
 New Environment settings, in the MCP servers row (`MCP_SERVER_SETTING_KEYS`), each with today's value as its default and
 read as each call's target is made:
@@ -991,25 +991,31 @@ Terminals kept (16), each a memory-safety bound there.
 
 Supersedes, under ADR-0049 §1, the SPI-1387 refinement's agents' Terminals per Workspace (8) and their scrollback
 (1,000 lines), the SPI-1317 refinement's `MAX_KEPT` (32 exited a Session), and the SPI-1368 refinement's derivation of
-`termctrl.cols` and `termctrl.rows` from the scrollback. Each was a memory-safety bound: every agent Terminal and
+`termctrl.cols` and `termctrl.rows` from the scrollback (their values stay). Each was a memory-safety bound: every agent Terminal and
 Background job kept a headless xterm with its whole scrollback in the Workspace DO's 128 MB isolate.
 
 - **Scrollback in storage.** Each xterm keeps its screen and `AGENT_TERMINAL_SPILL_LINES` (64, provisional) above it.
   Output is parsed in pieces that scroll less than that, and what each piece scrolled off goes to the Workspace DO's
   SQLite (`apps/agents/src/workspace/agentScrollback.ts`) in rows of about 64 KiB, well within a row's 8 MiB. Reads of
   what scrolled off come from there; a settle or a stop names `scrolledLines`, the most its result shows, so only those
-  lines from each end are read. The Workspace DO's memory does not grow with a Terminal's scrollback.
+  lines from each end are read, and a request from before it reads termctrl's default 100 from each end. A Background
+  job's tail reads back only what its tail can show, passing over trailing blank lines within that same budget and
+  saying so when blank lines alone spent it. The Workspace DO's memory does not grow with a Terminal's scrollback.
+- **An exited Terminal holds no xterm.** Once its output is parsed, its final screen goes to storage beside its
+  scrollback and its xterm is let go; views of it read from storage.
 - **Stock t3's history size.** Each Terminal keeps its last `AGENT_TERMINAL_HISTORY_BYTES`, 8 MiB (stock t3's
   `DEFAULT_HISTORY_BYTE_LIMIT`, the Owner's value), whole lines, oldest dropped first; the agent's next look says
   earlier output is missing and names the 8 MiB.
 - **No count.** Agents run any number of Terminals and Background jobs at once, as the Owner's Terminals do after
   SPI-1391: the refusal at the count is gone.
 - **128 exited a Workspace.** Exited entries are bounded across the Workspace's Sessions, not per Session:
-  `AGENT_EXITED_TERMINALS_KEPT`, 128 (stock t3's exited Terminals kept, the Owner's value). Past it the one that exited
-  first is forgotten, never a running one; an agent naming it is told the bound and its value, and a Background job's
-  log path.
+  `AGENT_EXITED_TERMINALS_KEPT`, 128 (stock t3's exited Terminals kept, the Owner's value). Past it one is forgotten,
+  never a running one: first those whose exit their owner saw, the earliest exit first; only when more than 128 ended
+  unseen at once (a Container stop) the earliest unseen, whose exit the owner's next exit notice or wait still reports
+  once, naming the bound. An agent naming a forgotten one is told the bound and its value, and a Background job's log
+  path.
 - **Rows go with their Terminal.** A stop or the bound deletes the entry's rows; a Workspace DO start deletes every row,
   since its Terminals ended with the last instance.
-- **The Terminal size maxima follow.** `termctrl.cols` and `termctrl.rows` are derived as before from
-  `TERMINAL_CELLS`, with the spill margin in place of the scrollback: 3,205 and 2,713 (were 320 and 1,777), provisional
-  with the estimate they share.
+- **The Terminal size maxima stay.** `termctrl.cols` and `termctrl.rows` keep 320 and 1,777, now fixed values: a
+  sanity bound for a live Terminal's xterm, provisional (about 7 MB at both maxima, its screen and the spill margin),
+  no longer derived from a count of Terminals or their scrollback.

@@ -1,14 +1,15 @@
 // The agent's Terminals' scrollback (SPI-1397), kept in the Workspace DO's SQLite instead of each headless xterm: a line
 // that scrolls off a Terminal's screen is appended here, and reads of what scrolled off come from here. The Workspace
-// DO's memory holds each Terminal's screen and at most `FLUSH_BYTES` of lines on their way to a row, whatever the
-// scrollback's length.
+// DO's memory holds each running Terminal's screen and at most `FLUSH_BYTES` of lines on their way to a row, whatever
+// the scrollback's length; an exited one's final screen is kept here too, and its xterm is let go.
 //
 // - Lines are numbered as the Terminal numbers them: the absolute index of a line in its output.
 // - Each Terminal keeps its last `AGENT_TERMINAL_HISTORY_BYTES` (stock t3's Terminal history, 8 MiB); older lines are
 //   dropped, oldest first, and a read of them finds them missing.
 // - A Terminal's rows are deleted when it is forgotten, and every row when the Workspace DO starts: its Terminals end
 //   with the object.
-// - The entries the Workspace's exited bound forgot are kept here too, by key, so an agent naming one is told why.
+// - The entries the Workspace's exited bound forgot are kept here too, by key, so an agent naming one is told why, and
+//   one whose exit its owner had not seen yet is still reported once.
 import { AGENT_TERMINAL_HISTORY_BYTES } from "@t3flare/harness-registry";
 
 /** The part of `SqlStorage` this uses. */
@@ -19,56 +20,59 @@ export interface ScrollbackSql {
   ): { toArray(): Array<T> };
 }
 
-const TABLE = "t3flare_agent_scrollback";
-const SCHEMA = `CREATE TABLE IF NOT EXISTS ${TABLE} (
+const LINES = "t3flare_agent_scrollback";
+const SCREENS = "t3flare_agent_screens";
+const FORGOTTEN = "t3flare_agent_forgotten";
+const SCHEMAS = [
+  `CREATE TABLE IF NOT EXISTS ${LINES} (
   entry TEXT NOT NULL,
   first INTEGER NOT NULL,
   count INTEGER NOT NULL,
   bytes INTEGER NOT NULL,
   text TEXT NOT NULL,
   PRIMARY KEY (entry, first)
-)`;
-const FORGOTTEN = "t3flare_agent_forgotten";
-const FORGOTTEN_SCHEMA = `CREATE TABLE IF NOT EXISTS ${FORGOTTEN} (entry TEXT PRIMARY KEY)`;
+)`,
+  `CREATE TABLE IF NOT EXISTS ${SCREENS} (entry TEXT PRIMARY KEY, screen TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS ${FORGOTTEN} (
+  entry TEXT PRIMARY KEY,
+  owner TEXT NOT NULL,
+  unseen TEXT
+)`,
+];
 
 /**
- * How many bytes of lines wait in memory before they go to a row: fewer, larger rows than one a line. Not a limit on
- * what is kept; well within a Durable Object SQLite row's 8 MiB (Cloudflare's "Maximum string, BLOB or table row
- * size"), with the one line that crosses it.
+ * How many bytes of lines wait in memory before they go to a row: fewer, larger rows than one a line. Provisional, not
+ * a limit on what is kept; well within a Durable Object SQLite row's 8 MB (Cloudflare's "Maximum string, BLOB or table
+ * row size"), with the one line that crosses it.
  */
 export const FLUSH_BYTES = 64 * 1024;
 /**
- * The longest line kept, in UTF-8 bytes. A named constraint: one line beside a full batch must still fit an 8 MiB
- * SQLite row (8,388,608 bytes); 1 MiB is left for the batch and the row's other columns. A terminal row is its columns'
- * cells, so only a cell carrying thousands of combining marks comes near; such a line is cut to a third of this in
- * UTF-16 units, which is within it.
+ * The longest line kept, in UTF-8 bytes. A named constraint: one line beside a full batch must still fit an 8 MB
+ * (8,000,000-byte) SQLite row; about 660 KB is left for the batch and the row's other columns. A terminal row is its
+ * columns' cells, so only a cell carrying thousands of combining marks comes near; such a line is cut to a third of
+ * this in UTF-16 units, which is within it.
  */
 export const MAX_LINE_BYTES = 7 * 1024 * 1024;
 
-/** UTF-8 bytes of `text`, without encoding it. */
-export const utf8Bytes = (text: string): number => {
-  let bytes = 0;
-  for (let index = 0; index < text.length; index++) {
-    const unit = text.charCodeAt(index);
-    if (unit < 0x80) bytes += 1;
-    else if (unit < 0x800) bytes += 2;
-    else if (unit >= 0xd800 && unit <= 0xdbff && index + 1 < text.length) {
-      bytes += 4;
-      index++;
-    } else bytes += 3;
-  }
-  return bytes;
-};
+const encoder = new TextEncoder();
+/** A stored line's size: its UTF-8 bytes and its newline. */
+const sizeOf = (line: string): number => encoder.encode(line).byteLength + 1;
 
 const cut = (line: string): string => {
-  if (utf8Bytes(line) <= MAX_LINE_BYTES) return line;
+  // A UTF-16 unit is at most 3 UTF-8 bytes: only a line that long can be over.
+  if (line.length * 3 <= MAX_LINE_BYTES || sizeOf(line) - 1 <= MAX_LINE_BYTES) return line;
   let end = Math.floor(MAX_LINE_BYTES / 3);
-  if (end > 0 && line.charCodeAt(end - 1) >= 0xd800 && line.charCodeAt(end - 1) <= 0xdbff) end--;
+  if (line.charCodeAt(end - 1) >= 0xd800 && line.charCodeAt(end - 1) <= 0xdbff) end--;
   return line.slice(0, end);
 };
 
-/** A stored line's size: its UTF-8 bytes and its newline. */
-const sizeOf = (line: string): number => utf8Bytes(line) + 1;
+/** The last lines `readBack` found: the absolute index of the first, and whether blank lines alone ran out its budget. */
+export interface ReadBack {
+  readonly from: number;
+  readonly lines: ReadonlyArray<string>;
+  /** Trailing blank lines left out (`skipBlank`); with no `lines`, the budget ended among them. */
+  readonly blank: number;
+}
 
 /** One Terminal's scrollback. */
 export interface Scrollback {
@@ -76,21 +80,36 @@ export interface Scrollback {
   readonly end: number;
   /** The first line still kept (`end` when none is). */
   readonly first: number;
-  /** Bytes kept, stored and waiting. */
-  readonly bytes: number;
   /** Appends `text` as line `line`; a line past `end` leaves the ones between missing. */
   append(line: number, text: string): void;
   /** Lines `from` to `to` (exclusive), each null where it is not kept. */
   read(from: number, to: number): Array<string | null>;
+  /**
+   * The newest kept lines before `end`, up to `lines` of them and about `bytes` (whole rows, newest first, so at most a
+   * row more), every line read counting, blank or not. `skipBlank`: trailing blank lines are left out, and counted.
+   */
+  readBack(limits: { readonly lines: number; readonly bytes: number }, skipBlank: boolean): ReadBack;
+  /** Keeps the Terminal's final screen (its xterm is let go). */
+  keepScreen(screen: string): void;
+  /** The final screen `keepScreen` kept; "" before. */
+  screen(): string;
   /** Deletes its rows. */
   drop(): void;
 }
 
+/** What the exited bound forgot of an entry its owner had not seen the exit of: enough to report it once. */
+export type Unseen = object;
+
 export interface ScrollbackStore {
   /** A new Terminal's scrollback, under `key` (unique within this object's life). */
   open(key: string): Scrollback;
-  /** Entries the exited bound forgot, by key. */
-  readonly forgotten: { add(key: string): void; has(key: string): boolean };
+  /** Entries the exited bound forgot, by key; `unseen`: one whose exit its owner had not seen, to report once. */
+  readonly forgotten: {
+    add(key: string, owner: string, unseen: Unseen | null): void;
+    has(key: string): boolean;
+    /** `owner`'s forgotten unseen exits that `take` accepts, oldest first, each answered once. */
+    takeUnseen(owner: string, take: (unseen: Unseen) => boolean): Array<Unseen>;
+  };
   /** Deletes every Terminal's rows and the forgotten keys (the object started: its Terminals ended with the last one). */
   clear(): void;
 }
@@ -100,16 +119,32 @@ export const scrollbackStore = (
   sql: ScrollbackSql,
   maxBytes: number = AGENT_TERMINAL_HISTORY_BYTES,
 ): ScrollbackStore => {
-  sql.exec(SCHEMA);
-  sql.exec(FORGOTTEN_SCHEMA);
+  for (const schema of SCHEMAS) sql.exec(schema);
   return {
     clear: () => {
-      sql.exec(`DELETE FROM ${TABLE}`);
-      sql.exec(`DELETE FROM ${FORGOTTEN}`);
+      for (const table of [LINES, SCREENS, FORGOTTEN]) sql.exec(`DELETE FROM ${table}`);
     },
     forgotten: {
-      add: (key) => void sql.exec(`INSERT OR IGNORE INTO ${FORGOTTEN} (entry) VALUES (?)`, key),
+      add: (key, owner, unseen) =>
+        void sql.exec(
+          `INSERT OR REPLACE INTO ${FORGOTTEN} (entry, owner, unseen) VALUES (?, ?, ?)`,
+          key,
+          owner,
+          unseen === null ? null : JSON.stringify(unseen),
+        ),
       has: (key) => sql.exec(`SELECT 1 AS one FROM ${FORGOTTEN} WHERE entry = ?`, key).toArray().length > 0,
+      takeUnseen: (owner, take) => {
+        const taken = sql
+          .exec<{ entry: string; unseen: string }>(
+            `SELECT entry, unseen FROM ${FORGOTTEN} WHERE owner = ? AND unseen IS NOT NULL ORDER BY rowid`,
+            owner,
+          )
+          .toArray()
+          .map((row) => ({ entry: row.entry, unseen: JSON.parse(row.unseen) as Unseen }))
+          .filter((row) => take(row.unseen));
+        for (const row of taken) sql.exec(`UPDATE ${FORGOTTEN} SET unseen = NULL WHERE entry = ?`, row.entry);
+        return taken.map((row) => row.unseen);
+      },
     },
     open: (key) => {
       let pending: Array<string> = [];
@@ -119,16 +154,19 @@ export const scrollbackStore = (
       let end = 0;
       let stored = 0;
 
+      const insert = (from: number, lines: ReadonlyArray<string>, bytes: number) =>
+        sql.exec(
+          `INSERT INTO ${LINES} (entry, first, count, bytes, text) VALUES (?, ?, ?, ?, ?)`,
+          key,
+          from,
+          lines.length,
+          bytes,
+          lines.join("\n"),
+        );
+
       const flush = () => {
         if (pending.length === 0) return;
-        sql.exec(
-          `INSERT INTO ${TABLE} (entry, first, count, bytes, text) VALUES (?, ?, ?, ?, ?)`,
-          key,
-          pendingFirst,
-          pending.length,
-          pendingBytes,
-          pending.join("\n"),
-        );
+        insert(pendingFirst, pending, pendingBytes);
         stored += pendingBytes;
         pending = [];
         pendingBytes = 0;
@@ -139,13 +177,13 @@ export const scrollbackStore = (
       const trim = () => {
         while (stored > maxBytes) {
           const oldest = sql
-            .exec<{ first: number; count: number; bytes: number; text: string }>(
-              `SELECT first, count, bytes, text FROM ${TABLE} WHERE entry = ? ORDER BY first LIMIT 1`,
+            .exec<{ first: number; bytes: number; text: string }>(
+              `SELECT first, bytes, text FROM ${LINES} WHERE entry = ? ORDER BY first LIMIT 1`,
               key,
             )
             .toArray()[0];
           if (oldest === undefined) break;
-          sql.exec(`DELETE FROM ${TABLE} WHERE entry = ? AND first = ?`, key, oldest.first);
+          sql.exec(`DELETE FROM ${LINES} WHERE entry = ? AND first = ?`, key, oldest.first);
           if (stored - oldest.bytes >= maxBytes) {
             stored -= oldest.bytes;
             continue;
@@ -155,20 +193,12 @@ export const scrollbackStore = (
           let from = 0;
           while (stored - (oldest.bytes - bytes) > maxBytes) bytes -= sizeOf(lines[from++]!);
           stored -= oldest.bytes - bytes;
-          if (from < lines.length)
-            sql.exec(
-              `INSERT INTO ${TABLE} (entry, first, count, bytes, text) VALUES (?, ?, ?, ?, ?)`,
-              key,
-              oldest.first + from,
-              lines.length - from,
-              bytes,
-              lines.slice(from).join("\n"),
-            );
+          if (from < lines.length) insert(oldest.first + from, lines.slice(from), bytes);
         }
         const row = sql
-          .exec<{ first: number }>(`SELECT first FROM ${TABLE} WHERE entry = ? ORDER BY first LIMIT 1`, key)
+          .exec<{ first: number }>(`SELECT first FROM ${LINES} WHERE entry = ? ORDER BY first LIMIT 1`, key)
           .toArray()[0];
-        first = row?.first ?? (pending.length > 0 ? pendingFirst : end);
+        first = row?.first ?? end;
       };
 
       return {
@@ -177,9 +207,6 @@ export const scrollbackStore = (
         },
         get first() {
           return first;
-        },
-        get bytes() {
-          return stored + pendingBytes;
         },
         append(line, text) {
           if (line < end) return;
@@ -199,7 +226,7 @@ export const scrollbackStore = (
           flush();
           const rows = sql
             .exec<{ first: number; text: string }>(
-              `SELECT first, text FROM ${TABLE} WHERE entry = ? AND first < ? AND first + count > ? ORDER BY first`,
+              `SELECT first, text FROM ${LINES} WHERE entry = ? AND first < ? AND first + count > ? ORDER BY first`,
               key,
               to,
               from,
@@ -212,12 +239,57 @@ export const scrollbackStore = (
           }
           return lines;
         },
+        readBack(limits, skipBlank) {
+          flush();
+          let lines: Array<string> = [];
+          let from = end;
+          let blank = 0;
+          let read = 0;
+          let readBytes = 0;
+          let skipping = skipBlank;
+          while (read < limits.lines && readBytes < limits.bytes) {
+            // One row at a time, newest first: a read holds at most the budget and one row.
+            const row = sql
+              .exec<{ first: number; bytes: number; text: string }>(
+                `SELECT first, bytes, text FROM ${LINES} WHERE entry = ? AND first < ? ORDER BY first DESC LIMIT 1`,
+                key,
+                from,
+              )
+              .toArray()[0];
+            if (row === undefined) break;
+            const text = row.text.split("\n");
+            const room = limits.lines - read;
+            const taken = text.slice(Math.max(0, text.length - room));
+            read += taken.length;
+            readBytes += row.bytes;
+            from = row.first + text.length - taken.length;
+            if (skipping) {
+              let last = taken.length;
+              while (last > 0 && taken[last - 1] === "") last--;
+              blank += taken.length - last;
+              if (last === 0) continue;
+              skipping = false;
+              lines = taken.slice(0, last);
+            } else lines = [...taken, ...lines];
+          }
+          return { from, lines, blank };
+        },
+        keepScreen(screen) {
+          sql.exec(`INSERT OR REPLACE INTO ${SCREENS} (entry, screen) VALUES (?, ?)`, key, screen);
+        },
+        screen() {
+          return (
+            sql.exec<{ screen: string }>(`SELECT screen FROM ${SCREENS} WHERE entry = ?`, key).toArray()[0]?.screen ??
+            ""
+          );
+        },
         drop() {
           pending = [];
           pendingBytes = 0;
           stored = 0;
           first = end;
-          sql.exec(`DELETE FROM ${TABLE} WHERE entry = ?`, key);
+          sql.exec(`DELETE FROM ${LINES} WHERE entry = ?`, key);
+          sql.exec(`DELETE FROM ${SCREENS} WHERE entry = ?`, key);
         },
       };
     },
