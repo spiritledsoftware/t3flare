@@ -76,6 +76,27 @@ describe("a push's turns (SPI-1377)", () => {
     expect(store.get("b")?.settledSeq).toBe(readSeq + 1);
     expect(Object.keys(pushedTurns(store.all(), readSeq))).toEqual(["b"]);
   });
+  it("name a turn first put already settled, once a watermark exists", () => {
+    const store = new TurnStore(memoryKv());
+    store.put("a", running(1_000, 1));
+    store.put("a", { ...running(1_000, 1), status: "answered", settledAt: 2_000 });
+    const readSeq = store.lastSettleSeq();
+    // A turn recorded settled, never on the live list (a submit that came back settled).
+    store.put("b", { ...running(3_000, 5), status: "failed", reason: "orphaned", settledAt: 3_000 });
+    expect(Object.keys(pushedTurns(store.all(), readSeq))).toEqual(["b"]);
+  });
+
+  it("name a settled turn changed again, once", () => {
+    const store = new TurnStore(memoryKv());
+    store.put("a", running(1_000, 1));
+    store.put("a", { ...running(1_000, 1), status: "answered", settledAt: 2_000 });
+    const readSeq = store.lastSettleSeq();
+    expect(Object.keys(pushedTurns(store.all(), readSeq))).toEqual([]);
+    store.update("a", (turn) => ({ ...turn, detail: "changed after it settled" }));
+    expect(Object.keys(pushedTurns(store.all(), readSeq))).toEqual(["a"]);
+    // The next push, having read the sequence after the change, leaves it out.
+    expect(Object.keys(pushedTurns(store.all(), store.lastSettleSeq()))).toEqual([]);
+  });
 });
 
 describe("a snapshot's turns and start (SPI-1377)", () => {

@@ -23,7 +23,7 @@ const TURN_PREFIX = "t3flare:turn:";
 const MODEL_PREFIX = "t3flare:turn-model:";
 /** The live turns' ids, unordered: `live()` sorts them by `startedAt`. */
 const LIVE_KEY = "t3flare:live-turns";
-/** SPI-1377: the settle sequence's last number, the `settledSeq` of the turn that settled last (0 before any). */
+/** SPI-1377: the settle sequence's last number, the `settledSeq` of the settled turn put last (0 before any). */
 const LAST_SETTLE_SEQ_KEY = "t3flare:last-settle-seq";
 /** Before SPI-1373: every turn in one value, and every turn's model record in another. Moved over at the first read. */
 const LEGACY_TURNS_KEY = "t3flare:turns";
@@ -42,8 +42,9 @@ export class TurnStore {
   }
 
   /**
-   * Records `turn` under `id`, and keeps the live index in step with it. A live turn that settles here takes the next
-   * settle sequence number (`settledSeq`), in the same synchronous writes.
+   * Records `turn` under `id`, and keeps the live index in step with it. Every put of a settled turn (one settling here,
+   * one recorded settled, or a settled one changed again) takes the next settle sequence number (`settledSeq`), in the
+   * same synchronous writes, so the next push names it once (SPI-1377).
    */
   put(id: string, turn: TurnState): void {
     const ids = this.#liveIds();
@@ -53,20 +54,17 @@ export class TurnStore {
       if (!listed) this.#kv.put(LIVE_KEY, [...ids, id]);
       return;
     }
-    if (!listed) {
-      this.#kv.put(TURN_PREFIX + id, turn);
-      return;
-    }
     const settledSeq = this.lastSettleSeq() + 1;
     this.#kv.put(LAST_SETTLE_SEQ_KEY, settledSeq);
     this.#kv.put(TURN_PREFIX + id, { ...turn, settledSeq });
-    this.#kv.put(
-      LIVE_KEY,
-      ids.filter((other) => other !== id),
-    );
+    if (listed)
+      this.#kv.put(
+        LIVE_KEY,
+        ids.filter((other) => other !== id),
+      );
   }
 
-  /** The settle sequence's last number: every turn settled since it was kept has a `settledSeq` at or below it. */
+  /** The settle sequence's last number: every settled turn put since it was kept has a `settledSeq` at or below it. */
   lastSettleSeq(): number {
     return this.#kv.get<number>(LAST_SETTLE_SEQ_KEY) ?? 0;
   }

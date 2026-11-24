@@ -59,9 +59,9 @@ const longThread = () => {
 describe("TurnStore", () => {
   it("keeps each turn under its own key, and lists them all", () => {
     const { store, map } = longThread();
-    expect(map.get("t3flare:turn:t42")).toEqual(turn("answered", 42, 420));
+    expect(map.get("t3flare:turn:t42")).toEqual({ ...turn("answered", 42, 420), settledSeq: 43 });
     expect(Object.keys(store.all())).toHaveLength(MANY);
-    expect(store.get("t7")).toEqual(turn("answered", 7, 70));
+    expect(store.get("t7")).toEqual({ ...turn("answered", 7, 70), settledSeq: 8 });
     expect(store.get("missing")).toBeUndefined();
   });
 
@@ -92,7 +92,7 @@ describe("TurnStore", () => {
     const all = store.withModels(store.all());
     expect(all["first"]?.proxy).toEqual({ requests: 2 } satisfies ProxyRecord);
     expect(all["later"]?.proxy).toBeUndefined();
-    expect(all["done"]).toEqual(turn("answered", 5));
+    expect(all["done"]).toEqual({ ...turn("answered", 5), settledSeq: 1 });
     expect(store.liveTurn()).toBe("first");
   });
 
