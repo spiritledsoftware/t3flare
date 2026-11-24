@@ -7,6 +7,10 @@
 // follow `prefers-color-scheme`. The primary is t3flare's flare orange (pageBrand.ts's FLARE_FROM) on dark, and a deeper
 // orange on light, where the flare's is under 3:1 on white; dark ink on either (white on them is too faint). The brand's
 // colours repeat pageBrand.ts's FLARE_FROM and FLARE_TO, since this constant cannot import them.
+//
+// The audit table (SPI-1380) follows its own width, not the viewport's: from 48rem, the width its five columns need with
+// the longest action, a grid whose rows share When, Who, Settings, Action and Target, with Change on a line of its own;
+// below it, the stacked layout, as table.stacked draws it at 640px.
 export const STYLE = `:root{color-scheme:light dark;
 --bg:#fcfcfc;--fg:#18181b;--card:#fff;--sidebar:#fafafa;--muted:#f4f4f5;--muted-fg:#71717a;--border:#e4e4e7;--row-border:#ececee;--input:#d4d4d8;
 --hover:#f4f4f5;--selected:#fff;--primary:#EA580C;--primary-fg:#18181b;--primary-soft:color-mix(in oklab,var(--primary) 10%,transparent);--ring:var(--primary);
@@ -214,16 +218,27 @@ td.actions{text-align:right;white-space:nowrap}
 .when{white-space:nowrap;color:var(--muted-fg);font-variant-numeric:tabular-nums}
 .who{white-space:nowrap}
 table.audit td.target>div{overflow-wrap:anywhere}
-@media (width>640px){
-table.audit{display:grid;grid-template-columns:max-content fit-content(12rem) max-content max-content minmax(8rem,1fr)}
+.table-wrap:has(>table.audit){container-type:inline-size}
+@container (width>48rem){
+table.audit{position:relative;display:grid;grid-template-columns:max-content fit-content(12rem) max-content max-content minmax(8rem,1fr)}
 table.audit :is(thead,tbody,tr){display:contents}
 table.audit th:last-child{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
 table.audit td{border-bottom:0;padding-bottom:.25rem}
 table.audit .who{white-space:normal;overflow-wrap:anywhere}
 table.audit td.change-cell{grid-column:1/-1;display:grid;grid-template-columns:subgrid;padding:0 0 .625rem;border-bottom:1px solid var(--row-border)}
 table.audit tr:last-child>td.change-cell{border-bottom:0}
-table.audit td.change-cell::before{content:attr(data-label);padding:0 1rem;font-size:.6875rem;font-weight:550;color:var(--muted-fg)}
+table.audit td.change-cell::before{content:attr(data-label);content:attr(data-label) / "";padding:.0625rem 1rem 0;font-size:.6875rem;color:var(--muted-fg)}
 table.audit td.change-cell>div{grid-column:2/-1;min-width:0;padding:0 1rem}
+table.audit .change{max-width:none;font-size:.75rem}
+}
+@container (width<=48rem){
+table.audit thead{display:none}
+table.audit,table.audit tbody,table.audit tr,table.audit td{display:block;width:100%}
+table.audit tr{padding:.625rem 1rem;border-bottom:1px solid var(--row-border)}
+table.audit tr:last-child{border-bottom:0}
+table.audit td{display:grid;grid-template-columns:5.5rem minmax(0,1fr);gap:.75rem;padding:.1875rem 0;border:0;text-align:left}
+table.audit td::before{content:attr(data-label);font-size:.6875rem;font-weight:550;color:var(--muted-fg);padding-top:.125rem}
+table.audit tbody tr:hover>td{background:none}
 table.audit .change{max-width:none}
 }
 form.add{display:flex;flex-direction:column}
