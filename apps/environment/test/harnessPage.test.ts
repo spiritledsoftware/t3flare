@@ -333,8 +333,10 @@ describe("harness page", () => {
       "Every tool is hidden, so the extension is off: its Advanced settings show once a tool is offered.",
     );
     expect(terminals(resolveHarness(EMPTY_HARNESS))).not.toContain("Every tool is hidden");
-    // SPI-1387: the count is a fixed one, named with its value.
-    expect(terminals(resolveHarness(EMPTY_HARNESS))).toContain("At most 8 run at once in a Workspace");
+    // SPI-1397: no count; the exited bound is named with its value.
+    expect(terminals(resolveHarness(EMPTY_HARNESS))).toContain(
+      "Any number run at once; a Workspace keeps its last 128 exited ones readable",
+    );
   });
 
   it("draws t3's tools on the always-on t3-code card: t3's hints as defaults, waits never codemode, denied tools named", () => {

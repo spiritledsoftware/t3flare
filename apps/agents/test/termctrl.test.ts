@@ -50,6 +50,7 @@ import {
 } from "../src/extensions/termctrl/tools.ts";
 import { jobTailOf } from "../src/extensions/toolOutput.ts";
 import { AgentTerminals } from "../src/workspace/agentTerminals.ts";
+import { nodeScrollbackStore } from "./nodeSql.ts";
 import { context, memoryKv, until } from "./harness.fixture.ts";
 
 /** A REPL behind a fake PTY host: echoes a line, answers it upper-cased, and exits on `exit`. */
@@ -95,8 +96,7 @@ const workspace = (limits: TermctrlLimits = DEFAULT_TERMCTRL_LIMITS) => {
     })(),
     env: {},
     repo: "/workspace/repo",
-    maxLive: () => 8,
-    scrollback: () => 1000,
+    store: nodeScrollbackStore(),
   });
   let used = false;
   const host: TermctrlHost = {

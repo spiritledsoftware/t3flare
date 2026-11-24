@@ -443,8 +443,13 @@ export interface AgentView {
   /** The visible rows, trailing blank rows trimmed. */
   readonly screen: string;
   readonly cursor: AgentCursor | null;
-  /** Lines that scrolled off the screen since the previous view, oldest first. */
+  /** Lines that scrolled off the screen since the previous view, oldest first; with `scrolledOffOmitted`, their ends. */
   readonly scrolledOff: ReadonlyArray<string>;
+  /**
+   * Lines left out of `scrolledOff` (SPI-1397) when more scrolled off than a result can show (`scrolledLines`): `count`
+   * lines, which came before `scrolledOff[beforeIndex]`.
+   */
+  readonly scrolledOffOmitted?: { readonly beforeIndex: number; readonly count: number };
   /** Lines the owner never saw were dropped from the scrollback, or the screen was cleared. */
   readonly outputMissing: boolean;
   readonly previous: { readonly screen: string; readonly cursorRow: number | null } | null;
@@ -465,6 +470,19 @@ export interface AgentTail {
   readonly bytes: number;
 }
 
+/** What a settle's or a stop's view reads and carries. */
+export interface AgentViewOptions {
+  /** A Background job's output it carries (SPI-1362). */
+  readonly tail?: AgentTail;
+  /**
+   * The most scrolled-off lines the Session's result shows, its first and last (SPI-1397). The Workspace reads from
+   * storage only the lines that can show: that many from each end, and the Terminal's rows more at the start, where the
+   * result drops lines the agent saw on its previous screen. 0 reads only those rows' worth. Absent (a request from before it): termctrl's default
+   * `scrollbackLines`.
+   */
+  readonly scrolledLines?: number;
+}
+
 export type AgentTerminalRequest =
   | {
       readonly op: "start";
@@ -476,7 +494,7 @@ export type AgentTerminalRequest =
       readonly rows: number;
       readonly notify: boolean;
     }
-  | {
+  | ({
       readonly op: "settle";
       readonly owner: string;
       readonly id: string;
@@ -492,18 +510,16 @@ export type AgentTerminalRequest =
       readonly since?: string;
       /** Record this answer as the owner's view (a final answer); a chunk is not. */
       readonly view: boolean;
-      readonly tail?: AgentTail;
       /** How long the screen must be quiet to settle (`termctrl.quietMs`, SPI-1364); absent, termctrl's 250 ms. */
       readonly quietMs?: number;
-    }
-  | {
+    } & AgentViewOptions)
+  | ({
       readonly op: "stop";
       readonly owner: string;
       readonly id: string;
-      readonly tail?: AgentTail;
       /** How long the stop waits for the exit after the close (`termctrl.stopGraceSeconds`, SPI-1364); absent, 3 s. */
       readonly graceMs?: number;
-    }
+    } & AgentViewOptions)
   | { readonly op: "list"; readonly owner: string }
   | {
       readonly op: "wait";

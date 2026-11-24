@@ -289,22 +289,29 @@ export const DEFAULT_TERMINAL_BUSY_HOLD_MINUTES = 30;
 export const DEFAULT_TERMINAL_PROMPT_HOLD_MINUTES = 10;
 
 /**
- * How many Terminals and Background jobs Pi Durable agents may run at once per Workspace, across its threads (SPI-1317,
- * SPI-1387). A memory-safety bound, not a measured force: each keeps a headless xterm with
- * `AGENT_TERMINAL_SCROLLBACK_LINES` of scrollback in the Workspace DO's 128 MB isolate, which holds its files' sync too,
- * and an agent's exited Terminals keep their xterm outside the live count, up to `MAX_KEPT`
- * (apps/agents/src/workspace/agentTerminals.ts) per Session with no Workspace-wide bound. SPI-1391 / SPI-1397 measure
- * and lift this.
+ * Pi Durable agents' Terminals and Background jobs (SPI-1397) run with no count of their own, as the Owner's Terminals
+ * do and as on the Owner's machine: each keeps only its screen in the Workspace DO's memory, and its scrollback in the
+ * Workspace DO's SQLite (`apps/agents/src/workspace/agentScrollback.ts`), up to `AGENT_TERMINAL_HISTORY_BYTES`, stock
+ * t3's Terminal history (its `DEFAULT_HISTORY_BYTE_LIMIT`, 8 MiB). Older lines are dropped, oldest first, and the agent's
+ * next look says so.
  */
-export const AGENT_TERMINALS_PER_WORKSPACE = 8;
+export const AGENT_TERMINAL_HISTORY_BYTES = 8 * 1024 * 1024;
 
 /**
- * The lines of scrollback each of an agent's Terminals keeps (SPI-1387). A memory-safety bound, not a measured force: its
- * headless xterm keeps them in the Workspace DO's 128 MB isolate, about 12 bytes a cell, so about 1.4 MB a Terminal at
- * 120 columns, live and exited Terminals alike (see `AGENT_TERMINALS_PER_WORKSPACE`). SPI-1391 / SPI-1397 measure and
- * lift this.
+ * How many exited Terminals and Background jobs one Workspace keeps readable across its Sessions, stock t3's 128 (its
+ * exited Terminals kept; SPI-1397, the Owner's value): past it one is forgotten, never a running one: first those whose
+ * exit was already seen, oldest exit first, then those not yet seen, whose exit is still reported once. An agent naming
+ * one is told this bound. Until then each keeps its final screen and scrollback in the Workspace DO's SQLite, no xterm.
  */
-export const AGENT_TERMINAL_SCROLLBACK_LINES = 1000;
+export const AGENT_EXITED_TERMINALS_KEPT = 128;
+
+/**
+ * The lines an agent's Terminal's headless xterm keeps above its screen (SPI-1397), the room for output that scrolled
+ * off before it goes to storage: its output is parsed in pieces that scroll at most this far, each piece's lines are
+ * stored, and only then does the next go in. Provisional: a smaller margin parses more pieces, a larger one holds more
+ * of each Terminal in memory.
+ */
+export const AGENT_TERMINAL_SPILL_LINES = 64;
 
 /**
  * The largest file setting (the Global mise config, the Image setup, the Container setup), in bytes of UTF-8: a third

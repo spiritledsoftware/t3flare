@@ -20,8 +20,8 @@ import {
   type ToolClass,
 } from "./mcp.ts";
 import {
-  AGENT_TERMINAL_SCROLLBACK_LINES,
-  AGENT_TERMINALS_PER_WORKSPACE,
+  AGENT_EXITED_TERMINALS_KEPT,
+  AGENT_TERMINAL_HISTORY_BYTES,
   ENVIRONMENT_SETTINGS,
   type EnvironmentKey,
   ISOLATE_MEMORY_MB,
@@ -179,33 +179,17 @@ const waitMsSetting = (title: string, description: string, fallback: number): Se
 export const DEFAULT_TERMINAL_COLS = 120;
 export const DEFAULT_TERMINAL_ROWS = 40;
 /**
- * How many shares of the Workspace DO's isolate `TERMINAL_CELLS` is one of: 32, the agents' Terminals per Workspace's
- * most while it was a setting (SPI-1317 to SPI-1387), kept so the widest and tallest Terminal stay where they were. A
- * guess, provisional: SPI-978's measurement of the DO's memory sets the figure.
+ * The widest and tallest an agent Terminal may be set (`termctrl.cols`, `termctrl.rows`): a sanity bound (ADR-0048 §1),
+ * provisional, for a live Terminal's headless xterm in the Workspace DO's 128 MB isolate. Nothing forces 320 or 1,777:
+ * they are kept at the values the Owner has (SPI-1397). They were derived while an agent Terminal's 1,000 lines of scrollback lived in that xterm, one of 32
+ * shares of the isolate at about 12 bytes a cell: 128,000,000 / 32 / 12 = 333,333 cells, so 320 columns beside the
+ * default 40 rows and the 1,000 lines (320 × 1,040), and 1,777 rows beside them at the default 120 columns
+ * (120 × 2,777). Since SPI-1397 the xterm keeps only its screen and `AGENT_TERMINAL_SPILL_LINES` above it, and an
+ * exited Terminal none, so at both maxima a live one holds 320 × 1,841 cells, about 7 MB. Both within a PTY's 16-bit
+ * size (Linux's `struct winsize`). The settings and their defaults stay until SPI-1388 makes them fixed constants.
  */
-const TERMINAL_CELL_SHARES = 32;
-/**
- * The cells one agent Terminal's headless xterm may keep, its screen and scrollback: the Workspace DO's isolate
- * (`ISOLATE_MEMORY_MB`) in `TERMINAL_CELL_SHARES`, at about 12 bytes a cell. A named constraint, forced by Cloudflare's
- * 128 MB isolate.
- */
-const TERMINAL_CELLS = Math.floor((ISOLATE_MEMORY_MB * 1_000_000) / TERMINAL_CELL_SHARES / 12);
-/** A PTY's size fields are unsigned 16-bit (Linux's `struct winsize`, set through TIOCSWINSZ). A named constraint. */
-const WINSIZE_MAX = 65_535;
-/**
- * The widest and tallest an agent Terminal may be set (`termctrl.cols`, `termctrl.rows`), derived from `TERMINAL_CELLS`:
- * the width with the default rows and the scrollback (`AGENT_TERMINAL_SCROLLBACK_LINES`), the height (screen rows,
- * beside the scrollback) with the default width, each within `WINSIZE_MAX`. Setting both past their defaults can still
- * take more.
- */
-export const MAX_TERMINAL_COLS = Math.min(
-  WINSIZE_MAX,
-  Math.floor(TERMINAL_CELLS / (DEFAULT_TERMINAL_ROWS + AGENT_TERMINAL_SCROLLBACK_LINES)),
-);
-export const MAX_TERMINAL_ROWS = Math.min(
-  WINSIZE_MAX,
-  Math.floor(TERMINAL_CELLS / DEFAULT_TERMINAL_COLS) - AGENT_TERMINAL_SCROLLBACK_LINES,
-);
+export const MAX_TERMINAL_COLS = 320;
+export const MAX_TERMINAL_ROWS = 1_777;
 /** The Guardian's evidence budget, in characters of untrusted evidence a Review carries (about pi-guardian's 32,000-token ceiling). */
 export const GUARDIAN_EVIDENCE_CHARACTERS = 96_000;
 
@@ -474,7 +458,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
   {
     id: "termctrl",
     title: "Terminals and Background jobs",
-    description: `terminal_start, terminal_send, terminal_stop, terminal_list and terminal_wait: interactive programs (REPLs, TUIs, prompts) as PTYs in the Workspace's container, and bash's background: true. Approvals follow the thread's mode as bash's do; nothing starts a container until a Terminal or a job starts. At most ${AGENT_TERMINALS_PER_WORKSPACE} run at once in a Workspace, and they end with its container (SPI-1057).`,
+    description: `terminal_start, terminal_send, terminal_stop, terminal_list and terminal_wait: interactive programs (REPLs, TUIs, prompts) as PTYs in the Workspace's container, and bash's background: true. Approvals follow the thread's mode as bash's do; nothing starts a container until a Terminal or a job starts. Any number run at once; a Workspace keeps its last ${AGENT_EXITED_TERMINALS_KEPT} exited ones readable, and they end with its container (SPI-1057, SPI-1397).`,
     default: "on",
     tools: ["terminal_start", "terminal_send", "terminal_stop", "terminal_list", "terminal_wait"],
     settings: {
@@ -488,16 +472,16 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
       },
       cols: {
         title: "Columns",
-        description: `A Terminal's width in characters. A wider Terminal keeps more of its screen and scrollback in the Workspace's memory, ${ISOLATE_MEMORY_MB} MB shared with its other Terminals and its files. At most ${MAX_TERMINAL_COLS}, sized for the default rows.`,
-        // A named constraint, provisional (`MAX_TERMINAL_COLS`): the Workspace DO's memory per Terminal.
+        description: `A Terminal's width in characters. A wider Terminal keeps more of its screen in the Workspace's memory, ${ISOLATE_MEMORY_MB} MB shared with its other Terminals and its files. At most ${MAX_TERMINAL_COLS}.`,
+        // A sanity bound, provisional (`MAX_TERMINAL_COLS`): a live Terminal's xterm in the Workspace DO's memory.
         schema: { type: "integer", minimum: 1, maximum: MAX_TERMINAL_COLS, default: DEFAULT_TERMINAL_COLS },
         tier: "free",
         disclosure: "advanced",
       },
       rows: {
         title: "Rows",
-        description: `A Terminal's height in lines. A taller Terminal keeps more of its screen in the Workspace's memory, ${ISOLATE_MEMORY_MB} MB shared with its other Terminals and its files. At most ${MAX_TERMINAL_ROWS.toLocaleString("en-US")}, sized for the default columns.`,
-        // A named constraint, provisional (`MAX_TERMINAL_ROWS`): the Workspace DO's memory per Terminal.
+        description: `A Terminal's height in lines. A taller Terminal keeps more of its screen in the Workspace's memory, ${ISOLATE_MEMORY_MB} MB shared with its other Terminals and its files. At most ${MAX_TERMINAL_ROWS.toLocaleString("en-US")}.`,
+        // A sanity bound, provisional (`MAX_TERMINAL_ROWS`): a live Terminal's xterm in the Workspace DO's memory.
         schema: { type: "integer", minimum: 1, maximum: MAX_TERMINAL_ROWS, default: DEFAULT_TERMINAL_ROWS },
         tier: "free",
         disclosure: "advanced",
@@ -519,7 +503,7 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
       ),
       scrollbackLines: {
         title: "Scrollback lines shown",
-        description: `How many lines that scrolled off a Terminal since the agent last looked its next result shows; past this, the first and last are kept and the middle dropped. More shows the agent more of what it missed and leaves less room for the rest of the result. Never more than the ${AGENT_TERMINAL_SCROLLBACK_LINES.toLocaleString("en-US")} lines a Terminal keeps. At most ${MAX_COUNT.toLocaleString("en-US")}.`,
+        description: `How many lines that scrolled off a Terminal since the agent last looked its next result shows; past this, the first and last are kept and the middle dropped. More shows the agent more of what it missed and leaves less room for the rest of the result. A Terminal keeps its last ${AGENT_TERMINAL_HISTORY_BYTES / 1024 / 1024} MiB of scrollback. At most ${MAX_COUNT.toLocaleString("en-US")}.`,
         // MAX_COUNT: a sanity bound (ADR-0048); the lines shown take at most half the Tool output limit in any case.
         schema: { type: "integer", minimum: 2, maximum: MAX_COUNT, default: 100 },
         tier: "down-free",

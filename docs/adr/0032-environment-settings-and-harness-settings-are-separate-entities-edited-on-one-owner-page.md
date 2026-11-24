@@ -343,6 +343,7 @@ the lock (`closedKeptMs`) for the longest wait still kept, the setting's or a ke
 ## Refinement (SPI-1317, 2026-11-23): the Terminals' holds and counts
 
 _Superseded in part by the SPI-1387 refinement: the counts became named constants._
+_Superseded in part by the SPI-1397 refinement: `MAX_KEPT` and the agents' Terminal count are gone._
 
 ADR-0021's fixed Terminal holds and Terminal caps are the Owner's. `terminalBusyHoldMinutes` (30 by default) and
 `terminalPromptHoldMinutes` (10) take 1 to `MAX_TIMED_MINUTES`: t3flare's own alarm releases the Container, so ADR-0048
@@ -432,6 +433,7 @@ scan readers ignore its `retentionCutoffMs`, so the Owner controls t3flare's rec
 ## Refinement (SPI-1359, 2026-11-23): the MCP calls, the Base build retry, the CLI hold and the Terminals' maximum
 
 _Superseded in part by the SPI-1387 refinement: the MCP result size, the Base build retry and the Terminals' counts became named constants._
+_Superseded in part by the SPI-1397 refinement: the agents' Terminals have no count._
 
 - **The MCP calls' time limit and result size are settings.** The MCP host's fixed 270 s call time limit and 1 MiB
   result bound become `mcpCallSeconds` (270 by default; superseded: off by default since the SPI-1386 refinement below; 1 to `MAX_TIMED_MINUTES` × 60, tier `down-free`; t3flare's own
@@ -501,6 +503,8 @@ Global mise config refinement's 16 KiB, §4's "nor other custom sizes", and the 
   count and no size.
 
 ## Refinement (SPI-1362, 2026-11-23): what a model and the Owner's client are shown
+
+_Superseded in part by the SPI-1397 refinement: an agent's Terminal keeps its scrollback in storage, up to 8 MiB, not a count of lines._
 
 - **The Tool output limit is a Harness setting.** pi-durable cut every tool result the model reads at its own default,
   50 KiB or 2,000 lines, since no tool t3flare registers named `outputLimits`. A `tool-output` entry, "Always on", holds
@@ -777,6 +781,7 @@ SPI-1360 refinement.
 ## Refinement (SPI-1368, 2026-11-23): the last fixed values, named, removed, derived or settings
 
 _Superseded in part by the SPI-1387 refinement: the MCP progress rate and the Legacy recheck became named constants._
+_Superseded in part by the SPI-1397 refinement: `termctrl.cols` and `termctrl.rows`' maxima are kept as fixed values, a sanity bound, no longer derived._
 
 New Environment settings, in the MCP servers row (`MCP_SERVER_SETTING_KEYS`), each with today's value as its default and
 read as each call's target is made:
@@ -924,6 +929,8 @@ is kept: only the defaults move. Each value is the Owner's (SPI-1386).
 
 ## Refinement (SPI-1387, 2026-11-24): the Environment's internal values become named constants
 
+_Superseded in part by the SPI-1397 refinement: the agents' Terminal count and scrollback lines are gone._
+
 Supersedes, for the settings below, the refinements that made them settings (SPI-1314, SPI-1317, SPI-1318, SPI-1359,
 SPI-1362, SPI-1363, SPI-1364, SPI-1365, SPI-1366, SPI-1367, SPI-1368) and ADR-0047's Builder size, under ADR-0049 §3:
 each guards only t3flare's own machinery, or bounds memory in a 128 MB isolate, so it is a named constant in
@@ -979,3 +986,38 @@ Terminals kept (16), each a memory-safety bound there.
   memory no longer bounds how many a Workspace may have open, so `TERMINALS_PER_WORKSPACE` and its refusal are gone, as
   locally. The Terminal holds still apply to every open Terminal.
 - Agents' Terminals and Background jobs, held in the Workspace DO, are SPI-1397's.
+
+## Refinement (SPI-1397, 2026-11-24): an agent's Terminal keeps its scrollback in storage
+
+Supersedes, under ADR-0049 §1, the SPI-1387 refinement's agents' Terminals per Workspace (8) and their scrollback
+(1,000 lines), the SPI-1317 refinement's `MAX_KEPT` (32 exited a Session), and the SPI-1368 refinement's derivation of
+`termctrl.cols` and `termctrl.rows` from the scrollback (their values stay). Each was a memory-safety bound: every agent Terminal and
+Background job kept a headless xterm with its whole scrollback in the Workspace DO's 128 MB isolate.
+
+- **Scrollback in storage.** Each xterm keeps its screen and `AGENT_TERMINAL_SPILL_LINES` (64, provisional) above it.
+  Output is parsed in pieces that scroll less than that, and what each piece scrolled off goes to the Workspace DO's
+  SQLite (`apps/agents/src/workspace/agentScrollback.ts`) in rows of about 64 KiB, well within a row's 8 MB. Reads of
+  what scrolled off come from there; a settle or a stop names `scrolledLines`, the most its result shows, so only those
+  lines from each end are read, and a request from before it reads termctrl's default 100 from each end. A Background
+  job's tail reads back only what its tail can show, passing over trailing blank lines within that same budget and
+  saying so when blank lines alone spent it. The Workspace DO's memory does not grow with a Terminal's scrollback.
+- **An exited Terminal holds no xterm.** Once its output is parsed, its final screen goes to storage beside its
+  scrollback and its xterm is let go; views of it read from storage.
+- **Stock t3's history size.** Each Terminal keeps its last `AGENT_TERMINAL_HISTORY_BYTES`, 8 MiB (stock t3's
+  `DEFAULT_HISTORY_BYTE_LIMIT`, the Owner's value), whole lines, oldest dropped first; the agent's next look says
+  earlier output is missing and names the 8 MiB.
+- **No count.** Agents run any number of Terminals and Background jobs at once, as the Owner's Terminals do after
+  SPI-1391: the refusal at the count is gone.
+- **128 exited a Workspace.** Exited entries are bounded across the Workspace's Sessions, not per Session:
+  `AGENT_EXITED_TERMINALS_KEPT`, 128 (stock t3's exited Terminals kept, the Owner's value). Past it one is forgotten,
+  never a running one: first those whose exit their owner saw, the earliest exit first; then, whenever more than 128
+  exited are still unseen, the earliest unseen. Unseen exits gather at once (a Container stop) or over time (entries
+  started without notification, a Session that never asks again); the owner's next exit notice or wait still reports
+  each forgotten one once, naming the bound, and then its row goes; a Session's unreported ones go with the rest when
+  the Workspace DO restarts. An agent naming one of the newest 128 forgotten (the keys kept beside those unreported) is
+  told the bound and its value, and a Background job's log path.
+- **Rows go with their Terminal.** A stop or the bound deletes the entry's rows; a Workspace DO start deletes every row,
+  since its Terminals ended with the last instance.
+- **The Terminal size maxima stay.** `termctrl.cols` and `termctrl.rows` keep 320 and 1,777, now fixed values: a
+  sanity bound for a live Terminal's xterm, provisional (about 7 MB at both maxima, its screen and the spill margin),
+  no longer derived from a count of Terminals or their scrollback.

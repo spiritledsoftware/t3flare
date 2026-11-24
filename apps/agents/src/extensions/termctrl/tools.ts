@@ -17,7 +17,7 @@ import {
   type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import { arr, bool, int, obj, opt, str } from "@earendil-works/pi-schema";
-import { defaultSettings, type SettingValue } from "@t3flare/harness-registry";
+import { AGENT_TERMINAL_HISTORY_BYTES, defaultSettings, type SettingValue } from "@t3flare/harness-registry";
 import type {
   AgentEntryInfo,
   AgentExit,
@@ -27,6 +27,7 @@ import type {
   AgentView,
 } from "@t3flare/workspace-client";
 
+import { isAgentTerminalDropped } from "../../workspace/agentTerminalDropped.ts";
 import { DEFAULT_TOOL_OUTPUT_LIMITS, jobTailOf, type ToolOutputLimits } from "../toolOutput.ts";
 
 /** The `termctrl` settings the tools read (SPI-1362), and the Tool output limit their results fit. */
@@ -193,16 +194,21 @@ export const keepTail = (
   return { text: lines.join("\n"), cut };
 };
 
-/** Scrolled-off lines within `limits` (`scrolledLimits`): the first and last kept around a marker. */
+/**
+ * Scrolled-off lines within `limits` (`scrolledLimits`): the first and last kept around a marker. `omittedBetween`:
+ * lines the Workspace left out between the ends it sent (`AgentView.scrolledOffOmitted`), counted as lines.
+ */
 export const fitScrolled = (
   lines: ReadonlyArray<string>,
   limits: { readonly lines: number; readonly bytes: number },
+  omittedBetween = 0,
 ): { readonly text: string; readonly summary?: string } => {
+  const total = lines.length + omittedBetween;
   const text = lines.join("\n");
-  if (lines.length <= limits.lines && bytes(text) <= limits.bytes) return { text };
+  if (omittedBetween === 0 && lines.length <= limits.lines && bytes(text) <= limits.bytes) return { text };
   const marker = (count: number) => `[… ${count} lines omitted …]`;
   const bodyLines = limits.lines - 1;
-  const bodyBytes = limits.bytes - bytes(marker(lines.length));
+  const bodyBytes = limits.bytes - bytes(marker(total));
   const head: Array<string> = [];
   let headBytes = 0;
   for (const line of lines) {
@@ -218,15 +224,14 @@ export const fitScrolled = (
     tail.unshift(line);
     tailBytes += bytes(line) + 1;
   }
-  const omitted = lines.length - head.length - tail.length;
+  const left = total - head.length - tail.length;
   return {
-    text: [...head, marker(omitted), ...tail].join("\n"),
-    summary: `Showing the first ${head.length} and last ${tail.length} of ${lines.length} scrolled-off lines (${(limits.bytes / 1024).toFixed(1)}KB or ${limits.lines} line limit).`,
+    text: [...head, marker(left), ...tail].join("\n"),
+    summary: `Showing the first ${head.length} and last ${tail.length} of ${total} scrolled-off lines (${(limits.bytes / 1024).toFixed(1)}KB or ${limits.lines} line limit).`,
   };
 };
 
-const GAP_NOTICE =
-  "[Earlier output is missing: the Terminal keeps limited scrollback and dropped lines, or the screen was cleared. For complete output, run the command with bash or redirect it to a file.]";
+const GAP_NOTICE = `[Earlier output is missing: a Terminal keeps its last ${AGENT_TERMINAL_HISTORY_BYTES / 1024 / 1024} MiB of scrollback and dropped older lines, or the screen was cleared. For complete output, run the command with bash or redirect it to a file.]`;
 
 export type TerminalResult = {
   readonly id: string;
@@ -276,10 +281,16 @@ export const terminalResult = (
   limits: TermctrlLimits = DEFAULT_TERMCTRL_LIMITS,
 ) => {
   const rows = splitRows(view.screen);
-  // A line the agent saw on its previous screen is not repeated when it scrolls off unchanged.
+  // A line the agent saw on its previous screen is not repeated when it scrolls off unchanged. When the Workspace left
+  // lines out, it sent the first lines (at least the Terminal's rows of them, so every line that may repeat the previous
+  // screen) and the last; only the first are compared.
   const seen = view.shift === null ? [] : splitRows(view.previous?.screen ?? "");
-  const scrolled = view.scrolledOff.filter((line, index) => line !== seen[index]);
-  const fitted = fitScrolled(scrolled, scrolledLimits(limits));
+  const headEnd = view.scrolledOffOmitted?.beforeIndex ?? view.scrolledOff.length;
+  const scrolled = [
+    ...view.scrolledOff.slice(0, headEnd).filter((line, index) => line !== seen[index]),
+    ...view.scrolledOff.slice(headEnd),
+  ];
+  const fitted = fitScrolled(scrolled, scrolledLimits(limits), view.scrolledOffOmitted?.count ?? 0);
   const unchanged = view.previous !== null && view.previous.screen === view.screen;
   const start = options.fullScreen === true || unchanged ? 0 : deltaStart(view, rows);
   const omitted = options.fullScreen !== true && unchanged;
@@ -373,6 +384,7 @@ const settle = async (
         ...(since === undefined ? {} : { since }),
         view: true,
         tail: jobTailOf(host.limits().output),
+        scrolledLines: scrolledLimits(host.limits()).lines,
       }),
     );
     if (steered) return { view: answer.view, reason: "steered" };
@@ -487,7 +499,13 @@ export const terminalStopTool = (host: TermctrlHost): ToolRegistration =>
     structuredOutputSchema: OBJECT,
     async execute(args) {
       const { stopped, view } = valueOf(
-        await host.call({ op: "stop", owner: host.owner(), id: args.id, tail: jobTailOf(host.limits().output) }),
+        await host.call({
+          op: "stop",
+          owner: host.owner(),
+          id: args.id,
+          tail: jobTailOf(host.limits().output),
+          scrolledLines: scrolledLimits(host.limits()).lines,
+        }),
       );
       if (stopped.kind === "background_job") {
         const result = {
@@ -598,12 +616,18 @@ export const terminalWaitTool = (host: TermctrlHost): ToolRegistration =>
             chunkMs: 0,
             view: false,
             tail: jobTailOf(host.limits().output),
+            // Only its screen or output shows: no scrolled-off lines from the end, only the Terminal's rows' worth from
+            // the start.
+            scrolledLines: 0,
           });
+          // An exit the Workspace's bound forgot answers why (`agentTerminalDropped`, SPI-1397).
           return settled.ok
             ? entry.kind === "terminal"
               ? settled.value.view.screen
               : (settled.value.view.output ?? "")
-            : "";
+            : isAgentTerminalDropped(settled.error, entry.id)
+              ? settled.error
+              : "";
         }),
       ).then((all) => exitTails(all, host.limits().output));
       const now = Date.now();
