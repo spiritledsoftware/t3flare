@@ -18,7 +18,7 @@ export const PUBLIC_FETCH_HEADERS: ReadonlyArray<string> = ["accept", "mcp-proto
 
 /**
  * What the Registry asks `McpEngine.fetchPublic` for: a URL, the headers to pass on (others are dropped), and how long
- * the read may take (the caller's Outside request time limit, `outsideRequestSeconds`; `OAUTH_FETCH_TIMEOUT_MS`, its
+ * the read may take (the caller's Outside request time limit, `OUTSIDE_REQUEST_SECONDS`; `OAUTH_FETCH_TIMEOUT_MS`, its
  * default, when absent, as from a caller older than the field).
  */
 export const McpPublicFetchRequest = Schema.Struct({

@@ -689,6 +689,9 @@ describe("GitHubApp", () => {
       requestTimeoutMs: () => 20,
     });
 
-    await expect(app.token()).rejects.toThrow(/GitHub could not be reached/);
+    // SPI-1387: the limit names itself and its value.
+    await expect(app.token()).rejects.toThrow(
+      "GitHub did not answer in 0.02 s, t3flare's fixed outside request time limit",
+    );
   });
 });

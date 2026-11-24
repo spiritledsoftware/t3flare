@@ -86,7 +86,7 @@ export interface BaseBuildRecord {
   readonly at: number;
 }
 
-/** The most output a record may carry: the most `setupOutputKiB` keeps. */
+/** The most output a record may carry (`MAX_SETUP_OUTPUT_KIB`). */
 const MAX_OUTPUT = MAX_SETUP_OUTPUT_KIB * 1024;
 
 /**

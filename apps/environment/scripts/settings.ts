@@ -451,7 +451,7 @@ const cliCall = (
 ) =>
   `Call the MCP tool ${tool} of the "settings" MCP server with exactly these arguments: ${JSON.stringify(args)}. ${after} Do not run any shell command and call no other tool. Make the call exactly once, even if it is refused.`;
 
-/** Each case on a fresh process (a Workspace holds at most cliProcessesPerWorkspace CLI processes, default 4); a pause after, or an ACP start can stay queued. */
+/** Each case on a fresh process (a Workspace holds at most its Container size's CLI processes, 4 on cpu-1); a pause after, or an ACP start can stay queued. */
 const stopCliProcesses = async () => {
   await admin("POST", `/_t3flare/agents/workspace-stop?id=${WORKSPACE.cli}`);
   await sleep(8000);

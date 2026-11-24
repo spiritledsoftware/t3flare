@@ -21,7 +21,8 @@ export const memoryFiles = (
         }
         entries.set(parts.join("/"), { path: parts.join("/"), kind: "file" });
       }
-      return Promise.resolve([...entries.values()].slice(0, maxEntries));
+      const all = [...entries.values()];
+      return Promise.resolve({ entries: all.slice(0, maxEntries), truncated: all.length > maxEntries });
     },
     read: (path) => {
       reads.push(path);

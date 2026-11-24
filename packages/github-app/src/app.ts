@@ -22,8 +22,9 @@ const JWT_LIFETIME_SECONDS = 9 * 60 + JWT_BACKDATE_SECONDS;
 export const TOKEN_MIN_LIFETIME_MS = 45 * 60_000;
 
 /**
- * After a failure GitHub named no time for, how long before it is asked again, when no setting is given (`retryMs`; the
- * Environment's `githubRetrySeconds`, SPI-1366): each further failure in a row doubles it.
+ * After a failure GitHub named no time for, how long before it is asked again when the caller gives no wait (`retryMs`):
+ * the Environment's `GITHUB_RETRY_SECONDS` (SPI-1366, SPI-1387), which this package does not import. Each further
+ * failure in a row doubles it.
  */
 const RETRY_AFTER_MS = 60_000;
 
@@ -168,13 +169,13 @@ export type GitHubAppOptions = {
       }
     | undefined;
   /**
-   * How long one request to GitHub may wait, in ms, read at each request (the Environment's `outsideRequestSeconds`,
-   * SPI-1366). Absent: `REQUEST_TIMEOUT_MS`.
+   * How long one request to GitHub may wait, in ms, read at each request (the Environment's `OUTSIDE_REQUEST_MS`,
+   * SPI-1387). Absent: `REQUEST_TIMEOUT_MS`, the same.
    */
   readonly requestTimeoutMs?: (() => number) | undefined;
   /**
    * After a failure GitHub named no time for, the first wait before it is asked again, in ms, read at each failure (the
-   * Environment's `githubRetrySeconds`, SPI-1366). Absent: `RETRY_AFTER_MS`.
+   * Environment's `GITHUB_RETRY_SECONDS`, SPI-1387). Absent: `RETRY_AFTER_MS`, the same.
    */
   readonly retryMs?: (() => number) | undefined;
 };
@@ -263,8 +264,11 @@ export const githubAppKeyForms = (pem: string): ReadonlyArray<string> => {
   return body === "" ? [text] : [text, body];
 };
 
-/** How long one request to GitHub may take when no setting is given: the Outside request time limit's default. */
-const REQUEST_TIMEOUT_MS = 15_000;
+/**
+ * How long one request to GitHub may take when the caller gives no bound: the Environment's outside request time limit
+ * (`OUTSIDE_REQUEST_SECONDS`, 30 s, @t3flare/harness-registry, which this package does not import).
+ */
+const REQUEST_TIMEOUT_MS = 30_000;
 
 const Account = Schema.NullOr(Schema.Struct({ login: Schema.String }));
 
@@ -629,7 +633,15 @@ export class GitHubApp implements GitHubTokens {
     try {
       response = await this.#options.fetch(url, request);
     } catch (cause) {
-      throw new Error(`GitHub could not be reached: ${messageOf(cause)}`);
+      // The request's own time limit names itself and its value (SPI-1387, ADR-0049 §4).
+      const timedOut =
+        typeof cause === "object" && cause !== null && (cause as { readonly name?: unknown }).name === "TimeoutError";
+      const limitMs = this.#options.requestTimeoutMs?.() ?? REQUEST_TIMEOUT_MS;
+      throw new Error(
+        timedOut
+          ? `GitHub did not answer in ${limitMs / 1000} s, t3flare's fixed outside request time limit`
+          : `GitHub could not be reached: ${messageOf(cause)}`,
+      );
     }
 
     if (response.ok) {

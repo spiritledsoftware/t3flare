@@ -285,16 +285,15 @@ describe("the Settings server's card for a free change", () => {
     recordModes(durable(), "approval-required");
     const smaller = await run.call(durable(), "change_environment", {
       expectedRevision: 0,
-      settings: { mcpCallSeconds: 60, mcpResultKiB: 256 },
+      settings: { mcpCallSeconds: 60 },
     });
     expect(structured(smaller)).toMatchObject({
       status: "applied",
-      appliesAt:
-        "Applies at the next MCP call; a CLI agent's own tool timeout and MCP start wait at its next start; the sign-in time to sign-ins started after it.",
+      appliesAt: "Applies at the next MCP call; a CLI agent's own tool timeout at its next start.",
     });
     for (const card of run.cards) expect(card.prompt).not.toContain("Container next starts");
     expect(SETTINGS_TOOLS.find((tool) => tool.name === "change_environment")!.description).toContain(
-      "mcpCallSeconds and mcpResultKiB at the next MCP call",
+      "mcpCallSeconds at the next MCP call",
     );
   });
 

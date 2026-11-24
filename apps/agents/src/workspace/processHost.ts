@@ -15,10 +15,15 @@
 //   last turn ended (or the last input). Past that it no longer holds it, and t3's own idle release (Patch 0003, at the
 //   same 10 minutes) ends the session.
 import {
+  changeItUnder,
   CLI_IDLE_HOLD_MS,
+  CLI_RECLAIM_SECONDS,
+  CLI_RESERVED_MEMORY_MIB,
   CLI_SESSION_RELEASE_MS,
-  ENVIRONMENT_SETTINGS,
-  fitsEnvironmentSetting,
+  CLI_TURN_PEAK_BYTES,
+  cliProcessesPerWorkspace,
+  EMPTY_ENVIRONMENT,
+  resolveEnvironment,
   T3_MAX_IDLE_PIN_MS,
 } from "@t3flare/harness-registry";
 import { MODEL_HANDLE_ENV } from "@t3flare/models/relay";
@@ -100,6 +105,11 @@ export interface ProcessHostDeps {
   readonly filesMayHaveChanged: (why: "output" | "exit") => void;
   /** Whether `cli: "probe"` may start (test stages). */
   readonly allowProbe: boolean;
+  /**
+   * The most CLI agents' processes the Workspace's Container may run at once, read at each start: derived from its
+   * Container size's memory (`cliProcessesPerWorkspace`, SPI-1387). Absent: the default size's.
+   */
+  readonly maxProcesses?: () => number;
   /** Before a start: the profile's checks that need the Container (the sandbox probe), and env for the process. */
   readonly beforeStart?: (
     input: ProcessStartInput,
@@ -107,20 +117,11 @@ export interface ProcessHostDeps {
 }
 
 /**
- * A start's carried Environment settings (SPI-1318): the CLI agents' processes per Workspace and the reclaim delay, each
- * read as its default when absent or out of the setting's bounds (an older or newer Environment), as the budget reads a
- * carried budget (apps/agents/src/budget.ts).
+ * Why a CLI agent's start is refused at the Workspace's process count (SPI-1387, ADR-0049 §4): the limit, its value,
+ * and what it follows, the Container size.
  */
-export const cliLimitsOf = (
-  input: Pick<ProcessStartInput, "cliProcessesPerWorkspace" | "cliReclaimSeconds">,
-): { readonly maxProcesses: number; readonly reclaimAfterMs: number } => ({
-  maxProcesses: carriedOr("cliProcessesPerWorkspace", input.cliProcessesPerWorkspace),
-  reclaimAfterMs: carriedOr("cliReclaimSeconds", input.cliReclaimSeconds) * 1000,
-});
-
-/** A carried integer setting when it fits the setting's schema, else the setting's default. */
-const carriedOr = (key: "cliProcessesPerWorkspace" | "cliReclaimSeconds", carried: number | undefined): number =>
-  carried !== undefined && fitsEnvironmentSetting(key, carried) ? carried : ENVIRONMENT_SETTINGS[key].schema.default;
+export const cliProcessesFull = (counted: number, max: number): string =>
+  `this Workspace already runs ${counted} of the ${max} CLI agents' processes its Container size has memory for (one per ${CLI_TURN_PEAK_BYTES / 1_000_000} MB past ${CLI_RESERVED_MEMORY_MIB / 1024} GiB); let one finish first, or choose a larger Container size${changeItUnder({ environment: "containerSize" })}`;
 
 interface Proc {
   readonly key: string;
@@ -137,7 +138,7 @@ interface Proc {
   /** Whether any of its turns has ended (`reclaimable`). */
   turnEnded: boolean;
   turnEndedAt: number;
-  /** Out of a turn this long, it may be ended to free the Container for another Workspace: the delay its start carried. */
+  /** Out of a turn this long, it may be ended to free the Container for another Workspace (`CLI_RECLAIM_SECONDS`). */
   readonly reclaimAfterMs: number;
   exited: boolean;
   killing: boolean;
@@ -273,15 +274,12 @@ export class ProcessHost {
     const refuse = (reason: string): ProcessStartAnswer => ({ ok: false, epoch: this.#deps.epoch, reason });
     if (this.#procs.has(input.key)) return { ok: true, epoch: this.#deps.epoch };
     if (input.cli === "probe" && !this.#deps.allowProbe) return refuse("the probe program runs on test stages only");
-    const limits = cliLimitsOf(input);
-    // Lowering the setting ends no running process: a start is refused until fewer run (as the Container budget does).
+    const maxProcesses = this.#deps.maxProcesses?.() ?? cliProcessesPerWorkspace(resolveEnvironment(EMPTY_ENVIRONMENT));
+    // A smaller Container size ends no running process: a start is refused until fewer run (as the Container budget does).
     // Starts in flight count too: the check and the registration are apart by awaits.
-    // SPI-1364: each process counts once, whatever its CLI; the setting's description states each one's memory.
+    // SPI-1364: each process counts once, whatever its CLI.
     const counted = this.size + this.#reserved;
-    if (counted + 1 > limits.maxProcesses)
-      return refuse(
-        `this Workspace already runs ${counted} of the ${limits.maxProcesses} CLI agents' processes its Environment setting "${ENVIRONMENT_SETTINGS.cliProcessesPerWorkspace.title}" (cliProcessesPerWorkspace) allows; let one finish first, or raise the setting`,
-      );
+    if (counted + 1 > maxProcesses) return refuse(cliProcessesFull(counted, maxProcesses));
     // The slot is held from the check until the process is registered (it then counts in `size`) or the start fails.
     let held = 1;
     this.#reserved += held;
@@ -290,7 +288,7 @@ export class ProcessHost {
       held = 0;
     };
     try {
-      return await this.#startHeld(input, limits, release);
+      return await this.#startHeld(input, release);
     } finally {
       release();
     }
@@ -298,7 +296,6 @@ export class ProcessHost {
 
   async #startHeld(
     input: ProcessStartInput & { readonly files?: ReadonlyArray<ProcessFile> },
-    limits: ReturnType<typeof cliLimitsOf>,
     release: () => void,
   ): Promise<ProcessStartAnswer> {
     const refuse = (reason: string): ProcessStartAnswer => ({ ok: false, epoch: this.#deps.epoch, reason });
@@ -354,7 +351,7 @@ export class ProcessHost {
       inTurn: false,
       turnEnded: false,
       turnEndedAt: now,
-      reclaimAfterMs: limits.reclaimAfterMs,
+      reclaimAfterMs: CLI_RECLAIM_SECONDS * 1000,
       exited: false,
       killing: false,
       toolHandle: input.toolHandle !== undefined && HANDLE.test(input.toolHandle) ? input.toolHandle : undefined,

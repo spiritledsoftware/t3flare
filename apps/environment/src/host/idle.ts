@@ -4,14 +4,14 @@
 // outbox effect for IDLE_AFTER_MS, the host reads the next due time from t3's tables, sets one alarm for
 // it and calls `ctx.abort()`. The alarm (or the next request) boots t3 again.
 // An open Remote task (SPI-1061 D7) is work while its machine answers; while it does not, the Environment may reset,
-// and the one alarm also carries the task's retry (5, 15, then every `remoteRetryMinutes`; its state in DO storage).
+// and the one alarm also carries the task's retry (5, 15, then every `REMOTE_RETRY_MINUTES`; its state in DO storage).
 // The reads of t3's private tables fail safe (fragility U2): a read that fails means "don't know", never
 // "no work", so the Environment stays up rather than reset under a turn or skip a wake.
 import type { SqlStorage } from "@cloudflare/workers-types/index.ts";
 import {
   DEFAULT_IDLE_AFTER_SECONDS,
   DEFAULT_PR_WATCH_WAKE_MINUTES,
-  DEFAULT_REMOTE_RETRY_MINUTES,
+  REMOTE_RETRY_MINUTES,
 } from "@t3flare/harness-registry";
 
 /** The idle delay when no setting reaches (`idleAfterSeconds`' default, SPI-1366). */
@@ -224,12 +224,12 @@ export interface RemoteRetry {
 
 export const REMOTE_RETRY_KEY = "t3flare:remote-task-retry";
 /**
- * The retry's back-off: 5, 15, then every `remoteRetryMinutes` (30 by default; SPI-1366), each at most that. No give-up:
+ * The retry's back-off: 5, 15, then every `REMOTE_RETRY_MINUTES` (30; SPI-1366, SPI-1387), each at most that. No give-up:
  * the task ends as t3 ends it.
  */
 export const REMOTE_RETRY_DELAYS_MS = [5 * 60_000, 15 * 60_000] as const;
-/** The longest retry wait when no setting reaches (`remoteRetryMinutes`' default). */
-export const REMOTE_RETRY_MAX_MS = DEFAULT_REMOTE_RETRY_MINUTES * 60_000;
+/** The longest retry wait (`REMOTE_RETRY_MINUTES`). */
+export const REMOTE_RETRY_MAX_MS = REMOTE_RETRY_MINUTES * 60_000;
 /** While a Remote task is open and the Environment is up, an alarm stands at most this far ahead (a deploy, an eviction). */
 export const REMOTE_STANDING_ALARM_MS = 5 * 60_000;
 

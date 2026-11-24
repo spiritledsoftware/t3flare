@@ -46,8 +46,8 @@ import {
   settingsServerLimitsOf,
   MCP_CALL_SETTING_KEYS,
   MCP_SERVER_SETTING_KEYS,
-  ENVIRONMENT_RESTART_SETTING_KEYS,
   NEXT_USE_SETTING_KEYS,
+  OUTSIDE_REQUEST_MS,
   SWEEP_SETTING_KEYS,
   t3AsksForDirect,
   type TierVerdict,
@@ -213,19 +213,16 @@ export const APPLIES_AT = {
     "Applies at the next prune of the usage records (at most once an hour, as usage is recorded) and to usage recorded from then on.",
   /** How long pi's and Claude Code's sessions are kept (SPI-1323, SPI-1367): read at each spawn, never by a Container. */
   piSessionRetention: "Applies at each Pi or Claude Code start.",
-  /** The MCP calls' time limit and result size (SPI-1359): read at each call, and the time limit at each CLI spawn. */
-  mcpCall:
-    "Applies at the next MCP call; a CLI agent's own tool timeout and MCP start wait at its next start; the sign-in time to sign-ins started after it.",
-  /** The MCP servers' connect and listing time limits and logs kept (SPI-1363): read as each call's target is made. */
+  /** The MCP calls' time limit (SPI-1359): read at each call, and at each CLI spawn. */
+  mcpCall: "Applies at the next MCP call; a CLI agent's own tool timeout at its next start.",
+  /** The MCP servers' connect and listing time limits (SPI-1363): read as each call's target is made. */
   mcpServer:
-    "The connect time limit and the Legacy recheck apply at the next connection to an MCP server, the listing time limit at the next discovery of an MCP server, the logs kept and the progress notices at the next MCP call.",
+    "The connect time limit applies at the next connection to an MCP server, the listing time limit at the next discovery of an MCP server.",
   /**
    * The settings read at their own next use (SPI-1366, and SPI-1365's outside requests): never a Container start. Each
    * setting's description says which use.
    */
   nextUse: "Applies at each one's next use, as its description says; no Container start is needed.",
-  /** t3's Terminals' history (SPI-1364): t3 takes it when the Environment starts, never a Container. */
-  environmentRestart: "Applies when the Environment next restarts, as every deploy does; no Container start is needed.",
   skills: "Files at each thread's next turn; the listing at the next context window; the composer at once.",
   /** A Purge (ADR-0044 §5). */
   purge: "Applies at once; it cannot be undone.",
@@ -770,7 +767,6 @@ const environmentAppliesAt = (keys: ReadonlyArray<string>): string => {
     { keys: among(MCP_CALL_SETTING_KEYS), text: APPLIES_AT.mcpCall },
     { keys: among(MCP_SERVER_SETTING_KEYS), text: APPLIES_AT.mcpServer },
     { keys: among(NEXT_USE_SETTING_KEYS), text: APPLIES_AT.nextUse },
-    { keys: among(ENVIRONMENT_RESTART_SETTING_KEYS), text: APPLIES_AT.environmentRestart },
   ].filter((group) => group.keys.length > 0);
   const rest = keys.length - own.reduce((sum, group) => sum + group.keys.length, 0);
   if (own.length === 0) return APPLIES_AT.environment;
@@ -1362,12 +1358,10 @@ export const applyOpenChange = async (
   };
 };
 
-/** A closed change's answer to the agent (plan D11's statuses). */
-/** How long an own agent's close waits for an applying answer (`closeOrSettle`), at the Outside request time limit now. */
-const ownWait = (deps: SettingsServerDeps): { readonly waitMs: number } => ({
-  waitMs: ownApplyingWaitMs(resolveEnvironment(deps.ops.store.loadEnvironment()).outsideRequestSeconds * 1000),
-});
+/** How long an own agent's close waits for an applying answer (`closeOrSettle`), at the Outside request time limit. */
+const OWN_WAIT: { readonly waitMs: number } = { waitMs: ownApplyingWaitMs(OUTSIDE_REQUEST_MS) };
 
+/** A closed change's answer to the agent (plan D11's statuses). */
 const resultOf = (
   outcome: ChangeOutcome,
   record: Pick<ChangeRecord, "id" | "entity" | "shown" | "createdAt" | "expiresAt">,
@@ -1765,7 +1759,7 @@ const ask = async (
         id,
         event.kind === "stop" ? "withdrawn" : "expired",
         event.kind === "stop" ? "stop" : undefined,
-        ownWait(deps),
+        OWN_WAIT,
       ),
     );
   };
@@ -1786,7 +1780,7 @@ const ask = async (
           id,
           event.kind === "stop" ? "withdrawn" : "expired",
           event.kind === "stop" ? "stop" : undefined,
-          ownWait(deps),
+          OWN_WAIT,
         );
         await withdrawCard();
         return resultOf(finalOf(outcome), record, planned);
@@ -1823,7 +1817,7 @@ const ask = async (
         id,
         reason === "no answer in time" ? "expired" : "withdrawn",
         closer,
-        ownWait(deps),
+        OWN_WAIT,
       );
       return resultOf(finalOf(withdrawn), record, planned);
     }

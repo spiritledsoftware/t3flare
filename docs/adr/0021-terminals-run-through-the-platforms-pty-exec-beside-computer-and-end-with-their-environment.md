@@ -61,4 +61,4 @@ A Container preview's requests (use) and carried sockets (a hold) keep a running
 The 30-minute and 10-minute holds and the cap of 8 Terminals per Workspace, t3's and the agent's each, are now the
 defaults of Environment settings (`terminalBusyHoldMinutes`, `terminalPromptHoldMinutes`, `terminalsPerWorkspace`,
 `agentTerminalsPerWorkspace`; ADR-0032's SPI-1317 refinement), taken at each Container start. The preview hold above
-follows the busy hold.
+follows the busy hold. (The counts are fixed again, 8 each, by ADR-0032's SPI-1387 refinement: the isolates' memory forces them.)

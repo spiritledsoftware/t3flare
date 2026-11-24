@@ -56,7 +56,7 @@ export const readKey = async (input: {
 export const keepsAnswer = (status: string): boolean => status === "completed" || status === "failed";
 
 /**
- * `maxRows`: how many answers are kept (`gitReadsKept`, SPI-1364), read at each `put`; the least recently used past it
+ * `maxRows`: how many answers are kept (`GIT_READS_KEPT`, SPI-1364), read at each `put`; the least recently used past it
  * is deleted.
  */
 export const readCache = (sql: SqlStorage, maxRows: () => number) => {

@@ -2,7 +2,7 @@
 // t3's spawns of a CLI agent (step 4a): `codex app-server` and `pi --mode rpc …` in a Workspace run there, through the
 // process channel, as a streaming `ChildProcessHandle`. Fail closed: only the argv our drivers send, only in a
 // Workspace, only through a CLI profile (cliProfiles.ts) that fixes the binary, the environment and the home.
-import { cliToolTimeoutSec, DEFAULT_PI_SESSION_RETENTION_DAYS } from "@t3flare/harness-registry";
+import { CLI_MCP_START_SECONDS, cliToolTimeoutSec, DEFAULT_PI_SESSION_RETENTION_DAYS } from "@t3flare/harness-registry";
 import { endpointsOfApi } from "@t3flare/models/relay";
 import { newHandle, toWorkspace } from "@t3flare/workspace-client";
 import * as Effect from "effect/Effect";
@@ -13,7 +13,7 @@ import * as Stream from "effect/Stream";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import type * as ChildProcess from "effect/process/ChildProcess";
 
-import { environmentNow, environmentServices, mcpCallMsNow, ownerAnswerMsNow } from "./bindings.ts";
+import { environmentServices, mcpCallMsNow, ownerAnswerMsNow } from "./bindings.ts";
 import { traceProtocol } from "./processRouter.ts";
 import { scratchProjectOf } from "./scratch.ts";
 import { type ChannelProcess, type ChannelStart, ProcessRefused } from "./processChannel.ts";
@@ -187,7 +187,7 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
           handle: toolHandle,
           servers: services.relayServers(),
           toolTimeoutSec: cliToolTimeoutSec(answerMs, mcpCallMsNow()),
-          startTimeoutSec: environmentNow().cliMcpStartSeconds,
+          startTimeoutSec: CLI_MCP_START_SECONDS,
         },
         endpoints: responsesEndpoints,
         ...(session?.model === undefined ? {} : { model: session.model }),
@@ -198,8 +198,6 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
         dotfiles: services.agentsReadDotfiles?.() ?? true,
         // SPI-1323: how long pi's and Claude Code's sessions are kept, as the Environment says now.
         piSessionRetentionDays: services.piSessionRetentionDays?.() ?? DEFAULT_PI_SESSION_RETENTION_DAYS,
-        // SPI-1367: how often the CLI tries a failed model request again, as the Environment says now.
-        cliRetries: environmentNow().cliRetries,
       },
     );
     if ("refused" in launch) {

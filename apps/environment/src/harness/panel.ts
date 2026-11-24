@@ -33,8 +33,8 @@ import {
   ENVIRONMENT_SETTINGS,
   EXTENSIONS,
   ignoredServersOf,
+  PAGE_TOKEN_HOURS,
   readStoredEnvironment,
-  resolveEnvironment,
   resolveHarness,
   type ToolsChange,
 } from "@t3flare/harness-registry";
@@ -299,8 +299,8 @@ const unsafeWrite = async (request: Request, deps: HarnessDeps): Promise<string 
   if (deps.caller.kind === "owner") {
     if (origin === null) return "a browser change needs its Origin";
     const now = deps.now?.() ?? Date.now();
-    // The token lasts the Settings page token setting (SPI-1366), read at each change.
-    const hours = resolveEnvironment(deps.store.loadEnvironment()).pageTokenHours;
+    // The token lasts `PAGE_TOKEN_HOURS` (SPI-1366, SPI-1387).
+    const hours = PAGE_TOKEN_HOURS;
     if (!(await csrfValid(deps.store.csrfKey(), deps.caller.subject, request.headers.get(CSRF_HEADER), now, hours)))
       return "bad CSRF token";
   }

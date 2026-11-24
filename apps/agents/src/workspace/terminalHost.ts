@@ -12,7 +12,7 @@
 // - Only input is use (review F10): the Container's terminal hold is measured from the last input. Opening is not input
 //   (cost audit F1): t3 re-attaches every open panel after an Environment restart, so an open must not hold the
 //   Container. A shell at its prompt holds it for less than one running a foreground command.
-import { DEFAULT_FIRST_PROMPT_SECONDS, ENVIRONMENT_SETTINGS } from "@t3flare/harness-registry";
+import { FIRST_PROMPT_SECONDS } from "@t3flare/harness-registry";
 import type { KillAnswer } from "@t3flare/sandbox-image/kill";
 import { scanMarkers, terminalCommand } from "@t3flare/sandbox-image/terminal";
 import type {
@@ -25,6 +25,13 @@ import type {
 
 import type { TerminalHold } from "./containerLaunch.ts";
 import { ContainerRefused } from "./containerStep.ts";
+
+/**
+ * Why a Terminal is refused at the Workspace's cap (SPI-1387, ADR-0049 §4): the limit and its value, a memory-safety
+ * bound for the Environment DO's 128 MB isolate, where each Terminal's history lives (`TERMINALS_PER_WORKSPACE`).
+ */
+export const terminalsFull = (opened: number, max: number): string =>
+  `this Workspace already has ${opened} open terminals, and a Workspace may have at most ${max} (a fixed limit: each keeps its history in the Environment's memory); close one first`;
 
 /** A terminal not heartbeaten for this long is killed (the adapter beats every 30 s). */
 export const HEARTBEAT_LAPSE_MS = 90_000;
@@ -78,7 +85,7 @@ export interface TerminalHostDeps {
    */
   readonly holdFirstInput?: boolean;
   /**
-   * How long input typed before the shell's first prompt is held (`firstPromptSeconds`, SPI-1364), in ms: past it, the
+   * How long input typed before the shell's first prompt is held (`FIRST_PROMPT_SECONDS`, SPI-1364), in ms: past it, the
    * next input is sent with what was held, for a shell that never prints the prompt marker.
    */
   readonly firstPromptMs?: () => number;
@@ -88,9 +95,9 @@ export interface TerminalHostDeps {
    */
   readonly readBashrc?: () => boolean;
   /**
-   * The most terminals open at once (the DO's in-memory handles): the running Container's launch's
-   * `terminalsPerWorkspace` (SPI-1317), read at each open; one more is refused, naming that setting. Absent: no cap of
-   * this host's own (the agent's Terminals, which `AgentTerminals` counts against `agentTerminalsPerWorkspace`).
+   * The most terminals open at once (the DO's in-memory handles): `TERMINALS_PER_WORKSPACE` (SPI-1317, SPI-1387), read
+   * at each open; one more is refused, naming that limit (`terminalsFull`). Absent: no cap of this host's own (the
+   * agent's Terminals, which `AgentTerminals` counts against `AGENT_TERMINALS_PER_WORKSPACE`).
    */
   readonly maxTerminals?: () => number;
 }
@@ -193,17 +200,11 @@ export class TerminalHost {
       exited: false,
       closing: false,
     };
-    // Checked before `startContainer()` stores the new launch: opens that start a stopped Container (panels
-    // reattaching) count against the previous Container's `terminalsPerWorkspace` until it does, so a count raised
-    // since may refuse one of them once. Harmless; the Owner opens it again.
     const max = this.#deps.maxTerminals?.();
     const opened = this.#terminals.size;
     if (max !== undefined && opened >= max) {
       this.#terminals.set(input.key, terminal);
-      this.#refuse(
-        terminal,
-        `this Workspace already has ${opened} open terminals, and its Environment setting "${ENVIRONMENT_SETTINGS.terminalsPerWorkspace.title}" (terminalsPerWorkspace) allows ${max}; close one first, or raise the setting`,
-      );
+      this.#refuse(terminal, terminalsFull(opened, max));
       return this.#answer([]);
     }
     this.#terminals.set(input.key, terminal);
@@ -417,7 +418,7 @@ export class TerminalHost {
     if (
       this.#deps.holdFirstInput !== false &&
       !terminal.prompted &&
-      this.#deps.now() - terminal.heldSince < (this.#deps.firstPromptMs?.() ?? DEFAULT_FIRST_PROMPT_SECONDS * 1000)
+      this.#deps.now() - terminal.heldSince < (this.#deps.firstPromptMs?.() ?? FIRST_PROMPT_SECONDS * 1000)
     ) {
       terminal.held.push(data);
       return this.#answer([]);

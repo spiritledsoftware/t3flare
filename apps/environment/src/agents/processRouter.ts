@@ -27,7 +27,9 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import type * as ChildProcess from "effect/process/ChildProcess";
 
 import * as StateStore from "../platform/stateStore.ts";
-import { checkpointMsNow, cloneMsNow, environmentNow, environmentServices, routerTraceEntriesNow } from "./bindings.ts";
+import { HTML_BROWSER_KEEP_ALIVE_SECONDS, ROUTER_TRACE_ENTRIES } from "@t3flare/harness-registry";
+
+import { checkpointMsNow, cloneMsNow, environmentServices } from "./bindings.ts";
 import {
   cloneRequestOf,
   gitEnvOf,
@@ -99,7 +101,7 @@ export const ROUTER_TRACE_BYTES = 8 * 1024 * 1024;
 export const traceEntryBytes = (entry: TraceEntry): number => 2 * JSON.stringify(entry).length;
 
 /**
- * The latest routed commands, in memory: at most `routerTraceEntries` (SPI-1364) of them, and at most
+ * The latest routed commands, in memory: at most `ROUTER_TRACE_ENTRIES` (SPI-1364) of them, and at most
  * `ROUTER_TRACE_BYTES` together, the latest entry always kept.
  */
 const trace: Array<{ readonly entry: TraceEntry; readonly bytes: number }> = [];
@@ -128,7 +130,7 @@ const record = (entry: TraceEntry) => {
   const bytes = traceEntryBytes(entry);
   trace.push({ entry, bytes });
   traceTotal += bytes;
-  const max = routerTraceEntriesNow();
+  const max = ROUTER_TRACE_ENTRIES;
   while (trace.length > 1 && (trace.length > max || traceTotal > ROUTER_TRACE_BYTES))
     traceTotal -= trace.shift()!.bytes;
 };
@@ -864,8 +866,8 @@ export const spawn = (command: ChildProcess.Command) =>
       return yield* spawnHtmlBrowser(command, {
         binding: () => environmentServices().browserRun,
         store: () => environmentServices().previewStore,
-        // Read as each browser opens (SPI-1366).
-        keepAliveMs: () => environmentNow().htmlBrowserKeepAliveSeconds * 1000,
+        // SPI-1366, SPI-1387: a fixed keep-alive.
+        keepAliveMs: () => HTML_BROWSER_KEEP_ALIVE_SECONDS * 1000,
       });
     }
     const name = command.command.replace(/^.*\//, "");

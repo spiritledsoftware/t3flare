@@ -24,7 +24,7 @@ export const SKILLS_LOOK_MS = 200;
  */
 export const SKILLS_WAIT_MARGIN_MS = 10_000;
 
-/** How many times the wait looks for `waitMs` (`skillsWaitSeconds`, SPI-1364), at least once. */
+/** How many times the wait looks for `waitMs` (`SKILLS_WAIT_SECONDS`, SPI-1364), at least once. */
 export const skillsWaitLooks = (waitMs: number): number => Math.max(1, Math.ceil(waitMs / SKILLS_LOOK_MS));
 
 /** What a take answers: whether the set was taken, the hash held, why not, and the Container's copy. */
@@ -124,7 +124,7 @@ export const awaitContainerCopy = async (
     readonly running: () => boolean;
     readonly exec: (command: WaitCommand) => Promise<{ readonly status: string; readonly stdout: string }>;
     readonly warn: (line: string) => void;
-    /** How long the wait looks (`skillsWaitSeconds`, SPI-1364), in ms. */
+    /** How long the wait looks (`SKILLS_WAIT_SECONDS`, SPI-1364), in ms. */
     readonly waitMs: number;
   },
   expectation: ContainerExpectation,

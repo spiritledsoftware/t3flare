@@ -364,8 +364,8 @@ const ROWS: ReadonlyArray<Row> = [
 
 /**
  * The longest reset a rate limit is retried through within the run, by default: pi-durable's default 3 retries span
- * 2 + 4 + 8 = 14 s (`retriedSpanMs(3)`, @t3flare/harness-registry, which the Session passes for the Environment's
- * `durableRetries`; a test pins the two together). A later reset pauses the thread until it at once, with one request.
+ * 2 + 4 + 8 = 14 s (`retriedSpanMs(3)`, @t3flare/harness-registry, which the Session passes for
+ * `DURABLE_RETRIES`; a test pins the two together). A later reset pauses the thread until it at once, with one request.
  */
 export const SHORT_RESET_MS = 14_000;
 

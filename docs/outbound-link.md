@@ -69,7 +69,7 @@ A linked cloud agent acts on the laptop up to the link's access, and a thread it
 
 ## When the laptop sleeps
 
-A task delegated to the laptop keeps the Cloud Environment up while the laptop answers. While it does not (asleep, its tunnel down), the Environment may reset, and it comes back to try again after 5, 15, then every 30 minutes (the default of the Remote task retry setting, `remoteRetryMinutes`), until the task ends there, you cancel it, or the link expires or is revoked. Close the lid rather than quitting the app: quitting ends the running turn.
+A task delegated to the laptop keeps the Cloud Environment up while the laptop answers. While it does not (asleep, its tunnel down), the Environment may reset, and it comes back to try again after 5, 15, then every 30 minutes (`REMOTE_RETRY_MINUTES`, a fixed constant), until the task ends there, you cancel it, or the link expires or is revoked. Close the lid rather than quitting the app: quitting ends the running turn.
 
 ## Ending a link
 

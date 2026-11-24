@@ -29,7 +29,7 @@ export interface ContainerSetupLaunch {
   readonly source: SettingsSource;
   readonly minutes: number;
   readonly failure: ContainerSetupFailure;
-  /** How much of the end of its output the report keeps (`setupOutputKiB`, in bytes). */
+  /** How much of the end of its output the report keeps (`SETUP_OUTPUT_KIB`, in bytes). */
   readonly outputBytes: number;
 }
 

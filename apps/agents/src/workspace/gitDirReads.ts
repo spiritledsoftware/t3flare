@@ -112,12 +112,12 @@ export const passiveDecision = (input: {
 };
 
 /**
- * How many reads a prime keeps, at most, of the `gitReadsKept` answers the read cache holds: half. The cache deletes its
- * least recently used answers past `gitReadsKept` at each put, so a prime of more would delete t3's own kept reads (the
+ * How many reads a prime keeps, at most, of the `GIT_READS_KEPT` answers the read cache holds: half. The cache deletes its
+ * least recently used answers past `GIT_READS_KEPT` at each put, so a prime of more would delete t3's own kept reads (the
  * stale answers' base) and, past all of them, its own first answers. A share, not a measured value: the other half is
  * left to t3's reads.
  */
-export const primeReadsFor = (gitReadsKept: number): number => Math.floor(gitReadsKept / 2);
+export const primeReadsFor = (kept: number): number => Math.floor(kept / 2);
 
 /**
  * The allow-listed reads to answer now, for the repo's branches and remote-tracking refs, the most needed first (the

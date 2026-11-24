@@ -12,7 +12,7 @@ import * as ChildProcess from "effect/process/ChildProcess";
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { resolveEnvironment } from "@t3flare/harness-registry";
+import { BROWSER_PROFILE_SAVE_SECONDS } from "@t3flare/harness-registry";
 
 import { bindEnvironmentServices, type EnvironmentServices } from "../src/agents/bindings.ts";
 import { containerPreviewPortOf } from "../src/preview/browserRun.ts";
@@ -520,24 +520,17 @@ describe("a profile context's saves (SPI-1123)", () => {
     saver.stop();
   });
 
-  it("saves at the browser profile save setting as stored when the profile opened (SPI-1366)", async () => {
+  it("saves every BROWSER_PROFILE_SAVE_SECONDS, 60 s (SPI-1366, SPI-1387)", async () => {
     vi.useFakeTimers();
-    bindEnvironmentServices({
-      environment: () => resolveEnvironment({ revision: 1, settings: { browserProfileSaveSeconds: 5 } }),
-    } as unknown as EnvironmentServices);
-    try {
-      const fake = fakeProfileContext({ cookies: [] });
-      const saver = Shadow.profileSaver(fake.context, { saved: undefined, write: () => undefined });
-      fake.response();
-      await vi.advanceTimersByTimeAsync(4_999);
-      expect(fake.storageState).not.toHaveBeenCalled();
-      await vi.advanceTimersByTimeAsync(1);
-      expect(fake.storageState).toHaveBeenCalledTimes(1);
-      saver.stop();
-    } finally {
-      // SAFETY: `undefined` is the binding's unset state, which its type does not name.
-      bindEnvironmentServices(undefined as unknown as EnvironmentServices);
-    }
+    expect(BROWSER_PROFILE_SAVE_SECONDS).toBe(60);
+    const fake = fakeProfileContext({ cookies: [] });
+    const saver = Shadow.profileSaver(fake.context, { saved: undefined, write: () => undefined });
+    fake.response();
+    await vi.advanceTimersByTimeAsync(BROWSER_PROFILE_SAVE_SECONDS * 1000 - 1);
+    expect(fake.storageState).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fake.storageState).toHaveBeenCalledTimes(1);
+    saver.stop();
   });
 
   it("does not write a state equal to the last one saved, and keeps the change after a failed read", async () => {

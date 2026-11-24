@@ -90,7 +90,7 @@ describe("Claude Code's profile", () => {
     expect(CLAUDE_PROJECTS).toBe("/workspace/.t3flare/claude/projects");
   });
 
-  it("retries cliRetries times and keeps sessions piSessionRetentionDays days, as the Environment says at the spawn (SPI-1367)", () => {
+  it("keeps sessions piSessionRetentionDays days, and leaves retries to Claude Code's own default (SPI-1367, SPI-1387)", () => {
     const at = (settings: Partial<ProfileContext>) => {
       const answer = profileLaunch(
         { cli: "claude", args: [], key: "proc-7", cwd: "/w/demo", env: {}, allowProbe: false },
@@ -107,9 +107,9 @@ describe("Claude Code's profile", () => {
         launch: answer.env.CLAUDE_CODE_MAX_RETRIES,
       };
     };
-    expect(at({ cliRetries: 3, piSessionRetentionDays: 14 })).toEqual({ days: 14, managed: "3", launch: "3" });
+    expect(at({ piSessionRetentionDays: 14 })).toEqual({ days: 14, managed: undefined, launch: undefined });
     // Off (0, the default since SPI-1386): Claude Code's own cleanup, the key unset.
-    expect(at({})).toEqual({ days: undefined, managed: "1", launch: "1" });
+    expect(at({})).toEqual({ days: undefined, managed: undefined, launch: undefined });
     expect(at({ piSessionRetentionDays: 0 }).days).toBeUndefined();
   });
 

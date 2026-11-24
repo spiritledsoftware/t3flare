@@ -211,11 +211,13 @@ describe("githubReader", () => {
   });
 
   it("bounds each read by its own time limit, with no budget for the whole request (SPI-1365)", async () => {
-    // A read that never answers ends at the reader's time limit (`outsideRequestSeconds`), however late the clock says.
+    // A read that never answers ends at the reader's time limit (`OUTSIDE_REQUEST_SECONDS`), however late the clock says.
     const hung: Parameters<typeof githubReader>[0]["fetch"] = (_url, init) =>
       new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal!.reason)));
     const slow = githubReader({ fetch: hung, access: installed, now: () => Number.MAX_SAFE_INTEGER, timeoutMs: 20 });
-    await expect(slow.commit(repo, null)).rejects.toThrow("GitHub could not be reached");
+    await expect(slow.commit(repo, null)).rejects.toThrow(
+      "GitHub did not answer in 0.02 s, t3flare's fixed outside request time limit",
+    );
   });
 
   it("refuses a `.` or `..` name before it reaches a URL", async () => {

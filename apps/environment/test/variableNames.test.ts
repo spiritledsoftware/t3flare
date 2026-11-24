@@ -94,7 +94,7 @@ const launchNames = (): ReadonlyArray<string> =>
 
 /** The names Codex's shell policy sets in every command it runs (`shell_environment_policy.set.NAME=…`). */
 const codexShellNames = (): ReadonlyArray<string> =>
-  codexOverrides("k1", [ENDPOINT], undefined, spawnSettingsOf({}).retries).flatMap(
+  codexOverrides("k1", [ENDPOINT], undefined).flatMap(
     (value) => /^shell_environment_policy\.set\.([A-Za-z_][A-Za-z0-9_]*)=/.exec(value)?.[1] ?? [],
   );
 

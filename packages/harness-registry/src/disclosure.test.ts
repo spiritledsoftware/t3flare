@@ -72,8 +72,8 @@ describe("every setting's disclosure", () => {
     }
   });
 
-  // The ticket's table (SPI-1385). Settings outside it are Advanced until SPI-1387 and SPI-1388 make them constants, and
-  // `sweepPurges` stays beside the Grace until SPI-1387 folds it in.
+  // The ticket's table (SPI-1385), less the settings SPI-1387 made constants. Settings outside it are Advanced until
+  // SPI-1388 makes the Harness's constants.
   it("puts each setting where SPI-1385's table does", () => {
     const by = (level: string) =>
       everySetting()
@@ -92,7 +92,6 @@ describe("every setting's disclosure", () => {
         "environment.imageSetup",
         "environment.agentsReadDotfiles",
         "environment.graceDays",
-        "environment.sweepPurges",
         "environment.idleAfterSeconds",
         "tool-output.outputKiB",
         "context.rolloverOnCompaction",
@@ -124,11 +123,11 @@ describe("every setting's disclosure", () => {
 });
 
 describe("conditionHolds", () => {
-  const custom = { settings: ["containerSize", "builderSize"], equals: "custom" } as const;
+  const custom = { settings: ["containerSize"], equals: "custom" } as const;
 
   it("follows another setting's value", () => {
-    expect(conditionHolds(custom, { containerSize: "cpu-1", builderSize: "cpu-1" })).toBe(false);
-    expect(conditionHolds(custom, { containerSize: "cpu-1", builderSize: "custom" })).toBe(true);
+    expect(conditionHolds(custom, { containerSize: "cpu-1" })).toBe(false);
+    expect(conditionHolds(custom, { containerSize: "custom" })).toBe(true);
   });
 
   it("follows whether a script has text", () => {
@@ -166,7 +165,7 @@ describe("settingPlace", () => {
   });
 
   it("is in the Workspaces section for the Grace", () => {
-    expect(settingPlace({ environment: "graceDays" })).toBe("Workspaces › Grace (days)");
+    expect(settingPlace({ environment: "graceDays" })).toBe("Workspaces › Purge after (days)");
   });
 });
 
@@ -201,7 +200,7 @@ describe("disclosureReport", () => {
     });
     expect(disclosureReport({ environment: "customVcpu" })).toEqual({
       disclosure: "contextual",
-      shownWhen: "shown while Container size or Builder size is custom",
+      shownWhen: "shown while Container size is custom",
       where: "Environment › Custom size: vCPU",
     });
     expect(disclosureReport({ extension: "guardian", key: "model" })).toEqual({

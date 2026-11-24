@@ -7,7 +7,7 @@ const encoder = new TextEncoder();
 
 /**
  * Each OAuth fetch's bound when its caller names none: the default of the Environment's Outside request time limit
- * (`outsideRequestSeconds`), which the Environment passes as each request's own.
+ * (`OUTSIDE_REQUEST_SECONDS`), which the Environment passes as each request's own.
  */
 export const OAUTH_FETCH_TIMEOUT_MS = 15_000;
 

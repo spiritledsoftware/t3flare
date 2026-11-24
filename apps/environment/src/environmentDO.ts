@@ -13,10 +13,21 @@ import type { SkillSet } from "@t3flare/skills";
 import {
   type BaseBuildRecord,
   BUILDERS,
+  CLIENTS_PER_KEY,
   extensionOf,
+  GITHUB_RETRY_SECONDS,
+  MCP_LEGACY_RECHECK_HOURS,
+  MCP_LOG_ENTRIES,
+  MCP_PAUSES_PER_CALL,
+  MCP_PROGRESS_PER_SECOND,
+  MCP_RESULT_KIB,
+  MCP_SIGN_IN_MINUTES,
   type McpRelayAnswer,
   type McpRelayInput,
+  OUTSIDE_REQUEST_MS,
   ownerAnswerMsOf,
+  REMOTE_RETRY_MINUTES,
+  SAFE_MODE_AFTER_FAILURES,
   resolveEnvironment,
   type ResolvedEnvironment,
   resolveHarness,
@@ -222,11 +233,6 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
         };
       },
       newKey: () => `proc-${crypto.randomUUID()}`,
-      // Read at each CLI spawn (SPI-1318): the count applies at the next start, the reclaim delay to processes started after.
-      cliLimits: () => {
-        const { cliProcessesPerWorkspace, cliReclaimSeconds } = this.#environmentNow();
-        return { cliProcessesPerWorkspace, cliReclaimSeconds };
-      },
     });
     bindEnvironmentServices({
       agents: env,
@@ -242,22 +248,11 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       piSessionRetentionDays: () => this.#environmentNow().piSessionRetentionDays,
       // Read at each turn's start (SPI-1315): a change applies at each thread's next turn; a running turn keeps its limit.
       turnLimitMs: () => this.#environmentNow().turnLimitMinutes * 60_000,
-      // Read at each turn's start (SPI-1314): how long the Session waits there for the newest settings.
-      settingsReadMs: () => this.#environmentNow().settingsReadSeconds * 1000,
       // Read at each clone and checkpoint operation (SPI-1324) and carried as its `timeoutMs`: one already running keeps it.
       cloneMs: () => this.#environmentNow().cloneMinutes * 60_000,
       checkpointMs: () => this.#environmentNow().checkpointMinutes * 60_000,
       // SPI-1364: read at each preview browser's acquisition and URL translation, and at each routed command.
       previewPorts: () => this.#environmentNow().previewPorts,
-      routerTraceEntries: () => this.#environmentNow().routerTraceEntries,
-      // SPI-1364: read once, when t3's TerminalManager is built at this object's start.
-      terminalHistory: () => {
-        const settings = this.#environmentNow();
-        return {
-          historyByteLimit: settings.terminalHistoryKiB * 1024,
-          maxRetainedInactiveSessions: settings.exitedTerminalsKept,
-        };
-      },
       // Read when a card is raised and at each CLI spawn (SPI-1316): a card already waiting keeps its deadline.
       ownerAnswerMs: () => ownerAnswerMsOf(this.#environmentNow()),
       // Read at each CLI spawn (SPI-1359): the CLI's tool timeout covers the MCP call time limit as stored then.
@@ -322,7 +317,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       // Read at each request and each failure (SPI-1366).
       {
         requestTimeoutMs: () => this.#outsideRequestMs(),
-        retryMs: () => this.#environmentNow().githubRetrySeconds * 1000,
+        retryMs: () => GITHUB_RETRY_SECONDS * 1000,
       },
     );
     return this.#github;
@@ -555,9 +550,9 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     return this.#outsideRequestMs();
   }
 
-  /** The Outside request time limit as stored now, in ms (SPI-1365): read at each request to GitHub or a vendor. */
+  /** The Outside request time limit, in ms (SPI-1365, SPI-1387): each request to GitHub or a vendor. */
   #outsideRequestMs(): number {
-    return this.#environmentNow().outsideRequestSeconds * 1000;
+    return OUTSIDE_REQUEST_MS;
   }
 
   /** A sign-in vendor's fetch, clock and request bound; `timeoutMs` is read at each request, so a change applies at the next. */
@@ -568,7 +563,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     readonly retryMs: number;
   } {
     const outsideRequestMs = () => this.#outsideRequestMs();
-    const retryMs = () => this.#environmentNow().githubRetrySeconds * 1000;
+    const retryMs = () => GITHUB_RETRY_SECONDS * 1000;
     return {
       fetch: (input, init) => fetch(input, init),
       now: () => Date.now(),
@@ -726,8 +721,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       this.#ownerClients ??= ownerClients(
         this.ctx.storage.sql,
         Date.now,
-        // Read at each new client (SPI-1366).
-        () => this.#environmentNow().clientsPerKey,
+        // SPI-1366, SPI-1387: a fixed count.
+        () => CLIENTS_PER_KEY,
       );
     }
     return this.#ownerClients;
@@ -834,8 +829,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       engine: this.env.MCP_OAUTH,
       host: () => this.#configuredHost(),
       audit: (entry) => store.audit({ at: Date.now(), entity: "harness", caller: "oauth", ...entry }),
-      // Read at each start (SPI-1366): a change applies to sign-ins started after it.
-      stateTtlMs: () => this.#environmentNow().mcpSignInMinutes * 60_000,
+      // SPI-1366, SPI-1387: a fixed window.
+      stateTtlMs: () => MCP_SIGN_IN_MINUTES * 60_000,
       // Read at each call (SPI-1363): each request of a sign-in or refresh, in the MCP Worker.
       requestMs: () => this.#outsideRequestMs(),
     });
@@ -856,20 +851,20 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       settingsServer: (input) => this.#settingsCall(input),
       // Read at each call (SPI-1359): a change applies at the next call.
       callTimeoutMs: () => this.#environmentNow().mcpCallSeconds * 1000,
-      resultBytes: () => this.#environmentNow().mcpResultKiB * 1024,
+      resultBytes: () => MCP_RESULT_KIB * 1024,
       // Read as each call's target is made (SPI-1363, SPI-1368).
       limits: () => {
         const now = this.#environmentNow();
         return {
           connectTimeoutMs: now.mcpConnectSeconds * 1000,
           listTimeoutMs: now.mcpListSeconds * 1000,
-          logEntries: now.mcpLogEntries,
-          progressPerSecond: now.mcpProgressPerSecond,
-          legacyEraTtlMs: now.mcpLegacyRecheckHours * 3_600_000,
+          logEntries: MCP_LOG_ENTRIES,
+          progressPerSecond: MCP_PROGRESS_PER_SECOND,
+          legacyEraTtlMs: MCP_LEGACY_RECHECK_HOURS * 3_600_000,
         };
       },
-      // Read at each call (SPI-1366).
-      pausesPerCall: () => this.#environmentNow().mcpPausesPerCall,
+      // SPI-1366, SPI-1387: a fixed count.
+      pausesPerCall: () => MCP_PAUSES_PER_CALL,
     });
     return this.#mcpHost;
   }
@@ -1194,7 +1189,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
 
   async #startRuntime(trigger: string, request?: Request): Promise<Runtime> {
     const kv = this.ctx.storage;
-    const decision = await BootState.beginBoot(kv, new Date(), this.#environmentNow().safeModeAfterFailures);
+    const decision = await BootState.beginBoot(kv, new Date(), SAFE_MODE_AFTER_FAILURES);
     if (!decision.start) {
       console.log(JSON.stringify({ t3flare: "safe-mode", ...decision.safeMode }));
       throw new SafeModeError(decision.safeMode);
@@ -1441,7 +1436,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     this.#sweepWake.wake();
   }
 
-  /** A change moved the Grace (`sweepPurges` or `graceDays`, ADR-0043 §5): every purge date moved; off clears `purgingSince`. */
+  /** A change moved the Grace (`graceDays`, ADR-0043 §5): every purge date moved; never (0) clears `purgingSince`. */
   #sweepSettingsChanged(): void {
     graceMoved({
       purging: environmentServices().sweep().purging,
@@ -1495,7 +1490,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
         retry: this.ctx.storage.kv.get<Idle.RemoteRetry>(Idle.REMOTE_RETRY_KEY),
       },
       now.getTime(),
-      settings.remoteRetryMinutes * 60_000,
+      REMOTE_RETRY_MINUTES * 60_000,
     );
     if (planned.retry === undefined) this.ctx.storage.kv.delete(Idle.REMOTE_RETRY_KEY);
     else this.ctx.storage.kv.put(Idle.REMOTE_RETRY_KEY, planned.retry);

@@ -1,14 +1,15 @@
-// SPI-1364: the router trace's length and t3's Terminals' history are the Owner's Environment settings, read through
-// the Environment DO's services, with the defaults where none are bound.
+// SPI-1364, SPI-1387: the router trace's length and t3's Terminals' history are fixed constants, the history sized for the
+// Environment DO's 128 MB isolate; the values copied from stock t3 are pinned to its source.
 // @effect-diagnostics nodeBuiltinImport:off
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
 
 import {
-  DEFAULT_PORT_PROBE_MS,
-  DEFAULT_PORT_STOP_GRACE_SECONDS,
-  MAX_EXITED_TERMINALS_KEPT,
-  MAX_TERMINAL_HISTORY_KIB,
+  EXITED_TERMINALS_KEPT,
+  PORT_PROBE_MS,
+  ROUTER_TRACE_ENTRIES,
+  STOP_GRACE_SECONDS,
+  TERMINAL_HISTORY_KIB,
 } from "@t3flare/harness-registry";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -28,14 +29,11 @@ afterEach(() => {
 });
 
 describe("the router trace", () => {
-  it("keeps the latest `routerTraceEntries`, 300 by default", () => {
-    bindEnvironmentServices({ routerTraceEntries: () => 5 } as unknown as EnvironmentServices);
-    for (let at = 0; at < 12; at++) traceProtocol("codex", `step-${at}`, "");
-    expect(routerTrace().map((entry) => entry.argv[0])).toEqual(["step-7", "step-8", "step-9", "step-10", "step-11"]);
-    bindEnvironmentServices(undefined as unknown as EnvironmentServices);
-    clearRouterTrace();
+  it("keeps the latest ROUTER_TRACE_ENTRIES, 300", () => {
+    expect(ROUTER_TRACE_ENTRIES).toBe(300);
     for (let at = 0; at < 310; at++) traceProtocol("codex", `step-${at}`, "");
     expect(routerTrace()).toHaveLength(300);
+    expect(routerTrace()[0]?.argv[0]).toBe("step-10");
   });
 
   it("keeps an entry's detail whole, and drops the oldest past ROUTER_TRACE_BYTES", () => {
@@ -53,18 +51,11 @@ describe("the router trace", () => {
 });
 
 describe("t3's Terminals' history", () => {
-  it("takes the Owner's history size and kept exited Terminals, 1 MiB and 16 by default", () => {
-    const processes = makeTerminalProcesses();
-    expect(terminalManagerOptions(processes, "/logs")).toMatchObject({
+  it("takes the fixed history size and kept exited Terminals, 1 MiB and 16", () => {
+    expect([TERMINAL_HISTORY_KIB, EXITED_TERMINALS_KEPT]).toEqual([1024, 16]);
+    expect(terminalManagerOptions(makeTerminalProcesses(), "/logs")).toMatchObject({
       historyByteLimit: 1024 * 1024,
       maxRetainedInactiveSessions: 16,
-    });
-    bindEnvironmentServices({
-      terminalHistory: () => ({ historyByteLimit: 4096 * 1024, maxRetainedInactiveSessions: 32 }),
-    } as unknown as EnvironmentServices);
-    expect(terminalManagerOptions(processes, "/logs")).toMatchObject({
-      historyByteLimit: 4096 * 1024,
-      maxRetainedInactiveSessions: 32,
     });
   });
 });
@@ -74,17 +65,17 @@ const t3Source = (relative: string) =>
   readFileSync(path.join(import.meta.dirname, "../../../t3code/apps/server/src", relative), "utf8");
 
 describe("the values copied from stock t3 (SPI-1364)", () => {
-  it("the Terminal history maxima are t3's TerminalManager defaults, and its options are the ones we pass", () => {
+  it("stock t3's Terminal history is the 8 MiB and 128 our constants name, and its options are the ones we pass", () => {
     const manager = t3Source("terminal/Manager.ts");
-    expect(manager).toContain(`const DEFAULT_HISTORY_BYTE_LIMIT = ${MAX_TERMINAL_HISTORY_KIB / 1024} * 1024 * 1024;`);
-    expect(manager).toContain(`const DEFAULT_MAX_RETAINED_INACTIVE_SESSIONS = ${MAX_EXITED_TERMINALS_KEPT};`);
+    expect(manager).toContain("const DEFAULT_HISTORY_BYTE_LIMIT = 8 * 1024 * 1024;");
+    expect(manager).toContain("const DEFAULT_MAX_RETAINED_INACTIVE_SESSIONS = 128;");
     expect(manager).toContain("historyByteLimit?: number;");
     expect(manager).toContain("maxRetainedInactiveSessions?: number;");
   });
 
-  it("the port stop grace and the port check wait are t3's port scanner's", () => {
+  it("the stop grace and the port check wait are t3's port scanner's", () => {
     const scanner = t3Source("preview/PortScanner.ts");
-    expect(scanner).toContain(`const STOP_GRACE_MS = ${DEFAULT_PORT_STOP_GRACE_SECONDS}_000;`);
-    expect(scanner).toContain(`const WEB_PROBE_TIMEOUT = Duration.seconds(${DEFAULT_PORT_PROBE_MS / 1000});`);
+    expect(scanner).toContain(`const STOP_GRACE_MS = ${STOP_GRACE_SECONDS}_000;`);
+    expect(scanner).toContain(`const WEB_PROBE_TIMEOUT = Duration.seconds(${PORT_PROBE_MS / 1000});`);
   });
 });

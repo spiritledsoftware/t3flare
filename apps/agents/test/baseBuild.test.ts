@@ -1,12 +1,7 @@
 // @effect-diagnostics globalTimers:off
 // The Base build's state machine (SPI-1332, ADR-0047 §1–§5) over a fake container: each phase, the triggers, a change
 // mid-build, the time limits (a late snapshot kept when its key still matches), the budget, and a reset of the object.
-import {
-  type BaseBuildRecord,
-  DEFAULT_BASE_RETRY_MINUTES,
-  resolveEnvironment,
-  type Variable,
-} from "@t3flare/harness-registry";
+import { type BaseBuildRecord, BASE_RETRY_MINUTES, resolveEnvironment, type Variable } from "@t3flare/harness-registry";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -36,8 +31,8 @@ import {
 
 const IMAGE = "registry/workspace@sha256:1111";
 const DAY = DAY_MS;
-/** The Base build retry's default (`baseRetryMinutes`): a failing key's first wait. */
-const SCHEDULE_RETRY_MS = DEFAULT_BASE_RETRY_MINUTES * 60_000;
+/** The Base build retry (`BASE_RETRY_MINUTES`): a failing key's first wait. */
+const SCHEDULE_RETRY_MS = BASE_RETRY_MINUTES * 60_000;
 
 interface Deferred<T> {
   readonly promise: Promise<T>;
@@ -318,17 +313,16 @@ describe("a Base build", () => {
   });
 
   it("fails on the Image setup's exit with the end of its output, every secret value blanked; a boot does not run it again, a Rebuild does", async () => {
-    settings.setupOutputKiB = 4;
     const build = builder();
     await toRunning(build);
-    container.log = `${"x".repeat(10_000)}\nusing s3cr3t-value to log in\nerror: nope\n`;
+    container.log = `${"x".repeat(40_000)}\nusing s3cr3t-value to log in\nerror: nope\n`;
     container.exitCode = 3;
     await ticks(build);
     const record = build.record();
     expect(record.state).toBe("failed");
     expect(record.failure).toMatchObject({ exitCode: 3, phase: "running", message: "the Image setup exited 3" });
     // The kept bytes and a margin of the longest secret, so a secret cut at the window's head is blanked whole.
-    expect(container.tailBytes).toBe(4 * 1024 + SECRET_MARGIN_BYTES);
+    expect(container.tailBytes).toBe(32 * 1024 + SECRET_MARGIN_BYTES);
     expect(record.failure!.output).toContain("using *** to log in");
     expect(record.failure!.output).not.toContain("s3cr3t-value");
     expect(container.isRunning).toBe(false);
@@ -339,7 +333,7 @@ describe("a Base build", () => {
     expect(container.starts).toHaveLength(2);
   });
 
-  it("keeps setupOutputKiB's default, 32 KiB, of the output", async () => {
+  it("keeps SETUP_OUTPUT_KIB, 32 KiB, of the output", async () => {
     const build = builder();
     await toRunning(build);
     container.exitCode = 1;
@@ -659,11 +653,10 @@ describe("a Base build (review fixes)", () => {
   it("blanks a secret the output's window cuts at its head", async () => {
     const secret = "ABCDEFGHIJKLMNOP";
     settings.variables = [{ name: "LONG_SECRET", value: secret, secret: true }];
-    settings.setupOutputKiB = 4;
     const build = builder();
     await toRunning(build);
     // The kept window's first byte falls on the secret's "I": its tail "IJKLMNOP" would be left without the margin.
-    const filler = "y".repeat(4 * 1024 - 8);
+    const filler = "y".repeat(32 * 1024 - 8);
     container.log = `start\n${secret}${filler}`;
     container.exitCode = 1;
     await ticks(build);
@@ -671,7 +664,7 @@ describe("a Base build (review fixes)", () => {
     expect(output).not.toContain("MNOP");
     // Blanked whole across the cut, the blank kept (`blankSecrets`).
     expect(output.startsWith("***")).toBe(true);
-    expect(new TextEncoder().encode(output).length).toBeLessThanOrEqual(4 * 1024);
+    expect(new TextEncoder().encode(output).length).toBeLessThanOrEqual(32 * 1024);
   });
 
   it("fires a 29-day schedule before the snapshot expires", async () => {
@@ -723,28 +716,23 @@ describe("a Base build (review fixes)", () => {
   });
 
   it("derives the expiry margin from two builds' time limits and the first retry's wait (SPI-1359)", () => {
-    const at = (imageSetupMinutes: number, snapshotMinutes: number, baseRetryMinutes: number) =>
-      expiryMarginMs(
-        resolveEnvironment({ revision: 1, settings: { imageSetupMinutes, snapshotMinutes, baseRetryMinutes } }),
-      );
-    // The defaults: a build of 40 minutes that fails at its limit, an hour's wait, and the retry's 40.
-    expect(at(30, 5, 60)).toBe(2 * 40 * 60_000 + 60 * 60_000);
-    // A shorter retry, a shorter margin.
-    expect(at(30, 5, 10)).toBe(90 * 60_000);
+    const at = (imageSetupMinutes: number, snapshotMinutes: number) =>
+      expiryMarginMs(resolveEnvironment({ revision: 1, settings: { imageSetupMinutes, snapshotMinutes } }));
+    // The defaults: a build of 40 minutes that fails at its limit, the hour's `BASE_RETRY_MINUTES`, and the retry's 40.
+    expect(at(30, 5)).toBe(2 * 40 * 60_000 + BASE_RETRY_MINUTES * 60_000);
     // Never so long that the snapshot's expiry falls within one build of its making.
     const build = (10_080 + 2 * 10_080) * 60_000;
-    expect(at(10_080, 10_080, 10_080)).toBe(GOOD_FOR_MS - build);
+    expect(at(10_080, 10_080)).toBe(GOOD_FOR_MS - build);
   });
 
   it("never makes a rebuild due sooner than one build after the last good one, at the settings' extremes (SPI-1359)", async () => {
     settings.rebuildEveryDays = 29;
-    settings.baseRetryMinutes = 10_080;
     settings.imageSetupMinutes = 10_080;
     settings.snapshotMinutes = 10_080;
     const build = builder();
     await toReady(build, "snap-1");
     const builtAt = build.record().good!.builtAt;
-    // Three weeks of limits and a week's retry: unclamped, the expiry would make it due a day after the build.
+    // Three weeks of limits: unclamped, the expiry would make it due before one build after the last.
     const oneBuild = 3 * 10_080 * 60_000;
     expect(await scheduled(build)).toBe(builtAt + oneBuild);
     // The Owner's own interval is theirs: a day, however long the time limits.
@@ -759,8 +747,7 @@ describe("a Base build (review fixes)", () => {
     expect(retryDelay(3, 2 * DAY)).toBe(2 * DAY);
   });
 
-  it("backs a failing key off by the Base build retry setting (SPI-1359)", async () => {
-    settings.baseRetryMinutes = 10;
+  it("backs a failing key off by BASE_RETRY_MINUTES (SPI-1359, SPI-1387)", async () => {
     const build = builder();
     await toReady(build, "snap-1");
     clock += GOOD_FOR_MS + 1;
@@ -769,9 +756,9 @@ describe("a Base build (review fixes)", () => {
     await ticks(build);
     expect(build.record()).toMatchObject({ state: "failed" });
     const failedAt = clock;
-    clock = failedAt + 10 * 60_000 - 1;
+    clock = failedAt + BASE_RETRY_MINUTES * 60_000 - 1;
     expect(await build.poke("the Environment booted")).toMatchObject({ state: "failed" });
-    clock = failedAt + 10 * 60_000;
+    clock = failedAt + BASE_RETRY_MINUTES * 60_000;
     expect(await build.poke("the Environment booted")).toMatchObject({ state: "building" });
   });
 
@@ -958,19 +945,18 @@ describe("a Base build (review cycle 2)", () => {
     // 17 bytes of UTF-8: s é c r e t - ü - 值 値 (2-byte é and ü, 3-byte 值 and 値).
     const secret = "sécret-ü-值値";
     settings.variables = [{ name: "WIDE_SECRET", value: secret, secret: true }];
-    settings.setupOutputKiB = 4;
     const build = builder();
     await toRunning(build);
-    // After the secret: 4091 bytes of two-byte é and one x, so the kept 4096 bytes start 5 bytes before the secret's
+    // After the secret: 32,763 bytes of two-byte é and one x, so the kept 32,768 bytes start 5 bytes before the secret's
     // end, in the middle of 值.
-    container.log = `start\n${secret}${"é".repeat(2045)}x`;
+    container.log = `start\n${secret}${"é".repeat(16_381)}x`;
     container.exitCode = 1;
     await ticks(build);
     const output = build.record().failure!.output;
     for (const fragment of ["值", "値", "ü", "-", "\uFFFD"]) expect(output).not.toContain(fragment);
     expect(output.startsWith("***é")).toBe(true);
     expect(output.endsWith("éx")).toBe(true);
-    expect(new TextEncoder().encode(output).length).toBeLessThanOrEqual(4 * 1024);
+    expect(new TextEncoder().encode(output).length).toBeLessThanOrEqual(32 * 1024);
   });
 
   it("renews the lease while a failed build's Container waits for its snapshot", async () => {

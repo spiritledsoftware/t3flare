@@ -151,7 +151,10 @@ describe("discoverModels", () => {
       undefined,
       20,
     );
-    expect(found).toEqual({ ok: false, error: "the endpoint's model list did not answer in 0.02 s" });
+    expect(found).toEqual({
+      ok: false,
+      error: "the endpoint's model list did not answer in 0.02 s, t3flare's fixed outside request time limit",
+    });
   });
 
   it("says why a list could not be read, without the key", async () => {

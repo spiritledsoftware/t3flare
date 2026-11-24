@@ -15,6 +15,8 @@
 // discovery, and the redirect port is 1455 from the first registration onward.
 //
 // Every failure is one of our fixed texts: never a token, a code, a verifier, or the vendor's body.
+import { outsideTimeoutClause } from "@t3flare/harness-registry";
+
 import { isRecord, OAUTH_TIMEOUT_MS, oauthErrorCode, oauthRequestOptions, pkceChallenge, random } from "./oauth.ts";
 import type { SignInVendor } from "./signIn.ts";
 
@@ -56,7 +58,7 @@ const REFUSED_CODES: ReadonlySet<string> = new Set([
 export interface ChatGptVendor {
   readonly fetch: typeof fetch;
   readonly now: () => number;
-  /** Each request's bound (`outsideRequestSeconds`, read at each request; `OAUTH_TIMEOUT_MS` when absent). */
+  /** Each request's bound (`OUTSIDE_REQUEST_MS`; `OAUTH_TIMEOUT_MS`, the same, when absent). */
   readonly timeoutMs?: number;
   readonly urls?: ChatGptUrls;
 }
@@ -352,10 +354,10 @@ export const completeChatGptSignIn = async (
       redirect_uri: pending.redirectUri,
       resource: CHATGPT_RESOURCE,
     });
-  } catch {
+  } catch (error) {
     return {
       ok: false,
-      problem: "OpenAI's token endpoint could not be reached: paste the address again, or start again.",
+      problem: `OpenAI's token endpoint could not be reached${outsideTimeoutClause(error, vendor.timeoutMs)}: paste the address again, or start again.`,
     };
   }
   const spent = { spent: true, ...(pending.clientId === null ? { clientId } : {}) } as const;
@@ -409,11 +411,11 @@ export const refreshChatGpt = async (
       refresh_token: credential.refresh,
       resource: CHATGPT_RESOURCE,
     });
-  } catch {
+  } catch (error) {
     return {
       ok: false,
       refused: false,
-      problem: "OpenAI's token endpoint could not be reached to renew the ChatGPT sign-in",
+      problem: `OpenAI's token endpoint could not be reached to renew the ChatGPT sign-in${outsideTimeoutClause(error, vendor.timeoutMs)}`,
     };
   }
   if (!response.ok) {

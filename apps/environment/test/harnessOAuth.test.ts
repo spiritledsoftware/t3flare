@@ -3,7 +3,7 @@
 // refresh in flight. The MCP Worker's side is stubbed; it is the only one that fetches.
 import { describe, expect, it } from "vitest";
 
-import { HarnessOAuth, type McpOAuthBinding } from "../src/harness/oauth.ts";
+import { HarnessOAuth, type McpOAuthBinding, signInGone, STATE_TTL_MS } from "../src/harness/oauth.ts";
 import { harnessSecrets } from "../src/harness/secrets.ts";
 
 const memory = () => {
@@ -150,6 +150,19 @@ describe("OAuth sign-ins (review M4)", () => {
     await begin();
     expect(h.kv.keys().some((key) => key.endsWith(abandoned))).toBe(false);
     expect(JSON.stringify(h.kv.values())).not.toContain(abandoned);
+  });
+
+  it("refuses a redirect past its window naming the limit and its value, 10 minutes (SPI-1387)", async () => {
+    const h = setup();
+    const begun = await h.oauth.begin("srv", "https://srv.example/mcp");
+    if (!begun.ok) throw new Error(begun.error);
+    h.advance(STATE_TTL_MS + 1);
+    const late = await h.oauth.callback(callback(h.stateOf(begun.value.authorizationUrl)));
+    expect(late.status).toBe(400);
+    expect(await late.text()).toContain(
+      "This sign-in expired (a sign-in expires 10 minutes after it starts, t3flare&#39;s fixed limit) or was already used",
+    );
+    expect(signInGone(STATE_TTL_MS)).toContain("expires 10 minutes after it starts");
   });
 
   it("refreshes an aging or refused token once, however many calls ask at the same time", async () => {

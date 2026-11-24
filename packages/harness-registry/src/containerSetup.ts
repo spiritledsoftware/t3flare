@@ -6,7 +6,7 @@ import { CONTAINER_SETUP_FAILURES, type ContainerSetupFailure, MAX_SETUP_OUTPUT_
 import { SETTINGS_SOURCES, type SettingsSource } from "./globalMise.ts";
 import { timeLimitHit } from "./index.ts";
 
-/** The most output a report may carry, in bytes of UTF-8: `setupOutputKiB`'s bound. A report keeps its launch's setting. */
+/** The most output a report may carry, in bytes of UTF-8 (`MAX_SETUP_OUTPUT_KIB`). */
 export const MAX_SETUP_OUTPUT_BYTES = MAX_SETUP_OUTPUT_KIB * 1024;
 
 /** The Status key of the last Container setup's output: the Settings page shows it as a block of lines. */
@@ -37,7 +37,7 @@ export interface ContainerSetupReport {
   readonly timedOut: boolean;
   /** The time limit it ran under (`containerSetupMinutes`), so Status names it. Absent: a report from before SPI-1385. */
   readonly limitMinutes?: number;
-  /** The last `setupOutputKiB` of its stdout and stderr, every secret Variable's value blanked. */
+  /** The last `SETUP_OUTPUT_KIB` of its stdout and stderr, every secret Variable's value blanked. */
   readonly output: string;
   /** What a failure did to that Container: the policy its launch carried. */
   readonly failure: ContainerSetupFailure;

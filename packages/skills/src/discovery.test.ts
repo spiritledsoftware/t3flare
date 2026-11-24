@@ -2,7 +2,7 @@
 // skill set's precedence.
 import { describe, expect, it } from "vitest";
 
-import { directoriesUp, discoverSkills, type Skill, withoutTrailingSlashes } from "./discovery.ts";
+import { directoriesUp, discoverSkills, listingStopped, type Skill, withoutTrailingSlashes } from "./discovery.ts";
 import { memoryFiles, skillMd } from "./testing.ts";
 
 const ROOT = "/workspace/repo";
@@ -154,6 +154,34 @@ describe("the rules, the same for the agent and the composer", () => {
     expect(found.skills[0]?.name).toBe("near");
     expect(found.skills.at(-1)?.name).toBe("s098");
     expect(found.omitted).toBe(4);
+  });
+
+  it("names its listing limit and value when a directory's listing stops at it (SPI-1387)", async () => {
+    const files: Record<string, string> = {};
+    for (let index = 0; index < 4; index++)
+      files[`${ROOT}/.agents/skills/s${index}/SKILL.md`] = skillMd({ name: `s${index}`, description: "d" });
+    const limits = { repoSkills: 100, rootEntries: 4, linkedEntries: 4 };
+    const found = await discoverSkills(memoryFiles(files), { cwd: ROOT, root: ROOT, limits });
+    expect(found.skipped).toContainEqual({
+      path: `${ROOT}/.agents/skills`,
+      reason: "its listing stopped at 4 entries, t3flare's fixed limit; any past them are not found",
+    });
+    // A listing under the limit is whole, and says nothing.
+    const whole = await discoverSkills(memoryFiles(files), { cwd: ROOT, root: ROOT });
+    expect(whole.skipped).toEqual([]);
+  });
+
+  it("names a listing stopped by its size or time bound, and says nothing of one exactly at the entries that ran to its end (SPI-1387)", () => {
+    const entries = (count: number) =>
+      Array.from({ length: count }, (_, at) => ({ path: `e${at}`, kind: "file" as const }));
+    expect(listingStopped({ entries: entries(5000), truncated: true }, 5000)).toBe(
+      "its listing stopped at 5,000 entries, t3flare's fixed limit; any past them are not found",
+    );
+    expect(listingStopped({ entries: entries(1200), truncated: true }, 5000)).toBe(
+      "its listing stopped at 1,200 entries, at its bound of 4 MiB of names or 10 s; any past them are not found",
+    );
+    // Exactly the limit, and whole: not cut.
+    expect(listingStopped({ entries: entries(5000), truncated: false }, 5000)).toBeUndefined();
   });
 });
 

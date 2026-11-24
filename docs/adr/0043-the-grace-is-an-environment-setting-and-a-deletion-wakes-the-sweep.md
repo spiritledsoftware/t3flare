@@ -13,7 +13,8 @@ deleted project's files went 7 to 9 days later on the Maintainer's Deployment an
 could change either. The Owner decided:
 
 1. **The Grace is two Environment settings**: whether the Sweep purges at all (on by default), and a whole number of
-   days, at least 1 (7 by default). There is no zero: at once is the Owner's own **Purge**
+   days, at least 1 (7 by default). There is no zero: at once is the Owner's own **Purge** (superseded by the SPI-1387
+   refinement: 0 is never)
    ([ADR-0044](0044-a-workspace-is-purged-by-the-owner-or-at-an-agents-asking-through-the-settings-server.md)), never a
    setting. One Grace covers a Workspace nothing references, a Tombstone with a purge date, and a deleted thread's
    Session.
@@ -66,3 +67,12 @@ could change either. The Owner decided:
 - The Sweep never purges a Workspace younger than the Grace, so never one younger than a day: its mark cannot precede
   its creation. Only a Stage's `T3FLARE_SWEEP_GRACE_MS` can make that shorter.
 - The Layer names two of t3's event types, which a t3 bump can rename: an entry in `docs/upstream-fragility.md`.
+
+## Refinement (SPI-1387, 2026-11-24): the switch folds into the Grace
+
+Supersedes §1's "no zero" and the separate purging switch (`sweepPurges`, §4 and §6). The Grace (`graceDays`, "Purge
+after") is the one setting: a whole number of days, **0 for never**, where the Sweep still marks and clears what nothing
+references and purges nothing, as purging off did. §4 holds with 0 as off: from 0, nothing is purged before one Grace
+after the next number of days is set. §6 holds with 0 ranked above every number (SPI-1386's `off`, its `offLabel` "never"): setting 0 is free,
+leaving it for a number of days is asked. A stored `sweepPurges: false` reads as a Grace of 0 until the Grace is next
+set; the Settings page's two choices, "Purge after [n] days" and "Never purge", save that one setting.

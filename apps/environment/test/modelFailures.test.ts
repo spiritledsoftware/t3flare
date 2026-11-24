@@ -72,7 +72,7 @@ describe("classifyModelFailure: Anthropic Messages", () => {
     expect(at(15)).toBe(true);
   });
 
-  it("the boundary is the Durable agent's retries' span, as durableRetries sets them (SPI-1367)", () => {
+  it("the boundary is the Durable agent's retries' span, DURABLE_RETRIES of them (SPI-1367, SPI-1387)", () => {
     // pi-durable's waits: 2 s doubling, each at most a minute.
     expect([0, 1, 3, 5, 6, 7].map(retriedSpanMs)).toEqual([0, 2000, 14_000, 62_000, 122_000, 182_000]);
     expect(SHORT_RESET_MS).toBe(retriedSpanMs(3));

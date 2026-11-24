@@ -139,27 +139,6 @@ describe("ProcessChannel", () => {
     expect(ch.answerMsOf(newer.key)).toBe(10 * 60_000);
   });
 
-  it("carries the Environment's CLI agents' processes per Workspace and reclaim delay, read at each start (SPI-1318)", async () => {
-    const ws = fakeWorkspace();
-    let limits = { cliProcessesPerWorkspace: 4, cliReclaimSeconds: 30 };
-    const ch = new ProcessChannel({
-      environmentEpoch: 12,
-      place: () => ({ workspace: "demo", t3Path: "/w/demo", remote: ws.remote }),
-      newKey: (() => {
-        let n = 0;
-        return () => `proc-${++n}`;
-      })(),
-      cliLimits: () => limits,
-    });
-    await ch.start(start);
-    limits = { cliProcessesPerWorkspace: 9, cliReclaimSeconds: 0 };
-    await ch.start(start);
-    expect(ws.starts.map((s) => [s.cliProcessesPerWorkspace, s.cliReclaimSeconds])).toEqual([
-      [4, 30],
-      [9, 0],
-    ]);
-  });
-
   it("asks its Workspace for its last model relay failure by its key; none on an error or an older Workspace (SPI-1172)", async () => {
     const ws = fakeWorkspace();
     const record = {

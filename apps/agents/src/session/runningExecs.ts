@@ -5,10 +5,10 @@
 // A stopped command's processes are killed by its exec id (the Workspace's `killExecs`, apps/sandbox-image/src/kill.ts):
 // computerd's own kill leaves them running (docs-archive-1:docs/steps/step-2a-part2.md, M0). An id is forgotten only when its command
 // ended by itself or a kill found none of its processes left; otherwise the kill is tried again from the Session's
-// alarm, and given up after the Environment's `killAttempts` (SPI-1367). A background process of a command that completed
+// alarm, and given up after `KILL_ATTEMPTS` (SPI-1367, SPI-1387). A background process of a command that completed
 // is left alone.
 // @effect-diagnostics globalTimers:off globalConsole:off
-import { DEFAULT_KILL_ATTEMPTS, KILL_RETRY_MS } from "@t3flare/harness-registry";
+import { KILL_ATTEMPTS, KILL_RETRY_MS } from "@t3flare/harness-registry";
 
 const KEY = "t3flare:running-execs";
 export { KILL_RETRY_MS };
@@ -31,6 +31,10 @@ interface Entry {
 
 type Entries = Record<string, Entry>;
 
+/** What a stopped command's kills say when they give up (SPI-1387): the limit and its value. */
+export const killsGaveUp = (attempts: number): string =>
+  `A stopped command's processes were still running after its ${attempts} kill tries (t3flare's fixed limit), and are left running.`;
+
 export class RunningExecs {
   readonly #kv: RunningExecsStorage;
   readonly #kill: (ids: ReadonlyArray<string>) => Promise<KillAnswer>;
@@ -38,12 +42,12 @@ export class RunningExecs {
 
   /**
    * `attempts`: kills of one id before it is given up (each about `KILL_RETRY_MS` apart, from the alarm), read at each
-   * kill (the Environment's `killAttempts`, SPI-1367).
+   * kill: `KILL_ATTEMPTS` (SPI-1387); a test passes its own.
    */
   constructor(
     kv: RunningExecsStorage,
     kill: (ids: ReadonlyArray<string>) => Promise<KillAnswer>,
-    attempts: () => number = () => DEFAULT_KILL_ATTEMPTS,
+    attempts: () => number = () => KILL_ATTEMPTS,
   ) {
     this.#kv = kv;
     this.#kill = kill;
@@ -124,7 +128,15 @@ export class RunningExecs {
         if (entry === undefined) continue;
         if (answer?.survivors === 0) delete entries[id];
         else if (entry.attempts >= attempts) {
-          console.warn(JSON.stringify({ t3flare: "kill-execs-gave-up", id, survivors: answer?.survivors ?? null }));
+          console.warn(
+            JSON.stringify({
+              t3flare: "kill-execs-gave-up",
+              id,
+              survivors: answer?.survivors ?? null,
+              // The limit names itself (ADR-0049 §4): a fixed count, no setting to change.
+              message: killsGaveUp(attempts),
+            }),
+          );
           delete entries[id];
         }
       }

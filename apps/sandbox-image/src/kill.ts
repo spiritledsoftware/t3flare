@@ -10,7 +10,7 @@
 //   command's own group, and a group a marked process started with `setsid`;
 // - a marked process in a group with an unmarked leader is signalled alone: never computerd's, the supervisor's or
 //   another command's group;
-// - TERM first, KILL from the grace (its first argument, in ms: the Owner's `abortGraceSeconds`, SPI-1364); the processes
+// - TERM first, KILL from the grace (its first argument, in ms: `STOP_GRACE_SECONDS`, SPI-1387); the processes
 //   are found again every 100 ms until none is left or the grace and one second more have passed (harness-registry's
 //   `KILL_GIVE_UP_MS`; apps/agents/test/containerKill.test.ts keeps them equal). The second after KILL bounds the loop
 //   on a process KILL cannot end (one in uninterruptible sleep).
@@ -134,6 +134,6 @@ export const killArgv = (execIds: ReadonlyArray<string>, graceMs: number): Reado
   return ids.length === 0 ? [] : ["bash", "-c", KILL_SCRIPT, "t3flare-kill", graceArg(graceMs), ...ids];
 };
 
-/** The same as one `/bin/sh -c` command line (the kill script's tests run it so); 2 s is the setting's default. */
-export const killCommand = (execIds: ReadonlyArray<string>, graceMs = 2000): string =>
+/** The same as one `/bin/sh -c` command line (the kill script's tests run it so); 3 s is `STOP_GRACE_SECONDS`. */
+export const killCommand = (execIds: ReadonlyArray<string>, graceMs = 3000): string =>
   `exec bash -c '${KILL_SCRIPT.replaceAll("'", "'\\''")}' t3flare-kill ${graceArg(graceMs)} ${killIds(execIds).join(" ")}`;

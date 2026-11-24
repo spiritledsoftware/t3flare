@@ -1148,7 +1148,7 @@ const cliMcp = async (cli: RelayCli) => {
     const before = (await notes()).length;
     const result: any = await (acp ? acpTurn : cliTurn)(cookie, { cli, workspace, mode, plan, prompt, approve });
     const added = (await notes()).slice(before);
-    // Each case on a fresh process: a Workspace holds at most cliProcessesPerWorkspace CLI processes (default 4).
+    // Each case on a fresh process: a Workspace holds at most its Container size's CLI processes (4 on cpu-1).
     await admin("POST", `/_t3flare/agents/workspace-stop?id=${workspace}`);
     return {
       name,

@@ -125,8 +125,9 @@ Deleting a project or a thread in t3 removes no files. The Environment's Sweep p
 it. The Grace is an Environment setting, not a Deployment setting, so it is set on the Settings page, for every Stage
 `prod` included ([ADR-0043](adr/0043-the-grace-is-an-environment-setting-and-a-deletion-wakes-the-sweep.md)):
 
-- `graceDays`: any whole number of days from 1. A change moves the date of everything already waiting.
-- `sweepPurges`: off, the Sweep still marks what is unreferenced and purges nothing.
+- `graceDays` ("Purge after"): any whole number of days, 0 for never, where the Sweep still marks what is unreferenced
+  and purges nothing. A change moves the date of everything already waiting. Purging turned off before SPI-1387 reads
+  as 0 until the Grace is next set.
 
 Nothing is purged sooner than one Grace after purging was last turned on, and the first Sweep after a deploy that
 carries this counts as turning it on. A test Stage may shorten the Grace for its checks with `T3FLARE_SWEEP_GRACE_MS`

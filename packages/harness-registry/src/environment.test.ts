@@ -7,12 +7,9 @@ import {
   AGENT_SETTING_KEYS,
   applyEnvironmentChange,
   COMMAND_SETTING_KEYS,
-  KEPT_SETTING_KEYS,
   CONTAINER_PREVIEW_SETTING_KEYS,
-  ENVIRONMENT_RESTART_SETTING_KEYS,
   MAX_PREVIEW_PORTS,
   RESERVED_CONTAINER_PORTS,
-  TERMINAL_SETTING_KEYS,
   BASE_BUILD_SETTING_KEYS,
   builderInstance,
   containerInstance,
@@ -20,46 +17,45 @@ import {
   DEFAULT_CHECKPOINT_MINUTES,
   DEFAULT_CLONE_MINUTES,
   DEFAULT_OWNER_ANSWER_MS,
-  DEFAULT_SETTINGS_READ_MS,
   DOTFILES_SETTING_KEYS,
   EMPTY_ENVIRONMENT,
   ENVIRONMENT_SETTINGS,
-  MAX_CLI_PROCESSES_PER_WORKSPACE,
-  MAX_CLI_RECLAIM_SECONDS,
   MAX_CONTAINER_BUDGET,
   MAX_RETENTION_DAYS,
   MAX_SETUP_BYTES,
   MAX_SETUP_OUTPUT_KIB,
   MAX_FILE_SETTING_BYTES,
   MAX_GLOBAL_MISE_BYTES,
-  MAX_AGENT_TERMINALS_PER_WORKSPACE,
-  MAX_TERMINALS_PER_WORKSPACE,
   MAX_TIMED_MINUTES,
   MAX_TIMED_SECONDS,
   resolveEnvironment,
   RETENTION_SETTING_KEYS,
   MCP_CALL_SETTING_KEYS,
   MCP_SERVER_SETTING_KEYS,
-  MAX_MCP_RESULT_KIB,
-  MAX_MCP_LOG_ENTRIES,
-  MAX_MCP_PROGRESS_PER_SECOND,
   DEFAULT_MCP_CALL_MS,
   SWEEP_SETTING_KEYS,
   LIFECYCLE_SETTING_KEYS,
-  PREVIEW_SETTING_KEYS,
-  ACCESS_SETTING_KEYS,
   NEXT_USE_SETTING_KEYS,
-  RETRY_SETTING_KEYS,
-  TRACE_SETTING_KEYS,
-  MAX_TRACE_KIB,
   OUTSIDE_REQUEST_SETTING_KEYS,
-  MAX_BROWSER_KEEP_ALIVE_SECONDS,
   TEXT_GENERATION_MARGIN_MS,
   fitsEnvironmentSetting,
   DEFAULT_TEXT_GENERATION_SECONDS,
   deadlineMs,
   OFF_DEADLINE_MS,
   offDeadlineMs,
+  AGENT_TERMINAL_SCROLLBACK_LINES,
+  AGENT_TERMINALS_PER_WORKSPACE,
+  cliProcessesPerWorkspace,
+  cliProcessesPerWorkspaceOf,
+  CLI_RECLAIM_SECONDS,
+  CONTAINER_SIZES,
+  EXITED_TERMINALS_KEPT,
+  OUTSIDE_REQUEST_SECONDS,
+  SETTINGS_READ_MS,
+  SETUP_OUTPUT_KIB,
+  STOP_GRACE_SECONDS,
+  TERMINAL_HISTORY_KIB,
+  TERMINALS_PER_WORKSPACE,
 } from "./environment.ts";
 import type { EnvironmentSettingEntry } from "./fields.ts";
 import { DO_VALUE_BYTES, storedBytes } from "./storedValue.ts";
@@ -70,10 +66,8 @@ const BASE_DEFAULTS = {
   imageSetup: "",
   imageSetupMinutes: 30,
   snapshotMinutes: 5,
-  builderSize: "sameAsContainer",
   builderInBudget: false,
   rebuildEveryDays: 0,
-  baseRetryMinutes: 60,
   whileBuilding: "lastGood",
   whileBuildingNewImage: "wait",
 } as const;
@@ -84,68 +78,27 @@ const BASE_DEFAULTS = {
  */
 const TUNABLE_DEFAULTS = {
   repoSkillsListed: 100,
-  skillsDirectoryEntries: 5000,
-  skillsLinkEntries: 200,
-  promptsDirectoryEntries: 1000,
-  outsideRequestSeconds: 15,
-  githubRetrySeconds: 60,
   textGenerationSeconds: 180,
   idleAfterSeconds: 60,
   prWatchWakeMinutes: 10,
-  remoteRetryMinutes: 30,
-  safeModeAfterFailures: 3,
-  browserProfileSaveSeconds: 60,
-  htmlBrowserKeepAliveSeconds: 120,
-  pageTokenHours: 1,
-  clientsPerKey: 50,
-  connectPublishLogKept: 100,
-  durableRetries: 3,
-  cliRetries: 1,
-  killAttempts: 12,
-  traceKiB: 1024,
-  traceFiles: 1,
-  mcpPausesPerCall: 16,
-  cliMcpStartSeconds: 20,
-  mcpSignInMinutes: 10,
   customVcpu: 2,
   customMemoryMib: 8192,
   customDiskMb: 16_000,
-  cliProcessesPerWorkspace: 4,
-  cliReclaimSeconds: 30,
   turnLimitMinutes: 0,
   ownerAnswerMinutes: 10,
   globalMiseInstallMinutes: 10,
-  settingsReadSeconds: 5,
   terminalBusyHoldMinutes: 30,
   terminalPromptHoldMinutes: 10,
-  terminalsPerWorkspace: 8,
-  agentTerminalsPerWorkspace: 8,
-  agentTerminalScrollbackLines: 1000,
   cloneMinutes: 0,
   checkpointMinutes: 0,
   usageRetentionDays: 0,
   piSessionRetentionDays: 0,
   mcpCallSeconds: 0,
-  mcpResultKiB: 1024,
   mcpConnectSeconds: 30,
   mcpListSeconds: 120,
-  mcpLogEntries: 50,
-  mcpProgressPerSecond: 10,
-  mcpLegacyRecheckHours: 24,
-  tempFilesHours: 24,
-  gitReadsKept: 500,
-  routerTraceEntries: 300,
   commandMinutes: 0,
   containerConnectSeconds: 120,
-  reclaimProtectionSeconds: 30,
-  skillsWaitSeconds: 5,
-  abortGraceSeconds: 2,
-  portStopGraceSeconds: 3,
-  firstPromptSeconds: 20,
-  terminalHistoryKiB: 1024,
-  exitedTerminalsKept: 16,
   previewPorts: [3000, 3001, 4173, 4321, 5173, 5174, 8000, 8787],
-  portProbeMs: 1000,
 } as const;
 
 describe("resolveEnvironment", () => {
@@ -160,10 +113,8 @@ describe("resolveEnvironment", () => {
       containerSetup: "",
       containerSetupMinutes: 5,
       containerSetupFailure: "carryOn",
-      setupOutputKiB: 32,
       terminalsReadBashrc: true,
       agentsReadDotfiles: true,
-      sweepPurges: true,
       graceDays: 7,
       ...TUNABLE_DEFAULTS,
       ...BASE_DEFAULTS,
@@ -186,10 +137,8 @@ describe("resolveEnvironment", () => {
       containerSetup: "",
       containerSetupMinutes: 5,
       containerSetupFailure: "carryOn",
-      setupOutputKiB: 32,
       terminalsReadBashrc: true,
       agentsReadDotfiles: true,
-      sweepPurges: true,
       graceDays: 7,
       ...TUNABLE_DEFAULTS,
       ...BASE_DEFAULTS,
@@ -209,10 +158,8 @@ describe("resolveEnvironment", () => {
       containerSetup: "",
       containerSetupMinutes: 5,
       containerSetupFailure: "carryOn",
-      setupOutputKiB: 32,
       terminalsReadBashrc: true,
       agentsReadDotfiles: true,
-      sweepPurges: true,
       graceDays: 7,
       ...TUNABLE_DEFAULTS,
       ...BASE_DEFAULTS,
@@ -237,10 +184,8 @@ describe("applyEnvironmentChange", () => {
       containerSetup: "",
       containerSetupMinutes: 5,
       containerSetupFailure: "carryOn",
-      setupOutputKiB: 32,
       terminalsReadBashrc: true,
       agentsReadDotfiles: true,
-      sweepPurges: true,
       graceDays: 7,
       ...TUNABLE_DEFAULTS,
       ...BASE_DEFAULTS,
@@ -257,10 +202,8 @@ describe("applyEnvironmentChange", () => {
       containerSetup: "",
       containerSetupMinutes: 5,
       containerSetupFailure: "carryOn",
-      setupOutputKiB: 32,
       terminalsReadBashrc: true,
       agentsReadDotfiles: true,
-      sweepPurges: true,
       graceDays: 7,
       ...TUNABLE_DEFAULTS,
       ...BASE_DEFAULTS,
@@ -304,38 +247,34 @@ describe("applyEnvironmentChange", () => {
       });
   });
 
-  it("keeps the Grace a whole number of days from 1 (no zero: at once is the Owner's Purge, ADR-0043), and purging a switch", () => {
-    for (const days of [1, 7, 3650])
+  it("keeps the Grace a whole number of days from 0, never (at once is the Owner's Purge, ADR-0043)", () => {
+    for (const days of [0, 1, 7, 3650])
       expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { graceDays: days } })).toMatchObject({ ok: true });
-    expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { graceDays: 0 } })).toEqual({
-      ok: false,
-      error: "graceDays: at least 1",
-    });
     expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { graceDays: 1.5 } })).toEqual({
       ok: false,
       error: "graceDays: an integer",
     });
     for (const days of [-1, 3651, "7", null])
       expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { graceDays: days } })).toMatchObject({ ok: false });
-    expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { sweepPurges: false } })).toMatchObject({
-      ok: true,
-      changed: ["sweepPurges"],
-    });
-    expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { sweepPurges: "no" } })).toEqual({
-      ok: false,
-      error: "sweepPurges: true or false",
-    });
   });
 
-  it("reads a stored Grace that no longer fits as 7 days, and purging on", () => {
-    expect(resolveEnvironment({ revision: 3, settings: { graceDays: 0, sweepPurges: "1" } })).toMatchObject({
-      graceDays: 7,
-      sweepPurges: true,
-    });
-    expect(resolveEnvironment({ revision: 3, settings: { graceDays: 30, sweepPurges: false } })).toMatchObject({
-      graceDays: 30,
-      sweepPurges: false,
-    });
+  it("reads a stored Grace that no longer fits as 7 days", () => {
+    expect(resolveEnvironment({ revision: 3, settings: { graceDays: -1 } })).toMatchObject({ graceDays: 7 });
+    expect(resolveEnvironment({ revision: 3, settings: { graceDays: 30 } })).toMatchObject({ graceDays: 30 });
+  });
+
+  it("reads purging turned off before SPI-1387 as a Grace of 0, never, until the Grace is set again", () => {
+    const off = { revision: 3, settings: { sweepPurges: false, graceDays: 30 } };
+    expect(resolveEnvironment(off).graceDays).toBe(0);
+    expect(resolveEnvironment({ revision: 3, settings: { sweepPurges: true, graceDays: 30 } }).graceDays).toBe(30);
+    // Another setting's change keeps it; the Grace's own replaces it.
+    const other = applyEnvironmentChange(off, { settings: { containerIdleMinutes: 5 } });
+    if (!other.ok) throw new Error(other.error);
+    expect(resolveEnvironment(other.environment).graceDays).toBe(0);
+    const grace = applyEnvironmentChange(off, { settings: { graceDays: 14 } });
+    if (!grace.ok) throw new Error(grace.error);
+    expect(grace.environment.settings).not.toHaveProperty("sweepPurges");
+    expect(resolveEnvironment(grace.environment).graceDays).toBe(14);
   });
 
   it("refuses a size it does not offer, an unknown setting and an empty change, with the setting named", () => {
@@ -393,7 +332,7 @@ describe("containerInstance", () => {
       diskMb: 4000,
     });
     // The Builder takes the same custom resources.
-    expect(builderInstance({ ...resolved, builderSize: "custom" })).toEqual({
+    expect(builderInstance(resolved)).toEqual({
       vcpu: 0.25,
       memoryMib: 1024,
       diskMb: 4000,
@@ -454,45 +393,34 @@ describe("the Global mise config", () => {
   });
 });
 
-describe("the CLI agents' processes per Workspace and the reclaim delay (SPI-1318)", () => {
-  const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
-
-  it("counts 4 processes by default, 1 to MAX_CLI_PROCESSES_PER_WORKSPACE (100, a sanity bound) whole processes", () => {
-    expect(resolveEnvironment(EMPTY_ENVIRONMENT).cliProcessesPerWorkspace).toBe(4);
-    expect(MAX_CLI_PROCESSES_PER_WORKSPACE).toBe(100);
-    for (const count of [1, 4, 32, 100]) expect(set({ cliProcessesPerWorkspace: count })).toMatchObject({ ok: true });
-    for (const count of [0, 101, 2.5, "4"])
-      expect(set({ cliProcessesPerWorkspace: count })).toMatchObject({ ok: false });
+describe("the CLI agents' processes per Workspace and the reclaim delay (SPI-1318, SPI-1387)", () => {
+  it("derives the processes from the Container's memory: (memory - 1 GiB) / 450 MB, at least one", () => {
+    expect(cliProcessesPerWorkspaceOf(CONTAINER_SIZES["cpu-1"].resources.memoryMib)).toBe(4);
+    expect(cliProcessesPerWorkspaceOf(CONTAINER_SIZES["standard-1"].resources.memoryMib)).toBe(7);
+    expect(cliProcessesPerWorkspaceOf(CONTAINER_SIZES["standard-2"].resources.memoryMib)).toBe(11);
+    expect(cliProcessesPerWorkspaceOf(CONTAINER_SIZES["standard-3"].resources.memoryMib)).toBe(16);
+    expect(cliProcessesPerWorkspaceOf(CONTAINER_SIZES["standard-4"].resources.memoryMib)).toBe(26);
+    // A custom size smaller than the reserve still runs one.
+    expect(cliProcessesPerWorkspaceOf(256)).toBe(1);
   });
 
-  it("waits 30 seconds by default, 0 to MAX_CLI_RECLAIM_SECONDS (660, the CLI idle hold) whole seconds", () => {
-    expect(resolveEnvironment(EMPTY_ENVIRONMENT).cliReclaimSeconds).toBe(30);
-    expect(MAX_CLI_RECLAIM_SECONDS).toBe(660);
-    for (const seconds of [0, 30, 660]) expect(set({ cliReclaimSeconds: seconds })).toMatchObject({ ok: true });
-    for (const seconds of [-1, 661, 0.5, "30"])
-      expect(set({ cliReclaimSeconds: seconds })).toMatchObject({ ok: false });
+  it("follows the Container size the settings set, a custom one's memory included", () => {
+    // The default size is standard-3 since SPI-1386.
+    expect(cliProcessesPerWorkspace(resolveEnvironment(EMPTY_ENVIRONMENT))).toBe(16);
+    const of = (settings: Record<string, unknown>) =>
+      cliProcessesPerWorkspace(resolveEnvironment({ revision: 1, settings }));
+    expect(of({ containerSize: "standard-3" })).toBe(16);
+    expect(of({ containerSize: "custom", customMemoryMib: 12_288 })).toBe(26);
   });
 
-  it("are down-free and free, in the Agents row, and the count states its memory once in Owner words", () => {
-    expect(ENVIRONMENT_SETTINGS.cliProcessesPerWorkspace).toMatchObject({ tier: "down-free" });
-    expect(ENVIRONMENT_SETTINGS.cliReclaimSeconds).toMatchObject({ tier: "free" });
-    expect(
-      "row" in ENVIRONMENT_SETTINGS.cliProcessesPerWorkspace || "row" in ENVIRONMENT_SETTINGS.cliReclaimSeconds,
-    ).toBe(false);
-    expect(ENVIRONMENT_SETTINGS.cliProcessesPerWorkspace.description).toContain(
-      "Each takes the Container's memory: an idle Codex about 160 MB, Claude Code and OpenCode up to about 350 and 450 MB in a turn; past what the Container size has, commands fail for memory.",
-    );
-    expect(ENVIRONMENT_SETTINGS.cliReclaimSeconds.description).toContain(
-      "ended to free the Container for another Workspace",
-    );
-    expect(ENVIRONMENT_SETTINGS.cliReclaimSeconds.description).not.toMatch(/reclaim/i);
+  it("waits a fixed 30 seconds before a CLI agent's idle process may be reclaimed", () => {
+    expect(CLI_RECLAIM_SECONDS).toBe(30);
   });
 });
 
-describe("the Terminals' holds and counts (SPI-1317)", () => {
+describe("the Terminals' holds and counts (SPI-1317, SPI-1387)", () => {
   const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
   const holds = ["terminalBusyHoldMinutes", "terminalPromptHoldMinutes"] as const;
-  const counts = ["terminalsPerWorkspace", "agentTerminalsPerWorkspace"] as const;
 
   it("hold 30 and 10 minutes by default, 1 to MAX_TIMED_MINUTES whole minutes (ADR-0048 §2)", () => {
     expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({
@@ -509,56 +437,26 @@ describe("the Terminals' holds and counts (SPI-1317)", () => {
     ).toMatchObject({ terminalBusyHoldMinutes: 30, terminalPromptHoldMinutes: 10 });
   });
 
-  it("count 8 and 8 by default; agents' Terminals 1 to MAX_AGENT_TERMINALS_PER_WORKSPACE (32, their xterms in the Workspace DO's memory)", () => {
-    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({
-      terminalsPerWorkspace: 8,
-      agentTerminalsPerWorkspace: 8,
-    });
-    expect(MAX_AGENT_TERMINALS_PER_WORKSPACE).toBe(32);
-    for (const count of [1, 8, 32]) expect(set({ agentTerminalsPerWorkspace: count })).toMatchObject({ ok: true });
-    for (const count of [0, 33, 2.5, "8"])
-      expect(set({ agentTerminalsPerWorkspace: count })).toMatchObject({ ok: false });
-    expect(
-      resolveEnvironment({ revision: 1, settings: { terminalsPerWorkspace: 0, agentTerminalsPerWorkspace: 33 } }),
-    ).toMatchObject({ terminalsPerWorkspace: 8, agentTerminalsPerWorkspace: 8 });
+  it("count and keep fixed values the isolates' memory forces", () => {
+    expect(TERMINALS_PER_WORKSPACE).toBe(8);
+    expect(AGENT_TERMINALS_PER_WORKSPACE).toBe(8);
+    expect(AGENT_TERMINAL_SCROLLBACK_LINES).toBe(1000);
+    expect(TERMINAL_HISTORY_KIB).toBe(1024);
+    expect(EXITED_TERMINALS_KEPT).toBe(16);
   });
 
-  it("the Owner's own Terminals are not held to the agents' xterm bound: only a sanity bound applies (SPI-1359)", () => {
-    // An Owner's Terminal holds no xterm in the Workspace DO, so the agents' 32 does not bind it.
-    expect(ENVIRONMENT_SETTINGS.terminalsPerWorkspace.schema.maximum).toBe(MAX_TERMINALS_PER_WORKSPACE);
-    expect(MAX_TERMINALS_PER_WORKSPACE).toBeGreaterThan(MAX_AGENT_TERMINALS_PER_WORKSPACE);
-    for (const count of [1, 33, MAX_TERMINALS_PER_WORKSPACE])
-      expect(set({ terminalsPerWorkspace: count })).toMatchObject({ ok: true });
-    for (const count of [0, MAX_TERMINALS_PER_WORKSPACE + 1, 2.5, "8"])
-      expect(set({ terminalsPerWorkspace: count })).toMatchObject({ ok: false });
-  });
-
-  it("are down-free, in the Containers row, holds after the idle time and counts after the budget", () => {
-    for (const key of [...holds, ...counts]) {
+  it("are down-free, in the Containers row, after the idle time, and state their consequence in Owner words", () => {
+    for (const key of holds) {
       expect(ENVIRONMENT_SETTINGS[key]).toMatchObject({ tier: "down-free" });
       expect("row" in ENVIRONMENT_SETTINGS[key]).toBe(false);
       expect(AGENT_SETTING_KEYS as ReadonlyArray<string>).not.toContain(key);
+      expect(ENVIRONMENT_SETTINGS[key].description).toContain("keep the Container running, and billed, for this long");
     }
     const keys = Object.keys(ENVIRONMENT_SETTINGS);
     expect(keys.slice(keys.indexOf("containerIdleMinutes"), keys.indexOf("containerIdleMinutes") + 3)).toEqual([
       "containerIdleMinutes",
       ...holds,
     ]);
-    expect(keys.slice(keys.indexOf("containerBudget"), keys.indexOf("containerBudget") + 3)).toEqual([
-      "containerBudget",
-      ...counts,
-    ]);
-  });
-
-  it("state their consequence once in Owner words", () => {
-    for (const key of holds)
-      expect(ENVIRONMENT_SETTINGS[key].description).toContain("keep the Container running, and billed, for this long");
-    expect(ENVIRONMENT_SETTINGS.terminalsPerWorkspace.description).toContain(
-      "Each Terminal uses memory in the Container.",
-    );
-    expect(ENVIRONMENT_SETTINGS.agentTerminalsPerWorkspace.description).toContain(
-      "Each Terminal and Background job uses memory in the Container.",
-    );
   });
 });
 
@@ -588,7 +486,7 @@ describe("the clone and checkpoint time limits (SPI-1324)", () => {
       expect(AGENT_SETTING_KEYS as ReadonlyArray<string>).not.toContain(key);
     }
     const order = Object.keys(ENVIRONMENT_SETTINGS);
-    expect(order.slice(order.indexOf("setupOutputKiB") + 1, order.indexOf("imageSetup"))).toEqual([...keys]);
+    expect(order.slice(order.indexOf("containerSetupFailure") + 1, order.indexOf("imageSetup"))).toEqual([...keys]);
   });
 
   it("each state its consequence once, scoped to its own operations, and the checkpoint limit names its operations", () => {
@@ -619,12 +517,7 @@ describe("the Turn limit (SPI-1315)", () => {
   it("is down-free, in the Agents row (AGENT_SETTING_KEYS), and states its consequence once in Owner words", () => {
     expect(ENVIRONMENT_SETTINGS.turnLimitMinutes).toMatchObject({ tier: "down-free" });
     expect("row" in ENVIRONMENT_SETTINGS.turnLimitMinutes).toBe(false);
-    expect(AGENT_SETTING_KEYS).toEqual([
-      "turnLimitMinutes",
-      "ownerAnswerMinutes",
-      "cliProcessesPerWorkspace",
-      "cliReclaimSeconds",
-    ]);
+    expect(AGENT_SETTING_KEYS).toEqual(["turnLimitMinutes", "ownerAnswerMinutes"]);
     expect(ENVIRONMENT_SETTINGS.turnLimitMinutes.description).toContain(
       "A turn longer than this is ended (a CLI agent's process with it), and the thread shows it failed. Each minute of a turn can spend model tokens and hold a Container.",
     );
@@ -717,42 +610,35 @@ describe("the Answer wait (SPI-1316)", () => {
   });
 });
 
-describe("the MCP calls' time limit and result size (SPI-1359)", () => {
+describe("the MCP calls' time limit (SPI-1359)", () => {
   const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
 
-  it("are off and 1024 KiB by default: the time limit off or 1 s to a week (ADR-0048 §2), the size 1 to 8192 KiB", () => {
-    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({ mcpCallSeconds: 0, mcpResultKiB: 1024 });
+  it("is off by default: the time limit off or 1 s to a week (ADR-0048 §2)", () => {
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({ mcpCallSeconds: 0 });
     for (const seconds of [1, 270, MAX_TIMED_SECONDS])
       expect(set({ mcpCallSeconds: seconds })).toMatchObject({ ok: true });
     for (const seconds of [-1, MAX_TIMED_SECONDS + 1, 2.5, "270"])
       expect(set({ mcpCallSeconds: seconds })).toMatchObject({ ok: false });
-    for (const kib of [1, 1024, MAX_MCP_RESULT_KIB]) expect(set({ mcpResultKiB: kib })).toMatchObject({ ok: true });
-    for (const kib of [0, MAX_MCP_RESULT_KIB + 1, 1.5]) expect(set({ mcpResultKiB: kib })).toMatchObject({ ok: false });
-    expect(MAX_MCP_RESULT_KIB).toBe(8 * 1024);
   });
 
-  it("are down-free, in an MCP calls row of their own, and each states its consequence", () => {
-    expect(MCP_CALL_SETTING_KEYS.slice(0, 2)).toEqual(["mcpCallSeconds", "mcpResultKiB"]);
-    for (const key of ["mcpCallSeconds", "mcpResultKiB"] as const)
-      expect(ENVIRONMENT_SETTINGS[key]).toMatchObject({ tier: "down-free" });
+  it("is down-free, in an MCP calls row of its own, and states its consequence", () => {
+    expect(MCP_CALL_SETTING_KEYS).toEqual(["mcpCallSeconds"]);
+    expect(ENVIRONMENT_SETTINGS.mcpCallSeconds).toMatchObject({ tier: "down-free" });
     expect(ENVIRONMENT_SETTINGS.mcpCallSeconds.description).toContain("it may have run on the server");
-    expect(ENVIRONMENT_SETTINGS.mcpResultKiB.description).toContain("memory");
   });
 });
 
-describe("the MCP layer's connect and listing time limits and its logs per call (SPI-1363)", () => {
+describe("the MCP layer's connect and listing time limits (SPI-1363)", () => {
   const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
-  const KEYS = ["mcpConnectSeconds", "mcpListSeconds", "mcpLogEntries"] as const;
+  const KEYS = ["mcpConnectSeconds", "mcpListSeconds"] as const;
 
   it("keep their defaults (the connect limit 30 s, SPI-1386), whole numbers from 1 to their maximum, named in the description", () => {
     expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({
       mcpConnectSeconds: 30,
       mcpListSeconds: 120,
-      mcpLogEntries: 50,
     });
     expect(ENVIRONMENT_SETTINGS.mcpConnectSeconds.schema.maximum).toBe(MAX_TIMED_SECONDS);
     expect(ENVIRONMENT_SETTINGS.mcpListSeconds.schema.maximum).toBe(MAX_TIMED_SECONDS);
-    expect(ENVIRONMENT_SETTINGS.mcpLogEntries.schema.maximum).toBe(MAX_MCP_LOG_ENTRIES);
     for (const key of KEYS) {
       const { maximum } = ENVIRONMENT_SETTINGS[key].schema;
       expect(set({ [key]: maximum })).toMatchObject({ ok: true });
@@ -765,62 +651,20 @@ describe("the MCP layer's connect and listing time limits and its logs per call 
   });
 
   it("are in an MCP servers row of their own, apart from the MCP calls row", () => {
-    expect(MCP_SERVER_SETTING_KEYS).toEqual([...KEYS, "mcpProgressPerSecond", "mcpLegacyRecheckHours"]);
+    expect(MCP_SERVER_SETTING_KEYS).toEqual([...KEYS]);
     for (const key of MCP_SERVER_SETTING_KEYS) expect(MCP_CALL_SETTING_KEYS).not.toContain(key);
   });
 });
 
-describe("the MCP progress rate and the Legacy recheck (SPI-1368)", () => {
-  const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
-
-  it("keep today's 10 a second and 24 hours, each up to its maximum, named in the description", () => {
-    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({
-      mcpProgressPerSecond: 10,
-      mcpLegacyRecheckHours: 24,
-    });
-    expect(ENVIRONMENT_SETTINGS.mcpProgressPerSecond.schema.maximum).toBe(MAX_MCP_PROGRESS_PER_SECOND);
-    expect(ENVIRONMENT_SETTINGS.mcpLegacyRecheckHours.schema.maximum).toBe(MAX_TIMED_MINUTES / 60);
-    for (const [key, low] of [
-      ["mcpProgressPerSecond", 1],
-      ["mcpLegacyRecheckHours", 0],
-    ] as const) {
-      const { maximum } = ENVIRONMENT_SETTINGS[key].schema;
-      for (const good of [low, maximum]) expect(set({ [key]: good })).toMatchObject({ ok: true });
-      for (const bad of [low - 1, maximum + 1, 1.5]) expect(set({ [key]: bad })).toMatchObject({ ok: false });
-      expect(ENVIRONMENT_SETTINGS[key].description).toContain(`At most ${maximum?.toLocaleString("en-US")}`);
-    }
-  });
-});
-
 describe("the housekeeping waits and counts (SPI-1366)", () => {
-  const KEYS = [
-    ...LIFECYCLE_SETTING_KEYS,
-    ...PREVIEW_SETTING_KEYS,
-    ...ACCESS_SETTING_KEYS,
-    "githubRetrySeconds",
-    "textGenerationSeconds",
-    "mcpPausesPerCall",
-    "cliMcpStartSeconds",
-    "mcpSignInMinutes",
-  ] as const;
+  const KEYS = [...LIFECYCLE_SETTING_KEYS, "textGenerationSeconds"] as const;
 
   it("keep today's values by default, whole numbers from 1 to their maximum", () => {
     const resolved = resolveEnvironment(EMPTY_ENVIRONMENT);
     expect(Object.fromEntries(KEYS.map((key) => [key, resolved[key]]))).toEqual({
       idleAfterSeconds: 60,
       prWatchWakeMinutes: 10,
-      remoteRetryMinutes: 30,
-      safeModeAfterFailures: 3,
-      browserProfileSaveSeconds: 60,
-      htmlBrowserKeepAliveSeconds: 120,
-      pageTokenHours: 1,
-      clientsPerKey: 50,
-      connectPublishLogKept: 100,
-      githubRetrySeconds: 60,
       textGenerationSeconds: 180,
-      mcpPausesPerCall: 16,
-      cliMcpStartSeconds: 20,
-      mcpSignInMinutes: 10,
     });
     for (const key of KEYS) {
       const schema = ENVIRONMENT_SETTINGS[key].schema;
@@ -833,11 +677,9 @@ describe("the housekeeping waits and counts (SPI-1366)", () => {
     }
   });
 
-  it("time t3flare's own waits under the shared sanity maximum; Browser Run's keep-alive under its own", () => {
+  it("time t3flare's own waits under the shared sanity maximum", () => {
     expect(ENVIRONMENT_SETTINGS.idleAfterSeconds.schema.maximum).toBe(MAX_TIMED_SECONDS);
     expect(ENVIRONMENT_SETTINGS.prWatchWakeMinutes.schema.maximum).toBe(MAX_TIMED_MINUTES);
-    expect(ENVIRONMENT_SETTINGS.htmlBrowserKeepAliveSeconds.schema.maximum).toBe(MAX_BROWSER_KEEP_ALIVE_SECONDS);
-    expect(MAX_BROWSER_KEEP_ALIVE_SECONDS).toBe(600);
     // The Environment's wait for text generation stays under a JS timer's 2^31 - 1 ms at the maximum.
     expect(MAX_TIMED_SECONDS * 1000 + TEXT_GENERATION_MARGIN_MS).toBeLessThan(2 ** 31 - 1);
     expect(DEFAULT_TEXT_GENERATION_SECONDS * 1000 + TEXT_GENERATION_MARGIN_MS).toBe(190_000);
@@ -848,71 +690,14 @@ describe("the housekeeping waits and counts (SPI-1366)", () => {
       expect(ENVIRONMENT_SETTINGS[key].description).toMatch(/Applies (at|to) /);
       expect(ENVIRONMENT_SETTINGS[key]).not.toHaveProperty("row");
     }
-    for (const key of [
-      ...OUTSIDE_REQUEST_SETTING_KEYS,
-      ...LIFECYCLE_SETTING_KEYS,
-      ...PREVIEW_SETTING_KEYS,
-      ...ACCESS_SETTING_KEYS,
-    ])
+    for (const key of [...OUTSIDE_REQUEST_SETTING_KEYS, ...LIFECYCLE_SETTING_KEYS])
       expect(NEXT_USE_SETTING_KEYS).toContain(key);
   });
 });
 
-describe("the retries and the trace (SPI-1367)", () => {
-  const KEYS = [...RETRY_SETTING_KEYS, ...TRACE_SETTING_KEYS] as const;
-
-  it("keep today's values by default, whole numbers up to their maximum", () => {
-    const resolved = resolveEnvironment(EMPTY_ENVIRONMENT);
-    expect(Object.fromEntries(KEYS.map((key) => [key, resolved[key]]))).toEqual({
-      durableRetries: 3,
-      cliRetries: 1,
-      killAttempts: 12,
-      traceKiB: 1024,
-      traceFiles: 1,
-    });
-    for (const key of KEYS) {
-      const schema = ENVIRONMENT_SETTINGS[key].schema;
-      expect(fitsEnvironmentSetting(key, 1.5)).toBe(false);
-      expect(fitsEnvironmentSetting(key, schema.maximum)).toBe(true);
-      expect(fitsEnvironmentSetting(key, schema.maximum + 1)).toBe(false);
-      expect(ENVIRONMENT_SETTINGS[key].description).toContain(`At most ${schema.maximum}`);
-      expect(ENVIRONMENT_SETTINGS[key].description).toContain("Applies at ");
-      expect(NEXT_USE_SETTING_KEYS).toContain(key);
-    }
-    // A retry count of 0 never tries again; a kill and a trace file need at least one.
-    for (const key of ["durableRetries", "cliRetries"] as const) expect(fitsEnvironmentSetting(key, 0)).toBe(true);
-    for (const key of ["killAttempts", "traceKiB", "traceFiles"] as const)
-      expect(fitsEnvironmentSetting(key, 0)).toBe(false);
-    expect(MAX_TRACE_KIB).toBe(4 * 1024);
-  });
-
-  it("ask before what spends or keeps more awake, and before deleting trace files", () => {
-    for (const key of ["durableRetries", "cliRetries", "killAttempts", "traceKiB"] as const)
-      expect(ENVIRONMENT_SETTINGS[key]).toMatchObject({ tier: "down-free" });
-    expect(ENVIRONMENT_SETTINGS.traceFiles).toMatchObject({ tier: "up-free" });
-  });
-});
-
-describe("the settings read wait (SPI-1314)", () => {
-  const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
-
-  it("is 5 seconds by default, 1 to MAX_TIMED_SECONDS whole seconds (ADR-0048 §2)", () => {
-    expect(resolveEnvironment(EMPTY_ENVIRONMENT).settingsReadSeconds).toBe(5);
-    expect(DEFAULT_SETTINGS_READ_MS).toBe(5000);
-    for (const seconds of [1, 5, 60, MAX_TIMED_SECONDS])
-      expect(set({ settingsReadSeconds: seconds })).toMatchObject({ ok: true });
-    for (const seconds of [0, MAX_TIMED_SECONDS + 1, 2.5, "5"])
-      expect(set({ settingsReadSeconds: seconds })).toMatchObject({ ok: false });
-    expect(resolveEnvironment({ revision: 1, settings: { settingsReadSeconds: 0 } }).settingsReadSeconds).toBe(5);
-  });
-
-  it("is free, in the Containers row, and says when it applies", () => {
-    expect(ENVIRONMENT_SETTINGS.settingsReadSeconds).toMatchObject({ tier: "free" });
-    expect("row" in ENVIRONMENT_SETTINGS.settingsReadSeconds).toBe(false);
-    expect(AGENT_SETTING_KEYS).not.toContain("settingsReadSeconds");
-    expect(ENVIRONMENT_SETTINGS.settingsReadSeconds.description).toContain(
-      "Applies at each thread's next turn. A Container start uses the wait it last kept, so a change can take one more start to apply fully.",
-    );
+describe("the settings read wait (SPI-1314, SPI-1387)", () => {
+  it("is a fixed 5 seconds", () => {
+    expect(SETTINGS_READ_MS).toBe(5000);
   });
 });
 
@@ -960,12 +745,10 @@ describe("the Container setup (ADR-0047 §7, §9)", () => {
       expect(set({ containerSetupMinutes: minutes })).toMatchObject({ ok: false });
   });
 
-  it("keeps 32 KiB of a setup's output by default, 4 to a third of one Durable Object value", () => {
+  it("keeps a fixed 32 KiB of a setup's output, under a third of one Durable Object value", () => {
+    expect(SETUP_OUTPUT_KIB).toBe(32);
     expect(MAX_SETUP_OUTPUT_KIB).toBe(Math.floor(DO_VALUE_BYTES / 3 / 1024));
-    expect(resolveEnvironment(EMPTY_ENVIRONMENT).setupOutputKiB).toBe(32);
-    for (const kib of [4, MAX_SETUP_OUTPUT_KIB]) expect(set({ setupOutputKiB: kib })).toMatchObject({ ok: true });
-    for (const kib of [3, MAX_SETUP_OUTPUT_KIB + 1, 8.5])
-      expect(set({ setupOutputKiB: kib })).toMatchObject({ ok: false });
+    expect(SETUP_OUTPUT_KIB).toBeLessThan(MAX_SETUP_OUTPUT_KIB);
   });
 
   it("carries on or refuses commands on a failure, nothing else", () => {
@@ -1023,7 +806,7 @@ describe("the Base build's settings (SPI-1332, ADR-0047 §9)", () => {
     );
   });
 
-  it("bounds the time limits, the scheduled rebuild and the Builder's size", () => {
+  it("bounds the time limits and the scheduled rebuild", () => {
     for (const minutes of [1, 120, 121, MAX_TIMED_MINUTES])
       expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { imageSetupMinutes: minutes } })).toMatchObject({
         ok: true,
@@ -1049,25 +832,18 @@ describe("the Base build's settings (SPI-1332, ADR-0047 §9)", () => {
       expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { rebuildEveryDays: days } })).toMatchObject({
         ok: false,
       });
-    for (const size of ["standard-4", "cpu-1"])
-      expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { builderSize: size } })).toMatchObject({
-        ok: true,
-      });
-    expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { builderSize: "lite" } })).toMatchObject({
-      ok: false,
-    });
     expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { builderInBudget: true } })).toMatchObject({
       ok: true,
       changed: ["builderInBudget"],
     });
   });
 
-  it("starts the Builder at the Container size unless the Owner gave it one", () => {
+  it("starts the Builder at the Container size, a Builder size stored before SPI-1387 ignored", () => {
     const settings = (stored: Record<string, unknown>) => resolveEnvironment({ revision: 1, settings: stored });
     expect(builderInstance(settings({ containerSize: "standard-3" }))).toBe("standard-3");
     expect(builderInstance(settings({}))).toBe("standard-3");
     expect(builderInstance(settings({ containerSize: "cpu-1" }))).toEqual(containerInstance("cpu-1"));
-    expect(builderInstance(settings({ containerSize: "standard-1", builderSize: "standard-4" }))).toBe("standard-4");
+    expect(builderInstance(settings({ containerSize: "standard-1", builderSize: "standard-4" }))).toBe("standard-1");
   });
 
   it("names the settings a Base build reads", () => {
@@ -1075,22 +851,15 @@ describe("the Base build's settings (SPI-1332, ADR-0047 §9)", () => {
       "imageSetup",
       "imageSetupMinutes",
       "snapshotMinutes",
-      "builderSize",
       "builderInBudget",
       "rebuildEveryDays",
-      "baseRetryMinutes",
     ]);
   });
 });
 
 describe("the Workspace's command limits, Terminals, previews and what it keeps (SPI-1364)", () => {
   const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
-  const grouped = [
-    ...COMMAND_SETTING_KEYS,
-    ...TERMINAL_SETTING_KEYS,
-    ...CONTAINER_PREVIEW_SETTING_KEYS,
-    ...KEPT_SETTING_KEYS,
-  ];
+  const grouped = [...COMMAND_SETTING_KEYS, ...CONTAINER_PREVIEW_SETTING_KEYS];
 
   it("each new setting is in exactly one row group, none joins another row, and none is an agent or Sweep setting", () => {
     expect(new Set(grouped).size).toBe(grouped.length);
@@ -1102,10 +871,8 @@ describe("the Workspace's command limits, Terminals, previews and what it keeps 
     }
   });
 
-  it("names the ones that apply at their next use or at the Environment's restart, not at a Container start", () => {
-    for (const key of ["previewPorts", "routerTraceEntries"])
-      expect(NEXT_USE_SETTING_KEYS as ReadonlyArray<string>).toContain(key);
-    expect(ENVIRONMENT_RESTART_SETTING_KEYS).toEqual(["terminalHistoryKiB", "exitedTerminalsKept"]);
+  it("names the preview ports as applying at their next use, not at a Container start", () => {
+    expect(NEXT_USE_SETTING_KEYS as ReadonlyArray<string>).toContain("previewPorts");
   });
 
   it("the integers take their bounds and refuse a value past them, and a stored one out of bounds reads as the default", () => {
@@ -1126,12 +893,6 @@ describe("the Workspace's command limits, Terminals, previews and what it keeps 
     const ms: Readonly<Record<string, number>> = {
       commandMinutes: 60_000,
       containerConnectSeconds: 1000,
-      reclaimProtectionSeconds: 1000,
-      skillsWaitSeconds: 1000,
-      abortGraceSeconds: 1000,
-      portStopGraceSeconds: 1000,
-      firstPromptSeconds: 1000,
-      portProbeMs: 1,
     };
     for (const [key, unit] of Object.entries(ms)) {
       const schema = ENVIRONMENT_SETTINGS[key as keyof typeof ENVIRONMENT_SETTINGS].schema;
@@ -1262,5 +1023,95 @@ describe("local parity by default (SPI-1386)", () => {
       containerConnectSeconds: 60,
     };
     expect(resolveEnvironment({ revision: 9, settings: stored })).toMatchObject(stored);
+  });
+});
+
+describe("the values that became named constants (SPI-1387, ADR-0049 §3)", () => {
+  const REMOVED = [
+    "terminalsPerWorkspace",
+    "agentTerminalsPerWorkspace",
+    "agentTerminalScrollbackLines",
+    "cliProcessesPerWorkspace",
+    "cliReclaimSeconds",
+    "settingsReadSeconds",
+    "setupOutputKiB",
+    "builderSize",
+    "baseRetryMinutes",
+    "sweepPurges",
+    "outsideRequestSeconds",
+    "skillsDirectoryEntries",
+    "skillsLinkEntries",
+    "promptsDirectoryEntries",
+    "mcpResultKiB",
+    "mcpPausesPerCall",
+    "mcpLogEntries",
+    "mcpProgressPerSecond",
+    "mcpLegacyRecheckHours",
+    "cliMcpStartSeconds",
+    "mcpSignInMinutes",
+    "githubRetrySeconds",
+    "remoteRetryMinutes",
+    "safeModeAfterFailures",
+    "browserProfileSaveSeconds",
+    "htmlBrowserKeepAliveSeconds",
+    "pageTokenHours",
+    "clientsPerKey",
+    "connectPublishLogKept",
+    "durableRetries",
+    "cliRetries",
+    "killAttempts",
+    "traceKiB",
+    "traceFiles",
+    "tempFilesHours",
+    "gitReadsKept",
+    "routerTraceEntries",
+    "reclaimProtectionSeconds",
+    "skillsWaitSeconds",
+    "abortGraceSeconds",
+    "portStopGraceSeconds",
+    "firstPromptSeconds",
+    "terminalHistoryKiB",
+    "exitedTerminalsKept",
+    "portProbeMs",
+  ];
+
+  it("are no longer settings", () => {
+    for (const key of REMOVED) expect(Object.keys(ENVIRONMENT_SETTINGS), key).not.toContain(key);
+  });
+
+  it("ignores a value stored for one on resolve, and a change beside it is not refused", () => {
+    // Purging on (`sweepPurges: true`) folds into the Grace as it stands; off is read above.
+    const stored = {
+      revision: 3,
+      settings: Object.fromEntries(REMOVED.map((key) => [key, key === "sweepPurges" ? true : 1])),
+    };
+    const resolved: Readonly<Record<string, unknown>> = resolveEnvironment(stored);
+    for (const key of REMOVED) expect(resolved, key).not.toHaveProperty(key);
+    expect(resolveEnvironment(stored)).toEqual({ ...resolveEnvironment(EMPTY_ENVIRONMENT), revision: 3 });
+    const changed = applyEnvironmentChange(stored, { settings: { containerIdleMinutes: 5 } });
+    expect(changed).toMatchObject({ ok: true, changed: ["containerIdleMinutes"] });
+  });
+
+  it("refuses a change that sets one, naming it", () => {
+    expect(applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings: { sweepPurges: false } })).toEqual({
+      ok: false,
+      error: "sweepPurges: no such setting",
+    });
+  });
+
+  it("keep the values the Owner approved", () => {
+    expect(OUTSIDE_REQUEST_SECONDS).toBe(30);
+    expect(STOP_GRACE_SECONDS).toBe(3);
+  });
+});
+
+describe("the Grace (ADR-0043, SPI-1387)", () => {
+  const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
+
+  it("is 7 days by default, 0 (never purge) to MAX_GRACE_DAYS, and its description says 0 is never", () => {
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT).graceDays).toBe(7);
+    for (const days of [0, 1, 3650]) expect(set({ graceDays: days })).toMatchObject({ ok: true });
+    for (const days of [-1, 3651, 1.5]) expect(set({ graceDays: days })).toMatchObject({ ok: false });
+    expect(ENVIRONMENT_SETTINGS.graceDays.description).toContain("0 is never");
   });
 });

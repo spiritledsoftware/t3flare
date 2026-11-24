@@ -1,12 +1,12 @@
 // The Environment DO's boot record and safe mode (ADR-0010's admin routes), in DO key-value storage.
 //
 // Every boot of t3 is counted before it starts, so a boot that takes the isolate down with it still
-// counts as failed. After `safeModeAfterFailures` boots in a row fail (an Environment setting, SPI-1366; 3 by default),
+// counts as failed. After `SAFE_MODE_AFTER_FAILURES` boots in a row fail (3, SPI-1366, SPI-1387),
 // the next boot does not start t3:
 // the DO enters safe mode, where only the admin routes answer (health, read-only SQL, the toggle,
 // restart), until the owner turns it off. Safe mode can also be turned on by hand.
 
-import { DEFAULT_SAFE_MODE_AFTER_FAILURES } from "@t3flare/harness-registry";
+import { SAFE_MODE_AFTER_FAILURES } from "@t3flare/harness-registry";
 
 /** The part of DO storage this needs, so tests can pass a Map-backed fake. */
 export interface KeyValue {
@@ -14,9 +14,6 @@ export interface KeyValue {
   put<T>(key: string, value: T): Promise<void>;
   delete(key: string): Promise<boolean>;
 }
-
-/** Failed boots in a row before safe mode when no setting reaches: the setting's default. */
-export const SAFE_MODE_AFTER_FAILURES = DEFAULT_SAFE_MODE_AFTER_FAILURES;
 
 export interface BootRecord {
   /** Boots started, ever. */

@@ -36,9 +36,10 @@ import {
   type BaseSnapshot,
   builderInstance,
   type ContainerInstance,
-  DEFAULT_BASE_RETRY_MINUTES,
+  BASE_RETRY_MINUTES,
   MAX_REBUILD_DAYS,
   type ResolvedEnvironment,
+  SETUP_OUTPUT_KIB,
   timeLimitHit,
   variableEnv,
 } from "@t3flare/harness-registry";
@@ -136,7 +137,7 @@ export interface Build {
   readonly setupDeadline?: number;
   /** The snapshot's time limit, and the proof's (`snapshotMinutes`). */
   readonly snapshotMs: number;
-  /** How much of the output a failure keeps (`setupOutputKiB`). */
+  /** How much of the output a failure keeps (`SETUP_OUTPUT_KIB`). */
   readonly outputBytes: number;
   readonly inBudget: boolean;
   readonly budget: number;
@@ -175,7 +176,10 @@ interface Current {
   readonly rebuildEveryDays: number;
   /** The scheduled rebuild's margin before expiry (`expiryMarginMs`). Absent in one kept before SPI-1359: a day. */
   readonly expiryMarginMs?: number;
-  /** A failing key's first retry (`baseRetryMinutes`). Absent in one kept before SPI-1359: the default. */
+  /**
+   * A failing key's first retry (`BASE_RETRY_MINUTES`; a setting from SPI-1359 to SPI-1387). Absent in one kept before
+   * SPI-1359: `BASE_RETRY_MINUTES`.
+   */
   readonly retryMs?: number;
   readonly at: number;
 }
@@ -237,10 +241,10 @@ export const GOOD_FOR_MS = MAX_REBUILD_DAYS * DAY_MS;
  * snapshot before a failed rebuild's retry ends, which `rebuildEveryDays`' description states.
  */
 export const expiryMarginMs = (
-  settings: Pick<ResolvedEnvironment, "imageSetupMinutes" | "snapshotMinutes" | "baseRetryMinutes">,
+  settings: Pick<ResolvedEnvironment, "imageSetupMinutes" | "snapshotMinutes">,
 ): number => {
   const build = waitLimitMs(settings);
-  return Math.min(2 * build + retryDelay(1, settings.baseRetryMinutes * 60_000), GOOD_FOR_MS - build);
+  return Math.min(2 * build + retryDelay(1, BASE_RETRY_MINUTES * 60_000), GOOD_FOR_MS - build);
 };
 
 /** How long the scheduled rebuild waits to read the settings again when the Environment did not answer. Fixed: a retry. */
@@ -271,18 +275,18 @@ const LEASE_RENEW_MS = 5 * 60_000;
 /** A probe exec's own bound: a command that answers at once (`true`, `cat`), not the Image setup. */
 const PROBE_MS = 30_000;
 
-/** How much of a failed build's output is kept: `setupOutputKiB`, shared with the Container setup (SPI-1330). */
-export const outputBytesOf = (settings: ResolvedEnvironment): number => settings.setupOutputKiB * 1024;
+/** How much of a failed build's output is kept: `SETUP_OUTPUT_KIB`, shared with the Container setup (SPI-1330, SPI-1387). */
+const OUTPUT_BYTES = SETUP_OUTPUT_KIB * 1024;
 
 /**
- * The wait before the retry after `failures` failures in a row: the first retry (`baseRetryMinutes`), doubling, at most a
+ * The wait before the retry after `failures` failures in a row: the first retry (`BASE_RETRY_MINUTES`), doubling, at most a
  * day, or the first retry itself when it is longer.
  */
 export const retryDelay = (failures: number, firstMs: number): number =>
   Math.min(Math.max(DAY_MS, firstMs), firstMs * 2 ** Math.min(Math.max(1, failures) - 1, 5));
 
-/** A kept record's first retry: its own, or the default for one kept before SPI-1359. */
-const retryMsOf = (current: Current | undefined): number => current?.retryMs ?? DEFAULT_BASE_RETRY_MINUTES * 60_000;
+/** A kept record's first retry: its own, or `BASE_RETRY_MINUTES` for one kept before SPI-1359. */
+const retryMsOf = (current: Current | undefined): number => current?.retryMs ?? BASE_RETRY_MINUTES * 60_000;
 
 /** A trigger's kind: a Rebuild (the Owner's or `rebuild_base`) runs at once; the rest wait out a failing key's backoff. */
 type Trigger = "rebuild" | "automatic" | "scheduled";
@@ -551,7 +555,7 @@ export class BaseBuild {
       nothingToBuild: settings.imageSetup === "" && settings.globalMiseConfig === "",
       rebuildEveryDays: this.#test ? 0 : settings.rebuildEveryDays,
       expiryMarginMs: expiryMarginMs(settings),
-      retryMs: settings.baseRetryMinutes * 60_000,
+      retryMs: BASE_RETRY_MINUTES * 60_000,
       at: this.#deps.now(),
     };
   }
@@ -644,7 +648,7 @@ export class BaseBuild {
       instance: builderInstance(settings),
       setupMs: settings.imageSetupMinutes * 60_000,
       snapshotMs: settings.snapshotMinutes * 60_000,
-      outputBytes: outputBytesOf(settings),
+      outputBytes: OUTPUT_BYTES,
       inBudget: settings.builderInBudget,
       budget: settings.containerBudget,
       secrets: settings.variables.filter((variable) => variable.secret).map((variable) => variable.value),

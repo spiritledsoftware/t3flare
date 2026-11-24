@@ -1,5 +1,5 @@
 // The Sweep's settings (ADR-0043 §2–3), apart from `deletion.ts` so the Environment DO's module graph stays small:
-// the Grace, whether the Sweep purges, and how long a Workspace may provision, read from the Environment settings at
+// the Grace (0 is never: the Sweep purges nothing), and how long a Workspace may provision, read from the Environment settings at
 // each use.
 import { deadlineMs, type ResolvedEnvironment } from "@t3flare/harness-registry";
 
@@ -10,7 +10,10 @@ export const SWEEP_EVERY_MS = DAY_MS;
 
 /** The Grace as the Sweep reads it at each use, from the Environment settings as stored now. */
 export interface SweepSettings {
-  /** The Environment setting `sweepPurges`: off, the Sweep still marks, and purges nothing (ADR-0043 §4). */
+  /**
+   * Whether the Sweep purges: off when the Grace is 0, never, where the Sweep still marks and purges nothing (ADR-0043
+   * §4; SPI-1387 folded the Sweep's own switch into the Grace).
+   */
   readonly purging: boolean;
   readonly graceMs: number;
   /** The Environment setting `graceDays`, as stored (the page's control shows it even when overridden). */
@@ -44,13 +47,14 @@ export const provisioningLimitMs = (times: ProvisioningTimes): number =>
 
 /** The Sweep's settings from the resolved Environment settings and a Stage's `T3FLARE_SWEEP_GRACE_MS`, if set and positive. */
 export const sweepSettingsOf = (
-  environment: Pick<ResolvedEnvironment, "sweepPurges" | "graceDays"> & ProvisioningTimes,
+  environment: Pick<ResolvedEnvironment, "graceDays"> & ProvisioningTimes,
   overrideMs: string | undefined,
 ): SweepSettings => {
   const override = Number(overrideMs);
   const overridden = overrideMs !== undefined && overrideMs !== "" && Number.isFinite(override) && override > 0;
   return {
-    purging: environment.sweepPurges,
+    // A Stage's override shortens the days; the Owner's never still wins.
+    purging: environment.graceDays !== 0,
     graceMs: overridden ? override : environment.graceDays * DAY_MS,
     graceDays: environment.graceDays,
     overridden,

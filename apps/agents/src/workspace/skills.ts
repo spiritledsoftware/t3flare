@@ -5,6 +5,7 @@
 import type { ReadEnv } from "@t3flare/computer-env";
 import {
   CLI_ROOTS,
+  DIRECTORY_LISTING_ENTRIES,
   type CliAgent,
   discoverPrompts,
   discoverSkills,
@@ -17,29 +18,31 @@ import {
 import type { ResolvedEnvironment } from "@t3flare/harness-registry";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 
-/** How far discovery reads, as the Environment settings give it (SPI-1365). */
-export type DiscoveryLimits = Pick<
-  ResolvedEnvironment,
-  "repoSkillsListed" | "skillsDirectoryEntries" | "skillsLinkEntries" | "promptsDirectoryEntries"
->;
+/**
+ * How far discovery reads, as the Environment settings give it (SPI-1365): the Repo skills listed; each directory's
+ * listing is `DIRECTORY_LISTING_ENTRIES` (SPI-1387).
+ */
+export type DiscoveryLimits = Pick<ResolvedEnvironment, "repoSkillsListed">;
 
 const skillLimitsOf = (limits: DiscoveryLimits): SkillLimits => ({
   repoSkills: limits.repoSkillsListed,
-  rootEntries: limits.skillsDirectoryEntries,
-  linkedEntries: limits.skillsLinkEntries,
+  rootEntries: DIRECTORY_LISTING_ENTRIES,
+  linkedEntries: DIRECTORY_LISTING_ENTRIES,
 });
 
 /** `env`'s file reads as discovery takes them: hidden names listed, git's ignore rules not applied, `node_modules` not walked. */
 export const skillFilesOf = (env: ReadEnv): SkillFiles => ({
   list: async (directory, maxEntries) => {
-    if (env.listFiles === undefined) return [];
+    if (env.listFiles === undefined) return { entries: [], truncated: false };
     const listing = await env.listFiles(
       directory,
       { hidden: true, gitignore: false, exclude: ["node_modules"], maxEntries },
       BACKGROUND_CONTEXT,
     );
-    if (listing.ok) return listing.value.entries;
-    if (listing.error.code === "not_found" || listing.error.code === "not_directory") return [];
+    // `truncated`: the listing stopped at `maxEntries` or its own size or time bound (SPI-1387).
+    if (listing.ok) return { entries: listing.value.entries, truncated: listing.value.truncated };
+    if (listing.error.code === "not_found" || listing.error.code === "not_directory")
+      return { entries: [], truncated: false };
     throw new Error(`Cannot list skills in ${directory}: ${listing.error.message}`);
   },
   read: async (path) => {
@@ -81,15 +84,16 @@ export const workspaceSkills = async (
   return found;
 };
 
-/** The Prompt templates of a thread in `env`'s cwd; with `agent`, that CLI's repo commands (SPI-1151). */
-export const workspacePrompts = (
-  env: ReadEnv,
-  limits: DiscoveryLimits,
-  agent?: CliAgent,
-): Promise<ReadonlyArray<PromptTemplate>> =>
+/**
+ * The Prompt templates of a thread in `env`'s cwd; with `agent`, that CLI's repo commands (SPI-1151). A directory whose
+ * listing reached `DIRECTORY_LISTING_ENTRIES` is logged with the limit (SPI-1387).
+ */
+export const workspacePrompts = (env: ReadEnv, agent?: CliAgent): Promise<ReadonlyArray<PromptTemplate>> =>
   discoverPrompts(
     skillFilesOf(env),
     env.cwd,
     agent === undefined ? undefined : CLI_ROOTS[agent].commands,
-    limits.promptsDirectoryEntries,
+    DIRECTORY_LISTING_ENTRIES,
+    (directory, reason) =>
+      console.log(JSON.stringify({ t3flare: "prompts", cwd: env.cwd, skipped: [{ path: directory, reason }] })),
   );

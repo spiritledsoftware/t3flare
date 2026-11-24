@@ -876,8 +876,9 @@ if (["wake", "purge-now", "restore", "tool", "never"].includes(scenario)) {
   }
 
   if (scenario === "never") {
-    // Step 6: "Never purge" marks and purges nothing; on again, nothing is purged for one Grace (purgingSince, ADR-0043 §4).
-    const off = await panel("POST", "/environment", { settings: { sweepPurges: false } });
+    // Step 6: "Never purge" (a Grace of 0, SPI-1387) marks and purges nothing; on again, nothing is purged for one Grace
+    // (purgingSince, ADR-0043 §4). The Stage's T3FLARE_SWEEP_GRACE_MS times the Grace while it purges.
+    const off = await panel("POST", "/environment", { settings: { graceDays: 0 } });
     report.off = { status: off.status, error: off.json?.error ?? null };
     report.graceOff = await grace();
     check(
@@ -909,7 +910,7 @@ if (["wake", "purge-now", "restore", "tool", "never"].includes(scenario)) {
     report.keptOff = brief(rowIn(kept, u.ws));
     check("step 6: a Grace on, purging off: still there", rowIn(kept, u.ws)?.status === "unreferenced", report.keptOff);
     const onAt = Date.now();
-    const on = await panel("POST", "/environment", { settings: { sweepPurges: true } });
+    const on = await panel("POST", "/environment", { settings: { graceDays: 7 } });
     report.on = { at: iso(onAt), status: on.status, error: on.json?.error ?? null };
     const since = await watch((seen) => typeof seen?.purgingSince === "number", 60_000, 2000);
     const purgingSince = since.seen?.purgingSince as number;

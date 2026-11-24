@@ -49,7 +49,7 @@ export interface PortProbe {
 
 /**
  * One GET of `path` on the Container's `port`, as stock's web probe does (no redirect followed, body unread), waiting at
- * most `waitMs` (`portProbeMs`, SPI-1364; stock's 1 s by default): the Container's TCP fetch has no deadline of its own.
+ * most `waitMs` (`PORT_PROBE_MS`, SPI-1364; stock's 1 s by default): the Container's TCP fetch has no deadline of its own.
  */
 export const probeRunningPort = async (
   container: RunningContainer | undefined,

@@ -22,8 +22,8 @@ export interface SweepWakeDeps<R> {
 }
 
 /**
- * A change moved the Grace (`sweepPurges` or `graceDays`, ADR-0043 §5): every date moved, so the Sweep is woken. Purging
- * turned off forgets when it was turned on (ADR-0043 §4) at once, not at the next Sweep: turned on again inside the wake's
+ * A change moved the Grace (`graceDays`, ADR-0043 §5): every date moved, so the Sweep is woken. Purging
+ * turned off (a Grace of 0) forgets when it was turned on (ADR-0043 §4) at once, not at the next Sweep: turned on again inside the wake's
  * quiet, it starts a new Grace.
  */
 export const graceMoved = (deps: {

@@ -171,7 +171,7 @@ describe("ContainerSetup", () => {
     expect(t.reports[0]!.output).toBe("+ git clone https://***@github.com/me/dotfiles\nNODE_ENV=production\n");
   });
 
-  it("keeps the last setupOutputKiB of output, and asks the wrapper for that and SECRET_MARGIN_BYTES more", async () => {
+  it("keeps the last SETUP_OUTPUT_KIB of output, and asks the wrapper for that and SECRET_MARGIN_BYTES more", async () => {
     const t = setup([{ stdout: answered(`${"a".repeat(5000)}END\n`, {}) }], {
       launch: { ...LAUNCH, outputBytes: 4 * 1024 },
     });

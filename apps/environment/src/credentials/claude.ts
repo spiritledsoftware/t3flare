@@ -27,6 +27,7 @@ import {
   CLAUDE_SCOPES,
   CLAUDE_TOKEN_URL,
 } from "@t3flare/models/claudeOAuth";
+import { outsideTimeoutClause } from "@t3flare/harness-registry";
 
 import { isRecord, oauthErrorCode, oauthErrorOf, oauthRequestOptions, pkceChallenge, random } from "./oauth.ts";
 import type { RefreshResult, SignInCredential, SignInResult, SignInVendor } from "./signIn.ts";
@@ -34,7 +35,7 @@ import type { RefreshResult, SignInCredential, SignInResult, SignInVendor } from
 export interface ClaudeVendor {
   readonly fetch: typeof fetch;
   readonly now: () => number;
-  /** Each request's bound (`outsideRequestSeconds`, read at each request; `OAUTH_TIMEOUT_MS` when absent). */
+  /** Each request's bound (`OUTSIDE_REQUEST_MS`; `OAUTH_TIMEOUT_MS`, the same, when absent). */
   readonly timeoutMs?: number;
 }
 
@@ -194,10 +195,10 @@ export const completeClaudeSignIn = async (
       redirect_uri: CLAUDE_REDIRECT_URI,
       code_verifier: pending.verifier,
     });
-  } catch {
+  } catch (error) {
     return {
       ok: false,
-      problem: "Anthropic's token endpoint could not be reached: paste the code again, or start again.",
+      problem: `Anthropic's token endpoint could not be reached${outsideTimeoutClause(error, vendor.timeoutMs)}: paste the code again, or start again.`,
     };
   }
   if (!response.ok)
@@ -247,11 +248,11 @@ export const refreshClaude = async (vendor: ClaudeVendor, credential: SignInCred
       client_id: CLAUDE_CLIENT_ID,
       refresh_token: credential.refresh,
     });
-  } catch {
+  } catch (error) {
     return {
       ok: false,
       refused: false,
-      problem: "Anthropic's token endpoint could not be reached to renew the Claude sign-in",
+      problem: `Anthropic's token endpoint could not be reached to renew the Claude sign-in${outsideTimeoutClause(error, vendor.timeoutMs)}`,
     };
   }
   if (!response.ok) {

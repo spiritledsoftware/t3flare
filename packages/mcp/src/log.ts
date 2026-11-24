@@ -21,7 +21,7 @@ export const MCP_LOG_LEVELS = [
 /** The level the core asks every server that declares `logging` for, in both eras. */
 export const MCP_LOG_LEVEL = "warning";
 
-/** How many of a call's last log entries the engine keeps and hands back when the target names none (`mcpLogEntries`). */
+/** How many of a call's last log entries the engine keeps and hands back when the target names none (`MCP_LOG_ENTRIES`). */
 export const MCP_LOG_RING = 50;
 
 /**

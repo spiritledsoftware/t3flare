@@ -6,12 +6,12 @@
 // registration, the token exchange, each refresh) is the MCP Worker's (`McpOAuth`, review M5).
 //
 // - `state`: 256 random bits, single use, bound to the server it was made for, kept for the MCP sign-in time
-//   (`mcpSignInMinutes`, SPI-1366), then deleted at the next start if no redirect came back for it.
+//   (`MCP_SIGN_IN_MINUTES`, SPI-1366, SPI-1387), then deleted at the next start if no redirect came back for it.
 // - PKCE (S256) always; the verifier never leaves this object but to the MCP Worker for the exchange.
 // - RFC 9207: an `iss` that differs from the authorization server's issuer is refused, and a server that says it sends
 //   `iss` must send it.
 // - Refresh: one in flight per server; a refreshed token replaces the old one at once (rotating refresh tokens).
-import { DEFAULT_MCP_SIGN_IN_MINUTES } from "@t3flare/harness-registry";
+import { MCP_SIGN_IN_MINUTES } from "@t3flare/harness-registry";
 
 import type { HarnessSecrets } from "./secrets.ts";
 import type { KvStorage } from "./keys.ts";
@@ -24,8 +24,15 @@ export const OAUTH_CLIENT_PATH = "/t3flare/oauth/client.json";
  */
 export const OAUTH_PUBLIC_PATHS: ReadonlySet<string> = new Set([OAUTH_CALLBACK_PATH, OAUTH_CLIENT_PATH]);
 
-/** How long a state lasts when no setting reaches (`mcpSignInMinutes`' default, SPI-1366). */
-export const STATE_TTL_MS = DEFAULT_MCP_SIGN_IN_MINUTES * 60_000;
+/** How long a started sign-in's state lasts: `MCP_SIGN_IN_MINUTES` (SPI-1366, SPI-1387). */
+export const STATE_TTL_MS = MCP_SIGN_IN_MINUTES * 60_000;
+
+/**
+ * What a redirect to a sign-in that is gone answers (SPI-1387, ADR-0049 §4): its window, t3flare's fixed limit, and its
+ * value; a sign-in used once is gone too.
+ */
+export const signInGone = (ttlMs: number): string =>
+  `This sign-in expired (a sign-in expires ${(ttlMs / 60_000).toLocaleString("en-US")} minutes after it starts, t3flare's fixed limit) or was already used; start it again from the Settings page.`;
 /** A token is refreshed this long before it expires. */
 export const REFRESH_MARGIN_MS = 60_000;
 
@@ -124,12 +131,12 @@ export interface OAuthDeps {
   /** The t3 host (the Environment's public host), read when used. */
   readonly host: () => string;
   readonly now?: () => number;
-  /** How long a started sign-in's state lasts, read at each start (`mcpSignInMinutes`, SPI-1366); `STATE_TTL_MS` absent. */
+  /** How long a started sign-in's state lasts, read at each start; `STATE_TTL_MS` absent (a test passes its own). */
   readonly stateTtlMs?: () => number;
   /**
-   * Each request of a sign-in or a refresh, in the MCP Worker (`outsideRequestSeconds`, SPI-1363), read at each call: a
-   * hung authorization server fails it, and every call waiting on that refresh, after this long. Absent: the Worker's
-   * default, that setting's.
+   * Each request of a sign-in or a refresh, in the MCP Worker (`OUTSIDE_REQUEST_MS`, SPI-1363, SPI-1387), read at each
+   * call: a hung authorization server fails it, and every call waiting on that refresh, after this long. Absent: the
+   * Worker's own default.
    */
   readonly requestMs?: () => number;
   readonly audit?: (entry: { readonly action: string; readonly target: string; readonly after?: unknown }) => void;
@@ -187,7 +194,7 @@ export class HarnessOAuth {
     );
   }
 
-  /** Each MCP Worker request's bound now (`outsideRequestSeconds`), as the call's `timeoutMs`; none when not given. */
+  /** Each MCP Worker request's bound now (`OUTSIDE_REQUEST_MS`), as the call's `timeoutMs`; none when not given. */
   #timeout(): { readonly timeoutMs?: number } {
     const ms = this.#deps.requestMs?.();
     return ms === undefined ? {} : { timeoutMs: ms };
@@ -293,11 +300,7 @@ export class HarnessOAuth {
       this.#deps.kv.put(STATES_KEY, rest);
     }
     if (pending === undefined || pending.expiresAt < this.#now())
-      return page(
-        400,
-        "Sign-in refused",
-        "This sign-in expired or was already used; start it again from the Settings page.",
-      );
+      return page(400, "Sign-in refused", signInGone(this.#deps.stateTtlMs?.() ?? STATE_TTL_MS));
     const error = url.searchParams.get("error");
     if (error !== null) {
       this.#deps.audit?.({

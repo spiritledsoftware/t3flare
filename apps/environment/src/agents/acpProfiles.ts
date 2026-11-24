@@ -208,7 +208,7 @@ export const claudeModeOf = (relay: ClaudeRelay): ClaudeMode => {
 };
 
 /** The variables Claude Code gets from both its launch environment and the managed `env` (M0 P1, P3). */
-const claudeSwitches = (mode: ClaudeMode, retries: number): Record<string, string> => ({
+const claudeSwitches = (mode: ClaudeMode): Record<string, string> => ({
   ANTHROPIC_BASE_URL: mode.baseUrl,
   ...mode.aliases,
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
@@ -219,8 +219,7 @@ const claudeSwitches = (mode: ClaudeMode, retries: number): Record<string, strin
   DISABLE_FEEDBACK_COMMAND: "1",
   CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY: "1",
   CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL: "1",
-  // The Environment's `cliRetries` (SPI-1367).
-  CLAUDE_CODE_MAX_RETRIES: String(retries),
+  // Its retries are Claude Code's own default (SPI-1387).
   // M0 P1: the scrub isolates Bash with bubblewrap and leaves empty decoy files (package.json, .gitmodules, .env*) in
   // the repo. Off; the handle is kept out of the environment instead (the launcher).
   CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0",
@@ -235,20 +234,20 @@ const relayNames = (context: ProfileContext): ReadonlyArray<string> =>
  * asking mode the flavor pins (`acpFlavor.ts`). `relayServers`: the MCP relay's servers (ADR-0028; the entries
  * themselves, with the process's handle, come per session over ACP, review H2), allowed without Claude's own prompt
  * because the relay decides and asks. The repository's `.claude/` is honoured for everything else. `mode`: the model
- * relay's (SPI-1168, `claudeModeOf`). `retries` and `sessionDays`: the spawn's settings (`spawnSettingsOf`, SPI-1367),
- * Claude Code's retries and how many days it keeps a session it no longer writes to; with `sessionDays` off (0,
- * SPI-1386), Claude Code's own cleanup (`cleanupPeriodDays` unset: 30 days, its least 1).
+ * relay's (SPI-1168, `claudeModeOf`). `sessionDays`: the spawn's setting (`spawnSettingsOf`, SPI-1367), how many days
+ * Claude Code keeps a session it no longer writes to; with `sessionDays` off (0, SPI-1386), Claude Code's own cleanup
+ * (`cleanupPeriodDays` unset: 30 days, its least 1).
  */
 export const claudeManagedSettings = (
   mode: ClaudeMode,
   relayServers: ReadonlyArray<string>,
-  { retries, sessionDays }: SpawnSettings,
+  { sessionDays }: SpawnSettings,
 ) => ({
   apiKeyHelper: mode.keyHelper,
   // Review F3: only the endpoint the managed env pins is admitted.
   allowedProviders: ["customEndpoint"],
   availableModels: [...mode.availableModels],
-  env: { ...Object.fromEntries(CLAUDE_PINNED_EMPTY.map((name) => [name, ""])), ...claudeSwitches(mode, retries) },
+  env: { ...Object.fromEntries(CLAUDE_PINNED_EMPTY.map((name) => [name, ""])), ...claudeSwitches(mode) },
   skipWebFetchPreflight: true,
   disableClaudeAiConnectors: true,
   // Claude Code deletes, at its start, sessions not written to for this many days; unset, its own default.
@@ -284,7 +283,7 @@ const claudeLaunch = (input: LaunchInput, context: ProfileContext): LaunchAnswer
       CLAUDE_CODE_EXECUTABLE: CLAUDE_EXECUTABLE,
       // Ask the helper at start and after a 401, not every 5 minutes (M0 P1; the handle lasts the process's life).
       CLAUDE_CODE_API_KEY_HELPER_TTL_MS: String(24 * 3_600_000),
-      ...claudeSwitches(mode, spawn.retries),
+      ...claudeSwitches(mode),
     },
     // ADR-0047 §9: the Owner's ~/.claude and ~/.claude.json first. The managed settings stay outside it, on top.
     ...dotfilesLaunch("claude", home, context.dotfiles),

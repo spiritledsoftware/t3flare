@@ -196,7 +196,7 @@ hour's retry) and §6 (the Builder does not see a restore).
   builds. The Owner's own "Rebuild every" interval is not clamped. `rebuildEveryDays`' description states the
   consequence: with such settings rebuilds follow one another, and a failed one can outlast the snapshot. ADR-0048's
   consequence of a slow build outlasting the last good Base snapshot holds there.
-- **The retry is a setting**, `baseRetryMinutes` (60 by default, 1 to `MAX_TIMED_MINUTES`, tier `up-free`, in the
+- **The retry is a setting**, `baseRetryMinutes` (superseded by the SPI-1387 refinement: a fixed 60 minutes) (60 by default, 1 to `MAX_TIMED_MINUTES`, tier `up-free`, in the
   Image setup's row): a failing key's first retry, doubling, at most a day or the setting itself when that is longer.
   Some backoff is needed: without it a failing key's next trigger would build at once, a loop of Builder Containers.
 
@@ -207,3 +207,10 @@ The 256 KiB per script is superseded: it was not derived from the 8 MB value it 
 against the value whole ([ADR-0032](0032-environment-settings-and-harness-settings-are-separate-entities-edited-on-one-owner-page.md)'s
 SPI-1365 refinement). The Settings server's body limit follows, so a setup at its maximum can be sent, and a Test base
 build's proposal takes the same bound.
+
+## Refinement (SPI-1387, 2026-11-24): the Builder's size, the retry and the output kept are fixed
+
+Supersedes §9's Builder size and the SPI-1359 refinement's retry setting. The Builder's Container runs at the Container
+size (custom included): the Builder size, which defaulted to it, is removed, and a stored one is ignored. The Base build
+retry is `BASE_RETRY_MINUTES` (60), doubling to a day, and a retry still comes at every start that finds no Base
+snapshot. The output a report keeps is `SETUP_OUTPUT_KIB` (32 KiB); a report kept larger before reads as it was.
