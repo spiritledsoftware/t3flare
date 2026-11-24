@@ -1238,7 +1238,7 @@ export const ENVIRONMENT_SETTINGS = {
   },
   mcpConnectSeconds: {
     title: "MCP server connect time limit (seconds)",
-    description: `How long t3flare waits for an MCP server to answer the first requests of each connection (its probe and \`initialize\`), for a call, a discovery or a test. Past it the server is reported unreachable; a longer limit holds a dead server's calls and discovery that long. At most ${MAX_TIMED_SECONDS} (a week). Applies at the next connection.`,
+    description: `How long t3flare waits for an MCP server to answer the first requests of each connection (its probe and its initialize), for a call, a discovery or a test. Past it the server is reported unreachable; a longer limit holds a dead server's calls and discovery that long. At most ${MAX_TIMED_SECONDS} (a week). Applies at the next connection.`,
     // The MCP engine times it with the SDK's own timer, no platform limit: the shared sanity maximum applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_SECONDS, default: DEFAULT_MCP_CONNECT_SECONDS },
     tier: "down-free",
