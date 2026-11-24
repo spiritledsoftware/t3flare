@@ -252,7 +252,7 @@ export const parkedDecisionOf = (kind: ParkedCard["kind"], reply: string): Parke
 };
 
 /** The answer turn's text (SPI-1389): what the Owner answered, and what the agent repeats. */
-const answerTurnText = (
+export const answerTurnText = (
   card: ParkedCard,
   decision: ParkedDecision,
   reply: string,

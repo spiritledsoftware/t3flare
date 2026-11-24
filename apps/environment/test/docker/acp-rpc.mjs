@@ -6,6 +6,10 @@
 // `turns` (SPI-1169): prompts in the same session after the first, each on its own model (`{model, prompt, config?}`,
 // `config` other config options to set first); their stop
 // reasons and errors in `summary.turns`.
+// SPI-1389: `mcpServers` goes into `session/new` as t3's adapter sends the relay's entries; `permission: "cancel"`
+// answers the agent's permission requests as a parked turn does (else the first allow-once option); each request's tool
+// call (title, kind, raw input) is in `summary.permissions`; `prompts` are more prompts in the same session, on its
+// model.
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 
@@ -25,6 +29,7 @@ const summary = {
   toolCalls: [],
   toolResults: [],
   requests: {},
+  permissions: [],
 };
 let nextId = 1;
 const pending = new Map();
@@ -63,8 +68,17 @@ child.stdout.on("data", (chunk) => {
     } else if (msg.id !== undefined) {
       summary.requests[msg.method] = (summary.requests[msg.method] ?? 0) + 1;
       if (msg.method === "session/request_permission") {
+        const toolCall = msg.params?.toolCall ?? {};
+        summary.permissions.push({
+          title: toolCall.title ?? null,
+          kind: toolCall.kind ?? null,
+          rawInput: toolCall.rawInput ?? null,
+        });
         const option =
-          (msg.params?.options ?? []).find((candidate) => candidate.kind === "allow_once") ?? msg.params?.options?.[0];
+          scenario.permission === "cancel"
+            ? undefined
+            : ((msg.params?.options ?? []).find((candidate) => candidate.kind === "allow_once") ??
+              msg.params?.options?.[0]);
         send({
           jsonrpc: "2.0",
           id: msg.id,
@@ -112,7 +126,7 @@ try {
     agentInfo: result?.agentInfo ?? null,
     protocolVersion: result?.protocolVersion ?? null,
   }));
-  const session = await request("session/new", { cwd: scenario.cwd, mcpServers: [] });
+  const session = await request("session/new", { cwd: scenario.cwd, mcpServers: scenario.mcpServers ?? [] });
   summary.sessionId = session?.sessionId ?? null;
   // The models the session offers: ACP v1's model state, or v2's `model` config option.
   const modelOption = (session?.configOptions ?? []).find(
@@ -149,6 +163,14 @@ try {
       sleep(Math.max(deadline - Date.now(), 0)).then(() => ({ stopReason: "probe timeout" })),
     ]);
     summary.stopReason = result?.stopReason ?? null;
+    summary.prompts = [];
+    for (const prompt of scenario.prompts ?? []) {
+      const answer = await Promise.race([
+        request("session/prompt", { sessionId: summary.sessionId, prompt: [{ type: "text", text: prompt }] }),
+        sleep(Math.max(deadline - Date.now(), 0)).then(() => ({ stopReason: "probe timeout" })),
+      ]).catch((error) => ({ stopReason: null, error: error.rpc ?? String(error) }));
+      summary.prompts.push({ stopReason: answer?.stopReason ?? null, error: answer?.error ?? null });
+    }
     summary.turns = [];
     for (const turn of scenario.turns ?? []) {
       const entry = { model: turn.model, stopReason: null, error: null };

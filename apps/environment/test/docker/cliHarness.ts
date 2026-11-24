@@ -1,9 +1,9 @@
-// @effect-diagnostics nodeBuiltinImport:off
+// @effect-diagnostics nodeBuiltinImport:off globalTimers:off
 // test:docker's harness for the skills probes (SPI-1151's `skills.docker.test.ts`, SPI-1153's `envSkills.docker.test.ts`):
 // the image, a stand-in `computer.internal` on an internal network (no model is called), a CLI launched as the Workspace
 // DO launches it (`profileLaunch` → `processCommand`) on a probe Model endpoint through the relay, and the JSON-RPC
 // drivers.
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -99,11 +99,15 @@ const PROBE_MODEL: EndpointModel = {
 const PROBE = { id: "probe", label: "Probe", api: "anthropic-messages" as const, models: [PROBE_MODEL] };
 const PROBE_SLUG = `${PROBE.id}/${PROBE_MODEL.id}`;
 
-/** The profile's launch at the fixture's path; a refusal throws. */
-export const launchOf = (input: Omit<LaunchInput, "allowProbe" | "cwd">): Launch => {
+/** The profile's launch at the fixture's path, with the MCP relay's entries when `relay` names them; a refusal throws. */
+export const launchOf = (
+  input: Omit<LaunchInput, "allowProbe" | "cwd">,
+  relay?: Parameters<typeof profileLaunch>[1]["relay"],
+): Launch => {
   const answer = profileLaunch(
     { ...input, cwd: T3_PATH, allowProbe: false },
     {
+      ...(relay === undefined ? {} : { relay }),
       readStateFile: (file) => (file === EXTENSION ? PI_T3_MCP_EXTENSION_SOURCE : undefined),
       piExtensionSource: PI_T3_MCP_EXTENSION_SOURCE,
       endpoints: [PROBE],
@@ -141,7 +145,21 @@ export const piLaunchOf = (key: string): Launch =>
   });
 
 /** The image built, and the stand-in key host up on its internal network; `stop` removes both containers' network. */
-export const startHarness = (name: string, options: { readonly modelHandle?: string } = {}) => {
+export const startHarness = (
+  name: string,
+  options: {
+    readonly modelHandle?: string;
+    /**
+     * SPI-1389: the test's own MCP relay, as the keyhost reaches the host (`http://host.docker.internal:<port>`): every
+     * `/t3flare/mcp/` request is forwarded to it, and the keyhost (not the CLI) gets a way out to the host.
+     */
+    readonly mcpUpstream?: string;
+    /** SPI-1389: the relayed tool the stand-in model calls (its upstream name), and its arguments. */
+    readonly callTool?: { readonly name: string; readonly args: Readonly<Record<string, unknown>> };
+    /** SPI-1389: Codex's `exec_command` is a shell tool the stand-in model runs (its own approval's test). */
+    readonly codexShell?: boolean;
+  } = {},
+) => {
   const keyhost = `${name}-keyhost`;
   const network = `${name}-int`;
   const stop = () => {
@@ -182,12 +200,26 @@ export const startHarness = (name: string, options: { readonly modelHandle?: str
     "--network-alias",
     "computer.internal",
     ...(options.modelHandle === undefined ? [] : ["-e", `KEYHOST_MODEL_HANDLE=${options.modelHandle}`]),
+    ...(options.mcpUpstream === undefined
+      ? []
+      : ["-e", `KEYHOST_MCP_UPSTREAM=${options.mcpUpstream}`, "--add-host", "host.docker.internal:host-gateway"]),
+    ...(options.codexShell === true ? ["-e", "KEYHOST_CODEX_SHELL=1"] : []),
+    ...(options.callTool === undefined
+      ? []
+      : [
+          "-e",
+          `KEYHOST_CALL_TOOL=${options.callTool.name}`,
+          "-e",
+          `KEYHOST_CALL_ARGS=${JSON.stringify(options.callTool.args)}`,
+        ]),
     "-v",
     `${here}:/k:ro`,
     "node:26.13.0-bookworm-slim",
     "node",
     "/k/keyhost.mjs",
   ]);
+  // The keyhost alone reaches the host (the test's relay); the CLI's network stays internal.
+  if (options.mcpUpstream !== undefined) docker(["network", "connect", "bridge", keyhost]);
   const keyhostIp = docker([
     "inspect",
     "-f",
@@ -265,6 +297,38 @@ export const drive = (driver: string, scenario: unknown, command: ReadonlyArray<
     return { driverFailed: `${result.stdout ?? ""}${result.stderr ?? ""}`.slice(-1500) };
   }
 };
+
+/**
+ * `drive`, without blocking the test's process (SPI-1389): the test's own MCP relay answers the CLI meanwhile. `log`:
+ * where the driver writes every message.
+ */
+export const driveAsync = (
+  driver: string,
+  scenario: unknown,
+  command: ReadonlyArray<string>,
+  log?: string,
+): Promise<any> =>
+  new Promise((resolve) => {
+    const child = spawn("node", [path.join(here, driver), JSON.stringify(scenario), "--", ...command], {
+      stdio: ["ignore", "pipe", "pipe"],
+      // The driver's own log of every message, when the test keeps one.
+      env: log === undefined ? process.env : { ...process.env, LOG: log },
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => (stdout += chunk.toString("utf8")));
+    child.stderr.on("data", (chunk) => (stderr = (stderr + chunk.toString("utf8")).slice(-4000)));
+    const timer = setTimeout(() => child.kill("SIGKILL"), 300_000);
+    child.on("close", () => {
+      clearTimeout(timer);
+      const line = stdout.trim().split("\n").at(-1) ?? "";
+      try {
+        resolve(JSON.parse(line));
+      } catch {
+        resolve({ driverFailed: `${stdout}${stderr}`.slice(-1500) });
+      }
+    });
+  });
 
 /** OpenCode's Skills for the fixture's cwd from its own server's `GET /api/skill` (it lists none over ACP), with the profile's environment and system configuration. */
 export const openCodeServedSkills = (
