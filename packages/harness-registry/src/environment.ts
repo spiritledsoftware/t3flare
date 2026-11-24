@@ -456,12 +456,16 @@ export const MCP_CALL_SETTING_KEYS = [
   "mcpCallSeconds",
   "mcpResultKiB",
   "mcpPausesPerCall",
-  "mcpConnectSeconds",
-  "mcpListSeconds",
-  "mcpLogEntries",
   "cliMcpStartSeconds",
   "mcpSignInMinutes",
 ] as const;
+
+/**
+ * The MCP servers' settings (SPI-1363): how long a connection may take to start and one listing, and how many of a
+ * server's logs a call keeps. Read as each call's target is made, never at a Container start, so the Settings page shows
+ * them in an MCP servers row of their own, after the MCP calls row.
+ */
+export const MCP_SERVER_SETTING_KEYS = ["mcpConnectSeconds", "mcpListSeconds", "mcpLogEntries"] as const;
 
 /**
  * The outside requests' setting (SPI-1365): how long one request to GitHub or a sign-in's vendor may wait. It bounds the
@@ -1266,7 +1270,7 @@ export const ENVIRONMENT_SETTINGS = {
   },
   mcpSignInMinutes: {
     title: "MCP server sign-in time (minutes)",
-    description: `How long an MCP server's OAuth sign-in may take, from its start on this page to the server's redirect back; a later redirect is refused and the sign-in must start again. Each started sign-in is kept, sealed, this long, then deleted. At most ${MAX_TIMED_MINUTES} (a week). Applies to sign-ins started after the change.`,
+    description: `How long an MCP server's OAuth sign-in may take, from its start on this page to the server's redirect back; a later redirect is refused and the sign-in must start again. Each request within it is held to the Outside request time limit. Each started sign-in is kept, sealed, this long, then deleted. At most ${MAX_TIMED_MINUTES} (a week). Applies to sign-ins started after the change.`,
     // t3flare's own expiry, no platform limit: the shared sanity maximum applies (ADR-0048 §2).
     schema: { type: "integer", minimum: 1, maximum: MAX_TIMED_MINUTES, default: DEFAULT_MCP_SIGN_IN_MINUTES },
     tier: "down-free",

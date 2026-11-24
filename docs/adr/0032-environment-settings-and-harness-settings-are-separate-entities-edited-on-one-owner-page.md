@@ -693,7 +693,8 @@ the review panel's diff).
 
 The MCP engine's, the MCP Worker's and the MCP host's fixed values were each removed, derived, or made a setting.
 
-New Environment settings in the MCP calls row, each with today's value as its default, read as each call's target is
+New Environment settings in an MCP servers row of their own, after the MCP calls row (`MCP_SERVER_SETTING_KEYS`), each
+with today's value as its default, read as each call's target is
 made, and `down-free` (longer holds a dead or slow server longer; more logs take more of the MCP Worker's memory):
 
 | Setting             | Default | Maximum                                     | What it bounds                                             |

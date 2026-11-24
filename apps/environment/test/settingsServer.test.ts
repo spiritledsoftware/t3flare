@@ -288,7 +288,7 @@ describe("the Settings server's card for a free change", () => {
     expect(structured(smaller)).toMatchObject({
       status: "applied",
       appliesAt:
-        "Applies at the next MCP call; the connect and listing time limits at the next connection and discovery; a CLI agent's own tool timeout and MCP start wait at its next start; the sign-in time to sign-ins started after it.",
+        "Applies at the next MCP call; a CLI agent's own tool timeout and MCP start wait at its next start; the sign-in time to sign-ins started after it.",
     });
     for (const card of run.cards) expect(card.prompt).not.toContain("Container next starts");
     expect(SETTINGS_TOOLS.find((tool) => tool.name === "change_environment")!.description).toContain(

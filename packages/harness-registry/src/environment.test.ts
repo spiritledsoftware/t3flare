@@ -38,6 +38,7 @@ import {
   resolveEnvironment,
   RETENTION_SETTING_KEYS,
   MCP_CALL_SETTING_KEYS,
+  MCP_SERVER_SETTING_KEYS,
   MAX_MCP_RESULT_KIB,
   MAX_MCP_LOG_ENTRIES,
   DEFAULT_MCP_CALL_MS,
@@ -747,8 +748,9 @@ describe("the MCP layer's connect and listing time limits and its logs per call 
     expect(MAX_TIMED_SECONDS * 1000).toBeLessThan(2 ** 31 - 1);
   });
 
-  it("are in the MCP calls row", () => {
-    for (const key of KEYS) expect(MCP_CALL_SETTING_KEYS).toContain(key);
+  it("are in an MCP servers row of their own, apart from the MCP calls row", () => {
+    expect(MCP_SERVER_SETTING_KEYS).toEqual(KEYS);
+    for (const key of KEYS) expect(MCP_CALL_SETTING_KEYS).not.toContain(key);
   });
 });
 

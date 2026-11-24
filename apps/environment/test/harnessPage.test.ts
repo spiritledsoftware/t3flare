@@ -759,15 +759,11 @@ describe("the Environment section's dotfiles", () => {
     expect(history).toBeGreaterThan(start);
     const row = section.slice(start, section.indexOf('<div class="row">', start));
     const inputs = tagsOf(row).filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined);
-    // SPI-1366: the pauses answered, the CLI's MCP start wait and the sign-in time join them; SPI-1363: the connect and
-    // listing time limits and the logs kept per call.
+    // SPI-1366: the pauses answered, the CLI's MCP start wait and the sign-in time join them.
     expect(inputs.map((tag) => tag.attrs["data-setting"])).toEqual([
       "mcpCallSeconds",
       "mcpResultKiB",
       "mcpPausesPerCall",
-      "mcpConnectSeconds",
-      "mcpListSeconds",
-      "mcpLogEntries",
       "cliMcpStartSeconds",
       "mcpSignInMinutes",
     ]);
@@ -775,9 +771,6 @@ describe("the Environment section's dotfiles", () => {
       { type: "number", min: "1", max: "604800", value: "270" },
       { type: "number", min: "1", max: "8192", value: "1024" },
       { type: "number", min: "1", max: "10000", value: "16" },
-      { type: "number", min: "1", max: "604800", value: "15" },
-      { type: "number", min: "1", max: "604800", value: "120" },
-      { type: "number", min: "1", max: "500", value: "50" },
       { type: "number", min: "1", max: "604800", value: "20" },
       { type: "number", min: "1", max: "10080", value: "10" },
     ]);
@@ -786,6 +779,29 @@ describe("the Environment section's dotfiles", () => {
       (tag) => tag.attrs.role === "group" && tag.attrs["aria-labelledby"] === "environment-mcp-calls-title",
     );
     expect(group?.attrs["aria-describedby"]).toBe("environment-mcp-calls-desc");
+  });
+
+  it("draws the MCP servers' connect and listing time limits and logs kept in an MCP servers row after the MCP calls row (SPI-1363)", () => {
+    const page = renderPage(fixturePage());
+    const section = sectionOf(page);
+    const calls = section.indexOf('<h3 id="environment-mcp-calls-title">MCP calls</h3>');
+    const start = section.indexOf('<h3 id="environment-mcp-servers-title">MCP servers</h3>');
+    expect(calls).toBeGreaterThan(-1);
+    expect(start).toBeGreaterThan(calls);
+    const row = section.slice(start, section.indexOf('<div class="row">', start));
+    const inputs = tagsOf(row).filter((tag) => tag.name === "input" && tag.attrs["data-setting"] !== undefined);
+    expect(inputs.map((tag) => tag.attrs["data-setting"])).toEqual([
+      "mcpConnectSeconds",
+      "mcpListSeconds",
+      "mcpLogEntries",
+    ]);
+    expect(inputs.map((tag) => tag.attrs)).toMatchObject([
+      { type: "number", min: "1", max: "604800", value: "15" },
+      { type: "number", min: "1", max: "604800", value: "120" },
+      { type: "number", min: "1", max: "500", value: "50" },
+    ]);
+    for (const key of ["mcpConnectSeconds", "mcpListSeconds", "mcpLogEntries"])
+      expect(page.split(`data-setting="${key}"`)).toHaveLength(2);
   });
 
   it("draws how long history is kept in a History row after the Agents row, outside the Containers row and the Workspaces section (SPI-1323)", () => {
