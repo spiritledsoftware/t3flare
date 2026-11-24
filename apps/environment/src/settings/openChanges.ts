@@ -42,13 +42,7 @@ export interface ChangeOutcome {
 
 /** A cap's refusal: why, in words for the agent, and the open change it names when one is open. */
 export interface CapRefusal {
-  readonly reason:
-    | "open-thread"
-    | "open-owner"
-    | "declined-repeat"
-    | "strikes"
-    | "applied-cap"
-    | "opened-cap";
+  readonly reason: "open-thread" | "open-owner" | "declined-repeat" | "strikes" | "applied-cap" | "opened-cap";
   readonly text: string;
   readonly changeId?: string;
 }

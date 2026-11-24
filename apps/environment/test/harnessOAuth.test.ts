@@ -76,7 +76,16 @@ const setup = (
     ...(options.requestMs === undefined ? {} : { requestMs: options.requestMs }),
   });
   const stateOf = (url: string) => new URL(url).searchParams.get("state")!;
-  return { oauth, kv, calls, timeouts, secrets, advance: (ms: number) => void (now += ms), stateOf, refreshes: () => refreshes };
+  return {
+    oauth,
+    kv,
+    calls,
+    timeouts,
+    secrets,
+    advance: (ms: number) => void (now += ms),
+    stateOf,
+    refreshes: () => refreshes,
+  };
 };
 
 const callback = (state: string, extra: Record<string, string> = {}) =>

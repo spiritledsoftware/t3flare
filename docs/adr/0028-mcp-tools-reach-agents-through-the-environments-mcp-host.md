@@ -190,4 +190,3 @@ Supersedes the 200 tools and 256 KiB of schemas per server. A server's inventory
 the tool definitions it keeps are at most half of it in stored bytes (`MAX_SCHEMA_BYTES`), the rest left for the tools
 it refuses, its instructions and its other fields. The tools past it are refused by name; their count is the
 server's.
-

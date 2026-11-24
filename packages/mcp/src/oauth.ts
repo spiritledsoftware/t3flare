@@ -285,7 +285,9 @@ export const revokeTokens = async (input: {
   }
 
   if (input.accessToken !== undefined) {
-    results.push(await revoke(endpoint, input.metadata, input.client, "access_token", input.accessToken, input.fetch, timeoutMs));
+    results.push(
+      await revoke(endpoint, input.metadata, input.client, "access_token", input.accessToken, input.fetch, timeoutMs),
+    );
   }
 
   return results;

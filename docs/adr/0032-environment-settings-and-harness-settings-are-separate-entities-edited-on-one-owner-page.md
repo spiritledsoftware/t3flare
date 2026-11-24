@@ -726,4 +726,3 @@ Kept, with their constraints named where they are set: the tool definitions one 
 its one 8 MB Durable Object value in stored bytes (`MAX_SCHEMA_BYTES`), with no count of tools (was 200 tools and 256
 KiB); and the remote-controlled bodies of a sign-in (metadata, discovery, a token response), raised to 1 MiB, the tap's
 bound on any other MCP answer, under the 128 MB isolate they are read into and the 8 MB value they may be kept in.
-

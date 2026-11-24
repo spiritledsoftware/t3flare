@@ -164,8 +164,7 @@ export const safeName = (text: string): string => plainLine(text).replace(/[<>'`
 export const quote = (text: string): string => `'${safeName(text)}'`;
 
 /** A server's message, which may span lines: no control, bidi-override or zero-width characters (newlines kept). */
-export const plainMessage = (text: string): string =>
-  text.replace(UNSAFE_CHARS, "").replace(/\r\n?/g, "\n").trim();
+export const plainMessage = (text: string): string => text.replace(UNSAFE_CHARS, "").replace(/\r\n?/g, "\n").trim();
 
 // ---------------------------------------------------------------------------------------------------------------------
 // The credential rule
@@ -645,12 +644,7 @@ export const normalizeElicitationForm = (requested: Schema.Json | undefined): Re
   }
 
   if (notes.ignored.size > 0) {
-    notes.lines.push(
-      `ignored keywords: ${Arr.join(
-        Arr.map([...notes.ignored], safeName),
-        ", ",
-      )}`,
-    );
+    notes.lines.push(`ignored keywords: ${Arr.join(Arr.map([...notes.ignored], safeName), ", ")}`);
   }
 
   return Result.succeed({ form: { fields }, notes: notes.lines, credential });

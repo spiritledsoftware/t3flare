@@ -79,7 +79,12 @@ describe("the Settings server's entry", () => {
     });
     expect(added.ok).toBe(true);
     expect(
-      applyMcpChange(EMPTY_HARNESS, { op: "add", server: "Bad_Name", url: "https://x.example/mcp", auth: { kind: "none" } }),
+      applyMcpChange(EMPTY_HARNESS, {
+        op: "add",
+        server: "Bad_Name",
+        url: "https://x.example/mcp",
+        auth: { kind: "none" },
+      }),
     ).toEqual({ ok: false, error: "Bad_Name: a name of a-z, 0-9 and -" });
   });
 

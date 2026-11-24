@@ -281,7 +281,12 @@ describe.each(bases)("a hostile %s server", (_name, base) => {
 
   it("waits a list page's Retry-After past the old 10 s; one past the listing's time limit is not waited, and fails", async () => {
     const after = (seconds: string) =>
-      answering(base(), "tools/list", () => new Response(null, { status: 503, headers: { "retry-after": seconds } }), 1);
+      answering(
+        base(),
+        "tools/list",
+        () => new Response(null, { status: 503, headers: { "retry-after": seconds } }),
+        1,
+      );
 
     const within = recordingClock(45_000);
     expect((await attempt(after("30"), within.clock)).listed).toEqual({ tools: ["echo", "shout"] });

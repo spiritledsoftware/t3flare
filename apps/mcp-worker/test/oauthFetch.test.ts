@@ -18,10 +18,13 @@ describe("guardedFetch", () => {
   });
 
   it("ends a request that hangs past the time limit it is given (the Outside request time limit)", async () => {
-    const hung = guardedFetch(((_url: URL, init?: RequestInit) =>
-      new Promise<Response>((_resolve, reject) =>
-        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
-      )) as unknown as typeof fetch, 20);
+    const hung = guardedFetch(
+      ((_url: URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) =>
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
+        )) as unknown as typeof fetch,
+      20,
+    );
     await expect(hung("https://as.example/token")).rejects.toMatchObject({ name: "TimeoutError" });
   });
 });

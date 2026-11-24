@@ -478,7 +478,9 @@ describe("the validator", () => {
 
     const value = "v".repeat(100 * 1024);
 
-    expect(Result.isSuccess(validateElicitation(long, { a: value, b: value, c: value, d: value, e: value }))).toBe(true);
+    expect(Result.isSuccess(validateElicitation(long, { a: value, b: value, c: value, d: value, e: value }))).toBe(
+      true,
+    );
   });
 
   it("says only the names of the fields answered, never a value", () => {

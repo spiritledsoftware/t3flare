@@ -238,9 +238,7 @@ const outgoing = (init: RequestInit | undefined): Outgoing | undefined =>
   Option.match(decodeMessage(init?.body), {
     onNone: () => undefined,
     onSome: ({ id, method }) =>
-      id === undefined || id === null || method === undefined
-        ? undefined
-        : { id, method, policy: policyOf(method) },
+      id === undefined || id === null || method === undefined ? undefined : { id, method, policy: policyOf(method) },
   });
 
 const JsonRpcAnswer = Schema.Struct({

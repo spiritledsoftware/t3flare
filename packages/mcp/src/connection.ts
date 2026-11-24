@@ -1964,9 +1964,7 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
             };
     }
 
-    return sendWith(own, (headers) =>
-      client.callTool(call, headers === undefined ? options : { ...options, headers }),
-    );
+    return sendWith(own, (headers) => client.callTool(call, headers === undefined ? options : { ...options, headers }));
   };
 
   /**
@@ -2496,10 +2494,9 @@ export const connect = Effect.fn("mcp.connect")(function* (target: McpTarget, de
     Effect.gen(function* () {
       sinks.add(onEvent);
 
-      const subscription = yield* request(
-        (client) => client.listen(filterOf(filter), { timeout: callMs }),
-        false,
-      ).pipe(Effect.tapError(() => Effect.sync(() => sinks.delete(onEvent))));
+      const subscription = yield* request((client) => client.listen(filterOf(filter), { timeout: callMs }), false).pipe(
+        Effect.tapError(() => Effect.sync(() => sinks.delete(onEvent))),
+      );
 
       const closed = Effect.promise(() => subscription.closed).pipe(
         Effect.tap(() => Effect.sync(() => sinks.delete(onEvent))),
