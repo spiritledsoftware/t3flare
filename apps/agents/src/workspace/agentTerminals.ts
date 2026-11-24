@@ -11,8 +11,8 @@
 // - the settle wait (`terminal-tools.ts` `settleTerminal`) runs here, in slices, so a wait is a few RPCs, not one per poll;
 // - entries are kept per owner (the Session that started them); ids `t<n>`/`b<n>` count per owner and are never reused;
 // - any number run at once (SPI-1397: no count, as termctrl's 16 and ADR-0021's 8 were memory's); exited ones stay
-//   readable until stopped, as in termctrl, up to `AGENT_EXITED_TERMINALS_KEPT` across the Workspace's Sessions, the
-//   oldest exited forgotten first;
+//   readable until stopped, as in termctrl, up to `AGENT_EXITED_TERMINALS_KEPT` across the Workspace's Sessions,
+//   those whose exit was seen forgotten first (`#bound`);
 // - each running entry's xterm keeps its screen and `AGENT_TERMINAL_SPILL_LINES` above it: what scrolls off goes to the
 //   Workspace DO's SQLite (`./agentScrollback.ts`, up to `AGENT_TERMINAL_HISTORY_BYTES` a Terminal), and reads of it
 //   come from there; an exited one keeps its final screen there too, and holds no xterm;
@@ -43,13 +43,10 @@ import type {
 
 import { DEFAULT_TOOL_OUTPUT_LIMITS, jobTailOf } from "../extensions/toolOutput.ts";
 import type { Scrollback, ScrollbackStore } from "./agentScrollback.ts";
+import { agentTerminalDropped } from "./agentTerminalDropped.ts";
 
-/**
- * What an agent is told when it names an entry the Workspace's exited bound forgot (SPI-1397, ADR-0049 §4): the bound
- * and its value, `AGENT_EXITED_TERMINALS_KEPT`.
- */
-export const agentTerminalDropped = (id: string, logPath: string | undefined): string =>
-  `${id} is no longer kept: a Workspace keeps its last ${AGENT_EXITED_TERMINALS_KEPT} exited Terminals and Background jobs, across its threads, and forgets the oldest past that.${logPath === undefined ? "" : ` Its whole output is still in ${logPath}.`}`;
+export { agentTerminalDropped } from "./agentTerminalDropped.ts";
+
 /** termctrl's settle poll (`terminal-tools.ts`). The quiet that settles a wait is the request's (`termctrl.quietMs`). */
 const POLL_MS = 50;
 /**
@@ -123,7 +120,7 @@ export interface AgentTerminalsDeps {
   /** The Workspace's repo in the Container. */
   readonly repo: string;
   /** Where each entry's scrollback is kept, and which entries the exited bound forgot (SPI-1397): the DO's SQLite. */
-  readonly store: ScrollbackStore;
+  readonly store: ScrollbackStore<ForgottenExit>;
 }
 
 interface Entry {
@@ -135,6 +132,8 @@ interface Entry {
   readonly cwd: string;
   readonly notify: boolean;
   readonly startedAt: number;
+  /** Its screen's rows. */
+  readonly rows: number;
   /** Its xterm while it runs; null once it exited and its final screen is in storage (`final`). */
   term: Terminal | null;
   /** The exited entry's final screen's place and cursor; its rows are in storage (`Scrollback.screen`). */
@@ -357,8 +356,9 @@ export class AgentTerminals {
   /**
    * Past `AGENT_EXITED_TERMINALS_KEPT` exited entries in the Workspace, across its Sessions, one is forgotten (never a
    * running one), and naming it later says why: first those whose exit their owner saw, oldest exit first (then oldest
-   * start); then, when more than that many ended unseen (a Container stop), the oldest unseen, whose exit the owner's
-   * next exit notice or wait still reports, naming the bound.
+   * start); then, whenever more than that many are still unseen, the oldest unseen. Unseen exits gather at once (a
+   * Container stop) or over time (entries that do not notify, a Session that never asks again); the owner's next exit
+   * notice or wait still reports each forgotten one, naming the bound.
    */
   #bound(): void {
     const exited = [...this.#entries.values()].filter((entry) => entry.exit !== null);
@@ -377,10 +377,7 @@ export class AgentTerminals {
 
   /** `owner`'s exits the bound forgot unseen, each taken once; with `notifyOnly`, only those that notify (`exits`). */
   #forgottenExits(owner: string, notifyOnly: boolean): Array<ForgottenExit> {
-    return this.#deps.store.forgotten.takeUnseen(
-      owner,
-      (unseen) => !notifyOnly || (unseen as ForgottenExit).notify,
-    ) as Array<ForgottenExit>;
+    return this.#deps.store.forgotten.takeUnseen(owner, (unseen) => !notifyOnly || unseen.notify);
   }
 
   async handle<R extends AgentTerminalRequest>(request: R): Promise<AgentTerminalResult<R["op"]>> {
@@ -490,6 +487,7 @@ export class AgentTerminals {
       cwd: request.cwd,
       notify: request.notify,
       startedAt: now,
+      rows: request.rows,
       term,
       final: null,
       ...(logPath === undefined ? {} : { logPath }),
@@ -662,7 +660,9 @@ export class AgentTerminals {
   /** The entry's screen: its xterm's, or once it exited, its final one from storage. */
   #screen(entry: Entry): Screen {
     if (entry.term !== null) return this.#screenOf(entry, entry.term);
-    return { screen: entry.scrollback.screen(), ...entry.final! };
+    // Neither: the bound forgot it while a call on it waited.
+    if (entry.final === null) throw new Error(agentTerminalDropped(entry.id, entry.logPath));
+    return { screen: entry.scrollback.screen(), ...entry.final };
   }
 
   #screenOf(entry: Entry, term: Terminal): Screen {
@@ -705,7 +705,7 @@ export class AgentTerminals {
         return lines.filter((line): line is string => line !== null);
       };
       const shown = options.scrolledLines ?? DEFAULT_SCROLLED_LINES;
-      const headLines = shown + (entry.term?.rows ?? screen.split("\n").length);
+      const headLines = shown + entry.rows;
       if (normalTop - start <= headLines + shown) scrolledOff = kept(start, normalTop);
       else {
         const head = kept(start, start + headLines);
@@ -760,7 +760,7 @@ export class AgentTerminals {
 }
 
 /** An exit the bound forgot before its owner saw it: what its next exit notice or wait reports. */
-interface ForgottenExit {
+export interface ForgottenExit {
   readonly info: AgentEntryInfo;
   readonly notify: boolean;
 }

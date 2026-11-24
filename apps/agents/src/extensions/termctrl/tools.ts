@@ -27,6 +27,7 @@ import type {
   AgentView,
 } from "@t3flare/workspace-client";
 
+import { isAgentTerminalDropped } from "../../workspace/agentTerminalDropped.ts";
 import { DEFAULT_TOOL_OUTPUT_LIMITS, jobTailOf, type ToolOutputLimits } from "../toolOutput.ts";
 
 /** The `termctrl` settings the tools read (SPI-1362), and the Tool output limit their results fit. */
@@ -617,12 +618,14 @@ export const terminalWaitTool = (host: TermctrlHost): ToolRegistration =>
             // Only its screen or output shows: no scrolled-off lines are read.
             scrolledLines: 0,
           });
-          // An exit the Workspace no longer keeps answers why (`agentTerminalDropped`, SPI-1397).
+          // An exit the Workspace's bound forgot answers why (`agentTerminalDropped`, SPI-1397).
           return settled.ok
             ? entry.kind === "terminal"
               ? settled.value.view.screen
               : (settled.value.view.output ?? "")
-            : settled.error;
+            : isAgentTerminalDropped(settled.error, entry.id)
+              ? settled.error
+              : "";
         }),
       ).then((all) => exitTails(all, host.limits().output));
       const now = Date.now();

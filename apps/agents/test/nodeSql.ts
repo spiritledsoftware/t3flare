@@ -4,6 +4,7 @@
 import { DatabaseSync } from "node:sqlite";
 
 import { type ScrollbackStore, scrollbackStore } from "../src/workspace/agentScrollback.ts";
+import type { ForgottenExit } from "../src/workspace/agentTerminals.ts";
 
 export const nodeSql = (db: DatabaseSync = new DatabaseSync(":memory:")) => ({
   db,
@@ -19,7 +20,9 @@ export const nodeSql = (db: DatabaseSync = new DatabaseSync(":memory:")) => ({
 });
 
 /** A scrollback store over a fresh in-memory SQLite. */
-export const nodeScrollbackStore = (maxBytes?: number): ScrollbackStore & { readonly db: DatabaseSync } => {
+export const nodeScrollbackStore = <U = ForgottenExit>(
+  maxBytes?: number,
+): ScrollbackStore<U> & { readonly db: DatabaseSync } => {
   const sql = nodeSql();
-  return Object.assign(scrollbackStore(sql, maxBytes), { db: sql.db });
+  return Object.assign(scrollbackStore<U>(sql, maxBytes), { db: sql.db });
 };

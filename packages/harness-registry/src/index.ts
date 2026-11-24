@@ -186,7 +186,7 @@ export const DEFAULT_TERMINAL_ROWS = 40;
  * default 40 rows and the 1,000 lines (320 × 1,040), and 1,777 rows beside them at the default 120 columns
  * (120 × 2,777). Since SPI-1397 the xterm keeps only its screen and `AGENT_TERMINAL_SPILL_LINES` above it, and an
  * exited Terminal none, so at both maxima a live one holds 320 × 1,841 cells, about 7 MB. Both within a PTY's 16-bit
- * size (Linux's `struct winsize`). SPI-1388 makes them fixed constants.
+ * size (Linux's `struct winsize`). The settings and their defaults stay until SPI-1388 makes them fixed constants.
  */
 export const MAX_TERMINAL_COLS = 320;
 export const MAX_TERMINAL_ROWS = 1_777;
@@ -472,16 +472,16 @@ export const EXTENSIONS: ReadonlyArray<ExtensionEntry> = [
       },
       cols: {
         title: "Columns",
-        description: `A Terminal's width in characters. A wider Terminal keeps more of its screen in the Workspace's memory, ${ISOLATE_MEMORY_MB} MB shared with its other Terminals and its files. At most ${MAX_TERMINAL_COLS}, sized for the default rows.`,
-        // A named constraint, provisional (`MAX_TERMINAL_COLS`): the Workspace DO's memory per Terminal.
+        description: `A Terminal's width in characters. A wider Terminal keeps more of its screen in the Workspace's memory, ${ISOLATE_MEMORY_MB} MB shared with its other Terminals and its files. At most ${MAX_TERMINAL_COLS}.`,
+        // A sanity bound, provisional (`MAX_TERMINAL_COLS`): a live Terminal's xterm in the Workspace DO's memory.
         schema: { type: "integer", minimum: 1, maximum: MAX_TERMINAL_COLS, default: DEFAULT_TERMINAL_COLS },
         tier: "free",
         disclosure: "advanced",
       },
       rows: {
         title: "Rows",
-        description: `A Terminal's height in lines. A taller Terminal keeps more of its screen in the Workspace's memory, ${ISOLATE_MEMORY_MB} MB shared with its other Terminals and its files. At most ${MAX_TERMINAL_ROWS.toLocaleString("en-US")}, sized for the default columns.`,
-        // A named constraint, provisional (`MAX_TERMINAL_ROWS`): the Workspace DO's memory per Terminal.
+        description: `A Terminal's height in lines. A taller Terminal keeps more of its screen in the Workspace's memory, ${ISOLATE_MEMORY_MB} MB shared with its other Terminals and its files. At most ${MAX_TERMINAL_ROWS.toLocaleString("en-US")}.`,
+        // A sanity bound, provisional (`MAX_TERMINAL_ROWS`): a live Terminal's xterm in the Workspace DO's memory.
         schema: { type: "integer", minimum: 1, maximum: MAX_TERMINAL_ROWS, default: DEFAULT_TERMINAL_ROWS },
         tier: "free",
         disclosure: "advanced",

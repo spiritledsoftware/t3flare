@@ -169,7 +169,7 @@ import {
 import type { EndpointFailureRecord } from "@t3flare/session-protocol";
 import { ProcessHost, type ProcessMarker } from "./processHost.ts";
 import { scrollbackStore } from "./agentScrollback.ts";
-import { AgentTerminals } from "./agentTerminals.ts";
+import { AgentTerminals, type ForgottenExit } from "./agentTerminals.ts";
 import { workspacePrompts, workspaceSkills } from "./skills.ts";
 import { mountWithFallback, skillSetMount, skillSetStore } from "./skillSet.ts";
 import { keepPriorSkills } from "./skillSetWait.ts";
@@ -743,7 +743,7 @@ export class WorkspaceDO extends ContainerHost {
       holdFirstInput: false,
     });
     // SPI-1397: their scrollback in this object's SQLite. They ended with the last instance, so their rows go.
-    const agentScrollback = scrollbackStore(ctx.storage.sql);
+    const agentScrollback = scrollbackStore<ForgottenExit>(ctx.storage.sql);
     agentScrollback.clear();
     this.#agentTerminals = new AgentTerminals({
       host: this.#agentHost,

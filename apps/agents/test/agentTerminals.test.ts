@@ -15,7 +15,7 @@ import { Terminal } from "@xterm/headless/lib-headless/xterm-headless.mjs";
 
 import { DEFAULT_TERMCTRL_LIMITS, terminalResult } from "../src/extensions/termctrl/tools.ts";
 import type { ScrollbackStore } from "../src/workspace/agentScrollback.ts";
-import { AgentTerminals, agentTerminalDropped, piecesOf } from "../src/workspace/agentTerminals.ts";
+import { AgentTerminals, agentTerminalDropped, type ForgottenExit, piecesOf } from "../src/workspace/agentTerminals.ts";
 import { nodeScrollbackStore } from "./nodeSql.ts";
 
 /** A host whose "programs" answer input as `program` says, pushing frames back as the real host does. */
@@ -26,7 +26,7 @@ const fakeHost = (
     readonly close?: (key: string, exit: (code: number) => void) => KillAnswer | undefined;
     readonly kill?: (key: string, exit: (code: number) => void) => KillAnswer | undefined;
   } = {},
-  store: ScrollbackStore = nodeScrollbackStore(),
+  store: ScrollbackStore<ForgottenExit> = nodeScrollbackStore(),
 ) => {
   const opened: Array<{ key: string; command: string; cwd: string }> = [];
   const closed: Array<string> = [];
@@ -404,7 +404,10 @@ describe("an agent Terminal's scrollback in storage, and the Workspace's exited 
     return lines;
   };
   /** A Terminal at its prompt, then `chunks` of output, each one frame. */
-  const filled = async (chunks: ReadonlyArray<string>, store: ScrollbackStore = nodeScrollbackStore()) => {
+  const filled = async (
+    chunks: ReadonlyArray<string>,
+    store: ScrollbackStore<ForgottenExit> = nodeScrollbackStore(),
+  ) => {
     const host = fakeHost(repl, {}, store);
     const id = await startFor(host.terminals, owner, "terminal");
     await settle(host.terminals, id, { mode: "start" });
@@ -618,36 +621,65 @@ describe("an agent Terminal's scrollback in storage, and the Workspace's exited 
     expect(pieces.every((piece) => !piece.endsWith("\x1b"))).toBe(true);
   });
 
-  it("reads a Background job's tail within its budget past millions of blank lines", { timeout: 240_000 }, async () => {
+  it("reads back within its budget past two million blank lines, in a heap that stays flat", () => {
     v8.setFlagsFromString("--expose-gc");
     const gc = vm.runInNewContext("gc") as () => void;
     const MiB = 1024 * 1024;
+    const scrollback = nodeScrollbackStore().open("k");
+    // `yes ''` past the 8 MiB kept would be 8.4 million; two million is 2 MB of stored rows, 31 rows of them.
+    scrollback.append(0, "done");
+    for (let line = 1; line <= 2_000_000; line++) scrollback.append(line, "");
+    gc();
+    const before = process.memoryUsage().heapUsed;
+    const back = scrollback.readBack({ lines: 2_000, bytes: 64 * 1024 }, true);
+    const grown = process.memoryUsage().heapUsed - before;
+    expect(back).toEqual({ from: scrollback.end - 2_000, lines: [], blank: 2_000 });
+    // One 64 KiB row split into its 65,536 lines at most, never the two million.
+    expect(grown, `heap grown by one read back: ${(grown / MiB).toFixed(1)} MiB`).toBeLessThan(8 * MiB);
+    // A budget that reaches the line before them finds it, the blank ones counted against it.
+    const wide = scrollback.readBack({ lines: 3_000_000, bytes: 4 * MiB }, true);
+    expect(wide.lines).toEqual(["done"]);
+    expect(wide.blank).toBe(2_000_000);
+  });
+
+  it("says a Background job's tail is blank when blank lines alone spend its budget", async () => {
     const host = fakeHost(repl);
     const id = await startFor(host.terminals, owner, "background_job");
     const key = host.opened[0]!.key;
-    // `yes ''`: two million empty lines, 2 MB of stored rows of them.
-    const frame = "\r\n".repeat(16_384);
-    for (let sent = 0; sent < 2_000_000; sent += 16_384) {
-      fakeEmit(host.terminals, key, frame);
-      if (sent % 500_000 < 16_384) await look(host.terminals, id, 0, { lines: 10, bytes: 1024 });
-    }
-    // Parsed and stored before the measure.
-    await look(host.terminals, id, 0, { lines: 10, bytes: 1024 });
-    gc();
-    const before = process.memoryUsage().heapUsed;
-    let peak = before;
-    const sampler = setInterval(() => (peak = Math.max(peak, process.memoryUsage().heapUsed)), 1);
+    await settle(host.terminals, id, { mode: "start" });
+    // Just over one 64 KiB row of empty lines, after the job's own two.
+    fakeEmit(host.terminals, key, "\r\n".repeat(70_000));
     const view = await look(host.terminals, id, 0, { lines: 2_000, bytes: 64 * 1024 });
-    clearInterval(sampler);
-    peak = Math.max(peak, process.memoryUsage().heapUsed);
     expect(view.output).toBe("[The last 2,000 lines of output are blank; earlier output was not read.]");
-    expect(peak - before, `heap grown by one tail: ${((peak - before) / MiB).toFixed(1)} MiB`).toBeLessThan(16 * MiB);
-    // Output among them shows once it is within the budget: the lines before it as they were, the blank ones after left out.
-    fakeEmit(host.terminals, key, "done\r\n" + "\r\n".repeat(10));
-    const done = await look(host.terminals, id, 0, { lines: 2_000, bytes: 64 * 1024 });
-    // The trailing blank lines passed over count against the same 2,000 read.
-    expect(done.output?.endsWith("\n\ndone")).toBe(true);
-    expect(done.output!.split("\n").length).toBeLessThanOrEqual(2_000);
+    const within = await look(host.terminals, id, 0, { lines: 100_000, bytes: 1024 * 1024 });
+    expect(within.output).toBe("job line 1\njob line 2");
+  });
+
+  it("answers a call on an entry the bound forgot while it waited with the bound", async () => {
+    const { terminals, opened } = fakeHost(repl);
+    const ids: Array<string> = [];
+    for (let index = 0; index <= AGENT_EXITED_TERMINALS_KEPT; index++)
+      ids.push(await startFor(terminals, owner, "terminal"));
+    terminals.frames([{ key: opened[0]!.key, seq: 0, exit: { code: 0 } }]);
+    const waiting = look(terminals, ids[0]!);
+    // The rest exit before it is answered: the first, the oldest unseen, goes.
+    terminals.frames(opened.slice(1).map((open) => ({ key: open.key, seq: 0, exit: { code: 0 } })));
+    await expect(waiting).rejects.toThrow(agentTerminalDropped(ids[0]!, undefined));
+  });
+
+  it("keeps the newest 128 forgotten keys, and deletes an unseen exit's row once it is reported", () => {
+    const store = nodeScrollbackStore<{ readonly id: string }>();
+    for (let index = 0; index < 300; index++) store.forgotten.add(`a\u0000t${index}`, "a", null);
+    store.forgotten.add("a\u0000b1", "a", { id: "b1" });
+    expect(store.forgotten.has("a\u0000t171")).toBe(false);
+    expect(store.forgotten.has("a\u0000t172")).toBe(true);
+    expect(store.forgotten.has("a\u0000t299")).toBe(true);
+    expect(store.forgotten.takeUnseen("b", () => true)).toEqual([]);
+    expect(store.forgotten.takeUnseen("a", () => false)).toEqual([]);
+    expect(store.forgotten.takeUnseen("a", () => true)).toEqual([{ id: "b1" }]);
+    expect(store.forgotten.has("a\u0000b1")).toBe(false);
+    const count = store.db.prepare("SELECT count(*) AS n FROM t3flare_agent_forgotten").get() as { n: number };
+    expect(count.n).toBe(128);
   });
 
   it("keeps the Workspace DO's memory flat as a Terminal's scrollback grows", { timeout: 120_000 }, async () => {

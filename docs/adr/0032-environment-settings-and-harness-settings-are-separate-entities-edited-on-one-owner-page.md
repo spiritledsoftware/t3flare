@@ -996,7 +996,7 @@ Background job kept a headless xterm with its whole scrollback in the Workspace 
 
 - **Scrollback in storage.** Each xterm keeps its screen and `AGENT_TERMINAL_SPILL_LINES` (64, provisional) above it.
   Output is parsed in pieces that scroll less than that, and what each piece scrolled off goes to the Workspace DO's
-  SQLite (`apps/agents/src/workspace/agentScrollback.ts`) in rows of about 64 KiB, well within a row's 8 MiB. Reads of
+  SQLite (`apps/agents/src/workspace/agentScrollback.ts`) in rows of about 64 KiB, well within a row's 8 MB. Reads of
   what scrolled off come from there; a settle or a stop names `scrolledLines`, the most its result shows, so only those
   lines from each end are read, and a request from before it reads termctrl's default 100 from each end. A Background
   job's tail reads back only what its tail can show, passing over trailing blank lines within that same budget and
@@ -1010,10 +1010,12 @@ Background job kept a headless xterm with its whole scrollback in the Workspace 
   SPI-1391: the refusal at the count is gone.
 - **128 exited a Workspace.** Exited entries are bounded across the Workspace's Sessions, not per Session:
   `AGENT_EXITED_TERMINALS_KEPT`, 128 (stock t3's exited Terminals kept, the Owner's value). Past it one is forgotten,
-  never a running one: first those whose exit their owner saw, the earliest exit first; only when more than 128 ended
-  unseen at once (a Container stop) the earliest unseen, whose exit the owner's next exit notice or wait still reports
-  once, naming the bound. An agent naming a forgotten one is told the bound and its value, and a Background job's log
-  path.
+  never a running one: first those whose exit their owner saw, the earliest exit first; then, whenever more than 128
+  exited are still unseen, the earliest unseen. Unseen exits gather at once (a Container stop) or over time (entries
+  started without notification, a Session that never asks again); the owner's next exit notice or wait still reports
+  each forgotten one once, naming the bound, and then its row goes; a Session's unreported ones go with the rest when
+  the Workspace DO restarts. An agent naming one of the newest 128 forgotten (the keys kept beside those unreported) is
+  told the bound and its value, and a Background job's log path.
 - **Rows go with their Terminal.** A stop or the bound deletes the entry's rows; a Workspace DO start deletes every row,
   since its Terminals ended with the last instance.
 - **The Terminal size maxima stay.** `termctrl.cols` and `termctrl.rows` keep 320 and 1,777, now fixed values: a

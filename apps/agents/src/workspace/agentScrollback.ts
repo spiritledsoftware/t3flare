@@ -8,9 +8,10 @@
 //   dropped, oldest first, and a read of them finds them missing.
 // - A Terminal's rows are deleted when it is forgotten, and every row when the Workspace DO starts: its Terminals end
 //   with the object.
-// - The entries the Workspace's exited bound forgot are kept here too, by key, so an agent naming one is told why, and
-//   one whose exit its owner had not seen yet is still reported once.
-import { AGENT_TERMINAL_HISTORY_BYTES } from "@t3flare/harness-registry";
+// - The entries the Workspace's exited bound forgot are kept here too, by key, so an agent naming one is told why: the
+//   newest `AGENT_EXITED_TERMINALS_KEPT` of them. One whose exit its owner had not seen is kept until its owner's next
+//   exit notice or wait reports it once, then deleted.
+import { AGENT_EXITED_TERMINALS_KEPT, AGENT_TERMINAL_HISTORY_BYTES } from "@t3flare/harness-registry";
 
 /** The part of `SqlStorage` this uses. */
 export interface ScrollbackSql {
@@ -38,6 +39,7 @@ const SCHEMAS = [
   owner TEXT NOT NULL,
   unseen TEXT
 )`,
+  `CREATE INDEX IF NOT EXISTS ${FORGOTTEN}_owner ON ${FORGOTTEN} (owner)`,
 ];
 
 /**
@@ -97,41 +99,46 @@ export interface Scrollback {
   drop(): void;
 }
 
-/** What the exited bound forgot of an entry its owner had not seen the exit of: enough to report it once. */
-export type Unseen = object;
-
-export interface ScrollbackStore {
+/** `U`: what the exited bound keeps of an entry whose exit its owner had not seen, to report it once (JSON). */
+export interface ScrollbackStore<U> {
   /** A new Terminal's scrollback, under `key` (unique within this object's life). */
   open(key: string): Scrollback;
   /** Entries the exited bound forgot, by key; `unseen`: one whose exit its owner had not seen, to report once. */
   readonly forgotten: {
-    add(key: string, owner: string, unseen: Unseen | null): void;
+    add(key: string, owner: string, unseen: U | null): void;
     has(key: string): boolean;
-    /** `owner`'s forgotten unseen exits that `take` accepts, oldest first, each answered once. */
-    takeUnseen(owner: string, take: (unseen: Unseen) => boolean): Array<Unseen>;
+    /** `owner`'s forgotten unseen exits that `take` accepts, oldest first, each answered once and then deleted. */
+    takeUnseen(owner: string, take: (unseen: U) => boolean): Array<U>;
   };
   /** Deletes every Terminal's rows and the forgotten keys (the object started: its Terminals ended with the last one). */
   clear(): void;
 }
 
 /** `maxBytes`: the most each Terminal keeps (`AGENT_TERMINAL_HISTORY_BYTES`); tests pass less. */
-export const scrollbackStore = (
+export const scrollbackStore = <U>(
   sql: ScrollbackSql,
   maxBytes: number = AGENT_TERMINAL_HISTORY_BYTES,
-): ScrollbackStore => {
+): ScrollbackStore<U> => {
   for (const schema of SCHEMAS) sql.exec(schema);
   return {
     clear: () => {
       for (const table of [LINES, SCREENS, FORGOTTEN]) sql.exec(`DELETE FROM ${table}`);
     },
     forgotten: {
-      add: (key, owner, unseen) =>
-        void sql.exec(
+      add: (key, owner, unseen) => {
+        sql.exec(
           `INSERT OR REPLACE INTO ${FORGOTTEN} (entry, owner, unseen) VALUES (?, ?, ?)`,
           key,
           owner,
           unseen === null ? null : JSON.stringify(unseen),
-        ),
+        );
+        // Keys only (no unseen exit to report): the newest that many, as many as the bound keeps exited entries.
+        sql.exec(
+          `DELETE FROM ${FORGOTTEN} WHERE unseen IS NULL AND rowid NOT IN
+            (SELECT rowid FROM ${FORGOTTEN} WHERE unseen IS NULL ORDER BY rowid DESC LIMIT ?)`,
+          AGENT_EXITED_TERMINALS_KEPT,
+        );
+      },
       has: (key) => sql.exec(`SELECT 1 AS one FROM ${FORGOTTEN} WHERE entry = ?`, key).toArray().length > 0,
       takeUnseen: (owner, take) => {
         const taken = sql
@@ -140,9 +147,10 @@ export const scrollbackStore = (
             owner,
           )
           .toArray()
-          .map((row) => ({ entry: row.entry, unseen: JSON.parse(row.unseen) as Unseen }))
+          .map((row) => ({ entry: row.entry, unseen: JSON.parse(row.unseen) as U }))
           .filter((row) => take(row.unseen));
-        for (const row of taken) sql.exec(`UPDATE ${FORGOTTEN} SET unseen = NULL WHERE entry = ?`, row.entry);
+        // Reported: the report named the bound, so the key goes too.
+        for (const row of taken) sql.exec(`DELETE FROM ${FORGOTTEN} WHERE entry = ?`, row.entry);
         return taken.map((row) => row.unseen);
       },
     },

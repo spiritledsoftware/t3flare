@@ -299,8 +299,9 @@ export const AGENT_TERMINAL_HISTORY_BYTES = 8 * 1024 * 1024;
 
 /**
  * How many exited Terminals and Background jobs one Workspace keeps readable across its Sessions, stock t3's 128 (its
- * exited Terminals kept; SPI-1397, the Owner's value): past it the oldest exited one is forgotten, and an agent naming
- * it is told this bound. Until then each keeps its final screen and scrollback in the Workspace DO's SQLite, no xterm.
+ * exited Terminals kept; SPI-1397, the Owner's value): past it one is forgotten, never a running one: first those whose
+ * exit was already seen, oldest exit first, then those not yet seen, whose exit is still reported once. An agent naming
+ * one is told this bound. Until then each keeps its final screen and scrollback in the Workspace DO's SQLite, no xterm.
  */
 export const AGENT_EXITED_TERMINALS_KEPT = 128;
 
