@@ -5,7 +5,7 @@ import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vitest";
 
 import { diff, makeDifferState, type DifferState, type TurnContext } from "../src/provider/differ.ts";
-import { goneTurns, snapshotRequest, withLostTurns } from "../src/provider/snapshotTurns.ts";
+import { goneTurns, lostOnGap, namedIn, snapshotRequest, withLostTurns } from "../src/provider/snapshotTurns.ts";
 import recorded from "./fixtures/session-chat.json" with { type: "json" };
 
 const state = recorded as unknown as SessionState;
@@ -68,8 +68,9 @@ describe("the adapter's snapshot (SPI-1377)", () => {
     const differ = differWith({ [lostId]: { ...lostTurn, status: "running" } });
     // A push named the turn while it ran, then the Session lost it; the gap's snapshot no longer has it.
     diff(differ, { ...state, entries: [], turns: { [lostId]: { ...lostTurn, status: "running" } } }, now);
+    const named = new Set(namedIn({ ...state, turns: { [lostId]: lostTurn } }, differ.turns.keys()));
     const snapshot = { ...state, turns: Object.fromEntries(rest) };
-    const gone = goneTurns(snapshot, differ.turns.keys());
+    const gone = lostOnGap(snapshot, differ.turns.keys(), named);
     expect(gone).toEqual([lostId]);
     const events = diff(
       differ,
@@ -79,6 +80,17 @@ describe("the adapter's snapshot (SPI-1377)", () => {
     expect(terminals(events)).toEqual([{ turn: lostId, status: "failed" }]);
     const failure = JSON.stringify(events);
     expect(failure).toContain("The agent's session lost this turn.");
+  });
+
+  it("on a gap, never fails a turn no push or snapshot named yet: its submit may not have reached the Session", () => {
+    const [seenId, seenTurn] = Object.entries(state.turns)[0]!;
+    const differ = differWith({ [seenId]: seenTurn, submitting: { ...seenTurn, runId: "run-new" } });
+    const named = new Set(namedIn({ ...state, turns: { [seenId]: seenTurn } }, differ.turns.keys()));
+    expect([...named]).toEqual([seenId]);
+    // The gap's snapshot has neither: the named one is gone, the one being submitted is spared.
+    const empty = { ...state, turns: {} };
+    expect(lostOnGap(empty, differ.turns.keys(), named)).toEqual([seenId]);
+    expect(goneTurns(empty, differ.turns.keys())).toEqual([seenId, "submitting"]);
   });
 
   it("leaves a snapshot that has every asked turn as it is", () => {

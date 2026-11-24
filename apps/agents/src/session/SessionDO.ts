@@ -40,7 +40,6 @@ import {
   type OpenInput,
   PUSH_COALESCE_MS,
   PUSH_ENTRIES_BYTES,
-  type PushedEntry,
   type RuntimeMode,
   runtimeModeOf,
   type SessionPush,
@@ -144,11 +143,11 @@ import {
 import { KILL_RETRY_MS, RunningExecs } from "./runningExecs.ts";
 import { FORK_PAGE_BYTES, forkPage, forkPoint, freshConversation, rewind, rollbackPlan, seed } from "./branches.ts";
 import type { WorkspaceDO } from "../workspace/WorkspaceDO.ts";
-import { liveOf, pushedEntry, pushPage, turnDetail, turnOfEntry, usageOf } from "./state.ts";
+import { liveOf, pushedEntry, turnDetail, usageOf } from "./state.ts";
 import { alarmWork, nextAlarm } from "./alarmPlan.ts";
 import { isLiveTurn, turnLimitAlarms, turnRecord, turnsPastLimit } from "./turnLimit.ts";
 import { keepTurnRetries, keptTurnRetries } from "./turnRetries.ts";
-import { pushedTurns, snapshotStart, snapshotTurns } from "./pushTurns.ts";
+import { collectEntries, entriesStart, pushedTurns, snapshotTurns } from "./pushTurns.ts";
 import { TurnStore } from "./turnStore.ts";
 
 export interface SessionEnv {
@@ -171,10 +170,10 @@ const META_KEY = "t3flare:session";
 const SEQ_KEY = "t3flare:seq";
 const PUSHED_KEY = "t3flare:pushed-entry";
 /**
- * SPI-1377: the read time of the last push the Environment took, kept beside `PUSHED_KEY`: the next push names the turns
- * settled at or after it, with the live ones.
+ * SPI-1377: the settle sequence (`TurnStore.lastSettleSeq`) as the last push the Environment took read it, kept beside
+ * `PUSHED_KEY`: the next push names the turns settled after it, with the live ones.
  */
-const PUSHED_SETTLED_KEY = "t3flare:pushed-settled";
+const PUSHED_SETTLE_SEQ_KEY = "t3flare:pushed-settle-seq";
 const RETRY_KEY = "t3flare:push-retry";
 const LAST_PUSH_KEY = "t3flare:last-push";
 const DIAG_KEY = "t3flare:diagnostics";
@@ -1446,30 +1445,20 @@ export class SessionDO extends DurableObject<SessionEnv> {
     // Every turn, to name the turn of each entry; only the reported ones go on the wire (SPI-1377).
     const all = this.#turns.all();
     const turns = this.#turns.withModels(report(all));
-    const fromEntry = from === "open" ? (snapshotStart(turns) ?? (await this.#lastEntry(conversation))) : from;
-    const entries: Array<PushedEntry> = [];
-    const room = pushPage(bound);
-    let more = false;
-    let lastEntry: number | undefined;
-    let cursor: Cursor | undefined;
-    do {
-      const page = await conversation.entries(
-        { ...(fromEntry === undefined ? {} : { minEntryId: entryIdOf(fromEntry) }), order: "ascending" },
-        100,
-        cursor,
-        context,
-      );
-      for (const entry of page.items) {
-        const pushed = pushedEntry(entry, turnOfEntry(Number(entry.id), all));
-        if (!room.take(pushed)) {
-          more = true;
-          break;
-        }
-        entries.push(pushed);
-        lastEntry = Number(entry.id);
-      }
-      cursor = more ? undefined : page.next;
-    } while (cursor !== undefined);
+    const start = entriesStart(from, turns);
+    const fromEntry = start === "last" ? await this.#lastEntry(conversation) : start;
+    const { entries, more, lastEntry } = await collectEntries(
+      (minEntry, cursor: Cursor | undefined) =>
+        conversation.entries(
+          { ...(minEntry === undefined ? {} : { minEntryId: entryIdOf(minEntry) }), order: "ascending" },
+          100,
+          cursor,
+          context,
+        ),
+      fromEntry,
+      all,
+      bound,
+    );
     const view = await this.#view();
     const liveTurn = Object.entries(turns).find(([, turn]) => turn.status === "running")?.[0] ?? null;
     const meta = this.#meta();
@@ -1565,14 +1554,16 @@ export class SessionDO extends DurableObject<SessionEnv> {
     if (!this.#dirty) return;
     this.#dirty = false;
     if (this.#meta() === undefined) return;
-    // Read before the turns refresh: a turn that settles from here on has a `settledAt` at or after it (SPI-1377).
-    const readAt = Date.now();
     await this.#refreshTurns();
     const pushed = this.ctx.storage.kv.get<number>(PUSHED_KEY);
-    const settledSince = this.ctx.storage.kv.get<number>(PUSHED_SETTLED_KEY);
-    const state = await this.#state(pushed === undefined ? undefined : pushed + 1, PUSH_ENTRIES_BYTES, (turns) =>
-      pushedTurns(turns, settledSince),
-    );
+    const settledThrough = this.ctx.storage.kv.get<number>(PUSHED_SETTLE_SEQ_KEY);
+    // SPI-1377: the settle sequence as this push's turns were read, in the same synchronous step as `all()` (no await
+    // between): every turn settled after it has a higher `settledSeq` and goes in the next push.
+    let readSeq = 0;
+    const state = await this.#state(pushed === undefined ? undefined : pushed + 1, PUSH_ENTRIES_BYTES, (turns) => {
+      readSeq = this.#turns.lastSettleSeq();
+      return pushedTurns(turns, settledThrough);
+    });
     const prevSeq = this.ctx.storage.kv.get<number>(SEQ_KEY) ?? 0;
     const { lastEntry, ...rest } = state;
     const push: SessionPush = { ...rest, seq: prevSeq + 1, prevSeq, liveness: state.entries.length === 0 };
@@ -1595,7 +1586,7 @@ export class SessionDO extends DurableObject<SessionEnv> {
     this.ctx.storage.kv.delete("t3flare:push-retries");
     if (lastEntry !== undefined) this.ctx.storage.kv.put(PUSHED_KEY, lastEntry);
     // Only once the Environment took the push: a failed one names the same settled turns again.
-    this.ctx.storage.kv.put(PUSHED_SETTLED_KEY, readAt);
+    this.ctx.storage.kv.put(PUSHED_SETTLE_SEQ_KEY, readSeq);
     if (state.more) this.#dirty = true;
     for (const orphan of answer.orphans ?? []) {
       console.warn(JSON.stringify({ t3flare: "session-orphan-abort", providerTurnId: orphan }));

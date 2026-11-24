@@ -63,7 +63,7 @@ import { durableModeRecord } from "./threadCaller.ts";
 import { PI_DURABLE_DRIVER, PiDurableCapabilities } from "./capabilities.ts";
 import { type AttachmentReader, PI_DURABLE_PROMPT_BYTES, turnPrompt } from "./attachments.ts";
 import { messageSkillsFor, type SkillsAccess } from "./skills.ts";
-import { goneTurns, snapshotRequest, withLostTurns } from "./snapshotTurns.ts";
+import { goneTurns, lostOnGap, namedIn, snapshotRequest, withLostTurns } from "./snapshotTurns.ts";
 import {
   approvalIdOf,
   diff,
@@ -232,13 +232,10 @@ export const makePiDurableAdapter = (
       /** The cursor (step 2a plan, section 2): in memory; any doubt pulls a snapshot. */
       let cursor: { epoch: string; seq: number } | null = null;
       const lastPushAt = new Map<string, number>();
-      /**
-       * SPI-1377: open turns a push or a snapshot has named, so the Session recorded them. One a later snapshot lacks is
-       * gone; one never named may still be on its way in (`submitTurn` registers it here before the Session has it).
-       */
+      /** SPI-1377: open turns a push or a snapshot has named, so the Session recorded them (`lostOnGap`). */
       const named = new Set<string>();
       const noteNamed = (state: SessionState) => {
-        for (const id of differ.turns.keys()) if (state.turns[id] !== undefined) named.add(id);
+        for (const id of namedIn(state, differ.turns.keys())) named.add(id);
       };
       const runIdOf = (id: string) => differ.turns.get(id)?.runId ?? "";
       let closed = false;
@@ -320,7 +317,7 @@ export const makePiDurableAdapter = (
             }),
           ),
           Effect.map((state) => {
-            const gone = goneTurns(state, asked).filter((id) => named.has(id));
+            const gone = lostOnGap(state, asked, named);
             noteNamed(state);
             return withLostTurns(state, gone, runIdOf);
           }),
@@ -345,8 +342,9 @@ export const makePiDurableAdapter = (
                 .map(([id]) => id);
               const gap = cursor === null || cursor.epoch !== push.epoch || push.prevSeq !== cursor.seq || push.more;
               if (gap) {
+                const why = cursor === null ? "first push" : "gap";
                 cursor = { epoch: push.epoch, seq: push.seq };
-                yield* pullSnapshot(cursor === null ? "first push" : "gap").pipe(Effect.catch(() => apply(push)));
+                yield* pullSnapshot(why).pipe(Effect.catch(() => apply(push)));
               } else {
                 cursor = { epoch: push.epoch, seq: push.seq };
                 yield* apply(push);

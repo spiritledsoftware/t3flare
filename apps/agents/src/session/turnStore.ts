@@ -1,11 +1,12 @@
 // SPI-1373: the Session's turns, one KV key per turn (`t3flare:turn:<id>`) and one per turn's model record
-// (`t3flare:turn-model:<id>`), with an index of the live turns' ids. A change reads and writes the turns it names and
-// the index, so it costs O(live turns) however long the thread runs; before, one value held every turn and every change
-// rewrote it, until a long thread passed the value limit and the Session stopped recording turns.
+// (`t3flare:turn-model:<id>`), with an index of the live turns' ids. A change to a turn reads and writes the turns it
+// names and the index, so it costs O(live turns) however long the thread runs; before, one value held every turn and
+// every change rewrote it, until a long thread passed the value limit and the Session stopped recording turns.
 //
 // Finished turns stay: a rollback and a fork find their entries by them (`branches.ts`), and a push or a snapshot finds
-// which turn each entry it carries belongs to by them. Only those whole reads list every turn; a push names the live
-// turns and those settled since the last one, a snapshot the turns the adapter asks about (SPI-1377, `pushTurns.ts`).
+// which turn each entry it carries belongs to by them. Those reads list every turn, O(all turns): a push lists them each
+// time, though it sends only the live turns and those settled since the last push, and a snapshot only the turns the
+// adapter asks about (SPI-1377, `pushTurns.ts`). Each settle takes the next number of a settle sequence, kept here.
 import type { ProxyRecord, TurnState } from "@t3flare/session-protocol";
 
 import { isLiveTurn } from "./turnLimit.ts";
@@ -22,6 +23,8 @@ const TURN_PREFIX = "t3flare:turn:";
 const MODEL_PREFIX = "t3flare:turn-model:";
 /** The live turns' ids, unordered: `live()` sorts them by `startedAt`. */
 const LIVE_KEY = "t3flare:live-turns";
+/** SPI-1377: the settle sequence's last number, the `settledSeq` of the turn that settled last (0 before any). */
+const LAST_SETTLE_SEQ_KEY = "t3flare:last-settle-seq";
 /** Before SPI-1373: every turn in one value, and every turn's model record in another. Moved over at the first read. */
 const LEGACY_TURNS_KEY = "t3flare:turns";
 const LEGACY_MODELS_KEY = "t3flare:proxy";
@@ -38,17 +41,34 @@ export class TurnStore {
     return this.#kv.get<TurnState>(TURN_PREFIX + id);
   }
 
-  /** Records `turn` under `id`, and keeps the live index in step with it. */
+  /**
+   * Records `turn` under `id`, and keeps the live index in step with it. A live turn that settles here takes the next
+   * settle sequence number (`settledSeq`), in the same synchronous writes.
+   */
   put(id: string, turn: TurnState): void {
-    this.#kv.put(TURN_PREFIX + id, turn);
     const ids = this.#liveIds();
     const listed = ids.includes(id);
-    if (isLiveTurn(turn) && !listed) this.#kv.put(LIVE_KEY, [...ids, id]);
-    else if (!isLiveTurn(turn) && listed)
-      this.#kv.put(
-        LIVE_KEY,
-        ids.filter((other) => other !== id),
-      );
+    if (isLiveTurn(turn)) {
+      this.#kv.put(TURN_PREFIX + id, turn);
+      if (!listed) this.#kv.put(LIVE_KEY, [...ids, id]);
+      return;
+    }
+    if (!listed) {
+      this.#kv.put(TURN_PREFIX + id, turn);
+      return;
+    }
+    const settledSeq = this.lastSettleSeq() + 1;
+    this.#kv.put(LAST_SETTLE_SEQ_KEY, settledSeq);
+    this.#kv.put(TURN_PREFIX + id, { ...turn, settledSeq });
+    this.#kv.put(
+      LIVE_KEY,
+      ids.filter((other) => other !== id),
+    );
+  }
+
+  /** The settle sequence's last number: every turn settled since it was kept has a `settledSeq` at or below it. */
+  lastSettleSeq(): number {
+    return this.#kv.get<number>(LAST_SETTLE_SEQ_KEY) ?? 0;
   }
 
   /**
@@ -101,18 +121,7 @@ export class TurnStore {
     return Object.fromEntries(entries);
   }
 
-  /** Every turn with its model record (`proxy`, a kept wire name). */
-  allWithModel(): Record<string, TurnState> {
-    const turns = this.all();
-    for (const [key, proxy] of this.#kv.list<ProxyRecord>({ prefix: MODEL_PREFIX })) {
-      const id = key.slice(MODEL_PREFIX.length);
-      const turn = turns[id];
-      if (turn !== undefined) turns[id] = { ...turn, proxy };
-    }
-    return turns;
-  }
-
-  /** `turns` with their model records (SPI-1377): one read per turn, for the few a push or a snapshot names. */
+  /** `turns` with their model records (`proxy`, a kept wire name; SPI-1377): one read per turn it names. */
   withModels(turns: Readonly<Record<string, TurnState>>): Record<string, TurnState> {
     return Object.fromEntries(
       Object.entries(turns).map(([id, turn]) => {

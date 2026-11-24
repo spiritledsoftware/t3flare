@@ -447,6 +447,11 @@ export interface TurnState {
   readonly turnLimitMs?: number;
   readonly settledAt?: number;
   /**
+   * SPI-1377: the turn's place in the Session's order of settles, one more than the turn settled before it. A push names
+   * the turns settled since the last one the Environment took by it, not by `settledAt`: a clock can go back.
+   */
+  readonly settledSeq?: number;
+  /**
    * Steers sent into the turn (their submissions). A steer that reaches the run as it gives its final answer starts the
    * next pi-durable run; it is still this turn's work, so the turn settles only when they have.
    */

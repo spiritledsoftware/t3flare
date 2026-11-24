@@ -89,7 +89,7 @@ describe("TurnStore", () => {
     store.put("done", turn("answered", 5));
     store.noteModel((record) => ({ ...record, requests: record.requests + 1 }));
     store.noteModel((record) => ({ ...record, requests: record.requests + 1 }));
-    const all = store.allWithModel();
+    const all = store.withModels(store.all());
     expect(all["first"]?.proxy).toEqual({ requests: 2 } satisfies ProxyRecord);
     expect(all["later"]?.proxy).toBeUndefined();
     expect(all["done"]).toEqual(turn("answered", 5));
@@ -115,7 +115,7 @@ describe("TurnStore", () => {
     store.put("a-second", turn("running", 20));
     store.put("m-done", turn("answered", 5));
     expect(Object.keys(store.all())).toEqual(["m-done", "z-first", "a-second"]);
-    expect(Object.keys(store.allWithModel())).toEqual(["m-done", "z-first", "a-second"]);
+    expect(Object.keys(store.withModels(store.all()))).toEqual(["m-done", "z-first", "a-second"]);
     const running = Object.entries(store.all()).find(([, state]) => state.status === "running")?.[0];
     expect(running).toBe(store.liveTurn());
     expect(store.busy()).toBe(true);
@@ -169,7 +169,7 @@ describe("TurnStore", () => {
     expect(store.liveTurn()).toBe("live");
     expect(map.has("t3flare:turns")).toBe(false);
     expect(map.has("t3flare:proxy")).toBe(false);
-    const all = store.allWithModel();
+    const all = store.withModels(store.all());
     expect(Object.keys(all)).toHaveLength(MANY + 1);
     expect(all["t1"]?.proxy).toEqual({ requests: 3 });
     expect(all["live"]?.proxy).toEqual({ requests: 1 });
