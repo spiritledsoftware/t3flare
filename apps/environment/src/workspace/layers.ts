@@ -48,7 +48,7 @@ class WorkspaceRpcError extends Schema.TaggedError<WorkspaceRpcError>()("Workspa
 const call = <A>(at: Located, op: FsOp): Effect.Effect<A, WorkspaceRpcError> =>
   Effect.tryPromise({
     try: (): Promise<FsAnswer<unknown>> => at.rpc.fs(op),
-    catch: (cause) => new WorkspaceRpcError({ code: "EIO", detail: String(cause).slice(0, 300) }),
+    catch: (cause) => new WorkspaceRpcError({ code: "EIO", detail: String(cause) }),
   }).pipe(
     Effect.flatMap((answer) =>
       "ok" in answer

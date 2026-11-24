@@ -171,7 +171,7 @@ export const refreshedTestRecord = async (
   try {
     store.noteTestBaseBuild(await read());
   } catch (error) {
-    console.warn(JSON.stringify({ t3flare: "test-builder-read-failed", error: String(error).slice(0, 300) }));
+    console.warn(JSON.stringify({ t3flare: "test-builder-read-failed", error: String(error) }));
   }
   return store.lastTestBaseBuild();
 };
@@ -349,7 +349,7 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
           ? {}
           : {
               workspaces: await workspacesView(deps.workspaces.deps, deps.now?.() ?? Date.now()).catch(
-                (error: unknown) => ({ error: String(error).slice(0, 300) }),
+                (error: unknown) => ({ error: String(error) }),
               ),
             }),
         ...(deps.clients === undefined && deps.ownerEndpoint === undefined
@@ -460,7 +460,7 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
         // ADR-0044 §1: the dry Sweep, which writes nothing.
         if (path === `${WORKSPACES_API_PATH}/sweep`) return json(sweepPreview(await workspaces.runSweep(true)));
       } catch (error) {
-        return refused(503, `the Workspaces could not be read: ${String(error).slice(0, 300)}`);
+        return refused(503, `the Workspaces could not be read: ${String(error)}`);
       }
     }
     if (path === `${SETTINGS_PAGE_PATH}/api/skills` && deps.skills !== undefined)
@@ -525,7 +525,7 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
       deps.store.noteBaseBuild(record);
       return json({ ok: true, record, status: describeBaseBuild(record) });
     } catch (error) {
-      return refused(503, `the Builder could not be reached: ${String(error).slice(0, 300)}`);
+      return refused(503, `the Builder could not be reached: ${String(error)}`);
     }
   }
   if (testRoute && deps.testBase !== undefined) {
@@ -539,7 +539,7 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
       deps.store.noteTestBaseBuild(record);
       return json({ ok: true, ...testAnswer(record) });
     } catch (error) {
-      return refused(503, `the test Builder could not be reached: ${String(error).slice(0, 300)}`);
+      return refused(503, `the test Builder could not be reached: ${String(error)}`);
     }
   }
   if (workspacesRoute !== undefined && deps.workspaces !== undefined) {
@@ -549,10 +549,7 @@ export const handleHarness = async (request: Request, deps: HarnessDeps): Promis
     } catch (error) {
       // A Purge's failed reference read is its own refusal (purgeNow); what throws here may have come after some of the
       // act was done (an audit write), so the answer says nothing about what was left.
-      return refused(
-        503,
-        `the act could not finish: ${String(error).slice(0, 300)}; the Workspaces section shows what is left`,
-      );
+      return refused(503, `the act could not finish: ${String(error)}; the Workspaces section shows what is left`);
     }
   }
   const ops = opsOf(deps);

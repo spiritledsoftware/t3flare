@@ -124,7 +124,7 @@ export const contextRolloverTool = (): ToolRegistration =>
           context,
         )
         .catch((error: unknown) =>
-          console.warn(JSON.stringify({ t3flare: "context-continue-refused", error: String(error).slice(0, 300) })),
+          console.warn(JSON.stringify({ t3flare: "context-continue-refused", error: String(error) })),
         );
       return {
         output: [

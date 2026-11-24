@@ -102,7 +102,7 @@ export class TerminalSync {
     const run = this.#chain.then(fn, fn);
     this.#chain = run.catch((error: unknown) => {
       this.stats.failures++;
-      console.warn(JSON.stringify({ t3flare: "terminal-sync-failed", error: String(error).slice(0, 300) }));
+      console.warn(JSON.stringify({ t3flare: "terminal-sync-failed", error: String(error) }));
     });
     return run;
   }

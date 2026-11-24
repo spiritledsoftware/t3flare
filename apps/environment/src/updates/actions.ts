@@ -101,7 +101,7 @@ export const actionsClient = (input: {
           const parsed = (JSON.parse(text) as { message?: unknown }).message;
           return typeof parsed === "string" ? parsed : "";
         } catch {
-          return text.slice(0, 200);
+          return text;
         }
       })();
       throw new ActionsError(

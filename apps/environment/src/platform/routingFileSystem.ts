@@ -54,7 +54,7 @@ const readOnly = (method: string, path: string) =>
 const call = <A>(method: string, path: string, at: Located, op: FsOp): Effect.Effect<A, PlatformError.PlatformError> =>
   Effect.tryPromise({
     try: (): Promise<FsAnswer<unknown>> => at.rpc.fs(op),
-    catch: (cause) => failure(method, path, "Unknown", `t3flare: Workspace ${at.id}: ${String(cause).slice(0, 300)}`),
+    catch: (cause) => failure(method, path, "Unknown", `t3flare: Workspace ${at.id}: ${String(cause)}`),
   }).pipe(
     Effect.flatMap((answer: FsAnswer<unknown>) =>
       "ok" in answer
@@ -93,7 +93,7 @@ const createWorkspace = (path: string, id: string): Effect.Effect<void, Platform
   Effect.gen(function* () {
     yield* Effect.try({
       try: () => environmentServices().workspaces.create({ id }),
-      catch: (cause) => failure("makeDirectory", path, "BadResource", String(cause).slice(0, 300)),
+      catch: (cause) => failure("makeDirectory", path, "BadResource", String(cause)),
     });
     const at = yield* workspace("makeDirectory", path);
     yield* call("makeDirectory", path, at, { op: "mkdir", path: REPO_ROOT, recursive: true }).pipe(

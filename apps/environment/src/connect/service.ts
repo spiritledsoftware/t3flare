@@ -115,7 +115,7 @@ export const describeFailure = (cause: Cause.Cause<unknown>): string => {
       ? `:${String((error as { rejection: unknown }).rejection)}`
       : "";
   const message = error instanceof Error ? error.message : String(error);
-  return redact(`${tag}${rejection}: ${message}`).slice(0, 300);
+  return redact(`${tag}${rejection}: ${message}`);
 };
 
 export class Connect extends Context.Service<
@@ -400,7 +400,7 @@ export const make = (policy: ConnectPolicy, recorder: PublishRecorder) =>
               })
             : { held: true, error: describeFailure(token.cause) },
           policy,
-          publishes: { ...recorder.summary(), recent: recorder.entries().slice(-30) },
+          publishes: { ...recorder.summary(), recent: recorder.entries() },
           ...(relay ? { relay: yield* relayView(signal) } : {}),
         };
       });

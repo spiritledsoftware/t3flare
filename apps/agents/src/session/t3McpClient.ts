@@ -200,7 +200,7 @@ export class T3McpClient {
 
   async callTool(name: string, args: Readonly<Record<string, unknown>>): Promise<McpCallAnswer> {
     const answer = await this.request("tools/call", { name, arguments: args }).catch((error: unknown) => {
-      console.warn(JSON.stringify({ t3flare: "t3-mcp-call-failed", tool: name, error: String(error).slice(0, 300) }));
+      console.warn(JSON.stringify({ t3flare: "t3-mcp-call-failed", tool: name, error: String(error) }));
       return undefined;
     });
     if (answer === undefined || answer.status === 401) return { kind: "unavailable", message: UNAVAILABLE };

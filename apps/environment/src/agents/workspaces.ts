@@ -236,11 +236,7 @@ export const workspaceRegistry = (sql: SqlStorage) => {
     },
     setLastError(id: string, error: string | null): void {
       ensure();
-      sql.exec(
-        "UPDATE t3flare_workspaces SET last_error = ? WHERE id = ?",
-        error === null ? null : error.slice(0, 1000),
-        id,
-      );
+      sql.exec("UPDATE t3flare_workspaces SET last_error = ? WHERE id = ?", error === null ? null : error, id);
     },
     remove(id: string): void {
       ensure();

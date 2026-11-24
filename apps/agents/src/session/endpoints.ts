@@ -202,7 +202,7 @@ export class SessionEndpoints {
         }),
       );
     } catch (error) {
-      console.warn(JSON.stringify({ t3flare: "model-endpoints-failed", error: String(error).slice(0, 300) }));
+      console.warn(JSON.stringify({ t3flare: "model-endpoints-failed", error: String(error) }));
     }
   }
 }

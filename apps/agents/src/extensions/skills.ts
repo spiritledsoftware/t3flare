@@ -41,7 +41,7 @@ export const skillsExtension = (): Extension =>
           // A failed read must not fail the request: the section is left out, unfrozen, and read again next time.
           Effect.promise(() =>
             skillsSectionText(input.env).catch((error: unknown) => {
-              console.warn(JSON.stringify({ t3flare: "skills-section-failed", error: String(error).slice(0, 300) }));
+              console.warn(JSON.stringify({ t3flare: "skills-section-failed", error: String(error) }));
               return undefined;
             }),
           ),

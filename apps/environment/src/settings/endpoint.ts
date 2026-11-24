@@ -537,7 +537,7 @@ export const handleSettingsMcp = async (
       return json(
         rpcError(id, -32600, "Unsupported MCP-Protocol-Version", {
           supported: SUPPORTED_VERSIONS,
-          requested: header.slice(0, 40),
+          requested: header,
         }),
         400,
       );
@@ -657,7 +657,7 @@ export const handleSettingsMcp = async (
   // `resume` is a tool of `model` alone (plan D12): to any other request it is as unknown as it is unlisted.
   const isResume = name === RESUME_TOOL.name && requested === "model";
   if (typeof name !== "string" || (!isResume && settingsToolOf(name) === undefined))
-    return json(rpcError(id, -32602, `Unknown tool: ${typeof name === "string" ? name.slice(0, 100) : "(none)"}`));
+    return json(rpcError(id, -32602, `Unknown tool: ${typeof name === "string" ? name : "(none)"}`));
   const args = params.arguments === undefined ? {} : objectOf(params.arguments);
   if (args === undefined) return json(rpcError(id, -32602, "arguments is an object"));
   const owner: OwnerCaller = {
@@ -791,7 +791,7 @@ export const handleSettingsMcp = async (
           controller.close();
         }
       } catch (error) {
-        log({ t3flare: "settings-stream-failed", change: record.id, error: String(error).slice(0, 200) });
+        log({ t3flare: "settings-stream-failed", change: record.id, error: String(error) });
         if (!closed) {
           closed = true;
           controller.close();

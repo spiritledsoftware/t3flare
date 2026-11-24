@@ -147,7 +147,7 @@ const spawnError = (description: string, cause?: unknown) =>
     _tag: "Unknown",
     module: "ChildProcess",
     method: "spawn",
-    description: `t3flare: ${description}${cause === undefined ? "" : `: ${(cause instanceof Error ? cause.message : (JSON.stringify(cause) ?? "")).slice(0, 200)}`}`,
+    description: `t3flare: ${description}${cause === undefined ? "" : `: ${cause instanceof Error ? cause.message : (JSON.stringify(cause) ?? "")}`}`,
     pathOrDescriptor: HTML_BROWSER_EXECUTABLE,
   });
 

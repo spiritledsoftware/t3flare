@@ -547,10 +547,10 @@ describe("what the Session pushes is redacted (SPI-1172)", () => {
     expect(pushed).toContain("[redacted]");
   });
 
-  it("a turn's failure detail as the Session keeps it is redacted and bounded", () => {
+  it("a turn's failure detail as the Session keeps it is redacted and whole", () => {
     const detail = turnDetail(`run failed: ${FAULT_ECHOED_SECRETS[2]} ${"y".repeat(3000)}`);
     expect(detail).not.toContain(FAULT_ECHOED_SECRETS[2]);
-    expect(detail?.length).toBe(2048);
+    expect(detail).toContain("y".repeat(3000));
     expect(turnDetail(undefined)).toBeUndefined();
   });
 });

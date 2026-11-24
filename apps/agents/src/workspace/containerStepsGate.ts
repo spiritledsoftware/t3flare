@@ -127,7 +127,7 @@ export const readyForSpawn = async (deps: SpawnReadiness): Promise<void> => {
   try {
     runtime = await deps.runtime();
   } catch (error) {
-    unjudged(String(error).slice(0, 200));
+    unjudged(String(error));
     return;
   }
   if (runtime === undefined) {
@@ -138,6 +138,6 @@ export const readyForSpawn = async (deps: SpawnReadiness): Promise<void> => {
     await deps.ensure(runtime);
   } catch (error) {
     if (error instanceof ContainerRefused) throw error;
-    unjudged(String(error).slice(0, 200));
+    unjudged(String(error));
   }
 };

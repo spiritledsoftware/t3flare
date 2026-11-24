@@ -91,7 +91,7 @@ const readOnlySql = (environment: EnvironmentDO, query: string, params: Readonly
   try {
     environment.ctxStorage.transactionSync(() => {
       const cursor = environment.ctxStorage.sql.exec(statement, ...params);
-      result = { columns: cursor.columnNames, rows: Array.from(cursor.raw()).slice(0, 1000) as Array<Array<unknown>> };
+      result = { columns: cursor.columnNames, rows: Array.from(cursor.raw()) as Array<Array<unknown>> };
       throw new ReadOnlyRollback();
     });
   } catch (error) {

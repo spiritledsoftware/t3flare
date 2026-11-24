@@ -238,8 +238,8 @@ export const SETTINGS_SERVER_LIMITS_NOTE =
 
 /**
  * The most stored bytes (`storedBytes`) of the tool definitions one server's inventory keeps: a server's inventory is
- * one Durable Object value (`DO_VALUE_BYTES`, 8 MB), and half of it is left for the tools it refuses, its instructions
- * and its other fields. A named constraint; the tools past it are refused by name. Their count is the server's.
+ * one Durable Object value (`DO_VALUE_BYTES`, 8 MB), and half of it is left for the tools it refuses and its other
+ * fields. A named constraint; the tools past it are refused by name. Their count is the server's.
  */
 export const MAX_SCHEMA_BYTES = Math.floor(DO_VALUE_BYTES / 2);
 

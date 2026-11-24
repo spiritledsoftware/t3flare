@@ -23,14 +23,7 @@ import {
   randomJti,
   signClientAssertion,
 } from "./client-assertion.ts";
-import {
-  basicAuthorization,
-  boundedText,
-  MAX_METADATA_BYTES,
-  MAX_SIGN_IN_ERROR_LENGTH,
-  type OAuthFetch,
-  scrubbed,
-} from "./oauth-http.ts";
+import { basicAuthorization, boundedText, MAX_METADATA_BYTES, type OAuthFetch, scrubbed } from "./oauth-http.ts";
 
 /** What a token response is held to: a remote-controlled body, as the metadata is (`MAX_METADATA_BYTES`). */
 const MAX_TOKEN_RESPONSE_BYTES = MAX_METADATA_BYTES;
@@ -84,7 +77,7 @@ export type ClientCredentialsOutcome =
       readonly kind: "refused";
       /** The OAuth error code, a plain token of at most 64 characters (`error` when the server gave none that is). */
       readonly code: string;
-      /** The server's description, cut to 300 characters and scrubbed of the values this request sent. */
+      /** The server's description, whole but scrubbed of the values this request sent. */
       readonly message: string;
       readonly status: number;
     }
@@ -267,19 +260,14 @@ export const requestClientCredentials = async (input: {
     return {
       kind: "refused",
       code,
-      message:
-        description === undefined || description === "" ? code : scrubbed(description, sent, MAX_SIGN_IN_ERROR_LENGTH),
+      message: description === undefined || description === "" ? code : scrubbed(description, sent),
       status: response.status,
     };
   } catch (failure) {
     // The message of a fetch failure is the guarded fetch's own, with no body or header in it; it is scrubbed anyway.
     return {
       kind: "failed",
-      message: scrubbed(
-        failure instanceof Error ? failure.message : "The authorization server did not answer",
-        sent,
-        MAX_SIGN_IN_ERROR_LENGTH,
-      ),
+      message: scrubbed(failure instanceof Error ? failure.message : "The authorization server did not answer", sent),
       status: undefined,
     };
   }

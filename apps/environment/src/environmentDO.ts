@@ -11,7 +11,6 @@ import type { McpAsker, McpRpcAnswer, McpRpcRequest, SessionPush, SessionPushAns
 import type { TerminalPush, TerminalPushAnswer } from "@t3flare/workspace-client";
 import type { SkillSet } from "@t3flare/skills";
 import {
-  BASE_BUILD_CAPS,
   type BaseBuildRecord,
   BUILDERS,
   extensionOf,
@@ -1037,9 +1036,9 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     readonly message: string;
   }): Promise<void> {
     this.skills.noteRefusal({
-      workspace: String(input.workspace).slice(0, 200),
+      workspace: String(input.workspace),
       hash: String(input.hash).slice(0, 64),
-      message: String(input.message).slice(0, 2000),
+      message: String(input.message),
       at: Date.now(),
     });
   }
@@ -1091,13 +1090,12 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
         .builderPoke({ reason })
         .then(
           (record) => void harnessStore(this.ctx.storage.kv).noteBaseBuild(record),
-          // A log line's error text, kept short (`BASE_BUILD_CAPS.log`).
           (error: unknown) =>
             console.warn(
               JSON.stringify({
                 t3flare: "builder-poke-failed",
                 reason,
-                error: String(error).slice(0, BASE_BUILD_CAPS.log),
+                error: String(error),
               }),
             ),
         ),
@@ -1230,7 +1228,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
           if (raised > 0) console.log(JSON.stringify({ t3flare: "questions-raised-again", count: raised }));
         })
         .catch((error: unknown) =>
-          console.warn(JSON.stringify({ t3flare: "questions-reraise-failed", error: String(error).slice(0, 300) })),
+          console.warn(JSON.stringify({ t3flare: "questions-reraise-failed", error: String(error) })),
         );
       // Step 3+ (review finding 4): once the questions are raised again, what the phone last heard of each live thread
       // is published again as it is now (a tombstone for a run the restart cancelled).
@@ -1242,13 +1240,13 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
             console.log(JSON.stringify({ t3flare: "connect-republished", count: republished.length }));
         })
         .catch((error: unknown) =>
-          console.warn(JSON.stringify({ t3flare: "connect-republish-failed", error: String(error).slice(0, 300) })),
+          console.warn(JSON.stringify({ t3flare: "connect-republish-failed", error: String(error) })),
         );
       if (runtime.bootstrapSeeded) await Pairing.keepWindowClosing(this.ctx.storage);
       return runtime;
     } catch (error) {
       await BootState.bootFailed(kv, error);
-      console.error(JSON.stringify({ t3flare: "boot-failed", trigger, error: String(error).slice(0, 2000) }));
+      console.error(JSON.stringify({ t3flare: "boot-failed", trigger, error: String(error) }));
       throw error;
     }
   }
@@ -1324,8 +1322,8 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
     sweep: () => this.runSweep({ dry: false }),
     failed: (what, error) =>
       what === "sweep"
-        ? console.error(JSON.stringify({ t3flare: "sweep-failed", error: String(error).slice(0, 500) }))
-        : console.warn(JSON.stringify({ t3flare: "sweep-arm-failed", error: String(error).slice(0, 300) })),
+        ? console.error(JSON.stringify({ t3flare: "sweep-failed", error: String(error) }))
+        : console.warn(JSON.stringify({ t3flare: "sweep-arm-failed", error: String(error) })),
   });
 
   /**
@@ -1624,9 +1622,7 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
           { status: 503, headers: { "retry-after": "60" } },
         );
       }
-      console.error(
-        JSON.stringify({ t3flare: "request-failed", path: url.pathname, error: String(error).slice(0, 2000) }),
-      );
+      console.error(JSON.stringify({ t3flare: "request-failed", path: url.pathname, error: String(error) }));
       return new Response("t3flare: the Environment failed to start; see the admin health route.\n", { status: 500 });
     } finally {
       Idle.requestEnded();

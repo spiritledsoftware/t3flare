@@ -982,7 +982,7 @@ const planRebuildBase = (deps: SettingsServerDeps): PlanOrRefusal => {
         await rebuild("an agent's Rebuild (rebuild_base)");
         return { ok: true };
       } catch (error) {
-        return { ok: false, error: `the Builder could not be reached: ${String(error).slice(0, 300)}` };
+        return { ok: false, error: `the Builder could not be reached: ${String(error)}` };
       }
     },
   };
@@ -1019,7 +1019,7 @@ const planTestBaseBuild = (deps: SettingsServerDeps, args: Readonly<Record<strin
         await test(imageSetup, "an agent's test (test_base_build)");
         return { ok: true };
       } catch (error) {
-        return { ok: false, error: `the test Builder could not be reached: ${String(error).slice(0, 300)}` };
+        return { ok: false, error: `the test Builder could not be reached: ${String(error)}` };
       }
     },
   };
@@ -1049,7 +1049,7 @@ const planPurgeWorkspace = async (
     planned = await planPurge(workspaces, id, deps.ops.now());
   } catch (error) {
     return {
-      refused: `the Workspace's references could not be read, so nothing was asked: ${String(error).slice(0, 300)}`,
+      refused: `the Workspace's references could not be read, so nothing was asked: ${String(error)}`,
     };
   }
   if (!planned.ok) return { refused: planned.error };
@@ -1081,7 +1081,7 @@ const planPurgeWorkspace = async (
       // have come after some of the set was purged, so it says nothing about what was left.
       const purged = await purgeNow(workspaces, id, { force: false, actor: options.actor }).catch((error: unknown) => ({
         ok: false as const,
-        error: `the Purge could not finish: ${String(error).slice(0, 300)}; list_workspaces shows what is left`,
+        error: `the Purge could not finish: ${String(error)}; list_workspaces shows what is left`,
       }));
       return purged.ok ? { ok: true } : { ok: false, error: purged.error };
     },
@@ -1256,7 +1256,7 @@ const askOnCard = async (
   try {
     answer = await Promise.race([asker.ask(card), closed]);
   } catch (error) {
-    answer = { decision: "cancel", reason: `the card could not be shown: ${String(error).slice(0, 200)}` };
+    answer = { decision: "cancel", reason: `the card could not be shown: ${String(error)}` };
   } finally {
     clearTimeout(timer);
     if (onAbort !== undefined) signal?.removeEventListener("abort", onAbort);
@@ -1716,7 +1716,7 @@ const ask = async (
             (answer): Event => ({ kind: "card", answer }),
             (error: unknown): Event => ({
               kind: "card",
-              answer: { decision: "cancel", reason: `the card could not be shown: ${String(error).slice(0, 200)}` },
+              answer: { decision: "cancel", reason: `the card could not be shown: ${String(error)}` },
             }),
           );
   const withdrawCard = async () => {
@@ -1982,7 +1982,7 @@ const runRead = async (
       try {
         return read({ ...(await workspacesView(deps.workspaces, deps.ops.now())) });
       } catch (error) {
-        return readError(`The Workspaces could not be read: ${String(error).slice(0, 300)}`);
+        return readError(`The Workspaces could not be read: ${String(error)}`);
       }
     }
     case "get_status": {

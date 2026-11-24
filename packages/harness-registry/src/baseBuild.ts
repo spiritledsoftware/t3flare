@@ -4,6 +4,8 @@
 // Workers: the Builder writes it, the Environment DO keeps the last one it was sent and reads it back through
 // `baseBuildRecord`, which drops a malformed one (another Worker's version).
 import { MAX_SETUP_OUTPUT_KIB } from "./environment.ts";
+import { DO_VALUE_BYTES } from "./storedValue.ts";
+import { MAX_VARIABLES_BYTES } from "./variables.ts";
 
 /**
  * The reserved names of the Builders (ADR-0047 §1, §8): instances of the Workspace DO's class that are never a Workspace.
@@ -15,13 +17,6 @@ export const BUILDERS = {
   /** The Test base build's Builder (SPI-1334): a proposed Image setup's result, its snapshot never used. */
   test: "t3flare:test-builder",
 } as const;
-
-/**
- * How much of a free text a Base build keeps, in characters. Fixed: they bound one stored record and one log line, not
- * anything an Owner would tune. `reason` and `message` stay under what `baseBuildRecord` accepts (300 and 2000), so a
- * record the Builder writes is never dropped by the Environment DO; `log` is a Workers Logs line's error text.
- */
-export const BASE_BUILD_CAPS = { reason: 200, message: 500, log: 300 } as const;
 
 /** A build's steps, in order (`baseBuild.ts` in the agents Worker). */
 export const BASE_BUILD_PHASES = ["starting", "running", "snapshotting", "proving"] as const;
@@ -94,6 +89,19 @@ export interface BaseBuildRecord {
 /** The most output a record may carry: the most `setupOutputKiB` keeps. */
 const MAX_OUTPUT = MAX_SETUP_OUTPUT_KIB * 1024;
 
+/**
+ * The most characters (UTF-16 units) of each of a build's free texts, which the Builder cuts to this and
+ * `baseBuildRecord` accepts. A named constraint: the Builder keeps its build under way (`Build` in the agents Worker) as
+ * one Durable Object value (`DO_VALUE_BYTES`), which stores a string in at most two bytes a unit. That value holds the
+ * most output, the secret Variables' values (at most `MAX_VARIABLES_BYTES` of UTF-8, so at most twice that stored, each
+ * value's tag within the `NAME=` and NUL that bound counts) and three free texts: its `reason`, its `lastError` and its
+ * failure's `message`. What the output and the secrets leave, less 16 KiB for the other fields, is split between the three.
+ * A record carries two of them, so it fits too.
+ */
+export const BASE_BUILD_TEXT_CHARACTERS = Math.floor(
+  (DO_VALUE_BYTES - 2 * MAX_OUTPUT - 2 * MAX_VARIABLES_BYTES - 16 * 1024) / 3 / 2,
+);
+
 const isObject = (value: unknown): value is Readonly<Record<string, unknown>> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 const isTime = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0;
@@ -113,7 +121,7 @@ const isFailure = (value: unknown): value is BaseBuildFailure =>
   isTime(value.at) &&
   (BASE_BUILD_PHASES as ReadonlyArray<unknown>).includes(value.phase) &&
   (value.exitCode === null || (typeof value.exitCode === "number" && Number.isInteger(value.exitCode))) &&
-  isText(value.message, 2000) &&
+  isText(value.message, BASE_BUILD_TEXT_CHARACTERS) &&
   isText(value.output, MAX_OUTPUT);
 
 /** `value` as a record, or undefined when it is not one. */
@@ -129,7 +137,7 @@ export const baseBuildRecord = (value: unknown): BaseBuildRecord | undefined => 
     (value.nothingToBuild === undefined || typeof value.nothingToBuild === "boolean") &&
     (value.phase === undefined || (BASE_BUILD_PHASES as ReadonlyArray<unknown>).includes(value.phase)) &&
     (value.since === undefined || isTime(value.since)) &&
-    (value.reason === undefined || isText(value.reason, 300)) &&
+    (value.reason === undefined || isText(value.reason, BASE_BUILD_TEXT_CHARACTERS)) &&
     (value.waitingForBudget === undefined || typeof value.waitingForBudget === "boolean") &&
     (value.failure === undefined || isFailure(value.failure)) &&
     (value.good === null || isSnapshot(value.good)) &&

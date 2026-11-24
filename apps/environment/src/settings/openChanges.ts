@@ -311,7 +311,7 @@ export const answerOpenChange = async (deps: AnswerDeps, id: string, answer: Ans
       ...(answer.secret === undefined ? {} : { secret: answer.secret }),
     });
   } catch (error) {
-    applied = { ok: false, error: String(error).slice(0, 300) };
+    applied = { ok: false, error: String(error) };
   }
   const at = deps.now();
   const outcome = applied.ok

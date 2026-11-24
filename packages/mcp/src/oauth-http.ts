@@ -18,24 +18,15 @@ export const OAUTH_FETCH_TIMEOUT_MS = 15_000;
  */
 export const MAX_METADATA_BYTES = 1024 * 1024;
 
-/** An error kept on a row, or an owner-facing reason, is cut to this many characters. */
-export const MAX_SIGN_IN_ERROR_LENGTH = 300;
-
-/** `text` with each of `secrets` (four characters or more) replaced, then cut to `limit` characters (none: not cut). */
-export const scrubbed = (
-  text: string,
-  secrets: ReadonlyArray<string>,
-  limit: number = Number.POSITIVE_INFINITY,
-): string => {
+/** `text` with each of `secrets` (four characters or more) replaced. */
+export const scrubbed = (text: string, secrets: ReadonlyArray<string>): string => {
   let result = text;
 
   for (const secret of secrets) {
     if (secret.length >= 4) result = result.split(secret).join("[REDACTED]");
   }
 
-  const points = Array.from(result);
-
-  return points.length <= limit ? result : points.slice(0, limit).join("");
+  return result;
 };
 
 /** How an OAuth request is sent: `guardedFetch` in the Worker, a fake in a test. */

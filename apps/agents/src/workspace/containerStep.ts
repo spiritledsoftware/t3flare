@@ -136,7 +136,7 @@ export class ContainerStep<State extends StepState> {
         t3flare: "container-step-threw",
         key: this.#deps.key,
         runtime: runtime === "" ? "unknown" : runtime,
-        error: String(error).slice(0, 300),
+        error: String(error),
       });
       state = this.#deps.failed(runtime, attemptsBefore + 1);
     }
@@ -166,7 +166,7 @@ export class ContainerStep<State extends StepState> {
         result = { ended: "output", stdout: ended.stdout, exitCode: ended.exitCode };
       }
     } catch (cause) {
-      result = { ended: "failed", error: String(cause instanceof Error ? cause.message : cause).slice(0, 300) };
+      result = { ended: "failed", error: String(cause instanceof Error ? cause.message : cause) };
     } finally {
       release();
     }

@@ -3,7 +3,7 @@
 // and are checked on the stage (`scripts/previews.ts`); their refusals are checked here.
 import { describe, expect, it } from "vitest";
 
-import { ContainerPreview, type ContainerPreviewDeps } from "../src/workspace/containerPreview.ts";
+import { closeReason, ContainerPreview, type ContainerPreviewDeps } from "../src/workspace/containerPreview.ts";
 import { CONTAINER_PREVIEW_HEADER } from "../src/workspace/containerPreviewScript.ts";
 
 const harness = (options: { running?: boolean; answer?: (request: Request) => Response | Promise<Response> } = {}) => {
@@ -160,5 +160,16 @@ describe("a Container preview", () => {
       ).status,
     ).toBe(404);
     expect(run.seen).toEqual([]);
+  });
+});
+
+describe("a carried WebSocket's close reason", () => {
+  it("is whole up to the 123 bytes a close frame holds, and cut there on a character", () => {
+    expect(closeReason("bye")).toBe("bye");
+    expect(closeReason("a".repeat(123))).toBe("a".repeat(123));
+    expect(closeReason("a".repeat(200))).toBe("a".repeat(123));
+    const cut = closeReason(`${"a".repeat(122)}é and more`);
+    expect(cut).toBe("a".repeat(122));
+    expect(new TextEncoder().encode(closeReason("é".repeat(100))).length).toBe(122);
   });
 });

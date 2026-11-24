@@ -87,10 +87,25 @@ export interface TraceEntry {
   readonly detail?: string;
 }
 
-/** The latest routed commands, at most `routerTraceEntries` (SPI-1364): in memory, the only bound on it. */
-const trace: Array<TraceEntry> = [];
+/**
+ * The most the router trace holds, in bytes. A sanity bound (ADR-0048) under the named constraint, the Environment
+ * isolate's 128 MB, which t3's server and its SQLite cache share: a sixteenth of it. Nothing measured sets the share.
+ * An entry's texts (git's stderr, a failure's reason) are kept whole, so the trace is bounded here once, by bytes,
+ * instead of by a cut per entry (SPI-1360).
+ */
+export const ROUTER_TRACE_BYTES = 8 * 1024 * 1024;
 
-export const routerTrace = (): ReadonlyArray<TraceEntry> => [...trace];
+/** What `entry` takes in memory, near enough: two bytes per UTF-16 unit of its JSON. */
+export const traceEntryBytes = (entry: TraceEntry): number => 2 * JSON.stringify(entry).length;
+
+/**
+ * The latest routed commands, in memory: at most `routerTraceEntries` (SPI-1364) of them, and at most
+ * `ROUTER_TRACE_BYTES` together, the latest entry always kept.
+ */
+const trace: Array<{ readonly entry: TraceEntry; readonly bytes: number }> = [];
+let traceTotal = 0;
+
+export const routerTrace = (): ReadonlyArray<TraceEntry> => trace.map((kept) => kept.entry);
 
 /** Step 4a: a CLI protocol step worth proving later (a native thread resumed), in the same trace. */
 export const traceProtocol = (cli: string, step: string, detail: string): void =>
@@ -102,14 +117,20 @@ export const traceProtocol = (cli: string, step: string, detail: string): void =
     route: "protocol",
     exitCode: null,
     ms: 0,
-    detail: detail.slice(0, 300),
+    detail,
   });
-export const clearRouterTrace = (): void => void trace.splice(0);
+export const clearRouterTrace = (): void => {
+  trace.splice(0);
+  traceTotal = 0;
+};
 
 const record = (entry: TraceEntry) => {
-  trace.push(entry);
+  const bytes = traceEntryBytes(entry);
+  trace.push({ entry, bytes });
+  traceTotal += bytes;
   const max = routerTraceEntriesNow();
-  if (trace.length > max) trace.splice(0, trace.length - max);
+  while (trace.length > 1 && (trace.length > max || traceTotal > ROUTER_TRACE_BYTES))
+    traceTotal -= trace.shift()!.bytes;
 };
 
 interface Answer {
@@ -151,7 +172,7 @@ const passedThrough = (stderr: string): string =>
     .join("\n");
 
 /** An argv as the trace keeps it: credentials in URLs and anything token-like removed. */
-const traceArgv = (args: ReadonlyArray<string>) => args.map((arg) => redactSecrets(arg).slice(0, 300));
+const traceArgv = (args: ReadonlyArray<string>) => args.map((arg) => redactSecrets(arg));
 
 const ghToken = async (): Promise<Answer> => {
   const services = environmentServices();
@@ -247,7 +268,7 @@ export const workspaceGitHubToken = async (
       });
     return { token: minted.token, expiresAt: minted.expiresAt, repo: { owner: record.owner, name: record.name } };
   } catch (error) {
-    console.warn(JSON.stringify({ t3flare: "container-token-failed", id, error: String(error).slice(0, 300) }));
+    console.warn(JSON.stringify({ t3flare: "container-token-failed", id, error: String(error) }));
     return null;
   }
 };
@@ -291,9 +312,7 @@ const bridgedGitEnv = async (
   const dropped: Array<string> = [];
   const translated = gitEnvOf(id, env, { onT3Side, dropped });
   if (dropped.length > 0)
-    console.warn(
-      JSON.stringify({ t3flare: "git-alternate-dropped", id, dropped: dropped.map((entry) => entry.slice(0, 300)) }),
-    );
+    console.warn(JSON.stringify({ t3flare: "git-alternate-dropped", id, dropped: dropped.map((entry) => entry) }));
   return gitBridge.bridge(id, translated);
 };
 
@@ -328,7 +347,7 @@ const git = async (
   void gitBridge
     .reap()
     .catch((error: unknown) =>
-      console.warn(JSON.stringify({ t3flare: "git-bridge-reap-failed", error: String(error).slice(0, 300) })),
+      console.warn(JSON.stringify({ t3flare: "git-bridge-reap-failed", error: String(error) })),
     );
   // SPI-1364: t3 times its git commands by giving up on them (GitVcsDriverCore's `timeoutMs`); the Workspace ends the
   // command's exec then, by its run id. One t3 never gives up on ends at the Owner's command time limit.
@@ -385,7 +404,7 @@ const git = async (
       (answer.stale !== undefined ? `stale-${answer.stale}` : answer.cached === true ? "cache" : "container"),
     // An action's failure keeps git's own words in the trace (tokens taken out), as the evidence of what the remote said.
     detail: `${startContainer ? "action" : "passive"} ${answer.ms}ms${answer.startedContainer === undefined ? "" : ` started the Container: first ${answer.startedContainer} read`}${
-      startContainer && answer.exitCode !== 0 ? `: ${redactTokens(answer.stderr).trim().slice(0, 400)}` : ""
+      startContainer && answer.exitCode !== 0 ? `: ${redactTokens(answer.stderr).trim()}` : ""
     }`,
   };
 };
@@ -402,7 +421,7 @@ const fail = (text: string, detail?: string): Answer => {
     stdout: "",
     stderr,
     route: "worktree",
-    detail: `${detail === undefined ? "" : `${detail}: `}${stderr.trim()}`.slice(0, 1000),
+    detail: `${detail === undefined ? "" : `${detail}: `}${stderr.trim()}`,
   };
 };
 
@@ -455,7 +474,7 @@ const worktreeAdd = async (cwd: string, command: Extract<WorktreeCommand, { verb
       const { restoreWorkspace } = await import("./deletion.ts");
       const restoreError = await restoreWorkspace(id).then(
         () => undefined,
-        (error: unknown) => String(error).slice(0, 300),
+        (error: unknown) => String(error),
       );
       if (restoreError !== undefined)
         return fail(`${T3FLARE_FATAL}'${command.path}' could not be restored: ${restoreError}`);
@@ -491,11 +510,9 @@ const worktreeAdd = async (cwd: string, command: Extract<WorktreeCommand, { verb
     const budget = startRefusal(raw);
     const reason = budget === undefined ? raw : `the Container cannot start: ${budget}`;
     services.workspaces.setState(id, "failed", { lastError: raw });
-    console.warn(
-      JSON.stringify({ t3flare: "worktree-failed", id, reason: redactTokens(reason).slice(0, 500), timings }),
-    );
+    console.warn(JSON.stringify({ t3flare: "worktree-failed", id, reason: redactTokens(reason), timings }));
     return fail(
-      `${T3FLARE_FATAL}the worktree Workspace was not made: ${redactTokens(reason).slice(0, 800)}`,
+      `${T3FLARE_FATAL}the worktree Workspace was not made: ${redactTokens(reason)}`,
       JSON.stringify(timings),
     );
   };
@@ -533,7 +550,7 @@ const worktreeAdd = async (cwd: string, command: Extract<WorktreeCommand, { verb
     if (!finished.ok) return failed(`checkout: ${finished.error ?? "failed"}`);
     // The project-root view (plan section 4.2): the project's untracked files, for setup scripts' `$T3CODE_PROJECT_ROOT`.
     const view = await step("projectRoot", () => worktree.seedProjectRoot({ parent: parent.id })).catch(
-      (error: unknown) => ({ error: describeFailure(error).slice(0, 300) }),
+      (error: unknown) => ({ error: describeFailure(error) }),
     );
     services.workspaces.setState(id, "ready", { lastError: null });
     const detail = JSON.stringify({
@@ -862,7 +879,7 @@ export const spawn = (command: ChildProcess.Command) =>
             record({
               at: started,
               command: name,
-              argv: traceArgv(args.slice(0, 4)),
+              argv: traceArgv(args),
               cwd: cwd ?? null,
               route: "process",
               exitCode: null,
@@ -875,12 +892,12 @@ export const spawn = (command: ChildProcess.Command) =>
             record({
               at: started,
               command: name,
-              argv: traceArgv(args.slice(0, 4)),
+              argv: traceArgv(args),
               cwd: cwd ?? null,
               route: "error",
               exitCode: null,
               ms: now - started,
-              detail: String(error).slice(0, 300),
+              detail: String(error),
             }),
           ),
         ),
@@ -933,7 +950,7 @@ export const spawn = (command: ChildProcess.Command) =>
               _tag: "Unknown",
               module: "ChildProcess",
               method: "spawn",
-              description: `t3flare: ${name}: ${describeFailure(cause).slice(0, 300)}`,
+              description: `t3flare: ${name}: ${describeFailure(cause)}`,
               pathOrDescriptor: name,
             }),
         });
@@ -962,7 +979,7 @@ export const spawn = (command: ChildProcess.Command) =>
               route: "error",
               exitCode: null,
               ms: now - started,
-              detail: String(error).slice(0, 300),
+              detail: String(error),
             }),
           ),
         ),

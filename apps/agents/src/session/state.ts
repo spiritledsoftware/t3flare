@@ -134,7 +134,7 @@ export const pushedEntry = (
       content: slimContent(message.content),
       ...opt("stopReason", str(message.stopReason)),
       // Redacted (SPI-1172): an error text may echo a credential; none goes into a push.
-      ...(str(message.errorMessage) ? { errorMessage: cut(redactSecrets(str(message.errorMessage)!), 2048) } : {}),
+      ...(str(message.errorMessage) ? { errorMessage: redactSecrets(str(message.errorMessage)!) } : {}),
       ...(usage ? { usage } : {}),
     };
   }
@@ -222,14 +222,14 @@ export const liveOf = (doc: Json, turnOfTask: (taskId: string) => string | null)
         : {
             reason: str(failure.reason) ?? "unknown",
             taskId: idText(failure.taskId) ?? "",
-            ...(str(failure.detail) ? { detail: cut(redactSecrets(str(failure.detail)!), 2048) } : {}),
+            ...(str(failure.detail) ? { detail: redactSecrets(str(failure.detail)!) } : {}),
           },
   };
 };
 
-/** A turn's failure detail as the Session keeps and pushes it: redacted (SPI-1172), at most 2 KiB; undefined for none. */
+/** A turn's failure detail as the Session keeps and pushes it: redacted (SPI-1172), whole; undefined for none. */
 export const turnDetail = (detail: unknown): string | undefined =>
-  typeof detail === "string" ? redactSecrets(detail).slice(0, 2048) : undefined;
+  typeof detail === "string" ? redactSecrets(detail) : undefined;
 
 /** The turn an entry belongs to: the latest turn whose input was placed at or before it. */
 export const turnOfEntry = (entryId: number, turns: Readonly<Record<string, TurnState>>): string | null => {

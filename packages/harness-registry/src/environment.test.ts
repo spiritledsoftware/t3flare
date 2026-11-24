@@ -29,6 +29,7 @@ import {
   MAX_CONTAINER_BUDGET,
   MAX_RETENTION_DAYS,
   MAX_SETUP_BYTES,
+  MAX_SETUP_OUTPUT_KIB,
   MAX_FILE_SETTING_BYTES,
   MAX_GLOBAL_MISE_BYTES,
   MAX_AGENT_TERMINALS_PER_WORKSPACE,
@@ -922,10 +923,12 @@ describe("the Container setup (ADR-0047 §7, §9)", () => {
       expect(set({ containerSetupMinutes: minutes })).toMatchObject({ ok: false });
   });
 
-  it("keeps 32 KiB of a setup's output by default, 4 to 256", () => {
+  it("keeps 32 KiB of a setup's output by default, 4 to a third of one Durable Object value", () => {
+    expect(MAX_SETUP_OUTPUT_KIB).toBe(Math.floor(DO_VALUE_BYTES / 3 / 1024));
     expect(resolveEnvironment(EMPTY_ENVIRONMENT).setupOutputKiB).toBe(32);
-    for (const kib of [4, 256]) expect(set({ setupOutputKiB: kib })).toMatchObject({ ok: true });
-    for (const kib of [3, 257, 8.5]) expect(set({ setupOutputKiB: kib })).toMatchObject({ ok: false });
+    for (const kib of [4, MAX_SETUP_OUTPUT_KIB]) expect(set({ setupOutputKiB: kib })).toMatchObject({ ok: true });
+    for (const kib of [3, MAX_SETUP_OUTPUT_KIB + 1, 8.5])
+      expect(set({ setupOutputKiB: kib })).toMatchObject({ ok: false });
   });
 
   it("carries on or refuses commands on a failure, nothing else", () => {

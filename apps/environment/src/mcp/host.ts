@@ -106,7 +106,6 @@ export interface Inventory {
   readonly definitions: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
   /** The tools refused, by name; a cut list ends with an entry whose `more` counts the rest (`fitRefused`). */
   readonly refused: ReadonlyArray<RefusedTool>;
-  readonly instructions?: string;
 }
 
 /** What a Session (or the relay) is given: the servers it may use, with their tools; no secret, no URL. */
@@ -144,8 +143,8 @@ const overrideOf = (value: unknown): ToolClass | undefined =>
 const errorText = (error: unknown): string => {
   const record = (error ?? {}) as { _tag?: unknown; message?: unknown; status?: unknown };
   const tag = typeof record._tag === "string" ? record._tag : "Error";
-  const message = typeof record.message === "string" ? record.message : JSON.stringify(error).slice(0, 300);
-  return `${tag}: ${message}`.slice(0, 600);
+  const message = typeof record.message === "string" ? record.message : JSON.stringify(error);
+  return `${tag}: ${message}`;
 };
 
 export interface McpHostDeps {
@@ -347,10 +346,10 @@ export class McpHost {
     const server = ownEntry(this.servers(), name);
     const before = this.inventory(name);
     const failed = (error: string): Inventory => {
-      const next: Inventory = { ...before, status: "failed", error, listedAt: before.listedAt };
-      if (generation === this.#generation(name))
-        this.#deps.kv.put(inventoryKey(name), { ...next, failedAt: this.#now() });
-      console.warn(JSON.stringify({ t3flare: "mcp-list-failed", server: name, error: error.slice(0, 300) }));
+      const rest = { ...before, status: "failed" as const, listedAt: before.listedAt, failedAt: this.#now() };
+      const { failedAt, ...next } = { ...rest, error: fitError(rest, error) };
+      if (generation === this.#generation(name)) this.#deps.kv.put(inventoryKey(name), { ...next, failedAt });
+      console.warn(JSON.stringify({ t3flare: "mcp-list-failed", server: name, error }));
       return next;
     };
     if (server === undefined) return failed("no such server");
@@ -361,7 +360,7 @@ export class McpHost {
     try {
       result = await this.#deps.engine.discover(target, this.#prior(name), this.#authHooks(name, server));
     } catch (error) {
-      return failed(`the MCP engine failed: ${String(error).slice(0, 300)}`);
+      return failed(`the MCP engine failed: ${String(error)}`);
     }
     this.#keepState(name, result.state as never, generation);
     if (result.kind !== "discovered") return failed(errorText(result.error));
@@ -388,7 +387,6 @@ export class McpHost {
       listedAt: this.#now(),
       status: "ok" as const,
       definitions,
-      ...(typeof result.instructions === "string" ? { instructions: result.instructions.slice(0, 4000) } : {}),
     };
     const next: Inventory = { ...rest, refused: fitRefused(rest, refused) };
     // Forgotten meanwhile (removed, or added again): the old server's tools are not kept under the new one's name.
@@ -419,12 +417,12 @@ export class McpHost {
       tools.push({
         name: toolName,
         upstream,
-        description: (typeof definition.description === "string"
-          ? definition.description
-          : typeof definition.title === "string"
-            ? definition.title
-            : upstream
-        ).slice(0, 4000),
+        description:
+          typeof definition.description === "string"
+            ? definition.description
+            : typeof definition.title === "string"
+              ? definition.title
+              : upstream,
         inputSchema: (definition.inputSchema ?? { type: "object", properties: {} }) as Record<string, unknown>,
         hash: await definitionHash(definition),
         // Only "read" or "write" is an override (settings stored before the back-to-stock cut held hash pins: ignored).
@@ -604,7 +602,7 @@ export class McpHost {
       (tool) => tool.exposure !== "hidden" && tool.exposure !== "codemode" && tool.ui?.resourceUri === input.uri,
     );
     if (!input.uri.startsWith("ui://") || !declared)
-      return { kind: "refused", message: `${input.server} declares no App at ${input.uri.slice(0, 200)}.` };
+      return { kind: "refused", message: `${input.server} declares no App at ${input.uri}.` };
     if (this.#deps.engine === undefined) return { kind: "refused", message: "The MCP engine is not bound." };
     const target = await this.#target(input.server, server);
     if (typeof target === "string") return { kind: "refused", message: target };
@@ -618,7 +616,7 @@ export class McpHost {
         this.#authHooks(input.server, server),
       );
     } catch (error) {
-      return { kind: "refused", message: `The read failed: ${String(error).slice(0, 300)}` };
+      return { kind: "refused", message: `The read failed: ${String(error)}` };
     }
     this.#keepState(input.server, result.state as never, generation);
     if (result.kind !== "complete")
@@ -697,7 +695,7 @@ export class McpHost {
     } catch (error) {
       return {
         kind: "unavailable",
-        message: `The MCP call failed; it may have run: ${String(error).slice(0, 300)}`,
+        message: `The MCP call failed; it may have run: ${String(error)}`,
         mayHaveRun: true,
       };
     }
@@ -748,7 +746,7 @@ export class McpHost {
     try {
       answer = await Promise.race([asker.ask(plan.card), timedOut]);
     } catch (error) {
-      answer = { decision: "cancel", reason: `the card could not be shown: ${String(error).slice(0, 200)}` };
+      answer = { decision: "cancel", reason: `the card could not be shown: ${String(error)}` };
     } finally {
       clearTimeout(timer);
     }
@@ -848,28 +846,36 @@ const redactedResult = (value: unknown, max: number): { readonly isError: boolea
   };
 };
 
-/** The most characters of a refused tool's name and reason kept: both are the server's, and the list shares a value. */
-const REFUSED_TEXT_MAX = 300;
+/**
+ * `error` as much as an inventory (`rest`, its other fields, the last good listing's tools among them) can keep beside it
+ * in its one Durable Object value (`DO_VALUE_BYTES`, a named constraint): whole when it fits, else its start.
+ */
+export const fitError = (rest: Readonly<Record<string, unknown>>, error: string): string => {
+  const room = DO_VALUE_BYTES - storedBytes({ ...rest, error: "" });
+  let kept = error;
+  // `storedBytes` counts the JSON, whose escapes can take more than one character a unit: cut until it fits.
+  while (kept.length > 0 && storedBytes(kept) > room)
+    kept = kept.slice(0, Math.max(0, Math.min(kept.length - 1, Math.floor((kept.length * room) / storedBytes(kept)))));
+  return kept;
+};
 
 /** What the closing "and N more" entry of a cut refused list may take stored. */
 const MORE_ENTRY_BYTES = 1024;
 
 /**
  * `refused` as an inventory (`rest`, its other fields) can keep it in its one Durable Object value (`DO_VALUE_BYTES`):
- * each name and reason cut to `REFUSED_TEXT_MAX`, and the list cut where it would pass the value, ending with how many
- * more were refused. Without the cut a huge server's refusals would fail the write, and discovery would run again at
+ * each name and reason whole, and the list cut where it would pass the value, ending with how many more were refused. Without the cut a huge server's refusals would fail the write, and discovery would run again at
  * every view.
  */
 const fitRefused = (
   rest: Omit<Inventory, "refused">,
   refused: ReadonlyArray<{ readonly tool: string; readonly reason: string }>,
 ): Inventory["refused"] => {
-  const cut = (text: string) => (text.length > REFUSED_TEXT_MAX ? `${text.slice(0, REFUSED_TEXT_MAX)}…` : text);
   const room = DO_VALUE_BYTES - storedBytes({ ...rest, refused: [] }) - MORE_ENTRY_BYTES;
   const kept: Array<{ readonly tool: string; readonly reason: string }> = [];
   let used = 0;
   for (const entry of refused) {
-    const shown = { tool: cut(entry.tool), reason: cut(entry.reason) };
+    const shown = { tool: entry.tool, reason: entry.reason };
     const bytes = storedBytes(shown) + STORED_CHARACTER_BYTES;
     if (used + bytes > room) break;
     kept.push(shown);

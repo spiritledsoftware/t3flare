@@ -13,7 +13,7 @@ import {
 } from "@t3flare/harness-registry";
 import { describe, expect, it } from "vitest";
 
-import { McpHost, refusedCount, type McpServerLimits, type McpEngineBinding } from "../src/mcp/host.ts";
+import { fitError, McpHost, refusedCount, type McpServerLimits, type McpEngineBinding } from "../src/mcp/host.ts";
 
 const memory = () => {
   const map = new Map<string, unknown>();
@@ -497,7 +497,7 @@ describe("McpHost and MCP apps (G11, review L10)", () => {
     expect(listed.refused).toEqual([expect.objectContaining({ tool: "d", reason: expect.stringContaining("MiB") })]);
   });
 
-  it("keeps a server's inventory within its one value: refused names cut, the list cut with how many more (SPI-1363)", async () => {
+  it("keeps a server's inventory within its one value: refused names whole (SPI-1360), the list cut with how many more (SPI-1363)", async () => {
     const big = (name: string) => ({ ...tool(name, true), description: "d".repeat(440_000) });
     const many = Array.from({ length: 6000 }, (_, index) => tool(`${index}`.padEnd(1000, "n"), true));
     const run = setup(() => [big("a"), big("b"), big("c"), ...many]);
@@ -509,7 +509,7 @@ describe("McpHost and MCP apps (G11, review L10)", () => {
       reason: expect.stringMatching(/^and \d+ more tools refused/),
       more: expect.any(Number),
     });
-    for (const entry of listed.refused) expect(entry.tool.length).toBeLessThanOrEqual(301);
+    for (const entry of listed.refused.slice(0, -1)) expect(entry.tool.length).toBeGreaterThanOrEqual(1000);
     expect(listed.refused[0]?.reason).toContain("MiB of tool definitions");
     // The count says every tool refused, the ones past the cut included, not the entries.
     expect(refusedCount(listed.refused)).toBe(6003 - Object.keys(listed.definitions).length);
@@ -602,5 +602,17 @@ describe("McpHost and the Settings server", () => {
     ).toMatchObject({ kind: "unavailable" });
     // Commissary's stale inventory is listed again in the background; nothing goes to the engine for the Settings server.
     expect(run.seen.filter((seen) => seen.target.name === "settings")).toEqual([]);
+  });
+});
+
+describe("a failed listing's error (SPI-1360)", () => {
+  it("is kept whole when it fits the inventory's value, and cut to what the value has left when not", () => {
+    const rest = { server: "s", status: "failed", definitions: { big: { description: "d".repeat(2_000_000) } } };
+    expect(fitError(rest, "the server did not answer")).toBe("the server did not answer");
+    const error = "\u0001x".repeat(1_000_000);
+    const kept = fitError(rest, error);
+    expect(kept.length).toBeGreaterThan(0);
+    expect(error.startsWith(kept)).toBe(true);
+    expect(storedBytes({ ...rest, error: kept })).toBeLessThanOrEqual(DO_VALUE_BYTES);
   });
 });

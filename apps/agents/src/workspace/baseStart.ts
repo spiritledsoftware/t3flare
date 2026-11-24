@@ -15,12 +15,7 @@
 //   snapshot (missing or expired) is seen within a second, not at the end of computer's 60 s connect deadline (one budget its attempts share), and the start goes again
 //   from the Workspace image, once.
 import type { BackendHandle, WorkspaceBackend } from "@cloudflare/computer";
-import {
-  BASE_BUILD_CAPS,
-  type BaseBuildRecord,
-  type BaseSnapshot,
-  type ResolvedEnvironment,
-} from "@t3flare/harness-registry";
+import { type BaseBuildRecord, type BaseSnapshot, type ResolvedEnvironment } from "@t3flare/harness-registry";
 
 import { readWithin } from "../readWithin.ts";
 
@@ -257,7 +252,7 @@ export const startFromBase = async <Answer extends { readonly outcome: string }>
       () => resolve(undefined),
       (error: unknown) => {
         if (!isSnapshotRefusal(error)) return resolve(undefined);
-        const message = messageOf(error).slice(0, BASE_BUILD_CAPS.log);
+        const message = messageOf(error);
         if (watching) return resolve(message);
         // Past the window: computer is connecting to a Container that never ran. It is told, and the next start differs.
         void deps

@@ -89,7 +89,7 @@ const readPurgeSet = async (deps: WorkspacesDeps, id: string, force = false) => 
   const terminals: WorkspacesDeps["terminals"] = force
     ? (member) =>
         deps.terminals(member).catch((error: unknown) => {
-          unread.push({ id: member, error: String(error).slice(0, 300) });
+          unread.push({ id: member, error: String(error) });
           return 0;
         })
     : deps.terminals;
@@ -173,7 +173,7 @@ export const purgeNow = async (
     return {
       ok: false,
       status: 503,
-      error: `the Workspace's references could not be read, so nothing was purged: ${String(error).slice(0, 300)}`,
+      error: `the Workspace's references could not be read, so nothing was purged: ${String(error)}`,
     };
   }
   if (read === undefined) return unknown(id);

@@ -120,7 +120,7 @@ const list = (values: ReadonlyArray<string>) => values.map((v) => `'${v}'`).join
 /** A read of t3's tables failed (a table or column renamed or gone on a bump): whether work is open is unknown. */
 export class UnreadableTables extends Error {
   constructor(table: string, cause: unknown) {
-    super(`${table}: ${String(cause).slice(0, 300)}`, { cause });
+    super(`${table}: ${String(cause)}`, { cause });
     this.name = "UnreadableTables";
   }
 }

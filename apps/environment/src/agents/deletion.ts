@@ -256,8 +256,8 @@ export const purgeWorkspace = async (
     return { id, sessionsDestroyed, destroyed: true };
   } catch (error) {
     // Left in `deleting`: the sweep drives it again within minutes.
-    services.workspaces.setLastError(id, `purge: ${String(error).slice(0, 500)}`);
-    return { id, sessionsDestroyed, destroyed: false, error: String(error).slice(0, 500) };
+    services.workspaces.setLastError(id, `purge: ${String(error)}`);
+    return { id, sessionsDestroyed, destroyed: false, error: String(error) };
   }
 };
 
@@ -324,7 +324,7 @@ export const removeWorktree = async (
       .closeContainer()
       .then(
         () => undefined,
-        (error: unknown) => String(error).slice(0, 300),
+        (error: unknown) => String(error),
       );
     if (stopError !== undefined)
       services.workspaces.setLastError(id, `${why}; the Container did not stop: ${stopError}`);
@@ -345,13 +345,10 @@ export const removeWorktree = async (
     out = await workspaceRpc(id).carryOut({ projectTips: tips.ok ? tips.tips : [], timeoutMs: checkpointMsNow() });
   } catch (error) {
     // The check needs both Containers (a budget of 3): without it nothing is known, so nothing is purged.
-    return await tombstone(`the removal could not check the worktree: ${String(error).slice(0, 300)}`, null);
+    return await tombstone(`the removal could not check the worktree: ${String(error)}`, null);
   }
   if (!out.ok || !tips.ok)
-    return await tombstone(
-      `the removal could not check the worktree: ${(out.error ?? tips.error ?? "").slice(0, 300)}`,
-      null,
-    );
+    return await tombstone(`the removal could not check the worktree: ${out.error ?? tips.error ?? ""}`, null);
   if (out.dirty && !force) {
     return {
       exitCode: 128,
@@ -365,11 +362,7 @@ export const removeWorktree = async (
     const home = await workspaceRpc(project.id)
       .carryIn({ worktree: id, bundle: out.bundle, dir, carried: out.carried, timeoutMs: checkpointMsNow() })
       .catch((error: unknown) => ({ ok: false, lines: [] as ReadonlyArray<string>, error: String(error) }));
-    if (!home.ok)
-      return await tombstone(
-        `the worktree's refs could not be carried home: ${(home.error ?? "").slice(0, 300)}`,
-        null,
-      );
+    if (!home.ok) return await tombstone(`the worktree's refs could not be carried home: ${home.error ?? ""}`, null);
     carried = home.lines;
   }
   // `purge_after` only says the Tombstone has a date (ADR-0043 §2): the date itself is its deletion plus the Grace as it is then.
@@ -559,7 +552,7 @@ export const sweep = async (
     const report: SweepReport = {
       ...reported,
       ok: false,
-      error: `the sweep read failed, nothing done: ${String(error).slice(0, 500)}`,
+      error: `the sweep read failed, nothing done: ${String(error)}`,
       actions: [],
       purged: [],
       costGuard: [],
@@ -628,7 +621,7 @@ export const sweep = async (
           JSON.stringify({
             t3flare: "sweep-session-failed",
             thread: thread.threadId,
-            error: String(error).slice(0, 200),
+            error: String(error),
           }),
         );
         continue;
@@ -704,7 +697,7 @@ export const guardCost = async (
       await byName(budget, "budget", "CONTAINER_BUDGET").release(lease.holder);
       out.push({ holder: lease.holder, action: "stopped" });
     } catch (error) {
-      out.push({ holder: lease.holder, action: `stop failed: ${String(error).slice(0, 200)}` });
+      out.push({ holder: lease.holder, action: `stop failed: ${String(error)}` });
     }
   }
   return out;

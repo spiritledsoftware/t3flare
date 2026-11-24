@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BASE_BUILD_TEXT_CHARACTERS,
   type BaseBuildRecord,
   baseBuildRecord,
   BUILDERS,
@@ -11,6 +12,9 @@ import {
   buildDurationText,
   snapshotSizeText,
 } from "./baseBuild.ts";
+import { MAX_SETUP_OUTPUT_KIB } from "./environment.ts";
+import { DO_VALUE_BYTES } from "./storedValue.ts";
+import { MAX_VARIABLES_BYTES } from "./variables.ts";
 
 const AT = Date.parse("2026-11-22T10:00:00.000Z");
 const KEY = "a".repeat(64);
@@ -65,11 +69,54 @@ describe("baseBuildRecord", () => {
       baseBuildRecord({
         key: KEY,
         state: "failed",
-        failure: { at: AT, phase: "running", exitCode: 1, message: "x", output: "y".repeat(256 * 1024 + 1) },
+        failure: {
+          at: AT,
+          phase: "running",
+          exitCode: 1,
+          message: "x",
+          output: "y".repeat(MAX_SETUP_OUTPUT_KIB * 1024 + 1),
+        },
         good: null,
         at: AT,
       }),
     ).toBeUndefined();
+  });
+
+  it("takes a reason and a message up to BASE_BUILD_TEXT_CHARACTERS, and a whole record still fits one value", () => {
+    const text = (character: string, length: number) => character.repeat(length);
+    const record = (length: number) => ({
+      key: KEY,
+      state: "failed",
+      since: AT,
+      reason: text("r", length),
+      failure: {
+        at: AT,
+        phase: "running",
+        exitCode: 1,
+        message: text("m", length),
+        output: text("o", MAX_SETUP_OUTPUT_KIB * 1024),
+      },
+      good: null,
+      at: AT,
+    });
+    const largest = baseBuildRecord(record(BASE_BUILD_TEXT_CHARACTERS));
+    expect(largest).toBeDefined();
+    // A Durable Object value stores a string in at most two bytes a UTF-16 unit.
+    expect(2 * JSON.stringify(largest).length).toBeLessThanOrEqual(DO_VALUE_BYTES);
+    expect(baseBuildRecord(record(BASE_BUILD_TEXT_CHARACTERS + 1))).toBeUndefined();
+  });
+
+  it("leaves room in the Builder's build for the most output, the secret Variables and three texts at the most", () => {
+    // Stored at two bytes a UTF-16 unit, at most; the secrets' UTF-8 is at least one byte a unit.
+    const build = {
+      reason: "r".repeat(BASE_BUILD_TEXT_CHARACTERS),
+      lastError: "e".repeat(BASE_BUILD_TEXT_CHARACTERS),
+      secrets: ["s".repeat(MAX_VARIABLES_BYTES)],
+      failure: { message: "m".repeat(BASE_BUILD_TEXT_CHARACTERS), output: "o".repeat(MAX_SETUP_OUTPUT_KIB * 1024) },
+    };
+    // The other fields (ids, times, a snapshot, an image digest) take far under the 8 KiB left.
+    expect(2 * JSON.stringify(build).length + 8 * 1024).toBeLessThanOrEqual(DO_VALUE_BYTES);
+    expect(BASE_BUILD_TEXT_CHARACTERS).toBeGreaterThan(64 * 1024);
   });
 });
 

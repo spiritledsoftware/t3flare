@@ -74,13 +74,13 @@ export const takeSkillSet = async (deps: TakeDeps, hash: string): Promise<TakeAn
         t3flare: "skills-refused",
         workspace: deps.workspace,
         hash: refusedHash.slice(0, 12),
-        message: message.slice(0, 300),
+        message,
       }),
     );
     await deps
       .report(refusedHash, message)
       .catch((error: unknown) =>
-        deps.warn(JSON.stringify({ t3flare: "skills-refusal-unreported", error: String(error).slice(0, 200) })),
+        deps.warn(JSON.stringify({ t3flare: "skills-refusal-unreported", error: String(error) })),
       );
     return { taken: false, hash: store.hash(), error: message };
   };
@@ -140,7 +140,7 @@ export const awaitContainerCopy = async (
       onlyIfRunning: true,
       timeoutMs: skillsWaitLooks(deps.waitMs) * SKILLS_LOOK_MS + SKILLS_WAIT_MARGIN_MS,
     })
-    .catch((error: unknown) => ({ status: String(error).slice(0, 200), stdout: "" }));
+    .catch((error: unknown) => ({ status: String(error), stdout: "" }));
   if (result.status === "not-running") return "stopped";
   const answer = parseWait(result.stdout);
   if (!answer.caughtUp)
@@ -148,7 +148,7 @@ export const awaitContainerCopy = async (
       JSON.stringify({
         t3flare: "skills-container-stale",
         looks: answer.looks,
-        stale: answer.stale.slice(0, 20),
+        stale: answer.stale,
         status: result.status,
       }),
     );

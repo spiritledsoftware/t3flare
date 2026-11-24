@@ -8,6 +8,10 @@
 //   (`primeScript`), so a later launch finds real answers and starts nothing;
 // - their cache key ignores the command's env and a `--git-dir` naming the Workspace's own repo, so primed answers match.
 
+import { REPO_ROOT } from "@t3flare/workspace-client";
+
+import { type CachedAnswer, readKey } from "./readCache.ts";
+
 export const UPSTREAM_FORMAT = "--format=%(refname)\t%(upstream:remotename)\t%(upstream:remoteref)";
 
 export interface AllowedRead {
@@ -107,40 +111,83 @@ export const passiveDecision = (input: {
   return "stale";
 };
 
-/** The allow-listed reads to answer now, for the repo's branches and remote-tracking refs. */
-export const primeArgvs = (refs: ReadonlyArray<string>): ReadonlyArray<ReadonlyArray<string>> => [
-  ["rev-parse", "--git-common-dir"],
-  ["remote"],
-  ["config", "--get", "checkout.workers"],
-  COMMIT_GIT_PATHS,
-  COUNT_OBJECTS_ARGV,
-  ...refs
-    .filter((ref) => ref.startsWith("refs/heads/"))
-    .slice(0, 100)
-    .map((ref) => ["for-each-ref", UPSTREAM_FORMAT, ref]),
-  ...refs
-    .filter((ref) => ref.startsWith("refs/remotes/") && !ref.endsWith("/HEAD"))
-    .slice(0, 100)
-    .map((ref) => ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]),
-];
+/**
+ * How many reads a prime keeps, at most, of the `gitReadsKept` answers the read cache holds: half. The cache deletes its
+ * least recently used answers past `gitReadsKept` at each put, so a prime of more would delete t3's own kept reads (the
+ * stale answers' base) and, past all of them, its own first answers. A share, not a measured value: the other half is
+ * left to t3's reads.
+ */
+export const primeReadsFor = (gitReadsKept: number): number => Math.floor(gitReadsKept / 2);
+
+/**
+ * The allow-listed reads to answer now, for the repo's branches and remote-tracking refs, the most needed first (the
+ * fixed reads, then the local branches, then the remote refs), at most `maxReads` of them (`primeReadsFor`).
+ */
+export const primeArgvs = (
+  refs: ReadonlyArray<string>,
+  maxReads: number = Number.POSITIVE_INFINITY,
+): ReadonlyArray<ReadonlyArray<string>> =>
+  [
+    ["rev-parse", "--git-common-dir"],
+    ["remote"],
+    ["config", "--get", "checkout.workers"],
+    COMMIT_GIT_PATHS,
+    COUNT_OBJECTS_ARGV,
+    ...refs.filter((ref) => ref.startsWith("refs/heads/")).map((ref) => ["for-each-ref", UPSTREAM_FORMAT, ref]),
+    ...refs
+      .filter((ref) => ref.startsWith("refs/remotes/") && !ref.endsWith("/HEAD"))
+      .map((ref) => ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]),
+  ].slice(0, maxReads);
 
 const word = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
 
-/** One script answering every argv: `T3P <index> <exit> <stdout base64>` per read. */
+/**
+ * The most bytes of output the prime's ref listing, and then its answers, may each take. A sanity bound (ADR-0048) under
+ * the named constraint, the Workspace DO's 128 MB isolate, which holds a whole output 3 to 4 times at its peak
+ * (`execOutput.ts`), beside the prime's script on stdin (about 110 bytes a read, and at most `primeReadsFor` reads).
+ * Both run whole, not tailed by computer (its last 2,000 lines or 64 KiB would drop the head), and both list the most
+ * needed first: the fixed reads, then the local branches, then the remote-tracking refs. So a cut drops the last refs,
+ * the remote ones first, though a listing of very many local branches can cut among them too; a read left out starts
+ * the Container as an unprimed read does.
+ */
+export const PRIME_OUTPUT_BYTES = 4 * 1024 * 1024;
+
+/** `command`'s output cut to `bytes` (`head -c`); a command ended by the cut (SIGPIPE, 141) counts as success. */
+const cutTo = (command: string, bytes: number): string =>
+  `${command} | head -c ${bytes}\nrc=\${PIPESTATUS[0]}\n[ "$rc" = 141 ] && rc=0\nexit "$rc"`;
+
+/** The repo's branches, then its remote-tracking refs (`for-each-ref` sorts by name), at most `bytes` of them. */
+export const listRefsScript = (bytes: number): string =>
+  cutTo("git for-each-ref --format='%(refname)' refs/heads refs/remotes", bytes);
+
+/**
+ * The command that runs a prime script given on its stdin (`primeScript`), never as the script itself: Linux caps one
+ * argument at 128 KiB (MAX_ARG_STRLEN), and the script grows with the repo's refs. Its answers are cut at `bytes`; the
+ * script stops at the cut.
+ */
+export const primeRunner = (bytes: number): string =>
+  `p=$(mktemp); cat > "$p"; bash "$p" | head -c ${bytes}; rm -f "$p"; exit 0`;
+
+/**
+ * One script answering every argv: `T3P <index> <exit> <stdout base64>` per read, in order. Run by `primeRunner`: when its
+ * cut closes the pipe, the next answer fails to write and the script ends, its temporary file removed.
+ */
 export const primeScript = (argvs: ReadonlyArray<ReadonlyArray<string>>): string =>
   [
-    "t=$(mktemp)",
+    `t=$(mktemp); trap 'rm -f "$t"' EXIT; trap '' PIPE`,
     ...argvs.map(
-      (argv, index) => `git ${argv.map(word).join(" ")} >"$t" 2>/dev/null; echo "T3P ${index} $? $(base64 -w0 <"$t")"`,
+      (argv, index) =>
+        `git ${argv.map(word).join(" ")} >"$t" 2>/dev/null; echo "T3P ${index} $? $(base64 -w0 <"$t")" || exit 0`,
     ),
-    'rm -f "$t"',
   ].join("\n");
+
+/** `stdout`'s lines that ended: the last, when a cut fell inside it, is dropped. */
+const wholeLines = (stdout: string): Array<string> => stdout.split("\n").slice(0, -1);
 
 export const parsePrimed = (
   stdout: string,
 ): ReadonlyArray<{ readonly index: number; readonly exitCode: number; readonly stdout: string }> =>
-  stdout
-    .split("\n")
+  wholeLines(stdout)
     .filter((line) => line.startsWith("T3P "))
     .map((line) => {
       const [, index, exit, data = ""] = line.split(" ");
@@ -150,3 +197,52 @@ export const parsePrimed = (
         stdout: new TextDecoder().decode(Uint8Array.from(atob(data), (char) => char.charCodeAt(0))),
       };
     });
+
+/** A passive exec in the repo, its output whole (the scripts above bound their own). */
+export type PrimeExec = (input: {
+  readonly script: string;
+  readonly stdin?: string;
+}) => Promise<{ readonly exitCode: number; readonly stdout: string }>;
+
+/**
+ * The allow-listed reads' answers, read now: the refs listed, then every read for them answered in one script. Throws
+ * when the refs cannot be listed, or `running` says the Container stopped meanwhile.
+ */
+export const primeReads = async (
+  exec: PrimeExec,
+  running: () => boolean,
+  maxReads: number,
+  bytes: number = PRIME_OUTPUT_BYTES,
+): Promise<
+  ReadonlyArray<{ readonly argv: ReadonlyArray<string>; readonly exitCode: number; readonly stdout: string }>
+> => {
+  const listed = await exec({ script: listRefsScript(bytes) });
+  if (listed.exitCode !== 0 || !running()) throw new Error("the refs could not be listed");
+  const argvs = primeArgvs(
+    wholeLines(listed.stdout).filter((line) => line !== ""),
+    maxReads,
+  );
+  const primed = await exec({ script: primeRunner(bytes), stdin: primeScript(argvs) });
+  return parsePrimed(primed.stdout).flatMap((answer) => {
+    const argv = argvs[answer.index];
+    return argv === undefined ? [] : [{ argv, exitCode: answer.exitCode, stdout: answer.stdout }];
+  });
+};
+
+/**
+ * Keeps the prime's `answers` in the read cache at `rev` (the `.git` revision read before the prime ran, so a change
+ * meanwhile leaves them stale, never newer than they are), the least needed first: each put is the cache's most recently
+ * used, so the fixed reads are the last its least-recently-used deletes would reach.
+ */
+export const keepPrimed = async (
+  put: (key: string, rev: number, answer: CachedAnswer) => void,
+  answers: ReadonlyArray<{ readonly argv: ReadonlyArray<string>; readonly exitCode: number; readonly stdout: string }>,
+  rev: number,
+): Promise<void> => {
+  for (const answer of answers.toReversed())
+    put(await readKey({ argv: answer.argv, cwd: REPO_ROOT }), rev, {
+      exitCode: answer.exitCode,
+      stdout: answer.stdout,
+      stderr: "",
+    });
+};

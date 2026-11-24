@@ -732,5 +732,13 @@ Bounded by what carries them: a server's question is declined unseen, saying why
 (`MCP_CARD_BYTES`), since a card is pushed to t3 as one request and kept in its 8 MB event row, and a question arrives in
 a `tools/call` body or a pause's result, which hold far more; an App's resource is read at the MCP result size
 (`mcpResultKiB`, at most 8 MiB) and refused past it in characters, since it crosses the relay's 32 MiB RPC as UTF-16; and
-a server's refused tools are cut, names and reasons to 300 characters and the list to what the inventory's value has
-left, ending with how many more were refused.
+a server's refused tools are cut, names and reasons to 300 characters (superseded by the SPI-1360 refinement: kept
+whole) and the list to what the inventory's value has left, ending with how many more were refused.
+
+## Refinement (SPI-1360, 2026-11-23): error, log and reason text is not cut
+
+Supersedes the SPI-1363 refinement's 300 characters of a refused tool's name and reason: both are kept whole, and the
+refused list alone is cut, where it would pass the inventory's one Durable Object value. The rule this follows, for every
+error, log line, reason and list t3flare shows the Owner or an agent, is in
+[ADR-0048](0048-the-owner-is-trusted-with-their-own-settings-and-a-maximum-is-a-named-constraint-or-a-sanity-bound.md)'s
+SPI-1360 refinement.

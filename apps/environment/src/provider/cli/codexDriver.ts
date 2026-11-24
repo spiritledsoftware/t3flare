@@ -119,9 +119,7 @@ export const guardClient = (
       // SPI-1167: a turn Codex refuses to start names why in the Environment's log (t3 shows a generic failure).
       return sent.pipe(
         Effect.tapError((error) =>
-          Effect.sync(() =>
-            workersLog("warn", { t3flare: "codex-turn-start-failed", error: String(error).slice(0, 300) }),
-          ),
+          Effect.sync(() => workersLog("warn", { t3flare: "codex-turn-start-failed", error: String(error) })),
         ),
       );
     }
@@ -131,9 +129,7 @@ export const guardClient = (
     return sent.pipe(
       Effect.tap(() => Effect.sync(() => traceProtocol("codex", "thread/resume", `ok ${String(threadId)}`))),
       Effect.tapError((error) =>
-        Effect.sync(() =>
-          traceProtocol("codex", "thread/resume", `failed ${String(threadId)}: ${String(error).slice(0, 200)}`),
-        ),
+        Effect.sync(() => traceProtocol("codex", "thread/resume", `failed ${String(threadId)}: ${String(error)}`)),
       ),
     );
   };

@@ -132,8 +132,19 @@ export class ByteQueue {
 }
 
 const encoder = new TextEncoder();
-/** How much of a CLI's stderr is kept for the log when it exits with an error. */
-const STDERR_TAIL = 2000;
+/**
+ * The most bytes one Workers Logs event holds; Cloudflare cuts a longer one and marks it `$cloudflare.truncated`
+ * (developers.cloudflare.com/workers/observability/logs/workers-logs, read 2026-11-23). A named constraint.
+ */
+const WORKERS_LOG_EVENT_BYTES = 256_000;
+
+/**
+ * How much of a CLI's stderr is kept, in UTF-16 units, for the `cli-exited` log line when it exits with an error: a
+ * rolling buffer kept for the process's life, so it needs a bound, and one log event is its ceiling. UTF-8 takes at most
+ * three bytes a unit; 1 KiB is left for the line's other fields. Approximate: JSON escapes a control character in six
+ * bytes, so a tail of them can pass the event, which Cloudflare then cuts, and nothing else breaks.
+ */
+const STDERR_TAIL = Math.floor((WORKERS_LOG_EVENT_BYTES - 1024) / 3);
 
 /** One CLI process in a Workspace's Container, as t3's handle sees it. */
 export class ChannelProcess {
@@ -225,9 +236,7 @@ export class ChannelProcess {
         if (this.exitCode !== undefined) return;
         failingSince ??= Date.now();
         if (Date.now() - failingSince >= WORKSPACE_HEARTBEAT_LAPSE_MS) {
-          console.warn(
-            JSON.stringify({ t3flare: "process-input-failed", key: this.key, error: String(error).slice(0, 200) }),
-          );
+          console.warn(JSON.stringify({ t3flare: "process-input-failed", key: this.key, error: String(error) }));
           this.kill();
           this.finish(129);
           return;
@@ -246,9 +255,7 @@ export class ChannelProcess {
       .processSignal(this.key)
       .then((answer) => this.checkAnswer(answer))
       .catch((error: unknown) => {
-        console.warn(
-          JSON.stringify({ t3flare: "process-signal-failed", key: this.key, error: String(error).slice(0, 200) }),
-        );
+        console.warn(JSON.stringify({ t3flare: "process-signal-failed", key: this.key, error: String(error) }));
         this.finish(129);
       });
   }
@@ -415,7 +422,7 @@ export class ProcessChannel {
       });
     } catch (error) {
       process.finish(129);
-      throw new ProcessRefused(`the Workspace did not start the process: ${String(error).slice(0, 300)}`);
+      throw new ProcessRefused(`the Workspace did not start the process: ${String(error)}`);
     }
     if (!answer.ok) {
       process.finish(1);
@@ -492,7 +499,7 @@ export class ProcessChannel {
             t3flare: "process-read-failed",
             workspace: place.workspace,
             failures,
-            error: String(error).slice(0, 200),
+            error: String(error),
           }),
         );
         // A blip is retried; reads failing for the Workspace's whole heartbeat lapse mean it has killed them there.

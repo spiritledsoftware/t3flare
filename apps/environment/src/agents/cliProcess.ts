@@ -76,9 +76,7 @@ export const handleOf = (
 ): ChildProcessSpawner.ChildProcessHandle => {
   /** The process's bytes on one of its outputs. */
   const bytesOf = (queue: ChannelProcess["stdout"]) =>
-    Stream.fromAsyncIterable(queue, (cause) =>
-      failedStart(process.cli, `reading the process: ${String(cause).slice(0, 200)}`),
-    );
+    Stream.fromAsyncIterable(queue, (cause) => failedStart(process.cli, `reading the process: ${String(cause)}`));
   /** One output as t3 reads it: its bytes, or with `map`, its lines each mapped. */
   const outputOf = (queue: ChannelProcess["stdout"], map?: (line: string) => string) => {
     if (map === undefined) return bytesOf(queue);
@@ -249,9 +247,7 @@ export const spawnCli = (command: ChildProcess.StandardCommand) =>
       Effect.tryPromise({
         try: () => channel.start(start),
         catch: (cause) =>
-          cause instanceof ProcessRefused
-            ? refused(name, cause.message)
-            : failedStart(name, String(cause).slice(0, 300)),
+          cause instanceof ProcessRefused ? refused(name, cause.message) : failedStart(name, String(cause)),
       }),
       (running: ChannelProcess) => Effect.sync(() => running.kill()),
     );

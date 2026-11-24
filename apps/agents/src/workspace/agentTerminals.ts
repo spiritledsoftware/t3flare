@@ -315,7 +315,7 @@ export class AgentTerminals {
     if (live >= max) {
       const mine = this.#owned(request.owner).filter((entry) => entry.exit === null);
       throw new Error(
-        `This Workspace already runs ${live} Terminals and Background jobs, and its Environment setting "${ENVIRONMENT_SETTINGS.agentTerminalsPerWorkspace.title}" (agentTerminalsPerWorkspace) allows ${max}; stop one first, or ask the Owner to raise the setting.${mine.length === 0 ? "" : ` Yours: ${mine.map((entry) => `${entry.id} (${entry.command.slice(0, 60)})`).join(", ")}.`}`,
+        `This Workspace already runs ${live} Terminals and Background jobs, and its Environment setting "${ENVIRONMENT_SETTINGS.agentTerminalsPerWorkspace.title}" (agentTerminalsPerWorkspace) allows ${max}; stop one first, or ask the Owner to raise the setting.${mine.length === 0 ? "" : ` Yours: ${mine.map((entry) => `${entry.id} (${entry.command})`).join(", ")}.`}`,
       );
     }
     const prefix = request.kind === "terminal" ? "t" : "b";
