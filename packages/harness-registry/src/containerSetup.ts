@@ -94,16 +94,18 @@ const seconds = (ms: number) => (ms < 60_000 ? String(Math.round(ms / 100) / 10)
 
 /** One line for the Settings page's Status: whether it failed first, and when a failure refuses its Container's commands. */
 export const describeContainerSetup = (report: ContainerSetupReport): string => {
+  const refused = report.failure === "refuse" && report.outcome !== "ok" && report.outcome !== "none";
+  // What follows how it ended: whether its Container refuses commands, and when.
+  const rest = `${refused ? "; its Container refuses commands" : ""}, ${new Date(report.at).toISOString()}`;
+  const head = `${report.workspace ?? "a Workspace"} at revision ${report.revision}: `;
+  // ADR-0049 §4: the limit names its value and, a contextual setting, where to change it, at the line's end.
+  if (report.outcome === "failed" && report.timedOut)
+    return `${head}failed after ${seconds(report.ms)} s, stopped at ${timeLimitHit(report.limitMinutes, "minute", { environment: "containerSetupMinutes" }, rest)}`;
   let what: string;
   if (report.outcome === "none") what = "no Container setup";
   else if (report.outcome === "exec-failed") what = "not run (the Container's exec failed; tried again)";
   else if (report.outcome === "deadline") what = "failed, no answer within the deadline";
-  else if (report.timedOut)
-    // ADR-0049 §4: the limit names its value and, a contextual setting, where to change it.
-    what = `failed after ${seconds(report.ms)} s, stopped at ${timeLimitHit(report.limitMinutes, "minute", { environment: "containerSetupMinutes" })}`;
   else
     what = `${report.outcome === "ok" ? "ran" : "failed"}, exit ${String(report.exitCode)} after ${seconds(report.ms)} s`;
-  const refused = report.failure === "refuse" && report.outcome !== "ok" && report.outcome !== "none";
-  if (refused) what = `${what}; its Container refuses commands`;
-  return `${report.workspace ?? "a Workspace"} at revision ${report.revision}: ${what}, ${new Date(report.at).toISOString()}`;
+  return `${head}${what}${rest}`;
 };

@@ -18,6 +18,7 @@ import {
   type ChangeCaller,
   type ChangeRecord,
   closedKeptMs,
+  durationText,
   newChangeId,
   OPENED_WINDOW_MS,
   settingsChanges,
@@ -414,7 +415,7 @@ describe("D16's caps", () => {
     const locked = capRefusal(w.deps().changes, OWN, "hash-9", w.now());
     expect(locked).toMatchObject({ reason: "strikes" });
     expect(locked!.text).toContain(
-      "(an hour after the last): 3 strikes within the Strike window of an hour lock a caller out for the Strike lock of an hour; change them under MCP servers › Settings server › Advanced › Strikes, Strike window (minutes) and Strike lock (minutes).",
+      "(an hour after the last): 3 strikes within an hour (the Strike window) lock a caller out for the Strike lock of an hour; change them under MCP servers › Settings server › Advanced › Strikes, Strike window (minutes) and Strike lock (minutes).",
     );
     // Another caller is not locked.
     expect(
@@ -454,7 +455,12 @@ describe("D16's caps", () => {
     // At a 45-minute wait the run spans 90 minutes, past the hour.
     const w = world(long);
     run(w, long);
-    expect(capRefusal(w.deps().changes, OWN, "hash-9", w.now())).toMatchObject({ reason: "strikes" });
+    const widened = capRefusal(w.deps().changes, OWN, "hash-9", w.now());
+    expect(widened).toMatchObject({ reason: "strikes" });
+    // The refusal states the window it applied, stretched past the setting's hour (ADR-0049 §4).
+    expect(widened!.text).toContain(
+      `3 strikes within ${durationText(2 * long + 5 * 60_000)} (the Strike window, stretched to the run's longest wait for an answer) lock a caller out`,
+    );
     // A CLI agent spawned at 45 minutes keeps that wait for its changes after the setting is lowered to 10: the window
     // follows the changes' own waits, not the setting's.
     const lowered = world(10 * 60_000);
@@ -999,6 +1005,7 @@ describe("the caps follow the Settings server's limits (SPI-1322)", () => {
     expect(refusal).toMatchObject({ reason: "strikes" });
     expect(refusal!.text).toContain("your last asked change was declined or unanswered");
     expect(refusal!.text).toContain("(30 minutes after the last)");
+    expect(refusal!.text).toContain("1 strike within an hour (the Strike window) locks a caller out");
     w.advance(30 * 60_000);
     expect(capRefusal(w.deps().changes, OWN, "hash-9", w.now())).toBeUndefined();
   });

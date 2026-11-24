@@ -723,7 +723,11 @@ export class BaseBuild {
       // A step that keeps throwing ends at its time limit, never building forever.
       const deadline = this.#deadlineOf(kept);
       if (deadline !== undefined && now() > deadline)
-        return this.#fail(kept, null, `the ${kept.phase} step kept failing until ${this.#limitText(kept)}: ${message}`);
+        return this.#fail(
+          kept,
+          null,
+          `the ${kept.phase} step kept failing until ${this.#limitText(kept, `: ${message}`)}`,
+        );
       await setAlarm(now() + POLL_MS.starting);
     }
   }
@@ -757,17 +761,22 @@ export class BaseBuild {
     return true;
   }
 
-  /** The time limit `#deadlineOf` holds `build`'s phase to, named with its value and where to change it (ADR-0049 §4). */
-  #limitText(build: Build): string {
+  /**
+   * The time limit `#deadlineOf` holds `build`'s phase to, named with its value, then `rest`, then where to change it
+   * (ADR-0049 §4).
+   */
+  #limitText(build: Build, rest: string): string {
     const setup = build.phase === "starting" || build.phase === "running";
     const ms = setup ? build.setupMs : build.snapshotMs;
-    return timeLimitHit(Math.round(ms / 60_000), "minute", {
-      environment: setup ? "imageSetupMinutes" : "snapshotMinutes",
-    });
+    return timeLimitHit(
+      Math.round(ms / 60_000),
+      "minute",
+      { environment: setup ? "imageSetupMinutes" : "snapshotMinutes" },
+      rest,
+    );
   }
 
   /** When the step under way must have ended: the Image setup's limit, or the snapshot's (and the proof's). */
-
   #deadlineOf(build: Build): number | undefined {
     return build.phase === "starting" || build.phase === "running"
       ? build.setupDeadline
@@ -907,7 +916,7 @@ export class BaseBuild {
   }
 
   #startLimit(build: Build): string {
-    return `the Builder's Container did not start within ${timeLimitHit(Math.round(build.setupMs / 60_000), "minute", { environment: "imageSetupMinutes" })}${build.lastError === undefined ? "" : `: ${build.lastError}`}`;
+    return `the Builder's Container did not start within ${timeLimitHit(Math.round(build.setupMs / 60_000), "minute", { environment: "imageSetupMinutes" }, build.lastError === undefined ? "" : `: ${build.lastError}`)}`;
   }
 
   async #running(build: Build): Promise<void> {

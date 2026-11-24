@@ -202,7 +202,7 @@ describe("ContainerSetup", () => {
     );
     // ADR-0049 §4: its time limit names its value and where to change it.
     expect(refuse.container.refusal({ outcome: "failed", exitCode: 124, timedOut: true, attempts: 1 })).toContain(
-      "Container setup failed (stopped at its 5-minute time limit; change it under Environment › Container setup › Container setup time limit (minutes))",
+      "Container setup failed, stopped at its 5-minute time limit; change it under Environment › Container setup › Container setup time limit (minutes). The Environment settings refuse commands",
     );
     expect(carry.container.refusal(undefined)).toBeUndefined();
     expect(

@@ -120,8 +120,9 @@ export const capRefusal = (
   if (run.length === strikes && run.every(strike) && last - first <= window && now < last + lockMs) {
     return {
       reason: "strikes",
-      // ADR-0049 §4: the three limits that made the lock, each with its value, and where to change them.
-      text: `Not changed: your last ${strikes === 1 ? "asked change was" : `${strikes} asked changes were`} ${caller.door === "own" ? "declined or unanswered" : "declined"}, so t3flare refuses your asked changes until ${new Date(last + lockMs).toISOString()} (${durationText(lockMs)} after the last): ${strikes === 1 ? "1 strike" : `${strikes} strikes`} within the Strike window of ${durationText(limits.strikeWindowMinutes * 60_000)} lock a caller out for the Strike lock of ${durationText(lockMs)}${changeThemUnder([{ settingsServer: "strikes" }, { settingsServer: "strikeWindowMinutes" }, { settingsServer: "strikeLockMinutes" }])}. Ask the owner in the thread what he wants.`,
+      // ADR-0049 §4: the three limits that made the lock, each with the value it applied (the window as `strikeWindowMs`
+      // stretched it, SPI-1316), and where to change them.
+      text: `Not changed: your last ${strikes === 1 ? "asked change was" : `${strikes} asked changes were`} ${caller.door === "own" ? "declined or unanswered" : "declined"}, so t3flare refuses your asked changes until ${new Date(last + lockMs).toISOString()} (${durationText(lockMs)} after the last): ${strikes === 1 ? "1 strike" : `${strikes} strikes`} within ${durationText(window)} (${window > limits.strikeWindowMinutes * 60_000 ? "the Strike window, stretched to the run's longest wait for an answer" : "the Strike window"}) ${strikes === 1 ? "locks" : "lock"} a caller out for the Strike lock of ${durationText(lockMs)}${changeThemUnder([{ settingsServer: "strikes" }, { settingsServer: "strikeWindowMinutes" }, { settingsServer: "strikeLockMinutes" }])}. Ask the owner in the thread what he wants.`,
     };
   }
   if (changes.appliedSince(capKey, now - APPLIED_WINDOW_MS) >= limits.appliedPerHour) {

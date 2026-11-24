@@ -27,13 +27,13 @@ describe("describeGlobalMise", () => {
       "not laid down (git or gh did not run under it)",
     );
     expect(describeGlobalMise(report({ outcome: "not-laid", install: 124, timedOut: true }))).toContain(
-      "not laid down (stopped at its time limit; change it under Environment › Global mise config › Global mise install time limit (minutes))",
+      "not laid down (stopped at its time limit), 2026-11-14T00:00:00.000Z; change it under Environment › Global mise config › Global mise install time limit (minutes)",
     );
     // ADR-0049 §4: a report that carries its limit names its value.
     expect(
       describeGlobalMise(report({ outcome: "not-laid", install: 124, timedOut: true, limitMinutes: 10 })),
     ).toContain(
-      "not laid down (stopped at its 10-minute time limit; change it under Environment › Global mise config ›",
+      "not laid down (stopped at its 10-minute time limit), 2026-11-14T00:00:00.000Z; change it under Environment › Global mise config ›",
     );
   });
 
@@ -52,7 +52,7 @@ describe("describeGlobalMise", () => {
       "no Global mise config; the dotfiles' ~/.config/mise/config.toml is not used (git or gh did not run under it), so mise uses t3flare's own",
     );
     expect(describeGlobalMise(report({ outcome: "not-laid", install: 124, timedOut: true, dotfiles: true }))).toContain(
-      "is not used (stopped at its time limit; change it under",
+      "is not used (stopped at its time limit), so mise uses t3flare's own, 2026-11-14T00:00:00.000Z; change it under",
     );
   });
 

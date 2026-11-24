@@ -240,6 +240,10 @@ describe("timeLimitHit and changeThemUnder", () => {
     expect(timeLimitHit(undefined, "minute", { environment: "containerSetupMinutes" })).toBe(
       "its time limit; change it under Environment › Container setup › Container setup time limit (minutes)",
     );
+    // What the sentence goes on to say comes before the place, which ends it.
+    expect(timeLimitHit(30, "minute", { environment: "imageSetupMinutes" }, ": exit 1")).toBe(
+      "its 30-minute time limit: exit 1; change it under Environment › Image setup › Image setup time limit (minutes)",
+    );
     // A limit is hit while its feature is in use, so the hit says nothing of turning it on.
     expect(timeLimitHit(30, "second", { extension: "guardian", key: "reviewTimeoutSeconds" })).toBe(
       "its 30-second time limit; change it under Extensions › Guardian › Advanced › Review time limit (seconds)",

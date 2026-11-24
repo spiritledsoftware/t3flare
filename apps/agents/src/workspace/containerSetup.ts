@@ -181,11 +181,11 @@ export class ContainerSetup {
     if (state === undefined)
       return `Refused: this Container's Container setup has not run (the Container's steps before it did not finish), ${tail}`;
     if (state.outcome === "ok" || state.outcome === "none") return undefined;
-    // ADR-0049 §4: the time limit names its value and where to change it (a contextual setting).
-    const minutes = this.#deps.launch()?.minutes;
-    const how = state.timedOut
-      ? `stopped at ${timeLimitHit(minutes, "minute", { environment: "containerSetupMinutes" })}`
-      : state.exitCode !== null
+    // ADR-0049 §4: the time limit names its value and, at its sentence's end, where to change it (a contextual setting).
+    if (state.timedOut)
+      return `Refused: this Container's Container setup failed, stopped at ${timeLimitHit(this.#deps.launch()?.minutes, "minute", { environment: "containerSetupMinutes" })}. The Environment settings refuse commands in a Container whose setup failed. ${next}; Status on the Settings page shows its output.`;
+    const how =
+      state.exitCode !== null
         ? `exit ${state.exitCode}`
         : state.outcome === "deadline"
           ? "no answer within the deadline"

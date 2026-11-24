@@ -914,11 +914,16 @@ export const changeThemUnder = (refs: ReadonlyArray<SettingRef>): string => {
 export const limitValue = (count: number, unit: string): string => `${count.toLocaleString("en-US")}-${unit}`;
 
 /**
- * A time limit, hit, as a clause: "its 15-minute time limit", and where to change it (`changeItUnder`). `value` absent:
- * a report from before the limit was carried, "its time limit".
+ * A time limit, hit, to the end of its sentence: "its 15-minute time limit", then `rest` (what the sentence goes on to
+ * say: an error, a date), then where to change it (`changeItUnder`), last. `value` absent: a report from before the
+ * limit was carried, "its time limit".
  */
-export const timeLimitHit = (value: number | undefined, unit: "minute" | "second", ref: SettingRef): string =>
-  `its ${value === undefined ? "" : `${limitValue(value, unit)} `}time limit${changeItUnder(ref)}`;
+export const timeLimitHit = (
+  value: number | undefined,
+  unit: "minute" | "second",
+  ref: SettingRef,
+  rest = "",
+): string => `its ${value === undefined ? "" : `${limitValue(value, unit)} `}time limit${rest}${changeItUnder(ref)}`;
 
 /** What shows a contextual setting, in words: "shown while Container size or Builder size is custom". */
 export const shownWhen = (condition: DisclosureCondition, extension?: ExtensionEntry): string => {
