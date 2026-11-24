@@ -828,9 +828,15 @@ review selects does not change.
   message's JSON length, an untrusted one's shown form), the newest and oldest entry read, and the texts of the last
   selection. Entries never change and ids are never reused, so the index stands for the History it read.
 - **The next review reads only the entries newer than the newest it read**, then selects over them and the index by the
-  same rule a whole read uses, back-fill included. It reads by id the text of an older entry it newly selects, and reads
-  on past the oldest entry read only when the selection reaches past it. A review reads the new entries plus the
-  entries it newly selects.
+  same rule a whole read uses, back-fill included. A review reads, newest first, a page at a time: the entries newer
+  than the newest it read; the History past the oldest entry read, only when the selection reaches past it; the texts of
+  older entries it newly selects, as one id range spanning them; and, when a full budget stopped the selection where
+  nothing read shows an older entry, one read of up to two entries to learn whether older History exists. That is at
+  most one read call more than an uncached review's: the read since the newest entry comes before the selection knows
+  which older texts it needs.
+- **The Reviewed Call's own response is skipped by its entry id.** Before, every response holding one of its call ids
+  was left out; where a provider leaves call ids empty or reuses them (pi-ai's openai-completions adapter writes
+  `toolCall.id || ""`), older responses sharing the id are now evidence too.
 - **It reads the whole History again** on a new isolate, a Guardian installed again (a settings change), another
   `trustUser` or budget, a review of another conversation (a fork is one; the index holds one conversation), and when the
   History no longer holds the newest entry read. No limit or setting is added.
