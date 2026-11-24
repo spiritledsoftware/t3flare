@@ -395,16 +395,11 @@ describe("a Legacy server's -32042 during a prompt get", () => {
     expect(gatePrompts.calls).toBe(1);
   });
 
-  it("stops at the 11th -32042: the server kept asking for the same page", async () => {
-    const { gatePrompts, seen, outcome } = gated(1000);
+  it("waits at the page as often as the server asks, with no count of rounds (SPI-1368)", async () => {
+    const { gatePrompts, seen, outcome } = gated(15);
 
-    expect(await outcome).toMatchObject({
-      failed: ServerError.make({
-        message: "Authorization needed. The server kept asking for the same page; stopped after 10 tries",
-        code: -32042,
-      }),
-    });
-    expect(seen).toHaveLength(10);
-    expect(gatePrompts.calls).toBe(11);
+    expect(answeredOf(await outcome)).toEqual("opened");
+    expect(seen).toHaveLength(15);
+    expect(gatePrompts.calls).toBe(16);
   });
 });

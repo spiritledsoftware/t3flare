@@ -8,7 +8,11 @@ import { pathAlsoDirectory, skillFilePathProblem } from "@t3flare/skills";
 export const MAX_FILE_BYTES = 1_536 * 1024;
 /** The most files one Skill's folder may hold, far above any real one. */
 export const MAX_SKILL_FILES = 500;
-/** The most the Environment's skills may be together, disabled ones counted: the set travels in one Durable Object call. */
+/**
+ * The most the Environment's skills may be together, disabled ones counted. A named constraint: the set travels in one
+ * Durable Object RPC, which Cloudflare caps at 32 MiB, and is held whole in the isolates at both ends (128 MB each).
+ * 8 MiB is a choice under that, leaving room for the call's envelope and the encoding of the files' bytes.
+ */
 export const MAX_SET_BYTES = 8 * 1024 * 1024;
 /** The longest name a Skill may have (Agent Skills). */
 export const MAX_SKILL_NAME_LENGTH = 64;

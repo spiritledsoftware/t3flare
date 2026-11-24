@@ -84,7 +84,7 @@ export const McpAnswers = Schema.Struct({
    * The caller waits for the owner at a page, live, with no resume (a prompt send's `prompts/get`, which keeps nothing for
    * later): a Modern request declares the elicitation's `url` mode, and its page reaches `onInput` as a `deferrable`
    * question the caller answers once the owner is done there; a Legacy server's `-32042` reaches it the same way, once per
-   * resend of the request, at most `MCP_INPUT_ROUNDS` times. Without it a get has neither. A new key, so a core from
+   * resend of the request. Without it a get has neither. A new key, so a core from
    * before it ignores it and the request is as it was.
    */
   livePages: Schema.optionalKey(Schema.Boolean),
@@ -168,12 +168,6 @@ export const McpTaskInputResponses = Schema.Record(Schema.String, JsonObject);
 
 export type McpTaskInputResponses = typeof McpTaskInputResponses.Type;
 
-/** The most a `ResumeState` may weigh, as JSON. */
-export const MCP_RESUME_STATE_MAX_BYTES = 1024 * 1024;
-
-/** The most rounds of questions one request may take before it fails. */
-export const MCP_INPUT_ROUNDS = 10;
-
 /**
  * What a resume whose `ResumeState` this build cannot read says: a format `v` past its 30 days, or a state that is not
  * one.
@@ -183,8 +177,8 @@ export const MCP_RESUME_STATE_EXPIRED =
 
 /**
  * A `ResumeState`, format 1: what the core needs to
- * send a Modern request again once its deferred questions are answered. JSON, at most `MCP_RESUME_STATE_MAX_BYTES`,
- * opaque to everyone but the core: the Session keeps it in the question's record and hands it back to `resume`. A later
+ * send a Modern request again once its deferred questions are answered. JSON, opaque to everyone but the core: its
+ * caller keeps it and hands it back to `resume`, bounded by whatever holds it. A later
  * format is a new `v`, and this one stays readable for 30 days after it.
  */
 export const ResumeStateV1 = Schema.Struct({
@@ -209,7 +203,7 @@ export type ResumeStateV1 = typeof ResumeStateV1.Type;
  * core needs to send a Legacy request again once the owner has opened the pages its `-32042` listed. The call ran
  * nothing, so it goes again as it was, with nothing added. `deferred` are the keys (`elicitationId`s) of the pages, which
  * `resend` takes an `accept` for each of; any other answer fails the call with the server's own error, `message`. JSON,
- * at most `MCP_RESUME_STATE_MAX_BYTES`, opaque to everyone but the core, like a `ResumeState`.
+ * opaque to everyone but the core, like a `ResumeState`.
  */
 export const ResendStateV1 = Schema.Struct({
   v: Schema.Literal(1),
@@ -500,6 +494,16 @@ const TargetFields = {
    */
   logEntries: Schema.optionalKey(Schema.Int),
   /**
+   * How many progress notices a call passes on a second (`mcpProgressPerSecond`). Absent from a host older than this
+   * field: `MCP_PROGRESS_PER_SECOND`.
+   */
+  progressPerSecond: Schema.optionalKey(Schema.Int),
+  /**
+   * How long a server found to speak Legacy is taken as Legacy before it is probed again, in ms
+   * (`mcpLegacyRecheckHours`). Absent from a host older than this field: `MCP_LEGACY_ERA_TTL_MS`.
+   */
+  legacyEraTtlMs: Schema.optionalKey(Schema.Int),
+  /**
    * Whether a Legacy connection to this server declares `sampling` at `initialize` (the definition's `sampling` key lets
    * it). Absent from a host older than this field, and
    * for a server that is declared none: a stdio server's questions are not answered yet, and a Modern connection
@@ -665,7 +669,12 @@ export type McpEngineEra = typeof McpEngineEra.Type;
 /** A mebibyte, the unit of the core's byte limits. */
 export const MiB = 1024 * 1024;
 
-/** The most a `tools/call` result or a large read may weigh; a larger answer is `TooLarge`. */
+/**
+ * The most a `tools/call` result or a large read may weigh; a larger answer is `TooLarge`. A named constraint: the MCP
+ * Worker's 128 MB isolate, through its byte budget's one large slot (apps/mcp-worker/src/engine/budget.ts). 16 MiB
+ * parsed and serialized again, about 3–4 times over, is about 64 MB, the most one slot can take beside the pool. It
+ * also stays under the 32 MiB a Durable Object RPC carries back to the Session.
+ */
 export const MCP_LARGE_RESULT_BYTES = 16 * MiB;
 
 /**
@@ -1059,8 +1068,11 @@ export const McpProgress = Schema.Struct({
 
 export type McpProgress = typeof McpProgress.Type;
 
-/** The most progress notices a call passes on in a second. */
+/** The most progress notices a call passes on in a second when its target names none (the host's `mcpProgressPerSecond`). */
 export const MCP_PROGRESS_PER_SECOND = 10;
+
+/** How long a Legacy era row holds when the target names none (the host's `mcpLegacyRecheckHours`): 24 hours. */
+export const MCP_LEGACY_ERA_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
  * The callbacks a call carries, passed as RPC stubs that live as long as the caller's invocation. There is no `onLog`:

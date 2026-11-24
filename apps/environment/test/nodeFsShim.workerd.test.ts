@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import * as store from "../src/platform/stateStore.ts";
 import * as fs from "../src/shims/node-fs.ts";
+import * as fsp from "../src/shims/node-fs-promises.ts";
 
 declare global {
   namespace Cloudflare {
@@ -122,6 +123,19 @@ describe("node:fs shim descriptors", () => {
       expect(fs.readSync(fd, buffer, { position: null })).toBe(2);
       expect(new TextDecoder().decode(buffer.subarray(0, 2))).toBe("ef");
       fs.closeSync(fd);
+    });
+  });
+
+  it("reports the object's 10 GB, less what its database takes, as the State directory's space (SPI-1368)", async () => {
+    await inObject("statfs", async () => {
+      const before = await fsp.statfs();
+      expect(before.blocks * before.bsize).toBeLessThanOrEqual(10_000_000_000);
+      expect(before.bfree * before.bsize).toBeLessThanOrEqual(10_000_000_000 - store.databaseSize());
+      store.mkdir("/t3/big", { recursive: true });
+      fs.writeFileSync("/t3/big/f", new Uint8Array(4 * 1024 * 1024));
+      const after = await fsp.statfs();
+      expect(after.blocks).toBe(before.blocks);
+      expect(after.bavail).toBeLessThan(before.bavail);
     });
   });
 });

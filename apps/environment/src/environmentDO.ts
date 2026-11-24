@@ -849,13 +849,15 @@ export class EnvironmentDO extends DurableObject<EnvironmentEnv> {
       // Read at each call (SPI-1359): a change applies at the next call.
       callTimeoutMs: () => this.#environmentNow().mcpCallSeconds * 1000,
       resultBytes: () => this.#environmentNow().mcpResultKiB * 1024,
-      // Read as each call's target is made (SPI-1363).
+      // Read as each call's target is made (SPI-1363, SPI-1368).
       limits: () => {
         const now = this.#environmentNow();
         return {
           connectTimeoutMs: now.mcpConnectSeconds * 1000,
           listTimeoutMs: now.mcpListSeconds * 1000,
           logEntries: now.mcpLogEntries,
+          progressPerSecond: now.mcpProgressPerSecond,
+          legacyEraTtlMs: now.mcpLegacyRecheckHours * 3_600_000,
         };
       },
       // Read at each call (SPI-1366).

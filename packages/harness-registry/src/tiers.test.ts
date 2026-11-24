@@ -52,6 +52,9 @@ const SETTINGS: Readonly<Record<string, "free" | "down-free" | "up-free" | "aske
   "web.fetchTimeoutSeconds": "down-free",
   "web.fetchMaxTimeoutSeconds": "down-free",
   "web.fetchMaxKiB": "down-free",
+  // SPI-1368: more redirects spend more of a turn's subrequests; the title changes only what t3's item shows.
+  "web.fetchRedirects": "down-free",
+  "web.fetchTitleCharacters": "free",
   "web.searchResults": "down-free",
   "web.searchesPerCall": "down-free",
   "web.searchSummaryTokens": "down-free",
@@ -139,6 +142,8 @@ const ENVIRONMENT: Readonly<
   mcpConnectSeconds: { up: [15, 30, "asked"], down: [15, 5, "free"] },
   mcpListSeconds: { up: [120, 300, "asked"], down: [120, 60, "free"] },
   mcpLogEntries: { up: [50, 100, "asked"], down: [50, 20, "free"] },
+  mcpProgressPerSecond: { up: [10, 20, "asked"], down: [10, 5, "free"] },
+  mcpLegacyRecheckHours: { up: [24, 48, "free"], down: [24, 1, "free"] },
   cliMcpStartSeconds: { up: [20, 60, "free"], down: [20, 10, "free"] },
   mcpSignInMinutes: { up: [10, 30, "asked"], down: [10, 5, "free"] },
   // SPI-1365: more listed or read puts more in front of the model or in the Workspace's memory, so it is asked.

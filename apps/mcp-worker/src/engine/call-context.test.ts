@@ -97,4 +97,27 @@ describe("progressTo", () => {
 
     expect(seen).toEqual([1, 3, 5]);
   });
+
+  it("passes at most the target's rate on when it names one (SPI-1368)", () => {
+    const seen: Array<number> = [];
+    let now = 0;
+    const report = progressTo(
+      (progress) => void seen.push(progress.progress),
+      () => now,
+      2,
+    );
+
+    for (const [at, step] of [
+      [0, 1],
+      [300, 2],
+      [500, 3],
+      [900, 4],
+      [1000, 5],
+    ] as const) {
+      now = at;
+      report({ progress: step });
+    }
+
+    expect(seen).toEqual([1, 3, 5]);
+  });
 });

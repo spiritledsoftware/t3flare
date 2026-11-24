@@ -6,6 +6,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyChange,
+  DO_VALUE_BYTES,
+  MAX_REDIRECTS,
+  MAX_TERMINAL_COLS,
+  MAX_TERMINAL_ROWS,
   CODEMODE_CPU_LIMIT_MS,
   CODEMODE_POLLS_PER_SECOND,
   MAX_CODEMODE_INTERRUPT_BUDGET,
@@ -62,12 +66,10 @@ describe("resolveHarness", () => {
       ok: false,
       error: "web.search: no such setting",
     });
-    // Since SPI-1176 the setting is text, resolved against the Model endpoints at use: any slug is taken, an overlong one is not.
+    // Since SPI-1176 the setting is text, resolved against the Model endpoints at use: any slug is taken (SPI-1368: of
+    // any length).
     expect(applyChange(EMPTY_HARNESS, { extension: "web", settings: { searchModel: "openai/gpt-9" } })).toMatchObject({
       ok: true,
-    });
-    expect(applyChange(EMPTY_HARNESS, { extension: "web", settings: { searchModel: "x".repeat(301) } })).toMatchObject({
-      ok: false,
     });
   });
 
@@ -87,7 +89,7 @@ describe("resolveHarness", () => {
         stopGraceSeconds: 3,
       },
     });
-    expect(applyChange(EMPTY_HARNESS, { extension: "termctrl", settings: { cols: 10 } })).toMatchObject({ ok: false });
+    expect(applyChange(EMPTY_HARNESS, { extension: "termctrl", settings: { cols: 0 } })).toMatchObject({ ok: false });
   });
 
   it("has the Guardian off (each review is a model request), with the endpoints' small model (default), no thinking, and text rules (SPI-1058)", () => {
@@ -113,9 +115,6 @@ describe("resolveHarness", () => {
       enabled: true,
       settings: { tools: "bash=review", policy: "Never touch prod." },
     });
-    expect(
-      applyChange(EMPTY_HARNESS, { extension: "guardian", settings: { commands: "x".repeat(4_001) } }),
-    ).toMatchObject({ ok: false });
     expect(applyChange(EMPTY_HARNESS, { extension: "guardian", settings: { commands: 3 } })).toMatchObject({
       ok: false,
     });
@@ -282,9 +281,9 @@ describe("applyChange", () => {
   });
 
   it("refuses a value outside the schema, an unknown setting, and an unknown extension", () => {
-    expect(applyChange(EMPTY_HARNESS, { extension: "codemode", settings: { inlineBudget: 10 } })).toEqual({
+    expect(applyChange(EMPTY_HARNESS, { extension: "codemode", settings: { inlineBudget: -1 } })).toEqual({
       ok: false,
-      error: "codemode.inlineBudget: at least 500",
+      error: "codemode.inlineBudget: at least 0",
     });
     expect(applyChange(EMPTY_HARNESS, { extension: "codemode", settings: { inlineBudget: "big" } })).toEqual({
       ok: false,
@@ -306,6 +305,41 @@ describe("applyChange", () => {
       ok: false,
       error: "codemode.constructor: no such setting",
     });
+  });
+
+  it("takes any non-negative inline budget (SPI-1368)", () => {
+    for (const inlineBudget of [0, 10, 1_000_000])
+      expect(applyChange(EMPTY_HARNESS, { extension: "codemode", settings: { inlineBudget } })).toMatchObject({
+        ok: true,
+      });
+  });
+
+  it("bounds the Guardian's texts and a model slug by the one stored value, not a length each (SPI-1368)", () => {
+    const long = "x".repeat(100_000);
+    for (const [extension, key] of [
+      ["guardian", "tools"],
+      ["guardian", "commands"],
+      ["guardian", "policy"],
+      ["guardian", "model"],
+      ["web", "searchModel"],
+    ] as const)
+      expect(applyChange(EMPTY_HARNESS, { extension, settings: { [key]: long } }), key).toMatchObject({ ok: true });
+    const past = applyChange(EMPTY_HARNESS, {
+      extension: "guardian",
+      settings: { policy: "x".repeat(Math.ceil(DO_VALUE_BYTES / 3) + 1) },
+    });
+    expect(past).toMatchObject({ ok: false });
+    expect(!past.ok && past.error).toMatch(
+      /^the Harness settings would take \d+ bytes stored, past the \d+ one Durable Object value holds$/,
+    );
+  });
+
+  it("keeps the tools' Exposures when an extension's settings change (SPI-1368)", () => {
+    const tools = applyToolsChange(EMPTY_HARNESS, { tools: { bash: "deferred" } });
+    if (!tools.ok) throw new Error(tools.error);
+    const changed = applyChange(tools.harness, { extension: "files", settings: { lsLimit: 5 } });
+    if (!changed.ok) throw new Error(changed.error);
+    expect(changed.harness.global.tools).toEqual(tools.harness.global.tools);
   });
 
   it("refuses a switch that is not true or false: a stored null would resolve to the default, on", () => {
@@ -357,6 +391,8 @@ describe("applyChange", () => {
         fetchTimeoutSeconds: [1, MAX_TIMED_MINUTES * 60],
         fetchMaxTimeoutSeconds: [1, MAX_TIMED_MINUTES * 60],
         fetchMaxKiB: [64, FETCH_MAX_KIB],
+        fetchRedirects: [0, MAX_REDIRECTS],
+        fetchTitleCharacters: [1, 10_000],
         searchResults: [1, 100],
         searchesPerCall: [1, 50],
         searchSummaryTokens: [100, 64_000],
@@ -377,6 +413,8 @@ describe("applyChange", () => {
         pollWaitMs: [0, MAX_TIMED_MINUTES * 60_000],
         scrollbackLines: [2, 100_000],
         scrollbackKiB: [1, MAX_TOOL_OUTPUT_KIB],
+        cols: [1, MAX_TERMINAL_COLS],
+        rows: [1, MAX_TERMINAL_ROWS],
       },
       guardian: { batchArgumentCharacters: [0, GUARDIAN_EVIDENCE_CHARACTERS] },
       "prompt-suggestions": { excerptCharacters: [100, 1_000_000], timeoutSeconds: [1, MAX_TIMED_MINUTES * 60] },
@@ -403,6 +441,8 @@ describe("applyChange", () => {
       fetchTimeoutSeconds: 30,
       fetchMaxTimeoutSeconds: 120,
       fetchMaxKiB: 5120,
+      fetchRedirects: 10,
+      fetchTitleCharacters: 200,
       searchResults: 8,
       searchesPerCall: 2,
       searchSummaryTokens: 1500,

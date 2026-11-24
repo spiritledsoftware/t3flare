@@ -176,9 +176,6 @@ export const resolveHost = async (
   return addresses;
 };
 
-/** Most redirects one fetch follows. */
-export const MAX_REDIRECTS = 10;
-
 const REDIRECT_STATUSES: ReadonlySet<number> = new Set([301, 302, 303, 307, 308]);
 
 /** An IPv4 literal or a bracketed IPv6 literal needs no lookup: the host rules already judged the address. */
@@ -205,13 +202,14 @@ const checkUrl = async (transport: WebTransport, url: URL, hop: number, signal?:
 };
 
 /**
- * Send `request`, following redirects by hand (up to `MAX_REDIRECTS`) and checking the URL and every redirect target
- * first. Returns the first response that is not a redirect, with the URL it came from. A refused target fails with
+ * Send `request`, following redirects by hand (up to `maxRedirects`, the `fetchRedirects` setting) and checking the URL
+ * and every redirect target first. Returns the first response that is not a redirect, with the URL it came from. A refused target fails with
  * `blocked: …` and nothing is sent to it.
  */
 export const guardedFetch = async (
   transport: WebTransport,
   request: WebRequest,
+  maxRedirects: number,
   signal?: AbortSignal,
 ): Promise<{ readonly response: Response; readonly url: URL }> => {
   let current: URL;
@@ -228,7 +226,7 @@ export const guardedFetch = async (
     if (!REDIRECT_STATUSES.has(response.status) || location === null) return { response, url: current };
     // The redirect's body is never read.
     await discardBody(response);
-    if (hop >= MAX_REDIRECTS) throw new WebToolError(`too many redirects (more than ${MAX_REDIRECTS})`);
+    if (hop >= maxRedirects) throw new WebToolError(`too many redirects (more than ${maxRedirects})`);
     try {
       current = new URL(location, current);
     } catch {

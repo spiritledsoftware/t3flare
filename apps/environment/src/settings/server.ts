@@ -128,7 +128,7 @@ import {
   mcpItems,
   PAGE_REASON,
   shownCallArgs,
-  shownSkill,
+  shownSkills,
   toolsItems,
 } from "./render.ts";
 import { settingsToolOf } from "./tools.ts";
@@ -213,7 +213,7 @@ export const APPLIES_AT = {
     "Applies at the next MCP call; a CLI agent's own tool timeout and MCP start wait at its next start; the sign-in time to sign-ins started after it.",
   /** The MCP servers' connect and listing time limits and logs kept (SPI-1363): read as each call's target is made. */
   mcpServer:
-    "The connect time limit applies at the next connection to an MCP server, the listing time limit at the next discovery of an MCP server, the logs kept at the next MCP call.",
+    "The connect time limit and the Legacy recheck apply at the next connection to an MCP server, the listing time limit at the next discovery of an MCP server, the logs kept and the progress notices at the next MCP call.",
   /**
    * The settings read at their own next use (SPI-1366, and SPI-1365's outside requests): never a Container start. Each
    * setting's description says which use.
@@ -893,7 +893,7 @@ const planSkills = (deps: SettingsServerDeps, args: Readonly<Record<string, unkn
           ref: found.preview.ref,
           commit: input.commit,
           ...(from === undefined ? {} : { from }),
-          skills: found.preview.skills.map(shownSkill),
+          skills: shownSkills(found.preview.skills),
         },
       ],
       lines: [],

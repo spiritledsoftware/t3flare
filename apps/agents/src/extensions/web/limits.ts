@@ -11,6 +11,10 @@ export interface WebLimits {
   readonly fetchMaxTimeoutSeconds: number;
   /** The largest response body `web_fetch` reads. */
   readonly fetchMaxKiB: number;
+  /** The most redirects one `web_fetch` call follows. */
+  readonly fetchRedirects: number;
+  /** The most characters of a fetched page's heading t3's item shows as its title. */
+  readonly fetchTitleCharacters: number;
   /** `web_search`'s results when a call names no `numResults`. */
   readonly searchResults: number;
   /** The server tool's `max_uses`: searches the search model may run for one call. */
@@ -28,6 +32,8 @@ export const webLimits = (values: Readonly<Record<string, SettingValue>>): WebLi
   fetchTimeoutSeconds: Number(values.fetchTimeoutSeconds),
   fetchMaxTimeoutSeconds: Number(values.fetchMaxTimeoutSeconds),
   fetchMaxKiB: Number(values.fetchMaxKiB),
+  fetchRedirects: Number(values.fetchRedirects),
+  fetchTitleCharacters: Number(values.fetchTitleCharacters),
   searchResults: Number(values.searchResults),
   searchesPerCall: Number(values.searchesPerCall),
   searchSummaryTokens: Number(values.searchSummaryTokens),

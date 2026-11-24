@@ -87,6 +87,18 @@ describe("endpointStore", () => {
     expect(await store.save(OPENAI, { apiKey: "sk two words" })).toMatchObject({ ok: false });
   });
 
+  it("takes any positive whole context window and output limit, and refuses one that is not (SPI-1368: no 100,000,000)", async () => {
+    const { store } = setup();
+    const huge = { id: "huge", contextWindow: 1_000_000_000, maxTokens: 200_000_000 };
+    expect(await store.save({ ...OPENAI, models: [huge] }, { apiKey: "sk-1" })).toMatchObject({ ok: true });
+    expect(store.load().endpoints[0]?.models[0]).toMatchObject(huge);
+    for (const contextWindow of [0, 1.5, 2 ** 53])
+      expect(
+        await store.save({ ...OPENAI, models: [{ id: "bad", contextWindow }] }, { apiKey: "sk-1" }),
+        String(contextWindow),
+      ).toMatchObject({ ok: false });
+  });
+
   it("keeps the key through an edit that does not give one, and replaces it when one is given", async () => {
     const { store } = setup();
     await store.save(OPENAI, { apiKey: "sk-first" });

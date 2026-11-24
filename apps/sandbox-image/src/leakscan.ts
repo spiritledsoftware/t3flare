@@ -47,7 +47,29 @@ const fs = require("node:fs"), path = require("node:path"), crypto = require("no
 const input = JSON.parse(process.argv[1] ?? process.argv[2]);
 const started = Date.now();
 const hits = []; let files = 0, bytes = 0;
-const MAX = 64 * 1024 * 1024;
+// Every file is read in chunks (any size: a file too large to read whole is still scanned), each after the last
+// overlap bytes of the one before, so a credential across two chunks is found. The chunk bounds the scanner's memory.
+const CHUNK = 8 * 1024 * 1024;
+const OVERLAP = Math.max(1, ...input.patterns.map((p) => p.length)) - 1;
+let chunk;
+const scanFile = (file) => {
+  const fd = fs.openSync(file, "r");
+  const found = new Set();
+  try {
+    chunk ??= Buffer.alloc(CHUNK + OVERLAP);
+    let carry = 0, position = 0;
+    for (;;) {
+      const read = fs.readSync(fd, chunk, carry, CHUNK, position);
+      if (read <= 0) break;
+      position += read; bytes += read;
+      const filled = carry + read;
+      for (const name of scanBuffer(chunk.subarray(0, filled))) found.add(name);
+      carry = Math.min(OVERLAP, filled);
+      chunk.copy(chunk, 0, filled - carry, filled);
+    }
+  } finally { fs.closeSync(fd); }
+  return [...found];
+};
 const skip = new Set(input.skip ?? []);
 const scanBuffer = (buffer) => {
   const found = [];
@@ -71,10 +93,9 @@ const visit = (file) => {
     for (const name of names) visit(path.join(file, name));
     return;
   }
-  if (!stat.isFile() || stat.size > MAX || stat.mtimeMs <= input.since) return;
-  let buffer; try { buffer = fs.readFileSync(file); } catch { return; }
-  files++; bytes += buffer.length;
-  const names = scanBuffer(buffer);
+  if (!stat.isFile() || stat.mtimeMs <= input.since) return;
+  let names; try { names = scanFile(file); } catch { return; }
+  files++;
   if (names.length === 0) return;
   let quarantined;
   if (input.quarantine) {

@@ -26,13 +26,19 @@ export const sqlStats = {
   /** Rows DO SQLite reports t3's statements wrote and read (cost audit F2); writes are what DO SQLite bills most. */
   rowsWritten: 0,
   rowsRead: 0,
-  /** The last statements DO SQLite refused (at most 20), each whole. */
+  /**
+   * The last statements DO SQLite refused, each whole. At most 20: a sanity bound, since they are diagnostics kept in the
+   * Environment DO's 128 MB isolate and a statement can be long.
+   */
   errors: [] as Array<{ readonly at: string; readonly message: string; readonly sql: string }>,
 };
 
+/** How many refused statements `sqlStats.errors` keeps: a sanity bound under the isolate's memory. */
+const SQL_ERRORS_KEPT = 20;
+
 const recordError = (message: string, sql: string) => {
   sqlStats.errors.push({ at: new Date().toISOString(), message, sql });
-  if (sqlStats.errors.length > 20) sqlStats.errors.shift();
+  if (sqlStats.errors.length > SQL_ERRORS_KEPT) sqlStats.errors.shift();
 };
 
 const hex = (bytes: Uint8Array) => {

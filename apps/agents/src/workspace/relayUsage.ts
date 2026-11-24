@@ -23,7 +23,11 @@ import {
   type UsageTokens,
 } from "@t3flare/models/usage";
 
-/** The longest stream line, or JSON body, the reader copies: past it, it stops reading (the answer still goes through). */
+/**
+ * The longest stream line, or JSON body, the reader copies: past it, it stops reading (the answer still goes through,
+ * and only that answer's usage record is lost). A named constraint: the copy is held in the Workspace DO's 128 MB
+ * isolate beside the answer itself; 4 Mi characters are about 8 MB as UTF-16.
+ */
 export const MAX_USAGE_COPY_CHARS = 4 * 1024 * 1024;
 
 /** What the relay knows of a request when its answer starts. */

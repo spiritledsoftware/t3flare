@@ -56,7 +56,10 @@ interface Policy {
   readonly mayHaveRun: boolean;
 }
 
-/** Any request not in `POLICIES`: 1 MiB, no retry. */
+/**
+ * Any request not in `POLICIES`: 1 MiB, no retry. A named constraint, generous: the MCP Worker's 128 MB isolate, which
+ * concurrent calls share (apps/mcp-worker/src/engine/budget.ts); these answers are small by protocol.
+ */
 const OTHER: Policy = { limit: MiB, readOnly: false, probe: false, mayHaveRun: false };
 
 /** A read with a large answer. */
@@ -314,7 +317,11 @@ const encoder = new TextEncoder();
 /** Lets go of a body the tap will not pass on. */
 const drain = (body: ReadableStream<Uint8Array> | null) => body?.cancel().catch(() => undefined);
 
-/** The most one event on a GET stream, or on a resumed request stream, may be. */
+/**
+ * The most one event on a GET stream, or on a resumed request stream, may be. A named constraint, generous: an event is
+ * held whole in the MCP Worker's 128 MB isolate, which concurrent calls share, and a GET stream is not charged to the
+ * byte budget; notifications are small by protocol.
+ */
 const EVENT_LIMIT = MiB;
 
 /** How many resumes in a row may fail before the request is cut: the SDK's own `maxRetries`. */

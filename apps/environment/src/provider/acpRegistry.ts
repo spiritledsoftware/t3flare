@@ -71,6 +71,10 @@ export const standingText = (standing: RegistryStanding): string => {
   }
 };
 
+/**
+ * The longest description a search result may carry. A named constraint: t3's contract refuses a longer one
+ * (`AcpRegistrySearchAgent.description`, `Schema.isMaxLength(1_024)` in t3code/packages/contracts/src/acpRegistry.ts).
+ */
 const DESCRIPTION_MAX = 1_024;
 
 /** A search result as listed here: stock's, its description led by the agent's standing. */

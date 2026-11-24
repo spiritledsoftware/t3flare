@@ -43,7 +43,11 @@ export const MAX_FRAMES = 16;
 /** Most open inline elements that keep their markup; deeper ones are converted as their children only. */
 export const MAX_SPANS = 32;
 
-/** Most characters of Markdown one page may produce; a page that would produce more fails to convert. */
+/**
+ * Most characters of Markdown one page may produce; a page that would produce more fails to convert. A named
+ * constraint: the Session's 128 MB isolate. The input is at most `FETCH_CONVERT_MAX_KIB` (5 MiB), and 20 Mi characters
+ * of output, about 40 MB as UTF-16, leaves room for the input, its parse and the Session beside the result.
+ */
 export const MARKDOWN_MAX_OUTPUT_CHARS = 20 * 1024 * 1024;
 
 /** An ordered list's number is clamped so a list marker, and with it a line prefix, stays short. */

@@ -42,6 +42,7 @@ import {
   MCP_SERVER_SETTING_KEYS,
   MAX_MCP_RESULT_KIB,
   MAX_MCP_LOG_ENTRIES,
+  MAX_MCP_PROGRESS_PER_SECOND,
   DEFAULT_MCP_CALL_MS,
   SWEEP_SETTING_KEYS,
   LIFECYCLE_SETTING_KEYS,
@@ -126,6 +127,8 @@ const TUNABLE_DEFAULTS = {
   mcpConnectSeconds: 15,
   mcpListSeconds: 120,
   mcpLogEntries: 50,
+  mcpProgressPerSecond: 10,
+  mcpLegacyRecheckHours: 24,
   tempFilesHours: 24,
   gitReadsKept: 500,
   routerTraceEntries: 300,
@@ -750,8 +753,30 @@ describe("the MCP layer's connect and listing time limits and its logs per call 
   });
 
   it("are in an MCP servers row of their own, apart from the MCP calls row", () => {
-    expect(MCP_SERVER_SETTING_KEYS).toEqual(KEYS);
-    for (const key of KEYS) expect(MCP_CALL_SETTING_KEYS).not.toContain(key);
+    expect(MCP_SERVER_SETTING_KEYS).toEqual([...KEYS, "mcpProgressPerSecond", "mcpLegacyRecheckHours"]);
+    for (const key of MCP_SERVER_SETTING_KEYS) expect(MCP_CALL_SETTING_KEYS).not.toContain(key);
+  });
+});
+
+describe("the MCP progress rate and the Legacy recheck (SPI-1368)", () => {
+  const set = (settings: Record<string, unknown>) => applyEnvironmentChange(EMPTY_ENVIRONMENT, { settings });
+
+  it("keep today's 10 a second and 24 hours, each up to its maximum, named in the description", () => {
+    expect(resolveEnvironment(EMPTY_ENVIRONMENT)).toMatchObject({
+      mcpProgressPerSecond: 10,
+      mcpLegacyRecheckHours: 24,
+    });
+    expect(ENVIRONMENT_SETTINGS.mcpProgressPerSecond.schema.maximum).toBe(MAX_MCP_PROGRESS_PER_SECOND);
+    expect(ENVIRONMENT_SETTINGS.mcpLegacyRecheckHours.schema.maximum).toBe(MAX_TIMED_MINUTES / 60);
+    for (const [key, low] of [
+      ["mcpProgressPerSecond", 1],
+      ["mcpLegacyRecheckHours", 0],
+    ] as const) {
+      const { maximum } = ENVIRONMENT_SETTINGS[key].schema;
+      for (const good of [low, maximum]) expect(set({ [key]: good })).toMatchObject({ ok: true });
+      for (const bad of [low - 1, maximum + 1, 1.5]) expect(set({ [key]: bad })).toMatchObject({ ok: false });
+      expect(ENVIRONMENT_SETTINGS[key].description).toContain(`At most ${maximum}`);
+    }
   });
 });
 

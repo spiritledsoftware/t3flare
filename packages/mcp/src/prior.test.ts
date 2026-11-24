@@ -23,11 +23,11 @@ const HOUR = 60 * 60 * 1000;
 
 const now = () => Effect.runSync(Clock.currentTimeMillis);
 
-/** Connects with `deps`, lists the tools and calls `echo`; returns the era and what was called. */
-const listAndCall = (deps: McpDeps) =>
+/** Connects to `target` with `deps`, lists the tools and calls `echo`; returns the era and what was called. */
+const listAndCall = (deps: McpDeps, target = TARGET) =>
   run(
     Effect.gen(function* () {
-      const connection = yield* connect(TARGET, deps);
+      const connection = yield* connect(target, deps);
       const tools = yield* connection.list("tools", HOST);
 
       const called = yield* connection.callTool({ tool: ECHO_TOOL, arguments: { text: "hi" } }, AGENT);
@@ -100,6 +100,21 @@ describe("the era row", () => {
     expect(count(server, "server/discover")).toBe(1);
     expect(eras.current()).toMatchObject({ v: 1, era: "legacy" });
     expect(eras.current()).not.toMatchObject({ probedAt });
+  });
+
+  it("takes the target's legacyEraTtlMs in place of 24 h, and probes every time at 0 (SPI-1368)", async () => {
+    for (const [legacyEraTtlMs, probes] of [
+      [2 * HOUR, 0],
+      [HOUR / 2, 1],
+      [0, 1],
+    ] as const) {
+      const server = legacyStatelessServer();
+      const eras = memoryStore({ v: 1, era: "legacy", version: "2025-11-25", probedAt: now() - HOUR });
+
+      await listAndCall(testDeps(fetchTo(server), { eras: eras.store }), { ...TARGET, legacyEraTtlMs });
+
+      expect(count(server, "server/discover"), String(legacyEraTtlMs)).toBe(probes);
+    }
   });
 
   it("probes again when a Legacy-cached server now speaks Modern", async () => {

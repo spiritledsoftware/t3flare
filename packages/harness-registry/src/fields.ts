@@ -22,8 +22,12 @@ export type FieldSchema =
       readonly labels?: Readonly<Record<string, string>>;
       readonly integers?: { readonly minimum: number };
     }
-  /** Free text (SPI-1058: guardian's rules and policy, typed as pi-guardian's menu takes them); `multiline` is a text area. */
-  | { readonly type: "text"; readonly maxLength: number; readonly default: string; readonly multiline?: boolean }
+  /**
+   * Free text (SPI-1058: guardian's rules and policy, typed as pi-guardian's menu takes them); `multiline` is a text area.
+   * `maxLength`, in characters, only where a constraint sets one; without it the value that stores the setting bounds it
+   * (SPI-1368).
+   */
+  | { readonly type: "text"; readonly maxLength?: number; readonly default: string; readonly multiline?: boolean }
   /**
    * The text of a file a Container gets (SPI-1150: the Global mise config): at most `maxBytes` of UTF-8, no NUL, line
    * ends stored as LF (`normalizeField`). The panel renders it as a monospace text area without `maxlength`, which would
@@ -132,7 +136,8 @@ export const fieldProblem = (schema: EnvironmentFieldSchema, value: unknown): st
         ? `one of ${schema.values.join(", ")}`
         : `one of ${schema.values.join(", ")}, or a whole number of at least ${schema.integers.minimum}`;
     case "text":
-      return typeof value === "string" && value.length <= schema.maxLength
+      if (typeof value !== "string") return "text";
+      return schema.maxLength === undefined || value.length <= schema.maxLength
         ? undefined
         : `text of at most ${schema.maxLength} characters`;
     case "variables":

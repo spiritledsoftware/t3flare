@@ -87,13 +87,17 @@ const notifier = (opened: NonNullable<McpEngineHooks["opened"]>) => () => {
 };
 
 /**
- * The host's `onProgress` hook as the core's: at most `MCP_PROGRESS_PER_SECOND` notices a second reach it, the rest
- * dropped (the next one to pass says where the call is), and a hook that fails fails nothing. `now` is the clock, in
- * milliseconds.
+ * The host's `onProgress` hook as the core's: at most `perSecond` notices a second reach it (the target's
+ * `progressPerSecond`, else `MCP_PROGRESS_PER_SECOND`), the rest dropped (the next one to pass says where the call is),
+ * and a hook that fails fails nothing. `now` is the clock, in milliseconds.
  */
-// @effect-diagnostics-next-line missingPipeableSignature:off -- a hook of two values, not a combinator.
-export const progressTo = (onProgress: NonNullable<McpEngineHooks["onProgress"]>, now: () => number) => {
-  const gap = 1000 / MCP_PROGRESS_PER_SECOND;
+// @effect-diagnostics-next-line missingPipeableSignature:off -- a hook of three values, not a combinator.
+export const progressTo = (
+  onProgress: NonNullable<McpEngineHooks["onProgress"]>,
+  now: () => number,
+  perSecond: number = MCP_PROGRESS_PER_SECOND,
+) => {
+  const gap = 1000 / perSecond;
   let last = Number.NEGATIVE_INFINITY;
 
   return (progress: McpProgress) => {
@@ -179,6 +183,7 @@ export const openCall = Effect.fn("mcp.engine.openCall")(function* (
   env: CallEnvironment,
   secrets: ReadonlyArray<string>,
   logEntries?: number,
+  progressPerSecond?: number,
 ) {
   const budget = yield* ByteBudget;
   const context = yield* Effect.context<never>();
@@ -244,7 +249,7 @@ export const openCall = Effect.fn("mcp.engine.openCall")(function* (
   if (hooks.onDeprecated !== undefined) deps.onDeprecated = deprecatedFrom(hooks.onDeprecated);
 
   // A Worker's clock moves with I/O, and each notice arrives by I/O.
-  if (hooks.onProgress !== undefined) deps.onProgress = progressTo(hooks.onProgress, Date.now);
+  if (hooks.onProgress !== undefined) deps.onProgress = progressTo(hooks.onProgress, Date.now, progressPerSecond);
 
   const state = () => {
     const changed: { -readonly [K in keyof McpEngineState]: McpEngineState[K] } = {};
@@ -291,13 +296,17 @@ export const withCall = Effect.fnUntraced(function* <A, E, R>(
   use: (call: CallContext) => Effect.Effect<A, E, R>,
   secrets: ReadonlyArray<string>,
   logEntries?: number,
+  progressPerSecond?: number,
 ) {
   // Opened uninterruptibly with its release attached, so no interruption can leave the lease held.
-  return yield* Effect.acquireUseRelease(openCall(prior, hooks, env, secrets, logEntries), use, (call, exit) =>
-    Effect.sync(() => {
-      if (Exit.isFailure(exit) || !call.handedOff()) {
-        call.lease.release();
-      }
-    }),
+  return yield* Effect.acquireUseRelease(
+    openCall(prior, hooks, env, secrets, logEntries, progressPerSecond),
+    use,
+    (call, exit) =>
+      Effect.sync(() => {
+        if (Exit.isFailure(exit) || !call.handedOff()) {
+          call.lease.release();
+        }
+      }),
   );
 });

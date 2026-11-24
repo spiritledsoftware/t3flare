@@ -184,12 +184,21 @@ const T3_LISTED_AT_KEY = "t3flare:t3-mcp-listed-at";
 const HARNESS_KEY = "t3flare:harness";
 /** The MCP tools the Session last installed (ADR-0028), in chunks (review M12): a restart installs the same first. */
 const MCP_BUILD_KEY = "t3flare:mcp-build";
+/**
+ * The characters of one chunk of that list. A named constraint, with room to spare: each chunk is one Durable Object
+ * KV value, at most 8 MB, and a string takes at most two bytes a character there.
+ */
 const MCP_CHUNK_CHARS = 100_000;
 /** This Session started a Terminal or Background job once (SPI-1057): exits are asked for after each tool round. */
 const TERMCTRL_USED_KEY = "t3flare:termctrl-used";
 /** A test's model fault (stages only). */
 const FAULT_KEY = "t3flare:proxy-fault";
-/** The most a Stop (or the object's start) waits for an aborted command's processes to be killed. */
+/**
+ * The most a Stop (or the object's start) waits for an aborted command's processes to be killed. A named constraint on
+ * the start's path: it runs inside `blockConcurrencyWhile`, which Cloudflare ends after 30 seconds, resetting the
+ * object; 3 s leaves that margin. On a Stop and a stopped command it only bounds the wait, and the alarm retries what
+ * is left.
+ */
 const KILL_BOUND_MS = 3_000;
 /**
  * The conversation the Session runs (G6), when not the root: a rollback or a fork moved it. Absent: the Harness's root.

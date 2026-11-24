@@ -23,9 +23,18 @@ export interface Repo {
   readonly fileSizes?: () => { readonly largest: number; readonly worktreeBytes: number };
 }
 
-/** The most tracked files the DO handles itself; past it, a capture needs the Container's git. */
+/**
+ * The most tracked files the DO handles itself; past it, a capture needs the Container's git. A named constraint: the
+ * Workspace DO's CPU time per invocation and its 128 MB isolate, which a capture spends per tracked file
+ * (isomorphic-git walks and hashes them). 2,000 is a figure from step 2a's checks, not derived; a raised CPU limit
+ * could take more once measured.
+ */
 export const MAX_TRACKED_FILES = 2_000;
-/** The most bytes of packs the DO reads itself. */
+/**
+ * The most bytes of packs the DO reads itself. A named constraint: the Workspace DO's 128 MB isolate, since
+ * isomorphic-git loads a whole pack to read one object from it; 16 MiB of packs held a few times over stays in line
+ * with `MAX_FILE_BYTES`' measured 5–8 times peak.
+ */
 export const MAX_PACK_BYTES = 16 * 1024 * 1024;
 /**
  * The largest file the DO's git reads itself (SPI-1050). isomorphic-git holds a whole file, and a capture a few copies of
