@@ -604,9 +604,9 @@ describe("Park after (SPI-1389)", () => {
     });
     expect(AGENT_SETTING_KEYS.indexOf("parkAfterMinutes")).toBe(AGENT_SETTING_KEYS.indexOf("turnLimitMinutes") + 1);
     const { description } = ENVIRONMENT_SETTINGS.parkAfterMinutes;
-    expect(description).toContain("A card waits until you answer it.");
+    expect(description).toContain("How long a CLI agent's card waits on its turn before the turn parks");
     expect(description).toContain(
-      "Empty or 0 is off: a CLI agent is never parked, and holds its Container while its card waits.",
+      "Empty or 0 is off: the agent is never parked, and holds its Container until you answer.",
     );
   });
 

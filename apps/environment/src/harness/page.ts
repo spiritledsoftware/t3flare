@@ -627,7 +627,7 @@ const environmentSection = (
     {
       id: "agents",
       title: "Agents",
-      desc: "How long an agent's turn may run, and how long a card waits for your answer.",
+      desc: "How long an agent's turn may run, and how long a CLI agent's card waits before its turn parks.",
       keys: AGENT_SETTING_KEYS,
     },
     {
@@ -1322,7 +1322,7 @@ export interface OpenChangeRow {
 const openChangesSection = (rows: ReadonlyArray<OpenChangeRow>): string => {
   const body =
     rows.length === 0
-      ? `<div class="empty"><h3>No open changes</h3><p>A change an agent asks for that widens what agents have waits here, and on its card, until you answer it.</p></div>`
+      ? `<div class="empty"><h3>No open changes</h3><p>When an agent asks for wider access, the request waits here and on its card until you answer it, for at most a week.</p></div>`
       : `<div class="table-wrap"><table class="stacked"><thead><tr><th scope="col">Asked</th><th scope="col">Change</th><th scope="col">By</th><th scope="col">Expires</th><th scope="col"><span class="sr">Open</span></th></tr></thead><tbody>${rows
           .map(
             (row) =>

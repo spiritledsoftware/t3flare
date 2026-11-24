@@ -840,7 +840,7 @@ describe("the Environment section's dotfiles", () => {
     const input = tagsOf(agents).find((tag) => tag.attrs["data-setting"] === "parkAfterMinutes");
     expect(input?.attrs).toMatchObject({ type: "number", min: "0", value: "10" });
     const empty = renderPage({ ...fixturePage(), environment: resolveEnvironment(EMPTY_ENVIRONMENT), openChanges: [] });
-    expect(empty).toContain("waits here, and on its card, until you answer it.");
+    expect(empty).toContain("the request waits here and on its card until you answer it, for at most a week.");
   });
 
   it("draws the clone and checkpoint time limits last in the Containers row, which says what they bound (SPI-1324)", () => {

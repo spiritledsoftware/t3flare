@@ -927,7 +927,7 @@ export const ENVIRONMENT_SETTINGS = {
   parkAfterMinutes: {
     title: "Park after (minutes)",
     description:
-      "A card waits until you answer it. A CLI agent's process holds its Container while its card waits, so after this long the turn parks: the card stays up as a question, the process ends, and the Container can stop. Your answer starts a new turn, which repeats the call it allowed once. Empty or 0 is off: a CLI agent is never parked, and holds its Container while its card waits. Pi Durable agents never hold one while a card waits. Applies at each CLI agent's next start; a running one keeps the value it started with.",
+      "How long a CLI agent's card waits on its turn before the turn parks: the card stays up as a question, the agent's process ends, and its Container can stop. Your answer starts a new turn, which repeats the call you allowed, once. Empty or 0 is off: the agent is never parked, and holds its Container until you answer. Applies at each CLI agent's next start.",
     // t3flare times it itself (the CLI wrapper's timer), so the shared sanity maximum applies (ADR-0048 §2). Off arms
     // nothing.
     schema: {
