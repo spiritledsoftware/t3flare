@@ -123,26 +123,50 @@ export const primeArgvs = (refs: ReadonlyArray<string>): ReadonlyArray<ReadonlyA
 const word = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
 
 /**
- * The command that runs a prime script given on its stdin (`primeScript`), never as the script itself: Linux caps one
- * argument at 128 KiB (MAX_ARG_STRLEN), and the script grows with the repo's refs, every one of which it primes.
+ * The most bytes of output the prime's ref listing, and then its answers, may each take. A sanity bound (ADR-0048) under
+ * the named constraint, the Workspace DO's 128 MB isolate, which holds a whole output 3 to 4 times at its peak
+ * (`execOutput.ts`). Both run whole, not tailed by computer (its last 2,000 lines or 64 KiB would drop the head), and
+ * both list the most needed first: the fixed reads, then the local branches, then the remote-tracking refs. So a cut
+ * drops only the last remote refs, whose reads then start the Container as an unprimed read does.
  */
-export const PRIME_RUNNER = 'p=$(mktemp); cat > "$p"; bash "$p"; rc=$?; rm -f "$p"; exit $rc';
+export const PRIME_OUTPUT_BYTES = 4 * 1024 * 1024;
 
-/** One script answering every argv: `T3P <index> <exit> <stdout base64>` per read. Run by `PRIME_RUNNER`. */
+/** `command`'s output cut to `bytes` (`head -c`); a command ended by the cut (SIGPIPE, 141) counts as success. */
+const cutTo = (command: string, bytes: number): string =>
+  `${command} | head -c ${bytes}\nrc=\${PIPESTATUS[0]}\n[ "$rc" = 141 ] && rc=0\nexit "$rc"`;
+
+/** The repo's branches, then its remote-tracking refs (`for-each-ref` sorts by name), at most `bytes` of them. */
+export const listRefsScript = (bytes: number): string =>
+  cutTo("git for-each-ref --format='%(refname)' refs/heads refs/remotes", bytes);
+
+/**
+ * The command that runs a prime script given on its stdin (`primeScript`), never as the script itself: Linux caps one
+ * argument at 128 KiB (MAX_ARG_STRLEN), and the script grows with the repo's refs. Its answers are cut at `bytes`; the
+ * script stops at the cut.
+ */
+export const primeRunner = (bytes: number): string =>
+  `p=$(mktemp); cat > "$p"; bash "$p" | head -c ${bytes}; rm -f "$p"; exit 0`;
+
+/**
+ * One script answering every argv: `T3P <index> <exit> <stdout base64>` per read, in order. Run by `primeRunner`: when its
+ * cut closes the pipe, the next answer fails to write and the script ends, its temporary file removed.
+ */
 export const primeScript = (argvs: ReadonlyArray<ReadonlyArray<string>>): string =>
   [
-    "t=$(mktemp)",
+    `t=$(mktemp); trap 'rm -f "$t"' EXIT; trap '' PIPE`,
     ...argvs.map(
-      (argv, index) => `git ${argv.map(word).join(" ")} >"$t" 2>/dev/null; echo "T3P ${index} $? $(base64 -w0 <"$t")"`,
+      (argv, index) =>
+        `git ${argv.map(word).join(" ")} >"$t" 2>/dev/null; echo "T3P ${index} $? $(base64 -w0 <"$t")" || exit 0`,
     ),
-    'rm -f "$t"',
   ].join("\n");
+
+/** `stdout`'s lines that ended: the last, when a cut fell inside it, is dropped. */
+const wholeLines = (stdout: string): Array<string> => stdout.split("\n").slice(0, -1);
 
 export const parsePrimed = (
   stdout: string,
 ): ReadonlyArray<{ readonly index: number; readonly exitCode: number; readonly stdout: string }> =>
-  stdout
-    .split("\n")
+  wholeLines(stdout)
     .filter((line) => line.startsWith("T3P "))
     .map((line) => {
       const [, index, exit, data = ""] = line.split(" ");
@@ -152,3 +176,30 @@ export const parsePrimed = (
         stdout: new TextDecoder().decode(Uint8Array.from(atob(data), (char) => char.charCodeAt(0))),
       };
     });
+
+/** A passive exec in the repo, its output whole (the scripts above bound their own). */
+export type PrimeExec = (input: {
+  readonly script: string;
+  readonly stdin?: string;
+}) => Promise<{ readonly exitCode: number; readonly stdout: string }>;
+
+/**
+ * The allow-listed reads' answers, read now: the refs listed, then every read for them answered in one script. Throws
+ * when the refs cannot be listed, or `running` says the Container stopped meanwhile.
+ */
+export const primeReads = async (
+  exec: PrimeExec,
+  running: () => boolean,
+  bytes: number = PRIME_OUTPUT_BYTES,
+): Promise<
+  ReadonlyArray<{ readonly argv: ReadonlyArray<string>; readonly exitCode: number; readonly stdout: string }>
+> => {
+  const listed = await exec({ script: listRefsScript(bytes) });
+  if (listed.exitCode !== 0 || !running()) throw new Error("the refs could not be listed");
+  const argvs = primeArgvs(wholeLines(listed.stdout).filter((line) => line !== ""));
+  const primed = await exec({ script: primeRunner(bytes), stdin: primeScript(argvs) });
+  return parsePrimed(primed.stdout).flatMap((answer) => {
+    const argv = argvs[answer.index];
+    return argv === undefined ? [] : [{ argv, exitCode: answer.exitCode, stdout: answer.stdout }];
+  });
+};

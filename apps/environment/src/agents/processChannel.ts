@@ -133,12 +133,18 @@ export class ByteQueue {
 
 const encoder = new TextEncoder();
 /**
- * How much of a CLI's stderr is kept, in UTF-16 units, for the `cli-exited` log line when it exits with an error: a
- * rolling buffer kept for the process's life, so it needs a bound. A named constraint: the line is one Workers Logs
- * event, which holds 256 KB and is cut past that (developers.cloudflare.com/workers/observability/logs/workers-logs,
- * read 2026-11-23). UTF-8 takes at most three bytes a unit; 1 KiB is left for the line's other fields.
+ * The most bytes one Workers Logs event holds; Cloudflare cuts a longer one and marks it `$cloudflare.truncated`
+ * (developers.cloudflare.com/workers/observability/logs/workers-logs, read 2026-11-23). A named constraint.
  */
-const STDERR_TAIL = Math.floor((256_000 - 1024) / 3);
+const WORKERS_LOG_EVENT_BYTES = 256_000;
+
+/**
+ * How much of a CLI's stderr is kept, in UTF-16 units, for the `cli-exited` log line when it exits with an error: a
+ * rolling buffer kept for the process's life, so it needs a bound, and one log event is its ceiling. UTF-8 takes at most
+ * three bytes a unit; 1 KiB is left for the line's other fields. Approximate: JSON escapes a control character in six
+ * bytes, so a tail of them can pass the event, which Cloudflare then cuts, and nothing else breaks.
+ */
+const STDERR_TAIL = Math.floor((WORKERS_LOG_EVENT_BYTES - 1024) / 3);
 
 /** One CLI process in a Workspace's Container, as t3's handle sees it. */
 export class ChannelProcess {

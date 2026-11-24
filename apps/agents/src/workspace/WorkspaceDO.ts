@@ -137,15 +137,8 @@ import {
 import { containerPatterns, ContainerOnlyBackend, containerScript, submodulePaths } from "./containerOnly.ts";
 import { isomorphicFs } from "./isoFs.ts";
 import { CREDENTIAL_HELPER_VERSION } from "./credentialHelper.ts";
-import {
-  allowedRead,
-  parsePrimed,
-  passiveDecision,
-  PRIME_RUNNER,
-  primeArgvs,
-  primeScript,
-  withoutOwnGitDir,
-} from "./gitDirReads.ts";
+import { allowedRead, passiveDecision, primeReads, withoutOwnGitDir } from "./gitDirReads.ts";
+import { leakFlag } from "./leakFlag.ts";
 import { type StaleOutcome, staleRead } from "./staleReads.ts";
 import { keepsAnswer, readCache, readKey } from "./readCache.ts";
 import { authorizeModelRelay, type ModelRelayAsk, type ModelRelayGrant } from "./modelRelay.ts";
@@ -872,12 +865,9 @@ export class WorkspaceDO extends ContainerHost {
         hits: hits.map((hit) => ({ name: hit.name, path: hit.path, quarantined: hit.quarantined ?? null })),
       }),
     );
-    this.ctx.storage.kv.put(LEAK_FLAG_KEY, {
-      at: Date.now(),
-      names: [...new Set(hits.map((hit) => hit.name))],
-      paths: hits.map((hit) => hit.path),
-    });
+    // The processes are signalled first: a flag that failed its write must not leave them running.
     for (const key of this.#processes.keys()) await this.#processes.signal(key).catch(() => undefined);
+    this.ctx.storage.kv.put(LEAK_FLAG_KEY, leakFlag(hits, Date.now()));
   }
 
   /**
@@ -1746,25 +1736,19 @@ export class WorkspaceDO extends ContainerHost {
   #primingRev: number | undefined;
 
   async #primeAt(): Promise<void> {
-    const listed = await this.exec({
-      script: "git for-each-ref --format='%(refname)' refs/heads refs/remotes",
-      cwd: REPO_ROOT,
-      passive: true,
-    });
-    if (listed.exitCode !== 0 || !this.containerRunning()) throw new Error("the refs could not be listed");
-    const argvs = primeArgvs(listed.stdout.split("\n").filter((line) => line !== ""));
-    const primed = await this.exec({ script: PRIME_RUNNER, stdin: primeScript(argvs), cwd: REPO_ROOT, passive: true });
+    const answers = await primeReads(
+      (input) => this.exec({ ...input, cwd: REPO_ROOT, passive: true, wholeOutput: true }),
+      () => this.containerRunning(),
+    );
     const rev = this.#reads.revision("git-dir");
-    for (const answer of parsePrimed(primed.stdout)) {
-      const argv = argvs[answer.index];
-      if (argv === undefined) continue;
-      this.#reads.put(await readKey({ argv, cwd: REPO_ROOT }), rev, {
+    for (const answer of answers) {
+      this.#reads.put(await readKey({ argv: answer.argv, cwd: REPO_ROOT }), rev, {
         exitCode: answer.exitCode,
         stdout: answer.stdout,
         stderr: "",
       });
     }
-    console.log(JSON.stringify({ t3flare: "git-reads-primed", reads: argvs.length }));
+    console.log(JSON.stringify({ t3flare: "git-reads-primed", reads: answers.length }));
   }
 
   /**
@@ -2077,7 +2061,8 @@ export class WorkspaceDO extends ContainerHost {
         cwd: "/workspace",
         timeoutMs: cloneLimitMs(input.timeoutMs),
       });
-      if (result.exitCode === 0) await this.#prime().catch(() => undefined);
+      // In the background: a repo's many refs make a long prime, which the clone's answer does not wait for.
+      if (result.exitCode === 0) this.ctx.waitUntil(this.#prime().catch(() => undefined));
       return { ran: true, exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr, ms: result.ms };
     } catch (error) {
       return { ran: false, reason: "container_refused", detail: describeFailure(error) };
@@ -2211,7 +2196,8 @@ export class WorkspaceDO extends ContainerHost {
       const head = result.stdout.trim().split("\n").at(-1) ?? "";
       if (result.exitCode !== 0) return { ok: false, error: result.stderr };
       if (head !== input.commit) return { ok: false, error: `HEAD is ${head}, not ${input.commit}` };
-      await this.#prime().catch(() => undefined);
+      // In the background, as after a clone.
+      this.ctx.waitUntil(this.#prime().catch(() => undefined));
       // The checkout's own `.gitmodules` now says which paths are submodules.
       this.ctx.storage.kv.delete(SUBMODULE_HINT_KEY);
       return { ok: true, head };

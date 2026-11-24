@@ -13,7 +13,7 @@ import {
 } from "@t3flare/harness-registry";
 import { describe, expect, it } from "vitest";
 
-import { McpHost, refusedCount, type McpServerLimits, type McpEngineBinding } from "../src/mcp/host.ts";
+import { fitError, McpHost, refusedCount, type McpServerLimits, type McpEngineBinding } from "../src/mcp/host.ts";
 
 const memory = () => {
   const map = new Map<string, unknown>();
@@ -602,5 +602,17 @@ describe("McpHost and the Settings server", () => {
     ).toMatchObject({ kind: "unavailable" });
     // Commissary's stale inventory is listed again in the background; nothing goes to the engine for the Settings server.
     expect(run.seen.filter((seen) => seen.target.name === "settings")).toEqual([]);
+  });
+});
+
+describe("a failed listing's error (SPI-1360)", () => {
+  it("is kept whole when it fits the inventory's value, and cut to what the value has left when not", () => {
+    const rest = { server: "s", status: "failed", definitions: { big: { description: "d".repeat(2_000_000) } } };
+    expect(fitError(rest, "the server did not answer")).toBe("the server did not answer");
+    const error = "\u0001x".repeat(1_000_000);
+    const kept = fitError(rest, error);
+    expect(kept.length).toBeGreaterThan(0);
+    expect(error.startsWith(kept)).toBe(true);
+    expect(storedBytes({ ...rest, error: kept })).toBeLessThanOrEqual(DO_VALUE_BYTES);
   });
 });

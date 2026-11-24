@@ -5,6 +5,7 @@
 // `baseBuildRecord`, which drops a malformed one (another Worker's version).
 import { MAX_SETUP_OUTPUT_KIB } from "./environment.ts";
 import { DO_VALUE_BYTES } from "./storedValue.ts";
+import { MAX_VARIABLES_BYTES } from "./variables.ts";
 
 /**
  * The reserved names of the Builders (ADR-0047 §1, §8): instances of the Workspace DO's class that are never a Workspace.
@@ -89,12 +90,17 @@ export interface BaseBuildRecord {
 const MAX_OUTPUT = MAX_SETUP_OUTPUT_KIB * 1024;
 
 /**
- * The most characters (UTF-16 units) of each of a record's free texts, its `reason` and its failure's `message`, which
- * the Builder cuts to this and `baseBuildRecord` accepts. A named constraint: the record is one Durable Object value
- * (`DO_VALUE_BYTES`), which stores a string in at most two bytes a unit. What the most output leaves of it, less 16 KiB
- * for the record's other fields, is split between the two texts.
+ * The most characters (UTF-16 units) of each of a build's free texts, which the Builder cuts to this and
+ * `baseBuildRecord` accepts. A named constraint: the Builder keeps its build under way (`Build` in the agents Worker) as
+ * one Durable Object value (`DO_VALUE_BYTES`), which stores a string in at most two bytes a unit. That value holds the
+ * most output, the secret Variables' values (at most `MAX_VARIABLES_BYTES` of UTF-8, so at most twice that stored, each
+ * value's tag within the `NAME=` and NUL that bound counts) and three free texts: its `reason`, its `lastError` and its
+ * failure's `message`. What the output and the secrets leave, less 16 KiB for the other fields, is split between the three.
+ * A record carries two of them, so it fits too.
  */
-export const BASE_BUILD_TEXT_CHARACTERS = Math.floor((DO_VALUE_BYTES - 2 * MAX_OUTPUT - 16 * 1024) / 2 / 2);
+export const BASE_BUILD_TEXT_CHARACTERS = Math.floor(
+  (DO_VALUE_BYTES - 2 * MAX_OUTPUT - 2 * MAX_VARIABLES_BYTES - 16 * 1024) / 3 / 2,
+);
 
 const isObject = (value: unknown): value is Readonly<Record<string, unknown>> =>
   value !== null && typeof value === "object" && !Array.isArray(value);

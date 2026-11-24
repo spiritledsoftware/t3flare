@@ -39,9 +39,7 @@ export const takeSkillsForTurn = async (
     if (answer === "timeout")
       console.warn(JSON.stringify({ t3flare: "skills-take-timeout", hash: hash.slice(0, 12), waitMs }));
     else if (answer.error !== undefined)
-      console.warn(
-        JSON.stringify({ t3flare: "skills-take-refused", hash: hash.slice(0, 12), error: answer.error.slice(0, 300) }),
-      );
+      console.warn(JSON.stringify({ t3flare: "skills-take-refused", hash: hash.slice(0, 12), error: answer.error }));
     else if (answer.taken)
       console.log(
         JSON.stringify({
@@ -52,9 +50,7 @@ export const takeSkillsForTurn = async (
       );
     return answer;
   } catch (error) {
-    console.warn(
-      JSON.stringify({ t3flare: "skills-take-failed", hash: hash.slice(0, 12), error: String(error).slice(0, 300) }),
-    );
+    console.warn(JSON.stringify({ t3flare: "skills-take-failed", hash: hash.slice(0, 12), error: String(error) }));
     return "failed";
   } finally {
     clearTimeout(timer);

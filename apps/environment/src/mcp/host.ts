@@ -346,9 +346,9 @@ export class McpHost {
     const server = ownEntry(this.servers(), name);
     const before = this.inventory(name);
     const failed = (error: string): Inventory => {
-      const next: Inventory = { ...before, status: "failed", error, listedAt: before.listedAt };
-      if (generation === this.#generation(name))
-        this.#deps.kv.put(inventoryKey(name), { ...next, failedAt: this.#now() });
+      const rest = { ...before, status: "failed" as const, listedAt: before.listedAt, failedAt: this.#now() };
+      const { failedAt, ...next } = { ...rest, error: fitError(rest, error) };
+      if (generation === this.#generation(name)) this.#deps.kv.put(inventoryKey(name), { ...next, failedAt });
       console.warn(JSON.stringify({ t3flare: "mcp-list-failed", server: name, error }));
       return next;
     };
@@ -844,6 +844,19 @@ const redactedResult = (value: unknown, max: number): { readonly isError: boolea
         ? content.message.replaceAll(content.requestId, "[request]")
         : "The server is still answering an earlier request for this call; try the call again.",
   };
+};
+
+/**
+ * `error` as much as an inventory (`rest`, its other fields, the last good listing's tools among them) can keep beside it
+ * in its one Durable Object value (`DO_VALUE_BYTES`, a named constraint): whole when it fits, else its start.
+ */
+export const fitError = (rest: Readonly<Record<string, unknown>>, error: string): string => {
+  const room = DO_VALUE_BYTES - storedBytes({ ...rest, error: "" });
+  let kept = error;
+  // `storedBytes` counts the JSON, whose escapes can take more than one character a unit: cut until it fits.
+  while (kept.length > 0 && storedBytes(kept) > room)
+    kept = kept.slice(0, Math.max(0, Math.min(kept.length - 1, Math.floor((kept.length * room) / storedBytes(kept)))));
+  return kept;
 };
 
 /** What the closing "and N more" entry of a cut refused list may take stored. */

@@ -102,11 +102,10 @@ export const traceEntryBytes = (entry: TraceEntry): number => 2 * JSON.stringify
  * The latest routed commands, in memory: at most `routerTraceEntries` (SPI-1364) of them, and at most
  * `ROUTER_TRACE_BYTES` together, the latest entry always kept.
  */
-const trace: Array<TraceEntry> = [];
-const traceBytes: Array<number> = [];
+const trace: Array<{ readonly entry: TraceEntry; readonly bytes: number }> = [];
 let traceTotal = 0;
 
-export const routerTrace = (): ReadonlyArray<TraceEntry> => [...trace];
+export const routerTrace = (): ReadonlyArray<TraceEntry> => trace.map((kept) => kept.entry);
 
 /** Step 4a: a CLI protocol step worth proving later (a native thread resumed), in the same trace. */
 export const traceProtocol = (cli: string, step: string, detail: string): void =>
@@ -122,20 +121,16 @@ export const traceProtocol = (cli: string, step: string, detail: string): void =
   });
 export const clearRouterTrace = (): void => {
   trace.splice(0);
-  traceBytes.splice(0);
   traceTotal = 0;
 };
 
 const record = (entry: TraceEntry) => {
   const bytes = traceEntryBytes(entry);
-  trace.push(entry);
-  traceBytes.push(bytes);
+  trace.push({ entry, bytes });
   traceTotal += bytes;
   const max = routerTraceEntriesNow();
-  while (trace.length > 1 && (trace.length > max || traceTotal > ROUTER_TRACE_BYTES)) {
-    trace.shift();
-    traceTotal -= traceBytes.shift()!;
-  }
+  while (trace.length > 1 && (trace.length > max || traceTotal > ROUTER_TRACE_BYTES))
+    traceTotal -= trace.shift()!.bytes;
 };
 
 interface Answer {

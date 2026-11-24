@@ -10,10 +10,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   allowedRead,
-  parsePrimed,
   passiveDecision,
-  PRIME_RUNNER,
+  type PrimeExec,
   primeArgvs,
+  primeReads,
   primeScript,
   UPSTREAM_FORMAT,
 } from "../src/workspace/gitDirReads.ts";
@@ -71,60 +71,104 @@ describe("a passive read while the Container is stopped", () => {
   });
 });
 
+/** A Workspace repo for the prime: `branches` local branches tracking origin, and `remotes` remote-tracking refs. */
+const primedRepo = (branches: number, remotes: number) => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "t3flare-prime-")));
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "t",
+    GIT_AUTHOR_EMAIL: "t@t",
+    GIT_COMMITTER_NAME: "t",
+    GIT_COMMITTER_EMAIL: "t@t",
+    GIT_CONFIG_NOSYSTEM: "1",
+  };
+  const run = (cwd: string, args: ReadonlyArray<string>, input?: string) =>
+    spawnSync("git", args, { cwd, encoding: "utf8", env, ...(input === undefined ? {} : { input }) });
+  const seed = path.join(dir, "seed");
+  fs.mkdirSync(seed);
+  run(seed, ["init", "-q", "-b", "main"]);
+  fs.writeFileSync(path.join(seed, "a"), "a");
+  run(seed, ["add", "a"]);
+  run(seed, ["commit", "-qm", "a"]);
+  const repo = path.join(dir, "repo");
+  run(dir, ["clone", "-q", seed, repo]);
+  for (let at = 0; at < branches; at++) run(repo, ["branch", "--track", `feature-${at}`, "origin/main"]);
+  const head = run(repo, ["rev-parse", "HEAD"]).stdout.trim();
+  const refs = Array.from(
+    { length: remotes },
+    (_, at) => `create refs/remotes/origin/r${String(at).padStart(5, "0")} ${head}\n`,
+  );
+  run(repo, ["update-ref", "--stdin"], refs.join(""));
+  /** The Workspace DO's exec with `wholeOutput`: the script's output, whole. */
+  const exec: PrimeExec = async (input) => {
+    const ran = spawnSync("bash", ["-c", input.script], {
+      cwd: repo,
+      encoding: "utf8",
+      env,
+      maxBuffer: 64 * 1024 * 1024,
+      ...(input.stdin === undefined ? {} : { input: input.stdin }),
+    });
+    return { exitCode: ran.status ?? -1, stdout: ran.stdout };
+  };
+  return {
+    exec,
+    direct: (argv: ReadonlyArray<string>) => run(repo, argv),
+    remove: () => fs.rmSync(dir, { recursive: true, force: true }),
+  };
+};
+
+const FIXED_READS = [
+  ["rev-parse", "--git-common-dir"],
+  ["remote"],
+  ["config", "--get", "checkout.workers"],
+  ["rev-parse", "--git-path", "index", "--git-path", "objects"],
+  ["count-objects", "-v"],
+];
+
 describe("priming", () => {
-  it("answers each allow-listed read as git does", () => {
-    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "t3flare-prime-")));
-    const env = {
-      ...process.env,
-      GIT_AUTHOR_NAME: "t",
-      GIT_AUTHOR_EMAIL: "t@t",
-      GIT_COMMITTER_NAME: "t",
-      GIT_COMMITTER_EMAIL: "t@t",
-      GIT_CONFIG_NOSYSTEM: "1",
-    };
-    const run = (cwd: string, args: ReadonlyArray<string>) => spawnSync("git", args, { cwd, encoding: "utf8", env });
+  it("answers each allow-listed read as git does", async () => {
+    const repo = primedRepo(1, 0);
     try {
-      const seed = path.join(dir, "seed");
-      fs.mkdirSync(seed);
-      run(seed, ["init", "-q", "-b", "main"]);
-      fs.writeFileSync(path.join(seed, "a"), "a");
-      run(seed, ["add", "a"]);
-      run(seed, ["commit", "-qm", "a"]);
-      const repo = path.join(dir, "repo");
-      run(dir, ["clone", "-q", seed, repo]);
-      run(repo, ["branch", "--track", "feature", "origin/main"]);
-      const refs = run(repo, ["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"])
-        .stdout.split("\n")
-        .filter(Boolean);
-      const argvs = primeArgvs(refs);
-      expect(argvs.length).toBeGreaterThanOrEqual(8);
-      expect(argvs).toEqual(
-        expect.arrayContaining([
-          ["rev-parse", "--git-path", "index", "--git-path", "objects"],
-          ["count-objects", "-v"],
-        ]),
-      );
-      const primed = spawnSync("bash", ["-c", PRIME_RUNNER], {
-        cwd: repo,
-        encoding: "utf8",
-        env,
-        input: primeScript(argvs),
-      });
-      const answers = parsePrimed(primed.stdout);
-      expect(answers).toHaveLength(argvs.length);
+      const answers = await primeReads(repo.exec, () => true);
+      expect(answers.length).toBeGreaterThanOrEqual(8);
+      expect(answers.map((answer) => answer.argv)).toEqual(expect.arrayContaining(FIXED_READS));
       for (const answer of answers) {
-        const direct = run(repo, argvs[answer.index]!);
-        expect({ exitCode: answer.exitCode, stdout: answer.stdout }, argvs[answer.index]!.join(" ")).toEqual({
+        const direct = repo.direct(answer.argv);
+        expect({ exitCode: answer.exitCode, stdout: answer.stdout }, answer.argv.join(" ")).toEqual({
           exitCode: direct.status,
           stdout: direct.stdout,
         });
       }
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      repo.remove();
     }
   });
 
-  it("primes every branch and remote ref, its script past the 128 KiB one argument holds, so it goes on stdin", () => {
+  it("with more refs than its output holds, still primes the fixed reads and every local branch, first", async () => {
+    const repo = primedRepo(3, 1500);
+    try {
+      const answers = await primeReads(repo.exec, () => true, 8 * 1024);
+      const argvs = answers.map((answer) => answer.argv);
+      expect(argvs.slice(0, FIXED_READS.length)).toEqual(FIXED_READS);
+      for (const branch of ["main", "feature-0", "feature-1", "feature-2"])
+        expect(argvs).toContainEqual(["for-each-ref", UPSTREAM_FORMAT, `refs/heads/${branch}`]);
+      // The cut fell among the remote refs: some primed, the rest left.
+      const remote = argvs.filter((argv) => argv[1] === "--verify");
+      expect(remote.length).toBeGreaterThan(0);
+      expect(remote.length).toBeLessThan(1500);
+      for (const answer of answers) {
+        const direct = repo.direct(answer.argv);
+        expect({ exitCode: answer.exitCode, stdout: answer.stdout }, answer.argv.join(" ")).toEqual({
+          exitCode: direct.status,
+          stdout: direct.stdout,
+        });
+      }
+    } finally {
+      repo.remove();
+    }
+  });
+
+  it("primes every branch and remote ref its output holds: none is left out by a count", () => {
     const refs = Array.from({ length: 2000 }, (_, index) => [
       `refs/heads/b${index}`,
       `refs/remotes/origin/b${index}`,
@@ -132,7 +176,7 @@ describe("priming", () => {
     const argvs = primeArgvs(refs);
     expect(argvs.filter((argv) => argv[0] === "for-each-ref")).toHaveLength(2000);
     expect(argvs.filter((argv) => argv[1] === "--verify")).toHaveLength(2000);
-    const script = primeScript(argvs);
-    expect(script.length).toBeGreaterThan(128 * 1024);
+    // Past the 128 KiB one argument holds: the script goes on stdin.
+    expect(primeScript(argvs).length).toBeGreaterThan(128 * 1024);
   });
 });
