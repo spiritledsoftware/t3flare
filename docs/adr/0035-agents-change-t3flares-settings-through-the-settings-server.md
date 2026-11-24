@@ -232,10 +232,10 @@ have open derive from its limit: `openPerOwner` changes of `HOLDS_PER_CHANGE` st
 ## Refinement ([ADR-0049](0049-settings-follow-local-parity-and-guardrails-are-opt-in.md), 2026-11-24): settings that leave, and settings the page tucks away
 
 §2's panel parity follows the page's settings, not where the page shows them. A setting under Advanced, or contextual
-and not shown, is still read and changed through the Settings server, under its own tier; the read reports each
-setting's disclosure, so an agent can point the Owner to it. A setting that becomes a named constant leaves the Settings
-server with its tier: no tool reads or changes it, and a change that names it is refused, as a change
-to any setting the schema does not have is.
+and not shown, is still read and changed through the Settings server, under its own tier, and the read is to report each
+setting's disclosure, so an agent can point the Owner to it (SPI-1385 adds the disclosure and its report). A setting
+that becomes a named constant leaves the Settings server with its tier: no tool reads or changes it, and a change that
+names it is refused, as a change to any setting the schema does not have is.
 
 §3's tiers apply to an opt-in guardrail by direction: turning one on, or tightening it, narrows; turning it off, or
 loosening it, widens. The Settings server's own limits on asking and changing (the SPI-1322 refinement) are such

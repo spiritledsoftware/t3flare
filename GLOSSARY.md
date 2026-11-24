@@ -225,13 +225,17 @@ _Avoid_: sensible default, safe default
 **Guardrail**:
 A limit that exists only because t3flare runs in the cloud, to bound cost or contain a failure, such as a Turn limit.
 Off by default and turned on by the Owner, but for the Terminal holds and the setup time limits.
-_Avoid_: guard (a Guard judges agents' calls), cost guard, cap
+_Avoid_: guard (a Guard judges agents' calls), cost guard
+
+**Disclosure**:
+Where the Settings page shows a setting: visible (always), contextual (only while its feature is in use, such as the
+custom size's fields while the size is custom) or Advanced (collapsed under its section's Advanced). Disclosure changes
+only where a setting shows: the Settings server reads and changes every setting, and a limit that is a contextual or
+Advanced setting says, when hit, where to change it.
+_Avoid_: visibility, hidden (a setting is never hidden from the Settings server)
 
 **Advanced setting**:
-A setting the Settings page collapses under its section's Advanced. Every setting declares where the page shows it:
-visible (always), contextual (only while its feature is in use) or advanced. A hidden setting, an Advanced one or a
-contextual one not shown, is still a setting: the Settings server reads and changes it, and its limit's message says
-where to change it.
+A setting whose Disclosure is Advanced: collapsed under its section's Advanced on the Settings page.
 _Avoid_: expert setting
 
 **Named constant**:

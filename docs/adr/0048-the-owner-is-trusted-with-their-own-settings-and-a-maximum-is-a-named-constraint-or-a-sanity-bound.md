@@ -8,13 +8,13 @@ setup time limits' maximums) and
 [ADR-0010](0010-the-endpoint-is-public-behind-t3s-own-auth.md) (the Pairing window's "60 at most").
 
 AGENTS.md has two rules about settings. Whatever an Owner could tune is a setting with a sensible default, fixed only
-where Cloudflare or t3flare's own correctness forces it. (Superseded by [ADR-0049](0049-settings-follow-local-parity-and-guardrails-are-opt-in.md): a setting only where the Owner would
-choose its value, local behaviour by default, and a named constant for a value that only guards t3flare's machinery.) And the Owner is trusted with their own settings: validation
-keeps t3flare working and never protects the Owner from a choice they made. Three limits broke the second rule. The
-Container budget stopped at 10, which its own comment called "a cost guard, far under the account's concurrent limits".
-The idle time stopped at 60 minutes, so an Owner could not keep a Container warm overnight. The Pairing window was
-clamped to 1 to 60 minutes without saying so. The setup time limits added later (ADR-0047 §9) carried maximums that no
-constraint set: 60, 120 and 15 minutes.
+where Cloudflare or t3flare's own correctness forces it. (Superseded by
+[ADR-0049](0049-settings-follow-local-parity-and-guardrails-are-opt-in.md).) And the Owner is trusted with their own
+settings: validation keeps t3flare working and never protects the Owner from a choice they made. Three limits broke the
+second rule. The Container budget stopped at 10, which its own comment called "a cost guard, far under the account's
+concurrent limits". The idle time stopped at 60 minutes, so an Owner could not keep a Container warm overnight. The
+Pairing window was clamped to 1 to 60 minutes without saying so. The setup time limits added later (ADR-0047 §9) carried
+maximums that no constraint set: 60, 120 and 15 minutes.
 
 1. **A maximum is a named constraint or a sanity bound.** A named constraint is a limit Cloudflare or t3flare's own
    correctness sets, and the code names it in a comment where the value is set: the setup output's 256 KiB (a Durable
@@ -158,14 +158,15 @@ A fixed value that stays names its constraint where it is set: Cloudflare's (a D
 
 ## Refinement (SPI-1384, 2026-11-24): settings follow local parity
 
-[ADR-0049](0049-settings-follow-local-parity-and-guardrails-are-opt-in.md) supersedes this ADR's premise, AGENTS.md's "whatever an Owner could tune is a setting with a sensible
-default". A value is a setting only where the Owner would choose it: cost, size, what agents may do, setup, retention.
-A value that only guards t3flare's own machinery is a named, generous constant, not a setting. A limit with a local
-equivalent defaults to the local behaviour, usually no limit, and a cloud-only guardrail is off by default, the Terminal
-holds and the setup time limits excepted. Every limit names itself and its value when hit.
+[ADR-0049](0049-settings-follow-local-parity-and-guardrails-are-opt-in.md) supersedes this ADR's premise, AGENTS.md's
+"whatever an Owner could tune is a setting with a sensible default". A value is a setting only where the Owner would
+choose it: cost, size, what agents may do, setup, retention. A value that only guards t3flare's own machinery is a
+named, generous constant, not a setting. A limit with a local equivalent defaults to the local behaviour, usually no
+limit, and a cloud-only guardrail is off by default, the Terminal holds and the setup time limits excepted. Every limit
+names itself and its value when hit.
 
 The rest stands: the Owner is trusted with their own settings (the considered option "keeping the cost guards" stays
 rejected; an opt-in guardrail is the Owner's own choice, not a guard against it), a consequence is stated once (§6), and
-a setting's maximum is a named constraint, the shared timed maximum (§2) or a sanity bound, or none where no value breaks
-anything (the SPI-1368 refinement). §4's and §5's defaults are changed, where they change, by the tickets of SPI-1357's
-prune, each with its own refinement.
+a setting's maximum is a named constraint, the shared timed maximum (§2) or a sanity bound, or none where no value
+breaks anything (the SPI-1368 refinement). §4's and §5's defaults are changed, where they change, by the tickets of
+SPI-1357's prune, each with its own refinement.

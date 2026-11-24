@@ -16,14 +16,13 @@ limit, where stock t3 and a local agent have none. The Owner chose a different r
    machine. A limit with a local equivalent defaults to the local behaviour, which is usually no limit.
 2. **Guardrails are opt-in.** A guardrail is a limit that exists only because t3flare runs in the cloud, to bound cost
    or contain a failure. It is off by default, a setting the Owner turns on. Two stay on by default, by the Owner's
-   choice: the Terminal holds (how long a running or prompting Terminal keeps its Container), and the setup scripts'
-   tunable time limits, since a hung setup has no Ctrl-C.
+   choice, as tunable settings: the Terminal holds (how long a running or prompting Terminal keeps its Container), and
+   the setup scripts' time limits.
 3. **A setting only where the Owner would choose its value.** That is cost, size, what agents may do, setup, and
    retention. A value that only guards t3flare's own machinery is a **named, generous constant**: named where it is
    set, generous enough that no real use meets it, with a comment saying what it guards. It is not a setting.
 4. **Every limit names itself when hit**, with its value, wherever it shows: a refusal, an agent's tool result, the
-   Status section. When the limit is a hidden setting (contextual and not shown, or under Advanced), its message also
-   says where to change it.
+   Status section. When the limit is a contextual or Advanced setting, its message also says where to change it.
 5. **A limit Cloudflare forces stays**, names itself, and gets a follow-up to engineer it away. The ones t3flare meets:
    - a SQLite-backed Durable Object row or value holds 8 MB;
    - a Durable Object RPC or WebSocket message holds 32 MiB;
@@ -33,7 +32,7 @@ limit, where stock t3 and a local agent have none. The Owner chose a different r
    - **visible**: always shown;
    - **contextual**: shown only while its feature is in use, with the condition that shows it (the size being custom, a
      setup having a script, the Guardian being on);
-   - **advanced**: collapsed under its section's Advanced.
+   - **Advanced**: collapsed under its section's Advanced.
 
    Disclosure decides only where a setting is shown. A contextual or Advanced setting is a setting like any other: the
    Settings server reads and changes it, and a value stored for it applies whether or not the page shows it.
@@ -58,8 +57,8 @@ is set, and a setting's maximum is a named constraint or a sanity bound, or none
 - Most limits of SPI-1357's audit change: some become named constants and leave the Settings page, the Settings server
   and the audit's tiers; some default to no limit; the rest each declare a disclosure. The tickets of SPI-1357's prune
   make those changes; this ADR changes no value.
-- A stored value for a setting that becomes a constant is dropped when the settings are resolved, never refused.
-- A limit message carries its value and, for a hidden setting, its place on the page, so it changes when the setting
-  moves.
+- A stored value for a setting that becomes a constant is ignored when the settings are resolved, never refused.
+- A limit message carries its value and, for a contextual or Advanced setting, its place on the page, so it changes when
+  the setting moves.
 - A new limit starts from this rule: local behaviour by default, a setting only where the Owner would choose its value,
   a named constant otherwise.
