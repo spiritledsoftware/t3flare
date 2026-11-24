@@ -213,6 +213,34 @@ td.actions{text-align:right;white-space:nowrap}
 .change{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;font-size:.6875rem;color:var(--muted-fg);overflow-wrap:anywhere;max-width:22rem}
 .when{white-space:nowrap;color:var(--muted-fg);font-variant-numeric:tabular-nums}
 .who{white-space:nowrap}
+table.audit td.target>div,table.audit .who{white-space:normal;overflow-wrap:anywhere}
+.table-wrap:has(>table.audit){container-type:inline-size}
+/* The audit table (SPI-1380) follows its card's width, not the viewport's. From 48rem its rows share five columns, with
+Change on a line of its own: the five need about 46.6rem, measured in Chrome at 1440px (When 142.8px, Who 163.1px,
+Settings 107.6px, Action 157.2px for extension.change, Target's 128px floor) with Action widened to the longest action,
+endpoint.sign-in.start, at extension.change's 7.8px a character. Narrower, it is stacked: the rules below repeat
+table.stacked's at 640px, which CSS cannot share, since those sit in a media query and these in a container query. Its
+grid labels are silent, as the hidden header names the column; its stacked ones are read, as there the header is gone. */
+@container (width>48rem){
+table.audit{position:relative;display:grid;grid-template-columns:max-content fit-content(12rem) max-content max-content minmax(8rem,1fr)}
+table.audit :is(thead,tbody,tr){display:contents}
+table.audit td{border-bottom:0;padding-bottom:.25rem}
+table.audit td.change-cell{grid-column:1/-1;display:grid;grid-template-columns:subgrid;padding:0 0 .625rem;border-bottom:1px solid var(--row-border)}
+table.audit tr:last-child>td.change-cell{border-bottom:0}
+table.audit td.change-cell::before{content:attr(data-label);content:attr(data-label) / "";padding:.0625rem 1rem 0;font-size:.6875rem;color:var(--muted-fg)}
+table.audit td.change-cell>div{grid-column:2/-1;min-width:0;padding:0 1rem}
+table.audit .change{max-width:none;font-size:.75rem}
+}
+@container (width<=48rem){
+table.audit thead{display:none}
+table.audit,table.audit tbody,table.audit tr,table.audit td{display:block;width:100%}
+table.audit tr{padding:.625rem 1rem;border-bottom:1px solid var(--row-border)}
+table.audit tr:last-child{border-bottom:0}
+table.audit td{display:grid;grid-template-columns:5.5rem minmax(0,1fr);gap:.75rem;padding:.1875rem 0;border:0;text-align:left}
+table.audit td::before{content:attr(data-label);font-size:.6875rem;font-weight:550;color:var(--muted-fg);padding-top:.125rem}
+table.audit tbody tr:hover>td{background:none}
+table.audit .change{max-width:none}
+}
 form.add{display:flex;flex-direction:column}
 .form-body{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;padding:1rem}
 .form-body .wide{grid-column:1/-1}
