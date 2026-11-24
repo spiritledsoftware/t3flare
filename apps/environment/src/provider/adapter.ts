@@ -63,6 +63,7 @@ import { durableModeRecord } from "./threadCaller.ts";
 import { PI_DURABLE_DRIVER, PiDurableCapabilities } from "./capabilities.ts";
 import { type AttachmentReader, PI_DURABLE_PROMPT_BYTES, turnPrompt } from "./attachments.ts";
 import { messageSkillsFor, type SkillsAccess } from "./skills.ts";
+import { goneTurns, snapshotRequest, withLostTurns } from "./snapshotTurns.ts";
 import {
   approvalIdOf,
   diff,
@@ -231,6 +232,15 @@ export const makePiDurableAdapter = (
       /** The cursor (step 2a plan, section 2): in memory; any doubt pulls a snapshot. */
       let cursor: { epoch: string; seq: number } | null = null;
       const lastPushAt = new Map<string, number>();
+      /**
+       * SPI-1377: open turns a push or a snapshot has named, so the Session recorded them. One a later snapshot lacks is
+       * gone; one never named may still be on its way in (`submitTurn` registers it here before the Session has it).
+       */
+      const named = new Set<string>();
+      const noteNamed = (state: SessionState) => {
+        for (const id of differ.turns.keys()) if (state.turns[id] !== undefined) named.add(id);
+      };
+      const runIdOf = (id: string) => differ.turns.get(id)?.runId ?? "";
       let closed = false;
       // Pushes and snapshots are applied one at a time, in order.
       const applying = yield* Semaphore.make(1);
@@ -262,6 +272,7 @@ export const makePiDurableAdapter = (
           if (before.has(id)) continue;
           differ.turns.delete(id);
           lastPushAt.delete(id);
+          named.delete(id);
           settled = true;
         }
         if (settled && differ.turns.size === 0) {
@@ -295,16 +306,27 @@ export const makePiDurableAdapter = (
       const textOut = (text: string) =>
         workspaceId === null ? text : text.replace(/\/workspace\/repo(?=\/|\b|$)/g, `/w/${workspaceId}`);
 
-      const pullSnapshot = (why: string) =>
-        call(instanceId, "a snapshot", () => client().snapshot({})).pipe(
+      /**
+       * A snapshot of the turns this provider session has open (SPI-1377): their states, and the entries from the oldest
+       * one's input. One the Session no longer has, though a push or a snapshot named it before, ends as lost.
+       */
+      const pullSnapshot = (why: string) => {
+        const asked = [...differ.turns.keys()];
+        return call(instanceId, "a snapshot", () => client().snapshot(snapshotRequest(asked))).pipe(
           Effect.tap((state) => Effect.logDebug("pi-durable snapshot", { why, entries: state.entries.length })),
           Effect.tap((state) =>
             Effect.sync(() => {
               cursor = { epoch: state.epoch, seq: (state as Partial<SessionPush>).seq ?? cursor?.seq ?? 0 };
             }),
           ),
+          Effect.map((state) => {
+            const gone = goneTurns(state, asked).filter((id) => named.has(id));
+            noteNamed(state);
+            return withLostTurns(state, gone, runIdOf);
+          }),
           Effect.flatMap(apply),
         );
+      };
 
       const onPush = (push: SessionPush): Promise<SessionPushAnswer> =>
         runPromise(
@@ -314,6 +336,7 @@ export const makePiDurableAdapter = (
               const nowMs = yield* Clock.currentTimeMillis;
               // Only a push that still names a turn counts as a sign of it (the inverse guard).
               for (const id of differ.turns.keys()) if (push.turns[id] !== undefined) lastPushAt.set(id, nowMs);
+              noteNamed(push);
               // Live turns of the Session that this provider session did not start: orphans (step 2a plan, section 2).
               const orphans = Object.entries(push.turns)
                 .filter(
@@ -348,24 +371,12 @@ export const makePiDurableAdapter = (
         const silent = [...differ.turns.keys()].filter((id) => nowMs - (lastPushAt.get(id) ?? nowMs) >= SILENT_TURN_MS);
         if (silent.length === 0) return;
         yield* applying.withPermits(1)(
-          call(instanceId, "a snapshot", () => client().snapshot({})).pipe(
+          call(instanceId, "a snapshot", () => client().snapshot(snapshotRequest(differ.turns.keys()))).pipe(
             Effect.flatMap((state) => {
-              const turns = { ...state.turns };
-              for (const id of silent) {
-                if (turns[id] === undefined) {
-                  const context = differ.turns.get(id);
-                  turns[id] = {
-                    submissionId: "",
-                    runId: context?.runId ?? "",
-                    attemptId: "",
-                    status: "failed",
-                    reason: "lost",
-                    startedAt: 0,
-                  };
-                }
-                lastPushAt.set(id, Date.now());
-              }
-              return apply({ ...state, turns });
+              const lost = withLostTurns(state, goneTurns(state, silent), runIdOf);
+              for (const id of silent) lastPushAt.set(id, Date.now());
+              noteNamed(state);
+              return apply(lost);
             }),
             Effect.catch((error) =>
               Effect.logWarning("The agent's session did not answer the silent-turn check", error),
@@ -583,6 +594,7 @@ export const makePiDurableAdapter = (
                 Effect.sync(() => {
                   differ.turns.delete(providerTurn.id);
                   lastPushAt.delete(providerTurn.id);
+                  named.delete(providerTurn.id);
                 }),
               ),
             );

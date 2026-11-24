@@ -3,8 +3,9 @@
 // the index, so it costs O(live turns) however long the thread runs; before, one value held every turn and every change
 // rewrote it, until a long thread passed the value limit and the Session stopped recording turns.
 //
-// Finished turns stay: a rollback and a fork find their entries by them (`branches.ts`), and each push names them for the
-// Environment, which settles a turn it tracks once a push shows it settled. Only those whole reads list every turn.
+// Finished turns stay: a rollback and a fork find their entries by them (`branches.ts`), and a push or a snapshot finds
+// which turn each entry it carries belongs to by them. Only those whole reads list every turn; a push names the live
+// turns and those settled since the last one, a snapshot the turns the adapter asks about (SPI-1377, `pushTurns.ts`).
 import type { ProxyRecord, TurnState } from "@t3flare/session-protocol";
 
 import { isLiveTurn } from "./turnLimit.ts";
@@ -91,7 +92,7 @@ export class TurnStore {
   /**
    * Every turn, the one started first first, as `live()` orders them: whoever takes the first running turn from it
    * (the push's live turn, the Environment's differ) names the turn `liveTurn()` does. O(all turns), for a rollback, a
-   * fork and a push only.
+   * fork, and a push's or a snapshot's entries' turns only.
    */
   all(): Record<string, TurnState> {
     const entries = [...this.#kv.list<TurnState>({ prefix: TURN_PREFIX })]
@@ -109,6 +110,16 @@ export class TurnStore {
       if (turn !== undefined) turns[id] = { ...turn, proxy };
     }
     return turns;
+  }
+
+  /** `turns` with their model records (SPI-1377): one read per turn, for the few a push or a snapshot names. */
+  withModels(turns: Readonly<Record<string, TurnState>>): Record<string, TurnState> {
+    return Object.fromEntries(
+      Object.entries(turns).map(([id, turn]) => {
+        const proxy = this.#kv.get<ProxyRecord>(MODEL_PREFIX + id);
+        return [id, proxy === undefined ? turn : { ...turn, proxy }];
+      }),
+    );
   }
 
   /** Updates the model record of the turn running now: the live turn started first (a follow-up waits for it). */

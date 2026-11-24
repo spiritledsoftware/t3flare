@@ -96,6 +96,18 @@ describe("TurnStore", () => {
     expect(store.liveTurn()).toBe("first");
   });
 
+  it("adds the model records of the named turns only, one read each, with no listing (SPI-1377)", () => {
+    const { kv, counts, reset } = countingKv();
+    const store = new TurnStore(kv);
+    store.put("done", turn("answered", 5));
+    store.put("first", turn("running", 10));
+    store.noteModel((record) => ({ ...record, requests: record.requests + 1 }));
+    reset();
+    const named = store.withModels({ first: turn("running", 10) });
+    expect(named).toEqual({ first: { ...turn("running", 10), proxy: { requests: 1 } } });
+    expect(counts).toMatchObject({ gets: 1, lists: 0 });
+  });
+
   it("lists every turn in start order, so the first running one is the turn `liveTurn` names", () => {
     const { kv } = countingKv();
     const store = new TurnStore(kv);
