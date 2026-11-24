@@ -394,12 +394,12 @@ describe("the Global mise config", () => {
 });
 
 describe("the CLI agents' processes per Workspace and the reclaim delay (SPI-1318, SPI-1387)", () => {
-  it("derives the processes from the Container's memory: (memory - 1 GiB) / 450 MB, at least one", () => {
+  it("derives the processes from the Container's memory: (memory - 1 GiB) / 440 MiB, at least one", () => {
     expect(cliProcessesPerWorkspaceOf(CONTAINER_SIZES["cpu-1"].resources.memoryMib)).toBe(4);
-    expect(cliProcessesPerWorkspaceOf(CONTAINER_SIZES["standard-1"].resources.memoryMib)).toBe(7);
+    expect(cliProcessesPerWorkspaceOf(CONTAINER_SIZES["standard-1"].resources.memoryMib)).toBe(6);
     expect(cliProcessesPerWorkspaceOf(CONTAINER_SIZES["standard-2"].resources.memoryMib)).toBe(11);
     expect(cliProcessesPerWorkspaceOf(CONTAINER_SIZES["standard-3"].resources.memoryMib)).toBe(16);
-    expect(cliProcessesPerWorkspaceOf(CONTAINER_SIZES["standard-4"].resources.memoryMib)).toBe(26);
+    expect(cliProcessesPerWorkspaceOf(CONTAINER_SIZES["standard-4"].resources.memoryMib)).toBe(25);
     // A custom size smaller than the reserve still runs one.
     expect(cliProcessesPerWorkspaceOf(256)).toBe(1);
   });
@@ -410,7 +410,7 @@ describe("the CLI agents' processes per Workspace and the reclaim delay (SPI-131
     const of = (settings: Record<string, unknown>) =>
       cliProcessesPerWorkspace(resolveEnvironment({ revision: 1, settings }));
     expect(of({ containerSize: "standard-3" })).toBe(16);
-    expect(of({ containerSize: "custom", customMemoryMib: 12_288 })).toBe(26);
+    expect(of({ containerSize: "custom", customMemoryMib: 12_288 })).toBe(25);
   });
 
   it("waits a fixed 30 seconds before a CLI agent's idle process may be reclaimed", () => {

@@ -704,7 +704,7 @@ export class WorkspaceDO extends ContainerHost {
       baseEnv: terminalEnv,
       // ADR-0047 §9: as the running Container started (its launch), so a change applies at its next start.
       readBashrc: () => ctx.storage.kv.get<ContainerLaunch>(LAUNCH_KEY)?.terminalsReadBashrc !== false,
-      // SPI-1317: as the running Container started (its launch), so a change applies at its next start.
+      // SPI-1317, SPI-1387: a fixed count, `TERMINALS_PER_WORKSPACE`, a memory-safety bound.
       maxTerminals: () => TERMINALS_PER_WORKSPACE,
       filesMayHaveChanged: (why) => this.#terminalSync.changed(why),
       remember: (markers) => ctx.storage.kv.put(TERMINAL_MARKERS_KEY, [...markers]),
@@ -760,7 +760,7 @@ export class WorkspaceDO extends ContainerHost {
       // A command, not an interactive shell: mise through `BASH_ENV`, as the agent's `bash` has it.
       env: COMMAND_ENV.BASH_ENV === undefined ? {} : { BASH_ENV: COMMAND_ENV.BASH_ENV },
       repo: REPO_ROOT,
-      // SPI-1317: fixed by the Workspace DO's memory (SPI-1387).
+      // SPI-1317, SPI-1387: a fixed count, `AGENT_TERMINALS_PER_WORKSPACE`, a memory-safety bound.
       maxLive: () => AGENT_TERMINALS_PER_WORKSPACE,
       scrollback: () => AGENT_TERMINAL_SCROLLBACK_LINES,
     });

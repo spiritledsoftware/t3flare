@@ -187,7 +187,7 @@ describe("ProcessHost", () => {
       ok: false,
       epoch: 7,
       reason:
-        "this Workspace already runs 1 of the 1 CLI agents' processes its Container size has memory for (one per 450 MB past 1 GiB); let one finish first, or choose a larger Container size",
+        "this Workspace already runs 1 of the 1 CLI agents' processes its Container size has memory for (one per 440 MiB past 1 GiB); let one finish first, or choose a larger Container size",
     });
     expect(h.spawned).toHaveLength(1);
   });

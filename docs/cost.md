@@ -67,7 +67,7 @@ What moves the total:
   cost. A cold Claude Code session answered its first prompt 18 s after its Container was stopped. Claude Code (its
   Node adapter and `claude`) peaked at 344 MiB and OpenCode (`opencode acp` and its `serve` child) at 439 MiB in a turn
   running `npm ci && npm test`, about twice an idle Codex app-server. Each process counts once against a Workspace's
-  CLI agents' processes, derived from the Container size's memory: one per 450 MB past 1 GiB, 4 on `cpu-1` and 16 on
+  CLI agents' processes, derived from the Container size's memory: one per 440 MiB past 1 GiB, 4 on `cpu-1` and 16 on
   `standard-3` (`cliProcessesPerWorkspace`; SPI-1364, SPI-1387). An
   `acp-request` log line (Environment Worker) records each session's `initialize`, `session/new` and `session/load`.
 

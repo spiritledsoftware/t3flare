@@ -121,7 +121,7 @@ export interface ProcessHostDeps {
  * and what it follows, the Container size.
  */
 export const cliProcessesFull = (counted: number, max: number): string =>
-  `this Workspace already runs ${counted} of the ${max} CLI agents' processes its Container size has memory for (one per ${CLI_TURN_PEAK_BYTES / 1_000_000} MB past ${CLI_RESERVED_MEMORY_MIB / 1024} GiB); let one finish first, or choose a larger Container size${changeItUnder({ environment: "containerSize" })}`;
+  `this Workspace already runs ${counted} of the ${max} CLI agents' processes its Container size has memory for (one per ${CLI_TURN_PEAK_BYTES / 1024 / 1024} MiB past ${CLI_RESERVED_MEMORY_MIB / 1024} GiB); let one finish first, or choose a larger Container size${changeItUnder({ environment: "containerSize" })}`;
 
 interface Proc {
   readonly key: string;

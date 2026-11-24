@@ -61,11 +61,12 @@ export const MAX_CONTAINER_BUDGET = 100;
 export const CLI_RESERVED_MEMORY_MIB = 1024;
 
 /**
- * The largest measured CLI agent turn's peak memory, in bytes (SPI-1387): OpenCode at 439 MiB in a turn running
- * `npm ci && npm test` (steps-evidence-1:docs/steps/step-4b/m0-local.json P7), rounded up; Claude Code peaked at
- * 344 MiB, and an idle Codex app-server measured 157–160 MB (steps-evidence-1:docs/steps/step-4a/m3-memory.json).
+ * The largest measured CLI agent turn's peak memory, in bytes (SPI-1387): 440 MiB, about 461 MB, OpenCode's measured
+ * 439 MiB in a turn running `npm ci && npm test` (steps-evidence-1:docs/steps/step-4b/m0-local.json P7) rounded up to a
+ * whole 10 MiB, the Owner's "about 450 MB per CLI process"; Claude Code peaked at 344 MiB, and an idle Codex app-server
+ * measured 157–160 MB (steps-evidence-1:docs/steps/step-4a/m3-memory.json).
  */
-export const CLI_TURN_PEAK_BYTES = 450_000_000;
+export const CLI_TURN_PEAK_BYTES = 440 * 1024 * 1024;
 
 /**
  * How many CLI agents' processes one Workspace's Container may run at once, each process counted once (SPI-1364),

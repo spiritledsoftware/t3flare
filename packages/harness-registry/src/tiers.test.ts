@@ -807,7 +807,7 @@ describe("tierOf: the Environment settings", () => {
         stored: stored("containerBudget", 3),
         change: { settings: { containerBudget: 0 } },
       }),
-    ).toEqual({ tier: "asked", reasons: ["containerBudget: 3 to off (turned up)"] });
+    ).toEqual({ tier: "asked", reasons: ["containerBudget: 3 to no budget (turned up)"] });
     // up-free: keeping history for good is free; setting a retention from off deletes, so it is asked.
     expect(
       tier({
@@ -835,14 +835,14 @@ describe("tierOf: the Environment settings", () => {
     // 0 is never (SPI-1386's off, SPI-1387): keeping everything is free, and purging again from never is asked.
     expect(
       tierOf({ entity: "environment", stored: EMPTY_ENVIRONMENT, change: { settings: { graceDays: 0 } } }),
-    ).toEqual({ tier: "free", reasons: ["graceDays: 7 to off (turned up)"] });
+    ).toEqual({ tier: "free", reasons: ["graceDays: 7 to never (turned up)"] });
     expect(
       tierOf({
         entity: "environment",
         stored: { revision: 1, settings: { graceDays: 0 } },
         change: { settings: { graceDays: 30 } },
       }),
-    ).toEqual({ tier: "asked", reasons: ["graceDays: off to 30 (turned down)"] });
+    ).toEqual({ tier: "asked", reasons: ["graceDays: never to 30 (turned down)"] });
   });
 
   it("a multi-key change is asked when any key is; nothing moved is unchanged", () => {

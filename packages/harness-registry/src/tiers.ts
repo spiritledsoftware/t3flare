@@ -116,9 +116,11 @@ const verdictOf = (parts: ReadonlyArray<Part>, needsPage?: NeedsPage): TierVerdi
 const offRank = (schema: EnvironmentFieldSchema | undefined, value: unknown): unknown =>
   schema !== undefined && isOff(schema, value) ? Number.POSITIVE_INFINITY : value;
 
-/** A value as a reason shows it: an `off` setting's 0 as "off". */
+/** A value as a reason shows it: an `off` setting's 0 as its off word (`offLabel`: "never", "no budget"), else "off". */
 const shownValue = (schema: EnvironmentFieldSchema | undefined, value: unknown): string =>
-  schema !== undefined && isOff(schema, value) ? "off" : JSON.stringify(value);
+  schema !== undefined && isOff(schema, value)
+    ? ((schema.type === "integer" ? schema.offLabel : undefined) ?? "off")
+    : JSON.stringify(value);
 
 /**
  * One setting's move from `rawBefore` to `rawAfter` under its tier rule; `schema`, its own, ranks an `off` setting's 0

@@ -945,7 +945,7 @@ each guards only t3flare's own machinery, or bounds memory in a 128 MB isolate, 
   port's (3 s) are one stop grace, `STOP_GRACE_SECONDS` (3 s), which also defaults the Harness's
   `termctrl.stopGraceSeconds`.
 - **Derived:** the CLI agents' processes per Workspace are the Container size's memory past 1 GiB over the largest
-  measured CLI turn (450 MB): 4 on `cpu-1`, 16 on `standard-3`. The Workspace computes it from the size its last start
+  measured CLI turn, rounded up to 440 MiB (about 461 MB): 4 on `cpu-1`, 16 on `standard-3`. The Workspace computes it from the size its last start
   kept; the Environment carries no count.
 - **Removed:** `cliRetries` (Codex, Claude Code and pi retry as their own defaults do: more retries, each a request the
   endpoint may bill); the Builder's size (the Builder runs at the Container size, so the custom size's fields follow the
